@@ -1,0 +1,36 @@
+@import "tailwindcss";
+
+/* Scrollbar ottimizzata per touch e desktop */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+body { -webkit-tap-highlight-color: transparent; user-select: none; overscroll-behavior-y: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* =======================================================
+   SISTEMA DI TEMING SICURO E ROBUSTO
+   Le variabili css vengono bindate nel div#app da Vue
+   ======================================================= */
+.theme-bg { background-color: var(--brand-primary, #00846c) !important; }
+.theme-bg-hover:hover { background-color: var(--brand-dark, #0c7262) !important; }
+.theme-text { color: var(--brand-primary, #00846c) !important; }
+.theme-border { border-color: var(--brand-primary, #00846c) !important; }
+.theme-ring:focus { box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-primary) 30%, transparent) !important; outline: none !important; border-color: transparent !important;}
+.theme-accent { accent-color: var(--brand-primary, #00846c) !important; }
+
+.theme-btn-outline {
+    color: var(--brand-primary);
+    border: 2px solid color-mix(in srgb, var(--brand-primary) 40%, transparent);
+    background-color: color-mix(in srgb, var(--brand-primary) 5%, transparent);
+}
+.theme-btn-outline:hover {
+    background-color: color-mix(in srgb, var(--brand-primary) 10%, transparent);
+    border-color: var(--brand-primary);
+}
+
+/* Animazioni base per cambi lista */
+.list-enter-active, .list-leave-active { transition: all 0.3s ease; }
+.list-enter-from, .list-leave-to { opacity: 0; transform: translateX(-15px); }
