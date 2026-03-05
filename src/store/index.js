@@ -80,7 +80,9 @@ export const useAppStore = defineStore('app', () => {
     );
     if (activeOrds.length === 0) {
       delete tableOccupiedAt.value[order.tavolo];
-      tablesContoRichiesto.value.delete(order.tavolo);
+      const nextTablesContoRichiesto = new Set(tablesContoRichiesto.value);
+      nextTablesContoRichiesto.delete(order.tavolo);
+      tablesContoRichiesto.value = nextTablesContoRichiesto;
     }
   }
 
