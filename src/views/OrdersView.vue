@@ -1,7 +1,7 @@
 <template>
   <OrderManager
     ref="orderManagerRef"
-    @jump-to-cassa="handleJumpToCassa"
+    @jump-to-cassa="handleOpenTable"
   />
 </template>
 
@@ -29,8 +29,8 @@ onMounted(async () => {
   }
 });
 
-async function handleJumpToCassa(tavoloLabel) {
-  const table = store.config.tables.find(t => t.label === tavoloLabel);
+async function handleOpenTable(tableLabel) {
+  const table = store.config.tables.find(t => t.label === tableLabel);
   if (table) {
     store.pendingOpenTable = table;
     await router.push('/sala');
