@@ -10,6 +10,7 @@
         <div class="hidden sm:flex items-center gap-3 text-[10px] font-bold uppercase text-gray-500">
           <span class="flex items-center gap-1"><span class="size-3 rounded-full border-2 border-emerald-400 bg-emerald-100"></span> Libero</span>
           <span class="flex items-center gap-1"><span class="size-3 rounded-full border-2 border-amber-400 bg-amber-100"></span> Ordini in Attesa</span>
+          <span class="flex items-center gap-1"><span class="size-3 rounded-full border-2 border-blue-400 bg-blue-100"></span> Conto Richiesto</span>
           <span class="flex items-center gap-1"><span class="size-3 rounded-full theme-bg border-2 border-white shadow-sm"></span> Occupato / In Cassa</span>
         </div>
       </div>
@@ -26,8 +27,12 @@
           <h3 class="text-xl md:text-3xl font-black mt-2">{{ tavolo.label }}</h3>
 
           <div v-if="store.getTableStatus(tavolo.id).status !== 'free'" class="mt-auto text-center w-full">
+            <!-- Elapsed time badge -->
+            <span v-if="getElapsedTime(tavolo.id)" class="absolute bottom-2 left-2 text-[8px] font-bold opacity-70 flex items-center gap-0.5">
+              <Timer class="size-2.5" />{{ getElapsedTime(tavolo.id) }}
+            </span>
             <span class="block text-[8px] md:text-[10px] font-bold uppercase tracking-widest opacity-80 mb-0.5 md:mb-1 truncate">
-              {{ store.getTableStatus(tavolo.id).status === 'pending' ? 'Attesa' : 'In Cassa' }}
+              {{ store.getTableStatus(tavolo.id).status === 'pending' ? 'Attesa' : store.getTableStatus(tavolo.id).status === 'conto_richiesto' ? 'Conto!' : 'In Cassa' }}
             </span>
             <span class="block font-black text-sm md:text-lg bg-white/20 rounded-md md:rounded-lg py-0.5 px-1 truncate">
               {{ store.config.ui.currency }}{{ store.getTableStatus(tavolo.id).remaining.toFixed(2) }}
@@ -56,6 +61,26 @@
           </div>
         </div>
         <div class="flex items-center gap-1 md:gap-3">
+          <!-- Conto Richiesto button -->
+          <button v-if="tableOrders.some(o => o.status === 'accepted')"
+            @click="toggleContoRichiesto"
+            :class="store.tablesContoRichiesto.has(selectedTable.id) ? 'bg-blue-500 text-white' : 'bg-white/10 hover:bg-white/20 text-white'"
+            class="px-3 py-2 rounded-xl font-bold text-[10px] md:text-xs flex items-center gap-1.5 transition-all active:scale-95 shrink-0"
+            title="Segna Conto Richiesto">
+            <Receipt class="size-4" /> <span class="hidden sm:inline">{{ store.tablesContoRichiesto.has(selectedTable.id) ? 'Conto Richiesto' : 'Richiedi Conto' }}</span>
+          </button>
+          <!-- Sposta button -->
+          <button v-if="tableOrders.length > 0" @click="openSpostaModal"
+            class="bg-white/10 hover:bg-white/20 px-3 py-2 rounded-xl font-bold text-[10px] md:text-xs flex items-center gap-1.5 transition-all active:scale-95 shrink-0"
+            title="Sposta Tavolo">
+            <ArrowRightLeft class="size-4" /> <span class="hidden sm:inline">Sposta</span>
+          </button>
+          <!-- Unisci button -->
+          <button v-if="tableOrders.length > 0" @click="openUnisciModal"
+            class="bg-white/10 hover:bg-white/20 px-3 py-2 rounded-xl font-bold text-[10px] md:text-xs flex items-center gap-1.5 transition-all active:scale-95 shrink-0"
+            title="Unisci con altro Tavolo">
+            <Merge class="size-4" /> <span class="hidden sm:inline">Unisci</span>
+          </button>
           <button @click="closeTableModal" class="bg-white/10 hover:bg-white/20 p-2 md:p-2.5 rounded-full transition-colors active:scale-95"><X class="size-5 md:size-6" /></button>
         </div>
       </div>
@@ -108,11 +133,23 @@
                           <span v-if="(riga.quantita_stornata || 0) > 0" class="text-[8px] md:text-[9px] text-red-500 font-bold uppercase tracking-widest border border-red-200 bg-red-50 px-1 rounded shrink-0">-{{riga.quantita_stornata}} Storn.</span>
                         </div>
                         <div v-if="riga.note && riga.note.length > 0" class="text-[9px] text-amber-600 font-bold italic truncate">{{ riga.note.join(', ') }}</div>
+                        <!-- Modificatori -->
+                        <div v-if="riga.modificatori && riga.modificatori.length > 0" class="flex flex-wrap gap-0.5 mt-0.5">
+                          <span v-for="(mod, mi) in riga.modificatori" :key="mi"
+                            class="text-[8px] font-bold bg-purple-50 border border-purple-200 text-purple-700 px-1 rounded">
+                            {{ mod.nome }}{{ mod.prezzo > 0 ? ' +€'+mod.prezzo.toFixed(2) : '' }}
+                          </span>
+                        </div>
+                        <!-- Uscita -->
+                        <span v-if="riga.uscita && riga.uscita !== 'insieme'" class="text-[8px] font-bold uppercase px-1 py-0.5 rounded border mt-0.5 inline-block"
+                          :class="riga.uscita === 'prima' ? 'bg-orange-50 border-orange-200 text-orange-700' : 'bg-teal-50 border-teal-200 text-teal-700'">
+                          {{ riga.uscita === 'prima' ? 'Esce prima' : 'Esce dopo' }}
+                        </span>
                       </div>
                     </div>
                     <div class="flex items-center gap-2 shrink-0">
                       <span class="font-black text-[13px] md:text-sm" :class="riga.quantita_stornata === riga.quantita ? 'text-gray-400 line-through' : 'text-gray-800'">
-                        {{ store.config.ui.currency }}{{(riga.prezzo_unitario * (riga.quantita - (riga.quantita_stornata || 0))).toFixed(2)}}
+                        {{ store.config.ui.currency }}{{(cassaRigaUnitPrice(riga) * (riga.quantita - (riga.quantita_stornata || 0))).toFixed(2)}}
                       </span>
                       <div v-if="ord.status === 'accepted'" class="flex items-center gap-1 ml-1">
                         <button @click="store.cassaStornaVoci(ord, idx, 1)" :disabled="riga.quantita - (riga.quantita_stornata || 0) <= 0" class="p-1.5 bg-white border border-orange-200 text-orange-500 hover:bg-orange-50 rounded shadow-sm transition-colors active:scale-95 disabled:opacity-30" title="Storna dal conto">
@@ -298,15 +335,25 @@
               <MousePointerClick class="size-8 opacity-30 mb-2" />
               <p class="text-xs font-medium">Tocca i piatti nel menu per prepararli qui, poi inseriscili.</p>
             </div>
-            <div v-for="(cartItem, idx) in tempCart" :key="'cart_'+idx" class="bg-white p-2.5 rounded-lg border border-gray-200 shadow-sm flex items-center justify-between">
-              <div class="flex flex-col flex-1 min-w-0 pr-2">
-                <span class="font-bold text-sm text-gray-800 truncate">{{ cartItem.nome }}</span>
-                <span class="text-[10px] text-gray-500">{{ store.config.ui.currency }}{{ cartItem.prezzo_unitario.toFixed(2) }}</span>
+            <div v-for="(cartItem, idx) in tempCart" :key="'cart_'+idx" class="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
+              <div class="p-2.5 flex items-center justify-between">
+                <div class="flex flex-col flex-1 min-w-0 pr-2">
+                  <span class="font-bold text-sm text-gray-800 truncate">{{ cartItem.nome }}</span>
+                  <span class="text-[10px] text-gray-500">{{ store.config.ui.currency }}{{ (cartItem.prezzo_unitario + (cartItem.modificatori || []).reduce((a,m) => a+m.prezzo,0)).toFixed(2) }} cad.</span>
+                </div>
+                <div class="flex items-center gap-1 bg-gray-100 rounded p-0.5 shrink-0 border border-gray-200">
+                  <button @click="updateTempCartQty(idx, -1)" class="size-6 flex items-center justify-center bg-white text-gray-600 rounded shadow-sm active:scale-95"><Minus class="size-3" /></button>
+                  <span class="w-5 text-center font-black text-sm">{{ cartItem.quantita }}</span>
+                  <button @click="updateTempCartQty(idx, 1)" class="size-6 flex items-center justify-center bg-white theme-text rounded shadow-sm active:scale-95"><Plus class="size-3" /></button>
+                </div>
               </div>
-              <div class="flex items-center gap-1 bg-gray-100 rounded p-0.5 shrink-0 border border-gray-200">
-                <button @click="updateTempCartQty(idx, -1)" class="size-6 flex items-center justify-center bg-white text-gray-600 rounded shadow-sm active:scale-95"><Minus class="size-3" /></button>
-                <span class="w-5 text-center font-black text-sm">{{ cartItem.quantita }}</span>
-                <button @click="updateTempCartQty(idx, 1)" class="size-6 flex items-center justify-center bg-white theme-text rounded shadow-sm active:scale-95"><Plus class="size-3" /></button>
+              <!-- Uscita selector -->
+              <div class="px-2.5 pb-2 flex gap-1">
+                <button v-for="opt in uscitaOptions" :key="opt.value" @click="cartItem.uscita = opt.value"
+                  :class="cartItem.uscita === opt.value ? opt.activeClass : 'bg-gray-50 border-gray-200 text-gray-500'"
+                  class="flex-1 text-[9px] font-bold py-1 rounded border transition-all active:scale-95">
+                  {{ opt.label }}
+                </button>
               </div>
             </div>
           </div>
@@ -323,14 +370,57 @@
       </div>
     </div>
   </div>
+
+  <!-- ================================================================ -->
+  <!-- MODAL: SPOSTA TAVOLO                                              -->
+  <!-- ================================================================ -->
+  <div v-if="showSpostaModal" class="fixed inset-0 z-[100] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-5">
+      <div class="flex justify-between items-center mb-4">
+        <h3 class="font-bold text-gray-800 flex items-center gap-2"><ArrowRightLeft class="size-5 theme-text" /> Sposta Tavolo {{ selectedTable?.label }}</h3>
+        <button @click="showSpostaModal = false" class="text-gray-400 hover:text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-full p-1.5 transition-colors"><X class="size-4" /></button>
+      </div>
+      <p class="text-xs text-gray-500 mb-4">Seleziona il tavolo di destinazione libero. Tutti gli ordini verranno spostati.</p>
+      <div class="grid grid-cols-4 gap-2 max-h-64 overflow-y-auto">
+        <button v-for="tavolo in freeTables" :key="'sp_'+tavolo.id"
+          @click="confirmSposta(tavolo)"
+          class="aspect-square rounded-xl border-2 border-emerald-200 bg-emerald-50 text-emerald-800 font-black text-lg flex items-center justify-center hover:bg-emerald-100 active:scale-95 transition-all">
+          {{ tavolo.label }}
+        </button>
+      </div>
+      <div v-if="freeTables.length === 0" class="text-center text-gray-400 text-sm py-4">Nessun tavolo libero disponibile.</div>
+    </div>
+  </div>
+
+  <!-- ================================================================ -->
+  <!-- MODAL: UNISCI TAVOLI                                              -->
+  <!-- ================================================================ -->
+  <div v-if="showUnisciModal" class="fixed inset-0 z-[100] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-5">
+      <div class="flex justify-between items-center mb-4">
+        <h3 class="font-bold text-gray-800 flex items-center gap-2"><Merge class="size-5 theme-text" /> Unisci con Tavolo {{ selectedTable?.label }}</h3>
+        <button @click="showUnisciModal = false" class="text-gray-400 hover:text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-full p-1.5 transition-colors"><X class="size-4" /></button>
+      </div>
+      <p class="text-xs text-gray-500 mb-4">Seleziona il tavolo con cui fondere gli ordini. I suoi ordini e i coperti verranno uniti con questo tavolo.</p>
+      <div class="grid grid-cols-4 gap-2 max-h-64 overflow-y-auto">
+        <button v-for="tavolo in occupiedTables" :key="'un_'+tavolo.id"
+          @click="confirmUnisci(tavolo)"
+          class="aspect-square rounded-xl border-2 border-[var(--brand-primary)] theme-bg text-white font-black text-lg flex items-center justify-center hover:opacity-90 active:scale-95 transition-all">
+          {{ tavolo.label }}
+        </button>
+      </div>
+      <div v-if="occupiedTables.length === 0" class="text-center text-gray-400 text-sm py-4">Nessun altro tavolo occupato disponibile.</div>
+    </div>
+  </div>
 </template>
 
 <script setup>
-import { ref, computed } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
 import {
   Grid3x3, Users, X, Plus, Coffee, Edit, AlertTriangle, CheckCircle,
   Ban, Undo2, Code, Minus, BookOpen, ChevronRight, ShoppingCart, MousePointerClick,
+  Receipt, ArrowRightLeft, Merge, Timer,
 } from 'lucide-vue-next';
 import { Banknote, CreditCard } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
@@ -344,6 +434,63 @@ const router = useRouter();
 // ── Table modal state ──────────────────────────────────────────────────────
 const showTableModal = ref(false);
 const selectedTable = ref(null);
+
+// ── Sposta / Unisci modal state ────────────────────────────────────────────
+const showSpostaModal = ref(false);
+const showUnisciModal = ref(false);
+
+const freeTables = computed(() =>
+  store.config.tables.filter(
+    t => t.id !== selectedTable.value?.id && store.getTableStatus(t.id).status === 'free',
+  ),
+);
+
+const occupiedTables = computed(() =>
+  store.config.tables.filter(
+    t => t.id !== selectedTable.value?.id && store.getTableStatus(t.id).status !== 'free',
+  ),
+);
+
+function openSpostaModal() { showSpostaModal.value = true; }
+function openUnisciModal() { showUnisciModal.value = true; }
+
+function confirmSposta(targetTable) {
+  if (!selectedTable.value) return;
+  store.moveTableOrders(selectedTable.value.id, targetTable.id);
+  showSpostaModal.value = false;
+  // Update selectedTable to the new one
+  selectedTable.value = targetTable;
+}
+
+function confirmUnisci(sourceTable) {
+  if (!selectedTable.value) return;
+  store.mergeTableOrders(sourceTable.id, selectedTable.value.id);
+  showUnisciModal.value = false;
+}
+
+// ── Conto Richiesto ────────────────────────────────────────────────────────
+function toggleContoRichiesto() {
+  if (!selectedTable.value) return;
+  const isSet = store.tablesContoRichiesto.has(selectedTable.value.id);
+  store.setContoRichiesto(selectedTable.value.id, !isSet);
+}
+
+// ── Elapsed time timer ─────────────────────────────────────────────────────
+const now = ref(Date.now());
+let clockTimer = null;
+onMounted(() => { clockTimer = setInterval(() => { now.value = Date.now(); }, 30000); });
+onUnmounted(() => { if (clockTimer) clearInterval(clockTimer); });
+
+function getElapsedTime(tavoloId) {
+  const ts = store.tableOccupiedAt[tavoloId];
+  if (!ts) return null;
+  const diffMs = now.value - new Date(ts).getTime();
+  const totalMin = Math.floor(diffMs / 60000);
+  if (totalMin < 1) return null;
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
 
 // ── Checkout state ─────────────────────────────────────────────────────────
 const checkoutMode = ref('unico');
@@ -425,6 +572,12 @@ function getPaymentIcon(methodIdOrLabel) {
   return m.icon === 'credit-card' ? CreditCard : Banknote;
 }
 
+// ── Helper: prezzo unitario riga inclusi modificatori ─────────────────────
+function cassaRigaUnitPrice(riga) {
+  const modTotal = (riga.modificatori || []).reduce((a, m) => a + (m.prezzo || 0), 0);
+  return riga.prezzo_unitario + modTotal;
+}
+
 // ── Table actions ──────────────────────────────────────────────────────────
 function openTableDetails(tavolo) {
   selectedTable.value = tavolo;
@@ -452,7 +605,7 @@ function closeTableModal() {
 function createNewOrderForTable() {
   if (!selectedTable.value) return;
   const newOrd = {
-    id: 'ord_' + Math.random().toString(36).substr(2, 9),
+    id: 'ord_' + Math.random().toString(36).slice(2, 11),
     tavolo: selectedTable.value.id,
     status: 'pending',
     time: new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }),
@@ -468,7 +621,7 @@ function processTablePayment(paymentMethodId) {
 
   const amount = amountBeingPaid.value;
   const payload = {
-    id_transazione: 'txn_' + Math.random().toString(36).substr(2, 9),
+    id_transazione: 'txn_' + Math.random().toString(36).slice(2, 11),
     tavolo_id: selectedTable.value.id,
     metodo_pagamento: store.config.paymentMethods.find(m => m.id === paymentMethodId)?.label || paymentMethodId,
     tipo_operazione: checkoutMode.value,
@@ -540,8 +693,18 @@ const targetOrderForMenu = ref(null);
 const tempCart = ref([]);
 const activeMenuCategory = ref(Object.keys(store.config.menu)[0]);
 
+// ── Uscita options ─────────────────────────────────────────────────────────
+const uscitaOptions = [
+  { value: 'prima', label: 'Esce prima', activeClass: 'bg-orange-100 border-orange-400 text-orange-800' },
+  { value: 'insieme', label: 'Insieme', activeClass: 'theme-bg text-white border-transparent' },
+  { value: 'dopo', label: 'Esce dopo', activeClass: 'bg-teal-100 border-teal-400 text-teal-800' },
+];
+
 const tempCartTotal = computed(() =>
-  tempCart.value.reduce((a, b) => a + b.prezzo_unitario * b.quantita, 0),
+  tempCart.value.reduce((a, b) => {
+    const modTotal = (b.modificatori || []).reduce((ma, m) => ma + (m.prezzo || 0), 0);
+    return a + (b.prezzo_unitario + modTotal) * b.quantita;
+  }, 0),
 );
 
 function getQtyCombined(itemId) {
@@ -557,9 +720,9 @@ function getQtyCombined(itemId) {
 }
 
 function addToTempCart(item) {
-  const existing = tempCart.value.find(r => r.id_piatto === item.id);
+  const existing = tempCart.value.find(r => r.id_piatto === item.id && (!r.modificatori || r.modificatori.length === 0));
   if (existing) existing.quantita++;
-  else tempCart.value.push({ uid: 'tmp_' + Math.random().toString(36).substr(2, 9), id_piatto: item.id, nome: item.nome, prezzo_unitario: item.prezzo, quantita: 1, note: [], quantita_stornata: 0 });
+  else tempCart.value.push({ uid: 'tmp_' + Math.random().toString(36).slice(2, 11), id_piatto: item.id, nome: item.nome, prezzo_unitario: item.prezzo, quantita: 1, note: [], quantita_stornata: 0, modificatori: [], uscita: 'insieme' });
 }
 
 function updateTempCartQty(idx, delta) {
@@ -585,14 +748,16 @@ function confirmAndPushCart() {
   const ordRef = targetOrderForMenu.value;
 
   tempCart.value.forEach(cartItem => {
-    const existing = ordRef.righe_ordine.find(
-      r => r.id_piatto === cartItem.id_piatto && (!r.note || r.note.length === 0),
-    );
-    if (existing) existing.quantita += cartItem.quantita;
-    else {
-      cartItem.uid = 'r_new_' + Math.random().toString(36).substr(2, 9);
-      ordRef.righe_ordine.push(cartItem);
+    const hasModifiers = cartItem.modificatori && cartItem.modificatori.length > 0;
+    const hasUscita = cartItem.uscita && cartItem.uscita !== 'insieme';
+    if (!hasModifiers && !hasUscita) {
+      const existing = ordRef.righe_ordine.find(
+        r => r.id_piatto === cartItem.id_piatto && (!r.note || r.note.length === 0) && (!r.modificatori || r.modificatori.length === 0),
+      );
+      if (existing) { existing.quantita += cartItem.quantita; return; }
     }
+    cartItem.uid = 'r_new_' + Math.random().toString(36).slice(2, 11);
+    ordRef.righe_ordine.push(cartItem);
   });
   updateOrderTotals(ordRef);
   closeMenuModal();

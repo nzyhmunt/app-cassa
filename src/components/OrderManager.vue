@@ -152,6 +152,21 @@
                       <div v-if="riga.note && riga.note.length > 0" class="text-[10px] md:text-xs text-amber-600 font-bold italic mt-0.5 truncate flex items-center gap-1">
                         <MessageSquareWarning class="size-3 shrink-0" /> Note: {{ riga.note.join(', ') }}
                       </div>
+                      <!-- Modificatori varianti -->
+                      <div v-if="riga.modificatori && riga.modificatori.length > 0" class="mt-0.5 flex flex-wrap gap-1">
+                        <span v-for="(mod, mi) in riga.modificatori" :key="mi"
+                          class="text-[9px] md:text-[10px] font-bold bg-purple-50 border border-purple-200 text-purple-700 px-1.5 py-0.5 rounded flex items-center gap-0.5">
+                          <Sparkles class="size-2.5" />
+                          {{ mod.nome }}{{ mod.prezzo > 0 ? ' +€' + mod.prezzo.toFixed(2) : '' }}
+                        </span>
+                      </div>
+                      <!-- Uscita badge -->
+                      <div v-if="riga.uscita && riga.uscita !== 'insieme'" class="mt-0.5">
+                        <span class="text-[9px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded border"
+                          :class="riga.uscita === 'prima' ? 'bg-orange-50 border-orange-200 text-orange-700' : 'bg-teal-50 border-teal-200 text-teal-700'">
+                          <Layers class="size-2.5 inline mr-0.5" />{{ riga.uscita === 'prima' ? 'Esce prima' : 'Esce dopo' }}
+                        </span>
+                      </div>
                     </div>
                   </div>
 
@@ -159,9 +174,9 @@
                   <div class="flex items-center gap-2 md:gap-4 shrink-0">
                     <div class="flex flex-col items-end">
                       <span class="font-black text-sm md:text-base text-gray-800" :class="{'line-through text-gray-400': riga.quantita_stornata === riga.quantita}">
-                        {{ store.config.ui.currency }}{{ (riga.prezzo_unitario * (riga.quantita - (riga.quantita_stornata || 0))).toFixed(2) }}
+                        {{ store.config.ui.currency }}{{ (rigaUnitPrice(riga) * (riga.quantita - (riga.quantita_stornata || 0))).toFixed(2) }}
                       </span>
-                      <span v-if="selectedOrder.status === 'pending'" class="text-[9px] text-gray-400">{{ store.config.ui.currency }}{{ riga.prezzo_unitario.toFixed(2) }} cad.</span>
+                      <span v-if="selectedOrder.status === 'pending'" class="text-[9px] text-gray-400">{{ store.config.ui.currency }}{{ rigaUnitPrice(riga).toFixed(2) }} cad.</span>
                     </div>
                     <div v-if="selectedOrder.status === 'pending'" class="flex items-center gap-1 ml-1">
                       <button @click="openNoteModal(selectedOrder, index)" class="p-1.5 md:p-2 text-gray-500 hover:text-[var(--brand-primary)] bg-gray-50 border border-gray-200 hover:bg-gray-100 rounded-md transition-colors active:scale-95 shadow-sm" title="Modifica Note">
@@ -297,15 +312,38 @@
               <MousePointerClick class="size-8 opacity-30 mb-2" />
               <p class="text-xs font-medium">Tocca i piatti nel menu per prepararli qui, poi inseriscili.</p>
             </div>
-            <div v-for="(cartItem, idx) in tempCart" :key="'cart_'+idx" class="bg-white p-2.5 rounded-lg border border-gray-200 shadow-sm flex items-center justify-between">
-              <div class="flex flex-col flex-1 min-w-0 pr-2">
-                <span class="font-bold text-sm text-gray-800 truncate">{{ cartItem.nome }}</span>
-                <span class="text-[10px] text-gray-500">{{ store.config.ui.currency }}{{ cartItem.prezzo_unitario.toFixed(2) }}</span>
+            <div v-for="(cartItem, idx) in tempCart" :key="'cart_'+idx" class="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
+              <div class="p-2.5 flex items-center justify-between">
+                <div class="flex flex-col flex-1 min-w-0 pr-2">
+                  <span class="font-bold text-sm text-gray-800 truncate">{{ cartItem.nome }}</span>
+                  <span class="text-[10px] text-gray-500">{{ store.config.ui.currency }}{{ (cartItem.prezzo_unitario + (cartItem.modificatori || []).reduce((a,m) => a+m.prezzo,0)).toFixed(2) }} cad.</span>
+                </div>
+                <div class="flex items-center gap-1 bg-gray-100 rounded p-0.5 shrink-0 border border-gray-200">
+                  <button @click="updateTempCartQty(idx, -1)" class="size-6 flex items-center justify-center bg-white text-gray-600 rounded shadow-sm active:scale-95"><Minus class="size-3" /></button>
+                  <span class="w-5 text-center font-black text-sm">{{ cartItem.quantita }}</span>
+                  <button @click="updateTempCartQty(idx, 1)" class="size-6 flex items-center justify-center bg-white theme-text rounded shadow-sm active:scale-95"><Plus class="size-3" /></button>
+                </div>
               </div>
-              <div class="flex items-center gap-1 bg-gray-100 rounded p-0.5 shrink-0 border border-gray-200">
-                <button @click="updateTempCartQty(idx, -1)" class="size-6 flex items-center justify-center bg-white text-gray-600 rounded shadow-sm active:scale-95"><Minus class="size-3" /></button>
-                <span class="w-5 text-center font-black text-sm">{{ cartItem.quantita }}</span>
-                <button @click="updateTempCartQty(idx, 1)" class="size-6 flex items-center justify-center bg-white theme-text rounded shadow-sm active:scale-95"><Plus class="size-3" /></button>
+              <!-- Uscita selector -->
+              <div class="px-2.5 pb-2 flex gap-1">
+                <button v-for="opt in uscitaOptions" :key="opt.value" @click="cartItem.uscita = opt.value"
+                  :class="cartItem.uscita === opt.value ? opt.activeClass : 'bg-gray-50 border-gray-200 text-gray-500'"
+                  class="flex-1 text-[9px] font-bold py-1 rounded border transition-all active:scale-95">
+                  {{ opt.label }}
+                </button>
+              </div>
+              <!-- Modificatori -->
+              <div class="px-2.5 pb-2">
+                <div v-if="cartItem.modificatori && cartItem.modificatori.length > 0" class="flex flex-wrap gap-1 mb-1">
+                  <span v-for="(mod, mi) in cartItem.modificatori" :key="mi"
+                    class="text-[9px] font-bold bg-purple-50 border border-purple-200 text-purple-700 px-1.5 py-0.5 rounded flex items-center gap-1">
+                    {{ mod.nome }}{{ mod.prezzo > 0 ? ' +€'+mod.prezzo.toFixed(2) : '' }}
+                    <button @click="removeModFromCart(idx, mi)" class="text-purple-400 hover:text-red-500 transition-colors"><X class="size-2.5" /></button>
+                  </span>
+                </div>
+                <button @click="openModModal(idx)" class="text-[9px] font-bold text-purple-600 hover:text-purple-800 flex items-center gap-0.5 transition-colors">
+                  <Sparkles class="size-3" /> Aggiungi variante
+                </button>
               </div>
             </div>
           </div>
@@ -324,6 +362,39 @@
       </div>
     </div>
   </div>
+
+  <!-- ================================================================ -->
+  <!-- MODAL: VARIANTI/MODIFICATORI                                      -->
+  <!-- ================================================================ -->
+  <div v-if="modModal.show" class="fixed inset-0 z-[95] bg-black/60 backdrop-blur-sm flex items-end md:items-center justify-center p-0 md:p-4">
+    <div class="bg-white rounded-t-3xl md:rounded-3xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col">
+      <div class="bg-gray-50 border-b border-gray-100 p-4 flex justify-between items-center">
+        <h3 class="font-bold text-base flex items-center gap-2"><Sparkles class="text-purple-500 size-5" /> Variante / Modificatore</h3>
+        <button @click="modModal.show = false" class="text-gray-400 hover:text-gray-800 p-1.5 bg-gray-200 hover:bg-gray-300 rounded-full active:scale-95 transition-colors"><X class="size-5" /></button>
+      </div>
+      <div class="p-4 md:p-5">
+        <p class="text-xs text-gray-500 mb-3">Aggiungi una variante a pagamento all'articolo in carrello.</p>
+        <div class="flex gap-2 mb-3">
+          <input v-model="modModal.nome" type="text" placeholder="Es. Mozzarella, Senza glutine..." class="flex-1 px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:border-[var(--brand-primary)] focus:outline-none" />
+          <div class="relative w-24 shrink-0">
+            <span class="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-sm font-bold">€</span>
+            <input v-model.number="modModal.prezzo" type="number" min="0" step="0.50" placeholder="0.00" class="w-full pl-6 pr-2 py-2.5 border border-gray-200 rounded-xl text-sm focus:border-[var(--brand-primary)] focus:outline-none" />
+          </div>
+        </div>
+        <!-- Quick presets -->
+        <div class="flex flex-wrap gap-1.5 mb-4">
+          <button @click="applyModPreset('Mozzarella', 1.50)" class="px-2.5 py-1.5 bg-purple-50 border border-purple-200 text-purple-700 rounded-lg text-[10px] font-bold hover:bg-purple-100 active:scale-95 transition-all">+ Mozzarella €1.50</button>
+          <button @click="applyModPreset('Parmigiano', 1.00)" class="px-2.5 py-1.5 bg-purple-50 border border-purple-200 text-purple-700 rounded-lg text-[10px] font-bold hover:bg-purple-100 active:scale-95 transition-all">+ Parmigiano €1.00</button>
+          <button @click="applyModPreset('Senza glutine', 0)" class="px-2.5 py-1.5 bg-purple-50 border border-purple-200 text-purple-700 rounded-lg text-[10px] font-bold hover:bg-purple-100 active:scale-95 transition-all">Senza glutine €0</button>
+          <button @click="applyModPreset('Porzione extra', 2.00)" class="px-2.5 py-1.5 bg-purple-50 border border-purple-200 text-purple-700 rounded-lg text-[10px] font-bold hover:bg-purple-100 active:scale-95 transition-all">+ Porzione extra €2.00</button>
+        </div>
+        <button @click="saveModModal"
+          class="w-full theme-bg text-white py-3 rounded-xl font-bold shadow-md hover:opacity-90 transition-opacity active:scale-95 text-sm flex items-center justify-center gap-2">
+          <Plus class="size-5" /> Aggiungi Variante
+        </button>
+      </div>
+    </div>
+  </div>
 </template>
 
 <script setup>
@@ -332,7 +403,7 @@ import {
   Bell, ChefHat, History, ClipboardList, Clock, AlertCircle, CheckCircle2, XCircle,
   MousePointerClick, ArrowLeft, Hash, AlertTriangle, Calculator, Trash2, Printer,
   CheckCircle, ShieldCheck, Minus, Plus, MessageSquareWarning, PenLine, PlusCircle,
-  X, BookOpen, ChevronRight, ShoppingCart,
+  X, BookOpen, ChevronRight, ShoppingCart, Sparkles, Layers,
 } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
 import { updateOrderTotals } from '../utils/index.js';
@@ -360,6 +431,12 @@ function changeTab(tab) {
 
 function selectOrder(ord) {
   selectedOrder.value = ord;
+}
+
+// ── Helper: calcola prezzo unitario di una riga inclusi i modificatori ──────
+function rigaUnitPrice(riga) {
+  const modTotal = (riga.modificatori || []).reduce((a, m) => a + (m.prezzo || 0), 0);
+  return riga.prezzo_unitario + modTotal;
 }
 
 // ── Note modal ─────────────────────────────────────────────────────────────
@@ -406,8 +483,47 @@ const targetOrderForMenu = ref(null);
 const tempCart = ref([]);
 const activeMenuCategory = ref(Object.keys(store.config.menu)[0]);
 
+// ── Uscita options ─────────────────────────────────────────────────────────
+const uscitaOptions = [
+  { value: 'prima', label: 'Esce prima', activeClass: 'bg-orange-100 border-orange-400 text-orange-800' },
+  { value: 'insieme', label: 'Insieme', activeClass: 'theme-bg text-white border-transparent' },
+  { value: 'dopo', label: 'Esce dopo', activeClass: 'bg-teal-100 border-teal-400 text-teal-800' },
+];
+
+// ── Modificatori modal ─────────────────────────────────────────────────────
+const modModal = ref({ show: false, cartIdx: null, nome: '', prezzo: 0 });
+
+function openModModal(idx) {
+  modModal.value = { show: true, cartIdx: idx, nome: '', prezzo: 0 };
+}
+
+function applyModPreset(nome, prezzo) {
+  modModal.value.nome = nome;
+  modModal.value.prezzo = prezzo;
+}
+
+function saveModModal() {
+  const nome = modModal.value.nome.trim();
+  if (!nome) return;
+  const cartItem = tempCart.value[modModal.value.cartIdx];
+  if (!cartItem) return;
+  if (!cartItem.modificatori) cartItem.modificatori = [];
+  cartItem.modificatori.push({ nome, prezzo: modModal.value.prezzo || 0 });
+  modModal.value.show = false;
+}
+
+function removeModFromCart(cartIdx, modIdx) {
+  const cartItem = tempCart.value[cartIdx];
+  if (cartItem && cartItem.modificatori) {
+    cartItem.modificatori.splice(modIdx, 1);
+  }
+}
+
 const tempCartTotal = computed(() =>
-  tempCart.value.reduce((a, b) => a + b.prezzo_unitario * b.quantita, 0),
+  tempCart.value.reduce((a, b) => {
+    const modTotal = (b.modificatori || []).reduce((ma, m) => ma + (m.prezzo || 0), 0);
+    return a + (b.prezzo_unitario + modTotal) * b.quantita;
+  }, 0),
 );
 
 function getQtyCombined(itemId) {
@@ -423,9 +539,9 @@ function getQtyCombined(itemId) {
 }
 
 function addToTempCart(item) {
-  const existing = tempCart.value.find(r => r.id_piatto === item.id);
+  const existing = tempCart.value.find(r => r.id_piatto === item.id && (!r.modificatori || r.modificatori.length === 0));
   if (existing) existing.quantita++;
-  else tempCart.value.push({ uid: 'tmp_' + Math.random().toString(36).substr(2, 9), id_piatto: item.id, nome: item.nome, prezzo_unitario: item.prezzo, quantita: 1, note: [], quantita_stornata: 0 });
+  else tempCart.value.push({ uid: 'tmp_' + Math.random().toString(36).slice(2, 11), id_piatto: item.id, nome: item.nome, prezzo_unitario: item.prezzo, quantita: 1, note: [], quantita_stornata: 0, modificatori: [], uscita: 'insieme' });
 }
 
 function updateTempCartQty(idx, delta) {
@@ -449,14 +565,17 @@ function confirmAndPushCart() {
   if (!targetOrderForMenu.value || tempCart.value.length === 0) return;
   const ordRef = targetOrderForMenu.value;
   tempCart.value.forEach(cartItem => {
-    const existing = ordRef.righe_ordine.find(
-      r => r.id_piatto === cartItem.id_piatto && (!r.note || r.note.length === 0),
-    );
-    if (existing) existing.quantita += cartItem.quantita;
-    else {
-      cartItem.uid = 'r_new_' + Math.random().toString(36).substr(2, 9);
-      ordRef.righe_ordine.push(cartItem);
+    // Only merge if no modifiers and no uscita variation
+    const hasModifiers = cartItem.modificatori && cartItem.modificatori.length > 0;
+    const hasUscita = cartItem.uscita && cartItem.uscita !== 'insieme';
+    if (!hasModifiers && !hasUscita) {
+      const existing = ordRef.righe_ordine.find(
+        r => r.id_piatto === cartItem.id_piatto && (!r.note || r.note.length === 0) && (!r.modificatori || r.modificatori.length === 0),
+      );
+      if (existing) { existing.quantita += cartItem.quantita; return; }
     }
+    cartItem.uid = 'r_new_' + Math.random().toString(36).slice(2, 11);
+    ordRef.righe_ordine.push(cartItem);
   });
   updateOrderTotals(ordRef);
   closeMenuModal();
