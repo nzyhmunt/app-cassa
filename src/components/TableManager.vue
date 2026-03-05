@@ -371,7 +371,7 @@ const tableAcceptedPayableOrders = computed(() =>
 const tableTotalAmount = computed(() => {
   if (!selectedTable.value) return 0;
   return store.orders
-    .filter(o => o.tavolo === selectedTable.value.id && (o.status === 'accepted' || o.status === 'completed'))
+    .filter(o => o.tavolo === selectedTable.value.id && o.status === 'accepted')
     .reduce((acc, o) => acc + o.totale_importo, 0);
 });
 
