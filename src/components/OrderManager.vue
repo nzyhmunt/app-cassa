@@ -316,7 +316,7 @@
               <div class="p-2.5 flex items-center justify-between">
                 <div class="flex flex-col flex-1 min-w-0 pr-2">
                   <span class="font-bold text-sm text-gray-800 truncate">{{ cartItem.nome }}</span>
-                  <span class="text-[10px] text-gray-500">{{ store.config.ui.currency }}{{ (cartItem.prezzo_unitario + (cartItem.modificatori || []).reduce((a,m) => a+m.prezzo,0)).toFixed(2) }} cad.</span>
+                  <span class="text-[10px] text-gray-500">{{ store.config.ui.currency }}{{ (cartItem.prezzo_unitario + (cartItem.modificatori || []).reduce((a, m) => a + (Number(m.prezzo) || 0), 0)).toFixed(2) }} cad.</span>
                 </div>
                 <div class="flex items-center gap-1 bg-gray-100 rounded p-0.5 shrink-0 border border-gray-200">
                   <button @click="updateTempCartQty(idx, -1)" class="size-6 flex items-center justify-center bg-white text-gray-600 rounded shadow-sm active:scale-95"><Minus class="size-3" /></button>
