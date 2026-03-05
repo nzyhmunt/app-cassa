@@ -8,6 +8,17 @@ export const useAppStore = defineStore('app', () => {
   const orders = ref(initialOrders);
   const transactions = ref([]);
 
+  // ── Cassa State ────────────────────────────────────────────────────────────
+  const fondoCassa = ref(0);
+  const movimentiCassa = ref([]); // { id, tipo: 'versamento'|'prelievo', importo, causale, timestamp }
+  const chiusureGiornaliere = ref([]); // stored closure summaries
+
+  // ── Table extra state ──────────────────────────────────────────────────────
+  // Maps tableId -> ISO timestamp of first accepted order
+  const tableOccupiedAt = ref({});
+  // Set of tableIds that have requested the bill (conto_richiesto)
+  const tablesContoRichiesto = ref(new Set());
+
   // ── Computed: CSS variables for theming ────────────────────────────────────
   const cssVars = computed(() => ({
     '--brand-primary': config.value.ui.primaryColor,
@@ -35,6 +46,7 @@ export const useAppStore = defineStore('app', () => {
     const remaining = Math.max(0, total - paid);
 
     if (ords.some(o => o.status === 'pending')) return { status: 'pending', total, remaining };
+    if (tablesContoRichiesto.value.has(tavoloId)) return { status: 'conto_richiesto', total, remaining };
     return { status: 'occupied', total, remaining };
   }
 
@@ -42,6 +54,7 @@ export const useAppStore = defineStore('app', () => {
     const st = getTableStatus(tavoloId).status;
     if (st === 'free') return 'border-emerald-200 text-emerald-800 bg-emerald-50 hover:bg-emerald-100';
     if (st === 'pending') return 'border-amber-400 text-amber-900 bg-amber-50 shadow-[0_0_15px_rgba(251,191,36,0.3)]';
+    if (st === 'conto_richiesto') return 'border-blue-400 text-blue-900 bg-blue-100 shadow-[0_0_15px_rgba(59,130,246,0.3)]';
     return 'border-[var(--brand-primary)] text-white theme-bg shadow-md';
   }
 
@@ -57,6 +70,20 @@ export const useAppStore = defineStore('app', () => {
 
   function changeOrderStatus(order, newStatus) {
     order.status = newStatus;
+    // When first accepted order for a table, record occupiedAt
+    if (newStatus === 'accepted' && !tableOccupiedAt.value[order.tavolo]) {
+      tableOccupiedAt.value[order.tavolo] = new Date().toISOString();
+    }
+    // When all orders for table are closed, clear occupiedAt and conto_richiesto
+    const activeOrds = orders.value.filter(
+      o => o.tavolo === order.tavolo && o.status !== 'completed' && o.status !== 'rejected',
+    );
+    if (activeOrds.length === 0) {
+      delete tableOccupiedAt.value[order.tavolo];
+      const nextTablesContoRichiesto = new Set(tablesContoRichiesto.value);
+      nextTablesContoRichiesto.delete(order.tavolo);
+      tablesContoRichiesto.value = nextTablesContoRichiesto;
+    }
   }
 
   function updateQtyGlobal(ord, idx, delta) {
@@ -95,6 +122,138 @@ export const useAppStore = defineStore('app', () => {
   // ── Mutations: Transactions ────────────────────────────────────────────────
   function addTransaction(txn) {
     transactions.value.push(txn);
+    // Clear conto_richiesto when payment is made
+    if (txn.tavolo_id) setContoRichiesto(txn.tavolo_id, false);
+  }
+
+  // ── Mutations: Table Operations ────────────────────────────────────────────
+  function setContoRichiesto(tavoloId, val) {
+    if (val) tablesContoRichiesto.value.add(tavoloId);
+    else tablesContoRichiesto.value.delete(tavoloId);
+    // Trigger reactivity: replace the Set
+    tablesContoRichiesto.value = new Set(tablesContoRichiesto.value);
+  }
+
+  function moveTableOrders(fromTableId, toTableId) {
+    // Move all active (non-completed/rejected) orders from fromTableId to toTableId
+    orders.value.forEach(o => {
+      if (o.tavolo === fromTableId && o.status !== 'completed' && o.status !== 'rejected') {
+        o.tavolo = toTableId;
+      }
+    });
+    // Move occupiedAt if set
+    if (tableOccupiedAt.value[fromTableId]) {
+      if (!tableOccupiedAt.value[toTableId]) {
+        tableOccupiedAt.value[toTableId] = tableOccupiedAt.value[fromTableId];
+      }
+      delete tableOccupiedAt.value[fromTableId];
+    }
+    // Move conto_richiesto flag
+    if (tablesContoRichiesto.value.has(fromTableId)) {
+      tablesContoRichiesto.value.delete(fromTableId);
+      tablesContoRichiesto.value.add(toTableId);
+      tablesContoRichiesto.value = new Set(tablesContoRichiesto.value);
+    }
+    // Also move related transactions
+    transactions.value.forEach(t => {
+      if (t.tavolo_id === fromTableId) t.tavolo_id = toTableId;
+    });
+  }
+
+  function mergeTableOrders(sourceTableId, targetTableId) {
+    // Move all active orders from sourceTableId to targetTableId
+    orders.value.forEach(o => {
+      if (o.tavolo === sourceTableId && o.status !== 'completed' && o.status !== 'rejected') {
+        o.tavolo = targetTableId;
+      }
+    });
+    // Preserve the earliest occupiedAt
+    if (tableOccupiedAt.value[sourceTableId]) {
+      const srcTime = tableOccupiedAt.value[sourceTableId];
+      const tgtTime = tableOccupiedAt.value[targetTableId];
+      if (!tgtTime || new Date(srcTime) < new Date(tgtTime)) {
+        tableOccupiedAt.value[targetTableId] = srcTime;
+      }
+      delete tableOccupiedAt.value[sourceTableId];
+    }
+    // Clear conto_richiesto on source
+    tablesContoRichiesto.value.delete(sourceTableId);
+    tablesContoRichiesto.value = new Set(tablesContoRichiesto.value);
+    // Move transactions
+    transactions.value.forEach(t => {
+      if (t.tavolo_id === sourceTableId) t.tavolo_id = targetTableId;
+    });
+  }
+
+  // ── Mutations: Cassa ───────────────────────────────────────────────────────
+  function setFondoCassa(importo) {
+    fondoCassa.value = importo;
+  }
+
+  function addMovimentoCassa(tipo, importo, causale) {
+    movimentiCassa.value.push({
+      id: 'mov_' + Math.random().toString(36).slice(2, 11),
+      tipo, // 'versamento' | 'prelievo'
+      importo,
+      causale,
+      timestamp: new Date().toISOString(),
+    });
+  }
+
+  function _buildChiusuraSummary() {
+    // Aggregate transactions by payment method
+    const byMethod = {};
+    transactions.value.forEach(t => {
+      const label = t.metodo_pagamento || 'Altro';
+      if (!byMethod[label]) byMethod[label] = 0;
+      byMethod[label] += t.importo_pagato;
+    });
+    const totaleIncassato = Object.values(byMethod).reduce((a, b) => a + b, 0);
+
+    // Total covers from completed tables
+    const completedTavoli = new Set(
+      transactions.value.map(t => t.tavolo_id).filter(Boolean),
+    );
+    let totaleCoperti = 0;
+    completedTavoli.forEach(tid => {
+      const tavolo = config.value.tables.find(t => t.id === tid);
+      if (tavolo) totaleCoperti += tavolo.coperti || 0;
+    });
+
+    const numScontrini = completedTavoli.size;
+    const scontrino_medio = numScontrini > 0 ? totaleIncassato / numScontrini : 0;
+
+    const totaleMov = movimentiCassa.value.reduce((acc, m) => {
+      return acc + (m.tipo === 'versamento' ? m.importo : -m.importo);
+    }, 0);
+
+    return {
+      timestamp: new Date().toISOString(),
+      fondo_cassa: fondoCassa.value,
+      totale_incassato: totaleIncassato,
+      by_method: byMethod,
+      totale_coperti: totaleCoperti,
+      scontrino_medio,
+      num_scontrini: numScontrini,
+      movimenti_cassa: [...movimentiCassa.value],
+      totale_movimenti: totaleMov,
+      fondo_finale: fondoCassa.value + totaleIncassato + totaleMov,
+    };
+  }
+
+  function chiusuraX() {
+    return _buildChiusuraSummary();
+  }
+
+  function chiusuraZ() {
+    const summary = _buildChiusuraSummary();
+    summary.tipo = 'Z';
+    chiusureGiornaliere.value.push(summary);
+    // Reset daily data
+    transactions.value = [];
+    movimentiCassa.value = [];
+    fondoCassa.value = summary.fondo_finale;
+    return summary;
   }
 
   function simulateNewOrder() {
@@ -123,6 +282,11 @@ export const useAppStore = defineStore('app', () => {
     config,
     orders,
     transactions,
+    fondoCassa,
+    movimentiCassa,
+    chiusureGiornaliere,
+    tableOccupiedAt,
+    tablesContoRichiesto,
     pendingOpenTable,
     pendingSelectOrder,
     // computed
@@ -141,5 +305,14 @@ export const useAppStore = defineStore('app', () => {
     cassaRipristinaVoci,
     addTransaction,
     simulateNewOrder,
+    // table operations
+    setContoRichiesto,
+    moveTableOrders,
+    mergeTableOrders,
+    // cassa operations
+    setFondoCassa,
+    addMovimentoCassa,
+    chiusuraX,
+    chiusuraZ,
   };
 });

@@ -98,6 +98,7 @@ export const initialOrders = [
 
 /**
  * Ricalcola numero_articoli e totale_importo di un ordine in base alle righe.
+ * Include i prezzi dei modificatori (varianti a pagamento).
  * @param {object} ord - Oggetto ordine da aggiornare
  */
 export function updateOrderTotals(ord) {
@@ -108,7 +109,13 @@ export function updateOrderTotals(ord) {
     const stornati = r.quantita_stornata || 0;
     const attivi = r.quantita - stornati;
     count += attivi;
-    total += r.prezzo_unitario * attivi;
+    // Base price
+    let rowPrice = r.prezzo_unitario;
+    // Add modifiers price per unit
+    if (r.modificatori && r.modificatori.length > 0) {
+      rowPrice += r.modificatori.reduce((a, m) => a + (m.prezzo || 0), 0);
+    }
+    total += rowPrice * attivi;
   });
   ord.numero_articoli = count;
   ord.totale_importo = total;

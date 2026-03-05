@@ -40,6 +40,10 @@
       <button @click="onSimulateOrder" class="hidden md:flex bg-white/10 hover:bg-white/20 p-2 md:p-2.5 rounded-full transition-colors text-white" title="Simula Ordine da App">
         <BellPlus class="size-5 md:size-5" />
       </button>
+      <!-- Tasto Cassa Dashboard -->
+      <button @click="$emit('open-cassa')" class="bg-white/10 hover:bg-white/20 p-2 md:p-2.5 rounded-full transition-colors text-white flex items-center justify-center" title="Cruscotto Cassa">
+        <Landmark class="size-5 md:size-5" />
+      </button>
       <!-- Tasto Settings COG -->
       <button @click="$emit('open-settings')" class="relative z-50 bg-black/20 hover:bg-black/30 p-2 md:p-2.5 rounded-full transition-colors shadow-inner text-white flex items-center justify-center cursor-pointer active:scale-95">
         <Settings class="size-5 md:size-5" />
@@ -51,10 +55,10 @@
 <script setup>
 import { ref, onMounted, onUnmounted, computed } from 'vue';
 import { useRoute } from 'vue-router';
-import { Monitor, Receipt, LayoutGrid, BellPlus, Settings } from 'lucide-vue-next';
+import { Monitor, Receipt, LayoutGrid, BellPlus, Settings, Landmark } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
 
-const emit = defineEmits(['open-settings']);
+const emit = defineEmits(['open-settings', 'open-cassa']);
 
 const store = useAppStore();
 const route = useRoute();
