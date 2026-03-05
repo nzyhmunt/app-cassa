@@ -177,7 +177,7 @@
 
               <!-- Bottone Aggiunta Rapida (Solo Pending) -->
               <div v-if="selectedOrder.status === 'pending'" class="p-3 bg-gray-50 border-t border-gray-100">
-                <button @click="$emit('open-add-menu', selectedOrder)" class="theme-btn-outline w-full py-3 md:py-3.5 rounded-xl font-bold flex items-center justify-center gap-2 transition-all active:scale-95 text-xs md:text-sm">
+                <button @click="openAddMenu(selectedOrder)" class="theme-btn-outline w-full py-3 md:py-3.5 rounded-xl font-bold flex items-center justify-center gap-2 transition-all active:scale-95 text-xs md:text-sm">
                   <PlusCircle class="size-5" /> <span>Aggiungi Nuovi Piatti all'Ordine</span>
                 </button>
               </div>
@@ -328,7 +328,6 @@
 
 <script setup>
 import { ref, computed } from 'vue';
-import { useRouter } from 'vue-router';
 import {
   Bell, ChefHat, History, ClipboardList, Clock, AlertCircle, CheckCircle2, XCircle,
   MousePointerClick, ArrowLeft, Hash, AlertTriangle, Calculator, Trash2, Printer,
@@ -338,10 +337,9 @@ import {
 import { useAppStore } from '../store/index.js';
 import { updateOrderTotals } from '../utils/index.js';
 
-const emit = defineEmits(['jump-to-cassa', 'open-add-menu']);
+defineEmits(['jump-to-cassa']);
 
 const store = useAppStore();
-const router = useRouter();
 
 // ── Tab & selection state ──────────────────────────────────────────────────
 const activeTab = ref('pending');
