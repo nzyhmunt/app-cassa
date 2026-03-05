@@ -2,6 +2,7 @@
   <OrderManager
     ref="orderManagerRef"
     @jump-to-cassa="handleJumpToCassa"
+    @open-add-menu="orderManagerRef.openAddMenu"
   />
 </template>
 
