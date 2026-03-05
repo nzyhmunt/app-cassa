@@ -24,8 +24,11 @@ export const useAppStore = defineStore('app', () => {
     );
     if (ords.length === 0) return { status: 'free', total: 0, remaining: 0 };
 
-    const accepted = ords.filter(o => o.status === 'accepted');
-    const total = accepted.reduce((a, b) => a + b.totale_importo, 0);
+    // Include completed orders in the total so that per-order payments track correctly
+    const billable = orders.value.filter(
+      o => o.tavolo === tavoloId && (o.status === 'accepted' || o.status === 'completed'),
+    );
+    const total = billable.reduce((a, b) => a + b.totale_importo, 0);
     const paid = transactions.value
       .filter(t => t.tavolo_id === tavoloId)
       .reduce((a, t) => a + t.importo_pagato, 0);

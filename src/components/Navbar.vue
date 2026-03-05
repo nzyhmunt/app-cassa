@@ -49,7 +49,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, onUnmounted, computed } from 'vue';
 import { useRoute } from 'vue-router';
 import { Monitor, Receipt, LayoutGrid, BellPlus, Settings } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
@@ -58,15 +58,20 @@ const emit = defineEmits(['open-settings']);
 
 const store = useAppStore();
 const route = useRoute();
-const currentTime = ref('');
+const currentTime = ref(new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }));
 
 const isOrdiniActive = computed(() => route.name === 'ordini');
 const isSalaActive = computed(() => route.name === 'sala');
 
+let clockTimer = null;
 onMounted(() => {
-  setInterval(() => {
+  clockTimer = setInterval(() => {
     currentTime.value = new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
   }, 1000);
+});
+
+onUnmounted(() => {
+  if (clockTimer !== null) clearInterval(clockTimer);
 });
 
 function onSimulateOrder() {
@@ -74,8 +79,20 @@ function onSimulateOrder() {
   playBeep();
 }
 
+const SETTINGS_STORAGE_KEY = 'app-settings';
+function isSoundsEnabled() {
+  try {
+    const raw = window.localStorage.getItem(SETTINGS_STORAGE_KEY);
+    if (!raw) return true;
+    const parsed = JSON.parse(raw);
+    return typeof parsed.sounds === 'boolean' ? parsed.sounds : true;
+  } catch {
+    return true;
+  }
+}
+
 function playBeep() {
-  if (!store.config) return;
+  if (!store.config || !isSoundsEnabled()) return;
   try {
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
     const osc = ctx.createOscillator();

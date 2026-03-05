@@ -368,9 +368,12 @@ const tableAcceptedPayableOrders = computed(() =>
   tableOrders.value.filter(o => o.status === 'accepted'),
 );
 
-const tableTotalAmount = computed(() =>
-  tableAcceptedPayableOrders.value.reduce((acc, o) => acc + o.totale_importo, 0),
-);
+const tableTotalAmount = computed(() => {
+  if (!selectedTable.value) return 0;
+  return store.orders
+    .filter(o => o.tavolo === selectedTable.value.id && (o.status === 'accepted' || o.status === 'completed'))
+    .reduce((acc, o) => acc + o.totale_importo, 0);
+});
 
 const tableTransactions = computed(() => {
   if (!selectedTable.value) return [];
@@ -526,7 +529,7 @@ function generateTableCheckoutJson(ctx = 'table') {
 function closeJsonModal() {
   showPrecontoJson.value = false;
   jsonPayloadData.value = '{}';
-  if (selectedTable.value && tableAmountRemaining.value <= 0.01 && !hasPendingOrdersInTable.value) {
+  if (selectedTable.value && tableAcceptedPayableOrders.value.length === 0 && !hasPendingOrdersInTable.value) {
     closeTableModal();
   }
 }
