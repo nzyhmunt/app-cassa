@@ -123,7 +123,7 @@ export const useAppStore = defineStore('app', () => {
   function addTransaction(txn) {
     transactions.value.push(txn);
     // Clear conto_richiesto when payment is made
-    if (txn.tavolo_id) tablesContoRichiesto.value.delete(txn.tavolo_id);
+    if (txn.tavolo_id) setContoRichiesto(txn.tavolo_id, false);
   }
 
   // ── Mutations: Table Operations ────────────────────────────────────────────
