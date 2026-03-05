@@ -337,7 +337,7 @@ import {
 import { useAppStore } from '../store/index.js';
 import { updateOrderTotals } from '../utils/index.js';
 
-const emit = defineEmits(['jump-to-cassa']);
+defineEmits(['jump-to-cassa']);
 
 const store = useAppStore();
 
