@@ -38,13 +38,49 @@
 </template>
 
 <script setup>
-import { ref } from 'vue';
+import { ref, watch } from 'vue';
 import { Settings, X, RefreshCw } from 'lucide-vue-next';
 
 defineProps({ modelValue: Boolean });
-defineEmits(['update:modelValue']);
+const emit = defineEmits(['update:modelValue', 'settings-changed']);
 
-const settings = ref({ autoPrint: true, sounds: true });
+const SETTINGS_STORAGE_KEY = 'app-settings';
+
+function loadInitialSettings() {
+  if (typeof window === 'undefined') {
+    return { autoPrint: true, sounds: true };
+  }
+  try {
+    const raw = window.localStorage.getItem(SETTINGS_STORAGE_KEY);
+    if (!raw) {
+      return { autoPrint: true, sounds: true };
+    }
+    const parsed = JSON.parse(raw);
+    return {
+      autoPrint: typeof parsed.autoPrint === 'boolean' ? parsed.autoPrint : true,
+      sounds: typeof parsed.sounds === 'boolean' ? parsed.sounds : true,
+    };
+  } catch {
+    return { autoPrint: true, sounds: true };
+  }
+}
+
+const settings = ref(loadInitialSettings());
+
+watch(
+  settings,
+  (newVal) => {
+    if (typeof window !== 'undefined') {
+      try {
+        window.localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(newVal));
+      } catch {
+        // Ignore storage errors (e.g., quota exceeded or disabled storage)
+      }
+    }
+    emit('settings-changed', newVal);
+  },
+  { deep: true }
+);
 const isSyncing = ref(false);
 
 function syncMenu() {
