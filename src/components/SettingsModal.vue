@@ -1,0 +1,57 @@
+<template>
+  <!-- MODAL: IMPOSTAZIONI SISTEMA -->
+  <div v-if="modelValue" class="fixed inset-0 z-[90] bg-black/60 backdrop-blur-sm flex items-end md:items-center justify-center p-0 md:p-4">
+    <div class="bg-white rounded-t-3xl md:rounded-3xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col">
+      <div class="bg-gray-50 border-b border-gray-200 p-4 md:p-5 flex justify-between items-center">
+        <h3 class="font-bold text-base md:text-lg flex items-center gap-2 text-gray-800">
+          <Settings class="text-gray-500 size-4 md:size-5" /> Impostazioni Cassa
+        </h3>
+        <button @click="$emit('update:modelValue', false)" class="text-gray-400 hover:text-gray-800 bg-gray-200 hover:bg-gray-300 rounded-full p-1.5 transition-colors active:scale-95">
+          <X class="size-5" />
+        </button>
+      </div>
+      <div class="p-4 md:p-6 space-y-3 bg-white pb-8 md:pb-6">
+        <label class="flex items-center justify-between p-3 md:p-4 border border-gray-200 rounded-2xl cursor-pointer hover:bg-gray-50 transition-colors active:scale-95">
+          <div>
+            <span class="font-bold text-gray-800 block text-sm">Stampa Auto Cucina</span>
+            <span class="text-[10px] text-gray-500">Invia comanda all'accettazione</span>
+          </div>
+          <input type="checkbox" v-model="settings.autoPrint" class="theme-accent size-5 rounded-md cursor-pointer">
+        </label>
+        <label class="flex items-center justify-between p-3 md:p-4 border border-gray-200 rounded-2xl cursor-pointer hover:bg-gray-50 transition-colors active:scale-95">
+          <div>
+            <span class="font-bold text-gray-800 block text-sm">Avvisi Audio "Ding"</span>
+            <span class="text-[10px] text-gray-500">Suona all'arrivo di nuovi ordini</span>
+          </div>
+          <input type="checkbox" v-model="settings.sounds" class="theme-accent size-5 rounded-md cursor-pointer">
+        </label>
+
+        <div class="pt-4 border-t border-gray-100 mt-2">
+          <button @click="syncMenu" class="w-full py-4 bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold rounded-2xl flex items-center justify-center gap-2 border border-gray-200 transition-colors shadow-sm active:scale-95">
+            <RefreshCw class="size-5" :class="isSyncing ? 'animate-spin text-emerald-600' : 'text-gray-600'" />
+            <span class="hidden sm:inline">{{ isSyncing ? 'Sincronizzazione DB...' : 'Sincronizza Database Menu' }}</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script setup>
+import { ref } from 'vue';
+import { Settings, X, RefreshCw } from 'lucide-vue-next';
+
+defineProps({ modelValue: Boolean });
+defineEmits(['update:modelValue']);
+
+const settings = ref({ autoPrint: true, sounds: true });
+const isSyncing = ref(false);
+
+function syncMenu() {
+  isSyncing.value = true;
+  setTimeout(() => {
+    isSyncing.value = false;
+    alert('Database Menu Sincronizzato con successo.');
+  }, 1500);
+}
+</script>
