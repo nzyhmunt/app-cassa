@@ -364,11 +364,6 @@ function selectOrder(ord) {
   selectedOrder.value = ord;
 }
 
-// ── Jump to cassa ──────────────────────────────────────────────────────────
-function jumpToCassa(tavoloLabel) {
-  emit('jump-to-cassa', tavoloLabel);
-}
-
 // ── Note modal ─────────────────────────────────────────────────────────────
 const noteInput = ref(null);
 const noteModal = ref({
