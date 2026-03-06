@@ -258,7 +258,7 @@
 
           <div v-if="noteModal.modifiersArray.length > 0" class="mb-3 space-y-1.5 max-h-[120px] overflow-y-auto border border-purple-100 p-2 rounded-xl bg-purple-50">
             <div v-for="(mod, idx) in noteModal.modifiersArray" :key="idx" class="flex justify-between items-center bg-white border border-purple-200 text-purple-800 px-3 py-2 rounded-lg text-xs font-bold shadow-sm">
-              <span>{{ mod.name }}{{ mod.price > 0 ? ' +€' + mod.price.toFixed(2) : '' }}</span>
+              <span>{{ mod.name }}{{ mod.price > 0 ? ' +' + store.config.ui.currency + mod.price.toFixed(2) : '' }}</span>
               <button @click="removeModFromNoteModal(idx)" class="text-red-500 p-1 hover:bg-red-50 rounded-md transition-colors"><Trash2 class="size-4" /></button>
             </div>
           </div>
@@ -266,7 +266,7 @@
           <div class="flex gap-2 mb-3">
             <input v-model="noteModal.modName" type="text" placeholder="Es. Mozzarella, Senza glutine..." class="flex-1 bg-gray-100 border border-gray-200 rounded-xl px-3 py-3 focus:bg-white theme-ring transition-all text-gray-800 font-medium text-sm" @keyup.enter="addModToNoteModal">
             <div class="relative w-24 shrink-0">
-              <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm font-bold">€</span>
+              <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm font-bold">{{ store.config.ui.currency }}</span>
               <input v-model.number="noteModal.modPrice" type="number" min="0" step="0.50" placeholder="0.00" class="w-full pl-7 pr-2 py-3 bg-gray-100 border border-gray-200 rounded-xl focus:bg-white theme-ring transition-all text-gray-800 font-medium text-sm" @keyup.enter="addModToNoteModal">
             </div>
             <button @click="addModToNoteModal" class="bg-purple-600 hover:bg-purple-700 text-white px-4 rounded-xl font-bold shadow-sm active:scale-95 flex items-center justify-center"><Plus class="size-5" /></button>
@@ -274,12 +274,7 @@
 
           <div class="flex flex-wrap gap-1.5">
             <button
-              v-for="preset in [
-                { name: 'Mozzarella',     price: 1.50, label: '+ Mozzarella €1.50' },
-                { name: 'Parmigiano',     price: 1.00, label: '+ Parmigiano €1.00' },
-                { name: 'Senza glutine',  price: 0,    label: 'Senza glutine €0' },
-                { name: 'Porzione extra', price: 2.00, label: '+ Porzione extra €2.00' }
-              ]"
+              v-for="preset in modPresets"
               :key="preset.name"
               @click="applyNoteModPreset(preset.name, preset.price)"
               class="px-2.5 py-1.5 bg-purple-50 border border-purple-200 text-purple-700 rounded-lg text-[10px] md:text-xs font-bold hover:bg-purple-100 active:scale-95 transition-all"
@@ -379,7 +374,7 @@
                 <div v-if="cartItem.modifiers && cartItem.modifiers.length > 0" class="flex flex-wrap gap-1 mb-1">
                   <span v-for="(mod, mi) in cartItem.modifiers" :key="mi"
                     class="text-[9px] font-bold bg-purple-50 border border-purple-200 text-purple-700 px-1.5 py-0.5 rounded flex items-center gap-1">
-                    {{ mod.name }}{{ mod.price > 0 ? ' +€'+mod.price.toFixed(2) : '' }}
+                    {{ mod.name }}{{ mod.price > 0 ? ' +' + store.config.ui.currency + mod.price.toFixed(2) : '' }}
                     <button @click="removeModFromCart(idx, mi)" class="text-purple-400 hover:text-red-500 transition-colors"><X class="size-2.5" /></button>
                   </span>
                 </div>
@@ -419,16 +414,20 @@
         <div class="flex gap-2 mb-3">
           <input v-model="modModal.name" type="text" placeholder="Es. Mozzarella, Senza glutine..." class="flex-1 px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:border-[var(--brand-primary)] focus:outline-none" />
           <div class="relative w-24 shrink-0">
-            <span class="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-sm font-bold">€</span>
+            <span class="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-sm font-bold">{{ store.config.ui.currency }}</span>
             <input v-model.number="modModal.price" type="number" min="0" step="0.50" placeholder="0.00" class="w-full pl-6 pr-2 py-2.5 border border-gray-200 rounded-xl text-sm focus:border-[var(--brand-primary)] focus:outline-none" />
           </div>
         </div>
         <!-- Quick presets -->
         <div class="flex flex-wrap gap-1.5 mb-4">
-          <button @click="applyModPreset('Mozzarella', 1.50)" class="px-2.5 py-1.5 bg-purple-50 border border-purple-200 text-purple-700 rounded-lg text-[10px] font-bold hover:bg-purple-100 active:scale-95 transition-all">+ Mozzarella €1.50</button>
-          <button @click="applyModPreset('Parmigiano', 1.00)" class="px-2.5 py-1.5 bg-purple-50 border border-purple-200 text-purple-700 rounded-lg text-[10px] font-bold hover:bg-purple-100 active:scale-95 transition-all">+ Parmigiano €1.00</button>
-          <button @click="applyModPreset('Senza glutine', 0)" class="px-2.5 py-1.5 bg-purple-50 border border-purple-200 text-purple-700 rounded-lg text-[10px] font-bold hover:bg-purple-100 active:scale-95 transition-all">Senza glutine €0</button>
-          <button @click="applyModPreset('Porzione extra', 2.00)" class="px-2.5 py-1.5 bg-purple-50 border border-purple-200 text-purple-700 rounded-lg text-[10px] font-bold hover:bg-purple-100 active:scale-95 transition-all">+ Porzione extra €2.00</button>
+          <button
+            v-for="preset in modPresets"
+            :key="preset.name"
+            @click="applyModPreset(preset.name, preset.price)"
+            class="px-2.5 py-1.5 bg-purple-50 border border-purple-200 text-purple-700 rounded-lg text-[10px] font-bold hover:bg-purple-100 active:scale-95 transition-all"
+          >
+            {{ preset.label }}
+          </button>
         </div>
         <button @click="saveModModal"
           class="w-full theme-bg text-white py-3 rounded-xl font-bold shadow-md hover:opacity-90 transition-opacity active:scale-95 text-sm flex items-center justify-center gap-2">
@@ -557,6 +556,17 @@ const courseOptions = [
   { value: 'insieme', label: 'Insieme', activeClass: 'theme-bg text-white border-transparent' },
   { value: 'dopo', label: 'Esce dopo', activeClass: 'bg-teal-100 border-teal-400 text-teal-800' },
 ];
+
+// ── Shared modifier presets ────────────────────────────────────────────────
+const modPresets = computed(() => {
+  const c = store.config.ui.currency;
+  return [
+    { name: 'Mozzarella',     price: 1.50, label: `+ Mozzarella ${c}1.50` },
+    { name: 'Parmigiano',     price: 1.00, label: `+ Parmigiano ${c}1.00` },
+    { name: 'Senza glutine',  price: 0,    label: `Senza glutine ${c}0` },
+    { name: 'Porzione extra', price: 2.00, label: `+ Porzione extra ${c}2.00` },
+  ];
+});
 
 // ── Modifiers modal ────────────────────────────────────────────────────────
 const modModal = ref({ show: false, cartIdx: null, name: '', price: 0 });
