@@ -32,7 +32,11 @@ export const useAppStore = defineStore('app', () => {
       ) {
         throw new Error('Formato menu non valido');
       }
-      config.value.menu = data;
+      const menu = config.value.menu || {};
+      Object.keys(data).forEach((key) => {
+        menu[key] = data[key];
+      });
+      config.value.menu = menu;
     } catch (e) {
       menuError.value = e.message;
     } finally {
