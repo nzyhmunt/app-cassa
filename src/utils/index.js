@@ -72,7 +72,7 @@ export const appConfig = {
   		{ "id": "bev_3", "name": "Coca Cola 33cl", "descrizione": "Classic Coca Cola glass bottle", "price": 3, "note": "", "ingredienti": ["Acqua", "Zucchero", "Aromi"], "allergeni": [], "immagine_url": "" },
   		{ "id": "bev_4", "name": "Vino della Casa - Rosso 1L", "descrizione": "House red wine (1 Liter jug)", "price": 10, "note": "", "ingredienti": ["Uva"], "allergeni": ["solfiti"], "immagine_url": "" },
   		{ "id": "bev_5", "name": "Vino Frascati Superiore DOCG 75cl", "descrizione": "Local dry white wine bottle", "price": 18, "note": "", "ingredienti": ["Uva"], "allergeni": ["solfiti"], "immagine_url": "" },
-  		{ "id": "bev_6", "name": "CaffÃ¨ Espresso", "descrizione": "Italian espresso shot", "price": 1.5, "note": "", "ingredienti": ["CaffÃ¨"], "allergeni": [], "immagine_url": "" }
+  		{ "id": "bev_6", "name": "Caffè Espresso", "descrizione": "Italian espresso shot", "price": 1.5, "note": "", "ingredienti": ["Caffè"], "allergeni": [], "immagine_url": "" }
   	]
   },
 };
