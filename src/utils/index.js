@@ -1,5 +1,5 @@
 // Default URL for loading the external menu JSON
-export const DEFAULT_MENU_URL = 'https://odg.nanawork.it/demo/menu.json';
+export const DEFAULT_MENU_URL = 'https://nanawork.it/menu.json';
 
 // Configurazione applicazione centralizzata
 export const appConfig = {
