@@ -56,7 +56,7 @@ export const appConfig = {
   	],
   	"Contorni": [
   		{ "id": "con_1", "name": "Verdure di mercato grigliate", "descrizione": "Seasonal market vegetables grilled", "price": 6, "note": "Vegano", "ingredienti": ["Verdure miste"], "allergeni": [], "immagine_url": "" },
-  		{ "id": "con_2", "name": "Verdura di stagione ripassata", "descrizione": "SautÃ©ed seasonal greens", "price": 6, "note": "Vegano", "ingredienti": ["Verdura di stagione", "Aglio", "Peperoncino"], "allergeni": [], "immagine_url": "" },
+  		{ "id": "con_2", "name": "Verdura di stagione ripassata", "descrizione": "Sautéed seasonal greens", "price": 6, "note": "Vegano", "ingredienti": ["Verdura di stagione", "Aglio", "Peperoncino"], "allergeni": [], "immagine_url": "" },
   		{ "id": "con_3", "name": "Patate al forno", "descrizione": "Roasted potatoes", "price": 5, "note": "Vegano", "ingredienti": ["Patate", "Rosmarino"], "allergeni": [], "immagine_url": "" }
   	],
   	"Dolci": [
