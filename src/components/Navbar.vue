@@ -46,7 +46,7 @@
         <BellPlus class="size-5 md:size-5" />
       </button>
       <!-- Tasto Cassa Dashboard -->
-      <button @click="$emit('open-cassa')" aria-label="Cruscotto Cassa" class="bg-white/10 hover:bg-white/20 px-2.5 md:px-3 py-2 md:py-2.5 rounded-xl transition-colors text-white flex items-center justify-center gap-1.5" title="Cruscotto Cassa">
+      <button @click="$emit('open-cassa')" aria-label="Cruscotto Cassa" class="bg-white/10 hover:bg-white/20 px-2.5 md:px-3 py-2 md:py-2.5 rounded-xl transition-colors text-white flex items-center justify-center gap-1.5">
         <Landmark class="size-5 md:size-5 shrink-0" />
         <span class="hidden lg:inline text-xs font-bold">Cassa</span>
       </button>
