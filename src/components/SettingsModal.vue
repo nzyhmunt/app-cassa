@@ -11,30 +11,36 @@
         </button>
       </div>
       <div class="p-4 md:p-6 space-y-3 bg-white pb-8 md:pb-6">
-        <label class="flex items-center justify-between p-3 md:p-4 border border-gray-200 rounded-2xl cursor-pointer hover:bg-gray-50 transition-colors active:scale-95">
+        <div @click="settings.autoPrint = !settings.autoPrint"
+          class="flex items-center justify-between p-3 md:p-4 border border-gray-200 rounded-2xl cursor-pointer hover:bg-gray-50 transition-colors active:scale-95">
           <div>
             <span class="font-bold text-gray-800 block text-sm">Stampa Auto Cucina</span>
             <span class="text-[10px] text-gray-500">Invia comanda all'accettazione</span>
           </div>
-          <button type="button" @click="settings.autoPrint = !settings.autoPrint"
-            class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors shrink-0"
+          <button type="button" role="switch" :aria-checked="settings.autoPrint"
+            :aria-label="'Stampa Auto Cucina: ' + (settings.autoPrint ? 'attivo' : 'disattivato')"
+            @click.stop="settings.autoPrint = !settings.autoPrint"
+            class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors shrink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand-primary)] focus-visible:ring-offset-2"
             :class="settings.autoPrint ? 'bg-[var(--brand-primary)]' : 'bg-gray-300'">
             <span class="inline-block size-5 transform rounded-full bg-white shadow-md transition-transform"
               :class="settings.autoPrint ? 'translate-x-5' : 'translate-x-0.5'"></span>
           </button>
-        </label>
-        <label class="flex items-center justify-between p-3 md:p-4 border border-gray-200 rounded-2xl cursor-pointer hover:bg-gray-50 transition-colors active:scale-95">
+        </div>
+        <div @click="settings.sounds = !settings.sounds"
+          class="flex items-center justify-between p-3 md:p-4 border border-gray-200 rounded-2xl cursor-pointer hover:bg-gray-50 transition-colors active:scale-95">
           <div>
             <span class="font-bold text-gray-800 block text-sm">Avvisi Audio "Ding"</span>
             <span class="text-[10px] text-gray-500">Suona all'arrivo di nuovi ordini</span>
           </div>
-          <button type="button" @click="settings.sounds = !settings.sounds"
-            class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors shrink-0"
+          <button type="button" role="switch" :aria-checked="settings.sounds"
+            :aria-label="'Avvisi Audio: ' + (settings.sounds ? 'attivo' : 'disattivato')"
+            @click.stop="settings.sounds = !settings.sounds"
+            class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors shrink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand-primary)] focus-visible:ring-offset-2"
             :class="settings.sounds ? 'bg-[var(--brand-primary)]' : 'bg-gray-300'">
             <span class="inline-block size-5 transform rounded-full bg-white shadow-md transition-transform"
               :class="settings.sounds ? 'translate-x-5' : 'translate-x-0.5'"></span>
           </button>
-        </label>
+        </div>
 
         <div class="pt-4 border-t border-gray-100 mt-2 space-y-3">
           <div>

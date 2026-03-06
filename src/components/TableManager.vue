@@ -376,18 +376,19 @@ const freeTables = computed(() =>
   ),
 );
 
-const freeTablesCount = computed(() =>
-  store.config.tables.filter(t => store.getTableStatus(t.id).status === 'free').length,
-);
-const occupiedTablesCount = computed(() =>
-  store.config.tables.filter(t => {
+const tableStatusCounts = computed(() => {
+  let free = 0, occupied = 0, pending = 0;
+  for (const t of store.config.tables) {
     const s = store.getTableStatus(t.id).status;
-    return s === 'occupied' || s === 'conto_richiesto';
-  }).length,
-);
-const pendingTablesCount = computed(() =>
-  store.config.tables.filter(t => store.getTableStatus(t.id).status === 'pending').length,
-);
+    if (s === 'free') free++;
+    else if (s === 'occupied' || s === 'conto_richiesto') occupied++;
+    else if (s === 'pending') pending++;
+  }
+  return { free, occupied, pending };
+});
+const freeTablesCount = computed(() => tableStatusCounts.value.free);
+const occupiedTablesCount = computed(() => tableStatusCounts.value.occupied);
+const pendingTablesCount = computed(() => tableStatusCounts.value.pending);
 
 const occupiedTables = computed(() =>
   store.config.tables.filter(
