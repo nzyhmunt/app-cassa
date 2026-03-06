@@ -273,10 +273,19 @@
           </div>
 
           <div class="flex flex-wrap gap-1.5">
-            <button @click="applyNoteModPreset('Mozzarella', 1.50)" class="px-2.5 py-1.5 bg-purple-50 border border-purple-200 text-purple-700 rounded-lg text-[10px] md:text-xs font-bold hover:bg-purple-100 active:scale-95 transition-all">+ Mozzarella €1.50</button>
-            <button @click="applyNoteModPreset('Parmigiano', 1.00)" class="px-2.5 py-1.5 bg-purple-50 border border-purple-200 text-purple-700 rounded-lg text-[10px] md:text-xs font-bold hover:bg-purple-100 active:scale-95 transition-all">+ Parmigiano €1.00</button>
-            <button @click="applyNoteModPreset('Senza glutine', 0)" class="px-2.5 py-1.5 bg-purple-50 border border-purple-200 text-purple-700 rounded-lg text-[10px] md:text-xs font-bold hover:bg-purple-100 active:scale-95 transition-all">Senza glutine €0</button>
-            <button @click="applyNoteModPreset('Porzione extra', 2.00)" class="px-2.5 py-1.5 bg-purple-50 border border-purple-200 text-purple-700 rounded-lg text-[10px] md:text-xs font-bold hover:bg-purple-100 active:scale-95 transition-all">+ Porzione extra €2.00</button>
+            <button
+              v-for="preset in [
+                { name: 'Mozzarella',     price: 1.50, label: '+ Mozzarella €1.50' },
+                { name: 'Parmigiano',     price: 1.00, label: '+ Parmigiano €1.00' },
+                { name: 'Senza glutine',  price: 0,    label: 'Senza glutine €0' },
+                { name: 'Porzione extra', price: 2.00, label: '+ Porzione extra €2.00' }
+              ]"
+              :key="preset.name"
+              @click="applyNoteModPreset(preset.name, preset.price)"
+              class="px-2.5 py-1.5 bg-purple-50 border border-purple-200 text-purple-700 rounded-lg text-[10px] md:text-xs font-bold hover:bg-purple-100 active:scale-95 transition-all"
+            >
+              {{ preset.label }}
+            </button>
           </div>
         </div>
       </div>
