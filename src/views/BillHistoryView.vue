@@ -52,7 +52,7 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue';
+import { computed } from 'vue';
 import { History, ArrowLeft } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
 import BillCard from '../components/BillCard.vue';
