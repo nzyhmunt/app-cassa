@@ -6,21 +6,21 @@
     <aside :class="['w-full md:w-[380px] lg:w-[450px] bg-white border-r border-gray-200 flex flex-col shadow-lg z-10 h-full shrink-0', selectedOrder ? 'hidden md:flex' : 'flex']">
 
       <div class="flex p-2 gap-1.5 bg-gray-50 border-b border-gray-200 shrink-0">
-        <button @click="changeTab('pending')" :class="activeTab === 'pending' ? 'bg-amber-100 text-amber-800 border-amber-200 font-bold' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100'" class="flex-1 py-1.5 md:py-2 px-1 rounded-xl border transition-all flex items-center justify-center gap-1.5 shadow-sm">
+        <button @click="changeTab('pending')" aria-label="In Attesa" :class="activeTab === 'pending' ? 'bg-amber-100 text-amber-800 border-amber-200 font-bold' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100'" class="flex-1 py-1.5 md:py-2 px-1 rounded-xl border transition-all flex items-center justify-center gap-1.5 shadow-sm">
           <div class="relative shrink-0">
             <Bell class="size-4 md:size-5" />
             <span v-if="store.pendingCount > 0" class="absolute -top-1.5 -right-2 bg-red-500 text-white text-[9px] font-bold size-4 flex items-center justify-center rounded-full border border-white">{{ store.pendingCount }}</span>
           </div>
           <span class="text-[9px] md:text-[10px] uppercase tracking-wider hidden sm:inline">In Attesa</span>
         </button>
-        <button @click="changeTab('accepted')" :class="activeTab === 'accepted' ? 'bg-blue-100 text-blue-800 border-blue-200 font-bold' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100'" class="flex-1 py-1.5 md:py-2 px-1 rounded-xl border transition-all flex items-center justify-center gap-1.5 shadow-sm">
+        <button @click="changeTab('accepted')" aria-label="In Cucina" :class="activeTab === 'accepted' ? 'bg-blue-100 text-blue-800 border-blue-200 font-bold' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100'" class="flex-1 py-1.5 md:py-2 px-1 rounded-xl border transition-all flex items-center justify-center gap-1.5 shadow-sm">
           <div class="relative shrink-0">
             <ChefHat class="size-4 md:size-5" />
             <span v-if="acceptedCount > 0" class="absolute -top-1.5 -right-2 bg-blue-500 text-white text-[9px] font-bold size-4 flex items-center justify-center rounded-full border border-white">{{ acceptedCount }}</span>
           </div>
           <span class="text-[9px] md:text-[10px] uppercase tracking-wider hidden sm:inline">In Cucina</span>
         </button>
-        <button @click="changeTab('history')" :class="activeTab === 'history' ? 'bg-gray-200 text-gray-800 border-gray-300 font-bold' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100'" class="flex-1 py-1.5 md:py-2 px-1 rounded-xl border transition-all flex items-center justify-center gap-1.5 shadow-sm">
+        <button @click="changeTab('history')" aria-label="Chiusi" :class="activeTab === 'history' ? 'bg-gray-200 text-gray-800 border-gray-300 font-bold' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100'" class="flex-1 py-1.5 md:py-2 px-1 rounded-xl border transition-all flex items-center justify-center gap-1.5 shadow-sm">
           <div class="relative shrink-0">
             <History class="size-4 md:size-5" />
             <span v-if="historyCount > 0" class="absolute -top-1.5 -right-2 bg-gray-500 text-white text-[9px] font-bold size-4 flex items-center justify-center rounded-full border border-white">{{ historyCount }}</span>
