@@ -60,7 +60,7 @@ export const appConfig = {
   		{ "id": "con_3", "name": "Patate al forno", "descrizione": "Roasted potatoes", "price": 5, "note": "Vegano", "ingredienti": ["Patate", "Rosmarino"], "allergeni": [], "immagine_url": "" }
   	],
   	"Dolci": [
-  		{ "id": "dol_1", "name": "TiramisÃ¹ scomposto", "descrizione": "Deconstructed tiramisÃ¹", "price": 6, "note": "Vegetariano", "ingredienti": ["Mascarpone", "Savoiardi", "CaffÃ¨"], "allergeni": ["glutine", "lattosio", "uova"], "immagine_url": "" },
+  		{ "id": "dol_1", "name": "Tiramisù scomposto", "descrizione": "Deconstructed tiramisù", "price": 6, "note": "Vegetariano", "ingredienti": ["Mascarpone", "Savoiardi", "Caffè"], "allergeni": ["glutine", "lattosio", "uova"], "immagine_url": "" },
   		{ "id": "dol_2", "name": "Cremoso al limone", "descrizione": "Lemon mousse with wild fruit coulis", "price": 5, "note": "Vegetariano", "ingredienti": ["Limone", "Frutti di bosco"], "allergeni": ["lattosio"], "immagine_url": "" },
   		{ "id": "dol_3", "name": "Crema leggera al cacao", "descrizione": "Light cocoa cream with chocolate drops and puff pastry", "price": 5, "note": "Vegetariano", "ingredienti": ["Cacao", "Sfoglia", "Cioccolato"], "allergeni": ["glutine", "lattosio"], "immagine_url": "https://app.odg.nanawork.it/assets/2a6ddfb0-c96c-4f28-920c-0db2ca61b005?key=512x512" },
   		{ "id": "dol_4", "name": "Tortino di mele caldo", "descrizione": "Warm apple cake with vanilla ice cream", "price": 6, "note": "Vegetariano", "ingredienti": ["Mele", "Gelato alla crema"], "allergeni": ["glutine", "lattosio", "uova"], "immagine_url": "" },
