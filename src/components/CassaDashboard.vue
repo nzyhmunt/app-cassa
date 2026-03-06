@@ -54,7 +54,7 @@
               <span class="text-[10px] font-bold text-gray-400 uppercase tracking-wider shrink-0">Preset:</span>
               <button v-for="preset in [50, 100, 150, 200]" :key="preset" @click="cashBalanceInput = preset"
                 class="px-3 py-1.5 text-xs font-bold rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-gray-700 active:scale-95 transition-all shadow-sm">
-                €{{ preset }}
+                {{ store.config.ui.currency }}{{ preset }}
               </button>
             </div>
             <div class="mt-3 flex items-center gap-2 p-3 bg-emerald-50 border border-emerald-100 rounded-xl">
