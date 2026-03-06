@@ -12,6 +12,7 @@
             to="/storico-conti"
             class="flex items-center gap-1.5 text-[10px] md:text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-3 py-2 rounded-xl transition-colors shadow-sm active:scale-95"
             title="Cronologia Conti Chiusi"
+            aria-label="Storico Conti"
           >
             <History class="size-4" /> <span class="hidden sm:inline">Storico Conti</span>
           </router-link>
