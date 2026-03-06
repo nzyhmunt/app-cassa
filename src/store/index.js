@@ -386,9 +386,9 @@ export const useAppStore = defineStore('app', () => {
         (a, b) => new Date(a.timestamp || 0) - new Date(b.timestamp || 0),
       );
 
-      // Match completed orders for this table and (when present) this bill session
+      // Match completed or rejected orders for this table and (when present) this bill session
       const tableOrds = orders.value.filter(o => {
-        if (o.table !== tableId || o.status !== 'completed') return false;
+        if (o.table !== tableId || (o.status !== 'completed' && o.status !== 'rejected')) return false;
         if (billSessionId == null) return o.billSessionId == null;
         return o.billSessionId === billSessionId;
       });

@@ -102,6 +102,10 @@
                   <span class="text-xs font-bold text-gray-700">
                     Comanda #{{ ord.id.substring(0, 6) }}
                     <span class="text-gray-400 font-medium">· {{ ord.time }}</span>
+                    <span
+                      v-if="ord.status === 'rejected'"
+                      class="ml-1 text-[9px] font-bold uppercase text-red-500 border border-red-200 bg-red-50 px-1 rounded"
+                    >Rifiutata</span>
                   </span>
                   <span class="font-black text-sm text-gray-800">
                     {{ store.config.ui.currency }}{{ ord.totalAmount.toFixed(2) }}
