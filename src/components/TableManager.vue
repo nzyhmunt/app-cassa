@@ -43,6 +43,9 @@
           </div>
         </button>
       </div>
+
+      <!-- Riepilogo Conti Chiusi -->
+      <ClosedBillsList />
     </div>
   </div>
 
@@ -333,6 +336,7 @@ import {
 } from 'lucide-vue-next';
 import { Banknote, CreditCard } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
+import ClosedBillsList from './ClosedBillsList.vue';
 
 const emit = defineEmits(['open-order-from-table', 'new-order-for-ordini']);
 

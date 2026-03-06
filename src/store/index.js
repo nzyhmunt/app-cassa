@@ -340,6 +340,81 @@ export const useAppStore = defineStore('app', () => {
     });
   }
 
+  // ── Computed: Closed bills ─────────────────────────────────────────────────
+  // A bill is "closed" when a table has recorded transactions and all its orders
+  // are now completed/rejected (i.e. table status is 'free').
+  //
+  // To avoid merging multiple distinct bills for the same table in a single day,
+  // we group by a per-bill session key when available (e.g. `billSessionId` on
+  // transactions / orders). If no session id is present, we fall back to grouping
+  // by tableId, which preserves the previous behavior.
+  const closedBills = computed(() => {
+    const sessionsMap = new Map();
+
+    // Group transactions by bill session (or by tableId as a fallback)
+    for (const t of transactions.value) {
+      if (!t.tableId) continue;
+      const sessionId = t.billSessionId ?? null;
+      const sessionKey = sessionId != null ? `${t.tableId}::${sessionId}` : t.tableId;
+
+      if (!sessionsMap.has(sessionKey)) {
+        const table = config.value.tables.find(tab => tab.id === t.tableId);
+        sessionsMap.set(sessionKey, {
+          tableId: t.tableId,
+          billSessionId: sessionId,
+          table,
+          transactions: [],
+        });
+      }
+
+      sessionsMap.get(sessionKey).transactions.push(t);
+    }
+
+    // Build closed bill objects from grouped sessions
+    const bills = [];
+
+    for (const session of sessionsMap.values()) {
+      const { tableId, billSessionId, table, transactions: tableTxns } = session;
+
+      // Only consider sessions whose table is currently free
+      if (getTableStatus(tableId).status !== 'free') {
+        continue;
+      }
+
+      // Sort transactions chronologically within the session
+      tableTxns.sort(
+        (a, b) => new Date(a.timestamp || 0) - new Date(b.timestamp || 0),
+      );
+
+      // Match completed or rejected orders for this table and (when present) this bill session
+      const tableOrds = orders.value.filter(o => {
+        if (o.table !== tableId || (o.status !== 'completed' && o.status !== 'rejected')) return false;
+        if (billSessionId == null) return o.billSessionId == null;
+        return o.billSessionId === billSessionId;
+      });
+
+      const totalPaid = tableTxns.reduce(
+        (acc, txn) => acc + (txn.amountPaid || 0),
+        0,
+      );
+      const closedAt = tableTxns[tableTxns.length - 1]?.timestamp;
+
+      bills.push({
+        tableId,
+        billSessionId,
+        table,
+        transactions: tableTxns,
+        orders: tableOrds,
+        totalPaid,
+        closedAt,
+      });
+    }
+
+    return bills.sort(
+      (a, b) => new Date(b.closedAt || 0) - new Date(a.closedAt || 0),
+    );
+  });
+
   // ── Cross-view navigation state ────────────────────────────────────────────
   const pendingOpenTable = ref(null);
   const pendingSelectOrder = ref(null);
@@ -364,6 +439,7 @@ export const useAppStore = defineStore('app', () => {
     // computed
     cssVars,
     pendingCount,
+    closedBills,
     // helpers
     getTableStatus,
     getTableColorClass,
