@@ -45,10 +45,23 @@ export const useAppStore = defineStore('app', () => {
       ) {
         throw new Error('Formato menu non valido');
       }
-      const menu = config.value.menu || {};
-      Object.keys(data).forEach((key) => {
-        menu[key] = data[key];
+      // Validate and coerce each item: require string id/name and finite number price
+      const menu = {};
+      Object.keys(data).forEach((category) => {
+        const validItems = data[category].filter(item =>
+          item !== null &&
+          typeof item === 'object' &&
+          typeof item.id === 'string' && item.id.trim() !== '' &&
+          typeof item.name === 'string' && item.name.trim() !== '' &&
+          typeof item.price === 'number' && isFinite(item.price)
+        );
+        if (validItems.length > 0) {
+          menu[category] = validItems;
+        }
       });
+      if (Object.keys(menu).length === 0) {
+        throw new Error('Nessun articolo valido nel menu');
+      }
       config.value.menu = menu;
     } catch (e) {
       menuError.value = e instanceof Error ? e.message : String(e);
