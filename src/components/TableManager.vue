@@ -614,6 +614,8 @@ function createNewOrderForTable() {
   store.addOrder(newOrd);
   closeTableModal();
   emit('new-order-for-ordini', newOrd);
+  // Re-open the global add-menu cart for the newly created order
+  openAddMenu(newOrd);
 }
 
 // ── Payment processing ─────────────────────────────────────────────────────
