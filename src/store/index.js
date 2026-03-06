@@ -186,10 +186,12 @@ export const useAppStore = defineStore('app', () => {
   }
 
   // ── Mutations: Cassa ───────────────────────────────────────────────────────
-  function setFondoCassa(amount) {
+  function setCashBalance(amount) {
     cashBalance.value = amount;
   }
 
+  // Backwards compatibility alias; prefer using setCashBalance going forward
+  const setFondoCassa = setCashBalance;
   function addCashMovement(type, amount, reason) {
     cashMovements.value.push({
       id: 'mov_' + Math.random().toString(36).slice(2, 11),
