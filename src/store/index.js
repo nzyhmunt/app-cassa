@@ -38,7 +38,7 @@ export const useAppStore = defineStore('app', () => {
       });
       config.value.menu = menu;
     } catch (e) {
-      menuError.value = e.message;
+      menuError.value = e instanceof Error ? e.message : String(e);
     } finally {
       menuLoading.value = false;
     }
