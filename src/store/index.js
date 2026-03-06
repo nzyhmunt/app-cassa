@@ -8,6 +8,71 @@ export const useAppStore = defineStore('app', () => {
   const orders = ref(initialOrders);
   const transactions = ref([]);
 
+  // ── Menu loading state ─────────────────────────────────────────────────────
+  // menuUrl can be overridden via ?menuUrl=<url> query parameter
+  const _paramUrl = typeof window !== 'undefined'
+    ? (() => {
+        // First, check regular query string (before '#')
+        const searchParams = new URLSearchParams(window.location.search || '');
+        let value = searchParams.get('menuUrl');
+        if (value) return value;
+
+        // Fallback: handle hash-based routing (e.g. /#/route?menuUrl=...)
+        const hash = window.location.hash || '';
+        const queryStart = hash.indexOf('?');
+        if (queryStart === -1) return null;
+        const hashQuery = hash.slice(queryStart + 1);
+        const hashParams = new URLSearchParams(hashQuery);
+        return hashParams.get('menuUrl');
+      })()
+    : null;
+  const menuUrl = ref(_paramUrl || appConfig.menuUrl);
+  const menuLoading = ref(false);
+  const menuError = ref(null);
+
+  async function loadMenu() {
+    menuLoading.value = true;
+    menuError.value = null;
+    try {
+      const response = await fetch(menuUrl.value);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json();
+      if (
+        typeof data !== 'object' ||
+        data === null ||
+        Array.isArray(data) ||
+        !Object.values(data).every(Array.isArray)
+      ) {
+        throw new Error('Formato menu non valido');
+      }
+      // Validate and coerce each item: require string id/name and finite number price
+      const menu = {};
+      Object.keys(data).forEach((category) => {
+        const validItems = data[category].filter(item =>
+          item !== null &&
+          typeof item === 'object' &&
+          typeof item.id === 'string' && item.id.trim() !== '' &&
+          typeof item.name === 'string' && item.name.trim() !== '' &&
+          typeof item.price === 'number' && isFinite(item.price)
+        );
+        if (validItems.length > 0) {
+          menu[category] = validItems;
+        }
+      });
+      if (Object.keys(menu).length === 0) {
+        throw new Error('Nessun articolo valido nel menu');
+      }
+      config.value.menu = menu;
+    } catch (e) {
+      menuError.value = e instanceof Error ? e.message : String(e);
+    } finally {
+      menuLoading.value = false;
+    }
+  }
+
+  // Auto-load the menu from the configured URL on startup
+  loadMenu();
+
   // ── Cassa State ────────────────────────────────────────────────────────────
   const cashBalance = ref(0);
   const cashMovements = ref([]); // { id, type: 'versamento'|'prelievo', amount, reason, timestamp }
@@ -291,6 +356,9 @@ export const useAppStore = defineStore('app', () => {
     billRequestedTables,
     pendingOpenTable,
     pendingSelectOrder,
+    menuUrl,
+    menuLoading,
+    menuError,
     // computed
     cssVars,
     pendingCount,
@@ -307,6 +375,7 @@ export const useAppStore = defineStore('app', () => {
     restoreOrderItems,
     addTransaction,
     simulateNewOrder,
+    loadMenu,
     // table operations
     setBillRequested,
     moveTableOrders,

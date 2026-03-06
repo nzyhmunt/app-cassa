@@ -26,11 +26,21 @@
           <input type="checkbox" v-model="settings.sounds" class="theme-accent size-5 rounded-md cursor-pointer">
         </label>
 
-        <div class="pt-4 border-t border-gray-100 mt-2">
-          <button @click="syncMenu" class="w-full py-4 bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold rounded-2xl flex items-center justify-center gap-2 border border-gray-200 transition-colors shadow-sm active:scale-95">
-            <RefreshCw class="size-5" :class="isSyncing ? 'animate-spin text-emerald-600' : 'text-gray-600'" />
-            <span class="hidden sm:inline">{{ isSyncing ? 'Sincronizzazione DB...' : 'Sincronizza Database Menu' }}</span>
+        <div class="pt-4 border-t border-gray-100 mt-2 space-y-3">
+          <div>
+            <label class="block text-xs font-bold text-gray-600 mb-1">URL Menu JSON</label>
+            <input
+              v-model="store.menuUrl"
+              type="url"
+              placeholder="https://..."
+              class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]"
+            />
+          </div>
+          <button @click="syncMenu" :disabled="store.menuLoading" class="w-full py-4 bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold rounded-2xl flex items-center justify-center gap-2 border border-gray-200 transition-colors shadow-sm active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed">
+            <RefreshCw class="size-5" :class="store.menuLoading ? 'animate-spin text-emerald-600' : 'text-gray-600'" />
+            <span class="hidden sm:inline">{{ store.menuLoading ? 'Sincronizzazione...' : 'Sincronizza Menu' }}</span>
           </button>
+          <p v-if="store.menuError" class="text-xs text-red-600 text-center">Errore: {{ store.menuError }}</p>
         </div>
       </div>
     </div>
@@ -40,9 +50,12 @@
 <script setup>
 import { ref, watch } from 'vue';
 import { Settings, X, RefreshCw } from 'lucide-vue-next';
+import { useAppStore } from '../store/index.js';
 
 defineProps({ modelValue: Boolean });
 const emit = defineEmits(['update:modelValue', 'settings-changed']);
+
+const store = useAppStore();
 
 const SETTINGS_STORAGE_KEY = 'app-settings';
 
@@ -81,13 +94,8 @@ watch(
   },
   { deep: true }
 );
-const isSyncing = ref(false);
 
-function syncMenu() {
-  isSyncing.value = true;
-  setTimeout(() => {
-    isSyncing.value = false;
-    alert('Database Menu Sincronizzato con successo.');
-  }, 1500);
+async function syncMenu() {
+  await store.loadMenu();
 }
 </script>
