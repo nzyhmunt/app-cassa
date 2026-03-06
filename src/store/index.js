@@ -11,7 +11,20 @@ export const useAppStore = defineStore('app', () => {
   // ── Menu loading state ─────────────────────────────────────────────────────
   // menuUrl can be overridden via ?menuUrl=<url> query parameter
   const _paramUrl = typeof window !== 'undefined'
-    ? new URLSearchParams(window.location.search).get('menuUrl')
+    ? (() => {
+        // First, check regular query string (before '#')
+        const searchParams = new URLSearchParams(window.location.search || '');
+        let value = searchParams.get('menuUrl');
+        if (value) return value;
+
+        // Fallback: handle hash-based routing (e.g. /#/route?menuUrl=...)
+        const hash = window.location.hash || '';
+        const queryStart = hash.indexOf('?');
+        if (queryStart === -1) return null;
+        const hashQuery = hash.slice(queryStart + 1);
+        const hashParams = new URLSearchParams(hashQuery);
+        return hashParams.get('menuUrl');
+      })()
     : null;
   const menuUrl = ref(_paramUrl || appConfig.menuUrl);
   const menuLoading = ref(false);
