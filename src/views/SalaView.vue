@@ -2,6 +2,7 @@
   <TableManager
     ref="tableManagerRef"
     @open-order-from-table="handleOpenOrderFromTable"
+    @new-order-for-ordini="handleNewOrderForOrdini"
   />
 </template>
 
@@ -27,6 +28,11 @@ onMounted(async () => {
 
 async function handleOpenOrderFromTable(ord) {
   store.pendingSelectOrder = ord;
+  await router.push('/ordini');
+}
+
+async function handleNewOrderForOrdini(ord) {
+  store.pendingNewOrder = ord;
   await router.push('/ordini');
 }
 </script>
