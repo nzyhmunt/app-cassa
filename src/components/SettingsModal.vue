@@ -16,14 +16,24 @@
             <span class="font-bold text-gray-800 block text-sm">Stampa Auto Cucina</span>
             <span class="text-[10px] text-gray-500">Invia comanda all'accettazione</span>
           </div>
-          <input type="checkbox" v-model="settings.autoPrint" class="theme-accent size-5 rounded-md cursor-pointer">
+          <button type="button" @click="settings.autoPrint = !settings.autoPrint"
+            class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors shrink-0"
+            :class="settings.autoPrint ? 'bg-[var(--brand-primary)]' : 'bg-gray-300'">
+            <span class="inline-block size-5 transform rounded-full bg-white shadow-md transition-transform"
+              :class="settings.autoPrint ? 'translate-x-5' : 'translate-x-0.5'"></span>
+          </button>
         </label>
         <label class="flex items-center justify-between p-3 md:p-4 border border-gray-200 rounded-2xl cursor-pointer hover:bg-gray-50 transition-colors active:scale-95">
           <div>
             <span class="font-bold text-gray-800 block text-sm">Avvisi Audio "Ding"</span>
             <span class="text-[10px] text-gray-500">Suona all'arrivo di nuovi ordini</span>
           </div>
-          <input type="checkbox" v-model="settings.sounds" class="theme-accent size-5 rounded-md cursor-pointer">
+          <button type="button" @click="settings.sounds = !settings.sounds"
+            class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors shrink-0"
+            :class="settings.sounds ? 'bg-[var(--brand-primary)]' : 'bg-gray-300'">
+            <span class="inline-block size-5 transform rounded-full bg-white shadow-md transition-transform"
+              :class="settings.sounds ? 'translate-x-5' : 'translate-x-0.5'"></span>
+          </button>
         </label>
 
         <div class="pt-4 border-t border-gray-100 mt-2 space-y-3">
@@ -38,7 +48,7 @@
           </div>
           <button @click="syncMenu" :disabled="store.menuLoading" class="w-full py-4 bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold rounded-2xl flex items-center justify-center gap-2 border border-gray-200 transition-colors shadow-sm active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed">
             <RefreshCw class="size-5" :class="store.menuLoading ? 'animate-spin text-emerald-600' : 'text-gray-600'" />
-            <span class="hidden sm:inline">{{ store.menuLoading ? 'Sincronizzazione...' : 'Sincronizza Menu' }}</span>
+            <span>{{ store.menuLoading ? 'Sincronizzazione...' : 'Sincronizza Menu' }}</span>
           </button>
           <p v-if="store.menuError" class="text-xs text-red-600 text-center">Errore: {{ store.menuError }}</p>
         </div>

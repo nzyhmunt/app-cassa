@@ -198,7 +198,10 @@
             </div>
 
             <!-- Cifra Cassa Dinamica -->
-            <div class="text-5xl md:text-6xl font-black text-gray-900 mb-2">{{ store.config.ui.currency }}{{ tableAmountRemaining.toFixed(2) }}</div>
+            <div class="mb-2">
+              <div class="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-0.5">Totale conto: <span class="text-gray-600">{{ store.config.ui.currency }}{{ tableTotalAmount.toFixed(2) }}</span></div>
+              <div class="text-5xl md:text-6xl font-black text-gray-900">{{ store.config.ui.currency }}{{ tableAmountRemaining.toFixed(2) }}</div>
+            </div>
 
             <!-- Storico Transazioni -->
             <div v-if="tableTransactions.length > 0" class="mb-5 space-y-2">
@@ -221,9 +224,9 @@
               <h4 class="font-bold text-gray-800 text-sm">Modalità Incasso:</h4>
 
               <div class="flex bg-gray-100 p-1 rounded-xl">
-                <button @click="checkoutMode = 'unico'" :class="checkoutMode === 'unico' ? 'bg-white shadow-sm text-gray-900 border border-gray-200' : 'text-gray-500 hover:bg-gray-200/50'" class="flex-1 py-2 text-xs md:text-sm font-bold rounded-lg transition-all active:scale-95">Tutto/Rimanente</button>
-                <button @click="checkoutMode = 'romana'" :class="checkoutMode === 'romana' ? 'bg-white shadow-sm text-gray-900 border border-gray-200' : 'text-gray-500 hover:bg-gray-200/50'" class="flex-1 py-2 text-xs md:text-sm font-bold rounded-lg transition-all active:scale-95">Alla Romana</button>
-                <button @click="checkoutMode = 'ordini'" :class="checkoutMode === 'ordini' ? 'bg-white shadow-sm text-gray-900 border border-gray-200' : 'text-gray-500 hover:bg-gray-200/50'" class="flex-1 py-2 text-xs md:text-sm font-bold rounded-lg transition-all active:scale-95">Per Comanda</button>
+                <button @click="checkoutMode = 'unico'" :class="checkoutMode === 'unico' ? 'bg-white shadow-sm text-gray-900 border border-gray-200' : 'text-gray-500 hover:bg-gray-200/50'" class="flex-1 py-2 text-xs md:text-sm font-bold rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1.5"><Layers class="size-3.5 shrink-0" />Tutto</button>
+                <button @click="checkoutMode = 'romana'" :class="checkoutMode === 'romana' ? 'bg-white shadow-sm text-gray-900 border border-gray-200' : 'text-gray-500 hover:bg-gray-200/50'" class="flex-1 py-2 text-xs md:text-sm font-bold rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1.5"><Users class="size-3.5 shrink-0" />Romana</button>
+                <button @click="checkoutMode = 'ordini'" :class="checkoutMode === 'ordini' ? 'bg-white shadow-sm text-gray-900 border border-gray-200' : 'text-gray-500 hover:bg-gray-200/50'" class="flex-1 py-2 text-xs md:text-sm font-bold rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1.5"><ListChecks class="size-3.5 shrink-0" />Comanda</button>
               </div>
 
               <!-- Romana -->
@@ -349,6 +352,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue';
 import {
   Grid3x3, Users, X, Plus, Coffee, Edit, AlertTriangle, CheckCircle,
   Ban, Undo2, Code, Minus, Receipt, ArrowRightLeft, Merge, Timer,
+  Layers, ListChecks,
 } from 'lucide-vue-next';
 import { Banknote, CreditCard } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
