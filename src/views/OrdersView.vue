@@ -29,8 +29,8 @@ onMounted(async () => {
   }
 });
 
-async function handleOpenTable(tableLabel) {
-  const table = store.config.tables.find(t => t.label === tableLabel);
+async function handleOpenTable(tableId) {
+  const table = store.config.tables.find(t => t.id === tableId);
   if (table) {
     store.pendingOpenTable = table;
     await router.push('/sala');
