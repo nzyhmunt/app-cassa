@@ -341,19 +341,21 @@
                   <span class="font-bold text-sm text-gray-800 truncate">{{ cartItem.name }}</span>
                   <span class="text-[10px] text-gray-500">{{ store.config.ui.currency }}{{ (cartItem.unitPrice + (cartItem.modifiers || []).reduce((a, m) => a + (Number(m.price) || 0), 0)).toFixed(2) }} cad.</span>
                 </div>
-                <div class="flex items-center gap-1 bg-gray-100 rounded p-0.5 shrink-0 border border-gray-200">
-                  <button @click="updateTempCartQty(idx, -1)" class="size-6 flex items-center justify-center bg-white text-gray-600 rounded shadow-sm active:scale-95"><Minus class="size-3" /></button>
-                  <span class="w-5 text-center font-black text-sm">{{ cartItem.quantity }}</span>
-                  <button @click="updateTempCartQty(idx, 1)" class="size-6 flex items-center justify-center bg-white theme-text rounded shadow-sm active:scale-95"><Plus class="size-3" /></button>
+                <div class="flex items-center gap-1.5 shrink-0">
+                  <!-- Course cycling button -->
+                  <button @click="cycleCourse(idx)"
+                    :class="courseButtonProps(cartItem.course).classes"
+                    class="size-6 flex items-center justify-center rounded shadow-sm active:scale-95 font-black text-sm transition-colors"
+                    :title="courseButtonProps(cartItem.course).title">
+                    {{ courseButtonProps(cartItem.course).num }}
+                  </button>
+                  <!-- Qty +/- -->
+                  <div class="flex items-center gap-1 bg-gray-100 rounded p-0.5 border border-gray-200">
+                    <button @click="updateTempCartQty(idx, -1)" class="size-6 flex items-center justify-center bg-white text-gray-600 rounded shadow-sm active:scale-95"><Minus class="size-3" /></button>
+                    <span class="w-5 text-center font-black text-sm">{{ cartItem.quantity }}</span>
+                    <button @click="updateTempCartQty(idx, 1)" class="size-6 flex items-center justify-center bg-white theme-text rounded shadow-sm active:scale-95"><Plus class="size-3" /></button>
+                  </div>
                 </div>
-              </div>
-              <!-- Uscita selector -->
-              <div class="px-2.5 pb-2 flex gap-1">
-                <button v-for="opt in courseOptions" :key="opt.value" @click="cartItem.course = opt.value"
-                  :class="cartItem.course === opt.value ? opt.activeClass : 'bg-gray-50 border-gray-200 text-gray-500'"
-                  class="flex-1 text-[9px] font-bold py-1 rounded border transition-all active:scale-95">
-                  {{ opt.label }}
-                </button>
               </div>
             </div>
           </div>
@@ -693,12 +695,22 @@ const targetOrderForMenu = ref(null);
 const tempCart = ref([]);
 const activeMenuCategory = ref(Object.keys(store.config.menu)[0]);
 
-// ── Course options ─────────────────────────────────────────────────────────
-const courseOptions = [
-  { value: 'prima', label: 'Esce prima', activeClass: 'bg-orange-100 border-orange-400 text-orange-800' },
-  { value: 'insieme', label: 'Insieme', activeClass: 'theme-bg text-white border-transparent' },
-  { value: 'dopo', label: 'Esce dopo', activeClass: 'bg-teal-100 border-teal-400 text-teal-800' },
-];
+// ── Course cycling ──────────────────────────────────────────────────────────
+const courseButtonMap = {
+  prima:   { num: '1', classes: 'bg-orange-400 text-white', title: 'Esce prima' },
+  insieme: { num: '2', classes: 'theme-bg text-white',      title: 'Insieme'    },
+  dopo:    { num: '3', classes: 'bg-teal-500 text-white',   title: 'Esce dopo'  },
+};
+
+function courseButtonProps(course) {
+  return courseButtonMap[course] ?? courseButtonMap.insieme;
+}
+
+function cycleCourse(idx) {
+  const order = ['prima', 'insieme', 'dopo'];
+  const current = tempCart.value[idx].course || 'insieme';
+  tempCart.value[idx].course = order[(order.indexOf(current) + 1) % order.length];
+}
 
 const tempCartTotal = computed(() =>
   tempCart.value.reduce((a, b) => {
