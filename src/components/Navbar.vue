@@ -65,7 +65,7 @@ const route = useRoute();
 const currentTime = ref(new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }));
 
 const isOrdersActive = computed(() => route.name === 'ordini');
-const isRoomActive = computed(() => route.name === 'sala');
+const isRoomActive = computed(() => route.name === 'sala' || route.name === 'storico-conti');
 
 let clockTimer = null;
 onMounted(() => {
