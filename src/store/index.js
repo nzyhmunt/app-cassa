@@ -8,6 +8,41 @@ export const useAppStore = defineStore('app', () => {
   const orders = ref(initialOrders);
   const transactions = ref([]);
 
+  // ── Menu loading state ─────────────────────────────────────────────────────
+  // menuUrl can be overridden via ?menuUrl=<url> query parameter
+  const _paramUrl = typeof window !== 'undefined'
+    ? new URLSearchParams(window.location.search).get('menuUrl')
+    : null;
+  const menuUrl = ref(_paramUrl || appConfig.menuUrl);
+  const menuLoading = ref(false);
+  const menuError = ref(null);
+
+  async function loadMenu() {
+    menuLoading.value = true;
+    menuError.value = null;
+    try {
+      const response = await fetch(menuUrl.value);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json();
+      if (
+        typeof data !== 'object' ||
+        data === null ||
+        Array.isArray(data) ||
+        !Object.values(data).every(Array.isArray)
+      ) {
+        throw new Error('Formato menu non valido');
+      }
+      config.value.menu = data;
+    } catch (e) {
+      menuError.value = e.message;
+    } finally {
+      menuLoading.value = false;
+    }
+  }
+
+  // Auto-load the menu from the configured URL on startup
+  loadMenu();
+
   // ── Cassa State ────────────────────────────────────────────────────────────
   const cashBalance = ref(0);
   const cashMovements = ref([]); // { id, type: 'versamento'|'prelievo', amount, reason, timestamp }
@@ -291,6 +326,9 @@ export const useAppStore = defineStore('app', () => {
     billRequestedTables,
     pendingOpenTable,
     pendingSelectOrder,
+    menuUrl,
+    menuLoading,
+    menuError,
     // computed
     cssVars,
     pendingCount,
@@ -307,6 +345,7 @@ export const useAppStore = defineStore('app', () => {
     restoreOrderItems,
     addTransaction,
     simulateNewOrder,
+    loadMenu,
     // table operations
     setBillRequested,
     moveTableOrders,
