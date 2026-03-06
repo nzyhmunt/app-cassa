@@ -117,6 +117,7 @@
             @click="closeTableModal"
             class="bg-white/10 hover:bg-white/20 px-3 py-2 rounded-xl font-bold text-[10px] md:text-xs flex items-center gap-1.5 transition-all active:scale-95 shrink-0 text-white"
             title="Cronologia Conti Chiusi"
+            aria-label="Storico Conti"
           >
             <History class="size-4" /> <span class="hidden lg:inline">Storico Conti</span>
           </router-link>
