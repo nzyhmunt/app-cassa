@@ -340,6 +340,26 @@ export const useAppStore = defineStore('app', () => {
     });
   }
 
+  // ── Computed: Closed bills ─────────────────────────────────────────────────
+  // A bill is "closed" when a table has recorded transactions and all its orders
+  // are now completed/rejected (i.e. table status is 'free').
+  const closedBills = computed(() => {
+    const tableIds = [...new Set(transactions.value.map(t => t.tableId).filter(Boolean))];
+    return tableIds
+      .filter(tid => getTableStatus(tid).status === 'free')
+      .map(tid => {
+        const table = config.value.tables.find(t => t.id === tid);
+        const tableTxns = transactions.value
+          .filter(t => t.tableId === tid)
+          .sort((a, b) => new Date(a.timestamp || 0) - new Date(b.timestamp || 0));
+        const tableOrds = orders.value.filter(o => o.table === tid && o.status === 'completed');
+        const totalPaid = tableTxns.reduce((a, t) => a + t.amountPaid, 0);
+        const closedAt = tableTxns[tableTxns.length - 1]?.timestamp;
+        return { tableId: tid, table, transactions: tableTxns, orders: tableOrds, totalPaid, closedAt };
+      })
+      .sort((a, b) => new Date(b.closedAt || 0) - new Date(a.closedAt || 0));
+  });
+
   // ── Cross-view navigation state ────────────────────────────────────────────
   const pendingOpenTable = ref(null);
   const pendingSelectOrder = ref(null);
@@ -364,6 +384,7 @@ export const useAppStore = defineStore('app', () => {
     // computed
     cssVars,
     pendingCount,
+    closedBills,
     // helpers
     getTableStatus,
     getTableColorClass,
