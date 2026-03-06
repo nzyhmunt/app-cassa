@@ -520,7 +520,7 @@ const tableAcceptedPayableOrders = computed(() =>
 const tableTotalAmount = computed(() => {
   if (!selectedTable.value) return 0;
   return store.orders
-    .filter(o => o.table === selectedTable.value.id && o.status === 'accepted')
+    .filter(o => o.table === selectedTable.value.id && (o.status === 'accepted' || o.status === 'completed'))
     .reduce((acc, o) => acc + o.totalAmount, 0);
 });
 
