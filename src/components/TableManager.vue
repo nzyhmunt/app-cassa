@@ -2,16 +2,32 @@
   <!-- WORKSPACE: MAPPA SALA -->
   <div class="flex-1 flex flex-col bg-gray-100/80 overflow-y-auto p-4 md:p-8 relative min-h-0">
     <div class="max-w-6xl mx-auto w-full">
-      <div class="flex justify-between items-center mb-4 md:mb-6">
+      <div class="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-2 mb-4 md:mb-6">
         <h2 class="text-xl md:text-2xl font-black text-gray-800 flex items-center gap-2 md:gap-3">
           <Grid3x3 class="text-gray-500 size-6 md:size-8" /> Mappa Sala
         </h2>
         <!-- Legenda -->
-        <div class="hidden sm:flex items-center gap-3 text-[10px] font-bold uppercase text-gray-500">
+        <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] font-bold uppercase text-gray-500">
           <span class="flex items-center gap-1"><span class="size-3 rounded-full border-2 border-emerald-400 bg-emerald-100"></span> Libero</span>
           <span class="flex items-center gap-1"><span class="size-3 rounded-full border-2 border-amber-400 bg-amber-100"></span> Ordini in Attesa</span>
           <span class="flex items-center gap-1"><span class="size-3 rounded-full border-2 border-blue-400 bg-blue-100"></span> Conto Richiesto</span>
           <span class="flex items-center gap-1"><span class="size-3 rounded-full theme-bg border-2 border-white shadow-sm"></span> Occupato / In Cassa</span>
+        </div>
+      </div>
+
+      <!-- Riepilogo stato tavoli -->
+      <div class="flex flex-wrap items-center gap-2 mb-4 md:mb-5">
+        <div class="flex items-center gap-2 bg-white rounded-xl px-3 py-2 shadow-sm border border-gray-200">
+          <span class="size-2.5 rounded-full border-2 border-emerald-400 bg-emerald-100 shrink-0"></span>
+          <span class="text-xs font-bold text-gray-700">{{ freeTablesCount }} Liberi</span>
+        </div>
+        <div class="flex items-center gap-2 bg-white rounded-xl px-3 py-2 shadow-sm border border-gray-200">
+          <span class="size-2.5 rounded-full theme-bg shrink-0"></span>
+          <span class="text-xs font-bold text-gray-700">{{ occupiedTablesCount }} Occupati</span>
+        </div>
+        <div v-if="pendingTablesCount > 0" class="flex items-center gap-2 bg-amber-50 rounded-xl px-3 py-2 shadow-sm border border-amber-200">
+          <span class="size-2.5 rounded-full border-2 border-amber-400 bg-amber-100 shrink-0"></span>
+          <span class="text-xs font-bold text-amber-800">{{ pendingTablesCount }} In Attesa</span>
         </div>
       </div>
 
@@ -354,6 +370,19 @@ const freeTables = computed(() =>
   store.config.tables.filter(
     t => t.id !== selectedTable.value?.id && store.getTableStatus(t.id).status === 'free',
   ),
+);
+
+const freeTablesCount = computed(() =>
+  store.config.tables.filter(t => store.getTableStatus(t.id).status === 'free').length,
+);
+const occupiedTablesCount = computed(() =>
+  store.config.tables.filter(t => {
+    const s = store.getTableStatus(t.id).status;
+    return s === 'occupied' || s === 'conto_richiesto';
+  }).length,
+);
+const pendingTablesCount = computed(() =>
+  store.config.tables.filter(t => store.getTableStatus(t.id).status === 'pending').length,
 );
 
 const occupiedTables = computed(() =>
