@@ -283,97 +283,6 @@
   </div>
 
   <!-- ================================================================ -->
-  <!-- MODAL GLOBALE: CARRELLO AGGIUNTA MENU (da Cassa)                 -->
-  <!-- ================================================================ -->
-  <div v-if="showAddMenuModal" class="fixed inset-0 z-[80] bg-black/80 backdrop-blur-sm flex items-end md:items-center justify-center p-0 md:p-4">
-    <div class="bg-white rounded-t-3xl md:rounded-3xl shadow-2xl w-full max-w-6xl h-[95dvh] md:h-[85vh] flex flex-col overflow-hidden relative">
-
-      <div class="bg-gray-900 text-white p-3 md:p-4 flex justify-between items-center shrink-0">
-        <div class="flex flex-col">
-          <h3 class="font-bold text-base md:text-xl flex items-center gap-2"><BookOpen class="size-4 md:size-5 text-emerald-400" /> Aggiunta Piatti in Comanda</h3>
-          <p class="text-[10px] text-gray-400 uppercase tracking-widest mt-0.5">Destinazione: Ord #{{ targetOrderForMenu ? targetOrderForMenu.id.substring(0,6) : '' }} - Tavolo {{ targetOrderForMenu?.table }}</p>
-        </div>
-        <button @click="closeMenuModal" class="bg-white/10 hover:bg-white/20 p-2 md:p-2.5 rounded-full transition-colors active:scale-95"><X class="size-5 md:size-5" /></button>
-      </div>
-
-      <div class="flex flex-1 min-h-0 flex-col md:flex-row">
-        <!-- Categorie Menu -->
-        <div class="w-full md:w-[220px] border-b md:border-b-0 md:border-r border-gray-200 bg-gray-50 flex md:flex-col overflow-x-auto md:overflow-y-auto no-scrollbar shrink-0">
-          <button v-for="(items, category) in store.config.menu" :key="'cat_'+category" @click="activeMenuCategory = category"
-              class="whitespace-nowrap md:whitespace-normal md:w-full text-center md:text-left px-4 md:px-5 py-3 md:py-4 border-b-4 md:border-b-0 md:border-l-4 border-transparent font-bold transition-colors md:flex md:justify-between md:items-center text-sm md:text-base"
-              :class="activeMenuCategory === category ? 'bg-white theme-text theme-border-b md:!border-b-transparent theme-border-l shadow-sm' : 'text-gray-600 hover:bg-gray-100'">
-            {{ category }}
-            <span v-if="activeMenuCategory === category" class="opacity-50 hidden md:flex items-center"><ChevronRight class="size-4" /></span>
-          </button>
-        </div>
-
-        <!-- Piatti Griglia -->
-        <div class="flex-1 overflow-y-auto p-2 md:p-4 bg-gray-100 md:bg-white grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 gap-2 md:gap-3 content-start min-h-0">
-          <button v-for="item in store.config.menu[activeMenuCategory]" :key="'item_'+item.id" @click="addToTempCart(item)"
-              class="text-left bg-white border border-gray-200 rounded-xl md:rounded-2xl p-3 md:p-4 hover:border-emerald-400 shadow-sm transition-all active:scale-[0.98] group flex flex-col justify-between h-full min-h-[100px] md:min-h-[120px] relative">
-
-            <span v-if="getQtyCombined(item.id) > 0" class="absolute -top-2 -right-2 bg-emerald-500 text-white size-6 md:size-7 rounded-full flex items-center justify-center text-[10px] md:text-xs font-black border-2 border-white shadow-sm z-10">
-              {{ getQtyCombined(item.id) }}
-            </span>
-            <div class="flex justify-between items-start w-full gap-2">
-              <h4 class="font-bold text-gray-800 text-xs md:text-sm leading-tight group-hover:theme-text transition-colors">{{ item.name }}</h4>
-              <span class="font-black theme-text text-xs md:text-sm shrink-0 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100">{{ store.config.ui.currency }}{{ item.price.toFixed(2) }}</span>
-            </div>
-            <div class="mt-2 text-[9px] md:text-[10px] text-gray-400 font-bold uppercase tracking-wider flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-              <Plus class="size-3" /> Aggiungi al Carrello
-            </div>
-          </button>
-        </div>
-
-        <!-- CARRELLO TEMPORANEO -->
-        <div class="w-full md:w-[320px] bg-gray-50 border-t md:border-t-0 md:border-l border-gray-200 flex flex-col shrink-0 h-[40vh] max-h-[40vh] md:max-h-none md:h-auto min-h-0">
-          <div class="p-3 bg-gray-100 border-b border-gray-200 font-bold text-gray-700 text-xs uppercase tracking-wider flex items-center gap-2 shrink-0 shadow-sm z-10">
-            <ShoppingCart class="size-4" /> Carrello Preparazione
-          </div>
-          <div class="flex-1 overflow-y-auto p-3 space-y-2">
-            <div v-if="tempCart.length === 0" class="text-center text-gray-400 py-8 flex flex-col items-center">
-              <MousePointerClick class="size-8 opacity-30 mb-2" />
-              <p class="text-xs font-medium">Tocca i piatti nel menu per prepararli qui, poi inseriscili.</p>
-            </div>
-            <div v-for="(cartItem, idx) in tempCart" :key="'cart_'+idx" class="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
-              <div class="p-2.5 flex items-center justify-between">
-                <div class="flex flex-col flex-1 min-w-0 pr-2">
-                  <span class="font-bold text-sm text-gray-800 truncate">{{ cartItem.name }}</span>
-                  <span class="text-[10px] text-gray-500">{{ store.config.ui.currency }}{{ (cartItem.unitPrice + (cartItem.modifiers || []).reduce((a, m) => a + (Number(m.price) || 0), 0)).toFixed(2) }} cad.</span>
-                </div>
-                <div class="flex items-center gap-1.5 shrink-0">
-                  <!-- Course cycling button -->
-                  <button @click="cycleCourse(idx)"
-                    :class="courseButtonProps(cartItem.course).classes"
-                    class="size-6 flex items-center justify-center rounded shadow-sm active:scale-95 font-black text-sm transition-colors"
-                    :title="courseButtonProps(cartItem.course).title">
-                    {{ courseButtonProps(cartItem.course).num }}
-                  </button>
-                  <!-- Qty +/- -->
-                  <div class="flex items-center gap-1 bg-gray-100 rounded p-0.5 border border-gray-200">
-                    <button @click="updateTempCartQty(idx, -1)" class="size-6 flex items-center justify-center bg-white text-gray-600 rounded shadow-sm active:scale-95"><Minus class="size-3" /></button>
-                    <span class="w-5 text-center font-black text-sm">{{ cartItem.quantity }}</span>
-                    <button @click="updateTempCartQty(idx, 1)" class="size-6 flex items-center justify-center bg-white theme-text rounded shadow-sm active:scale-95"><Plus class="size-3" /></button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-          <div class="p-3 md:p-4 bg-white border-t border-gray-200 shrink-0 pb-8 md:pb-4 shadow-[0_-5px_15px_rgba(0,0,0,0.05)] z-10">
-            <div class="flex justify-between items-center mb-3">
-              <span class="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Totale Aggiunte:</span>
-              <span class="font-black text-lg text-gray-900">{{ store.config.ui.currency }}{{ tempCartTotal.toFixed(2) }}</span>
-            </div>
-            <button @click="confirmAndPushCart" :disabled="tempCart.length === 0" class="w-full theme-bg text-white py-3 md:py-4 rounded-xl font-bold shadow-md hover:opacity-90 transition-opacity active:scale-95 text-sm flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
-              <CheckCircle class="size-5" /> <span>Inserisci nella Comanda</span>
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ================================================================ -->
   <!-- MODAL: SPOSTA TAVOLO                                              -->
   <!-- ================================================================ -->
   <div v-if="showMoveModal" class="fixed inset-0 z-[100] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
@@ -420,12 +329,10 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import {
   Grid3x3, Users, X, Plus, Coffee, Edit, AlertTriangle, CheckCircle,
-  Ban, Undo2, Code, Minus, BookOpen, ChevronRight, ShoppingCart, MousePointerClick,
-  Receipt, ArrowRightLeft, Merge, Timer,
+  Ban, Undo2, Code, Minus, Receipt, ArrowRightLeft, Merge, Timer,
 } from 'lucide-vue-next';
 import { Banknote, CreditCard } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
-import { updateOrderTotals } from '../utils/index.js';
 
 const emit = defineEmits(['open-order-from-table', 'new-order-for-ordini']);
 
@@ -614,8 +521,6 @@ function createNewOrderForTable() {
   store.addOrder(newOrd);
   closeTableModal();
   emit('new-order-for-ordini', newOrd);
-  // Re-open the global add-menu cart for the newly created order
-  openAddMenu(newOrd);
 }
 
 // ── Payment processing ─────────────────────────────────────────────────────
@@ -688,91 +593,6 @@ function closeJsonModal() {
   if (selectedTable.value && tableAcceptedPayableOrders.value.length === 0 && !hasPendingOrdersInTable.value) {
     closeTableModal();
   }
-}
-
-// ── Add Menu modal ─────────────────────────────────────────────────────────
-const showAddMenuModal = ref(false);
-const targetOrderForMenu = ref(null);
-const tempCart = ref([]);
-const activeMenuCategory = ref(Object.keys(store.config.menu)[0]);
-
-// ── Course cycling ──────────────────────────────────────────────────────────
-const courseButtonMap = {
-  prima:   { num: '1', classes: 'bg-orange-400 text-white', title: 'Esce prima' },
-  insieme: { num: '2', classes: 'theme-bg text-white',      title: 'Insieme'    },
-  dopo:    { num: '3', classes: 'bg-teal-500 text-white',   title: 'Esce dopo'  },
-};
-
-function courseButtonProps(course) {
-  return courseButtonMap[course] ?? courseButtonMap.insieme;
-}
-
-function cycleCourse(idx) {
-  const order = ['prima', 'insieme', 'dopo'];
-  const current = tempCart.value[idx].course || 'insieme';
-  tempCart.value[idx].course = order[(order.indexOf(current) + 1) % order.length];
-}
-
-const tempCartTotal = computed(() =>
-  tempCart.value.reduce((a, b) => {
-    const modTotal = (b.modifiers || []).reduce((ma, m) => ma + (m.price || 0), 0);
-    return a + (b.unitPrice + modTotal) * b.quantity;
-  }, 0),
-);
-
-function getQtyCombined(itemId) {
-  let qOrd = 0;
-  if (targetOrderForMenu.value) {
-    const ex = targetOrderForMenu.value.orderItems.find(
-      r => r.dishId === itemId && (!r.notes || r.notes.length === 0),
-    );
-    if (ex) qOrd = ex.quantity - (ex.voidedQuantity || 0);
-  }
-  const cEx = tempCart.value.find(r => r.dishId === itemId);
-  return qOrd + (cEx ? cEx.quantity : 0);
-}
-
-function addToTempCart(item) {
-  const existing = tempCart.value.find(r => r.dishId === item.id && (!r.modifiers || r.modifiers.length === 0));
-  if (existing) existing.quantity++;
-  else tempCart.value.push({ uid: 'tmp_' + Math.random().toString(36).slice(2, 11), dishId: item.id, name: item.name, unitPrice: item.price, quantity: 1, notes: [], voidedQuantity: 0, modifiers: [], course: 'insieme' });
-}
-
-function updateTempCartQty(idx, delta) {
-  tempCart.value[idx].quantity += delta;
-  if (tempCart.value[idx].quantity <= 0) tempCart.value.splice(idx, 1);
-}
-
-function openAddMenu(targetOrder) {
-  targetOrderForMenu.value = targetOrder;
-  tempCart.value = [];
-  showAddMenuModal.value = true;
-}
-
-function closeMenuModal() {
-  showAddMenuModal.value = false;
-  targetOrderForMenu.value = null;
-  tempCart.value = [];
-}
-
-function confirmAndPushCart() {
-  if (!targetOrderForMenu.value || tempCart.value.length === 0) return;
-  const ordRef = targetOrderForMenu.value;
-
-  tempCart.value.forEach(cartItem => {
-    const hasModifiers = cartItem.modifiers && cartItem.modifiers.length > 0;
-    const hasCourse = cartItem.course && cartItem.course !== 'insieme';
-    if (!hasModifiers && !hasCourse) {
-      const existing = ordRef.orderItems.find(
-        r => r.dishId === cartItem.dishId && (!r.notes || r.notes.length === 0) && (!r.modifiers || r.modifiers.length === 0),
-      );
-      if (existing) { existing.quantity += cartItem.quantity; return; }
-    }
-    cartItem.uid = 'r_new_' + Math.random().toString(36).slice(2, 11);
-    ordRef.orderItems.push(cartItem);
-  });
-  updateOrderTotals(ordRef);
-  closeMenuModal();
 }
 
 // ── Expose openTableDetails for parent (SalaView) ─────────────────────────
