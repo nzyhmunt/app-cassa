@@ -65,7 +65,7 @@
             </div>
             <div class="flex items-center gap-3">
               <div class="text-right hidden sm:block">
-                <p class="text-[10px] text-gray-400 font-medium">{{ bill.transactions.length }} pagamento{{ bill.transactions.length !== 1 ? 'i' : '' }}</p>
+                <p class="text-[10px] text-gray-400 font-medium">{{ bill.transactions.length }} pagament{{ bill.transactions.length !== 1 ? 'i' : 'o' }}</p>
               </div>
               <span class="font-black text-lg text-emerald-700">
                 {{ store.config.ui.currency }}{{ bill.totalPaid.toFixed(2) }}
