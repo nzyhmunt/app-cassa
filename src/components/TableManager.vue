@@ -17,25 +17,25 @@
 
       <!-- Griglia Tavoli -->
       <div class="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 md:gap-5">
-        <button v-for="tavolo in store.config.tables" :key="tavolo.id" @click="openTableDetails(tavolo)"
+        <button v-for="table in store.config.tables" :key="table.id" @click="openTableDetails(table)"
                 class="relative aspect-square rounded-[1.5rem] md:rounded-[2rem] border-[3px] md:border-[4px] flex flex-col items-center justify-center p-2 md:p-4 transition-transform active:scale-95 shadow-sm bg-white overflow-hidden group"
-                :class="store.getTableColorClass(tavolo.id)">
+                :class="store.getTableColorClass(table.id)">
 
           <span class="absolute top-2 right-2 md:top-3 md:right-3 text-[9px] md:text-xs font-bold opacity-60 flex items-center gap-0.5 md:gap-1">
-            <Users class="size-2.5 md:size-3" />{{ tavolo.coperti }}
+            <Users class="size-2.5 md:size-3" />{{ table.covers }}
           </span>
-          <h3 class="text-xl md:text-3xl font-black mt-2">{{ tavolo.label }}</h3>
+          <h3 class="text-xl md:text-3xl font-black mt-2">{{ table.label }}</h3>
 
-          <div v-if="store.getTableStatus(tavolo.id).status !== 'free'" class="mt-auto text-center w-full">
+          <div v-if="store.getTableStatus(table.id).status !== 'free'" class="mt-auto text-center w-full">
             <!-- Elapsed time badge -->
-            <span v-if="getElapsedTime(tavolo.id)" class="absolute bottom-2 left-2 text-[8px] font-bold opacity-70 flex items-center gap-0.5">
-              <Timer class="size-2.5" />{{ getElapsedTime(tavolo.id) }}
+            <span v-if="getElapsedTime(table.id)" class="absolute bottom-2 left-2 text-[8px] font-bold opacity-70 flex items-center gap-0.5">
+              <Timer class="size-2.5" />{{ getElapsedTime(table.id) }}
             </span>
             <span class="block text-[8px] md:text-[10px] font-bold uppercase tracking-widest opacity-80 mb-0.5 md:mb-1 truncate">
-              {{ store.getTableStatus(tavolo.id).status === 'pending' ? 'Attesa' : store.getTableStatus(tavolo.id).status === 'conto_richiesto' ? 'Conto!' : 'In Cassa' }}
+              {{ store.getTableStatus(table.id).status === 'pending' ? 'Attesa' : store.getTableStatus(table.id).status === 'conto_richiesto' ? 'Conto!' : 'In Cassa' }}
             </span>
             <span class="block font-black text-sm md:text-lg bg-white/20 rounded-md md:rounded-lg py-0.5 px-1 truncate">
-              {{ store.config.ui.currency }}{{ store.getTableStatus(tavolo.id).remaining.toFixed(2) }}
+              {{ store.config.ui.currency }}{{ store.getTableStatus(table.id).remaining.toFixed(2) }}
             </span>
           </div>
           <div v-else class="mt-auto text-center w-full opacity-30">
@@ -63,20 +63,20 @@
         <div class="flex items-center gap-1 md:gap-3">
           <!-- Conto Richiesto button -->
           <button v-if="tableOrders.some(o => o.status === 'accepted')"
-            @click="toggleContoRichiesto"
-            :class="store.tablesContoRichiesto.has(selectedTable.id) ? 'bg-blue-500 text-white' : 'bg-white/10 hover:bg-white/20 text-white'"
+            @click="toggleBillRequested"
+            :class="store.billRequestedTables.has(selectedTable.id) ? 'bg-blue-500 text-white' : 'bg-white/10 hover:bg-white/20 text-white'"
             class="px-3 py-2 rounded-xl font-bold text-[10px] md:text-xs flex items-center gap-1.5 transition-all active:scale-95 shrink-0"
             title="Segna Conto Richiesto">
-            <Receipt class="size-4" /> <span class="hidden sm:inline">{{ store.tablesContoRichiesto.has(selectedTable.id) ? 'Conto Richiesto' : 'Richiedi Conto' }}</span>
+            <Receipt class="size-4" /> <span class="hidden sm:inline">{{ store.billRequestedTables.has(selectedTable.id) ? 'Conto Richiesto' : 'Richiedi Conto' }}</span>
           </button>
           <!-- Sposta button -->
-          <button v-if="tableOrders.length > 0" @click="openSpostaModal"
+          <button v-if="tableOrders.length > 0" @click="openMoveModal"
             class="bg-white/10 hover:bg-white/20 px-3 py-2 rounded-xl font-bold text-[10px] md:text-xs flex items-center gap-1.5 transition-all active:scale-95 shrink-0"
             title="Sposta Tavolo">
             <ArrowRightLeft class="size-4" /> <span class="hidden sm:inline">Sposta</span>
           </button>
           <!-- Unisci button -->
-          <button v-if="tableOrders.length > 0" @click="openUnisciModal"
+          <button v-if="tableOrders.length > 0" @click="openMergeModal"
             class="bg-white/10 hover:bg-white/20 px-3 py-2 rounded-xl font-bold text-[10px] md:text-xs flex items-center gap-1.5 transition-all active:scale-95 shrink-0"
             title="Unisci con altro Tavolo">
             <Merge class="size-4" /> <span class="hidden sm:inline">Unisci</span>
@@ -117,45 +117,45 @@
                   </div>
                 </div>
                 <div class="text-right">
-                  <span class="font-black text-lg md:text-xl" :class="ord.status === 'pending' ? 'text-amber-700' : 'theme-text'">{{ store.config.ui.currency }}{{ ord.totale_importo.toFixed(2) }}</span>
+                  <span class="font-black text-lg md:text-xl" :class="ord.status === 'pending' ? 'text-amber-700' : 'theme-text'">{{ store.config.ui.currency }}{{ ord.totalAmount.toFixed(2) }}</span>
                 </div>
               </div>
 
               <!-- Voci dell'Ordine con Storni (Cassa) -->
               <div class="pl-1 space-y-0.5">
-                <div v-for="(riga, idx) in ord.righe_ordine" :key="riga.uid" class="flex flex-col py-1.5 border-b border-gray-50 last:border-0" :class="{'opacity-50': riga.quantita_stornata === riga.quantita}">
+                <div v-for="(item, idx) in ord.orderItems" :key="item.uid" class="flex flex-col py-1.5 border-b border-gray-50 last:border-0" :class="{'opacity-50': item.voidedQuantity === item.quantity}">
                   <div class="flex items-center justify-between text-sm gap-2">
                     <div class="flex items-center gap-2 flex-1 min-w-0">
-                      <span class="font-bold w-6 shrink-0 text-center text-[11px] md:text-sm" :class="riga.quantita_stornata === riga.quantita ? 'text-gray-400 line-through' : 'text-gray-700'">{{riga.quantita - (riga.quantita_stornata || 0)}}x</span>
+                      <span class="font-bold w-6 shrink-0 text-center text-[11px] md:text-sm" :class="item.voidedQuantity === item.quantity ? 'text-gray-400 line-through' : 'text-gray-700'">{{item.quantity - (item.voidedQuantity || 0)}}x</span>
                       <div class="flex flex-col min-w-0">
                         <div class="flex items-center gap-1">
-                          <span class="font-bold text-gray-800 leading-tight truncate text-xs md:text-sm" :class="{'line-through text-gray-500': riga.quantita_stornata === riga.quantita}">{{riga.nome}}</span>
-                          <span v-if="(riga.quantita_stornata || 0) > 0" class="text-[8px] md:text-[9px] text-red-500 font-bold uppercase tracking-widest border border-red-200 bg-red-50 px-1 rounded shrink-0">-{{riga.quantita_stornata}} Storn.</span>
+                          <span class="font-bold text-gray-800 leading-tight truncate text-xs md:text-sm" :class="{'line-through text-gray-500': item.voidedQuantity === item.quantity}">{{item.name}}</span>
+                          <span v-if="(item.voidedQuantity || 0) > 0" class="text-[8px] md:text-[9px] text-red-500 font-bold uppercase tracking-widest border border-red-200 bg-red-50 px-1 rounded shrink-0">-{{item.voidedQuantity}} Storn.</span>
                         </div>
-                        <div v-if="riga.note && riga.note.length > 0" class="text-[9px] text-amber-600 font-bold italic truncate">{{ riga.note.join(', ') }}</div>
+                        <div v-if="item.notes && item.notes.length > 0" class="text-[9px] text-amber-600 font-bold italic truncate">{{ item.notes.join(', ') }}</div>
                         <!-- Modificatori -->
-                        <div v-if="riga.modificatori && riga.modificatori.length > 0" class="flex flex-wrap gap-0.5 mt-0.5">
-                          <span v-for="(mod, mi) in riga.modificatori" :key="mi"
+                        <div v-if="item.modifiers && item.modifiers.length > 0" class="flex flex-wrap gap-0.5 mt-0.5">
+                          <span v-for="(mod, mi) in item.modifiers" :key="mi"
                             class="text-[8px] font-bold bg-purple-50 border border-purple-200 text-purple-700 px-1 rounded">
-                            {{ mod.nome }}{{ mod.prezzo > 0 ? ' +€'+mod.prezzo.toFixed(2) : '' }}
+                            {{ mod.name }}{{ mod.price > 0 ? ' +€'+mod.price.toFixed(2) : '' }}
                           </span>
                         </div>
                         <!-- Uscita -->
-                        <span v-if="riga.uscita && riga.uscita !== 'insieme'" class="text-[8px] font-bold uppercase px-1 py-0.5 rounded border mt-0.5 inline-block"
-                          :class="riga.uscita === 'prima' ? 'bg-orange-50 border-orange-200 text-orange-700' : 'bg-teal-50 border-teal-200 text-teal-700'">
-                          {{ riga.uscita === 'prima' ? 'Esce prima' : 'Esce dopo' }}
+                        <span v-if="item.course && item.course !== 'insieme'" class="text-[8px] font-bold uppercase px-1 py-0.5 rounded border mt-0.5 inline-block"
+                          :class="item.course === 'prima' ? 'bg-orange-50 border-orange-200 text-orange-700' : 'bg-teal-50 border-teal-200 text-teal-700'">
+                          {{ item.course === 'prima' ? 'Esce prima' : 'Esce dopo' }}
                         </span>
                       </div>
                     </div>
                     <div class="flex items-center gap-2 shrink-0">
-                      <span class="font-black text-[13px] md:text-sm" :class="riga.quantita_stornata === riga.quantita ? 'text-gray-400 line-through' : 'text-gray-800'">
-                        {{ store.config.ui.currency }}{{(cassaRigaUnitPrice(riga) * (riga.quantita - (riga.quantita_stornata || 0))).toFixed(2)}}
+                      <span class="font-black text-[13px] md:text-sm" :class="item.voidedQuantity === item.quantity ? 'text-gray-400 line-through' : 'text-gray-800'">
+                        {{ store.config.ui.currency }}{{(getOrderItemUnitPrice(item) * (item.quantity - (item.voidedQuantity || 0))).toFixed(2)}}
                       </span>
                       <div v-if="ord.status === 'accepted'" class="flex items-center gap-1 ml-1">
-                        <button @click="store.cassaStornaVoci(ord, idx, 1)" :disabled="riga.quantita - (riga.quantita_stornata || 0) <= 0" class="p-1.5 bg-white border border-orange-200 text-orange-500 hover:bg-orange-50 rounded shadow-sm transition-colors active:scale-95 disabled:opacity-30" title="Storna dal conto">
+                        <button @click="store.voidOrderItems(ord, idx, 1)" :disabled="item.quantity - (item.voidedQuantity || 0) <= 0" class="p-1.5 bg-white border border-orange-200 text-orange-500 hover:bg-orange-50 rounded shadow-sm transition-colors active:scale-95 disabled:opacity-30" title="Storna dal conto">
                           <Ban class="size-4 md:size-4" />
                         </button>
-                        <button @click="store.cassaRipristinaVoci(ord, idx, 1)" :disabled="(riga.quantita_stornata || 0) <= 0" class="p-1.5 bg-white border border-blue-200 text-blue-500 hover:bg-blue-50 rounded shadow-sm transition-colors active:scale-95 disabled:opacity-30" title="Ripristina nel conto">
+                        <button @click="store.restoreOrderItems(ord, idx, 1)" :disabled="(item.voidedQuantity || 0) <= 0" class="p-1.5 bg-white border border-blue-200 text-blue-500 hover:bg-blue-50 rounded shadow-sm transition-colors active:scale-95 disabled:opacity-30" title="Ripristina nel conto">
                           <Undo2 class="size-4 md:size-4" />
                         </button>
                       </div>
@@ -184,15 +184,15 @@
             <!-- Storico Transazioni -->
             <div v-if="tableTransactions.length > 0" class="mb-5 space-y-2">
               <h5 class="text-[10px] font-bold text-gray-400 uppercase tracking-wider border-b border-gray-100 pb-1">Storico Pagamenti Effettuati:</h5>
-              <div v-for="(txn, tIdx) in tableTransactions" :key="txn.id_transazione" class="text-xs font-bold text-emerald-700 bg-emerald-50 px-2.5 py-2 rounded-lg border border-emerald-200 flex flex-col gap-1 shadow-sm">
+              <div v-for="(txn, tIdx) in tableTransactions" :key="txn.transactionId" class="text-xs font-bold text-emerald-700 bg-emerald-50 px-2.5 py-2 rounded-lg border border-emerald-200 flex flex-col gap-1 shadow-sm">
                 <div class="flex items-center justify-between">
                   <span class="flex items-center gap-1.5">
-                    <component :is="getPaymentIcon(txn.metodo_pagamento)" class="size-3.5" />
-                    <span class="uppercase tracking-wider">{{ txn.metodo_pagamento }}</span>
+                    <component :is="getPaymentIcon(txn.paymentMethod)" class="size-3.5" />
+                    <span class="uppercase tracking-wider">{{ txn.paymentMethod }}</span>
                   </span>
-                  <span class="font-black">{{ store.config.ui.currency }}{{ txn.importo_pagato.toFixed(2) }}</span>
+                  <span class="font-black">{{ store.config.ui.currency }}{{ txn.amountPaid.toFixed(2) }}</span>
                 </div>
-                <span class="text-[9px] font-medium text-emerald-600 opacity-80">{{ new Date(txn.timestamp).toLocaleTimeString() }} - ID: {{ txn.id_transazione }}</span>
+                <span class="text-[9px] font-medium text-emerald-600 opacity-80">{{ new Date(txn.timestamp).toLocaleTimeString() }} - ID: {{ txn.transactionId }}</span>
               </div>
             </div>
             <div v-else class="mb-5"></div>
@@ -229,7 +229,7 @@
                     <input type="checkbox" v-model="selectedOrdersToPay" :value="ord.id" class="size-5 accent-purple-600 rounded">
                     <span class="text-sm font-bold text-gray-700 leading-none">Comanda #{{ ord.id.substring(0,4) }}</span>
                   </div>
-                  <span class="font-black text-base text-purple-700">{{ store.config.ui.currency }}{{ ord.totale_importo.toFixed(2) }}</span>
+                  <span class="font-black text-base text-purple-700">{{ store.config.ui.currency }}{{ ord.totalAmount.toFixed(2) }}</span>
                 </label>
                 <div v-if="tableAcceptedPayableOrders.length === 0" class="text-xs text-purple-600 font-bold italic">Nessuna comanda disponibile o da pagare.</div>
               </div>
@@ -291,7 +291,7 @@
       <div class="bg-gray-900 text-white p-3 md:p-4 flex justify-between items-center shrink-0">
         <div class="flex flex-col">
           <h3 class="font-bold text-base md:text-xl flex items-center gap-2"><BookOpen class="size-4 md:size-5 text-emerald-400" /> Aggiunta Piatti in Comanda</h3>
-          <p class="text-[10px] text-gray-400 uppercase tracking-widest mt-0.5">Destinazione: Ord #{{ targetOrderForMenu ? targetOrderForMenu.id.substring(0,6) : '' }} - Tavolo {{ targetOrderForMenu?.tavolo }}</p>
+          <p class="text-[10px] text-gray-400 uppercase tracking-widest mt-0.5">Destinazione: Ord #{{ targetOrderForMenu ? targetOrderForMenu.id.substring(0,6) : '' }} - Tavolo {{ targetOrderForMenu?.table }}</p>
         </div>
         <button @click="closeMenuModal" class="bg-white/10 hover:bg-white/20 p-2 md:p-2.5 rounded-full transition-colors active:scale-95"><X class="size-5 md:size-5" /></button>
       </div>
@@ -316,8 +316,8 @@
               {{ getQtyCombined(item.id) }}
             </span>
             <div class="flex justify-between items-start w-full gap-2">
-              <h4 class="font-bold text-gray-800 text-xs md:text-sm leading-tight group-hover:theme-text transition-colors">{{ item.nome }}</h4>
-              <span class="font-black theme-text text-xs md:text-sm shrink-0 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100">{{ store.config.ui.currency }}{{ item.prezzo.toFixed(2) }}</span>
+              <h4 class="font-bold text-gray-800 text-xs md:text-sm leading-tight group-hover:theme-text transition-colors">{{ item.name }}</h4>
+              <span class="font-black theme-text text-xs md:text-sm shrink-0 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100">{{ store.config.ui.currency }}{{ item.price.toFixed(2) }}</span>
             </div>
             <div class="mt-2 text-[9px] md:text-[10px] text-gray-400 font-bold uppercase tracking-wider flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
               <Plus class="size-3" /> Aggiungi al Carrello
@@ -338,19 +338,19 @@
             <div v-for="(cartItem, idx) in tempCart" :key="'cart_'+idx" class="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
               <div class="p-2.5 flex items-center justify-between">
                 <div class="flex flex-col flex-1 min-w-0 pr-2">
-                  <span class="font-bold text-sm text-gray-800 truncate">{{ cartItem.nome }}</span>
-                  <span class="text-[10px] text-gray-500">{{ store.config.ui.currency }}{{ (cartItem.prezzo_unitario + (cartItem.modificatori || []).reduce((a, m) => a + (Number(m.prezzo) || 0), 0)).toFixed(2) }} cad.</span>
+                  <span class="font-bold text-sm text-gray-800 truncate">{{ cartItem.name }}</span>
+                  <span class="text-[10px] text-gray-500">{{ store.config.ui.currency }}{{ (cartItem.unitPrice + (cartItem.modifiers || []).reduce((a, m) => a + (Number(m.price) || 0), 0)).toFixed(2) }} cad.</span>
                 </div>
                 <div class="flex items-center gap-1 bg-gray-100 rounded p-0.5 shrink-0 border border-gray-200">
                   <button @click="updateTempCartQty(idx, -1)" class="size-6 flex items-center justify-center bg-white text-gray-600 rounded shadow-sm active:scale-95"><Minus class="size-3" /></button>
-                  <span class="w-5 text-center font-black text-sm">{{ cartItem.quantita }}</span>
+                  <span class="w-5 text-center font-black text-sm">{{ cartItem.quantity }}</span>
                   <button @click="updateTempCartQty(idx, 1)" class="size-6 flex items-center justify-center bg-white theme-text rounded shadow-sm active:scale-95"><Plus class="size-3" /></button>
                 </div>
               </div>
               <!-- Uscita selector -->
               <div class="px-2.5 pb-2 flex gap-1">
-                <button v-for="opt in uscitaOptions" :key="opt.value" @click="cartItem.uscita = opt.value"
-                  :class="cartItem.uscita === opt.value ? opt.activeClass : 'bg-gray-50 border-gray-200 text-gray-500'"
+                <button v-for="opt in courseOptions" :key="opt.value" @click="cartItem.course = opt.value"
+                  :class="cartItem.course === opt.value ? opt.activeClass : 'bg-gray-50 border-gray-200 text-gray-500'"
                   class="flex-1 text-[9px] font-bold py-1 rounded border transition-all active:scale-95">
                   {{ opt.label }}
                 </button>
@@ -374,18 +374,18 @@
   <!-- ================================================================ -->
   <!-- MODAL: SPOSTA TAVOLO                                              -->
   <!-- ================================================================ -->
-  <div v-if="showSpostaModal" class="fixed inset-0 z-[100] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+  <div v-if="showMoveModal" class="fixed inset-0 z-[100] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
     <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-5">
       <div class="flex justify-between items-center mb-4">
         <h3 class="font-bold text-gray-800 flex items-center gap-2"><ArrowRightLeft class="size-5 theme-text" /> Sposta Tavolo {{ selectedTable?.label }}</h3>
-        <button @click="showSpostaModal = false" class="text-gray-400 hover:text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-full p-1.5 transition-colors"><X class="size-4" /></button>
+        <button @click="showMoveModal = false" class="text-gray-400 hover:text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-full p-1.5 transition-colors"><X class="size-4" /></button>
       </div>
       <p class="text-xs text-gray-500 mb-4">Seleziona il tavolo di destinazione libero. Tutti gli ordini verranno spostati.</p>
       <div class="grid grid-cols-4 gap-2 max-h-64 overflow-y-auto">
-        <button v-for="tavolo in freeTables" :key="'sp_'+tavolo.id"
-          @click="confirmSposta(tavolo)"
+        <button v-for="table in freeTables" :key="'sp_'+table.id"
+          @click="confirmMove(table)"
           class="aspect-square rounded-xl border-2 border-emerald-200 bg-emerald-50 text-emerald-800 font-black text-lg flex items-center justify-center hover:bg-emerald-100 active:scale-95 transition-all">
-          {{ tavolo.label }}
+          {{ table.label }}
         </button>
       </div>
       <div v-if="freeTables.length === 0" class="text-center text-gray-400 text-sm py-4">Nessun tavolo libero disponibile.</div>
@@ -395,18 +395,18 @@
   <!-- ================================================================ -->
   <!-- MODAL: UNISCI TAVOLI                                              -->
   <!-- ================================================================ -->
-  <div v-if="showUnisciModal" class="fixed inset-0 z-[100] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+  <div v-if="showMergeModal" class="fixed inset-0 z-[100] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
     <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-5">
       <div class="flex justify-between items-center mb-4">
         <h3 class="font-bold text-gray-800 flex items-center gap-2"><Merge class="size-5 theme-text" /> Unisci con Tavolo {{ selectedTable?.label }}</h3>
-        <button @click="showUnisciModal = false" class="text-gray-400 hover:text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-full p-1.5 transition-colors"><X class="size-4" /></button>
+        <button @click="showMergeModal = false" class="text-gray-400 hover:text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-full p-1.5 transition-colors"><X class="size-4" /></button>
       </div>
       <p class="text-xs text-gray-500 mb-4">Seleziona il tavolo con cui fondere gli ordini. I suoi ordini e i coperti verranno uniti con questo tavolo.</p>
       <div class="grid grid-cols-4 gap-2 max-h-64 overflow-y-auto">
-        <button v-for="tavolo in occupiedTables" :key="'un_'+tavolo.id"
-          @click="confirmUnisci(tavolo)"
+        <button v-for="table in occupiedTables" :key="'un_'+table.id"
+          @click="confirmMerge(table)"
           class="aspect-square rounded-xl border-2 border-[var(--brand-primary)] theme-bg text-white font-black text-lg flex items-center justify-center hover:opacity-90 active:scale-95 transition-all">
-          {{ tavolo.label }}
+          {{ table.label }}
         </button>
       </div>
       <div v-if="occupiedTables.length === 0" class="text-center text-gray-400 text-sm py-4">Nessun altro tavolo occupato disponibile.</div>
@@ -436,8 +436,8 @@ const showTableModal = ref(false);
 const selectedTable = ref(null);
 
 // ── Sposta / Unisci modal state ────────────────────────────────────────────
-const showSpostaModal = ref(false);
-const showUnisciModal = ref(false);
+const showMoveModal = ref(false);
+const showMergeModal = ref(false);
 
 const freeTables = computed(() =>
   store.config.tables.filter(
@@ -451,28 +451,28 @@ const occupiedTables = computed(() =>
   ),
 );
 
-function openSpostaModal() { showSpostaModal.value = true; }
-function openUnisciModal() { showUnisciModal.value = true; }
+function openMoveModal() { showMoveModal.value = true; }
+function openMergeModal() { showMergeModal.value = true; }
 
-function confirmSposta(targetTable) {
+function confirmMove(targetTable) {
   if (!selectedTable.value) return;
   store.moveTableOrders(selectedTable.value.id, targetTable.id);
-  showSpostaModal.value = false;
+  showMoveModal.value = false;
   // Update selectedTable to the new one
   selectedTable.value = targetTable;
 }
 
-function confirmUnisci(sourceTable) {
+function confirmMerge(sourceTable) {
   if (!selectedTable.value) return;
   store.mergeTableOrders(sourceTable.id, selectedTable.value.id);
-  showUnisciModal.value = false;
+  showMergeModal.value = false;
 }
 
-// ── Conto Richiesto ────────────────────────────────────────────────────────
-function toggleContoRichiesto() {
+// ── Bill Requested ─────────────────────────────────────────────────────────
+function toggleBillRequested() {
   if (!selectedTable.value) return;
-  const isSet = store.tablesContoRichiesto.has(selectedTable.value.id);
-  store.setContoRichiesto(selectedTable.value.id, !isSet);
+  const isSet = store.billRequestedTables.has(selectedTable.value.id);
+  store.setBillRequested(selectedTable.value.id, !isSet);
 }
 
 // ── Elapsed time timer ─────────────────────────────────────────────────────
@@ -481,8 +481,8 @@ let clockTimer = null;
 onMounted(() => { clockTimer = setInterval(() => { now.value = Date.now(); }, 30000); });
 onUnmounted(() => { if (clockTimer) clearInterval(clockTimer); });
 
-function getElapsedTime(tavoloId) {
-  const ts = store.tableOccupiedAt[tavoloId];
+function getElapsedTime(tableId) {
+  const ts = store.tableOccupiedAt[tableId];
   if (!ts) return null;
   const diffMs = now.value - new Date(ts).getTime();
   const totalMin = Math.floor(diffMs / 60000);
@@ -495,7 +495,7 @@ function getElapsedTime(tavoloId) {
 // ── Checkout state ─────────────────────────────────────────────────────────
 const checkoutMode = ref('unico');
 const splitWays = ref(2);
-const romanaPaidQuotas = ref(0);
+const splitPaidQuotas = ref(0);
 const selectedOrdersToPay = ref([]);
 
 // ── JSON modal state ───────────────────────────────────────────────────────
@@ -507,7 +507,7 @@ const jsonPayloadData = ref('{}');
 const tableOrders = computed(() => {
   if (!selectedTable.value) return [];
   return store.orders.filter(
-    o => o.tavolo === selectedTable.value.id && o.status !== 'completed' && o.status !== 'rejected',
+    o => o.table === selectedTable.value.id && o.status !== 'completed' && o.status !== 'rejected',
   );
 });
 
@@ -518,17 +518,17 @@ const tableAcceptedPayableOrders = computed(() =>
 const tableTotalAmount = computed(() => {
   if (!selectedTable.value) return 0;
   return store.orders
-    .filter(o => o.tavolo === selectedTable.value.id && o.status === 'accepted')
-    .reduce((acc, o) => acc + o.totale_importo, 0);
+    .filter(o => o.table === selectedTable.value.id && o.status === 'accepted')
+    .reduce((acc, o) => acc + o.totalAmount, 0);
 });
 
 const tableTransactions = computed(() => {
   if (!selectedTable.value) return [];
-  return store.transactions.filter(t => t.tavolo_id === selectedTable.value.id);
+  return store.transactions.filter(t => t.tableId === selectedTable.value.id);
 });
 
 const tableAmountPaid = computed(() =>
-  tableTransactions.value.reduce((acc, t) => acc + t.importo_pagato, 0),
+  tableTransactions.value.reduce((acc, t) => acc + t.amountPaid, 0),
 );
 
 const tableAmountRemaining = computed(() =>
@@ -542,13 +542,13 @@ const hasPendingOrdersInTable = computed(() =>
 const customPayAmount = computed(() => {
   const val = tableAcceptedPayableOrders.value
     .filter(o => selectedOrdersToPay.value.includes(o.id))
-    .reduce((acc, o) => acc + o.totale_importo, 0);
+    .reduce((acc, o) => acc + o.totalAmount, 0);
   return Math.min(val, tableAmountRemaining.value);
 });
 
 const quotaRomana = computed(() => {
   if (splitWays.value <= 0) return 0;
-  const waysLeft = splitWays.value - romanaPaidQuotas.value;
+  const waysLeft = splitWays.value - splitPaidQuotas.value;
   if (waysLeft <= 0) return 0;
   return tableAmountRemaining.value / waysLeft;
 });
@@ -565,33 +565,33 @@ const canPay = computed(() => {
   return true;
 });
 
-// ── Helper: icon per metodo pagamento ─────────────────────────────────────
+// ── Helper: payment method icon ────────────────────────────────────────────
 function getPaymentIcon(methodIdOrLabel) {
   const m = store.config.paymentMethods.find(x => x.label === methodIdOrLabel || x.id === methodIdOrLabel);
   if (!m) return Banknote;
   return m.icon === 'credit-card' ? CreditCard : Banknote;
 }
 
-// ── Helper: prezzo unitario riga inclusi modificatori ─────────────────────
-function cassaRigaUnitPrice(riga) {
-  const modTotal = (riga.modificatori || []).reduce((a, m) => a + (m.prezzo || 0), 0);
-  return riga.prezzo_unitario + modTotal;
+// ── Helper: unit price for an order item including modifiers ───────────────
+function getOrderItemUnitPrice(item) {
+  const modTotal = (item.modifiers || []).reduce((a, m) => a + (m.price || 0), 0);
+  return item.unitPrice + modTotal;
 }
 
 // ── Table actions ──────────────────────────────────────────────────────────
-function openTableDetails(tavolo) {
-  selectedTable.value = tavolo;
-  splitWays.value = tavolo.coperti || 2;
+function openTableDetails(table) {
+  selectedTable.value = table;
+  splitWays.value = table.covers || 2;
   checkoutMode.value = 'unico';
   selectedOrdersToPay.value = [];
 
   const pastRomana = store.transactions.filter(
-    t => t.tavolo_id === tavolo.id && t.tipo_operazione === 'romana',
+    t => t.tableId === table.id && t.operationType === 'romana',
   );
-  romanaPaidQuotas.value = pastRomana.length;
+  splitPaidQuotas.value = pastRomana.length;
   if (pastRomana.length > 0) {
     checkoutMode.value = 'romana';
-    splitWays.value = pastRomana[0].romana_ways;
+    splitWays.value = pastRomana[0].splitWays;
   }
 
   showTableModal.value = true;
@@ -606,10 +606,10 @@ function createNewOrderForTable() {
   if (!selectedTable.value) return;
   const newOrd = {
     id: 'ord_' + Math.random().toString(36).slice(2, 11),
-    tavolo: selectedTable.value.id,
+    table: selectedTable.value.id,
     status: 'pending',
     time: new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }),
-    totale_importo: 0, numero_articoli: 0, preferenze_alimentari: {}, righe_ordine: [],
+    totalAmount: 0, itemCount: 0, dietaryPreferences: {}, orderItems: [],
   };
   store.addOrder(newOrd);
   openAddMenu(newOrd);
@@ -621,24 +621,24 @@ function processTablePayment(paymentMethodId) {
 
   const amount = amountBeingPaid.value;
   const payload = {
-    id_transazione: 'txn_' + Math.random().toString(36).slice(2, 11),
-    tavolo_id: selectedTable.value.id,
-    metodo_pagamento: store.config.paymentMethods.find(m => m.id === paymentMethodId)?.label || paymentMethodId,
-    tipo_operazione: checkoutMode.value,
-    importo_pagato: amount,
+    transactionId: 'txn_' + Math.random().toString(36).slice(2, 11),
+    tableId: selectedTable.value.id,
+    paymentMethod: store.config.paymentMethods.find(m => m.id === paymentMethodId)?.label || paymentMethodId,
+    operationType: checkoutMode.value,
+    amountPaid: amount,
     timestamp: new Date().toISOString(),
-    riferimenti_ordini: [],
+    orderRefs: [],
   };
 
   if (checkoutMode.value === 'unico') {
-    payload.riferimenti_ordini = tableAcceptedPayableOrders.value.map(o => o.id);
+    payload.orderRefs = tableAcceptedPayableOrders.value.map(o => o.id);
   } else if (checkoutMode.value === 'romana') {
-    romanaPaidQuotas.value++;
-    payload.romana_quota = romanaPaidQuotas.value;
-    payload.romana_ways = splitWays.value;
-    payload.riferimenti_ordini = tableAcceptedPayableOrders.value.map(o => o.id);
+    splitPaidQuotas.value++;
+    payload.splitQuota = splitPaidQuotas.value;
+    payload.splitWays = splitWays.value;
+    payload.orderRefs = tableAcceptedPayableOrders.value.map(o => o.id);
   } else if (checkoutMode.value === 'ordini') {
-    payload.riferimenti_ordini = [...selectedOrdersToPay.value];
+    payload.orderRefs = [...selectedOrdersToPay.value];
     tableAcceptedPayableOrders.value.forEach(o => {
       if (selectedOrdersToPay.value.includes(o.id)) o.status = 'completed';
     });
@@ -661,17 +661,17 @@ function generateTableCheckoutJson(ctx = 'table') {
   jsonContext.value = ctx;
   const payload = {
     type: 'PRECONTO_API_TAVOLO',
-    tavolo: selectedTable.value.id,
-    importo_lordo: tableTotalAmount.value,
-    acconti_registrati: tableAmountPaid.value,
-    saldo_da_pagare: tableAmountRemaining.value,
-    dettaglio_voci_cucina: tableAcceptedPayableOrders.value.flatMap(o =>
-      o.righe_ordine
-        .filter(r => r.quantita_stornata !== r.quantita)
+    table: selectedTable.value.id,
+    grossAmount: tableTotalAmount.value,
+    paymentsRecorded: tableAmountPaid.value,
+    amountDue: tableAmountRemaining.value,
+    kitchenItems: tableAcceptedPayableOrders.value.flatMap(o =>
+      o.orderItems
+        .filter(r => r.voidedQuantity !== r.quantity)
         .map(r => ({
-          nome: r.nome,
-          quantita: r.quantita - (r.quantita_stornata || 0),
-          sub: r.prezzo_unitario * (r.quantita - (r.quantita_stornata || 0)),
+          name: r.name,
+          quantity: r.quantity - (r.voidedQuantity || 0),
+          subtotal: r.unitPrice * (r.quantity - (r.voidedQuantity || 0)),
         })),
     ),
   };
@@ -693,8 +693,8 @@ const targetOrderForMenu = ref(null);
 const tempCart = ref([]);
 const activeMenuCategory = ref(Object.keys(store.config.menu)[0]);
 
-// ── Uscita options ─────────────────────────────────────────────────────────
-const uscitaOptions = [
+// ── Course options ─────────────────────────────────────────────────────────
+const courseOptions = [
   { value: 'prima', label: 'Esce prima', activeClass: 'bg-orange-100 border-orange-400 text-orange-800' },
   { value: 'insieme', label: 'Insieme', activeClass: 'theme-bg text-white border-transparent' },
   { value: 'dopo', label: 'Esce dopo', activeClass: 'bg-teal-100 border-teal-400 text-teal-800' },
@@ -702,32 +702,32 @@ const uscitaOptions = [
 
 const tempCartTotal = computed(() =>
   tempCart.value.reduce((a, b) => {
-    const modTotal = (b.modificatori || []).reduce((ma, m) => ma + (m.prezzo || 0), 0);
-    return a + (b.prezzo_unitario + modTotal) * b.quantita;
+    const modTotal = (b.modifiers || []).reduce((ma, m) => ma + (m.price || 0), 0);
+    return a + (b.unitPrice + modTotal) * b.quantity;
   }, 0),
 );
 
 function getQtyCombined(itemId) {
   let qOrd = 0;
   if (targetOrderForMenu.value) {
-    const ex = targetOrderForMenu.value.righe_ordine.find(
-      r => r.id_piatto === itemId && (!r.note || r.note.length === 0),
+    const ex = targetOrderForMenu.value.orderItems.find(
+      r => r.dishId === itemId && (!r.notes || r.notes.length === 0),
     );
-    if (ex) qOrd = ex.quantita - (ex.quantita_stornata || 0);
+    if (ex) qOrd = ex.quantity - (ex.voidedQuantity || 0);
   }
-  const cEx = tempCart.value.find(r => r.id_piatto === itemId);
-  return qOrd + (cEx ? cEx.quantita : 0);
+  const cEx = tempCart.value.find(r => r.dishId === itemId);
+  return qOrd + (cEx ? cEx.quantity : 0);
 }
 
 function addToTempCart(item) {
-  const existing = tempCart.value.find(r => r.id_piatto === item.id && (!r.modificatori || r.modificatori.length === 0));
-  if (existing) existing.quantita++;
-  else tempCart.value.push({ uid: 'tmp_' + Math.random().toString(36).slice(2, 11), id_piatto: item.id, nome: item.nome, prezzo_unitario: item.prezzo, quantita: 1, note: [], quantita_stornata: 0, modificatori: [], uscita: 'insieme' });
+  const existing = tempCart.value.find(r => r.dishId === item.id && (!r.modifiers || r.modifiers.length === 0));
+  if (existing) existing.quantity++;
+  else tempCart.value.push({ uid: 'tmp_' + Math.random().toString(36).slice(2, 11), dishId: item.id, name: item.name, unitPrice: item.price, quantity: 1, notes: [], voidedQuantity: 0, modifiers: [], course: 'insieme' });
 }
 
 function updateTempCartQty(idx, delta) {
-  tempCart.value[idx].quantita += delta;
-  if (tempCart.value[idx].quantita <= 0) tempCart.value.splice(idx, 1);
+  tempCart.value[idx].quantity += delta;
+  if (tempCart.value[idx].quantity <= 0) tempCart.value.splice(idx, 1);
 }
 
 function openAddMenu(targetOrder) {
@@ -748,21 +748,21 @@ function confirmAndPushCart() {
   const ordRef = targetOrderForMenu.value;
 
   tempCart.value.forEach(cartItem => {
-    const hasModifiers = cartItem.modificatori && cartItem.modificatori.length > 0;
-    const hasUscita = cartItem.uscita && cartItem.uscita !== 'insieme';
-    if (!hasModifiers && !hasUscita) {
-      const existing = ordRef.righe_ordine.find(
-        r => r.id_piatto === cartItem.id_piatto && (!r.note || r.note.length === 0) && (!r.modificatori || r.modificatori.length === 0),
+    const hasModifiers = cartItem.modifiers && cartItem.modifiers.length > 0;
+    const hasCourse = cartItem.course && cartItem.course !== 'insieme';
+    if (!hasModifiers && !hasCourse) {
+      const existing = ordRef.orderItems.find(
+        r => r.dishId === cartItem.dishId && (!r.notes || r.notes.length === 0) && (!r.modifiers || r.modifiers.length === 0),
       );
-      if (existing) { existing.quantita += cartItem.quantita; return; }
+      if (existing) { existing.quantity += cartItem.quantity; return; }
     }
     cartItem.uid = 'r_new_' + Math.random().toString(36).slice(2, 11);
-    ordRef.righe_ordine.push(cartItem);
+    ordRef.orderItems.push(cartItem);
   });
   updateOrderTotals(ordRef);
   closeMenuModal();
 
-  // Se ordine nuovo da Cassa, vai su Ordini per gestirlo
+  // If new order from Cassa, navigate to Orders view to manage it
   if (isNewFromCassa) {
     closeTableModal();
     router.push('/ordini');

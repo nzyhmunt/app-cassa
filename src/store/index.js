@@ -9,15 +9,15 @@ export const useAppStore = defineStore('app', () => {
   const transactions = ref([]);
 
   // ── Cassa State ────────────────────────────────────────────────────────────
-  const fondoCassa = ref(0);
-  const movimentiCassa = ref([]); // { id, tipo: 'versamento'|'prelievo', importo, causale, timestamp }
-  const chiusureGiornaliere = ref([]); // stored closure summaries
+  const cashBalance = ref(0);
+  const cashMovements = ref([]); // { id, type: 'versamento'|'prelievo', amount, reason, timestamp }
+  const dailyClosures = ref([]); // stored closure summaries
 
   // ── Table extra state ──────────────────────────────────────────────────────
   // Maps tableId -> ISO timestamp of first accepted order
   const tableOccupiedAt = ref({});
-  // Set of tableIds that have requested the bill (conto_richiesto)
-  const tablesContoRichiesto = ref(new Set());
+  // Set of tableIds that have requested the bill (bill requested)
+  const billRequestedTables = ref(new Set());
 
   // ── Computed: CSS variables for theming ────────────────────────────────────
   const cssVars = computed(() => ({
@@ -29,29 +29,29 @@ export const useAppStore = defineStore('app', () => {
   const pendingCount = computed(() => orders.value.filter(o => o.status === 'pending').length);
 
   // ── Computed: Table helpers ────────────────────────────────────────────────
-  function getTableStatus(tavoloId) {
+  function getTableStatus(tableId) {
     const ords = orders.value.filter(
-      o => o.tavolo === tavoloId && o.status !== 'completed' && o.status !== 'rejected',
+      o => o.table === tableId && o.status !== 'completed' && o.status !== 'rejected',
     );
     if (ords.length === 0) return { status: 'free', total: 0, remaining: 0 };
 
     // Include completed orders in the total so that per-order payments track correctly
     const billable = orders.value.filter(
-      o => o.tavolo === tavoloId && (o.status === 'accepted' || o.status === 'completed'),
+      o => o.table === tableId && (o.status === 'accepted' || o.status === 'completed'),
     );
-    const total = billable.reduce((a, b) => a + b.totale_importo, 0);
+    const total = billable.reduce((a, b) => a + b.totalAmount, 0);
     const paid = transactions.value
-      .filter(t => t.tavolo_id === tavoloId)
-      .reduce((a, t) => a + t.importo_pagato, 0);
+      .filter(t => t.tableId === tableId)
+      .reduce((a, t) => a + t.amountPaid, 0);
     const remaining = Math.max(0, total - paid);
 
     if (ords.some(o => o.status === 'pending')) return { status: 'pending', total, remaining };
-    if (tablesContoRichiesto.value.has(tavoloId)) return { status: 'conto_richiesto', total, remaining };
+    if (billRequestedTables.value.has(tableId)) return { status: 'conto_richiesto', total, remaining };
     return { status: 'occupied', total, remaining };
   }
 
-  function getTableColorClass(tavoloId) {
-    const st = getTableStatus(tavoloId).status;
+  function getTableColorClass(tableId) {
+    const st = getTableStatus(tableId).status;
     if (st === 'free') return 'border-emerald-200 text-emerald-800 bg-emerald-50 hover:bg-emerald-100';
     if (st === 'pending') return 'border-amber-400 text-amber-900 bg-amber-50 shadow-[0_0_15px_rgba(251,191,36,0.3)]';
     if (st === 'conto_richiesto') return 'border-blue-400 text-blue-900 bg-blue-100 shadow-[0_0_15px_rgba(59,130,246,0.3)]';
@@ -71,50 +71,50 @@ export const useAppStore = defineStore('app', () => {
   function changeOrderStatus(order, newStatus) {
     order.status = newStatus;
     // When first accepted order for a table, record occupiedAt
-    if (newStatus === 'accepted' && !tableOccupiedAt.value[order.tavolo]) {
-      tableOccupiedAt.value[order.tavolo] = new Date().toISOString();
+    if (newStatus === 'accepted' && !tableOccupiedAt.value[order.table]) {
+      tableOccupiedAt.value[order.table] = new Date().toISOString();
     }
-    // When all orders for table are closed, clear occupiedAt and conto_richiesto
+    // When all orders for table are closed, clear occupiedAt and bill request
     const activeOrds = orders.value.filter(
-      o => o.tavolo === order.tavolo && o.status !== 'completed' && o.status !== 'rejected',
+      o => o.table === order.table && o.status !== 'completed' && o.status !== 'rejected',
     );
     if (activeOrds.length === 0) {
-      delete tableOccupiedAt.value[order.tavolo];
-      const nextTablesContoRichiesto = new Set(tablesContoRichiesto.value);
-      nextTablesContoRichiesto.delete(order.tavolo);
-      tablesContoRichiesto.value = nextTablesContoRichiesto;
+      delete tableOccupiedAt.value[order.table];
+      const nextBillRequestedTables = new Set(billRequestedTables.value);
+      nextBillRequestedTables.delete(order.table);
+      billRequestedTables.value = nextBillRequestedTables;
     }
   }
 
   function updateQtyGlobal(ord, idx, delta) {
     if (!ord || ord.status !== 'pending') return;
-    const riga = ord.righe_ordine[idx];
-    riga.quantita += delta;
-    if (riga.quantita <= 0) ord.righe_ordine.splice(idx, 1);
+    const item = ord.orderItems[idx];
+    item.quantity += delta;
+    if (item.quantity <= 0) ord.orderItems.splice(idx, 1);
     updateOrderTotals(ord);
   }
 
   function removeRowGlobal(ord, idx) {
     if (!ord || ord.status !== 'pending') return;
-    ord.righe_ordine.splice(idx, 1);
+    ord.orderItems.splice(idx, 1);
     updateOrderTotals(ord);
   }
 
-  function cassaStornaVoci(ord, idx, qtyToStorna) {
+  function voidOrderItems(ord, idx, qtyToVoid) {
     if (!ord || ord.status !== 'accepted') return;
-    const riga = ord.righe_ordine[idx];
-    if (!riga.quantita_stornata) riga.quantita_stornata = 0;
-    if (riga.quantita_stornata + qtyToStorna <= riga.quantita) {
-      riga.quantita_stornata += qtyToStorna;
+    const item = ord.orderItems[idx];
+    if (!item.voidedQuantity) item.voidedQuantity = 0;
+    if (item.voidedQuantity + qtyToVoid <= item.quantity) {
+      item.voidedQuantity += qtyToVoid;
       updateOrderTotals(ord);
     }
   }
 
-  function cassaRipristinaVoci(ord, idx, qtyToRestore) {
+  function restoreOrderItems(ord, idx, qtyToRestore) {
     if (!ord || ord.status !== 'accepted') return;
-    const riga = ord.righe_ordine[idx];
-    if (riga.quantita_stornata && riga.quantita_stornata >= qtyToRestore) {
-      riga.quantita_stornata -= qtyToRestore;
+    const item = ord.orderItems[idx];
+    if (item.voidedQuantity && item.voidedQuantity >= qtyToRestore) {
+      item.voidedQuantity -= qtyToRestore;
       updateOrderTotals(ord);
     }
   }
@@ -122,23 +122,23 @@ export const useAppStore = defineStore('app', () => {
   // ── Mutations: Transactions ────────────────────────────────────────────────
   function addTransaction(txn) {
     transactions.value.push(txn);
-    // Clear conto_richiesto when payment is made
-    if (txn.tavolo_id) setContoRichiesto(txn.tavolo_id, false);
+    // Clear bill request when payment is made
+    if (txn.tableId) setBillRequested(txn.tableId, false);
   }
 
   // ── Mutations: Table Operations ────────────────────────────────────────────
-  function setContoRichiesto(tavoloId, val) {
-    if (val) tablesContoRichiesto.value.add(tavoloId);
-    else tablesContoRichiesto.value.delete(tavoloId);
+  function setBillRequested(tableId, val) {
+    if (val) billRequestedTables.value.add(tableId);
+    else billRequestedTables.value.delete(tableId);
     // Trigger reactivity: replace the Set
-    tablesContoRichiesto.value = new Set(tablesContoRichiesto.value);
+    billRequestedTables.value = new Set(billRequestedTables.value);
   }
 
   function moveTableOrders(fromTableId, toTableId) {
     // Move all active (non-completed/rejected) orders from fromTableId to toTableId
     orders.value.forEach(o => {
-      if (o.tavolo === fromTableId && o.status !== 'completed' && o.status !== 'rejected') {
-        o.tavolo = toTableId;
+      if (o.table === fromTableId && o.status !== 'completed' && o.status !== 'rejected') {
+        o.table = toTableId;
       }
     });
     // Move occupiedAt if set
@@ -148,23 +148,23 @@ export const useAppStore = defineStore('app', () => {
       }
       delete tableOccupiedAt.value[fromTableId];
     }
-    // Move conto_richiesto flag
-    if (tablesContoRichiesto.value.has(fromTableId)) {
-      tablesContoRichiesto.value.delete(fromTableId);
-      tablesContoRichiesto.value.add(toTableId);
-      tablesContoRichiesto.value = new Set(tablesContoRichiesto.value);
+    // Move bill request flag
+    if (billRequestedTables.value.has(fromTableId)) {
+      billRequestedTables.value.delete(fromTableId);
+      billRequestedTables.value.add(toTableId);
+      billRequestedTables.value = new Set(billRequestedTables.value);
     }
     // Also move related transactions
     transactions.value.forEach(t => {
-      if (t.tavolo_id === fromTableId) t.tavolo_id = toTableId;
+      if (t.tableId === fromTableId) t.tableId = toTableId;
     });
   }
 
   function mergeTableOrders(sourceTableId, targetTableId) {
     // Move all active orders from sourceTableId to targetTableId
     orders.value.forEach(o => {
-      if (o.tavolo === sourceTableId && o.status !== 'completed' && o.status !== 'rejected') {
-        o.tavolo = targetTableId;
+      if (o.table === sourceTableId && o.status !== 'completed' && o.status !== 'rejected') {
+        o.table = targetTableId;
       }
     });
     // Preserve the earliest occupiedAt
@@ -176,83 +176,85 @@ export const useAppStore = defineStore('app', () => {
       }
       delete tableOccupiedAt.value[sourceTableId];
     }
-    // Clear conto_richiesto on source
-    tablesContoRichiesto.value.delete(sourceTableId);
-    tablesContoRichiesto.value = new Set(tablesContoRichiesto.value);
+    // Clear bill request on source
+    billRequestedTables.value.delete(sourceTableId);
+    billRequestedTables.value = new Set(billRequestedTables.value);
     // Move transactions
     transactions.value.forEach(t => {
-      if (t.tavolo_id === sourceTableId) t.tavolo_id = targetTableId;
+      if (t.tableId === sourceTableId) t.tableId = targetTableId;
     });
   }
 
   // ── Mutations: Cassa ───────────────────────────────────────────────────────
-  function setFondoCassa(importo) {
-    fondoCassa.value = importo;
+  function setCashBalance(amount) {
+    cashBalance.value = amount;
   }
 
-  function addMovimentoCassa(tipo, importo, causale) {
-    movimentiCassa.value.push({
+  // Backwards compatibility alias; prefer using setCashBalance going forward
+  const setFondoCassa = setCashBalance;
+  function addCashMovement(type, amount, reason) {
+    cashMovements.value.push({
       id: 'mov_' + Math.random().toString(36).slice(2, 11),
-      tipo, // 'versamento' | 'prelievo'
-      importo,
-      causale,
+      type, // 'versamento' | 'prelievo'
+      amount,
+      reason,
       timestamp: new Date().toISOString(),
     });
   }
 
-  function _buildChiusuraSummary() {
+  function _buildDailySummary() {
     // Aggregate transactions by payment method
     const byMethod = {};
     transactions.value.forEach(t => {
-      const label = t.metodo_pagamento || 'Altro';
+      const label = t.paymentMethod || 'Altro';
       if (!byMethod[label]) byMethod[label] = 0;
-      byMethod[label] += t.importo_pagato;
+      byMethod[label] += t.amountPaid;
     });
-    const totaleIncassato = Object.values(byMethod).reduce((a, b) => a + b, 0);
+    const totalReceived = Object.values(byMethod).reduce((a, b) => a + b, 0);
 
     // Total covers from completed tables
-    const completedTavoli = new Set(
-      transactions.value.map(t => t.tavolo_id).filter(Boolean),
+    const completedTables = new Set(
+      transactions.value.map(t => t.tableId).filter(Boolean),
     );
-    let totaleCoperti = 0;
-    completedTavoli.forEach(tid => {
-      const tavolo = config.value.tables.find(t => t.id === tid);
-      if (tavolo) totaleCoperti += tavolo.coperti || 0;
+    let totalCovers = 0;
+    completedTables.forEach(tid => {
+      const table = config.value.tables.find(t => t.id === tid);
+      if (table) totalCovers += table.covers || 0;
     });
 
-    const numScontrini = completedTavoli.size;
-    const scontrino_medio = numScontrini > 0 ? totaleIncassato / numScontrini : 0;
+    const receiptCount = completedTables.size;
+    const averageReceipt = receiptCount > 0 ? totalReceived / receiptCount : 0;
 
-    const totaleMov = movimentiCassa.value.reduce((acc, m) => {
-      return acc + (m.tipo === 'versamento' ? m.importo : -m.importo);
+    const totalMovements = cashMovements.value.reduce((acc, m) => {
+      return acc + (m.type === 'versamento' ? m.amount : -m.amount);
     }, 0);
 
     return {
       timestamp: new Date().toISOString(),
-      fondo_cassa: fondoCassa.value,
-      totale_incassato: totaleIncassato,
-      by_method: byMethod,
-      totale_coperti: totaleCoperti,
-      scontrino_medio,
-      num_scontrini: numScontrini,
-      movimenti_cassa: [...movimentiCassa.value],
-      totale_movimenti: totaleMov,
-      fondo_finale: fondoCassa.value + totaleIncassato + totaleMov,
+      cashBalance: cashBalance.value,
+      totalReceived,
+      byMethod,
+      totalCovers,
+      averageReceipt,
+      receiptCount,
+      cashMovementsData: [...cashMovements.value],
+      totalMovements,
+      finalBalance: cashBalance.value + totalReceived + totalMovements,
     };
   }
 
-  function chiusuraX() {
-    return _buildChiusuraSummary();
+  function generateXReport() {
+    return _buildDailySummary();
   }
 
-  function chiusuraZ() {
-    const summary = _buildChiusuraSummary();
-    summary.tipo = 'Z';
-    chiusureGiornaliere.value.push(summary);
+  function performDailyClose() {
+    const summary = _buildDailySummary();
+    summary.type = 'Z';
+    dailyClosures.value.push(summary);
     // Reset daily data
     transactions.value = [];
-    movimentiCassa.value = [];
-    fondoCassa.value = summary.fondo_finale;
+    cashMovements.value = [];
+    cashBalance.value = summary.finalBalance;
     return summary;
   }
 
@@ -261,14 +263,14 @@ export const useAppStore = defineStore('app', () => {
     const newTav = num < 10 ? '0' + num : '' + num;
     orders.value.push({
       id: 'ord_' + Math.random().toString(36).substr(2, 9),
-      tavolo: newTav,
+      table: newTav,
       status: 'pending',
       time: new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }),
-      totale_importo: 12,
-      numero_articoli: 1,
-      preferenze_alimentari: {},
-      righe_ordine: [
-        { uid: 'r_' + Date.now(), id_piatto: 'pri_2', nome: 'Amatriciana', prezzo_unitario: 12, quantita: 1, quantita_stornata: 0, note: [] },
+      totalAmount: 12,
+      itemCount: 1,
+      dietaryPreferences: {},
+      orderItems: [
+        { uid: 'r_' + Date.now(), dishId: 'pri_2', name: 'Amatriciana', unitPrice: 12, quantity: 1, voidedQuantity: 0, notes: [] },
       ],
     });
   }
@@ -282,11 +284,11 @@ export const useAppStore = defineStore('app', () => {
     config,
     orders,
     transactions,
-    fondoCassa,
-    movimentiCassa,
-    chiusureGiornaliere,
+    cashBalance,
+    cashMovements,
+    dailyClosures,
     tableOccupiedAt,
-    tablesContoRichiesto,
+    billRequestedTables,
     pendingOpenTable,
     pendingSelectOrder,
     // computed
@@ -301,18 +303,18 @@ export const useAppStore = defineStore('app', () => {
     changeOrderStatus,
     updateQtyGlobal,
     removeRowGlobal,
-    cassaStornaVoci,
-    cassaRipristinaVoci,
+    voidOrderItems,
+    restoreOrderItems,
     addTransaction,
     simulateNewOrder,
     // table operations
-    setContoRichiesto,
+    setBillRequested,
     moveTableOrders,
     mergeTableOrders,
     // cassa operations
     setFondoCassa,
-    addMovimentoCassa,
-    chiusuraX,
-    chiusuraZ,
+    addCashMovement,
+    generateXReport,
+    performDailyClose,
   };
 });

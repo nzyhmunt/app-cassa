@@ -17,14 +17,14 @@
       <router-link
         to="/ordini"
         class="flex-1 py-1.5 md:py-2 px-2 md:px-6 rounded-lg font-bold text-xs md:text-sm flex items-center justify-center gap-1.5 transition-all"
-        :class="isOrdiniActive ? 'bg-white theme-text shadow-sm' : 'text-white/90 hover:bg-white/10'"
+        :class="isOrdersActive ? 'bg-white theme-text shadow-sm' : 'text-white/90 hover:bg-white/10'"
       >
         <Receipt class="size-4 md:size-5" /> <span class="hidden sm:inline">Ordini</span>
       </router-link>
       <router-link
         to="/sala"
         class="flex-1 py-1.5 md:py-2 px-2 md:px-6 rounded-lg font-bold text-xs md:text-sm flex items-center justify-center gap-1.5 transition-all"
-        :class="isSalaActive ? 'bg-white theme-text shadow-sm' : 'text-white/90 hover:bg-white/10'"
+        :class="isRoomActive ? 'bg-white theme-text shadow-sm' : 'text-white/90 hover:bg-white/10'"
       >
         <LayoutGrid class="size-4 md:size-5" /> <span class="hidden sm:inline">Sala/Cassa</span>
       </router-link>
@@ -64,8 +64,8 @@ const store = useAppStore();
 const route = useRoute();
 const currentTime = ref(new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }));
 
-const isOrdiniActive = computed(() => route.name === 'ordini');
-const isSalaActive = computed(() => route.name === 'sala');
+const isOrdersActive = computed(() => route.name === 'ordini');
+const isRoomActive = computed(() => route.name === 'sala');
 
 let clockTimer = null;
 onMounted(() => {
