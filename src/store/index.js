@@ -343,6 +343,7 @@ export const useAppStore = defineStore('app', () => {
   // ── Cross-view navigation state ────────────────────────────────────────────
   const pendingOpenTable = ref(null);
   const pendingSelectOrder = ref(null);
+  const pendingNewOrder = ref(null);
 
   return {
     // state
@@ -356,6 +357,7 @@ export const useAppStore = defineStore('app', () => {
     billRequestedTables,
     pendingOpenTable,
     pendingSelectOrder,
+    pendingNewOrder,
     menuUrl,
     menuLoading,
     menuError,

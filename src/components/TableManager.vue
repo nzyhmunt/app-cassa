@@ -418,7 +418,6 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue';
-import { useRouter } from 'vue-router';
 import {
   Grid3x3, Users, X, Plus, Coffee, Edit, AlertTriangle, CheckCircle,
   Ban, Undo2, Code, Minus, BookOpen, ChevronRight, ShoppingCart, MousePointerClick,
@@ -428,10 +427,9 @@ import { Banknote, CreditCard } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
 import { updateOrderTotals } from '../utils/index.js';
 
-const emit = defineEmits(['open-order-from-table']);
+const emit = defineEmits(['open-order-from-table', 'new-order-for-ordini']);
 
 const store = useAppStore();
-const router = useRouter();
 
 // ── Table modal state ──────────────────────────────────────────────────────
 const showTableModal = ref(false);
@@ -614,7 +612,8 @@ function createNewOrderForTable() {
     totalAmount: 0, itemCount: 0, dietaryPreferences: {}, orderItems: [],
   };
   store.addOrder(newOrd);
-  openAddMenu(newOrd);
+  closeTableModal();
+  emit('new-order-for-ordini', newOrd);
 }
 
 // ── Payment processing ─────────────────────────────────────────────────────
@@ -756,7 +755,6 @@ function closeMenuModal() {
 
 function confirmAndPushCart() {
   if (!targetOrderForMenu.value || tempCart.value.length === 0) return;
-  const isNewFromCassa = targetOrderForMenu.value.status === 'pending';
   const ordRef = targetOrderForMenu.value;
 
   tempCart.value.forEach(cartItem => {
@@ -773,12 +771,6 @@ function confirmAndPushCart() {
   });
   updateOrderTotals(ordRef);
   closeMenuModal();
-
-  // If new order from Cassa, navigate to Orders view to manage it
-  if (isNewFromCassa) {
-    closeTableModal();
-    router.push('/ordini');
-  }
 }
 
 // ── Expose openTableDetails for parent (SalaView) ─────────────────────────
