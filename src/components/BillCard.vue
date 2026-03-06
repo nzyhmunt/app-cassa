@@ -2,7 +2,10 @@
   <div class="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
     <!-- Card header -->
     <button
+      type="button"
       @click="isOpen = !isOpen"
+      :aria-expanded="isOpen"
+      :aria-controls="'bill-detail-' + bill.closedAt"
       class="w-full flex items-center justify-between p-4 hover:bg-gray-50 transition-colors active:bg-gray-100"
     >
       <div class="flex items-center gap-3">
@@ -35,7 +38,7 @@
     </button>
 
     <!-- Expanded detail -->
-    <div v-if="isOpen" class="border-t border-gray-100 bg-gray-50">
+    <div v-if="isOpen" :id="'bill-detail-' + bill.closedAt" class="border-t border-gray-100 bg-gray-50">
 
       <!-- Payments -->
       <div class="p-4">
