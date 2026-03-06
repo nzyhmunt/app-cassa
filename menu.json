@@ -37,7 +37,7 @@
   ],
   "Contorni": [
     { "id": "con_1", "name": "Verdure di mercato grigliate", "price": 6, "descrizione": "Seasonal market vegetables grilled", "note": "Vegano", "ingredienti": ["Verdure miste"], "allergeni": [], "immagine_url": "" },
-    { "id": "con_2", "name": "Verdura di stagione ripassata", "price": 6, "descrizione": "Sautéeed seasonal greens", "note": "Vegano", "ingredienti": ["Verdura di stagione", "Aglio", "Peperoncino"], "allergeni": [], "immagine_url": "" },
+    { "id": "con_2", "name": "Verdura di stagione ripassata", "price": 6, "descrizione": "Sauteed seasonal greens", "note": "Vegano", "ingredienti": ["Verdura di stagione", "Aglio", "Peperoncino"], "allergeni": [], "immagine_url": "" },
     { "id": "con_3", "name": "Patate al forno", "price": 5, "descrizione": "Roasted potatoes", "note": "Vegano", "ingredienti": ["Patate", "Rosmarino"], "allergeni": [], "immagine_url": "" }
   ],
   "Dolci": [
