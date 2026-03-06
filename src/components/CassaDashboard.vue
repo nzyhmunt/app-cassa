@@ -278,7 +278,7 @@ const activeTab = ref('cashBalance');
 
 watch(activeTab, (tab) => {
   if (tab === 'xReport') {
-    try { refreshXReport(); } catch (_) { /* handled inside refreshXReport */ }
+    refreshXReport();
   }
 });
 
