@@ -137,65 +137,79 @@
 
           <div class="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
             <div class="divide-y divide-gray-100">
-              <div v-for="(item, index) in selectedOrder.orderItems" :key="item.uid" class="p-2 md:p-3 hover:bg-gray-50 transition-colors" :class="{'bg-gray-50 opacity-60': item.voidedQuantity === item.quantity}">
-                <div class="flex items-center justify-between gap-2 md:gap-4">
-                  <div class="flex items-center gap-2 md:gap-3 flex-1 min-w-0">
-                    <!-- Controlli +/- (Solo Pending) -->
-                    <div v-if="selectedOrder.status === 'pending'" class="flex items-center gap-1 bg-gray-100 rounded-md p-0.5 border border-gray-200 shrink-0">
-                      <button @click="store.updateQtyGlobal(selectedOrder, index, -1)" class="size-6 md:size-7 flex items-center justify-center bg-white text-gray-600 rounded shadow-sm active:scale-95"><Minus class="size-3" /></button>
-                      <span class="w-5 md:w-6 text-center font-black text-xs md:text-sm text-gray-800">{{ item.quantity }}</span>
-                      <button @click="store.updateQtyGlobal(selectedOrder, index, 1)" class="size-6 md:size-7 flex items-center justify-center bg-white theme-text rounded shadow-sm active:scale-95"><Plus class="size-3" /></button>
+              <template v-for="row in orderedOrderItems" :key="row.type === 'header' ? 'header_' + row.course : row.item?.uid">
+                <!-- Course group header -->
+                <div v-if="row.type === 'header'"
+                  class="px-3 py-1.5 flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest"
+                  :class="{
+                    'bg-orange-50 text-orange-700': row.course === 'prima',
+                    'bg-gray-50 text-gray-500': row.course === 'insieme',
+                    'bg-teal-50 text-teal-700': row.course === 'dopo',
+                  }">
+                  <Layers class="size-3 shrink-0" />
+                  {{ row.course === 'prima' ? '1 – Esce Prima' : row.course === 'insieme' ? '2 – Insieme' : '3 – Esce Dopo' }}
+                </div>
+                <!-- Order item row -->
+                <div v-else class="p-2 md:p-3 hover:bg-gray-50 transition-colors" :class="{'bg-gray-50 opacity-60': row.item.voidedQuantity === row.item.quantity}">
+                  <div class="flex items-center justify-between gap-2 md:gap-4">
+                    <div class="flex items-center gap-2 md:gap-3 flex-1 min-w-0">
+                      <!-- Controlli +/- (Solo Pending) -->
+                      <div v-if="selectedOrder.status === 'pending'" class="flex items-center gap-1 bg-gray-100 rounded-md p-0.5 border border-gray-200 shrink-0">
+                        <button @click="store.updateQtyGlobal(selectedOrder, row.index, -1)" class="size-6 md:size-7 flex items-center justify-center bg-white text-gray-600 rounded shadow-sm active:scale-95"><Minus class="size-3" /></button>
+                        <span class="w-5 md:w-6 text-center font-black text-xs md:text-sm text-gray-800">{{ row.item.quantity }}</span>
+                        <button @click="store.updateQtyGlobal(selectedOrder, row.index, 1)" class="size-6 md:size-7 flex items-center justify-center bg-white theme-text rounded shadow-sm active:scale-95"><Plus class="size-3" /></button>
+                      </div>
+                      <!-- Testo Lineare (Accettati) -->
+                      <div v-else class="w-8 shrink-0 text-center font-black text-sm md:text-base text-gray-700">
+                        {{ row.item.quantity - (row.item.voidedQuantity || 0) }}x
+                      </div>
+                      <!-- Informazioni Piatto -->
+                      <div class="flex flex-col min-w-0 flex-1">
+                        <div class="flex items-center gap-2">
+                          <span class="font-bold text-sm md:text-base text-gray-800 leading-tight truncate" :class="{'line-through': row.item.voidedQuantity === row.item.quantity}">{{ row.item.name }}</span>
+                          <span v-if="(row.item.voidedQuantity || 0) > 0" class="text-[9px] text-red-500 font-bold uppercase tracking-widest border border-red-200 bg-red-50 px-1 rounded shrink-0">-{{ row.item.voidedQuantity }} Stornati</span>
+                        </div>
+                        <div v-if="row.item.notes && row.item.notes.length > 0" class="text-[10px] md:text-xs text-amber-600 font-bold italic mt-0.5 truncate flex items-center gap-1">
+                          <MessageSquareWarning class="size-3 shrink-0" /> Note: {{ row.item.notes.join(', ') }}
+                        </div>
+                        <!-- Modificatori varianti -->
+                        <div v-if="row.item.modifiers && row.item.modifiers.length > 0" class="mt-0.5 flex flex-wrap gap-1">
+                          <span v-for="(mod, mi) in row.item.modifiers" :key="mi"
+                            class="text-[9px] md:text-[10px] font-bold bg-purple-50 border border-purple-200 text-purple-700 px-1.5 py-0.5 rounded flex items-center gap-0.5">
+                            <Sparkles class="size-2.5" />
+                            {{ mod.name }}{{ mod.price > 0 ? ' +€' + mod.price.toFixed(2) : '' }}
+                          </span>
+                        </div>
+                        <!-- Uscita badge -->
+                        <div v-if="row.item.course && row.item.course !== 'insieme'" class="mt-0.5">
+                          <span class="text-[9px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded border"
+                            :class="row.item.course === 'prima' ? 'bg-orange-50 border-orange-200 text-orange-700' : 'bg-teal-50 border-teal-200 text-teal-700'">
+                            <Layers class="size-2.5 inline mr-0.5" />{{ row.item.course === 'prima' ? 'Esce prima' : 'Esce dopo' }}
+                          </span>
+                        </div>
+                      </div>
                     </div>
-                    <!-- Testo Lineare (Accettati) -->
-                    <div v-else class="w-8 shrink-0 text-center font-black text-sm md:text-base text-gray-700">
-                      {{ item.quantity - (item.voidedQuantity || 0) }}x
-                    </div>
-                    <!-- Informazioni Piatto -->
-                    <div class="flex flex-col min-w-0 flex-1">
-                      <div class="flex items-center gap-2">
-                        <span class="font-bold text-sm md:text-base text-gray-800 leading-tight truncate" :class="{'line-through': item.voidedQuantity === item.quantity}">{{ item.name }}</span>
-                        <span v-if="(item.voidedQuantity || 0) > 0" class="text-[9px] text-red-500 font-bold uppercase tracking-widest border border-red-200 bg-red-50 px-1 rounded shrink-0">-{{ item.voidedQuantity }} Stornati</span>
-                      </div>
-                      <div v-if="item.notes && item.notes.length > 0" class="text-[10px] md:text-xs text-amber-600 font-bold italic mt-0.5 truncate flex items-center gap-1">
-                        <MessageSquareWarning class="size-3 shrink-0" /> Note: {{ item.notes.join(', ') }}
-                      </div>
-                      <!-- Modificatori varianti -->
-                      <div v-if="item.modifiers && item.modifiers.length > 0" class="mt-0.5 flex flex-wrap gap-1">
-                        <span v-for="(mod, mi) in item.modifiers" :key="mi"
-                          class="text-[9px] md:text-[10px] font-bold bg-purple-50 border border-purple-200 text-purple-700 px-1.5 py-0.5 rounded flex items-center gap-0.5">
-                          <Sparkles class="size-2.5" />
-                          {{ mod.name }}{{ mod.price > 0 ? ' +€' + mod.price.toFixed(2) : '' }}
-                        </span>
-                      </div>
-                      <!-- Uscita badge -->
-                      <div v-if="item.course && item.course !== 'insieme'" class="mt-0.5">
-                        <span class="text-[9px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded border"
-                          :class="item.course === 'prima' ? 'bg-orange-50 border-orange-200 text-orange-700' : 'bg-teal-50 border-teal-200 text-teal-700'">
-                          <Layers class="size-2.5 inline mr-0.5" />{{ item.course === 'prima' ? 'Esce prima' : 'Esce dopo' }}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
 
-                  <!-- Prezzo e Azioni -->
-                  <div class="flex items-center gap-2 md:gap-4 shrink-0">
-                    <div class="flex flex-col items-end">
-                      <span class="font-black text-sm md:text-base text-gray-800" :class="{'line-through text-gray-400': item.voidedQuantity === item.quantity}">
-                        {{ store.config.ui.currency }}{{ (getItemUnitPrice(item) * (item.quantity - (item.voidedQuantity || 0))).toFixed(2) }}
-                      </span>
-                      <span v-if="selectedOrder.status === 'pending'" class="text-[9px] text-gray-400">{{ store.config.ui.currency }}{{ getItemUnitPrice(item).toFixed(2) }} cad.</span>
-                    </div>
-                    <div v-if="selectedOrder.status === 'pending'" class="flex items-center gap-1 ml-1">
-                      <button @click="openNoteModal(selectedOrder, index)" class="p-1.5 md:p-2 text-gray-500 hover:text-[var(--brand-primary)] bg-gray-50 border border-gray-200 hover:bg-gray-100 rounded-md transition-colors active:scale-95 shadow-sm" title="Modifica Note">
-                        <PenLine class="size-4 md:size-4" />
-                      </button>
-                      <button @click="store.removeRowGlobal(selectedOrder, index)" class="p-1.5 md:p-2 text-red-500 hover:text-white bg-white border border-red-200 hover:bg-red-500 rounded-md transition-colors active:scale-95 shadow-sm" title="Rimuovi Voce">
-                        <Trash2 class="size-4 md:size-4" />
-                      </button>
+                    <!-- Prezzo e Azioni -->
+                    <div class="flex items-center gap-2 md:gap-4 shrink-0">
+                      <div class="flex flex-col items-end">
+                        <span class="font-black text-sm md:text-base text-gray-800" :class="{'line-through text-gray-400': row.item.voidedQuantity === row.item.quantity}">
+                          {{ store.config.ui.currency }}{{ (getItemUnitPrice(row.item) * (row.item.quantity - (row.item.voidedQuantity || 0))).toFixed(2) }}
+                        </span>
+                        <span v-if="selectedOrder.status === 'pending'" class="text-[9px] text-gray-400">{{ store.config.ui.currency }}{{ getItemUnitPrice(row.item).toFixed(2) }} cad.</span>
+                      </div>
+                      <div v-if="selectedOrder.status === 'pending'" class="flex items-center gap-1 ml-1">
+                        <button @click="openNoteModal(selectedOrder, row.index)" class="p-1.5 md:p-2 text-gray-500 hover:text-[var(--brand-primary)] bg-gray-50 border border-gray-200 hover:bg-gray-100 rounded-md transition-colors active:scale-95 shadow-sm" title="Modifica Note">
+                          <PenLine class="size-4 md:size-4" />
+                        </button>
+                        <button @click="store.removeRowGlobal(selectedOrder, row.index)" class="p-1.5 md:p-2 text-red-500 hover:text-white bg-white border border-red-200 hover:bg-red-500 rounded-md transition-colors active:scale-95 shadow-sm" title="Rimuovi Voce">
+                          <Trash2 class="size-4 md:size-4" />
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
+              </template>
 
               <!-- Bottone Aggiunta Rapida (Solo Pending) -->
               <div v-if="selectedOrder.status === 'pending'" class="p-3 bg-gray-50 border-t border-gray-100">
@@ -235,27 +249,25 @@
       <div class="overflow-y-auto flex-1 p-4 md:p-5 space-y-5">
         <p class="text-xs md:text-sm text-gray-500 truncate">Per: <strong>{{ noteModal.itemRef?.name }}</strong></p>
 
-        <!-- ── Note Cucina ── -->
+        <!-- ── Ordine di Uscita ── -->
         <div>
-          <p class="text-xs font-bold text-gray-500 uppercase tracking-widest mb-2 flex items-center gap-1.5"><MessageSquareWarning class="size-3.5" /> Note Cucina</p>
-
-          <div v-if="noteModal.notesArray.length > 0" class="mb-3 space-y-1.5 max-h-[120px] overflow-y-auto border border-gray-100 p-2 rounded-xl bg-gray-50">
-            <div v-for="(nota, idx) in noteModal.notesArray" :key="idx" class="flex justify-between items-center bg-white border border-gray-200 text-gray-700 px-3 py-2 rounded-lg text-xs font-bold shadow-sm">
-              <span>{{ nota }}</span>
-              <button @click="removeNoteFromModal(idx)" class="text-red-500 p-1 hover:bg-red-50 rounded-md transition-colors"><Trash2 class="size-4" /></button>
-            </div>
-          </div>
-
+          <p class="text-xs font-bold text-gray-500 uppercase tracking-widest mb-2 flex items-center gap-1.5"><Layers class="size-3.5" /> Ordine di Uscita</p>
           <div class="flex gap-2">
-            <input ref="noteInput" v-model="noteModal.inputText" type="text" placeholder="Scrivi una nota rapida..." class="w-full bg-gray-100 border border-gray-200 rounded-xl px-3 md:px-4 py-3 focus:bg-white theme-ring transition-all text-gray-800 font-medium text-sm" @keyup.enter="addNoteToModal">
-            <button @click="addNoteToModal" class="theme-bg text-white px-4 rounded-xl font-bold shadow-sm active:scale-95 flex items-center justify-center"><Plus class="size-5" /></button>
-          </div>
-
-          <div class="flex flex-wrap gap-1.5 mt-3">
-            <button @click="noteModal.inputText = 'Senza sale'; addNoteToModal()" class="px-2.5 py-1.5 bg-gray-100 border border-gray-200 hover:bg-gray-200 rounded-lg text-[10px] md:text-xs font-bold text-gray-600 transition-colors active:scale-95">Senza sale</button>
-            <button @click="noteModal.inputText = 'Ben cotto'; addNoteToModal()" class="px-2.5 py-1.5 bg-gray-100 border border-gray-200 hover:bg-gray-200 rounded-lg text-[10px] md:text-xs font-bold text-gray-600 transition-colors active:scale-95">Ben cotto</button>
-            <button @click="noteModal.inputText = 'No formaggio'; addNoteToModal()" class="px-2.5 py-1.5 bg-gray-100 border border-gray-200 hover:bg-gray-200 rounded-lg text-[10px] md:text-xs font-bold text-gray-600 transition-colors active:scale-95">No formaggio</button>
-            <button @click="noteModal.inputText = 'Da dividere'; addNoteToModal()" class="px-2.5 py-1.5 bg-gray-100 border border-gray-200 hover:bg-gray-200 rounded-lg text-[10px] md:text-xs font-bold text-gray-600 transition-colors active:scale-95">Da dividere</button>
+            <button @click="noteModal.course = 'prima'"
+              :class="noteModal.course === 'prima' ? 'bg-orange-400 text-white border-orange-400' : 'bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-200'"
+              class="flex-1 py-2.5 rounded-xl font-bold text-xs border transition-colors active:scale-95">
+              1 – Esce Prima
+            </button>
+            <button @click="noteModal.course = 'insieme'"
+              :class="noteModal.course === 'insieme' ? 'theme-bg text-white theme-border' : 'bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-200'"
+              class="flex-1 py-2.5 rounded-xl font-bold text-xs border transition-colors active:scale-95">
+              2 – Insieme
+            </button>
+            <button @click="noteModal.course = 'dopo'"
+              :class="noteModal.course === 'dopo' ? 'bg-teal-500 text-white border-teal-500' : 'bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-200'"
+              class="flex-1 py-2.5 rounded-xl font-bold text-xs border transition-colors active:scale-95">
+              3 – Esce Dopo
+            </button>
           </div>
         </div>
 
@@ -270,7 +282,7 @@
             </div>
           </div>
 
-          <div class="flex gap-2 mb-3">
+          <div v-if="store.config.ui.allowCustomVariants" class="flex gap-2 mb-3">
             <input v-model="noteModal.modName" type="text" placeholder="Es. Mozzarella, Senza glutine..." class="flex-1 bg-gray-100 border border-gray-200 rounded-xl px-3 py-3 focus:bg-white theme-ring transition-all text-gray-800 font-medium text-sm" @keyup.enter="addModToNoteModal">
             <div class="relative w-24 shrink-0">
               <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm font-bold">{{ store.config.ui.currency }}</span>
@@ -291,25 +303,27 @@
           </div>
         </div>
 
-        <!-- ── Ordine di Uscita ── -->
+        <!-- ── Note Cucina ── -->
         <div class="pt-4 border-t border-gray-100">
-          <p class="text-xs font-bold text-gray-500 uppercase tracking-widest mb-2 flex items-center gap-1.5"><Layers class="size-3.5" /> Ordine di Uscita</p>
+          <p class="text-xs font-bold text-gray-500 uppercase tracking-widest mb-2 flex items-center gap-1.5"><MessageSquareWarning class="size-3.5" /> Note Cucina</p>
+
+          <div v-if="noteModal.notesArray.length > 0" class="mb-3 space-y-1.5 max-h-[120px] overflow-y-auto border border-gray-100 p-2 rounded-xl bg-gray-50">
+            <div v-for="(nota, idx) in noteModal.notesArray" :key="idx" class="flex justify-between items-center bg-white border border-gray-200 text-gray-700 px-3 py-2 rounded-lg text-xs font-bold shadow-sm">
+              <span>{{ nota }}</span>
+              <button @click="removeNoteFromModal(idx)" class="text-red-500 p-1 hover:bg-red-50 rounded-md transition-colors"><Trash2 class="size-4" /></button>
+            </div>
+          </div>
+
           <div class="flex gap-2">
-            <button @click="noteModal.course = 'prima'"
-              :class="noteModal.course === 'prima' ? 'bg-orange-400 text-white border-orange-400' : 'bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-200'"
-              class="flex-1 py-2.5 rounded-xl font-bold text-xs border transition-colors active:scale-95">
-              1 – Esce Prima
-            </button>
-            <button @click="noteModal.course = 'insieme'"
-              :class="noteModal.course === 'insieme' ? 'theme-bg text-white theme-border' : 'bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-200'"
-              class="flex-1 py-2.5 rounded-xl font-bold text-xs border transition-colors active:scale-95">
-              2 – Insieme
-            </button>
-            <button @click="noteModal.course = 'dopo'"
-              :class="noteModal.course === 'dopo' ? 'bg-teal-500 text-white border-teal-500' : 'bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-200'"
-              class="flex-1 py-2.5 rounded-xl font-bold text-xs border transition-colors active:scale-95">
-              3 – Esce Dopo
-            </button>
+            <input ref="noteInput" v-model="noteModal.inputText" type="text" placeholder="Scrivi una nota rapida..." class="w-full bg-gray-100 border border-gray-200 rounded-xl px-3 md:px-4 py-3 focus:bg-white theme-ring transition-all text-gray-800 font-medium text-sm" @keyup.enter="addNoteToModal">
+            <button @click="addNoteToModal" class="theme-bg text-white px-4 rounded-xl font-bold shadow-sm active:scale-95 flex items-center justify-center"><Plus class="size-5" /></button>
+          </div>
+
+          <div class="flex flex-wrap gap-1.5 mt-3">
+            <button @click="noteModal.inputText = 'Senza sale'; addNoteToModal()" class="px-2.5 py-1.5 bg-gray-100 border border-gray-200 hover:bg-gray-200 rounded-lg text-[10px] md:text-xs font-bold text-gray-600 transition-colors active:scale-95">Senza sale</button>
+            <button @click="noteModal.inputText = 'Ben cotto'; addNoteToModal()" class="px-2.5 py-1.5 bg-gray-100 border border-gray-200 hover:bg-gray-200 rounded-lg text-[10px] md:text-xs font-bold text-gray-600 transition-colors active:scale-95">Ben cotto</button>
+            <button @click="noteModal.inputText = 'No formaggio'; addNoteToModal()" class="px-2.5 py-1.5 bg-gray-100 border border-gray-200 hover:bg-gray-200 rounded-lg text-[10px] md:text-xs font-bold text-gray-600 transition-colors active:scale-95">No formaggio</button>
+            <button @click="noteModal.inputText = 'Da dividere'; addNoteToModal()" class="px-2.5 py-1.5 bg-gray-100 border border-gray-200 hover:bg-gray-200 rounded-lg text-[10px] md:text-xs font-bold text-gray-600 transition-colors active:scale-95">Da dividere</button>
           </div>
         </div>
       </div>
@@ -493,13 +507,37 @@ function getItemUnitPrice(item) {
   return item.unitPrice + modTotal;
 }
 
+// ── Course constants ───────────────────────────────────────────────────────
+const DEFAULT_COURSE = 'insieme';
+
+// ── Grouped order items by course: prima → insieme → dopo ─────────────────
+const courseOrder = ['prima', DEFAULT_COURSE, 'dopo'];
+const orderedOrderItems = computed(() => {
+  if (!selectedOrder.value) return [];
+  const groups = { prima: [], insieme: [], dopo: [] };
+  selectedOrder.value.orderItems.forEach((item, index) => {
+    const course = item.course && courseOrder.includes(item.course) ? item.course : DEFAULT_COURSE;
+    groups[course].push({ item, index });
+  });
+  const nonEmpty = courseOrder.filter(c => groups[c].length > 0);
+  const showHeaders = nonEmpty.length > 1;
+  const result = [];
+  courseOrder.forEach(course => {
+    if (groups[course].length > 0) {
+      if (showHeaders) result.push({ type: 'header', course });
+      groups[course].forEach(entry => result.push({ type: 'item', ...entry }));
+    }
+  });
+  return result;
+});
+
 // ── Note modal ─────────────────────────────────────────────────────────────
 const noteInput = ref(null);
 const noteModal = ref({
   show: false, inputText: '', notesArray: [],
   rowIndex: null, targetOrd: null, itemRef: null,
   modifiersArray: [], modName: '', modPrice: 0,
-  course: 'insieme', cartIdx: null,
+  course: DEFAULT_COURSE, cartIdx: null,
 });
 
 function openNoteModal(ord, idx) {
@@ -512,7 +550,7 @@ function openNoteModal(ord, idx) {
   noteModal.value.notesArray = Array.isArray(existing) ? [...existing] : [];
   const existingMods = ord.orderItems[idx].modifiers;
   noteModal.value.modifiersArray = Array.isArray(existingMods) ? existingMods.map(m => ({ ...m })) : [];
-  noteModal.value.course = ord.orderItems[idx].course || 'insieme';
+  noteModal.value.course = ord.orderItems[idx].course || DEFAULT_COURSE;
   noteModal.value.inputText = '';
   noteModal.value.modName = '';
   noteModal.value.modPrice = 0;
@@ -531,7 +569,7 @@ function openCartNoteModal(idx) {
   noteModal.value.notesArray = Array.isArray(existing) ? [...existing] : [];
   const existingMods = cartItem.modifiers;
   noteModal.value.modifiersArray = Array.isArray(existingMods) ? existingMods.map(m => ({ ...m })) : [];
-  noteModal.value.course = cartItem.course || 'insieme';
+  noteModal.value.course = cartItem.course || DEFAULT_COURSE;
   noteModal.value.inputText = '';
   noteModal.value.modName = '';
   noteModal.value.modPrice = 0;
@@ -631,10 +669,17 @@ function getQtyCombined(itemId) {
   return qOrd + (cEx ? cEx.quantity : 0);
 }
 
+// ── Cart merge helper ─────────────────────────────────────────────────────
+function canMergeCartItem(item) {
+  return (!item.modifiers || item.modifiers.length === 0) &&
+         (!item.notes || item.notes.length === 0) &&
+         (!item.course || item.course === DEFAULT_COURSE);
+}
+
 function addToTempCart(item) {
-  const existing = tempCart.value.find(r => r.dishId === item.id && (!r.modifiers || r.modifiers.length === 0));
+  const existing = tempCart.value.find(r => r.dishId === item.id && canMergeCartItem(r));
   if (existing) existing.quantity++;
-  else tempCart.value.push({ uid: 'tmp_' + Math.random().toString(36).slice(2, 11), dishId: item.id, name: item.name, unitPrice: item.price, quantity: 1, notes: [], voidedQuantity: 0, modifiers: [], course: 'insieme' });
+  else tempCart.value.push({ uid: 'tmp_' + Math.random().toString(36).slice(2, 11), dishId: item.id, name: item.name, unitPrice: item.price, quantity: 1, notes: [], voidedQuantity: 0, modifiers: [], course: DEFAULT_COURSE });
 }
 
 function updateTempCartQty(idx, delta) {
@@ -654,9 +699,8 @@ function courseButtonProps(course) {
 }
 
 function cycleCourse(idx) {
-  const order = ['prima', 'insieme', 'dopo'];
-  const current = tempCart.value[idx].course || 'insieme';
-  const next = order[(order.indexOf(current) + 1) % order.length];
+  const current = tempCart.value[idx].course || DEFAULT_COURSE;
+  const next = courseOrder[(courseOrder.indexOf(current) + 1) % courseOrder.length];
   tempCart.value[idx].course = next;
 }
 
@@ -676,12 +720,9 @@ function confirmAndPushCart() {
   if (!targetOrderForMenu.value || tempCart.value.length === 0) return;
   const ordRef = targetOrderForMenu.value;
   tempCart.value.forEach(cartItem => {
-    // Only merge if no modifiers and no course variation
-    const hasModifiers = cartItem.modifiers && cartItem.modifiers.length > 0;
-    const hasCourse = cartItem.course && cartItem.course !== 'insieme';
-    if (!hasModifiers && !hasCourse) {
+    if (canMergeCartItem(cartItem)) {
       const existing = ordRef.orderItems.find(
-        r => r.dishId === cartItem.dishId && (!r.notes || r.notes.length === 0) && (!r.modifiers || r.modifiers.length === 0),
+        r => r.dishId === cartItem.dishId && canMergeCartItem(r),
       );
       if (existing) { existing.quantity += cartItem.quantity; return; }
     }
