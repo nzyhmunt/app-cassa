@@ -736,6 +736,21 @@ function createNewOrderForTable() {
   emit('new-order-for-ordini', newOrd);
 }
 
+// ── Manual bill close (used when autoCloseOnFullPayment = false) ───────────
+const autoCloseOnFullPayment = computed(() => store.config.billing?.autoCloseOnFullPayment ?? true);
+
+const canManuallyCloseBill = computed(() =>
+  !autoCloseOnFullPayment.value &&
+  tableAmountRemaining.value <= 0.01 &&
+  tableAcceptedPayableOrders.value.length > 0,
+);
+
+function closeTableBill() {
+  if (!selectedTable.value) return;
+  tableAcceptedPayableOrders.value.forEach(o => (o.status = 'completed'));
+  closeTableModal();
+}
+
 // ── Payment processing ─────────────────────────────────────────────────────
 function processTablePayment(paymentMethodId) {
   if (!selectedTable.value) return;
@@ -813,19 +828,4 @@ function closeJsonModal() {
 
 // ── Expose openTableDetails for parent (SalaView) ─────────────────────────
 defineExpose({ openTableDetails, closeTableModal });
-
-// ── Manual bill close (used when autoCloseOnFullPayment = false) ───────────
-const autoCloseOnFullPayment = computed(() => store.config.billing?.autoCloseOnFullPayment ?? true);
-
-const canManuallyCloseBill = computed(() =>
-  !autoCloseOnFullPayment.value &&
-  tableAmountRemaining.value <= 0.01 &&
-  tableAcceptedPayableOrders.value.length > 0,
-);
-
-function closeTableBill() {
-  if (!selectedTable.value) return;
-  tableAcceptedPayableOrders.value.forEach(o => (o.status = 'completed'));
-  closeTableModal();
-}
 </script>
