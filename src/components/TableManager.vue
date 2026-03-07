@@ -295,6 +295,13 @@
                 <component :is="getPaymentIcon(method.id)" class="size-5" /> {{ method.label }}
               </button>
             </div>
+
+            <!-- Manual bill close button (shown when autoCloseOnFullPayment = false) -->
+            <div v-if="canManuallyCloseBill" class="mt-3">
+              <button @click="closeTableBill" class="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl active:scale-95 transition-all shadow-md flex items-center justify-center gap-2">
+                <CheckCircle class="size-5" /> Chiudi Conto e Libera Tavolo
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -366,6 +373,69 @@
       <div v-if="occupiedTables.length === 0" class="text-center text-gray-400 text-sm py-4">Nessun altro tavolo occupato disponibile.</div>
     </div>
   </div>
+
+  <!-- ================================================================ -->
+  <!-- MODAL: NUMERO PERSONE AL TAVOLO                                   -->
+  <!-- ================================================================ -->
+  <div v-if="showPeopleModal && pendingTableToOpen" class="fixed inset-0 z-[110] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6">
+      <div class="flex justify-between items-center mb-5">
+        <h3 class="font-bold text-gray-800 text-base flex items-center gap-2">
+          <Users class="size-5 theme-text" /> Apri Tavolo {{ pendingTableToOpen?.label }}
+        </h3>
+        <button @click="showPeopleModal = false; pendingTableToOpen = null" class="text-gray-400 hover:text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-full p-1.5 transition-colors">
+          <X class="size-4" />
+        </button>
+      </div>
+
+      <!-- Adults -->
+      <div class="mb-5">
+        <label class="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Adulti</label>
+        <div class="flex items-center gap-4">
+          <button @click="peopleAdults > 0 ? peopleAdults-- : null" class="size-12 bg-gray-100 hover:bg-gray-200 rounded-xl flex items-center justify-center font-black text-gray-700 active:scale-95 transition-all">
+            <Minus class="size-5" />
+          </button>
+          <span class="text-4xl font-black text-gray-900 w-12 text-center">{{ peopleAdults }}</span>
+          <button @click="peopleAdults++" class="size-12 bg-gray-100 hover:bg-gray-200 rounded-xl flex items-center justify-center font-black text-gray-700 active:scale-95 transition-all">
+            <Plus class="size-5" />
+          </button>
+        </div>
+      </div>
+
+      <!-- Children -->
+      <div class="mb-5">
+        <label class="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Bambini</label>
+        <div class="flex items-center gap-4">
+          <button @click="peopleChildren > 0 ? peopleChildren-- : null" class="size-12 bg-gray-100 hover:bg-gray-200 rounded-xl flex items-center justify-center font-black text-gray-700 active:scale-95 transition-all">
+            <Minus class="size-5" />
+          </button>
+          <span class="text-4xl font-black text-gray-900 w-12 text-center">{{ peopleChildren }}</span>
+          <button @click="peopleChildren++" class="size-12 bg-gray-100 hover:bg-gray-200 rounded-xl flex items-center justify-center font-black text-gray-700 active:scale-95 transition-all">
+            <Plus class="size-5" />
+          </button>
+        </div>
+      </div>
+
+      <!-- Cover charge preview -->
+      <div v-if="store.config.coverCharge?.enabled && store.config.coverCharge?.autoAdd && (peopleAdults > 0 || peopleChildren > 0)"
+           class="mb-5 bg-emerald-50 border border-emerald-200 rounded-xl p-3 text-xs text-emerald-700">
+        <p class="font-bold mb-1.5 flex items-center gap-1"><Receipt class="size-3.5" /> Coperto automatico:</p>
+        <div v-if="peopleAdults > 0 && store.config.coverCharge.priceAdult > 0">
+          {{ peopleAdults }} adult{{ peopleAdults === 1 ? 'o' : 'i' }} × {{ store.config.ui.currency }}{{ store.config.coverCharge.priceAdult.toFixed(2) }}
+          = <strong>{{ store.config.ui.currency }}{{ (peopleAdults * store.config.coverCharge.priceAdult).toFixed(2) }}</strong>
+        </div>
+        <div v-if="peopleChildren > 0 && store.config.coverCharge.priceChild > 0">
+          {{ peopleChildren }} bambin{{ peopleChildren === 1 ? 'o' : 'i' }} × {{ store.config.ui.currency }}{{ store.config.coverCharge.priceChild.toFixed(2) }}
+          = <strong>{{ store.config.ui.currency }}{{ (peopleChildren * store.config.coverCharge.priceChild).toFixed(2) }}</strong>
+        </div>
+      </div>
+
+      <button @click="confirmPeopleAndOpenTable"
+              class="w-full py-3.5 theme-bg text-white font-bold rounded-xl active:scale-95 transition-all shadow-md flex items-center justify-center gap-2 text-sm md:text-base">
+        <Users class="size-5" /> Apri Tavolo
+      </button>
+    </div>
+  </div>
 </template>
 
 <script setup>
@@ -377,6 +447,7 @@ import {
 } from 'lucide-vue-next';
 import { Banknote, CreditCard } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
+import { updateOrderTotals } from '../utils/index.js';
 import ClosedBillsList from './ClosedBillsList.vue';
 
 const emit = defineEmits(['open-order-from-table', 'new-order-for-ordini']);
@@ -464,6 +535,12 @@ const splitWays = ref(2);
 const splitPaidQuotas = ref(0);
 const selectedOrdersToPay = ref([]);
 
+// ── People modal state (shown when opening a free table) ───────────────────
+const showPeopleModal = ref(false);
+const pendingTableToOpen = ref(null);
+const peopleAdults = ref(2);
+const peopleChildren = ref(0);
+
 // ── JSON modal state ───────────────────────────────────────────────────────
 const showPrecontoJson = ref(false);
 const jsonContext = ref('table');
@@ -546,8 +623,27 @@ function getOrderItemUnitPrice(item) {
 
 // ── Table actions ──────────────────────────────────────────────────────────
 function openTableDetails(table) {
+  const status = store.getTableStatus(table.id).status;
+  if (status === 'free') {
+    // Show people-count prompt before opening a free table
+    pendingTableToOpen.value = table;
+    peopleAdults.value = table.covers || 2;
+    peopleChildren.value = 0;
+    showPeopleModal.value = true;
+  } else {
+    _openTableModal(table);
+  }
+}
+
+function _openTableModal(table) {
   selectedTable.value = table;
-  splitWays.value = table.covers || 2;
+  const session = store.tableCurrentBillSession[table.id];
+  // Default romana split to adults count; fall back to total people or table covers
+  if (session) {
+    splitWays.value = session.adults > 0 ? session.adults : (session.adults + session.children) || (table.covers || 2);
+  } else {
+    splitWays.value = table.covers || 2;
+  }
   checkoutMode.value = 'unico';
   selectedOrdersToPay.value = [];
 
@@ -563,6 +659,62 @@ function openTableDetails(table) {
   showTableModal.value = true;
 }
 
+function confirmPeopleAndOpenTable() {
+  const table = pendingTableToOpen.value;
+  if (!table) return;
+
+  // Open a new billing session for this table seating
+  const billSessionId = store.openTableSession(table.id, peopleAdults.value, peopleChildren.value);
+
+  // Auto-add cover charge order if configured
+  const cc = store.config.coverCharge;
+  if (cc?.enabled && cc?.autoAdd) {
+    const coverItems = [];
+    if (peopleAdults.value > 0 && cc.priceAdult > 0) {
+      coverItems.push({
+        uid: 'cop_a_' + Math.random().toString(36).slice(2, 11),
+        dishId: cc.dishId + '_adulto',
+        name: cc.name,
+        unitPrice: cc.priceAdult,
+        quantity: peopleAdults.value,
+        voidedQuantity: 0,
+        notes: [],
+      });
+    }
+    if (peopleChildren.value > 0 && cc.priceChild > 0) {
+      coverItems.push({
+        uid: 'cop_c_' + Math.random().toString(36).slice(2, 11),
+        dishId: cc.dishId + '_bambino',
+        name: cc.name + ' bambino',
+        unitPrice: cc.priceChild,
+        quantity: peopleChildren.value,
+        voidedQuantity: 0,
+        notes: [],
+      });
+    }
+    if (coverItems.length > 0) {
+      const coverOrder = {
+        id: 'ord_' + Math.random().toString(36).slice(2, 11),
+        table: table.id,
+        billSessionId,
+        status: 'accepted',
+        time: new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }),
+        totalAmount: 0,
+        itemCount: 0,
+        dietaryPreferences: {},
+        orderItems: coverItems,
+        isCoverCharge: true,
+      };
+      updateOrderTotals(coverOrder);
+      store.addOrder(coverOrder);
+    }
+  }
+
+  showPeopleModal.value = false;
+  pendingTableToOpen.value = null;
+  _openTableModal(table);
+}
+
 function closeTableModal() {
   showTableModal.value = false;
   selectedTable.value = null;
@@ -570,9 +722,11 @@ function closeTableModal() {
 
 function createNewOrderForTable() {
   if (!selectedTable.value) return;
+  const session = store.tableCurrentBillSession[selectedTable.value.id];
   const newOrd = {
     id: 'ord_' + Math.random().toString(36).slice(2, 11),
     table: selectedTable.value.id,
+    billSessionId: session?.billSessionId ?? null,
     status: 'pending',
     time: new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }),
     totalAmount: 0, itemCount: 0, dietaryPreferences: {}, orderItems: [],
@@ -587,9 +741,11 @@ function processTablePayment(paymentMethodId) {
   if (!selectedTable.value) return;
 
   const amount = amountBeingPaid.value;
+  const session = store.tableCurrentBillSession[selectedTable.value.id];
   const payload = {
     transactionId: 'txn_' + Math.random().toString(36).slice(2, 11),
     tableId: selectedTable.value.id,
+    billSessionId: session?.billSessionId ?? null,
     paymentMethod: store.config.paymentMethods.find(m => m.id === paymentMethodId)?.label || paymentMethodId,
     operationType: checkoutMode.value,
     amountPaid: amount,
@@ -614,7 +770,8 @@ function processTablePayment(paymentMethodId) {
 
   store.addTransaction(payload);
 
-  if (tableAmountRemaining.value <= 0.01) {
+  // Close all accepted orders when fully paid, if autoCloseOnFullPayment is enabled
+  if (autoCloseOnFullPayment.value && tableAmountRemaining.value <= 0.01) {
     tableAcceptedPayableOrders.value.forEach(o => (o.status = 'completed'));
   }
 
@@ -656,4 +813,19 @@ function closeJsonModal() {
 
 // ── Expose openTableDetails for parent (SalaView) ─────────────────────────
 defineExpose({ openTableDetails, closeTableModal });
+
+// ── Manual bill close (used when autoCloseOnFullPayment = false) ───────────
+const autoCloseOnFullPayment = computed(() => store.config.billing?.autoCloseOnFullPayment ?? true);
+
+const canManuallyCloseBill = computed(() =>
+  !autoCloseOnFullPayment.value &&
+  tableAmountRemaining.value <= 0.01 &&
+  tableAcceptedPayableOrders.value.length > 0,
+);
+
+function closeTableBill() {
+  if (!selectedTable.value) return;
+  tableAcceptedPayableOrders.value.forEach(o => (o.status = 'completed'));
+  closeTableModal();
+}
 </script>

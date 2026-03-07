@@ -23,6 +23,26 @@ export const appConfig = {
     { id: "11", label: "11", covers: 2 }, { id: "12", label: "12", covers: 2 },
   ],
 
+  // CONFIGURAZIONE COPERTO
+  // enabled: abilita/disabilita il coperto automatico
+  // autoAdd: aggiunge automaticamente il coperto all'apertura del tavolo
+  // priceAdult: prezzo coperto per adulto
+  // priceChild: prezzo coperto per bambino (0 = gratuito)
+  coverCharge: {
+    enabled: true,
+    autoAdd: true,
+    priceAdult: 2.50,
+    priceChild: 1.00,
+    dishId: 'coperto',
+    name: 'Coperto',
+  },
+
+  // CONFIGURAZIONE COMPORTAMENTO CONTO
+  // autoCloseOnFullPayment: quando true, il conto si chiude automaticamente al saldo completo
+  billing: {
+    autoCloseOnFullPayment: true,
+  },
+
   // Minimal fallback menu; the full menu is loaded from the external URL at startup
   menu: {
     "Placeholder": [

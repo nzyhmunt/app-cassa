@@ -83,6 +83,8 @@ export const useAppStore = defineStore('app', () => {
   const tableOccupiedAt = ref({});
   // Set of tableIds that have requested the bill (bill requested)
   const billRequestedTables = ref(new Set());
+  // Maps tableId -> { billSessionId, adults, children } for the current open session
+  const tableCurrentBillSession = ref({});
 
   // ── Computed: CSS variables for theming ────────────────────────────────────
   const cssVars = computed(() => ({
@@ -139,12 +141,16 @@ export const useAppStore = defineStore('app', () => {
     if (newStatus === 'accepted' && !tableOccupiedAt.value[order.table]) {
       tableOccupiedAt.value[order.table] = new Date().toISOString();
     }
-    // When all orders for table are closed, clear occupiedAt and bill request
+    // When all orders for table are closed, clear occupiedAt, bill request, and session
     const activeOrds = orders.value.filter(
       o => o.table === order.table && o.status !== 'completed' && o.status !== 'rejected',
     );
     if (activeOrds.length === 0) {
       delete tableOccupiedAt.value[order.table];
+      // Clear bill session for the table
+      const nextSession = { ...tableCurrentBillSession.value };
+      delete nextSession[order.table];
+      tableCurrentBillSession.value = nextSession;
       const nextBillRequestedTables = new Set(billRequestedTables.value);
       nextBillRequestedTables.delete(order.table);
       billRequestedTables.value = nextBillRequestedTables;
@@ -197,6 +203,19 @@ export const useAppStore = defineStore('app', () => {
     else billRequestedTables.value.delete(tableId);
     // Trigger reactivity: replace the Set
     billRequestedTables.value = new Set(billRequestedTables.value);
+  }
+
+  // Opens a new billing session for a table (called when the table is first seated).
+  // Returns the generated billSessionId so callers can attach it to orders/transactions.
+  function openTableSession(tableId, adults = 0, children = 0) {
+    const billSessionId = (typeof crypto !== 'undefined' && crypto.randomUUID)
+      ? crypto.randomUUID()
+      : 'bill_' + Math.random().toString(36).slice(2, 11);
+    tableCurrentBillSession.value = {
+      ...tableCurrentBillSession.value,
+      [tableId]: { billSessionId, adults, children },
+    };
+    return billSessionId;
   }
 
   function moveTableOrders(fromTableId, toTableId) {
@@ -430,6 +449,7 @@ export const useAppStore = defineStore('app', () => {
     dailyClosures,
     tableOccupiedAt,
     billRequestedTables,
+    tableCurrentBillSession,
     pendingOpenTable,
     pendingSelectOrder,
     pendingNewOrder,
@@ -456,6 +476,7 @@ export const useAppStore = defineStore('app', () => {
     loadMenu,
     // table operations
     setBillRequested,
+    openTableSession,
     moveTableOrders,
     mergeTableOrders,
     // cassa operations
