@@ -648,7 +648,8 @@ function _openTableModal(table) {
   selectedOrdersToPay.value = [];
 
   const pastRomana = store.transactions.filter(
-    t => t.tableId === table.id && t.operationType === 'romana',
+    t => t.tableId === table.id && t.operationType === 'romana' &&
+      (!session || t.billSessionId === session.billSessionId),
   );
   splitPaidQuotas.value = pastRomana.length;
   if (pastRomana.length > 0) {
