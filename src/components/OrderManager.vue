@@ -155,7 +155,13 @@
                     <div class="flex items-center gap-2 md:gap-3 flex-1 min-w-0">
                       <!-- Controlli +/- (Solo Pending) -->
                       <div v-if="selectedOrder.status === 'pending'" class="flex items-center gap-1 bg-gray-100 rounded-md p-0.5 border border-gray-200 shrink-0">
-                        <button @click="store.updateQtyGlobal(selectedOrder, row.index, -1)" class="size-6 md:size-7 flex items-center justify-center bg-white text-gray-600 rounded shadow-sm active:scale-95"><Minus class="size-3" /></button>
+                        <button @click="store.updateQtyGlobal(selectedOrder, row.index, -1)"
+                          class="size-6 md:size-7 flex items-center justify-center bg-white rounded shadow-sm active:scale-95 transition-colors"
+                          :class="row.item.quantity === 1 ? 'text-red-500' : 'text-gray-600'"
+                          :title="row.item.quantity === 1 ? 'Rimuovi voce' : 'Diminuisci quantità'">
+                          <Trash2 v-if="row.item.quantity === 1" class="size-3" />
+                          <Minus v-else class="size-3" />
+                        </button>
                         <span class="w-5 md:w-6 text-center font-black text-xs md:text-sm text-gray-800">{{ row.item.quantity }}</span>
                         <button @click="store.updateQtyGlobal(selectedOrder, row.index, 1)" class="size-6 md:size-7 flex items-center justify-center bg-white theme-text rounded shadow-sm active:scale-95"><Plus class="size-3" /></button>
                       </div>
@@ -195,9 +201,6 @@
                       <div v-if="selectedOrder.status === 'pending'" class="flex items-center gap-1 ml-1">
                         <button @click="openNoteModal(selectedOrder, row.index)" class="p-1.5 md:p-2 text-gray-500 hover:text-[var(--brand-primary)] bg-gray-50 border border-gray-200 hover:bg-gray-100 rounded-md transition-colors active:scale-95 shadow-sm" title="Modifica Note">
                           <PenLine class="size-4 md:size-4" />
-                        </button>
-                        <button @click="store.removeRowGlobal(selectedOrder, row.index)" class="p-1.5 md:p-2 text-red-500 hover:text-white bg-white border border-red-200 hover:bg-red-500 rounded-md transition-colors active:scale-95 shadow-sm" title="Rimuovi Voce">
-                          <Trash2 class="size-4 md:size-4" />
                         </button>
                       </div>
                     </div>
@@ -405,7 +408,13 @@
                   </button>
                   <!-- Qty +/- -->
                   <div class="flex items-center gap-1 bg-gray-100 rounded p-0.5 border border-gray-200">
-                    <button @click="updateTempCartQty(idx, -1)" class="size-6 flex items-center justify-center bg-white text-gray-600 rounded shadow-sm active:scale-95"><Minus class="size-3" /></button>
+                    <button @click="updateTempCartQty(idx, -1)"
+                      class="size-6 flex items-center justify-center bg-white rounded shadow-sm active:scale-95 transition-colors"
+                      :class="cartItem.quantity === 1 ? 'text-red-500' : 'text-gray-600'"
+                      :title="cartItem.quantity === 1 ? 'Rimuovi voce' : 'Diminuisci quantità'">
+                      <Trash2 v-if="cartItem.quantity === 1" class="size-3" />
+                      <Minus v-else class="size-3" />
+                    </button>
                     <span class="w-5 text-center font-black text-sm">{{ cartItem.quantity }}</span>
                     <button @click="updateTempCartQty(idx, 1)" class="size-6 flex items-center justify-center bg-white theme-text rounded shadow-sm active:scale-95"><Plus class="size-3" /></button>
                   </div>
