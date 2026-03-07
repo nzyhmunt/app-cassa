@@ -682,15 +682,32 @@ function getQtyCombined(itemId) {
   return (orderQtyMap.value.get(itemId) || 0) + (cartQtyMap.value.get(itemId) || 0);
 }
 
-// ── Cart merge helper ─────────────────────────────────────────────────────
-function canMergeCartItem(item) {
-  return (!item.modifiers || item.modifiers.length === 0) &&
-         (!item.notes || item.notes.length === 0) &&
-         (!item.course || item.course === DEFAULT_COURSE);
+// ── Cart merge helpers ────────────────────────────────────────────────────
+
+/**
+ * Returns true when two order/cart items are identical and can be merged:
+ * same dish, same course, same notes (order-insensitive), and same modifiers
+ * (order-insensitive comparison by name + price).
+ */
+function itemsAreMergeable(a, b) {
+  if (a.dishId !== b.dishId) return false;
+  if ((a.course || DEFAULT_COURSE) !== (b.course || DEFAULT_COURSE)) return false;
+  // Compare notes as sorted arrays element-by-element.
+  const notesA = [...(a.notes || [])].sort();
+  const notesB = [...(b.notes || [])].sort();
+  if (notesA.length !== notesB.length || notesA.some((n, i) => n !== notesB[i])) return false;
+  // Compare modifiers as sorted arrays of {name, price} objects.
+  const normMod = m => ({ name: String(m.name), price: Number(m.price) || 0 });
+  const modsA = [...(a.modifiers || [])].map(normMod).sort((x, y) => x.name < y.name ? -1 : x.name > y.name ? 1 : x.price - y.price);
+  const modsB = [...(b.modifiers || [])].map(normMod).sort((x, y) => x.name < y.name ? -1 : x.name > y.name ? 1 : x.price - y.price);
+  if (modsA.length !== modsB.length) return false;
+  return modsA.every((m, i) => m.name === modsB[i].name && m.price === modsB[i].price);
 }
 
 function addToTempCart(item) {
-  const existing = tempCart.value.find(r => r.dishId === item.id && canMergeCartItem(r));
+  // A freshly-added menu item has no notes, no modifiers, and the default course.
+  const blank = { dishId: item.id, notes: [], modifiers: [], course: DEFAULT_COURSE };
+  const existing = tempCart.value.find(r => itemsAreMergeable(r, blank));
   if (existing) existing.quantity++;
   else tempCart.value.push({ uid: 'tmp_' + Math.random().toString(36).slice(2, 11), dishId: item.id, name: item.name, unitPrice: item.price, quantity: 1, notes: [], voidedQuantity: 0, modifiers: [], course: DEFAULT_COURSE });
 }
@@ -733,12 +750,9 @@ function confirmAndPushCart() {
   if (!targetOrderForMenu.value || tempCart.value.length === 0) return;
   const ordRef = targetOrderForMenu.value;
   tempCart.value.forEach(cartItem => {
-    if (canMergeCartItem(cartItem)) {
-      const existing = ordRef.orderItems.find(
-        r => r.dishId === cartItem.dishId && canMergeCartItem(r),
-      );
-      if (existing) { existing.quantity += cartItem.quantity; return; }
-    }
+    // Merge into an existing order item when all attributes are identical.
+    const existing = ordRef.orderItems.find(r => itemsAreMergeable(r, cartItem));
+    if (existing) { existing.quantity += cartItem.quantity; return; }
     cartItem.uid = 'r_new_' + Math.random().toString(36).slice(2, 11);
     ordRef.orderItems.push(cartItem);
   });
