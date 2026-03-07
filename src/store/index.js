@@ -238,6 +238,19 @@ export const useAppStore = defineStore('app', () => {
       billRequestedTables.value.add(toTableId);
       billRequestedTables.value = new Set(billRequestedTables.value);
     }
+    // Move bill session
+    if (tableCurrentBillSession.value[fromTableId]) {
+      if (!tableCurrentBillSession.value[toTableId]) {
+        const next = { ...tableCurrentBillSession.value };
+        next[toTableId] = next[fromTableId];
+        delete next[fromTableId];
+        tableCurrentBillSession.value = next;
+      } else {
+        const next = { ...tableCurrentBillSession.value };
+        delete next[fromTableId];
+        tableCurrentBillSession.value = next;
+      }
+    }
     // Also move related transactions
     transactions.value.forEach(t => {
       if (t.tableId === fromTableId) t.tableId = toTableId;
@@ -263,6 +276,15 @@ export const useAppStore = defineStore('app', () => {
     // Clear bill request on source
     billRequestedTables.value.delete(sourceTableId);
     billRequestedTables.value = new Set(billRequestedTables.value);
+    // Migrate bill session: prefer destination's existing session; fall back to source's
+    if (tableCurrentBillSession.value[sourceTableId]) {
+      const next = { ...tableCurrentBillSession.value };
+      if (!next[targetTableId]) {
+        next[targetTableId] = next[sourceTableId];
+      }
+      delete next[sourceTableId];
+      tableCurrentBillSession.value = next;
+    }
     // Move transactions
     transactions.value.forEach(t => {
       if (t.tableId === sourceTableId) t.tableId = targetTableId;
