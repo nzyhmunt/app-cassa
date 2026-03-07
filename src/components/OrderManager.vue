@@ -661,25 +661,25 @@ const tempCartTotal = computed(() =>
 );
 
 const orderQtyMap = computed(() => {
-  const map = {};
+  const map = new Map();
   if (targetOrderForMenu.value) {
     for (const r of targetOrderForMenu.value.orderItems) {
-      map[r.dishId] = (map[r.dishId] || 0) + (r.quantity - (r.voidedQuantity || 0));
+      map.set(r.dishId, (map.get(r.dishId) || 0) + (r.quantity - (r.voidedQuantity || 0)));
     }
   }
   return map;
 });
 
 const cartQtyMap = computed(() => {
-  const map = {};
+  const map = new Map();
   for (const r of tempCart.value) {
-    map[r.dishId] = (map[r.dishId] || 0) + r.quantity;
+    map.set(r.dishId, (map.get(r.dishId) || 0) + r.quantity);
   }
   return map;
 });
 
 function getQtyCombined(itemId) {
-  return (orderQtyMap.value[itemId] || 0) + (cartQtyMap.value[itemId] || 0);
+  return (orderQtyMap.value.get(itemId) || 0) + (cartQtyMap.value.get(itemId) || 0);
 }
 
 // ── Cart merge helper ─────────────────────────────────────────────────────
