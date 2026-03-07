@@ -474,9 +474,19 @@ const filteredOrders = computed(() => {
     .sort((a, b) => b.time.localeCompare(a.time));
 });
 
-const acceptedCount = computed(() => store.orders.filter(o => o.status === 'accepted').length);
-const historyCount = computed(() => store.orders.filter(o => o.status === 'completed' || o.status === 'rejected').length);
+const orderStatusCounts = computed(() =>
+  store.orders.reduce(
+    (acc, o) => {
+      if (o.status === 'accepted') acc.accepted += 1;
+      if (o.status === 'completed' || o.status === 'rejected') acc.history += 1;
+      return acc;
+    },
+    { accepted: 0, history: 0 },
+  ),
+);
 
+const acceptedCount = computed(() => orderStatusCounts.value.accepted);
+const historyCount = computed(() => orderStatusCounts.value.history);
 function changeTab(tab) {
   activeTab.value = tab;
   selectedOrder.value = null;
