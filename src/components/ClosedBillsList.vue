@@ -23,7 +23,7 @@
     <div v-if="expanded" class="space-y-3">
       <BillCard
         v-for="bill in store.closedBills"
-        :key="bill.tableId + '_' + (bill.billSessionId ?? '')"
+        :key="billKey(bill)"
         :bill="bill"
       />
     </div>
@@ -34,6 +34,7 @@
 import { ref } from 'vue';
 import { CheckCircle, ChevronDown } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
+import { billKey } from '../utils/index.js';
 import BillCard from './BillCard.vue';
 
 const store = useAppStore();

@@ -5,7 +5,7 @@
       type="button"
       @click="isOpen = !isOpen"
       :aria-expanded="isOpen"
-      :aria-controls="'bill-detail-' + bill.tableId + '-' + (bill.billSessionId ?? bill.closedAt)"
+      :aria-controls="'bill-panel-' + billKey(bill)"
       class="w-full flex items-center justify-between p-4 hover:bg-gray-50 transition-colors active:bg-gray-100"
     >
       <div class="flex items-center gap-3">
@@ -38,7 +38,7 @@
     </button>
 
     <!-- Expanded detail -->
-    <div v-if="isOpen" :id="'bill-detail-' + bill.tableId + '-' + (bill.billSessionId ?? bill.closedAt)" class="border-t border-gray-100 bg-gray-50">
+    <div v-if="isOpen" :id="'bill-panel-' + billKey(bill)" class="border-t border-gray-100 bg-gray-50">
 
       <!-- Payments -->
       <div class="p-4">
@@ -131,6 +131,7 @@
 import { ref } from 'vue';
 import { ChevronDown, CreditCard, ClipboardList, Banknote } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
+import { billKey } from '../utils/index.js';
 
 const props = defineProps({
   bill: {

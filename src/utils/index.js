@@ -51,6 +51,16 @@ export const initialOrders = [
 ];
 
 /**
+ * Returns a stable, unique string key for a closed bill.
+ * Use as :key in v-for lists and as the base for ARIA panel ids.
+ * @param {object} bill - Closed bill object
+ * @returns {string}
+ */
+export function billKey(bill) {
+  return bill.tableId + '_' + (bill.billSessionId ?? bill.closedAt ?? '');
+}
+
+/**
  * Recalculates itemCount and totalAmount of an order based on its items.
  * Includes modifier prices (paid variants).
  * @param {object} ord - Order object to update
