@@ -180,13 +180,7 @@
                             {{ mod.name }}{{ mod.price > 0 ? ' +€' + mod.price.toFixed(2) : '' }}
                           </span>
                         </div>
-                        <!-- Uscita badge -->
-                        <div v-if="row.item.course && row.item.course !== 'insieme'" class="mt-0.5">
-                          <span class="text-[9px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded border"
-                            :class="row.item.course === 'prima' ? 'bg-orange-50 border-orange-200 text-orange-700' : 'bg-teal-50 border-teal-200 text-teal-700'">
-                            <Layers class="size-2.5 inline mr-0.5" />{{ row.item.course === 'prima' ? 'Esce prima' : 'Esce dopo' }}
-                          </span>
-                        </div>
+
                       </div>
                     </div>
 
