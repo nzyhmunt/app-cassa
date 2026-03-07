@@ -560,14 +560,25 @@ const tableAcceptedPayableOrders = computed(() =>
 
 const tableTotalAmount = computed(() => {
   if (!selectedTable.value) return 0;
+  const session = store.tableCurrentBillSession[selectedTable.value.id];
   return store.orders
-    .filter(o => o.table === selectedTable.value.id && (o.status === 'accepted' || o.status === 'completed'))
+    .filter(o => {
+      if (o.table !== selectedTable.value.id) return false;
+      if (o.status !== 'accepted' && o.status !== 'completed') return false;
+      if (session) return o.billSessionId === session.billSessionId;
+      return true;
+    })
     .reduce((acc, o) => acc + o.totalAmount, 0);
 });
 
 const tableTransactions = computed(() => {
   if (!selectedTable.value) return [];
-  return store.transactions.filter(t => t.tableId === selectedTable.value.id);
+  const session = store.tableCurrentBillSession[selectedTable.value.id];
+  return store.transactions.filter(t => {
+    if (t.tableId !== selectedTable.value.id) return false;
+    if (session) return t.billSessionId === session.billSessionId;
+    return true;
+  });
 });
 
 const tableAmountPaid = computed(() =>
