@@ -660,17 +660,26 @@ const tempCartTotal = computed(() =>
   }, 0),
 );
 
-function getQtyCombined(itemId) {
-  let qOrd = 0;
+const orderQtyMap = computed(() => {
+  const map = {};
   if (targetOrderForMenu.value) {
-    qOrd = targetOrderForMenu.value.orderItems
-      .filter(r => r.dishId === itemId)
-      .reduce((sum, r) => sum + (r.quantity - (r.voidedQuantity || 0)), 0);
+    for (const r of targetOrderForMenu.value.orderItems) {
+      map[r.dishId] = (map[r.dishId] || 0) + (r.quantity - (r.voidedQuantity || 0));
+    }
   }
-  const qCart = tempCart.value
-    .filter(r => r.dishId === itemId)
-    .reduce((sum, r) => sum + r.quantity, 0);
-  return qOrd + qCart;
+  return map;
+});
+
+const cartQtyMap = computed(() => {
+  const map = {};
+  for (const r of tempCart.value) {
+    map[r.dishId] = (map[r.dishId] || 0) + r.quantity;
+  }
+  return map;
+});
+
+function getQtyCombined(itemId) {
+  return (orderQtyMap.value[itemId] || 0) + (cartQtyMap.value[itemId] || 0);
 }
 
 // ── Cart merge helper ─────────────────────────────────────────────────────
