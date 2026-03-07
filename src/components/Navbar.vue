@@ -16,10 +16,15 @@
     <div class="flex bg-black/20 p-1 rounded-xl w-[200px] sm:w-[220px] md:w-auto max-w-[300px] shadow-inner shrink-0 relative z-50">
       <router-link
         to="/ordini"
+        aria-label="Ordini"
         class="flex-1 py-1.5 md:py-2 px-2 md:px-6 rounded-lg font-bold text-xs md:text-sm flex items-center justify-center gap-1.5 transition-all"
         :class="isOrdersActive ? 'bg-white theme-text shadow-sm' : 'text-white/90 hover:bg-white/10'"
       >
-        <Receipt class="size-4 md:size-5" /> <span class="hidden sm:inline">Ordini</span>
+        <div class="relative shrink-0">
+          <Receipt class="size-4 md:size-5" />
+          <span v-if="store.pendingCount > 0 && !isOrdersActive" class="absolute -top-1.5 -right-2 bg-red-500 text-white text-[9px] font-black size-4 flex items-center justify-center rounded-full border border-white">{{ store.pendingCount }}</span>
+        </div>
+        <span class="hidden sm:inline">Ordini</span>
       </router-link>
       <router-link
         to="/sala"
@@ -41,12 +46,14 @@
         <BellPlus class="size-5 md:size-5" />
       </button>
       <!-- Tasto Cassa Dashboard -->
-      <button @click="$emit('open-cassa')" class="bg-white/10 hover:bg-white/20 p-2 md:p-2.5 rounded-full transition-colors text-white flex items-center justify-center" title="Cruscotto Cassa">
-        <Landmark class="size-5 md:size-5" />
+      <button @click="$emit('open-cassa')" aria-label="Cruscotto Cassa" class="bg-white/10 hover:bg-white/20 px-2.5 md:px-3 py-2 md:py-2.5 rounded-xl transition-colors text-white flex items-center justify-center gap-1.5">
+        <Landmark class="size-5 md:size-5 shrink-0" />
+        <span class="hidden lg:inline text-xs font-bold">Cassa</span>
       </button>
       <!-- Tasto Settings COG -->
-      <button @click="$emit('open-settings')" class="relative z-50 bg-black/20 hover:bg-black/30 p-2 md:p-2.5 rounded-full transition-colors shadow-inner text-white flex items-center justify-center cursor-pointer active:scale-95">
-        <Settings class="size-5 md:size-5" />
+      <button @click="$emit('open-settings')" aria-label="Apri impostazioni" class="relative z-50 bg-black/20 hover:bg-black/30 px-2.5 md:px-3 py-2 md:py-2.5 rounded-xl transition-colors shadow-inner text-white flex items-center justify-center gap-1.5 cursor-pointer active:scale-95">
+        <Settings class="size-5 md:size-5 shrink-0" />
+        <span class="hidden lg:inline text-xs font-bold">Config</span>
       </button>
     </div>
   </header>

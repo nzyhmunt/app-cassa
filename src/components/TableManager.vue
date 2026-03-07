@@ -2,7 +2,7 @@
   <!-- WORKSPACE: MAPPA SALA -->
   <div class="flex-1 flex flex-col bg-gray-100/80 overflow-y-auto p-4 md:p-8 relative min-h-0">
     <div class="max-w-6xl mx-auto w-full">
-      <div class="flex justify-between items-center mb-4 md:mb-6">
+      <div class="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-2 mb-4 md:mb-6">
         <h2 class="text-xl md:text-2xl font-black text-gray-800 flex items-center gap-2 md:gap-3">
           <Grid3x3 class="text-gray-500 size-6 md:size-8" /> Mappa Sala
         </h2>
@@ -12,16 +12,33 @@
             to="/storico-conti"
             class="flex items-center gap-1.5 text-[10px] md:text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-3 py-2 rounded-xl transition-colors shadow-sm active:scale-95"
             title="Cronologia Conti Chiusi"
+            aria-label="Storico Conti"
           >
             <History class="size-4" /> <span class="hidden sm:inline">Storico Conti</span>
           </router-link>
           <!-- Legenda -->
-          <div class="hidden sm:flex items-center gap-3 text-[10px] font-bold uppercase text-gray-500">
+          <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] font-bold uppercase text-gray-500">
             <span class="flex items-center gap-1"><span class="size-3 rounded-full border-2 border-emerald-400 bg-emerald-100"></span> Libero</span>
             <span class="flex items-center gap-1"><span class="size-3 rounded-full border-2 border-amber-400 bg-amber-100"></span> Ordini in Attesa</span>
             <span class="flex items-center gap-1"><span class="size-3 rounded-full border-2 border-blue-400 bg-blue-100"></span> Conto Richiesto</span>
             <span class="flex items-center gap-1"><span class="size-3 rounded-full theme-bg border-2 border-white shadow-sm"></span> Occupato / In Cassa</span>
           </div>
+        </div>
+      </div>
+
+      <!-- Riepilogo stato tavoli -->
+      <div class="flex flex-wrap items-center gap-2 mb-4 md:mb-5">
+        <div class="flex items-center gap-2 bg-white rounded-xl px-3 py-2 shadow-sm border border-gray-200">
+          <span class="size-2.5 rounded-full border-2 border-emerald-400 bg-emerald-100 shrink-0"></span>
+          <span class="text-xs font-bold text-gray-700">{{ freeTablesCount }} Liberi</span>
+        </div>
+        <div class="flex items-center gap-2 bg-white rounded-xl px-3 py-2 shadow-sm border border-gray-200">
+          <span class="size-2.5 rounded-full theme-bg shrink-0"></span>
+          <span class="text-xs font-bold text-gray-700">{{ occupiedTablesCount }} Occupati</span>
+        </div>
+        <div v-if="pendingTablesCount > 0" class="flex items-center gap-2 bg-amber-50 rounded-xl px-3 py-2 shadow-sm border border-amber-200">
+          <span class="size-2.5 rounded-full border-2 border-amber-400 bg-amber-100 shrink-0"></span>
+          <span class="text-xs font-bold text-amber-800">{{ pendingTablesCount }} In Attesa</span>
         </div>
       </div>
 
@@ -100,6 +117,7 @@
             @click="closeTableModal"
             class="bg-white/10 hover:bg-white/20 px-3 py-2 rounded-xl font-bold text-[10px] md:text-xs flex items-center gap-1.5 transition-all active:scale-95 shrink-0 text-white"
             title="Cronologia Conti Chiusi"
+            aria-label="Storico Conti"
           >
             <History class="size-4" /> <span class="hidden lg:inline">Storico Conti</span>
           </router-link>
@@ -201,7 +219,10 @@
             </div>
 
             <!-- Cifra Cassa Dinamica -->
-            <div class="text-5xl md:text-6xl font-black text-gray-900 mb-2">{{ store.config.ui.currency }}{{ tableAmountRemaining.toFixed(2) }}</div>
+            <div class="mb-2">
+              <div class="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-0.5">Totale conto: <span class="text-gray-600">{{ store.config.ui.currency }}{{ tableTotalAmount.toFixed(2) }}</span></div>
+              <div class="text-5xl md:text-6xl font-black text-gray-900">{{ store.config.ui.currency }}{{ tableAmountRemaining.toFixed(2) }}</div>
+            </div>
 
             <!-- Storico Transazioni -->
             <div v-if="tableTransactions.length > 0" class="mb-5 space-y-2">
@@ -224,9 +245,9 @@
               <h4 class="font-bold text-gray-800 text-sm">Modalità Incasso:</h4>
 
               <div class="flex bg-gray-100 p-1 rounded-xl">
-                <button @click="checkoutMode = 'unico'" :class="checkoutMode === 'unico' ? 'bg-white shadow-sm text-gray-900 border border-gray-200' : 'text-gray-500 hover:bg-gray-200/50'" class="flex-1 py-2 text-xs md:text-sm font-bold rounded-lg transition-all active:scale-95">Tutto/Rimanente</button>
-                <button @click="checkoutMode = 'romana'" :class="checkoutMode === 'romana' ? 'bg-white shadow-sm text-gray-900 border border-gray-200' : 'text-gray-500 hover:bg-gray-200/50'" class="flex-1 py-2 text-xs md:text-sm font-bold rounded-lg transition-all active:scale-95">Alla Romana</button>
-                <button @click="checkoutMode = 'ordini'" :class="checkoutMode === 'ordini' ? 'bg-white shadow-sm text-gray-900 border border-gray-200' : 'text-gray-500 hover:bg-gray-200/50'" class="flex-1 py-2 text-xs md:text-sm font-bold rounded-lg transition-all active:scale-95">Per Comanda</button>
+                <button @click="checkoutMode = 'unico'" :class="checkoutMode === 'unico' ? 'bg-white shadow-sm text-gray-900 border border-gray-200' : 'text-gray-500 hover:bg-gray-200/50'" class="flex-1 py-2 text-xs md:text-sm font-bold rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1.5"><Layers class="size-3.5 shrink-0" />Tutto</button>
+                <button @click="checkoutMode = 'romana'" :class="checkoutMode === 'romana' ? 'bg-white shadow-sm text-gray-900 border border-gray-200' : 'text-gray-500 hover:bg-gray-200/50'" class="flex-1 py-2 text-xs md:text-sm font-bold rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1.5"><Users class="size-3.5 shrink-0" />Romana</button>
+                <button @click="checkoutMode = 'ordini'" :class="checkoutMode === 'ordini' ? 'bg-white shadow-sm text-gray-900 border border-gray-200' : 'text-gray-500 hover:bg-gray-200/50'" class="flex-1 py-2 text-xs md:text-sm font-bold rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1.5"><ListChecks class="size-3.5 shrink-0" />Comanda</button>
               </div>
 
               <!-- Romana -->
@@ -351,7 +372,8 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import {
   Grid3x3, Users, X, Plus, Coffee, Edit, AlertTriangle, CheckCircle,
-  Ban, Undo2, Code, Minus, Receipt, ArrowRightLeft, Merge, Timer, History,
+  Ban, Undo2, Code, Minus, Receipt, ArrowRightLeft, Merge, Timer,
+  Layers, ListChecks, History,
 } from 'lucide-vue-next';
 import { Banknote, CreditCard } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
@@ -374,6 +396,20 @@ const freeTables = computed(() =>
     t => t.id !== selectedTable.value?.id && store.getTableStatus(t.id).status === 'free',
   ),
 );
+
+const tableStatusCounts = computed(() => {
+  let free = 0, occupied = 0, pending = 0;
+  for (const t of store.config.tables) {
+    const s = store.getTableStatus(t.id).status;
+    if (s === 'free') free++;
+    else if (s === 'occupied' || s === 'conto_richiesto') occupied++;
+    else if (s === 'pending') pending++;
+  }
+  return { free, occupied, pending };
+});
+const freeTablesCount = computed(() => tableStatusCounts.value.free);
+const occupiedTablesCount = computed(() => tableStatusCounts.value.occupied);
+const pendingTablesCount = computed(() => tableStatusCounts.value.pending);
 
 const occupiedTables = computed(() =>
   store.config.tables.filter(

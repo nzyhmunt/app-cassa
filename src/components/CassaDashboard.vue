@@ -22,9 +22,9 @@
       <!-- Tabs -->
       <div class="flex bg-gray-50 border-b border-gray-200 shrink-0">
         <button v-for="tab in tabs" :key="tab.id" @click="activeTab = tab.id"
-          class="flex-1 py-2.5 md:py-3 px-2 text-[10px] md:text-xs font-bold uppercase tracking-wider transition-all flex flex-col items-center gap-1"
+          class="flex-1 py-2.5 md:py-3 px-2 text-[10px] md:text-xs font-bold uppercase tracking-wider transition-all flex items-center justify-center gap-1.5"
           :class="activeTab === tab.id ? 'bg-white border-b-2 border-[var(--brand-primary)] theme-text shadow-sm' : 'text-gray-500 hover:bg-gray-100'">
-          <component :is="tab.icon" class="size-4 md:size-5" />
+          <component :is="tab.icon" class="size-4 md:size-5 shrink-0" />
           {{ tab.label }}
         </button>
       </div>
@@ -48,6 +48,13 @@
               <button @click="saveCashBalance"
                 class="theme-bg text-white px-5 py-3 rounded-xl font-bold shadow-md hover:opacity-90 transition-opacity active:scale-95 flex items-center gap-2 shrink-0">
                 <Save class="size-5" /> Salva
+              </button>
+            </div>
+            <div class="flex items-center gap-2 mt-2">
+              <span class="text-[10px] font-bold text-gray-400 uppercase tracking-wider shrink-0">Preset:</span>
+              <button v-for="preset in [50, 100, 150, 200]" :key="preset" @click="cashBalanceInput = preset"
+                class="px-3 py-1.5 text-xs font-bold rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-gray-700 active:scale-95 transition-all shadow-sm">
+                {{ store.config.ui.currency }}{{ preset }}
               </button>
             </div>
             <div class="mt-3 flex items-center gap-2 p-3 bg-emerald-50 border border-emerald-100 rounded-xl">
@@ -247,7 +254,7 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue';
+import { ref, computed, watch } from 'vue';
 import {
   X, Landmark, Wallet, ArrowLeftRight, ArrowDownCircle, ArrowUpCircle, Plus,
   Eye, AlertTriangle, Lock, RefreshCw, Save, TrendingUp, CreditCard, Users,
@@ -268,6 +275,12 @@ const tabs = [
 ];
 
 const activeTab = ref('cashBalance');
+
+watch(activeTab, (tab) => {
+  if (tab === 'xReport') {
+    refreshXReport();
+  }
+});
 
 // ── Cash Balance ────────────────────────────────────────────────────────────
 const cashBalanceInput = ref(store.cashBalance);
