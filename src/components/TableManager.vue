@@ -747,7 +747,7 @@ const canManuallyCloseBill = computed(() =>
 
 function closeTableBill() {
   if (!selectedTable.value) return;
-  tableAcceptedPayableOrders.value.forEach(o => (o.status = 'completed'));
+  tableAcceptedPayableOrders.value.forEach(o => store.changeOrderStatus(o, 'completed'));
   closeTableModal();
 }
 
@@ -778,7 +778,7 @@ function processTablePayment(paymentMethodId) {
   } else if (checkoutMode.value === 'ordini') {
     payload.orderRefs = [...selectedOrdersToPay.value];
     tableAcceptedPayableOrders.value.forEach(o => {
-      if (selectedOrdersToPay.value.includes(o.id)) o.status = 'completed';
+      if (selectedOrdersToPay.value.includes(o.id)) store.changeOrderStatus(o, 'completed');
     });
     selectedOrdersToPay.value = [];
   }
@@ -787,7 +787,7 @@ function processTablePayment(paymentMethodId) {
 
   // Close all accepted orders when fully paid, if autoCloseOnFullPayment is enabled
   if (autoCloseOnFullPayment.value && tableAmountRemaining.value <= 0.01) {
-    tableAcceptedPayableOrders.value.forEach(o => (o.status = 'completed'));
+    tableAcceptedPayableOrders.value.forEach(o => store.changeOrderStatus(o, 'completed'));
   }
 
   jsonContext.value = 'receipt';
