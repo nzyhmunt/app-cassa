@@ -3,7 +3,7 @@ export const DEFAULT_MENU_URL = 'https://nanawork.it/menu.json';
 
 // Configurazione applicazione centralizzata
 export const appConfig = {
-  ui: { name: "Osteria del Grillo", primaryColor: "#00846c", primaryColorDark: "#0c7262", currency: "€" },
+  ui: { name: "Osteria del Grillo", primaryColor: "#00846c", primaryColorDark: "#0c7262", currency: "€", allowCustomVariants: true },
 
   // URL used to fetch the remote menu; can be overridden via ?menuUrl= query parameter
   menuUrl: DEFAULT_MENU_URL,

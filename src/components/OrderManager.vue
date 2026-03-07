@@ -137,65 +137,76 @@
 
           <div class="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
             <div class="divide-y divide-gray-100">
-              <div v-for="(item, index) in selectedOrder.orderItems" :key="item.uid" class="p-2 md:p-3 hover:bg-gray-50 transition-colors" :class="{'bg-gray-50 opacity-60': item.voidedQuantity === item.quantity}">
-                <div class="flex items-center justify-between gap-2 md:gap-4">
-                  <div class="flex items-center gap-2 md:gap-3 flex-1 min-w-0">
-                    <!-- Controlli +/- (Solo Pending) -->
-                    <div v-if="selectedOrder.status === 'pending'" class="flex items-center gap-1 bg-gray-100 rounded-md p-0.5 border border-gray-200 shrink-0">
-                      <button @click="store.updateQtyGlobal(selectedOrder, index, -1)" class="size-6 md:size-7 flex items-center justify-center bg-white text-gray-600 rounded shadow-sm active:scale-95"><Minus class="size-3" /></button>
-                      <span class="w-5 md:w-6 text-center font-black text-xs md:text-sm text-gray-800">{{ item.quantity }}</span>
-                      <button @click="store.updateQtyGlobal(selectedOrder, index, 1)" class="size-6 md:size-7 flex items-center justify-center bg-white theme-text rounded shadow-sm active:scale-95"><Plus class="size-3" /></button>
-                    </div>
-                    <!-- Testo Lineare (Accettati) -->
-                    <div v-else class="w-8 shrink-0 text-center font-black text-sm md:text-base text-gray-700">
-                      {{ item.quantity - (item.voidedQuantity || 0) }}x
-                    </div>
-                    <!-- Informazioni Piatto -->
-                    <div class="flex flex-col min-w-0 flex-1">
-                      <div class="flex items-center gap-2">
-                        <span class="font-bold text-sm md:text-base text-gray-800 leading-tight truncate" :class="{'line-through': item.voidedQuantity === item.quantity}">{{ item.name }}</span>
-                        <span v-if="(item.voidedQuantity || 0) > 0" class="text-[9px] text-red-500 font-bold uppercase tracking-widest border border-red-200 bg-red-50 px-1 rounded shrink-0">-{{ item.voidedQuantity }} Stornati</span>
+              <template v-for="row in orderedOrderItems" :key="row.type === 'header' ? 'header_' + row.course : row.item?.uid">
+                <!-- Course group header -->
+                <div v-if="row.type === 'header'"
+                  class="px-3 py-1.5 flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest"
+                  :class="{
+                    'bg-orange-50 text-orange-700': row.course === 'prima',
+                    'bg-gray-50 text-gray-500': row.course === 'insieme',
+                    'bg-teal-50 text-teal-700': row.course === 'dopo',
+                  }">
+                  <Layers class="size-3 shrink-0" />
+                  {{ row.course === 'prima' ? '1 – Esce Prima' : row.course === 'insieme' ? '2 – Insieme' : '3 – Esce Dopo' }}
+                </div>
+                <!-- Order item row -->
+                <div v-else class="p-2 md:p-3 hover:bg-gray-50 transition-colors" :class="{'bg-gray-50 opacity-60': row.item.voidedQuantity === row.item.quantity}">
+                  <div class="flex items-center justify-between gap-2 md:gap-4">
+                    <div class="flex items-center gap-2 md:gap-3 flex-1 min-w-0">
+                      <!-- Controlli +/- (Solo Pending) -->
+                      <div v-if="selectedOrder.status === 'pending'" class="flex items-center gap-1 bg-gray-100 rounded-md p-0.5 border border-gray-200 shrink-0">
+                        <button @click="store.updateQtyGlobal(selectedOrder, row.index, -1)"
+                          class="size-6 md:size-7 flex items-center justify-center bg-white rounded shadow-sm active:scale-95 transition-colors"
+                          :class="row.item.quantity === 1 ? 'text-red-500' : 'text-gray-600'"
+                          :title="row.item.quantity === 1 ? 'Rimuovi voce' : 'Diminuisci quantità'">
+                          <Trash2 v-if="row.item.quantity === 1" class="size-3" />
+                          <Minus v-else class="size-3" />
+                        </button>
+                        <span class="w-5 md:w-6 text-center font-black text-xs md:text-sm text-gray-800">{{ row.item.quantity }}</span>
+                        <button @click="store.updateQtyGlobal(selectedOrder, row.index, 1)" class="size-6 md:size-7 flex items-center justify-center bg-white theme-text rounded shadow-sm active:scale-95"><Plus class="size-3" /></button>
                       </div>
-                      <div v-if="item.notes && item.notes.length > 0" class="text-[10px] md:text-xs text-amber-600 font-bold italic mt-0.5 truncate flex items-center gap-1">
-                        <MessageSquareWarning class="size-3 shrink-0" /> Note: {{ item.notes.join(', ') }}
+                      <!-- Testo Lineare (Accettati) -->
+                      <div v-else class="w-8 shrink-0 text-center font-black text-sm md:text-base text-gray-700">
+                        {{ row.item.quantity - (row.item.voidedQuantity || 0) }}x
                       </div>
-                      <!-- Modificatori varianti -->
-                      <div v-if="item.modifiers && item.modifiers.length > 0" class="mt-0.5 flex flex-wrap gap-1">
-                        <span v-for="(mod, mi) in item.modifiers" :key="mi"
-                          class="text-[9px] md:text-[10px] font-bold bg-purple-50 border border-purple-200 text-purple-700 px-1.5 py-0.5 rounded flex items-center gap-0.5">
-                          <Sparkles class="size-2.5" />
-                          {{ mod.name }}{{ mod.price > 0 ? ' +€' + mod.price.toFixed(2) : '' }}
-                        </span>
-                      </div>
-                      <!-- Uscita badge -->
-                      <div v-if="item.course && item.course !== 'insieme'" class="mt-0.5">
-                        <span class="text-[9px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded border"
-                          :class="item.course === 'prima' ? 'bg-orange-50 border-orange-200 text-orange-700' : 'bg-teal-50 border-teal-200 text-teal-700'">
-                          <Layers class="size-2.5 inline mr-0.5" />{{ item.course === 'prima' ? 'Esce prima' : 'Esce dopo' }}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
+                      <!-- Informazioni Piatto -->
+                      <div class="flex flex-col min-w-0 flex-1">
+                        <div class="flex items-center gap-2">
+                          <span class="font-bold text-sm md:text-base text-gray-800 leading-tight truncate" :class="{'line-through': row.item.voidedQuantity === row.item.quantity}">{{ row.item.name }}</span>
+                          <span v-if="(row.item.voidedQuantity || 0) > 0" class="text-[9px] text-red-500 font-bold uppercase tracking-widest border border-red-200 bg-red-50 px-1 rounded shrink-0">-{{ row.item.voidedQuantity }} Stornati</span>
+                        </div>
+                        <div v-if="row.item.notes && row.item.notes.length > 0" class="text-[10px] md:text-xs text-amber-600 font-bold italic mt-0.5 truncate flex items-center gap-1">
+                          <MessageSquareWarning class="size-3 shrink-0" /> Note: {{ row.item.notes.join(', ') }}
+                        </div>
+                        <!-- Modificatori varianti -->
+                        <div v-if="row.item.modifiers && row.item.modifiers.length > 0" class="mt-0.5 flex flex-wrap gap-1">
+                          <span v-for="(mod, mi) in row.item.modifiers" :key="mi"
+                            class="text-[9px] md:text-[10px] font-bold bg-purple-50 border border-purple-200 text-purple-700 px-1.5 py-0.5 rounded flex items-center gap-0.5">
+                            <Sparkles class="size-2.5" />
+                            {{ mod.name }}{{ mod.price > 0 ? ' +€' + mod.price.toFixed(2) : '' }}
+                          </span>
+                        </div>
 
-                  <!-- Prezzo e Azioni -->
-                  <div class="flex items-center gap-2 md:gap-4 shrink-0">
-                    <div class="flex flex-col items-end">
-                      <span class="font-black text-sm md:text-base text-gray-800" :class="{'line-through text-gray-400': item.voidedQuantity === item.quantity}">
-                        {{ store.config.ui.currency }}{{ (getItemUnitPrice(item) * (item.quantity - (item.voidedQuantity || 0))).toFixed(2) }}
-                      </span>
-                      <span v-if="selectedOrder.status === 'pending'" class="text-[9px] text-gray-400">{{ store.config.ui.currency }}{{ getItemUnitPrice(item).toFixed(2) }} cad.</span>
+                      </div>
                     </div>
-                    <div v-if="selectedOrder.status === 'pending'" class="flex items-center gap-1 ml-1">
-                      <button @click="openNoteModal(selectedOrder, index)" class="p-1.5 md:p-2 text-gray-500 hover:text-[var(--brand-primary)] bg-gray-50 border border-gray-200 hover:bg-gray-100 rounded-md transition-colors active:scale-95 shadow-sm" title="Modifica Note">
-                        <PenLine class="size-4 md:size-4" />
-                      </button>
-                      <button @click="store.removeRowGlobal(selectedOrder, index)" class="p-1.5 md:p-2 text-red-500 hover:text-white bg-white border border-red-200 hover:bg-red-500 rounded-md transition-colors active:scale-95 shadow-sm" title="Rimuovi Voce">
-                        <Trash2 class="size-4 md:size-4" />
-                      </button>
+
+                    <!-- Prezzo e Azioni -->
+                    <div class="flex items-center gap-2 md:gap-4 shrink-0">
+                      <div class="flex flex-col items-end">
+                        <span class="font-black text-sm md:text-base text-gray-800" :class="{'line-through text-gray-400': row.item.voidedQuantity === row.item.quantity}">
+                          {{ store.config.ui.currency }}{{ (getItemUnitPrice(row.item) * (row.item.quantity - (row.item.voidedQuantity || 0))).toFixed(2) }}
+                        </span>
+                        <span v-if="selectedOrder.status === 'pending'" class="text-[9px] text-gray-400">{{ store.config.ui.currency }}{{ getItemUnitPrice(row.item).toFixed(2) }} cad.</span>
+                      </div>
+                      <div v-if="selectedOrder.status === 'pending'" class="flex items-center gap-1 ml-1">
+                        <button @click="openNoteModal(selectedOrder, row.index)" class="p-1.5 md:p-2 text-gray-500 hover:text-[var(--brand-primary)] bg-gray-50 border border-gray-200 hover:bg-gray-100 rounded-md transition-colors active:scale-95 shadow-sm" title="Modifica Note">
+                          <PenLine class="size-4 md:size-4" />
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
+              </template>
 
               <!-- Bottone Aggiunta Rapida (Solo Pending) -->
               <div v-if="selectedOrder.status === 'pending'" class="p-3 bg-gray-50 border-t border-gray-100">
@@ -235,8 +246,62 @@
       <div class="overflow-y-auto flex-1 p-4 md:p-5 space-y-5">
         <p class="text-xs md:text-sm text-gray-500 truncate">Per: <strong>{{ noteModal.itemRef?.name }}</strong></p>
 
-        <!-- ── Note Cucina ── -->
+        <!-- ── Ordine di Uscita ── -->
         <div>
+          <p class="text-xs font-bold text-gray-500 uppercase tracking-widest mb-2 flex items-center gap-1.5"><Layers class="size-3.5" /> Ordine di Uscita</p>
+          <div class="flex gap-2">
+            <button @click="noteModal.course = 'prima'"
+              :class="noteModal.course === 'prima' ? 'bg-orange-400 text-white border-orange-400' : 'bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-200'"
+              class="flex-1 py-2.5 rounded-xl font-bold text-xs border transition-colors active:scale-95">
+              1 – Esce Prima
+            </button>
+            <button @click="noteModal.course = 'insieme'"
+              :class="noteModal.course === 'insieme' ? 'theme-bg text-white theme-border' : 'bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-200'"
+              class="flex-1 py-2.5 rounded-xl font-bold text-xs border transition-colors active:scale-95">
+              2 – Insieme
+            </button>
+            <button @click="noteModal.course = 'dopo'"
+              :class="noteModal.course === 'dopo' ? 'bg-teal-500 text-white border-teal-500' : 'bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-200'"
+              class="flex-1 py-2.5 rounded-xl font-bold text-xs border transition-colors active:scale-95">
+              3 – Esce Dopo
+            </button>
+          </div>
+        </div>
+
+        <!-- ── Varianti a Pagamento ── -->
+        <div class="pt-4 border-t border-gray-100">
+          <p class="text-xs font-bold text-purple-600 uppercase tracking-widest mb-2 flex items-center gap-1.5"><Sparkles class="size-3.5" /> Varianti a Pagamento</p>
+
+          <div v-if="noteModal.modifiersArray.length > 0" class="mb-3 space-y-1.5 max-h-[120px] overflow-y-auto border border-purple-100 p-2 rounded-xl bg-purple-50">
+            <div v-for="(mod, idx) in noteModal.modifiersArray" :key="idx" class="flex justify-between items-center bg-white border border-purple-200 text-purple-800 px-3 py-2 rounded-lg text-xs font-bold shadow-sm">
+              <span>{{ mod.name }}{{ mod.price > 0 ? ' +' + store.config.ui.currency + mod.price.toFixed(2) : '' }}</span>
+              <button @click="removeModFromNoteModal(idx)" class="text-red-500 p-1 hover:bg-red-50 rounded-md transition-colors"><Trash2 class="size-4" /></button>
+            </div>
+          </div>
+
+          <div v-if="store.config.ui.allowCustomVariants" class="flex gap-2 mb-3">
+            <input v-model="noteModal.modName" type="text" placeholder="Es. Mozzarella, Senza glutine..." class="flex-1 bg-gray-100 border border-gray-200 rounded-xl px-3 py-3 focus:bg-white theme-ring transition-all text-gray-800 font-medium text-sm" @keyup.enter="addModToNoteModal">
+            <div class="relative w-24 shrink-0">
+              <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm font-bold">{{ store.config.ui.currency }}</span>
+              <input v-model.number="noteModal.modPrice" type="number" min="0" step="0.50" placeholder="0.00" class="w-full pl-7 pr-2 py-3 bg-gray-100 border border-gray-200 rounded-xl focus:bg-white theme-ring transition-all text-gray-800 font-medium text-sm" @keyup.enter="addModToNoteModal">
+            </div>
+            <button @click="addModToNoteModal" class="bg-purple-600 hover:bg-purple-700 text-white px-4 rounded-xl font-bold shadow-sm active:scale-95 flex items-center justify-center"><Plus class="size-5" /></button>
+          </div>
+
+          <div class="flex flex-wrap gap-1.5">
+            <button
+              v-for="preset in modPresets"
+              :key="preset.name"
+              @click="applyNoteModPreset(preset.name, preset.price)"
+              class="px-2.5 py-1.5 bg-purple-50 border border-purple-200 text-purple-700 rounded-lg text-[10px] md:text-xs font-bold hover:bg-purple-100 active:scale-95 transition-all"
+            >
+              {{ preset.label }}
+            </button>
+          </div>
+        </div>
+
+        <!-- ── Note Cucina ── -->
+        <div class="pt-4 border-t border-gray-100">
           <p class="text-xs font-bold text-gray-500 uppercase tracking-widest mb-2 flex items-center gap-1.5"><MessageSquareWarning class="size-3.5" /> Note Cucina</p>
 
           <div v-if="noteModal.notesArray.length > 0" class="mb-3 space-y-1.5 max-h-[120px] overflow-y-auto border border-gray-100 p-2 rounded-xl bg-gray-50">
@@ -258,42 +323,10 @@
             <button @click="noteModal.inputText = 'Da dividere'; addNoteToModal()" class="px-2.5 py-1.5 bg-gray-100 border border-gray-200 hover:bg-gray-200 rounded-lg text-[10px] md:text-xs font-bold text-gray-600 transition-colors active:scale-95">Da dividere</button>
           </div>
         </div>
-
-        <!-- ── Varianti a Pagamento ── -->
-        <div class="pt-4 border-t border-gray-100">
-          <p class="text-xs font-bold text-purple-600 uppercase tracking-widest mb-2 flex items-center gap-1.5"><Sparkles class="size-3.5" /> Varianti a Pagamento</p>
-
-          <div v-if="noteModal.modifiersArray.length > 0" class="mb-3 space-y-1.5 max-h-[120px] overflow-y-auto border border-purple-100 p-2 rounded-xl bg-purple-50">
-            <div v-for="(mod, idx) in noteModal.modifiersArray" :key="idx" class="flex justify-between items-center bg-white border border-purple-200 text-purple-800 px-3 py-2 rounded-lg text-xs font-bold shadow-sm">
-              <span>{{ mod.name }}{{ mod.price > 0 ? ' +' + store.config.ui.currency + mod.price.toFixed(2) : '' }}</span>
-              <button @click="removeModFromNoteModal(idx)" class="text-red-500 p-1 hover:bg-red-50 rounded-md transition-colors"><Trash2 class="size-4" /></button>
-            </div>
-          </div>
-
-          <div class="flex gap-2 mb-3">
-            <input v-model="noteModal.modName" type="text" placeholder="Es. Mozzarella, Senza glutine..." class="flex-1 bg-gray-100 border border-gray-200 rounded-xl px-3 py-3 focus:bg-white theme-ring transition-all text-gray-800 font-medium text-sm" @keyup.enter="addModToNoteModal">
-            <div class="relative w-24 shrink-0">
-              <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm font-bold">{{ store.config.ui.currency }}</span>
-              <input v-model.number="noteModal.modPrice" type="number" min="0" step="0.50" placeholder="0.00" class="w-full pl-7 pr-2 py-3 bg-gray-100 border border-gray-200 rounded-xl focus:bg-white theme-ring transition-all text-gray-800 font-medium text-sm" @keyup.enter="addModToNoteModal">
-            </div>
-            <button @click="addModToNoteModal" class="bg-purple-600 hover:bg-purple-700 text-white px-4 rounded-xl font-bold shadow-sm active:scale-95 flex items-center justify-center"><Plus class="size-5" /></button>
-          </div>
-
-          <div class="flex flex-wrap gap-1.5">
-            <button
-              v-for="preset in modPresets"
-              :key="preset.name"
-              @click="applyNoteModPreset(preset.name, preset.price)"
-              class="px-2.5 py-1.5 bg-purple-50 border border-purple-200 text-purple-700 rounded-lg text-[10px] md:text-xs font-bold hover:bg-purple-100 active:scale-95 transition-all"
-            >
-              {{ preset.label }}
-            </button>
-          </div>
-        </div>
       </div>
 
       <div class="p-3 md:p-4 bg-gray-50 pb-8 md:pb-4 border-t border-gray-200 shrink-0">
-        <button @click="saveNotes" class="w-full theme-bg text-white py-3 md:py-3.5 rounded-xl font-bold shadow-md hover:opacity-90 transition-opacity active:scale-95 text-sm md:text-base">Salva Note e Varianti</button>
+        <button @click="saveNotes" class="w-full theme-bg text-white py-3 md:py-3.5 rounded-xl font-bold shadow-md hover:opacity-90 transition-opacity active:scale-95 text-sm md:text-base">Salva Note, Varianti e Uscita</button>
       </div>
     </div>
   </div>
@@ -361,6 +394,9 @@
                 <div class="flex flex-col flex-1 min-w-0 pr-2">
                   <span class="font-bold text-sm text-gray-800 truncate">{{ cartItem.name }}</span>
                   <span class="text-[10px] text-gray-500">{{ store.config.ui.currency }}{{ (cartItem.unitPrice + (cartItem.modifiers || []).reduce((a, m) => a + (Number(m.price) || 0), 0)).toFixed(2) }} cad.</span>
+                  <div v-if="cartItem.notes && cartItem.notes.length > 0" class="text-[9px] text-amber-600 font-bold italic mt-0.5 truncate flex items-center gap-1">
+                    <MessageSquareWarning class="size-3 shrink-0" /> {{ cartItem.notes.join(', ') }}
+                  </div>
                 </div>
                 <div class="flex items-center gap-1.5 shrink-0">
                   <!-- Course cycling button -->
@@ -372,24 +408,32 @@
                   </button>
                   <!-- Qty +/- -->
                   <div class="flex items-center gap-1 bg-gray-100 rounded p-0.5 border border-gray-200">
-                    <button @click="updateTempCartQty(idx, -1)" class="size-6 flex items-center justify-center bg-white text-gray-600 rounded shadow-sm active:scale-95"><Minus class="size-3" /></button>
+                    <button @click="updateTempCartQty(idx, -1)"
+                      class="size-6 flex items-center justify-center bg-white rounded shadow-sm active:scale-95 transition-colors"
+                      :class="cartItem.quantity === 1 ? 'text-red-500' : 'text-gray-600'"
+                      :title="cartItem.quantity === 1 ? 'Rimuovi voce' : 'Diminuisci quantità'">
+                      <Trash2 v-if="cartItem.quantity === 1" class="size-3" />
+                      <Minus v-else class="size-3" />
+                    </button>
                     <span class="w-5 text-center font-black text-sm">{{ cartItem.quantity }}</span>
                     <button @click="updateTempCartQty(idx, 1)" class="size-6 flex items-center justify-center bg-white theme-text rounded shadow-sm active:scale-95"><Plus class="size-3" /></button>
                   </div>
+                  <!-- Note/Varianti edit button -->
+                  <button @click="openCartNoteModal(idx)" class="p-1.5 text-gray-500 hover:text-[var(--brand-primary)] bg-gray-50 border border-gray-200 hover:bg-gray-100 rounded-md transition-colors active:scale-95 shadow-sm" title="Note e Varianti">
+                    <PenLine class="size-3.5" />
+                  </button>
                 </div>
               </div>
               <!-- Modificatori -->
-              <div class="px-2.5 pb-2">
-                <div v-if="cartItem.modifiers && cartItem.modifiers.length > 0" class="flex flex-wrap gap-1 mb-1">
+              <div v-if="cartItem.modifiers && cartItem.modifiers.length > 0" class="px-2.5 pb-2">
+                <div class="flex flex-wrap gap-1">
                   <span v-for="(mod, mi) in cartItem.modifiers" :key="mi"
                     class="text-[9px] font-bold bg-purple-50 border border-purple-200 text-purple-700 px-1.5 py-0.5 rounded flex items-center gap-1">
+                    <Sparkles class="size-2.5" />
                     {{ mod.name }}{{ mod.price > 0 ? ' +' + store.config.ui.currency + mod.price.toFixed(2) : '' }}
                     <button @click="removeModFromCart(idx, mi)" class="text-purple-400 hover:text-red-500 transition-colors"><X class="size-2.5" /></button>
                   </span>
                 </div>
-                <button @click="openModModal(idx)" class="text-[9px] font-bold text-purple-600 hover:text-purple-800 flex items-center gap-0.5 transition-colors">
-                  <Sparkles class="size-3" /> Aggiungi variante
-                </button>
               </div>
             </div>
           </div>
@@ -409,42 +453,6 @@
     </div>
   </div>
 
-  <!-- ================================================================ -->
-  <!-- MODAL: VARIANTI/MODIFICATORI                                      -->
-  <!-- ================================================================ -->
-  <div v-if="modModal.show" class="fixed inset-0 z-[95] bg-black/60 backdrop-blur-sm flex items-end md:items-center justify-center p-0 md:p-4">
-    <div class="bg-white rounded-t-3xl md:rounded-3xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col">
-      <div class="bg-gray-50 border-b border-gray-100 p-4 flex justify-between items-center">
-        <h3 class="font-bold text-base flex items-center gap-2"><Sparkles class="text-purple-500 size-5" /> Variante / Modificatore</h3>
-        <button @click="modModal.show = false" class="text-gray-400 hover:text-gray-800 p-1.5 bg-gray-200 hover:bg-gray-300 rounded-full active:scale-95 transition-colors"><X class="size-5" /></button>
-      </div>
-      <div class="p-4 md:p-5">
-        <p class="text-xs text-gray-500 mb-3">Aggiungi una variante a pagamento all'articolo in carrello.</p>
-        <div class="flex gap-2 mb-3">
-          <input v-model="modModal.name" type="text" placeholder="Es. Mozzarella, Senza glutine..." class="flex-1 px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:border-[var(--brand-primary)] focus:outline-none" />
-          <div class="relative w-24 shrink-0">
-            <span class="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-sm font-bold">{{ store.config.ui.currency }}</span>
-            <input v-model.number="modModal.price" type="number" min="0" step="0.50" placeholder="0.00" class="w-full pl-6 pr-2 py-2.5 border border-gray-200 rounded-xl text-sm focus:border-[var(--brand-primary)] focus:outline-none" />
-          </div>
-        </div>
-        <!-- Quick presets -->
-        <div class="flex flex-wrap gap-1.5 mb-4">
-          <button
-            v-for="preset in modPresets"
-            :key="preset.name"
-            @click="applyModPreset(preset.name, preset.price)"
-            class="px-2.5 py-1.5 bg-purple-50 border border-purple-200 text-purple-700 rounded-lg text-[10px] font-bold hover:bg-purple-100 active:scale-95 transition-all"
-          >
-            {{ preset.label }}
-          </button>
-        </div>
-        <button @click="saveModModal"
-          class="w-full theme-bg text-white py-3 rounded-xl font-bold shadow-md hover:opacity-90 transition-opacity active:scale-95 text-sm flex items-center justify-center gap-2">
-          <Plus class="size-5" /> Aggiungi Variante
-        </button>
-      </div>
-    </div>
-  </div>
 </template>
 
 <script setup>
@@ -502,23 +510,69 @@ function getItemUnitPrice(item) {
   return item.unitPrice + modTotal;
 }
 
+// ── Course constants ───────────────────────────────────────────────────────
+const DEFAULT_COURSE = 'insieme';
+
+// ── Grouped order items by course: prima → insieme → dopo ─────────────────
+const courseOrder = ['prima', DEFAULT_COURSE, 'dopo'];
+const orderedOrderItems = computed(() => {
+  if (!selectedOrder.value) return [];
+  const groups = { prima: [], insieme: [], dopo: [] };
+  selectedOrder.value.orderItems.forEach((item, index) => {
+    const course = item.course && courseOrder.includes(item.course) ? item.course : DEFAULT_COURSE;
+    groups[course].push({ item, index });
+  });
+  const nonEmpty = courseOrder.filter(c => groups[c].length > 0);
+  const showHeaders = nonEmpty.length > 1;
+  const result = [];
+  courseOrder.forEach(course => {
+    if (groups[course].length > 0) {
+      if (showHeaders) result.push({ type: 'header', course });
+      groups[course].forEach(entry => result.push({ type: 'item', ...entry }));
+    }
+  });
+  return result;
+});
+
 // ── Note modal ─────────────────────────────────────────────────────────────
 const noteInput = ref(null);
 const noteModal = ref({
   show: false, inputText: '', notesArray: [],
   rowIndex: null, targetOrd: null, itemRef: null,
   modifiersArray: [], modName: '', modPrice: 0,
+  course: DEFAULT_COURSE, cartIdx: null,
 });
 
 function openNoteModal(ord, idx) {
   if (!ord || ord.status !== 'pending') return;
   noteModal.value.targetOrd = ord;
   noteModal.value.rowIndex = idx;
+  noteModal.value.cartIdx = null;
   noteModal.value.itemRef = ord.orderItems[idx];
   const existing = ord.orderItems[idx].notes;
   noteModal.value.notesArray = Array.isArray(existing) ? [...existing] : [];
   const existingMods = ord.orderItems[idx].modifiers;
   noteModal.value.modifiersArray = Array.isArray(existingMods) ? existingMods.map(m => ({ ...m })) : [];
+  noteModal.value.course = ord.orderItems[idx].course || DEFAULT_COURSE;
+  noteModal.value.inputText = '';
+  noteModal.value.modName = '';
+  noteModal.value.modPrice = 0;
+  noteModal.value.show = true;
+  setTimeout(() => noteInput.value?.focus(), 150);
+}
+
+function openCartNoteModal(idx) {
+  const cartItem = tempCart.value[idx];
+  if (!cartItem) return;
+  noteModal.value.targetOrd = null;
+  noteModal.value.rowIndex = null;
+  noteModal.value.cartIdx = idx;
+  noteModal.value.itemRef = cartItem;
+  const existing = cartItem.notes;
+  noteModal.value.notesArray = Array.isArray(existing) ? [...existing] : [];
+  const existingMods = cartItem.modifiers;
+  noteModal.value.modifiersArray = Array.isArray(existingMods) ? existingMods.map(m => ({ ...m })) : [];
+  noteModal.value.course = cartItem.course || DEFAULT_COURSE;
   noteModal.value.inputText = '';
   noteModal.value.modName = '';
   noteModal.value.modPrice = 0;
@@ -557,10 +611,18 @@ function removeModFromNoteModal(idx) {
 }
 
 function saveNotes() {
-  if (noteModal.value.rowIndex !== null && noteModal.value.targetOrd) {
+  if (noteModal.value.cartIdx !== null) {
+    const cartItem = tempCart.value[noteModal.value.cartIdx];
+    if (cartItem) {
+      cartItem.notes = [...noteModal.value.notesArray];
+      cartItem.modifiers = noteModal.value.modifiersArray.map(m => ({ ...m }));
+      cartItem.course = noteModal.value.course;
+    }
+  } else if (noteModal.value.rowIndex !== null && noteModal.value.targetOrd) {
     const item = noteModal.value.targetOrd.orderItems[noteModal.value.rowIndex];
     item.notes = [...noteModal.value.notesArray];
     item.modifiers = noteModal.value.modifiersArray.map(m => ({ ...m }));
+    item.course = noteModal.value.course;
     updateOrderTotals(noteModal.value.targetOrd);
   }
   noteModal.value.show = false;
@@ -582,27 +644,7 @@ const modPresets = computed(() => {
     { name: 'Porzione extra', price: 2.00, label: `+ Porzione extra ${c}2.00` },
   ];
 });
-// ── Modifiers modal ────────────────────────────────────────────────────────
-const modModal = ref({ show: false, cartIdx: null, name: '', price: 0 });
-
-function openModModal(idx) {
-  modModal.value = { show: true, cartIdx: idx, name: '', price: 0 };
-}
-
-function applyModPreset(name, price) {
-  modModal.value.name = name;
-  modModal.value.price = price;
-}
-
-function saveModModal() {
-  const name = modModal.value.name.trim();
-  if (!name) return;
-  const cartItem = tempCart.value[modModal.value.cartIdx];
-  if (!cartItem) return;
-  if (!cartItem.modifiers) cartItem.modifiers = [];
-  cartItem.modifiers.push({ name, price: modModal.value.price || 0 });
-  modModal.value.show = false;
-}
+// ── Modifiers modal (removed - functionality merged into noteModal) ──────────
 
 function removeModFromCart(cartIdx, modIdx) {
   const cartItem = tempCart.value[cartIdx];
@@ -630,10 +672,17 @@ function getQtyCombined(itemId) {
   return qOrd + (cEx ? cEx.quantity : 0);
 }
 
+// ── Cart merge helper ─────────────────────────────────────────────────────
+function canMergeCartItem(item) {
+  return (!item.modifiers || item.modifiers.length === 0) &&
+         (!item.notes || item.notes.length === 0) &&
+         (!item.course || item.course === DEFAULT_COURSE);
+}
+
 function addToTempCart(item) {
-  const existing = tempCart.value.find(r => r.dishId === item.id && (!r.modifiers || r.modifiers.length === 0));
+  const existing = tempCart.value.find(r => r.dishId === item.id && canMergeCartItem(r));
   if (existing) existing.quantity++;
-  else tempCart.value.push({ uid: 'tmp_' + Math.random().toString(36).slice(2, 11), dishId: item.id, name: item.name, unitPrice: item.price, quantity: 1, notes: [], voidedQuantity: 0, modifiers: [], course: 'insieme' });
+  else tempCart.value.push({ uid: 'tmp_' + Math.random().toString(36).slice(2, 11), dishId: item.id, name: item.name, unitPrice: item.price, quantity: 1, notes: [], voidedQuantity: 0, modifiers: [], course: DEFAULT_COURSE });
 }
 
 function updateTempCartQty(idx, delta) {
@@ -653,9 +702,8 @@ function courseButtonProps(course) {
 }
 
 function cycleCourse(idx) {
-  const order = ['prima', 'insieme', 'dopo'];
-  const current = tempCart.value[idx].course || 'insieme';
-  const next = order[(order.indexOf(current) + 1) % order.length];
+  const current = tempCart.value[idx].course || DEFAULT_COURSE;
+  const next = courseOrder[(courseOrder.indexOf(current) + 1) % courseOrder.length];
   tempCart.value[idx].course = next;
 }
 
@@ -675,12 +723,9 @@ function confirmAndPushCart() {
   if (!targetOrderForMenu.value || tempCart.value.length === 0) return;
   const ordRef = targetOrderForMenu.value;
   tempCart.value.forEach(cartItem => {
-    // Only merge if no modifiers and no course variation
-    const hasModifiers = cartItem.modifiers && cartItem.modifiers.length > 0;
-    const hasCourse = cartItem.course && cartItem.course !== 'insieme';
-    if (!hasModifiers && !hasCourse) {
+    if (canMergeCartItem(cartItem)) {
       const existing = ordRef.orderItems.find(
-        r => r.dishId === cartItem.dishId && (!r.notes || r.notes.length === 0) && (!r.modifiers || r.modifiers.length === 0),
+        r => r.dishId === cartItem.dishId && canMergeCartItem(r),
       );
       if (existing) { existing.quantity += cartItem.quantity; return; }
     }
