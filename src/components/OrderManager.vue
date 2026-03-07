@@ -663,13 +663,14 @@ const tempCartTotal = computed(() =>
 function getQtyCombined(itemId) {
   let qOrd = 0;
   if (targetOrderForMenu.value) {
-    const ex = targetOrderForMenu.value.orderItems.find(
-      r => r.dishId === itemId && (!r.notes || r.notes.length === 0),
-    );
-    if (ex) qOrd = ex.quantity - (ex.voidedQuantity || 0);
+    qOrd = targetOrderForMenu.value.orderItems
+      .filter(r => r.dishId === itemId)
+      .reduce((sum, r) => sum + (r.quantity - (r.voidedQuantity || 0)), 0);
   }
-  const cEx = tempCart.value.find(r => r.dishId === itemId);
-  return qOrd + (cEx ? cEx.quantity : 0);
+  const qCart = tempCart.value
+    .filter(r => r.dishId === itemId)
+    .reduce((sum, r) => sum + r.quantity, 0);
+  return qOrd + qCart;
 }
 
 // ── Cart merge helper ─────────────────────────────────────────────────────
