@@ -246,6 +246,15 @@ export const useAppStore = defineStore('app', () => {
         delete next[fromTableId];
         tableCurrentBillSession.value = next;
       } else {
+        // Destination already has a session — retag the moved orders so they
+        // belong to the destination session and are visible in its payment panel
+        const srcSessionId = tableCurrentBillSession.value[fromTableId].billSessionId;
+        const destSessionId = tableCurrentBillSession.value[toTableId].billSessionId;
+        orders.value.forEach(o => {
+          if (o.table === toTableId && o.billSessionId === srcSessionId) {
+            o.billSessionId = destSessionId;
+          }
+        });
         const next = { ...tableCurrentBillSession.value };
         delete next[fromTableId];
         tableCurrentBillSession.value = next;
@@ -281,6 +290,15 @@ export const useAppStore = defineStore('app', () => {
       const next = { ...tableCurrentBillSession.value };
       if (!next[targetTableId]) {
         next[targetTableId] = next[sourceTableId];
+      } else {
+        // Target already has a session — retag moved orders to the target session
+        const srcSessionId = next[sourceTableId].billSessionId;
+        const destSessionId = next[targetTableId].billSessionId;
+        orders.value.forEach(o => {
+          if (o.table === targetTableId && o.billSessionId === srcSessionId) {
+            o.billSessionId = destSessionId;
+          }
+        });
       }
       delete next[sourceTableId];
       tableCurrentBillSession.value = next;
