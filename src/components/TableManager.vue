@@ -214,13 +214,13 @@
                       <button @click="voidFromGroupRefs(mod.refs)"
                         :disabled="mod.qty - mod.voided <= 0"
                         class="p-1 bg-white border border-orange-200 text-orange-500 hover:bg-orange-50 rounded shadow-sm transition-colors active:scale-95 disabled:opacity-30"
-                        title="Storna variazione">
+                        title="Storna una unità della voce che include questa variazione">
                         <Ban class="size-3" />
                       </button>
                       <button @click="restoreFromGroupRefs(mod.refs)"
                         :disabled="mod.voided <= 0"
                         class="p-1 bg-white border border-blue-200 text-blue-500 hover:bg-blue-50 rounded shadow-sm transition-colors active:scale-95 disabled:opacity-30"
-                        title="Ripristina variazione">
+                        title="Ripristina una unità della voce che include questa variazione">
                         <Undo2 class="size-3" />
                       </button>
                     </div>
