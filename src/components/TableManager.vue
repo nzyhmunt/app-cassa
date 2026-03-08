@@ -299,13 +299,13 @@
                         <button @click="store.voidOrderItems(ord, idx, 1)"
                           :disabled="item.quantity - (item.voidedQuantity || 0) <= 0"
                           class="p-1 bg-white border border-orange-200 text-orange-500 hover:bg-orange-50 rounded shadow-sm transition-colors active:scale-95 disabled:opacity-30"
-                          title="Storna variazione">
+                          title="Storna voce (prodotto + variazioni)">
                           <Ban class="size-3" />
                         </button>
                         <button @click="store.restoreOrderItems(ord, idx, 1)"
                           :disabled="(item.voidedQuantity || 0) <= 0"
                           class="p-1 bg-white border border-blue-200 text-blue-500 hover:bg-blue-50 rounded shadow-sm transition-colors active:scale-95 disabled:opacity-30"
-                          title="Ripristina variazione">
+                          title="Ripristina voce (prodotto + variazioni)">
                           <Undo2 class="size-3" />
                         </button>
                       </div>
