@@ -175,29 +175,15 @@
                       <span v-if="dish.totalVoided > 0" class="text-[8px] text-red-500 font-bold uppercase">-{{ dish.totalVoided }} storn.</span>
                     </div>
                   </div>
-                  <div class="flex items-center gap-1 shrink-0">
-                    <span class="font-black text-[12px] md:text-sm text-gray-800 mr-1">
-                      {{ store.config.ui.currency }}{{ dish.totalSubtotal.toFixed(2) }}
-                    </span>
-                    <button @click="voidFromGroupRefs(dish.refs)"
-                      :disabled="dish.totalQty - dish.totalVoided <= 0"
-                      class="p-1.5 bg-white border border-orange-200 text-orange-500 hover:bg-orange-50 rounded shadow-sm transition-colors active:scale-95 disabled:opacity-30"
-                      title="Storna una unità">
-                      <Ban class="size-3.5" />
-                    </button>
-                    <button @click="restoreFromGroupRefs(dish.refs)"
-                      :disabled="dish.totalVoided <= 0"
-                      class="p-1.5 bg-white border border-blue-200 text-blue-500 hover:bg-blue-50 rounded shadow-sm transition-colors active:scale-95 disabled:opacity-30"
-                      title="Ripristina una unità">
-                      <Undo2 class="size-3.5" />
-                    </button>
-                  </div>
+                  <span class="font-black text-[12px] md:text-sm text-gray-800 shrink-0">
+                    {{ store.config.ui.currency }}{{ dish.totalSubtotal.toFixed(2) }}
+                  </span>
                 </div>
 
                 <!-- Righe variazioni (modificatori a pagamento) -->
                 <div v-if="dish.modifiers.length > 0" class="pb-1">
                   <div v-for="mod in dish.modifiers" :key="mod.name + '::' + mod.price"
-                    class="flex items-center justify-between pl-10 pr-3 py-1.5 gap-2 bg-purple-50/40"
+                    class="flex items-center pl-10 pr-3 py-1.5 gap-2 bg-purple-50/40"
                     :class="mod.qty - mod.voided <= 0 ? 'opacity-40' : ''">
                     <div class="flex items-center gap-2 flex-1 min-w-0">
                       <span class="font-bold w-6 shrink-0 text-center text-[10px] text-purple-600"
@@ -209,20 +195,6 @@
                         + {{ mod.name }}{{ mod.price > 0 ? ' (+' + store.config.ui.currency + mod.price.toFixed(2) + ')' : '' }}
                       </span>
                       <span v-if="mod.modVoided > 0" class="text-[8px] text-red-500 font-bold uppercase">-{{ mod.modVoided }}</span>
-                    </div>
-                    <div class="flex items-center gap-1 shrink-0">
-                      <button @click="voidFromModRefs(mod.refs)"
-                        :disabled="mod.qty - mod.voided <= 0"
-                        class="p-1 bg-white border border-orange-200 text-orange-500 hover:bg-orange-50 rounded shadow-sm transition-colors active:scale-95 disabled:opacity-30"
-                        title="Storna una variazione (solo modificatore)">
-                        <Ban class="size-3" />
-                      </button>
-                      <button @click="restoreFromModRefs(mod.refs)"
-                        :disabled="mod.modVoided <= 0"
-                        class="p-1 bg-white border border-blue-200 text-blue-500 hover:bg-blue-50 rounded shadow-sm transition-colors active:scale-95 disabled:opacity-30"
-                        title="Ripristina una variazione (solo modificatore)">
-                        <Undo2 class="size-3" />
-                      </button>
                     </div>
                   </div>
                 </div>
@@ -753,7 +725,7 @@ function getPaymentIcon(methodIdOrLabel) {
 const tableMenuGrouped = computed(() => {
   const dishMap = new Map();
   for (const ord of tableOrders.value) {
-    if (ord.status !== 'accepted') continue; // only accepted orders can be voided
+    if (ord.status !== 'accepted') continue; // only accepted orders appear in the grouped summary
     for (let idx = 0; idx < ord.orderItems.length; idx++) {
       const item = ord.orderItems[idx];
       const key = item.name;
@@ -763,7 +735,6 @@ const tableMenuGrouped = computed(() => {
           totalQty: 0,
           totalVoided: 0,
           totalSubtotal: 0,
-          refs: [],
           modifiers: new Map(),
         });
       }
@@ -771,7 +742,6 @@ const tableMenuGrouped = computed(() => {
       dish.totalQty += item.quantity;
       dish.totalVoided += (item.voidedQuantity || 0);
       dish.totalSubtotal += getOrderItemRowTotal(item);
-      dish.refs.push({ ord, idx });
 
       // Count paid modifiers (variazioni a pagamento)
       for (let modIdx = 0; modIdx < (item.modifiers || []).length; modIdx++) {
@@ -779,7 +749,7 @@ const tableMenuGrouped = computed(() => {
         if (mod.price <= 0) continue;
         const modKey = `${mod.name}::${mod.price}`;
         if (!dish.modifiers.has(modKey)) {
-          dish.modifiers.set(modKey, { name: mod.name, price: mod.price, qty: 0, voided: 0, modVoided: 0, refs: [] });
+          dish.modifiers.set(modKey, { name: mod.name, price: mod.price, qty: 0, voided: 0, modVoided: 0 });
         }
         const mg = dish.modifiers.get(modKey);
         mg.qty += item.quantity;
@@ -787,58 +757,11 @@ const tableMenuGrouped = computed(() => {
         const perItemVoided = Math.min(item.quantity, combinedVoided);
         mg.voided += perItemVoided;
         mg.modVoided += (mod.voidedQuantity || 0);
-        mg.refs.push({ ord, idx, modIdx });
       }
     }
   }
   return Array.from(dishMap.values()).map(d => ({ ...d, modifiers: Array.from(d.modifiers.values()) }));
 });
-
-// ── Helpers: void / restore from grouped refs ──────────────────────────────
-function voidFromGroupRefs(refs) {
-  for (const { ord, idx } of refs) {
-    const item = ord.orderItems[idx];
-    if (item.quantity - (item.voidedQuantity || 0) > 0) {
-      store.voidOrderItems(ord, idx, 1);
-      return;
-    }
-  }
-}
-
-function restoreFromGroupRefs(refs) {
-  for (const { ord, idx } of refs) {
-    const item = ord.orderItems[idx];
-    if ((item.voidedQuantity || 0) > 0) {
-      store.restoreOrderItems(ord, idx, 1);
-      return;
-    }
-  }
-}
-
-// ── Helpers: void / restore modifier-only from grouped refs ───────────────
-function voidFromModRefs(refs) {
-  for (const { ord, idx, modIdx } of refs) {
-    const item = ord.orderItems[idx];
-    const mod = item.modifiers[modIdx];
-    const itemActive = item.quantity - (item.voidedQuantity || 0);
-    const modActive = itemActive - (mod.voidedQuantity || 0);
-    if (modActive > 0) {
-      store.voidModifier(ord, idx, modIdx, 1);
-      return;
-    }
-  }
-}
-
-function restoreFromModRefs(refs) {
-  for (const { ord, idx, modIdx } of refs) {
-    const item = ord.orderItems[idx];
-    const mod = item.modifiers[modIdx];
-    if ((mod.voidedQuantity || 0) > 0) {
-      store.restoreModifier(ord, idx, modIdx, 1);
-      return;
-    }
-  }
-}
 
 // ── Table actions ──────────────────────────────────────────────────────────
 function openTableDetails(table) {
