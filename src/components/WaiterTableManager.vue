@@ -151,7 +151,16 @@
             <h3 class="font-bold text-base md:text-xl leading-tight">Tavolo {{ selectedTable.label }}</h3>
             <p class="text-white/60 text-xs">
               <span v-if="tableSession">
-                {{ tableSession.adults }}{{ tableSession.children > 0 ? '+' + tableSession.children + ' bambini' : '' }} persone
+                <template v-if="showChildrenInput">
+                  {{ tableSession.adults }} {{ tableSession.adults === 1 ? 'adulto' : 'adulti' }}
+                  <template v-if="tableSession.children > 0">
+                    + {{ tableSession.children }} {{ tableSession.children === 1 ? 'bambino' : 'bambini' }}
+                  </template>
+                  · {{ tableSession.adults + tableSession.children }} {{ (tableSession.adults + tableSession.children) === 1 ? 'persona' : 'persone' }}
+                </template>
+                <template v-else>
+                  {{ tableSession.adults }} {{ tableSession.adults === 1 ? 'persona' : 'persone' }}
+                </template>
               </span>
               <span v-else>{{ selectedTable.covers }} posti</span>
               · {{ tableOrders.length }} comanda{{ tableOrders.length !== 1 ? 'e' : '' }}
