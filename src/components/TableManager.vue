@@ -783,7 +783,9 @@ const tableMenuGrouped = computed(() => {
         }
         const mg = dish.modifiers.get(modKey);
         mg.qty += item.quantity;
-        mg.voided += (item.voidedQuantity || 0) + (mod.voidedQuantity || 0);
+        const combinedVoided = (item.voidedQuantity || 0) + (mod.voidedQuantity || 0);
+        const perItemVoided = Math.min(item.quantity, combinedVoided);
+        mg.voided += perItemVoided;
         mg.modVoided += (mod.voidedQuantity || 0);
         mg.refs.push({ ord, idx, modIdx });
       }
