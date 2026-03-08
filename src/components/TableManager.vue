@@ -175,23 +175,9 @@
                       <span v-if="dish.totalVoided > 0" class="text-[8px] text-red-500 font-bold uppercase">-{{ dish.totalVoided }} storn.</span>
                     </div>
                   </div>
-                  <div class="flex items-center gap-1 shrink-0">
-                    <span class="font-black text-[12px] md:text-sm text-gray-800 mr-1">
-                      {{ store.config.ui.currency }}{{ dish.totalSubtotal.toFixed(2) }}
-                    </span>
-                    <button @click="voidFromGroupRefs(dish.refs)"
-                      :disabled="dish.totalQty - dish.totalVoided <= 0"
-                      class="p-1.5 bg-white border border-orange-200 text-orange-500 hover:bg-orange-50 rounded shadow-sm transition-colors active:scale-95 disabled:opacity-30"
-                      title="Storna una unità">
-                      <Ban class="size-3.5" />
-                    </button>
-                    <button @click="restoreFromGroupRefs(dish.refs)"
-                      :disabled="dish.totalVoided <= 0"
-                      class="p-1.5 bg-white border border-blue-200 text-blue-500 hover:bg-blue-50 rounded shadow-sm transition-colors active:scale-95 disabled:opacity-30"
-                      title="Ripristina una unità">
-                      <Undo2 class="size-3.5" />
-                    </button>
-                  </div>
+                  <span class="font-black text-[12px] md:text-sm text-gray-800 shrink-0">
+                    {{ store.config.ui.currency }}{{ dish.totalSubtotal.toFixed(2) }}
+                  </span>
                 </div>
 
                 <!-- Righe variazioni (modificatori a pagamento) -->
@@ -209,20 +195,6 @@
                         + {{ mod.name }}{{ mod.price > 0 ? ' (+' + store.config.ui.currency + mod.price.toFixed(2) + ')' : '' }}
                       </span>
                       <span v-if="mod.modVoided > 0" class="text-[8px] text-red-500 font-bold uppercase">-{{ mod.modVoided }}</span>
-                    </div>
-                    <div class="flex items-center gap-1 shrink-0">
-                      <button @click="voidFromModRefs(mod.refs)"
-                        :disabled="mod.qty - mod.voided <= 0"
-                        class="p-1 bg-white border border-orange-200 text-orange-500 hover:bg-orange-50 rounded shadow-sm transition-colors active:scale-95 disabled:opacity-30"
-                        title="Storna una variazione (solo modificatore)">
-                        <Ban class="size-3" />
-                      </button>
-                      <button @click="restoreFromModRefs(mod.refs)"
-                        :disabled="mod.modVoided <= 0"
-                        class="p-1 bg-white border border-blue-200 text-blue-500 hover:bg-blue-50 rounded shadow-sm transition-colors active:scale-95 disabled:opacity-30"
-                        title="Ripristina una variazione (solo modificatore)">
-                        <Undo2 class="size-3" />
-                      </button>
                     </div>
                   </div>
                 </div>
