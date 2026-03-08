@@ -388,9 +388,9 @@
         </button>
       </div>
 
-      <!-- Adults -->
+      <!-- Adults / Generic People -->
       <div class="mb-5">
-        <label class="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Adulti</label>
+        <label class="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">{{ showChildrenInput ? 'Adulti' : 'Persone' }}</label>
         <div class="flex items-center gap-4">
           <button @click="peopleAdults > 0 ? peopleAdults-- : null" class="size-12 bg-gray-100 hover:bg-gray-200 rounded-xl flex items-center justify-center font-black text-gray-700 active:scale-95 transition-all">
             <Minus class="size-5" />
@@ -402,8 +402,8 @@
         </div>
       </div>
 
-      <!-- Children -->
-      <div class="mb-5">
+      <!-- Children (only when children cover charge is enabled and has a non-zero price) -->
+      <div v-if="showChildrenInput" class="mb-5">
         <label class="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Bambini</label>
         <div class="flex items-center gap-4">
           <button @click="peopleChildren > 0 ? peopleChildren-- : null" class="size-12 bg-gray-100 hover:bg-gray-200 rounded-xl flex items-center justify-center font-black text-gray-700 active:scale-95 transition-all">
@@ -540,6 +540,12 @@ const showPeopleModal = ref(false);
 const pendingTableToOpen = ref(null);
 const peopleAdults = ref(2);
 const peopleChildren = ref(0);
+// Show a separate "Bambini" counter only when the children cover charge is
+// enabled and has a non-zero price; otherwise a single generic "Persone"
+// counter is sufficient.
+const showChildrenInput = computed(() =>
+  !!(store.config.coverCharge?.enabled && (store.config.coverCharge?.priceChild ?? 0) > 0),
+);
 
 // ── JSON modal state ───────────────────────────────────────────────────────
 const showPrecontoJson = ref(false);
