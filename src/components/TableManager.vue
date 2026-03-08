@@ -129,33 +129,31 @@
 
         <!-- PANNELLO SINISTRO: Riepilogo Comande e Storni dalla Cassa -->
         <div class="w-full lg:w-[55%] border-b lg:border-b-0 lg:border-r border-gray-200 bg-gray-50 flex flex-col min-h-[45%] lg:min-h-0">
-          <div class="p-3 md:p-4 bg-white border-b border-gray-200 shrink-0 flex flex-col gap-2">
-            <div class="flex justify-between items-center">
-              <span class="font-bold text-gray-700 text-xs md:text-sm uppercase tracking-wider">Riepilogo Voci</span>
-              <button @click="createNewOrderForTable" class="bg-gray-900 hover:bg-black text-white px-3 py-2 rounded-lg text-xs md:text-sm font-bold flex items-center gap-1.5 active:scale-95 shadow-sm transition-colors">
-                <Plus class="size-4 md:size-5" /> <span class="hidden sm:inline">Nuova Comanda</span>
-              </button>
-            </div>
-            <!-- Vista switch -->
-            <div class="flex bg-gray-100 p-0.5 rounded-xl gap-0.5">
+          <div class="p-3 md:p-4 bg-white border-b border-gray-200 shrink-0 flex items-center gap-2">
+            <span class="font-bold text-gray-700 text-xs md:text-sm uppercase tracking-wider shrink-0">Riepilogo Voci</span>
+            <!-- Vista switch (inline in header) -->
+            <div class="flex bg-gray-100 p-0.5 rounded-xl gap-0.5 flex-1 mx-1">
               <button @click="cassaViewMode = 'voce'"
                 :class="cassaViewMode === 'voce' ? 'bg-white shadow text-gray-900 border border-gray-200' : 'text-gray-500 hover:bg-gray-200/50'"
-                class="flex-1 py-1.5 px-2 text-[10px] md:text-xs font-bold rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1">
+                class="flex-1 py-1 px-1.5 text-[9px] md:text-[10px] font-bold rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1">
                 <LayoutGrid class="size-3 shrink-0" /> Per Voce
               </button>
               <button @click="cassaViewMode = 'ordine'"
                 :class="cassaViewMode === 'ordine' ? 'bg-white shadow text-gray-900 border border-gray-200' : 'text-gray-500 hover:bg-gray-200/50'"
-                class="flex-1 py-1.5 px-2 text-[10px] md:text-xs font-bold rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1">
+                class="flex-1 py-1 px-1.5 text-[9px] md:text-[10px] font-bold rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1">
                 <ListOrdered class="size-3 shrink-0" /> Per Ordine
               </button>
             </div>
+            <button @click="createNewOrderForTable" class="bg-gray-900 hover:bg-black text-white px-3 py-2 rounded-lg text-xs md:text-sm font-bold flex items-center gap-1.5 active:scale-95 shadow-sm transition-colors shrink-0">
+              <Plus class="size-4 md:size-5" /> <span class="hidden sm:inline">Nuova Comanda</span>
+            </button>
           </div>
 
           <!-- ══ VISTA: PER VOCE (menu raggruppato) ══════════════════════════ -->
           <div v-if="cassaViewMode === 'voce'" class="flex-1 overflow-y-auto p-2 md:p-4">
-            <div v-if="tableOrders.length === 0" class="text-center text-gray-400 py-8">
+            <div v-if="tableMenuGrouped.length === 0" class="text-center text-gray-400 py-8">
               <Coffee class="size-10 mx-auto mb-2 opacity-30" />
-              <p class="text-sm font-medium">Il tavolo è libero.</p>
+              <p class="text-sm font-medium">{{ tableOrders.length === 0 ? 'Il tavolo è libero.' : 'Nessuna comanda ancora accettata.' }}</p>
             </div>
 
             <div v-else class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
@@ -198,7 +196,7 @@
 
                 <!-- Righe variazioni (modificatori a pagamento) -->
                 <div v-if="dish.modifiers.length > 0" class="pb-1">
-                  <div v-for="mod in dish.modifiers" :key="mod.name"
+                  <div v-for="mod in dish.modifiers" :key="mod.name + '::' + mod.price"
                     class="flex items-center justify-between pl-10 pr-3 py-1.5 gap-2 bg-purple-50/40"
                     :class="mod.qty - mod.voided <= 0 ? 'opacity-40' : ''">
                     <div class="flex items-center gap-2 flex-1 min-w-0">
@@ -287,7 +285,7 @@
                   </div>
                   <!-- Variazioni a pagamento (per ordine) con storni -->
                   <div v-if="item.modifiers && item.modifiers.some(m => m.price > 0)" class="mt-1 ml-8 space-y-0.5">
-                    <div v-for="mod in item.modifiers.filter(m => m.price > 0)" :key="'mod_'+item.uid+'_'+mod.name"
+                    <div v-for="(mod, modIdx) in item.modifiers.filter(m => m.price > 0)" :key="'mod_'+item.uid+'_'+modIdx+'_'+mod.name+'_'+mod.price"
                       class="flex items-center justify-between py-1 pl-2 pr-1 rounded bg-purple-50/60 border border-purple-100"
                       :class="item.voidedQuantity === item.quantity ? 'opacity-40' : ''">
                       <div class="flex items-center gap-1.5 flex-1 min-w-0">
@@ -779,7 +777,7 @@ const tableMenuGrouped = computed(() => {
       // Count paid modifiers (variazioni a pagamento)
       for (const mod of (item.modifiers || [])) {
         if (mod.price <= 0) continue;
-        const modKey = mod.name;
+        const modKey = `${mod.name}::${mod.price}`;
         if (!dish.modifiers.has(modKey)) {
           dish.modifiers.set(modKey, { name: mod.name, price: mod.price, qty: 0, voided: 0, refs: [] });
         }
