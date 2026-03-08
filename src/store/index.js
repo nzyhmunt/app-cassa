@@ -262,6 +262,12 @@ export const useAppStore = defineStore('app', () => {
           }
         });
         const next = { ...tableCurrentBillSession.value };
+        // Combine headcounts so splitWays reflects the full party after the move
+        next[toTableId] = {
+          ...next[toTableId],
+          adults: next[toTableId].adults + next[fromTableId].adults,
+          children: next[toTableId].children + next[fromTableId].children,
+        };
         delete next[fromTableId];
         tableCurrentBillSession.value = next;
       }
@@ -310,6 +316,12 @@ export const useAppStore = defineStore('app', () => {
             t.billSessionId = destSessionId;
           }
         });
+        // Combine headcounts so splitWays reflects the full party after the merge
+        next[targetTableId] = {
+          ...next[targetTableId],
+          adults: next[targetTableId].adults + next[sourceTableId].adults,
+          children: next[targetTableId].children + next[sourceTableId].children,
+        };
       }
       delete next[sourceTableId];
       tableCurrentBillSession.value = next;
