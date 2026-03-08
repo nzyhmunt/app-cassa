@@ -129,14 +129,109 @@
 
         <!-- PANNELLO SINISTRO: Riepilogo Comande e Storni dalla Cassa -->
         <div class="w-full lg:w-[55%] border-b lg:border-b-0 lg:border-r border-gray-200 bg-gray-50 flex flex-col min-h-[45%] lg:min-h-0">
-          <div class="p-3 md:p-4 bg-white border-b border-gray-200 flex justify-between items-center shrink-0">
-            <span class="font-bold text-gray-700 text-xs md:text-sm uppercase tracking-wider">Riepilogo Voci</span>
-            <button @click="createNewOrderForTable" class="bg-gray-900 hover:bg-black text-white px-3 py-2 rounded-lg text-xs md:text-sm font-bold flex items-center gap-1.5 active:scale-95 shadow-sm transition-colors">
+          <div class="p-3 md:p-4 bg-white border-b border-gray-200 shrink-0 flex items-center gap-2">
+            <span class="font-bold text-gray-700 text-xs md:text-sm uppercase tracking-wider shrink-0">Riepilogo Voci</span>
+            <!-- Vista switch (inline in header) -->
+            <div class="flex bg-gray-100 p-0.5 rounded-xl gap-0.5 flex-1 mx-1">
+              <button @click="cassaViewMode = 'voce'"
+                :class="cassaViewMode === 'voce' ? 'bg-white shadow text-gray-900 border border-gray-200' : 'text-gray-500 hover:bg-gray-200/50'"
+                class="flex-1 py-1 px-1.5 text-[9px] md:text-[10px] font-bold rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1">
+                <LayoutGrid class="size-3 shrink-0" /> Per Voce
+              </button>
+              <button @click="cassaViewMode = 'ordine'"
+                :class="cassaViewMode === 'ordine' ? 'bg-white shadow text-gray-900 border border-gray-200' : 'text-gray-500 hover:bg-gray-200/50'"
+                class="flex-1 py-1 px-1.5 text-[9px] md:text-[10px] font-bold rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1">
+                <ListOrdered class="size-3 shrink-0" /> Per Ordine
+              </button>
+            </div>
+            <button @click="createNewOrderForTable" class="bg-gray-900 hover:bg-black text-white px-3 py-2 rounded-lg text-xs md:text-sm font-bold flex items-center gap-1.5 active:scale-95 shadow-sm transition-colors shrink-0">
               <Plus class="size-4 md:size-5" /> <span class="hidden sm:inline">Nuova Comanda</span>
             </button>
           </div>
 
-          <div class="flex-1 overflow-y-auto p-2 md:p-4 space-y-3">
+          <!-- ══ VISTA: PER VOCE (menu raggruppato) ══════════════════════════ -->
+          <div v-if="cassaViewMode === 'voce'" class="flex-1 overflow-y-auto p-2 md:p-4">
+            <div v-if="tableMenuGrouped.length === 0" class="text-center text-gray-400 py-8">
+              <Coffee class="size-10 mx-auto mb-2 opacity-30" />
+              <p class="text-sm font-medium">{{ tableOrders.length === 0 ? 'Il tavolo è libero.' : 'Nessuna comanda ancora accettata.' }}</p>
+            </div>
+
+            <div v-else class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+              <div v-for="(dish, di) in tableMenuGrouped" :key="dish.name"
+                class="border-b border-gray-100 last:border-0">
+                <!-- Riga voce principale -->
+                <div class="flex items-center justify-between px-3 py-2.5 gap-2"
+                  :class="dish.totalQty - dish.totalVoided <= 0 ? 'opacity-40' : ''">
+                  <div class="flex items-center gap-2 flex-1 min-w-0">
+                    <span class="font-black w-7 shrink-0 text-center text-[11px] md:text-sm"
+                      :class="dish.totalQty - dish.totalVoided <= 0 ? 'text-gray-400 line-through' : 'text-gray-700'">
+                      {{ dish.totalQty - dish.totalVoided }}x
+                    </span>
+                    <div class="flex flex-col min-w-0">
+                      <span class="font-bold text-gray-800 text-xs md:text-sm truncate"
+                        :class="{'line-through text-gray-500': dish.totalQty - dish.totalVoided <= 0}">
+                        {{ dish.name }}
+                      </span>
+                      <span v-if="dish.totalVoided > 0" class="text-[8px] text-red-500 font-bold uppercase">-{{ dish.totalVoided }} storn.</span>
+                    </div>
+                  </div>
+                  <div class="flex items-center gap-1 shrink-0">
+                    <span class="font-black text-[12px] md:text-sm text-gray-800 mr-1">
+                      {{ store.config.ui.currency }}{{ dish.totalSubtotal.toFixed(2) }}
+                    </span>
+                    <button @click="voidFromGroupRefs(dish.refs)"
+                      :disabled="dish.totalQty - dish.totalVoided <= 0"
+                      class="p-1.5 bg-white border border-orange-200 text-orange-500 hover:bg-orange-50 rounded shadow-sm transition-colors active:scale-95 disabled:opacity-30"
+                      title="Storna una unità">
+                      <Ban class="size-3.5" />
+                    </button>
+                    <button @click="restoreFromGroupRefs(dish.refs)"
+                      :disabled="dish.totalVoided <= 0"
+                      class="p-1.5 bg-white border border-blue-200 text-blue-500 hover:bg-blue-50 rounded shadow-sm transition-colors active:scale-95 disabled:opacity-30"
+                      title="Ripristina una unità">
+                      <Undo2 class="size-3.5" />
+                    </button>
+                  </div>
+                </div>
+
+                <!-- Righe variazioni (modificatori a pagamento) -->
+                <div v-if="dish.modifiers.length > 0" class="pb-1">
+                  <div v-for="mod in dish.modifiers" :key="mod.name + '::' + mod.price"
+                    class="flex items-center justify-between pl-10 pr-3 py-1.5 gap-2 bg-purple-50/40"
+                    :class="mod.qty - mod.voided <= 0 ? 'opacity-40' : ''">
+                    <div class="flex items-center gap-2 flex-1 min-w-0">
+                      <span class="font-bold w-6 shrink-0 text-center text-[10px] text-purple-600"
+                        :class="mod.qty - mod.voided <= 0 ? 'line-through text-gray-400' : ''">
+                        {{ mod.qty - mod.voided }}x
+                      </span>
+                      <span class="text-[10px] md:text-xs font-bold text-purple-700 truncate"
+                        :class="{'line-through text-gray-400': mod.qty - mod.voided <= 0}">
+                        + {{ mod.name }}{{ mod.price > 0 ? ' (+' + store.config.ui.currency + mod.price.toFixed(2) + ')' : '' }}
+                      </span>
+                      <span v-if="mod.voided > 0" class="text-[8px] text-red-500 font-bold uppercase">-{{ mod.voided }}</span>
+                    </div>
+                    <div class="flex items-center gap-1 shrink-0">
+                      <button @click="voidFromGroupRefs(mod.refs)"
+                        :disabled="mod.qty - mod.voided <= 0"
+                        class="p-1 bg-white border border-orange-200 text-orange-500 hover:bg-orange-50 rounded shadow-sm transition-colors active:scale-95 disabled:opacity-30"
+                        title="Storna una unità della voce che include questa variazione">
+                        <Ban class="size-3" />
+                      </button>
+                      <button @click="restoreFromGroupRefs(mod.refs)"
+                        :disabled="mod.voided <= 0"
+                        class="p-1 bg-white border border-blue-200 text-blue-500 hover:bg-blue-50 rounded shadow-sm transition-colors active:scale-95 disabled:opacity-30"
+                        title="Ripristina una unità della voce che include questa variazione">
+                        <Undo2 class="size-3" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ══ VISTA: PER ORDINE (comande singole) ════════════════════════ -->
+          <div v-else class="flex-1 overflow-y-auto p-2 md:p-4 space-y-3">
             <div v-if="tableOrders.length === 0" class="text-center text-gray-400 py-8">
               <Coffee class="size-10 mx-auto mb-2 opacity-30" />
               <p class="text-sm font-medium">Il tavolo è libero.</p>
@@ -172,19 +267,6 @@
                           <span class="font-bold text-gray-800 leading-tight truncate text-xs md:text-sm" :class="{'line-through text-gray-500': item.voidedQuantity === item.quantity}">{{item.name}}</span>
                           <span v-if="(item.voidedQuantity || 0) > 0" class="text-[8px] md:text-[9px] text-red-500 font-bold uppercase tracking-widest border border-red-200 bg-red-50 px-1 rounded shrink-0">-{{item.voidedQuantity}} Storn.</span>
                         </div>
-                        <div v-if="item.notes && item.notes.length > 0" class="text-[9px] text-amber-600 font-bold italic truncate">{{ item.notes.join(', ') }}</div>
-                        <!-- Modificatori -->
-                        <div v-if="item.modifiers && item.modifiers.length > 0" class="flex flex-wrap gap-0.5 mt-0.5">
-                          <span v-for="(mod, mi) in item.modifiers" :key="mi"
-                            class="text-[8px] font-bold bg-purple-50 border border-purple-200 text-purple-700 px-1 rounded">
-                            {{ mod.name }}{{ mod.price > 0 ? ' +€'+mod.price.toFixed(2) : '' }}
-                          </span>
-                        </div>
-                        <!-- Uscita -->
-                        <span v-if="item.course && item.course !== 'insieme'" class="text-[8px] font-bold uppercase px-1 py-0.5 rounded border mt-0.5 inline-block"
-                          :class="item.course === 'prima' ? 'bg-orange-50 border-orange-200 text-orange-700' : 'bg-teal-50 border-teal-200 text-teal-700'">
-                          {{ item.course === 'prima' ? 'Esce prima' : 'Esce dopo' }}
-                        </span>
                       </div>
                     </div>
                     <div class="flex items-center gap-2 shrink-0">
@@ -197,6 +279,34 @@
                         </button>
                         <button @click="store.restoreOrderItems(ord, idx, 1)" :disabled="(item.voidedQuantity || 0) <= 0" class="p-1.5 bg-white border border-blue-200 text-blue-500 hover:bg-blue-50 rounded shadow-sm transition-colors active:scale-95 disabled:opacity-30" title="Ripristina nel conto">
                           <Undo2 class="size-4 md:size-4" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                  <!-- Variazioni a pagamento (per ordine) con storni -->
+                  <div v-if="item.modifiers && item.modifiers.some(m => m.price > 0)" class="mt-1 ml-8 space-y-0.5">
+                    <div v-for="(mod, modIdx) in item.modifiers.filter(m => m.price > 0)" :key="'mod_'+item.uid+'_'+modIdx+'_'+mod.name+'_'+mod.price"
+                      class="flex items-center justify-between py-1 pl-2 pr-1 rounded bg-purple-50/60 border border-purple-100"
+                      :class="item.voidedQuantity === item.quantity ? 'opacity-40' : ''">
+                      <div class="flex items-center gap-1.5 flex-1 min-w-0">
+                        <span class="text-[9px] font-bold text-purple-500">{{ item.quantity - (item.voidedQuantity || 0) }}x</span>
+                        <span class="text-[9px] md:text-[10px] font-bold text-purple-700 truncate"
+                          :class="{'line-through text-gray-400': item.voidedQuantity === item.quantity}">
+                          + {{ mod.name }} (+{{ store.config.ui.currency }}{{ mod.price.toFixed(2) }})
+                        </span>
+                      </div>
+                      <div v-if="ord.status === 'accepted'" class="flex items-center gap-0.5 shrink-0">
+                        <button @click="store.voidOrderItems(ord, idx, 1)"
+                          :disabled="item.quantity - (item.voidedQuantity || 0) <= 0"
+                          class="p-1 bg-white border border-orange-200 text-orange-500 hover:bg-orange-50 rounded shadow-sm transition-colors active:scale-95 disabled:opacity-30"
+                          title="Storna voce (prodotto + variazioni)">
+                          <Ban class="size-3" />
+                        </button>
+                        <button @click="store.restoreOrderItems(ord, idx, 1)"
+                          :disabled="(item.voidedQuantity || 0) <= 0"
+                          class="p-1 bg-white border border-blue-200 text-blue-500 hover:bg-blue-50 rounded shadow-sm transition-colors active:scale-95 disabled:opacity-30"
+                          title="Ripristina voce (prodotto + variazioni)">
+                          <Undo2 class="size-3" />
                         </button>
                       </div>
                     </div>
@@ -443,7 +553,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue';
 import {
   Grid3x3, Users, X, Plus, Coffee, Edit, AlertTriangle, CheckCircle,
   Ban, Undo2, Code, Minus, Receipt, ArrowRightLeft, Merge, Timer,
-  Layers, ListChecks, History,
+  Layers, ListChecks, History, LayoutGrid, ListOrdered,
 } from 'lucide-vue-next';
 import { Banknote, CreditCard } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
@@ -530,6 +640,7 @@ function getElapsedTime(tableId) {
 }
 
 // ── Checkout state ─────────────────────────────────────────────────────────
+const cassaViewMode = ref('voce'); // 'voce' = grouped menu view | 'ordine' = per-order view
 const checkoutMode = ref('unico');
 const splitWays = ref(2);
 const splitPaidQuotas = ref(0);
@@ -638,6 +749,69 @@ function getOrderItemUnitPrice(item) {
   return item.unitPrice + modTotal;
 }
 
+// ── Computed: grouped menu view (items aggregated by dish name) ────────────
+const tableMenuGrouped = computed(() => {
+  const dishMap = new Map();
+  for (const ord of tableOrders.value) {
+    if (ord.status !== 'accepted') continue; // only accepted orders can be voided
+    for (let idx = 0; idx < ord.orderItems.length; idx++) {
+      const item = ord.orderItems[idx];
+      const key = item.name;
+      if (!dishMap.has(key)) {
+        dishMap.set(key, {
+          name: item.name,
+          totalQty: 0,
+          totalVoided: 0,
+          totalSubtotal: 0,
+          refs: [],
+          modifiers: new Map(),
+        });
+      }
+      const dish = dishMap.get(key);
+      dish.totalQty += item.quantity;
+      dish.totalVoided += (item.voidedQuantity || 0);
+      const effectiveQty = item.quantity - (item.voidedQuantity || 0);
+      dish.totalSubtotal += getOrderItemUnitPrice(item) * effectiveQty;
+      dish.refs.push({ ord, idx });
+
+      // Count paid modifiers (variazioni a pagamento)
+      for (const mod of (item.modifiers || [])) {
+        if (mod.price <= 0) continue;
+        const modKey = `${mod.name}::${mod.price}`;
+        if (!dish.modifiers.has(modKey)) {
+          dish.modifiers.set(modKey, { name: mod.name, price: mod.price, qty: 0, voided: 0, refs: [] });
+        }
+        const mg = dish.modifiers.get(modKey);
+        mg.qty += item.quantity;
+        mg.voided += (item.voidedQuantity || 0);
+        mg.refs.push({ ord, idx });
+      }
+    }
+  }
+  return Array.from(dishMap.values()).map(d => ({ ...d, modifiers: Array.from(d.modifiers.values()) }));
+});
+
+// ── Helpers: void / restore from grouped refs ──────────────────────────────
+function voidFromGroupRefs(refs) {
+  for (const { ord, idx } of refs) {
+    const item = ord.orderItems[idx];
+    if (item.quantity - (item.voidedQuantity || 0) > 0) {
+      store.voidOrderItems(ord, idx, 1);
+      return;
+    }
+  }
+}
+
+function restoreFromGroupRefs(refs) {
+  for (const { ord, idx } of refs) {
+    const item = ord.orderItems[idx];
+    if ((item.voidedQuantity || 0) > 0) {
+      store.restoreOrderItems(ord, idx, 1);
+      return;
+    }
+  }
+}
+
 // ── Table actions ──────────────────────────────────────────────────────────
 function openTableDetails(table) {
   const status = store.getTableStatus(table.id).status;
@@ -662,6 +836,7 @@ function _openTableModal(table) {
     splitWays.value = table.covers || 2;
   }
   checkoutMode.value = 'unico';
+  cassaViewMode.value = 'voce';
   selectedOrdersToPay.value = [];
 
   const pastRomana = store.transactions.filter(
