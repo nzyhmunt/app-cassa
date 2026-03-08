@@ -208,19 +208,19 @@
                         :class="{'line-through text-gray-400': mod.qty - mod.voided <= 0}">
                         + {{ mod.name }}{{ mod.price > 0 ? ' (+' + store.config.ui.currency + mod.price.toFixed(2) + ')' : '' }}
                       </span>
-                      <span v-if="mod.voided > 0" class="text-[8px] text-red-500 font-bold uppercase">-{{ mod.voided }}</span>
+                      <span v-if="mod.modVoided > 0" class="text-[8px] text-red-500 font-bold uppercase">-{{ mod.modVoided }}</span>
                     </div>
                     <div class="flex items-center gap-1 shrink-0">
-                      <button @click="voidFromGroupRefs(mod.refs)"
+                      <button @click="voidFromModRefs(mod.refs)"
                         :disabled="mod.qty - mod.voided <= 0"
                         class="p-1 bg-white border border-orange-200 text-orange-500 hover:bg-orange-50 rounded shadow-sm transition-colors active:scale-95 disabled:opacity-30"
-                        title="Storna una unità della voce che include questa variazione">
+                        title="Storna una variazione (solo modificatore)">
                         <Ban class="size-3" />
                       </button>
-                      <button @click="restoreFromGroupRefs(mod.refs)"
-                        :disabled="mod.voided <= 0"
+                      <button @click="restoreFromModRefs(mod.refs)"
+                        :disabled="mod.modVoided <= 0"
                         class="p-1 bg-white border border-blue-200 text-blue-500 hover:bg-blue-50 rounded shadow-sm transition-colors active:scale-95 disabled:opacity-30"
-                        title="Ripristina una unità della voce che include questa variazione">
+                        title="Ripristina una variazione (solo modificatore)">
                         <Undo2 class="size-3" />
                       </button>
                     </div>
@@ -271,7 +271,7 @@
                     </div>
                     <div class="flex items-center gap-2 shrink-0">
                       <span class="font-black text-[13px] md:text-sm" :class="item.voidedQuantity === item.quantity ? 'text-gray-400 line-through' : 'text-gray-800'">
-                        {{ store.config.ui.currency }}{{(getOrderItemUnitPrice(item) * (item.quantity - (item.voidedQuantity || 0))).toFixed(2)}}
+                        {{ store.config.ui.currency }}{{getOrderItemRowTotal(item).toFixed(2)}}
                       </span>
                       <div v-if="ord.status === 'accepted'" class="flex items-center gap-1 ml-1">
                         <button @click="store.voidOrderItems(ord, idx, 1)" :disabled="item.quantity - (item.voidedQuantity || 0) <= 0" class="p-1.5 bg-white border border-orange-200 text-orange-500 hover:bg-orange-50 rounded shadow-sm transition-colors active:scale-95 disabled:opacity-30" title="Storna dal conto">
@@ -285,31 +285,37 @@
                   </div>
                   <!-- Variazioni a pagamento (per ordine) con storni -->
                   <div v-if="item.modifiers && item.modifiers.some(m => m.price > 0)" class="mt-1 ml-8 space-y-0.5">
-                    <div v-for="(mod, modIdx) in item.modifiers.filter(m => m.price > 0)" :key="'mod_'+item.uid+'_'+modIdx+'_'+mod.name+'_'+mod.price"
-                      class="flex items-center justify-between py-1 pl-2 pr-1 rounded bg-purple-50/60 border border-purple-100"
-                      :class="item.voidedQuantity === item.quantity ? 'opacity-40' : ''">
-                      <div class="flex items-center gap-1.5 flex-1 min-w-0">
-                        <span class="text-[9px] font-bold text-purple-500">{{ item.quantity - (item.voidedQuantity || 0) }}x</span>
-                        <span class="text-[9px] md:text-[10px] font-bold text-purple-700 truncate"
-                          :class="{'line-through text-gray-400': item.voidedQuantity === item.quantity}">
-                          + {{ mod.name }} (+{{ store.config.ui.currency }}{{ mod.price.toFixed(2) }})
-                        </span>
+                    <template v-for="(mod, modIdx) in item.modifiers" :key="'mod_'+item.uid+'_'+modIdx+'_'+mod.name+'_'+mod.price">
+                      <div v-if="mod.price > 0"
+                        class="flex items-center justify-between py-1 pl-2 pr-1 rounded bg-purple-50/60 border border-purple-100"
+                        :class="item.quantity - (item.voidedQuantity || 0) - (mod.voidedQuantity || 0) <= 0 ? 'opacity-40' : ''">
+                        <div class="flex items-center gap-1.5 flex-1 min-w-0">
+                          <span class="font-bold text-[9px] text-purple-500"
+                            :class="item.quantity - (item.voidedQuantity || 0) - (mod.voidedQuantity || 0) <= 0 ? 'line-through text-gray-400' : ''">
+                            {{ Math.max(0, item.quantity - (item.voidedQuantity || 0) - (mod.voidedQuantity || 0)) }}x
+                          </span>
+                          <span class="text-[9px] md:text-[10px] font-bold text-purple-700 truncate"
+                            :class="{'line-through text-gray-400': item.quantity - (item.voidedQuantity || 0) - (mod.voidedQuantity || 0) <= 0}">
+                            + {{ mod.name }} (+{{ store.config.ui.currency }}{{ mod.price.toFixed(2) }})
+                          </span>
+                          <span v-if="(mod.voidedQuantity || 0) > 0" class="text-[8px] text-red-500 font-bold uppercase shrink-0">-{{ mod.voidedQuantity }}</span>
+                        </div>
+                        <div v-if="ord.status === 'accepted'" class="flex items-center gap-0.5 shrink-0">
+                          <button @click="store.voidModifier(ord, idx, modIdx, 1)"
+                            :disabled="item.quantity - (item.voidedQuantity || 0) - (mod.voidedQuantity || 0) <= 0"
+                            class="p-1 bg-white border border-orange-200 text-orange-500 hover:bg-orange-50 rounded shadow-sm transition-colors active:scale-95 disabled:opacity-30"
+                            title="Storna questa variazione">
+                            <Ban class="size-3" />
+                          </button>
+                          <button @click="store.restoreModifier(ord, idx, modIdx, 1)"
+                            :disabled="(mod.voidedQuantity || 0) <= 0"
+                            class="p-1 bg-white border border-blue-200 text-blue-500 hover:bg-blue-50 rounded shadow-sm transition-colors active:scale-95 disabled:opacity-30"
+                            title="Ripristina questa variazione">
+                            <Undo2 class="size-3" />
+                          </button>
+                        </div>
                       </div>
-                      <div v-if="ord.status === 'accepted'" class="flex items-center gap-0.5 shrink-0">
-                        <button @click="store.voidOrderItems(ord, idx, 1)"
-                          :disabled="item.quantity - (item.voidedQuantity || 0) <= 0"
-                          class="p-1 bg-white border border-orange-200 text-orange-500 hover:bg-orange-50 rounded shadow-sm transition-colors active:scale-95 disabled:opacity-30"
-                          title="Storna voce (prodotto + variazioni)">
-                          <Ban class="size-3" />
-                        </button>
-                        <button @click="store.restoreOrderItems(ord, idx, 1)"
-                          :disabled="(item.voidedQuantity || 0) <= 0"
-                          class="p-1 bg-white border border-blue-200 text-blue-500 hover:bg-blue-50 rounded shadow-sm transition-colors active:scale-95 disabled:opacity-30"
-                          title="Ripristina voce (prodotto + variazioni)">
-                          <Undo2 class="size-3" />
-                        </button>
-                      </div>
-                    </div>
+                    </template>
                   </div>
                 </div>
               </div>
@@ -557,7 +563,7 @@ import {
 } from 'lucide-vue-next';
 import { Banknote, CreditCard } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
-import { updateOrderTotals } from '../utils/index.js';
+import { updateOrderTotals, getOrderItemRowTotal } from '../utils/index.js';
 import ClosedBillsList from './ClosedBillsList.vue';
 
 const emit = defineEmits(['open-order-from-table', 'new-order-for-ordini']);
@@ -743,12 +749,6 @@ function getPaymentIcon(methodIdOrLabel) {
   return m.icon === 'credit-card' ? CreditCard : Banknote;
 }
 
-// ── Helper: unit price for an order item including modifiers ───────────────
-function getOrderItemUnitPrice(item) {
-  const modTotal = (item.modifiers || []).reduce((a, m) => a + (m.price || 0), 0);
-  return item.unitPrice + modTotal;
-}
-
 // ── Computed: grouped menu view (items aggregated by dish name) ────────────
 const tableMenuGrouped = computed(() => {
   const dishMap = new Map();
@@ -770,21 +770,24 @@ const tableMenuGrouped = computed(() => {
       const dish = dishMap.get(key);
       dish.totalQty += item.quantity;
       dish.totalVoided += (item.voidedQuantity || 0);
-      const effectiveQty = item.quantity - (item.voidedQuantity || 0);
-      dish.totalSubtotal += getOrderItemUnitPrice(item) * effectiveQty;
+      dish.totalSubtotal += getOrderItemRowTotal(item);
       dish.refs.push({ ord, idx });
 
       // Count paid modifiers (variazioni a pagamento)
-      for (const mod of (item.modifiers || [])) {
+      for (let modIdx = 0; modIdx < (item.modifiers || []).length; modIdx++) {
+        const mod = item.modifiers[modIdx];
         if (mod.price <= 0) continue;
         const modKey = `${mod.name}::${mod.price}`;
         if (!dish.modifiers.has(modKey)) {
-          dish.modifiers.set(modKey, { name: mod.name, price: mod.price, qty: 0, voided: 0, refs: [] });
+          dish.modifiers.set(modKey, { name: mod.name, price: mod.price, qty: 0, voided: 0, modVoided: 0, refs: [] });
         }
         const mg = dish.modifiers.get(modKey);
         mg.qty += item.quantity;
-        mg.voided += (item.voidedQuantity || 0);
-        mg.refs.push({ ord, idx });
+        const combinedVoided = (item.voidedQuantity || 0) + (mod.voidedQuantity || 0);
+        const perItemVoided = Math.min(item.quantity, combinedVoided);
+        mg.voided += perItemVoided;
+        mg.modVoided += (mod.voidedQuantity || 0);
+        mg.refs.push({ ord, idx, modIdx });
       }
     }
   }
@@ -807,6 +810,31 @@ function restoreFromGroupRefs(refs) {
     const item = ord.orderItems[idx];
     if ((item.voidedQuantity || 0) > 0) {
       store.restoreOrderItems(ord, idx, 1);
+      return;
+    }
+  }
+}
+
+// ── Helpers: void / restore modifier-only from grouped refs ───────────────
+function voidFromModRefs(refs) {
+  for (const { ord, idx, modIdx } of refs) {
+    const item = ord.orderItems[idx];
+    const mod = item.modifiers[modIdx];
+    const itemActive = item.quantity - (item.voidedQuantity || 0);
+    const modActive = itemActive - (mod.voidedQuantity || 0);
+    if (modActive > 0) {
+      store.voidModifier(ord, idx, modIdx, 1);
+      return;
+    }
+  }
+}
+
+function restoreFromModRefs(refs) {
+  for (const { ord, idx, modIdx } of refs) {
+    const item = ord.orderItems[idx];
+    const mod = item.modifiers[modIdx];
+    if ((mod.voidedQuantity || 0) > 0) {
+      store.restoreModifier(ord, idx, modIdx, 1);
       return;
     }
   }

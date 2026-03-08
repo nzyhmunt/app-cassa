@@ -173,19 +173,51 @@ export const useAppStore = defineStore('app', () => {
 
   function voidOrderItems(ord, idx, qtyToVoid) {
     if (!ord || ord.status !== 'accepted') return;
+    if (!Number.isInteger(qtyToVoid) || qtyToVoid <= 0) return;
     const item = ord.orderItems[idx];
     if (!item.voidedQuantity) item.voidedQuantity = 0;
     if (item.voidedQuantity + qtyToVoid <= item.quantity) {
       item.voidedQuantity += qtyToVoid;
+      // Clamp per-modifier voidedQuantity so combined never exceeds item.quantity
+      const maxModActive = item.quantity - item.voidedQuantity;
+      for (const m of (item.modifiers || [])) {
+        m.voidedQuantity = Math.min(m.voidedQuantity || 0, maxModActive);
+      }
       updateOrderTotals(ord);
     }
   }
 
   function restoreOrderItems(ord, idx, qtyToRestore) {
     if (!ord || ord.status !== 'accepted') return;
+    if (!Number.isInteger(qtyToRestore) || qtyToRestore <= 0) return;
     const item = ord.orderItems[idx];
     if (item.voidedQuantity && item.voidedQuantity >= qtyToRestore) {
       item.voidedQuantity -= qtyToRestore;
+      updateOrderTotals(ord);
+    }
+  }
+
+  function voidModifier(ord, itemIdx, modIdx, qty) {
+    if (!ord || ord.status !== 'accepted') return;
+    if (!Number.isInteger(qty) || qty <= 0) return;
+    const item = ord.orderItems[itemIdx];
+    if (!item || !item.modifiers || modIdx < 0 || modIdx >= item.modifiers.length) return;
+    const mod = item.modifiers[modIdx];
+    if (!mod.voidedQuantity) mod.voidedQuantity = 0;
+    if (mod.voidedQuantity + qty + (item.voidedQuantity || 0) <= item.quantity) {
+      mod.voidedQuantity += qty;
+      updateOrderTotals(ord);
+    }
+  }
+
+  function restoreModifier(ord, itemIdx, modIdx, qty) {
+    if (!ord || ord.status !== 'accepted') return;
+    if (!Number.isInteger(qty) || qty <= 0) return;
+    const item = ord.orderItems[itemIdx];
+    if (!item || !item.modifiers || modIdx < 0 || modIdx >= item.modifiers.length) return;
+    const mod = item.modifiers[modIdx];
+    if ((mod.voidedQuantity || 0) >= qty) {
+      mod.voidedQuantity -= qty;
       updateOrderTotals(ord);
     }
   }
@@ -534,6 +566,8 @@ export const useAppStore = defineStore('app', () => {
     removeRowGlobal,
     voidOrderItems,
     restoreOrderItems,
+    voidModifier,
+    restoreModifier,
     addTransaction,
     simulateNewOrder,
     loadMenu,

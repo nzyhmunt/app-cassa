@@ -194,7 +194,7 @@
                     <div class="flex items-center gap-2 md:gap-4 shrink-0">
                       <div class="flex flex-col items-end">
                         <span class="font-black text-sm md:text-base text-gray-800" :class="{'line-through text-gray-400': row.item.voidedQuantity === row.item.quantity}">
-                          {{ store.config.ui.currency }}{{ (getItemUnitPrice(row.item) * (row.item.quantity - (row.item.voidedQuantity || 0))).toFixed(2) }}
+                          {{ store.config.ui.currency }}{{ getOrderItemRowTotal(row.item).toFixed(2) }}
                         </span>
                         <span v-if="selectedOrder.status === 'pending'" class="text-[9px] text-gray-400">{{ store.config.ui.currency }}{{ getItemUnitPrice(row.item).toFixed(2) }} cad.</span>
                       </div>
@@ -464,7 +464,7 @@ import {
   X, BookOpen, ChevronRight, ShoppingCart, Sparkles, Layers,
 } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
-import { updateOrderTotals } from '../utils/index.js';
+import { updateOrderTotals, getOrderItemRowTotal } from '../utils/index.js';
 
 defineEmits(['jump-to-cassa']);
 

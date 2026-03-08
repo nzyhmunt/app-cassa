@@ -112,7 +112,7 @@
                   </span>
                 </div>
                 <span class="font-bold shrink-0 ml-2">
-                  {{ store.config.ui.currency }}{{ calculateItemTotal(item).toFixed(2) }}
+                  {{ store.config.ui.currency }}{{ getOrderItemRowTotal(item).toFixed(2) }}
                 </span>
               </div>
             </div>
@@ -131,7 +131,7 @@
 import { ref } from 'vue';
 import { ChevronDown, CreditCard, ClipboardList, Banknote } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
-import { billKey } from '../utils/index.js';
+import { billKey, getOrderItemRowTotal } from '../utils/index.js';
 
 const props = defineProps({
   bill: {
@@ -156,11 +156,5 @@ function getPaymentIcon(methodIdOrLabel) {
   const m = store.config.paymentMethods.find(x => x.label === methodIdOrLabel || x.id === methodIdOrLabel);
   if (!m) return Banknote;
   return m.icon === 'credit-card' ? CreditCard : Banknote;
-}
-
-function calculateItemTotal(item) {
-  const modifiers = item.modifiers ? item.modifiers.reduce((a, m) => a + (m.price || 0), 0) : 0;
-  const activeQty = item.quantity - (item.voidedQuantity || 0);
-  return (item.unitPrice + modifiers) * activeQty;
 }
 </script>
