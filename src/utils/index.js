@@ -82,7 +82,7 @@ export function billKey(bill) {
 
 /**
  * Recalculates itemCount and totalAmount of an order based on its items.
- * Includes modifier prices (paid variants).
+ * Includes modifier prices (paid variants), accounting for per-modifier voiding.
  * @param {object} ord - Order object to update
  */
 export function updateOrderTotals(ord) {
@@ -93,13 +93,16 @@ export function updateOrderTotals(ord) {
     const voided = r.voidedQuantity || 0;
     const active = r.quantity - voided;
     count += active;
-    // Base price
-    let rowPrice = r.unitPrice;
-    // Add modifiers price per unit
+    // Base price for active items
+    total += r.unitPrice * active;
+    // Add modifiers price per unit, respecting per-modifier voidedQuantity
     if (r.modifiers && r.modifiers.length > 0) {
-      rowPrice += r.modifiers.reduce((a, m) => a + (m.price || 0), 0);
+      for (const m of r.modifiers) {
+        const modVoided = m.voidedQuantity || 0;
+        const modActive = Math.max(0, r.quantity - voided - modVoided);
+        total += (m.price || 0) * modActive;
+      }
     }
-    total += rowPrice * active;
   });
   ord.itemCount = count;
   ord.totalAmount = total;

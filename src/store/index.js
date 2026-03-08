@@ -190,6 +190,29 @@ export const useAppStore = defineStore('app', () => {
     }
   }
 
+  function voidModifier(ord, itemIdx, modIdx, qty) {
+    if (!ord || ord.status !== 'accepted') return;
+    const item = ord.orderItems[itemIdx];
+    if (!item || !item.modifiers || modIdx < 0 || modIdx >= item.modifiers.length) return;
+    const mod = item.modifiers[modIdx];
+    if (!mod.voidedQuantity) mod.voidedQuantity = 0;
+    if (mod.voidedQuantity + qty + (item.voidedQuantity || 0) <= item.quantity) {
+      mod.voidedQuantity += qty;
+      updateOrderTotals(ord);
+    }
+  }
+
+  function restoreModifier(ord, itemIdx, modIdx, qty) {
+    if (!ord || ord.status !== 'accepted') return;
+    const item = ord.orderItems[itemIdx];
+    if (!item || !item.modifiers || modIdx < 0 || modIdx >= item.modifiers.length) return;
+    const mod = item.modifiers[modIdx];
+    if ((mod.voidedQuantity || 0) >= qty) {
+      mod.voidedQuantity -= qty;
+      updateOrderTotals(ord);
+    }
+  }
+
   // ── Mutations: Transactions ────────────────────────────────────────────────
   function addTransaction(txn) {
     transactions.value.push(txn);
@@ -534,6 +557,8 @@ export const useAppStore = defineStore('app', () => {
     removeRowGlobal,
     voidOrderItems,
     restoreOrderItems,
+    voidModifier,
+    restoreModifier,
     addTransaction,
     simulateNewOrder,
     loadMenu,
