@@ -359,6 +359,7 @@ function confirmPeopleAndOpenTable() {
         id: 'ord_' + Math.random().toString(36).slice(2, 11),
         table: table.id,
         billSessionId,
+        status: 'accepted',
         time: new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }),
         totalAmount: 0,
         itemCount: 0,
