@@ -68,72 +68,17 @@
 
   <!-- ================================================================ -->
   <!-- PEOPLE MODAL: shown when opening a free table                    -->
+  <!-- Shared component — any UI change reflects in all apps.          -->
   <!-- ================================================================ -->
-  <div v-if="showPeopleModal" class="fixed inset-0 z-[70] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-    <div class="bg-white rounded-3xl shadow-2xl w-full max-w-sm p-6">
-      <h3 class="text-lg font-black text-gray-800 mb-1 flex items-center gap-2">
-        <Users class="size-5 theme-text" /> Tavolo {{ pendingTableToOpen?.label }}
-      </h3>
-      <p class="text-sm text-gray-500 mb-6">Quante persone si siedono?</p>
-
-      <!-- Adults / people counter -->
-      <div class="flex items-center justify-between mb-4">
-        <span class="font-bold text-gray-700">{{ showChildrenInput ? 'Adulti' : 'Persone' }}</span>
-        <div class="flex items-center gap-3">
-          <button
-            @click="peopleAdults = Math.max(1, peopleAdults - 1)"
-            class="size-10 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center font-bold text-gray-700 active:scale-95 transition-all"
-          >
-            <Minus class="size-4" />
-          </button>
-          <span class="text-2xl font-black w-8 text-center">{{ peopleAdults }}</span>
-          <button
-            @click="peopleAdults++"
-            class="size-10 rounded-full theme-bg text-white flex items-center justify-center active:scale-95 transition-all"
-          >
-            <Plus class="size-4" />
-          </button>
-        </div>
-      </div>
-
-      <!-- Children counter (only when cover charge for children is configured) -->
-      <div v-if="showChildrenInput" class="flex items-center justify-between mb-6">
-        <span class="font-bold text-gray-700">Bambini</span>
-        <div class="flex items-center gap-3">
-          <button
-            @click="peopleChildren = Math.max(0, peopleChildren - 1)"
-            class="size-10 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center font-bold text-gray-700 active:scale-95 transition-all"
-          >
-            <Minus class="size-4" />
-          </button>
-          <span class="text-2xl font-black w-8 text-center">{{ peopleChildren }}</span>
-          <button
-            @click="peopleChildren++"
-            class="size-10 rounded-full theme-bg text-white flex items-center justify-center active:scale-95 transition-all"
-          >
-            <Plus class="size-4" />
-          </button>
-        </div>
-      </div>
-
-      <div v-if="!showChildrenInput" class="mb-6"></div>
-
-      <div class="flex gap-3">
-        <button
-          @click="showPeopleModal = false; pendingTableToOpen = null"
-          class="flex-1 py-3 rounded-xl border border-gray-200 font-bold text-gray-600 hover:bg-gray-50 active:scale-95 transition-all"
-        >
-          Annulla
-        </button>
-        <button
-          @click="confirmPeopleAndOpenTable"
-          class="flex-[2] py-3 rounded-xl theme-bg text-white font-bold shadow-md hover:opacity-90 active:scale-95 transition-all flex items-center justify-center gap-2"
-        >
-          <Check class="size-5" /> Apri Tavolo
-        </button>
-      </div>
-    </div>
-  </div>
+  <PeopleModal
+    :show="showPeopleModal"
+    :table="pendingTableToOpen"
+    :showChildrenInput="showChildrenInput"
+    v-model:adults="peopleAdults"
+    v-model:children="peopleChildren"
+    @cancel="showPeopleModal = false; pendingTableToOpen = null"
+    @confirm="confirmPeopleAndOpenTable"
+  />
 
   <!-- ================================================================ -->
   <!-- TABLE DETAIL MODAL: shown when opening an occupied/pending table -->
@@ -229,10 +174,12 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import {
-  Grid3x3, Users, Timer, X, Plus, Minus, Check, Coffee, ChevronRight,
+  Grid3x3, Users, Timer, X, Coffee, ChevronRight,
 } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
 import { updateOrderTotals } from '../utils/index.js';
+// Shared component — used by both Waiter and Cassa apps.
+import PeopleModal from './shared/PeopleModal.vue';
 
 const emit = defineEmits(['new-order-for-comande', 'view-order']);
 

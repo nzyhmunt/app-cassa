@@ -1,3 +1,19 @@
+/**
+ * @file utils/index.js
+ * @description Shared utility functions and application configuration.
+ *
+ * This file is intentionally shared between the Cassa (cashier) and Waiter
+ * applications so that any pricing, billing or configuration change is
+ * reflected in both UIs automatically.
+ *
+ * ── Architecture note ──────────────────────────────────────────────────────
+ * Shared:   src/utils/index.js (this file), src/store/index.js
+ * Shared components:  src/components/shared/
+ * Cassa-only:  src/components/TableManager.vue, OrderManager.vue, …
+ * Waiter-only: src/components/WaiterTableManager.vue, WaiterOrderManager.vue, …
+ * ──────────────────────────────────────────────────────────────────────────
+ */
+
 // Default URL for loading the external menu JSON
 export const DEFAULT_MENU_URL = 'https://nanawork.it/menu.json';
 

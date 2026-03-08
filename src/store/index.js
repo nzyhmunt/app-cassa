@@ -1,3 +1,21 @@
+/**
+ * @file store/index.js
+ * @description Pinia store shared between the Cassa and Waiter applications.
+ *
+ * This store is the single source of truth for all runtime state: orders,
+ * transactions, table sessions, and configuration.  Both apps mount their
+ * own Pinia instance, but they operate on the same in-memory data because
+ * they run in the same browser tab (multi-page build served from the same
+ * origin sharing no persistent state across tabs — see vite.config.js).
+ *
+ * Key data structures:
+ *   orders[]       – All order objects (pending → accepted → completed/rejected)
+ *   transactions[] – Payment records linked to orders via billSessionId
+ *   tableCurrentBillSession{} – Active seating session per table
+ *   tableOccupiedAt{}         – ISO timestamp when a table was first opened
+ *   billRequestedTables (Set) – Tables that requested the bill
+ *   closedBills[]             – Archived bill sessions after full payment
+ */
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import { appConfig, initialOrders, updateOrderTotals } from '../utils/index.js';

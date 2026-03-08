@@ -2,6 +2,38 @@
 
 Questo progetto è un'applicazione web progettata per essere utilizzata come gestionale di cassa e sala per ristoranti e attività di ristorazione. Realizzato con **Vue.js**, l'app integra una gestione intuitiva della sala, degli ordini e delle impostazioni generali, offrendo un'interfaccia moderna e reattiva.
 
+## Architettura — Due App, un Codebase
+
+Il progetto contiene due applicazioni separate che condividono lo stesso store e le stesse utilità:
+
+| App | Entry | URL locale | Pubblico |
+|-----|-------|-----------|---------|
+| **Cassa** | `index.html` → `src/main.js` | `/` | Cassiere / gestione |
+| **Cameriere** | `waiter.html` → `src/waiter-main.js` | `/waiter.html` | Personale di sala |
+
+```
+src/
+├── components/
+│   ├── shared/                  ← Componenti riutilizzati da entrambe le app
+│   │   └── PeopleModal.vue      ← Modale conteggio coperti (Cassa + Cameriere)
+│   ├── TableManager.vue         ← Mappa sala + cassa (Cassa only)
+│   ├── OrderManager.vue         ← Gestione ordini + accettazione (Cassa only)
+│   ├── WaiterTableManager.vue   ← Mappa sala semplificata (Cameriere only)
+│   ├── WaiterOrderManager.vue   ← Creazione/invio comande (Cameriere only)
+│   ├── Navbar.vue               ← Navigazione (Cassa)
+│   └── WaiterNavbar.vue         ← Navigazione (Cameriere)
+├── store/index.js               ← Pinia store condiviso (unica sorgente di verità)
+├── utils/index.js               ← Configurazione + funzioni di calcolo condivise
+├── views/                       ← View Cassa
+└── views/waiter/                ← View Cameriere
+```
+
+### Aggiungere un nuovo componente condiviso
+
+1. Crea il file in `src/components/shared/`.
+2. Importalo in entrambi i componenti con `import X from './shared/X.vue'`.
+3. Le modifiche al componente si rifletteranno automaticamente su entrambe le app.
+
 ## Funzionalità Principali
 
 ### Interfaccia Sala
