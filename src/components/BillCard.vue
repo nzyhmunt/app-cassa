@@ -67,7 +67,7 @@
                 ({{ txn.splitQuota }}/{{ txn.splitWays }}<template v-if="(txn.romanaSplitCount || 1) > 1"> · {{ txn.romanaSplitCount }} quote</template>)
               </span>
               <span v-if="txn.operationType === 'discount'" class="text-[9px] font-medium opacity-70">
-                ({{ txn.discountType === 'percent' ? txn.discountValue + '%' : store.config.ui.currency + txn.discountValue?.toFixed(2) }})
+                ({{ txn.discountType === 'percent' ? txn.discountValue + '%' : store.config.ui.currency + (txn.discountValue ?? 0).toFixed(2) }})
               </span>
               <span class="text-[9px] font-medium opacity-70">
                 · {{ formatTime(txn.timestamp) }}

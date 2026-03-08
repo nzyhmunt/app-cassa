@@ -327,7 +327,7 @@
                       ({{ txn.splitQuota }}/{{ txn.splitWays }}<template v-if="(txn.romanaSplitCount || 1) > 1"> · {{ txn.romanaSplitCount }} quote</template>)
                     </span>
                     <span v-if="txn.operationType === 'discount'" class="text-[9px] opacity-70 font-medium">
-                      ({{ txn.discountType === 'percent' ? txn.discountValue + '%' : store.config.ui.currency + txn.discountValue.toFixed(2) }})
+                      ({{ txn.discountType === 'percent' ? txn.discountValue + '%' : store.config.ui.currency + (txn.discountValue ?? 0).toFixed(2) }})
                     </span>
                   </span>
                   <span class="font-black">
@@ -394,8 +394,8 @@
                   <label class="block text-xs font-bold text-blue-800 uppercase mb-3">Dividi Conto In (Parti Totali):</label>
                   <div class="flex items-center gap-3">
                     <button
-                      @click="splitWays > Math.max(2, splitPaidQuotas + 1) ? splitWays-- : null"
-                      :disabled="splitWays <= Math.max(2, splitPaidQuotas + 1)"
+                      @click="splitWays > minSplitWays ? splitWays-- : null"
+                      :disabled="splitWays <= minSplitWays"
                       class="size-12 bg-white rounded-xl flex items-center justify-center font-black text-blue-600 shadow-sm border border-blue-100 active:scale-95 transition-all disabled:opacity-30"
                     ><Minus class="size-5" /></button>
                     <span class="text-3xl font-black text-blue-900 w-16 text-center">{{ splitWays }}</span>
@@ -869,7 +869,7 @@ const discountPreview = computed(() => {
   if (!discountsEnabled.value) return 0;
   const val = parseFloat(discountInput.value) || 0;
   if (discountType.value === 'percent') {
-    return Math.min(tableTotalAmount.value, (tableTotalAmount.value * val) / 100);
+    return Math.min(tableAmountRemaining.value, (tableTotalAmount.value * val) / 100);
   }
   return Math.min(tableAmountRemaining.value, val);
 });
@@ -895,6 +895,9 @@ const canPay = computed(() => {
 });
 
 // ── Romana: clamp romanaSplitCount when splitWays changes ─────────────────
+// Minimum allowed splitWays (must be at least splitPaidQuotas + 1)
+const minSplitWays = computed(() => Math.max(2, splitPaidQuotas.value + 1));
+
 watch(splitWays, (newVal) => {
   const waysLeft = newVal - splitPaidQuotas.value;
   if (romanaSplitCount.value > Math.max(1, waysLeft)) {
