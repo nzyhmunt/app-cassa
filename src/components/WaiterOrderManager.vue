@@ -242,7 +242,7 @@
 
                       <!-- Read-only quantity (accepted) -->
                       <div v-else class="w-8 shrink-0 text-center font-black text-sm md:text-base text-gray-700">
-                        {{ row.item.quantity }}x
+                        {{ row.item.quantity - (row.item.voidedQuantity || 0) }}x
                       </div>
 
                       <!-- Item info -->
