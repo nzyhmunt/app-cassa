@@ -83,6 +83,8 @@ export const useAppStore = defineStore('app', () => {
   const tableOccupiedAt = ref({});
   // Set of tableIds that have requested the bill (bill requested)
   const billRequestedTables = ref(new Set());
+  // Maps tableId -> { billSessionId, adults, children } for the current open session
+  const tableCurrentBillSession = ref({});
 
   // ── Computed: CSS variables for theming ────────────────────────────────────
   const cssVars = computed(() => ({
@@ -139,12 +141,16 @@ export const useAppStore = defineStore('app', () => {
     if (newStatus === 'accepted' && !tableOccupiedAt.value[order.table]) {
       tableOccupiedAt.value[order.table] = new Date().toISOString();
     }
-    // When all orders for table are closed, clear occupiedAt and bill request
+    // When all orders for table are closed, clear occupiedAt, bill request, and session
     const activeOrds = orders.value.filter(
       o => o.table === order.table && o.status !== 'completed' && o.status !== 'rejected',
     );
     if (activeOrds.length === 0) {
       delete tableOccupiedAt.value[order.table];
+      // Clear bill session for the table
+      const nextSession = { ...tableCurrentBillSession.value };
+      delete nextSession[order.table];
+      tableCurrentBillSession.value = nextSession;
       const nextBillRequestedTables = new Set(billRequestedTables.value);
       nextBillRequestedTables.delete(order.table);
       billRequestedTables.value = nextBillRequestedTables;
@@ -199,6 +205,19 @@ export const useAppStore = defineStore('app', () => {
     billRequestedTables.value = new Set(billRequestedTables.value);
   }
 
+  // Opens a new billing session for a table (called when the table is first seated).
+  // Returns the generated billSessionId so callers can attach it to orders/transactions.
+  function openTableSession(tableId, adults = 0, children = 0) {
+    const billSessionId = (typeof crypto !== 'undefined' && crypto.randomUUID)
+      ? crypto.randomUUID()
+      : 'bill_' + Math.random().toString(36).slice(2, 11);
+    tableCurrentBillSession.value = {
+      ...tableCurrentBillSession.value,
+      [tableId]: { billSessionId, adults, children },
+    };
+    return billSessionId;
+  }
+
   function moveTableOrders(fromTableId, toTableId) {
     // Move all active (non-completed/rejected) orders from fromTableId to toTableId
     orders.value.forEach(o => {
@@ -218,6 +237,40 @@ export const useAppStore = defineStore('app', () => {
       billRequestedTables.value.delete(fromTableId);
       billRequestedTables.value.add(toTableId);
       billRequestedTables.value = new Set(billRequestedTables.value);
+    }
+    // Move bill session
+    if (tableCurrentBillSession.value[fromTableId]) {
+      if (!tableCurrentBillSession.value[toTableId]) {
+        const next = { ...tableCurrentBillSession.value };
+        next[toTableId] = next[fromTableId];
+        delete next[fromTableId];
+        tableCurrentBillSession.value = next;
+      } else {
+        // Destination already has a session — retag the moved orders and
+        // transactions so they belong to the destination session and are
+        // visible in its payment panel
+        const srcSessionId = tableCurrentBillSession.value[fromTableId].billSessionId;
+        const destSessionId = tableCurrentBillSession.value[toTableId].billSessionId;
+        orders.value.forEach(o => {
+          if (o.table === toTableId && o.billSessionId === srcSessionId) {
+            o.billSessionId = destSessionId;
+          }
+        });
+        transactions.value.forEach(t => {
+          if (t.tableId === fromTableId && t.billSessionId === srcSessionId) {
+            t.billSessionId = destSessionId;
+          }
+        });
+        const next = { ...tableCurrentBillSession.value };
+        // Combine headcounts so splitWays reflects the full party after the move
+        next[toTableId] = {
+          ...next[toTableId],
+          adults: next[toTableId].adults + next[fromTableId].adults,
+          children: next[toTableId].children + next[fromTableId].children,
+        };
+        delete next[fromTableId];
+        tableCurrentBillSession.value = next;
+      }
     }
     // Also move related transactions
     transactions.value.forEach(t => {
@@ -244,6 +297,35 @@ export const useAppStore = defineStore('app', () => {
     // Clear bill request on source
     billRequestedTables.value.delete(sourceTableId);
     billRequestedTables.value = new Set(billRequestedTables.value);
+    // Migrate bill session: prefer destination's existing session; fall back to source's
+    if (tableCurrentBillSession.value[sourceTableId]) {
+      const next = { ...tableCurrentBillSession.value };
+      if (!next[targetTableId]) {
+        next[targetTableId] = next[sourceTableId];
+      } else {
+        // Target already has a session — retag moved orders and transactions to the target session
+        const srcSessionId = next[sourceTableId].billSessionId;
+        const destSessionId = next[targetTableId].billSessionId;
+        orders.value.forEach(o => {
+          if (o.table === targetTableId && o.billSessionId === srcSessionId) {
+            o.billSessionId = destSessionId;
+          }
+        });
+        transactions.value.forEach(t => {
+          if (t.tableId === sourceTableId && t.billSessionId === srcSessionId) {
+            t.billSessionId = destSessionId;
+          }
+        });
+        // Combine headcounts so splitWays reflects the full party after the merge
+        next[targetTableId] = {
+          ...next[targetTableId],
+          adults: next[targetTableId].adults + next[sourceTableId].adults,
+          children: next[targetTableId].children + next[sourceTableId].children,
+        };
+      }
+      delete next[sourceTableId];
+      tableCurrentBillSession.value = next;
+    }
     // Move transactions
     transactions.value.forEach(t => {
       if (t.tableId === sourceTableId) t.tableId = targetTableId;
@@ -430,6 +512,7 @@ export const useAppStore = defineStore('app', () => {
     dailyClosures,
     tableOccupiedAt,
     billRequestedTables,
+    tableCurrentBillSession,
     pendingOpenTable,
     pendingSelectOrder,
     pendingNewOrder,
@@ -456,6 +539,7 @@ export const useAppStore = defineStore('app', () => {
     loadMenu,
     // table operations
     setBillRequested,
+    openTableSession,
     moveTableOrders,
     mergeTableOrders,
     // cassa operations
