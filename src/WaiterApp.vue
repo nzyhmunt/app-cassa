@@ -1,5 +1,5 @@
 <template>
-  <div id="app" class="h-full flex flex-col relative w-full" :style="store.cssVars">
+  <div class="h-full flex flex-col relative w-full" :style="store.cssVars">
     <WaiterNavbar />
     <router-view />
   </div>
