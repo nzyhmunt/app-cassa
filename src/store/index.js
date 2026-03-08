@@ -173,6 +173,7 @@ export const useAppStore = defineStore('app', () => {
 
   function voidOrderItems(ord, idx, qtyToVoid) {
     if (!ord || ord.status !== 'accepted') return;
+    if (!Number.isInteger(qtyToVoid) || qtyToVoid <= 0) return;
     const item = ord.orderItems[idx];
     if (!item.voidedQuantity) item.voidedQuantity = 0;
     if (item.voidedQuantity + qtyToVoid <= item.quantity) {
@@ -188,6 +189,7 @@ export const useAppStore = defineStore('app', () => {
 
   function restoreOrderItems(ord, idx, qtyToRestore) {
     if (!ord || ord.status !== 'accepted') return;
+    if (!Number.isInteger(qtyToRestore) || qtyToRestore <= 0) return;
     const item = ord.orderItems[idx];
     if (item.voidedQuantity && item.voidedQuantity >= qtyToRestore) {
       item.voidedQuantity -= qtyToRestore;
