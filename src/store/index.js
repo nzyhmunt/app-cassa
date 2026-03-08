@@ -192,6 +192,7 @@ export const useAppStore = defineStore('app', () => {
 
   function voidModifier(ord, itemIdx, modIdx, qty) {
     if (!ord || ord.status !== 'accepted') return;
+    if (!Number.isInteger(qty) || qty <= 0) return;
     const item = ord.orderItems[itemIdx];
     if (!item || !item.modifiers || modIdx < 0 || modIdx >= item.modifiers.length) return;
     const mod = item.modifiers[modIdx];
@@ -204,6 +205,7 @@ export const useAppStore = defineStore('app', () => {
 
   function restoreModifier(ord, itemIdx, modIdx, qty) {
     if (!ord || ord.status !== 'accepted') return;
+    if (!Number.isInteger(qty) || qty <= 0) return;
     const item = ord.orderItems[itemIdx];
     if (!item || !item.modifiers || modIdx < 0 || modIdx >= item.modifiers.length) return;
     const mod = item.modifiers[modIdx];

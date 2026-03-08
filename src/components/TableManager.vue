@@ -271,7 +271,7 @@
                     </div>
                     <div class="flex items-center gap-2 shrink-0">
                       <span class="font-black text-[13px] md:text-sm" :class="item.voidedQuantity === item.quantity ? 'text-gray-400 line-through' : 'text-gray-800'">
-                        {{ store.config.ui.currency }}{{(getOrderItemUnitPrice(item) * (item.quantity - (item.voidedQuantity || 0))).toFixed(2)}}
+                        {{ store.config.ui.currency }}{{getOrderItemRowTotal(item).toFixed(2)}}
                       </span>
                       <div v-if="ord.status === 'accepted'" class="flex items-center gap-1 ml-1">
                         <button @click="store.voidOrderItems(ord, idx, 1)" :disabled="item.quantity - (item.voidedQuantity || 0) <= 0" class="p-1.5 bg-white border border-orange-200 text-orange-500 hover:bg-orange-50 rounded shadow-sm transition-colors active:scale-95 disabled:opacity-30" title="Storna dal conto">
@@ -755,6 +755,17 @@ function getOrderItemUnitPrice(item) {
   return item.unitPrice + modTotal;
 }
 
+// ── Helper: total row price for an item, accounting for per-modifier voids ─
+function getOrderItemRowTotal(item) {
+  const active = item.quantity - (item.voidedQuantity || 0);
+  let total = item.unitPrice * active;
+  for (const m of (item.modifiers || [])) {
+    const modVoided = m.voidedQuantity || 0;
+    total += (m.price || 0) * Math.max(0, active - modVoided);
+  }
+  return total;
+}
+
 // ── Computed: grouped menu view (items aggregated by dish name) ────────────
 const tableMenuGrouped = computed(() => {
   const dishMap = new Map();
@@ -776,8 +787,7 @@ const tableMenuGrouped = computed(() => {
       const dish = dishMap.get(key);
       dish.totalQty += item.quantity;
       dish.totalVoided += (item.voidedQuantity || 0);
-      const effectiveQty = item.quantity - (item.voidedQuantity || 0);
-      dish.totalSubtotal += getOrderItemUnitPrice(item) * effectiveQty;
+      dish.totalSubtotal += getOrderItemRowTotal(item);
       dish.refs.push({ ord, idx });
 
       // Count paid modifiers (variazioni a pagamento)
