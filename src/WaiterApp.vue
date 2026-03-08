@@ -12,8 +12,8 @@ import { useAppStore } from './store/index.js';
 
 const store = useAppStore();
 
-// Reload the menu on app start so the waiter has the latest catalogue.
-// Future: replace store.loadMenu() with GET /api/menu
+// On app mount, retry loading the menu if a previous load failed (store.menuError).
+// Future: replace store.loadMenu() with GET /api/menu if needed.
 onMounted(() => {
   if (store.menuError) store.loadMenu();
 });
