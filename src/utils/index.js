@@ -82,7 +82,7 @@ export function billKey(bill) {
 
 /**
  * Computes the total price for a single order-item row, accounting for
- * per-modifier voided quantities. Mirrors the per-item logic in updateOrderTotals.
+ * per-modifier voided quantities.
  * @param {object} item - An orderItem object
  * @returns {number}
  */
@@ -98,7 +98,7 @@ export function getOrderItemRowTotal(item) {
 
 /**
  * Recalculates itemCount and totalAmount of an order based on its items.
- * Includes modifier prices (paid variants), accounting for per-modifier voiding.
+ * Uses getOrderItemRowTotal for per-row pricing so there is a single pricing implementation.
  * @param {object} ord - Order object to update
  */
 export function updateOrderTotals(ord) {
@@ -106,19 +106,9 @@ export function updateOrderTotals(ord) {
   let count = 0;
   let total = 0;
   ord.orderItems.forEach(r => {
-    const voided = r.voidedQuantity || 0;
-    const active = r.quantity - voided;
+    const active = r.quantity - (r.voidedQuantity || 0);
     count += active;
-    // Base price for active items
-    total += r.unitPrice * active;
-    // Add modifiers price per unit, respecting per-modifier voidedQuantity
-    if (r.modifiers && r.modifiers.length > 0) {
-      for (const m of r.modifiers) {
-        const modVoided = m.voidedQuantity || 0;
-        const modActive = Math.max(0, r.quantity - voided - modVoided);
-        total += (m.price || 0) * modActive;
-      }
-    }
+    total += getOrderItemRowTotal(r);
   });
   ord.itemCount = count;
   ord.totalAmount = total;
