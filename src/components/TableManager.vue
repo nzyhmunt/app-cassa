@@ -563,7 +563,7 @@ import {
 } from 'lucide-vue-next';
 import { Banknote, CreditCard } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
-import { updateOrderTotals } from '../utils/index.js';
+import { updateOrderTotals, getOrderItemRowTotal } from '../utils/index.js';
 import ClosedBillsList from './ClosedBillsList.vue';
 
 const emit = defineEmits(['open-order-from-table', 'new-order-for-ordini']);
@@ -747,23 +747,6 @@ function getPaymentIcon(methodIdOrLabel) {
   const m = store.config.paymentMethods.find(x => x.label === methodIdOrLabel || x.id === methodIdOrLabel);
   if (!m) return Banknote;
   return m.icon === 'credit-card' ? CreditCard : Banknote;
-}
-
-// ── Helper: unit price for an order item including modifiers ───────────────
-function getOrderItemUnitPrice(item) {
-  const modTotal = (item.modifiers || []).reduce((a, m) => a + (m.price || 0), 0);
-  return item.unitPrice + modTotal;
-}
-
-// ── Helper: total row price for an item, accounting for per-modifier voids ─
-function getOrderItemRowTotal(item) {
-  const active = item.quantity - (item.voidedQuantity || 0);
-  let total = item.unitPrice * active;
-  for (const m of (item.modifiers || [])) {
-    const modVoided = m.voidedQuantity || 0;
-    total += (m.price || 0) * Math.max(0, active - modVoided);
-  }
-  return total;
 }
 
 // ── Computed: grouped menu view (items aggregated by dish name) ────────────
