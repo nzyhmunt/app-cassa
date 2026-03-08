@@ -223,7 +223,7 @@ import {
   Grid3x3, Users, Timer, X, Plus, Minus, Check, Coffee, ChevronRight,
 } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
-import { appConfig, updateOrderTotals } from '../utils/index.js';
+import { updateOrderTotals } from '../utils/index.js';
 
 const emit = defineEmits(['new-order-for-comande', 'view-order']);
 
