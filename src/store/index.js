@@ -507,10 +507,13 @@ export const useAppStore = defineStore('app', () => {
         return o.billSessionId === billSessionId;
       });
 
-      const totalPaid = tableTxns.reduce(
-        (acc, txn) => acc + (txn.amountPaid || 0),
-        0,
-      );
+      // Separate discount transactions from real payments for correct reporting
+      const paymentTxns = tableTxns.filter(txn => txn.operationType !== 'discount');
+      const discountTxns = tableTxns.filter(txn => txn.operationType === 'discount');
+      const totalPaid = paymentTxns.reduce((acc, txn) => acc + (txn.amountPaid || 0), 0);
+      const totalDiscount = discountTxns.reduce((acc, txn) => acc + (txn.amountPaid || 0), 0);
+      // Total tips (extra amounts not applied to the bill)
+      const totalTips = tableTxns.reduce((acc, txn) => acc + (txn.tipAmount || 0), 0);
       const closedAt = tableTxns[tableTxns.length - 1]?.timestamp;
 
       bills.push({
@@ -520,6 +523,8 @@ export const useAppStore = defineStore('app', () => {
         transactions: tableTxns,
         orders: tableOrds,
         totalPaid,
+        totalDiscount,
+        totalTips,
         closedAt,
       });
     }

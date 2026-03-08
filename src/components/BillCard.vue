@@ -26,6 +26,12 @@
           <p class="text-[10px] text-gray-400 font-medium">
             {{ bill.transactions.length }} pagament{{ bill.transactions.length !== 1 ? 'i' : 'o' }}
           </p>
+          <p v-if="bill.totalDiscount > 0" class="text-[10px] text-amber-600 font-bold">
+            -{{ store.config.ui.currency }}{{ bill.totalDiscount.toFixed(2) }} sconto
+          </p>
+          <p v-if="bill.totalTips > 0" class="text-[10px] text-purple-600 font-bold">
+            +{{ store.config.ui.currency }}{{ bill.totalTips.toFixed(2) }} mancia
+          </p>
         </div>
         <span class="font-black text-lg text-emerald-700">
           {{ store.config.ui.currency }}{{ bill.totalPaid.toFixed(2) }}
@@ -49,21 +55,48 @@
           <div
             v-for="txn in bill.transactions"
             :key="txn.transactionId"
-            class="flex items-center justify-between bg-emerald-50 border border-emerald-100 rounded-xl px-3 py-2"
+            class="flex items-center justify-between rounded-xl px-3 py-2 border"
+            :class="txn.operationType === 'discount' ? 'bg-amber-50 border-amber-100' : 'bg-emerald-50 border-emerald-100'"
           >
-            <div class="flex items-center gap-2 text-xs font-bold text-emerald-700">
-              <component :is="getPaymentIcon(txn.paymentMethod)" class="size-3.5 shrink-0" />
+            <div class="flex items-center gap-2 text-xs font-bold"
+              :class="txn.operationType === 'discount' ? 'text-amber-700' : 'text-emerald-700'">
+              <Tag v-if="txn.operationType === 'discount'" class="size-3.5 shrink-0" />
+              <component v-else :is="getPaymentIcon(txn.paymentMethod)" class="size-3.5 shrink-0" />
               <span class="uppercase tracking-wide">{{ txn.paymentMethod }}</span>
-              <span v-if="txn.operationType === 'romana'" class="text-[9px] text-emerald-500 font-medium">
-                ({{ txn.splitQuota }}/{{ txn.splitWays }})
+              <span v-if="txn.operationType === 'romana'" class="text-[9px] font-medium opacity-70">
+                ({{ txn.splitQuota }}/{{ txn.splitWays }}<template v-if="(txn.romanaSplitCount || 1) > 1"> · {{ txn.romanaSplitCount }} quote</template>)
               </span>
-              <span class="text-[9px] text-emerald-500 font-medium">
+              <span v-if="txn.operationType === 'discount'" class="text-[9px] font-medium opacity-70">
+                ({{ txn.discountType === 'percent' ? txn.discountValue + '%' : store.config.ui.currency + txn.discountValue?.toFixed(2) }})
+              </span>
+              <span class="text-[9px] font-medium opacity-70">
                 · {{ formatTime(txn.timestamp) }}
               </span>
             </div>
-            <span class="font-black text-sm text-emerald-800">
-              {{ store.config.ui.currency }}{{ txn.amountPaid.toFixed(2) }}
-            </span>
+            <div class="text-right">
+              <span class="font-black text-sm" :class="txn.operationType === 'discount' ? 'text-amber-800' : 'text-emerald-800'">
+                <span v-if="txn.operationType === 'discount'">-</span>{{ store.config.ui.currency }}{{ txn.amountPaid.toFixed(2) }}
+              </span>
+              <div v-if="txn.tipAmount" class="text-[9px] font-bold text-purple-600">
+                +{{ store.config.ui.currency }}{{ txn.tipAmount.toFixed(2) }} mancia
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Summary row when discounts or tips present -->
+        <div v-if="bill.totalDiscount > 0 || bill.totalTips > 0" class="mt-3 pt-3 border-t border-gray-200 space-y-1">
+          <div v-if="bill.totalDiscount > 0" class="flex justify-between text-xs font-bold text-amber-600">
+            <span>Sconto totale:</span>
+            <span>-{{ store.config.ui.currency }}{{ bill.totalDiscount.toFixed(2) }}</span>
+          </div>
+          <div v-if="bill.totalTips > 0" class="flex justify-between text-xs font-bold text-purple-600">
+            <span>Mance totali:</span>
+            <span>+{{ store.config.ui.currency }}{{ bill.totalTips.toFixed(2) }}</span>
+          </div>
+          <div class="flex justify-between text-xs font-bold text-emerald-700">
+            <span>Incasso netto:</span>
+            <span>{{ store.config.ui.currency }}{{ bill.totalPaid.toFixed(2) }}</span>
           </div>
         </div>
       </div>
@@ -129,7 +162,7 @@
 
 <script setup>
 import { ref } from 'vue';
-import { ChevronDown, CreditCard, ClipboardList, Banknote } from 'lucide-vue-next';
+import { ChevronDown, CreditCard, ClipboardList, Banknote, Tag } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
 import { billKey, getOrderItemRowTotal } from '../utils/index.js';
 
