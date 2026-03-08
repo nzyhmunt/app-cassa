@@ -177,6 +177,11 @@ export const useAppStore = defineStore('app', () => {
     if (!item.voidedQuantity) item.voidedQuantity = 0;
     if (item.voidedQuantity + qtyToVoid <= item.quantity) {
       item.voidedQuantity += qtyToVoid;
+      // Clamp per-modifier voidedQuantity so combined never exceeds item.quantity
+      const maxModActive = item.quantity - item.voidedQuantity;
+      for (const m of (item.modifiers || [])) {
+        m.voidedQuantity = Math.min(m.voidedQuantity || 0, maxModActive);
+      }
       updateOrderTotals(ord);
     }
   }
