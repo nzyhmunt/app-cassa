@@ -1,7 +1,7 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import tailwindcss from '@tailwindcss/vite'
-import { resolve } from 'path'
+import { fileURLToPath, URL } from 'url'
 
 // https://vite.dev/config/
 export default defineConfig({
@@ -14,9 +14,9 @@ export default defineConfig({
     rollupOptions: {
       input: {
         // POS / cashier app (existing)
-        main: resolve(__dirname, 'index.html'),
+        main: fileURLToPath(new URL('index.html', import.meta.url)),
         // Waiter app (new standalone entry)
-        waiter: resolve(__dirname, 'waiter.html'),
+        waiter: fileURLToPath(new URL('waiter.html', import.meta.url)),
       },
     },
   },
