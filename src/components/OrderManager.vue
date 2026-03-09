@@ -807,12 +807,16 @@ function itemsAreMergeable(a, b) {
   return modsA.every((m, i) => m.name === modsB[i].name && m.price === modsB[i].price);
 }
 
+function makeTempCartRow(item) {
+  return { uid: 'tmp_' + Math.random().toString(36).slice(2, 11), dishId: item.id, name: item.name, unitPrice: item.price, quantity: 1, notes: [], voidedQuantity: 0, modifiers: [], course: DEFAULT_COURSE };
+}
+
 function addToTempCart(item) {
   // A freshly-added menu item has no notes, no modifiers, and the default course.
   const blank = { dishId: item.id, notes: [], modifiers: [], course: DEFAULT_COURSE };
   const existing = tempCart.value.find(r => itemsAreMergeable(r, blank));
   if (existing) existing.quantity++;
-  else tempCart.value.push({ uid: 'tmp_' + Math.random().toString(36).slice(2, 11), dishId: item.id, name: item.name, unitPrice: item.price, quantity: 1, notes: [], voidedQuantity: 0, modifiers: [], course: DEFAULT_COURSE });
+  else tempCart.value.push(makeTempCartRow(item));
 }
 
 function updateTempCartQty(idx, delta) {
@@ -821,17 +825,7 @@ function updateTempCartQty(idx, delta) {
 }
 
 function addToTempCartWithModal(item) {
-  tempCart.value.push({
-    uid: 'tmp_' + Math.random().toString(36).slice(2, 11),
-    dishId: item.id,
-    name: item.name,
-    unitPrice: item.price,
-    quantity: 1,
-    notes: [],
-    voidedQuantity: 0,
-    modifiers: [],
-    course: DEFAULT_COURSE,
-  });
+  tempCart.value.push(makeTempCartRow(item));
   openCartNoteModal(tempCart.value.length - 1);
 }
 

@@ -955,11 +955,8 @@ function itemsAreMergeable(a, b) {
   return modsA.every((m, i) => m.name === modsB[i].name && m.price === modsB[i].price);
 }
 
-function addToTempCart(item) {
-  const blank = { dishId: item.id, notes: [], modifiers: [], course: DEFAULT_COURSE };
-  const existing = tempCart.value.find(r => itemsAreMergeable(r, blank));
-  if (existing) { existing.quantity++; return; }
-  tempCart.value.push({
+function makeTempCartRow(item) {
+  return {
     uid: 'tmp_' + Math.random().toString(36).slice(2, 11),
     dishId: item.id,
     name: item.name,
@@ -969,7 +966,14 @@ function addToTempCart(item) {
     voidedQuantity: 0,
     modifiers: [],
     course: DEFAULT_COURSE,
-  });
+  };
+}
+
+function addToTempCart(item) {
+  const blank = { dishId: item.id, notes: [], modifiers: [], course: DEFAULT_COURSE };
+  const existing = tempCart.value.find(r => itemsAreMergeable(r, blank));
+  if (existing) { existing.quantity++; return; }
+  tempCart.value.push(makeTempCartRow(item));
 }
 
 function updateTempCartQty(idx, delta) {
@@ -978,17 +982,7 @@ function updateTempCartQty(idx, delta) {
 }
 
 function addToTempCartWithModal(item) {
-  tempCart.value.push({
-    uid: 'tmp_' + Math.random().toString(36).slice(2, 11),
-    dishId: item.id,
-    name: item.name,
-    unitPrice: item.price,
-    quantity: 1,
-    notes: [],
-    voidedQuantity: 0,
-    modifiers: [],
-    course: DEFAULT_COURSE,
-  });
+  tempCart.value.push(makeTempCartRow(item));
   openCartNoteModal(tempCart.value.length - 1);
 }
 
