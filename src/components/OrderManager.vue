@@ -364,21 +364,35 @@
 
         <!-- Piatti Griglia -->
         <div class="flex-1 overflow-y-auto p-2 md:p-4 bg-gray-100 md:bg-white grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 gap-2 md:gap-3 content-start min-h-0">
-          <button v-for="item in store.config.menu[activeMenuCategory]" :key="'item_'+item.id" @click="addToTempCart(item)"
-              class="text-left bg-white border border-gray-200 rounded-xl md:rounded-2xl p-3 md:p-4 hover:border-emerald-400 shadow-sm transition-all active:scale-[0.98] group flex flex-col justify-between h-full min-h-[100px] md:min-h-[120px] relative">
+          <div v-for="item in store.config.menu[activeMenuCategory]" :key="'item_'+item.id"
+              class="bg-white border border-gray-200 rounded-xl md:rounded-2xl shadow-sm transition-all group flex flex-col h-full min-h-[100px] md:min-h-[120px] relative overflow-hidden hover:border-[var(--brand-primary)]/60">
 
             <span v-if="getQtyCombined(item.id) > 0" class="absolute -top-2 -right-2 bg-emerald-500 text-white size-6 md:size-7 rounded-full flex items-center justify-center text-[10px] md:text-xs font-black border-2 border-white shadow-sm z-10">
               {{ getQtyCombined(item.id) }}
             </span>
 
-            <div class="flex justify-between items-start w-full gap-2">
-              <h4 class="font-bold text-gray-800 text-xs md:text-sm leading-tight group-hover:theme-text transition-colors">{{ item.name }}</h4>
-              <span class="font-black theme-text text-xs md:text-sm shrink-0 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100">{{ store.config.ui.currency }}{{ item.price.toFixed(2) }}</span>
+            <!-- Quick-add: tap/click the main area -->
+            <button @click="addToTempCart(item)" class="flex-1 p-3 md:p-4 text-left w-full flex flex-col justify-between active:scale-[0.98]">
+              <div class="flex justify-between items-start w-full gap-2">
+                <h4 class="font-bold text-gray-800 text-xs md:text-sm leading-tight group-hover:theme-text transition-colors">{{ item.name }}</h4>
+                <span class="font-black theme-text text-xs md:text-sm shrink-0 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100">{{ store.config.ui.currency }}{{ item.price.toFixed(2) }}</span>
+              </div>
+            </button>
+
+            <!-- Bottom action row -->
+            <div class="flex border-t border-gray-100 shrink-0 divide-x divide-gray-100">
+              <button @click="addToTempCart(item)"
+                  class="flex-1 py-1.5 text-[9px] md:text-[10px] text-gray-400 group-hover:text-emerald-600 font-bold uppercase tracking-wider flex items-center justify-center gap-1 transition-colors hover:bg-emerald-50 active:scale-95"
+                  title="Aggiungi velocemente">
+                <Plus class="size-3 shrink-0" /> Rapido
+              </button>
+              <button @click="addToTempCartWithModal(item)"
+                  class="flex-1 py-1.5 text-[9px] md:text-[10px] text-gray-400 group-hover:text-purple-600 font-bold uppercase tracking-wider flex items-center justify-center gap-1 transition-colors hover:bg-purple-50 active:scale-95"
+                  title="Aggiungi con portata, note e varianti">
+                <PenLine class="size-3 shrink-0" /> Dettagli
+              </button>
             </div>
-            <div class="mt-2 text-[9px] md:text-[10px] text-gray-400 font-bold uppercase tracking-wider flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-              <Plus class="size-3" /> Aggiungi al Carrello
-            </div>
-          </button>
+          </div>
         </div>
 
         <!-- CARRELLO TEMPORANEO -->
@@ -402,14 +416,6 @@
                   </div>
                 </div>
                 <div class="flex items-center gap-1.5 shrink-0">
-                  <!-- Course cycling button -->
-                  <button @click="cycleCourse(idx)"
-                    :class="courseButtonProps(cartItem.course).classes"
-                    class="h-6 px-2 flex items-center gap-0.5 justify-center rounded shadow-sm active:scale-95 font-bold text-[10px] transition-colors whitespace-nowrap"
-                    :title="courseButtonProps(cartItem.course).title">
-                    <Layers class="size-2.5 shrink-0" />
-                    {{ courseButtonProps(cartItem.course).label }}
-                  </button>
                   <!-- Qty +/- -->
                   <div class="flex items-center gap-1 bg-gray-100 rounded p-0.5 border border-gray-200">
                     <button @click="updateTempCartQty(idx, -1)"
@@ -721,21 +727,19 @@ function updateTempCartQty(idx, delta) {
   if (tempCart.value[idx].quantity <= 0) tempCart.value.splice(idx, 1);
 }
 
-// ── Course cycling ─────────────────────────────────────────────────────────
-const courseButtonMap = {
-  prima:   { label: 'Prima',  classes: 'bg-orange-400 text-white', title: 'Esce prima' },
-  insieme: { label: 'Ins.',   classes: 'theme-bg text-white',      title: 'Insieme'    },
-  dopo:    { label: 'Dopo',   classes: 'bg-teal-500 text-white',   title: 'Esce dopo'  },
-};
-
-function courseButtonProps(course) {
-  return courseButtonMap[course] ?? courseButtonMap.insieme;
-}
-
-function cycleCourse(idx) {
-  const current = tempCart.value[idx].course || DEFAULT_COURSE;
-  const next = courseOrder[(courseOrder.indexOf(current) + 1) % courseOrder.length];
-  tempCart.value[idx].course = next;
+function addToTempCartWithModal(item) {
+  tempCart.value.push({
+    uid: 'tmp_' + Math.random().toString(36).slice(2, 11),
+    dishId: item.id,
+    name: item.name,
+    unitPrice: item.price,
+    quantity: 1,
+    notes: [],
+    voidedQuantity: 0,
+    modifiers: [],
+    course: DEFAULT_COURSE,
+  });
+  openCartNoteModal(tempCart.value.length - 1);
 }
 
 function openAddMenu(targetOrder) {
