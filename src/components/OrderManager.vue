@@ -378,7 +378,7 @@
           </div>
         </div>
         <!-- Testo HTML esteso (campo futuro) -->
-        <div v-if="infoModal.item?.text" v-html="DOMPurify.sanitize(infoModal.item.text)" class="prose prose-sm text-gray-700 max-w-none text-sm" />
+        <div v-if="infoModal.item?.text" v-html="sanitizedInfoHtml" class="prose prose-sm text-gray-700 max-w-none text-sm" />
       </div>
       <!-- Footer actions -->
       <div class="p-4 pb-8 md:pb-4 bg-white border-t border-gray-100 shrink-0 flex gap-2">
