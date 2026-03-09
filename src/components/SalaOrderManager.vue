@@ -353,22 +353,27 @@
                 {{ getQtyCombined(item.id) }}
               </span>
 
-              <div class="flex justify-between items-start w-full gap-2">
-                <h4 class="font-bold text-gray-800 text-xs md:text-sm leading-tight group-hover:theme-text transition-colors">{{ item.name }}</h4>
-                <span class="font-black theme-text text-xs md:text-sm shrink-0 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100">{{ store.config.ui.currency }}{{ item.price.toFixed(2) }}</span>
-              </div>
+              <h4 class="font-bold text-gray-800 text-xs md:text-sm leading-tight group-hover:theme-text transition-colors line-clamp-3">{{ item.name }}</h4>
 
-              <div class="mt-2 flex items-end justify-between">
-                <span class="text-[9px] md:text-[10px] text-gray-400 font-bold uppercase tracking-wider flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <Plus class="size-3" /> Aggiungi
-                </span>
-                <!-- Icon-only details button -->
-                <button @click.stop="addToTempCartWithModal(item)"
-                    :aria-label="'Aggiungi ' + item.name + ' con dettagli'"
-                    class="size-6 md:size-7 flex items-center justify-center rounded-lg text-gray-300 hover:text-purple-600 hover:bg-purple-50 transition-colors active:scale-95 opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
-                    title="Aggiungi con portata, note e varianti">
-                  <PenLine class="size-3 md:size-3.5" />
-                </button>
+              <!-- Bottom row: price left, action icons right -->
+              <div class="mt-2 flex items-center justify-between gap-1">
+                <span class="font-black theme-text text-xs md:text-sm bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100 shrink-0">{{ store.config.ui.currency }}{{ item.price.toFixed(2) }}</span>
+                <div class="flex items-center gap-0.5 shrink-0">
+                  <!-- Info button -->
+                  <button @click.stop="showItemInfo(item)"
+                      :aria-label="'Informazioni su ' + item.name"
+                      class="size-6 md:size-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors active:scale-95"
+                      title="Dettagli piatto">
+                    <Info class="size-3 md:size-3.5" />
+                  </button>
+                  <!-- Details (pen) button -->
+                  <button @click.stop="addToTempCartWithModal(item)"
+                      :aria-label="'Aggiungi ' + item.name + ' con dettagli'"
+                      class="size-6 md:size-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-purple-600 hover:bg-purple-50 transition-colors active:scale-95"
+                      title="Aggiungi con portata, note e varianti">
+                    <PenLine class="size-3 md:size-3.5" />
+                  </button>
+                </div>
               </div>
             </button>
           </div>
@@ -437,6 +442,66 @@
               </button>
             </div>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================================================ -->
+    <!-- MODAL: INFO PIATTO                                           -->
+    <!-- ============================================================ -->
+    <div v-if="infoModal.show" class="fixed inset-0 z-[95] bg-black/60 backdrop-blur-sm flex items-end md:items-center justify-center p-0 md:p-4">
+      <div class="bg-white rounded-t-3xl md:rounded-3xl shadow-2xl w-full max-w-md flex flex-col max-h-[92dvh] md:max-h-[85vh] overflow-hidden">
+        <!-- Header -->
+        <div class="bg-gray-50 border-b border-gray-100 px-4 pt-4 pb-3 flex justify-between items-start shrink-0">
+          <div>
+            <h3 class="font-bold text-base md:text-lg text-gray-800 leading-tight">{{ infoModal.item?.name }}</h3>
+            <span class="font-black theme-text text-sm mt-0.5 block">{{ store.config.ui.currency }}{{ infoModal.item?.price.toFixed(2) }}</span>
+          </div>
+          <button @click="infoModal.show = false" aria-label="Chiudi" class="text-gray-400 hover:text-gray-800 p-1.5 bg-gray-200 hover:bg-gray-300 rounded-full active:scale-95 transition-colors shrink-0 ml-3">
+            <X class="size-5" />
+          </button>
+        </div>
+        <!-- Scrollable content -->
+        <div class="overflow-y-auto flex-1 p-4 space-y-4">
+          <!-- Foto -->
+          <img v-if="infoModal.item?.immagine_url"
+              :src="infoModal.item.immagine_url"
+              :alt="infoModal.item.name"
+              class="w-full h-44 object-cover rounded-xl shadow-sm" />
+          <!-- Descrizione -->
+          <div v-if="infoModal.item?.descrizione">
+            <p class="text-sm text-gray-700 leading-relaxed">{{ infoModal.item.descrizione }}</p>
+          </div>
+          <!-- Note (es. "Vegano") -->
+          <div v-if="infoModal.item?.note" class="flex items-center gap-1.5">
+            <span class="text-xs text-gray-500 italic bg-gray-100 px-2 py-0.5 rounded-full">{{ infoModal.item.note }}</span>
+          </div>
+          <!-- Ingredienti -->
+          <div v-if="infoModal.item?.ingredienti?.length">
+            <h4 class="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Ingredienti</h4>
+            <p class="text-sm text-gray-700">{{ infoModal.item.ingredienti.join(', ') }}</p>
+          </div>
+          <!-- Allergeni -->
+          <div v-if="infoModal.item?.allergeni?.length">
+            <h4 class="text-[10px] font-bold text-amber-600 uppercase tracking-wider mb-1 flex items-center gap-1"><AlertOctagon class="size-3" /> Allergeni</h4>
+            <div class="flex flex-wrap gap-1.5">
+              <span v-for="a in infoModal.item.allergeni" :key="a"
+                  class="px-2 py-0.5 bg-amber-50 text-amber-800 border border-amber-200 rounded-full text-xs font-medium capitalize">{{ a }}</span>
+            </div>
+          </div>
+          <!-- Testo HTML esteso (campo futuro) -->
+          <div v-if="infoModal.item?.text" v-html="DOMPurify.sanitize(infoModal.item.text)" class="prose prose-sm text-gray-700 max-w-none text-sm" />
+        </div>
+        <!-- Footer actions -->
+        <div class="p-4 pb-8 md:pb-4 bg-white border-t border-gray-100 shrink-0 flex gap-2">
+          <button @click="infoModalAddQuick"
+              class="py-3 px-4 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-xl flex items-center justify-center gap-2 text-sm active:scale-[0.98] transition-all">
+            <Plus class="size-4" /> Rapido
+          </button>
+          <button @click="infoModalAddWithDetails"
+              class="flex-1 py-3 theme-bg text-white font-bold rounded-xl flex items-center justify-center gap-2 text-sm active:scale-[0.98] transition-all shadow-sm">
+            <PenLine class="size-4" /> Aggiungi con Dettagli
+          </button>
         </div>
       </div>
     </div>
@@ -638,11 +703,12 @@
 
 <script setup>
 import { ref, computed, nextTick } from 'vue';
+import DOMPurify from 'dompurify';
 import {
   Bell, ClipboardList, ChefHat, Clock, Hash, AlertCircle, MousePointerClick, ArrowLeft,
   AlertTriangle, Trash2, PlusCircle, Send, ShieldCheck, Minus, Plus,
   MessageSquareWarning, PenLine, X, BookOpen, ShoppingCart, Sparkles,
-  Layers, CheckCircle, LayoutGrid, ChevronRight,
+  Layers, CheckCircle, LayoutGrid, ChevronRight, Info, AlertOctagon,
 } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
 import { updateOrderTotals, getOrderItemRowTotal } from '../utils/index.js';
@@ -712,6 +778,25 @@ const noteModal = ref({
   modifiersArray: [], modName: '', modPrice: 0,
   course: DEFAULT_COURSE, cartIdx: null,
 });
+
+// ── Info modal ─────────────────────────────────────────────────────────────
+const infoModal = ref({ show: false, item: null });
+
+function showItemInfo(item) {
+  infoModal.value = { show: true, item };
+}
+
+function infoModalAddQuick() {
+  const item = infoModal.value.item;
+  infoModal.value.show = false;
+  addToTempCart(item);
+}
+
+function infoModalAddWithDetails() {
+  const item = infoModal.value.item;
+  infoModal.value.show = false;
+  addToTempCartWithModal(item);
+}
 
 function openNoteModal(ord, idx) {
   if (!ord || ord.status !== 'pending') return;
