@@ -382,13 +382,18 @@ export const useAppStore = defineStore('app', () => {
   }
 
   function _buildDailySummary() {
-    // Aggregate transactions by payment method
+    // Aggregate real payment transactions by payment method (exclude discounts)
     const byMethod = {};
-    transactions.value.forEach(t => {
-      const label = t.paymentMethod || 'Altro';
-      if (!byMethod[label]) byMethod[label] = 0;
-      byMethod[label] += t.amountPaid;
-    });
+    const totalDiscount = transactions.value
+      .filter(t => t.operationType === 'discount')
+      .reduce((acc, t) => acc + (t.amountPaid || 0), 0);
+    transactions.value
+      .filter(t => t.operationType !== 'discount')
+      .forEach(t => {
+        const label = t.paymentMethod || 'Altro';
+        if (!byMethod[label]) byMethod[label] = 0;
+        byMethod[label] += t.amountPaid;
+      });
     const totalReceived = Object.values(byMethod).reduce((a, b) => a + b, 0);
 
     // Total covers from completed tables
@@ -412,6 +417,7 @@ export const useAppStore = defineStore('app', () => {
       timestamp: new Date().toISOString(),
       cashBalance: cashBalance.value,
       totalReceived,
+      totalDiscount,
       byMethod,
       totalCovers,
       averageReceipt,
