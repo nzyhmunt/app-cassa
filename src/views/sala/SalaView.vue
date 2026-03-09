@@ -1,5 +1,5 @@
 <template>
-  <WaiterTableManager
+  <SalaTableManager
     ref="tableManagerRef"
     @new-order-for-comande="handleNewOrder"
     @view-order="handleViewOrder"
@@ -9,7 +9,7 @@
 <script setup>
 import { ref, onMounted, nextTick } from 'vue';
 import { useRouter } from 'vue-router';
-import WaiterTableManager from '../../components/WaiterTableManager.vue';
+import SalaTableManager from '../../components/SalaTableManager.vue';
 import { useAppStore } from '../../store/index.js';
 
 const store = useAppStore();

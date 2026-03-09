@@ -2,7 +2,7 @@
   <!-- ================================================================ -->
   <!-- SHARED: PEOPLE COUNT MODAL                                        -->
   <!-- Displayed when opening a free table to set the number of diners. -->
-  <!-- Used by both WaiterTableManager (Sala) and TableManager (Cassa).  -->
+  <!-- Used by both SalaTableManager (Sala) and TableManager (Cassa).  -->
   <!-- Props: show, table, showChildrenInput, adults, children          -->
   <!-- Emits: cancel, confirm, update:adults, update:children           -->
   <!-- ================================================================ -->
@@ -103,7 +103,7 @@ import { computed } from 'vue';
 /**
  * Shared people-count modal for opening a table.
  *
- * Used by both WaiterTableManager (app Sala) and TableManager (app Cassa)
+ * Used by both SalaTableManager (app Sala) and TableManager (app Cassa)
  * so that any UI/UX change is reflected in both applications automatically.
  */
 const props = defineProps({

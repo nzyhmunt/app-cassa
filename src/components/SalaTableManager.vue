@@ -360,6 +360,6 @@ function viewOrder(ord) {
   emit('view-order', ord);
 }
 
-// ── Expose for parent (WaiterSalaView) ────────────────────────────────────
+// ── Expose for parent (SalaView) ────────────────────────────────────
 defineExpose({ openTableDetails });
 </script>

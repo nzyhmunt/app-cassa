@@ -8,7 +8,7 @@
       </div>
       <div class="flex flex-col truncate">
         <h1 class="text-sm md:text-xl font-bold leading-none truncate">{{ store.config.ui.name }}</h1>
-        <p class="text-white/80 text-[9px] md:text-xs mt-0.5 font-bold uppercase tracking-wider truncate">App Cameriere</p>
+        <p class="text-white/80 text-[9px] md:text-xs mt-0.5 font-bold uppercase tracking-wider truncate">App Sala</p>
       </div>
     </div>
 

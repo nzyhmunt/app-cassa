@@ -8,8 +8,9 @@ Il progetto contiene due applicazioni separate che condividono lo stesso store e
 
 | App | Entry | URL locale | Pubblico |
 |-----|-------|-----------|---------|
-| **Cassa** | `index.html` → `src/main.js` | `/` | Cassiere / gestione |
-| **Sala** | `waiter.html` → `src/waiter-main.js` | `/waiter.html` | Personale di sala |
+| Launcher | `index.html` → `src/launcher-main.js` | `/` | Selezione modalità |
+| **Cassa** | `cassa.html` → `src/main.js` | `/cassa.html` | Cassiere / gestione |
+| **Sala** | `sala.html` → `src/sala-main.js` | `/sala.html` | Personale di sala |
 
 ```
 src/
@@ -18,14 +19,14 @@ src/
 │   │   └── PeopleModal.vue      ← Modale conteggio coperti (Cassa + Sala)
 │   ├── TableManager.vue         ← Mappa sala + cassa (Cassa only)
 │   ├── OrderManager.vue         ← Gestione ordini + accettazione (Cassa only)
-│   ├── WaiterTableManager.vue   ← Mappa sala semplificata (Sala only)
-│   ├── WaiterOrderManager.vue   ← Creazione/invio comande (Sala only)
+│   ├── SalaTableManager.vue     ← Mappa sala semplificata (Sala only)
+│   ├── SalaOrderManager.vue     ← Creazione/invio comande (Sala only)
 │   ├── Navbar.vue               ← Navigazione (Cassa)
-│   └── WaiterNavbar.vue         ← Navigazione (Sala)
+│   └── SalaNavbar.vue           ← Navigazione (Sala)
 ├── store/index.js               ← Pinia store condiviso (unica sorgente di verità)
 ├── utils/index.js               ← Configurazione + funzioni di calcolo condivise
 ├── views/                       ← View Cassa
-└── views/waiter/                ← View Sala
+└── views/sala/                  ← View Sala
 ```
 
 ### Aggiungere un nuovo componente condiviso
