@@ -24,7 +24,7 @@
       <div class="flex items-center gap-3">
         <div class="text-right hidden sm:block">
           <p class="text-[10px] text-gray-400 font-medium">
-            {{ bill.transactions.length }} pagament{{ bill.transactions.length !== 1 ? 'i' : 'o' }}
+            {{ bill.transactions.filter(t => t.operationType !== 'discount').length }} pagament{{ bill.transactions.filter(t => t.operationType !== 'discount').length !== 1 ? 'i' : 'o' }}
           </p>
           <p v-if="bill.totalDiscount > 0" class="text-[10px] text-amber-600 font-bold">
             -{{ store.config.ui.currency }}{{ bill.totalDiscount.toFixed(2) }} sconto

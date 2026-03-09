@@ -486,7 +486,7 @@
             </div>
 
             <!-- Calcolatore Resto Contanti -->
-            <div v-if="cashChangeEnabled && canPay" class="bg-emerald-50 border border-emerald-100 rounded-xl p-3">
+            <div v-if="cashChangeEnabled && canPay && isCashPaymentActive" class="bg-emerald-50 border border-emerald-100 rounded-xl p-3">
               <label class="block text-[10px] font-bold text-emerald-700 uppercase mb-2 flex items-center gap-1.5">
                 <Coins class="size-3.5" /> Contanti Ricevuti
               </label>
@@ -514,7 +514,14 @@
             </div>
 
             <div class="grid grid-cols-2 gap-3">
-              <button v-for="method in store.config.paymentMethods" :key="method.id" @click="processTablePayment(method.id)" :disabled="!canPay" :class="method.colorClass" class="py-3.5 border-2 rounded-xl md:rounded-2xl font-bold flex flex-col items-center justify-center gap-1 transition-all disabled:opacity-50 disabled:bg-gray-100 disabled:border-gray-300 disabled:text-gray-400 active:scale-95 text-sm md:text-base">
+              <button
+                v-for="method in store.config.paymentMethods"
+                :key="method.id"
+                @click="activePaymentMethodId = method.id; processTablePayment(method.id)"
+                :disabled="!canPay"
+                :class="[method.colorClass, activePaymentMethodId === method.id ? 'ring-2 ring-offset-1 ring-current scale-[1.02]' : '']"
+                class="py-3.5 border-2 rounded-xl md:rounded-2xl font-bold flex flex-col items-center justify-center gap-1 transition-all disabled:opacity-50 disabled:bg-gray-100 disabled:border-gray-300 disabled:text-gray-400 active:scale-95 text-sm md:text-base"
+              >
                 <span class="flex items-center gap-2">
                   <component :is="getPaymentIcon(method.id)" class="size-5" /> {{ method.label }}
                 </span>
@@ -766,6 +773,9 @@ const splitPaidQuotas = ref(0);
 const romanaSplitCount = ref(1); // how many quotas to pay in this single transaction
 const selectedOrdersToPay = ref([]);
 
+// ── Active payment method (for cash-change calculator visibility) ──────────
+const activePaymentMethodId = ref(null);
+
 // ── Cash change calculator state ───────────────────────────────────────────
 const cashAmountGiven = ref('');
 
@@ -860,6 +870,15 @@ const quotaRomana = computed(() => {
 const cashChangeEnabled = computed(() => store.config.billing?.enableCashChangeCalculator ?? false);
 const tipsEnabled = computed(() => store.config.billing?.enableTips ?? false);
 const discountsEnabled = computed(() => store.config.billing?.enableDiscounts ?? false);
+
+// Returns true when the currently active payment method is a cash-type method
+// (identified by having a non-credit-card icon, i.e. 'banknote' or unspecified).
+const isCashPaymentActive = computed(() => {
+  const id = activePaymentMethodId.value;
+  if (!id) return false;
+  const m = store.config.paymentMethods.find(x => x.id === id);
+  return m ? m.icon !== 'credit-card' : false;
+});
 
 // ── Tip amount ─────────────────────────────────────────────────────────────
 const tipAmount = computed(() => Math.max(0, parseFloat(tipInput.value) || 0));
@@ -982,6 +1001,10 @@ function _openTableModal(table) {
   selectedOrdersToPay.value = [];
   romanaSplitCount.value = 1;
   cashAmountGiven.value = '';
+  activePaymentMethodId.value =
+    store.config.paymentMethods.find(m => m.icon !== 'credit-card')?.id ??
+    store.config.paymentMethods[0]?.id ??
+    null;
   tipInput.value = '';
   discountInput.value = '';
   discountType.value = 'percent';
