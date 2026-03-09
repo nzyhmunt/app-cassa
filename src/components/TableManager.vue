@@ -358,7 +358,7 @@
                   v-model="discountInput"
                   type="number"
                   min="0"
-                  :max="discountType === 'percent' ? 100 : tableTotalAmount"
+                  :max="discountType === 'percent' ? 100 : tableAmountRemaining"
                   step="0.01"
                   :placeholder="discountType === 'percent' ? 'Es. 10' : 'Es. 5.00'"
                   class="flex-1 min-w-0 text-sm font-bold border border-amber-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:border-amber-400 text-amber-900"
@@ -1150,7 +1150,11 @@ function processTablePayment(paymentMethodId) {
 function applyDiscount() {
   if (!selectedTable.value || discountPreview.value <= 0) return;
   const session = store.tableCurrentBillSession[selectedTable.value.id];
-  const discountVal = parseFloat(discountInput.value) || 0;
+  const rawInput = parseFloat(discountInput.value) || 0;
+  // For percent discounts store the percentage value; for fixed discounts store
+  // the actually applied amount (= discountPreview) so discountValue never
+  // exceeds amountPaid and display stays consistent.
+  const discountValueToStore = discountType.value === 'percent' ? rawInput : discountPreview.value;
   store.addTransaction({
     transactionId: 'disc_' + Math.random().toString(36).slice(2, 11),
     tableId: selectedTable.value.id,
@@ -1158,21 +1162,15 @@ function applyDiscount() {
     paymentMethod: 'Sconto',
     operationType: 'discount',
     discountType: discountType.value,
-    discountValue: discountVal,
+    discountValue: discountValueToStore,
     amountPaid: discountPreview.value,
     timestamp: new Date().toISOString(),
     orderRefs: [],
   });
 
-  // If the discount has effectively brought the table to full payment and
-  // auto-close-on-full-payment is enabled, close the table to avoid a stuck state.
-  if (
-    selectedTable.value &&
-    store.settings?.autoCloseOnFullPayment &&
-    tableAmountRemaining.value <= 0.01 &&
-    !hasPendingOrdersInTable.value
-  ) {
-    closeTableModal();
+  // Same auto-close flow as processTablePayment to avoid stuck table state
+  if (autoCloseOnFullPayment.value && tableAmountRemaining.value <= 0.01) {
+    tableAcceptedPayableOrders.value.forEach(o => store.changeOrderStatus(o, 'completed'));
   }
   discountInput.value = '';
 }
