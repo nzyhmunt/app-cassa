@@ -29,7 +29,7 @@
         </label>
         <div class="flex items-center gap-4">
           <button
-            @click="$emit('update:adults', Math.max(0, adults - 1))"
+            @click="$emit('update:adults', Math.max(1, adults - 1))"
             class="size-12 bg-gray-100 hover:bg-gray-200 rounded-xl flex items-center justify-center font-black text-gray-700 active:scale-95 transition-all"
           >
             <Minus class="size-5" />
