@@ -39,8 +39,14 @@ export const appConfig = {
 
   // CONFIGURAZIONE COMPORTAMENTO CONTO
   // autoCloseOnFullPayment: quando true, il conto si chiude automaticamente al saldo completo
+  // enableCashChangeCalculator: mostra il calcolatore del resto per i pagamenti in contanti
+  // enableTips: abilita l'inserimento della mancia per ogni pagamento
+  // enableDiscounts: abilita l'applicazione di sconti in cassa
   billing: {
     autoCloseOnFullPayment: true,
+    enableCashChangeCalculator: true,
+    enableTips: true,
+    enableDiscounts: true,
   },
 
   // Minimal fallback menu; the full menu is loaded from the external URL at startup

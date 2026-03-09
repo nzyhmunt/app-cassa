@@ -315,18 +315,67 @@
             <!-- Storico Transazioni -->
             <div v-if="tableTransactions.length > 0" class="mb-5 space-y-2">
               <h5 class="text-[10px] font-bold text-gray-400 uppercase tracking-wider border-b border-gray-100 pb-1">Storico Pagamenti Effettuati:</h5>
-              <div v-for="(txn, tIdx) in tableTransactions" :key="txn.transactionId" class="text-xs font-bold text-emerald-700 bg-emerald-50 px-2.5 py-2 rounded-lg border border-emerald-200 flex flex-col gap-1 shadow-sm">
+              <div v-for="(txn, tIdx) in tableTransactions" :key="txn.transactionId"
+                class="text-xs font-bold px-2.5 py-2 rounded-lg flex flex-col gap-1 shadow-sm border"
+                :class="txn.operationType === 'discount' ? 'bg-amber-50 border-amber-200 text-amber-700' : 'bg-emerald-50 border-emerald-200 text-emerald-700'">
                 <div class="flex items-center justify-between">
                   <span class="flex items-center gap-1.5">
-                    <component :is="getPaymentIcon(txn.paymentMethod)" class="size-3.5" />
+                    <Tag v-if="txn.operationType === 'discount'" class="size-3.5" />
+                    <component v-else :is="getPaymentIcon(txn.paymentMethod)" class="size-3.5" />
                     <span class="uppercase tracking-wider">{{ txn.paymentMethod }}</span>
+                    <span v-if="txn.operationType === 'romana'" class="text-[9px] opacity-70 font-medium">
+                      ({{ txn.splitQuota }}/{{ txn.splitWays }}<template v-if="(txn.romanaSplitCount || 1) > 1"> · {{ txn.romanaSplitCount }} quote</template>)
+                    </span>
+                    <span v-if="txn.operationType === 'discount'" class="text-[9px] opacity-70 font-medium">
+                      ({{ txn.discountType === 'percent' ? txn.discountValue + '%' : store.config.ui.currency + (txn.discountValue ?? 0).toFixed(2) }})
+                    </span>
                   </span>
-                  <span class="font-black">{{ store.config.ui.currency }}{{ txn.amountPaid.toFixed(2) }}</span>
+                  <span class="font-black">
+                    <span v-if="txn.operationType === 'discount'">-</span>{{ store.config.ui.currency }}{{ txn.amountPaid.toFixed(2) }}
+                    <span v-if="txn.tipAmount" class="text-[10px] font-medium opacity-80"> +{{ store.config.ui.currency }}{{ txn.tipAmount.toFixed(2) }} mancia</span>
+                  </span>
                 </div>
-                <span class="text-[9px] font-medium text-emerald-600 opacity-80">{{ new Date(txn.timestamp).toLocaleTimeString() }} - ID: {{ txn.transactionId }}</span>
+                <span class="text-[9px] font-medium opacity-80">{{ new Date(txn.timestamp).toLocaleTimeString() }} - ID: {{ txn.transactionId }}</span>
               </div>
             </div>
             <div v-else class="mb-5"></div>
+
+            <!-- Sconto (Discount) -->
+            <div v-if="discountsEnabled && tableAmountRemaining > 0" class="mb-4 bg-amber-50 border border-amber-200 rounded-xl p-3 md:p-4">
+              <label class="block text-xs font-bold text-amber-800 uppercase mb-2 flex items-center gap-1.5">
+                <Tag class="size-3.5" /> Applica Sconto
+              </label>
+              <div class="flex gap-2 items-center">
+                <div class="flex bg-white border border-amber-200 rounded-xl overflow-hidden shrink-0">
+                  <button @click="discountType = 'percent'" :class="discountType === 'percent' ? 'bg-amber-500 text-white' : 'text-amber-700 hover:bg-amber-100'" class="px-3 py-2 text-xs font-bold transition-colors flex items-center gap-1">
+                    <Percent class="size-3" />%
+                  </button>
+                  <button @click="discountType = 'fixed'" :class="discountType === 'fixed' ? 'bg-amber-500 text-white' : 'text-amber-700 hover:bg-amber-100'" class="px-3 py-2 text-xs font-bold transition-colors">
+                    {{ store.config.ui.currency }}
+                  </button>
+                </div>
+                <input
+                  v-model="discountInput"
+                  type="number"
+                  min="0"
+                  :max="discountType === 'percent' ? 100 : tableAmountRemaining"
+                  step="0.01"
+                  :placeholder="discountType === 'percent' ? 'Es. 10' : 'Es. 5.00'"
+                  class="flex-1 min-w-0 text-sm font-bold border border-amber-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:border-amber-400 text-amber-900"
+                />
+                <button
+                  @click="applyDiscount"
+                  :disabled="discountPreview <= 0"
+                  class="shrink-0 bg-amber-500 hover:bg-amber-600 disabled:bg-gray-200 disabled:text-gray-400 text-white font-bold text-xs px-3 py-2 rounded-xl transition-colors active:scale-95"
+                >
+                  Applica
+                </button>
+              </div>
+              <div v-if="discountPreview > 0" class="mt-2 text-xs text-amber-700 font-bold flex items-center justify-between">
+                <span>Sconto da applicare:</span>
+                <span>-{{ store.config.ui.currency }}{{ discountPreview.toFixed(2) }}</span>
+              </div>
+            </div>
 
             <!-- Scelta Split Conto -->
             <div v-if="tableAmountRemaining > 0" class="space-y-4">
@@ -339,15 +388,48 @@
               </div>
 
               <!-- Romana -->
-              <div v-if="checkoutMode === 'romana'" class="bg-blue-50 border border-blue-100 p-4 rounded-xl md:rounded-2xl transition-all">
-                <label class="block text-xs font-bold text-blue-800 uppercase mb-3">Dividi Rimanenza In (Persone):</label>
-                <div class="flex items-center gap-3">
-                  <button @click="splitWays > 1 ? splitWays-- : null" class="size-12 bg-white rounded-xl flex items-center justify-center font-black text-blue-600 shadow-sm border border-blue-100 active:scale-95 transition-all"><Minus class="size-5" /></button>
-                  <span class="text-3xl font-black text-blue-900 w-16 text-center">{{ splitWays }}</span>
-                  <button @click="splitWays++" class="size-12 bg-white rounded-xl flex items-center justify-center font-black text-blue-600 shadow-sm border border-blue-100 active:scale-95 transition-all"><Plus class="size-5" /></button>
+              <div v-if="checkoutMode === 'romana'" class="bg-blue-50 border border-blue-100 p-4 rounded-xl md:rounded-2xl transition-all space-y-4">
+                <!-- Total split ways -->
+                <div>
+                  <label class="block text-xs font-bold text-blue-800 uppercase mb-3">Dividi Conto In (Parti Totali):</label>
+                  <div class="flex items-center gap-3">
+                    <button
+                      @click="splitWays > minSplitWays ? splitWays-- : null"
+                      :disabled="splitWays <= minSplitWays"
+                      class="size-12 bg-white rounded-xl flex items-center justify-center font-black text-blue-600 shadow-sm border border-blue-100 active:scale-95 transition-all disabled:opacity-30"
+                    ><Minus class="size-5" /></button>
+                    <span class="text-3xl font-black text-blue-900 w-16 text-center">{{ splitWays }}</span>
+                    <button @click="splitWays++" class="size-12 bg-white rounded-xl flex items-center justify-center font-black text-blue-600 shadow-sm border border-blue-100 active:scale-95 transition-all"><Plus class="size-5" /></button>
+                  </div>
+                  <div v-if="splitPaidQuotas > 0" class="mt-2 text-xs text-blue-600 font-medium">
+                    {{ splitPaidQuotas }}/{{ splitWays }} quote già pagate
+                  </div>
                 </div>
-                <div class="mt-4 pt-3 border-t border-blue-200 flex justify-between items-center">
-                  <span class="font-bold text-blue-800 text-sm">Quota da incassare:</span>
+
+                <!-- Quotas being paid this transaction -->
+                <div v-if="splitWays - splitPaidQuotas > 1">
+                  <label class="block text-xs font-bold text-blue-800 uppercase mb-3">Quote Da Pagare Ora:</label>
+                  <div class="flex items-center gap-3">
+                    <button
+                      @click="romanaSplitCount > 1 ? romanaSplitCount-- : null"
+                      :disabled="romanaSplitCount <= 1"
+                      class="size-10 bg-white rounded-xl flex items-center justify-center font-bold text-blue-600 shadow-sm border border-blue-100 active:scale-95 transition-all disabled:opacity-30"
+                    ><Minus class="size-4" /></button>
+                    <span class="text-2xl font-black text-blue-900 w-12 text-center">{{ romanaSplitCount }}</span>
+                    <button
+                      @click="romanaSplitCount < (splitWays - splitPaidQuotas) ? romanaSplitCount++ : null"
+                      :disabled="romanaSplitCount >= (splitWays - splitPaidQuotas)"
+                      class="size-10 bg-white rounded-xl flex items-center justify-center font-bold text-blue-600 shadow-sm border border-blue-100 active:scale-95 transition-all disabled:opacity-30"
+                    ><Plus class="size-4" /></button>
+                    <span class="text-xs text-blue-600 font-medium">su {{ splitWays - splitPaidQuotas }} rimanenti</span>
+                  </div>
+                </div>
+
+                <div class="pt-3 border-t border-blue-200 flex justify-between items-center">
+                  <span class="font-bold text-blue-800 text-sm">
+                    Quota da incassare
+                    <span v-if="romanaSplitCount > 1" class="text-xs font-medium">(×{{ romanaSplitCount }})</span>:
+                  </span>
                   <span class="font-black text-2xl text-blue-600">{{ store.config.ui.currency }}{{ quotaRomana.toFixed(2) }}</span>
                 </div>
               </div>
@@ -368,24 +450,89 @@
           </div>
 
           <!-- Bottoni di Pagamento -->
-          <div class="p-4 md:p-6 bg-gray-50 border-t border-gray-200 shrink-0 pb-6 md:pb-5">
-            <div v-if="hasPendingOrdersInTable" class="mb-3 bg-amber-100 text-amber-800 p-3 rounded-xl text-[10px] md:text-xs font-bold flex items-center gap-2 border border-amber-200 shadow-sm">
+          <div class="p-4 md:p-6 bg-gray-50 border-t border-gray-200 shrink-0 pb-6 md:pb-5 space-y-3">
+            <div v-if="hasPendingOrdersInTable" class="bg-amber-100 text-amber-800 p-3 rounded-xl text-[10px] md:text-xs font-bold flex items-center gap-2 border border-amber-200 shadow-sm">
               <AlertTriangle class="size-5 shrink-0" /> <span>Tavolo con comande in Attesa. Se incassi ora, il tavolo <b>resterà aperto</b> per quelle voci.</span>
             </div>
 
-            <div v-if="checkoutMode !== 'unico' && tableAmountRemaining > 0" class="flex justify-between items-center mb-3 px-1">
+            <div v-if="checkoutMode !== 'unico' && tableAmountRemaining > 0" class="flex justify-between items-center px-1">
               <span class="text-xs font-bold text-gray-500 uppercase tracking-wider">Acconto Corrente:</span>
               <span class="text-xl font-black theme-text">{{ store.config.ui.currency }}{{ amountBeingPaid.toFixed(2) }}</span>
             </div>
 
+            <!-- Mancia (Tip) -->
+            <div v-if="tipsEnabled && canPay" class="bg-purple-50 border border-purple-100 rounded-xl p-3">
+              <label class="block text-[10px] font-bold text-purple-700 uppercase mb-2 flex items-center gap-1.5">
+                <Wallet class="size-3.5" /> Mancia (opzionale)
+              </label>
+              <div class="flex items-center gap-2">
+                <span class="text-sm font-bold text-purple-600">{{ store.config.ui.currency }}</span>
+                <input
+                  v-model="tipInput"
+                  type="number"
+                  min="0"
+                  step="0.50"
+                  placeholder="0.00"
+                  class="flex-1 min-w-0 text-sm font-bold border border-purple-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:border-purple-400 text-purple-900"
+                />
+                <button v-if="tipAmount > 0" @click="tipInput = ''" class="text-purple-400 hover:text-purple-700 p-1.5 rounded-lg hover:bg-purple-100 transition-colors">
+                  <X class="size-4" />
+                </button>
+              </div>
+              <div v-if="tipAmount > 0" class="mt-1.5 text-xs font-bold text-purple-700 flex justify-between">
+                <span>Totale da incassare (con mancia):</span>
+                <span>{{ store.config.ui.currency }}{{ (amountBeingPaid + tipAmount).toFixed(2) }}</span>
+              </div>
+            </div>
+
+            <!-- Calcolatore Resto Contanti -->
+            <div v-if="cashChangeEnabled && canPay && isCashPaymentActive" class="bg-emerald-50 border border-emerald-100 rounded-xl p-3">
+              <label class="block text-[10px] font-bold text-emerald-700 uppercase mb-2 flex items-center gap-1.5">
+                <Coins class="size-3.5" /> Contanti Ricevuti
+              </label>
+              <div class="flex items-center gap-2">
+                <span class="text-sm font-bold text-emerald-600">{{ store.config.ui.currency }}</span>
+                <input
+                  v-model="cashAmountGiven"
+                  type="number"
+                  min="0"
+                  step="0.50"
+                  placeholder="0.00"
+                  class="flex-1 min-w-0 text-sm font-bold border border-emerald-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:border-emerald-400 text-emerald-900"
+                />
+                <button v-if="cashAmountGiven" @click="cashAmountGiven = ''" class="text-emerald-400 hover:text-emerald-700 p-1.5 rounded-lg hover:bg-emerald-100 transition-colors">
+                  <X class="size-4" />
+                </button>
+              </div>
+              <div v-if="cashChange !== null" class="mt-2 flex justify-between items-center">
+                <span class="text-xs font-bold text-emerald-700">Resto da dare:</span>
+                <span class="text-xl font-black text-emerald-700">{{ store.config.ui.currency }}{{ cashChange.toFixed(2) }}</span>
+              </div>
+              <div v-else-if="cashAmountGiven && (parseFloat(cashAmountGiven) || 0) > 0 && cashChange === null" class="mt-1.5 text-xs font-bold text-red-500">
+                Importo insufficiente (mancano {{ store.config.ui.currency }}{{ ((amountBeingPaid + tipAmount) - (parseFloat(cashAmountGiven) || 0)).toFixed(2) }})
+              </div>
+            </div>
+
             <div class="grid grid-cols-2 gap-3">
-              <button v-for="method in store.config.paymentMethods" :key="method.id" @click="processTablePayment(method.id)" :disabled="!canPay" :class="method.colorClass" class="py-4 border-2 rounded-xl md:rounded-2xl font-bold flex items-center justify-center gap-2 transition-all disabled:opacity-50 disabled:bg-gray-100 disabled:border-gray-300 disabled:text-gray-400 active:scale-95 text-sm md:text-base">
-                <component :is="getPaymentIcon(method.id)" class="size-5" /> {{ method.label }}
+              <button
+                v-for="method in store.config.paymentMethods"
+                :key="method.id"
+                @click="activePaymentMethodId = method.id; processTablePayment(method.id)"
+                :disabled="!canPay"
+                :class="[method.colorClass, activePaymentMethodId === method.id ? 'ring-2 ring-offset-1 ring-current scale-[1.02]' : '']"
+                class="py-3.5 border-2 rounded-xl md:rounded-2xl font-bold flex flex-col items-center justify-center gap-1 transition-all disabled:opacity-50 disabled:bg-gray-100 disabled:border-gray-300 disabled:text-gray-400 active:scale-95 text-sm md:text-base"
+              >
+                <span class="flex items-center gap-2">
+                  <component :is="getPaymentIcon(method.id)" class="size-5" /> {{ method.label }}
+                </span>
+                <span v-if="tipAmount > 0" class="text-[10px] font-medium opacity-75">
+                  (+ {{ store.config.ui.currency }}{{ tipAmount.toFixed(2) }} mancia)
+                </span>
               </button>
             </div>
 
             <!-- Manual bill close button (shown when autoCloseOnFullPayment = false) -->
-            <div v-if="canManuallyCloseBill" class="mt-3">
+            <div v-if="canManuallyCloseBill">
               <button @click="closeTableBill" class="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl active:scale-95 transition-all shadow-md flex items-center justify-center gap-2">
                 <CheckCircle class="size-5" /> Chiudi Conto e Libera Tavolo
               </button>
@@ -527,11 +674,12 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import {
   Grid3x3, Users, X, Plus, Coffee, Edit, AlertTriangle, CheckCircle,
   Ban, Undo2, Code, Minus, Receipt, ArrowRightLeft, Merge, Timer,
   Layers, ListChecks, History, LayoutGrid, ListOrdered,
+  Tag, Percent, Wallet, Coins,
 } from 'lucide-vue-next';
 import { Banknote, CreditCard } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
@@ -622,7 +770,21 @@ const cassaViewMode = ref('voce'); // 'voce' = grouped menu view | 'ordine' = pe
 const checkoutMode = ref('unico');
 const splitWays = ref(2);
 const splitPaidQuotas = ref(0);
+const romanaSplitCount = ref(1); // how many quotas to pay in this single transaction
 const selectedOrdersToPay = ref([]);
+
+// ── Active payment method (for cash-change calculator visibility) ──────────
+const activePaymentMethodId = ref(null);
+
+// ── Cash change calculator state ───────────────────────────────────────────
+const cashAmountGiven = ref('');
+
+// ── Tip (mancia) state ─────────────────────────────────────────────────────
+const tipInput = ref('');
+
+// ── Discount (sconto) state ────────────────────────────────────────────────
+const discountInput = ref('');
+const discountType = ref('percent'); // 'percent' | 'fixed'
 
 // ── People modal state (shown when opening a free table) ───────────────────
 const showPeopleModal = ref(false);
@@ -699,7 +861,44 @@ const quotaRomana = computed(() => {
   if (splitWays.value <= 0) return 0;
   const waysLeft = splitWays.value - splitPaidQuotas.value;
   if (waysLeft <= 0) return 0;
-  return tableAmountRemaining.value / waysLeft;
+  const perQuota = tableAmountRemaining.value / waysLeft;
+  const count = Math.min(romanaSplitCount.value, waysLeft);
+  return perQuota * count;
+});
+
+// ── Feature flags from config ──────────────────────────────────────────────
+const cashChangeEnabled = computed(() => store.config.billing?.enableCashChangeCalculator ?? false);
+const tipsEnabled = computed(() => store.config.billing?.enableTips ?? false);
+const discountsEnabled = computed(() => store.config.billing?.enableDiscounts ?? false);
+
+// Returns true when the currently active payment method is a cash-type method
+// (identified by having a non-credit-card icon, i.e. 'banknote' or unspecified).
+const isCashPaymentActive = computed(() => {
+  const id = activePaymentMethodId.value;
+  if (!id) return false;
+  const m = store.config.paymentMethods.find(x => x.id === id);
+  return m ? m.icon !== 'credit-card' : false;
+});
+
+// ── Tip amount ─────────────────────────────────────────────────────────────
+const tipAmount = computed(() => Math.max(0, parseFloat(tipInput.value) || 0));
+
+// ── Discount preview (not yet applied) ────────────────────────────────────
+const discountPreview = computed(() => {
+  if (!discountsEnabled.value) return 0;
+  const val = parseFloat(discountInput.value) || 0;
+  if (discountType.value === 'percent') {
+    return Math.min(tableAmountRemaining.value, (tableAmountRemaining.value * val) / 100);
+  }
+  return Math.min(tableAmountRemaining.value, val);
+});
+
+// ── Cash change calculation ────────────────────────────────────────────────
+const cashChange = computed(() => {
+  const given = parseFloat(cashAmountGiven.value) || 0;
+  const toPay = amountBeingPaid.value + tipAmount.value;
+  if (given <= 0 || given < toPay) return null;
+  return given - toPay;
 });
 
 const amountBeingPaid = computed(() => {
@@ -712,6 +911,17 @@ const canPay = computed(() => {
   if (tableAmountRemaining.value <= 0.01) return false;
   if (checkoutMode.value === 'ordini' && selectedOrdersToPay.value.length === 0) return false;
   return true;
+});
+
+// ── Romana: clamp romanaSplitCount when splitWays changes ─────────────────
+// Minimum allowed splitWays (must be at least splitPaidQuotas + 1)
+const minSplitWays = computed(() => Math.max(2, splitPaidQuotas.value + 1));
+
+watch(splitWays, (newVal) => {
+  const waysLeft = newVal - splitPaidQuotas.value;
+  if (romanaSplitCount.value > Math.max(1, waysLeft)) {
+    romanaSplitCount.value = Math.max(1, waysLeft);
+  }
 });
 
 // ── Helper: payment method icon ────────────────────────────────────────────
@@ -789,15 +999,26 @@ function _openTableModal(table) {
   checkoutMode.value = 'unico';
   cassaViewMode.value = 'voce';
   selectedOrdersToPay.value = [];
+  romanaSplitCount.value = 1;
+  cashAmountGiven.value = '';
+  activePaymentMethodId.value =
+    store.config.paymentMethods.find(m => m.icon !== 'credit-card')?.id ??
+    store.config.paymentMethods[0]?.id ??
+    null;
+  tipInput.value = '';
+  discountInput.value = '';
+  discountType.value = 'percent';
 
   const pastRomana = store.transactions.filter(
     t => t.tableId === table.id && t.operationType === 'romana' &&
       (!session || t.billSessionId === session.billSessionId),
   );
-  splitPaidQuotas.value = pastRomana.length;
+  // FIX: sum romanaSplitCount per transaction (supports flexible multi-quota payments)
+  splitPaidQuotas.value = pastRomana.reduce((sum, t) => sum + (t.romanaSplitCount || 1), 0);
   if (pastRomana.length > 0) {
     checkoutMode.value = 'romana';
-    splitWays.value = pastRomana[0].splitWays;
+    // FIX: restore splitWays from the LAST romana transaction (not the first)
+    splitWays.value = pastRomana[pastRomana.length - 1].splitWays;
   }
 
   showTableModal.value = true;
@@ -900,6 +1121,7 @@ function processTablePayment(paymentMethodId) {
   if (!selectedTable.value) return;
 
   const amount = amountBeingPaid.value;
+  const tip = tipsEnabled.value ? tipAmount.value : 0;
   const session = store.tableCurrentBillSession[selectedTable.value.id];
   const payload = {
     transactionId: 'txn_' + Math.random().toString(36).slice(2, 11),
@@ -908,6 +1130,7 @@ function processTablePayment(paymentMethodId) {
     paymentMethod: store.config.paymentMethods.find(m => m.id === paymentMethodId)?.label || paymentMethodId,
     operationType: checkoutMode.value,
     amountPaid: amount,
+    tipAmount: tip > 0 ? tip : undefined,
     timestamp: new Date().toISOString(),
     orderRefs: [],
   };
@@ -915,10 +1138,13 @@ function processTablePayment(paymentMethodId) {
   if (checkoutMode.value === 'unico') {
     payload.orderRefs = tableAcceptedPayableOrders.value.map(o => o.id);
   } else if (checkoutMode.value === 'romana') {
-    splitPaidQuotas.value++;
+    const quotaCount = romanaSplitCount.value;
+    splitPaidQuotas.value += quotaCount;
+    payload.romanaSplitCount = quotaCount;
     payload.splitQuota = splitPaidQuotas.value;
     payload.splitWays = splitWays.value;
     payload.orderRefs = tableAcceptedPayableOrders.value.map(o => o.id);
+    romanaSplitCount.value = 1;
   } else if (checkoutMode.value === 'ordini') {
     payload.orderRefs = [...selectedOrdersToPay.value];
     tableAcceptedPayableOrders.value.forEach(o => {
@@ -929,6 +1155,10 @@ function processTablePayment(paymentMethodId) {
 
   store.addTransaction(payload);
 
+  // Reset cash change input after payment
+  cashAmountGiven.value = '';
+  tipInput.value = '';
+
   // Close all accepted orders when fully paid, if autoCloseOnFullPayment is enabled
   if (autoCloseOnFullPayment.value && tableAmountRemaining.value <= 0.01) {
     tableAcceptedPayableOrders.value.forEach(o => store.changeOrderStatus(o, 'completed'));
@@ -937,6 +1167,36 @@ function processTablePayment(paymentMethodId) {
   jsonContext.value = 'receipt';
   jsonPayloadData.value = JSON.stringify(payload, null, 2);
   showPrecontoJson.value = true;
+}
+
+// ── Apply discount ─────────────────────────────────────────────────────────
+function applyDiscount() {
+  if (!selectedTable.value || discountPreview.value <= 0) return;
+  const session = store.tableCurrentBillSession[selectedTable.value.id];
+  const rawInput = parseFloat(discountInput.value) || 0;
+  // For percent discounts store the (clamped) percentage value; for fixed discounts
+  // store the actually applied amount (= discountPreview) so discountValue never
+  // exceeds amountPaid and display stays consistent.
+  const clampedPercent = Math.min(100, Math.max(0, rawInput));
+  const discountValueToStore = discountType.value === 'percent' ? clampedPercent : discountPreview.value;
+  store.addTransaction({
+    transactionId: 'disc_' + Math.random().toString(36).slice(2, 11),
+    tableId: selectedTable.value.id,
+    billSessionId: session?.billSessionId ?? null,
+    paymentMethod: 'Sconto',
+    operationType: 'discount',
+    discountType: discountType.value,
+    discountValue: discountValueToStore,
+    amountPaid: discountPreview.value,
+    timestamp: new Date().toISOString(),
+    orderRefs: [],
+  });
+
+  // Same auto-close flow as processTablePayment to avoid stuck table state
+  if (autoCloseOnFullPayment.value && tableAmountRemaining.value <= 0.01) {
+    tableAcceptedPayableOrders.value.forEach(o => store.changeOrderStatus(o, 'completed'));
+  }
+  discountInput.value = '';
 }
 
 // ── JSON modal ─────────────────────────────────────────────────────────────
