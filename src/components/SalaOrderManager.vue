@@ -16,7 +16,7 @@
           class="flex-1 py-1.5 md:py-2 px-1 rounded-xl border transition-all flex items-center justify-center gap-1.5 shadow-sm"
         >
           <div class="relative shrink-0">
-            <ClipboardList class="size-4 md:size-5" />
+            <Bell class="size-4 md:size-5" />
             <span
               v-if="store.pendingCount > 0"
               class="absolute -top-1.5 -right-2 bg-red-500 text-white text-[9px] font-bold size-4 flex items-center justify-center rounded-full border border-white"
@@ -69,18 +69,17 @@
               </div>
               <div class="text-right">
                 <span class="font-black text-base md:text-lg text-gray-800">{{ store.config.ui.currency }}{{ order.totalAmount.toFixed(2) }}</span>
-                <p class="text-[10px] text-gray-500">{{ order.itemCount }} pz</p>
               </div>
             </div>
 
-            <div class="flex gap-2 flex-wrap mt-1 items-center">
+            <div class="flex gap-2 flex-wrap mt-2 items-center">
               <span v-if="order.status === 'pending'" class="bg-amber-100 text-amber-800 text-[9px] md:text-[10px] uppercase font-bold px-2 py-1 rounded-md border border-amber-200 flex items-center gap-1">
                 <AlertCircle class="size-3" /> In Attesa
               </span>
-              <span v-else-if="order.status === 'accepted'" class="bg-blue-100 text-blue-800 text-[9px] md:text-[10px] uppercase font-bold px-2 py-1 rounded-md border border-blue-200 flex items-center gap-1">
+              <span v-if="order.status === 'accepted'" class="bg-blue-100 text-blue-800 text-[9px] md:text-[10px] uppercase font-bold px-2 py-1 rounded-md border border-blue-200 flex items-center gap-1">
                 <ChefHat class="size-3" /> In Cucina
               </span>
-              <span v-if="order.orderItems.length > 0" class="text-[9px] text-gray-500 truncate ml-auto">{{ order.orderItems.slice(0, 2).map(i => i.name).join(', ') }}{{ order.orderItems.length > 2 ? '…' : '' }}</span>
+              <span class="bg-gray-100 text-gray-600 text-[9px] md:text-[10px] font-bold px-2 py-1 rounded-md border border-gray-200 ml-auto">{{ order.itemCount }} pz</span>
             </div>
           </div>
         </transition-group>
@@ -117,6 +116,7 @@
                 <span class="text-gray-500 text-[10px] md:text-xs font-medium flex items-center gap-1">
                   <Clock class="size-3" />{{ selectedOrder.time }}
                 </span>
+                <span class="text-gray-500 text-[10px] md:text-xs font-medium"><Hash class="size-3 inline mr-0.5" />{{ selectedOrder.id.substring(0,8) }}</span>
                 <span v-if="selectedOrder.dietaryPreferences?.diete?.length > 0 || selectedOrder.dietaryPreferences?.allergeni_dichiarati?.length > 0"
                   class="text-red-500 font-bold uppercase text-[9px] flex items-center gap-0.5 bg-red-50 px-1.5 py-0.5 rounded border border-red-100">
                   <AlertTriangle class="size-3" /> Note Allergie
@@ -219,7 +219,7 @@
                 </div>
 
                 <!-- Item row -->
-                <div v-else class="p-2 md:p-3 hover:bg-gray-50 transition-colors">
+                <div v-else class="p-2 md:p-3 hover:bg-gray-50 transition-colors" :class="{'bg-gray-50 opacity-60': row.item.voidedQuantity === row.item.quantity}">
                   <div class="flex items-center justify-between gap-2 md:gap-4">
                     <div class="flex items-center gap-2 md:gap-3 flex-1 min-w-0">
 
@@ -247,7 +247,10 @@
 
                       <!-- Item info -->
                       <div class="flex flex-col min-w-0 flex-1">
-                        <span class="font-bold text-sm md:text-base text-gray-800 leading-tight truncate">{{ row.item.name }}</span>
+                        <div class="flex items-center gap-2">
+                          <span class="font-bold text-sm md:text-base text-gray-800 leading-tight truncate" :class="{'line-through': row.item.voidedQuantity === row.item.quantity}">{{ row.item.name }}</span>
+                          <span v-if="(row.item.voidedQuantity || 0) > 0" class="text-[9px] text-red-500 font-bold uppercase tracking-widest border border-red-200 bg-red-50 px-1 rounded shrink-0">-{{ row.item.voidedQuantity }} Stornati</span>
+                        </div>
                         <div v-if="row.item.notes && row.item.notes.length > 0" class="text-[10px] md:text-xs text-amber-600 font-bold italic mt-0.5 truncate flex items-center gap-1">
                           <MessageSquareWarning class="size-3 shrink-0" /> {{ row.item.notes.join(', ') }}
                         </div>
@@ -265,181 +268,169 @@
                     </div>
 
                     <!-- Price + note button -->
-                    <div class="flex items-center gap-1.5 md:gap-2 shrink-0">
-                      <span class="font-black text-sm md:text-base text-gray-800">
-                        {{ store.config.ui.currency }}{{ getOrderItemRowTotal(row.item).toFixed(2) }}
-                      </span>
-                      <button
-                        v-if="selectedOrder.status === 'pending'"
-                        @click="openNoteModal(selectedOrder, row.index)"
-                        class="p-1.5 text-gray-500 hover:text-[var(--brand-primary)] bg-gray-50 border border-gray-200 hover:bg-gray-100 rounded-md transition-colors active:scale-95 shadow-sm"
-                        title="Note e Portata"
-                      >
-                        <PenLine class="size-3.5" />
-                      </button>
+                    <div class="flex items-center gap-2 md:gap-4 shrink-0">
+                      <div class="flex flex-col items-end">
+                        <span class="font-black text-sm md:text-base text-gray-800" :class="{'line-through text-gray-400': row.item.voidedQuantity === row.item.quantity}">
+                          {{ store.config.ui.currency }}{{ getOrderItemRowTotal(row.item).toFixed(2) }}
+                        </span>
+                        <span v-if="selectedOrder.status === 'pending'" class="text-[9px] text-gray-400">{{ store.config.ui.currency }}{{ getItemUnitPrice(row.item).toFixed(2) }} cad.</span>
+                      </div>
+                      <div v-if="selectedOrder.status === 'pending'" class="flex items-center gap-1 ml-1">
+                        <button
+                          @click="openNoteModal(selectedOrder, row.index)"
+                          class="p-1.5 text-gray-500 hover:text-[var(--brand-primary)] bg-gray-50 border border-gray-200 hover:bg-gray-100 rounded-md transition-colors active:scale-95 shadow-sm"
+                          title="Note e Portata"
+                        >
+                          <PenLine class="size-3.5" />
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>
               </template>
+
+              <!-- Quick-add button (pending only) -->
+              <div v-if="selectedOrder.status === 'pending'" class="p-3 bg-gray-50 border-t border-gray-100">
+                <button @click="openAddMenu(selectedOrder)" class="theme-btn-outline w-full py-3 md:py-3.5 rounded-xl font-bold flex items-center justify-center gap-2 transition-all active:scale-95 text-xs md:text-sm">
+                  <PlusCircle class="size-5" /> <span>Aggiungi Nuovi Piatti all'Ordine</span>
+                </button>
+              </div>
             </div>
           </div>
 
-          <!-- Order total (pending only) -->
-          <div v-if="selectedOrder.status === 'pending' && selectedOrder.orderItems.length > 0" class="mt-3 bg-white rounded-xl border border-gray-200 shadow-sm p-3 flex justify-between items-center">
-            <span class="text-sm font-bold text-gray-600">Totale Comanda</span>
-            <span class="text-lg font-black text-gray-900">{{ store.config.ui.currency }}{{ selectedOrder.totalAmount.toFixed(2) }}</span>
-          </div>
+        </div>
 
-          <!-- Invia Comanda footer (pending with items) -->
-          <div v-if="selectedOrder.status === 'pending' && selectedOrder.orderItems.length > 0" class="mt-3">
-            <button
-              @click="submitOrder"
-              class="w-full py-3.5 theme-bg text-white rounded-xl font-bold shadow-md hover:opacity-90 active:scale-95 transition-all flex items-center justify-center gap-2"
-            >
-              <Send class="size-5" /> Invia Comanda in Cucina
-            </button>
+        <!-- Footer Totali -->
+        <div class="bg-white border-t border-gray-200 p-3 md:p-5 shrink-0 z-10 shadow-[0_-5px_15px_rgba(0,0,0,0.05)] flex justify-between items-end pb-8 md:pb-5">
+          <div>
+            <p class="text-gray-500 text-[10px] md:text-xs font-bold uppercase">Pezzi Attivi</p>
+            <p class="text-gray-800 text-lg md:text-xl font-black">{{ selectedOrder.itemCount }}</p>
           </div>
-
+          <div class="text-right">
+            <p class="text-gray-400 font-bold uppercase tracking-wider text-[10px] md:text-xs mb-0.5">Importo Comanda</p>
+            <p class="text-2xl md:text-4xl font-black theme-text leading-none">{{ store.config.ui.currency }}{{ selectedOrder.totalAmount.toFixed(2) }}</p>
+          </div>
         </div>
       </div>
     </main>
 
     <!-- ============================================================ -->
-    <!-- ADD MENU PANEL (full-height overlay)                         -->
+    <!-- MODAL GLOBALE: CARRELLO AGGIUNTA MENU                        -->
     <!-- ============================================================ -->
-    <div v-if="showAddMenuModal" class="absolute inset-0 z-30 bg-white flex flex-col">
+    <div v-if="showAddMenuModal" class="fixed inset-0 z-[80] bg-black/80 backdrop-blur-sm flex items-end md:items-center justify-center p-0 md:p-4">
+      <div class="bg-white rounded-t-3xl md:rounded-3xl shadow-2xl w-full max-w-6xl h-[95dvh] md:h-[85vh] flex flex-col overflow-hidden relative">
 
-      <!-- Menu panel header -->
-      <div class="bg-gray-900 text-white p-3 md:p-4 flex justify-between items-center shrink-0">
-        <div class="flex items-center gap-2">
-          <BookOpen class="size-5 md:size-6" />
-          <div>
-            <p class="font-bold text-sm md:text-base leading-none">Aggiungi Piatti</p>
-            <p class="text-white/60 text-[10px] md:text-xs">Tavolo {{ targetOrderForMenu?.table }}</p>
+        <div class="bg-gray-900 text-white p-3 md:p-4 flex justify-between items-center shrink-0">
+          <div class="flex flex-col">
+            <h3 class="font-bold text-base md:text-xl flex items-center gap-2"><BookOpen class="size-4 md:size-5 text-emerald-400" /> Aggiunta Piatti in Comanda</h3>
+            <p class="text-[10px] text-gray-400 uppercase tracking-widest mt-0.5">Destinazione: Ord #{{ targetOrderForMenu ? targetOrderForMenu.id.substring(0,6) : '' }} - Tavolo {{ targetOrderForMenu?.table }}</p>
           </div>
+          <button @click="closeMenuModal" class="bg-white/10 hover:bg-white/20 p-2 md:p-2.5 rounded-full transition-colors active:scale-95"><X class="size-5 md:size-5" /></button>
         </div>
-        <button @click="closeMenuModal" class="bg-white/10 hover:bg-white/20 p-2 rounded-full transition-colors active:scale-95">
-          <X class="size-5 md:size-6" />
-        </button>
-      </div>
 
-      <!-- Category tabs -->
-      <div class="flex overflow-x-auto gap-1.5 p-2 bg-gray-50 border-b border-gray-200 shrink-0 no-scrollbar">
-        <button
-          v-for="cat in menuCategories"
-          :key="cat"
-          @click="activeMenuCategory = cat"
-          :class="activeMenuCategory === cat ? 'theme-bg text-white shadow-md' : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-200'"
-          class="px-3 py-1.5 rounded-xl font-bold text-[10px] md:text-xs whitespace-nowrap transition-all active:scale-95 shrink-0"
-        >
-          {{ cat }}
-        </button>
-      </div>
+        <div class="flex flex-1 min-h-0 flex-col md:flex-row">
 
-      <!-- Main content: menu items + cart -->
-      <div class="flex-1 flex overflow-hidden min-h-0">
-
-        <!-- Menu items grid -->
-        <div class="flex-1 overflow-y-auto p-2 md:p-3 bg-gray-100/60">
-          <div v-if="menuLoading" class="flex items-center justify-center h-full text-gray-400">
-            <div class="text-center">
-              <RefreshCw class="size-8 mx-auto mb-2 animate-spin opacity-40" />
-              <p class="text-sm">Caricamento menù…</p>
-            </div>
+          <!-- Categorie Menu -->
+          <div class="w-full md:w-[220px] border-b md:border-b-0 md:border-r border-gray-200 bg-gray-50 flex md:flex-col overflow-x-auto md:overflow-y-auto no-scrollbar shrink-0">
+            <button v-for="(items, category) in store.config.menu" :key="'cat_'+category" @click="activeMenuCategory = category"
+                class="whitespace-nowrap md:whitespace-normal md:w-full text-center md:text-left px-4 md:px-5 py-3 md:py-4 border-b-4 md:border-b-0 md:border-l-4 border-transparent font-bold transition-colors md:flex md:justify-between md:items-center text-sm md:text-base"
+                :class="activeMenuCategory === category ? 'bg-white theme-text theme-border-b md:!border-b-transparent theme-border-l shadow-sm' : 'text-gray-600 hover:bg-gray-100'">
+              {{ category }}
+              <span v-if="activeMenuCategory === category" class="opacity-50 hidden md:flex items-center">
+                <ChevronRight class="size-4" />
+              </span>
+            </button>
           </div>
-          <div v-else-if="currentMenuItems.length === 0" class="text-center py-8 text-gray-400">
-            <p class="text-sm">Nessun articolo in questa categoria.</p>
-          </div>
-          <div v-else class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 md:gap-3">
-            <button
-              v-for="item in currentMenuItems"
-              :key="item.id"
-              @click="addToTempCart(item)"
-              class="bg-white rounded-xl border border-gray-200 p-2.5 md:p-3 text-left hover:border-[var(--brand-primary)] hover:shadow-md active:scale-95 transition-all flex flex-col gap-1 relative group"
-            >
-              <!-- Quantity badge -->
-              <span v-if="getQtyCombined(item.id) > 0" class="absolute top-2 right-2 size-5 theme-bg text-white text-[9px] font-black rounded-full flex items-center justify-center shadow-sm">
+
+          <!-- Piatti Griglia -->
+          <div class="flex-1 overflow-y-auto p-2 md:p-4 bg-gray-100 md:bg-white grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 gap-2 md:gap-3 content-start min-h-0">
+            <button v-for="item in store.config.menu[activeMenuCategory]" :key="'item_'+item.id" @click="addToTempCart(item)"
+                class="text-left bg-white border border-gray-200 rounded-xl md:rounded-2xl p-3 md:p-4 hover:border-emerald-400 shadow-sm transition-all active:scale-[0.98] group flex flex-col justify-between h-full min-h-[100px] md:min-h-[120px] relative">
+
+              <span v-if="getQtyCombined(item.id) > 0" class="absolute -top-2 -right-2 bg-emerald-500 text-white size-6 md:size-7 rounded-full flex items-center justify-center text-[10px] md:text-xs font-black border-2 border-white shadow-sm z-10">
                 {{ getQtyCombined(item.id) }}
               </span>
-              <span class="font-bold text-xs md:text-sm text-gray-800 leading-tight pr-5">{{ item.name }}</span>
-              <span class="text-[10px] font-black theme-text mt-auto">{{ store.config.ui.currency }}{{ item.price.toFixed(2) }}</span>
+
+              <div class="flex justify-between items-start w-full gap-2">
+                <h4 class="font-bold text-gray-800 text-xs md:text-sm leading-tight group-hover:theme-text transition-colors">{{ item.name }}</h4>
+                <span class="font-black theme-text text-xs md:text-sm shrink-0 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100">{{ store.config.ui.currency }}{{ item.price.toFixed(2) }}</span>
+              </div>
+              <div class="mt-2 text-[9px] md:text-[10px] text-gray-400 font-bold uppercase tracking-wider flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                <Plus class="size-3" /> Aggiungi al Carrello
+              </div>
             </button>
           </div>
-        </div>
 
-        <!-- Cart sidebar -->
-        <div class="w-[180px] md:w-[220px] bg-white border-l border-gray-200 flex flex-col shrink-0">
-          <div class="p-2 md:p-3 border-b border-gray-100 shrink-0">
-            <p class="font-bold text-[10px] md:text-xs text-gray-500 uppercase tracking-widest flex items-center gap-1">
-              <ShoppingCart class="size-3.5" /> Carrello ({{ tempCart.length }})
-            </p>
-          </div>
-
-          <div class="flex-1 overflow-y-auto p-1.5 md:p-2 space-y-1.5 min-h-0">
-            <div v-if="tempCart.length === 0" class="text-center py-6 text-gray-400">
-              <p class="text-[10px]">Aggiungi piatti dal menù</p>
+          <!-- CARRELLO TEMPORANEO -->
+          <div class="w-full md:w-[320px] bg-gray-50 border-t md:border-t-0 md:border-l border-gray-200 flex flex-col shrink-0 h-[40vh] max-h-[40vh] md:max-h-none md:h-auto min-h-0">
+            <div class="p-3 bg-gray-100 border-b border-gray-200 font-bold text-gray-700 text-xs uppercase tracking-wider flex items-center gap-2 shrink-0 shadow-sm z-10">
+              <ShoppingCart class="size-4" /> Carrello Preparazione
             </div>
 
-            <div v-for="(cartItem, idx) in tempCart" :key="cartItem.uid" class="bg-gray-50 rounded-lg border border-gray-200 p-1.5 md:p-2">
-              <div class="flex items-start justify-between gap-1 mb-1">
-                <span class="text-[10px] md:text-xs font-bold text-gray-800 leading-tight">{{ cartItem.name }}</span>
-                <!-- Course badge -->
-                <button
-                  @click="cycleCourse(idx)"
-                  :class="courseButtonProps(cartItem.course).classes"
-                  class="size-5 flex items-center justify-center rounded shadow-sm active:scale-95 font-black text-[10px] transition-colors shrink-0"
-                  :title="courseButtonProps(cartItem.course).title"
-                >
-                  {{ courseButtonProps(cartItem.course).num }}
-                </button>
+            <div class="flex-1 overflow-y-auto p-3 space-y-2">
+              <div v-if="tempCart.length === 0" class="text-center text-gray-400 py-8 flex flex-col items-center">
+                <MousePointerClick class="size-8 opacity-30 mb-2" />
+                <p class="text-xs font-medium">Tocca i piatti nel menu per prepararli qui, poi inseriscili.</p>
               </div>
-              <!-- Cart +/- -->
-              <div class="flex items-center justify-between gap-1">
-                <div class="flex items-center gap-0.5 bg-white rounded border border-gray-200">
-                  <button
-                    @click="updateTempCartQty(idx, -1)"
-                    class="size-5 flex items-center justify-center rounded active:scale-95"
-                    :class="cartItem.quantity === 1 ? 'text-red-500' : 'text-gray-600'"
-                  >
-                    <Trash2 v-if="cartItem.quantity === 1" class="size-2.5" />
-                    <Minus v-else class="size-2.5" />
-                  </button>
-                  <span class="w-4 text-center font-black text-[11px] text-gray-800">{{ cartItem.quantity }}</span>
-                  <button @click="updateTempCartQty(idx, 1)" class="size-5 flex items-center justify-center rounded active:scale-95 theme-text">
-                    <Plus class="size-2.5" />
-                  </button>
+              <div v-for="(cartItem, idx) in tempCart" :key="cartItem.uid" class="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
+                <div class="p-2.5 flex items-center justify-between">
+                  <div class="flex flex-col flex-1 min-w-0 pr-2">
+                    <span class="font-bold text-sm text-gray-800 truncate">{{ cartItem.name }}</span>
+                    <span class="text-[10px] text-gray-500">{{ store.config.ui.currency }}{{ getItemUnitPrice(cartItem).toFixed(2) }} cad.</span>
+                    <div v-if="cartItem.notes && cartItem.notes.length > 0" class="text-[9px] text-amber-600 font-bold italic mt-0.5 truncate flex items-center gap-1">
+                      <MessageSquareWarning class="size-3 shrink-0" /> {{ cartItem.notes.join(', ') }}
+                    </div>
+                  </div>
+                  <div class="flex items-center gap-1.5 shrink-0">
+                    <!-- Course cycling button -->
+                    <button @click="cycleCourse(idx)"
+                      :class="courseButtonProps(cartItem.course).classes"
+                      class="size-6 flex items-center justify-center rounded shadow-sm active:scale-95 font-black text-sm transition-colors"
+                      :title="courseButtonProps(cartItem.course).title">
+                      {{ courseButtonProps(cartItem.course).num }}
+                    </button>
+                    <!-- Qty +/- -->
+                    <div class="flex items-center gap-1 bg-gray-100 rounded p-0.5 border border-gray-200">
+                      <button @click="updateTempCartQty(idx, -1)"
+                        class="size-6 flex items-center justify-center bg-white rounded shadow-sm active:scale-95 transition-colors"
+                        :class="cartItem.quantity === 1 ? 'text-red-500' : 'text-gray-600'"
+                        :title="cartItem.quantity === 1 ? 'Rimuovi voce' : 'Diminuisci quantità'">
+                        <Trash2 v-if="cartItem.quantity === 1" class="size-3" />
+                        <Minus v-else class="size-3" />
+                      </button>
+                      <span class="w-5 text-center font-black text-sm">{{ cartItem.quantity }}</span>
+                      <button @click="updateTempCartQty(idx, 1)" class="size-6 flex items-center justify-center bg-white theme-text rounded shadow-sm active:scale-95"><Plus class="size-3" /></button>
+                    </div>
+                    <!-- Note/Varianti edit button -->
+                    <button @click="openCartNoteModal(idx)" class="p-1.5 text-gray-500 hover:text-[var(--brand-primary)] bg-gray-50 border border-gray-200 hover:bg-gray-100 rounded-md transition-colors active:scale-95 shadow-sm" title="Note e Varianti">
+                      <PenLine class="size-3.5" />
+                    </button>
+                  </div>
                 </div>
-                <button @click="openCartNoteModal(idx)" class="p-1 text-gray-400 hover:text-[var(--brand-primary)] transition-colors" title="Note">
-                  <PenLine class="size-3" />
-                </button>
-              </div>
-              <!-- Modifiers -->
-              <div v-if="cartItem.modifiers && cartItem.modifiers.length > 0" class="mt-1 flex flex-wrap gap-0.5">
-                <span
-                  v-for="(mod, mi) in cartItem.modifiers"
-                  :key="mi"
-                  class="text-[8px] font-bold bg-purple-50 border border-purple-200 text-purple-700 px-1 py-0.5 rounded flex items-center gap-0.5"
-                >
-                  <Sparkles class="size-2" />{{ mod.name }}
-                  <button @click="removeModFromCart(idx, mi)" class="text-purple-400 hover:text-red-500"><X class="size-2" /></button>
-                </span>
+                <!-- Modificatori -->
+                <div v-if="cartItem.modifiers && cartItem.modifiers.length > 0" class="px-2.5 pb-2">
+                  <div class="flex flex-wrap gap-1">
+                    <span v-for="(mod, mi) in cartItem.modifiers" :key="mi"
+                      class="text-[9px] font-bold bg-purple-50 border border-purple-200 text-purple-700 px-1.5 py-0.5 rounded flex items-center gap-1">
+                      <Sparkles class="size-2.5" />
+                      {{ mod.name }}{{ mod.price > 0 ? ' +' + store.config.ui.currency + mod.price.toFixed(2) : '' }}
+                      <button @click="removeModFromCart(idx, mi)" class="text-purple-400 hover:text-red-500 transition-colors"><X class="size-2.5" /></button>
+                    </span>
+                  </div>
+                </div>
               </div>
             </div>
-          </div>
 
-          <!-- Confirm cart -->
-          <div class="p-2 md:p-3 border-t border-gray-200 shrink-0">
-            <div class="flex justify-between items-center mb-2">
-              <span class="text-[9px] font-bold text-gray-500 uppercase tracking-widest">Totale:</span>
-              <span class="font-black text-sm text-gray-900">{{ store.config.ui.currency }}{{ tempCartTotal.toFixed(2) }}</span>
+            <!-- Footer Inserimento in Comanda -->
+            <div class="p-3 md:p-4 bg-white border-t border-gray-200 shrink-0 pb-8 md:pb-4 shadow-[0_-5px_15px_rgba(0,0,0,0.05)] z-10">
+              <div class="flex justify-between items-center mb-3">
+                <span class="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Totale Aggiunte:</span>
+                <span class="font-black text-lg text-gray-900">{{ store.config.ui.currency }}{{ tempCartTotal.toFixed(2) }}</span>
+              </div>
+              <button @click="confirmAndPushCart" :disabled="tempCart.length === 0" class="w-full theme-bg text-white py-3 md:py-4 rounded-xl font-bold shadow-md hover:opacity-90 transition-opacity active:scale-95 text-sm flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
+                <CheckCircle class="size-5" /> <span>Inserisci nella Comanda</span>
+              </button>
             </div>
-            <button
-              @click="confirmAndPushCart"
-              :disabled="tempCart.length === 0"
-              class="w-full theme-bg text-white py-2.5 rounded-xl font-bold shadow-md hover:opacity-90 transition-opacity active:scale-95 text-xs flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <CheckCircle class="size-4" /> Inserisci
-            </button>
           </div>
         </div>
       </div>
@@ -640,10 +631,10 @@
 <script setup>
 import { ref, computed, nextTick } from 'vue';
 import {
-  ClipboardList, ChefHat, Clock, AlertCircle, MousePointerClick, ArrowLeft,
+  Bell, ClipboardList, ChefHat, Clock, Hash, AlertCircle, MousePointerClick, ArrowLeft,
   AlertTriangle, Trash2, PlusCircle, Send, ShieldCheck, Minus, Plus,
   MessageSquareWarning, PenLine, X, BookOpen, ShoppingCart, Sparkles,
-  Layers, CheckCircle, LayoutGrid, RefreshCw,
+  Layers, CheckCircle, LayoutGrid, ChevronRight,
 } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
 import { updateOrderTotals, getOrderItemRowTotal } from '../utils/index.js';
@@ -651,9 +642,6 @@ import { updateOrderTotals, getOrderItemRowTotal } from '../utils/index.js';
 const emit = defineEmits(['jump-to-sala']);
 
 const store = useAppStore();
-
-// ── Menu loading state ──────────────────────────────────────────────────────
-const menuLoading = computed(() => store.menuLoading);
 
 // ── Tab & selection ────────────────────────────────────────────────────────
 const activeTab = ref('pending');
@@ -676,6 +664,12 @@ function changeTab(tab) {
 
 function selectOrder(ord) {
   selectedOrder.value = ord;
+}
+
+// ── Helper: unit price for an item including modifiers ────────────────────
+function getItemUnitPrice(item) {
+  const modTotal = (item.modifiers || []).reduce((a, m) => a + (m.price || 0), 0);
+  return item.unitPrice + modTotal;
 }
 
 // ── Course helpers ──────────────────────────────────────────────────────────
@@ -821,13 +815,6 @@ const targetOrderForMenu = ref(null);
 const tempCart = ref([]);
 const activeMenuCategory = ref(Object.keys(store.config.menu)[0] || '');
 
-const menuCategories = computed(() => Object.keys(store.config.menu));
-
-const currentMenuItems = computed(() => {
-  if (!activeMenuCategory.value) return [];
-  return store.config.menu[activeMenuCategory.value] || [];
-});
-
 function removeModFromCart(cartIdx, modIdx) {
   const cartItem = tempCart.value[cartIdx];
   if (cartItem && cartItem.modifiers) cartItem.modifiers.splice(modIdx, 1);
@@ -905,8 +892,25 @@ function cycleCourse(idx) {
 
 function openAddMenu(targetOrder) {
   targetOrderForMenu.value = targetOrder;
+
+  // Ensure activeMenuCategory is valid for the current menu before showing modal
+  const menu = (store.config && store.config.menu) ? store.config.menu : {};
+  const categoryKeys = Object.keys(menu);
+  if (categoryKeys.length === 0) {
+    // No categories available; clear any previously selected category
+    if (activeMenuCategory && activeMenuCategory.value !== null) {
+      activeMenuCategory.value = null;
+    }
+  } else {
+    const currentKey = activeMenuCategory ? activeMenuCategory.value : null;
+    if (!currentKey || !Object.prototype.hasOwnProperty.call(menu, currentKey)) {
+      // Previously selected category is missing or invalid; select the first available one
+      if (activeMenuCategory) {
+        activeMenuCategory.value = categoryKeys[0];
+      }
+    }
+  }
   tempCart.value = [];
-  activeMenuCategory.value = Object.keys(store.config.menu)[0] || '';
   showAddMenuModal.value = true;
 }
 
