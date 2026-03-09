@@ -343,7 +343,7 @@
       <div class="bg-gray-50 border-b border-gray-100 px-4 pt-4 pb-3 flex justify-between items-start shrink-0">
         <div>
           <h3 class="font-bold text-base md:text-lg text-gray-800 leading-tight">{{ infoModal.item?.name }}</h3>
-          <span class="font-black theme-text text-sm mt-0.5 block">{{ store.config.ui.currency }}{{ infoModal.item?.price.toFixed(2) }}</span>
+          <span class="font-black theme-text text-sm mt-0.5 block">{{ store.config.ui.currency }}{{ infoModal.item?.price?.toFixed(2) }}</span>
         </div>
         <button @click="infoModal.show = false" aria-label="Chiudi" class="text-gray-400 hover:text-gray-800 p-1.5 bg-gray-200 hover:bg-gray-300 rounded-full active:scale-95 transition-colors shrink-0 ml-3">
           <X class="size-5" />
@@ -424,38 +424,48 @@
 
         <!-- Piatti Griglia -->
         <div class="flex-1 overflow-y-auto p-2 md:p-4 bg-gray-100 md:bg-white grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 gap-2 md:gap-3 content-start min-h-0">
-          <button v-for="item in store.config.menu[activeMenuCategory]" :key="'item_'+item.id"
-              @click="addToTempCart(item)"
-              :aria-label="'Aggiungi ' + item.name + ' al carrello'"
-              class="text-left bg-white border border-gray-200 rounded-xl md:rounded-2xl p-3 md:p-4 hover:border-emerald-400 shadow-sm transition-all active:scale-[0.98] group flex flex-col justify-between h-full min-h-[100px] md:min-h-[120px] relative">
+          <div v-for="item in store.config.menu[activeMenuCategory]" :key="'item_'+item.id"
+              class="bg-white border border-gray-200 rounded-xl md:rounded-2xl shadow-sm hover:border-emerald-400 transition-all group flex flex-col h-full min-h-[100px] md:min-h-[120px] relative overflow-hidden">
 
             <span v-if="getQtyCombined(item.id) > 0" class="absolute -top-2 -right-2 bg-emerald-500 text-white size-6 md:size-7 rounded-full flex items-center justify-center text-[10px] md:text-xs font-black border-2 border-white shadow-sm z-10">
               {{ getQtyCombined(item.id) }}
             </span>
 
-            <h4 class="font-bold text-gray-800 text-xs md:text-sm leading-tight group-hover:theme-text transition-colors line-clamp-3">{{ item.name }}</h4>
+            <!-- Title area — tap/click = quick-add -->
+            <button @click="addToTempCart(item)"
+                :aria-label="'Aggiungi ' + item.name + ' al carrello'"
+                class="flex-1 text-left p-3 md:p-4 pb-1 md:pb-2 w-full">
+              <h4 class="font-bold text-gray-800 text-xs md:text-sm leading-tight group-hover:theme-text transition-colors line-clamp-3">{{ item.name }}</h4>
+            </button>
 
-            <!-- Bottom row: price left, action icons right -->
-            <div class="mt-2 flex items-center justify-between gap-1">
+            <!-- Bottom row: price left, icon actions + add button right -->
+            <div class="px-3 md:px-4 pb-3 md:pb-4 flex items-center justify-between gap-1">
               <span class="font-black theme-text text-xs md:text-sm bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100 shrink-0">{{ store.config.ui.currency }}{{ item.price.toFixed(2) }}</span>
               <div class="flex items-center gap-0.5 shrink-0">
                 <!-- Info button -->
-                <button @click.stop="showItemInfo(item)"
+                <button @click="showItemInfo(item)"
                     :aria-label="'Informazioni su ' + item.name"
                     class="size-6 md:size-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors active:scale-95"
                     title="Dettagli piatto">
                   <Info class="size-3 md:size-3.5" />
                 </button>
                 <!-- Details (pen) button -->
-                <button @click.stop="addToTempCartWithModal(item)"
+                <button @click="addToTempCartWithModal(item)"
                     :aria-label="'Aggiungi ' + item.name + ' con dettagli'"
                     class="size-6 md:size-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-purple-600 hover:bg-purple-50 transition-colors active:scale-95"
                     title="Aggiungi con portata, note e varianti">
                   <PenLine class="size-3 md:size-3.5" />
                 </button>
+                <!-- Prominent add button -->
+                <button @click="addToTempCart(item)"
+                    :aria-label="'Aggiungi ' + item.name + ' al carrello'"
+                    class="size-7 md:size-8 flex items-center justify-center rounded-lg theme-bg text-white shadow-sm hover:opacity-90 active:scale-95 transition-all ml-0.5"
+                    title="Aggiungi al carrello">
+                  <Plus class="size-3.5 md:size-4" />
+                </button>
               </div>
             </div>
-          </button>
+          </div>
         </div>
 
         <!-- CARRELLO TEMPORANEO -->
