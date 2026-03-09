@@ -174,7 +174,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import {
-  Grid3x3, Users, Timer, X, Coffee, ChevronRight,
+  Grid3x3, Users, Timer, X, Coffee, ChevronRight, Plus,
 } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
 import { updateOrderTotals } from '../utils/index.js';
