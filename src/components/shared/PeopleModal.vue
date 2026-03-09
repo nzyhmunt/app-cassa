@@ -17,6 +17,7 @@
         <button
           @click="$emit('cancel')"
           class="text-gray-400 hover:text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-full p-1.5 transition-colors active:scale-95"
+          aria-label="Annulla"
         >
           <X class="size-4" />
         </button>
