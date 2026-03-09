@@ -1,13 +1,13 @@
 <template>
   <div class="h-full flex flex-col relative w-full" :style="store.cssVars">
-    <WaiterNavbar />
+    <SalaNavbar />
     <router-view />
   </div>
 </template>
 
 <script setup>
 import { onMounted } from 'vue';
-import WaiterNavbar from './components/WaiterNavbar.vue';
+import SalaNavbar from './components/SalaNavbar.vue';
 import { useAppStore } from './store/index.js';
 
 const store = useAppStore();

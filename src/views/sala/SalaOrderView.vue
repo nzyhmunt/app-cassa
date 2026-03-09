@@ -1,5 +1,5 @@
 <template>
-  <WaiterOrderManager
+  <SalaOrderManager
     ref="orderManagerRef"
     @jump-to-sala="handleJumpToSala"
   />
@@ -8,7 +8,7 @@
 <script setup>
 import { ref, onMounted, nextTick } from 'vue';
 import { useRouter } from 'vue-router';
-import WaiterOrderManager from '../../components/WaiterOrderManager.vue';
+import SalaOrderManager from '../../components/SalaOrderManager.vue';
 import { useAppStore } from '../../store/index.js';
 
 const store = useAppStore();
@@ -16,7 +16,7 @@ const router = useRouter();
 const orderManagerRef = ref(null);
 
 onMounted(async () => {
-  // Handle cross-view: open add-menu for a newly created order from WaiterSalaView
+  // Handle cross-view: open add-menu for a newly created order from SalaView
   if (store.pendingNewOrder) {
     const ord = store.pendingNewOrder;
     store.pendingNewOrder = null;
@@ -31,7 +31,7 @@ onMounted(async () => {
     return;
   }
 
-  // Handle cross-view: select a specific order from WaiterSalaView
+  // Handle cross-view: select a specific order from SalaView
   if (store.pendingSelectOrder) {
     const ord = store.pendingSelectOrder;
     store.pendingSelectOrder = null;

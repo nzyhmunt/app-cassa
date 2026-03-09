@@ -447,112 +447,159 @@
 
     <!-- ============================================================ -->
     <!-- NOTE + COURSE MODAL                                          -->
+    <!-- Layout aligned with OrderManager for UI consistency.        -->
     <!-- ============================================================ -->
     <div v-if="noteModal.show" class="fixed inset-0 z-[80] bg-black/60 backdrop-blur-sm flex items-end md:items-center justify-center p-0 md:p-4">
-      <div class="bg-white rounded-t-3xl md:rounded-3xl shadow-2xl w-full max-w-lg p-5 md:p-6 flex flex-col gap-4 max-h-[85dvh] overflow-y-auto">
+      <div class="bg-white rounded-t-3xl md:rounded-3xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col max-h-[92dvh] md:max-h-[85vh]">
 
-        <div class="flex justify-between items-center shrink-0">
-          <h4 class="font-black text-gray-800 text-base">Note & Portata</h4>
-          <button @click="noteModal.show = false" class="p-1.5 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-600 active:scale-95">
+        <!-- Fixed header -->
+        <div class="bg-gray-50 border-b border-gray-100 p-4 flex justify-between items-center shrink-0">
+          <h3 class="font-bold text-base md:text-lg flex items-center gap-2">
+            <PenLine class="text-gray-500 size-4 md:size-5" /> Note e Varianti
+          </h3>
+          <button @click="noteModal.show = false" aria-label="Chiudi" class="text-gray-400 hover:text-gray-800 p-1.5 bg-gray-200 hover:bg-gray-300 rounded-full active:scale-95 transition-colors">
             <X class="size-5" />
           </button>
         </div>
 
-        <!-- Course selector -->
-        <div>
-          <p class="text-[10px] font-bold uppercase text-gray-500 tracking-widest mb-2">Portata</p>
-          <div class="flex gap-2">
-            <button
-              v-for="c in ['prima', 'insieme', 'dopo']"
-              :key="c"
-              @click="noteModal.course = c"
-              :class="noteModal.course === c ? courseButtonProps(c).classes + ' ring-2 ring-offset-1 ring-current' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'"
-              class="flex-1 py-2 rounded-xl font-bold text-xs transition-all active:scale-95"
-            >
-              {{ c === 'prima' ? '1 · Prima' : c === 'insieme' ? '2 · Insieme' : '3 · Dopo' }}
-            </button>
+        <!-- Scrollable body -->
+        <div class="overflow-y-auto flex-1 p-4 md:p-5 space-y-5">
+          <p class="text-xs md:text-sm text-gray-500 truncate">Per: <strong>{{ noteModal.itemRef?.name }}</strong></p>
+
+          <!-- Course selector -->
+          <div>
+            <p class="text-xs font-bold text-gray-500 uppercase tracking-widest mb-2 flex items-center gap-1.5">
+              <Layers class="size-3.5" /> Ordine di Uscita
+            </p>
+            <div class="flex gap-2">
+              <button
+                @click="noteModal.course = 'prima'"
+                :class="noteModal.course === 'prima' ? 'bg-orange-400 text-white border-orange-400' : 'bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-200'"
+                class="flex-1 py-2.5 rounded-xl font-bold text-xs border transition-colors active:scale-95"
+              >
+                1 – Esce Prima
+              </button>
+              <button
+                @click="noteModal.course = 'insieme'"
+                :class="noteModal.course === 'insieme' ? 'theme-bg text-white theme-border' : 'bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-200'"
+                class="flex-1 py-2.5 rounded-xl font-bold text-xs border transition-colors active:scale-95"
+              >
+                2 – Insieme
+              </button>
+              <button
+                @click="noteModal.course = 'dopo'"
+                :class="noteModal.course === 'dopo' ? 'bg-teal-500 text-white border-teal-500' : 'bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-200'"
+                class="flex-1 py-2.5 rounded-xl font-bold text-xs border transition-colors active:scale-95"
+              >
+                3 – Esce Dopo
+              </button>
+            </div>
+          </div>
+
+          <!-- Variants / modifiers section -->
+          <div class="pt-4 border-t border-gray-100">
+            <p class="text-xs font-bold text-purple-600 uppercase tracking-widest mb-2 flex items-center gap-1.5">
+              <Sparkles class="size-3.5" /> Varianti a Pagamento
+            </p>
+
+            <div v-if="noteModal.modifiersArray.length > 0" class="mb-3 space-y-1.5 max-h-[120px] overflow-y-auto border border-purple-100 p-2 rounded-xl bg-purple-50">
+              <div
+                v-for="(mod, idx) in noteModal.modifiersArray"
+                :key="idx"
+                class="flex justify-between items-center bg-white border border-purple-200 text-purple-800 px-3 py-2 rounded-lg text-xs font-bold shadow-sm"
+              >
+                <span>{{ mod.name }}{{ mod.price > 0 ? ' +' + store.config.ui.currency + mod.price.toFixed(2) : '' }}</span>
+                <button @click="removeModFromNoteModal(idx)" class="text-red-500 p-1 hover:bg-red-50 rounded-md transition-colors">
+                  <Trash2 class="size-4" />
+                </button>
+              </div>
+            </div>
+
+            <div v-if="store.config.ui.allowCustomVariants" class="flex gap-2 mb-3">
+              <input
+                v-model="noteModal.modName"
+                type="text"
+                placeholder="Es. Mozzarella, Senza glutine..."
+                class="flex-1 bg-gray-100 border border-gray-200 rounded-xl px-3 py-3 focus:bg-white theme-ring transition-all text-gray-800 font-medium text-sm"
+                @keyup.enter="addModToNoteModal"
+              />
+              <div class="relative w-24 shrink-0">
+                <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm font-bold">{{ store.config.ui.currency }}</span>
+                <input
+                  v-model.number="noteModal.modPrice"
+                  type="number"
+                  min="0"
+                  step="0.50"
+                  placeholder="0.00"
+                  class="w-full pl-7 pr-2 py-3 bg-gray-100 border border-gray-200 rounded-xl focus:bg-white theme-ring transition-all text-gray-800 font-medium text-sm"
+                  @keyup.enter="addModToNoteModal"
+                />
+              </div>
+              <button @click="addModToNoteModal" aria-label="Aggiungi variante" class="bg-purple-600 hover:bg-purple-700 text-white px-4 rounded-xl font-bold shadow-sm active:scale-95 flex items-center justify-center">
+                <Plus class="size-5" />
+              </button>
+            </div>
+
+            <div class="flex flex-wrap gap-1.5">
+              <button
+                v-for="preset in modPresets"
+                :key="preset.name"
+                @click="applyNoteModPreset(preset.name, preset.price)"
+                class="px-2.5 py-1.5 bg-purple-50 border border-purple-200 text-purple-700 rounded-lg text-[10px] md:text-xs font-bold hover:bg-purple-100 active:scale-95 transition-all"
+              >
+                {{ preset.label }}
+              </button>
+            </div>
+          </div>
+
+          <!-- Kitchen notes section -->
+          <div class="pt-4 border-t border-gray-100">
+            <p class="text-xs font-bold text-gray-500 uppercase tracking-widest mb-2 flex items-center gap-1.5">
+              <MessageSquareWarning class="size-3.5" /> Note Cucina
+            </p>
+
+            <div v-if="noteModal.notesArray.length > 0" class="mb-3 space-y-1.5 max-h-[120px] overflow-y-auto border border-gray-100 p-2 rounded-xl bg-gray-50">
+              <div
+                v-for="(nota, idx) in noteModal.notesArray"
+                :key="idx"
+                class="flex justify-between items-center bg-white border border-gray-200 text-gray-700 px-3 py-2 rounded-lg text-xs font-bold shadow-sm"
+              >
+                <span>{{ nota }}</span>
+                <button @click="removeNoteFromModal(idx)" class="text-red-500 p-1 hover:bg-red-50 rounded-md transition-colors">
+                  <Trash2 class="size-4" />
+                </button>
+              </div>
+            </div>
+
+            <div class="flex gap-2">
+              <input
+                ref="noteInput"
+                v-model="noteModal.inputText"
+                type="text"
+                placeholder="Scrivi una nota rapida..."
+                class="w-full bg-gray-100 border border-gray-200 rounded-xl px-3 md:px-4 py-3 focus:bg-white theme-ring transition-all text-gray-800 font-medium text-sm"
+                @keyup.enter="addNoteToModal"
+              />
+              <button @click="addNoteToModal" aria-label="Aggiungi nota" class="theme-bg text-white px-4 rounded-xl font-bold shadow-sm active:scale-95 flex items-center justify-center">
+                <Plus class="size-5" />
+              </button>
+            </div>
+
+            <div class="flex flex-wrap gap-1.5 mt-3">
+              <button @click="noteModal.inputText = 'Senza sale'; addNoteToModal()" class="px-2.5 py-1.5 bg-gray-100 border border-gray-200 hover:bg-gray-200 rounded-lg text-[10px] md:text-xs font-bold text-gray-600 transition-colors active:scale-95">Senza sale</button>
+              <button @click="noteModal.inputText = 'Ben cotto'; addNoteToModal()" class="px-2.5 py-1.5 bg-gray-100 border border-gray-200 hover:bg-gray-200 rounded-lg text-[10px] md:text-xs font-bold text-gray-600 transition-colors active:scale-95">Ben cotto</button>
+              <button @click="noteModal.inputText = 'No formaggio'; addNoteToModal()" class="px-2.5 py-1.5 bg-gray-100 border border-gray-200 hover:bg-gray-200 rounded-lg text-[10px] md:text-xs font-bold text-gray-600 transition-colors active:scale-95">No formaggio</button>
+              <button @click="noteModal.inputText = 'Da dividere'; addNoteToModal()" class="px-2.5 py-1.5 bg-gray-100 border border-gray-200 hover:bg-gray-200 rounded-lg text-[10px] md:text-xs font-bold text-gray-600 transition-colors active:scale-95">Da dividere</button>
+            </div>
           </div>
         </div>
 
-        <!-- Notes -->
-        <div>
-          <p class="text-[10px] font-bold uppercase text-gray-500 tracking-widest mb-2">Note Aggiuntive</p>
-          <div class="flex gap-2 mb-2">
-            <input
-              ref="noteInput"
-              v-model="noteModal.inputText"
-              @keydown.enter.prevent="addNoteToModal"
-              type="text"
-              placeholder="es. senza cipolla…"
-              class="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]"
-            />
-            <button @click="addNoteToModal" class="theme-bg text-white px-3 py-2 rounded-xl font-bold text-sm active:scale-95 shadow-sm">
-              <Plus class="size-4" />
-            </button>
-          </div>
-          <div v-if="noteModal.notesArray.length > 0" class="flex flex-wrap gap-1.5">
-            <span
-              v-for="(note, ni) in noteModal.notesArray"
-              :key="ni"
-              class="bg-amber-100 border border-amber-200 text-amber-800 text-xs font-bold px-2 py-1 rounded-full flex items-center gap-1"
-            >
-              {{ note }}
-              <button @click="removeNoteFromModal(ni)" class="text-amber-600 hover:text-red-500"><X class="size-3" /></button>
-            </span>
-          </div>
+        <!-- Fixed footer with save button -->
+        <div class="p-3 md:p-4 bg-gray-50 pb-8 md:pb-4 border-t border-gray-200 shrink-0">
+          <button @click="saveNotes" class="w-full theme-bg text-white py-3 md:py-3.5 rounded-xl font-bold shadow-md hover:opacity-90 transition-opacity active:scale-95 text-sm md:text-base">
+            Salva Note, Varianti e Uscita
+          </button>
         </div>
-
-        <!-- Modifiers (variants) -->
-        <div v-if="store.config.ui.allowCustomVariants">
-          <p class="text-[10px] font-bold uppercase text-gray-500 tracking-widest mb-2">Varianti</p>
-          <!-- Presets -->
-          <div class="flex flex-wrap gap-1.5 mb-2">
-            <button
-              v-for="preset in modPresets"
-              :key="preset.name"
-              @click="applyNoteModPreset(preset.name, preset.price)"
-              class="text-[10px] font-bold border border-purple-200 text-purple-700 bg-purple-50 hover:bg-purple-100 px-2 py-1 rounded-full transition-colors active:scale-95"
-            >
-              {{ preset.label }}
-            </button>
-          </div>
-          <!-- Custom modifier -->
-          <div class="flex gap-1.5 mb-2">
-            <input
-              v-model="noteModal.modName"
-              type="text"
-              placeholder="Nome variante"
-              class="flex-[2] border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400"
-            />
-            <input
-              v-model.number="noteModal.modPrice"
-              type="number"
-              min="0"
-              step="0.50"
-              placeholder="€"
-              class="w-16 border border-gray-200 rounded-xl px-2 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-purple-400"
-            />
-            <button @click="addModToNoteModal" class="bg-purple-500 text-white px-2.5 py-2 rounded-xl font-bold text-sm active:scale-95 shadow-sm">
-              <Plus class="size-4" />
-            </button>
-          </div>
-          <div v-if="noteModal.modifiersArray.length > 0" class="flex flex-wrap gap-1.5">
-            <span
-              v-for="(mod, mi) in noteModal.modifiersArray"
-              :key="mi"
-              class="bg-purple-50 border border-purple-200 text-purple-700 text-xs font-bold px-2 py-1 rounded-full flex items-center gap-1"
-            >
-              <Sparkles class="size-3" />
-              {{ mod.name }}{{ mod.price > 0 ? ' +' + store.config.ui.currency + mod.price.toFixed(2) : '' }}
-              <button @click="removeModFromNoteModal(mi)" class="text-purple-400 hover:text-red-500"><X class="size-3" /></button>
-            </span>
-          </div>
-        </div>
-
-        <!-- Save button -->
-        <button @click="saveNotes" class="w-full theme-bg text-white py-3 rounded-xl font-bold shadow-md hover:opacity-90 active:scale-95 transition-all flex items-center justify-center gap-2">
-          <CheckCircle class="size-5" /> Salva
-        </button>
       </div>
     </div>
 
@@ -906,7 +953,7 @@ function confirmSubmitOrder() {
   const ord = orderToSubmit.value;
   // TODO API: replace with POST /api/orders when API is available.
   // For now the order is already in the shared store as 'pending';
-  // a real waiter terminal would submit it here and receive a server-assigned id.
+  // a real sala terminal would submit it here and receive a server-assigned id.
   showSubmitConfirm.value = false;
   orderToSubmit.value = null;
   // Move the order out of "In Attesa" by marking it as accepted/sent to kitchen.
@@ -915,6 +962,6 @@ function confirmSubmitOrder() {
   selectedOrder.value = null;
 }
 
-// ── Expose for parent (WaiterOrderView) ────────────────────────────────────
+// ── Expose for parent (SalaOrderView) ────────────────────────────────────
 defineExpose({ openAddMenu, selectedOrder, activeTab, changeTab });
 </script>

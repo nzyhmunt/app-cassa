@@ -611,66 +611,17 @@
 
   <!-- ================================================================ -->
   <!-- MODAL: NUMERO PERSONE AL TAVOLO                                   -->
+  <!-- Shared component — any UI change reflects in all apps.          -->
   <!-- ================================================================ -->
-  <div v-if="showPeopleModal && pendingTableToOpen" class="fixed inset-0 z-[110] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6">
-      <div class="flex justify-between items-center mb-5">
-        <h3 class="font-bold text-gray-800 text-base flex items-center gap-2">
-          <Users class="size-5 theme-text" /> Apri Tavolo {{ pendingTableToOpen?.label }}
-        </h3>
-        <button @click="showPeopleModal = false; pendingTableToOpen = null" class="text-gray-400 hover:text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-full p-1.5 transition-colors">
-          <X class="size-4" />
-        </button>
-      </div>
-
-      <!-- Adults / Generic People -->
-      <div class="mb-5">
-        <label class="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">{{ showChildrenInput ? 'Adulti' : 'Persone' }}</label>
-        <div class="flex items-center gap-4">
-          <button @click="peopleAdults > 0 ? peopleAdults-- : null" class="size-12 bg-gray-100 hover:bg-gray-200 rounded-xl flex items-center justify-center font-black text-gray-700 active:scale-95 transition-all">
-            <Minus class="size-5" />
-          </button>
-          <span class="text-4xl font-black text-gray-900 w-12 text-center">{{ peopleAdults }}</span>
-          <button @click="peopleAdults++" class="size-12 bg-gray-100 hover:bg-gray-200 rounded-xl flex items-center justify-center font-black text-gray-700 active:scale-95 transition-all">
-            <Plus class="size-5" />
-          </button>
-        </div>
-      </div>
-
-      <!-- Children (only when children cover charge is enabled and has a non-zero price) -->
-      <div v-if="showChildrenInput" class="mb-5">
-        <label class="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Bambini</label>
-        <div class="flex items-center gap-4">
-          <button @click="peopleChildren > 0 ? peopleChildren-- : null" class="size-12 bg-gray-100 hover:bg-gray-200 rounded-xl flex items-center justify-center font-black text-gray-700 active:scale-95 transition-all">
-            <Minus class="size-5" />
-          </button>
-          <span class="text-4xl font-black text-gray-900 w-12 text-center">{{ peopleChildren }}</span>
-          <button @click="peopleChildren++" class="size-12 bg-gray-100 hover:bg-gray-200 rounded-xl flex items-center justify-center font-black text-gray-700 active:scale-95 transition-all">
-            <Plus class="size-5" />
-          </button>
-        </div>
-      </div>
-
-      <!-- Cover charge preview -->
-      <div v-if="store.config.coverCharge?.enabled && store.config.coverCharge?.autoAdd && (peopleAdults > 0 || peopleChildren > 0)"
-           class="mb-5 bg-emerald-50 border border-emerald-200 rounded-xl p-3 text-xs text-emerald-700">
-        <p class="font-bold mb-1.5 flex items-center gap-1"><Receipt class="size-3.5" /> Coperto automatico:</p>
-        <div v-if="peopleAdults > 0 && store.config.coverCharge.priceAdult > 0">
-          {{ peopleAdults }} adult{{ peopleAdults === 1 ? 'o' : 'i' }} × {{ store.config.ui.currency }}{{ store.config.coverCharge.priceAdult.toFixed(2) }}
-          = <strong>{{ store.config.ui.currency }}{{ (peopleAdults * store.config.coverCharge.priceAdult).toFixed(2) }}</strong>
-        </div>
-        <div v-if="peopleChildren > 0 && store.config.coverCharge.priceChild > 0">
-          {{ peopleChildren }} bambin{{ peopleChildren === 1 ? 'o' : 'i' }} × {{ store.config.ui.currency }}{{ store.config.coverCharge.priceChild.toFixed(2) }}
-          = <strong>{{ store.config.ui.currency }}{{ (peopleChildren * store.config.coverCharge.priceChild).toFixed(2) }}</strong>
-        </div>
-      </div>
-
-      <button @click="confirmPeopleAndOpenTable"
-              class="w-full py-3.5 theme-bg text-white font-bold rounded-xl active:scale-95 transition-all shadow-md flex items-center justify-center gap-2 text-sm md:text-base">
-        <Users class="size-5" /> Apri Tavolo
-      </button>
-    </div>
-  </div>
+  <PeopleModal
+    :show="showPeopleModal && !!pendingTableToOpen"
+    :table="pendingTableToOpen"
+    :showChildrenInput="showChildrenInput"
+    v-model:adults="peopleAdults"
+    v-model:children="peopleChildren"
+    @cancel="showPeopleModal = false; pendingTableToOpen = null"
+    @confirm="confirmPeopleAndOpenTable"
+  />
 </template>
 
 <script setup>
@@ -685,6 +636,8 @@ import { Banknote, CreditCard } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
 import { updateOrderTotals, getOrderItemRowTotal } from '../utils/index.js';
 import ClosedBillsList from './ClosedBillsList.vue';
+// Shared component — used by both Sala and Cassa apps.
+import PeopleModal from './shared/PeopleModal.vue';
 
 const emit = defineEmits(['open-order-from-table', 'new-order-for-ordini']);
 

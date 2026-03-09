@@ -1,3 +1,24 @@
+/**
+ * @file store/index.js
+ * @description Pinia store shared (at the code/definition level) between the
+ * Cassa and Sala applications.
+ *
+ * This module defines the store that acts as the single source of truth for
+ * runtime state such as orders, transactions, table sessions, and
+ * configuration. Each entry point (e.g. main.js and sala-main.js) mounts
+ * its own Vue application with an independent Pinia instance, so every
+ * browser page/tab gets its own in-memory store state. What is shared
+ * between the Cassa and Sala apps is the store definition and logic, not
+ * the live in-memory data (see vite.config.js for the multi-page setup).
+ *
+ * Key data structures:
+ *   orders[]       – All order objects (pending → accepted → completed/rejected)
+ *   transactions[] – Payment records linked to orders via billSessionId
+ *   tableCurrentBillSession{} – Active seating session per table
+ *   tableOccupiedAt{}         – ISO timestamp when a table was first opened
+ *   billRequestedTables (Set) – Tables that requested the bill
+ *   closedBills[]             – Archived bill sessions after full payment
+ */
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import { appConfig, initialOrders, updateOrderTotals } from '../utils/index.js';
