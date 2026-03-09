@@ -1,12 +1,15 @@
 /**
  * @file store/index.js
- * @description Pinia store shared between the Cassa and Waiter applications.
+ * @description Pinia store shared (at the code/definition level) between the
+ * Cassa and Waiter applications.
  *
- * This store is the single source of truth for all runtime state: orders,
- * transactions, table sessions, and configuration.  Both apps mount their
- * own Pinia instance, but they operate on the same in-memory data because
- * they run in the same browser tab (multi-page build served from the same
- * origin sharing no persistent state across tabs — see vite.config.js).
+ * This module defines the store that acts as the single source of truth for
+ * runtime state such as orders, transactions, table sessions, and
+ * configuration. Each entry point (e.g. main.js and waiter-main.js) mounts
+ * its own Vue application with an independent Pinia instance, so every
+ * browser page/tab gets its own in-memory store state. What is shared
+ * between the Cassa and Waiter apps is the store definition and logic, not
+ * the live in-memory data (see vite.config.js for the multi-page setup).
  *
  * Key data structures:
  *   orders[]       – All order objects (pending → accepted → completed/rejected)
