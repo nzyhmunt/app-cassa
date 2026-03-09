@@ -387,12 +387,15 @@ export const useAppStore = defineStore('app', () => {
     const totalDiscount = transactions.value
       .filter(t => t.operationType === 'discount')
       .reduce((acc, t) => acc + (t.amountPaid || 0), 0);
+    const totalTips = transactions.value
+      .filter(t => t.operationType !== 'discount')
+      .reduce((acc, t) => acc + (t.tipAmount || 0), 0);
     transactions.value
       .filter(t => t.operationType !== 'discount')
       .forEach(t => {
         const label = t.paymentMethod || 'Altro';
         if (!byMethod[label]) byMethod[label] = 0;
-        byMethod[label] += t.amountPaid;
+        byMethod[label] += (t.amountPaid || 0) + (t.tipAmount || 0);
       });
     const totalReceived = Object.values(byMethod).reduce((a, b) => a + b, 0);
 
@@ -418,6 +421,7 @@ export const useAppStore = defineStore('app', () => {
       cashBalance: cashBalance.value,
       totalReceived,
       totalDiscount,
+      totalTips,
       byMethod,
       totalCovers,
       averageReceipt,
