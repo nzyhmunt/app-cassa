@@ -147,7 +147,7 @@
                     'bg-teal-50 text-teal-700': row.course === 'dopo',
                   }">
                   <Layers class="size-3 shrink-0" />
-                  {{ row.course === 'prima' ? '1 – Esce Prima' : row.course === 'insieme' ? '2 – Insieme' : '3 – Esce Dopo' }}
+                  {{ row.course === 'prima' ? 'Esce Prima' : row.course === 'insieme' ? 'Insieme' : 'Esce Dopo' }}
                 </div>
                 <!-- Order item row -->
                 <div v-else class="p-2 md:p-3 hover:bg-gray-50 transition-colors" :class="{'bg-gray-50 opacity-60': row.item.voidedQuantity === row.item.quantity}">
@@ -252,18 +252,21 @@
           <div class="flex gap-2">
             <button @click="noteModal.course = 'prima'"
               :class="noteModal.course === 'prima' ? 'bg-orange-400 text-white border-orange-400' : 'bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-200'"
-              class="flex-1 py-2.5 rounded-xl font-bold text-xs border transition-colors active:scale-95">
-              1 – Esce Prima
+              class="flex-1 py-2.5 rounded-xl font-bold text-xs border transition-colors active:scale-95 flex flex-col items-center gap-1">
+              <span class="text-[9px] font-black uppercase tracking-wider opacity-70">1ª portata</span>
+              Esce Prima
             </button>
             <button @click="noteModal.course = 'insieme'"
               :class="noteModal.course === 'insieme' ? 'theme-bg text-white theme-border' : 'bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-200'"
-              class="flex-1 py-2.5 rounded-xl font-bold text-xs border transition-colors active:scale-95">
-              2 – Insieme
+              class="flex-1 py-2.5 rounded-xl font-bold text-xs border transition-colors active:scale-95 flex flex-col items-center gap-1">
+              <span class="text-[9px] font-black uppercase tracking-wider opacity-70">2ª portata</span>
+              Insieme
             </button>
             <button @click="noteModal.course = 'dopo'"
               :class="noteModal.course === 'dopo' ? 'bg-teal-500 text-white border-teal-500' : 'bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-200'"
-              class="flex-1 py-2.5 rounded-xl font-bold text-xs border transition-colors active:scale-95">
-              3 – Esce Dopo
+              class="flex-1 py-2.5 rounded-xl font-bold text-xs border transition-colors active:scale-95 flex flex-col items-center gap-1">
+              <span class="text-[9px] font-black uppercase tracking-wider opacity-70">3ª portata</span>
+              Esce Dopo
             </button>
           </div>
         </div>
@@ -402,9 +405,10 @@
                   <!-- Course cycling button -->
                   <button @click="cycleCourse(idx)"
                     :class="courseButtonProps(cartItem.course).classes"
-                    class="size-6 flex items-center justify-center rounded shadow-sm active:scale-95 font-black text-sm transition-colors"
+                    class="h-6 px-2 flex items-center gap-0.5 justify-center rounded shadow-sm active:scale-95 font-bold text-[10px] transition-colors whitespace-nowrap"
                     :title="courseButtonProps(cartItem.course).title">
-                    {{ courseButtonProps(cartItem.course).num }}
+                    <Layers class="size-2.5 shrink-0" />
+                    {{ courseButtonProps(cartItem.course).label }}
                   </button>
                   <!-- Qty +/- -->
                   <div class="flex items-center gap-1 bg-gray-100 rounded p-0.5 border border-gray-200">
@@ -719,9 +723,9 @@ function updateTempCartQty(idx, delta) {
 
 // ── Course cycling ─────────────────────────────────────────────────────────
 const courseButtonMap = {
-  prima:   { num: '1', classes: 'bg-orange-400 text-white', title: 'Esce prima' },
-  insieme: { num: '2', classes: 'theme-bg text-white',      title: 'Insieme'    },
-  dopo:    { num: '3', classes: 'bg-teal-500 text-white',   title: 'Esce dopo'  },
+  prima:   { label: 'Prima',  classes: 'bg-orange-400 text-white', title: 'Esce prima' },
+  insieme: { label: 'Ins.',   classes: 'theme-bg text-white',      title: 'Insieme'    },
+  dopo:    { label: 'Dopo',   classes: 'bg-teal-500 text-white',   title: 'Esce dopo'  },
 };
 
 function courseButtonProps(course) {
