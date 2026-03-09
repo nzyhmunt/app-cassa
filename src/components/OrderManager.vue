@@ -629,6 +629,7 @@ const noteModal = ref({
 
 // ── Info modal ─────────────────────────────────────────────────────────────
 const infoModal = ref({ show: false, item: null });
+const sanitizedInfoHtml = computed(() => DOMPurify.sanitize(infoModal.value.item?.text ?? ''));
 
 function showItemInfo(item) {
   infoModal.value = { show: true, item };
