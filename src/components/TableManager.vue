@@ -869,7 +869,7 @@ const discountPreview = computed(() => {
   if (!discountsEnabled.value) return 0;
   const val = parseFloat(discountInput.value) || 0;
   if (discountType.value === 'percent') {
-    return Math.min(tableAmountRemaining.value, (tableTotalAmount.value * val) / 100);
+    return Math.min(tableAmountRemaining.value, (tableAmountRemaining.value * val) / 100);
   }
   return Math.min(tableAmountRemaining.value, val);
 });
