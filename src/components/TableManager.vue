@@ -1163,6 +1163,17 @@ function applyDiscount() {
     timestamp: new Date().toISOString(),
     orderRefs: [],
   });
+
+  // If the discount has effectively brought the table to full payment and
+  // auto-close-on-full-payment is enabled, close the table to avoid a stuck state.
+  if (
+    selectedTable.value &&
+    store.settings?.autoCloseOnFullPayment &&
+    tableAmountRemaining.value <= 0.01 &&
+    !hasPendingOrdersInTable.value
+  ) {
+    closeTableModal();
+  }
   discountInput.value = '';
 }
 
