@@ -178,7 +178,7 @@ import {
 } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
 import { updateOrderTotals } from '../utils/index.js';
-// Shared component — used by both Waiter and Cassa apps.
+// Shared component — used by both Sala and Cassa apps.
 import PeopleModal from './shared/PeopleModal.vue';
 
 const emit = defineEmits(['new-order-for-comande', 'view-order']);

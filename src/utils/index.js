@@ -2,7 +2,7 @@
  * @file utils/index.js
  * @description Shared utility functions and application configuration.
  *
- * This file is intentionally shared between the Cassa (cashier) and Waiter
+ * This file is intentionally shared between the Cassa and Sala
  * applications so that any pricing, billing or configuration change is
  * reflected in both UIs automatically.
  *
@@ -10,7 +10,7 @@
  * Shared:   src/utils/index.js (this file), src/store/index.js
  * Shared components:  src/components/shared/
  * Cassa-only:  src/components/TableManager.vue, OrderManager.vue, …
- * Waiter-only: src/components/WaiterTableManager.vue, WaiterOrderManager.vue, …
+ * Sala-only: src/components/WaiterTableManager.vue, WaiterOrderManager.vue, …
  * ──────────────────────────────────────────────────────────────────────────
  */
 

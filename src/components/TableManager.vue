@@ -488,7 +488,7 @@ import { Banknote, CreditCard } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
 import { updateOrderTotals, getOrderItemRowTotal } from '../utils/index.js';
 import ClosedBillsList from './ClosedBillsList.vue';
-// Shared component — used by both Waiter and Cassa apps.
+// Shared component — used by both Sala and Cassa apps.
 import PeopleModal from './shared/PeopleModal.vue';
 
 const emit = defineEmits(['open-order-from-table', 'new-order-for-ordini']);
