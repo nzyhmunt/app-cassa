@@ -215,7 +215,7 @@
                   }"
                 >
                   <Layers class="size-3 shrink-0" />
-                  {{ row.course === 'prima' ? '1 – Esce Prima' : row.course === 'insieme' ? '2 – Insieme' : '3 – Esce Dopo' }}
+                  {{ row.course === 'prima' ? 'Esce Prima' : row.course === 'insieme' ? 'Insieme' : 'Esce Dopo' }}
                 </div>
 
                 <!-- Item row -->
@@ -344,21 +344,48 @@
 
           <!-- Piatti Griglia -->
           <div class="flex-1 overflow-y-auto p-2 md:p-4 bg-gray-100 md:bg-white grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 gap-2 md:gap-3 content-start min-h-0">
-            <button v-for="item in store.config.menu[activeMenuCategory]" :key="'item_'+item.id" @click="addToTempCart(item)"
-                class="text-left bg-white border border-gray-200 rounded-xl md:rounded-2xl p-3 md:p-4 hover:border-emerald-400 shadow-sm transition-all active:scale-[0.98] group flex flex-col justify-between h-full min-h-[100px] md:min-h-[120px] relative">
+            <div v-for="item in store.config.menu[activeMenuCategory]" :key="'item_'+item.id"
+                class="bg-white border border-gray-200 rounded-xl md:rounded-2xl shadow-sm hover:border-emerald-400 transition-all group flex flex-col h-full min-h-[100px] md:min-h-[120px] relative overflow-hidden">
 
               <span v-if="getQtyCombined(item.id) > 0" class="absolute -top-2 -right-2 bg-emerald-500 text-white size-6 md:size-7 rounded-full flex items-center justify-center text-[10px] md:text-xs font-black border-2 border-white shadow-sm z-10">
                 {{ getQtyCombined(item.id) }}
               </span>
 
-              <div class="flex justify-between items-start w-full gap-2">
-                <h4 class="font-bold text-gray-800 text-xs md:text-sm leading-tight group-hover:theme-text transition-colors">{{ item.name }}</h4>
-                <span class="font-black theme-text text-xs md:text-sm shrink-0 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100">{{ store.config.ui.currency }}{{ item.price.toFixed(2) }}</span>
+              <!-- Title area — tap/click = quick-add -->
+              <button @click="addToTempCart(item)"
+                  :aria-label="'Aggiungi ' + item.name + ' al carrello'"
+                  class="flex-1 text-left p-3 md:p-4 pb-1 md:pb-2 w-full">
+                <h4 class="font-bold text-gray-800 text-xs md:text-sm leading-tight group-hover:theme-text transition-colors line-clamp-3">{{ item.name }}</h4>
+              </button>
+
+              <!-- Bottom row: price left, icon actions + add button right -->
+              <div class="px-3 md:px-4 pb-3 md:pb-4 flex items-center justify-between gap-1">
+                <span class="font-black theme-text text-xs md:text-sm bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100 shrink-0">{{ store.config.ui.currency }}{{ item.price.toFixed(2) }}</span>
+                <div class="flex items-center gap-0.5 shrink-0">
+                  <!-- Info button -->
+                  <button @click="showItemInfo(item)"
+                      :aria-label="'Informazioni su ' + item.name"
+                      class="size-6 md:size-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors active:scale-95"
+                      title="Dettagli piatto">
+                    <Info class="size-3 md:size-3.5" />
+                  </button>
+                  <!-- Details (pen) button -->
+                  <button @click="addToTempCartWithModal(item)"
+                      :aria-label="'Aggiungi ' + item.name + ' con dettagli'"
+                      class="size-6 md:size-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-purple-600 hover:bg-purple-50 transition-colors active:scale-95"
+                      title="Aggiungi con portata, note e varianti">
+                    <PenLine class="size-3 md:size-3.5" />
+                  </button>
+                  <!-- Prominent add button -->
+                  <button @click="addToTempCart(item)"
+                      :aria-label="'Aggiungi ' + item.name + ' al carrello'"
+                      class="size-7 md:size-8 flex items-center justify-center rounded-lg theme-bg text-white shadow-sm hover:opacity-90 active:scale-95 transition-all ml-0.5"
+                      title="Aggiungi al carrello">
+                    <Plus class="size-3.5 md:size-4" />
+                  </button>
+                </div>
               </div>
-              <div class="mt-2 text-[9px] md:text-[10px] text-gray-400 font-bold uppercase tracking-wider flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                <Plus class="size-3" /> Aggiungi al Carrello
-              </div>
-            </button>
+            </div>
           </div>
 
           <!-- CARRELLO TEMPORANEO -->
@@ -382,13 +409,6 @@
                     </div>
                   </div>
                   <div class="flex items-center gap-1.5 shrink-0">
-                    <!-- Course cycling button -->
-                    <button @click="cycleCourse(idx)"
-                      :class="courseButtonProps(cartItem.course).classes"
-                      class="size-6 flex items-center justify-center rounded shadow-sm active:scale-95 font-black text-sm transition-colors"
-                      :title="courseButtonProps(cartItem.course).title">
-                      {{ courseButtonProps(cartItem.course).num }}
-                    </button>
                     <!-- Qty +/- -->
                     <div class="flex items-center gap-1 bg-gray-100 rounded p-0.5 border border-gray-200">
                       <button @click="updateTempCartQty(idx, -1)"
@@ -437,6 +457,66 @@
     </div>
 
     <!-- ============================================================ -->
+    <!-- MODAL: INFO PIATTO                                           -->
+    <!-- ============================================================ -->
+    <div v-if="infoModal.show" class="fixed inset-0 z-[95] bg-black/60 backdrop-blur-sm flex items-end md:items-center justify-center p-0 md:p-4">
+      <div class="bg-white rounded-t-3xl md:rounded-3xl shadow-2xl w-full max-w-md flex flex-col max-h-[92dvh] md:max-h-[85vh] overflow-hidden">
+        <!-- Header -->
+        <div class="bg-gray-50 border-b border-gray-100 px-4 pt-4 pb-3 flex justify-between items-start shrink-0">
+          <div>
+            <h3 class="font-bold text-base md:text-lg text-gray-800 leading-tight">{{ infoModal.item?.name }}</h3>
+            <span class="font-black theme-text text-sm mt-0.5 block">{{ store.config.ui.currency }}{{ infoModal.item?.price?.toFixed(2) }}</span>
+          </div>
+          <button @click="infoModal.show = false" aria-label="Chiudi" class="text-gray-400 hover:text-gray-800 p-1.5 bg-gray-200 hover:bg-gray-300 rounded-full active:scale-95 transition-colors shrink-0 ml-3">
+            <X class="size-5" />
+          </button>
+        </div>
+        <!-- Scrollable content -->
+        <div class="overflow-y-auto flex-1 p-4 space-y-4">
+          <!-- Foto -->
+          <img v-if="infoModal.item?.immagine_url"
+              :src="infoModal.item.immagine_url"
+              :alt="infoModal.item.name"
+              class="w-full h-44 object-cover rounded-xl shadow-sm" />
+          <!-- Descrizione -->
+          <div v-if="infoModal.item?.descrizione">
+            <p class="text-sm text-gray-700 leading-relaxed">{{ infoModal.item.descrizione }}</p>
+          </div>
+          <!-- Note (es. "Vegano") -->
+          <div v-if="infoModal.item?.note" class="flex items-center gap-1.5">
+            <span class="text-xs text-gray-500 italic bg-gray-100 px-2 py-0.5 rounded-full">{{ infoModal.item.note }}</span>
+          </div>
+          <!-- Ingredienti -->
+          <div v-if="infoModal.item?.ingredienti?.length">
+            <h4 class="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Ingredienti</h4>
+            <p class="text-sm text-gray-700">{{ infoModal.item.ingredienti.join(', ') }}</p>
+          </div>
+          <!-- Allergeni -->
+          <div v-if="infoModal.item?.allergeni?.length">
+            <h4 class="text-[10px] font-bold text-amber-600 uppercase tracking-wider mb-1 flex items-center gap-1"><AlertOctagon class="size-3" /> Allergeni</h4>
+            <div class="flex flex-wrap gap-1.5">
+              <span v-for="a in infoModal.item.allergeni" :key="a"
+                  class="px-2 py-0.5 bg-amber-50 text-amber-800 border border-amber-200 rounded-full text-xs font-medium capitalize">{{ a }}</span>
+            </div>
+          </div>
+          <!-- Testo HTML esteso (campo futuro) -->
+          <div v-if="infoModal.item?.text" v-html="sanitizedInfoHtml" class="prose prose-sm text-gray-700 max-w-none text-sm" />
+        </div>
+        <!-- Footer actions -->
+        <div class="p-4 pb-8 md:pb-4 bg-white border-t border-gray-100 shrink-0 flex gap-2">
+          <button @click="infoModalAddQuick"
+              class="py-3 px-4 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-xl flex items-center justify-center gap-2 text-sm active:scale-[0.98] transition-all">
+            <Plus class="size-4" /> Rapido
+          </button>
+          <button @click="infoModalAddWithDetails"
+              class="flex-1 py-3 theme-bg text-white font-bold rounded-xl flex items-center justify-center gap-2 text-sm active:scale-[0.98] transition-all shadow-sm">
+            <PenLine class="size-4" /> Aggiungi con Dettagli
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================================================ -->
     <!-- NOTE + COURSE MODAL                                          -->
     <!-- Layout aligned with OrderManager for UI consistency.        -->
     <!-- ============================================================ -->
@@ -466,23 +546,26 @@
               <button
                 @click="noteModal.course = 'prima'"
                 :class="noteModal.course === 'prima' ? 'bg-orange-400 text-white border-orange-400' : 'bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-200'"
-                class="flex-1 py-2.5 rounded-xl font-bold text-xs border transition-colors active:scale-95"
+                class="flex-1 py-2.5 rounded-xl font-bold text-xs border transition-colors active:scale-95 flex flex-col items-center gap-1"
               >
-                1 – Esce Prima
+                <span class="text-[9px] font-black uppercase tracking-wider opacity-70">1ª portata</span>
+                Esce Prima
               </button>
               <button
                 @click="noteModal.course = 'insieme'"
                 :class="noteModal.course === 'insieme' ? 'theme-bg text-white theme-border' : 'bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-200'"
-                class="flex-1 py-2.5 rounded-xl font-bold text-xs border transition-colors active:scale-95"
+                class="flex-1 py-2.5 rounded-xl font-bold text-xs border transition-colors active:scale-95 flex flex-col items-center gap-1"
               >
-                2 – Insieme
+                <span class="text-[9px] font-black uppercase tracking-wider opacity-70">2ª portata</span>
+                Insieme
               </button>
               <button
                 @click="noteModal.course = 'dopo'"
                 :class="noteModal.course === 'dopo' ? 'bg-teal-500 text-white border-teal-500' : 'bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-200'"
-                class="flex-1 py-2.5 rounded-xl font-bold text-xs border transition-colors active:scale-95"
+                class="flex-1 py-2.5 rounded-xl font-bold text-xs border transition-colors active:scale-95 flex flex-col items-center gap-1"
               >
-                3 – Esce Dopo
+                <span class="text-[9px] font-black uppercase tracking-wider opacity-70">3ª portata</span>
+                Esce Dopo
               </button>
             </div>
           </div>
@@ -630,11 +713,12 @@
 
 <script setup>
 import { ref, computed, nextTick } from 'vue';
+import DOMPurify from 'dompurify';
 import {
   Bell, ClipboardList, ChefHat, Clock, Hash, AlertCircle, MousePointerClick, ArrowLeft,
   AlertTriangle, Trash2, PlusCircle, Send, ShieldCheck, Minus, Plus,
   MessageSquareWarning, PenLine, X, BookOpen, ShoppingCart, Sparkles,
-  Layers, CheckCircle, LayoutGrid, ChevronRight,
+  Layers, CheckCircle, LayoutGrid, ChevronRight, Info, AlertOctagon,
 } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
 import { updateOrderTotals, getOrderItemRowTotal } from '../utils/index.js';
@@ -676,16 +760,6 @@ function getItemUnitPrice(item) {
 const DEFAULT_COURSE = 'insieme';
 const courseOrder = ['prima', DEFAULT_COURSE, 'dopo'];
 
-const courseButtonMap = {
-  prima:   { num: '1', classes: 'bg-orange-400 text-white', title: 'Esce prima' },
-  insieme: { num: '2', classes: 'theme-bg text-white',      title: 'Insieme'    },
-  dopo:    { num: '3', classes: 'bg-teal-500 text-white',   title: 'Esce dopo'  },
-};
-
-function courseButtonProps(course) {
-  return courseButtonMap[course] ?? courseButtonMap.insieme;
-}
-
 // ── Ordered items by course ─────────────────────────────────────────────────
 const orderedOrderItems = computed(() => {
   if (!selectedOrder.value) return [];
@@ -714,6 +788,26 @@ const noteModal = ref({
   modifiersArray: [], modName: '', modPrice: 0,
   course: DEFAULT_COURSE, cartIdx: null,
 });
+
+// ── Info modal ─────────────────────────────────────────────────────────────
+const infoModal = ref({ show: false, item: null });
+const sanitizedInfoHtml = computed(() => DOMPurify.sanitize(infoModal.value.item?.text ?? ''));
+
+function showItemInfo(item) {
+  infoModal.value = { show: true, item };
+}
+
+function infoModalAddQuick() {
+  const item = infoModal.value.item;
+  infoModal.value.show = false;
+  addToTempCart(item);
+}
+
+function infoModalAddWithDetails() {
+  const item = infoModal.value.item;
+  infoModal.value.show = false;
+  addToTempCartWithModal(item);
+}
 
 function openNoteModal(ord, idx) {
   if (!ord || ord.status !== 'pending') return;
@@ -862,11 +956,8 @@ function itemsAreMergeable(a, b) {
   return modsA.every((m, i) => m.name === modsB[i].name && m.price === modsB[i].price);
 }
 
-function addToTempCart(item) {
-  const blank = { dishId: item.id, notes: [], modifiers: [], course: DEFAULT_COURSE };
-  const existing = tempCart.value.find(r => itemsAreMergeable(r, blank));
-  if (existing) { existing.quantity++; return; }
-  tempCart.value.push({
+function makeTempCartRow(item) {
+  return {
     uid: 'tmp_' + Math.random().toString(36).slice(2, 11),
     dishId: item.id,
     name: item.name,
@@ -876,7 +967,14 @@ function addToTempCart(item) {
     voidedQuantity: 0,
     modifiers: [],
     course: DEFAULT_COURSE,
-  });
+  };
+}
+
+function addToTempCart(item) {
+  const blank = { dishId: item.id, notes: [], modifiers: [], course: DEFAULT_COURSE };
+  const existing = tempCart.value.find(r => itemsAreMergeable(r, blank));
+  if (existing) { existing.quantity++; return; }
+  tempCart.value.push(makeTempCartRow(item));
 }
 
 function updateTempCartQty(idx, delta) {
@@ -884,10 +982,9 @@ function updateTempCartQty(idx, delta) {
   if (tempCart.value[idx].quantity <= 0) tempCart.value.splice(idx, 1);
 }
 
-function cycleCourse(idx) {
-  const current = tempCart.value[idx].course || DEFAULT_COURSE;
-  const next = courseOrder[(courseOrder.indexOf(current) + 1) % courseOrder.length];
-  tempCart.value[idx].course = next;
+function addToTempCartWithModal(item) {
+  tempCart.value.push(makeTempCartRow(item));
+  openCartNoteModal(tempCart.value.length - 1);
 }
 
 function openAddMenu(targetOrder) {
