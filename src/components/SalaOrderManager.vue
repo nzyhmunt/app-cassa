@@ -892,6 +892,24 @@ function cycleCourse(idx) {
 
 function openAddMenu(targetOrder) {
   targetOrderForMenu.value = targetOrder;
+
+  // Ensure activeMenuCategory is valid for the current menu before showing modal
+  const menu = (store.config && store.config.menu) ? store.config.menu : {};
+  const categoryKeys = Object.keys(menu);
+  if (categoryKeys.length === 0) {
+    // No categories available; clear any previously selected category
+    if (activeMenuCategory && activeMenuCategory.value !== null) {
+      activeMenuCategory.value = null;
+    }
+  } else {
+    const currentKey = activeMenuCategory ? activeMenuCategory.value : null;
+    if (!currentKey || !Object.prototype.hasOwnProperty.call(menu, currentKey)) {
+      // Previously selected category is missing or invalid; select the first available one
+      if (activeMenuCategory) {
+        activeMenuCategory.value = categoryKeys[0];
+      }
+    }
+  }
   tempCart.value = [];
   showAddMenuModal.value = true;
 }
