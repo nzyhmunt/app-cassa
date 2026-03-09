@@ -403,13 +403,21 @@ export const useAppStore = defineStore('app', () => {
   }
 
   function _buildDailySummary() {
-    // Aggregate transactions by payment method
+    // Aggregate real payment transactions by payment method (exclude discounts)
     const byMethod = {};
-    transactions.value.forEach(t => {
-      const label = t.paymentMethod || 'Altro';
-      if (!byMethod[label]) byMethod[label] = 0;
-      byMethod[label] += t.amountPaid;
-    });
+    const totalDiscount = transactions.value
+      .filter(t => t.operationType === 'discount')
+      .reduce((acc, t) => acc + (t.amountPaid || 0), 0);
+    const totalTips = transactions.value
+      .filter(t => t.operationType !== 'discount')
+      .reduce((acc, t) => acc + (t.tipAmount || 0), 0);
+    transactions.value
+      .filter(t => t.operationType !== 'discount')
+      .forEach(t => {
+        const label = t.paymentMethod || 'Altro';
+        if (!byMethod[label]) byMethod[label] = 0;
+        byMethod[label] += (t.amountPaid || 0) + (t.tipAmount || 0);
+      });
     const totalReceived = Object.values(byMethod).reduce((a, b) => a + b, 0);
 
     // Total covers from completed tables
@@ -433,6 +441,8 @@ export const useAppStore = defineStore('app', () => {
       timestamp: new Date().toISOString(),
       cashBalance: cashBalance.value,
       totalReceived,
+      totalDiscount,
+      totalTips,
       byMethod,
       totalCovers,
       averageReceipt,
@@ -528,10 +538,13 @@ export const useAppStore = defineStore('app', () => {
         return o.billSessionId === billSessionId;
       });
 
-      const totalPaid = tableTxns.reduce(
-        (acc, txn) => acc + (txn.amountPaid || 0),
-        0,
-      );
+      // Separate discount transactions from real payments for correct reporting
+      const paymentTxns = tableTxns.filter(txn => txn.operationType !== 'discount');
+      const discountTxns = tableTxns.filter(txn => txn.operationType === 'discount');
+      const totalPaid = paymentTxns.reduce((acc, txn) => acc + (txn.amountPaid || 0), 0);
+      const totalDiscount = discountTxns.reduce((acc, txn) => acc + (txn.amountPaid || 0), 0);
+      // Total tips (extra amounts not applied to the bill)
+      const totalTips = tableTxns.reduce((acc, txn) => acc + (txn.tipAmount || 0), 0);
       const closedAt = tableTxns[tableTxns.length - 1]?.timestamp;
 
       bills.push({
@@ -541,6 +554,8 @@ export const useAppStore = defineStore('app', () => {
         transactions: tableTxns,
         orders: tableOrds,
         totalPaid,
+        totalDiscount,
+        totalTips,
         closedAt,
       });
     }
