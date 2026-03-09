@@ -457,7 +457,7 @@
           <h3 class="font-bold text-base md:text-lg flex items-center gap-2">
             <PenLine class="text-gray-500 size-4 md:size-5" /> Note e Varianti
           </h3>
-          <button @click="noteModal.show = false" class="text-gray-400 hover:text-gray-800 p-1.5 bg-gray-200 hover:bg-gray-300 rounded-full active:scale-95 transition-colors">
+          <button @click="noteModal.show = false" aria-label="Chiudi" class="text-gray-400 hover:text-gray-800 p-1.5 bg-gray-200 hover:bg-gray-300 rounded-full active:scale-95 transition-colors">
             <X class="size-5" />
           </button>
         </div>
