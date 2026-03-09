@@ -662,7 +662,6 @@ function openNoteModal(ord, idx) {
   noteModal.value.modName = '';
   noteModal.value.modPrice = 0;
   noteModal.value.show = true;
-  setTimeout(() => noteInput.value?.focus(), 150);
 }
 
 function openCartNoteModal(idx) {
@@ -681,7 +680,6 @@ function openCartNoteModal(idx) {
   noteModal.value.modName = '';
   noteModal.value.modPrice = 0;
   noteModal.value.show = true;
-  setTimeout(() => noteInput.value?.focus(), 150);
 }
 
 function addNoteToModal() {

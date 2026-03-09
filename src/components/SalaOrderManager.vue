@@ -712,7 +712,7 @@
 </template>
 
 <script setup>
-import { ref, computed, nextTick } from 'vue';
+import { ref, computed } from 'vue';
 import DOMPurify from 'dompurify';
 import {
   Bell, ClipboardList, ChefHat, Clock, Hash, AlertCircle, MousePointerClick, ArrowLeft,
@@ -824,7 +824,6 @@ function openNoteModal(ord, idx) {
   noteModal.value.modName = '';
   noteModal.value.modPrice = 0;
   noteModal.value.show = true;
-  nextTick(() => noteInput.value?.focus());
 }
 
 function openCartNoteModal(idx) {
@@ -841,7 +840,6 @@ function openCartNoteModal(idx) {
   noteModal.value.modName = '';
   noteModal.value.modPrice = 0;
   noteModal.value.show = true;
-  nextTick(() => noteInput.value?.focus());
 }
 
 function addNoteToModal() {
