@@ -1151,10 +1151,11 @@ function applyDiscount() {
   if (!selectedTable.value || discountPreview.value <= 0) return;
   const session = store.tableCurrentBillSession[selectedTable.value.id];
   const rawInput = parseFloat(discountInput.value) || 0;
-  // For percent discounts store the percentage value; for fixed discounts store
-  // the actually applied amount (= discountPreview) so discountValue never
+  // For percent discounts store the (clamped) percentage value; for fixed discounts
+  // store the actually applied amount (= discountPreview) so discountValue never
   // exceeds amountPaid and display stays consistent.
-  const discountValueToStore = discountType.value === 'percent' ? rawInput : discountPreview.value;
+  const clampedPercent = Math.min(100, Math.max(0, rawInput));
+  const discountValueToStore = discountType.value === 'percent' ? clampedPercent : discountPreview.value;
   store.addTransaction({
     transactionId: 'disc_' + Math.random().toString(36).slice(2, 11),
     tableId: selectedTable.value.id,
