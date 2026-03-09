@@ -8,7 +8,7 @@ Il progetto contiene due applicazioni separate che condividono lo stesso store e
 
 | App | Entry | URL locale | Pubblico |
 |-----|-------|-----------|---------|
-| Launcher | `index.html` → `src/launcher-main.js` | `/` | Selezione modalità |
+| Launcher | `index.html` | `/` | Selezione modalità |
 | **Cassa** | `cassa.html` → `src/main.js` | `/cassa.html` | Cassiere / gestione |
 | **Sala** | `sala.html` → `src/sala-main.js` | `/sala.html` | Personale di sala |
 
