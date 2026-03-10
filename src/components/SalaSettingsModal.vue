@@ -82,7 +82,7 @@ import { Settings, X, RefreshCw, RotateCcw } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
 import { clearState } from '../store/persistence.js';
 
-defineProps({ modelValue: Boolean });
+const props = defineProps({ modelValue: Boolean });
 const emit = defineEmits(['update:modelValue', 'settings-changed']);
 
 const store = useAppStore();
@@ -109,6 +109,15 @@ function loadInitialSettings() {
 
 const settings = ref(loadInitialSettings());
 const resetConfirmPending = ref(false);
+
+watch(
+  () => props.modelValue,
+  (newVal) => {
+    if (!newVal) {
+      resetConfirmPending.value = false;
+    }
+  }
+);
 
 watch(
   settings,

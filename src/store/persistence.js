@@ -24,13 +24,23 @@
  */
 
 /**
- * Chiave univoca per lo storage.
- * Incrementare la versione in caso di breaking changes allo schema dati.
+ * Configurazione centralizzata della persistenza.
+ *
+ * Per aggiornare lo schema a una nuova versione incompatibile:
+ *   1. Incrementare `version`.
+ *   2. La chiave localStorage risultante cambierà automaticamente (es. `demo_app_state_v2`),
+ *      lasciando i dati della versione precedente orfani finché non vengono rimossi dal browser.
+ *   3. Aggiornare `loadState()` per gestire eventuali migrazioni dei dati.
  */
-export const STORAGE_KEY = 'demo_app_state_v1';
+export const PERSISTENCE_CONFIG = {
+  /** Nome base della chiave; la versione viene aggiunta come suffisso automaticamente. */
+  keyName: 'demo_app_state',
+  /** Versione corrente dello schema. Incrementare in caso di breaking changes. */
+  version: 1,
+};
 
-/** Versione corrente dello schema di persistenza. */
-const STORAGE_VERSION = 1;
+/** Chiave localStorage derivata dalla configurazione. Non modificare direttamente. */
+export const STORAGE_KEY = `${PERSISTENCE_CONFIG.keyName}_v${PERSISTENCE_CONFIG.version}`;
 
 /**
  * Serializza e salva lo stato dell'app in localStorage.
@@ -46,7 +56,7 @@ export function saveState(state) {
   if (typeof localStorage === 'undefined') return;
   try {
     const serializable = {
-      version: STORAGE_VERSION,
+      version: PERSISTENCE_CONFIG.version,
       savedAt: new Date().toISOString(),
       orders: state.orders,
       transactions: state.transactions,
@@ -97,7 +107,7 @@ export function loadState() {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
     const data = JSON.parse(raw);
-    if (!data || typeof data !== 'object' || data.version !== STORAGE_VERSION) return null;
+    if (!data || typeof data !== 'object' || data.version !== PERSISTENCE_CONFIG.version) return null;
     return {
       orders: Array.isArray(data.orders) ? data.orders : [],
       transactions: Array.isArray(data.transactions) ? data.transactions : [],

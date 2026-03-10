@@ -1,7 +1,8 @@
 # Schema Database Relazionale
 
 Questo documento descrive lo schema relazionale completo derivato dal modello dati dell'applicazione
-(stato localStorage `demo_app_state_v1` + `app-settings`).
+(stato localStorage — chiave derivata da `PERSISTENCE_CONFIG` in `src/store/persistence.js`,
+attualmente `demo_app_state_v1`; cambia automaticamente al bump di versione — + `app-settings`).
 Può essere utilizzato come riferimento per una futura migrazione verso un backend relazionale
 (PostgreSQL, MySQL, SQLite) o un'API Directus.
 
