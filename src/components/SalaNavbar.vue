@@ -62,7 +62,7 @@ import { useRoute } from 'vue-router';
 import { UtensilsCrossed, LayoutGrid, ClipboardList, Settings } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
 
-const emit = defineEmits(['open-settings']);
+defineEmits(['open-settings']);
 
 const store = useAppStore();
 const route = useRoute();
