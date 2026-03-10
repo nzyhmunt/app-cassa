@@ -240,7 +240,7 @@
     <div class="bg-white rounded-t-3xl md:rounded-3xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col max-h-[92dvh] md:max-h-[85vh]">
       <div class="bg-gray-50 border-b border-gray-100 p-4 flex justify-between items-center shrink-0">
         <h3 class="font-bold text-base md:text-lg flex items-center gap-2"><PenLine class="text-gray-500 size-4 md:size-5" /> Note e Varianti</h3>
-        <button @click="noteModal.show = false" class="text-gray-400 hover:text-gray-800 p-1.5 bg-gray-200 hover:bg-gray-300 rounded-full active:scale-95 transition-colors"><X class="size-5" /></button>
+        <button ref="noteModalCloseBtn" @click="noteModal.show = false" aria-label="Chiudi" class="text-gray-400 hover:text-gray-800 p-1.5 bg-gray-200 hover:bg-gray-300 rounded-full active:scale-95 transition-colors"><X class="size-5" /></button>
       </div>
 
       <div class="overflow-y-auto flex-1 p-4 md:p-5 space-y-5">
@@ -425,7 +425,7 @@
         <!-- Piatti Griglia -->
         <div class="flex-1 overflow-y-auto p-2 md:p-4 bg-gray-100 md:bg-white grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 gap-2 md:gap-3 content-start min-h-0">
           <div v-for="item in store.config.menu[activeMenuCategory]" :key="'item_'+item.id"
-              class="bg-white border border-gray-200 rounded-xl md:rounded-2xl shadow-sm hover:border-emerald-400 transition-all group flex flex-col h-full min-h-[100px] md:min-h-[120px] relative overflow-hidden">
+              class="bg-white border border-gray-200 rounded-xl md:rounded-2xl shadow-sm hover:border-emerald-400 transition-all group flex flex-col h-full min-h-[100px] md:min-h-[120px] relative overflow-visible">
 
             <span v-if="getQtyCombined(item.id) > 0" class="absolute -top-2 -right-2 bg-emerald-500 text-white size-6 md:size-7 rounded-full flex items-center justify-center text-[10px] md:text-xs font-black border-2 border-white shadow-sm z-10">
               {{ getQtyCombined(item.id) }}
@@ -434,7 +434,7 @@
             <!-- Title area — tap/click = quick-add -->
             <button @click="addToTempCart(item)"
                 :aria-label="'Aggiungi ' + item.name + ' al carrello'"
-                class="flex-1 text-left p-3 md:p-4 pb-1 md:pb-2 w-full">
+                class="flex-1 flex items-start text-left p-3 md:p-4 pb-1 md:pb-2 w-full">
               <h4 class="font-bold text-gray-800 text-xs md:text-sm leading-tight group-hover:theme-text transition-colors line-clamp-3">{{ item.name }}</h4>
             </button>
 
@@ -474,13 +474,13 @@
             <ShoppingCart class="size-4" /> Carrello Preparazione
           </div>
 
-          <div class="flex-1 overflow-y-auto p-3 space-y-2">
+          <div class="flex-1 overflow-y-auto min-h-0 p-3 space-y-2">
             <div v-if="tempCart.length === 0" class="text-center text-gray-400 py-8 flex flex-col items-center">
               <MousePointerClick class="size-8 opacity-30 mb-2" />
               <p class="text-xs font-medium">Tocca i piatti nel menu per prepararli qui, poi inseriscili.</p>
             </div>
-            <div v-for="(cartItem, idx) in tempCart" :key="'cart_'+idx" class="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
-              <div class="p-2.5 flex items-center justify-between">
+            <div v-for="(cartItem, idx) in tempCart" :key="cartItem.uid" class="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
+              <div class="p-2.5 flex items-start justify-between">
                 <div class="flex flex-col flex-1 min-w-0 pr-2">
                   <span class="font-bold text-sm text-gray-800 truncate">{{ cartItem.name }}</span>
                   <span class="text-[10px] text-gray-500">{{ store.config.ui.currency }}{{ (cartItem.unitPrice + (cartItem.modifiers || []).reduce((a, m) => a + (Number(m.price) || 0), 0)).toFixed(2) }} cad.</span>
@@ -539,7 +539,7 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue';
+import { ref, computed, nextTick } from 'vue';
 import DOMPurify from 'dompurify';
 import {
   Bell, ChefHat, History, ClipboardList, Clock, AlertCircle, CheckCircle2, XCircle,
@@ -619,7 +619,7 @@ const orderedOrderItems = computed(() => {
 });
 
 // ── Note modal ─────────────────────────────────────────────────────────────
-const noteInput = ref(null);
+const noteModalCloseBtn = ref(null);
 const noteModal = ref({
   show: false, inputText: '', notesArray: [],
   rowIndex: null, targetOrd: null, itemRef: null,
@@ -662,7 +662,7 @@ function openNoteModal(ord, idx) {
   noteModal.value.modName = '';
   noteModal.value.modPrice = 0;
   noteModal.value.show = true;
-  setTimeout(() => noteInput.value?.focus(), 150);
+  nextTick(() => noteModalCloseBtn.value?.focus());
 }
 
 function openCartNoteModal(idx) {
@@ -681,7 +681,7 @@ function openCartNoteModal(idx) {
   noteModal.value.modName = '';
   noteModal.value.modPrice = 0;
   noteModal.value.show = true;
-  setTimeout(() => noteInput.value?.focus(), 150);
+  nextTick(() => noteModalCloseBtn.value?.focus());
 }
 
 function addNoteToModal() {
