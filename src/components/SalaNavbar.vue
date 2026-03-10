@@ -61,6 +61,7 @@ import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { useRoute } from 'vue-router';
 import { UtensilsCrossed, LayoutGrid, ClipboardList, Settings } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
+import { useBeep } from '../composables/useBeep.js';
 
 defineEmits(['open-settings']);
 
@@ -82,39 +83,7 @@ onUnmounted(() => {
 });
 
 // ── Avviso audio per nuovi ordini in arrivo ────────────────────────────────
-const SETTINGS_STORAGE_KEY = 'app-settings';
-
-function isSoundsEnabled() {
-  try {
-    const raw = window.localStorage.getItem(SETTINGS_STORAGE_KEY);
-    if (!raw) return true;
-    const parsed = JSON.parse(raw);
-    return typeof parsed.sounds === 'boolean' ? parsed.sounds : true;
-  } catch {
-    return true;
-  }
-}
-
-function playBeep() {
-  if (!isSoundsEnabled()) return;
-  try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(880, ctx.currentTime);
-    gain.gain.setValueAtTime(0.1, ctx.currentTime);
-    osc.start();
-    gain.gain.exponentialRampToValueAtTime(0.00001, ctx.currentTime + 0.2);
-    osc.stop(ctx.currentTime + 0.2);
-    // Close the context once the sound has finished to free audio resources
-    setTimeout(() => ctx.close(), 500);
-  } catch (e) {
-    console.warn('[SalaNavbar] Failed to play beep:', e);
-  }
-}
+const { playBeep } = useBeep();
 
 // Suona quando arriva un nuovo ordine in pending (pendingCount cresce)
 watch(
