@@ -100,8 +100,11 @@ function loadInitialSettings() {
     const parsed = JSON.parse(raw);
     return {
       sounds: typeof parsed.sounds === 'boolean' ? parsed.sounds : true,
-      // store.menuUrl already incorporates query-param > app-settings > appConfig priority
-      menuUrl: store.menuUrl,
+      // Prefer persisted menuUrl; fall back to current store value if missing
+      menuUrl:
+        typeof parsed.menuUrl === 'string' && parsed.menuUrl.trim() !== ''
+          ? parsed.menuUrl
+          : store.menuUrl,
     };
   } catch {
     return { sounds: true, menuUrl: store.menuUrl };
