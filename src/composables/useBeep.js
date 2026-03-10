@@ -1,15 +1,18 @@
 /**
  * useBeep — shared audio notification composable.
  *
- * Reads the `sounds` toggle from `app-settings` in localStorage and
- * exposes `playBeep()` so both Navbar and SalaNavbar stay in sync.
+ * Reads the `sounds` toggle from the instance-specific settings key in
+ * localStorage and exposes `playBeep()` so both Navbar and SalaNavbar
+ * stay in sync. The key is derived via `resolveStorageKeys()` to support
+ * multi-instance builds where each instance has an isolated settings entry.
  */
 
-const SETTINGS_STORAGE_KEY = 'app-settings';
+import { resolveStorageKeys } from '../store/persistence.js';
 
 function isSoundsEnabled() {
   try {
-    const raw = window.localStorage.getItem(SETTINGS_STORAGE_KEY);
+    const { settingsKey } = resolveStorageKeys();
+    const raw = window.localStorage.getItem(settingsKey);
     if (!raw) return true;
     const parsed = JSON.parse(raw);
     return typeof parsed.sounds === 'boolean' ? parsed.sounds : true;
