@@ -81,6 +81,7 @@ import { ref, watch } from 'vue';
 import { Settings, X, RefreshCw, RotateCcw } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
 import { getInstanceName, resolveStorageKeys, clearState } from '../store/persistence.js';
+import { appConfig } from '../utils/index.js';
 
 const props = defineProps({ modelValue: Boolean });
 const emit = defineEmits(['update:modelValue', 'settings-changed']);
@@ -92,21 +93,23 @@ const { storageKey: _storageKey, settingsKey: SETTINGS_STORAGE_KEY } = resolveSt
 
 function loadInitialSettings() {
   if (typeof window === 'undefined') {
-    return { sounds: true, menuUrl: store.menuUrl };
+    return { sounds: true, menuUrl: appConfig.menuUrl };
   }
   try {
     const raw = window.localStorage.getItem(SETTINGS_STORAGE_KEY);
     if (!raw) {
-      return { sounds: true, menuUrl: store.menuUrl };
+      return { sounds: true, menuUrl: appConfig.menuUrl };
     }
     const parsed = JSON.parse(raw);
     return {
       sounds: typeof parsed.sounds === 'boolean' ? parsed.sounds : true,
-      // store.menuUrl already incorporates query-param > app-settings > appConfig priority
-      menuUrl: store.menuUrl,
+      menuUrl:
+        typeof parsed.menuUrl === 'string' && parsed.menuUrl.trim() !== ''
+          ? parsed.menuUrl
+          : appConfig.menuUrl,
     };
   } catch {
-    return { sounds: true, menuUrl: store.menuUrl };
+    return { sounds: true, menuUrl: appConfig.menuUrl };
   }
 }
 

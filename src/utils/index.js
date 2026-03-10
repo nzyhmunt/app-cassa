@@ -21,7 +21,7 @@ export const DEFAULT_MENU_URL = 'https://nanawork.it/menu.json';
 export const appConfig = {
   ui: { name: "Osteria del Grillo", primaryColor: "#00846c", primaryColorDark: "#0c7262", currency: "€", allowCustomVariants: true },
 
-  // URL used to fetch the remote menu; can be overridden via ?menuUrl= query parameter
+  // URL used to fetch the remote menu. Override per-build in appConfig or via the Settings modal.
   menuUrl: DEFAULT_MENU_URL,
 
   // Instance name used to isolate localStorage keys when multiple app instances run

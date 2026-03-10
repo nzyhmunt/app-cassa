@@ -38,25 +38,8 @@ export const useAppStore = defineStore('app', () => {
   const transactions = ref([]);
 
   // ── Menu loading state ─────────────────────────────────────────────────────
-  // menuUrl can be overridden via ?menuUrl=<url> query parameter
-  const _paramUrl = typeof window !== 'undefined'
-    ? (() => {
-        // First, check regular query string (before '#')
-        const searchParams = new URLSearchParams(window.location.search || '');
-        let value = searchParams.get('menuUrl');
-        if (value) return value;
-
-        // Fallback: handle hash-based routing (e.g. /#/route?menuUrl=...)
-        const hash = window.location.hash || '';
-        const queryStart = hash.indexOf('?');
-        if (queryStart === -1) return null;
-        const hashQuery = hash.slice(queryStart + 1);
-        const hashParams = new URLSearchParams(hashQuery);
-        return hashParams.get('menuUrl');
-      })()
-    : null;
-
-  // menuUrl priority: query param > app-settings > appConfig default
+  // menuUrl priority: app-settings (user-saved) > appConfig default.
+  // The URL is set at build time via appConfig.menuUrl or updated by the user in Settings.
   const _savedAppSettings = (() => {
     try {
       if (typeof window === 'undefined') return null;
@@ -64,7 +47,11 @@ export const useAppStore = defineStore('app', () => {
       return raw ? JSON.parse(raw) : null;
     } catch { return null; }
   })();
-  const menuUrl = ref(_paramUrl ?? _savedAppSettings?.menuUrl ?? appConfig.menuUrl);
+  const menuUrl = ref(
+    (typeof _savedAppSettings?.menuUrl === 'string' && _savedAppSettings.menuUrl.trim() !== '')
+      ? _savedAppSettings.menuUrl
+      : appConfig.menuUrl
+  );
   const menuLoading = ref(false);
   const menuError = ref(null);
 
