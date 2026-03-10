@@ -665,14 +665,29 @@ export const useAppStore = defineStore('app', () => {
         });
       },
       deserialize(raw) {
-        const data = JSON.parse(raw);
-        return {
-          ...data,
-          // Restore Array back to Set so the store can use it correctly
-          billRequestedTables: new Set(
-            Array.isArray(data.billRequestedTables) ? data.billRequestedTables : [],
-          ),
-        };
+        try {
+          const data = JSON.parse(raw);
+          return {
+            ...data,
+            // Restore Array back to Set so the store can use it correctly
+            billRequestedTables: new Set(
+              Array.isArray(data.billRequestedTables) ? data.billRequestedTables : [],
+            ),
+          };
+        } catch (error) {
+          // If the persisted JSON is corrupted, remove it so the app can recover
+          try {
+            if (typeof window !== 'undefined' && window.localStorage) {
+              window.localStorage.removeItem(storageKey);
+            }
+          } catch (_) {
+            // Ignore storage access errors and fall back to a safe default
+          }
+          return {
+            // Fall back to an empty Set; other fields use the store's initial state
+            billRequestedTables: new Set(),
+          };
+        }
       },
     },
     // On first load (no saved state), seed orders with demo data.
