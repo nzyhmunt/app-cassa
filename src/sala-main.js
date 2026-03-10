@@ -4,28 +4,32 @@ import salaRouter from './sala-router/index.js';
 import './assets/styles/main.css';
 import SalaApp from './SalaApp.vue';
 
-// Reset window scroll position when iOS PWA shifts viewport on keyboard open inside fixed modals.
-// The app uses overflow-hidden on body, so window should never scroll intentionally.
+// On iOS PWA, reset the viewport scroll position when the on-screen keyboard is dismissed.
+// We do NOT prevent scrolling while the keyboard is open so the focused input remains visible.
+// When focus leaves all inputs (keyboard closes), we restore scrollY to 0.
 const isIOS = /iP(ad|hone|od)/.test(window.navigator.userAgent);
 const isStandalonePWA =
   (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) ||
   (typeof window.navigator.standalone === 'boolean' && window.navigator.standalone);
 
 if (isIOS && isStandalonePWA) {
-  let scrollTicking = false;
+  // Delay (ms) to wait for focus to settle on a new element before deciding the keyboard closed.
+  const KEYBOARD_DISMISS_DELAY_MS = 300;
+  let resetScrollTimeout = null;
 
-  window.addEventListener(
-    'scroll',
+  document.addEventListener(
+    'focusout',
     () => {
-      if (scrollTicking) return;
-      scrollTicking = true;
-
-      window.requestAnimationFrame(() => {
-        if (window.scrollY !== 0) {
+      // A short delay lets focus settle on a new element (e.g. moving between inputs)
+      // before we decide whether the keyboard has really been dismissed.
+      clearTimeout(resetScrollTimeout);
+      resetScrollTimeout = setTimeout(() => {
+        const active = document.activeElement;
+        const keyboardTags = ['INPUT', 'TEXTAREA', 'SELECT'];
+        if (!active || !keyboardTags.includes(active.tagName)) {
           window.scrollTo(0, 0);
         }
-        scrollTicking = false;
-      });
+      }, KEYBOARD_DISMISS_DELAY_MS);
     },
     { passive: true }
   );

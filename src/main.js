@@ -4,8 +4,9 @@ import router from './router/index.js';
 import './assets/styles/main.css';
 import App from './App.vue';
 
-// Reset window scroll position when iOS PWA shifts viewport on keyboard open inside fixed modals.
-// The app uses overflow-hidden on body, so window should never scroll intentionally.
+// On iOS PWA, reset the viewport scroll position when the on-screen keyboard is dismissed.
+// We do NOT prevent scrolling while the keyboard is open so the focused input remains visible.
+// When focus leaves all inputs (keyboard closes), we restore scrollY to 0.
 function isIOS() {
   if (typeof navigator === 'undefined') return false;
   return /iphone|ipad|ipod/i.test(navigator.userAgent || '');
@@ -13,7 +14,6 @@ function isIOS() {
 
 function isStandaloneDisplayMode() {
   if (typeof window === 'undefined') return false;
-  // iOS Safari exposes navigator.standalone, other platforms can use display-mode media query.
   const nav = window.navigator || {};
   const isIOSStandalone = typeof nav.standalone === 'boolean' && nav.standalone;
   const isDisplayModeStandalone =
@@ -23,23 +23,26 @@ function isStandaloneDisplayMode() {
 }
 
 if (typeof window !== 'undefined' && isIOS() && isStandaloneDisplayMode()) {
-  let scrollTicking = false;
+  // Delay (ms) to wait for focus to settle on a new element before deciding the keyboard closed.
+  const KEYBOARD_DISMISS_DELAY_MS = 300;
+  let resetScrollTimeout = null;
 
-  const resetScrollIfNeeded = () => {
-    scrollTicking = false;
-    if (window.scrollY !== 0) {
-      window.scrollTo(0, 0);
-    }
-  };
-
-  const onWindowScroll = () => {
-    if (!scrollTicking) {
-      scrollTicking = true;
-      window.requestAnimationFrame(resetScrollIfNeeded);
-    }
-  };
-
-  window.addEventListener('scroll', onWindowScroll, { passive: true });
+  document.addEventListener(
+    'focusout',
+    () => {
+      // A short delay lets focus settle on a new element (e.g. moving between inputs)
+      // before we decide whether the keyboard has really been dismissed.
+      clearTimeout(resetScrollTimeout);
+      resetScrollTimeout = setTimeout(() => {
+        const active = document.activeElement;
+        const keyboardTags = ['INPUT', 'TEXTAREA', 'SELECT'];
+        if (!active || !keyboardTags.includes(active.tagName)) {
+          window.scrollTo(0, 0);
+        }
+      }, KEYBOARD_DISMISS_DELAY_MS);
+    },
+    { passive: true }
+  );
 }
 const app = createApp(App);
 app.use(createPinia());
