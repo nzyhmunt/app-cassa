@@ -1,6 +1,9 @@
 /**
  * @file store/persistence.js
- * @description Persistenza locale dello stato dell'app tramite localStorage.
+ * @description Configurazione e utilità per la persistenza locale dell'app.
+ *
+ * La persistenza è gestita da `pinia-plugin-persistedstate`, configurato
+ * direttamente nello store (`src/store/index.js`) tramite l'opzione `persist`.
  *
  * ── Note per la futura migrazione a PWA ──────────────────────────────────────
  * TODO (PWA - IndexedDB): Sostituire localStorage con IndexedDB per gestire
@@ -30,7 +33,6 @@
  *   1. Incrementare `version`.
  *   2. La chiave localStorage risultante cambierà automaticamente (es. `demo_app_state_v2`),
  *      lasciando i dati della versione precedente orfani finché non vengono rimossi dal browser.
- *   3. Aggiornare `loadState()` per gestire eventuali migrazioni dei dati.
  */
 export const PERSISTENCE_CONFIG = {
   /** Nome base della chiave; la versione viene aggiunta come suffisso automaticamente. */
@@ -41,39 +43,6 @@ export const PERSISTENCE_CONFIG = {
 
 /** Chiave localStorage derivata dalla configurazione. Non modificare direttamente. */
 export const STORAGE_KEY = `${PERSISTENCE_CONFIG.keyName}_v${PERSISTENCE_CONFIG.version}`;
-
-/**
- * Serializza e salva lo stato dell'app in localStorage.
- *
- * @param {object} state - Oggetto con i valori correnti delle ref da persistere:
- *   orders, transactions, tableOccupiedAt, billRequestedTables,
- *   tableCurrentBillSession, cashBalance, cashMovements, dailyClosures.
- *
- * TODO (PWA): Sostituire con salvataggio asincrono su IndexedDB.
- *             Dopo il salvataggio locale, accodare una richiesta di sync verso Directus.
- */
-export function saveState(state) {
-  if (typeof localStorage === 'undefined') return;
-  try {
-    const serializable = {
-      version: PERSISTENCE_CONFIG.version,
-      savedAt: new Date().toISOString(),
-      orders: state.orders,
-      transactions: state.transactions,
-      tableOccupiedAt: state.tableOccupiedAt,
-      // Set non è direttamente serializzabile in JSON → convertito in Array
-      billRequestedTables: Array.from(state.billRequestedTables),
-      tableCurrentBillSession: state.tableCurrentBillSession,
-      cashBalance: state.cashBalance,
-      cashMovements: state.cashMovements,
-      dailyClosures: state.dailyClosures,
-    };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(serializable));
-  } catch (e) {
-    // Errori comuni: QuotaExceededError, SecurityError in iframe sandboxed
-    console.warn('[Persistence] Impossibile salvare lo stato:', e);
-  }
-}
 
 /**
  * Cancella lo stato salvato da localStorage, ripristinando i dati di default
@@ -90,45 +59,5 @@ export function clearState() {
     localStorage.removeItem(STORAGE_KEY);
   } catch (e) {
     console.warn('[Persistence] Impossibile cancellare lo stato salvato:', e);
-  }
-}
-
-/**
- * Legge e deserializza lo stato dell'app da localStorage.
- *
- * @returns {object|null} Stato ripristinato, oppure null se assente o non valido.
- *
- * TODO (PWA): Leggere da IndexedDB invece di localStorage.
- *             Se i dati locali risultano obsoleti, recuperare lo stato aggiornato da Directus.
- */
-export function loadState() {
-  if (typeof localStorage === 'undefined') return null;
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    const data = JSON.parse(raw);
-    if (!data || typeof data !== 'object' || data.version !== PERSISTENCE_CONFIG.version) return null;
-    return {
-      orders: Array.isArray(data.orders) ? data.orders : [],
-      transactions: Array.isArray(data.transactions) ? data.transactions : [],
-      tableOccupiedAt:
-        data.tableOccupiedAt && typeof data.tableOccupiedAt === 'object'
-          ? data.tableOccupiedAt
-          : {},
-      // Riconvertire l'Array salvato in Set per il corretto funzionamento del store
-      billRequestedTables: new Set(
-        Array.isArray(data.billRequestedTables) ? data.billRequestedTables : [],
-      ),
-      tableCurrentBillSession:
-        data.tableCurrentBillSession && typeof data.tableCurrentBillSession === 'object'
-          ? data.tableCurrentBillSession
-          : {},
-      cashBalance: typeof data.cashBalance === 'number' ? data.cashBalance : 0,
-      cashMovements: Array.isArray(data.cashMovements) ? data.cashMovements : [],
-      dailyClosures: Array.isArray(data.dailyClosures) ? data.dailyClosures : [],
-    };
-  } catch (e) {
-    console.warn('[Persistence] Impossibile caricare lo stato salvato:', e);
-    return null;
   }
 }

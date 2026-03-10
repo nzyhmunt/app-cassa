@@ -20,21 +20,18 @@
  *   closedBills[]             – Archived bill sessions after full payment
  */
 import { defineStore } from 'pinia';
-import { ref, computed, watch, onScopeDispose } from 'vue';
+import { ref, computed } from 'vue';
 import { appConfig, initialOrders, updateOrderTotals } from '../utils/index.js';
-import { saveState, loadState } from './persistence.js';
+import { STORAGE_KEY } from './persistence.js';
 
 export const useAppStore = defineStore('app', () => {
-  // ── Ripristino stato persistente ───────────────────────────────────────────
-  // Al primo avvio non esiste stato salvato → si usano i dati demo (initialOrders).
-  // Agli avvii successivi lo stato viene ripristinato da localStorage.
-  // TODO (PWA): Caricare lo stato da IndexedDB in modo asincrono prima del mount.
-  const _saved = loadState();
 
   // ── Core State ─────────────────────────────────────────────────────────────
   const config = ref(appConfig);
-  const orders = ref(_saved ? _saved.orders : initialOrders);
-  const transactions = ref(_saved ? _saved.transactions : []);
+  // orders is initialized empty; pinia-plugin-persistedstate will hydrate saved state,
+  // or afterHydrate will fall back to initialOrders on first load.
+  const orders = ref([]);
+  const transactions = ref([]);
 
   // ── Menu loading state ─────────────────────────────────────────────────────
   // menuUrl can be overridden via ?menuUrl=<url> query parameter
@@ -111,17 +108,17 @@ export const useAppStore = defineStore('app', () => {
   loadMenu();
 
   // ── Cassa State ────────────────────────────────────────────────────────────
-  const cashBalance = ref(_saved ? _saved.cashBalance : 0);
-  const cashMovements = ref(_saved ? _saved.cashMovements : []); // { id, type: 'deposit'|'withdrawal', amount, reason, timestamp }
-  const dailyClosures = ref(_saved ? _saved.dailyClosures : []); // stored closure summaries
+  const cashBalance = ref(0);
+  const cashMovements = ref([]); // { id, type: 'deposit'|'withdrawal', amount, reason, timestamp }
+  const dailyClosures = ref([]); // stored closure summaries
 
   // ── Table extra state ──────────────────────────────────────────────────────
   // Maps tableId -> ISO timestamp of first accepted order
-  const tableOccupiedAt = ref(_saved ? _saved.tableOccupiedAt : {});
+  const tableOccupiedAt = ref({});
   // Set of tableIds that have requested the bill (bill requested)
-  const billRequestedTables = ref(_saved ? _saved.billRequestedTables : new Set());
+  const billRequestedTables = ref(new Set());
   // Maps tableId -> { billSessionId, adults, children } for the current open session
-  const tableCurrentBillSession = ref(_saved ? _saved.tableCurrentBillSession : {});
+  const tableCurrentBillSession = ref({});
 
   // ── Computed: CSS variables for theming ────────────────────────────────────
   const cssVars = computed(() => ({
@@ -586,36 +583,6 @@ export const useAppStore = defineStore('app', () => {
   const pendingSelectOrder = ref(null);
   const pendingNewOrder = ref(null);
 
-  // ── Persistenza locale ────────────────────────────────────────────────────
-  // Ad ogni modifica dello stato rilevante, salva in localStorage con un piccolo
-  // debounce per evitare scritture eccessive durante aggiornamenti multipli.
-  // TODO (PWA): Qui accodare anche la sincronizzazione verso Directus API.
-  let _saveTimer = null;
-  function _scheduleSave() {
-    clearTimeout(_saveTimer);
-    _saveTimer = setTimeout(() => {
-      saveState({
-        orders: orders.value,
-        transactions: transactions.value,
-        tableOccupiedAt: tableOccupiedAt.value,
-        billRequestedTables: billRequestedTables.value,
-        tableCurrentBillSession: tableCurrentBillSession.value,
-        cashBalance: cashBalance.value,
-        cashMovements: cashMovements.value,
-        dailyClosures: dailyClosures.value,
-      });
-    }, 300);
-  }
-
-  watch(
-    [orders, transactions, tableOccupiedAt, billRequestedTables, tableCurrentBillSession, cashBalance, cashMovements, dailyClosures],
-    _scheduleSave,
-    { deep: true },
-  );
-
-  // Pulizia del timer pendente quando il contesto del store viene distrutto
-  onScopeDispose(() => clearTimeout(_saveTimer));
-
   return {
     // state
     config,
@@ -664,4 +631,51 @@ export const useAppStore = defineStore('app', () => {
     generateXReport,
     performDailyClose,
   };
+}, {
+  // ── Persistenza via pinia-plugin-persistedstate ─────────────────────────
+  // Lo stato operativo è salvato in localStorage sotto la chiave STORAGE_KEY.
+  // Un serializzatore personalizzato gestisce la conversione Set↔Array per
+  // billRequestedTables, che non è direttamente serializzabile in JSON.
+  //
+  // TODO (PWA): Sostituire localStorage con IndexedDB (storage: useIDBKeyval())
+  //             e aggiungere la sincronizzazione Directus nel afterHydrate hook.
+  persist: {
+    key: STORAGE_KEY,
+    pick: [
+      'orders',
+      'transactions',
+      'tableOccupiedAt',
+      'billRequestedTables',
+      'tableCurrentBillSession',
+      'cashBalance',
+      'cashMovements',
+      'dailyClosures',
+    ],
+    serializer: {
+      serialize(state) {
+        return JSON.stringify({
+          ...state,
+          // Set is not JSON-serializable — convert to Array before storing
+          billRequestedTables: Array.from(state.billRequestedTables),
+        });
+      },
+      deserialize(raw) {
+        const data = JSON.parse(raw);
+        return {
+          ...data,
+          // Restore Array back to Set so the store can use it correctly
+          billRequestedTables: new Set(
+            Array.isArray(data.billRequestedTables) ? data.billRequestedTables : [],
+          ),
+        };
+      },
+    },
+    // On first load (no saved state), seed orders with demo data.
+    // On subsequent loads the plugin has already hydrated the saved orders above.
+    afterHydrate(ctx) {
+      if (!ctx.store.orders.length) {
+        ctx.store.orders = initialOrders;
+      }
+    },
+  },
 });
