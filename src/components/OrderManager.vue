@@ -619,7 +619,6 @@ const orderedOrderItems = computed(() => {
 });
 
 // ── Note modal ─────────────────────────────────────────────────────────────
-const noteInput = ref(null);
 const noteModalCloseBtn = ref(null);
 const noteModal = ref({
   show: false, inputText: '', notesArray: [],
