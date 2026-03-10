@@ -758,7 +758,9 @@ const selectedOrder = ref(null);
 
 const filteredOrders = computed(() => {
   if (activeTab.value === 'history')
-    return store.orders.filter(o => o.status === 'completed' || o.status === 'rejected');
+    return store.orders
+      .filter(o => o.status === 'completed' || o.status === 'rejected')
+      .sort((a, b) => b.time.localeCompare(a.time));
   return store.orders
     .filter(o => o.status === activeTab.value)
     .sort((a, b) => b.time.localeCompare(a.time));
