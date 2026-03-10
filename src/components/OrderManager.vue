@@ -240,7 +240,7 @@
     <div class="bg-white rounded-t-3xl md:rounded-3xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col max-h-[92dvh] md:max-h-[85vh]">
       <div class="bg-gray-50 border-b border-gray-100 p-4 flex justify-between items-center shrink-0">
         <h3 class="font-bold text-base md:text-lg flex items-center gap-2"><PenLine class="text-gray-500 size-4 md:size-5" /> Note e Varianti</h3>
-        <button @click="noteModal.show = false" class="text-gray-400 hover:text-gray-800 p-1.5 bg-gray-200 hover:bg-gray-300 rounded-full active:scale-95 transition-colors"><X class="size-5" /></button>
+        <button ref="noteModalCloseBtn" @click="noteModal.show = false" aria-label="Chiudi" class="text-gray-400 hover:text-gray-800 p-1.5 bg-gray-200 hover:bg-gray-300 rounded-full active:scale-95 transition-colors"><X class="size-5" /></button>
       </div>
 
       <div class="overflow-y-auto flex-1 p-4 md:p-5 space-y-5">
@@ -539,7 +539,7 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue';
+import { ref, computed, nextTick } from 'vue';
 import DOMPurify from 'dompurify';
 import {
   Bell, ChefHat, History, ClipboardList, Clock, AlertCircle, CheckCircle2, XCircle,
@@ -620,6 +620,7 @@ const orderedOrderItems = computed(() => {
 
 // ── Note modal ─────────────────────────────────────────────────────────────
 const noteInput = ref(null);
+const noteModalCloseBtn = ref(null);
 const noteModal = ref({
   show: false, inputText: '', notesArray: [],
   rowIndex: null, targetOrd: null, itemRef: null,
@@ -662,6 +663,7 @@ function openNoteModal(ord, idx) {
   noteModal.value.modName = '';
   noteModal.value.modPrice = 0;
   noteModal.value.show = true;
+  nextTick(() => noteModalCloseBtn.value?.focus());
 }
 
 function openCartNoteModal(idx) {
@@ -680,6 +682,7 @@ function openCartNoteModal(idx) {
   noteModal.value.modName = '';
   noteModal.value.modPrice = 0;
   noteModal.value.show = true;
+  nextTick(() => noteModalCloseBtn.value?.focus());
 }
 
 function addNoteToModal() {

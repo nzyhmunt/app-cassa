@@ -528,7 +528,7 @@
           <h3 class="font-bold text-base md:text-lg flex items-center gap-2">
             <PenLine class="text-gray-500 size-4 md:size-5" /> Note e Varianti
           </h3>
-          <button @click="noteModal.show = false" aria-label="Chiudi" class="text-gray-400 hover:text-gray-800 p-1.5 bg-gray-200 hover:bg-gray-300 rounded-full active:scale-95 transition-colors">
+          <button ref="noteModalCloseBtn" @click="noteModal.show = false" aria-label="Chiudi" class="text-gray-400 hover:text-gray-800 p-1.5 bg-gray-200 hover:bg-gray-300 rounded-full active:scale-95 transition-colors">
             <X class="size-5" />
           </button>
         </div>
@@ -712,7 +712,7 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue';
+import { ref, computed, nextTick } from 'vue';
 import DOMPurify from 'dompurify';
 import {
   Bell, ClipboardList, ChefHat, Clock, Hash, AlertCircle, MousePointerClick, ArrowLeft,
@@ -782,6 +782,7 @@ const orderedOrderItems = computed(() => {
 
 // ── Note modal ─────────────────────────────────────────────────────────────
 const noteInput = ref(null);
+const noteModalCloseBtn = ref(null);
 const noteModal = ref({
   show: false, inputText: '', notesArray: [],
   rowIndex: null, targetOrd: null, itemRef: null,
@@ -824,6 +825,7 @@ function openNoteModal(ord, idx) {
   noteModal.value.modName = '';
   noteModal.value.modPrice = 0;
   noteModal.value.show = true;
+  nextTick(() => noteModalCloseBtn.value?.focus());
 }
 
 function openCartNoteModal(idx) {
@@ -840,6 +842,7 @@ function openCartNoteModal(idx) {
   noteModal.value.modName = '';
   noteModal.value.modPrice = 0;
   noteModal.value.show = true;
+  nextTick(() => noteModalCloseBtn.value?.focus());
 }
 
 function addNoteToModal() {
