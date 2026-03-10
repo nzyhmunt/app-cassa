@@ -211,7 +211,7 @@
                   :class="{
                     'bg-orange-50 text-orange-700': row.course === 'prima',
                     'bg-gray-50 text-gray-500': row.course === 'insieme',
-                    'bg-teal-50 text-teal-700': row.course === 'dopo',
+                    'bg-purple-50 text-purple-700': row.course === 'dopo',
                   }"
                 >
                   <Layers class="size-3 shrink-0" />
@@ -219,7 +219,11 @@
                 </div>
 
                 <!-- Item row -->
-                <div v-else class="p-2 md:p-3 hover:bg-gray-50 transition-colors" :class="{'bg-gray-50 opacity-60': row.item.voidedQuantity === row.item.quantity}">
+                <div v-else class="border-l-4 p-2 md:p-3 hover:bg-gray-50 transition-colors"
+                  :class="[
+                    {'bg-gray-50 opacity-60': row.item.voidedQuantity === row.item.quantity},
+                    getCourseBorderClass(row.item)
+                  ]">
                   <div class="flex items-center justify-between gap-2 md:gap-4">
                     <div class="flex items-center gap-2 md:gap-3 flex-1 min-w-0">
 
@@ -561,7 +565,7 @@
               </button>
               <button
                 @click="noteModal.course = 'dopo'"
-                :class="noteModal.course === 'dopo' ? 'bg-teal-500 text-white border-teal-500' : 'bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-200'"
+                :class="noteModal.course === 'dopo' ? 'bg-purple-500 text-white border-purple-500' : 'bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-200'"
                 class="flex-1 py-2.5 rounded-xl font-bold text-xs border transition-colors active:scale-95 flex flex-col items-center gap-1"
               >
                 <span class="text-[9px] font-black uppercase tracking-wider opacity-70">3ª portata</span>
@@ -757,6 +761,12 @@ function getItemUnitPrice(item) {
 }
 
 // ── Course helpers ──────────────────────────────────────────────────────────
+function getCourseBorderClass(item) {
+  if (item.course === 'prima') return 'border-orange-400';
+  if (item.course === 'dopo') return 'border-purple-500';
+  return 'border-[var(--brand-primary)]';
+}
+
 const DEFAULT_COURSE = 'insieme';
 const courseOrder = ['prima', DEFAULT_COURSE, 'dopo'];
 
