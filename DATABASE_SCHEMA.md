@@ -354,6 +354,7 @@ CREATE TABLE app_settings (
     venue_id    INTEGER         NOT NULL REFERENCES venues(id) ON DELETE CASCADE,
     device_key  VARCHAR(120)    NOT NULL DEFAULT 'default',  -- es. UUID dispositivo
     sounds      BOOLEAN         NOT NULL DEFAULT TRUE,       -- avvisi audio "ding"
+    menu_url    TEXT,                                       -- URL menu digitale (corrisponde a `menuUrl` in app-settings)
     updated_at  TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
     UNIQUE (venue_id, device_key)
 );
