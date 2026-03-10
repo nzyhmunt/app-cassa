@@ -637,7 +637,8 @@ export const useAppStore = defineStore('app', () => {
   };
 }, {
   // ── Persistenza via pinia-plugin-persistedstate ─────────────────────────
-  // Lo stato operativo è salvato in localStorage sotto la chiave STORAGE_KEY.
+  // Lo stato operativo è salvato in localStorage sotto la chiave `storageKey`,
+  // derivata da `resolveStorageKeys(_instanceName)` e usata come source of truth.
   // Un serializzatore personalizzato gestisce la conversione Set↔Array per
   // billRequestedTables, che non è direttamente serializzabile in JSON.
   //
