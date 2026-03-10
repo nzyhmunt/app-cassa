@@ -424,7 +424,7 @@
                 <MousePointerClick class="size-8 opacity-30 mb-2" />
                 <p class="text-xs font-medium">Tocca i piatti nel menu per prepararli qui, poi inseriscili.</p>
               </div>
-              <div v-for="(cartItem, idx) in tempCart" :key="cartItem.uid" class="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
+              <div v-for="(cartItem, idx) in tempCart" :key="cartItem.uid" class="bg-white rounded-lg shadow-sm overflow-hidden border-l-4" :class="getCourseBorderClass(cartItem)">
                 <div class="p-2.5 flex items-start justify-between">
                   <div class="flex flex-col flex-1 min-w-0 pr-2">
                     <span class="font-bold text-sm text-gray-800 truncate">{{ cartItem.name }}</span>
