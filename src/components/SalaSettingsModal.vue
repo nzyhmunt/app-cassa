@@ -77,7 +77,7 @@
 </template>
 
 <script setup>
-import { ref, watch } from 'vue';
+import { ref, watch, onUnmounted } from 'vue';
 import { Settings, X, RefreshCw, RotateCcw } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
 import { getInstanceName, resolveStorageKeys, clearState } from '../store/persistence.js';
@@ -116,11 +116,25 @@ function loadInitialSettings() {
 const settings = ref(loadInitialSettings());
 const resetConfirmPending = ref(false);
 
+let saveTimer = null;
+
+function persistSettings(val) {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(val));
+  } catch {
+    // Ignore storage errors (e.g., quota exceeded or disabled storage)
+  }
+}
+
 watch(
   () => props.modelValue,
   (newVal) => {
     if (!newVal) {
       resetConfirmPending.value = false;
+      // Flush any pending debounced write when the modal closes
+      clearTimeout(saveTimer);
+      persistSettings(settings.value);
     }
   }
 );
@@ -128,18 +142,20 @@ watch(
 watch(
   settings,
   (newVal) => {
-    if (typeof window !== 'undefined') {
-      try {
-        window.localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(newVal));
-      } catch {
-        // Ignore storage errors (e.g., quota exceeded or disabled storage)
-      }
-    }
+    // Keep store and parent in sync immediately for responsive UI
     store.menuUrl = newVal.menuUrl;
     emit('settings-changed', newVal);
+    // Debounce localStorage writes to avoid per-keystroke I/O (e.g. menuUrl typing)
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => persistSettings(newVal), 400);
   },
   { deep: true }
 );
+
+onUnmounted(() => {
+  clearTimeout(saveTimer);
+  persistSettings(settings.value);
+});
 
 async function syncMenu() {
   await store.loadMenu();
