@@ -75,97 +75,11 @@
 </template>
 
 <script setup>
-import { ref, watch, onUnmounted } from 'vue';
 import { Settings, X, RefreshCw, RotateCcw } from 'lucide-vue-next';
-import { useAppStore } from '../store/index.js';
-import { getInstanceName, resolveStorageKeys, clearState } from '../store/persistence.js';
-import { appConfig } from '../utils/index.js';
+import { useSettings } from '../composables/useSettings.js';
 
 const props = defineProps({ modelValue: Boolean });
 const emit = defineEmits(['update:modelValue', 'settings-changed']);
 
-const store = useAppStore();
-
-const _instanceName = getInstanceName();
-const { storageKey: _storageKey, settingsKey: SETTINGS_STORAGE_KEY } = resolveStorageKeys(_instanceName);
-
-function loadInitialSettings() {
-  if (typeof window === 'undefined') {
-    return { sounds: true, menuUrl: appConfig.menuUrl };
-  }
-  try {
-    const raw = window.localStorage.getItem(SETTINGS_STORAGE_KEY);
-    if (!raw) {
-      return { sounds: true, menuUrl: appConfig.menuUrl };
-    }
-    const parsed = JSON.parse(raw);
-    return {
-      sounds: typeof parsed.sounds === 'boolean' ? parsed.sounds : true,
-      menuUrl:
-        typeof parsed.menuUrl === 'string' && parsed.menuUrl.trim() !== ''
-          ? parsed.menuUrl
-          : appConfig.menuUrl,
-    };
-  } catch {
-    return { sounds: true, menuUrl: appConfig.menuUrl };
-  }
-}
-
-const settings = ref(loadInitialSettings());
-const resetConfirmPending = ref(false);
-
-let saveTimer = null;
-
-function persistSettings(val) {
-  if (typeof window === 'undefined') return;
-  try {
-    window.localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(val));
-  } catch {
-    // Ignore storage errors (e.g., quota exceeded or disabled storage)
-  }
-}
-
-watch(
-  () => props.modelValue,
-  (newVal) => {
-    if (!newVal) {
-      resetConfirmPending.value = false;
-      // Flush any pending debounced write when the modal closes
-      clearTimeout(saveTimer);
-      persistSettings(settings.value);
-    }
-  }
-);
-
-watch(
-  settings,
-  (newVal) => {
-    // Keep store and parent in sync immediately for responsive UI
-    store.menuUrl = newVal.menuUrl;
-    emit('settings-changed', newVal);
-    // Debounce localStorage writes to avoid per-keystroke I/O (e.g. menuUrl typing)
-    clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => persistSettings(newVal), 400);
-  },
-  { deep: true }
-);
-
-onUnmounted(() => {
-  clearTimeout(saveTimer);
-  persistSettings(settings.value);
-});
-
-async function syncMenu() {
-  await store.loadMenu();
-}
-
-function confirmReset() {
-  clearState(_storageKey);
-  try {
-    window.localStorage.removeItem(SETTINGS_STORAGE_KEY);
-  } catch (e) {
-    console.warn('[Settings] Failed to remove settings during reset:', e);
-  }
-  window.location.reload();
-}
+const { store, settings, resetConfirmPending, syncMenu, confirmReset } = useSettings(props, emit);
 </script>
