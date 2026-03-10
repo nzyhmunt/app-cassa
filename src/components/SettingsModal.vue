@@ -109,6 +109,15 @@ const settings = ref(loadInitialSettings());
 const resetConfirmPending = ref(false);
 
 watch(
+  () => modelValue,
+  (newVal) => {
+    if (!newVal) {
+      resetConfirmPending.value = false;
+    }
+  }
+);
+
+watch(
   settings,
   (newVal) => {
     if (typeof window !== 'undefined') {
