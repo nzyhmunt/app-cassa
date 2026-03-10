@@ -8,14 +8,10 @@
  * active instance name.
  *
  * ── Multi-instance support ────────────────────────────────────────────────
- * Multiple instances of the app can run on the same device (e.g. a cassa and
- * a sala tablet sharing the same origin) without interfering by assigning each
- * a unique instance name. The name is resolved in this priority order:
- *   1. `?instance=NAME` query param in the URL (highest priority).
- *      Tip: bake the param into the PWA home-screen shortcut URL.
- *   2. `appConfig.instanceName` — set in `src/utils/index.js` at build time.
- *   3. Empty string (default) — uses the original key names for backwards
- *      compatibility with existing installations.
+ * Multiple instances of the app can run on the same device by assigning each
+ * build a unique `instanceName` in `src/utils/index.js` (`appConfig`).
+ * All localStorage keys are derived from that name, so each build operates
+ * in complete isolation — no runtime user configuration required.
  *
  * ── Note per la futura migrazione a PWA ──────────────────────────────────
  * TODO (PWA - IndexedDB): Replace localStorage with IndexedDB for larger
@@ -34,29 +30,13 @@ import { appConfig } from '../utils/index.js';
 export const SCHEMA_VERSION = 1;
 
 /**
- * Reads the active instance name.
- * Priority: ?instance= query param > appConfig.instanceName > '' (default).
+ * Returns the active instance name from `appConfig.instanceName`.
+ * Set this value at build time in `src/utils/index.js`.
  *
  * @returns {string} The instance name, or '' for the default instance.
  */
 export function getInstanceName() {
-  if (typeof window === 'undefined') return appConfig.instanceName || '';
-  try {
-    // Regular query string (before '#') takes highest priority
-    const sp = new URLSearchParams(window.location.search || '');
-    let name = sp.get('instance') || '';
-    if (!name) {
-      // Fallback: hash-based routing (e.g. /#/route?instance=NAME)
-      const hash = window.location.hash || '';
-      const qi = hash.indexOf('?');
-      if (qi !== -1) name = new URLSearchParams(hash.slice(qi + 1)).get('instance') || '';
-    }
-    if (name) return name;
-    // Fall back to the static config value
-    return appConfig.instanceName || '';
-  } catch {
-    return appConfig.instanceName || '';
-  }
+  return appConfig.instanceName || '';
 }
 
 /**
