@@ -66,6 +66,24 @@ export function saveState(state) {
 }
 
 /**
+ * Cancella lo stato salvato da localStorage, ripristinando i dati di default
+ * al successivo caricamento dell'app.
+ *
+ * Da chiamare prima di ricaricare la pagina (window.location.reload()).
+ *
+ * TODO (PWA): In aggiunta, notificare Directus (o invalidare il cache IndexedDB) per
+ *             allineare il reset anche sui dati remoti, se necessario.
+ */
+export function clearState() {
+  if (typeof localStorage === 'undefined') return;
+  try {
+    localStorage.removeItem(STORAGE_KEY);
+  } catch (e) {
+    console.warn('[Persistence] Impossibile cancellare lo stato salvato:', e);
+  }
+}
+
+/**
  * Legge e deserializza lo stato dell'app da localStorage.
  *
  * @returns {object|null} Stato ripristinato, oppure null se assente o non valido.

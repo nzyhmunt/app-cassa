@@ -1,16 +1,17 @@
 <template>
-  <!-- MODAL: IMPOSTAZIONI SISTEMA -->
+  <!-- MODAL: IMPOSTAZIONI SALA -->
   <div v-if="modelValue" class="fixed inset-0 z-[90] bg-black/60 backdrop-blur-sm flex items-end md:items-center justify-center p-0 md:p-4">
     <div class="bg-white rounded-t-3xl md:rounded-3xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col">
       <div class="bg-gray-50 border-b border-gray-200 p-4 md:p-5 flex justify-between items-center">
         <h3 class="font-bold text-base md:text-lg flex items-center gap-2 text-gray-800">
-          <Settings class="text-gray-500 size-4 md:size-5" /> Impostazioni Cassa
+          <Settings class="text-gray-500 size-4 md:size-5" /> Impostazioni Sala
         </h3>
         <button @click="$emit('update:modelValue', false)" class="text-gray-400 hover:text-gray-800 bg-gray-200 hover:bg-gray-300 rounded-full p-1.5 transition-colors active:scale-95">
           <X class="size-5" />
         </button>
       </div>
       <div class="p-4 md:p-6 space-y-3 bg-white pb-8 md:pb-6">
+        <!-- Avvisi audio per nuovi ordini -->
         <div @click="settings.sounds = !settings.sounds"
           class="flex items-center justify-between p-3 md:p-4 border border-gray-200 rounded-2xl cursor-pointer hover:bg-gray-50 transition-colors active:scale-95">
           <div>
@@ -27,6 +28,7 @@
           </button>
         </div>
 
+        <!-- Sincronizzazione menu -->
         <div class="pt-4 border-t border-gray-100 mt-2 space-y-3">
           <div>
             <label class="block text-xs font-bold text-gray-600 mb-1">URL Menu JSON</label>

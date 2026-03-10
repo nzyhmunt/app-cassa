@@ -116,6 +116,10 @@ function playBeep() {
     osc.start();
     gain.gain.exponentialRampToValueAtTime(0.00001, ctx.currentTime + 0.2);
     osc.stop(ctx.currentTime + 0.2);
-  } catch (e) {}
+    // Close the context once the sound has finished to free audio resources
+    setTimeout(() => ctx.close(), 500);
+  } catch (e) {
+    console.warn('[Navbar] Failed to play beep:', e);
+  }
 }
 </script>
