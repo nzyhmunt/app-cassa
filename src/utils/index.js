@@ -26,7 +26,7 @@ export const appConfig = {
 
   // Instance name used to isolate localStorage keys when multiple app instances run
   // on the same device (same origin). Set a unique value per device/shortcut
-  // (e.g. 'cassa1', 'sala2'). Can also be overridden via ?instance= query param.
+  // (e.g. 'cassa1', 'sala2'). This value is configured at build/deploy time.
   // Empty string (default) keeps the original key names for backwards compatibility.
   instanceName: '',
 
