@@ -5,34 +5,45 @@ import './assets/styles/main.css';
 import SalaApp from './SalaApp.vue';
 
 // On iOS PWA, reset the viewport scroll position when the on-screen keyboard is dismissed.
-// We do NOT prevent scrolling while the keyboard is open so the focused input remains visible.
-// When focus leaves all inputs (keyboard closes), we restore scrollY to 0.
+// Natural scrolling while the keyboard is open is preserved so focused inputs remain visible.
 const isIOS = /iP(ad|hone|od)/.test(window.navigator.userAgent);
 const isStandalonePWA =
   (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) ||
   (typeof window.navigator.standalone === 'boolean' && window.navigator.standalone);
 
 if (isIOS && isStandalonePWA) {
-  // Delay (ms) to wait for focus to settle on a new element before deciding the keyboard closed.
-  const KEYBOARD_DISMISS_DELAY_MS = 300;
-  let resetScrollTimeout = null;
-
-  document.addEventListener(
-    'focusout',
-    () => {
-      // A short delay lets focus settle on a new element (e.g. moving between inputs)
-      // before we decide whether the keyboard has really been dismissed.
-      clearTimeout(resetScrollTimeout);
-      resetScrollTimeout = setTimeout(() => {
-        const active = document.activeElement;
-        const keyboardTags = ['INPUT', 'TEXTAREA', 'SELECT'];
-        if (!active || !keyboardTags.includes(active.tagName)) {
-          window.scrollTo(0, 0);
-        }
-      }, KEYBOARD_DISMISS_DELAY_MS);
-    },
-    { passive: true }
-  );
+  const vv = window.visualViewport;
+  if (vv) {
+    // Primary: use the Visual Viewport API.
+    // When the visual viewport grows back to near full height the keyboard has been dismissed.
+    // The threshold (px) is smaller than any realistic keyboard height (~250 px) to avoid
+    // false positives from minor resize events (e.g. address bar hide/show).
+    const KEYBOARD_HEIGHT_THRESHOLD_PX = 150;
+    vv.addEventListener('resize', () => {
+      if (vv.height > window.innerHeight - KEYBOARD_HEIGHT_THRESHOLD_PX) {
+        window.scrollTo(0, 0);
+      }
+    });
+  } else {
+    // Fallback for browsers without visualViewport support.
+    // Reset scroll once focus leaves all keyboard-triggering elements.
+    const KEYBOARD_DISMISS_DELAY_MS = 300;
+    let resetScrollTimeout = null;
+    document.addEventListener(
+      'focusout',
+      () => {
+        clearTimeout(resetScrollTimeout);
+        resetScrollTimeout = setTimeout(() => {
+          const active = document.activeElement;
+          const keyboardTags = ['INPUT', 'TEXTAREA', 'SELECT'];
+          if (!active || !keyboardTags.includes(active.tagName)) {
+            window.scrollTo(0, 0);
+          }
+        }, KEYBOARD_DISMISS_DELAY_MS);
+      },
+      { passive: true }
+    );
+  }
 }
 const app = createApp(SalaApp);
 app.use(createPinia());
