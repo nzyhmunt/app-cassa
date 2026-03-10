@@ -24,6 +24,12 @@ export const appConfig = {
   // URL used to fetch the remote menu; can be overridden via ?menuUrl= query parameter
   menuUrl: DEFAULT_MENU_URL,
 
+  // Instance name used to isolate localStorage keys when multiple app instances run
+  // on the same device (same origin). Set a unique value per device/shortcut
+  // (e.g. 'cassa1', 'sala2'). Can also be overridden via ?instance= query param.
+  // Empty string (default) keeps the original key names for backwards compatibility.
+  instanceName: '',
+
   // CONFIGURAZIONE DINAMICA METODI PAGAMENTO CASSA
   paymentMethods: [
     { id: 'cash', label: 'Contanti', icon: 'banknote', colorClass: 'border-emerald-500 text-emerald-600 hover:bg-emerald-50' },

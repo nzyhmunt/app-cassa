@@ -10,11 +10,10 @@
  * ── Multi-instance support ────────────────────────────────────────────────
  * Multiple instances of the app can run on the same device (e.g. a cassa and
  * a sala tablet sharing the same origin) without interfering by assigning each
- * a unique instance name. The name is either:
- *   1. Set via the `?instance=NAME` query param in the URL (highest priority).
+ * a unique instance name. The name is resolved in this priority order:
+ *   1. `?instance=NAME` query param in the URL (highest priority).
  *      Tip: bake the param into the PWA home-screen shortcut URL.
- *   2. Set by the user in Settings → Nome Istanza, saved to `app-instance`
- *      localStorage key.
+ *   2. `appConfig.instanceName` — set in `src/utils/index.js` at build time.
  *   3. Empty string (default) — uses the original key names for backwards
  *      compatibility with existing installations.
  *
@@ -25,6 +24,8 @@
  * ─────────────────────────────────────────────────────────────────────────
  */
 
+import { appConfig } from '../utils/index.js';
+
 /**
  * Schema version. Increment for breaking state structure changes.
  * The localStorage key changes automatically (e.g. demo_app_state_v2),
@@ -34,12 +35,12 @@ export const SCHEMA_VERSION = 1;
 
 /**
  * Reads the active instance name.
- * Priority: ?instance= query param > 'app-instance' localStorage key > '' (default).
+ * Priority: ?instance= query param > appConfig.instanceName > '' (default).
  *
  * @returns {string} The instance name, or '' for the default instance.
  */
 export function getInstanceName() {
-  if (typeof window === 'undefined') return '';
+  if (typeof window === 'undefined') return appConfig.instanceName || '';
   try {
     // Regular query string (before '#') takes highest priority
     const sp = new URLSearchParams(window.location.search || '');
@@ -51,10 +52,10 @@ export function getInstanceName() {
       if (qi !== -1) name = new URLSearchParams(hash.slice(qi + 1)).get('instance') || '';
     }
     if (name) return name;
-    // Last resort: user-saved instance name
-    return window.localStorage.getItem('app-instance') || '';
+    // Fall back to the static config value
+    return appConfig.instanceName || '';
   } catch {
-    return '';
+    return appConfig.instanceName || '';
   }
 }
 
@@ -73,28 +74,6 @@ export function resolveStorageKeys(instanceName) {
     storageKey: `demo_app_state${suffix}_v${SCHEMA_VERSION}`,
     settingsKey: n ? `app-settings_${n}` : 'app-settings',
   };
-}
-
-/**
- * Saves a new instance name to localStorage.
- * The caller is responsible for reloading the page afterwards so that
- * all keys are re-derived from the new name.
- *
- * @param {string} name - New instance name (empty string restores the default).
- */
-export function saveInstanceName(name) {
-  if (typeof localStorage === 'undefined') return false;
-  try {
-    if (name) {
-      localStorage.setItem('app-instance', name);
-    } else {
-      localStorage.removeItem('app-instance');
-    }
-    return true;
-  } catch (e) {
-    console.warn('[Persistence] Impossibile salvare il nome istanza:', e);
-    return false;
-  }
 }
 
 /**

@@ -45,24 +45,6 @@
         </div>
 
         <!-- Reset dati: sezione ripristino impostazioni di default -->
-        <div class="pt-4 border-t border-gray-100 mt-2 space-y-3">
-          <div>
-            <label class="block text-xs font-bold text-gray-600 mb-1">Nome Istanza</label>
-            <p class="text-[10px] text-gray-500 mb-2">Distingue più copie dell'app sullo stesso dispositivo. Modificare richiede ricaricamento.</p>
-            <div class="flex gap-2">
-              <input
-                v-model="instanceName"
-                type="text"
-                placeholder="es. cassa1, cassa2…"
-                class="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]"
-              />
-              <button @click="applyInstanceName" class="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold rounded-xl border border-gray-200 transition-colors active:scale-95 text-sm whitespace-nowrap">
-                Applica
-              </button>
-            </div>
-          </div>
-        </div>
-
         <!-- Reset dati -->
         <div class="pt-4 border-t border-gray-100 mt-2">
           <template v-if="!resetConfirmPending">
@@ -97,7 +79,7 @@
 import { ref, watch } from 'vue';
 import { Settings, X, RefreshCw, RotateCcw } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
-import { getInstanceName, resolveStorageKeys, saveInstanceName, clearState } from '../store/persistence.js';
+import { getInstanceName, resolveStorageKeys, clearState } from '../store/persistence.js';
 
 const props = defineProps({ modelValue: Boolean });
 const emit = defineEmits(['update:modelValue', 'settings-changed']);
@@ -106,8 +88,6 @@ const store = useAppStore();
 
 const _instanceName = getInstanceName();
 const { storageKey: _storageKey, settingsKey: SETTINGS_STORAGE_KEY } = resolveStorageKeys(_instanceName);
-
-const instanceName = ref(_instanceName);
 
 function loadInitialSettings() {
   if (typeof window === 'undefined') {
@@ -173,10 +153,5 @@ function confirmReset() {
   } else {
     window.location.reload();
   }
-}
-
-function applyInstanceName() {
-  const saved = saveInstanceName(instanceName.value.trim());
-  if (saved && typeof window !== 'undefined') window.location.reload();
 }
 </script>
