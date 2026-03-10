@@ -22,7 +22,11 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import { appConfig, initialOrders, updateOrderTotals } from '../utils/index.js';
-import { STORAGE_KEY } from './persistence.js';
+import { getInstanceName, resolveStorageKeys } from './persistence.js';
+
+// Derive storage keys once at module load — stable for the lifetime of the page
+const _instanceName = getInstanceName();
+const { storageKey, settingsKey } = resolveStorageKeys(_instanceName);
 
 export const useAppStore = defineStore('app', () => {
 
@@ -56,7 +60,7 @@ export const useAppStore = defineStore('app', () => {
   const _savedAppSettings = (() => {
     try {
       if (typeof window === 'undefined') return null;
-      const raw = window.localStorage.getItem('app-settings');
+      const raw = window.localStorage.getItem(settingsKey);
       return raw ? JSON.parse(raw) : null;
     } catch { return null; }
   })();
@@ -640,7 +644,7 @@ export const useAppStore = defineStore('app', () => {
   // TODO (PWA): Sostituire localStorage con IndexedDB (storage: useIDBKeyval())
   //             e aggiungere la sincronizzazione Directus nel afterHydrate hook.
   persist: {
-    key: STORAGE_KEY,
+    key: storageKey,
     pick: [
       'orders',
       'transactions',

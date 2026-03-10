@@ -1,62 +1,112 @@
 /**
  * @file store/persistence.js
- * @description Configurazione e utilità per la persistenza locale dell'app.
+ * @description Persistence utilities for the app state.
  *
- * La persistenza è gestita da `pinia-plugin-persistedstate`, configurato
- * direttamente nello store (`src/store/index.js`) tramite l'opzione `persist`.
+ * Persistence is handled by `pinia-plugin-persistedstate`, configured in
+ * `src/store/index.js` via the `persist` option. This module exposes the
+ * helpers needed to derive the correct localStorage keys and manage the
+ * active instance name.
  *
- * ── Note per la futura migrazione a PWA ──────────────────────────────────────
- * TODO (PWA - IndexedDB): Sostituire localStorage con IndexedDB per gestire
- *   dataset più grandi e operazioni asincrone senza bloccare il thread principale.
- *   Libreria consigliata: idb (https://github.com/jakearchibald/idb)
+ * ── Multi-instance support ────────────────────────────────────────────────
+ * Multiple instances of the app can run on the same device (e.g. a cassa and
+ * a sala tablet sharing the same origin) without interfering by assigning each
+ * a unique instance name. The name is either:
+ *   1. Set via the `?instance=NAME` query param in the URL (highest priority).
+ *      Tip: bake the param into the PWA home-screen shortcut URL.
+ *   2. Set by the user in Settings → Nome Istanza, saved to `app-instance`
+ *      localStorage key.
+ *   3. Empty string (default) — uses the original key names for backwards
+ *      compatibility with existing installations.
  *
- * TODO (PWA - Offline-first): Implementare il pattern offline-first:
- *   1. Salvare sempre i dati localmente (IndexedDB) ad ogni modifica.
- *   2. Quando la connessione è disponibile, sincronizzare con Directus API.
- *   3. Gestire i conflitti di sincronizzazione (es. last-write-wins o merge).
- *
- * TODO (PWA - Directus sync): Aggiungere integrazione con Directus:
- *   - Endpoint base: configurare in appConfig.apiUrl
- *   - Autenticazione: bearer token salvato in localStorage
- *   - Collezioni: orders, transactions, cash_movements, daily_closures
- *   - Trigger sync: navigator.onLine listener + Service Worker background sync
- * ─────────────────────────────────────────────────────────────────────────────
- *
- * Entrambe le app (Cassa e Sala) condividono la stessa chiave di storage
- * perché girano sulla stessa origine e devono condividere lo stesso stato operativo.
+ * ── Note per la futura migrazione a PWA ──────────────────────────────────
+ * TODO (PWA - IndexedDB): Replace localStorage with IndexedDB for larger
+ *   datasets and non-blocking async I/O. Recommended library: idb.
+ * TODO (PWA - Directus sync): Trigger sync after local writes.
+ * ─────────────────────────────────────────────────────────────────────────
  */
 
 /**
- * Configurazione centralizzata della persistenza.
- *
- * Per aggiornare lo schema a una nuova versione incompatibile:
- *   1. Incrementare `version`.
- *   2. La chiave localStorage risultante cambierà automaticamente (es. `demo_app_state_v2`),
- *      lasciando i dati della versione precedente orfani finché non vengono rimossi dal browser.
+ * Schema version. Increment for breaking state structure changes.
+ * The localStorage key changes automatically (e.g. demo_app_state_v2),
+ * leaving the previous version's data as orphans until cleared.
  */
-export const PERSISTENCE_CONFIG = {
-  /** Nome base della chiave; la versione viene aggiunta come suffisso automaticamente. */
-  keyName: 'demo_app_state',
-  /** Versione corrente dello schema. Incrementare in caso di breaking changes. */
-  version: 1,
-};
-
-/** Chiave localStorage derivata dalla configurazione. Non modificare direttamente. */
-export const STORAGE_KEY = `${PERSISTENCE_CONFIG.keyName}_v${PERSISTENCE_CONFIG.version}`;
+export const SCHEMA_VERSION = 1;
 
 /**
- * Cancella lo stato salvato da localStorage, ripristinando i dati di default
- * al successivo caricamento dell'app.
+ * Reads the active instance name.
+ * Priority: ?instance= query param > 'app-instance' localStorage key > '' (default).
  *
- * Da chiamare prima di ricaricare la pagina (window.location.reload()).
- *
- * TODO (PWA): In aggiunta, notificare Directus (o invalidare il cache IndexedDB) per
- *             allineare il reset anche sui dati remoti, se necessario.
+ * @returns {string} The instance name, or '' for the default instance.
  */
-export function clearState() {
+export function getInstanceName() {
+  if (typeof window === 'undefined') return '';
+  try {
+    // Regular query string (before '#') takes highest priority
+    const sp = new URLSearchParams(window.location.search || '');
+    let name = sp.get('instance') || '';
+    if (!name) {
+      // Fallback: hash-based routing (e.g. /#/route?instance=NAME)
+      const hash = window.location.hash || '';
+      const qi = hash.indexOf('?');
+      if (qi !== -1) name = new URLSearchParams(hash.slice(qi + 1)).get('instance') || '';
+    }
+    if (name) return name;
+    // Last resort: user-saved instance name
+    return window.localStorage.getItem('app-instance') || '';
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Derives localStorage keys from the active instance name.
+ * The default instance (empty name) uses the original key names for backwards
+ * compatibility with existing installations.
+ *
+ * @param {string} [instanceName] - Instance name; defaults to getInstanceName().
+ * @returns {{ storageKey: string, settingsKey: string }}
+ */
+export function resolveStorageKeys(instanceName) {
+  const n = instanceName ?? getInstanceName();
+  const suffix = n ? `_${n}` : '';
+  return {
+    storageKey: `demo_app_state${suffix}_v${SCHEMA_VERSION}`,
+    settingsKey: n ? `app-settings_${n}` : 'app-settings',
+  };
+}
+
+/**
+ * Saves a new instance name to localStorage.
+ * The caller is responsible for reloading the page afterwards so that
+ * all keys are re-derived from the new name.
+ *
+ * @param {string} name - New instance name (empty string restores the default).
+ */
+export function saveInstanceName(name) {
+  if (typeof localStorage === 'undefined') return false;
+  try {
+    if (name) {
+      localStorage.setItem('app-instance', name);
+    } else {
+      localStorage.removeItem('app-instance');
+    }
+    return true;
+  } catch (e) {
+    console.warn('[Persistence] Impossibile salvare il nome istanza:', e);
+    return false;
+  }
+}
+
+/**
+ * Removes the persisted app state from localStorage.
+ * Obtain the key from resolveStorageKeys().storageKey.
+ *
+ * @param {string} storageKey - The key to remove.
+ */
+export function clearState(storageKey) {
   if (typeof localStorage === 'undefined') return;
   try {
-    localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(storageKey);
   } catch (e) {
     console.warn('[Persistence] Impossibile cancellare lo stato salvato:', e);
   }
