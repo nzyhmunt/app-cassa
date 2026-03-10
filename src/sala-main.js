@@ -19,9 +19,26 @@ if (isIOS && isStandalonePWA) {
     // The threshold (px) is smaller than any realistic keyboard height (~250 px) to avoid
     // false positives from minor resize events (e.g. address bar hide/show).
     const KEYBOARD_HEIGHT_THRESHOLD_PX = 150;
+    const KEYBOARD_RESET_DEBOUNCE_MS = 50;
+    let keyboardResetTimeoutId = null;
+
     vv.addEventListener('resize', () => {
-      if (vv.height > window.innerHeight - KEYBOARD_HEIGHT_THRESHOLD_PX) {
-        window.scrollTo(0, 0);
+      // Only consider resets when the keyboard is effectively dismissed
+      // and there's actually a scroll offset to reset.
+      if (
+        vv.height > window.innerHeight - KEYBOARD_HEIGHT_THRESHOLD_PX &&
+        window.scrollY !== 0
+      ) {
+        if (keyboardResetTimeoutId !== null) {
+          clearTimeout(keyboardResetTimeoutId);
+        }
+        keyboardResetTimeoutId = window.setTimeout(() => {
+          keyboardResetTimeoutId = null;
+          // Final guard in case scroll was already reset.
+          if (window.scrollY !== 0) {
+            window.scrollTo(0, 0);
+          }
+        }, KEYBOARD_RESET_DEBOUNCE_MS);
       }
     });
   } else {
