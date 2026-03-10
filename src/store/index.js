@@ -54,7 +54,16 @@ export const useAppStore = defineStore('app', () => {
         return hashParams.get('menuUrl');
       })()
     : null;
-  const menuUrl = ref(_paramUrl || appConfig.menuUrl);
+
+  // menuUrl priority: query param > app-settings > appConfig default
+  const _savedAppSettings = (() => {
+    try {
+      if (typeof window === 'undefined') return null;
+      const raw = window.localStorage.getItem('app-settings');
+      return raw ? JSON.parse(raw) : null;
+    } catch { return null; }
+  })();
+  const menuUrl = ref(_paramUrl ?? _savedAppSettings?.menuUrl ?? appConfig.menuUrl);
   const menuLoading = ref(false);
   const menuError = ref(null);
 
@@ -103,7 +112,7 @@ export const useAppStore = defineStore('app', () => {
 
   // ── Cassa State ────────────────────────────────────────────────────────────
   const cashBalance = ref(_saved ? _saved.cashBalance : 0);
-  const cashMovements = ref(_saved ? _saved.cashMovements : []); // { id, type: 'versamento'|'prelievo', amount, reason, timestamp }
+  const cashMovements = ref(_saved ? _saved.cashMovements : []); // { id, type: 'deposit'|'withdrawal', amount, reason, timestamp }
   const dailyClosures = ref(_saved ? _saved.dailyClosures : []); // stored closure summaries
 
   // ── Table extra state ──────────────────────────────────────────────────────
@@ -402,7 +411,7 @@ export const useAppStore = defineStore('app', () => {
   function addCashMovement(type, amount, reason) {
     cashMovements.value.push({
       id: 'mov_' + Math.random().toString(36).slice(2, 11),
-      type, // 'versamento' | 'prelievo'
+      type, // 'deposit' | 'withdrawal'
       amount,
       reason,
       timestamp: new Date().toISOString(),
@@ -441,7 +450,7 @@ export const useAppStore = defineStore('app', () => {
     const averageReceipt = receiptCount > 0 ? totalReceived / receiptCount : 0;
 
     const totalMovements = cashMovements.value.reduce((acc, m) => {
-      return acc + (m.type === 'versamento' ? m.amount : -m.amount);
+      return acc + (m.type === 'deposit' ? m.amount : -m.amount);
     }, 0);
 
     return {

@@ -70,13 +70,13 @@
             </h4>
 
             <div class="grid grid-cols-2 gap-2 mb-4">
-              <button @click="movementType = 'versamento'"
-                :class="movementType === 'versamento' ? 'bg-emerald-100 border-emerald-400 text-emerald-800' : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'"
+              <button @click="movementType = 'deposit'"
+                :class="movementType === 'deposit' ? 'bg-emerald-100 border-emerald-400 text-emerald-800' : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'"
                 class="py-2.5 px-3 rounded-xl border-2 font-bold text-xs md:text-sm flex items-center justify-center gap-2 transition-all active:scale-95">
                 <ArrowDownCircle class="size-4" /> Versamento
               </button>
-              <button @click="movementType = 'prelievo'"
-                :class="movementType === 'prelievo' ? 'bg-red-100 border-red-400 text-red-800' : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'"
+              <button @click="movementType = 'withdrawal'"
+                :class="movementType === 'withdrawal' ? 'bg-red-100 border-red-400 text-red-800' : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'"
                 class="py-2.5 px-3 rounded-xl border-2 font-bold text-xs md:text-sm flex items-center justify-center gap-2 transition-all active:scale-95">
                 <ArrowUpCircle class="size-4" /> Prelievo
               </button>
@@ -93,7 +93,7 @@
                 class="flex-[2] px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:border-[var(--brand-primary)] focus:outline-none"
                 placeholder="Causale (es. Cambio moneta)" />
               <button @click="addMovement"
-                :class="movementType === 'versamento' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-red-600 hover:bg-red-700'"
+                :class="movementType === 'deposit' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-red-600 hover:bg-red-700'"
                 class="text-white px-4 py-2.5 rounded-xl font-bold text-sm flex items-center gap-1.5 shrink-0 transition-colors active:scale-95 shadow-sm">
                 <Plus class="size-4" /> Aggiungi
               </button>
@@ -106,13 +106,13 @@
               </div>
               <div v-for="mov in [...store.cashMovements].reverse()" :key="mov.id"
                 class="flex items-center justify-between p-3 rounded-xl border text-sm font-bold"
-                :class="mov.type === 'versamento' ? 'bg-emerald-50 border-emerald-100 text-emerald-800' : 'bg-red-50 border-red-100 text-red-800'">
+                :class="mov.type === 'deposit' ? 'bg-emerald-50 border-emerald-100 text-emerald-800' : 'bg-red-50 border-red-100 text-red-800'">
                 <div class="flex items-center gap-2">
-                  <component :is="mov.type === 'versamento' ? ArrowDownCircle : ArrowUpCircle" class="size-4 shrink-0" />
+                  <component :is="mov.type === 'deposit' ? ArrowDownCircle : ArrowUpCircle" class="size-4 shrink-0" />
                   <span class="font-medium text-xs md:text-sm">{{ mov.reason || mov.type }}</span>
                 </div>
                 <div class="flex items-center gap-2 shrink-0">
-                  <span class="font-black">{{ mov.type === 'versamento' ? '+' : '-' }}€{{ mov.amount.toFixed(2) }}</span>
+                  <span class="font-black">{{ mov.type === 'deposit' ? '+' : '-' }}€{{ mov.amount.toFixed(2) }}</span>
                   <span class="text-[9px] opacity-60">{{ new Date(mov.timestamp).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }) }}</span>
                 </div>
               </div>
@@ -292,7 +292,7 @@ function saveCashBalance() {
 }
 
 // ── Cash Movements ─────────────────────────────────────────────────────────
-const movementType = ref('versamento');
+const movementType = ref('deposit');
 const movementAmount = ref(0);
 const movementReason = ref('');
 

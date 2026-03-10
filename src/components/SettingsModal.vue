@@ -31,7 +31,7 @@
           <div>
             <label class="block text-xs font-bold text-gray-600 mb-1">URL Menu JSON</label>
             <input
-              v-model="store.menuUrl"
+              v-model="settings.menuUrl"
               type="url"
               placeholder="https://..."
               class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]"
@@ -89,19 +89,21 @@ const SETTINGS_STORAGE_KEY = 'app-settings';
 
 function loadInitialSettings() {
   if (typeof window === 'undefined') {
-    return { sounds: true };
+    return { sounds: true, menuUrl: store.menuUrl };
   }
   try {
     const raw = window.localStorage.getItem(SETTINGS_STORAGE_KEY);
     if (!raw) {
-      return { sounds: true };
+      return { sounds: true, menuUrl: store.menuUrl };
     }
     const parsed = JSON.parse(raw);
     return {
       sounds: typeof parsed.sounds === 'boolean' ? parsed.sounds : true,
+      // store.menuUrl already incorporates query-param > app-settings > appConfig priority
+      menuUrl: store.menuUrl,
     };
   } catch {
-    return { sounds: true };
+    return { sounds: true, menuUrl: store.menuUrl };
   }
 }
 
@@ -127,6 +129,7 @@ watch(
         // Ignore storage errors (e.g., quota exceeded or disabled storage)
       }
     }
+    store.menuUrl = newVal.menuUrl;
     emit('settings-changed', newVal);
   },
   { deep: true }
