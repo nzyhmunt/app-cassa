@@ -34,7 +34,13 @@ export function useBeep() {
       gain.gain.exponentialRampToValueAtTime(0.00001, ctx.currentTime + 0.2);
       osc.stop(ctx.currentTime + 0.2);
       // Close the context once the sound has finished to free audio resources
-      setTimeout(() => ctx.close(), 500);
+      setTimeout(() => {
+        Promise
+          .resolve(ctx.close())
+          .catch((err) => {
+            console.warn('[useBeep] Failed to close AudioContext:', err);
+          });
+      }, 500);
     } catch (e) {
       console.warn('[useBeep] Failed to play beep:', e);
     }
