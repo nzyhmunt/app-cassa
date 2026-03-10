@@ -20,14 +20,21 @@
  *   closedBills[]             – Archived bill sessions after full payment
  */
 import { defineStore } from 'pinia';
-import { ref, computed } from 'vue';
+import { ref, computed, watch, onScopeDispose } from 'vue';
 import { appConfig, initialOrders, updateOrderTotals } from '../utils/index.js';
+import { saveState, loadState } from './persistence.js';
 
 export const useAppStore = defineStore('app', () => {
+  // ── Ripristino stato persistente ───────────────────────────────────────────
+  // Al primo avvio non esiste stato salvato → si usano i dati demo (initialOrders).
+  // Agli avvii successivi lo stato viene ripristinato da localStorage.
+  // TODO (PWA): Caricare lo stato da IndexedDB in modo asincrono prima del mount.
+  const _saved = loadState();
+
   // ── Core State ─────────────────────────────────────────────────────────────
   const config = ref(appConfig);
-  const orders = ref(initialOrders);
-  const transactions = ref([]);
+  const orders = ref(_saved ? _saved.orders : initialOrders);
+  const transactions = ref(_saved ? _saved.transactions : []);
 
   // ── Menu loading state ─────────────────────────────────────────────────────
   // menuUrl can be overridden via ?menuUrl=<url> query parameter
@@ -95,17 +102,17 @@ export const useAppStore = defineStore('app', () => {
   loadMenu();
 
   // ── Cassa State ────────────────────────────────────────────────────────────
-  const cashBalance = ref(0);
-  const cashMovements = ref([]); // { id, type: 'versamento'|'prelievo', amount, reason, timestamp }
-  const dailyClosures = ref([]); // stored closure summaries
+  const cashBalance = ref(_saved ? _saved.cashBalance : 0);
+  const cashMovements = ref(_saved ? _saved.cashMovements : []); // { id, type: 'versamento'|'prelievo', amount, reason, timestamp }
+  const dailyClosures = ref(_saved ? _saved.dailyClosures : []); // stored closure summaries
 
   // ── Table extra state ──────────────────────────────────────────────────────
   // Maps tableId -> ISO timestamp of first accepted order
-  const tableOccupiedAt = ref({});
+  const tableOccupiedAt = ref(_saved ? _saved.tableOccupiedAt : {});
   // Set of tableIds that have requested the bill (bill requested)
-  const billRequestedTables = ref(new Set());
+  const billRequestedTables = ref(_saved ? _saved.billRequestedTables : new Set());
   // Maps tableId -> { billSessionId, adults, children } for the current open session
-  const tableCurrentBillSession = ref({});
+  const tableCurrentBillSession = ref(_saved ? _saved.tableCurrentBillSession : {});
 
   // ── Computed: CSS variables for theming ────────────────────────────────────
   const cssVars = computed(() => ({
@@ -569,6 +576,36 @@ export const useAppStore = defineStore('app', () => {
   const pendingOpenTable = ref(null);
   const pendingSelectOrder = ref(null);
   const pendingNewOrder = ref(null);
+
+  // ── Persistenza locale ────────────────────────────────────────────────────
+  // Ad ogni modifica dello stato rilevante, salva in localStorage con un piccolo
+  // debounce per evitare scritture eccessive durante aggiornamenti multipli.
+  // TODO (PWA): Qui accodare anche la sincronizzazione verso Directus API.
+  let _saveTimer = null;
+  function _scheduleSave() {
+    clearTimeout(_saveTimer);
+    _saveTimer = setTimeout(() => {
+      saveState({
+        orders: orders.value,
+        transactions: transactions.value,
+        tableOccupiedAt: tableOccupiedAt.value,
+        billRequestedTables: billRequestedTables.value,
+        tableCurrentBillSession: tableCurrentBillSession.value,
+        cashBalance: cashBalance.value,
+        cashMovements: cashMovements.value,
+        dailyClosures: dailyClosures.value,
+      });
+    }, 300);
+  }
+
+  watch(
+    [orders, transactions, tableOccupiedAt, billRequestedTables, tableCurrentBillSession, cashBalance, cashMovements, dailyClosures],
+    _scheduleSave,
+    { deep: true },
+  );
+
+  // Pulizia del timer pendente quando il contesto del store viene distrutto
+  onScopeDispose(() => clearTimeout(_saveTimer));
 
   return {
     // state
