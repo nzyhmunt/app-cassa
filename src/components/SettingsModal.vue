@@ -138,6 +138,15 @@ async function syncMenu() {
 
 function confirmReset() {
   clearState();
-  window.location.reload();
+  if (typeof window !== 'undefined' && window.localStorage) {
+    try {
+      window.localStorage.removeItem(SETTINGS_STORAGE_KEY);
+    } catch {
+      // Ignore storage errors during reset
+    }
+    window.location.reload();
+  } else {
+    window.location.reload();
+  }
 }
 </script>
