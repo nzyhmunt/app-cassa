@@ -44,7 +44,6 @@
           <p v-if="store.menuError" class="text-xs text-red-600 text-center">Errore: {{ store.menuError }}</p>
         </div>
 
-        <!-- Reset dati: sezione ripristino impostazioni di default -->
         <!-- Reset dati -->
         <div class="pt-4 border-t border-gray-100 mt-2">
           <template v-if="!resetConfirmPending">
@@ -143,15 +142,11 @@ async function syncMenu() {
 
 function confirmReset() {
   clearState(_storageKey);
-  if (typeof window !== 'undefined' && window.localStorage) {
-    try {
-      window.localStorage.removeItem(SETTINGS_STORAGE_KEY);
-    } catch {
-      // Ignore storage errors during reset
-    }
-    window.location.reload();
-  } else {
-    window.location.reload();
+  try {
+    window.localStorage.removeItem(SETTINGS_STORAGE_KEY);
+  } catch (e) {
+    console.warn('[Settings] Failed to remove settings during reset:', e);
   }
+  window.location.reload();
 }
 </script>

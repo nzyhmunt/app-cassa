@@ -67,6 +67,6 @@ export function clearState(storageKey) {
   try {
     localStorage.removeItem(storageKey);
   } catch (e) {
-    console.warn('[Persistence] Impossibile cancellare lo stato salvato:', e);
+    console.warn('[Persistence] Failed to clear saved state:', e);
   }
 }
