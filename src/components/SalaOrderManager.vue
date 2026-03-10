@@ -39,6 +39,21 @@
           </div>
           <span class="text-[9px] md:text-[10px] uppercase tracking-wider hidden sm:inline">In Cucina</span>
         </button>
+        <button
+          @click="changeTab('history')"
+          aria-label="Chiusi"
+          :class="activeTab === 'history' ? 'bg-gray-200 text-gray-800 border-gray-300 font-bold' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100'"
+          class="flex-1 py-1.5 md:py-2 px-1 rounded-xl border transition-all flex items-center justify-center gap-1.5 shadow-sm"
+        >
+          <div class="relative shrink-0">
+            <History class="size-4 md:size-5" />
+            <span
+              v-if="historyCount > 0"
+              class="absolute -top-1.5 -right-2 bg-gray-500 text-white text-[9px] font-bold size-4 flex items-center justify-center rounded-full border border-white"
+            >{{ historyCount }}</span>
+          </div>
+          <span class="text-[9px] md:text-[10px] uppercase tracking-wider hidden sm:inline">Chiusi</span>
+        </button>
       </div>
 
       <!-- Order list -->
@@ -46,7 +61,7 @@
         <div v-if="filteredOrders.length === 0" class="h-full flex flex-col items-center justify-center text-gray-400 opacity-60">
           <ClipboardList class="size-12 md:size-16 mb-4" />
           <p class="font-medium text-sm md:text-lg">Nessuna comanda</p>
-          <p class="text-xs mt-1">{{ activeTab === 'pending' ? 'Vai su Sala per creare una nuova comanda.' : 'Nessun ordine in cucina al momento.' }}</p>
+          <p class="text-xs mt-1">{{ activeTab === 'pending' ? 'Vai su Sala per creare una nuova comanda.' : activeTab === 'accepted' ? 'Nessun ordine in cucina al momento.' : 'Nessun ordine chiuso.' }}</p>
         </div>
 
         <transition-group name="list">
@@ -78,6 +93,12 @@
               </span>
               <span v-if="order.status === 'accepted'" class="bg-blue-100 text-blue-800 text-[9px] md:text-[10px] uppercase font-bold px-2 py-1 rounded-md border border-blue-200 flex items-center gap-1">
                 <ChefHat class="size-3" /> In Cucina
+              </span>
+              <span v-if="order.status === 'completed'" class="bg-emerald-100 text-emerald-800 text-[9px] md:text-[10px] uppercase font-bold px-2 py-1 rounded-md border border-emerald-200 flex items-center gap-1">
+                <CheckCircle2 class="size-3" /> Pagato
+              </span>
+              <span v-if="order.status === 'rejected'" class="bg-red-100 text-red-800 text-[9px] md:text-[10px] uppercase font-bold px-2 py-1 rounded-md border border-red-200 flex items-center gap-1">
+                <XCircle class="size-3" /> Annullato
               </span>
               <span class="bg-gray-100 text-gray-600 text-[9px] md:text-[10px] font-bold px-2 py-1 rounded-md border border-gray-200 ml-auto">{{ order.itemCount }} pz</span>
             </div>
@@ -722,7 +743,7 @@ import {
   Bell, ClipboardList, ChefHat, Clock, Hash, AlertCircle, MousePointerClick, ArrowLeft,
   AlertTriangle, Trash2, PlusCircle, Send, ShieldCheck, Minus, Plus,
   MessageSquareWarning, PenLine, X, BookOpen, ShoppingCart, Sparkles,
-  Layers, CheckCircle, LayoutGrid, ChevronRight, Info, AlertOctagon,
+  Layers, CheckCircle, CheckCircle2, XCircle, History, LayoutGrid, ChevronRight, Info, AlertOctagon,
 } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
 import { updateOrderTotals, getOrderItemRowTotal } from '../utils/index.js';
@@ -736,14 +757,28 @@ const activeTab = ref('pending');
 const selectedOrder = ref(null);
 
 const filteredOrders = computed(() => {
+  if (activeTab.value === 'history')
+    return store.orders
+      .filter(o => o.status === 'completed' || o.status === 'rejected')
+      .sort((a, b) => b.time.localeCompare(a.time));
   return store.orders
     .filter(o => o.status === activeTab.value)
     .sort((a, b) => b.time.localeCompare(a.time));
 });
 
-const acceptedCount = computed(() =>
-  store.orders.filter(o => o.status === 'accepted').length,
+const orderStatusCounts = computed(() =>
+  store.orders.reduce(
+    (acc, o) => {
+      if (o.status === 'accepted') acc.accepted += 1;
+      if (o.status === 'completed' || o.status === 'rejected') acc.history += 1;
+      return acc;
+    },
+    { accepted: 0, history: 0 },
+  ),
 );
+
+const acceptedCount = computed(() => orderStatusCounts.value.accepted);
+const historyCount = computed(() => orderStatusCounts.value.history);
 
 function changeTab(tab) {
   activeTab.value = tab;
