@@ -1,10 +1,11 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import {
   SCHEMA_VERSION,
   getInstanceName,
   resolveStorageKeys,
   clearState,
 } from '../persistence.js';
+import { appConfig } from '../../utils/index.js';
 
 // ---------------------------------------------------------------------------
 // SCHEMA_VERSION
@@ -19,9 +20,29 @@ describe('SCHEMA_VERSION', () => {
 // getInstanceName()
 // ---------------------------------------------------------------------------
 describe('getInstanceName()', () => {
-  it("returns '' when appConfig.instanceName is empty (default build)", () => {
-    // appConfig.instanceName is '' in src/utils/index.js
+  let originalInstanceName;
+
+  beforeEach(() => {
+    originalInstanceName = appConfig.instanceName;
+  });
+
+  afterEach(() => {
+    appConfig.instanceName = originalInstanceName;
+  });
+
+  it("returns '' when appConfig.instanceName is empty", () => {
+    appConfig.instanceName = '';
     expect(getInstanceName()).toBe('');
+  });
+
+  it("returns '' when appConfig.instanceName is falsy (undefined)", () => {
+    appConfig.instanceName = undefined;
+    expect(getInstanceName()).toBe('');
+  });
+
+  it('returns the configured instance name when appConfig.instanceName is set', () => {
+    appConfig.instanceName = 'cassa1';
+    expect(getInstanceName()).toBe('cassa1');
   });
 });
 

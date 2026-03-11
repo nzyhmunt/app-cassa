@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { useBeep } from '../useBeep.js';
+import { resolveStorageKeys } from '../../store/persistence.js';
 
 // ---------------------------------------------------------------------------
 // AudioContext mock factory
@@ -41,6 +42,10 @@ function createMockAudioContext() {
 }
 
 describe('useBeep()', () => {
+  // Derive the settings key the same way the production code does, so the
+  // tests stay correct across all instance-name configurations.
+  const { settingsKey } = resolveStorageKeys();
+
   beforeEach(() => {
     localStorage.clear();
     vi.useFakeTimers();
@@ -72,7 +77,7 @@ describe('useBeep()', () => {
   });
 
   it('plays a beep when sounds is explicitly true in localStorage', () => {
-    localStorage.setItem('app-settings', JSON.stringify({ sounds: true }));
+    localStorage.setItem(settingsKey, JSON.stringify({ sounds: true }));
     const { ctor, ctx } = createMockAudioContext();
     window.AudioContext = ctor;
 
@@ -83,7 +88,7 @@ describe('useBeep()', () => {
   });
 
   it('does NOT play a beep when sounds is false in localStorage', () => {
-    localStorage.setItem('app-settings', JSON.stringify({ sounds: false }));
+    localStorage.setItem(settingsKey, JSON.stringify({ sounds: false }));
     const { ctor } = createMockAudioContext();
     window.AudioContext = ctor;
 
@@ -94,7 +99,7 @@ describe('useBeep()', () => {
   });
 
   it('defaults to enabled when localStorage contains malformed JSON', () => {
-    localStorage.setItem('app-settings', '{not valid json}');
+    localStorage.setItem(settingsKey, '{not valid json}');
     const { ctor } = createMockAudioContext();
     window.AudioContext = ctor;
 
@@ -105,7 +110,7 @@ describe('useBeep()', () => {
   });
 
   it('defaults to enabled when sounds key is not a boolean', () => {
-    localStorage.setItem('app-settings', JSON.stringify({ sounds: 'yes' }));
+    localStorage.setItem(settingsKey, JSON.stringify({ sounds: 'yes' }));
     const { ctor } = createMockAudioContext();
     window.AudioContext = ctor;
 
