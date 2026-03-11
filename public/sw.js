@@ -21,6 +21,14 @@ const SHELL_CACHE  = `shell-${CACHE_VERSION}`;
 const ASSET_CACHE  = `assets-${CACHE_VERSION}`;
 const DATA_CACHE   = `data-${CACHE_VERSION}`;
 
+/**
+ * Maximum number of entries kept in the asset cache.
+ * When a new hashed asset is stored and the total count exceeds this limit,
+ * the oldest entries are evicted. This prevents unbounded growth between
+ * CACHE_VERSION bumps (which wipe the whole cache on activate).
+ */
+const MAX_ASSET_ENTRIES = 60;
+
 /** App-shell files pre-cached on install.
  *  Include both the explicit HTML files AND the root path ('./') so that
  *  navigations to '/' are served offline from the shell cache. */
@@ -94,6 +102,10 @@ async function cacheFirst(request, cacheName) {
     const response = await fetch(request);
     if (response.ok) {
       await cache.put(request, response.clone());
+      // Evict oldest entries to keep the cache size bounded
+      if (cacheName === ASSET_CACHE) {
+        trimCache(cache, MAX_ASSET_ENTRIES).catch(() => {});
+      }
     }
     return response;
   } catch (err) {
@@ -123,6 +135,19 @@ async function networkFirst(request, cacheName) {
       status: 503,
       headers: { 'Content-Type': 'text/plain; charset=utf-8' },
     });
+  }
+}
+
+/**
+ * Trim a cache to at most `maxEntries` entries by deleting the first keys
+ * returned by `cache.keys()` (insertion order per the SW spec). Called
+ * fire-and-forget after each asset cache write to prevent unbounded growth.
+ */
+async function trimCache(cache, maxEntries) {
+  const keys = await cache.keys();
+  if (keys.length > maxEntries) {
+    const toDelete = keys.slice(0, keys.length - maxEntries);
+    await Promise.all(toDelete.map((key) => cache.delete(key)));
   }
 }
 
