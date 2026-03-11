@@ -30,6 +30,12 @@ export const appConfig = {
   // Empty string (default) keeps the original key names for backwards compatibility.
   instanceName: '',
 
+  // URL of a custom logo image used in the PWA manifest (icons array).
+  // When set, this image is injected as an additional 512×512 maskable icon
+  // in both the cassa and sala web app manifests during the build/dev process.
+  // Set to an empty string to disable custom logo injection.
+  pwaLogo: 'https://odg.nanawork.it/media/com_directus/assets/manifest/hr/icon512_maskable.png',
+
   // CONFIGURAZIONE DINAMICA METODI PAGAMENTO CASSA
   paymentMethods: [
     { id: 'cash', label: 'Contanti', icon: 'banknote', colorClass: 'border-emerald-500 text-emerald-600 hover:bg-emerald-50' },
