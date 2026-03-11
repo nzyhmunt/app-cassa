@@ -42,9 +42,11 @@ export function getMimeType(url) {
  * Idempotent per (src, sizes) pair — already-present entries are not
  * duplicated.  The original array is never mutated.
  *
- * @param {object[]} icons   Existing icons array from the web-app manifest.
- * @param {string}   logoUrl Absolute URL of the custom logo image.
- * @returns {object[]} Updated icons array.
+ * @param {object[]|*} icons   Existing icons array from the web-app manifest.
+ *                            If not an array, the value is returned unchanged.
+ * @param {string}     logoUrl Absolute URL of the custom logo image.
+ * @returns {object[]|*} Updated icons array, or the original `icons` value
+ *                       unchanged when it is not an array.
  */
 export function injectLogoIcon(icons, logoUrl) {
   if (!Array.isArray(icons)) return icons;
