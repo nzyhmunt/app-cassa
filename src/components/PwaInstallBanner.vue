@@ -58,7 +58,7 @@
 
 <script setup>
 import { Download, Share2, X } from 'lucide-vue-next';
-import { usePwaInstall } from '../composables/usePwaInstall.js';
+import { usePwaInstall } from '../../composables/usePwaInstall.js';
 
 const { showBanner, isIOS, install, dismiss } = usePwaInstall();
 </script>
