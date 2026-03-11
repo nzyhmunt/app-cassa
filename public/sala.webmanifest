@@ -1,0 +1,27 @@
+{
+  "id": "./sala.html",
+  "name": "App Sala – Osteria del Grillo",
+  "short_name": "Sala",
+  "description": "Gestione tavoli e ordini in sala per Osteria del Grillo",
+  "start_url": "./sala.html",
+  "display": "standalone",
+  "orientation": "any",
+  "theme_color": "#d97706",
+  "background_color": "#f3f4f6",
+  "lang": "it",
+  "categories": ["food", "productivity"],
+  "icons": [
+    {
+      "src": "./icons/sala-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "./icons/sala-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
