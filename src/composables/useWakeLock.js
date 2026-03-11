@@ -37,7 +37,7 @@ export function useWakeLock() {
       wakeLock = await navigator.wakeLock.request('screen');
     } catch (err) {
       // Request may be rejected if the document is not visible or the
-      // device does not support the feature; silently ignore.
+      // device does not support the feature; log and otherwise ignore.
       console.warn('[WakeLock] Failed to acquire:', err);
     }
   }
