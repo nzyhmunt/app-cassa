@@ -6,9 +6,10 @@
  * ─────────
  * • Static assets (JS, CSS, images, fonts) — cache-first: served from cache;
  *   network is used only when the asset is not cached yet.
- * • HTML shells (cassa.html, sala.html) — network-first: always try the
- *   network so the user gets fresh markup; fall back to cache when offline.
- * • Remote API / menu URLs — stale-while-revalidate: serve the cached
+ * • HTML shells (cassa.html, sala.html, index.html, '/') — network-first:
+ *   always try the network so the user gets fresh markup; fall back to cache
+ *   when offline.
+ * • Remote API / menu URLs and local JSON files — stale-while-revalidate: serve the cached
  *   response immediately, then update the cache in the background.
  *
  * Versioning: bump CACHE_VERSION whenever the app shell changes so that
@@ -20,8 +21,11 @@ const SHELL_CACHE  = `shell-${CACHE_VERSION}`;
 const ASSET_CACHE  = `assets-${CACHE_VERSION}`;
 const DATA_CACHE   = `data-${CACHE_VERSION}`;
 
-/** App-shell files pre-cached on install */
+/** App-shell files pre-cached on install.
+ *  Include both the explicit HTML files AND the root path ('./') so that
+ *  navigations to '/' are served offline from the shell cache. */
 const SHELL_URLS = [
+  './',
   './cassa.html',
   './sala.html',
   './index.html',
@@ -65,7 +69,7 @@ self.addEventListener('fetch', (event) => {
 
   // Data / API requests (remote origin or JSON/menu paths) → stale-while-revalidate
   if (url.origin !== self.location.origin || isDataRequest) {
-    event.respondWith(staleWhileRevalidate(request, DATA_CACHE));
+    event.respondWith(staleWhileRevalidate(event, DATA_CACHE));
     return;
   }
 
@@ -121,13 +125,24 @@ async function networkFirst(request, cacheName) {
   }
 }
 
-/** Stale-while-revalidate: serve cached immediately; refresh cache in background. */
-async function staleWhileRevalidate(request, cacheName) {
-  const cache = await caches.open(cacheName);
-  const cached = await cache.match(request);
-  const fetchPromise = fetch(request)
+/**
+ * Stale-while-revalidate: serve cached immediately; refresh cache in the
+ * background.
+ *
+ * `event.waitUntil` is called synchronously (before any await) so the SW
+ * is kept alive until the background revalidation finishes, even when a
+ * cached response is returned immediately.
+ */
+function staleWhileRevalidate(event, cacheName) {
+  const { request } = event;
+  const cachePromise = caches.open(cacheName);
+
+  // Start the network fetch; store the result in cache when it lands.
+  const networkPromise = fetch(request.clone())
     .then((response) => {
-      if (response.ok) cache.put(request, response.clone());
+      if (response.ok) {
+        cachePromise.then((cache) => cache.put(request, response.clone()));
+      }
       return response;
     })
     .catch((err) => {
@@ -135,12 +150,22 @@ async function staleWhileRevalidate(request, cacheName) {
       console.warn('[SW] staleWhileRevalidate: background fetch failed.', err);
       return null;
     });
-  // Return the cached version immediately if available, else wait for the network
-  if (cached) return cached;
-  const networkResponse = await fetchPromise;
-  if (networkResponse) return networkResponse;
-  return new Response('Risorsa non disponibile offline.', {
-    status: 503,
-    headers: { 'Content-Type': 'text/plain; charset=utf-8' },
-  });
+
+  // Extend the SW lifetime to ensure the background cache update completes
+  // even when a cached response is returned immediately below.
+  event.waitUntil(networkPromise);
+
+  // Respond with the cached version immediately if available, else wait for network.
+  return cachePromise.then((cache) =>
+    cache.match(request).then((cached) => {
+      if (cached) return cached;
+      return networkPromise.then((response) => {
+        if (response) return response;
+        return new Response('Risorsa non disponibile offline.', {
+          status: 503,
+          headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+        });
+      });
+    })
+  );
 }
