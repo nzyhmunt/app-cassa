@@ -11,7 +11,7 @@
     <div
       v-if="showBanner"
       class="fixed bottom-0 left-0 right-0 z-[100] bg-white border-t border-gray-200 shadow-lg px-4 py-3 flex items-start gap-3"
-      role="alertdialog"
+      role="status"
       aria-live="polite"
       aria-label="Installazione app"
     >
