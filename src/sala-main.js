@@ -63,7 +63,7 @@ if (isIOS && isStandalonePWA) {
     );
   }
 }
-if ('serviceWorker' in navigator && import.meta.env.PROD) {
+if (typeof window !== 'undefined' && typeof navigator !== 'undefined' && 'serviceWorker' in navigator && import.meta.env.PROD) {
   navigator.serviceWorker
     .register('./sw.js')
     .catch((err) => {

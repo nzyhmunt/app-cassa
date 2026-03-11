@@ -70,7 +70,7 @@ if (typeof window !== 'undefined' && isIOS() && isStandaloneDisplayMode()) {
     );
   }
 }
-if ('serviceWorker' in navigator && import.meta.env.PROD) {
+if (typeof window !== 'undefined' && typeof navigator !== 'undefined' && 'serviceWorker' in navigator && import.meta.env.PROD) {
   const registerServiceWorker = () => {
     navigator.serviceWorker.register('./sw.js').catch((err) => {
       console.error('[SW] Registration failed:', err);
