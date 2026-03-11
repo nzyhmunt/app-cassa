@@ -4,6 +4,7 @@
     <router-view />
     <SettingsModal v-model="showSettings" />
     <CassaDashboard v-model="showCassa" />
+    <PwaInstallBanner />
   </div>
 </template>
 
@@ -12,6 +13,7 @@ import { ref } from 'vue';
 import Navbar from './components/Navbar.vue';
 import SettingsModal from './components/SettingsModal.vue';
 import CassaDashboard from './components/CassaDashboard.vue';
+import PwaInstallBanner from './components/shared/PwaInstallBanner.vue';
 import { useAppStore } from './store/index.js';
 import { useWakeLock } from './composables/useWakeLock.js';
 

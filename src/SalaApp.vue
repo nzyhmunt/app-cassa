@@ -3,6 +3,7 @@
     <SalaNavbar @open-settings="showSettings = true" />
     <router-view />
     <SalaSettingsModal v-model="showSettings" />
+    <PwaInstallBanner />
   </div>
 </template>
 
@@ -10,6 +11,7 @@
 import { ref, onMounted } from 'vue';
 import SalaNavbar from './components/SalaNavbar.vue';
 import SalaSettingsModal from './components/SalaSettingsModal.vue';
+import PwaInstallBanner from './components/shared/PwaInstallBanner.vue';
 import { useAppStore } from './store/index.js';
 import { useWakeLock } from './composables/useWakeLock.js';
 
