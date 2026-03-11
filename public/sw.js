@@ -42,9 +42,27 @@ const SHELL_URLS = [
 // ─── Install ───────────────────────────────────────────────────────────────
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(SHELL_CACHE).then((cache) => cache.addAll(SHELL_URLS))
+    (async () => {
+      // 1. Pre-cache HTML shells.
+      const shellCache = await caches.open(SHELL_CACHE);
+      await shellCache.addAll(SHELL_URLS);
+
+      // 2. Discover and pre-cache hashed build assets (JS, CSS, module
+      //    preloads) by parsing the shell HTML files.  This ensures the
+      //    app works offline right after the first install without requiring
+      //    a prior online reload to populate the asset cache.
+      const assetCache = await caches.open(ASSET_CACHE);
+      const assetUrls = await discoverBuildAssets(SHELL_URLS);
+      await Promise.all(
+        assetUrls.map((url) =>
+          fetch(url)
+            .then((res) => res.ok ? assetCache.put(url, res) : undefined)
+            .catch(() => { /* non-fatal: skip assets missing in this build */ })
+        )
+      );
+    })()
   );
-  // Activate immediately — no need to wait for old tabs to close
+  // Activate immediately — no need to wait for old tabs to close.
   self.skipWaiting();
 });
 
@@ -144,8 +162,8 @@ async function networkFirst(request, cacheName) {
 
 /**
  * Trim a cache to at most `maxEntries` entries by deleting the first keys
- * returned by `cache.keys()` (insertion order per the SW spec). Called
- * fire-and-forget after each asset cache write to prevent unbounded growth.
+ * returned by `cache.keys()` (insertion order per the SW spec). Awaited
+ * after each asset cache write to keep the cache size bounded.
  */
 async function trimCache(cache, maxEntries) {
   const keys = await cache.keys();
@@ -153,6 +171,34 @@ async function trimCache(cache, maxEntries) {
     const toDelete = keys.slice(0, keys.length - maxEntries);
     await Promise.all(toDelete.map((key) => cache.delete(key)));
   }
+}
+
+/**
+ * Fetch each HTML shell and extract the hashed JS/CSS build-asset URLs
+ * referenced by `src="…"` or `href="…"` attributes that point into
+ * Vite's `assets/` directory.  Paths are resolved to absolute URLs so
+ * that `cache.put()` keys match the browser's request URLs.
+ * Returns a de-duplicated array of absolute URL strings.
+ */
+async function discoverBuildAssets(shellUrls) {
+  const assetSet = new Set();
+  await Promise.all(
+    shellUrls.map(async (shellUrl) => {
+      try {
+        // Resolve to absolute so relative asset paths can be anchored correctly.
+        const absoluteShellUrl = new URL(shellUrl, self.location.href).href;
+        const response = await fetch(absoluteShellUrl);
+        if (!response.ok) return;
+        const html = await response.text();
+        for (const [, path] of html.matchAll(/(?:src|href)=["']([^"']*assets\/[^"']+)["']/gi)) {
+          assetSet.add(new URL(path, absoluteShellUrl).href);
+        }
+      } catch {
+        // Ignore fetch errors for individual shells; asset caching is best-effort.
+      }
+    })
+  );
+  return [...assetSet];
 }
 
 /**
