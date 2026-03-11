@@ -142,7 +142,12 @@ function staleWhileRevalidate(event, cacheName) {
   const networkPromise = fetch(request.clone())
     .then((response) => {
       if (response.ok) {
-        cachePromise.then((cache) => cache.put(request, response.clone()));
+        return cachePromise
+          .then((cache) => cache.put(request, response.clone()))
+          .catch((err) => {
+            console.warn('[SW] staleWhileRevalidate: cache.put failed.', err);
+          })
+          .then(() => response);
       }
       return response;
     })
