@@ -1,5 +1,6 @@
 import { createApp } from 'vue';
 import { createPinia } from 'pinia';
+import piniaPluginPersistedstate from 'pinia-plugin-persistedstate';
 import salaRouter from './sala-router/index.js';
 import './assets/styles/main.css';
 import SalaApp from './SalaApp.vue';
@@ -63,6 +64,8 @@ if (isIOS && isStandalonePWA) {
   }
 }
 const app = createApp(SalaApp);
-app.use(createPinia());
+const pinia = createPinia();
+pinia.use(piniaPluginPersistedstate);
+app.use(pinia);
 app.use(salaRouter);
 app.mount('#app');

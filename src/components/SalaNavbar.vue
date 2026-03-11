@@ -40,22 +40,30 @@
       </router-link>
     </div>
 
-    <!-- Right: clock -->
-    <div class="flex items-center justify-end flex-1 min-w-0">
+    <!-- Right: clock + settings -->
+    <div class="flex items-center justify-end gap-3 flex-1 min-w-0">
       <div class="text-right hidden lg:block">
         <p class="text-sm font-bold truncate">{{ currentTime }}</p>
         <p class="text-[10px] text-white/80 uppercase truncate">Turno Attivo</p>
       </div>
+      <!-- Tasto Settings -->
+      <button @click="$emit('open-settings')" aria-label="Apri impostazioni" class="relative z-50 bg-black/20 hover:bg-black/30 px-2.5 md:px-3 py-2 md:py-2.5 rounded-xl transition-colors shadow-inner text-white flex items-center justify-center gap-1.5 cursor-pointer active:scale-95">
+        <Settings class="size-5 md:size-5 shrink-0" />
+        <span class="hidden lg:inline text-xs font-bold">Config</span>
+      </button>
     </div>
 
   </header>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { useRoute } from 'vue-router';
-import { UtensilsCrossed, LayoutGrid, ClipboardList } from 'lucide-vue-next';
+import { UtensilsCrossed, LayoutGrid, ClipboardList, Settings } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
+import { useBeep } from '../composables/useBeep.js';
+
+defineEmits(['open-settings']);
 
 const store = useAppStore();
 const route = useRoute();
@@ -73,4 +81,17 @@ onMounted(() => {
 onUnmounted(() => {
   if (clockTimer !== null) clearInterval(clockTimer);
 });
+
+// ── Avviso audio per nuovi ordini in arrivo ────────────────────────────────
+const { playBeep } = useBeep();
+
+// Suona quando arriva un nuovo ordine in pending (pendingCount cresce)
+watch(
+  () => store.pendingCount,
+  (newVal, oldVal) => {
+    if (newVal > oldVal) {
+      playBeep();
+    }
+  },
+);
 </script>

@@ -64,6 +64,7 @@ import { ref, onMounted, onUnmounted, computed } from 'vue';
 import { useRoute } from 'vue-router';
 import { Monitor, Receipt, LayoutGrid, BellPlus, Settings, Landmark } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
+import { useBeep } from '../composables/useBeep.js';
 
 const emit = defineEmits(['open-settings', 'open-cassa']);
 
@@ -85,37 +86,10 @@ onUnmounted(() => {
   if (clockTimer !== null) clearInterval(clockTimer);
 });
 
+const { playBeep } = useBeep();
+
 function onSimulateOrder() {
   store.simulateNewOrder();
   playBeep();
-}
-
-const SETTINGS_STORAGE_KEY = 'app-settings';
-function isSoundsEnabled() {
-  try {
-    const raw = window.localStorage.getItem(SETTINGS_STORAGE_KEY);
-    if (!raw) return true;
-    const parsed = JSON.parse(raw);
-    return typeof parsed.sounds === 'boolean' ? parsed.sounds : true;
-  } catch {
-    return true;
-  }
-}
-
-function playBeep() {
-  if (!store.config || !isSoundsEnabled()) return;
-  try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(880, ctx.currentTime);
-    gain.gain.setValueAtTime(0.1, ctx.currentTime);
-    osc.start();
-    gain.gain.exponentialRampToValueAtTime(0.00001, ctx.currentTime + 0.2);
-    osc.stop(ctx.currentTime + 0.2);
-  } catch (e) {}
 }
 </script>

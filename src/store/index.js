@@ -22,32 +22,36 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import { appConfig, initialOrders, updateOrderTotals } from '../utils/index.js';
+import { getInstanceName, resolveStorageKeys } from './persistence.js';
+
+// Derive storage keys once at module load — stable for the lifetime of the page
+const _instanceName = getInstanceName();
+const { storageKey, settingsKey } = resolveStorageKeys(_instanceName);
 
 export const useAppStore = defineStore('app', () => {
+
   // ── Core State ─────────────────────────────────────────────────────────────
   const config = ref(appConfig);
-  const orders = ref(initialOrders);
+  // orders is initialized empty; pinia-plugin-persistedstate will hydrate saved state,
+  // or afterHydrate will fall back to initialOrders on first load.
+  const orders = ref([]);
   const transactions = ref([]);
 
   // ── Menu loading state ─────────────────────────────────────────────────────
-  // menuUrl can be overridden via ?menuUrl=<url> query parameter
-  const _paramUrl = typeof window !== 'undefined'
-    ? (() => {
-        // First, check regular query string (before '#')
-        const searchParams = new URLSearchParams(window.location.search || '');
-        let value = searchParams.get('menuUrl');
-        if (value) return value;
-
-        // Fallback: handle hash-based routing (e.g. /#/route?menuUrl=...)
-        const hash = window.location.hash || '';
-        const queryStart = hash.indexOf('?');
-        if (queryStart === -1) return null;
-        const hashQuery = hash.slice(queryStart + 1);
-        const hashParams = new URLSearchParams(hashQuery);
-        return hashParams.get('menuUrl');
-      })()
-    : null;
-  const menuUrl = ref(_paramUrl || appConfig.menuUrl);
+  // menuUrl priority: app-settings (user-saved) > appConfig default.
+  // The URL is set at build time via appConfig.menuUrl or updated by the user in Settings.
+  const _savedAppSettings = (() => {
+    try {
+      if (typeof window === 'undefined') return null;
+      const raw = window.localStorage.getItem(settingsKey);
+      return raw ? JSON.parse(raw) : null;
+    } catch { return null; }
+  })();
+  const menuUrl = ref(
+    (typeof _savedAppSettings?.menuUrl === 'string' && _savedAppSettings.menuUrl.trim() !== '')
+      ? _savedAppSettings.menuUrl
+      : appConfig.menuUrl
+  );
   const menuLoading = ref(false);
   const menuError = ref(null);
 
@@ -96,7 +100,7 @@ export const useAppStore = defineStore('app', () => {
 
   // ── Cassa State ────────────────────────────────────────────────────────────
   const cashBalance = ref(0);
-  const cashMovements = ref([]); // { id, type: 'versamento'|'prelievo', amount, reason, timestamp }
+  const cashMovements = ref([]); // { id, type: 'deposit'|'withdrawal', amount, reason, timestamp }
   const dailyClosures = ref([]); // stored closure summaries
 
   // ── Table extra state ──────────────────────────────────────────────────────
@@ -395,7 +399,7 @@ export const useAppStore = defineStore('app', () => {
   function addCashMovement(type, amount, reason) {
     cashMovements.value.push({
       id: 'mov_' + Math.random().toString(36).slice(2, 11),
-      type, // 'versamento' | 'prelievo'
+      type, // 'deposit' | 'withdrawal'
       amount,
       reason,
       timestamp: new Date().toISOString(),
@@ -434,7 +438,7 @@ export const useAppStore = defineStore('app', () => {
     const averageReceipt = receiptCount > 0 ? totalReceived / receiptCount : 0;
 
     const totalMovements = cashMovements.value.reduce((acc, m) => {
-      return acc + (m.type === 'versamento' ? m.amount : -m.amount);
+      return acc + (m.type === 'deposit' ? m.amount : -m.amount);
     }, 0);
 
     return {
@@ -618,4 +622,67 @@ export const useAppStore = defineStore('app', () => {
     generateXReport,
     performDailyClose,
   };
+}, {
+  // ── Persistenza via pinia-plugin-persistedstate ─────────────────────────
+  // Lo stato operativo è salvato in localStorage sotto la chiave `storageKey`,
+  // derivata da `resolveStorageKeys(_instanceName)` e usata come source of truth.
+  // Un serializzatore personalizzato gestisce la conversione Set↔Array per
+  // billRequestedTables, che non è direttamente serializzabile in JSON.
+  //
+  // TODO (PWA): Sostituire localStorage con IndexedDB (storage: useIDBKeyval())
+  //             e aggiungere la sincronizzazione Directus nel afterHydrate hook.
+  persist: {
+    key: storageKey,
+    pick: [
+      'orders',
+      'transactions',
+      'tableOccupiedAt',
+      'billRequestedTables',
+      'tableCurrentBillSession',
+      'cashBalance',
+      'cashMovements',
+      'dailyClosures',
+    ],
+    serializer: {
+      serialize(state) {
+        return JSON.stringify({
+          ...state,
+          // Set is not JSON-serializable — convert to Array before storing
+          billRequestedTables: Array.from(state.billRequestedTables),
+        });
+      },
+      deserialize(raw) {
+        try {
+          const data = JSON.parse(raw);
+          return {
+            ...data,
+            // Restore Array back to Set so the store can use it correctly
+            billRequestedTables: new Set(
+              Array.isArray(data.billRequestedTables) ? data.billRequestedTables : [],
+            ),
+          };
+        } catch (error) {
+          // If the persisted JSON is corrupted, remove it so the app can recover
+          try {
+            if (typeof window !== 'undefined' && window.localStorage) {
+              window.localStorage.removeItem(storageKey);
+            }
+          } catch (_) {
+            // Ignore storage access errors and fall back to a safe default
+          }
+          return {
+            // Fall back to an empty Set; other fields use the store's initial state
+            billRequestedTables: new Set(),
+          };
+        }
+      },
+    },
+    // On first load (no saved state), seed orders with demo data.
+    // On subsequent loads the plugin has already hydrated the saved orders above.
+    afterHydrate(ctx) {
+      if (!ctx.store.orders.length) {
+        ctx.store.orders = initialOrders;
+      }
+    },
+  },
 });
