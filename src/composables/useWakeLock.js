@@ -2,8 +2,9 @@
  * useWakeLock — prevents the screen from locking while the app is in PWA
  * (standalone display mode) and the user has enabled the setting.
  *
- * The WakeLock API sentinel is automatically re-acquired on `visibilitychange`
- * because the browser releases any active lock when the page becomes hidden.
+ * The WakeLock API sentinel is automatically re-acquired when:
+ *  - The page becomes visible again after being hidden (`visibilitychange`).
+ *  - The sentinel is released by the OS or browser policy (`release` event).
  *
  * @see https://developer.mozilla.org/en-US/docs/Web/API/Screen_Wake_Lock_API
  */
@@ -28,28 +29,57 @@ function isWakeLockSupported() {
 export function useWakeLock() {
   const store = useAppStore();
   let wakeLock = null;
+  // Incremented each time requestWakeLock() is called; used to detect
+  // whether the setting was toggled off while a request was in flight.
+  let requestToken = 0;
 
   async function requestWakeLock() {
     if (!isStandaloneDisplayMode()) return;
     if (!store.preventScreenLock) return;
     if (!isWakeLockSupported()) return;
+
+    const token = ++requestToken;
+    let sentinel = null;
     try {
-      wakeLock = await navigator.wakeLock.request('screen');
+      sentinel = await navigator.wakeLock.request('screen');
     } catch (err) {
       // Request may be rejected if the document is not visible or the
       // device does not support the feature; log and otherwise ignore.
       console.warn('[WakeLock] Failed to acquire:', err);
+      return;
     }
+
+    // If the setting was disabled while the request was in flight, release
+    // immediately instead of keeping the lock open.
+    if (token !== requestToken || !store.preventScreenLock) {
+      try { sentinel.release(); } catch { /* ignore */ }
+      return;
+    }
+
+    wakeLock = sentinel;
+
+    // Re-acquire if the browser or OS releases the sentinel autonomously
+    // (e.g. power-saving policy), while the setting is still enabled.
+    // Use { once: true } so the listener is automatically removed after firing.
+    wakeLock.addEventListener('release', () => {
+      if (wakeLock === sentinel) wakeLock = null;
+      if (store.preventScreenLock && document.visibilityState === 'visible') {
+        requestWakeLock();
+      }
+    }, { once: true });
   }
 
   async function releaseWakeLock() {
-    if (wakeLock) {
+    const sentinel = wakeLock;
+    wakeLock = null;
+    // Advance the token so any in-flight request discards its result.
+    requestToken++;
+    if (sentinel) {
       try {
-        await wakeLock.release();
+        await sentinel.release();
       } catch {
         // Ignore errors during release
       }
-      wakeLock = null;
     }
   }
 
