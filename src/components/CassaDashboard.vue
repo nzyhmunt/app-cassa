@@ -187,7 +187,7 @@
                   <span class="font-bold text-amber-600">+€{{ xSummary.totalTips.toFixed(2) }}</span>
                 </div>
                 <div v-if="xSummary.totalDiscount > 0" class="flex justify-between items-center border-t border-gray-100 pt-2 mt-1">
-                  <span class="text-gray-500">Lordo (prima degli sconti)</span>
+                  <span class="text-gray-500">Lordo (incluse mance, prima degli sconti)</span>
                   <span class="font-bold text-gray-700">€{{ (xSummary.totalReceived + xSummary.totalDiscount).toFixed(2) }}</span>
                 </div>
               </div>
