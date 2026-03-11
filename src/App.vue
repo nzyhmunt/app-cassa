@@ -13,8 +13,11 @@ import Navbar from './components/Navbar.vue';
 import SettingsModal from './components/SettingsModal.vue';
 import CassaDashboard from './components/CassaDashboard.vue';
 import { useAppStore } from './store/index.js';
+import { useWakeLock } from './composables/useWakeLock.js';
 
 const store = useAppStore();
 const showSettings = ref(false);
 const showCassa = ref(false);
+
+useWakeLock();
 </script>

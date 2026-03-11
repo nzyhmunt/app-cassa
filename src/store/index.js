@@ -52,6 +52,11 @@ export const useAppStore = defineStore('app', () => {
       ? _savedAppSettings.menuUrl
       : appConfig.menuUrl
   );
+  const preventScreenLock = ref(
+    typeof _savedAppSettings?.preventScreenLock === 'boolean'
+      ? _savedAppSettings.preventScreenLock
+      : false
+  );
   const menuLoading = ref(false);
   const menuError = ref(null);
 
@@ -599,6 +604,7 @@ export const useAppStore = defineStore('app', () => {
     pendingSelectOrder,
     pendingNewOrder,
     menuUrl,
+    preventScreenLock,
     menuLoading,
     menuError,
     // computed
