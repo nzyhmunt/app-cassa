@@ -29,10 +29,17 @@ describe('useSettings()', () => {
   let store;
 
   beforeEach(() => {
-    setActivePinia(createPinia());
-    store = useAppStore();
+    // Ensure a clean and deterministic environment before the store is created.
     localStorage.clear();
     vi.useFakeTimers();
+    // Stub fetch so store initialization cannot trigger real network requests.
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => ({}),
+    });
+
+    setActivePinia(createPinia());
+    store = useAppStore();
   });
 
   afterEach(() => {
