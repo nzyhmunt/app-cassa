@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mount } from '@vue/test-utils';
 import { defineComponent, nextTick } from 'vue';
 import {
+  getPwaDismissKey,
   isStandalone,
   isIOSSafari,
   isBannerDismissed,
@@ -62,6 +63,62 @@ function withSetup(composable) {
 // afterEach, ensuring onUnmounted() runs and all window event listeners
 // registered by the composable are cleaned up between tests.
 let _wrappers = [];
+
+// ---------------------------------------------------------------------------
+// getPwaDismissKey()
+// ---------------------------------------------------------------------------
+describe('getPwaDismissKey()', () => {
+  afterEach(() => {
+    delete window.appConfig;
+    delete window.__APP_CONFIG__;
+  });
+
+  it('includes the current pathname in the key (default jsdom path is "/")', () => {
+    // jsdom defaults window.location.pathname to '/'
+    const key = getPwaDismissKey();
+    expect(key).toContain('pwa-install-dismissed');
+    // pathname '/' is non-empty so it ends up in the key
+    expect(key).toContain('/');
+  });
+
+  it('includes instanceName from window.appConfig when set', () => {
+    window.appConfig = { instanceName: 'cassa1' };
+    const key = getPwaDismissKey();
+    expect(key).toContain('cassa1');
+    expect(key.startsWith('pwa-install-dismissed:')).toBe(true);
+  });
+
+  it('includes instanceName from window.__APP_CONFIG__ when appConfig is absent', () => {
+    window.__APP_CONFIG__ = { instanceName: 'sala2' };
+    const key = getPwaDismissKey();
+    expect(key).toContain('sala2');
+  });
+
+  it('prefers window.appConfig over window.__APP_CONFIG__', () => {
+    window.appConfig = { instanceName: 'primary' };
+    window.__APP_CONFIG__ = { instanceName: 'secondary' };
+    const key = getPwaDismissKey();
+    expect(key).toContain('primary');
+    expect(key).not.toContain('secondary');
+  });
+
+  it('returns the bare key with no extra parts when instanceName is empty and path is empty', () => {
+    // Temporarily remove the pathname by mocking location
+    const originalLocation = window.location;
+    Object.defineProperty(window, 'location', {
+      writable: true,
+      configurable: true,
+      value: { pathname: '' },
+    });
+    const key = getPwaDismissKey();
+    expect(key).toBe('pwa-install-dismissed');
+    Object.defineProperty(window, 'location', {
+      writable: true,
+      configurable: true,
+      value: originalLocation,
+    });
+  });
+});
 
 // ---------------------------------------------------------------------------
 // isStandalone()
