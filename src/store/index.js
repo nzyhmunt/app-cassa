@@ -429,7 +429,7 @@ export const useAppStore = defineStore('app', () => {
     // billSessionId fall back to keying on tableId alone.
     const completedSessions = new Map();
     transactions.value
-      .filter(t => t.tableId)
+      .filter(t => t.tableId && t.operationType !== 'discount')
       .forEach(t => {
         const sessionKey = t.billSessionId != null ? `${t.tableId}::${t.billSessionId}` : t.tableId;
         if (!completedSessions.has(sessionKey)) {
