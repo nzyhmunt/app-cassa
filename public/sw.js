@@ -104,7 +104,11 @@ async function cacheFirst(request, cacheName) {
       await cache.put(request, response.clone());
       // Evict oldest entries to keep the cache size bounded
       if (cacheName === ASSET_CACHE) {
-        trimCache(cache, MAX_ASSET_ENTRIES).catch(() => {});
+        try {
+          await trimCache(cache, MAX_ASSET_ENTRIES);
+        } catch (e) {
+          console.warn('[SW] cacheFirst: trimCache failed, continuing without eviction.', e);
+        }
       }
     }
     return response;
