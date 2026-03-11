@@ -42,6 +42,7 @@ function setNavigatorStandalone(value) {
 
 // ---------------------------------------------------------------------------
 // Helper: mount a component that calls the given composable in setup()
+// Returns the composable result AND the wrapper so callers can unmount it.
 // ---------------------------------------------------------------------------
 function withSetup(composable) {
   let result;
@@ -53,8 +54,14 @@ function withSetup(composable) {
     template: '<div></div>',
   });
   const wrapper = mount(TestComponent);
+  _wrappers.push(wrapper);
   return { result, wrapper };
 }
+
+// Keeps track of wrappers created in each test so they are unmounted in
+// afterEach, ensuring onUnmounted() runs and all window event listeners
+// registered by the composable are cleaned up between tests.
+let _wrappers = [];
 
 // ---------------------------------------------------------------------------
 // isStandalone()
@@ -158,6 +165,11 @@ describe('usePwaInstall()', () => {
   });
 
   afterEach(() => {
+    // Unmount all components created via withSetup() so that onUnmounted()
+    // runs and the beforeinstallprompt window listener is removed, preventing
+    // cross-test interference.
+    _wrappers.forEach((w) => w.unmount());
+    _wrappers = [];
     vi.restoreAllMocks();
     removeMatchMedia();
     setNavigatorStandalone(undefined);
