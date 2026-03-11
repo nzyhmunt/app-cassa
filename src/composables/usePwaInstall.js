@@ -53,8 +53,26 @@ export function isStandalone() {
  */
 export function isIOSSafari() {
   if (typeof navigator === 'undefined') return false;
-  const ua = navigator.userAgent;
-  return /iphone|ipad|ipod/i.test(ua) && !/(crios|fxios|opios|mercury)/i.test(ua);
+  const ua = navigator.userAgent || '';
+
+  // Classic iOS devices (pre‑iPadOS desktop UA)
+  const isClassicIOS = /iphone|ipad|ipod/i.test(ua);
+
+  // iPadOS 13+ Safari often reports as "Macintosh" with a mobile Safari token.
+  // We detect that pattern and require a touch-capable device to distinguish it
+  // from real macOS Safari.
+  const isIPadOSSafariUA =
+    /Macintosh/i.test(ua) &&
+    /Safari/i.test(ua) &&
+    /Mobile\/\w+/i.test(ua);
+  const hasTouch =
+    typeof navigator.maxTouchPoints === 'number' && navigator.maxTouchPoints > 1;
+  const isIpadOS = isIPadOSSafariUA && hasTouch;
+
+  // Exclude known iOS wrapper browsers that cannot trigger PWA install.
+  const isExcludedWrapper = /(crios|fxios|opios|mercury)/i.test(ua);
+
+  return (isClassicIOS || isIpadOS) && !isExcludedWrapper;
 }
 
 /**
