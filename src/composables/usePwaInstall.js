@@ -18,13 +18,32 @@ import { ref, onMounted, onUnmounted } from 'vue';
 
 /** localStorage key used to remember the user's dismissal decision. */
 export function getPwaDismissKey() {
-  // Derive the key from the current instance context (URL path) to avoid
-  // different app instances/builds sharing the same dismissal state.
+  // Derive the key from the current instance context to avoid different app
+  // instances/builds sharing the same dismissal state. Prefer an explicit
+  // instance name when available, and fall back to the URL path.
   if (typeof window === 'undefined') {
     return 'pwa-install-dismissed';
   }
-  const path = window.location?.pathname || '';
-  return `pwa-install-dismissed${path ? `:${path}` : ''}`;
+  const w = window;
+
+  // Try to obtain an instance identifier from globally exposed config,
+  // matching the app's multi-instance storage conventions when possible.
+  const instanceName =
+    (w.appConfig && w.appConfig.instanceName) ||
+    (w.__APP_CONFIG__ && w.__APP_CONFIG__.instanceName) ||
+    '';
+
+  const path = w.location?.pathname || '';
+  const parts = [];
+
+  if (instanceName) {
+    parts.push(instanceName);
+  }
+  if (path) {
+    parts.push(path);
+  }
+
+  return `pwa-install-dismissed${parts.length ? `:${parts.join(':')}` : ''}`;
 }
 
 export const PWA_DISMISS_KEY = getPwaDismissKey();
