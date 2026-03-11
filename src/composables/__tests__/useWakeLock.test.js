@@ -47,9 +47,18 @@ describe('useWakeLock()', () => {
   let store;
 
   beforeEach(() => {
+    // Ensure a clean storage and offline-safe environment before store initialization
+    localStorage.clear();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({}),
+      }),
+    );
+
     setActivePinia(createPinia());
     store = useAppStore();
-    localStorage.clear();
     removeMatchMedia();
     // Ensure WakeLock API is absent by default
     if ('wakeLock' in navigator) {
