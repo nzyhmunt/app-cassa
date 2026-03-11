@@ -95,7 +95,9 @@ export function useSettings(props, emit) {
     } catch (e) {
       console.warn('[Settings] Failed to remove settings during reset:', e);
     }
-    window.location.reload();
+    if (typeof window !== 'undefined' && window.location) {
+      window.location.reload();
+    }
   }
 
   return {
