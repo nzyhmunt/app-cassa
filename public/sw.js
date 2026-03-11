@@ -55,11 +55,16 @@ self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
 
-  // Only handle GET requests on the same origin or the remote menu endpoint
+  // Only handle GET requests
   if (request.method !== 'GET') return;
 
-  // Remote data requests (e.g. menu.json from external URL) → stale-while-revalidate
-  if (url.origin !== self.location.origin) {
+  // Heuristic: treat JSON/menu endpoints as data requests regardless of origin
+  const isDataRequest =
+    url.pathname.endsWith('.json') ||
+    url.pathname === '/menu.json';
+
+  // Data / API requests (remote origin or JSON/menu paths) → stale-while-revalidate
+  if (url.origin !== self.location.origin || isDataRequest) {
     event.respondWith(staleWhileRevalidate(request, DATA_CACHE));
     return;
   }
