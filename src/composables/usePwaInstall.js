@@ -17,8 +17,17 @@
 import { ref, onMounted, onUnmounted } from 'vue';
 
 /** localStorage key used to remember the user's dismissal decision. */
-export const PWA_DISMISS_KEY = 'pwa-install-dismissed';
+export function getPwaDismissKey() {
+  // Derive the key from the current instance context (URL path) to avoid
+  // different app instances/builds sharing the same dismissal state.
+  if (typeof window === 'undefined') {
+    return 'pwa-install-dismissed';
+  }
+  const path = window.location?.pathname || '';
+  return `pwa-install-dismissed${path ? `:${path}` : ''}`;
+}
 
+export const PWA_DISMISS_KEY = getPwaDismissKey();
 /**
  * Returns true when the app is already running as an installed PWA
  * (standalone display mode on any platform).
