@@ -27,6 +27,22 @@
           </button>
         </div>
 
+        <div @click="settings.preventScreenLock = !settings.preventScreenLock"
+          class="flex items-center justify-between p-3 md:p-4 border border-gray-200 rounded-2xl cursor-pointer hover:bg-gray-50 transition-colors active:scale-95">
+          <div>
+            <span class="font-bold text-gray-800 block text-sm">Blocco schermo</span>
+            <span class="text-[10px] text-gray-500">Mantieni lo schermo acceso in modalità PWA</span>
+          </div>
+          <button type="button" role="switch" :aria-checked="settings.preventScreenLock"
+            :aria-label="'Blocco schermo: ' + (settings.preventScreenLock ? 'attivo' : 'disattivato')"
+            @click.stop="settings.preventScreenLock = !settings.preventScreenLock"
+            class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors shrink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand-primary)] focus-visible:ring-offset-2"
+            :class="settings.preventScreenLock ? 'bg-[var(--brand-primary)]' : 'bg-gray-300'">
+            <span class="inline-block size-5 transform rounded-full bg-white shadow-md transition-transform"
+              :class="settings.preventScreenLock ? 'translate-x-5' : 'translate-x-0.5'"></span>
+          </button>
+        </div>
+
         <div class="pt-4 border-t border-gray-100 mt-2 space-y-3">
           <div>
             <label class="block text-xs font-bold text-gray-600 mb-1">URL Menu JSON</label>
