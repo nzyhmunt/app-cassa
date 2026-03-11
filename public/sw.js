@@ -101,33 +101,41 @@ self.addEventListener('fetch', (event) => {
 
   // HTML navigation requests → network-first (fresh shell when online)
   if (request.mode === 'navigate' || url.pathname.endsWith('.html')) {
-    event.respondWith(networkFirst(request, SHELL_CACHE));
+    event.respondWith(networkFirst(event, SHELL_CACHE));
     return;
   }
 
   // Static assets (JS, CSS, images, fonts, manifests) → cache-first
-  event.respondWith(cacheFirst(request, ASSET_CACHE));
+  event.respondWith(cacheFirst(event, ASSET_CACHE));
 });
 
 // ─── Strategies ────────────────────────────────────────────────────────────
 
-/** Cache-first: serve from cache; populate cache on first miss. */
-async function cacheFirst(request, cacheName) {
+/** Cache-first: serve from cache; populate cache on first miss.
+ *  Cache writes happen in the background via event.waitUntil so the
+ *  network response is returned to the page immediately. */
+async function cacheFirst(event, cacheName) {
+  const { request } = event;
   const cache = await caches.open(cacheName);
   const cached = await cache.match(request);
   if (cached) return cached;
   try {
     const response = await fetch(request);
     if (response.ok) {
-      await cache.put(request, response.clone());
-      // Evict oldest entries to keep the cache size bounded
-      if (cacheName === ASSET_CACHE) {
-        try {
-          await trimCache(cache, MAX_ASSET_ENTRIES);
-        } catch (e) {
-          console.warn('[SW] cacheFirst: trimCache failed, continuing without eviction.', e);
-        }
-      }
+      // Write and optionally trim in the background — don't delay the response
+      event.waitUntil(
+        cache.put(request, response.clone())
+          .then(() => {
+            if (cacheName === ASSET_CACHE) {
+              return trimCache(cache, MAX_ASSET_ENTRIES).catch((err) => {
+                console.warn('[SW] cacheFirst: trimCache failed.', err);
+              });
+            }
+          })
+          .catch((err) => {
+            console.warn('[SW] cacheFirst: cache.put failed.', err);
+          })
+      );
     }
     return response;
   } catch (err) {
@@ -139,13 +147,22 @@ async function cacheFirst(request, cacheName) {
   }
 }
 
-/** Network-first: try network; fall back to cache when offline. */
-async function networkFirst(request, cacheName) {
+/** Network-first: try network; fall back to cache when offline.
+ *  Cache writes happen in the background via event.waitUntil so the
+ *  network response is returned to the page immediately. */
+async function networkFirst(event, cacheName) {
+  const { request } = event;
   try {
     const response = await fetch(request);
     if (response.ok) {
       const cache = await caches.open(cacheName);
-      await cache.put(request, response.clone());
+      // Write to cache in the background — don't delay the response
+      event.waitUntil(
+        cache.put(request, response.clone())
+          .catch((err) => {
+            console.warn('[SW] networkFirst: cache write failed.', err);
+          })
+      );
     }
     return response;
   } catch (err) {
