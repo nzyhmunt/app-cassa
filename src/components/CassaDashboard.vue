@@ -172,6 +172,27 @@
               </div>
             </div>
 
+            <!-- Sconti e Mance -->
+            <div v-if="xSummary.totalDiscount > 0 || xSummary.totalTips > 0" class="bg-white rounded-2xl border border-gray-200 shadow-sm p-4">
+              <h5 class="font-bold text-gray-600 text-xs uppercase tracking-wider mb-3 flex items-center gap-1">
+                <Tag class="size-4" /> Rettifiche
+              </h5>
+              <div class="space-y-2 text-sm">
+                <div v-if="xSummary.totalDiscount > 0" class="flex justify-between items-center">
+                  <span class="text-gray-500 flex items-center gap-1.5"><Tag class="size-3.5 text-red-400" /> Sconti applicati</span>
+                  <span class="font-bold text-red-600">-€{{ xSummary.totalDiscount.toFixed(2) }}</span>
+                </div>
+                <div v-if="xSummary.totalTips > 0" class="flex justify-between items-center">
+                  <span class="text-gray-500 flex items-center gap-1.5"><Gift class="size-3.5 text-amber-500" /> Mance incassate</span>
+                  <span class="font-bold text-amber-600">+€{{ xSummary.totalTips.toFixed(2) }}</span>
+                </div>
+                <div v-if="xSummary.totalDiscount > 0" class="flex justify-between items-center border-t border-gray-100 pt-2 mt-1">
+                  <span class="text-gray-500">Lordo (incluse mance, prima degli sconti)</span>
+                  <span class="font-bold text-gray-700">€{{ (xSummary.totalReceived + xSummary.totalDiscount).toFixed(2) }}</span>
+                </div>
+              </div>
+            </div>
+
             <!-- Fondo e movimenti -->
             <div class="bg-white rounded-2xl border border-gray-200 shadow-sm p-4">
               <h5 class="font-bold text-gray-600 text-xs uppercase tracking-wider mb-3 flex items-center gap-1">
@@ -216,6 +237,8 @@
                 <div class="text-right">
                   <p class="font-black text-base theme-text">€{{ ch.totalReceived.toFixed(2) }}</p>
                   <p class="text-[10px] text-gray-400">{{ ch.receiptCount }} scontrini</p>
+                  <p v-if="ch.totalDiscount > 0" class="text-[10px] text-red-500">-€{{ ch.totalDiscount.toFixed(2) }} sconti</p>
+                  <p v-if="ch.totalTips > 0" class="text-[10px] text-amber-600">+€{{ ch.totalTips.toFixed(2) }} mance</p>
                 </div>
               </div>
             </div>
@@ -232,7 +255,18 @@
                 <span class="text-gray-400 ml-3">– {{ method }}</span>
                 <span class="font-bold">€{{ val.toFixed(2) }}</span>
               </div>
-              <div class="flex justify-between pt-1 border-t border-gray-100 mt-1"><span class="text-gray-500">Coperti totali</span><span class="font-bold">{{ zPreview.totalCovers }}</span></div>
+              <div v-if="zPreview.totalDiscount > 0 || zPreview.totalTips > 0" class="pt-1 border-t border-gray-100 mt-1 space-y-1">
+                <div v-if="zPreview.totalDiscount > 0" class="flex justify-between items-center">
+                  <span class="text-gray-500 flex items-center gap-1"><Tag class="size-3 text-red-400" /> Sconti applicati</span>
+                  <span class="font-bold text-red-600">-€{{ zPreview.totalDiscount.toFixed(2) }}</span>
+                </div>
+                <div v-if="zPreview.totalTips > 0" class="flex justify-between items-center">
+                  <span class="text-gray-500 flex items-center gap-1"><Gift class="size-3 text-amber-500" /> Mance incassate</span>
+                  <span class="font-bold text-amber-600">+€{{ zPreview.totalTips.toFixed(2) }}</span>
+                </div>
+              </div>
+              <div class="flex justify-between pt-1 border-t border-gray-100 mt-1"><span class="text-gray-500">Scontrini</span><span class="font-bold">{{ zPreview.receiptCount }}</span></div>
+              <div class="flex justify-between"><span class="text-gray-500">Coperti totali</span><span class="font-bold">{{ zPreview.totalCovers }}</span></div>
               <div class="flex justify-between"><span class="text-gray-500">Scontrino medio</span><span class="font-bold">€{{ zPreview.averageReceipt.toFixed(2) }}</span></div>
             </div>
           </div>
@@ -254,11 +288,11 @@
 </template>
 
 <script setup>
-import { ref, computed, watch } from 'vue';
+import { ref, watch } from 'vue';
 import {
   X, Landmark, Wallet, ArrowLeftRight, ArrowDownCircle, ArrowUpCircle, Plus,
   Eye, AlertTriangle, Lock, RefreshCw, Save, TrendingUp, CreditCard, Users,
-  Receipt, History, ClipboardList,
+  Receipt, History, ClipboardList, Tag, Gift,
 } from 'lucide-vue-next';
 import { Banknote } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
