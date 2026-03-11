@@ -63,6 +63,13 @@ if (isIOS && isStandalonePWA) {
     );
   }
 }
+if (typeof window !== 'undefined' && typeof navigator !== 'undefined' && 'serviceWorker' in navigator && import.meta.env.PROD) {
+  navigator.serviceWorker
+    .register('./sw.js')
+    .catch((err) => {
+      console.error('[SW] Registration failed:', err);
+    });
+}
 const app = createApp(SalaApp);
 const pinia = createPinia();
 pinia.use(piniaPluginPersistedstate);

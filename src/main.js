@@ -70,6 +70,21 @@ if (typeof window !== 'undefined' && isIOS() && isStandaloneDisplayMode()) {
     );
   }
 }
+if (typeof window !== 'undefined' && typeof navigator !== 'undefined' && 'serviceWorker' in navigator && import.meta.env.PROD) {
+  const registerServiceWorker = () => {
+    navigator.serviceWorker.register('./sw.js').catch((err) => {
+      console.error('[SW] Registration failed:', err);
+    });
+  };
+
+  if (document.readyState === 'complete' || document.readyState === 'interactive') {
+    // DOM is already ready; register immediately so the SW can take control sooner.
+    registerServiceWorker();
+  } else {
+    // Fallback: register as soon as the DOM is ready, which occurs before the 'load' event.
+    window.addEventListener('DOMContentLoaded', registerServiceWorker, { once: true });
+  }
+}
 const app = createApp(App);
 const pinia = createPinia();
 pinia.use(piniaPluginPersistedstate);
