@@ -5,7 +5,7 @@ import { fileURLToPath, URL } from 'url'
 import { readFileSync, writeFileSync } from 'fs'
 import path from 'path'
 import { appConfig } from './src/utils/index.js'
-import { injectLogoIcon } from './src/utils/pwaManifest.js'
+import { injectLogoIcon, getMimeType } from './src/utils/pwaManifest.js'
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url))
 
@@ -63,6 +63,41 @@ function pwaManifestPlugin() {
           // File may not exist in partial builds — skip silently.
         }
       }
+    },
+
+    // All HTML pages: replace the favicon and apple-touch-icon link tags with
+    // the custom logo URL so they stay in sync with the PWA manifest icons.
+    transformIndexHtml(html) {
+      if (!appConfig.pwaLogo) return html
+      // HTML-escape the URL so that any stray `&`, `"`, `<` or `>` characters
+      // in the configured value do not break the generated HTML attribute.
+      const logoUrl = appConfig.pwaLogo
+        .replace(/&/g, '&amp;')
+        .replace(/"/g, '&quot;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+      const mimeType = getMimeType(appConfig.pwaLogo)
+
+      // Replace <link rel="icon"> with the custom logo.
+      let out = html.replace(
+        /<link\s[^>]*rel=["']icon["'][^>]*\/?>/gi,
+        `<link rel="icon" type="${mimeType}" href="${logoUrl}" />`,
+      )
+
+      // Replace <link rel="apple-touch-icon"> if already present, otherwise
+      // inject one right after the favicon tag.
+      const atiRegex = /<link\s[^>]*rel=["']apple-touch-icon["'][^>]*\/?>/gi
+      const atiTag = `<link rel="apple-touch-icon" href="${logoUrl}" />`
+      if (atiRegex.test(out)) {
+        out = out.replace(atiRegex, atiTag)
+      } else {
+        out = out.replace(
+          `<link rel="icon" type="${mimeType}" href="${logoUrl}" />`,
+          `<link rel="icon" type="${mimeType}" href="${logoUrl}" />\n    ${atiTag}`,
+        )
+      }
+
+      return out
     },
   }
 }
