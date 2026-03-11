@@ -232,7 +232,8 @@
                 <span class="text-gray-400 ml-3">– {{ method }}</span>
                 <span class="font-bold">€{{ val.toFixed(2) }}</span>
               </div>
-              <div class="flex justify-between pt-1 border-t border-gray-100 mt-1"><span class="text-gray-500">Coperti totali</span><span class="font-bold">{{ zPreview.totalCovers }}</span></div>
+              <div class="flex justify-between pt-1 border-t border-gray-100 mt-1"><span class="text-gray-500">Scontrini</span><span class="font-bold">{{ zPreview.receiptCount }}</span></div>
+              <div class="flex justify-between"><span class="text-gray-500">Coperti totali</span><span class="font-bold">{{ zPreview.totalCovers }}</span></div>
               <div class="flex justify-between"><span class="text-gray-500">Scontrino medio</span><span class="font-bold">€{{ zPreview.averageReceipt.toFixed(2) }}</span></div>
             </div>
           </div>

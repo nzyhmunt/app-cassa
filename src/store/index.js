@@ -424,17 +424,27 @@ export const useAppStore = defineStore('app', () => {
       });
     const totalReceived = Object.values(byMethod).reduce((a, b) => a + b, 0);
 
-    // Total covers from completed tables
-    const completedTables = new Set(
-      transactions.value.map(t => t.tableId).filter(Boolean),
-    );
+    // Count unique bill sessions: a table can have multiple receipts per day,
+    // so we key on (tableId, billSessionId). Legacy transactions without a
+    // billSessionId fall back to keying on tableId alone.
+    const completedSessions = new Map();
+    transactions.value
+      .filter(t => t.tableId)
+      .forEach(t => {
+        const sessionKey = t.billSessionId != null ? `${t.tableId}::${t.billSessionId}` : t.tableId;
+        if (!completedSessions.has(sessionKey)) {
+          completedSessions.set(sessionKey, t.tableId);
+        }
+      });
+    // Count covers for every session (not just unique tables) so that a table
+    // used twice in a day contributes its cover count twice.
     let totalCovers = 0;
-    completedTables.forEach(tid => {
-      const table = config.value.tables.find(t => t.id === tid);
+    completedSessions.forEach(tableId => {
+      const table = config.value.tables.find(t => t.id === tableId);
       if (table) totalCovers += table.covers || 0;
     });
 
-    const receiptCount = completedTables.size;
+    const receiptCount = completedSessions.size;
     const averageReceipt = receiptCount > 0 ? totalReceived / receiptCount : 0;
 
     const totalMovements = cashMovements.value.reduce((acc, m) => {
