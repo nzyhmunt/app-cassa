@@ -6,7 +6,7 @@ import { useSettings } from '../useSettings.js';
 import { useAppStore } from '../../store/index.js';
 import { resolveStorageKeys } from '../../store/persistence.js';
 
-const { settingsKey: SETTINGS_KEY } = resolveStorageKeys('');
+const { settingsKey: SETTINGS_KEY } = resolveStorageKeys();
 
 // ---------------------------------------------------------------------------
 // Helper: mount a component whose setup() calls the composable and exposes
