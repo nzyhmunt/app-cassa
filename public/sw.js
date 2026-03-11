@@ -70,13 +70,13 @@ self.addEventListener('fetch', (event) => {
   // Only handle GET requests
   if (request.method !== 'GET') return;
 
-  // Heuristic: treat JSON/menu endpoints as data requests regardless of origin
+  // Heuristic: treat JSON/menu endpoints as data requests
   const isDataRequest =
     url.pathname.endsWith('.json') ||
     url.pathname === '/menu.json';
 
-  // Data / API requests (remote origin or JSON/menu paths) → stale-while-revalidate
-  if (url.origin !== self.location.origin || isDataRequest) {
+  // Data / API requests (JSON/menu paths) → stale-while-revalidate
+  if (isDataRequest) {
     event.respondWith(staleWhileRevalidate(event, DATA_CACHE));
     return;
   }
