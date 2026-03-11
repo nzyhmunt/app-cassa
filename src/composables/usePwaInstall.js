@@ -122,14 +122,20 @@ export function usePwaInstall() {
 
   /**
    * Triggers the native browser install prompt (non-iOS only).
-   * Hides the banner after the user responds regardless of outcome.
+   * Hides the banner after the user responds. Dismissal is only persisted
+   * to localStorage when the user accepts the install; cancelling the dialog
+   * merely hides the banner so it can reappear on a future visit.
    */
   async function install() {
     if (!deferredPrompt) return;
     deferredPrompt.prompt();
-    await deferredPrompt.userChoice;
+    const { outcome } = await deferredPrompt.userChoice;
     deferredPrompt = null;
-    dismiss();
+    if (outcome === 'accepted') {
+      dismiss();
+    } else {
+      showBanner.value = false;
+    }
   }
 
   /**

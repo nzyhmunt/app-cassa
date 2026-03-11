@@ -235,7 +235,7 @@ describe('usePwaInstall()', () => {
     expect(localStorage.getItem(PWA_DISMISS_KEY)).toBe('true');
   });
 
-  it('install() calls prompt(), awaits userChoice, then dismisses', async () => {
+  it('install() calls prompt(), awaits userChoice, then dismisses and persists when accepted', async () => {
     const { result } = withSetup(() => usePwaInstall());
 
     const mockPrompt = vi.fn();
@@ -254,6 +254,27 @@ describe('usePwaInstall()', () => {
     expect(mockPrompt).toHaveBeenCalled();
     expect(result.showBanner.value).toBe(false);
     expect(localStorage.getItem(PWA_DISMISS_KEY)).toBe('true');
+  });
+
+  it('install() hides the banner but does NOT persist dismissal when user cancels the prompt', async () => {
+    const { result } = withSetup(() => usePwaInstall());
+
+    const mockPrompt = vi.fn();
+    const event = Object.assign(new Event('beforeinstallprompt'), {
+      preventDefault: vi.fn(),
+      prompt: mockPrompt,
+      userChoice: Promise.resolve({ outcome: 'dismissed' }),
+    });
+    window.dispatchEvent(event);
+    await nextTick();
+
+    expect(result.showBanner.value).toBe(true);
+
+    await result.install();
+
+    expect(mockPrompt).toHaveBeenCalled();
+    expect(result.showBanner.value).toBe(false);
+    expect(localStorage.getItem(PWA_DISMISS_KEY)).toBeNull();
   });
 
   it('install() is a no-op when no deferred prompt is available', async () => {
