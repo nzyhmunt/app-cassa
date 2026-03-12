@@ -62,11 +62,7 @@ describe('useWakeLock()', () => {
     removeMatchMedia();
     // Ensure WakeLock API is absent by default
     if ('wakeLock' in navigator) {
-      Object.defineProperty(navigator, 'wakeLock', {
-        value: undefined,
-        writable: true,
-        configurable: true,
-      });
+      delete navigator.wakeLock;
     }
   });
 
