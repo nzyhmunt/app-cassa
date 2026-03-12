@@ -104,19 +104,24 @@ describe('getPwaDismissKey()', () => {
 
   it('returns the bare key with no extra parts when instanceName is empty and path is empty', () => {
     // Temporarily remove the pathname by mocking location
-    const originalLocation = window.location;
-    Object.defineProperty(window, 'location', {
-      writable: true,
-      configurable: true,
-      value: { pathname: '' },
-    });
-    const key = getPwaDismissKey();
-    expect(key).toBe('pwa-install-dismissed');
-    Object.defineProperty(window, 'location', {
-      writable: true,
-      configurable: true,
-      value: originalLocation,
-    });
+    const originalLocationDescriptor = Object.getOwnPropertyDescriptor(window, 'location');
+
+    try {
+      Object.defineProperty(window, 'location', {
+        writable: true,
+        configurable: true,
+        value: { pathname: '' },
+      });
+
+      const key = getPwaDismissKey();
+      expect(key).toBe('pwa-install-dismissed');
+    } finally {
+      if (originalLocationDescriptor) {
+        Object.defineProperty(window, 'location', originalLocationDescriptor);
+      } else {
+        delete window.location;
+      }
+    }
   });
 });
 
