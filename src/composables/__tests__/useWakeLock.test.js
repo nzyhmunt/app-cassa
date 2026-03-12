@@ -192,14 +192,23 @@ describe('useWakeLock()', () => {
     expect(mockRequest).toHaveBeenCalledTimes(1);
 
     // Simulate the page becoming visible
-    Object.defineProperty(document, 'visibilityState', {
-      value: 'visible',
-      writable: true,
-      configurable: true,
-    });
-    document.dispatchEvent(new Event('visibilitychange'));
-    await nextTick();
-    await nextTick(); // re-acquisition settles
+    const originalVisibilityDescriptor = Object.getOwnPropertyDescriptor(document, 'visibilityState');
+    try {
+      Object.defineProperty(document, 'visibilityState', {
+        value: 'visible',
+        writable: true,
+        configurable: true,
+      });
+      document.dispatchEvent(new Event('visibilitychange'));
+      await nextTick();
+      await nextTick(); // re-acquisition settles
+    } finally {
+      if (originalVisibilityDescriptor) {
+        Object.defineProperty(document, 'visibilityState', originalVisibilityDescriptor);
+      } else {
+        delete document.visibilityState;
+      }
+    }
 
     expect(mockRequest).toHaveBeenCalledTimes(2);
     wrapper.unmount();
