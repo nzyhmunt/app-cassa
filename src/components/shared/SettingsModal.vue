@@ -1,10 +1,10 @@
 <template>
-  <!-- MODAL: IMPOSTAZIONI SISTEMA -->
+  <!-- MODAL: IMPOSTAZIONI -->
   <div v-if="modelValue" class="fixed inset-0 z-[90] bg-black/60 backdrop-blur-sm flex items-end md:items-center justify-center p-0 md:p-4">
     <div class="bg-white rounded-t-3xl md:rounded-3xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col">
       <div class="bg-gray-50 border-b border-gray-200 p-4 md:p-5 flex justify-between items-center">
         <h3 class="font-bold text-base md:text-lg flex items-center gap-2 text-gray-800">
-          <Settings class="text-gray-500 size-4 md:size-5" /> Impostazioni Cassa
+          <Settings class="text-gray-500 size-4 md:size-5" /> {{ title }}
         </h3>
         <button @click="$emit('update:modelValue', false)" class="text-gray-400 hover:text-gray-800 bg-gray-200 hover:bg-gray-300 rounded-full p-1.5 transition-colors active:scale-95">
           <X class="size-5" />
@@ -92,9 +92,12 @@
 
 <script setup>
 import { Settings, X, RefreshCw, RotateCcw } from 'lucide-vue-next';
-import { useSettings } from '../composables/useSettings.js';
+import { useSettings } from '../../composables/useSettings.js';
 
-const props = defineProps({ modelValue: Boolean });
+const props = defineProps({
+  modelValue: Boolean,
+  title: { type: String, required: true },
+});
 const emit = defineEmits(['update:modelValue', 'settings-changed']);
 
 const { store, settings, resetConfirmPending, syncMenu, confirmReset } = useSettings(props, emit);

@@ -1,5 +1,5 @@
 <template>
-  <TableManager
+  <CassaTableManager
     ref="tableManagerRef"
     @open-order-from-table="handleOpenOrderFromTable"
     @new-order-for-ordini="handleNewOrderForOrdini"
@@ -9,8 +9,8 @@
 <script setup>
 import { ref, onMounted, nextTick } from 'vue';
 import { useRouter } from 'vue-router';
-import TableManager from '../components/TableManager.vue';
-import { useAppStore } from '../store/index.js';
+import CassaTableManager from '../../components/CassaTableManager.vue';
+import { useAppStore } from '../../store/index.js';
 
 const store = useAppStore();
 const router = useRouter();
