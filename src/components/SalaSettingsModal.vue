@@ -99,17 +99,9 @@
 <script setup>
 import { Settings, X, RefreshCw, RotateCcw } from 'lucide-vue-next';
 import { useSettings } from '../composables/useSettings.js';
-import { isWakeLockSupported } from '../composables/useWakeLock.js';
 
 const props = defineProps({ modelValue: Boolean });
 const emit = defineEmits(['update:modelValue', 'settings-changed']);
 
 const { store, settings, resetConfirmPending, syncMenu, confirmReset } = useSettings(props, emit);
-const wakeLockApiSupported = isWakeLockSupported();
-
-// If Wake Lock is not supported and the setting was previously saved as true,
-// reset it immediately so the user isn't stuck with an enabled-but-unusable toggle.
-if (!wakeLockApiSupported && settings.value.preventScreenLock) {
-  settings.value.preventScreenLock = false;
-}
 </script>
