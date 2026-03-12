@@ -193,15 +193,25 @@ describe('useWakeLock()', () => {
 
     // Simulate the OS or browser autonomously releasing the sentinel while
     // the document is still visible.
-    Object.defineProperty(document, 'visibilityState', {
-      value: 'visible',
-      writable: true,
-      configurable: true,
-    });
-    sentinel._fire('release');
-    await flushPromises();
+    const originalVisibilityDescriptor = Object.getOwnPropertyDescriptor(document, 'visibilityState');
 
-    expect(wakeLockApi.request).toHaveBeenCalledWith('screen');
+    try {
+      Object.defineProperty(document, 'visibilityState', {
+        value: 'visible',
+        writable: true,
+        configurable: true,
+      });
+      sentinel._fire('release');
+      await flushPromises();
+
+      expect(wakeLockApi.request).toHaveBeenCalledWith('screen');
+    } finally {
+      if (originalVisibilityDescriptor) {
+        Object.defineProperty(document, 'visibilityState', originalVisibilityDescriptor);
+      } else {
+        delete document.visibilityState;
+      }
+    }
   });
 
   it('does not re-acquire when sentinel is released but the setting is off', async () => {
