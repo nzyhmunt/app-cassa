@@ -33,12 +33,12 @@
           class="flex items-center justify-between p-3 md:p-4 border border-gray-200 rounded-2xl transition-colors"
           :class="wakeLockApiSupported ? 'cursor-pointer hover:bg-gray-50 active:scale-95' : 'opacity-50 cursor-not-allowed'">
           <div>
-            <span class="font-bold text-gray-800 block text-sm">Blocco schermo</span>
-            <span v-if="wakeLockApiSupported" class="text-[10px] text-gray-500">Mantieni lo schermo acceso</span>
+            <span class="font-bold text-gray-800 block text-sm">Schermo sempre acceso</span>
+            <span v-if="wakeLockApiSupported" class="text-[10px] text-gray-500">Impedisce lo spegnimento automatico</span>
             <span v-else class="text-[10px] text-red-400">Non supportato dal browser</span>
           </div>
           <button type="button" role="switch" :aria-checked="settings.preventScreenLock"
-            :aria-label="'Blocco schermo: ' + (settings.preventScreenLock ? 'attivo' : 'disattivato')"
+            :aria-label="'Schermo sempre acceso: ' + (settings.preventScreenLock ? 'attivo' : 'disattivato')"
             :disabled="!wakeLockApiSupported"
             @click.stop="wakeLockApiSupported && (settings.preventScreenLock = !settings.preventScreenLock)"
             class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors shrink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand-primary)] focus-visible:ring-offset-2 disabled:cursor-not-allowed"
