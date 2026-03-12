@@ -1,7 +1,6 @@
 <template>
   <SharedSettingsModal
     v-bind="$props"
-    v-on="$attrs"
     title="Impostazioni Cassa"
     @update:modelValue="value => emit('update:modelValue', value)"
     @settings-changed="payload => emit('settings-changed', payload)"
