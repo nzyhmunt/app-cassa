@@ -2,6 +2,7 @@ import { ref, watch, onUnmounted } from 'vue';
 import { useAppStore } from '../store/index.js';
 import { getInstanceName, resolveStorageKeys, clearState } from '../store/persistence.js';
 import { appConfig } from '../utils/index.js';
+import { isWakeLockSupported } from './useWakeLock.js';
 
 /**
  * Shared composable for the Cassa and Sala settings modals.
@@ -13,6 +14,7 @@ import { appConfig } from '../utils/index.js';
  */
 export function useSettings(props, emit) {
   const store = useAppStore();
+  const wakeLockApiSupported = isWakeLockSupported();
 
   const _instanceName = getInstanceName();
   const { storageKey: _storageKey, settingsKey: SETTINGS_STORAGE_KEY } =
@@ -35,7 +37,9 @@ export function useSettings(props, emit) {
             ? parsed.menuUrl
             : appConfig.menuUrl,
         preventScreenLock:
-          typeof parsed.preventScreenLock === 'boolean' ? parsed.preventScreenLock : false,
+          typeof parsed.preventScreenLock === 'boolean' && wakeLockApiSupported
+            ? parsed.preventScreenLock
+            : false,
       };
     } catch {
       return { sounds: true, menuUrl: appConfig.menuUrl, preventScreenLock: false };
@@ -109,5 +113,6 @@ export function useSettings(props, emit) {
     resetConfirmPending,
     syncMenu,
     confirmReset,
+    wakeLockApiSupported,
   };
 }

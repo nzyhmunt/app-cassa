@@ -100,5 +100,5 @@ import { useSettings } from '../composables/useSettings.js';
 const props = defineProps({ modelValue: Boolean });
 const emit = defineEmits(['update:modelValue', 'settings-changed']);
 
-const { store, settings, resetConfirmPending, syncMenu, confirmReset } = useSettings(props, emit);
+const { store, settings, resetConfirmPending, syncMenu, confirmReset, wakeLockApiSupported } = useSettings(props, emit);
 </script>
