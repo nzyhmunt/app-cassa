@@ -72,6 +72,7 @@ describe('useWakeLock()', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   // ── isStandaloneDisplayMode() branches ──────────────────────────────────
