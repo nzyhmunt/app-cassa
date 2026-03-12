@@ -30,6 +30,15 @@ export const appConfig = {
   // Empty string (default) keeps the original key names for backwards compatibility.
   instanceName: '',
 
+  // URL of a custom logo image used in the PWA manifest (icons array).
+  // When set, this image is injected as additional 192×192 and 512×512
+  // maskable icons in both the cassa and sala web app manifests during the
+  // build/dev process. The URL should be same-origin with the app or come from
+  // a host configured with appropriate CORS headers, otherwise install icons
+  // may fail to load in some browsers. Set to an empty string to disable custom
+  // logo injection.
+  pwaLogo: '',
+
   // CONFIGURAZIONE DINAMICA METODI PAGAMENTO CASSA
   paymentMethods: [
     { id: 'cash', label: 'Contanti', icon: 'banknote', colorClass: 'border-emerald-500 text-emerald-600 hover:bg-emerald-50' },
