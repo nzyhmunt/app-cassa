@@ -28,17 +28,20 @@
           </button>
         </div>
 
-        <!-- Blocco schermo in modalità PWA -->
-        <div @click="settings.preventScreenLock = !settings.preventScreenLock"
-          class="flex items-center justify-between p-3 md:p-4 border border-gray-200 rounded-2xl cursor-pointer hover:bg-gray-50 transition-colors active:scale-95">
+        <!-- Blocco schermo -->
+        <div @click="wakeLockApiSupported && (settings.preventScreenLock = !settings.preventScreenLock)"
+          class="flex items-center justify-between p-3 md:p-4 border border-gray-200 rounded-2xl transition-colors"
+          :class="wakeLockApiSupported ? 'cursor-pointer hover:bg-gray-50 active:scale-95' : 'opacity-50 cursor-not-allowed'">
           <div>
             <span class="font-bold text-gray-800 block text-sm">Blocco schermo</span>
-            <span class="text-[10px] text-gray-500">Mantieni lo schermo acceso in modalità PWA</span>
+            <span v-if="wakeLockApiSupported" class="text-[10px] text-gray-500">Mantieni lo schermo acceso</span>
+            <span v-else class="text-[10px] text-red-400">Non supportato dal browser</span>
           </div>
           <button type="button" role="switch" :aria-checked="settings.preventScreenLock"
             :aria-label="'Blocco schermo: ' + (settings.preventScreenLock ? 'attivo' : 'disattivato')"
-            @click.stop="settings.preventScreenLock = !settings.preventScreenLock"
-            class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors shrink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand-primary)] focus-visible:ring-offset-2"
+            :disabled="!wakeLockApiSupported"
+            @click.stop="wakeLockApiSupported && (settings.preventScreenLock = !settings.preventScreenLock)"
+            class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors shrink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand-primary)] focus-visible:ring-offset-2 disabled:cursor-not-allowed"
             :class="settings.preventScreenLock ? 'bg-[var(--brand-primary)]' : 'bg-gray-300'">
             <span class="inline-block size-5 transform rounded-full bg-white shadow-md transition-transform"
               :class="settings.preventScreenLock ? 'translate-x-5' : 'translate-x-0.5'"></span>
@@ -96,9 +99,11 @@
 <script setup>
 import { Settings, X, RefreshCw, RotateCcw } from 'lucide-vue-next';
 import { useSettings } from '../composables/useSettings.js';
+import { isWakeLockSupported } from '../composables/useWakeLock.js';
 
 const props = defineProps({ modelValue: Boolean });
 const emit = defineEmits(['update:modelValue', 'settings-changed']);
 
 const { store, settings, resetConfirmPending, syncMenu, confirmReset } = useSettings(props, emit);
+const wakeLockApiSupported = isWakeLockSupported();
 </script>

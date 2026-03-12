@@ -1,6 +1,6 @@
 /**
- * useWakeLock — prevents the screen from locking while the app is in PWA
- * (standalone display mode) and the user has enabled the setting.
+ * useWakeLock — prevents the screen from locking while the user has enabled
+ * the setting. Works in any browser mode (PWA standalone or standard tab).
  *
  * The WakeLock API sentinel is automatically re-acquired when:
  *  - The page becomes visible again after being hidden (`visibilitychange`).
@@ -12,17 +12,7 @@
 import { watch, onMounted, onUnmounted } from 'vue';
 import { useAppStore } from '../store/index.js';
 
-function isStandaloneDisplayMode() {
-  if (typeof window === 'undefined') return false;
-  const nav = window.navigator || {};
-  const isIOSStandalone = typeof nav.standalone === 'boolean' && nav.standalone;
-  const isDisplayModeStandalone =
-    typeof window.matchMedia === 'function' &&
-    window.matchMedia('(display-mode: standalone)').matches;
-  return isIOSStandalone || isDisplayModeStandalone;
-}
-
-function isWakeLockSupported() {
+export function isWakeLockSupported() {
   return typeof navigator !== 'undefined' && 'wakeLock' in navigator;
 }
 
@@ -34,7 +24,6 @@ export function useWakeLock() {
   let requestToken = 0;
 
   async function requestWakeLock() {
-    if (!isStandaloneDisplayMode()) return;
     if (!store.preventScreenLock) return;
     if (!isWakeLockSupported()) return;
 
