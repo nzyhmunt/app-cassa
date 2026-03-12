@@ -21,7 +21,7 @@
 
     <!-- Lista conti -->
     <div v-if="expanded" class="space-y-3">
-      <BillCard
+      <CassaBillCard
         v-for="bill in store.closedBills"
         :key="billKey(bill)"
         :bill="bill"
@@ -35,7 +35,7 @@ import { ref } from 'vue';
 import { CheckCircle, ChevronDown } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
 import { billKey } from '../utils/index.js';
-import BillCard from './BillCard.vue';
+import CassaBillCard from './CassaBillCard.vue';
 
 const store = useAppStore();
 

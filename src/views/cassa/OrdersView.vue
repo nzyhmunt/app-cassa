@@ -1,5 +1,5 @@
 <template>
-  <OrderManager
+  <CassaOrderManager
     ref="orderManagerRef"
     @jump-to-cassa="handleOpenTable"
   />
@@ -8,8 +8,8 @@
 <script setup>
 import { ref, onMounted, nextTick } from 'vue';
 import { useRouter } from 'vue-router';
-import OrderManager from '../components/OrderManager.vue';
-import { useAppStore } from '../store/index.js';
+import CassaOrderManager from '../../components/CassaOrderManager.vue';
+import { useAppStore } from '../../store/index.js';
 
 const store = useAppStore();
 const router = useRouter();

@@ -1,5 +1,5 @@
 <template>
-  <SharedSettingsModal v-bind="$props" v-on="$attrs" title="Impostazioni Sala" />
+  <SharedSettingsModal v-bind="$props" v-on="$attrs" title="Impostazioni Cassa" />
 </template>
 
 <script setup>

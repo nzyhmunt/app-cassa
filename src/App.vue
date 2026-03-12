@@ -1,8 +1,8 @@
 <template>
   <div id="app" class="h-full flex flex-col relative w-full" :style="store.cssVars">
-    <Navbar @open-settings="showSettings = true" @open-cassa="showCassa = true" />
+    <CassaNavbar @open-settings="showSettings = true" @open-cassa="showCassa = true" />
     <router-view />
-    <SettingsModal v-model="showSettings" />
+    <CassaSettingsModal v-model="showSettings" />
     <CassaDashboard v-model="showCassa" />
     <PwaInstallBanner />
   </div>
@@ -10,8 +10,8 @@
 
 <script setup>
 import { ref } from 'vue';
-import Navbar from './components/Navbar.vue';
-import SettingsModal from './components/SettingsModal.vue';
+import CassaNavbar from './components/CassaNavbar.vue';
+import CassaSettingsModal from './components/CassaSettingsModal.vue';
 import CassaDashboard from './components/CassaDashboard.vue';
 import PwaInstallBanner from './components/shared/PwaInstallBanner.vue';
 import { useAppStore } from './store/index.js';

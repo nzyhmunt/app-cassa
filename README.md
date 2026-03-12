@@ -15,32 +15,40 @@ Il progetto contiene due applicazioni operative più una pagina di selezione, tu
 ```
 src/
 ├── components/
-│   ├── shared/                    ← Componenti riutilizzati da entrambe le app
-│   │   ├── PeopleModal.vue        ← Modale conteggio coperti + anteprima coperto
-│   │   └── PwaInstallBanner.vue   ← Banner installazione PWA (Android + iOS)
-│   ├── TableManager.vue           ← Mappa sala + cassa + checkout (Cassa only)
-│   ├── OrderManager.vue           ← Gestione ordini + accettazione (Cassa only)
-│   ├── CassaDashboard.vue         ← Fondo cassa, movimenti, report X/Z (Cassa only)
-│   ├── BillCard.vue               ← Card riepilogo conto chiuso (Cassa only)
-│   ├── ClosedBillsList.vue        ← Lista conti chiusi sessione (Cassa only)
-│   ├── SettingsModal.vue          ← Impostazioni Cassa
-│   ├── SalaTableManager.vue       ← Mappa sala semplificata (Sala only)
-│   ├── SalaOrderManager.vue       ← Creazione/invio comande (Sala only)
-│   ├── SalaNavbar.vue             ← Navigazione (Sala)
-│   └── SalaSettingsModal.vue      ← Impostazioni Sala
+│   ├── shared/                        ← Componenti riutilizzati da entrambe le app
+│   │   ├── PeopleModal.vue            ← Modale conteggio coperti + anteprima coperto
+│   │   ├── PwaInstallBanner.vue       ← Banner installazione PWA (Android + iOS)
+│   │   └── SettingsModal.vue          ← Modale impostazioni condivisa (Cassa e Sala)
+│   ├── CassaNavbar.vue                ← Navigazione (Cassa)
+│   ├── CassaTableManager.vue          ← Mappa sala + cassa + checkout (Cassa only)
+│   ├── CassaOrderManager.vue          ← Gestione ordini + accettazione (Cassa only)
+│   ├── CassaDashboard.vue             ← Fondo cassa, movimenti, report X/Z (Cassa only)
+│   ├── CassaBillCard.vue              ← Card riepilogo conto chiuso (Cassa only)
+│   ├── CassaClosedBillsList.vue       ← Lista conti chiusi sessione (Cassa only)
+│   ├── CassaSettingsModal.vue         ← Impostazioni Cassa (usa shared/SettingsModal)
+│   ├── SalaNavbar.vue                 ← Navigazione (Sala)
+│   ├── SalaTableManager.vue           ← Mappa sala semplificata (Sala only)
+│   ├── SalaOrderManager.vue           ← Creazione/invio comande (Sala only)
+│   └── SalaSettingsModal.vue          ← Impostazioni Sala (usa shared/SettingsModal)
 ├── composables/
-│   ├── useBeep.js                 ← Notifiche audio (Web Audio API)
-│   ├── usePwaInstall.js           ← Rilevamento installazione PWA
-│   ├── useSettings.js             ← Lettura/scrittura impostazioni localStorage
-│   └── useWakeLock.js             ← Prevenzione blocco schermo (Screen Wake Lock API)
+│   ├── useBeep.js                     ← Notifiche audio (Web Audio API)
+│   ├── usePwaInstall.js               ← Rilevamento installazione PWA
+│   ├── useSettings.js                 ← Lettura/scrittura impostazioni localStorage
+│   └── useWakeLock.js                 ← Prevenzione blocco schermo (Screen Wake Lock API)
 ├── store/
-│   ├── index.js                   ← Pinia store condiviso (unica sorgente di verità)
-│   └── persistence.js             ← Chiavi localStorage, schema versioning, clearState
+│   ├── index.js                       ← Pinia store condiviso (unica sorgente di verità)
+│   └── persistence.js                 ← Chiavi localStorage, schema versioning, clearState
 ├── utils/
-│   ├── index.js                   ← Configurazione app + funzioni di calcolo condivise
-│   └── pwaManifest.js             ← Iniezione logo custom nei manifest PWA
-├── views/                         ← View Cassa (Sala, Ordini, Storico Conti)
-└── views/sala/                    ← View Sala
+│   ├── index.js                       ← Configurazione app + funzioni di calcolo condivise
+│   └── pwaManifest.js                 ← Iniezione logo custom nei manifest PWA
+├── views/
+│   ├── cassa/                         ← View Cassa
+│   │   ├── CassaTableView.vue         ← Mappa sala (vista Cassa)
+│   │   ├── OrdersView.vue             ← Gestione ordini (Cassa)
+│   │   └── BillHistoryView.vue        ← Storico conti (Cassa)
+│   └── sala/                          ← View Sala
+│       ├── SalaView.vue               ← Mappa sala (vista Sala)
+│       └── SalaOrderView.vue          ← Creazione comande (Sala)
 ```
 
 ### Aggiungere un nuovo componente condiviso
