@@ -265,36 +265,58 @@ describe('useSettings()', () => {
 
     // Stub window.location.reload to prevent errors in jsdom
     const reloadMock = vi.fn();
-    Object.defineProperty(window, 'location', {
-      writable: true,
-      configurable: true,
-      value: { reload: reloadMock },
-    });
+    const originalLocationDescriptor = Object.getOwnPropertyDescriptor(window, 'location');
+    const originalLocationValue = window.location;
 
-    const { result, wrapper } = withSetup(() => useSettings(props, emit));
+    try {
+      Object.defineProperty(window, 'location', {
+        writable: true,
+        configurable: true,
+        value: { reload: reloadMock },
+      });
 
-    result.confirmReset();
+      const { result, wrapper } = withSetup(() => useSettings(props, emit));
 
-    expect(localStorage.getItem(storageKey)).toBeNull();
-    expect(localStorage.getItem(settingsKey)).toBeNull();
-    wrapper.unmount();
+      result.confirmReset();
+
+      expect(localStorage.getItem(storageKey)).toBeNull();
+      expect(localStorage.getItem(settingsKey)).toBeNull();
+      wrapper.unmount();
+    } finally {
+      if (originalLocationDescriptor) {
+        Object.defineProperty(window, 'location', originalLocationDescriptor);
+      } else {
+        window.location = originalLocationValue;
+      }
+    }
   });
 
   it('confirmReset() calls window.location.reload()', () => {
     const reloadMock = vi.fn();
-    Object.defineProperty(window, 'location', {
-      writable: true,
-      configurable: true,
-      value: { reload: reloadMock },
-    });
+    const originalLocationDescriptor = Object.getOwnPropertyDescriptor(window, 'location');
+    const originalLocationValue = window.location;
 
-    const props = reactive({ modelValue: false });
-    const emit = vi.fn();
+    try {
+      Object.defineProperty(window, 'location', {
+        writable: true,
+        configurable: true,
+        value: { reload: reloadMock },
+      });
 
-    const { result, wrapper } = withSetup(() => useSettings(props, emit));
-    result.confirmReset();
+      const props = reactive({ modelValue: false });
+      const emit = vi.fn();
 
-    expect(reloadMock).toHaveBeenCalled();
-    wrapper.unmount();
+      const { result, wrapper } = withSetup(() => useSettings(props, emit));
+      result.confirmReset();
+
+      expect(reloadMock).toHaveBeenCalled();
+      wrapper.unmount();
+    } finally {
+      if (originalLocationDescriptor) {
+        Object.defineProperty(window, 'location', originalLocationDescriptor);
+      } else {
+        window.location = originalLocationValue;
+      }
+    }
   });
 });
