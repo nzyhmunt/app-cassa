@@ -4,6 +4,7 @@
   "short_name": "Sala",
   "description": "Gestione tavoli e ordini in sala per Osteria del Grillo",
   "start_url": "./sala.html",
+  "scope": "./sala.html",
   "display": "standalone",
   "orientation": "any",
   "theme_color": "#d97706",
