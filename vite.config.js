@@ -53,7 +53,7 @@ function pwaManifestPlugin() {
     closeBundle() {
       if (!appConfig.pwaLogo) return
       const outDir = resolvedConfig?.build?.outDir ?? 'dist'
-      for (const name of ['cassa.webmanifest', 'sala.webmanifest']) {
+      for (const name of ['cassa.webmanifest', 'sala.webmanifest', 'cucina.webmanifest']) {
         const outPath = path.join(__dirname, outDir, name)
         try {
           const manifest = JSON.parse(readFileSync(outPath, 'utf8'))
@@ -119,6 +119,8 @@ export default defineConfig({
         cassa: fileURLToPath(new URL('cassa.html', import.meta.url)),
         // Sala app (room / waiter)
         sala: fileURLToPath(new URL('sala.html', import.meta.url)),
+        // Cucina app (kitchen display)
+        cucina: fileURLToPath(new URL('cucina.html', import.meta.url)),
       },
     },
   },
