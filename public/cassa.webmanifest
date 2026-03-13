@@ -4,6 +4,7 @@
   "short_name": "Cassa",
   "description": "Terminale cassa e gestione ordini per Osteria del Grillo",
   "start_url": "./cassa.html",
+  "scope": "./cassa.html",
   "display": "standalone",
   "orientation": "any",
   "theme_color": "#00846c",
