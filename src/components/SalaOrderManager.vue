@@ -94,6 +94,12 @@
               <span v-if="order.status === 'accepted'" class="bg-blue-100 text-blue-800 text-[9px] md:text-[10px] uppercase font-bold px-2 py-1 rounded-md border border-blue-200 flex items-center gap-1">
                 <ChefHat class="size-3" /> In Cucina
               </span>
+              <span v-if="order.status === 'preparing'" class="bg-orange-100 text-orange-800 text-[9px] md:text-[10px] uppercase font-bold px-2 py-1 rounded-md border border-orange-200 flex items-center gap-1">
+                <Flame class="size-3" /> In Cottura
+              </span>
+              <span v-if="order.status === 'ready'" class="bg-teal-100 text-teal-800 text-[9px] md:text-[10px] uppercase font-bold px-2 py-1 rounded-md border border-teal-200 flex items-center gap-1">
+                <BellRing class="size-3" /> Pronta
+              </span>
               <span v-if="order.status === 'completed'" class="bg-emerald-100 text-emerald-800 text-[9px] md:text-[10px] uppercase font-bold px-2 py-1 rounded-md border border-emerald-200 flex items-center gap-1">
                 <CheckCircle2 class="size-3" /> Pagato
               </span>
@@ -196,6 +202,18 @@
                 <span class="text-xs md:text-sm">In Cucina</span>
               </span>
             </template>
+            <template v-else-if="selectedOrder.status === 'preparing'">
+              <span class="w-full sm:w-auto text-center px-4 py-2.5 md:py-3 bg-orange-50 text-orange-700 border border-orange-200 rounded-xl font-bold flex items-center justify-center gap-2">
+                <Flame class="size-5" />
+                <span class="text-xs md:text-sm">In Cottura</span>
+              </span>
+            </template>
+            <template v-else-if="selectedOrder.status === 'ready'">
+              <span class="w-full sm:w-auto text-center px-4 py-2.5 md:py-3 bg-teal-50 text-teal-700 border border-teal-200 rounded-xl font-bold flex items-center justify-center gap-2">
+                <BellRing class="size-5" />
+                <span class="text-xs md:text-sm">Pronta</span>
+              </span>
+            </template>
           </div>
         </div>
 
@@ -203,7 +221,7 @@
         <div class="flex-1 overflow-y-auto bg-gray-100 p-2 md:p-4 min-h-0">
 
           <!-- Accepted: read-only notice -->
-          <div v-if="selectedOrder.status === 'accepted'" class="mb-3 bg-blue-100 border border-blue-200 text-blue-800 p-3 rounded-xl text-[10px] md:text-xs font-bold flex items-center gap-2 shadow-sm">
+          <div v-if="['accepted','preparing','ready'].includes(selectedOrder.status)" class="mb-3 bg-blue-100 border border-blue-200 text-blue-800 p-3 rounded-xl text-[10px] md:text-xs font-bold flex items-center gap-2 shadow-sm">
             <ShieldCheck class="size-4 md:size-5 shrink-0" />
             Comanda già inviata in cucina — sola lettura.
           </div>
@@ -744,6 +762,7 @@ import {
   AlertTriangle, Trash2, PlusCircle, Send, ShieldCheck, Minus, Plus,
   MessageSquareWarning, PenLine, X, BookOpen, ShoppingCart, Sparkles,
   Layers, CheckCircle, CheckCircle2, XCircle, History, LayoutGrid, ChevronRight, Info, AlertOctagon,
+  BellRing, Flame,
 } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
 import { updateOrderTotals, getOrderItemRowTotal } from '../utils/index.js';
@@ -761,6 +780,10 @@ const filteredOrders = computed(() => {
     return store.orders
       .filter(o => o.status === 'completed' || o.status === 'rejected')
       .sort((a, b) => b.time.localeCompare(a.time));
+  if (activeTab.value === 'accepted')
+    return store.orders
+      .filter(o => ['accepted', 'preparing', 'ready'].includes(o.status))
+      .sort((a, b) => b.time.localeCompare(a.time));
   return store.orders
     .filter(o => o.status === activeTab.value)
     .sort((a, b) => b.time.localeCompare(a.time));
@@ -769,7 +792,7 @@ const filteredOrders = computed(() => {
 const orderStatusCounts = computed(() =>
   store.orders.reduce(
     (acc, o) => {
-      if (o.status === 'accepted') acc.accepted += 1;
+      if (['accepted', 'preparing', 'ready'].includes(o.status)) acc.accepted += 1;
       if (o.status === 'completed' || o.status === 'rejected') acc.history += 1;
       return acc;
     },

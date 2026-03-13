@@ -25,8 +25,8 @@
         <p class="text-sm font-semibold text-gray-500 uppercase tracking-widest">Scegli la modalità</p>
       </div>
 
-      <!-- Mode cards -->
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.25rem;">
+      <!-- Mode cards: 3-column grid matching consistent style -->
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:1.25rem;">
 
         <!-- App Cassa -->
         <a href="./cassa.html"
@@ -64,25 +64,25 @@
           </div>
         </a>
 
-      </div>
+        <!-- App Cucina -->
+        <a href="./cucina.html"
+           style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1rem;padding:2rem 1.25rem;background:white;border-radius:1.25rem;box-shadow:0 1px 3px rgba(0,0,0,.08);border:2px solid transparent;text-decoration:none;transition:box-shadow .15s,border-color .15s;cursor:pointer;"
+           onmouseover="this.style.boxShadow='0 8px 25px rgba(0,130,108,.18)';this.style.borderColor='#00846c';"
+           onmouseout="this.style.boxShadow='0 1px 3px rgba(0,0,0,.08)';this.style.borderColor='transparent';">
+          <div style="display:flex;align-items:center;justify-content:center;width:3.5rem;height:3.5rem;background-color:#00846c;border-radius:.875rem;box-shadow:0 4px 12px rgba(0,130,108,.35);">
+            <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none"
+                 stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M6 13.87A4 4 0 0 1 7.41 6a5.11 5.11 0 0 1 1.05-1.54 5 5 0 0 1 7.08 0A5.11 5.11 0 0 1 16.59 6 4 4 0 0 1 18 13.87V21H6Z"/>
+              <line x1="6" y1="17" x2="18" y2="17"/>
+            </svg>
+          </div>
+          <div style="text-align:center;">
+            <p style="font-size:1.1rem;font-weight:800;color:#111827;margin-bottom:.2rem;">App Cucina</p>
+            <p style="font-size:.75rem;color:#6b7280;font-weight:600;">Visualizza ordini &amp; aggiorna stato</p>
+          </div>
+        </a>
 
-      <!-- Kitchen Mode card (full-width) -->
-      <a href="./cucina.html"
-         style="display:flex;align-items:center;justify-content:center;gap:1.25rem;padding:1.5rem 1.25rem;background:#1c1917;border-radius:1.25rem;box-shadow:0 1px 3px rgba(0,0,0,.18);border:2px solid transparent;text-decoration:none;transition:box-shadow .15s,border-color .15s;cursor:pointer;margin-top:1.25rem;"
-         onmouseover="this.style.boxShadow='0 8px 25px rgba(180,83,9,.4)';this.style.borderColor='#b45309';"
-         onmouseout="this.style.boxShadow='0 1px 3px rgba(0,0,0,.18)';this.style.borderColor='transparent';">
-        <div style="display:flex;align-items:center;justify-content:center;width:3.5rem;height:3.5rem;background-color:#b45309;border-radius:.875rem;box-shadow:0 4px 12px rgba(180,83,9,.45);flex-shrink:0;">
-          <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none"
-               stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M6 13.87A4 4 0 0 1 7.41 6a5.11 5.11 0 0 1 1.05-1.54 5 5 0 0 1 7.08 0A5.11 5.11 0 0 1 16.59 6 4 4 0 0 1 18 13.87V21H6Z"/>
-            <line x1="6" y1="17" x2="18" y2="17"/>
-          </svg>
-        </div>
-        <div>
-          <p style="font-size:1.1rem;font-weight:800;color:#f5f5f4;margin-bottom:.2rem;">App Cucina</p>
-          <p style="font-size:.75rem;color:#a8a29e;font-weight:600;">Visualizza ordini &amp; aggiorna stato</p>
-        </div>
-      </a>
+      </div>
 
       <!-- Footer note -->
       <p style="text-align:center;margin-top:2rem;font-size:.75rem;color:#9ca3af;font-weight:500;">

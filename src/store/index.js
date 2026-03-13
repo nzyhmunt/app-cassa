@@ -12,7 +12,7 @@
  * the live in-memory data (see vite.config.js for the multi-page setup).
  *
  * Key data structures:
- *   orders[]       – All order objects (pending → accepted → completed/rejected)
+ *   orders[]       – All order objects (pending → accepted → preparing → ready → completed/rejected)
  *   transactions[] – Payment records linked to orders via billSessionId
  *   tableCurrentBillSession{} – Active seating session per table
  *   tableOccupiedAt{}         – ISO timestamp when a table was first opened
@@ -122,8 +122,14 @@ export const useAppStore = defineStore('app', () => {
     '--brand-dark': config.value.ui.primaryColorDark,
   }));
 
+  // Kitchen statuses that are treated as "active in kitchen" (accepted by kitchen, being worked on)
+  const KITCHEN_ACTIVE_STATUSES = ['accepted', 'preparing', 'ready'];
+
   // ── Computed: Orders ───────────────────────────────────────────────────────
   const pendingCount = computed(() => orders.value.filter(o => o.status === 'pending').length);
+  const inKitchenCount = computed(() =>
+    orders.value.filter(o => KITCHEN_ACTIVE_STATUSES.includes(o.status)).length,
+  );
 
   // ── Computed: Table helpers ────────────────────────────────────────────────
   function getTableStatus(tableId) {
@@ -134,7 +140,7 @@ export const useAppStore = defineStore('app', () => {
 
     // Include completed orders in the total so that per-order payments track correctly
     const billable = orders.value.filter(
-      o => o.table === tableId && (o.status === 'accepted' || o.status === 'completed'),
+      o => o.table === tableId && (KITCHEN_ACTIVE_STATUSES.includes(o.status) || o.status === 'completed'),
     );
     const total = billable.reduce((a, b) => a + b.totalAmount, 0);
     const paid = transactions.value
@@ -167,8 +173,8 @@ export const useAppStore = defineStore('app', () => {
 
   function changeOrderStatus(order, newStatus) {
     order.status = newStatus;
-    // When first accepted order for a table, record occupiedAt
-    if (newStatus === 'accepted' && !tableOccupiedAt.value[order.table]) {
+    // When first kitchen-active order for a table, record occupiedAt
+    if (KITCHEN_ACTIVE_STATUSES.includes(newStatus) && !tableOccupiedAt.value[order.table]) {
       tableOccupiedAt.value[order.table] = new Date().toISOString();
     }
     // When all orders for table are closed, clear occupiedAt, bill request, and session
@@ -202,7 +208,7 @@ export const useAppStore = defineStore('app', () => {
   }
 
   function voidOrderItems(ord, idx, qtyToVoid) {
-    if (!ord || ord.status !== 'accepted') return;
+    if (!ord || !KITCHEN_ACTIVE_STATUSES.includes(ord.status)) return;
     if (!Number.isInteger(qtyToVoid) || qtyToVoid <= 0) return;
     const item = ord.orderItems[idx];
     if (!item.voidedQuantity) item.voidedQuantity = 0;
@@ -218,7 +224,7 @@ export const useAppStore = defineStore('app', () => {
   }
 
   function restoreOrderItems(ord, idx, qtyToRestore) {
-    if (!ord || ord.status !== 'accepted') return;
+    if (!ord || !KITCHEN_ACTIVE_STATUSES.includes(ord.status)) return;
     if (!Number.isInteger(qtyToRestore) || qtyToRestore <= 0) return;
     const item = ord.orderItems[idx];
     if (item.voidedQuantity && item.voidedQuantity >= qtyToRestore) {
@@ -228,7 +234,7 @@ export const useAppStore = defineStore('app', () => {
   }
 
   function voidModifier(ord, itemIdx, modIdx, qty) {
-    if (!ord || ord.status !== 'accepted') return;
+    if (!ord || !KITCHEN_ACTIVE_STATUSES.includes(ord.status)) return;
     if (!Number.isInteger(qty) || qty <= 0) return;
     const item = ord.orderItems[itemIdx];
     if (!item || !item.modifiers || modIdx < 0 || modIdx >= item.modifiers.length) return;
@@ -241,7 +247,7 @@ export const useAppStore = defineStore('app', () => {
   }
 
   function restoreModifier(ord, itemIdx, modIdx, qty) {
-    if (!ord || ord.status !== 'accepted') return;
+    if (!ord || !KITCHEN_ACTIVE_STATUSES.includes(ord.status)) return;
     if (!Number.isInteger(qty) || qty <= 0) return;
     const item = ord.orderItems[itemIdx];
     if (!item || !item.modifiers || modIdx < 0 || modIdx >= item.modifiers.length) return;
@@ -610,6 +616,7 @@ export const useAppStore = defineStore('app', () => {
     // computed
     cssVars,
     pendingCount,
+    inKitchenCount,
     closedBills,
     // helpers
     getTableStatus,

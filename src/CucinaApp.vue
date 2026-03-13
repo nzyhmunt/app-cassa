@@ -1,5 +1,5 @@
 <template>
-  <div class="h-full flex flex-col relative w-full" style="background:#1c1917;color:#f5f5f4;">
+  <div id="app" class="h-full flex flex-col relative w-full" :style="store.cssVars">
     <router-view />
   </div>
 </template>
