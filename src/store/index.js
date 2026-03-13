@@ -260,6 +260,14 @@ export const useAppStore = defineStore('app', () => {
     }
   }
 
+  // ── Mutations: Item-level kitchen status ──────────────────────────────────
+  // Marks an individual order item as kitchen-ready (or unready).
+  // kitchenReady is an optional boolean on each orderItem — false/undefined = pending.
+  function setItemKitchenReady(order, itemIdx, ready) {
+    if (!order || !order.orderItems || itemIdx < 0 || itemIdx >= order.orderItems.length) return;
+    order.orderItems[itemIdx].kitchenReady = ready;
+  }
+
   // ── Mutations: Transactions ────────────────────────────────────────────────
   function addTransaction(txn) {
     transactions.value.push(txn);
@@ -627,6 +635,7 @@ export const useAppStore = defineStore('app', () => {
     // mutations
     addOrder,
     changeOrderStatus,
+    setItemKitchenReady,
     updateQtyGlobal,
     removeRowGlobal,
     voidOrderItems,

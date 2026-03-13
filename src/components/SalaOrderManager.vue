@@ -198,18 +198,38 @@
               </button>
             </template>
 
-            <!-- Accepted order: read-only indicator -->
+            <!-- Accepted order: override deliver available -->
             <template v-else-if="selectedOrder.status === 'accepted'">
-              <span class="w-full sm:w-auto text-center px-4 py-2.5 md:py-3 bg-blue-50 text-blue-700 border border-blue-200 rounded-xl font-bold flex items-center justify-center gap-2">
-                <ChefHat class="size-5" />
-                <span class="text-xs md:text-sm">In Cucina</span>
-              </span>
+              <div class="flex gap-2 w-full sm:w-auto items-center">
+                <span class="flex-1 text-center px-3 py-2.5 md:py-3 bg-blue-50 text-blue-700 border border-blue-200 rounded-xl font-bold flex items-center justify-center gap-2 text-xs">
+                  <ChefHat class="size-4" />
+                  <span class="hidden sm:inline text-xs">In Cucina</span>
+                </span>
+                <button
+                  @click="markDelivered(selectedOrder)"
+                  class="px-3 py-2.5 md:py-3 bg-emerald-600 hover:bg-emerald-700 text-white shadow-md rounded-xl font-bold flex items-center justify-center gap-1.5 active:scale-95 transition-colors text-xs shrink-0"
+                  title="Segna consegnata (override cucina)"
+                >
+                  <CheckCircle2 class="size-4" />
+                  <span class="hidden sm:inline text-xs">Consegnata</span>
+                </button>
+              </div>
             </template>
             <template v-else-if="selectedOrder.status === 'preparing'">
-              <span class="w-full sm:w-auto text-center px-4 py-2.5 md:py-3 bg-orange-50 text-orange-700 border border-orange-200 rounded-xl font-bold flex items-center justify-center gap-2">
-                <Flame class="size-5" />
-                <span class="text-xs md:text-sm">In Cottura</span>
-              </span>
+              <div class="flex gap-2 w-full sm:w-auto items-center">
+                <span class="flex-1 text-center px-3 py-2.5 md:py-3 bg-orange-50 text-orange-700 border border-orange-200 rounded-xl font-bold flex items-center justify-center gap-2 text-xs">
+                  <Flame class="size-4" />
+                  <span class="hidden sm:inline text-xs">In Cottura</span>
+                </span>
+                <button
+                  @click="markDelivered(selectedOrder)"
+                  class="px-3 py-2.5 md:py-3 bg-emerald-600 hover:bg-emerald-700 text-white shadow-md rounded-xl font-bold flex items-center justify-center gap-1.5 active:scale-95 transition-colors text-xs shrink-0"
+                  title="Segna consegnata (override cucina)"
+                >
+                  <CheckCircle2 class="size-4" />
+                  <span class="hidden sm:inline text-xs">Consegnata</span>
+                </button>
+              </div>
             </template>
             <template v-else-if="selectedOrder.status === 'ready'">
               <button

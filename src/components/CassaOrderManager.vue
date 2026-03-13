@@ -119,19 +119,34 @@
               </button>
             </template>
             <template v-else-if="selectedOrder.status === 'accepted'">
-              <span class="w-full text-center px-4 py-2.5 md:py-3 bg-blue-50 text-blue-700 border border-blue-200 rounded-xl font-bold flex items-center justify-center gap-2">
-                <ChefHat class="size-5" /> <span class="hidden sm:inline text-xs md:text-sm">In Cucina</span>
-              </span>
+              <div class="flex gap-2 w-full items-center">
+                <span class="flex-1 text-center px-3 py-2.5 md:py-3 bg-blue-50 text-blue-700 border border-blue-200 rounded-xl font-bold flex items-center justify-center gap-2 text-xs">
+                  <ChefHat class="size-4" /> <span class="hidden sm:inline">In Cucina</span>
+                </span>
+                <button @click="forceDeliver(selectedOrder)" class="px-3 py-2.5 md:py-3 bg-emerald-600 hover:bg-emerald-700 text-white shadow-md rounded-xl font-bold flex items-center justify-center gap-1.5 active:scale-95 transition-colors text-xs shrink-0" title="Segna consegnata (override cucina)">
+                  <CheckCircle2 class="size-4" /> <span class="hidden sm:inline">Consegnata</span>
+                </button>
+              </div>
             </template>
             <template v-else-if="selectedOrder.status === 'preparing'">
-              <span class="w-full text-center px-4 py-2.5 md:py-3 bg-orange-50 text-orange-700 border border-orange-200 rounded-xl font-bold flex items-center justify-center gap-2">
-                <Flame class="size-5" /> <span class="hidden sm:inline text-xs md:text-sm">In Cottura</span>
-              </span>
+              <div class="flex gap-2 w-full items-center">
+                <span class="flex-1 text-center px-3 py-2.5 md:py-3 bg-orange-50 text-orange-700 border border-orange-200 rounded-xl font-bold flex items-center justify-center gap-2 text-xs">
+                  <Flame class="size-4" /> <span class="hidden sm:inline">In Cottura</span>
+                </span>
+                <button @click="forceDeliver(selectedOrder)" class="px-3 py-2.5 md:py-3 bg-emerald-600 hover:bg-emerald-700 text-white shadow-md rounded-xl font-bold flex items-center justify-center gap-1.5 active:scale-95 transition-colors text-xs shrink-0" title="Segna consegnata (override cucina)">
+                  <CheckCircle2 class="size-4" /> <span class="hidden sm:inline">Consegnata</span>
+                </button>
+              </div>
             </template>
             <template v-else-if="selectedOrder.status === 'ready'">
-              <span class="w-full text-center px-4 py-2.5 md:py-3 bg-teal-50 text-teal-700 border border-teal-200 rounded-xl font-bold flex items-center justify-center gap-2">
-                <BellRing class="size-5" /> <span class="hidden sm:inline text-xs md:text-sm">Pronta 🔔</span>
-              </span>
+              <div class="flex gap-2 w-full items-center">
+                <span class="flex-1 text-center px-3 py-2.5 md:py-3 bg-teal-50 text-teal-700 border border-teal-200 rounded-xl font-bold flex items-center justify-center gap-2 text-xs">
+                  <BellRing class="size-4" /> <span class="hidden sm:inline">Pronta 🔔</span>
+                </span>
+                <button @click="forceDeliver(selectedOrder)" class="px-3 py-2.5 md:py-3 bg-emerald-600 hover:bg-emerald-700 text-white shadow-md rounded-xl font-bold flex items-center justify-center gap-1.5 active:scale-95 transition-colors text-xs shrink-0">
+                  <CheckCircle2 class="size-4" /> <span class="hidden sm:inline">Consegnata</span>
+                </button>
+              </div>
             </template>
             <template v-else-if="selectedOrder.status === 'delivered'">
               <span class="w-full text-center px-4 py-2.5 md:py-3 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-xl font-bold flex items-center justify-center gap-2">
@@ -613,6 +628,11 @@ function changeTab(tab) {
 
 function selectOrder(ord) {
   selectedOrder.value = ord;
+}
+
+function forceDeliver(order) {
+  store.changeOrderStatus(order, 'delivered');
+  store.$persist?.();
 }
 
 // ── Helper: unit price for an item including modifiers ────────────────────

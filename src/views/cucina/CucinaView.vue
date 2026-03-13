@@ -62,8 +62,27 @@
       </div>
     </header>
 
+    <!-- ── Tab nav: Kanban / Dettaglio ───────────────────────────────────── -->
+    <div class="shrink-0 flex gap-1.5 bg-white border-b border-gray-200 px-3 py-2">
+      <button
+        @click="cucinaTab = 'kanban'"
+        :class="cucinaTab === 'kanban' ? 'bg-[var(--brand-primary)]/10 text-[var(--brand-primary)] border-[var(--brand-primary)]/30 font-bold' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100'"
+        class="flex-1 py-1.5 px-2 rounded-xl border transition-all text-[10px] uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-sm"
+      >
+        <Layers class="size-3.5" /> Kanban
+      </button>
+      <button
+        @click="cucinaTab = 'detail'"
+        :class="cucinaTab === 'detail' ? 'bg-[var(--brand-primary)]/10 text-[var(--brand-primary)] border-[var(--brand-primary)]/30 font-bold' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100'"
+        class="flex-1 py-1.5 px-2 rounded-xl border transition-all text-[10px] uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-sm"
+      >
+        <ClipboardList class="size-3.5" /> Dettaglio
+        <span v-if="allKitchenOrders.length > 0" class="bg-[var(--brand-primary)] text-white text-[9px] font-black rounded-full size-4 flex items-center justify-center shrink-0">{{ allKitchenOrders.length }}</span>
+      </button>
+    </div>
+
     <!-- ── Scrollable kanban board ─────────────────────────────────────────── -->
-    <main class="flex-1 overflow-y-auto md:overflow-hidden p-3 md:p-4" style="overscroll-behavior:contain;">
+    <main v-if="cucinaTab === 'kanban'" class="flex-1 overflow-y-auto md:overflow-hidden p-3 md:p-4" style="overscroll-behavior:contain;">
 
       <!-- Empty state -->
       <div v-if="pendingOrders.length === 0 && preparingOrders.length === 0 && readyOrders.length === 0"
@@ -194,6 +213,81 @@
       </div>
     </main>
 
+    <!-- ── Dettaglio tab: per-item kitchen status management ──────────────── -->
+    <main v-else-if="cucinaTab === 'detail'" class="flex-1 overflow-y-auto p-3 md:p-4 space-y-3" style="overscroll-behavior:contain;">
+
+      <p v-if="allKitchenOrders.length === 0" class="flex flex-col items-center justify-center gap-3 h-full py-16 text-center">
+        <ChefHat class="size-12 text-gray-300" />
+        <span class="text-sm font-bold text-gray-400">Nessuna comanda attiva</span>
+        <span class="text-xs text-gray-400">Le comande appaiono qui dopo l'accettazione dalla Cassa.</span>
+      </p>
+
+      <article
+        v-for="order in allKitchenOrders"
+        :key="order.id"
+        class="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden"
+      >
+        <!-- Card header -->
+        <div class="px-3 py-2.5 bg-gray-50 border-b border-gray-100 flex items-center justify-between gap-2">
+          <div class="flex items-center gap-2.5 min-w-0">
+            <div class="theme-bg text-white rounded-xl size-9 flex items-center justify-center font-black text-sm shrink-0">
+              {{ order.table }}
+            </div>
+            <div class="min-w-0">
+              <p class="text-xs font-bold text-gray-800 truncate">Tavolo {{ order.table }}</p>
+              <p class="text-[10px] text-gray-400">{{ order.time }} · {{ elapsedLabel(order.time) }}</p>
+            </div>
+          </div>
+          <div class="flex items-center gap-2 shrink-0">
+            <span :class="detailStatusBadgeClass(order.status)" class="hidden sm:flex text-[9px] uppercase font-bold px-2 py-0.5 rounded-full border items-center">
+              {{ detailStatusLabel(order.status) }}
+            </span>
+            <button
+              @click="forceDeliver(order)"
+              class="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] rounded-lg font-bold flex items-center gap-1.5 active:scale-95 transition-colors"
+              title="Segna come consegnata (override)"
+            >
+              <CheckCircle2 class="size-3.5" />
+              <span class="hidden sm:inline">Consegnata</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Per-item toggles -->
+        <div class="divide-y divide-gray-100">
+          <template v-for="(item, idx) in order.orderItems" :key="item.uid || idx">
+            <div
+              v-if="(item.quantity - (item.voidedQuantity || 0)) > 0"
+              class="px-3 py-2 flex items-center gap-3"
+            >
+              <!-- Toggle button -->
+              <button
+                @click="toggleItemReady(order, idx)"
+                :class="item.kitchenReady ? 'bg-emerald-500 text-white border-emerald-600' : 'bg-white text-gray-400 border-gray-200 hover:border-gray-400'"
+                class="size-7 rounded-lg border-2 flex items-center justify-center shrink-0 active:scale-95 transition-all"
+                :title="item.kitchenReady ? 'Segna come non pronto' : 'Segna come pronto'"
+              >
+                <Check v-if="item.kitchenReady" class="size-4" />
+              </button>
+
+              <!-- Item info -->
+              <div class="flex-1 min-w-0">
+                <p :class="item.kitchenReady ? 'text-gray-400 line-through' : 'text-gray-800'" class="text-xs font-bold truncate">
+                  {{ item.quantity }}× {{ item.name }}
+                </p>
+                <p v-if="item.notes?.length" class="text-[10px] text-orange-600 truncate">{{ item.notes.join(' · ') }}</p>
+              </div>
+
+              <!-- Course badge -->
+              <span v-if="item.course === 'prima'" class="text-[9px] px-1.5 py-0.5 rounded bg-orange-100 text-orange-700 border border-orange-200 font-bold uppercase shrink-0">Prima</span>
+              <span v-else-if="item.course === 'dopo'" class="text-[9px] px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 border border-purple-200 font-bold uppercase shrink-0">Dopo</span>
+              <span v-else class="text-[9px] px-1.5 py-0.5 rounded bg-teal-100 text-teal-700 border border-teal-200 font-bold uppercase shrink-0">Insieme</span>
+            </div>
+          </template>
+        </div>
+      </article>
+    </main>
+
     <!-- ── Footer ─────────────────────────────────────────────────────────── -->
     <footer class="shrink-0 flex items-center justify-between px-4 py-2 bg-white border-t border-gray-200 text-xs text-gray-400">
       <span>Aggiornato: {{ lastSyncLabel }}</span>
@@ -205,7 +299,7 @@
 
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
-import { Bell, BellRing, ChefHat, Flame, RefreshCw, Settings } from 'lucide-vue-next';
+import { Bell, BellRing, ChefHat, Check, CheckCircle2, Flame, Layers, RefreshCw, Settings, ClipboardList } from 'lucide-vue-next';
 import { useAppStore } from '../../store/index.js';
 import { useBeep } from '../../composables/useBeep.js';
 import KitchenOrderCard from './KitchenOrderCard.vue';
@@ -213,6 +307,43 @@ import KitchenOrderCard from './KitchenOrderCard.vue';
 const emit = defineEmits(['open-settings']);
 
 const store = useAppStore();
+
+// ── Kitchen tab navigation: Kanban vs Detail ──────────────────────────────
+const cucinaTab = ref('kanban'); // 'kanban' | 'detail'
+
+// All active kitchen orders for the detail tab (accepted → preparing → ready)
+const allKitchenOrders = computed(() =>
+  store.orders
+    .filter(o => ['accepted', 'preparing', 'ready'].includes(o.status))
+    .slice()
+    .sort((a, b) => a.time.localeCompare(b.time)),
+);
+
+function toggleItemReady(order, itemIdx) {
+  const item = order.orderItems[itemIdx];
+  if (!item) return;
+  store.setItemKitchenReady(order, itemIdx, !item.kitchenReady);
+  store.$persist?.();
+}
+
+function forceDeliver(order) {
+  store.changeOrderStatus(order, 'delivered');
+  store.$persist?.();
+}
+
+function detailStatusBadgeClass(status) {
+  if (status === 'accepted') return 'bg-blue-50 text-blue-700 border-blue-200';
+  if (status === 'preparing') return 'bg-orange-50 text-orange-700 border-orange-200';
+  if (status === 'ready') return 'bg-teal-50 text-teal-700 border-teal-200';
+  return 'bg-gray-50 text-gray-700 border-gray-200';
+}
+
+function detailStatusLabel(status) {
+  if (status === 'accepted') return 'Da Preparare';
+  if (status === 'preparing') return 'In Cottura';
+  if (status === 'ready') return 'Pronta 🔔';
+  return status;
+}
 
 // ── Audio alerts: beep when a new order enters the kitchen (accepted) ────────
 const { playBeep } = useBeep();
