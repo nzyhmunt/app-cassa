@@ -64,12 +64,19 @@
           <p class="text-xs mt-1">{{ activeTab === 'pending' ? 'Vai su Sala per creare una nuova comanda.' : activeTab === 'accepted' ? 'Nessun ordine in cucina al momento.' : 'Nessun ordine chiuso.' }}</p>
         </div>
 
-        <transition-group name="list">
+        <template v-for="(order, idx) in filteredOrders" :key="order.id">
+          <!-- Section divider before first delivered order (In Cucina tab only) -->
           <div
-            v-for="order in filteredOrders"
-            :key="order.id"
+            v-if="activeTab === 'accepted' && order.status === 'delivered' && (idx === 0 || filteredOrders[idx - 1].status !== 'delivered')"
+            class="flex items-center gap-2 pt-1 pb-0.5 text-[10px] uppercase font-bold tracking-widest text-emerald-600"
+          >
+            <CheckCircle2 class="size-3.5 shrink-0" />
+            <span>Consegnate</span>
+            <div class="flex-1 h-px bg-emerald-200 ml-0.5"></div>
+          </div>
+          <div
             @click="selectOrder(order)"
-            :class="selectedOrder?.id === order.id ? 'ring-2 ring-offset-2 theme-border bg-white' : 'border-gray-200 hover:border-gray-300 bg-white'"
+            :class="[selectedOrder?.id === order.id ? 'ring-2 ring-offset-2 theme-border bg-white' : 'border-gray-200 hover:border-gray-300 bg-white', order.status === 'delivered' ? 'opacity-60' : '']"
             class="p-3 md:p-4 rounded-2xl border shadow-sm cursor-pointer transition-all active:scale-[0.98]"
           >
             <div class="flex justify-between items-start mb-2">
@@ -112,7 +119,7 @@
               <span class="bg-gray-100 text-gray-600 text-[9px] md:text-[10px] font-bold px-2 py-1 rounded-md border border-gray-200 ml-auto">{{ order.itemCount }} pz</span>
             </div>
           </div>
-        </transition-group>
+        </template>
       </div>
     </aside>
 
@@ -807,6 +814,8 @@ const store = useAppStore();
 const activeTab = ref('pending');
 const selectedOrder = ref(null);
 
+const KITCHEN_STATUS_PRIORITY = { accepted: 0, preparing: 1, ready: 2, delivered: 3 };
+
 const filteredOrders = computed(() => {
   if (activeTab.value === 'history')
     return store.orders
@@ -815,7 +824,12 @@ const filteredOrders = computed(() => {
   if (activeTab.value === 'accepted')
     return store.orders
       .filter(o => ['accepted', 'preparing', 'ready', 'delivered'].includes(o.status))
-      .sort((a, b) => b.time.localeCompare(a.time));
+      .sort((a, b) => {
+        const pa = KITCHEN_STATUS_PRIORITY[a.status] ?? 4;
+        const pb = KITCHEN_STATUS_PRIORITY[b.status] ?? 4;
+        if (pa !== pb) return pa - pb;
+        return b.time.localeCompare(a.time);
+      });
   return store.orders
     .filter(o => o.status === activeTab.value)
     .sort((a, b) => b.time.localeCompare(a.time));

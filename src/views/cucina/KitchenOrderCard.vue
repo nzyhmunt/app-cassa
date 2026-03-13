@@ -40,19 +40,19 @@
         </div>
         <!-- Item row -->
         <div v-else
-          class="px-3 py-2 flex items-start gap-3 border-l-4"
-          :class="getCourseBorderClass(row.item)"
+          class="px-3 py-2 flex items-start gap-3 border-l-4 transition-opacity"
+          :class="[getCourseBorderClass(row.item), row.item.kitchenReady ? 'opacity-50' : '']"
         >
-          <span :class="['shrink-0 font-black text-lg w-8 text-center', qtyClass]">
+          <span :class="['shrink-0 font-black text-lg w-8 text-center', row.item.kitchenReady ? 'text-gray-400' : qtyClass]">
             {{ row.item.quantity - (row.item.voidedQuantity || 0) }}×
           </span>
           <div class="flex-1 min-w-0">
-            <p class="font-bold text-sm text-gray-800 leading-tight">{{ row.item.name }}</p>
-            <p v-if="row.item.notes && row.item.notes.length" class="text-xs mt-0.5 font-semibold text-amber-600">
+            <p :class="['font-bold text-sm leading-tight', row.item.kitchenReady ? 'text-gray-400 line-through' : 'text-gray-800']">{{ row.item.name }}</p>
+            <p v-if="row.item.notes && row.item.notes.length" :class="['text-xs mt-0.5 font-semibold', row.item.kitchenReady ? 'text-gray-400 line-through' : 'text-amber-600']">
               ✎ {{ row.item.notes.join(' · ') }}
             </p>
             <div v-for="(mod, mi) in activeModifiers(row.item)" :key="`${row.item.uid}_mod_${mi}`"
-              class="text-[10px] font-bold bg-purple-50 border border-purple-200 text-purple-700 px-1.5 py-0.5 rounded inline-flex items-center gap-0.5 mt-0.5 mr-1"
+              :class="['text-[10px] font-bold px-1.5 py-0.5 rounded inline-flex items-center gap-0.5 mt-0.5 mr-1', row.item.kitchenReady ? 'bg-gray-100 border border-gray-200 text-gray-400 line-through' : 'bg-purple-50 border border-purple-200 text-purple-700']"
             >
               + {{ mod.name }}
             </div>
