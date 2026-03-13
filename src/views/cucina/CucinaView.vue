@@ -211,7 +211,7 @@ let clockTimer = null;
 const lastSyncLabel = ref('—');
 
 function syncFromStorage() {
-  store.$persist?.();
+  store.$hydrate?.();
   lastSyncLabel.value = new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
 
@@ -227,9 +227,7 @@ onMounted(() => {
     currentTime.value = new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
   }, 60_000);
 
-  if (typeof window !== 'undefined') {
-    window.addEventListener('storage', onStorageChange);
-  }
+  window.addEventListener('storage', onStorageChange);
 
   refreshTimer = setInterval(syncFromStorage, 30_000);
 
@@ -239,9 +237,7 @@ onMounted(() => {
 onUnmounted(() => {
   clearInterval(clockTimer);
   clearInterval(refreshTimer);
-  if (typeof window !== 'undefined') {
-    window.removeEventListener('storage', onStorageChange);
-  }
+  window.removeEventListener('storage', onStorageChange);
 });
 
 // ── Computed order lists ────────────────────────────────────────────────────
@@ -298,7 +294,7 @@ function elapsedColor(orderTime) {
 // ── Actions ─────────────────────────────────────────────────────────────────
 function acceptOrder(order) {
   store.changeOrderStatus(order, 'accepted');
-  syncFromStorage();
+  store.$persist?.();
 }
 
 function advancePreparingOrder(order) {
@@ -308,11 +304,11 @@ function advancePreparingOrder(order) {
   } else {
     store.changeOrderStatus(order, 'ready');
   }
-  syncFromStorage();
+  store.$persist?.();
 }
 
 function completeOrder(order) {
   store.changeOrderStatus(order, 'completed');
-  syncFromStorage();
+  store.$persist?.();
 }
 </script>
