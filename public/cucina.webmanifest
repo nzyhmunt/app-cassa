@@ -4,6 +4,7 @@
   "short_name": "Cucina",
   "description": "Visualizzazione ordini e gestione stato per la cucina – Osteria del Grillo",
   "start_url": "./cucina.html",
+  "scope": "./cucina.html",
   "display": "standalone",
   "orientation": "any",
   "theme_color": "#b45309",
