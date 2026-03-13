@@ -45,6 +45,14 @@
         >
           <RefreshCw class="size-4" />
         </button>
+        <button
+          @click="emit('open-settings')"
+          aria-label="Apri impostazioni"
+          class="bg-black/20 hover:bg-black/30 p-2 rounded-xl transition-colors active:scale-95"
+          title="Impostazioni"
+        >
+          <Settings class="size-4" />
+        </button>
       </div>
     </header>
 
@@ -192,13 +200,25 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue';
-import { Bell, BellRing, ChefHat, Flame, RefreshCw } from 'lucide-vue-next';
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
+import { Bell, BellRing, ChefHat, Flame, RefreshCw, Settings } from 'lucide-vue-next';
 import { useAppStore } from '../../store/index.js';
 import { resolveStorageKeys, getInstanceName } from '../../store/persistence.js';
+import { useBeep } from '../../composables/useBeep.js';
 import KitchenOrderCard from './KitchenOrderCard.vue';
 
+const emit = defineEmits(['open-settings']);
+
 const store = useAppStore();
+
+// ── Audio alerts: beep on new pending orders ─────────────────────────────
+const { playBeep } = useBeep();
+watch(
+  () => store.pendingCount,
+  (newVal, oldVal) => {
+    if (newVal > oldVal) playBeep();
+  },
+);
 
 // Resolve the storage key once at setup time — it never changes at runtime
 const { storageKey } = resolveStorageKeys(getInstanceName());
