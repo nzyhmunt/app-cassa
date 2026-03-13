@@ -273,7 +273,7 @@
               <!-- Item info -->
               <div class="flex-1 min-w-0">
                 <p :class="item.kitchenReady ? 'text-gray-400 line-through' : 'text-gray-800'" class="text-xs font-bold truncate">
-                  {{ item.quantity }}× {{ item.name }}
+                  {{ item.quantity - (item.voidedQuantity || 0) }}× {{ item.name }}
                 </p>
                 <p v-if="item.notes?.length" class="text-[10px] text-orange-600 truncate">{{ item.notes.join(' · ') }}</p>
               </div>
@@ -431,6 +431,7 @@ function elapsedColor(orderTime) {
     const then = new Date(now);
     then.setHours(h, m, 0, 0);
     const mins = Math.floor((now - then) / 60_000);
+    if (mins < 0) return 'text-gray-500'; // past midnight edge case
     if (mins < 10) return 'text-emerald-600';
     if (mins < 20) return 'text-amber-600';
     return 'text-red-500';

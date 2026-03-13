@@ -832,13 +832,14 @@ const filteredOrders = computed(() => {
       });
   return store.orders
     .filter(o => o.status === activeTab.value)
-    .sort((a, b) => b.time.localeCompare(a.time));
+    .sort((a, b) => a.time.localeCompare(b.time)); // oldest first → most urgent on top
 });
 
 const orderStatusCounts = computed(() =>
   store.orders.reduce(
     (acc, o) => {
-      if (['accepted', 'preparing', 'ready', 'delivered'].includes(o.status)) acc.accepted += 1;
+      // Badge counts only active kitchen orders (not delivered — those are already handled)
+      if (['accepted', 'preparing', 'ready'].includes(o.status)) acc.accepted += 1;
       if (o.status === 'completed' || o.status === 'rejected') acc.history += 1;
       return acc;
     },
