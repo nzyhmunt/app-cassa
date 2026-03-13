@@ -3,14 +3,16 @@
   <div class="h-full flex flex-col overflow-hidden select-none bg-gray-100">
 
     <!-- ── Header ─────────────────────────────────────────────────────────── -->
-    <header class="theme-bg text-white shrink-0 flex items-center justify-between px-4 py-3 shadow-md h-16 md:h-20">
-      <div class="flex items-center gap-2 md:gap-3">
-        <div class="bg-white/20 p-2 rounded-xl flex items-center justify-center">
-          <ChefHat class="size-5 md:size-6" />
+    <header class="theme-bg text-white p-2 md:p-4 shadow-md z-40 flex justify-between items-center shrink-0 h-16 md:h-20">
+
+      <!-- Brand -->
+      <div class="flex items-center gap-2 md:gap-3 flex-1 min-w-0">
+        <div class="bg-white p-2 rounded-full shadow-sm hidden sm:flex items-center justify-center shrink-0">
+          <ChefHat class="size-5 md:size-6 theme-text" />
         </div>
-        <div>
-          <p class="font-bold text-sm md:text-xl leading-none">{{ store.config.ui.name }}</p>
-          <p class="text-white/80 text-[9px] md:text-xs uppercase tracking-wider mt-0.5 font-bold">App Cucina</p>
+        <div class="flex flex-col truncate">
+          <h1 class="text-sm md:text-xl font-bold leading-none truncate">{{ store.config.ui.name }}</h1>
+          <p class="text-white/80 text-[9px] md:text-xs mt-0.5 font-bold uppercase tracking-wider truncate">APP CUCINA</p>
         </div>
       </div>
 
@@ -37,21 +39,25 @@
           </span>
           <span class="hidden sm:inline uppercase tracking-wide">Pronte</span>
         </div>
-        <p class="font-mono font-bold text-sm text-white/80 hidden md:block">{{ currentTime }}</p>
+        <div class="text-right hidden lg:block">
+          <p class="text-sm font-bold truncate">{{ currentTime }}</p>
+          <p class="text-[10px] text-white/80 uppercase truncate">Turno Attivo</p>
+        </div>
         <button
           @click="syncFromStorage"
-          class="bg-white/10 hover:bg-white/20 p-2 rounded-xl transition-colors"
+          class="bg-white/10 hover:bg-white/20 px-2.5 md:px-3 py-2 md:py-2.5 rounded-xl transition-colors text-white flex items-center justify-center"
           title="Aggiorna"
         >
-          <RefreshCw class="size-4" />
+          <RefreshCw class="size-5 md:size-5 shrink-0" />
         </button>
         <button
           @click="emit('open-settings')"
           aria-label="Apri impostazioni"
-          class="bg-black/20 hover:bg-black/30 p-2 rounded-xl transition-colors active:scale-95"
+          class="relative z-50 bg-black/20 hover:bg-black/30 px-2.5 md:px-3 py-2 md:py-2.5 rounded-xl transition-colors shadow-inner text-white flex items-center justify-center gap-1.5 cursor-pointer active:scale-95"
           title="Impostazioni"
         >
-          <Settings class="size-4" />
+          <Settings class="size-5 md:size-5 shrink-0" />
+          <span class="hidden lg:inline text-xs font-bold">Config</span>
         </button>
       </div>
     </header>
