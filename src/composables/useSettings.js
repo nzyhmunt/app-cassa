@@ -10,7 +10,7 @@ import { isWakeLockSupported } from './useWakeLock.js';
  *
  * @param {object} props  - Component props (must expose `modelValue: Boolean`)
  * @param {function} emit - Component emit function
- * @returns {{ store, settings, resetConfirmPending, syncMenu, confirmReset }}
+ * @returns {{ store, settings, resetConfirmPending, syncMenu, confirmReset, wakeLockApiSupported }}
  */
 export function useSettings(props, emit) {
   const store = useAppStore();
