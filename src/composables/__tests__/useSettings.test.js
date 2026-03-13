@@ -62,6 +62,12 @@ describe('useSettings()', () => {
   });
 
   it('loads all settings from localStorage when the key is present', () => {
+    // Mock Wake Lock API as supported so preventScreenLock:true is preserved
+    Object.defineProperty(navigator, 'wakeLock', {
+      value: { request: vi.fn() },
+      writable: true,
+      configurable: true,
+    });
     localStorage.setItem(
       SETTINGS_KEY,
       JSON.stringify({
@@ -79,6 +85,7 @@ describe('useSettings()', () => {
     expect(result.settings.value.menuUrl).toBe('https://custom.example.com/menu.json');
     expect(result.settings.value.preventScreenLock).toBe(true);
     wrapper.unmount();
+    delete navigator.wakeLock;
   });
 
   it('falls back to defaults when localStorage contains malformed JSON', () => {

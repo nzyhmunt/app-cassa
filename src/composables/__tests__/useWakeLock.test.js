@@ -1,203 +1,210 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { mount } from '@vue/test-utils';
-import { defineComponent, nextTick } from 'vue';
-import { createPinia, setActivePinia } from 'pinia';
-import { useWakeLock } from '../useWakeLock.js';
+import { mount, flushPromises } from '@vue/test-utils';
+import { defineComponent, reactive } from 'vue';
+
+// ── Mock the Pinia store before importing the composable ─────────────────────
+vi.mock('../../store/index.js', () => ({
+  useAppStore: vi.fn(),
+}));
 import { useAppStore } from '../../store/index.js';
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
+import { isWakeLockSupported, useWakeLock } from '../useWakeLock.js';
 
-/** Stub window.matchMedia to signal standalone display mode. */
-function mockMatchMediaStandalone(matches) {
-  Object.defineProperty(window, 'matchMedia', {
-    writable: true,
-    configurable: true,
-    value: vi.fn().mockReturnValue({ matches }),
-  });
+// ── Browser API helpers ──────────────────────────────────────────────────────
+
+/**
+ * Create a minimal WakeLock sentinel whose 'release' event can be fired
+ * programmatically via `sentinel._fire('release')`.
+ */
+function makeSentinel() {
+  const _listeners = {};
+  return {
+    release: vi.fn().mockResolvedValue(undefined),
+    addEventListener: vi.fn((event, cb) => {
+      _listeners[event] = cb;
+    }),
+    /** Test helper: synchronously invoke the stored listener for `event`. */
+    _fire(event) {
+      _listeners[event]?.();
+    },
+  };
 }
 
-/** Remove window.matchMedia so isStandaloneDisplayMode() returns false. */
-function removeMatchMedia() {
-  Object.defineProperty(window, 'matchMedia', {
+/** Stub `navigator.wakeLock` with a mock API that resolves to `sentinel`. */
+function installWakeLock(sentinel) {
+  const api = { request: vi.fn().mockResolvedValue(sentinel) };
+  Object.defineProperty(navigator, 'wakeLock', {
+    value: api,
     writable: true,
     configurable: true,
-    value: undefined,
   });
+  return api;
 }
 
-/** Mount a component whose setup() calls the composable, returning the wrapper. */
+/** Remove `navigator.wakeLock` to simulate an unsupported browser. */
+function uninstallWakeLock() {
+  try {
+    delete navigator.wakeLock;
+  } catch {
+    // Fallback: some environments don't allow delete on host objects
+  }
+}
+
+// ── Composable mount helper ───────────────────────────────────────────────────
+
+let _wrappers = [];
+
+/** Mount a test component that calls `composable()` in setup(). */
 function withSetup(composable) {
+  let result;
   const TestComponent = defineComponent({
     setup() {
-      composable();
+      result = composable();
       return {};
     },
     template: '<div></div>',
   });
-  return mount(TestComponent);
+  const wrapper = mount(TestComponent);
+  _wrappers.push(wrapper);
+  return { result, wrapper };
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
+// ── isWakeLockSupported() ─────────────────────────────────────────────────────
+describe('isWakeLockSupported()', () => {
+  afterEach(uninstallWakeLock);
 
+  it('returns false by default in jsdom (no WakeLock API)', () => {
+    uninstallWakeLock();
+    expect(isWakeLockSupported()).toBe(false);
+  });
+
+  it('returns true when navigator.wakeLock is present', () => {
+    installWakeLock(makeSentinel());
+    expect(isWakeLockSupported()).toBe(true);
+  });
+});
+
+// ── useWakeLock() ─────────────────────────────────────────────────────────────
 describe('useWakeLock()', () => {
-  let store;
+  let mockStore;
+  let sentinel;
+  let wakeLockApi;
 
   beforeEach(() => {
-    // Ensure a clean storage and offline-safe environment before store initialization
-    localStorage.clear();
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue({
-        ok: true,
-        json: async () => ({}),
-      }),
-    );
-
-    setActivePinia(createPinia());
-    store = useAppStore();
-    removeMatchMedia();
-    // Ensure WakeLock API is absent by default
-    if ('wakeLock' in navigator) {
-      delete navigator.wakeLock;
-    }
+    sentinel = makeSentinel();
+    wakeLockApi = installWakeLock(sentinel);
+    mockStore = reactive({ preventScreenLock: false });
+    useAppStore.mockReturnValue(mockStore);
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    _wrappers.forEach((w) => w.unmount());
+    _wrappers = [];
     vi.restoreAllMocks();
-    vi.unstubAllGlobals();
+    uninstallWakeLock();
   });
 
-  // ── isStandaloneDisplayMode() branches ──────────────────────────────────
+  // ── Initial mount ──────────────────────────────────────────────────────────
 
-  it('does not request a wake lock when NOT in standalone mode', async () => {
-    store.preventScreenLock = true;
-    const mockRequest = vi.fn();
-    Object.defineProperty(navigator, 'wakeLock', {
-      value: { request: mockRequest },
-      writable: true,
-      configurable: true,
-    });
+  it('does not request wake lock on mount when preventScreenLock is false', async () => {
+    withSetup(() => useWakeLock());
+    await flushPromises();
 
-    const wrapper = withSetup(() => useWakeLock());
-    await nextTick();
-
-    expect(mockRequest).not.toHaveBeenCalled();
-    wrapper.unmount();
-    await nextTick();
+    expect(wakeLockApi.request).not.toHaveBeenCalled();
   });
 
-  it('does not request a wake lock when preventScreenLock is false', async () => {
-    mockMatchMediaStandalone(true);
-    store.preventScreenLock = false;
-    const mockRequest = vi.fn();
-    Object.defineProperty(navigator, 'wakeLock', {
-      value: { request: mockRequest },
-      writable: true,
-      configurable: true,
-    });
+  it('requests wake lock on mount when preventScreenLock is true', async () => {
+    mockStore.preventScreenLock = true;
+    withSetup(() => useWakeLock());
+    await flushPromises();
 
-    const wrapper = withSetup(() => useWakeLock());
-    await nextTick();
-
-    expect(mockRequest).not.toHaveBeenCalled();
-    wrapper.unmount();
-    await nextTick();
+    expect(wakeLockApi.request).toHaveBeenCalledWith('screen');
   });
 
-  it('does not request a wake lock when the WakeLock API is not supported', async () => {
-    mockMatchMediaStandalone(true);
-    store.preventScreenLock = true;
-    // navigator.wakeLock is already absent (set to undefined in beforeEach)
+  it('does not request wake lock when the Wake Lock API is unavailable', async () => {
+    uninstallWakeLock();
+    mockStore.preventScreenLock = true;
+    withSetup(() => useWakeLock());
+    await flushPromises();
 
-    // Should mount and unmount without throwing
-    const wrapper = withSetup(() => useWakeLock());
-    await nextTick();
-    wrapper.unmount();
-    await nextTick();
+    // isWakeLockSupported() returns false → request is never reached
+    expect(wakeLockApi.request).not.toHaveBeenCalled();
   });
 
-  it('requests a wake lock when standalone, preventScreenLock=true, and API is available', async () => {
-    mockMatchMediaStandalone(true);
-    store.preventScreenLock = true;
-    const sentinel = {
-      release: vi.fn().mockResolvedValue(undefined),
-      addEventListener: vi.fn(),
-    };
-    const mockRequest = vi.fn().mockResolvedValue(sentinel);
-    Object.defineProperty(navigator, 'wakeLock', {
-      value: { request: mockRequest },
-      writable: true,
-      configurable: true,
-    });
+  // ── Reactive watch (setting toggled) ──────────────────────────────────────
 
-    const wrapper = withSetup(() => useWakeLock());
-    await nextTick();
-    await nextTick(); // allow the async requestWakeLock to settle
+  it('requests wake lock when preventScreenLock is toggled on', async () => {
+    withSetup(() => useWakeLock());
+    await flushPromises();
+    expect(wakeLockApi.request).not.toHaveBeenCalled();
 
-    expect(mockRequest).toHaveBeenCalledWith('screen');
-    wrapper.unmount();
-    await nextTick();
+    mockStore.preventScreenLock = true;
+    await flushPromises();
+
+    expect(wakeLockApi.request).toHaveBeenCalledWith('screen');
   });
 
-  it('releases the wake lock sentinel on unmount', async () => {
-    mockMatchMediaStandalone(true);
-    store.preventScreenLock = true;
-    const sentinel = {
-      release: vi.fn().mockResolvedValue(undefined),
-      addEventListener: vi.fn(),
-    };
-    Object.defineProperty(navigator, 'wakeLock', {
-      value: { request: vi.fn().mockResolvedValue(sentinel) },
-      writable: true,
-      configurable: true,
-    });
+  it('releases wake lock when preventScreenLock is toggled off', async () => {
+    mockStore.preventScreenLock = true;
+    withSetup(() => useWakeLock());
+    await flushPromises();
 
-    const wrapper = withSetup(() => useWakeLock());
-    await nextTick();
-    await nextTick(); // sentinel acquired
-
-    wrapper.unmount();
-    await nextTick();
-    await nextTick(); // releaseWakeLock settles
+    mockStore.preventScreenLock = false;
+    await flushPromises();
 
     expect(sentinel.release).toHaveBeenCalled();
   });
 
-  it('re-acquires the wake lock when the page becomes visible again', async () => {
-    mockMatchMediaStandalone(true);
-    store.preventScreenLock = true;
-    const sentinel = {
-      release: vi.fn().mockResolvedValue(undefined),
-      addEventListener: vi.fn(),
-    };
-    const mockRequest = vi.fn().mockResolvedValue(sentinel);
-    Object.defineProperty(navigator, 'wakeLock', {
-      value: { request: mockRequest },
-      writable: true,
-      configurable: true,
-    });
+  // ── visibilitychange re-acquisition ───────────────────────────────────────
 
-    const wrapper = withSetup(() => useWakeLock());
-    await nextTick();
-    await nextTick(); // initial acquisition
+  it('re-acquires wake lock when the page becomes visible again', async () => {
+    mockStore.preventScreenLock = true;
+    withSetup(() => useWakeLock());
+    await flushPromises();
 
-    expect(mockRequest).toHaveBeenCalledTimes(1);
+    wakeLockApi.request.mockClear();
 
-    // Simulate the page becoming visible
+    // jsdom defaults to visibilityState 'visible'; dispatching the event
+    // triggers handleVisibilityChange which calls requestWakeLock().
+    document.dispatchEvent(new Event('visibilitychange'));
+    await flushPromises();
+
+    expect(wakeLockApi.request).toHaveBeenCalledWith('screen');
+  });
+
+  it('does not re-acquire on visibilitychange when preventScreenLock is off', async () => {
+    withSetup(() => useWakeLock());
+    await flushPromises();
+
+    document.dispatchEvent(new Event('visibilitychange'));
+    await flushPromises();
+
+    expect(wakeLockApi.request).not.toHaveBeenCalled();
+  });
+
+  // ── Sentinel 'release' event (browser/OS releases the lock) ───────────────
+
+  it('re-acquires wake lock when the sentinel is released by the browser', async () => {
+    mockStore.preventScreenLock = true;
+    withSetup(() => useWakeLock());
+    await flushPromises();
+
+    wakeLockApi.request.mockClear();
+
+    // Simulate the OS or browser autonomously releasing the sentinel while
+    // the document is still visible.
     const originalVisibilityDescriptor = Object.getOwnPropertyDescriptor(document, 'visibilityState');
+
     try {
       Object.defineProperty(document, 'visibilityState', {
         value: 'visible',
         writable: true,
         configurable: true,
       });
-      document.dispatchEvent(new Event('visibilitychange'));
-      await nextTick();
-      await nextTick(); // re-acquisition settles
+      sentinel._fire('release');
+      await flushPromises();
+
+      expect(wakeLockApi.request).toHaveBeenCalledWith('screen');
     } finally {
       if (originalVisibilityDescriptor) {
         Object.defineProperty(document, 'visibilityState', originalVisibilityDescriptor);
@@ -205,63 +212,36 @@ describe('useWakeLock()', () => {
         delete document.visibilityState;
       }
     }
-
-    expect(mockRequest).toHaveBeenCalledTimes(2);
-    wrapper.unmount();
-    await nextTick();
   });
 
-  it('watches store.preventScreenLock — acquires lock when enabled', async () => {
-    mockMatchMediaStandalone(true);
-    store.preventScreenLock = false;
-    const sentinel = {
-      release: vi.fn().mockResolvedValue(undefined),
-      addEventListener: vi.fn(),
-    };
-    const mockRequest = vi.fn().mockResolvedValue(sentinel);
-    Object.defineProperty(navigator, 'wakeLock', {
-      value: { request: mockRequest },
-      writable: true,
-      configurable: true,
-    });
+  it('does not re-acquire when sentinel is released but the setting is off', async () => {
+    mockStore.preventScreenLock = true;
+    withSetup(() => useWakeLock());
+    await flushPromises();
 
-    const wrapper = withSetup(() => useWakeLock());
-    await nextTick();
-    await nextTick();
-    expect(mockRequest).not.toHaveBeenCalled();
+    // Disable the setting — this releases the sentinel via the watch
+    mockStore.preventScreenLock = false;
+    await flushPromises();
 
-    store.preventScreenLock = true;
-    await nextTick();
-    await nextTick(); // watcher fires + async request resolves
+    wakeLockApi.request.mockClear();
 
-    expect(mockRequest).toHaveBeenCalledWith('screen');
-    wrapper.unmount();
-    await nextTick();
+    // Firing 'release' on the sentinel should NOT trigger re-acquisition
+    // because preventScreenLock is now false.
+    sentinel._fire('release');
+    await flushPromises();
+
+    expect(wakeLockApi.request).not.toHaveBeenCalled();
   });
 
-  it('watches store.preventScreenLock — releases lock when disabled', async () => {
-    mockMatchMediaStandalone(true);
-    store.preventScreenLock = true;
-    const sentinel = {
-      release: vi.fn().mockResolvedValue(undefined),
-      addEventListener: vi.fn(),
-    };
-    Object.defineProperty(navigator, 'wakeLock', {
-      value: { request: vi.fn().mockResolvedValue(sentinel) },
-      writable: true,
-      configurable: true,
-    });
+  // ── Cleanup on unmount ────────────────────────────────────────────────────
 
-    const wrapper = withSetup(() => useWakeLock());
-    await nextTick();
-    await nextTick(); // lock acquired
+  it('removes the visibilitychange listener on unmount', async () => {
+    const removeSpy = vi.spyOn(document, 'removeEventListener');
+    const { wrapper } = withSetup(() => useWakeLock());
+    await flushPromises();
 
-    store.preventScreenLock = false;
-    await nextTick();
-    await nextTick(); // watcher fires + releaseWakeLock settles
-
-    expect(sentinel.release).toHaveBeenCalled();
     wrapper.unmount();
-    await nextTick();
+
+    expect(removeSpy).toHaveBeenCalledWith('visibilitychange', expect.any(Function));
   });
 });
