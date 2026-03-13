@@ -9,7 +9,7 @@ Il progetto contiene due applicazioni operative più una pagina di selezione, tu
 | App | Entry | URL locale | Pubblico |
 |-----|-------|-----------|---------|
 | Launcher | `index.html` | `/` | Selezione modalità (Cassa / Sala) |
-| **Cassa** | `cassa.html` → `src/main.js` | `/cassa.html` | Cassiere / gestione |
+| **Cassa** | `cassa.html` → `src/cassa-main.js` | `/cassa.html` | Cassiere / gestione |
 | **Sala** | `sala.html` → `src/sala-main.js` | `/sala.html` | Personale di sala |
 
 ```

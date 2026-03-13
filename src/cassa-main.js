@@ -3,7 +3,7 @@ import { createPinia } from 'pinia';
 import piniaPluginPersistedstate from 'pinia-plugin-persistedstate';
 import router from './router/index.js';
 import './assets/styles/main.css';
-import App from './App.vue';
+import App from './CassaApp.vue';
 
 // On iOS PWA, reset the viewport scroll position when the on-screen keyboard is dismissed.
 // Natural scrolling while the keyboard is open is preserved so focused inputs remain visible.
