@@ -13,7 +13,7 @@ import { watch, onMounted, onUnmounted } from 'vue';
 import { useAppStore } from '../store/index.js';
 
 export function isWakeLockSupported() {
-  return (
+  return !!(
     typeof navigator !== 'undefined' &&
     navigator.wakeLock &&
     typeof navigator.wakeLock.request === 'function'

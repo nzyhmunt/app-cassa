@@ -35,9 +35,9 @@ export const appConfig = {
   // maskable icons in both the cassa and sala web app manifests during the
   // build/dev process. The URL should be same-origin with the app or come from
   // a host configured with appropriate CORS headers, otherwise install icons
-  // may fail to load in some browsers. Set to an empty string to disable custom
-  // logo injection.
-  pwaLogo: '',
+  // may fail to load in some browsers. Override with an empty string to disable
+  // custom logo injection.
+  pwaLogo: 'https://odg.nanawork.it/media/com_directus/assets/manifest/hr/icon512_maskable.png',
 
   // CONFIGURAZIONE DINAMICA METODI PAGAMENTO CASSA
   paymentMethods: [
