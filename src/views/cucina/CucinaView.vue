@@ -203,7 +203,6 @@
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { Bell, BellRing, ChefHat, Flame, RefreshCw, Settings } from 'lucide-vue-next';
 import { useAppStore } from '../../store/index.js';
-import { resolveStorageKeys, getInstanceName } from '../../store/persistence.js';
 import { useBeep } from '../../composables/useBeep.js';
 import KitchenOrderCard from './KitchenOrderCard.vue';
 
@@ -220,24 +219,20 @@ watch(
   },
 );
 
-// Resolve the storage key once at setup time — it never changes at runtime
-const { storageKey } = resolveStorageKeys(getInstanceName());
-
 // ── Live clock ─────────────────────────────────────────────────────────────
 const currentTime = ref(new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }));
 let clockTimer = null;
 
-// ── Cross-tab sync ──────────────────────────────────────────────────────────
+// ── Manual sync ─────────────────────────────────────────────────────────────
+// Automatic cross-tab sync is handled at the app root in CucinaApp.vue
+// (same architecture as CassaApp.vue and SalaApp.vue).
+// `syncFromStorage` is called here only by the manual refresh button and the
+// 30-second periodic fallback poll.
 const lastSyncLabel = ref('—');
 
 function syncFromStorage() {
   store.$hydrate?.();
   lastSyncLabel.value = new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-}
-
-function onStorageChange(event) {
-  if (event.key !== storageKey) return;
-  syncFromStorage();
 }
 
 let refreshTimer = null;
@@ -247,8 +242,6 @@ onMounted(() => {
     currentTime.value = new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
   }, 60_000);
 
-  window.addEventListener('storage', onStorageChange);
-
   refreshTimer = setInterval(syncFromStorage, 30_000);
 
   lastSyncLabel.value = new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -257,7 +250,6 @@ onMounted(() => {
 onUnmounted(() => {
   clearInterval(clockTimer);
   clearInterval(refreshTimer);
-  window.removeEventListener('storage', onStorageChange);
 });
 
 // ── Computed order lists ────────────────────────────────────────────────────
