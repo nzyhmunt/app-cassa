@@ -68,9 +68,9 @@ src/
   - **Occupato** — ordini accettati / in preparazione
   - **Conto Richiesto** — cliente ha richiesto il conto (badge blu)
 - Apertura del tavolo con selezione coperti (adulti + bambini) e anteprima del coperto
-- Operazioni avanzate su tavoli (solo Cassa):
-  - **Sposta tavolo**: trasferisce tutti gli ordini e le transazioni a un altro tavolo
-  - **Unisci tavoli**: combina due tavoli, somma coperti e sessioni di conto
+- Operazioni avanzate su tavoli (Cassa & Sala):
+  - **Sposta tavolo**: trasferisce tutti gli ordini e le transazioni a un altro tavolo libero
+  - **Unisci tavoli**: combina due tavoli occupati, somma coperti e sessioni di conto
 
 ### 📋 Gestione Ordini (Cassa)
 - Visualizzazione ordini suddivisa in tre tab: **In Attesa**, **In Cucina**, **Chiusi**

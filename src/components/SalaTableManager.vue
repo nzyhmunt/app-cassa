@@ -113,9 +113,23 @@
             </p>
           </div>
         </div>
-        <button @click="closeTableModal" class="bg-white/10 hover:bg-white/20 p-2 md:p-2.5 rounded-full transition-colors active:scale-95">
-          <X class="size-5 md:size-6" />
-        </button>
+        <div class="flex items-center gap-1 md:gap-2">
+          <!-- Sposta button -->
+          <button v-if="tableOrders.length > 0" @click="openMoveModal"
+            class="bg-white/10 hover:bg-white/20 px-3 py-2 rounded-xl font-bold text-[10px] md:text-xs flex items-center gap-1.5 transition-all active:scale-95 shrink-0"
+            title="Sposta Tavolo">
+            <ArrowRightLeft class="size-4" /> <span class="hidden sm:inline">Sposta</span>
+          </button>
+          <!-- Unisci button -->
+          <button v-if="tableOrders.length > 0" @click="openMergeModal"
+            class="bg-white/10 hover:bg-white/20 px-3 py-2 rounded-xl font-bold text-[10px] md:text-xs flex items-center gap-1.5 transition-all active:scale-95 shrink-0"
+            title="Unisci con altro Tavolo">
+            <Merge class="size-4" /> <span class="hidden sm:inline">Unisci</span>
+          </button>
+          <button @click="closeTableModal" class="bg-white/10 hover:bg-white/20 p-2 md:p-2.5 rounded-full transition-colors active:scale-95">
+            <X class="size-5 md:size-6" />
+          </button>
+        </div>
       </div>
 
       <!-- Modal body -->
@@ -169,12 +183,54 @@
       </div>
     </div>
   </div>
+
+  <!-- ================================================================ -->
+  <!-- MODAL: SPOSTA TAVOLO                                              -->
+  <!-- ================================================================ -->
+  <div v-if="showMoveModal" class="fixed inset-0 z-[100] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-5">
+      <div class="flex justify-between items-center mb-4">
+        <h3 class="font-bold text-gray-800 flex items-center gap-2"><ArrowRightLeft class="size-5 theme-text" /> Sposta Tavolo {{ selectedTable?.label }}</h3>
+        <button @click="showMoveModal = false" class="text-gray-400 hover:text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-full p-1.5 transition-colors"><X class="size-4" /></button>
+      </div>
+      <p class="text-xs text-gray-500 mb-4">Seleziona il tavolo di destinazione libero. Tutti gli ordini verranno spostati.</p>
+      <div class="grid grid-cols-4 gap-2 max-h-64 overflow-y-auto">
+        <button v-for="table in freeTables" :key="'sp_'+table.id"
+          @click="confirmMove(table)"
+          class="aspect-square rounded-xl border-2 border-emerald-200 bg-emerald-50 text-emerald-800 font-black text-lg flex items-center justify-center hover:bg-emerald-100 active:scale-95 transition-all">
+          {{ table.label }}
+        </button>
+      </div>
+      <div v-if="freeTables.length === 0" class="text-center text-gray-400 text-sm py-4">Nessun tavolo libero disponibile.</div>
+    </div>
+  </div>
+
+  <!-- ================================================================ -->
+  <!-- MODAL: UNISCI TAVOLI                                              -->
+  <!-- ================================================================ -->
+  <div v-if="showMergeModal" class="fixed inset-0 z-[100] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-5">
+      <div class="flex justify-between items-center mb-4">
+        <h3 class="font-bold text-gray-800 flex items-center gap-2"><Merge class="size-5 theme-text" /> Unisci con Tavolo {{ selectedTable?.label }}</h3>
+        <button @click="showMergeModal = false" class="text-gray-400 hover:text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-full p-1.5 transition-colors"><X class="size-4" /></button>
+      </div>
+      <p class="text-xs text-gray-500 mb-4">Seleziona il tavolo con cui fondere gli ordini. I suoi ordini e i coperti verranno uniti con questo tavolo.</p>
+      <div class="grid grid-cols-4 gap-2 max-h-64 overflow-y-auto">
+        <button v-for="table in occupiedTables" :key="'un_'+table.id"
+          @click="confirmMerge(table)"
+          class="aspect-square rounded-xl border-2 border-[var(--brand-primary)] theme-bg text-white font-black text-lg flex items-center justify-center hover:opacity-90 active:scale-95 transition-all">
+          {{ table.label }}
+        </button>
+      </div>
+      <div v-if="occupiedTables.length === 0" class="text-center text-gray-400 text-sm py-4">Nessun altro tavolo occupato disponibile.</div>
+    </div>
+  </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import {
-  Grid3x3, Users, Timer, X, Coffee, ChevronRight, Plus,
+  Grid3x3, Users, Timer, X, Coffee, ChevronRight, Plus, ArrowRightLeft, Merge,
 } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
 import { updateOrderTotals } from '../utils/index.js';
@@ -235,6 +291,22 @@ const showChildrenInput = computed(() =>
 // ── Table modal ──────────────────────────────────────────────────────────────
 const showTableModal = ref(false);
 const selectedTable = ref(null);
+
+// ── Sposta / Unisci modal state ────────────────────────────────────────────
+const showMoveModal = ref(false);
+const showMergeModal = ref(false);
+
+const freeTables = computed(() =>
+  store.config.tables.filter(
+    t => t.id !== selectedTable.value?.id && store.getTableStatus(t.id).status === 'free',
+  ),
+);
+
+const occupiedTables = computed(() =>
+  store.config.tables.filter(
+    t => t.id !== selectedTable.value?.id && store.getTableStatus(t.id).status !== 'free',
+  ),
+);
 
 const tableSession = computed(() =>
   selectedTable.value ? store.tableCurrentBillSession[selectedTable.value.id] : null,
@@ -358,6 +430,23 @@ function createNewOrder() {
 function viewOrder(ord) {
   closeTableModal();
   emit('view-order', ord);
+}
+
+function openMoveModal() { showMoveModal.value = true; }
+function openMergeModal() { showMergeModal.value = true; }
+
+function confirmMove(targetTable) {
+  if (!selectedTable.value) return;
+  store.moveTableOrders(selectedTable.value.id, targetTable.id);
+  showMoveModal.value = false;
+  // Update selectedTable to the new one
+  selectedTable.value = targetTable;
+}
+
+function confirmMerge(sourceTable) {
+  if (!selectedTable.value) return;
+  store.mergeTableOrders(sourceTable.id, selectedTable.value.id);
+  showMergeModal.value = false;
 }
 
 // ── Expose for parent (SalaView) ────────────────────────────────────
