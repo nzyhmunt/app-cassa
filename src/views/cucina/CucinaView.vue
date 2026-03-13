@@ -23,7 +23,7 @@
           <span class="bg-amber-500 text-white rounded-full font-black text-[10px] size-5 flex items-center justify-center shrink-0">
             {{ pendingOrders.length }}
           </span>
-          <span class="hidden sm:inline uppercase tracking-wide">In Attesa</span>
+          <span class="hidden sm:inline uppercase tracking-wide">Da Prep.</span>
         </div>
         <div v-if="preparingOrders.length > 0"
              class="flex items-center gap-1.5 bg-orange-100 text-orange-800 border border-orange-200 rounded-full px-3 py-1 text-xs font-bold">
@@ -70,18 +70,18 @@
            class="flex flex-col items-center justify-center h-full gap-4 py-16">
         <ChefHat class="size-16 text-gray-300" />
         <p class="text-xl font-bold text-gray-400">Nessun ordine attivo</p>
-        <p class="text-sm text-gray-400">Gli ordini arrivano qui non appena vengono inviati dalla sala.</p>
+        <p class="text-sm text-gray-400">Le comande arrivano qui dopo l'accettazione dalla Cassa.</p>
       </div>
 
       <!-- 3-column kanban: stacked on mobile, side-by-side on desktop -->
       <div v-else class="h-full flex flex-col md:flex-row gap-3">
 
-        <!-- ── Column 1: IN ATTESA (pending) ──────────────────────────────── -->
+        <!-- ── Column 1: DA PREPARARE (accepted by Cassa) ────────────────── -->
         <section class="md:flex-1 md:flex md:flex-col md:min-h-0">
           <div class="flex items-center gap-2 mb-2 shrink-0">
             <Bell class="size-4 text-amber-600" />
             <h2 class="text-xs font-black uppercase tracking-widest text-amber-700">
-              In Attesa
+              Da Preparare
             </h2>
             <span class="ml-auto bg-amber-100 text-amber-800 border border-amber-200 text-[10px] font-black rounded-full px-2 py-0.5">
               {{ pendingOrders.length }}
@@ -90,7 +90,7 @@
 
           <div v-if="pendingOrders.length === 0"
                class="flex-1 flex items-center justify-center rounded-2xl py-10 bg-white border-2 border-dashed border-gray-200">
-            <p class="text-sm font-semibold text-gray-400">Nessun ordine in attesa</p>
+            <p class="text-sm font-semibold text-gray-400">Nessuna comanda da preparare</p>
           </div>
 
           <div v-else class="md:flex-1 md:overflow-y-auto space-y-3">
@@ -98,16 +98,16 @@
               v-for="order in pendingOrders"
               :key="order.id"
               class="bg-white rounded-2xl border-2 border-amber-300 shadow-sm overflow-hidden"
-              :aria-label="`Ordine tavolo ${order.table} in attesa`"
+              :aria-label="`Comanda tavolo ${order.table} da preparare`"
             >
               <KitchenOrderCard
                 :order="order"
-                status-label="In Attesa"
+                status-label="Da Preparare"
                 status-class="bg-amber-100 text-amber-800 border-amber-200"
                 qty-class="text-amber-600"
                 :elapsed-label="elapsedLabel(order.time)"
                 :elapsed-color="elapsedColor(order.time)"
-                action-label="Prendi in carico"
+                action-label="Inizia preparazione"
                 action-class="theme-bg text-white hover:opacity-90"
                 @action="acceptOrder(order)"
               />
@@ -115,12 +115,12 @@
           </div>
         </section>
 
-        <!-- ── Column 2: IN PREPARAZIONE (accepted + preparing) ──────────── -->
+        <!-- ── Column 2: IN COTTURA (preparing) ──────────────────────────── -->
         <section class="md:flex-1 md:flex md:flex-col md:min-h-0">
           <div class="flex items-center gap-2 mb-2 shrink-0">
             <Flame class="size-4 text-orange-600" />
             <h2 class="text-xs font-black uppercase tracking-widest text-orange-700">
-              In Preparazione
+              In Cottura
             </h2>
             <span class="ml-auto bg-orange-100 text-orange-800 border border-orange-200 text-[10px] font-black rounded-full px-2 py-0.5">
               {{ preparingOrders.length }}
@@ -129,7 +129,7 @@
 
           <div v-if="preparingOrders.length === 0"
                class="flex-1 flex items-center justify-center rounded-2xl py-10 bg-white border-2 border-dashed border-gray-200">
-            <p class="text-sm font-semibold text-gray-400">Nessuna comanda in preparazione</p>
+            <p class="text-sm font-semibold text-gray-400">Nessuna comanda in cottura</p>
           </div>
 
           <div v-else class="md:flex-1 md:overflow-y-auto space-y-3">
@@ -137,16 +137,16 @@
               v-for="order in preparingOrders"
               :key="order.id"
               class="bg-white rounded-2xl border-2 border-orange-300 shadow-sm overflow-hidden"
-              :aria-label="`Ordine tavolo ${order.table} in preparazione`"
+              :aria-label="`Comanda tavolo ${order.table} in cottura`"
             >
               <KitchenOrderCard
                 :order="order"
-                :status-label="order.status === 'accepted' ? 'In Cucina' : 'In Cottura'"
-                :status-class="order.status === 'accepted' ? 'bg-blue-100 text-blue-800 border-blue-200' : 'bg-orange-100 text-orange-800 border-orange-200'"
+                status-label="In Cottura"
+                status-class="bg-orange-100 text-orange-800 border-orange-200"
                 qty-class="text-orange-600"
                 :elapsed-label="elapsedLabel(order.time)"
                 :elapsed-color="elapsedColor(order.time)"
-                :action-label="order.status === 'accepted' ? 'Inizia cottura' : 'Segna pronta'"
+                action-label="Segna pronta"
                 action-class="bg-orange-500 text-white hover:bg-orange-600"
                 @action="advancePreparingOrder(order)"
               />
@@ -154,7 +154,7 @@
           </div>
         </section>
 
-        <!-- ── Column 3: PRONTE (ready) ───────────────────────────────────── -->
+        <!-- ── Column 3: PRONTE (ready — Sala marks as delivered) ─────────── -->
         <section class="md:flex-1 md:flex md:flex-col md:min-h-0">
           <div class="flex items-center gap-2 mb-2 shrink-0">
             <BellRing class="size-4 text-teal-600" />
@@ -176,18 +176,16 @@
               v-for="order in readyOrders"
               :key="order.id"
               class="bg-white rounded-2xl border-2 border-teal-400 shadow-sm overflow-hidden"
-              :aria-label="`Ordine tavolo ${order.table} pronto`"
+              :aria-label="`Comanda tavolo ${order.table} pronta`"
             >
               <KitchenOrderCard
                 :order="order"
-                status-label="Pronta"
+                status-label="Pronta 🔔"
                 status-class="bg-teal-100 text-teal-800 border-teal-200"
                 qty-class="text-teal-600"
                 :elapsed-label="elapsedLabel(order.time)"
                 :elapsed-color="elapsedColor(order.time)"
-                action-label="Consegnata ✓"
-                action-class="bg-emerald-600 text-white hover:bg-emerald-700"
-                @action="completeOrder(order)"
+                :show-action="false"
               />
             </article>
           </div>
@@ -216,14 +214,14 @@ const emit = defineEmits(['open-settings']);
 
 const store = useAppStore();
 
-// ── Audio alerts: beep on new pending orders ─────────────────────────────
+// ── Audio alerts: beep when a new order enters the kitchen (accepted) ────────
 const { playBeep } = useBeep();
-watch(
-  () => store.pendingCount,
-  (newVal, oldVal) => {
-    if (newVal > oldVal) playBeep();
-  },
+const acceptedOrderCount = computed(() =>
+  store.orders.filter(o => o.status === 'accepted').length,
 );
+watch(acceptedOrderCount, (newVal, oldVal) => {
+  if (newVal > oldVal) playBeep();
+});
 
 // ── Live clock ─────────────────────────────────────────────────────────────
 const currentTime = ref(new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }));
@@ -259,14 +257,15 @@ onUnmounted(() => {
 });
 
 // ── Computed order lists ────────────────────────────────────────────────────
+// Column 1: orders accepted by Cassa but not yet started by kitchen
 const pendingOrders = computed(() =>
-  store.orders.filter(o => o.status === 'pending').slice().sort((a, b) => a.time.localeCompare(b.time)),
+  store.orders.filter(o => o.status === 'accepted').slice().sort((a, b) => a.time.localeCompare(b.time)),
 );
 
-// "In Preparazione" column shows both 'accepted' (just picked up) and 'preparing' (cooking)
+// Column 2: orders currently being prepared / cooked
 const preparingOrders = computed(() =>
   store.orders
-    .filter(o => o.status === 'accepted' || o.status === 'preparing')
+    .filter(o => o.status === 'preparing')
     .slice()
     .sort((a, b) => a.time.localeCompare(b.time)),
 );
@@ -311,22 +310,14 @@ function elapsedColor(orderTime) {
 
 // ── Actions ─────────────────────────────────────────────────────────────────
 function acceptOrder(order) {
-  store.changeOrderStatus(order, 'accepted');
+  // accepted → preparing (kitchen starts working on it)
+  store.changeOrderStatus(order, 'preparing');
   store.$persist?.();
 }
 
 function advancePreparingOrder(order) {
-  // accepted → preparing → ready
-  if (order.status === 'accepted') {
-    store.changeOrderStatus(order, 'preparing');
-  } else {
-    store.changeOrderStatus(order, 'ready');
-  }
-  store.$persist?.();
-}
-
-function completeOrder(order) {
-  store.changeOrderStatus(order, 'completed');
+  // preparing → ready
+  store.changeOrderStatus(order, 'ready');
   store.$persist?.();
 }
 </script>

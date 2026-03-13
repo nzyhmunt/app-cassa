@@ -60,7 +60,8 @@
               <span v-if="order.status === 'pending'" class="bg-amber-100 text-amber-800 text-[9px] md:text-[10px] uppercase font-bold px-2 py-1 rounded-md border border-amber-200 flex items-center gap-1"><AlertCircle class="size-3" /> In Attesa</span>
               <span v-if="order.status === 'accepted'" class="bg-blue-100 text-blue-800 text-[9px] md:text-[10px] uppercase font-bold px-2 py-1 rounded-md border border-blue-200 flex items-center gap-1"><ChefHat class="size-3" /> In Cucina</span>
               <span v-if="order.status === 'preparing'" class="bg-orange-100 text-orange-800 text-[9px] md:text-[10px] uppercase font-bold px-2 py-1 rounded-md border border-orange-200 flex items-center gap-1"><Flame class="size-3" /> In Cottura</span>
-              <span v-if="order.status === 'ready'" class="bg-teal-100 text-teal-800 text-[9px] md:text-[10px] uppercase font-bold px-2 py-1 rounded-md border border-teal-200 flex items-center gap-1"><BellRing class="size-3" /> Pronta</span>
+              <span v-if="order.status === 'ready'" class="bg-teal-100 text-teal-800 text-[9px] md:text-[10px] uppercase font-bold px-2 py-1 rounded-md border border-teal-200 flex items-center gap-1"><BellRing class="size-3" /> Pronta 🔔</span>
+              <span v-if="order.status === 'delivered'" class="bg-emerald-100 text-emerald-800 text-[9px] md:text-[10px] uppercase font-bold px-2 py-1 rounded-md border border-emerald-200 flex items-center gap-1"><CheckCircle2 class="size-3" /> Consegnata</span>
               <span v-if="order.status === 'completed'" class="bg-emerald-100 text-emerald-800 text-[9px] md:text-[10px] uppercase font-bold px-2 py-1 rounded-md border border-emerald-200 flex items-center gap-1"><CheckCircle2 class="size-3" /> Pagato</span>
               <span v-if="order.status === 'rejected'" class="bg-red-100 text-red-800 text-[9px] md:text-[10px] uppercase font-bold px-2 py-1 rounded-md border border-red-200 flex items-center gap-1"><XCircle class="size-3" /> Annullato</span>
               <span class="bg-gray-100 text-gray-600 text-[9px] md:text-[10px] font-bold px-2 py-1 rounded-md border border-gray-200 ml-auto">{{ order.itemCount }} pz</span>
@@ -129,7 +130,12 @@
             </template>
             <template v-else-if="selectedOrder.status === 'ready'">
               <span class="w-full text-center px-4 py-2.5 md:py-3 bg-teal-50 text-teal-700 border border-teal-200 rounded-xl font-bold flex items-center justify-center gap-2">
-                <BellRing class="size-5" /> <span class="hidden sm:inline text-xs md:text-sm">Pronta</span>
+                <BellRing class="size-5" /> <span class="hidden sm:inline text-xs md:text-sm">Pronta 🔔</span>
+              </span>
+            </template>
+            <template v-else-if="selectedOrder.status === 'delivered'">
+              <span class="w-full text-center px-4 py-2.5 md:py-3 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-xl font-bold flex items-center justify-center gap-2">
+                <CheckCircle2 class="size-5" /> <span class="hidden sm:inline text-xs md:text-sm">Consegnata</span>
               </span>
             </template>
             <template v-else-if="selectedOrder.status === 'completed'">
@@ -142,7 +148,7 @@
 
         <!-- Lista Piatti -->
         <div class="flex-1 overflow-y-auto bg-gray-100 p-2 md:p-4 min-h-0">
-          <div v-if="['accepted','preparing','ready'].includes(selectedOrder.status)" class="mb-3 bg-blue-100 border border-blue-200 text-blue-800 p-3 rounded-xl text-[10px] md:text-xs font-bold flex items-center gap-2 shadow-sm">
+          <div v-if="['accepted','preparing','ready','delivered'].includes(selectedOrder.status)" class="mb-3 bg-blue-100 border border-blue-200 text-blue-800 p-3 rounded-xl text-[10px] md:text-xs font-bold flex items-center gap-2 shadow-sm">
             <ShieldCheck class="size-4 md:size-5 shrink-0" />
             Ordine in preparazione. In sola lettura. Usa la schermata "Sala/Cassa" per stornare o gestire il conto.
           </div>
@@ -580,7 +586,7 @@ const filteredOrders = computed(() => {
     return store.orders.filter(o => o.status === 'completed' || o.status === 'rejected');
   if (activeTab.value === 'accepted')
     return store.orders
-      .filter(o => ['accepted', 'preparing', 'ready'].includes(o.status))
+      .filter(o => ['accepted', 'preparing', 'ready', 'delivered'].includes(o.status))
       .sort((a, b) => b.time.localeCompare(a.time));
   return store.orders
     .filter(o => o.status === activeTab.value)
@@ -590,7 +596,7 @@ const filteredOrders = computed(() => {
 const orderStatusCounts = computed(() =>
   store.orders.reduce(
     (acc, o) => {
-      if (['accepted', 'preparing', 'ready'].includes(o.status)) acc.accepted += 1;
+      if (['accepted', 'preparing', 'ready', 'delivered'].includes(o.status)) acc.accepted += 1;
       if (o.status === 'completed' || o.status === 'rejected') acc.history += 1;
       return acc;
     },

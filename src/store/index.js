@@ -123,7 +123,9 @@ export const useAppStore = defineStore('app', () => {
   }));
 
   // Kitchen statuses that are treated as "active in kitchen" (accepted by kitchen, being worked on)
-  const KITCHEN_ACTIVE_STATUSES = ['accepted', 'preparing', 'ready'];
+  // 'delivered' means the dish has been brought to the table (managed by Sala);
+  // it keeps the table session open until payment (completed/rejected).
+  const KITCHEN_ACTIVE_STATUSES = ['accepted', 'preparing', 'ready', 'delivered'];
 
   // ── Computed: Orders ───────────────────────────────────────────────────────
   const pendingCount = computed(() => orders.value.filter(o => o.status === 'pending').length);

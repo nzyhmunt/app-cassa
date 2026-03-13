@@ -98,7 +98,10 @@
                 <Flame class="size-3" /> In Cottura
               </span>
               <span v-if="order.status === 'ready'" class="bg-teal-100 text-teal-800 text-[9px] md:text-[10px] uppercase font-bold px-2 py-1 rounded-md border border-teal-200 flex items-center gap-1">
-                <BellRing class="size-3" /> Pronta
+                <BellRing class="size-3" /> Pronta 🔔
+              </span>
+              <span v-if="order.status === 'delivered'" class="bg-emerald-100 text-emerald-800 text-[9px] md:text-[10px] uppercase font-bold px-2 py-1 rounded-md border border-emerald-200 flex items-center gap-1">
+                <CheckCircle2 class="size-3" /> Consegnata
               </span>
               <span v-if="order.status === 'completed'" class="bg-emerald-100 text-emerald-800 text-[9px] md:text-[10px] uppercase font-bold px-2 py-1 rounded-md border border-emerald-200 flex items-center gap-1">
                 <CheckCircle2 class="size-3" /> Pagato
@@ -209,9 +212,18 @@
               </span>
             </template>
             <template v-else-if="selectedOrder.status === 'ready'">
-              <span class="w-full sm:w-auto text-center px-4 py-2.5 md:py-3 bg-teal-50 text-teal-700 border border-teal-200 rounded-xl font-bold flex items-center justify-center gap-2">
-                <BellRing class="size-5" />
-                <span class="text-xs md:text-sm">Pronta</span>
+              <button
+                @click="markDelivered(selectedOrder)"
+                class="w-full sm:w-auto px-4 py-2.5 md:py-3 bg-emerald-600 hover:bg-emerald-700 text-white shadow-md rounded-xl font-bold flex items-center justify-center gap-1.5 active:scale-95 transition-colors"
+              >
+                <CheckCircle2 class="size-5" />
+                <span class="text-xs md:text-sm">Consegnata</span>
+              </button>
+            </template>
+            <template v-else-if="selectedOrder.status === 'delivered'">
+              <span class="w-full sm:w-auto text-center px-4 py-2.5 md:py-3 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-xl font-bold flex items-center justify-center gap-2">
+                <CheckCircle2 class="size-5" />
+                <span class="text-xs md:text-sm">Consegnata</span>
               </span>
             </template>
           </div>
@@ -782,7 +794,7 @@ const filteredOrders = computed(() => {
       .sort((a, b) => b.time.localeCompare(a.time));
   if (activeTab.value === 'accepted')
     return store.orders
-      .filter(o => ['accepted', 'preparing', 'ready'].includes(o.status))
+      .filter(o => ['accepted', 'preparing', 'ready', 'delivered'].includes(o.status))
       .sort((a, b) => b.time.localeCompare(a.time));
   return store.orders
     .filter(o => o.status === activeTab.value)
@@ -792,7 +804,7 @@ const filteredOrders = computed(() => {
 const orderStatusCounts = computed(() =>
   store.orders.reduce(
     (acc, o) => {
-      if (['accepted', 'preparing', 'ready'].includes(o.status)) acc.accepted += 1;
+      if (['accepted', 'preparing', 'ready', 'delivered'].includes(o.status)) acc.accepted += 1;
       if (o.status === 'completed' || o.status === 'rejected') acc.history += 1;
       return acc;
     },
@@ -810,6 +822,11 @@ function changeTab(tab) {
 
 function selectOrder(ord) {
   selectedOrder.value = ord;
+}
+
+function markDelivered(order) {
+  store.changeOrderStatus(order, 'delivered');
+  store.$persist?.();
 }
 
 // ── Helper: unit price for an item including modifiers ────────────────────
