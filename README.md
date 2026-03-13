@@ -1,21 +1,22 @@
-# Terminale Cassa & Sala - Osteria del Grillo
+# Terminale Cassa, Sala & Cucina - Osteria del Grillo
 
-Questo progetto è un'applicazione web POS (Point of Sale) progettata per ristoranti e attività di ristorazione. Realizzato con **Vue 3**, offre una gestione completa di sala, comande, cassa e reportistica, con supporto PWA per l'utilizzo come app nativa su dispositivi mobili e desktop.
+Questo progetto è un'applicazione web POS (Point of Sale) progettata per ristoranti e attività di ristorazione. Realizzato con **Vue 3**, offre una gestione completa di sala, comande, cassa, cucina e reportistica, con supporto PWA per l'utilizzo come app nativa su dispositivi mobili e desktop.
 
 ## Architettura — Tre Entry Point, un Codebase
 
-Il progetto contiene due applicazioni operative più una pagina di selezione, tutte condivise su un unico store Pinia e le stesse utilità:
+Il progetto contiene tre applicazioni operative più una pagina di selezione, tutte condivise su un unico store Pinia e le stesse utilità:
 
 | App | Entry | URL locale | Pubblico |
 |-----|-------|-----------|---------|
-| Launcher | `index.html` | `/` | Selezione modalità (Cassa / Sala) |
+| Launcher | `index.html` | `/` | Selezione modalità (Cassa / Sala / Cucina) |
 | **Cassa** | `cassa.html` → `src/cassa-main.js` | `/cassa.html` | Cassiere / gestione |
 | **Sala** | `sala.html` → `src/sala-main.js` | `/sala.html` | Personale di sala |
+| **Cucina** | `cucina.html` → `src/cucina-main.js` | `/cucina.html` | Display cucina |
 
 ```
 src/
 ├── components/
-│   ├── shared/                        ← Componenti riutilizzati da entrambe le app
+│   ├── shared/                        ← Componenti riutilizzati dalle app
 │   │   ├── PeopleModal.vue            ← Modale conteggio coperti + anteprima coperto
 │   │   ├── PwaInstallBanner.vue       ← Banner installazione PWA (Android + iOS)
 │   │   └── SettingsModal.vue          ← Modale impostazioni condivisa (Cassa e Sala)
@@ -29,7 +30,8 @@ src/
 │   ├── SalaNavbar.vue                 ← Navigazione (Sala)
 │   ├── SalaTableManager.vue           ← Mappa sala semplificata (Sala only)
 │   ├── SalaOrderManager.vue           ← Creazione/invio comande (Sala only)
-│   └── SalaSettingsModal.vue          ← Impostazioni Sala (usa shared/SettingsModal)
+│   ├── SalaSettingsModal.vue          ← Impostazioni Sala (usa shared/SettingsModal)
+│   └── CucinaSettingsModal.vue        ← Impostazioni Cucina (audio + wake lock)
 ├── composables/
 │   ├── useBeep.js                     ← Notifiche audio (Web Audio API)
 │   ├── usePwaInstall.js               ← Rilevamento installazione PWA
@@ -46,16 +48,18 @@ src/
 │   │   ├── CassaTableView.vue         ← Mappa sala (vista Cassa)
 │   │   ├── OrdersView.vue             ← Gestione ordini (Cassa)
 │   │   └── BillHistoryView.vue        ← Storico conti (Cassa)
-│   └── sala/                          ← View Sala
-│       ├── SalaView.vue               ← Mappa sala (vista Sala)
-│       └── SalaOrderView.vue          ← Creazione comande (Sala)
+│   ├── sala/                          ← View Sala
+│   │   ├── SalaView.vue               ← Mappa sala (vista Sala)
+│   │   └── SalaOrderView.vue          ← Creazione comande (Sala)
+│   └── cucina/                        ← View Cucina
+│       └── CucinaView.vue             ← Kanban board 3 colonne (Cucina)
 ```
 
 ### Aggiungere un nuovo componente condiviso
 
 1. Crea il file in `src/components/shared/`.
-2. Importalo in entrambi i componenti con `import X from './shared/X.vue'`.
-3. Le modifiche al componente si rifletteranno automaticamente su entrambe le app.
+2. Importalo nei componenti che ne hanno bisogno con `import X from './shared/X.vue'`.
+3. Le modifiche al componente si rifletteranno automaticamente su tutte le app.
 
 ---
 
@@ -65,7 +69,7 @@ src/
 - Visualizzazione in tempo reale dei tavoli con 4 stati distinti:
   - **Libero** — tavolo disponibile
   - **Ordini in Attesa** — comande inviate, in attesa di accettazione (badge ambra)
-  - **Occupato** — ordini accettati / in preparazione
+  - **Occupato** — ordini accettati / in preparazione / pronti
   - **Conto Richiesto** — cliente ha richiesto il conto (badge blu)
 - Apertura del tavolo con selezione coperti (adulti + bambini) e anteprima del coperto
 - Operazioni avanzate su tavoli (solo Cassa):
@@ -74,6 +78,7 @@ src/
 
 ### 📋 Gestione Ordini (Cassa)
 - Visualizzazione ordini suddivisa in tre tab: **In Attesa**, **In Cucina**, **Chiusi**
+  - La tab *In Cucina* raggruppa tutti gli stati attivi in cucina: `accepted`, `preparing` (In Cottura 🔥), `ready` (Pronta 🔔)
 - Accettazione e rifiuto ordini in attesa
 - Modifica quantità sugli ordini in attesa (aumento / riduzione per riga)
 - **Storno articoli** sugli ordini accettati:
@@ -88,6 +93,30 @@ src/
 - Aggiunta note per variazioni / richieste speciali
 - Invio comanda al sistema (diventa ordine `pending` per la Cassa)
 - Navigazione rapida alla lista comande attive per tavolo
+- Tab *In Cucina* per il monitoraggio degli ordini attivi in cucina (`accepted`, `preparing`, `ready`)
+
+### 👨‍🍳 App Cucina — Display Cucina
+
+Applicazione dedicata al personale di cucina con un **kanban board a 3 colonne** e un flusso di preparazione a 4 fasi:
+
+```
+pending → accepted → preparing → ready → completed
+```
+
+| Fase | Stato | Azione | Colonna |
+|------|-------|--------|---------|
+| Nuova comanda | `pending` | Prendi in carico | In Attesa |
+| Presa in carico | `accepted` | Inizia cottura | In Preparazione |
+| In cottura | `preparing` | Segna pronta | In Preparazione |
+| Pronta | `ready` | Consegnata ✓ | Pronte |
+| Consegnata | `completed` | — | — |
+
+**Caratteristiche:**
+- Header identico a Cassa e Sala (tema teal, contatori colorati, orologio, pulsante Config)
+- Ogni card mostra: avatar tavolo, stato badge, ora ordine, tempo trascorso (verde/ambra/rosso), lista piatti con note e tag dietetici
+- **Avvisi audio** all'arrivo di nuovi ordini `pending`
+- **Schermo sempre acceso** tramite Screen Wake Lock API
+- **Reset dati** dalle impostazioni
 
 ### 💳 Cassa & Pagamenti
 - **Tre modalità di pagamento**:
@@ -136,11 +165,12 @@ src/
 - **Multi-istanza** — più terminali sullo stesso dispositivo/dominio con storage completamente isolato:
   - Configurazione a build time tramite `appConfig.instanceName`
   - Chiavi localStorage con suffisso `_<instanceName>`
+- **Sincronizzazione cross-tab in tempo reale**: tutte e tre le app (`CassaApp`, `SalaApp`, `CucinaApp`) ascoltano l'evento `window.storage`. Qualsiasi modifica di stato in una tab (es. cambio stato ordine in Cucina) viene propagata istantaneamente alle altre tab aperte sullo stesso dispositivo tramite `store.$hydrate()`.
 
-### ⚙️ Impostazioni (Cassa & Sala)
-- Abilitazione/disabilitazione avvisi audio
+### ⚙️ Impostazioni (Cassa, Sala & Cucina)
+- Abilitazione/disabilitazione avvisi audio ("Ding" alla ricezione di nuovi ordini)
 - Abilitazione/disabilitazione blocco schermo (Wake Lock)
-- Configurazione URL menu JSON remoto e sincronizzazione manuale
+- Configurazione URL menu JSON remoto e sincronizzazione manuale (Cassa e Sala)
 - Reset completo dei dati con conferma (fine turno)
 
 ### 🌐 Menu Dinamico
@@ -222,7 +252,8 @@ npm run build
 npm run test
 ```
 
-L'app sarà disponibile su `http://localhost:5173`. Le tre entry point sono accessibili a:
-- `/` — Launcher (selezione Cassa / Sala)
+L'app sarà disponibile su `http://localhost:5173`. Le quattro entry point sono accessibili a:
+- `/` — Launcher (selezione Cassa / Sala / Cucina)
 - `/cassa.html` — Terminale Cassa
 - `/sala.html` — Terminale Sala
+- `/cucina.html` — Display Cucina
