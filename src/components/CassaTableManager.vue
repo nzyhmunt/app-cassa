@@ -72,7 +72,7 @@
       </div>
 
       <!-- Riepilogo Conti Chiusi -->
-      <ClosedBillsList />
+      <CassaClosedBillsList />
     </div>
   </div>
 
@@ -635,7 +635,7 @@ import {
 import { Banknote, CreditCard } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
 import { updateOrderTotals, getOrderItemRowTotal } from '../utils/index.js';
-import ClosedBillsList from './ClosedBillsList.vue';
+import CassaClosedBillsList from './CassaClosedBillsList.vue';
 // Shared component — used by both Sala and Cassa apps.
 import PeopleModal from './shared/PeopleModal.vue';
 

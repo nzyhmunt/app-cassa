@@ -40,7 +40,7 @@
 
       <!-- Bills list -->
       <div v-else class="space-y-3">
-        <BillCard
+        <CassaBillCard
           v-for="bill in store.closedBills"
           :key="billKey(bill)"
           :bill="bill"
@@ -54,9 +54,9 @@
 <script setup>
 import { computed } from 'vue';
 import { History, ArrowLeft } from 'lucide-vue-next';
-import { useAppStore } from '../store/index.js';
-import { billKey } from '../utils/index.js';
-import BillCard from '../components/BillCard.vue';
+import { useAppStore } from '../../store/index.js';
+import { billKey } from '../../utils/index.js';
+import CassaBillCard from '../../components/CassaBillCard.vue';
 
 const store = useAppStore();
 
