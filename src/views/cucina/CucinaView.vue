@@ -136,7 +136,7 @@
                 :elapsed-color="elapsedColor(order.time)"
                 action-label="Inizia preparazione"
                 :action-icon="Flame"
-                action-class="theme-bg text-white hover:opacity-90"
+                action-class="bg-blue-600 text-white hover:bg-blue-700"
                 @action="acceptOrder(order)"
                 :show-secondary-action="true"
                 secondary-action-label="← Rimanda in sala"
