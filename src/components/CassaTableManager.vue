@@ -347,8 +347,8 @@
               </label>
               <div class="flex gap-2 items-center">
                 <div class="flex bg-white border border-amber-200 rounded-xl overflow-hidden shrink-0">
-                  <button @click="discountType = 'percent'" :class="discountType === 'percent' ? 'bg-amber-500 text-white' : 'text-amber-700 hover:bg-amber-100'" class="px-3 py-2 text-xs font-bold transition-colors flex items-center gap-1">
-                    <Percent class="size-3" />
+                  <button @click="discountType = 'percent'" :class="discountType === 'percent' ? 'bg-amber-500 text-white' : 'text-amber-700 hover:bg-amber-100'" class="px-3 py-2 text-xs font-bold transition-colors">
+                    %
                   </button>
                   <button @click="discountType = 'fixed'" :class="discountType === 'fixed' ? 'bg-amber-500 text-white' : 'text-amber-700 hover:bg-amber-100'" class="px-3 py-2 text-xs font-bold transition-colors">
                     {{ store.config.ui.currency }}
@@ -629,7 +629,7 @@ import {
   Grid3x3, Users, X, Plus, Coffee, Edit, AlertTriangle, CheckCircle,
   Ban, Undo2, Code, Minus, Receipt, ArrowRightLeft, Merge, Timer,
   Layers, ListChecks, History, LayoutGrid, ListOrdered,
-  Tag, Percent, Wallet, Coins,
+  Tag, Wallet, Coins,
 } from 'lucide-vue-next';
 import { Banknote, CreditCard } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
