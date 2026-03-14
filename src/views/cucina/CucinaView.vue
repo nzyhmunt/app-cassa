@@ -385,44 +385,27 @@
     <Transition name="fade">
       <div
         v-if="confirmReturnModal.show"
-        class="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-end md:items-center justify-center p-0 md:p-4"
+        class="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4"
         @click.self="cancelReturnToPending"
       >
-        <div class="bg-white rounded-t-3xl md:rounded-3xl shadow-2xl w-full max-w-sm flex flex-col overflow-hidden">
-          <!-- Header -->
-          <div class="bg-red-50 border-b border-red-100 px-5 pt-5 pb-4 flex items-start gap-3">
-            <div class="size-10 rounded-full bg-red-100 flex items-center justify-center shrink-0">
-              <AlertTriangle class="size-5 text-red-600" />
-            </div>
-            <div class="flex-1">
-              <h3 class="font-bold text-base text-gray-800 leading-tight">Rimanda in sala?</h3>
-              <p class="text-sm text-gray-500 mt-0.5">
-                La comanda del Tavolo {{ confirmReturnModal.order?.table }} tornerà in stato
-                <span class="font-semibold text-amber-700">In Attesa</span> e dovrà essere
-                riaccettata dalla Cassa.
-              </p>
-            </div>
-            <button
-              @click="cancelReturnToPending"
-              class="text-gray-400 hover:text-gray-700 p-1.5 bg-gray-100 hover:bg-gray-200 rounded-full active:scale-95 transition-colors shrink-0"
-              aria-label="Annulla"
-            >
-              <X class="size-4" />
-            </button>
+        <div class="bg-white rounded-3xl shadow-2xl w-full max-w-sm p-6">
+          <div class="text-center mb-4">
+            <h3 class="text-lg font-black text-gray-800">Rimanda in sala?</h3>
+            <p class="text-sm text-gray-500 mt-1">
+              Tavolo {{ confirmReturnModal.order?.table }} — la comanda tornerà in attesa e dovrà essere riaccettata dalla Cassa.
+            </p>
           </div>
-          <!-- Actions -->
-          <div class="p-4 pb-8 md:pb-4 flex gap-3">
+          <div class="flex gap-3">
             <button
               @click="cancelReturnToPending"
-              class="flex-1 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-xl text-sm active:scale-[0.98] transition-all"
+              class="flex-1 py-3 rounded-xl border border-gray-200 font-bold text-gray-600 hover:bg-gray-50 active:scale-95 transition-all"
             >
               Annulla
             </button>
             <button
               @click="confirmReturnToPending"
-              class="flex-1 py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl text-sm active:scale-[0.98] transition-all shadow-sm flex items-center justify-center gap-2"
+              class="flex-[2] py-3 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold shadow-md active:scale-95 transition-all"
             >
-              <AlertTriangle class="size-4" />
               Rimanda in sala
             </button>
           </div>
@@ -435,7 +418,7 @@
 
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
-import { AlertTriangle, Bell, BellRing, ChefHat, Check, CheckCircle2, Clock, Flame, Layers, RefreshCw, Settings, ClipboardList, X } from 'lucide-vue-next';
+import { Bell, BellRing, ChefHat, Check, CheckCircle2, Clock, Flame, Layers, RefreshCw, Settings, ClipboardList, X } from 'lucide-vue-next';
 import { useAppStore } from '../../store/index.js';
 import { useBeep } from '../../composables/useBeep.js';
 import KitchenOrderCard from './KitchenOrderCard.vue';

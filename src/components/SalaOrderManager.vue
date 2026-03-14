@@ -239,18 +239,30 @@
               </div>
             </template>
             <template v-else-if="selectedOrder.status === 'ready'">
-              <button
-                @click="markDelivered(selectedOrder)"
-                class="w-full sm:w-auto px-4 py-2.5 md:py-3 bg-emerald-600 hover:bg-emerald-700 text-white shadow-md rounded-xl font-bold flex items-center justify-center gap-1.5 active:scale-95 transition-colors"
-              >
-                <CheckCircle2 class="size-5" />
-                <span class="text-xs md:text-sm">Consegnata</span>
-              </button>
+              <div class="flex gap-2 w-full sm:w-auto items-center">
+                <span class="flex-1 text-center px-3 py-2.5 md:py-3 bg-teal-50 text-teal-700 border border-teal-200 rounded-xl font-bold flex items-center justify-center gap-2 text-xs">
+                  <BellRing class="size-4" />
+                  <span class="hidden sm:inline text-xs">Pronta 🔔</span>
+                </span>
+                <button
+                  @click="markDelivered(selectedOrder)"
+                  class="px-3 py-2.5 md:py-3 bg-emerald-600 hover:bg-emerald-700 text-white shadow-md rounded-xl font-bold flex items-center justify-center gap-1.5 active:scale-95 transition-colors text-xs shrink-0"
+                >
+                  <CheckCircle2 class="size-4" />
+                  <span class="hidden sm:inline text-xs">Consegnata</span>
+                </button>
+              </div>
             </template>
             <template v-else-if="selectedOrder.status === 'delivered'">
               <span class="w-full sm:w-auto text-center px-4 py-2.5 md:py-3 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-xl font-bold flex items-center justify-center gap-2">
                 <CheckCircle2 class="size-5" />
                 <span class="text-xs md:text-sm">Consegnata</span>
+              </span>
+            </template>
+            <template v-else-if="selectedOrder.status === 'completed'">
+              <span class="w-full sm:w-auto text-center px-4 py-2.5 md:py-3 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-xl font-bold flex items-center justify-center gap-2">
+                <CheckCircle class="size-5" />
+                <span class="text-xs md:text-sm">Pagato</span>
               </span>
             </template>
           </div>
