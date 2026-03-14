@@ -81,11 +81,11 @@
       </button>
       <button
         @click="cucinaTab = 'history'"
-        :class="cucinaTab === 'history' ? 'bg-teal-50 text-teal-700 border-teal-200 font-bold' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100'"
+        :class="cucinaTab === 'history' ? 'bg-gray-100 text-gray-700 border-gray-300 font-bold' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100'"
         class="flex-1 py-1.5 px-2 rounded-xl border transition-all text-[10px] uppercase tracking-wider flex items-center justify-center gap-1.5"
       >
         <Clock class="size-3.5" /> Cronologia
-        <span v-if="deliveredOrders.length > 0" class="bg-teal-500 text-white text-[9px] font-black rounded-full size-4 flex items-center justify-center shrink-0">{{ deliveredOrders.length }}</span>
+        <span v-if="deliveredOrders.length > 0" class="bg-gray-500 text-white text-[9px] font-black rounded-full size-4 flex items-center justify-center shrink-0">{{ deliveredOrders.length }}</span>
       </button>
     </div>
 
@@ -221,7 +221,7 @@
                 :elapsed-color="elapsedColor(order.time)"
                 action-label="Consegnata"
                 :action-icon="CheckCircle2"
-                action-class="bg-teal-600 text-white hover:bg-teal-700"
+                action-class="bg-gray-500 text-white hover:bg-gray-600"
                 @action="markDeliveredFromKanban(order)"
                 :show-secondary-action="true"
                 secondary-action-label="← Torna in cottura"
@@ -266,7 +266,7 @@
             </span>
             <button
               @click="forceDeliver(order)"
-              class="px-2.5 py-1.5 bg-teal-600 hover:bg-teal-700 text-white text-[10px] rounded-lg font-bold flex items-center gap-1.5 active:scale-95 transition-colors"
+              class="px-2.5 py-1.5 bg-gray-500 hover:bg-gray-600 text-white text-[10px] rounded-lg font-bold flex items-center gap-1.5 active:scale-95 transition-colors"
               title="Segna come consegnata (override)"
             >
               <CheckCircle2 class="size-3.5" />
@@ -342,9 +342,9 @@
         class="bg-white rounded-2xl border border-gray-200 overflow-hidden opacity-80"
       >
         <!-- Card header -->
-        <div class="px-3 py-2.5 bg-teal-50 border-b border-teal-100 flex items-center justify-between gap-2">
+        <div class="px-3 py-2.5 bg-gray-50 border-b border-gray-100 flex items-center justify-between gap-2">
           <div class="flex items-center gap-2.5 min-w-0">
-            <div class="bg-teal-600 text-white rounded-xl size-9 flex items-center justify-center font-black text-sm shrink-0">
+            <div class="bg-gray-500 text-white rounded-xl size-9 flex items-center justify-center font-black text-sm shrink-0">
               {{ order.table }}
             </div>
             <div class="min-w-0">
@@ -353,16 +353,15 @@
             </div>
           </div>
           <div class="flex items-center gap-2 shrink-0">
-            <span class="text-[9px] uppercase font-bold px-2 py-0.5 rounded-full border bg-teal-100 text-teal-700 border-teal-200 flex items-center gap-1">
+            <span class="text-[9px] uppercase font-bold px-2 py-0.5 rounded-full border bg-gray-100 text-gray-600 border-gray-200 flex items-center gap-1">
               <CheckCircle2 class="size-3" /> Consegnata
             </span>
             <button
               @click="restoreFromHistory(order)"
-              class="flex items-center gap-1 px-2 py-1 rounded-lg border border-emerald-300 text-emerald-700 bg-white hover:bg-emerald-50 text-[10px] font-bold active:scale-95 transition-all"
+              class="size-7 rounded-lg border border-emerald-300 text-emerald-700 bg-white hover:bg-emerald-50 flex items-center justify-center active:scale-95 transition-all"
               title="Ripristina a Pronta"
             >
-              <RotateCcw class="size-3" />
-              Ripristina
+              <RotateCcw class="size-3.5" />
             </button>
           </div>
         </div>
@@ -700,7 +699,7 @@ function detailAvatarBgClass(status) {
   if (status === 'accepted') return 'bg-amber-500';
   if (status === 'preparing') return 'bg-blue-500';
   if (status === 'ready') return 'bg-emerald-600';
-  return 'theme-bg';
+  return 'bg-gray-500';
 }
 </script>
 
