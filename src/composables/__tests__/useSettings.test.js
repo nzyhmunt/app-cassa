@@ -5,6 +5,7 @@ import { createPinia, setActivePinia } from 'pinia';
 import { useSettings } from '../useSettings.js';
 import { useAppStore } from '../../store/index.js';
 import { resolveStorageKeys } from '../../store/persistence.js';
+import { getPwaDismissKey } from '../usePwaInstall.js';
 
 const { settingsKey: SETTINGS_KEY } = resolveStorageKeys();
 
@@ -317,6 +318,38 @@ describe('useSettings()', () => {
       result.confirmReset();
 
       expect(reloadMock).toHaveBeenCalled();
+      wrapper.unmount();
+    } finally {
+      if (originalLocationDescriptor) {
+        Object.defineProperty(window, 'location', originalLocationDescriptor);
+      } else {
+        window.location = originalLocationValue;
+      }
+    }
+  });
+
+  it('confirmReset() removes the PWA dismiss key from localStorage', () => {
+    const reloadMock = vi.fn();
+    const originalLocationDescriptor = Object.getOwnPropertyDescriptor(window, 'location');
+    const originalLocationValue = window.location;
+
+    try {
+      Object.defineProperty(window, 'location', {
+        writable: true,
+        configurable: true,
+        value: { reload: reloadMock, pathname: '/' },
+      });
+
+      const pwaDismissKey = getPwaDismissKey();
+      localStorage.setItem(pwaDismissKey, 'true');
+
+      const props = reactive({ modelValue: false });
+      const emit = vi.fn();
+
+      const { result, wrapper } = withSetup(() => useSettings(props, emit));
+      result.confirmReset();
+
+      expect(localStorage.getItem(pwaDismissKey)).toBeNull();
       wrapper.unmount();
     } finally {
       if (originalLocationDescriptor) {
