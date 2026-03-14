@@ -27,14 +27,14 @@
         <button
           @click="changeTab('accepted')"
           aria-label="In Cucina"
-          :class="activeTab === 'accepted' ? 'bg-blue-100 text-blue-800 border-blue-200 font-bold' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100'"
+          :class="activeTab === 'accepted' ? 'bg-teal-100 text-teal-800 border-teal-200 font-bold' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100'"
           class="flex-1 py-1.5 md:py-2 px-1 rounded-xl border transition-all flex items-center justify-center gap-1.5 shadow-sm"
         >
           <div class="relative shrink-0">
             <ChefHat class="size-4 md:size-5" />
             <span
               v-if="acceptedCount > 0"
-              class="absolute -top-1.5 -right-2 bg-blue-500 text-white text-[9px] font-bold size-4 flex items-center justify-center rounded-full border border-white"
+              class="absolute -top-1.5 -right-2 bg-teal-600 text-white text-[9px] font-bold size-4 flex items-center justify-center rounded-full border border-white"
             >{{ acceptedCount }}</span>
           </div>
           <span class="text-[9px] md:text-[10px] uppercase tracking-wider hidden sm:inline">In Cucina</span>
@@ -64,12 +64,19 @@
           <p class="text-xs mt-1">{{ activeTab === 'pending' ? 'Vai su Sala per creare una nuova comanda.' : activeTab === 'accepted' ? 'Nessun ordine in cucina al momento.' : 'Nessun ordine chiuso.' }}</p>
         </div>
 
-        <transition-group name="list">
+        <template v-for="(order, idx) in filteredOrders" :key="order.id">
+          <!-- Section divider before first delivered order (In Cucina tab only) -->
           <div
-            v-for="order in filteredOrders"
-            :key="order.id"
+            v-if="activeTab === 'accepted' && order.status === 'delivered' && (idx === 0 || filteredOrders[idx - 1].status !== 'delivered')"
+            class="flex items-center gap-2 pt-1 pb-0.5 text-[10px] uppercase font-bold tracking-widest text-gray-500"
+          >
+            <CheckCircle2 class="size-3.5 shrink-0" />
+            <span>Consegnate</span>
+            <div class="flex-1 h-px bg-gray-200 ml-0.5"></div>
+          </div>
+          <div
             @click="selectOrder(order)"
-            :class="selectedOrder?.id === order.id ? 'ring-2 ring-offset-2 theme-border bg-white' : 'border-gray-200 hover:border-gray-300 bg-white'"
+            :class="[selectedOrder?.id === order.id ? 'ring-2 ring-offset-2 theme-border bg-white' : 'border-gray-200 hover:border-gray-300 bg-white', order.status === 'delivered' ? 'opacity-60' : '']"
             class="p-3 md:p-4 rounded-2xl border shadow-sm cursor-pointer transition-all active:scale-[0.98]"
           >
             <div class="flex justify-between items-start mb-2">
@@ -91,8 +98,17 @@
               <span v-if="order.status === 'pending'" class="bg-amber-100 text-amber-800 text-[9px] md:text-[10px] uppercase font-bold px-2 py-1 rounded-md border border-amber-200 flex items-center gap-1">
                 <AlertCircle class="size-3" /> In Attesa
               </span>
-              <span v-if="order.status === 'accepted'" class="bg-blue-100 text-blue-800 text-[9px] md:text-[10px] uppercase font-bold px-2 py-1 rounded-md border border-blue-200 flex items-center gap-1">
+              <span v-if="order.status === 'accepted'" class="bg-amber-100 text-amber-800 text-[9px] md:text-[10px] uppercase font-bold px-2 py-1 rounded-md border border-amber-200 flex items-center gap-1">
                 <ChefHat class="size-3" /> In Cucina
+              </span>
+              <span v-if="order.status === 'preparing'" class="bg-blue-100 text-blue-800 text-[9px] md:text-[10px] uppercase font-bold px-2 py-1 rounded-md border border-blue-200 flex items-center gap-1">
+                <Flame class="size-3" /> In Cottura
+              </span>
+              <span v-if="order.status === 'ready'" class="bg-teal-100 text-teal-800 text-[9px] md:text-[10px] uppercase font-bold px-2 py-1 rounded-md border border-teal-200 flex items-center gap-1">
+                <BellRing class="size-3" /> Pronta 🔔
+              </span>
+              <span v-if="order.status === 'delivered'" class="bg-gray-100 text-gray-600 text-[9px] md:text-[10px] uppercase font-bold px-2 py-1 rounded-md border border-gray-200 flex items-center gap-1">
+                <CheckCircle2 class="size-3" /> Consegnata
               </span>
               <span v-if="order.status === 'completed'" class="bg-emerald-100 text-emerald-800 text-[9px] md:text-[10px] uppercase font-bold px-2 py-1 rounded-md border border-emerald-200 flex items-center gap-1">
                 <CheckCircle2 class="size-3" /> Pagato
@@ -103,7 +119,7 @@
               <span class="bg-gray-100 text-gray-600 text-[9px] md:text-[10px] font-bold px-2 py-1 rounded-md border border-gray-200 ml-auto">{{ order.itemCount }} pz</span>
             </div>
           </div>
-        </transition-group>
+        </template>
       </div>
     </aside>
 
@@ -189,11 +205,64 @@
               </button>
             </template>
 
-            <!-- Accepted order: read-only indicator -->
+            <!-- Accepted order: override deliver available -->
             <template v-else-if="selectedOrder.status === 'accepted'">
-              <span class="w-full sm:w-auto text-center px-4 py-2.5 md:py-3 bg-blue-50 text-blue-700 border border-blue-200 rounded-xl font-bold flex items-center justify-center gap-2">
-                <ChefHat class="size-5" />
-                <span class="text-xs md:text-sm">In Cucina</span>
+              <div class="flex gap-2 w-full sm:w-auto items-center">
+                <span class="flex-1 text-center px-3 py-2.5 md:py-3 bg-amber-50 text-amber-700 border border-amber-200 rounded-xl font-bold flex items-center justify-center gap-2 text-xs">
+                  <ChefHat class="size-4" />
+                  <span class="hidden sm:inline text-xs">In Cucina</span>
+                </span>
+                <button
+                  @click="markDelivered(selectedOrder)"
+                  class="px-3 py-2.5 md:py-3 bg-gray-500 hover:bg-gray-600 text-white shadow-md rounded-xl font-bold flex items-center justify-center gap-1.5 active:scale-95 transition-colors text-xs shrink-0"
+                  title="Segna consegnata (override cucina)"
+                >
+                  <CheckCircle2 class="size-4" />
+                  <span class="hidden sm:inline text-xs">Consegnata</span>
+                </button>
+              </div>
+            </template>
+            <template v-else-if="selectedOrder.status === 'preparing'">
+              <div class="flex gap-2 w-full sm:w-auto items-center">
+                <span class="flex-1 text-center px-3 py-2.5 md:py-3 bg-blue-50 text-blue-700 border border-blue-200 rounded-xl font-bold flex items-center justify-center gap-2 text-xs">
+                  <Flame class="size-4" />
+                  <span class="hidden sm:inline text-xs">In Cottura</span>
+                </span>
+                <button
+                  @click="markDelivered(selectedOrder)"
+                  class="px-3 py-2.5 md:py-3 bg-gray-500 hover:bg-gray-600 text-white shadow-md rounded-xl font-bold flex items-center justify-center gap-1.5 active:scale-95 transition-colors text-xs shrink-0"
+                  title="Segna consegnata (override cucina)"
+                >
+                  <CheckCircle2 class="size-4" />
+                  <span class="hidden sm:inline text-xs">Consegnata</span>
+                </button>
+              </div>
+            </template>
+            <template v-else-if="selectedOrder.status === 'ready'">
+              <div class="flex gap-2 w-full sm:w-auto items-center">
+                <span class="flex-1 text-center px-3 py-2.5 md:py-3 bg-teal-50 text-teal-700 border border-teal-200 rounded-xl font-bold flex items-center justify-center gap-2 text-xs">
+                  <BellRing class="size-4" />
+                  <span class="hidden sm:inline text-xs">Pronta 🔔</span>
+                </span>
+                <button
+                  @click="markDelivered(selectedOrder)"
+                  class="px-3 py-2.5 md:py-3 bg-gray-500 hover:bg-gray-600 text-white shadow-md rounded-xl font-bold flex items-center justify-center gap-1.5 active:scale-95 transition-colors text-xs shrink-0"
+                >
+                  <CheckCircle2 class="size-4" />
+                  <span class="hidden sm:inline text-xs">Consegnata</span>
+                </button>
+              </div>
+            </template>
+            <template v-else-if="selectedOrder.status === 'delivered'">
+              <span class="w-full sm:w-auto text-center px-4 py-2.5 md:py-3 bg-gray-100 text-gray-600 border border-gray-200 rounded-xl font-bold flex items-center justify-center gap-2">
+                <CheckCircle2 class="size-5" />
+                <span class="text-xs md:text-sm">Consegnata</span>
+              </span>
+            </template>
+            <template v-else-if="selectedOrder.status === 'completed'">
+              <span class="w-full sm:w-auto text-center px-4 py-2.5 md:py-3 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-xl font-bold flex items-center justify-center gap-2">
+                <CheckCircle class="size-5" />
+                <span class="text-xs md:text-sm">Pagato</span>
               </span>
             </template>
           </div>
@@ -203,7 +272,7 @@
         <div class="flex-1 overflow-y-auto bg-gray-100 p-2 md:p-4 min-h-0">
 
           <!-- Accepted: read-only notice -->
-          <div v-if="selectedOrder.status === 'accepted'" class="mb-3 bg-blue-100 border border-blue-200 text-blue-800 p-3 rounded-xl text-[10px] md:text-xs font-bold flex items-center gap-2 shadow-sm">
+          <div v-if="KITCHEN_ACTIVE_STATUSES.includes(selectedOrder.status)" class="mb-3 bg-teal-50 border border-teal-200 text-teal-800 p-3 rounded-xl text-[10px] md:text-xs font-bold flex items-center gap-2 shadow-sm">
             <ShieldCheck class="size-4 md:size-5 shrink-0" />
             Comanda già inviata in cucina — sola lettura.
           </div>
@@ -243,8 +312,7 @@
                 <div v-else class="border-l-4 p-2 md:p-3 hover:bg-gray-50 transition-colors"
                   :class="[
                     {'bg-gray-50 opacity-60': row.item.voidedQuantity === row.item.quantity},
-                    getCourseBorderClass(row.item)
-                  ]">
+                    getCourseBorderClass(row.item.course)                  ]">
                   <div class="flex items-center justify-between gap-2 md:gap-4">
                     <div class="flex items-center gap-2 md:gap-3 flex-1 min-w-0">
 
@@ -266,7 +334,7 @@
                       </div>
 
                       <!-- Read-only quantity (accepted) -->
-                      <div v-else class="w-8 shrink-0 text-center font-black text-sm md:text-base text-gray-700">
+                      <div v-else class="w-8 shrink-0 text-center font-black text-sm md:text-base" :class="getCourseQtyClass(row.item.course)">
                         {{ row.item.quantity - (row.item.voidedQuantity || 0) }}x
                       </div>
 
@@ -390,7 +458,7 @@
                   <!-- Info button -->
                   <button @click="showItemInfo(item)"
                       :aria-label="'Informazioni su ' + item.name"
-                      class="size-6 md:size-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors active:scale-95"
+                      class="size-6 md:size-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-teal-600 hover:bg-teal-50 transition-colors active:scale-95"
                       title="Dettagli piatto">
                     <Info class="size-3 md:size-3.5" />
                   </button>
@@ -424,7 +492,7 @@
                 <MousePointerClick class="size-8 opacity-30 mb-2" />
                 <p class="text-xs font-medium">Tocca i piatti nel menu per prepararli qui, poi inseriscili.</p>
               </div>
-              <div v-for="(cartItem, idx) in tempCart" :key="cartItem.uid" class="bg-white rounded-lg shadow-sm overflow-hidden border-l-4" :class="getCourseBorderClass(cartItem)">
+              <div v-for="(cartItem, idx) in tempCart" :key="cartItem.uid" class="bg-white rounded-lg shadow-sm overflow-hidden border-l-4" :class="getCourseBorderClass(cartItem.course)">
                 <div class="p-2.5 flex items-start justify-between">
                   <div class="flex flex-col flex-1 min-w-0 pr-2">
                     <span class="font-bold text-sm text-gray-800 truncate">{{ cartItem.name }}</span>
@@ -744,9 +812,19 @@ import {
   AlertTriangle, Trash2, PlusCircle, Send, ShieldCheck, Minus, Plus,
   MessageSquareWarning, PenLine, X, BookOpen, ShoppingCart, Sparkles,
   Layers, CheckCircle, CheckCircle2, XCircle, History, LayoutGrid, ChevronRight, Info, AlertOctagon,
+  BellRing, Flame,
 } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
-import { updateOrderTotals, getOrderItemRowTotal } from '../utils/index.js';
+import {
+  updateOrderTotals,
+  getOrderItemRowTotal,
+  KITCHEN_ACTIVE_STATUSES,
+  KITCHEN_STATUS_PRIORITY,
+  DEFAULT_COURSE,
+  getCourseBorderClass,
+  getCourseQtyClass,
+  groupOrderItemsByCourse,
+} from '../utils/index.js';
 
 const emit = defineEmits(['jump-to-sala']);
 
@@ -761,15 +839,25 @@ const filteredOrders = computed(() => {
     return store.orders
       .filter(o => o.status === 'completed' || o.status === 'rejected')
       .sort((a, b) => b.time.localeCompare(a.time));
+  if (activeTab.value === 'accepted')
+    return store.orders
+      .filter(o => KITCHEN_ACTIVE_STATUSES.includes(o.status))
+      .sort((a, b) => {
+        const pa = KITCHEN_STATUS_PRIORITY[a.status] ?? 4;
+        const pb = KITCHEN_STATUS_PRIORITY[b.status] ?? 4;
+        if (pa !== pb) return pa - pb;
+        return b.time.localeCompare(a.time);
+      });
   return store.orders
     .filter(o => o.status === activeTab.value)
-    .sort((a, b) => b.time.localeCompare(a.time));
+    .sort((a, b) => a.time.localeCompare(b.time)); // oldest first → most urgent on top
 });
 
 const orderStatusCounts = computed(() =>
   store.orders.reduce(
     (acc, o) => {
-      if (o.status === 'accepted') acc.accepted += 1;
+      // Badge counts only active kitchen orders (not delivered — those are already handled)
+      if (['accepted', 'preparing', 'ready'].includes(o.status)) acc.accepted += 1;
       if (o.status === 'completed' || o.status === 'rejected') acc.history += 1;
       return acc;
     },
@@ -789,41 +877,21 @@ function selectOrder(ord) {
   selectedOrder.value = ord;
 }
 
+function markDelivered(order) {
+  store.changeOrderStatus(order, 'delivered');
+  store.$persist?.();
+}
+
 // ── Helper: unit price for an item including modifiers ────────────────────
 function getItemUnitPrice(item) {
   const modTotal = (item.modifiers || []).reduce((a, m) => a + (m.price || 0), 0);
   return item.unitPrice + modTotal;
 }
 
-// ── Course helpers ──────────────────────────────────────────────────────────
-function getCourseBorderClass(item) {
-  if (item.course === 'prima') return 'border-orange-400';
-  if (item.course === 'dopo') return 'border-purple-500';
-  return 'border-[var(--brand-primary)]';
-}
-
-const DEFAULT_COURSE = 'insieme';
-const courseOrder = ['prima', DEFAULT_COURSE, 'dopo'];
-
 // ── Ordered items by course ─────────────────────────────────────────────────
-const orderedOrderItems = computed(() => {
-  if (!selectedOrder.value) return [];
-  const groups = { prima: [], insieme: [], dopo: [] };
-  selectedOrder.value.orderItems.forEach((item, index) => {
-    const course = item.course && courseOrder.includes(item.course) ? item.course : DEFAULT_COURSE;
-    groups[course].push({ item, index });
-  });
-  const nonEmpty = courseOrder.filter(c => groups[c].length > 0);
-  const showHeaders = nonEmpty.length > 1;
-  const result = [];
-  courseOrder.forEach(course => {
-    if (groups[course].length > 0) {
-      if (showHeaders) result.push({ type: 'header', course });
-      groups[course].forEach(entry => result.push({ type: 'item', ...entry }));
-    }
-  });
-  return result;
-});
+const orderedOrderItems = computed(() =>
+  selectedOrder.value ? groupOrderItemsByCourse(selectedOrder.value.orderItems) : [],
+);
 
 // ── Note modal ─────────────────────────────────────────────────────────────
 const noteInput = ref(null);

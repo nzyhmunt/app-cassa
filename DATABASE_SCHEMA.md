@@ -179,7 +179,15 @@ CREATE INDEX idx_bill_sessions_table ON bill_sessions(table_id, is_active);
 ### 2.8 `orders` — Comande
 
 ```sql
-CREATE TYPE order_status AS ENUM ('pending', 'accepted', 'completed', 'rejected');
+CREATE TYPE order_status AS ENUM (
+    'pending',      -- comanda inviata dalla Sala, in attesa di accettazione Cassa
+    'accepted',     -- accettata dalla Cassa → appare in Cucina (Da Preparare)
+    'preparing',    -- cucina ha iniziato la preparazione (In Cottura)
+    'ready',        -- cucina ha terminato (Pronte) — in attesa consegna
+    'delivered',    -- consegnata al tavolo dal personale di sala (conto ancora aperto)
+    'completed',    -- saldo avvenuto (solo pagamento)
+    'rejected'      -- rifiutata dalla Cassa
+);
 
 CREATE TABLE orders (
     id                      VARCHAR(20)     PRIMARY KEY,    -- es. 'ord_rX91'
@@ -216,8 +224,9 @@ CREATE TABLE order_items (
     quantity        SMALLINT        NOT NULL DEFAULT 1 CHECK (quantity >= 0),
     voided_quantity SMALLINT        NOT NULL DEFAULT 0 CHECK (voided_quantity >= 0),
     notes           TEXT[]          NULL,
-    course          VARCHAR(50)     NULL,           -- es. 'antipasto', 'primo', 'secondo'
+    course          VARCHAR(10)     NULL CHECK (course IN ('prima', 'insieme', 'dopo')),  -- serving order: first/together/after
     sort_order      SMALLINT        NOT NULL DEFAULT 0,
+    kitchen_ready   BOOLEAN         NOT NULL DEFAULT FALSE,  -- flag per toggle per-voce in App Cucina (Dettaglio)
     PRIMARY KEY (uid, order_id),
     CHECK (voided_quantity <= quantity)
 );
@@ -440,7 +449,7 @@ Cardinalità:
                   │ id (PK)                                         │
                   │ table_id (FK) ──────────────────────────────────┘
                   │ bill_session_id (FK)
-                  │ status: pending|accepted|completed|rejected
+                  │ status: pending|accepted|preparing|ready|delivered|completed|rejected
                   │ total_amount
                   │ is_cover_charge
                   └──────────────────────────────┐
@@ -457,6 +466,7 @@ Cardinalità:
                                         │ voided_quantity   │
                                         │ notes[]           │
                                         │ course            │
+                                        │ kitchen_ready     │
                                         └────────┬──────────┘
                                                  │ 1
                                                  │ N

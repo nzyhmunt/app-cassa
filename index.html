@@ -7,6 +7,14 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <title>Terminale Cassa &amp; Sala - Osteria del Grillo</title>
+    <style>
+      @media (max-width: 640px) {
+        .mode-grid { grid-template-columns: 1fr !important; }
+        .mode-card { flex-direction: row !important; justify-content: flex-start !important; padding: 1.25rem 1.5rem !important; gap: 1.25rem !important; }
+        .mode-card-icon { flex-shrink: 0; }
+        .mode-card-text { text-align: left !important; }
+      }
+    </style>
   </head>
   <body class="bg-gray-100 text-gray-800 font-sans antialiased min-h-screen flex flex-col items-center justify-center p-6">
 
@@ -25,42 +33,60 @@
         <p class="text-sm font-semibold text-gray-500 uppercase tracking-widest">Scegli la modalità</p>
       </div>
 
-      <!-- Mode cards -->
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.25rem;">
+      <!-- Mode cards: 3-column grid matching consistent style -->
+      <div class="mode-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:1.25rem;">
 
         <!-- App Cassa -->
-        <a href="./cassa.html"
+        <a href="./cassa.html" class="mode-card"
            style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1rem;padding:2rem 1.25rem;background:white;border-radius:1.25rem;box-shadow:0 1px 3px rgba(0,0,0,.08);border:2px solid transparent;text-decoration:none;transition:box-shadow .15s,border-color .15s;cursor:pointer;"
            onmouseover="this.style.boxShadow='0 8px 25px rgba(0,130,108,.18)';this.style.borderColor='#00846c';"
            onmouseout="this.style.boxShadow='0 1px 3px rgba(0,0,0,.08)';this.style.borderColor='transparent';">
-          <div style="display:flex;align-items:center;justify-content:center;width:3.5rem;height:3.5rem;background-color:#00846c;border-radius:.875rem;box-shadow:0 4px 12px rgba(0,130,108,.35);">
+          <div class="mode-card-icon" style="display:flex;align-items:center;justify-content:center;width:3.5rem;height:3.5rem;background-color:#00846c;border-radius:.875rem;box-shadow:0 4px 12px rgba(0,130,108,.35);">
             <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none"
                  stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/>
               <line x1="12" y1="17" x2="12" y2="21"/>
             </svg>
           </div>
-          <div style="text-align:center;">
+          <div class="mode-card-text" style="text-align:center;">
             <p style="font-size:1.1rem;font-weight:800;color:#111827;margin-bottom:.2rem;">App Cassa</p>
             <p style="font-size:.75rem;color:#6b7280;font-weight:600;">Gestione ordini &amp; pagamenti</p>
           </div>
         </a>
 
         <!-- App Sala -->
-        <a href="./sala.html"
+        <a href="./sala.html" class="mode-card"
            style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1rem;padding:2rem 1.25rem;background:white;border-radius:1.25rem;box-shadow:0 1px 3px rgba(0,0,0,.08);border:2px solid transparent;text-decoration:none;transition:box-shadow .15s,border-color .15s;cursor:pointer;"
            onmouseover="this.style.boxShadow='0 8px 25px rgba(0,130,108,.18)';this.style.borderColor='#00846c';"
            onmouseout="this.style.boxShadow='0 1px 3px rgba(0,0,0,.08)';this.style.borderColor='transparent';">
-          <div style="display:flex;align-items:center;justify-content:center;width:3.5rem;height:3.5rem;background-color:#00846c;border-radius:.875rem;box-shadow:0 4px 12px rgba(0,130,108,.35);">
+          <div class="mode-card-icon" style="display:flex;align-items:center;justify-content:center;width:3.5rem;height:3.5rem;background-color:#00846c;border-radius:.875rem;box-shadow:0 4px 12px rgba(0,130,108,.35);">
             <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none"
                  stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/>
               <rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>
             </svg>
           </div>
-          <div style="text-align:center;">
+          <div class="mode-card-text" style="text-align:center;">
             <p style="font-size:1.1rem;font-weight:800;color:#111827;margin-bottom:.2rem;">App Sala</p>
             <p style="font-size:.75rem;color:#6b7280;font-weight:600;">Comande &amp; mappa tavoli</p>
+          </div>
+        </a>
+
+        <!-- App Cucina -->
+        <a href="./cucina.html" class="mode-card"
+           style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1rem;padding:2rem 1.25rem;background:white;border-radius:1.25rem;box-shadow:0 1px 3px rgba(0,0,0,.08);border:2px solid transparent;text-decoration:none;transition:box-shadow .15s,border-color .15s;cursor:pointer;"
+           onmouseover="this.style.boxShadow='0 8px 25px rgba(0,130,108,.18)';this.style.borderColor='#00846c';"
+           onmouseout="this.style.boxShadow='0 1px 3px rgba(0,0,0,.08)';this.style.borderColor='transparent';">
+          <div class="mode-card-icon" style="display:flex;align-items:center;justify-content:center;width:3.5rem;height:3.5rem;background-color:#00846c;border-radius:.875rem;box-shadow:0 4px 12px rgba(0,130,108,.35);">
+            <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none"
+                 stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M6 13.87A4 4 0 0 1 7.41 6a5.11 5.11 0 0 1 1.05-1.54 5 5 0 0 1 7.08 0A5.11 5.11 0 0 1 16.59 6 4 4 0 0 1 18 13.87V21H6Z"/>
+              <line x1="6" y1="17" x2="18" y2="17"/>
+            </svg>
+          </div>
+          <div class="mode-card-text" style="text-align:center;">
+            <p style="font-size:1.1rem;font-weight:800;color:#111827;margin-bottom:.2rem;">App Cucina</p>
+            <p style="font-size:.75rem;color:#6b7280;font-weight:600;">Visualizza ordini &amp; aggiorna stato</p>
           </div>
         </a>
 
