@@ -195,7 +195,7 @@
                 <div v-else class="border-l-4 p-2 md:p-3 hover:bg-gray-50 transition-colors"
                   :class="[
                     {'bg-gray-50 opacity-60': row.item.voidedQuantity === row.item.quantity},
-                    getCourseBorderClass(row.item)
+                    getCourseBorderClass(row.item.course)
                   ]">
                   <div class="flex items-center justify-between gap-2 md:gap-4">
                     <div class="flex items-center gap-2 md:gap-3 flex-1 min-w-0">
@@ -212,7 +212,7 @@
                         <button @click="store.updateQtyGlobal(selectedOrder, row.index, 1)" class="size-6 md:size-7 flex items-center justify-center bg-white theme-text rounded shadow-sm active:scale-95"><Plus class="size-3" /></button>
                       </div>
                       <!-- Testo Lineare (Accettati) -->
-                      <div v-else class="w-8 shrink-0 text-center font-black text-sm md:text-base" :class="getCourseQtyClass(row.item)">
+                      <div v-else class="w-8 shrink-0 text-center font-black text-sm md:text-base" :class="getCourseQtyClass(row.item.course)">
                         {{ row.item.quantity - (row.item.voidedQuantity || 0) }}x
                       </div>
                       <!-- Informazioni Piatto -->
@@ -525,7 +525,7 @@
               <MousePointerClick class="size-8 opacity-30 mb-2" />
               <p class="text-xs font-medium">Tocca i piatti nel menu per prepararli qui, poi inseriscili.</p>
             </div>
-            <div v-for="(cartItem, idx) in tempCart" :key="cartItem.uid" class="bg-white rounded-lg shadow-sm overflow-hidden border-l-4" :class="getCourseBorderClass(cartItem)">
+            <div v-for="(cartItem, idx) in tempCart" :key="cartItem.uid" class="bg-white rounded-lg shadow-sm overflow-hidden border-l-4" :class="getCourseBorderClass(cartItem.course)">
               <div class="p-2.5 flex items-start justify-between">
                 <div class="flex flex-col flex-1 min-w-0 pr-2">
                   <span class="font-bold text-sm text-gray-800 truncate">{{ cartItem.name }}</span>
@@ -595,7 +595,16 @@ import {
   BellRing, Flame,
 } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
-import { updateOrderTotals, getOrderItemRowTotal } from '../utils/index.js';
+import {
+  updateOrderTotals,
+  getOrderItemRowTotal,
+  KITCHEN_ACTIVE_STATUSES,
+  KITCHEN_STATUS_PRIORITY,
+  DEFAULT_COURSE,
+  getCourseBorderClass,
+  getCourseQtyClass,
+  groupOrderItemsByCourse,
+} from '../utils/index.js';
 
 defineEmits(['jump-to-cassa']);
 
@@ -605,14 +614,12 @@ const store = useAppStore();
 const activeTab = ref('pending');
 const selectedOrder = ref(null);
 
-const KITCHEN_STATUS_PRIORITY = { accepted: 0, preparing: 1, ready: 2, delivered: 3 };
-
 const filteredOrders = computed(() => {
   if (activeTab.value === 'history')
     return store.orders.filter(o => o.status === 'completed' || o.status === 'rejected');
   if (activeTab.value === 'accepted')
     return store.orders
-      .filter(o => ['accepted', 'preparing', 'ready', 'delivered'].includes(o.status))
+      .filter(o => KITCHEN_ACTIVE_STATUSES.includes(o.status))
       .sort((a, b) => {
         const pa = KITCHEN_STATUS_PRIORITY[a.status] ?? 4;
         const pb = KITCHEN_STATUS_PRIORITY[b.status] ?? 4;
@@ -658,41 +665,10 @@ function getItemUnitPrice(item) {
   return item.unitPrice + modTotal;
 }
 
-// ── Course helpers ─────────────────────────────────────────────────────────
-function getCourseBorderClass(item) {
-  if (item.course === 'prima') return 'border-orange-400';
-  if (item.course === 'dopo') return 'border-purple-500';
-  return 'border-[var(--brand-primary)]';
-}
-
-function getCourseQtyClass(item) {
-  if (item.course === 'prima') return 'text-orange-600';
-  if (item.course === 'dopo') return 'text-purple-600';
-  return 'text-[var(--brand-primary)]'; // insieme / default
-}
-
-const DEFAULT_COURSE = 'insieme';
-
 // ── Grouped order items by course: prima → insieme → dopo ─────────────────
-const courseOrder = ['prima', DEFAULT_COURSE, 'dopo'];
-const orderedOrderItems = computed(() => {
-  if (!selectedOrder.value) return [];
-  const groups = { prima: [], insieme: [], dopo: [] };
-  selectedOrder.value.orderItems.forEach((item, index) => {
-    const course = item.course && courseOrder.includes(item.course) ? item.course : DEFAULT_COURSE;
-    groups[course].push({ item, index });
-  });
-  const nonEmpty = courseOrder.filter(c => groups[c].length > 0);
-  const showHeaders = nonEmpty.length > 1;
-  const result = [];
-  courseOrder.forEach(course => {
-    if (groups[course].length > 0) {
-      if (showHeaders) result.push({ type: 'header', course });
-      groups[course].forEach(entry => result.push({ type: 'item', ...entry }));
-    }
-  });
-  return result;
-});
+const orderedOrderItems = computed(() =>
+  selectedOrder.value ? groupOrderItemsByCourse(selectedOrder.value.orderItems) : [],
+);
 
 // ── Note modal ─────────────────────────────────────────────────────────────
 const noteModalCloseBtn = ref(null);

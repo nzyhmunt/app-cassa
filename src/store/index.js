@@ -21,7 +21,7 @@
  */
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
-import { appConfig, initialOrders, updateOrderTotals } from '../utils/index.js';
+import { appConfig, initialOrders, updateOrderTotals, KITCHEN_ACTIVE_STATUSES } from '../utils/index.js';
 import { getInstanceName, resolveStorageKeys } from './persistence.js';
 
 // Derive storage keys once at module load — stable for the lifetime of the page
@@ -122,12 +122,7 @@ export const useAppStore = defineStore('app', () => {
     '--brand-dark': config.value.ui.primaryColorDark,
   }));
 
-  // Kitchen statuses that are treated as "active in kitchen" (accepted by kitchen, being worked on)
-  // 'delivered' means the dish has been brought to the table (managed by Sala);
-  // it keeps the table session open until payment (completed/rejected).
-  const KITCHEN_ACTIVE_STATUSES = ['accepted', 'preparing', 'ready', 'delivered'];
-
-  // ── Computed: Orders ───────────────────────────────────────────────────────
+    // ── Computed: Orders ───────────────────────────────────────────────────────
   const pendingCount = computed(() => orders.value.filter(o => o.status === 'pending').length);
   const inKitchenCount = computed(() =>
     orders.value.filter(o => KITCHEN_ACTIVE_STATUSES.includes(o.status)).length,

@@ -150,3 +150,74 @@ export function updateOrderTotals(ord) {
   ord.itemCount = count;
   ord.totalAmount = total;
 }
+
+// ── Kitchen order status constants ─────────────────────────────────────────
+
+/**
+ * All order statuses that are considered "active in kitchen" — the order has
+ * been accepted and is being tracked by App Cucina (Da Preparare → In Cottura
+ * → Pronta → Consegnata). Payment (completed/rejected) happens after this.
+ */
+export const KITCHEN_ACTIVE_STATUSES = ['accepted', 'preparing', 'ready', 'delivered'];
+
+/**
+ * Sort priority for kitchen statuses — lower value = shown first.
+ * Used when sorting mixed-status orders in "In Cucina" views.
+ */
+export const KITCHEN_STATUS_PRIORITY = { accepted: 0, preparing: 1, ready: 2, delivered: 3 };
+
+// ── Course (portata) helpers ────────────────────────────────────────────────
+
+/** Canonical course order for display. */
+export const COURSE_ORDER = ['prima', 'insieme', 'dopo'];
+
+/** Default course assigned to items without an explicit course value. */
+export const DEFAULT_COURSE = 'insieme';
+
+/**
+ * Returns the Tailwind border-left color class for a course string.
+ * @param {string} course - 'prima' | 'insieme' | 'dopo'
+ */
+export function getCourseBorderClass(course) {
+  if (course === 'prima') return 'border-orange-400';
+  if (course === 'dopo') return 'border-purple-500';
+  return 'border-[var(--brand-primary)]'; // insieme / default
+}
+
+/**
+ * Returns the Tailwind text color class for a course quantity badge.
+ * @param {string} course - 'prima' | 'insieme' | 'dopo'
+ */
+export function getCourseQtyClass(course) {
+  if (course === 'prima') return 'text-orange-600';
+  if (course === 'dopo') return 'text-purple-600';
+  return 'text-[var(--brand-primary)]'; // insieme / default
+}
+
+/**
+ * Groups an array of order items by course and returns a flat list of rows
+ * suitable for v-for rendering.  Each row is either:
+ *   { type: 'header', course }            — section header (only when >1 course present)
+ *   { type: 'item', item, index, course } — item row
+ *
+ * @param {Array}   items      - orderItem objects (already filtered if needed)
+ * @param {boolean} [includeIndex=true] - whether to include the original index
+ * @returns {Array}
+ */
+export function groupOrderItemsByCourse(items, includeIndex = true) {
+  const groups = { prima: [], insieme: [], dopo: [] };
+  items.forEach((item, rawIndex) => {
+    const course = item.course && COURSE_ORDER.includes(item.course) ? item.course : DEFAULT_COURSE;
+    groups[course].push(includeIndex ? { item, index: rawIndex, course } : { item, course });
+  });
+  const nonEmpty = COURSE_ORDER.filter(c => groups[c].length > 0);
+  const showHeaders = nonEmpty.length > 1;
+  const result = [];
+  COURSE_ORDER.forEach(course => {
+    if (groups[course].length > 0) {
+      if (showHeaders) result.push({ type: 'header', course });
+      groups[course].forEach(entry => result.push({ type: 'item', ...entry }));
+    }
+  });
+  return result;
+}

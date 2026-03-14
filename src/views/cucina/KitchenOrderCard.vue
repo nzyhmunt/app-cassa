@@ -41,7 +41,7 @@
         <!-- Item row -->
         <div v-else
           class="px-3 py-2 flex items-center gap-3 border-l-4 transition-opacity"
-          :class="[getCourseBorderClass(row.item), row.item.kitchenReady ? 'opacity-50' : '']"
+          :class="[getCourseBorderClass(row.item.course), row.item.kitchenReady ? 'opacity-50' : '']"
         >
           <span :class="['shrink-0 font-black text-sm tabular-nums w-8 text-center', row.item.kitchenReady ? 'text-gray-400' : getCourseQtyClass(row.item.course)]">
             {{ row.item.quantity - (row.item.voidedQuantity || 0) }}×
@@ -102,6 +102,7 @@
 <script setup>
 import { computed } from 'vue';
 import { ChevronLeft, Layers } from 'lucide-vue-next';
+import { getCourseBorderClass, getCourseQtyClass, groupOrderItemsByCourse } from '../../utils/index.js';
 
 const props = defineProps({
   order: { type: Object, required: true },
@@ -120,48 +121,16 @@ const props = defineProps({
 
 defineEmits(['action', 'secondary-action']);
 
-const COURSE_ORDER = ['prima', 'insieme', 'dopo'];
-const DEFAULT_COURSE = 'insieme';
-
-const activeItemsWithIndex = computed(() =>
-  props.order.orderItems
-    .map((item, index) => ({ item, index }))
-    .filter(({ item }) => (item.quantity - (item.voidedQuantity || 0)) > 0),
-);
-
-// Group items by course and build a flat list with course-header rows
+// Group active (non-voided) items by course using shared utility
 const orderedItems = computed(() => {
-  const groups = { prima: [], insieme: [], dopo: [] };
-  activeItemsWithIndex.value.forEach(({ item, index }) => {
-    const course = item.course && COURSE_ORDER.includes(item.course) ? item.course : DEFAULT_COURSE;
-    groups[course].push({ item, index });
-  });
-  const nonEmpty = COURSE_ORDER.filter(c => groups[c].length > 0);
-  const showHeaders = nonEmpty.length > 1;
-  const result = [];
-  COURSE_ORDER.forEach(course => {
-    if (groups[course].length > 0) {
-      if (showHeaders) result.push({ type: 'header', course });
-      groups[course].forEach(entry => result.push({ type: 'item', ...entry }));
-    }
-  });
-  return result;
+  const activeItems = props.order.orderItems.filter(
+    item => (item.quantity - (item.voidedQuantity || 0)) > 0,
+  );
+  return groupOrderItemsByCourse(activeItems, false);
 });
 
 function activeModifiers(item) {
   return (item.modifiers || []).filter(m => (m.quantity || 1) - (m.voidedQuantity || 0) > 0);
-}
-
-function getCourseQtyClass(course) {
-  if (course === 'prima') return 'text-orange-600';
-  if (course === 'dopo') return 'text-purple-600';
-  return 'text-[var(--brand-primary)]'; // insieme / default
-}
-
-function getCourseBorderClass(item) {
-  if (item.course === 'prima') return 'border-orange-400';
-  if (item.course === 'dopo') return 'border-purple-500';
-  return 'border-[var(--brand-primary)]';
 }
 
 const dietTags = computed(() => {

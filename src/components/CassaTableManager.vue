@@ -634,7 +634,7 @@ import {
 } from 'lucide-vue-next';
 import { Banknote, CreditCard } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
-import { updateOrderTotals, getOrderItemRowTotal } from '../utils/index.js';
+import { updateOrderTotals, getOrderItemRowTotal, KITCHEN_ACTIVE_STATUSES } from '../utils/index.js';
 import CassaClosedBillsList from './CassaClosedBillsList.vue';
 // Shared component — used by both Sala and Cassa apps.
 import PeopleModal from './shared/PeopleModal.vue';
@@ -765,7 +765,7 @@ const tableOrders = computed(() => {
 });
 
 const tableAcceptedPayableOrders = computed(() =>
-  tableOrders.value.filter(o => ['accepted', 'preparing', 'ready', 'delivered'].includes(o.status)),
+  tableOrders.value.filter(o => KITCHEN_ACTIVE_STATUSES.includes(o.status)),
 );
 
 const tableTotalAmount = computed(() => {
@@ -774,7 +774,7 @@ const tableTotalAmount = computed(() => {
   return store.orders
     .filter(o => {
       if (o.table !== selectedTable.value.id) return false;
-      if (!['accepted', 'preparing', 'ready', 'delivered', 'completed'].includes(o.status)) return false;
+      if (!KITCHEN_ACTIVE_STATUSES.includes(o.status) && o.status !== 'completed') return false;
       if (session) return o.billSessionId === session.billSessionId;
       return true;
     })
@@ -888,7 +888,7 @@ function getPaymentIcon(methodIdOrLabel) {
 const tableMenuGrouped = computed(() => {
   const dishMap = new Map();
   for (const ord of tableOrders.value) {
-    if (!['accepted', 'preparing', 'ready', 'delivered'].includes(ord.status)) continue; // all active kitchen orders appear in the grouped summary
+    if (!KITCHEN_ACTIVE_STATUSES.includes(ord.status)) continue; // all active kitchen orders appear in the grouped summary
     for (let idx = 0; idx < ord.orderItems.length; idx++) {
       const item = ord.orderItems[idx];
       const key = item.name;

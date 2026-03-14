@@ -293,7 +293,7 @@
             <!-- Item row: info left, checkbox right -->
             <div v-else
               class="px-3 py-2 flex items-center gap-3 border-l-4 transition-opacity"
-              :class="[getDetailCourseBorderClass(row.item), row.item.kitchenReady ? 'opacity-50' : '']"
+              :class="[getCourseBorderClass(row.item.course), row.item.kitchenReady ? 'opacity-50' : '']"
             >
               <!-- Item info (left) -->
               <div class="flex-1 min-w-0">
@@ -381,7 +381,7 @@
             </div>
             <div v-else
               class="px-3 py-2 flex items-center gap-3 border-l-4 text-gray-400 line-through"
-              :class="getDetailCourseBorderClass(row.item)"
+              :class="getCourseBorderClass(row.item.course)"
             >
               <p class="flex-1 text-sm font-bold truncate">
                 <span class="font-black tabular-nums mr-1">{{ row.item.quantity - (row.item.voidedQuantity || 0) }}×</span>{{ row.item.name }}
@@ -439,6 +439,11 @@ import { Bell, BellRing, ChefHat, Check, CheckCircle2, Clock, Flame, Layers, Ref
 import { useAppStore } from '../../store/index.js';
 import { useBeep } from '../../composables/useBeep.js';
 import KitchenOrderCard from './KitchenOrderCard.vue';
+import {
+  getCourseBorderClass,
+  getCourseQtyClass,
+  groupOrderItemsByCourse,
+} from '../../utils/index.js';
 
 const emit = defineEmits(['open-settings']);
 
@@ -648,40 +653,11 @@ function restoreFromHistory(order) {
 }
 
 // ── Detail view helpers ───────────────────────────────────────────────────────
-const COURSE_ORDER_DETAIL = ['prima', 'insieme', 'dopo'];
-
 function getOrderedItemsForOrder(order) {
-  const DEFAULT_COURSE = 'insieme';
-  const activeItems = order.orderItems
-    .map((item, index) => ({ item, index }))
-    .filter(({ item }) => (item.quantity - (item.voidedQuantity || 0)) > 0);
-  const groups = { prima: [], insieme: [], dopo: [] };
-  activeItems.forEach(({ item, index }) => {
-    const course = item.course && COURSE_ORDER_DETAIL.includes(item.course) ? item.course : DEFAULT_COURSE;
-    groups[course].push({ item, index });
-  });
-  const nonEmpty = COURSE_ORDER_DETAIL.filter(c => groups[c].length > 0);
-  const showHeaders = nonEmpty.length > 1;
-  const result = [];
-  COURSE_ORDER_DETAIL.forEach(course => {
-    if (groups[course].length > 0) {
-      if (showHeaders) result.push({ type: 'header', course });
-      groups[course].forEach(entry => result.push({ type: 'item', ...entry }));
-    }
-  });
-  return result;
-}
-
-function getDetailCourseBorderClass(item) {
-  if (item.course === 'prima') return 'border-orange-400';
-  if (item.course === 'dopo') return 'border-purple-500';
-  return 'border-[var(--brand-primary)]';
-}
-
-function getCourseQtyClass(course) {
-  if (course === 'prima') return 'text-orange-600';
-  if (course === 'dopo') return 'text-purple-600';
-  return 'text-[var(--brand-primary)]'; // insieme / default
+  const activeItems = order.orderItems.filter(
+    item => (item.quantity - (item.voidedQuantity || 0)) > 0,
+  );
+  return groupOrderItemsByCourse(activeItems);
 }
 
 function activeDetailModifiers(item) {
