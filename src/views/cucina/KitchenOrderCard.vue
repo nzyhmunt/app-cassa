@@ -43,7 +43,7 @@
           class="px-3 py-2 flex items-center gap-3 border-l-4 transition-opacity"
           :class="[getCourseBorderClass(row.item), row.item.kitchenReady ? 'opacity-50' : '']"
         >
-          <span :class="['shrink-0 font-black text-sm tabular-nums w-8 text-center', row.item.kitchenReady ? 'text-gray-400' : qtyClass]">
+          <span :class="['shrink-0 font-black text-sm tabular-nums w-8 text-center', row.item.kitchenReady ? 'text-gray-400' : getCourseQtyClass(row.item.course)]">
             {{ row.item.quantity - (row.item.voidedQuantity || 0) }}×
           </span>
           <div class="flex-1 min-w-0">
@@ -107,7 +107,6 @@ const props = defineProps({
   order: { type: Object, required: true },
   statusLabel: { type: String, required: true },
   statusClass: { type: String, default: '' },
-  qtyClass: { type: String, default: 'text-gray-600' },
   elapsedLabel: { type: String, required: true },
   elapsedColor: { type: String, default: 'text-gray-500' },
   actionLabel: { type: String, default: '' },
@@ -151,6 +150,12 @@ const orderedItems = computed(() => {
 
 function activeModifiers(item) {
   return (item.modifiers || []).filter(m => (m.quantity || 1) - (m.voidedQuantity || 0) > 0);
+}
+
+function getCourseQtyClass(course) {
+  if (course === 'prima') return 'text-orange-600';
+  if (course === 'dopo') return 'text-purple-600';
+  return 'text-[var(--brand-primary)]'; // insieme / default
 }
 
 function getCourseBorderClass(item) {

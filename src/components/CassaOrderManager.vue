@@ -212,7 +212,7 @@
                         <button @click="store.updateQtyGlobal(selectedOrder, row.index, 1)" class="size-6 md:size-7 flex items-center justify-center bg-white theme-text rounded shadow-sm active:scale-95"><Plus class="size-3" /></button>
                       </div>
                       <!-- Testo Lineare (Accettati) -->
-                      <div v-else class="w-8 shrink-0 text-center font-black text-sm md:text-base text-gray-700">
+                      <div v-else class="w-8 shrink-0 text-center font-black text-sm md:text-base" :class="getCourseQtyClass(row.item)">
                         {{ row.item.quantity - (row.item.voidedQuantity || 0) }}x
                       </div>
                       <!-- Informazioni Piatto -->
@@ -663,6 +663,12 @@ function getCourseBorderClass(item) {
   if (item.course === 'prima') return 'border-orange-400';
   if (item.course === 'dopo') return 'border-purple-500';
   return 'border-[var(--brand-primary)]';
+}
+
+function getCourseQtyClass(item) {
+  if (item.course === 'prima') return 'text-orange-600';
+  if (item.course === 'dopo') return 'text-purple-600';
+  return 'text-[var(--brand-primary)]'; // insieme / default
 }
 
 const DEFAULT_COURSE = 'insieme';

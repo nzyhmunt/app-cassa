@@ -131,7 +131,6 @@
                 :order="order"
                 status-label="Da Preparare"
                 status-class="bg-amber-100 text-amber-800 border-amber-200"
-                qty-class="text-amber-600"
                 :elapsed-label="elapsedLabel(order.time)"
                 :elapsed-color="elapsedColor(order.time)"
                 action-label="Inizia preparazione"
@@ -175,7 +174,6 @@
                 :order="order"
                 status-label="In Cottura"
                 status-class="bg-blue-100 text-blue-800 border-blue-200"
-                qty-class="text-blue-600"
                 :elapsed-label="elapsedLabel(order.time)"
                 :elapsed-color="elapsedColor(order.time)"
                 action-label="Segna pronta"
@@ -219,7 +217,6 @@
                 :order="order"
                 status-label="Pronta 🔔"
                 status-class="bg-emerald-100 text-emerald-800 border-emerald-200"
-                qty-class="text-emerald-600"
                 :elapsed-label="elapsedLabel(order.time)"
                 :elapsed-color="elapsedColor(order.time)"
                 action-label="Consegnata"
@@ -301,11 +298,19 @@
               <!-- Item info (left) -->
               <div class="flex-1 min-w-0">
                 <p :class="['text-sm font-bold leading-tight', row.item.kitchenReady ? 'text-gray-400 line-through' : 'text-gray-800']">
-                  <span :class="['font-black tabular-nums mr-1', row.item.kitchenReady ? 'text-gray-400' : detailQtyClass(order.status)]">{{ row.item.quantity - (row.item.voidedQuantity || 0) }}×</span>{{ row.item.name }}
+                  <span :class="['font-black tabular-nums mr-1', row.item.kitchenReady ? 'text-gray-400' : getCourseQtyClass(row.item.course)]">{{ row.item.quantity - (row.item.voidedQuantity || 0) }}×</span>{{ row.item.name }}
                 </p>
                 <p v-if="row.item.notes?.length" :class="['text-xs mt-0.5 font-semibold', row.item.kitchenReady ? 'text-gray-400 line-through' : 'text-amber-600']">
                   ✎ {{ row.item.notes.join(' · ') }}
                 </p>
+                <div v-for="(mod, mi) in activeDetailModifiers(row.item)" :key="`${row.item.uid}_mod_${mi}`"
+                  :class="['text-[10px] font-bold px-1.5 py-0.5 rounded inline-flex items-center gap-0.5 mt-0.5 mr-1',
+                    row.item.kitchenReady
+                      ? 'bg-gray-100 border border-gray-200 text-gray-400 line-through'
+                      : 'bg-purple-50 border border-purple-200 text-purple-700']"
+                >
+                  + {{ mod.name }}
+                </div>
               </div>
               <!-- Toggle checkbox (right) -->
               <button
@@ -674,6 +679,16 @@ function getDetailCourseBorderClass(item) {
   return 'border-[var(--brand-primary)]';
 }
 
+function getCourseQtyClass(course) {
+  if (course === 'prima') return 'text-orange-600';
+  if (course === 'dopo') return 'text-purple-600';
+  return 'text-[var(--brand-primary)]'; // insieme / default
+}
+
+function activeDetailModifiers(item) {
+  return (item.modifiers || []).filter(m => (m.quantity || 1) - (m.voidedQuantity || 0) > 0);
+}
+
 function detailCardHeaderBgClass(status) {
   if (status === 'accepted') return 'bg-amber-50 border-amber-100';
   if (status === 'preparing') return 'bg-blue-50 border-blue-100';
@@ -686,13 +701,6 @@ function detailAvatarBgClass(status) {
   if (status === 'preparing') return 'bg-blue-500';
   if (status === 'ready') return 'bg-emerald-600';
   return 'theme-bg';
-}
-
-function detailQtyClass(status) {
-  if (status === 'accepted') return 'text-amber-600';
-  if (status === 'preparing') return 'text-blue-600';
-  if (status === 'ready') return 'text-emerald-600';
-  return 'text-gray-600';
 }
 </script>
 
