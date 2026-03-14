@@ -394,33 +394,48 @@
           <!-- Nota Globale Ordine -->
           <div class="mt-3">
             <!-- Editing (pending) -->
-            <div v-if="selectedOrder.status === 'pending'" class="bg-white rounded-2xl shadow-sm border border-amber-200 overflow-hidden">
-              <div class="px-3 py-2.5 bg-amber-50 border-b border-amber-100 flex items-center gap-2">
-                <MessageSquareWarning class="size-4 text-amber-600 shrink-0" />
-                <span class="text-xs font-bold text-amber-800 uppercase tracking-wider">Nota Globale Ordine</span>
+            <div v-if="selectedOrder.status === 'pending'" class="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+              <div class="px-3 py-2 flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest bg-gray-50 text-gray-500 border-b border-gray-100">
+                <MessageSquareWarning class="size-3 shrink-0" />
+                Nota Globale Ordine
               </div>
               <div class="p-3 space-y-3">
                 <textarea
                   v-model="selectedOrder.globalNote"
                   rows="3"
                   placeholder="Aggiungi una nota per tutto l'ordine..."
-                  class="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 focus:bg-white theme-ring transition-all text-gray-800 text-sm resize-none"
+                  class="w-full bg-gray-100 border border-gray-200 rounded-xl px-3 py-2.5 focus:bg-white theme-ring transition-all text-gray-800 text-sm resize-none font-medium"
                 ></textarea>
                 <div>
-                  <p class="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">Visibile in:</p>
-                  <div class="flex flex-wrap gap-4">
-                    <label class="flex items-center gap-2 cursor-pointer select-none">
-                      <input type="checkbox" v-model="selectedOrder.noteVisibility.cassa" class="rounded accent-[var(--brand-primary)] size-4" />
-                      <span class="text-xs font-bold text-gray-700">Cassa</span>
-                    </label>
-                    <label class="flex items-center gap-2 cursor-pointer select-none">
-                      <input type="checkbox" v-model="selectedOrder.noteVisibility.sala" class="rounded accent-[var(--brand-primary)] size-4" />
-                      <span class="text-xs font-bold text-gray-700">Sala</span>
-                    </label>
-                    <label class="flex items-center gap-2 cursor-pointer select-none">
-                      <input type="checkbox" v-model="selectedOrder.noteVisibility.cucina" class="rounded accent-[var(--brand-primary)] size-4" />
-                      <span class="text-xs font-bold text-gray-700">Cucina</span>
-                    </label>
+                  <p class="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2">Visibile in:</p>
+                  <div class="flex gap-2">
+                    <button
+                      @click="selectedOrder.noteVisibility.cassa = !selectedOrder.noteVisibility.cassa"
+                      :aria-pressed="selectedOrder.noteVisibility.cassa"
+                      :class="selectedOrder.noteVisibility.cassa ? 'bg-[var(--brand-primary)]/10 text-[var(--brand-primary)] border-[var(--brand-primary)]/30 font-bold' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100'"
+                      class="flex-1 py-2 px-2 rounded-xl border transition-all flex items-center justify-center gap-1 text-xs active:scale-95 shadow-sm"
+                    >
+                      <CheckCircle2 v-if="selectedOrder.noteVisibility.cassa" class="size-3 shrink-0" aria-hidden="true" />
+                      Cassa
+                    </button>
+                    <button
+                      @click="selectedOrder.noteVisibility.sala = !selectedOrder.noteVisibility.sala"
+                      :aria-pressed="selectedOrder.noteVisibility.sala"
+                      :class="selectedOrder.noteVisibility.sala ? 'bg-[var(--brand-primary)]/10 text-[var(--brand-primary)] border-[var(--brand-primary)]/30 font-bold' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100'"
+                      class="flex-1 py-2 px-2 rounded-xl border transition-all flex items-center justify-center gap-1 text-xs active:scale-95 shadow-sm"
+                    >
+                      <CheckCircle2 v-if="selectedOrder.noteVisibility.sala" class="size-3 shrink-0" aria-hidden="true" />
+                      Sala
+                    </button>
+                    <button
+                      @click="selectedOrder.noteVisibility.cucina = !selectedOrder.noteVisibility.cucina"
+                      :aria-pressed="selectedOrder.noteVisibility.cucina"
+                      :class="selectedOrder.noteVisibility.cucina ? 'bg-[var(--brand-primary)]/10 text-[var(--brand-primary)] border-[var(--brand-primary)]/30 font-bold' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100'"
+                      class="flex-1 py-2 px-2 rounded-xl border transition-all flex items-center justify-center gap-1 text-xs active:scale-95 shadow-sm"
+                    >
+                      <CheckCircle2 v-if="selectedOrder.noteVisibility.cucina" class="size-3 shrink-0" aria-hidden="true" />
+                      Cucina
+                    </button>
                   </div>
                 </div>
               </div>
@@ -428,12 +443,12 @@
             <!-- Read-only (non-pending, sala flag set) -->
             <div
               v-else-if="selectedOrder.globalNote && selectedOrder.noteVisibility?.sala !== false"
-              class="bg-amber-50 border border-amber-200 rounded-2xl p-3 flex gap-2"
+              class="bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-start gap-2 shadow-sm"
             >
-              <MessageSquareWarning class="size-4 text-amber-600 shrink-0 mt-0.5" />
-              <div>
-                <p class="text-[10px] font-bold text-amber-700 uppercase tracking-wider mb-1">Nota Ordine</p>
-                <p class="text-xs text-amber-800 font-medium whitespace-pre-wrap">{{ selectedOrder.globalNote }}</p>
+              <MessageSquareWarning class="size-4 md:size-5 text-amber-600 shrink-0" />
+              <div class="min-w-0">
+                <p class="text-[10px] md:text-xs font-bold text-amber-800 uppercase tracking-wider mb-0.5">Nota Ordine</p>
+                <p class="text-xs md:text-sm text-amber-700 font-medium whitespace-pre-wrap">{{ selectedOrder.globalNote }}</p>
               </div>
             </div>
           </div>

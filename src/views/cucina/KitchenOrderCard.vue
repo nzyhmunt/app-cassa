@@ -75,12 +75,12 @@
     <!-- Global order note (visible when cucina flag is set) -->
     <div
       v-if="order.globalNote && order.noteVisibility?.cucina !== false"
-      class="mx-3 mb-3 mt-1 bg-amber-50 border border-amber-200 rounded-xl p-2.5 flex gap-2"
+      class="flex items-start gap-2 px-4 py-2.5 border-t border-gray-100"
     >
       <MessageSquareWarning class="size-3.5 text-amber-600 shrink-0 mt-0.5" />
-      <div>
-        <p class="text-[9px] font-bold text-amber-700 uppercase tracking-wider mb-0.5">Nota Ordine</p>
-        <p class="text-xs text-amber-800 font-medium whitespace-pre-wrap">{{ order.globalNote }}</p>
+      <div class="min-w-0">
+        <p class="text-[9px] font-black text-gray-500 uppercase tracking-widest mb-0.5">Nota Ordine</p>
+        <p class="text-xs text-amber-700 font-semibold whitespace-pre-wrap">{{ order.globalNote }}</p>
       </div>
     </div>
 
