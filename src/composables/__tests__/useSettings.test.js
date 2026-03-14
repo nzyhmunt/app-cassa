@@ -58,6 +58,7 @@ describe('useSettings()', () => {
 
     expect(result.settings.value.sounds).toBe(true);
     expect(result.settings.value.preventScreenLock).toBe(false);
+    expect(result.settings.value.customKeyboard).toBe(false);
     expect(typeof result.settings.value.menuUrl).toBe('string');
     wrapper.unmount();
   });
@@ -75,6 +76,7 @@ describe('useSettings()', () => {
         sounds: false,
         menuUrl: 'https://custom.example.com/menu.json',
         preventScreenLock: true,
+        customKeyboard: true,
       }),
     );
     const props = reactive({ modelValue: false });
@@ -85,6 +87,7 @@ describe('useSettings()', () => {
     expect(result.settings.value.sounds).toBe(false);
     expect(result.settings.value.menuUrl).toBe('https://custom.example.com/menu.json');
     expect(result.settings.value.preventScreenLock).toBe(true);
+    expect(result.settings.value.customKeyboard).toBe(true);
     wrapper.unmount();
     delete navigator.wakeLock;
   });
@@ -149,6 +152,30 @@ describe('useSettings()', () => {
     await nextTick();
 
     expect(store.preventScreenLock).toBe(true);
+    wrapper.unmount();
+  });
+
+  it('updates store.customKeyboard immediately when the setting changes', async () => {
+    const props = reactive({ modelValue: true });
+    const emit = vi.fn();
+
+    const { result, wrapper } = withSetup(() => useSettings(props, emit));
+
+    result.settings.value.customKeyboard = true;
+    await nextTick();
+
+    expect(store.customKeyboard).toBe(true);
+    wrapper.unmount();
+  });
+
+  it('defaults customKeyboard to false when stored value is not a boolean', () => {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ customKeyboard: 'yes' }));
+    const props = reactive({ modelValue: false });
+    const emit = vi.fn();
+
+    const { result, wrapper } = withSetup(() => useSettings(props, emit));
+
+    expect(result.settings.value.customKeyboard).toBe(false);
     wrapper.unmount();
   });
 

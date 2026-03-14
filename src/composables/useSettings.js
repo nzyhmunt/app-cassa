@@ -23,12 +23,12 @@ export function useSettings(props, emit) {
 
   function loadInitialSettings() {
     if (typeof window === 'undefined') {
-      return { sounds: true, menuUrl: appConfig.menuUrl, preventScreenLock: false };
+      return { sounds: true, menuUrl: appConfig.menuUrl, preventScreenLock: false, customKeyboard: false };
     }
     try {
       const raw = window.localStorage.getItem(SETTINGS_STORAGE_KEY);
       if (!raw) {
-        return { sounds: true, menuUrl: appConfig.menuUrl, preventScreenLock: false };
+        return { sounds: true, menuUrl: appConfig.menuUrl, preventScreenLock: false, customKeyboard: false };
       }
       const parsed = JSON.parse(raw);
       return {
@@ -41,9 +41,11 @@ export function useSettings(props, emit) {
           typeof parsed.preventScreenLock === 'boolean' && wakeLockApiSupported
             ? parsed.preventScreenLock
             : false,
+        customKeyboard:
+          typeof parsed.customKeyboard === 'boolean' ? parsed.customKeyboard : false,
       };
     } catch {
-      return { sounds: true, menuUrl: appConfig.menuUrl, preventScreenLock: false };
+      return { sounds: true, menuUrl: appConfig.menuUrl, preventScreenLock: false, customKeyboard: false };
     }
   }
 
@@ -79,6 +81,7 @@ export function useSettings(props, emit) {
       // Keep store and parent in sync immediately for responsive UI
       store.menuUrl = newVal.menuUrl;
       store.preventScreenLock = newVal.preventScreenLock;
+      store.customKeyboard = newVal.customKeyboard;
       emit('settings-changed', newVal);
       // Debounce localStorage writes to avoid per-keystroke I/O (e.g. menuUrl typing)
       clearTimeout(saveTimer);

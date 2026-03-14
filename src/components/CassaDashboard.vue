@@ -41,7 +41,9 @@
             <div class="flex items-center gap-3">
               <div class="relative flex-1">
                 <span class="absolute left-3 top-1/2 -translate-y-1/2 font-black text-gray-500 text-lg">€</span>
-                <input type="number" v-model.number="cashBalanceInput" min="0" step="0.50"
+                <NumericInput
+                  v-model="cashBalanceInput"
+                  min="0" step="0.50"
                   class="w-full pl-8 pr-4 py-3 border-2 border-gray-200 rounded-xl font-black text-xl text-gray-800 focus:border-[var(--brand-primary)] focus:outline-none transition-colors"
                   placeholder="0.00" />
               </div>
@@ -85,7 +87,9 @@
             <div class="flex flex-col sm:flex-row gap-2 mb-4">
               <div class="relative flex-1">
                 <span class="absolute left-3 top-1/2 -translate-y-1/2 font-black text-gray-400">€</span>
-                <input type="number" v-model.number="movementAmount" min="0.01" step="0.50"
+                <NumericInput
+                  v-model="movementAmount"
+                  min="0.01" step="0.50"
                   class="w-full pl-8 pr-3 py-2.5 border border-gray-200 rounded-xl text-sm font-bold focus:border-[var(--brand-primary)] focus:outline-none"
                   placeholder="Importo" />
               </div>
@@ -296,6 +300,7 @@ import {
 } from 'lucide-vue-next';
 import { Banknote } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
+import NumericInput from './NumericInput.vue';
 
 defineProps({ modelValue: Boolean });
 defineEmits(['update:modelValue']);

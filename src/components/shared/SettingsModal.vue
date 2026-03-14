@@ -46,6 +46,22 @@
           </button>
         </div>
 
+        <div v-if="showKeyboardToggle" @click="settings.customKeyboard = !settings.customKeyboard"
+          class="flex items-center justify-between p-3 md:p-4 border border-gray-200 rounded-2xl cursor-pointer hover:bg-gray-50 transition-colors active:scale-95">
+          <div>
+            <span class="font-bold text-gray-800 block text-sm">Tastiera Numerica Personalizzata</span>
+            <span class="text-[10px] text-gray-500">Tastiera a scomparsa per i campi numerici</span>
+          </div>
+          <button type="button" role="switch" :aria-checked="settings.customKeyboard"
+            :aria-label="'Tastiera numerica: ' + (settings.customKeyboard ? 'attiva' : 'disattivata')"
+            @click.stop="settings.customKeyboard = !settings.customKeyboard"
+            class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors shrink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand-primary)] focus-visible:ring-offset-2"
+            :class="settings.customKeyboard ? 'bg-[var(--brand-primary)]' : 'bg-gray-300'">
+            <span class="inline-block size-5 transform rounded-full bg-white shadow-md transition-transform"
+              :class="settings.customKeyboard ? 'translate-x-5' : 'translate-x-0.5'"></span>
+          </button>
+        </div>
+
         <div class="pt-4 border-t border-gray-100 mt-2 space-y-3">
           <div>
             <label class="block text-xs font-bold text-gray-600 mb-1">URL Menu JSON</label>
@@ -100,6 +116,7 @@ import { useSettings } from '../../composables/useSettings.js';
 const props = defineProps({
   modelValue: Boolean,
   title: { type: String, required: true },
+  showKeyboardToggle: { type: Boolean, default: false },
 });
 const emit = defineEmits(['update:modelValue', 'settings-changed']);
 

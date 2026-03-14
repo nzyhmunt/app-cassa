@@ -57,6 +57,11 @@ export const useAppStore = defineStore('app', () => {
       ? _savedAppSettings.preventScreenLock
       : false
   );
+  const customKeyboard = ref(
+    typeof _savedAppSettings?.customKeyboard === 'boolean'
+      ? _savedAppSettings.customKeyboard
+      : false
+  );
   const menuLoading = ref(false);
   const menuError = ref(null);
 
@@ -616,6 +621,7 @@ export const useAppStore = defineStore('app', () => {
     pendingNewOrder,
     menuUrl,
     preventScreenLock,
+    customKeyboard,
     menuLoading,
     menuError,
     // computed

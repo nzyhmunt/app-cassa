@@ -354,9 +354,8 @@
                     {{ store.config.ui.currency }}
                   </button>
                 </div>
-                <input
+                <NumericInput
                   v-model="discountInput"
-                  type="number"
                   min="0"
                   :max="discountType === 'percent' ? 100 : tableAmountRemaining"
                   step="0.01"
@@ -467,9 +466,8 @@
               </label>
               <div class="flex items-center gap-2">
                 <span class="text-sm font-bold text-purple-600">{{ store.config.ui.currency }}</span>
-                <input
+                <NumericInput
                   v-model="tipInput"
-                  type="number"
                   min="0"
                   step="0.50"
                   placeholder="0.00"
@@ -492,9 +490,8 @@
               </label>
               <div class="flex items-center gap-2">
                 <span class="text-sm font-bold text-emerald-600">{{ store.config.ui.currency }}</span>
-                <input
+                <NumericInput
                   v-model="cashAmountGiven"
-                  type="number"
                   min="0"
                   step="0.50"
                   placeholder="0.00"
@@ -638,6 +635,7 @@ import { updateOrderTotals, getOrderItemRowTotal, KITCHEN_ACTIVE_STATUSES } from
 import CassaClosedBillsList from './CassaClosedBillsList.vue';
 // Shared component — used by both Sala and Cassa apps.
 import PeopleModal from './shared/PeopleModal.vue';
+import NumericInput from './NumericInput.vue';
 
 const emit = defineEmits(['open-order-from-table', 'new-order-for-ordini']);
 
