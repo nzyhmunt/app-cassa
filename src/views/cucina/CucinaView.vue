@@ -67,14 +67,14 @@
       <button
         @click="cucinaTab = 'kanban'"
         :class="cucinaTab === 'kanban' ? 'bg-[var(--brand-primary)]/10 text-[var(--brand-primary)] border-[var(--brand-primary)]/30 font-bold' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100'"
-        class="flex-1 py-1.5 px-2 rounded-xl border transition-all text-[10px] uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-sm"
+        class="flex-1 py-1.5 px-2 rounded-xl border transition-all text-[10px] uppercase tracking-wider flex items-center justify-center gap-1.5"
       >
         <Layers class="size-3.5" /> Kanban
       </button>
       <button
         @click="cucinaTab = 'detail'"
         :class="cucinaTab === 'detail' ? 'bg-[var(--brand-primary)]/10 text-[var(--brand-primary)] border-[var(--brand-primary)]/30 font-bold' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100'"
-        class="flex-1 py-1.5 px-2 rounded-xl border transition-all text-[10px] uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-sm"
+        class="flex-1 py-1.5 px-2 rounded-xl border transition-all text-[10px] uppercase tracking-wider flex items-center justify-center gap-1.5"
       >
         <ClipboardList class="size-3.5" /> Dettaglio
         <span v-if="allKitchenOrders.length > 0" class="bg-[var(--brand-primary)] text-white text-[9px] font-black rounded-full size-4 flex items-center justify-center shrink-0">{{ allKitchenOrders.length }}</span>
@@ -82,7 +82,7 @@
       <button
         @click="cucinaTab = 'history'"
         :class="cucinaTab === 'history' ? 'bg-emerald-50 text-emerald-700 border-emerald-200 font-bold' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100'"
-        class="flex-1 py-1.5 px-2 rounded-xl border transition-all text-[10px] uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-sm"
+        class="flex-1 py-1.5 px-2 rounded-xl border transition-all text-[10px] uppercase tracking-wider flex items-center justify-center gap-1.5"
       >
         <Clock class="size-3.5" /> Cronologia
         <span v-if="deliveredOrders.length > 0" class="bg-emerald-500 text-white text-[9px] font-black rounded-full size-4 flex items-center justify-center shrink-0">{{ deliveredOrders.length }}</span>
@@ -124,7 +124,7 @@
             <article
               v-for="order in pendingOrders"
               :key="order.id"
-              class="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden"
+              class="bg-white rounded-2xl border border-gray-200 overflow-hidden"
               :aria-label="`Comanda tavolo ${order.table} da preparare`"
             >
               <KitchenOrderCard
@@ -167,7 +167,7 @@
             <article
               v-for="order in preparingOrders"
               :key="order.id"
-              class="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden"
+              class="bg-white rounded-2xl border border-gray-200 overflow-hidden"
               :aria-label="`Comanda tavolo ${order.table} in cottura`"
             >
               <KitchenOrderCard
@@ -210,7 +210,7 @@
             <article
               v-for="order in readyOrders"
               :key="order.id"
-              class="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden"
+              class="bg-white rounded-2xl border border-gray-200 overflow-hidden"
               :aria-label="`Comanda tavolo ${order.table} pronta`"
             >
               <KitchenOrderCard
@@ -247,7 +247,7 @@
       <article
         v-for="order in allKitchenOrders"
         :key="order.id"
-        :class="['bg-white rounded-2xl shadow-sm border-2 overflow-hidden', detailCardBorderClass(order.status)]"
+        class="bg-white rounded-2xl border border-gray-200 overflow-hidden"
       >
         <!-- Card header (color matches kanban column) -->
         <div :class="['px-3 py-2.5 border-b flex items-center justify-between gap-2', detailCardHeaderBgClass(order.status)]">
@@ -331,7 +331,7 @@
       <article
         v-for="order in deliveredOrders"
         :key="order.id"
-        class="bg-white rounded-2xl shadow-sm border-2 border-emerald-200 overflow-hidden opacity-80"
+        class="bg-white rounded-2xl border border-gray-200 overflow-hidden opacity-80"
       >
         <!-- Card header -->
         <div class="px-3 py-2.5 bg-emerald-50 border-b border-emerald-100 flex items-center justify-between gap-2">
@@ -653,13 +653,6 @@ function getDetailCourseBorderClass(item) {
   if (item.course === 'prima') return 'border-orange-400';
   if (item.course === 'dopo') return 'border-purple-500';
   return 'border-[var(--brand-primary)]';
-}
-
-function detailCardBorderClass(status) {
-  if (status === 'accepted') return 'border-amber-300';
-  if (status === 'preparing') return 'border-orange-300';
-  if (status === 'ready') return 'border-teal-400';
-  return 'border-gray-200';
 }
 
 function detailCardHeaderBgClass(status) {

@@ -164,7 +164,7 @@
             </template>
             <template v-else-if="selectedOrder.status === 'completed'">
               <span class="w-full text-center px-4 py-2.5 md:py-3 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-xl font-bold flex items-center justify-center gap-2">
-                <CheckCircle class="size-5" /> <span class="hidden sm:inline text-xs md:text-sm">Incassato</span>
+                <CheckCircle class="size-5" /> <span class="hidden sm:inline text-xs md:text-sm">Pagato</span>
               </span>
             </template>
           </div>
