@@ -123,8 +123,8 @@
               <button @click="store.changeOrderStatus(selectedOrder, 'rejected'); selectedOrder = null" class="flex-1 sm:flex-none px-3 py-2.5 md:py-3 bg-white text-red-600 border border-red-200 hover:bg-red-50 rounded-xl font-bold flex items-center justify-center gap-1.5 active:scale-95 transition-colors">
                 <Trash2 class="size-5" /> <span class="hidden sm:inline text-xs md:text-sm">Elimina</span>
               </button>
-              <button @click="store.changeOrderStatus(selectedOrder, 'accepted')" class="flex-[2] sm:flex-none px-4 py-2.5 md:py-3 theme-bg text-white shadow-md rounded-xl font-bold flex items-center justify-center gap-1.5 active:scale-95 hover:opacity-90 transition-opacity">
-                <Printer class="size-5" /> <span class="hidden sm:inline text-xs md:text-sm">Accetta &amp; Stampa</span>
+              <button @click="store.changeOrderStatus(selectedOrder, 'accepted')" class="flex-[2] sm:flex-none px-4 py-2.5 md:py-3 theme-bg text-white shadow-md rounded-xl font-bold flex items-center justify-center gap-1.5 active:scale-95 hover:opacity-90 transition-opacity" title="Invia comanda in cucina">
+                <Send class="size-5" /> <span class="hidden sm:inline text-xs md:text-sm">Invia</span>
               </button>
             </template>
             <template v-else-if="selectedOrder.status === 'accepted'">
@@ -589,7 +589,7 @@ import { ref, computed, nextTick } from 'vue';
 import DOMPurify from 'dompurify';
 import {
   Bell, ChefHat, History, ClipboardList, Clock, AlertCircle, CheckCircle2, XCircle,
-  MousePointerClick, ArrowLeft, Hash, AlertTriangle, Calculator, Trash2, Printer,
+  MousePointerClick, ArrowLeft, Hash, AlertTriangle, Calculator, Trash2, Send,
   CheckCircle, ShieldCheck, Minus, Plus, MessageSquareWarning, PenLine, PlusCircle,
   X, BookOpen, ChevronRight, ShoppingCart, Sparkles, Layers, Info, AlertOctagon,
   BellRing, Flame,
