@@ -27,14 +27,14 @@
         <button
           @click="changeTab('accepted')"
           aria-label="In Cucina"
-          :class="activeTab === 'accepted' ? 'bg-blue-100 text-blue-800 border-blue-200 font-bold' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100'"
+          :class="activeTab === 'accepted' ? 'bg-teal-100 text-teal-800 border-teal-200 font-bold' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100'"
           class="flex-1 py-1.5 md:py-2 px-1 rounded-xl border transition-all flex items-center justify-center gap-1.5 shadow-sm"
         >
           <div class="relative shrink-0">
             <ChefHat class="size-4 md:size-5" />
             <span
               v-if="acceptedCount > 0"
-              class="absolute -top-1.5 -right-2 bg-blue-500 text-white text-[9px] font-bold size-4 flex items-center justify-center rounded-full border border-white"
+              class="absolute -top-1.5 -right-2 bg-teal-600 text-white text-[9px] font-bold size-4 flex items-center justify-center rounded-full border border-white"
             >{{ acceptedCount }}</span>
           </div>
           <span class="text-[9px] md:text-[10px] uppercase tracking-wider hidden sm:inline">In Cucina</span>
@@ -98,7 +98,7 @@
               <span v-if="order.status === 'pending'" class="bg-amber-100 text-amber-800 text-[9px] md:text-[10px] uppercase font-bold px-2 py-1 rounded-md border border-amber-200 flex items-center gap-1">
                 <AlertCircle class="size-3" /> In Attesa
               </span>
-              <span v-if="order.status === 'accepted'" class="bg-blue-100 text-blue-800 text-[9px] md:text-[10px] uppercase font-bold px-2 py-1 rounded-md border border-blue-200 flex items-center gap-1">
+              <span v-if="order.status === 'accepted'" class="bg-amber-100 text-amber-800 text-[9px] md:text-[10px] uppercase font-bold px-2 py-1 rounded-md border border-amber-200 flex items-center gap-1">
                 <ChefHat class="size-3" /> In Cucina
               </span>
               <span v-if="order.status === 'preparing'" class="bg-orange-100 text-orange-800 text-[9px] md:text-[10px] uppercase font-bold px-2 py-1 rounded-md border border-orange-200 flex items-center gap-1">
@@ -208,7 +208,7 @@
             <!-- Accepted order: override deliver available -->
             <template v-else-if="selectedOrder.status === 'accepted'">
               <div class="flex gap-2 w-full sm:w-auto items-center">
-                <span class="flex-1 text-center px-3 py-2.5 md:py-3 bg-blue-50 text-blue-700 border border-blue-200 rounded-xl font-bold flex items-center justify-center gap-2 text-xs">
+                <span class="flex-1 text-center px-3 py-2.5 md:py-3 bg-amber-50 text-amber-700 border border-amber-200 rounded-xl font-bold flex items-center justify-center gap-2 text-xs">
                   <ChefHat class="size-4" />
                   <span class="hidden sm:inline text-xs">In Cucina</span>
                 </span>
@@ -272,7 +272,7 @@
         <div class="flex-1 overflow-y-auto bg-gray-100 p-2 md:p-4 min-h-0">
 
           <!-- Accepted: read-only notice -->
-          <div v-if="['accepted','preparing','ready'].includes(selectedOrder.status)" class="mb-3 bg-blue-100 border border-blue-200 text-blue-800 p-3 rounded-xl text-[10px] md:text-xs font-bold flex items-center gap-2 shadow-sm">
+          <div v-if="['accepted','preparing','ready'].includes(selectedOrder.status)" class="mb-3 bg-teal-50 border border-teal-200 text-teal-800 p-3 rounded-xl text-[10px] md:text-xs font-bold flex items-center gap-2 shadow-sm">
             <ShieldCheck class="size-4 md:size-5 shrink-0" />
             Comanda già inviata in cucina — sola lettura.
           </div>
@@ -459,7 +459,7 @@
                   <!-- Info button -->
                   <button @click="showItemInfo(item)"
                       :aria-label="'Informazioni su ' + item.name"
-                      class="size-6 md:size-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors active:scale-95"
+                      class="size-6 md:size-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-teal-600 hover:bg-teal-50 transition-colors active:scale-95"
                       title="Dettagli piatto">
                     <Info class="size-3 md:size-3.5" />
                   </button>

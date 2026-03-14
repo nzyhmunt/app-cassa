@@ -459,7 +459,7 @@ function forceDeliver(order) {
 }
 
 function detailStatusBadgeClass(status) {
-  if (status === 'accepted') return 'bg-blue-50 text-blue-700 border-blue-200';
+  if (status === 'accepted') return 'bg-amber-50 text-amber-700 border-amber-200';
   if (status === 'preparing') return 'bg-orange-50 text-orange-700 border-orange-200';
   if (status === 'ready') return 'bg-teal-50 text-teal-700 border-teal-200';
   return 'bg-gray-50 text-gray-700 border-gray-200';
