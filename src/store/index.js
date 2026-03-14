@@ -595,6 +595,41 @@ export const useAppStore = defineStore('app', () => {
     );
   });
 
+  // ── Mutations: Direct orders (bypass kitchen workflow) ────────────────────
+  /**
+   * Creates an order that goes directly to "accepted" status, bypassing the
+   * kitchen workflow. Used for items served at the counter (e.g. espresso),
+   * service charges, or any item that should not go through the kitchen queue.
+   *
+   * The order is initialised with status 'pending' and immediately transitioned
+   * to 'accepted' so that it becomes visible in the bill without requiring
+   * kitchen approval.
+   *
+   * @param {string} tableId       – Table identifier
+   * @param {string|null} billSessionId – Active bill session id (or null)
+   * @param {Array}  items         – Array of order item objects
+   * @returns {Object|null}        – The created order, or null when items is empty
+   */
+  function addDirectOrder(tableId, billSessionId, items) {
+    if (!tableId || !Array.isArray(items) || items.length === 0) return null;
+    const order = {
+      id: 'ord_' + Math.random().toString(36).slice(2, 11),
+      table: tableId,
+      billSessionId: billSessionId ?? null,
+      status: 'pending',
+      time: new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }),
+      totalAmount: 0,
+      itemCount: 0,
+      dietaryPreferences: {},
+      orderItems: items.map(item => ({ ...item })),
+      isDirectEntry: true,
+    };
+    updateOrderTotals(order);
+    addOrder(order);
+    changeOrderStatus(order, 'accepted');
+    return order;
+  }
+
   // ── Cross-view navigation state ────────────────────────────────────────────
   const pendingOpenTable = ref(null);
   const pendingSelectOrder = ref(null);
@@ -640,6 +675,7 @@ export const useAppStore = defineStore('app', () => {
     addTransaction,
     simulateNewOrder,
     loadMenu,
+    addDirectOrder,
     // table operations
     setBillRequested,
     openTableSession,
