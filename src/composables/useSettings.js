@@ -1,6 +1,6 @@
 import { ref, watch, onUnmounted } from 'vue';
 import { useAppStore } from '../store/index.js';
-import { getInstanceName, resolveStorageKeys, clearState } from '../store/persistence.js';
+import { getInstanceName, resolveStorageKeys, clearState, resolveCustomItemsKey } from '../store/persistence.js';
 import { appConfig } from '../utils/index.js';
 import { isWakeLockSupported } from './useWakeLock.js';
 import { getPwaDismissKey } from './usePwaInstall.js';
@@ -107,6 +107,11 @@ export function useSettings(props, emit) {
       window.localStorage.removeItem(getPwaDismissKey());
     } catch (e) {
       console.warn('[Settings] Failed to remove PWA dismiss key during reset:', e);
+    }
+    try {
+      window.localStorage.removeItem(resolveCustomItemsKey(_instanceName));
+    } catch (e) {
+      console.warn('[Settings] Failed to remove custom items during reset:', e);
     }
     if (typeof window !== 'undefined' && window.location) {
       window.location.reload();

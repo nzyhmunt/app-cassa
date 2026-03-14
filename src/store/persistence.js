@@ -57,6 +57,20 @@ export function resolveStorageKeys(instanceName) {
 }
 
 /**
+ * Derives the localStorage key used to persist saved custom items in the
+ * "Personalizzata" tab of the "Diretto" modal (CassaTableManager). Kept here
+ * so both the component and the settings reset logic share the exact same key
+ * derivation.
+ *
+ * @param {string} [instanceName] - Instance name; defaults to getInstanceName().
+ * @returns {string} The localStorage key for saved custom items.
+ */
+export function resolveCustomItemsKey(instanceName) {
+  const n = instanceName ?? getInstanceName();
+  return n ? `direct_custom_items_${n}` : 'direct_custom_items';
+}
+
+/**
  * Removes the persisted app state from localStorage.
  * Obtain the key from resolveStorageKeys().storageKey.
  *

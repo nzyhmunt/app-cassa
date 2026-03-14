@@ -807,7 +807,7 @@ import {
 import { Banknote, CreditCard } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
 import { updateOrderTotals, getOrderItemRowTotal, KITCHEN_ACTIVE_STATUSES } from '../utils/index.js';
-import { resolveStorageKeys } from '../store/persistence.js';
+import { resolveCustomItemsKey } from '../store/persistence.js';
 import CassaClosedBillsList from './CassaClosedBillsList.vue';
 // Shared component — used by both Sala and Cassa apps.
 import PeopleModal from './shared/PeopleModal.vue';
@@ -1240,12 +1240,7 @@ const customNameInput = ref(null);
 
 // Saved custom items — persisted in localStorage
 // Key is derived from the instance name so multiple instances stay isolated.
-const SAVED_CUSTOM_KEY = 'direct_custom_items' + (() => {
-  const { storageKey } = resolveStorageKeys();
-  // Extract the instance suffix (e.g. "_mybar") from the storage key, if any
-  const m = storageKey.match(/_([^_]+)_v\d+$/);
-  return m ? '_' + m[1] : '';
-})();
+const SAVED_CUSTOM_KEY = resolveCustomItemsKey();
 
 const savedCustomItems = ref(
   (() => {
@@ -1310,7 +1305,6 @@ function addCustomItemToDirectCart() {
   const already = savedCustomItems.value.some(s => s.name === name && s.price === price);
   if (!already) {
     savedCustomItems.value.unshift({ name, price });
-    if (savedCustomItems.value.length > 30) savedCustomItems.value.length = 30;
   }
 
   directCart.value.push({
