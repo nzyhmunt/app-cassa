@@ -62,6 +62,7 @@ CREATE TABLE venues (
     billing_enable_cash_change_calculator BOOLEAN NOT NULL DEFAULT TRUE,
     billing_enable_tips                   BOOLEAN NOT NULL DEFAULT TRUE,
     billing_enable_discounts              BOOLEAN NOT NULL DEFAULT TRUE,
+    billing_allow_custom_entry            BOOLEAN NOT NULL DEFAULT TRUE,  -- abilita voci libere nel modal Voce Diretta
     created_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
     updated_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW()
 );
@@ -548,6 +549,7 @@ Cardinalità:
 | `appConfig.ui.*`                      | `venues`                               |
 | `appConfig.coverCharge.*`             | `venues.cover_charge_*`                |
 | `appConfig.billing.*`                 | `venues.billing_*`                     |
+| `appConfig.billing.allowCustomEntry`  | `venues.billing_allow_custom_entry`    |
 
 ### 5.2 Snapshot dei nomi nel DB
 

@@ -73,11 +73,15 @@ export const appConfig = {
   // enableCashChangeCalculator: mostra il calcolatore del resto per i pagamenti in contanti
   // enableTips: abilita l'inserimento della mancia per ogni pagamento
   // enableDiscounts: abilita l'applicazione di sconti in cassa
+  // allowCustomEntry: quando true (default), abilita la tab "Personalizzata" nel modal Voce Diretta
+  //   per inserire voci libere (nome + prezzo) non collegate al menu. Impostare a false per
+  //   limitare le voci dirette solo alle voci presenti nel menu configurato.
   billing: {
     autoCloseOnFullPayment: true,
     enableCashChangeCalculator: true,
     enableTips: true,
     enableDiscounts: true,
+    allowCustomEntry: true,
   },
 
   // Minimal fallback menu; the full menu is loaded from the external URL at startup
