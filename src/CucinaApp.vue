@@ -1,7 +1,15 @@
 <template>
-  <div id="app" class="h-full flex flex-col relative w-full" :style="store.cssVars">
+  <div
+    id="app"
+    class="h-full flex flex-col relative w-full"
+    :style="store.cssVars"
+    @click="auth.recordActivity()"
+    @keydown="auth.recordActivity()"
+    @touchstart.passive="auth.recordActivity()"
+  >
     <router-view @open-settings="showSettings = true" />
     <CucinaSettingsModal v-model="showSettings" />
+    <LockScreen />
   </div>
 </template>
 
@@ -10,9 +18,12 @@ import { ref, onMounted, onUnmounted } from 'vue';
 import { useAppStore } from './store/index.js';
 import { useWakeLock } from './composables/useWakeLock.js';
 import { resolveStorageKeys, getInstanceName } from './store/persistence.js';
+import { useAuth } from './composables/useAuth.js';
 import CucinaSettingsModal from './components/CucinaSettingsModal.vue';
+import LockScreen from './components/LockScreen.vue';
 
 const store = useAppStore();
+const auth = useAuth();
 const showSettings = ref(false);
 
 useWakeLock();
