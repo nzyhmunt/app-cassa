@@ -139,8 +139,8 @@
                 @action="acceptOrder(order)"
                 :show-secondary-action="true"
                 secondary-action-label="← Rimanda in sala"
-                secondary-action-class="border-gray-300 text-gray-500 hover:bg-gray-50"
-                @secondary-action="returnToPending(order)"
+                secondary-action-class="border-red-300 text-red-600 hover:bg-red-50 bg-white"
+                @secondary-action="requestReturnToPending(order)"
               />
             </article>
           </div>
@@ -381,12 +381,61 @@
       <span class="font-mono">{{ currentTime }}</span>
     </footer>
 
+    <!-- ── Confirmation modal: Rimanda in sala ───────────────────────────── -->
+    <Transition name="fade">
+      <div
+        v-if="confirmReturnModal.show"
+        class="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-end md:items-center justify-center p-0 md:p-4"
+        @click.self="cancelReturnToPending"
+      >
+        <div class="bg-white rounded-t-3xl md:rounded-3xl shadow-2xl w-full max-w-sm flex flex-col overflow-hidden">
+          <!-- Header -->
+          <div class="bg-red-50 border-b border-red-100 px-5 pt-5 pb-4 flex items-start gap-3">
+            <div class="size-10 rounded-full bg-red-100 flex items-center justify-center shrink-0">
+              <AlertTriangle class="size-5 text-red-600" />
+            </div>
+            <div class="flex-1">
+              <h3 class="font-bold text-base text-gray-800 leading-tight">Rimanda in sala?</h3>
+              <p class="text-sm text-gray-500 mt-0.5">
+                La comanda del Tavolo {{ confirmReturnModal.order?.table }} tornerà in stato
+                <span class="font-semibold text-amber-700">In Attesa</span> e dovrà essere
+                riaccettata dalla Cassa.
+              </p>
+            </div>
+            <button
+              @click="cancelReturnToPending"
+              class="text-gray-400 hover:text-gray-700 p-1.5 bg-gray-100 hover:bg-gray-200 rounded-full active:scale-95 transition-colors shrink-0"
+              aria-label="Annulla"
+            >
+              <X class="size-4" />
+            </button>
+          </div>
+          <!-- Actions -->
+          <div class="p-4 pb-8 md:pb-4 flex gap-3">
+            <button
+              @click="cancelReturnToPending"
+              class="flex-1 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-xl text-sm active:scale-[0.98] transition-all"
+            >
+              Annulla
+            </button>
+            <button
+              @click="confirmReturnToPending"
+              class="flex-1 py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl text-sm active:scale-[0.98] transition-all shadow-sm flex items-center justify-center gap-2"
+            >
+              <AlertTriangle class="size-4" />
+              Rimanda in sala
+            </button>
+          </div>
+        </div>
+      </div>
+    </Transition>
+
   </div>
 </template>
 
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
-import { Bell, BellRing, ChefHat, Check, CheckCircle2, Clock, Flame, Layers, RefreshCw, Settings, ClipboardList } from 'lucide-vue-next';
+import { AlertTriangle, Bell, BellRing, ChefHat, Check, CheckCircle2, Clock, Flame, Layers, RefreshCw, Settings, ClipboardList, X } from 'lucide-vue-next';
 import { useAppStore } from '../../store/index.js';
 import { useBeep } from '../../composables/useBeep.js';
 import KitchenOrderCard from './KitchenOrderCard.vue';
@@ -555,6 +604,25 @@ function markDeliveredFromKanban(order) {
 }
 
 // ── Back-state actions (undo buttons) ────────────────────────────────────────
+
+// Confirmation modal for "Rimanda in sala" (accepted → pending)
+const confirmReturnModal = ref({ show: false, order: null });
+
+function requestReturnToPending(order) {
+  confirmReturnModal.value = { show: true, order };
+}
+
+function confirmReturnToPending() {
+  if (confirmReturnModal.value.order) {
+    returnToPending(confirmReturnModal.value.order);
+  }
+  confirmReturnModal.value = { show: false, order: null };
+}
+
+function cancelReturnToPending() {
+  confirmReturnModal.value = { show: false, order: null };
+}
+
 function returnToPending(order) {
   // accepted → pending (return to Cassa queue)
   store.changeOrderStatus(order, 'pending');
@@ -632,3 +700,14 @@ function detailQtyClass(status) {
   return 'text-gray-600';
 }
 </script>
+
+<style scoped>
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+</style>
