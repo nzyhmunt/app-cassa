@@ -31,7 +31,7 @@ export function useNumericKeyboard() {
         ? String(currentValue)
         : '';
     _callback = callback;
-    _options = { allowDecimal: options.allowDecimal !== false };
+    _options = { allowDecimal: options.allowDecimal ?? true };
     isVisible.value = true;
   }
 

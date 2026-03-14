@@ -47,7 +47,7 @@ const displayVal = computed(() => {
 /** Emit the native input value (numeric or empty string). */
 function onNativeInput(event) {
   const raw = event.target.value;
-  emit('update:modelValue', raw === '' ? '' : raw);
+  emit('update:modelValue', raw === '' ? '' : Number(raw));
 }
 
 /** Open the numeric keyboard overlay when the field is activated. */
