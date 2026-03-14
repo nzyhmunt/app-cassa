@@ -39,7 +39,7 @@ src/
 │   └── useWakeLock.js                 ← Prevenzione blocco schermo (Screen Wake Lock API)
 ├── store/
 │   ├── index.js                       ← Pinia store condiviso (unica sorgente di verità)
-│   └── persistence.js                 ← Chiavi localStorage, schema versioning, clearState
+│   └── persistence.js                 ← Chiavi localStorage, schema versioning, clearState, resolveCustomItemsKey
 ├── utils/
 │   ├── index.js                       ← Configurazione app + funzioni di calcolo condivise
 │   └── pwaManifest.js                 ← Iniezione logo custom nei manifest PWA
@@ -88,6 +88,22 @@ src/
   - Storno per modificatore singolo
   - Ripristino articoli stornati
 - Creazione nuovi ordini dal pannello menu (solo Cassa)
+
+### ⚡ Aggiunta Diretta al Conto (Cassa)
+
+Permette di aggiungere voci al conto di un tavolo **senza passare per la cucina**, ideale per caffè al banco, coperto aggiuntivo, servizi o voci dimenticate.
+
+- **Pulsante "⚡ Diretto"** nel pannello Riepilogo Voci, posizionato prima del pulsante "+ Comanda"
+- **Modale con due tab**:
+  - **Dal Menu** — griglia navigabile per categoria; tap su un articolo lo aggiunge al carrello (tap multipli incrementano la quantità)
+  - **Personalizzata** — form compatto (nome + prezzo + "Aggiungi") per voci libere non collegate al menu
+    - Le voci inserite vengono auto-salvate in `localStorage` per riutilizzo rapido con un tap
+    - Icona ✕ (visibile all'hover) per eliminare singole voci salvate
+    - Le voci salvate vengono cancellate al **Ripristina dati di default** nelle impostazioni
+    - La tab "Personalizzata" può essere disabilitata con `appConfig.billing.allowCustomEntry: false`
+- **Carrello condiviso** con controlli quantità (+/−), totale in tempo reale e pulsante "Aggiungi al Conto"
+- L'ordine creato ha `isDirectEntry: true` e viene immediatamente impostato a `accepted`, risultando visibile nel conto senza approvazione cucina
+- **Identificazione visiva**: badge `⚡ Diretta` (tema app) nelle viste Per Voce e Per Ordine
 
 ### 🍽️ Creazione Comande (Sala)
 - Interfaccia dedicata per il personale di sala
@@ -235,6 +251,7 @@ export const appConfig = {
     enableCashChangeCalculator: true,          // Calcolatore resto contanti
     enableTips: true,                          // Mancia
     enableDiscounts: true,                     // Sconti
+    allowCustomEntry: true,                    // false → nasconde tab "Personalizzata" nel modal Diretto
   },
 };
 ```

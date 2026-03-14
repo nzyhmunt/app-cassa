@@ -1270,21 +1270,34 @@ function closeDirectItemModal() {
   directCustomPrice.value = '';
 }
 
-function addMenuItemToDirectCart(item) {
-  const existing = directCart.value.find(
-    c => c.dishId === item.id && c.notes.length === 0 && c.modifiers.length === 0,
-  );
-  if (existing) { existing.quantity++; return; }
-  directCart.value.push({
+/** Shared factory — builds a cart item with all required fields. */
+function makeDirectCartItem(name, price, dishId = null) {
+  return {
     uid: 'dir_' + Math.random().toString(36).slice(2, 11),
-    dishId: item.id,
-    name: item.name,
-    unitPrice: item.price,
+    dishId: dishId ?? ('custom_' + Math.random().toString(36).slice(2, 11)),
+    name,
+    unitPrice: price,
     quantity: 1,
     voidedQuantity: 0,
     notes: [],
     modifiers: [],
-  });
+  };
+}
+
+/**
+ * Finds an existing cart item by the given predicate and bumps its quantity,
+ * or pushes `newItem` if none is found.
+ */
+function pushOrBumpDirectCart(predicate, newItem) {
+  const existing = directCart.value.find(predicate);
+  if (existing) { existing.quantity++; } else { directCart.value.push(newItem); }
+}
+
+function addMenuItemToDirectCart(item) {
+  pushOrBumpDirectCart(
+    c => c.dishId === item.id && c.notes.length === 0 && c.modifiers.length === 0,
+    makeDirectCartItem(item.name, item.price, item.id),
+  );
 }
 
 function updateDirectCartQty(idx, delta) {
@@ -1302,40 +1315,20 @@ function addCustomItemToDirectCart() {
   const price = parseFloat(directCustomPrice.value) || 0;
 
   // Save to persistent list if not already present (same name+price)
-  const already = savedCustomItems.value.some(s => s.name === name && s.price === price);
-  if (!already) {
+  if (!savedCustomItems.value.some(s => s.name === name && s.price === price)) {
     savedCustomItems.value.unshift({ name, price });
   }
 
-  directCart.value.push({
-    uid: 'dir_' + Math.random().toString(36).slice(2, 11),
-    dishId: 'custom_' + Math.random().toString(36).slice(2, 11),
-    name,
-    unitPrice: price,
-    quantity: 1,
-    voidedQuantity: 0,
-    notes: [],
-    modifiers: [],
-  });
+  directCart.value.push(makeDirectCartItem(name, price));
   directCustomName.value = '';
   directCustomPrice.value = '';
 }
 
 function addSavedCustomItemToDirectCart(saved) {
-  const existing = directCart.value.find(
+  pushOrBumpDirectCart(
     c => c.name === saved.name && c.unitPrice === saved.price,
+    makeDirectCartItem(saved.name, saved.price),
   );
-  if (existing) { existing.quantity++; return; }
-  directCart.value.push({
-    uid: 'dir_' + Math.random().toString(36).slice(2, 11),
-    dishId: 'custom_' + Math.random().toString(36).slice(2, 11),
-    name: saved.name,
-    unitPrice: saved.price,
-    quantity: 1,
-    voidedQuantity: 0,
-    notes: [],
-    modifiers: [],
-  });
 }
 
 function removeSavedCustomItem(idx) {
