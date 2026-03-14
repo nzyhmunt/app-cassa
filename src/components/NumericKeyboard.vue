@@ -3,7 +3,7 @@
   <Transition name="kb-fade">
     <div
       v-if="keyboard.isVisible.value"
-      class="fixed inset-0 z-[80] bg-black/20"
+      class="fixed inset-0 z-[80] bg-black/50 backdrop-blur-sm"
       @click="keyboard.closeKeyboard()"
     />
   </Transition>
@@ -12,40 +12,47 @@
   <Transition name="kb-slide">
     <div
       v-if="keyboard.isVisible.value"
-      class="fixed bottom-0 left-0 right-0 z-[81] bg-white rounded-t-3xl shadow-2xl border-t border-gray-200 select-none"
+      class="fixed bottom-0 left-0 right-0 z-[81] bg-white rounded-t-3xl shadow-2xl select-none"
       @click.stop
     >
+      <!-- Drag handle -->
+      <div class="flex justify-center pt-3 pb-1">
+        <div class="w-10 h-1 bg-gray-300 rounded-full"></div>
+      </div>
+
+      <!-- Header -->
+      <div class="bg-gray-50 border-b border-gray-200 px-4 py-3 flex justify-between items-center">
+        <h3 class="font-bold text-sm text-gray-800 uppercase tracking-wider">Inserisci valore</h3>
+        <button
+          @click="keyboard.closeKeyboard()"
+          class="text-gray-500 hover:text-gray-800 bg-gray-200 hover:bg-gray-300 rounded-full p-1.5 transition-colors active:scale-95"
+          aria-label="Chiudi tastiera"
+        >
+          <X class="size-4" />
+        </button>
+      </div>
+
       <!-- Display area -->
-      <div class="px-4 pt-4 pb-2">
-        <div class="flex items-center justify-between mb-3">
-          <span class="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Inserisci valore</span>
-          <button
-            @click="keyboard.closeKeyboard()"
-            class="text-gray-400 hover:text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-full p-1.5 transition-colors active:scale-95"
-            aria-label="Chiudi tastiera"
-          >
-            <X class="size-4" />
-          </button>
-        </div>
-        <div class="flex items-center bg-gray-50 border-2 border-[var(--brand-primary)] rounded-2xl px-4 py-3 gap-2 min-h-[56px]">
+      <div class="px-4 pt-3 pb-2">
+        <div class="flex items-center bg-gray-50 border-2 border-[var(--brand-primary)] rounded-2xl px-4 py-3 gap-3 min-h-[60px]">
           <!-- Type toggle (e.g. % / €) — replaces prefix when present -->
           <div
             v-if="keyboard.typeToggle.value"
-            class="flex rounded-lg overflow-hidden border border-gray-200 shrink-0"
+            class="flex rounded-xl overflow-hidden border border-gray-200 shrink-0"
           >
             <button
               v-for="(label, i) in keyboard.typeToggle.value.labels"
               :key="i"
               @click="keyboard.setTypeToggle(i)"
-              class="px-2 py-1 text-xs font-bold transition-colors active:scale-95"
+              class="px-2.5 py-1.5 text-xs font-bold transition-colors active:scale-95"
               :class="keyboard.typeToggle.value.activeIndex === i
                 ? 'theme-bg text-white'
                 : 'bg-white text-gray-500 hover:bg-gray-100'"
             >{{ label }}</button>
           </div>
           <!-- Static prefix (shown when no toggle) -->
-          <span v-else-if="keyboard.prefix.value" class="text-gray-400 font-bold text-lg shrink-0">{{ keyboard.prefix.value }}</span>
-          <span class="flex-1 text-3xl font-black text-gray-800 tracking-wider text-right tabular-nums leading-none">
+          <span v-else-if="keyboard.prefix.value" class="text-gray-500 font-bold text-xl shrink-0">{{ keyboard.prefix.value }}</span>
+          <span class="flex-1 text-4xl font-black text-gray-900 tracking-wider text-right tabular-nums leading-none">
             {{ keyboard.displayValue.value || '0' }}
           </span>
           <button
@@ -60,12 +67,12 @@
       </div>
 
       <!-- Button grid -->
-      <div class="grid grid-cols-3 gap-2 px-4 pb-2">
+      <div class="grid grid-cols-3 gap-2.5 px-4 pb-2">
         <button
           v-for="key in keyRows"
           :key="key.label"
           @click="key.action()"
-          class="py-3.5 rounded-xl font-bold text-xl transition-all active:scale-95 select-none"
+          class="py-4 rounded-2xl font-bold text-xl transition-all active:scale-95 select-none"
           :class="key.style"
           :aria-label="key.ariaLabel || key.label"
         >
@@ -75,10 +82,10 @@
       </div>
 
       <!-- Confirm button -->
-      <div class="px-4 pb-6">
+      <div class="px-4 pb-8">
         <button
           @click="keyboard.confirm()"
-          class="w-full py-4 theme-bg text-white font-bold text-lg rounded-xl shadow-md hover:opacity-90 transition-opacity active:scale-95 flex items-center justify-center gap-2"
+          class="w-full py-4 theme-bg text-white font-bold text-lg rounded-2xl shadow-md hover:opacity-90 transition-opacity active:scale-95 flex items-center justify-center gap-2"
           aria-label="Conferma"
         >
           <Check class="size-5" />
@@ -97,18 +104,18 @@ import { useNumericKeyboard } from '../composables/useNumericKeyboard.js';
 const keyboard = useNumericKeyboard();
 
 const keyRows = computed(() => [
-  { label: '7', style: 'bg-gray-50 hover:bg-gray-100 text-gray-800 border border-gray-200', action: () => keyboard.appendDigit('7') },
-  { label: '8', style: 'bg-gray-50 hover:bg-gray-100 text-gray-800 border border-gray-200', action: () => keyboard.appendDigit('8') },
-  { label: '9', style: 'bg-gray-50 hover:bg-gray-100 text-gray-800 border border-gray-200', action: () => keyboard.appendDigit('9') },
-  { label: '4', style: 'bg-gray-50 hover:bg-gray-100 text-gray-800 border border-gray-200', action: () => keyboard.appendDigit('4') },
-  { label: '5', style: 'bg-gray-50 hover:bg-gray-100 text-gray-800 border border-gray-200', action: () => keyboard.appendDigit('5') },
-  { label: '6', style: 'bg-gray-50 hover:bg-gray-100 text-gray-800 border border-gray-200', action: () => keyboard.appendDigit('6') },
-  { label: '1', style: 'bg-gray-50 hover:bg-gray-100 text-gray-800 border border-gray-200', action: () => keyboard.appendDigit('1') },
-  { label: '2', style: 'bg-gray-50 hover:bg-gray-100 text-gray-800 border border-gray-200', action: () => keyboard.appendDigit('2') },
-  { label: '3', style: 'bg-gray-50 hover:bg-gray-100 text-gray-800 border border-gray-200', action: () => keyboard.appendDigit('3') },
-  { label: '.', style: 'bg-gray-50 hover:bg-gray-100 text-gray-500 border border-gray-200 text-2xl', action: () => keyboard.appendDigit('.') },
-  { label: '0', style: 'bg-gray-50 hover:bg-gray-100 text-gray-800 border border-gray-200', action: () => keyboard.appendDigit('0') },
-  { label: '⌫', icon: Delete, ariaLabel: 'Cancella cifra', style: 'bg-red-50 hover:bg-red-100 text-red-500 border border-red-200', action: () => keyboard.backspace() },
+  { label: '7', style: 'bg-white shadow-sm hover:bg-gray-50 text-gray-800 border border-gray-200', action: () => keyboard.appendDigit('7') },
+  { label: '8', style: 'bg-white shadow-sm hover:bg-gray-50 text-gray-800 border border-gray-200', action: () => keyboard.appendDigit('8') },
+  { label: '9', style: 'bg-white shadow-sm hover:bg-gray-50 text-gray-800 border border-gray-200', action: () => keyboard.appendDigit('9') },
+  { label: '4', style: 'bg-white shadow-sm hover:bg-gray-50 text-gray-800 border border-gray-200', action: () => keyboard.appendDigit('4') },
+  { label: '5', style: 'bg-white shadow-sm hover:bg-gray-50 text-gray-800 border border-gray-200', action: () => keyboard.appendDigit('5') },
+  { label: '6', style: 'bg-white shadow-sm hover:bg-gray-50 text-gray-800 border border-gray-200', action: () => keyboard.appendDigit('6') },
+  { label: '1', style: 'bg-white shadow-sm hover:bg-gray-50 text-gray-800 border border-gray-200', action: () => keyboard.appendDigit('1') },
+  { label: '2', style: 'bg-white shadow-sm hover:bg-gray-50 text-gray-800 border border-gray-200', action: () => keyboard.appendDigit('2') },
+  { label: '3', style: 'bg-white shadow-sm hover:bg-gray-50 text-gray-800 border border-gray-200', action: () => keyboard.appendDigit('3') },
+  { label: '.', style: 'bg-white shadow-sm hover:bg-gray-50 text-gray-500 border border-gray-200 text-2xl', action: () => keyboard.appendDigit('.') },
+  { label: '0', style: 'bg-white shadow-sm hover:bg-gray-50 text-gray-800 border border-gray-200', action: () => keyboard.appendDigit('0') },
+  { label: '⌫', icon: Delete, ariaLabel: 'Cancella cifra', style: 'bg-red-50 shadow-sm hover:bg-red-100 text-red-500 border border-red-200', action: () => keyboard.backspace() },
 ]);
 </script>
 
