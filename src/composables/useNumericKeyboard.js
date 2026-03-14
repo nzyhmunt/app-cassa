@@ -6,6 +6,7 @@ import { ref } from 'vue';
  */
 const isVisible = ref(false);
 const displayValue = ref('');
+const prefix = ref('');
 /** @type {{ allowDecimal: boolean } | null} */
 let _options = null;
 /** @type {((value: string) => void) | null} */
@@ -32,6 +33,7 @@ export function useNumericKeyboard() {
         : '';
     _callback = callback;
     _options = { allowDecimal: options.allowDecimal ?? true };
+    prefix.value = options.prefix ?? '';
     isVisible.value = true;
   }
 
@@ -39,6 +41,7 @@ export function useNumericKeyboard() {
   function closeKeyboard() {
     isVisible.value = false;
     displayValue.value = '';
+    prefix.value = '';
     _callback = null;
     _options = null;
   }
@@ -83,6 +86,7 @@ export function useNumericKeyboard() {
   return {
     isVisible,
     displayValue,
+    prefix,
     openKeyboard,
     closeKeyboard,
     confirm,

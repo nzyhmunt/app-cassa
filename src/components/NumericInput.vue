@@ -29,6 +29,7 @@ defineOptions({ inheritAttrs: false });
 
 const props = defineProps({
   modelValue: { type: [Number, String], default: '' },
+  prefix: { type: String, default: '' },
 });
 
 const emit = defineEmits(['update:modelValue']);
@@ -58,7 +59,7 @@ function onActivate(event) {
   keyboard.openKeyboard(
     props.modelValue,
     (newValue) => emit('update:modelValue', newValue),
-    { allowDecimal: true },
+    { allowDecimal: true, prefix: props.prefix },
   );
 }
 </script>

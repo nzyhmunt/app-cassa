@@ -44,6 +44,7 @@
                 <NumericInput
                   v-model="cashBalanceInput"
                   min="0" step="0.50"
+                  :prefix="store.config.ui.currency"
                   class="w-full pl-8 pr-4 py-3 border-2 border-gray-200 rounded-xl font-black text-xl text-gray-800 focus:border-[var(--brand-primary)] focus:outline-none transition-colors"
                   placeholder="0.00" />
               </div>
@@ -90,6 +91,7 @@
                 <NumericInput
                   v-model="movementAmount"
                   min="0.01" step="0.50"
+                  :prefix="store.config.ui.currency"
                   class="w-full pl-8 pr-3 py-2.5 border border-gray-200 rounded-xl text-sm font-bold focus:border-[var(--brand-primary)] focus:outline-none"
                   placeholder="Importo" />
               </div>

@@ -332,7 +332,7 @@
             <input v-model="noteModal.modName" type="text" placeholder="Es. Mozzarella, Senza glutine..." class="flex-1 bg-gray-100 border border-gray-200 rounded-xl px-3 py-3 focus:bg-white theme-ring transition-all text-gray-800 font-medium text-sm" @keyup.enter="addModToNoteModal">
             <div class="relative w-24 shrink-0">
               <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm font-bold">{{ store.config.ui.currency }}</span>
-              <NumericInput v-model="noteModal.modPrice" min="0" step="0.50" placeholder="0.00" class="w-full pl-7 pr-2 py-3 bg-gray-100 border border-gray-200 rounded-xl focus:bg-white theme-ring transition-all text-gray-800 font-medium text-sm" />
+              <NumericInput v-model="noteModal.modPrice" min="0" step="0.50" placeholder="0.00" :prefix="store.config.ui.currency" class="w-full pl-7 pr-2 py-3 bg-gray-100 border border-gray-200 rounded-xl focus:bg-white theme-ring transition-all text-gray-800 font-medium text-sm" />
             </div>
             <button @click="addModToNoteModal" class="bg-purple-600 hover:bg-purple-700 text-white px-4 rounded-xl font-bold shadow-sm active:scale-95 flex items-center justify-center"><Plus class="size-5" /></button>
           </div>

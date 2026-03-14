@@ -28,7 +28,7 @@
           </button>
         </div>
         <div class="flex items-center bg-gray-50 border-2 border-[var(--brand-primary)] rounded-2xl px-4 py-3 gap-2 min-h-[56px]">
-          <span class="text-gray-400 font-bold text-lg shrink-0">€</span>
+          <span v-if="keyboard.prefix.value" class="text-gray-400 font-bold text-lg shrink-0">{{ keyboard.prefix.value }}</span>
           <span class="flex-1 text-3xl font-black text-gray-800 tracking-wider text-right tabular-nums leading-none">
             {{ keyboard.displayValue.value || '0' }}
           </span>
@@ -49,7 +49,7 @@
           v-for="key in keyRows"
           :key="key.label"
           @click="key.action()"
-          class="py-4 rounded-2xl font-bold text-xl transition-all active:scale-95 select-none"
+          class="py-3.5 rounded-xl font-bold text-xl transition-all active:scale-95 select-none"
           :class="key.style"
           :aria-label="key.ariaLabel || key.label"
         >
@@ -62,7 +62,7 @@
       <div class="px-4 pb-6">
         <button
           @click="keyboard.confirm()"
-          class="w-full py-4 theme-bg text-white font-bold text-lg rounded-2xl shadow-md hover:opacity-90 transition-opacity active:scale-95 flex items-center justify-center gap-2"
+          class="w-full py-4 theme-bg text-white font-bold text-lg rounded-xl shadow-md hover:opacity-90 transition-opacity active:scale-95 flex items-center justify-center gap-2"
           aria-label="Conferma"
         >
           <Check class="size-5" />
