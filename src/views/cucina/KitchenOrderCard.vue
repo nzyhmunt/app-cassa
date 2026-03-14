@@ -89,9 +89,10 @@
       <button
         v-if="showAction"
         @click="$emit('action')"
-        :class="['flex-1 rounded-xl font-bold text-sm py-3 transition-all active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 shadow-sm', actionClass]"
+        :class="['flex-1 rounded-xl font-bold text-sm py-3 transition-all active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 shadow-sm flex items-center justify-center gap-1.5', actionClass]"
         :aria-label="`${actionLabel} ordine tavolo ${order.table}`"
       >
+        <component v-if="actionIcon" :is="actionIcon" class="size-4" aria-hidden="true" />
         {{ actionLabel }}
       </button>
     </div>
@@ -112,6 +113,7 @@ const props = defineProps({
   actionLabel: { type: String, default: '' },
   actionClass: { type: String, default: '' },
   showAction: { type: Boolean, default: true },
+  actionIcon: { type: [Object, Function], default: null },
   secondaryActionLabel: { type: String, default: '' },
   secondaryActionClass: { type: String, default: 'border-gray-300 text-gray-500 hover:bg-gray-50' },
   showSecondaryAction: { type: Boolean, default: false },

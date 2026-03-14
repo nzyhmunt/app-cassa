@@ -39,11 +39,11 @@
           <!-- Section divider before first delivered order (In Cucina tab only) -->
           <div
             v-if="activeTab === 'accepted' && order.status === 'delivered' && (idx === 0 || filteredOrders[idx - 1].status !== 'delivered')"
-            class="flex items-center gap-2 pt-1 pb-0.5 text-[10px] uppercase font-bold tracking-widest text-emerald-600"
+            class="flex items-center gap-2 pt-1 pb-0.5 text-[10px] uppercase font-bold tracking-widest text-teal-600"
           >
             <CheckCircle2 class="size-3.5 shrink-0" />
             <span>Consegnate</span>
-            <div class="flex-1 h-px bg-emerald-200 ml-0.5"></div>
+            <div class="flex-1 h-px bg-teal-200 ml-0.5"></div>
           </div>
           <div
                @click="selectOrder(order)"
@@ -68,9 +68,9 @@
             <div class="flex gap-2 flex-wrap mt-2 items-center">
               <span v-if="order.status === 'pending'" class="bg-amber-100 text-amber-800 text-[9px] md:text-[10px] uppercase font-bold px-2 py-1 rounded-md border border-amber-200 flex items-center gap-1"><AlertCircle class="size-3" /> In Attesa</span>
               <span v-if="order.status === 'accepted'" class="bg-amber-100 text-amber-800 text-[9px] md:text-[10px] uppercase font-bold px-2 py-1 rounded-md border border-amber-200 flex items-center gap-1"><ChefHat class="size-3" /> In Cucina</span>
-              <span v-if="order.status === 'preparing'" class="bg-orange-100 text-orange-800 text-[9px] md:text-[10px] uppercase font-bold px-2 py-1 rounded-md border border-orange-200 flex items-center gap-1"><Flame class="size-3" /> In Cottura</span>
-              <span v-if="order.status === 'ready'" class="bg-teal-100 text-teal-800 text-[9px] md:text-[10px] uppercase font-bold px-2 py-1 rounded-md border border-teal-200 flex items-center gap-1"><BellRing class="size-3" /> Pronta 🔔</span>
-              <span v-if="order.status === 'delivered'" class="bg-emerald-100 text-emerald-800 text-[9px] md:text-[10px] uppercase font-bold px-2 py-1 rounded-md border border-emerald-200 flex items-center gap-1"><CheckCircle2 class="size-3" /> Consegnata</span>
+              <span v-if="order.status === 'preparing'" class="bg-blue-100 text-blue-800 text-[9px] md:text-[10px] uppercase font-bold px-2 py-1 rounded-md border border-blue-200 flex items-center gap-1"><Flame class="size-3" /> In Cottura</span>
+              <span v-if="order.status === 'ready'" class="bg-emerald-100 text-emerald-800 text-[9px] md:text-[10px] uppercase font-bold px-2 py-1 rounded-md border border-emerald-200 flex items-center gap-1"><BellRing class="size-3" /> Pronta 🔔</span>
+              <span v-if="order.status === 'delivered'" class="bg-teal-100 text-teal-800 text-[9px] md:text-[10px] uppercase font-bold px-2 py-1 rounded-md border border-teal-200 flex items-center gap-1"><CheckCircle2 class="size-3" /> Consegnata</span>
               <span v-if="order.status === 'completed'" class="bg-emerald-100 text-emerald-800 text-[9px] md:text-[10px] uppercase font-bold px-2 py-1 rounded-md border border-emerald-200 flex items-center gap-1"><CheckCircle2 class="size-3" /> Pagato</span>
               <span v-if="order.status === 'rejected'" class="bg-red-100 text-red-800 text-[9px] md:text-[10px] uppercase font-bold px-2 py-1 rounded-md border border-red-200 flex items-center gap-1"><XCircle class="size-3" /> Annullato</span>
               <span class="bg-gray-100 text-gray-600 text-[9px] md:text-[10px] font-bold px-2 py-1 rounded-md border border-gray-200 ml-auto">{{ order.itemCount }} pz</span>
@@ -132,33 +132,33 @@
                 <span class="flex-1 text-center px-3 py-2.5 md:py-3 bg-amber-50 text-amber-700 border border-amber-200 rounded-xl font-bold flex items-center justify-center gap-2 text-xs">
                   <ChefHat class="size-4" /> <span class="hidden sm:inline">In Cucina</span>
                 </span>
-                <button @click="forceDeliver(selectedOrder)" class="px-3 py-2.5 md:py-3 bg-emerald-600 hover:bg-emerald-700 text-white shadow-md rounded-xl font-bold flex items-center justify-center gap-1.5 active:scale-95 transition-colors text-xs shrink-0" title="Segna consegnata (override cucina)">
+                <button @click="forceDeliver(selectedOrder)" class="px-3 py-2.5 md:py-3 bg-teal-600 hover:bg-teal-700 text-white shadow-md rounded-xl font-bold flex items-center justify-center gap-1.5 active:scale-95 transition-colors text-xs shrink-0" title="Segna consegnata (override cucina)">
                   <CheckCircle2 class="size-4" /> <span class="hidden sm:inline">Consegnata</span>
                 </button>
               </div>
             </template>
             <template v-else-if="selectedOrder.status === 'preparing'">
               <div class="flex gap-2 w-full items-center">
-                <span class="flex-1 text-center px-3 py-2.5 md:py-3 bg-orange-50 text-orange-700 border border-orange-200 rounded-xl font-bold flex items-center justify-center gap-2 text-xs">
+                <span class="flex-1 text-center px-3 py-2.5 md:py-3 bg-blue-50 text-blue-700 border border-blue-200 rounded-xl font-bold flex items-center justify-center gap-2 text-xs">
                   <Flame class="size-4" /> <span class="hidden sm:inline">In Cottura</span>
                 </span>
-                <button @click="forceDeliver(selectedOrder)" class="px-3 py-2.5 md:py-3 bg-emerald-600 hover:bg-emerald-700 text-white shadow-md rounded-xl font-bold flex items-center justify-center gap-1.5 active:scale-95 transition-colors text-xs shrink-0" title="Segna consegnata (override cucina)">
+                <button @click="forceDeliver(selectedOrder)" class="px-3 py-2.5 md:py-3 bg-teal-600 hover:bg-teal-700 text-white shadow-md rounded-xl font-bold flex items-center justify-center gap-1.5 active:scale-95 transition-colors text-xs shrink-0" title="Segna consegnata (override cucina)">
                   <CheckCircle2 class="size-4" /> <span class="hidden sm:inline">Consegnata</span>
                 </button>
               </div>
             </template>
             <template v-else-if="selectedOrder.status === 'ready'">
               <div class="flex gap-2 w-full items-center">
-                <span class="flex-1 text-center px-3 py-2.5 md:py-3 bg-teal-50 text-teal-700 border border-teal-200 rounded-xl font-bold flex items-center justify-center gap-2 text-xs">
+                <span class="flex-1 text-center px-3 py-2.5 md:py-3 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-xl font-bold flex items-center justify-center gap-2 text-xs">
                   <BellRing class="size-4" /> <span class="hidden sm:inline">Pronta 🔔</span>
                 </span>
-                <button @click="forceDeliver(selectedOrder)" class="px-3 py-2.5 md:py-3 bg-emerald-600 hover:bg-emerald-700 text-white shadow-md rounded-xl font-bold flex items-center justify-center gap-1.5 active:scale-95 transition-colors text-xs shrink-0">
+                <button @click="forceDeliver(selectedOrder)" class="px-3 py-2.5 md:py-3 bg-teal-600 hover:bg-teal-700 text-white shadow-md rounded-xl font-bold flex items-center justify-center gap-1.5 active:scale-95 transition-colors text-xs shrink-0">
                   <CheckCircle2 class="size-4" /> <span class="hidden sm:inline">Consegnata</span>
                 </button>
               </div>
             </template>
             <template v-else-if="selectedOrder.status === 'delivered'">
-              <span class="w-full text-center px-4 py-2.5 md:py-3 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-xl font-bold flex items-center justify-center gap-2">
+              <span class="w-full text-center px-4 py-2.5 md:py-3 bg-teal-50 text-teal-700 border border-teal-200 rounded-xl font-bold flex items-center justify-center gap-2">
                 <CheckCircle2 class="size-5" /> <span class="hidden sm:inline text-xs md:text-sm">Consegnata</span>
               </span>
             </template>

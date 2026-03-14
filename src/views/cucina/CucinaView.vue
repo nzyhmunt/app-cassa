@@ -26,15 +26,15 @@
           <span class="hidden sm:inline uppercase tracking-wide">Da Prep.</span>
         </div>
         <div v-if="preparingOrders.length > 0"
-             class="flex items-center gap-1.5 bg-orange-100 text-orange-800 border border-orange-200 rounded-full px-3 py-1 text-xs font-bold">
-          <span class="bg-orange-500 text-white rounded-full font-black text-[10px] size-5 flex items-center justify-center shrink-0">
+             class="flex items-center gap-1.5 bg-blue-100 text-blue-800 border border-blue-200 rounded-full px-3 py-1 text-xs font-bold">
+          <span class="bg-blue-500 text-white rounded-full font-black text-[10px] size-5 flex items-center justify-center shrink-0">
             {{ preparingOrders.length }}
           </span>
           <span class="hidden sm:inline uppercase tracking-wide">In Cottura</span>
         </div>
         <div v-if="readyOrders.length > 0"
-             class="flex items-center gap-1.5 bg-teal-100 text-teal-800 border border-teal-200 rounded-full px-3 py-1 text-xs font-bold">
-          <span class="bg-teal-500 text-white rounded-full font-black text-[10px] size-5 flex items-center justify-center shrink-0">
+             class="flex items-center gap-1.5 bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-full px-3 py-1 text-xs font-bold">
+          <span class="bg-emerald-500 text-white rounded-full font-black text-[10px] size-5 flex items-center justify-center shrink-0">
             {{ readyOrders.length }}
           </span>
           <span class="hidden sm:inline uppercase tracking-wide">Pronte</span>
@@ -81,11 +81,11 @@
       </button>
       <button
         @click="cucinaTab = 'history'"
-        :class="cucinaTab === 'history' ? 'bg-emerald-50 text-emerald-700 border-emerald-200 font-bold' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100'"
+        :class="cucinaTab === 'history' ? 'bg-teal-50 text-teal-700 border-teal-200 font-bold' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100'"
         class="flex-1 py-1.5 px-2 rounded-xl border transition-all text-[10px] uppercase tracking-wider flex items-center justify-center gap-1.5"
       >
         <Clock class="size-3.5" /> Cronologia
-        <span v-if="deliveredOrders.length > 0" class="bg-emerald-500 text-white text-[9px] font-black rounded-full size-4 flex items-center justify-center shrink-0">{{ deliveredOrders.length }}</span>
+        <span v-if="deliveredOrders.length > 0" class="bg-teal-500 text-white text-[9px] font-black rounded-full size-4 flex items-center justify-center shrink-0">{{ deliveredOrders.length }}</span>
       </button>
     </div>
 
@@ -135,6 +135,7 @@
                 :elapsed-label="elapsedLabel(order.time)"
                 :elapsed-color="elapsedColor(order.time)"
                 action-label="Inizia preparazione"
+                :action-icon="Flame"
                 action-class="theme-bg text-white hover:opacity-90"
                 @action="acceptOrder(order)"
                 :show-secondary-action="true"
@@ -149,11 +150,11 @@
         <!-- ── Column 2: IN COTTURA (preparing) ──────────────────────────── -->
         <section class="md:flex-1 md:flex md:flex-col md:min-h-0">
           <div class="flex items-center gap-2 mb-2 shrink-0">
-            <Flame class="size-4 text-orange-600" />
-            <h2 class="text-xs font-black uppercase tracking-widest text-orange-700">
+            <Flame class="size-4 text-blue-600" />
+            <h2 class="text-xs font-black uppercase tracking-widest text-blue-700">
               In Cottura
             </h2>
-            <span class="ml-auto bg-orange-100 text-orange-800 border border-orange-200 text-[10px] font-black rounded-full px-2 py-0.5">
+            <span class="ml-auto bg-blue-100 text-blue-800 border border-blue-200 text-[10px] font-black rounded-full px-2 py-0.5">
               {{ preparingOrders.length }}
             </span>
           </div>
@@ -173,12 +174,13 @@
               <KitchenOrderCard
                 :order="order"
                 status-label="In Cottura"
-                status-class="bg-orange-100 text-orange-800 border-orange-200"
-                qty-class="text-orange-600"
+                status-class="bg-blue-100 text-blue-800 border-blue-200"
+                qty-class="text-blue-600"
                 :elapsed-label="elapsedLabel(order.time)"
                 :elapsed-color="elapsedColor(order.time)"
                 action-label="Segna pronta"
-                action-class="bg-orange-500 text-white hover:bg-orange-600"
+                :action-icon="BellRing"
+                action-class="bg-emerald-600 text-white hover:bg-emerald-700"
                 @action="advancePreparingOrder(order)"
                 :show-secondary-action="true"
                 secondary-action-label="← Torna a Da Preparare"
@@ -192,11 +194,11 @@
         <!-- ── Column 3: PRONTE (ready — Sala marks as delivered) ─────────── -->
         <section class="md:flex-1 md:flex md:flex-col md:min-h-0">
           <div class="flex items-center gap-2 mb-2 shrink-0">
-            <BellRing class="size-4 text-teal-600" />
-            <h2 class="text-xs font-black uppercase tracking-widest text-teal-700">
+            <BellRing class="size-4 text-emerald-600" />
+            <h2 class="text-xs font-black uppercase tracking-widest text-emerald-700">
               Pronte
             </h2>
-            <span class="ml-auto bg-teal-100 text-teal-800 border border-teal-200 text-[10px] font-black rounded-full px-2 py-0.5">
+            <span class="ml-auto bg-emerald-100 text-emerald-800 border border-emerald-200 text-[10px] font-black rounded-full px-2 py-0.5">
               {{ readyOrders.length }}
             </span>
           </div>
@@ -216,16 +218,17 @@
               <KitchenOrderCard
                 :order="order"
                 status-label="Pronta 🔔"
-                status-class="bg-teal-100 text-teal-800 border-teal-200"
-                qty-class="text-teal-600"
+                status-class="bg-emerald-100 text-emerald-800 border-emerald-200"
+                qty-class="text-emerald-600"
                 :elapsed-label="elapsedLabel(order.time)"
                 :elapsed-color="elapsedColor(order.time)"
-                action-label="✓ Consegnata"
-                action-class="bg-emerald-600 text-white hover:bg-emerald-700"
+                action-label="Consegnata"
+                :action-icon="CheckCircle2"
+                action-class="bg-teal-600 text-white hover:bg-teal-700"
                 @action="markDeliveredFromKanban(order)"
                 :show-secondary-action="true"
                 secondary-action-label="← Torna in cottura"
-                secondary-action-class="border-orange-200 text-orange-700 hover:bg-orange-50"
+                secondary-action-class="border-blue-200 text-blue-700 hover:bg-blue-50"
                 @secondary-action="backToPreparing(order)"
               />
             </article>
@@ -266,7 +269,7 @@
             </span>
             <button
               @click="forceDeliver(order)"
-              class="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] rounded-lg font-bold flex items-center gap-1.5 active:scale-95 transition-colors"
+              class="px-2.5 py-1.5 bg-teal-600 hover:bg-teal-700 text-white text-[10px] rounded-lg font-bold flex items-center gap-1.5 active:scale-95 transition-colors"
               title="Segna come consegnata (override)"
             >
               <CheckCircle2 class="size-3.5" />
@@ -334,9 +337,9 @@
         class="bg-white rounded-2xl border border-gray-200 overflow-hidden opacity-80"
       >
         <!-- Card header -->
-        <div class="px-3 py-2.5 bg-emerald-50 border-b border-emerald-100 flex items-center justify-between gap-2">
+        <div class="px-3 py-2.5 bg-teal-50 border-b border-teal-100 flex items-center justify-between gap-2">
           <div class="flex items-center gap-2.5 min-w-0">
-            <div class="bg-emerald-600 text-white rounded-xl size-9 flex items-center justify-center font-black text-sm shrink-0">
+            <div class="bg-teal-600 text-white rounded-xl size-9 flex items-center justify-center font-black text-sm shrink-0">
               {{ order.table }}
             </div>
             <div class="min-w-0">
@@ -344,7 +347,7 @@
               <p class="text-[10px] text-gray-400">{{ order.time }}</p>
             </div>
           </div>
-          <span class="text-[9px] uppercase font-bold px-2 py-0.5 rounded-full border bg-emerald-100 text-emerald-700 border-emerald-200 flex items-center gap-1 shrink-0">
+          <span class="text-[9px] uppercase font-bold px-2 py-0.5 rounded-full border bg-teal-100 text-teal-700 border-teal-200 flex items-center gap-1 shrink-0">
             <CheckCircle2 class="size-3" /> Consegnata
           </span>
         </div>
@@ -460,8 +463,8 @@ function forceDeliver(order) {
 
 function detailStatusBadgeClass(status) {
   if (status === 'accepted') return 'bg-amber-50 text-amber-700 border-amber-200';
-  if (status === 'preparing') return 'bg-orange-50 text-orange-700 border-orange-200';
-  if (status === 'ready') return 'bg-teal-50 text-teal-700 border-teal-200';
+  if (status === 'preparing') return 'bg-blue-50 text-blue-700 border-blue-200';
+  if (status === 'ready') return 'bg-emerald-50 text-emerald-700 border-emerald-200';
   return 'bg-gray-50 text-gray-700 border-gray-200';
 }
 
@@ -657,22 +660,22 @@ function getDetailCourseBorderClass(item) {
 
 function detailCardHeaderBgClass(status) {
   if (status === 'accepted') return 'bg-amber-50 border-amber-100';
-  if (status === 'preparing') return 'bg-orange-50 border-orange-100';
-  if (status === 'ready') return 'bg-teal-50 border-teal-100';
+  if (status === 'preparing') return 'bg-blue-50 border-blue-100';
+  if (status === 'ready') return 'bg-emerald-50 border-emerald-100';
   return 'bg-gray-50 border-gray-100';
 }
 
 function detailAvatarBgClass(status) {
   if (status === 'accepted') return 'bg-amber-500';
-  if (status === 'preparing') return 'bg-orange-500';
-  if (status === 'ready') return 'bg-teal-600';
+  if (status === 'preparing') return 'bg-blue-500';
+  if (status === 'ready') return 'bg-emerald-600';
   return 'theme-bg';
 }
 
 function detailQtyClass(status) {
   if (status === 'accepted') return 'text-amber-600';
-  if (status === 'preparing') return 'text-orange-600';
-  if (status === 'ready') return 'text-teal-600';
+  if (status === 'preparing') return 'text-blue-600';
+  if (status === 'ready') return 'text-emerald-600';
   return 'text-gray-600';
 }
 </script>
