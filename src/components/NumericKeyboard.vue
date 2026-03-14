@@ -28,7 +28,23 @@
           </button>
         </div>
         <div class="flex items-center bg-gray-50 border-2 border-[var(--brand-primary)] rounded-2xl px-4 py-3 gap-2 min-h-[56px]">
-          <span v-if="keyboard.prefix.value" class="text-gray-400 font-bold text-lg shrink-0">{{ keyboard.prefix.value }}</span>
+          <!-- Type toggle (e.g. % / €) — replaces prefix when present -->
+          <div
+            v-if="keyboard.typeToggle.value"
+            class="flex rounded-lg overflow-hidden border border-gray-200 shrink-0"
+          >
+            <button
+              v-for="(label, i) in keyboard.typeToggle.value.labels"
+              :key="i"
+              @click="keyboard.setTypeToggle(i)"
+              class="px-2 py-1 text-xs font-bold transition-colors active:scale-95"
+              :class="keyboard.typeToggle.value.activeIndex === i
+                ? 'theme-bg text-white'
+                : 'bg-white text-gray-500 hover:bg-gray-100'"
+            >{{ label }}</button>
+          </div>
+          <!-- Static prefix (shown when no toggle) -->
+          <span v-else-if="keyboard.prefix.value" class="text-gray-400 font-bold text-lg shrink-0">{{ keyboard.prefix.value }}</span>
           <span class="flex-1 text-3xl font-black text-gray-800 tracking-wider text-right tabular-nums leading-none">
             {{ keyboard.displayValue.value || '0' }}
           </span>

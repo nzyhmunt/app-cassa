@@ -159,4 +159,59 @@ describe('useNumericKeyboard()', () => {
     expect(kb2.isVisible.value).toBe(true);
     expect(kb2.displayValue.value).toBe('7');
   });
+
+  // ── typeToggle ─────────────────────────────────────────────────────────────
+
+  it('typeToggle is null by default when no toggle option is passed', () => {
+    const kb = useNumericKeyboard();
+    kb.openKeyboard(null, () => {});
+    expect(kb.typeToggle.value).toBeNull();
+  });
+
+  it('openKeyboard() sets typeToggle when typeToggle option is provided', () => {
+    const kb = useNumericKeyboard();
+    kb.openKeyboard(null, () => {}, { typeToggle: { labels: ['%', '€'], activeIndex: 0 } });
+    expect(kb.typeToggle.value).toEqual({ labels: ['%', '€'], activeIndex: 0 });
+  });
+
+  it('openKeyboard() defaults typeToggle.activeIndex to 0', () => {
+    const kb = useNumericKeyboard();
+    kb.openKeyboard(null, () => {}, { typeToggle: { labels: ['%', '€'] } });
+    expect(kb.typeToggle.value.activeIndex).toBe(0);
+  });
+
+  it('setTypeToggle() updates activeIndex', () => {
+    const kb = useNumericKeyboard();
+    kb.openKeyboard(null, () => {}, { typeToggle: { labels: ['%', '€'], activeIndex: 0 } });
+    kb.setTypeToggle(1);
+    expect(kb.typeToggle.value.activeIndex).toBe(1);
+  });
+
+  it('setTypeToggle() invokes the typeToggle callback with the new index', () => {
+    const kb = useNumericKeyboard();
+    let received = null;
+    kb.openKeyboard(null, () => {}, { typeToggle: { labels: ['%', '€'], activeIndex: 0, callback: (i) => { received = i; } } });
+    kb.setTypeToggle(1);
+    expect(received).toBe(1);
+  });
+
+  it('setTypeToggle() is a no-op when typeToggle is null', () => {
+    const kb = useNumericKeyboard();
+    kb.openKeyboard(null, () => {});
+    expect(() => kb.setTypeToggle(1)).not.toThrow();
+    expect(kb.typeToggle.value).toBeNull();
+  });
+
+  it('closeKeyboard() clears typeToggle', () => {
+    const kb = useNumericKeyboard();
+    kb.openKeyboard(null, () => {}, { typeToggle: { labels: ['%', '€'], activeIndex: 1 } });
+    kb.closeKeyboard();
+    expect(kb.typeToggle.value).toBeNull();
+  });
+
+  it('typeToggle is ignored when fewer than 2 labels are provided', () => {
+    const kb = useNumericKeyboard();
+    kb.openKeyboard(null, () => {}, { typeToggle: { labels: ['%'] } });
+    expect(kb.typeToggle.value).toBeNull();
+  });
 });

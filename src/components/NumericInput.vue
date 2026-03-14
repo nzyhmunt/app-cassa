@@ -30,9 +30,13 @@ defineOptions({ inheritAttrs: false });
 const props = defineProps({
   modelValue: { type: [Number, String], default: '' },
   prefix: { type: String, default: '' },
+  /** Labels for an optional toggle shown inside the keyboard (e.g. ['%', '€']). */
+  typeToggleLabels: { type: Array, default: () => [] },
+  /** Index of the currently active toggle option. */
+  typeToggleIndex: { type: Number, default: 0 },
 });
 
-const emit = defineEmits(['update:modelValue']);
+const emit = defineEmits(['update:modelValue', 'update:typeToggleIndex']);
 
 const store = useAppStore();
 const keyboard = useNumericKeyboard();
@@ -56,10 +60,18 @@ function onActivate(event) {
   // Prevent the native virtual keyboard from appearing
   event.target.blur();
 
+  const toggleOptions = props.typeToggleLabels.length >= 2
+    ? {
+        labels: props.typeToggleLabels,
+        activeIndex: props.typeToggleIndex,
+        callback: (i) => emit('update:typeToggleIndex', i),
+      }
+    : undefined;
+
   keyboard.openKeyboard(
     props.modelValue,
     (newValue) => emit('update:modelValue', newValue),
-    { allowDecimal: true, prefix: props.prefix },
+    { allowDecimal: true, prefix: props.prefix, typeToggle: toggleOptions },
   );
 }
 </script>

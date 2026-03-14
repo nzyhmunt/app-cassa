@@ -360,6 +360,9 @@
                   :max="discountType === 'percent' ? 100 : tableAmountRemaining"
                   step="0.01"
                   :placeholder="discountType === 'percent' ? 'Es. 10' : 'Es. 5.00'"
+                  :typeToggleLabels="['%', store.config.ui.currency]"
+                  :typeToggleIndex="discountType === 'percent' ? 0 : 1"
+                  @update:typeToggleIndex="i => discountType = i === 0 ? 'percent' : 'fixed'"
                   class="flex-1 min-w-0 text-sm font-bold border border-amber-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:border-amber-400 text-amber-900"
                 />
                 <button
