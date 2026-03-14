@@ -104,7 +104,7 @@
               <span v-if="order.status === 'preparing'" class="bg-blue-100 text-blue-800 text-[9px] md:text-[10px] uppercase font-bold px-2 py-1 rounded-md border border-blue-200 flex items-center gap-1">
                 <Flame class="size-3" /> In Cottura
               </span>
-              <span v-if="order.status === 'ready'" class="bg-emerald-100 text-emerald-800 text-[9px] md:text-[10px] uppercase font-bold px-2 py-1 rounded-md border border-emerald-200 flex items-center gap-1">
+              <span v-if="order.status === 'ready'" class="bg-teal-100 text-teal-800 text-[9px] md:text-[10px] uppercase font-bold px-2 py-1 rounded-md border border-teal-200 flex items-center gap-1">
                 <BellRing class="size-3" /> Pronta 🔔
               </span>
               <span v-if="order.status === 'delivered'" class="bg-gray-100 text-gray-600 text-[9px] md:text-[10px] uppercase font-bold px-2 py-1 rounded-md border border-gray-200 flex items-center gap-1">
@@ -240,7 +240,7 @@
             </template>
             <template v-else-if="selectedOrder.status === 'ready'">
               <div class="flex gap-2 w-full sm:w-auto items-center">
-                <span class="flex-1 text-center px-3 py-2.5 md:py-3 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-xl font-bold flex items-center justify-center gap-2 text-xs">
+                <span class="flex-1 text-center px-3 py-2.5 md:py-3 bg-teal-50 text-teal-700 border border-teal-200 rounded-xl font-bold flex items-center justify-center gap-2 text-xs">
                   <BellRing class="size-4" />
                   <span class="hidden sm:inline text-xs">Pronta 🔔</span>
                 </span>

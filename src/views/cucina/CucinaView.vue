@@ -33,8 +33,8 @@
           <span class="hidden sm:inline uppercase tracking-wide">In Cottura</span>
         </div>
         <div v-if="readyOrders.length > 0"
-             class="flex items-center gap-1.5 bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-full px-3 py-1 text-xs font-bold">
-          <span class="bg-emerald-500 text-white rounded-full font-black text-[10px] size-5 flex items-center justify-center shrink-0">
+             class="flex items-center gap-1.5 bg-teal-100 text-teal-800 border border-teal-200 rounded-full px-3 py-1 text-xs font-bold">
+          <span class="bg-teal-500 text-white rounded-full font-black text-[10px] size-5 flex items-center justify-center shrink-0">
             {{ readyOrders.length }}
           </span>
           <span class="hidden sm:inline uppercase tracking-wide">Pronte</span>
@@ -178,7 +178,7 @@
                 :elapsed-color="elapsedColor(order.time)"
                 action-label="Segna pronta"
                 :action-icon="BellRing"
-                action-class="bg-emerald-600 text-white hover:bg-emerald-700"
+                action-class="bg-teal-600 text-white hover:bg-teal-700"
                 @action="advancePreparingOrder(order)"
                 :show-secondary-action="true"
                 secondary-action-label="← Torna a Da Preparare"
@@ -192,11 +192,11 @@
         <!-- ── Column 3: PRONTE (ready — Sala marks as delivered) ─────────── -->
         <section class="md:flex-1 md:flex md:flex-col md:min-h-0">
           <div class="flex items-center gap-2 mb-2 shrink-0">
-            <BellRing class="size-4 text-emerald-600" />
-            <h2 class="text-xs font-black uppercase tracking-widest text-emerald-700">
+            <BellRing class="size-4 text-teal-600" />
+            <h2 class="text-xs font-black uppercase tracking-widest text-teal-700">
               Pronte
             </h2>
-            <span class="ml-auto bg-emerald-100 text-emerald-800 border border-emerald-200 text-[10px] font-black rounded-full px-2 py-0.5">
+            <span class="ml-auto bg-teal-100 text-teal-800 border border-teal-200 text-[10px] font-black rounded-full px-2 py-0.5">
               {{ readyOrders.length }}
             </span>
           </div>
@@ -216,7 +216,7 @@
               <KitchenOrderCard
                 :order="order"
                 status-label="Pronta 🔔"
-                status-class="bg-emerald-100 text-emerald-800 border-emerald-200"
+                status-class="bg-teal-100 text-teal-800 border-teal-200"
                 :elapsed-label="elapsedLabel(order.time)"
                 :elapsed-color="elapsedColor(order.time)"
                 action-label="Consegnata"
@@ -315,7 +315,7 @@
               <!-- Toggle checkbox (right) -->
               <button
                 @click="toggleItemReady(order, row.index)"
-                :class="row.item.kitchenReady ? 'bg-emerald-500 text-white border-emerald-600' : 'bg-white text-gray-400 border-gray-200 hover:border-gray-400'"
+                :class="row.item.kitchenReady ? 'bg-teal-500 text-white border-teal-600' : 'bg-white text-gray-400 border-gray-200 hover:border-gray-400'"
                 class="size-7 rounded-lg border-2 flex items-center justify-center shrink-0 active:scale-95 transition-all"
                 :title="row.item.kitchenReady ? 'Segna come non pronto' : 'Segna come pronto'"
               >
@@ -358,7 +358,7 @@
             </span>
             <button
               @click="restoreFromHistory(order)"
-              class="size-7 rounded-lg border border-emerald-300 text-emerald-700 bg-white hover:bg-emerald-50 flex items-center justify-center active:scale-95 transition-all"
+              class="size-7 rounded-lg border border-teal-300 text-teal-700 bg-white hover:bg-teal-50 flex items-center justify-center active:scale-95 transition-all"
               title="Ripristina a Pronta"
             >
               <RotateCcw class="size-3.5" />
@@ -478,7 +478,7 @@ function forceDeliver(order) {
 function detailStatusBadgeClass(status) {
   if (status === 'accepted') return 'bg-amber-50 text-amber-700 border-amber-200';
   if (status === 'preparing') return 'bg-blue-50 text-blue-700 border-blue-200';
-  if (status === 'ready') return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+  if (status === 'ready') return 'bg-teal-50 text-teal-700 border-teal-200';
   return 'bg-gray-50 text-gray-700 border-gray-200';
 }
 
@@ -691,14 +691,14 @@ function activeDetailModifiers(item) {
 function detailCardHeaderBgClass(status) {
   if (status === 'accepted') return 'bg-amber-50 border-amber-100';
   if (status === 'preparing') return 'bg-blue-50 border-blue-100';
-  if (status === 'ready') return 'bg-emerald-50 border-emerald-100';
+  if (status === 'ready') return 'bg-teal-50 border-teal-100';
   return 'bg-gray-50 border-gray-100';
 }
 
 function detailAvatarBgClass(status) {
   if (status === 'accepted') return 'bg-amber-500';
   if (status === 'preparing') return 'bg-blue-500';
-  if (status === 'ready') return 'bg-emerald-600';
+  if (status === 'ready') return 'bg-teal-600';
   return 'bg-gray-500';
 }
 </script>
