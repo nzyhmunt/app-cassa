@@ -1048,6 +1048,8 @@ function createNewOrderForTable() {
     status: 'pending',
     time: new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }),
     totalAmount: 0, itemCount: 0, dietaryPreferences: {}, orderItems: [],
+    globalNote: '',
+    noteVisibility: { cassa: true, sala: true, cucina: true },
   };
   store.addOrder(newOrd);
   closeTableModal();

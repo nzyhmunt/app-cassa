@@ -92,6 +92,7 @@ export const initialOrders = [
   {
     id: "ord_rX91", table: "04", status: "pending", time: "19:30", totalAmount: 26.00, itemCount: 4,
     dietaryPreferences: { diete: ["Vegetariano"] },
+    globalNote: '', noteVisibility: { cassa: true, sala: true, cucina: true },
     orderItems: [
       { uid: "r_1", dishId: "ant_2", name: "Bruschetta pomodoro", unitPrice: 3, quantity: 2, voidedQuantity: 0, notes: ["Senza aglio"] },
       { uid: "r_3", dishId: "bev_4", name: "Vino Rosso Casa 1L", unitPrice: 10, quantity: 2, voidedQuantity: 0, notes: [] },
@@ -100,6 +101,7 @@ export const initialOrders = [
   {
     id: "ord_mP02", table: "08", status: "accepted", time: "19:15", totalAmount: 33.00, itemCount: 2,
     dietaryPreferences: {},
+    globalNote: '', noteVisibility: { cassa: true, sala: true, cucina: true },
     orderItems: [
       { uid: "r_5", dishId: "ant_8", name: "Tagliere x2", unitPrice: 20, quantity: 1, voidedQuantity: 0, notes: [] },
       { uid: "r_6", dishId: "pri_3", name: "Carbonara", unitPrice: 13, quantity: 2, voidedQuantity: 1, notes: ["Ben cotta"] },

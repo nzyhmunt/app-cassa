@@ -72,6 +72,18 @@
       </span>
     </div>
 
+    <!-- Global order note (visible when cucina flag is set) -->
+    <div
+      v-if="order.globalNote && order.noteVisibility?.cucina !== false"
+      class="mx-3 mb-3 mt-1 bg-amber-50 border border-amber-200 rounded-xl p-2.5 flex gap-2"
+    >
+      <MessageSquareWarning class="size-3.5 text-amber-600 shrink-0 mt-0.5" />
+      <div>
+        <p class="text-[9px] font-bold text-amber-700 uppercase tracking-wider mb-0.5">Nota Ordine</p>
+        <p class="text-xs text-amber-800 font-medium whitespace-pre-wrap">{{ order.globalNote }}</p>
+      </div>
+    </div>
+
     <!-- Action buttons: [← back icon] [main action (flex-1)] on the same row -->
     <div v-if="showAction || showSecondaryAction" class="px-4 pb-4 pt-2 flex items-center gap-2">
       <!-- Secondary: icon-only back button (less prominent, on the left) -->
@@ -101,7 +113,7 @@
 
 <script setup>
 import { computed } from 'vue';
-import { ChevronLeft, Layers } from 'lucide-vue-next';
+import { ChevronLeft, Layers, MessageSquareWarning } from 'lucide-vue-next';
 import { getCourseBorderClass, getCourseQtyClass, groupOrderItemsByCourse } from '../../utils/index.js';
 
 const props = defineProps({

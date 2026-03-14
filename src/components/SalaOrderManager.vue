@@ -391,6 +391,53 @@
             </div>
           </div>
 
+          <!-- Nota Globale Ordine -->
+          <div class="mt-3">
+            <!-- Editing (pending) -->
+            <div v-if="selectedOrder.status === 'pending'" class="bg-white rounded-2xl shadow-sm border border-amber-200 overflow-hidden">
+              <div class="px-3 py-2.5 bg-amber-50 border-b border-amber-100 flex items-center gap-2">
+                <MessageSquareWarning class="size-4 text-amber-600 shrink-0" />
+                <span class="text-xs font-bold text-amber-800 uppercase tracking-wider">Nota Globale Ordine</span>
+              </div>
+              <div class="p-3 space-y-3">
+                <textarea
+                  v-model="selectedOrder.globalNote"
+                  rows="3"
+                  placeholder="Aggiungi una nota per tutto l'ordine..."
+                  class="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 focus:bg-white theme-ring transition-all text-gray-800 text-sm resize-none"
+                ></textarea>
+                <div>
+                  <p class="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">Visibile in:</p>
+                  <div class="flex flex-wrap gap-4">
+                    <label class="flex items-center gap-2 cursor-pointer select-none">
+                      <input type="checkbox" v-model="selectedOrder.noteVisibility.cassa" class="rounded accent-[var(--brand-primary)] size-4" />
+                      <span class="text-xs font-bold text-gray-700">Cassa</span>
+                    </label>
+                    <label class="flex items-center gap-2 cursor-pointer select-none">
+                      <input type="checkbox" v-model="selectedOrder.noteVisibility.sala" class="rounded accent-[var(--brand-primary)] size-4" />
+                      <span class="text-xs font-bold text-gray-700">Sala</span>
+                    </label>
+                    <label class="flex items-center gap-2 cursor-pointer select-none">
+                      <input type="checkbox" v-model="selectedOrder.noteVisibility.cucina" class="rounded accent-[var(--brand-primary)] size-4" />
+                      <span class="text-xs font-bold text-gray-700">Cucina</span>
+                    </label>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <!-- Read-only (non-pending, sala flag set) -->
+            <div
+              v-else-if="selectedOrder.globalNote && selectedOrder.noteVisibility?.sala !== false"
+              class="bg-amber-50 border border-amber-200 rounded-2xl p-3 flex gap-2"
+            >
+              <MessageSquareWarning class="size-4 text-amber-600 shrink-0 mt-0.5" />
+              <div>
+                <p class="text-[10px] font-bold text-amber-700 uppercase tracking-wider mb-1">Nota Ordine</p>
+                <p class="text-xs text-amber-800 font-medium whitespace-pre-wrap">{{ selectedOrder.globalNote }}</p>
+              </div>
+            </div>
+          </div>
+
         </div>
 
         <!-- Footer Totali -->
@@ -876,7 +923,6 @@ function changeTab(tab) {
 function selectOrder(ord) {
   selectedOrder.value = ord;
 }
-
 function markDelivered(order) {
   store.changeOrderStatus(order, 'delivered');
   store.$persist?.();

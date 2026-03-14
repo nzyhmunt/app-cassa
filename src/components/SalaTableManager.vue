@@ -421,6 +421,8 @@ function createNewOrder() {
     itemCount: 0,
     dietaryPreferences: {},
     orderItems: [],
+    globalNote: '',
+    noteVisibility: { cassa: true, sala: true, cucina: true },
   };
   store.addOrder(newOrd);
   closeTableModal();
