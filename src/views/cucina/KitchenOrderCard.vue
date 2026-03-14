@@ -40,10 +40,10 @@
         </div>
         <!-- Item row -->
         <div v-else
-          class="px-3 py-2 flex items-start gap-3 border-l-4 transition-opacity"
+          class="px-3 py-2 flex items-center gap-3 border-l-4 transition-opacity"
           :class="[getCourseBorderClass(row.item), row.item.kitchenReady ? 'opacity-50' : '']"
         >
-          <span :class="['shrink-0 font-black text-lg w-8 text-center', row.item.kitchenReady ? 'text-gray-400' : qtyClass]">
+          <span :class="['shrink-0 font-black text-sm tabular-nums w-8 text-center', row.item.kitchenReady ? 'text-gray-400' : qtyClass]">
             {{ row.item.quantity - (row.item.voidedQuantity || 0) }}×
           </span>
           <div class="flex-1 min-w-0">
@@ -72,14 +72,24 @@
       </span>
     </div>
 
-    <!-- Action button (hidden when showAction is false) -->
-    <div v-if="showAction" class="px-4 pb-4 pt-2">
+    <!-- Action buttons -->
+    <div v-if="showAction || showSecondaryAction" class="px-4 pb-4 pt-2 flex flex-col gap-2">
       <button
+        v-if="showAction"
         @click="$emit('action')"
         :class="['w-full rounded-xl font-bold text-sm py-3 transition-all active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 shadow-sm', actionClass]"
         :aria-label="`${actionLabel} ordine tavolo ${order.table}`"
       >
         {{ actionLabel }}
+      </button>
+      <!-- Secondary (less prominent) action for going back -->
+      <button
+        v-if="showSecondaryAction && secondaryActionLabel"
+        @click="$emit('secondary-action')"
+        :class="['w-full rounded-xl font-semibold text-xs py-2 transition-all active:scale-95 focus:outline-none border', secondaryActionClass]"
+        :aria-label="`${secondaryActionLabel} ordine tavolo ${order.table}`"
+      >
+        {{ secondaryActionLabel }}
       </button>
     </div>
   </div>
@@ -99,9 +109,12 @@ const props = defineProps({
   actionLabel: { type: String, default: '' },
   actionClass: { type: String, default: '' },
   showAction: { type: Boolean, default: true },
+  secondaryActionLabel: { type: String, default: '' },
+  secondaryActionClass: { type: String, default: 'border-gray-300 text-gray-500 hover:bg-gray-50' },
+  showSecondaryAction: { type: Boolean, default: false },
 });
 
-defineEmits(['action']);
+defineEmits(['action', 'secondary-action']);
 
 const COURSE_ORDER = ['prima', 'insieme', 'dopo'];
 const DEFAULT_COURSE = 'insieme';

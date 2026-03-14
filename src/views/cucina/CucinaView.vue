@@ -62,7 +62,7 @@
       </div>
     </header>
 
-    <!-- ── Tab nav: Kanban / Dettaglio ───────────────────────────────────── -->
+    <!-- ── Tab nav: Kanban / Dettaglio / Cronologia ─────────────────────── -->
     <div class="shrink-0 flex gap-1.5 bg-white border-b border-gray-200 px-3 py-2">
       <button
         @click="cucinaTab = 'kanban'"
@@ -78,6 +78,14 @@
       >
         <ClipboardList class="size-3.5" /> Dettaglio
         <span v-if="allKitchenOrders.length > 0" class="bg-[var(--brand-primary)] text-white text-[9px] font-black rounded-full size-4 flex items-center justify-center shrink-0">{{ allKitchenOrders.length }}</span>
+      </button>
+      <button
+        @click="cucinaTab = 'history'"
+        :class="cucinaTab === 'history' ? 'bg-emerald-50 text-emerald-700 border-emerald-200 font-bold' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100'"
+        class="flex-1 py-1.5 px-2 rounded-xl border transition-all text-[10px] uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-sm"
+      >
+        <Clock class="size-3.5" /> Cronologia
+        <span v-if="deliveredOrders.length > 0" class="bg-emerald-500 text-white text-[9px] font-black rounded-full size-4 flex items-center justify-center shrink-0">{{ deliveredOrders.length }}</span>
       </button>
     </div>
 
@@ -129,6 +137,10 @@
                 action-label="Inizia preparazione"
                 action-class="theme-bg text-white hover:opacity-90"
                 @action="acceptOrder(order)"
+                :show-secondary-action="true"
+                secondary-action-label="← Rimanda in sala"
+                secondary-action-class="border-gray-300 text-gray-500 hover:bg-gray-50"
+                @secondary-action="returnToPending(order)"
               />
             </article>
           </div>
@@ -168,6 +180,10 @@
                 action-label="Segna pronta"
                 action-class="bg-orange-500 text-white hover:bg-orange-600"
                 @action="advancePreparingOrder(order)"
+                :show-secondary-action="true"
+                secondary-action-label="← Torna a Da Preparare"
+                secondary-action-class="border-amber-200 text-amber-700 hover:bg-amber-50"
+                @secondary-action="backToAccepted(order)"
               />
             </article>
           </div>
@@ -204,7 +220,13 @@
                 qty-class="text-teal-600"
                 :elapsed-label="elapsedLabel(order.time)"
                 :elapsed-color="elapsedColor(order.time)"
-                :show-action="false"
+                action-label="✓ Consegnata"
+                action-class="bg-emerald-600 text-white hover:bg-emerald-700"
+                @action="markDeliveredFromKanban(order)"
+                :show-secondary-action="true"
+                secondary-action-label="← Torna in cottura"
+                secondary-action-class="border-orange-200 text-orange-700 hover:bg-orange-50"
+                @secondary-action="backToPreparing(order)"
               />
             </article>
           </div>
@@ -225,12 +247,12 @@
       <article
         v-for="order in allKitchenOrders"
         :key="order.id"
-        class="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden"
+        :class="['bg-white rounded-2xl shadow-sm border-2 overflow-hidden', detailCardBorderClass(order.status)]"
       >
-        <!-- Card header -->
-        <div class="px-3 py-2.5 bg-gray-50 border-b border-gray-100 flex items-center justify-between gap-2">
+        <!-- Card header (color matches kanban column) -->
+        <div :class="['px-3 py-2.5 border-b flex items-center justify-between gap-2', detailCardHeaderBgClass(order.status)]">
           <div class="flex items-center gap-2.5 min-w-0">
-            <div class="theme-bg text-white rounded-xl size-9 flex items-center justify-center font-black text-sm shrink-0">
+            <div :class="['text-white rounded-xl size-9 flex items-center justify-center font-black text-sm shrink-0', detailAvatarBgClass(order.status)]">
               {{ order.table }}
             </div>
             <div class="min-w-0">
@@ -239,7 +261,7 @@
             </div>
           </div>
           <div class="flex items-center gap-2 shrink-0">
-            <span :class="detailStatusBadgeClass(order.status)" class="hidden sm:flex text-[9px] uppercase font-bold px-2 py-0.5 rounded-full border items-center">
+            <span :class="['hidden sm:flex text-[9px] uppercase font-bold px-2 py-0.5 rounded-full border items-center', detailStatusBadgeClass(order.status)]">
               {{ detailStatusLabel(order.status) }}
             </span>
             <button
@@ -253,35 +275,100 @@
           </div>
         </div>
 
-        <!-- Per-item toggles -->
+        <!-- Items grouped by course (same style as kanban), checkbox on right -->
         <div class="divide-y divide-gray-100">
-          <template v-for="(item, idx) in order.orderItems" :key="item.uid || idx">
-            <div
-              v-if="(item.quantity - (item.voidedQuantity || 0)) > 0"
-              class="px-3 py-2 flex items-center gap-3"
+          <template v-for="row in getOrderedItemsForOrder(order)" :key="row.type === 'header' ? 'h_' + row.course : (row.item.uid || row.index)">
+            <!-- Course header -->
+            <div v-if="row.type === 'header'"
+              class="px-3 py-1 flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest"
+              :class="{
+                'bg-orange-50 text-orange-700': row.course === 'prima',
+                'bg-gray-50 text-gray-400': row.course === 'insieme',
+                'bg-purple-50 text-purple-700': row.course === 'dopo',
+              }"
             >
-              <!-- Toggle button -->
-              <button
-                @click="toggleItemReady(order, idx)"
-                :class="item.kitchenReady ? 'bg-emerald-500 text-white border-emerald-600' : 'bg-white text-gray-400 border-gray-200 hover:border-gray-400'"
-                class="size-7 rounded-lg border-2 flex items-center justify-center shrink-0 active:scale-95 transition-all"
-                :title="item.kitchenReady ? 'Segna come non pronto' : 'Segna come pronto'"
-              >
-                <Check v-if="item.kitchenReady" class="size-4" />
-              </button>
-
-              <!-- Item info -->
+              <Layers class="size-3 shrink-0" />
+              {{ row.course === 'prima' ? 'Esce Prima' : row.course === 'insieme' ? 'Insieme' : 'Esce Dopo' }}
+            </div>
+            <!-- Item row: info left, checkbox right -->
+            <div v-else
+              class="px-3 py-2 flex items-center gap-3 border-l-4 transition-opacity"
+              :class="[getDetailCourseBorderClass(row.item), row.item.kitchenReady ? 'opacity-50' : '']"
+            >
+              <!-- Item info (left) -->
               <div class="flex-1 min-w-0">
-                <p :class="item.kitchenReady ? 'text-gray-400 line-through' : 'text-gray-800'" class="text-xs font-bold truncate">
-                  {{ item.quantity - (item.voidedQuantity || 0) }}× {{ item.name }}
+                <p :class="['text-sm font-bold leading-tight', row.item.kitchenReady ? 'text-gray-400 line-through' : 'text-gray-800']">
+                  <span :class="['font-black tabular-nums mr-1', row.item.kitchenReady ? 'text-gray-400' : detailQtyClass(order.status)]">{{ row.item.quantity - (row.item.voidedQuantity || 0) }}×</span>{{ row.item.name }}
                 </p>
-                <p v-if="item.notes?.length" class="text-[10px] text-orange-600 truncate">{{ item.notes.join(' · ') }}</p>
+                <p v-if="row.item.notes?.length" :class="['text-xs mt-0.5 font-semibold', row.item.kitchenReady ? 'text-gray-400 line-through' : 'text-amber-600']">
+                  ✎ {{ row.item.notes.join(' · ') }}
+                </p>
               </div>
+              <!-- Toggle checkbox (right) -->
+              <button
+                @click="toggleItemReady(order, row.index)"
+                :class="row.item.kitchenReady ? 'bg-emerald-500 text-white border-emerald-600' : 'bg-white text-gray-400 border-gray-200 hover:border-gray-400'"
+                class="size-7 rounded-lg border-2 flex items-center justify-center shrink-0 active:scale-95 transition-all"
+                :title="row.item.kitchenReady ? 'Segna come non pronto' : 'Segna come pronto'"
+              >
+                <Check v-if="row.item.kitchenReady" class="size-4" />
+              </button>
+            </div>
+          </template>
+        </div>
+      </article>
+    </main>
 
-              <!-- Course badge -->
-              <span v-if="item.course === 'prima'" class="text-[9px] px-1.5 py-0.5 rounded bg-orange-100 text-orange-700 border border-orange-200 font-bold uppercase shrink-0">Prima</span>
-              <span v-else-if="item.course === 'dopo'" class="text-[9px] px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 border border-purple-200 font-bold uppercase shrink-0">Dopo</span>
-              <span v-else class="text-[9px] px-1.5 py-0.5 rounded bg-teal-100 text-teal-700 border border-teal-200 font-bold uppercase shrink-0">Insieme</span>
+    <!-- ── Cronologia tab: delivered orders history ────────────────────────── -->
+    <main v-else-if="cucinaTab === 'history'" class="flex-1 overflow-y-auto p-3 md:p-4 space-y-3" style="overscroll-behavior:contain;">
+
+      <p v-if="deliveredOrders.length === 0" class="flex flex-col items-center justify-center gap-3 h-full py-16 text-center">
+        <Clock class="size-12 text-gray-300" />
+        <span class="text-sm font-bold text-gray-400">Nessuna comanda consegnata</span>
+        <span class="text-xs text-gray-400">Le comande consegnate appariranno qui.</span>
+      </p>
+
+      <article
+        v-for="order in deliveredOrders"
+        :key="order.id"
+        class="bg-white rounded-2xl shadow-sm border-2 border-emerald-200 overflow-hidden opacity-80"
+      >
+        <!-- Card header -->
+        <div class="px-3 py-2.5 bg-emerald-50 border-b border-emerald-100 flex items-center justify-between gap-2">
+          <div class="flex items-center gap-2.5 min-w-0">
+            <div class="bg-emerald-600 text-white rounded-xl size-9 flex items-center justify-center font-black text-sm shrink-0">
+              {{ order.table }}
+            </div>
+            <div class="min-w-0">
+              <p class="text-xs font-bold text-gray-800 truncate">Tavolo {{ order.table }}</p>
+              <p class="text-[10px] text-gray-400">{{ order.time }}</p>
+            </div>
+          </div>
+          <span class="text-[9px] uppercase font-bold px-2 py-0.5 rounded-full border bg-emerald-100 text-emerald-700 border-emerald-200 flex items-center gap-1 shrink-0">
+            <CheckCircle2 class="size-3" /> Consegnata
+          </span>
+        </div>
+        <!-- Items (read-only, grouped by course) -->
+        <div class="divide-y divide-gray-100">
+          <template v-for="row in getOrderedItemsForOrder(order)" :key="row.type === 'header' ? 'h_' + row.course : (row.item.uid || row.index)">
+            <div v-if="row.type === 'header'"
+              class="px-3 py-1 flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest"
+              :class="{
+                'bg-orange-50 text-orange-700': row.course === 'prima',
+                'bg-gray-50 text-gray-400': row.course === 'insieme',
+                'bg-purple-50 text-purple-700': row.course === 'dopo',
+              }"
+            >
+              <Layers class="size-3 shrink-0" />
+              {{ row.course === 'prima' ? 'Esce Prima' : row.course === 'insieme' ? 'Insieme' : 'Esce Dopo' }}
+            </div>
+            <div v-else
+              class="px-3 py-2 flex items-center gap-3 border-l-4 text-gray-400 line-through"
+              :class="getDetailCourseBorderClass(row.item)"
+            >
+              <p class="flex-1 text-sm font-bold truncate">
+                <span class="font-black tabular-nums mr-1">{{ row.item.quantity - (row.item.voidedQuantity || 0) }}×</span>{{ row.item.name }}
+              </p>
             </div>
           </template>
         </div>
@@ -299,7 +386,7 @@
 
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
-import { Bell, BellRing, ChefHat, Check, CheckCircle2, Flame, Layers, RefreshCw, Settings, ClipboardList } from 'lucide-vue-next';
+import { Bell, BellRing, ChefHat, Check, CheckCircle2, Clock, Flame, Layers, RefreshCw, Settings, ClipboardList } from 'lucide-vue-next';
 import { useAppStore } from '../../store/index.js';
 import { useBeep } from '../../composables/useBeep.js';
 import KitchenOrderCard from './KitchenOrderCard.vue';
@@ -308,8 +395,8 @@ const emit = defineEmits(['open-settings']);
 
 const store = useAppStore();
 
-// ── Kitchen tab navigation: Kanban vs Detail ──────────────────────────────
-const cucinaTab = ref('kanban'); // 'kanban' | 'detail'
+// ── Kitchen tab navigation: Kanban / Detail / History ─────────────────────
+const cucinaTab = ref('kanban'); // 'kanban' | 'detail' | 'history'
 
 // All active kitchen orders for the detail tab (accepted → preparing → ready)
 const allKitchenOrders = computed(() =>
@@ -317,6 +404,14 @@ const allKitchenOrders = computed(() =>
     .filter(o => ['accepted', 'preparing', 'ready'].includes(o.status))
     .slice()
     .sort((a, b) => a.time.localeCompare(b.time)),
+);
+
+// Delivered orders for the Cronologia tab
+const deliveredOrders = computed(() =>
+  store.orders
+    .filter(o => o.status === 'delivered')
+    .slice()
+    .sort((a, b) => b.time.localeCompare(a.time)), // newest first
 );
 
 function toggleItemReady(order, itemIdx) {
@@ -451,5 +546,89 @@ function advancePreparingOrder(order) {
   // preparing → ready
   store.changeOrderStatus(order, 'ready');
   store.$persist?.();
+}
+
+function markDeliveredFromKanban(order) {
+  // ready → delivered (from "Pronte" column)
+  store.changeOrderStatus(order, 'delivered');
+  store.$persist?.();
+}
+
+// ── Back-state actions (undo buttons) ────────────────────────────────────────
+function returnToPending(order) {
+  // accepted → pending (return to Cassa queue)
+  store.changeOrderStatus(order, 'pending');
+  store.$persist?.();
+}
+
+function backToAccepted(order) {
+  // preparing → accepted
+  store.changeOrderStatus(order, 'accepted');
+  store.$persist?.();
+}
+
+function backToPreparing(order) {
+  // ready → preparing
+  store.changeOrderStatus(order, 'preparing');
+  store.$persist?.();
+}
+
+// ── Detail view helpers ───────────────────────────────────────────────────────
+const COURSE_ORDER_DETAIL = ['prima', 'insieme', 'dopo'];
+
+function getOrderedItemsForOrder(order) {
+  const DEFAULT_COURSE = 'insieme';
+  const activeItems = order.orderItems
+    .map((item, index) => ({ item, index }))
+    .filter(({ item }) => (item.quantity - (item.voidedQuantity || 0)) > 0);
+  const groups = { prima: [], insieme: [], dopo: [] };
+  activeItems.forEach(({ item, index }) => {
+    const course = item.course && COURSE_ORDER_DETAIL.includes(item.course) ? item.course : DEFAULT_COURSE;
+    groups[course].push({ item, index });
+  });
+  const nonEmpty = COURSE_ORDER_DETAIL.filter(c => groups[c].length > 0);
+  const showHeaders = nonEmpty.length > 1;
+  const result = [];
+  COURSE_ORDER_DETAIL.forEach(course => {
+    if (groups[course].length > 0) {
+      if (showHeaders) result.push({ type: 'header', course });
+      groups[course].forEach(entry => result.push({ type: 'item', ...entry }));
+    }
+  });
+  return result;
+}
+
+function getDetailCourseBorderClass(item) {
+  if (item.course === 'prima') return 'border-orange-400';
+  if (item.course === 'dopo') return 'border-purple-500';
+  return 'border-[var(--brand-primary)]';
+}
+
+function detailCardBorderClass(status) {
+  if (status === 'accepted') return 'border-amber-300';
+  if (status === 'preparing') return 'border-orange-300';
+  if (status === 'ready') return 'border-teal-400';
+  return 'border-gray-200';
+}
+
+function detailCardHeaderBgClass(status) {
+  if (status === 'accepted') return 'bg-amber-50 border-amber-100';
+  if (status === 'preparing') return 'bg-orange-50 border-orange-100';
+  if (status === 'ready') return 'bg-teal-50 border-teal-100';
+  return 'bg-gray-50 border-gray-100';
+}
+
+function detailAvatarBgClass(status) {
+  if (status === 'accepted') return 'bg-amber-500';
+  if (status === 'preparing') return 'bg-orange-500';
+  if (status === 'ready') return 'bg-teal-600';
+  return 'theme-bg';
+}
+
+function detailQtyClass(status) {
+  if (status === 'accepted') return 'text-amber-600';
+  if (status === 'preparing') return 'text-orange-600';
+  if (status === 'ready') return 'text-teal-600';
+  return 'text-gray-600';
 }
 </script>
