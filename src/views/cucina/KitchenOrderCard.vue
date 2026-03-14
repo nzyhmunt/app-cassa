@@ -72,24 +72,27 @@
       </span>
     </div>
 
-    <!-- Action buttons -->
-    <div v-if="showAction || showSecondaryAction" class="px-4 pb-4 pt-2 flex flex-col gap-2">
+    <!-- Action buttons: [← back icon] [main action (flex-1)] on the same row -->
+    <div v-if="showAction || showSecondaryAction" class="px-4 pb-4 pt-2 flex items-center gap-2">
+      <!-- Secondary: icon-only back button (less prominent, on the left) -->
+      <button
+        v-if="showSecondaryAction"
+        @click="$emit('secondary-action')"
+        :class="['shrink-0 rounded-xl font-semibold py-3 px-3 transition-all active:scale-95 focus:outline-none border', secondaryActionClass]"
+        :aria-label="`${secondaryActionLabel} ordine tavolo ${order.table}`"
+        :title="secondaryActionLabel"
+      >
+        <ChevronLeft class="size-4" aria-hidden="true" />
+        <span class="sr-only">{{ secondaryActionLabel }}</span>
+      </button>
+      <!-- Primary: main action (takes remaining width) -->
       <button
         v-if="showAction"
         @click="$emit('action')"
-        :class="['w-full rounded-xl font-bold text-sm py-3 transition-all active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 shadow-sm', actionClass]"
+        :class="['flex-1 rounded-xl font-bold text-sm py-3 transition-all active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 shadow-sm', actionClass]"
         :aria-label="`${actionLabel} ordine tavolo ${order.table}`"
       >
         {{ actionLabel }}
-      </button>
-      <!-- Secondary (less prominent) action for going back -->
-      <button
-        v-if="showSecondaryAction && secondaryActionLabel"
-        @click="$emit('secondary-action')"
-        :class="['w-full rounded-xl font-semibold text-xs py-2 transition-all active:scale-95 focus:outline-none border', secondaryActionClass]"
-        :aria-label="`${secondaryActionLabel} ordine tavolo ${order.table}`"
-      >
-        {{ secondaryActionLabel }}
       </button>
     </div>
   </div>
@@ -97,7 +100,7 @@
 
 <script setup>
 import { computed } from 'vue';
-import { Layers } from 'lucide-vue-next';
+import { ChevronLeft, Layers } from 'lucide-vue-next';
 
 const props = defineProps({
   order: { type: Object, required: true },

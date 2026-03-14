@@ -52,7 +52,8 @@ src/
 │   │   ├── SalaView.vue               ← Mappa sala (vista Sala)
 │   │   └── SalaOrderView.vue          ← Creazione comande (Sala)
 │   └── cucina/                        ← View Cucina
-│       └── CucinaView.vue             ← Kanban board 3 colonne (Cucina)
+│       ├── CucinaView.vue             ← Kanban/Dettaglio/Cronologia tabs (Cucina)
+│       └── KitchenOrderCard.vue       ← Card comanda cucina (riutilizzata da tutte le tab)
 ```
 
 ### Aggiungere un nuovo componente condiviso
@@ -78,9 +79,10 @@ src/
 
 ### 📋 Gestione Ordini (Cassa)
 - Visualizzazione ordini suddivisa in tre tab: **In Attesa**, **In Cucina**, **Chiusi**
-  - La tab *In Cucina* raggruppa tutti gli stati attivi in cucina: `accepted`, `preparing` (In Cottura 🔥), `ready` (Pronta 🔔)
+  - La tab *In Cucina* mostra gli stati attivi: `accepted`, `preparing` (In Cottura 🔥), `ready` (Pronta 🔔) con divisore **"Consegnate"** per ordini `delivered`
 - Accettazione e rifiuto ordini in attesa
 - Modifica quantità sugli ordini in attesa (aumento / riduzione per riga)
+- **Override "Consegnata"** per ordini in `accepted`, `preparing`, `ready`: forza lo stato a `delivered` senza passare per la cucina
 - **Storno articoli** sugli ordini accettati:
   - Storno parziale o totale per riga
   - Storno per modificatore singolo
@@ -93,30 +95,54 @@ src/
 - Aggiunta note per variazioni / richieste speciali
 - Invio comanda al sistema (diventa ordine `pending` per la Cassa)
 - Navigazione rapida alla lista comande attive per tavolo
-- Tab *In Cucina* per il monitoraggio degli ordini attivi in cucina (`accepted`, `preparing`, `ready`)
+- Tab *In Cucina* per il monitoraggio degli ordini attivi in cucina (`accepted`, `preparing`, `ready`) con divisore **"Consegnate"** per ordini `delivered`
+- Pulsante **"Consegnata"** per ordini `accepted`, `preparing`, `ready` → imposta stato `delivered` (conto resta aperto)
 
 ### 👨‍🍳 App Cucina — Display Cucina
 
-Applicazione dedicata al personale di cucina con un **kanban board a 3 colonne** e un flusso di preparazione a 4 fasi:
+Applicazione dedicata al personale di cucina con un **kanban board a 3 colonne**, un flusso di preparazione a 5 fasi e una **vista tripla con tabs**:
 
 ```
-pending → accepted → preparing → ready → completed
+pending → accepted → preparing → ready → delivered → completed
 ```
 
-| Fase | Stato | Azione | Colonna |
-|------|-------|--------|---------|
-| Nuova comanda | `pending` | Prendi in carico | In Attesa |
-| Presa in carico | `accepted` | Inizia cottura | In Preparazione |
-| In cottura | `preparing` | Segna pronta | In Preparazione |
-| Pronta | `ready` | Consegnata ✓ | Pronte |
-| Consegnata | `completed` | — | — |
+| Fase | Stato | Azione | Colonna Kanban |
+|------|-------|--------|----------------|
+| Comanda inviata | `pending` | — (visibile solo in Cassa) | — |
+| Accettata da Cassa | `accepted` | Inizia preparazione | Da Preparare |
+| In cottura | `preparing` | Segna pronta | In Cottura |
+| Pronta | `ready` | ✓ Consegnata | Pronte |
+| Consegnata | `delivered` | — (conto resta aperto) | Cronologia |
+| Saldata | `completed` | — (solo pagamento) | — |
+
+**Transizioni inverse supportate nel Kanban:**
+- `preparing` → `accepted` (torna a Da Preparare)
+- `ready` → `preparing` (torna in cottura)
+- `accepted` → `pending` (rimanda in sala / annulla accettazione)
 
 **Caratteristiche:**
 - Header identico a Cassa e Sala (tema teal, contatori colorati, orologio, pulsante Config)
-- Ogni card mostra: avatar tavolo, stato badge, ora ordine, tempo trascorso (verde/ambra/rosso), lista piatti con note e tag dietetici
-- **Avvisi audio** all'arrivo di nuovi ordini `pending`
+- Ogni card mostra: avatar tavolo, stato badge, ora ordine, tempo trascorso (verde/ambra/rosso)
+- Piatti raggruppati per portata: **Esce Prima** (arancione) · **Insieme** (teal) · **Esce Dopo** (viola)
+- **Strikethrough voci**: segna singoli piatti come pronti (sincronizzato tra Kanban e Dettaglio)
+- **Avvisi audio** all'arrivo di nuovi ordini in cucina
 - **Schermo sempre acceso** tramite Screen Wake Lock API
 - **Reset dati** dalle impostazioni
+
+#### Tab Kanban (default)
+- 3 colonne: **Da Preparare** · **In Cottura** · **Pronte**
+- Ogni card ha il pulsante avanzamento stato + pulsante ← (icona, stessa riga) per tornare allo stato precedente
+- Colonna "Da Preparare": pulsante "Rimanda in sala" per restituire l'ordine alla Cassa
+
+#### Tab Dettaglio
+- Lista piatta di tutte le comande attive (accepted / preparing / ready)
+- Colore bordo/header card riflette lo stato kanban (amber / arancione / teal)
+- Voci raggruppate per portata con intestazioni colorate (stesso stile del Kanban)
+- Toggle ✓ (checkbox a destra) per marcare singoli piatti come pronti
+- Pulsante "Consegnata" per forzare lo stato a `delivered`
+
+#### Tab Cronologia
+- Lista read-only degli ordini `delivered`, piatti raggruppati per portata, ordinati dal più recente
 
 ### 💳 Cassa & Pagamenti
 - **Tre modalità di pagamento**:

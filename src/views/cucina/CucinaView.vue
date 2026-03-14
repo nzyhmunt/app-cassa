@@ -124,7 +124,7 @@
             <article
               v-for="order in pendingOrders"
               :key="order.id"
-              class="bg-white rounded-2xl border-2 border-amber-300 shadow-sm overflow-hidden"
+              class="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden"
               :aria-label="`Comanda tavolo ${order.table} da preparare`"
             >
               <KitchenOrderCard
@@ -167,7 +167,7 @@
             <article
               v-for="order in preparingOrders"
               :key="order.id"
-              class="bg-white rounded-2xl border-2 border-orange-300 shadow-sm overflow-hidden"
+              class="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden"
               :aria-label="`Comanda tavolo ${order.table} in cottura`"
             >
               <KitchenOrderCard
@@ -210,7 +210,7 @@
             <article
               v-for="order in readyOrders"
               :key="order.id"
-              class="bg-white rounded-2xl border-2 border-teal-400 shadow-sm overflow-hidden"
+              class="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden"
               :aria-label="`Comanda tavolo ${order.table} pronta`"
             >
               <KitchenOrderCard
@@ -261,7 +261,7 @@
             </div>
           </div>
           <div class="flex items-center gap-2 shrink-0">
-            <span :class="['hidden sm:flex text-[9px] uppercase font-bold px-2 py-0.5 rounded-full border items-center', detailStatusBadgeClass(order.status)]">
+            <span :class="['flex text-[9px] uppercase font-bold px-2 py-0.5 rounded-full border items-center', detailStatusBadgeClass(order.status)]">
               {{ detailStatusLabel(order.status) }}
             </span>
             <button
