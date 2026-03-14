@@ -81,16 +81,21 @@
         </button>
       </div>
 
-      <!-- Confirm button -->
-      <div class="px-4 pb-8">
+      <!-- Confirm + AC row -->
+      <div class="grid grid-cols-3 gap-2.5 px-4 pb-8">
         <button
           @click="keyboard.confirm()"
-          class="w-full py-4 theme-bg text-white font-bold text-lg rounded-2xl shadow-md hover:opacity-90 transition-opacity active:scale-95 flex items-center justify-center gap-2"
+          class="col-span-2 py-4 theme-bg text-white font-bold text-lg rounded-2xl shadow-md hover:opacity-90 transition-opacity active:scale-95 flex items-center justify-center gap-2"
           aria-label="Conferma"
         >
           <Check class="size-5" />
           Conferma
         </button>
+        <button
+          @click="keyboard.clear()"
+          class="py-4 rounded-2xl font-bold text-base bg-orange-50 hover:bg-orange-100 text-orange-500 border border-orange-200 shadow-sm transition-all active:scale-95"
+          aria-label="Cancella tutto"
+        >AC</button>
       </div>
     </div>
   </Transition>
