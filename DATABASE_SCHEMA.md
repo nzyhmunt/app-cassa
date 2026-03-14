@@ -199,6 +199,7 @@ CREATE TABLE orders (
     total_amount            NUMERIC(10,2)   NOT NULL DEFAULT 0.00,
     item_count              INTEGER         NOT NULL DEFAULT 0,
     is_cover_charge         BOOLEAN         NOT NULL DEFAULT FALSE,
+    is_direct_entry         BOOLEAN         NOT NULL DEFAULT FALSE,  -- TRUE = voce diretta (bypassa workflow cucina, status subito 'accepted')
     dietary_diets           TEXT[]          NULL,           -- es. ['Vegetariano']
     dietary_allergens       TEXT[]          NULL,
     created_at              TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
@@ -452,6 +453,7 @@ Cardinalità:
                   │ status: pending|accepted|preparing|ready|delivered|completed|rejected
                   │ total_amount
                   │ is_cover_charge
+                  │ is_direct_entry
                   └──────────────────────────────┐
                                                  │ 1
                                                  │ N
@@ -531,6 +533,7 @@ Cardinalità:
 | localStorage (`demo_app_state_v1`)    | Tabella DB                             |
 |---------------------------------------|----------------------------------------|
 | `orders[]`                            | `orders` + `order_items` + `order_item_modifiers` |
+| `order.isDirectEntry`                 | `orders.is_direct_entry`               |
 | `transactions[]`                      | `transactions` + `transaction_order_refs` |
 | `tableOccupiedAt`                     | `bill_sessions.opened_at`              |
 | `billRequestedTables` (Set)           | query: `orders.status = 'pending'` con `bill_session_id` attivo |
@@ -551,6 +554,26 @@ Cardinalità:
 `order_items.name` e `order_item_modifiers.name` contengono snapshot del nome al momento
 dell'ordine. Questo è intenzionale: permette di conservare la cronologia anche se la voce menu
 viene rinominata o rimossa (`dish_id` è nullable per questo motivo).
+
+### 5.2b Voci dirette (`is_direct_entry`)
+
+Le comande create tramite "Aggiungi Voce Diretta" in Cassa hanno `is_direct_entry = TRUE`.
+Queste comande:
+- saltano il workflow cucina (status subito `accepted`);
+- non compaiono nella coda "In Cucina" della App Cucina;
+- vengono incluse nel totale conto e nella fattura finale come qualsiasi altra comanda `accepted`;
+- possono contenere sia voci dal menu standard (`dish_id` valorizzato) sia voci personalizzate
+  (`dish_id` NULL, nome e prezzo liberi).
+
+```sql
+-- Recupera tutte le voci dirette attive per un tavolo
+SELECT o.id, oi.name, oi.unit_price, oi.quantity
+FROM orders o
+JOIN order_items oi ON oi.order_id = o.id
+WHERE o.table_id = :table_id
+  AND o.is_direct_entry = TRUE
+  AND o.status NOT IN ('completed', 'rejected');
+```
 
 ### 5.3 Calcolo totale riga
 
