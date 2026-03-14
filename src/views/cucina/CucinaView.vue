@@ -347,9 +347,19 @@
               <p class="text-[10px] text-gray-400">{{ order.time }}</p>
             </div>
           </div>
-          <span class="text-[9px] uppercase font-bold px-2 py-0.5 rounded-full border bg-teal-100 text-teal-700 border-teal-200 flex items-center gap-1 shrink-0">
-            <CheckCircle2 class="size-3" /> Consegnata
-          </span>
+          <div class="flex items-center gap-2 shrink-0">
+            <span class="text-[9px] uppercase font-bold px-2 py-0.5 rounded-full border bg-teal-100 text-teal-700 border-teal-200 flex items-center gap-1">
+              <CheckCircle2 class="size-3" /> Consegnata
+            </span>
+            <button
+              @click="restoreFromHistory(order)"
+              class="flex items-center gap-1 px-2 py-1 rounded-lg border border-emerald-300 text-emerald-700 bg-white hover:bg-emerald-50 text-[10px] font-bold active:scale-95 transition-all"
+              title="Ripristina a Pronta"
+            >
+              <RotateCcw class="size-3" />
+              Ripristina
+            </button>
+          </div>
         </div>
         <!-- Items (read-only, grouped by course) -->
         <div class="divide-y divide-gray-100">
@@ -421,7 +431,7 @@
 
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
-import { Bell, BellRing, ChefHat, Check, CheckCircle2, Clock, Flame, Layers, RefreshCw, Settings, ClipboardList, X } from 'lucide-vue-next';
+import { Bell, BellRing, ChefHat, Check, CheckCircle2, Clock, Flame, Layers, RefreshCw, RotateCcw, Settings, ClipboardList, X } from 'lucide-vue-next';
 import { useAppStore } from '../../store/index.js';
 import { useBeep } from '../../composables/useBeep.js';
 import KitchenOrderCard from './KitchenOrderCard.vue';
@@ -624,6 +634,12 @@ function backToAccepted(order) {
 function backToPreparing(order) {
   // ready → preparing
   store.changeOrderStatus(order, 'preparing');
+  store.$persist?.();
+}
+
+function restoreFromHistory(order) {
+  // delivered → ready (undo accidental delivery from Cronologia)
+  store.changeOrderStatus(order, 'ready');
   store.$persist?.();
 }
 
