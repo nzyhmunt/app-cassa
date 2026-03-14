@@ -3,6 +3,7 @@ import { useAppStore } from '../store/index.js';
 import { getInstanceName, resolveStorageKeys, clearState } from '../store/persistence.js';
 import { appConfig } from '../utils/index.js';
 import { isWakeLockSupported } from './useWakeLock.js';
+import { getPwaDismissKey } from './usePwaInstall.js';
 
 /**
  * Shared composable for the Cassa and Sala settings modals.
@@ -101,6 +102,11 @@ export function useSettings(props, emit) {
       window.localStorage.removeItem(SETTINGS_STORAGE_KEY);
     } catch (e) {
       console.warn('[Settings] Failed to remove settings during reset:', e);
+    }
+    try {
+      window.localStorage.removeItem(getPwaDismissKey());
+    } catch (e) {
+      console.warn('[Settings] Failed to remove PWA dismiss key during reset:', e);
     }
     if (typeof window !== 'undefined' && window.location) {
       window.location.reload();
