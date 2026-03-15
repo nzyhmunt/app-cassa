@@ -184,7 +184,7 @@
                     class="text-[10px] font-bold px-2 py-0.5 rounded-full border transition-all active:scale-95"
                     :class="user.apps.includes(app)
                       ? 'bg-[var(--brand-primary)] text-white border-[var(--brand-primary)]'
-                      : 'bg-white text-gray-400 border-gray-200 hover:border-gray-300'"
+                      : 'bg-white text-gray-600 border-gray-300 hover:border-gray-400'"
                   >
                     {{ app }}
                   </button>
@@ -219,14 +219,14 @@
                     :class="addForm.isAdmin ? 'translate-x-4' : 'translate-x-0.5'"></span>
                 </button>
               </div>
-              <div class="flex items-center gap-2" :class="addForm.isAdmin ? 'opacity-50' : ''">
+              <div class="flex items-center gap-2">
                 <span class="text-[10px] text-gray-500 font-bold uppercase tracking-wide">App:</span>
                 <button v-for="app in ALL_APPS" :key="app" @click="toggleAddApp(app)"
                   :disabled="addForm.isAdmin"
                   :aria-disabled="addForm.isAdmin"
                   class="text-[10px] font-bold px-2 py-0.5 rounded-full border transition-all"
                   :class="[
-                    (addForm.isAdmin || addForm.apps.includes(app)) ? 'bg-[var(--brand-primary)] text-white border-[var(--brand-primary)]' : 'bg-white text-gray-400 border-gray-200 hover:border-gray-300',
+                    (addForm.isAdmin || addForm.apps.includes(app)) ? 'bg-[var(--brand-primary)] text-white border-[var(--brand-primary)]' : 'bg-white text-gray-600 border-gray-300 hover:border-gray-400',
                     addForm.isAdmin ? 'cursor-not-allowed' : 'active:scale-95'
                   ]">
                   {{ app }}
