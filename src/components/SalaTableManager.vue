@@ -17,51 +17,23 @@
       </div>
 
       <!-- Stats bar -->
-      <div class="flex flex-wrap items-center gap-2 mb-4 md:mb-5">
-        <div class="flex items-center gap-2 bg-white rounded-xl px-3 py-2 shadow-sm border border-gray-200">
-          <span class="size-2.5 rounded-full border-2 border-emerald-400 bg-emerald-100 shrink-0"></span>
-          <span class="text-xs font-bold text-gray-700">{{ freeTablesCount }} Liberi</span>
-        </div>
-        <div class="flex items-center gap-2 bg-white rounded-xl px-3 py-2 shadow-sm border border-gray-200">
-          <span class="size-2.5 rounded-full theme-bg shrink-0"></span>
-          <span class="text-xs font-bold text-gray-700">{{ occupiedTablesCount }} Occupati</span>
-        </div>
-        <div v-if="pendingTablesCount > 0" class="flex items-center gap-2 bg-amber-50 rounded-xl px-3 py-2 shadow-sm border border-amber-200">
-          <span class="size-2.5 rounded-full border-2 border-amber-400 bg-amber-100 shrink-0"></span>
-          <span class="text-xs font-bold text-amber-800">{{ pendingTablesCount }} In Attesa</span>
-        </div>
-      </div>
+      <TableStatsBar
+        :freeCount="freeTablesCount"
+        :occupiedCount="occupiedTablesCount"
+        :pendingCount="pendingTablesCount"
+      />
 
       <!-- Table grid -->
-      <div class="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 md:gap-5">
-        <button
-          v-for="table in store.config.tables"
-          :key="table.id"
-          @click="openTableDetails(table)"
-          class="relative aspect-square rounded-[1.5rem] md:rounded-[2rem] border-[3px] md:border-[4px] flex flex-col items-center justify-center p-2 md:p-4 transition-transform active:scale-95 shadow-sm bg-white overflow-hidden group"
-          :class="store.getTableColorClass(table.id)"
-        >
-          <span class="absolute top-2 right-2 md:top-3 md:right-3 text-[9px] md:text-xs font-bold opacity-60 flex items-center gap-0.5 md:gap-1">
-            <Users class="size-2.5 md:size-3" />{{ table.covers }}
+      <TableGrid @open-table="openTableDetails">
+        <template #status="{ table }">
+          <span class="block text-[8px] md:text-[10px] font-bold uppercase tracking-widest opacity-80 mb-0.5 md:mb-1 truncate">
+            {{ store.getTableStatus(table.id).status === 'pending' ? 'In Attesa' : 'Occupato' }}
           </span>
-          <h3 class="text-xl md:text-3xl font-black mt-2">{{ table.label }}</h3>
-
-          <div v-if="store.getTableStatus(table.id).status !== 'free'" class="mt-auto text-center w-full">
-            <span v-if="getElapsedTime(table.id)" class="absolute bottom-2 left-2 text-[8px] font-bold opacity-70 flex items-center gap-0.5">
-              <Timer class="size-2.5" />{{ getElapsedTime(table.id) }}
-            </span>
-            <span class="block text-[8px] md:text-[10px] font-bold uppercase tracking-widest opacity-80 mb-0.5 md:mb-1 truncate">
-              {{ store.getTableStatus(table.id).status === 'pending' ? 'In Attesa' : 'Occupato' }}
-            </span>
-            <span class="block font-black text-sm md:text-lg bg-white/20 rounded-md md:rounded-lg py-0.5 px-1 truncate">
-              {{ tableOrderCount(table.id) }} coman{{ tableOrderCount(table.id) !== 1 ? 'de' : 'da' }}
-            </span>
-          </div>
-          <div v-else class="mt-auto text-center w-full opacity-30">
-            <span class="block text-[9px] md:text-[10px] font-bold uppercase tracking-widest">Libero</span>
-          </div>
-        </button>
-      </div>
+          <span class="block font-black text-sm md:text-lg bg-white/20 rounded-md md:rounded-lg py-0.5 px-1 truncate">
+            {{ tableOrderCount(table.id) }} coman{{ tableOrderCount(table.id) !== 1 ? 'de' : 'da' }}
+          </span>
+        </template>
+      </TableGrid>
 
     </div>
   </div>
@@ -230,13 +202,15 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, computed } from 'vue';
 import {
   Grid3x3, Users, Timer, X, Coffee, ChevronRight, Plus, ArrowRightLeft, Merge, Zap,
 } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
 // Shared component — used by both Sala and Cassa apps.
 import PeopleModal from './shared/PeopleModal.vue';
+import TableStatsBar from './shared/TableStatsBar.vue';
+import TableGrid from './shared/TableGrid.vue';
 
 const emit = defineEmits(['new-order-for-comande', 'view-order']);
 
@@ -260,23 +234,6 @@ function tableOrderCount(tableId) {
   return store.orders.filter(
     o => o.table === tableId && o.status !== 'completed' && o.status !== 'rejected',
   ).length;
-}
-
-// ── Elapsed time ────────────────────────────────────────────────────────────
-const now = ref(Date.now());
-let clockTimer = null;
-onMounted(() => { clockTimer = setInterval(() => { now.value = Date.now(); }, 30000); });
-onUnmounted(() => { if (clockTimer) clearInterval(clockTimer); });
-
-function getElapsedTime(tableId) {
-  const ts = store.tableOccupiedAt[tableId];
-  if (!ts) return null;
-  const diffMs = now.value - new Date(ts).getTime();
-  const totalMin = Math.floor(diffMs / 60000);
-  if (totalMin < 1) return null;
-  const h = Math.floor(totalMin / 60);
-  const m = totalMin % 60;
-  return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
 // ── People modal ────────────────────────────────────────────────────────────

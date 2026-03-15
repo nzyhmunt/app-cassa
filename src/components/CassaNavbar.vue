@@ -64,33 +64,23 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, computed } from 'vue';
+import { computed } from 'vue';
 import { useRoute } from 'vue-router';
 import { Monitor, Receipt, LayoutGrid, BellPlus, Settings, Landmark, Lock } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
 import { useBeep } from '../composables/useBeep.js';
 import { useAuth } from '../composables/useAuth.js';
+import { useAppClock } from '../composables/useAppClock.js';
 
 const emit = defineEmits(['open-settings', 'open-cassa', 'lock']);
 
 const store = useAppStore();
 const { requiresAuth } = useAuth();
 const route = useRoute();
-const currentTime = ref(new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }));
+const { currentTime } = useAppClock();
 
 const isOrdersActive = computed(() => route.name === 'ordini');
 const isRoomActive = computed(() => route.name === 'sala' || route.name === 'storico-conti');
-
-let clockTimer = null;
-onMounted(() => {
-  clockTimer = setInterval(() => {
-    currentTime.value = new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
-  }, 1000);
-});
-
-onUnmounted(() => {
-  if (clockTimer !== null) clearInterval(clockTimer);
-});
 
 const { playBeep } = useBeep();
 

@@ -224,7 +224,7 @@
             >
               <KitchenOrderCard
                 :order="order"
-                status-label="Pronta 🔔"
+                status-label="Pronta"
                 status-class="bg-teal-100 text-teal-800 border-teal-200"
                 :elapsed-label="elapsedLabel(order.time)"
                 :elapsed-color="elapsedColor(order.time)"
@@ -309,8 +309,8 @@
                 <p :class="['text-sm font-bold leading-tight', row.item.kitchenReady ? 'text-gray-400 line-through' : 'text-gray-800']">
                   <span :class="['font-black tabular-nums mr-1', row.item.kitchenReady ? 'text-gray-400' : getCourseQtyClass(row.item.course)]">{{ row.item.quantity - (row.item.voidedQuantity || 0) }}×</span>{{ row.item.name }}
                 </p>
-                <p v-if="row.item.notes?.length" :class="['text-xs mt-0.5 font-semibold', row.item.kitchenReady ? 'text-gray-400 line-through' : 'text-amber-600']">
-                  ✎ {{ row.item.notes.join(' · ') }}
+                <p v-if="row.item.notes?.length" :class="['text-xs mt-0.5 font-semibold flex items-center gap-1', row.item.kitchenReady ? 'text-gray-400 line-through' : 'text-amber-600']">
+                  <Pencil class="size-3 shrink-0" />{{ row.item.notes.join(' · ') }}
                 </p>
                 <div v-for="(mod, mi) in activeDetailModifiers(row.item)" :key="`${row.item.uid}_mod_${mi}`"
                   :class="['text-[10px] font-bold px-1.5 py-0.5 rounded inline-flex items-center gap-0.5 mt-0.5 mr-1',
@@ -444,7 +444,7 @@
 
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
-import { Bell, BellRing, ChefHat, Check, CheckCircle2, Clock, Flame, Layers, Lock, RefreshCw, RotateCcw, Settings, ClipboardList, X } from 'lucide-vue-next';
+import { Bell, BellRing, ChefHat, Check, CheckCircle2, Clock, Flame, Layers, Lock, Pencil, RefreshCw, RotateCcw, Settings, ClipboardList, X } from 'lucide-vue-next';
 import { useAppStore } from '../../store/index.js';
 import { useBeep } from '../../composables/useBeep.js';
 import { useAuth } from '../../composables/useAuth.js';
@@ -501,7 +501,7 @@ function detailStatusBadgeClass(status) {
 function detailStatusLabel(status) {
   if (status === 'accepted') return 'Da Preparare';
   if (status === 'preparing') return 'In Cottura';
-  if (status === 'ready') return 'Pronta 🔔';
+  if (status === 'ready') return 'Pronta';
   return status;
 }
 
