@@ -4,8 +4,10 @@
  * Component-level integration tests for the shared SettingsModal.
  *
  * These tests verify the role-based access control:
- *  - Menu sync section (URL input + sync button) is only visible to admins
- *  - Reset-to-defaults section is only visible to admins
+ *  - Menu sync section (URL input + sync button) is controlled by the showMenuSync prop.
+ *    In production, CassaSettingsModal/SalaSettingsModal pass :showMenuSync="isAdmin"
+ *    so only admins see the menu sync section.
+ *  - Reset-to-defaults section is only visible to admins (isAdmin check in SettingsModal)
  *  - Non-admin users cannot see these destructive / privileged actions
  */
 
@@ -17,29 +19,29 @@ import { useAuth, _resetAuthSingleton } from '../../composables/useAuth.js';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+const ICON_STUBS = {
+  Settings: { template: '<span />' },
+  X: { template: '<span />' },
+  RefreshCw: { template: '<span />' },
+  RotateCcw: { template: '<span />' },
+  Users: { template: '<span />' },
+  ShieldCheck: { template: '<span />' },
+  ShieldAlert: { template: '<span />' },
+  Volume2: { template: '<span />' },
+  VolumeX: { template: '<span />' },
+  Monitor: { template: '<span />' },
+  UserManagementModal: { template: '<div />', props: ['modelValue'] },
+};
+
 /**
  * Mount the settings modal in the open state.
- * Lucide icons and the UserManagementModal sub-component are stubbed.
+ * Accepts optional props to override defaults (e.g. showMenuSync).
+ * In production the wrapper passes :showMenuSync="isAdmin".
  */
-function mountSettingsModal() {
+function mountSettingsModal(extraProps = {}) {
   return mount(SettingsModal, {
-    props: { modelValue: true, title: 'Impostazioni' },
-    global: {
-      stubs: {
-        Settings: { template: '<span />' },
-        X: { template: '<span />' },
-        RefreshCw: { template: '<span />' },
-        RotateCcw: { template: '<span />' },
-        Users: { template: '<span />' },
-        ShieldCheck: { template: '<span />' },
-        ShieldAlert: { template: '<span />' },
-        Volume2: { template: '<span />' },
-        VolumeX: { template: '<span />' },
-        Monitor: { template: '<span />' },
-        // Stub the nested UserManagementModal to avoid mounting it in tests
-        UserManagementModal: { template: '<div />', props: ['modelValue'] },
-      },
-    },
+    props: { modelValue: true, title: 'Impostazioni', ...extraProps },
+    global: { stubs: ICON_STUBS },
   });
 }
 
@@ -68,8 +70,9 @@ afterEach(async () => {
 // ── No users configured (open access) ────────────────────────────────────────
 
 describe('no users configured (open access)', () => {
+  // The wrapper passes :showMenuSync="isAdmin" — with no admin logged in, isAdmin=false.
   it('hides the menu sync section when no users are configured (no admin logged in)', () => {
-    const wrapper = mountSettingsModal();
+    const wrapper = mountSettingsModal({ showMenuSync: false });
     expect(wrapper.text()).not.toContain('URL Menu JSON');
     expect(wrapper.text()).not.toContain('Sincronizza');
   });
@@ -94,6 +97,7 @@ describe('admin user logged in', () => {
     await login(admin.id, '1111');
   });
 
+  // Admin: wrapper passes showMenuSync=true (isAdmin=true)
   it('shows the "URL Menu JSON" label to admin', async () => {
     const wrapper = mountSettingsModal();
     await flushPromises(); // let store.menuLoading settle
@@ -123,14 +127,15 @@ describe('non-admin user logged in', () => {
     await login(staff.id, '2222');
   });
 
+  // Non-admin: wrapper passes showMenuSync=false (isAdmin=false)
   it('hides the "URL Menu JSON" label from non-admin', async () => {
-    const wrapper = mountSettingsModal();
+    const wrapper = mountSettingsModal({ showMenuSync: false });
     await flushPromises();
     expect(wrapper.text()).not.toContain('URL Menu JSON');
   });
 
   it('hides the menu sync button from non-admin', async () => {
-    const wrapper = mountSettingsModal();
+    const wrapper = mountSettingsModal({ showMenuSync: false });
     await flushPromises();
     expect(wrapper.text()).not.toContain('Sincronizza');
   });
@@ -164,21 +169,7 @@ describe('showMenuSync prop', () => {
   });
 
   it('hides the menu sync section when showMenuSync=false, even for admin', async () => {
-    const wrapper = mount(SettingsModal, {
-      props: { modelValue: true, title: 'Impostazioni', showMenuSync: false },
-      global: {
-        stubs: {
-          Settings: { template: '<span />' },
-          X: { template: '<span />' },
-          RefreshCw: { template: '<span />' },
-          RotateCcw: { template: '<span />' },
-          Users: { template: '<span />' },
-          ShieldCheck: { template: '<span />' },
-          ShieldAlert: { template: '<span />' },
-          UserManagementModal: { template: '<div />', props: ['modelValue'] },
-        },
-      },
-    });
+    const wrapper = mountSettingsModal({ showMenuSync: false });
     await flushPromises();
     expect(wrapper.text()).not.toContain('URL Menu JSON');
     expect(wrapper.text()).not.toContain('Sincronizza');
