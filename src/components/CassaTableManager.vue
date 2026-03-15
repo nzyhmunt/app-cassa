@@ -546,7 +546,7 @@
       </div>
 
       <!-- Tabs -->
-      <div v-if="store.config.billing?.allowCustomEntry !== false" class="flex border-b border-gray-200 bg-gray-50 shrink-0">
+      <div v-if="canShowCustomEntryTab" class="flex border-b border-gray-200 bg-gray-50 shrink-0">
         <button
           @click="directItemMode = 'menu'"
           :class="directItemMode === 'menu' ? 'border-b-2 theme-border-b theme-text bg-white font-bold' : 'text-gray-500 hover:bg-gray-100'"
@@ -591,10 +591,10 @@
         </div>
 
         <!-- "Custom" mode -->
-        <div v-else-if="directItemMode === 'custom' && store.config.billing?.allowCustomEntry !== false" class="flex-1 overflow-hidden flex flex-col min-h-0">
+        <div v-else-if="directItemMode === 'custom' && canShowCustomEntryTab" class="flex-1 overflow-hidden flex flex-col min-h-0">
 
-          <!-- New item form -->
-          <div class="shrink-0 p-4 border-b border-gray-100 bg-white">
+          <!-- New item form (admin only) -->
+          <div v-if="isAdmin" class="shrink-0 p-4 border-b border-gray-100 bg-white">
             <div class="flex gap-2 items-end">
               <div class="flex-1 min-w-0">
                 <label class="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1.5">Nome voce</label>
@@ -632,24 +632,29 @@
             <div v-if="savedCustomItems.length > 0">
               <p class="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2 px-1">Voci salvate</p>
               <div class="grid grid-cols-2 md:grid-cols-3 gap-2">
-                <button
+                <div
                   v-for="(saved, si) in savedCustomItems"
                   :key="'sc_'+si"
                   @click="addSavedCustomItemToDirectCart(saved)"
-                  class="group relative bg-white border border-gray-200 rounded-xl p-3 text-left hover:border-emerald-300 hover:bg-emerald-50 active:scale-95 transition-all shadow-sm flex flex-col gap-1 min-w-0">
+                  @keydown.enter.space.prevent="addSavedCustomItemToDirectCart(saved)"
+                  tabindex="0"
+                  role="button"
+                  class="group relative bg-white border border-gray-200 rounded-xl p-3 text-left hover:border-emerald-300 hover:bg-emerald-50 active:scale-95 transition-all shadow-sm flex flex-col gap-1 min-w-0 cursor-pointer select-none focus:outline-none theme-ring">
                   <span class="font-bold text-gray-800 text-xs leading-snug line-clamp-2 pr-4">{{ saved.name }}</span>
                   <span class="theme-text font-black text-sm">{{ store.config.ui.currency }}{{ saved.price.toFixed(2) }}</span>
                   <button
+                    v-if="isAdmin"
                     @click.stop="removeSavedCustomItem(si)"
                     class="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 size-5 rounded-full bg-gray-100 hover:bg-red-100 hover:text-red-600 flex items-center justify-center text-gray-400 transition-all active:scale-90">
                     <X class="size-3" />
                   </button>
-                </button>
+                </div>
               </div>
             </div>
             <div v-else class="flex flex-col items-center justify-center h-full text-gray-400 py-8 gap-2">
               <PlusCircle class="size-8 opacity-30" />
-              <p class="text-xs text-center">Le voci inserite verranno salvate qui per un accesso rapido.</p>
+              <p v-if="isAdmin" class="text-xs text-center">Le voci inserite verranno salvate qui per un accesso rapido.</p>
+              <p v-else class="text-xs text-center">Nessuna voce personalizzata disponibile.</p>
             </div>
           </div>
         </div>
@@ -783,6 +788,7 @@ import {
 import { useAppStore } from '../store/index.js';
 import { getOrderItemRowTotal, KITCHEN_ACTIVE_STATUSES } from '../utils/index.js';
 import { resolveCustomItemsKey } from '../store/persistence.js';
+import { useAuth } from '../composables/useAuth.js';
 import CassaClosedBillsList from './CassaClosedBillsList.vue';
 import TableStatsBar from './shared/TableStatsBar.vue';
 import TableGrid from './shared/TableGrid.vue';
@@ -793,6 +799,7 @@ import NumericInput from './NumericInput.vue';
 const emit = defineEmits(['open-order-from-table', 'new-order-for-ordini']);
 
 const store = useAppStore();
+const { isAdmin } = useAuth();
 
 // ── Table modal state ──────────────────────────────────────────────────────
 const showTableModal = ref(false);
@@ -1189,6 +1196,11 @@ const directActiveMenuCategory = ref('');
 const directCart = ref([]);
 const directCustomName = ref('');
 const directCustomPrice = ref('');
+
+/** True when the "Personalizzata" custom-entry tab is available (driven by config flag). */
+const canShowCustomEntryTab = computed(
+  () => store.config.billing?.allowCustomEntry !== false,
+);
 
 // Saved custom items — persisted in localStorage
 // Key is derived from the instance name so multiple instances stay isolated.

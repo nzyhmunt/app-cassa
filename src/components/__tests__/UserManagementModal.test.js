@@ -41,6 +41,7 @@ function mountModal() {
         Lock: { template: '<span data-testid="icon-lock" />' },
         ShieldCheck: { template: '<span data-testid="icon-shield-check" />' },
         ShieldOff: { template: '<span data-testid="icon-shield-off" />' },
+        UserPlus: { template: '<span data-testid="icon-user-plus" />' },
       },
     },
   });
@@ -256,11 +257,13 @@ describe('non-empty state with admin logged in', () => {
 // ── Non-empty state (non-admin logged in) ────────────────────────────────────
 
 describe('non-empty state with non-admin user logged in', () => {
+  let staffUser;
+
   beforeEach(async () => {
     const { addUser, login } = useAuth();
     await addUser('Admin', '1111'); // first user = admin
-    const staff = await addUser('Staff', '2222'); // second user = non-admin
-    await login(staff.id, '2222');
+    staffUser = await addUser('Staff', '2222'); // second user = non-admin
+    await login(staffUser.id, '2222');
   });
 
   it('shows the limited-access notice for non-admins', () => {
@@ -277,5 +280,63 @@ describe('non-empty state with non-admin user logged in', () => {
   it('still shows the existing user list', () => {
     const wrapper = mountModal();
     expect(wrapper.text()).toContain('Utenti configurati');
+  });
+
+  it('shows an edit button for the non-admin user on their own row', () => {
+    const wrapper = mountModal();
+    // The edit ("Modifica") button should be rendered for the non-admin's own account
+    const editBtn = wrapper.find('button[title="Modifica"]');
+    expect(editBtn.exists()).toBe(true);
+  });
+
+  it('does not show an edit button for the admin user row when non-admin is logged in', async () => {
+    const wrapper = mountModal();
+    await flushPromises();
+    // There should be exactly one "Modifica" button (for own account only, not for admin row)
+    const editBtns = wrapper.findAll('button[title="Modifica"]');
+    expect(editBtns.length).toBe(1);
+  });
+
+  it('does not show the name input when non-admin edits their own account', async () => {
+    const wrapper = mountModal();
+    const editBtn = wrapper.find('button[title="Modifica"]');
+    await editBtn.trigger('click');
+    await flushPromises();
+
+    // Only PIN input should appear; name input must NOT be present
+    const nameInput = wrapper.find('input[placeholder="Nome"]');
+    const pinInput = wrapper.find('input[placeholder="Nuovo PIN (4 cifre, lascia vuoto per non cambiare)"]');
+    expect(nameInput.exists()).toBe(false);
+    expect(pinInput.exists()).toBe(true);
+  });
+
+  it('allows a non-admin user to change their own PIN', async () => {
+    const wrapper = mountModal();
+    const editBtn = wrapper.find('button[title="Modifica"]');
+    await editBtn.trigger('click');
+    await flushPromises();
+
+    const pinInput = wrapper.find('input[placeholder="Nuovo PIN (4 cifre, lascia vuoto per non cambiare)"]');
+    await pinInput.setValue('9999');
+
+    const saveBtn = wrapper.find('button[title="Salva"]');
+    await saveBtn.trigger('click');
+
+    // updateUser calls hashPin (async via UV thread pool); poll until the edit form closes
+    await vi.waitFor(
+      () => expect(wrapper.find('input[placeholder="Nuovo PIN (4 cifre, lascia vuoto per non cambiare)"]').exists()).toBe(false),
+      { timeout: 3000, interval: 10 },
+    );
+    await flushPromises();
+
+    // User should still exist after PIN update
+    const { users } = useAuth();
+    expect(users.value.find(u => u.id === staffUser.id)).toBeDefined();
+  });
+
+  it('does not show the delete button for any user when non-admin is logged in', () => {
+    const wrapper = mountModal();
+    const deleteBtns = wrapper.findAll('button[title="Elimina"]');
+    expect(deleteBtns.length).toBe(0);
   });
 });

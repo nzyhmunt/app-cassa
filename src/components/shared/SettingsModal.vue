@@ -107,7 +107,7 @@
         </div>
 
         <!-- Reset dati -->
-        <div class="pt-4 border-t border-gray-100 mt-2">
+        <div v-if="isAdmin" class="pt-4 border-t border-gray-100 mt-2">
           <template v-if="!resetConfirmPending">
             <button @click="resetConfirmPending = true"
               class="w-full py-3 bg-red-50 hover:bg-red-100 text-red-700 font-bold rounded-2xl flex items-center justify-center gap-2 border border-red-200 transition-colors shadow-sm active:scale-95">
@@ -156,7 +156,7 @@ const { store, settings, resetConfirmPending, syncMenu, confirmReset, wakeLockAp
 
 const showUserManagement = ref(false);
 
-const { manualUsers } = useAuth();
+const { manualUsers, isAdmin } = useAuth();
 
 const keyboardPositionOptions = [
   { value: 'disabled', label: 'Off' },
