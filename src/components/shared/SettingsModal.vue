@@ -65,7 +65,7 @@
           </div>
         </div>
 
-        <div class="pt-4 border-t border-gray-100 mt-2 space-y-3">
+        <div v-if="showMenuSync" class="pt-4 border-t border-gray-100 mt-2 space-y-3">
           <div>
             <label class="block text-xs font-bold text-gray-600 mb-1">URL Menu JSON</label>
             <input
@@ -132,6 +132,7 @@ const props = defineProps({
   modelValue: Boolean,
   title: { type: String, required: true },
   showKeyboardToggle: { type: Boolean, default: false },
+  showMenuSync: { type: Boolean, default: true },
 });
 const emit = defineEmits(['update:modelValue', 'settings-changed']);
 
