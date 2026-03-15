@@ -108,10 +108,26 @@ describe('addUser()', () => {
     expect(users.value[0].apps).toEqual(ALL_APPS);
   });
 
-  it('respects a custom apps list', async () => {
+  it('respects a custom apps list for non-admin users', async () => {
     const { addUser, users } = useAuth();
-    await addUser('Chef', '5678', ['cucina']);
-    expect(users.value[0].apps).toEqual(['cucina']);
+    await addUser('Admin', '1111'); // first user = admin, always gets ALL_APPS
+    await addUser('Chef', '5678', ['cucina']); // second user = non-admin, custom apps
+    expect(users.value[1].apps).toEqual(['cucina']);
+  });
+
+  it('admin user always gets all apps regardless of the apps argument', async () => {
+    const { addUser, users } = useAuth();
+    await addUser('Admin', '1111', ['cucina']); // first user = admin, must get ALL_APPS
+    expect(users.value[0].apps).toEqual(ALL_APPS);
+    expect(users.value[0].isAdmin).toBe(true);
+  });
+
+  it('makeAdmin flag creates an admin user with all apps', async () => {
+    const { addUser, users } = useAuth();
+    await addUser('Admin', '1111'); // first user = admin
+    await addUser('Manager', '2222', ['cassa'], true); // explicit admin
+    expect(users.value[1].isAdmin).toBe(true);
+    expect(users.value[1].apps).toEqual(ALL_APPS);
   });
 });
 

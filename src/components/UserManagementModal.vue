@@ -201,11 +201,34 @@
                 class="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]" />
               <input v-model="addForm.pin" type="password" maxlength="8" inputmode="numeric" placeholder="PIN (4 cifre numeriche)"
                 class="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]" />
-              <div class="flex items-center gap-2">
+              <!-- Admin toggle -->
+              <div @click="addForm.isAdmin = !addForm.isAdmin"
+                class="flex items-center justify-between px-3 py-2 border border-gray-200 rounded-xl bg-white cursor-pointer select-none transition-colors hover:bg-gray-50">
+                <div class="flex items-center gap-2">
+                  <ShieldCheck class="size-4 text-gray-500 shrink-0" />
+                  <div>
+                    <span class="text-xs font-bold text-gray-800">Ruolo Amministratore</span>
+                    <p class="text-[10px] text-gray-400 leading-tight">Accesso completo a tutte le app e alle impostazioni</p>
+                  </div>
+                </div>
+                <button type="button" role="switch" :aria-checked="addForm.isAdmin"
+                  @click.stop="addForm.isAdmin = !addForm.isAdmin"
+                  class="relative inline-flex h-5 w-9 items-center rounded-full transition-colors shrink-0 focus:outline-none"
+                  :class="addForm.isAdmin ? 'bg-[var(--brand-primary)]' : 'bg-gray-300'">
+                  <span class="inline-block size-4 transform rounded-full bg-white shadow-md transition-transform"
+                    :class="addForm.isAdmin ? 'translate-x-4' : 'translate-x-0.5'"></span>
+                </button>
+              </div>
+              <div class="flex items-center gap-2" :class="addForm.isAdmin ? 'opacity-50' : ''">
                 <span class="text-[10px] text-gray-500 font-bold uppercase tracking-wide">App:</span>
                 <button v-for="app in ALL_APPS" :key="app" @click="toggleAddApp(app)"
-                  class="text-[10px] font-bold px-2 py-0.5 rounded-full border transition-all active:scale-95"
-                  :class="addForm.apps.includes(app) ? 'bg-[var(--brand-primary)] text-white border-[var(--brand-primary)]' : 'bg-white text-gray-400 border-gray-200 hover:border-gray-300'">
+                  :disabled="addForm.isAdmin"
+                  :aria-disabled="addForm.isAdmin"
+                  class="text-[10px] font-bold px-2 py-0.5 rounded-full border transition-all"
+                  :class="[
+                    (addForm.isAdmin || addForm.apps.includes(app)) ? 'bg-[var(--brand-primary)] text-white border-[var(--brand-primary)]' : 'bg-white text-gray-400 border-gray-200 hover:border-gray-300',
+                    addForm.isAdmin ? 'cursor-not-allowed' : 'active:scale-95'
+                  ]">
                   {{ app }}
                 </button>
               </div>
@@ -330,7 +353,7 @@ async function submitFirstUser() {
 }
 
 // ── Add user form (admin only, shown when users exist) ────────────────────────
-const addForm = ref({ name: '', pin: '', error: '', apps: [...ALL_APPS] });
+const addForm = ref({ name: '', pin: '', error: '', apps: [...ALL_APPS], isAdmin: false });
 
 async function submitAddUser() {
   const n = addForm.value.name.trim();
@@ -338,13 +361,15 @@ async function submitAddUser() {
   const err = validateUserForm(n, p);
   addForm.value.error = err;
   if (err) return;
-  await addUser(n, p, addForm.value.apps);
+  await addUser(n, p, addForm.value.apps, addForm.value.isAdmin);
   addForm.value.name = '';
   addForm.value.pin = '';
   addForm.value.apps = [...ALL_APPS];
+  addForm.value.isAdmin = false;
 }
 
 function toggleAddApp(app) {
+  if (addForm.value.isAdmin) return; // admin always has all apps
   if (addForm.value.apps.includes(app)) {
     if (addForm.value.apps.length === 1) return; // keep at least one
     addForm.value.apps = addForm.value.apps.filter(a => a !== app);
