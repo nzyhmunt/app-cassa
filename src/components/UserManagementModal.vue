@@ -17,8 +17,8 @@
       <!-- Scrollable body -->
       <div class="overflow-y-auto flex-1 p-4 md:p-6 space-y-4">
 
-        <!-- ── No users at all: add first (admin) user ──────────────────── -->
-        <template v-if="allUsers.length === 0">
+        <!-- ── No manual users yet: add first (admin) user ─────────────── -->
+        <template v-if="manualUsers.length === 0">
           <div class="bg-blue-50 border border-blue-200 rounded-2xl p-4 text-sm text-blue-800 flex items-start gap-3">
             <ShieldCheck class="size-5 shrink-0 text-blue-500 mt-0.5" />
             <div>
@@ -219,10 +219,12 @@
  * CucinaSettingsModal tramite il pulsante "Gestione Utenti & Blocco Schermo".
  *
  * ## Flusso principale
- * 1. **Nessun utente** (`allUsers.length === 0`):
+ * 1. **Nessun utente manuale** (`manualUsers.length === 0`):
  *    Viene mostrato il banner informativo e il form `AddUserForm` con
  *    `isFirst=true`.  Il primo utente creato riceve automaticamente i
  *    privilegi di amministratore (gestito da `useAuth().addUser()`).
+ *    Questa condizione viene soddisfatta anche quando esistono utenti statici
+ *    (`appConfig.auth.users`) ma nessun utente manuale è ancora stato creato.
  *
  * 2. **Utenti presenti, utente non-admin**:
  *    Vengono visualizzati solo i dati in sola lettura; il form di aggiunta
@@ -256,6 +258,7 @@ defineEmits(['update:modelValue']);
 
 const {
   users: allUsers,
+  manualUsers,
   isAdmin,
   hasAdmin,
   lockTimeoutMinutes,
