@@ -629,11 +629,29 @@
 
           <!-- Saved custom items -->
           <div class="flex-1 overflow-y-auto p-3">
-            <div v-if="allDirectCustomItems.length > 0">
+            <div v-if="savedCustomItems.length > 0 || configLockedDirectItems.length > 0">
               <p class="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2 px-1">Voci salvate</p>
               <div class="grid grid-cols-2 md:grid-cols-3 gap-2">
+                <!-- Config-locked items (coperto adulto/bambino) — shown first, non-removable -->
                 <div
-                  v-for="(saved, si) in allDirectCustomItems"
+                  v-for="(locked, li) in configLockedDirectItems"
+                  :key="'lc_'+li"
+                  class="flex items-stretch bg-white border border-emerald-200 rounded-xl shadow-sm overflow-hidden transition-colors">
+                  <button
+                    @click="addSavedCustomItemToDirectCart(locked)"
+                    class="flex-1 p-3 text-left hover:bg-emerald-50 active:scale-95 transition-colors min-w-0 flex flex-col gap-1 bg-emerald-50/50">
+                    <span class="font-bold text-gray-800 text-xs leading-snug line-clamp-2">{{ locked.name }}</span>
+                    <span class="theme-text font-black text-sm mt-auto">{{ store.config.ui.currency }}{{ locked.price.toFixed(2) }}</span>
+                  </button>
+                  <span
+                    class="shrink-0 w-8 border-l border-emerald-100 text-emerald-500 bg-emerald-50/50 flex items-center justify-center"
+                    title="Voce fissa da configurazione">
+                    <Lock class="size-3.5" />
+                  </span>
+                </div>
+                <!-- User-saved items -->
+                <div
+                  v-for="(saved, si) in savedCustomItems"
                   :key="'sc_'+si"
                   class="flex items-stretch bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden hover:border-emerald-300 transition-colors">
                   <button
@@ -642,16 +660,8 @@
                     <span class="font-bold text-gray-800 text-xs leading-snug line-clamp-2">{{ saved.name }}</span>
                     <span class="theme-text font-black text-sm mt-auto">{{ store.config.ui.currency }}{{ saved.price.toFixed(2) }}</span>
                   </button>
-                  <!-- Lock badge for config-pinned items — cannot be removed -->
-                  <span
-                    v-if="saved.locked"
-                    class="shrink-0 w-8 border-l border-emerald-100 text-emerald-500 bg-emerald-50/50 flex items-center justify-center"
-                    title="Voce fissa da configurazione">
-                    <Lock class="size-3.5" />
-                  </span>
-                  <!-- Delete button for user-saved items (admin only) -->
                   <button
-                    v-else-if="isAdmin"
+                    v-if="isAdmin"
                     @click="removeSavedCustomItem(si)"
                     class="shrink-0 w-8 border-l border-gray-100 text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors flex items-center justify-center active:scale-90">
                     <Trash2 class="size-3.5" />
@@ -1236,15 +1246,6 @@ const savedCustomItems = ref(
   })(),
 );
 
-/**
- * All items shown in the Personalizzata grid: locked config items first,
- * then user-saved items from localStorage.
- */
-const allDirectCustomItems = computed(() => [
-  ...configLockedDirectItems.value,
-  ...savedCustomItems.value,
-]);
-
 watch(savedCustomItems, (val) => {
   try { localStorage.setItem(SAVED_CUSTOM_KEY, JSON.stringify(val)); }
   catch (e) { console.warn('[CassaTableManager] Failed to save custom items:', e); }
@@ -1328,11 +1329,7 @@ function addSavedCustomItemToDirectCart(saved) {
 }
 
 function removeSavedCustomItem(idx) {
-  // Locked config items occupy the first N slots in allDirectCustomItems;
-  // subtract their count to get the correct index into savedCustomItems.
-  const adjustedIdx = idx - configLockedDirectItems.value.length;
-  if (adjustedIdx < 0) return; // safety guard — should not happen via UI
-  savedCustomItems.value.splice(adjustedIdx, 1);
+  savedCustomItems.value.splice(idx, 1);
 }
 
 const directCartTotal = computed(() =>
