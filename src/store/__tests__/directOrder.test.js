@@ -137,4 +137,79 @@ describe('addDirectOrder()', () => {
     const { total } = store.getTableStatus('04');
     expect(total).toBeCloseTo(2.00, 2);
   });
+
+  it('sets itemCount to the sum of active (non-voided) quantities', () => {
+    const store = useAppStore();
+    const items = [
+      { uid: 'test_11a', dishId: 'bev_1', name: 'Acqua', unitPrice: 2.00, quantity: 3, voidedQuantity: 0, notes: [], modifiers: [] },
+      { uid: 'test_11b', dishId: 'cafe_1', name: 'Caffè', unitPrice: 1.50, quantity: 2, voidedQuantity: 0, notes: [], modifiers: [] },
+    ];
+    const result = store.addDirectOrder('01', 'session_abc', items);
+
+    expect(result.itemCount).toBe(5);
+  });
+
+  it('voidedQuantity reduces itemCount and totalAmount', () => {
+    const store = useAppStore();
+    const items = [
+      { uid: 'test_12', dishId: 'bev_1', name: 'Acqua', unitPrice: 2.00, quantity: 3, voidedQuantity: 1, notes: [], modifiers: [] },
+    ];
+    const result = store.addDirectOrder('01', 'session_abc', items);
+
+    // active = 3 - 1 = 2
+    expect(result.itemCount).toBe(2);
+    expect(result.totalAmount).toBeCloseTo(4.00, 2);
+  });
+
+  it('two direct orders for the same table and session stack in getTableStatus total', () => {
+    const store = useAppStore();
+    store.openTableSession('06', 2, 0);
+    const session = store.tableCurrentBillSession['06'];
+
+    store.addDirectOrder('06', session.billSessionId, [
+      { uid: 'test_13a', dishId: 'bev_1', name: 'Acqua', unitPrice: 2.00, quantity: 1, voidedQuantity: 0, notes: [], modifiers: [] },
+    ]);
+    store.addDirectOrder('06', session.billSessionId, [
+      { uid: 'test_13b', dishId: 'cafe_1', name: 'Caffè', unitPrice: 1.50, quantity: 2, voidedQuantity: 0, notes: [], modifiers: [] },
+    ]);
+
+    const { total } = store.getTableStatus('06');
+    expect(total).toBeCloseTo(5.00, 2);
+  });
+
+  it('leaves the table status as occupied (not pending) after creation', () => {
+    const store = useAppStore();
+    store.openTableSession('07', 2, 0);
+    const session = store.tableCurrentBillSession['07'];
+
+    store.addDirectOrder('07', session.billSessionId, [
+      { uid: 'test_14', dishId: 'cafe_1', name: 'Caffè', unitPrice: 1.50, quantity: 1, voidedQuantity: 0, notes: [], modifiers: [] },
+    ]);
+
+    const { status } = store.getTableStatus('07');
+    expect(status).toBe('occupied');
+  });
+
+  it('assigns a unique string id prefixed with "ord_"', () => {
+    const store = useAppStore();
+    const items = [
+      { uid: 'test_15', dishId: 'cafe_1', name: 'Caffè', unitPrice: 1.50, quantity: 1, voidedQuantity: 0, notes: [], modifiers: [] },
+    ];
+    const result = store.addDirectOrder('01', 'session_abc', items);
+
+    expect(typeof result.id).toBe('string');
+    expect(result.id).toMatch(/^ord_/);
+  });
+
+  it('two successive calls produce different order ids', () => {
+    const store = useAppStore();
+    const items = [
+      { uid: 'test_16', dishId: 'cafe_1', name: 'Caffè', unitPrice: 1.50, quantity: 1, voidedQuantity: 0, notes: [], modifiers: [] },
+    ];
+
+    const a = store.addDirectOrder('01', 'session_abc', items);
+    const b = store.addDirectOrder('01', 'session_abc', items);
+
+    expect(a.id).not.toBe(b.id);
+  });
 });
