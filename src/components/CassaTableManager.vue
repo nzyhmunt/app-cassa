@@ -469,7 +469,7 @@
             </div>
 
             <!-- Calcolatore Resto Contanti -->
-            <div v-if="cashChangeEnabled && canPay && isCashPaymentActive" class="bg-emerald-50 border border-emerald-100 rounded-xl p-3">
+            <div v-if="cashChangeEnabled && canPay && isCashPaymentActive && !mixedPaymentEnabled" class="bg-emerald-50 border border-emerald-100 rounded-xl p-3">
               <label class="block text-[10px] font-bold text-emerald-700 uppercase mb-2 flex items-center gap-1.5">
                 <Coins class="size-3.5" /> Contanti Ricevuti
               </label>
@@ -496,7 +496,80 @@
               </div>
             </div>
 
-            <div class="grid grid-cols-2 gap-3">
+            <!-- Pagamento Misto Toggle (solo in modalità Tutto con ≥2 metodi) -->
+            <div v-if="checkoutMode === 'unico' && canPay && store.config.paymentMethods.length >= 2" class="flex items-center justify-between">
+              <span class="text-[10px] font-bold text-gray-500 uppercase tracking-wider flex items-center gap-1.5">
+                <Shuffle class="size-3.5" /> Pagamento Misto
+              </span>
+              <button
+                @click="mixedPaymentEnabled = !mixedPaymentEnabled; mixedFirstAmount = ''"
+                :class="mixedPaymentEnabled ? 'bg-indigo-600 text-white' : 'bg-gray-200 text-gray-600 hover:bg-gray-300'"
+                class="px-3 py-1.5 text-xs font-bold rounded-lg transition-colors active:scale-95"
+              >
+                {{ mixedPaymentEnabled ? 'Attivo' : 'Off' }}
+              </button>
+            </div>
+
+            <!-- Mixed Payment Form -->
+            <div v-if="checkoutMode === 'unico' && mixedPaymentEnabled && canPay" class="bg-indigo-50 border border-indigo-100 rounded-xl p-3 space-y-3">
+              <!-- First method selector + amount -->
+              <div>
+                <label class="block text-[10px] font-bold text-indigo-700 uppercase mb-2">Primo Pagamento:</label>
+                <div class="flex gap-2 mb-2">
+                  <button
+                    v-for="m in store.config.paymentMethods"
+                    :key="m.id"
+                    @click="mixedFirstMethodId = m.id; mixedFirstAmount = ''"
+                    :class="mixedFirstMethodId === m.id ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-gray-700 border-gray-200 hover:border-indigo-300'"
+                    class="flex-1 py-2.5 text-xs font-bold rounded-xl border-2 flex items-center justify-center gap-1.5 transition-all active:scale-95"
+                  >
+                    <component :is="getPaymentIcon(m.id)" class="size-4" /> {{ m.label }}
+                  </button>
+                </div>
+                <NumericInput
+                  v-model="mixedFirstAmount"
+                  min="0"
+                  step="0.50"
+                  placeholder="0.00"
+                  :prefix="store.config.ui.currency"
+                  class="w-full text-sm font-bold border border-indigo-200 rounded-xl px-3 py-2.5 bg-white focus:outline-none focus:border-indigo-400 text-indigo-900"
+                />
+              </div>
+
+              <!-- Second method (auto-calculated remainder) -->
+              <div class="pt-3 border-t border-indigo-200">
+                <label class="block text-[10px] font-bold text-indigo-700 uppercase mb-2">Residuo (Secondo Metodo):</label>
+                <div class="flex justify-between items-center bg-white rounded-xl border border-indigo-100 px-3 py-2.5">
+                  <div class="flex items-center gap-2 text-sm font-bold text-gray-700">
+                    <component v-if="mixedSecondMethod" :is="getPaymentIcon(mixedSecondMethod.id)" class="size-4" />
+                    {{ mixedSecondMethod?.label ?? '—' }}
+                  </div>
+                  <span class="font-black text-base" :class="mixedSecondAmount >= 0 ? 'text-indigo-700' : 'text-red-500'">
+                    {{ store.config.ui.currency }}{{ mixedSecondAmount.toFixed(2) }}
+                  </span>
+                </div>
+                <p v-if="mixedSecondAmount < 0" class="mt-1.5 text-[10px] text-red-500 font-bold">
+                  L'importo supera il totale da pagare di {{ store.config.ui.currency }}{{ Math.abs(mixedSecondAmount).toFixed(2) }}
+                </p>
+              </div>
+
+              <!-- Tip note in mixed mode -->
+              <div v-if="tipAmount > 0" class="text-[10px] font-medium text-indigo-600 text-right">
+                + {{ store.config.ui.currency }}{{ tipAmount.toFixed(2) }} mancia (aggiunta al secondo metodo)
+              </div>
+
+              <!-- Confirm button -->
+              <button
+                @click="processMixedPayment"
+                :disabled="!mixedCanConfirm"
+                class="w-full py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl disabled:opacity-40 disabled:bg-gray-300 disabled:text-gray-400 active:scale-95 transition-all flex items-center justify-center gap-2 text-sm md:text-base shadow-md"
+              >
+                <CheckCircle class="size-5" /> Conferma Pagamento Misto
+              </button>
+            </div>
+
+            <!-- Standard payment buttons (hidden when mixed payment form is active) -->
+            <div v-else class="grid grid-cols-2 gap-3">
               <button
                 v-for="method in store.config.paymentMethods"
                 :key="method.id"
@@ -808,7 +881,7 @@ import {
   Grid3x3, Users, X, Plus, Coffee, Edit, AlertTriangle, CheckCircle,
   Ban, Undo2, Code, Minus, Receipt, ArrowRightLeft, Merge, Trash2,
   Layers, ListChecks, History, LayoutGrid, ListOrdered,
-  Tag, Wallet, Coins,
+  Tag, Wallet, Coins, Shuffle,
   Percent, Zap, BookOpen, PlusCircle, Banknote, CreditCard, Lock,
 } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
@@ -898,6 +971,11 @@ const activePaymentMethodId = ref(null);
 
 // ── Cash change calculator state ───────────────────────────────────────────
 const cashAmountGiven = ref('');
+
+// ── Mixed payment state ────────────────────────────────────────────────────
+const mixedPaymentEnabled = ref(false);
+const mixedFirstMethodId = ref(null);
+const mixedFirstAmount = ref('');
 
 // ── Tip (mancia) state ─────────────────────────────────────────────────────
 const tipInput = ref('');
@@ -1000,6 +1078,28 @@ const isCashPaymentActive = computed(() => {
   return m ? m.icon !== 'credit-card' : false;
 });
 
+// ── Mixed payment computed ─────────────────────────────────────────────────
+// The second method is whichever payment method is NOT selected as the first.
+const mixedSecondMethod = computed(() => {
+  if (!mixedFirstMethodId.value) return null;
+  return store.config.paymentMethods.find(m => m.id !== mixedFirstMethodId.value) ?? null;
+});
+
+const mixedFirstAmountParsed = computed(() => Math.max(0, parseFloat(mixedFirstAmount.value) || 0));
+
+// Residual amount for the second method = total - first method amount.
+const mixedSecondAmount = computed(() => amountBeingPaid.value - mixedFirstAmountParsed.value);
+
+// Mixed payment can be confirmed when both amounts are valid and together cover the total.
+const mixedCanConfirm = computed(() => {
+  if (!mixedPaymentEnabled.value) return false;
+  if (!mixedFirstMethodId.value || !mixedSecondMethod.value) return false;
+  const first = mixedFirstAmountParsed.value;
+  if (first <= 0) return false;
+  if (mixedSecondAmount.value < 0) return false; // first amount exceeds total
+  return true;
+});
+
 // ── Tip amount ─────────────────────────────────────────────────────────────
 const tipAmount = computed(() => Math.max(0, parseFloat(tipInput.value) || 0));
 
@@ -1041,6 +1141,14 @@ watch(splitWays, (newVal) => {
   const waysLeft = newVal - splitPaidQuotas.value;
   if (romanaSplitCount.value > Math.max(1, waysLeft)) {
     romanaSplitCount.value = Math.max(1, waysLeft);
+  }
+});
+
+// Disable mixed payment when switching out of 'unico' mode.
+watch(checkoutMode, (newMode) => {
+  if (newMode !== 'unico') {
+    mixedPaymentEnabled.value = false;
+    mixedFirstAmount.value = '';
   }
 });
 
@@ -1130,6 +1238,12 @@ function _openTableModal(table) {
   tipInput.value = '';
   discountInput.value = '';
   discountType.value = 'percent';
+  mixedPaymentEnabled.value = false;
+  mixedFirstMethodId.value =
+    store.config.paymentMethods.find(m => m.icon !== 'credit-card')?.id ??
+    store.config.paymentMethods[0]?.id ??
+    null;
+  mixedFirstAmount.value = '';
 
   const pastRomana = store.transactions.filter(
     t => t.tableId === table.id && t.operationType === 'romana' &&
@@ -1412,6 +1526,62 @@ function processTablePayment(paymentMethodId) {
 
   jsonContext.value = 'receipt';
   jsonPayloadData.value = JSON.stringify(payload, null, 2);
+  showPrecontoJson.value = true;
+}
+
+// ── Mixed payment processing ───────────────────────────────────────────────
+function processMixedPayment() {
+  if (!selectedTable.value || !mixedCanConfirm.value) return;
+
+  const session = store.tableCurrentBillSession[selectedTable.value.id];
+  const tip = tipsEnabled.value ? tipAmount.value : 0;
+  const orderRefs = tableAcceptedPayableOrders.value.map(o => o.id);
+  const firstMethod = store.config.paymentMethods.find(m => m.id === mixedFirstMethodId.value);
+  const secondMethod = mixedSecondMethod.value;
+
+  // First transaction: the manually entered partial amount
+  const payload1 = {
+    transactionId: 'txn_' + Math.random().toString(36).slice(2, 11),
+    tableId: selectedTable.value.id,
+    billSessionId: session?.billSessionId ?? null,
+    paymentMethod: firstMethod?.label || mixedFirstMethodId.value,
+    operationType: 'misto',
+    amountPaid: mixedFirstAmountParsed.value,
+    timestamp: new Date().toISOString(),
+    orderRefs,
+    mixedPayment: true,
+  };
+
+  // Second transaction: the auto-calculated residual amount (+ optional tip)
+  const payload2 = {
+    transactionId: 'txn_' + Math.random().toString(36).slice(2, 11),
+    tableId: selectedTable.value.id,
+    billSessionId: session?.billSessionId ?? null,
+    paymentMethod: secondMethod?.label || '',
+    operationType: 'misto',
+    amountPaid: Math.max(0, mixedSecondAmount.value),
+    tipAmount: tip > 0 ? tip : undefined,
+    timestamp: new Date().toISOString(),
+    orderRefs,
+    mixedPayment: true,
+  };
+
+  store.addTransaction(payload1);
+  store.addTransaction(payload2);
+
+  // Reset state after payment
+  cashAmountGiven.value = '';
+  tipInput.value = '';
+  mixedPaymentEnabled.value = false;
+  mixedFirstAmount.value = '';
+
+  // Close all accepted orders when fully paid, if autoCloseOnFullPayment is enabled
+  if (autoCloseOnFullPayment.value && tableAmountRemaining.value <= 0.01) {
+    tableAcceptedPayableOrders.value.forEach(o => store.changeOrderStatus(o, 'completed'));
+  }
+
+  jsonContext.value = 'receipt';
+  jsonPayloadData.value = JSON.stringify([payload1, payload2], null, 2);
   showPrecontoJson.value = true;
 }
 
