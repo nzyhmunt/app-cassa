@@ -45,31 +45,11 @@
             <span>Consegnate</span>
             <div class="flex-1 h-px bg-gray-200 ml-0.5"></div>
           </div>
-          <div
+          <OrderSidebarCard
+               :order="order"
+               :selected="selectedOrder?.id === order.id"
                @click="selectOrder(order)"
-               :class="[selectedOrder?.id === order.id ? 'ring-2 ring-offset-2 theme-border bg-white' : 'border-gray-200 hover:border-gray-300 bg-white', order.status === 'delivered' ? 'opacity-60' : '']"
-               class="p-3 md:p-4 rounded-2xl border shadow-sm cursor-pointer transition-all active:scale-[0.98]">
-
-            <div class="flex justify-between items-start mb-2">
-              <div class="flex items-center gap-3">
-                <div class="size-10 rounded-full flex items-center justify-center font-black text-sm md:text-base bg-gray-100 text-gray-800 border-2 border-gray-200 shrink-0">
-                  {{ order.table }}
-                </div>
-                <div>
-                  <h3 class="font-bold text-gray-800 text-sm md:text-base leading-tight">Tavolo {{ order.table }}</h3>
-                  <p class="text-[10px] text-gray-500 flex items-center gap-1 mt-0.5"><Clock class="size-3" /> {{ order.time }}</p>
-                </div>
-              </div>
-              <div class="text-right">
-                <span class="font-black text-base md:text-lg text-gray-800">{{ store.config.ui.currency }}{{ order.totalAmount.toFixed(2) }}</span>
-              </div>
-            </div>
-
-            <div class="flex gap-2 flex-wrap mt-2 items-center">
-              <OrderStatusBadge :status="order.status" />
-              <span class="bg-gray-100 text-gray-600 text-[9px] md:text-[10px] font-bold px-2 py-1 rounded-md border border-gray-200 ml-auto">{{ order.itemCount }} pz</span>
-            </div>
-          </div>
+             />
         </template>
       </div>
     </aside>
@@ -175,110 +155,13 @@
         </div>
 
         <!-- Lista Piatti -->
-        <div class="flex-1 overflow-y-auto bg-gray-100 p-2 md:p-4 min-h-0">
-          <div v-if="['accepted','preparing','ready','delivered'].includes(selectedOrder.status)" class="mb-3 bg-teal-50 border border-teal-200 text-teal-800 p-3 rounded-xl text-[10px] md:text-xs font-bold flex items-center gap-2 shadow-sm">
-            <ShieldCheck class="size-4 md:size-5 shrink-0" />
-            Ordine in preparazione. In sola lettura. Usa la schermata "Sala/Cassa" per stornare o gestire il conto.
-          </div>
-
-          <div class="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-            <div class="divide-y divide-gray-100">
-              <template v-for="row in orderedOrderItems" :key="row.type === 'header' ? 'header_' + row.course : row.item?.uid">
-                <!-- Course group header -->
-                <div v-if="row.type === 'header'"
-                  class="px-3 py-1.5 flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest"
-                  :class="{
-                    'bg-orange-50 text-orange-700': row.course === 'prima',
-                    'bg-gray-50 text-gray-500': row.course === 'insieme',
-                    'bg-purple-50 text-purple-700': row.course === 'dopo',
-                  }">
-                  <Layers class="size-3 shrink-0" />
-                  {{ row.course === 'prima' ? 'Esce Prima' : row.course === 'insieme' ? 'Insieme' : 'Esce Dopo' }}
-                </div>
-                <!-- Order item row -->
-                <div v-else class="border-l-4 p-2 md:p-3 hover:bg-gray-50 transition-colors"
-                  :class="[
-                    {'bg-gray-50 opacity-60': row.item.voidedQuantity === row.item.quantity},
-                    getCourseBorderClass(row.item.course)
-                  ]">
-                  <div class="flex items-center justify-between gap-2 md:gap-4">
-                    <div class="flex items-center gap-2 md:gap-3 flex-1 min-w-0">
-                      <!-- Controlli +/- (Solo Pending) -->
-                      <div v-if="selectedOrder.status === 'pending'" class="flex items-center gap-1 bg-gray-100 rounded-md p-0.5 border border-gray-200 shrink-0">
-                        <button @click="store.updateQtyGlobal(selectedOrder, row.index, -1)"
-                          class="size-6 md:size-7 flex items-center justify-center bg-white rounded shadow-sm active:scale-95 transition-colors"
-                          :class="row.item.quantity === 1 ? 'text-red-500' : 'text-gray-600'"
-                          :title="row.item.quantity === 1 ? 'Rimuovi voce' : 'Diminuisci quantità'">
-                          <Trash2 v-if="row.item.quantity === 1" class="size-3" />
-                          <Minus v-else class="size-3" />
-                        </button>
-                        <span class="w-5 md:w-6 text-center font-black text-xs md:text-sm text-gray-800">{{ row.item.quantity }}</span>
-                        <button @click="store.updateQtyGlobal(selectedOrder, row.index, 1)" class="size-6 md:size-7 flex items-center justify-center bg-white theme-text rounded shadow-sm active:scale-95"><Plus class="size-3" /></button>
-                      </div>
-                      <!-- Testo Lineare (Accettati) -->
-                      <div v-else class="w-8 shrink-0 text-center font-black text-sm md:text-base" :class="getCourseQtyClass(row.item.course)">
-                        {{ row.item.quantity - (row.item.voidedQuantity || 0) }}x
-                      </div>
-                      <!-- Informazioni Piatto -->
-                      <div class="flex flex-col min-w-0 flex-1">
-                        <div class="flex items-center gap-2">
-                          <span class="font-bold text-sm md:text-base text-gray-800 leading-tight truncate" :class="{'line-through': row.item.voidedQuantity === row.item.quantity}">{{ row.item.name }}</span>
-                          <span v-if="(row.item.voidedQuantity || 0) > 0" class="text-[9px] text-red-500 font-bold uppercase tracking-widest border border-red-200 bg-red-50 px-1 rounded shrink-0">-{{ row.item.voidedQuantity }} Stornati</span>
-                        </div>
-                        <div v-if="row.item.notes && row.item.notes.length > 0" class="text-[10px] md:text-xs text-amber-600 font-bold italic mt-0.5 truncate flex items-center gap-1">
-                          <MessageSquareWarning class="size-3 shrink-0" /> Note: {{ row.item.notes.join(', ') }}
-                        </div>
-                        <!-- Modificatori varianti -->
-                        <div v-if="row.item.modifiers && row.item.modifiers.length > 0" class="mt-0.5 flex flex-wrap gap-1">
-                          <span v-for="(mod, mi) in row.item.modifiers" :key="mi"
-                            class="text-[9px] md:text-[10px] font-bold bg-purple-50 border border-purple-200 text-purple-700 px-1.5 py-0.5 rounded flex items-center gap-0.5">
-                            <Sparkles class="size-2.5" />
-                            {{ mod.name }}{{ mod.price > 0 ? ' +€' + mod.price.toFixed(2) : '' }}
-                          </span>
-                        </div>
-
-                      </div>
-                    </div>
-
-                    <!-- Prezzo e Azioni -->
-                    <div class="flex items-center gap-2 md:gap-4 shrink-0">
-                      <div class="flex flex-col items-end">
-                        <span class="font-black text-sm md:text-base text-gray-800" :class="{'line-through text-gray-400': row.item.voidedQuantity === row.item.quantity}">
-                          {{ store.config.ui.currency }}{{ getOrderItemRowTotal(row.item).toFixed(2) }}
-                        </span>
-                        <span v-if="selectedOrder.status === 'pending'" class="text-[9px] text-gray-400">{{ store.config.ui.currency }}{{ getItemUnitPrice(row.item).toFixed(2) }} cad.</span>
-                      </div>
-                      <div v-if="selectedOrder.status === 'pending'" class="flex items-center gap-1 ml-1">
-                        <button @click="openNoteModal(selectedOrder, row.index)" class="p-1.5 md:p-2 text-gray-500 hover:text-[var(--brand-primary)] bg-gray-50 border border-gray-200 hover:bg-gray-100 rounded-md transition-colors active:scale-95 shadow-sm" title="Modifica Note">
-                          <PenLine class="size-4 md:size-4" />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </template>
-
-              <!-- Bottone Aggiunta Rapida (Solo Pending) -->
-              <div v-if="selectedOrder.status === 'pending'" class="p-3 bg-gray-50 border-t border-gray-100">
-                <button @click="openAddMenu(selectedOrder)" class="theme-btn-outline w-full py-3 md:py-3.5 rounded-xl font-bold flex items-center justify-center gap-2 transition-all active:scale-95 text-xs md:text-sm">
-                  <PlusCircle class="size-5" /> <span>Aggiungi Nuovi Piatti all'Ordine</span>
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <!-- Nota Ordine (banner, visible when note is set and cassa flag is on) -->
-          <div
-            v-if="selectedOrder.globalNote && selectedOrder.noteVisibility?.cassa !== false"
-            class="mt-3 bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-start gap-2 shadow-sm"
-          >
-            <MessageSquareWarning class="size-4 md:size-5 text-amber-600 shrink-0" />
-            <div class="min-w-0 flex-1">
-              <p class="text-[10px] md:text-xs font-bold text-amber-800 uppercase tracking-wider mb-0.5">Nota Ordine</p>
-              <p class="text-xs md:text-sm text-amber-700 font-medium whitespace-pre-wrap">{{ selectedOrder.globalNote }}</p>
-            </div>
-          </div>
-        </div>
+        <OrderItemsList
+          :order="selectedOrder"
+          note-visibility-key="cassa"
+          read-only-message='Ordine in preparazione. In sola lettura. Usa la schermata "Sala/Cassa" per stornare o gestire il conto.'
+          @edit-item="openNoteModal(selectedOrder, $event)"
+          @add-items="openAddMenu(selectedOrder)"
+        />
 
         <!-- Footer Totali -->
         <div class="bg-white border-t border-gray-200 p-3 md:p-5 shrink-0 z-10 shadow-[0_-5px_15px_rgba(0,0,0,0.05)] flex justify-between items-end pb-8 md:pb-5">
@@ -558,7 +441,7 @@
 <script setup>
 import { ref, computed, nextTick } from 'vue';
 import {
-  Bell, ChefHat, History, ClipboardList, Clock, CheckCircle2,
+  Bell, ChefHat, History, ClipboardList, CheckCircle2,
   MousePointerClick, ArrowLeft, Hash, AlertTriangle, Calculator, Trash2, Send,
   CheckCircle, ShieldCheck, Minus, Plus, MessageSquareWarning, PenLine, PlusCircle,
   X, BookOpen, ChevronRight, ShoppingCart, Sparkles, Layers, Info, Flame, BellRing,
@@ -566,16 +449,14 @@ import {
 import { useAppStore } from '../store/index.js';
 import {
   updateOrderTotals,
-  getOrderItemRowTotal,
   KITCHEN_ACTIVE_STATUSES,
   KITCHEN_STATUS_PRIORITY,
   DEFAULT_COURSE,
   getCourseBorderClass,
-  getCourseQtyClass,
-  groupOrderItemsByCourse,
 } from '../utils/index.js';
 import NumericInput from './NumericInput.vue';
-import OrderStatusBadge from './shared/OrderStatusBadge.vue';
+import OrderSidebarCard from './shared/OrderSidebarCard.vue';
+import OrderItemsList from './shared/OrderItemsList.vue';
 import GlobalOrderNoteModal from './shared/GlobalOrderNoteModal.vue';
 import DishInfoModal from './shared/DishInfoModal.vue';
 
@@ -631,17 +512,6 @@ function forceDeliver(order) {
   store.changeOrderStatus(order, 'delivered');
   store.$persist?.();
 }
-
-// ── Helper: unit price for an item including modifiers ────────────────────
-function getItemUnitPrice(item) {
-  const modTotal = (item.modifiers || []).reduce((a, m) => a + (m.price || 0), 0);
-  return item.unitPrice + modTotal;
-}
-
-// ── Grouped order items by course: prima → insieme → dopo ─────────────────
-const orderedOrderItems = computed(() =>
-  selectedOrder.value ? groupOrderItemsByCourse(selectedOrder.value.orderItems) : [],
-);
 
 // ── Note modal ─────────────────────────────────────────────────────────────
 const noteModalCloseBtn = ref(null);
