@@ -27,6 +27,8 @@ src/
 │   ├── CassaBillCard.vue              ← Card riepilogo conto chiuso (Cassa only)
 │   ├── CassaClosedBillsList.vue       ← Lista conti chiusi sessione (Cassa only)
 │   ├── CassaSettingsModal.vue         ← Impostazioni Cassa (usa shared/SettingsModal)
+│   ├── NumericKeyboard.vue            ← Tastiera numerica a scomparsa (overlay bottom-sheet, Cassa only)
+│   ├── NumericInput.vue               ← Wrapper input numerico (nativo o tastiera custom, Cassa only)
 │   ├── SalaNavbar.vue                 ← Navigazione (Sala)
 │   ├── SalaTableManager.vue           ← Mappa sala semplificata (Sala only)
 │   ├── SalaOrderManager.vue           ← Creazione/invio comande (Sala only)
@@ -34,6 +36,7 @@ src/
 │   └── CucinaSettingsModal.vue        ← Impostazioni Cucina (audio + wake lock)
 ├── composables/
 │   ├── useBeep.js                     ← Notifiche audio (Web Audio API)
+│   ├── useNumericKeyboard.js          ← Singleton state per la tastiera numerica custom (Cassa only)
 │   ├── usePwaInstall.js               ← Rilevamento installazione PWA
 │   ├── useSettings.js                 ← Lettura/scrittura impostazioni localStorage
 │   └── useWakeLock.js                 ← Prevenzione blocco schermo (Screen Wake Lock API)
@@ -192,6 +195,14 @@ pending → accepted → preparing → ready → delivered → completed
   - Configurazione a build time tramite `appConfig.instanceName`
   - Chiavi localStorage con suffisso `_<instanceName>`
 - **Sincronizzazione cross-tab in tempo reale**: tutte e tre le app (`CassaApp`, `SalaApp`, `CucinaApp`) ascoltano l'evento `window.storage`. Qualsiasi modifica di stato in una tab (es. cambio stato ordine in Cucina) viene propagata istantaneamente alle altre tab aperte sullo stesso dispositivo tramite `store.$hydrate()`.
+
+### ⌨️ Tastiera Numerica Personalizzata (Cassa only)
+- Overlay a scomparsa dal basso (`NumericKeyboard.vue`) che sostituisce la tastiera del dispositivo per tutti i campi numerici della Cassa
+- Singleton gestito da `useNumericKeyboard.js` — un solo overlay per app, condiviso da tutti i componenti
+- Configurabile dalle Impostazioni Cassa: **Off · Centro · Sinistra · Destra** (larghezza massima `max-w-sm` su schermi grandi)
+- `NumericInput.vue` — wrapper trasparente: in modalità `disabled` usa `<input type="number">` nativo; nelle altre modalità usa un campo readonly che apre l'overlay
+- Il campo sconto supporta un toggle `%`/`€` integrato dentro la tastiera virtuale; il toggle rimane visibile nella riga del campo anche quando la tastiera personalizzata è disattivata
+- Valore del setting: `'disabled' | 'center' | 'left' | 'right'` (costante `KEYBOARD_POSITIONS` da `utils/index.js`); qualsiasi valore non valido viene trattato come `'disabled'`
 
 ### ⚙️ Impostazioni (Cassa, Sala & Cucina)
 - Abilitazione/disabilitazione avvisi audio ("Ding" alla ricezione di nuovi ordini)
