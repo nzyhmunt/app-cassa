@@ -806,7 +806,7 @@ import {
 } from 'lucide-vue-next';
 import { Banknote, CreditCard } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
-import { updateOrderTotals, getOrderItemRowTotal, KITCHEN_ACTIVE_STATUSES } from '../utils/index.js';
+import { getOrderItemRowTotal, KITCHEN_ACTIVE_STATUSES } from '../utils/index.js';
 import { resolveCustomItemsKey } from '../store/persistence.js';
 import CassaClosedBillsList from './CassaClosedBillsList.vue';
 // Shared component — used by both Sala and Cassa apps.
@@ -1186,20 +1186,8 @@ function confirmPeopleAndOpenTable() {
       });
     }
     if (coverItems.length > 0) {
-      const coverOrder = {
-        id: 'ord_' + Math.random().toString(36).slice(2, 11),
-        table: table.id,
-        billSessionId,
-        time: new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }),
-        totalAmount: 0,
-        itemCount: 0,
-        dietaryPreferences: {},
-        orderItems: coverItems,
-        isCoverCharge: true,
-      };
-      updateOrderTotals(coverOrder);
-      store.addOrder(coverOrder);
-      store.changeOrderStatus(coverOrder, 'accepted');
+      const coverOrder = store.addDirectOrder(table.id, billSessionId, coverItems);
+      if (coverOrder) coverOrder.isCoverCharge = true;
     }
   }
 
