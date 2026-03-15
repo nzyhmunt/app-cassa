@@ -4,6 +4,11 @@ import piniaPluginPersistedstate from 'pinia-plugin-persistedstate';
 import cucinaRouter from './cucina-router/index.js';
 import './assets/styles/main.css';
 import CucinaApp from './CucinaApp.vue';
+import { setupIOSViewportFix } from './utils/iosViewportFix.js';
+
+// On iOS PWA, reset the viewport scroll position when the on-screen keyboard is dismissed.
+// Natural scrolling while the keyboard is open is preserved so focused inputs remain visible.
+setupIOSViewportFix();
 
 if (typeof window !== 'undefined' && typeof navigator !== 'undefined' && 'serviceWorker' in navigator && import.meta.env.PROD) {
   const registerServiceWorker = () => {

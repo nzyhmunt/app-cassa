@@ -122,6 +122,7 @@ export function useSettings(props, emit) {
     } catch (e) {
       console.warn('[Settings] Failed to remove custom items during reset:', e);
     }
+
     // Also wipe all auth data (users, sessions, auth settings)
     try {
       const { clearAllAuthData } = useAuth();

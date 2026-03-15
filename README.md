@@ -311,6 +311,16 @@ export const appConfig = {
       // { id: 'chef',  name: 'Chef',  pin: '5678', apps: ['cucina'] },
     ],
   },
+
+  // Utenti statici opzionali (configurazione a build time, sola lettura nell'UI)
+  // pin: 4 cifre numeriche (hashato in memoria, mai persistito)
+  // apps: app abilitate; omettere per abilitare tutte e tre le app
+  auth: {
+    users: [
+      // { id: 'mario', name: 'Mario', pin: '1234', apps: ['cassa', 'sala'] },
+      // { id: 'chef',  name: 'Chef',  pin: '5678', apps: ['cucina'] },
+    ],
+  },
 };
 ```
 
