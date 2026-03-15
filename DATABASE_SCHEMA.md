@@ -200,13 +200,13 @@ CREATE TABLE orders (
     total_amount            NUMERIC(10,2)   NOT NULL DEFAULT 0.00,
     item_count              INTEGER         NOT NULL DEFAULT 0,
     is_cover_charge         BOOLEAN         NOT NULL DEFAULT FALSE,  -- TRUE = riga coperto (aggiunta automatica all'apertura tavolo)
-    is_direct_entry         BOOLEAN         NOT NULL DEFAULT FALSE,  -- TRUE = voce diretta (bypassa workflow cucina, status subito 'accepted'); vale anche per is_cover_charge = TRUE
     dietary_diets           TEXT[]          NULL,           -- es. ['Vegetariano']
     dietary_allergens       TEXT[]          NULL,
     global_note             TEXT            NOT NULL DEFAULT '',  -- nota libera sull'intero ordine (order.globalNote)
     note_visibility_cassa   BOOLEAN         NOT NULL DEFAULT TRUE,  -- order.noteVisibility.cassa
     note_visibility_sala    BOOLEAN         NOT NULL DEFAULT TRUE,  -- order.noteVisibility.sala
     note_visibility_cucina  BOOLEAN         NOT NULL DEFAULT TRUE,  -- order.noteVisibility.cucina
+    is_direct_entry         BOOLEAN         NOT NULL DEFAULT FALSE,  -- TRUE = voce diretta (bypassa workflow cucina, status subito 'accepted'); vale anche per is_cover_charge = TRUE
     created_at              TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
     updated_at              TIMESTAMPTZ     NOT NULL DEFAULT NOW()
 );
@@ -458,9 +458,9 @@ Cardinalità:
                   │ status: pending|accepted|preparing|ready|delivered|completed|rejected
                   │ total_amount
                   │ is_cover_charge
-                  │ is_direct_entry
                   │ global_note
                   │ note_visibility_cassa/sala/cucina
+                  │ is_direct_entry
                   └──────────────────────────────┐
                                                  │ 1
                                                  │ N
@@ -540,9 +540,9 @@ Cardinalità:
 | localStorage (`demo_app_state_v1`)    | Tabella DB                             |
 |---------------------------------------|----------------------------------------|
 | `orders[]`                            | `orders` + `order_items` + `order_item_modifiers` |
-| `order.isDirectEntry`                 | `orders.is_direct_entry`               |
 | `order.globalNote`                    | `orders.global_note`                   |
 | `order.noteVisibility.{cassa,sala,cucina}` | `orders.note_visibility_{cassa,sala,cucina}` |
+| `order.isDirectEntry`                 | `orders.is_direct_entry`               |
 | `transactions[]`                      | `transactions` + `transaction_order_refs` |
 | `tableOccupiedAt`                     | `bill_sessions.opened_at`              |
 | `billRequestedTables` (Set)           | query: `orders.status = 'pending'` con `bill_session_id` attivo |

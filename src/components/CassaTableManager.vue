@@ -803,8 +803,8 @@ import {
   Grid3x3, Users, X, Plus, Coffee, Edit, AlertTriangle, CheckCircle,
   Ban, Undo2, Code, Minus, Receipt, ArrowRightLeft, Merge, Timer,
   Layers, ListChecks, History, LayoutGrid, ListOrdered,
-  Tag, Percent, Wallet, Coins, Zap, BookOpen, PlusCircle,
-  Banknote, CreditCard,
+  Tag, Wallet, Coins,
+  Percent, Zap, BookOpen, PlusCircle, Banknote, CreditCard,
 } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
 import { getOrderItemRowTotal, KITCHEN_ACTIVE_STATUSES } from '../utils/index.js';

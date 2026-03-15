@@ -117,17 +117,17 @@ export function useSettings(props, emit) {
     } catch (e) {
       console.warn('[Settings] Failed to remove PWA dismiss key during reset:', e);
     }
-    try {
-      window.localStorage.removeItem(resolveCustomItemsKey(_instanceName));
-    } catch (e) {
-      console.warn('[Settings] Failed to remove custom items during reset:', e);
-    }
     // Also wipe all auth data (users, sessions, auth settings)
     try {
       const { clearAllAuthData } = useAuth();
       clearAllAuthData();
     } catch (e) {
       console.warn('[Settings] Failed to clear auth data during reset:', e);
+    }
+    try {
+      window.localStorage.removeItem(resolveCustomItemsKey(_instanceName));
+    } catch (e) {
+      console.warn('[Settings] Failed to remove custom items during reset:', e);
     }
     if (typeof window !== 'undefined' && window.location) {
       window.location.reload();
