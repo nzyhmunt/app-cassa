@@ -572,7 +572,7 @@
       </div>
 
       <!-- Tabs -->
-      <div v-if="store.config.billing?.allowCustomEntry !== false && isAdmin" class="flex border-b border-gray-200 bg-gray-50 shrink-0">
+      <div v-if="canShowCustomEntryTab" class="flex border-b border-gray-200 bg-gray-50 shrink-0">
         <button
           @click="directItemMode = 'menu'"
           :class="directItemMode === 'menu' ? 'border-b-2 theme-border-b theme-text bg-white font-bold' : 'text-gray-500 hover:bg-gray-100'"
@@ -617,7 +617,7 @@
         </div>
 
         <!-- "Custom" mode -->
-        <div v-else-if="directItemMode === 'custom' && store.config.billing?.allowCustomEntry !== false && isAdmin" class="flex-1 overflow-hidden flex flex-col min-h-0">
+        <div v-else-if="directItemMode === 'custom' && canShowCustomEntryTab" class="flex-1 overflow-hidden flex flex-col min-h-0">
 
           <!-- New item form -->
           <div class="shrink-0 p-4 border-b border-gray-100 bg-white">
@@ -1232,6 +1232,11 @@ const directActiveMenuCategory = ref('');
 const directCart = ref([]);
 const directCustomName = ref('');
 const directCustomPrice = ref('');
+
+/** True when the "Personalizzata" custom-entry tab is available (admin + config flag). */
+const canShowCustomEntryTab = computed(
+  () => store.config.billing?.allowCustomEntry !== false && isAdmin.value,
+);
 
 // Saved custom items — persisted in localStorage
 // Key is derived from the instance name so multiple instances stay isolated.
