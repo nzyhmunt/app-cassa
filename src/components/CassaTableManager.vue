@@ -619,8 +619,8 @@
         <!-- "Custom" mode -->
         <div v-else-if="directItemMode === 'custom' && canShowCustomEntryTab" class="flex-1 overflow-hidden flex flex-col min-h-0">
 
-          <!-- New item form -->
-          <div class="shrink-0 p-4 border-b border-gray-100 bg-white">
+          <!-- New item form (admin only) -->
+          <div v-if="isAdmin" class="shrink-0 p-4 border-b border-gray-100 bg-white">
             <div class="flex gap-2 items-end">
               <div class="flex-1 min-w-0">
                 <label class="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1.5">Nome voce</label>
@@ -666,6 +666,7 @@
                   <span class="font-bold text-gray-800 text-xs leading-snug line-clamp-2 pr-4">{{ saved.name }}</span>
                   <span class="theme-text font-black text-sm">{{ store.config.ui.currency }}{{ saved.price.toFixed(2) }}</span>
                   <button
+                    v-if="isAdmin"
                     @click.stop="removeSavedCustomItem(si)"
                     class="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 size-5 rounded-full bg-gray-100 hover:bg-red-100 hover:text-red-600 flex items-center justify-center text-gray-400 transition-all active:scale-90">
                     <X class="size-3" />
@@ -675,7 +676,8 @@
             </div>
             <div v-else class="flex flex-col items-center justify-center h-full text-gray-400 py-8 gap-2">
               <PlusCircle class="size-8 opacity-30" />
-              <p class="text-xs text-center">Le voci inserite verranno salvate qui per un accesso rapido.</p>
+              <p v-if="isAdmin" class="text-xs text-center">Le voci inserite verranno salvate qui per un accesso rapido.</p>
+              <p v-else class="text-xs text-center">Nessuna voce personalizzata disponibile.</p>
             </div>
           </div>
         </div>
@@ -1233,9 +1235,9 @@ const directCart = ref([]);
 const directCustomName = ref('');
 const directCustomPrice = ref('');
 
-/** True when the "Personalizzata" custom-entry tab is available (admin + config flag). */
+/** True when the "Personalizzata" custom-entry tab is available (driven by config flag). */
 const canShowCustomEntryTab = computed(
-  () => store.config.billing?.allowCustomEntry !== false && isAdmin.value,
+  () => store.config.billing?.allowCustomEntry !== false,
 );
 
 // Saved custom items — persisted in localStorage
