@@ -139,13 +139,25 @@
         <!-- Reset dati -->
         <div v-if="isAdmin" class="pt-4 border-t border-gray-100 mt-2">
           <template v-if="!resetConfirmPending">
-            <button @click="resetConfirmPending = true"
+            <button @click="initiateReset"
               class="w-full py-3 bg-red-50 hover:bg-red-100 text-red-700 font-bold rounded-2xl flex items-center justify-center gap-2 border border-red-200 transition-colors shadow-sm active:scale-95">
               <RotateCcw class="size-4" />
               Ripristina dati di default
             </button>
           </template>
           <template v-else>
+            <div class="bg-amber-50 border border-amber-200 rounded-2xl p-3 mb-3 flex items-start gap-2">
+              <FileDown class="size-4 shrink-0 text-amber-600 mt-0.5" />
+              <div class="text-xs text-amber-800">
+                <p class="font-bold mb-0.5">Backup automatico scaricato</p>
+                <p>Un archivio JSON con tutti i dati è stato salvato sul tuo dispositivo. Conservalo per poter ripristinare i dati in futuro.</p>
+              </div>
+            </div>
+            <button @click="exportBackupData"
+              class="w-full py-2 mb-3 bg-amber-100 hover:bg-amber-200 text-amber-800 font-bold rounded-2xl flex items-center justify-center gap-2 border border-amber-200 transition-colors text-sm active:scale-95">
+              <FileDown class="size-4" />
+              Riscarica backup
+            </button>
             <p class="text-xs text-red-700 font-semibold text-center mb-3">
               Tutti i dati (ordini, cassa, tavoli) e gli utenti saranno cancellati. Sei sicuro?
             </p>
@@ -169,7 +181,7 @@
 
 <script setup>
 import { ref, computed } from 'vue';
-import { Settings, X, RefreshCw, RotateCcw, Users, ShieldCheck, ShieldAlert, KeyRound, Printer } from 'lucide-vue-next';
+import { Settings, X, RefreshCw, RotateCcw, Users, ShieldCheck, ShieldAlert, KeyRound, Printer, FileDown } from 'lucide-vue-next';
 import { useSettings } from '../../composables/useSettings.js';
 import { appConfig } from '../../utils/index.js';
 import UserManagementModal from '../UserManagementModal.vue';
@@ -184,7 +196,7 @@ const props = defineProps({
 });
 const emit = defineEmits(['update:modelValue', 'settings-changed']);
 
-const { store, settings, resetConfirmPending, syncMenu, confirmReset, wakeLockApiSupported } = useSettings(props, emit);
+const { store, settings, resetConfirmPending, syncMenu, exportBackupData, initiateReset, confirmReset, wakeLockApiSupported } = useSettings(props, emit);
 
 const showUserManagement = ref(false);
 
