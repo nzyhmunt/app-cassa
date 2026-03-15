@@ -201,6 +201,10 @@ CREATE TABLE orders (
     is_cover_charge         BOOLEAN         NOT NULL DEFAULT FALSE,
     dietary_diets           TEXT[]          NULL,           -- es. ['Vegetariano']
     dietary_allergens       TEXT[]          NULL,
+    global_note             TEXT            NOT NULL DEFAULT '',  -- nota libera sull'intero ordine (order.globalNote)
+    note_visibility_cassa   BOOLEAN         NOT NULL DEFAULT TRUE,  -- order.noteVisibility.cassa
+    note_visibility_sala    BOOLEAN         NOT NULL DEFAULT TRUE,  -- order.noteVisibility.sala
+    note_visibility_cucina  BOOLEAN         NOT NULL DEFAULT TRUE,  -- order.noteVisibility.cucina
     created_at              TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
     updated_at              TIMESTAMPTZ     NOT NULL DEFAULT NOW()
 );
@@ -452,6 +456,8 @@ Cardinalità:
                   │ status: pending|accepted|preparing|ready|delivered|completed|rejected
                   │ total_amount
                   │ is_cover_charge
+                  │ global_note
+                  │ note_visibility_cassa/sala/cucina
                   └──────────────────────────────┐
                                                  │ 1
                                                  │ N
@@ -531,6 +537,8 @@ Cardinalità:
 | localStorage (`demo_app_state_v1`)    | Tabella DB                             |
 |---------------------------------------|----------------------------------------|
 | `orders[]`                            | `orders` + `order_items` + `order_item_modifiers` |
+| `order.globalNote`                    | `orders.global_note`                   |
+| `order.noteVisibility.{cassa,sala,cucina}` | `orders.note_visibility_{cassa,sala,cucina}` |
 | `transactions[]`                      | `transactions` + `transaction_order_refs` |
 | `tableOccupiedAt`                     | `bill_sessions.opened_at`              |
 | `billRequestedTables` (Set)           | query: `orders.status = 'pending'` con `bill_session_id` attivo |
