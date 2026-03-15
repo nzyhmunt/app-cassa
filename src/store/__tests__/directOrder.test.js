@@ -213,3 +213,46 @@ describe('addDirectOrder()', () => {
     expect(a.id).not.toBe(b.id);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Cover charge via Sala (regression: must use addDirectOrder, not addOrder)
+// ---------------------------------------------------------------------------
+describe('cover charge via Sala app', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+  });
+
+  it('cover charge created with addDirectOrder has isDirectEntry=true', () => {
+    const store = useAppStore();
+    store.openTableSession('01', 2, 0);
+    const session = store.tableCurrentBillSession['01'];
+
+    const coverItems = [
+      { uid: 'cop_a_test', dishId: 'coperto_adulto', name: 'Coperto', unitPrice: 2.00, quantity: 2, voidedQuantity: 0, notes: [] },
+    ];
+    const coverOrder = store.addDirectOrder('01', session.billSessionId, coverItems);
+    if (coverOrder) coverOrder.isCoverCharge = true;
+
+    expect(coverOrder).not.toBeNull();
+    expect(coverOrder.isDirectEntry).toBe(true);
+    expect(coverOrder.isCoverCharge).toBe(true);
+    expect(coverOrder.status).toBe('accepted');
+  });
+
+  it('cover charge created with addDirectOrder does not appear as pending (kitchen-bound)', () => {
+    const store = useAppStore();
+    store.openTableSession('02', 3, 1);
+    const session = store.tableCurrentBillSession['02'];
+
+    const coverItems = [
+      { uid: 'cop_a_r', dishId: 'coperto_adulto', name: 'Coperto', unitPrice: 2.00, quantity: 3, voidedQuantity: 0, notes: [] },
+      { uid: 'cop_c_r', dishId: 'coperto_bambino', name: 'Coperto bambino', unitPrice: 1.00, quantity: 1, voidedQuantity: 0, notes: [] },
+    ];
+    const coverOrder = store.addDirectOrder('02', session.billSessionId, coverItems);
+    if (coverOrder) coverOrder.isCoverCharge = true;
+
+    // Must NOT be pending — pending orders would be routed to the kitchen queue
+    expect(coverOrder.status).not.toBe('pending');
+    expect(coverOrder.isDirectEntry).toBe(true);
+  });
+});
