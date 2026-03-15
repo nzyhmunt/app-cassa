@@ -359,16 +359,17 @@ export function useAuth() {
    * @param {string[]} [apps] - Apps this user can access; defaults to all three
    * @returns {Promise<object>} The new user object
    */
-  async function addUser(name, pin, apps = [...ALL_APPS]) {
+  async function addUser(name, pin, apps = [...ALL_APPS], makeAdmin = false) {
     const id = crypto.randomUUID();
     const pinHash = await hashPin(pin);
     const isFirstManual = _users.value.length === 0;
+    const adminFlag = isFirstManual || makeAdmin;
     const user = {
       id,
       name: name.trim(),
       pin: pinHash,
-      apps: normalizeUserApps(apps),
-      isAdmin: isFirstManual,
+      apps: adminFlag ? [...ALL_APPS] : normalizeUserApps(apps),
+      isAdmin: adminFlag,
       fromConfig: false,
     };
     _users.value = [..._users.value, user];

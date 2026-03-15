@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin Setup - Bug Fix Preview</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  :root { --brand-primary: #00846c; }
+  .theme-bg { background-color: var(--brand-primary); }
+  .theme-text { color: var(--brand-primary); }
+  .ring-brand { --tw-ring-color: var(--brand-primary); }
+</style>
+</head>
+<body class="bg-gray-100 min-h-screen p-6">
+
+<h1 class="text-2xl font-bold text-gray-800 mb-2">Fix: Aggiunta primo utente amministratore</h1>
+<p class="text-gray-500 text-sm mb-8">Verifica visuale delle modifiche — appConfig con <code>auth.users: []</code> (nessun utente configurato)</p>
+
+<div class="flex flex-wrap gap-8">
+
+  <!-- === SETTINGS MODAL (no users) === -->
+  <div>
+    <h2 class="text-base font-bold text-gray-700 mb-3">1. Impostazioni — Nessun utente configurato</h2>
+    <div class="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col">
+      <div class="bg-gray-50 border-b border-gray-200 p-5 flex justify-between items-center">
+        <h3 class="font-bold text-lg flex items-center gap-2 text-gray-800">
+          ⚙️ Impostazioni Cassa
+        </h3>
+        <button class="text-gray-400 bg-gray-200 rounded-full p-1.5">✕</button>
+      </div>
+      <div class="p-6 space-y-3 bg-white pb-8">
+        <!-- Audio toggle -->
+        <div class="flex items-center justify-between p-4 border border-gray-200 rounded-2xl cursor-pointer hover:bg-gray-50">
+          <div>
+            <span class="font-bold text-gray-800 block text-sm">Avvisi Audio "Ding"</span>
+            <span class="text-[10px] text-gray-500">Suona all'arrivo di nuovi ordini</span>
+          </div>
+          <div class="relative inline-flex h-6 w-11 items-center rounded-full bg-gray-300">
+            <span class="inline-block size-5 transform rounded-full bg-white shadow-md translate-x-0.5"></span>
+          </div>
+        </div>
+
+        <!-- URL input -->
+        <div class="pt-4 border-t border-gray-100 mt-2 space-y-3">
+          <div>
+            <label class="block text-xs font-bold text-gray-600 mb-1">URL Menu JSON</label>
+            <input type="url" placeholder="https://..." class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-800"/>
+          </div>
+          <button class="w-full py-4 bg-gray-100 text-gray-800 font-bold rounded-2xl flex items-center justify-center gap-2 border border-gray-200 shadow-sm">
+            🔄 Sincronizza Menu
+          </button>
+        </div>
+
+        <!-- GESTIONE UTENTI — NEW: admin setup notice -->
+        <div class="pt-4 border-t border-gray-100 mt-2">
+          <!-- NUOVO: Avviso prominente + pulsante arancio quando non ci sono admin -->
+          <div class="bg-amber-50 border border-amber-200 rounded-2xl p-3 mb-2 flex items-start gap-2">
+            <span class="text-amber-500 mt-0.5 text-sm">⚠️</span>
+            <div class="text-xs text-amber-800">
+              <p class="font-bold mb-0.5">Nessun amministratore configurato</p>
+              <p>Aggiungi il primo utente amministratore per proteggere l'accesso all'app.</p>
+            </div>
+          </div>
+          <button class="w-full py-3 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-2xl flex items-center justify-center gap-2 border border-amber-500 shadow-sm">
+            🛡️ Aggiungi amministratore
+          </button>
+        </div>
+
+        <!-- Reset dati -->
+        <div class="pt-4 border-t border-gray-100 mt-2">
+          <button class="w-full py-3 bg-red-50 text-red-700 font-bold rounded-2xl flex items-center justify-center gap-2 border border-red-200 shadow-sm">
+            ↩️ Ripristina dati di default
+          </button>
+        </div>
+      </div>
+    </div>
+    <p class="text-xs text-amber-700 mt-2 font-bold">✅ NUOVO: Pulsante "Aggiungi amministratore" visibile e prominente</p>
+  </div>
+
+  <!-- === SETTINGS MODAL (users configured) === -->
+  <div>
+    <h2 class="text-base font-bold text-gray-700 mb-3">2. Impostazioni — Con utenti configurati</h2>
+    <div class="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col">
+      <div class="bg-gray-50 border-b border-gray-200 p-5 flex justify-between items-center">
+        <h3 class="font-bold text-lg flex items-center gap-2 text-gray-800">
+          ⚙️ Impostazioni Cassa
+        </h3>
+        <button class="text-gray-400 bg-gray-200 rounded-full p-1.5">✕</button>
+      </div>
+      <div class="p-6 space-y-3 bg-white pb-8">
+        <div class="flex items-center justify-between p-4 border border-gray-200 rounded-2xl cursor-pointer hover:bg-gray-50">
+          <div>
+            <span class="font-bold text-gray-800 block text-sm">Avvisi Audio "Ding"</span>
+            <span class="text-[10px] text-gray-500">Suona all'arrivo di nuovi ordini</span>
+          </div>
+          <div class="relative inline-flex h-6 w-11 items-center rounded-full bg-gray-300">
+            <span class="inline-block size-5 transform rounded-full bg-white shadow-md translate-x-0.5"></span>
+          </div>
+        </div>
+
+        <div class="pt-4 border-t border-gray-100 mt-2 space-y-3">
+          <div>
+            <label class="block text-xs font-bold text-gray-600 mb-1">URL Menu JSON</label>
+            <input type="url" placeholder="https://..." class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-800"/>
+          </div>
+          <button class="w-full py-4 bg-gray-100 text-gray-800 font-bold rounded-2xl flex items-center justify-center gap-2 border border-gray-200 shadow-sm">
+            🔄 Sincronizza Menu
+          </button>
+        </div>
+
+        <!-- GESTIONE UTENTI — standard (users exist) -->
+        <div class="pt-4 border-t border-gray-100 mt-2">
+          <button class="w-full py-3 bg-gray-50 hover:bg-gray-100 text-gray-700 font-bold rounded-2xl flex items-center justify-center gap-2 border border-gray-200 shadow-sm">
+            👥 Gestione Utenti &amp; Blocco Schermo
+          </button>
+        </div>
+
+        <div class="pt-4 border-t border-gray-100 mt-2">
+          <button class="w-full py-3 bg-red-50 text-red-700 font-bold rounded-2xl flex items-center justify-center gap-2 border border-red-200 shadow-sm">
+            ↩️ Ripristina dati di default
+          </button>
+        </div>
+      </div>
+    </div>
+    <p class="text-xs text-gray-500 mt-2">Standard: pulsante "Gestione Utenti" normale</p>
+  </div>
+
+  <!-- === USER MANAGEMENT MODAL (no users) === -->
+  <div>
+    <h2 class="text-base font-bold text-gray-700 mb-3">3. Gestione Utenti — Nessun utente (form inline)</h2>
+    <div class="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col max-h-[600px]">
+      <div class="bg-gray-50 border-b border-gray-200 p-5 flex justify-between items-center shrink-0">
+        <h3 class="font-bold text-lg flex items-center gap-2 text-gray-800">
+          👥 Gestione Utenti
+        </h3>
+        <button class="text-gray-400 bg-gray-200 rounded-full p-1.5">✕</button>
+      </div>
+      <div class="overflow-y-auto flex-1 p-6 space-y-4">
+        <!-- Info banner -->
+        <div class="bg-blue-50 border border-blue-200 rounded-2xl p-4 text-sm text-blue-800 flex items-start gap-3">
+          <span class="text-blue-500 mt-0.5">🛡️</span>
+          <div>
+            <p class="font-bold mb-1">Nessun utente configurato</p>
+            <p class="text-[11px] leading-relaxed">L'accesso è libero. Il primo utente che aggiungi diventerà <strong>amministratore</strong> e potrà gestire gli altri utenti e le impostazioni di blocco.</p>
+          </div>
+        </div>
+        <!-- NUOVO: Form inline (era un componente con template:string che non funzionava in browser) -->
+        <div class="bg-gray-50 rounded-2xl border border-gray-200 p-4 space-y-2">
+          <input type="text" maxlength="30" placeholder="Nome utente"
+            class="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-800 bg-white focus:outline-none"/>
+          <input type="password" maxlength="8" inputmode="numeric" placeholder="PIN (4 cifre numeriche)"
+            class="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-800 bg-white focus:outline-none"/>
+          <button style="background-color: #00846c;" class="w-full py-3 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 text-white hover:opacity-90 shadow-sm">
+            🛡️ Crea account amministratore
+          </button>
+        </div>
+      </div>
+    </div>
+    <p class="text-xs text-green-700 mt-2 font-bold">✅ CORRETTO: Form e pulsante ora visibili nel browser (no template:string)</p>
+  </div>
+
+</div>
+
+<div class="mt-8 p-4 bg-white rounded-2xl border border-gray-200 max-w-2xl">
+  <h3 class="font-bold text-gray-800 mb-2">📋 Sommario modifiche</h3>
+  <ul class="text-sm text-gray-700 space-y-2 list-disc ml-4">
+    <li><strong>Bug root cause:</strong> <code>AddUserForm</code> usava <code>defineComponent({ template: string })</code> che richiede il Vue runtime compiler. Il build Vite usa <code>vue.runtime.esm-bundler.js</code> che NON include il compiler → form invisibile nel browser.</li>
+    <li><strong>Fix UserManagementModal.vue:</strong> Rimosso <code>defineComponent</code> con template string; form inlineati direttamente nel template SFC con state reattivo separato per ciascuno.</li>
+    <li><strong>Fix SettingsModal.vue + CucinaSettingsModal.vue:</strong> Aggiunto avviso prominente (amber) con pulsante "Aggiungi amministratore" quando <code>manualUsers.length === 0</code>.</li>
+    <li><strong>Test:</strong> Tutti i 226 test passano (inclusi 20 test UserManagementModal).</li>
+  </ul>
+</div>
+
+</body>
+</html>
