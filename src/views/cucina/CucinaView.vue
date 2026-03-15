@@ -407,6 +407,31 @@
       <span class="font-mono">{{ currentTime }}</span>
     </footer>
 
+    <!-- ── Undo-toast: consegna annullabile ──────────────────────────────── -->
+    <TransitionGroup
+      name="toast"
+      tag="div"
+      class="fixed bottom-4 left-1/2 -translate-x-1/2 z-[110] flex flex-col gap-2 items-end w-full max-w-sm px-4 pointer-events-none"
+    >
+      <div
+        v-for="toast in undoDeliveryToasts"
+        :key="toast.id"
+        class="w-full bg-gray-900 text-white rounded-2xl shadow-2xl px-4 py-3 flex items-center gap-3 pointer-events-auto"
+      >
+        <CheckCircle2 class="size-5 text-green-400 shrink-0" />
+        <div class="flex-1 min-w-0">
+          <p class="text-sm font-bold leading-tight">Tavolo {{ toast.tableNum }} consegnato</p>
+          <p class="text-xs text-gray-400 mt-0.5">Annulla entro {{ toast.remaining }}s</p>
+        </div>
+        <button
+          @click="undoDelivery(toast.id)"
+          class="shrink-0 px-3 py-1.5 bg-white/20 hover:bg-white/30 active:scale-95 rounded-xl text-xs font-bold transition-all"
+        >
+          Annulla
+        </button>
+      </div>
+    </TransitionGroup>
+
     <!-- ── Confirmation modal: Rimanda in sala ───────────────────────────── -->
     <Transition name="fade">
       <div
@@ -487,8 +512,60 @@ function toggleItemReady(order, itemIdx) {
 }
 
 function forceDeliver(order) {
+  const previousStatus = order.status;
   store.changeOrderStatus(order, 'delivered');
   store.$persist?.();
+  showUndoToast(order, previousStatus);
+}
+
+// ── Undo-toast: consegna annullabile ─────────────────────────────────────────
+const undoDeliveryToasts = ref([]);
+let undoTickTimer = null;
+let undoToastCounter = 0;
+
+function ensureUndoTick() {
+  if (undoTickTimer) return;
+  undoTickTimer = setInterval(() => {
+    const now = Date.now();
+    undoDeliveryToasts.value = undoDeliveryToasts.value.filter(t => {
+      if (now >= t.expiresAt) return false;
+      t.remaining = Math.max(1, Math.ceil((t.expiresAt - now) / 1000));
+      return true;
+    });
+    if (undoDeliveryToasts.value.length === 0) {
+      clearInterval(undoTickTimer);
+      undoTickTimer = null;
+    }
+  }, 500);
+}
+
+function showUndoToast(order, previousStatus) {
+  const id = ++undoToastCounter;
+  undoDeliveryToasts.value.push({
+    id,
+    orderId: order.id,
+    tableNum: order.table,
+    previousStatus,
+    remaining: 3,
+    expiresAt: Date.now() + 3000,
+  });
+  ensureUndoTick();
+}
+
+function undoDelivery(toastId) {
+  const idx = undoDeliveryToasts.value.findIndex(t => t.id === toastId);
+  if (idx === -1) return;
+  const toast = undoDeliveryToasts.value[idx];
+  const order = store.orders.find(o => o.id === toast.orderId);
+  if (order && order.status === 'delivered') {
+    store.changeOrderStatus(order, toast.previousStatus);
+    store.$persist?.();
+  }
+  undoDeliveryToasts.value.splice(idx, 1);
+  if (undoDeliveryToasts.value.length === 0 && undoTickTimer) {
+    clearInterval(undoTickTimer);
+    undoTickTimer = null;
+  }
 }
 
 function detailStatusBadgeClass(status) {
@@ -545,6 +622,7 @@ onMounted(() => {
 onUnmounted(() => {
   clearInterval(clockTimer);
   clearInterval(refreshTimer);
+  if (undoTickTimer) clearInterval(undoTickTimer);
 });
 
 // ── Computed order lists ────────────────────────────────────────────────────
@@ -614,9 +692,11 @@ function advancePreparingOrder(order) {
 }
 
 function markDeliveredFromKanban(order) {
-  // ready → delivered (from "Pronte" column)
+  // ready → delivered (from "Pronte" column), with undo-toast
+  const previousStatus = order.status;
   store.changeOrderStatus(order, 'delivered');
   store.$persist?.();
+  showUndoToast(order, previousStatus);
 }
 
 // ── Back-state actions (undo buttons) ────────────────────────────────────────
@@ -698,5 +778,15 @@ function detailAvatarBgClass(status) {
 .fade-enter-from,
 .fade-leave-to {
   opacity: 0;
+}
+
+.toast-enter-active,
+.toast-leave-active {
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+.toast-enter-from,
+.toast-leave-to {
+  opacity: 0;
+  transform: translateY(8px);
 }
 </style>
