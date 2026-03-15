@@ -354,9 +354,9 @@ describe('requiresAuth and visibleUsers', () => {
 // ── isAdmin / hasAdmin ────────────────────────────────────────────────────────
 
 describe('isAdmin and hasAdmin', () => {
-  it('isAdmin is false before any login', () => {
+  it('isAdmin is true in open mode (no users configured)', () => {
     const { isAdmin } = useAuth();
-    expect(isAdmin.value).toBe(false);
+    expect(isAdmin.value).toBe(true);
   });
 
   it('isAdmin is true when the first (admin) user is logged in', async () => {

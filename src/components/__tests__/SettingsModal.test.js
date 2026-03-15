@@ -70,16 +70,16 @@ afterEach(async () => {
 // ── No users configured (open access) ────────────────────────────────────────
 
 describe('no users configured (open access)', () => {
-  // The wrapper passes :showMenuSync="isAdmin" — with no admin logged in, isAdmin=false.
-  it('hides the menu sync section when no users are configured (no admin logged in)', () => {
+  // In open mode (no users), isAdmin=true — full unrestricted access.
+  it('hides the menu sync section when showMenuSync=false', () => {
     const wrapper = mountSettingsModal({ showMenuSync: false });
     expect(wrapper.text()).not.toContain('URL Menu JSON');
     expect(wrapper.text()).not.toContain('Sincronizza');
   });
 
-  it('hides the reset button when no users are configured (no admin logged in)', () => {
+  it('shows the reset button in open mode (isAdmin is true when no users configured)', () => {
     const wrapper = mountSettingsModal();
-    expect(wrapper.text()).not.toContain('Ripristina dati di default');
+    expect(wrapper.text()).toContain('Ripristina dati di default');
   });
 
   it('still shows the sound toggle when no users are configured', () => {
@@ -152,10 +152,17 @@ describe('non-admin user logged in', () => {
     expect(wrapper.text()).toContain('Avvisi Audio');
   });
 
-  it('still shows the user management button to non-admin', async () => {
+  it('shows "Modifica PIN" button to non-admin instead of full user management', async () => {
     const wrapper = mountSettingsModal();
     await flushPromises();
-    expect(wrapper.text()).toContain('Gestione Utenti');
+    expect(wrapper.text()).toContain('Modifica PIN');
+    expect(wrapper.text()).not.toContain('Gestione Utenti');
+  });
+
+  it('still shows the screen-lock toggle to non-admin', async () => {
+    const wrapper = mountSettingsModal();
+    await flushPromises();
+    expect(wrapper.text()).toContain('Schermo sempre acceso');
   });
 });
 

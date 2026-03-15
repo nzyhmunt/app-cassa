@@ -322,7 +322,7 @@
             <div v-else class="mb-5"></div>
 
             <!-- Sconto (Discount) -->
-            <div v-if="discountsEnabled && tableAmountRemaining > 0" class="mb-4 bg-amber-50 border border-amber-200 rounded-xl p-3 md:p-4">
+            <div v-if="discountsEnabled && tableAmountRemaining > 0 && isAdmin" class="mb-4 bg-amber-50 border border-amber-200 rounded-xl p-3 md:p-4">
               <label class="block text-xs font-bold text-amber-800 uppercase mb-2 flex items-center gap-1.5">
                 <Tag class="size-3.5" /> Applica Sconto
               </label>
@@ -635,18 +635,18 @@
                 <div
                   v-for="(saved, si) in savedCustomItems"
                   :key="'sc_'+si"
-                  @click="addSavedCustomItemToDirectCart(saved)"
-                  @keydown.enter.space.prevent="addSavedCustomItemToDirectCart(saved)"
-                  tabindex="0"
-                  role="button"
-                  class="group relative bg-white border border-gray-200 rounded-xl p-3 text-left hover:border-emerald-300 hover:bg-emerald-50 active:scale-95 transition-all shadow-sm flex flex-col gap-1 min-w-0 cursor-pointer select-none focus:outline-none theme-ring">
-                  <span class="font-bold text-gray-800 text-xs leading-snug line-clamp-2 pr-4">{{ saved.name }}</span>
-                  <span class="theme-text font-black text-sm">{{ store.config.ui.currency }}{{ saved.price.toFixed(2) }}</span>
+                  class="flex items-stretch bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden hover:border-emerald-300 transition-colors">
+                  <button
+                    @click="addSavedCustomItemToDirectCart(saved)"
+                    class="flex-1 p-3 text-left hover:bg-emerald-50 active:scale-95 transition-colors min-w-0 flex flex-col gap-1">
+                    <span class="font-bold text-gray-800 text-xs leading-snug line-clamp-2">{{ saved.name }}</span>
+                    <span class="theme-text font-black text-sm mt-auto">{{ store.config.ui.currency }}{{ saved.price.toFixed(2) }}</span>
+                  </button>
                   <button
                     v-if="isAdmin"
-                    @click.stop="removeSavedCustomItem(si)"
-                    class="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 size-5 rounded-full bg-gray-100 hover:bg-red-100 hover:text-red-600 flex items-center justify-center text-gray-400 transition-all active:scale-90">
-                    <X class="size-3" />
+                    @click="removeSavedCustomItem(si)"
+                    class="shrink-0 w-8 border-l border-gray-100 text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors flex items-center justify-center active:scale-90">
+                    <Trash2 class="size-3.5" />
                   </button>
                 </div>
               </div>
@@ -663,18 +663,26 @@
       <!-- Cart footer + confirm -->
       <div class="border-t border-gray-200 bg-gray-50 p-3 shrink-0">
         <!-- Cart items list -->
-        <div v-if="directCart.length > 0" class="mb-3 space-y-1.5 max-h-36 overflow-y-auto">
+        <div v-if="directCart.length > 0" class="mb-3 space-y-1.5 max-h-48 overflow-y-auto">
           <div
             v-for="(item, idx) in directCart"
             :key="item.uid"
-            class="flex items-center justify-between bg-white rounded-lg px-3 py-2 border border-gray-200 shadow-sm">
-            <div class="flex items-center gap-2 flex-1 min-w-0">
-              <button @click="updateDirectCartQty(idx, -1)" class="size-6 rounded-full bg-gray-100 hover:bg-red-100 hover:text-red-600 flex items-center justify-center font-bold text-gray-600 shrink-0 active:scale-95 transition-colors"><Minus class="size-3" /></button>
-              <span class="font-bold text-gray-600 text-xs w-5 text-center shrink-0">{{ item.quantity }}</span>
-              <button @click="updateDirectCartQty(idx, 1)" class="size-6 rounded-full bg-gray-100 hover:bg-emerald-100 hover:text-emerald-600 flex items-center justify-center font-bold text-gray-600 shrink-0 active:scale-95 transition-colors"><Plus class="size-3" /></button>
-              <span class="font-bold text-gray-800 text-xs truncate ml-1">{{ item.name }}</span>
+            class="flex items-center gap-2 bg-white rounded-xl px-3 py-2 border border-gray-200 shadow-sm">
+            <span class="font-bold text-gray-800 text-xs flex-1 min-w-0 truncate">{{ item.name }}</span>
+            <div class="flex items-center gap-1 bg-gray-100 rounded-md p-0.5 border border-gray-200 shrink-0">
+              <button @click="updateDirectCartQty(idx, -1)"
+                class="size-6 flex items-center justify-center bg-white rounded shadow-sm active:scale-95 transition-colors"
+                :class="item.quantity === 1 ? 'text-red-500' : 'text-gray-600'">
+                <Trash2 v-if="item.quantity === 1" class="size-3" />
+                <Minus v-else class="size-3" />
+              </button>
+              <span class="w-5 text-center font-black text-xs text-gray-800 tabular-nums">{{ item.quantity }}</span>
+              <button @click="updateDirectCartQty(idx, 1)"
+                class="size-6 flex items-center justify-center bg-white theme-text rounded shadow-sm active:scale-95">
+                <Plus class="size-3" />
+              </button>
             </div>
-            <span class="font-black text-xs theme-text shrink-0 ml-2">{{ store.config.ui.currency }}{{ (item.unitPrice * item.quantity).toFixed(2) }}</span>
+            <span class="font-black text-xs theme-text shrink-0 tabular-nums">{{ store.config.ui.currency }}{{ (item.unitPrice * item.quantity).toFixed(2) }}</span>
           </div>
         </div>
         <div v-else class="text-center text-gray-400 text-xs py-2 mb-2 italic">Nessuna voce selezionata.</div>
@@ -780,7 +788,7 @@
 import { ref, computed, watch } from 'vue';
 import {
   Grid3x3, Users, X, Plus, Coffee, Edit, AlertTriangle, CheckCircle,
-  Ban, Undo2, Code, Minus, Receipt, ArrowRightLeft, Merge,
+  Ban, Undo2, Code, Minus, Receipt, ArrowRightLeft, Merge, Trash2,
   Layers, ListChecks, History, LayoutGrid, ListOrdered,
   Tag, Wallet, Coins,
   Percent, Zap, BookOpen, PlusCircle, Banknote, CreditCard,

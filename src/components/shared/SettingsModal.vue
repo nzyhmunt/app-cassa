@@ -99,10 +99,15 @@
               Aggiungi amministratore
             </button>
           </template>
-          <button v-else @click="showUserManagement = true"
+          <button v-if="isAdmin" @click="showUserManagement = true"
             class="w-full py-3 bg-gray-50 hover:bg-gray-100 text-gray-700 font-bold rounded-2xl flex items-center justify-center gap-2 border border-gray-200 transition-colors shadow-sm active:scale-95">
             <Users class="size-4 text-gray-500" />
             Gestione Utenti &amp; Blocco Schermo
+          </button>
+          <button v-else-if="currentUser" @click="showUserManagement = true"
+            class="w-full py-3 bg-gray-50 hover:bg-gray-100 text-gray-700 font-bold rounded-2xl flex items-center justify-center gap-2 border border-gray-200 transition-colors shadow-sm active:scale-95">
+            <KeyRound class="size-4 text-gray-500" />
+            Modifica PIN
           </button>
         </div>
 
@@ -139,7 +144,7 @@
 
 <script setup>
 import { ref } from 'vue';
-import { Settings, X, RefreshCw, RotateCcw, Users, ShieldCheck, ShieldAlert } from 'lucide-vue-next';
+import { Settings, X, RefreshCw, RotateCcw, Users, ShieldCheck, ShieldAlert, KeyRound } from 'lucide-vue-next';
 import { useSettings } from '../../composables/useSettings.js';
 import UserManagementModal from '../UserManagementModal.vue';
 import { useAuth } from '../../composables/useAuth.js';
@@ -156,7 +161,7 @@ const { store, settings, resetConfirmPending, syncMenu, confirmReset, wakeLockAp
 
 const showUserManagement = ref(false);
 
-const { manualUsers, isAdmin } = useAuth();
+const { manualUsers, isAdmin, currentUser } = useAuth();
 
 const keyboardPositionOptions = [
   { value: 'disabled', label: 'Off' },
