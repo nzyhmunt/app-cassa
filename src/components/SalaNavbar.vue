@@ -46,6 +46,10 @@
         <p class="text-sm font-bold truncate">{{ currentTime }}</p>
         <p class="text-[10px] text-white/80 uppercase truncate">Turno Attivo</p>
       </div>
+      <!-- Tasto Blocca -->
+      <button v-if="requiresAuth" @click="$emit('lock')" aria-label="Blocca schermo" class="bg-white/10 hover:bg-white/20 px-2.5 md:px-3 py-2 md:py-2.5 rounded-xl transition-colors text-white flex items-center justify-center gap-1.5" title="Blocca">
+        <Lock class="size-5 md:size-5 shrink-0" />
+      </button>
       <!-- Tasto Settings -->
       <button @click="$emit('open-settings')" aria-label="Apri impostazioni" class="relative z-50 bg-black/20 hover:bg-black/30 px-2.5 md:px-3 py-2 md:py-2.5 rounded-xl transition-colors shadow-inner text-white flex items-center justify-center gap-1.5 cursor-pointer active:scale-95">
         <Settings class="size-5 md:size-5 shrink-0" />
@@ -59,13 +63,15 @@
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { useRoute } from 'vue-router';
-import { UtensilsCrossed, LayoutGrid, ClipboardList, Settings } from 'lucide-vue-next';
+import { UtensilsCrossed, LayoutGrid, ClipboardList, Settings, Lock } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
 import { useBeep } from '../composables/useBeep.js';
+import { useAuth } from '../composables/useAuth.js';
 
-defineEmits(['open-settings']);
+defineEmits(['open-settings', 'lock']);
 
 const store = useAppStore();
+const { requiresAuth } = useAuth();
 const route = useRoute();
 const currentTime = ref(new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }));
 

@@ -354,20 +354,22 @@
               </label>
               <div class="flex gap-2 items-center">
                 <div class="flex bg-white border border-amber-200 rounded-xl overflow-hidden shrink-0">
-                  <button @click="discountType = 'percent'" :class="discountType === 'percent' ? 'bg-amber-500 text-white' : 'text-amber-700 hover:bg-amber-100'" class="px-3 py-2 text-xs font-bold transition-colors flex items-center gap-1">
-                    <Percent class="size-3" />%
+                  <button @click="discountType = 'percent'" :class="discountType === 'percent' ? 'bg-amber-500 text-white' : 'text-amber-700 hover:bg-amber-100'" class="px-3 py-2 text-xs font-bold transition-colors">
+                    %
                   </button>
                   <button @click="discountType = 'fixed'" :class="discountType === 'fixed' ? 'bg-amber-500 text-white' : 'text-amber-700 hover:bg-amber-100'" class="px-3 py-2 text-xs font-bold transition-colors">
                     {{ store.config.ui.currency }}
                   </button>
                 </div>
-                <input
+                <NumericInput
                   v-model="discountInput"
-                  type="number"
                   min="0"
                   :max="discountType === 'percent' ? 100 : tableAmountRemaining"
                   step="0.01"
                   :placeholder="discountType === 'percent' ? 'Es. 10' : 'Es. 5.00'"
+                  :typeToggleLabels="['%', store.config.ui.currency]"
+                  :typeToggleIndex="discountType === 'percent' ? 0 : 1"
+                  @update:typeToggleIndex="i => discountType = i === 0 ? 'percent' : 'fixed'"
                   class="flex-1 min-w-0 text-sm font-bold border border-amber-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:border-amber-400 text-amber-900"
                 />
                 <button
@@ -474,12 +476,12 @@
               </label>
               <div class="flex items-center gap-2">
                 <span class="text-sm font-bold text-purple-600">{{ store.config.ui.currency }}</span>
-                <input
+                <NumericInput
                   v-model="tipInput"
-                  type="number"
                   min="0"
                   step="0.50"
                   placeholder="0.00"
+                  :prefix="store.config.ui.currency"
                   class="flex-1 min-w-0 text-sm font-bold border border-purple-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:border-purple-400 text-purple-900"
                 />
                 <button v-if="tipAmount > 0" @click="tipInput = ''" class="text-purple-400 hover:text-purple-700 p-1.5 rounded-lg hover:bg-purple-100 transition-colors">
@@ -499,12 +501,12 @@
               </label>
               <div class="flex items-center gap-2">
                 <span class="text-sm font-bold text-emerald-600">{{ store.config.ui.currency }}</span>
-                <input
+                <NumericInput
                   v-model="cashAmountGiven"
-                  type="number"
                   min="0"
                   step="0.50"
                   placeholder="0.00"
+                  :prefix="store.config.ui.currency"
                   class="flex-1 min-w-0 text-sm font-bold border border-emerald-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:border-emerald-400 text-emerald-900"
                 />
                 <button v-if="cashAmountGiven" @click="cashAmountGiven = ''" class="text-emerald-400 hover:text-emerald-700 p-1.5 rounded-lg hover:bg-emerald-100 transition-colors">
@@ -810,6 +812,7 @@ import { resolveCustomItemsKey } from '../store/persistence.js';
 import CassaClosedBillsList from './CassaClosedBillsList.vue';
 // Shared component — used by both Sala and Cassa apps.
 import PeopleModal from './shared/PeopleModal.vue';
+import NumericInput from './NumericInput.vue';
 
 const emit = defineEmits(['open-order-from-table', 'new-order-for-ordini']);
 
@@ -1212,6 +1215,8 @@ function createNewOrderForTable() {
     status: 'pending',
     time: new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }),
     totalAmount: 0, itemCount: 0, dietaryPreferences: {}, orderItems: [],
+    globalNote: '',
+    noteVisibility: { cassa: true, sala: true, cucina: true },
   };
   store.addOrder(newOrd);
   closeTableModal();

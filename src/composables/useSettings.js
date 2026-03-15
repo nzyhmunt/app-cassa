@@ -1,9 +1,10 @@
 import { ref, watch, onUnmounted } from 'vue';
 import { useAppStore } from '../store/index.js';
 import { getInstanceName, resolveStorageKeys, clearState, resolveCustomItemsKey } from '../store/persistence.js';
-import { appConfig } from '../utils/index.js';
+import { appConfig, KEYBOARD_POSITIONS } from '../utils/index.js';
 import { isWakeLockSupported } from './useWakeLock.js';
 import { getPwaDismissKey } from './usePwaInstall.js';
+import { useAuth } from './useAuth.js';
 
 /**
  * Shared composable for the Cassa and Sala settings modals.
@@ -21,14 +22,20 @@ export function useSettings(props, emit) {
   const { storageKey: _storageKey, settingsKey: SETTINGS_STORAGE_KEY } =
     resolveStorageKeys(_instanceName);
 
+  /** Validate a stored keyboard value; return 'disabled' if unknown. */
+  function _parseKeyboardPosition(v) {
+    if (KEYBOARD_POSITIONS.includes(v)) return v;
+    return 'disabled';
+  }
+
   function loadInitialSettings() {
     if (typeof window === 'undefined') {
-      return { sounds: true, menuUrl: appConfig.menuUrl, preventScreenLock: false };
+      return { sounds: true, menuUrl: appConfig.menuUrl, preventScreenLock: false, customKeyboard: 'disabled' };
     }
     try {
       const raw = window.localStorage.getItem(SETTINGS_STORAGE_KEY);
       if (!raw) {
-        return { sounds: true, menuUrl: appConfig.menuUrl, preventScreenLock: false };
+        return { sounds: true, menuUrl: appConfig.menuUrl, preventScreenLock: false, customKeyboard: 'disabled' };
       }
       const parsed = JSON.parse(raw);
       return {
@@ -41,9 +48,10 @@ export function useSettings(props, emit) {
           typeof parsed.preventScreenLock === 'boolean' && wakeLockApiSupported
             ? parsed.preventScreenLock
             : false,
+        customKeyboard: _parseKeyboardPosition(parsed.customKeyboard),
       };
     } catch {
-      return { sounds: true, menuUrl: appConfig.menuUrl, preventScreenLock: false };
+      return { sounds: true, menuUrl: appConfig.menuUrl, preventScreenLock: false, customKeyboard: 'disabled' };
     }
   }
 
@@ -79,6 +87,7 @@ export function useSettings(props, emit) {
       // Keep store and parent in sync immediately for responsive UI
       store.menuUrl = newVal.menuUrl;
       store.preventScreenLock = newVal.preventScreenLock;
+      store.customKeyboard = newVal.customKeyboard;
       emit('settings-changed', newVal);
       // Debounce localStorage writes to avoid per-keystroke I/O (e.g. menuUrl typing)
       clearTimeout(saveTimer);
@@ -112,6 +121,13 @@ export function useSettings(props, emit) {
       window.localStorage.removeItem(resolveCustomItemsKey(_instanceName));
     } catch (e) {
       console.warn('[Settings] Failed to remove custom items during reset:', e);
+    }
+    // Also wipe all auth data (users, sessions, auth settings)
+    try {
+      const { clearAllAuthData } = useAuth();
+      clearAllAuthData();
+    } catch (e) {
+      console.warn('[Settings] Failed to clear auth data during reset:', e);
     }
     if (typeof window !== 'undefined' && window.location) {
       window.location.reload();

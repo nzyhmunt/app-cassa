@@ -117,6 +117,16 @@
               <Calculator class="size-5 md:size-6" />
               <span class="hidden sm:inline text-xs font-bold">Cassa</span>
             </button>
+            <button
+              @click="openGlobalNoteModal()"
+              :class="selectedOrder.globalNote ? 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100' : 'bg-gray-100 text-gray-700 border-gray-200 hover:text-[var(--brand-primary)] hover:bg-[var(--brand-primary)]/10 hover:border-[var(--brand-primary)]/30'"
+              class="px-2.5 py-2.5 md:p-3 border rounded-xl transition-all shadow-sm active:scale-95 flex items-center justify-center gap-1.5 shrink-0"
+              :title="selectedOrder.globalNote ? 'Nota ordine presente — clicca per modificare' : 'Aggiungi nota ordine'"
+              :aria-label="selectedOrder.globalNote ? 'Nota ordine presente — clicca per modificare' : 'Aggiungi nota ordine'"
+            >
+              <MessageSquareWarning class="size-5 md:size-6" />
+              <span class="hidden sm:inline text-xs font-bold">Nota</span>
+            </button>
             <div class="h-8 w-px bg-gray-200 mx-1 hidden sm:block"></div>
 
             <template v-if="selectedOrder.status === 'pending'">
@@ -262,6 +272,18 @@
               </div>
             </div>
           </div>
+
+          <!-- Nota Ordine (banner, visible when note is set and cassa flag is on) -->
+          <div
+            v-if="selectedOrder.globalNote && selectedOrder.noteVisibility?.cassa !== false"
+            class="mt-3 bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-start gap-2 shadow-sm"
+          >
+            <MessageSquareWarning class="size-4 md:size-5 text-amber-600 shrink-0" />
+            <div class="min-w-0 flex-1">
+              <p class="text-[10px] md:text-xs font-bold text-amber-800 uppercase tracking-wider mb-0.5">Nota Ordine</p>
+              <p class="text-xs md:text-sm text-amber-700 font-medium whitespace-pre-wrap">{{ selectedOrder.globalNote }}</p>
+            </div>
+          </div>
         </div>
 
         <!-- Footer Totali -->
@@ -332,7 +354,7 @@
             <input v-model="noteModal.modName" type="text" placeholder="Es. Mozzarella, Senza glutine..." class="flex-1 bg-gray-100 border border-gray-200 rounded-xl px-3 py-3 focus:bg-white theme-ring transition-all text-gray-800 font-medium text-sm" @keyup.enter="addModToNoteModal">
             <div class="relative w-24 shrink-0">
               <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm font-bold">{{ store.config.ui.currency }}</span>
-              <input v-model.number="noteModal.modPrice" type="number" min="0" step="0.50" placeholder="0.00" class="w-full pl-7 pr-2 py-3 bg-gray-100 border border-gray-200 rounded-xl focus:bg-white theme-ring transition-all text-gray-800 font-medium text-sm" @keyup.enter="addModToNoteModal">
+              <NumericInput v-model="noteModal.modPrice" min="0" step="0.50" placeholder="0.00" :prefix="store.config.ui.currency" class="w-full pl-7 pr-2 py-3 bg-gray-100 border border-gray-200 rounded-xl focus:bg-white theme-ring transition-all text-gray-800 font-medium text-sm" />
             </div>
             <button @click="addModToNoteModal" class="bg-purple-600 hover:bg-purple-700 text-white px-4 rounded-xl font-bold shadow-sm active:scale-95 flex items-center justify-center"><Plus class="size-5" /></button>
           </div>
@@ -376,6 +398,64 @@
 
       <div class="p-3 md:p-4 bg-gray-50 pb-8 md:pb-4 border-t border-gray-200 shrink-0">
         <button @click="saveNotes" class="w-full theme-bg text-white py-3 md:py-3.5 rounded-xl font-bold shadow-md hover:opacity-90 transition-opacity active:scale-95 text-sm md:text-base">Salva Note, Varianti e Uscita</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================================================================ -->
+  <!-- MODAL: NOTA ORDINE                                               -->
+  <!-- ================================================================ -->
+  <div v-if="globalNoteModal.show && selectedOrder" class="fixed inset-0 z-[90] bg-black/60 backdrop-blur-sm flex items-end md:items-center justify-center p-0 md:p-4">
+    <div class="bg-white rounded-t-3xl md:rounded-3xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col max-h-[92dvh] md:max-h-[85vh]">
+      <div class="bg-gray-50 border-b border-gray-100 p-4 flex justify-between items-center shrink-0">
+        <h3 class="font-bold text-base md:text-lg flex items-center gap-2"><MessageSquareWarning class="text-gray-500 size-4 md:size-5" /> Nota Ordine</h3>
+        <button @click="globalNoteModal.show = false" aria-label="Chiudi" class="text-gray-400 hover:text-gray-800 p-1.5 bg-gray-200 hover:bg-gray-300 rounded-full active:scale-95 transition-colors"><X class="size-5" /></button>
+      </div>
+
+      <div class="overflow-y-auto flex-1 p-4 md:p-5 space-y-4">
+        <textarea
+          v-model="selectedOrder.globalNote"
+          rows="5"
+          placeholder="Aggiungi una nota per tutto l'ordine..."
+          class="w-full bg-gray-100 border border-gray-200 rounded-xl px-3 py-2.5 focus:bg-white theme-ring transition-all text-gray-800 text-sm resize-none font-medium"
+        ></textarea>
+
+        <div>
+          <p class="text-xs font-bold text-gray-500 uppercase tracking-widest mb-2 flex items-center gap-1.5"><CheckCircle2 class="size-3.5" /> Visibile in:</p>
+          <div class="flex gap-2">
+            <button
+              @click="selectedOrder.noteVisibility.cassa = !selectedOrder.noteVisibility.cassa"
+              :aria-pressed="selectedOrder.noteVisibility.cassa"
+              :class="selectedOrder.noteVisibility.cassa ? 'bg-[var(--brand-primary)]/10 text-[var(--brand-primary)] border-[var(--brand-primary)]/30 font-bold' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100'"
+              class="flex-1 py-2.5 px-2 rounded-xl border transition-all flex items-center justify-center gap-1 text-xs active:scale-95 shadow-sm"
+            >
+              <CheckCircle2 v-if="selectedOrder.noteVisibility.cassa" class="size-3 shrink-0" aria-hidden="true" />
+              Cassa
+            </button>
+            <button
+              @click="selectedOrder.noteVisibility.sala = !selectedOrder.noteVisibility.sala"
+              :aria-pressed="selectedOrder.noteVisibility.sala"
+              :class="selectedOrder.noteVisibility.sala ? 'bg-[var(--brand-primary)]/10 text-[var(--brand-primary)] border-[var(--brand-primary)]/30 font-bold' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100'"
+              class="flex-1 py-2.5 px-2 rounded-xl border transition-all flex items-center justify-center gap-1 text-xs active:scale-95 shadow-sm"
+            >
+              <CheckCircle2 v-if="selectedOrder.noteVisibility.sala" class="size-3 shrink-0" aria-hidden="true" />
+              Sala
+            </button>
+            <button
+              @click="selectedOrder.noteVisibility.cucina = !selectedOrder.noteVisibility.cucina"
+              :aria-pressed="selectedOrder.noteVisibility.cucina"
+              :class="selectedOrder.noteVisibility.cucina ? 'bg-[var(--brand-primary)]/10 text-[var(--brand-primary)] border-[var(--brand-primary)]/30 font-bold' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100'"
+              class="flex-1 py-2.5 px-2 rounded-xl border transition-all flex items-center justify-center gap-1 text-xs active:scale-95 shadow-sm"
+            >
+              <CheckCircle2 v-if="selectedOrder.noteVisibility.cucina" class="size-3 shrink-0" aria-hidden="true" />
+              Cucina
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="p-3 md:p-4 bg-gray-50 pb-8 md:pb-4 border-t border-gray-200 shrink-0">
+        <button @click="globalNoteModal.show = false" class="w-full theme-bg text-white py-3 md:py-3.5 rounded-xl font-bold shadow-md hover:opacity-90 transition-opacity active:scale-95 text-sm md:text-base">Salva Nota</button>
       </div>
     </div>
   </div>
@@ -605,6 +685,7 @@ import {
   getCourseQtyClass,
   groupOrderItemsByCourse,
 } from '../utils/index.js';
+import NumericInput from './NumericInput.vue';
 
 defineEmits(['jump-to-cassa']);
 
@@ -678,6 +759,12 @@ const noteModal = ref({
   modifiersArray: [], modName: '', modPrice: 0,
   course: DEFAULT_COURSE, cartIdx: null,
 });
+
+// ── Global note modal ───────────────────────────────────────────────────────
+const globalNoteModal = ref({ show: false });
+function openGlobalNoteModal() {
+  globalNoteModal.value.show = true;
+}
 
 // ── Info modal ─────────────────────────────────────────────────────────────
 const infoModal = ref({ show: false, item: null });

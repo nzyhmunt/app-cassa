@@ -84,6 +84,21 @@ export const appConfig = {
     allowCustomEntry: true,
   },
 
+  // CONFIGURAZIONE AUTENTICAZIONE
+  // Permette di definire utenti statici a livello di build/deploy.
+  // Questi utenti sono sola lettura: non possono essere modificati dall'interfaccia.
+  // pin: PIN numerico a 4 cifre in plaintext (hashato in memoria, mai persistito)
+  // apps: elenco delle app abilitate per l'utente ('cassa', 'sala', 'cucina');
+  //        omettere o lasciare vuoto per abilitare tutte e tre le app.
+  // Esempio:
+  //   users: [
+  //     { id: 'mario_cassa', name: 'Mario', pin: '1234', apps: ['cassa', 'sala'] },
+  //     { id: 'chef_cucina', name: 'Chef', pin: '5678', apps: ['cucina'] },
+  //   ]
+  auth: {
+    users: [],
+  },
+
   // Minimal fallback menu; the full menu is loaded from the external URL at startup
   menu: {
     "Placeholder": [
@@ -96,6 +111,7 @@ export const initialOrders = [
   {
     id: "ord_rX91", table: "04", status: "pending", time: "19:30", totalAmount: 26.00, itemCount: 4,
     dietaryPreferences: { diete: ["Vegetariano"] },
+    globalNote: '', noteVisibility: { cassa: true, sala: true, cucina: true },
     orderItems: [
       { uid: "r_1", dishId: "ant_2", name: "Bruschetta pomodoro", unitPrice: 3, quantity: 2, voidedQuantity: 0, notes: ["Senza aglio"] },
       { uid: "r_3", dishId: "bev_4", name: "Vino Rosso Casa 1L", unitPrice: 10, quantity: 2, voidedQuantity: 0, notes: [] },
@@ -104,6 +120,7 @@ export const initialOrders = [
   {
     id: "ord_mP02", table: "08", status: "accepted", time: "19:15", totalAmount: 33.00, itemCount: 2,
     dietaryPreferences: {},
+    globalNote: '', noteVisibility: { cassa: true, sala: true, cucina: true },
     orderItems: [
       { uid: "r_5", dishId: "ant_8", name: "Tagliere x2", unitPrice: 20, quantity: 1, voidedQuantity: 0, notes: [] },
       { uid: "r_6", dishId: "pri_3", name: "Carbonara", unitPrice: 13, quantity: 2, voidedQuantity: 1, notes: ["Ben cotta"] },
@@ -225,3 +242,8 @@ export function groupOrderItemsByCourse(items, includeIndex = true) {
   });
   return result;
 }
+
+
+// ── Numeric keyboard positions ──────────────────────────────────────────────
+/** Valid values for the `customKeyboard` setting. */
+export const KEYBOARD_POSITIONS = /** @type {const} */ (['disabled', 'center', 'left', 'right']);
