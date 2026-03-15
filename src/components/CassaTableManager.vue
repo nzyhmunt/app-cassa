@@ -635,11 +635,9 @@
                 <div
                   v-for="(saved, si) in allDirectCustomItems"
                   :key="'sc_'+si"
-                  :class="saved.locked ? 'border-emerald-200' : 'border-gray-200 hover:border-emerald-300'"
-                  class="flex items-stretch bg-white border rounded-xl shadow-sm overflow-hidden transition-colors">
+                  class="flex items-stretch bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden hover:border-emerald-300 transition-colors">
                   <button
                     @click="addSavedCustomItemToDirectCart(saved)"
-                    :class="saved.locked ? 'bg-emerald-50/50' : ''"
                     class="flex-1 p-3 text-left hover:bg-emerald-50 active:scale-95 transition-colors min-w-0 flex flex-col gap-1">
                     <span class="font-bold text-gray-800 text-xs leading-snug line-clamp-2">{{ saved.name }}</span>
                     <span class="theme-text font-black text-sm mt-auto">{{ store.config.ui.currency }}{{ saved.price.toFixed(2) }}</span>
