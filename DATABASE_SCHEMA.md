@@ -459,7 +459,6 @@ Cardinalità:
                   │ total_amount
                   │ is_cover_charge
                   │ is_direct_entry
-
                   │ global_note
                   │ note_visibility_cassa/sala/cucina
                   └──────────────────────────────┐
@@ -542,7 +541,6 @@ Cardinalità:
 |---------------------------------------|----------------------------------------|
 | `orders[]`                            | `orders` + `order_items` + `order_item_modifiers` |
 | `order.isDirectEntry`                 | `orders.is_direct_entry`               |
-
 | `order.globalNote`                    | `orders.global_note`                   |
 | `order.noteVisibility.{cassa,sala,cucina}` | `orders.note_visibility_{cassa,sala,cucina}` |
 | `transactions[]`                      | `transactions` + `transaction_order_refs` |
