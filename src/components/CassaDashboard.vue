@@ -251,6 +251,19 @@
             </div>
           </div>
 
+          <!-- Banner conservazione documenti fiscali -->
+          <div class="bg-amber-50 border border-amber-200 rounded-xl p-3 md:p-4 flex items-start gap-2 text-sm">
+            <FileText class="size-5 text-amber-600 shrink-0 mt-0.5" />
+            <div>
+              <p class="font-bold text-amber-800">Conservazione dati fiscali</p>
+              <p class="text-amber-700 text-xs mt-0.5">
+                Prima di chiudere la giornata, scarica il report CSV del turno. I dati di chiusura devono essere conservati
+                per almeno 10 anni ai sensi dell'art. 22 D.P.R. 600/1973. Il report viene scaricato automaticamente
+                all'avvio della chiusura Z.
+              </p>
+            </div>
+          </div>
+
           <!-- Storico chiusure -->
           <div v-if="store.dailyClosures.length > 0" class="bg-white rounded-2xl border border-gray-200 shadow-sm p-4">
             <h5 class="font-bold text-gray-600 text-xs uppercase tracking-wider mb-3 flex items-center gap-1">
@@ -318,6 +331,11 @@
             <Eye class="size-5" /> Anteprima Chiusura
           </button>
 
+          <button @click="downloadCurrentReport"
+            class="w-full py-3 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-2xl font-bold border border-blue-200 transition-colors active:scale-95 flex items-center justify-center gap-2 text-sm">
+            <Download class="size-5" /> Esporta Report CSV
+          </button>
+
           <button v-if="isAdmin" @click="confirmDailyClose"
             class="w-full py-4 bg-red-600 hover:bg-red-700 text-white rounded-2xl font-bold shadow-md transition-colors active:scale-95 flex items-center justify-center gap-2 text-sm md:text-base">
             <Lock class="size-5" /> Esegui Lettura Z (Chiudi Giornata)
@@ -334,7 +352,7 @@ import { ref, computed, watch } from 'vue';
 import {
   X, Landmark, Wallet, ArrowLeftRight, ArrowDownCircle, ArrowUpCircle, Plus,
   Eye, AlertTriangle, Lock, RefreshCw, Save, TrendingUp, CreditCard, Users,
-  Receipt, History, ClipboardList, Tag, Gift, FileText,
+  Receipt, History, ClipboardList, Tag, Gift, Download, FileText,
 } from 'lucide-vue-next';
 import { Banknote } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
@@ -399,11 +417,94 @@ function previewDailyClose() {
   zPreview.value = store.generateXReport();
 }
 
+function exportZReportCSV(summary) {
+  const now = new Date(summary.timestamp);
+  const dateStr = now.toLocaleDateString('it-IT');
+  const timeStr = now.toLocaleTimeString('it-IT');
+
+  const rows = [
+    ['CHIUSURA GIORNALIERA (REPORT Z)'],
+    ['Data', dateStr],
+    ['Ora', timeStr],
+    [],
+    ['RIEPILOGO INCASSI'],
+    ['Totale Incassato', `€${summary.totalReceived.toFixed(2)}`],
+  ];
+
+  Object.entries(summary.byMethod).forEach(([method, val]) => {
+    rows.push([`  – ${method}`, `€${val.toFixed(2)}`]);
+  });
+
+  rows.push([]);
+
+  if (summary.totalDiscount > 0) {
+    rows.push(['Sconti Applicati', `-€${summary.totalDiscount.toFixed(2)}`]);
+  }
+  if (summary.totalTips > 0) {
+    rows.push(['Mance Incassate', `€${summary.totalTips.toFixed(2)}`]);
+  }
+
+  rows.push([]);
+  rows.push(['STATISTICHE']);
+  rows.push(['Numero Scontrini', summary.receiptCount]);
+  rows.push(['Coperti Totali', summary.totalCovers]);
+  rows.push(['Scontrino Medio', `€${summary.averageReceipt.toFixed(2)}`]);
+
+  rows.push([]);
+  rows.push(['CASSA FISICA']);
+  rows.push(['Fondo Iniziale', `€${summary.cashBalance.toFixed(2)}`]);
+
+  if (summary.cashMovementsData && summary.cashMovementsData.length > 0) {
+    rows.push([]);
+    rows.push(['MOVIMENTI CASSA']);
+    rows.push(['Tipo', 'Importo', 'Causale', 'Ora']);
+    summary.cashMovementsData.forEach(m => {
+      rows.push([
+        m.type === 'deposit' ? 'Versamento' : 'Prelievo',
+        `€${m.amount.toFixed(2)}`,
+        m.reason || '',
+        m.time || '',
+      ]);
+    });
+  }
+
+  rows.push([]);
+  rows.push(['Totale Movimenti', `€${summary.totalMovements.toFixed(2)}`]);
+  rows.push(['Fondo Finale Stimato', `€${summary.finalBalance.toFixed(2)}`]);
+
+  const csvContent = rows.map(row =>
+    row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')
+  ).join('\n');
+
+  const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  const isoTimestamp = now.toISOString().slice(0, 19).replace(/:/g, '-');
+  link.download = `chiusura-z_${isoTimestamp}.csv`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+function downloadCurrentReport() {
+  const summary = zPreview.value || store.generateXReport();
+  if (!zPreview.value) zPreview.value = summary;
+  exportZReportCSV(summary);
+}
+
 function confirmDailyClose() {
   if (!zPreview.value) {
     zPreview.value = store.generateXReport();
   }
-  if (!confirm(`Confermi la Chiusura Z? Totale: €${zPreview.value.totalReceived.toFixed(2)}. Questa operazione è irreversibile.`)) return;
+  if (!confirm(
+    `Chiusura Z – Totale incassato: €${zPreview.value.totalReceived.toFixed(2)}\n\n` +
+    `Procedendo, il report CSV del turno verrà scaricato automaticamente.\n` +
+    `Conservarlo in un luogo sicuro ai fini fiscali (art. 22 D.P.R. 600/1973).\n\n` +
+    `Procedere con la chiusura definitiva? Questa operazione è irreversibile.`
+  )) return;
+  exportZReportCSV(zPreview.value);
   store.performDailyClose();
   zPreview.value = null;
   cashBalanceInput.value = store.cashBalance;
