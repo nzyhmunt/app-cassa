@@ -207,6 +207,7 @@ import {
   Grid3x3, Users, Timer, X, Coffee, ChevronRight, Plus, ArrowRightLeft, Merge, Zap,
 } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
+// Shared component — used by both Sala and Cassa apps.
 import PeopleModal from './shared/PeopleModal.vue';
 import TableStatsBar from './shared/TableStatsBar.vue';
 import TableGrid from './shared/TableGrid.vue';
