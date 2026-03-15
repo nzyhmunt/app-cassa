@@ -572,7 +572,7 @@
       </div>
 
       <!-- Tabs -->
-      <div v-if="store.config.billing?.allowCustomEntry !== false" class="flex border-b border-gray-200 bg-gray-50 shrink-0">
+      <div v-if="store.config.billing?.allowCustomEntry !== false && isAdmin" class="flex border-b border-gray-200 bg-gray-50 shrink-0">
         <button
           @click="directItemMode = 'menu'"
           :class="directItemMode === 'menu' ? 'border-b-2 theme-border-b theme-text bg-white font-bold' : 'text-gray-500 hover:bg-gray-100'"
@@ -617,7 +617,7 @@
         </div>
 
         <!-- "Custom" mode -->
-        <div v-else-if="directItemMode === 'custom' && store.config.billing?.allowCustomEntry !== false" class="flex-1 overflow-hidden flex flex-col min-h-0">
+        <div v-else-if="directItemMode === 'custom' && store.config.billing?.allowCustomEntry !== false && isAdmin" class="flex-1 overflow-hidden flex flex-col min-h-0">
 
           <!-- New item form -->
           <div class="shrink-0 p-4 border-b border-gray-100 bg-white">
@@ -809,6 +809,7 @@ import {
 import { useAppStore } from '../store/index.js';
 import { getOrderItemRowTotal, KITCHEN_ACTIVE_STATUSES } from '../utils/index.js';
 import { resolveCustomItemsKey } from '../store/persistence.js';
+import { useAuth } from '../composables/useAuth.js';
 import CassaClosedBillsList from './CassaClosedBillsList.vue';
 // Shared component — used by both Sala and Cassa apps.
 import PeopleModal from './shared/PeopleModal.vue';
@@ -817,6 +818,7 @@ import NumericInput from './NumericInput.vue';
 const emit = defineEmits(['open-order-from-table', 'new-order-for-ordini']);
 
 const store = useAppStore();
+const { isAdmin } = useAuth();
 
 // ── Table modal state ──────────────────────────────────────────────────────
 const showTableModal = ref(false);

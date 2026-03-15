@@ -4,7 +4,7 @@
       v-if="visible"
       class="fixed inset-0 z-[200] flex flex-col items-center justify-center select-none"
       :style="store.cssVars"
-      style="background: linear-gradient(135deg, var(--brand-primary) 0%, var(--brand-primary-dark) 100%)"
+      style="background: linear-gradient(135deg, var(--brand-primary, #16a34a) 0%, var(--brand-primary-dark, #15803d) 100%)"
     >
       <!-- Clock & branding -->
       <div class="flex flex-col items-center mb-6 md:mb-8">

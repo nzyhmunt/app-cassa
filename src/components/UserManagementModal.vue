@@ -115,6 +115,7 @@
                     </template>
                     <template v-else>
                       <input
+                        v-if="isAdmin"
                         v-model="editName"
                         type="text"
                         maxlength="30"
@@ -133,8 +134,8 @@
                     </template>
                   </div>
 
-                  <!-- Action buttons (admin only, not for config users) -->
-                  <div v-if="isAdmin && !user.fromConfig" class="flex gap-1 shrink-0">
+                  <!-- Action buttons: admin can edit/delete all; non-admin can edit their own PIN -->
+                  <div v-if="!user.fromConfig && (isAdmin || user.id === currentUser?.id)" class="flex gap-1 shrink-0">
                     <template v-if="editingId !== user.id">
                       <button
                         @click="startEdit(user)"
@@ -144,7 +145,7 @@
                         <Pencil class="size-3.5" />
                       </button>
                       <button
-                        v-if="!user.isAdmin"
+                        v-if="isAdmin && !user.isAdmin"
                         @click="askRemove(user.id)"
                         class="p-2 rounded-xl bg-red-50 hover:bg-red-100 text-red-500 transition-colors active:scale-95"
                         title="Elimina"
@@ -313,6 +314,7 @@ defineEmits(['update:modelValue']);
 const {
   users: allUsers,
   manualUsers,
+  currentUser,
   isAdmin,
   hasAdmin,
   lockTimeoutMinutes,
