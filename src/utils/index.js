@@ -59,6 +59,9 @@ export const appConfig = {
   // autoAdd: aggiunge automaticamente il coperto all'apertura del tavolo
   // priceAdult: prezzo coperto per adulto
   // priceChild: prezzo coperto per bambino (0 = gratuito)
+  // Nota: quando enabled è true, le voci "Coperto adulto" e "Coperto bambino" vengono
+  //   inserite automaticamente come voci fisse (non rimovibili) nella tab "Personalizzata"
+  //   del modal Voce Diretta, per facilitarne l'aggiunta manuale.
   coverCharge: {
     enabled: true,
     autoAdd: true,
@@ -170,6 +173,30 @@ export function updateOrderTotals(ord) {
   });
   ord.itemCount = count;
   ord.totalAmount = total;
+}
+
+/**
+ * Derives the list of config-pinned (locked) items for the "Personalizzata" tab
+ * of the Voce Diretta modal, based on the coverCharge configuration.
+ *
+ * When coverCharge.enabled is true, a "Coperto" entry is added for every
+ * positive priceAdult and a "Coperto bambino" entry for every positive priceChild.
+ * These items carry `locked: true` so the UI can render them non-removable.
+ * The naming mirrors the cover-charge order logic: adult → `name`, child → `name + ' bambino'`.
+ *
+ * @param {object|null|undefined} coverCharge - appConfig.coverCharge object
+ * @returns {{ name: string, price: number, locked: true }[]}
+ */
+export function getLockedDirectItems(coverCharge) {
+  if (!coverCharge?.enabled) return [];
+  const items = [];
+  if ((coverCharge.priceAdult ?? 0) > 0) {
+    items.push({ name: coverCharge.name ?? 'Coperto', price: coverCharge.priceAdult, locked: true });
+  }
+  if ((coverCharge.priceChild ?? 0) > 0) {
+    items.push({ name: (coverCharge.name ?? 'Coperto') + ' bambino', price: coverCharge.priceChild, locked: true });
+  }
+  return items;
 }
 
 // ── Kitchen order status constants ─────────────────────────────────────────

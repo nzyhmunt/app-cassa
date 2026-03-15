@@ -4,6 +4,7 @@ import {
   billKey,
   getOrderItemRowTotal,
   updateOrderTotals,
+  getLockedDirectItems,
 } from '../index.js';
 
 // ---------------------------------------------------------------------------
@@ -154,5 +155,56 @@ describe('updateOrderTotals()', () => {
     // active = 2, total = 2×10 + 2×1 = 22
     updateOrderTotals(ord);
     expect(ord.totalAmount).toBe(22);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getLockedDirectItems()
+// ---------------------------------------------------------------------------
+describe('getLockedDirectItems()', () => {
+  it('returns empty array when coverCharge is null', () => {
+    expect(getLockedDirectItems(null)).toEqual([]);
+  });
+
+  it('returns empty array when coverCharge is undefined', () => {
+    expect(getLockedDirectItems(undefined)).toEqual([]);
+  });
+
+  it('returns empty array when coverCharge.enabled is false', () => {
+    expect(getLockedDirectItems({ enabled: false, priceAdult: 2.50, priceChild: 1.00, name: 'Coperto' })).toEqual([]);
+  });
+
+  it('returns both adulto and bambino when both prices are positive', () => {
+    const result = getLockedDirectItems({ enabled: true, priceAdult: 2.50, priceChild: 1.00, name: 'Coperto' });
+    expect(result).toHaveLength(2);
+    expect(result[0]).toEqual({ name: 'Coperto', price: 2.50, locked: true });
+    expect(result[1]).toEqual({ name: 'Coperto bambino', price: 1.00, locked: true });
+  });
+
+  it('omits bambino when priceChild is 0', () => {
+    const result = getLockedDirectItems({ enabled: true, priceAdult: 2.50, priceChild: 0, name: 'Coperto' });
+    expect(result).toHaveLength(1);
+    expect(result[0].name).toBe('Coperto');
+  });
+
+  it('omits adulto when priceAdult is 0', () => {
+    const result = getLockedDirectItems({ enabled: true, priceAdult: 0, priceChild: 1.00, name: 'Coperto' });
+    expect(result).toHaveLength(1);
+    expect(result[0].name).toBe('Coperto bambino');
+  });
+
+  it('uses fallback name "Coperto" when name is missing', () => {
+    const result = getLockedDirectItems({ enabled: true, priceAdult: 2.50, priceChild: 1.00 });
+    expect(result[0].name).toBe('Coperto');
+    expect(result[1].name).toBe('Coperto bambino');
+  });
+
+  it('every returned item has locked: true', () => {
+    const result = getLockedDirectItems({ enabled: true, priceAdult: 3.00, priceChild: 1.50, name: 'Servizio' });
+    result.forEach(item => expect(item.locked).toBe(true));
+  });
+
+  it('returns empty array when both prices are 0 and enabled is true', () => {
+    expect(getLockedDirectItems({ enabled: true, priceAdult: 0, priceChild: 0, name: 'Coperto' })).toEqual([]);
   });
 });

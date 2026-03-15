@@ -629,9 +629,27 @@
 
           <!-- Saved custom items -->
           <div class="flex-1 overflow-y-auto p-3">
-            <div v-if="savedCustomItems.length > 0">
+            <div v-if="savedCustomItems.length > 0 || configLockedDirectItems.length > 0">
               <p class="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2 px-1">Voci salvate</p>
               <div class="grid grid-cols-2 md:grid-cols-3 gap-2">
+                <!-- Config-locked items (coperto adulto/bambino) — shown first, non-removable -->
+                <div
+                  v-for="locked in configLockedDirectItems"
+                  :key="'lc_'+locked.name"
+                  class="flex items-stretch bg-white border border-emerald-200 rounded-xl shadow-sm overflow-hidden transition-colors">
+                  <button
+                    @click="addSavedCustomItemToDirectCart(locked)"
+                    class="flex-1 p-3 text-left hover:bg-emerald-50 active:scale-95 transition-colors min-w-0 flex flex-col gap-1 bg-emerald-50/50">
+                    <span class="font-bold text-gray-800 text-xs leading-snug line-clamp-2">{{ locked.name }}</span>
+                    <span class="theme-text font-black text-sm mt-auto">{{ store.config.ui.currency }}{{ locked.price.toFixed(2) }}</span>
+                  </button>
+                  <span
+                    class="shrink-0 w-8 border-l border-emerald-100 text-emerald-500 bg-emerald-50/50 flex items-center justify-center"
+                    title="Voce fissa da configurazione">
+                    <Lock class="size-3.5" />
+                  </span>
+                </div>
+                <!-- User-saved items -->
                 <div
                   v-for="(saved, si) in savedCustomItems"
                   :key="'sc_'+si"
@@ -791,10 +809,10 @@ import {
   Ban, Undo2, Code, Minus, Receipt, ArrowRightLeft, Merge, Trash2,
   Layers, ListChecks, History, LayoutGrid, ListOrdered,
   Tag, Wallet, Coins,
-  Percent, Zap, BookOpen, PlusCircle, Banknote, CreditCard,
+  Percent, Zap, BookOpen, PlusCircle, Banknote, CreditCard, Lock,
 } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
-import { getOrderItemRowTotal, KITCHEN_ACTIVE_STATUSES } from '../utils/index.js';
+import { getOrderItemRowTotal, KITCHEN_ACTIVE_STATUSES, getLockedDirectItems } from '../utils/index.js';
 import { resolveCustomItemsKey } from '../store/persistence.js';
 import { useAuth } from '../composables/useAuth.js';
 import CassaClosedBillsList from './CassaClosedBillsList.vue';
@@ -1209,6 +1227,13 @@ const directCustomPrice = ref('');
 const canShowCustomEntryTab = computed(
   () => store.config.billing?.allowCustomEntry !== false,
 );
+
+/**
+ * Items pinned by appConfig.coverCharge — automatically injected into the
+ * Personalizzata tab and cannot be removed from the UI.
+ * Adulto is added when priceAdult > 0; bambino when priceChild > 0.
+ */
+const configLockedDirectItems = computed(() => getLockedDirectItems(store.config.coverCharge));
 
 // Saved custom items — persisted in localStorage
 // Key is derived from the instance name so multiple instances stay isolated.
