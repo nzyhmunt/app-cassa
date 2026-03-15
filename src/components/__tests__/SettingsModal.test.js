@@ -153,3 +153,41 @@ describe('non-admin user logged in', () => {
     expect(wrapper.text()).toContain('Gestione Utenti');
   });
 });
+
+// ── showMenuSync prop (introduced in PR #66) ──────────────────────────────────
+
+describe('showMenuSync prop', () => {
+  beforeEach(async () => {
+    const { addUser, login } = useAuth();
+    const admin = await addUser('Admin', '1111');
+    await login(admin.id, '1111');
+  });
+
+  it('hides the menu sync section when showMenuSync=false, even for admin', async () => {
+    const wrapper = mount(SettingsModal, {
+      props: { modelValue: true, title: 'Impostazioni', showMenuSync: false },
+      global: {
+        stubs: {
+          Settings: { template: '<span />' },
+          X: { template: '<span />' },
+          RefreshCw: { template: '<span />' },
+          RotateCcw: { template: '<span />' },
+          Users: { template: '<span />' },
+          ShieldCheck: { template: '<span />' },
+          ShieldAlert: { template: '<span />' },
+          UserManagementModal: { template: '<div />', props: ['modelValue'] },
+        },
+      },
+    });
+    await flushPromises();
+    expect(wrapper.text()).not.toContain('URL Menu JSON');
+    expect(wrapper.text()).not.toContain('Sincronizza');
+  });
+
+  it('shows the menu sync section when showMenuSync=true and user is admin', async () => {
+    const wrapper = mountSettingsModal(); // default showMenuSync=true
+    await flushPromises();
+    expect(wrapper.text()).toContain('URL Menu JSON');
+    expect(wrapper.text()).toContain('Sincronizza Menu');
+  });
+});
