@@ -80,6 +80,21 @@ export const appConfig = {
     enableDiscounts: true,
   },
 
+  // CONFIGURAZIONE AUTENTICAZIONE
+  // Permette di definire utenti statici a livello di build/deploy.
+  // Questi utenti sono sola lettura: non possono essere modificati dall'interfaccia.
+  // pin: PIN numerico a 4 cifre in plaintext (hashato in memoria, mai persistito)
+  // apps: elenco delle app abilitate per l'utente ('cassa', 'sala', 'cucina');
+  //        omettere o lasciare vuoto per abilitare tutte e tre le app.
+  // Esempio:
+  //   users: [
+  //     { id: 'mario_cassa', name: 'Mario', pin: '1234', apps: ['cassa', 'sala'] },
+  //     { id: 'chef_cucina', name: 'Chef', pin: '5678', apps: ['cucina'] },
+  //   ]
+  auth: {
+    users: [],
+  },
+
   // Minimal fallback menu; the full menu is loaded from the external URL at startup
   menu: {
     "Placeholder": [

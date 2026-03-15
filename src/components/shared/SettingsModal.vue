@@ -82,6 +82,15 @@
           <p v-if="store.menuError" class="text-xs text-red-600 text-center">Errore: {{ store.menuError }}</p>
         </div>
 
+        <!-- Gestione Utenti -->
+        <div class="pt-4 border-t border-gray-100 mt-2">
+          <button @click="showUserManagement = true"
+            class="w-full py-3 bg-gray-50 hover:bg-gray-100 text-gray-700 font-bold rounded-2xl flex items-center justify-center gap-2 border border-gray-200 transition-colors shadow-sm active:scale-95">
+            <Users class="size-4 text-gray-500" />
+            Gestione Utenti &amp; Blocco Schermo
+          </button>
+        </div>
+
         <!-- Reset dati -->
         <div class="pt-4 border-t border-gray-100 mt-2">
           <template v-if="!resetConfirmPending">
@@ -93,7 +102,7 @@
           </template>
           <template v-else>
             <p class="text-xs text-red-700 font-semibold text-center mb-3">
-              Tutti i dati (ordini, cassa, tavoli) saranno cancellati. Sei sicuro?
+              Tutti i dati (ordini, cassa, tavoli) e gli utenti saranno cancellati. Sei sicuro?
             </p>
             <div class="flex gap-2">
               <button @click="resetConfirmPending = false"
@@ -110,11 +119,14 @@
       </div>
     </div>
   </div>
+  <UserManagementModal v-model="showUserManagement" />
 </template>
 
 <script setup>
-import { Settings, X, RefreshCw, RotateCcw } from 'lucide-vue-next';
+import { ref } from 'vue';
+import { Settings, X, RefreshCw, RotateCcw, Users } from 'lucide-vue-next';
 import { useSettings } from '../../composables/useSettings.js';
+import UserManagementModal from '../UserManagementModal.vue';
 
 const props = defineProps({
   modelValue: Boolean,
@@ -124,6 +136,8 @@ const props = defineProps({
 const emit = defineEmits(['update:modelValue', 'settings-changed']);
 
 const { store, settings, resetConfirmPending, syncMenu, confirmReset, wakeLockApiSupported } = useSettings(props, emit);
+
+const showUserManagement = ref(false);
 
 const keyboardPositionOptions = [
   { value: 'disabled', label: 'Off' },

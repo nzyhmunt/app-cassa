@@ -51,6 +51,15 @@
           <RefreshCw class="size-5 md:size-5 shrink-0" />
         </button>
         <button
+          v-if="requiresAuth"
+          @click="auth.lock()"
+          aria-label="Blocca schermo"
+          class="bg-white/10 hover:bg-white/20 px-2.5 md:px-3 py-2 md:py-2.5 rounded-xl transition-colors text-white flex items-center justify-center"
+          title="Blocca"
+        >
+          <Lock class="size-5 md:size-5 shrink-0" />
+        </button>
+        <button
           @click="emit('open-settings')"
           aria-label="Apri impostazioni"
           class="relative z-50 bg-black/20 hover:bg-black/30 px-2.5 md:px-3 py-2 md:py-2.5 rounded-xl transition-colors shadow-inner text-white flex items-center justify-center gap-1.5 cursor-pointer active:scale-95"
@@ -435,9 +444,10 @@
 
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
-import { Bell, BellRing, ChefHat, Check, CheckCircle2, Clock, Flame, Layers, RefreshCw, RotateCcw, Settings, ClipboardList, X } from 'lucide-vue-next';
+import { Bell, BellRing, ChefHat, Check, CheckCircle2, Clock, Flame, Layers, Lock, RefreshCw, RotateCcw, Settings, ClipboardList, X } from 'lucide-vue-next';
 import { useAppStore } from '../../store/index.js';
 import { useBeep } from '../../composables/useBeep.js';
+import { useAuth } from '../../composables/useAuth.js';
 import KitchenOrderCard from './KitchenOrderCard.vue';
 import {
   getCourseBorderClass,
@@ -446,6 +456,7 @@ import {
 } from '../../utils/index.js';
 
 const emit = defineEmits(['open-settings']);
+const { requiresAuth, ...auth } = useAuth();
 
 const store = useAppStore();
 

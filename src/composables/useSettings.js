@@ -4,6 +4,7 @@ import { getInstanceName, resolveStorageKeys, clearState } from '../store/persis
 import { appConfig, KEYBOARD_POSITIONS } from '../utils/index.js';
 import { isWakeLockSupported } from './useWakeLock.js';
 import { getPwaDismissKey } from './usePwaInstall.js';
+import { useAuth } from './useAuth.js';
 
 /**
  * Shared composable for the Cassa and Sala settings modals.
@@ -115,6 +116,13 @@ export function useSettings(props, emit) {
       window.localStorage.removeItem(getPwaDismissKey());
     } catch (e) {
       console.warn('[Settings] Failed to remove PWA dismiss key during reset:', e);
+    }
+    // Also wipe all auth data (users, sessions, auth settings)
+    try {
+      const { clearAllAuthData } = useAuth();
+      clearAllAuthData();
+    } catch (e) {
+      console.warn('[Settings] Failed to clear auth data during reset:', e);
     }
     if (typeof window !== 'undefined' && window.location) {
       window.location.reload();
