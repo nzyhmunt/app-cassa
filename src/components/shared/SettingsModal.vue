@@ -65,7 +65,8 @@
           </div>
         </div>
 
-        <div v-if="showMenuSync && isAdmin" class="pt-4 border-t border-gray-100 mt-2 space-y-3">
+        <div v-if="showMenuSync" class="pt-4 border-t border-gray-100 mt-2 space-y-3">
+          <template v-if="isAdmin">
           <div>
             <label class="block text-xs font-bold text-gray-600 mb-1">URL Menu JSON</label>
             <input
@@ -80,6 +81,7 @@
             <span>{{ store.menuLoading ? 'Sincronizzazione...' : 'Sincronizza Menu' }}</span>
           </button>
           <p v-if="store.menuError" class="text-xs text-red-600 text-center">Errore: {{ store.menuError }}</p>
+          </template>
         </div>
 
         <!-- Gestione Utenti -->
