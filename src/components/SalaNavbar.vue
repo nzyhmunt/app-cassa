@@ -61,32 +61,23 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
+import { computed, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { UtensilsCrossed, LayoutGrid, ClipboardList, Settings, Lock } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
 import { useBeep } from '../composables/useBeep.js';
 import { useAuth } from '../composables/useAuth.js';
+import { useAppClock } from '../composables/useAppClock.js';
 
 defineEmits(['open-settings', 'lock']);
 
 const store = useAppStore();
 const { requiresAuth } = useAuth();
 const route = useRoute();
-const currentTime = ref(new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }));
+const { currentTime } = useAppClock();
 
 const isSalaActive = computed(() => route.name === 'sala');
 const isComandeActive = computed(() => route.name === 'comande');
-
-let clockTimer = null;
-onMounted(() => {
-  clockTimer = setInterval(() => {
-    currentTime.value = new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
-  }, 1000);
-});
-onUnmounted(() => {
-  if (clockTimer !== null) clearInterval(clockTimer);
-});
 
 // ── Avviso audio per nuovi ordini in arrivo ────────────────────────────────
 const { playBeep } = useBeep();
