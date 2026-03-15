@@ -276,8 +276,8 @@ export function useAuth() {
    */
   const requiresAuth = computed(() => _visibleUsers.value.length > 0);
 
-  /** True when the current user has admin privileges. */
-  const isAdmin = computed(() => currentUser.value?.isAdmin === true);
+  /** True when the current user has admin privileges. In open mode (no users configured) everyone has full access. */
+  const isAdmin = computed(() => !requiresAuth.value || currentUser.value?.isAdmin === true);
 
   /** True when there is at least one manually-created admin user. */
   const hasAdmin = computed(() => _users.value.some((u) => u.isAdmin));
