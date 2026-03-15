@@ -482,3 +482,21 @@ export function useAuth() {
     ALL_APPS,
   };
 }
+
+/**
+ * Reset all module-level singleton state.
+ * For use in tests only — not exported from the public API in production builds.
+ * @internal
+ */
+export function _resetAuthSingleton() {
+  _initialized = false;
+  _users.value = [];
+  _currentUserId.value = null;
+  _isLocked.value = true;
+  _lockTimeoutMinutes.value = 5;
+  if (_lockTimer) { clearTimeout(_lockTimer); _lockTimer = null; }
+  _keys = null;
+  _currentApp = 'cassa';
+  _configUserHashes.clear();
+  _configHashesReady = null;
+}

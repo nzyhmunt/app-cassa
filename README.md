@@ -27,12 +27,15 @@ src/
 │   ├── CassaBillCard.vue              ← Card riepilogo conto chiuso (Cassa only)
 │   ├── CassaClosedBillsList.vue       ← Lista conti chiusi sessione (Cassa only)
 │   ├── CassaSettingsModal.vue         ← Impostazioni Cassa (usa shared/SettingsModal)
+│   ├── LockScreen.vue                 ← Overlay blocco schermo con tastierino PIN
+│   ├── UserManagementModal.vue        ← Gestione utenti e configurazione blocco automatico
 │   ├── SalaNavbar.vue                 ← Navigazione (Sala)
 │   ├── SalaTableManager.vue           ← Mappa sala semplificata (Sala only)
 │   ├── SalaOrderManager.vue           ← Creazione/invio comande (Sala only)
 │   ├── SalaSettingsModal.vue          ← Impostazioni Sala (usa shared/SettingsModal)
-│   └── CucinaSettingsModal.vue        ← Impostazioni Cucina (audio + wake lock)
+│   └── CucinaSettingsModal.vue        ← Impostazioni Cucina (audio + wake lock + utenti)
 ├── composables/
+│   ├── useAuth.js                     ← Autenticazione utenti, PIN hashing, auto-lock timer
 │   ├── useBeep.js                     ← Notifiche audio (Web Audio API)
 │   ├── usePwaInstall.js               ← Rilevamento installazione PWA
 │   ├── useSettings.js                 ← Lettura/scrittura impostazioni localStorage
@@ -197,13 +200,37 @@ pending → accepted → preparing → ready → delivered → completed
 - Abilitazione/disabilitazione avvisi audio ("Ding" alla ricezione di nuovi ordini)
 - Abilitazione/disabilitazione blocco schermo (Wake Lock)
 - Configurazione URL menu JSON remoto e sincronizzazione manuale (Cassa e Sala)
-- Reset completo dei dati con conferma (fine turno)
+- **Gestione Utenti & Blocco Schermo**: accesso rapido alla configurazione del sistema di autenticazione
+- Reset completo dei dati con conferma (fine turno) — cancella anche tutti i dati di autenticazione
 
 ### 🌐 Menu Dinamico
 - Caricamento del menu da URL remoto (`menu.json`) all'avvio
 - Categorie, prezzi, varianti/modificatori, allergeni, ingredienti
 - Sincronizzazione manuale dalle impostazioni
 - Fallback al menu di default in caso di errore
+
+### 🔐 Autenticazione & Blocco Schermo
+
+Sistema di autenticazione opzionale a PIN numerico disponibile su tutte e tre le app (Cassa, Sala, Cucina). Quando non ci sono utenti configurati, l'accesso è libero e il sistema è completamente trasparente.
+
+**Comportamento:**
+- Se non ci sono utenti → accesso libero; le impostazioni permettono di creare il primo utente
+- Il **primo utente creato manualmente** diventa automaticamente **amministratore**
+- L'amministratore può: aggiungere/modificare/eliminare utenti, configurare il blocco automatico e scegliere a quali app ogni utente può accedere
+- Gli utenti non-admin vedono la gestione in sola lettura
+- Il blocco si attiva automaticamente dopo un periodo di inattività configurabile (Mai / 1 / 2 / 5 / 10 / 15 / 30 min)
+- Lo schermo si ri-blocca sempre ad ogni ricaricamento della pagina
+
+**Sicurezza:**
+- I PIN sono hashati con **SHA-256** (Web Crypto API) prima di essere salvati; il testo in chiaro non viene mai persistito
+- Gli utenti configurati tramite `appConfig.auth.users` sono in sola lettura nell'UI; il loro PIN viene hashato in memoria e mai scritto in `localStorage`
+
+**Accesso per-app:**
+- Ogni utente ha un campo `apps: ['cassa', 'sala', 'cucina']` che indica le app a cui può accedere
+- La lock screen mostra solo gli utenti abilitati per l'app corrente
+- Un utente con accesso solo a `cucina` non compare nella lock screen di Cassa o Sala
+
+**Reset dati:** la funzione "Ripristina dati di default" cancella anche tutti i dati di autenticazione (utenti, sessioni, impostazioni di blocco).
 
 ---
 
@@ -235,6 +262,16 @@ export const appConfig = {
     enableCashChangeCalculator: true,          // Calcolatore resto contanti
     enableTips: true,                          // Mancia
     enableDiscounts: true,                     // Sconti
+  },
+
+  // Utenti statici opzionali (configurazione a build time, sola lettura nell'UI)
+  // pin: 4 cifre numeriche (hashato in memoria, mai persistito)
+  // apps: app abilitate; omettere per abilitare tutte e tre le app
+  auth: {
+    users: [
+      // { id: 'mario', name: 'Mario', pin: '1234', apps: ['cassa', 'sala'] },
+      // { id: 'chef',  name: 'Chef',  pin: '5678', apps: ['cucina'] },
+    ],
   },
 };
 ```
