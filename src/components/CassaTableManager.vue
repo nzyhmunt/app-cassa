@@ -634,8 +634,8 @@
               <div class="grid grid-cols-2 md:grid-cols-3 gap-2">
                 <!-- Config-locked items (coperto adulto/bambino) — shown first, non-removable -->
                 <div
-                  v-for="(locked, li) in configLockedDirectItems"
-                  :key="'lc_'+li"
+                  v-for="locked in configLockedDirectItems"
+                  :key="'lc_'+locked.name"
                   class="flex items-stretch bg-white border border-emerald-200 rounded-xl shadow-sm overflow-hidden transition-colors">
                   <button
                     @click="addSavedCustomItemToDirectCart(locked)"
