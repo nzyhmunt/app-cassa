@@ -111,7 +111,7 @@ import { useAuth } from '../composables/useAuth.js';
 import { useAppStore } from '../store/index.js';
 
 const store = useAppStore();
-const { users, currentUser, requiresAuth, isLocked, login } = useAuth();
+const { visibleUsers: users, currentUser, requiresAuth, isLocked, login } = useAuth();
 
 /** Whether the overlay should be rendered. */
 const visible = computed(() => requiresAuth.value && isLocked.value);

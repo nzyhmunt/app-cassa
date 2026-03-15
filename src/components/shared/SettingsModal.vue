@@ -83,7 +83,7 @@
           </template>
           <template v-else>
             <p class="text-xs text-red-700 font-semibold text-center mb-3">
-              Tutti i dati (ordini, cassa, tavoli) saranno cancellati. Sei sicuro?
+              Tutti i dati (ordini, cassa, tavoli) e gli utenti saranno cancellati. Sei sicuro?
             </p>
             <div class="flex gap-2">
               <button @click="resetConfirmPending = false"
