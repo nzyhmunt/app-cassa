@@ -386,4 +386,103 @@ describe('useSettings()', () => {
       }
     }
   });
+
+  // ── exportBackupData() ───────────────────────────────────────────────────
+
+  it('exportBackupData() triggers a JSON file download', () => {
+    const { storageKey, settingsKey } = resolveStorageKeys('');
+    localStorage.setItem(storageKey, JSON.stringify({ orders: [{ id: '1' }] }));
+    localStorage.setItem(settingsKey, JSON.stringify({ sounds: false }));
+
+    const props = reactive({ modelValue: false });
+    const emit = vi.fn();
+
+    // Mount composable first, then set up DOM mocks to avoid conflicting with Vue test utils
+    const { result, wrapper } = withSetup(() => useSettings(props, emit));
+
+    const clickMock = vi.fn();
+    const anchorEl = { href: '', download: '', click: clickMock };
+    vi.spyOn(document, 'createElement').mockReturnValue(anchorEl);
+    vi.spyOn(document.body, 'appendChild').mockImplementation(() => {});
+    vi.spyOn(document.body, 'removeChild').mockImplementation(() => {});
+    const createObjectURLMock = vi.fn(() => 'blob:mock');
+    const revokeObjectURLMock = vi.fn();
+    vi.spyOn(URL, 'createObjectURL').mockImplementation(createObjectURLMock);
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(revokeObjectURLMock);
+
+    result.exportBackupData();
+
+    expect(anchorEl.download).toMatch(/^backup-cassa-\d{4}-\d{2}-\d{2}\.json$/);
+    expect(anchorEl.href).toBe('blob:mock');
+    expect(clickMock).toHaveBeenCalled();
+    expect(revokeObjectURLMock).toHaveBeenCalledWith('blob:mock');
+
+    wrapper.unmount();
+    vi.restoreAllMocks();
+  });
+
+  it('exportBackupData() includes app state and settings in the backup', async () => {
+    const { storageKey, settingsKey } = resolveStorageKeys('');
+    const appState = { orders: [{ id: 'order-1', status: 'pending' }] };
+    const appSettings = { sounds: false, menuUrl: 'https://example.com/menu.json' };
+    localStorage.setItem(storageKey, JSON.stringify(appState));
+    localStorage.setItem(settingsKey, JSON.stringify(appSettings));
+
+    const props = reactive({ modelValue: false });
+    const emit = vi.fn();
+
+    const { result, wrapper } = withSetup(() => useSettings(props, emit));
+
+    let capturedBlob = null;
+    const anchorEl = { href: '', download: '', click: vi.fn() };
+    vi.spyOn(document, 'createElement').mockReturnValue(anchorEl);
+    vi.spyOn(document.body, 'appendChild').mockImplementation(() => {});
+    vi.spyOn(document.body, 'removeChild').mockImplementation(() => {});
+    vi.spyOn(URL, 'createObjectURL').mockImplementation((blob) => {
+      capturedBlob = blob;
+      return 'blob:mock';
+    });
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+
+    result.exportBackupData();
+
+    expect(capturedBlob).not.toBeNull();
+    const text = await capturedBlob.text();
+    const parsed = JSON.parse(text);
+    expect(parsed.appState).toEqual(appState);
+    expect(parsed.settings).toEqual(appSettings);
+    expect(parsed.instanceName).toBe('default');
+    expect(typeof parsed.exportedAt).toBe('string');
+
+    wrapper.unmount();
+    vi.restoreAllMocks();
+  });
+
+  // ── initiateReset() ──────────────────────────────────────────────────────
+
+  it('initiateReset() triggers backup download and sets resetConfirmPending to true', async () => {
+    const props = reactive({ modelValue: true });
+    const emit = vi.fn();
+
+    const { result, wrapper } = withSetup(() => useSettings(props, emit));
+
+    // Apply mocks after mounting to avoid interfering with Vue test utils DOM operations
+    const anchorEl = { href: '', download: '', click: vi.fn() };
+    vi.spyOn(document, 'createElement').mockReturnValue(anchorEl);
+    vi.spyOn(document.body, 'appendChild').mockImplementation(() => {});
+    vi.spyOn(document.body, 'removeChild').mockImplementation(() => {});
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:mock');
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+
+    expect(result.resetConfirmPending.value).toBe(false);
+    result.initiateReset();
+    await nextTick();
+
+    expect(result.resetConfirmPending.value).toBe(true);
+    // The anchor click (download) was triggered
+    expect(anchorEl.click).toHaveBeenCalled();
+
+    wrapper.unmount();
+    vi.restoreAllMocks();
+  });
 });
