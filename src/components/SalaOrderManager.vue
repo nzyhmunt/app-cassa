@@ -401,7 +401,7 @@
             </div>
           </div>
 
-          <!-- Nota Globale Ordine (banner, visible when note is set and sala flag is on) -->
+          <!-- Nota Ordine (banner, visible when note is set and sala flag is on) -->
           <div
             v-if="selectedOrder.globalNote && selectedOrder.noteVisibility?.sala !== false"
             class="mt-3 bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-start gap-2 shadow-sm"
@@ -430,12 +430,12 @@
     </main>
 
     <!-- ============================================================ -->
-    <!-- MODAL: NOTA GLOBALE ORDINE                                  -->
+    <!-- MODAL: NOTA ORDINE                                          -->
     <!-- ============================================================ -->
     <div v-if="globalNoteModal.show && selectedOrder" class="fixed inset-0 z-[90] bg-black/60 backdrop-blur-sm flex items-end md:items-center justify-center p-0 md:p-4">
       <div class="bg-white rounded-t-3xl md:rounded-3xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col max-h-[92dvh] md:max-h-[85vh]">
         <div class="bg-gray-50 border-b border-gray-100 p-4 flex justify-between items-center shrink-0">
-          <h3 class="font-bold text-base md:text-lg flex items-center gap-2"><MessageSquareWarning class="text-gray-500 size-4 md:size-5" /> Nota Globale Ordine</h3>
+          <h3 class="font-bold text-base md:text-lg flex items-center gap-2"><MessageSquareWarning class="text-gray-500 size-4 md:size-5" /> Nota Ordine</h3>
           <button @click="globalNoteModal.show = false" aria-label="Chiudi" class="text-gray-400 hover:text-gray-800 p-1.5 bg-gray-200 hover:bg-gray-300 rounded-full active:scale-95 transition-colors"><X class="size-5" /></button>
         </div>
 

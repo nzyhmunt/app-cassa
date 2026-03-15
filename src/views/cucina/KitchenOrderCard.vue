@@ -72,7 +72,7 @@
       </span>
     </div>
 
-    <!-- Global order note (visible when cucina flag is set) -->
+    <!-- Order note (visible when cucina flag is set) -->
     <div
       v-if="order.globalNote && order.noteVisibility?.cucina !== false"
       class="flex items-start gap-2 px-4 py-2.5 border-t border-gray-100"
