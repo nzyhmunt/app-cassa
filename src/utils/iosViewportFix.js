@@ -8,6 +8,14 @@
  * soon as the keyboard is dismissed, without interfering with natural scrolling
  * while the keyboard is still open.
  *
+ * Additionally, on iOS the same stale-scroll problem occurs on orientation
+ * change (portrait ↔ landscape). When the device is rotated the browser can
+ * leave window.scrollY at a non-zero value, which shifts content up and
+ * exposes a gap at the bottom of the screen (visible as a black strip when
+ * the body background is dark). The orientationchange handler below resets
+ * the scroll position immediately after the browser has finished repainting
+ * the new layout.
+ *
  * Call setupIOSViewportFix() once at app startup (before mounting Vue) in each
  * entry point (cassa-main.js, sala-main.js, cucina-main.js).
  */
@@ -27,10 +35,33 @@ function isStandaloneDisplayMode() {
   return isIOSStandalone || isDisplayModeStandalone;
 }
 
+let iosViewportFixInstalled = false;
+
 export function setupIOSViewportFix() {
   if (typeof window === 'undefined' || !isIOS() || !isStandaloneDisplayMode()) {
     return;
   }
+
+  // Guard: each app entry point calls this once, but protect against accidental
+  // double-invocation to avoid registering duplicate event listeners.
+  if (iosViewportFixInstalled) return;
+  iosViewportFixInstalled = true;
+
+  // ── Orientation change: reset scroll after portrait ↔ landscape rotation ──
+  // iOS can leave window.scrollY at a non-zero value after a device rotation,
+  // which shifts the content upward and exposes the body background at the
+  // bottom of the screen (visible as a coloured/black strip). Two rAF calls
+  // are used so the reset happens after the browser has completed both the
+  // layout recalculation and the compositing pass for the new orientation.
+  window.addEventListener('orientationchange', () => {
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        if (window.scrollY !== 0) {
+          window.scrollTo(0, 0);
+        }
+      });
+    });
+  });
 
   const vv = window.visualViewport;
   if (vv) {
