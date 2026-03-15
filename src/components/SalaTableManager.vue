@@ -205,7 +205,6 @@ import {
   Grid3x3, Users, X, Coffee, ChevronRight, Plus, ArrowRightLeft, Merge,
 } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
-import { updateOrderTotals } from '../utils/index.js';
 import TableStatsBar from './shared/TableStatsBar.vue';
 import TableGrid from './shared/TableGrid.vue';
 // Shared component — used by both Sala and Cassa apps.
@@ -340,21 +339,8 @@ function confirmPeopleAndOpenTable() {
       });
     }
     if (coverItems.length > 0) {
-      const coverOrder = {
-        id: 'ord_' + Math.random().toString(36).slice(2, 11),
-        table: table.id,
-        billSessionId,
-        status: 'accepted',
-        time: new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }),
-        totalAmount: 0,
-        itemCount: 0,
-        dietaryPreferences: {},
-        orderItems: coverItems,
-        isCoverCharge: true,
-      };
-      updateOrderTotals(coverOrder);
-      store.addOrder(coverOrder);
-      store.changeOrderStatus(coverOrder, 'accepted');
+      const coverOrder = store.addDirectOrder(table.id, billSessionId, coverItems);
+      if (coverOrder) coverOrder.isCoverCharge = true;
     }
   }
 

@@ -17,16 +17,23 @@ Il progetto contiene tre applicazioni operative più una pagina di selezione, tu
 src/
 ├── components/
 │   ├── shared/                        ← Componenti riutilizzati dalle app
+│   │   ├── DishInfoModal.vue          ← Modale dettaglio piatto (foto, allergeni, HTML sanificato)
+│   │   ├── GlobalOrderNoteModal.vue   ← Modale nota globale ordine con toggle visibilità per app
+│   │   ├── OrderItemsList.vue         ← Pannello voci ordine (portate, quantità, note, modificatori)
+│   │   ├── OrderSidebarCard.vue       ← Card ordine nella lista laterale (stato, importo, pezzi)
+│   │   ├── OrderStatusBadge.vue       ← Pill stato ordine colorata (pending → rejected)
 │   │   ├── PeopleModal.vue            ← Modale conteggio coperti + anteprima coperto
 │   │   ├── PwaInstallBanner.vue       ← Banner installazione PWA (Android + iOS)
-│   │   └── SettingsModal.vue          ← Modale impostazioni condivisa (Cassa e Sala)
+│   │   ├── SettingsModal.vue          ← Modale impostazioni condivisa (Cassa, Sala e Cucina)
+│   │   ├── TableGrid.vue              ← Griglia pulsanti tavolo con timer trascorso e slot #status
+│   │   └── TableStatsBar.vue          ← Pillole stato tavoli (Liberi / Occupati / In Attesa)
 │   ├── CassaNavbar.vue                ← Navigazione (Cassa)
 │   ├── CassaTableManager.vue          ← Mappa sala + cassa + checkout (Cassa only)
 │   ├── CassaOrderManager.vue          ← Gestione ordini + accettazione (Cassa only)
 │   ├── CassaDashboard.vue             ← Fondo cassa, movimenti, report X/Z (Cassa only)
 │   ├── CassaBillCard.vue              ← Card riepilogo conto chiuso (Cassa only)
 │   ├── CassaClosedBillsList.vue       ← Lista conti chiusi sessione (Cassa only)
-│   ├── CassaSettingsModal.vue         ← Impostazioni Cassa (usa shared/SettingsModal)
+│   ├── CassaSettingsModal.vue         ← Impostazioni Cassa (thin wrapper su shared/SettingsModal)
 │   ├── LockScreen.vue                 ← Overlay blocco schermo con tastierino PIN
 │   ├── UserManagementModal.vue        ← Gestione utenti e configurazione blocco automatico
 │   ├── NumericKeyboard.vue            ← Tastiera numerica a scomparsa (overlay bottom-sheet, Cassa only)
@@ -34,9 +41,10 @@ src/
 │   ├── SalaNavbar.vue                 ← Navigazione (Sala)
 │   ├── SalaTableManager.vue           ← Mappa sala semplificata (Sala only)
 │   ├── SalaOrderManager.vue           ← Creazione/invio comande (Sala only)
-│   ├── SalaSettingsModal.vue          ← Impostazioni Sala (usa shared/SettingsModal)
-│   └── CucinaSettingsModal.vue        ← Impostazioni Cucina (audio + wake lock + utenti)
+│   ├── SalaSettingsModal.vue          ← Impostazioni Sala (thin wrapper su shared/SettingsModal)
+│   └── CucinaSettingsModal.vue        ← Impostazioni Cucina (thin wrapper su shared/SettingsModal)
 ├── composables/
+│   ├── useAppClock.js                 ← Orologio reattivo HH:MM (it-IT), aggiornato ogni secondo
 │   ├── useAuth.js                     ← Autenticazione utenti, PIN hashing, auto-lock timer
 │   ├── useBeep.js                     ← Notifiche audio (Web Audio API)
 │   ├── useNumericKeyboard.js          ← Singleton state per la tastiera numerica custom (Cassa only)
@@ -302,65 +310,11 @@ export const appConfig = {
     ],
   },
 
-  // Utenti statici opzionali (configurazione a build time, sola lettura nell'UI)
-  // pin: 4 cifre numeriche (hashato in memoria, mai persistito)
-  // apps: app abilitate; omettere per abilitare tutte e tre le app
-  auth: {
-    users: [
-      // { id: 'mario', name: 'Mario', pin: '1234', apps: ['cassa', 'sala'] },
-      // { id: 'chef',  name: 'Chef',  pin: '5678', apps: ['cucina'] },
-    ],
-  },
 
-  // Utenti statici opzionali (configurazione a build time, sola lettura nell'UI)
-  // pin: 4 cifre numeriche (hashato in memoria, mai persistito)
-  // apps: app abilitate; omettere per abilitare tutte e tre le app
-  auth: {
-    users: [
-      // { id: 'mario', name: 'Mario', pin: '1234', apps: ['cassa', 'sala'] },
-      // { id: 'chef',  name: 'Chef',  pin: '5678', apps: ['cucina'] },
-    ],
-  },
 
-  // Utenti statici opzionali (configurazione a build time, sola lettura nell'UI)
-  // pin: 4 cifre numeriche (hashato in memoria, mai persistito)
-  // apps: app abilitate; omettere per abilitare tutte e tre le app
-  auth: {
-    users: [
-      // { id: 'mario', name: 'Mario', pin: '1234', apps: ['cassa', 'sala'] },
-      // { id: 'chef',  name: 'Chef',  pin: '5678', apps: ['cucina'] },
-    ],
-  },
 
-  // Utenti statici opzionali (configurazione a build time, sola lettura nell'UI)
-  // pin: 4 cifre numeriche (hashato in memoria, mai persistito)
-  // apps: app abilitate; omettere per abilitare tutte e tre le app
-  auth: {
-    users: [
-      // { id: 'mario', name: 'Mario', pin: '1234', apps: ['cassa', 'sala'] },
-      // { id: 'chef',  name: 'Chef',  pin: '5678', apps: ['cucina'] },
-    ],
-  },
 
-  // Utenti statici opzionali (configurazione a build time, sola lettura nell'UI)
-  // pin: 4 cifre numeriche (hashato in memoria, mai persistito)
-  // apps: app abilitate; omettere per abilitare tutte e tre le app
-  auth: {
-    users: [
-      // { id: 'mario', name: 'Mario', pin: '1234', apps: ['cassa', 'sala'] },
-      // { id: 'chef',  name: 'Chef',  pin: '5678', apps: ['cucina'] },
-    ],
-  },
 
-  // Utenti statici opzionali (configurazione a build time, sola lettura nell'UI)
-  // pin: 4 cifre numeriche (hashato in memoria, mai persistito)
-  // apps: app abilitate; omettere per abilitare tutte e tre le app
-  auth: {
-    users: [
-      // { id: 'mario', name: 'Mario', pin: '1234', apps: ['cassa', 'sala'] },
-      // { id: 'chef',  name: 'Chef',  pin: '5678', apps: ['cucina'] },
-    ],
-  },
 };
 ```
 

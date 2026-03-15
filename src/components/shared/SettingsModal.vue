@@ -84,7 +84,22 @@
 
         <!-- Gestione Utenti -->
         <div class="pt-4 border-t border-gray-100 mt-2">
-          <button @click="showUserManagement = true"
+          <!-- Prominent admin setup notice when no users have been configured -->
+          <template v-if="manualUsers.length === 0">
+            <div class="bg-amber-50 border border-amber-200 rounded-2xl p-3 mb-2 flex items-start gap-2">
+              <ShieldAlert class="size-4 shrink-0 text-amber-500 mt-0.5" />
+              <div class="text-xs text-amber-800">
+                <p class="font-bold mb-0.5">Nessun amministratore configurato</p>
+                <p>Aggiungi il primo utente amministratore per proteggere l'accesso all'app.</p>
+              </div>
+            </div>
+            <button @click="showUserManagement = true"
+              class="w-full py-3 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-2xl flex items-center justify-center gap-2 border border-amber-500 transition-colors shadow-sm active:scale-95">
+              <ShieldCheck class="size-4" />
+              Aggiungi amministratore
+            </button>
+          </template>
+          <button v-else @click="showUserManagement = true"
             class="w-full py-3 bg-gray-50 hover:bg-gray-100 text-gray-700 font-bold rounded-2xl flex items-center justify-center gap-2 border border-gray-200 transition-colors shadow-sm active:scale-95">
             <Users class="size-4 text-gray-500" />
             Gestione Utenti &amp; Blocco Schermo
@@ -124,9 +139,10 @@
 
 <script setup>
 import { ref } from 'vue';
-import { Settings, X, RefreshCw, RotateCcw, Users } from 'lucide-vue-next';
+import { Settings, X, RefreshCw, RotateCcw, Users, ShieldCheck, ShieldAlert } from 'lucide-vue-next';
 import { useSettings } from '../../composables/useSettings.js';
 import UserManagementModal from '../UserManagementModal.vue';
+import { useAuth } from '../../composables/useAuth.js';
 
 const props = defineProps({
   modelValue: Boolean,
@@ -139,6 +155,8 @@ const emit = defineEmits(['update:modelValue', 'settings-changed']);
 const { store, settings, resetConfirmPending, syncMenu, confirmReset, wakeLockApiSupported } = useSettings(props, emit);
 
 const showUserManagement = ref(false);
+
+const { manualUsers } = useAuth();
 
 const keyboardPositionOptions = [
   { value: 'disabled', label: 'Off' },
