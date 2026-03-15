@@ -128,12 +128,14 @@
               <div class="flex items-center justify-between">
                 <div class="flex items-center gap-2">
                   <span v-if="ord.status === 'pending'" class="size-2 rounded-full bg-amber-400 shrink-0"></span>
+                  <span v-else-if="ord.isDirectEntry" class="size-2 rounded-full theme-bg shrink-0"></span>
                   <span v-else-if="ord.status === 'accepted'" class="size-2 rounded-full bg-blue-400 shrink-0"></span>
                   <span class="font-bold text-sm text-gray-800">{{ ord.itemCount }} pz</span>
                   <span class="text-xs text-gray-500">· {{ ord.time }}</span>
                 </div>
                 <div class="flex items-center gap-2">
                   <span v-if="ord.status === 'pending'" class="text-[9px] font-bold uppercase bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full border border-amber-200">In Attesa</span>
+                  <span v-else-if="ord.isDirectEntry" class="text-[9px] font-bold uppercase theme-text px-2 py-0.5 rounded-full border theme-border flex items-center gap-1"><Zap class="size-2.5" /> Voce Diretta</span>
                   <span v-else-if="ord.status === 'accepted'" class="text-[9px] font-bold uppercase bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full border border-blue-200">In Cucina</span>
                   <ChevronRight class="size-4 text-gray-400" />
                 </div>
@@ -202,7 +204,7 @@
 <script setup>
 import { ref, computed } from 'vue';
 import {
-  Grid3x3, Users, X, Coffee, ChevronRight, Plus, ArrowRightLeft, Merge,
+  Grid3x3, Users, Timer, X, Coffee, ChevronRight, Plus, ArrowRightLeft, Merge, Zap,
 } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
 import TableStatsBar from './shared/TableStatsBar.vue';

@@ -99,12 +99,6 @@ export const appConfig = {
     users: [],
   },
 
-
-
-
-
-
-
   // Minimal fallback menu; the full menu is loaded from the external URL at startup
   menu: {
     "Placeholder": [
