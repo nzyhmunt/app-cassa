@@ -104,7 +104,7 @@
             <div class="h-8 w-px bg-gray-200 mx-1 hidden sm:block"></div>
 
             <template v-if="selectedOrder.status === 'pending'">
-              <button @click="store.changeOrderStatus(selectedOrder, 'rejected'); selectedOrder = null" class="flex-1 sm:flex-none px-3 py-2.5 md:py-3 bg-white text-red-600 border border-red-200 hover:bg-red-50 rounded-xl font-bold flex items-center justify-center gap-1.5 active:scale-95 transition-colors">
+              <button @click="requestDeleteOrder" class="flex-1 sm:flex-none px-3 py-2.5 md:py-3 bg-white text-red-600 border border-red-200 hover:bg-red-50 rounded-xl font-bold flex items-center justify-center gap-1.5 active:scale-95 transition-colors">
                 <Trash2 class="size-5" /> <span class="hidden sm:inline text-xs md:text-sm">Elimina</span>
               </button>
               <button @click="store.changeOrderStatus(selectedOrder, 'accepted')" class="flex-[2] sm:flex-none px-4 py-2.5 md:py-3 theme-bg text-white shadow-md rounded-xl font-bold flex items-center justify-center gap-1.5 active:scale-95 hover:opacity-90 transition-opacity" title="Invia comanda in cucina">
@@ -434,6 +434,46 @@
         </div>
       </div>
     </div>
+    <!-- ============================================================ -->
+    <!-- REJECT CONFIRMATION MODAL                                    -->
+    <!-- ============================================================ -->
+    <div v-if="showRejectConfirm" class="fixed inset-0 z-[80] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+      <div class="bg-white rounded-3xl shadow-2xl w-full max-w-sm p-6">
+        <div class="text-center mb-4">
+          <div class="size-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-3">
+            <Trash2 class="size-8 text-red-600" />
+          </div>
+          <h3 class="text-lg font-black text-gray-800">Rifiuta Comanda?</h3>
+          <p class="text-sm text-gray-500 mt-1">Sei sicuro di voler rifiutare questa comanda?</p>
+        </div>
+        <div class="mb-4">
+          <p class="text-xs font-bold text-gray-600 uppercase tracking-widest mb-2">Causale rifiuto <span class="text-red-500">*</span></p>
+          <div class="flex flex-col gap-2">
+            <label v-for="reason in rejectReasons" :key="reason.value" class="flex items-center gap-2 cursor-pointer p-2.5 rounded-xl border transition-all" :class="rejectReason === reason.value ? 'border-red-400 bg-red-50' : 'border-gray-200 hover:bg-gray-50'">
+              <input type="radio" :value="reason.value" v-model="rejectReason" class="accent-red-500" />
+              <span class="text-sm font-medium text-gray-700">{{ reason.label }}</span>
+            </label>
+          </div>
+          <textarea v-if="rejectReason === 'altro'" v-model="rejectOtherText" rows="2" placeholder="Descrivi la causale…" class="mt-2 w-full border border-gray-200 rounded-xl p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-red-300 resize-none" />
+        </div>
+        <div class="flex gap-3">
+          <button
+            @click="cancelDeleteOrder"
+            class="flex-1 py-3 rounded-xl border border-gray-200 font-bold text-gray-600 hover:bg-gray-50 active:scale-95 transition-all"
+          >
+            Annulla
+          </button>
+          <button
+            @click="confirmDeleteOrder"
+            :disabled="!rejectReason || (rejectReason === 'altro' && !rejectOtherText.trim())"
+            class="flex-[2] py-3 rounded-xl bg-red-600 text-white font-bold shadow-md hover:bg-red-700 active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <Trash2 class="size-5" /> Rifiuta
+          </button>
+        </div>
+      </div>
+    </div>
+
   </div>
 
 </template>
@@ -513,7 +553,45 @@ function forceDeliver(order) {
   store.$persist?.();
 }
 
-// ── Note modal ─────────────────────────────────────────────────────────────
+// ── Reject order confirmation ───────────────────────────────────────────────
+const showRejectConfirm = ref(false);
+const orderToReject = ref(null);
+const rejectReason = ref('');
+const rejectOtherText = ref('');
+const rejectReasons = [
+  { value: 'duplicato', label: 'Ordine duplicato' },
+  { value: 'errore_cameriere', label: 'Errore cameriere' },
+  { value: 'altro', label: 'Altro' },
+];
+
+function requestDeleteOrder() {
+  if (!selectedOrder.value || selectedOrder.value.status !== 'pending') return;
+  orderToReject.value = selectedOrder.value;
+  rejectReason.value = '';
+  rejectOtherText.value = '';
+  showRejectConfirm.value = true;
+}
+
+function confirmDeleteOrder() {
+  if (!orderToReject.value) return;
+  const reason = rejectReason.value === 'altro'
+    ? rejectOtherText.value.trim()
+    : rejectReasons.find(r => r.value === rejectReason.value)?.label ?? rejectReason.value;
+  store.changeOrderStatus(orderToReject.value, 'rejected', reason);
+  store.$persist?.();
+  showRejectConfirm.value = false;
+  orderToReject.value = null;
+  selectedOrder.value = null;
+}
+
+function cancelDeleteOrder() {
+  showRejectConfirm.value = false;
+  orderToReject.value = null;
+  rejectReason.value = '';
+  rejectOtherText.value = '';
+}
+
+
 const noteModalCloseBtn = ref(null);
 const noteModal = ref({
   show: false, inputText: '', notesArray: [],

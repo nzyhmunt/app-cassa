@@ -176,8 +176,11 @@ export const useAppStore = defineStore('app', () => {
     orders.value.push(order);
   }
 
-  function changeOrderStatus(order, newStatus) {
+  function changeOrderStatus(order, newStatus, rejectionReason = null) {
     order.status = newStatus;
+    if (newStatus === 'rejected' && rejectionReason) {
+      order.rejectionReason = rejectionReason;
+    }
     // When first kitchen-active order for a table, record occupiedAt
     if (KITCHEN_ACTIVE_STATUSES.includes(newStatus) && !tableOccupiedAt.value[order.table]) {
       tableOccupiedAt.value[order.table] = new Date().toISOString();
