@@ -21,11 +21,10 @@ export function useSettings(props, emit) {
   const { storageKey: _storageKey, settingsKey: SETTINGS_STORAGE_KEY } =
     resolveStorageKeys(_instanceName);
 
-  /** Migrate/validate a stored keyboard value to a valid position string. */
+  /** Validate a stored keyboard value; return 'disabled' if unknown. */
   function _parseKeyboardPosition(v) {
-    if (v === true) return 'center';   // migrate old boolean true
     if (KEYBOARD_POSITIONS.includes(v)) return v;
-    return 'disabled';                 // default / old boolean false / invalid
+    return 'disabled';
   }
 
   function loadInitialSettings() {

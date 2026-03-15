@@ -60,8 +60,6 @@ export const useAppStore = defineStore('app', () => {
   const customKeyboard = ref(
     (() => {
       const v = _savedAppSettings?.customKeyboard;
-      if (v === true) return 'center';           // migrate old boolean true
-      if (v === false || v === null || v === undefined) return 'disabled';  // migrate old boolean false / missing
       return KEYBOARD_POSITIONS.includes(v) ? v : 'disabled';
     })()
   );
