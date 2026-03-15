@@ -13,6 +13,7 @@
     <CassaDashboard v-model="showCassa" />
     <PwaInstallBanner />
     <LockScreen />
+    <NumericKeyboard />
   </div>
 </template>
 
@@ -23,6 +24,7 @@ import CassaSettingsModal from './components/CassaSettingsModal.vue';
 import CassaDashboard from './components/CassaDashboard.vue';
 import PwaInstallBanner from './components/shared/PwaInstallBanner.vue';
 import LockScreen from './components/LockScreen.vue';
+import NumericKeyboard from './components/NumericKeyboard.vue';
 import { useAppStore } from './store/index.js';
 import { useWakeLock } from './composables/useWakeLock.js';
 import { resolveStorageKeys, getInstanceName } from './store/persistence.js';

@@ -236,3 +236,8 @@ export function groupOrderItemsByCourse(items, includeIndex = true) {
   });
   return result;
 }
+
+
+// ── Numeric keyboard positions ──────────────────────────────────────────────
+/** Valid values for the `customKeyboard` setting. */
+export const KEYBOARD_POSITIONS = /** @type {const} */ (['disabled', 'center', 'left', 'right']);

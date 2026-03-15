@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Custom Numeric Keyboard Preview</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  :root { --brand-primary: #059669; }
+  .theme-bg { background-color: var(--brand-primary); }
+  .theme-text { color: var(--brand-primary); }
+</style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+
+<!-- ===== SCREENSHOT 1: Settings Modal with keyboard toggle ===== -->
+<div id="screenshot-settings" class="flex gap-6 p-6 flex-wrap">
+
+  <!-- Settings Modal -->
+  <div class="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col">
+    <div class="bg-gray-50 border-b border-gray-200 p-5 flex justify-between items-center">
+      <h3 class="font-bold text-lg flex items-center gap-2 text-gray-800">
+        ⚙️ Impostazioni Cassa
+      </h3>
+      <button class="text-gray-400 bg-gray-200 rounded-full p-1.5">✕</button>
+    </div>
+    <div class="p-6 space-y-3 bg-white pb-8">
+
+      <!-- Sounds toggle -->
+      <div class="flex items-center justify-between p-4 border border-gray-200 rounded-2xl cursor-pointer hover:bg-gray-50">
+        <div>
+          <span class="font-bold text-gray-800 block text-sm">Avvisi Audio "Ding"</span>
+          <span class="text-[10px] text-gray-500">Suona all'arrivo di nuovi ordini</span>
+        </div>
+        <div class="relative inline-flex h-6 w-11 items-center rounded-full bg-[var(--brand-primary)]">
+          <span class="inline-block size-5 transform rounded-full bg-white shadow-md translate-x-5"></span>
+        </div>
+      </div>
+
+      <!-- Wake lock toggle -->
+      <div class="flex items-center justify-between p-4 border border-gray-200 rounded-2xl cursor-pointer hover:bg-gray-50">
+        <div>
+          <span class="font-bold text-gray-800 block text-sm">Schermo sempre acceso</span>
+          <span class="text-[10px] text-gray-500">Impedisce lo spegnimento automatico</span>
+        </div>
+        <div class="relative inline-flex h-6 w-11 items-center rounded-full bg-gray-300">
+          <span class="inline-block size-5 transform rounded-full bg-white shadow-md translate-x-0.5"></span>
+        </div>
+      </div>
+
+      <!-- 🆕 Custom Keyboard toggle (HIGHLIGHTED) -->
+      <div class="flex items-center justify-between p-4 border-2 border-emerald-400 rounded-2xl cursor-pointer bg-emerald-50 relative">
+        <div class="absolute -top-3 left-4 bg-emerald-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">NUOVO</div>
+        <div>
+          <span class="font-bold text-gray-800 block text-sm">Tastiera Numerica Personalizzata</span>
+          <span class="text-[10px] text-gray-500">Tastiera a scomparsa per i campi numerici</span>
+        </div>
+        <div class="relative inline-flex h-6 w-11 items-center rounded-full bg-[var(--brand-primary)]">
+          <span class="inline-block size-5 transform rounded-full bg-white shadow-md translate-x-5"></span>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ===== SCREENSHOT 2: Keyboard overlay ===== -->
+<div id="screenshot-keyboard" class="relative" style="width:400px;height:600px;background:#f3f4f6;border-radius:24px;overflow:hidden;margin:24px;box-shadow:0 25px 50px rgba(0,0,0,0.15)">
+
+  <!-- Mock Cassa background -->
+  <div class="h-full flex flex-col">
+    <!-- Header bar -->
+    <div class="theme-bg text-white p-3 flex justify-between items-center">
+      <div class="flex items-center gap-2">
+        <div class="bg-white p-1.5 rounded-full"><span class="theme-text text-sm font-bold">🖥</span></div>
+        <div>
+          <p class="text-sm font-bold">Osteria del Grillo</p>
+          <p class="text-[9px] text-white/80 uppercase">POS Cassa &amp; Ordini</p>
+        </div>
+      </div>
+      <button class="bg-black/20 px-2.5 py-2 rounded-xl text-xs font-bold text-white">⚙ Config</button>
+    </div>
+
+    <!-- Content area (payment panel) -->
+    <div class="flex-1 p-4 space-y-3">
+      <div class="bg-white rounded-2xl p-3 border border-gray-200 shadow-sm">
+        <p class="text-[10px] font-bold text-gray-400 uppercase mb-1">Contanti Ricevuti</p>
+        <div class="flex items-center gap-2">
+          <span class="text-sm font-bold text-emerald-600">€</span>
+          <!-- The readonly input that triggers the keyboard -->
+          <div class="flex-1 text-sm font-bold border-2 border-emerald-400 rounded-xl px-3 py-2 bg-emerald-50 text-emerald-900 flex items-center justify-between cursor-pointer">
+            <span class="text-lg font-black">20</span>
+            <span class="text-[10px] text-emerald-600">tocca per modificare</span>
+          </div>
+        </div>
+        <div class="mt-2 flex justify-between items-center">
+          <span class="text-xs font-bold text-emerald-700">Resto da dare:</span>
+          <span class="text-xl font-black text-emerald-700">€ 4.50</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Backdrop overlay (semi-transparent) -->
+  <div class="absolute inset-0 bg-black/20" style="top:0"></div>
+
+  <!-- ===== Keyboard Overlay Panel ===== -->
+  <div class="absolute bottom-0 left-0 right-0 bg-white rounded-t-3xl shadow-2xl border-t border-gray-200">
+    <!-- Header with display -->
+    <div class="px-4 pt-4 pb-2">
+      <div class="flex items-center justify-between mb-3">
+        <span class="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Inserisci valore</span>
+        <button class="text-gray-400 bg-gray-100 rounded-full p-1.5 text-xs">✕</button>
+      </div>
+      <!-- Display -->
+      <div class="flex items-center bg-gray-50 border-2 border-[var(--brand-primary)] rounded-2xl px-4 py-3 gap-2 min-h-[56px]">
+        <span class="text-gray-400 font-bold text-lg shrink-0">€</span>
+        <span class="flex-1 text-3xl font-black text-gray-800 tracking-wider text-right tabular-nums leading-none">20</span>
+      </div>
+    </div>
+
+    <!-- Button grid -->
+    <div class="grid grid-cols-3 gap-2 px-4 pb-2">
+      <button class="py-3.5 rounded-2xl font-bold text-xl bg-gray-50 hover:bg-gray-100 text-gray-800 border border-gray-200">7</button>
+      <button class="py-3.5 rounded-2xl font-bold text-xl bg-gray-50 hover:bg-gray-100 text-gray-800 border border-gray-200">8</button>
+      <button class="py-3.5 rounded-2xl font-bold text-xl bg-gray-50 hover:bg-gray-100 text-gray-800 border border-gray-200">9</button>
+      <button class="py-3.5 rounded-2xl font-bold text-xl bg-gray-50 hover:bg-gray-100 text-gray-800 border border-gray-200">4</button>
+      <button class="py-3.5 rounded-2xl font-bold text-xl bg-gray-50 hover:bg-gray-100 text-gray-800 border border-gray-200">5</button>
+      <button class="py-3.5 rounded-2xl font-bold text-xl bg-gray-50 hover:bg-gray-100 text-gray-800 border border-gray-200">6</button>
+      <button class="py-3.5 rounded-2xl font-bold text-xl bg-gray-50 hover:bg-gray-100 text-gray-800 border border-gray-200">1</button>
+      <button class="py-3.5 rounded-2xl font-bold text-xl bg-gray-50 hover:bg-gray-100 text-gray-800 border border-gray-200">2</button>
+      <button class="py-3.5 rounded-2xl font-bold text-xl bg-gray-50 hover:bg-gray-100 text-gray-800 border border-gray-200">3</button>
+      <button class="py-3.5 rounded-2xl font-bold text-xl bg-gray-50 text-gray-500 border border-gray-200">.</button>
+      <button class="py-3.5 rounded-2xl font-bold text-xl bg-gray-50 hover:bg-gray-100 text-gray-800 border border-gray-200">0</button>
+      <button class="py-3.5 rounded-2xl font-bold text-xl bg-red-50 hover:bg-red-100 text-red-500 border border-red-200">⌫</button>
+    </div>
+
+    <!-- Confirm button -->
+    <div class="px-4 pb-5">
+      <button class="w-full py-4 theme-bg text-white font-bold text-lg rounded-2xl shadow-md flex items-center justify-center gap-2">
+        ✓ Conferma
+      </button>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
