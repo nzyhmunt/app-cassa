@@ -26,7 +26,19 @@
               <p class="text-[11px] leading-relaxed">L'accesso è libero. Il primo utente che aggiungi diventerà <strong>amministratore</strong> e potrà gestire gli altri utenti e le impostazioni di blocco.</p>
             </div>
           </div>
-          <AddUserForm :is-first="true" @added="onAdded" />
+          <!-- ── First-user form ──────────────────────────────────────── -->
+          <div class="bg-gray-50 rounded-2xl border border-gray-200 p-3 md:p-4 space-y-2">
+            <input v-model="firstForm.name" type="text" maxlength="30" placeholder="Nome utente"
+              class="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]" />
+            <input v-model="firstForm.pin" type="password" maxlength="8" inputmode="numeric" placeholder="PIN (4 cifre numeriche)"
+              class="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]" />
+            <p v-if="firstForm.error" class="text-red-500 text-xs">{{ firstForm.error }}</p>
+            <button @click="submitFirstUser"
+              class="w-full py-3 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 transition-all active:scale-95 bg-[var(--brand-primary)] text-white hover:opacity-90 shadow-sm">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+              Crea account amministratore
+            </button>
+          </div>
         </template>
 
         <!-- ── Users exist ────────────────────────────────────────────── -->
@@ -184,7 +196,26 @@
           <!-- ── Add user form (admin only) ─────────────────────────── -->
           <div v-if="isAdmin">
             <p class="font-bold text-gray-700 text-xs uppercase tracking-wider mb-2">Aggiungi utente</p>
-            <AddUserForm :is-first="false" @added="onAdded" />
+            <div class="bg-gray-50 rounded-2xl border border-gray-200 p-3 md:p-4 space-y-2">
+              <input v-model="addForm.name" type="text" maxlength="30" placeholder="Nome utente"
+                class="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]" />
+              <input v-model="addForm.pin" type="password" maxlength="8" inputmode="numeric" placeholder="PIN (4 cifre numeriche)"
+                class="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]" />
+              <div class="flex items-center gap-2">
+                <span class="text-[10px] text-gray-500 font-bold uppercase tracking-wide">App:</span>
+                <button v-for="app in ALL_APPS" :key="app" @click="toggleAddApp(app)"
+                  class="text-[10px] font-bold px-2 py-0.5 rounded-full border transition-all active:scale-95"
+                  :class="addForm.apps.includes(app) ? 'bg-[var(--brand-primary)] text-white border-[var(--brand-primary)]' : 'bg-white text-gray-400 border-gray-200 hover:border-gray-300'">
+                  {{ app }}
+                </button>
+              </div>
+              <p v-if="addForm.error" class="text-red-500 text-xs">{{ addForm.error }}</p>
+              <button @click="submitAddUser"
+                class="w-full py-3 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 transition-all active:scale-95 bg-[var(--brand-primary)] text-white hover:opacity-90 shadow-sm">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>
+                Aggiungi utente
+              </button>
+            </div>
           </div>
 
           <!-- ── Remove confirm ──────────────────────────────────────── -->
@@ -220,9 +251,9 @@
  *
  * ## Flusso principale
  * 1. **Nessun utente manuale** (`manualUsers.length === 0`):
- *    Viene mostrato il banner informativo e il form `AddUserForm` con
- *    `isFirst=true`.  Il primo utente creato riceve automaticamente i
- *    privilegi di amministratore (gestito da `useAuth().addUser()`).
+ *    Viene mostrato il banner informativo e il form inline con campi nome/PIN.
+ *    Il primo utente creato riceve automaticamente i privilegi di amministratore
+ *    (gestito da `useAuth().addUser()`).
  *    Questa condizione viene soddisfatta anche quando esistono utenti statici
  *    (`appConfig.auth.users`) ma nessun utente manuale è ancora stato creato.
  *
@@ -234,7 +265,7 @@
  *    - Configurazione blocco automatico (timeout inattività).
  *    - Lista utenti con pulsanti di modifica (nome, PIN) ed eliminazione.
  *    - Toggle per limitare l'accesso per app (cassa/sala/cucina).
- *    - Form `AddUserForm` con `isFirst=false` per aggiungere nuovi utenti.
+ *    - Form inline con `isFirst=false` per aggiungere nuovi utenti.
  *
  * ## Validazioni nel form di aggiunta
  * - Nome utente: obbligatorio, max 30 caratteri.
@@ -249,7 +280,7 @@
  * @see src/composables/useAuth.js   — logica di autenticazione e gestione utenti
  * @see src/components/__tests__/UserManagementModal.test.js — test di integrazione
  */
-import { ref, defineComponent } from 'vue';
+import { ref } from 'vue';
 import { Users, X, Pencil, Trash2, Check, Lock, ShieldCheck, ShieldOff } from 'lucide-vue-next';
 import { useAuth } from '../composables/useAuth.js';
 
@@ -270,66 +301,57 @@ const {
   ALL_APPS,
 } = useAuth();
 
-// ── Inline form component ─────────────────────────────────────────────────────
-// Extracted to avoid duplicate template logic for "add first user" vs "add user".
-const AddUserForm = defineComponent({
-  name: 'AddUserForm',
-  props: { isFirst: Boolean },
-  emits: ['added'],
-  setup(props, { emit }) {
-    const name = ref('');
-    const pin = ref('');
-    const error = ref('');
-    const apps = ref([...ALL_APPS]);
+// ── Form validation helper ────────────────────────────────────────────────────
 
-    async function submit() {
-      error.value = '';
-      const n = name.value.trim();
-      if (!n) { error.value = 'Inserisci un nome utente.'; return; }
-      const p = pin.value.trim();
-      if (!/^\d{4}$/.test(p)) { error.value = 'Il PIN deve essere esattamente 4 cifre numeriche.'; return; }
-      await addUser(n, p, props.isFirst ? [...ALL_APPS] : apps.value);
-      name.value = '';
-      pin.value = '';
-      apps.value = [...ALL_APPS];
-      emit('added');
-    }
+/**
+ * Validate name and PIN; returns an error string or '' on success.
+ * @param {string} name - trimmed username
+ * @param {string} pin  - trimmed PIN string
+ * @returns {string} error message, or '' when valid
+ */
+function validateUserForm(name, pin) {
+  if (!name) return 'Inserisci un nome utente.';
+  if (!/^\d{4}$/.test(pin)) return 'Il PIN deve essere esattamente 4 cifre numeriche.';
+  return '';
+}
 
-    function toggleApp(app) {
-      if (apps.value.includes(app)) {
-        if (apps.value.length === 1) return; // keep at least one
-        apps.value = apps.value.filter(a => a !== app);
-      } else {
-        apps.value = [...apps.value, app];
-      }
-    }
+// ── First user form (shown when no manual users exist) ────────────────────────
+const firstForm = ref({ name: '', pin: '', error: '' });
 
-    return { name, pin, error, apps, submit, toggleApp, ALL_APPS };
-  },
-  template: `
-    <div class="bg-gray-50 rounded-2xl border border-gray-200 p-3 md:p-4 space-y-2">
-      <input v-model="name" type="text" maxlength="30" placeholder="Nome utente"
-        class="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]" />
-      <input v-model="pin" type="password" maxlength="8" inputmode="numeric" placeholder="PIN (4 cifre numeriche)"
-        class="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]" />
-      <div v-if="!isFirst" class="flex items-center gap-2">
-        <span class="text-[10px] text-gray-500 font-bold uppercase tracking-wide">App:</span>
-        <button v-for="app in ALL_APPS" :key="app" @click="toggleApp(app)"
-          class="text-[10px] font-bold px-2 py-0.5 rounded-full border transition-all active:scale-95"
-          :class="apps.includes(app) ? 'bg-[var(--brand-primary)] text-white border-[var(--brand-primary)]' : 'bg-white text-gray-400 border-gray-200 hover:border-gray-300'">
-          {{ app }}
-        </button>
-      </div>
-      <p v-if="error" class="text-red-500 text-xs">{{ error }}</p>
-      <button @click="submit"
-        class="w-full py-3 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 transition-all active:scale-95 bg-[var(--brand-primary)] text-white hover:opacity-90 shadow-sm">
-        <svg v-if="isFirst" xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-        <svg v-else xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>
-        {{ isFirst ? 'Crea account amministratore' : 'Aggiungi utente' }}
-      </button>
-    </div>
-  `,
-});
+async function submitFirstUser() {
+  const n = firstForm.value.name.trim();
+  const p = firstForm.value.pin.trim();
+  const err = validateUserForm(n, p);
+  firstForm.value.error = err;
+  if (err) return;
+  await addUser(n, p, [...ALL_APPS]);
+  firstForm.value.name = '';
+  firstForm.value.pin = '';
+}
+
+// ── Add user form (admin only, shown when users exist) ────────────────────────
+const addForm = ref({ name: '', pin: '', error: '', apps: [...ALL_APPS] });
+
+async function submitAddUser() {
+  const n = addForm.value.name.trim();
+  const p = addForm.value.pin.trim();
+  const err = validateUserForm(n, p);
+  addForm.value.error = err;
+  if (err) return;
+  await addUser(n, p, addForm.value.apps);
+  addForm.value.name = '';
+  addForm.value.pin = '';
+  addForm.value.apps = [...ALL_APPS];
+}
+
+function toggleAddApp(app) {
+  if (addForm.value.apps.includes(app)) {
+    if (addForm.value.apps.length === 1) return; // keep at least one
+    addForm.value.apps = addForm.value.apps.filter(a => a !== app);
+  } else {
+    addForm.value.apps = [...addForm.value.apps, app];
+  }
+}
 
 // ── Edit user ─────────────────────────────────────────────────────────────────
 const editingId = ref(null);
@@ -393,8 +415,5 @@ function confirmRemove() {
   }
 }
 
-// ── After adding ──────────────────────────────────────────────────────────────
-function onAdded() {
-  // nothing extra needed; reactivity updates the list automatically
-}
+
 </script>
