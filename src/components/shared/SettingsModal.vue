@@ -46,20 +46,23 @@
           </button>
         </div>
 
-        <div v-if="showKeyboardToggle" @click="settings.customKeyboard = !settings.customKeyboard"
-          class="flex items-center justify-between p-3 md:p-4 border border-gray-200 rounded-2xl cursor-pointer hover:bg-gray-50 transition-colors active:scale-95">
+        <div v-if="showKeyboardToggle" class="p-3 md:p-4 border border-gray-200 rounded-2xl space-y-2.5">
           <div>
             <span class="font-bold text-gray-800 block text-sm">Tastiera Numerica Personalizzata</span>
-            <span class="text-[10px] text-gray-500">Tastiera a scomparsa per i campi numerici</span>
+            <span class="text-[10px] text-gray-500">Posizione della tastiera a scomparsa</span>
           </div>
-          <button type="button" role="switch" :aria-checked="settings.customKeyboard"
-            :aria-label="'Tastiera numerica: ' + (settings.customKeyboard ? 'attiva' : 'disattivata')"
-            @click.stop="settings.customKeyboard = !settings.customKeyboard"
-            class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors shrink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand-primary)] focus-visible:ring-offset-2"
-            :class="settings.customKeyboard ? 'bg-[var(--brand-primary)]' : 'bg-gray-300'">
-            <span class="inline-block size-5 transform rounded-full bg-white shadow-md transition-transform"
-              :class="settings.customKeyboard ? 'translate-x-5' : 'translate-x-0.5'"></span>
-          </button>
+          <div class="flex gap-1 bg-gray-100 p-1 rounded-xl">
+            <button
+              v-for="opt in keyboardPositionOptions"
+              :key="opt.value"
+              @click="settings.customKeyboard = opt.value"
+              class="flex-1 py-1.5 text-xs font-bold rounded-lg transition-all active:scale-95"
+              :class="settings.customKeyboard === opt.value
+                ? 'bg-[var(--brand-primary)] text-white shadow-sm'
+                : 'text-gray-500 hover:text-gray-700'"
+              :aria-pressed="settings.customKeyboard === opt.value"
+            >{{ opt.label }}</button>
+          </div>
         </div>
 
         <div class="pt-4 border-t border-gray-100 mt-2 space-y-3">
@@ -121,4 +124,11 @@ const props = defineProps({
 const emit = defineEmits(['update:modelValue', 'settings-changed']);
 
 const { store, settings, resetConfirmPending, syncMenu, confirmReset, wakeLockApiSupported } = useSettings(props, emit);
+
+const keyboardPositionOptions = [
+  { value: 'disabled', label: 'Off' },
+  { value: 'center',   label: 'Centro' },
+  { value: 'left',     label: 'Sinistra' },
+  { value: 'right',    label: 'Destra' },
+];
 </script>

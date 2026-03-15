@@ -41,7 +41,7 @@ const emit = defineEmits(['update:modelValue', 'update:typeToggleIndex']);
 const store = useAppStore();
 const keyboard = useNumericKeyboard();
 
-const isKeyboardEnabled = computed(() => store.customKeyboard);
+const isKeyboardEnabled = computed(() => store.customKeyboard !== 'disabled');
 
 /** Value shown in the read-only text input (custom keyboard mode). */
 const displayVal = computed(() => {

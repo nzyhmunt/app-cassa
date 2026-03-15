@@ -12,7 +12,7 @@
   <Transition name="kb-slide">
     <div
       v-if="keyboard.isVisible.value"
-      class="fixed bottom-0 left-0 right-0 z-[81] bg-white rounded-t-3xl shadow-2xl select-none"
+      :class="panelClass"
       @click.stop
     >
       <!-- Drag handle -->
@@ -105,8 +105,19 @@
 import { computed } from 'vue';
 import { X, XCircle, Delete, Check } from 'lucide-vue-next';
 import { useNumericKeyboard } from '../composables/useNumericKeyboard.js';
+import { useAppStore } from '../store/index.js';
 
 const keyboard = useNumericKeyboard();
+const store = useAppStore();
+
+/** CSS classes for the keyboard panel based on the chosen position setting. */
+const panelClass = computed(() => {
+  const pos = store.customKeyboard;
+  if (pos === 'left')  return 'fixed bottom-0 left-0 z-[81] bg-white rounded-tr-3xl shadow-2xl select-none w-full max-w-sm';
+  if (pos === 'right') return 'fixed bottom-0 right-0 z-[81] bg-white rounded-tl-3xl shadow-2xl select-none w-full max-w-sm';
+  // 'center' or fallback
+  return 'fixed bottom-0 left-0 right-0 z-[81] bg-white rounded-t-3xl shadow-2xl select-none mx-auto max-w-sm w-full';
+});
 
 const keyRows = computed(() => [
   { label: '7', style: 'bg-white shadow-sm hover:bg-gray-50 text-gray-800 border border-gray-200', action: () => keyboard.appendDigit('7') },

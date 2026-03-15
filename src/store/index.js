@@ -21,7 +21,7 @@
  */
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
-import { appConfig, initialOrders, updateOrderTotals, KITCHEN_ACTIVE_STATUSES } from '../utils/index.js';
+import { appConfig, initialOrders, updateOrderTotals, KITCHEN_ACTIVE_STATUSES, KEYBOARD_POSITIONS } from '../utils/index.js';
 import { getInstanceName, resolveStorageKeys } from './persistence.js';
 
 // Derive storage keys once at module load — stable for the lifetime of the page
@@ -58,9 +58,12 @@ export const useAppStore = defineStore('app', () => {
       : false
   );
   const customKeyboard = ref(
-    typeof _savedAppSettings?.customKeyboard === 'boolean'
-      ? _savedAppSettings.customKeyboard
-      : false
+    (() => {
+      const v = _savedAppSettings?.customKeyboard;
+      if (v === true) return 'center';           // migrate old boolean true
+      if (v === false || v === null || v === undefined) return 'disabled';  // migrate old boolean false / missing
+      return KEYBOARD_POSITIONS.includes(v) ? v : 'disabled';
+    })()
   );
   const menuLoading = ref(false);
   const menuError = ref(null);

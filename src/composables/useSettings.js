@@ -1,7 +1,7 @@
 import { ref, watch, onUnmounted } from 'vue';
 import { useAppStore } from '../store/index.js';
 import { getInstanceName, resolveStorageKeys, clearState } from '../store/persistence.js';
-import { appConfig } from '../utils/index.js';
+import { appConfig, KEYBOARD_POSITIONS } from '../utils/index.js';
 import { isWakeLockSupported } from './useWakeLock.js';
 import { getPwaDismissKey } from './usePwaInstall.js';
 
@@ -21,14 +21,21 @@ export function useSettings(props, emit) {
   const { storageKey: _storageKey, settingsKey: SETTINGS_STORAGE_KEY } =
     resolveStorageKeys(_instanceName);
 
+  /** Migrate/validate a stored keyboard value to a valid position string. */
+  function _parseKeyboardPosition(v) {
+    if (v === true) return 'center';   // migrate old boolean true
+    if (KEYBOARD_POSITIONS.includes(v)) return v;
+    return 'disabled';                 // default / old boolean false / invalid
+  }
+
   function loadInitialSettings() {
     if (typeof window === 'undefined') {
-      return { sounds: true, menuUrl: appConfig.menuUrl, preventScreenLock: false, customKeyboard: false };
+      return { sounds: true, menuUrl: appConfig.menuUrl, preventScreenLock: false, customKeyboard: 'disabled' };
     }
     try {
       const raw = window.localStorage.getItem(SETTINGS_STORAGE_KEY);
       if (!raw) {
-        return { sounds: true, menuUrl: appConfig.menuUrl, preventScreenLock: false, customKeyboard: false };
+        return { sounds: true, menuUrl: appConfig.menuUrl, preventScreenLock: false, customKeyboard: 'disabled' };
       }
       const parsed = JSON.parse(raw);
       return {
@@ -41,11 +48,10 @@ export function useSettings(props, emit) {
           typeof parsed.preventScreenLock === 'boolean' && wakeLockApiSupported
             ? parsed.preventScreenLock
             : false,
-        customKeyboard:
-          typeof parsed.customKeyboard === 'boolean' ? parsed.customKeyboard : false,
+        customKeyboard: _parseKeyboardPosition(parsed.customKeyboard),
       };
     } catch {
-      return { sounds: true, menuUrl: appConfig.menuUrl, preventScreenLock: false, customKeyboard: false };
+      return { sounds: true, menuUrl: appConfig.menuUrl, preventScreenLock: false, customKeyboard: 'disabled' };
     }
   }
 
