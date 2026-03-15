@@ -636,7 +636,7 @@
                   v-for="(saved, si) in allDirectCustomItems"
                   :key="'sc_'+si"
                   :class="saved.locked ? 'border-emerald-200' : 'border-gray-200 hover:border-emerald-300'"
-                  class="flex items-stretch bg-white rounded-xl shadow-sm overflow-hidden transition-colors">
+                  class="flex items-stretch bg-white border rounded-xl shadow-sm overflow-hidden transition-colors">
                   <button
                     @click="addSavedCustomItemToDirectCart(saved)"
                     :class="saved.locked ? 'bg-emerald-50/50' : ''"
