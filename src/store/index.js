@@ -171,6 +171,8 @@ export const useAppStore = defineStore('app', () => {
 
   // ── Mutations: Orders ──────────────────────────────────────────────────────
   function addOrder(order) {
+    if (order.globalNote === undefined) order.globalNote = '';
+    if (!order.noteVisibility) order.noteVisibility = { cassa: true, sala: true, cucina: true };
     orders.value.push(order);
   }
 
@@ -515,6 +517,8 @@ export const useAppStore = defineStore('app', () => {
       totalAmount: 12,
       itemCount: 1,
       dietaryPreferences: {},
+      globalNote: '',
+      noteVisibility: { cassa: true, sala: true, cucina: true },
       orderItems: [
         { uid: 'r_' + Date.now(), dishId: 'pri_2', name: 'Amatriciana', unitPrice: 12, quantity: 1, voidedQuantity: 0, notes: [] },
       ],
@@ -718,6 +722,11 @@ export const useAppStore = defineStore('app', () => {
     afterHydrate(ctx) {
       if (!ctx.store.orders.length) {
         ctx.store.orders = initialOrders;
+      }
+      // Migrate orders loaded from localStorage that may be missing globalNote fields
+      for (const ord of ctx.store.orders) {
+        if (ord.globalNote === undefined) ord.globalNote = '';
+        if (!ord.noteVisibility) ord.noteVisibility = { cassa: true, sala: true, cucina: true };
       }
     },
   },
