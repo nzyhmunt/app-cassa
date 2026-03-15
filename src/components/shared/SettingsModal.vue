@@ -27,7 +27,7 @@
           </button>
         </div>
 
-        <div v-if="isAdmin" @click="wakeLockApiSupported && (settings.preventScreenLock = !settings.preventScreenLock)"
+        <div @click="wakeLockApiSupported && (settings.preventScreenLock = !settings.preventScreenLock)"
           class="flex items-center justify-between p-3 md:p-4 border border-gray-200 rounded-2xl transition-colors"
           :class="wakeLockApiSupported ? 'cursor-pointer hover:bg-gray-50 active:scale-95' : 'opacity-50 cursor-not-allowed'">
           <div>

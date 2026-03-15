@@ -159,10 +159,10 @@ describe('non-admin user logged in', () => {
     expect(wrapper.text()).not.toContain('Gestione Utenti');
   });
 
-  it('hides the screen-lock toggle from non-admin', async () => {
+  it('still shows the screen-lock toggle to non-admin', async () => {
     const wrapper = mountSettingsModal();
     await flushPromises();
-    expect(wrapper.text()).not.toContain('Schermo sempre acceso');
+    expect(wrapper.text()).toContain('Schermo sempre acceso');
   });
 });
 
