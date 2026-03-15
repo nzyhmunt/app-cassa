@@ -281,10 +281,30 @@
           <button @click="closeMenuModal" class="bg-white/10 hover:bg-white/20 p-2 md:p-2.5 rounded-full transition-colors active:scale-95"><X class="size-5 md:size-5" /></button>
         </div>
 
+        <!-- Barra di ricerca -->
+        <div class="px-3 md:px-4 py-2 bg-gray-800 border-b border-gray-700 shrink-0 flex items-center gap-2">
+          <div class="flex-1 relative">
+            <Search class="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-gray-400 pointer-events-none" />
+            <input
+              v-model="menuSearchQuery"
+              type="text"
+              placeholder="Cerca piatto..."
+              class="w-full bg-gray-700 text-white placeholder-gray-400 rounded-xl pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            />
+          </div>
+          <button
+            v-if="menuSearchQuery"
+            @click="menuSearchQuery = ''"
+            class="flex items-center gap-1.5 bg-gray-600 hover:bg-gray-500 text-gray-200 text-xs font-medium px-3 py-2 rounded-xl transition-colors active:scale-95 shrink-0"
+          >
+            <SearchX class="size-3.5" /> Pulisci ricerca
+          </button>
+        </div>
+
         <div class="flex flex-1 min-h-0 flex-col md:flex-row">
 
-          <!-- Categorie Menu -->
-          <div class="w-full md:w-[220px] border-b md:border-b-0 md:border-r border-gray-200 bg-gray-50 flex md:flex-col overflow-x-auto md:overflow-y-auto no-scrollbar shrink-0">
+          <!-- Categorie Menu — hidden during search -->
+          <div v-show="!filteredMenuItems" class="w-full md:w-[220px] border-b md:border-b-0 md:border-r border-gray-200 bg-gray-50 flex md:flex-col overflow-x-auto md:overflow-y-auto no-scrollbar shrink-0">
             <button v-for="(items, category) in store.config.menu" :key="'cat_'+category" @click="activeMenuCategory = category"
                 class="whitespace-nowrap md:whitespace-normal md:w-full text-center md:text-left px-4 md:px-5 py-3 md:py-4 border-b-4 md:border-b-0 md:border-l-4 border-transparent font-bold transition-colors md:flex md:justify-between md:items-center text-sm md:text-base"
                 :class="activeMenuCategory === category ? 'bg-white theme-text theme-border-b md:!border-b-transparent theme-border-l shadow-sm' : 'text-gray-600 hover:bg-gray-100'">
@@ -296,49 +316,84 @@
           </div>
 
           <!-- Piatti Griglia -->
-          <div class="flex-1 overflow-y-auto p-2 md:p-4 bg-gray-100 md:bg-white grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 gap-2 md:gap-3 content-start min-h-0">
-            <div v-for="item in store.config.menu[activeMenuCategory]" :key="'item_'+item.id"
-                class="bg-white border border-gray-200 rounded-xl md:rounded-2xl shadow-sm hover:border-emerald-400 transition-all group flex flex-col h-full min-h-[100px] md:min-h-[120px] relative overflow-visible">
+          <div class="flex-1 overflow-y-auto p-2 md:p-4 bg-gray-100 md:bg-white gap-2 md:gap-3 content-start min-h-0"
+               :class="filteredMenuItems ? 'flex flex-col' : 'grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3'">
 
-              <span v-if="getQtyCombined(item.id) > 0" class="absolute -top-2 -right-2 bg-emerald-500 text-white size-6 md:size-7 rounded-full flex items-center justify-center text-[10px] md:text-xs font-black border-2 border-white shadow-sm z-10">
-                {{ getQtyCombined(item.id) }}
-              </span>
-
-              <!-- Title area — tap/click = quick-add -->
-              <button @click="addToTempCart(item)"
-                  :aria-label="'Aggiungi ' + item.name + ' al carrello'"
-                  class="flex-1 flex items-start text-left p-3 md:p-4 pb-1 md:pb-2 w-full">
-                <h4 class="font-bold text-gray-800 text-xs md:text-sm leading-tight group-hover:theme-text transition-colors line-clamp-3">{{ item.name }}</h4>
-              </button>
-
-              <!-- Bottom row: price left, icon actions + add button right -->
-              <div class="px-3 md:px-4 pb-3 md:pb-4 flex items-center justify-between gap-1">
-                <span class="font-black theme-text text-xs md:text-sm bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100 shrink-0">{{ store.config.ui.currency }}{{ item.price.toFixed(2) }}</span>
-                <div class="flex items-center gap-0.5 shrink-0">
-                  <!-- Info button -->
-                  <button @click="showItemInfo(item)"
-                      :aria-label="'Informazioni su ' + item.name"
-                      class="size-6 md:size-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-teal-600 hover:bg-teal-50 transition-colors active:scale-95"
-                      title="Dettagli piatto">
-                    <Info class="size-3 md:size-3.5" />
-                  </button>
-                  <!-- Details (pen) button -->
-                  <button @click="addToTempCartWithModal(item)"
-                      :aria-label="'Aggiungi ' + item.name + ' con dettagli'"
-                      class="size-6 md:size-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-purple-600 hover:bg-purple-50 transition-colors active:scale-95"
-                      title="Aggiungi con portata, note e varianti">
-                    <PenLine class="size-3 md:size-3.5" />
-                  </button>
-                  <!-- Prominent add button -->
+            <!-- Risultati ricerca -->
+            <template v-if="filteredMenuItems">
+              <div v-if="filteredMenuItems.length === 0" class="col-span-full flex flex-col items-center justify-center py-16 text-gray-400">
+                <SearchX class="size-12 opacity-30 mb-3" />
+                <p class="text-sm font-medium">Nessun piatto corrisponde ai criteri di ricerca</p>
+              </div>
+              <div v-else class="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 gap-2 md:gap-3">
+                <div v-for="item in filteredMenuItems" :key="'search_'+item.id"
+                    class="bg-white border border-gray-200 rounded-xl md:rounded-2xl shadow-sm hover:border-emerald-400 transition-all group flex flex-col h-full min-h-[100px] md:min-h-[120px] relative overflow-visible">
+                  <span class="absolute -top-2 left-2 bg-gray-200 text-gray-600 text-[9px] font-bold px-1.5 py-0.5 rounded-full z-10">{{ item._category }}</span>
+                  <span v-if="getQtyCombined(item.id) > 0" class="absolute -top-2 -right-2 bg-emerald-500 text-white size-6 md:size-7 rounded-full flex items-center justify-center text-[10px] md:text-xs font-black border-2 border-white shadow-sm z-10">
+                    {{ getQtyCombined(item.id) }}
+                  </span>
                   <button @click="addToTempCart(item)"
                       :aria-label="'Aggiungi ' + item.name + ' al carrello'"
-                      class="size-7 md:size-8 flex items-center justify-center rounded-lg theme-bg text-white shadow-sm hover:opacity-90 active:scale-95 transition-all ml-0.5"
-                      title="Aggiungi al carrello">
-                    <Plus class="size-3.5 md:size-4" />
+                      class="flex-1 flex items-start text-left p-3 md:p-4 pb-1 md:pb-2 w-full pt-5">
+                    <h4 class="font-bold text-gray-800 text-xs md:text-sm leading-tight group-hover:theme-text transition-colors line-clamp-3">{{ item.name }}</h4>
                   </button>
+                  <div class="px-3 md:px-4 pb-3 md:pb-4 flex items-center justify-between gap-1">
+                    <span class="font-black theme-text text-xs md:text-sm bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100 shrink-0">{{ store.config.ui.currency }}{{ item.price.toFixed(2) }}</span>
+                    <div class="flex items-center gap-0.5 shrink-0">
+                      <button @click="showItemInfo(item)" :aria-label="'Informazioni su ' + item.name" class="size-6 md:size-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-teal-600 hover:bg-teal-50 transition-colors active:scale-95" title="Dettagli piatto"><Info class="size-3 md:size-3.5" /></button>
+                      <button @click="addToTempCartWithModal(item)" :aria-label="'Aggiungi ' + item.name + ' con dettagli'" class="size-6 md:size-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-purple-600 hover:bg-purple-50 transition-colors active:scale-95" title="Aggiungi con portata, note e varianti"><PenLine class="size-3 md:size-3.5" /></button>
+                      <button @click="addToTempCart(item)" :aria-label="'Aggiungi ' + item.name + ' al carrello'" class="size-7 md:size-8 flex items-center justify-center rounded-lg theme-bg text-white shadow-sm hover:opacity-90 active:scale-95 transition-all ml-0.5" title="Aggiungi al carrello"><Plus class="size-3.5 md:size-4" /></button>
+                    </div>
+                  </div>
                 </div>
               </div>
-            </div>
+            </template>
+
+            <!-- Griglia per categoria (default) -->
+            <template v-else>
+              <div v-for="item in store.config.menu[activeMenuCategory]" :key="'item_'+item.id"
+                  class="bg-white border border-gray-200 rounded-xl md:rounded-2xl shadow-sm hover:border-emerald-400 transition-all group flex flex-col h-full min-h-[100px] md:min-h-[120px] relative overflow-visible">
+
+                <span v-if="getQtyCombined(item.id) > 0" class="absolute -top-2 -right-2 bg-emerald-500 text-white size-6 md:size-7 rounded-full flex items-center justify-center text-[10px] md:text-xs font-black border-2 border-white shadow-sm z-10">
+                  {{ getQtyCombined(item.id) }}
+                </span>
+
+                <!-- Title area — tap/click = quick-add -->
+                <button @click="addToTempCart(item)"
+                    :aria-label="'Aggiungi ' + item.name + ' al carrello'"
+                    class="flex-1 flex items-start text-left p-3 md:p-4 pb-1 md:pb-2 w-full">
+                  <h4 class="font-bold text-gray-800 text-xs md:text-sm leading-tight group-hover:theme-text transition-colors line-clamp-3">{{ item.name }}</h4>
+                </button>
+
+                <!-- Bottom row: price left, icon actions + add button right -->
+                <div class="px-3 md:px-4 pb-3 md:pb-4 flex items-center justify-between gap-1">
+                  <span class="font-black theme-text text-xs md:text-sm bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100 shrink-0">{{ store.config.ui.currency }}{{ item.price.toFixed(2) }}</span>
+                  <div class="flex items-center gap-0.5 shrink-0">
+                    <!-- Info button -->
+                    <button @click="showItemInfo(item)"
+                        :aria-label="'Informazioni su ' + item.name"
+                        class="size-6 md:size-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-teal-600 hover:bg-teal-50 transition-colors active:scale-95"
+                        title="Dettagli piatto">
+                      <Info class="size-3 md:size-3.5" />
+                    </button>
+                    <!-- Details (pen) button -->
+                    <button @click="addToTempCartWithModal(item)"
+                        :aria-label="'Aggiungi ' + item.name + ' con dettagli'"
+                        class="size-6 md:size-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-purple-600 hover:bg-purple-50 transition-colors active:scale-95"
+                        title="Aggiungi con portata, note e varianti">
+                      <PenLine class="size-3 md:size-3.5" />
+                    </button>
+                    <!-- Prominent add button -->
+                    <button @click="addToTempCart(item)"
+                        :aria-label="'Aggiungi ' + item.name + ' al carrello'"
+                        class="size-7 md:size-8 flex items-center justify-center rounded-lg theme-bg text-white shadow-sm hover:opacity-90 active:scale-95 transition-all ml-0.5"
+                        title="Aggiungi al carrello">
+                      <Plus class="size-3.5 md:size-4" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </template>
           </div>
 
           <!-- CARRELLO TEMPORANEO -->
@@ -662,6 +717,7 @@ import {
   AlertTriangle, Trash2, PlusCircle, Send, ShieldCheck, Minus, Plus,
   MessageSquareWarning, PenLine, X, BookOpen, ShoppingCart, Sparkles,
   Layers, CheckCircle, CheckCircle2, History, LayoutGrid, ChevronRight, Info, Flame, BellRing,
+  Search, SearchX,
 } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
 import {
@@ -880,6 +936,21 @@ const showAddMenuModal = ref(false);
 const targetOrderForMenu = ref(null);
 const tempCart = ref([]);
 const activeMenuCategory = ref(Object.keys(store.config.menu)[0] || '');
+const menuSearchQuery = ref('');
+
+const filteredMenuItems = computed(() => {
+  const q = menuSearchQuery.value.trim().toLowerCase();
+  if (!q) return null;
+  const results = [];
+  for (const [category, items] of Object.entries(store.config.menu)) {
+    for (const item of items) {
+      const haystack = [item.name, item.description, item.synonyms]
+        .filter(Boolean).join(' ').toLowerCase();
+      if (haystack.includes(q)) results.push({ ...item, _category: category });
+    }
+  }
+  return results;
+});
 
 function removeModFromCart(cartIdx, modIdx) {
   const cartItem = tempCart.value[cartIdx];
@@ -987,6 +1058,7 @@ function closeMenuModal() {
   showAddMenuModal.value = false;
   targetOrderForMenu.value = null;
   tempCart.value = [];
+  menuSearchQuery.value = '';
 }
 
 function confirmAndPushCart() {

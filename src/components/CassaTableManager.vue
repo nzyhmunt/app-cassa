@@ -917,28 +917,71 @@
       <div class="flex-1 min-h-0 overflow-hidden flex flex-col">
 
         <!-- "Dal Menu" mode -->
-        <div v-if="directItemMode === 'menu'" class="flex-1 flex flex-col md:flex-row overflow-hidden min-h-0">
-          <!-- Categories sidebar -->
-          <div class="w-full md:w-[180px] border-b md:border-b-0 md:border-r border-gray-200 bg-gray-50 flex md:flex-col overflow-x-auto md:overflow-y-auto no-scrollbar shrink-0">
+        <div v-if="directItemMode === 'menu'" class="flex-1 flex flex-col overflow-hidden min-h-0">
+          <!-- Search bar -->
+          <div class="px-3 py-2 bg-gray-50 border-b border-gray-200 shrink-0 flex items-center gap-2">
+            <div class="flex-1 relative">
+              <Search class="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-gray-400 pointer-events-none" />
+              <input
+                v-model="directMenuSearchQuery"
+                type="text"
+                placeholder="Cerca piatto..."
+                class="w-full border border-gray-200 rounded-xl pl-9 pr-3 py-2 text-sm focus:outline-none theme-ring bg-white transition-colors"
+              />
+            </div>
             <button
-              v-for="(menuItems, category) in store.config.menu"
-              :key="'dcat_'+category"
-              @click="directActiveMenuCategory = category"
-              :class="directActiveMenuCategory === category ? 'bg-white border-b-2 md:border-b-0 md:border-l-4 theme-border-b theme-border-l theme-text font-bold' : 'text-gray-500 hover:bg-gray-100'"
-              class="whitespace-nowrap md:whitespace-normal md:w-full px-4 py-3 text-xs md:text-sm transition-colors shrink-0 text-left">
-              {{ category }}
+              v-if="directMenuSearchQuery"
+              @click="directMenuSearchQuery = ''"
+              class="flex items-center gap-1.5 bg-gray-200 hover:bg-gray-300 text-gray-700 text-xs font-medium px-3 py-2 rounded-xl transition-colors active:scale-95 shrink-0"
+            >
+              <SearchX class="size-3.5" /> Pulisci ricerca
             </button>
           </div>
-          <!-- Menu items grid -->
-          <div class="flex-1 overflow-y-auto p-3 grid grid-cols-2 md:grid-cols-3 gap-2 content-start">
-            <button
-              v-for="item in (store.config.menu[directActiveMenuCategory] || [])"
-              :key="'dmi_'+item.id"
-              @click="addMenuItemToDirectCart(item)"
-              class="bg-white border border-gray-200 rounded-xl p-3 text-left hover:border-emerald-300 hover:bg-emerald-50 active:scale-95 transition-all shadow-sm flex flex-col gap-1">
-              <span class="font-bold text-gray-800 text-xs leading-tight line-clamp-2">{{ item.name }}</span>
-              <span class="theme-text font-black text-sm mt-auto">{{ store.config.ui.currency }}{{ item.price.toFixed(2) }}</span>
-            </button>
+          <div class="flex-1 flex flex-col md:flex-row overflow-hidden min-h-0">
+            <!-- Categories sidebar — hidden during search -->
+            <div v-show="!filteredDirectMenuItems" class="w-full md:w-[180px] border-b md:border-b-0 md:border-r border-gray-200 bg-gray-50 flex md:flex-col overflow-x-auto md:overflow-y-auto no-scrollbar shrink-0">
+              <button
+                v-for="(menuItems, category) in store.config.menu"
+                :key="'dcat_'+category"
+                @click="directActiveMenuCategory = category"
+                :class="directActiveMenuCategory === category ? 'bg-white border-b-2 md:border-b-0 md:border-l-4 theme-border-b theme-border-l theme-text font-bold' : 'text-gray-500 hover:bg-gray-100'"
+                class="whitespace-nowrap md:whitespace-normal md:w-full px-4 py-3 text-xs md:text-sm transition-colors shrink-0 text-left">
+                {{ category }}
+              </button>
+            </div>
+            <!-- Menu items grid -->
+            <div class="flex-1 overflow-y-auto p-3 content-start"
+                 :class="filteredDirectMenuItems ? 'flex flex-col gap-2' : 'grid grid-cols-2 md:grid-cols-3 gap-2'">
+              <!-- Risultati ricerca -->
+              <template v-if="filteredDirectMenuItems">
+                <div v-if="filteredDirectMenuItems.length === 0" class="flex flex-col items-center justify-center py-16 text-gray-400">
+                  <SearchX class="size-10 opacity-30 mb-3" />
+                  <p class="text-sm font-medium">Nessun piatto corrisponde ai criteri di ricerca</p>
+                </div>
+                <div v-else class="grid grid-cols-2 md:grid-cols-3 gap-2">
+                  <button
+                    v-for="item in filteredDirectMenuItems"
+                    :key="'dsearch_'+item.id"
+                    @click="addMenuItemToDirectCart(item)"
+                    class="bg-white border border-gray-200 rounded-xl p-3 text-left hover:border-emerald-300 hover:bg-emerald-50 active:scale-95 transition-all shadow-sm flex flex-col gap-1 relative pt-5">
+                    <span class="absolute top-1.5 left-2 bg-gray-100 text-gray-500 text-[9px] font-bold px-1.5 py-0.5 rounded-full">{{ item._category }}</span>
+                    <span class="font-bold text-gray-800 text-xs leading-tight line-clamp-2">{{ item.name }}</span>
+                    <span class="theme-text font-black text-sm mt-auto">{{ store.config.ui.currency }}{{ item.price.toFixed(2) }}</span>
+                  </button>
+                </div>
+              </template>
+              <!-- Griglia per categoria (default) -->
+              <template v-else>
+                <button
+                  v-for="item in (store.config.menu[directActiveMenuCategory] || [])"
+                  :key="'dmi_'+item.id"
+                  @click="addMenuItemToDirectCart(item)"
+                  class="bg-white border border-gray-200 rounded-xl p-3 text-left hover:border-emerald-300 hover:bg-emerald-50 active:scale-95 transition-all shadow-sm flex flex-col gap-1">
+                  <span class="font-bold text-gray-800 text-xs leading-tight line-clamp-2">{{ item.name }}</span>
+                  <span class="theme-text font-black text-sm mt-auto">{{ store.config.ui.currency }}{{ item.price.toFixed(2) }}</span>
+                </button>
+              </template>
+            </div>
           </div>
         </div>
 
@@ -1324,7 +1367,7 @@ import {
   Layers, ListChecks, History, LayoutGrid, ListOrdered,
   Tag, Wallet, ChevronDown,
   Percent, Zap, BookOpen, PlusCircle, Banknote, CreditCard, Lock, SquareCheck, Split, Link, Printer,
-  FileText,
+  FileText, Search, SearchX,
 } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
 import { newUUIDv7 } from '../store/storeUtils.js';
@@ -2240,9 +2283,24 @@ function createNewOrderForTable() {
 const showDirectItemModal = ref(false);
 const directItemMode = ref('menu'); // 'menu' | 'custom'
 const directActiveMenuCategory = ref('');
+const directMenuSearchQuery = ref('');
 const directCart = ref([]);
 const directCustomName = ref('');
 const directCustomPrice = ref('');
+
+const filteredDirectMenuItems = computed(() => {
+  const q = directMenuSearchQuery.value.trim().toLowerCase();
+  if (!q) return null;
+  const results = [];
+  for (const [category, items] of Object.entries(store.config.menu)) {
+    for (const item of items) {
+      const haystack = [item.name, item.description, item.synonyms]
+        .filter(Boolean).join(' ').toLowerCase();
+      if (haystack.includes(q)) results.push({ ...item, _category: category });
+    }
+  }
+  return results;
+});
 
 function onDirectCustomPriceInput(event) {
   const raw = event.target.value;
@@ -2295,6 +2353,7 @@ function closeDirectItemModal() {
   directCart.value = [];
   directCustomName.value = '';
   directCustomPrice.value = '';
+  directMenuSearchQuery.value = '';
 }
 
 /** Shared factory — builds a cart item with all required fields. */
