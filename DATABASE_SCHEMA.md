@@ -460,7 +460,7 @@ Cardinalità:
                   │ is_cover_charge
                   │ global_note
                   │ note_visibility_cassa/sala/cucina
-                  │ is_direct_entry
+                  │ is_direct_entry (*)
                   └──────────────────────────────┐
                                                  │ 1
                                                  │ N
