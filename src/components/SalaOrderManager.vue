@@ -334,15 +334,30 @@
                   </span>
                   <button @click="addToTempCart(item)"
                       :aria-label="'Aggiungi ' + item.name + ' al carrello'"
-                      class="flex-1 flex items-start text-left p-3 md:p-4 pb-1 md:pb-2 w-full pt-5">
+                      class="flex-1 flex items-start text-left px-3 md:px-4 pt-5 pb-1 md:pb-2 w-full">
                     <h4 class="font-bold text-gray-800 text-xs md:text-sm leading-tight group-hover:theme-text transition-colors line-clamp-3">{{ item.name }}</h4>
                   </button>
                   <div class="px-3 md:px-4 pb-3 md:pb-4 flex items-center justify-between gap-1">
                     <span class="font-black theme-text text-xs md:text-sm bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100 shrink-0">{{ store.config.ui.currency }}{{ item.price.toFixed(2) }}</span>
                     <div class="flex items-center gap-0.5 shrink-0">
-                      <button @click="showItemInfo(item)" :aria-label="'Informazioni su ' + item.name" class="size-6 md:size-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-teal-600 hover:bg-teal-50 transition-colors active:scale-95" title="Dettagli piatto"><Info class="size-3 md:size-3.5" /></button>
-                      <button @click="addToTempCartWithModal(item)" :aria-label="'Aggiungi ' + item.name + ' con dettagli'" class="size-6 md:size-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-purple-600 hover:bg-purple-50 transition-colors active:scale-95" title="Aggiungi con portata, note e varianti"><PenLine class="size-3 md:size-3.5" /></button>
-                      <button @click="addToTempCart(item)" :aria-label="'Aggiungi ' + item.name + ' al carrello'" class="size-7 md:size-8 flex items-center justify-center rounded-lg theme-bg text-white shadow-sm hover:opacity-90 active:scale-95 transition-all ml-0.5" title="Aggiungi al carrello"><Plus class="size-3.5 md:size-4" /></button>
+                      <button @click="showItemInfo(item)"
+                          :aria-label="'Informazioni su ' + item.name"
+                          class="size-6 md:size-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-teal-600 hover:bg-teal-50 transition-colors active:scale-95"
+                          title="Dettagli piatto">
+                        <Info class="size-3 md:size-3.5" />
+                      </button>
+                      <button @click="addToTempCartWithModal(item)"
+                          :aria-label="'Aggiungi ' + item.name + ' con dettagli'"
+                          class="size-6 md:size-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-purple-600 hover:bg-purple-50 transition-colors active:scale-95"
+                          title="Aggiungi con portata, note e varianti">
+                        <PenLine class="size-3 md:size-3.5" />
+                      </button>
+                      <button @click="addToTempCart(item)"
+                          :aria-label="'Aggiungi ' + item.name + ' al carrello'"
+                          class="size-7 md:size-8 flex items-center justify-center rounded-lg theme-bg text-white shadow-sm hover:opacity-90 active:scale-95 transition-all ml-0.5"
+                          title="Aggiungi al carrello">
+                        <Plus class="size-3.5 md:size-4" />
+                      </button>
                     </div>
                   </div>
                 </div>
