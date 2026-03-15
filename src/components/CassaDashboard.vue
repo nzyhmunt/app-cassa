@@ -282,7 +282,7 @@
             <Eye class="size-5" /> Anteprima Chiusura
           </button>
 
-          <button @click="confirmDailyClose"
+          <button v-if="isAdmin" @click="confirmDailyClose"
             class="w-full py-4 bg-red-600 hover:bg-red-700 text-white rounded-2xl font-bold shadow-md transition-colors active:scale-95 flex items-center justify-center gap-2 text-sm md:text-base">
             <Lock class="size-5" /> Esegui Lettura Z (Chiudi Giornata)
           </button>
@@ -302,12 +302,14 @@ import {
 } from 'lucide-vue-next';
 import { Banknote } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
+import { useAuth } from '../composables/useAuth.js';
 import NumericInput from './NumericInput.vue';
 
 defineProps({ modelValue: Boolean });
 defineEmits(['update:modelValue']);
 
 const store = useAppStore();
+const { isAdmin } = useAuth();
 
 const tabs = [
   { id: 'cashBalance', label: 'Fondo Cassa', icon: Wallet },

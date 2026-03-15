@@ -322,7 +322,7 @@
             <div v-else class="mb-5"></div>
 
             <!-- Sconto (Discount) -->
-            <div v-if="discountsEnabled && tableAmountRemaining > 0" class="mb-4 bg-amber-50 border border-amber-200 rounded-xl p-3 md:p-4">
+            <div v-if="discountsEnabled && tableAmountRemaining > 0 && isAdmin" class="mb-4 bg-amber-50 border border-amber-200 rounded-xl p-3 md:p-4">
               <label class="block text-xs font-bold text-amber-800 uppercase mb-2 flex items-center gap-1.5">
                 <Tag class="size-3.5" /> Applica Sconto
               </label>
