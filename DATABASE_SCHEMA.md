@@ -199,8 +199,8 @@ CREATE TABLE orders (
     order_time              TIME            NOT NULL,       -- 'HH:MM'
     total_amount            NUMERIC(10,2)   NOT NULL DEFAULT 0.00,
     item_count              INTEGER         NOT NULL DEFAULT 0,
-    is_cover_charge         BOOLEAN         NOT NULL DEFAULT FALSE,
-    is_direct_entry         BOOLEAN         NOT NULL DEFAULT FALSE,  -- TRUE = voce diretta (bypassa workflow cucina, status subito 'accepted')
+    is_cover_charge         BOOLEAN         NOT NULL DEFAULT FALSE,  -- TRUE = riga coperto (aggiunta automatica all'apertura tavolo)
+    is_direct_entry         BOOLEAN         NOT NULL DEFAULT FALSE,  -- TRUE = voce diretta (bypassa workflow cucina, status subito 'accepted'); vale anche per is_cover_charge = TRUE
     dietary_diets           TEXT[]          NULL,           -- es. ['Vegetariano']
     dietary_allergens       TEXT[]          NULL,
     created_at              TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
@@ -559,17 +559,23 @@ viene rinominata o rimossa (`dish_id` è nullable per questo motivo).
 
 ### 5.2b Voci dirette (`is_direct_entry`)
 
-Le comande create tramite "Aggiungi Voce Diretta" in Cassa hanno `is_direct_entry = TRUE`.
+Le comande create tramite "⚡ Diretto" in Cassa hanno `is_direct_entry = TRUE`.
 Queste comande:
 - saltano il workflow cucina (status subito `accepted`);
 - non compaiono nella coda "In Cucina" della App Cucina;
 - vengono incluse nel totale conto e nella fattura finale come qualsiasi altra comanda `accepted`;
 - possono contenere sia voci dal menu standard (`dish_id` valorizzato) sia voci personalizzate
-  (`dish_id` NULL, nome e prezzo liberi).
+  (`dish_id` NULL, nome e prezzo liberi);
+- includono anche il **coperto** (`is_cover_charge = TRUE`): quando l'auto-aggiunta del coperto è
+  attiva, esso viene creato tramite `addDirectOrder()` e riceve anch'esso `is_direct_entry = TRUE`,
+  bypassando il workflow cucina e mostrando il badge ⚡ Diretta nel pannello cassa.
+
+> **Nota**: i due flag non si escludono a vicenda. Una riga con `is_cover_charge = TRUE` può
+> avere contemporaneamente `is_direct_entry = TRUE`.
 
 ```sql
--- Recupera tutte le voci dirette attive per un tavolo
-SELECT o.id, oi.name, oi.unit_price, oi.quantity
+-- Recupera tutte le voci dirette attive per un tavolo (incluso coperto)
+SELECT o.id, o.is_cover_charge, oi.name, oi.unit_price, oi.quantity
 FROM orders o
 JOIN order_items oi ON oi.order_id = o.id
 WHERE o.table_id = :table_id
