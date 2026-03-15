@@ -258,7 +258,7 @@ describe('non-empty state with admin logged in', () => {
 describe('non-empty state with non-admin user logged in', () => {
   beforeEach(async () => {
     const { addUser, login } = useAuth();
-    const admin = await addUser('Admin', '1111'); // first user = admin
+    await addUser('Admin', '1111'); // first user = admin
     const staff = await addUser('Staff', '2222'); // second user = non-admin
     await login(staff.id, '2222');
   });
