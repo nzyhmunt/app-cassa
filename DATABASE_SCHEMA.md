@@ -62,6 +62,7 @@ CREATE TABLE venues (
     billing_enable_cash_change_calculator BOOLEAN NOT NULL DEFAULT TRUE,
     billing_enable_tips                   BOOLEAN NOT NULL DEFAULT TRUE,
     billing_enable_discounts              BOOLEAN NOT NULL DEFAULT TRUE,
+    billing_allow_custom_entry            BOOLEAN NOT NULL DEFAULT TRUE,  -- abilita voci libere nel modal Voce Diretta
     created_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
     updated_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW()
 );
@@ -198,13 +199,14 @@ CREATE TABLE orders (
     order_time              TIME            NOT NULL,       -- 'HH:MM'
     total_amount            NUMERIC(10,2)   NOT NULL DEFAULT 0.00,
     item_count              INTEGER         NOT NULL DEFAULT 0,
-    is_cover_charge         BOOLEAN         NOT NULL DEFAULT FALSE,
+    is_cover_charge         BOOLEAN         NOT NULL DEFAULT FALSE,  -- TRUE = riga coperto (aggiunta automatica all'apertura tavolo)
     dietary_diets           TEXT[]          NULL,           -- es. ['Vegetariano']
     dietary_allergens       TEXT[]          NULL,
     global_note             TEXT            NOT NULL DEFAULT '',  -- nota libera sull'intero ordine (order.globalNote)
     note_visibility_cassa   BOOLEAN         NOT NULL DEFAULT TRUE,  -- order.noteVisibility.cassa
     note_visibility_sala    BOOLEAN         NOT NULL DEFAULT TRUE,  -- order.noteVisibility.sala
     note_visibility_cucina  BOOLEAN         NOT NULL DEFAULT TRUE,  -- order.noteVisibility.cucina
+    is_direct_entry         BOOLEAN         NOT NULL DEFAULT FALSE,  -- TRUE = voce diretta (bypassa workflow cucina, status subito 'accepted'); vale anche per is_cover_charge = TRUE
     created_at              TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
     updated_at              TIMESTAMPTZ     NOT NULL DEFAULT NOW()
 );
@@ -458,6 +460,7 @@ Cardinalità:
                   │ is_cover_charge
                   │ global_note
                   │ note_visibility_cassa/sala/cucina
+                  │ is_direct_entry (*)
                   └──────────────────────────────┐
                                                  │ 1
                                                  │ N
@@ -539,6 +542,7 @@ Cardinalità:
 | `orders[]`                            | `orders` + `order_items` + `order_item_modifiers` |
 | `order.globalNote`                    | `orders.global_note`                   |
 | `order.noteVisibility.{cassa,sala,cucina}` | `orders.note_visibility_{cassa,sala,cucina}` |
+| `order.isDirectEntry`                 | `orders.is_direct_entry`               |
 | `transactions[]`                      | `transactions` + `transaction_order_refs` |
 | `tableOccupiedAt`                     | `bill_sessions.opened_at`              |
 | `billRequestedTables` (Set)           | query: `orders.status = 'pending'` con `bill_session_id` attivo |
@@ -553,12 +557,39 @@ Cardinalità:
 | `appConfig.ui.*`                      | `venues`                               |
 | `appConfig.coverCharge.*`             | `venues.cover_charge_*`                |
 | `appConfig.billing.*`                 | `venues.billing_*`                     |
+| `appConfig.billing.allowCustomEntry`  | `venues.billing_allow_custom_entry`    |
 
 ### 5.2 Snapshot dei nomi nel DB
 
 `order_items.name` e `order_item_modifiers.name` contengono snapshot del nome al momento
 dell'ordine. Questo è intenzionale: permette di conservare la cronologia anche se la voce menu
 viene rinominata o rimossa (`dish_id` è nullable per questo motivo).
+
+### 5.2b Voci dirette (`is_direct_entry`)
+
+Le comande create tramite "⚡ Diretto" in Cassa hanno `is_direct_entry = TRUE`.
+Queste comande:
+- saltano il workflow cucina (status subito `accepted`);
+- non compaiono nella coda "In Cucina" della App Cucina;
+- vengono incluse nel totale conto e nella fattura finale come qualsiasi altra comanda `accepted`;
+- possono contenere sia voci dal menu standard (`dish_id` valorizzato) sia voci personalizzate
+  (`dish_id` NULL, nome e prezzo liberi);
+- includono anche il **coperto** (`is_cover_charge = TRUE`): quando l'auto-aggiunta del coperto è
+  attiva, esso viene creato tramite `addDirectOrder()` e riceve anch'esso `is_direct_entry = TRUE`,
+  bypassando il workflow cucina e mostrando il badge ⚡ Diretta nel pannello cassa.
+
+> **Nota**: i due flag non si escludono a vicenda. Una riga con `is_cover_charge = TRUE` può
+> avere contemporaneamente `is_direct_entry = TRUE`.
+
+```sql
+-- Recupera tutte le voci dirette attive per un tavolo (incluso coperto)
+SELECT o.id, o.is_cover_charge, oi.name, oi.unit_price, oi.quantity
+FROM orders o
+JOIN order_items oi ON oi.order_id = o.id
+WHERE o.table_id = :table_id
+  AND o.is_direct_entry = TRUE
+  AND o.status NOT IN ('completed', 'rejected');
+```
 
 ### 5.3 Calcolo totale riga
 

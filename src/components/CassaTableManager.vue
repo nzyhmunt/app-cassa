@@ -144,8 +144,11 @@
                 <ListOrdered class="size-3 shrink-0" /> Per Ordine
               </button>
             </div>
+            <button @click="openDirectItemModal" class="theme-bg hover:opacity-90 text-white px-3 py-2 rounded-lg text-xs md:text-sm font-bold flex items-center gap-1.5 active:scale-95 shadow-sm transition-opacity shrink-0" title="Aggiungi voci direttamente al conto senza passare per la cucina">
+              <Zap class="size-4 md:size-5" /> <span class="hidden sm:inline">Diretto</span>
+            </button>
             <button @click="createNewOrderForTable" class="bg-gray-900 hover:bg-black text-white px-3 py-2 rounded-lg text-xs md:text-sm font-bold flex items-center gap-1.5 active:scale-95 shadow-sm transition-colors shrink-0">
-              <Plus class="size-4 md:size-5" /> <span class="hidden sm:inline">Nuova Comanda</span>
+              <Plus class="size-4 md:size-5" /> <span class="hidden sm:inline">Comanda</span>
             </button>
           </div>
 
@@ -172,7 +175,10 @@
                         :class="{'line-through text-gray-500': dish.totalQty - dish.totalVoided <= 0}">
                         {{ dish.name }}
                       </span>
-                      <span v-if="dish.totalVoided > 0" class="text-[8px] text-red-500 font-bold uppercase">-{{ dish.totalVoided }} storn.</span>
+                      <div class="flex items-center gap-1.5">
+                        <span v-if="dish.totalVoided > 0" class="text-[8px] text-red-500 font-bold uppercase">-{{ dish.totalVoided }} storn.</span>
+                        <span v-if="dish.hasDirectEntry" class="text-[8px] theme-text font-bold uppercase flex items-center gap-0.5"><Zap class="size-2.5" /> Diretta</span>
+                      </div>
                     </div>
                   </div>
                   <span class="font-black text-[12px] md:text-sm text-gray-800 shrink-0">
@@ -219,7 +225,8 @@
                   </button>
                   <div class="flex flex-col">
                     <span class="font-bold text-gray-800 text-sm md:text-base flex items-center gap-1">Ord #{{ ord.id.substring(0,6) }}</span>
-                    <span v-if="ord.status === 'pending'" class="text-[9px] md:text-[10px] font-bold uppercase text-amber-600 flex items-center gap-1 mt-0.5"><AlertTriangle class="size-3 md:size-3.5" /> In Attesa (Escluso Cassa)</span>
+                    <span v-if="ord.isDirectEntry" class="text-[9px] md:text-[10px] font-bold uppercase theme-text flex items-center gap-1 mt-0.5"><Zap class="size-3 md:size-3.5" /> Voce Diretta (In Cassa)</span>
+                    <span v-else-if="ord.status === 'pending'" class="text-[9px] md:text-[10px] font-bold uppercase text-amber-600 flex items-center gap-1 mt-0.5"><AlertTriangle class="size-3 md:size-3.5" /> In Attesa (Escluso Cassa)</span>
                     <span v-else class="text-[9px] md:text-[10px] font-bold uppercase text-emerald-600 flex items-center gap-1 mt-0.5"><CheckCircle class="size-3 md:size-3.5" /> In Cucina (Calcolato in Cassa)</span>
                   </div>
                 </div>
@@ -546,6 +553,170 @@
   </div>
 
   <!-- ================================================================ -->
+  <!-- MODAL: AGGIUNGI VOCE DIRETTA AL CONTO                           -->
+  <!-- ================================================================ -->
+  <div v-if="showDirectItemModal && selectedTable" class="fixed inset-0 z-[70] bg-black/70 backdrop-blur-sm flex items-end md:items-center justify-center p-0 md:p-4">
+    <div class="bg-white rounded-t-3xl md:rounded-3xl shadow-2xl w-full max-w-3xl h-[90dvh] md:h-[85vh] flex flex-col overflow-hidden">
+
+      <!-- Header -->
+      <div class="bg-gray-900 text-white p-3 md:p-4 flex justify-between items-center shrink-0">
+        <div>
+          <h3 class="font-bold text-base md:text-lg flex items-center gap-2">
+            <Zap class="size-4 md:size-5 text-emerald-400" /> Aggiungi Voce Diretta
+          </h3>
+          <p class="text-[10px] text-gray-400 uppercase tracking-widest mt-0.5">
+            Tavolo {{ selectedTable.label }} — Aggiunta senza passare per la cucina
+          </p>
+        </div>
+        <button @click="closeDirectItemModal" class="bg-white/10 hover:bg-white/20 p-2 md:p-2.5 rounded-full transition-colors active:scale-95"><X class="size-5" /></button>
+      </div>
+
+      <!-- Tabs -->
+      <div v-if="store.config.billing?.allowCustomEntry !== false" class="flex border-b border-gray-200 bg-gray-50 shrink-0">
+        <button
+          @click="directItemMode = 'menu'"
+          :class="directItemMode === 'menu' ? 'border-b-2 theme-border-b theme-text bg-white font-bold' : 'text-gray-500 hover:bg-gray-100'"
+          class="flex-1 py-3 text-xs md:text-sm flex items-center justify-center gap-2 transition-colors">
+          <BookOpen class="size-4" /> Dal Menu
+        </button>
+        <button
+          @click="directItemMode = 'custom'"
+          :class="directItemMode === 'custom' ? 'border-b-2 theme-border-b theme-text bg-white font-bold' : 'text-gray-500 hover:bg-gray-100'"
+          class="flex-1 py-3 text-xs md:text-sm flex items-center justify-center gap-2 transition-colors">
+          <PlusCircle class="size-4" /> Personalizzata
+        </button>
+      </div>
+
+      <!-- Content: modal body -->
+      <div class="flex-1 min-h-0 overflow-hidden flex flex-col">
+
+        <!-- "Dal Menu" mode -->
+        <div v-if="directItemMode === 'menu'" class="flex-1 flex flex-col md:flex-row overflow-hidden min-h-0">
+          <!-- Categories sidebar -->
+          <div class="w-full md:w-[180px] border-b md:border-b-0 md:border-r border-gray-200 bg-gray-50 flex md:flex-col overflow-x-auto md:overflow-y-auto no-scrollbar shrink-0">
+            <button
+              v-for="(menuItems, category) in store.config.menu"
+              :key="'dcat_'+category"
+              @click="directActiveMenuCategory = category"
+              :class="directActiveMenuCategory === category ? 'bg-white border-b-2 md:border-b-0 md:border-l-4 theme-border-b theme-border-l theme-text font-bold' : 'text-gray-500 hover:bg-gray-100'"
+              class="whitespace-nowrap md:whitespace-normal md:w-full px-4 py-3 text-xs md:text-sm transition-colors shrink-0 text-left">
+              {{ category }}
+            </button>
+          </div>
+          <!-- Menu items grid -->
+          <div class="flex-1 overflow-y-auto p-3 grid grid-cols-2 md:grid-cols-3 gap-2 content-start">
+            <button
+              v-for="item in (store.config.menu[directActiveMenuCategory] || [])"
+              :key="'dmi_'+item.id"
+              @click="addMenuItemToDirectCart(item)"
+              class="bg-white border border-gray-200 rounded-xl p-3 text-left hover:border-emerald-300 hover:bg-emerald-50 active:scale-95 transition-all shadow-sm flex flex-col gap-1">
+              <span class="font-bold text-gray-800 text-xs leading-tight line-clamp-2">{{ item.name }}</span>
+              <span class="theme-text font-black text-sm mt-auto">{{ store.config.ui.currency }}{{ item.price.toFixed(2) }}</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- "Custom" mode -->
+        <div v-else-if="directItemMode === 'custom' && store.config.billing?.allowCustomEntry !== false" class="flex-1 overflow-hidden flex flex-col min-h-0">
+
+          <!-- New item form -->
+          <div class="shrink-0 p-4 border-b border-gray-100 bg-white">
+            <div class="flex gap-2 items-end">
+              <div class="flex-1 min-w-0">
+                <label class="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1.5">Nome voce</label>
+                <input
+                  v-model="directCustomName"
+                  type="text"
+                  placeholder="Es. Caffè, Servizio, Acqua..."
+                  class="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none theme-ring bg-gray-50 focus:bg-white transition-colors"
+                  @keydown.enter="addCustomItemToDirectCart"
+                />
+              </div>
+              <div class="w-28 shrink-0">
+                <label class="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1.5">Prezzo ({{ store.config.ui.currency }})</label>
+                <input
+                  v-model="directCustomPrice"
+                  type="number"
+                  min="0"
+                  step="0.10"
+                  placeholder="0.00"
+                  class="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none theme-ring bg-gray-50 focus:bg-white transition-colors"
+                  @keydown.enter="addCustomItemToDirectCart"
+                />
+              </div>
+              <button
+                @click="addCustomItemToDirectCart"
+                :disabled="!directCustomName.trim()"
+                class="shrink-0 theme-bg hover:opacity-90 disabled:bg-gray-200 disabled:text-gray-400 text-white font-bold px-4 py-2.5 rounded-xl transition-opacity active:scale-95 flex items-center gap-1.5 text-sm shadow-sm">
+                <Plus class="size-4" /> Aggiungi
+              </button>
+            </div>
+          </div>
+
+          <!-- Saved custom items -->
+          <div class="flex-1 overflow-y-auto p-3">
+            <div v-if="savedCustomItems.length > 0">
+              <p class="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2 px-1">Voci salvate</p>
+              <div class="grid grid-cols-2 md:grid-cols-3 gap-2">
+                <button
+                  v-for="(saved, si) in savedCustomItems"
+                  :key="'sc_'+si"
+                  @click="addSavedCustomItemToDirectCart(saved)"
+                  class="group relative bg-white border border-gray-200 rounded-xl p-3 text-left hover:border-emerald-300 hover:bg-emerald-50 active:scale-95 transition-all shadow-sm flex flex-col gap-1 min-w-0">
+                  <span class="font-bold text-gray-800 text-xs leading-snug line-clamp-2 pr-4">{{ saved.name }}</span>
+                  <span class="theme-text font-black text-sm">{{ store.config.ui.currency }}{{ saved.price.toFixed(2) }}</span>
+                  <button
+                    @click.stop="removeSavedCustomItem(si)"
+                    class="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 size-5 rounded-full bg-gray-100 hover:bg-red-100 hover:text-red-600 flex items-center justify-center text-gray-400 transition-all active:scale-90">
+                    <X class="size-3" />
+                  </button>
+                </button>
+              </div>
+            </div>
+            <div v-else class="flex flex-col items-center justify-center h-full text-gray-400 py-8 gap-2">
+              <PlusCircle class="size-8 opacity-30" />
+              <p class="text-xs text-center">Le voci inserite verranno salvate qui per un accesso rapido.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Cart footer + confirm -->
+      <div class="border-t border-gray-200 bg-gray-50 p-3 shrink-0">
+        <!-- Cart items list -->
+        <div v-if="directCart.length > 0" class="mb-3 space-y-1.5 max-h-36 overflow-y-auto">
+          <div
+            v-for="(item, idx) in directCart"
+            :key="item.uid"
+            class="flex items-center justify-between bg-white rounded-lg px-3 py-2 border border-gray-200 shadow-sm">
+            <div class="flex items-center gap-2 flex-1 min-w-0">
+              <button @click="updateDirectCartQty(idx, -1)" class="size-6 rounded-full bg-gray-100 hover:bg-red-100 hover:text-red-600 flex items-center justify-center font-bold text-gray-600 shrink-0 active:scale-95 transition-colors"><Minus class="size-3" /></button>
+              <span class="font-bold text-gray-600 text-xs w-5 text-center shrink-0">{{ item.quantity }}</span>
+              <button @click="updateDirectCartQty(idx, 1)" class="size-6 rounded-full bg-gray-100 hover:bg-emerald-100 hover:text-emerald-600 flex items-center justify-center font-bold text-gray-600 shrink-0 active:scale-95 transition-colors"><Plus class="size-3" /></button>
+              <span class="font-bold text-gray-800 text-xs truncate ml-1">{{ item.name }}</span>
+            </div>
+            <span class="font-black text-xs theme-text shrink-0 ml-2">{{ store.config.ui.currency }}{{ (item.unitPrice * item.quantity).toFixed(2) }}</span>
+          </div>
+        </div>
+        <div v-else class="text-center text-gray-400 text-xs py-2 mb-2 italic">Nessuna voce selezionata.</div>
+
+        <!-- Total + confirm button -->
+        <div class="flex items-center justify-between gap-3">
+          <div class="text-sm font-black text-gray-800">
+            Totale: <span class="theme-text text-base">{{ store.config.ui.currency }}{{ directCartTotal.toFixed(2) }}</span>
+          </div>
+          <button
+            @click="confirmDirectItems"
+            :disabled="directCart.length === 0"
+            class="theme-bg hover:opacity-90 disabled:bg-gray-300 disabled:text-gray-400 text-white font-bold px-6 py-3 rounded-xl transition-opacity active:scale-95 text-sm flex items-center gap-2 shadow-md">
+            <CheckCircle class="size-4" /> Aggiungi al Conto
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================================================================ -->
   <!-- MODAL: RICEVUTA TRANSAZIONE E PRECONTO JSON API FISCALE          -->
   <!-- ================================================================ -->
   <div v-if="showPrecontoJson" class="fixed inset-0 z-[95] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
@@ -633,10 +804,11 @@ import {
   Ban, Undo2, Code, Minus, Receipt, ArrowRightLeft, Merge, Timer,
   Layers, ListChecks, History, LayoutGrid, ListOrdered,
   Tag, Wallet, Coins,
+  Percent, Zap, BookOpen, PlusCircle, Banknote, CreditCard,
 } from 'lucide-vue-next';
-import { Banknote, CreditCard } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
-import { updateOrderTotals, getOrderItemRowTotal, KITCHEN_ACTIVE_STATUSES } from '../utils/index.js';
+import { getOrderItemRowTotal, KITCHEN_ACTIVE_STATUSES } from '../utils/index.js';
+import { resolveCustomItemsKey } from '../store/persistence.js';
 import CassaClosedBillsList from './CassaClosedBillsList.vue';
 // Shared component — used by both Sala and Cassa apps.
 import PeopleModal from './shared/PeopleModal.vue';
@@ -901,6 +1073,7 @@ const tableMenuGrouped = computed(() => {
           totalQty: 0,
           totalVoided: 0,
           totalSubtotal: 0,
+          hasDirectEntry: false,
           modifiers: new Map(),
         });
       }
@@ -908,6 +1081,7 @@ const tableMenuGrouped = computed(() => {
       dish.totalQty += item.quantity;
       dish.totalVoided += (item.voidedQuantity || 0);
       dish.totalSubtotal += getOrderItemRowTotal(item);
+      if (ord.isDirectEntry) dish.hasDirectEntry = true;
 
       // Count paid modifiers (variazioni a pagamento)
       for (let modIdx = 0; modIdx < (item.modifiers || []).length; modIdx++) {
@@ -1000,6 +1174,7 @@ function confirmPeopleAndOpenTable() {
         quantity: peopleAdults.value,
         voidedQuantity: 0,
         notes: [],
+        modifiers: [],
       });
     }
     if (peopleChildren.value > 0 && cc.priceChild > 0) {
@@ -1011,23 +1186,12 @@ function confirmPeopleAndOpenTable() {
         quantity: peopleChildren.value,
         voidedQuantity: 0,
         notes: [],
+        modifiers: [],
       });
     }
     if (coverItems.length > 0) {
-      const coverOrder = {
-        id: 'ord_' + Math.random().toString(36).slice(2, 11),
-        table: table.id,
-        billSessionId,
-        time: new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }),
-        totalAmount: 0,
-        itemCount: 0,
-        dietaryPreferences: {},
-        orderItems: coverItems,
-        isCoverCharge: true,
-      };
-      updateOrderTotals(coverOrder);
-      store.addOrder(coverOrder);
-      store.changeOrderStatus(coverOrder, 'accepted');
+      const coverOrder = store.addDirectOrder(table.id, billSessionId, coverItems);
+      if (coverOrder) coverOrder.isCoverCharge = true;
     }
   }
 
@@ -1057,6 +1221,126 @@ function createNewOrderForTable() {
   store.addOrder(newOrd);
   closeTableModal();
   emit('new-order-for-ordini', newOrd);
+}
+
+// ── Direct item entry modal ────────────────────────────────────────────────
+const showDirectItemModal = ref(false);
+const directItemMode = ref('menu'); // 'menu' | 'custom'
+const directActiveMenuCategory = ref('');
+const directCart = ref([]);
+const directCustomName = ref('');
+const directCustomPrice = ref('');
+
+// Saved custom items — persisted in localStorage
+// Key is derived from the instance name so multiple instances stay isolated.
+const SAVED_CUSTOM_KEY = resolveCustomItemsKey();
+
+const savedCustomItems = ref(
+  (() => {
+    try { return JSON.parse(localStorage.getItem(SAVED_CUSTOM_KEY) || '[]'); }
+    catch (e) { console.warn('[CassaTableManager] Failed to load saved custom items:', e); return []; }
+  })(),
+);
+
+watch(savedCustomItems, (val) => {
+  try { localStorage.setItem(SAVED_CUSTOM_KEY, JSON.stringify(val)); }
+  catch (e) { console.warn('[CassaTableManager] Failed to save custom items:', e); }
+}, { deep: true });
+
+function openDirectItemModal() {
+  directCart.value = [];
+  directItemMode.value = 'menu';
+  directActiveMenuCategory.value = Object.keys(store.config.menu)[0] || '';
+  directCustomName.value = '';
+  directCustomPrice.value = '';
+  showDirectItemModal.value = true;
+}
+
+function closeDirectItemModal() {
+  showDirectItemModal.value = false;
+  directCart.value = [];
+  directCustomName.value = '';
+  directCustomPrice.value = '';
+}
+
+/** Shared factory — builds a cart item with all required fields. */
+function makeDirectCartItem(name, price, dishId = null) {
+  return {
+    uid: 'dir_' + Math.random().toString(36).slice(2, 11),
+    dishId: dishId ?? ('custom_' + Math.random().toString(36).slice(2, 11)),
+    name,
+    unitPrice: price,
+    quantity: 1,
+    voidedQuantity: 0,
+    notes: [],
+    modifiers: [],
+  };
+}
+
+/**
+ * Finds an existing cart item by the given predicate and bumps its quantity,
+ * or pushes `newItem` if none is found.
+ */
+function pushOrBumpDirectCart(predicate, newItem) {
+  const existing = directCart.value.find(predicate);
+  if (existing) { existing.quantity++; } else { directCart.value.push(newItem); }
+}
+
+function addMenuItemToDirectCart(item) {
+  pushOrBumpDirectCart(
+    c => c.dishId === item.id && c.notes.length === 0 && c.modifiers.length === 0,
+    makeDirectCartItem(item.name, item.price, item.id),
+  );
+}
+
+function updateDirectCartQty(idx, delta) {
+  const newQty = directCart.value[idx].quantity + delta;
+  if (newQty <= 0) {
+    directCart.value.splice(idx, 1);
+  } else {
+    directCart.value[idx].quantity = newQty;
+  }
+}
+
+function addCustomItemToDirectCart() {
+  const name = directCustomName.value.trim();
+  if (!name) return;
+  const price = parseFloat(directCustomPrice.value) || 0;
+
+  // Save to persistent list if not already present (same name+price)
+  if (!savedCustomItems.value.some(s => s.name === name && s.price === price)) {
+    savedCustomItems.value.unshift({ name, price });
+  }
+
+  directCart.value.push(makeDirectCartItem(name, price));
+  directCustomName.value = '';
+  directCustomPrice.value = '';
+}
+
+function addSavedCustomItemToDirectCart(saved) {
+  pushOrBumpDirectCart(
+    c => c.name === saved.name && c.unitPrice === saved.price,
+    makeDirectCartItem(saved.name, saved.price),
+  );
+}
+
+function removeSavedCustomItem(idx) {
+  savedCustomItems.value.splice(idx, 1);
+}
+
+const directCartTotal = computed(() =>
+  directCart.value.reduce((a, b) => a + b.unitPrice * b.quantity, 0),
+);
+
+function confirmDirectItems() {
+  if (!selectedTable.value || directCart.value.length === 0) return;
+  const session = store.tableCurrentBillSession[selectedTable.value.id];
+  store.addDirectOrder(
+    selectedTable.value.id,
+    session?.billSessionId ?? null,
+    directCart.value,
+  );
+  closeDirectItemModal();
 }
 
 // ── Manual bill close (used when autoCloseOnFullPayment = false) ───────────

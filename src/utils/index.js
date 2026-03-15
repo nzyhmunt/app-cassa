@@ -73,11 +73,105 @@ export const appConfig = {
   // enableCashChangeCalculator: mostra il calcolatore del resto per i pagamenti in contanti
   // enableTips: abilita l'inserimento della mancia per ogni pagamento
   // enableDiscounts: abilita l'applicazione di sconti in cassa
+  // allowCustomEntry: quando true (default), abilita la tab "Personalizzata" nel modal Voce Diretta
+  //   per inserire voci libere (nome + prezzo) non collegate al menu. Impostare a false per
+  //   limitare le voci dirette solo alle voci presenti nel menu configurato.
   billing: {
     autoCloseOnFullPayment: true,
     enableCashChangeCalculator: true,
     enableTips: true,
     enableDiscounts: true,
+    allowCustomEntry: true,
+  },
+
+  // CONFIGURAZIONE AUTENTICAZIONE
+  // Permette di definire utenti statici a livello di build/deploy.
+  // Questi utenti sono sola lettura: non possono essere modificati dall'interfaccia.
+  // pin: PIN numerico a 4 cifre in plaintext (hashato in memoria, mai persistito)
+  // apps: elenco delle app abilitate per l'utente ('cassa', 'sala', 'cucina');
+  //        omettere o lasciare vuoto per abilitare tutte e tre le app.
+  // Esempio:
+  //   users: [
+  //     { id: 'mario_cassa', name: 'Mario', pin: '1234', apps: ['cassa', 'sala'] },
+  //     { id: 'chef_cucina', name: 'Chef', pin: '5678', apps: ['cucina'] },
+  //   ]
+  auth: {
+    users: [],
+  },
+
+  // CONFIGURAZIONE AUTENTICAZIONE
+  // Permette di definire utenti statici a livello di build/deploy.
+  // Questi utenti sono sola lettura: non possono essere modificati dall'interfaccia.
+  // pin: PIN numerico a 4 cifre in plaintext (hashato in memoria, mai persistito)
+  // apps: elenco delle app abilitate per l'utente ('cassa', 'sala', 'cucina');
+  //        omettere o lasciare vuoto per abilitare tutte e tre le app.
+  // Esempio:
+  //   users: [
+  //     { id: 'mario_cassa', name: 'Mario', pin: '1234', apps: ['cassa', 'sala'] },
+  //     { id: 'chef_cucina', name: 'Chef', pin: '5678', apps: ['cucina'] },
+  //   ]
+  auth: {
+    users: [],
+  },
+
+  // CONFIGURAZIONE AUTENTICAZIONE
+  // Permette di definire utenti statici a livello di build/deploy.
+  // Questi utenti sono sola lettura: non possono essere modificati dall'interfaccia.
+  // pin: PIN numerico a 4 cifre in plaintext (hashato in memoria, mai persistito)
+  // apps: elenco delle app abilitate per l'utente ('cassa', 'sala', 'cucina');
+  //        omettere o lasciare vuoto per abilitare tutte e tre le app.
+  // Esempio:
+  //   users: [
+  //     { id: 'mario_cassa', name: 'Mario', pin: '1234', apps: ['cassa', 'sala'] },
+  //     { id: 'chef_cucina', name: 'Chef', pin: '5678', apps: ['cucina'] },
+  //   ]
+  auth: {
+    users: [],
+  },
+
+  // CONFIGURAZIONE AUTENTICAZIONE
+  // Permette di definire utenti statici a livello di build/deploy.
+  // Questi utenti sono sola lettura: non possono essere modificati dall'interfaccia.
+  // pin: PIN numerico a 4 cifre in plaintext (hashato in memoria, mai persistito)
+  // apps: elenco delle app abilitate per l'utente ('cassa', 'sala', 'cucina');
+  //        omettere o lasciare vuoto per abilitare tutte e tre le app.
+  // Esempio:
+  //   users: [
+  //     { id: 'mario_cassa', name: 'Mario', pin: '1234', apps: ['cassa', 'sala'] },
+  //     { id: 'chef_cucina', name: 'Chef', pin: '5678', apps: ['cucina'] },
+  //   ]
+  auth: {
+    users: [],
+  },
+
+  // CONFIGURAZIONE AUTENTICAZIONE
+  // Permette di definire utenti statici a livello di build/deploy.
+  // Questi utenti sono sola lettura: non possono essere modificati dall'interfaccia.
+  // pin: PIN numerico a 4 cifre in plaintext (hashato in memoria, mai persistito)
+  // apps: elenco delle app abilitate per l'utente ('cassa', 'sala', 'cucina');
+  //        omettere o lasciare vuoto per abilitare tutte e tre le app.
+  // Esempio:
+  //   users: [
+  //     { id: 'mario_cassa', name: 'Mario', pin: '1234', apps: ['cassa', 'sala'] },
+  //     { id: 'chef_cucina', name: 'Chef', pin: '5678', apps: ['cucina'] },
+  //   ]
+  auth: {
+    users: [],
+  },
+
+  // CONFIGURAZIONE AUTENTICAZIONE
+  // Permette di definire utenti statici a livello di build/deploy.
+  // Questi utenti sono sola lettura: non possono essere modificati dall'interfaccia.
+  // pin: PIN numerico a 4 cifre in plaintext (hashato in memoria, mai persistito)
+  // apps: elenco delle app abilitate per l'utente ('cassa', 'sala', 'cucina');
+  //        omettere o lasciare vuoto per abilitare tutte e tre le app.
+  // Esempio:
+  //   users: [
+  //     { id: 'mario_cassa', name: 'Mario', pin: '1234', apps: ['cassa', 'sala'] },
+  //     { id: 'chef_cucina', name: 'Chef', pin: '5678', apps: ['cucina'] },
+  //   ]
+  auth: {
+    users: [],
   },
 
   // CONFIGURAZIONE AUTENTICAZIONE
