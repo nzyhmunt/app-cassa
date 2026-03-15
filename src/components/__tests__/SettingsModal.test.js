@@ -152,10 +152,17 @@ describe('non-admin user logged in', () => {
     expect(wrapper.text()).toContain('Avvisi Audio');
   });
 
-  it('still shows the user management button to non-admin', async () => {
+  it('shows "Modifica PIN" button to non-admin instead of full user management', async () => {
     const wrapper = mountSettingsModal();
     await flushPromises();
-    expect(wrapper.text()).toContain('Gestione Utenti');
+    expect(wrapper.text()).toContain('Modifica PIN');
+    expect(wrapper.text()).not.toContain('Gestione Utenti');
+  });
+
+  it('hides the screen-lock toggle from non-admin', async () => {
+    const wrapper = mountSettingsModal();
+    await flushPromises();
+    expect(wrapper.text()).not.toContain('Schermo sempre acceso');
   });
 });
 
