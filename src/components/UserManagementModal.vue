@@ -211,6 +211,42 @@
 </template>
 
 <script setup>
+/**
+ * UserManagementModal — Gestione Utenti
+ *
+ * Modale per la creazione, modifica ed eliminazione di utenti manuali.
+ * Accessibile dall'icona "Config" presente in CassaNavbar, SalaNavbar e
+ * CucinaSettingsModal tramite il pulsante "Gestione Utenti & Blocco Schermo".
+ *
+ * ## Flusso principale
+ * 1. **Nessun utente** (`allUsers.length === 0`):
+ *    Viene mostrato il banner informativo e il form `AddUserForm` con
+ *    `isFirst=true`.  Il primo utente creato riceve automaticamente i
+ *    privilegi di amministratore (gestito da `useAuth().addUser()`).
+ *
+ * 2. **Utenti presenti, utente non-admin**:
+ *    Vengono visualizzati solo i dati in sola lettura; il form di aggiunta
+ *    è nascosto.
+ *
+ * 3. **Utenti presenti, utente admin**:
+ *    - Configurazione blocco automatico (timeout inattività).
+ *    - Lista utenti con pulsanti di modifica (nome, PIN) ed eliminazione.
+ *    - Toggle per limitare l'accesso per app (cassa/sala/cucina).
+ *    - Form `AddUserForm` con `isFirst=false` per aggiungere nuovi utenti.
+ *
+ * ## Validazioni nel form di aggiunta
+ * - Nome utente: obbligatorio, max 30 caratteri.
+ * - PIN: esattamente 4 cifre numeriche (`/^\d{4}$/`).
+ * - App: almeno una deve essere selezionata.
+ *
+ * ## Persistenza
+ * Tutti gli utenti manuali sono salvati in localStorage tramite `useAuth()`.
+ * Gli utenti definiti in `appConfig.auth.users` sono in sola lettura
+ * (badge "Config") e non possono essere modificati o eliminati dall'UI.
+ *
+ * @see src/composables/useAuth.js   — logica di autenticazione e gestione utenti
+ * @see src/components/__tests__/UserManagementModal.test.js — test di integrazione
+ */
 import { ref, defineComponent } from 'vue';
 import { Users, X, Pencil, Trash2, Check, Lock, ShieldCheck, ShieldOff } from 'lucide-vue-next';
 import { useAuth } from '../composables/useAuth.js';
