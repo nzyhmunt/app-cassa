@@ -134,7 +134,7 @@
             <template v-else-if="selectedOrder.status === 'ready'">
               <div class="flex gap-2 w-full items-center">
                 <span class="flex-1 text-center px-3 py-2.5 md:py-3 bg-teal-50 text-teal-700 border border-teal-200 rounded-xl font-bold flex items-center justify-center gap-2 text-xs">
-                  <BellRing class="size-4" /> <span class="hidden sm:inline">Pronta 🔔</span>
+                  <BellRing class="size-4" /> <span class="hidden sm:inline">Pronta</span>
                 </span>
                 <button @click="forceDeliver(selectedOrder)" class="px-3 py-2.5 md:py-3 bg-gray-500 hover:bg-gray-600 text-white shadow-md rounded-xl font-bold flex items-center justify-center gap-1.5 active:scale-95 transition-colors text-xs shrink-0">
                   <CheckCircle2 class="size-4" /> <span class="hidden sm:inline">Consegnata</span>

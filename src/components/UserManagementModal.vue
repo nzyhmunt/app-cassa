@@ -248,7 +248,7 @@
  * @see src/components/__tests__/UserManagementModal.test.js — test di integrazione
  */
 import { ref, defineComponent } from 'vue';
-import { Users, X, Pencil, Trash2, Check, Lock, ShieldCheck, ShieldOff } from 'lucide-vue-next';
+import { Users, X, Pencil, Trash2, Check, Lock, ShieldCheck, ShieldOff, UserPlus } from 'lucide-vue-next';
 import { useAuth } from '../composables/useAuth.js';
 
 defineProps({ modelValue: Boolean });
@@ -273,6 +273,7 @@ const AddUserForm = defineComponent({
   name: 'AddUserForm',
   props: { isFirst: Boolean },
   emits: ['added'],
+  components: { ShieldCheck, UserPlus },
   setup(props, { emit }) {
     const name = ref('');
     const pin = ref('');
@@ -320,8 +321,8 @@ const AddUserForm = defineComponent({
       <p v-if="error" class="text-red-500 text-xs">{{ error }}</p>
       <button @click="submit"
         class="w-full py-3 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 transition-all active:scale-95 bg-[var(--brand-primary)] text-white hover:opacity-90 shadow-sm">
-        <svg v-if="isFirst" xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-        <svg v-else xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>
+        <ShieldCheck v-if="isFirst" class="size-4" />
+        <UserPlus v-else class="size-4" />
         {{ isFirst ? 'Crea account amministratore' : 'Aggiungi utente' }}
       </button>
     </div>

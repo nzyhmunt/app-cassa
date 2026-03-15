@@ -212,7 +212,7 @@
               <div class="flex gap-2 w-full sm:w-auto items-center">
                 <span class="flex-1 text-center px-3 py-2.5 md:py-3 bg-teal-50 text-teal-700 border border-teal-200 rounded-xl font-bold flex items-center justify-center gap-2 text-xs">
                   <BellRing class="size-4" />
-                  <span class="hidden sm:inline text-xs">Pronta 🔔</span>
+                  <span class="hidden sm:inline text-xs">Pronta</span>
                 </span>
                 <button
                   @click="markDelivered(selectedOrder)"

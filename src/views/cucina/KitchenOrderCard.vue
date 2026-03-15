@@ -48,8 +48,8 @@
           </span>
           <div class="flex-1 min-w-0">
             <p :class="['font-bold text-sm leading-tight', row.item.kitchenReady ? 'text-gray-400 line-through' : 'text-gray-800']">{{ row.item.name }}</p>
-            <p v-if="row.item.notes && row.item.notes.length" :class="['text-xs mt-0.5 font-semibold', row.item.kitchenReady ? 'text-gray-400 line-through' : 'text-amber-600']">
-              ✎ {{ row.item.notes.join(' · ') }}
+            <p v-if="row.item.notes && row.item.notes.length" :class="['text-xs mt-0.5 font-semibold flex items-center gap-1', row.item.kitchenReady ? 'text-gray-400 line-through' : 'text-amber-600']">
+              <Pencil class="size-3 shrink-0" />{{ row.item.notes.join(' · ') }}
             </p>
             <div v-for="(mod, mi) in activeModifiers(row.item)" :key="`${row.item.uid}_mod_${mi}`"
               :class="['text-[10px] font-bold px-1.5 py-0.5 rounded inline-flex items-center gap-0.5 mt-0.5 mr-1', row.item.kitchenReady ? 'bg-gray-100 border border-gray-200 text-gray-400 line-through' : 'bg-purple-50 border border-purple-200 text-purple-700']"
@@ -113,7 +113,7 @@
 
 <script setup>
 import { computed } from 'vue';
-import { ChevronLeft, Layers, MessageSquareWarning } from 'lucide-vue-next';
+import { ChevronLeft, Layers, MessageSquareWarning, Pencil } from 'lucide-vue-next';
 import { getCourseBorderClass, getCourseQtyClass, groupOrderItemsByCourse } from '../../utils/index.js';
 
 const props = defineProps({

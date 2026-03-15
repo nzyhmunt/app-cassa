@@ -14,7 +14,7 @@
   <span
     v-else-if="status === 'ready'"
     class="bg-teal-100 text-teal-800 text-[9px] md:text-[10px] uppercase font-bold px-2 py-1 rounded-md border border-teal-200 flex items-center gap-1"
-  ><BellRing class="size-3" /> Pronta 🔔</span>
+  ><BellRing class="size-3" /> Pronta</span>
   <span
     v-else-if="status === 'delivered'"
     class="bg-gray-100 text-gray-600 text-[9px] md:text-[10px] uppercase font-bold px-2 py-1 rounded-md border border-gray-200 flex items-center gap-1"
