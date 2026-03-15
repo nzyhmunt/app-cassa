@@ -623,7 +623,6 @@
               <div class="flex-1 min-w-0">
                 <label class="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1.5">Nome voce</label>
                 <input
-                  ref="customNameInput"
                   v-model="directCustomName"
                   type="text"
                   placeholder="Es. Caffè, Servizio, Acqua..."
@@ -803,8 +802,8 @@ import {
   Ban, Undo2, Code, Minus, Receipt, ArrowRightLeft, Merge, Timer,
   Layers, ListChecks, History, LayoutGrid, ListOrdered,
   Tag, Percent, Wallet, Coins, Zap, BookOpen, PlusCircle,
+  Banknote, CreditCard,
 } from 'lucide-vue-next';
-import { Banknote, CreditCard } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
 import { getOrderItemRowTotal, KITCHEN_ACTIVE_STATUSES } from '../utils/index.js';
 import { resolveCustomItemsKey } from '../store/persistence.js';
@@ -1172,6 +1171,7 @@ function confirmPeopleAndOpenTable() {
         quantity: peopleAdults.value,
         voidedQuantity: 0,
         notes: [],
+        modifiers: [],
       });
     }
     if (peopleChildren.value > 0 && cc.priceChild > 0) {
@@ -1183,6 +1183,7 @@ function confirmPeopleAndOpenTable() {
         quantity: peopleChildren.value,
         voidedQuantity: 0,
         notes: [],
+        modifiers: [],
       });
     }
     if (coverItems.length > 0) {
@@ -1224,7 +1225,6 @@ const directActiveMenuCategory = ref('');
 const directCart = ref([]);
 const directCustomName = ref('');
 const directCustomPrice = ref('');
-const customNameInput = ref(null);
 
 // Saved custom items — persisted in localStorage
 // Key is derived from the instance name so multiple instances stay isolated.
