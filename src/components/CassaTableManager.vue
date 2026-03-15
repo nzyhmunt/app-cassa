@@ -629,21 +629,30 @@
 
           <!-- Saved custom items -->
           <div class="flex-1 overflow-y-auto p-3">
-            <div v-if="savedCustomItems.length > 0">
+            <div v-if="allDirectCustomItems.length > 0">
               <p class="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2 px-1">Voci salvate</p>
               <div class="grid grid-cols-2 md:grid-cols-3 gap-2">
                 <div
-                  v-for="(saved, si) in savedCustomItems"
+                  v-for="(saved, si) in allDirectCustomItems"
                   :key="'sc_'+si"
                   @click="addSavedCustomItemToDirectCart(saved)"
                   @keydown.enter.space.prevent="addSavedCustomItemToDirectCart(saved)"
                   tabindex="0"
                   role="button"
-                  class="group relative bg-white border border-gray-200 rounded-xl p-3 text-left hover:border-emerald-300 hover:bg-emerald-50 active:scale-95 transition-all shadow-sm flex flex-col gap-1 min-w-0 cursor-pointer select-none focus:outline-none theme-ring">
+                  :class="saved.locked ? 'border-emerald-200 bg-emerald-50/50' : 'border-gray-200 bg-white hover:border-emerald-300 hover:bg-emerald-50'"
+                  class="group relative rounded-xl p-3 text-left active:scale-95 transition-all shadow-sm flex flex-col gap-1 min-w-0 cursor-pointer select-none focus:outline-none theme-ring border">
                   <span class="font-bold text-gray-800 text-xs leading-snug line-clamp-2 pr-4">{{ saved.name }}</span>
                   <span class="theme-text font-black text-sm">{{ store.config.ui.currency }}{{ saved.price.toFixed(2) }}</span>
+                  <!-- Lock badge for config-pinned items — cannot be removed -->
+                  <span
+                    v-if="saved.locked"
+                    class="absolute top-1.5 right-1.5 size-5 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center"
+                    title="Voce fissa da configurazione">
+                    <Lock class="size-3" />
+                  </span>
+                  <!-- Delete button for user-saved items (admin only) -->
                   <button
-                    v-if="isAdmin"
+                    v-else-if="isAdmin"
                     @click.stop="removeSavedCustomItem(si)"
                     class="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 size-5 rounded-full bg-gray-100 hover:bg-red-100 hover:text-red-600 flex items-center justify-center text-gray-400 transition-all active:scale-90">
                     <X class="size-3" />
@@ -783,10 +792,10 @@ import {
   Ban, Undo2, Code, Minus, Receipt, ArrowRightLeft, Merge,
   Layers, ListChecks, History, LayoutGrid, ListOrdered,
   Tag, Wallet, Coins,
-  Percent, Zap, BookOpen, PlusCircle, Banknote, CreditCard,
+  Percent, Zap, BookOpen, PlusCircle, Banknote, CreditCard, Lock,
 } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
-import { getOrderItemRowTotal, KITCHEN_ACTIVE_STATUSES } from '../utils/index.js';
+import { getOrderItemRowTotal, KITCHEN_ACTIVE_STATUSES, getLockedDirectItems } from '../utils/index.js';
 import { resolveCustomItemsKey } from '../store/persistence.js';
 import { useAuth } from '../composables/useAuth.js';
 import CassaClosedBillsList from './CassaClosedBillsList.vue';
@@ -1202,6 +1211,13 @@ const canShowCustomEntryTab = computed(
   () => store.config.billing?.allowCustomEntry !== false,
 );
 
+/**
+ * Items pinned by appConfig.coverCharge — automatically injected into the
+ * Personalizzata tab and cannot be removed from the UI.
+ * Adulto is added when priceAdult > 0; bambino when priceChild > 0.
+ */
+const configLockedDirectItems = computed(() => getLockedDirectItems(store.config.coverCharge));
+
 // Saved custom items — persisted in localStorage
 // Key is derived from the instance name so multiple instances stay isolated.
 const SAVED_CUSTOM_KEY = resolveCustomItemsKey();
@@ -1212,6 +1228,15 @@ const savedCustomItems = ref(
     catch (e) { console.warn('[CassaTableManager] Failed to load saved custom items:', e); return []; }
   })(),
 );
+
+/**
+ * All items shown in the Personalizzata grid: locked config items first,
+ * then user-saved items from localStorage.
+ */
+const allDirectCustomItems = computed(() => [
+  ...configLockedDirectItems.value,
+  ...savedCustomItems.value,
+]);
 
 watch(savedCustomItems, (val) => {
   try { localStorage.setItem(SAVED_CUSTOM_KEY, JSON.stringify(val)); }
@@ -1296,7 +1321,11 @@ function addSavedCustomItemToDirectCart(saved) {
 }
 
 function removeSavedCustomItem(idx) {
-  savedCustomItems.value.splice(idx, 1);
+  // Locked config items occupy the first N slots in allDirectCustomItems;
+  // subtract their count to get the correct index into savedCustomItems.
+  const adjustedIdx = idx - configLockedDirectItems.value.length;
+  if (adjustedIdx < 0) return; // safety guard — should not happen via UI
+  savedCustomItems.value.splice(adjustedIdx, 1);
 }
 
 const directCartTotal = computed(() =>
