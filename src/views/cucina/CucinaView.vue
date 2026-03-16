@@ -228,10 +228,10 @@
                 status-class="bg-teal-100 text-teal-800 border-teal-200"
                 :elapsed-label="elapsedLabel(order.time)"
                 :elapsed-color="elapsedColor(order.time)"
-                action-label="Consegnata"
-                :action-icon="CheckCircle2"
-                action-class="bg-gray-500 text-white hover:bg-gray-600"
-                @action="markDeliveredFromKanban(order)"
+                :action-label="consegnataState(order.id).label"
+                :action-icon="consegnataState(order.id).icon"
+                :action-class="consegnataState(order.id).cls"
+                @action="handleConsegnataClick(order)"
                 :show-secondary-action="true"
                 secondary-action-label="← Torna in cottura"
                 secondary-action-class="border-blue-200 text-blue-700 hover:bg-blue-50"
@@ -274,12 +274,12 @@
               {{ detailStatusLabel(order.status) }}
             </span>
             <button
-              @click="forceDeliver(order)"
-              class="px-2.5 py-1.5 bg-gray-500 hover:bg-gray-600 text-white text-[10px] rounded-lg font-bold flex items-center gap-1.5 active:scale-95 transition-colors"
-              title="Segna come consegnata (override)"
+              @click="handleConsegnataClick(order)"
+              :class="['px-2.5 py-1.5 text-white text-[10px] rounded-lg font-bold flex items-center gap-1.5 active:scale-95 transition-colors', consegnataState(order.id).cls]"
+              :title="consegnataState(order.id).title"
             >
-              <CheckCircle2 class="size-3.5" />
-              <span class="hidden sm:inline">Consegnata</span>
+              <component :is="consegnataState(order.id).icon" class="size-3.5" />
+              <span class="hidden sm:inline">{{ consegnataState(order.id).label }}</span>
             </button>
           </div>
         </div>
@@ -486,9 +486,53 @@ function toggleItemReady(order, itemIdx) {
   store.$persist?.();
 }
 
-function forceDeliver(order) {
-  store.changeOrderStatus(order, 'delivered');
-  store.$persist?.();
+// ── Pending-delivery timer: button-level 5s countdown ────────────────────────
+// Map of orderId → { remaining: Number, intervalId: Number }
+const DELIVERY_COUNTDOWN = 5;
+const pendingDeliveries = ref({});
+
+function getPendingSeconds(orderId) {
+  return pendingDeliveries.value[orderId]?.remaining ?? null;
+}
+
+// Returns display state for the "Consegnata" button (label, icon, css class, title).
+function consegnataState(orderId) {
+  const secs = getPendingSeconds(orderId);
+  const pending = secs != null;
+  return {
+    label: pending ? `Annulla (${secs}s)` : 'Consegnata',
+    icon: pending ? X : CheckCircle2,
+    cls: pending ? 'bg-amber-500 text-white hover:bg-amber-600' : 'bg-gray-500 text-white hover:bg-gray-600',
+    title: pending ? 'Annulla consegna' : 'Segna come consegnata (override)',
+  };
+}
+
+function handleConsegnataClick(order) {
+  if (pendingDeliveries.value[order.id]) {
+    // Cancel the pending delivery
+    clearInterval(pendingDeliveries.value[order.id].intervalId);
+    delete pendingDeliveries.value[order.id];
+    return;
+  }
+  // Start a countdown; delivery fires when it reaches 0
+  const orderId = order.id;
+  const entry = { remaining: DELIVERY_COUNTDOWN, intervalId: null };
+  const intervalId = setInterval(() => {
+    const e = pendingDeliveries.value[orderId];
+    if (!e) { clearInterval(intervalId); return; }
+    e.remaining -= 1;
+    if (e.remaining <= 0) {
+      clearInterval(intervalId);
+      delete pendingDeliveries.value[orderId];
+      const currentOrder = store.orders.find(o => o.id === orderId);
+      if (currentOrder) {
+        store.changeOrderStatus(currentOrder, 'delivered');
+        store.$persist?.();
+      }
+    }
+  }, 1000);
+  entry.intervalId = intervalId;
+  pendingDeliveries.value[orderId] = entry;
 }
 
 function detailStatusBadgeClass(status) {
@@ -545,6 +589,8 @@ onMounted(() => {
 onUnmounted(() => {
   clearInterval(clockTimer);
   clearInterval(refreshTimer);
+  // Clear all pending delivery timers
+  Object.values(pendingDeliveries.value).forEach(e => clearInterval(e.intervalId));
 });
 
 // ── Computed order lists ────────────────────────────────────────────────────
@@ -610,12 +656,6 @@ function acceptOrder(order) {
 function advancePreparingOrder(order) {
   // preparing → ready
   store.changeOrderStatus(order, 'ready');
-  store.$persist?.();
-}
-
-function markDeliveredFromKanban(order) {
-  // ready → delivered (from "Pronte" column)
-  store.changeOrderStatus(order, 'delivered');
   store.$persist?.();
 }
 
@@ -699,4 +739,5 @@ function detailAvatarBgClass(status) {
 .fade-leave-to {
   opacity: 0;
 }
+
 </style>
