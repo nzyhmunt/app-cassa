@@ -278,6 +278,23 @@ export const useAppStore = defineStore('app', () => {
     if (txn.tableId) setBillRequested(txn.tableId, false);
   }
 
+  // Post-payment tip: adds a tip-only transaction on a closed bill session.
+  // amountPaid is 0 so it does not affect the bill balance; only tipAmount is recorded.
+  function addTipTransaction(tableId, billSessionId, tipValue) {
+    if (!tableId || tipValue <= 0) return;
+    transactions.value.push({
+      transactionId: 'tip_' + Math.random().toString(36).slice(2, 11),
+      tableId,
+      billSessionId: billSessionId ?? null,
+      paymentMethod: 'Mancia',
+      operationType: 'tip',
+      amountPaid: 0,
+      tipAmount: tipValue,
+      timestamp: new Date().toISOString(),
+      orderRefs: [],
+    });
+  }
+
   // ── Mutations: Table Operations ────────────────────────────────────────────
   function setBillRequested(tableId, val) {
     if (val) billRequestedTables.value.add(tableId);
@@ -684,6 +701,7 @@ export const useAppStore = defineStore('app', () => {
     voidModifier,
     restoreModifier,
     addTransaction,
+    addTipTransaction,
     simulateNewOrder,
     loadMenu,
     addDirectOrder,

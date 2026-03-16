@@ -77,6 +77,8 @@
               <span class="font-black text-sm" :class="txn.operationType === 'discount' ? 'text-amber-800' : 'text-emerald-800'">
                 <span v-if="txn.operationType === 'discount'">-</span>{{ store.config.ui.currency }}{{ txn.amountPaid.toFixed(2) }}
               </span>
+              <div v-if="txn.grossAmount" class="text-[9px] font-medium text-gray-500">Consegnato: {{ store.config.ui.currency }}{{ txn.grossAmount.toFixed(2) }}</div>
+              <div v-if="txn.changeAmount" class="text-[9px] font-bold text-blue-600">Resto: -{{ store.config.ui.currency }}{{ txn.changeAmount.toFixed(2) }}</div>
               <div v-if="txn.tipAmount" class="text-[9px] font-bold text-purple-600">
                 +{{ store.config.ui.currency }}{{ txn.tipAmount.toFixed(2) }} mancia
               </div>
@@ -97,6 +99,49 @@
           <div class="flex justify-between text-xs font-bold text-emerald-700">
             <span>Incasso netto:</span>
             <span>{{ store.config.ui.currency }}{{ bill.totalPaid.toFixed(2) }}</span>
+          </div>
+        </div>
+
+        <!-- Aggiungi Mancia post-pagamento -->
+        <div class="mt-3 pt-3 border-t border-gray-200">
+          <div v-if="!showTipInput" class="flex justify-end">
+            <button
+              @click="showTipInput = true; postTipValue = ''"
+              class="flex items-center gap-1.5 text-[10px] font-bold text-purple-600 hover:text-purple-800 bg-purple-50 hover:bg-purple-100 border border-purple-200 px-3 py-1.5 rounded-xl transition-colors active:scale-95"
+            >
+              <Wallet class="size-3.5" /> Aggiungi Mancia
+            </button>
+          </div>
+          <div v-else class="space-y-2">
+            <label class="block text-[10px] font-bold text-purple-600 uppercase flex items-center gap-1.5">
+              <Wallet class="size-3.5" /> Mancia da aggiungere
+            </label>
+            <div class="flex items-center gap-2">
+              <span class="text-sm font-bold text-purple-600">{{ store.config.ui.currency }}</span>
+              <input
+                v-model="postTipValue"
+                type="number"
+                min="0"
+                step="0.50"
+                placeholder="0.00"
+                class="flex-1 text-sm font-bold border border-purple-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:border-purple-400 text-purple-900"
+              />
+            </div>
+            <div class="flex gap-2">
+              <button
+                @click="confirmPostTip"
+                :disabled="!postTipParsed"
+                class="flex-1 py-2 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-xl disabled:opacity-40 active:scale-95 transition-all text-xs flex items-center justify-center gap-1.5"
+              >
+                <CheckCircle class="size-3.5" /> Conferma
+              </button>
+              <button
+                @click="showTipInput = false; postTipValue = ''"
+                class="flex-1 py-2 text-gray-600 font-bold rounded-xl border border-gray-200 hover:bg-gray-100 active:scale-95 transition-all text-xs"
+              >
+                Annulla
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -161,8 +206,8 @@
 </template>
 
 <script setup>
-import { ref } from 'vue';
-import { ChevronDown, CreditCard, ClipboardList, Banknote, Tag } from 'lucide-vue-next';
+import { ref, computed } from 'vue';
+import { ChevronDown, CreditCard, ClipboardList, Banknote, Tag, Wallet, CheckCircle } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
 import { billKey, getOrderItemRowTotal } from '../utils/index.js';
 
@@ -179,6 +224,18 @@ const props = defineProps({
 
 const store = useAppStore();
 const isOpen = ref(props.initiallyOpen);
+
+// Post-payment tip state
+const showTipInput = ref(false);
+const postTipValue = ref('');
+const postTipParsed = computed(() => Math.max(0, parseFloat(postTipValue.value) || 0));
+
+function confirmPostTip() {
+  if (!postTipParsed.value) return;
+  store.addTipTransaction(props.bill.tableId, props.bill.billSessionId, postTipParsed.value);
+  showTipInput.value = false;
+  postTipValue.value = '';
+}
 
 function formatTime(isoString) {
   if (!isoString) return '–';
