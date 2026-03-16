@@ -41,6 +41,10 @@
         <p class="text-sm font-bold truncate">{{ currentTime }}</p>
         <p class="text-[10px] text-white/80 uppercase truncate">Turno Attivo</p>
       </div>
+      <!-- Test Audio rapido -->
+      <button v-if="store.config.demoOrders?.length > 0" @click="onSimulateOrder" aria-label="Simula Ordine da App" class="hidden md:flex bg-white/10 hover:bg-white/20 p-2 md:p-2.5 rounded-full transition-colors text-white" title="Simula Ordine da App">
+        <BellPlus class="size-5 md:size-5" />
+      </button>
       <!-- Tasto Cassa Dashboard -->
       <button @click="$emit('open-cassa')" aria-label="Cruscotto Cassa" class="bg-white/10 hover:bg-white/20 px-2.5 md:px-3 py-2 md:py-2.5 rounded-xl transition-colors text-white flex items-center justify-center gap-1.5">
         <Landmark class="size-5 md:size-5 shrink-0" />
@@ -62,8 +66,9 @@
 <script setup>
 import { computed } from 'vue';
 import { useRoute } from 'vue-router';
-import { Monitor, Receipt, LayoutGrid, Settings, Landmark, Lock } from 'lucide-vue-next';
+import { Monitor, Receipt, LayoutGrid, BellPlus, Settings, Landmark, Lock } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
+import { useBeep } from '../composables/useBeep.js';
 import { useAuth } from '../composables/useAuth.js';
 import { useAppClock } from '../composables/useAppClock.js';
 
@@ -76,4 +81,11 @@ const { currentTime } = useAppClock();
 
 const isOrdersActive = computed(() => route.name === 'ordini');
 const isRoomActive = computed(() => route.name === 'sala' || route.name === 'storico-conti');
+
+const { playBeep } = useBeep();
+
+function onSimulateOrder() {
+  store.simulateNewOrder();
+  playBeep();
+}
 </script>
