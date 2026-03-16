@@ -118,9 +118,8 @@
             </label>
             <div class="flex items-center gap-2">
               <span class="text-sm font-bold text-purple-600">{{ store.config.ui.currency }}</span>
-              <input
+              <NumericInput
                 v-model="postTipValue"
-                type="number"
                 min="0"
                 step="0.50"
                 placeholder="0.00"
@@ -210,6 +209,7 @@ import { ref, computed } from 'vue';
 import { ChevronDown, CreditCard, ClipboardList, Banknote, Tag, Wallet, CheckCircle } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
 import { billKey, getOrderItemRowTotal } from '../utils/index.js';
+import NumericInput from './NumericInput.vue';
 
 const props = defineProps({
   bill: {

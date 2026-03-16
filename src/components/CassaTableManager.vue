@@ -544,7 +544,7 @@
             </div>
             <button
               @click="swapRestoMancia"
-              class="mb-0.5 size-10 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 border border-gray-300 text-gray-500 transition-colors active:scale-95 shrink-0"
+              class="mb-0.5 size-10 flex items-center justify-center rounded-xl bg-orange-50 hover:bg-orange-100 border border-orange-200 text-orange-500 shadow-sm transition-colors active:scale-95 shrink-0"
               title="Scambia Resto e Mancia"
             >
               <ArrowRightLeft class="size-4" />
@@ -1150,41 +1150,42 @@ const modalExcess = computed(() => Math.max(0, modalRicevutoParsed.value - amoun
 const modalRicevutiComputed = computed({
   get() { return modalRicevuto.value; },
   set(v) {
-    modalRicevuto.value = v;
-    const excess = Math.max(0, (parseFloat(v) || 0) - amountBeingPaid.value);
+    const num = parseFloat(v) || 0;
+    modalRicevuto.value = num > 0 ? num.toFixed(2) : '';
+    const excess = Math.max(0, num - amountBeingPaid.value);
     if (!modalIsCash.value) {
       // Electronic: full excess goes to Mancia automatically.
-      modalMancia.value = excess > 0 ? String(excess) : '';
+      modalMancia.value = excess > 0 ? excess.toFixed(2) : '';
       modalResto.value = '';
     } else {
       // Cash: keep existing Mancia ratio, let Resto absorb the rest.
       const mancia = Math.min(excess, Math.max(0, parseFloat(modalMancia.value) || 0));
-      modalMancia.value = mancia > 0 ? String(mancia) : '';
-      modalResto.value = (excess - mancia) > 0 ? String(excess - mancia) : '';
+      modalMancia.value = mancia > 0 ? mancia.toFixed(2) : '';
+      modalResto.value = (excess - mancia) > 0 ? (excess - mancia).toFixed(2) : '';
     }
   },
 });
 
-// Resto changed → recalculate Mancia (only cash).
+// Resto changed → recalculate Mancia (only cash). Clamped to available excess.
 const modalRestoComputed = computed({
   get() { return modalResto.value; },
   set(v) {
-    modalResto.value = v;
     const excess = modalExcess.value;
     const resto = Math.min(Math.max(0, parseFloat(v) || 0), excess);
-    modalMancia.value = (excess - resto) > 0 ? String(excess - resto) : '';
+    modalResto.value = resto > 0 ? resto.toFixed(2) : '';
+    modalMancia.value = (excess - resto) > 0 ? (excess - resto).toFixed(2) : '';
   },
 });
 
-// Mancia changed → recalculate Resto (only cash).
+// Mancia changed → recalculate Resto (only cash). Clamped to available excess.
 const modalManciaComputed = computed({
   get() { return modalMancia.value; },
   set(v) {
-    modalMancia.value = v;
     const excess = modalExcess.value;
     const mancia = Math.min(Math.max(0, parseFloat(v) || 0), excess);
+    modalMancia.value = mancia > 0 ? mancia.toFixed(2) : '';
     if (modalIsCash.value) {
-      modalResto.value = (excess - mancia) > 0 ? String(excess - mancia) : '';
+      modalResto.value = (excess - mancia) > 0 ? (excess - mancia).toFixed(2) : '';
     }
   },
 });
