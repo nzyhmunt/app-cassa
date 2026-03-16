@@ -228,9 +228,9 @@
                 status-class="bg-teal-100 text-teal-800 border-teal-200"
                 :elapsed-label="elapsedLabel(order.time)"
                 :elapsed-color="elapsedColor(order.time)"
-                :action-label="getPendingSeconds(order.id) != null ? `Annulla (${getPendingSeconds(order.id)}s)` : 'Consegnata'"
-                :action-icon="getPendingSeconds(order.id) != null ? X : CheckCircle2"
-                :action-class="getPendingSeconds(order.id) != null ? 'bg-amber-500 text-white hover:bg-amber-600' : 'bg-gray-500 text-white hover:bg-gray-600'"
+                :action-label="consegnataState(order.id).label"
+                :action-icon="consegnataState(order.id).icon"
+                :action-class="consegnataState(order.id).cls"
                 @action="handleConsegnataClick(order)"
                 :show-secondary-action="true"
                 secondary-action-label="← Torna in cottura"
@@ -275,13 +275,11 @@
             </span>
             <button
               @click="handleConsegnataClick(order)"
-              :class="['px-2.5 py-1.5 text-white text-[10px] rounded-lg font-bold flex items-center gap-1.5 active:scale-95 transition-colors',
-                getPendingSeconds(order.id) != null ? 'bg-amber-500 hover:bg-amber-600' : 'bg-gray-500 hover:bg-gray-600']"
-              :title="getPendingSeconds(order.id) != null ? 'Annulla consegna' : 'Segna come consegnata (override)'"
+              :class="['px-2.5 py-1.5 text-white text-[10px] rounded-lg font-bold flex items-center gap-1.5 active:scale-95 transition-colors', consegnataState(order.id).cls]"
+              :title="consegnataState(order.id).title"
             >
-              <X v-if="getPendingSeconds(order.id) != null" class="size-3.5" />
-              <CheckCircle2 v-else class="size-3.5" />
-              <span class="hidden sm:inline">{{ getPendingSeconds(order.id) != null ? `Annulla (${getPendingSeconds(order.id)}s)` : 'Consegnata' }}</span>
+              <component :is="consegnataState(order.id).icon" class="size-3.5" />
+              <span class="hidden sm:inline">{{ consegnataState(order.id).label }}</span>
             </button>
           </div>
         </div>
@@ -488,16 +486,25 @@ function toggleItemReady(order, itemIdx) {
   store.$persist?.();
 }
 
-function forceDeliver(order) {
-  handleConsegnataClick(order);
-}
-
 // ── Pending-delivery timer: button-level 5s countdown ────────────────────────
 // Map of orderId → { remaining: Number, intervalId: Number }
+const DELIVERY_COUNTDOWN = 5;
 const pendingDeliveries = ref({});
 
 function getPendingSeconds(orderId) {
   return pendingDeliveries.value[orderId]?.remaining ?? null;
+}
+
+// Returns display state for the "Consegnata" button (label, icon, css class, title).
+function consegnataState(orderId) {
+  const secs = getPendingSeconds(orderId);
+  const pending = secs != null;
+  return {
+    label: pending ? `Annulla (${secs}s)` : 'Consegnata',
+    icon: pending ? X : CheckCircle2,
+    cls: pending ? 'bg-amber-500 text-white hover:bg-amber-600' : 'bg-gray-500 text-white hover:bg-gray-600',
+    title: pending ? 'Annulla consegna' : 'Segna come consegnata (override)',
+  };
 }
 
 function handleConsegnataClick(order) {
@@ -507,10 +514,9 @@ function handleConsegnataClick(order) {
     delete pendingDeliveries.value[order.id];
     return;
   }
-  // Start a 5-second countdown; delivery fires when it reaches 0
-  const DURATION = 5;
+  // Start a countdown; delivery fires when it reaches 0
   const orderId = order.id;
-  const entry = { remaining: DURATION, intervalId: null };
+  const entry = { remaining: DELIVERY_COUNTDOWN, intervalId: null };
   const intervalId = setInterval(() => {
     const e = pendingDeliveries.value[orderId];
     if (!e) { clearInterval(intervalId); return; }
@@ -651,11 +657,6 @@ function advancePreparingOrder(order) {
   // preparing → ready
   store.changeOrderStatus(order, 'ready');
   store.$persist?.();
-}
-
-function markDeliveredFromKanban(order) {
-  // ready → delivered (from "Pronte" column), with 5s button countdown
-  handleConsegnataClick(order);
 }
 
 // ── Back-state actions (undo buttons) ────────────────────────────────────────
