@@ -59,12 +59,10 @@ export const appConfig = {
   // autoAdd: aggiunge automaticamente il coperto all'apertura del tavolo
   // priceAdult: prezzo coperto per adulto
   // priceChild: prezzo coperto per bambino (0 = gratuito)
-  // showInKitchen: quando true (default), il coperto viene creato come ordine cucina standard
-  //   (visibile in App Cucina nella sezione "Da preparare") anziché come voce diretta.
-  //   Impostare a false per usare il vecchio comportamento (voce diretta, esclusa dalla coda cucina).
-  // Nota: quando enabled è true, le voci "Coperto adulto" e "Coperto bambino" vengono
-  //   inserite automaticamente come voci fisse (non rimovibili) nella tab "Personalizzata"
-  //   del modal Voce Diretta, per facilitarne l'aggiunta manuale.
+  // Nota: il coperto viene sempre creato come voce diretta (sezione Voce Diretta,
+  //   non passa per la coda cucina). Quando enabled è true, le voci "Coperto adulto"
+  //   e "Coperto bambino" vengono inserite automaticamente come voci fisse (non rimovibili)
+  //   nella tab "Personalizzata" del modal Voce Diretta, per facilitarne l'aggiunta manuale.
   coverCharge: {
     enabled: true,
     autoAdd: true,
@@ -72,7 +70,6 @@ export const appConfig = {
     priceChild: 1.00,
     dishId: 'coperto',
     name: 'Coperto',
-    showInKitchen: true,
   },
 
   // CONFIGURAZIONE GESTIONE ORDINI
@@ -126,28 +123,50 @@ export const appConfig = {
       { "id": "default_1", "name": "Menu non disponibile", "price": 0, "descrizione": "", "note": "", "ingredienti": [], "allergeni": [], "immagine_url": "" }
     ]
   },
-};
 
-export const initialOrders = [
-  {
-    id: "ord_rX91", table: "04", status: "pending", time: "19:30", totalAmount: 26.00, itemCount: 4,
-    dietaryPreferences: { diete: ["Vegetariano"] },
-    globalNote: '', noteVisibility: { cassa: true, sala: true, cucina: true },
-    orderItems: [
-      { uid: "r_1", dishId: "ant_2", name: "Bruschetta pomodoro", unitPrice: 3, quantity: 2, voidedQuantity: 0, notes: ["Senza aglio"] },
-      { uid: "r_3", dishId: "bev_4", name: "Vino Rosso Casa 1L", unitPrice: 10, quantity: 2, voidedQuantity: 0, notes: [] },
-    ],
-  },
-  {
-    id: "ord_mP02", table: "08", status: "accepted", time: "19:15", totalAmount: 33.00, itemCount: 2,
-    dietaryPreferences: {},
-    globalNote: '', noteVisibility: { cassa: true, sala: true, cucina: true },
-    orderItems: [
-      { uid: "r_5", dishId: "ant_8", name: "Tagliere x2", unitPrice: 20, quantity: 1, voidedQuantity: 0, notes: [] },
-      { uid: "r_6", dishId: "pri_3", name: "Carbonara", unitPrice: 13, quantity: 2, voidedQuantity: 1, notes: ["Ben cotta"] },
-    ],
-  },
-];
+  // DATI DEMO — ordini iniettati al primo avvio (o dopo reset) se lo store è vuoto.
+  // Impostare a [] per disabilitare la modalità demo in produzione.
+  // Ogni tavolo include: un ordine con le voci del menu (status pending/accepted)
+  //   e un ordine coperto corrispondente come voce diretta (isDirectEntry: true).
+  demoOrders: [
+    // ── Tavolo 04 ────────────────────────────────────────────────────────────
+    {
+      id: "ord_rX91", table: "04", status: "pending", time: "19:30", totalAmount: 26.00, itemCount: 4,
+      dietaryPreferences: { diete: ["Vegetariano"] },
+      globalNote: '', noteVisibility: { cassa: true, sala: true, cucina: true },
+      orderItems: [
+        { uid: "r_1", dishId: "ant_2", name: "Bruschetta pomodoro", unitPrice: 3, quantity: 2, voidedQuantity: 0, notes: ["Senza aglio"] },
+        { uid: "r_3", dishId: "bev_4", name: "Vino Rosso Casa 1L", unitPrice: 10, quantity: 2, voidedQuantity: 0, notes: [] },
+      ],
+    },
+    {
+      id: "ord_cop04", table: "04", status: "accepted", time: "19:30", totalAmount: 5.00, itemCount: 2,
+      dietaryPreferences: {}, globalNote: '', noteVisibility: { cassa: true, sala: true, cucina: true },
+      isDirectEntry: true, isCoverCharge: true,
+      orderItems: [
+        { uid: "cop_a_04", dishId: "coperto_adulto", name: "Coperto", unitPrice: 2.50, quantity: 2, voidedQuantity: 0, notes: [], modifiers: [] },
+      ],
+    },
+    // ── Tavolo 08 ────────────────────────────────────────────────────────────
+    {
+      id: "ord_mP02", table: "08", status: "accepted", time: "19:15", totalAmount: 33.00, itemCount: 2,
+      dietaryPreferences: {},
+      globalNote: '', noteVisibility: { cassa: true, sala: true, cucina: true },
+      orderItems: [
+        { uid: "r_5", dishId: "ant_8", name: "Tagliere x2", unitPrice: 20, quantity: 1, voidedQuantity: 0, notes: [] },
+        { uid: "r_6", dishId: "pri_3", name: "Carbonara", unitPrice: 13, quantity: 2, voidedQuantity: 1, notes: ["Ben cotta"] },
+      ],
+    },
+    {
+      id: "ord_cop08", table: "08", status: "accepted", time: "19:15", totalAmount: 5.00, itemCount: 2,
+      dietaryPreferences: {}, globalNote: '', noteVisibility: { cassa: true, sala: true, cucina: true },
+      isDirectEntry: true, isCoverCharge: true,
+      orderItems: [
+        { uid: "cop_a_08", dishId: "coperto_adulto", name: "Coperto", unitPrice: 2.50, quantity: 2, voidedQuantity: 0, notes: [], modifiers: [] },
+      ],
+    },
+  ],
+};
 
 /**
  * Returns a stable, unique string key for a closed bill.

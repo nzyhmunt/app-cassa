@@ -23,9 +23,15 @@ describe('appConfig', () => {
     });
   });
 
-  describe('coverCharge.showInKitchen', () => {
-    it('defaults to true so coperto appears in the kitchen section on a new installation', () => {
-      expect(appConfig.coverCharge.showInKitchen).toBe(true);
+  describe('demoOrders', () => {
+    it('is an array (can be emptied to disable demo mode)', () => {
+      expect(Array.isArray(appConfig.demoOrders)).toBe(true);
+    });
+
+    it('includes a coperto direct-entry order for each demo table', () => {
+      const coverOrders = appConfig.demoOrders.filter(o => o.isCoverCharge && o.isDirectEntry);
+      const demoTables = [...new Set(appConfig.demoOrders.map(o => o.table))];
+      expect(coverOrders.length).toBeGreaterThanOrEqual(demoTables.length);
     });
   });
 });
