@@ -6,7 +6,7 @@
     v-if="modelValue && order"
     class="fixed inset-0 z-[90] bg-black/60 backdrop-blur-sm flex items-end md:items-center justify-center p-0 md:p-4"
   >
-    <div class="bg-white rounded-t-3xl md:rounded-3xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col max-h-[92dvh] md:max-h-[85vh]">
+    <div class="bg-white rounded-t-3xl md:rounded-3xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col max-h-[92dvh] md:max-h-[85dvh]">
       <div class="bg-gray-50 border-b border-gray-100 p-4 flex justify-between items-center shrink-0">
         <h3 class="font-bold text-base md:text-lg flex items-center gap-2">
           <MessageSquareWarning class="text-gray-500 size-4 md:size-5" /> Nota Ordine

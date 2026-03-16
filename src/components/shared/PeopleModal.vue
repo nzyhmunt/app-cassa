@@ -7,7 +7,7 @@
   <!-- Emits: cancel, confirm, update:adults, update:children           -->
   <!-- ================================================================ -->
   <div v-if="show && table" class="fixed inset-0 z-[110] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 max-h-[92dvh] overflow-y-auto">
 
       <!-- Header -->
       <div class="flex justify-between items-center mb-5">
