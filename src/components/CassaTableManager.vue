@@ -544,7 +544,7 @@
             </div>
             <button
               @click="swapRestoMancia"
-              class="mb-0.5 size-10 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 border border-gray-300 text-gray-500 transition-colors active:scale-95 shrink-0"
+              class="mb-0.5 size-10 flex items-center justify-center rounded-xl bg-orange-50 hover:bg-orange-100 border border-orange-200 text-orange-500 shadow-sm transition-colors active:scale-95 shrink-0"
               title="Scambia Resto e Mancia"
             >
               <ArrowRightLeft class="size-4" />
@@ -1014,6 +1014,8 @@ function toggleBillRequested() {
 }
 
 // ── Checkout state ─────────────────────────────────────────────────────────
+// Tolerance used to treat a bill as fully settled (handles floating-point rounding in totals).
+const BILL_SETTLED_THRESHOLD = 0.01;
 const cassaViewMode = ref('voce'); // 'voce' = grouped menu view | 'ordine' = per-order view
 const checkoutMode = ref('unico');
 const splitWays = ref(2);
@@ -1150,41 +1152,42 @@ const modalExcess = computed(() => Math.max(0, modalRicevutoParsed.value - amoun
 const modalRicevutiComputed = computed({
   get() { return modalRicevuto.value; },
   set(v) {
-    modalRicevuto.value = v;
-    const excess = Math.max(0, (parseFloat(v) || 0) - amountBeingPaid.value);
+    const num = parseFloat(v) || 0;
+    modalRicevuto.value = num > 0 ? num.toFixed(2) : '';
+    const excess = Math.max(0, num - amountBeingPaid.value);
     if (!modalIsCash.value) {
       // Electronic: full excess goes to Mancia automatically.
-      modalMancia.value = excess > 0 ? String(excess) : '';
+      modalMancia.value = excess > 0 ? excess.toFixed(2) : '';
       modalResto.value = '';
     } else {
       // Cash: keep existing Mancia ratio, let Resto absorb the rest.
       const mancia = Math.min(excess, Math.max(0, parseFloat(modalMancia.value) || 0));
-      modalMancia.value = mancia > 0 ? String(mancia) : '';
-      modalResto.value = (excess - mancia) > 0 ? String(excess - mancia) : '';
+      modalMancia.value = mancia > 0 ? mancia.toFixed(2) : '';
+      modalResto.value = (excess - mancia) > 0 ? (excess - mancia).toFixed(2) : '';
     }
   },
 });
 
-// Resto changed → recalculate Mancia (only cash).
+// Resto changed → recalculate Mancia (only cash). Clamped to available excess.
 const modalRestoComputed = computed({
   get() { return modalResto.value; },
   set(v) {
-    modalResto.value = v;
     const excess = modalExcess.value;
     const resto = Math.min(Math.max(0, parseFloat(v) || 0), excess);
-    modalMancia.value = (excess - resto) > 0 ? String(excess - resto) : '';
+    modalResto.value = resto > 0 ? resto.toFixed(2) : '';
+    modalMancia.value = (excess - resto) > 0 ? (excess - resto).toFixed(2) : '';
   },
 });
 
-// Mancia changed → recalculate Resto (only cash).
+// Mancia changed → recalculate Resto (only cash). Clamped to available excess.
 const modalManciaComputed = computed({
   get() { return modalMancia.value; },
   set(v) {
-    modalMancia.value = v;
     const excess = modalExcess.value;
     const mancia = Math.min(Math.max(0, parseFloat(v) || 0), excess);
+    modalMancia.value = mancia > 0 ? mancia.toFixed(2) : '';
     if (modalIsCash.value) {
-      modalResto.value = (excess - mancia) > 0 ? String(excess - mancia) : '';
+      modalResto.value = (excess - mancia) > 0 ? (excess - mancia).toFixed(2) : '';
     }
   },
 });
@@ -1216,7 +1219,7 @@ const amountBeingPaid = computed(() => {
 });
 
 const canPay = computed(() => {
-  if (tableAmountRemaining.value <= 0.01) return false;
+  if (tableAmountRemaining.value <= BILL_SETTLED_THRESHOLD) return false;
   if (checkoutMode.value === 'ordini' && selectedOrdersToPay.value.length === 0) return false;
   return true;
 });
@@ -1537,9 +1540,7 @@ function confirmDirectItems() {
 // ── Manual bill close (shown when fully paid) ─────────────────────────────
 const canManuallyCloseBill = computed(() =>
   !!selectedTable.value &&
-  tableAmountRemaining.value <= 0.01 &&
-  tableAcceptedPayableOrders.value.length > 0,
-);
+  tableAmountRemaining.value <= BILL_SETTLED_THRESHOLD &&
 
 function closeTableBill() {
   if (!selectedTable.value) return;
@@ -1611,13 +1612,32 @@ function processTablePayment(paymentMethodId, extra = {}, overrideAmount = null)
     romanaSplitCount.value = 1;
   } else if (checkoutMode.value === 'ordini') {
     payload.orderRefs = [...selectedOrdersToPay.value];
-    tableAcceptedPayableOrders.value.forEach(o => {
-      if (selectedOrdersToPay.value.includes(o.id)) store.changeOrderStatus(o, 'completed');
-    });
-    selectedOrdersToPay.value = [];
+    // Orders are intentionally NOT marked completed here yet; they are handled below
+    // after the transaction is recorded so the auto-close check sees correct balances.
   }
 
   store.addTransaction(payload);
+
+  // Auto-close: when the bill is fully settled and the config flag is enabled,
+  // skip the per-transaction JSON and show the CONTO_CHIUSO receipt instead.
+  // In ordini mode, selected orders haven't been completed yet so closeTableBill
+  // can still read them and the active session before marking them done.
+  if (
+    store.config.billing?.autoCloseOnFullPayment &&
+    tableAmountRemaining.value <= BILL_SETTLED_THRESHOLD &&
+  ) {
+    if (checkoutMode.value === 'ordini') selectedOrdersToPay.value = [];
+    closeTableBill();
+    return;
+  }
+
+  // Normal (non-auto-close) path: mark only the selected orders as completed.
+  if (checkoutMode.value === 'ordini') {
+    tableAcceptedPayableOrders.value.forEach(o => {
+      if (payload.orderRefs.includes(o.id)) store.changeOrderStatus(o, 'completed');
+    });
+    selectedOrdersToPay.value = [];
+  }
 
   jsonContext.value = 'receipt';
   jsonPayloadData.value = JSON.stringify(payload, null, 2);
