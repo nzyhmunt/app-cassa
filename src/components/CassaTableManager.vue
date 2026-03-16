@@ -966,16 +966,20 @@ const splitPaidQuotas = ref(0);
 const romanaSplitCount = ref(1); // how many quotas to pay in this single transaction
 const selectedOrdersToPay = ref([]);
 
-// ── Active payment method (for cash-change calculator visibility) ──────────
-const activePaymentMethodId = ref(null);
-
-// ── Cash change calculator state ───────────────────────────────────────────
-const cashAmountGiven = ref('');
+// ── Payment confirmation state (step-2 confirmation panel) ────────────────
+// Set to the payment method ID when the cashier has clicked a method button
+// and is now in the "confirm payment" step. null = still selecting.
+const pendingPaymentMethodId = ref(null);
+// Gross amount entered by the cashier (what the customer hands over).
+// An empty string means "exact amount" (no change).
+const paymentAmountGiven = ref('');
 
 // ── Mixed payment state ────────────────────────────────────────────────────
 const mixedPaymentEnabled = ref(false);
 const mixedFirstMethodId = ref(null);
 const mixedFirstAmount = ref('');
+// true = show mixed-payment review summary before final commit
+const mixedConfirmPending = ref(false);
 
 // ── Tip (mancia) state ─────────────────────────────────────────────────────
 const tipInput = ref('');
@@ -1065,18 +1069,8 @@ const quotaRomana = computed(() => {
 });
 
 // ── Feature flags from config ──────────────────────────────────────────────
-const cashChangeEnabled = computed(() => store.config.billing?.enableCashChangeCalculator ?? false);
 const tipsEnabled = computed(() => store.config.billing?.enableTips ?? false);
 const discountsEnabled = computed(() => store.config.billing?.enableDiscounts ?? false);
-
-// Returns true when the currently active payment method is a cash-type method
-// (identified by having a non-credit-card icon, i.e. 'banknote' or unspecified).
-const isCashPaymentActive = computed(() => {
-  const id = activePaymentMethodId.value;
-  if (!id) return false;
-  const m = store.config.paymentMethods.find(x => x.id === id);
-  return m ? m.icon !== 'credit-card' : false;
-});
 
 // ── Mixed payment computed ─────────────────────────────────────────────────
 // The second method is whichever payment method is NOT selected as the first.
@@ -1090,7 +1084,7 @@ const mixedFirstAmountParsed = computed(() => Math.max(0, parseFloat(mixedFirstA
 // Residual amount for the second method = total - first method amount.
 const mixedSecondAmount = computed(() => amountBeingPaid.value - mixedFirstAmountParsed.value);
 
-// Mixed payment can be confirmed when both amounts are valid and together cover the total.
+// Mixed payment can be confirmed (step 1→review) when both amounts are valid and cover the total.
 const mixedCanConfirm = computed(() => {
   if (!mixedPaymentEnabled.value) return false;
   if (!mixedFirstMethodId.value || !mixedSecondMethod.value) return false;
@@ -1113,12 +1107,42 @@ const discountPreview = computed(() => {
   return Math.min(tableAmountRemaining.value, val);
 });
 
-// ── Cash change calculation ────────────────────────────────────────────────
-const cashChange = computed(() => {
-  const given = parseFloat(cashAmountGiven.value) || 0;
-  const toPay = amountBeingPaid.value + tipAmount.value;
-  if (given <= 0 || given < toPay) return null;
-  return given - toPay;
+// ── Payment confirmation computed ──────────────────────────────────────────
+// Parsed gross amount the customer hands over (0 = blank = exact amount).
+const paymentGross = computed(() => Math.max(0, parseFloat(paymentAmountGiven.value) || 0));
+
+// Change to return to the customer.
+// change = max(0, gross − due − tip)  where tip is optional extra.
+const paymentNetChange = computed(() => {
+  const gross = paymentGross.value;
+  if (gross <= 0) return 0; // blank = exact, no change
+  const tip = tipsEnabled.value ? tipAmount.value : 0;
+  return Math.max(0, gross - amountBeingPaid.value - tip);
+});
+
+// True when the entered gross amount is less than the minimum needed (due + tip).
+const paymentAmountInsufficient = computed(() => {
+  const gross = paymentGross.value;
+  if (gross <= 0) return false; // blank = exact, always ok
+  const tip = tipsEnabled.value ? tipAmount.value : 0;
+  return gross < amountBeingPaid.value + tip;
+});
+
+// Confirm button is enabled when: blank (exact) OR gross >= due + tip.
+const paymentEntryValid = computed(() => {
+  if (!pendingPaymentMethodId.value) return false;
+  return !paymentAmountInsufficient.value;
+});
+
+// The pending method object (for label, icon).
+const pendingPaymentMethod = computed(() =>
+  store.config.paymentMethods.find(m => m.id === pendingPaymentMethodId.value) ?? null,
+);
+
+// Is the pending method a cash (non-card) method?
+const isPendingMethodCash = computed(() => {
+  const m = pendingPaymentMethod.value;
+  return m ? m.icon !== 'credit-card' : false;
 });
 
 const amountBeingPaid = computed(() => {
@@ -1144,11 +1168,17 @@ watch(splitWays, (newVal) => {
   }
 });
 
-// Disable mixed payment when switching out of 'unico' mode.
+// Disable mixed payment and cancel pending when switching out of 'unico' mode.
 watch(checkoutMode, (newMode) => {
   if (newMode !== 'unico') {
     mixedPaymentEnabled.value = false;
     mixedFirstAmount.value = '';
+    mixedConfirmPending.value = false;
+  }
+  if (pendingPaymentMethodId.value) {
+    pendingPaymentMethodId.value = null;
+    paymentAmountGiven.value = '';
+    tipInput.value = '';
   }
 });
 
@@ -1230,15 +1260,13 @@ function _openTableModal(table) {
   cassaViewMode.value = 'voce';
   selectedOrdersToPay.value = [];
   romanaSplitCount.value = 1;
-  cashAmountGiven.value = '';
-  activePaymentMethodId.value =
-    store.config.paymentMethods.find(m => m.icon !== 'credit-card')?.id ??
-    store.config.paymentMethods[0]?.id ??
-    null;
+  pendingPaymentMethodId.value = null;
+  paymentAmountGiven.value = '';
   tipInput.value = '';
   discountInput.value = '';
   discountType.value = 'percent';
   mixedPaymentEnabled.value = false;
+  mixedConfirmPending.value = false;
   mixedFirstMethodId.value =
     store.config.paymentMethods.find(m => m.icon !== 'credit-card')?.id ??
     store.config.paymentMethods[0]?.id ??
@@ -1477,7 +1505,10 @@ function closeTableBill() {
 }
 
 // ── Payment processing ─────────────────────────────────────────────────────
-function processTablePayment(paymentMethodId) {
+// extra: { grossAmount?, changeAmount? } — set when the customer pays more than the bill.
+//   grossAmount = total handed over; changeAmount = returned to customer.
+//   amountPaid always = bill portion (grossAmount - changeAmount - tipAmount).
+function processTablePayment(paymentMethodId, extra = {}) {
   if (!selectedTable.value) return;
 
   const amount = amountBeingPaid.value;
@@ -1494,6 +1525,12 @@ function processTablePayment(paymentMethodId) {
     timestamp: new Date().toISOString(),
     orderRefs: [],
   };
+
+  // Record gross amount and change when customer overpays.
+  // grossAmount = total handed to cashier; changeAmount = cash returned.
+  // Invariant: amountPaid = grossAmount − changeAmount − tipAmount.
+  if (extra.grossAmount != null) payload.grossAmount = extra.grossAmount;
+  if (extra.changeAmount != null) payload.changeAmount = extra.changeAmount;
 
   if (checkoutMode.value === 'unico') {
     payload.orderRefs = tableAcceptedPayableOrders.value.map(o => o.id);
@@ -1515,8 +1552,6 @@ function processTablePayment(paymentMethodId) {
 
   store.addTransaction(payload);
 
-  // Reset cash change input after payment
-  cashAmountGiven.value = '';
   tipInput.value = '';
 
   // Close all accepted orders when fully paid, if autoCloseOnFullPayment is enabled
@@ -1527,6 +1562,38 @@ function processTablePayment(paymentMethodId) {
   jsonContext.value = 'receipt';
   jsonPayloadData.value = JSON.stringify(payload, null, 2);
   showPrecontoJson.value = true;
+}
+
+// ── Payment confirmation helpers ───────────────────────────────────────────
+// Step 1: cashier clicks a payment-method button → enters confirmation mode.
+function selectPaymentMethod(methodId) {
+  pendingPaymentMethodId.value = methodId;
+  paymentAmountGiven.value = '';
+  tipInput.value = '';
+}
+
+// Cancel confirmation and go back to the method-selection step.
+function cancelPendingPayment() {
+  pendingPaymentMethodId.value = null;
+  paymentAmountGiven.value = '';
+  tipInput.value = '';
+}
+
+// Step 2: cashier confirms the payment details.
+// Validates: paid − change − tip = due, then calls processTablePayment.
+function processPendingPayment() {
+  if (!pendingPaymentMethodId.value || !paymentEntryValid.value) return;
+  const methodId = pendingPaymentMethodId.value;
+  const gross = paymentGross.value;
+  const change = paymentNetChange.value;
+  const extra = {};
+  if (gross > 0) {
+    extra.grossAmount = gross;
+    if (change > 0) extra.changeAmount = change;
+  }
+  processTablePayment(methodId, extra);
+  pendingPaymentMethodId.value = null;
+  paymentAmountGiven.value = '';
 }
 
 // ── Mixed payment processing ───────────────────────────────────────────────
@@ -1570,9 +1637,9 @@ function processMixedPayment() {
   store.addTransaction(payload2);
 
   // Reset state after payment
-  cashAmountGiven.value = '';
   tipInput.value = '';
   mixedPaymentEnabled.value = false;
+  mixedConfirmPending.value = false;
   mixedFirstAmount.value = '';
 
   // Close all accepted orders when fully paid, if autoCloseOnFullPayment is enabled
