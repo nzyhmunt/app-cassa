@@ -102,7 +102,7 @@
       <div class="flex flex-1 min-h-0 flex-col lg:flex-row">
 
         <!-- PANNELLO SINISTRO: Riepilogo Comande e Storni dalla Cassa -->
-        <div class="w-full lg:w-[55%] border-b lg:border-b-0 lg:border-r border-gray-200 bg-gray-50 flex flex-col min-h-[45%] lg:min-h-0">
+        <div class="w-full lg:w-[55%] border-b lg:border-b-0 lg:border-r border-gray-200 bg-gray-50 flex flex-col h-[42%] shrink-0 overflow-hidden lg:h-auto lg:shrink lg:flex-1">
           <div class="p-3 md:p-4 bg-white border-b border-gray-200 shrink-0 flex items-center gap-2">
             <span class="font-bold text-gray-700 text-xs md:text-sm uppercase tracking-wider shrink-0">Riepilogo Voci</span>
             <!-- Vista switch (inline in header) -->
@@ -277,7 +277,7 @@
         </div>
 
         <!-- PANNELLO DESTRA: Area Checkout e Transazioni -->
-        <div class="w-full lg:w-[45%] bg-white flex flex-col relative z-20 shadow-[0_-10px_20px_rgba(0,0,0,0.05)] lg:shadow-none min-h-0">
+        <div class="w-full lg:w-[45%] bg-white flex flex-col relative z-20 shadow-[0_-10px_20px_rgba(0,0,0,0.05)] lg:shadow-none flex-1 min-h-0">
 
           <div class="p-4 md:p-6 flex-1 overflow-y-auto">
             <div class="flex justify-between items-center mb-2">
@@ -358,7 +358,11 @@
                   Applica
                 </button>
               </div>
-              <div v-if="discountPreview > 0" class="mt-2 text-xs text-amber-700 font-bold flex items-center justify-between">
+              <div v-if="discountInputExceedsMax" class="mt-1.5 text-[10px] text-red-600 font-bold flex items-center gap-1">
+                <AlertTriangle class="size-3 shrink-0" />
+                {{ discountType === 'percent' ? 'Il valore verrà limitato al 100%' : 'Lo sconto non può superare il totale rimanente' }}
+              </div>
+              <div v-else-if="discountPreview > 0" class="mt-2 text-xs text-amber-700 font-bold flex items-center justify-between">
                 <span>Sconto da applicare:</span>
                 <span>-{{ store.config.ui.currency }}{{ discountPreview.toFixed(2) }}</span>
               </div>
@@ -466,68 +470,100 @@
                 <span class="text-2xl font-black theme-text">{{ store.config.ui.currency }}{{ amountBeingPaid.toFixed(2) }}</span>
               </div>
 
-              <!-- Gross amount input -->
-              <div>
-                <label class="block text-[10px] font-bold text-gray-500 uppercase mb-1.5 flex items-center gap-1.5">
-                  <Coins class="size-3.5" /> Importo Consegnato <span class="font-normal normal-case opacity-70">(vuoto = esatto)</span>
-                </label>
-                <div class="flex items-center gap-2">
-                  <NumericInput
-                    v-model="paymentAmountGiven"
-                    min="0"
-                    step="0.50"
-                    placeholder="0.00"
-                    :prefix="store.config.ui.currency"
-                    class="flex-1 text-sm font-bold border border-gray-200 rounded-xl px-3 py-2.5 bg-white focus:outline-none focus:border-gray-400 text-gray-900"
-                  />
-                  <button v-if="paymentAmountGiven" @click="paymentAmountGiven = ''" class="text-gray-400 hover:text-gray-700 p-1.5 rounded-lg hover:bg-gray-100 transition-colors">
-                    <X class="size-4" />
-                  </button>
+              <!-- ═══ CONTANTI ═══ -->
+              <template v-if="isPendingMethodCash">
+                <!-- Ricevuto -->
+                <div>
+                  <label class="block text-[10px] font-bold text-gray-600 uppercase mb-1.5 flex items-center gap-1.5">
+                    <Banknote class="size-3.5" /> Ricevuto <span class="font-normal normal-case opacity-70">(vuoto = importo esatto)</span>
+                  </label>
+                  <div class="flex items-center gap-2">
+                    <NumericInput
+                      v-model="paymentAmountGiven"
+                      min="0"
+                      step="0.50"
+                      placeholder="0.00"
+                      :prefix="store.config.ui.currency"
+                      class="flex-1 text-sm font-bold border border-gray-300 rounded-xl px-3 py-2.5 bg-white focus:outline-none focus:border-gray-500 text-gray-900"
+                    />
+                    <button v-if="paymentAmountGiven" @click="paymentAmountGiven = ''" class="text-gray-400 hover:text-gray-700 p-1.5 rounded-lg hover:bg-gray-100 transition-colors">
+                      <X class="size-4" />
+                    </button>
+                  </div>
                 </div>
-              </div>
 
-              <!-- Tip input -->
-              <div v-if="tipsEnabled">
-                <label class="block text-[10px] font-bold text-purple-600 uppercase mb-1.5 flex items-center gap-1.5">
-                  <Wallet class="size-3.5" /> Mancia (opzionale)
-                </label>
-                <div class="flex items-center gap-2">
-                  <NumericInput
-                    v-model="tipInput"
-                    min="0"
-                    step="0.50"
-                    placeholder="0.00"
-                    :prefix="store.config.ui.currency"
-                    class="flex-1 text-sm font-bold border border-purple-200 rounded-xl px-3 py-2.5 bg-white focus:outline-none focus:border-purple-400 text-purple-900"
-                  />
-                  <button v-if="tipAmount > 0" @click="tipInput = ''" class="text-purple-400 hover:text-purple-700 p-1.5 rounded-lg hover:bg-purple-100 transition-colors">
-                    <X class="size-4" />
-                  </button>
+                <!-- Mancia (optional, reduces change) -->
+                <div v-if="tipsEnabled">
+                  <label class="block text-[10px] font-bold text-purple-600 uppercase mb-1.5 flex items-center gap-1.5">
+                    <Wallet class="size-3.5" /> Mancia (opzionale)
+                  </label>
+                  <div class="flex items-center gap-2">
+                    <NumericInput
+                      v-model="tipInput"
+                      min="0"
+                      step="0.50"
+                      placeholder="0.00"
+                      :prefix="store.config.ui.currency"
+                      class="flex-1 text-sm font-bold border border-purple-200 rounded-xl px-3 py-2.5 bg-white focus:outline-none focus:border-purple-400 text-purple-900"
+                    />
+                    <button v-if="tipAmount > 0" @click="tipInput = ''" class="text-purple-400 hover:text-purple-700 p-1.5 rounded-lg hover:bg-purple-100 transition-colors">
+                      <X class="size-4" />
+                    </button>
+                  </div>
                 </div>
-              </div>
 
-              <!-- Balance summary (when overpayment or tip entered) -->
-              <div v-if="paymentGross > 0" class="bg-gray-100 rounded-xl p-3 text-xs space-y-1">
-                <div class="flex justify-between text-gray-700">
-                  <span>Consegnato:</span>
-                  <span class="font-bold">{{ store.config.ui.currency }}{{ paymentGross.toFixed(2) }}</span>
+                <!-- Riepilogo contanti: Ricevuto / Mancia / Resto -->
+                <div v-if="paymentGross > 0 || tipAmount > 0" class="rounded-xl border p-3 text-sm space-y-1.5"
+                  :class="paymentAmountInsufficient ? 'bg-red-50 border-red-200' : 'bg-emerald-50 border-emerald-200'">
+                  <div class="flex justify-between text-gray-700">
+                    <span>Ricevuto:</span>
+                    <span class="font-bold">{{ store.config.ui.currency }}{{ (paymentGross > 0 ? paymentGross : amountBeingPaid).toFixed(2) }}</span>
+                  </div>
+                  <div class="flex justify-between text-gray-500">
+                    <span>– Da incassare:</span>
+                    <span class="font-bold">{{ store.config.ui.currency }}{{ amountBeingPaid.toFixed(2) }}</span>
+                  </div>
+                  <div v-if="tipAmount > 0" class="flex justify-between text-purple-600">
+                    <span>– Mancia:</span>
+                    <span class="font-bold">{{ store.config.ui.currency }}{{ tipAmount.toFixed(2) }}</span>
+                  </div>
+                  <div class="border-t pt-1.5 mt-0.5 flex justify-between font-bold"
+                    :class="paymentAmountInsufficient ? 'border-red-200 text-red-600' : 'border-emerald-200 text-emerald-700'">
+                    <span>= Resto da dare:</span>
+                    <span class="text-base">{{ paymentAmountInsufficient ? '–' : store.config.ui.currency + paymentNetChange.toFixed(2) }}</span>
+                  </div>
+                  <p v-if="paymentAmountInsufficient" class="text-red-600 font-bold text-center text-xs pt-0.5">
+                    Mancano {{ store.config.ui.currency }}{{ (amountBeingPaid + tipAmount - paymentGross).toFixed(2) }}
+                  </p>
                 </div>
-                <div class="flex justify-between text-gray-600">
-                  <span>− Da incassare:</span>
-                  <span class="font-bold">{{ store.config.ui.currency }}{{ amountBeingPaid.toFixed(2) }}</span>
+              </template>
+
+              <!-- ═══ PAGAMENTO ELETTRONICO ═══ -->
+              <template v-else>
+                <div class="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 text-xs text-blue-700 flex items-center gap-2">
+                  <CreditCard class="size-4 shrink-0" />
+                  <span>Pagamento elettronico: importo registrato esatto. L'eventuale eccesso sarà trattato come mancia.</span>
                 </div>
-                <div v-if="tipAmount > 0" class="flex justify-between text-purple-600">
-                  <span>− Mancia:</span>
-                  <span class="font-bold">{{ store.config.ui.currency }}{{ tipAmount.toFixed(2) }}</span>
+                <!-- Mancia (optional tip for non-cash) -->
+                <div v-if="tipsEnabled">
+                  <label class="block text-[10px] font-bold text-purple-600 uppercase mb-1.5 flex items-center gap-1.5">
+                    <Wallet class="size-3.5" /> Mancia (opzionale)
+                  </label>
+                  <div class="flex items-center gap-2">
+                    <NumericInput
+                      v-model="tipInput"
+                      min="0"
+                      step="0.50"
+                      placeholder="0.00"
+                      :prefix="store.config.ui.currency"
+                      class="flex-1 text-sm font-bold border border-purple-200 rounded-xl px-3 py-2.5 bg-white focus:outline-none focus:border-purple-400 text-purple-900"
+                    />
+                    <button v-if="tipAmount > 0" @click="tipInput = ''" class="text-purple-400 hover:text-purple-700 p-1.5 rounded-lg hover:bg-purple-100 transition-colors">
+                      <X class="size-4" />
+                    </button>
+                  </div>
                 </div>
-                <div class="border-t border-gray-300 pt-1 mt-1 flex justify-between" :class="paymentAmountInsufficient ? 'text-red-600' : 'text-emerald-700'">
-                  <span class="font-bold">= Resto da dare:</span>
-                  <span class="font-black text-base">{{ paymentAmountInsufficient ? '–' : store.config.ui.currency + paymentNetChange.toFixed(2) }}</span>
-                </div>
-                <p v-if="paymentAmountInsufficient" class="text-red-600 font-bold text-center pt-0.5">
-                  Mancano {{ store.config.ui.currency }}{{ (amountBeingPaid + tipAmount - paymentGross).toFixed(2) }}
-                </p>
-              </div>
+              </template>
 
               <!-- Confirm -->
               <button
@@ -536,7 +572,8 @@
                 class="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl disabled:opacity-40 disabled:bg-gray-300 disabled:text-gray-400 active:scale-95 transition-all flex items-center justify-center gap-2 text-sm md:text-base shadow-md"
               >
                 <CheckCircle class="size-5" />
-                Conferma Incasso<template v-if="paymentNetChange > 0"> · Resto {{ store.config.ui.currency }}{{ paymentNetChange.toFixed(2) }}</template>
+                <template v-if="isPendingMethodCash && paymentNetChange > 0">Conferma · Resto {{ store.config.ui.currency }}{{ paymentNetChange.toFixed(2) }}</template>
+                <template v-else>Conferma Incasso</template>
               </button>
 
               <!-- Back -->
@@ -999,7 +1036,7 @@ import {
   Grid3x3, Users, X, Plus, Coffee, Edit, AlertTriangle, CheckCircle,
   Ban, Undo2, Code, Minus, Receipt, ArrowRightLeft, Merge, Trash2,
   Layers, ListChecks, History, LayoutGrid, ListOrdered,
-  Tag, Wallet, Coins, Shuffle,
+  Tag, Wallet, Shuffle,
   Percent, Zap, BookOpen, PlusCircle, Banknote, CreditCard, Lock,
 } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
@@ -1220,18 +1257,29 @@ const discountPreview = computed(() => {
   if (!discountsEnabled.value) return 0;
   const val = parseFloat(discountInput.value) || 0;
   if (discountType.value === 'percent') {
-    return Math.min(tableAmountRemaining.value, (tableAmountRemaining.value * val) / 100);
+    const clampedPct = Math.min(100, Math.max(0, val));
+    return Math.min(tableAmountRemaining.value, (tableAmountRemaining.value * clampedPct) / 100);
   }
-  return Math.min(tableAmountRemaining.value, val);
+  return Math.min(tableAmountRemaining.value, Math.max(0, val));
+});
+
+// True when the user has entered an out-of-range discount value (to show warning).
+const discountInputExceedsMax = computed(() => {
+  const val = parseFloat(discountInput.value) || 0;
+  if (val <= 0) return false;
+  if (discountType.value === 'percent') return val > 100;
+  return val > tableAmountRemaining.value;
 });
 
 // ── Payment confirmation computed ──────────────────────────────────────────
 // Parsed gross amount the customer hands over (0 = blank = exact amount).
 const paymentGross = computed(() => Math.max(0, parseFloat(paymentAmountGiven.value) || 0));
 
-// Change to return to the customer.
+// Change to return to the customer (cash only).
 // change = max(0, gross − due − tip)  where tip is optional extra.
+// For non-cash payments, change is always 0 (excess is treated as tip instead).
 const paymentNetChange = computed(() => {
+  if (!isPendingMethodCash.value) return 0;
   const gross = paymentGross.value;
   if (gross <= 0) return 0; // blank = exact, no change
   const tip = tipsEnabled.value ? tipAmount.value : 0;
@@ -1239,16 +1287,19 @@ const paymentNetChange = computed(() => {
 });
 
 // True when the entered gross amount is less than the minimum needed (due + tip).
+// Only relevant for cash payments.
 const paymentAmountInsufficient = computed(() => {
+  if (!isPendingMethodCash.value) return false; // non-cash: always OK
   const gross = paymentGross.value;
   if (gross <= 0) return false; // blank = exact, always ok
   const tip = tipsEnabled.value ? tipAmount.value : 0;
   return gross < amountBeingPaid.value + tip;
 });
 
-// Confirm button is enabled when: blank (exact) OR gross >= due + tip.
+// Confirm button is enabled when: non-cash (always valid), or cash with blank/sufficient amount.
 const paymentEntryValid = computed(() => {
   if (!pendingPaymentMethodId.value) return false;
+  if (!isPendingMethodCash.value) return true; // non-cash: always valid
   return !paymentAmountInsufficient.value;
 });
 
@@ -1698,16 +1749,19 @@ function cancelPendingPayment() {
 }
 
 // Step 2: cashier confirms the payment details.
-// Validates: paid − change − tip = due, then calls processTablePayment.
+// For cash: validates gross >= due + tip, records grossAmount and changeAmount.
+// For non-cash: always valid, no grossAmount/changeAmount recorded.
 function processPendingPayment() {
   if (!pendingPaymentMethodId.value || !paymentEntryValid.value) return;
   const methodId = pendingPaymentMethodId.value;
-  const gross = paymentGross.value;
-  const change = paymentNetChange.value;
   const extra = {};
-  if (gross > 0) {
-    extra.grossAmount = gross;
-    if (change > 0) extra.changeAmount = change;
+  if (isPendingMethodCash.value) {
+    const gross = paymentGross.value;
+    const change = paymentNetChange.value;
+    if (gross > 0) {
+      extra.grossAmount = gross;
+      if (change > 0) extra.changeAmount = change;
+    }
   }
   processTablePayment(methodId, extra);
   pendingPaymentMethodId.value = null;
