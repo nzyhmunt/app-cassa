@@ -18,6 +18,8 @@ let _options = null;
 let _callback = null;
 /** @type {((index: number) => void) | null} */
 let _typeToggleCallback = null;
+/** When true, the next digit appended will overwrite the current display value. */
+let _freshOpen = false;
 
 /**
  * Composable for the custom numeric keyboard used in Cassa.
@@ -51,6 +53,7 @@ export function useNumericKeyboard() {
       typeToggle.value = null;
       _typeToggleCallback = null;
     }
+    _freshOpen = true;
     isVisible.value = true;
   }
 
@@ -63,6 +66,7 @@ export function useNumericKeyboard() {
     _callback = null;
     _options = null;
     _typeToggleCallback = null;
+    _freshOpen = false;
   }
 
   /** Confirm the current display value, invoke the callback, then close. */
@@ -78,6 +82,17 @@ export function useNumericKeyboard() {
    * @param {string} digit  A single character: '0'–'9' or '.'
    */
   function appendDigit(digit) {
+    // On first digit after opening, overwrite the pre-filled value
+    if (_freshOpen) {
+      _freshOpen = false;
+      if (digit === '.') {
+        if (_options?.allowDecimal === false) return;
+        displayValue.value = '0.';
+        return;
+      }
+      displayValue.value = digit;
+      return;
+    }
     if (digit === '.') {
       if (_options?.allowDecimal === false) return;
       if (displayValue.value.includes('.')) return;
@@ -92,6 +107,7 @@ export function useNumericKeyboard() {
 
   /** Remove the last character from the display. */
   function backspace() {
+    _freshOpen = false;
     if (displayValue.value.length > 0) {
       displayValue.value = displayValue.value.slice(0, -1);
     }
@@ -99,6 +115,7 @@ export function useNumericKeyboard() {
 
   /** Clear the display entirely. */
   function clear() {
+    _freshOpen = false;
     displayValue.value = '';
   }
 
