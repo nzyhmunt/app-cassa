@@ -460,13 +460,25 @@
             <div class="bg-white rounded-2xl border border-gray-200 overflow-hidden mb-3">
               <div
                 v-for="row in aggregatedTotals.filter(r => r.course === course)"
-                :key="`${row.course}::${row.name}`"
-                class="flex items-center gap-3 px-4 py-3 border-b last:border-b-0 border-gray-100 border-l-4"
+                :key="row.key"
+                class="flex items-start gap-3 px-4 py-3 border-b last:border-b-0 border-gray-100 border-l-4"
                 :class="getCourseBorderClass(row.course)"
               >
-                <p class="flex-1 text-sm font-bold text-gray-800 truncate">{{ row.name }}</p>
+                <div class="flex-1 min-w-0">
+                  <p class="text-sm font-bold text-gray-800 truncate">{{ row.name }}</p>
+                  <p v-if="row.notes.length" class="text-xs mt-0.5 font-semibold flex items-center gap-1 text-amber-600">
+                    <Pencil class="size-3 shrink-0" />{{ row.notes.join(' · ') }}
+                  </p>
+                  <div v-if="row.mods.length" class="flex flex-wrap gap-1 mt-0.5">
+                    <span
+                      v-for="(mod, mi) in row.mods"
+                      :key="mi"
+                      class="text-[10px] font-bold px-1.5 py-0.5 rounded inline-flex items-center gap-0.5 bg-purple-50 border border-purple-200 text-purple-700"
+                    >+ {{ mod.name }}</span>
+                  </div>
+                </div>
                 <span
-                  class="shrink-0 min-w-[2.5rem] text-center text-lg font-black tabular-nums leading-none"
+                  class="shrink-0 min-w-[2.5rem] text-center text-lg font-black tabular-nums leading-none pt-0.5"
                   :class="getCourseQtyClass(row.course)"
                 >{{ row.qty }}<span class="text-[10px] font-bold text-gray-400 ml-0.5">×</span></span>
               </div>
@@ -567,18 +579,23 @@ const aggregatedTotals = computed(() => {
     : [totalsStatusFilter.value];
   const orders = store.orders.filter(o => statuses.includes(o.status));
 
-  // Accumulate net quantities keyed by course + name
+  // Accumulate net quantities keyed by course + name + notes + modifiers
+  // so items with different notes/variations appear as separate rows
   const map = new Map();
   for (const order of orders) {
     for (const item of order.orderItems) {
       const netQty = item.quantity - (item.voidedQuantity || 0);
       if (netQty <= 0) continue;
       const course = item.course && COURSE_ORDER.includes(item.course) ? item.course : DEFAULT_COURSE;
-      const key = `${course}::${item.name}`;
+      const notes = item.notes || [];
+      const mods = (item.modifiers || []).filter(m => (m.quantity || 1) - (m.voidedQuantity || 0) > 0);
+      const notesSig = [...notes].sort().join('|');
+      const modsSig = [...mods].map(m => m.name).sort().join('|');
+      const key = `${course}::${item.name}::${notesSig}::${modsSig}`;
       if (map.has(key)) {
         map.get(key).qty += netQty;
       } else {
-        map.set(key, { name: item.name, course, qty: netQty });
+        map.set(key, { key, name: item.name, course, qty: netQty, notes, mods });
       }
     }
   }
