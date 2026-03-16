@@ -592,7 +592,7 @@
           <p class="text-sm text-gray-500 mt-1">Sei sicuro di voler rifiutare questa comanda?</p>
         </div>
         <div class="mb-4">
-          <p class="text-xs font-bold text-gray-600 uppercase tracking-widest mb-2">Causale rifiuto <span class="text-red-500">*</span></p>
+          <p class="text-xs font-bold text-gray-600 uppercase tracking-widest mb-2">Causale rifiuto <span class="text-gray-400 font-normal normal-case">(opzionale)</span></p>
           <div class="flex flex-col gap-2">
             <label v-for="reason in rejectReasons" :key="reason.value" class="flex items-center gap-2 cursor-pointer p-2.5 rounded-xl border transition-all" :class="rejectReason === reason.value ? 'border-red-400 bg-red-50' : 'border-gray-200 hover:bg-gray-50'">
               <input type="radio" :value="reason.value" v-model="rejectReason" class="accent-red-500" />
@@ -610,7 +610,7 @@
           </button>
           <button
             @click="confirmDeleteOrder"
-            :disabled="!rejectReason || (rejectReason === 'altro' && !rejectOtherText.trim())"
+            :disabled="rejectReason === 'altro' && !rejectOtherText.trim()"
             class="flex-[2] py-3 rounded-xl bg-red-600 text-white font-bold shadow-md hover:bg-red-700 active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Trash2 class="size-5" /> Rifiuta
@@ -998,11 +998,11 @@ const showRejectConfirm = ref(false);
 const orderToReject = ref(null);
 const rejectReason = ref('');
 const rejectOtherText = ref('');
-const rejectReasons = [
-  { value: 'duplicato', label: 'Ordine duplicato' },
+const rejectReasons = computed(() => store.config.orders?.rejectionReasons ?? [
+  { value: 'duplicato',        label: 'Ordine duplicato' },
   { value: 'errore_cameriere', label: 'Errore cameriere' },
-  { value: 'altro', label: 'Altro' },
-];
+  { value: 'altro',            label: 'Altro' },
+]);
 
 function deleteOrder() {
   if (!selectedOrder.value || selectedOrder.value.status !== 'pending') return;
@@ -1014,9 +1014,12 @@ function deleteOrder() {
 
 function confirmDeleteOrder() {
   if (!orderToReject.value) return;
-  const reason = rejectReason.value === 'altro'
-    ? rejectOtherText.value.trim()
-    : rejectReasons.find(r => r.value === rejectReason.value)?.label ?? rejectReason.value;
+  let reason = null;
+  if (rejectReason.value === 'altro') {
+    reason = rejectOtherText.value.trim() || null;
+  } else if (rejectReason.value) {
+    reason = rejectReasons.value.find(r => r.value === rejectReason.value)?.label ?? rejectReason.value;
+  }
   store.changeOrderStatus(orderToReject.value, 'rejected', reason);
   store.$persist?.();
   showRejectConfirm.value = false;
