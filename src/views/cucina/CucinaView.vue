@@ -228,10 +228,10 @@
                 status-class="bg-teal-100 text-teal-800 border-teal-200"
                 :elapsed-label="elapsedLabel(order.time)"
                 :elapsed-color="elapsedColor(order.time)"
-                action-label="Consegnata"
-                :action-icon="CheckCircle2"
-                action-class="bg-gray-500 text-white hover:bg-gray-600"
-                @action="markDeliveredFromKanban(order)"
+                :action-label="getPendingSeconds(order.id) != null ? `Annulla (${getPendingSeconds(order.id)}s)` : 'Consegnata'"
+                :action-icon="getPendingSeconds(order.id) != null ? X : CheckCircle2"
+                :action-class="getPendingSeconds(order.id) != null ? 'bg-amber-500 text-white hover:bg-amber-600' : 'bg-gray-500 text-white hover:bg-gray-600'"
+                @action="handleConsegnataClick(order)"
                 :show-secondary-action="true"
                 secondary-action-label="← Torna in cottura"
                 secondary-action-class="border-blue-200 text-blue-700 hover:bg-blue-50"
@@ -274,12 +274,14 @@
               {{ detailStatusLabel(order.status) }}
             </span>
             <button
-              @click="forceDeliver(order)"
-              class="px-2.5 py-1.5 bg-gray-500 hover:bg-gray-600 text-white text-[10px] rounded-lg font-bold flex items-center gap-1.5 active:scale-95 transition-colors"
-              title="Segna come consegnata (override)"
+              @click="handleConsegnataClick(order)"
+              :class="['px-2.5 py-1.5 text-white text-[10px] rounded-lg font-bold flex items-center gap-1.5 active:scale-95 transition-colors',
+                getPendingSeconds(order.id) != null ? 'bg-amber-500 hover:bg-amber-600' : 'bg-gray-500 hover:bg-gray-600']"
+              :title="getPendingSeconds(order.id) != null ? 'Annulla consegna' : 'Segna come consegnata (override)'"
             >
-              <CheckCircle2 class="size-3.5" />
-              <span class="hidden sm:inline">Consegnata</span>
+              <X v-if="getPendingSeconds(order.id) != null" class="size-3.5" />
+              <CheckCircle2 v-else class="size-3.5" />
+              <span class="hidden sm:inline">{{ getPendingSeconds(order.id) != null ? `Annulla (${getPendingSeconds(order.id)}s)` : 'Consegnata' }}</span>
             </button>
           </div>
         </div>
@@ -407,31 +409,6 @@
       <span class="font-mono">{{ currentTime }}</span>
     </footer>
 
-    <!-- ── Undo-toast: consegna annullabile ──────────────────────────────── -->
-    <TransitionGroup
-      name="toast"
-      tag="div"
-      class="fixed bottom-4 left-1/2 -translate-x-1/2 z-[110] flex flex-col gap-2 items-end w-full max-w-sm px-4 pointer-events-none"
-    >
-      <div
-        v-for="toast in undoDeliveryToasts"
-        :key="toast.id"
-        class="w-full bg-gray-900 text-white rounded-2xl shadow-2xl px-4 py-3 flex items-center gap-3 pointer-events-auto"
-      >
-        <CheckCircle2 class="size-5 text-green-400 shrink-0" />
-        <div class="flex-1 min-w-0">
-          <p class="text-sm font-bold leading-tight">Tavolo {{ toast.tableNum }} consegnato</p>
-          <p class="text-xs text-gray-400 mt-0.5">Annulla entro {{ toast.remaining }}s</p>
-        </div>
-        <button
-          @click="undoDelivery(toast.id)"
-          class="shrink-0 px-3 py-1.5 bg-white/20 hover:bg-white/30 active:scale-95 rounded-xl text-xs font-bold transition-all"
-        >
-          Annulla
-        </button>
-      </div>
-    </TransitionGroup>
-
     <!-- ── Confirmation modal: Rimanda in sala ───────────────────────────── -->
     <Transition name="fade">
       <div
@@ -512,60 +489,44 @@ function toggleItemReady(order, itemIdx) {
 }
 
 function forceDeliver(order) {
-  const previousStatus = order.status;
-  store.changeOrderStatus(order, 'delivered');
-  store.$persist?.();
-  showUndoToast(order, previousStatus);
+  handleConsegnataClick(order);
 }
 
-// ── Undo-toast: consegna annullabile ─────────────────────────────────────────
-const undoDeliveryToasts = ref([]);
-let undoTickTimer = null;
-let undoToastCounter = 0;
+// ── Pending-delivery timer: button-level 5s countdown ────────────────────────
+// Map of orderId → { remaining: Number, intervalId: Number }
+const pendingDeliveries = ref({});
 
-function ensureUndoTick() {
-  if (undoTickTimer) return;
-  undoTickTimer = setInterval(() => {
-    const now = Date.now();
-    undoDeliveryToasts.value = undoDeliveryToasts.value.filter(t => {
-      if (now >= t.expiresAt) return false;
-      t.remaining = Math.max(1, Math.ceil((t.expiresAt - now) / 1000));
-      return true;
-    });
-    if (undoDeliveryToasts.value.length === 0) {
-      clearInterval(undoTickTimer);
-      undoTickTimer = null;
+function getPendingSeconds(orderId) {
+  return pendingDeliveries.value[orderId]?.remaining ?? null;
+}
+
+function handleConsegnataClick(order) {
+  if (pendingDeliveries.value[order.id]) {
+    // Cancel the pending delivery
+    clearInterval(pendingDeliveries.value[order.id].intervalId);
+    delete pendingDeliveries.value[order.id];
+    return;
+  }
+  // Start a 5-second countdown; delivery fires when it reaches 0
+  const DURATION = 5;
+  const orderId = order.id;
+  const entry = { remaining: DURATION, intervalId: null };
+  const intervalId = setInterval(() => {
+    const e = pendingDeliveries.value[orderId];
+    if (!e) { clearInterval(intervalId); return; }
+    e.remaining -= 1;
+    if (e.remaining <= 0) {
+      clearInterval(intervalId);
+      delete pendingDeliveries.value[orderId];
+      const currentOrder = store.orders.find(o => o.id === orderId);
+      if (currentOrder) {
+        store.changeOrderStatus(currentOrder, 'delivered');
+        store.$persist?.();
+      }
     }
-  }, 500);
-}
-
-function showUndoToast(order, previousStatus) {
-  const id = ++undoToastCounter;
-  undoDeliveryToasts.value.push({
-    id,
-    orderId: order.id,
-    tableNum: order.table,
-    previousStatus,
-    remaining: 3,
-    expiresAt: Date.now() + 3000,
-  });
-  ensureUndoTick();
-}
-
-function undoDelivery(toastId) {
-  const idx = undoDeliveryToasts.value.findIndex(t => t.id === toastId);
-  if (idx === -1) return;
-  const toast = undoDeliveryToasts.value[idx];
-  const order = store.orders.find(o => o.id === toast.orderId);
-  if (order && order.status === 'delivered') {
-    store.changeOrderStatus(order, toast.previousStatus);
-    store.$persist?.();
-  }
-  undoDeliveryToasts.value.splice(idx, 1);
-  if (undoDeliveryToasts.value.length === 0 && undoTickTimer) {
-    clearInterval(undoTickTimer);
-    undoTickTimer = null;
-  }
+  }, 1000);
+  entry.intervalId = intervalId;
+  pendingDeliveries.value[orderId] = entry;
 }
 
 function detailStatusBadgeClass(status) {
@@ -622,7 +583,8 @@ onMounted(() => {
 onUnmounted(() => {
   clearInterval(clockTimer);
   clearInterval(refreshTimer);
-  if (undoTickTimer) clearInterval(undoTickTimer);
+  // Clear all pending delivery timers
+  Object.values(pendingDeliveries.value).forEach(e => clearInterval(e.intervalId));
 });
 
 // ── Computed order lists ────────────────────────────────────────────────────
@@ -692,11 +654,8 @@ function advancePreparingOrder(order) {
 }
 
 function markDeliveredFromKanban(order) {
-  // ready → delivered (from "Pronte" column), with undo-toast
-  const previousStatus = order.status;
-  store.changeOrderStatus(order, 'delivered');
-  store.$persist?.();
-  showUndoToast(order, previousStatus);
+  // ready → delivered (from "Pronte" column), with 5s button countdown
+  handleConsegnataClick(order);
 }
 
 // ── Back-state actions (undo buttons) ────────────────────────────────────────
@@ -780,13 +739,4 @@ function detailAvatarBgClass(status) {
   opacity: 0;
 }
 
-.toast-enter-active,
-.toast-leave-active {
-  transition: opacity 0.25s ease, transform 0.25s ease;
-}
-.toast-enter-from,
-.toast-leave-to {
-  opacity: 0;
-  transform: translateY(8px);
-}
 </style>
