@@ -1014,6 +1014,8 @@ function toggleBillRequested() {
 }
 
 // ── Checkout state ─────────────────────────────────────────────────────────
+// Tolerance used to treat a bill as fully settled (handles floating-point rounding in totals).
+const BILL_SETTLED_THRESHOLD = 0.01;
 const cassaViewMode = ref('voce'); // 'voce' = grouped menu view | 'ordine' = per-order view
 const checkoutMode = ref('unico');
 const splitWays = ref(2);
@@ -1217,7 +1219,7 @@ const amountBeingPaid = computed(() => {
 });
 
 const canPay = computed(() => {
-  if (tableAmountRemaining.value <= 0.01) return false;
+  if (tableAmountRemaining.value <= BILL_SETTLED_THRESHOLD) return false;
   if (checkoutMode.value === 'ordini' && selectedOrdersToPay.value.length === 0) return false;
   return true;
 });
@@ -1538,9 +1540,7 @@ function confirmDirectItems() {
 // ── Manual bill close (shown when fully paid) ─────────────────────────────
 const canManuallyCloseBill = computed(() =>
   !!selectedTable.value &&
-  tableAmountRemaining.value <= 0.01 &&
-  tableAcceptedPayableOrders.value.length > 0,
-);
+  tableAmountRemaining.value <= BILL_SETTLED_THRESHOLD &&
 
 function closeTableBill() {
   if (!selectedTable.value) return;
@@ -1612,13 +1612,32 @@ function processTablePayment(paymentMethodId, extra = {}, overrideAmount = null)
     romanaSplitCount.value = 1;
   } else if (checkoutMode.value === 'ordini') {
     payload.orderRefs = [...selectedOrdersToPay.value];
-    tableAcceptedPayableOrders.value.forEach(o => {
-      if (selectedOrdersToPay.value.includes(o.id)) store.changeOrderStatus(o, 'completed');
-    });
-    selectedOrdersToPay.value = [];
+    // Orders are intentionally NOT marked completed here yet; they are handled below
+    // after the transaction is recorded so the auto-close check sees correct balances.
   }
 
   store.addTransaction(payload);
+
+  // Auto-close: when the bill is fully settled and the config flag is enabled,
+  // skip the per-transaction JSON and show the CONTO_CHIUSO receipt instead.
+  // In ordini mode, selected orders haven't been completed yet so closeTableBill
+  // can still read them and the active session before marking them done.
+  if (
+    store.config.billing?.autoCloseOnFullPayment &&
+    tableAmountRemaining.value <= BILL_SETTLED_THRESHOLD &&
+  ) {
+    if (checkoutMode.value === 'ordini') selectedOrdersToPay.value = [];
+    closeTableBill();
+    return;
+  }
+
+  // Normal (non-auto-close) path: mark only the selected orders as completed.
+  if (checkoutMode.value === 'ordini') {
+    tableAcceptedPayableOrders.value.forEach(o => {
+      if (payload.orderRefs.includes(o.id)) store.changeOrderStatus(o, 'completed');
+    });
+    selectedOrdersToPay.value = [];
+  }
 
   jsonContext.value = 'receipt';
   jsonPayloadData.value = JSON.stringify(payload, null, 2);
