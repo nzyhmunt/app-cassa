@@ -1135,13 +1135,20 @@ const modalIsPartial = computed(() =>
 // Excess above the amount due (ricevuto - due), used for Resto/Mancia distribution.
 const modalExcess = computed(() => Math.max(0, modalRicevutoParsed.value - amountBeingPaid.value));
 
+// Coerce any model value to a plain string for safe parsing (handles null/undefined/'').
+const toRawString = (v) => (v == null || v === '') ? '' : String(v);
+
 // Computed v-model setters: changing one field updates the others.
 // Ricevuto changed → keep Mancia, recalculate Resto.
 const modalRicevutiComputed = computed({
   get() { return modalRicevuto.value; },
   set(v) {
-    const num = parseFloat(v) || 0;
-    modalRicevuto.value = num > 0 ? num.toFixed(2) : '';
+    // Store the raw string without formatting so the cursor position is not
+    // disrupted while the user is typing. Downstream computed values
+    // (modalRicevutoParsed etc.) use parseFloat() and handle raw strings fine.
+    const raw = toRawString(v);
+    modalRicevuto.value = raw;
+    const num = parseFloat(raw) || 0;
     const excess = Math.max(0, num - amountBeingPaid.value);
     if (!modalIsCash.value) {
       // Electronic: full excess goes to Mancia automatically.
@@ -1161,8 +1168,14 @@ const modalRestoComputed = computed({
   get() { return modalResto.value; },
   set(v) {
     const excess = modalExcess.value;
-    const resto = Math.min(Math.max(0, parseFloat(v) || 0), excess);
-    modalResto.value = resto > 0 ? resto.toFixed(2) : '';
+    const raw = toRawString(v);
+    const parsed = Math.max(0, parseFloat(raw) || 0);
+    const resto = Math.min(parsed, excess);
+    // If the value was clamped to a different number, format it to show the correction clearly.
+    // Otherwise keep the raw string so cursor position is not disrupted while typing.
+    modalResto.value = resto > 0
+      ? (resto < parsed ? resto.toFixed(2) : raw)
+      : '';
     modalMancia.value = (excess - resto) > 0 ? (excess - resto).toFixed(2) : '';
   },
 });
@@ -1172,8 +1185,14 @@ const modalManciaComputed = computed({
   get() { return modalMancia.value; },
   set(v) {
     const excess = modalExcess.value;
-    const mancia = Math.min(Math.max(0, parseFloat(v) || 0), excess);
-    modalMancia.value = mancia > 0 ? mancia.toFixed(2) : '';
+    const raw = toRawString(v);
+    const parsed = Math.max(0, parseFloat(raw) || 0);
+    const mancia = Math.min(parsed, excess);
+    // If the value was clamped to a different number, format it to show the correction clearly.
+    // Otherwise keep the raw string so cursor position is not disrupted while typing.
+    modalMancia.value = mancia > 0
+      ? (mancia < parsed ? mancia.toFixed(2) : raw)
+      : '';
     if (modalIsCash.value) {
       modalResto.value = (excess - mancia) > 0 ? (excess - mancia).toFixed(2) : '';
     }
