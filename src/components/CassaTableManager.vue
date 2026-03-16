@@ -577,19 +577,6 @@
             />
           </div>
 
-          <!-- Electronic + tips: Mancia full width (auto-filled) -->
-          <div v-else-if="tipsEnabled">
-            <label class="block text-[10px] font-bold text-purple-600 uppercase mb-1.5 flex items-center gap-1.5">
-              <Wallet class="size-3.5" /> Mancia (opzionale)
-            </label>
-            <NumericInput
-              v-model="modalManciaComputed"
-              min="0"
-              step="0.50"
-              :prefix="store.config.ui.currency"
-              class="w-full text-lg font-black border-2 border-purple-200 rounded-xl px-4 py-3 bg-white focus:outline-none focus:border-purple-400 text-purple-900"
-            />
-          </div>
         </template>
 
         <!-- Riepilogo dinamico -->
@@ -639,6 +626,7 @@
         >
           <CheckCircle class="size-5" />
           <template v-if="modalIsCash && modalRestoParsed > 0">Conferma · Resto {{ store.config.ui.currency }}{{ modalRestoParsed.toFixed(2) }}</template>
+          <template v-else-if="!modalIsCash && !modalIsPartial && tipsEnabled && modalManciaParsed > 0">Conferma · Mancia {{ store.config.ui.currency }}{{ modalManciaParsed.toFixed(2) }}</template>
           <template v-else-if="modalIsPartial">Incassa {{ store.config.ui.currency }}{{ modalRicevutoParsed.toFixed(2) }}</template>
           <template v-else>Conferma Incasso</template>
         </button>
