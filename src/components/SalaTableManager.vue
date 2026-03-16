@@ -207,6 +207,7 @@ import {
   Grid3x3, Users, Timer, X, Coffee, ChevronRight, Plus, ArrowRightLeft, Merge, Zap,
 } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
+import { updateOrderTotals } from '../utils/index.js';
 // Shared component — used by both Sala and Cassa apps.
 import PeopleModal from './shared/PeopleModal.vue';
 import TableStatsBar from './shared/TableStatsBar.vue';
@@ -341,8 +342,28 @@ function confirmPeopleAndOpenTable() {
       });
     }
     if (coverItems.length > 0) {
-      const coverOrder = store.addDirectOrder(table.id, billSessionId, coverItems);
-      if (coverOrder) coverOrder.isCoverCharge = true;
+      if (cc.showInKitchen === false) {
+        // Legacy mode: direct entry (bypasses kitchen-order label)
+        const coverOrder = store.addDirectOrder(table.id, billSessionId, coverItems);
+        if (coverOrder) coverOrder.isCoverCharge = true;
+      } else {
+        // Default: create as a regular kitchen order so it appears in App Cucina
+        const coverOrder = {
+          id: 'ord_' + Math.random().toString(36).slice(2, 11),
+          table: table.id,
+          billSessionId: billSessionId ?? null,
+          status: 'pending',
+          time: new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }),
+          totalAmount: 0,
+          itemCount: 0,
+          dietaryPreferences: {},
+          orderItems: coverItems.map(item => ({ ...item })),
+          isCoverCharge: true,
+        };
+        updateOrderTotals(coverOrder);
+        store.addOrder(coverOrder);
+        store.changeOrderStatus(coverOrder, 'accepted');
+      }
     }
   }
 

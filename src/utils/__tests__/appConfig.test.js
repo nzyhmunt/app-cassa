@@ -22,4 +22,10 @@ describe('appConfig', () => {
       expect(appConfig.pwaLogo.startsWith('https://')).toBe(true);
     });
   });
+
+  describe('coverCharge.showInKitchen', () => {
+    it('defaults to true so coperto appears in the kitchen section on a new installation', () => {
+      expect(appConfig.coverCharge.showInKitchen).toBe(true);
+    });
+  });
 });

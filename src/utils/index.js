@@ -59,6 +59,9 @@ export const appConfig = {
   // autoAdd: aggiunge automaticamente il coperto all'apertura del tavolo
   // priceAdult: prezzo coperto per adulto
   // priceChild: prezzo coperto per bambino (0 = gratuito)
+  // showInKitchen: quando true (default), il coperto viene creato come ordine cucina standard
+  //   (visibile in App Cucina nella sezione "Da preparare") anziché come voce diretta.
+  //   Impostare a false per usare il vecchio comportamento (voce diretta, esclusa dalla coda cucina).
   // Nota: quando enabled è true, le voci "Coperto adulto" e "Coperto bambino" vengono
   //   inserite automaticamente come voci fisse (non rimovibili) nella tab "Personalizzata"
   //   del modal Voce Diretta, per facilitarne l'aggiunta manuale.
@@ -69,6 +72,7 @@ export const appConfig = {
     priceChild: 1.00,
     dishId: 'coperto',
     name: 'Coperto',
+    showInKitchen: true,
   },
 
   // CONFIGURAZIONE GESTIONE ORDINI
