@@ -1620,10 +1620,16 @@ function processTablePayment(paymentMethodId, extra = {}, overrideAmount = null)
   }
 
   // Normal (non-auto-close) path: mark only the selected orders as completed.
+  // In ordini mode, only complete the selected orders when the payment fully
+  // covers the amount due for those orders (i.e., it is not a partial payment).
+  // Partial payments record the amount but leave the orders open so the
+  // remaining balance can still be collected.
   if (checkoutMode.value === 'ordini') {
-    tableAcceptedPayableOrders.value.forEach(o => {
-      if (payload.orderRefs.includes(o.id)) store.changeOrderStatus(o, 'completed');
-    });
+    if (amount + BILL_SETTLED_THRESHOLD >= amountBeingPaid.value) {
+      tableAcceptedPayableOrders.value.forEach(o => {
+        if (payload.orderRefs.includes(o.id)) store.changeOrderStatus(o, 'completed');
+      });
+    }
     selectedOrdersToPay.value = [];
   }
 
@@ -1735,7 +1741,7 @@ function generateTableCheckoutJson(ctx = 'table') {
 function closeJsonModal() {
   showPrecontoJson.value = false;
   jsonPayloadData.value = '{}';
-  if (selectedTable.value && tableAcceptedPayableOrders.value.length === 0 && !hasPendingOrdersInTable.value) {
+  if (selectedTable.value && tableAcceptedPayableOrders.value.length === 0 && !hasPendingOrdersInTable.value && tableAmountRemaining.value <= BILL_SETTLED_THRESHOLD) {
     closeTableModal();
   }
 }
