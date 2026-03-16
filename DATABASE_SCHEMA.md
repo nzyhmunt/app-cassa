@@ -63,6 +63,8 @@ CREATE TABLE venues (
     billing_enable_tips                   BOOLEAN NOT NULL DEFAULT TRUE,
     billing_enable_discounts              BOOLEAN NOT NULL DEFAULT TRUE,
     billing_allow_custom_entry            BOOLEAN NOT NULL DEFAULT TRUE,  -- abilita voci libere nel modal Voce Diretta
+    -- orders configuration
+    orders_rejection_reasons  JSONB    NULL,           -- appConfig.orders.rejectionReasons — array [{value,label}]; NULL = usa i predefiniti dell'applicazione
     created_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
     updated_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW()
 );
@@ -207,6 +209,7 @@ CREATE TABLE orders (
     note_visibility_sala    BOOLEAN         NOT NULL DEFAULT TRUE,  -- order.noteVisibility.sala
     note_visibility_cucina  BOOLEAN         NOT NULL DEFAULT TRUE,  -- order.noteVisibility.cucina
     is_direct_entry         BOOLEAN         NOT NULL DEFAULT FALSE,  -- TRUE = voce diretta (bypassa workflow cucina, status subito 'accepted'); vale anche per is_cover_charge = TRUE
+    rejection_reason        TEXT            NULL,           -- causale rifiuto compilata dal cassiere/sala (opzionale); valorizzata solo quando status = 'rejected'
     created_at              TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
     updated_at              TIMESTAMPTZ     NOT NULL DEFAULT NOW()
 );
@@ -543,6 +546,7 @@ Cardinalità:
 | `order.globalNote`                    | `orders.global_note`                   |
 | `order.noteVisibility.{cassa,sala,cucina}` | `orders.note_visibility_{cassa,sala,cucina}` |
 | `order.isDirectEntry`                 | `orders.is_direct_entry`               |
+| `order.rejectionReason`               | `orders.rejection_reason`              |
 | `transactions[]`                      | `transactions` + `transaction_order_refs` |
 | `tableOccupiedAt`                     | `bill_sessions.opened_at`              |
 | `billRequestedTables` (Set)           | query: `orders.status = 'pending'` con `bill_session_id` attivo |
@@ -558,6 +562,7 @@ Cardinalità:
 | `appConfig.coverCharge.*`             | `venues.cover_charge_*`                |
 | `appConfig.billing.*`                 | `venues.billing_*`                     |
 | `appConfig.billing.allowCustomEntry`  | `venues.billing_allow_custom_entry`    |
+| `appConfig.orders.rejectionReasons`   | `venues.orders_rejection_reasons` (JSONB) |
 
 ### 5.2 Snapshot dei nomi nel DB
 

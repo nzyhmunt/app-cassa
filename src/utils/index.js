@@ -71,6 +71,20 @@ export const appConfig = {
     name: 'Coperto',
   },
 
+  // CONFIGURAZIONE GESTIONE ORDINI
+  // rejectionReasons: elenco delle voci predefinite mostrate nel dialog di conferma rifiuto.
+  //   Ogni voce ha { value: string, label: string }.
+  //   La voce speciale con value 'altro' mostra un campo di testo libero.
+  //   L'elenco è sovrascrivibile per personalizzare le causali del locale.
+  //   La motivazione è opzionale: il dialog può essere confermato senza selezionarne una.
+  orders: {
+    rejectionReasons: [
+      { value: 'duplicato',         label: 'Ordine duplicato' },
+      { value: 'errore_cameriere',  label: 'Errore cameriere' },
+      { value: 'altro',             label: 'Altro' },
+    ],
+  },
+
   // CONFIGURAZIONE COMPORTAMENTO CONTO
   // autoCloseOnFullPayment: quando true, il conto si chiude automaticamente al saldo completo
   // enableCashChangeCalculator: mostra il calcolatore del resto per i pagamenti in contanti
