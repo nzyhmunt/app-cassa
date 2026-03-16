@@ -102,7 +102,7 @@
       <div class="flex flex-1 min-h-0 flex-col lg:flex-row">
 
         <!-- PANNELLO SINISTRO: Riepilogo Comande e Storni dalla Cassa -->
-        <div class="w-full lg:w-[55%] border-b lg:border-b-0 lg:border-r border-gray-200 bg-gray-50 flex flex-col min-h-[45%] lg:min-h-0">
+        <div class="w-full lg:w-[55%] border-b lg:border-b-0 lg:border-r border-gray-200 bg-gray-50 flex flex-col h-[42%] shrink-0 overflow-hidden lg:h-auto lg:shrink lg:flex-1">
           <div class="p-3 md:p-4 bg-white border-b border-gray-200 shrink-0 flex items-center gap-2">
             <span class="font-bold text-gray-700 text-xs md:text-sm uppercase tracking-wider shrink-0">Riepilogo Voci</span>
             <!-- Vista switch (inline in header) -->
@@ -277,7 +277,7 @@
         </div>
 
         <!-- PANNELLO DESTRA: Area Checkout e Transazioni -->
-        <div class="w-full lg:w-[45%] bg-white flex flex-col relative z-20 shadow-[0_-10px_20px_rgba(0,0,0,0.05)] lg:shadow-none min-h-0">
+        <div class="w-full lg:w-[45%] bg-white flex flex-col relative z-20 shadow-[0_-10px_20px_rgba(0,0,0,0.05)] lg:shadow-none flex-1 min-h-0">
 
           <div class="p-4 md:p-6 flex-1 overflow-y-auto">
             <div class="flex justify-between items-center mb-2">
@@ -358,7 +358,11 @@
                   Applica
                 </button>
               </div>
-              <div v-if="discountPreview > 0" class="mt-2 text-xs text-amber-700 font-bold flex items-center justify-between">
+              <div v-if="discountInputExceedsMax" class="mt-1.5 text-[10px] text-red-600 font-bold flex items-center gap-1">
+                <AlertTriangle class="size-3 shrink-0" />
+                {{ discountType === 'percent' ? 'Il valore verrà limitato al 100%' : 'Lo sconto non può superare il totale rimanente' }}
+              </div>
+              <div v-else-if="discountPreview > 0" class="mt-2 text-xs text-amber-700 font-bold flex items-center justify-between">
                 <span>Sconto da applicare:</span>
                 <span>-{{ store.config.ui.currency }}{{ discountPreview.toFixed(2) }}</span>
               </div>
@@ -442,277 +446,206 @@
               <AlertTriangle class="size-5 shrink-0" /> <span>Tavolo con comande in Attesa. Se incassi ora, il tavolo <b>resterà aperto</b> per quelle voci.</span>
             </div>
 
-            <div v-if="checkoutMode !== 'unico' && tableAmountRemaining > 0 && !pendingPaymentMethodId" class="flex justify-between items-center px-1">
+            <div v-if="checkoutMode !== 'unico' && tableAmountRemaining > 0" class="flex justify-between items-center px-1">
               <span class="text-xs font-bold text-gray-500 uppercase tracking-wider">Acconto Corrente:</span>
               <span class="text-xl font-black theme-text">{{ store.config.ui.currency }}{{ amountBeingPaid.toFixed(2) }}</span>
             </div>
 
-            <!-- ─── STATE B: Conferma Pagamento ──────────────────────────────── -->
-            <div v-if="pendingPaymentMethodId && canPay" class="space-y-3">
-              <!-- Method badge + back -->
-              <div class="flex items-center justify-between">
-                <div class="flex items-center gap-2 font-bold text-gray-800 text-sm">
-                  <component :is="getPaymentIcon(pendingPaymentMethodId)" class="size-5 shrink-0" />
-                  {{ pendingPaymentMethod?.label }}
-                </div>
-                <button @click="cancelPendingPayment" class="text-gray-400 hover:text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-full p-1.5 transition-colors" title="Cambia metodo">
-                  <X class="size-4" />
-                </button>
-              </div>
-
-              <!-- Amount due -->
-              <div class="bg-white rounded-xl border border-gray-200 px-4 py-3 flex justify-between items-center">
-                <span class="text-xs font-bold text-gray-500 uppercase tracking-wider">Da Incassare:</span>
-                <span class="text-2xl font-black theme-text">{{ store.config.ui.currency }}{{ amountBeingPaid.toFixed(2) }}</span>
-              </div>
-
-              <!-- Gross amount input -->
-              <div>
-                <label class="block text-[10px] font-bold text-gray-500 uppercase mb-1.5 flex items-center gap-1.5">
-                  <Coins class="size-3.5" /> Importo Consegnato <span class="font-normal normal-case opacity-70">(vuoto = esatto)</span>
-                </label>
-                <div class="flex items-center gap-2">
-                  <NumericInput
-                    v-model="paymentAmountGiven"
-                    min="0"
-                    step="0.50"
-                    placeholder="0.00"
-                    :prefix="store.config.ui.currency"
-                    class="flex-1 text-sm font-bold border border-gray-200 rounded-xl px-3 py-2.5 bg-white focus:outline-none focus:border-gray-400 text-gray-900"
-                  />
-                  <button v-if="paymentAmountGiven" @click="paymentAmountGiven = ''" class="text-gray-400 hover:text-gray-700 p-1.5 rounded-lg hover:bg-gray-100 transition-colors">
-                    <X class="size-4" />
-                  </button>
-                </div>
-              </div>
-
-              <!-- Tip input -->
-              <div v-if="tipsEnabled">
-                <label class="block text-[10px] font-bold text-purple-600 uppercase mb-1.5 flex items-center gap-1.5">
-                  <Wallet class="size-3.5" /> Mancia (opzionale)
-                </label>
-                <div class="flex items-center gap-2">
-                  <NumericInput
-                    v-model="tipInput"
-                    min="0"
-                    step="0.50"
-                    placeholder="0.00"
-                    :prefix="store.config.ui.currency"
-                    class="flex-1 text-sm font-bold border border-purple-200 rounded-xl px-3 py-2.5 bg-white focus:outline-none focus:border-purple-400 text-purple-900"
-                  />
-                  <button v-if="tipAmount > 0" @click="tipInput = ''" class="text-purple-400 hover:text-purple-700 p-1.5 rounded-lg hover:bg-purple-100 transition-colors">
-                    <X class="size-4" />
-                  </button>
-                </div>
-              </div>
-
-              <!-- Balance summary (when overpayment or tip entered) -->
-              <div v-if="paymentGross > 0" class="bg-gray-100 rounded-xl p-3 text-xs space-y-1">
-                <div class="flex justify-between text-gray-700">
-                  <span>Consegnato:</span>
-                  <span class="font-bold">{{ store.config.ui.currency }}{{ paymentGross.toFixed(2) }}</span>
-                </div>
-                <div class="flex justify-between text-gray-600">
-                  <span>− Da incassare:</span>
-                  <span class="font-bold">{{ store.config.ui.currency }}{{ amountBeingPaid.toFixed(2) }}</span>
-                </div>
-                <div v-if="tipAmount > 0" class="flex justify-between text-purple-600">
-                  <span>− Mancia:</span>
-                  <span class="font-bold">{{ store.config.ui.currency }}{{ tipAmount.toFixed(2) }}</span>
-                </div>
-                <div class="border-t border-gray-300 pt-1 mt-1 flex justify-between" :class="paymentAmountInsufficient ? 'text-red-600' : 'text-emerald-700'">
-                  <span class="font-bold">= Resto da dare:</span>
-                  <span class="font-black text-base">{{ paymentAmountInsufficient ? '–' : store.config.ui.currency + paymentNetChange.toFixed(2) }}</span>
-                </div>
-                <p v-if="paymentAmountInsufficient" class="text-red-600 font-bold text-center pt-0.5">
-                  Mancano {{ store.config.ui.currency }}{{ (amountBeingPaid + tipAmount - paymentGross).toFixed(2) }}
-                </p>
-              </div>
-
-              <!-- Confirm -->
+            <!-- Metodi di pagamento -->
+            <div class="grid grid-cols-2 gap-3">
               <button
-                @click="processPendingPayment"
-                :disabled="!paymentEntryValid"
-                class="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl disabled:opacity-40 disabled:bg-gray-300 disabled:text-gray-400 active:scale-95 transition-all flex items-center justify-center gap-2 text-sm md:text-base shadow-md"
+                v-for="method in store.config.paymentMethods"
+                :key="method.id"
+                @click="openPaymentModal(method.id)"
+                :disabled="!canPay"
+                :class="method.colorClass"
+                class="py-3.5 border-2 rounded-xl md:rounded-2xl font-bold flex items-center justify-center gap-2 transition-all disabled:opacity-50 disabled:bg-gray-100 disabled:border-gray-300 disabled:text-gray-400 active:scale-95 text-sm md:text-base"
               >
-                <CheckCircle class="size-5" />
-                Conferma Incasso<template v-if="paymentNetChange > 0"> · Resto {{ store.config.ui.currency }}{{ paymentNetChange.toFixed(2) }}</template>
-              </button>
-
-              <!-- Back -->
-              <button
-                @click="cancelPendingPayment"
-                class="w-full py-2.5 text-gray-600 font-bold rounded-xl border border-gray-200 bg-white hover:bg-gray-100 active:scale-95 transition-all flex items-center justify-center gap-2 text-sm"
-              >
-                ← Cambia Metodo di Pagamento
+                <component :is="getPaymentIcon(method.id)" class="size-5" /> {{ method.label }}
               </button>
             </div>
 
-            <!-- ─── STATE C+D: Pagamento Misto ───────────────────────────────── -->
-            <div v-else-if="mixedPaymentEnabled && canPay" class="space-y-3">
-              <!-- STATE C: input form -->
-              <template v-if="!mixedConfirmPending">
-                <div class="bg-indigo-50 border border-indigo-100 rounded-xl p-3 space-y-3">
-                  <div>
-                    <label class="block text-[10px] font-bold text-indigo-700 uppercase mb-2">Primo Pagamento:</label>
-                    <div class="flex gap-2 mb-2">
-                      <button
-                        v-for="m in store.config.paymentMethods"
-                        :key="m.id"
-                        @click="mixedFirstMethodId = m.id; mixedFirstAmount = ''"
-                        :class="mixedFirstMethodId === m.id ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-gray-700 border-gray-200 hover:border-indigo-300'"
-                        class="flex-1 py-2.5 text-xs font-bold rounded-xl border-2 flex items-center justify-center gap-1.5 transition-all active:scale-95"
-                      >
-                        <component :is="getPaymentIcon(m.id)" class="size-4" /> {{ m.label }}
-                      </button>
-                    </div>
-                    <NumericInput
-                      v-model="mixedFirstAmount"
-                      min="0"
-                      step="0.50"
-                      placeholder="0.00"
-                      :prefix="store.config.ui.currency"
-                      class="w-full text-sm font-bold border border-indigo-200 rounded-xl px-3 py-2.5 bg-white focus:outline-none focus:border-indigo-400 text-indigo-900"
-                    />
-                  </div>
-
-                  <div class="pt-3 border-t border-indigo-200">
-                    <label class="block text-[10px] font-bold text-indigo-700 uppercase mb-2">Residuo (Secondo Metodo):</label>
-                    <div class="flex justify-between items-center bg-white rounded-xl border border-indigo-100 px-3 py-2.5">
-                      <div class="flex items-center gap-2 text-sm font-bold text-gray-700">
-                        <component v-if="mixedSecondMethod" :is="getPaymentIcon(mixedSecondMethod.id)" class="size-4" />
-                        {{ mixedSecondMethod?.label ?? '—' }}
-                      </div>
-                      <span class="font-black text-base" :class="mixedSecondAmount >= 0 ? 'text-indigo-700' : 'text-red-500'">
-                        {{ store.config.ui.currency }}{{ mixedSecondAmount.toFixed(2) }}
-                      </span>
-                    </div>
-                    <p v-if="mixedSecondAmount < 0" class="mt-1.5 text-[10px] text-red-500 font-bold">
-                      L'importo supera il totale di {{ store.config.ui.currency }}{{ Math.abs(mixedSecondAmount).toFixed(2) }}
-                    </p>
-                  </div>
-
-                  <div v-if="tipsEnabled" class="pt-3 border-t border-indigo-200">
-                    <label class="block text-[10px] font-bold text-purple-600 uppercase mb-1.5 flex items-center gap-1.5">
-                      <Wallet class="size-3.5" /> Mancia (opzionale)
-                    </label>
-                    <div class="flex items-center gap-2">
-                      <NumericInput
-                        v-model="tipInput"
-                        min="0"
-                        step="0.50"
-                        placeholder="0.00"
-                        :prefix="store.config.ui.currency"
-                        class="flex-1 text-sm font-bold border border-purple-200 rounded-xl px-3 py-2.5 bg-white focus:outline-none focus:border-purple-400 text-purple-900"
-                      />
-                      <button v-if="tipAmount > 0" @click="tipInput = ''" class="text-purple-400 hover:text-purple-700 p-1.5 rounded-lg hover:bg-purple-100 transition-colors">
-                        <X class="size-4" />
-                      </button>
-                    </div>
-                  </div>
-
-                  <button
-                    @click="mixedConfirmPending = true"
-                    :disabled="!mixedCanConfirm"
-                    class="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl disabled:opacity-40 disabled:bg-gray-300 disabled:text-gray-400 active:scale-95 transition-all flex items-center justify-center gap-2 text-sm shadow-md"
-                  >
-                    Rivedi Riepilogo →
-                  </button>
-                </div>
-
-                <button
-                  @click="mixedPaymentEnabled = false; mixedFirstAmount = ''; tipInput = ''"
-                  class="w-full py-2.5 text-gray-600 font-bold rounded-xl border border-gray-200 bg-white hover:bg-gray-100 active:scale-95 transition-all text-sm"
-                >
-                  ← Metodo Singolo
-                </button>
-              </template>
-
-              <!-- STATE D: review & final confirm -->
-              <template v-else>
-                <div class="bg-indigo-50 border border-indigo-100 rounded-xl p-4 space-y-3">
-                  <h4 class="text-xs font-bold text-indigo-700 uppercase tracking-wider flex items-center gap-1.5">
-                    <CheckCircle class="size-4" /> Riepilogo Pagamento Misto
-                  </h4>
-                  <div class="flex justify-between items-center bg-white rounded-xl border border-indigo-100 px-3 py-2.5">
-                    <div class="flex items-center gap-2 text-sm font-bold text-gray-700">
-                      <component :is="getPaymentIcon(mixedFirstMethodId)" class="size-4" />
-                      {{ store.config.paymentMethods.find(m => m.id === mixedFirstMethodId)?.label }}
-                    </div>
-                    <span class="font-black text-base text-indigo-700">{{ store.config.ui.currency }}{{ mixedFirstAmountParsed.toFixed(2) }}</span>
-                  </div>
-                  <div class="flex justify-between items-center bg-white rounded-xl border border-indigo-100 px-3 py-2.5">
-                    <div class="flex items-center gap-2 text-sm font-bold text-gray-700">
-                      <component v-if="mixedSecondMethod" :is="getPaymentIcon(mixedSecondMethod.id)" class="size-4" />
-                      {{ mixedSecondMethod?.label ?? '—' }}
-                    </div>
-                    <span class="font-black text-base text-indigo-700">{{ store.config.ui.currency }}{{ Math.max(0, mixedSecondAmount).toFixed(2) }}</span>
-                  </div>
-                  <div v-if="tipAmount > 0" class="flex justify-between items-center rounded-xl px-3 py-2 bg-purple-50 border border-purple-100">
-                    <span class="text-sm font-bold text-purple-700 flex items-center gap-2"><Wallet class="size-4" /> Mancia</span>
-                    <span class="font-black text-base text-purple-700">+{{ store.config.ui.currency }}{{ tipAmount.toFixed(2) }}</span>
-                  </div>
-                  <div class="border-t border-indigo-200 pt-2 text-xs font-bold text-indigo-800 flex justify-between">
-                    <span>Totale Incassato:</span>
-                    <span>{{ store.config.ui.currency }}{{ amountBeingPaid.toFixed(2) }}</span>
-                  </div>
-                </div>
-
-                <button
-                  @click="processMixedPayment"
-                  class="w-full py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl active:scale-95 transition-all flex items-center justify-center gap-2 text-sm md:text-base shadow-md"
-                >
-                  <CheckCircle class="size-5" /> Conferma Pagamento Misto
-                </button>
-
-                <button
-                  @click="mixedConfirmPending = false"
-                  class="w-full py-2.5 text-gray-600 font-bold rounded-xl border border-gray-200 bg-white hover:bg-gray-100 active:scale-95 transition-all text-sm"
-                >
-                  ← Modifica Importi
-                </button>
-              </template>
-            </div>
-
-            <!-- ─── STATE A: Selezione Metodo ─────────────────────────────────── -->
-            <template v-else>
-              <!-- Pagamento Misto toggle -->
-              <div v-if="checkoutMode === 'unico' && canPay && store.config.paymentMethods.length >= 2" class="flex items-center justify-between">
-                <span class="text-[10px] font-bold text-gray-500 uppercase tracking-wider flex items-center gap-1.5">
-                  <Shuffle class="size-3.5" /> Pagamento Misto
-                </span>
-                <button
-                  @click="mixedPaymentEnabled = !mixedPaymentEnabled; mixedFirstAmount = ''; tipInput = ''"
-                  :class="mixedPaymentEnabled ? 'bg-indigo-600 text-white' : 'bg-gray-200 text-gray-600 hover:bg-gray-300'"
-                  class="px-3 py-1.5 text-xs font-bold rounded-lg transition-colors active:scale-95"
-                >
-                  {{ mixedPaymentEnabled ? 'Attivo' : 'Off' }}
-                </button>
+            <!-- Manual bill close button (shown when fully paid) -->
+            <div v-if="canManuallyCloseBill" class="rounded-2xl border-2 border-emerald-300 bg-emerald-50 p-4 space-y-3">
+              <div class="flex items-center gap-2 text-emerald-700">
+                <CheckCircle class="size-5 shrink-0" />
+                <span class="text-sm font-bold">Conto saldato — nessun residuo.</span>
               </div>
-
-              <!-- Method selection buttons -->
-              <div class="grid grid-cols-2 gap-3">
-                <button
-                  v-for="method in store.config.paymentMethods"
-                  :key="method.id"
-                  @click="selectPaymentMethod(method.id)"
-                  :disabled="!canPay"
-                  :class="method.colorClass"
-                  class="py-3.5 border-2 rounded-xl md:rounded-2xl font-bold flex items-center justify-center gap-2 transition-all disabled:opacity-50 disabled:bg-gray-100 disabled:border-gray-300 disabled:text-gray-400 active:scale-95 text-sm md:text-base"
-                >
-                  <component :is="getPaymentIcon(method.id)" class="size-5" /> {{ method.label }}
-                </button>
-              </div>
-            </template>
-
-            <!-- Manual bill close button -->
-            <div v-if="canManuallyCloseBill">
               <button @click="closeTableBill" class="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl active:scale-95 transition-all shadow-md flex items-center justify-center gap-2">
-                <CheckCircle class="size-5" /> Chiudi Conto e Libera Tavolo
+                <CheckCircle class="size-5" /> Chiudi Conto e Genera Riepilogo
               </button>
             </div>
           </div>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================================================================ -->
+  <!-- MODAL: PAGAMENTO                                                  -->
+  <!-- ================================================================ -->
+  <div v-if="showPaymentModal && selectedTable" class="fixed inset-0 z-[75] bg-black/70 backdrop-blur-sm flex items-end md:items-center justify-center p-0 md:p-4">
+    <div class="bg-white rounded-t-3xl md:rounded-3xl shadow-2xl w-full max-w-sm md:max-w-md flex flex-col overflow-hidden max-h-[95dvh] md:max-h-[85vh]">
+      <!-- Header -->
+      <div class="bg-gray-900 text-white p-4 md:p-5 flex justify-between items-center shrink-0">
+        <div class="flex items-center gap-3">
+          <div class="size-10 rounded-full bg-white/10 flex items-center justify-center shrink-0">
+            <component :is="modalMethodIcon" class="size-5" />
+          </div>
+          <div>
+            <h3 class="font-bold text-base md:text-lg leading-tight">{{ modalMethodLabel }}</h3>
+            <p class="text-white/60 text-[10px]">
+              {{ checkoutMode === 'romana' ? 'Incasso Quota Romana' : checkoutMode === 'ordini' ? 'Incasso Per Comanda' : 'Incasso Conto' }}
+            </p>
+          </div>
+        </div>
+        <button @click="closePaymentModal" class="bg-white/10 hover:bg-white/20 p-2 rounded-full transition-colors active:scale-95">
+          <X class="size-5" />
+        </button>
+      </div>
+
+      <!-- Body -->
+      <div class="p-4 md:p-6 flex-1 overflow-y-auto space-y-4">
+        <!-- Da pagare -->
+        <div class="bg-gray-50 rounded-2xl border border-gray-200 px-4 py-3 flex justify-between items-center">
+          <span class="text-xs font-bold text-gray-400 uppercase tracking-wider">Da Pagare</span>
+          <span class="text-3xl font-black text-gray-900">{{ store.config.ui.currency }}{{ amountBeingPaid.toFixed(2) }}</span>
+        </div>
+
+        <!-- Importo Ricevuto -->
+        <div>
+          <label class="block text-[10px] font-bold text-gray-700 uppercase mb-1.5 flex items-center gap-1.5">
+            <Banknote class="size-3.5" /> Importo Ricevuto
+          </label>
+          <NumericInput
+            v-model="modalRicevutiComputed"
+            min="0"
+            step="0.50"
+            :prefix="store.config.ui.currency"
+            class="w-full text-lg font-black border-2 border-gray-300 rounded-xl px-4 py-3 bg-white focus:outline-none focus:border-gray-500 text-gray-900"
+          />
+        </div>
+
+        <!-- Resto + Mancia (solo quando c'è un eccesso) -->
+        <template v-if="modalExcess > 0">
+          <!-- Cash + tips enabled: Resto | swap | Mancia on same row -->
+          <div v-if="modalIsCash && tipsEnabled" class="flex items-end gap-2">
+            <div class="flex-1">
+              <label class="block text-[10px] font-bold text-blue-600 uppercase mb-1.5 flex items-center gap-1">
+                <ArrowRightLeft class="size-3" /> Resto
+              </label>
+              <NumericInput
+                v-model="modalRestoComputed"
+                min="0"
+                step="0.50"
+                :prefix="store.config.ui.currency"
+                class="w-full text-base font-black border-2 border-blue-200 rounded-xl px-3 py-3 bg-white focus:outline-none focus:border-blue-400 text-blue-900"
+              />
+            </div>
+            <button
+              @click="swapRestoMancia"
+              class="mb-0.5 size-10 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 border border-gray-300 text-gray-500 transition-colors active:scale-95 shrink-0"
+              title="Scambia Resto e Mancia"
+            >
+              <ArrowRightLeft class="size-4" />
+            </button>
+            <div class="flex-1">
+              <label class="block text-[10px] font-bold text-purple-600 uppercase mb-1.5 flex items-center gap-1">
+                <Wallet class="size-3" /> Mancia
+              </label>
+              <NumericInput
+                v-model="modalManciaComputed"
+                min="0"
+                step="0.50"
+                :prefix="store.config.ui.currency"
+                class="w-full text-base font-black border-2 border-purple-200 rounded-xl px-3 py-3 bg-white focus:outline-none focus:border-purple-400 text-purple-900"
+              />
+            </div>
+          </div>
+
+          <!-- Cash only (no tips): Resto full width -->
+          <div v-else-if="modalIsCash">
+            <label class="block text-[10px] font-bold text-blue-600 uppercase mb-1.5 flex items-center gap-1.5">
+              <ArrowRightLeft class="size-3.5" /> Resto da Dare
+            </label>
+            <NumericInput
+              v-model="modalRestoComputed"
+              min="0"
+              step="0.50"
+              :prefix="store.config.ui.currency"
+              class="w-full text-lg font-black border-2 border-blue-200 rounded-xl px-4 py-3 bg-white focus:outline-none focus:border-blue-400 text-blue-900"
+            />
+          </div>
+
+          <!-- Electronic + tips: Mancia full width (auto-filled) -->
+          <div v-else-if="tipsEnabled">
+            <label class="block text-[10px] font-bold text-purple-600 uppercase mb-1.5 flex items-center gap-1.5">
+              <Wallet class="size-3.5" /> Mancia (opzionale)
+            </label>
+            <NumericInput
+              v-model="modalManciaComputed"
+              min="0"
+              step="0.50"
+              :prefix="store.config.ui.currency"
+              class="w-full text-lg font-black border-2 border-purple-200 rounded-xl px-4 py-3 bg-white focus:outline-none focus:border-purple-400 text-purple-900"
+            />
+          </div>
+        </template>
+
+        <!-- Riepilogo dinamico -->
+        <div v-if="modalRicevutoParsed > 0" class="rounded-2xl border p-3 text-sm space-y-1.5"
+          :class="modalIsPartial ? 'bg-amber-50 border-amber-200' : 'bg-emerald-50 border-emerald-200'">
+          <div class="flex justify-between">
+            <span class="text-gray-600">Ricevuto:</span>
+            <span class="font-bold text-gray-800">{{ store.config.ui.currency }}{{ modalRicevutoParsed.toFixed(2) }}</span>
+          </div>
+          <div class="flex justify-between text-xs text-gray-500">
+            <span>– Da pagare:</span>
+            <span class="font-bold">{{ store.config.ui.currency }}{{ amountBeingPaid.toFixed(2) }}</span>
+          </div>
+          <template v-if="!modalIsPartial">
+            <div v-if="modalIsCash && modalRestoParsed > 0" class="flex justify-between text-blue-600 border-t border-blue-200 pt-1.5">
+              <span>= Resto da dare:</span>
+              <span class="font-bold">{{ store.config.ui.currency }}{{ modalRestoParsed.toFixed(2) }}</span>
+            </div>
+            <div v-if="tipsEnabled && modalManciaParsed > 0" class="flex justify-between text-purple-600"
+              :class="{ 'border-t border-purple-200 pt-1.5': !(modalIsCash && modalRestoParsed > 0) }">
+              <span>+ Mancia:</span>
+              <span class="font-bold">{{ store.config.ui.currency }}{{ modalManciaParsed.toFixed(2) }}</span>
+            </div>
+          </template>
+          <div v-if="modalIsPartial" class="border-t border-amber-300 pt-1.5 mt-0.5 space-y-1">
+            <div class="flex justify-between text-amber-700 font-bold">
+              <span>Incassato ora:</span>
+              <span>{{ store.config.ui.currency }}{{ modalRicevutoParsed.toFixed(2) }}</span>
+            </div>
+            <div class="flex justify-between text-amber-600 text-xs">
+              <span>Residuo da pagare:</span>
+              <span class="font-bold">{{ store.config.ui.currency }}{{ (amountBeingPaid - modalRicevutoParsed).toFixed(2) }}</span>
+            </div>
+            <p class="text-[10px] text-amber-700 font-bold flex items-center gap-1 pt-0.5">
+              <AlertTriangle class="size-3 shrink-0" /> Pagamento parziale: sarà richiesta un'ulteriore transazione.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Footer -->
+      <div class="p-4 border-t border-gray-200 space-y-2 shrink-0">
+        <button
+          @click="confirmPaymentModal"
+          :disabled="modalRicevutoParsed <= 0"
+          class="w-full py-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl disabled:opacity-40 disabled:bg-gray-300 disabled:text-gray-400 active:scale-95 transition-all flex items-center justify-center gap-2 text-base shadow-md"
+        >
+          <CheckCircle class="size-5" />
+          <template v-if="modalIsCash && modalRestoParsed > 0">Conferma · Resto {{ store.config.ui.currency }}{{ modalRestoParsed.toFixed(2) }}</template>
+          <template v-else-if="modalIsPartial">Incassa {{ store.config.ui.currency }}{{ modalRicevutoParsed.toFixed(2) }}</template>
+          <template v-else>Conferma Incasso</template>
+        </button>
+        <button
+          @click="closePaymentModal"
+          class="w-full py-2.5 text-gray-600 font-bold rounded-xl border border-gray-200 bg-white hover:bg-gray-100 active:scale-95 transition-all text-sm"
+        >Annulla</button>
       </div>
     </div>
   </div>
@@ -931,7 +864,9 @@
         <pre class="text-emerald-400 font-mono text-[10px] md:text-xs whitespace-pre-wrap">{{ jsonPayloadData }}</pre>
       </div>
       <div v-if="jsonContext === 'receipt'" class="p-4 border-t border-gray-700 bg-gray-800 rounded-b-2xl flex justify-end">
-        <button @click="closeJsonModal" class="w-full md:w-auto px-8 bg-emerald-600 hover:bg-emerald-500 text-white py-3 rounded-xl font-bold transition-colors active:scale-95">Chiudi Scontrino e Continua</button>
+        <button @click="closeJsonModal" class="w-full md:w-auto px-8 bg-emerald-600 hover:bg-emerald-500 text-white py-3 rounded-xl font-bold transition-colors active:scale-95">
+          {{ jsonContext === 'receipt' ? 'Chiudi Scontrino e Continua' : 'Chiudi' }}
+        </button>
       </div>
     </div>
   </div>
@@ -999,12 +934,13 @@ import {
   Grid3x3, Users, X, Plus, Coffee, Edit, AlertTriangle, CheckCircle,
   Ban, Undo2, Code, Minus, Receipt, ArrowRightLeft, Merge, Trash2,
   Layers, ListChecks, History, LayoutGrid, ListOrdered,
-  Tag, Wallet, Coins, Shuffle,
+  Tag, Wallet,
   Percent, Zap, BookOpen, PlusCircle, Banknote, CreditCard, Lock,
 } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
 import { getOrderItemRowTotal, KITCHEN_ACTIVE_STATUSES, getLockedDirectItems } from '../utils/index.js';
 import { resolveCustomItemsKey } from '../store/persistence.js';
+import { useNumericKeyboard } from '../composables/useNumericKeyboard.js';
 import { useAuth } from '../composables/useAuth.js';
 import CassaClosedBillsList from './CassaClosedBillsList.vue';
 import TableStatsBar from './shared/TableStatsBar.vue';
@@ -1017,6 +953,7 @@ const emit = defineEmits(['open-order-from-table', 'new-order-for-ordini']);
 
 const store = useAppStore();
 const { isAdmin } = useAuth();
+const keyboard = useNumericKeyboard();
 
 // ── Table modal state ──────────────────────────────────────────────────────
 const showTableModal = ref(false);
@@ -1084,23 +1021,16 @@ const splitPaidQuotas = ref(0);
 const romanaSplitCount = ref(1); // how many quotas to pay in this single transaction
 const selectedOrdersToPay = ref([]);
 
-// ── Payment confirmation state (step-2 confirmation panel) ────────────────
-// Set to the payment method ID when the cashier has clicked a method button
-// and is now in the "confirm payment" step. null = still selecting.
-const pendingPaymentMethodId = ref(null);
-// Gross amount entered by the cashier (what the customer hands over).
-// An empty string means "exact amount" (no change).
-const paymentAmountGiven = ref('');
-
-// ── Mixed payment state ────────────────────────────────────────────────────
-const mixedPaymentEnabled = ref(false);
-const mixedFirstMethodId = ref(null);
-const mixedFirstAmount = ref('');
-// true = show mixed-payment review summary before final commit
-const mixedConfirmPending = ref(false);
-
-// ── Tip (mancia) state ─────────────────────────────────────────────────────
-const tipInput = ref('');
+// ── Payment modal state ───────────────────────────────────────────────────
+// Opened when the cashier clicks a payment method button.
+const showPaymentModal = ref(false);
+const modalMethodId = ref(null);
+// Importo ricevuto dal cliente (pre-compilato con l'importo dovuto)
+const modalRicevuto = ref('');
+// Resto da ridare (solo contanti, auto-calcolato ma modificabile)
+const modalResto = ref('');
+// Mancia (opzionale, auto-calcolata ma modificabile)
+const modalMancia = ref('');
 
 // ── Discount (sconto) state ────────────────────────────────────────────────
 const discountInput = ref('');
@@ -1190,79 +1120,95 @@ const quotaRomana = computed(() => {
 const tipsEnabled = computed(() => store.config.billing?.enableTips ?? false);
 const discountsEnabled = computed(() => store.config.billing?.enableDiscounts ?? false);
 
-// ── Mixed payment computed ─────────────────────────────────────────────────
-// The second method is whichever payment method is NOT selected as the first.
-const mixedSecondMethod = computed(() => {
-  if (!mixedFirstMethodId.value) return null;
-  return store.config.paymentMethods.find(m => m.id !== mixedFirstMethodId.value) ?? null;
+// ── Payment modal computed ───────────────────────────────────────────────────────────────────
+const modalMethod = computed(() =>
+  store.config.paymentMethods.find(m => m.id === modalMethodId.value) ?? null,
+);
+const modalMethodLabel = computed(() => modalMethod.value?.label ?? '');
+const modalMethodIcon = computed(() => getPaymentIcon(modalMethodId.value));
+
+// Is the pending method a cash (non-card) method?
+const modalIsCash = computed(() => {
+  const m = modalMethod.value;
+  return m ? m.icon !== 'credit-card' : false;
 });
 
-const mixedFirstAmountParsed = computed(() => Math.max(0, parseFloat(mixedFirstAmount.value) || 0));
+const modalRicevutoParsed = computed(() => Math.max(0, parseFloat(modalRicevuto.value) || 0));
+const modalRestoParsed = computed(() => Math.max(0, parseFloat(modalResto.value) || 0));
+const modalManciaParsed = computed(() => Math.max(0, parseFloat(modalMancia.value) || 0));
 
-// Residual amount for the second method = total - first method amount.
-const mixedSecondAmount = computed(() => amountBeingPaid.value - mixedFirstAmountParsed.value);
+// True when the customer is paying less than the amount due (partial payment).
+const modalIsPartial = computed(() =>
+  modalRicevutoParsed.value > 0 && modalRicevutoParsed.value < amountBeingPaid.value,
+);
 
-// Mixed payment can be confirmed (step 1→review) when both amounts are valid and cover the total.
-const mixedCanConfirm = computed(() => {
-  if (!mixedPaymentEnabled.value) return false;
-  if (!mixedFirstMethodId.value || !mixedSecondMethod.value) return false;
-  const first = mixedFirstAmountParsed.value;
-  if (first <= 0) return false;
-  if (mixedSecondAmount.value < 0) return false; // first amount exceeds total
-  return true;
+// Excess above the amount due (ricevuto - due), used for Resto/Mancia distribution.
+const modalExcess = computed(() => Math.max(0, modalRicevutoParsed.value - amountBeingPaid.value));
+
+// Computed v-model setters: changing one field updates the others.
+// Ricevuto changed → keep Mancia, recalculate Resto.
+const modalRicevutiComputed = computed({
+  get() { return modalRicevuto.value; },
+  set(v) {
+    modalRicevuto.value = v;
+    const excess = Math.max(0, (parseFloat(v) || 0) - amountBeingPaid.value);
+    if (!modalIsCash.value) {
+      // Electronic: full excess goes to Mancia automatically.
+      modalMancia.value = excess > 0 ? String(excess) : '';
+      modalResto.value = '';
+    } else {
+      // Cash: keep existing Mancia ratio, let Resto absorb the rest.
+      const mancia = Math.min(excess, Math.max(0, parseFloat(modalMancia.value) || 0));
+      modalMancia.value = mancia > 0 ? String(mancia) : '';
+      modalResto.value = (excess - mancia) > 0 ? String(excess - mancia) : '';
+    }
+  },
 });
 
-// ── Tip amount ─────────────────────────────────────────────────────────────
-const tipAmount = computed(() => Math.max(0, parseFloat(tipInput.value) || 0));
+// Resto changed → recalculate Mancia (only cash).
+const modalRestoComputed = computed({
+  get() { return modalResto.value; },
+  set(v) {
+    modalResto.value = v;
+    const excess = modalExcess.value;
+    const resto = Math.min(Math.max(0, parseFloat(v) || 0), excess);
+    modalMancia.value = (excess - resto) > 0 ? String(excess - resto) : '';
+  },
+});
+
+// Mancia changed → recalculate Resto (only cash).
+const modalManciaComputed = computed({
+  get() { return modalMancia.value; },
+  set(v) {
+    modalMancia.value = v;
+    const excess = modalExcess.value;
+    const mancia = Math.min(Math.max(0, parseFloat(v) || 0), excess);
+    if (modalIsCash.value) {
+      modalResto.value = (excess - mancia) > 0 ? String(excess - mancia) : '';
+    }
+  },
+});
 
 // ── Discount preview (not yet applied) ────────────────────────────────────
 const discountPreview = computed(() => {
   if (!discountsEnabled.value) return 0;
   const val = parseFloat(discountInput.value) || 0;
   if (discountType.value === 'percent') {
-    return Math.min(tableAmountRemaining.value, (tableAmountRemaining.value * val) / 100);
+    const clampedPct = Math.min(100, Math.max(0, val));
+    return Math.min(tableAmountRemaining.value, (tableAmountRemaining.value * clampedPct) / 100);
   }
-  return Math.min(tableAmountRemaining.value, val);
+  return Math.min(tableAmountRemaining.value, Math.max(0, val));
 });
 
-// ── Payment confirmation computed ──────────────────────────────────────────
-// Parsed gross amount the customer hands over (0 = blank = exact amount).
-const paymentGross = computed(() => Math.max(0, parseFloat(paymentAmountGiven.value) || 0));
-
-// Change to return to the customer.
-// change = max(0, gross − due − tip)  where tip is optional extra.
-const paymentNetChange = computed(() => {
-  const gross = paymentGross.value;
-  if (gross <= 0) return 0; // blank = exact, no change
-  const tip = tipsEnabled.value ? tipAmount.value : 0;
-  return Math.max(0, gross - amountBeingPaid.value - tip);
+// True when the user has entered an out-of-range discount value (to show warning).
+const discountInputExceedsMax = computed(() => {
+  const val = parseFloat(discountInput.value) || 0;
+  if (val <= 0) return false;
+  if (discountType.value === 'percent') return val > 100;
+  return val > tableAmountRemaining.value;
 });
 
-// True when the entered gross amount is less than the minimum needed (due + tip).
-const paymentAmountInsufficient = computed(() => {
-  const gross = paymentGross.value;
-  if (gross <= 0) return false; // blank = exact, always ok
-  const tip = tipsEnabled.value ? tipAmount.value : 0;
-  return gross < amountBeingPaid.value + tip;
-});
-
-// Confirm button is enabled when: blank (exact) OR gross >= due + tip.
-const paymentEntryValid = computed(() => {
-  if (!pendingPaymentMethodId.value) return false;
-  return !paymentAmountInsufficient.value;
-});
-
-// The pending method object (for label, icon).
-const pendingPaymentMethod = computed(() =>
-  store.config.paymentMethods.find(m => m.id === pendingPaymentMethodId.value) ?? null,
-);
-
-// Is the pending method a cash (non-card) method?
-const isPendingMethodCash = computed(() => {
-  const m = pendingPaymentMethod.value;
-  return m ? m.icon !== 'credit-card' : false;
-});
-
+// ── Checkout amounts ───────────────────────────────────────────────────────
 const amountBeingPaid = computed(() => {
   if (checkoutMode.value === 'unico') return tableAmountRemaining.value;
   if (checkoutMode.value === 'romana') return quotaRomana.value;
@@ -1283,20 +1229,6 @@ watch(splitWays, (newVal) => {
   const waysLeft = newVal - splitPaidQuotas.value;
   if (romanaSplitCount.value > Math.max(1, waysLeft)) {
     romanaSplitCount.value = Math.max(1, waysLeft);
-  }
-});
-
-// Disable mixed payment and cancel pending when switching out of 'unico' mode.
-watch(checkoutMode, (newMode) => {
-  if (newMode !== 'unico') {
-    mixedPaymentEnabled.value = false;
-    mixedFirstAmount.value = '';
-    mixedConfirmPending.value = false;
-  }
-  if (pendingPaymentMethodId.value) {
-    pendingPaymentMethodId.value = null;
-    paymentAmountGiven.value = '';
-    tipInput.value = '';
   }
 });
 
@@ -1378,18 +1310,13 @@ function _openTableModal(table) {
   cassaViewMode.value = 'voce';
   selectedOrdersToPay.value = [];
   romanaSplitCount.value = 1;
-  pendingPaymentMethodId.value = null;
-  paymentAmountGiven.value = '';
-  tipInput.value = '';
   discountInput.value = '';
   discountType.value = 'percent';
-  mixedPaymentEnabled.value = false;
-  mixedConfirmPending.value = false;
-  mixedFirstMethodId.value =
-    store.config.paymentMethods.find(m => m.icon !== 'credit-card')?.id ??
-    store.config.paymentMethods[0]?.id ??
-    null;
-  mixedFirstAmount.value = '';
+  showPaymentModal.value = false;
+  modalMethodId.value = null;
+  modalRicevuto.value = '';
+  modalResto.value = '';
+  modalMancia.value = '';
 
   const pastRomana = store.transactions.filter(
     t => t.tableId === table.id && t.operationType === 'romana' &&
@@ -1607,30 +1534,52 @@ function confirmDirectItems() {
   closeDirectItemModal();
 }
 
-// ── Manual bill close (used when autoCloseOnFullPayment = false) ───────────
-const autoCloseOnFullPayment = computed(() => store.config.billing?.autoCloseOnFullPayment ?? true);
-
+// ── Manual bill close (shown when fully paid) ─────────────────────────────
 const canManuallyCloseBill = computed(() =>
-  !autoCloseOnFullPayment.value &&
+  !!selectedTable.value &&
   tableAmountRemaining.value <= 0.01 &&
   tableAcceptedPayableOrders.value.length > 0,
 );
 
 function closeTableBill() {
   if (!selectedTable.value) return;
+  const session = store.tableCurrentBillSession[selectedTable.value.id];
+  const billTxns = store.transactions.filter(
+    t => t.tableId === selectedTable.value.id &&
+      (!session || t.billSessionId === session.billSessionId),
+  );
+  const summary = {
+    type: 'CONTO_CHIUSO',
+    table: selectedTable.value.id,
+    tableLabel: selectedTable.value.label,
+    billSessionId: session?.billSessionId ?? null,
+    closedAt: new Date().toISOString(),
+    totalAmount: tableTotalAmount.value,
+    totalPaid: tableAmountPaid.value,
+    transactions: billTxns,
+    orders: tableAcceptedPayableOrders.value.map(o => ({
+      id: o.id,
+      status: o.status,
+      items: o.orderItems,
+    })),
+  };
   tableAcceptedPayableOrders.value.forEach(o => store.changeOrderStatus(o, 'completed'));
-  closeTableModal();
+  jsonContext.value = 'receipt';
+  jsonPayloadData.value = JSON.stringify(summary, null, 2);
+  showPrecontoJson.value = true;
 }
 
 // ── Payment processing ─────────────────────────────────────────────────────
-// extra: { grossAmount?, changeAmount? } — set when the customer pays more than the bill.
-//   grossAmount = total handed over; changeAmount = returned to customer.
-//   amountPaid always = bill portion (grossAmount - changeAmount - tipAmount).
-function processTablePayment(paymentMethodId, extra = {}) {
+// extra: { grossAmount?, changeAmount?, tipAmount? }
+//   grossAmount = total handed over (cash); changeAmount = returned to customer.
+//   tipAmount = voluntary tip (mancia).
+//   amountPaid always = bill portion (net of change and tip).
+// overrideAmount: if provided, uses this instead of amountBeingPaid (for partial payments).
+function processTablePayment(paymentMethodId, extra = {}, overrideAmount = null) {
   if (!selectedTable.value) return;
 
-  const amount = amountBeingPaid.value;
-  const tip = tipsEnabled.value ? tipAmount.value : 0;
+  const amount = overrideAmount !== null ? overrideAmount : amountBeingPaid.value;
+  const tip = extra.tipAmount != null ? extra.tipAmount : 0;
   const session = store.tableCurrentBillSession[selectedTable.value.id];
   const payload = {
     transactionId: 'txn_' + Math.random().toString(36).slice(2, 11),
@@ -1670,104 +1619,60 @@ function processTablePayment(paymentMethodId, extra = {}) {
 
   store.addTransaction(payload);
 
-  tipInput.value = '';
-
-  // Close all accepted orders when fully paid, if autoCloseOnFullPayment is enabled
-  if (autoCloseOnFullPayment.value && tableAmountRemaining.value <= 0.01) {
-    tableAcceptedPayableOrders.value.forEach(o => store.changeOrderStatus(o, 'completed'));
-  }
-
   jsonContext.value = 'receipt';
   jsonPayloadData.value = JSON.stringify(payload, null, 2);
   showPrecontoJson.value = true;
 }
 
-// ── Payment confirmation helpers ───────────────────────────────────────────
-// Step 1: cashier clicks a payment-method button → enters confirmation mode.
-function selectPaymentMethod(methodId) {
-  pendingPaymentMethodId.value = methodId;
-  paymentAmountGiven.value = '';
-  tipInput.value = '';
+// ── Payment modal helpers ──────────────────────────────────────────────────
+// Opens the payment modal for the given method (pre-fills Ricevuto with amount due).
+function openPaymentModal(methodId) {
+  modalMethodId.value = methodId;
+  modalRicevuto.value = '';
+  modalResto.value = '';
+  modalMancia.value = '';
+  showPaymentModal.value = true;
 }
 
-// Cancel confirmation and go back to the method-selection step.
-function cancelPendingPayment() {
-  pendingPaymentMethodId.value = null;
-  paymentAmountGiven.value = '';
-  tipInput.value = '';
+// Closes and resets the payment modal.
+function closePaymentModal() {
+  keyboard.closeKeyboard();
+  showPaymentModal.value = false;
+  modalMethodId.value = null;
+  modalRicevuto.value = '';
+  modalResto.value = '';
+  modalMancia.value = '';
 }
 
-// Step 2: cashier confirms the payment details.
-// Validates: paid − change − tip = due, then calls processTablePayment.
-function processPendingPayment() {
-  if (!pendingPaymentMethodId.value || !paymentEntryValid.value) return;
-  const methodId = pendingPaymentMethodId.value;
-  const gross = paymentGross.value;
-  const change = paymentNetChange.value;
+// Swaps the Resto and Mancia amounts.
+function swapRestoMancia() {
+  const r = modalResto.value;
+  modalResto.value = modalMancia.value;
+  modalMancia.value = r;
+}
+
+// Confirms the payment from the modal: records the transaction and closes the modal.
+// Partial payments (ricevuto < due) record only the ricevuto amount; the remaining
+// balance stays open until a subsequent transaction completes it.
+function confirmPaymentModal() {
+  if (!modalMethodId.value) return;
+  const ricevuto = parseFloat(modalRicevuto.value) || 0;
+  if (ricevuto <= 0) return;
+
+  const due = amountBeingPaid.value;
+  const amountPaid = Math.min(ricevuto, due);
   const extra = {};
-  if (gross > 0) {
-    extra.grossAmount = gross;
-    if (change > 0) extra.changeAmount = change;
+
+  if (tipsEnabled.value && modalManciaParsed.value > 0) {
+    extra.tipAmount = modalManciaParsed.value;
   }
-  processTablePayment(methodId, extra);
-  pendingPaymentMethodId.value = null;
-  paymentAmountGiven.value = '';
-}
-
-// ── Mixed payment processing ───────────────────────────────────────────────
-function processMixedPayment() {
-  if (!selectedTable.value || !mixedCanConfirm.value) return;
-
-  const session = store.tableCurrentBillSession[selectedTable.value.id];
-  const tip = tipsEnabled.value ? tipAmount.value : 0;
-  const orderRefs = tableAcceptedPayableOrders.value.map(o => o.id);
-  const firstMethod = store.config.paymentMethods.find(m => m.id === mixedFirstMethodId.value);
-  const secondMethod = mixedSecondMethod.value;
-
-  // First transaction: the manually entered partial amount
-  const payload1 = {
-    transactionId: 'txn_' + Math.random().toString(36).slice(2, 11),
-    tableId: selectedTable.value.id,
-    billSessionId: session?.billSessionId ?? null,
-    paymentMethod: firstMethod?.label || mixedFirstMethodId.value,
-    operationType: 'misto',
-    amountPaid: mixedFirstAmountParsed.value,
-    timestamp: new Date().toISOString(),
-    orderRefs,
-    mixedPayment: true,
-  };
-
-  // Second transaction: the auto-calculated residual amount (+ optional tip)
-  const payload2 = {
-    transactionId: 'txn_' + Math.random().toString(36).slice(2, 11),
-    tableId: selectedTable.value.id,
-    billSessionId: session?.billSessionId ?? null,
-    paymentMethod: secondMethod?.label || '',
-    operationType: 'misto',
-    amountPaid: Math.max(0, mixedSecondAmount.value),
-    tipAmount: tip > 0 ? tip : undefined,
-    timestamp: new Date().toISOString(),
-    orderRefs,
-    mixedPayment: true,
-  };
-
-  store.addTransaction(payload1);
-  store.addTransaction(payload2);
-
-  // Reset state after payment
-  tipInput.value = '';
-  mixedPaymentEnabled.value = false;
-  mixedConfirmPending.value = false;
-  mixedFirstAmount.value = '';
-
-  // Close all accepted orders when fully paid, if autoCloseOnFullPayment is enabled
-  if (autoCloseOnFullPayment.value && tableAmountRemaining.value <= 0.01) {
-    tableAcceptedPayableOrders.value.forEach(o => store.changeOrderStatus(o, 'completed'));
+  if (modalIsCash.value) {
+    extra.grossAmount = ricevuto;
+    if (modalRestoParsed.value > 0) extra.changeAmount = modalRestoParsed.value;
   }
 
-  jsonContext.value = 'receipt';
-  jsonPayloadData.value = JSON.stringify([payload1, payload2], null, 2);
-  showPrecontoJson.value = true;
+  processTablePayment(modalMethodId.value, extra, amountPaid);
+  closePaymentModal();
 }
 
 // ── Apply discount ─────────────────────────────────────────────────────────
@@ -1793,10 +1698,6 @@ function applyDiscount() {
     orderRefs: [],
   });
 
-  // Same auto-close flow as processTablePayment to avoid stuck table state
-  if (autoCloseOnFullPayment.value && tableAmountRemaining.value <= 0.01) {
-    tableAcceptedPayableOrders.value.forEach(o => store.changeOrderStatus(o, 'completed'));
-  }
   discountInput.value = '';
 }
 
