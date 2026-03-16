@@ -1540,7 +1540,7 @@ function confirmDirectItems() {
 // ── Manual bill close (shown when fully paid) ─────────────────────────────
 const canManuallyCloseBill = computed(() =>
   !!selectedTable.value &&
-  tableAmountRemaining.value <= BILL_SETTLED_THRESHOLD &&
+  tableAmountRemaining.value <= BILL_SETTLED_THRESHOLD);
 
 function closeTableBill() {
   if (!selectedTable.value) return;
@@ -1624,7 +1624,7 @@ function processTablePayment(paymentMethodId, extra = {}, overrideAmount = null)
   // can still read them and the active session before marking them done.
   if (
     store.config.billing?.autoCloseOnFullPayment &&
-    tableAmountRemaining.value <= BILL_SETTLED_THRESHOLD &&
+    tableAmountRemaining.value <= BILL_SETTLED_THRESHOLD
   ) {
     if (checkoutMode.value === 'ordini') selectedOrdersToPay.value = [];
     closeTableBill();
