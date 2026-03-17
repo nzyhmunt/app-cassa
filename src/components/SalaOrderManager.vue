@@ -77,6 +77,7 @@
           <OrderSidebarCard
             :order="order"
             :selected="selectedOrder?.id === order.id"
+            note-visibility-key="sala"
             @click="selectOrder(order)"
           />
         </template>

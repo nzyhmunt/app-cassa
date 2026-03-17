@@ -29,17 +29,33 @@
       <OrderStatusBadge :status="order.status" />
       <span class="bg-gray-100 text-gray-600 text-[9px] md:text-[10px] font-bold px-2 py-1 rounded-md border border-gray-200 ml-auto">{{ order.itemCount }} pz</span>
     </div>
+
+    <!-- Note indicator: shown only when there is a global note visible for the current app -->
+    <div
+      v-if="order.globalNote && order.noteVisibility?.[noteVisibilityKey] !== false"
+      class="mt-2 flex items-start gap-1.5 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5"
+      :title="order.globalNote"
+    >
+      <MessageSquareWarning class="size-3 text-amber-600 shrink-0 mt-px" />
+      <p class="text-[10px] text-amber-700 font-medium leading-tight truncate">{{ order.globalNote }}</p>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { Clock } from 'lucide-vue-next';
+import { Clock, MessageSquareWarning } from 'lucide-vue-next';
 import { useAppStore } from '../../store/index.js';
 import OrderStatusBadge from './OrderStatusBadge.vue';
 
 defineProps({
   order: { type: Object, required: true },
   selected: { type: Boolean, default: false },
+  /**
+   * Which visibility flag to check on `order.noteVisibility` for the note indicator.
+   * Use 'cassa' in CassaOrderManager and 'sala' in SalaOrderManager.
+   * When null or omitted the note is always shown (no app filtering).
+   */
+  noteVisibilityKey: { type: String, default: null },
 });
 
 defineEmits(['click']);

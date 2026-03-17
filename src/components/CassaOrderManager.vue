@@ -48,6 +48,7 @@
           <OrderSidebarCard
                :order="order"
                :selected="selectedOrder?.id === order.id"
+               note-visibility-key="cassa"
                @click="selectOrder(order)"
              />
         </template>
