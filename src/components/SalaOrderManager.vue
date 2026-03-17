@@ -502,12 +502,12 @@
               <div class="relative w-24 shrink-0">
                 <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm font-bold">{{ store.config.ui.currency }}</span>
                 <input
-                  v-model.number="noteModal.modPrice"
-                  type="number"
-                  min="0"
-                  step="0.50"
+                  :value="noteModal.modPrice"
+                  type="text"
+                  inputmode="decimal"
                   placeholder="0.00"
                   class="w-full pl-7 pr-2 py-3 bg-gray-100 border border-gray-200 rounded-xl focus:bg-white theme-ring transition-all text-gray-800 font-medium text-sm"
+                  @input="onModPriceInput"
                   @keyup.enter="addModToNoteModal"
                 />
               </div>
@@ -741,7 +741,7 @@ const noteModalCloseBtn = ref(null);
 const noteModal = ref({
   show: false, inputText: '', notesArray: [],
   rowIndex: null, targetOrd: null, itemRef: null,
-  modifiersArray: [], modName: '', modPrice: 0,
+  modifiersArray: [], modName: '', modPrice: '',
   course: DEFAULT_COURSE, cartIdx: null,
 });
 
@@ -783,7 +783,7 @@ function openNoteModal(ord, idx) {
   noteModal.value.course = ord.orderItems[idx].course || DEFAULT_COURSE;
   noteModal.value.inputText = '';
   noteModal.value.modName = '';
-  noteModal.value.modPrice = 0;
+  noteModal.value.modPrice = '';
   noteModal.value.show = true;
   nextTick(() => noteModalCloseBtn.value?.focus());
 }
@@ -800,7 +800,7 @@ function openCartNoteModal(idx) {
   noteModal.value.course = cartItem.course || DEFAULT_COURSE;
   noteModal.value.inputText = '';
   noteModal.value.modName = '';
-  noteModal.value.modPrice = 0;
+  noteModal.value.modPrice = '';
   noteModal.value.show = true;
   nextTick(() => noteModalCloseBtn.value?.focus());
 }
@@ -820,9 +820,9 @@ function removeNoteFromModal(idx) {
 function addModToNoteModal() {
   const name = noteModal.value.modName.trim();
   if (!name) return;
-  noteModal.value.modifiersArray.push({ name, price: noteModal.value.modPrice || 0 });
+  noteModal.value.modifiersArray.push({ name, price: parseFloat(String(noteModal.value.modPrice).replace(/,/g, '.')) || 0 });
   noteModal.value.modName = '';
-  noteModal.value.modPrice = 0;
+  noteModal.value.modPrice = '';
 }
 
 function applyNoteModPreset(name, price) {
@@ -833,6 +833,13 @@ function applyNoteModPreset(name, price) {
 
 function removeModFromNoteModal(idx) {
   noteModal.value.modifiersArray.splice(idx, 1);
+}
+
+function onModPriceInput(event) {
+  const raw = event.target.value;
+  const normalized = raw.replace(/,/g, '.');
+  if (normalized !== raw) event.target.value = normalized;
+  noteModal.value.modPrice = normalized;
 }
 
 function saveNotes() {

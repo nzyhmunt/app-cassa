@@ -721,12 +721,12 @@
               <div class="w-28 shrink-0">
                 <label class="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1.5">Prezzo ({{ store.config.ui.currency }})</label>
                 <input
-                  v-model="directCustomPrice"
-                  type="number"
-                  min="0"
-                  step="0.10"
+                  :value="directCustomPrice"
+                  type="text"
+                  inputmode="decimal"
                   placeholder="0.00"
                   class="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none theme-ring bg-gray-50 focus:bg-white transition-colors"
+                  @input="onDirectCustomPriceInput"
                   @keydown.enter="addCustomItemToDirectCart"
                 />
               </div>
@@ -1419,6 +1419,13 @@ const directActiveMenuCategory = ref('');
 const directCart = ref([]);
 const directCustomName = ref('');
 const directCustomPrice = ref('');
+
+function onDirectCustomPriceInput(event) {
+  const raw = event.target.value;
+  const normalized = raw.replace(/,/g, '.');
+  if (normalized !== raw) event.target.value = normalized;
+  directCustomPrice.value = normalized;
+}
 
 /** True when the "Personalizzata" custom-entry tab is available (driven by config flag). */
 const canShowCustomEntryTab = computed(
