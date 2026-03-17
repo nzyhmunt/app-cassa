@@ -54,7 +54,7 @@
   <!-- MODAL: GESTIONE TAVOLO IN CASSA E PAGAMENTI                      -->
   <!-- ================================================================ -->
   <div v-if="showTableModal && selectedTable" class="fixed inset-0 z-[60] bg-black/70 backdrop-blur-sm flex items-end md:items-center justify-center p-0 md:p-4">
-    <div class="bg-white rounded-t-3xl md:rounded-3xl shadow-2xl w-full max-w-6xl h-[95dvh] md:h-[90vh] flex flex-col overflow-hidden">
+    <div class="bg-white rounded-t-3xl md:rounded-3xl shadow-2xl w-full max-w-6xl h-[95dvh] md:h-[90dvh] flex flex-col overflow-hidden">
 
       <div class="bg-gray-900 text-white p-3 md:p-5 flex justify-between items-center shrink-0">
         <div class="flex items-center gap-3">
@@ -102,7 +102,7 @@
       <div class="flex flex-1 min-h-0 flex-col lg:flex-row">
 
         <!-- PANNELLO SINISTRO: Riepilogo Comande e Storni dalla Cassa -->
-        <div class="w-full lg:w-[55%] border-b lg:border-b-0 lg:border-r border-gray-200 bg-gray-50 flex flex-col min-h-[45%] lg:min-h-0">
+        <div class="w-full lg:w-[55%] border-b lg:border-b-0 lg:border-r border-gray-200 bg-gray-50 flex flex-col h-[42%] shrink-0 overflow-hidden lg:h-auto lg:shrink lg:flex-1">
           <div class="p-3 md:p-4 bg-white border-b border-gray-200 shrink-0 flex items-center gap-2">
             <span class="font-bold text-gray-700 text-xs md:text-sm uppercase tracking-wider shrink-0">Riepilogo Voci</span>
             <!-- Vista switch (inline in header) -->
@@ -277,7 +277,7 @@
         </div>
 
         <!-- PANNELLO DESTRA: Area Checkout e Transazioni -->
-        <div class="w-full lg:w-[45%] bg-white flex flex-col relative z-20 shadow-[0_-10px_20px_rgba(0,0,0,0.05)] lg:shadow-none min-h-0">
+        <div class="w-full lg:w-[45%] bg-white flex flex-col relative z-20 shadow-[0_-10px_20px_rgba(0,0,0,0.05)] lg:shadow-none flex-1 min-h-0">
 
           <div class="p-4 md:p-6 flex-1 overflow-y-auto">
             <div class="flex justify-between items-center mb-2">
@@ -311,10 +311,14 @@
                       ({{ txn.discountType === 'percent' ? txn.discountValue + '%' : store.config.ui.currency + (txn.discountValue ?? 0).toFixed(2) }})
                     </span>
                   </span>
-                  <span class="font-black">
-                    <span v-if="txn.operationType === 'discount'">-</span>{{ store.config.ui.currency }}{{ txn.amountPaid.toFixed(2) }}
-                    <span v-if="txn.tipAmount" class="text-[10px] font-medium opacity-80"> +{{ store.config.ui.currency }}{{ txn.tipAmount.toFixed(2) }} mancia</span>
-                  </span>
+                  <div class="text-right">
+                    <span class="font-black">
+                      <span v-if="txn.operationType === 'discount'">-</span>{{ store.config.ui.currency }}{{ txn.amountPaid.toFixed(2) }}
+                    </span>
+                    <div v-if="txn.grossAmount" class="text-[9px] font-medium opacity-70">Consegnato: {{ store.config.ui.currency }}{{ txn.grossAmount.toFixed(2) }}</div>
+                    <div v-if="txn.changeAmount" class="text-[9px] font-bold text-blue-600">Resto: -{{ store.config.ui.currency }}{{ txn.changeAmount.toFixed(2) }}</div>
+                    <div v-if="txn.tipAmount" class="text-[9px] font-bold text-purple-600">+{{ store.config.ui.currency }}{{ txn.tipAmount.toFixed(2) }} mancia</div>
+                  </div>
                 </div>
                 <span class="text-[9px] font-medium opacity-80">{{ new Date(txn.timestamp).toLocaleTimeString() }} - ID: {{ txn.transactionId }}</span>
               </div>
@@ -354,7 +358,11 @@
                   Applica
                 </button>
               </div>
-              <div v-if="discountPreview > 0" class="mt-2 text-xs text-amber-700 font-bold flex items-center justify-between">
+              <div v-if="discountInputExceedsMax" class="mt-1.5 text-[10px] text-red-600 font-bold flex items-center gap-1">
+                <AlertTriangle class="size-3 shrink-0" />
+                {{ discountType === 'percent' ? 'Il valore verrà limitato al 100%' : 'Lo sconto non può superare il totale rimanente' }}
+              </div>
+              <div v-else-if="discountPreview > 0" class="mt-2 text-xs text-amber-700 font-bold flex items-center justify-between">
                 <span>Sconto da applicare:</span>
                 <span>-{{ store.config.ui.currency }}{{ discountPreview.toFixed(2) }}</span>
               </div>
@@ -443,81 +451,28 @@
               <span class="text-xl font-black theme-text">{{ store.config.ui.currency }}{{ amountBeingPaid.toFixed(2) }}</span>
             </div>
 
-            <!-- Mancia (Tip) -->
-            <div v-if="tipsEnabled && canPay" class="bg-purple-50 border border-purple-100 rounded-xl p-3">
-              <label class="block text-[10px] font-bold text-purple-700 uppercase mb-2 flex items-center gap-1.5">
-                <Wallet class="size-3.5" /> Mancia (opzionale)
-              </label>
-              <div class="flex items-center gap-2">
-                <span class="text-sm font-bold text-purple-600">{{ store.config.ui.currency }}</span>
-                <NumericInput
-                  v-model="tipInput"
-                  min="0"
-                  step="0.50"
-                  placeholder="0.00"
-                  :prefix="store.config.ui.currency"
-                  class="flex-1 min-w-0 text-sm font-bold border border-purple-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:border-purple-400 text-purple-900"
-                />
-                <button v-if="tipAmount > 0" @click="tipInput = ''" class="text-purple-400 hover:text-purple-700 p-1.5 rounded-lg hover:bg-purple-100 transition-colors">
-                  <X class="size-4" />
-                </button>
-              </div>
-              <div v-if="tipAmount > 0" class="mt-1.5 text-xs font-bold text-purple-700 flex justify-between">
-                <span>Totale da incassare (con mancia):</span>
-                <span>{{ store.config.ui.currency }}{{ (amountBeingPaid + tipAmount).toFixed(2) }}</span>
-              </div>
-            </div>
-
-            <!-- Calcolatore Resto Contanti -->
-            <div v-if="cashChangeEnabled && canPay && isCashPaymentActive" class="bg-emerald-50 border border-emerald-100 rounded-xl p-3">
-              <label class="block text-[10px] font-bold text-emerald-700 uppercase mb-2 flex items-center gap-1.5">
-                <Coins class="size-3.5" /> Contanti Ricevuti
-              </label>
-              <div class="flex items-center gap-2">
-                <span class="text-sm font-bold text-emerald-600">{{ store.config.ui.currency }}</span>
-                <NumericInput
-                  v-model="cashAmountGiven"
-                  min="0"
-                  step="0.50"
-                  placeholder="0.00"
-                  :prefix="store.config.ui.currency"
-                  class="flex-1 min-w-0 text-sm font-bold border border-emerald-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:border-emerald-400 text-emerald-900"
-                />
-                <button v-if="cashAmountGiven" @click="cashAmountGiven = ''" class="text-emerald-400 hover:text-emerald-700 p-1.5 rounded-lg hover:bg-emerald-100 transition-colors">
-                  <X class="size-4" />
-                </button>
-              </div>
-              <div v-if="cashChange !== null" class="mt-2 flex justify-between items-center">
-                <span class="text-xs font-bold text-emerald-700">Resto da dare:</span>
-                <span class="text-xl font-black text-emerald-700">{{ store.config.ui.currency }}{{ cashChange.toFixed(2) }}</span>
-              </div>
-              <div v-else-if="cashAmountGiven && (parseFloat(cashAmountGiven) || 0) > 0 && cashChange === null" class="mt-1.5 text-xs font-bold text-red-500">
-                Importo insufficiente (mancano {{ store.config.ui.currency }}{{ ((amountBeingPaid + tipAmount) - (parseFloat(cashAmountGiven) || 0)).toFixed(2) }})
-              </div>
-            </div>
-
+            <!-- Metodi di pagamento -->
             <div class="grid grid-cols-2 gap-3">
               <button
                 v-for="method in store.config.paymentMethods"
                 :key="method.id"
-                @click="activePaymentMethodId = method.id; processTablePayment(method.id)"
+                @click="openPaymentModal(method.id)"
                 :disabled="!canPay"
-                :class="[method.colorClass, activePaymentMethodId === method.id ? 'ring-2 ring-offset-1 ring-current scale-[1.02]' : '']"
-                class="py-3.5 border-2 rounded-xl md:rounded-2xl font-bold flex flex-col items-center justify-center gap-1 transition-all disabled:opacity-50 disabled:bg-gray-100 disabled:border-gray-300 disabled:text-gray-400 active:scale-95 text-sm md:text-base"
+                :class="method.colorClass"
+                class="py-3.5 border-2 rounded-xl md:rounded-2xl font-bold flex items-center justify-center gap-2 transition-all disabled:opacity-50 disabled:bg-gray-100 disabled:border-gray-300 disabled:text-gray-400 active:scale-95 text-sm md:text-base"
               >
-                <span class="flex items-center gap-2">
-                  <component :is="getPaymentIcon(method.id)" class="size-5" /> {{ method.label }}
-                </span>
-                <span v-if="tipAmount > 0" class="text-[10px] font-medium opacity-75">
-                  (+ {{ store.config.ui.currency }}{{ tipAmount.toFixed(2) }} mancia)
-                </span>
+                <component :is="getPaymentIcon(method.id)" class="size-5" /> {{ method.label }}
               </button>
             </div>
 
-            <!-- Manual bill close button (shown when autoCloseOnFullPayment = false) -->
-            <div v-if="canManuallyCloseBill">
+            <!-- Manual bill close button (shown when fully paid) -->
+            <div v-if="canManuallyCloseBill" class="rounded-2xl border-2 border-emerald-300 bg-emerald-50 p-4 space-y-3">
+              <div class="flex items-center gap-2 text-emerald-700">
+                <CheckCircle class="size-5 shrink-0" />
+                <span class="text-sm font-bold">Conto saldato — nessun residuo.</span>
+              </div>
               <button @click="closeTableBill" class="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl active:scale-95 transition-all shadow-md flex items-center justify-center gap-2">
-                <CheckCircle class="size-5" /> Chiudi Conto e Libera Tavolo
+                <CheckCircle class="size-5" /> Chiudi Conto e Genera Riepilogo
               </button>
             </div>
           </div>
@@ -527,10 +482,167 @@
   </div>
 
   <!-- ================================================================ -->
+  <!-- MODAL: PAGAMENTO                                                  -->
+  <!-- ================================================================ -->
+  <div v-if="showPaymentModal && selectedTable" class="fixed inset-0 z-[75] bg-black/70 backdrop-blur-sm flex items-end md:items-center justify-center p-0 md:p-4">
+    <div class="bg-white rounded-t-3xl md:rounded-3xl shadow-2xl w-full max-w-sm md:max-w-md flex flex-col overflow-hidden max-h-[95dvh] md:max-h-[85dvh]">
+      <!-- Header -->
+      <div class="bg-gray-900 text-white p-4 md:p-5 flex justify-between items-center shrink-0">
+        <div class="flex items-center gap-3">
+          <div class="size-10 rounded-full bg-white/10 flex items-center justify-center shrink-0">
+            <component :is="modalMethodIcon" class="size-5" />
+          </div>
+          <div>
+            <h3 class="font-bold text-base md:text-lg leading-tight">{{ modalMethodLabel }}</h3>
+            <p class="text-white/60 text-[10px]">
+              {{ checkoutMode === 'romana' ? 'Incasso Quota Romana' : checkoutMode === 'ordini' ? 'Incasso Per Comanda' : 'Incasso Conto' }}
+            </p>
+          </div>
+        </div>
+        <button @click="closePaymentModal" class="bg-white/10 hover:bg-white/20 p-2 rounded-full transition-colors active:scale-95">
+          <X class="size-5" />
+        </button>
+      </div>
+
+      <!-- Body -->
+      <div class="p-4 md:p-6 flex-1 overflow-y-auto space-y-4">
+        <!-- Da pagare -->
+        <div class="bg-gray-50 rounded-2xl border border-gray-200 px-4 py-3 flex justify-between items-center">
+          <span class="text-xs font-bold text-gray-400 uppercase tracking-wider">Da Pagare</span>
+          <span class="text-3xl font-black text-gray-900">{{ store.config.ui.currency }}{{ amountBeingPaid.toFixed(2) }}</span>
+        </div>
+
+        <!-- Importo Ricevuto -->
+        <div>
+          <label class="block text-[10px] font-bold text-gray-700 uppercase mb-1.5 flex items-center gap-1.5">
+            <Banknote class="size-3.5" /> Importo Ricevuto
+          </label>
+          <NumericInput
+            v-model="modalRicevutiComputed"
+            min="0"
+            step="0.50"
+            :prefix="store.config.ui.currency"
+            class="w-full text-lg font-black border-2 border-gray-300 rounded-xl px-4 py-3 bg-white focus:outline-none focus:border-gray-500 text-gray-900"
+          />
+        </div>
+
+        <!-- Resto + Mancia (solo quando c'è un eccesso) -->
+        <template v-if="modalExcess > 0">
+          <!-- Cash + tips enabled: Resto | swap | Mancia on same row -->
+          <div v-if="modalIsCash && tipsEnabled" class="flex items-end gap-2">
+            <div class="flex-1">
+              <label class="block text-[10px] font-bold text-blue-600 uppercase mb-1.5 flex items-center gap-1">
+                <ArrowRightLeft class="size-3" /> Resto
+              </label>
+              <NumericInput
+                v-model="modalRestoComputed"
+                min="0"
+                step="0.50"
+                :prefix="store.config.ui.currency"
+                class="w-full text-base font-black border-2 border-blue-200 rounded-xl px-3 py-3 bg-white focus:outline-none focus:border-blue-400 text-blue-900"
+              />
+            </div>
+            <button
+              @click="swapRestoMancia"
+              class="mb-0.5 size-10 flex items-center justify-center rounded-xl bg-orange-50 hover:bg-orange-100 border border-orange-200 text-orange-500 shadow-sm transition-colors active:scale-95 shrink-0"
+              title="Scambia Resto e Mancia"
+            >
+              <ArrowRightLeft class="size-4" />
+            </button>
+            <div class="flex-1">
+              <label class="block text-[10px] font-bold text-purple-600 uppercase mb-1.5 flex items-center gap-1">
+                <Wallet class="size-3" /> Mancia
+              </label>
+              <NumericInput
+                v-model="modalManciaComputed"
+                min="0"
+                step="0.50"
+                :prefix="store.config.ui.currency"
+                class="w-full text-base font-black border-2 border-purple-200 rounded-xl px-3 py-3 bg-white focus:outline-none focus:border-purple-400 text-purple-900"
+              />
+            </div>
+          </div>
+
+          <!-- Cash only (no tips): Resto full width -->
+          <div v-else-if="modalIsCash">
+            <label class="block text-[10px] font-bold text-blue-600 uppercase mb-1.5 flex items-center gap-1.5">
+              <ArrowRightLeft class="size-3.5" /> Resto da Dare
+            </label>
+            <NumericInput
+              v-model="modalRestoComputed"
+              min="0"
+              step="0.50"
+              :prefix="store.config.ui.currency"
+              class="w-full text-lg font-black border-2 border-blue-200 rounded-xl px-4 py-3 bg-white focus:outline-none focus:border-blue-400 text-blue-900"
+            />
+          </div>
+
+        </template>
+
+        <!-- Riepilogo dinamico -->
+        <div v-if="modalRicevutoParsed > 0" class="rounded-2xl border p-3 text-sm space-y-1.5"
+          :class="modalIsPartial ? 'bg-amber-50 border-amber-200' : 'bg-emerald-50 border-emerald-200'">
+          <div class="flex justify-between">
+            <span class="text-gray-600">Ricevuto:</span>
+            <span class="font-bold text-gray-800">{{ store.config.ui.currency }}{{ modalRicevutoParsed.toFixed(2) }}</span>
+          </div>
+          <div class="flex justify-between text-xs text-gray-500">
+            <span>– Da pagare:</span>
+            <span class="font-bold">{{ store.config.ui.currency }}{{ amountBeingPaid.toFixed(2) }}</span>
+          </div>
+          <template v-if="!modalIsPartial">
+            <div v-if="modalIsCash && modalRestoParsed > 0" class="flex justify-between text-blue-600 border-t border-blue-200 pt-1.5">
+              <span>= Resto da dare:</span>
+              <span class="font-bold">{{ store.config.ui.currency }}{{ modalRestoParsed.toFixed(2) }}</span>
+            </div>
+            <div v-if="tipsEnabled && modalManciaParsed > 0" class="flex justify-between text-purple-600"
+              :class="{ 'border-t border-purple-200 pt-1.5': !(modalIsCash && modalRestoParsed > 0) }">
+              <span>+ Mancia:</span>
+              <span class="font-bold">{{ store.config.ui.currency }}{{ modalManciaParsed.toFixed(2) }}</span>
+            </div>
+          </template>
+          <div v-if="modalIsPartial" class="border-t border-amber-300 pt-1.5 mt-0.5 space-y-1">
+            <div class="flex justify-between text-amber-700 font-bold">
+              <span>Incassato ora:</span>
+              <span>{{ store.config.ui.currency }}{{ modalRicevutoParsed.toFixed(2) }}</span>
+            </div>
+            <div class="flex justify-between text-amber-600 text-xs">
+              <span>Residuo da pagare:</span>
+              <span class="font-bold">{{ store.config.ui.currency }}{{ (amountBeingPaid - modalRicevutoParsed).toFixed(2) }}</span>
+            </div>
+            <p class="text-[10px] text-amber-700 font-bold flex items-center gap-1 pt-0.5">
+              <AlertTriangle class="size-3 shrink-0" /> Pagamento parziale: sarà richiesta un'ulteriore transazione.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Footer -->
+      <div class="p-4 border-t border-gray-200 space-y-2 shrink-0">
+        <button
+          @click="confirmPaymentModal"
+          :disabled="modalRicevutoParsed <= 0"
+          class="w-full py-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl disabled:opacity-40 disabled:bg-gray-300 disabled:text-gray-400 active:scale-95 transition-all flex items-center justify-center gap-2 text-base shadow-md"
+        >
+          <CheckCircle class="size-5" />
+          <template v-if="modalIsCash && modalRestoParsed > 0">Conferma · Resto {{ store.config.ui.currency }}{{ modalRestoParsed.toFixed(2) }}</template>
+          <template v-else-if="!modalIsCash && !modalIsPartial && tipsEnabled && modalManciaParsed > 0">Conferma · Mancia {{ store.config.ui.currency }}{{ modalManciaParsed.toFixed(2) }}</template>
+          <template v-else-if="modalIsPartial">Incassa {{ store.config.ui.currency }}{{ modalRicevutoParsed.toFixed(2) }}</template>
+          <template v-else>Conferma Incasso</template>
+        </button>
+        <button
+          @click="closePaymentModal"
+          class="w-full py-2.5 text-gray-600 font-bold rounded-xl border border-gray-200 bg-white hover:bg-gray-100 active:scale-95 transition-all text-sm"
+        >Annulla</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================================================================ -->
   <!-- MODAL: AGGIUNGI VOCE DIRETTA AL CONTO                           -->
   <!-- ================================================================ -->
   <div v-if="showDirectItemModal && selectedTable" class="fixed inset-0 z-[70] bg-black/70 backdrop-blur-sm flex items-end md:items-center justify-center p-0 md:p-4">
-    <div class="bg-white rounded-t-3xl md:rounded-3xl shadow-2xl w-full max-w-3xl h-[90dvh] md:h-[85vh] flex flex-col overflow-hidden">
+    <div class="bg-white rounded-t-3xl md:rounded-3xl shadow-2xl w-full max-w-3xl h-[90dvh] md:h-[85dvh] flex flex-col overflow-hidden">
 
       <!-- Header -->
       <div class="bg-gray-900 text-white p-3 md:p-4 flex justify-between items-center shrink-0">
@@ -609,12 +721,13 @@
               <div class="w-28 shrink-0">
                 <label class="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1.5">Prezzo ({{ store.config.ui.currency }})</label>
                 <input
-                  v-model="directCustomPrice"
-                  type="number"
-                  min="0"
-                  step="0.10"
+                  :value="directCustomPrice"
+                  type="text"
+                  inputmode="decimal"
+                  autocomplete="off"
                   placeholder="0.00"
                   class="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none theme-ring bg-gray-50 focus:bg-white transition-colors"
+                  @input="onDirectCustomPriceInput"
                   @keydown.enter="addCustomItemToDirectCart"
                 />
               </div>
@@ -725,7 +838,7 @@
   <!-- MODAL: RICEVUTA TRANSAZIONE E PRECONTO JSON API FISCALE          -->
   <!-- ================================================================ -->
   <div v-if="showPrecontoJson" class="fixed inset-0 z-[95] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-    <div class="bg-gray-900 rounded-2xl w-full max-w-2xl h-[80vh] flex flex-col shadow-2xl border border-gray-700">
+    <div class="bg-gray-900 rounded-2xl w-full max-w-2xl h-[80dvh] flex flex-col shadow-2xl border border-gray-700">
       <div class="p-4 border-b border-gray-700 flex justify-between items-center shrink-0 bg-gray-800 rounded-t-2xl">
         <div class="flex flex-col">
           <h3 class="font-bold text-white flex items-center gap-2 text-sm md:text-base">
@@ -740,7 +853,9 @@
         <pre class="text-emerald-400 font-mono text-[10px] md:text-xs whitespace-pre-wrap">{{ jsonPayloadData }}</pre>
       </div>
       <div v-if="jsonContext === 'receipt'" class="p-4 border-t border-gray-700 bg-gray-800 rounded-b-2xl flex justify-end">
-        <button @click="closeJsonModal" class="w-full md:w-auto px-8 bg-emerald-600 hover:bg-emerald-500 text-white py-3 rounded-xl font-bold transition-colors active:scale-95">Chiudi Scontrino e Continua</button>
+        <button @click="closeJsonModal" class="w-full md:w-auto px-8 bg-emerald-600 hover:bg-emerald-500 text-white py-3 rounded-xl font-bold transition-colors active:scale-95">
+          {{ jsonContext === 'receipt' ? 'Chiudi Scontrino e Continua' : 'Chiudi' }}
+        </button>
       </div>
     </div>
   </div>
@@ -749,7 +864,7 @@
   <!-- MODAL: SPOSTA TAVOLO                                              -->
   <!-- ================================================================ -->
   <div v-if="showMoveModal" class="fixed inset-0 z-[100] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-5">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-5 max-h-[90dvh] overflow-y-auto">
       <div class="flex justify-between items-center mb-4">
         <h3 class="font-bold text-gray-800 flex items-center gap-2"><ArrowRightLeft class="size-5 theme-text" /> Sposta Tavolo {{ selectedTable?.label }}</h3>
         <button @click="showMoveModal = false" class="text-gray-400 hover:text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-full p-1.5 transition-colors"><X class="size-4" /></button>
@@ -770,7 +885,7 @@
   <!-- MODAL: UNISCI TAVOLI                                              -->
   <!-- ================================================================ -->
   <div v-if="showMergeModal" class="fixed inset-0 z-[100] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-5">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-5 max-h-[90dvh] overflow-y-auto">
       <div class="flex justify-between items-center mb-4">
         <h3 class="font-bold text-gray-800 flex items-center gap-2"><Merge class="size-5 theme-text" /> Unisci con Tavolo {{ selectedTable?.label }}</h3>
         <button @click="showMergeModal = false" class="text-gray-400 hover:text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-full p-1.5 transition-colors"><X class="size-4" /></button>
@@ -808,12 +923,13 @@ import {
   Grid3x3, Users, X, Plus, Coffee, Edit, AlertTriangle, CheckCircle,
   Ban, Undo2, Code, Minus, Receipt, ArrowRightLeft, Merge, Trash2,
   Layers, ListChecks, History, LayoutGrid, ListOrdered,
-  Tag, Wallet, Coins,
+  Tag, Wallet,
   Percent, Zap, BookOpen, PlusCircle, Banknote, CreditCard, Lock,
 } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
 import { getOrderItemRowTotal, KITCHEN_ACTIVE_STATUSES, getLockedDirectItems } from '../utils/index.js';
 import { resolveCustomItemsKey } from '../store/persistence.js';
+import { useNumericKeyboard } from '../composables/useNumericKeyboard.js';
 import { useAuth } from '../composables/useAuth.js';
 import CassaClosedBillsList from './CassaClosedBillsList.vue';
 import TableStatsBar from './shared/TableStatsBar.vue';
@@ -826,6 +942,7 @@ const emit = defineEmits(['open-order-from-table', 'new-order-for-ordini']);
 
 const store = useAppStore();
 const { isAdmin } = useAuth();
+const keyboard = useNumericKeyboard();
 
 // ── Table modal state ──────────────────────────────────────────────────────
 const showTableModal = ref(false);
@@ -886,6 +1003,8 @@ function toggleBillRequested() {
 }
 
 // ── Checkout state ─────────────────────────────────────────────────────────
+// Tolerance used to treat a bill as fully settled (handles floating-point rounding in totals).
+const BILL_SETTLED_THRESHOLD = 0.01;
 const cassaViewMode = ref('voce'); // 'voce' = grouped menu view | 'ordine' = per-order view
 const checkoutMode = ref('unico');
 const splitWays = ref(2);
@@ -893,14 +1012,16 @@ const splitPaidQuotas = ref(0);
 const romanaSplitCount = ref(1); // how many quotas to pay in this single transaction
 const selectedOrdersToPay = ref([]);
 
-// ── Active payment method (for cash-change calculator visibility) ──────────
-const activePaymentMethodId = ref(null);
-
-// ── Cash change calculator state ───────────────────────────────────────────
-const cashAmountGiven = ref('');
-
-// ── Tip (mancia) state ─────────────────────────────────────────────────────
-const tipInput = ref('');
+// ── Payment modal state ───────────────────────────────────────────────────
+// Opened when the cashier clicks a payment method button.
+const showPaymentModal = ref(false);
+const modalMethodId = ref(null);
+// Importo ricevuto dal cliente (pre-compilato con l'importo dovuto)
+const modalRicevuto = ref('');
+// Resto da ridare (solo contanti, auto-calcolato ma modificabile)
+const modalResto = ref('');
+// Mancia (opzionale, auto-calcolata ma modificabile)
+const modalMancia = ref('');
 
 // ── Discount (sconto) state ────────────────────────────────────────────────
 const discountInput = ref('');
@@ -987,40 +1108,118 @@ const quotaRomana = computed(() => {
 });
 
 // ── Feature flags from config ──────────────────────────────────────────────
-const cashChangeEnabled = computed(() => store.config.billing?.enableCashChangeCalculator ?? false);
 const tipsEnabled = computed(() => store.config.billing?.enableTips ?? false);
 const discountsEnabled = computed(() => store.config.billing?.enableDiscounts ?? false);
 
-// Returns true when the currently active payment method is a cash-type method
-// (identified by having a non-credit-card icon, i.e. 'banknote' or unspecified).
-const isCashPaymentActive = computed(() => {
-  const id = activePaymentMethodId.value;
-  if (!id) return false;
-  const m = store.config.paymentMethods.find(x => x.id === id);
+// ── Payment modal computed ───────────────────────────────────────────────────────────────────
+const modalMethod = computed(() =>
+  store.config.paymentMethods.find(m => m.id === modalMethodId.value) ?? null,
+);
+const modalMethodLabel = computed(() => modalMethod.value?.label ?? '');
+const modalMethodIcon = computed(() => getPaymentIcon(modalMethodId.value));
+
+// Is the pending method a cash (non-card) method?
+const modalIsCash = computed(() => {
+  const m = modalMethod.value;
   return m ? m.icon !== 'credit-card' : false;
 });
 
-// ── Tip amount ─────────────────────────────────────────────────────────────
-const tipAmount = computed(() => Math.max(0, parseFloat(tipInput.value) || 0));
+const modalRicevutoParsed = computed(() => Math.max(0, parseFloat(modalRicevuto.value) || 0));
+const modalRestoParsed = computed(() => Math.max(0, parseFloat(modalResto.value) || 0));
+const modalManciaParsed = computed(() => Math.max(0, parseFloat(modalMancia.value) || 0));
+
+// True when the customer is paying less than the amount due (partial payment).
+const modalIsPartial = computed(() =>
+  modalRicevutoParsed.value > 0 && modalRicevutoParsed.value < amountBeingPaid.value,
+);
+
+// Excess above the amount due (ricevuto - due), used for Resto/Mancia distribution.
+const modalExcess = computed(() => Math.max(0, modalRicevutoParsed.value - amountBeingPaid.value));
+
+// Coerce any model value to a plain string for safe parsing (handles null/undefined/'').
+const toRawString = (v) => (v == null || v === '') ? '' : String(v);
+
+// Computed v-model setters: changing one field updates the others.
+// Ricevuto changed → keep Mancia, recalculate Resto.
+const modalRicevutiComputed = computed({
+  get() { return modalRicevuto.value; },
+  set(v) {
+    // Store the raw string without formatting so the cursor position is not
+    // disrupted while the user is typing. Downstream computed values
+    // (modalRicevutoParsed etc.) use parseFloat() and handle raw strings fine.
+    const raw = toRawString(v);
+    modalRicevuto.value = raw;
+    const num = parseFloat(raw) || 0;
+    const excess = Math.max(0, num - amountBeingPaid.value);
+    if (!modalIsCash.value) {
+      // Electronic: full excess goes to Mancia automatically.
+      modalMancia.value = excess > 0 ? excess.toFixed(2) : '';
+      modalResto.value = '';
+    } else {
+      // Cash: keep existing Mancia ratio, let Resto absorb the rest.
+      const mancia = Math.min(excess, Math.max(0, parseFloat(modalMancia.value) || 0));
+      modalMancia.value = mancia > 0 ? mancia.toFixed(2) : '';
+      modalResto.value = (excess - mancia) > 0 ? (excess - mancia).toFixed(2) : '';
+    }
+  },
+});
+
+// Resto changed → recalculate Mancia (only cash). Clamped to available excess.
+const modalRestoComputed = computed({
+  get() { return modalResto.value; },
+  set(v) {
+    const excess = modalExcess.value;
+    const raw = toRawString(v);
+    const parsed = Math.max(0, parseFloat(raw) || 0);
+    const resto = Math.min(parsed, excess);
+    // If the value was clamped to a different number, format it to show the correction clearly.
+    // Otherwise keep the raw string so cursor position is not disrupted while typing.
+    modalResto.value = resto > 0
+      ? (resto < parsed ? resto.toFixed(2) : raw)
+      : '';
+    modalMancia.value = (excess - resto) > 0 ? (excess - resto).toFixed(2) : '';
+  },
+});
+
+// Mancia changed → recalculate Resto (only cash). Clamped to available excess.
+const modalManciaComputed = computed({
+  get() { return modalMancia.value; },
+  set(v) {
+    const excess = modalExcess.value;
+    const raw = toRawString(v);
+    const parsed = Math.max(0, parseFloat(raw) || 0);
+    const mancia = Math.min(parsed, excess);
+    // If the value was clamped to a different number, format it to show the correction clearly.
+    // Otherwise keep the raw string so cursor position is not disrupted while typing.
+    modalMancia.value = mancia > 0
+      ? (mancia < parsed ? mancia.toFixed(2) : raw)
+      : '';
+    if (modalIsCash.value) {
+      modalResto.value = (excess - mancia) > 0 ? (excess - mancia).toFixed(2) : '';
+    }
+  },
+});
 
 // ── Discount preview (not yet applied) ────────────────────────────────────
 const discountPreview = computed(() => {
   if (!discountsEnabled.value) return 0;
   const val = parseFloat(discountInput.value) || 0;
   if (discountType.value === 'percent') {
-    return Math.min(tableAmountRemaining.value, (tableAmountRemaining.value * val) / 100);
+    const clampedPct = Math.min(100, Math.max(0, val));
+    return Math.min(tableAmountRemaining.value, (tableAmountRemaining.value * clampedPct) / 100);
   }
-  return Math.min(tableAmountRemaining.value, val);
+  return Math.min(tableAmountRemaining.value, Math.max(0, val));
 });
 
-// ── Cash change calculation ────────────────────────────────────────────────
-const cashChange = computed(() => {
-  const given = parseFloat(cashAmountGiven.value) || 0;
-  const toPay = amountBeingPaid.value + tipAmount.value;
-  if (given <= 0 || given < toPay) return null;
-  return given - toPay;
+// True when the user has entered an out-of-range discount value (to show warning).
+const discountInputExceedsMax = computed(() => {
+  const val = parseFloat(discountInput.value) || 0;
+  if (val <= 0) return false;
+  if (discountType.value === 'percent') return val > 100;
+  return val > tableAmountRemaining.value;
 });
 
+// ── Checkout amounts ───────────────────────────────────────────────────────
 const amountBeingPaid = computed(() => {
   if (checkoutMode.value === 'unico') return tableAmountRemaining.value;
   if (checkoutMode.value === 'romana') return quotaRomana.value;
@@ -1028,7 +1227,7 @@ const amountBeingPaid = computed(() => {
 });
 
 const canPay = computed(() => {
-  if (tableAmountRemaining.value <= 0.01) return false;
+  if (tableAmountRemaining.value <= BILL_SETTLED_THRESHOLD) return false;
   if (checkoutMode.value === 'ordini' && selectedOrdersToPay.value.length === 0) return false;
   return true;
 });
@@ -1122,14 +1321,13 @@ function _openTableModal(table) {
   cassaViewMode.value = 'voce';
   selectedOrdersToPay.value = [];
   romanaSplitCount.value = 1;
-  cashAmountGiven.value = '';
-  activePaymentMethodId.value =
-    store.config.paymentMethods.find(m => m.icon !== 'credit-card')?.id ??
-    store.config.paymentMethods[0]?.id ??
-    null;
-  tipInput.value = '';
   discountInput.value = '';
   discountType.value = 'percent';
+  showPaymentModal.value = false;
+  modalMethodId.value = null;
+  modalRicevuto.value = '';
+  modalResto.value = '';
+  modalMancia.value = '';
 
   const pastRomana = store.transactions.filter(
     t => t.tableId === table.id && t.operationType === 'romana' &&
@@ -1222,6 +1420,13 @@ const directActiveMenuCategory = ref('');
 const directCart = ref([]);
 const directCustomName = ref('');
 const directCustomPrice = ref('');
+
+function onDirectCustomPriceInput(event) {
+  const raw = event.target.value;
+  const normalized = raw.replace(/,/g, '.');
+  if (normalized !== raw) event.target.value = normalized;
+  directCustomPrice.value = normalized;
+}
 
 /** True when the "Personalizzata" custom-entry tab is available (driven by config flag). */
 const canShowCustomEntryTab = computed(
@@ -1347,27 +1552,50 @@ function confirmDirectItems() {
   closeDirectItemModal();
 }
 
-// ── Manual bill close (used when autoCloseOnFullPayment = false) ───────────
-const autoCloseOnFullPayment = computed(() => store.config.billing?.autoCloseOnFullPayment ?? true);
-
+// ── Manual bill close (shown when fully paid) ─────────────────────────────
 const canManuallyCloseBill = computed(() =>
-  !autoCloseOnFullPayment.value &&
-  tableAmountRemaining.value <= 0.01 &&
-  tableAcceptedPayableOrders.value.length > 0,
-);
+  !!selectedTable.value &&
+  tableAmountRemaining.value <= BILL_SETTLED_THRESHOLD);
 
 function closeTableBill() {
   if (!selectedTable.value) return;
+  const session = store.tableCurrentBillSession[selectedTable.value.id];
+  const billTxns = store.transactions.filter(
+    t => t.tableId === selectedTable.value.id &&
+      (!session || t.billSessionId === session.billSessionId),
+  );
+  const summary = {
+    type: 'CONTO_CHIUSO',
+    table: selectedTable.value.id,
+    tableLabel: selectedTable.value.label,
+    billSessionId: session?.billSessionId ?? null,
+    closedAt: new Date().toISOString(),
+    totalAmount: tableTotalAmount.value,
+    totalPaid: tableAmountPaid.value,
+    transactions: billTxns,
+    orders: tableAcceptedPayableOrders.value.map(o => ({
+      id: o.id,
+      status: o.status,
+      items: o.orderItems,
+    })),
+  };
   tableAcceptedPayableOrders.value.forEach(o => store.changeOrderStatus(o, 'completed'));
-  closeTableModal();
+  jsonContext.value = 'receipt';
+  jsonPayloadData.value = JSON.stringify(summary, null, 2);
+  showPrecontoJson.value = true;
 }
 
 // ── Payment processing ─────────────────────────────────────────────────────
-function processTablePayment(paymentMethodId) {
+// extra: { grossAmount?, changeAmount?, tipAmount? }
+//   grossAmount = total handed over (cash); changeAmount = returned to customer.
+//   tipAmount = voluntary tip (mancia).
+//   amountPaid always = bill portion (net of change and tip).
+// overrideAmount: if provided, uses this instead of amountBeingPaid (for partial payments).
+function processTablePayment(paymentMethodId, extra = {}, overrideAmount = null) {
   if (!selectedTable.value) return;
 
-  const amount = amountBeingPaid.value;
-  const tip = tipsEnabled.value ? tipAmount.value : 0;
+  const amount = overrideAmount !== null ? overrideAmount : amountBeingPaid.value;
+  const tip = extra.tipAmount != null ? extra.tipAmount : 0;
   const session = store.tableCurrentBillSession[selectedTable.value.id];
   const payload = {
     transactionId: 'txn_' + Math.random().toString(36).slice(2, 11),
@@ -1381,6 +1609,12 @@ function processTablePayment(paymentMethodId) {
     orderRefs: [],
   };
 
+  // Record gross amount and change when customer overpays.
+  // grossAmount = total handed to cashier; changeAmount = cash returned.
+  // Invariant: amountPaid = grossAmount − changeAmount − tipAmount.
+  if (extra.grossAmount != null) payload.grossAmount = extra.grossAmount;
+  if (extra.changeAmount != null) payload.changeAmount = extra.changeAmount;
+
   if (checkoutMode.value === 'unico') {
     payload.orderRefs = tableAcceptedPayableOrders.value.map(o => o.id);
   } else if (checkoutMode.value === 'romana') {
@@ -1393,26 +1627,80 @@ function processTablePayment(paymentMethodId) {
     romanaSplitCount.value = 1;
   } else if (checkoutMode.value === 'ordini') {
     payload.orderRefs = [...selectedOrdersToPay.value];
-    tableAcceptedPayableOrders.value.forEach(o => {
-      if (selectedOrdersToPay.value.includes(o.id)) store.changeOrderStatus(o, 'completed');
-    });
-    selectedOrdersToPay.value = [];
+    // Orders are intentionally NOT marked completed here yet; they are handled below
+    // after the transaction is recorded so the auto-close check sees correct balances.
   }
 
   store.addTransaction(payload);
 
-  // Reset cash change input after payment
-  cashAmountGiven.value = '';
-  tipInput.value = '';
-
-  // Close all accepted orders when fully paid, if autoCloseOnFullPayment is enabled
-  if (autoCloseOnFullPayment.value && tableAmountRemaining.value <= 0.01) {
-    tableAcceptedPayableOrders.value.forEach(o => store.changeOrderStatus(o, 'completed'));
+  // Mark only the selected orders as completed.
+  // In ordini mode, only complete the selected orders when the payment fully
+  // covers the amount due for those orders (i.e., it is not a partial payment).
+  // Partial payments record the amount but leave the orders open so the
+  // remaining balance can still be collected.
+  if (checkoutMode.value === 'ordini') {
+    if (amount + BILL_SETTLED_THRESHOLD >= amountBeingPaid.value) {
+      tableAcceptedPayableOrders.value.forEach(o => {
+        if (payload.orderRefs.includes(o.id)) store.changeOrderStatus(o, 'completed');
+      });
+    }
+    selectedOrdersToPay.value = [];
   }
 
   jsonContext.value = 'receipt';
   jsonPayloadData.value = JSON.stringify(payload, null, 2);
   showPrecontoJson.value = true;
+}
+
+// ── Payment modal helpers ──────────────────────────────────────────────────
+// Opens the payment modal for the given method (pre-fills Ricevuto with amount due).
+function openPaymentModal(methodId) {
+  modalMethodId.value = methodId;
+  modalRicevuto.value = '';
+  modalResto.value = '';
+  modalMancia.value = '';
+  showPaymentModal.value = true;
+}
+
+// Closes and resets the payment modal.
+function closePaymentModal() {
+  keyboard.closeKeyboard();
+  showPaymentModal.value = false;
+  modalMethodId.value = null;
+  modalRicevuto.value = '';
+  modalResto.value = '';
+  modalMancia.value = '';
+}
+
+// Swaps the Resto and Mancia amounts.
+function swapRestoMancia() {
+  const r = modalResto.value;
+  modalResto.value = modalMancia.value;
+  modalMancia.value = r;
+}
+
+// Confirms the payment from the modal: records the transaction and closes the modal.
+// Partial payments (ricevuto < due) record only the ricevuto amount; the remaining
+// balance stays open until a subsequent transaction completes it.
+function confirmPaymentModal() {
+  if (!modalMethodId.value) return;
+  const ricevuto = parseFloat(modalRicevuto.value) || 0;
+  if (ricevuto <= 0) return;
+
+  const due = amountBeingPaid.value;
+  const amountPaid = Math.min(ricevuto, due);
+  const extra = {};
+
+  if (tipsEnabled.value && modalManciaParsed.value > 0) {
+    extra.tipAmount = modalManciaParsed.value;
+  }
+  if (modalIsCash.value) {
+    extra.grossAmount = ricevuto;
+    if (modalRestoParsed.value > 0) extra.changeAmount = modalRestoParsed.value;
+  }
+
+  processTablePayment(modalMethodId.value, extra, amountPaid);
+  closePaymentModal();
 }
 
 // ── Apply discount ─────────────────────────────────────────────────────────
@@ -1438,10 +1726,6 @@ function applyDiscount() {
     orderRefs: [],
   });
 
-  // Same auto-close flow as processTablePayment to avoid stuck table state
-  if (autoCloseOnFullPayment.value && tableAmountRemaining.value <= 0.01) {
-    tableAcceptedPayableOrders.value.forEach(o => store.changeOrderStatus(o, 'completed'));
-  }
   discountInput.value = '';
 }
 
@@ -1471,7 +1755,7 @@ function generateTableCheckoutJson(ctx = 'table') {
 function closeJsonModal() {
   showPrecontoJson.value = false;
   jsonPayloadData.value = '{}';
-  if (selectedTable.value && tableAcceptedPayableOrders.value.length === 0 && !hasPendingOrdersInTable.value) {
+  if (selectedTable.value && tableAcceptedPayableOrders.value.length === 0 && !hasPendingOrdersInTable.value && tableAmountRemaining.value <= BILL_SETTLED_THRESHOLD) {
     closeTableModal();
   }
 }

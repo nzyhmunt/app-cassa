@@ -42,7 +42,7 @@
         <p class="text-[10px] text-white/80 uppercase truncate">Turno Attivo</p>
       </div>
       <!-- Test Audio rapido -->
-      <button @click="onSimulateOrder" class="hidden md:flex bg-white/10 hover:bg-white/20 p-2 md:p-2.5 rounded-full transition-colors text-white" title="Simula Ordine da App">
+      <button v-if="store.config.demoOrders?.length > 0" @click="onSimulateOrder" aria-label="Simula Ordine da App" class="hidden md:flex bg-white/10 hover:bg-white/20 p-2 md:p-2.5 rounded-full transition-colors text-white" title="Simula Ordine da App">
         <BellPlus class="size-5 md:size-5" />
       </button>
       <!-- Tasto Cassa Dashboard -->

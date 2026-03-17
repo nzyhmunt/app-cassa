@@ -48,6 +48,7 @@
           <OrderSidebarCard
                :order="order"
                :selected="selectedOrder?.id === order.id"
+               note-visibility-key="cassa"
                @click="selectOrder(order)"
              />
         </template>
@@ -182,7 +183,7 @@
   <!-- MODAL: GESTIONE NOTE E VARIANTI                                   -->
   <!-- ================================================================ -->
   <div v-if="noteModal.show" class="fixed inset-0 z-[90] bg-black/60 backdrop-blur-sm flex items-end md:items-center justify-center p-0 md:p-4">
-    <div class="bg-white rounded-t-3xl md:rounded-3xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col max-h-[92dvh] md:max-h-[85vh]">
+    <div class="bg-white rounded-t-3xl md:rounded-3xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col max-h-[92dvh] md:max-h-[85dvh]">
       <div class="bg-gray-50 border-b border-gray-100 p-4 flex justify-between items-center shrink-0">
         <h3 class="font-bold text-base md:text-lg flex items-center gap-2"><PenLine class="text-gray-500 size-4 md:size-5" /> Note e Varianti</h3>
         <button ref="noteModalCloseBtn" @click="noteModal.show = false" aria-label="Chiudi" class="text-gray-400 hover:text-gray-800 p-1.5 bg-gray-200 hover:bg-gray-300 rounded-full active:scale-95 transition-colors"><X class="size-5" /></button>
@@ -298,7 +299,7 @@
   <!-- MODAL GLOBALE: CARRELLO AGGIUNTA MENU                            -->
   <!-- ================================================================ -->
   <div v-if="showAddMenuModal" class="fixed inset-0 z-[80] bg-black/80 backdrop-blur-sm flex items-end md:items-center justify-center p-0 md:p-4">
-    <div class="bg-white rounded-t-3xl md:rounded-3xl shadow-2xl w-full max-w-6xl h-[95dvh] md:h-[85vh] flex flex-col overflow-hidden relative">
+    <div class="bg-white rounded-t-3xl md:rounded-3xl shadow-2xl w-full max-w-6xl h-[95dvh] md:h-[85dvh] flex flex-col overflow-hidden relative">
 
       <div class="bg-gray-900 text-white p-3 md:p-4 flex justify-between items-center shrink-0">
         <div class="flex flex-col">
@@ -441,7 +442,7 @@
   <!-- REJECT CONFIRMATION MODAL                                    -->
   <!-- ============================================================ -->
   <div v-if="showRejectConfirm" class="fixed inset-0 z-[80] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-    <div class="bg-white rounded-3xl shadow-2xl w-full max-w-sm p-6">
+    <div class="bg-white rounded-3xl shadow-2xl w-full max-w-sm p-6 max-h-[90dvh] overflow-y-auto">
       <div class="text-center mb-4">
         <div class="size-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-3">
           <Trash2 class="size-8 text-red-600" />

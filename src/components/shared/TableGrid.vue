@@ -20,7 +20,7 @@
 
       <!-- Non-free state: elapsed time + app-specific slot content -->
       <div v-if="store.getTableStatus(table.id).status !== 'free'" class="mt-auto text-center w-full">
-        <span v-if="getElapsedTime(table.id)" class="absolute bottom-2 left-2 text-[8px] font-bold opacity-70 flex items-center gap-0.5">
+        <span v-if="getElapsedTime(table.id)" class="absolute top-2 left-2 md:top-3 md:left-3 text-[8px] font-bold opacity-70 flex items-center gap-0.5">
           <Timer class="size-2.5" />{{ getElapsedTime(table.id) }}
         </span>
         <slot name="status" :table="table" />

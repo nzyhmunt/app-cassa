@@ -77,6 +77,7 @@
           <OrderSidebarCard
             :order="order"
             :selected="selectedOrder?.id === order.id"
+            note-visibility-key="sala"
             @click="selectOrder(order)"
           />
         </template>
@@ -270,7 +271,7 @@
     <!-- MODAL GLOBALE: CARRELLO AGGIUNTA MENU                        -->
     <!-- ============================================================ -->
     <div v-if="showAddMenuModal" class="fixed inset-0 z-[80] bg-black/80 backdrop-blur-sm flex items-end md:items-center justify-center p-0 md:p-4">
-      <div class="bg-white rounded-t-3xl md:rounded-3xl shadow-2xl w-full max-w-6xl h-[95dvh] md:h-[85vh] flex flex-col overflow-hidden relative">
+      <div class="bg-white rounded-t-3xl md:rounded-3xl shadow-2xl w-full max-w-6xl h-[95dvh] md:h-[85dvh] flex flex-col overflow-hidden relative">
 
         <div class="bg-gray-900 text-white p-3 md:p-4 flex justify-between items-center shrink-0">
           <div class="flex flex-col">
@@ -423,7 +424,7 @@
     <!-- Layout aligned with OrderManager for UI consistency.        -->
     <!-- ============================================================ -->
     <div v-if="noteModal.show" class="fixed inset-0 z-[80] bg-black/60 backdrop-blur-sm flex items-end md:items-center justify-center p-0 md:p-4">
-      <div class="bg-white rounded-t-3xl md:rounded-3xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col max-h-[92dvh] md:max-h-[85vh]">
+      <div class="bg-white rounded-t-3xl md:rounded-3xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col max-h-[92dvh] md:max-h-[85dvh]">
 
         <!-- Fixed header -->
         <div class="bg-gray-50 border-b border-gray-100 p-4 flex justify-between items-center shrink-0">
@@ -502,12 +503,13 @@
               <div class="relative w-24 shrink-0">
                 <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm font-bold">{{ store.config.ui.currency }}</span>
                 <input
-                  v-model.number="noteModal.modPrice"
-                  type="number"
-                  min="0"
-                  step="0.50"
+                  :value="noteModal.modPrice"
+                  type="text"
+                  inputmode="decimal"
+                  autocomplete="off"
                   placeholder="0.00"
                   class="w-full pl-7 pr-2 py-3 bg-gray-100 border border-gray-200 rounded-xl focus:bg-white theme-ring transition-all text-gray-800 font-medium text-sm"
+                  @input="onModPriceInput"
                   @keyup.enter="addModToNoteModal"
                 />
               </div>
@@ -583,7 +585,7 @@
     <!-- REJECT CONFIRMATION MODAL                                    -->
     <!-- ============================================================ -->
     <div v-if="showRejectConfirm" class="fixed inset-0 z-[80] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-      <div class="bg-white rounded-3xl shadow-2xl w-full max-w-sm p-6">
+      <div class="bg-white rounded-3xl shadow-2xl w-full max-w-sm p-6 max-h-[90dvh] overflow-y-auto">
         <div class="text-center mb-4">
           <div class="size-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-3">
             <Trash2 class="size-8 text-red-600" />
@@ -623,7 +625,7 @@
     <!-- SUBMIT CONFIRMATION MODAL                                    -->
     <!-- ============================================================ -->
     <div v-if="showSubmitConfirm" class="fixed inset-0 z-[80] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-      <div class="bg-white rounded-3xl shadow-2xl w-full max-w-sm p-6">
+      <div class="bg-white rounded-3xl shadow-2xl w-full max-w-sm p-6 max-h-[90dvh] overflow-y-auto">
         <div class="text-center mb-4">
           <div class="size-16 theme-bg rounded-full flex items-center justify-center mx-auto mb-3 shadow-md">
             <Send class="size-8 text-white" />
@@ -741,7 +743,7 @@ const noteModalCloseBtn = ref(null);
 const noteModal = ref({
   show: false, inputText: '', notesArray: [],
   rowIndex: null, targetOrd: null, itemRef: null,
-  modifiersArray: [], modName: '', modPrice: 0,
+  modifiersArray: [], modName: '', modPrice: '',
   course: DEFAULT_COURSE, cartIdx: null,
 });
 
@@ -783,7 +785,7 @@ function openNoteModal(ord, idx) {
   noteModal.value.course = ord.orderItems[idx].course || DEFAULT_COURSE;
   noteModal.value.inputText = '';
   noteModal.value.modName = '';
-  noteModal.value.modPrice = 0;
+  noteModal.value.modPrice = '';
   noteModal.value.show = true;
   nextTick(() => noteModalCloseBtn.value?.focus());
 }
@@ -800,7 +802,7 @@ function openCartNoteModal(idx) {
   noteModal.value.course = cartItem.course || DEFAULT_COURSE;
   noteModal.value.inputText = '';
   noteModal.value.modName = '';
-  noteModal.value.modPrice = 0;
+  noteModal.value.modPrice = '';
   noteModal.value.show = true;
   nextTick(() => noteModalCloseBtn.value?.focus());
 }
@@ -820,9 +822,9 @@ function removeNoteFromModal(idx) {
 function addModToNoteModal() {
   const name = noteModal.value.modName.trim();
   if (!name) return;
-  noteModal.value.modifiersArray.push({ name, price: noteModal.value.modPrice || 0 });
+  noteModal.value.modifiersArray.push({ name, price: parseFloat(String(noteModal.value.modPrice).replace(/,/g, '.')) || 0 });
   noteModal.value.modName = '';
-  noteModal.value.modPrice = 0;
+  noteModal.value.modPrice = '';
 }
 
 function applyNoteModPreset(name, price) {
@@ -833,6 +835,13 @@ function applyNoteModPreset(name, price) {
 
 function removeModFromNoteModal(idx) {
   noteModal.value.modifiersArray.splice(idx, 1);
+}
+
+function onModPriceInput(event) {
+  const raw = event.target.value;
+  const normalized = raw.replace(/,/g, '.');
+  if (normalized !== raw) event.target.value = normalized;
+  noteModal.value.modPrice = normalized;
 }
 
 function saveNotes() {
