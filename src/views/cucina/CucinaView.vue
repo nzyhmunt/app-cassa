@@ -71,29 +71,36 @@
       </div>
     </header>
 
-    <!-- ── Tab nav: Kanban / Dettaglio / Cronologia ─────────────────────── -->
+    <!-- ── Tab nav: Kanban / Dettaglio / Totali / Cronologia ────────────────── -->
     <div class="shrink-0 flex gap-1.5 bg-white border-b border-gray-200 px-3 py-2">
       <button
         @click="cucinaTab = 'kanban'"
         :class="cucinaTab === 'kanban' ? 'bg-[var(--brand-primary)]/10 text-[var(--brand-primary)] border-[var(--brand-primary)]/30 font-bold' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100'"
         class="flex-1 py-1.5 px-2 rounded-xl border transition-all text-[10px] uppercase tracking-wider flex items-center justify-center gap-1.5"
       >
-        <Layers class="size-3.5" /> Kanban
+        <Layers class="size-3.5 shrink-0" /> <span class="hidden sm:inline">Kanban</span>
       </button>
       <button
         @click="cucinaTab = 'detail'"
         :class="cucinaTab === 'detail' ? 'bg-[var(--brand-primary)]/10 text-[var(--brand-primary)] border-[var(--brand-primary)]/30 font-bold' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100'"
         class="flex-1 py-1.5 px-2 rounded-xl border transition-all text-[10px] uppercase tracking-wider flex items-center justify-center gap-1.5"
       >
-        <ClipboardList class="size-3.5" /> Dettaglio
+        <ClipboardList class="size-3.5 shrink-0" /> <span class="hidden sm:inline">Dettaglio</span>
         <span v-if="allKitchenOrders.length > 0" class="bg-[var(--brand-primary)] text-white text-[9px] font-black rounded-full size-4 flex items-center justify-center shrink-0">{{ allKitchenOrders.length }}</span>
+      </button>
+      <button
+        @click="cucinaTab = 'totals'"
+        :class="cucinaTab === 'totals' ? 'bg-[var(--brand-primary)]/10 text-[var(--brand-primary)] border-[var(--brand-primary)]/30 font-bold' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100'"
+        class="flex-1 py-1.5 px-2 rounded-xl border transition-all text-[10px] uppercase tracking-wider flex items-center justify-center gap-1.5"
+      >
+        <Hash class="size-3.5 shrink-0" /> <span class="hidden sm:inline">Totali</span>
       </button>
       <button
         @click="cucinaTab = 'history'"
         :class="cucinaTab === 'history' ? 'bg-gray-100 text-gray-700 border-gray-300 font-bold' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100'"
         class="flex-1 py-1.5 px-2 rounded-xl border transition-all text-[10px] uppercase tracking-wider flex items-center justify-center gap-1.5"
       >
-        <Clock class="size-3.5" /> Cronologia
+        <Clock class="size-3.5 shrink-0" /> <span class="hidden sm:inline">Cronologia</span>
         <span v-if="deliveredOrders.length > 0" class="bg-gray-500 text-white text-[9px] font-black rounded-full size-4 flex items-center justify-center shrink-0">{{ deliveredOrders.length }}</span>
       </button>
     </div>
@@ -336,6 +343,51 @@
       </article>
     </main>
 
+    <!-- ── Totali tab: aggregated dish quantities across active orders ──────── -->
+    <main v-else-if="cucinaTab === 'totals'" class="flex-1 overflow-y-auto p-3 md:p-4" style="overscroll-behavior:contain;">
+
+      <!-- Status filter pills -->
+      <div class="flex flex-wrap gap-1.5 mb-3">
+        <button
+          v-for="opt in [
+            { value: 'all',       label: 'Tutti' },
+            { value: 'accepted',  label: 'Da Preparare' },
+            { value: 'preparing', label: 'In Cottura' },
+            { value: 'ready',     label: 'Pronte' },
+          ]"
+          :key="opt.value"
+          @click="totalsStatusFilter = opt.value"
+          :class="totalsStatusFilter === opt.value
+            ? 'bg-[var(--brand-primary)] text-white border-[var(--brand-primary)] font-bold'
+            : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'"
+          class="px-3 py-1 rounded-full border text-xs transition-colors"
+        >
+          {{ opt.label }}
+        </button>
+      </div>
+
+      <!-- Empty state -->
+      <div v-if="totalsDishes.length === 0"
+           class="flex flex-col items-center justify-center py-16 gap-3">
+        <Hash class="size-12 text-gray-300" />
+        <p class="text-sm font-bold text-gray-400">Nessun piatto da mostrare</p>
+      </div>
+
+      <!-- Aggregated dish list -->
+      <div v-else class="space-y-1.5">
+        <div
+          v-for="dish in totalsDishes"
+          :key="dish.name"
+          class="bg-white rounded-xl border border-gray-200 px-4 py-3 flex items-center gap-3"
+        >
+          <span class="bg-[var(--brand-primary)] text-white font-black text-sm rounded-lg size-9 flex items-center justify-center shrink-0 tabular-nums">
+            {{ dish.qty }}×
+          </span>
+          <p class="flex-1 text-sm font-bold text-gray-800 truncate">{{ dish.name }}</p>
+        </div>
+      </div>
+    </main>
+
     <!-- ── Cronologia tab: delivered orders history ────────────────────────── -->
     <main v-else-if="cucinaTab === 'history'" class="flex-1 overflow-y-auto p-3 md:p-4 space-y-3" style="overscroll-behavior:contain;">
 
@@ -444,7 +496,7 @@
 
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
-import { Bell, BellRing, ChefHat, Check, CheckCircle2, Clock, Flame, Layers, Lock, Pencil, RefreshCw, RotateCcw, Settings, ClipboardList, X } from 'lucide-vue-next';
+import { Bell, BellRing, ChefHat, Check, CheckCircle2, Clock, Flame, Hash, Layers, Lock, Pencil, RefreshCw, RotateCcw, Settings, ClipboardList, X } from 'lucide-vue-next';
 import { useAppStore } from '../../store/index.js';
 import { useBeep } from '../../composables/useBeep.js';
 import { useAuth } from '../../composables/useAuth.js';
@@ -460,8 +512,8 @@ const { requiresAuth, ...auth } = useAuth();
 
 const store = useAppStore();
 
-// ── Kitchen tab navigation: Kanban / Detail / History ─────────────────────
-const cucinaTab = ref('kanban'); // 'kanban' | 'detail' | 'history'
+// ── Kitchen tab navigation: Kanban / Detail / Totals / History ───────────
+const cucinaTab = ref('kanban'); // 'kanban' | 'detail' | 'totals' | 'history'
 
 // All active kitchen orders for the detail tab (accepted → preparing → ready)
 const allKitchenOrders = computed(() =>
@@ -478,6 +530,27 @@ const deliveredOrders = computed(() =>
     .slice()
     .sort((a, b) => b.time.localeCompare(a.time)), // newest first
 );
+
+// ── Totali tab: aggregated dish quantities ─────────────────────────────────
+const totalsStatusFilter = ref('all');
+
+const totalsDishes = computed(() => {
+  const statuses = totalsStatusFilter.value === 'all'
+    ? ['accepted', 'preparing', 'ready']
+    : [totalsStatusFilter.value];
+  const qty = {};
+  for (const order of store.orders) {
+    if (!statuses.includes(order.status)) continue;
+    for (const item of order.orderItems || []) {
+      const net = (item.quantity || 0) - (item.voidedQuantity || 0);
+      if (net <= 0) continue;
+      qty[item.name] = (qty[item.name] || 0) + net;
+    }
+  }
+  return Object.entries(qty)
+    .map(([name, q]) => ({ name, qty: q }))
+    .sort((a, b) => b.qty - a.qty || a.name.localeCompare(b.name));
+});
 
 function toggleItemReady(order, itemIdx) {
   const item = order.orderItems[itemIdx];
