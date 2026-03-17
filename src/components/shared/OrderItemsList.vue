@@ -11,6 +11,18 @@
       {{ readOnlyMessage }}
     </div>
 
+    <!-- Global order note banner (visible according to noteVisibilityKey) -->
+    <div
+      v-if="order.globalNote && order.noteVisibility?.[noteVisibilityKey] !== false"
+      class="mb-3 bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-start gap-2 shadow-sm"
+    >
+      <MessageSquareWarning class="size-4 md:size-5 text-amber-600 shrink-0" />
+      <div class="min-w-0 flex-1">
+        <p class="text-[10px] md:text-xs font-bold text-amber-800 uppercase tracking-wider mb-0.5">Nota Ordine</p>
+        <p class="text-xs md:text-sm text-amber-700 font-medium whitespace-pre-wrap">{{ order.globalNote }}</p>
+      </div>
+    </div>
+
     <!-- Empty order hint -->
     <div v-if="order.orderItems.length === 0" class="text-center py-10 text-gray-400">
       <ShoppingCart class="size-10 mx-auto mb-2 opacity-30" />
@@ -139,17 +151,6 @@
       </div>
     </div>
 
-    <!-- Global order note banner (visible according to noteVisibilityKey) -->
-    <div
-      v-if="order.globalNote && order.noteVisibility?.[noteVisibilityKey] !== false"
-      class="mt-3 bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-start gap-2 shadow-sm"
-    >
-      <MessageSquareWarning class="size-4 md:size-5 text-amber-600 shrink-0" />
-      <div class="min-w-0 flex-1">
-        <p class="text-[10px] md:text-xs font-bold text-amber-800 uppercase tracking-wider mb-0.5">Nota Ordine</p>
-        <p class="text-xs md:text-sm text-amber-700 font-medium whitespace-pre-wrap">{{ order.globalNote }}</p>
-      </div>
-    </div>
   </div>
 </template>
 
