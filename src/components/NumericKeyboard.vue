@@ -55,14 +55,6 @@
           <span class="flex-1 text-4xl font-black text-gray-900 tracking-wider text-right tabular-nums leading-none">
             {{ keyboard.displayValue.value || '0' }}
           </span>
-          <button
-            v-if="keyboard.displayValue.value"
-            @click="keyboard.clear()"
-            class="text-gray-400 hover:text-red-500 transition-colors p-1 shrink-0"
-            aria-label="Cancella tutto"
-          >
-            <XCircle class="size-5" />
-          </button>
         </div>
       </div>
 
@@ -84,6 +76,11 @@
       <!-- Confirm + AC row -->
       <div class="grid grid-cols-3 gap-2.5 px-4 pb-8">
         <button
+          @click="keyboard.clear()"
+          class="py-4 rounded-2xl font-bold text-xl bg-orange-50 hover:bg-orange-100 text-orange-500 border border-orange-200 shadow-sm transition-all active:scale-95"
+          aria-label="Cancella tutto"
+        >AC</button>
+        <button
           @click="keyboard.confirm()"
           class="col-span-2 py-4 theme-bg text-white font-bold text-xl rounded-2xl shadow-md hover:opacity-90 transition-opacity active:scale-95 flex items-center justify-center gap-2"
           aria-label="Conferma"
@@ -91,11 +88,6 @@
           <Check class="size-5" />
           Conferma
         </button>
-        <button
-          @click="keyboard.clear()"
-          class="py-4 rounded-2xl font-bold text-xl bg-orange-50 hover:bg-orange-100 text-orange-500 border border-orange-200 shadow-sm transition-all active:scale-95"
-          aria-label="Cancella tutto"
-        >AC</button>
       </div>
     </div>
   </Transition>
@@ -103,7 +95,7 @@
 
 <script setup>
 import { computed } from 'vue';
-import { X, XCircle, Delete, Check } from 'lucide-vue-next';
+import { X, Delete, Check } from 'lucide-vue-next';
 import { useNumericKeyboard } from '../composables/useNumericKeyboard.js';
 import { useAppStore } from '../store/index.js';
 
@@ -129,9 +121,9 @@ const keyRows = computed(() => [
   { label: '1', style: 'bg-white shadow-sm hover:bg-gray-50 text-gray-800 border border-gray-200', action: () => keyboard.appendDigit('1') },
   { label: '2', style: 'bg-white shadow-sm hover:bg-gray-50 text-gray-800 border border-gray-200', action: () => keyboard.appendDigit('2') },
   { label: '3', style: 'bg-white shadow-sm hover:bg-gray-50 text-gray-800 border border-gray-200', action: () => keyboard.appendDigit('3') },
-  { label: '.', style: 'bg-white shadow-sm hover:bg-gray-50 text-gray-500 border border-gray-200 text-2xl', action: () => keyboard.appendDigit('.') },
-  { label: '0', style: 'bg-white shadow-sm hover:bg-gray-50 text-gray-800 border border-gray-200', action: () => keyboard.appendDigit('0') },
   { label: '⌫', icon: Delete, ariaLabel: 'Cancella cifra', style: 'bg-red-50 shadow-sm hover:bg-red-100 text-red-500 border border-red-200', action: () => keyboard.backspace() },
+  { label: '0', style: 'bg-white shadow-sm hover:bg-gray-50 text-gray-800 border border-gray-200', action: () => keyboard.appendDigit('0') },
+  { label: '.', style: 'bg-white shadow-sm hover:bg-gray-50 text-gray-500 border border-gray-200 text-2xl', action: () => keyboard.appendDigit('.') },
 ]);
 </script>
 

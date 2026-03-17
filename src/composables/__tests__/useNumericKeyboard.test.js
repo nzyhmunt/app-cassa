@@ -150,6 +150,49 @@ describe('useNumericKeyboard()', () => {
     expect(kb.displayValue.value).toBe('');
   });
 
+  // ── fresh-open overwrite behavior ─────────────────────────────────────────
+
+  it('first digit after openKeyboard() overwrites a pre-filled value', () => {
+    const kb = useNumericKeyboard();
+    kb.openKeyboard(12.5, () => {});
+    expect(kb.displayValue.value).toBe('12.5');
+    kb.appendDigit('3');
+    expect(kb.displayValue.value).toBe('3');
+  });
+
+  it('second digit after openKeyboard() appends normally', () => {
+    const kb = useNumericKeyboard();
+    kb.openKeyboard(12.5, () => {});
+    kb.appendDigit('3');
+    kb.appendDigit('7');
+    expect(kb.displayValue.value).toBe('37');
+  });
+
+  it('decimal "." as first digit after openKeyboard() sets "0."', () => {
+    const kb = useNumericKeyboard();
+    kb.openKeyboard(5, () => {});
+    kb.appendDigit('.');
+    expect(kb.displayValue.value).toBe('0.');
+  });
+
+  it('backspace() after openKeyboard() disables fresh-open overwrite', () => {
+    const kb = useNumericKeyboard();
+    kb.openKeyboard(12, () => {});
+    kb.backspace();
+    kb.appendDigit('5');
+    // backspace removes last char of '12' → '1', then '5' appends → '15'
+    expect(kb.displayValue.value).toBe('15');
+  });
+
+  it('clear() after openKeyboard() disables fresh-open overwrite', () => {
+    const kb = useNumericKeyboard();
+    kb.openKeyboard(12, () => {});
+    kb.clear();
+    kb.appendDigit('5');
+    // clear empties display, then '5' appends normally → '5'
+    expect(kb.displayValue.value).toBe('5');
+  });
+
   // ── singleton behavior ─────────────────────────────────────────────────────
 
   it('shares state between two instances obtained from useNumericKeyboard()', () => {
