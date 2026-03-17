@@ -94,6 +94,7 @@
         class="flex-1 py-1.5 px-2 rounded-xl border transition-all text-[10px] uppercase tracking-wider flex items-center justify-center gap-1.5"
       >
         <Hash class="size-3.5 shrink-0" /> <span class="hidden sm:inline">Totali</span>
+        <span v-if="aggregatedTotalsBadgeCount > 0 && cucinaTab !== 'totals'" class="bg-[var(--brand-primary)] text-white text-[9px] font-black rounded-full size-4 flex items-center justify-center shrink-0">{{ aggregatedTotalsBadgeCount }}</span>
       </button>
       <button
         @click="cucinaTab = 'history'"
@@ -343,51 +344,6 @@
       </article>
     </main>
 
-    <!-- ── Totali tab: aggregated dish quantities across active orders ──────── -->
-    <main v-else-if="cucinaTab === 'totals'" class="flex-1 overflow-y-auto p-3 md:p-4" style="overscroll-behavior:contain;">
-
-      <!-- Status filter pills -->
-      <div class="flex flex-wrap gap-1.5 mb-3">
-        <button
-          v-for="opt in [
-            { value: 'all',       label: 'Tutti' },
-            { value: 'accepted',  label: 'Da Preparare' },
-            { value: 'preparing', label: 'In Cottura' },
-            { value: 'ready',     label: 'Pronte' },
-          ]"
-          :key="opt.value"
-          @click="totalsStatusFilter = opt.value"
-          :class="totalsStatusFilter === opt.value
-            ? 'bg-[var(--brand-primary)] text-white border-[var(--brand-primary)] font-bold'
-            : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'"
-          class="px-3 py-1 rounded-full border text-xs transition-colors"
-        >
-          {{ opt.label }}
-        </button>
-      </div>
-
-      <!-- Empty state -->
-      <div v-if="totalsDishes.length === 0"
-           class="flex flex-col items-center justify-center py-16 gap-3">
-        <Hash class="size-12 text-gray-300" />
-        <p class="text-sm font-bold text-gray-400">Nessun piatto da mostrare</p>
-      </div>
-
-      <!-- Aggregated dish list -->
-      <div v-else class="space-y-1.5">
-        <div
-          v-for="dish in totalsDishes"
-          :key="dish.name"
-          class="bg-white rounded-xl border border-gray-200 px-4 py-3 flex items-center gap-3"
-        >
-          <span class="bg-[var(--brand-primary)] text-white font-black text-sm rounded-lg size-9 flex items-center justify-center shrink-0 tabular-nums">
-            {{ dish.qty }}×
-          </span>
-          <p class="flex-1 text-sm font-bold text-gray-800 truncate">{{ dish.name }}</p>
-        </div>
-      </div>
-    </main>
-
     <!-- ── Cronologia tab: delivered orders history ────────────────────────── -->
     <main v-else-if="cucinaTab === 'history'" class="flex-1 overflow-y-auto p-3 md:p-4 space-y-3" style="overscroll-behavior:contain;">
 
@@ -453,6 +409,85 @@
       </article>
     </main>
 
+    <!-- ── Totali tab: aggregated dish quantities across active orders ────────── -->
+    <main v-else-if="cucinaTab === 'totals'" class="flex-1 overflow-y-auto p-3 md:p-4" style="overscroll-behavior:contain;">
+
+      <!-- Status filter pills -->
+      <div class="flex flex-wrap gap-1.5 mb-3">
+        <button
+          v-for="opt in [
+            { value: 'all',       label: 'Tutti' },
+            { value: 'accepted',  label: 'Da Preparare' },
+            { value: 'preparing', label: 'In Cottura' },
+            { value: 'ready',     label: 'Pronte' },
+          ]"
+          :key="opt.value"
+          @click="totalsStatusFilter = opt.value"
+          :class="totalsStatusFilter === opt.value
+            ? 'bg-[var(--brand-primary)] text-white border-[var(--brand-primary)] font-bold'
+            : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'"
+          class="px-3 py-1 rounded-full border text-[10px] uppercase tracking-wider transition-colors"
+        >
+          {{ opt.label }}
+        </button>
+      </div>
+
+      <!-- Empty state -->
+      <div v-if="aggregatedTotals.length === 0" class="flex flex-col items-center justify-center gap-3 py-16 text-center">
+        <Hash class="size-12 text-gray-300" />
+        <span class="text-sm font-bold text-gray-400">Nessun piatto attivo</span>
+        <span class="text-xs text-gray-400">I piatti degli ordini attivi appariranno qui.</span>
+      </div>
+
+      <!-- Aggregated dish list grouped by course -->
+      <template v-else>
+        <template v-for="course in COURSE_ORDER" :key="course">
+          <template v-if="aggregatedTotals.some(r => r.course === course)">
+            <!-- Course header -->
+            <div
+              class="flex items-center gap-1.5 px-3 py-1.5 mb-1 rounded-lg text-[10px] font-black uppercase tracking-widest"
+              :class="{
+                'bg-orange-50 text-orange-700': course === 'prima',
+                'bg-gray-100 text-gray-500': course === 'insieme',
+                'bg-purple-50 text-purple-700': course === 'dopo',
+              }"
+            >
+              <Layers class="size-3 shrink-0" />
+              {{ course === 'prima' ? 'Esce Prima' : course === 'insieme' ? 'Insieme' : 'Esce Dopo' }}
+            </div>
+
+            <!-- Dish rows -->
+            <div class="bg-white rounded-2xl border border-gray-200 overflow-hidden mb-3">
+              <div
+                v-for="row in aggregatedTotals.filter(r => r.course === course)"
+                :key="row.key"
+                class="flex items-start gap-3 px-4 py-3 border-b last:border-b-0 border-gray-100 border-l-4"
+                :class="getCourseBorderClass(row.course)"
+              >
+                <div class="flex-1 min-w-0">
+                  <p class="text-sm font-bold text-gray-800 truncate">{{ row.name }}</p>
+                  <p v-if="row.notes.length" class="text-xs mt-0.5 font-semibold flex items-center gap-1 text-amber-600">
+                    <Pencil class="size-3 shrink-0" />{{ row.notes.join(' · ') }}
+                  </p>
+                  <div v-if="row.mods.length" class="flex flex-wrap gap-1 mt-0.5">
+                    <span
+                      v-for="(mod, mi) in row.mods"
+                      :key="mi"
+                      class="text-[10px] font-bold px-1.5 py-0.5 rounded inline-flex items-center gap-0.5 bg-purple-50 border border-purple-200 text-purple-700"
+                    >+ {{ mod.name }}</span>
+                  </div>
+                </div>
+                <span
+                  class="shrink-0 min-w-[2.5rem] text-center text-lg font-black tabular-nums leading-none pt-0.5"
+                  :class="getCourseQtyClass(row.course)"
+                >{{ row.qty }}<span class="text-[10px] font-bold text-gray-400 ml-0.5">×</span></span>
+              </div>
+            </div>
+          </template>
+        </template>
+      </template>
+    </main>
+
     <!-- ── Footer ─────────────────────────────────────────────────────────── -->
     <footer class="shrink-0 flex items-center justify-between px-4 py-2 bg-white border-t border-gray-200 text-xs text-gray-400">
       <span>Aggiornato: {{ lastSyncLabel }}</span>
@@ -466,7 +501,7 @@
         class="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4"
         @click.self="cancelReturnToPending"
       >
-        <div class="bg-white rounded-3xl shadow-2xl w-full max-w-sm p-6">
+        <div class="bg-white rounded-3xl shadow-2xl w-full max-w-sm p-6 max-h-[90dvh] overflow-y-auto">
           <div class="text-center mb-4">
             <h3 class="text-lg font-black text-gray-800">Rimanda in sala?</h3>
             <p class="text-sm text-gray-500 mt-1">
@@ -502,6 +537,8 @@ import { useBeep } from '../../composables/useBeep.js';
 import { useAuth } from '../../composables/useAuth.js';
 import KitchenOrderCard from './KitchenOrderCard.vue';
 import {
+  COURSE_ORDER,
+  DEFAULT_COURSE,
   getCourseBorderClass,
   getCourseQtyClass,
   groupOrderItemsByCourse,
@@ -512,8 +549,8 @@ const { requiresAuth, ...auth } = useAuth();
 
 const store = useAppStore();
 
-// ── Kitchen tab navigation: Kanban / Detail / Totals / History ───────────
-const cucinaTab = ref('kanban'); // 'kanban' | 'detail' | 'totals' | 'history'
+// ── Kitchen tab navigation: Kanban / Detail / History / Totals ───────────────
+const cucinaTab = ref('kanban'); // 'kanban' | 'detail' | 'history' | 'totals'
 
 // All active kitchen orders for the detail tab (accepted → preparing → ready)
 const allKitchenOrders = computed(() =>
@@ -531,25 +568,56 @@ const deliveredOrders = computed(() =>
     .sort((a, b) => b.time.localeCompare(a.time)), // newest first
 );
 
-// ── Totali tab: aggregated dish quantities ─────────────────────────────────
+// ── Totali tab ───────────────────────────────────────────────────────────────
+// Status filter: 'all' shows accepted+preparing+ready; specific value filters to that status only
 const totalsStatusFilter = ref('all');
 
-const totalsDishes = computed(() => {
+// Aggregated dish quantities for the Totali tab
+const aggregatedTotals = computed(() => {
   const statuses = totalsStatusFilter.value === 'all'
     ? ['accepted', 'preparing', 'ready']
     : [totalsStatusFilter.value];
-  const qty = {};
-  for (const order of store.orders) {
-    if (!statuses.includes(order.status)) continue;
-    for (const item of order.orderItems || []) {
-      const net = (item.quantity || 0) - (item.voidedQuantity || 0);
-      if (net <= 0) continue;
-      qty[item.name] = (qty[item.name] || 0) + net;
+  const orders = store.orders.filter(o => statuses.includes(o.status));
+
+  // Accumulate net quantities keyed by course + name + notes + modifiers
+  // so items with different notes/variations appear as separate rows
+  const map = new Map();
+  for (const order of orders) {
+    for (const item of order.orderItems) {
+      const netQty = item.quantity - (item.voidedQuantity || 0);
+      if (netQty <= 0) continue;
+      const course = item.course && COURSE_ORDER.includes(item.course) ? item.course : DEFAULT_COURSE;
+      const notes = item.notes || [];
+      const mods = (item.modifiers || []).filter(m => (m.quantity || 1) - (m.voidedQuantity || 0) > 0);
+      const notesSig = [...notes].sort().join('|');
+      const modsSig = [...mods].map(m => m.name).sort().join('|');
+      const key = `${course}::${item.name}::${notesSig}::${modsSig}`;
+      if (map.has(key)) {
+        map.get(key).qty += netQty;
+      } else {
+        map.set(key, { key, name: item.name, course, qty: netQty, notes, mods });
+      }
     }
   }
-  return Object.entries(qty)
-    .map(([name, q]) => ({ name, qty: q }))
-    .sort((a, b) => b.qty - a.qty || a.name.localeCompare(b.name));
+
+  // Sort by canonical course order, then alphabetically within each course
+  return [...map.values()].sort((a, b) => {
+    const ci = COURSE_ORDER.indexOf(a.course) - COURSE_ORDER.indexOf(b.course);
+    return ci !== 0 ? ci : a.name.localeCompare(b.name, 'it');
+  });
+});
+
+// Badge count for the Totali tab button — always reflects 'all' active statuses
+// so the number shown is consistent regardless of the active filter inside the tab
+const aggregatedTotalsBadgeCount = computed(() => {
+  const orders = store.orders.filter(o => ['accepted', 'preparing', 'ready'].includes(o.status));
+  const names = new Set();
+  for (const order of orders) {
+    for (const item of order.orderItems) {
+      if ((item.quantity - (item.voidedQuantity || 0)) > 0) names.add(item.name);
+    }
+  }
+  return names.size;
 });
 
 function toggleItemReady(order, itemIdx) {
