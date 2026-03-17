@@ -9,6 +9,7 @@
   >
     <router-view @open-settings="showSettings = true" />
     <CucinaSettingsModal v-model="showSettings" />
+    <PwaInstallBanner />
     <LockScreen />
   </div>
 </template>
@@ -21,6 +22,7 @@ import { resolveStorageKeys, getInstanceName } from './store/persistence.js';
 import { useAuth } from './composables/useAuth.js';
 import CucinaSettingsModal from './components/CucinaSettingsModal.vue';
 import LockScreen from './components/LockScreen.vue';
+import PwaInstallBanner from './components/shared/PwaInstallBanner.vue';
 
 const store = useAppStore();
 const auth = useAuth();
