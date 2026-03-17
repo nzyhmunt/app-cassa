@@ -1,8 +1,8 @@
 <template>
   <!-- MODAL: IMPOSTAZIONI -->
   <div v-if="modelValue" class="fixed inset-0 z-[90] bg-black/60 backdrop-blur-sm flex items-end md:items-center justify-center p-0 md:p-4">
-    <div class="bg-white rounded-t-3xl md:rounded-3xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col">
-      <div class="bg-gray-50 border-b border-gray-200 p-4 md:p-5 flex justify-between items-center">
+    <div class="bg-white rounded-t-3xl md:rounded-3xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col max-h-[92dvh] md:max-h-[85dvh]">
+      <div class="bg-gray-50 border-b border-gray-200 p-4 md:p-5 flex justify-between items-center shrink-0">
         <h3 class="font-bold text-base md:text-lg flex items-center gap-2 text-gray-800">
           <Settings class="text-gray-500 size-4 md:size-5" /> {{ title }}
         </h3>
@@ -10,7 +10,7 @@
           <X class="size-5" />
         </button>
       </div>
-      <div class="p-4 md:p-6 space-y-3 bg-white pb-8 md:pb-6">
+      <div class="overflow-y-auto flex-1 p-4 md:p-6 space-y-3 bg-white pb-8 md:pb-6">
         <div @click="settings.sounds = !settings.sounds"
           class="flex items-center justify-between p-3 md:p-4 border border-gray-200 rounded-2xl cursor-pointer hover:bg-gray-50 transition-colors active:scale-95">
           <div>

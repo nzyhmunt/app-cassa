@@ -501,7 +501,7 @@
         class="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4"
         @click.self="cancelReturnToPending"
       >
-        <div class="bg-white rounded-3xl shadow-2xl w-full max-w-sm p-6">
+        <div class="bg-white rounded-3xl shadow-2xl w-full max-w-sm p-6 max-h-[90dvh] overflow-y-auto">
           <div class="text-center mb-4">
             <h3 class="text-lg font-black text-gray-800">Rimanda in sala?</h3>
             <p class="text-sm text-gray-500 mt-1">
