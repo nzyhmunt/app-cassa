@@ -724,6 +724,7 @@
                   :value="directCustomPrice"
                   type="text"
                   inputmode="decimal"
+                  autocomplete="off"
                   placeholder="0.00"
                   class="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none theme-ring bg-gray-50 focus:bg-white transition-colors"
                   @input="onDirectCustomPriceInput"

@@ -505,6 +505,7 @@
                   :value="noteModal.modPrice"
                   type="text"
                   inputmode="decimal"
+                  autocomplete="off"
                   placeholder="0.00"
                   class="w-full pl-7 pr-2 py-3 bg-gray-100 border border-gray-200 rounded-xl focus:bg-white theme-ring transition-all text-gray-800 font-medium text-sm"
                   @input="onModPriceInput"
