@@ -23,6 +23,7 @@ import { useAuth } from './composables/useAuth.js';
 import CucinaSettingsModal from './components/CucinaSettingsModal.vue';
 import PwaInstallBanner from './components/shared/PwaInstallBanner.vue';
 import LockScreen from './components/LockScreen.vue';
+import PwaInstallBanner from './components/shared/PwaInstallBanner.vue';
 
 const store = useAppStore();
 const auth = useAuth();

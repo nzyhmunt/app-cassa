@@ -71,29 +71,37 @@
       </div>
     </header>
 
-    <!-- ── Tab nav: Kanban / Dettaglio / Cronologia ─────────────────────── -->
+    <!-- ── Tab nav: Kanban / Dettaglio / Totali / Cronologia ────────────────── -->
     <div class="shrink-0 flex gap-1.5 bg-white border-b border-gray-200 px-3 py-2">
       <button
         @click="cucinaTab = 'kanban'"
         :class="cucinaTab === 'kanban' ? 'bg-[var(--brand-primary)]/10 text-[var(--brand-primary)] border-[var(--brand-primary)]/30 font-bold' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100'"
         class="flex-1 py-1.5 px-2 rounded-xl border transition-all text-[10px] uppercase tracking-wider flex items-center justify-center gap-1.5"
       >
-        <Layers class="size-3.5" /> Kanban
+        <Layers class="size-3.5 shrink-0" /> <span class="hidden sm:inline">Kanban</span>
       </button>
       <button
         @click="cucinaTab = 'detail'"
         :class="cucinaTab === 'detail' ? 'bg-[var(--brand-primary)]/10 text-[var(--brand-primary)] border-[var(--brand-primary)]/30 font-bold' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100'"
         class="flex-1 py-1.5 px-2 rounded-xl border transition-all text-[10px] uppercase tracking-wider flex items-center justify-center gap-1.5"
       >
-        <ClipboardList class="size-3.5" /> Dettaglio
+        <ClipboardList class="size-3.5 shrink-0" /> <span class="hidden sm:inline">Dettaglio</span>
         <span v-if="allKitchenOrders.length > 0" class="bg-[var(--brand-primary)] text-white text-[9px] font-black rounded-full size-4 flex items-center justify-center shrink-0">{{ allKitchenOrders.length }}</span>
+      </button>
+      <button
+        @click="cucinaTab = 'totals'"
+        :class="cucinaTab === 'totals' ? 'bg-[var(--brand-primary)]/10 text-[var(--brand-primary)] border-[var(--brand-primary)]/30 font-bold' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100'"
+        class="flex-1 py-1.5 px-2 rounded-xl border transition-all text-[10px] uppercase tracking-wider flex items-center justify-center gap-1.5"
+      >
+        <Hash class="size-3.5 shrink-0" /> <span class="hidden sm:inline">Totali</span>
+        <span v-if="aggregatedTotalsBadgeCount > 0 && cucinaTab !== 'totals'" class="bg-[var(--brand-primary)] text-white text-[9px] font-black rounded-full size-4 flex items-center justify-center shrink-0">{{ aggregatedTotalsBadgeCount }}</span>
       </button>
       <button
         @click="cucinaTab = 'history'"
         :class="cucinaTab === 'history' ? 'bg-gray-100 text-gray-700 border-gray-300 font-bold' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100'"
         class="flex-1 py-1.5 px-2 rounded-xl border transition-all text-[10px] uppercase tracking-wider flex items-center justify-center gap-1.5"
       >
-        <Clock class="size-3.5" /> Cronologia
+        <Clock class="size-3.5 shrink-0" /> <span class="hidden sm:inline">Cronologia</span>
         <span v-if="deliveredOrders.length > 0" class="bg-gray-500 text-white text-[9px] font-black rounded-full size-4 flex items-center justify-center shrink-0">{{ deliveredOrders.length }}</span>
       </button>
       <button
