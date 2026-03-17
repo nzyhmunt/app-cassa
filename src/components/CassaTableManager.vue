@@ -577,19 +577,6 @@
             />
           </div>
 
-          <!-- Electronic + tips: Mancia full width (auto-filled) -->
-          <div v-else-if="tipsEnabled">
-            <label class="block text-[10px] font-bold text-purple-600 uppercase mb-1.5 flex items-center gap-1.5">
-              <Wallet class="size-3.5" /> Mancia (opzionale)
-            </label>
-            <NumericInput
-              v-model="modalManciaComputed"
-              min="0"
-              step="0.50"
-              :prefix="store.config.ui.currency"
-              class="w-full text-lg font-black border-2 border-purple-200 rounded-xl px-4 py-3 bg-white focus:outline-none focus:border-purple-400 text-purple-900"
-            />
-          </div>
         </template>
 
         <!-- Riepilogo dinamico -->
@@ -639,6 +626,7 @@
         >
           <CheckCircle class="size-5" />
           <template v-if="modalIsCash && modalRestoParsed > 0">Conferma · Resto {{ store.config.ui.currency }}{{ modalRestoParsed.toFixed(2) }}</template>
+          <template v-else-if="!modalIsCash && !modalIsPartial && tipsEnabled && modalManciaParsed > 0">Conferma · Mancia {{ store.config.ui.currency }}{{ modalManciaParsed.toFixed(2) }}</template>
           <template v-else-if="modalIsPartial">Incassa {{ store.config.ui.currency }}{{ modalRicevutoParsed.toFixed(2) }}</template>
           <template v-else>Conferma Incasso</template>
         </button>
@@ -733,12 +721,13 @@
               <div class="w-28 shrink-0">
                 <label class="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1.5">Prezzo ({{ store.config.ui.currency }})</label>
                 <input
-                  v-model="directCustomPrice"
-                  type="number"
-                  min="0"
-                  step="0.10"
+                  :value="directCustomPrice"
+                  type="text"
+                  inputmode="decimal"
+                  autocomplete="off"
                   placeholder="0.00"
                   class="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none theme-ring bg-gray-50 focus:bg-white transition-colors"
+                  @input="onDirectCustomPriceInput"
                   @keydown.enter="addCustomItemToDirectCart"
                 />
               </div>
@@ -1147,13 +1136,20 @@ const modalIsPartial = computed(() =>
 // Excess above the amount due (ricevuto - due), used for Resto/Mancia distribution.
 const modalExcess = computed(() => Math.max(0, modalRicevutoParsed.value - amountBeingPaid.value));
 
+// Coerce any model value to a plain string for safe parsing (handles null/undefined/'').
+const toRawString = (v) => (v == null || v === '') ? '' : String(v);
+
 // Computed v-model setters: changing one field updates the others.
 // Ricevuto changed → keep Mancia, recalculate Resto.
 const modalRicevutiComputed = computed({
   get() { return modalRicevuto.value; },
   set(v) {
-    const num = parseFloat(v) || 0;
-    modalRicevuto.value = num > 0 ? num.toFixed(2) : '';
+    // Store the raw string without formatting so the cursor position is not
+    // disrupted while the user is typing. Downstream computed values
+    // (modalRicevutoParsed etc.) use parseFloat() and handle raw strings fine.
+    const raw = toRawString(v);
+    modalRicevuto.value = raw;
+    const num = parseFloat(raw) || 0;
     const excess = Math.max(0, num - amountBeingPaid.value);
     if (!modalIsCash.value) {
       // Electronic: full excess goes to Mancia automatically.
@@ -1173,8 +1169,14 @@ const modalRestoComputed = computed({
   get() { return modalResto.value; },
   set(v) {
     const excess = modalExcess.value;
-    const resto = Math.min(Math.max(0, parseFloat(v) || 0), excess);
-    modalResto.value = resto > 0 ? resto.toFixed(2) : '';
+    const raw = toRawString(v);
+    const parsed = Math.max(0, parseFloat(raw) || 0);
+    const resto = Math.min(parsed, excess);
+    // If the value was clamped to a different number, format it to show the correction clearly.
+    // Otherwise keep the raw string so cursor position is not disrupted while typing.
+    modalResto.value = resto > 0
+      ? (resto < parsed ? resto.toFixed(2) : raw)
+      : '';
     modalMancia.value = (excess - resto) > 0 ? (excess - resto).toFixed(2) : '';
   },
 });
@@ -1184,8 +1186,14 @@ const modalManciaComputed = computed({
   get() { return modalMancia.value; },
   set(v) {
     const excess = modalExcess.value;
-    const mancia = Math.min(Math.max(0, parseFloat(v) || 0), excess);
-    modalMancia.value = mancia > 0 ? mancia.toFixed(2) : '';
+    const raw = toRawString(v);
+    const parsed = Math.max(0, parseFloat(raw) || 0);
+    const mancia = Math.min(parsed, excess);
+    // If the value was clamped to a different number, format it to show the correction clearly.
+    // Otherwise keep the raw string so cursor position is not disrupted while typing.
+    modalMancia.value = mancia > 0
+      ? (mancia < parsed ? mancia.toFixed(2) : raw)
+      : '';
     if (modalIsCash.value) {
       modalResto.value = (excess - mancia) > 0 ? (excess - mancia).toFixed(2) : '';
     }
@@ -1413,6 +1421,13 @@ const directCart = ref([]);
 const directCustomName = ref('');
 const directCustomPrice = ref('');
 
+function onDirectCustomPriceInput(event) {
+  const raw = event.target.value;
+  const normalized = raw.replace(/,/g, '.');
+  if (normalized !== raw) event.target.value = normalized;
+  directCustomPrice.value = normalized;
+}
+
 /** True when the "Personalizzata" custom-entry tab is available (driven by config flag). */
 const canShowCustomEntryTab = computed(
   () => store.config.billing?.allowCustomEntry !== false,
@@ -1632,10 +1647,16 @@ function processTablePayment(paymentMethodId, extra = {}, overrideAmount = null)
   }
 
   // Normal (non-auto-close) path: mark only the selected orders as completed.
+  // In ordini mode, only complete the selected orders when the payment fully
+  // covers the amount due for those orders (i.e., it is not a partial payment).
+  // Partial payments record the amount but leave the orders open so the
+  // remaining balance can still be collected.
   if (checkoutMode.value === 'ordini') {
-    tableAcceptedPayableOrders.value.forEach(o => {
-      if (payload.orderRefs.includes(o.id)) store.changeOrderStatus(o, 'completed');
-    });
+    if (amount + BILL_SETTLED_THRESHOLD >= amountBeingPaid.value) {
+      tableAcceptedPayableOrders.value.forEach(o => {
+        if (payload.orderRefs.includes(o.id)) store.changeOrderStatus(o, 'completed');
+      });
+    }
     selectedOrdersToPay.value = [];
   }
 
@@ -1747,7 +1768,7 @@ function generateTableCheckoutJson(ctx = 'table') {
 function closeJsonModal() {
   showPrecontoJson.value = false;
   jsonPayloadData.value = '{}';
-  if (selectedTable.value && tableAcceptedPayableOrders.value.length === 0 && !hasPendingOrdersInTable.value) {
+  if (selectedTable.value && tableAcceptedPayableOrders.value.length === 0 && !hasPendingOrdersInTable.value && tableAmountRemaining.value <= BILL_SETTLED_THRESHOLD) {
     closeTableModal();
   }
 }

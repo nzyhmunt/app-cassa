@@ -1,8 +1,10 @@
 <template>
-  <!-- Native numeric input: rendered when the custom keyboard is disabled -->
+  <!-- Native decimal input: rendered when the custom keyboard is disabled -->
   <input
     v-if="!isKeyboardEnabled"
-    type="number"
+    type="text"
+    inputmode="decimal"
+    autocomplete="off"
     v-bind="$attrs"
     :value="modelValue"
     @input="onNativeInput"
@@ -49,10 +51,25 @@ const displayVal = computed(() => {
   return String(props.modelValue);
 });
 
-/** Emit the native input value (numeric or empty string). */
+/** Emit the native input value as a normalized string, or empty string. */
 function onNativeInput(event) {
   const raw = event.target.value;
-  emit('update:modelValue', raw === '' ? '' : Number(raw));
+  if (raw === '') {
+    emit('update:modelValue', '');
+    return;
+  }
+  // Normalize: Italian locale uses comma as decimal separator — replace all commas with period.
+  const normalized = raw.replace(/,/g, '.');
+  // Accept only valid partial numeric strings (digits with at most one decimal point).
+  if (/^\d*\.?\d*$/.test(normalized)) {
+    if (normalized !== raw) event.target.value = normalized;
+    emit('update:modelValue', normalized);
+  } else {
+    // Revert to the last known good value if the input contains invalid characters.
+    event.target.value = props.modelValue !== '' && props.modelValue != null
+      ? String(props.modelValue)
+      : '';
+  }
 }
 
 /** Open the numeric keyboard overlay when the field is activated. */
