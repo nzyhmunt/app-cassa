@@ -269,7 +269,7 @@ Visibile quando il metodo di pagamento selezionato è **Contanti**:
 I pulsanti per ogni metodo configurato (default: **Contanti** e **Pos/Carta**) permettono di confermare il pagamento. Una volta premuto:
 1. La transazione viene registrata
 2. L'importo rimanente si riduce
-3. Se il conto è saldato interamente (e `autoCloseOnFullPayment: true`) il tavolo viene liberato automaticamente
+3. Il pulsante **Chiudi Conto** appare non appena il conto è saldato interamente: premendo il pulsante il tavolo viene liberato e viene generato il riepilogo finale
 
 ---
 

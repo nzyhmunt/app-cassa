@@ -293,7 +293,6 @@ export const appConfig = {
   },
 
   billing: {
-    autoCloseOnFullPayment: true,              // Chiusura automatica a saldo
     enableCashChangeCalculator: true,          // Calcolatore resto contanti
     enableTips: true,                          // Mancia
     enableDiscounts: true,                     // Sconti
