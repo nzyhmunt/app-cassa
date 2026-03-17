@@ -1633,20 +1633,7 @@ function processTablePayment(paymentMethodId, extra = {}, overrideAmount = null)
 
   store.addTransaction(payload);
 
-  // Auto-close: when the bill is fully settled and the config flag is enabled,
-  // skip the per-transaction JSON and show the CONTO_CHIUSO receipt instead.
-  // In ordini mode, selected orders haven't been completed yet so closeTableBill
-  // can still read them and the active session before marking them done.
-  if (
-    store.config.billing?.autoCloseOnFullPayment &&
-    tableAmountRemaining.value <= BILL_SETTLED_THRESHOLD
-  ) {
-    if (checkoutMode.value === 'ordini') selectedOrdersToPay.value = [];
-    closeTableBill();
-    return;
-  }
-
-  // Normal (non-auto-close) path: mark only the selected orders as completed.
+  // Mark only the selected orders as completed.
   // In ordini mode, only complete the selected orders when the payment fully
   // covers the amount due for those orders (i.e., it is not a partial payment).
   // Partial payments record the amount but leave the orders open so the
