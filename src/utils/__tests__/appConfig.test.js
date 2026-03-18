@@ -22,4 +22,16 @@ describe('appConfig', () => {
       expect(appConfig.pwaLogo.startsWith('https://')).toBe(true);
     });
   });
+
+  describe('demoOrders', () => {
+    it('is an array (can be emptied to disable demo mode)', () => {
+      expect(Array.isArray(appConfig.demoOrders)).toBe(true);
+    });
+
+    it('includes a coperto direct-entry order for each demo table', () => {
+      const coverOrders = appConfig.demoOrders.filter(o => o.isCoverCharge && o.isDirectEntry);
+      const demoTables = [...new Set(appConfig.demoOrders.map(o => o.table))];
+      expect(coverOrders.length).toBeGreaterThanOrEqual(demoTables.length);
+    });
+  });
 });

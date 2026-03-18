@@ -21,6 +21,7 @@ import { useWakeLock } from './composables/useWakeLock.js';
 import { resolveStorageKeys, getInstanceName } from './store/persistence.js';
 import { useAuth } from './composables/useAuth.js';
 import CucinaSettingsModal from './components/CucinaSettingsModal.vue';
+import PwaInstallBanner from './components/shared/PwaInstallBanner.vue';
 import LockScreen from './components/LockScreen.vue';
 import PwaInstallBanner from './components/shared/PwaInstallBanner.vue';
 

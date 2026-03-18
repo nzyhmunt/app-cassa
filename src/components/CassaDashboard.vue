@@ -1,7 +1,7 @@
 <template>
   <!-- MODAL: CRUSCOTTO CASSA -->
   <div v-if="modelValue" class="fixed inset-0 z-[90] bg-black/70 backdrop-blur-sm flex items-end md:items-center justify-center p-0 md:p-4">
-    <div class="bg-white rounded-t-3xl md:rounded-3xl shadow-2xl w-full max-w-3xl h-[95dvh] md:h-[90vh] flex flex-col overflow-hidden">
+    <div class="bg-white rounded-t-3xl md:rounded-3xl shadow-2xl w-full max-w-3xl h-[95dvh] md:h-[90dvh] flex flex-col overflow-hidden">
 
       <!-- Header -->
       <div class="bg-gray-900 text-white p-4 md:p-5 flex justify-between items-center shrink-0">

@@ -21,7 +21,7 @@
  */
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
-import { appConfig, initialOrders, updateOrderTotals, KITCHEN_ACTIVE_STATUSES, KEYBOARD_POSITIONS } from '../utils/index.js';
+import { appConfig, updateOrderTotals, KITCHEN_ACTIVE_STATUSES, KEYBOARD_POSITIONS } from '../utils/index.js';
 import { getInstanceName, resolveStorageKeys } from './persistence.js';
 
 // Derive storage keys once at module load — stable for the lifetime of the page
@@ -33,7 +33,7 @@ export const useAppStore = defineStore('app', () => {
   // ── Core State ─────────────────────────────────────────────────────────────
   const config = ref(appConfig);
   // orders is initialized empty; pinia-plugin-persistedstate will hydrate saved state,
-  // or afterHydrate will fall back to initialOrders on first load.
+  // or afterHydrate will fall back to appConfig.demoOrders on first load.
   const orders = ref([]);
   const transactions = ref([]);
 
@@ -281,6 +281,23 @@ export const useAppStore = defineStore('app', () => {
     if (txn.tableId) setBillRequested(txn.tableId, false);
   }
 
+  // Post-payment tip: adds a tip-only transaction on a closed bill session.
+  // amountPaid is 0 so it does not affect the bill balance; only tipAmount is recorded.
+  function addTipTransaction(tableId, billSessionId, tipValue) {
+    if (!tableId || tipValue <= 0) return;
+    transactions.value.push({
+      transactionId: 'tip_' + Math.random().toString(36).slice(2, 11),
+      tableId,
+      billSessionId: billSessionId ?? null,
+      paymentMethod: 'Mancia',
+      operationType: 'tip',
+      amountPaid: 0,
+      tipAmount: tipValue,
+      timestamp: new Date().toISOString(),
+      orderRefs: [],
+    });
+  }
+
   // ── Mutations: Table Operations ────────────────────────────────────────────
   function setBillRequested(tableId, val) {
     if (val) billRequestedTables.value.add(tableId);
@@ -512,20 +529,34 @@ export const useAppStore = defineStore('app', () => {
   function simulateNewOrder() {
     const num = Math.floor(Math.random() * 12) + 1;
     const newTav = num < 10 ? '0' + num : '' + num;
+    const now = new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+    const session = tableCurrentBillSession.value[newTav];
+    const billSessionId = session?.billSessionId ?? null;
+
+    // Kitchen order with the food item
     orders.value.push({
       id: 'ord_' + Math.random().toString(36).substr(2, 9),
       table: newTav,
+      billSessionId,
       status: 'pending',
-      time: new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }),
+      time: now,
       totalAmount: 12,
       itemCount: 1,
       dietaryPreferences: {},
       globalNote: '',
       noteVisibility: { cassa: true, sala: true, cucina: true },
       orderItems: [
-        { uid: 'r_' + Date.now(), dishId: 'pri_2', name: 'Amatriciana', unitPrice: 12, quantity: 1, voidedQuantity: 0, notes: [] },
+        { uid: 'r_' + Date.now(), dishId: 'pri_2', name: 'Amatriciana', unitPrice: 12, quantity: 1, voidedQuantity: 0, notes: [], modifiers: [] },
       ],
     });
+
+    // Coperto as direct entry (if configured)
+    const cc = config.value.coverCharge;
+    if (cc?.enabled && cc?.autoAdd && cc?.priceAdult > 0) {
+      addDirectOrder(newTav, billSessionId, [
+        { uid: 'cop_a_' + Math.random().toString(36).slice(2, 11), dishId: cc.dishId + '_adulto', name: cc.name, unitPrice: cc.priceAdult, quantity: 2, voidedQuantity: 0, notes: [], modifiers: [] },
+      ])?.isCoverCharge || (orders.value.at(-1).isCoverCharge = true);
+    }
   }
 
   // ── Computed: Closed bills ─────────────────────────────────────────────────
@@ -687,6 +718,7 @@ export const useAppStore = defineStore('app', () => {
     voidModifier,
     restoreModifier,
     addTransaction,
+    addTipTransaction,
     simulateNewOrder,
     loadMenu,
     addDirectOrder,
@@ -756,11 +788,11 @@ export const useAppStore = defineStore('app', () => {
         }
       },
     },
-    // On first load (no saved state), seed orders with demo data.
-    // On subsequent loads the plugin has already hydrated the saved orders above.
+    // On first load (no saved state), seed orders with demo data from appConfig.demoOrders.
+    // Set appConfig.demoOrders = [] to disable demo mode on a production installation.
     afterHydrate(ctx) {
       if (!ctx.store.orders.length) {
-        ctx.store.orders = initialOrders;
+        ctx.store.orders = (appConfig.demoOrders ?? []).map(o => ({ ...o }));
       }
       // Migrate orders loaded from localStorage that may be missing globalNote fields
       for (const ord of ctx.store.orders) {
