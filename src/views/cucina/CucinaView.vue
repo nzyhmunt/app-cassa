@@ -98,7 +98,7 @@
       </button>
       <button
         @click="cucinaTab = 'history'"
-        :class="cucinaTab === 'history' ? 'bg-gray-100 text-gray-700 border-gray-300 font-bold' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100'"
+        :class="cucinaTab === 'history' ? 'bg-[var(--brand-primary)]/10 text-[var(--brand-primary)] border-[var(--brand-primary)]/30 font-bold' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100'"
         class="flex-1 py-1.5 px-2 rounded-xl border transition-all text-[10px] uppercase tracking-wider flex items-center justify-center gap-1.5"
       >
         <Clock class="size-3.5 shrink-0" /> <span class="hidden sm:inline">Cronologia</span>
