@@ -282,7 +282,7 @@ const occupiedSince = computed(() => {
   if (!selectedTable.value) return null;
   const ts = store.tableOccupiedAt[selectedTable.value.id];
   if (!ts) return null;
-  return new Date(ts).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', timeZone: appConfig.timezone });
+  return new Date(ts).toLocaleTimeString(appConfig.locale, { hour: '2-digit', minute: '2-digit', timeZone: appConfig.timezone });
 });
 
 // ── Actions ──────────────────────────────────────────────────────────────────
@@ -362,7 +362,7 @@ function createNewOrder() {
     table: selectedTable.value.id,
     billSessionId: session?.billSessionId ?? null,
     status: 'pending',
-    time: new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', timeZone: appConfig.timezone }),
+    time: new Date().toLocaleTimeString(appConfig.locale, { hour: '2-digit', minute: '2-digit', timeZone: appConfig.timezone }),
     totalAmount: 0,
     itemCount: 0,
     dietaryPreferences: {},

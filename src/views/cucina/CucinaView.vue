@@ -612,7 +612,7 @@ const aggregatedTotals = computed(() => {
   // Sort by canonical course order, then alphabetically within each course
   return [...map.values()].sort((a, b) => {
     const ci = COURSE_ORDER.indexOf(a.course) - COURSE_ORDER.indexOf(b.course);
-    return ci !== 0 ? ci : a.name.localeCompare(b.name, 'it');
+    return ci !== 0 ? ci : a.name.localeCompare(b.name, appConfig.locale);
   });
 });
 
@@ -709,7 +709,7 @@ watch(acceptedOrderCount, (newVal, oldVal) => {
 });
 
 // ── Live clock ─────────────────────────────────────────────────────────────
-const currentTime = ref(new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', timeZone: appConfig.timezone }));
+const currentTime = ref(new Date().toLocaleTimeString(appConfig.locale, { hour: '2-digit', minute: '2-digit', timeZone: appConfig.timezone }));
 let clockTimer = null;
 
 // ── Manual sync ─────────────────────────────────────────────────────────────
@@ -721,19 +721,19 @@ const lastSyncLabel = ref('—');
 
 function syncFromStorage() {
   store.$hydrate?.();
-  lastSyncLabel.value = new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: appConfig.timezone });
+  lastSyncLabel.value = new Date().toLocaleTimeString(appConfig.locale, { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: appConfig.timezone });
 }
 
 let refreshTimer = null;
 
 onMounted(() => {
   clockTimer = setInterval(() => {
-    currentTime.value = new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', timeZone: appConfig.timezone });
+    currentTime.value = new Date().toLocaleTimeString(appConfig.locale, { hour: '2-digit', minute: '2-digit', timeZone: appConfig.timezone });
   }, 60_000);
 
   refreshTimer = setInterval(syncFromStorage, 30_000);
 
-  lastSyncLabel.value = new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: appConfig.timezone });
+  lastSyncLabel.value = new Date().toLocaleTimeString(appConfig.locale, { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: appConfig.timezone });
 });
 
 onUnmounted(() => {

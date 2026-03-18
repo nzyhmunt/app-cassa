@@ -320,7 +320,7 @@
                     <div v-if="txn.tipAmount" class="text-[9px] font-bold text-purple-600">+{{ store.config.ui.currency }}{{ txn.tipAmount.toFixed(2) }} mancia</div>
                   </div>
                 </div>
-                <span class="text-[9px] font-medium opacity-80">{{ new Date(txn.timestamp).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', timeZone: appConfig.timezone }) }} - ID: {{ txn.transactionId }}</span>
+                <span class="text-[9px] font-medium opacity-80">{{ new Date(txn.timestamp).toLocaleTimeString(appConfig.locale, { hour: '2-digit', minute: '2-digit', timeZone: appConfig.timezone }) }} - ID: {{ txn.transactionId }}</span>
               </div>
             </div>
             <div v-else class="mb-5"></div>
@@ -1403,7 +1403,7 @@ function createNewOrderForTable() {
     table: selectedTable.value.id,
     billSessionId: session?.billSessionId ?? null,
     status: 'pending',
-    time: new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', timeZone: appConfig.timezone }),
+    time: new Date().toLocaleTimeString(appConfig.locale, { hour: '2-digit', minute: '2-digit', timeZone: appConfig.timezone }),
     totalAmount: 0, itemCount: 0, dietaryPreferences: {}, orderItems: [],
     globalNote: '',
     noteVisibility: { cassa: true, sala: true, cucina: true },

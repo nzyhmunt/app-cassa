@@ -157,11 +157,11 @@ const currentDate = ref(formatDate());
 let clockTimer = null;
 
 function formatTime() {
-  return new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', timeZone: appConfig.timezone });
+  return new Date().toLocaleTimeString(appConfig.locale, { hour: '2-digit', minute: '2-digit', timeZone: appConfig.timezone });
 }
 
 function formatDate() {
-  return new Date().toLocaleDateString('it-IT', {
+  return new Date().toLocaleDateString(appConfig.locale, {
     weekday: 'long',
     day: 'numeric',
     month: 'long',

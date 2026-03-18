@@ -119,7 +119,7 @@
                 </div>
                 <div class="flex items-center gap-2 shrink-0">
                   <span class="font-black">{{ mov.type === 'deposit' ? '+' : '-' }}€{{ mov.amount.toFixed(2) }}</span>
-                  <span class="text-[9px] opacity-60">{{ new Date(mov.timestamp).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', timeZone: appConfig.timezone }) }}</span>
+                  <span class="text-[9px] opacity-60">{{ new Date(mov.timestamp).toLocaleTimeString(appConfig.locale, { hour: '2-digit', minute: '2-digit', timeZone: appConfig.timezone }) }}</span>
                 </div>
               </div>
             </div>
@@ -238,7 +238,7 @@
                 class="flex justify-between items-center p-3 bg-gray-50 rounded-xl border border-gray-100 text-sm">
                 <div>
                   <p class="font-bold text-gray-800">Chiusura Z #{{ store.dailyClosures.length - idx }}</p>
-                  <p class="text-[10px] text-gray-400">{{ new Date(ch.timestamp).toLocaleString('it-IT', { timeZone: appConfig.timezone }) }}</p>
+                  <p class="text-[10px] text-gray-400">{{ new Date(ch.timestamp).toLocaleString(appConfig.locale, { timeZone: appConfig.timezone }) }}</p>
                 </div>
                 <div class="text-right">
                   <p class="font-black text-base theme-text">€{{ ch.totalReceived.toFixed(2) }}</p>

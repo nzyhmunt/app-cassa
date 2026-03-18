@@ -7,14 +7,14 @@ import { appConfig } from '../utils/index.js';
  */
 export function useAppClock() {
   const currentTime = ref(
-    new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', timeZone: appConfig.timezone }),
+    new Date().toLocaleTimeString(appConfig.locale, { hour: '2-digit', minute: '2-digit', timeZone: appConfig.timezone }),
   );
 
   let clockTimer = null;
 
   onMounted(() => {
     clockTimer = setInterval(() => {
-      currentTime.value = new Date().toLocaleTimeString('it-IT', {
+      currentTime.value = new Date().toLocaleTimeString(appConfig.locale, {
         hour: '2-digit',
         minute: '2-digit',
         timeZone: appConfig.timezone,
