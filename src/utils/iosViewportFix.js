@@ -1,20 +1,28 @@
 /**
- * iOS PWA Viewport Scroll Reset
+ * iOS Viewport Fixes
  *
- * On iOS, dismissing the on-screen keyboard while running as a PWA (standalone
- * display mode) can leave window.scrollY at a non-zero value. This shifts the
- * viewport upward and hides the app's top bar behind the iOS status indicators
- * (time, battery, signal). This fix resets the scroll position to (0, 0) as
- * soon as the keyboard is dismissed, without interfering with natural scrolling
- * while the keyboard is still open.
+ * This module provides two fixes for iOS:
+ *
+ * ── Fix 1: Dynamic height CSS variable (ALL iOS – PWA and non-PWA) ──────────
+ * Sets the --app-height custom property on <html> to window.innerHeight so
+ * that CSS can use `height: var(--app-height, 100dvh)` for reliable full-
+ * viewport height.  Without this, the Tailwind `h-screen` utility (100vh)
+ * overrides `h-dvh` (100dvh) in the generated stylesheet, causing the body to
+ * be taller than the visible area in iOS Safari browser mode.  The result is
+ * that the bottom of the app is hidden behind the Safari toolbar and users
+ * cannot reach controls at the bottom of the screen.
+ *
+ * ── Fix 2: Scroll reset on keyboard dismiss (PWA / standalone mode only) ────
+ * On iOS PWA, dismissing the on-screen keyboard can leave window.scrollY at a
+ * non-zero value.  This shifts the viewport upward and hides the app's top bar
+ * behind the iOS status indicators (time, battery, signal).  The fix resets
+ * the scroll position to (0, 0) as soon as the keyboard is dismissed, without
+ * interfering with natural scrolling while the keyboard is still open.
  *
  * Additionally, on iOS the same stale-scroll problem occurs on orientation
- * change (portrait ↔ landscape). When the device is rotated the browser can
- * leave window.scrollY at a non-zero value, which shifts content up and
- * exposes a gap at the bottom of the screen (visible as a black strip when
- * the body background is dark). The orientationchange handler below resets
- * the scroll position immediately after the browser has finished repainting
- * the new layout.
+ * change (portrait ↔ landscape).  The orientationchange handler resets the
+ * scroll position immediately after the browser has finished repainting the
+ * new layout.
  *
  * Call setupIOSViewportFix() once at app startup (before mounting Vue) in each
  * entry point (cassa-main.js, sala-main.js, cucina-main.js).
@@ -38,7 +46,7 @@ function isStandaloneDisplayMode() {
 let iosViewportFixInstalled = false;
 
 export function setupIOSViewportFix() {
-  if (typeof window === 'undefined' || !isIOS() || !isStandaloneDisplayMode()) {
+  if (typeof window === 'undefined' || !isIOS()) {
     return;
   }
 
@@ -46,6 +54,35 @@ export function setupIOSViewportFix() {
   // double-invocation to avoid registering duplicate event listeners.
   if (iosViewportFixInstalled) return;
   iosViewportFixInstalled = true;
+
+  // ── Fix 1: Dynamic height CSS variable (all iOS) ─────────────────────────
+  // Sets --app-height on <html> so CSS height: var(--app-height, 100dvh)
+  // resolves to the exact visible viewport height on any iOS Safari version,
+  // including non-PWA browser mode where the address bar and bottom toolbar
+  // reduce the visible area below what 100vh reports.
+  function updateAppHeight() {
+    document.documentElement.style.setProperty('--app-height', `${window.innerHeight}px`);
+  }
+
+  // Apply immediately so the correct height is available before first paint.
+  updateAppHeight();
+
+  // Re-apply on resize (handles browser chrome show/hide, keyboard, etc.).
+  window.addEventListener('resize', updateAppHeight, { passive: true });
+
+  // Re-apply after orientation changes.  Two rAF calls allow the browser to
+  // complete layout and compositing before sampling the new innerHeight.
+  window.addEventListener('orientationchange', () => {
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(updateAppHeight);
+    });
+  });
+
+  // ── Fix 2: PWA-only scroll reset ─────────────────────────────────────────
+  // The remaining handlers only apply when running as a PWA (standalone
+  // display mode).  In normal browser mode, iOS Safari manages scroll itself;
+  // resetting it here would interfere with standard browser behaviour.
+  if (!isStandaloneDisplayMode()) return;
 
   // ── Orientation change: reset scroll after portrait ↔ landscape rotation ──
   // iOS can leave window.scrollY at a non-zero value after a device rotation,
