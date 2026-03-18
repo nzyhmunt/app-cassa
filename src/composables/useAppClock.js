@@ -6,7 +6,7 @@ import { ref, onMounted, onUnmounted } from 'vue';
  */
 export function useAppClock() {
   const currentTime = ref(
-    new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }),
+    new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Rome' }),
   );
 
   let clockTimer = null;
@@ -16,6 +16,7 @@ export function useAppClock() {
       currentTime.value = new Date().toLocaleTimeString('it-IT', {
         hour: '2-digit',
         minute: '2-digit',
+        timeZone: 'Europe/Rome',
       });
     }, 1000);
   });

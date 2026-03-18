@@ -239,7 +239,7 @@ function confirmPostTip() {
 
 function formatTime(isoString) {
   if (!isoString) return '–';
-  return new Date(isoString).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+  return new Date(isoString).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Rome' });
 }
 
 function getPaymentIcon(methodIdOrLabel) {

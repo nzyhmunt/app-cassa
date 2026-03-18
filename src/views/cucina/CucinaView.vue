@@ -708,7 +708,7 @@ watch(acceptedOrderCount, (newVal, oldVal) => {
 });
 
 // ── Live clock ─────────────────────────────────────────────────────────────
-const currentTime = ref(new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }));
+const currentTime = ref(new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Rome' }));
 let clockTimer = null;
 
 // ── Manual sync ─────────────────────────────────────────────────────────────
@@ -720,19 +720,19 @@ const lastSyncLabel = ref('—');
 
 function syncFromStorage() {
   store.$hydrate?.();
-  lastSyncLabel.value = new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  lastSyncLabel.value = new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Europe/Rome' });
 }
 
 let refreshTimer = null;
 
 onMounted(() => {
   clockTimer = setInterval(() => {
-    currentTime.value = new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+    currentTime.value = new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Rome' });
   }, 60_000);
 
   refreshTimer = setInterval(syncFromStorage, 30_000);
 
-  lastSyncLabel.value = new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  lastSyncLabel.value = new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Europe/Rome' });
 });
 
 onUnmounted(() => {

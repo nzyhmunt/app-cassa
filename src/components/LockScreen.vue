@@ -156,7 +156,7 @@ const currentDate = ref(formatDate());
 let clockTimer = null;
 
 function formatTime() {
-  return new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+  return new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Rome' });
 }
 
 function formatDate() {
@@ -164,6 +164,7 @@ function formatDate() {
     weekday: 'long',
     day: 'numeric',
     month: 'long',
+    timeZone: 'Europe/Rome',
   });
 }
 
