@@ -563,7 +563,7 @@ const cucinaTab = ref('kanban'); // 'kanban' | 'detail' | 'history' | 'totals'
 // All active kitchen orders for the detail tab (accepted → preparing → ready)
 const allKitchenOrders = computed(() =>
   store.orders
-    .filter(o => ['accepted', 'preparing', 'ready'].includes(o.status))
+    .filter(o => ['accepted', 'preparing', 'ready'].includes(o.status) && !o.isDirectEntry)
     .slice()
     .sort((a, b) => a.time.localeCompare(b.time)),
 );
@@ -571,7 +571,7 @@ const allKitchenOrders = computed(() =>
 // Delivered orders for the Cronologia tab
 const deliveredOrders = computed(() =>
   store.orders
-    .filter(o => o.status === 'delivered')
+    .filter(o => o.status === 'delivered' && !o.isDirectEntry)
     .slice()
     .sort((a, b) => b.time.localeCompare(a.time)), // newest first
 );
@@ -585,7 +585,7 @@ const aggregatedTotals = computed(() => {
   const statuses = totalsStatusFilter.value === 'all'
     ? ['accepted', 'preparing', 'ready']
     : [totalsStatusFilter.value];
-  const orders = store.orders.filter(o => statuses.includes(o.status));
+  const orders = store.orders.filter(o => statuses.includes(o.status) && !o.isDirectEntry);
 
   // Accumulate net quantities keyed by course + name + notes + modifiers
   // so items with different notes/variations appear as separate rows
@@ -618,7 +618,7 @@ const aggregatedTotals = computed(() => {
 // Badge count for the Totali tab button — always reflects 'all' active statuses
 // so the number shown is consistent regardless of the active filter inside the tab
 const aggregatedTotalsBadgeCount = computed(() => {
-  const orders = store.orders.filter(o => ['accepted', 'preparing', 'ready'].includes(o.status));
+  const orders = store.orders.filter(o => ['accepted', 'preparing', 'ready'].includes(o.status) && !o.isDirectEntry);
   const names = new Set();
   for (const order of orders) {
     for (const item of order.orderItems) {
@@ -701,7 +701,7 @@ function detailStatusLabel(status) {
 // ── Audio alerts: beep when a new order enters the kitchen (accepted) ────────
 const { playBeep } = useBeep();
 const acceptedOrderCount = computed(() =>
-  store.orders.filter(o => o.status === 'accepted').length,
+  store.orders.filter(o => o.status === 'accepted' && !o.isDirectEntry).length,
 );
 watch(acceptedOrderCount, (newVal, oldVal) => {
   if (newVal > oldVal) playBeep();
@@ -745,19 +745,19 @@ onUnmounted(() => {
 // ── Computed order lists ────────────────────────────────────────────────────
 // Column 1: orders accepted by Cassa but not yet started by kitchen
 const pendingOrders = computed(() =>
-  store.orders.filter(o => o.status === 'accepted').slice().sort((a, b) => a.time.localeCompare(b.time)),
+  store.orders.filter(o => o.status === 'accepted' && !o.isDirectEntry).slice().sort((a, b) => a.time.localeCompare(b.time)),
 );
 
 // Column 2: orders currently being prepared / cooked
 const preparingOrders = computed(() =>
   store.orders
-    .filter(o => o.status === 'preparing')
+    .filter(o => o.status === 'preparing' && !o.isDirectEntry)
     .slice()
     .sort((a, b) => a.time.localeCompare(b.time)),
 );
 
 const readyOrders = computed(() =>
-  store.orders.filter(o => o.status === 'ready').slice().sort((a, b) => a.time.localeCompare(b.time)),
+  store.orders.filter(o => o.status === 'ready' && !o.isDirectEntry).slice().sort((a, b) => a.time.localeCompare(b.time)),
 );
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
