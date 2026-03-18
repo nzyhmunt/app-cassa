@@ -5,12 +5,12 @@
  *
  * ── Fix 1: Dynamic height CSS variable (ALL iOS – PWA and non-PWA) ──────────
  * Sets the --app-height custom property on <html> to window.innerHeight so
- * that CSS can use `height: var(--app-height, 100dvh)` for reliable full-
- * viewport height.  Without this, the Tailwind `h-screen` utility (100vh)
- * overrides `h-dvh` (100dvh) in the generated stylesheet, causing the body to
- * be taller than the visible area in iOS Safari browser mode.  The result is
- * that the bottom of the app is hidden behind the Safari toolbar and users
- * cannot reach controls at the bottom of the screen.
+ * that the CSS rule `html { height: var(--app-height, 100dvh) }` resolves to
+ * the exact visible viewport height on any iOS Safari version, including
+ * pre-15.4 devices that do not support the `100dvh` unit.  On iOS 15.4+,
+ * `100dvh` already tracks the small viewport (address bar + toolbar visible)
+ * correctly, so the variable acts only as a precise override / safety net.
+ * body inherits `height: 100%` from html, and all h-full descendants follow.
  *
  * ── Fix 2: Scroll reset on keyboard dismiss (PWA / standalone mode only) ────
  * On iOS PWA, dismissing the on-screen keyboard can leave window.scrollY at a
@@ -56,10 +56,11 @@ export function setupIOSViewportFix() {
   iosViewportFixInstalled = true;
 
   // ── Fix 1: Dynamic height CSS variable (all iOS) ─────────────────────────
-  // Sets --app-height on <html> so CSS height: var(--app-height, 100dvh)
+  // Sets --app-height on <html> so the CSS rule
+  //   html { height: var(--app-height, 100dvh) }
   // resolves to the exact visible viewport height on any iOS Safari version,
   // including non-PWA browser mode where the address bar and bottom toolbar
-  // reduce the visible area below what 100vh reports.
+  // reduce the visible area. body { height: 100% } then inherits correctly.
   function updateAppHeight() {
     document.documentElement.style.setProperty('--app-height', `${window.innerHeight}px`);
   }

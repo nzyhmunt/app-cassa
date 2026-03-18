@@ -6,19 +6,27 @@
 ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
 ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
 
+/* Fix for iOS Safari: set the definitive viewport height on <html> so that
+   body { height: 100% } and all h-full descendants are correctly bounded.
+   100dvh adapts to the small viewport (browser chrome visible); the JS
+   --app-height variable (set by setupIOSViewportFix on all iOS) provides the
+   exact window.innerHeight on older iOS versions that predate 100dvh support.
+   overflow: hidden on <html> prevents the entire page from bouncing or
+   scrolling outside the visible area (the awkward rubber-band effect). */
+html {
+  height: 100dvh;
+  height: var(--app-height, 100dvh);
+  overflow: hidden;
+}
+
 body {
+  height: 100%;
+  overflow: hidden;
   -webkit-tap-highlight-color: transparent;
   user-select: none;
   overscroll-behavior-y: none;
+  /* Reserve space for the iPhone home indicator / bottom safe area */
   padding-bottom: env(safe-area-inset-bottom, 0px);
-  /* Fix for iOS Safari: 100vh reports the large viewport height (chrome hidden),
-     so the bottom of the app gets clipped behind the browser toolbar in non-PWA
-     mode.  `100dvh` adapts dynamically; the JS --app-height variable (set by
-     setupIOSViewportFix) provides the exact innerHeight on all iOS versions.
-     Both declarations are needed: the first overrides the conflicting h-screen
-     Tailwind utility; the second uses the JS variable when available. */
-  height: 100dvh;
-  height: var(--app-height, 100dvh);
 }
 .no-scrollbar::-webkit-scrollbar { display: none; }
 .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
