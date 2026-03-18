@@ -208,7 +208,7 @@
 import { ref, computed } from 'vue';
 import { ChevronDown, CreditCard, ClipboardList, Banknote, Tag, Wallet, CheckCircle } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
-import { billKey, getOrderItemRowTotal } from '../utils/index.js';
+import { appConfig, billKey, getOrderItemRowTotal } from '../utils/index.js';
 import NumericInput from './NumericInput.vue';
 
 const props = defineProps({
@@ -239,7 +239,7 @@ function confirmPostTip() {
 
 function formatTime(isoString) {
   if (!isoString) return '–';
-  return new Date(isoString).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Rome' });
+  return new Date(isoString).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', timeZone: appConfig.timezone });
 }
 
 function getPaymentIcon(methodIdOrLabel) {

@@ -109,6 +109,7 @@ import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { Lock, ChevronRight, ChevronLeft } from 'lucide-vue-next';
 import { useAuth } from '../composables/useAuth.js';
 import { useAppStore } from '../store/index.js';
+import { appConfig } from '../utils/index.js';
 
 const store = useAppStore();
 const { visibleUsers: users, currentUser, requiresAuth, isLocked, login } = useAuth();
@@ -156,7 +157,7 @@ const currentDate = ref(formatDate());
 let clockTimer = null;
 
 function formatTime() {
-  return new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Rome' });
+  return new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', timeZone: appConfig.timezone });
 }
 
 function formatDate() {
@@ -164,7 +165,7 @@ function formatDate() {
     weekday: 'long',
     day: 'numeric',
     month: 'long',
-    timeZone: 'Europe/Rome',
+    timeZone: appConfig.timezone,
   });
 }
 

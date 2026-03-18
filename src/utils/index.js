@@ -21,6 +21,12 @@ export const DEFAULT_MENU_URL = 'https://nanawork.it/menu.json';
 export const appConfig = {
   ui: { name: "Osteria del Grillo", primaryColor: "#00846c", primaryColorDark: "#0c7262", currency: "€", allowCustomVariants: true },
 
+  // Timezone used for all locale time formatting across Cassa, Sala and Cucina.
+  // Must be a valid IANA timezone identifier (e.g. 'Europe/Rome', 'Europe/Berlin').
+  // Defaults to 'Europe/Rome'. Override at build/deploy time to adapt the app to a
+  // different locale without modifying any component code.
+  timezone: 'Europe/Rome',
+
   // URL used to fetch the remote menu. Override per-build in appConfig or via the Settings modal.
   menuUrl: DEFAULT_MENU_URL,
 

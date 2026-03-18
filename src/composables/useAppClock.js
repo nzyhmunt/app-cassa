@@ -1,4 +1,5 @@
 import { ref, onMounted, onUnmounted } from 'vue';
+import { appConfig } from '../utils/index.js';
 
 /**
  * Composable that provides a reactive current-time string updated every second.
@@ -6,7 +7,7 @@ import { ref, onMounted, onUnmounted } from 'vue';
  */
 export function useAppClock() {
   const currentTime = ref(
-    new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Rome' }),
+    new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', timeZone: appConfig.timezone }),
   );
 
   let clockTimer = null;
@@ -16,7 +17,7 @@ export function useAppClock() {
       currentTime.value = new Date().toLocaleTimeString('it-IT', {
         hour: '2-digit',
         minute: '2-digit',
-        timeZone: 'Europe/Rome',
+        timeZone: appConfig.timezone,
       });
     }, 1000);
   });

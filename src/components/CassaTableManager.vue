@@ -320,7 +320,7 @@
                     <div v-if="txn.tipAmount" class="text-[9px] font-bold text-purple-600">+{{ store.config.ui.currency }}{{ txn.tipAmount.toFixed(2) }} mancia</div>
                   </div>
                 </div>
-                <span class="text-[9px] font-medium opacity-80">{{ new Date(txn.timestamp).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Rome' }) }} - ID: {{ txn.transactionId }}</span>
+                <span class="text-[9px] font-medium opacity-80">{{ new Date(txn.timestamp).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', timeZone: appConfig.timezone }) }} - ID: {{ txn.transactionId }}</span>
               </div>
             </div>
             <div v-else class="mb-5"></div>
@@ -927,7 +927,7 @@ import {
   Percent, Zap, BookOpen, PlusCircle, Banknote, CreditCard, Lock,
 } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
-import { getOrderItemRowTotal, KITCHEN_ACTIVE_STATUSES, getLockedDirectItems } from '../utils/index.js';
+import { getOrderItemRowTotal, KITCHEN_ACTIVE_STATUSES, getLockedDirectItems, appConfig } from '../utils/index.js';
 import { resolveCustomItemsKey } from '../store/persistence.js';
 import { useNumericKeyboard } from '../composables/useNumericKeyboard.js';
 import { useAuth } from '../composables/useAuth.js';
@@ -1403,7 +1403,7 @@ function createNewOrderForTable() {
     table: selectedTable.value.id,
     billSessionId: session?.billSessionId ?? null,
     status: 'pending',
-    time: new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Rome' }),
+    time: new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', timeZone: appConfig.timezone }),
     totalAmount: 0, itemCount: 0, dietaryPreferences: {}, orderItems: [],
     globalNote: '',
     noteVisibility: { cassa: true, sala: true, cucina: true },

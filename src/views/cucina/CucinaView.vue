@@ -545,6 +545,7 @@ import { useBeep } from '../../composables/useBeep.js';
 import { useAuth } from '../../composables/useAuth.js';
 import KitchenOrderCard from './KitchenOrderCard.vue';
 import {
+  appConfig,
   COURSE_ORDER,
   DEFAULT_COURSE,
   getCourseBorderClass,
@@ -708,7 +709,7 @@ watch(acceptedOrderCount, (newVal, oldVal) => {
 });
 
 // ── Live clock ─────────────────────────────────────────────────────────────
-const currentTime = ref(new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Rome' }));
+const currentTime = ref(new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', timeZone: appConfig.timezone }));
 let clockTimer = null;
 
 // ── Manual sync ─────────────────────────────────────────────────────────────
@@ -720,19 +721,19 @@ const lastSyncLabel = ref('—');
 
 function syncFromStorage() {
   store.$hydrate?.();
-  lastSyncLabel.value = new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Europe/Rome' });
+  lastSyncLabel.value = new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: appConfig.timezone });
 }
 
 let refreshTimer = null;
 
 onMounted(() => {
   clockTimer = setInterval(() => {
-    currentTime.value = new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Rome' });
+    currentTime.value = new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', timeZone: appConfig.timezone });
   }, 60_000);
 
   refreshTimer = setInterval(syncFromStorage, 30_000);
 
-  lastSyncLabel.value = new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Europe/Rome' });
+  lastSyncLabel.value = new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: appConfig.timezone });
 });
 
 onUnmounted(() => {

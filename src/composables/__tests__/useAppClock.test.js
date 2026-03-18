@@ -54,11 +54,12 @@ describe('useAppClock()', () => {
   });
 
   // ── Timezone verification ────────────────────────────────────────────────
-  // Verifies that the clock always displays time in the Europe/Rome timezone
-  // regardless of the process/server timezone. This is critical for the
-  // Italian restaurant app to show correct local times in all environments
-  // (dev, CI, production servers that may run in UTC).
-  it('formats time using the Europe/Rome timezone', () => {
+  // Verifies that the clock always displays time in the configured timezone
+  // (appConfig.timezone, default 'Europe/Rome') regardless of the
+  // process/server timezone. This is critical for the Italian restaurant app
+  // to show correct local times in all environments (dev, CI, production
+  // servers that may run in UTC).
+  it('formats time using the configured appConfig.timezone', () => {
     // Pin the fake clock to a known UTC instant:
     // 2026-01-15 11:30:00 UTC == 12:30:00 CET (Europe/Rome, UTC+1 in January)
     const utcMs = Date.UTC(2026, 0, 15, 11, 30, 0);
@@ -66,11 +67,11 @@ describe('useAppClock()', () => {
 
     const { result } = withSetup(useAppClock);
 
-    // The clock must show 12:30 (Europe/Rome) not 11:30 (UTC)
+    // The clock must show 12:30 (Europe/Rome / UTC+1) not 11:30 (UTC)
     expect(result.currentTime.value).toBe('12:30');
   });
 
-  it('updates with correct Europe/Rome time after interval tick', () => {
+  it('updates with correct appConfig.timezone time after interval tick', () => {
     // Start at 2026-07-15 10:00:00 UTC == 12:00:00 CEST (Europe/Rome, UTC+2 in July)
     const utcMs = Date.UTC(2026, 6, 15, 10, 0, 0);
     vi.setSystemTime(utcMs);
