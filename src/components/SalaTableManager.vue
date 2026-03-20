@@ -207,6 +207,7 @@ import {
   Grid3x3, Users, Timer, X, Coffee, ChevronRight, Plus, ArrowRightLeft, Merge, Zap,
 } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
+import { appConfig } from '../utils/index.js';
 // Shared component — used by both Sala and Cassa apps.
 import PeopleModal from './shared/PeopleModal.vue';
 import TableStatsBar from './shared/TableStatsBar.vue';
@@ -281,7 +282,7 @@ const occupiedSince = computed(() => {
   if (!selectedTable.value) return null;
   const ts = store.tableOccupiedAt[selectedTable.value.id];
   if (!ts) return null;
-  return new Date(ts).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+  return new Date(ts).toLocaleTimeString(appConfig.locale, { hour: '2-digit', minute: '2-digit', timeZone: appConfig.timezone });
 });
 
 // ── Actions ──────────────────────────────────────────────────────────────────
@@ -361,7 +362,7 @@ function createNewOrder() {
     table: selectedTable.value.id,
     billSessionId: session?.billSessionId ?? null,
     status: 'pending',
-    time: new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }),
+    time: new Date().toLocaleTimeString(appConfig.locale, { hour: '2-digit', minute: '2-digit', timeZone: appConfig.timezone }),
     totalAmount: 0,
     itemCount: 0,
     dietaryPreferences: {},

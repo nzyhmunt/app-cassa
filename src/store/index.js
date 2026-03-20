@@ -529,7 +529,7 @@ export const useAppStore = defineStore('app', () => {
   function simulateNewOrder() {
     const num = Math.floor(Math.random() * 12) + 1;
     const newTav = num < 10 ? '0' + num : '' + num;
-    const now = new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+    const now = new Date().toLocaleTimeString(appConfig.locale, { hour: '2-digit', minute: '2-digit', timeZone: appConfig.timezone });
     const session = tableCurrentBillSession.value[newTav];
     const billSessionId = session?.billSessionId ?? null;
 
@@ -661,7 +661,7 @@ export const useAppStore = defineStore('app', () => {
       table: tableId,
       billSessionId: billSessionId ?? null,
       status: 'pending',
-      time: new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }),
+      time: new Date().toLocaleTimeString(appConfig.locale, { hour: '2-digit', minute: '2-digit', timeZone: appConfig.timezone }),
       totalAmount: 0,
       itemCount: 0,
       dietaryPreferences: {},
