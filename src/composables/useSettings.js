@@ -12,7 +12,7 @@ import { useAuth } from './useAuth.js';
  *
  * @param {object} props  - Component props (must expose `modelValue: Boolean`)
  * @param {function} emit - Component emit function
- * @returns {{ store, settings, resetConfirmPending, syncMenu, confirmReset, wakeLockApiSupported }}
+ * @returns {{ store, settings, resetConfirmPending, syncMenu, exportBackupData, initiateReset, confirmReset, wakeLockApiSupported }}
  */
 export function useSettings(props, emit) {
   const store = useAppStore();
@@ -105,6 +105,74 @@ export function useSettings(props, emit) {
     await store.loadMenu();
   }
 
+  /**
+   * Collects all app data from localStorage and triggers a JSON file download
+   * as a safety backup before any destructive reset operation.
+   */
+  function exportBackupData() {
+    if (typeof window === 'undefined') return;
+    try {
+      const now = new Date();
+      const suffix = _instanceName ? `_${_instanceName}` : '';
+      const backup = {
+        exportedAt: now.toISOString(),
+        instanceName: _instanceName || 'default',
+        appState: null,
+        settings: null,
+        authUsers: null,
+        authSettings: null,
+        customItems: null,
+      };
+
+      try {
+        const raw = window.localStorage.getItem(_storageKey);
+        backup.appState = raw ? JSON.parse(raw) : null;
+      } catch { /* ignore parse errors */ }
+
+      try {
+        const raw = window.localStorage.getItem(SETTINGS_STORAGE_KEY);
+        backup.settings = raw ? JSON.parse(raw) : null;
+      } catch { /* ignore parse errors */ }
+
+      try {
+        const raw = window.localStorage.getItem(`auth_users${suffix}`);
+        backup.authUsers = raw ? JSON.parse(raw) : null;
+      } catch { /* ignore parse errors */ }
+
+      try {
+        const raw = window.localStorage.getItem(`auth_settings${suffix}`);
+        backup.authSettings = raw ? JSON.parse(raw) : null;
+      } catch { /* ignore parse errors */ }
+
+      try {
+        const raw = window.localStorage.getItem(resolveCustomItemsKey(_instanceName));
+        backup.customItems = raw ? JSON.parse(raw) : null;
+      } catch { /* ignore parse errors */ }
+
+      const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `backup-cassa-${now.toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.warn('[Settings] Failed to export backup:', e);
+    }
+  }
+
+  /**
+   * Initiates the reset flow: automatically exports a backup and then shows
+   * the confirmation UI. Should be called instead of setting resetConfirmPending
+   * directly.
+   */
+  function initiateReset() {
+    exportBackupData();
+    resetConfirmPending.value = true;
+  }
+
   function confirmReset() {
     clearState(_storageKey);
     try {
@@ -139,6 +207,8 @@ export function useSettings(props, emit) {
     settings,
     resetConfirmPending,
     syncMenu,
+    exportBackupData,
+    initiateReset,
     confirmReset,
     wakeLockApiSupported,
   };
