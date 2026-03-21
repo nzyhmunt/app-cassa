@@ -336,4 +336,110 @@ describe('kitchen exclusion for direct orders', () => {
     expect(ready).toHaveLength(0);
     expect(delivered).toHaveLength(0);
   });
+
+  it('direct orders are excluded from CassaOrderManager / SalaOrderManager "In Cucina" KITCHEN_ACTIVE_STATUSES filter', () => {
+    const store = useAppStore();
+
+    // Add a regular kitchen order (status: accepted)
+    store.openTableSession('08', 2, 0);
+    const session = store.tableCurrentBillSession['08'];
+    const regularOrder = {
+      id: 'ord_kitchen_test',
+      table: '08',
+      billSessionId: session.billSessionId,
+      status: 'accepted',
+      time: '20:00',
+      totalAmount: 15,
+      itemCount: 1,
+      dietaryPreferences: {},
+      orderItems: [
+        { uid: 'ko_1', dishId: 'sec_1', name: 'Bistecca', unitPrice: 15, quantity: 1, voidedQuantity: 0, notes: [], modifiers: [] },
+      ],
+      globalNote: '',
+      noteVisibility: { cassa: true, sala: true, cucina: true },
+    };
+    store.addOrder(regularOrder);
+
+    // Add a direct order (voce diretta — should NOT appear in order-manager kitchen views)
+    store.addDirectOrder('08', session.billSessionId, [
+      { uid: 'direct_1', dishId: 'cafe_1', name: 'Caffè', unitPrice: 1.50, quantity: 1, voidedQuantity: 0, notes: [], modifiers: [] },
+    ]);
+
+    // Simulate the CassaOrderManager / SalaOrderManager "accepted" tab filter
+    // (KITCHEN_ACTIVE_STATUSES = ['accepted', 'preparing', 'ready', 'delivered'])
+    const KITCHEN_ACTIVE_STATUSES = ['accepted', 'preparing', 'ready', 'delivered'];
+    const inCucinaTab = store.orders.filter(
+      o => KITCHEN_ACTIVE_STATUSES.includes(o.status) && !o.isDirectEntry,
+    );
+
+    expect(inCucinaTab).toHaveLength(1);
+    expect(inCucinaTab[0].id).toBe('ord_kitchen_test');
+  });
+
+  it('direct orders are excluded from the "pending" tab filter used by order managers', () => {
+    const store = useAppStore();
+
+    // Add a normal pending order (e.g. from Sala)
+    const pendingOrder = {
+      id: 'ord_pending_test',
+      table: '09',
+      billSessionId: 'sess_p',
+      status: 'pending',
+      time: '20:30',
+      totalAmount: 8,
+      itemCount: 1,
+      dietaryPreferences: {},
+      orderItems: [
+        { uid: 'po_1', dishId: 'ant_1', name: 'Bruschetta', unitPrice: 8, quantity: 1, voidedQuantity: 0, notes: [], modifiers: [] },
+      ],
+      globalNote: '',
+      noteVisibility: { cassa: true, sala: true, cucina: true },
+    };
+    store.addOrder(pendingOrder);
+
+    // Direct order — immediately goes to 'accepted', but the filter must also guard 'pending'
+    store.addDirectOrder('09', 'sess_p', [
+      { uid: 'dp_1', dishId: 'bev_1', name: 'Acqua', unitPrice: 2.00, quantity: 1, voidedQuantity: 0, notes: [], modifiers: [] },
+    ]);
+
+    const pendingTab = store.orders.filter(
+      o => o.status === 'pending' && !o.isDirectEntry,
+    );
+
+    expect(pendingTab).toHaveLength(1);
+    expect(pendingTab[0].id).toBe('ord_pending_test');
+  });
+
+  it('order badge count excludes direct orders', () => {
+    const store = useAppStore();
+
+    // A regular accepted order contributes to the badge
+    store.addOrder({
+      id: 'ord_badge_test',
+      table: '10',
+      billSessionId: 'sess_b',
+      status: 'accepted',
+      time: '21:00',
+      totalAmount: 12,
+      itemCount: 1,
+      dietaryPreferences: {},
+      orderItems: [
+        { uid: 'b_1', dishId: 'pri_1', name: 'Pasta', unitPrice: 12, quantity: 1, voidedQuantity: 0, notes: [], modifiers: [] },
+      ],
+      globalNote: '',
+      noteVisibility: { cassa: true, sala: true, cucina: true },
+    });
+
+    // Direct orders must NOT inflate the badge count
+    store.addDirectOrder('10', 'sess_b', [
+      { uid: 'bdir_1', dishId: 'cafe_1', name: 'Caffè', unitPrice: 1.50, quantity: 1, voidedQuantity: 0, notes: [], modifiers: [] },
+    ]);
+
+    // Simulate the orderStatusCounts accepted badge
+    const acceptedBadge = store.orders.filter(
+      o => ['accepted', 'preparing', 'ready'].includes(o.status) && !o.isDirectEntry,
+    ).length;
+
+    expect(acceptedBadge).toBe(1);
+  });
 });
