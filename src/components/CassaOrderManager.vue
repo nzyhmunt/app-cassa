@@ -512,10 +512,10 @@ const selectedOrder = ref(null);
 
 const filteredOrders = computed(() => {
   if (activeTab.value === 'history')
-    return store.orders.filter(o => o.status === 'completed' || o.status === 'rejected');
+    return store.orders.filter(o => (o.status === 'completed' || o.status === 'rejected') && !o.isDirectEntry);
   if (activeTab.value === 'accepted')
     return store.orders
-      .filter(o => KITCHEN_ACTIVE_STATUSES.includes(o.status))
+      .filter(o => KITCHEN_ACTIVE_STATUSES.includes(o.status) && !o.isDirectEntry)
       .sort((a, b) => {
         const pa = KITCHEN_STATUS_PRIORITY[a.status] ?? 4;
         const pb = KITCHEN_STATUS_PRIORITY[b.status] ?? 4;
@@ -523,13 +523,14 @@ const filteredOrders = computed(() => {
         return b.time.localeCompare(a.time);
       });
   return store.orders
-    .filter(o => o.status === activeTab.value)
+    .filter(o => o.status === activeTab.value && !o.isDirectEntry)
     .sort((a, b) => a.time.localeCompare(b.time)); // oldest first → most urgent on top
 });
 
 const orderStatusCounts = computed(() =>
   store.orders.reduce(
     (acc, o) => {
+      if (o.isDirectEntry) return acc;
       // Badge counts only active kitchen orders (not delivered — those are already handled)
       if (['accepted', 'preparing', 'ready'].includes(o.status)) acc.accepted += 1;
       if (o.status === 'completed' || o.status === 'rejected') acc.history += 1;
