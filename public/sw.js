@@ -36,6 +36,7 @@ const SHELL_URLS = [
   './',
   './cassa.html',
   './sala.html',
+  './cucina.html',
   './index.html',
 ];
 
