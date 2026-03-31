@@ -435,7 +435,7 @@ export const useAppStore = defineStore('app', () => {
 
   // ── Mutations: Cassa ───────────────────────────────────────────────────────
   function setCashBalance(amount) {
-    cashBalance.value = amount;
+    cashBalance.value = parseFloat(amount) || 0;
   }
 
   // Backwards compatibility alias; prefer using setCashBalance going forward
@@ -444,7 +444,7 @@ export const useAppStore = defineStore('app', () => {
     cashMovements.value.push({
       id: 'mov_' + Math.random().toString(36).slice(2, 11),
       type, // 'deposit' | 'withdrawal'
-      amount,
+      amount: parseFloat(amount) || 0,
       reason,
       timestamp: new Date().toISOString(),
     });
