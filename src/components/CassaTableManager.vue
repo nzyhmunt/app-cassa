@@ -447,44 +447,58 @@
                     v-if="flatAnalyticaItems.length > 0"
                     @click="toggleSelectAllVoci"
                     class="text-[10px] font-bold text-teal-700 underline underline-offset-2 active:opacity-70 transition-opacity"
-                  >{{ selectedVociToPay.length === flatAnalyticaItems.length ? 'Deseleziona Tutto' : 'Seleziona Tutto' }}</button>
+                  >{{ flatAnalyticaItems.every(i => (analiticaQty[i.key] || 0) === i.netQty) ? 'Deseleziona Tutto' : 'Seleziona Tutto' }}</button>
                 </div>
 
                 <template v-for="voce in flatAnalyticaItems" :key="'voce_'+voce.key">
                   <!-- Modifier sub-row (indented, purple style) -->
-                  <label
+                  <div
                     v-if="voce.isModifier"
-                    class="flex justify-between items-center py-2 pl-8 pr-3 bg-white rounded-xl cursor-pointer border shadow-sm transition-colors"
-                    :class="selectedVociToPay.includes(voce.key) ? 'border-purple-300 bg-purple-50/60' : 'border-transparent hover:border-purple-200'"
+                    class="flex items-center py-2 pl-8 pr-3 bg-white rounded-xl border shadow-sm transition-colors gap-2"
+                    :class="(analiticaQty[voce.key] || 0) > 0 ? 'border-purple-300 bg-purple-50/60' : 'border-transparent'"
                   >
-                    <div class="flex items-center gap-2 flex-1 min-w-0">
-                      <input type="checkbox" v-model="selectedVociToPay" :value="voce.key" class="size-4 accent-purple-600 rounded shrink-0">
-                      <div class="flex flex-col min-w-0">
-                        <span class="text-xs font-bold text-purple-700 leading-tight truncate">+ {{ voce.name }}</span>
-                        <span class="text-[10px] text-purple-500 font-medium">{{ voce.netQty }}× {{ store.config.ui.currency }}{{ voce.unitPrice.toFixed(2) }}</span>
-                      </div>
+                    <div class="flex flex-col min-w-0 flex-1">
+                      <span class="text-xs font-bold text-purple-700 leading-tight truncate">+ {{ voce.name }}</span>
+                      <span class="text-[10px] text-purple-500 font-medium">max {{ voce.netQty }}× {{ store.config.ui.currency }}{{ voce.unitPrice.toFixed(2) }}</span>
                     </div>
-                    <span class="font-black text-sm text-purple-700 shrink-0 ml-2">{{ store.config.ui.currency }}{{ voce.rowTotal.toFixed(2) }}</span>
-                  </label>
+                    <!-- Stepper -->
+                    <div class="flex items-center gap-1 shrink-0">
+                      <button @click="decrementAnalitica(voce.key)"
+                        :disabled="(analiticaQty[voce.key] || 0) === 0"
+                        class="size-6 rounded-lg border border-purple-200 bg-white text-purple-700 font-black text-base leading-none flex items-center justify-center active:scale-95 transition-all disabled:opacity-30 disabled:cursor-not-allowed">−</button>
+                      <span class="w-5 text-center text-xs font-black text-purple-800 tabular-nums">{{ analiticaQty[voce.key] || 0 }}</span>
+                      <button @click="incrementAnalitica(voce.key, voce.netQty)"
+                        :disabled="(analiticaQty[voce.key] || 0) >= voce.netQty"
+                        class="size-6 rounded-lg border border-purple-200 bg-white text-purple-700 font-black text-base leading-none flex items-center justify-center active:scale-95 transition-all disabled:opacity-30 disabled:cursor-not-allowed">+</button>
+                    </div>
+                    <span class="font-black text-sm text-purple-700 shrink-0 w-14 text-right">{{ store.config.ui.currency }}{{ ((analiticaQty[voce.key] || 0) * voce.unitPrice).toFixed(2) }}</span>
+                  </div>
 
                   <!-- Base item row -->
-                  <label
+                  <div
                     v-else
-                    class="flex justify-between items-center p-3 bg-white rounded-xl cursor-pointer border shadow-sm transition-colors"
-                    :class="selectedVociToPay.includes(voce.key) ? 'border-teal-300 bg-teal-50/60' : 'border-transparent hover:border-teal-200'"
+                    class="flex items-center p-3 bg-white rounded-xl border shadow-sm transition-colors gap-2"
+                    :class="(analiticaQty[voce.key] || 0) > 0 ? 'border-teal-300 bg-teal-50/60' : 'border-transparent'"
                   >
-                    <div class="flex items-center gap-3 flex-1 min-w-0">
-                      <input type="checkbox" v-model="selectedVociToPay" :value="voce.key" class="size-5 accent-teal-600 rounded shrink-0">
-                      <div class="flex flex-col min-w-0">
-                        <span class="text-sm font-bold text-gray-700 leading-tight truncate flex items-center gap-1">
-                          {{ voce.name }}
-                          <Zap v-if="voce.isDirectEntry" class="size-3 theme-text shrink-0" title="Voce Diretta" />
-                        </span>
-                        <span class="text-[10px] text-gray-500 font-medium">{{ voce.netQty }}× {{ store.config.ui.currency }}{{ voce.unitPrice.toFixed(2) }}</span>
-                      </div>
+                    <div class="flex flex-col min-w-0 flex-1">
+                      <span class="text-sm font-bold text-gray-700 leading-tight truncate flex items-center gap-1">
+                        {{ voce.name }}
+                        <Zap v-if="voce.isDirectEntry" class="size-3 theme-text shrink-0" title="Voce Diretta" />
+                      </span>
+                      <span class="text-[10px] text-gray-500 font-medium">max {{ voce.netQty }}× {{ store.config.ui.currency }}{{ voce.unitPrice.toFixed(2) }}</span>
                     </div>
-                    <span class="font-black text-base text-teal-700 shrink-0 ml-2">{{ store.config.ui.currency }}{{ voce.rowTotal.toFixed(2) }}</span>
-                  </label>
+                    <!-- Stepper -->
+                    <div class="flex items-center gap-1.5 shrink-0">
+                      <button @click="decrementAnalitica(voce.key)"
+                        :disabled="(analiticaQty[voce.key] || 0) === 0"
+                        class="size-7 rounded-lg border border-teal-200 bg-white text-teal-700 font-black text-lg leading-none flex items-center justify-center active:scale-95 transition-all disabled:opacity-30 disabled:cursor-not-allowed">−</button>
+                      <span class="w-6 text-center text-sm font-black text-teal-800 tabular-nums">{{ analiticaQty[voce.key] || 0 }}</span>
+                      <button @click="incrementAnalitica(voce.key, voce.netQty)"
+                        :disabled="(analiticaQty[voce.key] || 0) >= voce.netQty"
+                        class="size-7 rounded-lg border border-teal-200 bg-white text-teal-700 font-black text-lg leading-none flex items-center justify-center active:scale-95 transition-all disabled:opacity-30 disabled:cursor-not-allowed">+</button>
+                    </div>
+                    <span class="font-black text-base text-teal-700 shrink-0 w-14 text-right">{{ store.config.ui.currency }}{{ ((analiticaQty[voce.key] || 0) * voce.unitPrice).toFixed(2) }}</span>
+                  </div>
                 </template>
 
                 <div v-if="flatAnalyticaItems.length === 0" class="text-xs text-teal-600 font-bold italic">Nessuna voce disponibile o da pagare.</div>
@@ -1063,7 +1077,7 @@ const splitWays = ref(2);
 const splitPaidQuotas = ref(0);
 const romanaSplitCount = ref(1); // how many quotas to pay in this single transaction
 const selectedOrdersToPay = ref([]);
-const selectedVociToPay = ref([]); // analitica mode: array of 'orderId__itemIdx' keys
+const analiticaQty = ref({}); // analitica mode: map of 'key' → selected quantity (0 = not selected)
 
 // ── Payment modal state ───────────────────────────────────────────────────
 // Opened when the cashier clicks a payment method button.
@@ -1203,9 +1217,10 @@ const flatAnalyticaItems = computed(() => {
 });
 
 const analiticaAmount = computed(() => {
-  const total = flatAnalyticaItems.value
-    .filter(i => selectedVociToPay.value.includes(i.key))
-    .reduce((acc, i) => acc + i.rowTotal, 0);
+  const total = flatAnalyticaItems.value.reduce((acc, i) => {
+    const qty = analiticaQty.value[i.key] || 0;
+    return acc + i.unitPrice * qty;
+  }, 0);
   return Math.min(total, tableAmountRemaining.value);
 });
 
@@ -1341,7 +1356,7 @@ const amountBeingPaid = computed(() => {
 const canPay = computed(() => {
   if (tableAmountRemaining.value <= BILL_SETTLED_THRESHOLD) return false;
   if (checkoutMode.value === 'ordini' && selectedOrdersToPay.value.length === 0) return false;
-  if (checkoutMode.value === 'analitica' && selectedVociToPay.value.length === 0) return false;
+  if (checkoutMode.value === 'analitica' && !flatAnalyticaItems.value.some(i => (analiticaQty.value[i.key] || 0) > 0)) return false;
   return true;
 });
 
@@ -1363,12 +1378,30 @@ function getPaymentIcon(methodIdOrLabel) {
   return m.icon === 'credit-card' ? CreditCard : Banknote;
 }
 
-// ── Analitica mode: select/deselect all items ──────────────────────────────
-function toggleSelectAllVoci() {
-  if (selectedVociToPay.value.length === flatAnalyticaItems.value.length) {
-    selectedVociToPay.value = [];
+// ── Analitica mode: increment / decrement per-item quantity ───────────────
+function incrementAnalitica(key, max) {
+  const current = analiticaQty.value[key] || 0;
+  if (current < max) analiticaQty.value[key] = current + 1;
+}
+
+function decrementAnalitica(key) {
+  const current = analiticaQty.value[key] || 0;
+  if (current <= 1) {
+    delete analiticaQty.value[key];
   } else {
-    selectedVociToPay.value = flatAnalyticaItems.value.map(i => i.key);
+    analiticaQty.value[key] = current - 1;
+  }
+}
+
+// ── Analitica mode: select all at max qty / deselect all ───────────────────
+function toggleSelectAllVoci() {
+  const allMaxed = flatAnalyticaItems.value.every(i => (analiticaQty.value[i.key] || 0) === i.netQty);
+  if (allMaxed) {
+    analiticaQty.value = {};
+  } else {
+    const newQty = {};
+    for (const item of flatAnalyticaItems.value) newQty[item.key] = item.netQty;
+    analiticaQty.value = newQty;
   }
 }
 
@@ -1442,7 +1475,7 @@ function _openTableModal(table) {
   checkoutMode.value = 'unico';
   cassaViewMode.value = 'voce';
   selectedOrdersToPay.value = [];
-  selectedVociToPay.value = [];
+  analiticaQty.value = {};
   romanaSplitCount.value = 1;
   discountInput.value = '';
   discountType.value = 'percent';
@@ -1753,9 +1786,10 @@ function processTablePayment(paymentMethodId, extra = {}, overrideAmount = null)
     // Orders are intentionally NOT marked completed here yet; they are handled below
     // after the transaction is recorded so the auto-close check sees correct balances.
   } else if (checkoutMode.value === 'analitica') {
-    // Record which order IDs are involved and the specific item keys selected.
-    payload.orderRefs = [...new Set(selectedVociToPay.value.map(k => k.split('__')[0]))];
-    payload.vociRefs = [...selectedVociToPay.value];
+    // Record which order IDs are involved and the specific item keys with their selected quantities.
+    const selectedItems = flatAnalyticaItems.value.filter(i => (analiticaQty.value[i.key] || 0) > 0);
+    payload.orderRefs = [...new Set(selectedItems.map(i => i.orderId))];
+    payload.vociRefs = selectedItems.map(i => ({ key: i.key, qty: analiticaQty.value[i.key] }));
   }
 
   store.addTransaction(payload);
@@ -1774,30 +1808,18 @@ function processTablePayment(paymentMethodId, extra = {}, overrideAmount = null)
     selectedOrdersToPay.value = [];
   }
 
-  // In analitica mode, complete any orders whose items AND paid modifiers are ALL selected (fully paid).
+  // In analitica mode, complete any orders whose items AND paid modifiers are ALL fully selected
+  // (selectedQty === netQty for every row belonging to that order).
   if (checkoutMode.value === 'analitica') {
     if (amount + BILL_SETTLED_THRESHOLD >= analiticaAmount.value) {
       for (const ord of tableAcceptedPayableOrders.value) {
-        const payableKeys = [];
-        for (let idx = 0; idx < ord.orderItems.length; idx++) {
-          const item = ord.orderItems[idx];
-          const netQty = item.quantity - (item.voidedQuantity || 0);
-          if (netQty <= 0) continue;
-          payableKeys.push(`${ord.id}__${idx}`);
-          for (let modIdx = 0; modIdx < (item.modifiers || []).length; modIdx++) {
-            const mod = item.modifiers[modIdx];
-            if ((mod.price || 0) <= 0) continue;
-            const modNetQty = Math.max(0, netQty - (mod.voidedQuantity || 0));
-            if (modNetQty <= 0) continue;
-            payableKeys.push(`${ord.id}__${idx}__mod__${modIdx}`);
-          }
-        }
-        const allSelected = payableKeys.length > 0 &&
-          payableKeys.every(k => selectedVociToPay.value.includes(k));
-        if (allSelected) store.changeOrderStatus(ord, 'completed');
+        const ordItems = flatAnalyticaItems.value.filter(i => i.orderId === ord.id);
+        const allFullySelected = ordItems.length > 0 &&
+          ordItems.every(i => (analiticaQty.value[i.key] || 0) >= i.netQty);
+        if (allFullySelected) store.changeOrderStatus(ord, 'completed');
       }
     }
-    selectedVociToPay.value = [];
+    analiticaQty.value = {};
   }
 
   jsonContext.value = 'receipt';

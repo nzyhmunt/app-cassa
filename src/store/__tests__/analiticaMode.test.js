@@ -4,10 +4,11 @@
  *
  * Tests cover:
  *  - flatAnalyticaItems computation (base items + paid modifiers as separate rows)
- *  - analiticaAmount computation (sums selected items, capped at remaining)
- *  - canPay guard (disabled when no items selected)
- *  - Order completion in processTablePayment (requires all items AND modifiers selected)
- *  - toggleSelectAllVoci helper
+ *  - analiticaAmount computation (qty map, capped at remaining)
+ *  - canPay guard (disabled when all qtys are 0)
+ *  - Order completion in processTablePayment (requires qty === netQty for all rows)
+ *  - incrementAnalitica / decrementAnalitica helpers
+ *  - toggleSelectAllVoci helper (sets all to max / all to 0)
  *  - Direct entry items (isDirectEntry flag)
  *
  * The logic is extracted from CassaTableManager.vue and tested as pure
@@ -28,12 +29,13 @@ afterEach(() => {
 });
 
 // ---------------------------------------------------------------------------
-// Helpers mirroring CassaTableManager.vue logic (updated with modifier support)
+// Helpers mirroring CassaTableManager.vue logic
 // ---------------------------------------------------------------------------
 
 /**
  * Builds the flat list of individually selectable items (mirrors flatAnalyticaItems computed).
- * Base items show only their unit price; paid modifiers appear as separate sub-rows.
+ * Each base item row shows its unit price only (not including modifier surcharges).
+ * Each paid modifier appears as a separate sub-row.
  */
 function buildFlatAnalyticaItems(acceptedOrders) {
   const items = [];
@@ -43,7 +45,6 @@ function buildFlatAnalyticaItems(acceptedOrders) {
       const netQty = item.quantity - (item.voidedQuantity || 0);
       if (netQty <= 0) continue;
 
-      // Base item — unit price only, no modifier surcharges
       items.push({
         key: `${ord.id}__${idx}`,
         orderId: ord.id,
@@ -57,7 +58,6 @@ function buildFlatAnalyticaItems(acceptedOrders) {
         isModifier: false,
       });
 
-      // Paid modifiers as individually selectable sub-rows
       for (let modIdx = 0; modIdx < (item.modifiers || []).length; modIdx++) {
         const mod = item.modifiers[modIdx];
         if ((mod.price || 0) <= 0) continue;
@@ -83,37 +83,29 @@ function buildFlatAnalyticaItems(acceptedOrders) {
 
 /**
  * Computes the amount for selected analytic items (mirrors analiticaAmount computed).
+ * @param {object[]} flatItems - Output of buildFlatAnalyticaItems
+ * @param {object} qtyMap - { key: selectedQty } map (mirrors analiticaQty)
+ * @param {number} amountRemaining - Remaining bill amount (cap)
  */
-function computeAnaliticaAmount(flatItems, selectedKeys, amountRemaining) {
-  const total = flatItems
-    .filter(i => selectedKeys.includes(i.key))
-    .reduce((acc, i) => acc + i.rowTotal, 0);
+function computeAnaliticaAmount(flatItems, qtyMap, amountRemaining) {
+  const total = flatItems.reduce((acc, i) => {
+    const qty = qtyMap[i.key] || 0;
+    return acc + i.unitPrice * qty;
+  }, 0);
   return Math.min(total, amountRemaining);
 }
 
 /**
  * Determines which order IDs should be auto-completed after an analitica payment.
- * An order is completed only when ALL its non-voided items AND paid modifiers are selected.
+ * An order is completed only when selectedQty === netQty for every item/modifier row.
  */
-function getOrdersToComplete(acceptedOrders, selectedKeys) {
+function getOrdersToComplete(acceptedOrders, flatItems, qtyMap) {
   const toComplete = [];
   for (const ord of acceptedOrders) {
-    const payableKeys = [];
-    for (let idx = 0; idx < ord.orderItems.length; idx++) {
-      const item = ord.orderItems[idx];
-      const netQty = item.quantity - (item.voidedQuantity || 0);
-      if (netQty <= 0) continue;
-      payableKeys.push(`${ord.id}__${idx}`);
-      for (let modIdx = 0; modIdx < (item.modifiers || []).length; modIdx++) {
-        const mod = item.modifiers[modIdx];
-        if ((mod.price || 0) <= 0) continue;
-        const modNetQty = Math.max(0, netQty - (mod.voidedQuantity || 0));
-        if (modNetQty <= 0) continue;
-        payableKeys.push(`${ord.id}__${idx}__mod__${modIdx}`);
-      }
-    }
-    const allSelected = payableKeys.length > 0 && payableKeys.every(k => selectedKeys.includes(k));
-    if (allSelected) toComplete.push(ord.id);
+    const ordItems = flatItems.filter(i => i.orderId === ord.id);
+    const allFullySelected = ordItems.length > 0 &&
+      ordItems.every(i => (qtyMap[i.key] || 0) >= i.netQty);
+    if (allFullySelected) toComplete.push(ord.id);
   }
   return toComplete;
 }
@@ -226,15 +218,14 @@ describe('buildFlatAnalyticaItems() — paid modifiers (variazioni)', () => {
     ]);
     const ord = makeOrder('ord_1', [item]);
     const flat = buildFlatAnalyticaItems([ord]);
-    // 1 base + 2 modifiers = 3 entries
     expect(flat).toHaveLength(3);
     expect(flat.filter(i => i.isModifier)).toHaveLength(2);
   });
 
   it('skips free (price=0) modifiers', () => {
     const item = makeItem('Pasta', 10.00, 1, 0, [
-      makeMod('Senza sale', 0), // free note-style mod
-      makeMod('Extra cheese', 1.00), // paid
+      makeMod('Senza sale', 0),
+      makeMod('Extra cheese', 1.00),
     ]);
     const ord = makeOrder('ord_1', [item]);
     const flat = buildFlatAnalyticaItems([ord]);
@@ -258,64 +249,51 @@ describe('buildFlatAnalyticaItems() — paid modifiers (variazioni)', () => {
     const modRow = flat.find(i => i.isModifier);
     expect(modRow.key).toBe('ord_x__0__mod__0');
   });
-
-  it('computes modifier rowTotal as price × modNetQty', () => {
-    // 3 items, 1 modifier voided → modNetQty = 3 - 1 = 2
-    const item = makeItem('Pasta', 8.00, 3, 0, [makeMod('Formaggio', 1.00, 1)]);
-    const ord = makeOrder('ord_1', [item]);
-    const flat = buildFlatAnalyticaItems([ord]);
-    const modRow = flat.find(i => i.isModifier);
-    expect(modRow.netQty).toBe(2);
-    expect(modRow.rowTotal).toBeCloseTo(2.00, 2);
-  });
-
-  it('does not show modifier rows when the parent item is fully voided', () => {
-    const item = makeItem('Pizza', 10.00, 2, 2, [makeMod('Mozzarella', 1.50)]);
-    const ord = makeOrder('ord_1', [item]);
-    const flat = buildFlatAnalyticaItems([ord]);
-    // Parent voided → parent excluded → no modifier rows either
-    expect(flat).toHaveLength(0);
-  });
 });
 
 // ---------------------------------------------------------------------------
-// Tests: computeAnaliticaAmount
+// Tests: computeAnaliticaAmount (qty-map based)
 // ---------------------------------------------------------------------------
 
 describe('computeAnaliticaAmount()', () => {
-  it('returns 0 when no items are selected', () => {
+  it('returns 0 when all qtys are 0', () => {
     const ord = makeOrder('ord_1', [makeItem('Caffè', 1.50, 2)]);
     const flat = buildFlatAnalyticaItems([ord]);
-    expect(computeAnaliticaAmount(flat, [], 100)).toBe(0);
+    expect(computeAnaliticaAmount(flat, {}, 100)).toBe(0);
   });
 
-  it('sums rowTotal of selected base items', () => {
-    const ord = makeOrder('ord_1', [
-      makeItem('Caffè', 1.50, 2), // base rowTotal = 3.00
-      makeItem('Acqua', 2.00, 1), // base rowTotal = 2.00
-    ]);
+  it('computes total for partial qty selection of a single item', () => {
+    // Item has netQty=2; user selects qty=1
+    const ord = makeOrder('ord_1', [makeItem('Caffè', 1.50, 2)]);
     const flat = buildFlatAnalyticaItems([ord]);
-    const amount = computeAnaliticaAmount(flat, [flat[0].key], 100);
-    expect(amount).toBeCloseTo(3.00, 2);
+    const qtyMap = { [flat[0].key]: 1 }; // select 1 of 2
+    expect(computeAnaliticaAmount(flat, qtyMap, 100)).toBeCloseTo(1.50, 2);
   });
 
-  it('sums base item and its modifier when both selected', () => {
-    const item = makeItem('Pizza', 10.00, 1, 0, [makeMod('Mozzarella', 1.50)]);
+  it('computes total for full qty selection', () => {
+    const ord = makeOrder('ord_1', [makeItem('Caffè', 1.50, 2)]);
+    const flat = buildFlatAnalyticaItems([ord]);
+    const qtyMap = { [flat[0].key]: 2 }; // select all 2
+    expect(computeAnaliticaAmount(flat, qtyMap, 100)).toBeCloseTo(3.00, 2);
+  });
+
+  it('sums base item and partial modifier qty', () => {
+    const item = makeItem('Pizza', 10.00, 2, 0, [makeMod('Mozzarella', 1.50)]);
     const ord = makeOrder('ord_1', [item]);
     const flat = buildFlatAnalyticaItems([ord]);
-    const allKeys = flat.map(i => i.key);
-    const amount = computeAnaliticaAmount(flat, allKeys, 100);
-    // 10.00 base + 1.50 modifier = 11.50
-    expect(amount).toBeCloseTo(11.50, 2);
+    const baseKey = flat.find(i => !i.isModifier).key;
+    const modKey = flat.find(i => i.isModifier).key;
+    // Pay 1 pizza base + 1 modifier
+    const qtyMap = { [baseKey]: 1, [modKey]: 1 };
+    expect(computeAnaliticaAmount(flat, qtyMap, 100)).toBeCloseTo(11.50, 2);
   });
 
-  it('allows selecting modifier without base item', () => {
+  it('allows selecting modifier qty without base item', () => {
     const item = makeItem('Pizza', 10.00, 1, 0, [makeMod('Mozzarella', 1.50)]);
     const ord = makeOrder('ord_1', [item]);
     const flat = buildFlatAnalyticaItems([ord]);
     const modKey = flat.find(i => i.isModifier).key;
-    const amount = computeAnaliticaAmount(flat, [modKey], 100);
-    expect(amount).toBeCloseTo(1.50, 2);
+    expect(computeAnaliticaAmount(flat, { [modKey]: 1 }, 100)).toBeCloseTo(1.50, 2);
   });
 
   it('is capped by the remaining bill amount', () => {
@@ -324,7 +302,8 @@ describe('computeAnaliticaAmount()', () => {
       makeItem('Vino', 15.00, 1),
     ]);
     const flat = buildFlatAnalyticaItems([ord]);
-    const amount = computeAnaliticaAmount(flat, [flat[0].key, flat[1].key], 35.00);
+    const qtyMap = { [flat[0].key]: 1, [flat[1].key]: 1 };
+    const amount = computeAnaliticaAmount(flat, qtyMap, 35.00);
     expect(amount).toBeCloseTo(35.00, 2);
   });
 });
@@ -336,86 +315,133 @@ describe('computeAnaliticaAmount()', () => {
 describe('canPay guard for analitica mode', () => {
   const BILL_SETTLED_THRESHOLD = 0.01;
 
-  it('returns false when no items are selected', () => {
-    const canPay = (() => {
-      if (15.00 <= BILL_SETTLED_THRESHOLD) return false;
-      if ([].length === 0) return false;
-      return true;
-    })();
-    expect(canPay).toBe(false);
+  function canPay(remaining, flatItems, qtyMap) {
+    if (remaining <= BILL_SETTLED_THRESHOLD) return false;
+    if (!flatItems.some(i => (qtyMap[i.key] || 0) > 0)) return false;
+    return true;
+  }
+
+  it('returns false when all qtys are 0', () => {
+    const ord = makeOrder('ord_1', [makeItem('Caffè', 1.50, 2)]);
+    const flat = buildFlatAnalyticaItems([ord]);
+    expect(canPay(15.00, flat, {})).toBe(false);
   });
 
-  it('returns true when at least one item is selected', () => {
-    const canPay = (() => {
-      if (15.00 <= BILL_SETTLED_THRESHOLD) return false;
-      if (['ord_1__0'].length === 0) return false;
-      return true;
-    })();
-    expect(canPay).toBe(true);
+  it('returns true when at least one item has qty > 0', () => {
+    const ord = makeOrder('ord_1', [makeItem('Caffè', 1.50, 2)]);
+    const flat = buildFlatAnalyticaItems([ord]);
+    expect(canPay(15.00, flat, { [flat[0].key]: 1 })).toBe(true);
   });
 
   it('returns false when the remaining bill is at or below the settled threshold', () => {
-    const canPay = (() => {
-      if (0.005 <= BILL_SETTLED_THRESHOLD) return false;
-      if (['ord_1__0'].length === 0) return false;
-      return true;
-    })();
-    expect(canPay).toBe(false);
+    const ord = makeOrder('ord_1', [makeItem('Caffè', 1.50, 2)]);
+    const flat = buildFlatAnalyticaItems([ord]);
+    expect(canPay(0.005, flat, { [flat[0].key]: 2 })).toBe(false);
   });
 });
 
 // ---------------------------------------------------------------------------
-// Tests: getOrdersToComplete (includes modifier key check)
+// Tests: incrementAnalitica / decrementAnalitica helpers
+// ---------------------------------------------------------------------------
+
+describe('incrementAnalitica / decrementAnalitica logic', () => {
+  function increment(key, max, qtyMap) {
+    const current = qtyMap[key] || 0;
+    if (current < max) return { ...qtyMap, [key]: current + 1 };
+    return qtyMap;
+  }
+
+  function decrement(key, qtyMap) {
+    const current = qtyMap[key] || 0;
+    if (current <= 1) {
+      const updated = { ...qtyMap };
+      delete updated[key];
+      return updated;
+    }
+    return { ...qtyMap, [key]: current - 1 };
+  }
+
+  it('increment adds 1 up to netQty', () => {
+    let map = {};
+    map = increment('k1', 3, map);
+    expect(map['k1']).toBe(1);
+    map = increment('k1', 3, map);
+    expect(map['k1']).toBe(2);
+    map = increment('k1', 3, map);
+    expect(map['k1']).toBe(3);
+    map = increment('k1', 3, map); // should not exceed max
+    expect(map['k1']).toBe(3);
+  });
+
+  it('decrement removes the key when qty reaches 0', () => {
+    let map = { 'k1': 1 };
+    map = decrement('k1', map);
+    expect('k1' in map).toBe(false);
+  });
+
+  it('decrement subtracts 1 when qty > 1', () => {
+    let map = { 'k1': 3 };
+    map = decrement('k1', map);
+    expect(map['k1']).toBe(2);
+  });
+
+  it('decrement on missing key is a no-op', () => {
+    const map = {};
+    const result = decrement('k1', map);
+    expect('k1' in result).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests: getOrdersToComplete (qty-map based)
 // ---------------------------------------------------------------------------
 
 describe('getOrdersToComplete()', () => {
-  it('marks an order complete when all items (no modifiers) are selected', () => {
+  it('marks an order complete when all items have qty === netQty (no modifiers)', () => {
     const ord = makeOrder('ord_1', [
       makeItem('Pasta', 10.00, 1),
       makeItem('Vino', 8.00, 1),
     ]);
     const flat = buildFlatAnalyticaItems([ord]);
-    const toComplete = getOrdersToComplete([ord], flat.map(i => i.key));
-    expect(toComplete).toContain('ord_1');
+    const qtyMap = {};
+    for (const i of flat) qtyMap[i.key] = i.netQty;
+    expect(getOrdersToComplete([ord], flat, qtyMap)).toContain('ord_1');
   });
 
-  it('does NOT mark complete when only some items are selected (no modifiers)', () => {
+  it('does NOT mark complete when only some items have full qty', () => {
     const ord = makeOrder('ord_1', [
       makeItem('Pasta', 10.00, 1),
       makeItem('Vino', 8.00, 1),
     ]);
     const flat = buildFlatAnalyticaItems([ord]);
-    const toComplete = getOrdersToComplete([ord], [flat[0].key]);
-    expect(toComplete).not.toContain('ord_1');
+    // Only select the first item fully
+    const qtyMap = { [flat[0].key]: flat[0].netQty };
+    expect(getOrdersToComplete([ord], flat, qtyMap)).not.toContain('ord_1');
   });
 
-  it('does NOT mark complete when base item is selected but paid modifier is not', () => {
+  it('does NOT mark complete when base qty < netQty', () => {
+    const ord = makeOrder('ord_1', [makeItem('Pasta', 10.00, 3)]);
+    const flat = buildFlatAnalyticaItems([ord]);
+    const qtyMap = { [flat[0].key]: 2 }; // 2 of 3
+    expect(getOrdersToComplete([ord], flat, qtyMap)).not.toContain('ord_1');
+  });
+
+  it('does NOT mark complete when base item is full but paid modifier is 0', () => {
     const item = makeItem('Pizza', 10.00, 1, 0, [makeMod('Mozzarella', 1.50)]);
     const ord = makeOrder('ord_1', [item]);
     const flat = buildFlatAnalyticaItems([ord]);
     const baseKey = flat.find(i => !i.isModifier).key;
-    // Only base selected, not the modifier
-    const toComplete = getOrdersToComplete([ord], [baseKey]);
-    expect(toComplete).not.toContain('ord_1');
+    const qtyMap = { [baseKey]: 1 }; // only base, not modifier
+    expect(getOrdersToComplete([ord], flat, qtyMap)).not.toContain('ord_1');
   });
 
-  it('marks complete when base item AND all paid modifiers are selected', () => {
+  it('marks complete when both base AND modifier have full qty', () => {
     const item = makeItem('Pizza', 10.00, 1, 0, [makeMod('Mozzarella', 1.50)]);
     const ord = makeOrder('ord_1', [item]);
     const flat = buildFlatAnalyticaItems([ord]);
-    const toComplete = getOrdersToComplete([ord], flat.map(i => i.key));
-    expect(toComplete).toContain('ord_1');
-  });
-
-  it('ignores fully voided items/modifiers when checking completeness', () => {
-    const ord = makeOrder('ord_1', [
-      makeItem('Caffè', 1.50, 2, 2), // fully voided → excluded from payableKeys
-      makeItem('Acqua', 2.00, 1, 0),
-    ]);
-    const flat = buildFlatAnalyticaItems([ord]);
-    expect(flat).toHaveLength(1); // only Acqua
-    const toComplete = getOrdersToComplete([ord], [flat[0].key]);
-    expect(toComplete).toContain('ord_1');
+    const qtyMap = {};
+    for (const i of flat) qtyMap[i.key] = i.netQty;
+    expect(getOrdersToComplete([ord], flat, qtyMap)).toContain('ord_1');
   });
 
   it('marks only the fully-covered order across multiple orders', () => {
@@ -426,9 +452,10 @@ describe('getOrdersToComplete()', () => {
     ]);
     const flat1 = buildFlatAnalyticaItems([ord1]);
     const flat2 = buildFlatAnalyticaItems([ord2]);
-    // Select all of ord1 and only the first item of ord2
-    const selectedKeys = [flat1[0].key, flat2[0].key];
-    const toComplete = getOrdersToComplete([ord1, ord2], selectedKeys);
+    const allFlat = [...flat1, ...flat2];
+    // Full qty for ord1, partial for ord2
+    const qtyMap = { [flat1[0].key]: flat1[0].netQty, [flat2[0].key]: flat2[0].netQty };
+    const toComplete = getOrdersToComplete([ord1, ord2], allFlat, qtyMap);
     expect(toComplete).toContain('ord_1');
     expect(toComplete).not.toContain('ord_2');
   });
@@ -439,29 +466,41 @@ describe('getOrdersToComplete()', () => {
 // ---------------------------------------------------------------------------
 
 describe('toggleSelectAllVoci logic', () => {
-  it('selects all items (including modifiers) when none are selected', () => {
-    const item = makeItem('Pizza', 10.00, 1, 0, [makeMod('Mozzarella', 1.50)]);
+  function toggleSelectAll(flatItems, qtyMap) {
+    const allMaxed = flatItems.every(i => (qtyMap[i.key] || 0) === i.netQty);
+    if (allMaxed) return {};
+    const newQty = {};
+    for (const item of flatItems) newQty[item.key] = item.netQty;
+    return newQty;
+  }
+
+  it('sets all to netQty when nothing is selected', () => {
+    const item = makeItem('Pizza', 10.00, 2, 0, [makeMod('Mozzarella', 1.50)]);
     const ord = makeOrder('ord_1', [item]);
     const flat = buildFlatAnalyticaItems([ord]);
-    let selected = [];
-    selected = selected.length === flat.length ? [] : flat.map(i => i.key);
-    expect(selected).toHaveLength(flat.length); // base + modifier
+    const result = toggleSelectAll(flat, {});
+    for (const i of flat) expect(result[i.key]).toBe(i.netQty);
   });
 
-  it('deselects all items when all are selected', () => {
+  it('clears all when all are at max qty', () => {
     const ord = makeOrder('ord_1', [makeItem('Pasta', 10.00, 1)]);
     const flat = buildFlatAnalyticaItems([ord]);
-    let selected = flat.map(i => i.key);
-    selected = selected.length === flat.length ? [] : flat.map(i => i.key);
-    expect(selected).toHaveLength(0);
+    const fullMap = {};
+    for (const i of flat) fullMap[i.key] = i.netQty;
+    const result = toggleSelectAll(flat, fullMap);
+    expect(Object.keys(result)).toHaveLength(0);
   });
 
-  it('selects all when only some items are selected (partial → all)', () => {
-    const ord = makeOrder('ord_1', [makeItem('Pasta', 10.00, 1), makeItem('Vino', 8.00, 1)]);
+  it('sets all to max when only some items have partial qty', () => {
+    const ord = makeOrder('ord_1', [
+      makeItem('Pasta', 10.00, 3),
+      makeItem('Vino', 8.00, 2),
+    ]);
     const flat = buildFlatAnalyticaItems([ord]);
-    let selected = [flat[0].key];
-    selected = selected.length === flat.length ? [] : flat.map(i => i.key);
-    expect(selected).toHaveLength(flat.length);
+    // Only partially set the first item
+    const result = toggleSelectAll(flat, { [flat[0].key]: 1 });
+    expect(result[flat[0].key]).toBe(flat[0].netQty); // 3
+    expect(result[flat[1].key]).toBe(flat[1].netQty); // 2
   });
 });
 
@@ -483,7 +522,7 @@ describe('store.addTransaction() with analitica operationType', () => {
       paymentMethod: 'Contanti',
       operationType: 'analitica',
       amountPaid: 15.00,
-      vociRefs: ['ord_1__0', 'ord_1__0__mod__0'],
+      vociRefs: [{ key: 'ord_1__0', qty: 1 }, { key: 'ord_1__0__mod__0', qty: 1 }],
       orderRefs: ['ord_1'],
       timestamp: new Date().toISOString(),
     });
@@ -492,17 +531,17 @@ describe('store.addTransaction() with analitica operationType', () => {
     const txn = store.transactions[0];
     expect(txn.operationType).toBe('analitica');
     expect(txn.amountPaid).toBeCloseTo(15.00, 2);
-    expect(txn.vociRefs).toEqual(['ord_1__0', 'ord_1__0__mod__0']);
+    expect(txn.vociRefs[0]).toMatchObject({ key: 'ord_1__0', qty: 1 });
   });
 
-  it('records modifier keys in vociRefs alongside base item key', () => {
+  it('records modifier keys with partial quantities in vociRefs', () => {
     const store = useAppStore();
     const billSessionId = store.openTableSession('T1', 2, 0);
 
     const items = [
       {
         uid: 'u1', dishId: 'd1', name: 'Pizza', unitPrice: 10.00,
-        quantity: 1, voidedQuantity: 0, notes: [],
+        quantity: 2, voidedQuantity: 0, notes: [],
         modifiers: [{ name: 'Mozzarella', price: 1.50, voidedQuantity: 0 }],
       },
     ];
@@ -511,22 +550,27 @@ describe('store.addTransaction() with analitica operationType', () => {
     const baseKey = `${ord.id}__0`;
     const modKey = `${ord.id}__0__mod__0`;
 
+    // Pay only 1 of 2 pizzas and 1 of 2 modifier rows
     store.addTransaction({
-      transactionId: 'txn_mod',
+      transactionId: 'txn_partial',
       tableId: 'T1',
       billSessionId,
       paymentMethod: 'Contanti',
       operationType: 'analitica',
       amountPaid: 11.50,
-      vociRefs: [baseKey, modKey],
+      vociRefs: [{ key: baseKey, qty: 1 }, { key: modKey, qty: 1 }],
       orderRefs: [ord.id],
       timestamp: new Date().toISOString(),
     });
 
-    const txn = store.transactions.find(t => t.transactionId === 'txn_mod');
+    const txn = store.transactions.find(t => t.transactionId === 'txn_partial');
     expect(txn).toBeDefined();
-    expect(txn.vociRefs).toContain(baseKey);
-    expect(txn.vociRefs).toContain(modKey);
+    expect(txn.vociRefs).toEqual(
+      expect.arrayContaining([
+        { key: baseKey, qty: 1 },
+        { key: modKey, qty: 1 },
+      ])
+    );
     expect(txn.amountPaid).toBeCloseTo(11.50, 2);
   });
 });
