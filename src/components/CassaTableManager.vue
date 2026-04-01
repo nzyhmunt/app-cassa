@@ -440,7 +440,7 @@
               </div>
 
               <!-- Per Voce Analitica -->
-              <div v-if="checkoutMode === 'analitica'" class="bg-teal-50 border border-teal-100 p-4 rounded-xl md:rounded-2xl space-y-2 max-h-[200px] md:max-h-[280px] overflow-y-auto transition-all">
+              <div v-if="checkoutMode === 'analitica'" class="bg-teal-50 border border-teal-100 p-4 rounded-xl md:rounded-2xl space-y-1.5 max-h-[200px] md:max-h-[280px] overflow-y-auto transition-all">
                 <div class="flex justify-between items-center mb-2 sticky top-0 bg-teal-50 pb-1">
                   <label class="text-[10px] md:text-xs font-bold text-teal-800 uppercase">Voci da Pagare:</label>
                   <button
@@ -449,21 +449,44 @@
                     class="text-[10px] font-bold text-teal-700 underline underline-offset-2 active:opacity-70 transition-opacity"
                   >{{ selectedVociToPay.length === flatAnalyticaItems.length ? 'Deseleziona Tutto' : 'Seleziona Tutto' }}</button>
                 </div>
-                <label
-                  v-for="voce in flatAnalyticaItems"
-                  :key="'voce_'+voce.key"
-                  class="flex justify-between items-center p-3 bg-white rounded-xl cursor-pointer hover:border-teal-300 border shadow-sm transition-colors"
-                  :class="selectedVociToPay.includes(voce.key) ? 'border-teal-300 bg-teal-50/60' : 'border-transparent'"
-                >
-                  <div class="flex items-center gap-3 flex-1 min-w-0">
-                    <input type="checkbox" v-model="selectedVociToPay" :value="voce.key" class="size-5 accent-teal-600 rounded shrink-0">
-                    <div class="flex flex-col min-w-0">
-                      <span class="text-sm font-bold text-gray-700 leading-tight truncate">{{ voce.name }}</span>
-                      <span class="text-[10px] text-gray-500 font-medium">{{ voce.netQty }}× {{ store.config.ui.currency }}{{ voce.unitPrice.toFixed(2) }}</span>
+
+                <template v-for="voce in flatAnalyticaItems" :key="'voce_'+voce.key">
+                  <!-- Modifier sub-row (indented, purple style) -->
+                  <label
+                    v-if="voce.isModifier"
+                    class="flex justify-between items-center py-2 pl-8 pr-3 bg-white rounded-xl cursor-pointer border shadow-sm transition-colors"
+                    :class="selectedVociToPay.includes(voce.key) ? 'border-purple-300 bg-purple-50/60' : 'border-transparent hover:border-purple-200'"
+                  >
+                    <div class="flex items-center gap-2 flex-1 min-w-0">
+                      <input type="checkbox" v-model="selectedVociToPay" :value="voce.key" class="size-4 accent-purple-600 rounded shrink-0">
+                      <div class="flex flex-col min-w-0">
+                        <span class="text-xs font-bold text-purple-700 leading-tight truncate">+ {{ voce.name }}</span>
+                        <span class="text-[10px] text-purple-500 font-medium">{{ voce.netQty }}× {{ store.config.ui.currency }}{{ voce.unitPrice.toFixed(2) }}</span>
+                      </div>
                     </div>
-                  </div>
-                  <span class="font-black text-base text-teal-700 shrink-0 ml-2">{{ store.config.ui.currency }}{{ voce.rowTotal.toFixed(2) }}</span>
-                </label>
+                    <span class="font-black text-sm text-purple-700 shrink-0 ml-2">{{ store.config.ui.currency }}{{ voce.rowTotal.toFixed(2) }}</span>
+                  </label>
+
+                  <!-- Base item row -->
+                  <label
+                    v-else
+                    class="flex justify-between items-center p-3 bg-white rounded-xl cursor-pointer border shadow-sm transition-colors"
+                    :class="selectedVociToPay.includes(voce.key) ? 'border-teal-300 bg-teal-50/60' : 'border-transparent hover:border-teal-200'"
+                  >
+                    <div class="flex items-center gap-3 flex-1 min-w-0">
+                      <input type="checkbox" v-model="selectedVociToPay" :value="voce.key" class="size-5 accent-teal-600 rounded shrink-0">
+                      <div class="flex flex-col min-w-0">
+                        <span class="text-sm font-bold text-gray-700 leading-tight truncate flex items-center gap-1">
+                          {{ voce.name }}
+                          <Zap v-if="voce.isDirectEntry" class="size-3 theme-text shrink-0" title="Voce Diretta" />
+                        </span>
+                        <span class="text-[10px] text-gray-500 font-medium">{{ voce.netQty }}× {{ store.config.ui.currency }}{{ voce.unitPrice.toFixed(2) }}</span>
+                      </div>
+                    </div>
+                    <span class="font-black text-base text-teal-700 shrink-0 ml-2">{{ store.config.ui.currency }}{{ voce.rowTotal.toFixed(2) }}</span>
+                  </label>
+                </template>
+
                 <div v-if="flatAnalyticaItems.length === 0" class="text-xs text-teal-600 font-bold italic">Nessuna voce disponibile o da pagare.</div>
               </div>
             </div>
@@ -1129,6 +1152,9 @@ const customPayAmount = computed(() => {
 });
 
 // ── Analitica mode: flat list of individually selectable line items ─────────
+// Each base item is shown with its base price (excluding modifiers). Paid
+// modifiers appear as separate selectable sub-rows directly beneath their
+// parent item, identified by the key pattern 'orderId__itemIdx__mod__modIdx'.
 const flatAnalyticaItems = computed(() => {
   const items = [];
   for (const ord of tableAcceptedPayableOrders.value) {
@@ -1136,15 +1162,41 @@ const flatAnalyticaItems = computed(() => {
       const item = ord.orderItems[idx];
       const netQty = item.quantity - (item.voidedQuantity || 0);
       if (netQty <= 0) continue;
+
+      // Base item — price does NOT include modifier surcharges (they are separate rows)
+      const baseTotal = item.unitPrice * netQty;
       items.push({
         key: `${ord.id}__${idx}`,
         orderId: ord.id,
         itemIdx: idx,
+        modIdx: null,
         name: item.name,
         netQty,
         unitPrice: item.unitPrice,
-        rowTotal: getOrderItemRowTotal(item),
+        rowTotal: baseTotal,
+        isDirectEntry: ord.isDirectEntry || false,
+        isModifier: false,
       });
+
+      // Paid modifiers as individually selectable sub-rows
+      for (let modIdx = 0; modIdx < (item.modifiers || []).length; modIdx++) {
+        const mod = item.modifiers[modIdx];
+        if ((mod.price || 0) <= 0) continue; // skip free/note modifiers
+        const modNetQty = Math.max(0, netQty - (mod.voidedQuantity || 0));
+        if (modNetQty <= 0) continue; // skip fully voided modifiers
+        items.push({
+          key: `${ord.id}__${idx}__mod__${modIdx}`,
+          orderId: ord.id,
+          itemIdx: idx,
+          modIdx,
+          name: mod.name,
+          netQty: modNetQty,
+          unitPrice: mod.price,
+          rowTotal: mod.price * modNetQty,
+          isDirectEntry: ord.isDirectEntry || false,
+          isModifier: true,
+        });
+      }
     }
   }
   return items;
@@ -1722,16 +1774,26 @@ function processTablePayment(paymentMethodId, extra = {}, overrideAmount = null)
     selectedOrdersToPay.value = [];
   }
 
-  // In analitica mode, complete any orders whose items are ALL selected (fully paid).
+  // In analitica mode, complete any orders whose items AND paid modifiers are ALL selected (fully paid).
   if (checkoutMode.value === 'analitica') {
     if (amount + BILL_SETTLED_THRESHOLD >= analiticaAmount.value) {
       for (const ord of tableAcceptedPayableOrders.value) {
-        const payableItemKeys = ord.orderItems
-          .map((item, idx) => ({ key: `${ord.id}__${idx}`, netQty: item.quantity - (item.voidedQuantity || 0) }))
-          .filter(({ netQty }) => netQty > 0)
-          .map(({ key }) => key);
-        const allSelected = payableItemKeys.length > 0 &&
-          payableItemKeys.every(k => selectedVociToPay.value.includes(k));
+        const payableKeys = [];
+        for (let idx = 0; idx < ord.orderItems.length; idx++) {
+          const item = ord.orderItems[idx];
+          const netQty = item.quantity - (item.voidedQuantity || 0);
+          if (netQty <= 0) continue;
+          payableKeys.push(`${ord.id}__${idx}`);
+          for (let modIdx = 0; modIdx < (item.modifiers || []).length; modIdx++) {
+            const mod = item.modifiers[modIdx];
+            if ((mod.price || 0) <= 0) continue;
+            const modNetQty = Math.max(0, netQty - (mod.voidedQuantity || 0));
+            if (modNetQty <= 0) continue;
+            payableKeys.push(`${ord.id}__${idx}__mod__${modIdx}`);
+          }
+        }
+        const allSelected = payableKeys.length > 0 &&
+          payableKeys.every(k => selectedVociToPay.value.includes(k));
         if (allSelected) store.changeOrderStatus(ord, 'completed');
       }
     }
