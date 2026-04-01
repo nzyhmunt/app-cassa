@@ -376,6 +376,7 @@
                 <button @click="checkoutMode = 'unico'" :class="checkoutMode === 'unico' ? 'bg-white shadow-sm text-gray-900 border border-gray-200' : 'text-gray-500 hover:bg-gray-200/50'" class="flex-1 py-2 text-xs md:text-sm font-bold rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1.5"><Layers class="size-3.5 shrink-0" />Tutto</button>
                 <button @click="checkoutMode = 'romana'" :class="checkoutMode === 'romana' ? 'bg-white shadow-sm text-gray-900 border border-gray-200' : 'text-gray-500 hover:bg-gray-200/50'" class="flex-1 py-2 text-xs md:text-sm font-bold rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1.5"><Users class="size-3.5 shrink-0" />Romana</button>
                 <button @click="checkoutMode = 'ordini'" :class="checkoutMode === 'ordini' ? 'bg-white shadow-sm text-gray-900 border border-gray-200' : 'text-gray-500 hover:bg-gray-200/50'" class="flex-1 py-2 text-xs md:text-sm font-bold rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1.5"><ListChecks class="size-3.5 shrink-0" />Comanda</button>
+                <button @click="checkoutMode = 'analitica'" :class="checkoutMode === 'analitica' ? 'bg-white shadow-sm text-gray-900 border border-gray-200' : 'text-gray-500 hover:bg-gray-200/50'" class="flex-1 py-2 text-xs md:text-sm font-bold rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1.5"><SquareCheck class="size-3.5 shrink-0" />Analitica</button>
               </div>
 
               <!-- Romana -->
@@ -437,6 +438,34 @@
                 </label>
                 <div v-if="tableAcceptedPayableOrders.length === 0" class="text-xs text-purple-600 font-bold italic">Nessuna comanda disponibile o da pagare.</div>
               </div>
+
+              <!-- Per Voce Analitica -->
+              <div v-if="checkoutMode === 'analitica'" class="bg-teal-50 border border-teal-100 p-4 rounded-xl md:rounded-2xl space-y-2 max-h-[200px] md:max-h-[280px] overflow-y-auto transition-all">
+                <div class="flex justify-between items-center mb-2 sticky top-0 bg-teal-50 pb-1">
+                  <label class="text-[10px] md:text-xs font-bold text-teal-800 uppercase">Voci da Pagare:</label>
+                  <button
+                    v-if="flatAnalyticaItems.length > 0"
+                    @click="toggleSelectAllVoci"
+                    class="text-[10px] font-bold text-teal-700 underline underline-offset-2 active:opacity-70 transition-opacity"
+                  >{{ selectedVociToPay.length === flatAnalyticaItems.length ? 'Deseleziona Tutto' : 'Seleziona Tutto' }}</button>
+                </div>
+                <label
+                  v-for="voce in flatAnalyticaItems"
+                  :key="'voce_'+voce.key"
+                  class="flex justify-between items-center p-3 bg-white rounded-xl cursor-pointer hover:border-teal-300 border shadow-sm transition-colors"
+                  :class="selectedVociToPay.includes(voce.key) ? 'border-teal-300 bg-teal-50/60' : 'border-transparent'"
+                >
+                  <div class="flex items-center gap-3 flex-1 min-w-0">
+                    <input type="checkbox" v-model="selectedVociToPay" :value="voce.key" class="size-5 accent-teal-600 rounded shrink-0">
+                    <div class="flex flex-col min-w-0">
+                      <span class="text-sm font-bold text-gray-700 leading-tight truncate">{{ voce.name }}</span>
+                      <span class="text-[10px] text-gray-500 font-medium">{{ voce.netQty }}× {{ store.config.ui.currency }}{{ voce.unitPrice.toFixed(2) }}</span>
+                    </div>
+                  </div>
+                  <span class="font-black text-base text-teal-700 shrink-0 ml-2">{{ store.config.ui.currency }}{{ voce.rowTotal.toFixed(2) }}</span>
+                </label>
+                <div v-if="flatAnalyticaItems.length === 0" class="text-xs text-teal-600 font-bold italic">Nessuna voce disponibile o da pagare.</div>
+              </div>
             </div>
           </div>
 
@@ -495,7 +524,7 @@
           <div>
             <h3 class="font-bold text-base md:text-lg leading-tight">{{ modalMethodLabel }}</h3>
             <p class="text-white/60 text-[10px]">
-              {{ checkoutMode === 'romana' ? 'Incasso Quota Romana' : checkoutMode === 'ordini' ? 'Incasso Per Comanda' : 'Incasso Conto' }}
+              {{ checkoutMode === 'romana' ? 'Incasso Quota Romana' : checkoutMode === 'ordini' ? 'Incasso Per Comanda' : checkoutMode === 'analitica' ? 'Incasso Analitico' : 'Incasso Conto' }}
             </p>
           </div>
         </div>
@@ -924,7 +953,7 @@ import {
   Ban, Undo2, Code, Minus, Receipt, ArrowRightLeft, Merge, Trash2,
   Layers, ListChecks, History, LayoutGrid, ListOrdered,
   Tag, Wallet,
-  Percent, Zap, BookOpen, PlusCircle, Banknote, CreditCard, Lock,
+  Percent, Zap, BookOpen, PlusCircle, Banknote, CreditCard, Lock, SquareCheck,
 } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
 import { getOrderItemRowTotal, KITCHEN_ACTIVE_STATUSES, getLockedDirectItems, appConfig } from '../utils/index.js';
@@ -1011,6 +1040,7 @@ const splitWays = ref(2);
 const splitPaidQuotas = ref(0);
 const romanaSplitCount = ref(1); // how many quotas to pay in this single transaction
 const selectedOrdersToPay = ref([]);
+const selectedVociToPay = ref([]); // analitica mode: array of 'orderId__itemIdx' keys
 
 // ── Payment modal state ───────────────────────────────────────────────────
 // Opened when the cashier clicks a payment method button.
@@ -1096,6 +1126,35 @@ const customPayAmount = computed(() => {
     .filter(o => selectedOrdersToPay.value.includes(o.id))
     .reduce((acc, o) => acc + o.totalAmount, 0);
   return Math.min(val, tableAmountRemaining.value);
+});
+
+// ── Analitica mode: flat list of individually selectable line items ─────────
+const flatAnalyticaItems = computed(() => {
+  const items = [];
+  for (const ord of tableAcceptedPayableOrders.value) {
+    for (let idx = 0; idx < ord.orderItems.length; idx++) {
+      const item = ord.orderItems[idx];
+      const netQty = item.quantity - (item.voidedQuantity || 0);
+      if (netQty <= 0) continue;
+      items.push({
+        key: `${ord.id}__${idx}`,
+        orderId: ord.id,
+        itemIdx: idx,
+        name: item.name,
+        netQty,
+        unitPrice: item.unitPrice,
+        rowTotal: getOrderItemRowTotal(item),
+      });
+    }
+  }
+  return items;
+});
+
+const analiticaAmount = computed(() => {
+  const total = flatAnalyticaItems.value
+    .filter(i => selectedVociToPay.value.includes(i.key))
+    .reduce((acc, i) => acc + i.rowTotal, 0);
+  return Math.min(total, tableAmountRemaining.value);
 });
 
 const quotaRomana = computed(() => {
@@ -1223,12 +1282,14 @@ const discountInputExceedsMax = computed(() => {
 const amountBeingPaid = computed(() => {
   if (checkoutMode.value === 'unico') return tableAmountRemaining.value;
   if (checkoutMode.value === 'romana') return quotaRomana.value;
+  if (checkoutMode.value === 'analitica') return analiticaAmount.value;
   return customPayAmount.value;
 });
 
 const canPay = computed(() => {
   if (tableAmountRemaining.value <= BILL_SETTLED_THRESHOLD) return false;
   if (checkoutMode.value === 'ordini' && selectedOrdersToPay.value.length === 0) return false;
+  if (checkoutMode.value === 'analitica' && selectedVociToPay.value.length === 0) return false;
   return true;
 });
 
@@ -1248,6 +1309,15 @@ function getPaymentIcon(methodIdOrLabel) {
   const m = store.config.paymentMethods.find(x => x.label === methodIdOrLabel || x.id === methodIdOrLabel);
   if (!m) return Banknote;
   return m.icon === 'credit-card' ? CreditCard : Banknote;
+}
+
+// ── Analitica mode: select/deselect all items ──────────────────────────────
+function toggleSelectAllVoci() {
+  if (selectedVociToPay.value.length === flatAnalyticaItems.value.length) {
+    selectedVociToPay.value = [];
+  } else {
+    selectedVociToPay.value = flatAnalyticaItems.value.map(i => i.key);
+  }
 }
 
 // ── Computed: grouped menu view (items aggregated by dish name) ────────────
@@ -1320,6 +1390,7 @@ function _openTableModal(table) {
   checkoutMode.value = 'unico';
   cassaViewMode.value = 'voce';
   selectedOrdersToPay.value = [];
+  selectedVociToPay.value = [];
   romanaSplitCount.value = 1;
   discountInput.value = '';
   discountType.value = 'percent';
@@ -1629,6 +1700,10 @@ function processTablePayment(paymentMethodId, extra = {}, overrideAmount = null)
     payload.orderRefs = [...selectedOrdersToPay.value];
     // Orders are intentionally NOT marked completed here yet; they are handled below
     // after the transaction is recorded so the auto-close check sees correct balances.
+  } else if (checkoutMode.value === 'analitica') {
+    // Record which order IDs are involved and the specific item keys selected.
+    payload.orderRefs = [...new Set(selectedVociToPay.value.map(k => k.split('__')[0]))];
+    payload.vociRefs = [...selectedVociToPay.value];
   }
 
   store.addTransaction(payload);
@@ -1645,6 +1720,22 @@ function processTablePayment(paymentMethodId, extra = {}, overrideAmount = null)
       });
     }
     selectedOrdersToPay.value = [];
+  }
+
+  // In analitica mode, complete any orders whose items are ALL selected (fully paid).
+  if (checkoutMode.value === 'analitica') {
+    if (amount + BILL_SETTLED_THRESHOLD >= analiticaAmount.value) {
+      for (const ord of tableAcceptedPayableOrders.value) {
+        const payableItemKeys = ord.orderItems
+          .map((item, idx) => ({ key: `${ord.id}__${idx}`, netQty: item.quantity - (item.voidedQuantity || 0) }))
+          .filter(({ netQty }) => netQty > 0)
+          .map(({ key }) => key);
+        const allSelected = payableItemKeys.length > 0 &&
+          payableItemKeys.every(k => selectedVociToPay.value.includes(k));
+        if (allSelected) store.changeOrderStatus(ord, 'completed');
+      }
+    }
+    selectedVociToPay.value = [];
   }
 
   jsonContext.value = 'receipt';
