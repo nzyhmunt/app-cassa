@@ -440,8 +440,8 @@
               </div>
 
               <!-- Per Voce Analitica -->
-              <div v-if="checkoutMode === 'analitica'" class="bg-teal-50 border border-teal-100 p-4 rounded-xl md:rounded-2xl space-y-1.5 max-h-[200px] md:max-h-[280px] overflow-y-auto transition-all">
-                <div class="flex justify-between items-center mb-2 sticky top-0 bg-teal-50 pb-1">
+              <div v-if="checkoutMode === 'analitica'" class="bg-teal-50 border border-teal-100 p-4 rounded-xl md:rounded-2xl space-y-2 max-h-[200px] md:max-h-[280px] overflow-y-auto transition-all">
+                <div class="flex justify-between items-center mb-1 sticky top-0 bg-teal-50 pb-1.5">
                   <label class="text-[10px] md:text-xs font-bold text-teal-800 uppercase">Voci da Pagare:</label>
                   <button
                     v-if="flatAnalyticaItems.length > 0"
@@ -454,50 +454,58 @@
                   <!-- Modifier sub-row (indented, purple style) -->
                   <div
                     v-if="voce.isModifier"
-                    class="flex items-center py-2 pl-8 pr-3 bg-white rounded-xl border shadow-sm transition-colors gap-2"
-                    :class="(analiticaQty[voce.key] || 0) > 0 ? 'border-purple-300 bg-purple-50/60' : 'border-transparent'"
+                    class="flex justify-between items-center pl-6 pr-3 py-2.5 bg-white rounded-xl border shadow-sm transition-colors"
+                    :class="(analiticaQty[voce.key] || 0) > 0 ? 'border-purple-300' : 'border-transparent'"
                   >
-                    <div class="flex flex-col min-w-0 flex-1">
+                    <div class="flex flex-col min-w-0 flex-1 mr-3">
                       <span class="text-xs font-bold text-purple-700 leading-tight truncate">+ {{ voce.name }}</span>
-                      <span class="text-[10px] text-purple-500 font-medium">max {{ voce.netQty }}× {{ store.config.ui.currency }}{{ voce.unitPrice.toFixed(2) }}</span>
+                      <span class="text-[10px] text-purple-500 font-medium">{{ voce.netQty }}× {{ store.config.ui.currency }}{{ voce.unitPrice.toFixed(2) }}</span>
                     </div>
                     <!-- Stepper -->
-                    <div class="flex items-center gap-1 shrink-0">
+                    <div class="flex items-center gap-2 shrink-0">
                       <button @click="decrementAnalitica(voce.key)"
                         :disabled="(analiticaQty[voce.key] || 0) === 0"
-                        class="size-6 rounded-lg border border-purple-200 bg-white text-purple-700 font-black text-base leading-none flex items-center justify-center active:scale-95 transition-all disabled:opacity-30 disabled:cursor-not-allowed">−</button>
+                        class="size-8 bg-white rounded-xl flex items-center justify-center text-purple-600 shadow-sm border border-purple-100 active:scale-95 transition-all disabled:opacity-30">
+                        <Minus class="size-3.5" />
+                      </button>
                       <span class="w-5 text-center text-xs font-black text-purple-800 tabular-nums">{{ analiticaQty[voce.key] || 0 }}</span>
                       <button @click="incrementAnalitica(voce.key, voce.netQty)"
                         :disabled="(analiticaQty[voce.key] || 0) >= voce.netQty"
-                        class="size-6 rounded-lg border border-purple-200 bg-white text-purple-700 font-black text-base leading-none flex items-center justify-center active:scale-95 transition-all disabled:opacity-30 disabled:cursor-not-allowed">+</button>
+                        class="size-8 bg-white rounded-xl flex items-center justify-center text-purple-600 shadow-sm border border-purple-100 active:scale-95 transition-all disabled:opacity-30">
+                        <Plus class="size-3.5" />
+                      </button>
+                      <span class="font-black text-sm text-purple-700 shrink-0 w-12 text-right">{{ store.config.ui.currency }}{{ ((analiticaQty[voce.key] || 0) * voce.unitPrice).toFixed(2) }}</span>
                     </div>
-                    <span class="font-black text-sm text-purple-700 shrink-0 w-14 text-right">{{ store.config.ui.currency }}{{ ((analiticaQty[voce.key] || 0) * voce.unitPrice).toFixed(2) }}</span>
                   </div>
 
                   <!-- Base item row -->
                   <div
                     v-else
-                    class="flex items-center p-3 bg-white rounded-xl border shadow-sm transition-colors gap-2"
-                    :class="(analiticaQty[voce.key] || 0) > 0 ? 'border-teal-300 bg-teal-50/60' : 'border-transparent'"
+                    class="flex justify-between items-center p-3 bg-white rounded-xl border shadow-sm transition-colors"
+                    :class="(analiticaQty[voce.key] || 0) > 0 ? 'border-teal-300' : 'border-transparent'"
                   >
-                    <div class="flex flex-col min-w-0 flex-1">
+                    <div class="flex flex-col min-w-0 flex-1 mr-3">
                       <span class="text-sm font-bold text-gray-700 leading-tight truncate flex items-center gap-1">
                         {{ voce.name }}
                         <Zap v-if="voce.isDirectEntry" class="size-3 theme-text shrink-0" title="Voce Diretta" />
                       </span>
-                      <span class="text-[10px] text-gray-500 font-medium">max {{ voce.netQty }}× {{ store.config.ui.currency }}{{ voce.unitPrice.toFixed(2) }}</span>
+                      <span class="text-[10px] text-gray-500 font-medium">{{ voce.netQty }}× {{ store.config.ui.currency }}{{ voce.unitPrice.toFixed(2) }}</span>
                     </div>
                     <!-- Stepper -->
-                    <div class="flex items-center gap-1.5 shrink-0">
+                    <div class="flex items-center gap-2 shrink-0">
                       <button @click="decrementAnalitica(voce.key)"
                         :disabled="(analiticaQty[voce.key] || 0) === 0"
-                        class="size-7 rounded-lg border border-teal-200 bg-white text-teal-700 font-black text-lg leading-none flex items-center justify-center active:scale-95 transition-all disabled:opacity-30 disabled:cursor-not-allowed">−</button>
-                      <span class="w-6 text-center text-sm font-black text-teal-800 tabular-nums">{{ analiticaQty[voce.key] || 0 }}</span>
+                        class="size-9 bg-white rounded-xl flex items-center justify-center text-teal-600 shadow-sm border border-gray-200 active:scale-95 transition-all disabled:opacity-30">
+                        <Minus class="size-4" />
+                      </button>
+                      <span class="w-6 text-center text-sm font-black text-gray-700 tabular-nums">{{ analiticaQty[voce.key] || 0 }}</span>
                       <button @click="incrementAnalitica(voce.key, voce.netQty)"
                         :disabled="(analiticaQty[voce.key] || 0) >= voce.netQty"
-                        class="size-7 rounded-lg border border-teal-200 bg-white text-teal-700 font-black text-lg leading-none flex items-center justify-center active:scale-95 transition-all disabled:opacity-30 disabled:cursor-not-allowed">+</button>
+                        class="size-9 bg-white rounded-xl flex items-center justify-center text-teal-600 shadow-sm border border-gray-200 active:scale-95 transition-all disabled:opacity-30">
+                        <Plus class="size-4" />
+                      </button>
+                      <span class="font-black text-base text-teal-700 shrink-0 w-12 text-right">{{ store.config.ui.currency }}{{ ((analiticaQty[voce.key] || 0) * voce.unitPrice).toFixed(2) }}</span>
                     </div>
-                    <span class="font-black text-base text-teal-700 shrink-0 w-14 text-right">{{ store.config.ui.currency }}{{ ((analiticaQty[voce.key] || 0) * voce.unitPrice).toFixed(2) }}</span>
                   </div>
                 </template>
 
