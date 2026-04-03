@@ -295,9 +295,9 @@
 
             <!-- Storico Transazioni -->
             <div v-if="tableTransactions.length > 0" class="mb-5 space-y-2">
-              <h5 class="text-[10px] font-bold text-gray-400 uppercase tracking-wider border-b border-gray-100 pb-1">Storico Pagamenti Effettuati:</h5>
+              <h5 class="text-[10px] font-bold text-gray-400 uppercase tracking-wider border-b border-gray-100 pb-1">Storico Pagamenti:</h5>
               <div v-for="(txn, tIdx) in tableTransactions" :key="txn.transactionId"
-                class="text-xs font-bold px-2.5 py-2 rounded-lg flex flex-col gap-1 shadow-sm border"
+                class="text-xs font-bold px-3 py-2.5 rounded-xl flex flex-col gap-1 shadow-sm border"
                 :class="txn.operationType === 'discount' ? 'bg-amber-50 border-amber-200 text-amber-700' : 'bg-emerald-50 border-emerald-200 text-emerald-700'">
                 <div class="flex items-center justify-between">
                   <span class="flex items-center gap-1.5">
@@ -369,14 +369,14 @@
             </div>
 
             <!-- Scelta Split Conto -->
-            <div v-if="tableAmountRemaining > 0" class="space-y-4">
-              <h4 class="font-bold text-gray-800 text-sm">Modalità Incasso:</h4>
+            <div v-if="tableAmountRemaining > 0" class="space-y-3">
+              <h4 class="font-bold text-gray-500 text-[10px] uppercase tracking-wider flex items-center gap-1.5"><CreditCard class="size-3.5" /> Modalità Incasso</h4>
 
-              <div class="flex bg-gray-100 p-1 rounded-xl">
-                <button @click="checkoutMode = 'unico'" :class="checkoutMode === 'unico' ? 'bg-white shadow-sm text-gray-900 border border-gray-200' : 'text-gray-500 hover:bg-gray-200/50'" class="flex-1 py-2 text-xs md:text-sm font-bold rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1.5"><Layers class="size-3.5 shrink-0" />Tutto</button>
-                <button @click="checkoutMode = 'romana'" :class="checkoutMode === 'romana' ? 'bg-white shadow-sm text-gray-900 border border-gray-200' : 'text-gray-500 hover:bg-gray-200/50'" class="flex-1 py-2 text-xs md:text-sm font-bold rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1.5"><Users class="size-3.5 shrink-0" />Romana</button>
-                <button @click="checkoutMode = 'ordini'" :disabled="hasRomanaPayment" :class="checkoutMode === 'ordini' ? 'bg-white shadow-sm text-gray-900 border border-gray-200' : hasRomanaPayment ? 'text-gray-300 cursor-not-allowed' : 'text-gray-500 hover:bg-gray-200/50'" :title="hasRomanaPayment ? 'Non disponibile dopo un pagamento alla Romana' : undefined" class="flex-1 py-2 text-xs md:text-sm font-bold rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1.5"><ListChecks class="size-3.5 shrink-0" />Comanda</button>
-                <button @click="checkoutMode = 'analitica'" :disabled="hasRomanaPayment" :class="checkoutMode === 'analitica' ? 'bg-white shadow-sm text-gray-900 border border-gray-200' : hasRomanaPayment ? 'text-gray-300 cursor-not-allowed' : 'text-gray-500 hover:bg-gray-200/50'" :title="hasRomanaPayment ? 'Non disponibile dopo un pagamento alla Romana' : undefined" class="flex-1 py-2 text-xs md:text-sm font-bold rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1.5"><SquareCheck class="size-3.5 shrink-0" />Analitica</button>
+              <div class="flex gap-1.5">
+                <button @click="checkoutMode = 'unico'" :class="checkoutMode === 'unico' ? 'bg-gray-200 text-gray-800 border-gray-300 font-bold' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100'" class="flex-1 py-2 text-xs md:text-sm rounded-xl border transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-sm"><Layers class="size-3.5 shrink-0" />Tutto</button>
+                <button @click="checkoutMode = 'romana'" :class="checkoutMode === 'romana' ? 'bg-blue-100 text-blue-800 border-blue-200 font-bold' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100'" class="flex-1 py-2 text-xs md:text-sm rounded-xl border transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-sm"><Users class="size-3.5 shrink-0" />Romana</button>
+                <button @click="checkoutMode = 'ordini'" :disabled="hasRomanaPayment" :class="checkoutMode === 'ordini' ? 'bg-purple-100 text-purple-800 border-purple-200 font-bold' : hasRomanaPayment ? 'bg-white text-gray-300 border-gray-200 cursor-not-allowed opacity-50' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100'" :title="hasRomanaPayment ? 'Non disponibile dopo un pagamento alla Romana' : undefined" class="flex-1 py-2 text-xs md:text-sm rounded-xl border transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-sm"><ListChecks class="size-3.5 shrink-0" />Comanda</button>
+                <button @click="checkoutMode = 'analitica'" :disabled="hasRomanaPayment" :class="checkoutMode === 'analitica' ? 'bg-teal-100 text-teal-800 border-teal-200 font-bold' : hasRomanaPayment ? 'bg-white text-gray-300 border-gray-200 cursor-not-allowed opacity-50' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100'" :title="hasRomanaPayment ? 'Non disponibile dopo un pagamento alla Romana' : undefined" class="flex-1 py-2 text-xs md:text-sm rounded-xl border transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-sm"><SquareCheck class="size-3.5 shrink-0" />Analitica</button>
               </div>
 
               <!-- Romana -->
@@ -538,14 +538,14 @@
             </div>
 
             <!-- Metodi di pagamento -->
-            <div class="grid grid-cols-2 gap-3">
+            <div class="grid grid-cols-2 gap-2.5">
               <button
                 v-for="method in store.config.paymentMethods"
                 :key="method.id"
                 @click="openPaymentModal(method.id)"
                 :disabled="!canPay"
                 :class="method.colorClass"
-                class="py-3.5 border-2 rounded-xl md:rounded-2xl font-bold flex items-center justify-center gap-2 transition-all disabled:opacity-50 disabled:bg-gray-100 disabled:border-gray-300 disabled:text-gray-400 active:scale-95 text-sm md:text-base"
+                class="py-4 rounded-xl font-bold flex items-center justify-center gap-2 transition-all disabled:bg-gray-100 disabled:text-gray-400 disabled:shadow-none active:scale-95 text-sm md:text-base shadow-md"
               >
                 <component :is="getPaymentIcon(method.id)" class="size-5" /> {{ method.label }}
               </button>
@@ -580,9 +580,12 @@
           </div>
           <div>
             <h3 class="font-bold text-base md:text-lg leading-tight">{{ modalMethodLabel }}</h3>
-            <p class="text-white/60 text-[10px]">
-              {{ checkoutMode === 'romana' ? 'Incasso Quota Romana' : checkoutMode === 'ordini' ? 'Incasso Per Comanda' : checkoutMode === 'analitica' ? 'Incasso Analitico' : 'Incasso Conto' }}
-            </p>
+            <span
+              class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold mt-0.5"
+              :class="checkoutMode === 'romana' ? 'bg-blue-500/20 text-blue-200' : checkoutMode === 'ordini' ? 'bg-purple-500/20 text-purple-200' : checkoutMode === 'analitica' ? 'bg-teal-500/20 text-teal-200' : 'bg-white/10 text-white/70'"
+            >
+              {{ checkoutMode === 'romana' ? 'Quota Romana' : checkoutMode === 'ordini' ? 'Per Comanda' : checkoutMode === 'analitica' ? 'Analitico' : 'Conto Intero' }}
+            </span>
           </div>
         </div>
         <button @click="closePaymentModal" class="bg-white/10 hover:bg-white/20 p-2 rounded-full transition-colors active:scale-95">
