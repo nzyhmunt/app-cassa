@@ -1289,7 +1289,11 @@ watch(flatAnaliticaItems, (newItems) => {
 });
 
 // Auto-switch left panel to "Per Ordine" when comanda checkout mode is selected.
+// Also reset per-mode selections so stale state (e.g. the "totale selezionato
+// supera il conto rimanente" warning) does not bleed into the new mode.
 watch(checkoutMode, (mode) => {
+  analiticaQty.value = {};
+  selectedOrdersToPay.value = [];
   if (mode === 'ordini') {
     cassaViewMode.value = 'ordine';
   }
