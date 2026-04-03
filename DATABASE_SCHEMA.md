@@ -266,7 +266,7 @@ CREATE INDEX idx_oi_modifiers_item ON order_item_modifiers(order_id, item_uid);
 ### 2.11 `transactions` — Pagamenti e sconti
 
 ```sql
-CREATE TYPE transaction_operation AS ENUM ('unico', 'romana', 'ordini', 'analitica', 'discount');
+CREATE TYPE transaction_operation AS ENUM ('unico', 'romana', 'ordini', 'analitica', 'discount', 'tip');
 CREATE TYPE discount_type AS ENUM ('percent', 'fixed');
 
 CREATE TABLE transactions (
