@@ -1192,7 +1192,7 @@ const analiticaSelectedTotal = computed(() =>
 );
 
 const analiticaSelectionExceedsRemaining = computed(() =>
-  selectionExceedsRemaining(flatAnaliticaItems.value, analiticaQty.value, tableAmountRemaining.value),
+  analiticaSelectedTotal.value > tableAmountRemaining.value,
 );
 
 const analiticaAmount = computed(() => analiticaSelectedTotal.value);
