@@ -1198,10 +1198,10 @@ const analiticaSelectedTotal = computed(() =>
   computeAnaliticaTotal(flatAnaliticaItems.value, analiticaQty.value),
 );
 
-// Use cent-level precision to avoid IEEE-754 rounding artefacts (e.g. a total
-// of €3.00 computed as 2.9999… blocking a valid payment).
+// Delegate cent-level comparison to the shared helper so component behavior
+// stays aligned with the tested analitica implementation.
 const analiticaSelectionExceedsRemaining = computed(() =>
-  Math.round(analiticaSelectedTotal.value * 100) > Math.round(tableAmountRemaining.value * 100),
+  selectionExceedsRemaining(analiticaSelectedTotal.value, tableAmountRemaining.value),
 );
 
 const analiticaAmount = computed(() => analiticaSelectedTotal.value);
