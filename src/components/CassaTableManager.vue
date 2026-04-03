@@ -103,37 +103,37 @@
 
         <!-- PANNELLO SINISTRO: Riepilogo Comande e Storni dalla Cassa -->
         <div class="w-full sm:w-[55%] border-b sm:border-b-0 sm:border-r border-gray-200 bg-gray-50 flex flex-col h-[42%] shrink-0 overflow-hidden sm:h-auto sm:shrink sm:flex-1">
-          <div class="p-2 sm:p-3 md:p-4 bg-white border-b border-gray-200 shrink-0 flex items-center gap-2">
-            <span class="hidden sm:block font-bold text-gray-700 text-xs md:text-sm uppercase tracking-wider shrink-0">Riepilogo Voci</span>
+          <div class="p-2 sm:p-2 md:p-4 bg-white border-b border-gray-200 shrink-0 flex items-center gap-1.5 overflow-hidden">
+            <span class="hidden md:block font-bold text-gray-700 text-xs uppercase tracking-wider shrink-0">Riepilogo Voci</span>
             <!-- Vista switch (inline in header) — hidden in analitica/ordini mode -->
-            <div v-if="checkoutMode !== 'analitica' && checkoutMode !== 'ordini'" class="flex bg-gray-100 p-0.5 rounded-xl gap-0.5 flex-1 mx-1">
+            <div v-if="checkoutMode !== 'analitica' && checkoutMode !== 'ordini'" class="flex bg-gray-100 p-0.5 rounded-xl gap-0.5 flex-1 min-w-0">
               <button @click="cassaViewMode = 'voce'"
                 :class="cassaViewMode === 'voce' ? 'bg-white shadow text-gray-900 border border-gray-200' : 'text-gray-500 hover:bg-gray-200/50'"
-                class="flex-1 py-1 px-1.5 text-[9px] md:text-[10px] font-bold rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1">
-                <LayoutGrid class="size-3 shrink-0" /> <span class="hidden sm:inline">Per Voce</span>
+                class="flex-1 py-1 px-1.5 text-[9px] font-bold rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1 min-w-0">
+                <LayoutGrid class="size-3 shrink-0" /> <span class="hidden md:inline">Per Voce</span>
               </button>
               <button @click="cassaViewMode = 'ordine'"
                 :class="cassaViewMode === 'ordine' ? 'bg-white shadow text-gray-900 border border-gray-200' : 'text-gray-500 hover:bg-gray-200/50'"
-                class="flex-1 py-1 px-1.5 text-[9px] md:text-[10px] font-bold rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1">
-                <ListOrdered class="size-3 shrink-0" /> <span class="hidden sm:inline">Per Ordine</span>
+                class="flex-1 py-1 px-1.5 text-[9px] font-bold rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1 min-w-0">
+                <ListOrdered class="size-3 shrink-0" /> <span class="hidden md:inline">Per Ordine</span>
               </button>
             </div>
             <!-- Comanda mode header: selection hint -->
-            <div v-else-if="checkoutMode === 'ordini'" class="flex-1 mx-1 flex items-center gap-1.5 text-[10px] font-bold text-purple-600 bg-purple-50 border border-purple-200 px-2 py-1.5 rounded-xl overflow-hidden">
-              <ListChecks class="size-3.5 shrink-0" /> <span class="truncate">Tocca per selezionare</span>
+            <div v-else-if="checkoutMode === 'ordini'" class="flex-1 min-w-0 flex items-center gap-1.5 text-[10px] font-bold text-purple-600 bg-purple-50 border border-purple-200 px-2 py-1.5 rounded-xl overflow-hidden">
+              <ListChecks class="size-3.5 shrink-0" /> <span class="truncate hidden md:inline">Tocca per selezionare</span>
             </div>
             <!-- Analitica mode header: select-all toggle -->
             <button
               v-else-if="flatAnaliticaItems.length > 0"
               @click="toggleSelectAllVoci"
-              class="flex-1 mx-1 text-[10px] font-bold text-teal-700 bg-teal-50 border border-teal-200 px-3 py-1.5 rounded-xl hover:bg-teal-100 active:scale-95 transition-all"
-            >{{ flatAnaliticaItems.every(i => (analiticaQty[i.key] || 0) === i.netQty) ? 'Deseleziona Tutto' : 'Seleziona Tutto' }}</button>
-            <div v-else class="flex-1 mx-1"></div>
-            <button @click="openDirectItemModal" class="theme-bg hover:opacity-90 text-white px-3 py-2 rounded-lg text-xs md:text-sm font-bold flex items-center gap-1.5 active:scale-95 shadow-sm transition-opacity shrink-0" title="Aggiungi voci direttamente al conto senza passare per la cucina">
-              <Zap class="size-4 md:size-5" /> <span class="hidden sm:inline">Diretto</span>
+              class="flex-1 min-w-0 text-[10px] font-bold text-teal-700 bg-teal-50 border border-teal-200 px-2 py-1.5 rounded-xl hover:bg-teal-100 active:scale-95 transition-all truncate"
+            >{{ flatAnaliticaItems.every(i => (analiticaQty[i.key] || 0) === i.netQty) ? 'Deseleziona' : 'Seleziona Tutto' }}</button>
+            <div v-else class="flex-1 min-w-0"></div>
+            <button @click="openDirectItemModal" class="theme-bg hover:opacity-90 text-white px-2 py-1.5 md:px-3 md:py-2 rounded-lg text-xs font-bold flex items-center gap-1 active:scale-95 shadow-sm transition-opacity shrink-0" title="Aggiungi voci direttamente al conto senza passare per la cucina">
+              <Zap class="size-3.5 md:size-4 shrink-0" /> <span class="hidden md:inline">Diretto</span>
             </button>
-            <button @click="createNewOrderForTable" class="bg-gray-900 hover:bg-black text-white px-3 py-2 rounded-lg text-xs md:text-sm font-bold flex items-center gap-1.5 active:scale-95 shadow-sm transition-colors shrink-0">
-              <Plus class="size-4 md:size-5" /> <span class="hidden sm:inline">Comanda</span>
+            <button @click="createNewOrderForTable" class="bg-gray-900 hover:bg-black text-white px-2 py-1.5 md:px-3 md:py-2 rounded-lg text-xs font-bold flex items-center gap-1 active:scale-95 shadow-sm transition-colors shrink-0">
+              <Plus class="size-3.5 md:size-4 shrink-0" /> <span class="hidden md:inline">Comanda</span>
             </button>
           </div>
 
