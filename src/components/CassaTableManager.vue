@@ -1177,7 +1177,7 @@ const customPayAmount = computed(() => {
 // Each base item is shown with its base price (excluding modifiers). Paid
 // modifiers appear as separate selectable sub-rows directly beneath their
 // parent item, identified by the key pattern 'orderId__itemIdx__mod__modIdx'.
-const flatAnalyticaItems = computed(() => {
+const flatAnaliticaItems = computed(() => {
   const items = [];
   for (const ord of tableAcceptedPayableOrders.value) {
     for (let idx = 0; idx < ord.orderItems.length; idx++) {
