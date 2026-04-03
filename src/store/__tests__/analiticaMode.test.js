@@ -96,14 +96,14 @@ describe('buildFlatAnaliticaItems() — base items', () => {
     expect(flat[0].name).toBe('Acqua');
   });
 
-  it('generates unique keys in the form orderId__itemIdx', () => {
+  it('generates unique keys in the form orderId__itemUid', () => {
     const ord = makeOrder('ord_abc', [
       makeItem('Pasta', 10.00, 1),
       makeItem('Vino', 8.00, 1),
     ]);
     const flat = buildFlatAnaliticaItems([ord]);
-    expect(flat[0].key).toBe('ord_abc__0');
-    expect(flat[1].key).toBe('ord_abc__1');
+    expect(flat[0].key).toBe('ord_abc__uid_Pasta');
+    expect(flat[1].key).toBe('ord_abc__uid_Vino');
   });
 
   it('base item rowTotal uses only unitPrice × netQty (not modifiers)', () => {
@@ -168,12 +168,12 @@ describe('buildFlatAnaliticaItems() — paid modifiers (variazioni)', () => {
     expect(flat.filter(i => i.isModifier)).toHaveLength(0);
   });
 
-  it('uses key format orderId__itemIdx__mod__modIdx for modifiers', () => {
+  it('uses key format orderId__itemUid__mod__modIdx for modifiers', () => {
     const item = makeItem('Pizza', 10.00, 1, 0, [makeMod('Mozzarella', 1.50)]);
     const ord = makeOrder('ord_x', [item]);
     const flat = buildFlatAnaliticaItems([ord]);
     const modRow = flat.find(i => i.isModifier);
-    expect(modRow.key).toBe('ord_x__0__mod__0');
+    expect(modRow.key).toBe('ord_x__uid_Pizza__mod__0');
   });
 });
 
@@ -410,6 +410,15 @@ describe('getOrdersToComplete()', () => {
     expect(toComplete).toContain('ord_1');
     expect(toComplete).not.toContain('ord_2');
   });
+
+  it('marks a fully-voided order (zero payable rows) as complete', () => {
+    // An order where every item is voided produces no rows in flatItems.
+    // It must still be eligible for auto-completion so it doesn't block table close.
+    const ord = makeOrder('ord_voided', [makeItem('Birra', 4.00, 2, 2)]); // fully voided
+    const flat = buildFlatAnaliticaItems([ord]);
+    expect(flat).toHaveLength(0); // sanity check
+    expect(getOrdersToComplete([ord], flat, {})).toContain('ord_voided');
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -498,8 +507,8 @@ describe('store.addTransaction() with analitica operationType', () => {
     ];
     const ord = store.addDirectOrder('T1', billSessionId, items);
 
-    const baseKey = `${ord.id}__0`;
-    const modKey = `${ord.id}__0__mod__0`;
+    const baseKey = `${ord.id}__u1`;
+    const modKey = `${ord.id}__u1__mod__0`;
 
     // Pay only 1 of 2 pizzas and 1 of 2 modifier rows
     store.addTransaction({

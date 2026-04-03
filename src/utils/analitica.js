@@ -29,8 +29,9 @@ export function buildFlatAnaliticaItems(orders) {
 
       // Base item row — price does NOT include modifier surcharges (they are separate rows)
       rows.push({
-        key: `${order.id}__${itemIdx}`,
+        key: `${order.id}__${item.uid}`,
         orderId: order.id,
+        itemUid: item.uid,
         itemIdx,
         modIdx: null,
         name: item.name,
@@ -48,8 +49,9 @@ export function buildFlatAnaliticaItems(orders) {
         const modNetQty = Math.max(0, netQty - (mod.voidedQuantity || 0));
         if (modNetQty <= 0) continue; // skip fully voided modifiers
         rows.push({
-          key: `${order.id}__${itemIdx}__mod__${modIdx}`,
+          key: `${order.id}__${item.uid}__mod__${modIdx}`,
           orderId: order.id,
+          itemUid: item.uid,
           itemIdx,
           modIdx,
           name: mod.name,
@@ -112,7 +114,9 @@ export function getOrdersToComplete(orders, flatItems, qtyMap) {
   const toComplete = [];
   for (const order of orders) {
     const orderRows = flatItems.filter(row => row.orderId === order.id);
-    const fullySelected = orderRows.length > 0 &&
+    // An order with no payable rows (fully voided) is treated as fully covered
+    // so it doesn't remain stuck open and block table auto-close flows.
+    const fullySelected = orderRows.length === 0 ||
       orderRows.every(row => (qtyMap[row.key] || 0) >= row.netQty);
     if (fullySelected) toComplete.push(order.id);
   }

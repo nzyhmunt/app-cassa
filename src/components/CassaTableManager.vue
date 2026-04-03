@@ -1198,10 +1198,10 @@ const analiticaSelectedTotal = computed(() =>
   computeAnaliticaTotal(flatAnaliticaItems.value, analiticaQty.value),
 );
 
-// Delegate cent-level comparison to the shared helper so component behavior
-// stays aligned with the tested analitica implementation.
+// Cent-level comparison avoids IEEE-754 rounding artefacts blocking a
+// selection that is effectively equal to the remaining balance.
 const analiticaSelectionExceedsRemaining = computed(() =>
-  selectionExceedsRemaining(analiticaSelectedTotal.value, tableAmountRemaining.value),
+  Math.round(analiticaSelectedTotal.value * 100) > Math.round(tableAmountRemaining.value * 100),
 );
 
 const analiticaAmount = computed(() => analiticaSelectedTotal.value);
