@@ -444,25 +444,21 @@
                 <div class="flex justify-between items-center mb-1 sticky top-0 bg-teal-50 pb-1.5">
                   <label class="text-[10px] md:text-xs font-bold text-teal-800 uppercase">Voci da Pagare:</label>
                   <button
-                    v-if="flatAnalyticaItems.length > 0"
+                    v-if="flatAnaliticaItems.length > 0"
                     @click="toggleSelectAllVoci"
                     class="text-[10px] font-bold text-teal-700 underline underline-offset-2 active:opacity-70 transition-opacity"
-                  >{{ flatAnalyticaItems.every(i => (analiticaQty[i.key] || 0) === i.netQty) ? 'Deseleziona Tutto' : 'Seleziona Tutto' }}</button>
+                  >{{ flatAnaliticaItems.every(i => (analiticaQty[i.key] || 0) === i.netQty) ? 'Deseleziona Tutto' : 'Seleziona Tutto' }}</button>
                 </div>
 
-                <template v-for="voce in flatAnalyticaItems" :key="'voce_'+voce.key">
+                <template v-for="voce in flatAnaliticaItems" :key="'voce_'+voce.key">
                   <!-- Modifier sub-row (indented, purple style) -->
                   <div
                     v-if="voce.isModifier"
-                    class="flex justify-between items-center pl-6 pr-3 py-2.5 bg-white rounded-xl border shadow-sm transition-colors"
+                    class="flex items-center gap-2 pl-6 pr-3 py-2.5 bg-white rounded-xl border shadow-sm transition-colors"
                     :class="(analiticaQty[voce.key] || 0) > 0 ? 'border-purple-300' : 'border-transparent'"
                   >
-                    <div class="flex flex-col min-w-0 flex-1 mr-3">
-                      <span class="text-xs font-bold text-purple-700 leading-tight truncate">+ {{ voce.name }}</span>
-                      <span class="text-[10px] text-purple-500 font-medium">{{ voce.netQty }}× {{ store.config.ui.currency }}{{ voce.unitPrice.toFixed(2) }}</span>
-                    </div>
-                    <!-- Stepper -->
-                    <div class="flex items-center gap-2 shrink-0">
+                    <!-- Stepper (left) -->
+                    <div class="flex items-center gap-1.5 shrink-0">
                       <button @click="decrementAnalitica(voce.key)"
                         :disabled="(analiticaQty[voce.key] || 0) === 0"
                         class="size-8 bg-white rounded-xl flex items-center justify-center text-purple-600 shadow-sm border border-purple-100 active:scale-95 transition-all disabled:opacity-30">
@@ -474,25 +470,24 @@
                         class="size-8 bg-white rounded-xl flex items-center justify-center text-purple-600 shadow-sm border border-purple-100 active:scale-95 transition-all disabled:opacity-30">
                         <Plus class="size-3.5" />
                       </button>
-                      <span class="font-black text-sm text-purple-700 shrink-0 w-12 text-right">{{ store.config.ui.currency }}{{ ((analiticaQty[voce.key] || 0) * voce.unitPrice).toFixed(2) }}</span>
                     </div>
+                    <!-- Label (middle) -->
+                    <div class="flex flex-col min-w-0 flex-1">
+                      <span class="text-xs font-bold text-purple-700 leading-tight truncate">+ {{ voce.name }}</span>
+                      <span class="text-[10px] text-purple-500 font-medium">{{ voce.netQty }}× {{ store.config.ui.currency }}{{ voce.unitPrice.toFixed(2) }}</span>
+                    </div>
+                    <!-- Price (right) -->
+                    <span class="font-black text-sm text-purple-700 shrink-0 w-12 text-right">{{ store.config.ui.currency }}{{ ((analiticaQty[voce.key] || 0) * voce.unitPrice).toFixed(2) }}</span>
                   </div>
 
                   <!-- Base item row -->
                   <div
                     v-else
-                    class="flex justify-between items-center p-3 bg-white rounded-xl border shadow-sm transition-colors"
+                    class="flex items-center gap-2 p-3 bg-white rounded-xl border shadow-sm transition-colors"
                     :class="(analiticaQty[voce.key] || 0) > 0 ? 'border-teal-300' : 'border-transparent'"
                   >
-                    <div class="flex flex-col min-w-0 flex-1 mr-3">
-                      <span class="text-sm font-bold text-gray-700 leading-tight truncate flex items-center gap-1">
-                        {{ voce.name }}
-                        <Zap v-if="voce.isDirectEntry" class="size-3 theme-text shrink-0" title="Voce Diretta" />
-                      </span>
-                      <span class="text-[10px] text-gray-500 font-medium">{{ voce.netQty }}× {{ store.config.ui.currency }}{{ voce.unitPrice.toFixed(2) }}</span>
-                    </div>
-                    <!-- Stepper -->
-                    <div class="flex items-center gap-2 shrink-0">
+                    <!-- Stepper (left) -->
+                    <div class="flex items-center gap-1.5 shrink-0">
                       <button @click="decrementAnalitica(voce.key)"
                         :disabled="(analiticaQty[voce.key] || 0) === 0"
                         class="size-9 bg-white rounded-xl flex items-center justify-center text-teal-600 shadow-sm border border-gray-200 active:scale-95 transition-all disabled:opacity-30">
@@ -504,12 +499,21 @@
                         class="size-9 bg-white rounded-xl flex items-center justify-center text-teal-600 shadow-sm border border-gray-200 active:scale-95 transition-all disabled:opacity-30">
                         <Plus class="size-4" />
                       </button>
-                      <span class="font-black text-base text-teal-700 shrink-0 w-12 text-right">{{ store.config.ui.currency }}{{ ((analiticaQty[voce.key] || 0) * voce.unitPrice).toFixed(2) }}</span>
                     </div>
+                    <!-- Label (middle) -->
+                    <div class="flex flex-col min-w-0 flex-1">
+                      <span class="text-sm font-bold text-gray-700 leading-tight truncate flex items-center gap-1">
+                        {{ voce.name }}
+                        <Zap v-if="voce.isDirectEntry" class="size-3 theme-text shrink-0" title="Voce Diretta" />
+                      </span>
+                      <span class="text-[10px] text-gray-500 font-medium">{{ voce.netQty }}× {{ store.config.ui.currency }}{{ voce.unitPrice.toFixed(2) }}</span>
+                    </div>
+                    <!-- Price (right) -->
+                    <span class="font-black text-base text-teal-700 shrink-0 w-12 text-right">{{ store.config.ui.currency }}{{ ((analiticaQty[voce.key] || 0) * voce.unitPrice).toFixed(2) }}</span>
                   </div>
                 </template>
 
-                <div v-if="flatAnalyticaItems.length === 0" class="text-xs text-teal-600 font-bold italic">Nessuna voce disponibile o da pagare.</div>
+                <div v-if="flatAnaliticaItems.length === 0" class="text-xs text-teal-600 font-bold italic">Nessuna voce disponibile o da pagare.</div>
                 <div v-if="analiticaSelectionExceedsRemaining" class="flex items-center gap-1.5 text-[10px] font-bold text-red-700 mt-1">
                   <AlertTriangle class="size-3.5 shrink-0" />
                   Il totale selezionato supera il conto rimanente ({{ store.config.ui.currency }}{{ tableAmountRemaining.toFixed(2) }})
@@ -1006,6 +1010,7 @@ import {
 } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
 import { getOrderItemRowTotal, KITCHEN_ACTIVE_STATUSES, getLockedDirectItems, appConfig } from '../utils/index.js';
+import { buildFlatAnaliticaItems, computeAnaliticaTotal, selectionExceedsRemaining, getOrdersToComplete } from '../utils/analitica.js';
 import { resolveCustomItemsKey } from '../store/persistence.js';
 import { useNumericKeyboard } from '../composables/useNumericKeyboard.js';
 import { useAuth } from '../composables/useAuth.js';
@@ -1178,70 +1183,19 @@ const customPayAmount = computed(() => {
 });
 
 // ── Analitica mode: flat list of individually selectable line items ─────────
-// Each base item is shown with its base price (excluding modifiers). Paid
-// modifiers appear as separate selectable sub-rows directly beneath their
-// parent item, identified by the key pattern 'orderId__itemIdx__mod__modIdx'.
-const flatAnaliticaItems = computed(() => {
-  const items = [];
-  for (const ord of tableAcceptedPayableOrders.value) {
-    for (let idx = 0; idx < ord.orderItems.length; idx++) {
-      const item = ord.orderItems[idx];
-      const netQty = item.quantity - (item.voidedQuantity || 0);
-      if (netQty <= 0) continue;
+// Delegates to the shared helper in utils/analitica.js so that the test suite
+// validates the exact same production logic (no duplication).
+const flatAnaliticaItems = computed(() => buildFlatAnaliticaItems(tableAcceptedPayableOrders.value));
 
-      // Base item — price does NOT include modifier surcharges (they are separate rows)
-      const baseTotal = item.unitPrice * netQty;
-      items.push({
-        key: `${ord.id}__${idx}`,
-        orderId: ord.id,
-        itemIdx: idx,
-        modIdx: null,
-        name: item.name,
-        netQty,
-        unitPrice: item.unitPrice,
-        rowTotal: baseTotal,
-        isDirectEntry: ord.isDirectEntry || false,
-        isModifier: false,
-      });
+const analiticaSelectedTotal = computed(() =>
+  computeAnaliticaTotal(flatAnaliticaItems.value, analiticaQty.value),
+);
 
-      // Paid modifiers as individually selectable sub-rows
-      for (let modIdx = 0; modIdx < (item.modifiers || []).length; modIdx++) {
-        const mod = item.modifiers[modIdx];
-        if ((mod.price || 0) <= 0) continue; // skip free/note modifiers
-        const modNetQty = Math.max(0, netQty - (mod.voidedQuantity || 0));
-        if (modNetQty <= 0) continue; // skip fully voided modifiers
-        items.push({
-          key: `${ord.id}__${idx}__mod__${modIdx}`,
-          orderId: ord.id,
-          itemIdx: idx,
-          modIdx,
-          name: mod.name,
-          netQty: modNetQty,
-          unitPrice: mod.price,
-          rowTotal: mod.price * modNetQty,
-          isDirectEntry: ord.isDirectEntry || false,
-          isModifier: true,
-        });
-      }
-    }
-  }
-  return items;
-});
+const analiticaSelectionExceedsRemaining = computed(() =>
+  selectionExceedsRemaining(flatAnaliticaItems.value, analiticaQty.value, tableAmountRemaining.value),
+);
 
-const analiticaSelectedTotal = computed(() => {
-  return flatAnalyticaItems.value.reduce((acc, i) => {
-    const qty = analiticaQty.value[i.key] || 0;
-    return acc + i.unitPrice * qty;
-  }, 0);
-});
-
-const analiticaSelectionExceedsRemaining = computed(() => {
-  return analiticaSelectedTotal.value > tableAmountRemaining.value;
-});
-
-const analiticaAmount = computed(() => {
-  return analiticaSelectedTotal.value;
-});
+const analiticaAmount = computed(() => analiticaSelectedTotal.value);
 const quotaRomana = computed(() => {
   if (splitWays.value <= 0) return 0;
   const waysLeft = splitWays.value - splitPaidQuotas.value;
@@ -1375,7 +1329,7 @@ const canPay = computed(() => {
   if (tableAmountRemaining.value <= BILL_SETTLED_THRESHOLD) return false;
   if (checkoutMode.value === 'ordini' && selectedOrdersToPay.value.length === 0) return false;
   if (checkoutMode.value === 'analitica') {
-    if (!flatAnalyticaItems.value.some(i => (analiticaQty.value[i.key] || 0) > 0)) return false;
+    if (!flatAnaliticaItems.value.some(i => (analiticaQty.value[i.key] || 0) > 0)) return false;
     if (analiticaSelectionExceedsRemaining.value) return false;
   }
   return true;
@@ -1416,12 +1370,12 @@ function decrementAnalitica(key) {
 
 // ── Analitica mode: select all at max qty / deselect all ───────────────────
 function toggleSelectAllVoci() {
-  const allMaxed = flatAnalyticaItems.value.every(i => (analiticaQty.value[i.key] || 0) === i.netQty);
+  const allMaxed = flatAnaliticaItems.value.every(i => (analiticaQty.value[i.key] || 0) === i.netQty);
   if (allMaxed) {
     analiticaQty.value = {};
   } else {
     const newQty = {};
-    for (const item of flatAnalyticaItems.value) newQty[item.key] = item.netQty;
+    for (const item of flatAnaliticaItems.value) newQty[item.key] = item.netQty;
     analiticaQty.value = newQty;
   }
 }
@@ -1808,7 +1762,7 @@ function processTablePayment(paymentMethodId, extra = {}, overrideAmount = null)
     // after the transaction is recorded so the auto-close check sees correct balances.
   } else if (checkoutMode.value === 'analitica') {
     // Record which order IDs are involved and the specific item keys with their selected quantities.
-    const selectedItems = flatAnalyticaItems.value.filter(i => (analiticaQty.value[i.key] || 0) > 0);
+    const selectedItems = flatAnaliticaItems.value.filter(i => (analiticaQty.value[i.key] || 0) > 0);
     payload.orderRefs = [...new Set(selectedItems.map(i => i.orderId))];
     payload.vociRefs = selectedItems.map(i => ({ key: i.key, qty: analiticaQty.value[i.key] }));
   }
@@ -1833,11 +1787,13 @@ function processTablePayment(paymentMethodId, extra = {}, overrideAmount = null)
   // (selectedQty === netQty for every row belonging to that order).
   if (checkoutMode.value === 'analitica') {
     if (amount + BILL_SETTLED_THRESHOLD >= analiticaAmount.value) {
+      const ordersToComplete = getOrdersToComplete(
+        tableAcceptedPayableOrders.value,
+        flatAnaliticaItems.value,
+        analiticaQty.value,
+      );
       for (const ord of tableAcceptedPayableOrders.value) {
-        const ordItems = flatAnalyticaItems.value.filter(i => i.orderId === ord.id);
-        const allFullySelected = ordItems.length > 0 &&
-          ordItems.every(i => (analiticaQty.value[i.key] || 0) >= i.netQty);
-        if (allFullySelected) store.changeOrderStatus(ord, 'completed');
+        if (ordersToComplete.includes(ord.id)) store.changeOrderStatus(ord, 'completed');
       }
     }
     analiticaQty.value = {};
