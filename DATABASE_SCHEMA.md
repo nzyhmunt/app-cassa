@@ -527,7 +527,7 @@ Cardinalità:
 │  analitica|discount          │──1───│   transaction_voce_refs     │
 │ payment_method_id (FK)       │  N   │─────────────────────────────│
 │ amount_paid                  │      │ transaction_id (FK)         │
-│ tip_amount                   │      │ voce_key (ordId__idx[__mod__modIdx]) │
+│ tip_amount                   │      │ voce_key (ordId__itemUid[__mod__modId]) │
 │ romana_split_count           │      │ qty                         │
 │ discount_type                │      └─────────────────────────────┘
 │ discount_value               │
