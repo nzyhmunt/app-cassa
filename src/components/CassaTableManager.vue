@@ -1010,7 +1010,7 @@ import {
 } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
 import { getOrderItemRowTotal, KITCHEN_ACTIVE_STATUSES, getLockedDirectItems, appConfig } from '../utils/index.js';
-import { buildFlatAnaliticaItems, computeAnaliticaTotal, selectionExceedsRemaining, getOrdersToComplete } from '../utils/analitica.js';
+import { buildFlatAnaliticaItems, computeAnaliticaTotal, getOrdersToComplete } from '../utils/analitica.js';
 import { resolveCustomItemsKey } from '../store/persistence.js';
 import { useNumericKeyboard } from '../composables/useNumericKeyboard.js';
 import { useAuth } from '../composables/useAuth.js';
