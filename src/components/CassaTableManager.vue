@@ -99,10 +99,10 @@
         </div>
       </div>
 
-      <div class="flex flex-1 min-h-0 flex-col lg:flex-row">
+      <div class="flex flex-1 min-h-0 flex-col sm:flex-row">
 
         <!-- PANNELLO SINISTRO: Riepilogo Comande e Storni dalla Cassa -->
-        <div class="w-full lg:w-[55%] border-b lg:border-b-0 lg:border-r border-gray-200 bg-gray-50 flex flex-col h-[42%] shrink-0 overflow-hidden lg:h-auto lg:shrink lg:flex-1">
+        <div class="w-full sm:w-[55%] border-b sm:border-b-0 sm:border-r border-gray-200 bg-gray-50 flex flex-col h-[42%] shrink-0 overflow-hidden sm:h-auto sm:shrink sm:flex-1">
           <div class="p-3 md:p-4 bg-white border-b border-gray-200 shrink-0 flex items-center gap-2">
             <span class="font-bold text-gray-700 text-xs md:text-sm uppercase tracking-wider shrink-0">Riepilogo Voci</span>
             <!-- Vista switch (inline in header) — hidden in analitica/ordini mode -->
@@ -385,7 +385,7 @@
         </div>
 
         <!-- PANNELLO DESTRA: Area Checkout e Transazioni -->
-        <div class="w-full lg:w-[45%] bg-white flex flex-col relative z-20 shadow-[0_-10px_20px_rgba(0,0,0,0.05)] lg:shadow-none flex-1 min-h-0">
+        <div class="w-full sm:w-[45%] bg-white flex flex-col relative z-20 shadow-[0_-10px_20px_rgba(0,0,0,0.05)] sm:shadow-none flex-1 min-h-0">
 
           <div class="p-4 md:p-6 flex-1 overflow-y-auto">
             <div class="flex justify-between items-center mb-2">
@@ -508,63 +508,63 @@
               </div>
 
               <!-- Romana -->
-              <div v-if="checkoutMode === 'romana'" class="bg-blue-50 border border-blue-100 p-4 rounded-xl md:rounded-2xl transition-all space-y-4">
-                <!-- Split ways selector -->
-                <div>
-                  <label class="block text-[10px] font-bold text-blue-500 uppercase tracking-wider mb-2">Dividi il conto in</label>
-                  <div class="flex items-center gap-3">
-                    <button
-                      @click="splitWays > minSplitWays ? splitWays-- : null"
-                      :disabled="splitWays <= minSplitWays"
-                      class="size-11 bg-white rounded-xl flex items-center justify-center font-black text-blue-600 shadow-sm border border-blue-200 active:scale-95 transition-all disabled:opacity-30"
-                    ><Minus class="size-5" /></button>
-                    <div class="flex-1 text-center">
-                      <span class="text-4xl font-black text-blue-900">{{ splitWays }}</span>
-                      <span class="text-sm font-bold text-blue-400 ml-1.5">parti</span>
-                    </div>
-                    <button @click="splitWays++" class="size-11 bg-white rounded-xl flex items-center justify-center font-black text-blue-600 shadow-sm border border-blue-200 active:scale-95 transition-all"><Plus class="size-5" /></button>
-                  </div>
-                  <!-- Visual quota pills -->
-                  <div class="flex gap-1 mt-3 flex-wrap">
-                    <div v-for="n in splitWays" :key="n"
-                      class="h-2 flex-1 min-w-[8px] rounded-full transition-all"
-                      :class="n <= splitPaidQuotas ? 'bg-emerald-400' : 'bg-blue-200'">
+              <div v-if="checkoutMode === 'romana'" class="bg-blue-50 border border-blue-100 p-3 rounded-xl transition-all space-y-3">
+                <!-- Steppers row -->
+                <div class="grid gap-3" :class="splitWays - splitPaidQuotas > 1 ? 'grid-cols-2' : 'grid-cols-1'">
+                  <!-- Parti totali -->
+                  <div>
+                    <label class="block text-[10px] font-bold text-blue-500 uppercase tracking-wider mb-1.5">Dividi in</label>
+                    <div class="flex items-center gap-1.5">
+                      <button
+                        @click="splitWays > minSplitWays ? splitWays-- : null"
+                        :disabled="splitWays <= minSplitWays"
+                        class="size-8 bg-white rounded-lg flex items-center justify-center font-bold text-blue-600 shadow-sm border border-blue-200 active:scale-95 transition-all disabled:opacity-30 shrink-0"
+                      ><Minus class="size-4" /></button>
+                      <span class="flex-1 text-center text-xl font-black text-blue-900">{{ splitWays }}<span class="text-xs font-bold text-blue-400 ml-1">parti</span></span>
+                      <button @click="splitWays++"
+                        class="size-8 bg-white rounded-lg flex items-center justify-center font-bold text-blue-600 shadow-sm border border-blue-200 active:scale-95 transition-all shrink-0"
+                      ><Plus class="size-4" /></button>
                     </div>
                   </div>
-                  <div v-if="splitPaidQuotas > 0" class="mt-1.5 text-[10px] text-blue-600 font-bold flex items-center gap-1">
-                    <CheckCircle class="size-3 text-emerald-500" />
-                    {{ splitPaidQuotas }} di {{ splitWays }} quote già saldate
+                  <!-- Quote da pagare ora (solo se >1 rimanenti) -->
+                  <div v-if="splitWays - splitPaidQuotas > 1">
+                    <label class="block text-[10px] font-bold text-blue-500 uppercase tracking-wider mb-1.5">Quote ora</label>
+                    <div class="flex items-center gap-1.5">
+                      <button
+                        @click="romanaSplitCount > 1 ? romanaSplitCount-- : null"
+                        :disabled="romanaSplitCount <= 1"
+                        class="size-8 bg-white rounded-lg flex items-center justify-center font-bold text-blue-600 shadow-sm border border-blue-200 active:scale-95 transition-all disabled:opacity-30 shrink-0"
+                      ><Minus class="size-4" /></button>
+                      <span class="flex-1 text-center text-xl font-black text-blue-900">{{ romanaSplitCount }}<span class="text-xs font-bold text-blue-400 ml-1">/ {{ splitWays - splitPaidQuotas }}</span></span>
+                      <button
+                        @click="romanaSplitCount < (splitWays - splitPaidQuotas) ? romanaSplitCount++ : null"
+                        :disabled="romanaSplitCount >= (splitWays - splitPaidQuotas)"
+                        class="size-8 bg-white rounded-lg flex items-center justify-center font-bold text-blue-600 shadow-sm border border-blue-200 active:scale-95 transition-all disabled:opacity-30 shrink-0"
+                      ><Plus class="size-4" /></button>
+                    </div>
                   </div>
                 </div>
 
-                <!-- Quotas being paid this transaction -->
-                <div v-if="splitWays - splitPaidQuotas > 1" class="border-t border-blue-200 pt-3">
-                  <label class="block text-[10px] font-bold text-blue-500 uppercase tracking-wider mb-2">Quote da pagare adesso</label>
-                  <div class="flex items-center gap-3">
-                    <button
-                      @click="romanaSplitCount > 1 ? romanaSplitCount-- : null"
-                      :disabled="romanaSplitCount <= 1"
-                      class="size-10 bg-white rounded-xl flex items-center justify-center font-bold text-blue-600 shadow-sm border border-blue-200 active:scale-95 transition-all disabled:opacity-30"
-                    ><Minus class="size-4" /></button>
-                    <div class="flex-1 text-center">
-                      <span class="text-3xl font-black text-blue-900">{{ romanaSplitCount }}</span>
-                      <span class="text-xs font-bold text-blue-400 ml-1">su {{ splitWays - splitPaidQuotas }}</span>
-                    </div>
-                    <button
-                      @click="romanaSplitCount < (splitWays - splitPaidQuotas) ? romanaSplitCount++ : null"
-                      :disabled="romanaSplitCount >= (splitWays - splitPaidQuotas)"
-                      class="size-10 bg-white rounded-xl flex items-center justify-center font-bold text-blue-600 shadow-sm border border-blue-200 active:scale-95 transition-all disabled:opacity-30"
-                    ><Plus class="size-4" /></button>
+                <!-- Progress pills -->
+                <div class="flex gap-0.5">
+                  <div v-for="n in splitWays" :key="n"
+                    class="h-1.5 flex-1 min-w-[6px] rounded-full transition-all"
+                    :class="n <= splitPaidQuotas ? 'bg-emerald-400' : 'bg-blue-200'">
                   </div>
+                </div>
+                <div v-if="splitPaidQuotas > 0" class="text-[10px] text-blue-600 font-bold flex items-center gap-1 -mt-1">
+                  <CheckCircle class="size-3 text-emerald-500 shrink-0" />
+                  {{ splitPaidQuotas }} di {{ splitWays }} quote già saldate
                 </div>
 
                 <!-- Quota amount summary -->
-                <div class="border-t border-blue-200 pt-3 flex justify-between items-center">
-                  <div class="flex flex-col">
+                <div class="border-t border-blue-200 pt-2.5 flex justify-between items-center">
+                  <div>
                     <span class="text-[10px] font-bold text-blue-500 uppercase tracking-wider">Quota da incassare</span>
-                    <span v-if="romanaSplitCount > 1" class="text-[10px] text-blue-400 font-medium">{{ romanaSplitCount }} quote × {{ store.config.ui.currency }}{{ (tableAmountRemaining / Math.max(1, splitWays - splitPaidQuotas)).toFixed(2) }}</span>
+                    <span v-if="romanaSplitCount > 1" class="text-[10px] text-blue-400 font-medium ml-1">× {{ romanaSplitCount }}</span>
+                    <div v-if="romanaSplitCount > 1" class="text-[10px] text-blue-400">{{ store.config.ui.currency }}{{ (tableAmountRemaining / Math.max(1, splitWays - splitPaidQuotas)).toFixed(2) }} cad.</div>
                   </div>
-                  <span class="font-black text-3xl text-blue-700">{{ store.config.ui.currency }}{{ quotaRomana.toFixed(2) }}</span>
+                  <span class="font-black text-xl text-blue-700">{{ store.config.ui.currency }}{{ quotaRomana.toFixed(2) }}</span>
                 </div>
               </div>
 
