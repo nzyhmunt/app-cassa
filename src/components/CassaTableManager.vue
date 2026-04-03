@@ -289,7 +289,7 @@
                     : 'border-purple-200 hover:border-purple-300 hover:bg-purple-50/20 cursor-pointer'
                   : ord.status === 'pending' ? 'border-amber-200 bg-amber-50/30' : 'border-gray-200'
               ]"
-              @click="checkoutMode === 'ordini' && KITCHEN_ACTIVE_STATUSES.includes(ord.status) ? toggleOrderSelection(ord.id) : null"
+              @click="checkoutMode === 'ordini' && KITCHEN_ACTIVE_STATUSES.includes(ord.status) && !$event.target.closest('button, a, input, select, textarea, label') ? toggleOrderSelection(ord.id) : null"
             >
 
               <div class="flex justify-between items-center border-b border-gray-100 pb-2 mb-3 pl-1">
