@@ -70,7 +70,9 @@
             @click="toggleBillRequested"
             :class="store.billRequestedTables.has(selectedTable.id) ? 'bg-blue-500 text-white' : 'bg-white/10 hover:bg-white/20 text-white'"
             class="p-2 sm:px-3 sm:py-2 rounded-xl font-bold text-[10px] md:text-xs flex items-center gap-1.5 transition-all active:scale-95 shrink-0"
-            title="Segna Conto Richiesto">
+            :title="store.billRequestedTables.has(selectedTable.id) ? 'Conto richiesto' : 'Segna Conto Richiesto'"
+            :aria-label="store.billRequestedTables.has(selectedTable.id) ? 'Conto richiesto' : 'Segna conto richiesto'"
+            :aria-pressed="store.billRequestedTables.has(selectedTable.id)">
             <Receipt class="size-4" /> <span class="hidden sm:inline">Conto</span>
           </button>
           <!-- Sposta button -->
