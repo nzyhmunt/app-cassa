@@ -303,13 +303,13 @@ Registra quale voce di comanda (o variazione a pagamento) è stata incassata e i
 consentendo pagamenti parziali su singole voci (es. 1 su 2 coperti).
 
 La chiave (`voce_key`) segue il formato prodotto da `buildFlatAnaliticaItems`:
-- voce base: `{orderId}__{itemIdx}`
-- variazione a pagamento: `{orderId}__{itemIdx}__mod__{modIdx}`
+- voce base: `{orderId}__{itemUid}`
+- variazione a pagamento: `{orderId}__{itemUid}__mod__{modIdx}`
 
 ```sql
 CREATE TABLE transaction_voce_refs (
     transaction_id  VARCHAR(30)     NOT NULL REFERENCES transactions(id) ON DELETE CASCADE,
-    voce_key        VARCHAR(100)    NOT NULL,   -- es. 'ord_abc__0' o 'ord_abc__0__mod__1'
+    voce_key        VARCHAR(100)    NOT NULL,   -- es. 'ord_abc__itm_xyz' o 'ord_abc__itm_xyz__mod__1'
     qty             SMALLINT        NOT NULL CHECK (qty > 0),
     PRIMARY KEY (transaction_id, voce_key)
 );
