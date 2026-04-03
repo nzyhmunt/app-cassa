@@ -71,7 +71,7 @@
             :class="store.billRequestedTables.has(selectedTable.id) ? 'bg-blue-500 text-white' : 'bg-white/10 hover:bg-white/20 text-white'"
             class="p-2 sm:px-3 sm:py-2 rounded-xl font-bold text-[10px] md:text-xs flex items-center gap-1.5 transition-all active:scale-95 shrink-0"
             title="Segna Conto Richiesto">
-            <Receipt class="size-4" /> <span class="hidden sm:inline">{{ store.billRequestedTables.has(selectedTable.id) ? 'Conto Richiesto' : 'Richiedi Conto' }}</span>
+            <Receipt class="size-4" /> <span class="hidden sm:inline">Conto</span>
           </button>
           <!-- Sposta button -->
           <button v-if="tableOrders.length > 0" @click="openMoveModal"
@@ -91,9 +91,9 @@
             @click="closeTableModal"
             class="bg-white/10 hover:bg-white/20 p-2 sm:px-3 sm:py-2 rounded-xl font-bold text-[10px] md:text-xs flex items-center gap-1.5 transition-all active:scale-95 shrink-0 text-white"
             title="Cronologia Conti Chiusi"
-            aria-label="Storico Conti"
+            aria-label="Storico"
           >
-            <History class="size-4" /> <span class="hidden sm:inline">Storico Conti</span>
+            <History class="size-4" /> <span class="hidden sm:inline">Storico</span>
           </router-link>
           <button @click="closeTableModal" class="bg-white/10 hover:bg-white/20 p-2 md:p-2.5 rounded-full transition-colors active:scale-95"><X class="size-5 md:size-6" /></button>
         </div>
@@ -110,17 +110,17 @@
               <button @click="cassaViewMode = 'voce'"
                 :class="cassaViewMode === 'voce' ? 'bg-white shadow text-gray-900 border border-gray-200' : 'text-gray-500 hover:bg-gray-200/50'"
                 class="flex-1 py-1 px-1.5 text-[9px] font-bold rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1 min-w-0">
-                <LayoutGrid class="size-3 shrink-0" /> <span class="hidden lg:inline">Per Voce</span>
+                <LayoutGrid class="size-3 shrink-0" /> <span class="hidden sm:inline">Per Voce</span>
               </button>
               <button @click="cassaViewMode = 'ordine'"
                 :class="cassaViewMode === 'ordine' ? 'bg-white shadow text-gray-900 border border-gray-200' : 'text-gray-500 hover:bg-gray-200/50'"
                 class="flex-1 py-1 px-1.5 text-[9px] font-bold rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1 min-w-0">
-                <ListOrdered class="size-3 shrink-0" /> <span class="hidden lg:inline">Per Ordine</span>
+                <ListOrdered class="size-3 shrink-0" /> <span class="hidden sm:inline">Per Ordine</span>
               </button>
             </div>
             <!-- Comanda mode header: selection hint -->
             <div v-else-if="checkoutMode === 'ordini'" class="flex-1 min-w-0 flex items-center gap-1.5 text-[10px] font-bold text-purple-600 bg-purple-50 border border-purple-200 px-2 py-1.5 rounded-xl overflow-hidden">
-              <ListChecks class="size-3.5 shrink-0" /> <span class="truncate hidden lg:inline">Tocca per selezionare</span>
+              <ListChecks class="size-3.5 shrink-0" /> <span class="truncate hidden sm:inline">Tocca per selezionare</span>
             </div>
             <!-- Analitica mode header: select-all toggle -->
             <button
@@ -398,7 +398,7 @@
             <!-- Cifra Cassa Dinamica -->
             <div class="mb-1">
               <div v-if="tableTransactions.length > 0" class="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Totale: <span class="text-gray-600">{{ store.config.ui.currency }}{{ tableTotalAmount.toFixed(2) }}</span></div>
-              <div class="text-4xl sm:text-5xl md:text-6xl font-black text-gray-900 leading-none">{{ store.config.ui.currency }}{{ tableAmountRemaining.toFixed(2) }}</div>
+              <div class="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-black text-gray-900 leading-none">{{ store.config.ui.currency }}{{ tableAmountRemaining.toFixed(2) }}</div>
             </div>
 
             <!-- Storico Transazioni -->
@@ -505,8 +505,8 @@
               <div class="flex gap-1.5">
                 <button @click="checkoutMode = 'unico'" :class="checkoutMode === 'unico' ? 'bg-gray-200 text-gray-800 border-gray-300 font-bold' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100'" class="flex-1 py-1.5 sm:py-2 text-xs rounded-xl border transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-sm"><Layers class="size-3.5 shrink-0" /><span class="hidden md:inline">Tutto</span></button>
                 <button @click="checkoutMode = 'romana'" :class="checkoutMode === 'romana' ? 'bg-blue-100 text-blue-800 border-blue-200 font-bold' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100'" class="flex-1 py-1.5 sm:py-2 text-xs rounded-xl border transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-sm"><Users class="size-3.5 shrink-0" /><span class="hidden md:inline">Romana</span></button>
-                <button @click="checkoutMode = 'ordini'" :disabled="hasRomanaPayment" :class="checkoutMode === 'ordini' ? 'bg-purple-100 text-purple-800 border-purple-200 font-bold' : hasRomanaPayment ? 'bg-white text-gray-300 border-gray-200 cursor-not-allowed opacity-50' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100'" :title="hasRomanaPayment ? 'Non disponibile dopo un pagamento alla Romana' : undefined" class="flex-1 py-1.5 sm:py-2 text-xs rounded-xl border transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-sm"><ListChecks class="size-3.5 shrink-0" /><span class="hidden md:inline">Comanda</span></button>
                 <button @click="checkoutMode = 'analitica'" :disabled="hasRomanaPayment" :class="checkoutMode === 'analitica' ? 'bg-teal-100 text-teal-800 border-teal-200 font-bold' : hasRomanaPayment ? 'bg-white text-gray-300 border-gray-200 cursor-not-allowed opacity-50' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100'" :title="hasRomanaPayment ? 'Non disponibile dopo un pagamento alla Romana' : undefined" class="flex-1 py-1.5 sm:py-2 text-xs rounded-xl border transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-sm"><SquareCheck class="size-3.5 shrink-0" /><span class="hidden md:inline">Analitica</span></button>
+                <button @click="checkoutMode = 'ordini'" :disabled="hasRomanaPayment" :class="checkoutMode === 'ordini' ? 'bg-purple-100 text-purple-800 border-purple-200 font-bold' : hasRomanaPayment ? 'bg-white text-gray-300 border-gray-200 cursor-not-allowed opacity-50' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100'" :title="hasRomanaPayment ? 'Non disponibile dopo un pagamento alla Romana' : undefined" class="flex-1 py-1.5 sm:py-2 text-xs rounded-xl border transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-sm"><ListChecks class="size-3.5 shrink-0" /><span class="hidden md:inline">Comanda</span></button>
               </div>
 
               <!-- Romana -->
@@ -600,7 +600,7 @@
                 @click="openPaymentModal(method.id)"
                 :disabled="!canPay"
                 :class="method.colorClass"
-                class="py-3 md:py-4 rounded-xl font-bold flex items-center justify-center gap-2 transition-all disabled:bg-gray-100 disabled:text-gray-400 disabled:shadow-none active:scale-95 text-sm md:text-base shadow-md"
+                class="py-2 sm:py-2.5 md:py-4 rounded-xl font-bold flex items-center justify-center gap-2 transition-all disabled:bg-gray-100 disabled:text-gray-400 disabled:shadow-none active:scale-95 text-sm md:text-base shadow-md"
               >
                 <component :is="getPaymentIcon(method.id)" class="size-5" /> {{ method.label }}
               </button>
