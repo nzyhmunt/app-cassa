@@ -1224,14 +1224,20 @@ const flatAnalyticaItems = computed(() => {
   return items;
 });
 
-const analiticaAmount = computed(() => {
-  const total = flatAnalyticaItems.value.reduce((acc, i) => {
+const analiticaSelectedTotal = computed(() => {
+  return flatAnalyticaItems.value.reduce((acc, i) => {
     const qty = analiticaQty.value[i.key] || 0;
     return acc + i.unitPrice * qty;
   }, 0);
-  return Math.min(total, tableAmountRemaining.value);
 });
 
+const analiticaSelectionExceedsRemaining = computed(() => {
+  return analiticaSelectedTotal.value > tableAmountRemaining.value;
+});
+
+const analiticaAmount = computed(() => {
+  return analiticaSelectedTotal.value;
+});
 const quotaRomana = computed(() => {
   if (splitWays.value <= 0) return 0;
   const waysLeft = splitWays.value - splitPaidQuotas.value;
