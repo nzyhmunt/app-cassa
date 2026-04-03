@@ -161,6 +161,9 @@
                       + {{ voce.name }} (+{{ store.config.ui.currency }}{{ voce.unitPrice.toFixed(2) }})
                     </span>
                   </div>
+                  <span class="font-black text-[11px] text-purple-700 shrink-0 w-10 text-right">
+                    {{ store.config.ui.currency }}{{ ((analiticaQty[voce.key] || 0) * voce.unitPrice).toFixed(2) }}
+                  </span>
                   <div class="flex items-center gap-0.5 shrink-0">
                     <button @click="decrementAnalitica(voce.key)"
                       :aria-label="`Diminuisci ${voce.name}`"
@@ -176,9 +179,6 @@
                       <Plus class="size-3" />
                     </button>
                   </div>
-                  <span class="font-black text-[11px] text-purple-700 shrink-0 w-10 text-right">
-                    {{ store.config.ui.currency }}{{ ((analiticaQty[voce.key] || 0) * voce.unitPrice).toFixed(2) }}
-                  </span>
                 </div>
 
                 <!-- Base item row -->
@@ -198,6 +198,9 @@
                     </div>
                   </div>
                   <div class="flex items-center gap-1 shrink-0">
+                    <span class="font-black text-[12px] md:text-sm shrink-0 w-12 text-right" :class="(analiticaQty[voce.key] || 0) > 0 ? 'text-teal-700' : 'text-gray-300'">
+                      {{ store.config.ui.currency }}{{ ((analiticaQty[voce.key] || 0) * voce.unitPrice).toFixed(2) }}
+                    </span>
                     <button @click="decrementAnalitica(voce.key)"
                       :aria-label="`Diminuisci quantità di ${voce.name}`"
                       :disabled="(analiticaQty[voce.key] || 0) === 0"
@@ -211,9 +214,6 @@
                       class="p-1.5 bg-white border border-teal-200 text-teal-600 hover:bg-teal-50 rounded shadow-sm transition-colors active:scale-95 disabled:opacity-30">
                       <Plus class="size-4" />
                     </button>
-                    <span class="font-black text-[12px] md:text-sm shrink-0 w-12 text-right" :class="(analiticaQty[voce.key] || 0) > 0 ? 'text-teal-700' : 'text-gray-300'">
-                      {{ store.config.ui.currency }}{{ ((analiticaQty[voce.key] || 0) * voce.unitPrice).toFixed(2) }}
-                    </span>
                   </div>
                 </div>
               </template>
