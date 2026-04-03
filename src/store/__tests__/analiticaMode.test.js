@@ -475,6 +475,7 @@ describe('store.addTransaction() with analitica operationType', () => {
 
   it('records the transaction with operationType=analitica and vociRefs', () => {
     const store = useAppStore();
+    // Keys are uid-based: `${orderId}__${itemUid}` and `${orderId}__${itemUid}__mod__${modIdx}`
     store.addTransaction({
       transactionId: 'txn_test',
       tableId: 'T1',
@@ -482,7 +483,7 @@ describe('store.addTransaction() with analitica operationType', () => {
       paymentMethod: 'Contanti',
       operationType: 'analitica',
       amountPaid: 15.00,
-      vociRefs: [{ key: 'ord_1__0', qty: 1 }, { key: 'ord_1__0__mod__0', qty: 1 }],
+      vociRefs: [{ key: 'ord_1__itm_abc', qty: 1 }, { key: 'ord_1__itm_abc__mod__0', qty: 1 }],
       orderRefs: ['ord_1'],
       timestamp: new Date().toISOString(),
     });
@@ -491,7 +492,7 @@ describe('store.addTransaction() with analitica operationType', () => {
     const txn = store.transactions[0];
     expect(txn.operationType).toBe('analitica');
     expect(txn.amountPaid).toBeCloseTo(15.00, 2);
-    expect(txn.vociRefs[0]).toMatchObject({ key: 'ord_1__0', qty: 1 });
+    expect(txn.vociRefs[0]).toMatchObject({ key: 'ord_1__itm_abc', qty: 1 });
   });
 
   it('records modifier keys with partial quantities in vociRefs', () => {
