@@ -491,12 +491,14 @@
                     <!-- Stepper (left) -->
                     <div class="flex items-center gap-1.5 shrink-0">
                       <button @click="decrementAnalitica(voce.key)"
+                        :aria-label="`Diminuisci quantità di ${voce.name}`"
                         :disabled="(analiticaQty[voce.key] || 0) === 0"
                         class="size-9 bg-white rounded-xl flex items-center justify-center text-teal-600 shadow-sm border border-gray-200 active:scale-95 transition-all disabled:opacity-30">
                         <Minus class="size-4" />
                       </button>
                       <span class="w-6 text-center text-sm font-black text-gray-700 tabular-nums">{{ analiticaQty[voce.key] || 0 }}</span>
                       <button @click="incrementAnalitica(voce.key, voce.netQty)"
+                        :aria-label="`Aumenta quantità di ${voce.name}`"
                         :disabled="(analiticaQty[voce.key] || 0) >= voce.netQty"
                         class="size-9 bg-white rounded-xl flex items-center justify-center text-teal-600 shadow-sm border border-gray-200 active:scale-95 transition-all disabled:opacity-30">
                         <Plus class="size-4" />
