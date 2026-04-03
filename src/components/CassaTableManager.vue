@@ -703,7 +703,7 @@
       <div class="p-4 border-t border-gray-200 space-y-2 shrink-0">
         <button
           @click="confirmPaymentModal"
-          :disabled="modalRicevutoParsed <= 0 || (checkoutMode === 'analitica' && modalRicevutoParsed < amountBeingPaid - 0.01)"
+          :disabled="modalRicevutoParsed <= 0 || (checkoutMode === 'analitica' && modalRicevutoParsed < amountBeingPaid - BILL_SETTLED_THRESHOLD)"
           class="w-full py-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl disabled:opacity-40 disabled:bg-gray-300 disabled:text-gray-400 active:scale-95 transition-all flex items-center justify-center gap-2 text-base shadow-md"
         >
           <CheckCircle class="size-5" />
