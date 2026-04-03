@@ -119,8 +119,8 @@
               </button>
             </div>
             <!-- Comanda mode header: selection hint -->
-            <div v-else-if="checkoutMode === 'ordini'" class="flex-1 mx-1 flex items-center gap-1.5 text-[10px] font-bold text-purple-600 bg-purple-50 border border-purple-200 px-3 py-1.5 rounded-xl">
-              <ListChecks class="size-3.5 shrink-0" /> Tocca una comanda per selezionarla
+            <div v-else-if="checkoutMode === 'ordini'" class="flex-1 mx-1 flex items-center gap-1.5 text-[10px] font-bold text-purple-600 bg-purple-50 border border-purple-200 px-2 py-1.5 rounded-xl overflow-hidden">
+              <ListChecks class="size-3.5 shrink-0" /> <span class="truncate">Tocca per selezionare</span>
             </div>
             <!-- Analitica mode header: select-all toggle -->
             <button
@@ -387,23 +387,23 @@
         <!-- PANNELLO DESTRA: Area Checkout e Transazioni -->
         <div class="w-full sm:w-[45%] bg-white flex flex-col relative z-20 shadow-[0_-10px_20px_rgba(0,0,0,0.05)] sm:shadow-none flex-1 min-h-0">
 
-          <div class="p-3 sm:p-4 md:p-6 flex-1 overflow-y-auto">
-            <div class="flex justify-between items-center mb-2">
-              <h4 class="font-bold text-gray-400 uppercase tracking-widest text-[10px] md:text-xs flex items-center gap-1">Conto Da Pagare <span class="bg-gray-200 text-gray-600 px-1.5 rounded-full text-[9px] uppercase">Rimanente Netto</span></h4>
-              <button @click="generateTableCheckoutJson('info')" class="text-blue-600 font-bold text-[10px] md:text-xs uppercase tracking-wider flex items-center gap-1.5 bg-blue-50 hover:bg-blue-100 px-2 py-1.5 sm:px-3 sm:py-2 rounded-lg border border-blue-200 transition-colors active:scale-95">
-                <Code class="size-4" /> <span class="hidden sm:inline">Json Scontrino</span>
+          <div class="p-2 sm:p-3 md:p-5 flex-1 overflow-y-auto">
+            <div class="flex justify-between items-center mb-1">
+              <h4 class="font-bold text-gray-400 uppercase tracking-widest text-[10px] flex items-center gap-1">Da Pagare <span class="hidden sm:inline bg-gray-200 text-gray-600 px-1.5 rounded-full text-[9px] uppercase">Netto</span></h4>
+              <button @click="generateTableCheckoutJson('info')" class="text-blue-600 font-bold text-[10px] uppercase tracking-wider flex items-center gap-1.5 bg-blue-50 hover:bg-blue-100 p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg border border-blue-200 transition-colors active:scale-95">
+                <Code class="size-3.5" /> <span class="hidden sm:inline">JSON</span>
               </button>
             </div>
 
             <!-- Cifra Cassa Dinamica -->
-            <div class="mb-2">
-              <div class="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-0.5">Totale conto: <span class="text-gray-600">{{ store.config.ui.currency }}{{ tableTotalAmount.toFixed(2) }}</span></div>
-              <div class="text-4xl sm:text-5xl md:text-6xl font-black text-gray-900">{{ store.config.ui.currency }}{{ tableAmountRemaining.toFixed(2) }}</div>
+            <div class="mb-1">
+              <div v-if="tableTransactions.length > 0" class="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Totale: <span class="text-gray-600">{{ store.config.ui.currency }}{{ tableTotalAmount.toFixed(2) }}</span></div>
+              <div class="text-4xl sm:text-5xl md:text-6xl font-black text-gray-900 leading-none">{{ store.config.ui.currency }}{{ tableAmountRemaining.toFixed(2) }}</div>
             </div>
 
             <!-- Storico Transazioni -->
-            <div v-if="tableTransactions.length > 0" class="mb-5 space-y-2">
-              <h5 class="text-[10px] font-bold text-gray-400 uppercase tracking-wider border-b border-gray-100 pb-1">Storico Pagamenti:</h5>
+            <div v-if="tableTransactions.length > 0" class="mb-3 space-y-1.5">
+              <h5 class="text-[10px] font-bold text-gray-400 uppercase tracking-wider border-b border-gray-100 pb-0.5">Pagamenti:</h5>
               <div v-for="(txn, tIdx) in tableTransactions" :key="txn.transactionId"
                 class="rounded-xl border overflow-hidden shadow-sm"
                 :class="txn.operationType === 'discount' ? 'border-amber-200' : 'border-emerald-200'">
@@ -451,55 +451,57 @@
                 </div>
               </div>
             </div>
-            <div v-else class="mb-5"></div>
+            <div v-else class="mb-1"></div>
 
-            <!-- Sconto (Discount) -->
-            <div v-if="discountsEnabled && tableAmountRemaining > 0 && isAdmin" class="mb-4 bg-amber-50 border border-amber-200 rounded-xl p-3 md:p-4">
-              <label class="block text-xs font-bold text-amber-800 uppercase mb-2 flex items-center gap-1.5">
-                <Tag class="size-3.5" /> Applica Sconto
-              </label>
-              <div class="flex gap-2 items-center">
-                <div class="flex bg-white border border-amber-200 rounded-xl overflow-hidden shrink-0">
-                  <button @click="discountType = 'percent'" :class="discountType === 'percent' ? 'bg-amber-500 text-white' : 'text-amber-700 hover:bg-amber-100'" class="px-3 py-2 text-xs font-bold transition-colors">
-                    %
-                  </button>
-                  <button @click="discountType = 'fixed'" :class="discountType === 'fixed' ? 'bg-amber-500 text-white' : 'text-amber-700 hover:bg-amber-100'" class="px-3 py-2 text-xs font-bold transition-colors">
-                    {{ store.config.ui.currency }}
+            <!-- Sconto (Discount) — collapsible toggle -->
+            <div v-if="discountsEnabled && tableAmountRemaining > 0 && isAdmin" class="mb-2">
+              <button @click="discountExpanded = !discountExpanded"
+                class="w-full flex items-center justify-between px-2 py-1.5 text-amber-700 bg-amber-50 hover:bg-amber-100 rounded-lg border border-amber-200 transition-colors text-[10px] font-bold">
+                <span class="flex items-center gap-1.5"><Tag class="size-3 shrink-0" /> Applica Sconto</span>
+                <ChevronDown :class="discountExpanded ? 'rotate-180' : ''" class="size-3.5 transition-transform shrink-0" />
+              </button>
+              <div v-if="discountExpanded" class="mt-1.5 bg-amber-50 border border-amber-200 rounded-xl p-2 sm:p-3">
+                <div class="flex gap-2 items-center">
+                  <div class="flex bg-white border border-amber-200 rounded-xl overflow-hidden shrink-0">
+                    <button @click="discountType = 'percent'" :class="discountType === 'percent' ? 'bg-amber-500 text-white' : 'text-amber-700 hover:bg-amber-100'" class="px-2.5 py-1.5 text-xs font-bold transition-colors">
+                      %
+                    </button>
+                    <button @click="discountType = 'fixed'" :class="discountType === 'fixed' ? 'bg-amber-500 text-white' : 'text-amber-700 hover:bg-amber-100'" class="px-2.5 py-1.5 text-xs font-bold transition-colors">
+                      {{ store.config.ui.currency }}
+                    </button>
+                  </div>
+                  <NumericInput
+                    v-model="discountInput"
+                    min="0"
+                    :max="discountType === 'percent' ? 100 : tableAmountRemaining"
+                    step="0.01"
+                    :placeholder="discountType === 'percent' ? 'Es. 10' : 'Es. 5.00'"
+                    :typeToggleLabels="['%', store.config.ui.currency]"
+                    :typeToggleIndex="discountType === 'percent' ? 0 : 1"
+                    @update:typeToggleIndex="i => discountType = i === 0 ? 'percent' : 'fixed'"
+                    class="flex-1 min-w-0 text-sm font-bold border border-amber-200 rounded-xl px-3 py-1.5 bg-white focus:outline-none focus:border-amber-400 text-amber-900"
+                  />
+                  <button
+                    @click="applyDiscount"
+                    :disabled="discountPreview <= 0"
+                    class="shrink-0 bg-amber-500 hover:bg-amber-600 disabled:bg-gray-200 disabled:text-gray-400 text-white font-bold text-xs px-2.5 py-1.5 rounded-xl transition-colors active:scale-95"
+                  >
+                    Applica
                   </button>
                 </div>
-                <NumericInput
-                  v-model="discountInput"
-                  min="0"
-                  :max="discountType === 'percent' ? 100 : tableAmountRemaining"
-                  step="0.01"
-                  :placeholder="discountType === 'percent' ? 'Es. 10' : 'Es. 5.00'"
-                  :typeToggleLabels="['%', store.config.ui.currency]"
-                  :typeToggleIndex="discountType === 'percent' ? 0 : 1"
-                  @update:typeToggleIndex="i => discountType = i === 0 ? 'percent' : 'fixed'"
-                  class="flex-1 min-w-0 text-sm font-bold border border-amber-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:border-amber-400 text-amber-900"
-                />
-                <button
-                  @click="applyDiscount"
-                  :disabled="discountPreview <= 0"
-                  class="shrink-0 bg-amber-500 hover:bg-amber-600 disabled:bg-gray-200 disabled:text-gray-400 text-white font-bold text-xs px-3 py-2 rounded-xl transition-colors active:scale-95"
-                >
-                  Applica
-                </button>
-              </div>
-              <div v-if="discountInputExceedsMax" class="mt-1.5 text-[10px] text-red-600 font-bold flex items-center gap-1">
-                <AlertTriangle class="size-3 shrink-0" />
-                {{ discountType === 'percent' ? 'Il valore verrà limitato al 100%' : 'Lo sconto non può superare il totale rimanente' }}
-              </div>
-              <div v-else-if="discountPreview > 0" class="mt-2 text-xs text-amber-700 font-bold flex items-center justify-between">
-                <span>Sconto da applicare:</span>
-                <span>-{{ store.config.ui.currency }}{{ discountPreview.toFixed(2) }}</span>
+                <div v-if="discountInputExceedsMax" class="mt-1.5 text-[10px] text-red-600 font-bold flex items-center gap-1">
+                  <AlertTriangle class="size-3 shrink-0" />
+                  {{ discountType === 'percent' ? 'Valore limitato al 100%' : 'Non può superare il totale' }}
+                </div>
+                <div v-else-if="discountPreview > 0" class="mt-1.5 text-[10px] text-amber-700 font-bold flex items-center justify-between">
+                  <span>Sconto:</span>
+                  <span>-{{ store.config.ui.currency }}{{ discountPreview.toFixed(2) }}</span>
+                </div>
               </div>
             </div>
 
             <!-- Scelta Split Conto -->
-            <div v-if="tableAmountRemaining > 0" class="space-y-3">
-              <h4 class="font-bold text-gray-500 text-[10px] uppercase tracking-wider flex items-center gap-1.5"><CreditCard class="size-3.5" /> Modalità Incasso</h4>
-
+            <div v-if="tableAmountRemaining > 0" class="space-y-2 sm:space-y-3">
               <div class="flex gap-1.5">
                 <button @click="checkoutMode = 'unico'" :class="checkoutMode === 'unico' ? 'bg-gray-200 text-gray-800 border-gray-300 font-bold' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100'" class="flex-1 py-1.5 sm:py-2 text-xs rounded-xl border transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-sm"><Layers class="size-3.5 shrink-0" /><span class="hidden md:inline">Tutto</span></button>
                 <button @click="checkoutMode = 'romana'" :class="checkoutMode === 'romana' ? 'bg-blue-100 text-blue-800 border-blue-200 font-bold' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100'" class="flex-1 py-1.5 sm:py-2 text-xs rounded-xl border transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-sm"><Users class="size-3.5 shrink-0" /><span class="hidden md:inline">Romana</span></button>
@@ -508,7 +510,7 @@
               </div>
 
               <!-- Romana -->
-              <div v-if="checkoutMode === 'romana'" class="bg-blue-50 border border-blue-100 p-3 rounded-xl transition-all space-y-3">
+              <div v-if="checkoutMode === 'romana'" class="bg-blue-50 border border-blue-100 p-2 sm:p-3 rounded-xl transition-all space-y-2 sm:space-y-3">
                 <!-- Steppers row -->
                 <div class="grid gap-3" :class="splitWays - splitPaidQuotas > 1 ? 'grid-cols-2' : 'grid-cols-1'">
                   <!-- Parti totali -->
@@ -560,25 +562,24 @@
                 <!-- Quota amount summary -->
                 <div class="border-t border-blue-200 pt-2.5 flex justify-between items-center">
                   <div>
-                    <span class="text-[10px] font-bold text-blue-500 uppercase tracking-wider">Quota da incassare</span>
-                    <span v-if="romanaSplitCount > 1" class="text-[10px] text-blue-400 font-medium ml-1">× {{ romanaSplitCount }}</span>
+                    <span class="text-[10px] font-bold text-blue-500 uppercase tracking-wider">Quota<span v-if="romanaSplitCount > 1"> × {{ romanaSplitCount }}</span></span>
                     <div v-if="romanaSplitCount > 1" class="text-[10px] text-blue-400">{{ store.config.ui.currency }}{{ (tableAmountRemaining / Math.max(1, splitWays - splitPaidQuotas)).toFixed(2) }} cad.</div>
                   </div>
                   <span class="font-black text-xl text-blue-700">{{ store.config.ui.currency }}{{ quotaRomana.toFixed(2) }}</span>
                 </div>
               </div>
 
-              <div v-if="checkoutMode === 'ordini'" class="bg-purple-50 border border-purple-100 p-3 rounded-xl md:rounded-2xl flex items-center gap-2 text-xs font-bold text-purple-700">
-                <ListChecks class="size-4 shrink-0" />
-                <span>{{ selectedOrdersToPay.length === 0 ? 'Seleziona le comande nel riepilogo a sinistra' : selectedOrdersToPay.length + ' comanda/e selezionata/e' }}</span>
+              <div v-if="checkoutMode === 'ordini'" class="bg-purple-50 border border-purple-100 p-2 sm:p-3 rounded-xl flex items-center gap-2 text-xs font-bold text-purple-700">
+                <ListChecks class="size-3.5 shrink-0" />
+                <span>{{ selectedOrdersToPay.length === 0 ? 'Seleziona dal riepilogo ←' : selectedOrdersToPay.length + ' comanda/e selezionata/e' }}</span>
               </div>
             </div>
           </div>
 
           <!-- Bottoni di Pagamento -->
-          <div class="p-3 sm:p-4 md:p-6 bg-gray-50 border-t border-gray-200 shrink-0 pb-5 space-y-2 sm:space-y-3">
-            <div v-if="hasPendingOrdersInTable" class="bg-amber-100 text-amber-800 p-3 rounded-xl text-[10px] md:text-xs font-bold flex items-center gap-2 border border-amber-200 shadow-sm">
-              <AlertTriangle class="size-5 shrink-0" /> <span>Tavolo con comande in Attesa. Se incassi ora, il tavolo <b>resterà aperto</b> per quelle voci.</span>
+          <div class="p-2 sm:p-3 md:p-5 bg-gray-50 border-t border-gray-200 shrink-0 pb-4 space-y-1.5 sm:space-y-2">
+            <div v-if="hasPendingOrdersInTable" class="bg-amber-100 text-amber-800 p-2 sm:p-3 rounded-xl text-[10px] font-bold flex items-center gap-1.5 border border-amber-200">
+              <AlertTriangle class="size-4 shrink-0" /> <span>Comande in Attesa — tavolo resterà aperto.</span>
             </div>
 
             <div v-if="analiticaSelectionExceedsRemaining" class="bg-red-50 border border-red-200 text-red-700 p-3 rounded-xl text-[10px] md:text-xs font-bold flex items-center gap-2">
@@ -586,9 +587,9 @@
               Totale selezionato supera il conto rimanente ({{ store.config.ui.currency }}{{ tableAmountRemaining.toFixed(2) }})
             </div>
 
-            <div v-if="checkoutMode !== 'unico' && tableAmountRemaining > 0" class="flex justify-between items-center px-1">
-              <span class="text-xs font-bold text-gray-500 uppercase tracking-wider">Acconto Corrente:</span>
-              <span class="text-xl font-black theme-text">{{ store.config.ui.currency }}{{ amountBeingPaid.toFixed(2) }}</span>
+            <div v-if="checkoutMode !== 'unico' && tableAmountRemaining > 0" class="flex justify-between items-center px-0.5">
+              <span class="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Da pagare:</span>
+              <span class="text-lg font-black theme-text">{{ store.config.ui.currency }}{{ amountBeingPaid.toFixed(2) }}</span>
             </div>
 
             <!-- Metodi di pagamento -->
@@ -606,13 +607,13 @@
             </div>
 
             <!-- Manual bill close button (shown when fully paid) -->
-            <div v-if="canManuallyCloseBill" class="rounded-2xl border-2 border-emerald-300 bg-emerald-50 p-4 space-y-3">
+            <div v-if="canManuallyCloseBill" class="rounded-xl border-2 border-emerald-300 bg-emerald-50 p-2.5 sm:p-3 space-y-2">
               <div class="flex items-center gap-2 text-emerald-700">
-                <CheckCircle class="size-5 shrink-0" />
-                <span class="text-sm font-bold">Conto saldato — nessun residuo.</span>
+                <CheckCircle class="size-4 shrink-0" />
+                <span class="text-xs font-bold">Conto saldato — nessun residuo.</span>
               </div>
-              <button @click="closeTableBill" class="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl active:scale-95 transition-all shadow-md flex items-center justify-center gap-2">
-                <CheckCircle class="size-5" /> Chiudi Conto e Genera Riepilogo
+              <button @click="closeTableBill" class="w-full py-2.5 sm:py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl active:scale-95 transition-all shadow-md flex items-center justify-center gap-2 text-sm">
+                <CheckCircle class="size-4" /> Chiudi Conto
               </button>
             </div>
           </div>
@@ -1066,7 +1067,7 @@ import {
   Grid3x3, Users, X, Plus, Coffee, Edit, AlertTriangle, CheckCircle,
   Ban, Undo2, Code, Minus, Receipt, ArrowRightLeft, Merge, Trash2,
   Layers, ListChecks, History, LayoutGrid, ListOrdered,
-  Tag, Wallet,
+  Tag, Wallet, ChevronDown,
   Percent, Zap, BookOpen, PlusCircle, Banknote, CreditCard, Lock, SquareCheck,
 } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
@@ -1171,6 +1172,7 @@ const modalMancia = ref('');
 // ── Discount (sconto) state ────────────────────────────────────────────────
 const discountInput = ref('');
 const discountType = ref('percent'); // 'percent' | 'fixed'
+const discountExpanded = ref(false);
 
 // ── People modal state (shown when opening a free table) ───────────────────
 const showPeopleModal = ref(false);
@@ -1557,6 +1559,7 @@ function _openTableModal(table) {
   romanaSplitCount.value = 1;
   discountInput.value = '';
   discountType.value = 'percent';
+  discountExpanded.value = false;
   showPaymentModal.value = false;
   modalMethodId.value = null;
   modalRicevuto.value = '';
