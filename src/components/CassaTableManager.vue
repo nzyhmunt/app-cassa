@@ -116,6 +116,7 @@
               </button>
               <button @click="cassaViewMode = 'ordine'"
                 :class="cassaViewMode === 'ordine' ? 'bg-white shadow text-gray-900 border border-gray-200' : 'text-gray-500 hover:bg-gray-200/50'"
+                aria-label="Vista per ordine"
                 class="flex-1 py-1 px-1.5 text-[9px] font-bold rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1 min-w-0">
                 <ListOrdered class="size-3 shrink-0" /> <span class="hidden sm:inline">Per Ordine</span>
               </button>
