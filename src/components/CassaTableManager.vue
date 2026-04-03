@@ -1010,7 +1010,7 @@ import {
 } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
 import { getOrderItemRowTotal, KITCHEN_ACTIVE_STATUSES, getLockedDirectItems, appConfig } from '../utils/index.js';
-import { buildFlatAnaliticaItems, computeAnaliticaTotal, getOrdersToComplete } from '../utils/analitica.js';
+import { buildFlatAnaliticaItems, computeAnaliticaTotal, exceedsAmount, getOrdersToComplete } from '../utils/analitica.js';
 import { resolveCustomItemsKey } from '../store/persistence.js';
 import { useNumericKeyboard } from '../composables/useNumericKeyboard.js';
 import { useAuth } from '../composables/useAuth.js';
@@ -1201,7 +1201,7 @@ const analiticaSelectedTotal = computed(() =>
 // Cent-level comparison avoids IEEE-754 rounding artefacts blocking a
 // selection that is effectively equal to the remaining balance.
 const analiticaSelectionExceedsRemaining = computed(() =>
-  Math.round(analiticaSelectedTotal.value * 100) > Math.round(tableAmountRemaining.value * 100),
+  exceedsAmount(analiticaSelectedTotal.value, tableAmountRemaining.value),
 );
 
 const analiticaAmount = computed(() => analiticaSelectedTotal.value);

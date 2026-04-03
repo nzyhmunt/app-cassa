@@ -82,6 +82,18 @@ export function computeAnaliticaTotal(flatItems, qtyMap) {
 }
 
 /**
+ * Returns true when `selected` (a monetary amount) exceeds `remaining` at
+ * cent-level precision, tolerating IEEE-754 rounding artefacts.
+ *
+ * @param {number} selected  - Computed total to check.
+ * @param {number} remaining - Upper bound.
+ * @returns {boolean}
+ */
+export function exceedsAmount(selected, remaining) {
+  return Math.round(selected * 100) > Math.round(remaining * 100);
+}
+
+/**
  * Returns true when the uncapped selected total exceeds the remaining bill amount.
  * Used to block payment (canPay guard) and show an inline warning.
  *
@@ -95,9 +107,7 @@ export function computeAnaliticaTotal(flatItems, qtyMap) {
  * @returns {boolean}
  */
 export function selectionExceedsRemaining(flatItems, qtyMap, amountRemaining) {
-  const totalCents = Math.round(computeAnaliticaTotal(flatItems, qtyMap) * 100);
-  const remainingCents = Math.round(amountRemaining * 100);
-  return totalCents > remainingCents;
+  return exceedsAmount(computeAnaliticaTotal(flatItems, qtyMap), amountRemaining);
 }
 
 /**
