@@ -510,6 +510,10 @@
                 </template>
 
                 <div v-if="flatAnalyticaItems.length === 0" class="text-xs text-teal-600 font-bold italic">Nessuna voce disponibile o da pagare.</div>
+                <div v-if="analiticaSelectionExceedsRemaining" class="flex items-center gap-1.5 text-[10px] font-bold text-red-700 mt-1">
+                  <AlertTriangle class="size-3.5 shrink-0" />
+                  Il totale selezionato supera il conto rimanente ({{ store.config.ui.currency }}{{ tableAmountRemaining.toFixed(2) }})
+                </div>
               </div>
             </div>
           </div>
@@ -1370,7 +1374,10 @@ const amountBeingPaid = computed(() => {
 const canPay = computed(() => {
   if (tableAmountRemaining.value <= BILL_SETTLED_THRESHOLD) return false;
   if (checkoutMode.value === 'ordini' && selectedOrdersToPay.value.length === 0) return false;
-  if (checkoutMode.value === 'analitica' && !flatAnalyticaItems.value.some(i => (analiticaQty.value[i.key] || 0) > 0)) return false;
+  if (checkoutMode.value === 'analitica') {
+    if (!flatAnalyticaItems.value.some(i => (analiticaQty.value[i.key] || 0) > 0)) return false;
+    if (analiticaSelectionExceedsRemaining.value) return false;
+  }
   return true;
 });
 

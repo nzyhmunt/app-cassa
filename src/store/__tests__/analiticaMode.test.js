@@ -85,14 +85,20 @@ function buildFlatAnalyticaItems(acceptedOrders) {
  * Computes the amount for selected analytic items (mirrors analiticaAmount computed).
  * @param {object[]} flatItems - Output of buildFlatAnalyticaItems
  * @param {object} qtyMap - { key: selectedQty } map (mirrors analiticaQty)
- * @param {number} amountRemaining - Remaining bill amount (cap)
  */
-function computeAnaliticaAmount(flatItems, qtyMap, amountRemaining) {
-  const total = flatItems.reduce((acc, i) => {
+function computeAnaliticaAmount(flatItems, qtyMap) {
+  return flatItems.reduce((acc, i) => {
     const qty = qtyMap[i.key] || 0;
     return acc + i.unitPrice * qty;
   }, 0);
-  return Math.min(total, amountRemaining);
+}
+
+/**
+ * Returns true when the uncapped selected total exceeds the remaining bill.
+ * Mirrors analiticaSelectionExceedsRemaining computed.
+ */
+function selectionExceedsRemaining(flatItems, qtyMap, amountRemaining) {
+  return computeAnaliticaAmount(flatItems, qtyMap) > amountRemaining;
 }
 
 /**
@@ -259,7 +265,7 @@ describe('computeAnaliticaAmount()', () => {
   it('returns 0 when all qtys are 0', () => {
     const ord = makeOrder('ord_1', [makeItem('Caffè', 1.50, 2)]);
     const flat = buildFlatAnalyticaItems([ord]);
-    expect(computeAnaliticaAmount(flat, {}, 100)).toBe(0);
+    expect(computeAnaliticaAmount(flat, {})).toBe(0);
   });
 
   it('computes total for partial qty selection of a single item', () => {
@@ -267,14 +273,14 @@ describe('computeAnaliticaAmount()', () => {
     const ord = makeOrder('ord_1', [makeItem('Caffè', 1.50, 2)]);
     const flat = buildFlatAnalyticaItems([ord]);
     const qtyMap = { [flat[0].key]: 1 }; // select 1 of 2
-    expect(computeAnaliticaAmount(flat, qtyMap, 100)).toBeCloseTo(1.50, 2);
+    expect(computeAnaliticaAmount(flat, qtyMap)).toBeCloseTo(1.50, 2);
   });
 
   it('computes total for full qty selection', () => {
     const ord = makeOrder('ord_1', [makeItem('Caffè', 1.50, 2)]);
     const flat = buildFlatAnalyticaItems([ord]);
     const qtyMap = { [flat[0].key]: 2 }; // select all 2
-    expect(computeAnaliticaAmount(flat, qtyMap, 100)).toBeCloseTo(3.00, 2);
+    expect(computeAnaliticaAmount(flat, qtyMap)).toBeCloseTo(3.00, 2);
   });
 
   it('sums base item and partial modifier qty', () => {
@@ -285,7 +291,7 @@ describe('computeAnaliticaAmount()', () => {
     const modKey = flat.find(i => i.isModifier).key;
     // Pay 1 pizza base + 1 modifier
     const qtyMap = { [baseKey]: 1, [modKey]: 1 };
-    expect(computeAnaliticaAmount(flat, qtyMap, 100)).toBeCloseTo(11.50, 2);
+    expect(computeAnaliticaAmount(flat, qtyMap)).toBeCloseTo(11.50, 2);
   });
 
   it('allows selecting modifier qty without base item', () => {
@@ -293,18 +299,20 @@ describe('computeAnaliticaAmount()', () => {
     const ord = makeOrder('ord_1', [item]);
     const flat = buildFlatAnalyticaItems([ord]);
     const modKey = flat.find(i => i.isModifier).key;
-    expect(computeAnaliticaAmount(flat, { [modKey]: 1 }, 100)).toBeCloseTo(1.50, 2);
+    expect(computeAnaliticaAmount(flat, { [modKey]: 1 })).toBeCloseTo(1.50, 2);
   });
 
-  it('is capped by the remaining bill amount', () => {
+  it('returns the real uncapped total even when it exceeds the remaining bill', () => {
     const ord = makeOrder('ord_1', [
       makeItem('Bistecca', 25.00, 1),
       makeItem('Vino', 15.00, 1),
     ]);
     const flat = buildFlatAnalyticaItems([ord]);
     const qtyMap = { [flat[0].key]: 1, [flat[1].key]: 1 };
-    const amount = computeAnaliticaAmount(flat, qtyMap, 35.00);
-    expect(amount).toBeCloseTo(35.00, 2);
+    // Total = 40.00, which exceeds a hypothetical remaining of 35.00
+    expect(computeAnaliticaAmount(flat, qtyMap)).toBeCloseTo(40.00, 2);
+    // The guard against overpayment is in selectionExceedsRemaining / canPay
+    expect(selectionExceedsRemaining(flat, qtyMap, 35.00)).toBe(true);
   });
 });
 
@@ -318,6 +326,7 @@ describe('canPay guard for analitica mode', () => {
   function canPay(remaining, flatItems, qtyMap) {
     if (remaining <= BILL_SETTLED_THRESHOLD) return false;
     if (!flatItems.some(i => (qtyMap[i.key] || 0) > 0)) return false;
+    if (selectionExceedsRemaining(flatItems, qtyMap, remaining)) return false;
     return true;
   }
 
@@ -327,7 +336,7 @@ describe('canPay guard for analitica mode', () => {
     expect(canPay(15.00, flat, {})).toBe(false);
   });
 
-  it('returns true when at least one item has qty > 0', () => {
+  it('returns true when at least one item has qty > 0 and total ≤ remaining', () => {
     const ord = makeOrder('ord_1', [makeItem('Caffè', 1.50, 2)]);
     const flat = buildFlatAnalyticaItems([ord]);
     expect(canPay(15.00, flat, { [flat[0].key]: 1 })).toBe(true);
@@ -337,6 +346,28 @@ describe('canPay guard for analitica mode', () => {
     const ord = makeOrder('ord_1', [makeItem('Caffè', 1.50, 2)]);
     const flat = buildFlatAnalyticaItems([ord]);
     expect(canPay(0.005, flat, { [flat[0].key]: 2 })).toBe(false);
+  });
+
+  it('returns false when the selected total exceeds the remaining bill', () => {
+    const ord = makeOrder('ord_1', [
+      makeItem('Bistecca', 25.00, 1),
+      makeItem('Vino', 15.00, 1),
+    ]);
+    const flat = buildFlatAnalyticaItems([ord]);
+    // Both selected = 40.00, but only 35.00 remaining
+    const qtyMap = { [flat[0].key]: 1, [flat[1].key]: 1 };
+    expect(canPay(35.00, flat, qtyMap)).toBe(false);
+  });
+
+  it('returns true when the selected total exactly equals the remaining bill', () => {
+    const ord = makeOrder('ord_1', [
+      makeItem('Bistecca', 25.00, 1),
+      makeItem('Vino', 15.00, 1),
+    ]);
+    const flat = buildFlatAnalyticaItems([ord]);
+    // Both selected = 40.00, remaining = 40.00 → exact match → allowed
+    const qtyMap = { [flat[0].key]: 1, [flat[1].key]: 1 };
+    expect(canPay(40.00, flat, qtyMap)).toBe(true);
   });
 });
 
