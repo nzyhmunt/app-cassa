@@ -105,8 +105,8 @@
         <div class="w-full lg:w-[55%] border-b lg:border-b-0 lg:border-r border-gray-200 bg-gray-50 flex flex-col h-[42%] shrink-0 overflow-hidden lg:h-auto lg:shrink lg:flex-1">
           <div class="p-3 md:p-4 bg-white border-b border-gray-200 shrink-0 flex items-center gap-2">
             <span class="font-bold text-gray-700 text-xs md:text-sm uppercase tracking-wider shrink-0">Riepilogo Voci</span>
-            <!-- Vista switch (inline in header) -->
-            <div class="flex bg-gray-100 p-0.5 rounded-xl gap-0.5 flex-1 mx-1">
+            <!-- Vista switch (inline in header) — hidden in analitica mode (uses custom view) -->
+            <div v-if="checkoutMode !== 'analitica'" class="flex bg-gray-100 p-0.5 rounded-xl gap-0.5 flex-1 mx-1">
               <button @click="cassaViewMode = 'voce'"
                 :class="cassaViewMode === 'voce' ? 'bg-white shadow text-gray-900 border border-gray-200' : 'text-gray-500 hover:bg-gray-200/50'"
                 class="flex-1 py-1 px-1.5 text-[9px] md:text-[10px] font-bold rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1">
@@ -118,6 +118,13 @@
                 <ListOrdered class="size-3 shrink-0" /> Per Ordine
               </button>
             </div>
+            <!-- Analitica mode header: select-all toggle -->
+            <button
+              v-else-if="flatAnaliticaItems.length > 0"
+              @click="toggleSelectAllVoci"
+              class="flex-1 mx-1 text-[10px] font-bold text-teal-700 bg-teal-50 border border-teal-200 px-3 py-1.5 rounded-xl hover:bg-teal-100 active:scale-95 transition-all"
+            >{{ flatAnaliticaItems.every(i => (analiticaQty[i.key] || 0) === i.netQty) ? 'Deseleziona Tutto' : 'Seleziona Tutto' }}</button>
+            <div v-else class="flex-1 mx-1"></div>
             <button @click="openDirectItemModal" class="theme-bg hover:opacity-90 text-white px-3 py-2 rounded-lg text-xs md:text-sm font-bold flex items-center gap-1.5 active:scale-95 shadow-sm transition-opacity shrink-0" title="Aggiungi voci direttamente al conto senza passare per la cucina">
               <Zap class="size-4 md:size-5" /> <span class="hidden sm:inline">Diretto</span>
             </button>
@@ -126,8 +133,87 @@
             </button>
           </div>
 
+          <!-- ══ ANALITICA MODE: per-item steppers in left panel ══════════════ -->
+          <div v-if="checkoutMode === 'analitica'" class="flex-1 overflow-y-auto p-2 md:p-4">
+            <div v-if="flatAnaliticaItems.length === 0" class="text-center text-gray-400 py-8">
+              <Coffee class="size-10 mx-auto mb-2 opacity-30" />
+              <p class="text-sm font-medium">Nessuna voce disponibile o da pagare.</p>
+            </div>
+            <div v-else class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+              <template v-for="voce in flatAnaliticaItems" :key="'av_'+voce.key">
+                <!-- Modifier sub-row (indented, purple) -->
+                <div
+                  v-if="voce.isModifier"
+                  class="flex items-center pl-10 pr-3 py-2 gap-2 bg-purple-50/40 border-b border-gray-100 last:border-0"
+                  :class="voce.netQty <= 0 ? 'opacity-40' : ''"
+                >
+                  <div class="flex items-center gap-2 flex-1 min-w-0">
+                    <span class="font-bold w-6 shrink-0 text-center text-[10px] text-purple-600">{{ voce.netQty }}x</span>
+                    <span class="text-[10px] md:text-xs font-bold text-purple-700 truncate">
+                      + {{ voce.name }} (+{{ store.config.ui.currency }}{{ voce.unitPrice.toFixed(2) }})
+                    </span>
+                  </div>
+                  <div class="flex items-center gap-0.5 shrink-0">
+                    <button @click="decrementAnalitica(voce.key)"
+                      :aria-label="`Diminuisci ${voce.name}`"
+                      :disabled="(analiticaQty[voce.key] || 0) === 0"
+                      class="p-1 bg-white border border-purple-200 text-purple-600 hover:bg-purple-50 rounded shadow-sm transition-colors active:scale-95 disabled:opacity-30">
+                      <Minus class="size-3" />
+                    </button>
+                    <span class="w-5 text-center text-xs font-black text-purple-800 tabular-nums">{{ analiticaQty[voce.key] || 0 }}</span>
+                    <button @click="incrementAnalitica(voce.key, voce.netQty)"
+                      :aria-label="`Aumenta ${voce.name}`"
+                      :disabled="(analiticaQty[voce.key] || 0) >= voce.netQty"
+                      class="p-1 bg-white border border-purple-200 text-purple-600 hover:bg-purple-50 rounded shadow-sm transition-colors active:scale-95 disabled:opacity-30">
+                      <Plus class="size-3" />
+                    </button>
+                  </div>
+                  <span class="font-black text-[11px] text-purple-700 shrink-0 w-10 text-right">
+                    {{ store.config.ui.currency }}{{ ((analiticaQty[voce.key] || 0) * voce.unitPrice).toFixed(2) }}
+                  </span>
+                </div>
+
+                <!-- Base item row -->
+                <div
+                  v-else
+                  class="flex items-center justify-between px-3 py-2.5 gap-2 border-b border-gray-100 last:border-0"
+                  :class="voce.netQty <= 0 ? 'opacity-40' : ''"
+                >
+                  <div class="flex items-center gap-2 flex-1 min-w-0">
+                    <span class="font-black w-7 shrink-0 text-center text-[11px] md:text-sm text-gray-700">{{ voce.netQty }}x</span>
+                    <div class="flex flex-col min-w-0">
+                      <span class="font-bold text-gray-800 text-xs md:text-sm truncate flex items-center gap-1">
+                        {{ voce.name }}
+                        <Zap v-if="voce.isDirectEntry" class="size-2.5 theme-text shrink-0" title="Voce Diretta" />
+                      </span>
+                      <span class="text-[10px] text-gray-400 font-medium">{{ store.config.ui.currency }}{{ voce.unitPrice.toFixed(2) }}/cad</span>
+                    </div>
+                  </div>
+                  <div class="flex items-center gap-1 shrink-0">
+                    <button @click="decrementAnalitica(voce.key)"
+                      :aria-label="`Diminuisci quantità di ${voce.name}`"
+                      :disabled="(analiticaQty[voce.key] || 0) === 0"
+                      class="p-1.5 bg-white border border-teal-200 text-teal-600 hover:bg-teal-50 rounded shadow-sm transition-colors active:scale-95 disabled:opacity-30">
+                      <Minus class="size-4" />
+                    </button>
+                    <span class="w-6 text-center text-sm font-black text-teal-800 tabular-nums">{{ analiticaQty[voce.key] || 0 }}</span>
+                    <button @click="incrementAnalitica(voce.key, voce.netQty)"
+                      :aria-label="`Aumenta quantità di ${voce.name}`"
+                      :disabled="(analiticaQty[voce.key] || 0) >= voce.netQty"
+                      class="p-1.5 bg-white border border-teal-200 text-teal-600 hover:bg-teal-50 rounded shadow-sm transition-colors active:scale-95 disabled:opacity-30">
+                      <Plus class="size-4" />
+                    </button>
+                    <span class="font-black text-[12px] md:text-sm shrink-0 w-12 text-right" :class="(analiticaQty[voce.key] || 0) > 0 ? 'text-teal-700' : 'text-gray-300'">
+                      {{ store.config.ui.currency }}{{ ((analiticaQty[voce.key] || 0) * voce.unitPrice).toFixed(2) }}
+                    </span>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </div>
+
           <!-- ══ VISTA: PER VOCE (menu raggruppato) ══════════════════════════ -->
-          <div v-if="cassaViewMode === 'voce'" class="flex-1 overflow-y-auto p-2 md:p-4">
+          <div v-else-if="cassaViewMode === 'voce'" class="flex-1 overflow-y-auto p-2 md:p-4">
             <div v-if="tableMenuGrouped.length === 0" class="text-center text-gray-400 py-8">
               <Coffee class="size-10 mx-auto mb-2 opacity-30" />
               <p class="text-sm font-medium">{{ tableOrders.length === 0 ? 'Il tavolo è libero.' : 'Nessuna comanda ancora accettata.' }}</p>
@@ -438,91 +524,6 @@
                 </label>
                 <div v-if="tableAcceptedPayableOrders.length === 0" class="text-xs text-purple-600 font-bold italic">Nessuna comanda disponibile o da pagare.</div>
               </div>
-
-              <!-- Per Voce Analitica -->
-              <div v-if="checkoutMode === 'analitica'" class="bg-teal-50 border border-teal-100 p-4 rounded-xl md:rounded-2xl space-y-2 max-h-[200px] md:max-h-[280px] overflow-y-auto transition-all">
-                <div class="flex justify-between items-center mb-1 sticky top-0 bg-teal-50 pb-1.5">
-                  <label class="text-[10px] md:text-xs font-bold text-teal-800 uppercase">Voci da Pagare:</label>
-                  <button
-                    v-if="flatAnaliticaItems.length > 0"
-                    @click="toggleSelectAllVoci"
-                    class="text-[10px] font-bold text-teal-700 underline underline-offset-2 active:opacity-70 transition-opacity"
-                  >{{ flatAnaliticaItems.every(i => (analiticaQty[i.key] || 0) === i.netQty) ? 'Deseleziona Tutto' : 'Seleziona Tutto' }}</button>
-                </div>
-
-                <template v-for="voce in flatAnaliticaItems" :key="'voce_'+voce.key">
-                  <!-- Modifier sub-row (indented, purple style) -->
-                  <div
-                    v-if="voce.isModifier"
-                    class="flex items-center gap-2 pl-6 pr-3 py-2.5 bg-white rounded-xl border shadow-sm transition-colors"
-                    :class="(analiticaQty[voce.key] || 0) > 0 ? 'border-purple-300' : 'border-transparent'"
-                  >
-                    <!-- Stepper (left) -->
-                    <div class="flex items-center gap-1.5 shrink-0">
-                      <button @click="decrementAnalitica(voce.key)"
-                        :aria-label="`Diminuisci quantità per ${voce.name}`"
-                        :disabled="(analiticaQty[voce.key] || 0) === 0"
-                        class="size-8 bg-white rounded-xl flex items-center justify-center text-purple-600 shadow-sm border border-purple-100 active:scale-95 transition-all disabled:opacity-30">
-                        <Minus class="size-3.5" />
-                      </button>
-                      <span class="w-5 text-center text-xs font-black text-purple-800 tabular-nums">{{ analiticaQty[voce.key] || 0 }}</span>
-                      <button @click="incrementAnalitica(voce.key, voce.netQty)"
-                        :aria-label="`Aumenta quantità per ${voce.name}`"
-                        :disabled="(analiticaQty[voce.key] || 0) >= voce.netQty"
-                        class="size-8 bg-white rounded-xl flex items-center justify-center text-purple-600 shadow-sm border border-purple-100 active:scale-95 transition-all disabled:opacity-30">
-                        <Plus class="size-3.5" />
-                      </button>
-                    </div>
-                    <!-- Label (middle) -->
-                    <div class="flex flex-col min-w-0 flex-1">
-                      <span class="text-xs font-bold text-purple-700 leading-tight truncate">+ {{ voce.name }}</span>
-                      <span class="text-[10px] text-purple-500 font-medium">{{ voce.netQty }}× {{ store.config.ui.currency }}{{ voce.unitPrice.toFixed(2) }}</span>
-                    </div>
-                    <!-- Price (right) -->
-                    <span class="font-black text-sm text-purple-700 shrink-0 w-12 text-right">{{ store.config.ui.currency }}{{ ((analiticaQty[voce.key] || 0) * voce.unitPrice).toFixed(2) }}</span>
-                  </div>
-
-                  <!-- Base item row -->
-                  <div
-                    v-else
-                    class="flex items-center gap-2 p-3 bg-white rounded-xl border shadow-sm transition-colors"
-                    :class="(analiticaQty[voce.key] || 0) > 0 ? 'border-teal-300' : 'border-transparent'"
-                  >
-                    <!-- Stepper (left) -->
-                    <div class="flex items-center gap-1.5 shrink-0">
-                      <button @click="decrementAnalitica(voce.key)"
-                        :aria-label="`Diminuisci quantità di ${voce.name}`"
-                        :disabled="(analiticaQty[voce.key] || 0) === 0"
-                        class="size-9 bg-white rounded-xl flex items-center justify-center text-teal-600 shadow-sm border border-gray-200 active:scale-95 transition-all disabled:opacity-30">
-                        <Minus class="size-4" />
-                      </button>
-                      <span class="w-6 text-center text-sm font-black text-gray-700 tabular-nums">{{ analiticaQty[voce.key] || 0 }}</span>
-                      <button @click="incrementAnalitica(voce.key, voce.netQty)"
-                        :aria-label="`Aumenta quantità di ${voce.name}`"
-                        :disabled="(analiticaQty[voce.key] || 0) >= voce.netQty"
-                        class="size-9 bg-white rounded-xl flex items-center justify-center text-teal-600 shadow-sm border border-gray-200 active:scale-95 transition-all disabled:opacity-30">
-                        <Plus class="size-4" />
-                      </button>
-                    </div>
-                    <!-- Label (middle) -->
-                    <div class="flex flex-col min-w-0 flex-1">
-                      <span class="text-sm font-bold text-gray-700 leading-tight truncate flex items-center gap-1">
-                        {{ voce.name }}
-                        <Zap v-if="voce.isDirectEntry" class="size-3 theme-text shrink-0" title="Voce Diretta" />
-                      </span>
-                      <span class="text-[10px] text-gray-500 font-medium">{{ voce.netQty }}× {{ store.config.ui.currency }}{{ voce.unitPrice.toFixed(2) }}</span>
-                    </div>
-                    <!-- Price (right) -->
-                    <span class="font-black text-base text-teal-700 shrink-0 w-12 text-right">{{ store.config.ui.currency }}{{ ((analiticaQty[voce.key] || 0) * voce.unitPrice).toFixed(2) }}</span>
-                  </div>
-                </template>
-
-                <div v-if="flatAnaliticaItems.length === 0" class="text-xs text-teal-600 font-bold italic">Nessuna voce disponibile o da pagare.</div>
-                <div v-if="analiticaSelectionExceedsRemaining" class="flex items-center gap-1.5 text-[10px] font-bold text-red-700 mt-1">
-                  <AlertTriangle class="size-3.5 shrink-0" />
-                  Il totale selezionato supera il conto rimanente ({{ store.config.ui.currency }}{{ tableAmountRemaining.toFixed(2) }})
-                </div>
-              </div>
             </div>
           </div>
 
@@ -530,6 +531,11 @@
           <div class="p-4 md:p-6 bg-gray-50 border-t border-gray-200 shrink-0 pb-6 md:pb-5 space-y-3">
             <div v-if="hasPendingOrdersInTable" class="bg-amber-100 text-amber-800 p-3 rounded-xl text-[10px] md:text-xs font-bold flex items-center gap-2 border border-amber-200 shadow-sm">
               <AlertTriangle class="size-5 shrink-0" /> <span>Tavolo con comande in Attesa. Se incassi ora, il tavolo <b>resterà aperto</b> per quelle voci.</span>
+            </div>
+
+            <div v-if="analiticaSelectionExceedsRemaining" class="bg-red-50 border border-red-200 text-red-700 p-3 rounded-xl text-[10px] md:text-xs font-bold flex items-center gap-2">
+              <AlertTriangle class="size-4 shrink-0" />
+              Totale selezionato supera il conto rimanente ({{ store.config.ui.currency }}{{ tableAmountRemaining.toFixed(2) }})
             </div>
 
             <div v-if="checkoutMode !== 'unico' && tableAmountRemaining > 0" class="flex justify-between items-center px-1">
