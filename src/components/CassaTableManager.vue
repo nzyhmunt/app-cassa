@@ -69,19 +69,19 @@
           <button v-if="tableOrders.some(o => o.status === 'accepted')"
             @click="toggleBillRequested"
             :class="store.billRequestedTables.has(selectedTable.id) ? 'bg-blue-500 text-white' : 'bg-white/10 hover:bg-white/20 text-white'"
-            class="px-3 py-2 rounded-xl font-bold text-[10px] md:text-xs flex items-center gap-1.5 transition-all active:scale-95 shrink-0"
+            class="p-2 sm:px-3 sm:py-2 rounded-xl font-bold text-[10px] md:text-xs flex items-center gap-1.5 transition-all active:scale-95 shrink-0"
             title="Segna Conto Richiesto">
             <Receipt class="size-4" /> <span class="hidden sm:inline">{{ store.billRequestedTables.has(selectedTable.id) ? 'Conto Richiesto' : 'Richiedi Conto' }}</span>
           </button>
           <!-- Sposta button -->
           <button v-if="tableOrders.length > 0" @click="openMoveModal"
-            class="bg-white/10 hover:bg-white/20 px-3 py-2 rounded-xl font-bold text-[10px] md:text-xs flex items-center gap-1.5 transition-all active:scale-95 shrink-0"
+            class="bg-white/10 hover:bg-white/20 p-2 sm:px-3 sm:py-2 rounded-xl font-bold text-[10px] md:text-xs flex items-center gap-1.5 transition-all active:scale-95 shrink-0"
             title="Sposta Tavolo">
             <ArrowRightLeft class="size-4" /> <span class="hidden sm:inline">Sposta</span>
           </button>
           <!-- Unisci button -->
           <button v-if="tableOrders.length > 0" @click="openMergeModal"
-            class="bg-white/10 hover:bg-white/20 px-3 py-2 rounded-xl font-bold text-[10px] md:text-xs flex items-center gap-1.5 transition-all active:scale-95 shrink-0"
+            class="bg-white/10 hover:bg-white/20 p-2 sm:px-3 sm:py-2 rounded-xl font-bold text-[10px] md:text-xs flex items-center gap-1.5 transition-all active:scale-95 shrink-0"
             title="Unisci con altro Tavolo">
             <Merge class="size-4" /> <span class="hidden sm:inline">Unisci</span>
           </button>
@@ -89,11 +89,11 @@
           <router-link
             to="/storico-conti"
             @click="closeTableModal"
-            class="bg-white/10 hover:bg-white/20 px-3 py-2 rounded-xl font-bold text-[10px] md:text-xs flex items-center gap-1.5 transition-all active:scale-95 shrink-0 text-white"
+            class="bg-white/10 hover:bg-white/20 p-2 sm:px-3 sm:py-2 rounded-xl font-bold text-[10px] md:text-xs flex items-center gap-1.5 transition-all active:scale-95 shrink-0 text-white"
             title="Cronologia Conti Chiusi"
             aria-label="Storico Conti"
           >
-            <History class="size-4" /> <span class="hidden lg:inline">Storico Conti</span>
+            <History class="size-4" /> <span class="hidden sm:inline">Storico Conti</span>
           </router-link>
           <button @click="closeTableModal" class="bg-white/10 hover:bg-white/20 p-2 md:p-2.5 rounded-full transition-colors active:scale-95"><X class="size-5 md:size-6" /></button>
         </div>
@@ -103,19 +103,19 @@
 
         <!-- PANNELLO SINISTRO: Riepilogo Comande e Storni dalla Cassa -->
         <div class="w-full sm:w-[55%] border-b sm:border-b-0 sm:border-r border-gray-200 bg-gray-50 flex flex-col h-[42%] shrink-0 overflow-hidden sm:h-auto sm:shrink sm:flex-1">
-          <div class="p-3 md:p-4 bg-white border-b border-gray-200 shrink-0 flex items-center gap-2">
-            <span class="font-bold text-gray-700 text-xs md:text-sm uppercase tracking-wider shrink-0">Riepilogo Voci</span>
+          <div class="p-2 sm:p-3 md:p-4 bg-white border-b border-gray-200 shrink-0 flex items-center gap-2">
+            <span class="hidden sm:block font-bold text-gray-700 text-xs md:text-sm uppercase tracking-wider shrink-0">Riepilogo Voci</span>
             <!-- Vista switch (inline in header) — hidden in analitica/ordini mode -->
             <div v-if="checkoutMode !== 'analitica' && checkoutMode !== 'ordini'" class="flex bg-gray-100 p-0.5 rounded-xl gap-0.5 flex-1 mx-1">
               <button @click="cassaViewMode = 'voce'"
                 :class="cassaViewMode === 'voce' ? 'bg-white shadow text-gray-900 border border-gray-200' : 'text-gray-500 hover:bg-gray-200/50'"
                 class="flex-1 py-1 px-1.5 text-[9px] md:text-[10px] font-bold rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1">
-                <LayoutGrid class="size-3 shrink-0" /> Per Voce
+                <LayoutGrid class="size-3 shrink-0" /> <span class="hidden sm:inline">Per Voce</span>
               </button>
               <button @click="cassaViewMode = 'ordine'"
                 :class="cassaViewMode === 'ordine' ? 'bg-white shadow text-gray-900 border border-gray-200' : 'text-gray-500 hover:bg-gray-200/50'"
                 class="flex-1 py-1 px-1.5 text-[9px] md:text-[10px] font-bold rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1">
-                <ListOrdered class="size-3 shrink-0" /> Per Ordine
+                <ListOrdered class="size-3 shrink-0" /> <span class="hidden sm:inline">Per Ordine</span>
               </button>
             </div>
             <!-- Comanda mode header: selection hint -->
@@ -387,10 +387,10 @@
         <!-- PANNELLO DESTRA: Area Checkout e Transazioni -->
         <div class="w-full sm:w-[45%] bg-white flex flex-col relative z-20 shadow-[0_-10px_20px_rgba(0,0,0,0.05)] sm:shadow-none flex-1 min-h-0">
 
-          <div class="p-4 md:p-6 flex-1 overflow-y-auto">
+          <div class="p-3 sm:p-4 md:p-6 flex-1 overflow-y-auto">
             <div class="flex justify-between items-center mb-2">
               <h4 class="font-bold text-gray-400 uppercase tracking-widest text-[10px] md:text-xs flex items-center gap-1">Conto Da Pagare <span class="bg-gray-200 text-gray-600 px-1.5 rounded-full text-[9px] uppercase">Rimanente Netto</span></h4>
-              <button @click="generateTableCheckoutJson('info')" class="text-blue-600 font-bold text-[10px] md:text-xs uppercase tracking-wider flex items-center gap-1.5 bg-blue-50 hover:bg-blue-100 px-3 py-2 rounded-lg border border-blue-200 transition-colors active:scale-95">
+              <button @click="generateTableCheckoutJson('info')" class="text-blue-600 font-bold text-[10px] md:text-xs uppercase tracking-wider flex items-center gap-1.5 bg-blue-50 hover:bg-blue-100 px-2 py-1.5 sm:px-3 sm:py-2 rounded-lg border border-blue-200 transition-colors active:scale-95">
                 <Code class="size-4" /> <span class="hidden sm:inline">Json Scontrino</span>
               </button>
             </div>
@@ -398,7 +398,7 @@
             <!-- Cifra Cassa Dinamica -->
             <div class="mb-2">
               <div class="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-0.5">Totale conto: <span class="text-gray-600">{{ store.config.ui.currency }}{{ tableTotalAmount.toFixed(2) }}</span></div>
-              <div class="text-5xl md:text-6xl font-black text-gray-900">{{ store.config.ui.currency }}{{ tableAmountRemaining.toFixed(2) }}</div>
+              <div class="text-4xl sm:text-5xl md:text-6xl font-black text-gray-900">{{ store.config.ui.currency }}{{ tableAmountRemaining.toFixed(2) }}</div>
             </div>
 
             <!-- Storico Transazioni -->
@@ -501,10 +501,10 @@
               <h4 class="font-bold text-gray-500 text-[10px] uppercase tracking-wider flex items-center gap-1.5"><CreditCard class="size-3.5" /> Modalità Incasso</h4>
 
               <div class="flex gap-1.5">
-                <button @click="checkoutMode = 'unico'" :class="checkoutMode === 'unico' ? 'bg-gray-200 text-gray-800 border-gray-300 font-bold' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100'" class="flex-1 py-2 text-xs md:text-sm rounded-xl border transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-sm"><Layers class="size-3.5 shrink-0" />Tutto</button>
-                <button @click="checkoutMode = 'romana'" :class="checkoutMode === 'romana' ? 'bg-blue-100 text-blue-800 border-blue-200 font-bold' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100'" class="flex-1 py-2 text-xs md:text-sm rounded-xl border transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-sm"><Users class="size-3.5 shrink-0" />Romana</button>
-                <button @click="checkoutMode = 'ordini'" :disabled="hasRomanaPayment" :class="checkoutMode === 'ordini' ? 'bg-purple-100 text-purple-800 border-purple-200 font-bold' : hasRomanaPayment ? 'bg-white text-gray-300 border-gray-200 cursor-not-allowed opacity-50' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100'" :title="hasRomanaPayment ? 'Non disponibile dopo un pagamento alla Romana' : undefined" class="flex-1 py-2 text-xs md:text-sm rounded-xl border transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-sm"><ListChecks class="size-3.5 shrink-0" />Comanda</button>
-                <button @click="checkoutMode = 'analitica'" :disabled="hasRomanaPayment" :class="checkoutMode === 'analitica' ? 'bg-teal-100 text-teal-800 border-teal-200 font-bold' : hasRomanaPayment ? 'bg-white text-gray-300 border-gray-200 cursor-not-allowed opacity-50' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100'" :title="hasRomanaPayment ? 'Non disponibile dopo un pagamento alla Romana' : undefined" class="flex-1 py-2 text-xs md:text-sm rounded-xl border transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-sm"><SquareCheck class="size-3.5 shrink-0" />Analitica</button>
+                <button @click="checkoutMode = 'unico'" :class="checkoutMode === 'unico' ? 'bg-gray-200 text-gray-800 border-gray-300 font-bold' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100'" class="flex-1 py-1.5 sm:py-2 text-xs rounded-xl border transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-sm"><Layers class="size-3.5 shrink-0" /><span class="hidden md:inline">Tutto</span></button>
+                <button @click="checkoutMode = 'romana'" :class="checkoutMode === 'romana' ? 'bg-blue-100 text-blue-800 border-blue-200 font-bold' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100'" class="flex-1 py-1.5 sm:py-2 text-xs rounded-xl border transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-sm"><Users class="size-3.5 shrink-0" /><span class="hidden md:inline">Romana</span></button>
+                <button @click="checkoutMode = 'ordini'" :disabled="hasRomanaPayment" :class="checkoutMode === 'ordini' ? 'bg-purple-100 text-purple-800 border-purple-200 font-bold' : hasRomanaPayment ? 'bg-white text-gray-300 border-gray-200 cursor-not-allowed opacity-50' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100'" :title="hasRomanaPayment ? 'Non disponibile dopo un pagamento alla Romana' : undefined" class="flex-1 py-1.5 sm:py-2 text-xs rounded-xl border transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-sm"><ListChecks class="size-3.5 shrink-0" /><span class="hidden md:inline">Comanda</span></button>
+                <button @click="checkoutMode = 'analitica'" :disabled="hasRomanaPayment" :class="checkoutMode === 'analitica' ? 'bg-teal-100 text-teal-800 border-teal-200 font-bold' : hasRomanaPayment ? 'bg-white text-gray-300 border-gray-200 cursor-not-allowed opacity-50' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100'" :title="hasRomanaPayment ? 'Non disponibile dopo un pagamento alla Romana' : undefined" class="flex-1 py-1.5 sm:py-2 text-xs rounded-xl border transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-sm"><SquareCheck class="size-3.5 shrink-0" /><span class="hidden md:inline">Analitica</span></button>
               </div>
 
               <!-- Romana -->
@@ -576,7 +576,7 @@
           </div>
 
           <!-- Bottoni di Pagamento -->
-          <div class="p-4 md:p-6 bg-gray-50 border-t border-gray-200 shrink-0 pb-6 md:pb-5 space-y-3">
+          <div class="p-3 sm:p-4 md:p-6 bg-gray-50 border-t border-gray-200 shrink-0 pb-5 space-y-2 sm:space-y-3">
             <div v-if="hasPendingOrdersInTable" class="bg-amber-100 text-amber-800 p-3 rounded-xl text-[10px] md:text-xs font-bold flex items-center gap-2 border border-amber-200 shadow-sm">
               <AlertTriangle class="size-5 shrink-0" /> <span>Tavolo con comande in Attesa. Se incassi ora, il tavolo <b>resterà aperto</b> per quelle voci.</span>
             </div>
@@ -599,7 +599,7 @@
                 @click="openPaymentModal(method.id)"
                 :disabled="!canPay"
                 :class="method.colorClass"
-                class="py-4 rounded-xl font-bold flex items-center justify-center gap-2 transition-all disabled:bg-gray-100 disabled:text-gray-400 disabled:shadow-none active:scale-95 text-sm md:text-base shadow-md"
+                class="py-3 md:py-4 rounded-xl font-bold flex items-center justify-center gap-2 transition-all disabled:bg-gray-100 disabled:text-gray-400 disabled:shadow-none active:scale-95 text-sm md:text-base shadow-md"
               >
                 <component :is="getPaymentIcon(method.id)" class="size-5" /> {{ method.label }}
               </button>
