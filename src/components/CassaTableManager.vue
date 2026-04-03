@@ -1873,9 +1873,13 @@ function confirmPaymentModal() {
   if (ricevuto <= 0) return;
 
   const due = amountBeingPaid.value;
-  // In analitica mode require full coverage to keep vociRefs consistent.
-  if (checkoutMode.value === 'analitica' && ricevuto < due - BILL_SETTLED_THRESHOLD) return;
-  const amountPaid = Math.min(ricevuto, due);
+  const dueCents = Math.round(due * 100);
+  const ricevutoCents = Math.round(ricevuto * 100);
+  // In analitica mode require full coverage at cent precision to keep vociRefs consistent.
+  if (checkoutMode.value === 'analitica' && ricevutoCents < dueCents) return;
+  const amountPaid = checkoutMode.value === 'analitica'
+    ? dueCents / 100
+    : Math.min(ricevuto, due);
   const extra = {};
 
   if (tipsEnabled.value && modalManciaParsed.value > 0) {
