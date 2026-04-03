@@ -53,8 +53,8 @@ export const appConfig = {
 
   // CONFIGURAZIONE DINAMICA METODI PAGAMENTO CASSA
   paymentMethods: [
-    { id: 'cash', label: 'Contanti', icon: 'banknote', colorClass: 'border-emerald-500 text-emerald-600 hover:bg-emerald-50' },
-    { id: 'card', label: 'Pos/Carta', icon: 'credit-card', colorClass: 'theme-bg text-white border-transparent hover:opacity-90 shadow-md' },
+    { id: 'cash', label: 'Contanti', icon: 'banknote', colorClass: 'bg-emerald-600 hover:bg-emerald-700 text-white' },
+    { id: 'card', label: 'Pos/Carta', icon: 'credit-card', colorClass: 'theme-bg text-white hover:opacity-90' },
   ],
 
   tables: [

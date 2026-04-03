@@ -69,19 +69,21 @@
           <button v-if="tableOrders.some(o => o.status === 'accepted')"
             @click="toggleBillRequested"
             :class="store.billRequestedTables.has(selectedTable.id) ? 'bg-blue-500 text-white' : 'bg-white/10 hover:bg-white/20 text-white'"
-            class="px-3 py-2 rounded-xl font-bold text-[10px] md:text-xs flex items-center gap-1.5 transition-all active:scale-95 shrink-0"
-            title="Segna Conto Richiesto">
-            <Receipt class="size-4" /> <span class="hidden sm:inline">{{ store.billRequestedTables.has(selectedTable.id) ? 'Conto Richiesto' : 'Richiedi Conto' }}</span>
+            class="p-2 sm:px-3 sm:py-2 rounded-xl font-bold text-[10px] md:text-xs flex items-center gap-1.5 transition-all active:scale-95 shrink-0"
+            :title="store.billRequestedTables.has(selectedTable.id) ? 'Conto richiesto' : 'Segna Conto Richiesto'"
+            :aria-label="store.billRequestedTables.has(selectedTable.id) ? 'Conto richiesto' : 'Segna conto richiesto'"
+            :aria-pressed="store.billRequestedTables.has(selectedTable.id)">
+            <Receipt class="size-4" /> <span class="hidden sm:inline">Conto</span>
           </button>
           <!-- Sposta button -->
           <button v-if="tableOrders.length > 0" @click="openMoveModal"
-            class="bg-white/10 hover:bg-white/20 px-3 py-2 rounded-xl font-bold text-[10px] md:text-xs flex items-center gap-1.5 transition-all active:scale-95 shrink-0"
+            class="bg-white/10 hover:bg-white/20 p-2 sm:px-3 sm:py-2 rounded-xl font-bold text-[10px] md:text-xs flex items-center gap-1.5 transition-all active:scale-95 shrink-0"
             title="Sposta Tavolo">
             <ArrowRightLeft class="size-4" /> <span class="hidden sm:inline">Sposta</span>
           </button>
           <!-- Unisci button -->
           <button v-if="tableOrders.length > 0" @click="openMergeModal"
-            class="bg-white/10 hover:bg-white/20 px-3 py-2 rounded-xl font-bold text-[10px] md:text-xs flex items-center gap-1.5 transition-all active:scale-95 shrink-0"
+            class="bg-white/10 hover:bg-white/20 p-2 sm:px-3 sm:py-2 rounded-xl font-bold text-[10px] md:text-xs flex items-center gap-1.5 transition-all active:scale-95 shrink-0"
             title="Unisci con altro Tavolo">
             <Merge class="size-4" /> <span class="hidden sm:inline">Unisci</span>
           </button>
@@ -89,45 +91,137 @@
           <router-link
             to="/storico-conti"
             @click="closeTableModal"
-            class="bg-white/10 hover:bg-white/20 px-3 py-2 rounded-xl font-bold text-[10px] md:text-xs flex items-center gap-1.5 transition-all active:scale-95 shrink-0 text-white"
+            class="bg-white/10 hover:bg-white/20 p-2 sm:px-3 sm:py-2 rounded-xl font-bold text-[10px] md:text-xs flex items-center gap-1.5 transition-all active:scale-95 shrink-0 text-white"
             title="Cronologia Conti Chiusi"
-            aria-label="Storico Conti"
+            aria-label="Storico"
           >
-            <History class="size-4" /> <span class="hidden lg:inline">Storico Conti</span>
+            <History class="size-4" /> <span class="hidden sm:inline">Storico</span>
           </router-link>
           <button @click="closeTableModal" class="bg-white/10 hover:bg-white/20 p-2 md:p-2.5 rounded-full transition-colors active:scale-95"><X class="size-5 md:size-6" /></button>
         </div>
       </div>
 
-      <div class="flex flex-1 min-h-0 flex-col lg:flex-row">
+      <div class="flex flex-1 min-h-0 flex-col sm:flex-row">
 
         <!-- PANNELLO SINISTRO: Riepilogo Comande e Storni dalla Cassa -->
-        <div class="w-full lg:w-[55%] border-b lg:border-b-0 lg:border-r border-gray-200 bg-gray-50 flex flex-col h-[42%] shrink-0 overflow-hidden lg:h-auto lg:shrink lg:flex-1">
-          <div class="p-3 md:p-4 bg-white border-b border-gray-200 shrink-0 flex items-center gap-2">
-            <span class="font-bold text-gray-700 text-xs md:text-sm uppercase tracking-wider shrink-0">Riepilogo Voci</span>
-            <!-- Vista switch (inline in header) -->
-            <div class="flex bg-gray-100 p-0.5 rounded-xl gap-0.5 flex-1 mx-1">
+        <div class="w-full sm:w-[55%] border-b sm:border-b-0 sm:border-r border-gray-200 bg-gray-50 flex flex-col h-[42%] shrink-0 overflow-hidden sm:h-auto sm:shrink sm:flex-1">
+          <div class="p-2 lg:p-3 bg-white border-b border-gray-200 shrink-0 flex items-center gap-1.5 overflow-hidden">
+            <span class="hidden lg:block font-bold text-gray-700 text-xs uppercase tracking-wider shrink-0">Riepilogo Voci</span>
+            <!-- Vista switch (inline in header) — hidden in analitica/ordini mode -->
+            <div v-if="checkoutMode !== 'analitica' && checkoutMode !== 'ordini'" class="flex bg-gray-100 p-0.5 rounded-xl gap-0.5 flex-1 min-w-0">
               <button @click="cassaViewMode = 'voce'"
                 :class="cassaViewMode === 'voce' ? 'bg-white shadow text-gray-900 border border-gray-200' : 'text-gray-500 hover:bg-gray-200/50'"
-                class="flex-1 py-1 px-1.5 text-[9px] md:text-[10px] font-bold rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1">
-                <LayoutGrid class="size-3 shrink-0" /> Per Voce
+                aria-label="Vista per voce"
+                class="flex-1 py-1 px-1.5 text-[9px] font-bold rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1 min-w-0">
+                <LayoutGrid class="size-3 shrink-0" /> <span class="hidden sm:inline">Per Voce</span>
               </button>
               <button @click="cassaViewMode = 'ordine'"
                 :class="cassaViewMode === 'ordine' ? 'bg-white shadow text-gray-900 border border-gray-200' : 'text-gray-500 hover:bg-gray-200/50'"
-                class="flex-1 py-1 px-1.5 text-[9px] md:text-[10px] font-bold rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1">
-                <ListOrdered class="size-3 shrink-0" /> Per Ordine
+                aria-label="Vista per ordine"
+                class="flex-1 py-1 px-1.5 text-[9px] font-bold rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1 min-w-0">
+                <ListOrdered class="size-3 shrink-0" /> <span class="hidden sm:inline">Per Ordine</span>
               </button>
             </div>
-            <button @click="openDirectItemModal" class="theme-bg hover:opacity-90 text-white px-3 py-2 rounded-lg text-xs md:text-sm font-bold flex items-center gap-1.5 active:scale-95 shadow-sm transition-opacity shrink-0" title="Aggiungi voci direttamente al conto senza passare per la cucina">
-              <Zap class="size-4 md:size-5" /> <span class="hidden sm:inline">Diretto</span>
+            <!-- Comanda mode header: selection hint -->
+            <div v-else-if="checkoutMode === 'ordini'" class="flex-1 min-w-0 flex items-center gap-1.5 text-[10px] font-bold text-purple-600 bg-purple-50 border border-purple-200 px-2 py-1.5 rounded-xl overflow-hidden">
+              <ListChecks class="size-3.5 shrink-0" /> <span class="truncate hidden sm:inline">Tocca per selezionare</span>
+            </div>
+            <!-- Analitica mode header: select-all toggle -->
+            <button
+              v-else-if="flatAnaliticaItems.length > 0"
+              @click="toggleSelectAllVoci"
+              class="flex-1 min-w-0 text-[10px] font-bold text-teal-700 bg-teal-50 border border-teal-200 px-2 py-1.5 rounded-xl hover:bg-teal-100 active:scale-95 transition-all truncate"
+            >{{ flatAnaliticaItems.every(i => (analiticaQty[i.key] || 0) === i.netQty) ? 'Deseleziona' : 'Seleziona Tutto' }}</button>
+            <div v-else class="flex-1 min-w-0"></div>
+            <button @click="openDirectItemModal" aria-label="Aggiungi voce diretta" class="theme-bg hover:opacity-90 text-white px-2 py-1.5 lg:px-3 lg:py-2 rounded-lg text-xs font-bold flex items-center gap-1 active:scale-95 shadow-sm transition-opacity shrink-0" title="Aggiungi voci direttamente al conto senza passare per la cucina">
+              <Zap class="size-3.5 lg:size-4 shrink-0" /> <span class="hidden lg:inline">Diretto</span>
             </button>
-            <button @click="createNewOrderForTable" class="bg-gray-900 hover:bg-black text-white px-3 py-2 rounded-lg text-xs md:text-sm font-bold flex items-center gap-1.5 active:scale-95 shadow-sm transition-colors shrink-0">
-              <Plus class="size-4 md:size-5" /> <span class="hidden sm:inline">Comanda</span>
+            <button @click="createNewOrderForTable" aria-label="Crea nuova comanda" class="bg-gray-900 hover:bg-black text-white px-2 py-1.5 lg:px-3 lg:py-2 rounded-lg text-xs font-bold flex items-center gap-1 active:scale-95 shadow-sm transition-colors shrink-0">
+              <Plus class="size-3.5 lg:size-4 shrink-0" /> <span class="hidden lg:inline">Comanda</span>
             </button>
           </div>
 
+          <!-- ══ ANALITICA MODE: per-item steppers in left panel ══════════════ -->
+          <div v-if="checkoutMode === 'analitica'" class="flex-1 overflow-y-auto p-2 md:p-4">
+            <div v-if="flatAnaliticaItems.length === 0" class="text-center text-gray-400 py-8">
+              <Coffee class="size-10 mx-auto mb-2 opacity-30" />
+              <p class="text-sm font-medium">Nessuna voce disponibile o da pagare.</p>
+            </div>
+            <div v-else class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+              <template v-for="voce in flatAnaliticaItems" :key="'av_'+voce.key">
+                <!-- Modifier sub-row (indented, purple) -->
+                <div
+                  v-if="voce.isModifier"
+                  class="flex items-center pl-10 pr-3 py-2 gap-2 bg-purple-50/40 border-b border-gray-100 last:border-0"
+                  :class="voce.netQty <= 0 ? 'opacity-40' : ''"
+                >
+                  <div class="flex items-center gap-2 flex-1 min-w-0">
+                    <span class="font-bold w-6 shrink-0 text-center text-[10px] text-purple-600">{{ voce.netQty }}x</span>
+                    <span class="text-[10px] md:text-xs font-bold text-purple-700 truncate">
+                      + {{ voce.name }} (+{{ store.config.ui.currency }}{{ voce.unitPrice.toFixed(2) }})
+                    </span>
+                  </div>
+                  <div class="flex items-center gap-0.5 shrink-0">
+                    <button @click="decrementAnalitica(voce.key)"
+                      :aria-label="`Diminuisci ${voce.name}`"
+                      :disabled="(analiticaQty[voce.key] || 0) === 0"
+                      class="p-1 bg-white border border-purple-200 text-purple-600 hover:bg-purple-50 rounded shadow-sm transition-colors active:scale-95 disabled:opacity-30">
+                      <Minus class="size-3" />
+                    </button>
+                    <span class="w-5 text-center text-xs font-black text-purple-800 tabular-nums">{{ analiticaQty[voce.key] || 0 }}</span>
+                    <button @click="incrementAnalitica(voce.key, voce.netQty)"
+                      :aria-label="`Aumenta ${voce.name}`"
+                      :disabled="(analiticaQty[voce.key] || 0) >= voce.netQty"
+                      class="p-1 bg-white border border-purple-200 text-purple-600 hover:bg-purple-50 rounded shadow-sm transition-colors active:scale-95 disabled:opacity-30">
+                      <Plus class="size-3" />
+                    </button>
+                  </div>
+                  <span class="font-black text-[11px] text-purple-700 shrink-0 w-10 text-right">
+                    {{ store.config.ui.currency }}{{ ((analiticaQty[voce.key] || 0) * voce.unitPrice).toFixed(2) }}
+                  </span>
+                </div>
+
+                <!-- Base item row -->
+                <div
+                  v-else
+                  class="flex items-center justify-between px-3 py-2.5 gap-2 border-b border-gray-100 last:border-0"
+                  :class="voce.netQty <= 0 ? 'opacity-40' : ''"
+                >
+                  <div class="flex items-center gap-2 flex-1 min-w-0">
+                    <span class="font-black w-7 shrink-0 text-center text-[11px] md:text-sm text-gray-700">{{ voce.netQty }}x</span>
+                    <div class="flex flex-col min-w-0">
+                      <span class="font-bold text-gray-800 text-xs md:text-sm truncate flex items-center gap-1">
+                        {{ voce.name }}
+                        <Zap v-if="voce.isDirectEntry" class="size-2.5 theme-text shrink-0" title="Voce Diretta" />
+                      </span>
+                      <span class="text-[10px] text-gray-400 font-medium">{{ store.config.ui.currency }}{{ voce.unitPrice.toFixed(2) }}/cad</span>
+                    </div>
+                  </div>
+                  <div class="flex items-center gap-1 shrink-0">
+                    <button @click="decrementAnalitica(voce.key)"
+                      :aria-label="`Diminuisci quantità di ${voce.name}`"
+                      :disabled="(analiticaQty[voce.key] || 0) === 0"
+                      class="p-1.5 bg-white border border-teal-200 text-teal-600 hover:bg-teal-50 rounded shadow-sm transition-colors active:scale-95 disabled:opacity-30">
+                      <Minus class="size-4" />
+                    </button>
+                    <span class="w-6 text-center text-sm font-black text-teal-800 tabular-nums">{{ analiticaQty[voce.key] || 0 }}</span>
+                    <button @click="incrementAnalitica(voce.key, voce.netQty)"
+                      :aria-label="`Aumenta quantità di ${voce.name}`"
+                      :disabled="(analiticaQty[voce.key] || 0) >= voce.netQty"
+                      class="p-1.5 bg-white border border-teal-200 text-teal-600 hover:bg-teal-50 rounded shadow-sm transition-colors active:scale-95 disabled:opacity-30">
+                      <Plus class="size-4" />
+                    </button>
+                    <span class="font-black text-[12px] md:text-sm shrink-0 w-12 text-right" :class="(analiticaQty[voce.key] || 0) > 0 ? 'text-teal-700' : 'text-gray-300'">
+                      {{ store.config.ui.currency }}{{ ((analiticaQty[voce.key] || 0) * voce.unitPrice).toFixed(2) }}
+                    </span>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </div>
+
           <!-- ══ VISTA: PER VOCE (menu raggruppato) ══════════════════════════ -->
-          <div v-if="cassaViewMode === 'voce'" class="flex-1 overflow-y-auto p-2 md:p-4">
+          <div v-else-if="cassaViewMode === 'voce'" class="flex-1 overflow-y-auto p-2 md:p-4">
             <div v-if="tableMenuGrouped.length === 0" class="text-center text-gray-400 py-8">
               <Coffee class="size-10 mx-auto mb-2 opacity-30" />
               <p class="text-sm font-medium">{{ tableOrders.length === 0 ? 'Il tavolo è libero.' : 'Nessuna comanda ancora accettata.' }}</p>
@@ -190,11 +284,29 @@
             </div>
 
             <!-- Card Singolo Ordine (Mappa Cassa) -->
-            <div v-for="ord in tableOrders" :key="'cas_'+ord.id" class="bg-white p-3 rounded-xl border shadow-sm relative overflow-hidden group" :class="ord.status === 'pending' ? 'border-amber-200 bg-amber-50/30' : 'border-gray-200'">
+            <div v-for="ord in tableOrders" :key="'cas_'+ord.id"
+              class="bg-white p-3 rounded-xl border shadow-sm relative overflow-hidden group transition-all"
+              :class="[
+                checkoutMode === 'ordini' && KITCHEN_ACTIVE_STATUSES.includes(ord.status)
+                  ? selectedOrdersToPay.includes(ord.id)
+                    ? 'border-purple-400 bg-purple-50/40 ring-2 ring-purple-300 cursor-pointer'
+                    : 'border-purple-200 hover:border-purple-300 hover:bg-purple-50/20 cursor-pointer'
+                  : ord.status === 'pending' ? 'border-amber-200 bg-amber-50/30' : 'border-gray-200'
+              ]"
+              @click="checkoutMode === 'ordini' && KITCHEN_ACTIVE_STATUSES.includes(ord.status) && !$event.target.closest('button, a, input, select, textarea, label') ? toggleOrderSelection(ord.id) : null"
+            >
 
               <div class="flex justify-between items-center border-b border-gray-100 pb-2 mb-3 pl-1">
                 <div class="flex items-center gap-3">
-                  <button v-if="ord.status === 'pending'" @click="$emit('open-order-from-table', ord)" class="p-2 md:p-2.5 text-[var(--brand-primary)] bg-[var(--brand-primary)]/10 hover:bg-[var(--brand-primary)]/20 border border-[var(--brand-primary)]/20 rounded-xl transition-all active:scale-95 flex items-center justify-center shadow-sm shrink-0" title="Modifica in vista Ordini">
+                  <!-- Comanda mode: selection checkbox indicator -->
+                  <div v-if="checkoutMode === 'ordini' && KITCHEN_ACTIVE_STATUSES.includes(ord.status)"
+                    class="size-7 rounded-full border-2 flex items-center justify-center shrink-0 transition-all"
+                    :class="selectedOrdersToPay.includes(ord.id)
+                      ? 'border-purple-500 bg-purple-500 text-white'
+                      : 'border-purple-300 bg-white text-transparent'">
+                    <CheckCircle class="size-4" />
+                  </div>
+                  <button v-else-if="ord.status === 'pending'" @click.stop="$emit('open-order-from-table', ord)" class="p-2 md:p-2.5 text-[var(--brand-primary)] bg-[var(--brand-primary)]/10 hover:bg-[var(--brand-primary)]/20 border border-[var(--brand-primary)]/20 rounded-xl transition-all active:scale-95 flex items-center justify-center shadow-sm shrink-0" title="Modifica in vista Ordini">
                     <Edit class="size-5" />
                   </button>
                   <div class="flex flex-col">
@@ -205,7 +317,7 @@
                   </div>
                 </div>
                 <div class="text-right">
-                  <span class="font-black text-lg md:text-xl" :class="ord.status === 'pending' ? 'text-amber-700' : 'theme-text'">{{ store.config.ui.currency }}{{ ord.totalAmount.toFixed(2) }}</span>
+                  <span class="font-black text-lg md:text-xl" :class="checkoutMode === 'ordini' && selectedOrdersToPay.includes(ord.id) ? 'text-purple-700' : ord.status === 'pending' ? 'text-amber-700' : 'theme-text'">{{ store.config.ui.currency }}{{ ord.totalAmount.toFixed(2) }}</span>
                 </div>
               </div>
 
@@ -277,288 +389,235 @@
         </div>
 
         <!-- PANNELLO DESTRA: Area Checkout e Transazioni -->
-        <div class="w-full lg:w-[45%] bg-white flex flex-col relative z-20 shadow-[0_-10px_20px_rgba(0,0,0,0.05)] lg:shadow-none flex-1 min-h-0">
+        <div class="w-full sm:w-[45%] bg-white flex flex-col relative z-20 shadow-[0_-10px_20px_rgba(0,0,0,0.05)] sm:shadow-none flex-1 min-h-0">
 
-          <div class="p-4 md:p-6 flex-1 overflow-y-auto">
-            <div class="flex justify-between items-center mb-2">
-              <h4 class="font-bold text-gray-400 uppercase tracking-widest text-[10px] md:text-xs flex items-center gap-1">Conto Da Pagare <span class="bg-gray-200 text-gray-600 px-1.5 rounded-full text-[9px] uppercase">Rimanente Netto</span></h4>
-              <button @click="generateTableCheckoutJson('info')" class="text-blue-600 font-bold text-[10px] md:text-xs uppercase tracking-wider flex items-center gap-1.5 bg-blue-50 hover:bg-blue-100 px-3 py-2 rounded-lg border border-blue-200 transition-colors active:scale-95">
-                <Code class="size-4" /> <span class="hidden sm:inline">Json Scontrino</span>
+          <div class="p-2 sm:p-3 md:p-5 flex-1 overflow-y-auto">
+            <div class="flex justify-between items-center mb-1">
+              <h4 class="font-bold text-gray-400 uppercase tracking-widest text-[10px] flex items-center gap-1">Da Pagare <span class="hidden sm:inline bg-gray-200 text-gray-600 px-1.5 rounded-full text-[9px] uppercase">Netto</span></h4>
+              <button @click="generateTableCheckoutJson('info')" class="text-blue-600 font-bold text-[10px] uppercase tracking-wider flex items-center gap-1.5 bg-blue-50 hover:bg-blue-100 p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg border border-blue-200 transition-colors active:scale-95">
+                <Code class="size-3.5" /> <span class="hidden sm:inline">JSON</span>
               </button>
             </div>
 
             <!-- Cifra Cassa Dinamica -->
-            <div class="mb-2">
-              <div class="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-0.5">Totale conto: <span class="text-gray-600">{{ store.config.ui.currency }}{{ tableTotalAmount.toFixed(2) }}</span></div>
-              <div class="text-5xl md:text-6xl font-black text-gray-900">{{ store.config.ui.currency }}{{ tableAmountRemaining.toFixed(2) }}</div>
+            <div class="mb-1">
+              <div v-if="tableTransactions.length > 0" class="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Totale: <span class="text-gray-600">{{ store.config.ui.currency }}{{ tableTotalAmount.toFixed(2) }}</span></div>
+              <div class="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-black text-gray-900 leading-none">{{ store.config.ui.currency }}{{ tableAmountRemaining.toFixed(2) }}</div>
             </div>
 
             <!-- Storico Transazioni -->
-            <div v-if="tableTransactions.length > 0" class="mb-5 space-y-2">
-              <h5 class="text-[10px] font-bold text-gray-400 uppercase tracking-wider border-b border-gray-100 pb-1">Storico Pagamenti Effettuati:</h5>
+            <div v-if="tableTransactions.length > 0" class="mb-3 space-y-1.5">
+              <h5 class="text-[10px] font-bold text-gray-400 uppercase tracking-wider border-b border-gray-100 pb-0.5">Pagamenti:</h5>
               <div v-for="(txn, tIdx) in tableTransactions" :key="txn.transactionId"
-                class="text-xs font-bold px-2.5 py-2 rounded-lg flex flex-col gap-1 shadow-sm border"
-                :class="txn.operationType === 'discount' ? 'bg-amber-50 border-amber-200 text-amber-700' : 'bg-emerald-50 border-emerald-200 text-emerald-700'">
-                <div class="flex items-center justify-between">
-                  <span class="flex items-center gap-1.5">
-                    <Tag v-if="txn.operationType === 'discount'" class="size-3.5" />
-                    <component v-else :is="getPaymentIcon(txn.paymentMethod)" class="size-3.5" />
-                    <span class="uppercase tracking-wider">{{ txn.paymentMethod }}</span>
-                    <span v-if="txn.operationType === 'romana'" class="text-[9px] opacity-70 font-medium">
-                      ({{ txn.splitQuota }}/{{ txn.splitWays }}<template v-if="(txn.romanaSplitCount || 1) > 1"> · {{ txn.romanaSplitCount }} quote</template>)
-                    </span>
-                    <span v-if="txn.operationType === 'discount'" class="text-[9px] opacity-70 font-medium">
-                      ({{ txn.discountType === 'percent' ? txn.discountValue + '%' : store.config.ui.currency + (txn.discountValue ?? 0).toFixed(2) }})
-                    </span>
-                  </span>
-                  <div class="text-right">
-                    <span class="font-black">
+                class="rounded-xl border overflow-hidden shadow-sm"
+                :class="txn.operationType === 'discount' ? 'border-amber-200' : 'border-emerald-200'">
+                <!-- Main row -->
+                <div class="flex items-center justify-between px-3 py-2.5"
+                  :class="txn.operationType === 'discount' ? 'bg-amber-50' : 'bg-emerald-50'">
+                  <div class="flex items-center gap-2 min-w-0">
+                    <div class="size-7 rounded-lg flex items-center justify-center shrink-0"
+                      :class="txn.operationType === 'discount' ? 'bg-amber-200 text-amber-700' : 'bg-emerald-200 text-emerald-700'">
+                      <Tag v-if="txn.operationType === 'discount'" class="size-3.5" />
+                      <component v-else :is="getPaymentIcon(txn.paymentMethod)" class="size-3.5" />
+                    </div>
+                    <div class="flex flex-col min-w-0">
+                      <span class="text-xs font-black uppercase tracking-wide"
+                        :class="txn.operationType === 'discount' ? 'text-amber-800' : 'text-emerald-800'">
+                        {{ txn.operationType === 'discount' ? 'Sconto' : txn.paymentMethod }}
+                      </span>
+                      <span class="text-[9px] font-medium"
+                        :class="txn.operationType === 'discount' ? 'text-amber-600' : 'text-emerald-600'">
+                        <template v-if="txn.operationType === 'romana'">Quota {{ txn.splitQuota }}/{{ txn.splitWays }}<template v-if="(txn.romanaSplitCount || 1) > 1"> · {{ txn.romanaSplitCount }} quote</template></template>
+                        <template v-else-if="txn.operationType === 'discount'">{{ txn.discountType === 'percent' ? txn.discountValue + '%' : store.config.ui.currency + (txn.discountValue ?? 0).toFixed(2) }}</template>
+                        <template v-else-if="txn.operationType === 'ordini'">Per Comanda</template>
+                        <template v-else-if="txn.operationType === 'analitica'">Analitica</template>
+                      </span>
+                    </div>
+                  </div>
+                  <div class="text-right shrink-0">
+                    <span class="font-black text-sm"
+                      :class="txn.operationType === 'discount' ? 'text-amber-800' : 'text-emerald-800'">
                       <span v-if="txn.operationType === 'discount'">-</span>{{ store.config.ui.currency }}{{ txn.amountPaid.toFixed(2) }}
                     </span>
-                    <div v-if="txn.grossAmount" class="text-[9px] font-medium opacity-70">Consegnato: {{ store.config.ui.currency }}{{ txn.grossAmount.toFixed(2) }}</div>
-                    <div v-if="txn.changeAmount" class="text-[9px] font-bold text-blue-600">Resto: -{{ store.config.ui.currency }}{{ txn.changeAmount.toFixed(2) }}</div>
-                    <div v-if="txn.tipAmount" class="text-[9px] font-bold text-purple-600">+{{ store.config.ui.currency }}{{ txn.tipAmount.toFixed(2) }} mancia</div>
                   </div>
                 </div>
-                <span class="text-[9px] font-medium opacity-80">{{ new Date(txn.timestamp).toLocaleTimeString(appConfig.locale, { hour: '2-digit', minute: '2-digit', timeZone: appConfig.timezone }) }} - ID: {{ txn.transactionId }}</span>
+                <!-- Secondary details row (change / tip / time) -->
+                <div class="flex items-center justify-between px-3 py-1.5 bg-white border-t"
+                  :class="txn.operationType === 'discount' ? 'border-amber-100' : 'border-emerald-100'">
+                  <span class="text-[9px] font-medium text-gray-400">
+                    {{ new Date(txn.timestamp).toLocaleTimeString(appConfig.locale, { hour: '2-digit', minute: '2-digit', timeZone: appConfig.timezone }) }}
+                  </span>
+                  <div class="flex items-center gap-2 text-[9px] font-bold">
+                    <span v-if="txn.grossAmount" class="text-gray-500">Consegnato {{ store.config.ui.currency }}{{ txn.grossAmount.toFixed(2) }}</span>
+                    <span v-if="txn.changeAmount" class="text-blue-600">Resto -{{ store.config.ui.currency }}{{ txn.changeAmount.toFixed(2) }}</span>
+                    <span v-if="txn.tipAmount" class="text-purple-600">+{{ store.config.ui.currency }}{{ txn.tipAmount.toFixed(2) }} mancia</span>
+                  </div>
+                </div>
               </div>
             </div>
-            <div v-else class="mb-5"></div>
+            <div v-else class="mb-1"></div>
 
-            <!-- Sconto (Discount) -->
-            <div v-if="discountsEnabled && tableAmountRemaining > 0 && isAdmin" class="mb-4 bg-amber-50 border border-amber-200 rounded-xl p-3 md:p-4">
-              <label class="block text-xs font-bold text-amber-800 uppercase mb-2 flex items-center gap-1.5">
-                <Tag class="size-3.5" /> Applica Sconto
-              </label>
-              <div class="flex gap-2 items-center">
-                <div class="flex bg-white border border-amber-200 rounded-xl overflow-hidden shrink-0">
-                  <button @click="discountType = 'percent'" :class="discountType === 'percent' ? 'bg-amber-500 text-white' : 'text-amber-700 hover:bg-amber-100'" class="px-3 py-2 text-xs font-bold transition-colors">
-                    %
-                  </button>
-                  <button @click="discountType = 'fixed'" :class="discountType === 'fixed' ? 'bg-amber-500 text-white' : 'text-amber-700 hover:bg-amber-100'" class="px-3 py-2 text-xs font-bold transition-colors">
-                    {{ store.config.ui.currency }}
+            <!-- Sconto (Discount) — collapsible toggle -->
+            <div v-if="discountsEnabled && tableAmountRemaining > 0 && isAdmin" class="mb-2">
+              <button @click="discountExpanded = !discountExpanded"
+                class="w-full flex items-center justify-between px-2 py-1.5 text-amber-700 bg-amber-50 hover:bg-amber-100 rounded-lg border border-amber-200 transition-colors text-[10px] font-bold">
+                <span class="flex items-center gap-1.5"><Tag class="size-3 shrink-0" /> Applica Sconto</span>
+                <ChevronDown :class="discountExpanded ? 'rotate-180' : ''" class="size-3.5 transition-transform shrink-0" />
+              </button>
+              <div v-if="discountExpanded" class="mt-1.5 bg-amber-50 border border-amber-200 rounded-xl p-2 sm:p-3">
+                <div class="flex gap-2 items-center">
+                  <div class="flex bg-white border border-amber-200 rounded-xl overflow-hidden shrink-0">
+                    <button @click="discountType = 'percent'" :class="discountType === 'percent' ? 'bg-amber-500 text-white' : 'text-amber-700 hover:bg-amber-100'" class="px-2.5 py-1.5 text-xs font-bold transition-colors">
+                      %
+                    </button>
+                    <button @click="discountType = 'fixed'" :class="discountType === 'fixed' ? 'bg-amber-500 text-white' : 'text-amber-700 hover:bg-amber-100'" class="px-2.5 py-1.5 text-xs font-bold transition-colors">
+                      {{ store.config.ui.currency }}
+                    </button>
+                  </div>
+                  <NumericInput
+                    v-model="discountInput"
+                    min="0"
+                    :max="discountType === 'percent' ? 100 : tableAmountRemaining"
+                    step="0.01"
+                    :placeholder="discountType === 'percent' ? 'Es. 10' : 'Es. 5.00'"
+                    :typeToggleLabels="['%', store.config.ui.currency]"
+                    :typeToggleIndex="discountType === 'percent' ? 0 : 1"
+                    @update:typeToggleIndex="i => discountType = i === 0 ? 'percent' : 'fixed'"
+                    class="flex-1 min-w-0 text-sm font-bold border border-amber-200 rounded-xl px-3 py-1.5 bg-white focus:outline-none focus:border-amber-400 text-amber-900"
+                  />
+                  <button
+                    @click="applyDiscount"
+                    :disabled="discountPreview <= 0"
+                    class="shrink-0 bg-amber-500 hover:bg-amber-600 disabled:bg-gray-200 disabled:text-gray-400 text-white font-bold text-xs px-2.5 py-1.5 rounded-xl transition-colors active:scale-95"
+                  >
+                    Applica
                   </button>
                 </div>
-                <NumericInput
-                  v-model="discountInput"
-                  min="0"
-                  :max="discountType === 'percent' ? 100 : tableAmountRemaining"
-                  step="0.01"
-                  :placeholder="discountType === 'percent' ? 'Es. 10' : 'Es. 5.00'"
-                  :typeToggleLabels="['%', store.config.ui.currency]"
-                  :typeToggleIndex="discountType === 'percent' ? 0 : 1"
-                  @update:typeToggleIndex="i => discountType = i === 0 ? 'percent' : 'fixed'"
-                  class="flex-1 min-w-0 text-sm font-bold border border-amber-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:border-amber-400 text-amber-900"
-                />
-                <button
-                  @click="applyDiscount"
-                  :disabled="discountPreview <= 0"
-                  class="shrink-0 bg-amber-500 hover:bg-amber-600 disabled:bg-gray-200 disabled:text-gray-400 text-white font-bold text-xs px-3 py-2 rounded-xl transition-colors active:scale-95"
-                >
-                  Applica
-                </button>
-              </div>
-              <div v-if="discountInputExceedsMax" class="mt-1.5 text-[10px] text-red-600 font-bold flex items-center gap-1">
-                <AlertTriangle class="size-3 shrink-0" />
-                {{ discountType === 'percent' ? 'Il valore verrà limitato al 100%' : 'Lo sconto non può superare il totale rimanente' }}
-              </div>
-              <div v-else-if="discountPreview > 0" class="mt-2 text-xs text-amber-700 font-bold flex items-center justify-between">
-                <span>Sconto da applicare:</span>
-                <span>-{{ store.config.ui.currency }}{{ discountPreview.toFixed(2) }}</span>
+                <div v-if="discountInputExceedsMax" class="mt-1.5 text-[10px] text-red-600 font-bold flex items-center gap-1">
+                  <AlertTriangle class="size-3 shrink-0" />
+                  {{ discountType === 'percent' ? 'Valore limitato al 100%' : 'Non può superare il totale' }}
+                </div>
+                <div v-else-if="discountPreview > 0" class="mt-1.5 text-[10px] text-amber-700 font-bold flex items-center justify-between">
+                  <span>Sconto:</span>
+                  <span>-{{ store.config.ui.currency }}{{ discountPreview.toFixed(2) }}</span>
+                </div>
               </div>
             </div>
 
             <!-- Scelta Split Conto -->
-            <div v-if="tableAmountRemaining > 0" class="space-y-4">
-              <h4 class="font-bold text-gray-800 text-sm">Modalità Incasso:</h4>
-
-              <div class="flex bg-gray-100 p-1 rounded-xl">
-                <button @click="checkoutMode = 'unico'" :class="checkoutMode === 'unico' ? 'bg-white shadow-sm text-gray-900 border border-gray-200' : 'text-gray-500 hover:bg-gray-200/50'" class="flex-1 py-2 text-xs md:text-sm font-bold rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1.5"><Layers class="size-3.5 shrink-0" />Tutto</button>
-                <button @click="checkoutMode = 'romana'" :class="checkoutMode === 'romana' ? 'bg-white shadow-sm text-gray-900 border border-gray-200' : 'text-gray-500 hover:bg-gray-200/50'" class="flex-1 py-2 text-xs md:text-sm font-bold rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1.5"><Users class="size-3.5 shrink-0" />Romana</button>
-                <button @click="checkoutMode = 'ordini'" :disabled="hasRomanaPayment" :class="checkoutMode === 'ordini' ? 'bg-white shadow-sm text-gray-900 border border-gray-200' : hasRomanaPayment ? 'text-gray-300 cursor-not-allowed' : 'text-gray-500 hover:bg-gray-200/50'" :title="hasRomanaPayment ? 'Non disponibile dopo un pagamento alla Romana' : undefined" class="flex-1 py-2 text-xs md:text-sm font-bold rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1.5"><ListChecks class="size-3.5 shrink-0" />Comanda</button>
-                <button @click="checkoutMode = 'analitica'" :disabled="hasRomanaPayment" :class="checkoutMode === 'analitica' ? 'bg-white shadow-sm text-gray-900 border border-gray-200' : hasRomanaPayment ? 'text-gray-300 cursor-not-allowed' : 'text-gray-500 hover:bg-gray-200/50'" :title="hasRomanaPayment ? 'Non disponibile dopo un pagamento alla Romana' : undefined" class="flex-1 py-2 text-xs md:text-sm font-bold rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1.5"><SquareCheck class="size-3.5 shrink-0" />Analitica</button>
+            <div v-if="tableAmountRemaining > 0" class="space-y-2 sm:space-y-3">
+              <div class="flex gap-1.5">
+                <button aria-label="Tutto" @click="checkoutMode = 'unico'" :class="checkoutMode === 'unico' ? 'bg-gray-200 text-gray-800 border-gray-300 font-bold' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100'" class="flex-1 py-1.5 sm:py-2 text-xs rounded-xl border transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-sm"><Layers class="size-3.5 shrink-0" /><span class="hidden md:inline">Tutto</span></button>
+                <button aria-label="Romana" @click="checkoutMode = 'romana'" :class="checkoutMode === 'romana' ? 'bg-blue-100 text-blue-800 border-blue-200 font-bold' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100'" class="flex-1 py-1.5 sm:py-2 text-xs rounded-xl border transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-sm"><Users class="size-3.5 shrink-0" /><span class="hidden md:inline">Romana</span></button>
+                <button aria-label="Analitica" @click="checkoutMode = 'analitica'" :disabled="hasRomanaPayment" :class="checkoutMode === 'analitica' ? 'bg-teal-100 text-teal-800 border-teal-200 font-bold' : hasRomanaPayment ? 'bg-white text-gray-300 border-gray-200 cursor-not-allowed opacity-50' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100'" :title="hasRomanaPayment ? 'Non disponibile dopo un pagamento alla Romana' : undefined" class="flex-1 py-1.5 sm:py-2 text-xs rounded-xl border transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-sm"><SquareCheck class="size-3.5 shrink-0" /><span class="hidden md:inline">Analitica</span></button>
+                <button aria-label="Comanda" @click="checkoutMode = 'ordini'" :disabled="hasRomanaPayment" :class="checkoutMode === 'ordini' ? 'bg-purple-100 text-purple-800 border-purple-200 font-bold' : hasRomanaPayment ? 'bg-white text-gray-300 border-gray-200 cursor-not-allowed opacity-50' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100'" :title="hasRomanaPayment ? 'Non disponibile dopo un pagamento alla Romana' : undefined" class="flex-1 py-1.5 sm:py-2 text-xs rounded-xl border transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-sm"><ListChecks class="size-3.5 shrink-0" /><span class="hidden md:inline">Comanda</span></button>
               </div>
 
               <!-- Romana -->
-              <div v-if="checkoutMode === 'romana'" class="bg-blue-50 border border-blue-100 p-4 rounded-xl md:rounded-2xl transition-all space-y-4">
-                <!-- Total split ways -->
-                <div>
-                  <label class="block text-xs font-bold text-blue-800 uppercase mb-3">Dividi Conto In (Parti Totali):</label>
-                  <div class="flex items-center gap-3">
-                    <button
-                      @click="splitWays > minSplitWays ? splitWays-- : null"
-                      :disabled="splitWays <= minSplitWays"
-                      class="size-12 bg-white rounded-xl flex items-center justify-center font-black text-blue-600 shadow-sm border border-blue-100 active:scale-95 transition-all disabled:opacity-30"
-                    ><Minus class="size-5" /></button>
-                    <span class="text-3xl font-black text-blue-900 w-16 text-center">{{ splitWays }}</span>
-                    <button @click="splitWays++" class="size-12 bg-white rounded-xl flex items-center justify-center font-black text-blue-600 shadow-sm border border-blue-100 active:scale-95 transition-all"><Plus class="size-5" /></button>
+              <div v-if="checkoutMode === 'romana'" class="bg-blue-50 border border-blue-100 p-2 sm:p-3 rounded-xl transition-all space-y-2 sm:space-y-3">
+                <!-- Steppers row -->
+                <div class="grid gap-3" :class="splitWays - splitPaidQuotas > 1 ? 'grid-cols-2' : 'grid-cols-1'">
+                  <!-- Parti totali -->
+                  <div>
+                    <label class="block text-[10px] font-bold text-blue-500 uppercase tracking-wider mb-1.5">Dividi in</label>
+                    <div class="flex items-center gap-1.5">
+                      <button
+                        @click="splitWays > minSplitWays ? splitWays-- : null"
+                        :disabled="splitWays <= minSplitWays"
+                        class="size-8 bg-white rounded-lg flex items-center justify-center font-bold text-blue-600 shadow-sm border border-blue-200 active:scale-95 transition-all disabled:opacity-30 shrink-0"
+                      ><Minus class="size-4" /></button>
+                      <span class="flex-1 text-center text-xl font-black text-blue-900">{{ splitWays }}<span class="text-xs font-bold text-blue-400 ml-1">parti</span></span>
+                      <button @click="splitWays++"
+                        class="size-8 bg-white rounded-lg flex items-center justify-center font-bold text-blue-600 shadow-sm border border-blue-200 active:scale-95 transition-all shrink-0"
+                      ><Plus class="size-4" /></button>
+                    </div>
                   </div>
-                  <div v-if="splitPaidQuotas > 0" class="mt-2 text-xs text-blue-600 font-medium">
-                    {{ splitPaidQuotas }}/{{ splitWays }} quote già pagate
+                  <!-- Quote da pagare ora (solo se >1 rimanenti) -->
+                  <div v-if="splitWays - splitPaidQuotas > 1">
+                    <label class="block text-[10px] font-bold text-blue-500 uppercase tracking-wider mb-1.5">Quote ora</label>
+                    <div class="flex items-center gap-1.5">
+                      <button
+                        @click="romanaSplitCount > 1 ? romanaSplitCount-- : null"
+                        :disabled="romanaSplitCount <= 1"
+                        class="size-8 bg-white rounded-lg flex items-center justify-center font-bold text-blue-600 shadow-sm border border-blue-200 active:scale-95 transition-all disabled:opacity-30 shrink-0"
+                      ><Minus class="size-4" /></button>
+                      <span class="flex-1 text-center text-xl font-black text-blue-900">{{ romanaSplitCount }}<span class="text-xs font-bold text-blue-400 ml-1">/ {{ splitWays - splitPaidQuotas }}</span></span>
+                      <button
+                        @click="romanaSplitCount < (splitWays - splitPaidQuotas) ? romanaSplitCount++ : null"
+                        :disabled="romanaSplitCount >= (splitWays - splitPaidQuotas)"
+                        class="size-8 bg-white rounded-lg flex items-center justify-center font-bold text-blue-600 shadow-sm border border-blue-200 active:scale-95 transition-all disabled:opacity-30 shrink-0"
+                      ><Plus class="size-4" /></button>
+                    </div>
                   </div>
                 </div>
 
-                <!-- Quotas being paid this transaction -->
-                <div v-if="splitWays - splitPaidQuotas > 1">
-                  <label class="block text-xs font-bold text-blue-800 uppercase mb-3">Quote Da Pagare Ora:</label>
-                  <div class="flex items-center gap-3">
-                    <button
-                      @click="romanaSplitCount > 1 ? romanaSplitCount-- : null"
-                      :disabled="romanaSplitCount <= 1"
-                      class="size-10 bg-white rounded-xl flex items-center justify-center font-bold text-blue-600 shadow-sm border border-blue-100 active:scale-95 transition-all disabled:opacity-30"
-                    ><Minus class="size-4" /></button>
-                    <span class="text-2xl font-black text-blue-900 w-12 text-center">{{ romanaSplitCount }}</span>
-                    <button
-                      @click="romanaSplitCount < (splitWays - splitPaidQuotas) ? romanaSplitCount++ : null"
-                      :disabled="romanaSplitCount >= (splitWays - splitPaidQuotas)"
-                      class="size-10 bg-white rounded-xl flex items-center justify-center font-bold text-blue-600 shadow-sm border border-blue-100 active:scale-95 transition-all disabled:opacity-30"
-                    ><Plus class="size-4" /></button>
-                    <span class="text-xs text-blue-600 font-medium">su {{ splitWays - splitPaidQuotas }} rimanenti</span>
+                <!-- Progress pills -->
+                <div class="flex gap-0.5">
+                  <div v-for="n in splitWays" :key="n"
+                    class="h-1.5 flex-1 min-w-[6px] rounded-full transition-all"
+                    :class="n <= splitPaidQuotas ? 'bg-emerald-400' : 'bg-blue-200'">
                   </div>
                 </div>
+                <div v-if="splitPaidQuotas > 0" class="text-[10px] text-blue-600 font-bold flex items-center gap-1 -mt-1">
+                  <CheckCircle class="size-3 text-emerald-500 shrink-0" />
+                  {{ splitPaidQuotas }} di {{ splitWays }} quote già saldate
+                </div>
 
-                <div class="pt-3 border-t border-blue-200 flex justify-between items-center">
-                  <span class="font-bold text-blue-800 text-sm">
-                    Quota da incassare
-                    <span v-if="romanaSplitCount > 1" class="text-xs font-medium">(×{{ romanaSplitCount }})</span>:
-                  </span>
-                  <span class="font-black text-2xl text-blue-600">{{ store.config.ui.currency }}{{ quotaRomana.toFixed(2) }}</span>
+                <!-- Quota amount summary -->
+                <div class="border-t border-blue-200 pt-2.5 flex justify-between items-center">
+                  <div>
+                    <span class="text-[10px] font-bold text-blue-500 uppercase tracking-wider">Quota<span v-if="romanaSplitCount > 1"> × {{ romanaSplitCount }}</span></span>
+                    <div v-if="romanaSplitCount > 1" class="text-[10px] text-blue-400">{{ store.config.ui.currency }}{{ (tableAmountRemaining / Math.max(1, splitWays - splitPaidQuotas)).toFixed(2) }} cad.</div>
+                  </div>
+                  <span class="font-black text-xl text-blue-700">{{ store.config.ui.currency }}{{ quotaRomana.toFixed(2) }}</span>
                 </div>
               </div>
 
-              <!-- Per Comanda -->
-              <div v-if="checkoutMode === 'ordini'" class="bg-purple-50 border border-purple-100 p-4 rounded-xl md:rounded-2xl space-y-2 max-h-[150px] md:max-h-[250px] overflow-y-auto transition-all">
-                <label class="block text-[10px] md:text-xs font-bold text-purple-800 uppercase mb-2">Comande Pagabili (Accettate):</label>
-                <label v-for="ord in tableAcceptedPayableOrders" :key="'chk_'+ord.id" class="flex justify-between items-center p-3 bg-white rounded-xl cursor-pointer hover:border-purple-300 border border-transparent shadow-sm">
-                  <div class="flex items-center gap-3">
-                    <input type="checkbox" v-model="selectedOrdersToPay" :value="ord.id" class="size-5 accent-purple-600 rounded">
-                    <span class="text-sm font-bold text-gray-700 leading-none">Comanda #{{ ord.id.substring(0,4) }}</span>
-                  </div>
-                  <span class="font-black text-base text-purple-700">{{ store.config.ui.currency }}{{ ord.totalAmount.toFixed(2) }}</span>
-                </label>
-                <div v-if="tableAcceptedPayableOrders.length === 0" class="text-xs text-purple-600 font-bold italic">Nessuna comanda disponibile o da pagare.</div>
-              </div>
-
-              <!-- Per Voce Analitica -->
-              <div v-if="checkoutMode === 'analitica'" class="bg-teal-50 border border-teal-100 p-4 rounded-xl md:rounded-2xl space-y-2 max-h-[200px] md:max-h-[280px] overflow-y-auto transition-all">
-                <div class="flex justify-between items-center mb-1 sticky top-0 bg-teal-50 pb-1.5">
-                  <label class="text-[10px] md:text-xs font-bold text-teal-800 uppercase">Voci da Pagare:</label>
-                  <button
-                    v-if="flatAnaliticaItems.length > 0"
-                    @click="toggleSelectAllVoci"
-                    class="text-[10px] font-bold text-teal-700 underline underline-offset-2 active:opacity-70 transition-opacity"
-                  >{{ flatAnaliticaItems.every(i => (analiticaQty[i.key] || 0) === i.netQty) ? 'Deseleziona Tutto' : 'Seleziona Tutto' }}</button>
-                </div>
-
-                <template v-for="voce in flatAnaliticaItems" :key="'voce_'+voce.key">
-                  <!-- Modifier sub-row (indented, purple style) -->
-                  <div
-                    v-if="voce.isModifier"
-                    class="flex items-center gap-2 pl-6 pr-3 py-2.5 bg-white rounded-xl border shadow-sm transition-colors"
-                    :class="(analiticaQty[voce.key] || 0) > 0 ? 'border-purple-300' : 'border-transparent'"
-                  >
-                    <!-- Stepper (left) -->
-                    <div class="flex items-center gap-1.5 shrink-0">
-                      <button @click="decrementAnalitica(voce.key)"
-                        :aria-label="`Diminuisci quantità per ${voce.name}`"
-                        :disabled="(analiticaQty[voce.key] || 0) === 0"
-                        class="size-8 bg-white rounded-xl flex items-center justify-center text-purple-600 shadow-sm border border-purple-100 active:scale-95 transition-all disabled:opacity-30">
-                        <Minus class="size-3.5" />
-                      </button>
-                      <span class="w-5 text-center text-xs font-black text-purple-800 tabular-nums">{{ analiticaQty[voce.key] || 0 }}</span>
-                      <button @click="incrementAnalitica(voce.key, voce.netQty)"
-                        :aria-label="`Aumenta quantità per ${voce.name}`"
-                        :disabled="(analiticaQty[voce.key] || 0) >= voce.netQty"
-                        class="size-8 bg-white rounded-xl flex items-center justify-center text-purple-600 shadow-sm border border-purple-100 active:scale-95 transition-all disabled:opacity-30">
-                        <Plus class="size-3.5" />
-                      </button>
-                    </div>
-                    <!-- Label (middle) -->
-                    <div class="flex flex-col min-w-0 flex-1">
-                      <span class="text-xs font-bold text-purple-700 leading-tight truncate">+ {{ voce.name }}</span>
-                      <span class="text-[10px] text-purple-500 font-medium">{{ voce.netQty }}× {{ store.config.ui.currency }}{{ voce.unitPrice.toFixed(2) }}</span>
-                    </div>
-                    <!-- Price (right) -->
-                    <span class="font-black text-sm text-purple-700 shrink-0 w-12 text-right">{{ store.config.ui.currency }}{{ ((analiticaQty[voce.key] || 0) * voce.unitPrice).toFixed(2) }}</span>
-                  </div>
-
-                  <!-- Base item row -->
-                  <div
-                    v-else
-                    class="flex items-center gap-2 p-3 bg-white rounded-xl border shadow-sm transition-colors"
-                    :class="(analiticaQty[voce.key] || 0) > 0 ? 'border-teal-300' : 'border-transparent'"
-                  >
-                    <!-- Stepper (left) -->
-                    <div class="flex items-center gap-1.5 shrink-0">
-                      <button @click="decrementAnalitica(voce.key)"
-                        :aria-label="`Diminuisci quantità di ${voce.name}`"
-                        :disabled="(analiticaQty[voce.key] || 0) === 0"
-                        class="size-9 bg-white rounded-xl flex items-center justify-center text-teal-600 shadow-sm border border-gray-200 active:scale-95 transition-all disabled:opacity-30">
-                        <Minus class="size-4" />
-                      </button>
-                      <span class="w-6 text-center text-sm font-black text-gray-700 tabular-nums">{{ analiticaQty[voce.key] || 0 }}</span>
-                      <button @click="incrementAnalitica(voce.key, voce.netQty)"
-                        :aria-label="`Aumenta quantità di ${voce.name}`"
-                        :disabled="(analiticaQty[voce.key] || 0) >= voce.netQty"
-                        class="size-9 bg-white rounded-xl flex items-center justify-center text-teal-600 shadow-sm border border-gray-200 active:scale-95 transition-all disabled:opacity-30">
-                        <Plus class="size-4" />
-                      </button>
-                    </div>
-                    <!-- Label (middle) -->
-                    <div class="flex flex-col min-w-0 flex-1">
-                      <span class="text-sm font-bold text-gray-700 leading-tight truncate flex items-center gap-1">
-                        {{ voce.name }}
-                        <Zap v-if="voce.isDirectEntry" class="size-3 theme-text shrink-0" title="Voce Diretta" />
-                      </span>
-                      <span class="text-[10px] text-gray-500 font-medium">{{ voce.netQty }}× {{ store.config.ui.currency }}{{ voce.unitPrice.toFixed(2) }}</span>
-                    </div>
-                    <!-- Price (right) -->
-                    <span class="font-black text-base text-teal-700 shrink-0 w-12 text-right">{{ store.config.ui.currency }}{{ ((analiticaQty[voce.key] || 0) * voce.unitPrice).toFixed(2) }}</span>
-                  </div>
-                </template>
-
-                <div v-if="flatAnaliticaItems.length === 0" class="text-xs text-teal-600 font-bold italic">Nessuna voce disponibile o da pagare.</div>
-                <div v-if="analiticaSelectionExceedsRemaining" class="flex items-center gap-1.5 text-[10px] font-bold text-red-700 mt-1">
-                  <AlertTriangle class="size-3.5 shrink-0" />
-                  Il totale selezionato supera il conto rimanente ({{ store.config.ui.currency }}{{ tableAmountRemaining.toFixed(2) }})
-                </div>
+              <div v-if="checkoutMode === 'ordini'" class="bg-purple-50 border border-purple-100 p-2 sm:p-3 rounded-xl flex items-center gap-2 text-xs font-bold text-purple-700">
+                <ListChecks class="size-3.5 shrink-0" />
+                <span>{{ selectedOrdersToPay.length === 0 ? 'Seleziona dal riepilogo ←' : selectedOrdersToPay.length + ' comanda/e selezionata/e' }}</span>
               </div>
             </div>
           </div>
 
           <!-- Bottoni di Pagamento -->
-          <div class="p-4 md:p-6 bg-gray-50 border-t border-gray-200 shrink-0 pb-6 md:pb-5 space-y-3">
-            <div v-if="hasPendingOrdersInTable" class="bg-amber-100 text-amber-800 p-3 rounded-xl text-[10px] md:text-xs font-bold flex items-center gap-2 border border-amber-200 shadow-sm">
-              <AlertTriangle class="size-5 shrink-0" /> <span>Tavolo con comande in Attesa. Se incassi ora, il tavolo <b>resterà aperto</b> per quelle voci.</span>
+          <div class="p-2 sm:p-3 md:p-5 bg-gray-50 border-t border-gray-200 shrink-0 pb-4 space-y-1.5 sm:space-y-2">
+            <div v-if="hasPendingOrdersInTable" class="bg-amber-100 text-amber-800 p-2 sm:p-3 rounded-xl text-[10px] font-bold flex items-center gap-1.5 border border-amber-200">
+              <AlertTriangle class="size-4 shrink-0" /> <span>Comande in Attesa — tavolo resterà aperto.</span>
             </div>
 
-            <div v-if="checkoutMode !== 'unico' && tableAmountRemaining > 0" class="flex justify-between items-center px-1">
-              <span class="text-xs font-bold text-gray-500 uppercase tracking-wider">Acconto Corrente:</span>
-              <span class="text-xl font-black theme-text">{{ store.config.ui.currency }}{{ amountBeingPaid.toFixed(2) }}</span>
+            <div v-if="analiticaSelectionExceedsRemaining" class="bg-red-50 border border-red-200 text-red-700 p-3 rounded-xl text-[10px] md:text-xs font-bold flex items-center gap-2">
+              <AlertTriangle class="size-4 shrink-0" />
+              Totale selezionato supera il conto rimanente ({{ store.config.ui.currency }}{{ tableAmountRemaining.toFixed(2) }})
+            </div>
+
+            <div v-if="checkoutMode !== 'unico' && tableAmountRemaining > 0" class="flex justify-between items-center px-0.5">
+              <span class="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Da pagare:</span>
+              <span class="text-lg font-black theme-text">{{ store.config.ui.currency }}{{ amountBeingPaid.toFixed(2) }}</span>
             </div>
 
             <!-- Metodi di pagamento -->
-            <div class="grid grid-cols-2 gap-3">
+            <div class="grid grid-cols-2 gap-2.5">
               <button
                 v-for="method in store.config.paymentMethods"
                 :key="method.id"
                 @click="openPaymentModal(method.id)"
                 :disabled="!canPay"
                 :class="method.colorClass"
-                class="py-3.5 border-2 rounded-xl md:rounded-2xl font-bold flex items-center justify-center gap-2 transition-all disabled:opacity-50 disabled:bg-gray-100 disabled:border-gray-300 disabled:text-gray-400 active:scale-95 text-sm md:text-base"
+                class="py-2 sm:py-2.5 md:py-4 rounded-xl font-bold flex items-center justify-center gap-2 transition-all disabled:bg-gray-100 disabled:text-gray-400 disabled:shadow-none active:scale-95 text-sm md:text-base shadow-md"
               >
                 <component :is="getPaymentIcon(method.id)" class="size-5" /> {{ method.label }}
               </button>
             </div>
 
             <!-- Manual bill close button (shown when fully paid) -->
-            <div v-if="canManuallyCloseBill" class="rounded-2xl border-2 border-emerald-300 bg-emerald-50 p-4 space-y-3">
+            <div v-if="canManuallyCloseBill" class="rounded-xl border-2 border-emerald-300 bg-emerald-50 p-2.5 sm:p-3 space-y-2">
               <div class="flex items-center gap-2 text-emerald-700">
-                <CheckCircle class="size-5 shrink-0" />
-                <span class="text-sm font-bold">Conto saldato — nessun residuo.</span>
+                <CheckCircle class="size-4 shrink-0" />
+                <span class="text-xs font-bold">Conto saldato — nessun residuo.</span>
               </div>
-              <button @click="closeTableBill" class="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl active:scale-95 transition-all shadow-md flex items-center justify-center gap-2">
-                <CheckCircle class="size-5" /> Chiudi Conto e Genera Riepilogo
+              <button @click="closeTableBill" class="w-full py-2.5 sm:py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl active:scale-95 transition-all shadow-md flex items-center justify-center gap-2 text-sm">
+                <CheckCircle class="size-4" /> Chiudi Conto
               </button>
             </div>
           </div>
@@ -580,9 +639,12 @@
           </div>
           <div>
             <h3 class="font-bold text-base md:text-lg leading-tight">{{ modalMethodLabel }}</h3>
-            <p class="text-white/60 text-[10px]">
-              {{ checkoutMode === 'romana' ? 'Incasso Quota Romana' : checkoutMode === 'ordini' ? 'Incasso Per Comanda' : checkoutMode === 'analitica' ? 'Incasso Analitico' : 'Incasso Conto' }}
-            </p>
+            <span
+              class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold mt-0.5"
+              :class="checkoutMode === 'romana' ? 'bg-blue-500/20 text-blue-200' : checkoutMode === 'ordini' ? 'bg-purple-500/20 text-purple-200' : checkoutMode === 'analitica' ? 'bg-teal-500/20 text-teal-200' : 'bg-white/10 text-white/70'"
+            >
+              {{ checkoutMode === 'romana' ? 'Quota Romana' : checkoutMode === 'ordini' ? 'Per Comanda' : checkoutMode === 'analitica' ? 'Analitico' : 'Conto Intero' }}
+            </span>
           </div>
         </div>
         <button @click="closePaymentModal" class="bg-white/10 hover:bg-white/20 p-2 rounded-full transition-colors active:scale-95">
@@ -1009,7 +1071,7 @@ import {
   Grid3x3, Users, X, Plus, Coffee, Edit, AlertTriangle, CheckCircle,
   Ban, Undo2, Code, Minus, Receipt, ArrowRightLeft, Merge, Trash2,
   Layers, ListChecks, History, LayoutGrid, ListOrdered,
-  Tag, Wallet,
+  Tag, Wallet, ChevronDown,
   Percent, Zap, BookOpen, PlusCircle, Banknote, CreditCard, Lock, SquareCheck,
 } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
@@ -1114,6 +1176,7 @@ const modalMancia = ref('');
 // ── Discount (sconto) state ────────────────────────────────────────────────
 const discountInput = ref('');
 const discountType = ref('percent'); // 'percent' | 'fixed'
+const discountExpanded = ref(false);
 
 // ── People modal state (shown when opening a free table) ───────────────────
 const showPeopleModal = ref(false);
@@ -1223,6 +1286,13 @@ watch(flatAnaliticaItems, (newItems) => {
     if (clamped > 0) cleaned[key] = clamped;
   }
   analiticaQty.value = cleaned;
+});
+
+// Auto-switch left panel to "Per Ordine" when comanda checkout mode is selected.
+watch(checkoutMode, (mode) => {
+  if (mode === 'ordini') {
+    cassaViewMode.value = 'ordine';
+  }
 });
 const quotaRomana = computed(() => {
   if (splitWays.value <= 0) return 0;
@@ -1410,6 +1480,15 @@ function toggleSelectAllVoci() {
   }
 }
 
+function toggleOrderSelection(ordId) {
+  const idx = selectedOrdersToPay.value.indexOf(ordId);
+  if (idx === -1) {
+    selectedOrdersToPay.value.push(ordId);
+  } else {
+    selectedOrdersToPay.value.splice(idx, 1);
+  }
+}
+
 // ── Computed: grouped menu view (items aggregated by dish name) ────────────
 const tableMenuGrouped = computed(() => {
   const dishMap = new Map();
@@ -1484,6 +1563,7 @@ function _openTableModal(table) {
   romanaSplitCount.value = 1;
   discountInput.value = '';
   discountType.value = 'percent';
+  discountExpanded.value = false;
   showPaymentModal.value = false;
   modalMethodId.value = null;
   modalRicevuto.value = '';
