@@ -111,6 +111,7 @@
             <div v-if="checkoutMode !== 'analitica' && checkoutMode !== 'ordini'" class="flex bg-gray-100 p-0.5 rounded-xl gap-0.5 flex-1 min-w-0">
               <button @click="cassaViewMode = 'voce'"
                 :class="cassaViewMode === 'voce' ? 'bg-white shadow text-gray-900 border border-gray-200' : 'text-gray-500 hover:bg-gray-200/50'"
+                aria-label="Vista per voce"
                 class="flex-1 py-1 px-1.5 text-[9px] font-bold rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1 min-w-0">
                 <LayoutGrid class="size-3 shrink-0" /> <span class="hidden sm:inline">Per Voce</span>
               </button>
@@ -132,10 +133,10 @@
               class="flex-1 min-w-0 text-[10px] font-bold text-teal-700 bg-teal-50 border border-teal-200 px-2 py-1.5 rounded-xl hover:bg-teal-100 active:scale-95 transition-all truncate"
             >{{ flatAnaliticaItems.every(i => (analiticaQty[i.key] || 0) === i.netQty) ? 'Deseleziona' : 'Seleziona Tutto' }}</button>
             <div v-else class="flex-1 min-w-0"></div>
-            <button @click="openDirectItemModal" class="theme-bg hover:opacity-90 text-white px-2 py-1.5 lg:px-3 lg:py-2 rounded-lg text-xs font-bold flex items-center gap-1 active:scale-95 shadow-sm transition-opacity shrink-0" title="Aggiungi voci direttamente al conto senza passare per la cucina">
+            <button @click="openDirectItemModal" aria-label="Aggiungi voce diretta" class="theme-bg hover:opacity-90 text-white px-2 py-1.5 lg:px-3 lg:py-2 rounded-lg text-xs font-bold flex items-center gap-1 active:scale-95 shadow-sm transition-opacity shrink-0" title="Aggiungi voci direttamente al conto senza passare per la cucina">
               <Zap class="size-3.5 lg:size-4 shrink-0" /> <span class="hidden lg:inline">Diretto</span>
             </button>
-            <button @click="createNewOrderForTable" class="bg-gray-900 hover:bg-black text-white px-2 py-1.5 lg:px-3 lg:py-2 rounded-lg text-xs font-bold flex items-center gap-1 active:scale-95 shadow-sm transition-colors shrink-0">
+            <button @click="createNewOrderForTable" aria-label="Crea nuova comanda" class="bg-gray-900 hover:bg-black text-white px-2 py-1.5 lg:px-3 lg:py-2 rounded-lg text-xs font-bold flex items-center gap-1 active:scale-95 shadow-sm transition-colors shrink-0">
               <Plus class="size-3.5 lg:size-4 shrink-0" /> <span class="hidden lg:inline">Comanda</span>
             </button>
           </div>
