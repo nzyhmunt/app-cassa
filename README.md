@@ -175,10 +175,11 @@ pending → accepted → preparing → ready → delivered → completed
 - Lista read-only degli ordini `delivered`, piatti raggruppati per portata, ordinati dal più recente
 
 ### 💳 Cassa & Pagamenti
-- **Tre modalità di pagamento**:
+- **Quattro modalità di pagamento**:
   - **Unico**: saldo completo del tavolo in un'unica transazione
   - **Alla Romana**: divisione equa tra N persone con pagamento parziale o multiplo di quote
   - **Per Ordine**: selezione manuale degli ordini da saldare
+  - **Analitica**: selezione voce-per-voce con stepper di quantità (es. 1 su 2 coperti); include variazioni a pagamento e voci dirette; registra `vociRefs` (chiave + quantità) nella transazione per tracciabilità precisa
 - **Metodi di pagamento** configurabili (default: Contanti e POS/Carta)
 - **Calcolatore resto** per pagamenti in contanti (importo ricevuto → resto da dare)
 - **Mancia** configurabile su ogni transazione

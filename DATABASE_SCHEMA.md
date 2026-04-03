@@ -266,7 +266,7 @@ CREATE INDEX idx_oi_modifiers_item ON order_item_modifiers(order_id, item_uid);
 ### 2.11 `transactions` — Pagamenti e sconti
 
 ```sql
-CREATE TYPE transaction_operation AS ENUM ('unico', 'romana', 'ordini', 'discount');
+CREATE TYPE transaction_operation AS ENUM ('unico', 'romana', 'ordini', 'analitica', 'discount');
 CREATE TYPE discount_type AS ENUM ('percent', 'fixed');
 
 CREATE TABLE transactions (
@@ -296,7 +296,28 @@ CREATE INDEX idx_transactions_venue   ON transactions(venue_id, created_at);
 
 ---
 
-### 2.12 `transaction_order_refs` — Collegamento N:M Pagamento ↔ Comanda
+### 2.12 `transaction_voce_refs` — Righe Analitica (Voce + Quantità)
+
+Usata solo per le transazioni con `operation_type = 'analitica'`.
+Registra quale voce di comanda (o variazione a pagamento) è stata incassata e in che quantità,
+consentendo pagamenti parziali su singole voci (es. 1 su 2 coperti).
+
+La chiave (`voce_key`) segue il formato prodotto da `buildFlatAnaliticaItems`:
+- voce base: `{orderId}__{itemIdx}`
+- variazione a pagamento: `{orderId}__{itemIdx}__mod__{modIdx}`
+
+```sql
+CREATE TABLE transaction_voce_refs (
+    transaction_id  VARCHAR(30)     NOT NULL REFERENCES transactions(id) ON DELETE CASCADE,
+    voce_key        VARCHAR(100)    NOT NULL,   -- es. 'ord_abc__0' o 'ord_abc__0__mod__1'
+    qty             SMALLINT        NOT NULL CHECK (qty > 0),
+    PRIMARY KEY (transaction_id, voce_key)
+);
+```
+
+---
+
+### 2.13 `transaction_order_refs` — Collegamento N:M Pagamento ↔ Comanda
 
 ```sql
 CREATE TABLE transaction_order_refs (
@@ -308,7 +329,7 @@ CREATE TABLE transaction_order_refs (
 
 ---
 
-### 2.13 `cash_movements` — Movimenti di cassa
+### 2.14 `cash_movements` — Movimenti di cassa
 
 ```sql
 CREATE TYPE cash_movement_type AS ENUM ('deposit', 'withdrawal');
@@ -327,7 +348,7 @@ CREATE INDEX idx_cash_movements_venue ON cash_movements(venue_id, created_at);
 
 ---
 
-### 2.14 `daily_closures` — Chiusure giornaliere (rapporto Z)
+### 2.15 `daily_closures` — Chiusure giornaliere (rapporto Z)
 
 ```sql
 CREATE TABLE daily_closures (
@@ -351,7 +372,7 @@ CREATE INDEX idx_daily_closures_venue ON daily_closures(venue_id, closed_at);
 
 ---
 
-### 2.15 `daily_closure_by_method` — Dettaglio incassi per metodo (riga di daily_closures)
+### 2.16 `daily_closure_by_method` — Dettaglio incassi per metodo (riga di daily_closures)
 
 ```sql
 CREATE TABLE daily_closure_by_method (
@@ -364,7 +385,7 @@ CREATE TABLE daily_closure_by_method (
 
 ---
 
-### 2.16 `app_settings` — Impostazioni applicazione per utente/dispositivo
+### 2.17 `app_settings` — Impostazioni applicazione per utente/dispositivo
 
 ```sql
 CREATE TABLE app_settings (
@@ -395,6 +416,7 @@ venues ──< transactions >── tables
                         >── bill_sessions
                         >── payment_methods
 transactions >──< orders  (via transaction_order_refs)
+transactions ──< transaction_voce_refs  (only when operation_type = 'analitica')
 venues ──< cash_movements
 venues ──< daily_closures ──< daily_closure_by_method
 venues ──< app_settings
@@ -415,6 +437,7 @@ Cardinalità:
 | order_item     | 1 : N     | order_item_modifiers   |
 | bill_session   | 1 : N     | transactions           |
 | transaction    | N : M     | orders                 |
+| transaction    | 1 : N     | transaction_voce_refs  |
 | venue          | 1 : N     | cash_movements         |
 | venue          | 1 : N     | daily_closures         |
 | daily_closure  | 1 : N     | daily_closure_by_method|
@@ -500,12 +523,13 @@ Cardinalità:
 │ table_id (FK)                │      │ order_id (FK)               │
 │ bill_session_id (FK)         │      └─────────────────────────────┘
 │ operation_type               │
-│  unico|romana|ordini|discount│
-│ payment_method_id (FK)       │
-│ amount_paid                  │
-│ tip_amount                   │
-│ romana_split_count           │
-│ discount_type                │
+│  unico|romana|ordini         │      ┌─────────────────────────────┐
+│  analitica|discount          │──1───│   transaction_voce_refs     │
+│ payment_method_id (FK)       │  N   │─────────────────────────────│
+│ amount_paid                  │      │ transaction_id (FK)         │
+│ tip_amount                   │      │ voce_key (ordId__idx[__mod__modIdx]) │
+│ romana_split_count           │      │ qty                         │
+│ discount_type                │      └─────────────────────────────┘
 │ discount_value               │
 │ created_at                   │
 └──────────────────────────────┘
@@ -547,7 +571,7 @@ Cardinalità:
 | `order.noteVisibility.{cassa,sala,cucina}` | `orders.note_visibility_{cassa,sala,cucina}` |
 | `order.isDirectEntry`                 | `orders.is_direct_entry`               |
 | `order.rejectionReason`               | `orders.rejection_reason`              |
-| `transactions[]`                      | `transactions` + `transaction_order_refs` |
+| `transactions[]`                      | `transactions` + `transaction_order_refs` + `transaction_voce_refs` |
 | `tableOccupiedAt`                     | `bill_sessions.opened_at`              |
 | `billRequestedTables` (Set)           | query: `orders.status = 'pending'` con `bill_session_id` attivo |
 | `tableCurrentBillSession`             | `bill_sessions` (righe con `is_active = true`) |

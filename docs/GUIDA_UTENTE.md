@@ -221,7 +221,7 @@ Visibile quando gli sconti sono abilitati e c'è un saldo residuo:
 
 ### 4.3 Modalità di pagamento
 
-Tre modalità selezionabili con i tab in cima al pannello di incasso:
+Quattro modalità selezionabili con i tab in cima al pannello di incasso:
 
 #### Tutto (pagamento unico)
 
@@ -252,6 +252,25 @@ Permette di selezionare individualmente quali comande pagare in questa transazio
 - Spuntare le comande da saldare
 - Il totale si aggiorna dinamicamente
 - Utile per pagamenti separati su gruppi che hanno ordinato comande distinte
+
+#### Analitica (selezione voce per voce)
+
+Permette di scegliere esattamente **quante unità** di ogni singola voce incassare in questa transazione:
+
+- Ogni voce (e ogni variazione a pagamento) appare come riga con uno stepper **[−] qty [+]**
+- Lo stepper parte da 0 e arriva alla quantità netta pagabile (es. 2 coperti → max 2)
+- Voci dirette (⚡) sono evidenziate con l'icona corrispondente
+- Le variazioni a pagamento appaiono come sotto-righe indentate in viola
+- L'acconto si aggiorna in tempo reale: `qty × prezzo unitario`
+- **Seleziona Tutto** / **Deseleziona Tutto** per comodità
+- Se il totale selezionato supera il saldo rimanente, viene mostrato un avviso e i pulsanti di pagamento vengono disabilitati
+- Una comanda viene chiusa automaticamente solo quando tutte le sue voci (incluse variazioni a pagamento) sono state integralmente selezionate e pagate
+
+**Esempio pratico:**  
+Tavolo con 2 coperti (€2.50 cad.) e 1 Tagliere x2 (€20.00).
+- Selezionare 1 coperto (qty=1) → Acconto €2.50
+- Selezionare il Tagliere (qty=1) + 1 coperto → Acconto €22.50
+- Incassare → rimane da pagare €2.50 (il secondo coperto)
 
 ### 4.4 Mancia
 
