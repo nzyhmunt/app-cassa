@@ -375,8 +375,8 @@
               <div class="flex bg-gray-100 p-1 rounded-xl">
                 <button @click="checkoutMode = 'unico'" :class="checkoutMode === 'unico' ? 'bg-white shadow-sm text-gray-900 border border-gray-200' : 'text-gray-500 hover:bg-gray-200/50'" class="flex-1 py-2 text-xs md:text-sm font-bold rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1.5"><Layers class="size-3.5 shrink-0" />Tutto</button>
                 <button @click="checkoutMode = 'romana'" :class="checkoutMode === 'romana' ? 'bg-white shadow-sm text-gray-900 border border-gray-200' : 'text-gray-500 hover:bg-gray-200/50'" class="flex-1 py-2 text-xs md:text-sm font-bold rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1.5"><Users class="size-3.5 shrink-0" />Romana</button>
-                <button @click="checkoutMode = 'ordini'" :class="checkoutMode === 'ordini' ? 'bg-white shadow-sm text-gray-900 border border-gray-200' : 'text-gray-500 hover:bg-gray-200/50'" class="flex-1 py-2 text-xs md:text-sm font-bold rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1.5"><ListChecks class="size-3.5 shrink-0" />Comanda</button>
-                <button @click="checkoutMode = 'analitica'" :class="checkoutMode === 'analitica' ? 'bg-white shadow-sm text-gray-900 border border-gray-200' : 'text-gray-500 hover:bg-gray-200/50'" class="flex-1 py-2 text-xs md:text-sm font-bold rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1.5"><SquareCheck class="size-3.5 shrink-0" />Analitica</button>
+                <button @click="!hasRomanaPayment && (checkoutMode = 'ordini')" :disabled="hasRomanaPayment" :class="checkoutMode === 'ordini' ? 'bg-white shadow-sm text-gray-900 border border-gray-200' : hasRomanaPayment ? 'text-gray-300 cursor-not-allowed' : 'text-gray-500 hover:bg-gray-200/50'" :title="hasRomanaPayment ? 'Non disponibile dopo un pagamento alla Romana' : undefined" class="flex-1 py-2 text-xs md:text-sm font-bold rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1.5"><ListChecks class="size-3.5 shrink-0" />Comanda</button>
+                <button @click="!hasRomanaPayment && (checkoutMode = 'analitica')" :disabled="hasRomanaPayment" :class="checkoutMode === 'analitica' ? 'bg-white shadow-sm text-gray-900 border border-gray-200' : hasRomanaPayment ? 'text-gray-300 cursor-not-allowed' : 'text-gray-500 hover:bg-gray-200/50'" :title="hasRomanaPayment ? 'Non disponibile dopo un pagamento alla Romana' : undefined" class="flex-1 py-2 text-xs md:text-sm font-bold rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1.5"><SquareCheck class="size-3.5 shrink-0" />Analitica</button>
               </div>
 
               <!-- Romana -->
@@ -703,7 +703,7 @@
       <div class="p-4 border-t border-gray-200 space-y-2 shrink-0">
         <button
           @click="confirmPaymentModal"
-          :disabled="modalRicevutoParsed <= 0"
+          :disabled="modalRicevutoParsed <= 0 || (checkoutMode === 'analitica' && modalRicevutoParsed < amountBeingPaid - 0.005)"
           class="w-full py-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl disabled:opacity-40 disabled:bg-gray-300 disabled:text-gray-400 active:scale-95 transition-all flex items-center justify-center gap-2 text-base shadow-md"
         >
           <CheckCircle class="size-5" />
@@ -1171,6 +1171,13 @@ const tableAmountRemaining = computed(() =>
   Math.max(0, tableTotalAmount.value - tableAmountPaid.value),
 );
 
+// True when at least one Romana transaction has been recorded for this bill
+// session. In that case, Comanda and Analitica modes are disabled to prevent
+// item-level selections from conflicting with the per-quota split logic.
+const hasRomanaPayment = computed(() =>
+  tableTransactions.value.some(t => t.operationType === 'romana'),
+);
+
 const hasPendingOrdersInTable = computed(() =>
   tableOrders.value.some(o => o.status === 'pending'),
 );
@@ -1191,11 +1198,28 @@ const analiticaSelectedTotal = computed(() =>
   computeAnaliticaTotal(flatAnaliticaItems.value, analiticaQty.value),
 );
 
+// Use cent-level precision to avoid IEEE-754 rounding artefacts (e.g. a total
+// of €3.00 computed as 2.9999… blocking a valid payment).
 const analiticaSelectionExceedsRemaining = computed(() =>
-  analiticaSelectedTotal.value > tableAmountRemaining.value,
+  Math.round(analiticaSelectedTotal.value * 100) > Math.round(tableAmountRemaining.value * 100),
 );
 
 const analiticaAmount = computed(() => analiticaSelectedTotal.value);
+
+// Sanitize analiticaQty whenever the payable item list changes (e.g. cashier
+// voids an item while the modal is open).  Drop stale keys and clamp remaining
+// quantities to the current netQty so that order-completion logic stays sound.
+watch(flatAnaliticaItems, (newItems) => {
+  const validKeys = new Set(newItems.map(i => i.key));
+  const netQtyMap = Object.fromEntries(newItems.map(i => [i.key, i.netQty]));
+  const cleaned = {};
+  for (const [key, qty] of Object.entries(analiticaQty.value)) {
+    if (!validKeys.has(key)) continue; // drop stale row
+    const clamped = Math.min(qty, netQtyMap[key]);
+    if (clamped > 0) cleaned[key] = clamped;
+  }
+  analiticaQty.value = cleaned;
+});
 const quotaRomana = computed(() => {
   if (splitWays.value <= 0) return 0;
   const waysLeft = splitWays.value - splitPaidQuotas.value;
@@ -1227,7 +1251,9 @@ const modalRestoParsed = computed(() => Math.max(0, parseFloat(modalResto.value)
 const modalManciaParsed = computed(() => Math.max(0, parseFloat(modalMancia.value) || 0));
 
 // True when the customer is paying less than the amount due (partial payment).
+// Analitica mode does not allow partial payments (vociRefs must match amountPaid).
 const modalIsPartial = computed(() =>
+  checkoutMode.value !== 'analitica' &&
   modalRicevutoParsed.value > 0 && modalRicevutoParsed.value < amountBeingPaid.value,
 );
 
@@ -1834,12 +1860,17 @@ function swapRestoMancia() {
 // Confirms the payment from the modal: records the transaction and closes the modal.
 // Partial payments (ricevuto < due) record only the ricevuto amount; the remaining
 // balance stays open until a subsequent transaction completes it.
+// Exception: in analitica mode partial payments are not allowed because vociRefs
+// must exactly match the paid amount; the cashier must receive at least the full
+// selected total.
 function confirmPaymentModal() {
   if (!modalMethodId.value) return;
   const ricevuto = parseFloat(modalRicevuto.value) || 0;
   if (ricevuto <= 0) return;
 
   const due = amountBeingPaid.value;
+  // In analitica mode require full coverage to keep vociRefs consistent.
+  if (checkoutMode.value === 'analitica' && ricevuto < due - BILL_SETTLED_THRESHOLD) return;
   const amountPaid = Math.min(ricevuto, due);
   const extra = {};
 

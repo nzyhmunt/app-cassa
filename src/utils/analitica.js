@@ -83,13 +83,19 @@ export function computeAnaliticaTotal(flatItems, qtyMap) {
  * Returns true when the uncapped selected total exceeds the remaining bill amount.
  * Used to block payment (canPay guard) and show an inline warning.
  *
+ * Comparison is done at cent-level precision (Math.round × 100) to avoid
+ * IEEE-754 rounding artefacts blocking a selection that is effectively equal
+ * to the remaining balance.
+ *
  * @param {object[]} flatItems       - Output of buildFlatAnaliticaItems.
  * @param {object}   qtyMap          - { key: selectedQty } map.
  * @param {number}   amountRemaining - Remaining bill balance.
  * @returns {boolean}
  */
 export function selectionExceedsRemaining(flatItems, qtyMap, amountRemaining) {
-  return computeAnaliticaTotal(flatItems, qtyMap) > amountRemaining;
+  const totalCents = Math.round(computeAnaliticaTotal(flatItems, qtyMap) * 100);
+  const remainingCents = Math.round(amountRemaining * 100);
+  return totalCents > remainingCents;
 }
 
 /**
