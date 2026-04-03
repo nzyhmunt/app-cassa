@@ -596,8 +596,8 @@
               <span class="text-lg font-black theme-text">{{ store.config.ui.currency }}{{ amountBeingPaid.toFixed(2) }}</span>
             </div>
 
-            <!-- Metodi di pagamento -->
-            <div class="grid grid-cols-2 gap-2.5">
+            <!-- Metodi di pagamento (nascosti quando il conto è saldato) -->
+            <div v-if="!canManuallyCloseBill" class="grid grid-cols-2 gap-2.5">
               <button
                 v-for="method in store.config.paymentMethods"
                 :key="method.id"
