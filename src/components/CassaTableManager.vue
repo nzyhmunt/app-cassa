@@ -6,25 +6,15 @@
         <h2 class="text-xl md:text-2xl font-black text-gray-800 flex items-center gap-2 md:gap-3">
           <Grid3x3 class="text-gray-500 size-6 md:size-8" /> Mappa Sala
         </h2>
-        <div class="flex items-center gap-3">
-          <!-- Storico Conti button -->
-          <router-link
-            to="/storico-conti"
-            class="flex items-center gap-1.5 text-[10px] md:text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-3 py-2 rounded-xl transition-colors shadow-sm active:scale-95"
-            title="Cronologia Conti Chiusi"
-            aria-label="Storico Conti"
-          >
-            <History class="size-4" /> <span class="hidden sm:inline">Storico Conti</span>
-          </router-link>
-          <!-- Legenda -->
-          <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] font-bold uppercase text-gray-500">
-            <span class="flex items-center gap-1"><span class="size-3 rounded-full border-2 border-emerald-400 bg-emerald-100"></span> Libero</span>
-            <span class="flex items-center gap-1"><span class="size-3 rounded-full border-2 border-amber-400 bg-amber-100"></span> In Attesa</span>
-            <span class="flex items-center gap-1"><span class="size-3 rounded-full border-2 border-violet-400 bg-violet-100"></span> Saldato</span>
-            <span class="flex items-center gap-1"><span class="size-3 rounded-full border-2 border-blue-400 bg-blue-100"></span> Conto Richiesto</span>
-            <span class="flex items-center gap-1"><span class="size-3 rounded-full theme-bg border-2 border-white shadow-sm"></span> Occupato</span>
-          </div>
-        </div>
+        <!-- Storico Conti button -->
+        <router-link
+          to="/storico-conti"
+          class="flex items-center gap-1.5 text-[10px] md:text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-3 py-2 rounded-xl transition-colors shadow-sm active:scale-95"
+          title="Cronologia Conti Chiusi"
+          aria-label="Storico Conti"
+        >
+          <History class="size-4" /> <span class="hidden sm:inline">Storico Conti</span>
+        </router-link>
       </div>
 
       <!-- Riepilogo stato tavoli -->
@@ -35,20 +25,31 @@
         :saldatoCount="saldatoTablesCount"
       />
 
-      <!-- Tab Sala — visibili solo quando sono configurate più sale -->
-      <div v-if="store.rooms.length > 1" class="flex gap-2 mb-4 overflow-x-auto pb-1 -mx-1 px-1">
-        <button
-          v-for="room in store.rooms"
-          :key="room.id"
-          @click="activeRoomId = room.id"
-          class="shrink-0 px-4 py-2 rounded-xl font-bold text-sm transition-all active:scale-95"
-          :class="activeRoomId === room.id
-            ? 'theme-bg text-white shadow-md'
-            : 'bg-white text-gray-600 border border-gray-200 hover:border-gray-300 shadow-sm'"
-        >
-          {{ room.label }}
-          <span class="ml-1.5 text-[10px] font-black opacity-70">{{ room.tables.length }}</span>
-        </button>
+      <!-- Tab Sala + Legenda — sulla stessa riga -->
+      <div class="flex items-center gap-2 mb-4 -mx-1 px-1">
+        <!-- Tab Sala — visibili solo quando sono configurate più sale -->
+        <div v-if="store.rooms.length > 1" class="flex gap-2 overflow-x-auto pb-1">
+          <button
+            v-for="room in store.rooms"
+            :key="room.id"
+            @click="activeRoomId = room.id"
+            class="shrink-0 px-4 py-2 rounded-xl font-bold text-sm transition-all active:scale-95"
+            :class="activeRoomId === room.id
+              ? 'theme-bg text-white shadow-md'
+              : 'bg-white text-gray-600 border border-gray-200 hover:border-gray-300 shadow-sm'"
+          >
+            {{ room.label }}
+            <span class="ml-1.5 text-[10px] font-black opacity-70">{{ room.tables.length }}</span>
+          </button>
+        </div>
+        <!-- Legenda -->
+        <div class="ml-auto flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] font-bold uppercase text-gray-500">
+          <span class="flex items-center gap-1"><span class="size-3 rounded-full border-2 border-emerald-400 bg-emerald-100"></span> Libero</span>
+          <span class="flex items-center gap-1"><span class="size-3 rounded-full border-2 border-amber-400 bg-amber-100"></span> In Attesa</span>
+          <span class="flex items-center gap-1"><span class="size-3 rounded-full border-2 border-violet-400 bg-violet-100"></span> Saldato</span>
+          <span class="flex items-center gap-1"><span class="size-3 rounded-full border-2 border-blue-400 bg-blue-100"></span> Conto Richiesto</span>
+          <span class="flex items-center gap-1"><span class="size-3 rounded-full theme-bg border-2 border-white shadow-sm"></span> Occupato</span>
+        </div>
       </div>
 
       <!-- Griglia Tavoli -->
