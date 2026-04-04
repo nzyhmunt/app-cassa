@@ -12,6 +12,7 @@
         <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] font-bold uppercase text-gray-500">
           <span class="flex items-center gap-1"><span class="size-3 rounded-full border-2 border-emerald-400 bg-emerald-100"></span> Libero</span>
           <span class="flex items-center gap-1"><span class="size-3 rounded-full border-2 border-amber-400 bg-amber-100"></span> In Attesa</span>
+          <span class="flex items-center gap-1"><span class="size-3 rounded-full border-2 border-violet-400 bg-violet-100"></span> Saldato</span>
           <span class="flex items-center gap-1"><span class="size-3 rounded-full theme-bg border-2 border-white shadow-sm"></span> Occupato</span>
         </div>
       </div>
@@ -21,6 +22,7 @@
         :freeCount="freeTablesCount"
         :occupiedCount="occupiedTablesCount"
         :pendingCount="pendingTablesCount"
+        :saldatoCount="saldatoTablesCount"
       />
 
       <!-- Tab Sala — visibili solo quando sono configurate più sale -->
@@ -43,7 +45,7 @@
       <TableGrid :tables="activeRoomTables" @open-table="openTableDetails">
         <template #status="{ table }">
           <span class="block text-[8px] md:text-[10px] font-bold uppercase tracking-widest opacity-80 mb-0.5 md:mb-1 truncate">
-            {{ store.getTableStatus(table.id).status === 'pending' ? 'In Attesa' : 'Occupato' }}
+            {{ store.getTableStatus(table.id).status === 'pending' ? 'In Attesa' : store.getTableStatus(table.id).status === 'saldato' ? 'Saldato' : 'Occupato' }}
           </span>
           <span class="block font-black text-sm md:text-lg bg-white/20 rounded-md md:rounded-lg py-0.5 px-1 truncate">
             {{ tableOrderCount(table.id) }} coman{{ tableOrderCount(table.id) !== 1 ? 'de' : 'da' }}
@@ -252,6 +254,9 @@ const occupiedTablesCount = computed(() =>
 );
 const pendingTablesCount = computed(() =>
   store.config.tables.filter(t => store.getTableStatus(t.id).status === 'pending').length,
+);
+const saldatoTablesCount = computed(() =>
+  store.config.tables.filter(t => store.getTableStatus(t.id).status === 'saldato').length,
 );
 
 function tableOrderCount(tableId) {

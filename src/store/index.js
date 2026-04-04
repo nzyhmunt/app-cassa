@@ -165,6 +165,7 @@ export const useAppStore = defineStore('app', () => {
     const remaining = Math.max(0, total - paid);
 
     if (ords.some(o => o.status === 'pending')) return { status: 'pending', total, remaining };
+    if (remaining === 0) return { status: 'saldato', total, remaining };
     if (billRequestedTables.value.has(tableId)) return { status: 'conto_richiesto', total, remaining };
     return { status: 'occupied', total, remaining };
   }
@@ -173,6 +174,7 @@ export const useAppStore = defineStore('app', () => {
     const st = getTableStatus(tableId).status;
     if (st === 'free') return 'border-emerald-200 text-emerald-800 bg-emerald-50 hover:bg-emerald-100';
     if (st === 'pending') return 'border-amber-400 text-amber-900 bg-amber-50 shadow-[0_0_15px_rgba(251,191,36,0.3)]';
+    if (st === 'saldato') return 'border-violet-400 text-violet-900 bg-violet-100 shadow-[0_0_15px_rgba(139,92,246,0.3)]';
     if (st === 'conto_richiesto') return 'border-blue-400 text-blue-900 bg-blue-100 shadow-[0_0_15px_rgba(59,130,246,0.3)]';
     return 'border-[var(--brand-primary)] text-white theme-bg shadow-md';
   }

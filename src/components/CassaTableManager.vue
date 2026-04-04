@@ -20,6 +20,7 @@
           <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] font-bold uppercase text-gray-500">
             <span class="flex items-center gap-1"><span class="size-3 rounded-full border-2 border-emerald-400 bg-emerald-100"></span> Libero</span>
             <span class="flex items-center gap-1"><span class="size-3 rounded-full border-2 border-amber-400 bg-amber-100"></span> In Attesa</span>
+            <span class="flex items-center gap-1"><span class="size-3 rounded-full border-2 border-violet-400 bg-violet-100"></span> Saldato</span>
             <span class="flex items-center gap-1"><span class="size-3 rounded-full border-2 border-blue-400 bg-blue-100"></span> Conto Richiesto</span>
             <span class="flex items-center gap-1"><span class="size-3 rounded-full theme-bg border-2 border-white shadow-sm"></span> Occupato</span>
           </div>
@@ -31,6 +32,7 @@
         :freeCount="freeTablesCount"
         :occupiedCount="occupiedTablesCount"
         :pendingCount="pendingTablesCount"
+        :saldatoCount="saldatoTablesCount"
       />
 
       <!-- Tab Sala — visibili solo quando sono configurate più sale -->
@@ -53,7 +55,7 @@
       <TableGrid :tables="activeRoomTables" @open-table="openTableDetails">
         <template #status="{ table }">
           <span class="block text-[8px] md:text-[10px] font-bold uppercase tracking-widest opacity-80 mb-0.5 md:mb-1 truncate">
-            {{ store.getTableStatus(table.id).status === 'pending' ? 'In Attesa' : store.getTableStatus(table.id).status === 'conto_richiesto' ? 'Conto!' : 'Occupato' }}
+            {{ store.getTableStatus(table.id).status === 'pending' ? 'In Attesa' : store.getTableStatus(table.id).status === 'saldato' ? 'Saldato' : store.getTableStatus(table.id).status === 'conto_richiesto' ? 'Conto!' : 'Occupato' }}
           </span>
           <span class="block font-black text-sm md:text-lg bg-white/20 rounded-md md:rounded-lg py-0.5 px-1 truncate">
             {{ store.config.ui.currency }}{{ store.getTableStatus(table.id).remaining.toFixed(2) }}
@@ -1128,18 +1130,20 @@ const freeTables = computed(() =>
 );
 
 const tableStatusCounts = computed(() => {
-  let free = 0, occupied = 0, pending = 0;
+  let free = 0, occupied = 0, pending = 0, saldato = 0;
   for (const t of store.config.tables) {
     const s = store.getTableStatus(t.id).status;
     if (s === 'free') free++;
+    else if (s === 'saldato') saldato++;
     else if (s === 'occupied' || s === 'conto_richiesto') occupied++;
     else if (s === 'pending') pending++;
   }
-  return { free, occupied, pending };
+  return { free, occupied, pending, saldato };
 });
 const freeTablesCount = computed(() => tableStatusCounts.value.free);
 const occupiedTablesCount = computed(() => tableStatusCounts.value.occupied);
 const pendingTablesCount = computed(() => tableStatusCounts.value.pending);
+const saldatoTablesCount = computed(() => tableStatusCounts.value.saldato);
 
 const occupiedTables = computed(() =>
   store.config.tables.filter(
