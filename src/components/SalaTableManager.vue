@@ -65,7 +65,7 @@
                 {{ tableStatus.status === 'pending' ? 'In Attesa' : tableStatus.status === 'paid' ? 'Saldato' : 'Occupato' }}
               </span>
               <span class="block font-black text-sm md:text-lg bg-white/20 rounded-md md:rounded-lg py-0.5 px-1 truncate">
-                {{ tableOrderCount(table.id) }} coman{{ tableOrderCount(table.id) !== 1 ? 'de' : 'da' }}
+                {{ orderCountMap[table.id] }} coman{{ orderCountMap[table.id] !== 1 ? 'de' : 'da' }}
               </span>
             </template>
           </TableGrid>
@@ -79,7 +79,7 @@
             {{ tableStatus.status === 'pending' ? 'In Attesa' : tableStatus.status === 'paid' ? 'Saldato' : 'Occupato' }}
           </span>
           <span class="block font-black text-sm md:text-lg bg-white/20 rounded-md md:rounded-lg py-0.5 px-1 truncate">
-            {{ tableOrderCount(table.id) }} coman{{ tableOrderCount(table.id) !== 1 ? 'de' : 'da' }}
+            {{ orderCountMap[table.id] }} coman{{ orderCountMap[table.id] !== 1 ? 'de' : 'da' }}
           </span>
         </template>
       </TableGrid>
@@ -270,9 +270,29 @@ const store = useAppStore();
 const activeRoomId = ref(store.rooms.length > 1 ? 'all' : (store.rooms[0]?.id ?? null));
 const activeStatusFilter = ref(null);
 
+// Compute status once per table for all tables; reused by filtering, counters, and slot.
+const allTablesStatusMap = computed(() => {
+  const map = {};
+  for (const table of store.config.tables) {
+    map[table.id] = store.getTableStatus(table.id);
+  }
+  return map;
+});
+
+// Compute order count once per table; reused in the slot template.
+const orderCountMap = computed(() => {
+  const map = {};
+  for (const table of store.config.tables) {
+    map[table.id] = store.orders.filter(
+      o => o.table === table.id && o.status !== 'completed' && o.status !== 'rejected',
+    ).length;
+  }
+  return map;
+});
+
 function matchesActiveStatusFilter(table) {
   if (!activeStatusFilter.value) return true;
-  const status = store.getTableStatus(table.id).status;
+  const status = allTablesStatusMap.value[table.id]?.status;
   if (activeStatusFilter.value === 'occupied') {
     return status === 'occupied' || status === 'bill_requested';
   }
@@ -298,26 +318,20 @@ const activeRoomTables = computed(() => {
 
 // ── Table status counters ──────────────────────────────────────────────────
 const freeTablesCount = computed(() =>
-  store.config.tables.filter(t => store.getTableStatus(t.id).status === 'free').length,
+  store.config.tables.filter(t => allTablesStatusMap.value[t.id]?.status === 'free').length,
 );
 const occupiedTablesCount = computed(() =>
   store.config.tables.filter(t => {
-    const st = store.getTableStatus(t.id).status;
+    const st = allTablesStatusMap.value[t.id]?.status;
     return st === 'occupied' || st === 'bill_requested';
   }).length,
 );
 const pendingTablesCount = computed(() =>
-  store.config.tables.filter(t => store.getTableStatus(t.id).status === 'pending').length,
+  store.config.tables.filter(t => allTablesStatusMap.value[t.id]?.status === 'pending').length,
 );
 const paidTablesCount = computed(() =>
-  store.config.tables.filter(t => store.getTableStatus(t.id).status === 'paid').length,
+  store.config.tables.filter(t => allTablesStatusMap.value[t.id]?.status === 'paid').length,
 );
-
-function tableOrderCount(tableId) {
-  return store.orders.filter(
-    o => o.table === tableId && o.status !== 'completed' && o.status !== 'rejected',
-  ).length;
-}
 
 // ── People modal ────────────────────────────────────────────────────────────
 const showPeopleModal = ref(false);
