@@ -14,6 +14,18 @@
       <div class="flex flex-wrap items-center gap-2 mb-4 md:mb-5 overflow-x-auto pb-1 -mx-1 px-1">
         <!-- Room tabs — visibili solo quando sono configurate più sale -->
         <template v-if="store.rooms.length > 1">
+          <!-- Tutti -->
+          <button
+            @click="activeRoomId = 'all'; activeStatusFilter = null"
+            class="shrink-0 px-3 py-2 rounded-xl font-bold text-xs transition-all active:scale-95"
+            :class="activeRoomId === 'all'
+              ? 'theme-bg text-white shadow-md'
+              : 'bg-white text-gray-600 border border-gray-200 hover:border-gray-300 shadow-sm'"
+          >
+            Tutti
+            <span class="ml-1 text-[10px] font-black opacity-70">{{ store.config.tables.length }}</span>
+          </button>
+          <!-- Singole sale -->
           <button
             v-for="room in store.rooms"
             :key="room.id"
@@ -41,8 +53,25 @@
         />
       </div>
 
-      <!-- Griglia Tavoli -->
-      <TableGrid :tables="activeRoomTables" @open-table="openTableDetails">
+      <!-- Griglia Tavoli — vista "Tutti" raggruppata per sala -->
+      <template v-if="activeRoomId === 'all' && store.rooms.length > 1">
+        <div v-for="room in store.rooms" :key="room.id" class="mb-6 last:mb-0">
+          <p class="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-2 px-0.5">{{ room.label }}</p>
+          <TableGrid :tables="filteredTablesForRoom(room)" @open-table="openTableDetails">
+            <template #status="{ table }">
+              <span class="block text-[8px] md:text-[10px] font-bold uppercase tracking-widest opacity-80 mb-0.5 md:mb-1 truncate">
+                {{ store.getTableStatus(table.id).status === 'pending' ? 'In Attesa' : store.getTableStatus(table.id).status === 'saldato' ? 'Saldato' : 'Occupato' }}
+              </span>
+              <span class="block font-black text-sm md:text-lg bg-white/20 rounded-md md:rounded-lg py-0.5 px-1 truncate">
+                {{ tableOrderCount(table.id) }} coman{{ tableOrderCount(table.id) !== 1 ? 'de' : 'da' }}
+              </span>
+            </template>
+          </TableGrid>
+        </div>
+      </template>
+
+      <!-- Griglia Tavoli — vista singola sala -->
+      <TableGrid v-else :tables="activeRoomTables" @open-table="openTableDetails">
         <template #status="{ table }">
           <span class="block text-[8px] md:text-[10px] font-bold uppercase tracking-widest opacity-80 mb-0.5 md:mb-1 truncate">
             {{ store.getTableStatus(table.id).status === 'pending' ? 'In Attesa' : store.getTableStatus(table.id).status === 'saldato' ? 'Saldato' : 'Occupato' }}
@@ -236,9 +265,20 @@ const emit = defineEmits(['new-order-for-comande', 'view-order']);
 const store = useAppStore();
 
 // ── Room tabs ─────────────────────────────────────────────────────────────
-const activeRoomId = ref(store.rooms[0]?.id ?? null);
+const activeRoomId = ref(store.rooms.length > 1 ? 'all' : (store.rooms[0]?.id ?? null));
 const activeStatusFilter = ref(null);
+
+function filteredTablesForRoom(room) {
+  if (!activeStatusFilter.value) return room.tables;
+  return room.tables.filter(t => store.getTableStatus(t.id).status === activeStatusFilter.value);
+}
+
 const activeRoomTables = computed(() => {
+  if (activeRoomId.value === 'all') {
+    const all = store.config.tables;
+    if (!activeStatusFilter.value) return all;
+    return all.filter(t => store.getTableStatus(t.id).status === activeStatusFilter.value);
+  }
   const room = store.rooms.find(r => r.id === activeRoomId.value);
   const tables = room ? room.tables : store.config.tables;
   if (!activeStatusFilter.value) return tables;
