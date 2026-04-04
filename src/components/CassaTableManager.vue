@@ -1142,24 +1142,35 @@ const showTableModal = ref(false);
 const selectedTable = ref(null);
 
 // ── Room tabs ─────────────────────────────────────────────────────────────
-const activeRoomId = ref(store.rooms.length > 1 ? 'all' : (store.rooms[0]?.id ?? null));
+function getInitialActiveRoomId(rooms) {
+  return rooms.length > 1 ? 'all' : (rooms[0]?.id ?? null);
+}
+
+function getTablesForActiveRoom(rooms, allTables, roomId) {
+  if (roomId === 'all') return allTables;
+  const room = rooms.find(r => r.id === roomId);
+  return room ? room.tables : allTables;
+}
+
+function filterTablesByStatus(tables, statusFilter) {
+  if (!statusFilter) return tables;
+  return tables.filter(t => store.getTableStatus(t.id).status === statusFilter);
+}
+
+const activeRoomId = ref(getInitialActiveRoomId(store.rooms));
 const activeStatusFilter = ref(null);
 
 function filteredTablesForRoom(room) {
-  if (!activeStatusFilter.value) return room.tables;
-  return room.tables.filter(t => store.getTableStatus(t.id).status === activeStatusFilter.value);
+  return filterTablesByStatus(room.tables, activeStatusFilter.value);
 }
 
 const activeRoomTables = computed(() => {
-  if (activeRoomId.value === 'all') {
-    const all = store.config.tables;
-    if (!activeStatusFilter.value) return all;
-    return all.filter(t => store.getTableStatus(t.id).status === activeStatusFilter.value);
-  }
-  const room = store.rooms.find(r => r.id === activeRoomId.value);
-  const tables = room ? room.tables : store.config.tables;
-  if (!activeStatusFilter.value) return tables;
-  return tables.filter(t => store.getTableStatus(t.id).status === activeStatusFilter.value);
+  const tables = getTablesForActiveRoom(
+    store.rooms,
+    store.config.tables,
+    activeRoomId.value,
+  );
+  return filterTablesByStatus(tables, activeStatusFilter.value);
 });
 
 // ── Sposta / Unisci modal state ────────────────────────────────────────────
