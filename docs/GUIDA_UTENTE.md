@@ -438,9 +438,10 @@ Stessa griglia della Cassa ma con interfaccia più semplice:
 | Stato | Visualizzato |
 |-------|-------------|
 | **Libero** | Tavolo vuoto, cliccabile |
-| **In Attesa** | "Attesa" + numero comande |
-| **Occupato** | "In Cassa" + numero comande |
+| **In Attesa** | Tavolo con comande aperte in attesa, con numero comande |
+| **Occupato** | Tavolo con conto aperto, con numero comande |
 
+Nella sezione **Comande** e nei relativi filtri è presente anche lo stato **`Saldato`**.
 Quando sono configurate **più sale**, l'App Sala mostra le stesse **tab di selezione sala** dell'App Cassa — vedere [§ 3.2 Più sale](#più-sale-raggruppamento).
 
 ### 8.3 Aprire un tavolo libero
