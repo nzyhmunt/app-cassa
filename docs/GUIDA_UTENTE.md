@@ -110,7 +110,7 @@ Quando sono configurate **più sale** (es. Sala Interna + Terrazza), sopra la gr
 
 - Ogni tab mostra il nome della sala e il numero di tavoli che contiene
 - Fare clic su una tab filtra la griglia mostrando solo i tavoli di quella sala
-- La **barra statistiche** (Liberi / Occupati / In Attesa) rimane sempre globale e conta i tavoli di tutte le sale
+- La **barra statistiche** rimane sempre globale e conta i tavoli di tutte le sale
 - La configurazione avviene in `appConfig.rooms` tramite `src/utils/index.js`
 
 La **barra statistiche** in cima alla mappa mostra le pillole cliccabili (fungono anche da filtro e da legenda):
