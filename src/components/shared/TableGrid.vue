@@ -1,7 +1,7 @@
 <template>
   <!-- Table grid — shared by CassaTableManager and SalaTableManager.
        The app-specific status label + value are injected via the #status scoped slot:
-         <template #status="{ table }">…</template>                             -->
+         <template #status="{ table, tableStatus }">…</template>                -->
   <div class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 gap-3 md:gap-4">
     <button
       v-for="table in tables"
