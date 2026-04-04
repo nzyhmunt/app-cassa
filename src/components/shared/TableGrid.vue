@@ -6,6 +6,7 @@
     <button
       v-for="table in tables"
       :key="table.id"
+      type="button"
       @click="$emit('open-table', table)"
       class="relative aspect-square rounded-2xl border-[3px] flex flex-col items-center justify-center p-2 md:p-3 transition-transform active:scale-95 shadow-sm bg-white overflow-hidden group"
       :class="store.getTableColorClass(table.id)"
