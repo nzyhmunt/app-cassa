@@ -204,7 +204,9 @@ export const appConfig = {
 
 // Derive flat tables list from rooms — kept in sync at module load time.
 // All store/component code that needs the full table list reads appConfig.tables.
-appConfig.tables = appConfig.rooms.flatMap(r => r.tables);
+appConfig.tables = Array.isArray(appConfig.rooms)
+  ? appConfig.rooms.flatMap(r => r.tables || [])
+  : (Array.isArray(appConfig.tables) ? appConfig.tables : []);
 
 /**
  * Returns a stable, unique string key for a closed bill.
