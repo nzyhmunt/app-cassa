@@ -17,29 +17,36 @@
         </router-link>
       </div>
 
-      <!-- Riepilogo stato tavoli -->
-      <TableStatsBar
-        :freeCount="freeTablesCount"
-        :occupiedCount="occupiedTablesCount"
-        :pendingCount="pendingTablesCount"
-        :saldatoCount="saldatoTablesCount"
-        :billRequestedCount="billRequestedTablesCount"
-      />
+      <!-- Riepilogo stato tavoli + Tab Sala + Filtri stato — tutto nella stessa barra -->
+      <div class="flex flex-wrap items-center gap-2 mb-4 md:mb-5 overflow-x-auto pb-1 -mx-1 px-1">
+        <!-- Room tabs — visibili solo quando sono configurate più sale -->
+        <template v-if="store.rooms.length > 1">
+          <button
+            v-for="room in store.rooms"
+            :key="room.id"
+            @click="activeRoomId = room.id; activeStatusFilter = null"
+            class="shrink-0 px-3 py-2 rounded-xl font-bold text-xs transition-all active:scale-95"
+            :class="activeRoomId === room.id
+              ? 'theme-bg text-white shadow-md'
+              : 'bg-white text-gray-600 border border-gray-200 hover:border-gray-300 shadow-sm'"
+          >
+            {{ room.label }}
+            <span class="ml-1 text-[10px] font-black opacity-70">{{ room.tables.length }}</span>
+          </button>
+          <!-- Divisore -->
+          <span class="w-px h-5 bg-gray-300 shrink-0 self-center"></span>
+        </template>
 
-      <!-- Tab Sala — visibili solo quando sono configurate più sale -->
-      <div v-if="store.rooms.length > 1" class="flex gap-2 mb-4 overflow-x-auto pb-1 -mx-1 px-1">
-        <button
-          v-for="room in store.rooms"
-          :key="room.id"
-          @click="activeRoomId = room.id"
-          class="shrink-0 px-4 py-2 rounded-xl font-bold text-sm transition-all active:scale-95"
-          :class="activeRoomId === room.id
-            ? 'theme-bg text-white shadow-md'
-            : 'bg-white text-gray-600 border border-gray-200 hover:border-gray-300 shadow-sm'"
-        >
-          {{ room.label }}
-          <span class="ml-1.5 text-[10px] font-black opacity-70">{{ room.tables.length }}</span>
-        </button>
+        <!-- Filtri stato tavoli -->
+        <TableStatsBar
+          :freeCount="freeTablesCount"
+          :occupiedCount="occupiedTablesCount"
+          :pendingCount="pendingTablesCount"
+          :saldatoCount="saldatoTablesCount"
+          :billRequestedCount="billRequestedTablesCount"
+          :activeFilter="activeStatusFilter"
+          @update:activeFilter="activeStatusFilter = $event"
+        />
       </div>
 
       <!-- Griglia Tavoli -->
@@ -1105,9 +1112,12 @@ const selectedTable = ref(null);
 
 // ── Room tabs ─────────────────────────────────────────────────────────────
 const activeRoomId = ref(store.rooms[0]?.id ?? null);
+const activeStatusFilter = ref(null);
 const activeRoomTables = computed(() => {
   const room = store.rooms.find(r => r.id === activeRoomId.value);
-  return room ? room.tables : store.config.tables;
+  const tables = room ? room.tables : store.config.tables;
+  if (!activeStatusFilter.value) return tables;
+  return tables.filter(t => store.getTableStatus(t.id).status === activeStatusFilter.value);
 });
 
 // ── Sposta / Unisci modal state ────────────────────────────────────────────
