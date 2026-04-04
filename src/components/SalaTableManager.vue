@@ -270,21 +270,30 @@ const store = useAppStore();
 const activeRoomId = ref(store.rooms.length > 1 ? 'all' : (store.rooms[0]?.id ?? null));
 const activeStatusFilter = ref(null);
 
+function matchesActiveStatusFilter(table) {
+  if (!activeStatusFilter.value) return true;
+  const status = store.getTableStatus(table.id).status;
+  if (activeStatusFilter.value === 'occupied') {
+    return status === 'occupied' || status === 'bill_requested';
+  }
+  return status === activeStatusFilter.value;
+}
+
 function filteredTablesForRoom(room) {
   if (!activeStatusFilter.value) return room.tables;
-  return room.tables.filter(t => store.getTableStatus(t.id).status === activeStatusFilter.value);
+  return room.tables.filter(matchesActiveStatusFilter);
 }
 
 const activeRoomTables = computed(() => {
   if (activeRoomId.value === 'all') {
     const all = store.config.tables;
     if (!activeStatusFilter.value) return all;
-    return all.filter(t => store.getTableStatus(t.id).status === activeStatusFilter.value);
+    return all.filter(matchesActiveStatusFilter);
   }
   const room = store.rooms.find(r => r.id === activeRoomId.value);
   const tables = room ? room.tables : store.config.tables;
   if (!activeStatusFilter.value) return tables;
-  return tables.filter(t => store.getTableStatus(t.id).status === activeStatusFilter.value);
+  return tables.filter(matchesActiveStatusFilter);
 });
 
 // ── Table status counters ──────────────────────────────────────────────────
