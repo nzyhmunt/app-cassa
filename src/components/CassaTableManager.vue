@@ -1152,9 +1152,26 @@ function getTablesForActiveRoom(rooms, allTables, roomId) {
   return room ? room.tables : allTables;
 }
 
+const tableStatusMap = computed(() => {
+  const map = {};
+  const seenTableIds = new Set();
+  const allKnownTables = [
+    ...(store.config.tables || []),
+    ...store.rooms.flatMap(room => room.tables || []),
+  ];
+
+  allKnownTables.forEach((table) => {
+    if (!table?.id || seenTableIds.has(table.id)) return;
+    seenTableIds.add(table.id);
+    map[table.id] = store.getTableStatus(table.id);
+  });
+
+  return map;
+});
+
 function filterTablesByStatus(tables, statusFilter) {
   if (!statusFilter) return tables;
-  return tables.filter(t => store.getTableStatus(t.id).status === statusFilter);
+  return tables.filter(t => tableStatusMap.value[t.id]?.status === statusFilter);
 }
 
 const activeRoomId = ref(getInitialActiveRoomId(store.rooms));
