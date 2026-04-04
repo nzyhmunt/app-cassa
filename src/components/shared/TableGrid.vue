@@ -2,25 +2,25 @@
   <!-- Table grid — shared by CassaTableManager and SalaTableManager.
        The app-specific status label + value are injected via the #status scoped slot:
          <template #status="{ table }">…</template>                             -->
-  <div class="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 md:gap-5">
+  <div class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 gap-3 md:gap-4">
     <button
       v-for="table in tables"
       :key="table.id"
       @click="$emit('open-table', table)"
-      class="relative aspect-square rounded-[1.5rem] md:rounded-[2rem] border-[3px] md:border-[4px] flex flex-col items-center justify-center p-2 md:p-4 transition-transform active:scale-95 shadow-sm bg-white overflow-hidden group"
+      class="relative aspect-square rounded-2xl border-[3px] flex flex-col items-center justify-center p-2 md:p-3 transition-transform active:scale-95 shadow-sm bg-white overflow-hidden group"
       :class="store.getTableColorClass(table.id)"
     >
       <!-- Covers badge -->
-      <span class="absolute top-2 right-2 md:top-3 md:right-3 text-[9px] md:text-xs font-bold opacity-60 flex items-center gap-0.5 md:gap-1">
-        <Users class="size-2.5 md:size-3" />{{ table.covers }}
+      <span class="absolute top-2 right-2 text-[9px] md:text-[10px] font-bold opacity-60 flex items-center gap-0.5">
+        <Users class="size-2.5" />{{ table.covers }}
       </span>
 
       <!-- Table label -->
-      <h3 class="text-xl md:text-3xl font-black mt-2">{{ table.label }}</h3>
+      <h3 class="text-xl md:text-2xl font-black mt-2">{{ table.label }}</h3>
 
       <!-- Non-free state: elapsed time + app-specific slot content -->
       <div v-if="store.getTableStatus(table.id).status !== 'free'" class="mt-auto text-center w-full">
-        <span v-if="getElapsedTime(table.id)" class="absolute top-2 left-2 md:top-3 md:left-3 text-[8px] font-bold opacity-70 flex items-center gap-0.5">
+        <span v-if="getElapsedTime(table.id)" class="absolute top-2 left-2 text-[8px] font-bold opacity-70 flex items-center gap-0.5">
           <Timer class="size-2.5" />{{ getElapsedTime(table.id) }}
         </span>
         <slot name="status" :table="table" />
