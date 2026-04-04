@@ -60,9 +60,9 @@
         <div v-for="room in store.rooms" :key="room.id" class="mb-6 last:mb-0">
           <p class="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-2 px-0.5">{{ room.label }}</p>
           <TableGrid :tables="filteredTablesForRoom(room)" @open-table="openTableDetails">
-            <template #status="{ table }">
+            <template #status="{ table, tableStatus }">
               <span class="block text-[8px] md:text-[10px] font-bold uppercase tracking-widest opacity-80 mb-0.5 md:mb-1 truncate">
-                {{ store.getTableStatus(table.id).status === 'pending' ? 'In Attesa' : store.getTableStatus(table.id).status === 'saldato' ? 'Saldato' : 'Occupato' }}
+                {{ tableStatus.status === 'pending' ? 'In Attesa' : tableStatus.status === 'saldato' ? 'Saldato' : 'Occupato' }}
               </span>
               <span class="block font-black text-sm md:text-lg bg-white/20 rounded-md md:rounded-lg py-0.5 px-1 truncate">
                 {{ tableOrderCount(table.id) }} coman{{ tableOrderCount(table.id) !== 1 ? 'de' : 'da' }}
@@ -74,9 +74,9 @@
 
       <!-- Griglia Tavoli — vista singola sala -->
       <TableGrid v-else :tables="activeRoomTables" @open-table="openTableDetails">
-        <template #status="{ table }">
+        <template #status="{ table, tableStatus }">
           <span class="block text-[8px] md:text-[10px] font-bold uppercase tracking-widest opacity-80 mb-0.5 md:mb-1 truncate">
-            {{ store.getTableStatus(table.id).status === 'pending' ? 'In Attesa' : store.getTableStatus(table.id).status === 'saldato' ? 'Saldato' : 'Occupato' }}
+            {{ tableStatus.status === 'pending' ? 'In Attesa' : tableStatus.status === 'saldato' ? 'Saldato' : 'Occupato' }}
           </span>
           <span class="block font-black text-sm md:text-lg bg-white/20 rounded-md md:rounded-lg py-0.5 px-1 truncate">
             {{ tableOrderCount(table.id) }} coman{{ tableOrderCount(table.id) !== 1 ? 'de' : 'da' }}

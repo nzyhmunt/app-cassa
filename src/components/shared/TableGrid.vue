@@ -19,17 +19,21 @@
       <h3 class="text-xl md:text-2xl font-black mt-2">{{ table.label }}</h3>
 
       <!-- Non-free state: elapsed time + app-specific slot content -->
-      <div v-if="store.getTableStatus(table.id).status !== 'free'" class="mt-auto text-center w-full">
-        <span v-if="getElapsedTime(table.id)" class="absolute top-2 left-2 text-[8px] font-bold opacity-70 flex items-center gap-0.5">
-          <Timer class="size-2.5" />{{ getElapsedTime(table.id) }}
-        </span>
-        <slot name="status" :table="table" />
-      </div>
+      <!-- tableStatus is computed once here and exposed via the slot scope to avoid repeated calls in parent templates -->
+      <template v-for="tableStatus in [store.getTableStatus(table.id)]" :key="'ts-' + table.id">
+        <div v-if="tableStatus.status !== 'free'" class="mt-auto text-center w-full">
+          <span v-if="getElapsedTime(table.id)" class="absolute top-2 left-2 text-[8px] font-bold opacity-70 flex items-center gap-0.5">
+            <Timer class="size-2.5" />{{ getElapsedTime(table.id) }}
+          </span>
+          <slot name="status" :table="table" :tableStatus="tableStatus" />
+        </div>
 
-      <!-- Free state -->
-      <div v-else class="mt-auto text-center w-full opacity-30">
-        <span class="block text-[9px] md:text-[10px] font-bold uppercase tracking-widest">Libero</span>
-      </div>
+        <!-- Free state -->
+        <div v-else class="mt-auto text-center w-full opacity-30">
+          <span class="block text-[9px] md:text-[10px] font-bold uppercase tracking-widest">Libero</span>
+        </div>
+      </template>
+
     </button>
   </div>
 </template>

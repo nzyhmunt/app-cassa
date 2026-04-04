@@ -99,9 +99,10 @@ La mappa mostra tutti i tavoli configurati con stati visivi distinti:
 | Stato | Colore bordo | Testo visualizzato | Significato |
 |-------|-------------|-------------------|-------------|
 | **Libero** | Verde smeraldo chiaro | — | Nessun cliente |
-| **In Attesa** | Ambra | "Attesa" | Comande inviate, non ancora accettate |
+| **In Attesa** | Ambra | "In Attesa" | Comande inviate, non ancora accettate |
+| **Saldato** | Viola | "Saldato" + €0.00 | Tutto pagato, conto non ancora chiuso |
 | **Conto Richiesto** | Blu | "Conto!" | Cliente ha richiesto il conto |
-| **Occupato** | Verde tema (teal) | "In Cassa" + importo residuo | Ordini accettati/in preparazione |
+| **Occupato** | Verde tema (teal) | "Occupato" + importo residuo | Ordini accettati/in preparazione |
 
 #### Più sale (raggruppamento)
 
@@ -112,10 +113,12 @@ Quando sono configurate **più sale** (es. Sala Interna + Terrazza), sopra la gr
 - La **barra statistiche** (Liberi / Occupati / In Attesa) rimane sempre globale e conta i tavoli di tutte le sale
 - La configurazione avviene in `appConfig.rooms` tramite `src/utils/index.js`
 
-La **barra statistiche** in cima alla mappa mostra le pillole di riepilogo:
+La **barra statistiche** in cima alla mappa mostra le pillole cliccabili (fungono anche da filtro e da legenda):
 - 🟢 **Liberi** — tavoli disponibili
-- 🔵 **Occupati** — tavoli con clienti e ordini attivi  
 - 🟡 **In Attesa** — tavoli con comande non ancora approvate
+- 🟣 **Saldati** — tutto pagato, conto non ancora chiuso
+- 🔵 **Conto Rich.** — cliente ha richiesto il conto *(solo App Cassa)*
+- 🟤 **Occupati** — tavoli con clienti e ordini attivi
 
 ### 3.3 Aprire un tavolo
 

@@ -4,6 +4,8 @@
     <!-- Libero -->
     <button
       @click="toggle('free')"
+      :aria-pressed="activeFilter === 'free'"
+      :aria-label="`Filtra per Liberi: ${freeCount} tavoli`"
       :class="[
         activeFilter === 'free' ? 'ring-2 ring-emerald-400 ring-offset-1' : '',
         freeCount > 0 ? 'bg-white border-gray-200' : 'bg-white/60 border-gray-100 opacity-50',
@@ -17,6 +19,8 @@
     <!-- In Attesa -->
     <button
       @click="toggle('pending')"
+      :aria-pressed="activeFilter === 'pending'"
+      :aria-label="`Filtra per In Attesa: ${pendingCount} tavoli`"
       :class="[
         activeFilter === 'pending' ? 'ring-2 ring-amber-400 ring-offset-1' : '',
         pendingCount > 0 ? 'bg-amber-50 border-amber-200' : 'bg-white/60 border-gray-100 opacity-50',
@@ -30,6 +34,8 @@
     <!-- Saldato -->
     <button
       @click="toggle('saldato')"
+      :aria-pressed="activeFilter === 'saldato'"
+      :aria-label="`Filtra per Saldati: ${saldatoCount} tavoli`"
       :class="[
         activeFilter === 'saldato' ? 'ring-2 ring-violet-400 ring-offset-1' : '',
         saldatoCount > 0 ? 'bg-violet-50 border-violet-200' : 'bg-white/60 border-gray-100 opacity-50',
@@ -44,6 +50,8 @@
     <button
       v-if="billRequestedCount !== undefined"
       @click="toggle('conto_richiesto')"
+      :aria-pressed="activeFilter === 'conto_richiesto'"
+      :aria-label="`Filtra per Conto Richiesto: ${billRequestedCount} tavoli`"
       :class="[
         activeFilter === 'conto_richiesto' ? 'ring-2 ring-blue-400 ring-offset-1' : '',
         billRequestedCount > 0 ? 'bg-blue-50 border-blue-200' : 'bg-white/60 border-gray-100 opacity-50',
@@ -57,6 +65,8 @@
     <!-- Occupato -->
     <button
       @click="toggle('occupied')"
+      :aria-pressed="activeFilter === 'occupied'"
+      :aria-label="`Filtra per Occupati: ${occupiedCount} tavoli`"
       :class="[
         activeFilter === 'occupied' ? 'ring-2 ring-emerald-700 ring-offset-1' : '',
         occupiedCount > 0 ? 'bg-white border-gray-200' : 'bg-white/60 border-gray-100 opacity-50',
