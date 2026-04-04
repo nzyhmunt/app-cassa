@@ -3,6 +3,7 @@
   <div class="flex flex-wrap items-center gap-2">
     <!-- Libero -->
     <button
+      type="button"
       @click="toggle('free')"
       :aria-pressed="activeFilter === 'free'"
       :aria-label="`Filtra per Liberi: ${freeCount} tavoli`"
@@ -18,6 +19,7 @@
     </button>
     <!-- Occupato -->
     <button
+      type="button"
       @click="toggle('occupied')"
       :aria-pressed="activeFilter === 'occupied'"
       :aria-label="`Filtra per Occupati: ${occupiedCount} tavoli`"
@@ -33,6 +35,7 @@
     </button>
     <!-- In Attesa -->
     <button
+      type="button"
       @click="toggle('pending')"
       :aria-pressed="activeFilter === 'pending'"
       :aria-label="`Filtra per In Attesa: ${pendingCount} tavoli`"
@@ -49,6 +52,7 @@
     <!-- Conto Richiesto — solo Cassa (prop opzionale) -->
     <button
       v-if="billRequestedCount !== undefined"
+      type="button"
       @click="toggle('bill_requested')"
       :aria-pressed="activeFilter === 'bill_requested'"
       :aria-label="`Filtra per Conto Richiesto: ${billRequestedCount} tavoli`"
@@ -64,6 +68,7 @@
     </button>
     <!-- Saldato -->
     <button
+      type="button"
       @click="toggle('paid')"
       :aria-pressed="activeFilter === 'paid'"
       :aria-label="`Filtra per Saldati: ${paidCount} tavoli`"
