@@ -57,13 +57,9 @@ const tableStatusMap = computed(() => {
   return map;
 });
 
-// Mirror of store.getTableColorClass, but accepts a pre-computed status string.
+// Delegate to the shared store helper so the status→CSS mapping is defined in one place.
 function colorClassFromStatus(status) {
-  if (status === 'free') return 'border-emerald-200 text-emerald-800 bg-emerald-50 hover:bg-emerald-100';
-  if (status === 'pending') return 'border-amber-400 text-amber-900 bg-amber-50 shadow-[0_0_15px_rgba(251,191,36,0.3)]';
-  if (status === 'paid') return 'border-violet-400 text-violet-900 bg-violet-100 shadow-[0_0_15px_rgba(139,92,246,0.3)]';
-  if (status === 'bill_requested') return 'border-blue-400 text-blue-900 bg-blue-100 shadow-[0_0_15px_rgba(59,130,246,0.3)]';
-  return 'border-[var(--brand-primary)] text-white theme-bg shadow-md';
+  return store.getTableColorClass(status);
 }
 
 // Reactive clock for elapsed-time display (updates every 30 s)
