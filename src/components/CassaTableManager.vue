@@ -505,7 +505,7 @@
             </div>
 
             <!-- Scelta Split Conto -->
-            <div v-if="tableAmountRemaining > 0" class="space-y-2 sm:space-y-3">
+            <div v-if="!canManuallyCloseBill" class="space-y-2 sm:space-y-3">
               <div class="flex gap-1.5">
                 <button aria-label="Tutto" @click="checkoutMode = 'unico'" :class="checkoutMode === 'unico' ? 'bg-gray-200 text-gray-800 border-gray-300 font-bold' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100'" class="flex-1 py-1.5 sm:py-2 text-xs rounded-xl border transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-sm"><Layers class="size-3.5 shrink-0" /><span class="hidden md:inline">Tutto</span></button>
                 <button aria-label="Romana" @click="checkoutMode = 'romana'" :class="checkoutMode === 'romana' ? 'bg-blue-100 text-blue-800 border-blue-200 font-bold' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100'" class="flex-1 py-1.5 sm:py-2 text-xs rounded-xl border transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-sm"><Users class="size-3.5 shrink-0" /><span class="hidden md:inline">Romana</span></button>
@@ -591,7 +591,7 @@
               Totale selezionato supera il conto rimanente ({{ store.config.ui.currency }}{{ tableAmountRemaining.toFixed(2) }})
             </div>
 
-            <div v-if="checkoutMode !== 'unico' && tableAmountRemaining > 0" class="flex justify-between items-center px-0.5">
+            <div v-if="checkoutMode !== 'unico' && !canManuallyCloseBill" class="flex justify-between items-center px-0.5">
               <span class="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Da pagare:</span>
               <span class="text-lg font-black theme-text">{{ store.config.ui.currency }}{{ amountBeingPaid.toFixed(2) }}</span>
             </div>
