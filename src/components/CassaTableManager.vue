@@ -56,7 +56,7 @@
           :freeCount="freeTablesCount"
           :occupiedCount="occupiedTablesCount"
           :pendingCount="pendingTablesCount"
-          :saldatoCount="saldatoTablesCount"
+          :paidCount="paidTablesCount"
           :billRequestedCount="billRequestedTablesCount"
           :activeFilter="activeStatusFilter"
           @update:activeFilter="activeStatusFilter = $event"
@@ -70,7 +70,7 @@
           <TableGrid :tables="filteredTablesForRoom(room)" @open-table="openTableDetails">
             <template #status="{ table, tableStatus }">
               <span class="block text-[8px] md:text-[10px] font-bold uppercase tracking-widest opacity-80 mb-0.5 md:mb-1 truncate">
-                {{ tableStatus.status === 'pending' ? 'In Attesa' : tableStatus.status === 'saldato' ? 'Saldato' : tableStatus.status === 'conto_richiesto' ? 'Conto!' : 'Occupato' }}
+                {{ tableStatus.status === 'pending' ? 'In Attesa' : tableStatus.status === 'paid' ? 'Saldato' : tableStatus.status === 'bill_requested' ? 'Conto!' : 'Occupato' }}
               </span>
               <span class="block font-black text-sm md:text-lg bg-white/20 rounded-md md:rounded-lg py-0.5 px-1 truncate">
                 {{ store.config.ui.currency }}{{ tableStatus.remaining.toFixed(2) }}
@@ -84,7 +84,7 @@
       <TableGrid v-else :tables="activeRoomTables" @open-table="openTableDetails">
         <template #status="{ table, tableStatus }">
           <span class="block text-[8px] md:text-[10px] font-bold uppercase tracking-widest opacity-80 mb-0.5 md:mb-1 truncate">
-            {{ tableStatus.status === 'pending' ? 'In Attesa' : tableStatus.status === 'saldato' ? 'Saldato' : tableStatus.status === 'conto_richiesto' ? 'Conto!' : 'Occupato' }}
+            {{ tableStatus.status === 'pending' ? 'In Attesa' : tableStatus.status === 'paid' ? 'Saldato' : tableStatus.status === 'bill_requested' ? 'Conto!' : 'Occupato' }}
           </span>
           <span class="block font-black text-sm md:text-lg bg-white/20 rounded-md md:rounded-lg py-0.5 px-1 truncate">
             {{ store.config.ui.currency }}{{ tableStatus.remaining.toFixed(2) }}
@@ -1184,21 +1184,21 @@ const freeTables = computed(() =>
 );
 
 const tableStatusCounts = computed(() => {
-  let free = 0, occupied = 0, pending = 0, saldato = 0, billRequested = 0;
+  let free = 0, occupied = 0, pending = 0, paid = 0, billRequested = 0;
   for (const t of store.config.tables) {
     const s = store.getTableStatus(t.id).status;
     if (s === 'free') free++;
-    else if (s === 'saldato') saldato++;
-    else if (s === 'conto_richiesto') billRequested++;
+    else if (s === 'paid') paid++;
+    else if (s === 'bill_requested') billRequested++;
     else if (s === 'occupied') occupied++;
     else if (s === 'pending') pending++;
   }
-  return { free, occupied, pending, saldato, billRequested };
+  return { free, occupied, pending, paid, billRequested };
 });
 const freeTablesCount = computed(() => tableStatusCounts.value.free);
 const occupiedTablesCount = computed(() => tableStatusCounts.value.occupied);
 const pendingTablesCount = computed(() => tableStatusCounts.value.pending);
-const saldatoTablesCount = computed(() => tableStatusCounts.value.saldato);
+const paidTablesCount = computed(() => tableStatusCounts.value.paid);
 const billRequestedTablesCount = computed(() => tableStatusCounts.value.billRequested);
 
 const occupiedTables = computed(() =>

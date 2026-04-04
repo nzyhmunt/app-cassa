@@ -1,10 +1,10 @@
 /**
  * @file tableStatus.test.js
- * @description Unit tests for store.getTableStatus() — status precedence, saldato logic,
- * and interactions with conto_richiesto.
+ * @description Unit tests for store.getTableStatus() — status precedence, paid logic,
+ * and interactions with bill_requested.
  *
  * Status precedence (highest → lowest):
- *   pending > saldato > conto_richiesto > occupied
+ *   pending > paid > bill_requested > occupied
  * A table is 'free' when it has no active (non-completed, non-rejected) orders.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -92,7 +92,7 @@ describe('getTableStatus() — pending', () => {
     expect(result.status).toBe('pending');
   });
 
-  it('pending takes precedence over saldato (remaining=0 but pending order exists)', () => {
+  it('pending takes precedence over paid (remaining=0 but pending order exists)', () => {
     const store = useAppStore();
     store.addOrder(makeOrder('ord1', 'T1', 'pending', 10));
     store.addOrder(makeOrder('ord2', 'T1', 'accepted', 10));
@@ -105,39 +105,39 @@ describe('getTableStatus() — pending', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Tests: saldato status
+// Tests: paid status
 // ---------------------------------------------------------------------------
 
-describe('getTableStatus() — saldato', () => {
-  it('returns saldato when remaining === 0 and no pending orders', () => {
+describe('getTableStatus() — paid', () => {
+  it('returns paid when remaining === 0 and no pending orders', () => {
     const store = useAppStore();
     store.addOrder(makeOrder('ord1', 'T1', 'accepted', 25));
     store.addTransaction(makeTransaction('T1', 25));
     const result = store.getTableStatus('T1');
-    expect(result.status).toBe('saldato');
+    expect(result.status).toBe('paid');
     expect(result.remaining).toBe(0);
   });
 
-  it('returns saldato even when conto_richiesto is set if remaining === 0', () => {
+  it('returns paid even when bill_requested is set if remaining === 0', () => {
     const store = useAppStore();
     store.addOrder(makeOrder('ord1', 'T1', 'accepted', 30));
     store.addTransaction(makeTransaction('T1', 30));
     store.setBillRequested('T1', true);
-    // saldato takes precedence over conto_richiesto
+    // paid takes precedence over bill_requested
     const result = store.getTableStatus('T1');
-    expect(result.status).toBe('saldato');
+    expect(result.status).toBe('paid');
   });
 
-  it('does NOT return saldato when remaining > 0', () => {
+  it('does NOT return paid when remaining > 0', () => {
     const store = useAppStore();
     store.addOrder(makeOrder('ord1', 'T1', 'accepted', 40));
     store.addTransaction(makeTransaction('T1', 20));
     const result = store.getTableStatus('T1');
-    expect(result.status).not.toBe('saldato');
+    expect(result.status).not.toBe('paid');
     expect(result.remaining).toBe(20);
   });
 
-  it('returns saldato total and remaining correctly', () => {
+  it('returns paid total and remaining correctly', () => {
     const store = useAppStore();
     store.addOrder(makeOrder('ord1', 'T1', 'accepted', 50));
     store.addTransaction(makeTransaction('T1', 50));
@@ -152,31 +152,31 @@ describe('getTableStatus() — saldato', () => {
     store.addTransaction(makeTransaction('T1', 40)); // overpaid
     const result = store.getTableStatus('T1');
     expect(result.remaining).toBe(0);
-    expect(result.status).toBe('saldato');
+    expect(result.status).toBe('paid');
   });
 });
 
 // ---------------------------------------------------------------------------
-// Tests: conto_richiesto status
+// Tests: bill_requested status
 // ---------------------------------------------------------------------------
 
-describe('getTableStatus() — conto_richiesto', () => {
-  it('returns conto_richiesto when bill is requested and remaining > 0', () => {
+describe('getTableStatus() — bill_requested', () => {
+  it('returns bill_requested when bill is requested and remaining > 0', () => {
     const store = useAppStore();
     store.addOrder(makeOrder('ord1', 'T1', 'accepted', 45));
     store.setBillRequested('T1', true);
     const result = store.getTableStatus('T1');
-    expect(result.status).toBe('conto_richiesto');
+    expect(result.status).toBe('bill_requested');
   });
 
-  it('does NOT return conto_richiesto when remaining === 0 (becomes saldato)', () => {
+  it('does NOT return bill_requested when remaining === 0 (becomes paid)', () => {
     const store = useAppStore();
     store.addOrder(makeOrder('ord1', 'T1', 'accepted', 45));
     store.addTransaction(makeTransaction('T1', 45));
     store.setBillRequested('T1', true);
     const result = store.getTableStatus('T1');
-    expect(result.status).toBe('saldato');
-    expect(result.status).not.toBe('conto_richiesto');
+    expect(result.status).toBe('paid');
+    expect(result.status).not.toBe('bill_requested');
   });
 });
 
@@ -208,27 +208,27 @@ describe('getTableStatus() — occupied', () => {
 // ---------------------------------------------------------------------------
 
 describe('getTableStatus() — status precedence', () => {
-  it('precedence: pending > saldato', () => {
+  it('precedence: pending > paid', () => {
     const store = useAppStore();
-    // One accepted order fully paid (→ saldato candidate) + one pending order
+    // One accepted order fully paid (→ paid candidate) + one pending order
     store.addOrder(makeOrder('ord1', 'T1', 'accepted', 20));
     store.addOrder(makeOrder('ord2', 'T1', 'pending', 0));
     store.addTransaction(makeTransaction('T1', 20));
     expect(store.getTableStatus('T1').status).toBe('pending');
   });
 
-  it('precedence: saldato > conto_richiesto', () => {
+  it('precedence: paid > bill_requested', () => {
     const store = useAppStore();
     store.addOrder(makeOrder('ord1', 'T1', 'accepted', 20));
     store.addTransaction(makeTransaction('T1', 20));
     store.setBillRequested('T1', true);
-    expect(store.getTableStatus('T1').status).toBe('saldato');
+    expect(store.getTableStatus('T1').status).toBe('paid');
   });
 
-  it('precedence: conto_richiesto > occupied', () => {
+  it('precedence: bill_requested > occupied', () => {
     const store = useAppStore();
     store.addOrder(makeOrder('ord1', 'T1', 'accepted', 20));
     store.setBillRequested('T1', true);
-    expect(store.getTableStatus('T1').status).toBe('conto_richiesto');
+    expect(store.getTableStatus('T1').status).toBe('bill_requested');
   });
 });

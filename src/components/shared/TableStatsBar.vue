@@ -33,27 +33,27 @@
     </button>
     <!-- Saldato -->
     <button
-      @click="toggle('saldato')"
-      :aria-pressed="activeFilter === 'saldato'"
-      :aria-label="`Filtra per Saldati: ${saldatoCount} tavoli`"
+      @click="toggle('paid')"
+      :aria-pressed="activeFilter === 'paid'"
+      :aria-label="`Filtra per Saldati: ${paidCount} tavoli`"
       :class="[
-        activeFilter === 'saldato' ? 'ring-2 ring-violet-400 ring-offset-1' : '',
-        saldatoCount > 0 ? 'bg-violet-50 border-violet-200' : 'bg-white/60 border-gray-100 opacity-50',
+        activeFilter === 'paid' ? 'ring-2 ring-violet-400 ring-offset-1' : '',
+        paidCount > 0 ? 'bg-violet-50 border-violet-200' : 'bg-white/60 border-gray-100 opacity-50',
       ]"
       class="flex items-center gap-2 rounded-xl px-3 py-2 shadow-sm border transition-all active:scale-95 cursor-pointer"
     >
       <span class="size-2.5 rounded-full border-2 border-violet-400 bg-violet-100 shrink-0"></span>
-      <span :class="saldatoCount > 0 ? 'text-violet-800' : 'text-gray-700'" class="text-xs font-bold">Saldati</span>
-      <span :class="saldatoCount > 0 ? 'text-violet-700' : 'text-gray-500'" class="text-[10px] font-black opacity-60">{{ saldatoCount }}</span>
+      <span :class="paidCount > 0 ? 'text-violet-800' : 'text-gray-700'" class="text-xs font-bold">Saldati</span>
+      <span :class="paidCount > 0 ? 'text-violet-700' : 'text-gray-500'" class="text-[10px] font-black opacity-60">{{ paidCount }}</span>
     </button>
     <!-- Conto Richiesto — solo Cassa (prop opzionale) -->
     <button
       v-if="billRequestedCount !== undefined"
-      @click="toggle('conto_richiesto')"
-      :aria-pressed="activeFilter === 'conto_richiesto'"
+      @click="toggle('bill_requested')"
+      :aria-pressed="activeFilter === 'bill_requested'"
       :aria-label="`Filtra per Conto Richiesto: ${billRequestedCount} tavoli`"
       :class="[
-        activeFilter === 'conto_richiesto' ? 'ring-2 ring-blue-400 ring-offset-1' : '',
+        activeFilter === 'bill_requested' ? 'ring-2 ring-blue-400 ring-offset-1' : '',
         billRequestedCount > 0 ? 'bg-blue-50 border-blue-200' : 'bg-white/60 border-gray-100 opacity-50',
       ]"
       class="flex items-center gap-2 rounded-xl px-3 py-2 shadow-sm border transition-all active:scale-95 cursor-pointer"
@@ -85,7 +85,7 @@ const props = defineProps({
   freeCount: { type: Number, required: true },
   occupiedCount: { type: Number, required: true },
   pendingCount: { type: Number, required: true },
-  saldatoCount: { type: Number, default: 0 },
+  paidCount: { type: Number, default: 0 },
   billRequestedCount: { type: Number, default: undefined },
   activeFilter: { type: String, default: null },
 });

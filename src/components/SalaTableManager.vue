@@ -49,7 +49,7 @@
           :freeCount="freeTablesCount"
           :occupiedCount="occupiedTablesCount"
           :pendingCount="pendingTablesCount"
-          :saldatoCount="saldatoTablesCount"
+          :paidCount="paidTablesCount"
           :activeFilter="activeStatusFilter"
           @update:activeFilter="activeStatusFilter = $event"
         />
@@ -62,7 +62,7 @@
           <TableGrid :tables="filteredTablesForRoom(room)" @open-table="openTableDetails">
             <template #status="{ table, tableStatus }">
               <span class="block text-[8px] md:text-[10px] font-bold uppercase tracking-widest opacity-80 mb-0.5 md:mb-1 truncate">
-                {{ tableStatus.status === 'pending' ? 'In Attesa' : tableStatus.status === 'saldato' ? 'Saldato' : 'Occupato' }}
+                {{ tableStatus.status === 'pending' ? 'In Attesa' : tableStatus.status === 'paid' ? 'Saldato' : 'Occupato' }}
               </span>
               <span class="block font-black text-sm md:text-lg bg-white/20 rounded-md md:rounded-lg py-0.5 px-1 truncate">
                 {{ tableOrderCount(table.id) }} coman{{ tableOrderCount(table.id) !== 1 ? 'de' : 'da' }}
@@ -76,7 +76,7 @@
       <TableGrid v-else :tables="activeRoomTables" @open-table="openTableDetails">
         <template #status="{ table, tableStatus }">
           <span class="block text-[8px] md:text-[10px] font-bold uppercase tracking-widest opacity-80 mb-0.5 md:mb-1 truncate">
-            {{ tableStatus.status === 'pending' ? 'In Attesa' : tableStatus.status === 'saldato' ? 'Saldato' : 'Occupato' }}
+            {{ tableStatus.status === 'pending' ? 'In Attesa' : tableStatus.status === 'paid' ? 'Saldato' : 'Occupato' }}
           </span>
           <span class="block font-black text-sm md:text-lg bg-white/20 rounded-md md:rounded-lg py-0.5 px-1 truncate">
             {{ tableOrderCount(table.id) }} coman{{ tableOrderCount(table.id) !== 1 ? 'de' : 'da' }}
@@ -294,14 +294,14 @@ const freeTablesCount = computed(() =>
 const occupiedTablesCount = computed(() =>
   store.config.tables.filter(t => {
     const st = store.getTableStatus(t.id).status;
-    return st === 'occupied' || st === 'conto_richiesto';
+    return st === 'occupied' || st === 'bill_requested';
   }).length,
 );
 const pendingTablesCount = computed(() =>
   store.config.tables.filter(t => store.getTableStatus(t.id).status === 'pending').length,
 );
-const saldatoTablesCount = computed(() =>
-  store.config.tables.filter(t => store.getTableStatus(t.id).status === 'saldato').length,
+const paidTablesCount = computed(() =>
+  store.config.tables.filter(t => store.getTableStatus(t.id).status === 'paid').length,
 );
 
 function tableOrderCount(tableId) {
