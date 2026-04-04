@@ -133,10 +133,10 @@
               class="flex-1 min-w-0 text-[10px] font-bold text-teal-700 bg-teal-50 border border-teal-200 px-2 py-1.5 rounded-xl hover:bg-teal-100 active:scale-95 transition-all truncate"
             >{{ flatAnaliticaItems.every(i => (analiticaQty[i.key] || 0) === i.netQty) ? 'Deseleziona' : 'Seleziona Tutto' }}</button>
             <div v-else class="flex-1 min-w-0"></div>
-            <button @click="openDirectItemModal" aria-label="Aggiungi voce diretta" class="theme-bg hover:opacity-90 text-white p-2 sm:px-3 sm:py-2 rounded-lg text-[10px] md:text-xs font-bold flex items-center gap-1.5 active:scale-95 shadow-sm transition-opacity shrink-0" title="Aggiungi voci direttamente al conto senza passare per la cucina">
+            <button @click="openDirectItemModal" aria-label="Aggiungi voce diretta" class="theme-bg hover:opacity-90 text-white p-2 sm:px-3 sm:py-2 rounded-xl text-[10px] md:text-xs font-bold flex items-center gap-1.5 active:scale-95 shadow-sm transition-opacity shrink-0" title="Aggiungi voci direttamente al conto senza passare per la cucina">
               <Zap class="size-4 shrink-0" /> <span class="hidden sm:inline">Diretto</span>
             </button>
-            <button @click="createNewOrderForTable" aria-label="Crea nuova comanda" class="bg-gray-900 hover:bg-black text-white p-2 sm:px-3 sm:py-2 rounded-lg text-[10px] md:text-xs font-bold flex items-center gap-1.5 active:scale-95 shadow-sm transition-colors shrink-0">
+            <button @click="createNewOrderForTable" aria-label="Crea nuova comanda" class="bg-gray-900 hover:bg-black text-white p-2 sm:px-3 sm:py-2 rounded-xl text-[10px] md:text-xs font-bold flex items-center gap-1.5 active:scale-95 shadow-sm transition-colors shrink-0">
               <Plus class="size-4 shrink-0" /> <span class="hidden sm:inline">Comanda</span>
             </button>
           </div>
@@ -460,7 +460,7 @@
             <!-- Sconto (Discount) — collapsible toggle -->
             <div v-if="discountsEnabled && tableAmountRemaining > 0 && isAdmin" class="mb-2">
               <button @click="discountExpanded = !discountExpanded"
-                class="w-full flex items-center justify-between px-2 py-1.5 text-amber-700 bg-amber-50 hover:bg-amber-100 rounded-lg border border-amber-200 transition-colors text-[10px] font-bold">
+                class="w-full flex items-center justify-between px-2 py-1.5 text-amber-700 bg-amber-50 hover:bg-amber-100 rounded-xl border border-amber-200 transition-all active:scale-95 text-xs font-bold shadow-sm">
                 <span class="flex items-center gap-1.5"><Tag class="size-3 shrink-0" /> Applica Sconto</span>
                 <ChevronDown :class="discountExpanded ? 'rotate-180' : ''" class="size-3.5 transition-transform shrink-0" />
               </button>
