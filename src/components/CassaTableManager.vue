@@ -1203,7 +1203,7 @@ const freeTables = computed(() =>
 const tableStatusCounts = computed(() => {
   let free = 0, occupied = 0, pending = 0, paid = 0, billRequested = 0;
   for (const t of store.config.tables) {
-    const s = store.getTableStatus(t.id).status;
+    const s = tableStatusMap.value[t.id]?.status;
     if (s === 'free') free++;
     else if (s === 'paid') paid++;
     else if (s === 'bill_requested') billRequested++;

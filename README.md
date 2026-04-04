@@ -32,7 +32,6 @@ src/
 │   ├── CassaOrderManager.vue          ← Gestione ordini + accettazione (Cassa only)
 │   ├── CassaDashboard.vue             ← Fondo cassa, movimenti, report X/Z (Cassa only)
 │   ├── CassaBillCard.vue              ← Card riepilogo conto chiuso (Cassa only)
-│   ├── CassaClosedBillsList.vue       ← Lista conti chiusi sessione (Cassa only)
 │   ├── CassaSettingsModal.vue         ← Impostazioni Cassa (thin wrapper su shared/SettingsModal)
 │   ├── LockScreen.vue                 ← Overlay blocco schermo con tastierino PIN
 │   ├── UserManagementModal.vue        ← Gestione utenti e configurazione blocco automatico
