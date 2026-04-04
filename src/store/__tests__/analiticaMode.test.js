@@ -237,19 +237,23 @@ describe('computeAnaliticaTotal()', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Shared helpers (used by multiple describe blocks below)
+// ---------------------------------------------------------------------------
+
+const BILL_SETTLED_THRESHOLD = 0.01;
+
+function canPay(remaining, flatItems, qtyMap) {
+  if (remaining <= BILL_SETTLED_THRESHOLD) return false;
+  if (!flatItems.some(i => (qtyMap[i.key] || 0) > 0)) return false;
+  if (selectionExceedsRemaining(flatItems, qtyMap, remaining)) return false;
+  return true;
+}
+
+// ---------------------------------------------------------------------------
 // Tests: canPay guard for analitica mode
 // ---------------------------------------------------------------------------
 
 describe('canPay guard for analitica mode', () => {
-  const BILL_SETTLED_THRESHOLD = 0.01;
-
-  function canPay(remaining, flatItems, qtyMap) {
-    if (remaining <= BILL_SETTLED_THRESHOLD) return false;
-    if (!flatItems.some(i => (qtyMap[i.key] || 0) > 0)) return false;
-    if (selectionExceedsRemaining(flatItems, qtyMap, remaining)) return false;
-    return true;
-  }
-
   it('returns false when all qtys are 0', () => {
     const ord = makeOrder('ord_1', [makeItem('Caffè', 1.50, 2)]);
     const flat = buildFlatAnaliticaItems([ord]);
@@ -569,13 +573,6 @@ describe('mode-switch selection reset', () => {
   });
 
   it('empty analiticaQty blocks canPay regardless of the remaining bill', () => {
-    const BILL_SETTLED_THRESHOLD = 0.01;
-    function canPay(remaining, flatItems, qtyMap) {
-      if (remaining <= BILL_SETTLED_THRESHOLD) return false;
-      if (!flatItems.some(i => (qtyMap[i.key] || 0) > 0)) return false;
-      if (selectionExceedsRemaining(flatItems, qtyMap, remaining)) return false;
-      return true;
-    }
     const ord = makeOrder('ord_1', [makeItem('Caffè', 1.50, 1)]);
     const flat = buildFlatAnaliticaItems([ord]);
     // No items selected after mode reset → canPay must be false
