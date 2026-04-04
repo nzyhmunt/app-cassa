@@ -73,8 +73,6 @@ CREATE TABLE venues (
 
 ---
 
----
-
 ### 2.1b `rooms` — Sale / Aree mappa tavoli
 
 ```sql
