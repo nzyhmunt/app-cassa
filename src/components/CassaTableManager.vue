@@ -23,33 +23,23 @@
         :occupiedCount="occupiedTablesCount"
         :pendingCount="pendingTablesCount"
         :saldatoCount="saldatoTablesCount"
+        :billRequestedCount="billRequestedTablesCount"
       />
 
-      <!-- Tab Sala + Legenda — sulla stessa riga -->
-      <div class="flex items-center gap-2 mb-4 -mx-1 px-1">
-        <!-- Tab Sala — visibili solo quando sono configurate più sale -->
-        <div v-if="store.rooms.length > 1" class="flex gap-2 overflow-x-auto pb-1">
-          <button
-            v-for="room in store.rooms"
-            :key="room.id"
-            @click="activeRoomId = room.id"
-            class="shrink-0 px-4 py-2 rounded-xl font-bold text-sm transition-all active:scale-95"
-            :class="activeRoomId === room.id
-              ? 'theme-bg text-white shadow-md'
-              : 'bg-white text-gray-600 border border-gray-200 hover:border-gray-300 shadow-sm'"
-          >
-            {{ room.label }}
-            <span class="ml-1.5 text-[10px] font-black opacity-70">{{ room.tables.length }}</span>
-          </button>
-        </div>
-        <!-- Legenda -->
-        <div class="ml-auto flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] font-bold uppercase text-gray-500">
-          <span class="flex items-center gap-1"><span class="size-3 rounded-full border-2 border-emerald-400 bg-emerald-100"></span> Libero</span>
-          <span class="flex items-center gap-1"><span class="size-3 rounded-full border-2 border-amber-400 bg-amber-100"></span> In Attesa</span>
-          <span class="flex items-center gap-1"><span class="size-3 rounded-full border-2 border-violet-400 bg-violet-100"></span> Saldato</span>
-          <span class="flex items-center gap-1"><span class="size-3 rounded-full border-2 border-blue-400 bg-blue-100"></span> Conto Richiesto</span>
-          <span class="flex items-center gap-1"><span class="size-3 rounded-full theme-bg border-2 border-white shadow-sm"></span> Occupato</span>
-        </div>
+      <!-- Tab Sala — visibili solo quando sono configurate più sale -->
+      <div v-if="store.rooms.length > 1" class="flex gap-2 mb-4 overflow-x-auto pb-1 -mx-1 px-1">
+        <button
+          v-for="room in store.rooms"
+          :key="room.id"
+          @click="activeRoomId = room.id"
+          class="shrink-0 px-4 py-2 rounded-xl font-bold text-sm transition-all active:scale-95"
+          :class="activeRoomId === room.id
+            ? 'theme-bg text-white shadow-md'
+            : 'bg-white text-gray-600 border border-gray-200 hover:border-gray-300 shadow-sm'"
+        >
+          {{ room.label }}
+          <span class="ml-1.5 text-[10px] font-black opacity-70">{{ room.tables.length }}</span>
+        </button>
       </div>
 
       <!-- Griglia Tavoli -->
@@ -1131,20 +1121,22 @@ const freeTables = computed(() =>
 );
 
 const tableStatusCounts = computed(() => {
-  let free = 0, occupied = 0, pending = 0, saldato = 0;
+  let free = 0, occupied = 0, pending = 0, saldato = 0, billRequested = 0;
   for (const t of store.config.tables) {
     const s = store.getTableStatus(t.id).status;
     if (s === 'free') free++;
     else if (s === 'saldato') saldato++;
-    else if (s === 'occupied' || s === 'conto_richiesto') occupied++;
+    else if (s === 'conto_richiesto') billRequested++;
+    else if (s === 'occupied') occupied++;
     else if (s === 'pending') pending++;
   }
-  return { free, occupied, pending, saldato };
+  return { free, occupied, pending, saldato, billRequested };
 });
 const freeTablesCount = computed(() => tableStatusCounts.value.free);
 const occupiedTablesCount = computed(() => tableStatusCounts.value.occupied);
 const pendingTablesCount = computed(() => tableStatusCounts.value.pending);
 const saldatoTablesCount = computed(() => tableStatusCounts.value.saldato);
+const billRequestedTablesCount = computed(() => tableStatusCounts.value.billRequested);
 
 const occupiedTables = computed(() =>
   store.config.tables.filter(
