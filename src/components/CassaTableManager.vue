@@ -61,8 +61,6 @@
         </template>
       </TableGrid>
 
-      <!-- Riepilogo Conti Chiusi -->
-      <CassaClosedBillsList />
     </div>
   </div>
 
@@ -1096,7 +1094,6 @@ import { buildFlatAnaliticaItems, computeAnaliticaTotal, exceedsAmount, getOrder
 import { resolveCustomItemsKey } from '../store/persistence.js';
 import { useNumericKeyboard } from '../composables/useNumericKeyboard.js';
 import { useAuth } from '../composables/useAuth.js';
-import CassaClosedBillsList from './CassaClosedBillsList.vue';
 import TableStatsBar from './shared/TableStatsBar.vue';
 import TableGrid from './shared/TableGrid.vue';
 // Shared component — used by both Sala and Cassa apps.
