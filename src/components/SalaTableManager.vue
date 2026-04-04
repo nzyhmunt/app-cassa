@@ -3,12 +3,12 @@
   <div class="flex-1 flex flex-col bg-gray-100/80 overflow-y-auto p-4 md:p-8 relative min-h-0">
     <div class="max-w-6xl mx-auto w-full">
 
-      <!-- Header row -->
+      <!-- Header riga -->
       <div class="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-2 mb-4 md:mb-6">
         <h2 class="text-xl md:text-2xl font-black text-gray-800 flex items-center gap-2 md:gap-3">
           <Grid3x3 class="text-gray-500 size-6 md:size-8" /> Mappa Sala
         </h2>
-        <!-- Legend -->
+        <!-- Legenda -->
         <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] font-bold uppercase text-gray-500">
           <span class="flex items-center gap-1"><span class="size-3 rounded-full border-2 border-emerald-400 bg-emerald-100"></span> Libero</span>
           <span class="flex items-center gap-1"><span class="size-3 rounded-full border-2 border-amber-400 bg-amber-100"></span> In Attesa</span>
@@ -16,7 +16,7 @@
         </div>
       </div>
 
-      <!-- Stats bar -->
+      <!-- Riepilogo stato tavoli -->
       <TableStatsBar
         :freeCount="freeTablesCount"
         :occupiedCount="occupiedTablesCount"
@@ -39,7 +39,7 @@
         </button>
       </div>
 
-      <!-- Table grid -->
+      <!-- Griglia Tavoli -->
       <TableGrid :tables="activeRoomTables" @open-table="openTableDetails">
         <template #status="{ table }">
           <span class="block text-[8px] md:text-[10px] font-bold uppercase tracking-widest opacity-80 mb-0.5 md:mb-1 truncate">
