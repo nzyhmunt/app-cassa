@@ -112,14 +112,14 @@
               <button @click="cassaViewMode = 'voce'"
                 :class="cassaViewMode === 'voce' ? 'bg-white shadow text-gray-900 border border-gray-200' : 'text-gray-500 hover:bg-gray-200/50'"
                 aria-label="Vista per voce"
-                class="flex-1 py-1 px-1.5 text-[9px] font-bold rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1 min-w-0">
-                <LayoutGrid class="size-3 shrink-0" /> <span class="hidden sm:inline">Per Voce</span>
+                class="flex-1 py-1.5 px-2 text-[10px] font-bold rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1 min-w-0">
+                <LayoutGrid class="size-3.5 shrink-0" /> <span>Per Voce</span>
               </button>
               <button @click="cassaViewMode = 'ordine'"
                 :class="cassaViewMode === 'ordine' ? 'bg-white shadow text-gray-900 border border-gray-200' : 'text-gray-500 hover:bg-gray-200/50'"
                 aria-label="Vista per ordine"
-                class="flex-1 py-1 px-1.5 text-[9px] font-bold rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1 min-w-0">
-                <ListOrdered class="size-3 shrink-0" /> <span class="hidden sm:inline">Per Ordine</span>
+                class="flex-1 py-1.5 px-2 text-[10px] font-bold rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1 min-w-0">
+                <ListOrdered class="size-3.5 shrink-0" /> <span>Per Ordine</span>
               </button>
             </div>
             <!-- Comanda mode header: selection hint -->
@@ -133,11 +133,11 @@
               class="flex-1 min-w-0 text-[10px] font-bold text-teal-700 bg-teal-50 border border-teal-200 px-2 py-1.5 rounded-xl hover:bg-teal-100 active:scale-95 transition-all truncate"
             >{{ flatAnaliticaItems.every(i => (analiticaQty[i.key] || 0) === i.netQty) ? 'Deseleziona' : 'Seleziona Tutto' }}</button>
             <div v-else class="flex-1 min-w-0"></div>
-            <button @click="openDirectItemModal" aria-label="Aggiungi voce diretta" class="theme-bg hover:opacity-90 text-white px-2 py-1.5 lg:px-3 lg:py-2 rounded-lg text-xs font-bold flex items-center gap-1 active:scale-95 shadow-sm transition-opacity shrink-0" title="Aggiungi voci direttamente al conto senza passare per la cucina">
-              <Zap class="size-3.5 lg:size-4 shrink-0" /> <span class="hidden lg:inline">Diretto</span>
+            <button @click="openDirectItemModal" aria-label="Aggiungi voce diretta" class="theme-bg hover:opacity-90 text-white p-2 sm:px-3 sm:py-2 rounded-lg text-[10px] md:text-xs font-bold flex items-center gap-1.5 active:scale-95 shadow-sm transition-opacity shrink-0" title="Aggiungi voci direttamente al conto senza passare per la cucina">
+              <Zap class="size-4 shrink-0" /> <span class="hidden sm:inline">Diretto</span>
             </button>
-            <button @click="createNewOrderForTable" aria-label="Crea nuova comanda" class="bg-gray-900 hover:bg-black text-white px-2 py-1.5 lg:px-3 lg:py-2 rounded-lg text-xs font-bold flex items-center gap-1 active:scale-95 shadow-sm transition-colors shrink-0">
-              <Plus class="size-3.5 lg:size-4 shrink-0" /> <span class="hidden lg:inline">Comanda</span>
+            <button @click="createNewOrderForTable" aria-label="Crea nuova comanda" class="bg-gray-900 hover:bg-black text-white p-2 sm:px-3 sm:py-2 rounded-lg text-[10px] md:text-xs font-bold flex items-center gap-1.5 active:scale-95 shadow-sm transition-colors shrink-0">
+              <Plus class="size-4 shrink-0" /> <span class="hidden sm:inline">Comanda</span>
             </button>
           </div>
 
@@ -161,6 +161,9 @@
                       + {{ voce.name }} (+{{ store.config.ui.currency }}{{ voce.unitPrice.toFixed(2) }})
                     </span>
                   </div>
+                  <span class="font-black text-[11px] text-purple-700 shrink-0 w-10 text-right">
+                    {{ store.config.ui.currency }}{{ ((analiticaQty[voce.key] || 0) * voce.unitPrice).toFixed(2) }}
+                  </span>
                   <div class="flex items-center gap-0.5 shrink-0">
                     <button @click="decrementAnalitica(voce.key)"
                       :aria-label="`Diminuisci ${voce.name}`"
@@ -176,9 +179,6 @@
                       <Plus class="size-3" />
                     </button>
                   </div>
-                  <span class="font-black text-[11px] text-purple-700 shrink-0 w-10 text-right">
-                    {{ store.config.ui.currency }}{{ ((analiticaQty[voce.key] || 0) * voce.unitPrice).toFixed(2) }}
-                  </span>
                 </div>
 
                 <!-- Base item row -->
@@ -198,6 +198,9 @@
                     </div>
                   </div>
                   <div class="flex items-center gap-1 shrink-0">
+                    <span class="font-black text-[12px] md:text-sm shrink-0 w-12 text-right" :class="(analiticaQty[voce.key] || 0) > 0 ? 'text-teal-700' : 'text-gray-300'">
+                      {{ store.config.ui.currency }}{{ ((analiticaQty[voce.key] || 0) * voce.unitPrice).toFixed(2) }}
+                    </span>
                     <button @click="decrementAnalitica(voce.key)"
                       :aria-label="`Diminuisci quantità di ${voce.name}`"
                       :disabled="(analiticaQty[voce.key] || 0) === 0"
@@ -211,9 +214,6 @@
                       class="p-1.5 bg-white border border-teal-200 text-teal-600 hover:bg-teal-50 rounded shadow-sm transition-colors active:scale-95 disabled:opacity-30">
                       <Plus class="size-4" />
                     </button>
-                    <span class="font-black text-[12px] md:text-sm shrink-0 w-12 text-right" :class="(analiticaQty[voce.key] || 0) > 0 ? 'text-teal-700' : 'text-gray-300'">
-                      {{ store.config.ui.currency }}{{ ((analiticaQty[voce.key] || 0) * voce.unitPrice).toFixed(2) }}
-                    </span>
                   </div>
                 </div>
               </template>
@@ -505,7 +505,7 @@
             </div>
 
             <!-- Scelta Split Conto -->
-            <div v-if="tableAmountRemaining > 0" class="space-y-2 sm:space-y-3">
+            <div v-if="!canManuallyCloseBill" class="space-y-2 sm:space-y-3">
               <div class="flex gap-1.5">
                 <button aria-label="Tutto" @click="checkoutMode = 'unico'" :class="checkoutMode === 'unico' ? 'bg-gray-200 text-gray-800 border-gray-300 font-bold' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100'" class="flex-1 py-1.5 sm:py-2 text-xs rounded-xl border transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-sm"><Layers class="size-3.5 shrink-0" /><span class="hidden md:inline">Tutto</span></button>
                 <button aria-label="Romana" @click="checkoutMode = 'romana'" :class="checkoutMode === 'romana' ? 'bg-blue-100 text-blue-800 border-blue-200 font-bold' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100'" class="flex-1 py-1.5 sm:py-2 text-xs rounded-xl border transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-sm"><Users class="size-3.5 shrink-0" /><span class="hidden md:inline">Romana</span></button>
@@ -591,13 +591,13 @@
               Totale selezionato supera il conto rimanente ({{ store.config.ui.currency }}{{ tableAmountRemaining.toFixed(2) }})
             </div>
 
-            <div v-if="checkoutMode !== 'unico' && tableAmountRemaining > 0" class="flex justify-between items-center px-0.5">
+            <div v-if="checkoutMode !== 'unico' && !canManuallyCloseBill" class="flex justify-between items-center px-0.5">
               <span class="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Da pagare:</span>
               <span class="text-lg font-black theme-text">{{ store.config.ui.currency }}{{ amountBeingPaid.toFixed(2) }}</span>
             </div>
 
-            <!-- Metodi di pagamento -->
-            <div class="grid grid-cols-2 gap-2.5">
+            <!-- Metodi di pagamento (nascosti quando il conto è saldato) -->
+            <div v-if="!canManuallyCloseBill" class="grid grid-cols-2 gap-2.5">
               <button
                 v-for="method in store.config.paymentMethods"
                 :key="method.id"
@@ -1289,7 +1289,11 @@ watch(flatAnaliticaItems, (newItems) => {
 });
 
 // Auto-switch left panel to "Per Ordine" when comanda checkout mode is selected.
+// Also reset per-mode selections so stale state (e.g. the "totale selezionato
+// supera il conto rimanente" warning) does not bleed into the new mode.
 watch(checkoutMode, (mode) => {
+  analiticaQty.value = {};
+  selectedOrdersToPay.value = [];
   if (mode === 'ordini') {
     cassaViewMode.value = 'ordine';
   }

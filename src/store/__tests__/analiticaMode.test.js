@@ -237,19 +237,23 @@ describe('computeAnaliticaTotal()', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Shared helpers (used by multiple describe blocks below)
+// ---------------------------------------------------------------------------
+
+const BILL_SETTLED_THRESHOLD = 0.01;
+
+function canPay(remaining, flatItems, qtyMap) {
+  if (remaining <= BILL_SETTLED_THRESHOLD) return false;
+  if (!flatItems.some(i => (qtyMap[i.key] || 0) > 0)) return false;
+  if (selectionExceedsRemaining(flatItems, qtyMap, remaining)) return false;
+  return true;
+}
+
+// ---------------------------------------------------------------------------
 // Tests: canPay guard for analitica mode
 // ---------------------------------------------------------------------------
 
 describe('canPay guard for analitica mode', () => {
-  const BILL_SETTLED_THRESHOLD = 0.01;
-
-  function canPay(remaining, flatItems, qtyMap) {
-    if (remaining <= BILL_SETTLED_THRESHOLD) return false;
-    if (!flatItems.some(i => (qtyMap[i.key] || 0) > 0)) return false;
-    if (selectionExceedsRemaining(flatItems, qtyMap, remaining)) return false;
-    return true;
-  }
-
   it('returns false when all qtys are 0', () => {
     const ord = makeOrder('ord_1', [makeItem('Caffè', 1.50, 2)]);
     const flat = buildFlatAnaliticaItems([ord]);
@@ -533,5 +537,45 @@ describe('store.addTransaction() with analitica operationType', () => {
       ])
     );
     expect(txn.amountPaid).toBeCloseTo(11.50, 2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests: checkout mode switch resets selections (regression for bug where
+//        "totale selezionato supera il conto rimanente" warning persisted after
+//        switching away from analitica mode without completing a transaction).
+// ---------------------------------------------------------------------------
+
+describe('mode-switch selection reset', () => {
+  it('resetting analiticaQty to {} makes selectionExceedsRemaining return false', () => {
+    const ord = makeOrder('ord_1', [
+      makeItem('Bistecca', 25.00, 1),
+      makeItem('Vino', 15.00, 1),
+    ]);
+    const flat = buildFlatAnaliticaItems([ord]);
+    // Simulate a selection that exceeds the remaining bill
+    const qtyMap = { [flat[0].key]: 1, [flat[1].key]: 1 };
+    expect(selectionExceedsRemaining(flat, qtyMap, 35.00)).toBe(true);
+
+    // Simulate what the checkoutMode watcher does: reset analiticaQty to {}
+    const resetQtyMap = {};
+    expect(selectionExceedsRemaining(flat, resetQtyMap, 35.00)).toBe(false);
+  });
+
+  it('resetting analiticaQty to {} makes computeAnaliticaTotal return 0', () => {
+    const ord = makeOrder('ord_1', [makeItem('Pasta', 10.00, 2)]);
+    const flat = buildFlatAnaliticaItems([ord]);
+    const qtyMap = { [flat[0].key]: 2 };
+    expect(computeAnaliticaTotal(flat, qtyMap)).toBeGreaterThan(0);
+
+    // After mode switch the qtyMap is cleared
+    expect(computeAnaliticaTotal(flat, {})).toBe(0);
+  });
+
+  it('empty analiticaQty blocks canPay regardless of the remaining bill', () => {
+    const ord = makeOrder('ord_1', [makeItem('Caffè', 1.50, 1)]);
+    const flat = buildFlatAnaliticaItems([ord]);
+    // No items selected after mode reset → canPay must be false
+    expect(canPay(10.00, flat, {})).toBe(false);
   });
 });
