@@ -11,7 +11,8 @@
       class="flex items-center gap-2 rounded-xl px-3 py-2 shadow-sm border transition-all active:scale-95 cursor-pointer"
     >
       <span class="size-2.5 rounded-full border-2 border-emerald-400 bg-emerald-100 shrink-0"></span>
-      <span class="text-xs font-bold text-gray-700">{{ freeCount }} Liberi</span>
+      <span class="text-xs font-bold text-gray-700">Liberi</span>
+      <span class="text-[10px] font-black opacity-60">{{ freeCount }}</span>
     </button>
     <!-- In Attesa -->
     <button
@@ -23,7 +24,8 @@
       class="flex items-center gap-2 rounded-xl px-3 py-2 shadow-sm border transition-all active:scale-95 cursor-pointer"
     >
       <span class="size-2.5 rounded-full border-2 border-amber-400 bg-amber-100 shrink-0"></span>
-      <span :class="pendingCount > 0 ? 'text-amber-800' : 'text-gray-700'" class="text-xs font-bold">{{ pendingCount }} In Attesa</span>
+      <span :class="pendingCount > 0 ? 'text-amber-800' : 'text-gray-700'" class="text-xs font-bold">In Attesa</span>
+      <span :class="pendingCount > 0 ? 'text-amber-700' : 'text-gray-500'" class="text-[10px] font-black opacity-60">{{ pendingCount }}</span>
     </button>
     <!-- Saldato -->
     <button
@@ -35,7 +37,8 @@
       class="flex items-center gap-2 rounded-xl px-3 py-2 shadow-sm border transition-all active:scale-95 cursor-pointer"
     >
       <span class="size-2.5 rounded-full border-2 border-violet-400 bg-violet-100 shrink-0"></span>
-      <span :class="saldatoCount > 0 ? 'text-violet-800' : 'text-gray-700'" class="text-xs font-bold">{{ saldatoCount }} Saldati</span>
+      <span :class="saldatoCount > 0 ? 'text-violet-800' : 'text-gray-700'" class="text-xs font-bold">Saldati</span>
+      <span :class="saldatoCount > 0 ? 'text-violet-700' : 'text-gray-500'" class="text-[10px] font-black opacity-60">{{ saldatoCount }}</span>
     </button>
     <!-- Conto Richiesto — solo Cassa (prop opzionale) -->
     <button
@@ -48,7 +51,8 @@
       class="flex items-center gap-2 rounded-xl px-3 py-2 shadow-sm border transition-all active:scale-95 cursor-pointer"
     >
       <span class="size-2.5 rounded-full border-2 border-blue-400 bg-blue-100 shrink-0"></span>
-      <span :class="billRequestedCount > 0 ? 'text-blue-800' : 'text-gray-700'" class="text-xs font-bold">{{ billRequestedCount }} Conto Rich.</span>
+      <span :class="billRequestedCount > 0 ? 'text-blue-800' : 'text-gray-700'" class="text-xs font-bold">Conto Rich.</span>
+      <span :class="billRequestedCount > 0 ? 'text-blue-700' : 'text-gray-500'" class="text-[10px] font-black opacity-60">{{ billRequestedCount }}</span>
     </button>
     <!-- Occupato -->
     <button
@@ -60,7 +64,8 @@
       class="flex items-center gap-2 rounded-xl px-3 py-2 shadow-sm border transition-all active:scale-95 cursor-pointer"
     >
       <span class="size-2.5 rounded-full theme-bg shrink-0"></span>
-      <span class="text-xs font-bold text-gray-700">{{ occupiedCount }} Occupati</span>
+      <span class="text-xs font-bold text-gray-700">Occupati</span>
+      <span class="text-[10px] font-black opacity-60 text-gray-500">{{ occupiedCount }}</span>
     </button>
   </div>
 </template>

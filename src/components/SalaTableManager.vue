@@ -17,26 +17,28 @@
           <!-- Tutti -->
           <button
             @click="activeRoomId = 'all'; activeStatusFilter = null"
-            class="shrink-0 px-3 py-2 rounded-xl font-bold text-xs transition-all active:scale-95"
+            class="shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl font-bold text-xs transition-all active:scale-95"
             :class="activeRoomId === 'all'
               ? 'theme-bg text-white shadow-md'
               : 'bg-white text-gray-600 border border-gray-200 hover:border-gray-300 shadow-sm'"
           >
-            Tutti
-            <span class="ml-1 text-[10px] font-black opacity-70">{{ store.config.tables.length }}</span>
+            <Grid3x3 class="size-3 shrink-0" />
+            <span>Tutti</span>
+            <span class="text-[10px] font-black opacity-70">{{ store.config.tables.length }}</span>
           </button>
           <!-- Singole sale -->
           <button
             v-for="room in store.rooms"
             :key="room.id"
             @click="activeRoomId = room.id; activeStatusFilter = null"
-            class="shrink-0 px-3 py-2 rounded-xl font-bold text-xs transition-all active:scale-95"
+            class="shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl font-bold text-xs transition-all active:scale-95"
             :class="activeRoomId === room.id
               ? 'theme-bg text-white shadow-md'
               : 'bg-white text-gray-600 border border-gray-200 hover:border-gray-300 shadow-sm'"
           >
-            {{ room.label }}
-            <span class="ml-1 text-[10px] font-black opacity-70">{{ room.tables.length }}</span>
+            <Grid3x3 class="size-3 shrink-0" />
+            <span>{{ room.label }}</span>
+            <span class="text-[10px] font-black opacity-70">{{ room.tables.length }}</span>
           </button>
           <!-- Divisore -->
           <span class="w-px h-5 bg-gray-300 shrink-0 self-center"></span>
