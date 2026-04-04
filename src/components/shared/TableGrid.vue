@@ -4,7 +4,7 @@
          <template #status="{ table }">…</template>                             -->
   <div class="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 md:gap-5">
     <button
-      v-for="table in store.config.tables"
+      v-for="table in tables"
       :key="table.id"
       @click="$emit('open-table', table)"
       class="relative aspect-square rounded-[1.5rem] md:rounded-[2rem] border-[3px] md:border-[4px] flex flex-col items-center justify-center p-2 md:p-4 transition-transform active:scale-95 shadow-sm bg-white overflow-hidden group"
@@ -40,6 +40,10 @@ import { Users, Timer } from 'lucide-vue-next';
 import { useAppStore } from '../../store/index.js';
 
 defineEmits(['open-table']);
+
+defineProps({
+  tables: { type: Array, required: true },
+});
 
 const store = useAppStore();
 

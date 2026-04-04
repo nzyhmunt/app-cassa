@@ -128,6 +128,16 @@ export const useAppStore = defineStore('app', () => {
     '--brand-dark': config.value.ui.primaryColorDark,
   }));
 
+  // ── Computed: Rooms ────────────────────────────────────────────────────────
+  // Normalises the rooms configuration: if config.rooms is a non-empty array each
+  // entry is used as-is; otherwise all tables are wrapped in a single anonymous room
+  // so the rest of the UI always receives a consistent structure.
+  const rooms = computed(() => {
+    const r = config.value.rooms;
+    if (Array.isArray(r) && r.length > 0) return r;
+    return [{ id: 'main', label: '', tables: config.value.tables ?? [] }];
+  });
+
     // ── Computed: Orders ───────────────────────────────────────────────────────
   const pendingCount = computed(() => orders.value.filter(o => o.status === 'pending').length);
   const inKitchenCount = computed(() =>
@@ -700,6 +710,7 @@ export const useAppStore = defineStore('app', () => {
     menuError,
     // computed
     cssVars,
+    rooms,
     pendingCount,
     inKitchenCount,
     closedBills,

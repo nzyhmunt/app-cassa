@@ -23,7 +23,8 @@ Può essere utilizzato come riferimento per una futura migrazione verso un backe
 | Entità               | Descrizione                                              | Fonte localStorage           |
 |----------------------|----------------------------------------------------------|------------------------------|
 | `venues`             | Ristorante / punto vendita                               | `appConfig.ui`               |
-| `tables`             | Tavoli della sala                                        | `appConfig.tables`           |
+| `rooms`              | Sale / aree della mappa tavoli                           | `appConfig.rooms`            |
+| `tables`             | Tavoli della sala                                        | `appConfig.tables` (derivato da `appConfig.rooms`) |
 | `payment_methods`    | Metodi di pagamento configurati                          | `appConfig.paymentMethods`   |
 | `menu_categories`    | Categorie del menu (Antipasti, Primi, …)                 | `appConfig.menu` (chiavi)    |
 | `menu_items`         | Voci del menu (piatti, bevande, ecc.)                    | `appConfig.menu[categoria]`  |
@@ -72,12 +73,29 @@ CREATE TABLE venues (
 
 ---
 
+---
+
+### 2.1b `rooms` — Sale / Aree mappa tavoli
+
+```sql
+CREATE TABLE rooms (
+    id              VARCHAR(30)     PRIMARY KEY,    -- es. 'sala', 'terrazza'
+    venue_id        INTEGER         NOT NULL REFERENCES venues(id) ON DELETE CASCADE,
+    label           VARCHAR(80)     NOT NULL,       -- es. 'Sala Interna', 'Terrazza'
+    sort_order      SMALLINT        NOT NULL DEFAULT 0,
+    created_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW()
+);
+```
+
+Ogni tavolo appartiene a una sala tramite `room_id`:
+
 ### 2.2 `tables` — Tavoli
 
 ```sql
 CREATE TABLE tables (
     id              VARCHAR(10)     PRIMARY KEY,    -- es. '01', '02', ... '12'
     venue_id        INTEGER         NOT NULL REFERENCES venues(id) ON DELETE CASCADE,
+    room_id         VARCHAR(30)     NULL REFERENCES rooms(id) ON DELETE SET NULL, -- sala di appartenenza
     label           VARCHAR(80)     NOT NULL,       -- es. 'Tavolo 01'
     covers          SMALLINT        NOT NULL CHECK (covers > 0),  -- posti a sedere
     is_active       BOOLEAN         NOT NULL DEFAULT TRUE,
@@ -580,7 +598,8 @@ Cardinalità:
 | `dailyClosures[]`                     | `daily_closures` + `daily_closure_by_method` |
 | `app-settings` (localStorage)         | `app_settings`                         |
 | `appConfig.menu`                      | `menu_categories` + `menu_items`       |
-| `appConfig.tables`                    | `tables`                               |
+| `appConfig.rooms`                     | `rooms`                                |
+| `appConfig.tables` (derivato)         | `tables`                               |
 | `appConfig.paymentMethods`            | `payment_methods`                      |
 | `appConfig.ui.*`                      | `venues`                               |
 | `appConfig.coverCharge.*`             | `venues.cover_charge_*`                |

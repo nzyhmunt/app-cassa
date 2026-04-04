@@ -23,8 +23,24 @@
         :pendingCount="pendingTablesCount"
       />
 
+      <!-- Tab Sala — visibili solo quando sono configurate più sale -->
+      <div v-if="store.rooms.length > 1" class="flex gap-2 mb-4 overflow-x-auto pb-1 -mx-1 px-1">
+        <button
+          v-for="room in store.rooms"
+          :key="room.id"
+          @click="activeRoomId = room.id"
+          class="shrink-0 px-4 py-2 rounded-xl font-bold text-sm transition-all active:scale-95"
+          :class="activeRoomId === room.id
+            ? 'theme-bg text-white shadow-md'
+            : 'bg-white text-gray-600 border border-gray-200 hover:border-gray-300 shadow-sm'"
+        >
+          {{ room.label }}
+          <span class="ml-1.5 text-[10px] font-black opacity-70">{{ room.tables.length }}</span>
+        </button>
+      </div>
+
       <!-- Table grid -->
-      <TableGrid @open-table="openTableDetails">
+      <TableGrid :tables="activeRoomTables" @open-table="openTableDetails">
         <template #status="{ table }">
           <span class="block text-[8px] md:text-[10px] font-bold uppercase tracking-widest opacity-80 mb-0.5 md:mb-1 truncate">
             {{ store.getTableStatus(table.id).status === 'pending' ? 'In Attesa' : 'Occupato' }}
@@ -216,6 +232,13 @@ import TableGrid from './shared/TableGrid.vue';
 const emit = defineEmits(['new-order-for-comande', 'view-order']);
 
 const store = useAppStore();
+
+// ── Room tabs ─────────────────────────────────────────────────────────────
+const activeRoomId = ref(store.rooms[0]?.id ?? null);
+const activeRoomTables = computed(() => {
+  const room = store.rooms.find(r => r.id === activeRoomId.value);
+  return room ? room.tables : store.config.tables;
+});
 
 // ── Table status counters ──────────────────────────────────────────────────
 const freeTablesCount = computed(() =>

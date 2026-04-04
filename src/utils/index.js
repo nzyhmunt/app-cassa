@@ -57,14 +57,38 @@ export const appConfig = {
     { id: 'card', label: 'Pos/Carta', icon: 'credit-card', colorClass: 'theme-bg text-white hover:opacity-90' },
   ],
 
-  tables: [
-    { id: "01", label: "01", covers: 2 }, { id: "02", label: "02", covers: 2 },
-    { id: "03", label: "03", covers: 4 }, { id: "04", label: "04", covers: 4 },
-    { id: "05", label: "05", covers: 6 }, { id: "06", label: "06", covers: 2 },
-    { id: "07", label: "07", covers: 2 }, { id: "08", label: "08", covers: 8 },
-    { id: "09", label: "09", covers: 4 }, { id: "10", label: "10", covers: 4 },
-    { id: "11", label: "11", covers: 2 }, { id: "12", label: "12", covers: 2 },
+  // CONFIGURAZIONE SALE — ogni sala raggruppa un sottoinsieme di tavoli.
+  // Se è presente una sola sala, la UI non mostra le tab di selezione sala.
+  // Se sono presenti più sale, la mappa tavoli (App Cassa e App Sala) mostra
+  // una tab per ogni sala; lo switch tra tab filtra i tavoli visualizzati
+  // mantenendo le statistiche globali nel banner in cima.
+  //
+  // Struttura di ogni sala:
+  //   id:     identificatore univoco usato internamente (stringa, es. 'sala', 'terrazza')
+  //   label:  nome visualizzato nella tab (es. 'Sala Interna', 'Terrazza')
+  //   tables: array di tavoli { id, label, covers } — ogni id deve essere globalmente univoco
+  //
+  // NOTA: `appConfig.tables` è derivato automaticamente da `rooms` e contiene
+  //   la lista piatta di tutti i tavoli; non modificare `tables` direttamente.
+  rooms: [
+    {
+      id: 'sala', label: 'Sala', tables: [
+        { id: "01", label: "01", covers: 2 }, { id: "02", label: "02", covers: 2 },
+        { id: "03", label: "03", covers: 4 }, { id: "04", label: "04", covers: 4 },
+        { id: "05", label: "05", covers: 6 }, { id: "06", label: "06", covers: 2 },
+      ],
+    },
+    {
+      id: 'terrazza', label: 'Terrazza', tables: [
+        { id: "07", label: "07", covers: 2 }, { id: "08", label: "08", covers: 8 },
+        { id: "09", label: "09", covers: 4 }, { id: "10", label: "10", covers: 4 },
+        { id: "11", label: "11", covers: 2 }, { id: "12", label: "12", covers: 2 },
+      ],
+    },
   ],
+  // Flat list of all tables derived from rooms — used by store internals and backward-compat code.
+  // Do not edit manually: it is generated at module load time.
+  tables: [],
 
   // CONFIGURAZIONE COPERTO
   // enabled: abilita/disabilita il coperto automatico
@@ -177,6 +201,10 @@ export const appConfig = {
     },
   ],
 };
+
+// Derive flat tables list from rooms — kept in sync at module load time.
+// All store/component code that needs the full table list reads appConfig.tables.
+appConfig.tables = appConfig.rooms.flatMap(r => r.tables);
 
 /**
  * Returns a stable, unique string key for a closed bill.
