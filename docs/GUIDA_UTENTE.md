@@ -100,7 +100,7 @@ La mappa mostra tutti i tavoli configurati con stati visivi distinti:
 |-------|-------------|-------------------|-------------|
 | **Libero** | Verde smeraldo chiaro | — | Nessun cliente |
 | **In Attesa** | Ambra | "In Attesa" | Comande inviate, non ancora accettate |
-| **Saldato** | Viola | "Saldato" + €0.00 | Tutto pagato, conto non ancora chiuso |
+| **Saldato** | Viola | "Saldato" + importo residuo (€0.00) | Tutto pagato, conto non ancora chiuso |
 | **Conto Richiesto** | Blu | "Conto!" | Cliente ha richiesto il conto |
 | **Occupato** | Verde tema (teal) | "Occupato" + importo residuo | Ordini accettati/in preparazione |
 
