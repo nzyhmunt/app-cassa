@@ -132,6 +132,9 @@ export const useAppStore = defineStore('app', () => {
   // Normalises the rooms configuration: if config.rooms is a non-empty array each
   // entry is used as-is; otherwise all tables are wrapped in a single anonymous room
   // so the rest of the UI always receives a consistent structure.
+  // The fallback room intentionally uses an empty label ('') — the UI hides the room
+  // tab bar entirely when there is only one room (store.rooms.length <= 1), so the
+  // empty label is never displayed to the user.
   const rooms = computed(() => {
     const r = config.value.rooms;
     if (Array.isArray(r) && r.length > 0) return r;

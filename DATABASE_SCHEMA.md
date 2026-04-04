@@ -95,7 +95,11 @@ Ogni tavolo appartiene a una sala tramite `room_id`:
 CREATE TABLE tables (
     id              VARCHAR(10)     PRIMARY KEY,    -- es. '01', '02', ... '12'
     venue_id        INTEGER         NOT NULL REFERENCES venues(id) ON DELETE CASCADE,
-    room_id         VARCHAR(30)     NULL REFERENCES rooms(id) ON DELETE SET NULL, -- sala di appartenenza
+    -- room_id è nullable per retrocompatibilità (tavoli esistenti prima dell'introduzione delle
+    -- sale) e per CASCADE di eliminazione: se una sala viene eliminata, i tavoli rimangono ma
+    -- non sono più associati a una sala (room_id = NULL). La UI li tratta come tavoli non
+    -- raggruppati, visibili solo quando non ci sono sale configurate.
+    room_id         VARCHAR(30)     NULL REFERENCES rooms(id) ON DELETE SET NULL,
     label           VARCHAR(80)     NOT NULL,       -- es. 'Tavolo 01'
     covers          SMALLINT        NOT NULL CHECK (covers > 0),  -- posti a sedere
     is_active       BOOLEAN         NOT NULL DEFAULT TRUE,
