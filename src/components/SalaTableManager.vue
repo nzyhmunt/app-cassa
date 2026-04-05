@@ -542,7 +542,8 @@ function createNewOrder() {
   // If a stale merge mapping remains after the table becomes free, create the order against
   // the selected table so it does not inherit the master's bill session incorrectly.
   const masterId = store.tableMergedInto[selectedTable.value.id];
-  const isActiveMergedSlave = masterId != null && selectedTable.value.status !== 'free';
+  const selectedTableStatus = store.getTableStatus(selectedTable.value.id)?.status;
+  const isActiveMergedSlave = masterId != null && selectedTableStatus !== 'free';
   const sessionTableId = isActiveMergedSlave ? masterId : selectedTable.value.id;
   const session = store.tableCurrentBillSession[sessionTableId];
 
