@@ -1401,8 +1401,9 @@ const otherOccupiedTables = computed(() =>
 );
 
 // Tables available to be merged INTO the currently selected master table.
-// Exclude tables that are already slaves of the selected table or slaves of
-// another master (slaves can only be part of one group at a time).
+// Excludes: self, free tables, tables already merged into this master (already
+// slaves), and tables that are already slaves of a different master (each table
+// can only belong to one merge group at a time).
 const mergeCandidates = computed(() => {
   const currentId = selectedTable.value?.id;
   if (!currentId) return [];
@@ -1410,8 +1411,8 @@ const mergeCandidates = computed(() => {
     if (t.id === currentId) return false; // not self
     // Skip free tables — at least one active order is needed
     if (tableStatusMap.value[t.id]?.status === 'free') return false;
-    // Skip tables already merged into this master (already slaves)
-    if (store.tableMergedInto[t.id] === currentId) return false;
+    // Skip tables that are already slaves of ANY master (including this one)
+    if (store.tableMergedInto[t.id]) return false;
     return true;
   });
 });

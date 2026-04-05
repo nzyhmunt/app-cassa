@@ -466,18 +466,23 @@ export const useAppStore = defineStore('app', () => {
       }
     });
 
-    // Retag source orders to the target's bill session (orders stay on source table)
+    // Retag source orders to the target's bill session (orders stay on source table).
+    // Include completed orders from the current session so they remain in the combined
+    // bill total (getTableStatus() includes completed orders filtered by billSessionId).
     const srcSession = tableCurrentBillSession.value[sourceTableId];
+    const srcSessionId = srcSession?.billSessionId;
     orders.value.forEach(o => {
-      if (o.table === sourceTableId && o.status !== 'completed' && o.status !== 'rejected') {
-        o.billSessionId = targetSessionId;
-      }
+      if (o.table !== sourceTableId) return;
+      if (o.status === 'rejected') return;
+      // Active orders: always retag
+      if (o.status !== 'completed') { o.billSessionId = targetSessionId; return; }
+      // Completed orders: retag only if they belong to the current source session
+      if (srcSessionId && o.billSessionId === srcSessionId) o.billSessionId = targetSessionId;
     });
 
     // Move only the source table's current-session transactions to the target.
     // Historical transactions from older bill sessions must stay attached to
     // the original table so closed-bill history and session calculations remain correct.
-    const srcSessionId = srcSession?.billSessionId;
     if (srcSessionId) {
       transactions.value.forEach(t => {
         if (t.tableId === sourceTableId && t.billSessionId === srcSessionId) {
