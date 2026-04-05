@@ -602,11 +602,11 @@ export const useAppStore = defineStore('app', () => {
     if (!sourceTableId || !targetTableId || sourceTableId === targetTableId) return false;
 
     // Ensure target has a billing session.
-    // If the target is already occupied (e.g. a merged slave) but has no own session,
-    // refuse the operation to avoid creating a rogue session on a slave table.
+    // If the target is already occupied (e.g. pending-only orders or a merged slave)
+    // but has no own session, refuse the operation to avoid creating a rogue session.
     let targetSession = tableCurrentBillSession.value[targetTableId];
     if (!targetSession) {
-      if (tableOccupiedAt.value[targetTableId]) return false;
+      if (getTableStatus(targetTableId).status !== 'free') return false;
       openTableSession(targetTableId);
       targetSession = tableCurrentBillSession.value[targetTableId];
     }
