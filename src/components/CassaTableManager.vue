@@ -120,17 +120,23 @@
             :aria-pressed="store.billRequestedTables.has(selectedTable.id)">
             <Receipt class="size-4" /> <span class="hidden sm:inline">Conto</span>
           </button>
-          <!-- Sposta button -->
-          <button v-if="tableOrders.length > 0" @click="openMoveModal"
+          <!-- Sposta button: visible when not a slave -->
+          <button v-if="tableOrders.length > 0 && !selectedTableMasterTableId" @click="openMoveModal"
             class="bg-white/10 hover:bg-white/20 p-2 sm:px-3 sm:py-2 rounded-xl font-bold text-[10px] md:text-xs flex items-center gap-1.5 transition-all active:scale-95 shrink-0"
             title="Sposta Tavolo">
             <ArrowRightLeft class="size-4" /> <span class="hidden sm:inline">Sposta</span>
           </button>
-          <!-- Unisci button -->
-          <button v-if="tableOrders.length > 0" @click="openMergeModal"
+          <!-- Unisci button: visible when not a slave -->
+          <button v-if="tableOrders.length > 0 && !selectedTableMasterTableId" @click="openMergeModal"
             class="bg-white/10 hover:bg-white/20 p-2 sm:px-3 sm:py-2 rounded-xl font-bold text-[10px] md:text-xs flex items-center gap-1.5 transition-all active:scale-95 shrink-0"
             title="Unisci con altro Tavolo">
             <Merge class="size-4" /> <span class="hidden sm:inline">Unisci</span>
+          </button>
+          <!-- Dividi button: visible when this table has slaves merged into it -->
+          <button v-if="slaveTables.length > 0" @click="openSplitModal"
+            class="bg-orange-500/80 hover:bg-orange-500 p-2 sm:px-3 sm:py-2 rounded-xl font-bold text-[10px] md:text-xs flex items-center gap-1.5 transition-all active:scale-95 shrink-0"
+            title="Dividi Tavoli Uniti">
+            <Scissors class="size-4" /> <span class="hidden sm:inline">Dividi</span>
           </button>
           <!-- Storico Conti button -->
           <router-link
@@ -147,6 +153,18 @@
       </div>
 
       <div class="flex flex-1 min-h-0 flex-col sm:flex-row">
+
+        <!-- Banner: slave table merged into a master -->
+        <div v-if="selectedTableMasterTable" class="shrink-0 bg-orange-50 border-b border-orange-200 px-4 py-2 flex items-center gap-2 text-xs text-orange-800 font-medium w-full">
+          <Link class="size-4 shrink-0 text-orange-500" />
+          <span>Questo tavolo è unito al Tavolo <strong>{{ selectedTableMasterTable.label }}</strong>. Il conto è gestito dal tavolo principale.</span>
+        </div>
+
+        <!-- Banner: master table with slaves merged in -->
+        <div v-else-if="slaveTables.length > 0" class="shrink-0 bg-blue-50 border-b border-blue-200 px-4 py-2 flex items-center gap-2 text-xs text-blue-800 font-medium w-full">
+          <Merge class="size-4 shrink-0 text-blue-500" />
+          <span>Tavoli uniti: <strong>{{ slaveTables.map(t => `T.${t.label}`).join(', ') }}</strong>. Il conto include tutti gli ordini.</span>
+        </div>
 
         <!-- PANNELLO SINISTRO: Riepilogo Comande e Storni dalla Cassa -->
         <div class="w-full sm:w-[55%] border-b sm:border-b-0 sm:border-r border-gray-200 bg-gray-50 flex flex-col h-[42%] shrink-0 overflow-hidden sm:h-auto sm:shrink sm:flex-1">
@@ -356,6 +374,11 @@
                   </button>
                   <div class="flex flex-col">
                     <span class="font-bold text-gray-800 text-sm md:text-base flex items-center gap-1">Ord #{{ ord.id.substring(0,6) }}</span>
+                    <!-- Table-of-origin badge when merged slaves are present -->
+                    <span v-if="slaveTableIds.length > 0 && ord.table !== selectedTable?.id"
+                      class="text-[8px] md:text-[9px] font-bold uppercase text-blue-600 bg-blue-50 border border-blue-200 px-1 py-0.5 rounded mt-0.5 inline-flex items-center gap-0.5 w-fit">
+                      <Link class="size-2.5" /> T.{{ store.config.tables.find(t => t.id === ord.table)?.label ?? ord.table }}
+                    </span>
                     <span v-if="ord.isDirectEntry" class="text-[9px] md:text-[10px] font-bold uppercase theme-text flex items-center gap-1 mt-0.5"><Zap class="size-3 md:size-3.5" /> Voce Diretta (In Cassa)</span>
                     <span v-else-if="ord.status === 'pending'" class="text-[9px] md:text-[10px] font-bold uppercase text-amber-600 flex items-center gap-1 mt-0.5"><AlertTriangle class="size-3 md:size-3.5" /> In Attesa (Escluso Cassa)</span>
                     <span v-else class="text-[9px] md:text-[10px] font-bold uppercase text-emerald-600 flex items-center gap-1 mt-0.5"><CheckCircle class="size-3 md:size-3.5" /> In Cucina (Calcolato in Cassa)</span>
@@ -1062,15 +1085,30 @@
         <h3 class="font-bold text-gray-800 flex items-center gap-2"><ArrowRightLeft class="size-5 theme-text" /> Sposta Tavolo {{ selectedTable?.label }}</h3>
         <button @click="showMoveModal = false" class="text-gray-400 hover:text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-full p-1.5 transition-colors"><X class="size-4" /></button>
       </div>
-      <p class="text-xs text-gray-500 mb-4">Seleziona il tavolo di destinazione libero. Tutti gli ordini verranno spostati.</p>
-      <div class="grid grid-cols-4 gap-2 max-h-64 overflow-y-auto">
-        <button v-for="table in freeTables" :key="'sp_'+table.id"
-          @click="confirmMove(table)"
-          class="aspect-square rounded-xl border-2 border-emerald-200 bg-emerald-50 text-emerald-800 font-black text-lg flex items-center justify-center hover:bg-emerald-100 active:scale-95 transition-all">
-          {{ table.label }}
-        </button>
+      <p class="text-xs text-gray-500 mb-4">Seleziona il tavolo di destinazione. Se il tavolo è occupato, gli ordini verranno spostati e i conti uniti.</p>
+      <!-- Tavoli liberi -->
+      <div v-if="freeTables.length > 0">
+        <p class="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-2">Tavoli Liberi</p>
+        <div class="grid grid-cols-4 gap-2 mb-3">
+          <button v-for="table in freeTables" :key="'sp_'+table.id"
+            @click="confirmMove(table)"
+            class="aspect-square rounded-xl border-2 border-emerald-200 bg-emerald-50 text-emerald-800 font-black text-lg flex items-center justify-center hover:bg-emerald-100 active:scale-95 transition-all">
+            {{ table.label }}
+          </button>
+        </div>
       </div>
-      <div v-if="freeTables.length === 0" class="text-center text-gray-400 text-sm py-4">Nessun tavolo libero disponibile.</div>
+      <!-- Tavoli occupati -->
+      <div v-if="otherOccupiedTables.length > 0">
+        <p class="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-2">Tavoli Occupati (unione conto)</p>
+        <div class="grid grid-cols-4 gap-2">
+          <button v-for="table in otherOccupiedTables" :key="'spo_'+table.id"
+            @click="confirmMove(table)"
+            class="aspect-square rounded-xl border-2 border-[var(--brand-primary)] theme-bg text-white font-black text-lg flex items-center justify-center hover:opacity-90 active:scale-95 transition-all">
+            {{ table.label }}
+          </button>
+        </div>
+      </div>
+      <div v-if="freeTables.length === 0 && otherOccupiedTables.length === 0" class="text-center text-gray-400 text-sm py-4">Nessun altro tavolo disponibile.</div>
     </div>
   </div>
 
@@ -1083,15 +1121,85 @@
         <h3 class="font-bold text-gray-800 flex items-center gap-2"><Merge class="size-5 theme-text" /> Unisci con Tavolo {{ selectedTable?.label }}</h3>
         <button @click="showMergeModal = false" class="text-gray-400 hover:text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-full p-1.5 transition-colors"><X class="size-4" /></button>
       </div>
-      <p class="text-xs text-gray-500 mb-4">Seleziona il tavolo con cui fondere gli ordini. I suoi ordini e i coperti verranno uniti con questo tavolo.</p>
+      <p class="text-xs text-gray-500 mb-4">Seleziona il tavolo da unire. Entrambi i tavoli restano occupati e il conto viene gestito insieme. Usa "Dividi" per separare i tavoli.</p>
       <div class="grid grid-cols-4 gap-2 max-h-64 overflow-y-auto">
-        <button v-for="table in occupiedTables" :key="'un_'+table.id"
+        <button v-for="table in mergeCandidates" :key="'un_'+table.id"
           @click="confirmMerge(table)"
           class="aspect-square rounded-xl border-2 border-[var(--brand-primary)] theme-bg text-white font-black text-lg flex items-center justify-center hover:opacity-90 active:scale-95 transition-all">
           {{ table.label }}
         </button>
       </div>
-      <div v-if="occupiedTables.length === 0" class="text-center text-gray-400 text-sm py-4">Nessun altro tavolo occupato disponibile.</div>
+      <div v-if="mergeCandidates.length === 0" class="text-center text-gray-400 text-sm py-4">Nessun altro tavolo occupato disponibile.</div>
+    </div>
+  </div>
+
+  <!-- ================================================================ -->
+  <!-- MODAL: DIVIDI TAVOLI                                              -->
+  <!-- ================================================================ -->
+  <div v-if="showSplitModal" class="fixed inset-0 z-[100] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md p-5 max-h-[90dvh] overflow-y-auto">
+      <div class="flex justify-between items-center mb-4">
+        <h3 class="font-bold text-gray-800 flex items-center gap-2"><Scissors class="size-5 text-orange-500" /> Dividi Tavoli</h3>
+        <button @click="showSplitModal = false" class="text-gray-400 hover:text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-full p-1.5 transition-colors"><X class="size-4" /></button>
+      </div>
+      <p class="text-xs text-gray-500 mb-4">Seleziona il tavolo da separare. Puoi scegliere quali ordini restituire al tavolo separato oppure spostarli tutti.</p>
+
+      <!-- Slave table selector (shown when multiple slaves) -->
+      <div v-if="slaveTables.length > 1" class="mb-4">
+        <p class="text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-2">Tavolo da separare</p>
+        <div class="flex flex-wrap gap-2">
+          <button
+            v-for="st in slaveTables" :key="'sl_'+st.id"
+            @click="splitSelectedSlaveId = st.id; splitSelectedOrderIds = []"
+            :class="splitSelectedSlaveId === st.id
+              ? 'bg-orange-100 border-orange-400 text-orange-800'
+              : 'bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100'"
+            class="px-3 py-1.5 rounded-xl border-2 font-bold text-sm transition-all active:scale-95">
+            Tavolo {{ st.label }}
+          </button>
+        </div>
+      </div>
+      <div v-else-if="slaveTables.length === 1" class="mb-3 text-sm font-medium text-gray-700">
+        Separazione del <strong>Tavolo {{ slaveTables[0].label }}</strong>
+      </div>
+
+      <!-- Order selector for the chosen slave -->
+      <template v-if="splitSelectedSlaveId">
+        <p class="text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-2">Ordini del tavolo da separare</p>
+        <div class="bg-gray-50 rounded-xl border border-gray-200 divide-y divide-gray-100 mb-4 max-h-48 overflow-y-auto">
+          <div
+            v-for="ord in store.orders.filter(o => o.table === splitSelectedSlaveId && o.status !== 'completed' && o.status !== 'rejected')"
+            :key="'so_'+ord.id"
+            class="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-gray-100 transition-colors"
+            @click="splitSelectedOrderIds.includes(ord.id)
+              ? (splitSelectedOrderIds = splitSelectedOrderIds.filter(id => id !== ord.id))
+              : splitSelectedOrderIds.push(ord.id)"
+          >
+            <div :class="splitSelectedOrderIds.length === 0 || splitSelectedOrderIds.includes(ord.id) ? 'bg-orange-400' : 'bg-gray-200'"
+              class="size-4 rounded shrink-0 transition-colors flex items-center justify-center">
+              <svg v-if="splitSelectedOrderIds.length === 0 || splitSelectedOrderIds.includes(ord.id)" class="size-3 text-white" viewBox="0 0 12 12" fill="currentColor"><path d="M2 6l3 3 5-5"/></svg>
+            </div>
+            <span class="text-xs text-gray-700 flex-1 truncate">
+              {{ ord.orderItems.map(i => i.name).join(', ') || 'Ordine ' + ord.id.slice(-4) }}
+            </span>
+            <span class="text-xs font-bold text-gray-500">{{ store.config.ui.currency }}{{ ord.totalAmount.toFixed(2) }}</span>
+          </div>
+          <div v-if="store.orders.filter(o => o.table === splitSelectedSlaveId && o.status !== 'completed' && o.status !== 'rejected').length === 0"
+            class="px-3 py-4 text-center text-gray-400 text-xs">Nessun ordine attivo per questo tavolo.</div>
+        </div>
+        <p v-if="splitSelectedOrderIds.length === 0" class="text-[10px] text-gray-400 mb-3">Nessun ordine selezionato — verranno separati tutti gli ordini del tavolo.</p>
+        <p v-else class="text-[10px] text-orange-600 mb-3">{{ splitSelectedOrderIds.length }} ordine/i selezionati per la separazione.</p>
+      </template>
+
+      <div class="flex gap-2 justify-end">
+        <button @click="showSplitModal = false" class="px-4 py-2 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50 active:scale-95 transition-all">Annulla</button>
+        <button
+          @click="confirmSplit"
+          :disabled="!splitSelectedSlaveId"
+          class="px-4 py-2 rounded-xl bg-orange-500 text-white text-sm font-bold hover:bg-orange-600 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+          <Scissors class="size-4 inline mr-1" /> Separa Tavolo
+        </button>
+      </div>
     </div>
   </div>
 
@@ -1117,7 +1225,7 @@ import {
   Ban, Undo2, Code, Minus, Receipt, ArrowRightLeft, Merge, Trash2,
   Layers, ListChecks, History, LayoutGrid, ListOrdered,
   Tag, Wallet, ChevronDown,
-  Percent, Zap, BookOpen, PlusCircle, Banknote, CreditCard, Lock, SquareCheck,
+  Percent, Zap, BookOpen, PlusCircle, Banknote, CreditCard, Lock, SquareCheck, Scissors, Link,
 } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
 import { getOrderItemRowTotal, KITCHEN_ACTIVE_STATUSES, getLockedDirectItems, appConfig } from '../utils/index.js';
@@ -1200,11 +1308,61 @@ const activeRoomTables = computed(() => {
 // ── Sposta / Unisci modal state ────────────────────────────────────────────
 const showMoveModal = ref(false);
 const showMergeModal = ref(false);
+const showSplitModal = ref(false);
+// For split modal: which slave table to split off (null = not yet selected)
+const splitSelectedSlaveId = ref(null);
+// Selected order IDs to move back to slave (empty = move all)
+const splitSelectedOrderIds = ref([]);
 
 const freeTables = computed(() =>
   store.config.tables.filter(
     t => t.id !== selectedTable.value?.id && tableStatusMap.value[t.id]?.status === 'free',
   ),
+);
+
+// All non-current, non-free tables available for move/merge target selection
+const otherOccupiedTables = computed(() =>
+  store.config.tables.filter(
+    t => t.id !== selectedTable.value?.id && tableStatusMap.value[t.id]?.status !== 'free',
+  ),
+);
+
+// Tables available to be merged INTO the currently selected master table.
+// Exclude tables that are already slaves of the selected table or slaves of
+// another master (slaves can only be part of one group at a time).
+const mergeCandidates = computed(() => {
+  const currentId = selectedTable.value?.id;
+  if (!currentId) return [];
+  return store.config.tables.filter(t => {
+    if (t.id === currentId) return false; // not self
+    // Skip free tables — at least one active order is needed
+    if (tableStatusMap.value[t.id]?.status === 'free') return false;
+    // Skip tables already merged into this master (already slaves)
+    if (store.tableMergedInto[t.id] === currentId) return false;
+    return true;
+  });
+});
+
+// Slave table IDs merged into the currently selected table (as master)
+const slaveTableIds = computed(() =>
+  Object.keys(store.tableMergedInto).filter(id => store.tableMergedInto[id] === selectedTable.value?.id),
+);
+
+// True when the selected table is itself a slave (merged into another)
+const selectedTableMasterTableId = computed(() =>
+  selectedTable.value ? (store.tableMergedInto[selectedTable.value.id] ?? null) : null,
+);
+
+const selectedTableMasterTable = computed(() => {
+  const masterId = selectedTableMasterTableId.value;
+  return masterId ? store.config.tables.find(t => t.id === masterId) ?? null : null;
+});
+
+// Slave table objects for the split modal
+const slaveTables = computed(() =>
+  slaveTableIds.value
+    .map(id => store.config.tables.find(t => t.id === id))
+    .filter(Boolean),
 );
 
 const tableStatusCounts = computed(() => {
@@ -1225,14 +1383,13 @@ const pendingTablesCount = computed(() => tableStatusCounts.value.pending);
 const paidTablesCount = computed(() => tableStatusCounts.value.paid);
 const billRequestedTablesCount = computed(() => tableStatusCounts.value.billRequested);
 
-const occupiedTables = computed(() =>
-  store.config.tables.filter(
-    t => t.id !== selectedTable.value?.id && tableStatusMap.value[t.id]?.status !== 'free',
-  ),
-);
-
 function openMoveModal() { showMoveModal.value = true; }
 function openMergeModal() { showMergeModal.value = true; }
+function openSplitModal() {
+  splitSelectedSlaveId.value = slaveTables.value.length === 1 ? slaveTables.value[0].id : null;
+  splitSelectedOrderIds.value = [];
+  showSplitModal.value = true;
+}
 
 function confirmMove(targetTable) {
   if (!selectedTable.value) return;
@@ -1246,6 +1403,18 @@ function confirmMerge(sourceTable) {
   if (!selectedTable.value) return;
   store.mergeTableOrders(sourceTable.id, selectedTable.value.id);
   showMergeModal.value = false;
+}
+
+function confirmSplit() {
+  if (!selectedTable.value || !splitSelectedSlaveId.value) return;
+  store.splitTableOrders(
+    selectedTable.value.id,
+    splitSelectedSlaveId.value,
+    splitSelectedOrderIds.value.length > 0 ? splitSelectedOrderIds.value : null,
+  );
+  showSplitModal.value = false;
+  splitSelectedSlaveId.value = null;
+  splitSelectedOrderIds.value = [];
 }
 
 // ── Bill Requested ─────────────────────────────────────────────────────────
@@ -1300,10 +1469,12 @@ const jsonContext = ref('table');
 const jsonPayloadData = ref('{}');
 
 // ── Computed: table orders ─────────────────────────────────────────────────
+// Includes orders from slave tables merged into this master
 const tableOrders = computed(() => {
   if (!selectedTable.value) return [];
+  const allTableIds = [selectedTable.value.id, ...slaveTableIds.value];
   return store.orders.filter(
-    o => o.table === selectedTable.value.id && o.status !== 'completed' && o.status !== 'rejected',
+    o => allTableIds.includes(o.table) && o.status !== 'completed' && o.status !== 'rejected',
   );
 });
 
@@ -1314,9 +1485,10 @@ const tableAcceptedPayableOrders = computed(() =>
 const tableTotalAmount = computed(() => {
   if (!selectedTable.value) return 0;
   const session = store.tableCurrentBillSession[selectedTable.value.id];
+  const allTableIds = [selectedTable.value.id, ...slaveTableIds.value];
   return store.orders
     .filter(o => {
-      if (o.table !== selectedTable.value.id) return false;
+      if (!allTableIds.includes(o.table)) return false;
       if (!KITCHEN_ACTIVE_STATUSES.includes(o.status) && o.status !== 'completed') return false;
       if (session) return o.billSessionId === session.billSessionId;
       return true;
@@ -1643,6 +1815,17 @@ const tableMenuGrouped = computed(() => {
 
 // ── Table actions ──────────────────────────────────────────────────────────
 function openTableDetails(table) {
+  // If the table is a merged slave, open the master's billing panel instead.
+  // All transactions are managed under the master, so the cashier sees the full bill.
+  const masterId = store.tableMergedInto[table.id];
+  if (masterId) {
+    const masterTable = store.config.tables.find(t => t.id === masterId);
+    if (masterTable) {
+      _openTableModal(masterTable);
+      return;
+    }
+  }
+
   const status = store.getTableStatus(table.id).status;
   if (status === 'free') {
     // Show people-count prompt before opening a free table
@@ -1657,7 +1840,10 @@ function openTableDetails(table) {
 
 function _openTableModal(table) {
   selectedTable.value = table;
-  const session = store.tableCurrentBillSession[table.id];
+  // For slave tables, read the session from the master so romana state is correct
+  const masterId = store.tableMergedInto[table.id];
+  const sessionTableId = masterId ?? table.id;
+  const session = store.tableCurrentBillSession[sessionTableId];
   // Default romana split to adults count; fall back to total people or table covers
   if (session) {
     splitWays.value = session.adults > 0 ? session.adults : (session.adults + session.children) || (table.covers || 2);
@@ -1679,7 +1865,7 @@ function _openTableModal(table) {
   modalMancia.value = '';
 
   const pastRomana = store.transactions.filter(
-    t => t.tableId === table.id && t.operationType === 'romana' &&
+    t => t.tableId === sessionTableId && t.operationType === 'romana' &&
       (!session || t.billSessionId === session.billSessionId),
   );
   // FIX: sum romanaSplitCount per transaction (supports flexible multi-quota payments)
@@ -1746,7 +1932,10 @@ function closeTableModal() {
 
 function createNewOrderForTable() {
   if (!selectedTable.value) return;
-  const session = store.tableCurrentBillSession[selectedTable.value.id];
+  // For slave tables, use the master's session so the order appears in the combined bill
+  const masterId = store.tableMergedInto[selectedTable.value.id];
+  const sessionTableId = masterId ?? selectedTable.value.id;
+  const session = store.tableCurrentBillSession[sessionTableId];
   const newOrd = {
     id: 'ord_' + Math.random().toString(36).slice(2, 11),
     table: selectedTable.value.id,

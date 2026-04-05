@@ -121,6 +121,10 @@ export const useAppStore = defineStore('app', () => {
   const billRequestedTables = ref(new Set());
   // Maps tableId -> { billSessionId, adults, children } for the current open session
   const tableCurrentBillSession = ref({});
+  // Maps slaveTableId -> masterTableId for merged tables.
+  // A slave table keeps its orders on its own `table` field but shares the
+  // master's billSessionId, so the combined bill is managed from the master.
+  const tableMergedInto = ref({});
 
   // ── Computed: CSS variables for theming ────────────────────────────────────
   const cssVars = computed(() => ({
@@ -149,14 +153,43 @@ export const useAppStore = defineStore('app', () => {
 
   // ── Computed: Table helpers ────────────────────────────────────────────────
   function getTableStatus(tableId) {
+    // If this table is merged into a master, delegate to the master for billing
+    // status while still showing the table as occupied on the floor plan.
+    const masterId = tableMergedInto.value[tableId];
+    if (masterId) {
+      // The slave itself must have active orders to appear occupied
+      const slaveOrds = orders.value.filter(
+        o => o.table === tableId && o.status !== 'completed' && o.status !== 'rejected',
+      );
+      if (slaveOrds.length === 0) return { status: 'free', total: 0, remaining: 0 };
+      // Mirror the master's billing status (paid, bill_requested, occupied…)
+      const masterStatus = getTableStatus(masterId);
+      // Always show at least 'occupied'; never show 'free' since the slave has orders
+      return {
+        ...masterStatus,
+        status: masterStatus.status === 'free' ? 'occupied' : masterStatus.status,
+        isMergedSlave: true,
+        masterTableId: masterId,
+      };
+    }
+
+    // Collect all slave tables merged into this master
+    const slaveIds = Object.keys(tableMergedInto.value).filter(
+      id => tableMergedInto.value[id] === tableId,
+    );
+    const allTableIds = [tableId, ...slaveIds];
+
     const ords = orders.value.filter(
-      o => o.table === tableId && o.status !== 'completed' && o.status !== 'rejected',
+      o => allTableIds.includes(o.table) && o.status !== 'completed' && o.status !== 'rejected',
     );
     if (ords.length === 0) return { status: 'free', total: 0, remaining: 0 };
 
     // Include completed orders in the total so that per-order payments track correctly
+    const session = tableCurrentBillSession.value[tableId];
     const billable = orders.value.filter(
-      o => o.table === tableId && (KITCHEN_ACTIVE_STATUSES.includes(o.status) || o.status === 'completed'),
+      o => allTableIds.includes(o.table) &&
+        (KITCHEN_ACTIVE_STATUSES.includes(o.status) || o.status === 'completed') &&
+        (!session || o.billSessionId === session.billSessionId),
     );
     const total = billable.reduce((a, b) => a + b.totalAmount, 0);
     const paid = transactions.value
@@ -357,6 +390,16 @@ export const useAppStore = defineStore('app', () => {
       billRequestedTables.value.add(toTableId);
       billRequestedTables.value = new Set(billRequestedTables.value);
     }
+    // Any slave tables that were merged into the source must now follow the source
+    Object.keys(tableMergedInto.value).forEach(slaveId => {
+      if (tableMergedInto.value[slaveId] === fromTableId) {
+        tableMergedInto.value = { ...tableMergedInto.value, [slaveId]: toTableId };
+      }
+    });
+    // If the source was itself a slave, re-point it to the destination's master (or the dest)
+    if (tableMergedInto.value[fromTableId]) {
+      delete tableMergedInto.value[fromTableId];
+    }
     // Move bill session
     if (tableCurrentBillSession.value[fromTableId]) {
       if (!tableCurrentBillSession.value[toTableId]) {
@@ -398,57 +441,129 @@ export const useAppStore = defineStore('app', () => {
   }
 
   function mergeTableOrders(sourceTableId, targetTableId) {
-    // Move all active orders from sourceTableId to targetTableId
-    orders.value.forEach(o => {
-      if (o.table === sourceTableId && o.status !== 'completed' && o.status !== 'rejected') {
-        o.table = targetTableId;
+    // New Unisci behaviour: orders STAY on their original (source) table so
+    // per-table tracking is preserved. The source table is linked to the
+    // master (target) billing session so the two tables share a single bill.
+    // Both tables remain "occupied" on the floor plan.
+
+    // Resolve chains: if target is itself a slave, adopt its master as the real target
+    const resolvedTargetId = tableMergedInto.value[targetTableId] ?? targetTableId;
+
+    // Ensure the target has an open session; if not, open one now
+    if (!tableCurrentBillSession.value[resolvedTargetId]) {
+      openTableSession(resolvedTargetId);
+    }
+    const targetSession = tableCurrentBillSession.value[resolvedTargetId];
+    const targetSessionId = targetSession.billSessionId;
+
+    // If source is already a slave (of someone else), re-parent it to the new master
+    delete tableMergedInto.value[sourceTableId];
+
+    // Any current slaves of the source become slaves of the resolved target
+    Object.keys(tableMergedInto.value).forEach(slaveId => {
+      if (tableMergedInto.value[slaveId] === sourceTableId) {
+        tableMergedInto.value = { ...tableMergedInto.value, [slaveId]: resolvedTargetId };
       }
     });
-    // Preserve the earliest occupiedAt
+
+    // Retag source orders to the target's bill session (orders stay on source table)
+    const srcSession = tableCurrentBillSession.value[sourceTableId];
+    orders.value.forEach(o => {
+      if (o.table === sourceTableId && o.status !== 'completed' && o.status !== 'rejected') {
+        o.billSessionId = targetSessionId;
+      }
+    });
+
+    // Move source's transactions to target and retag to target session
+    const srcSessionId = srcSession?.billSessionId;
+    transactions.value.forEach(t => {
+      if (t.tableId === sourceTableId) {
+        t.tableId = resolvedTargetId;
+        if (srcSessionId && t.billSessionId === srcSessionId) {
+          t.billSessionId = targetSessionId;
+        }
+      }
+    });
+
+    // Preserve the earliest occupiedAt on the master
     if (tableOccupiedAt.value[sourceTableId]) {
       const srcTime = tableOccupiedAt.value[sourceTableId];
-      const tgtTime = tableOccupiedAt.value[targetTableId];
+      const tgtTime = tableOccupiedAt.value[resolvedTargetId];
       if (!tgtTime || new Date(srcTime) < new Date(tgtTime)) {
-        tableOccupiedAt.value[targetTableId] = srcTime;
+        tableOccupiedAt.value[resolvedTargetId] = srcTime;
       }
-      delete tableOccupiedAt.value[sourceTableId];
+      // Keep source's occupiedAt so it stays "occupied" on the floor plan
     }
-    // Clear bill request on source
-    billRequestedTables.value.delete(sourceTableId);
-    billRequestedTables.value = new Set(billRequestedTables.value);
-    // Migrate bill session: prefer destination's existing session; fall back to source's
-    if (tableCurrentBillSession.value[sourceTableId]) {
+
+    // Combine headcounts on the master session
+    if (srcSession) {
       const next = { ...tableCurrentBillSession.value };
-      if (!next[targetTableId]) {
-        next[targetTableId] = next[sourceTableId];
-      } else {
-        // Target already has a session — retag moved orders and transactions to the target session
-        const srcSessionId = next[sourceTableId].billSessionId;
-        const destSessionId = next[targetTableId].billSessionId;
-        orders.value.forEach(o => {
-          if (o.table === targetTableId && o.billSessionId === srcSessionId) {
-            o.billSessionId = destSessionId;
-          }
-        });
-        transactions.value.forEach(t => {
-          if (t.tableId === sourceTableId && t.billSessionId === srcSessionId) {
-            t.billSessionId = destSessionId;
-          }
-        });
-        // Combine headcounts so splitWays reflects the full party after the merge
-        next[targetTableId] = {
-          ...next[targetTableId],
-          adults: next[targetTableId].adults + next[sourceTableId].adults,
-          children: next[targetTableId].children + next[sourceTableId].children,
-        };
-      }
+      next[resolvedTargetId] = {
+        ...next[resolvedTargetId],
+        adults: (next[resolvedTargetId]?.adults ?? 0) + (srcSession.adults ?? 0),
+        children: (next[resolvedTargetId]?.children ?? 0) + (srcSession.children ?? 0),
+      };
+      delete next[sourceTableId];
+      tableCurrentBillSession.value = next;
+    } else {
+      // Source had no session; just remove whatever stale entry might exist
+      const next = { ...tableCurrentBillSession.value };
       delete next[sourceTableId];
       tableCurrentBillSession.value = next;
     }
-    // Move transactions
-    transactions.value.forEach(t => {
-      if (t.tableId === sourceTableId) t.tableId = targetTableId;
+
+    // Clear bill request on source
+    billRequestedTables.value.delete(sourceTableId);
+    billRequestedTables.value = new Set(billRequestedTables.value);
+
+    // Record the merge relationship
+    tableMergedInto.value = { ...tableMergedInto.value, [sourceTableId]: resolvedTargetId };
+  }
+
+  // Splits a slave table back out of a merged group.
+  // `selectedOrderIds` is an optional array of order IDs to move back to the slave;
+  // when null/empty all of the slave's orders are split off.
+  function splitTableOrders(masterTableId, slaveTableId, selectedOrderIds = null) {
+    if (tableMergedInto.value[slaveTableId] !== masterTableId) return; // not a slave of this master
+
+    // Create a fresh session for the slave
+    const newSessionId = (typeof crypto !== 'undefined' && crypto.randomUUID)
+      ? crypto.randomUUID()
+      : 'bill_' + Math.random().toString(36).slice(2, 11);
+
+    const masterSession = tableCurrentBillSession.value[masterTableId];
+    const masterSessionId = masterSession?.billSessionId;
+
+    // Determine which orders to split off
+    const ordersToSplit = orders.value.filter(o => {
+      if (o.table !== slaveTableId) return false;
+      if (o.status === 'completed' || o.status === 'rejected') return false;
+      if (selectedOrderIds && selectedOrderIds.length > 0) {
+        return selectedOrderIds.includes(o.id);
+      }
+      return true; // split all slave orders if no specific selection
     });
+
+    // Retag split orders to the new slave session
+    ordersToSplit.forEach(o => {
+      o.billSessionId = newSessionId;
+    });
+
+    // Open the slave's new session (inherit headcount from master proportionally — keep simple)
+    const slaveSession = {
+      billSessionId: newSessionId,
+      adults: 0,
+      children: 0,
+    };
+    tableCurrentBillSession.value = {
+      ...tableCurrentBillSession.value,
+      [slaveTableId]: slaveSession,
+    };
+
+    // Remove slave from the merge group
+    const next = { ...tableMergedInto.value };
+    delete next[slaveTableId];
+    tableMergedInto.value = next;
   }
 
   // ── Mutations: Cassa ───────────────────────────────────────────────────────
@@ -708,6 +823,7 @@ export const useAppStore = defineStore('app', () => {
     tableOccupiedAt,
     billRequestedTables,
     tableCurrentBillSession,
+    tableMergedInto,
     pendingOpenTable,
     pendingSelectOrder,
     pendingNewOrder,
@@ -747,6 +863,7 @@ export const useAppStore = defineStore('app', () => {
     openTableSession,
     moveTableOrders,
     mergeTableOrders,
+    splitTableOrders,
     // cassa operations
     setFondoCassa,
     addCashMovement,
@@ -770,6 +887,7 @@ export const useAppStore = defineStore('app', () => {
       'tableOccupiedAt',
       'billRequestedTables',
       'tableCurrentBillSession',
+      'tableMergedInto',
       'cashBalance',
       'cashMovements',
       'dailyClosures',
