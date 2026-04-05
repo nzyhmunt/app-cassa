@@ -449,6 +449,7 @@ export const useAppStore = defineStore('app', () => {
           transactions.value.forEach(t => {
             if (t.tableId === slaveId && t.billSessionId === srcSessionId) {
               t.billSessionId = destSessionId;
+              t.tableId = toTableId;
             }
           });
         });
