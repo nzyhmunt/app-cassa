@@ -479,6 +479,9 @@ export const useAppStore = defineStore('app', () => {
     // Resolve chains: if target is itself a slave, adopt its master as the real target
     const resolvedTargetId = tableMergedInto.value[targetTableId] ?? targetTableId;
 
+    // Guard: self-map or cycle would cause infinite recursion in getTableStatus()
+    if (sourceTableId === resolvedTargetId) return;
+
     // Ensure the target has an open session; if not, open one now
     if (!tableCurrentBillSession.value[resolvedTargetId]) {
       openTableSession(resolvedTargetId);

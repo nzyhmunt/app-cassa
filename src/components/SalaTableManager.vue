@@ -322,11 +322,16 @@ const allTablesStatusMap = computed(() => {
 });
 
 // Compute order count once per table; reused in the slot template.
+// For master tables include orders from slave tables so the grid badge stays
+// consistent with the combined bill shown in the detail panel.
 const orderCountMap = computed(() => {
+  const merged = store.tableMergedInto;
   const map = {};
   for (const table of store.config.tables) {
+    const slaveIds = Object.keys(merged).filter(id => merged[id] === table.id);
+    const allIds = [table.id, ...slaveIds];
     map[table.id] = store.orders.filter(
-      o => o.table === table.id && o.status !== 'completed' && o.status !== 'rejected',
+      o => allIds.includes(o.table) && o.status !== 'completed' && o.status !== 'rejected',
     ).length;
   }
   return map;
