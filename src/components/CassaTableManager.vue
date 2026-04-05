@@ -153,19 +153,19 @@
         </div>
       </div>
 
+      <!-- Banner: slave table merged into a master -->
+      <div v-if="selectedTableMasterTable" class="shrink-0 bg-orange-50 border-b border-orange-200 px-4 py-2 flex items-center gap-2 text-xs text-orange-800 font-medium">
+        <Link class="size-4 shrink-0 text-orange-500" />
+        <span>Questo tavolo è unito al Tavolo <strong>{{ selectedTableMasterTable.label }}</strong>. Il conto è gestito dal tavolo principale.</span>
+      </div>
+
+      <!-- Banner: master table with slaves merged in -->
+      <div v-else-if="slaveTables.length > 0" class="shrink-0 bg-blue-50 border-b border-blue-200 px-4 py-2 flex items-center gap-2 text-xs text-blue-800 font-medium">
+        <Merge class="size-4 shrink-0 text-blue-500" />
+        <span>Tavoli uniti: <strong>{{ slaveTables.map(t => `T.${t.label}`).join(', ') }}</strong>. Il conto include tutti gli ordini.</span>
+      </div>
+
       <div class="flex flex-1 min-h-0 flex-col sm:flex-row">
-
-        <!-- Banner: slave table merged into a master -->
-        <div v-if="selectedTableMasterTable" class="shrink-0 bg-orange-50 border-b border-orange-200 px-4 py-2 flex items-center gap-2 text-xs text-orange-800 font-medium w-full">
-          <Link class="size-4 shrink-0 text-orange-500" />
-          <span>Questo tavolo è unito al Tavolo <strong>{{ selectedTableMasterTable.label }}</strong>. Il conto è gestito dal tavolo principale.</span>
-        </div>
-
-        <!-- Banner: master table with slaves merged in -->
-        <div v-else-if="slaveTables.length > 0" class="shrink-0 bg-blue-50 border-b border-blue-200 px-4 py-2 flex items-center gap-2 text-xs text-blue-800 font-medium w-full">
-          <Merge class="size-4 shrink-0 text-blue-500" />
-          <span>Tavoli uniti: <strong>{{ slaveTables.map(t => `T.${t.label}`).join(', ') }}</strong>. Il conto include tutti gli ordini.</span>
-        </div>
 
         <!-- PANNELLO SINISTRO: Riepilogo Comande e Storni dalla Cassa -->
         <div class="w-full sm:w-[55%] border-b sm:border-b-0 sm:border-r border-gray-200 bg-gray-50 flex flex-col h-[42%] shrink-0 overflow-hidden sm:h-auto sm:shrink sm:flex-1">
