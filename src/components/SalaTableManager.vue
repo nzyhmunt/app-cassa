@@ -402,14 +402,14 @@ const otherOccupiedTables = computed(() =>
   ),
 );
 
-// Candidates for merge: occupied tables not already slave of this master
+// Candidates for merge: occupied tables not already slave of any master
 const mergeCandidates = computed(() => {
   const currentId = selectedTable.value?.id;
   if (!currentId) return [];
   return store.config.tables.filter(t => {
     if (t.id === currentId) return false;
     if (store.getTableStatus(t.id).status === 'free') return false;
-    if (store.tableMergedInto[t.id] === currentId) return false;
+    if (store.tableMergedInto[t.id]) return false;
     return true;
   });
 });
