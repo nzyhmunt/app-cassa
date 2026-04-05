@@ -1220,7 +1220,7 @@ const billRequestedTablesCount = computed(() => tableStatusCounts.value.billRequ
 
 const occupiedTables = computed(() =>
   store.config.tables.filter(
-    t => t.id !== selectedTable.value?.id && store.getTableStatus(t.id).status !== 'free',
+    t => t.id !== selectedTable.value?.id && tableStatusMap.value[t.id]?.status !== 'free',
   ),
 );
 
