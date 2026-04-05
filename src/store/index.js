@@ -152,18 +152,26 @@ export const useAppStore = defineStore('app', () => {
   );
 
   // ── Computed: Table helpers ────────────────────────────────────────────────
-  function getTableStatus(tableId) {
+  function getTableStatus(tableId, visited = new Set()) {
+    // Guard against persisted/stale cyclic merge state so status resolution
+    // degrades gracefully instead of infinitely recursing.
+    if (visited.has(tableId)) {
+      return { status: 'free', total: 0, remaining: 0 };
+    }
+    const nextVisited = new Set(visited);
+    nextVisited.add(tableId);
+
     // If this table is merged into a master, delegate to the master for billing
     // status while still showing the table as occupied on the floor plan.
     const masterId = tableMergedInto.value[tableId];
-    if (masterId) {
+    if (masterId && masterId !== tableId && !nextVisited.has(masterId)) {
       // The slave itself must have active orders to appear occupied
       const slaveOrds = orders.value.filter(
         o => o.table === tableId && o.status !== 'completed' && o.status !== 'rejected',
       );
       if (slaveOrds.length === 0) return { status: 'free', total: 0, remaining: 0 };
       // Mirror the master's billing status (paid, bill_requested, occupied…)
-      const masterStatus = getTableStatus(masterId);
+      const masterStatus = getTableStatus(masterId, nextVisited);
       // Always show at least 'occupied'; never show 'free' since the slave has orders
       return {
         ...masterStatus,
