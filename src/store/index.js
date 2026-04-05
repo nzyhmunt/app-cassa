@@ -242,6 +242,13 @@ export const useAppStore = defineStore('app', () => {
     );
     if (activeOrds.length === 0) {
       delete tableOccupiedAt.value[order.table];
+      // If this was a merged slave, clear the stale merge relationship so the
+      // table can be opened independently after its bill has been settled.
+      if (tableMergedInto.value[order.table]) {
+        const nextMerge = { ...tableMergedInto.value };
+        delete nextMerge[order.table];
+        tableMergedInto.value = nextMerge;
+      }
       // Clear bill session for the table
       const nextSession = { ...tableCurrentBillSession.value };
       delete nextSession[order.table];
@@ -394,6 +401,11 @@ export const useAppStore = defineStore('app', () => {
     // Resolve toTableId to its own master first so we never create a slave→slave chain
     // (which would break billing aggregation because the ultimate master would miss orders).
     const resolvedMoveTarget = tableMergedInto.value[toTableId] ?? toTableId;
+    // Collect old slaves of fromTableId BEFORE re-pointing them so we can retag their
+    // orders/transactions when the destination is already occupied (see else branch below).
+    const oldSlaveIds = Object.keys(tableMergedInto.value).filter(
+      id => tableMergedInto.value[id] === fromTableId,
+    );
     Object.keys(tableMergedInto.value).forEach(slaveId => {
       if (tableMergedInto.value[slaveId] === fromTableId) {
         tableMergedInto.value = { ...tableMergedInto.value, [slaveId]: resolvedMoveTarget };
@@ -425,6 +437,20 @@ export const useAppStore = defineStore('app', () => {
           if (t.tableId === fromTableId && t.billSessionId === srcSessionId) {
             t.billSessionId = destSessionId;
           }
+        });
+        // Also retag orders/transactions on slave tables that were tagged to the source
+        // session — without this they would disappear from the destination's combined bill.
+        oldSlaveIds.forEach(slaveId => {
+          orders.value.forEach(o => {
+            if (o.table === slaveId && o.billSessionId === srcSessionId) {
+              o.billSessionId = destSessionId;
+            }
+          });
+          transactions.value.forEach(t => {
+            if (t.tableId === slaveId && t.billSessionId === srcSessionId) {
+              t.billSessionId = destSessionId;
+            }
+          });
         });
         const next = { ...tableCurrentBillSession.value };
         // Combine headcounts so splitWays reflects the full party after the move
@@ -571,11 +597,17 @@ export const useAppStore = defineStore('app', () => {
   function splitItemsToTable(sourceTableId, targetTableId, itemQtyMap) {
     if (!sourceTableId || !targetTableId || sourceTableId === targetTableId) return false;
 
-    // Ensure target has a billing session
-    if (!tableCurrentBillSession.value[targetTableId]) {
+    // Ensure target has a billing session.
+    // If the target is already occupied (e.g. a merged slave) but has no own session,
+    // refuse the operation to avoid creating a rogue session on a slave table.
+    let targetSession = tableCurrentBillSession.value[targetTableId];
+    if (!targetSession) {
+      if (tableOccupiedAt.value[targetTableId]) return false;
       openTableSession(targetTableId);
+      targetSession = tableCurrentBillSession.value[targetTableId];
     }
-    const targetSessionId = tableCurrentBillSession.value[targetTableId].billSessionId;
+    if (!targetSession || !targetSession.billSessionId) return false;
+    const targetSessionId = targetSession.billSessionId;
 
     const movedItemsForTarget = [];
 

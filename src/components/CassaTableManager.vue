@@ -2075,10 +2075,11 @@ const tableMenuGrouped = computed(() => {
 
 // ── Table actions ──────────────────────────────────────────────────────────
 function openTableDetails(table) {
-  // If the table is a merged slave, open the master's billing panel instead.
+  // If the table is a merged slave with active orders, open the master's billing panel instead.
   // All transactions are managed under the master, so the cashier sees the full bill.
+  // If the slave is free (e.g. merge state not yet cleaned up after payment), let it open normally.
   const masterId = store.tableMergedInto[table.id];
-  if (masterId) {
+  if (masterId && store.getTableStatus(table.id).status !== 'free') {
     const masterTable = store.config.tables.find(t => t.id === masterId);
     if (masterTable) {
       _openTableModal(masterTable);
