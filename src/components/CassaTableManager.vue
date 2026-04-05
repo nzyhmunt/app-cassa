@@ -1212,7 +1212,7 @@
             <!-- Item name + unit price -->
             <div class="flex-1 min-w-0">
               <span class="font-semibold text-xs text-gray-800 truncate block">{{ row.name }}</span>
-              <span class="text-[10px] text-gray-400">{{ store.config.ui.currency }}{{ row.unitPrice.toFixed(2) }} / pz</span>
+              <span class="text-[10px] text-gray-400">{{ store.config.ui.currency }}{{ row.unitPrice.toFixed(2) }} / cad.</span>
             </div>
             <!-- Quantity stepper -->
             <div class="flex items-center gap-1 shrink-0">

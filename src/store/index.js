@@ -588,9 +588,13 @@ export const useAppStore = defineStore('app', () => {
         item.voidedQuantity = (item.voidedQuantity || 0) + actualMoveQty;
         orderModified = true;
 
-        // Build a copy of the item (with all its modifiers) for the target order
+        // Build a copy of the item (with all its modifiers) for the target order.
+        // Use the same crypto.randomUUID strategy as openTableSession for consistent UID generation.
+        const newUid = (typeof crypto !== 'undefined' && crypto.randomUUID)
+          ? crypto.randomUUID()
+          : 'spl_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7);
         movedItemsForTarget.push({
-          uid: 'spl_' + Math.random().toString(36).slice(2, 11),
+          uid: newUid,
           dishId: item.dishId ?? null,
           name: item.name,
           unitPrice: item.unitPrice,
