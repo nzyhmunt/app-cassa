@@ -653,7 +653,7 @@ Semantica:
 - In un database relazionale questa relazione sarebbe modellata con una tabella dedicata (solo due colonne — nessun riferimento a `bill_sessions`, poiché le comande si trovano fisicamente sul master):
 
 ```sql
--- Unioni attive tra tavoli (la riga viene eliminata quando l'unione viene sciolta)
+-- Active table merges; row is deleted when the merge is undone (split)
 CREATE TABLE table_merge_sessions (
     slave_table_id   VARCHAR(50) NOT NULL REFERENCES tables(id),
     master_table_id  VARCHAR(50) NOT NULL REFERENCES tables(id),
