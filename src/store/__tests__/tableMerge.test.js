@@ -6,11 +6,11 @@
  *
  * Key behaviours under test:
  *  - moveTableOrders: works for both free and occupied targets
- *  - mergeTableOrders: orders stay on source table, tableMergedInto is set,
- *    both tables remain occupied
- *  - getTableStatus for slave: delegates to master status
- *  - getTableStatus for master: includes slave orders in total
- *  - splitTableOrders: restores independent session for slave
+ *  - mergeTableOrders: orders physically move to master, tableMergedInto is set,
+ *    slave delegates status to master
+ *  - getTableStatus for slave: delegates entirely to master status
+ *  - getTableStatus for master: all orders are on master naturally
+ *  - splitTableOrders: removes merge mapping; opens slave session only if slave has orders
  *  - Bug fix: merging open table with paid table updates totals correctly
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -134,8 +134,8 @@ describe('moveTableOrders() — to an occupied table (bill merge)', () => {
 // mergeTableOrders — new Unisci behaviour
 // ---------------------------------------------------------------------------
 
-describe('mergeTableOrders() — orders stay on source, both tables remain occupied', () => {
-  it('source orders stay on source table (o.table unchanged)', () => {
+describe('mergeTableOrders() — orders physically move to master, both tables remain occupied', () => {
+  it('source orders move to master table (o.table = masterTableId)', () => {
     const store = useAppStore();
     const sessA = store.openTableSession('A', 2, 0);
     const sessB = store.openTableSession('B', 2, 0);
@@ -146,11 +146,11 @@ describe('mergeTableOrders() — orders stay on source, both tables remain occup
 
     store.mergeTableOrders('A', 'B'); // merge A (slave) into B (master)
 
-    // A's order stays on A
-    expect(store.orders.find(o => o.id === ordA.id).table).toBe('A');
+    // A's order now belongs to B
+    expect(store.orders.find(o => o.id === ordA.id).table).toBe('B');
   });
 
-  it('source orders are retagged to master bill session', () => {
+  it('source orders are tagged to master bill session', () => {
     const store = useAppStore();
     const sessA = store.openTableSession('A', 2, 0);
     const sessB = store.openTableSession('B', 2, 0);
@@ -160,7 +160,9 @@ describe('mergeTableOrders() — orders stay on source, both tables remain occup
 
     store.mergeTableOrders('A', 'B');
 
-    expect(store.orders.find(o => o.id === ordA.id).billSessionId).toBe(sessB);
+    const movedOrd = store.orders.find(o => o.id === ordA.id);
+    expect(movedOrd.billSessionId).toBe(sessB);
+    expect(movedOrd.table).toBe('B');
   });
 
   it('records tableMergedInto[source] = master', () => {
@@ -300,9 +302,9 @@ describe('getTableStatus() — slave mirrors master', () => {
     store.addOrder(makeOrder('A', 'accepted', 10, sessA));
     store.addOrder(makeOrder('B', 'accepted', 20, sessB));
 
-    store.mergeTableOrders('A', 'B'); // A slave of B
+    store.mergeTableOrders('A', 'B'); // A slave of B; ordA moves to B
 
-    // Pay B's combined bill (30)
+    // Pay B's combined bill (30 — both orders are now on B)
     store.addTransaction(makeTransaction('B', 30, sessB));
 
     const slaveStatus = store.getTableStatus('A');
@@ -310,28 +312,29 @@ describe('getTableStatus() — slave mirrors master', () => {
     expect(slaveStatus.remaining).toBe(0);
   });
 
-  it('slave free when it has no active orders', () => {
+  it('slave mirrors occupied status when master has active orders', () => {
     const store = useAppStore();
     const sessA = store.openTableSession('A', 2, 0);
     const sessB = store.openTableSession('B', 2, 0);
-    // A has only a completed order (not active)
-    store.addOrder(makeOrder('A', 'completed', 10, sessA));
+    store.addOrder(makeOrder('A', 'accepted', 10, sessA));
     store.addOrder(makeOrder('B', 'accepted', 20, sessB));
 
     store.mergeTableOrders('A', 'B');
 
+    // Master B has active orders → slave A mirrors that status
     const slaveStatus = store.getTableStatus('A');
-    // Slave has no active orders → free
-    expect(slaveStatus.status).toBe('free');
+    expect(slaveStatus.status).toBe('occupied');
+    expect(slaveStatus.isMergedSlave).toBe(true);
+    expect(slaveStatus.masterTableId).toBe('B');
   });
 });
 
 // ---------------------------------------------------------------------------
-// changeOrderStatus — master session preservation when slave still active
+// changeOrderStatus — session lifecycle with merged tables
 // ---------------------------------------------------------------------------
 
-describe('changeOrderStatus() — master session preserved while slave is active', () => {
-  it('does not clear master session when master local orders complete but slave still has active orders', () => {
+describe('changeOrderStatus() — session lifecycle with merged tables', () => {
+  it('does not clear master session when one order completes but another is still active', () => {
     const store = useAppStore();
     const sessA = store.openTableSession('A', 2, 0);
     const sessB = store.openTableSession('B', 2, 0);
@@ -340,19 +343,18 @@ describe('changeOrderStatus() — master session preserved while slave is active
     store.addOrder(ordA);
     store.addOrder(ordB);
 
-    // A becomes slave of B
+    // A becomes slave of B; both orders are now on B
     store.mergeTableOrders('A', 'B');
     expect(store.tableMergedInto['A']).toBe('B');
 
-    // Mark B's local order as completed — B now has 0 local active orders
-    // but slave A still has active orders
+    // Complete one of B's orders — the other is still active
     store.changeOrderStatus(ordB, 'completed');
 
-    // Master B session must still be alive (slave A is still active)
+    // Master B session must still be alive (ordA is still active on B)
     expect(store.tableCurrentBillSession['B']).toBeDefined();
   });
 
-  it('clears master session only when both master and slave orders are completed', () => {
+  it('clears master session and slave mapping when all orders are completed', () => {
     const store = useAppStore();
     const sessA = store.openTableSession('A', 2, 0);
     const sessB = store.openTableSession('B', 2, 0);
@@ -363,16 +365,17 @@ describe('changeOrderStatus() — master session preserved while slave is active
 
     store.mergeTableOrders('A', 'B');
 
-    // Complete slave A's order first
+    // Complete first order — B still has the second one active
     store.changeOrderStatus(ordA, 'completed');
-    // tableMergedInto[A] should be cleared (slave has no more active orders)
-    expect(store.tableMergedInto['A']).toBeUndefined();
+    expect(store.tableCurrentBillSession['B']).toBeDefined();
 
-    // Now complete master B's order
+    // Complete second order — no more active orders on B
     store.changeOrderStatus(ordB, 'completed');
-    // No slaves remaining → master session can now be cleared
+    // Master session must be cleared
     expect(store.tableCurrentBillSession['B']).toBeUndefined();
     expect(store.tableOccupiedAt['B']).toBeUndefined();
+    // Slave mapping for A must also be cleared (master is now free)
+    expect(store.tableMergedInto['A']).toBeUndefined();
   });
 });
 
@@ -381,7 +384,7 @@ describe('changeOrderStatus() — master session preserved while slave is active
 // ---------------------------------------------------------------------------
 
 describe('splitTableOrders()', () => {
-  it('restores independent session for slave and removes from tableMergedInto', () => {
+  it('removes from tableMergedInto after split; slave is free since all its orders moved to master', () => {
     const store = useAppStore();
     const sessA = store.openTableSession('A', 2, 0);
     const sessB = store.openTableSession('B', 2, 0);
@@ -389,17 +392,20 @@ describe('splitTableOrders()', () => {
     store.addOrder(ordA);
     store.addOrder(makeOrder('B', 'accepted', 20, sessB));
 
-    store.mergeTableOrders('A', 'B'); // A becomes slave
+    store.mergeTableOrders('A', 'B'); // A becomes slave; ordA moves to B
 
     expect(store.tableMergedInto['A']).toBe('B');
 
     store.splitTableOrders('B', 'A'); // split A back out
 
     expect(store.tableMergedInto['A']).toBeUndefined();
-    expect(store.tableCurrentBillSession['A']).toBeDefined();
+    // A has no orders (they moved to B on merge), so no session is opened
+    expect(store.tableCurrentBillSession['A']).toBeUndefined();
+    // A is free
+    expect(store.getTableStatus('A').status).toBe('free');
   });
 
-  it('split orders are retagged to slave new session', () => {
+  it('splitTableOrders alone does not open a session for slave (no orders on slave)', () => {
     const store = useAppStore();
     const sessA = store.openTableSession('A', 2, 0);
     const sessB = store.openTableSession('B', 2, 0);
@@ -407,33 +413,31 @@ describe('splitTableOrders()', () => {
     store.addOrder(ordA);
     store.addOrder(makeOrder('B', 'accepted', 20, sessB));
 
-    store.mergeTableOrders('A', 'B');
-    // ordA is now tagged to sessB
+    store.mergeTableOrders('A', 'B'); // ordA moves to B
+    store.splitTableOrders('B', 'A'); // detach A
 
-    store.splitTableOrders('B', 'A');
-
-    const newSessA = store.tableCurrentBillSession['A']?.billSessionId;
-    expect(newSessA).toBeDefined();
-    // ordA should now have A's new session
-    expect(store.orders.find(o => o.id === ordA.id).billSessionId).toBe(newSessA);
+    // A has no orders on it, so splitTableOrders must NOT open a session
+    expect(store.tableCurrentBillSession['A']).toBeUndefined();
+    expect(store.getTableStatus('A').status).toBe('free');
   });
 
-  it('after split, slave and master have independent statuses', () => {
+  it('after split, slave is free and master retains all orders', () => {
     const store = useAppStore();
     const sessA = store.openTableSession('A', 2, 0);
     const sessB = store.openTableSession('B', 2, 0);
     store.addOrder(makeOrder('A', 'accepted', 10, sessA));
     store.addOrder(makeOrder('B', 'accepted', 20, sessB));
 
-    store.mergeTableOrders('A', 'B');
-    store.splitTableOrders('B', 'A');
+    store.mergeTableOrders('A', 'B'); // ordA moves to B; B has both orders (30)
+    store.splitTableOrders('B', 'A'); // detach A
 
     const statusA = store.getTableStatus('A');
     const statusB = store.getTableStatus('B');
-    expect(statusA.status).toBe('occupied');
+    // A is free (its orders moved to B on merge and weren't moved back)
+    expect(statusA.status).toBe('free');
+    // B retains all orders
     expect(statusB.status).toBe('occupied');
-    expect(statusA.total).toBe(10);
-    expect(statusB.total).toBe(20);
+    expect(statusB.total).toBe(30);
   });
 
   it('is a no-op when slave is not merged into master', () => {
@@ -446,7 +450,7 @@ describe('splitTableOrders()', () => {
     expect(store.tableMergedInto['A']).toBeUndefined();
   });
 
-  it('retags completed slave orders to the new slave session after split', () => {
+  it('after merge, orders on master are on master\'s session; split does not retag master orders', () => {
     const store = useAppStore();
     const sessA = store.openTableSession('A', 2, 0);
     const sessB = store.openTableSession('B', 2, 0);
@@ -457,24 +461,19 @@ describe('splitTableOrders()', () => {
     store.addOrder(makeOrder('B', 'accepted', 20, sessB));
 
     store.mergeTableOrders('A', 'B');
-    // After merge: both A orders are retagged to sessB
+    // After merge: both A orders moved to B and tagged to sessB
+    expect(store.orders.find(o => o.id === completedOrdA.id).table).toBe('B');
     expect(store.orders.find(o => o.id === completedOrdA.id).billSessionId).toBe(sessB);
+    expect(store.orders.find(o => o.id === activeOrdA.id).table).toBe('B');
 
     store.splitTableOrders('B', 'A');
 
-    const newSessA = store.tableCurrentBillSession['A']?.billSessionId;
-    expect(newSessA).toBeDefined();
-    // Both the active and the completed order on A must be retagged to A's new session.
-    // Without this, completed orders would remain tagged to sessB and disappear from
-    // getTableStatus() once A's new session differs from sessB.
-    expect(store.orders.find(o => o.id === completedOrdA.id).billSessionId).toBe(newSessA);
-    expect(store.orders.find(o => o.id === activeOrdA.id).billSessionId).toBe(newSessA);
-
+    // A has no orders (not moved back) — A is free
     const statusA = store.getTableStatus('A');
+    expect(statusA.status).toBe('free');
+    // B retains all orders: completed (10) + active (5) + B's own (20) = 35 in session
     const statusB = store.getTableStatus('B');
-    // A: completed (10) + active (5) both under new session = 15
-    expect(statusA.total).toBe(15);
-    expect(statusB.total).toBe(20);
+    expect(statusB.total).toBe(35);
   });
 });
 
@@ -639,7 +638,7 @@ describe('splitItemsToTable()', () => {
     expect(targetOrd.orderItems[0].quantity).toBe(2); // clamped to 2
   });
 
-  it('full flow: merged split returns items to master via splitItemsToTable + splitTableOrders', () => {
+  it('full flow: split slave back out — detach first, then move items from master to slave', () => {
     const store = useAppStore();
     const sessA = store.openTableSession('A', 2, 0);
     const sessB = store.openTableSession('B', 2, 0);
@@ -653,31 +652,34 @@ describe('splitItemsToTable()', () => {
     store.addOrder(ordA);
     store.addOrder(ordB);
 
-    // Merge A into B
+    // Merge A into B — ordA (pizza x2, pasta x1) physically moves to B
     store.mergeTableOrders('A', 'B');
 
-    // Now split: slave A keeps Pizza(1), sends Pasta and 1 Pizza back to master
-    // itemQtyMap for splitItemsToTable: what goes TO master
-    const pizzaKey = `${ordA.id}__${ordA.orderItems[0].uid}`;
-    const pastaKey = `${ordA.id}__${ordA.orderItems[1].uid}`;
-    const masterBoundMap = { [pizzaKey]: 1, [pastaKey]: 1 }; // 1 pizza + 1 pasta go to master
+    // ordA is now on B
+    expect(store.orders.find(o => o.id === ordA.id).table).toBe('B');
 
-    store.splitItemsToTable('A', 'B', masterBoundMap);
-    store.splitTableOrders('B', 'A'); // restore A's independence
-
-    // A is now independent
+    // Correct split flow in new model:
+    // 1. Detach A from the merge (A becomes free again)
+    store.splitTableOrders('B', 'A');
     expect(store.tableMergedInto['A']).toBeUndefined();
+
+    // 2. Move 1 pizza from master B to now-free slave A
+    const pizzaKey = `${ordA.id}__${ordA.orderItems[0].uid}`;
+    store.splitItemsToTable('B', 'A', { [pizzaKey]: 1 });
+
+    // A is now independent with 1 pizza (direct order)
     expect(store.tableCurrentBillSession['A']).toBeDefined();
+    const newAOrd = store.orders.find(o => o.table === 'A' && o.isDirectEntry);
+    expect(newAOrd).toBeDefined();
+    expect(newAOrd.orderItems.some(i => i.name === 'Pizza')).toBe(true);
 
-    // A has 1 pizza remaining (1 was voided/moved to master)
-    const aOrd = store.orders.find(o => o.id === ordA.id);
-    expect(aOrd.orderItems[0].voidedQuantity).toBe(1);
+    // ordA on B has 1 pizza voided
+    const bOrdA = store.orders.find(o => o.id === ordA.id);
+    expect(bOrdA.orderItems[0].voidedQuantity).toBe(1);
 
-    // B has a new direct order with the returned items (1 pizza + 1 pasta)
-    const newMasterOrd = store.orders.find(o => o.table === 'B' && o.isDirectEntry);
-    expect(newMasterOrd).toBeDefined();
-    expect(newMasterOrd.orderItems.some(i => i.name === 'Pizza')).toBe(true);
-    expect(newMasterOrd.orderItems.some(i => i.name === 'Pasta')).toBe(true);
+    // A and B are now independent
+    expect(store.getTableStatus('A').status).toBe('occupied');
+    expect(store.getTableStatus('B').status).toBe('occupied');
   });
 
   it('single table split: moves selected items to a free target table', () => {

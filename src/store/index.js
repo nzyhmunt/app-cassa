@@ -122,8 +122,9 @@ export const useAppStore = defineStore('app', () => {
   // Maps tableId -> { billSessionId, adults, children } for the current open session
   const tableCurrentBillSession = ref({});
   // Maps slaveTableId -> masterTableId for merged tables.
-  // A slave table keeps its orders on its own `table` field but shares the
-  // master's billSessionId, so the combined bill is managed from the master.
+  // When a slave is merged, ALL its orders are physically moved to the master's
+  // table field. The mapping is kept only so the slave shows as "occupied" on
+  // the floor plan by delegating its status to the master.
   const tableMergedInto = ref({});
 
   // ── Computed: CSS variables for theming ────────────────────────────────────
@@ -152,48 +153,31 @@ export const useAppStore = defineStore('app', () => {
   );
 
   // ── Computed: Table helpers ────────────────────────────────────────────────
-  function getTableStatus(tableId, visited = new Set()) {
-    // Guard against persisted/stale cyclic merge state so status resolution
-    // degrades gracefully instead of infinitely recursing.
-    if (visited.has(tableId)) {
+  function getTableStatus(tableId) {
+    // If merged slave: orders are on the master. Delegate status entirely to master.
+    const masterId = tableMergedInto.value[tableId];
+    if (masterId) {
+      const resolvedMaster = resolveMaster(tableId);
+      if (resolvedMaster !== tableId) {
+        return {
+          ...getTableStatus(resolvedMaster),
+          isMergedSlave: true,
+          masterTableId: resolvedMaster,
+        };
+      }
+      // Cycle detected — degrade gracefully
       return { status: 'free', total: 0, remaining: 0 };
     }
-    const nextVisited = new Set(visited);
-    nextVisited.add(tableId);
 
-    // If this table is merged into a master, delegate to the master for billing
-    // status while still showing the table as occupied on the floor plan.
-    const masterId = tableMergedInto.value[tableId];
-    if (masterId && masterId !== tableId && !nextVisited.has(masterId)) {
-      // The slave itself must have active orders to appear occupied
-      const slaveOrds = orders.value.filter(
-        o => o.table === tableId && o.status !== 'completed' && o.status !== 'rejected',
-      );
-      if (slaveOrds.length === 0) return { status: 'free', total: 0, remaining: 0 };
-      // Mirror the master's billing status (paid, bill_requested, occupied…)
-      const masterStatus = getTableStatus(masterId, nextVisited);
-      // Always show at least 'occupied'; never show 'free' since the slave has orders
-      return {
-        ...masterStatus,
-        status: masterStatus.status === 'free' ? 'occupied' : masterStatus.status,
-        isMergedSlave: true,
-        masterTableId: masterId,
-      };
-    }
-
-    // Collect all slave tables merged into this master
-    const slaveIds = slaveIdsOf(tableId);
-    const allTableIds = [tableId, ...slaveIds];
-
+    // Normal (non-slave) table: check its own orders only
     const ords = orders.value.filter(
-      o => allTableIds.includes(o.table) && o.status !== 'completed' && o.status !== 'rejected',
+      o => o.table === tableId && o.status !== 'completed' && o.status !== 'rejected',
     );
     if (ords.length === 0) return { status: 'free', total: 0, remaining: 0 };
 
-    // Include completed orders in the total so that per-order payments track correctly
     const session = tableCurrentBillSession.value[tableId];
     const billable = orders.value.filter(
-      o => allTableIds.includes(o.table) &&
+      o => o.table === tableId &&
         (KITCHEN_ACTIVE_STATUSES.includes(o.status) || o.status === 'completed') &&
         (!session || o.billSessionId === session.billSessionId),
     );
@@ -247,26 +231,20 @@ export const useAppStore = defineStore('app', () => {
       o => o.table === order.table && o.status !== 'completed' && o.status !== 'rejected',
     );
     if (activeOrds.length === 0) {
-      // Before clearing the master session, check whether any slave tables that
-      // are still merged into this table have active orders. If they do, the
-      // master state must be kept alive so the combined bill remains valid.
-      const slaveTableIds = slaveIdsOf(order.table);
-      const slaveHasActiveOrders = slaveTableIds.some(slaveId =>
-        orders.value.some(
-          o => o.table === slaveId && o.status !== 'completed' && o.status !== 'rejected',
-        ),
-      );
-      if (slaveHasActiveOrders) return;
-
       delete tableOccupiedAt.value[order.table];
-      // If this was a merged slave, clear the stale merge relationship so the
-      // table can be opened independently after its bill has been settled.
+      // Clear slave mappings that pointed to this master (master is now free)
+      const slavesNowFree = slaveIdsOf(order.table);
+      if (slavesNowFree.length > 0) {
+        const nextMerge = { ...tableMergedInto.value };
+        slavesNowFree.forEach(id => delete nextMerge[id]);
+        tableMergedInto.value = nextMerge;
+      }
+      // If this was a merged slave, clear the stale merge relationship
       if (tableMergedInto.value[order.table]) {
         const nextMerge = { ...tableMergedInto.value };
         delete nextMerge[order.table];
         tableMergedInto.value = nextMerge;
       }
-      // Clear bill session for the table
       const nextSession = { ...tableCurrentBillSession.value };
       delete nextSession[order.table];
       tableCurrentBillSession.value = nextSession;
@@ -520,60 +498,45 @@ export const useAppStore = defineStore('app', () => {
   }
 
   function mergeTableOrders(sourceTableId, targetTableId) {
-    // New Unisci behaviour: orders STAY on their original (source) table so
-    // per-table tracking is preserved. The source table is linked to the
-    // master (target) billing session so the two tables share a single bill.
-    // Both tables remain "occupied" on the floor plan.
-
-    // Resolve chains: if target is itself a slave, adopt its master as the real target
+    // Resolve chains: if target is itself a slave, adopt its master
     const resolvedTargetId = resolveMaster(targetTableId);
 
-    // Guard: self-map or cycle would cause infinite recursion in getTableStatus()
+    // Guard: self-map or cycle
     if (sourceTableId === resolvedTargetId) return;
 
-    // Ensure the target has an open session; if not, open one now
+    // Ensure target has an open session
     if (!tableCurrentBillSession.value[resolvedTargetId]) {
       openTableSession(resolvedTargetId);
     }
-    const targetSession = tableCurrentBillSession.value[resolvedTargetId];
-    const targetSessionId = targetSession.billSessionId;
+    const targetSessionId = tableCurrentBillSession.value[resolvedTargetId].billSessionId;
 
-    // If source is already a slave (of someone else), re-parent it to the new master
-    delete tableMergedInto.value[sourceTableId];
-
-    // Any current slaves of the source become slaves of the resolved target.
-    // Their orders must also be retagged to the new master's session so they
-    // remain visible in getTableStatus() totals (which filter by billSessionId).
+    // Re-parent existing slaves of source to the new master (and move their orders too)
     const srcSlaves = slaveIdsOf(sourceTableId);
-    const srcSlaveSet = new Set(srcSlaves);
     srcSlaves.forEach(slaveId => {
-      tableMergedInto.value = { ...tableMergedInto.value, [slaveId]: resolvedTargetId };
-    });
-    if (srcSlaveSet.size > 0) {
       orders.value.forEach(o => {
-        if (srcSlaveSet.has(o.table) && o.status !== 'rejected') {
+        if (o.table === slaveId && o.status !== 'rejected') {
+          o.table = resolvedTargetId;
           o.billSessionId = targetSessionId;
         }
       });
-    }
-
-    // Retag source orders to the target's bill session (orders stay on source table).
-    // Include completed orders from the current session so they remain in the combined
-    // bill total (getTableStatus() includes completed orders filtered by billSessionId).
-    const srcSession = tableCurrentBillSession.value[sourceTableId];
-    const srcSessionId = srcSession?.billSessionId;
-    orders.value.forEach(o => {
-      if (o.table !== sourceTableId) return;
-      if (o.status === 'rejected') return;
-      // Active orders: always retag
-      if (o.status !== 'completed') { o.billSessionId = targetSessionId; return; }
-      // Completed orders: retag only if they belong to the current source session
-      if (srcSessionId && o.billSessionId === srcSessionId) o.billSessionId = targetSessionId;
+      tableMergedInto.value = { ...tableMergedInto.value, [slaveId]: resolvedTargetId };
     });
 
-    // Move only the source table's current-session transactions to the target.
-    // Historical transactions from older bill sessions must stay attached to
-    // the original table so closed-bill history and session calculations remain correct.
+    // If source is already a slave (of someone else), detach it first
+    delete tableMergedInto.value[sourceTableId];
+
+    // Capture source session BEFORE we delete it
+    const srcSession = tableCurrentBillSession.value[sourceTableId];
+    const srcSessionId = srcSession?.billSessionId;
+
+    // Physically move all source orders to master table
+    orders.value.forEach(o => {
+      if (o.table !== sourceTableId || o.status === 'rejected') return;
+      o.table = resolvedTargetId;
+      o.billSessionId = targetSessionId;
+    });
+
+    // Move current-session transactions to master
     if (srcSessionId) {
       transactions.value.forEach(t => {
         if (t.tableId === sourceTableId && t.billSessionId === srcSessionId) {
@@ -583,17 +546,16 @@ export const useAppStore = defineStore('app', () => {
       });
     }
 
-    // Preserve the earliest occupiedAt on the master
+    // Preserve earliest occupiedAt on master
     if (tableOccupiedAt.value[sourceTableId]) {
       const srcTime = tableOccupiedAt.value[sourceTableId];
       const tgtTime = tableOccupiedAt.value[resolvedTargetId];
       if (!tgtTime || new Date(srcTime) < new Date(tgtTime)) {
         tableOccupiedAt.value[resolvedTargetId] = srcTime;
       }
-      // Keep source's occupiedAt so it stays "occupied" on the floor plan
     }
 
-    // Combine headcounts on the master session
+    // Combine headcounts on master session
     if (srcSession) {
       const next = { ...tableCurrentBillSession.value };
       next[resolvedTargetId] = {
@@ -604,7 +566,6 @@ export const useAppStore = defineStore('app', () => {
       delete next[sourceTableId];
       tableCurrentBillSession.value = next;
     } else {
-      // Source had no session; just remove whatever stale entry might exist
       const next = { ...tableCurrentBillSession.value };
       delete next[sourceTableId];
       tableCurrentBillSession.value = next;
@@ -614,43 +575,35 @@ export const useAppStore = defineStore('app', () => {
     billRequestedTables.value.delete(sourceTableId);
     billRequestedTables.value = new Set(billRequestedTables.value);
 
-    // Record the merge relationship
+    // Record merge relationship (slave shows as "occupied" on floor plan via master)
     tableMergedInto.value = { ...tableMergedInto.value, [sourceTableId]: resolvedTargetId };
   }
 
-  // Splits a slave table back out of a merged group.
-  // Called after splitItemsToTable has already moved any master-bound items back.
-  // All remaining active orders on the slave are retagged to a fresh session.
-  // Completed orders from the merged session are also retagged so totals stay correct
-  // (getTableStatus filters billable orders by the table's current session id).
+  // Detaches a slave table from a merged group.
+  // Any items that should stay with the slave must have been moved there first
+  // by calling splitTableOrders() first (to free the slave), then splitItemsToTable().
+  // This function removes the tableMergedInto mapping and opens a fresh session
+  // for the slave if it already has orders on it.
   function splitTableOrders(masterTableId, slaveTableId) {
-    if (tableMergedInto.value[slaveTableId] !== masterTableId) return; // not a slave of this master
+    if (tableMergedInto.value[slaveTableId] !== masterTableId) return;
 
-    // Capture master session id before removing the slave (openTableSession might mutate state)
-    const masterSessionId = tableCurrentBillSession.value[masterTableId]?.billSessionId;
-
-    // Remove slave from the merge group first so openTableSession treats it as independent
+    // Remove the merge mapping
     const next = { ...tableMergedInto.value };
     delete next[slaveTableId];
     tableMergedInto.value = next;
 
-    // Create a fresh session for the slave using the shared helper (ensures consistent ID generation)
-    const newSessionId = openTableSession(slaveTableId, 0, 0);
-
-    // Retag all remaining orders on the slave to its new independent session.
-    // Includes completed orders from the master session so totals don't drop after the split.
-    orders.value.forEach(o => {
-      if (o.table !== slaveTableId) return;
-      if (o.status === 'rejected') return;
-      if (o.status !== 'completed') {
-        o.billSessionId = newSessionId;
-        return;
-      }
-      // Completed orders: retag only if they belong to the former master's session
-      if (masterSessionId && o.billSessionId === masterSessionId) {
-        o.billSessionId = newSessionId;
-      }
-    });
+    // If the slave has any orders (moved there by splitItemsToTable), open a fresh session
+    const slaveHasOrders = orders.value.some(
+      o => o.table === slaveTableId && o.status !== 'completed' && o.status !== 'rejected',
+    );
+    if (slaveHasOrders) {
+      const newSessionId = openTableSession(slaveTableId, 0, 0);
+      orders.value.forEach(o => {
+        if (o.table === slaveTableId && o.status !== 'rejected') {
+          o.billSessionId = newSessionId;
+        }
+      });
+    }
   }
 
   /**
