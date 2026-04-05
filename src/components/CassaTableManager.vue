@@ -649,7 +649,7 @@
                 @click="openPaymentModal(method.id)"
                 :disabled="!canPay"
                 :class="method.colorClass"
-                class="py-3 sm:py-2 md:py-4 rounded-xl font-bold flex items-center justify-center gap-2 transition-all disabled:bg-gray-100 disabled:text-gray-400 disabled:shadow-none active:scale-95 text-sm md:text-base shadow-md"
+                class="py-3 lg:py-4 rounded-xl font-bold flex items-center justify-center gap-2 transition-all disabled:bg-gray-100 disabled:text-gray-400 disabled:shadow-none active:scale-95 text-sm md:text-base shadow-md"
               >
                 <component :is="getPaymentIcon(method.id)" class="size-5" /> {{ method.label }}
               </button>
