@@ -538,9 +538,12 @@ function confirmPeopleAndOpenTable() {
 
 function createNewOrder() {
   if (!selectedTable.value) return;
-  // Slave tables have no session; use master's session so the order is tracked in the combined bill
+  // Use the master's session only while this table is still actively participating in a merge.
+  // If a stale merge mapping remains after the table becomes free, create the order against
+  // the selected table so it does not inherit the master's bill session incorrectly.
   const masterId = store.tableMergedInto[selectedTable.value.id];
-  const sessionTableId = masterId ?? selectedTable.value.id;
+  const isActiveMergedSlave = masterId != null && selectedTable.value.status !== 'free';
+  const sessionTableId = isActiveMergedSlave ? masterId : selectedTable.value.id;
   const session = store.tableCurrentBillSession[sessionTableId];
 
   // TODO API: replace store.addOrder() with POST /api/orders when API is available
