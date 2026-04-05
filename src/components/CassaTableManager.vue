@@ -2101,9 +2101,11 @@ function openTableDetails(table) {
 
 function _openTableModal(table) {
   selectedTable.value = table;
-  // For slave tables, read the session from the master so romana state is correct
+  // For slave tables, read the session from the master only while the slave is still actively merged.
+  // If the table is free, a stale merge mapping may still exist and the table should use its own session.
+  const status = store.getTableStatus(table.id).status;
   const masterId = store.tableMergedInto[table.id];
-  const sessionTableId = masterId ?? table.id;
+  const sessionTableId = masterId && status !== 'free' ? masterId : table.id;
   const session = store.tableCurrentBillSession[sessionTableId];
   // Default romana split to adults count; fall back to total people or table covers
   if (session) {
