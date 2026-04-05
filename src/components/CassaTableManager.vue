@@ -1255,7 +1255,7 @@
               </div>
               <!-- Row total for selected qty -->
               <span class="text-xs font-bold text-gray-600 shrink-0 w-14 text-right">
-                {{ store.config.ui.currency }}{{ (row.netQty > 0 ? (row.rowTotal / row.netQty) * (splitItemQtyMap[row.key] ?? (splitMode === 'merged' ? row.netQty : 0)) : 0).toFixed(2) }}
+                {{ store.config.ui.currency }}{{ splitRowAmount(row, splitItemQtyMap[row.key] ?? (splitMode === 'merged' ? row.netQty : 0)).toFixed(2) }}
               </span>
             </div>
           </div>
@@ -1538,6 +1538,12 @@ const splitFlatItemsComputed = computed(() => {
   return rows;
 });
 
+// Returns the proportional total for a split-modal row given the selected qty.
+// rowTotal covers the full netQty (including modifiers); dividing gives the per-unit cost.
+function splitRowAmount(row, qty) {
+  return row.netQty > 0 ? (row.rowTotal / row.netQty) * qty : 0;
+}
+
 // Total amount of items currently selected in the split modal
 // Merged mode: total of items that STAY with the slave
 // Single mode: total of items that MOVE to the target
@@ -1545,7 +1551,7 @@ const splitSelectedTotal = computed(() =>
   splitFlatItemsComputed.value.reduce((sum, row) => {
     const defaultQty = splitMode.value === 'merged' ? row.netQty : 0;
     const qty = splitItemQtyMap.value[row.key] ?? defaultQty;
-    return sum + (row.netQty > 0 ? (row.rowTotal / row.netQty) * qty : 0);
+    return sum + splitRowAmount(row, qty);
   }, 0),
 );
 
