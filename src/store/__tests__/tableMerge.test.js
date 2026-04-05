@@ -327,6 +327,56 @@ describe('getTableStatus() — slave mirrors master', () => {
 });
 
 // ---------------------------------------------------------------------------
+// changeOrderStatus — master session preservation when slave still active
+// ---------------------------------------------------------------------------
+
+describe('changeOrderStatus() — master session preserved while slave is active', () => {
+  it('does not clear master session when master local orders complete but slave still has active orders', () => {
+    const store = useAppStore();
+    const sessA = store.openTableSession('A', 2, 0);
+    const sessB = store.openTableSession('B', 2, 0);
+    const ordA = makeOrder('A', 'accepted', 10, sessA);
+    const ordB = makeOrder('B', 'accepted', 20, sessB);
+    store.addOrder(ordA);
+    store.addOrder(ordB);
+
+    // A becomes slave of B
+    store.mergeTableOrders('A', 'B');
+    expect(store.tableMergedInto['A']).toBe('B');
+
+    // Mark B's local order as completed — B now has 0 local active orders
+    // but slave A still has active orders
+    store.changeOrderStatus(ordB, 'completed');
+
+    // Master B session must still be alive (slave A is still active)
+    expect(store.tableCurrentBillSession['B']).toBeDefined();
+  });
+
+  it('clears master session only when both master and slave orders are completed', () => {
+    const store = useAppStore();
+    const sessA = store.openTableSession('A', 2, 0);
+    const sessB = store.openTableSession('B', 2, 0);
+    const ordA = makeOrder('A', 'accepted', 10, sessA);
+    const ordB = makeOrder('B', 'accepted', 20, sessB);
+    store.addOrder(ordA);
+    store.addOrder(ordB);
+
+    store.mergeTableOrders('A', 'B');
+
+    // Complete slave A's order first
+    store.changeOrderStatus(ordA, 'completed');
+    // tableMergedInto[A] should be cleared (slave has no more active orders)
+    expect(store.tableMergedInto['A']).toBeUndefined();
+
+    // Now complete master B's order
+    store.changeOrderStatus(ordB, 'completed');
+    // No slaves remaining → master session can now be cleared
+    expect(store.tableCurrentBillSession['B']).toBeUndefined();
+    expect(store.tableOccupiedAt['B']).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // splitTableOrders — restore slave independence
 // ---------------------------------------------------------------------------
 

@@ -241,6 +241,19 @@ export const useAppStore = defineStore('app', () => {
       o => o.table === order.table && o.status !== 'completed' && o.status !== 'rejected',
     );
     if (activeOrds.length === 0) {
+      // Before clearing the master session, check whether any slave tables that
+      // are still merged into this table have active orders. If they do, the
+      // master state must be kept alive so the combined bill remains valid.
+      const slaveTableIds = Object.entries(tableMergedInto.value)
+        .filter(([, masterId]) => masterId === order.table)
+        .map(([slaveId]) => slaveId);
+      const slaveHasActiveOrders = slaveTableIds.some(slaveId =>
+        orders.value.some(
+          o => o.table === slaveId && o.status !== 'completed' && o.status !== 'rejected',
+        ),
+      );
+      if (slaveHasActiveOrders) return;
+
       delete tableOccupiedAt.value[order.table];
       // If this was a merged slave, clear the stale merge relationship so the
       // table can be opened independently after its bill has been settled.
