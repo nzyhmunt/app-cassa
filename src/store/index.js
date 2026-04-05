@@ -521,9 +521,9 @@ export const useAppStore = defineStore('app', () => {
   }
 
   // Splits a slave table back out of a merged group.
-  // `selectedOrderIds` is an optional array of order IDs to move back to the slave;
-  // when null/empty all of the slave's orders are split off.
-  function splitTableOrders(masterTableId, slaveTableId, selectedOrderIds = null) {
+  // Called after splitItemsToTable has already moved any master-bound items back.
+  // All remaining active orders on the slave are retagged to a fresh session.
+  function splitTableOrders(masterTableId, slaveTableId) {
     if (tableMergedInto.value[slaveTableId] !== masterTableId) return; // not a slave of this master
 
     // Remove slave from the merge group first so openTableSession treats it as independent
@@ -534,20 +534,87 @@ export const useAppStore = defineStore('app', () => {
     // Create a fresh session for the slave using the shared helper (ensures consistent ID generation)
     const newSessionId = openTableSession(slaveTableId, 0, 0);
 
-    // Determine which orders to split off
-    const ordersToSplit = orders.value.filter(o => {
-      if (o.table !== slaveTableId) return false;
-      if (o.status === 'completed' || o.status === 'rejected') return false;
-      if (selectedOrderIds && selectedOrderIds.length > 0) {
-        return selectedOrderIds.includes(o.id);
-      }
-      return true; // split all slave orders if no specific selection
-    });
-
-    // Retag split orders to the new slave session
-    ordersToSplit.forEach(o => {
+    // Retag all remaining active orders on the slave to its new independent session
+    orders.value.forEach(o => {
+      if (o.table !== slaveTableId) return;
+      if (o.status === 'completed' || o.status === 'rejected') return;
       o.billSessionId = newSessionId;
     });
+  }
+
+  /**
+   * Moves selected item quantities from one table to another at the item level.
+   *
+   * - itemQtyMap: { key: qtyToMove } where key = `${orderId}__${itemUid}`
+   * - For each item, `qtyToMove` quantities are voided on the source order and
+   *   a new direct order is created on the target table.
+   * - The target table gets a billing session if it doesn't already have one.
+   *
+   * Used both for splitting a single table (source = current table, target = free table)
+   * and for partially returning items from a merged slave back to the master.
+   *
+   * @param {string} sourceTableId
+   * @param {string} targetTableId
+   * @param {object} itemQtyMap  { key: qtyToMove }
+   * @returns {boolean} true if any items were moved
+   */
+  function splitItemsToTable(sourceTableId, targetTableId, itemQtyMap) {
+    if (!sourceTableId || !targetTableId || sourceTableId === targetTableId) return false;
+
+    // Ensure target has a billing session
+    if (!tableCurrentBillSession.value[targetTableId]) {
+      openTableSession(targetTableId);
+    }
+    const targetSessionId = tableCurrentBillSession.value[targetTableId].billSessionId;
+
+    const movedItemsForTarget = [];
+
+    orders.value.forEach(ord => {
+      if (ord.table !== sourceTableId) return;
+      if (ord.status === 'completed' || ord.status === 'rejected') return;
+
+      let orderModified = false;
+
+      ord.orderItems.forEach(item => {
+        const key = `${ord.id}__${item.uid}`;
+        const moveQty = Math.max(0, Math.floor(itemQtyMap[key] || 0));
+        if (moveQty <= 0) return;
+
+        const netQty = item.quantity - (item.voidedQuantity || 0);
+        const actualMoveQty = Math.min(moveQty, netQty);
+        if (actualMoveQty <= 0) return;
+
+        // Void actualMoveQty units from the source item
+        item.voidedQuantity = (item.voidedQuantity || 0) + actualMoveQty;
+        orderModified = true;
+
+        // Build a copy of the item (with all its modifiers) for the target order
+        movedItemsForTarget.push({
+          uid: 'spl_' + Math.random().toString(36).slice(2, 11),
+          dishId: item.dishId ?? null,
+          name: item.name,
+          unitPrice: item.unitPrice,
+          quantity: actualMoveQty,
+          voidedQuantity: 0,
+          notes: item.notes ? [...item.notes] : [],
+          modifiers: (item.modifiers || []).map(m => ({ ...m, voidedQuantity: 0 })),
+        });
+      });
+
+      if (orderModified) updateOrderTotals(ord);
+    });
+
+    if (movedItemsForTarget.length === 0) return false;
+
+    // Create a new direct order on the target table carrying all moved items
+    addDirectOrder(targetTableId, targetSessionId, movedItemsForTarget);
+
+    // Mark target as occupied if it wasn't already
+    if (!tableOccupiedAt.value[targetTableId]) {
+      tableOccupiedAt.value[targetTableId] = new Date().toISOString();
+    }
+
+    return true;
   }
 
   // ── Mutations: Cassa ───────────────────────────────────────────────────────
@@ -848,6 +915,7 @@ export const useAppStore = defineStore('app', () => {
     moveTableOrders,
     mergeTableOrders,
     splitTableOrders,
+    splitItemsToTable,
     // cassa operations
     setFondoCassa,
     addCashMovement,

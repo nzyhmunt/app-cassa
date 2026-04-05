@@ -424,3 +424,184 @@ describe('mergeTableOrders() — chain: slave-of-slave flattening', () => {
     expect(store.tableMergedInto['C']).toBe('A');
   });
 });
+
+// ---------------------------------------------------------------------------
+// splitItemsToTable — item-level quantity split
+// ---------------------------------------------------------------------------
+
+describe('splitItemsToTable()', () => {
+  function makeOrderWithItems(tableId, status, billSessionId, ...itemDefs) {
+    // itemDefs: [{ name, unitPrice, quantity }]
+    const orderItems = itemDefs.map(def => ({
+      uid: 'uid_' + Math.random().toString(36).slice(2, 9),
+      dishId: 'dish_' + def.name,
+      name: def.name,
+      unitPrice: def.unitPrice,
+      quantity: def.quantity,
+      voidedQuantity: 0,
+      notes: [],
+      modifiers: [],
+    }));
+    const totalAmount = orderItems.reduce((s, i) => s + i.unitPrice * i.quantity, 0);
+    return {
+      id: 'ord_' + Math.random().toString(36).slice(2, 9),
+      table: tableId,
+      billSessionId,
+      status,
+      orderItems,
+      totalAmount,
+      itemCount: orderItems.reduce((s, i) => s + i.quantity, 0),
+      globalNote: '',
+      noteVisibility: { cassa: true, sala: true, cucina: true },
+      isDirectEntry: false,
+    };
+  }
+
+  it('moves selected item quantities from source to target, voiding on source', () => {
+    const store = useAppStore();
+    const sessA = store.openTableSession('A', 2, 0);
+    const ord = makeOrderWithItems('A', 'accepted', sessA,
+      { name: 'Pizza', unitPrice: 10, quantity: 2 },
+      { name: 'Pasta', unitPrice: 8, quantity: 1 },
+    );
+    store.addOrder(ord);
+
+    const itemQtyMap = { [`${ord.id}__${ord.orderItems[0].uid}`]: 1 }; // move 1 pizza
+    store.splitItemsToTable('A', 'B', itemQtyMap);
+
+    // Source pizza item now has 1 voided (1 moved to B)
+    const sourceOrd = store.orders.find(o => o.id === ord.id);
+    expect(sourceOrd.orderItems[0].voidedQuantity).toBe(1);
+    expect(sourceOrd.orderItems[0].quantity).toBe(2); // original qty unchanged
+
+    // Target has a new direct order with 1 pizza
+    const targetOrd = store.orders.find(o => o.table === 'B');
+    expect(targetOrd).toBeDefined();
+    expect(targetOrd.orderItems[0].name).toBe('Pizza');
+    expect(targetOrd.orderItems[0].quantity).toBe(1);
+  });
+
+  it('source order total is updated after split', () => {
+    const store = useAppStore();
+    const sessA = store.openTableSession('A', 2, 0);
+    const ord = makeOrderWithItems('A', 'accepted', sessA,
+      { name: 'Pizza', unitPrice: 12, quantity: 2 },
+    );
+    store.addOrder(ord);
+
+    const itemQtyMap = { [`${ord.id}__${ord.orderItems[0].uid}`]: 1 };
+    store.splitItemsToTable('A', 'B', itemQtyMap);
+
+    const sourceOrd = store.orders.find(o => o.id === ord.id);
+    expect(sourceOrd.totalAmount).toBe(12); // only 1 pizza remaining
+  });
+
+  it('creates target session if target has no session', () => {
+    const store = useAppStore();
+    const sessA = store.openTableSession('A', 2, 0);
+    const ord = makeOrderWithItems('A', 'accepted', sessA,
+      { name: 'Vino', unitPrice: 5, quantity: 1 },
+    );
+    store.addOrder(ord);
+
+    const itemQtyMap = { [`${ord.id}__${ord.orderItems[0].uid}`]: 1 };
+
+    expect(store.tableCurrentBillSession['B']).toBeUndefined();
+    store.splitItemsToTable('A', 'B', itemQtyMap);
+    expect(store.tableCurrentBillSession['B']).toBeDefined();
+  });
+
+  it('returns false and does nothing when itemQtyMap has no matching items', () => {
+    const store = useAppStore();
+    const sessA = store.openTableSession('A', 2, 0);
+    const ord = makeOrderWithItems('A', 'accepted', sessA, { name: 'Acqua', unitPrice: 2, quantity: 1 });
+    store.addOrder(ord);
+
+    const result = store.splitItemsToTable('A', 'B', { 'nonexistent__key': 1 });
+    expect(result).toBe(false);
+    expect(store.orders.filter(o => o.table === 'B').length).toBe(0);
+  });
+
+  it('clamps moveQty to netQty (cannot move more than available)', () => {
+    const store = useAppStore();
+    const sessA = store.openTableSession('A', 2, 0);
+    const ord = makeOrderWithItems('A', 'accepted', sessA,
+      { name: 'Birra', unitPrice: 4, quantity: 2 },
+    );
+    store.addOrder(ord);
+
+    // Try to move 5 (more than the 2 available)
+    const itemQtyMap = { [`${ord.id}__${ord.orderItems[0].uid}`]: 5 };
+    store.splitItemsToTable('A', 'B', itemQtyMap);
+
+    const targetOrd = store.orders.find(o => o.table === 'B');
+    expect(targetOrd.orderItems[0].quantity).toBe(2); // clamped to 2
+  });
+
+  it('full flow: merged split returns items to master via splitItemsToTable + splitTableOrders', () => {
+    const store = useAppStore();
+    const sessA = store.openTableSession('A', 2, 0);
+    const sessB = store.openTableSession('B', 2, 0);
+    const ordA = makeOrderWithItems('A', 'accepted', sessA,
+      { name: 'Pizza', unitPrice: 10, quantity: 2 },
+      { name: 'Pasta', unitPrice: 8, quantity: 1 },
+    );
+    const ordB = makeOrderWithItems('B', 'accepted', sessB,
+      { name: 'Bistecca', unitPrice: 20, quantity: 1 },
+    );
+    store.addOrder(ordA);
+    store.addOrder(ordB);
+
+    // Merge A into B
+    store.mergeTableOrders('A', 'B');
+
+    // Now split: slave A keeps Pizza(1), sends Pasta and 1 Pizza back to master
+    // itemQtyMap for splitItemsToTable: what goes TO master
+    const pizzaKey = `${ordA.id}__${ordA.orderItems[0].uid}`;
+    const pastaKey = `${ordA.id}__${ordA.orderItems[1].uid}`;
+    const masterBoundMap = { [pizzaKey]: 1, [pastaKey]: 1 }; // 1 pizza + 1 pasta go to master
+
+    store.splitItemsToTable('A', 'B', masterBoundMap);
+    store.splitTableOrders('B', 'A'); // restore A's independence
+
+    // A is now independent
+    expect(store.tableMergedInto['A']).toBeUndefined();
+    expect(store.tableCurrentBillSession['A']).toBeDefined();
+
+    // A has 1 pizza remaining (1 was voided/moved to master)
+    const aOrd = store.orders.find(o => o.id === ordA.id);
+    expect(aOrd.orderItems[0].voidedQuantity).toBe(1);
+
+    // B has a new direct order with the returned items (1 pizza + 1 pasta)
+    const newMasterOrd = store.orders.find(o => o.table === 'B' && o.isDirectEntry);
+    expect(newMasterOrd).toBeDefined();
+    expect(newMasterOrd.orderItems.some(i => i.name === 'Pizza')).toBe(true);
+    expect(newMasterOrd.orderItems.some(i => i.name === 'Pasta')).toBe(true);
+  });
+
+  it('single table split: moves selected items to a free target table', () => {
+    const store = useAppStore();
+    const sessA = store.openTableSession('A', 2, 0);
+    const ord = makeOrderWithItems('A', 'accepted', sessA,
+      { name: 'Pizza', unitPrice: 10, quantity: 2 },
+      { name: 'Acqua', unitPrice: 2, quantity: 1 },
+    );
+    store.addOrder(ord);
+
+    // Move 1 pizza to table B (free table, no prior session)
+    const pizzaKey = `${ord.id}__${ord.orderItems[0].uid}`;
+    store.splitItemsToTable('A', 'B', { [pizzaKey]: 1 });
+
+    const statusA = store.getTableStatus('A');
+    const statusB = store.getTableStatus('B');
+
+    // A still occupied (has remaining items)
+    expect(statusA.status).toBe('occupied');
+    // B now occupied with 1 pizza
+    expect(statusB.status).toBe('occupied');
+
+    const bOrd = store.orders.find(o => o.table === 'B');
+    expect(bOrd.orderItems[0].name).toBe('Pizza');
+    expect(bOrd.orderItems[0].quantity).toBe(1);
+  });
+});
