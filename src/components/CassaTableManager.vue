@@ -2195,10 +2195,12 @@ function closeTableModal() {
 
 function createNewOrderForTable() {
   if (!selectedTable.value) return;
-  // For slave tables, use the master's session so the order appears in the combined bill
-  const masterId = store.tableMergedInto[selectedTable.value.id];
-  const sessionTableId = masterId ?? selectedTable.value.id;
-  const session = store.tableCurrentBillSession[sessionTableId];
+  const tableId = selectedTable.value.id;
+  const ownSession = store.tableCurrentBillSession[tableId];
+  const masterId = store.tableMergedInto[tableId];
+  // Prefer the table's own active session. Fall back to the master's session
+  // only when the table does not currently have an independent session.
+  const session = ownSession ?? (masterId != null ? store.tableCurrentBillSession[masterId] : null);
   const newOrd = {
     id: 'ord_' + Math.random().toString(36).slice(2, 11),
     table: selectedTable.value.id,
