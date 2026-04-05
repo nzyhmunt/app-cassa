@@ -439,7 +439,7 @@
           <div class="p-2 sm:p-3 md:p-5 flex-1 overflow-y-auto">
             <div class="flex justify-between items-center mb-1">
               <h4 class="font-bold text-gray-400 uppercase tracking-widest text-[10px] flex items-center gap-1">Da Pagare <span class="hidden sm:inline bg-gray-200 text-gray-600 px-1.5 rounded-full text-[9px] uppercase">Netto</span></h4>
-              <button @click="generateTableCheckoutJson('info')" class="text-blue-600 font-bold text-[10px] uppercase tracking-wider flex items-center gap-1.5 bg-blue-50 hover:bg-blue-100 p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg border border-blue-200 transition-colors active:scale-95">
+              <button @click="generateTableCheckoutJson('info')" class="text-blue-600 font-bold text-[10px] uppercase tracking-wider flex items-center gap-1.5 bg-blue-50 hover:bg-blue-100 p-2 sm:px-2.5 sm:py-1.5 rounded-lg border border-blue-200 transition-colors active:scale-95">
                 <Code class="size-3.5" /> <span class="hidden sm:inline">JSON</span>
               </button>
             </div>
@@ -649,7 +649,7 @@
                 @click="openPaymentModal(method.id)"
                 :disabled="!canPay"
                 :class="method.colorClass"
-                class="py-2 sm:py-2.5 md:py-4 rounded-xl font-bold flex items-center justify-center gap-2 transition-all disabled:bg-gray-100 disabled:text-gray-400 disabled:shadow-none active:scale-95 text-sm md:text-base shadow-md"
+                class="py-3 sm:py-2 md:py-4 rounded-xl font-bold flex items-center justify-center gap-2 transition-all disabled:bg-gray-100 disabled:text-gray-400 disabled:shadow-none active:scale-95 text-sm md:text-base shadow-md"
               >
                 <component :is="getPaymentIcon(method.id)" class="size-5" /> {{ method.label }}
               </button>
