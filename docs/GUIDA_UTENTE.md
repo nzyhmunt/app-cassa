@@ -94,19 +94,31 @@ La navbar della Cassa contiene:
 
 ### 3.2 Mappa sala
 
-La mappa mostra tutti i tavoli configurati (default: 12 tavoli, da 2 a 8 coperti ciascuno) con stati visivi distinti:
+La mappa mostra tutti i tavoli configurati con stati visivi distinti:
 
 | Stato | Colore bordo | Testo visualizzato | Significato |
 |-------|-------------|-------------------|-------------|
 | **Libero** | Verde smeraldo chiaro | — | Nessun cliente |
-| **In Attesa** | Ambra | "Attesa" | Comande inviate, non ancora accettate |
+| **In Attesa** | Ambra | "In Attesa" | Comande inviate, non ancora accettate |
+| **Saldato** | Viola | "Saldato" + importo residuo (€0.00) | Tutto pagato, conto non ancora chiuso |
 | **Conto Richiesto** | Blu | "Conto!" | Cliente ha richiesto il conto |
-| **Occupato** | Verde tema (teal) | "In Cassa" + importo residuo | Ordini accettati/in preparazione |
+| **Occupato** | Verde tema (teal) | "Occupato" + importo residuo | Ordini accettati/in preparazione |
 
-La **barra statistiche** in fondo alla mappa mostra le pillole di riepilogo:
+#### Più sale (raggruppamento)
+
+Quando sono configurate **più sale** (es. Sala Interna + Terrazza), sopra la griglia dei tavoli appaiono le **tab di selezione sala**:
+
+- Ogni tab mostra il nome della sala e il numero di tavoli che contiene
+- Fare clic su una tab filtra la griglia mostrando solo i tavoli di quella sala
+- La **barra statistiche** rimane sempre globale e conta i tavoli di tutte le sale
+- La configurazione avviene in `appConfig.rooms` tramite `src/utils/index.js`
+
+La **barra statistiche** in cima alla mappa mostra le pillole cliccabili (fungono anche da filtro e da legenda):
 - 🟢 **Liberi** — tavoli disponibili
-- 🔵 **Occupati** — tavoli con clienti e ordini attivi  
 - 🟡 **In Attesa** — tavoli con comande non ancora approvate
+- 🟣 **Saldati** — tutto pagato, conto non ancora chiuso
+- 🔵 **Conto Rich.** — cliente ha richiesto il conto *(solo App Cassa)*
+- 🟤 **Occupati** — tavoli con clienti e ordini attivi
 
 ### 3.3 Aprire un tavolo
 
@@ -429,8 +441,11 @@ Stessa griglia della Cassa ma con interfaccia più semplice:
 | Stato | Visualizzato |
 |-------|-------------|
 | **Libero** | Tavolo vuoto, cliccabile |
-| **In Attesa** | "Attesa" + numero comande |
-| **Occupato** | "In Cassa" + numero comande |
+| **In Attesa** | Tavolo con comande aperte in attesa, con numero comande |
+| **Occupato** | Tavolo con conto aperto, con numero comande |
+
+Nella sezione **Comande** e nei relativi filtri è presente anche lo stato **`Saldato`**.
+Quando sono configurate **più sale**, l'App Sala mostra le stesse **tab di selezione sala** dell'App Cassa — vedere [§ 3.2 Più sale](#più-sale-raggruppamento).
 
 ### 8.3 Aprire un tavolo libero
 

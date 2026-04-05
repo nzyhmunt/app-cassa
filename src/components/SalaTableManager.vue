@@ -3,34 +3,83 @@
   <div class="flex-1 flex flex-col bg-gray-100/80 overflow-y-auto p-4 md:p-8 relative min-h-0">
     <div class="max-w-6xl mx-auto w-full">
 
-      <!-- Header row -->
+      <!-- Header riga -->
       <div class="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-2 mb-4 md:mb-6">
         <h2 class="text-xl md:text-2xl font-black text-gray-800 flex items-center gap-2 md:gap-3">
           <Grid3x3 class="text-gray-500 size-6 md:size-8" /> Mappa Sala
         </h2>
-        <!-- Legend -->
-        <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] font-bold uppercase text-gray-500">
-          <span class="flex items-center gap-1"><span class="size-3 rounded-full border-2 border-emerald-400 bg-emerald-100"></span> Libero</span>
-          <span class="flex items-center gap-1"><span class="size-3 rounded-full border-2 border-amber-400 bg-amber-100"></span> In Attesa</span>
-          <span class="flex items-center gap-1"><span class="size-3 rounded-full theme-bg border-2 border-white shadow-sm"></span> Occupato</span>
-        </div>
       </div>
 
-      <!-- Stats bar -->
-      <TableStatsBar
-        :freeCount="freeTablesCount"
-        :occupiedCount="occupiedTablesCount"
-        :pendingCount="pendingTablesCount"
-      />
+      <!-- Riepilogo stato tavoli + Tab Sala + Filtri stato — tutto nella stessa barra -->
+      <div class="flex flex-wrap items-center gap-2 mb-4 md:mb-5 overflow-x-auto pb-1 -mx-1 px-1">
+        <!-- Room tabs — visibili solo quando sono configurate più sale -->
+        <template v-if="store.rooms.length > 1">
+          <!-- Tutti -->
+          <button
+            @click="activeRoomId = 'all'; activeStatusFilter = null"
+            class="shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl font-bold text-xs transition-all active:scale-95"
+            :class="activeRoomId === 'all'
+              ? 'theme-bg text-white shadow-md'
+              : 'bg-white text-gray-600 border border-gray-200 hover:border-gray-300 shadow-sm'"
+          >
+            <Grid3x3 class="size-3 shrink-0" />
+            <span>Tutti</span>
+            <span class="text-[10px] font-black opacity-70">{{ store.config.tables.length }}</span>
+          </button>
+          <!-- Singole sale -->
+          <button
+            v-for="room in store.rooms"
+            :key="room.id"
+            @click="activeRoomId = room.id; activeStatusFilter = null"
+            class="shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl font-bold text-xs transition-all active:scale-95"
+            :class="activeRoomId === room.id
+              ? 'theme-bg text-white shadow-md'
+              : 'bg-white text-gray-600 border border-gray-200 hover:border-gray-300 shadow-sm'"
+          >
+            <Grid3x3 class="size-3 shrink-0" />
+            <span>{{ room.label }}</span>
+            <span class="text-[10px] font-black opacity-70">{{ room.tables.length }}</span>
+          </button>
+          <!-- Divisore -->
+          <span class="w-px h-5 bg-gray-300 shrink-0 self-center"></span>
+        </template>
 
-      <!-- Table grid -->
-      <TableGrid @open-table="openTableDetails">
-        <template #status="{ table }">
+        <!-- Filtri stato tavoli -->
+        <TableStatsBar
+          :freeCount="freeTablesCount"
+          :occupiedCount="occupiedTablesCount"
+          :pendingCount="pendingTablesCount"
+          :paidCount="paidTablesCount"
+          :activeFilter="activeStatusFilter"
+          @update:activeFilter="activeStatusFilter = $event"
+        />
+      </div>
+
+      <!-- Griglia Tavoli — vista "Tutti" raggruppata per sala -->
+      <template v-if="activeRoomId === 'all' && store.rooms.length > 1">
+        <div v-for="room in store.rooms" :key="room.id" class="mb-6 last:mb-0">
+          <p class="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-2 px-0.5">{{ room.label }}</p>
+          <TableGrid :tables="filteredTablesForRoom(room)" @open-table="openTableDetails">
+            <template #status="{ table, tableStatus }">
+              <span class="block text-[8px] md:text-[10px] font-bold uppercase tracking-widest opacity-80 mb-0.5 md:mb-1 truncate">
+                {{ tableStatus.status === 'pending' ? 'In Attesa' : tableStatus.status === 'paid' ? 'Saldato' : 'Occupato' }}
+              </span>
+              <span class="block font-black text-sm md:text-lg bg-white/20 rounded-md md:rounded-lg py-0.5 px-1 truncate">
+                {{ orderCountMap[table.id] }} coman{{ orderCountMap[table.id] !== 1 ? 'de' : 'da' }}
+              </span>
+            </template>
+          </TableGrid>
+        </div>
+      </template>
+
+      <!-- Griglia Tavoli — vista singola sala -->
+      <TableGrid v-else :tables="activeRoomTables" @open-table="openTableDetails">
+        <template #status="{ table, tableStatus }">
           <span class="block text-[8px] md:text-[10px] font-bold uppercase tracking-widest opacity-80 mb-0.5 md:mb-1 truncate">
-            {{ store.getTableStatus(table.id).status === 'pending' ? 'In Attesa' : 'Occupato' }}
+            {{ tableStatus.status === 'pending' ? 'In Attesa' : tableStatus.status === 'paid' ? 'Saldato' : 'Occupato' }}
           </span>
           <span class="block font-black text-sm md:text-lg bg-white/20 rounded-md md:rounded-lg py-0.5 px-1 truncate">
-            {{ tableOrderCount(table.id) }} coman{{ tableOrderCount(table.id) !== 1 ? 'de' : 'da' }}
+            {{ orderCountMap[table.id] }} coman{{ orderCountMap[table.id] !== 1 ? 'de' : 'da' }}
           </span>
         </template>
       </TableGrid>
@@ -217,25 +266,72 @@ const emit = defineEmits(['new-order-for-comande', 'view-order']);
 
 const store = useAppStore();
 
+// ── Room tabs ─────────────────────────────────────────────────────────────
+const activeRoomId = ref(store.rooms.length > 1 ? 'all' : (store.rooms[0]?.id ?? null));
+const activeStatusFilter = ref(null);
+
+// Compute status once per table for all tables; reused by filtering, counters, and slot.
+const allTablesStatusMap = computed(() => {
+  const map = {};
+  for (const table of store.config.tables) {
+    map[table.id] = store.getTableStatus(table.id);
+  }
+  return map;
+});
+
+// Compute order count once per table; reused in the slot template.
+const orderCountMap = computed(() => {
+  const map = {};
+  for (const table of store.config.tables) {
+    map[table.id] = store.orders.filter(
+      o => o.table === table.id && o.status !== 'completed' && o.status !== 'rejected',
+    ).length;
+  }
+  return map;
+});
+
+function matchesActiveStatusFilter(table) {
+  if (!activeStatusFilter.value) return true;
+  const status = allTablesStatusMap.value[table.id]?.status;
+  if (activeStatusFilter.value === 'occupied') {
+    return status === 'occupied' || status === 'bill_requested';
+  }
+  return status === activeStatusFilter.value;
+}
+
+function filteredTablesForRoom(room) {
+  if (!activeStatusFilter.value) return room.tables;
+  return room.tables.filter(matchesActiveStatusFilter);
+}
+
+const activeRoomTables = computed(() => {
+  if (activeRoomId.value === 'all') {
+    const all = store.config.tables;
+    if (!activeStatusFilter.value) return all;
+    return all.filter(matchesActiveStatusFilter);
+  }
+  const room = store.rooms.find(r => r.id === activeRoomId.value);
+  const tables = room ? room.tables : store.config.tables;
+  if (!activeStatusFilter.value) return tables;
+  return tables.filter(matchesActiveStatusFilter);
+});
+
 // ── Table status counters ──────────────────────────────────────────────────
 const freeTablesCount = computed(() =>
-  store.config.tables.filter(t => store.getTableStatus(t.id).status === 'free').length,
+  store.config.tables.filter(t => allTablesStatusMap.value[t.id]?.status === 'free').length,
 );
 const occupiedTablesCount = computed(() =>
   store.config.tables.filter(t => {
-    const st = store.getTableStatus(t.id).status;
-    return st === 'occupied' || st === 'conto_richiesto';
+    const st = allTablesStatusMap.value[t.id]?.status;
+    return st === 'occupied' || st === 'bill_requested';
   }).length,
 );
 const pendingTablesCount = computed(() =>
-  store.config.tables.filter(t => store.getTableStatus(t.id).status === 'pending').length,
+  store.config.tables.filter(t => allTablesStatusMap.value[t.id]?.status === 'pending').length,
 );
-
-function tableOrderCount(tableId) {
-  return store.orders.filter(
-    o => o.table === tableId && o.status !== 'completed' && o.status !== 'rejected',
-  ).length;
-}
+const paidTablesCount = computed(() =>
+  store.config.tables.filter(t => allTablesStatusMap.value[t.id]?.status === 'paid').length,
+);
 
 // ── People modal ────────────────────────────────────────────────────────────
 const showPeopleModal = ref(false);

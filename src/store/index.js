@@ -128,6 +128,19 @@ export const useAppStore = defineStore('app', () => {
     '--brand-dark': config.value.ui.primaryColorDark,
   }));
 
+  // ── Computed: Rooms ────────────────────────────────────────────────────────
+  // Normalises the rooms configuration: if config.rooms is a non-empty array each
+  // entry is used as-is; otherwise all tables are wrapped in a single anonymous room
+  // so the rest of the UI always receives a consistent structure.
+  // The fallback room intentionally uses an empty label ('') — the UI hides the room
+  // tab bar entirely when there is only one room (store.rooms.length <= 1), so the
+  // empty label is never displayed to the user.
+  const rooms = computed(() => {
+    const r = config.value.rooms;
+    if (Array.isArray(r) && r.length > 0) return r;
+    return [{ id: 'main', label: '', tables: config.value.tables ?? [] }];
+  });
+
     // ── Computed: Orders ───────────────────────────────────────────────────────
   const pendingCount = computed(() => orders.value.filter(o => o.status === 'pending').length);
   const inKitchenCount = computed(() =>
@@ -152,16 +165,21 @@ export const useAppStore = defineStore('app', () => {
     const remaining = Math.max(0, total - paid);
 
     if (ords.some(o => o.status === 'pending')) return { status: 'pending', total, remaining };
-    if (billRequestedTables.value.has(tableId)) return { status: 'conto_richiesto', total, remaining };
+    if (remaining === 0) return { status: 'paid', total, remaining };
+    if (billRequestedTables.value.has(tableId)) return { status: 'bill_requested', total, remaining };
     return { status: 'occupied', total, remaining };
   }
 
-  function getTableColorClass(tableId) {
-    const st = getTableStatus(tableId).status;
-    if (st === 'free') return 'border-emerald-200 text-emerald-800 bg-emerald-50 hover:bg-emerald-100';
-    if (st === 'pending') return 'border-amber-400 text-amber-900 bg-amber-50 shadow-[0_0_15px_rgba(251,191,36,0.3)]';
-    if (st === 'conto_richiesto') return 'border-blue-400 text-blue-900 bg-blue-100 shadow-[0_0_15px_rgba(59,130,246,0.3)]';
+  function getTableColorClassFromStatus(status) {
+    if (status === 'free') return 'border-emerald-200 text-emerald-800 bg-emerald-50 hover:bg-emerald-100';
+    if (status === 'pending') return 'border-amber-400 text-amber-900 bg-amber-50 shadow-[0_0_15px_rgba(251,191,36,0.3)]';
+    if (status === 'paid') return 'border-violet-400 text-violet-900 bg-violet-100 shadow-[0_0_15px_rgba(139,92,246,0.3)]';
+    if (status === 'bill_requested') return 'border-blue-400 text-blue-900 bg-blue-100 shadow-[0_0_15px_rgba(59,130,246,0.3)]';
     return 'border-[var(--brand-primary)] text-white theme-bg shadow-md';
+  }
+
+  function getTableColorClass(tableId) {
+    return getTableColorClassFromStatus(getTableStatus(tableId).status);
   }
 
   function getPaymentMethodIcon(methodId) {
@@ -700,12 +718,14 @@ export const useAppStore = defineStore('app', () => {
     menuError,
     // computed
     cssVars,
+    rooms,
     pendingCount,
     inKitchenCount,
     closedBills,
     // helpers
     getTableStatus,
     getTableColorClass,
+    getTableColorClassFromStatus,
     getPaymentMethodIcon,
     // mutations
     addOrder,

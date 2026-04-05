@@ -26,13 +26,12 @@ src/
 │   │   ├── PwaInstallBanner.vue       ← Banner installazione PWA (Android + iOS)
 │   │   ├── SettingsModal.vue          ← Modale impostazioni condivisa (Cassa, Sala e Cucina)
 │   │   ├── TableGrid.vue              ← Griglia pulsanti tavolo con timer trascorso e slot #status
-│   │   └── TableStatsBar.vue          ← Pillole stato tavoli (Liberi / Occupati / In Attesa)
+│   │   └── TableStatsBar.vue          ← Pillole stato tavoli (Liberi / Occupati / In Attesa / Conto Rich. / Saldati) con filtro click
 │   ├── CassaNavbar.vue                ← Navigazione (Cassa)
 │   ├── CassaTableManager.vue          ← Mappa sala + cassa + checkout (Cassa only)
 │   ├── CassaOrderManager.vue          ← Gestione ordini + accettazione (Cassa only)
 │   ├── CassaDashboard.vue             ← Fondo cassa, movimenti, report X/Z (Cassa only)
 │   ├── CassaBillCard.vue              ← Card riepilogo conto chiuso (Cassa only)
-│   ├── CassaClosedBillsList.vue       ← Lista conti chiusi sessione (Cassa only)
 │   ├── CassaSettingsModal.vue         ← Impostazioni Cassa (thin wrapper su shared/SettingsModal)
 │   ├── LockScreen.vue                 ← Overlay blocco schermo con tastierino PIN
 │   ├── UserManagementModal.vue        ← Gestione utenti e configurazione blocco automatico
@@ -81,11 +80,13 @@ src/
 ## Funzionalità Principali
 
 ### 🗺️ Mappa Sala (Cassa & Sala)
-- Visualizzazione in tempo reale dei tavoli con 4 stati distinti:
+- Visualizzazione in tempo reale dei tavoli con **5 stati distinti**:
   - **Libero** — tavolo disponibile
-  - **Ordini in Attesa** — comande inviate, in attesa di accettazione (badge ambra)
   - **Occupato** — ordini accettati / in preparazione / pronti
-  - **Conto Richiesto** — cliente ha richiesto il conto (badge blu)
+  - **In Attesa** — comande inviate, in attesa di accettazione (badge ambra)
+  - **Conto Richiesto** — cliente ha richiesto il conto (badge blu, solo Cassa)
+  - **Saldato** — importo totalmente pagato ma tavolo non ancora chiuso (badge viola)
+- Supporto **multi-sala**: configurazione `rooms` raggruppa i tavoli per sala; tab *Tutti* + tab per sala; filtri stato funzionano su tutte le sale contemporaneamente
 - Apertura del tavolo con selezione coperti (adulti + bambini) e anteprima del coperto
 - Operazioni avanzate su tavoli (Cassa & Sala):
   - **Sposta tavolo**: trasferisce tutti gli ordini e le transazioni a un altro tavolo libero

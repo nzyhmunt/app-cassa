@@ -6,47 +6,92 @@
         <h2 class="text-xl md:text-2xl font-black text-gray-800 flex items-center gap-2 md:gap-3">
           <Grid3x3 class="text-gray-500 size-6 md:size-8" /> Mappa Sala
         </h2>
-        <div class="flex items-center gap-3">
-          <!-- Storico Conti button -->
-          <router-link
-            to="/storico-conti"
-            class="flex items-center gap-1.5 text-[10px] md:text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-3 py-2 rounded-xl transition-colors shadow-sm active:scale-95"
-            title="Cronologia Conti Chiusi"
-            aria-label="Storico Conti"
-          >
-            <History class="size-4" /> <span class="hidden sm:inline">Storico Conti</span>
-          </router-link>
-          <!-- Legenda -->
-          <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] font-bold uppercase text-gray-500">
-            <span class="flex items-center gap-1"><span class="size-3 rounded-full border-2 border-emerald-400 bg-emerald-100"></span> Libero</span>
-            <span class="flex items-center gap-1"><span class="size-3 rounded-full border-2 border-amber-400 bg-amber-100"></span> Ordini in Attesa</span>
-            <span class="flex items-center gap-1"><span class="size-3 rounded-full border-2 border-blue-400 bg-blue-100"></span> Conto Richiesto</span>
-            <span class="flex items-center gap-1"><span class="size-3 rounded-full theme-bg border-2 border-white shadow-sm"></span> Occupato / In Cassa</span>
-          </div>
-        </div>
+        <!-- Storico Conti button -->
+        <router-link
+          to="/storico-conti"
+          class="flex items-center gap-1.5 text-[10px] md:text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-3 py-2 rounded-xl transition-colors shadow-sm active:scale-95"
+          title="Cronologia Conti Chiusi"
+          aria-label="Storico Conti"
+        >
+          <History class="size-4" /> <span class="hidden sm:inline">Storico Conti</span>
+        </router-link>
       </div>
 
-      <!-- Riepilogo stato tavoli -->
-      <TableStatsBar
-        :freeCount="freeTablesCount"
-        :occupiedCount="occupiedTablesCount"
-        :pendingCount="pendingTablesCount"
-      />
+      <!-- Riepilogo stato tavoli + Tab Sala + Filtri stato — tutto nella stessa barra -->
+      <div class="flex flex-wrap items-center gap-2 mb-4 md:mb-5 overflow-x-auto pb-1 -mx-1 px-1">
+        <!-- Room tabs — visibili solo quando sono configurate più sale -->
+        <template v-if="store.rooms.length > 1">
+          <!-- Tutti -->
+          <button
+            @click="activeRoomId = 'all'; activeStatusFilter = null"
+            class="shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl font-bold text-xs transition-all active:scale-95"
+            :class="activeRoomId === 'all'
+              ? 'theme-bg text-white shadow-md'
+              : 'bg-white text-gray-600 border border-gray-200 hover:border-gray-300 shadow-sm'"
+          >
+            <Grid3x3 class="size-3 shrink-0" />
+            <span>Tutti</span>
+            <span class="text-[10px] font-black opacity-70">{{ store.config.tables.length }}</span>
+          </button>
+          <!-- Singole sale -->
+          <button
+            v-for="room in store.rooms"
+            :key="room.id"
+            @click="activeRoomId = room.id; activeStatusFilter = null"
+            class="shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl font-bold text-xs transition-all active:scale-95"
+            :class="activeRoomId === room.id
+              ? 'theme-bg text-white shadow-md'
+              : 'bg-white text-gray-600 border border-gray-200 hover:border-gray-300 shadow-sm'"
+          >
+            <Grid3x3 class="size-3 shrink-0" />
+            <span>{{ room.label }}</span>
+            <span class="text-[10px] font-black opacity-70">{{ room.tables.length }}</span>
+          </button>
+          <!-- Divisore -->
+          <span class="w-px h-5 bg-gray-300 shrink-0 self-center"></span>
+        </template>
 
-      <!-- Griglia Tavoli -->
-      <TableGrid @open-table="openTableDetails">
-        <template #status="{ table }">
+        <!-- Filtri stato tavoli -->
+        <TableStatsBar
+          :freeCount="freeTablesCount"
+          :occupiedCount="occupiedTablesCount"
+          :pendingCount="pendingTablesCount"
+          :paidCount="paidTablesCount"
+          :billRequestedCount="billRequestedTablesCount"
+          :activeFilter="activeStatusFilter"
+          @update:activeFilter="activeStatusFilter = $event"
+        />
+      </div>
+
+      <!-- Griglia Tavoli — vista "Tutti" raggruppata per sala -->
+      <template v-if="activeRoomId === 'all' && store.rooms.length > 1">
+        <div v-for="room in store.rooms" :key="room.id" class="mb-6 last:mb-0">
+          <p class="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-2 px-0.5">{{ room.label }}</p>
+          <TableGrid :tables="filteredTablesForRoom(room)" @open-table="openTableDetails">
+            <template #status="{ table, tableStatus }">
+              <span class="block text-[8px] md:text-[10px] font-bold uppercase tracking-widest opacity-80 mb-0.5 md:mb-1 truncate">
+                {{ tableStatus.status === 'pending' ? 'In Attesa' : tableStatus.status === 'paid' ? 'Saldato' : tableStatus.status === 'bill_requested' ? 'Conto!' : 'Occupato' }}
+              </span>
+              <span class="block font-black text-sm md:text-lg bg-white/20 rounded-md md:rounded-lg py-0.5 px-1 truncate">
+                {{ store.config.ui.currency }}{{ tableStatus.remaining.toFixed(2) }}
+              </span>
+            </template>
+          </TableGrid>
+        </div>
+      </template>
+
+      <!-- Griglia Tavoli — vista singola sala -->
+      <TableGrid v-else :tables="activeRoomTables" @open-table="openTableDetails">
+        <template #status="{ table, tableStatus }">
           <span class="block text-[8px] md:text-[10px] font-bold uppercase tracking-widest opacity-80 mb-0.5 md:mb-1 truncate">
-            {{ store.getTableStatus(table.id).status === 'pending' ? 'Attesa' : store.getTableStatus(table.id).status === 'conto_richiesto' ? 'Conto!' : 'In Cassa' }}
+            {{ tableStatus.status === 'pending' ? 'In Attesa' : tableStatus.status === 'paid' ? 'Saldato' : tableStatus.status === 'bill_requested' ? 'Conto!' : 'Occupato' }}
           </span>
           <span class="block font-black text-sm md:text-lg bg-white/20 rounded-md md:rounded-lg py-0.5 px-1 truncate">
-            {{ store.config.ui.currency }}{{ store.getTableStatus(table.id).remaining.toFixed(2) }}
+            {{ store.config.ui.currency }}{{ tableStatus.remaining.toFixed(2) }}
           </span>
         </template>
       </TableGrid>
 
-      <!-- Riepilogo Conti Chiusi -->
-      <CassaClosedBillsList />
     </div>
   </div>
 
@@ -1080,7 +1125,6 @@ import { buildFlatAnaliticaItems, computeAnaliticaTotal, exceedsAmount, getOrder
 import { resolveCustomItemsKey } from '../store/persistence.js';
 import { useNumericKeyboard } from '../composables/useNumericKeyboard.js';
 import { useAuth } from '../composables/useAuth.js';
-import CassaClosedBillsList from './CassaClosedBillsList.vue';
 import TableStatsBar from './shared/TableStatsBar.vue';
 import TableGrid from './shared/TableGrid.vue';
 // Shared component — used by both Sala and Cassa apps.
@@ -1097,33 +1141,86 @@ const keyboard = useNumericKeyboard();
 const showTableModal = ref(false);
 const selectedTable = ref(null);
 
+// ── Room tabs ─────────────────────────────────────────────────────────────
+function getInitialActiveRoomId(rooms) {
+  return rooms.length > 1 ? 'all' : (rooms[0]?.id ?? null);
+}
+
+function getTablesForActiveRoom(rooms, allTables, roomId) {
+  if (roomId === 'all') return allTables;
+  const room = rooms.find(r => r.id === roomId);
+  return room ? room.tables : allTables;
+}
+
+const tableStatusMap = computed(() => {
+  const map = {};
+  const seenTableIds = new Set();
+  const allKnownTables = [
+    ...(store.config.tables || []),
+    ...store.rooms.flatMap(room => room.tables || []),
+  ];
+
+  allKnownTables.forEach((table) => {
+    if (!table?.id || seenTableIds.has(table.id)) return;
+    seenTableIds.add(table.id);
+    map[table.id] = store.getTableStatus(table.id);
+  });
+
+  return map;
+});
+
+function filterTablesByStatus(tables, statusFilter) {
+  if (!statusFilter) return tables;
+  return tables.filter(t => tableStatusMap.value[t.id]?.status === statusFilter);
+}
+
+const activeRoomId = ref(getInitialActiveRoomId(store.rooms));
+const activeStatusFilter = ref(null);
+
+function filteredTablesForRoom(room) {
+  return filterTablesByStatus(room.tables, activeStatusFilter.value);
+}
+
+const activeRoomTables = computed(() => {
+  const tables = getTablesForActiveRoom(
+    store.rooms,
+    store.config.tables,
+    activeRoomId.value,
+  );
+  return filterTablesByStatus(tables, activeStatusFilter.value);
+});
+
 // ── Sposta / Unisci modal state ────────────────────────────────────────────
 const showMoveModal = ref(false);
 const showMergeModal = ref(false);
 
 const freeTables = computed(() =>
   store.config.tables.filter(
-    t => t.id !== selectedTable.value?.id && store.getTableStatus(t.id).status === 'free',
+    t => t.id !== selectedTable.value?.id && tableStatusMap.value[t.id]?.status === 'free',
   ),
 );
 
 const tableStatusCounts = computed(() => {
-  let free = 0, occupied = 0, pending = 0;
+  let free = 0, occupied = 0, pending = 0, paid = 0, billRequested = 0;
   for (const t of store.config.tables) {
-    const s = store.getTableStatus(t.id).status;
+    const s = tableStatusMap.value[t.id]?.status;
     if (s === 'free') free++;
-    else if (s === 'occupied' || s === 'conto_richiesto') occupied++;
+    else if (s === 'paid') paid++;
+    else if (s === 'bill_requested') billRequested++;
+    else if (s === 'occupied') occupied++;
     else if (s === 'pending') pending++;
   }
-  return { free, occupied, pending };
+  return { free, occupied, pending, paid, billRequested };
 });
 const freeTablesCount = computed(() => tableStatusCounts.value.free);
 const occupiedTablesCount = computed(() => tableStatusCounts.value.occupied);
 const pendingTablesCount = computed(() => tableStatusCounts.value.pending);
+const paidTablesCount = computed(() => tableStatusCounts.value.paid);
+const billRequestedTablesCount = computed(() => tableStatusCounts.value.billRequested);
 
 const occupiedTables = computed(() =>
   store.config.tables.filter(
-    t => t.id !== selectedTable.value?.id && store.getTableStatus(t.id).status !== 'free',
+    t => t.id !== selectedTable.value?.id && tableStatusMap.value[t.id]?.status !== 'free',
   ),
 );
 
