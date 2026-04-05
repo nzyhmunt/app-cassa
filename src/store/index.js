@@ -412,11 +412,8 @@ export const useAppStore = defineStore('app', () => {
       billRequestedTables.value = new Set(billRequestedTables.value);
     }
     // Any slave tables that were merged into the source must now follow the source.
-    // Resolve toTableId to its own master first so we never create a slave→slave chain
-    // (which would break billing aggregation because the ultimate master would miss orders).
+    // Resolve toTableId to its own master first so we never create a slave→slave chain.
     const resolvedMoveTarget = resolveMaster(toTableId);
-    // Collect old slaves of fromTableId BEFORE re-pointing them so we can retag their
-    // orders/transactions when the destination is already occupied (see else branch below).
     const oldSlaveIds = slaveIdsOf(fromTableId);
     oldSlaveIds.forEach(slaveId => {
       tableMergedInto.value = { ...tableMergedInto.value, [slaveId]: resolvedMoveTarget };
@@ -443,37 +440,26 @@ export const useAppStore = defineStore('app', () => {
           if (t.tableId === fromTableId) t.tableId = toTableId;
         });
       } else {
-        // Destination already has a session — retag only the active-session orders and
-        // transactions so they belong to the destination session and are visible in its
-        // payment panel. Historical transactions (other billSessionIds) remain tied to
-        // fromTableId to avoid corrupting receipt/history reporting.
+        // Destination already has a session — retag the moved orders and active-session
+        // transactions to the destination session so they appear in its payment panel.
+        // Historical transactions (other billSessionIds) remain tied to fromTableId
+        // to avoid corrupting receipt/history reporting.
         const srcSessionId = tableCurrentBillSession.value[fromTableId].billSessionId;
         const destSessionId = tableCurrentBillSession.value[toTableId].billSessionId;
+        // The orders were already moved to toTableId in the first pass above;
+        // retag their billSessionId from the source session to the destination session.
         orders.value.forEach(o => {
           if (o.table === toTableId && o.billSessionId === srcSessionId) {
             o.billSessionId = destSessionId;
           }
         });
+        // Also retag any source-session transactions that were already pointing to
+        // fromTableId (e.g. partial payments made before the move).
         transactions.value.forEach(t => {
           if (t.tableId === fromTableId && t.billSessionId === srcSessionId) {
             t.billSessionId = destSessionId;
             t.tableId = toTableId;
           }
-        });
-        // Also retag orders/transactions on slave tables that were tagged to the source
-        // session — without this they would disappear from the destination's combined bill.
-        oldSlaveIds.forEach(slaveId => {
-          orders.value.forEach(o => {
-            if (o.table === slaveId && o.billSessionId === srcSessionId) {
-              o.billSessionId = destSessionId;
-            }
-          });
-          transactions.value.forEach(t => {
-            if (t.tableId === slaveId && t.billSessionId === srcSessionId) {
-              t.billSessionId = destSessionId;
-              t.tableId = toTableId;
-            }
-          });
         });
         const next = { ...tableCurrentBillSession.value };
         // Combine headcounts so splitWays reflects the full party after the move

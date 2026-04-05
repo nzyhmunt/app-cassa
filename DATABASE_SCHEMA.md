@@ -595,7 +595,7 @@ Cardinalità:
 | `tableOccupiedAt`                     | `bill_sessions.opened_at`              |
 | `billRequestedTables` (Set)           | query: `orders.status = 'pending'` con `bill_session_id` attivo |
 | `tableCurrentBillSession`             | `bill_sessions` (righe con `is_active = true`) |
-| `tableMergedInto` (Object `{slaveId: masterId}`) | relazione di unione tavoli — in DB: tabella `table_merge_sessions` (slave_table_id, master_table_id, bill_session_id); solo per sessioni attive |
+| `tableMergedInto` (Object `{slaveId: masterId}`) | relazione visiva di unione tavoli — in DB: tabella `table_merge_sessions` (slave_table_id, master_table_id); solo per unioni attive |
 | `cashBalance`                         | somma di `cash_movements` + valore iniziale |
 | `cashMovements[]`                     | `cash_movements`                       |
 | `dailyClosures[]`                     | `daily_closures` + `daily_closure_by_method` |
@@ -648,22 +648,21 @@ La funzione **Unisci** in App Cassa permette di accorpare il conto di due tavoli
 L'unione è rappresentata nel localStorage da `tableMergedInto`, un oggetto `{ slaveTableId: masterTableId }`.
 
 Semantica:
-- Il tavolo **slave** rimane occupato e le sue comande continuano ad essere associate a `table_id = slaveId`, ma il campo `bill_session_id` viene riassegnato alla sessione del tavolo **master**.
-- `getTableStatus(masterId)` aggrega automaticamente le comande di tutti i suoi slave nel totale del conto.
-- In un database relazionale questa relazione sarebbe modellata con una tabella dedicata:
+- Al momento dell'unione (`mergeTableOrders`), **tutte le comande dello slave vengono fisicamente spostate sul tavolo master** (`orders[].table = masterTableId`). Il conto del master assorbe immediatamente tutte le voci.
+- Il tavolo **slave** non ha più comande proprie né una sessione aperta (`tableCurrentBillSession[slaveId]` = undefined). Appare comunque **occupato** nella piantina grazie alla voce `tableMergedInto[slaveId] = masterId`: `getTableStatus(slaveId)` delega direttamente a `getTableStatus(masterId)`.
+- In un database relazionale questa relazione sarebbe modellata con una tabella dedicata (solo due colonne — nessun riferimento a `bill_sessions`, poiché le comande si trovano fisicamente sul master):
 
 ```sql
--- Tabella concettuale: unioni attive tra tavoli
+-- Unioni attive tra tavoli (la riga viene eliminata quando l'unione viene sciolta)
 CREATE TABLE table_merge_sessions (
     slave_table_id   VARCHAR(50) NOT NULL REFERENCES tables(id),
     master_table_id  VARCHAR(50) NOT NULL REFERENCES tables(id),
-    bill_session_id  UUID        NOT NULL REFERENCES bill_sessions(id),
     merged_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
-    PRIMARY KEY (slave_table_id, bill_session_id)
+    PRIMARY KEY (slave_table_id)
 );
 ```
 
-La funzione **Dividi** (`splitTableOrders` / `splitItemsToTable`) rimuove la voce da `tableMergedInto` (o sposta voci singole su un tavolo libero), ripristinando sessioni indipendenti.
+La funzione **Dividi** (`splitItemsToTable` + `splitTableOrders`) sposta prima le voci selezionate sul tavolo slave tramite `splitItemsToTable`, poi `splitTableOrders` rimuove la voce da `tableMergedInto` e apre una nuova sessione per lo slave se necessario. Il master mantiene le voci rimaste.
 
 ### 5.3 Calcolo totale riga
 
