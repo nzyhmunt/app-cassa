@@ -1255,7 +1255,7 @@
               </div>
               <!-- Row total for selected qty -->
               <span class="text-xs font-bold text-gray-600 shrink-0 w-14 text-right">
-                {{ store.config.ui.currency }}{{ ((splitItemQtyMap[row.key] ?? (splitMode === 'merged' ? row.netQty : 0)) * row.unitPrice).toFixed(2) }}
+                {{ store.config.ui.currency }}{{ (row.netQty > 0 ? (row.rowTotal / row.netQty) * (splitItemQtyMap[row.key] ?? (splitMode === 'merged' ? row.netQty : 0)) : 0).toFixed(2) }}
               </span>
             </div>
           </div>
@@ -1531,7 +1531,7 @@ const splitFlatItemsComputed = computed(() => {
         name: item.name,
         netQty,
         unitPrice: item.unitPrice,
-        rowTotal: item.unitPrice * netQty,
+        rowTotal: getOrderItemRowTotal(item),
       });
     }
   }
@@ -1545,7 +1545,7 @@ const splitSelectedTotal = computed(() =>
   splitFlatItemsComputed.value.reduce((sum, row) => {
     const defaultQty = splitMode.value === 'merged' ? row.netQty : 0;
     const qty = splitItemQtyMap.value[row.key] ?? defaultQty;
-    return sum + row.unitPrice * qty;
+    return sum + (row.netQty > 0 ? (row.rowTotal / row.netQty) * qty : 0);
   }, 0),
 );
 
