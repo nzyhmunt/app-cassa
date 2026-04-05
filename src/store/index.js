@@ -155,9 +155,8 @@ export const useAppStore = defineStore('app', () => {
   // ── Computed: Table helpers ────────────────────────────────────────────────
   function getTableStatus(tableId) {
     // If merged slave: orders are on the master. Delegate status entirely to master.
-    const masterId = tableMergedInto.value[tableId];
-    if (masterId) {
-      const resolvedMaster = resolveMaster(tableId);
+    const resolvedMaster = resolveMaster(tableId);
+    if (tableMergedInto.value[tableId]) {
       if (resolvedMaster !== tableId) {
         return {
           ...getTableStatus(resolvedMaster),
@@ -529,7 +528,7 @@ export const useAppStore = defineStore('app', () => {
     const srcSession = tableCurrentBillSession.value[sourceTableId];
     const srcSessionId = srcSession?.billSessionId;
 
-    // Physically move all source orders to master table
+    // Physically move all non-rejected source orders to master table
     orders.value.forEach(o => {
       if (o.table !== sourceTableId || o.status === 'rejected') return;
       o.table = resolvedTargetId;
