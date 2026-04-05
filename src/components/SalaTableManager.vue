@@ -187,11 +187,6 @@
                   <span v-else-if="ord.status === 'accepted'" class="size-2 rounded-full bg-blue-400 shrink-0"></span>
                   <span class="font-bold text-sm text-gray-800">{{ ord.itemCount }} pz</span>
                   <span class="text-xs text-gray-500">· {{ ord.time }}</span>
-                  <!-- Table-of-origin badge for merged slave orders -->
-                  <span v-if="slaveTableIds.length > 0 && ord.table !== selectedTable?.id"
-                    class="text-[8px] font-bold uppercase text-blue-600 bg-blue-50 border border-blue-200 px-1 rounded flex items-center gap-0.5">
-                    <Link class="size-2.5" /> T.{{ tableLabelById[ord.table] ?? ord.table }}
-                  </span>
                 </div>
                 <div class="flex items-center gap-2">
                   <span v-if="ord.status === 'pending'" class="text-[9px] font-bold uppercase bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full border border-amber-200">In Attesa</span>
@@ -322,16 +317,12 @@ const allTablesStatusMap = computed(() => {
 });
 
 // Compute order count once per table; reused in the slot template.
-// For master tables include orders from slave tables so the grid badge stays
-// consistent with the combined bill shown in the detail panel.
+// Orders are physically on the master table after a merge, so no slave aggregation needed.
 const orderCountMap = computed(() => {
-  const tableMergedInto = store.tableMergedInto;
   const map = {};
   for (const table of store.config.tables) {
-    const slaveIds = Object.keys(tableMergedInto).filter(id => tableMergedInto[id] === table.id);
-    const allIds = [table.id, ...slaveIds];
     map[table.id] = store.orders.filter(
-      o => allIds.includes(o.table) && o.status !== 'completed' && o.status !== 'rejected',
+      o => o.table === table.id && o.status !== 'completed' && o.status !== 'rejected',
     ).length;
   }
   return map;
@@ -394,13 +385,6 @@ const showChildrenInput = computed(() =>
 const showTableModal = ref(false);
 const selectedTable = ref(null);
 
-// Precomputed map of tableId → table label for efficient per-table lookups in templates
-const tableLabelById = computed(() => {
-  const map = {};
-  for (const t of store.config.tables) map[t.id] = t.label;
-  return map;
-});
-
 // ── Sposta / Unisci modal state ────────────────────────────────────────────
 const showMoveModal = ref(false);
 const showMergeModal = ref(false);
@@ -456,9 +440,8 @@ const tableSession = computed(() =>
 
 const tableOrders = computed(() => {
   if (!selectedTable.value) return [];
-  const allTableIds = [selectedTable.value.id, ...slaveTableIds.value];
   return store.orders.filter(
-    o => allTableIds.includes(o.table) && o.status !== 'completed' && o.status !== 'rejected',
+    o => o.table === selectedTable.value.id && o.status !== 'completed' && o.status !== 'rejected',
   );
 });
 

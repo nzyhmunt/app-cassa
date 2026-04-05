@@ -231,17 +231,15 @@ export const useAppStore = defineStore('app', () => {
     );
     if (activeOrds.length === 0) {
       delete tableOccupiedAt.value[order.table];
-      // Clear slave mappings that pointed to this master (master is now free)
-      const slavesNowFree = slaveIdsOf(order.table);
-      if (slavesNowFree.length > 0) {
+      // Collect all merge mappings to clear in a single spread: slaves of this master +
+      // the table itself if it was a slave.
+      const idsToUnmap = [
+        ...slaveIdsOf(order.table),
+        ...(tableMergedInto.value[order.table] ? [order.table] : []),
+      ];
+      if (idsToUnmap.length > 0) {
         const nextMerge = { ...tableMergedInto.value };
-        slavesNowFree.forEach(id => delete nextMerge[id]);
-        tableMergedInto.value = nextMerge;
-      }
-      // If this was a merged slave, clear the stale merge relationship
-      if (tableMergedInto.value[order.table]) {
-        const nextMerge = { ...tableMergedInto.value };
-        delete nextMerge[order.table];
+        idsToUnmap.forEach(id => delete nextMerge[id]);
         tableMergedInto.value = nextMerge;
       }
       const nextSession = { ...tableCurrentBillSession.value };

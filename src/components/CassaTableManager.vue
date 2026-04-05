@@ -375,11 +375,6 @@
                   </button>
                   <div class="flex flex-col">
                     <span class="font-bold text-gray-800 text-sm md:text-base flex items-center gap-1">Ord #{{ ord.id.substring(0,6) }}</span>
-                    <!-- Table-of-origin badge when merged slaves are present -->
-                    <span v-if="slaveTableIds.length > 0 && ord.table !== selectedTable?.id"
-                      class="text-[8px] md:text-[9px] font-bold uppercase text-blue-600 bg-blue-50 border border-blue-200 px-1 py-0.5 rounded mt-0.5 inline-flex items-center gap-0.5 w-fit">
-                      <Link class="size-2.5" /> T.{{ tableLabelById[ord.table] ?? ord.table }}
-                    </span>
                     <span v-if="ord.isDirectEntry" class="text-[9px] md:text-[10px] font-bold uppercase theme-text flex items-center gap-1 mt-0.5"><Zap class="size-3 md:size-3.5" /> Voce Diretta (In Cassa)</span>
                     <span v-else-if="ord.status === 'pending'" class="text-[9px] md:text-[10px] font-bold uppercase text-amber-600 flex items-center gap-1 mt-0.5"><AlertTriangle class="size-3 md:size-3.5" /> In Attesa (Escluso Cassa)</span>
                     <span v-else class="text-[9px] md:text-[10px] font-bold uppercase text-emerald-600 flex items-center gap-1 mt-0.5"><CheckCircle class="size-3 md:size-3.5" /> In Cucina (Calcolato in Cassa)</span>
@@ -1165,7 +1160,7 @@
         <!-- MERGED MODE: description + slave selector -->
         <template v-if="splitMode === 'merged'">
           <p class="text-xs text-gray-500 mb-3 shrink-0">
-            Seleziona il tavolo da separare. Le voci sono pre-selezionate al massimo (il tavolo le porta con sé). Riduci le quantità per rimandare delle voci al tavolo principale.
+            Seleziona il tavolo da separare. Le voci rimangono sul tavolo principale — seleziona quelle da trasferire al tavolo separato.
           </p>
 
           <!-- Slave table selector (shown when multiple slaves) -->
@@ -1218,7 +1213,7 @@
         <!-- Item-level quantity stepper list -->
         <template v-if="(splitMode === 'merged' && splitSelectedSlaveId) || (splitMode === 'single' && splitTargetFreeTableId)">
           <p class="text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-2 shrink-0">
-            {{ splitMode === 'merged' ? 'Voci del tavolo (modifica le quantità che rimangono)' : 'Seleziona le voci da spostare' }}
+            {{ splitMode === 'merged' ? 'Voci da trasferire al tavolo separato' : 'Seleziona le voci da spostare' }}
           </p>
 
           <div class="bg-gray-50 rounded-xl border border-gray-200 divide-y divide-gray-100 overflow-y-auto flex-1 min-h-0 mb-4">
@@ -1238,16 +1233,16 @@
               <div class="flex items-center gap-1 shrink-0">
                 <button
                   @click="setSplitQty(row.key, row.netQty, -1)"
-                  :disabled="(splitItemQtyMap[row.key] ?? (splitMode === 'merged' ? row.netQty : 0)) <= 0"
+                  :disabled="(splitItemQtyMap[row.key] ?? 0) <= 0"
                   class="size-7 rounded-lg border border-gray-200 bg-white flex items-center justify-center text-gray-600 hover:bg-gray-100 active:scale-95 transition-all disabled:opacity-30 disabled:cursor-not-allowed text-sm font-bold">
                   −
                 </button>
                 <span class="w-8 text-center font-black text-sm text-gray-800">
-                  {{ splitItemQtyMap[row.key] ?? (splitMode === 'merged' ? row.netQty : 0) }}
+                  {{ splitItemQtyMap[row.key] ?? 0 }}
                 </span>
                 <button
                   @click="setSplitQty(row.key, row.netQty, +1)"
-                  :disabled="(splitItemQtyMap[row.key] ?? (splitMode === 'merged' ? row.netQty : 0)) >= row.netQty"
+                  :disabled="(splitItemQtyMap[row.key] ?? 0) >= row.netQty"
                   class="size-7 rounded-lg border border-gray-200 bg-white flex items-center justify-center text-gray-600 hover:bg-gray-100 active:scale-95 transition-all disabled:opacity-30 disabled:cursor-not-allowed text-sm font-bold">
                   +
                 </button>
@@ -1255,7 +1250,7 @@
               </div>
               <!-- Row total for selected qty -->
               <span class="text-xs font-bold text-gray-600 shrink-0 w-14 text-right">
-                {{ store.config.ui.currency }}{{ splitRowAmount(row, splitItemQtyMap[row.key] ?? (splitMode === 'merged' ? row.netQty : 0)).toFixed(2) }}
+                {{ store.config.ui.currency }}{{ splitRowAmount(row, splitItemQtyMap[row.key] ?? 0).toFixed(2) }}
               </span>
             </div>
           </div>
@@ -1264,7 +1259,7 @@
           <div class="shrink-0 space-y-3">
             <div class="flex items-center justify-between bg-orange-50 border border-orange-200 rounded-xl px-4 py-2.5">
               <span class="text-xs text-gray-600 font-medium">
-                {{ splitMode === 'merged' ? 'Totale separato (tavolo slave):' : 'Totale da spostare:' }}
+                {{ splitMode === 'merged' ? 'Totale da trasferire al tavolo separato:' : 'Totale da spostare:' }}
               </span>
               <span class="font-black text-orange-600 text-base">{{ store.config.ui.currency }}{{ splitSelectedTotal.toFixed(2) }}</span>
             </div>
@@ -1338,13 +1333,6 @@ const keyboard = useNumericKeyboard();
 // ── Table modal state ──────────────────────────────────────────────────────
 const showTableModal = ref(false);
 const selectedTable = ref(null);
-
-// Precomputed map of tableId → table label for efficient per-table lookups in templates
-const tableLabelById = computed(() => {
-  const map = {};
-  for (const t of store.config.tables) map[t.id] = t.label;
-  return map;
-});
 
 // ── Room tabs ─────────────────────────────────────────────────────────────
 function getInitialActiveRoomId(rooms) {
@@ -1498,17 +1486,9 @@ const billRequestedTablesCount = computed(() => tableStatusCounts.value.billRequ
 // Includes ALL non-completed/non-rejected orders (not just kitchen-accepted) so
 // pending items can also be moved during a split.
 const splitSourceOrders = computed(() => {
-  if (!showSplitModal.value) return [];
-  if (splitMode.value === 'merged') {
-    // Show items from the currently selected slave table
-    if (!splitSelectedSlaveId.value) return [];
-    return store.orders.filter(
-      o => o.table === splitSelectedSlaveId.value &&
-        o.status !== 'completed' && o.status !== 'rejected',
-    );
-  }
-  // Single mode: show items from the current (master/standalone) table
-  if (!selectedTable.value) return [];
+  if (!showSplitModal.value || !selectedTable.value) return [];
+  // Both merged and single mode: source is always the current (master/standalone) table.
+  // After a merge, all orders are physically on the master table, so the slave has none.
   return store.orders.filter(
     o => o.table === selectedTable.value.id &&
       o.status !== 'completed' && o.status !== 'rejected',
@@ -1545,12 +1525,10 @@ function splitRowAmount(row, qty) {
 }
 
 // Total amount of items currently selected in the split modal
-// Merged mode: total of items that STAY with the slave
-// Single mode: total of items that MOVE to the target
+// Both modes: total of items that MOVE to the target / slave
 const splitSelectedTotal = computed(() =>
   splitFlatItemsComputed.value.reduce((sum, row) => {
-    const defaultQty = splitMode.value === 'merged' ? row.netQty : 0;
-    const qty = splitItemQtyMap.value[row.key] ?? defaultQty;
+    const qty = splitItemQtyMap.value[row.key] ?? 0;
     return sum + splitRowAmount(row, qty);
   }, 0),
 );
@@ -1574,18 +1552,12 @@ function openSplitModal() {
   showSplitModal.value = true;
 }
 
-// Pre-fill splitItemQtyMap with max quantities (for merged mode) or zeros (for single mode)
+// Pre-fill splitItemQtyMap with zeros (nothing moves by default for both modes)
 // Called when a slave or target table is chosen.
 function initSplitQtyMap() {
   const map = {};
   for (const row of splitFlatItemsComputed.value) {
-    if (splitMode.value === 'merged') {
-      // Slave keeps everything by default → start at max qty
-      map[row.key] = row.netQty;
-    } else {
-      // Single mode: nothing moves by default → start at 0
-      map[row.key] = 0;
-    }
+    map[row.key] = 0;
   }
   splitItemQtyMap.value = map;
 }
@@ -1644,24 +1616,18 @@ function confirmSplit() {
     const masterId = selectedTable.value.id;
     const slaveId = splitSelectedSlaveId.value;
 
-    // Compute items that go BACK to the master (netQty - keptOnSlave)
-    const masterBoundQtyMap = {};
-    for (const row of splitFlatItemsComputed.value) {
-      // Default: slave keeps everything (pre-selected at max)
-      const keptOnSlave = splitItemQtyMap.value[row.key] ?? row.netQty;
-      const toMaster = row.netQty - keptOnSlave;
-      if (toMaster > 0) {
-        masterBoundQtyMap[row.key] = toMaster;
-      }
-    }
-
-    // Move master-bound items back to master table
-    if (Object.keys(masterBoundQtyMap).length > 0) {
-      store.splitItemsToTable(slaveId, masterId, masterBoundQtyMap);
-    }
-
-    // Free the slave from the merge group (retag remaining slave orders to its new session)
+    // First detach the slave so splitItemsToTable can open an independent session on it
     store.splitTableOrders(masterId, slaveId);
+
+    // Then move selected items from master to the now-free slave table
+    const slaveBoundQtyMap = {};
+    for (const row of splitFlatItemsComputed.value) {
+      const toSlave = splitItemQtyMap.value[row.key] ?? 0;
+      if (toSlave > 0) slaveBoundQtyMap[row.key] = toSlave;
+    }
+    if (Object.keys(slaveBoundQtyMap).length > 0) {
+      store.splitItemsToTable(masterId, slaveId, slaveBoundQtyMap);
+    }
 
   } else {
     // Single mode: move selected items to the target free table
@@ -1737,12 +1703,11 @@ const jsonContext = ref('table');
 const jsonPayloadData = ref('{}');
 
 // ── Computed: table orders ─────────────────────────────────────────────────
-// Includes orders from slave tables merged into this master
+// All orders are physically on the master table after a merge, so no slave aggregation needed.
 const tableOrders = computed(() => {
   if (!selectedTable.value) return [];
-  const allTableIds = [selectedTable.value.id, ...slaveTableIds.value];
   return store.orders.filter(
-    o => allTableIds.includes(o.table) && o.status !== 'completed' && o.status !== 'rejected',
+    o => o.table === selectedTable.value.id && o.status !== 'completed' && o.status !== 'rejected',
   );
 });
 
@@ -1753,10 +1718,9 @@ const tableAcceptedPayableOrders = computed(() =>
 const tableTotalAmount = computed(() => {
   if (!selectedTable.value) return 0;
   const session = store.tableCurrentBillSession[selectedTable.value.id];
-  const allTableIds = [selectedTable.value.id, ...slaveTableIds.value];
   return store.orders
     .filter(o => {
-      if (!allTableIds.includes(o.table)) return false;
+      if (o.table !== selectedTable.value.id) return false;
       if (!KITCHEN_ACTIVE_STATUSES.includes(o.status) && o.status !== 'completed') return false;
       if (session) return o.billSessionId === session.billSessionId;
       return true;
