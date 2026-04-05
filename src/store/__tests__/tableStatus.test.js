@@ -204,6 +204,58 @@ describe('getTableStatus() — occupied', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Tests: multi-session isolation
+// ---------------------------------------------------------------------------
+
+describe('getTableStatus() — multi-session isolation', () => {
+  it('does not count old-session transactions against the current session balance', () => {
+    const store = useAppStore();
+
+    // Session 1: customer orders, pays, table is cleared when order completes
+    const sess1 = store.openTableSession('T1', 2, 0);
+    const ord1 = { ...makeOrder('ord1', 'T1', 'accepted', 30), billSessionId: sess1 };
+    store.addOrder(ord1);
+    store.addTransaction({ ...makeTransaction('T1', 30), billSessionId: sess1 });
+    // Completing the order triggers changeOrderStatus which clears the session
+    store.changeOrderStatus(store.orders.find(o => o.id === 'ord1'), 'completed');
+    expect(store.tableCurrentBillSession['T1']).toBeUndefined();
+
+    // Session 2: new customer sits, new order (not yet paid)
+    const sess2 = store.openTableSession('T1', 2, 0);
+    const ord2 = { ...makeOrder('ord2', 'T1', 'accepted', 50), billSessionId: sess2 };
+    store.addOrder(ord2);
+
+    // Old-session payment ($30) must NOT reduce session 2's balance
+    const result = store.getTableStatus('T1');
+    expect(result.status).toBe('occupied');
+    expect(result.total).toBe(50);
+    expect(result.remaining).toBe(50);
+  });
+
+  it('correctly shows paid when only the current session transactions cover the current total', () => {
+    const store = useAppStore();
+
+    // Session 1: paid and cleared
+    const sess1 = store.openTableSession('T1', 2, 0);
+    const ord1 = { ...makeOrder('ord1', 'T1', 'accepted', 30), billSessionId: sess1 };
+    store.addOrder(ord1);
+    store.addTransaction({ ...makeTransaction('T1', 30), billSessionId: sess1 });
+    store.changeOrderStatus(store.orders.find(o => o.id === 'ord1'), 'completed');
+
+    // Session 2: new customer with $40 order, also fully paid
+    const sess2 = store.openTableSession('T1', 2, 0);
+    const ord2 = { ...makeOrder('ord2', 'T1', 'accepted', 40), billSessionId: sess2 };
+    store.addOrder(ord2);
+    store.addTransaction({ ...makeTransaction('T1', 40), billSessionId: sess2 });
+
+    const result = store.getTableStatus('T1');
+    expect(result.status).toBe('paid');
+    expect(result.total).toBe(40);
+    expect(result.remaining).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Tests: status precedence (summary)
 // ---------------------------------------------------------------------------
 

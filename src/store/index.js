@@ -191,7 +191,7 @@ export const useAppStore = defineStore('app', () => {
     );
     const total = billable.reduce((a, b) => a + b.totalAmount, 0);
     const paid = transactions.value
-      .filter(t => t.tableId === tableId)
+      .filter(t => t.tableId === tableId && (!session || t.billSessionId === session.billSessionId))
       .reduce((a, t) => a + t.amountPaid, 0);
     const remaining = Math.max(0, total - paid);
 
