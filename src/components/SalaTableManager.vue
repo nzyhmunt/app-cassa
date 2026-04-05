@@ -51,7 +51,7 @@
           :pendingCount="pendingTablesCount"
           :paidCount="paidTablesCount"
           :activeFilter="activeStatusFilter"
-          @update:activeFilter="activeStatusFilter = $event"
+          @update:activeFilter="onStatusFilterChange"
         />
       </div>
 
@@ -269,6 +269,13 @@ const store = useAppStore();
 // ── Room tabs ─────────────────────────────────────────────────────────────
 const activeRoomId = ref(store.rooms.length > 1 ? 'all' : (store.rooms[0]?.id ?? null));
 const activeStatusFilter = ref(null);
+
+function onStatusFilterChange(filter) {
+  activeStatusFilter.value = filter;
+  if (filter && store.rooms.length > 1) {
+    activeRoomId.value = 'all';
+  }
+}
 
 // Compute status once per table for all tables; reused by filtering, counters, and slot.
 const allTablesStatusMap = computed(() => {

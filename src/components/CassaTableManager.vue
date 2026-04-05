@@ -2,7 +2,7 @@
   <!-- WORKSPACE: MAPPA SALA -->
   <div class="flex-1 flex flex-col bg-gray-100/80 overflow-y-auto p-4 md:p-8 relative min-h-0">
     <div class="max-w-6xl mx-auto w-full">
-      <div class="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-2 mb-4 md:mb-6">
+      <div class="flex flex-row justify-between items-center gap-2 mb-4 md:mb-6">
         <h2 class="text-xl md:text-2xl font-black text-gray-800 flex items-center gap-2 md:gap-3">
           <Grid3x3 class="text-gray-500 size-6 md:size-8" /> Mappa Sala
         </h2>
@@ -13,7 +13,7 @@
           title="Cronologia Conti Chiusi"
           aria-label="Storico Conti"
         >
-          <History class="size-4" /> <span class="hidden sm:inline">Storico Conti</span>
+          <History class="size-4" /> <span>Storico Conti</span>
         </router-link>
       </div>
 
@@ -59,7 +59,7 @@
           :paidCount="paidTablesCount"
           :billRequestedCount="billRequestedTablesCount"
           :activeFilter="activeStatusFilter"
-          @update:activeFilter="activeStatusFilter = $event"
+          @update:activeFilter="onStatusFilterChange"
         />
       </div>
 
@@ -1176,6 +1176,13 @@ function filterTablesByStatus(tables, statusFilter) {
 
 const activeRoomId = ref(getInitialActiveRoomId(store.rooms));
 const activeStatusFilter = ref(null);
+
+function onStatusFilterChange(filter) {
+  activeStatusFilter.value = filter;
+  if (filter && store.rooms.length > 1) {
+    activeRoomId.value = 'all';
+  }
+}
 
 function filteredTablesForRoom(room) {
   return filterTablesByStatus(room.tables, activeStatusFilter.value);
