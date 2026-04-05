@@ -531,13 +531,18 @@ export const useAppStore = defineStore('app', () => {
     // Any current slaves of the source become slaves of the resolved target.
     // Their orders must also be retagged to the new master's session so they
     // remain visible in getTableStatus() totals (which filter by billSessionId).
-    slaveIdsOf(sourceTableId).forEach(slaveId => {
+    const srcSlaves = slaveIdsOf(sourceTableId);
+    const srcSlaveSet = new Set(srcSlaves);
+    srcSlaves.forEach(slaveId => {
       tableMergedInto.value = { ...tableMergedInto.value, [slaveId]: resolvedTargetId };
-      orders.value.forEach(o => {
-        if (o.table !== slaveId || o.status === 'rejected') return;
-        o.billSessionId = targetSessionId;
-      });
     });
+    if (srcSlaveSet.size > 0) {
+      orders.value.forEach(o => {
+        if (srcSlaveSet.has(o.table) && o.status !== 'rejected') {
+          o.billSessionId = targetSessionId;
+        }
+      });
+    }
 
     // Retag source orders to the target's bill session (orders stay on source table).
     // Include completed orders from the current session so they remain in the combined
