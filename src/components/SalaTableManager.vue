@@ -325,10 +325,10 @@ const allTablesStatusMap = computed(() => {
 // For master tables include orders from slave tables so the grid badge stays
 // consistent with the combined bill shown in the detail panel.
 const orderCountMap = computed(() => {
-  const merged = store.tableMergedInto;
+  const tableMergedInto = store.tableMergedInto;
   const map = {};
   for (const table of store.config.tables) {
-    const slaveIds = Object.keys(merged).filter(id => merged[id] === table.id);
+    const slaveIds = Object.keys(tableMergedInto).filter(id => tableMergedInto[id] === table.id);
     const allIds = [table.id, ...slaveIds];
     map[table.id] = store.orders.filter(
       o => allIds.includes(o.table) && o.status !== 'completed' && o.status !== 'rejected',
