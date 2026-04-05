@@ -395,10 +395,15 @@ const freeTables = computed(() =>
   ),
 );
 
-// Non-current, non-free tables for move (including occupied/paid)
+// Non-current, non-free, non-slave tables for move (including occupied/paid).
+// Merged slave tables are excluded: targeting a slave with "Sposta" would give it
+// its own session while still merged into a master, causing billing inconsistencies.
 const otherOccupiedTables = computed(() =>
   store.config.tables.filter(
-    t => t.id !== selectedTable.value?.id && store.getTableStatus(t.id).status !== 'free',
+    t =>
+      t.id !== selectedTable.value?.id &&
+      store.getTableStatus(t.id).status !== 'free' &&
+      !store.tableMergedInto[t.id],
   ),
 );
 

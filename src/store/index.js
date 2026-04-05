@@ -390,10 +390,13 @@ export const useAppStore = defineStore('app', () => {
       billRequestedTables.value.add(toTableId);
       billRequestedTables.value = new Set(billRequestedTables.value);
     }
-    // Any slave tables that were merged into the source must now follow the source
+    // Any slave tables that were merged into the source must now follow the source.
+    // Resolve toTableId to its own master first so we never create a slave→slave chain
+    // (which would break billing aggregation because the ultimate master would miss orders).
+    const resolvedMoveTarget = tableMergedInto.value[toTableId] ?? toTableId;
     Object.keys(tableMergedInto.value).forEach(slaveId => {
       if (tableMergedInto.value[slaveId] === fromTableId) {
-        tableMergedInto.value = { ...tableMergedInto.value, [slaveId]: toTableId };
+        tableMergedInto.value = { ...tableMergedInto.value, [slaveId]: resolvedMoveTarget };
       }
     });
     // If the source was itself a slave, re-point it to the destination's master (or the dest)

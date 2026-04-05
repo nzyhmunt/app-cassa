@@ -1393,10 +1393,16 @@ const freeTables = computed(() =>
   ),
 );
 
-// All non-current, non-free tables available for move/merge target selection
+// All non-current, non-free, non-slave tables available for move target selection.
+// Merged slave tables are excluded because moving orders onto a slave creates an
+// invalid state (the slave gets its own session while still logically merged into
+// its master, causing totals/status inconsistencies).
 const otherOccupiedTables = computed(() =>
   store.config.tables.filter(
-    t => t.id !== selectedTable.value?.id && tableStatusMap.value[t.id]?.status !== 'free',
+    t =>
+      t.id !== selectedTable.value?.id &&
+      tableStatusMap.value[t.id]?.status !== 'free' &&
+      !store.tableMergedInto[t.id],
   ),
 );
 
