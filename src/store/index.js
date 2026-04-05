@@ -446,7 +446,7 @@ export const useAppStore = defineStore('app', () => {
     oldSlaveIds.forEach(slaveId => {
       tableMergedInto.value = { ...tableMergedInto.value, [slaveId]: resolvedMoveTarget };
     });
-    // If the source was itself a slave, re-point it to the destination's master (or the dest)
+    // If the source was itself a slave, detach its old merge mapping.
     if (tableMergedInto.value[fromTableId]) {
       delete tableMergedInto.value[fromTableId];
     }
