@@ -377,7 +377,7 @@
                     <!-- Table-of-origin badge when merged slaves are present -->
                     <span v-if="slaveTableIds.length > 0 && ord.table !== selectedTable?.id"
                       class="text-[8px] md:text-[9px] font-bold uppercase text-blue-600 bg-blue-50 border border-blue-200 px-1 py-0.5 rounded mt-0.5 inline-flex items-center gap-0.5 w-fit">
-                      <Link class="size-2.5" /> T.{{ store.config.tables.find(t => t.id === ord.table)?.label ?? ord.table }}
+                      <Link class="size-2.5" /> T.{{ tableLabelById[ord.table] ?? ord.table }}
                     </span>
                     <span v-if="ord.isDirectEntry" class="text-[9px] md:text-[10px] font-bold uppercase theme-text flex items-center gap-1 mt-0.5"><Zap class="size-3 md:size-3.5" /> Voce Diretta (In Cassa)</span>
                     <span v-else-if="ord.status === 'pending'" class="text-[9px] md:text-[10px] font-bold uppercase text-amber-600 flex items-center gap-1 mt-0.5"><AlertTriangle class="size-3 md:size-3.5" /> In Attesa (Escluso Cassa)</span>
@@ -1248,6 +1248,13 @@ const keyboard = useNumericKeyboard();
 // ── Table modal state ──────────────────────────────────────────────────────
 const showTableModal = ref(false);
 const selectedTable = ref(null);
+
+// Precomputed map of tableId → table label for efficient per-table lookups in templates
+const tableLabelById = computed(() => {
+  const map = {};
+  for (const t of store.config.tables) map[t.id] = t.label;
+  return map;
+});
 
 // ── Room tabs ─────────────────────────────────────────────────────────────
 function getInitialActiveRoomId(rooms) {

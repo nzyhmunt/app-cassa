@@ -526,13 +526,13 @@ export const useAppStore = defineStore('app', () => {
   function splitTableOrders(masterTableId, slaveTableId, selectedOrderIds = null) {
     if (tableMergedInto.value[slaveTableId] !== masterTableId) return; // not a slave of this master
 
-    // Create a fresh session for the slave
-    const newSessionId = (typeof crypto !== 'undefined' && crypto.randomUUID)
-      ? crypto.randomUUID()
-      : 'bill_' + Math.random().toString(36).slice(2, 11);
+    // Remove slave from the merge group first so openTableSession treats it as independent
+    const next = { ...tableMergedInto.value };
+    delete next[slaveTableId];
+    tableMergedInto.value = next;
 
-    const masterSession = tableCurrentBillSession.value[masterTableId];
-    const masterSessionId = masterSession?.billSessionId;
+    // Create a fresh session for the slave using the shared helper (ensures consistent ID generation)
+    const newSessionId = openTableSession(slaveTableId, 0, 0);
 
     // Determine which orders to split off
     const ordersToSplit = orders.value.filter(o => {
@@ -548,22 +548,6 @@ export const useAppStore = defineStore('app', () => {
     ordersToSplit.forEach(o => {
       o.billSessionId = newSessionId;
     });
-
-    // Open the slave's new session (inherit headcount from master proportionally — keep simple)
-    const slaveSession = {
-      billSessionId: newSessionId,
-      adults: 0,
-      children: 0,
-    };
-    tableCurrentBillSession.value = {
-      ...tableCurrentBillSession.value,
-      [slaveTableId]: slaveSession,
-    };
-
-    // Remove slave from the merge group
-    const next = { ...tableMergedInto.value };
-    delete next[slaveTableId];
-    tableMergedInto.value = next;
   }
 
   // ── Mutations: Cassa ───────────────────────────────────────────────────────

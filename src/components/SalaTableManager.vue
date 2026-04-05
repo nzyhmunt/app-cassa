@@ -190,7 +190,7 @@
                   <!-- Table-of-origin badge for merged slave orders -->
                   <span v-if="slaveTableIds.length > 0 && ord.table !== selectedTable?.id"
                     class="text-[8px] font-bold uppercase text-blue-600 bg-blue-50 border border-blue-200 px-1 rounded flex items-center gap-0.5">
-                    <Link class="size-2.5" /> T.{{ store.config.tables.find(t => t.id === ord.table)?.label ?? ord.table }}
+                    <Link class="size-2.5" /> T.{{ tableLabelById[ord.table] ?? ord.table }}
                   </span>
                 </div>
                 <div class="flex items-center gap-2">
@@ -377,6 +377,13 @@ const showChildrenInput = computed(() =>
 // ── Table modal ──────────────────────────────────────────────────────────────
 const showTableModal = ref(false);
 const selectedTable = ref(null);
+
+// Precomputed map of tableId → table label for efficient per-table lookups in templates
+const tableLabelById = computed(() => {
+  const map = {};
+  for (const t of store.config.tables) map[t.id] = t.label;
+  return map;
+});
 
 // ── Sposta / Unisci modal state ────────────────────────────────────────────
 const showMoveModal = ref(false);
