@@ -445,6 +445,37 @@ describe('splitTableOrders()', () => {
     expect(() => store.splitTableOrders('B', 'A')).not.toThrow();
     expect(store.tableMergedInto['A']).toBeUndefined();
   });
+
+  it('retags completed slave orders to the new slave session after split', () => {
+    const store = useAppStore();
+    const sessA = store.openTableSession('A', 2, 0);
+    const sessB = store.openTableSession('B', 2, 0);
+    const completedOrdA = makeOrder('A', 'completed', 10, sessA);
+    const activeOrdA = makeOrder('A', 'accepted', 5, sessA);
+    store.addOrder(completedOrdA);
+    store.addOrder(activeOrdA);
+    store.addOrder(makeOrder('B', 'accepted', 20, sessB));
+
+    store.mergeTableOrders('A', 'B');
+    // After merge: both A orders are retagged to sessB
+    expect(store.orders.find(o => o.id === completedOrdA.id).billSessionId).toBe(sessB);
+
+    store.splitTableOrders('B', 'A');
+
+    const newSessA = store.tableCurrentBillSession['A']?.billSessionId;
+    expect(newSessA).toBeDefined();
+    // Both the active and the completed order on A must be retagged to A's new session.
+    // Without this, completed orders would remain tagged to sessB and disappear from
+    // getTableStatus() once A's new session differs from sessB.
+    expect(store.orders.find(o => o.id === completedOrdA.id).billSessionId).toBe(newSessA);
+    expect(store.orders.find(o => o.id === activeOrdA.id).billSessionId).toBe(newSessA);
+
+    const statusA = store.getTableStatus('A');
+    const statusB = store.getTableStatus('B');
+    // A: completed (10) + active (5) both under new session = 15
+    expect(statusA.total).toBe(15);
+    expect(statusB.total).toBe(20);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -472,6 +503,26 @@ describe('mergeTableOrders() — chain: slave-of-slave flattening', () => {
     expect(store.tableMergedInto['B']).toBe('A');
     // C is re-parented to A
     expect(store.tableMergedInto['C']).toBe('A');
+  });
+
+  it('after chain-merge A includes orders from B and C in total', () => {
+    const store = useAppStore();
+    const sessA = store.openTableSession('A', 2, 0);
+    const sessB = store.openTableSession('B', 2, 0);
+    const sessC = store.openTableSession('C', 2, 0);
+    store.addOrder(makeOrder('A', 'accepted', 5, sessA));
+    store.addOrder(makeOrder('B', 'accepted', 10, sessB));
+    store.addOrder(makeOrder('C', 'accepted', 15, sessC));
+
+    // C → slave of B, B → slave of A
+    store.mergeTableOrders('C', 'B');
+    store.mergeTableOrders('B', 'A');
+
+    const masterStatus = store.getTableStatus('A');
+    // Master total must include A (5) + B (10) + C (15) = 30
+    expect(masterStatus.total).toBe(30);
+    expect(masterStatus.remaining).toBe(30);
+    expect(masterStatus.status).toBe('occupied');
   });
 });
 
@@ -653,5 +704,120 @@ describe('splitItemsToTable()', () => {
     const bOrd = store.orders.find(o => o.table === 'B');
     expect(bOrd.orderItems[0].name).toBe('Pizza');
     expect(bOrd.orderItems[0].quantity).toBe(1);
+  });
+
+  it('preserves combined pricing invariant when splitting an item with partially-voided modifiers', () => {
+    const store = useAppStore();
+    const sessA = store.openTableSession('A', 2, 0);
+
+    // Build an order manually to set modifier.price and correct totalAmount.
+    // Item: 2 Burgers × €10 = €20 base
+    // Modifier Cheese: price=3, quantity=2, voidedQuantity=1 → charge = max(0,2-1)*3 = 3
+    // Modifier Bacon:  price=2, quantity=2, voidedQuantity=0 → charge = max(0,2-0)*2 = 4
+    // Combined total = 20 + 3 + 4 = 27
+    const itemUid = 'item_burger';
+    const ord = {
+      id: 'ord_mod_test',
+      table: 'A',
+      billSessionId: sessA,
+      status: 'accepted',
+      orderItems: [{
+        uid: itemUid,
+        dishId: 'dish_burger',
+        name: 'Burger',
+        unitPrice: 10,
+        quantity: 2,
+        voidedQuantity: 0,
+        notes: [],
+        modifiers: [
+          { name: 'Cheese', price: 3, quantity: 2, voidedQuantity: 1 },
+          { name: 'Bacon',  price: 2, quantity: 2, voidedQuantity: 0 },
+        ],
+      }],
+      totalAmount: 27,
+      itemCount: 2,
+      globalNote: '',
+      noteVisibility: { cassa: true, sala: true, cucina: true },
+      isDirectEntry: false,
+    };
+    store.addOrder(ord);
+
+    // Split 1 of 2 Burgers to table B
+    const itemQtyMap = { [`ord_mod_test__${itemUid}`]: 1 };
+    store.splitItemsToTable('A', 'B', itemQtyMap);
+
+    const sourceOrd = store.orders.find(o => o.id === 'ord_mod_test');
+    const targetOrd = store.orders.find(o => o.table === 'B');
+
+    expect(sourceOrd).toBeDefined();
+    expect(targetOrd).toBeDefined();
+
+    // Source: 1 Burger active (voidedQty=1 on item)
+    expect(sourceOrd.orderItems[0].voidedQuantity).toBe(1);
+    // Source Cheese modifier stays at voidedQuantity=1; active=1, charge=max(0,1-1)*3=0
+    expect(sourceOrd.orderItems[0].modifiers[0].voidedQuantity).toBe(1);
+    // Source Bacon modifier stays at voidedQuantity=0; active=1, charge=max(0,1-0)*2=2
+    expect(sourceOrd.orderItems[0].modifiers[1].voidedQuantity).toBe(0);
+    // Source total = 10 + 0 + 2 = 12
+    expect(sourceOrd.totalAmount).toBe(12);
+
+    // Target: 1 Burger; Cheese targetVoided = max(0, 1 - sourceActiveAfter=1) = 0
+    expect(targetOrd.orderItems[0].name).toBe('Burger');
+    expect(targetOrd.orderItems[0].quantity).toBe(1);
+    expect(targetOrd.orderItems[0].modifiers[0].name).toBe('Cheese');
+    expect(targetOrd.orderItems[0].modifiers[0].voidedQuantity).toBe(0);
+    expect(targetOrd.orderItems[0].modifiers[1].name).toBe('Bacon');
+    expect(targetOrd.orderItems[0].modifiers[1].voidedQuantity).toBe(0);
+    // Target total = 10 + max(0,1-0)*3 + max(0,1-0)*2 = 10 + 3 + 2 = 15
+    expect(targetOrd.totalAmount).toBe(15);
+
+    // Combined must equal original total (27)
+    expect(sourceOrd.totalAmount + targetOrd.totalAmount).toBe(27);
+  });
+
+  it('fully-voided modifier does not resurface on target after split', () => {
+    const store = useAppStore();
+    const sessA = store.openTableSession('A', 2, 0);
+
+    // 2 items, modifier fully voided (voidedQty=2) — modifier contributes €0
+    const itemUid = 'item_test';
+    const ord = {
+      id: 'ord_fullvoid',
+      table: 'A',
+      billSessionId: sessA,
+      status: 'accepted',
+      orderItems: [{
+        uid: itemUid,
+        dishId: 'dish_x',
+        name: 'Piatto',
+        unitPrice: 8,
+        quantity: 2,
+        voidedQuantity: 0,
+        notes: [],
+        modifiers: [
+          { name: 'Extra', price: 5, quantity: 2, voidedQuantity: 2 }, // fully voided
+        ],
+      }],
+      totalAmount: 16, // 2×8, modifier contributes 0
+      itemCount: 2,
+      globalNote: '',
+      noteVisibility: { cassa: true, sala: true, cucina: true },
+      isDirectEntry: false,
+    };
+    store.addOrder(ord);
+
+    // Split 1 item to B
+    store.splitItemsToTable('A', 'B', { [`ord_fullvoid__${itemUid}`]: 1 });
+
+    const sourceOrd = store.orders.find(o => o.id === 'ord_fullvoid');
+    const targetOrd = store.orders.find(o => o.table === 'B');
+
+    // Source: item voidedQty=1, active=1; modifier voidedQty=2; charge=max(0,1-2)=0
+    expect(sourceOrd.totalAmount).toBe(8);
+    // Target: targetModVoided = max(0, 2 - sourceActiveAfter=1) = 1; charge=max(0,1-1)=0
+    expect(targetOrd.orderItems[0].modifiers[0].voidedQuantity).toBe(1);
+    expect(targetOrd.totalAmount).toBe(8);
+    // Combined = 8 + 8 = 16 (original, modifier remains 0 contribution)
+    expect(sourceOrd.totalAmount + targetOrd.totalAmount).toBe(16);
   });
 });

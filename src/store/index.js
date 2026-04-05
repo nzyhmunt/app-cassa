@@ -381,11 +381,18 @@ export const useAppStore = defineStore('app', () => {
     );
   }
 
-  // Resolves a tableId to its merge master. If the table is a slave, returns
-  // the master ID; otherwise returns the table ID itself.
-  // Using this prevents slave→slave chains when re-parenting.
+  // Resolves a tableId to its ultimate merge master by walking the full chain.
+  // If the table is a slave, returns the final master ID; otherwise returns
+  // the table ID itself. The visited-set guards against accidental cycles.
   function resolveMaster(tableId) {
-    return tableMergedInto.value[tableId] ?? tableId;
+    const visited = new Set();
+    let currentId = tableId;
+    while (tableMergedInto.value[currentId] != null) {
+      if (visited.has(currentId)) break; // cycle guard
+      visited.add(currentId);
+      currentId = tableMergedInto.value[currentId];
+    }
+    return currentId;
   }
 
   // Opens a new billing session for a table (called when the table is first seated).
@@ -521,9 +528,15 @@ export const useAppStore = defineStore('app', () => {
     // If source is already a slave (of someone else), re-parent it to the new master
     delete tableMergedInto.value[sourceTableId];
 
-    // Any current slaves of the source become slaves of the resolved target
+    // Any current slaves of the source become slaves of the resolved target.
+    // Their orders must also be retagged to the new master's session so they
+    // remain visible in getTableStatus() totals (which filter by billSessionId).
     slaveIdsOf(sourceTableId).forEach(slaveId => {
       tableMergedInto.value = { ...tableMergedInto.value, [slaveId]: resolvedTargetId };
+      orders.value.forEach(o => {
+        if (o.table !== slaveId || o.status === 'rejected') return;
+        o.billSessionId = targetSessionId;
+      });
     });
 
     // Retag source orders to the target's bill session (orders stay on source table).
@@ -590,8 +603,13 @@ export const useAppStore = defineStore('app', () => {
   // Splits a slave table back out of a merged group.
   // Called after splitItemsToTable has already moved any master-bound items back.
   // All remaining active orders on the slave are retagged to a fresh session.
+  // Completed orders from the merged session are also retagged so totals stay correct
+  // (getTableStatus filters billable orders by the table's current session id).
   function splitTableOrders(masterTableId, slaveTableId) {
     if (tableMergedInto.value[slaveTableId] !== masterTableId) return; // not a slave of this master
+
+    // Capture master session id before removing the slave (openTableSession might mutate state)
+    const masterSessionId = tableCurrentBillSession.value[masterTableId]?.billSessionId;
 
     // Remove slave from the merge group first so openTableSession treats it as independent
     const next = { ...tableMergedInto.value };
@@ -601,11 +619,19 @@ export const useAppStore = defineStore('app', () => {
     // Create a fresh session for the slave using the shared helper (ensures consistent ID generation)
     const newSessionId = openTableSession(slaveTableId, 0, 0);
 
-    // Retag all remaining active orders on the slave to its new independent session
+    // Retag all remaining orders on the slave to its new independent session.
+    // Includes completed orders from the master session so totals don't drop after the split.
     orders.value.forEach(o => {
       if (o.table !== slaveTableId) return;
-      if (o.status === 'completed' || o.status === 'rejected') return;
-      o.billSessionId = newSessionId;
+      if (o.status === 'rejected') return;
+      if (o.status !== 'completed') {
+        o.billSessionId = newSessionId;
+        return;
+      }
+      // Completed orders: retag only if they belong to the former master's session
+      if (masterSessionId && o.billSessionId === masterSessionId) {
+        o.billSessionId = newSessionId;
+      }
     });
   }
 
@@ -669,6 +695,12 @@ export const useAppStore = defineStore('app', () => {
         item.voidedQuantity = (item.voidedQuantity || 0) + actualMoveQty;
         orderModified = true;
 
+        // The number of active item units remaining on the source after the split.
+        // Modifier voidedQuantity is distributed so the combined pricing stays invariant:
+        // target gets max(0, mod.voidedQuantity - sourceActiveAfter) voided modifier
+        // units, which ensures source_charge + target_charge === original_charge.
+        const sourceActiveAfterSplit = netQty - actualMoveQty;
+
         // Build a copy of the item (with all its modifiers) for the target order.
         // Use the same crypto.randomUUID strategy as openTableSession for consistent UID generation.
         const newUid = (typeof crypto !== 'undefined' && crypto.randomUUID)
@@ -682,7 +714,10 @@ export const useAppStore = defineStore('app', () => {
           quantity: actualMoveQty,
           voidedQuantity: 0,
           notes: item.notes ? [...item.notes] : [],
-          modifiers: (item.modifiers || []).map(m => ({ ...m, voidedQuantity: 0 })),
+          modifiers: (item.modifiers || []).map(m => ({
+            ...m,
+            voidedQuantity: Math.max(0, (m.voidedQuantity || 0) - sourceActiveAfterSplit),
+          })),
         });
       });
 
