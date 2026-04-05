@@ -222,33 +222,39 @@
   <!-- MODAL: SPOSTA TAVOLO                                              -->
   <!-- ================================================================ -->
   <div v-if="showMoveModal" class="fixed inset-0 z-[100] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-5 max-h-[90dvh] overflow-y-auto">
-      <div class="flex justify-between items-center mb-4">
-        <h3 class="font-bold text-gray-800 flex items-center gap-2"><ArrowRightLeft class="size-5 theme-text" /> Sposta Tavolo {{ selectedTable?.label }}</h3>
-        <button @click="showMoveModal = false" class="text-gray-400 hover:text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-full p-1.5 transition-colors"><X class="size-4" /></button>
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col max-h-[90dvh]">
+      <!-- Header -->
+      <div class="bg-gray-900 text-white px-5 py-4 flex justify-between items-center shrink-0">
+        <h3 class="font-bold flex items-center gap-2"><ArrowRightLeft class="size-5 theme-text" /> Sposta Tavolo {{ selectedTable?.label }}</h3>
+        <button @click="showMoveModal = false" class="bg-white/10 hover:bg-white/20 p-2 rounded-full transition-colors active:scale-95"><X class="size-4" /></button>
       </div>
-      <p class="text-xs text-gray-500 mb-4">Seleziona il tavolo di destinazione. Se occupato, gli ordini verranno spostati e i conti uniti.</p>
-      <div v-if="freeTables.length > 0">
-        <p class="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-2">Tavoli Liberi</p>
-        <div class="grid grid-cols-4 gap-2 mb-3">
-          <button v-for="table in freeTables" :key="'sp_'+table.id"
-            @click="confirmMove(table)"
-            class="aspect-square rounded-xl border-2 border-emerald-200 bg-emerald-50 text-emerald-800 font-black text-lg flex items-center justify-center hover:bg-emerald-100 active:scale-95 transition-all">
-            {{ table.label }}
-          </button>
+      <!-- Body -->
+      <div class="p-5 overflow-y-auto">
+        <p class="text-xs text-gray-500 mb-4">Seleziona il tavolo di destinazione. Se occupato, gli ordini verranno spostati e i conti uniti.</p>
+        <div v-if="freeTables.length > 0">
+          <p class="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-2">Tavoli Liberi</p>
+          <div class="grid grid-cols-4 gap-2 mb-4">
+            <button v-for="table in freeTables" :key="'sp_'+table.id"
+              @click="confirmMove(table)"
+              class="aspect-square rounded-xl border-2 border-emerald-200 bg-emerald-50 text-emerald-800 relative flex flex-col items-center justify-center p-1.5 hover:bg-emerald-100 active:scale-95 transition-all">
+              <span class="absolute top-1 right-1 text-[9px] font-bold opacity-50 flex items-center gap-0.5"><Users class="size-2.5" />{{ table.covers }}</span>
+              <span class="font-black text-xl">{{ table.label }}</span>
+            </button>
+          </div>
         </div>
-      </div>
-      <div v-if="otherOccupiedTables.length > 0">
-        <p class="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-2">Tavoli Occupati (unione conto)</p>
-        <div class="grid grid-cols-4 gap-2">
-          <button v-for="table in otherOccupiedTables" :key="'spo_'+table.id"
-            @click="confirmMove(table)"
-            class="aspect-square rounded-xl border-2 border-[var(--brand-primary)] theme-bg text-white font-black text-lg flex items-center justify-center hover:opacity-90 active:scale-95 transition-all">
-            {{ table.label }}
-          </button>
+        <div v-if="otherOccupiedTables.length > 0">
+          <p class="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-2">Tavoli Occupati (unione conto)</p>
+          <div class="grid grid-cols-4 gap-2">
+            <button v-for="table in otherOccupiedTables" :key="'spo_'+table.id"
+              @click="confirmMove(table)"
+              class="aspect-square rounded-xl border-2 border-[var(--brand-primary)] theme-bg text-white relative flex flex-col items-center justify-center p-1.5 hover:opacity-90 active:scale-95 transition-all">
+              <span class="absolute top-1 right-1 text-[9px] font-bold opacity-60 flex items-center gap-0.5"><Users class="size-2.5" />{{ table.covers }}</span>
+              <span class="font-black text-xl">{{ table.label }}</span>
+            </button>
+          </div>
         </div>
+        <div v-if="freeTables.length === 0 && otherOccupiedTables.length === 0" class="text-center text-gray-400 text-sm py-4">Nessun altro tavolo disponibile.</div>
       </div>
-      <div v-if="freeTables.length === 0 && otherOccupiedTables.length === 0" class="text-center text-gray-400 text-sm py-4">Nessun altro tavolo disponibile.</div>
     </div>
   </div>
 
@@ -256,20 +262,25 @@
   <!-- MODAL: UNISCI TAVOLI                                              -->
   <!-- ================================================================ -->
   <div v-if="showMergeModal" class="fixed inset-0 z-[100] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-5 max-h-[90dvh] overflow-y-auto">
-      <div class="flex justify-between items-center mb-4">
-        <h3 class="font-bold text-gray-800 flex items-center gap-2"><Merge class="size-5 theme-text" /> Unisci con Tavolo {{ selectedTable?.label }}</h3>
-        <button @click="showMergeModal = false" class="text-gray-400 hover:text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-full p-1.5 transition-colors"><X class="size-4" /></button>
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col max-h-[90dvh]">
+      <!-- Header -->
+      <div class="bg-gray-900 text-white px-5 py-4 flex justify-between items-center shrink-0">
+        <h3 class="font-bold flex items-center gap-2"><Merge class="size-5 theme-text" /> Unisci con Tavolo {{ selectedTable?.label }}</h3>
+        <button @click="showMergeModal = false" class="bg-white/10 hover:bg-white/20 p-2 rounded-full transition-colors active:scale-95"><X class="size-4" /></button>
       </div>
-      <p class="text-xs text-gray-500 mb-4">Seleziona il tavolo da unire. Entrambi i tavoli restano occupati e il conto viene gestito insieme.</p>
-      <div class="grid grid-cols-4 gap-2 max-h-64 overflow-y-auto">
-        <button v-for="table in mergeCandidates" :key="'un_'+table.id"
-          @click="confirmMerge(table)"
-          class="aspect-square rounded-xl border-2 border-[var(--brand-primary)] theme-bg text-white font-black text-lg flex items-center justify-center hover:opacity-90 active:scale-95 transition-all">
-          {{ table.label }}
-        </button>
+      <!-- Body -->
+      <div class="p-5 overflow-y-auto">
+        <p class="text-xs text-gray-500 mb-4">Seleziona il tavolo da unire. Entrambi i tavoli restano occupati e il conto viene gestito insieme.</p>
+        <div class="grid grid-cols-4 gap-2">
+          <button v-for="table in mergeCandidates" :key="'un_'+table.id"
+            @click="confirmMerge(table)"
+            class="aspect-square rounded-xl border-2 border-[var(--brand-primary)] theme-bg text-white relative flex flex-col items-center justify-center p-1.5 hover:opacity-90 active:scale-95 transition-all">
+            <span class="absolute top-1 right-1 text-[9px] font-bold opacity-60 flex items-center gap-0.5"><Users class="size-2.5" />{{ table.covers }}</span>
+            <span class="font-black text-xl">{{ table.label }}</span>
+          </button>
+        </div>
+        <div v-if="mergeCandidates.length === 0" class="text-center text-gray-400 text-sm py-4">Nessun altro tavolo occupato disponibile.</div>
       </div>
-      <div v-if="mergeCandidates.length === 0" class="text-center text-gray-400 text-sm py-4">Nessun altro tavolo occupato disponibile.</div>
     </div>
   </div>
 </template>

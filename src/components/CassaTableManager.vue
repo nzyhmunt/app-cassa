@@ -1081,35 +1081,41 @@
   <!-- MODAL: SPOSTA TAVOLO                                              -->
   <!-- ================================================================ -->
   <div v-if="showMoveModal" class="fixed inset-0 z-[100] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-5 max-h-[90dvh] overflow-y-auto">
-      <div class="flex justify-between items-center mb-4">
-        <h3 class="font-bold text-gray-800 flex items-center gap-2"><ArrowRightLeft class="size-5 theme-text" /> Sposta Tavolo {{ selectedTable?.label }}</h3>
-        <button @click="showMoveModal = false" class="text-gray-400 hover:text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-full p-1.5 transition-colors"><X class="size-4" /></button>
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col max-h-[90dvh]">
+      <!-- Header -->
+      <div class="bg-gray-900 text-white px-5 py-4 flex justify-between items-center shrink-0">
+        <h3 class="font-bold flex items-center gap-2"><ArrowRightLeft class="size-5 theme-text" /> Sposta Tavolo {{ selectedTable?.label }}</h3>
+        <button @click="showMoveModal = false" class="bg-white/10 hover:bg-white/20 p-2 rounded-full transition-colors active:scale-95"><X class="size-4" /></button>
       </div>
-      <p class="text-xs text-gray-500 mb-4">Seleziona il tavolo di destinazione. Se il tavolo è occupato, gli ordini verranno spostati e i conti uniti.</p>
-      <!-- Tavoli liberi -->
-      <div v-if="freeTables.length > 0">
-        <p class="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-2">Tavoli Liberi</p>
-        <div class="grid grid-cols-4 gap-2 mb-3">
-          <button v-for="table in freeTables" :key="'sp_'+table.id"
-            @click="confirmMove(table)"
-            class="aspect-square rounded-xl border-2 border-emerald-200 bg-emerald-50 text-emerald-800 font-black text-lg flex items-center justify-center hover:bg-emerald-100 active:scale-95 transition-all">
-            {{ table.label }}
-          </button>
+      <!-- Body -->
+      <div class="p-5 overflow-y-auto">
+        <p class="text-xs text-gray-500 mb-4">Seleziona il tavolo di destinazione. Se il tavolo è occupato, gli ordini verranno spostati e i conti uniti.</p>
+        <!-- Tavoli liberi -->
+        <div v-if="freeTables.length > 0">
+          <p class="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-2">Tavoli Liberi</p>
+          <div class="grid grid-cols-4 gap-2 mb-4">
+            <button v-for="table in freeTables" :key="'sp_'+table.id"
+              @click="confirmMove(table)"
+              class="aspect-square rounded-xl border-2 border-emerald-200 bg-emerald-50 text-emerald-800 relative flex flex-col items-center justify-center p-1.5 hover:bg-emerald-100 active:scale-95 transition-all">
+              <span class="absolute top-1 right-1 text-[9px] font-bold opacity-50 flex items-center gap-0.5"><Users class="size-2.5" />{{ table.covers }}</span>
+              <span class="font-black text-xl">{{ table.label }}</span>
+            </button>
+          </div>
         </div>
-      </div>
-      <!-- Tavoli occupati -->
-      <div v-if="otherOccupiedTables.length > 0">
-        <p class="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-2">Tavoli Occupati (unione conto)</p>
-        <div class="grid grid-cols-4 gap-2">
-          <button v-for="table in otherOccupiedTables" :key="'spo_'+table.id"
-            @click="confirmMove(table)"
-            class="aspect-square rounded-xl border-2 border-[var(--brand-primary)] theme-bg text-white font-black text-lg flex items-center justify-center hover:opacity-90 active:scale-95 transition-all">
-            {{ table.label }}
-          </button>
+        <!-- Tavoli occupati -->
+        <div v-if="otherOccupiedTables.length > 0">
+          <p class="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-2">Tavoli Occupati (unione conto)</p>
+          <div class="grid grid-cols-4 gap-2">
+            <button v-for="table in otherOccupiedTables" :key="'spo_'+table.id"
+              @click="confirmMove(table)"
+              class="aspect-square rounded-xl border-2 border-[var(--brand-primary)] theme-bg text-white relative flex flex-col items-center justify-center p-1.5 hover:opacity-90 active:scale-95 transition-all">
+              <span class="absolute top-1 right-1 text-[9px] font-bold opacity-60 flex items-center gap-0.5"><Users class="size-2.5" />{{ table.covers }}</span>
+              <span class="font-black text-xl">{{ table.label }}</span>
+            </button>
+          </div>
         </div>
+        <div v-if="freeTables.length === 0 && otherOccupiedTables.length === 0" class="text-center text-gray-400 text-sm py-4">Nessun altro tavolo disponibile.</div>
       </div>
-      <div v-if="freeTables.length === 0 && otherOccupiedTables.length === 0" class="text-center text-gray-400 text-sm py-4">Nessun altro tavolo disponibile.</div>
     </div>
   </div>
 
@@ -1117,20 +1123,25 @@
   <!-- MODAL: UNISCI TAVOLI                                              -->
   <!-- ================================================================ -->
   <div v-if="showMergeModal" class="fixed inset-0 z-[100] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-5 max-h-[90dvh] overflow-y-auto">
-      <div class="flex justify-between items-center mb-4">
-        <h3 class="font-bold text-gray-800 flex items-center gap-2"><Merge class="size-5 theme-text" /> Unisci con Tavolo {{ selectedTable?.label }}</h3>
-        <button @click="showMergeModal = false" class="text-gray-400 hover:text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-full p-1.5 transition-colors"><X class="size-4" /></button>
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col max-h-[90dvh]">
+      <!-- Header -->
+      <div class="bg-gray-900 text-white px-5 py-4 flex justify-between items-center shrink-0">
+        <h3 class="font-bold flex items-center gap-2"><Merge class="size-5 theme-text" /> Unisci con Tavolo {{ selectedTable?.label }}</h3>
+        <button @click="showMergeModal = false" class="bg-white/10 hover:bg-white/20 p-2 rounded-full transition-colors active:scale-95"><X class="size-4" /></button>
       </div>
-      <p class="text-xs text-gray-500 mb-4">Seleziona il tavolo da unire. Entrambi i tavoli restano occupati e il conto viene gestito insieme. Usa "Dividi" per separare i tavoli.</p>
-      <div class="grid grid-cols-4 gap-2 max-h-64 overflow-y-auto">
-        <button v-for="table in mergeCandidates" :key="'un_'+table.id"
-          @click="confirmMerge(table)"
-          class="aspect-square rounded-xl border-2 border-[var(--brand-primary)] theme-bg text-white font-black text-lg flex items-center justify-center hover:opacity-90 active:scale-95 transition-all">
-          {{ table.label }}
-        </button>
+      <!-- Body -->
+      <div class="p-5 overflow-y-auto">
+        <p class="text-xs text-gray-500 mb-4">Seleziona il tavolo da unire. Entrambi i tavoli restano occupati e il conto viene gestito insieme. Usa "Dividi" per separare i tavoli.</p>
+        <div class="grid grid-cols-4 gap-2">
+          <button v-for="table in mergeCandidates" :key="'un_'+table.id"
+            @click="confirmMerge(table)"
+            class="aspect-square rounded-xl border-2 border-[var(--brand-primary)] theme-bg text-white relative flex flex-col items-center justify-center p-1.5 hover:opacity-90 active:scale-95 transition-all">
+            <span class="absolute top-1 right-1 text-[9px] font-bold opacity-60 flex items-center gap-0.5"><Users class="size-2.5" />{{ table.covers }}</span>
+            <span class="font-black text-xl">{{ table.label }}</span>
+          </button>
+        </div>
+        <div v-if="mergeCandidates.length === 0" class="text-center text-gray-400 text-sm py-4">Nessun altro tavolo occupato disponibile.</div>
       </div>
-      <div v-if="mergeCandidates.length === 0" class="text-center text-gray-400 text-sm py-4">Nessun altro tavolo occupato disponibile.</div>
     </div>
   </div>
 
@@ -1138,126 +1149,146 @@
   <!-- MODAL: DIVIDI TAVOLI / DIVIDI CONTO PER VOCE                    -->
   <!-- ================================================================ -->
   <div v-if="showSplitModal" class="fixed inset-0 z-[100] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md p-5 max-h-[90dvh] flex flex-col">
-      <div class="flex justify-between items-center mb-1 shrink-0">
-        <h3 class="font-bold text-gray-800 flex items-center gap-2">
-          <Scissors class="size-5 text-orange-500" />
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col max-h-[90dvh]">
+      <!-- Header -->
+      <div class="bg-gray-900 text-white px-5 py-4 flex justify-between items-center shrink-0">
+        <h3 class="font-bold flex items-center gap-2">
+          <Scissors class="size-5 text-orange-400" />
           {{ splitMode === 'merged' ? 'Separa Tavoli Uniti' : 'Dividi Conto per Voce' }}
         </h3>
-        <button @click="showSplitModal = false" class="text-gray-400 hover:text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-full p-1.5 transition-colors"><X class="size-4" /></button>
+        <button @click="showSplitModal = false" class="bg-white/10 hover:bg-white/20 p-2 rounded-full transition-colors active:scale-95"><X class="size-4" /></button>
       </div>
 
-      <!-- MERGED MODE: description + slave selector -->
-      <template v-if="splitMode === 'merged'">
-        <p class="text-xs text-gray-500 mb-3 shrink-0">
-          Seleziona il tavolo da separare. Le voci sono pre-selezionate al massimo (il tavolo le porta con sé). Riduci le quantità per rimandare delle voci al tavolo principale.
-        </p>
+      <!-- Body -->
+      <div class="p-5 overflow-y-auto flex-1 min-h-0 flex flex-col">
 
-        <!-- Slave table selector (shown when multiple slaves) -->
-        <div v-if="slaveTables.length > 1" class="mb-3 shrink-0">
-          <p class="text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-2">Tavolo da separare</p>
-          <div class="flex flex-wrap gap-2">
-            <button
-              v-for="st in slaveTables" :key="'sl_'+st.id"
-              @click="onSplitSlaveChange(st.id)"
-              :class="splitSelectedSlaveId === st.id
-                ? 'bg-orange-100 border-orange-400 text-orange-800'
-                : 'bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100'"
-              class="px-3 py-1.5 rounded-xl border-2 font-bold text-sm transition-all active:scale-95">
-              Tavolo {{ st.label }}
-            </button>
-          </div>
-        </div>
-        <div v-else-if="slaveTables.length === 1" class="mb-3 text-sm font-medium text-gray-700 shrink-0">
-          Separazione del <strong>Tavolo {{ slaveTables[0].label }}</strong>
-        </div>
-      </template>
+        <!-- MERGED MODE: description + slave selector -->
+        <template v-if="splitMode === 'merged'">
+          <p class="text-xs text-gray-500 mb-3 shrink-0">
+            Seleziona il tavolo da separare. Le voci sono pre-selezionate al massimo (il tavolo le porta con sé). Riduci le quantità per rimandare delle voci al tavolo principale.
+          </p>
 
-      <!-- SINGLE MODE: description + free table picker -->
-      <template v-else>
-        <p class="text-xs text-gray-500 mb-3 shrink-0">
-          Scegli il tavolo di destinazione e seleziona le voci (con le quantità) da spostare su quel tavolo.
-        </p>
-        <div class="mb-3 shrink-0">
-          <p class="text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-2">Tavolo di destinazione</p>
-          <div v-if="freeTables.length > 0" class="flex flex-wrap gap-2">
-            <button
-              v-for="ft in freeTables" :key="'sft_'+ft.id"
-              @click="splitTargetFreeTableId = ft.id"
-              :class="splitTargetFreeTableId === ft.id
-                ? 'bg-emerald-100 border-emerald-400 text-emerald-800'
-                : 'bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100'"
-              class="px-3 py-1.5 rounded-xl border-2 font-bold text-sm transition-all active:scale-95">
-              Tavolo {{ ft.label }}
-            </button>
-          </div>
-          <div v-else class="text-xs text-gray-400">Nessun tavolo libero disponibile.</div>
-        </div>
-      </template>
-
-      <!-- Item-level quantity stepper list -->
-      <template v-if="(splitMode === 'merged' && splitSelectedSlaveId) || (splitMode === 'single' && splitTargetFreeTableId)">
-        <p class="text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-2 shrink-0">
-          {{ splitMode === 'merged' ? 'Voci del tavolo (modifica le quantità che rimangono)' : 'Seleziona le voci da spostare' }}
-        </p>
-
-        <div class="bg-gray-50 rounded-xl border border-gray-200 divide-y divide-gray-100 overflow-y-auto flex-1 min-h-0 mb-3">
-          <div v-if="splitFlatItemsComputed.length === 0" class="px-3 py-6 text-center text-gray-400 text-xs">
-            Nessuna voce attiva.
-          </div>
-          <div
-            v-for="row in splitFlatItemsComputed" :key="'spr_'+row.key"
-            class="flex items-center gap-3 px-3 py-2.5"
-          >
-            <!-- Item name + unit price -->
-            <div class="flex-1 min-w-0">
-              <span class="font-semibold text-xs text-gray-800 truncate block">{{ row.name }}</span>
-              <span class="text-[10px] text-gray-400">{{ store.config.ui.currency }}{{ row.unitPrice.toFixed(2) }} / cad.</span>
-            </div>
-            <!-- Quantity stepper -->
-            <div class="flex items-center gap-1 shrink-0">
+          <!-- Slave table selector (shown when multiple slaves) -->
+          <div v-if="slaveTables.length > 1" class="mb-4 shrink-0">
+            <p class="text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-2">Tavolo da separare</p>
+            <div class="grid grid-cols-4 gap-2">
               <button
-                @click="setSplitQty(row.key, row.netQty, -1)"
-                :disabled="(splitItemQtyMap[row.key] ?? (splitMode === 'merged' ? row.netQty : 0)) <= 0"
-                class="size-7 rounded-lg border border-gray-200 bg-white flex items-center justify-center text-gray-600 hover:bg-gray-100 active:scale-95 transition-all disabled:opacity-30 disabled:cursor-not-allowed text-sm font-bold">
-                −
+                v-for="st in slaveTables" :key="'sl_'+st.id"
+                @click="onSplitSlaveChange(st.id)"
+                :class="splitSelectedSlaveId === st.id
+                  ? 'border-orange-400 bg-orange-50 text-orange-800'
+                  : 'border-gray-200 bg-gray-50 text-gray-700 hover:bg-gray-100'"
+                class="aspect-square rounded-xl border-2 relative flex flex-col items-center justify-center p-1.5 transition-all active:scale-95">
+                <span class="absolute top-1 right-1 text-[9px] font-bold opacity-50 flex items-center gap-0.5"><Users class="size-2.5" />{{ st.covers }}</span>
+                <span class="font-black text-xl">{{ st.label }}</span>
               </button>
-              <span class="w-8 text-center font-black text-sm text-gray-800">
-                {{ splitItemQtyMap[row.key] ?? (splitMode === 'merged' ? row.netQty : 0) }}
+            </div>
+          </div>
+          <div v-else-if="slaveTables.length === 1" class="mb-3 shrink-0">
+            <p class="text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-2">Tavolo da separare</p>
+            <div class="inline-flex items-center gap-2 bg-orange-50 border border-orange-200 text-orange-800 rounded-xl px-3 py-2 text-sm font-bold">
+              <Users class="size-3.5 opacity-60" />{{ slaveTables[0].label }}
+            </div>
+          </div>
+        </template>
+
+        <!-- SINGLE MODE: description + free table picker -->
+        <template v-else>
+          <p class="text-xs text-gray-500 mb-3 shrink-0">
+            Scegli il tavolo di destinazione e seleziona le voci (con le quantità) da spostare su quel tavolo.
+          </p>
+          <div class="mb-4 shrink-0">
+            <p class="text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-2">Tavolo di destinazione</p>
+            <div v-if="freeTables.length > 0" class="grid grid-cols-4 gap-2">
+              <button
+                v-for="ft in freeTables" :key="'sft_'+ft.id"
+                @click="splitTargetFreeTableId = ft.id"
+                :class="splitTargetFreeTableId === ft.id
+                  ? 'border-emerald-400 bg-emerald-50 text-emerald-800'
+                  : 'border-gray-200 bg-gray-50 text-gray-700 hover:bg-gray-100'"
+                class="aspect-square rounded-xl border-2 relative flex flex-col items-center justify-center p-1.5 transition-all active:scale-95">
+                <span class="absolute top-1 right-1 text-[9px] font-bold opacity-50 flex items-center gap-0.5"><Users class="size-2.5" />{{ ft.covers }}</span>
+                <span class="font-black text-xl">{{ ft.label }}</span>
+              </button>
+            </div>
+            <div v-else class="text-xs text-gray-400 py-2">Nessun tavolo libero disponibile.</div>
+          </div>
+        </template>
+
+        <!-- Item-level quantity stepper list -->
+        <template v-if="(splitMode === 'merged' && splitSelectedSlaveId) || (splitMode === 'single' && splitTargetFreeTableId)">
+          <p class="text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-2 shrink-0">
+            {{ splitMode === 'merged' ? 'Voci del tavolo (modifica le quantità che rimangono)' : 'Seleziona le voci da spostare' }}
+          </p>
+
+          <div class="bg-gray-50 rounded-xl border border-gray-200 divide-y divide-gray-100 overflow-y-auto flex-1 min-h-0 mb-4">
+            <div v-if="splitFlatItemsComputed.length === 0" class="px-3 py-6 text-center text-gray-400 text-xs">
+              Nessuna voce attiva.
+            </div>
+            <div
+              v-for="row in splitFlatItemsComputed" :key="'spr_'+row.key"
+              class="flex items-center gap-3 px-3 py-2.5"
+            >
+              <!-- Item name + unit price -->
+              <div class="flex-1 min-w-0">
+                <span class="font-semibold text-xs text-gray-800 truncate block">{{ row.name }}</span>
+                <span class="text-[10px] text-gray-400">{{ store.config.ui.currency }}{{ row.unitPrice.toFixed(2) }} / cad.</span>
+              </div>
+              <!-- Quantity stepper -->
+              <div class="flex items-center gap-1 shrink-0">
+                <button
+                  @click="setSplitQty(row.key, row.netQty, -1)"
+                  :disabled="(splitItemQtyMap[row.key] ?? (splitMode === 'merged' ? row.netQty : 0)) <= 0"
+                  class="size-7 rounded-lg border border-gray-200 bg-white flex items-center justify-center text-gray-600 hover:bg-gray-100 active:scale-95 transition-all disabled:opacity-30 disabled:cursor-not-allowed text-sm font-bold">
+                  −
+                </button>
+                <span class="w-8 text-center font-black text-sm text-gray-800">
+                  {{ splitItemQtyMap[row.key] ?? (splitMode === 'merged' ? row.netQty : 0) }}
+                </span>
+                <button
+                  @click="setSplitQty(row.key, row.netQty, +1)"
+                  :disabled="(splitItemQtyMap[row.key] ?? (splitMode === 'merged' ? row.netQty : 0)) >= row.netQty"
+                  class="size-7 rounded-lg border border-gray-200 bg-white flex items-center justify-center text-gray-600 hover:bg-gray-100 active:scale-95 transition-all disabled:opacity-30 disabled:cursor-not-allowed text-sm font-bold">
+                  +
+                </button>
+                <span class="text-[10px] text-gray-400 w-5 text-center">/ {{ row.netQty }}</span>
+              </div>
+              <!-- Row total for selected qty -->
+              <span class="text-xs font-bold text-gray-600 shrink-0 w-14 text-right">
+                {{ store.config.ui.currency }}{{ ((splitItemQtyMap[row.key] ?? (splitMode === 'merged' ? row.netQty : 0)) * row.unitPrice).toFixed(2) }}
               </span>
-              <button
-                @click="setSplitQty(row.key, row.netQty, +1)"
-                :disabled="(splitItemQtyMap[row.key] ?? (splitMode === 'merged' ? row.netQty : 0)) >= row.netQty"
-                class="size-7 rounded-lg border border-gray-200 bg-white flex items-center justify-center text-gray-600 hover:bg-gray-100 active:scale-95 transition-all disabled:opacity-30 disabled:cursor-not-allowed text-sm font-bold">
-                +
-              </button>
-              <span class="text-[10px] text-gray-400 w-5 text-center">/ {{ row.netQty }}</span>
             </div>
-            <!-- Row total for selected qty -->
-            <span class="text-xs font-bold text-gray-600 shrink-0 w-14 text-right">
-              {{ store.config.ui.currency }}{{ ((splitItemQtyMap[row.key] ?? (splitMode === 'merged' ? row.netQty : 0)) * row.unitPrice).toFixed(2) }}
-            </span>
           </div>
-        </div>
 
-        <!-- Summary footer -->
-        <div class="shrink-0 flex items-center justify-between text-xs text-gray-500 mb-3">
-          <span>
-            {{ splitMode === 'merged' ? 'Totale separato (tavolo slave):' : 'Totale da spostare:' }}
-          </span>
-          <span class="font-black text-orange-600 text-sm">{{ store.config.ui.currency }}{{ splitSelectedTotal.toFixed(2) }}</span>
-        </div>
-      </template>
+          <!-- Summary + actions -->
+          <div class="shrink-0 space-y-3">
+            <div class="flex items-center justify-between bg-orange-50 border border-orange-200 rounded-xl px-4 py-2.5">
+              <span class="text-xs text-gray-600 font-medium">
+                {{ splitMode === 'merged' ? 'Totale separato (tavolo slave):' : 'Totale da spostare:' }}
+              </span>
+              <span class="font-black text-orange-600 text-base">{{ store.config.ui.currency }}{{ splitSelectedTotal.toFixed(2) }}</span>
+            </div>
+            <div class="flex gap-2">
+              <button @click="showSplitModal = false" class="flex-1 py-3 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50 active:scale-95 transition-all">Annulla</button>
+              <button
+                @click="confirmSplit"
+                :disabled="splitMode === 'merged' ? !splitSelectedSlaveId : (!splitTargetFreeTableId || splitSelectedTotal === 0)"
+                class="flex-1 py-3 rounded-xl theme-bg text-white text-sm font-bold flex items-center justify-center gap-2 shadow-md hover:opacity-90 active:scale-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed">
+                <Scissors class="size-4" />
+                {{ splitMode === 'merged' ? 'Separa Tavolo' : 'Sposta Voci' }}
+              </button>
+            </div>
+          </div>
+        </template>
 
-      <div class="flex gap-2 justify-end shrink-0">
-        <button @click="showSplitModal = false" class="px-4 py-2 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50 active:scale-95 transition-all">Annulla</button>
-        <button
-          @click="confirmSplit"
-          :disabled="splitMode === 'merged' ? !splitSelectedSlaveId : (!splitTargetFreeTableId || splitSelectedTotal === 0)"
-          class="px-4 py-2 rounded-xl bg-orange-500 text-white text-sm font-bold hover:bg-orange-600 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed">
-          <Scissors class="size-4 inline mr-1" />
-          {{ splitMode === 'merged' ? 'Separa Tavolo' : 'Sposta Voci' }}
-        </button>
+        <!-- Placeholder when no selection yet -->
+        <template v-else>
+          <div class="flex-1 flex items-center justify-center text-gray-400 text-xs text-center py-6">
+            <span>{{ splitMode === 'merged' ? 'Seleziona il tavolo da separare.' : 'Seleziona il tavolo di destinazione.' }}</span>
+          </div>
+          <button @click="showSplitModal = false" class="w-full py-3 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50 active:scale-95 transition-all shrink-0">Annulla</button>
+        </template>
+
       </div>
     </div>
   </div>
