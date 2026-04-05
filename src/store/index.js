@@ -442,10 +442,16 @@ export const useAppStore = defineStore('app', () => {
         next[toTableId] = next[fromTableId];
         delete next[fromTableId];
         tableCurrentBillSession.value = next;
+        // Free destination: move ALL transactions wholesale (both active-session and
+        // historical) so the full receipt history follows the table.
+        transactions.value.forEach(t => {
+          if (t.tableId === fromTableId) t.tableId = toTableId;
+        });
       } else {
-        // Destination already has a session — retag the moved orders and
-        // transactions so they belong to the destination session and are
-        // visible in its payment panel
+        // Destination already has a session — retag only the active-session orders and
+        // transactions so they belong to the destination session and are visible in its
+        // payment panel. Historical transactions (other billSessionIds) remain tied to
+        // fromTableId to avoid corrupting receipt/history reporting.
         const srcSessionId = tableCurrentBillSession.value[fromTableId].billSessionId;
         const destSessionId = tableCurrentBillSession.value[toTableId].billSessionId;
         orders.value.forEach(o => {
@@ -456,6 +462,7 @@ export const useAppStore = defineStore('app', () => {
         transactions.value.forEach(t => {
           if (t.tableId === fromTableId && t.billSessionId === srcSessionId) {
             t.billSessionId = destSessionId;
+            t.tableId = toTableId;
           }
         });
         // Also retag orders/transactions on slave tables that were tagged to the source
@@ -483,11 +490,13 @@ export const useAppStore = defineStore('app', () => {
         delete next[fromTableId];
         tableCurrentBillSession.value = next;
       }
+    } else {
+      // No active session on the source — move any existing transactions (edge case:
+      // direct orders placed without opening a billing session).
+      transactions.value.forEach(t => {
+        if (t.tableId === fromTableId) t.tableId = toTableId;
+      });
     }
-    // Also move related transactions
-    transactions.value.forEach(t => {
-      if (t.tableId === fromTableId) t.tableId = toTableId;
-    });
   }
 
   function mergeTableOrders(sourceTableId, targetTableId) {
