@@ -624,7 +624,15 @@ export const useAppStore = defineStore('app', () => {
     // but has no own session, refuse the operation to avoid creating a rogue session.
     let targetSession = tableCurrentBillSession.value[targetTableId];
     if (!targetSession) {
-      if (getTableStatus(targetTableId).status !== 'free') return false;
+      const targetStatus = getTableStatus(targetTableId).status;
+      if (targetStatus !== 'free') return false;
+
+      // A free table must not still be marked as a merged slave. If such a mapping
+      // remains, it is stale and would cause the new independent session/orders to
+      // be hidden behind the merge master in later status/billing lookups.
+      if (tableMergedInto.value[targetTableId]) {
+        delete tableMergedInto.value[targetTableId];
+      }
       openTableSession(targetTableId);
       targetSession = tableCurrentBillSession.value[targetTableId];
     }
