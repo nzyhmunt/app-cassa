@@ -474,16 +474,18 @@ export const useAppStore = defineStore('app', () => {
       }
     });
 
-    // Move source's transactions to target and retag to target session
+    // Move only the source table's current-session transactions to the target.
+    // Historical transactions from older bill sessions must stay attached to
+    // the original table so closed-bill history and session calculations remain correct.
     const srcSessionId = srcSession?.billSessionId;
-    transactions.value.forEach(t => {
-      if (t.tableId === sourceTableId) {
-        t.tableId = resolvedTargetId;
-        if (srcSessionId && t.billSessionId === srcSessionId) {
+    if (srcSessionId) {
+      transactions.value.forEach(t => {
+        if (t.tableId === sourceTableId && t.billSessionId === srcSessionId) {
+          t.tableId = resolvedTargetId;
           t.billSessionId = targetSessionId;
         }
-      }
-    });
+      });
+    }
 
     // Preserve the earliest occupiedAt on the master
     if (tableOccupiedAt.value[sourceTableId]) {
