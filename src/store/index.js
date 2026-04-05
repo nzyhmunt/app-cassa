@@ -174,9 +174,7 @@ export const useAppStore = defineStore('app', () => {
     }
 
     // Collect all slave tables merged into this master
-    const slaveIds = Object.keys(tableMergedInto.value).filter(
-      id => tableMergedInto.value[id] === tableId,
-    );
+    const slaveIds = slaveIdsOf(tableId);
     const allTableIds = [tableId, ...slaveIds];
 
     const ords = orders.value.filter(
@@ -244,9 +242,7 @@ export const useAppStore = defineStore('app', () => {
       // Before clearing the master session, check whether any slave tables that
       // are still merged into this table have active orders. If they do, the
       // master state must be kept alive so the combined bill remains valid.
-      const slaveTableIds = Object.entries(tableMergedInto.value)
-        .filter(([, masterId]) => masterId === order.table)
-        .map(([slaveId]) => slaveId);
+      const slaveTableIds = slaveIdsOf(order.table);
       const slaveHasActiveOrders = slaveTableIds.some(slaveId =>
         orders.value.some(
           o => o.table === slaveId && o.status !== 'completed' && o.status !== 'rejected',
@@ -377,6 +373,21 @@ export const useAppStore = defineStore('app', () => {
     billRequestedTables.value = new Set(billRequestedTables.value);
   }
 
+  // ── Private merge helpers ──────────────────────────────────────────────────
+  // Returns all slave table IDs currently merged into the given master table.
+  function slaveIdsOf(masterId) {
+    return Object.keys(tableMergedInto.value).filter(
+      id => tableMergedInto.value[id] === masterId,
+    );
+  }
+
+  // Resolves a tableId to its merge master. If the table is a slave, returns
+  // the master ID; otherwise returns the table ID itself.
+  // Using this prevents slave→slave chains when re-parenting.
+  function resolveMaster(tableId) {
+    return tableMergedInto.value[tableId] ?? tableId;
+  }
+
   // Opens a new billing session for a table (called when the table is first seated).
   // Returns the generated billSessionId so callers can attach it to orders/transactions.
   function openTableSession(tableId, adults = 0, children = 0) {
@@ -413,16 +424,12 @@ export const useAppStore = defineStore('app', () => {
     // Any slave tables that were merged into the source must now follow the source.
     // Resolve toTableId to its own master first so we never create a slave→slave chain
     // (which would break billing aggregation because the ultimate master would miss orders).
-    const resolvedMoveTarget = tableMergedInto.value[toTableId] ?? toTableId;
+    const resolvedMoveTarget = resolveMaster(toTableId);
     // Collect old slaves of fromTableId BEFORE re-pointing them so we can retag their
     // orders/transactions when the destination is already occupied (see else branch below).
-    const oldSlaveIds = Object.keys(tableMergedInto.value).filter(
-      id => tableMergedInto.value[id] === fromTableId,
-    );
-    Object.keys(tableMergedInto.value).forEach(slaveId => {
-      if (tableMergedInto.value[slaveId] === fromTableId) {
-        tableMergedInto.value = { ...tableMergedInto.value, [slaveId]: resolvedMoveTarget };
-      }
+    const oldSlaveIds = slaveIdsOf(fromTableId);
+    oldSlaveIds.forEach(slaveId => {
+      tableMergedInto.value = { ...tableMergedInto.value, [slaveId]: resolvedMoveTarget };
     });
     // If the source was itself a slave, re-point it to the destination's master (or the dest)
     if (tableMergedInto.value[fromTableId]) {
@@ -490,7 +497,7 @@ export const useAppStore = defineStore('app', () => {
     // Both tables remain "occupied" on the floor plan.
 
     // Resolve chains: if target is itself a slave, adopt its master as the real target
-    const resolvedTargetId = tableMergedInto.value[targetTableId] ?? targetTableId;
+    const resolvedTargetId = resolveMaster(targetTableId);
 
     // Guard: self-map or cycle would cause infinite recursion in getTableStatus()
     if (sourceTableId === resolvedTargetId) return;
@@ -506,10 +513,8 @@ export const useAppStore = defineStore('app', () => {
     delete tableMergedInto.value[sourceTableId];
 
     // Any current slaves of the source become slaves of the resolved target
-    Object.keys(tableMergedInto.value).forEach(slaveId => {
-      if (tableMergedInto.value[slaveId] === sourceTableId) {
-        tableMergedInto.value = { ...tableMergedInto.value, [slaveId]: resolvedTargetId };
-      }
+    slaveIdsOf(sourceTableId).forEach(slaveId => {
+      tableMergedInto.value = { ...tableMergedInto.value, [slaveId]: resolvedTargetId };
     });
 
     // Retag source orders to the target's bill session (orders stay on source table).
