@@ -1584,25 +1584,27 @@ function initSplitQtyMap() {
   splitItemQtyMap.value = map;
 }
 
+function queueInitSplitQtyMap() {
+  if (!showSplitModal.value) return;
+  // Ensure reactive selection changes have been applied before rebuilding qty state
+  nextTick(initSplitQtyMap);
+}
+
 // Called from template when slave changes (merged mode)
 function onSplitSlaveChange(slaveId) {
   splitSelectedSlaveId.value = slaveId;
-  splitItemQtyMap.value = {};
-  // Use nextTick via watch below (splitSourceOrders changes → items change → then init)
+  queueInitSplitQtyMap();
 }
 
-// Watch splitSourceOrders so qty map is (re-)initialized whenever the source changes
-// (e.g., when user picks a different slave or target free table)
-watch(splitSourceOrders, () => {
-  if (!showSplitModal.value) return;
-  initSplitQtyMap();
+// Re-initialize qty map only when split selection inputs change while the modal is open
+watch([splitMode, splitSelectedSlaveId, splitTargetFreeTableId], () => {
+  queueInitSplitQtyMap();
 }, { immediate: false });
 
 // When the modal opens, also init (source orders are already determined at this point)
 watch(showSplitModal, (open) => {
   if (open) {
-    // nextTick ensures Vue has applied reactive changes (slaveId, mode) before we read items
-    nextTick(initSplitQtyMap);
+    queueInitSplitQtyMap();
   }
 });
 
