@@ -59,7 +59,7 @@ const tableStatusMap = computed(() => {
 
 // Delegate to the shared store helper so the status→CSS mapping is defined in one place.
 function colorClassFromStatus(status) {
-  return store.getTableColorClass(status);
+  return store.getTableColorClassFromStatus(status);
 }
 
 // Reactive clock for elapsed-time display (updates every 30 s)
