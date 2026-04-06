@@ -126,7 +126,8 @@ export function makeTableOps(state, helpers) {
       delete next[fromTableId];
       tableCurrentBillSession.value = next;
     } else if (srcSession) {
-      // Free destination: move all active orders (preserving billSessionId), move session wholesale
+      // Free destination: move all active orders, retagging them to the source table's current
+      // bill session id as they move, then move the session record wholesale to the destination
       _relocateOrders(fromTableId, toTableId, null, srcSessionId);
       const next = { ...tableCurrentBillSession.value };
       next[toTableId] = next[fromTableId];
