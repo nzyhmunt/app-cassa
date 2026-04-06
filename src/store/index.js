@@ -759,7 +759,10 @@ export const useAppStore = defineStore('app', () => {
             m.voidedQuantity = Math.min(m.voidedQuantity || 0, item.quantity);
           }
         });
-        // Remove items that have no units left after the partial move.
+        // Remove items that have no net units left after the partial move.
+        // We use net quantity (quantity - voidedQuantity) rather than raw quantity
+        // because an item can have pre-existing voidedQuantity from a prior kitchen void;
+        // in that case reducing quantity to equal voidedQuantity leaves a net of zero.
         ord.orderItems = ord.orderItems.filter(
           i => i.quantity - (i.voidedQuantity || 0) > 0,
         );
