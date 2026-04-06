@@ -620,9 +620,13 @@ export const useAppStore = defineStore('app', () => {
    * Moves selected item quantities from one table to another at the item level.
    *
    * - itemQtyMap: { key: qtyToMove } where key = `${orderId}__${itemUid}`
-   * - For each item, `qtyToMove` quantities are voided on the source order and
-   *   a new direct order is created on the target table.
+   * - When ALL active items of a source order are selected, the order is physically
+   *   relocated (table + billSessionId changed) to avoid creating a fully-voided
+   *   "storno" order on the source table.
+   * - When only SOME items of a source order are selected, the selected quantities
+   *   are voided on the source and a new direct order is created on the target.
    * - The target table gets a billing session if it doesn't already have one.
+   * - When all active orders are moved away from source, its session state is cleaned up.
    *
    * Used both for splitting a single table (source = current table, target = free table)
    * and for partially returning items from a merged slave back to the master.
@@ -655,64 +659,101 @@ export const useAppStore = defineStore('app', () => {
     if (!targetSession || !targetSession.billSessionId) return false;
     const targetSessionId = targetSession.billSessionId;
 
-    const movedItemsForTarget = [];
+    let anyMoved = false;
+    // Items from orders that are only partially moved (void-and-copy strategy).
+    const partialMoveItems = [];
 
     orders.value.forEach(ord => {
       if (ord.table !== sourceTableId) return;
       if (ord.status === 'completed' || ord.status === 'rejected') return;
 
-      let orderModified = false;
+      // Determine which items to move and how many active units are in this order.
+      const moves = []; // { item, actualMoveQty, netQty }
+      let totalActiveInOrder = 0;
+      let totalMovingFromOrder = 0;
 
       ord.orderItems.forEach(item => {
+        const netQty = item.quantity - (item.voidedQuantity || 0);
+        if (netQty <= 0) return;
+        totalActiveInOrder += netQty;
+
         const key = `${ord.id}__${item.uid}`;
         const moveQty = Math.max(0, Math.floor(itemQtyMap[key] || 0));
-        if (moveQty <= 0) return;
-
-        const netQty = item.quantity - (item.voidedQuantity || 0);
         const actualMoveQty = Math.min(moveQty, netQty);
-        if (actualMoveQty <= 0) return;
+        totalMovingFromOrder += actualMoveQty;
 
-        // Void actualMoveQty units from the source item
-        item.voidedQuantity = (item.voidedQuantity || 0) + actualMoveQty;
-        orderModified = true;
-
-        // The number of active item units remaining on the source after the split.
-        // Modifier voidedQuantity is distributed so the combined pricing stays invariant:
-        // target gets max(0, mod.voidedQuantity - sourceActiveAfter) voided modifier
-        // units, which ensures source_charge + target_charge === original_charge.
-        const sourceActiveAfterSplit = netQty - actualMoveQty;
-
-        // Build a copy of the item (with all its modifiers) for the target order.
-        // Use the same crypto.randomUUID strategy as openTableSession for consistent UID generation.
-        const newUid = (typeof crypto !== 'undefined' && crypto.randomUUID)
-          ? crypto.randomUUID()
-          : 'spl_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7);
-        movedItemsForTarget.push({
-          uid: newUid,
-          dishId: item.dishId ?? null,
-          name: item.name,
-          unitPrice: item.unitPrice,
-          quantity: actualMoveQty,
-          voidedQuantity: 0,
-          notes: item.notes ? [...item.notes] : [],
-          modifiers: (item.modifiers || []).map(m => ({
-            ...m,
-            voidedQuantity: Math.max(0, (m.voidedQuantity || 0) - sourceActiveAfterSplit),
-          })),
-        });
+        if (actualMoveQty > 0) {
+          moves.push({ item, actualMoveQty, netQty });
+        }
       });
 
-      if (orderModified) updateOrderTotals(ord);
+      if (moves.length === 0) return; // nothing to move from this order
+
+      anyMoved = true;
+
+      if (totalMovingFromOrder === totalActiveInOrder) {
+        // ALL active items of this order are being moved: physically relocate the order
+        // to avoid leaving a fully-voided "storno" order on the source table.
+        ord.table = targetTableId;
+        ord.billSessionId = targetSessionId;
+      } else {
+        // PARTIAL move: void selected items on source and collect copies for the target.
+        moves.forEach(({ item, actualMoveQty, netQty }) => {
+          item.voidedQuantity = (item.voidedQuantity || 0) + actualMoveQty;
+
+          // The number of active item units remaining on the source after the split.
+          // Modifier voidedQuantity is distributed so the combined pricing stays invariant:
+          // target gets max(0, mod.voidedQuantity - sourceActiveAfter) voided modifier
+          // units, which ensures source_charge + target_charge === original_charge.
+          const sourceActiveAfterSplit = netQty - actualMoveQty;
+
+          // Build a copy of the item (with all its modifiers) for the target order.
+          // Use the same crypto.randomUUID strategy as openTableSession for consistent UID generation.
+          const newUid = (typeof crypto !== 'undefined' && crypto.randomUUID)
+            ? crypto.randomUUID()
+            : 'spl_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7);
+          partialMoveItems.push({
+            uid: newUid,
+            dishId: item.dishId ?? null,
+            name: item.name,
+            unitPrice: item.unitPrice,
+            quantity: actualMoveQty,
+            voidedQuantity: 0,
+            notes: item.notes ? [...item.notes] : [],
+            modifiers: (item.modifiers || []).map(m => ({
+              ...m,
+              voidedQuantity: Math.max(0, (m.voidedQuantity || 0) - sourceActiveAfterSplit),
+            })),
+          });
+        });
+        updateOrderTotals(ord);
+      }
     });
 
-    if (movedItemsForTarget.length === 0) return false;
+    if (!anyMoved) return false;
 
-    // Create a new direct order on the target table carrying all moved items
-    addDirectOrder(targetTableId, targetSessionId, movedItemsForTarget);
+    // Create a single direct order on the target for all partially-moved items.
+    if (partialMoveItems.length > 0) {
+      addDirectOrder(targetTableId, targetSessionId, partialMoveItems);
+    }
 
-    // Mark target as occupied if it wasn't already
+    // Mark target as occupied if it wasn't already.
     if (!tableOccupiedAt.value[targetTableId]) {
       tableOccupiedAt.value[targetTableId] = new Date().toISOString();
+    }
+
+    // If the source has no more active orders (all were physically relocated), clean up
+    // its session state so it returns to a proper free state.
+    const sourceStillHasOrders = orders.value.some(
+      o => o.table === sourceTableId && o.status !== 'completed' && o.status !== 'rejected',
+    );
+    if (!sourceStillHasOrders) {
+      delete tableOccupiedAt.value[sourceTableId];
+      const nextSession = { ...tableCurrentBillSession.value };
+      delete nextSession[sourceTableId];
+      tableCurrentBillSession.value = nextSession;
+      billRequestedTables.value.delete(sourceTableId);
+      billRequestedTables.value = new Set(billRequestedTables.value);
     }
 
     return true;
