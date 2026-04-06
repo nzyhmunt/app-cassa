@@ -1,7 +1,7 @@
 /**
  * @file tableMerge.test.js
  * @description Unit tests for the revised mergeTableOrders, moveTableOrders and
- * splitTableOrders store functions, as well as getTableStatus behaviour for
+ * detachSlaveTable store function, as well as getTableStatus behaviour for
  * merged (master/slave) tables.
  *
  * Key behaviours under test:
@@ -10,7 +10,7 @@
  *    slave delegates status to master
  *  - getTableStatus for slave: delegates entirely to master status
  *  - getTableStatus for master: all orders are on master naturally
- *  - splitTableOrders: removes merge mapping; opens slave session only if slave has orders
+ *  - detachSlaveTable: removes merge mapping; opens slave session only if slave has orders
  *  - Bug fix: merging open table with paid table updates totals correctly
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -471,10 +471,10 @@ describe('changeOrderStatus() — session lifecycle with merged tables', () => {
 });
 
 // ---------------------------------------------------------------------------
-// splitTableOrders — restore slave independence
+// detachSlaveTable — restore slave independence
 // ---------------------------------------------------------------------------
 
-describe('splitTableOrders()', () => {
+describe('detachSlaveTable()', () => {
   it('removes from tableMergedInto after split; slave is free since all its orders moved to master', () => {
     const store = useAppStore();
     const sessA = store.openTableSession('A', 2, 0);
@@ -487,7 +487,7 @@ describe('splitTableOrders()', () => {
 
     expect(store.tableMergedInto['A']).toBe('B');
 
-    store.splitTableOrders('B', 'A'); // split A back out
+    store.detachSlaveTable('B', 'A'); // split A back out
 
     expect(store.tableMergedInto['A']).toBeUndefined();
     // A has no orders (they moved to B on merge), so no session is opened
@@ -496,7 +496,7 @@ describe('splitTableOrders()', () => {
     expect(store.getTableStatus('A').status).toBe('free');
   });
 
-  it('splitTableOrders alone does not open a session for slave (no orders on slave)', () => {
+  it('detachSlaveTable alone does not open a session for slave (no orders on slave)', () => {
     const store = useAppStore();
     const sessA = store.openTableSession('A', 2, 0);
     const sessB = store.openTableSession('B', 2, 0);
@@ -505,9 +505,9 @@ describe('splitTableOrders()', () => {
     store.addOrder(makeOrder('B', 'accepted', 20, sessB));
 
     store.mergeTableOrders('A', 'B'); // ordA moves to B
-    store.splitTableOrders('B', 'A'); // detach A
+    store.detachSlaveTable('B', 'A'); // detach A
 
-    // A has no orders on it, so splitTableOrders must NOT open a session
+    // A has no orders on it, so detachSlaveTable must NOT open a session
     expect(store.tableCurrentBillSession['A']).toBeUndefined();
     expect(store.getTableStatus('A').status).toBe('free');
   });
@@ -520,7 +520,7 @@ describe('splitTableOrders()', () => {
     store.addOrder(makeOrder('B', 'accepted', 20, sessB));
 
     store.mergeTableOrders('A', 'B'); // ordA moves to B; B has both orders (30)
-    store.splitTableOrders('B', 'A'); // detach A
+    store.detachSlaveTable('B', 'A'); // detach A
 
     const statusA = store.getTableStatus('A');
     const statusB = store.getTableStatus('B');
@@ -537,7 +537,7 @@ describe('splitTableOrders()', () => {
     store.addOrder(makeOrder('A', 'accepted', 10, sessA));
 
     // Call split without prior merge — should not crash or change state
-    expect(() => store.splitTableOrders('B', 'A')).not.toThrow();
+    expect(() => store.detachSlaveTable('B', 'A')).not.toThrow();
     expect(store.tableMergedInto['A']).toBeUndefined();
   });
 
@@ -557,7 +557,7 @@ describe('splitTableOrders()', () => {
     expect(store.orders.find(o => o.id === completedOrdA.id).billSessionId).toBe(sessB);
     expect(store.orders.find(o => o.id === activeOrdA.id).table).toBe('B');
 
-    store.splitTableOrders('B', 'A');
+    store.detachSlaveTable('B', 'A');
 
     // A has no orders (not moved back) — A is free
     const statusA = store.getTableStatus('A');
@@ -648,7 +648,7 @@ describe('splitItemsToTable()', () => {
     };
   }
 
-  it('moves selected item quantities from source to target, voiding on source', () => {
+  it('moves selected item quantities from source to target, reducing quantity on source (no storno)', () => {
     const store = useAppStore();
     const sessA = store.openTableSession('A', 2, 0);
     const ord = makeOrderWithItems('A', 'accepted', sessA,
@@ -660,10 +660,10 @@ describe('splitItemsToTable()', () => {
     const itemQtyMap = { [`${ord.id}__${ord.orderItems[0].uid}`]: 1 }; // move 1 pizza
     store.splitItemsToTable('A', 'B', itemQtyMap);
 
-    // Source pizza item now has 1 voided (1 moved to B)
+    // Source pizza item has its quantity reduced (no storno/voidedQuantity)
     const sourceOrd = store.orders.find(o => o.id === ord.id);
-    expect(sourceOrd.orderItems[0].voidedQuantity).toBe(1);
-    expect(sourceOrd.orderItems[0].quantity).toBe(2); // original qty unchanged
+    expect(sourceOrd.orderItems[0].quantity).toBe(1); // quantity reduced by 1
+    expect(sourceOrd.orderItems[0].voidedQuantity).toBe(0); // NOT voided — no storno
 
     // Target has a new direct order with 1 pizza
     const targetOrd = store.orders.find(o => o.table === 'B');
@@ -713,6 +713,40 @@ describe('splitItemsToTable()', () => {
     expect(store.orders.filter(o => o.table === 'B').length).toBe(0);
   });
 
+  it('returns false and does nothing when source has a pending order', () => {
+    const store = useAppStore();
+    const sessA = store.openTableSession('A', 2, 0);
+    // One pending order (not yet accepted by kitchen)
+    const pendingOrd = makeOrderWithItems('A', 'pending', sessA, { name: 'Pizza', unitPrice: 10, quantity: 2 });
+    store.addOrder(pendingOrd);
+
+    const itemQtyMap = { [`${pendingOrd.id}__${pendingOrd.orderItems[0].uid}`]: 1 };
+    const result = store.splitItemsToTable('A', 'B', itemQtyMap);
+
+    expect(result).toBe(false);
+    // Source order is unchanged
+    expect(store.orders.find(o => o.id === pendingOrd.id).orderItems[0].quantity).toBe(2);
+    // No orders or session created on B
+    expect(store.orders.filter(o => o.table === 'B').length).toBe(0);
+    expect(store.tableCurrentBillSession['B']).toBeUndefined();
+  });
+
+  it('returns false when source has a mix of pending and accepted orders', () => {
+    const store = useAppStore();
+    const sessA = store.openTableSession('A', 2, 0);
+    const acceptedOrd = makeOrderWithItems('A', 'accepted', sessA, { name: 'Acqua', unitPrice: 2, quantity: 1 });
+    const pendingOrd = makeOrderWithItems('A', 'pending', sessA, { name: 'Pizza', unitPrice: 10, quantity: 1 });
+    store.addOrder(acceptedOrd);
+    store.addOrder(pendingOrd);
+
+    // Attempting to split the accepted item is still blocked because pending order exists
+    const itemQtyMap = { [`${acceptedOrd.id}__${acceptedOrd.orderItems[0].uid}`]: 1 };
+    const result = store.splitItemsToTable('A', 'B', itemQtyMap);
+
+    expect(result).toBe(false);
+    expect(store.orders.filter(o => o.table === 'B').length).toBe(0);
+  });
+
   it('clamps moveQty to netQty (cannot move more than available)', () => {
     const store = useAppStore();
     const sessA = store.openTableSession('A', 2, 0);
@@ -751,7 +785,7 @@ describe('splitItemsToTable()', () => {
 
     // Correct split flow in new model:
     // 1. Detach A from the merge (A becomes free again)
-    store.splitTableOrders('B', 'A');
+    store.detachSlaveTable('B', 'A');
     expect(store.tableMergedInto['A']).toBeUndefined();
 
     // 2. Move 1 pizza from master B to now-free slave A
@@ -764,9 +798,10 @@ describe('splitItemsToTable()', () => {
     expect(newAOrd).toBeDefined();
     expect(newAOrd.orderItems.some(i => i.name === 'Pizza')).toBe(true);
 
-    // ordA on B has 1 pizza voided
+    // ordA on B has 1 pizza with quantity reduced (no storno)
     const bOrdA = store.orders.find(o => o.id === ordA.id);
-    expect(bOrdA.orderItems[0].voidedQuantity).toBe(1);
+    expect(bOrdA.orderItems[0].quantity).toBe(1); // quantity reduced
+    expect(bOrdA.orderItems[0].voidedQuantity).toBe(0); // NOT voided — no storno
 
     // A and B are now independent
     expect(store.getTableStatus('A').status).toBe('occupied');
@@ -845,9 +880,10 @@ describe('splitItemsToTable()', () => {
     expect(sourceOrd).toBeDefined();
     expect(targetOrd).toBeDefined();
 
-    // Source: 1 Burger active (voidedQty=1 on item)
-    expect(sourceOrd.orderItems[0].voidedQuantity).toBe(1);
-    // Source Cheese modifier stays at voidedQuantity=1; active=1, charge=max(0,1-1)*3=0
+    // Source: 1 Burger active — quantity reduced, no storno (voidedQuantity unchanged)
+    expect(sourceOrd.orderItems[0].quantity).toBe(1); // reduced by 1
+    expect(sourceOrd.orderItems[0].voidedQuantity).toBe(0); // NOT voided — no storno
+    // Source Cheese modifier stays at voidedQuantity=1 (already set; capped to new qty=1)
     expect(sourceOrd.orderItems[0].modifiers[0].voidedQuantity).toBe(1);
     // Source Bacon modifier stays at voidedQuantity=0; active=1, charge=max(0,1-0)*2=2
     expect(sourceOrd.orderItems[0].modifiers[1].voidedQuantity).toBe(0);
@@ -905,7 +941,7 @@ describe('splitItemsToTable()', () => {
     const sourceOrd = store.orders.find(o => o.id === 'ord_fullvoid');
     const targetOrd = store.orders.find(o => o.table === 'B');
 
-    // Source: item voidedQty=1, active=1; modifier voidedQty=2; charge=max(0,1-2)=0
+    // Source: item quantity=1 (reduced), modifier voidedQty capped to 1; charge=max(0,1-1)*5=0
     expect(sourceOrd.totalAmount).toBe(8);
     // Target: targetModVoided = max(0, 2 - sourceActiveAfter=1) = 1; charge=max(0,1-1)=0
     expect(targetOrd.orderItems[0].modifiers[0].voidedQuantity).toBe(1);
@@ -1003,7 +1039,7 @@ describe('splitItemsToTable()', () => {
     expect(migratedTxn.billSessionId).toBe(sessB.billSessionId);
   });
 
-  it('partial and full moves from the same source: only partial-move orders stay voided, full-move orders relocate', () => {
+  it('partial and full moves from the same source: partial-move orders have quantity reduced, full-move orders relocate', () => {
     const store = useAppStore();
     const sessA = store.openTableSession('A', 2, 0);
     const ordFull = makeOrderWithItems('A', 'accepted', sessA,
@@ -1025,9 +1061,10 @@ describe('splitItemsToTable()', () => {
     expect(store.orders.find(o => o.id === ordFull.id).table).toBe('B');
     expect(store.orders.find(o => o.id === ordFull.id).orderItems[0].voidedQuantity).toBe(0);
 
-    // ordPartial remains on A with 1 voided
+    // ordPartial remains on A with quantity reduced (no storno)
     expect(store.orders.find(o => o.id === ordPartial.id).table).toBe('A');
-    expect(store.orders.find(o => o.id === ordPartial.id).orderItems[0].voidedQuantity).toBe(1);
+    expect(store.orders.find(o => o.id === ordPartial.id).orderItems[0].quantity).toBe(1); // reduced
+    expect(store.orders.find(o => o.id === ordPartial.id).orderItems[0].voidedQuantity).toBe(0); // no storno
 
     // B also has a new direct order for the partially moved Birra
     const directOnB = store.orders.find(o => o.table === 'B' && o.isDirectEntry);
