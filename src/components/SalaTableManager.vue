@@ -533,7 +533,7 @@ function createNewOrder() {
   // TODO API: replace store.addOrder() with POST /api/orders when API is available
   const newOrd = {
     id: 'ord_' + Math.random().toString(36).slice(2, 11),
-    table: selectedTable.value.id,
+    table: sessionTableId,
     billSessionId: session?.billSessionId ?? null,
     status: 'pending',
     time: new Date().toLocaleTimeString(appConfig.locale, { hour: '2-digit', minute: '2-digit', timeZone: appConfig.timezone }),
