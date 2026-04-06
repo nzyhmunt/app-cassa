@@ -75,10 +75,14 @@ export function makeTableOps(state, helpers) {
         }
       });
     } else {
+      // When there is no source session context, only retag tableId.
+      // Only assign dstSessionId to transactions that have no existing session
+      // (t.billSessionId == null) to avoid corrupting historical/closed-bill
+      // transactions that already carry their own billSessionId.
       transactions.value.forEach(t => {
         if (t.tableId === srcTableId) {
           t.tableId = dstTableId;
-          if (dstSessionId) t.billSessionId = dstSessionId;
+          if (dstSessionId && t.billSessionId == null) t.billSessionId = dstSessionId;
         }
       });
     }
