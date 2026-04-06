@@ -1617,7 +1617,14 @@ function confirmSplit() {
     if (qty > 0) qtyMap[row.key] = qty;
   }
 
-  store.splitItemsToTable(selectedTable.value.id, splitTargetTableId.value, qtyMap);
+  // When the target is a slave of this table and no items are selected, the user
+  // wants a clean detach (separate tables without moving any items). Call
+  // splitTableOrders() directly; splitItemsToTable() requires at least one item.
+  if (splitTargetIsSlave.value && Object.keys(qtyMap).length === 0) {
+    store.splitTableOrders(selectedTable.value.id, splitTargetTableId.value);
+  } else {
+    store.splitItemsToTable(selectedTable.value.id, splitTargetTableId.value, qtyMap);
+  }
 
   showSplitModal.value = false;
   splitTargetTableId.value = null;

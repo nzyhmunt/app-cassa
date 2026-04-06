@@ -979,6 +979,30 @@ describe('splitItemsToTable()', () => {
     expect(store.billRequestedTables.has('A')).toBe(false);
   });
 
+  it('current-session transactions are retagged to target when all orders are physically relocated', () => {
+    const store = useAppStore();
+    const sessA = store.openTableSession('A', 2, 0);
+    const ord = makeOrderWithItems('A', 'accepted', sessA,
+      { name: 'Acqua', unitPrice: 2, quantity: 1 },
+    );
+    store.addOrder(ord);
+
+    // Record a partial payment on A before the move
+    const txn = makeTransaction('A', 1, sessA);
+    store.addTransaction(txn);
+    expect(store.transactions.find(t => t.id === txn.id).tableId).toBe('A');
+
+    // Move the only item to B (full order → physical relocation)
+    store.splitItemsToTable('A', 'B', { [`${ord.id}__${ord.orderItems[0].uid}`]: 1 });
+
+    // The transaction should now be retagged to B and its new session
+    const sessB = store.tableCurrentBillSession['B'];
+    expect(sessB).toBeDefined();
+    const migratedTxn = store.transactions.find(t => t.id === txn.id);
+    expect(migratedTxn.tableId).toBe('B');
+    expect(migratedTxn.billSessionId).toBe(sessB.billSessionId);
+  });
+
   it('partial and full moves from the same source: only partial-move orders stay voided, full-move orders relocate', () => {
     const store = useAppStore();
     const sessA = store.openTableSession('A', 2, 0);

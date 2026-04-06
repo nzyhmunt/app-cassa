@@ -637,21 +637,16 @@ export const useAppStore = defineStore('app', () => {
   function splitItemsToTable(sourceTableId, targetTableId, itemQtyMap) {
     if (!sourceTableId || !targetTableId || sourceTableId === targetTableId) return false;
 
-    // If the target is currently merged as a slave of the source, detach it so it
-    // can receive its own session and become independent.
-    // If the target is a slave of a *different* master, refuse — moving orders there
-    // would corrupt the other merge group's billing state.
+    // If the target is a slave of a *different* master, refuse upfront — moving orders
+    // there would corrupt the other merge group's billing state.
     const targetMaster = tableMergedInto.value[targetTableId];
-    if (targetMaster) {
-      if (targetMaster !== sourceTableId) return false;
-      const next = { ...tableMergedInto.value };
-      delete next[targetTableId];
-      tableMergedInto.value = next;
-    }
+    if (targetMaster && targetMaster !== sourceTableId) return false;
 
     // Pre-scan: verify at least one item key actually matches an active order item and
     // has a positive quantity to move. This prevents opening an orphan billing session
     // on the target when itemQtyMap contains only non-matching keys or all-zero values.
+    // Detachment of a merged-slave target is deferred to after this check so that a
+    // no-op call (empty/non-matching itemQtyMap) never silently unmerges the table.
     const hasValidItemsToMove = orders.value.some(ord => {
       if (ord.table !== sourceTableId) return false;
       if (ord.status === 'completed' || ord.status === 'rejected') return false;
@@ -663,6 +658,15 @@ export const useAppStore = defineStore('app', () => {
       });
     });
     if (!hasValidItemsToMove) return false;
+
+    // If the target is currently merged as a slave of the source, detach it now that
+    // at least one item will actually be moved. Deferring the detachment until here
+    // ensures a no-op call (empty / non-matching itemQtyMap) never silently unmerges tables.
+    if (targetMaster === sourceTableId) {
+      const next = { ...tableMergedInto.value };
+      delete next[targetTableId];
+      tableMergedInto.value = next;
+    }
 
     // Ensure target has a billing session; open one if the table is free.
     let targetSession = tableCurrentBillSession.value[targetTableId];
@@ -787,16 +791,12 @@ export const useAppStore = defineStore('app', () => {
       // Keep merge state consistent with the table becoming fully free:
       // - if sourceTableId is a master, detach all of its slaves
       // - if sourceTableId is itself a slave, detach it from its master
-      if (typeof tableMergedInto !== 'undefined' && tableMergedInto?.value) {
-        const nextMergedInto = { ...tableMergedInto.value };
-        if (typeof slaveIdsOf === 'function') {
-          slaveIdsOf(sourceTableId).forEach(slaveTableId => {
-            delete nextMergedInto[slaveTableId];
-          });
-        }
-        delete nextMergedInto[sourceTableId];
-        tableMergedInto.value = nextMergedInto;
-      }
+      const nextMergedInto = { ...tableMergedInto.value };
+      slaveIdsOf(sourceTableId).forEach(slaveId => {
+        delete nextMergedInto[slaveId];
+      });
+      delete nextMergedInto[sourceTableId];
+      tableMergedInto.value = nextMergedInto;
     }
 
     return true;
