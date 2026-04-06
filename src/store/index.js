@@ -99,6 +99,7 @@ export const useAppStore = defineStore('app', () => {
 
   // ── Merge-graph helpers (used by getTableStatus & changeOrderStatus) ────────
   function slaveIdsOf(masterId) {
+    if (!masterId) return [];
     return Object.keys(tableMergedInto.value).filter(id => tableMergedInto.value[id] === masterId);
   }
   function resolveMaster(tableId) {
@@ -111,6 +112,15 @@ export const useAppStore = defineStore('app', () => {
     }
     return cur;
   }
+
+  // Floor-plan display query helpers — use these in components instead of
+  // accessing tableMergedInto directly.  tableMergedInto is an internal
+  // implementation detail whose sole purpose is the floor-plan ghost-occupied
+  // display; exposing a stable API keeps components decoupled from the raw shape.
+  /** Returns true when tableId is a merged slave delegating its status to a master. */
+  function isMergedSlave(tableId) { return !!tableMergedInto.value[tableId]; }
+  /** Returns the master table ID for a merged slave, or null if not a slave. */
+  function masterTableOf(tableId) { return tableMergedInto.value[tableId] ?? null; }
 
   // ── Computed ───────────────────────────────────────────────────────────────
   const cssVars = computed(() => ({
@@ -372,7 +382,7 @@ export const useAppStore = defineStore('app', () => {
   }
 
   // ── Table operations (extracted to tableOps.js) ────────────────────────────
-  const { moveTableOrders, mergeTableOrders, splitTableOrders, splitItemsToTable } =
+  const { moveTableOrders, mergeTableOrders, detachSlaveTable, splitItemsToTable } =
     makeTableOps(
       { orders, transactions, tableCurrentBillSession, tableOccupiedAt, billRequestedTables, tableMergedInto },
       { addDirectOrder, openTableSession, getTableStatus, setBillRequested, slaveIdsOf, resolveMaster },
@@ -401,6 +411,8 @@ export const useAppStore = defineStore('app', () => {
     cssVars, rooms, pendingCount, inKitchenCount, closedBills,
     // helpers
     getTableStatus, getTableColorClass, getTableColorClassFromStatus, getPaymentMethodIcon,
+    // merge-graph display helpers (prefer these over raw tableMergedInto access in components)
+    isMergedSlave, masterTableOf, slaveIdsOf,
     // order mutations
     addOrder, changeOrderStatus, setItemKitchenReady,
     updateQtyGlobal, removeRowGlobal,
@@ -408,7 +420,7 @@ export const useAppStore = defineStore('app', () => {
     addTransaction, addTipTransaction, addDirectOrder, simulateNewOrder, loadMenu,
     // table operations
     setBillRequested, openTableSession,
-    moveTableOrders, mergeTableOrders, splitTableOrders, splitItemsToTable,
+    moveTableOrders, mergeTableOrders, detachSlaveTable, splitItemsToTable,
     // cassa operations
     setFondoCassa, addCashMovement, generateXReport, performDailyClose,
   };

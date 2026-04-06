@@ -22,15 +22,71 @@ export function makeTableOps(state, helpers) {
   } = state;
   const { addDirectOrder, openTableSession, getTableStatus, setBillRequested, slaveIdsOf, resolveMaster } = helpers;
 
+  // ── Floor-plan display helpers (private) ─────────────────────────────────
+  //
+  // tableMergedInto is used *exclusively* for the floor-plan "ghost-occupied"
+  // display: a slave table delegates its status to the master so that the
+  // cashier sees both tables as occupied even though all billing data lives on
+  // the master.  All writes to tableMergedInto go through these two helpers so
+  // the display concern is visually isolated from the billing operations below.
+
+  /**
+   * Marks slaveId as a floor-plan ghost-occupied slave of masterId.
+   * @param {string} slaveId
+   * @param {string} masterId
+   */
+  function _linkSlave(slaveId, masterId) {
+    tableMergedInto.value = { ...tableMergedInto.value, [slaveId]: masterId };
+  }
+
+  /**
+   * Removes the floor-plan ghost-occupied link for slaveId (no-op if not linked).
+   * @param {string} slaveId
+   */
+  function _unlinkSlave(slaveId) {
+    if (tableMergedInto.value[slaveId] == null) return;
+    const next = { ...tableMergedInto.value };
+    delete next[slaveId];
+    tableMergedInto.value = next;
+  }
+
+  // ── _relocateOrders (private helper) ────────────────────────────────────
+
+  /**
+   * Moves active orders from srcTableId → dstTableId and reassigns their billSessionId.
+   * Matching transactions are retagged in the same step.
+   *
+   * If srcSessionId is provided, only orders and transactions for that session are moved.
+   * If srcSessionId is null, all non-completed/rejected orders move (transactions retagged
+   * by tableId only, with billSessionId set to dstSessionId when provided).
+   */
+  function _relocateOrders(srcTableId, dstTableId, srcSessionId, dstSessionId) {
+    orders.value.forEach(o => {
+      if (o.table !== srcTableId || o.status === 'rejected') return;
+      if (srcSessionId ? o.billSessionId !== srcSessionId : o.status === 'completed') return;
+      o.table = dstTableId;
+      if (dstSessionId) o.billSessionId = dstSessionId;
+    });
+    if (srcSessionId) {
+      transactions.value.forEach(t => {
+        if (t.tableId === srcTableId && t.billSessionId === srcSessionId) {
+          t.tableId = dstTableId;
+          t.billSessionId = dstSessionId;
+        }
+      });
+    } else {
+      transactions.value.forEach(t => {
+        if (t.tableId === srcTableId) {
+          t.tableId = dstTableId;
+          if (dstSessionId) t.billSessionId = dstSessionId;
+        }
+      });
+    }
+  }
+
   // ── moveTableOrders ──────────────────────────────────────────────────────
 
   function moveTableOrders(fromTableId, toTableId) {
-    orders.value.forEach(o => {
-      if (o.table === fromTableId && o.status !== 'completed' && o.status !== 'rejected') {
-        o.table = toTableId;
-      }
-    });
-
     if (tableOccupiedAt.value[fromTableId] && !tableOccupiedAt.value[toTableId]) {
       tableOccupiedAt.value[toTableId] = tableOccupiedAt.value[fromTableId];
     }
@@ -41,57 +97,40 @@ export function makeTableOps(state, helpers) {
       setBillRequested(toTableId, true);
     }
 
-    // Clear any stale merge mapping on the destination before resolving
-    if (tableMergedInto.value[toTableId]) delete tableMergedInto.value[toTableId];
+    // ── Floor-plan display: clear stale merge links on destination, re-point any
+    //    slaves of the source to the resolved destination, clear source's own link.
+    if (tableMergedInto.value[toTableId]) _unlinkSlave(toTableId);
 
     const resolvedTarget = resolveMaster(toTableId);
-    slaveIdsOf(fromTableId).forEach(slaveId => {
-      tableMergedInto.value = { ...tableMergedInto.value, [slaveId]: resolvedTarget };
-    });
-    if (tableMergedInto.value[fromTableId]) delete tableMergedInto.value[fromTableId];
+    slaveIdsOf(fromTableId).forEach(slaveId => _linkSlave(slaveId, resolvedTarget));
+    if (tableMergedInto.value[fromTableId]) _unlinkSlave(fromTableId);
 
     const srcSession = tableCurrentBillSession.value[fromTableId];
-    if (srcSession) {
-      const srcSessionId = srcSession.billSessionId;
-      const destSession = tableCurrentBillSession.value[toTableId];
-      if (!destSession) {
-        // Free destination: move session and all transactions wholesale
-        const next = { ...tableCurrentBillSession.value };
-        next[toTableId] = next[fromTableId];
-        delete next[fromTableId];
-        tableCurrentBillSession.value = next;
-        transactions.value.forEach(t => { if (t.tableId === fromTableId) t.tableId = toTableId; });
-      } else {
-        // Occupied destination: retag moved orders and active-session transactions
-        const destSessionId = destSession.billSessionId;
-        orders.value.forEach(o => {
-          if (o.table === toTableId && o.billSessionId === srcSessionId) o.billSessionId = destSessionId;
-        });
-        transactions.value.forEach(t => {
-          if (t.tableId === fromTableId && t.billSessionId === srcSessionId) {
-            t.billSessionId = destSessionId;
-            t.tableId = toTableId;
-          }
-        });
-        const next = { ...tableCurrentBillSession.value };
-        next[toTableId] = {
-          ...next[toTableId],
-          adults: next[toTableId].adults + next[fromTableId].adults,
-          children: next[toTableId].children + next[fromTableId].children,
-        };
-        delete next[fromTableId];
-        tableCurrentBillSession.value = next;
-      }
+    const destSession = tableCurrentBillSession.value[toTableId];
+    const srcSessionId = srcSession?.billSessionId;
+    const destSessionId = destSession?.billSessionId;
+
+    if (srcSession && destSession) {
+      // Both occupied: retag src orders + transactions to dest session, combine headcounts
+      _relocateOrders(fromTableId, toTableId, srcSessionId, destSessionId);
+      const next = { ...tableCurrentBillSession.value };
+      next[toTableId] = {
+        ...next[toTableId],
+        adults: next[toTableId].adults + next[fromTableId].adults,
+        children: next[toTableId].children + next[fromTableId].children,
+      };
+      delete next[fromTableId];
+      tableCurrentBillSession.value = next;
+    } else if (srcSession) {
+      // Free destination: move all active orders (preserving billSessionId), move session wholesale
+      _relocateOrders(fromTableId, toTableId, null, srcSessionId);
+      const next = { ...tableCurrentBillSession.value };
+      next[toTableId] = next[fromTableId];
+      delete next[fromTableId];
+      tableCurrentBillSession.value = next;
     } else {
-      transactions.value.forEach(t => { if (t.tableId === fromTableId) t.tableId = toTableId; });
-      const destSession = tableCurrentBillSession.value[toTableId];
-      if (destSession) {
-        orders.value.forEach(o => {
-          if (o.table === toTableId && o.status !== 'completed' && o.status !== 'rejected') {
-            o.billSessionId = destSession.billSessionId;
-          }
-        });
-      }
+      // No source session: move all active orders, adopt dest session if present
+      _relocateOrders(fromTableId, toTableId, null, destSessionId);
     }
   }
 
@@ -101,37 +140,20 @@ export function makeTableOps(state, helpers) {
     const resolvedTargetId = resolveMaster(targetTableId);
     if (sourceTableId === resolvedTargetId) return;
 
+    // ── Billing: ensure target has an open session ───────────────────────────
     if (!tableCurrentBillSession.value[resolvedTargetId]) openTableSession(resolvedTargetId);
     const targetSessionId = tableCurrentBillSession.value[resolvedTargetId].billSessionId;
 
+    // ── Floor-plan display: re-point source's slaves to the new master, clear
+    //    source's own slave link (it is about to become a slave itself below).
     const srcSlaves = slaveIdsOf(sourceTableId);
-    srcSlaves.forEach(slaveId => {
-      tableMergedInto.value = { ...tableMergedInto.value, [slaveId]: resolvedTargetId };
-    });
-    delete tableMergedInto.value[sourceTableId];
+    srcSlaves.forEach(slaveId => _linkSlave(slaveId, resolvedTargetId));
+    _unlinkSlave(sourceTableId);
 
+    // ── Billing: move current-session orders and transactions to master ───────
     const srcSession = tableCurrentBillSession.value[sourceTableId];
     const srcSessionId = srcSession?.billSessionId;
-
-    orders.value.forEach(o => {
-      if (o.table !== sourceTableId || o.status === 'rejected') return;
-      if (srcSessionId) {
-        if (o.billSessionId !== srcSessionId) return;
-      } else {
-        if (o.status === 'completed') return;
-      }
-      o.table = resolvedTargetId;
-      o.billSessionId = targetSessionId;
-    });
-
-    if (srcSessionId) {
-      transactions.value.forEach(t => {
-        if (t.tableId === sourceTableId && t.billSessionId === srcSessionId) {
-          t.tableId = resolvedTargetId;
-          t.billSessionId = targetSessionId;
-        }
-      });
-    }
+    _relocateOrders(sourceTableId, resolvedTargetId, srcSessionId, targetSessionId);
 
     if (tableOccupiedAt.value[sourceTableId]) {
       const srcTime = tableOccupiedAt.value[sourceTableId];
@@ -153,17 +175,18 @@ export function makeTableOps(state, helpers) {
     tableCurrentBillSession.value = next;
 
     setBillRequested(sourceTableId, false);
-    tableMergedInto.value = { ...tableMergedInto.value, [sourceTableId]: resolvedTargetId };
+
+    // ── Floor-plan display: mark source as ghost-occupied slave of the master ─
+    _linkSlave(sourceTableId, resolvedTargetId);
   }
 
-  // ── splitTableOrders ─────────────────────────────────────────────────────
+  // ── detachSlaveTable ──────────────────────────────────────────────────────
 
-  function splitTableOrders(masterTableId, slaveTableId) {
+  function detachSlaveTable(masterTableId, slaveTableId) {
     if (tableMergedInto.value[slaveTableId] !== masterTableId) return;
 
-    const next = { ...tableMergedInto.value };
-    delete next[slaveTableId];
-    tableMergedInto.value = next;
+    // ── Floor-plan display: remove slave's ghost-occupied link ────────────────
+    _unlinkSlave(slaveTableId);
 
     const slaveHasOrders = orders.value.some(
       o => o.table === slaveTableId && o.status !== 'completed' && o.status !== 'rejected',
@@ -214,12 +237,8 @@ export function makeTableOps(state, helpers) {
     });
     if (!hasValidItemsToMove) return false;
 
-    // Detach target slave only after we know at least one item will move
-    if (targetMaster === sourceTableId) {
-      const next = { ...tableMergedInto.value };
-      delete next[targetTableId];
-      tableMergedInto.value = next;
-    }
+    // ── Floor-plan display: detach target slave only after confirming a move will happen
+    if (targetMaster === sourceTableId) _unlinkSlave(targetTableId);
 
     // Ensure target has an open billing session
     let targetSession = tableCurrentBillSession.value[targetTableId];
@@ -313,10 +332,9 @@ export function makeTableOps(state, helpers) {
       tableCurrentBillSession.value = nextSession;
       setBillRequested(sourceTableId, false);
 
-      const nextMergedInto = { ...tableMergedInto.value };
-      slaveIdsOf(sourceTableId).forEach(slaveId => { delete nextMergedInto[slaveId]; });
-      delete nextMergedInto[sourceTableId];
-      tableMergedInto.value = nextMergedInto;
+      // ── Floor-plan display: remove any merge links involving the now-empty source
+      slaveIdsOf(sourceTableId).forEach(slaveId => _unlinkSlave(slaveId));
+      _unlinkSlave(sourceTableId);
     }
 
     return true;
@@ -325,7 +343,7 @@ export function makeTableOps(state, helpers) {
   return {
     moveTableOrders,
     mergeTableOrders,
-    splitTableOrders,
+    detachSlaveTable,
     splitItemsToTable,
   };
 }

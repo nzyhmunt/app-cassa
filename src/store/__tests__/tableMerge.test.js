@@ -1,7 +1,7 @@
 /**
  * @file tableMerge.test.js
  * @description Unit tests for the revised mergeTableOrders, moveTableOrders and
- * splitTableOrders store functions, as well as getTableStatus behaviour for
+ * detachSlaveTable store function, as well as getTableStatus behaviour for
  * merged (master/slave) tables.
  *
  * Key behaviours under test:
@@ -10,7 +10,7 @@
  *    slave delegates status to master
  *  - getTableStatus for slave: delegates entirely to master status
  *  - getTableStatus for master: all orders are on master naturally
- *  - splitTableOrders: removes merge mapping; opens slave session only if slave has orders
+ *  - detachSlaveTable: removes merge mapping; opens slave session only if slave has orders
  *  - Bug fix: merging open table with paid table updates totals correctly
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -471,10 +471,10 @@ describe('changeOrderStatus() — session lifecycle with merged tables', () => {
 });
 
 // ---------------------------------------------------------------------------
-// splitTableOrders — restore slave independence
+// detachSlaveTable — restore slave independence
 // ---------------------------------------------------------------------------
 
-describe('splitTableOrders()', () => {
+describe('detachSlaveTable()', () => {
   it('removes from tableMergedInto after split; slave is free since all its orders moved to master', () => {
     const store = useAppStore();
     const sessA = store.openTableSession('A', 2, 0);
@@ -487,7 +487,7 @@ describe('splitTableOrders()', () => {
 
     expect(store.tableMergedInto['A']).toBe('B');
 
-    store.splitTableOrders('B', 'A'); // split A back out
+    store.detachSlaveTable('B', 'A'); // split A back out
 
     expect(store.tableMergedInto['A']).toBeUndefined();
     // A has no orders (they moved to B on merge), so no session is opened
@@ -496,7 +496,7 @@ describe('splitTableOrders()', () => {
     expect(store.getTableStatus('A').status).toBe('free');
   });
 
-  it('splitTableOrders alone does not open a session for slave (no orders on slave)', () => {
+  it('detachSlaveTable alone does not open a session for slave (no orders on slave)', () => {
     const store = useAppStore();
     const sessA = store.openTableSession('A', 2, 0);
     const sessB = store.openTableSession('B', 2, 0);
@@ -505,9 +505,9 @@ describe('splitTableOrders()', () => {
     store.addOrder(makeOrder('B', 'accepted', 20, sessB));
 
     store.mergeTableOrders('A', 'B'); // ordA moves to B
-    store.splitTableOrders('B', 'A'); // detach A
+    store.detachSlaveTable('B', 'A'); // detach A
 
-    // A has no orders on it, so splitTableOrders must NOT open a session
+    // A has no orders on it, so detachSlaveTable must NOT open a session
     expect(store.tableCurrentBillSession['A']).toBeUndefined();
     expect(store.getTableStatus('A').status).toBe('free');
   });
@@ -520,7 +520,7 @@ describe('splitTableOrders()', () => {
     store.addOrder(makeOrder('B', 'accepted', 20, sessB));
 
     store.mergeTableOrders('A', 'B'); // ordA moves to B; B has both orders (30)
-    store.splitTableOrders('B', 'A'); // detach A
+    store.detachSlaveTable('B', 'A'); // detach A
 
     const statusA = store.getTableStatus('A');
     const statusB = store.getTableStatus('B');
@@ -537,7 +537,7 @@ describe('splitTableOrders()', () => {
     store.addOrder(makeOrder('A', 'accepted', 10, sessA));
 
     // Call split without prior merge — should not crash or change state
-    expect(() => store.splitTableOrders('B', 'A')).not.toThrow();
+    expect(() => store.detachSlaveTable('B', 'A')).not.toThrow();
     expect(store.tableMergedInto['A']).toBeUndefined();
   });
 
@@ -557,7 +557,7 @@ describe('splitTableOrders()', () => {
     expect(store.orders.find(o => o.id === completedOrdA.id).billSessionId).toBe(sessB);
     expect(store.orders.find(o => o.id === activeOrdA.id).table).toBe('B');
 
-    store.splitTableOrders('B', 'A');
+    store.detachSlaveTable('B', 'A');
 
     // A has no orders (not moved back) — A is free
     const statusA = store.getTableStatus('A');
@@ -785,7 +785,7 @@ describe('splitItemsToTable()', () => {
 
     // Correct split flow in new model:
     // 1. Detach A from the merge (A becomes free again)
-    store.splitTableOrders('B', 'A');
+    store.detachSlaveTable('B', 'A');
     expect(store.tableMergedInto['A']).toBeUndefined();
 
     // 2. Move 1 pizza from master B to now-free slave A
