@@ -135,14 +135,14 @@
           </div>
         </div>
         <div class="flex items-center gap-1 md:gap-2">
-          <!-- Sposta button -->
-          <button v-if="tableOrders.length > 0" @click="openMoveModal"
+          <!-- Sposta button: hidden when this is a slave -->
+          <button v-if="tableOrders.length > 0 && !selectedTableMasterTableId" @click="openMoveModal"
             class="bg-white/10 hover:bg-white/20 px-3 py-2 rounded-xl font-bold text-[10px] md:text-xs flex items-center gap-1.5 transition-all active:scale-95 shrink-0"
             title="Sposta Tavolo">
             <ArrowRightLeft class="size-4" /> <span class="hidden sm:inline">Sposta</span>
           </button>
-          <!-- Unisci button -->
-          <button v-if="tableOrders.length > 0" @click="openMergeModal"
+          <!-- Unisci button: hidden when this is a slave -->
+          <button v-if="tableOrders.length > 0 && !selectedTableMasterTableId" @click="openMergeModal"
             class="bg-white/10 hover:bg-white/20 px-3 py-2 rounded-xl font-bold text-[10px] md:text-xs flex items-center gap-1.5 transition-all active:scale-95 shrink-0"
             title="Unisci con altro Tavolo">
             <Merge class="size-4" /> <span class="hidden sm:inline">Unisci</span>
@@ -155,6 +155,12 @@
 
       <!-- Modal body -->
       <div class="flex-1 overflow-y-auto p-4 bg-gray-50 min-h-0">
+
+        <!-- Banner: slave table merged into a master -->
+        <div v-if="selectedTableMasterTable" class="mb-3 bg-orange-50 border border-orange-200 rounded-xl px-3 py-2 flex items-center gap-2 text-xs text-orange-800 font-medium">
+          <Link class="size-4 shrink-0 text-orange-500" />
+          <span>Questo tavolo è unito al Tavolo <strong>{{ selectedTableMasterTable.label }}</strong>. Il conto è gestito dal tavolo principale.</span>
+        </div>
 
         <!-- New order CTA -->
         <button
@@ -211,20 +217,39 @@
   <!-- MODAL: SPOSTA TAVOLO                                              -->
   <!-- ================================================================ -->
   <div v-if="showMoveModal" class="fixed inset-0 z-[100] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-5 max-h-[90dvh] overflow-y-auto">
-      <div class="flex justify-between items-center mb-4">
-        <h3 class="font-bold text-gray-800 flex items-center gap-2"><ArrowRightLeft class="size-5 theme-text" /> Sposta Tavolo {{ selectedTable?.label }}</h3>
-        <button @click="showMoveModal = false" class="text-gray-400 hover:text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-full p-1.5 transition-colors"><X class="size-4" /></button>
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col max-h-[90dvh]">
+      <!-- Header -->
+      <div class="bg-gray-900 text-white px-5 py-4 flex justify-between items-center shrink-0">
+        <h3 class="font-bold flex items-center gap-2"><ArrowRightLeft class="size-5 theme-text" /> Sposta Tavolo {{ selectedTable?.label }}</h3>
+        <button @click="showMoveModal = false" class="bg-white/10 hover:bg-white/20 p-2 rounded-full transition-colors active:scale-95"><X class="size-4" /></button>
       </div>
-      <p class="text-xs text-gray-500 mb-4">Seleziona il tavolo di destinazione libero. Tutti gli ordini verranno spostati.</p>
-      <div class="grid grid-cols-4 gap-2 max-h-64 overflow-y-auto">
-        <button v-for="table in freeTables" :key="'sp_'+table.id"
-          @click="confirmMove(table)"
-          class="aspect-square rounded-xl border-2 border-emerald-200 bg-emerald-50 text-emerald-800 font-black text-lg flex items-center justify-center hover:bg-emerald-100 active:scale-95 transition-all">
-          {{ table.label }}
-        </button>
+      <!-- Body -->
+      <div class="p-5 overflow-y-auto">
+        <p class="text-xs text-gray-500 mb-4">Seleziona il tavolo di destinazione. Se occupato, gli ordini verranno spostati e i conti uniti.</p>
+        <div v-if="freeTables.length > 0">
+          <p class="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-2">Tavoli Liberi</p>
+          <div class="grid grid-cols-4 gap-2 mb-4">
+            <button v-for="table in freeTables" :key="'sp_'+table.id"
+              @click="confirmMove(table)"
+              class="aspect-square rounded-xl border-2 border-emerald-200 bg-emerald-50 text-emerald-800 relative flex flex-col items-center justify-center p-1.5 hover:bg-emerald-100 active:scale-95 transition-all">
+              <span class="absolute top-1 right-1 text-[9px] font-bold opacity-50 flex items-center gap-0.5"><Users class="size-2.5" />{{ table.covers }}</span>
+              <span class="font-black text-xl">{{ table.label }}</span>
+            </button>
+          </div>
+        </div>
+        <div v-if="otherOccupiedTables.length > 0">
+          <p class="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-2">Tavoli Occupati (unione conto)</p>
+          <div class="grid grid-cols-4 gap-2">
+            <button v-for="table in otherOccupiedTables" :key="'spo_'+table.id"
+              @click="confirmMove(table)"
+              class="aspect-square rounded-xl border-2 border-[var(--brand-primary)] theme-bg text-white relative flex flex-col items-center justify-center p-1.5 hover:opacity-90 active:scale-95 transition-all">
+              <span class="absolute top-1 right-1 text-[9px] font-bold opacity-60 flex items-center gap-0.5"><Users class="size-2.5" />{{ table.covers }}</span>
+              <span class="font-black text-xl">{{ table.label }}</span>
+            </button>
+          </div>
+        </div>
+        <div v-if="freeTables.length === 0 && otherOccupiedTables.length === 0" class="text-center text-gray-400 text-sm py-4">Nessun altro tavolo disponibile.</div>
       </div>
-      <div v-if="freeTables.length === 0" class="text-center text-gray-400 text-sm py-4">Nessun tavolo libero disponibile.</div>
     </div>
   </div>
 
@@ -232,20 +257,25 @@
   <!-- MODAL: UNISCI TAVOLI                                              -->
   <!-- ================================================================ -->
   <div v-if="showMergeModal" class="fixed inset-0 z-[100] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-5 max-h-[90dvh] overflow-y-auto">
-      <div class="flex justify-between items-center mb-4">
-        <h3 class="font-bold text-gray-800 flex items-center gap-2"><Merge class="size-5 theme-text" /> Unisci con Tavolo {{ selectedTable?.label }}</h3>
-        <button @click="showMergeModal = false" class="text-gray-400 hover:text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-full p-1.5 transition-colors"><X class="size-4" /></button>
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col max-h-[90dvh]">
+      <!-- Header -->
+      <div class="bg-gray-900 text-white px-5 py-4 flex justify-between items-center shrink-0">
+        <h3 class="font-bold flex items-center gap-2"><Merge class="size-5 theme-text" /> Unisci con Tavolo {{ selectedTable?.label }}</h3>
+        <button @click="showMergeModal = false" class="bg-white/10 hover:bg-white/20 p-2 rounded-full transition-colors active:scale-95"><X class="size-4" /></button>
       </div>
-      <p class="text-xs text-gray-500 mb-4">Seleziona il tavolo con cui fondere gli ordini. I suoi ordini e i coperti verranno uniti con questo tavolo.</p>
-      <div class="grid grid-cols-4 gap-2 max-h-64 overflow-y-auto">
-        <button v-for="table in occupiedTables" :key="'un_'+table.id"
-          @click="confirmMerge(table)"
-          class="aspect-square rounded-xl border-2 border-[var(--brand-primary)] theme-bg text-white font-black text-lg flex items-center justify-center hover:opacity-90 active:scale-95 transition-all">
-          {{ table.label }}
-        </button>
+      <!-- Body -->
+      <div class="p-5 overflow-y-auto">
+        <p class="text-xs text-gray-500 mb-4">Seleziona il tavolo da unire. Entrambi i tavoli restano occupati e il conto viene gestito insieme.</p>
+        <div class="grid grid-cols-4 gap-2">
+          <button v-for="table in mergeCandidates" :key="'un_'+table.id"
+            @click="confirmMerge(table)"
+            class="aspect-square rounded-xl border-2 border-[var(--brand-primary)] theme-bg text-white relative flex flex-col items-center justify-center p-1.5 hover:opacity-90 active:scale-95 transition-all">
+            <span class="absolute top-1 right-1 text-[9px] font-bold opacity-60 flex items-center gap-0.5"><Users class="size-2.5" />{{ table.covers }}</span>
+            <span class="font-black text-xl">{{ table.label }}</span>
+          </button>
+        </div>
+        <div v-if="mergeCandidates.length === 0" class="text-center text-gray-400 text-sm py-4">Nessun altro tavolo occupato disponibile.</div>
       </div>
-      <div v-if="occupiedTables.length === 0" class="text-center text-gray-400 text-sm py-4">Nessun altro tavolo occupato disponibile.</div>
     </div>
   </div>
 </template>
@@ -253,7 +283,7 @@
 <script setup>
 import { ref, computed } from 'vue';
 import {
-  Grid3x3, Users, Timer, X, Coffee, ChevronRight, Plus, ArrowRightLeft, Merge, Zap,
+  Grid3x3, Users, Timer, X, Coffee, ChevronRight, Plus, ArrowRightLeft, Merge, Zap, Link,
 } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
 import { appConfig } from '../utils/index.js';
@@ -287,6 +317,7 @@ const allTablesStatusMap = computed(() => {
 });
 
 // Compute order count once per table; reused in the slot template.
+// Orders are physically on the master table after a merge, so no slave aggregation needed.
 const orderCountMap = computed(() => {
   const map = {};
   for (const table of store.config.tables) {
@@ -364,11 +395,39 @@ const freeTables = computed(() =>
   ),
 );
 
-const occupiedTables = computed(() =>
+// Non-current, non-free, non-slave tables for move (including occupied/paid).
+// Merged slave tables are excluded: targeting a slave with "Sposta" would give it
+// its own session while still merged into a master, causing billing inconsistencies.
+const otherOccupiedTables = computed(() =>
   store.config.tables.filter(
-    t => t.id !== selectedTable.value?.id && store.getTableStatus(t.id).status !== 'free',
+    t =>
+      t.id !== selectedTable.value?.id &&
+      allTablesStatusMap.value[t.id]?.status !== 'free' &&
+      !store.tableMergedInto[t.id],
   ),
 );
+
+// Candidates for merge: occupied tables not already slave of any master
+const mergeCandidates = computed(() => {
+  const currentId = selectedTable.value?.id;
+  if (!currentId) return [];
+  return store.config.tables.filter(t => {
+    if (t.id === currentId) return false;
+    if (allTablesStatusMap.value[t.id]?.status === 'free') return false;
+    if (store.tableMergedInto[t.id]) return false;
+    return true;
+  });
+});
+
+// True when the selected table is a slave (merged into another)
+const selectedTableMasterTableId = computed(() =>
+  selectedTable.value ? (store.tableMergedInto[selectedTable.value.id] ?? null) : null,
+);
+
+const selectedTableMasterTable = computed(() => {
+  const masterId = selectedTableMasterTableId.value;
+  return masterId ? store.config.tables.find(t => t.id === masterId) ?? null : null;
+});
 
 const tableSession = computed(() =>
   selectedTable.value ? store.tableCurrentBillSession[selectedTable.value.id] : null,
@@ -390,7 +449,18 @@ const occupiedSince = computed(() => {
 
 // ── Actions ──────────────────────────────────────────────────────────────────
 function openTableDetails(table) {
+  // If the table is a merged slave with active orders, open the master's panel instead.
+  // In the physical-move model the slave holds no orders; all billing is on the master.
   const status = store.getTableStatus(table.id).status;
+  const masterId = store.tableMergedInto[table.id];
+  if (masterId && status !== 'free') {
+    const masterTable = store.config.tables.find(t => t.id === masterId);
+    if (masterTable) {
+      _openTableModal(masterTable);
+      return;
+    }
+  }
+
   if (status === 'free') {
     pendingTableToOpen.value = table;
     peopleAdults.value = table.covers || 2;
@@ -457,12 +527,19 @@ function confirmPeopleAndOpenTable() {
 
 function createNewOrder() {
   if (!selectedTable.value) return;
-  const session = store.tableCurrentBillSession[selectedTable.value.id];
+  // Use the master's session only while this table is still actively participating in a merge.
+  // If a stale merge mapping remains after the table becomes free, create the order against
+  // the selected table so it does not inherit the master's bill session incorrectly.
+  const masterId = store.tableMergedInto[selectedTable.value.id];
+  const selectedTableStatus = store.getTableStatus(selectedTable.value.id)?.status;
+  const isActiveMergedSlave = masterId != null && selectedTableStatus !== 'free';
+  const sessionTableId = isActiveMergedSlave ? masterId : selectedTable.value.id;
+  const session = store.tableCurrentBillSession[sessionTableId];
 
   // TODO API: replace store.addOrder() with POST /api/orders when API is available
   const newOrd = {
     id: 'ord_' + Math.random().toString(36).slice(2, 11),
-    table: selectedTable.value.id,
+    table: sessionTableId,
     billSessionId: session?.billSessionId ?? null,
     status: 'pending',
     time: new Date().toLocaleTimeString(appConfig.locale, { hour: '2-digit', minute: '2-digit', timeZone: appConfig.timezone }),

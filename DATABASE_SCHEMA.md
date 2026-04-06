@@ -595,6 +595,7 @@ Cardinalità:
 | `tableOccupiedAt`                     | `bill_sessions.opened_at`              |
 | `billRequestedTables` (Set)           | query: `orders.status = 'pending'` con `bill_session_id` attivo |
 | `tableCurrentBillSession`             | `bill_sessions` (righe con `is_active = true`) |
+| `tableMergedInto` (Object `{slaveId: masterId}`) | relazione visiva di unione tavoli — in DB: tabella `table_merge_sessions` (slave_table_id, master_table_id); solo per unioni attive |
 | `cashBalance`                         | somma di `cash_movements` + valore iniziale |
 | `cashMovements[]`                     | `cash_movements`                       |
 | `dailyClosures[]`                     | `daily_closures` + `daily_closure_by_method` |
@@ -640,6 +641,28 @@ WHERE o.table_id = :table_id
   AND o.is_direct_entry = TRUE
   AND o.status NOT IN ('completed', 'rejected');
 ```
+
+### 5.2c Tavoli uniti (`tableMergedInto`)
+
+La funzione **Unisci** in App Cassa permette di accorpare il conto di due tavoli occupati.
+L'unione è rappresentata nel localStorage da `tableMergedInto`, un oggetto `{ slaveTableId: masterTableId }`.
+
+Semantica:
+- Al momento dell'unione (`mergeTableOrders`), vengono fisicamente spostate sul tavolo master **solo le comande appartenenti alla sessione di conto attiva dello slave** (`orders[].table = masterTableId` per gli ordini della current bill session). Il conto del master assorbe immediatamente queste voci attive.
+- Il tavolo **slave** non ha più una sessione attiva propria (`tableCurrentBillSession[slaveId]` = undefined) né comande residue nella sessione corrente. Eventuali comande storiche / di sessioni precedenti restano invece associate al tavolo e alla `bill_session` originari, così da preservare l'isolamento per sessione. Il tavolo appare comunque **occupato** nella piantina grazie alla voce `tableMergedInto[slaveId] = masterId`: `getTableStatus(slaveId)` delega direttamente a `getTableStatus(masterId)`.
+- In un database relazionale questa relazione sarebbe modellata con una tabella dedicata per rappresentare il merge attivo (senza dover riallocare le comande storiche tra sessioni; le comande della sessione attiva risultano invece sul master):
+
+```sql
+-- Active table merges; row is deleted when the merge is undone (split)
+CREATE TABLE table_merge_sessions (
+    slave_table_id   VARCHAR(50) NOT NULL REFERENCES tables(id),
+    master_table_id  VARCHAR(50) NOT NULL REFERENCES tables(id),
+    merged_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (slave_table_id)
+);
+```
+
+La funzione **Dividi** richiede la sequenza opposta: prima `splitTableOrders` rimuove la voce da `tableMergedInto` e rende di nuovo indipendente il tavolo slave (aprendo una nuova sessione se necessario), poi `splitItemsToTable` può spostare sullo slave le voci selezionate. Il master mantiene le voci rimaste.
 
 ### 5.3 Calcolo totale riga
 
