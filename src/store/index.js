@@ -478,6 +478,17 @@ export const useAppStore = defineStore('app', () => {
       transactions.value.forEach(t => {
         if (t.tableId === fromTableId) t.tableId = toTableId;
       });
+      // If the destination has an active session, retag the orders that were already
+      // moved to toTableId (first pass above) so they appear in its billing totals.
+      // Without this, orders with null/stale billSessionId are invisible to getTableStatus().
+      const destSession = tableCurrentBillSession.value[toTableId];
+      if (destSession) {
+        orders.value.forEach(o => {
+          if (o.table === toTableId && o.status !== 'completed' && o.status !== 'rejected') {
+            o.billSessionId = destSession.billSessionId;
+          }
+        });
+      }
     }
   }
 

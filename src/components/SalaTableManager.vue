@@ -402,7 +402,7 @@ const otherOccupiedTables = computed(() =>
   store.config.tables.filter(
     t =>
       t.id !== selectedTable.value?.id &&
-      store.getTableStatus(t.id).status !== 'free' &&
+      allTablesStatusMap.value[t.id]?.status !== 'free' &&
       !store.tableMergedInto[t.id],
   ),
 );
@@ -413,7 +413,7 @@ const mergeCandidates = computed(() => {
   if (!currentId) return [];
   return store.config.tables.filter(t => {
     if (t.id === currentId) return false;
-    if (store.getTableStatus(t.id).status === 'free') return false;
+    if (allTablesStatusMap.value[t.id]?.status === 'free') return false;
     if (store.tableMergedInto[t.id]) return false;
     return true;
   });
