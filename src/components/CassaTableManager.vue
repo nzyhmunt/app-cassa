@@ -1394,7 +1394,7 @@ const otherOccupiedTables = computed(() =>
     t =>
       t.id !== selectedTable.value?.id &&
       tableStatusMap.value[t.id]?.status !== 'free' &&
-      !store.tableMergedInto[t.id],
+      !store.isMergedSlave(t.id),
   ),
 );
 
@@ -1410,19 +1410,19 @@ const mergeCandidates = computed(() => {
     // Skip free tables — at least one active order is needed
     if (tableStatusMap.value[t.id]?.status === 'free') return false;
     // Skip tables that are already slaves of ANY master (including this one)
-    if (store.tableMergedInto[t.id]) return false;
+    if (store.isMergedSlave(t.id)) return false;
     return true;
   });
 });
 
 // Slave table IDs merged into the currently selected table (as master)
 const slaveTableIds = computed(() =>
-  Object.keys(store.tableMergedInto).filter(id => store.tableMergedInto[id] === selectedTable.value?.id),
+  store.slaveIdsOf(selectedTable.value?.id),
 );
 
 // True when the selected table is itself a slave (merged into another)
 const selectedTableMasterTableId = computed(() =>
-  selectedTable.value ? (store.tableMergedInto[selectedTable.value.id] ?? null) : null,
+  selectedTable.value ? store.masterTableOf(selectedTable.value.id) : null,
 );
 
 const selectedTableMasterTable = computed(() => {
@@ -1449,7 +1449,7 @@ const splitAvailableTargets = computed(() => {
 // True when the currently selected split target is a merged slave of this table.
 const splitTargetIsSlave = computed(() =>
   !!splitTargetTableId.value &&
-  store.tableMergedInto[splitTargetTableId.value] === selectedTable.value?.id,
+  store.masterTableOf(splitTargetTableId.value) === selectedTable.value?.id,
 );
 
 const tableStatusCounts = computed(() => {
@@ -2038,7 +2038,7 @@ function openTableDetails(table) {
   // If the table is a merged slave with active orders, open the master's billing panel instead.
   // All transactions are managed under the master, so the cashier sees the full bill.
   // If the slave is free (e.g. merge state not yet cleaned up after payment), let it open normally.
-  const masterId = store.tableMergedInto[table.id];
+  const masterId = store.masterTableOf(table.id);
   if (masterId && store.getTableStatus(table.id).status !== 'free') {
     const masterTable = store.config.tables.find(t => t.id === masterId);
     if (masterTable) {
@@ -2064,7 +2064,7 @@ function _openTableModal(table) {
   // For slave tables, read the session from the master only while the slave is still actively merged.
   // If the table is free, a stale merge mapping may still exist and the table should use its own session.
   const status = store.getTableStatus(table.id).status;
-  const masterId = store.tableMergedInto[table.id];
+  const masterId = store.masterTableOf(table.id);
   const sessionTableId = masterId && status !== 'free' ? masterId : table.id;
   const session = store.tableCurrentBillSession[sessionTableId];
   // Default romana split to adults count; fall back to total people or table covers
@@ -2157,7 +2157,7 @@ function createNewOrderForTable() {
   if (!selectedTable.value) return;
   const tableId = selectedTable.value.id;
   const ownSession = store.tableCurrentBillSession[tableId];
-  const masterId = store.tableMergedInto[tableId];
+  const masterId = store.masterTableOf(tableId);
   // Prefer the table's own active session. Fall back to the master's session
   // only when the table does not currently have an independent session.
   const session = ownSession ?? (masterId != null ? store.tableCurrentBillSession[masterId] : null);

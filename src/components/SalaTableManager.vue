@@ -403,7 +403,7 @@ const otherOccupiedTables = computed(() =>
     t =>
       t.id !== selectedTable.value?.id &&
       allTablesStatusMap.value[t.id]?.status !== 'free' &&
-      !store.tableMergedInto[t.id],
+      !store.isMergedSlave(t.id),
   ),
 );
 
@@ -414,14 +414,14 @@ const mergeCandidates = computed(() => {
   return store.config.tables.filter(t => {
     if (t.id === currentId) return false;
     if (allTablesStatusMap.value[t.id]?.status === 'free') return false;
-    if (store.tableMergedInto[t.id]) return false;
+    if (store.isMergedSlave(t.id)) return false;
     return true;
   });
 });
 
 // True when the selected table is a slave (merged into another)
 const selectedTableMasterTableId = computed(() =>
-  selectedTable.value ? (store.tableMergedInto[selectedTable.value.id] ?? null) : null,
+  selectedTable.value ? store.masterTableOf(selectedTable.value.id) : null,
 );
 
 const selectedTableMasterTable = computed(() => {
@@ -452,7 +452,7 @@ function openTableDetails(table) {
   // If the table is a merged slave with active orders, open the master's panel instead.
   // In the physical-move model the slave holds no orders; all billing is on the master.
   const status = store.getTableStatus(table.id).status;
-  const masterId = store.tableMergedInto[table.id];
+  const masterId = store.masterTableOf(table.id);
   if (masterId && status !== 'free') {
     const masterTable = store.config.tables.find(t => t.id === masterId);
     if (masterTable) {
@@ -530,7 +530,7 @@ function createNewOrder() {
   // Use the master's session only while this table is still actively participating in a merge.
   // If a stale merge mapping remains after the table becomes free, create the order against
   // the selected table so it does not inherit the master's bill session incorrectly.
-  const masterId = store.tableMergedInto[selectedTable.value.id];
+  const masterId = store.masterTableOf(selectedTable.value.id);
   const selectedTableStatus = store.getTableStatus(selectedTable.value.id)?.status;
   const isActiveMergedSlave = masterId != null && selectedTableStatus !== 'free';
   const sessionTableId = isActiveMergedSlave ? masterId : selectedTable.value.id;

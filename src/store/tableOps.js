@@ -22,6 +22,24 @@ export function makeTableOps(state, helpers) {
   } = state;
   const { addDirectOrder, openTableSession, getTableStatus, setBillRequested, slaveIdsOf, resolveMaster } = helpers;
 
+  // ── Floor-plan display helpers (private) ─────────────────────────────────
+  //
+  // tableMergedInto is used *exclusively* for the floor-plan "ghost-occupied"
+  // display: a slave table delegates its status to the master so that the
+  // cashier sees both tables as occupied even though all billing data lives on
+  // the master.  All writes to tableMergedInto go through these two helpers so
+  // the display concern is visually isolated from the billing operations below.
+
+  function _linkSlave(slaveId, masterId) {
+    tableMergedInto.value = { ...tableMergedInto.value, [slaveId]: masterId };
+  }
+
+  function _unlinkSlave(slaveId) {
+    const next = { ...tableMergedInto.value };
+    delete next[slaveId];
+    tableMergedInto.value = next;
+  }
+
   // ── _relocateOrders (private helper) ────────────────────────────────────
 
   /**
@@ -66,14 +84,13 @@ export function makeTableOps(state, helpers) {
       setBillRequested(toTableId, true);
     }
 
-    // Clear any stale merge mapping on the destination before resolving
-    if (tableMergedInto.value[toTableId]) delete tableMergedInto.value[toTableId];
+    // ── Floor-plan display: clear stale merge links on destination, re-point any
+    //    slaves of the source to the resolved destination, clear source's own link.
+    if (tableMergedInto.value[toTableId]) _unlinkSlave(toTableId);
 
     const resolvedTarget = resolveMaster(toTableId);
-    slaveIdsOf(fromTableId).forEach(slaveId => {
-      tableMergedInto.value = { ...tableMergedInto.value, [slaveId]: resolvedTarget };
-    });
-    if (tableMergedInto.value[fromTableId]) delete tableMergedInto.value[fromTableId];
+    slaveIdsOf(fromTableId).forEach(slaveId => _linkSlave(slaveId, resolvedTarget));
+    if (tableMergedInto.value[fromTableId]) _unlinkSlave(fromTableId);
 
     const srcSession = tableCurrentBillSession.value[fromTableId];
     const destSession = tableCurrentBillSession.value[toTableId];
@@ -110,19 +127,19 @@ export function makeTableOps(state, helpers) {
     const resolvedTargetId = resolveMaster(targetTableId);
     if (sourceTableId === resolvedTargetId) return;
 
+    // ── Billing: ensure target has an open session ───────────────────────────
     if (!tableCurrentBillSession.value[resolvedTargetId]) openTableSession(resolvedTargetId);
     const targetSessionId = tableCurrentBillSession.value[resolvedTargetId].billSessionId;
 
+    // ── Floor-plan display: re-point source's slaves to the new master, clear
+    //    source's own slave link (it is about to become a slave itself below).
     const srcSlaves = slaveIdsOf(sourceTableId);
-    srcSlaves.forEach(slaveId => {
-      tableMergedInto.value = { ...tableMergedInto.value, [slaveId]: resolvedTargetId };
-    });
-    delete tableMergedInto.value[sourceTableId];
+    srcSlaves.forEach(slaveId => _linkSlave(slaveId, resolvedTargetId));
+    _unlinkSlave(sourceTableId);
 
+    // ── Billing: move current-session orders and transactions to master ───────
     const srcSession = tableCurrentBillSession.value[sourceTableId];
     const srcSessionId = srcSession?.billSessionId;
-
-    // Move current-session orders and transactions to the master table
     _relocateOrders(sourceTableId, resolvedTargetId, srcSessionId, targetSessionId);
 
     if (tableOccupiedAt.value[sourceTableId]) {
@@ -145,7 +162,9 @@ export function makeTableOps(state, helpers) {
     tableCurrentBillSession.value = next;
 
     setBillRequested(sourceTableId, false);
-    tableMergedInto.value = { ...tableMergedInto.value, [sourceTableId]: resolvedTargetId };
+
+    // ── Floor-plan display: mark source as ghost-occupied slave of the master ─
+    _linkSlave(sourceTableId, resolvedTargetId);
   }
 
   // ── detachSlaveTable ──────────────────────────────────────────────────────
@@ -153,9 +172,8 @@ export function makeTableOps(state, helpers) {
   function detachSlaveTable(masterTableId, slaveTableId) {
     if (tableMergedInto.value[slaveTableId] !== masterTableId) return;
 
-    const next = { ...tableMergedInto.value };
-    delete next[slaveTableId];
-    tableMergedInto.value = next;
+    // ── Floor-plan display: remove slave's ghost-occupied link ────────────────
+    _unlinkSlave(slaveTableId);
 
     const slaveHasOrders = orders.value.some(
       o => o.table === slaveTableId && o.status !== 'completed' && o.status !== 'rejected',
@@ -206,12 +224,8 @@ export function makeTableOps(state, helpers) {
     });
     if (!hasValidItemsToMove) return false;
 
-    // Detach target slave only after we know at least one item will move
-    if (targetMaster === sourceTableId) {
-      const next = { ...tableMergedInto.value };
-      delete next[targetTableId];
-      tableMergedInto.value = next;
-    }
+    // ── Floor-plan display: detach target slave only after confirming a move will happen
+    if (targetMaster === sourceTableId) _unlinkSlave(targetTableId);
 
     // Ensure target has an open billing session
     let targetSession = tableCurrentBillSession.value[targetTableId];
@@ -305,10 +319,9 @@ export function makeTableOps(state, helpers) {
       tableCurrentBillSession.value = nextSession;
       setBillRequested(sourceTableId, false);
 
-      const nextMergedInto = { ...tableMergedInto.value };
-      slaveIdsOf(sourceTableId).forEach(slaveId => { delete nextMergedInto[slaveId]; });
-      delete nextMergedInto[sourceTableId];
-      tableMergedInto.value = nextMergedInto;
+      // ── Floor-plan display: remove any merge links involving the now-empty source
+      slaveIdsOf(sourceTableId).forEach(slaveId => _unlinkSlave(slaveId));
+      _unlinkSlave(sourceTableId);
     }
 
     return true;
