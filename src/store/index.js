@@ -375,9 +375,10 @@ export const useAppStore = defineStore('app', () => {
     });
     const cc = config.value.coverCharge;
     if (cc?.enabled && cc?.autoAdd && cc?.priceAdult > 0) {
-      addDirectOrder(newTav, session?.billSessionId ?? null, [
+      const coverOrder = addDirectOrder(newTav, session?.billSessionId ?? null, [
         { uid: newUUID('cop'), dishId: cc.dishId + '_adulto', name: cc.name, unitPrice: cc.priceAdult, quantity: 2, voidedQuantity: 0, notes: [], modifiers: [] },
       ]);
+      if (coverOrder) coverOrder.isCoverCharge = true;
     }
   }
 
