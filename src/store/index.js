@@ -122,9 +122,11 @@ export const useAppStore = defineStore('app', () => {
   // Maps tableId -> { billSessionId, adults, children } for the current open session
   const tableCurrentBillSession = ref({});
   // Maps slaveTableId -> masterTableId for merged tables.
-  // When a slave is merged, ALL its orders are physically moved to the master's
-  // table field. The mapping is kept only so the slave shows as "occupied" on
-  // the floor plan by delegating its status to the master.
+  // When a slave is merged, only orders from its current active bill session
+  // are physically moved to the master's table field; older-session/historical
+  // orders are intentionally left in place to preserve session isolation. The
+  // mapping is kept only so the slave shows as "occupied" on the floor plan by
+  // delegating its status to the master.
   const tableMergedInto = ref({});
 
   // ── Computed: CSS variables for theming ────────────────────────────────────
