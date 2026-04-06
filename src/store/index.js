@@ -494,15 +494,12 @@ export const useAppStore = defineStore('app', () => {
     }
     const targetSessionId = tableCurrentBillSession.value[resolvedTargetId].billSessionId;
 
-    // Re-parent existing slaves of source to the new master (and move their orders too)
+    // Re-parent existing slaves of source to the new master.
+    // In the physical-move model, active slave orders should already live on the
+    // current master table. Any remaining orders keyed to a slave table are
+    // historical and must not be retagged into the new master's active session.
     const srcSlaves = slaveIdsOf(sourceTableId);
     srcSlaves.forEach(slaveId => {
-      orders.value.forEach(o => {
-        if (o.table === slaveId && o.status !== 'rejected') {
-          o.table = resolvedTargetId;
-          o.billSessionId = targetSessionId;
-        }
-      });
       tableMergedInto.value = { ...tableMergedInto.value, [slaveId]: resolvedTargetId };
     });
 
