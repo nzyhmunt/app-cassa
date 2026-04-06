@@ -589,11 +589,10 @@ export const useAppStore = defineStore('app', () => {
     tableMergedInto.value = { ...tableMergedInto.value, [sourceTableId]: resolvedTargetId };
   }
 
-  // Detaches a slave table from a merged group.
-  // Any items that should stay with the slave must have been moved there first
-  // by calling splitTableOrders() first (to free the slave), then splitItemsToTable().
-  // This function removes the tableMergedInto mapping and opens a fresh session
-  // for the slave if it already has orders on it.
+  // Detaches a slave table from a merged group and, if the slave already has active
+  // orders on it (moved there by splitItemsToTable), opens a fresh session for it.
+  // Note: splitItemsToTable() handles slave detachment automatically when the target
+  // is a merged slave, so this function is rarely needed directly.
   function splitTableOrders(masterTableId, slaveTableId) {
     if (tableMergedInto.value[slaveTableId] !== masterTableId) return;
 
@@ -620,12 +619,15 @@ export const useAppStore = defineStore('app', () => {
    * Moves selected item quantities from one table to another at the item level.
    *
    * - itemQtyMap: { key: qtyToMove } where key = `${orderId}__${itemUid}`
-   * - For each item, `qtyToMove` quantities are voided on the source order and
-   *   a new direct order is created on the target table.
+   * - When the target is a merged slave of the source, it is automatically detached
+   *   from the merge group before items are moved (no need to call splitTableOrders first).
+   * - When ALL active items of a source order are selected, the order is physically
+   *   relocated (table + billSessionId changed) to avoid creating a fully-voided
+   *   "storno" order on the source table.
+   * - When only SOME items of a source order are selected, the selected quantities
+   *   are voided on the source and a new direct order is created on the target.
    * - The target table gets a billing session if it doesn't already have one.
-   *
-   * Used both for splitting a single table (source = current table, target = free table)
-   * and for partially returning items from a merged slave back to the master.
+   * - When all active orders are moved away from source, its session state is cleaned up.
    *
    * @param {string} sourceTableId
    * @param {string} targetTableId
@@ -635,84 +637,166 @@ export const useAppStore = defineStore('app', () => {
   function splitItemsToTable(sourceTableId, targetTableId, itemQtyMap) {
     if (!sourceTableId || !targetTableId || sourceTableId === targetTableId) return false;
 
-    // Ensure target has a billing session.
-    // If the target is already occupied (e.g. pending-only orders or a merged slave)
-    // but has no own session, refuse the operation to avoid creating a rogue session.
+    // If the target is a slave of a *different* master, refuse upfront — moving orders
+    // there would corrupt the other merge group's billing state.
+    const targetMaster = tableMergedInto.value[targetTableId];
+    if (targetMaster && targetMaster !== sourceTableId) return false;
+
+    // Pre-scan: verify at least one item key actually matches an active order item and
+    // has a positive quantity to move. This prevents opening an orphan billing session
+    // on the target when itemQtyMap contains only non-matching keys or all-zero values.
+    // Detachment of a merged-slave target is deferred to after this check so that a
+    // no-op call (empty/non-matching itemQtyMap) never silently unmerges the table.
+    const hasValidItemsToMove = orders.value.some(ord => {
+      if (ord.table !== sourceTableId) return false;
+      if (ord.status === 'completed' || ord.status === 'rejected') return false;
+      return ord.orderItems.some(item => {
+        const netQty = item.quantity - (item.voidedQuantity || 0);
+        if (netQty <= 0) return false;
+        const key = `${ord.id}__${item.uid}`;
+        return Math.min(Math.max(0, Math.floor(itemQtyMap[key] || 0)), netQty) > 0;
+      });
+    });
+    if (!hasValidItemsToMove) return false;
+
+    // If the target is currently merged as a slave of the source, detach it now that
+    // at least one item will actually be moved. Deferring the detachment until here
+    // ensures a no-op call (empty / non-matching itemQtyMap) never silently unmerges tables.
+    if (targetMaster === sourceTableId) {
+      const next = { ...tableMergedInto.value };
+      delete next[targetTableId];
+      tableMergedInto.value = next;
+    }
+
+    // Ensure target has a billing session; open one if the table is free.
     let targetSession = tableCurrentBillSession.value[targetTableId];
     if (!targetSession) {
-      const targetStatus = getTableStatus(targetTableId).status;
-      if (targetStatus !== 'free') return false;
-
-      // A free table must not still be marked as a merged slave. If such a mapping
-      // remains, it is stale and would cause the new independent session/orders to
-      // be hidden behind the merge master in later status/billing lookups.
-      if (tableMergedInto.value[targetTableId]) {
-        delete tableMergedInto.value[targetTableId];
-      }
+      if (getTableStatus(targetTableId).status !== 'free') return false;
       openTableSession(targetTableId);
       targetSession = tableCurrentBillSession.value[targetTableId];
     }
-    if (!targetSession || !targetSession.billSessionId) return false;
+    if (!targetSession?.billSessionId) return false;
     const targetSessionId = targetSession.billSessionId;
 
-    const movedItemsForTarget = [];
+    let anyMoved = false;
+    // Items from orders that are only partially moved (void-and-copy strategy).
+    const partialMoveItems = [];
 
     orders.value.forEach(ord => {
       if (ord.table !== sourceTableId) return;
       if (ord.status === 'completed' || ord.status === 'rejected') return;
 
-      let orderModified = false;
+      // Determine which items to move and how many active units are in this order.
+      const moves = []; // { item, actualMoveQty, netQty }
+      let totalActiveInOrder = 0;
+      let totalMovingFromOrder = 0;
 
       ord.orderItems.forEach(item => {
+        const netQty = item.quantity - (item.voidedQuantity || 0);
+        if (netQty <= 0) return;
+        totalActiveInOrder += netQty;
+
         const key = `${ord.id}__${item.uid}`;
         const moveQty = Math.max(0, Math.floor(itemQtyMap[key] || 0));
-        if (moveQty <= 0) return;
-
-        const netQty = item.quantity - (item.voidedQuantity || 0);
         const actualMoveQty = Math.min(moveQty, netQty);
-        if (actualMoveQty <= 0) return;
+        totalMovingFromOrder += actualMoveQty;
 
-        // Void actualMoveQty units from the source item
-        item.voidedQuantity = (item.voidedQuantity || 0) + actualMoveQty;
-        orderModified = true;
-
-        // The number of active item units remaining on the source after the split.
-        // Modifier voidedQuantity is distributed so the combined pricing stays invariant:
-        // target gets max(0, mod.voidedQuantity - sourceActiveAfter) voided modifier
-        // units, which ensures source_charge + target_charge === original_charge.
-        const sourceActiveAfterSplit = netQty - actualMoveQty;
-
-        // Build a copy of the item (with all its modifiers) for the target order.
-        // Use the same crypto.randomUUID strategy as openTableSession for consistent UID generation.
-        const newUid = (typeof crypto !== 'undefined' && crypto.randomUUID)
-          ? crypto.randomUUID()
-          : 'spl_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7);
-        movedItemsForTarget.push({
-          uid: newUid,
-          dishId: item.dishId ?? null,
-          name: item.name,
-          unitPrice: item.unitPrice,
-          quantity: actualMoveQty,
-          voidedQuantity: 0,
-          notes: item.notes ? [...item.notes] : [],
-          modifiers: (item.modifiers || []).map(m => ({
-            ...m,
-            voidedQuantity: Math.max(0, (m.voidedQuantity || 0) - sourceActiveAfterSplit),
-          })),
-        });
+        if (actualMoveQty > 0) {
+          moves.push({ item, actualMoveQty, netQty });
+        }
       });
 
-      if (orderModified) updateOrderTotals(ord);
+      if (moves.length === 0) return; // nothing to move from this order
+
+      anyMoved = true;
+
+      if (totalMovingFromOrder === totalActiveInOrder) {
+        // ALL active items of this order are being moved: physically relocate the order
+        // to avoid leaving a fully-voided "storno" order on the source table.
+        ord.table = targetTableId;
+        ord.billSessionId = targetSessionId;
+      } else {
+        // PARTIAL move: void selected items on source and collect copies for the target.
+        moves.forEach(({ item, actualMoveQty, netQty }) => {
+          item.voidedQuantity = (item.voidedQuantity || 0) + actualMoveQty;
+
+          // The number of active item units remaining on the source after the split.
+          // Modifier voidedQuantity is distributed so the combined pricing stays invariant:
+          // target gets max(0, mod.voidedQuantity - sourceActiveAfter) voided modifier
+          // units, which ensures source_charge + target_charge === original_charge.
+          const sourceActiveAfterSplit = netQty - actualMoveQty;
+
+          // Build a copy of the item (with all its modifiers) for the target order.
+          // Use the same crypto.randomUUID strategy as openTableSession for consistent UID generation.
+          const newUid = (typeof crypto !== 'undefined' && crypto.randomUUID)
+            ? crypto.randomUUID()
+            : 'spl_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7);
+          partialMoveItems.push({
+            uid: newUid,
+            dishId: item.dishId ?? null,
+            name: item.name,
+            unitPrice: item.unitPrice,
+            quantity: actualMoveQty,
+            voidedQuantity: 0,
+            notes: item.notes ? [...item.notes] : [],
+            modifiers: (item.modifiers || []).map(m => ({
+              ...m,
+              voidedQuantity: Math.max(0, (m.voidedQuantity || 0) - sourceActiveAfterSplit),
+            })),
+          });
+        });
+        updateOrderTotals(ord);
+      }
     });
 
-    if (movedItemsForTarget.length === 0) return false;
+    if (!anyMoved) return false;
 
-    // Create a new direct order on the target table carrying all moved items
-    addDirectOrder(targetTableId, targetSessionId, movedItemsForTarget);
+    // Create a single direct order on the target for all partially-moved items.
+    if (partialMoveItems.length > 0) {
+      addDirectOrder(targetTableId, targetSessionId, partialMoveItems);
+    }
 
-    // Mark target as occupied if it wasn't already
+    // Mark target as occupied if it wasn't already.
     if (!tableOccupiedAt.value[targetTableId]) {
       tableOccupiedAt.value[targetTableId] = new Date().toISOString();
+    }
+
+    // If the source has no more active orders (all were physically relocated), clean up
+    // its session state so it returns to a proper free state.
+    // Also retag any current-session transactions to the target so that partial payments
+    // made before the move are not left orphaned on the now-free source table.
+    const sourceStillHasOrders = orders.value.some(
+      o => o.table === sourceTableId && o.status !== 'completed' && o.status !== 'rejected',
+    );
+    if (!sourceStillHasOrders) {
+      const srcSessionId = tableCurrentBillSession.value[sourceTableId]?.billSessionId;
+      if (srcSessionId) {
+        // Direct in-place mutation is safe here: transactions.value is a reactive Pinia ref
+        // and Vue tracks property changes on array items. This is the same pattern used
+        // throughout the store (e.g., mergeTableOrders, moveTableOrders).
+        transactions.value.forEach(t => {
+          if (t.tableId === sourceTableId && t.billSessionId === srcSessionId) {
+            t.tableId = targetTableId;
+            t.billSessionId = targetSessionId;
+          }
+        });
+      }
+      delete tableOccupiedAt.value[sourceTableId];
+      const nextSession = { ...tableCurrentBillSession.value };
+      delete nextSession[sourceTableId];
+      tableCurrentBillSession.value = nextSession;
+      billRequestedTables.value.delete(sourceTableId);
+      billRequestedTables.value = new Set(billRequestedTables.value);
+
+      // Keep merge state consistent with the table becoming fully free:
+      // - if sourceTableId is a master, detach all of its slaves
+      // - if sourceTableId is itself a slave, detach it from its master
+      const nextMergedInto = { ...tableMergedInto.value };
+      slaveIdsOf(sourceTableId).forEach(slaveId => {
+        delete nextMergedInto[slaveId];
+      });
+      delete nextMergedInto[sourceTableId];
+      tableMergedInto.value = nextMergedInto;
     }
 
     return true;

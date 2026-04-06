@@ -137,7 +137,7 @@
           <button v-if="tableOrders.length > 0 && !selectedTableMasterTableId" @click="openSplitModal"
             class="bg-orange-500/80 hover:bg-orange-500 p-2 sm:px-3 sm:py-2 rounded-xl font-bold text-[10px] md:text-xs flex items-center gap-1.5 transition-all active:scale-95 shrink-0"
             :title="slaveTables.length > 0 ? 'Dividi Tavoli Uniti' : 'Dividi Conto per Voce'">
-            <Scissors class="size-4" /> <span class="hidden sm:inline">Dividi</span>
+            <Split class="size-4" /> <span class="hidden sm:inline">Dividi</span>
           </button>
           <!-- Storico Conti button -->
           <router-link
@@ -1141,15 +1141,15 @@
   </div>
 
   <!-- ================================================================ -->
-  <!-- MODAL: DIVIDI TAVOLI / DIVIDI CONTO PER VOCE                    -->
+  <!-- MODAL: DIVIDI CONTO PER VOCE / SEPARA TAVOLI UNITI             -->
   <!-- ================================================================ -->
   <div v-if="showSplitModal" class="fixed inset-0 z-[100] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
     <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col max-h-[90dvh]">
       <!-- Header -->
       <div class="bg-gray-900 text-white px-5 py-4 flex justify-between items-center shrink-0">
         <h3 class="font-bold flex items-center gap-2">
-          <Scissors class="size-5 text-orange-400" />
-          {{ splitMode === 'merged' ? 'Separa Tavoli Uniti' : 'Dividi Conto per Voce' }}
+          <Split class="size-5 text-orange-400" />
+          {{ splitTargetIsSlave ? 'Separa Tavoli Uniti' : 'Dividi Conto per Voce' }}
         </h3>
         <button @click="showSplitModal = false" class="bg-white/10 hover:bg-white/20 p-2 rounded-full transition-colors active:scale-95"><X class="size-4" /></button>
       </div>
@@ -1157,63 +1157,34 @@
       <!-- Body -->
       <div class="p-5 overflow-y-auto flex-1 min-h-0 flex flex-col">
 
-        <!-- MERGED MODE: description + slave selector -->
-        <template v-if="splitMode === 'merged'">
-          <p class="text-xs text-gray-500 mb-3 shrink-0">
-            Seleziona il tavolo da separare. Le voci rimangono sul tavolo principale — seleziona quelle da trasferire al tavolo separato.
-          </p>
+        <!-- Description -->
+        <p class="text-xs text-gray-500 mb-4 shrink-0">
+          Seleziona il tavolo di destinazione, poi le voci da trasferire.
+          I tavoli già uniti (<Link class="size-3 inline-block" />) possono essere separati anche senza spostare voci.
+        </p>
 
-          <!-- Slave table selector (shown when multiple slaves) -->
-          <div v-if="slaveTables.length > 1" class="mb-4 shrink-0">
-            <p class="text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-2">Tavolo da separare</p>
-            <div class="grid grid-cols-4 gap-2">
-              <button
-                v-for="st in slaveTables" :key="'sl_'+st.id"
-                @click="onSplitSlaveChange(st.id)"
-                :class="splitSelectedSlaveId === st.id
-                  ? 'border-orange-400 bg-orange-50 text-orange-800'
-                  : 'border-gray-200 bg-gray-50 text-gray-700 hover:bg-gray-100'"
-                class="aspect-square rounded-xl border-2 relative flex flex-col items-center justify-center p-1.5 transition-all active:scale-95">
-                <span class="absolute top-1 right-1 text-[9px] font-bold opacity-50 flex items-center gap-0.5"><Users class="size-2.5" />{{ st.covers }}</span>
-                <span class="font-black text-xl">{{ st.label }}</span>
-              </button>
-            </div>
+        <!-- Unified target picker: slave tables + free tables -->
+        <div class="mb-4 shrink-0">
+          <p class="text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-2">Tavolo di destinazione</p>
+          <div v-if="splitAvailableTargets.length > 0" class="grid grid-cols-4 gap-2">
+            <button
+              v-for="t in splitAvailableTargets" :key="'spl_'+t.id"
+              @click="splitTargetTableId = t.id"
+              :class="splitTargetTableId === t.id
+                ? (t.isSlave ? 'border-orange-400 bg-orange-50 text-orange-800' : 'border-emerald-400 bg-emerald-50 text-emerald-800')
+                : 'border-gray-200 bg-gray-50 text-gray-700 hover:bg-gray-100'"
+              class="aspect-square rounded-xl border-2 relative flex flex-col items-center justify-center p-1.5 transition-all active:scale-95">
+              <Link v-if="t.isSlave" class="absolute top-1 left-1 size-3 opacity-50" />
+              <span class="font-black text-xl">{{ t.label }}</span>
+            </button>
           </div>
-          <div v-else-if="slaveTables.length === 1" class="mb-3 shrink-0">
-            <p class="text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-2">Tavolo da separare</p>
-            <div class="inline-flex items-center gap-2 bg-orange-50 border border-orange-200 text-orange-800 rounded-xl px-3 py-2 text-sm font-bold">
-              <Users class="size-3.5 opacity-60" />{{ slaveTables[0].label }}
-            </div>
-          </div>
-        </template>
+          <div v-else class="text-xs text-gray-400 py-2">Nessun tavolo disponibile.</div>
+        </div>
 
-        <!-- SINGLE MODE: description + free table picker -->
-        <template v-else>
-          <p class="text-xs text-gray-500 mb-3 shrink-0">
-            Scegli il tavolo di destinazione e seleziona le voci (con le quantità) da spostare su quel tavolo.
-          </p>
-          <div class="mb-4 shrink-0">
-            <p class="text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-2">Tavolo di destinazione</p>
-            <div v-if="freeTables.length > 0" class="grid grid-cols-4 gap-2">
-              <button
-                v-for="ft in freeTables" :key="'sft_'+ft.id"
-                @click="splitTargetFreeTableId = ft.id"
-                :class="splitTargetFreeTableId === ft.id
-                  ? 'border-emerald-400 bg-emerald-50 text-emerald-800'
-                  : 'border-gray-200 bg-gray-50 text-gray-700 hover:bg-gray-100'"
-                class="aspect-square rounded-xl border-2 relative flex flex-col items-center justify-center p-1.5 transition-all active:scale-95">
-                <span class="absolute top-1 right-1 text-[9px] font-bold opacity-50 flex items-center gap-0.5"><Users class="size-2.5" />{{ ft.covers }}</span>
-                <span class="font-black text-xl">{{ ft.label }}</span>
-              </button>
-            </div>
-            <div v-else class="text-xs text-gray-400 py-2">Nessun tavolo libero disponibile.</div>
-          </div>
-        </template>
-
-        <!-- Item-level quantity stepper list -->
-        <template v-if="(splitMode === 'merged' && splitSelectedSlaveId) || (splitMode === 'single' && splitTargetFreeTableId)">
+        <!-- Item-level quantity stepper list (shown once a target is selected) -->
+        <template v-if="splitTargetTableId">
           <p class="text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-2 shrink-0">
-            {{ splitMode === 'merged' ? 'Voci da trasferire al tavolo separato' : 'Seleziona le voci da spostare' }}
+            {{ splitTargetIsSlave ? 'Voci da trasferire al tavolo separato' : 'Seleziona le voci da spostare' }}
           </p>
 
           <div class="bg-gray-50 rounded-xl border border-gray-200 divide-y divide-gray-100 overflow-y-auto flex-1 min-h-0 mb-4">
@@ -1259,7 +1230,7 @@
           <div class="shrink-0 space-y-3">
             <div class="flex items-center justify-between bg-orange-50 border border-orange-200 rounded-xl px-4 py-2.5">
               <span class="text-xs text-gray-600 font-medium">
-                {{ splitMode === 'merged' ? 'Totale da trasferire al tavolo separato:' : 'Totale da spostare:' }}
+                {{ splitTargetIsSlave ? 'Totale da trasferire al tavolo separato:' : 'Totale da spostare:' }}
               </span>
               <span class="font-black text-orange-600 text-base">{{ store.config.ui.currency }}{{ splitSelectedTotal.toFixed(2) }}</span>
             </div>
@@ -1267,19 +1238,19 @@
               <button @click="showSplitModal = false" class="flex-1 py-3 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50 active:scale-95 transition-all">Annulla</button>
               <button
                 @click="confirmSplit"
-                :disabled="splitMode === 'merged' ? !splitSelectedSlaveId : (!splitTargetFreeTableId || splitSelectedTotal === 0)"
+                :disabled="!splitTargetIsSlave && splitSelectedTotal === 0"
                 class="flex-1 py-3 rounded-xl theme-bg text-white text-sm font-bold flex items-center justify-center gap-2 shadow-md hover:opacity-90 active:scale-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed">
-                <Scissors class="size-4" />
-                {{ splitMode === 'merged' ? 'Separa Tavolo' : 'Sposta Voci' }}
+                <Split class="size-4" />
+                {{ splitTargetIsSlave ? 'Separa Tavolo' : 'Sposta Voci' }}
               </button>
             </div>
           </div>
         </template>
 
-        <!-- Placeholder when no selection yet -->
+        <!-- Placeholder when no target selected yet -->
         <template v-else>
           <div class="flex-1 flex items-center justify-center text-gray-400 text-xs text-center py-6">
-            <span>{{ splitMode === 'merged' ? 'Seleziona il tavolo da separare.' : 'Seleziona il tavolo di destinazione.' }}</span>
+            <span>Seleziona il tavolo di destinazione.</span>
           </div>
           <button @click="showSplitModal = false" class="w-full py-3 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50 active:scale-95 transition-all shrink-0">Annulla</button>
         </template>
@@ -1310,7 +1281,7 @@ import {
   Ban, Undo2, Code, Minus, Receipt, ArrowRightLeft, Merge, Trash2,
   Layers, ListChecks, History, LayoutGrid, ListOrdered,
   Tag, Wallet, ChevronDown,
-  Percent, Zap, BookOpen, PlusCircle, Banknote, CreditCard, Lock, SquareCheck, Scissors, Link,
+  Percent, Zap, BookOpen, PlusCircle, Banknote, CreditCard, Lock, SquareCheck, Split, Link,
 } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
 import { getOrderItemRowTotal, KITCHEN_ACTIVE_STATUSES, getLockedDirectItems, appConfig } from '../utils/index.js';
@@ -1395,15 +1366,9 @@ const showMoveModal = ref(false);
 const showMergeModal = ref(false);
 const showSplitModal = ref(false);
 
-// Split mode: 'merged' (splitting slave off master) | 'single' (splitting a single table)
-const splitMode = ref('merged');
-// For 'merged' mode: which slave table to split off
-const splitSelectedSlaveId = ref(null);
-// For 'single' mode: which free table to move items to
-const splitTargetFreeTableId = ref(null);
-// Item-level quantity map: { key: qty }
-// Merged mode → qty = qty to assign/transfer to the SLAVE table
-// Single mode  → qty = qty to MOVE to the target table (0 = stays on current table)
+// Selected destination table for the split flow.
+const splitTargetTableId = ref(null);
+// Item-level quantity map: { key: qty } — qty = number of units to move to target
 const splitItemQtyMap = ref({});
 
 const freeTables = computed(() =>
@@ -1462,6 +1427,21 @@ const slaveTables = computed(() =>
   slaveTableIds.value
     .map(id => store.config.tables.find(t => t.id === id))
     .filter(Boolean),
+);
+
+// All valid target tables for the split modal: merged slaves + free tables.
+// Slave tables can be separated (with or without transferring items).
+// Free tables receive a portion of the current table's items.
+const splitAvailableTargets = computed(() => {
+  const slaves = slaveTables.value.map(t => ({ ...t, isSlave: true }));
+  const free = freeTables.value.map(t => ({ ...t, isSlave: false }));
+  return [...slaves, ...free];
+});
+
+// True when the currently selected split target is a merged slave of this table.
+const splitTargetIsSlave = computed(() =>
+  !!splitTargetTableId.value &&
+  store.tableMergedInto[splitTargetTableId.value] === selectedTable.value?.id,
 );
 
 const tableStatusCounts = computed(() => {
@@ -1573,23 +1553,13 @@ function openMoveModal() { showMoveModal.value = true; }
 function openMergeModal() { showMergeModal.value = true; }
 
 function openSplitModal() {
-  if (slaveTables.value.length > 0) {
-    // Merged mode: split a slave off the master
-    splitMode.value = 'merged';
-    splitSelectedSlaveId.value = slaveTables.value.length === 1 ? slaveTables.value[0].id : null;
-    splitTargetFreeTableId.value = null;
-  } else {
-    // Single mode: split items from this table to a free table
-    splitMode.value = 'single';
-    splitSelectedSlaveId.value = null;
-    splitTargetFreeTableId.value = null;
-  }
+  splitTargetTableId.value = null;
   splitItemQtyMap.value = {};
   showSplitModal.value = true;
 }
 
-// Pre-fill splitItemQtyMap with zeros (nothing moves by default for both modes)
-// Called when a slave or target table is chosen.
+// Pre-fill splitItemQtyMap with zeros (nothing moves by default).
+// Called when a target table is chosen.
 function initSplitQtyMap() {
   const map = {};
   for (const row of splitFlatItemsComputed.value) {
@@ -1604,14 +1574,8 @@ function queueInitSplitQtyMap() {
   nextTick(initSplitQtyMap);
 }
 
-// Called from template when slave changes (merged mode)
-function onSplitSlaveChange(slaveId) {
-  splitSelectedSlaveId.value = slaveId;
-  queueInitSplitQtyMap();
-}
-
-// Re-initialize qty map only when split selection inputs change while the modal is open
-watch([splitMode, splitSelectedSlaveId, splitTargetFreeTableId], () => {
+// Re-initialize qty map when target table changes
+watch(splitTargetTableId, () => {
   queueInitSplitQtyMap();
 }, { immediate: false });
 
@@ -1645,45 +1609,25 @@ function confirmMerge(sourceTable) {
 }
 
 function confirmSplit() {
-  if (!selectedTable.value) return;
+  if (!selectedTable.value || !splitTargetTableId.value) return;
 
-  if (splitMode.value === 'merged') {
-    if (!splitSelectedSlaveId.value) return;
-    const masterId = selectedTable.value.id;
-    const slaveId = splitSelectedSlaveId.value;
+  const qtyMap = {};
+  for (const row of splitFlatItemsComputed.value) {
+    const qty = splitItemQtyMap.value[row.key] ?? 0;
+    if (qty > 0) qtyMap[row.key] = qty;
+  }
 
-    // First detach the slave so splitItemsToTable can open an independent session on it
-    store.splitTableOrders(masterId, slaveId);
-
-    // Then move selected items from master to the now-free slave table
-    const slaveBoundQtyMap = {};
-    for (const row of splitFlatItemsComputed.value) {
-      const toSlave = splitItemQtyMap.value[row.key] ?? 0;
-      if (toSlave > 0) slaveBoundQtyMap[row.key] = toSlave;
-    }
-    if (Object.keys(slaveBoundQtyMap).length > 0) {
-      store.splitItemsToTable(masterId, slaveId, slaveBoundQtyMap);
-    }
-
+  // When the target is a slave of this table and no items are selected, the user
+  // wants a clean detach (separate tables without moving any items). Call
+  // splitTableOrders() directly; splitItemsToTable() requires at least one item.
+  if (splitTargetIsSlave.value && Object.keys(qtyMap).length === 0) {
+    store.splitTableOrders(selectedTable.value.id, splitTargetTableId.value);
   } else {
-    // Single mode: move selected items to the target free table
-    if (!splitTargetFreeTableId.value) return;
-    const targetId = splitTargetFreeTableId.value;
-    const singleQtyMap = {};
-    for (const row of splitFlatItemsComputed.value) {
-      const moveQty = splitItemQtyMap.value[row.key] ?? 0;
-      if (moveQty > 0) singleQtyMap[row.key] = moveQty;
-    }
-    if (Object.keys(singleQtyMap).length === 0) {
-      showSplitModal.value = false;
-      return;
-    }
-    store.splitItemsToTable(selectedTable.value.id, targetId, singleQtyMap);
+    store.splitItemsToTable(selectedTable.value.id, splitTargetTableId.value, qtyMap);
   }
 
   showSplitModal.value = false;
-  splitSelectedSlaveId.value = null;
-  splitTargetFreeTableId.value = null;
+  splitTargetTableId.value = null;
   splitItemQtyMap.value = {};
 }
 

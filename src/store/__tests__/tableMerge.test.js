@@ -913,4 +913,129 @@ describe('splitItemsToTable()', () => {
     // Combined = 8 + 8 = 16 (original, modifier remains 0 contribution)
     expect(sourceOrd.totalAmount + targetOrd.totalAmount).toBe(16);
   });
+
+  it('moving ALL items of an order physically relocates the order — no storno on source', () => {
+    const store = useAppStore();
+    const sessA = store.openTableSession('A', 2, 0);
+    const ord = makeOrderWithItems('A', 'accepted', sessA,
+      { name: 'Pizza', unitPrice: 10, quantity: 2 },
+    );
+    store.addOrder(ord);
+
+    // Move all 2 pizzas to B
+    const result = store.splitItemsToTable('A', 'B', { [`${ord.id}__${ord.orderItems[0].uid}`]: 2 });
+
+    expect(result).toBe(true);
+
+    // The original order is physically on B now (no copy, no void)
+    const movedOrd = store.orders.find(o => o.id === ord.id);
+    expect(movedOrd.table).toBe('B');
+    expect(movedOrd.orderItems[0].voidedQuantity).toBe(0); // NOT voided — no storno
+    expect(movedOrd.orderItems[0].quantity).toBe(2);       // quantity unchanged
+
+    // Exactly one order exists on B (the relocated one, no duplicates)
+    const activeOnB = store.orders.filter(
+      o => o.table === 'B' && o.status !== 'completed' && o.status !== 'rejected',
+    );
+    expect(activeOnB.length).toBe(1);
+    expect(activeOnB[0].id).toBe(ord.id);
+
+    // No active orders remain on A
+    const activeOnA = store.orders.filter(
+      o => o.table === 'A' && o.status !== 'completed' && o.status !== 'rejected',
+    );
+    expect(activeOnA.length).toBe(0);
+
+    // A is free, B is occupied
+    expect(store.getTableStatus('A').status).toBe('free');
+    expect(store.getTableStatus('B').status).toBe('occupied');
+  });
+
+  it('source session is cleaned up when all orders are physically moved away', () => {
+    const store = useAppStore();
+    const sessA = store.openTableSession('A', 2, 0);
+    const ord = makeOrderWithItems('A', 'accepted', sessA,
+      { name: 'Acqua', unitPrice: 2, quantity: 1 },
+    );
+    store.addOrder(ord);
+
+    // Mark A as bill-requested
+    store.setBillRequested('A', true);
+    expect(store.billRequestedTables.has('A')).toBe(true);
+
+    // Move the only item to B (full order move)
+    store.splitItemsToTable('A', 'B', { [`${ord.id}__${ord.orderItems[0].uid}`]: 1 });
+
+    // The moved order is on B with B's session ID
+    const sessB = store.tableCurrentBillSession['B'];
+    expect(sessB).toBeDefined();
+    const movedOrd = store.orders.find(o => o.id === ord.id);
+    expect(movedOrd.table).toBe('B');
+    expect(movedOrd.billSessionId).toBe(sessB.billSessionId);
+
+    // A's session and occupancy state should be cleared
+    expect(store.tableCurrentBillSession['A']).toBeUndefined();
+    expect(store.tableOccupiedAt['A']).toBeUndefined();
+    expect(store.billRequestedTables.has('A')).toBe(false);
+  });
+
+  it('current-session transactions are retagged to target when all orders are physically relocated', () => {
+    const store = useAppStore();
+    const sessA = store.openTableSession('A', 2, 0);
+    const ord = makeOrderWithItems('A', 'accepted', sessA,
+      { name: 'Acqua', unitPrice: 2, quantity: 1 },
+    );
+    store.addOrder(ord);
+
+    // Record a partial payment on A before the move
+    const txn = makeTransaction('A', 1, sessA);
+    store.addTransaction(txn);
+    expect(store.transactions.find(t => t.id === txn.id).tableId).toBe('A');
+
+    // Move the only item to B (full order → physical relocation)
+    store.splitItemsToTable('A', 'B', { [`${ord.id}__${ord.orderItems[0].uid}`]: 1 });
+
+    // The transaction should now be retagged to B and its new session
+    const sessB = store.tableCurrentBillSession['B'];
+    expect(sessB).toBeDefined();
+    const migratedTxn = store.transactions.find(t => t.id === txn.id);
+    expect(migratedTxn.tableId).toBe('B');
+    expect(migratedTxn.billSessionId).toBe(sessB.billSessionId);
+  });
+
+  it('partial and full moves from the same source: only partial-move orders stay voided, full-move orders relocate', () => {
+    const store = useAppStore();
+    const sessA = store.openTableSession('A', 2, 0);
+    const ordFull = makeOrderWithItems('A', 'accepted', sessA,
+      { name: 'Pizza', unitPrice: 10, quantity: 1 }, // will be fully moved
+    );
+    const ordPartial = makeOrderWithItems('A', 'accepted', sessA,
+      { name: 'Birra', unitPrice: 4, quantity: 2 },  // only 1 of 2 will move
+    );
+    store.addOrder(ordFull);
+    store.addOrder(ordPartial);
+
+    const qtyMap = {
+      [`${ordFull.id}__${ordFull.orderItems[0].uid}`]: 1,    // full move
+      [`${ordPartial.id}__${ordPartial.orderItems[0].uid}`]: 1, // partial move
+    };
+    store.splitItemsToTable('A', 'B', qtyMap);
+
+    // ordFull is physically on B — no void
+    expect(store.orders.find(o => o.id === ordFull.id).table).toBe('B');
+    expect(store.orders.find(o => o.id === ordFull.id).orderItems[0].voidedQuantity).toBe(0);
+
+    // ordPartial remains on A with 1 voided
+    expect(store.orders.find(o => o.id === ordPartial.id).table).toBe('A');
+    expect(store.orders.find(o => o.id === ordPartial.id).orderItems[0].voidedQuantity).toBe(1);
+
+    // B also has a new direct order for the partially moved Birra
+    const directOnB = store.orders.find(o => o.table === 'B' && o.isDirectEntry);
+    expect(directOnB).toBeDefined();
+    expect(directOnB.orderItems.some(i => i.name === 'Birra' && i.quantity === 1)).toBe(true);
+
+    // A still has the partial order, B is occupied
+    expect(store.getTableStatus('A').status).toBe('occupied');
+    expect(store.getTableStatus('B').status).toBe('occupied');
+  });
 });
