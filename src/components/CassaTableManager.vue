@@ -1402,8 +1402,8 @@ const splitSelectedSlaveId = ref(null);
 // For 'single' mode: which free table to move items to
 const splitTargetFreeTableId = ref(null);
 // Item-level quantity map: { key: qty }
-// Merged mode → qty = qty the SLAVE keeps (max = slave keeps all, 0 = all goes back to master)
-// Single mode  → qty = qty to MOVE to target (0 = stays on current table)
+// Merged mode → qty = qty to assign/transfer to the SLAVE table
+// Single mode  → qty = qty to MOVE to the target table (0 = stays on current table)
 const splitItemQtyMap = ref({});
 
 const freeTables = computed(() =>
