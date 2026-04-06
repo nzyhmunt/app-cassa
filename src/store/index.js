@@ -649,10 +649,20 @@ export const useAppStore = defineStore('app', () => {
       tableMergedInto.value = next;
     }
 
-    // Skip opening a session if there are no items to move (avoids empty sessions).
-    // The detach above still takes effect even when itemQtyMap is empty.
-    const hasItemsToMove = Object.values(itemQtyMap).some(v => v > 0);
-    if (!hasItemsToMove) return false;
+    // Pre-scan: verify at least one item key actually matches an active order item and
+    // has a positive quantity to move. This prevents opening an orphan billing session
+    // on the target when itemQtyMap contains only non-matching keys or all-zero values.
+    const hasValidItemsToMove = orders.value.some(ord => {
+      if (ord.table !== sourceTableId) return false;
+      if (ord.status === 'completed' || ord.status === 'rejected') return false;
+      return ord.orderItems.some(item => {
+        const netQty = item.quantity - (item.voidedQuantity || 0);
+        if (netQty <= 0) return false;
+        const key = `${ord.id}__${item.uid}`;
+        return Math.min(Math.max(0, Math.floor(itemQtyMap[key] || 0)), netQty) > 0;
+      });
+    });
+    if (!hasValidItemsToMove) return false;
 
     // Ensure target has a billing session; open one if the table is free.
     let targetSession = tableCurrentBillSession.value[targetTableId];
@@ -749,10 +759,24 @@ export const useAppStore = defineStore('app', () => {
 
     // If the source has no more active orders (all were physically relocated), clean up
     // its session state so it returns to a proper free state.
+    // Also retag any current-session transactions to the target so that partial payments
+    // made before the move are not left orphaned on the now-free source table.
     const sourceStillHasOrders = orders.value.some(
       o => o.table === sourceTableId && o.status !== 'completed' && o.status !== 'rejected',
     );
     if (!sourceStillHasOrders) {
+      const srcSessionId = tableCurrentBillSession.value[sourceTableId]?.billSessionId;
+      if (srcSessionId) {
+        // Direct in-place mutation is safe here: transactions.value is a reactive Pinia ref
+        // and Vue tracks property changes on array items. This is the same pattern used
+        // throughout the store (e.g., mergeTableOrders, moveTableOrders).
+        transactions.value.forEach(t => {
+          if (t.tableId === sourceTableId && t.billSessionId === srcSessionId) {
+            t.tableId = targetTableId;
+            t.billSessionId = targetSessionId;
+          }
+        });
+      }
       delete tableOccupiedAt.value[sourceTableId];
       const nextSession = { ...tableCurrentBillSession.value };
       delete nextSession[sourceTableId];

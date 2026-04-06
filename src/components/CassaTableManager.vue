@@ -137,7 +137,7 @@
           <button v-if="tableOrders.length > 0 && !selectedTableMasterTableId" @click="openSplitModal"
             class="bg-orange-500/80 hover:bg-orange-500 p-2 sm:px-3 sm:py-2 rounded-xl font-bold text-[10px] md:text-xs flex items-center gap-1.5 transition-all active:scale-95 shrink-0"
             :title="slaveTables.length > 0 ? 'Dividi Tavoli Uniti' : 'Dividi Conto per Voce'">
-            <Scissors class="size-4" /> <span class="hidden sm:inline">Dividi</span>
+            <Split class="size-4" /> <span class="hidden sm:inline">Dividi</span>
           </button>
           <!-- Storico Conti button -->
           <router-link
@@ -1148,7 +1148,7 @@
       <!-- Header -->
       <div class="bg-gray-900 text-white px-5 py-4 flex justify-between items-center shrink-0">
         <h3 class="font-bold flex items-center gap-2">
-          <Scissors class="size-5 text-orange-400" />
+          <Split class="size-5 text-orange-400" />
           {{ splitTargetIsSlave ? 'Separa Tavoli Uniti' : 'Dividi Conto per Voce' }}
         </h3>
         <button @click="showSplitModal = false" class="bg-white/10 hover:bg-white/20 p-2 rounded-full transition-colors active:scale-95"><X class="size-4" /></button>
@@ -1240,7 +1240,7 @@
                 @click="confirmSplit"
                 :disabled="!splitTargetIsSlave && splitSelectedTotal === 0"
                 class="flex-1 py-3 rounded-xl theme-bg text-white text-sm font-bold flex items-center justify-center gap-2 shadow-md hover:opacity-90 active:scale-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed">
-                <Scissors class="size-4" />
+                <Split class="size-4" />
                 {{ splitTargetIsSlave ? 'Separa Tavolo' : 'Sposta Voci' }}
               </button>
             </div>
@@ -1281,7 +1281,7 @@ import {
   Ban, Undo2, Code, Minus, Receipt, ArrowRightLeft, Merge, Trash2,
   Layers, ListChecks, History, LayoutGrid, ListOrdered,
   Tag, Wallet, ChevronDown,
-  Percent, Zap, BookOpen, PlusCircle, Banknote, CreditCard, Lock, SquareCheck, Scissors, Link,
+  Percent, Zap, BookOpen, PlusCircle, Banknote, CreditCard, Lock, SquareCheck, Split, Link,
 } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
 import { getOrderItemRowTotal, KITCHEN_ACTIVE_STATUSES, getLockedDirectItems, appConfig } from '../utils/index.js';
