@@ -419,11 +419,6 @@ const mergeCandidates = computed(() => {
   });
 });
 
-// Slave IDs merged into this selected table
-const slaveTableIds = computed(() =>
-  Object.keys(store.tableMergedInto).filter(id => store.tableMergedInto[id] === selectedTable.value?.id),
-);
-
 // True when the selected table is a slave (merged into another)
 const selectedTableMasterTableId = computed(() =>
   selectedTable.value ? (store.tableMergedInto[selectedTable.value.id] ?? null) : null,
