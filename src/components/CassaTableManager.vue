@@ -1366,7 +1366,7 @@ const showMoveModal = ref(false);
 const showMergeModal = ref(false);
 const showSplitModal = ref(false);
 
-// Split mode: 'merged' (splitting slave off master) | 'single' (splitting a single table)
+// Selected destination table for the split flow.
 const splitTargetTableId = ref(null);
 // Item-level quantity map: { key: qty } — qty = number of units to move to target
 const splitItemQtyMap = ref({});
