@@ -3,7 +3,7 @@
   <Transition name="kb-fade">
     <div
       v-if="keyboard.isVisible.value"
-      class="fixed inset-0 z-[80] bg-black/50 backdrop-blur-sm"
+      class="fixed inset-0 z-[150] bg-black/50 backdrop-blur-sm"
       @click="keyboard.closeKeyboard()"
     />
   </Transition>
@@ -105,10 +105,10 @@ const store = useAppStore();
 /** CSS classes for the keyboard panel based on the chosen position setting. */
 const panelClass = computed(() => {
   const pos = store.customKeyboard;
-  if (pos === 'left')  return 'fixed bottom-0 left-0 z-[81] bg-white rounded-tr-3xl shadow-2xl select-none w-full max-w-sm';
-  if (pos === 'right') return 'fixed bottom-0 right-0 z-[81] bg-white rounded-tl-3xl shadow-2xl select-none w-full max-w-sm';
+  if (pos === 'left')  return 'fixed bottom-0 left-0 z-[151] bg-white rounded-tr-3xl shadow-2xl select-none w-full max-w-sm';
+  if (pos === 'right') return 'fixed bottom-0 right-0 z-[151] bg-white rounded-tl-3xl shadow-2xl select-none w-full max-w-sm';
   // 'center' or fallback
-  return 'fixed bottom-0 left-0 right-0 z-[81] bg-white rounded-t-3xl shadow-2xl select-none mx-auto max-w-sm w-full';
+  return 'fixed bottom-0 left-0 right-0 z-[151] bg-white rounded-t-3xl shadow-2xl select-none mx-auto max-w-sm w-full';
 });
 
 const keyRows = computed(() => [
