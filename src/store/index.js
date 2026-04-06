@@ -530,14 +530,19 @@ export const useAppStore = defineStore('app', () => {
       });
     }
 
-    // Preserve earliest occupiedAt on master
+    // Preserve earliest occupiedAt on master, then clear the source
     if (tableOccupiedAt.value[sourceTableId]) {
       const srcTime = tableOccupiedAt.value[sourceTableId];
       const tgtTime = tableOccupiedAt.value[resolvedTargetId];
       if (!tgtTime || new Date(srcTime) < new Date(tgtTime)) {
         tableOccupiedAt.value[resolvedTargetId] = srcTime;
       }
+      delete tableOccupiedAt.value[sourceTableId];
     }
+    // Also clear stale occupiedAt for any re-parented slaves (they hold no orders)
+    srcSlaves.forEach(slaveId => {
+      delete tableOccupiedAt.value[slaveId];
+    });
 
     // Combine headcounts on master session
     if (srcSession) {
