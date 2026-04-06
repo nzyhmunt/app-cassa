@@ -117,7 +117,9 @@ export const useAppStore = defineStore('app', () => {
   // accessing tableMergedInto directly.  tableMergedInto is an internal
   // implementation detail whose sole purpose is the floor-plan ghost-occupied
   // display; exposing a stable API keeps components decoupled from the raw shape.
+  /** Returns true when tableId is a merged slave delegating its status to a master. */
   function isMergedSlave(tableId) { return !!tableMergedInto.value[tableId]; }
+  /** Returns the master table ID for a merged slave, or null if not a slave. */
   function masterTableOf(tableId) { return tableMergedInto.value[tableId] ?? null; }
 
   // ── Computed ───────────────────────────────────────────────────────────────

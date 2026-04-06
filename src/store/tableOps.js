@@ -30,10 +30,19 @@ export function makeTableOps(state, helpers) {
   // the master.  All writes to tableMergedInto go through these two helpers so
   // the display concern is visually isolated from the billing operations below.
 
+  /**
+   * Marks slaveId as a floor-plan ghost-occupied slave of masterId.
+   * @param {string} slaveId
+   * @param {string} masterId
+   */
   function _linkSlave(slaveId, masterId) {
     tableMergedInto.value = { ...tableMergedInto.value, [slaveId]: masterId };
   }
 
+  /**
+   * Removes the floor-plan ghost-occupied link for slaveId (no-op if not linked).
+   * @param {string} slaveId
+   */
   function _unlinkSlave(slaveId) {
     const next = { ...tableMergedInto.value };
     delete next[slaveId];
