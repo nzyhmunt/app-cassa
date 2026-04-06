@@ -754,9 +754,10 @@ export const useAppStore = defineStore('app', () => {
 
           // Reduce the source item quantity directly instead of using voidedQuantity.
           item.quantity -= actualMoveQty;
-          // Cap modifier voidedQuantity to the new item quantity to keep pricing consistent.
+          // Cap modifier voidedQuantity to the remaining active item count to keep
+          // modifier state aligned with the store's active-unit invariant.
           for (const m of (item.modifiers || [])) {
-            m.voidedQuantity = Math.min(m.voidedQuantity || 0, item.quantity);
+            m.voidedQuantity = Math.min(m.voidedQuantity || 0, sourceActiveAfterSplit);
           }
         });
         // Remove items that have no net units left after the partial move.
