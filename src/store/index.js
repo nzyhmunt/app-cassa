@@ -422,9 +422,9 @@ export const useAppStore = defineStore('app', () => {
     if (tableMergedInto.value[fromTableId]) {
       delete tableMergedInto.value[fromTableId];
     }
-    // If toTableId is a stale slave (mapped but free/no-orders), clear the mapping
-    // so it becomes fully independent after receiving moved orders — regardless of
-    // whether the source has an active session.
+    // If the destination is currently a slave, clear its merge mapping so it
+    // becomes independent before receiving the moved orders/session state.
+    // This is unconditional when a mapping exists.
     if (tableMergedInto.value[toTableId]) {
       delete tableMergedInto.value[toTableId];
     }
