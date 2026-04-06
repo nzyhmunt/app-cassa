@@ -783,6 +783,20 @@ export const useAppStore = defineStore('app', () => {
       tableCurrentBillSession.value = nextSession;
       billRequestedTables.value.delete(sourceTableId);
       billRequestedTables.value = new Set(billRequestedTables.value);
+
+      // Keep merge state consistent with the table becoming fully free:
+      // - if sourceTableId is a master, detach all of its slaves
+      // - if sourceTableId is itself a slave, detach it from its master
+      if (typeof tableMergedInto !== 'undefined' && tableMergedInto?.value) {
+        const nextMergedInto = { ...tableMergedInto.value };
+        if (typeof slaveIdsOf === 'function') {
+          slaveIdsOf(sourceTableId).forEach(slaveTableId => {
+            delete nextMergedInto[slaveTableId];
+          });
+        }
+        delete nextMergedInto[sourceTableId];
+        tableMergedInto.value = nextMergedInto;
+      }
     }
 
     return true;
