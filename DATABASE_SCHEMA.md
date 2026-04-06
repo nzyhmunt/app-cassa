@@ -662,7 +662,7 @@ CREATE TABLE table_merge_sessions (
 );
 ```
 
-La funzione **Dividi** (`splitItemsToTable` + `splitTableOrders`) sposta prima le voci selezionate sul tavolo slave tramite `splitItemsToTable`, poi `splitTableOrders` rimuove la voce da `tableMergedInto` e apre una nuova sessione per lo slave se necessario. Il master mantiene le voci rimaste.
+La funzione **Dividi** richiede la sequenza opposta: prima `splitTableOrders` rimuove la voce da `tableMergedInto` e rende di nuovo indipendente il tavolo slave (aprendo una nuova sessione se necessario), poi `splitItemsToTable` può spostare sullo slave le voci selezionate. Il master mantiene le voci rimaste.
 
 ### 5.3 Calcolo totale riga
 
