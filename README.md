@@ -235,7 +235,7 @@ pending → accepted → preparing → ready → delivered → completed
 
 ### ⚙️ Impostazioni (Cassa, Sala & Cucina)
 - Abilitazione/disabilitazione avvisi audio ("Ding" alla ricezione di nuovi ordini)
-- Abilitazione/disabilitazione blocco schermo (Wake Lock)
+- Abilitazione/disabilitazione blocco schermo (Wake Lock) — **attivo di default** al primo avvio
 - Configurazione URL menu JSON remoto e sincronizzazione manuale (Cassa e Sala)
 - **Gestione Utenti & Blocco Schermo**: accesso rapido alla configurazione del sistema di autenticazione
 - Reset completo dei dati con conferma (fine turno) — cancella anche tutti i dati di autenticazione

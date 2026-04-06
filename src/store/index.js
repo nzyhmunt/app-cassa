@@ -46,7 +46,7 @@ export const useAppStore = defineStore('app', () => {
       ? _savedSettings.menuUrl : appConfig.menuUrl,
   );
   const preventScreenLock = ref(
-    typeof _savedSettings?.preventScreenLock === 'boolean' ? _savedSettings.preventScreenLock : false,
+    typeof _savedSettings?.preventScreenLock === 'boolean' ? _savedSettings.preventScreenLock : true,
   );
   const customKeyboard = ref(
     (() => { const v = _savedSettings?.customKeyboard; return KEYBOARD_POSITIONS.includes(v) ? v : 'disabled'; })(),
