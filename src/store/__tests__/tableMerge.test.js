@@ -1,7 +1,7 @@
 /**
  * @file tableMerge.test.js
  * @description Unit tests for the revised mergeTableOrders, moveTableOrders and
- * detachSlaveTable store functions, as well as getTableStatus behaviour for
+ * detachSlaveTable store function, as well as getTableStatus behaviour for
  * merged (master/slave) tables.
  *
  * Key behaviours under test:
