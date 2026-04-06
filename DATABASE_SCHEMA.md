@@ -648,9 +648,9 @@ La funzione **Unisci** in App Cassa permette di accorpare il conto di due tavoli
 L'unione è rappresentata nel localStorage da `tableMergedInto`, un oggetto `{ slaveTableId: masterTableId }`.
 
 Semantica:
-- Al momento dell'unione (`mergeTableOrders`), **tutte le comande dello slave vengono fisicamente spostate sul tavolo master** (`orders[].table = masterTableId`). Il conto del master assorbe immediatamente tutte le voci.
-- Il tavolo **slave** non ha più comande proprie né una sessione aperta (`tableCurrentBillSession[slaveId]` = undefined). Appare comunque **occupato** nella piantina grazie alla voce `tableMergedInto[slaveId] = masterId`: `getTableStatus(slaveId)` delega direttamente a `getTableStatus(masterId)`.
-- In un database relazionale questa relazione sarebbe modellata con una tabella dedicata (solo due colonne — nessun riferimento a `bill_sessions`, poiché le comande si trovano fisicamente sul master):
+- Al momento dell'unione (`mergeTableOrders`), vengono fisicamente spostate sul tavolo master **solo le comande appartenenti alla sessione di conto attiva dello slave** (`orders[].table = masterTableId` per gli ordini della current bill session). Il conto del master assorbe immediatamente queste voci attive.
+- Il tavolo **slave** non ha più una sessione attiva propria (`tableCurrentBillSession[slaveId]` = undefined) né comande residue nella sessione corrente. Eventuali comande storiche / di sessioni precedenti restano invece associate al tavolo e alla `bill_session` originari, così da preservare l'isolamento per sessione. Il tavolo appare comunque **occupato** nella piantina grazie alla voce `tableMergedInto[slaveId] = masterId`: `getTableStatus(slaveId)` delega direttamente a `getTableStatus(masterId)`.
+- In un database relazionale questa relazione sarebbe modellata con una tabella dedicata per rappresentare il merge attivo (senza dover riallocare le comande storiche tra sessioni; le comande della sessione attiva risultano invece sul master):
 
 ```sql
 -- Active table merges; row is deleted when the merge is undone (split)
