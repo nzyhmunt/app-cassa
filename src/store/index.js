@@ -623,7 +623,7 @@ export const useAppStore = defineStore('app', () => {
    *   from the merge group before items are moved (no need to call splitTableOrders first).
    * - When ALL active items of a source order are selected, the order is physically
    *   relocated (table + billSessionId changed) to avoid creating a fully-voided
-   *   "storno" order on the source table.
+   *   order on the source table.
    * - When only SOME items of a source order are selected, the selected quantities
    *   are voided on the source and a new direct order is created on the target.
    * - The target table gets a billing session if it doesn't already have one.
@@ -712,7 +712,7 @@ export const useAppStore = defineStore('app', () => {
 
       if (totalMovingFromOrder === totalActiveInOrder) {
         // ALL active items of this order are being moved: physically relocate the order
-        // to avoid leaving a fully-voided "storno" order on the source table.
+        // to avoid leaving a fully-voided order on the source table.
         ord.table = targetTableId;
         ord.billSessionId = targetSessionId;
       } else {

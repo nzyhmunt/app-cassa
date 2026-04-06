@@ -185,7 +185,7 @@
                     v-if="item.voidedQuantity > 0 && item.voidedQuantity !== item.quantity"
                     class="text-[9px] text-red-500 font-bold border border-red-200 bg-red-50 px-1 rounded shrink-0"
                   >
-                    -{{ item.voidedQuantity }} Storn.
+                    -{{ item.voidedQuantity }} Ann.
                   </span>
                 </div>
                 <span class="font-bold shrink-0 ml-2">

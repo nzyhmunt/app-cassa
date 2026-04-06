@@ -96,7 +96,7 @@
                       class="font-bold text-sm md:text-base text-gray-800 leading-tight truncate"
                       :class="{ 'line-through': row.item.voidedQuantity === row.item.quantity }"
                     >{{ row.item.name }}</span>
-                    <span v-if="(row.item.voidedQuantity || 0) > 0" class="text-[9px] text-red-500 font-bold uppercase tracking-widest border border-red-200 bg-red-50 px-1 rounded shrink-0">-{{ row.item.voidedQuantity }} Stornati</span>
+                    <span v-if="(row.item.voidedQuantity || 0) > 0" class="text-[9px] text-red-500 font-bold uppercase tracking-widest border border-red-200 bg-red-50 px-1 rounded shrink-0">-{{ row.item.voidedQuantity }} Annullati</span>
                   </div>
                   <div v-if="row.item.notes && row.item.notes.length > 0" class="text-[10px] md:text-xs text-amber-600 font-bold italic mt-0.5 truncate flex items-center gap-1">
                     <MessageSquareWarning class="size-3 shrink-0" /> {{ row.item.notes.join(', ') }}

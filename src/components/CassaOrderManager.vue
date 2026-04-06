@@ -159,7 +159,7 @@
         <OrderItemsList
           :order="selectedOrder"
           note-visibility-key="cassa"
-          read-only-message='Ordine in preparazione. In sola lettura. Usa la schermata "Sala/Cassa" per stornare o gestire il conto.'
+          read-only-message='Ordine in preparazione. In sola lettura. Usa la schermata "Sala/Cassa" per annullare voci o gestire il conto.'
           @edit-item="openNoteModal(selectedOrder, $event)"
           @add-items="openAddMenu(selectedOrder)"
         />

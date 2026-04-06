@@ -914,7 +914,7 @@ describe('splitItemsToTable()', () => {
     expect(sourceOrd.totalAmount + targetOrd.totalAmount).toBe(16);
   });
 
-  it('moving ALL items of an order physically relocates the order — no storno on source', () => {
+  it('moving ALL items of an order physically relocates the order — no void on source', () => {
     const store = useAppStore();
     const sessA = store.openTableSession('A', 2, 0);
     const ord = makeOrderWithItems('A', 'accepted', sessA,
@@ -930,7 +930,7 @@ describe('splitItemsToTable()', () => {
     // The original order is physically on B now (no copy, no void)
     const movedOrd = store.orders.find(o => o.id === ord.id);
     expect(movedOrd.table).toBe('B');
-    expect(movedOrd.orderItems[0].voidedQuantity).toBe(0); // NOT voided — no storno
+    expect(movedOrd.orderItems[0].voidedQuantity).toBe(0); // NOT voided — no void on source
     expect(movedOrd.orderItems[0].quantity).toBe(2);       // quantity unchanged
 
     // Exactly one order exists on B (the relocated one, no duplicates)

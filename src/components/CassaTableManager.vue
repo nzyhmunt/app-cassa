@@ -167,7 +167,7 @@
 
       <div class="flex flex-1 min-h-0 flex-col sm:flex-row">
 
-        <!-- PANNELLO SINISTRO: Riepilogo Comande e Storni dalla Cassa -->
+        <!-- PANNELLO SINISTRO: Riepilogo Comande dalla Cassa -->
         <div class="w-full sm:w-[55%] border-b sm:border-b-0 sm:border-r border-gray-200 bg-gray-50 flex flex-col h-[42%] shrink-0 overflow-hidden sm:h-auto sm:shrink sm:flex-1">
           <div class="p-2 lg:p-3 bg-white border-b border-gray-200 shrink-0 flex items-center gap-1.5 overflow-hidden">
             <span class="hidden lg:block font-bold text-gray-700 text-xs uppercase tracking-wider shrink-0">Riepilogo Voci</span>
@@ -308,7 +308,7 @@
                         {{ dish.name }}
                       </span>
                       <div class="flex items-center gap-1.5">
-                        <span v-if="dish.totalVoided > 0" class="text-[8px] text-red-500 font-bold uppercase">-{{ dish.totalVoided }} storn.</span>
+                        <span v-if="dish.totalVoided > 0" class="text-[8px] text-red-500 font-bold uppercase">-{{ dish.totalVoided }} ann.</span>
                         <span v-if="dish.hasDirectEntry" class="text-[8px] theme-text font-bold uppercase flex items-center gap-0.5"><Zap class="size-2.5" /> Diretta</span>
                       </div>
                     </div>
@@ -385,7 +385,7 @@
                 </div>
               </div>
 
-              <!-- Voci dell'Ordine con Storni (Cassa) -->
+              <!-- Voci dell'Ordine (Cassa) -->
               <div class="pl-1 space-y-0.5">
                 <div v-for="(item, idx) in ord.orderItems" :key="item.uid" class="flex flex-col py-1.5 border-b border-gray-50 last:border-0" :class="{'opacity-50': item.voidedQuantity === item.quantity}">
                   <div class="flex items-center justify-between text-sm gap-2">
@@ -394,7 +394,7 @@
                       <div class="flex flex-col min-w-0">
                         <div class="flex items-center gap-1">
                           <span class="font-bold text-gray-800 leading-tight truncate text-xs md:text-sm" :class="{'line-through text-gray-500': item.voidedQuantity === item.quantity}">{{item.name}}</span>
-                          <span v-if="(item.voidedQuantity || 0) > 0" class="text-[8px] md:text-[9px] text-red-500 font-bold uppercase tracking-widest border border-red-200 bg-red-50 px-1 rounded shrink-0">-{{item.voidedQuantity}} Storn.</span>
+                          <span v-if="(item.voidedQuantity || 0) > 0" class="text-[8px] md:text-[9px] text-red-500 font-bold uppercase tracking-widest border border-red-200 bg-red-50 px-1 rounded shrink-0">-{{item.voidedQuantity}} Ann.</span>
                         </div>
                       </div>
                     </div>
@@ -403,7 +403,7 @@
                         {{ store.config.ui.currency }}{{getOrderItemRowTotal(item).toFixed(2)}}
                       </span>
                       <div v-if="ord.status === 'accepted'" class="flex items-center gap-1 ml-1">
-                        <button @click="store.voidOrderItems(ord, idx, 1)" :disabled="item.quantity - (item.voidedQuantity || 0) <= 0" class="p-1.5 bg-white border border-orange-200 text-orange-500 hover:bg-orange-50 rounded shadow-sm transition-colors active:scale-95 disabled:opacity-30" title="Storna dal conto">
+                        <button @click="store.voidOrderItems(ord, idx, 1)" :disabled="item.quantity - (item.voidedQuantity || 0) <= 0" class="p-1.5 bg-white border border-orange-200 text-orange-500 hover:bg-orange-50 rounded shadow-sm transition-colors active:scale-95 disabled:opacity-30" title="Rimuovi dal conto">
                           <Ban class="size-4 md:size-4" />
                         </button>
                         <button @click="store.restoreOrderItems(ord, idx, 1)" :disabled="(item.voidedQuantity || 0) <= 0" class="p-1.5 bg-white border border-blue-200 text-blue-500 hover:bg-blue-50 rounded shadow-sm transition-colors active:scale-95 disabled:opacity-30" title="Ripristina nel conto">
@@ -412,7 +412,7 @@
                       </div>
                     </div>
                   </div>
-                  <!-- Variazioni a pagamento (per ordine) con storni -->
+                  <!-- Variazioni a pagamento (per ordine) -->
                   <div v-if="item.modifiers && item.modifiers.some(m => m.price > 0)" class="mt-1 ml-8 space-y-0.5">
                     <template v-for="(mod, modIdx) in item.modifiers" :key="'mod_'+item.uid+'_'+modIdx+'_'+mod.name+'_'+mod.price">
                       <div v-if="mod.price > 0"
@@ -433,7 +433,7 @@
                           <button @click="store.voidModifier(ord, idx, modIdx, 1)"
                             :disabled="item.quantity - (item.voidedQuantity || 0) - (mod.voidedQuantity || 0) <= 0"
                             class="p-1 bg-white border border-orange-200 text-orange-500 hover:bg-orange-50 rounded shadow-sm transition-colors active:scale-95 disabled:opacity-30"
-                            title="Storna questa variazione">
+                            title="Rimuovi questa variazione">
                             <Ban class="size-3" />
                           </button>
                           <button @click="store.restoreModifier(ord, idx, modIdx, 1)"
