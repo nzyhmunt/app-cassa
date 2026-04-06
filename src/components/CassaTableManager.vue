@@ -1512,16 +1512,52 @@ const splitFlatItemsComputed = computed(() => {
         netQty,
         unitPrice: item.unitPrice,
         rowTotal: getOrderItemRowTotal(item),
+        sourceItem: item,
       });
     }
   }
   return rows;
 });
 
-// Returns the proportional total for a split-modal row given the selected qty.
-// rowTotal covers the full netQty (including modifiers); dividing gives the per-unit cost.
+function buildSplitTargetItem(sourceItem, qty) {
+  const sourceVoidedQty = sourceItem.voidedQuantity || 0;
+  const sourceActiveQty = Math.max(0, (sourceItem.quantity || 0) - sourceVoidedQty);
+  const movedQty = Math.max(0, Math.min(qty || 0, sourceActiveQty));
+  const sourceActiveAfterSplit = Math.max(0, sourceActiveQty - movedQty);
+
+  const targetItem = {
+    ...sourceItem,
+    quantity: movedQty,
+    voidedQuantity: 0,
+  };
+
+  if (Array.isArray(sourceItem.modifiers)) {
+    targetItem.modifiers = sourceItem.modifiers.map((modifier) => {
+      const modifierQuantity = modifier.quantity ?? sourceItem.quantity ?? 0;
+      const modifierVoidedQuantity = modifier.voidedQuantity || 0;
+      const modifierActiveQuantity = Math.max(0, modifierQuantity - modifierVoidedQuantity);
+      const targetModifierQuantity = Math.min(modifierQuantity, movedQty);
+      const targetModifierActiveQuantity = Math.max(
+        0,
+        Math.min(targetModifierQuantity, modifierActiveQuantity - sourceActiveAfterSplit),
+      );
+      return {
+        ...modifier,
+        quantity: targetModifierQuantity,
+        voidedQuantity: Math.max(0, targetModifierQuantity - targetModifierActiveQuantity),
+      };
+    });
+  }
+
+  return targetItem;
+}
+
+// Returns the exact total for the quantity that would be moved by the split modal.
+// This mirrors the split behavior by reconstructing the moved row and repricing it,
+// instead of assuming the full row total is linearly proportional to quantity.
 function splitRowAmount(row, qty) {
-  return row.netQty > 0 ? (row.rowTotal / row.netQty) * qty : 0;
+  if (!row?.sourceItem || !qty || qty <= 0) return 0;
+  return getOrderItemRowTotal(buildSplitTargetItem(row.sourceItem, qty));
 }
 
 // Total amount of items currently selected in the split modal
