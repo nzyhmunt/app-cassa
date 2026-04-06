@@ -454,6 +454,17 @@ const occupiedSince = computed(() => {
 
 // ── Actions ──────────────────────────────────────────────────────────────────
 function openTableDetails(table) {
+  // If the table is a merged slave with active orders, open the master's panel instead.
+  // In the physical-move model the slave holds no orders; all billing is on the master.
+  const masterId = store.tableMergedInto[table.id];
+  if (masterId && store.getTableStatus(table.id).status !== 'free') {
+    const masterTable = store.config.tables.find(t => t.id === masterId);
+    if (masterTable) {
+      _openTableModal(masterTable);
+      return;
+    }
+  }
+
   const status = store.getTableStatus(table.id).status;
   if (status === 'free') {
     pendingTableToOpen.value = table;
