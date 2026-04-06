@@ -651,7 +651,7 @@ export const useAppStore = defineStore('app', () => {
 
     // Skip opening a session if there are no items to move (avoids empty sessions).
     // The detach above still takes effect even when itemQtyMap is empty.
-    const hasItemsToMove = Object.values(itemQtyMap).some(v => Math.floor(Math.max(0, v)) > 0);
+    const hasItemsToMove = Object.values(itemQtyMap).some(v => v > 0);
     if (!hasItemsToMove) return false;
 
     // Ensure target has a billing session; open one if the table is free.
