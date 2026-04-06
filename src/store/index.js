@@ -595,14 +595,14 @@ export const useAppStore = defineStore('app', () => {
     delete next[slaveTableId];
     tableMergedInto.value = next;
 
-    // If the slave has any orders (moved there by splitItemsToTable), open a fresh session
+    // If the slave has any active orders (moved there by splitItemsToTable), open a fresh session
     const slaveHasOrders = orders.value.some(
       o => o.table === slaveTableId && o.status !== 'completed' && o.status !== 'rejected',
     );
     if (slaveHasOrders) {
       const newSessionId = openTableSession(slaveTableId, 0, 0);
       orders.value.forEach(o => {
-        if (o.table === slaveTableId && o.status !== 'rejected') {
+        if (o.table === slaveTableId && o.status !== 'completed' && o.status !== 'rejected') {
           o.billSessionId = newSessionId;
         }
       });
