@@ -512,9 +512,12 @@ export const useAppStore = defineStore('app', () => {
     const srcSession = tableCurrentBillSession.value[sourceTableId];
     const srcSessionId = srcSession?.billSessionId;
 
-    // Physically move all non-rejected source orders to master table
+    // Physically move source orders from the current session to master table.
+    // Orders from older (closed) sessions are left in place to preserve
+    // per-session isolation — getTableStatus() filters by billSessionId.
     orders.value.forEach(o => {
       if (o.table !== sourceTableId || o.status === 'rejected') return;
+      if (srcSessionId && o.billSessionId !== srcSessionId) return;
       o.table = resolvedTargetId;
       o.billSessionId = targetSessionId;
     });

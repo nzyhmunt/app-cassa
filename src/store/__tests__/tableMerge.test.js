@@ -288,6 +288,42 @@ describe('mergeTableOrders() — bug fix: paid table + open table', () => {
     expect(masterStatus.total).toBe(30);
     expect(masterStatus.remaining).toBe(20);
   });
+
+  it('historical orders from older sessions are NOT pulled into master when merging', () => {
+    const store = useAppStore();
+    // Table A: had a previous session (oldSess) with a completed order — already closed
+    const oldSessA = store.openTableSession('A', 2, 0);
+    const oldOrd = makeOrder('A', 'completed', 50, oldSessA);
+    store.addOrder(oldOrd);
+    // Simulate session close: remove session entry (order stays as historical)
+    const next = { ...store.tableCurrentBillSession };
+    delete next['A'];
+    store.$patch({ tableCurrentBillSession: next });
+
+    // Table A: new session starts
+    const newSessA = store.openTableSession('A', 2, 0);
+    const newOrd = makeOrder('A', 'accepted', 25, newSessA);
+    store.addOrder(newOrd);
+
+    // Table B: open session
+    const sessB = store.openTableSession('B', 2, 0);
+    const ordB = makeOrder('B', 'accepted', 10, sessB);
+    store.addOrder(ordB);
+
+    // Merge A (slave) into B (master)
+    store.mergeTableOrders('A', 'B');
+
+    // Only the current-session order (25) should be on master; historical order stays on A
+    const masterStatus = store.getTableStatus('B');
+    // B had 10; A contributed 25 (current session only)
+    expect(masterStatus.total).toBe(35);
+    expect(masterStatus.remaining).toBe(35);
+
+    // Historical order must still be on table A (not moved to master)
+    const historicalOrder = store.orders.find(o => o.id === oldOrd.id);
+    expect(historicalOrder.table).toBe('A');
+    expect(historicalOrder.billSessionId).toBe(oldSessA);
+  });
 });
 
 // ---------------------------------------------------------------------------
