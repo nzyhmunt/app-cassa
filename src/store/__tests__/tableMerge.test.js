@@ -933,6 +933,13 @@ describe('splitItemsToTable()', () => {
     expect(movedOrd.orderItems[0].voidedQuantity).toBe(0); // NOT voided — no storno
     expect(movedOrd.orderItems[0].quantity).toBe(2);       // quantity unchanged
 
+    // Exactly one order exists on B (the relocated one, no duplicates)
+    const activeOnB = store.orders.filter(
+      o => o.table === 'B' && o.status !== 'completed' && o.status !== 'rejected',
+    );
+    expect(activeOnB.length).toBe(1);
+    expect(activeOnB[0].id).toBe(ord.id);
+
     // No active orders remain on A
     const activeOnA = store.orders.filter(
       o => o.table === 'A' && o.status !== 'completed' && o.status !== 'rejected',
@@ -958,6 +965,13 @@ describe('splitItemsToTable()', () => {
 
     // Move the only item to B (full order move)
     store.splitItemsToTable('A', 'B', { [`${ord.id}__${ord.orderItems[0].uid}`]: 1 });
+
+    // The moved order is on B with B's session ID
+    const sessB = store.tableCurrentBillSession['B'];
+    expect(sessB).toBeDefined();
+    const movedOrd = store.orders.find(o => o.id === ord.id);
+    expect(movedOrd.table).toBe('B');
+    expect(movedOrd.billSessionId).toBe(sessB.billSessionId);
 
     // A's session and occupancy state should be cleared
     expect(store.tableCurrentBillSession['A']).toBeUndefined();
