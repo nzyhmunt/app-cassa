@@ -589,11 +589,10 @@ export const useAppStore = defineStore('app', () => {
     tableMergedInto.value = { ...tableMergedInto.value, [sourceTableId]: resolvedTargetId };
   }
 
-  // Detaches a slave table from a merged group.
-  // Any items that should stay with the slave must have been moved there first
-  // by calling splitTableOrders() first (to free the slave), then splitItemsToTable().
-  // This function removes the tableMergedInto mapping and opens a fresh session
-  // for the slave if it already has orders on it.
+  // Detaches a slave table from a merged group and, if the slave already has active
+  // orders on it (moved there by splitItemsToTable), opens a fresh session for it.
+  // Note: splitItemsToTable() handles slave detachment automatically when the target
+  // is a merged slave, so this function is rarely needed directly.
   function splitTableOrders(masterTableId, slaveTableId) {
     if (tableMergedInto.value[slaveTableId] !== masterTableId) return;
 
@@ -620,6 +619,8 @@ export const useAppStore = defineStore('app', () => {
    * Moves selected item quantities from one table to another at the item level.
    *
    * - itemQtyMap: { key: qtyToMove } where key = `${orderId}__${itemUid}`
+   * - When the target is a merged slave of the source, it is automatically detached
+   *   from the merge group before items are moved (no need to call splitTableOrders first).
    * - When ALL active items of a source order are selected, the order is physically
    *   relocated (table + billSessionId changed) to avoid creating a fully-voided
    *   "storno" order on the source table.
@@ -627,9 +628,6 @@ export const useAppStore = defineStore('app', () => {
    *   are voided on the source and a new direct order is created on the target.
    * - The target table gets a billing session if it doesn't already have one.
    * - When all active orders are moved away from source, its session state is cleaned up.
-   *
-   * Used both for splitting a single table (source = current table, target = free table)
-   * and for partially returning items from a merged slave back to the master.
    *
    * @param {string} sourceTableId
    * @param {string} targetTableId
@@ -639,24 +637,31 @@ export const useAppStore = defineStore('app', () => {
   function splitItemsToTable(sourceTableId, targetTableId, itemQtyMap) {
     if (!sourceTableId || !targetTableId || sourceTableId === targetTableId) return false;
 
-    // Ensure target has a billing session.
-    // If the target is already occupied (e.g. pending-only orders or a merged slave)
-    // but has no own session, refuse the operation to avoid creating a rogue session.
+    // If the target is currently merged as a slave of the source, detach it so it
+    // can receive its own session and become independent.
+    // If the target is a slave of a *different* master, refuse — moving orders there
+    // would corrupt the other merge group's billing state.
+    const targetMaster = tableMergedInto.value[targetTableId];
+    if (targetMaster) {
+      if (targetMaster !== sourceTableId) return false;
+      const next = { ...tableMergedInto.value };
+      delete next[targetTableId];
+      tableMergedInto.value = next;
+    }
+
+    // Skip opening a session if there are no items to move (avoids empty sessions).
+    // The detach above still takes effect even when itemQtyMap is empty.
+    const hasItemsToMove = Object.values(itemQtyMap).some(v => Math.floor(Math.max(0, v)) > 0);
+    if (!hasItemsToMove) return false;
+
+    // Ensure target has a billing session; open one if the table is free.
     let targetSession = tableCurrentBillSession.value[targetTableId];
     if (!targetSession) {
-      const targetStatus = getTableStatus(targetTableId).status;
-      if (targetStatus !== 'free') return false;
-
-      // A free table must not still be marked as a merged slave. If such a mapping
-      // remains, it is stale and would cause the new independent session/orders to
-      // be hidden behind the merge master in later status/billing lookups.
-      if (tableMergedInto.value[targetTableId]) {
-        delete tableMergedInto.value[targetTableId];
-      }
+      if (getTableStatus(targetTableId).status !== 'free') return false;
       openTableSession(targetTableId);
       targetSession = tableCurrentBillSession.value[targetTableId];
     }
-    if (!targetSession || !targetSession.billSessionId) return false;
+    if (!targetSession?.billSessionId) return false;
     const targetSessionId = targetSession.billSessionId;
 
     let anyMoved = false;
