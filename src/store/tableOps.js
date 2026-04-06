@@ -44,6 +44,7 @@ export function makeTableOps(state, helpers) {
    * @param {string} slaveId
    */
   function _unlinkSlave(slaveId) {
+    if (tableMergedInto.value[slaveId] == null) return;
     const next = { ...tableMergedInto.value };
     delete next[slaveId];
     tableMergedInto.value = next;
@@ -75,7 +76,10 @@ export function makeTableOps(state, helpers) {
       });
     } else {
       transactions.value.forEach(t => {
-        if (t.tableId === srcTableId) t.tableId = dstTableId;
+        if (t.tableId === srcTableId) {
+          t.tableId = dstTableId;
+          if (dstSessionId) t.billSessionId = dstSessionId;
+        }
       });
     }
   }
