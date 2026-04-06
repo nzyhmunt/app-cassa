@@ -637,6 +637,14 @@ export const useAppStore = defineStore('app', () => {
   function splitItemsToTable(sourceTableId, targetTableId, itemQtyMap) {
     if (!sourceTableId || !targetTableId || sourceTableId === targetTableId) return false;
 
+    // Block split when the source table has orders still waiting for kitchen confirmation.
+    // Splitting a pending order would leave an inconsistent state because the order
+    // hasn't been accepted yet and may be modified or rejected by the kitchen.
+    const hasPendingOrders = orders.value.some(
+      o => o.table === sourceTableId && o.status === 'pending',
+    );
+    if (hasPendingOrders) return false;
+
     // If the target is a slave of a *different* master, refuse upfront — moving orders
     // there would corrupt the other merge group's billing state.
     const targetMaster = tableMergedInto.value[targetTableId];
@@ -679,7 +687,7 @@ export const useAppStore = defineStore('app', () => {
     const targetSessionId = targetSession.billSessionId;
 
     let anyMoved = false;
-    // Items from orders that are only partially moved (void-and-copy strategy).
+    // Items from orders that are only partially moved (direct-copy strategy, no storno).
     const partialMoveItems = [];
 
     orders.value.forEach(ord => {
@@ -716,10 +724,9 @@ export const useAppStore = defineStore('app', () => {
         ord.table = targetTableId;
         ord.billSessionId = targetSessionId;
       } else {
-        // PARTIAL move: void selected items on source and collect copies for the target.
+        // PARTIAL move: reduce quantity directly on the source (no storno/voidedQuantity).
+        // Builds a copy of each moved item for the target order before modifying the source.
         moves.forEach(({ item, actualMoveQty, netQty }) => {
-          item.voidedQuantity = (item.voidedQuantity || 0) + actualMoveQty;
-
           // The number of active item units remaining on the source after the split.
           // Modifier voidedQuantity is distributed so the combined pricing stays invariant:
           // target gets max(0, mod.voidedQuantity - sourceActiveAfter) voided modifier
@@ -744,7 +751,18 @@ export const useAppStore = defineStore('app', () => {
               voidedQuantity: Math.max(0, (m.voidedQuantity || 0) - sourceActiveAfterSplit),
             })),
           });
+
+          // Reduce the source item quantity directly instead of using voidedQuantity.
+          item.quantity -= actualMoveQty;
+          // Cap modifier voidedQuantity to the new item quantity to keep pricing consistent.
+          for (const m of (item.modifiers || [])) {
+            m.voidedQuantity = Math.min(m.voidedQuantity || 0, item.quantity);
+          }
         });
+        // Remove items that have no units left after the partial move.
+        ord.orderItems = ord.orderItems.filter(
+          i => i.quantity - (i.voidedQuantity || 0) > 0,
+        );
         updateOrderTotals(ord);
       }
     });

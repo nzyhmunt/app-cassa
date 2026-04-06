@@ -133,10 +133,12 @@
             <Merge class="size-4" /> <span class="hidden sm:inline">Unisci</span>
           </button>
           <!-- Dividi button: visible when this table has slaves OR when it has active orders
-               (single-table split). Hidden when table is itself a slave (managed from master). -->
+               (single-table split). Hidden when table is itself a slave (managed from master).
+               Disabled when there are pending (not yet accepted) orders. -->
           <button v-if="tableOrders.length > 0 && !selectedTableMasterTableId" @click="openSplitModal"
-            class="bg-orange-500/80 hover:bg-orange-500 p-2 sm:px-3 sm:py-2 rounded-xl font-bold text-[10px] md:text-xs flex items-center gap-1.5 transition-all active:scale-95 shrink-0"
-            :title="slaveTables.length > 0 ? 'Dividi Tavoli Uniti' : 'Dividi Conto per Voce'">
+            class="bg-orange-500/80 hover:bg-orange-500 p-2 sm:px-3 sm:py-2 rounded-xl font-bold text-[10px] md:text-xs flex items-center gap-1.5 transition-all active:scale-95 shrink-0 disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none"
+            :disabled="hasPendingOrdersInTable"
+            :title="hasPendingOrdersInTable ? 'Impossibile dividere: ci sono ordini in attesa' : slaveTables.length > 0 ? 'Dividi Tavoli Uniti' : 'Dividi Conto per Voce'">
             <Split class="size-4" /> <span class="hidden sm:inline">Dividi</span>
           </button>
           <!-- Storico Conti button -->
