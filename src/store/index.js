@@ -411,6 +411,13 @@ export const useAppStore = defineStore('app', () => {
       billRequestedTables.value.add(toTableId);
       billRequestedTables.value = new Set(billRequestedTables.value);
     }
+    // If the destination is currently a slave, clear its merge mapping so it
+    // becomes independent before receiving the moved orders/session state.
+    // This must happen before resolving the move target so resolveMaster(toTableId)
+    // returns toTableId itself rather than the now-irrelevant old master.
+    if (tableMergedInto.value[toTableId]) {
+      delete tableMergedInto.value[toTableId];
+    }
     // Any slave tables that were merged into the source must now follow the source.
     // Resolve toTableId to its own master first so we never create a slave→slave chain.
     const resolvedMoveTarget = resolveMaster(toTableId);
@@ -421,12 +428,6 @@ export const useAppStore = defineStore('app', () => {
     // If the source was itself a slave, detach its old merge mapping.
     if (tableMergedInto.value[fromTableId]) {
       delete tableMergedInto.value[fromTableId];
-    }
-    // If the destination is currently a slave, clear its merge mapping so it
-    // becomes independent before receiving the moved orders/session state.
-    // This is unconditional when a mapping exists.
-    if (tableMergedInto.value[toTableId]) {
-      delete tableMergedInto.value[toTableId];
     }
     // Move bill session
     if (tableCurrentBillSession.value[fromTableId]) {
