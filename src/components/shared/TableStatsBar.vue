@@ -1,17 +1,18 @@
 <template>
-  <!-- Status filter pills — clickable to filter table grid; count=0 pills are dimmed (legend) -->
+  <!-- Status filter pills — clickable to filter table grid; count=0 pills are dimmed and disabled -->
   <div class="flex flex-wrap items-center gap-2">
     <!-- Libero -->
     <button
       type="button"
       @click="toggle('free')"
+      :disabled="freeCount === 0"
       :aria-pressed="activeFilter === 'free'"
       :aria-label="`Filtra per Liberi: ${freeCount} tavoli`"
       :class="[
         activeFilter === 'free' ? 'ring-2 ring-emerald-400 ring-offset-1' : '',
         freeCount > 0 ? 'bg-white border-gray-200' : 'bg-white/60 border-gray-100 opacity-50',
       ]"
-      class="flex items-center gap-2 rounded-xl px-3 py-2 shadow-sm border transition-all active:scale-95 cursor-pointer"
+      class="flex items-center gap-2 rounded-xl px-3 py-2 shadow-sm border transition-all active:scale-95 cursor-pointer disabled:cursor-not-allowed"
     >
       <span class="size-2.5 rounded-full border-2 border-emerald-400 bg-emerald-100 shrink-0"></span>
       <span class="text-xs font-bold text-gray-700">Liberi</span>
@@ -21,13 +22,14 @@
     <button
       type="button"
       @click="toggle('occupied')"
+      :disabled="occupiedCount === 0"
       :aria-pressed="activeFilter === 'occupied'"
       :aria-label="`Filtra per Occupati: ${occupiedCount} tavoli`"
       :class="[
         activeFilter === 'occupied' ? 'ring-2 ring-emerald-700 ring-offset-1' : '',
         occupiedCount > 0 ? 'bg-white border-gray-200' : 'bg-white/60 border-gray-100 opacity-50',
       ]"
-      class="flex items-center gap-2 rounded-xl px-3 py-2 shadow-sm border transition-all active:scale-95 cursor-pointer"
+      class="flex items-center gap-2 rounded-xl px-3 py-2 shadow-sm border transition-all active:scale-95 cursor-pointer disabled:cursor-not-allowed"
     >
       <span class="size-2.5 rounded-full theme-bg shrink-0"></span>
       <span class="text-xs font-bold text-gray-700">Occupati</span>
@@ -37,13 +39,14 @@
     <button
       type="button"
       @click="toggle('pending')"
+      :disabled="pendingCount === 0"
       :aria-pressed="activeFilter === 'pending'"
       :aria-label="`Filtra per In Attesa: ${pendingCount} tavoli`"
       :class="[
         activeFilter === 'pending' ? 'ring-2 ring-amber-400 ring-offset-1' : '',
         pendingCount > 0 ? 'bg-amber-50 border-amber-200' : 'bg-white/60 border-gray-100 opacity-50',
       ]"
-      class="flex items-center gap-2 rounded-xl px-3 py-2 shadow-sm border transition-all active:scale-95 cursor-pointer"
+      class="flex items-center gap-2 rounded-xl px-3 py-2 shadow-sm border transition-all active:scale-95 cursor-pointer disabled:cursor-not-allowed"
     >
       <span class="size-2.5 rounded-full border-2 border-amber-400 bg-amber-100 shrink-0"></span>
       <span :class="pendingCount > 0 ? 'text-amber-800' : 'text-gray-700'" class="text-xs font-bold">In Attesa</span>
@@ -54,13 +57,14 @@
       v-if="billRequestedCount !== undefined"
       type="button"
       @click="toggle('bill_requested')"
+      :disabled="billRequestedCount === 0"
       :aria-pressed="activeFilter === 'bill_requested'"
       :aria-label="`Filtra per Conto Richiesto: ${billRequestedCount} tavoli`"
       :class="[
         activeFilter === 'bill_requested' ? 'ring-2 ring-blue-400 ring-offset-1' : '',
         billRequestedCount > 0 ? 'bg-blue-50 border-blue-200' : 'bg-white/60 border-gray-100 opacity-50',
       ]"
-      class="flex items-center gap-2 rounded-xl px-3 py-2 shadow-sm border transition-all active:scale-95 cursor-pointer"
+      class="flex items-center gap-2 rounded-xl px-3 py-2 shadow-sm border transition-all active:scale-95 cursor-pointer disabled:cursor-not-allowed"
     >
       <span class="size-2.5 rounded-full border-2 border-blue-400 bg-blue-100 shrink-0"></span>
       <span :class="billRequestedCount > 0 ? 'text-blue-800' : 'text-gray-700'" class="text-xs font-bold">Conto Rich.</span>
@@ -70,13 +74,14 @@
     <button
       type="button"
       @click="toggle('paid')"
+      :disabled="paidCount === 0"
       :aria-pressed="activeFilter === 'paid'"
       :aria-label="`Filtra per Saldati: ${paidCount} tavoli`"
       :class="[
         activeFilter === 'paid' ? 'ring-2 ring-violet-400 ring-offset-1' : '',
         paidCount > 0 ? 'bg-violet-50 border-violet-200' : 'bg-white/60 border-gray-100 opacity-50',
       ]"
-      class="flex items-center gap-2 rounded-xl px-3 py-2 shadow-sm border transition-all active:scale-95 cursor-pointer"
+      class="flex items-center gap-2 rounded-xl px-3 py-2 shadow-sm border transition-all active:scale-95 cursor-pointer disabled:cursor-not-allowed"
     >
       <span class="size-2.5 rounded-full border-2 border-violet-400 bg-violet-100 shrink-0"></span>
       <span :class="paidCount > 0 ? 'text-violet-800' : 'text-gray-700'" class="text-xs font-bold">Saldati</span>
