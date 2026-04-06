@@ -324,6 +324,61 @@ describe('mergeTableOrders() — bug fix: paid table + open table', () => {
     expect(historicalOrder.table).toBe('A');
     expect(historicalOrder.billSessionId).toBe(oldSessA);
   });
+
+  it('source has no session entry but has both active and historical completed orders: only active orders are moved', () => {
+    const store = useAppStore();
+    // Table A: historical completed order with an old closed session.
+    // We simulate a "closed" session by adding a completed order tagged to a
+    // manually-assigned session ID, without calling openTableSession (so
+    // tableCurrentBillSession['A'] is never set). This is the simplest way to
+    // guarantee that srcSession is undefined when mergeTableOrders runs.
+    const oldFakeSessionId = 'old-sess-A-closed';
+    const historicalOrd = {
+      id: 'ord_historical_no_sess',
+      table: 'A',
+      billSessionId: oldFakeSessionId,
+      status: 'completed',
+      orderItems: [],
+      totalAmount: 50,
+      itemCount: 1,
+      globalNote: '',
+      noteVisibility: { cassa: true, sala: true, cucina: true },
+      isDirectEntry: false,
+    };
+    store.addOrder(historicalOrd);
+
+    // Table A: active pending order with no bill session (created without opening a session)
+    const activeOrd = {
+      id: 'ord_active_no_sess',
+      table: 'A',
+      billSessionId: null,
+      status: 'pending',
+      orderItems: [],
+      totalAmount: 15,
+      itemCount: 1,
+      globalNote: '',
+      noteVisibility: { cassa: true, sala: true, cucina: true },
+      isDirectEntry: false,
+    };
+    store.addOrder(activeOrd);
+
+    // Table B: open session
+    const sessB = store.openTableSession('B', 2, 0);
+    const ordB = makeOrder('B', 'accepted', 10, sessB);
+    store.addOrder(ordB);
+
+    // Merge A (no session entry at all) into B
+    store.mergeTableOrders('A', 'B');
+
+    // The active (pending) order must have moved to master
+    const movedActive = store.orders.find(o => o.id === activeOrd.id);
+    expect(movedActive.table).toBe('B');
+
+    // The historical completed order must NOT have moved
+    const stayedHistorical = store.orders.find(o => o.id === historicalOrd.id);
+    expect(stayedHistorical.table).toBe('A');
+    expect(stayedHistorical.billSessionId).toBe(oldFakeSessionId);
+  });
 });
 
 // ---------------------------------------------------------------------------

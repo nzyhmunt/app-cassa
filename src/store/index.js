@@ -527,9 +527,16 @@ export const useAppStore = defineStore('app', () => {
     // Physically move source orders from the current session to master table.
     // Orders from older (closed) sessions are left in place to preserve
     // per-session isolation — getTableStatus() filters by billSessionId.
+    // When the source has no session entry (orders created without opening a
+    // session), only move non-completed active orders; completed orders without
+    // a session are historical and must not be pulled into the target session.
     orders.value.forEach(o => {
       if (o.table !== sourceTableId || o.status === 'rejected') return;
-      if (srcSessionId && o.billSessionId !== srcSessionId) return;
+      if (srcSessionId) {
+        if (o.billSessionId !== srcSessionId) return;
+      } else {
+        if (o.status === 'completed') return;
+      }
       o.table = resolvedTargetId;
       o.billSessionId = targetSessionId;
     });
