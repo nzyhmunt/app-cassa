@@ -372,7 +372,7 @@ export const useAppStore = defineStore('app', () => {
   }
 
   // ── Table operations (extracted to tableOps.js) ────────────────────────────
-  const { moveTableOrders, mergeTableOrders, splitTableOrders, splitItemsToTable } =
+  const { moveTableOrders, mergeTableOrders, detachSlaveTable, splitItemsToTable } =
     makeTableOps(
       { orders, transactions, tableCurrentBillSession, tableOccupiedAt, billRequestedTables, tableMergedInto },
       { addDirectOrder, openTableSession, getTableStatus, setBillRequested, slaveIdsOf, resolveMaster },
@@ -408,7 +408,7 @@ export const useAppStore = defineStore('app', () => {
     addTransaction, addTipTransaction, addDirectOrder, simulateNewOrder, loadMenu,
     // table operations
     setBillRequested, openTableSession,
-    moveTableOrders, mergeTableOrders, splitTableOrders, splitItemsToTable,
+    moveTableOrders, mergeTableOrders, detachSlaveTable, splitItemsToTable,
     // cassa operations
     setFondoCassa, addCashMovement, generateXReport, performDailyClose,
   };
