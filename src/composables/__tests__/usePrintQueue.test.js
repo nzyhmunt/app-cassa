@@ -52,11 +52,11 @@ beforeEach(async () => {
   // Activate a fresh Pinia instance and eagerly instantiate the store.
   // This triggers loadMenu() immediately, consuming the first fetch call.
   setActivePinia(createPinia());
-  useAppStore(); // instantiate → loadMenu() runs here
+  const store = useAppStore(); // instantiate → loadMenu() runs here
 
-  // Wait for the async loadMenu() to finish, then clear its fetch call(s)
+  // Wait deterministically for loadMenu() to finish, then clear its fetch call(s)
   // so test assertions only count print-related fetches.
-  await new Promise(r => setTimeout(r, 50));
+  await vi.waitFor(() => expect(store.menuLoading).toBe(false));
   fetchMock.mockClear();
   fetchMock.mockResolvedValue({ ok: true }); // restore for print-job tests
 
