@@ -473,7 +473,11 @@ export const useAppStore = defineStore('app', () => {
     ],
     serializer: {
       serialize(state) {
-        return JSON.stringify({ ...state, billRequestedTables: Array.from(state.billRequestedTables) });
+        // Strip the full `payload` from each printLog entry before persisting to avoid
+        // localStorage quota issues with large orders. The full payload is kept in-memory
+        // only and is not available after a page reload (status/metadata are retained).
+        const printLog = (state.printLog ?? []).map(({ payload: _payload, ...rest }) => rest);
+        return JSON.stringify({ ...state, billRequestedTables: Array.from(state.billRequestedTables), printLog });
       },
       deserialize(raw) {
         try {

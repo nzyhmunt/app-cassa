@@ -42,6 +42,7 @@ const CATCHALL_PRINTER = [
 let fetchMock;
 let originalPrinters;
 let originalMenu;
+const _originalFetch = global.fetch;
 
 beforeEach(async () => {
   // Mock fetch BEFORE activating Pinia so that loadMenu() uses the mock.
@@ -75,7 +76,7 @@ afterEach(() => {
   appConfig.printers = originalPrinters;
   appConfig.menu     = originalMenu;
   vi.restoreAllMocks();
-  delete global.fetch;
+  global.fetch = _originalFetch;
 });
 
 // ---------------------------------------------------------------------------

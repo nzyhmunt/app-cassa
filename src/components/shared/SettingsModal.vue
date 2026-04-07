@@ -201,6 +201,7 @@ const keyboardPositionOptions = [
 const preBillPrinters = computed(() => {
   const printers = appConfig.printers ?? [];
   return printers.filter(p => {
+    if (typeof p?.id !== 'string' || !p.id.trim()) return false;
     if (!p?.url) return false;
     if (!Array.isArray(p.printTypes) || p.printTypes.length === 0) return true;
     return p.printTypes.includes('pre_bill');
