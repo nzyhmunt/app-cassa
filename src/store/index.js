@@ -95,13 +95,15 @@ export const useAppStore = defineStore('app', () => {
   const dailyClosures = ref([]);
 
   // ── Print log ──────────────────────────────────────────────────────────────
-  // Persisted list of dispatched print jobs (max 200 entries, newest first).
-  // Entry shape:
+  // Persisted list of dispatched print jobs metadata (max 200 entries, newest first).
+  // In-memory entry shape:
   //   { logId, jobId, printerId, printerName, printerUrl,
-  //     printType, table, timestamp, payload,
+  //     printType, table, timestamp, payload?,
   //     status: 'pending' | 'printing' | 'done' | 'error',
   //     errorMessage?: string,
   //     isReprint?: boolean, originalJobId?: string }
+  // Note: `payload` is in-memory only and is stripped before persistence,
+  // so reloaded entries may not include it.
   const printLog = ref([]);
 
   /** Prepends a print log entry (status defaults to 'pending'), keeping at most 200 entries. */
