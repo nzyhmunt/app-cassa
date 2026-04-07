@@ -30,12 +30,12 @@ export function useSettings(props, emit) {
 
   function loadInitialSettings() {
     if (typeof window === 'undefined') {
-      return { sounds: true, menuUrl: appConfig.menuUrl, preventScreenLock: false, customKeyboard: 'disabled' };
+      return { sounds: true, menuUrl: appConfig.menuUrl, preventScreenLock: true, customKeyboard: 'disabled' };
     }
     try {
       const raw = window.localStorage.getItem(SETTINGS_STORAGE_KEY);
       if (!raw) {
-        return { sounds: true, menuUrl: appConfig.menuUrl, preventScreenLock: false, customKeyboard: 'disabled' };
+        return { sounds: true, menuUrl: appConfig.menuUrl, preventScreenLock: true, customKeyboard: 'disabled' };
       }
       const parsed = JSON.parse(raw);
       return {
@@ -47,11 +47,11 @@ export function useSettings(props, emit) {
         preventScreenLock:
           typeof parsed.preventScreenLock === 'boolean' && wakeLockApiSupported
             ? parsed.preventScreenLock
-            : false,
+            : true,
         customKeyboard: _parseKeyboardPosition(parsed.customKeyboard),
       };
     } catch {
-      return { sounds: true, menuUrl: appConfig.menuUrl, preventScreenLock: false, customKeyboard: 'disabled' };
+      return { sounds: true, menuUrl: appConfig.menuUrl, preventScreenLock: true, customKeyboard: 'disabled' };
     }
   }
 
