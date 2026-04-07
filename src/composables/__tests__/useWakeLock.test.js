@@ -321,6 +321,6 @@ describe('useWakeLock()', () => {
 
     wrapper.unmount();
 
-    expect(removeSpy).toHaveBeenCalledWith('touchstart', expect.any(Function));
+    expect(removeSpy).toHaveBeenCalledWith('touchstart', expect.any(Function), { passive: true });
   });
 });
