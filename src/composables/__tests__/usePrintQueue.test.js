@@ -321,6 +321,38 @@ describe('enqueuePrintJobs()', () => {
       expect(store.printLog).toHaveLength(1);
       expect(store.printLog[0].printType).toBe('order');
     });
+
+    it('job status is "pending" immediately, then "done" on success', async () => {
+      appConfig.printers = CATCHALL_PRINTER;
+      const store = useAppStore();
+      // Intercept fetch to check the status while the job is in-flight
+      let resolveJob;
+      fetchMock.mockImplementationOnce(() => new Promise(res => { resolveJob = () => res({ ok: true }); }));
+      enqueuePrintJobs(makeOrder());
+      // Right after enqueueing, the log entry should be 'pending' or 'printing'
+      expect(['pending', 'printing']).toContain(store.printLog[0].status);
+      // Resolve the fetch and wait for status to update
+      resolveJob();
+      await vi.waitFor(() => expect(store.printLog[0].status).toBe('done'));
+    });
+
+    it('job status becomes "error" on network failure', async () => {
+      appConfig.printers = CATCHALL_PRINTER;
+      const store = useAppStore();
+      fetchMock.mockRejectedValue(new Error('Network error'));
+      enqueuePrintJobs(makeOrder());
+      await vi.waitFor(() => expect(store.printLog[0].status).toBe('error'));
+      expect(store.printLog[0].errorMessage).toBeDefined();
+    });
+
+    it('job status becomes "error" on HTTP error', async () => {
+      appConfig.printers = CATCHALL_PRINTER;
+      const store = useAppStore();
+      fetchMock.mockResolvedValue({ ok: false, status: 503 });
+      enqueuePrintJobs(makeOrder());
+      await vi.waitFor(() => expect(store.printLog[0].status).toBe('error'));
+      expect(store.printLog[0].errorMessage).toMatch('503');
+    });
   });
 
   describe('error handling', () => {

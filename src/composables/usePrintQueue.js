@@ -22,12 +22,20 @@
  * All dispatches are fire-and-forget: errors are logged but never propagate.
  * Every dispatched job is appended to store.printLog for the print-history view.
  *
- * Print-job payload common fields:
- *   jobId      string  – unique job identifier (job_<uuid>)
- *   printType  string  – 'order' | 'table_move' | 'pre_bill'
+ * Print-job log entry common fields (stored in store.printLog):
+ *   logId      string  – unique log entry identifier (plog_<uuid>)
+ *   jobId      string  – unique job identifier sent to the printer (job_<uuid>)
+ *   printType  string  – 'order' | 'table_move' | 'pre_bill' | (any future type)
  *   printerId  string  – printer id from config
+ *   printerName string – human-readable printer name
+ *   printerUrl string  – URL the job was sent to
  *   table      string  – table label (or 'from → to' for table_move)
  *   timestamp  string  – ISO 8601 dispatch time
+ *   status     string  – 'pending' | 'printing' | 'done' | 'error'
+ *   errorMessage? string – populated when status === 'error'
+ *   isReprint? boolean – true for reprinted jobs
+ *   originalJobId? string – logId of the original job (only for reprints)
+ *   payload    object  – full payload sent to the printer service
  *
  * Additional fields for 'order' jobs:
  *   orderId    string
@@ -70,26 +78,44 @@ function buildDishCategoryMap() {
 }
 
 /**
- * Sends a single print job to the printer service URL.
- * Fire-and-forget: errors are logged but do not propagate to the caller.
- * @param {object} job  - The print job payload.
- * @param {string} url  - The printer service endpoint URL.
+ * Sends a single print job to the printer service URL and updates the print
+ * log entry's status as the job progresses.
+ *
+ * Status lifecycle:
+ *   pending   (set when job is first logged, before fetch begins)
+ *   → printing (fetch started)
+ *   → done     (HTTP 2xx response)
+ *   → error    (network error or non-2xx HTTP status)
+ *
+ * Errors are logged to the console but do not propagate to the caller.
+ *
+ * @param {object} job   - The print job payload.
+ * @param {string} url   - The printer service endpoint URL.
+ * @param {string} logId - logId of the corresponding printLog entry to update.
+ * @param {object|null} store - Pinia store reference (may be null).
  */
-async function sendPrintJob(job, url) {
+async function sendPrintJob(job, url, logId, store) {
+  store?.updatePrintLogEntry(logId, { status: 'printing' });
   try {
     const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(job),
     });
-    if (!response.ok) {
-      console.warn(`[PrintQueue] Printer "${job.printerId}" returned HTTP ${response.status}`);
+    if (response.ok) {
+      store?.updatePrintLogEntry(logId, { status: 'done' });
+    } else {
+      const msg = `HTTP ${response.status}`;
+      console.warn(`[PrintQueue] Printer "${job.printerId}" returned ${msg}`);
+      store?.updatePrintLogEntry(logId, { status: 'error', errorMessage: msg });
     }
   } catch (err) {
+    const msg = err?.message ?? String(err);
     console.warn(
       `[PrintQueue] Could not reach printer "${job.printerId}" at ${url}:`,
-      err?.message ?? err,
+      msg,
     );
+    store?.updatePrintLogEntry(logId, { status: 'error', errorMessage: msg });
   }
 }
 
@@ -191,8 +217,9 @@ export function enqueuePrintJobs(order) {
       items,
     };
 
+    const logId = newUUID('plog');
     logJob(store, {
-      logId: newUUID('plog'),
+      logId,
       jobId: job.jobId,
       printerId,
       printerName: printer.name ?? printer.id ?? 'Stampante',
@@ -203,7 +230,7 @@ export function enqueuePrintJobs(order) {
       payload: job,
     });
 
-    sendPrintJob(job, printer.url);
+    sendPrintJob(job, printer.url, logId, store);
   }
 }
 
@@ -237,8 +264,9 @@ export function enqueueTableMoveJob(fromTableId, fromTableLabel, toTableId, toTa
       timestamp,
     };
 
+    const logId = newUUID('plog');
     logJob(store, {
-      logId: newUUID('plog'),
+      logId,
       jobId: job.jobId,
       printerId,
       printerName: printer.name ?? printer.id ?? 'Stampante',
@@ -249,7 +277,7 @@ export function enqueueTableMoveJob(fromTableId, fromTableLabel, toTableId, toTa
       payload: job,
     });
 
-    sendPrintJob(job, printer.url);
+    sendPrintJob(job, printer.url, logId, store);
   }
 }
 
@@ -277,8 +305,9 @@ export function enqueuePreBillJob(payload, printerUrl, printerName) {
     ...payload,
   };
 
+  const logId = newUUID('plog');
   logJob(store, {
-    logId: newUUID('plog'),
+    logId,
     jobId: job.jobId,
     printerId,
     printerName: printerName ?? printer?.name ?? 'Stampante',
@@ -289,7 +318,7 @@ export function enqueuePreBillJob(payload, printerUrl, printerName) {
     payload: job,
   });
 
-  sendPrintJob(job, printerUrl);
+  sendPrintJob(job, printerUrl, logId, store);
 }
 
 /**
@@ -312,8 +341,9 @@ export function reprintJob(logEntry, overrideUrl = null) {
     ? appConfig.printers?.find(p => p.url === overrideUrl)
     : null;
 
+  const logId = newUUID('plog');
   logJob(store, {
-    logId: newUUID('plog'),
+    logId,
     jobId: job.jobId,
     printerId: printer?.id ?? logEntry.printerId,
     printerName: printer?.name ?? logEntry.printerName,
@@ -326,5 +356,5 @@ export function reprintJob(logEntry, overrideUrl = null) {
     originalJobId: logEntry.jobId,
   });
 
-  sendPrintJob(job, url);
+  sendPrintJob(job, url, logId, store);
 }

@@ -58,14 +58,21 @@
 
           <!-- Info -->
           <div class="flex-1 min-w-0">
-            <div class="flex items-center gap-1.5">
+            <div class="flex items-center gap-1.5 flex-wrap">
               <span class="font-bold text-gray-800 text-xs truncate">{{ entry.table || '—' }}</span>
               <span v-if="entry.isReprint" class="text-[9px] font-bold bg-amber-100 text-amber-700 px-1 rounded">ristampa</span>
+              <!-- Job status badge -->
+              <span
+                class="text-[9px] font-bold px-1 rounded ml-auto"
+                :class="statusBadgeClass(entry.status)"
+                :title="entry.errorMessage ?? ''"
+              >{{ statusLabel(entry.status) }}</span>
             </div>
             <p class="text-[10px] text-gray-500 truncate">
               <Printer class="size-2.5 inline mr-0.5" />{{ entry.printerName }}
               <span class="mx-1">·</span>
               {{ formatTime(entry.timestamp) }}
+              <span v-if="entry.status === 'error' && entry.errorMessage" class="ml-1 text-red-500 truncate">— {{ entry.errorMessage }}</span>
             </p>
           </div>
 
@@ -194,5 +201,21 @@ function badgeIcon(type) {
   if (type === 'table_move') return ArrowRightLeft;
   if (type === 'pre_bill')   return FileText;
   return Printer;
+}
+
+function statusLabel(status) {
+  if (status === 'pending')  return '⏳ in coda';
+  if (status === 'printing') return '🖨 stampa…';
+  if (status === 'done')     return '✓ inviato';
+  if (status === 'error')    return '✗ errore';
+  return status ?? '';
+}
+
+function statusBadgeClass(status) {
+  if (status === 'pending')  return 'bg-gray-100 text-gray-500';
+  if (status === 'printing') return 'bg-blue-100 text-blue-600';
+  if (status === 'done')     return 'bg-emerald-100 text-emerald-700';
+  if (status === 'error')    return 'bg-red-100 text-red-600';
+  return 'bg-gray-100 text-gray-500';
 }
 </script>

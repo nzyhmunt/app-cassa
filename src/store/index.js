@@ -96,13 +96,25 @@ export const useAppStore = defineStore('app', () => {
 
   // ── Print log ──────────────────────────────────────────────────────────────
   // Persisted list of dispatched print jobs (max 200 entries, newest first).
-  // Entries shape: { logId, jobId, printerId, printerName, printerUrl,
-  //                  printType, table, timestamp, payload, isReprint?, originalJobId? }
+  // Entry shape:
+  //   { logId, jobId, printerId, printerName, printerUrl,
+  //     printType, table, timestamp, payload,
+  //     status: 'pending' | 'printing' | 'done' | 'error',
+  //     errorMessage?: string,
+  //     isReprint?: boolean, originalJobId?: string }
   const printLog = ref([]);
 
-  /** Prepends a print log entry, keeping at most 200 entries. */
+  /** Prepends a print log entry (status defaults to 'pending'), keeping at most 200 entries. */
   function addPrintLogEntry(entry) {
-    printLog.value = [entry, ...printLog.value].slice(0, 200);
+    printLog.value = [{ status: 'pending', ...entry }, ...printLog.value].slice(0, 200);
+  }
+
+  /** Updates a print log entry in-place by logId. */
+  function updatePrintLogEntry(logId, updates) {
+    const idx = printLog.value.findIndex(e => e.logId === logId);
+    if (idx !== -1) {
+      printLog.value[idx] = { ...printLog.value[idx], ...updates };
+    }
   }
 
   /** Clears the entire print log. */
@@ -429,7 +441,7 @@ export const useAppStore = defineStore('app', () => {
     pendingOpenTable, pendingSelectOrder, pendingNewOrder,
     menuUrl, preventScreenLock, customKeyboard, preBillPrinterId, menuLoading, menuError,
     // print log
-    printLog, addPrintLogEntry, clearPrintLog,
+    printLog, addPrintLogEntry, updatePrintLogEntry, clearPrintLog,
     // computed
     cssVars, rooms, pendingCount, inKitchenCount, closedBills,
     // helpers

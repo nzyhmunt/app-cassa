@@ -125,7 +125,7 @@ export const appConfig = {
   //               'pre_bill'   → preconto inviato manualmente dalla Cassa
   //               Se vuoto o assente, la stampante accetta tutti i tipi.
   //
-  // Esempio configurazione:
+  // Esempio configurazione multi-stampante:
   //   printers: [
   //     { id: 'cucina', name: 'Cucina', url: 'http://localhost:3001/print',
   //       printTypes: ['order'],
@@ -137,8 +137,18 @@ export const appConfig = {
   //       printTypes: ['pre_bill', 'table_move'] },
   //   ],
   //
-  // NOTA: Impostare a [] (default) per disabilitare la stampa automatica.
-  printers: [],
+  // Stampante di prova (catch-all, riceve tutti i tipi e tutte le voci):
+  // Attiva per default — punta al servizio Node ESC/POS locale sulla porta 3001.
+  // Rimuovere o sostituire con la configurazione del locale prima del deploy in produzione.
+  printers: [
+    {
+      id: 'demo',
+      name: 'Stampante Demo',
+      url: 'http://localhost:3001/print',
+      // printTypes assente → catch-all (riceve order, table_move, pre_bill)
+      // categories assente  → catch-all (riceve tutte le voci del menu)
+    },
+  ],
 
   // CONFIGURAZIONE GESTIONE ORDINI
   // rejectionReasons: elenco delle voci predefinite mostrate nel dialog di conferma rifiuto.
