@@ -34,7 +34,7 @@
  *   status     string  – 'pending' | 'printing' | 'done' | 'error'
  *   errorMessage? string – populated when status === 'error'
  *   isReprint? boolean – true for reprinted jobs
- *   originalJobId? string – logId of the original job (only for reprints)
+ *   originalJobId? string – jobId of the original job (only for reprints)
  *   payload    object  – full payload sent to the printer service
  *
  * Additional fields for 'order' jobs:
@@ -324,7 +324,7 @@ export function enqueuePreBillJob(payload, printerUrl, printerName) {
 /**
  * Re-sends a previously logged print job, optionally to a different printer.
  * A new logId and jobId are generated; the original jobId is preserved as
- * `originalJobId` for traceability.
+ * `originalJobId` in the new log entry for traceability.
  *
  * @param {object} logEntry     – Entry from store.printLog
  * @param {string} [overrideUrl] – Alternative printer URL (uses original if omitted)

@@ -313,14 +313,18 @@ export const appConfig = {
   },
 
   // Coda di stampa comande — ciascuna stampante punta a un servizio Node ESC/POS.
-  // Se l'array è vuoto (default), la stampa automatica è disabilitata.
+  // Stampante di prova attiva per default (catch-all); sostituire con la configurazione
+  // del locale prima del deployment in produzione. Impostare a [] per disabilitare la stampa.
   // categories: categorie del menu instradate su questa stampante (case-insensitive).
   // Se assente o vuoto, la stampante riceve tutte le voci (catch-all).
   printers: [
+    { id: 'demo', name: 'Stampante Demo', url: 'http://localhost:3001/print' },
     // { id: 'cucina', name: 'Cucina', url: 'http://localhost:3001/print',
-    //   categories: ['Antipasti', 'Primi', 'Secondi', 'Contorni'] },
+    //   printTypes: ['order'], categories: ['Antipasti', 'Primi', 'Secondi', 'Contorni'] },
     // { id: 'bar', name: 'Bar', url: 'http://localhost:3002/print',
-    //   categories: ['Bevande', 'Digestivi'] },
+    //   printTypes: ['order'], categories: ['Bevande', 'Digestivi'] },
+    // { id: 'cassa', name: 'Cassa', url: 'http://localhost:3003/print',
+    //   printTypes: ['pre_bill', 'table_move'] },
   ],
 };
 ```
