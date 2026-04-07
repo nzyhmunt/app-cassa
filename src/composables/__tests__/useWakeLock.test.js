@@ -233,6 +233,65 @@ describe('useWakeLock()', () => {
     expect(wakeLockApi.request).not.toHaveBeenCalled();
   });
 
+  // ── User interaction retry (iOS Safari requires a user gesture) ──────────
+
+  it('re-acquires wake lock on click when preventScreenLock is true and lock is not held', async () => {
+    // Simulate iOS: initial mount request fails
+    wakeLockApi.request.mockRejectedValueOnce(new DOMException('Not allowed', 'NotAllowedError'));
+    mockStore.preventScreenLock = true;
+    withSetup(() => useWakeLock());
+    await flushPromises();
+
+    // Initial attempt failed → no lock held
+    expect(wakeLockApi.request).toHaveBeenCalledTimes(1);
+    wakeLockApi.request.mockClear();
+
+    // User taps the screen — should retry acquisition
+    document.dispatchEvent(new Event('click'));
+    await flushPromises();
+
+    expect(wakeLockApi.request).toHaveBeenCalledWith('screen');
+  });
+
+  it('re-acquires wake lock on touchstart when preventScreenLock is true and lock is not held', async () => {
+    wakeLockApi.request.mockRejectedValueOnce(new DOMException('Not allowed', 'NotAllowedError'));
+    mockStore.preventScreenLock = true;
+    withSetup(() => useWakeLock());
+    await flushPromises();
+
+    wakeLockApi.request.mockClear();
+
+    document.dispatchEvent(new TouchEvent('touchstart'));
+    await flushPromises();
+
+    expect(wakeLockApi.request).toHaveBeenCalledWith('screen');
+  });
+
+  it('does not request wake lock on click when preventScreenLock is false', async () => {
+    withSetup(() => useWakeLock());
+    await flushPromises();
+
+    document.dispatchEvent(new Event('click'));
+    await flushPromises();
+
+    expect(wakeLockApi.request).not.toHaveBeenCalled();
+  });
+
+  it('does not request wake lock on click when the lock is already held', async () => {
+    mockStore.preventScreenLock = true;
+    withSetup(() => useWakeLock());
+    await flushPromises();
+
+    // Lock is now held; clear the call count
+    wakeLockApi.request.mockClear();
+
+    document.dispatchEvent(new Event('click'));
+    await flushPromises();
+
+    // Should not re-request because lock is already held
+    expect(wakeLockApi.request).not.toHaveBeenCalled();
+  });
+
   // ── Cleanup on unmount ────────────────────────────────────────────────────
 
   it('removes the visibilitychange listener on unmount', async () => {
@@ -243,5 +302,25 @@ describe('useWakeLock()', () => {
     wrapper.unmount();
 
     expect(removeSpy).toHaveBeenCalledWith('visibilitychange', expect.any(Function));
+  });
+
+  it('removes the click listener on unmount', async () => {
+    const removeSpy = vi.spyOn(document, 'removeEventListener');
+    const { wrapper } = withSetup(() => useWakeLock());
+    await flushPromises();
+
+    wrapper.unmount();
+
+    expect(removeSpy).toHaveBeenCalledWith('click', expect.any(Function));
+  });
+
+  it('removes the touchstart listener on unmount', async () => {
+    const removeSpy = vi.spyOn(document, 'removeEventListener');
+    const { wrapper } = withSetup(() => useWakeLock());
+    await flushPromises();
+
+    wrapper.unmount();
+
+    expect(removeSpy).toHaveBeenCalledWith('touchstart', expect.any(Function), { passive: true });
   });
 });
