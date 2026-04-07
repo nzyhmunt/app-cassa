@@ -76,12 +76,16 @@
             </p>
           </div>
 
-          <!-- Reprint button -->
+          <!-- Reprint button (disabled when payload was stripped from persistence) -->
           <button
             @click="openReprint(entry)"
-            class="shrink-0 text-[10px] font-bold text-[var(--brand-primary)] hover:bg-[var(--brand-primary)]/10 px-2.5 py-1.5 rounded-lg border border-[var(--brand-primary)]/30 active:scale-95 transition-all"
-            title="Ristampa"
-            aria-label="Ristampa"
+            :disabled="!entry.payload"
+            class="shrink-0 text-[10px] font-bold px-2.5 py-1.5 rounded-lg border transition-all"
+            :class="entry.payload
+              ? 'text-[var(--brand-primary)] hover:bg-[var(--brand-primary)]/10 border-[var(--brand-primary)]/30 active:scale-95'
+              : 'text-gray-300 border-gray-200 cursor-not-allowed'"
+            :title="entry.payload ? 'Ristampa' : 'Payload non disponibile dopo riavvio — impossibile ristampare'"
+            :aria-label="entry.payload ? 'Ristampa' : 'Ristampa non disponibile'"
           >
             <RefreshCw class="size-3" />
           </button>

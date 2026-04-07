@@ -478,6 +478,8 @@ export const useAppStore = defineStore('app', () => {
         // Strip the full `payload` from each printLog entry before persisting to avoid
         // localStorage quota issues with large orders. The full payload is kept in-memory
         // only and is not available after a page reload (status/metadata are retained).
+        // The reprint button in PrintHistoryModal is disabled for entries without payload,
+        // and reprintJob() also guards against missing payload.
         const printLog = (state.printLog ?? []).map(({ payload: _payload, ...rest }) => rest);
         return JSON.stringify({ ...state, billRequestedTables: Array.from(state.billRequestedTables), printLog });
       },
