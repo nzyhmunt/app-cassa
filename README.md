@@ -335,28 +335,92 @@ Quando un ordine viene accettato (dalla Cassa o dalla Sala), `enqueuePrintJobs(o
 una HTTP POST a ciascun servizio stampante configurato in `appConfig.printers`. Il servizio Node
 ricevente gestisce la comunicazione ESC/POS verso la stampante fisica.
 
+### Stampante demo (pronta per il test)
+
+La configurazione predefinita include una **stampante demo catch-all** attiva sulla porta `3001`:
+
+```js
+// src/utils/index.js — appConfig
+printers: [
+  {
+    id: 'demo',
+    name: 'Stampante Demo',
+    url: 'http://localhost:3001/print',
+    // printTypes assente → catch-all (riceve order, table_move, pre_bill)
+    // categories assente  → catch-all (riceve tutte le voci del menu)
+  },
+],
+```
+
+Per usarla in locale, avviare il servizio Node ESC/POS sulla porta `3001`.
+**Prima del deployment in produzione**, sostituire con la configurazione del locale.
+
+### Configurazione multi-stampante
+
+```js
+printers: [
+  { id: 'cucina', name: 'Cucina', url: 'http://localhost:3001/print',
+    printTypes: ['order'],
+    categories: ['Antipasti', 'Primi', 'Secondi', 'Contorni'] },
+  { id: 'bar', name: 'Bar', url: 'http://localhost:3002/print',
+    printTypes: ['order'],
+    categories: ['Bevande', 'Digestivi'] },
+  { id: 'cassa', name: 'Cassa', url: 'http://localhost:3003/print',
+    printTypes: ['pre_bill', 'table_move'] },
+],
+```
+
+Ogni stampante accetta:
+- **`printTypes`**: tipi di lavoro ricevuti — `'order'`, `'table_move'`, `'pre_bill'`; assente/vuoto = catch-all
+- **`categories`**: categorie menu (solo per tipo `'order'`); assente/vuoto = tutte le voci
+
+### Tipi di stampa
+
+| Tipo | Evento | Fonte |
+|------|--------|-------|
+| `order` | Comanda accettata | `CassaOrderManager` / `SalaOrderManager` |
+| `table_move` | Tavolo spostato | `CassaTableManager` → Sposta Tavolo |
+| `pre_bill` | Preconto inviato | `CassaTableManager` → Preconto |
+
+### Cronologia stampe e ristampa (Cassa)
+
+Il pulsante **"Stampe"** nella barra della Mappa Sala (visibile solo con stampanti configurate)
+apre la cronologia di tutti i lavori inviati, con stato (`in coda`, `stampa…`, `inviato`, `errore`)
+e possibilità di ristampare su qualsiasi stampante configurata.
+
+### Stampante preconto predefinita
+
+Nelle **Impostazioni Cassa** → sezione "Stampante Preconto" è possibile scegliere la stampante
+su cui inviare automaticamente il preconto. Visibile solo se almeno una stampante ha `pre_bill`
+nei `printTypes`.
+
 ### Formato del job di stampa
 
+Tutti i job contengono: `jobId`, `printType`, `printerId`, `table`, `timestamp`.
+
+**`order`** (comanda):
 ```json
 {
-  "jobId":      "job_<uuid>",
-  "printerId":  "cucina",
-  "orderId":    "ord_<uuid>",
-  "table":      "05",
-  "time":       "20:15",
-  "globalNote": "Nota ordine...",
+  "jobId": "job_<uuid>", "printType": "order", "printerId": "cucina",
+  "orderId": "ord_<uuid>", "table": "05", "time": "20:15", "globalNote": "",
   "items": [
-    {
-      "name":      "Bruschetta",
-      "quantity":  2,
-      "unitPrice": 3.00,
-      "notes":     ["Senza aglio"],
-      "course":    "prima",
-      "modifiers": [{ "name": "Extra mozzarella", "price": 1.00 }]
-    }
+    { "name": "Bruschetta", "quantity": 2, "unitPrice": 3.00,
+      "notes": ["Senza aglio"], "course": "prima",
+      "modifiers": [{ "name": "Extra mozzarella", "price": 1.00 }] }
   ]
 }
 ```
+
+**`table_move`** (spostamento tavolo):
+```json
+{
+  "jobId": "job_<uuid>", "printType": "table_move", "printerId": "cassa",
+  "fromTableId": "T1", "fromTableLabel": "01", "toTableId": "T2", "toTableLabel": "02",
+  "table": "01 → 02"
+}
+```
+
+**`pre_bill`** (preconto): include il payload completo del conto (tavolo, importi, voci).
 
 ### Comportamento
 
@@ -364,6 +428,7 @@ ricevente gestisce la comunicazione ESC/POS verso la stampante fisica.
   a una delle categorie elencate in `categories` (confronto case-insensitive).
 - **Catch-all**: se `categories` è assente o vuoto, la stampante riceve tutte le voci.
 - **Fire-and-forget**: gli errori di rete vengono loggati in console ma non bloccano l'UI.
+- **Stato job**: ogni job viene tracciato come `pending → printing → done | error`.
 - **Voci stornate**: solo le quantità attive (non stornate) vengono incluse nel job.
 - **Ordini diretti** (`isDirectEntry: true`): non vengono mai stampati (coperti, voci libere).
 

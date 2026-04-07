@@ -139,7 +139,7 @@ export const appConfig = {
   //
   // Stampante di prova (catch-all, riceve tutti i tipi e tutte le voci):
   // Attiva per default — punta al servizio Node ESC/POS locale sulla porta 3001.
-  // Rimuovere o sostituire con la configurazione del locale prima del deploy in produzione.
+  // Rimuovere o sostituire con la configurazione del locale prima del deployment in produzione.
   printers: [
     {
       id: 'demo',

@@ -416,7 +416,7 @@ CREATE TABLE app_settings (
     device_key  VARCHAR(120)    NOT NULL DEFAULT 'default',  -- es. UUID dispositivo
     sounds      BOOLEAN         NOT NULL DEFAULT TRUE,       -- avvisi audio "ding"
     menu_url    TEXT,                                       -- URL menu digitale (corrisponde a `menuUrl` in app-settings)
-    pre_bill_printer_id VARCHAR(40) NULL REFERENCES printers(id) ON DELETE SET NULL, -- stampante predefinita per il preconto
+    pre_bill_printer_id VARCHAR(40) NULL REFERENCES printers(id) ON DELETE SET NULL, -- default printer for pre-bill dispatch
     updated_at  TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
     UNIQUE (venue_id, device_key)
 );
@@ -476,8 +476,8 @@ CREATE TABLE print_jobs (
     error_message   TEXT            NULL,                   -- popolato solo se status = 'error'
 
     -- Riepilogo human-readable (indipendente dal tipo)
-    table_label     VARCHAR(120)    NOT NULL DEFAULT '',    -- es. '05', '01 → 02'
-    timestamp       TIMESTAMPTZ     NOT NULL DEFAULT NOW(), -- momento di creazione del job
+    table_label     VARCHAR(120)    NOT NULL DEFAULT '',    -- e.g. '05', '01 → 02'
+    timestamp       TIMESTAMPTZ     NOT NULL DEFAULT NOW(), -- job creation time
 
     -- Ristampa
     is_reprint      BOOLEAN         NOT NULL DEFAULT FALSE,
