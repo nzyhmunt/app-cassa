@@ -90,6 +90,22 @@ export const useAppStore = defineStore('app', () => {
   const cashMovements = ref([]);
   const dailyClosures = ref([]);
 
+  // ── Print log ──────────────────────────────────────────────────────────────
+  // Persisted list of dispatched print jobs (max 200 entries, newest first).
+  // Entries shape: { logId, jobId, printerId, printerName, printerUrl,
+  //                  printType, table, timestamp, payload, isReprint?, originalJobId? }
+  const printLog = ref([]);
+
+  /** Prepends a print log entry, keeping at most 200 entries. */
+  function addPrintLogEntry(entry) {
+    printLog.value = [entry, ...printLog.value].slice(0, 200);
+  }
+
+  /** Clears the entire print log. */
+  function clearPrintLog() {
+    printLog.value = [];
+  }
+
   // ── Table state ────────────────────────────────────────────────────────────
   const tableOccupiedAt = ref({});
   const billRequestedTables = ref(new Set());
@@ -408,6 +424,8 @@ export const useAppStore = defineStore('app', () => {
     tableOccupiedAt, billRequestedTables, tableCurrentBillSession, tableMergedInto,
     pendingOpenTable, pendingSelectOrder, pendingNewOrder,
     menuUrl, preventScreenLock, customKeyboard, menuLoading, menuError,
+    // print log
+    printLog, addPrintLogEntry, clearPrintLog,
     // computed
     cssVars, rooms, pendingCount, inKitchenCount, closedBills,
     // helpers
@@ -435,6 +453,7 @@ export const useAppStore = defineStore('app', () => {
       'orders', 'transactions',
       'tableOccupiedAt', 'billRequestedTables', 'tableCurrentBillSession', 'tableMergedInto',
       'cashBalance', 'cashMovements', 'dailyClosures',
+      'printLog',
     ],
     serializer: {
       serialize(state) {

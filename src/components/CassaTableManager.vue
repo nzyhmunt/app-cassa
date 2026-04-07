@@ -6,15 +6,27 @@
         <h2 class="text-xl md:text-2xl font-black text-gray-800 flex items-center gap-2 md:gap-3">
           <Grid3x3 class="text-gray-500 size-6 md:size-8" /> Mappa Sala
         </h2>
-        <!-- Storico Conti button -->
-        <router-link
-          to="/storico-conti"
-          class="flex items-center gap-1.5 text-[10px] md:text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-3 py-2 rounded-xl transition-colors shadow-sm active:scale-95"
-          title="Cronologia Conti Chiusi"
-          aria-label="Storico Conti"
-        >
-          <History class="size-4" /> <span>Storico Conti</span>
-        </router-link>
+        <div class="flex items-center gap-2">
+          <!-- Cronologia Stampe button — only shown when printers are configured -->
+          <button
+            v-if="store.config.printers?.length"
+            @click="showPrintHistory = true"
+            class="flex items-center gap-1.5 text-[10px] md:text-xs font-bold text-violet-700 bg-violet-50 hover:bg-violet-100 border border-violet-200 px-3 py-2 rounded-xl transition-colors shadow-sm active:scale-95"
+            title="Cronologia Stampe"
+            aria-label="Cronologia Stampe"
+          >
+            <Printer class="size-4" /> <span>Stampe</span>
+          </button>
+          <!-- Storico Conti button -->
+          <router-link
+            to="/storico-conti"
+            class="flex items-center gap-1.5 text-[10px] md:text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-3 py-2 rounded-xl transition-colors shadow-sm active:scale-95"
+            title="Cronologia Conti Chiusi"
+            aria-label="Storico Conti"
+          >
+            <History class="size-4" /> <span>Storico Conti</span>
+          </router-link>
+        </div>
       </div>
 
       <!-- Riepilogo stato tavoli + Tab Sala + Filtri stato — tutto nella stessa barra -->
@@ -1280,6 +1292,11 @@
     @cancel="showPeopleModal = false; pendingTableToOpen = null"
     @confirm="confirmPeopleAndOpenTable"
   />
+
+  <!-- ================================================================ -->
+  <!-- MODAL: CRONOLOGIA STAMPE                                           -->
+  <!-- ================================================================ -->
+  <PrintHistoryModal v-model="showPrintHistory" />
 </template>
 
 <script setup>
@@ -1289,25 +1306,44 @@ import {
   Ban, Undo2, Code, Minus, Receipt, ArrowRightLeft, Merge, Trash2,
   Layers, ListChecks, History, LayoutGrid, ListOrdered,
   Tag, Wallet, ChevronDown,
-  Percent, Zap, BookOpen, PlusCircle, Banknote, CreditCard, Lock, SquareCheck, Split, Link,
+  Percent, Zap, BookOpen, PlusCircle, Banknote, CreditCard, Lock, SquareCheck, Split, Link, Printer,
 } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
 import { getOrderItemRowTotal, KITCHEN_ACTIVE_STATUSES, getLockedDirectItems, appConfig } from '../utils/index.js';
 import { buildFlatAnaliticaItems, computeAnaliticaTotal, exceedsAmount, getOrdersToComplete } from '../utils/analitica.js';
-import { resolveCustomItemsKey } from '../store/persistence.js';
+import { resolveCustomItemsKey, getInstanceName, resolveStorageKeys } from '../store/persistence.js';
 import { useNumericKeyboard } from '../composables/useNumericKeyboard.js';
 import { useAuth } from '../composables/useAuth.js';
+import { enqueueTableMoveJob, enqueuePreBillJob } from '../composables/usePrintQueue.js';
 import TableStatsBar from './shared/TableStatsBar.vue';
 import TableGrid from './shared/TableGrid.vue';
 // Shared component — used by both Sala and Cassa apps.
 import PeopleModal from './shared/PeopleModal.vue';
 import NumericInput from './NumericInput.vue';
+import PrintHistoryModal from './shared/PrintHistoryModal.vue';
 
 const emit = defineEmits(['open-order-from-table', 'new-order-for-ordini']);
 
 const store = useAppStore();
 const { isAdmin } = useAuth();
 const keyboard = useNumericKeyboard();
+
+// ── Print history modal ────────────────────────────────────────────────────
+const showPrintHistory = ref(false);
+
+// ── Pre-bill printer helper ────────────────────────────────────────────────
+// Reads the pre-bill printer id from the persisted settings in localStorage.
+// Called at event time (not reactive) so a single read per action is sufficient.
+function getPreBillPrinterConfig() {
+  try {
+    const { settingsKey } = resolveStorageKeys(getInstanceName());
+    const raw = window.localStorage?.getItem(settingsKey);
+    if (!raw) return null;
+    const printerId = JSON.parse(raw)?.preBillPrinterId;
+    if (!printerId) return null;
+    return (appConfig.printers ?? []).find(p => p.id === printerId) ?? null;
+  } catch { return null; }
+}
 
 // ── Table modal state ──────────────────────────────────────────────────────
 const showTableModal = ref(false);
@@ -1604,10 +1640,14 @@ function setSplitQty(key, maxQty, delta) {
 
 function confirmMove(targetTable) {
   if (!selectedTable.value) return;
-  store.moveTableOrders(selectedTable.value.id, targetTable.id);
+  const fromId = selectedTable.value.id;
+  const fromLabel = selectedTable.value.label;
+  store.moveTableOrders(fromId, targetTable.id);
   showMoveModal.value = false;
   // Update selectedTable to the new one
   selectedTable.value = targetTable;
+  // Notify configured printers about the table move
+  enqueueTableMoveJob(fromId, fromLabel, targetTable.id, targetTable.label);
 }
 
 function confirmMerge(sourceTable) {
@@ -2528,6 +2568,7 @@ function generateTableCheckoutJson(ctx = 'table') {
   const payload = {
     type: 'PRECONTO_API_TAVOLO',
     table: selectedTable.value.id,
+    tableLabel: selectedTable.value.label,
     grossAmount: tableTotalAmount.value,
     paymentsRecorded: tableAmountPaid.value,
     amountDue: tableAmountRemaining.value,
@@ -2537,12 +2578,21 @@ function generateTableCheckoutJson(ctx = 'table') {
         .map(r => ({
           name: r.name,
           quantity: r.quantity - (r.voidedQuantity || 0),
+          unitPrice: r.unitPrice ?? 0,
           subtotal: r.unitPrice * (r.quantity - (r.voidedQuantity || 0)),
         })),
     ),
   };
   jsonPayloadData.value = JSON.stringify(payload, null, 2);
   showPrecontoJson.value = true;
+
+  // Send to configured pre-bill printer (if any selected in settings)
+  if (ctx === 'table') {
+    const preBillPrinter = getPreBillPrinterConfig();
+    if (preBillPrinter?.url) {
+      enqueuePreBillJob(payload, preBillPrinter.url, preBillPrinter.name ?? preBillPrinter.id);
+    }
+  }
 }
 
 function closeJsonModal() {

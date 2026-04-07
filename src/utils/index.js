@@ -114,18 +114,27 @@ export const appConfig = {
   //
   // Struttura di ogni stampante:
   //   id:         identificatore univoco (stringa, es. 'cucina', 'bar')
-  //   name:       nome descrittivo (usato nei log di diagnostica)
+  //   name:       nome descrittivo (usato nell'interfaccia e nei log)
   //   url:        URL del servizio di stampa Node (es. 'http://localhost:3001/print')
   //   categories: array di nomi di categorie del menu da instradare su questa
   //               stampante (confronto case-insensitive). Se vuoto o assente,
-  //               la stampante è catch-all e riceve tutte le voci dell'ordine.
+  //               la stampante è catch-all per le voci (solo per tipo 'order').
+  //   printTypes: array di tipi di stampa che questa stampante accetta:
+  //               'order'      → comanda cucina/bar (default per tutti se omesso)
+  //               'table_move' → notifica spostamento tavolo
+  //               'pre_bill'   → preconto inviato manualmente dalla Cassa
+  //               Se vuoto o assente, la stampante accetta tutti i tipi.
   //
   // Esempio configurazione:
   //   printers: [
   //     { id: 'cucina', name: 'Cucina', url: 'http://localhost:3001/print',
+  //       printTypes: ['order'],
   //       categories: ['Antipasti', 'Primi', 'Secondi', 'Contorni'] },
   //     { id: 'bar',    name: 'Bar',    url: 'http://localhost:3002/print',
+  //       printTypes: ['order'],
   //       categories: ['Bevande', 'Digestivi'] },
+  //     { id: 'cassa',  name: 'Cassa',  url: 'http://localhost:3003/print',
+  //       printTypes: ['pre_bill', 'table_move'] },
   //   ],
   //
   // NOTA: Impostare a [] (default) per disabilitare la stampa automatica.
