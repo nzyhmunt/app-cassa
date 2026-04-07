@@ -89,9 +89,15 @@ export function useWakeLock() {
   // iOS Safari requires a user gesture before the Wake Lock API can be used.
   // If the initial acquisition on mount is rejected, retry on the first
   // click or touch so the lock activates as soon as the user interacts.
+  // The `!wakeLock` guard keeps this a no-op once the lock is held, so the
+  // listener overhead on subsequent interactions is negligible.
   async function handleUserInteraction() {
     if (store.preventScreenLock && !wakeLock) {
-      await requestWakeLock();
+      try {
+        await requestWakeLock();
+      } catch {
+        // Ignore — requestWakeLock() already handles and logs internal errors.
+      }
     }
   }
 
