@@ -120,10 +120,10 @@ export const appConfig = {
   //               stampante (confronto case-insensitive). Se vuoto o assente,
   //               la stampante è catch-all per le voci (solo per tipo 'order').
   //   printTypes: array di tipi di stampa che questa stampante accetta:
-  //               'order'      → comanda cucina/bar (default per tutti se omesso)
+  //               'order'      → comanda cucina/bar
   //               'table_move' → notifica spostamento tavolo
   //               'pre_bill'   → preconto inviato manualmente dalla Cassa
-  //               Se vuoto o assente, la stampante accetta tutti i tipi.
+  //               Se vuoto o assente, la stampante accetta tutti i tipi (catch-all).
   //
   // Esempio configurazione multi-stampante:
   //   printers: [
