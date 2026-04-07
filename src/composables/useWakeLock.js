@@ -122,7 +122,7 @@ export function useWakeLock() {
   onUnmounted(async () => {
     document.removeEventListener('visibilitychange', handleVisibilityChange);
     document.removeEventListener('click', handleUserInteraction);
-    document.removeEventListener('touchstart', handleUserInteraction);
+    document.removeEventListener('touchstart', handleUserInteraction, { passive: true });
     await releaseWakeLock();
   });
 }
