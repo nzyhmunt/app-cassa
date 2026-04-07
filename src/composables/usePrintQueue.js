@@ -333,9 +333,18 @@ export function reprintJob(logEntry, overrideUrl = null) {
   const url = overrideUrl ?? logEntry.printerUrl;
   if (!url) return;
 
+  const payload = logEntry?.payload;
+  if (!payload || typeof payload !== 'object') {
+    console.warn(
+      '[printQueue] Cannot reprint job because the original payload is unavailable.',
+      { logId: logEntry?.logId, jobId: logEntry?.jobId, printerUrl: url },
+    );
+    return;
+  }
+
   const store = getStore();
   const timestamp = new Date().toISOString();
-  const job = { ...logEntry.payload, jobId: newUUID('job'), reprinted: true, timestamp };
+  const job = { ...payload, jobId: newUUID('job'), reprinted: true, timestamp };
 
   const printer = overrideUrl
     ? appConfig.printers?.find(p => p.url === overrideUrl)
