@@ -108,6 +108,29 @@ export const appConfig = {
     name: 'Coperto',
   },
 
+  // CONFIGURAZIONE STAMPANTI (coda di stampa comande/ordini)
+  // Ciascuna stampante punta a un servizio Node separato che gestisce la
+  // comunicazione ESC/POS verso la stampante fisica.
+  //
+  // Struttura di ogni stampante:
+  //   id:         identificatore univoco (stringa, es. 'cucina', 'bar')
+  //   name:       nome descrittivo (usato nei log di diagnostica)
+  //   url:        URL del servizio di stampa Node (es. 'http://localhost:3001/print')
+  //   categories: array di nomi di categorie del menu da instradare su questa
+  //               stampante (confronto case-insensitive). Se vuoto o assente,
+  //               la stampante è catch-all e riceve tutte le voci dell'ordine.
+  //
+  // Esempio configurazione:
+  //   printers: [
+  //     { id: 'cucina', name: 'Cucina', url: 'http://localhost:3001/print',
+  //       categories: ['Antipasti', 'Primi', 'Secondi', 'Contorni'] },
+  //     { id: 'bar',    name: 'Bar',    url: 'http://localhost:3002/print',
+  //       categories: ['Bevande', 'Digestivi'] },
+  //   ],
+  //
+  // NOTA: Impostare a [] (default) per disabilitare la stampa automatica.
+  printers: [],
+
   // CONFIGURAZIONE GESTIONE ORDINI
   // rejectionReasons: elenco delle voci predefinite mostrate nel dialog di conferma rifiuto.
   //   Ogni voce ha { value: string, label: string }.

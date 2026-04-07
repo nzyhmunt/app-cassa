@@ -47,6 +47,7 @@ src/
 │   ├── useAuth.js                     ← Autenticazione utenti, PIN hashing, auto-lock timer
 │   ├── useBeep.js                     ← Notifiche audio (Web Audio API)
 │   ├── useNumericKeyboard.js          ← Singleton state per la tastiera numerica custom (Cassa only)
+│   ├── usePrintQueue.js               ← Coda di stampa comande → servizio Node ESC/POS
 │   ├── usePwaInstall.js               ← Rilevamento installazione PWA
 │   ├── useSettings.js                 ← Lettura/scrittura impostazioni localStorage
 │   └── useWakeLock.js                 ← Prevenzione blocco schermo (Screen Wake Lock API)
@@ -311,13 +312,60 @@ export const appConfig = {
     ],
   },
 
-
-
-
-
-
+  // Coda di stampa comande — ciascuna stampante punta a un servizio Node ESC/POS.
+  // Se l'array è vuoto (default), la stampa automatica è disabilitata.
+  // categories: categorie del menu instradate su questa stampante (case-insensitive).
+  // Se assente o vuoto, la stampante riceve tutte le voci (catch-all).
+  printers: [
+    // { id: 'cucina', name: 'Cucina', url: 'http://localhost:3001/print',
+    //   categories: ['Antipasti', 'Primi', 'Secondi', 'Contorni'] },
+    // { id: 'bar', name: 'Bar', url: 'http://localhost:3002/print',
+    //   categories: ['Bevande', 'Digestivi'] },
+  ],
 };
 ```
+
+---
+
+## Stampa Comande (ESC/POS)
+
+La coda di stampa automatica è gestita dal composable `src/composables/usePrintQueue.js`.
+
+Quando un ordine viene accettato (dalla Cassa o dalla Sala), `enqueuePrintJobs(order)` invia
+una HTTP POST a ciascun servizio stampante configurato in `appConfig.printers`. Il servizio Node
+ricevente gestisce la comunicazione ESC/POS verso la stampante fisica.
+
+### Formato del job di stampa
+
+```json
+{
+  "jobId":      "job_<uuid>",
+  "printerId":  "cucina",
+  "orderId":    "ord_<uuid>",
+  "table":      "05",
+  "time":       "20:15",
+  "globalNote": "Nota ordine...",
+  "items": [
+    {
+      "name":      "Bruschetta",
+      "quantity":  2,
+      "unitPrice": 3.00,
+      "notes":     ["Senza aglio"],
+      "course":    "prima",
+      "modifiers": [{ "name": "Extra mozzarella", "price": 1.00 }]
+    }
+  ]
+}
+```
+
+### Comportamento
+
+- **Routing per categoria**: ogni stampante riceve solo le voci il cui `dishId` appartiene
+  a una delle categorie elencate in `categories` (confronto case-insensitive).
+- **Catch-all**: se `categories` è assente o vuoto, la stampante riceve tutte le voci.
+- **Fire-and-forget**: gli errori di rete vengono loggati in console ma non bloccano l'UI.
+- **Voci stornate**: solo le quantità attive (non stornate) vengono incluse nel job.
+- **Ordini diretti** (`isDirectEntry: true`): non vengono mai stampati (coperti, voci libere).
 
 ---
 
