@@ -116,7 +116,7 @@
           </button>
         </template>
         <div v-if="otherPrinters.length === 0 && configuredPrinters.length <= 1" class="text-xs text-gray-400 text-center pt-1">
-          Nessun'altra stampante configurata.
+          Nessun altra stampante configurata.
         </div>
       </div>
     </div>

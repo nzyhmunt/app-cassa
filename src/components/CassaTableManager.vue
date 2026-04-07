@@ -1311,7 +1311,7 @@ import {
 import { useAppStore } from '../store/index.js';
 import { getOrderItemRowTotal, KITCHEN_ACTIVE_STATUSES, getLockedDirectItems, appConfig } from '../utils/index.js';
 import { buildFlatAnaliticaItems, computeAnaliticaTotal, exceedsAmount, getOrdersToComplete } from '../utils/analitica.js';
-import { resolveCustomItemsKey, getInstanceName, resolveStorageKeys } from '../store/persistence.js';
+import { resolveCustomItemsKey } from '../store/persistence.js';
 import { useNumericKeyboard } from '../composables/useNumericKeyboard.js';
 import { useAuth } from '../composables/useAuth.js';
 import { enqueueTableMoveJob, enqueuePreBillJob } from '../composables/usePrintQueue.js';
@@ -1331,19 +1331,12 @@ const keyboard = useNumericKeyboard();
 // ── Print history modal ────────────────────────────────────────────────────
 const showPrintHistory = ref(false);
 
-// ── Pre-bill printer helper ────────────────────────────────────────────────
-// Reads the pre-bill printer id from the persisted settings in localStorage.
-// Called at event time (not reactive) so a single read per action is sufficient.
-function getPreBillPrinterConfig() {
-  try {
-    const { settingsKey } = resolveStorageKeys(getInstanceName());
-    const raw = window.localStorage?.getItem(settingsKey);
-    if (!raw) return null;
-    const printerId = JSON.parse(raw)?.preBillPrinterId;
-    if (!printerId) return null;
-    return (appConfig.printers ?? []).find(p => p.id === printerId) ?? null;
-  } catch { return null; }
-}
+// ── Pre-bill printer (reactive, driven by store which mirrors settings) ────
+const preBillPrinterConfig = computed(() => {
+  const printerId = store.preBillPrinterId;
+  if (!printerId) return null;
+  return (appConfig.printers ?? []).find(p => p.id === printerId) ?? null;
+});
 
 // ── Table modal state ──────────────────────────────────────────────────────
 const showTableModal = ref(false);
@@ -2588,7 +2581,7 @@ function generateTableCheckoutJson(ctx = 'table') {
 
   // Send to configured pre-bill printer (if any selected in settings)
   if (ctx === 'table') {
-    const preBillPrinter = getPreBillPrinterConfig();
+    const preBillPrinter = preBillPrinterConfig.value;
     if (preBillPrinter?.url) {
       enqueuePreBillJob(payload, preBillPrinter.url, preBillPrinter.name ?? preBillPrinter.id);
     }

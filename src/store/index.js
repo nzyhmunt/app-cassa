@@ -51,6 +51,10 @@ export const useAppStore = defineStore('app', () => {
   const customKeyboard = ref(
     (() => { const v = _savedSettings?.customKeyboard; return KEYBOARD_POSITIONS.includes(v) ? v : 'disabled'; })(),
   );
+  // ID of the printer chosen for pre-conto dispatch (empty string = disabled)
+  const preBillPrinterId = ref(
+    typeof _savedSettings?.preBillPrinterId === 'string' ? _savedSettings.preBillPrinterId : '',
+  );
   const menuLoading = ref(false);
   const menuError = ref(null);
 
@@ -423,7 +427,7 @@ export const useAppStore = defineStore('app', () => {
     cashBalance, cashMovements, dailyClosures,
     tableOccupiedAt, billRequestedTables, tableCurrentBillSession, tableMergedInto,
     pendingOpenTable, pendingSelectOrder, pendingNewOrder,
-    menuUrl, preventScreenLock, customKeyboard, menuLoading, menuError,
+    menuUrl, preventScreenLock, customKeyboard, preBillPrinterId, menuLoading, menuError,
     // print log
     printLog, addPrintLogEntry, clearPrintLog,
     // computed

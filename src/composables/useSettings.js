@@ -89,6 +89,7 @@ export function useSettings(props, emit) {
       store.menuUrl = newVal.menuUrl;
       store.preventScreenLock = newVal.preventScreenLock;
       store.customKeyboard = newVal.customKeyboard;
+      store.preBillPrinterId = newVal.preBillPrinterId ?? '';
       emit('settings-changed', newVal);
       // Debounce localStorage writes to avoid per-keystroke I/O (e.g. menuUrl typing)
       clearTimeout(saveTimer);
