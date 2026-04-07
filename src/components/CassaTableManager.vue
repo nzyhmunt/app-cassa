@@ -2572,7 +2572,7 @@ function generateTableCheckoutJson(ctx = 'table') {
           name: r.name,
           quantity: r.quantity - (r.voidedQuantity || 0),
           unitPrice: r.unitPrice ?? 0,
-          subtotal: r.unitPrice * (r.quantity - (r.voidedQuantity || 0)),
+          subtotal: (r.unitPrice ?? 0) * (r.quantity - (r.voidedQuantity || 0)),
         })),
     ),
   };
