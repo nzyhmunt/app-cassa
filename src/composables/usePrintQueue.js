@@ -107,19 +107,16 @@ export function enqueuePrintJobs(order) {
 
     const isCatchAll = !Array.isArray(printer.categories) || printer.categories.length === 0;
 
-    const items = (order.orderItems ?? [])
-      .filter(item => {
+    const items = (order.orderItems ?? []).reduce((acc, item) => {
         const activeQty = item.quantity - (item.voidedQuantity ?? 0);
-        if (activeQty <= 0) return false;
-        if (isCatchAll) return true;
-        const itemCategory = dishCategoryMap.get(item.dishId) ?? '';
-        return printer.categories.some(
-          c => c.toLowerCase() === itemCategory.toLowerCase(),
-        );
-      })
-      .map(item => {
-        const activeQty = item.quantity - (item.voidedQuantity ?? 0);
-        return {
+        if (activeQty <= 0) return acc;
+        if (!isCatchAll) {
+          const itemCategory = dishCategoryMap.get(item.dishId) ?? '';
+          if (!printer.categories.some(c => c.toLowerCase() === itemCategory.toLowerCase())) {
+            return acc;
+          }
+        }
+        acc.push({
           name: item.name,
           quantity: activeQty,
           unitPrice: item.unitPrice ?? 0,
@@ -128,8 +125,9 @@ export function enqueuePrintJobs(order) {
           modifiers: (item.modifiers ?? [])
             .filter(m => (m.voidedQuantity ?? 0) < activeQty)
             .map(m => ({ name: m.name, price: m.price ?? 0 })),
-        };
-      });
+        });
+        return acc;
+      }, []);
 
     if (items.length === 0) continue;
 
