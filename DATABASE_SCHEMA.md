@@ -481,7 +481,7 @@ CREATE TABLE print_jobs (
 
     -- Ristampa
     is_reprint      BOOLEAN         NOT NULL DEFAULT FALSE,
-    original_job_id VARCHAR(40)     NULL REFERENCES print_jobs(log_id),   -- solo per ristampe
+    original_job_id VARCHAR(40)     NULL,                   -- solo per ristampe: contiene il job_id originale, non il log_id
 
     -- Payload completo inviato al servizio ESC/POS (struttura libera per tipo)
     -- Campi comuni a tutti i tipi:
