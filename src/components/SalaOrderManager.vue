@@ -671,6 +671,7 @@ import {
   DEFAULT_COURSE,
   getCourseBorderClass,
 } from '../utils/index.js';
+import { enqueuePrintJobs } from '../composables/usePrintQueue.js';
 import OrderSidebarCard from './shared/OrderSidebarCard.vue';
 import OrderItemsList from './shared/OrderItemsList.vue';
 import GlobalOrderNoteModal from './shared/GlobalOrderNoteModal.vue';
@@ -1064,6 +1065,8 @@ function confirmSubmitOrder() {
   orderToSubmit.value = null;
   // Move the order out of "In Attesa" by marking it as accepted/sent to kitchen.
   store.changeOrderStatus(ord, 'accepted');
+  // Dispatch print jobs to the configured ESC/POS printer(s).
+  enqueuePrintJobs(ord);
   // Deselect the order and remain on the pending tab.
   selectedOrder.value = null;
 }

@@ -51,6 +51,10 @@ export const useAppStore = defineStore('app', () => {
   const customKeyboard = ref(
     (() => { const v = _savedSettings?.customKeyboard; return KEYBOARD_POSITIONS.includes(v) ? v : 'disabled'; })(),
   );
+  // ID of the printer chosen for pre-conto dispatch (empty string = disabled)
+  const preBillPrinterId = ref(
+    typeof _savedSettings?.preBillPrinterId === 'string' ? _savedSettings.preBillPrinterId : '',
+  );
   const menuLoading = ref(false);
   const menuError = ref(null);
 
@@ -89,6 +93,36 @@ export const useAppStore = defineStore('app', () => {
   const cashBalance = ref(0);
   const cashMovements = ref([]);
   const dailyClosures = ref([]);
+
+  // ── Print log ──────────────────────────────────────────────────────────────
+  // Persisted list of dispatched print jobs metadata (max 200 entries, newest first).
+  // In-memory entry shape:
+  //   { logId, jobId, printerId, printerName, printerUrl,
+  //     printType, table, timestamp, payload?,
+  //     status: 'pending' | 'printing' | 'done' | 'error',
+  //     errorMessage?: string,
+  //     isReprint?: boolean, originalJobId?: string }
+  // Note: `payload` is in-memory only and is stripped before persistence,
+  // so reloaded entries may not include it.
+  const printLog = ref([]);
+
+  /** Prepends a print log entry (status defaults to 'pending'), keeping at most 200 entries. */
+  function addPrintLogEntry(entry) {
+    printLog.value = [{ status: 'pending', ...entry }, ...printLog.value].slice(0, 200);
+  }
+
+  /** Updates a print log entry in-place by logId. */
+  function updatePrintLogEntry(logId, updates) {
+    const idx = printLog.value.findIndex(e => e.logId === logId);
+    if (idx !== -1) {
+      printLog.value[idx] = { ...printLog.value[idx], ...updates };
+    }
+  }
+
+  /** Clears the entire print log. */
+  function clearPrintLog() {
+    printLog.value = [];
+  }
 
   // ── Table state ────────────────────────────────────────────────────────────
   const tableOccupiedAt = ref({});
@@ -407,7 +441,9 @@ export const useAppStore = defineStore('app', () => {
     cashBalance, cashMovements, dailyClosures,
     tableOccupiedAt, billRequestedTables, tableCurrentBillSession, tableMergedInto,
     pendingOpenTable, pendingSelectOrder, pendingNewOrder,
-    menuUrl, preventScreenLock, customKeyboard, menuLoading, menuError,
+    menuUrl, preventScreenLock, customKeyboard, preBillPrinterId, menuLoading, menuError,
+    // print log
+    printLog, addPrintLogEntry, updatePrintLogEntry, clearPrintLog,
     // computed
     cssVars, rooms, pendingCount, inKitchenCount, closedBills,
     // helpers
@@ -435,10 +471,19 @@ export const useAppStore = defineStore('app', () => {
       'orders', 'transactions',
       'tableOccupiedAt', 'billRequestedTables', 'tableCurrentBillSession', 'tableMergedInto',
       'cashBalance', 'cashMovements', 'dailyClosures',
+      'printLog',
     ],
     serializer: {
       serialize(state) {
-        return JSON.stringify({ ...state, billRequestedTables: Array.from(state.billRequestedTables) });
+        // Strip the full `payload` from each printLog entry before persisting to avoid
+        // localStorage quota issues with large orders. The full payload is kept in-memory
+        // only and is not available after a page reload (status/metadata are retained).
+        // The reprint button in PrintHistoryModal is disabled for entries without payload,
+        // and reprintJob() also guards against missing payload.
+        const printLog = (Array.isArray(state.printLog) ? state.printLog : [])
+          .slice(0, 200)
+          .map(({ payload: _payload, ...rest }) => rest);
+        return JSON.stringify({ ...state, billRequestedTables: Array.from(state.billRequestedTables), printLog });
       },
       deserialize(raw) {
         try {

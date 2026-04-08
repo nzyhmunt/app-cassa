@@ -37,6 +37,8 @@ Può essere utilizzato come riferimento per una futura migrazione verso un backe
 | `transaction_order_refs` | Collegamento N:M tra pagamenti e comande            | `transaction.orderRefs`      |
 | `cash_movements`     | Versamenti e prelievi di cassa                           | `cashMovements`              |
 | `daily_closures`     | Chiusure giornaliere (rapporto Z)                        | `dailyClosures`              |
+| `printers`           | Stampanti ESC/POS configurate                            | `appConfig.printers`         |
+| `print_jobs`         | Log dei lavori di stampa inviati (cronologia stampe)     | `printLog` (localStorage)    |
 | `app_settings`       | Impostazioni utente (audio, URL menu, ecc.)              | `app-settings` (localStorage)|
 
 ---
@@ -414,9 +416,93 @@ CREATE TABLE app_settings (
     device_key  VARCHAR(120)    NOT NULL DEFAULT 'default',  -- es. UUID dispositivo
     sounds      BOOLEAN         NOT NULL DEFAULT TRUE,       -- avvisi audio "ding"
     menu_url    TEXT,                                       -- URL menu digitale (corrisponde a `menuUrl` in app-settings)
+    pre_bill_printer_id VARCHAR(40) NULL REFERENCES printers(id) ON DELETE SET NULL, -- default printer for pre-bill dispatch
     updated_at  TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
     UNIQUE (venue_id, device_key)
 );
+```
+
+---
+
+### 2.18 `printers` — Stampanti ESC/POS configurate
+
+I dati delle stampanti sono configurati staticamente in `appConfig.printers` e non sono persistiti
+in localStorage. In un database relazionale si tradurrebbero nella seguente tabella.
+
+```sql
+CREATE TABLE printers (
+    id              VARCHAR(40)     PRIMARY KEY,            -- es. 'cucina', 'bar', 'cassa'
+    venue_id        INTEGER         NOT NULL REFERENCES venues(id) ON DELETE CASCADE,
+    name            VARCHAR(80)     NOT NULL,               -- nome visualizzato nella UI
+    url             TEXT            NOT NULL,               -- URL servizio Node ESC/POS
+    -- print_types: quali tipi di lavoro riceve questa stampante.
+    -- Valori ammessi: 'order', 'table_move', 'pre_bill', oppure un tipo custom.
+    -- Array vuoto / NULL = catch-all (riceve tutti i tipi).
+    print_types     TEXT[]          NOT NULL DEFAULT '{}',
+    -- categories: filtro menu per i lavori di tipo 'order'.
+    -- Se vuoto, riceve tutte le voci del menu (catch-all).
+    categories      TEXT[]          NOT NULL DEFAULT '{}',
+    is_active       BOOLEAN         NOT NULL DEFAULT TRUE,
+    sort_order      SMALLINT        NOT NULL DEFAULT 0,
+    created_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW()
+);
+```
+
+---
+
+### 2.19 `print_jobs` — Log dei lavori di stampa (cronologia stampe)
+
+Struttura dati unificata e flessibile per tutti i tipi di lavoro di stampa.
+Il campo `payload` (JSONB) contiene i dati specifici per ogni tipo.
+
+```sql
+-- Enum dei possibili stati del lavoro di stampa
+CREATE TYPE print_job_status AS ENUM ('pending', 'printing', 'done', 'error');
+
+CREATE TABLE print_jobs (
+    -- Identificatori
+    log_id          VARCHAR(40)     PRIMARY KEY,            -- plog_<uuid> — chiave del log entry
+    job_id          VARCHAR(40)     NOT NULL,               -- job_<uuid>  — inviato nella richiesta al servizio ESC/POS
+    printer_id      VARCHAR(40)     NOT NULL REFERENCES printers(id) ON DELETE RESTRICT,
+    venue_id        INTEGER         NOT NULL REFERENCES venues(id) ON DELETE CASCADE,
+
+    -- Tipo di stampa (estensibile: aggiungere nuovi valori senza modificare lo schema)
+    -- Valori correnti: 'order', 'table_move', 'pre_bill'
+    print_type      VARCHAR(40)     NOT NULL,
+
+    -- Stato avanzamento
+    status          print_job_status NOT NULL DEFAULT 'pending',
+    error_message   TEXT            NULL,                   -- popolato solo se status = 'error'
+
+    -- Riepilogo human-readable (indipendente dal tipo)
+    table_label     VARCHAR(120)    NOT NULL DEFAULT '',    -- e.g. '05', '01 → 02'
+    timestamp       TIMESTAMPTZ     NOT NULL DEFAULT NOW(), -- job creation time
+
+    -- Ristampa
+    is_reprint      BOOLEAN         NOT NULL DEFAULT FALSE,
+    original_job_id VARCHAR(40)     NULL,                   -- solo per ristampe: contiene il job_id originale, non il log_id
+
+    -- Payload completo inviato al servizio ESC/POS (struttura libera per tipo)
+    -- Campi comuni a tutti i tipi:
+    --   jobId, printType, printerId, table, timestamp
+    -- Campi per 'order':
+    --   orderId, time, globalNote, items[] (name, quantity, unitPrice, notes, course, modifiers)
+    -- Campi per 'table_move':
+    --   fromTableId, fromTableLabel, toTableId, toTableLabel
+    -- Campi per 'pre_bill':
+    --   tableId, tableLabel, grossAmount, paymentsRecorded, amountDue, items[]
+    -- Campi opzionali per ristampe:
+    --   reprinted: true
+    payload         JSONB           NOT NULL DEFAULT '{}',
+
+    created_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW()
+);
+
+-- Indici per le query più frequenti (cronologia per punto vendita, stampante, tipo, stato)
+CREATE INDEX idx_print_jobs_venue_ts    ON print_jobs (venue_id, timestamp DESC);
+CREATE INDEX idx_print_jobs_printer     ON print_jobs (printer_id, timestamp DESC);
+CREATE INDEX idx_print_jobs_type_status ON print_jobs (print_type, status);
 ```
 
 ---
@@ -439,6 +525,9 @@ transactions >──< orders  (via transaction_order_refs)
 transactions ──< transaction_voce_refs  (only when operation_type = 'analitica')
 venues ──< cash_movements
 venues ──< daily_closures ──< daily_closure_by_method
+venues ──< printers
+venues ──< print_jobs >── printers
+Nota: `print_jobs.original_job_id` conserva il `job_id` originale per ristampe, ma non è una FK
 venues ──< app_settings
 ```
 
@@ -599,6 +688,8 @@ Cardinalità:
 | `cashBalance`                         | somma di `cash_movements` + valore iniziale |
 | `cashMovements[]`                     | `cash_movements`                       |
 | `dailyClosures[]`                     | `daily_closures` + `daily_closure_by_method` |
+| `printLog[]` (localStorage)           | `print_jobs`                           |
+| `appConfig.printers`                  | `printers`                             |
 | `app-settings` (localStorage)         | `app_settings`                         |
 | `appConfig.menu`                      | `menu_categories` + `menu_items`       |
 | `appConfig.rooms`                     | `rooms`                                |

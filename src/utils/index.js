@@ -108,6 +108,48 @@ export const appConfig = {
     name: 'Coperto',
   },
 
+  // CONFIGURAZIONE STAMPANTI (coda di stampa comande/ordini)
+  // Ciascuna stampante punta a un servizio Node separato che gestisce la
+  // comunicazione ESC/POS verso la stampante fisica.
+  //
+  // Struttura di ogni stampante:
+  //   id:         identificatore univoco (stringa, es. 'cucina', 'bar')
+  //   name:       nome descrittivo (usato nell'interfaccia e nei log)
+  //   url:        URL del servizio di stampa Node (es. 'http://localhost:3001/print')
+  //   categories: array di nomi di categorie del menu da instradare su questa
+  //               stampante (confronto case-insensitive). Se vuoto o assente,
+  //               la stampante è catch-all per le voci (solo per tipo 'order').
+  //   printTypes: array di tipi di stampa che questa stampante accetta:
+  //               'order'      → comanda cucina/bar
+  //               'table_move' → notifica spostamento tavolo
+  //               'pre_bill'   → preconto inviato manualmente dalla Cassa
+  //               Se vuoto o assente, la stampante accetta tutti i tipi (catch-all).
+  //
+  // Esempio configurazione multi-stampante:
+  //   printers: [
+  //     { id: 'cucina', name: 'Cucina', url: 'http://localhost:3001/print',
+  //       printTypes: ['order'],
+  //       categories: ['Antipasti', 'Primi', 'Secondi', 'Contorni'] },
+  //     { id: 'bar',    name: 'Bar',    url: 'http://localhost:3002/print',
+  //       printTypes: ['order'],
+  //       categories: ['Bevande', 'Digestivi'] },
+  //     { id: 'cassa',  name: 'Cassa',  url: 'http://localhost:3003/print',
+  //       printTypes: ['pre_bill', 'table_move'] },
+  //   ],
+  //
+  // Stampante di prova (catch-all, riceve tutti i tipi e tutte le voci):
+  // Attiva per default — punta al servizio Node ESC/POS locale sulla porta 3001.
+  // Rimuovere o sostituire con la configurazione del locale prima del deployment in produzione.
+  printers: [
+    {
+      id: 'demo',
+      name: 'Stampante Demo',
+      url: 'http://localhost:3001/print',
+      // printTypes assente → catch-all (riceve order, table_move, pre_bill)
+      // categories assente  → catch-all (riceve tutte le voci del menu)
+    },
+  ],
+
   // CONFIGURAZIONE GESTIONE ORDINI
   // rejectionReasons: elenco delle voci predefinite mostrate nel dialog di conferma rifiuto.
   //   Ogni voce ha { value: string, label: string }.
