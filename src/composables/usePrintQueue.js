@@ -344,19 +344,32 @@ export function reprintJob(logEntry, overrideUrl = null) {
 
   const store = getStore();
   const timestamp = new Date().toISOString();
-  const job = { ...payload, jobId: newUUID('job'), reprinted: true, timestamp };
 
   const printer = overrideUrl
     ? appConfig.printers?.find(p => p.url === overrideUrl)
     : null;
 
+  const printerId = printer?.id ?? logEntry.printerId;
+  const printerName = printer?.name ?? logEntry.printerName;
+  const printerUrl = url;
+
+  const job = {
+    ...payload,
+    jobId: newUUID('job'),
+    reprinted: true,
+    timestamp,
+    printerId,
+    printerName,
+    printerUrl,
+  };
+
   const logId = newUUID('plog');
   logJob(store, {
     logId,
     jobId: job.jobId,
-    printerId: printer?.id ?? logEntry.printerId,
-    printerName: printer?.name ?? logEntry.printerName,
-    printerUrl: url,
+    printerId,
+    printerName,
+    printerUrl,
     printType: logEntry.printType,
     table: logEntry.table,
     timestamp,
