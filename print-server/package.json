@@ -1,0 +1,17 @@
+{
+  "name": "escpos-print-server",
+  "version": "1.0.0",
+  "description": "Servizio Node.js ESC/POS: riceve job di stampa via HTTP e li invia alla stampante",
+  "main": "server.js",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}
