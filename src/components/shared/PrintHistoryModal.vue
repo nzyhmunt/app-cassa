@@ -136,7 +136,7 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue';
+import { ref, computed, watch } from 'vue';
 import { History, Printer, X, RefreshCw, ArrowRightLeft, FileText, ClipboardList } from 'lucide-vue-next';
 import { useAppStore } from '../../store/index.js';
 import { appConfig } from '../../utils/index.js';
@@ -149,6 +149,14 @@ const store = useAppStore();
 
 const confirmingClear = ref(false);
 const reprintEntry = ref(null);
+
+// Reset transient modal state whenever the modal is closed
+watch(() => props.modelValue, (open) => {
+  if (!open) {
+    confirmingClear.value = false;
+    reprintEntry.value = null;
+  }
+});
 
 function clearLog() {
   store.clearPrintLog();

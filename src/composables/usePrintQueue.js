@@ -185,7 +185,7 @@ export function enqueuePrintJobs(order) {
       if (activeQty <= 0) return acc;
       if (!isCatchAll) {
         const itemCategory = dishCategoryMap.get(item.dishId) ?? '';
-        if (!printer.categories.some(c => c.toLowerCase() === itemCategory.toLowerCase())) {
+        if (!printer.categories.some(c => typeof c === 'string' && c.toLowerCase() === itemCategory.toLowerCase())) {
           return acc;
         }
       }
