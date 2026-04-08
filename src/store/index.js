@@ -480,7 +480,9 @@ export const useAppStore = defineStore('app', () => {
         // only and is not available after a page reload (status/metadata are retained).
         // The reprint button in PrintHistoryModal is disabled for entries without payload,
         // and reprintJob() also guards against missing payload.
-        const printLog = (state.printLog ?? []).map(({ payload: _payload, ...rest }) => rest);
+        const printLog = (Array.isArray(state.printLog) ? state.printLog : [])
+          .slice(0, 200)
+          .map(({ payload: _payload, ...rest }) => rest);
         return JSON.stringify({ ...state, billRequestedTables: Array.from(state.billRequestedTables), printLog });
       },
       deserialize(raw) {

@@ -197,7 +197,10 @@ const keyboardPositionOptions = [
   { value: 'right',    label: 'Destra' },
 ];
 
-/** Printers configured in appConfig that can receive pre_bill jobs. */
+/** Printers configured in appConfig that can receive pre_bill jobs.
+ * Includes both printers that explicitly list 'pre_bill' in printTypes
+ * AND catch-all printers (printTypes absent or empty), consistent with
+ * how getPrintersForType() routes jobs and the README documentation. */
 const preBillPrinters = computed(() => {
   const printers = appConfig.printers ?? [];
   return printers.filter(p => {
