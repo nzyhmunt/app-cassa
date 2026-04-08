@@ -8,24 +8,21 @@
  *   POST /print  – riceve un job JSON, lo converte in ESC/POS e lo invia alla stampante.
  *   GET  /health – ritorna { status: 'ok' } per il controllo di salute del servizio.
  *
- * Configurazione tramite variabili d'ambiente (o file .env se si usa dotenv):
+ * Le stampanti fisiche sono configurate in `printers.config.js`.
+ * Il campo `printerId` del job viene usato per instradare il job alla stampante corretta.
+ *
+ * Configurazione tramite variabili d'ambiente:
  *   PORT              – porta HTTP del server (default: 3001)
- *   PRINTER_TYPE      – 'tcp' | 'file'  (default: 'tcp')
- *   PRINTER_HOST      – IP/hostname stampante (solo TCP, default: '127.0.0.1')
- *   PRINTER_PORT      – porta stampante TCP (default: 9100)
- *   PRINTER_DEVICE    – percorso dispositivo USB/parallelo (solo file, default: /dev/usb/lp0)
  *   PRINT_SERVER_NAME – nome del server nei log (default: 'ESC/POS Print Server')
  *
  * Avvio:
  *   node server.js
- *   # oppure con variabili:
- *   PRINTER_HOST=192.168.1.100 PORT=3001 node server.js
  */
 
-const http = require('http');
+const http    = require('http');
 const express = require('express');
 
-const { printBuffer } = require('./printer.js');
+const { printBuffer, getPrintersList } = require('./printer.js');
 const { formatOrder }     = require('./formatters/order.js');
 const { formatTableMove } = require('./formatters/table_move.js');
 const { formatPreBill }   = require('./formatters/pre_bill.js');
@@ -69,7 +66,10 @@ app.get('/health', (_req, res) => {
  * POST /print
  * Riceve un job di stampa JSON, lo converte in ESC/POS e lo invia alla stampante.
  *
- * Body atteso: { printType: 'order' | 'table_move' | 'pre_bill', ...campi specifici }
+ * Body atteso: { printType: 'order' | 'table_move' | 'pre_bill', printerId: string, ... }
+ *
+ * Il campo `printerId` viene usato per selezionare la stampante in printers.config.js.
+ * Se assente o non trovato, viene usata la prima stampante come fallback.
  *
  * Risposta di successo:   200 { ok: true,  jobId }
  * Risposta di errore:     400 { ok: false, error } — payload non valido
@@ -83,7 +83,7 @@ app.post('/print', async (req, res) => {
     return res.status(400).json({ ok: false, error: 'Body JSON mancante o non valido.' });
   }
 
-  const { printType, jobId } = job;
+  const { printType, jobId, printerId } = job;
 
   if (!printType) {
     return res.status(400).json({ ok: false, error: 'Campo printType mancante.' });
@@ -92,6 +92,7 @@ app.post('/print', async (req, res) => {
   // Sanitizza i valori dall'input utente prima di usarli nei log per prevenire log injection
   const safeJobId     = sanitizeForLog(jobId     ?? '?');
   const safePrintType = sanitizeForLog(printType ?? '?');
+  const safePrinterId = sanitizeForLog(printerId ?? 'default');
 
   // Conversione payload → Buffer ESC/POS
   let buf;
@@ -106,10 +107,10 @@ app.post('/print', async (req, res) => {
     return res.status(400).json({ ok: false, error: `Tipo di stampa non supportato: ${printType}` });
   }
 
-  // Invio alla stampante
+  // Invio alla stampante identificata da printerId
   try {
-    await printBuffer(buf);
-    console.log('[print-server] Job stampato:', safeJobId, '(' + safePrintType + ')');
+    await printBuffer(buf, printerId);
+    console.log('[print-server] Job stampato:', safeJobId, '(' + safePrintType + ') → stampante:', safePrinterId);
     return res.json({ ok: true, jobId: jobId ?? null });
   } catch (err) {
     console.error('[print-server] Errore stampante per job', safeJobId + ':', err.message);
@@ -121,9 +122,8 @@ app.post('/print', async (req, res) => {
 
 /**
  * Seleziona il formatter appropriato in base a job.printType e restituisce il Buffer.
- * Lancia un errore se il tipo non è riconosciuto.
  * @param {object} job
- * @returns {Buffer}
+ * @returns {Buffer|null}
  */
 function buildEscPosBuffer(job) {
   switch (job.printType) {
@@ -143,14 +143,21 @@ function buildEscPosBuffer(job) {
 const server = http.createServer(app);
 
 server.listen(PORT, () => {
-  const { PRINTER_TYPE, PRINTER_HOST, PRINTER_PORT, PRINTER_DEVICE } = require('./printer.js');
   console.log(`[print-server] ${SERVER_NAME} in ascolto su http://localhost:${PORT}`);
-  if (PRINTER_TYPE === 'file') {
-    console.log(`[print-server] Stampante: file → ${PRINTER_DEVICE}`);
-  } else {
-    console.log(`[print-server] Stampante: TCP  → ${PRINTER_HOST}:${PRINTER_PORT}`);
-  }
   console.log(`[print-server] Endpoint: POST http://localhost:${PORT}/print`);
+
+  const printers = getPrintersList();
+  if (printers.length === 0) {
+    console.warn('[print-server] ATTENZIONE: nessuna stampante configurata in printers.config.js');
+  } else {
+    console.log(`[print-server] Stampanti configurate (${printers.length}):`);
+    for (const p of printers) {
+      const conn = p.type === 'file'
+        ? `file → ${p.device}`
+        : `TCP  → ${p.host}:${p.port}`;
+      console.log(`[print-server]   [${p.id}] ${p.name}  (${conn})`);
+    }
+  }
 });
 
 server.on('error', (err) => {

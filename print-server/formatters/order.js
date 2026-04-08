@@ -26,7 +26,7 @@
  * }
  */
 
-const { EscPosBuilder } = require('../escpos.js');
+const ReceiptPrinterEncoder = require('@point-of-sale/receipt-printer-encoder');
 
 /**
  * Converte un job 'order' in un Buffer ESC/POS.
@@ -34,28 +34,21 @@ const { EscPosBuilder } = require('../escpos.js');
  * @returns {Buffer}
  */
 function formatOrder(job) {
-  const b = new EscPosBuilder();
+  const enc = new ReceiptPrinterEncoder({ language: 'esc-pos', width: 42 });
 
-  b.init();
+  // ── Intestazione ──────────────────────────────────────────────────────────
 
-  // ── Intestazione ─────────────────────────────────────────────────────────
-
-  b.align('center')
-   .bold(true)
-   .size('double')
-   .textLine(`TAVOLO ${job.table ?? '?'}`)
-   .size('normal')
-   .bold(false);
-
-  b.align('center').textLine(job.time ?? '');
+  enc.initialize()
+     .align('center').bold(true).size(2).line(`TAVOLO ${job.table ?? '?'}`).size(1).bold(false)
+     .align('center').line(job.time ?? '');
 
   if (job.printerId) {
-    b.align('center').bold(true).textLine(job.printerId.toUpperCase()).bold(false);
+    enc.align('center').bold(true).line(job.printerId.toUpperCase()).bold(false);
   }
 
-  b.separator();
+  enc.rule({ style: 'single' });
 
-  // ── Voci ─────────────────────────────────────────────────────────────────
+  // ── Voci ──────────────────────────────────────────────────────────────────
 
   const items = Array.isArray(job.items) ? job.items : [];
 
@@ -63,43 +56,35 @@ function formatOrder(job) {
     const qty  = item.quantity ?? 1;
     const name = item.name ?? '';
 
-    b.align('left')
-     .bold(true)
-     .twoColumns(`${qty}x ${name}`, '')
-     .bold(false);
+    enc.align('left').bold(true).line(`${qty}x ${name}`).bold(false);
 
-    // Note specifiche della voce
     const notes = Array.isArray(item.notes) ? item.notes : [];
     for (const note of notes) {
-      if (note) b.align('left').textLine(`  >> ${note}`);
+      if (note) enc.align('left').line(`  >> ${note}`);
     }
 
-    // Modificatori
     const mods = Array.isArray(item.modifiers) ? item.modifiers : [];
     for (const m of mods) {
-      if (m?.name) b.align('left').textLine(`  + ${m.name}`);
+      if (m?.name) enc.align('left').line(`  + ${m.name}`);
     }
 
-    // Portata (se non 'insieme')
     if (item.course && item.course !== 'insieme') {
-      b.align('left').textLine(`  [${item.course}]`);
+      enc.align('left').line(`  [${item.course}]`);
     }
   }
 
-  // ── Nota globale ─────────────────────────────────────────────────────────
+  // ── Nota globale ──────────────────────────────────────────────────────────
 
   if (job.globalNote) {
-    b.separator()
-     .align('left')
-     .bold(true).text('NOTA: ').bold(false)
-     .textLine(job.globalNote);
+    enc.rule({ style: 'single' })
+       .align('left').bold(true).text('NOTA: ').bold(false).line(job.globalNote);
   }
 
-  // ── Chiusura ─────────────────────────────────────────────────────────────
+  // ── Chiusura ──────────────────────────────────────────────────────────────
 
-  b.feed(3).cut();
+  enc.newline().newline().newline().cut();
 
-  return b.build();
+  return Buffer.from(enc.encode());
 }
 
 module.exports = { formatOrder };

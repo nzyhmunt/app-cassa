@@ -2,49 +2,81 @@
 
 /**
  * @file printer.js
- * @description Gestione connessione alla stampante (TCP di rete o file di dispositivo USB).
+ * @description Gestione connessione alle stampanti fisiche.
  *
- * Modalità supportate (configurabili via variabili d'ambiente):
- *
- *   PRINTER_TYPE=tcp  (default)
- *     Connette alla stampante tramite socket TCP, solitamente su porta 9100.
- *     Variabili: PRINTER_HOST (default '127.0.0.1'), PRINTER_PORT (default 9100)
- *
- *   PRINTER_TYPE=file
- *     Scrive direttamente su un file di dispositivo (es. /dev/usb/lp0).
- *     Variabile: PRINTER_DEVICE (default '/dev/usb/lp0')
+ * Legge il registro delle stampanti da `printers.config.js`.
+ * Ogni stampante può essere raggiunta tramite:
+ *   - TCP  (type: 'tcp')  → connessione socket sulla porta 9100 (o custom)
+ *   - File (type: 'file') → scrittura su file di dispositivo (/dev/usb/lp0)
  *
  * Esporta:
- *   printBuffer(buf) → Promise<void>
- *     Invia il Buffer ESC/POS alla stampante.
+ *   printBuffer(buf, printerId) → Promise<void>
+ *     Invia il Buffer ESC/POS alla stampante identificata da `printerId`.
+ *     Se `printerId` non corrisponde a nessuna voce configurata, usa la
+ *     prima stampante come fallback.
+ *
+ *   getPrintersList() → object[]
+ *     Restituisce l'elenco delle stampanti configurate (per i log di avvio).
  */
 
 const net = require('net');
 const fs  = require('fs');
+const { printers } = require('./printers.config.js');
 
-const PRINTER_TYPE   = (process.env.PRINTER_TYPE   || 'tcp').toLowerCase();
-const PRINTER_HOST   = process.env.PRINTER_HOST  || '127.0.0.1';
-const PRINTER_PORT   = parseInt(process.env.PRINTER_PORT  || '9100', 10);
-const PRINTER_DEVICE = process.env.PRINTER_DEVICE || '/dev/usb/lp0';
-
-/** Timeout di connessione TCP in ms */
-const TCP_TIMEOUT_MS = parseInt(process.env.PRINTER_TCP_TIMEOUT_MS || '5000', 10);
+// ── Lookup stampante ─────────────────────────────────────────────────────────
 
 /**
- * Invia un Buffer ESC/POS alla stampante.
- * @param {Buffer} buf – byte ESC/POS pronti per la stampante
+ * Restituisce la configurazione della stampante corrispondente a `printerId`.
+ * Se non trovata, restituisce la prima stampante come fallback.
+ * @param {string|undefined} printerId
+ * @returns {object|null}
+ */
+function getPrinterConfig(printerId) {
+  if (!Array.isArray(printers) || printers.length === 0) return null;
+  if (printerId) {
+    const found = printers.find(p => p.id === printerId);
+    if (found) return found;
+  }
+  // Fallback alla prima stampante configurata
+  return printers[0];
+}
+
+/**
+ * Restituisce l'elenco delle stampanti configurate.
+ * @returns {object[]}
+ */
+function getPrintersList() {
+  return Array.isArray(printers) ? printers : [];
+}
+
+// ── Dispatch ─────────────────────────────────────────────────────────────────
+
+/**
+ * Invia un Buffer ESC/POS alla stampante identificata da `printerId`.
+ * @param {Buffer} buf       – byte ESC/POS pronti per la stampante
+ * @param {string} printerId – id della stampante (come in printers.config.js)
  * @returns {Promise<void>}
  */
-function printBuffer(buf) {
-  if (PRINTER_TYPE === 'file') {
-    return printToFile(buf);
+function printBuffer(buf, printerId) {
+  const config = getPrinterConfig(printerId);
+  if (!config) {
+    return Promise.reject(new Error('Nessuna stampante configurata in printers.config.js.'));
   }
-  return printViaTcp(buf);
+  const type = (config.type || 'tcp').toLowerCase();
+  if (type === 'file') {
+    return printToFile(buf, config.device || '/dev/usb/lp0');
+  }
+  return printViaTcp(
+    buf,
+    config.host    || '127.0.0.1',
+    config.port    || 9100,
+    config.timeout || 5000,
+  );
 }
 
 // ── TCP ──────────────────────────────────────────────────────────────────────
 
-function printViaTcp(buf) {
+function printViaTcp(buf, host, port, timeoutMs) {
   return new Promise((resolve, reject) => {
     const socket = new net.Socket();
     let settled = false;
@@ -57,15 +89,15 @@ function printViaTcp(buf) {
       else resolve();
     }
 
-    socket.setTimeout(TCP_TIMEOUT_MS);
+    socket.setTimeout(timeoutMs);
 
     socket.on('timeout', () => done(new Error(
-      `TCP timeout after ${TCP_TIMEOUT_MS}ms connecting to ${PRINTER_HOST}:${PRINTER_PORT}`,
+      `TCP timeout after ${timeoutMs}ms connecting to ${host}:${port}`,
     )));
 
     socket.on('error', done);
 
-    socket.connect(PRINTER_PORT, PRINTER_HOST, () => {
+    socket.connect(port, host, () => {
       socket.write(buf, (writeErr) => {
         if (writeErr) {
           done(writeErr);
@@ -83,9 +115,9 @@ function printViaTcp(buf) {
 
 // ── File di dispositivo ──────────────────────────────────────────────────────
 
-function printToFile(buf) {
+function printToFile(buf, device) {
   return new Promise((resolve, reject) => {
-    fs.open(PRINTER_DEVICE, 'w', (openErr, fd) => {
+    fs.open(device, 'w', (openErr, fd) => {
       if (openErr) return reject(openErr);
       fs.write(fd, buf, (writeErr) => {
         fs.close(fd, () => {
@@ -97,4 +129,4 @@ function printToFile(buf) {
   });
 }
 
-module.exports = { printBuffer, PRINTER_TYPE, PRINTER_HOST, PRINTER_PORT, PRINTER_DEVICE };
+module.exports = { printBuffer, getPrintersList };

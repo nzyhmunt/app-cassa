@@ -21,7 +21,14 @@
  * }
  */
 
-const { EscPosBuilder, PRINTER_WIDTH } = require('../escpos.js');
+const ReceiptPrinterEncoder = require('@point-of-sale/receipt-printer-encoder');
+
+/** Larghezza totale della riga (caratteri) */
+const WIDTH = 42;
+/** Larghezza colonna importo (destra) */
+const AMOUNT_COL = 12;
+/** Larghezza colonna descrizione (sinistra) */
+const DESC_COL = WIDTH - AMOUNT_COL;
 
 /**
  * Formatta un numero come stringa valuta italiana (es. "12,50 €").
@@ -34,87 +41,6 @@ function fmt(n) {
 }
 
 /**
- * Converte un job 'pre_bill' in un Buffer ESC/POS.
- * @param {object} job
- * @returns {Buffer}
- */
-function formatPreBill(job) {
-  const b = new EscPosBuilder();
-
-  b.init();
-
-  // ── Intestazione ─────────────────────────────────────────────────────────
-
-  b.align('center')
-   .bold(true)
-   .size('double')
-   .textLine('PRECONTO')
-   .size('normal')
-   .bold(false);
-
-  b.align('center').textLine(`Tavolo ${job.table ?? job.tableId ?? '?'}`);
-
-  // Data/ora dalla timestamp ISO
-  const dateStr = formatDateTime(job.timestamp);
-  if (dateStr) b.align('center').textLine(dateStr);
-
-  b.separator();
-
-  // ── Intestazione colonne ──────────────────────────────────────────────────
-
-  b.align('left')
-   .bold(true)
-   .twoColumns('DESCRIZIONE', 'TOTALE')
-   .bold(false);
-
-  b.separator();
-
-  // ── Voci ─────────────────────────────────────────────────────────────────
-
-  const items = Array.isArray(job.items) ? job.items : [];
-
-  for (const item of items) {
-    const qty      = item.quantity  ?? 1;
-    const name     = item.name      ?? '';
-    const subtotal = item.subtotal  ?? 0;
-
-    b.align('left').twoColumns(`${qty}x ${name}`, fmt(subtotal));
-
-    if (item.unitPrice != null && qty > 1) {
-      // Mostra il prezzo unitario in una riga indentata
-      b.align('left').textLine(`   @ ${fmt(item.unitPrice)} cad.`);
-    }
-  }
-
-  b.separator();
-
-  // ── Totali ────────────────────────────────────────────────────────────────
-
-  b.align('left')
-   .bold(true)
-   .twoColumns('TOTALE', fmt(job.grossAmount))
-   .bold(false);
-
-  if (job.paymentsRecorded > 0) {
-    b.align('left').twoColumns('Pagato', fmt(job.paymentsRecorded));
-    b.align('left')
-     .bold(true)
-     .twoColumns('RESIDUO', fmt(job.amountDue))
-     .bold(false);
-  }
-
-  // ── Chiusura ─────────────────────────────────────────────────────────────
-
-  b.separator()
-   .align('center')
-   .textLine('Grazie e arrivederci!')
-   .feed(3)
-   .cut();
-
-  return b.build();
-}
-
-/**
  * Formatta una stringa ISO 8601 in "DD/MM/YYYY HH:MM".
  * @param {string} iso
  * @returns {string}
@@ -124,15 +50,91 @@ function formatDateTime(iso) {
   try {
     const d = new Date(iso);
     if (isNaN(d.getTime())) return '';
-    const dd   = String(d.getDate()).padStart(2, '0');
-    const mm   = String(d.getMonth() + 1).padStart(2, '0');
-    const yyyy = d.getFullYear();
-    const hh   = String(d.getHours()).padStart(2, '0');
-    const min  = String(d.getMinutes()).padStart(2, '0');
-    return `${dd}/${mm}/${yyyy} ${hh}:${min}`;
+    const pad = n => String(n).padStart(2, '0');
+    return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
   } catch {
     return '';
   }
+}
+
+/**
+ * Converte un job 'pre_bill' in un Buffer ESC/POS.
+ * @param {object} job
+ * @returns {Buffer}
+ */
+function formatPreBill(job) {
+  const enc = new ReceiptPrinterEncoder({ language: 'esc-pos', width: WIDTH });
+
+  // ── Intestazione ──────────────────────────────────────────────────────────
+
+  enc.initialize()
+     .align('center').bold(true).size(2).line('PRECONTO').size(1).bold(false)
+     .align('center').line(`Tavolo ${job.table ?? job.tableId ?? '?'}`);
+
+  const dateStr = formatDateTime(job.timestamp);
+  if (dateStr) enc.align('center').line(dateStr);
+
+  enc.rule({ style: 'single' });
+
+  // ── Intestazione colonne ──────────────────────────────────────────────────
+
+  enc.table(
+    [{ width: DESC_COL, align: 'left' }, { width: AMOUNT_COL, align: 'right' }],
+    [['DESCRIZIONE', 'TOTALE']],
+  );
+
+  enc.rule({ style: 'single' });
+
+  // ── Voci ──────────────────────────────────────────────────────────────────
+
+  const items = Array.isArray(job.items) ? job.items : [];
+  const rows = [];
+
+  for (const item of items) {
+    const qty      = item.quantity  ?? 1;
+    const name     = item.name      ?? '';
+    const subtotal = item.subtotal  ?? 0;
+    rows.push([`${qty}x ${name}`, fmt(subtotal)]);
+
+    if (item.unitPrice != null && qty > 1) {
+      rows.push([`   @ ${fmt(item.unitPrice)} cad.`, '']);
+    }
+  }
+
+  if (rows.length > 0) {
+    enc.table(
+      [{ width: DESC_COL, align: 'left' }, { width: AMOUNT_COL, align: 'right' }],
+      rows,
+    );
+  }
+
+  enc.rule({ style: 'single' });
+
+  // ── Totali ────────────────────────────────────────────────────────────────
+
+  enc.table(
+    [{ width: DESC_COL, align: 'left' }, { width: AMOUNT_COL, align: 'right' }],
+    [['TOTALE', fmt(job.grossAmount)]],
+  );
+
+  if (job.paymentsRecorded > 0) {
+    enc.table(
+      [{ width: DESC_COL, align: 'left' }, { width: AMOUNT_COL, align: 'right' }],
+      [
+        ['Pagato', fmt(job.paymentsRecorded)],
+        ['RESIDUO', fmt(job.amountDue)],
+      ],
+    );
+  }
+
+  // ── Chiusura ──────────────────────────────────────────────────────────────
+
+  enc.rule({ style: 'single' })
+     .align('center').line('Grazie e arrivederci!')
+     .newline().newline().newline()
+     .cut();
+
+  return Buffer.from(enc.encode());
 }
 
 module.exports = { formatPreBill };

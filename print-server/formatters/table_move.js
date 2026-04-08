@@ -18,7 +18,7 @@
  * }
  */
 
-const { EscPosBuilder } = require('../escpos.js');
+const ReceiptPrinterEncoder = require('@point-of-sale/receipt-printer-encoder');
 
 /**
  * Converte un job 'table_move' in un Buffer ESC/POS.
@@ -26,30 +26,17 @@ const { EscPosBuilder } = require('../escpos.js');
  * @returns {Buffer}
  */
 function formatTableMove(job) {
-  const b = new EscPosBuilder();
+  const enc = new ReceiptPrinterEncoder({ language: 'esc-pos', width: 42 });
 
-  b.init();
+  enc.initialize()
+     .align('center').bold(true).size(2).line('SPOSTAMENTO TAVOLO').size(1).bold(false)
+     .rule({ style: 'single' })
+     .align('center').bold(true).line(`DA: TAVOLO ${job.fromTableLabel ?? job.fromTableId ?? '?'}`).bold(false)
+     .align('center').bold(true).line(`A:  TAVOLO ${job.toTableLabel   ?? job.toTableId   ?? '?'}`).bold(false)
+     .newline().newline().newline()
+     .cut();
 
-  b.align('center')
-   .bold(true)
-   .size('double')
-   .textLine('SPOSTAMENTO TAVOLO')
-   .size('normal')
-   .bold(false);
-
-  b.separator();
-
-  b.align('center')
-   .bold(true).textLine(`DA: TAVOLO ${job.fromTableLabel ?? job.fromTableId ?? '?'}`)
-   .bold(false);
-
-  b.align('center')
-   .bold(true).textLine(`A:  TAVOLO ${job.toTableLabel   ?? job.toTableId   ?? '?'}`)
-   .bold(false);
-
-  b.feed(3).cut();
-
-  return b.build();
+  return Buffer.from(enc.encode());
 }
 
 module.exports = { formatTableMove };
