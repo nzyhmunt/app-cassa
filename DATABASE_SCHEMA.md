@@ -527,7 +527,7 @@ venues ──< cash_movements
 venues ──< daily_closures ──< daily_closure_by_method
 venues ──< printers
 venues ──< print_jobs >── printers
-print_jobs ──< print_jobs  (self-ref: original_job_id per ristampe)
+Nota: `print_jobs.original_job_id` conserva il `job_id` originale per ristampe, ma non è una FK
 venues ──< app_settings
 ```
 
