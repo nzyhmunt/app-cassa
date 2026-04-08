@@ -395,8 +395,9 @@ e possibilità di ristampare su qualsiasi stampante configurata.
 ### Stampante preconto predefinita
 
 Nelle **Impostazioni Cassa** → sezione "Stampante Preconto" è possibile scegliere la stampante
-su cui inviare automaticamente il preconto. Visibile solo se almeno una stampante ha `pre_bill`
-nei `printTypes`.
+su cui inviare automaticamente il preconto. La sezione è visibile se esiste almeno una
+stampante idonea a ricevere job `pre_bill`: una stampante che ha `pre_bill` nei `printTypes`,
+oppure una stampante "catch-all" con `printTypes` assente o vuoto.
 
 ### Formato del job di stampa
 
