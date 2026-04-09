@@ -2,12 +2,12 @@
   <Transition name="lock-fade">
     <div
       v-if="visible"
-      class="fixed inset-0 z-[200] flex flex-col items-center justify-center select-none"
+      class="fixed inset-0 z-[200] flex flex-col landscape:flex-row items-center justify-center select-none"
       :style="store.cssVars"
       style="background: linear-gradient(135deg, var(--brand-primary, #16a34a) 0%, var(--brand-primary-dark, #15803d) 100%)"
     >
       <!-- Clock & branding -->
-      <div class="flex flex-col items-center mb-6 md:mb-8">
+      <div class="flex flex-col items-center mb-6 md:mb-8 landscape:mb-0 landscape:flex-1 landscape:justify-center landscape:py-4">
         <div class="bg-white/20 p-3 rounded-full mb-3 shadow-lg">
           <Lock class="size-7 text-white" />
         </div>
@@ -17,7 +17,7 @@
       </div>
 
       <!-- Card -->
-      <div class="bg-white rounded-3xl shadow-2xl w-full max-w-xs md:max-w-sm mx-4 overflow-hidden">
+      <div class="bg-white rounded-3xl shadow-2xl w-full max-w-xs md:max-w-sm mx-4 overflow-hidden landscape:overflow-y-auto landscape:my-4 landscape:max-h-[calc(100svh-2rem)]">
 
         <!-- ── User picker (shown when no user is selected) ──────────────── -->
         <template v-if="!selectedUserId">
@@ -64,7 +64,7 @@
           </div>
 
           <!-- PIN dots -->
-          <div class="flex justify-center gap-3 py-4 md:py-5">
+          <div class="flex justify-center gap-3 py-4 md:py-5 landscape:py-3">
             <span
               v-for="n in PIN_LENGTH"
               :key="n"
@@ -85,7 +85,7 @@
               :key="key"
               @click="onKeyPress(key)"
               :disabled="key === '' "
-              class="h-12 md:h-14 rounded-2xl font-bold text-lg transition-all active:scale-95 disabled:invisible"
+              class="h-12 md:h-14 landscape:h-10 rounded-2xl font-bold text-lg transition-all active:scale-95 disabled:invisible"
               :class="key === '⌫'
                 ? 'bg-red-50 text-red-500 hover:bg-red-100'
                 : 'bg-gray-100 text-gray-800 hover:bg-gray-200'"
@@ -97,7 +97,7 @@
       </div>
 
       <!-- Version / hint -->
-      <p class="text-white/40 text-[10px] mt-6 uppercase tracking-widest">
+      <p class="text-white/40 text-[10px] mt-6 uppercase tracking-widest landscape:hidden">
         {{ requiresAuth ? 'Accesso richiesto' : '' }}
       </p>
     </div>
