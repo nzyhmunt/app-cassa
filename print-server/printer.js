@@ -117,14 +117,9 @@ function printViaTcp(buf, host, port, timeoutMs) {
 
 function printToFile(buf, device) {
   return new Promise((resolve, reject) => {
-    fs.open(device, 'w', (openErr, fd) => {
-      if (openErr) return reject(openErr);
-      fs.write(fd, buf, (writeErr) => {
-        fs.close(fd, () => {
-          if (writeErr) reject(writeErr);
-          else resolve();
-        });
-      });
+    fs.writeFile(device, buf, { flag: 'w' }, (writeErr) => {
+      if (writeErr) reject(writeErr);
+      else resolve();
     });
   });
 }
