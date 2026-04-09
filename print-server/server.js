@@ -37,7 +37,7 @@ const SERVER_NAME = process.env.PRINT_SERVER_NAME || 'ESC/POS Print Server';
 
 const app = express();
 
-// CORS — consente le richieste cross-origin dal frontend (browser)
+// CORS — allow cross-origin requests from the frontend (browser)
 app.use(cors());
 
 // Limita il body a 256 KB per prevenire payload eccessivamente grandi

@@ -35,9 +35,9 @@
 
 module.exports = {
   printers: [
-    // ── Configurare qui le stampanti del locale ───────────────────────────
-    // Decommentare e adattare le voci di seguito. L'id deve corrispondere
-    // all'id configurato in src/utils/index.js → appConfig.printers[].id.
+    // ── Configure venue printers here ────────────────────────────────────
+    // Uncomment and adapt entries below. The id must match the id configured
+    // in src/utils/index.js → appConfig.printers[].id.
     //
     // { id: 'cucina', name: 'Cucina', type: 'tcp',  host: '192.168.1.100', port: 9100 },
     // { id: 'bar',    name: 'Bar',    type: 'tcp',  host: '192.168.1.101', port: 9100 },
