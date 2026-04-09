@@ -18,7 +18,7 @@
 
       <!-- Card -->
       <!-- 2rem in calc() matches landscape:my-4 (1rem top + 1rem bottom) -->
-      <div class="bg-white rounded-3xl shadow-2xl w-full max-w-xs md:max-w-sm mx-4 overflow-hidden landscape:overflow-y-auto landscape:my-4 landscape:max-h-[calc(100svh-2rem)]">
+      <div class="bg-white rounded-3xl shadow-2xl w-full max-w-xs md:max-w-sm mx-4 overflow-hidden landscape:overflow-y-auto landscape:my-4 landscape:max-h-[calc(var(--app-height,100dvh)-2rem)]">
 
         <!-- ── User picker (shown when no user is selected) ──────────────── -->
         <template v-if="!selectedUserId">
