@@ -86,7 +86,7 @@
               :key="key"
               @click="onKeyPress(key)"
               :disabled="key === '' "
-              class="h-12 md:h-14 landscape:h-10 rounded-2xl font-bold text-lg transition-all active:scale-95 disabled:invisible"
+              class="h-12 md:h-14 landscape:h-11 rounded-2xl font-bold text-lg transition-all active:scale-95 disabled:invisible"
               :class="key === '⌫'
                 ? 'bg-red-50 text-red-500 hover:bg-red-100'
                 : 'bg-gray-100 text-gray-800 hover:bg-gray-200'"
