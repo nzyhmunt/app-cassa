@@ -104,7 +104,7 @@ function _enqueue(id, fn) {
 function printBuffer(buf, printerId) {
   const config = getPrinterConfig(printerId);
   if (!config) {
-    return Promise.reject(new Error('Nessuna stampante configurata in printers.config.js.'));
+    return Promise.reject(new Error('No printers configured in printers.config.js.'));
   }
   return _enqueue(config.id, () => _dispatch(buf, config));
 }

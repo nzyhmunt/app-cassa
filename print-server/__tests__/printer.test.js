@@ -72,7 +72,7 @@ describe('printBuffer — no printers configured', () => {
   it('rejects with a descriptive error when the config is empty', async () => {
     // Default printers.config.js has no entries; printBuffer should reject
     const buf = Buffer.from([0x1b, 0x40]);
-    await expect(printBuffer(buf, 'cucina')).rejects.toThrow('Nessuna stampante configurata');
+    await expect(printBuffer(buf, 'cucina')).rejects.toThrow('No printers configured');
   });
 });
 
@@ -101,8 +101,8 @@ describe('printBuffer — queue serialization via file', () => {
     // Both reject because printers.config.js is empty, but the second job ran
     expect(r1.status).toBe('rejected');
     expect(r2.status).toBe('rejected');
-    expect(r1.reason.message).toMatch('Nessuna stampante');
-    expect(r2.reason.message).toMatch('Nessuna stampante');
+    expect(r1.reason.message).toMatch('No printers configured');
+    expect(r2.reason.message).toMatch('No printers configured');
   });
 });
 

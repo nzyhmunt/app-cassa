@@ -68,7 +68,7 @@ function apiKeyGuard(req, res, next) {
   if (!API_KEY || req.method === 'OPTIONS') return next();
   const provided = req.headers['x-api-key'];
   if (provided === API_KEY) return next();
-  return res.status(401).json({ ok: false, error: 'API key non valida o mancante.' });
+  return res.status(401).json({ ok: false, error: 'Invalid or missing API key.' });
 }
 
 // ── Routes ────────────────────────────────────────────────────────────────────
@@ -167,13 +167,13 @@ function buildEscPosBuffer(job) {
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, _next) => {
   if (err.type === 'entity.parse.failed') {
-    return res.status(400).json({ ok: false, error: 'Body JSON non valido.' });
+    return res.status(400).json({ ok: false, error: 'Invalid JSON body.' });
   }
   if (err.type === 'entity.too.large') {
-    return res.status(413).json({ ok: false, error: 'Payload troppo grande (max 256 KB).' });
+    return res.status(413).json({ ok: false, error: 'Payload too large (max 256 KB).' });
   }
   console.error('[print-server] Errore imprevisto:', err.message);
-  return res.status(500).json({ ok: false, error: 'Errore interno del server.' });
+  return res.status(500).json({ ok: false, error: 'Internal server error.' });
 });
 
 // ── Avvio server ──────────────────────────────────────────────────────────────
