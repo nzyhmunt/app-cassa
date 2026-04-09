@@ -27,7 +27,6 @@
 
 const net = require('net');
 const fs  = require('fs');
-const { printers } = require('./printers.config.js');
 
 // ── Lookup stampante ─────────────────────────────────────────────────────────
 
@@ -50,13 +49,25 @@ function findPrinterConfig(printersList, printerId) {
 }
 
 /**
+ * Carica la lista di stampanti da printers.config.js in modo lazy.
+ * Il caricamento lazy garantisce che vi.mock('../printers.config.js') nei test
+ * venga sempre rispettato senza richiedere trucchi sulla module cache.
+ * @returns {object[]}
+ */
+function _loadPrinters() {
+  // eslint-disable-next-line global-require
+  const cfg = require('./printers.config.js');
+  return Array.isArray(cfg.printers) ? cfg.printers : [];
+}
+
+/**
  * Restituisce la configurazione della stampante corrispondente a `printerId`.
  * Se non trovata, restituisce la prima stampante come fallback.
  * @param {string|undefined} printerId
  * @returns {object|null}
  */
 function getPrinterConfig(printerId) {
-  return findPrinterConfig(printers, printerId);
+  return findPrinterConfig(_loadPrinters(), printerId);
 }
 
 /**
@@ -64,7 +75,7 @@ function getPrinterConfig(printerId) {
  * @returns {object[]}
  */
 function getPrintersList() {
-  return Array.isArray(printers) ? printers : [];
+  return _loadPrinters();
 }
 
 // ── Per-printer queue ─────────────────────────────────────────────────────────
@@ -146,7 +157,7 @@ function printViaTcp(buf, host, port, timeoutMs) {
     socket.setTimeout(timeoutMs);
 
     socket.on('timeout', () => done(new Error(
-      `TCP timeout after ${timeoutMs}ms connecting to ${host}:${port}`,
+      `TCP timeout (${timeoutMs}ms) communicating with ${host}:${port}`,
     )));
 
     socket.on('error', done);
@@ -156,9 +167,10 @@ function printViaTcp(buf, host, port, timeoutMs) {
         if (writeErr) {
           done(writeErr);
         } else {
-          // Some drivers close the connection automatically; others do not.
-          // We close it in a controlled manner after the write.
-          socket.end();
+          // Resolve after the writable side is flushed (FIN sent).
+          // 'close' remains as an idempotent backstop for peers that close the
+          // connection themselves.
+          socket.end(() => done(null));
         }
       });
     });
@@ -178,5 +190,5 @@ function printToFile(buf, device) {
   });
 }
 
-module.exports = { printBuffer, getPrintersList, getPrinterConfig, findPrinterConfig };
+module.exports = { printBuffer, getPrintersList, getPrinterConfig, findPrinterConfig, _enqueue, _dispatch };
 

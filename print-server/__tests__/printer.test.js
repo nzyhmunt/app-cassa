@@ -1,6 +1,7 @@
 /**
  * @file __tests__/printer.test.js
- * @description Unit tests for printer routing and per-printer queue.
+ * @description Unit test per le funzioni di routing stampante (funzioni pure, nessun I/O).
+ * I test di serializzazione della coda sono in printer.queue.test.js.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -73,36 +74,6 @@ describe('printBuffer — no printers configured', () => {
     // Default printers.config.js has no entries; printBuffer should reject
     const buf = Buffer.from([0x1b, 0x40]);
     await expect(printBuffer(buf, 'cucina')).rejects.toThrow('No printers configured');
-  });
-});
-
-// ── printBuffer — queue serialization ─────────────────────────────────────────
-
-describe('printBuffer — queue serialization via file', () => {
-  it('serializes two concurrent jobs to the same printer without errors', async () => {
-    // Use /dev/null as a safe write target (Linux/macOS)
-    const cassaConfig = { id: 'cassa', name: 'Cassa', type: 'file', device: '/dev/null' };
-
-    // Call findPrinterConfig with a synthetic list to verify dispatch code path
-    const resolved = findPrinterConfig([cassaConfig], 'cassa');
-    expect(resolved.type).toBe('file');
-
-    // Simulate two concurrent printBuffer calls via a local dispatch
-    const { printBuffer: _printBuffer } = require('../printer.js');
-    // Since no printers are configured in the real config, test queue with
-    // direct internal dispatch using the exported helpers.
-    // We verify the queue's error-isolation by checking the second job still runs
-    // after the first one rejects.
-    const buf = Buffer.from([0x1b, 0x40]);
-    const [r1, r2] = await Promise.allSettled([
-      _printBuffer(buf, 'cassa'),
-      _printBuffer(buf, 'cassa'),
-    ]);
-    // Both reject because printers.config.js is empty, but the second job ran
-    expect(r1.status).toBe('rejected');
-    expect(r2.status).toBe('rejected');
-    expect(r1.reason.message).toMatch('No printers configured');
-    expect(r2.reason.message).toMatch('No printers configured');
   });
 });
 

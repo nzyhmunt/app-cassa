@@ -12,9 +12,11 @@
  * Il campo `printerId` del job viene usato per instradare il job alla stampante corretta.
  *
  * Configurazione tramite variabili d'ambiente:
- *   PORT                 – porta HTTP del server (default: 3001)
- *   PRINT_SERVER_NAME    – nome del server nei log (default: 'ESC/POS Print Server')
- *   PRINT_SERVER_API_KEY – se impostato, richiede header x-api-key su POST /print
+ *   PORT                  – porta HTTP del server (default: 3001)
+ *   PRINT_SERVER_NAME     – nome del server nei log (default: 'ESC/POS Print Server')
+ *   PRINT_SERVER_API_KEY  – se impostato, richiede header x-api-key su POST /print
+ *   CORS_ALLOWED_ORIGINS  – lista di origini CORS consentite (virgola separata).
+ *                           Se vuota, tutte le origini sono accettate.
  *
  * Avvio:
  *   node server.js
@@ -24,7 +26,7 @@ const http    = require('http');
 const cors    = require('cors');
 const express = require('express');
 
-const { printBuffer, getPrintersList } = require('./printer.js');
+const { printBuffer, getPrintersList, getPrinterConfig } = require('./printer.js');
 const { formatOrder }     = require('./formatters/order.js');
 const { formatTableMove } = require('./formatters/table_move.js');
 const { formatPreBill }   = require('./formatters/pre_bill.js');
@@ -35,12 +37,37 @@ const PORT        = parseInt(process.env.PORT || '3001', 10);
 const SERVER_NAME = process.env.PRINT_SERVER_NAME || 'ESC/POS Print Server';
 const API_KEY     = process.env.PRINT_SERVER_API_KEY || '';
 
+// Allowed CORS origins — when non-empty, only listed origins are accepted.
+// Requests without an Origin header (e.g. curl, server-to-server) always pass.
+const CORS_ALLOWED_ORIGINS = (process.env.CORS_ALLOWED_ORIGINS || '')
+  .split(',')
+  .map(o => o.trim())
+  .filter(Boolean);
+
+// Supported printType values
+const VALID_PRINT_TYPES = new Set(['order', 'table_move', 'pre_bill']);
+
 // ── App Express ───────────────────────────────────────────────────────────────
 
 const app = express();
 
-// CORS — allow cross-origin requests from the frontend (browser)
-app.use(cors());
+// CORS — se è configurata una allowlist, solo le origini elencate sono accettate;
+// altrimenti tutte le origini sono accettate (comportamento retrocompatibile).
+// Le richieste senza header Origin (es. curl, server-to-server) passano sempre.
+app.use(cors({
+  origin(origin, cb) {
+    // Nessun header Origin → richiesta non-browser, non soggetta a CORS
+    if (!origin) return cb(null, true);
+    // Con allowlist: accetta solo le origini esplicitamente elencate
+    if (CORS_ALLOWED_ORIGINS.length > 0) {
+      return CORS_ALLOWED_ORIGINS.includes(origin)
+        ? cb(null, true)
+        : cb(new Error('CORS: origine non consentita'));
+    }
+    // Nessuna allowlist configurata: accetta tutte le origini browser (default aperto)
+    return cb(null, true);
+  },
+}));
 
 // Limit body to 256 KB to prevent excessively large payloads
 app.use(express.json({ limit: '256kb' }));
@@ -104,14 +131,26 @@ app.post('/print', apiKeyGuard, async (req, res) => {
 
   const { printType, jobId, printerId } = job;
 
-  if (!printType) {
-    return res.status(400).json({ ok: false, error: 'Campo printType mancante.' });
+  // Validate printType: must be a non-empty string and one of the known values
+  if (typeof printType !== 'string' || !VALID_PRINT_TYPES.has(printType)) {
+    const allowed = [...VALID_PRINT_TYPES].join(', ');
+    return res.status(400).json({
+      ok: false,
+      error: `Invalid printType. Must be one of: ${allowed}.`,
+    });
   }
 
   // Sanitizza i valori dall'input utente prima di usarli nei log per prevenire log injection
   const safeJobId     = sanitizeForLog(jobId     ?? '?');
-  const safePrintType = sanitizeForLog(printType ?? '?');
-  const safePrinterId = sanitizeForLog(printerId ?? 'default');
+  const safePrintType = sanitizeForLog(printType);
+
+  // Resolve the printer config now so we can log the actual printer used
+  // and surface a 500 early if no printers are configured.
+  const printerConfig = getPrinterConfig(printerId);
+  if (!printerConfig) {
+    return res.status(500).json({ ok: false, error: 'No printers configured in printers.config.js.' });
+  }
+  const safeResolvedId = sanitizeForLog(printerConfig.id);
 
   // Conversione payload → Buffer ESC/POS
   let buf;
@@ -123,14 +162,10 @@ app.post('/print', apiKeyGuard, async (req, res) => {
     return res.status(400).json({ ok: false, error: `Errore formattazione: ${safeMsg}` });
   }
 
-  if (!buf || buf.length === 0) {
-    return res.status(400).json({ ok: false, error: `Tipo di stampa non supportato: ${printType}` });
-  }
-
-  // Invio alla stampante identificata da printerId
+  // Invio alla stampante
   try {
     await printBuffer(buf, printerId);
-    console.log('[print-server] Job stampato:', safeJobId, '(' + safePrintType + ') → stampante:', safePrinterId);
+    console.log('[print-server] Job stampato:', safeJobId, '(' + safePrintType + ') → stampante:', safeResolvedId);
     return res.json({ ok: true, jobId: jobId ?? null });
   } catch (err) {
     const safeMsg = sanitizeForLog(err.message);
@@ -172,7 +207,7 @@ app.use((err, req, res, _next) => {
   if (err.type === 'entity.too.large') {
     return res.status(413).json({ ok: false, error: 'Payload too large (max 256 KB).' });
   }
-  console.error('[print-server] Errore imprevisto:', err.message);
+  console.error('[print-server] Errore imprevisto:', sanitizeForLog(err.message));
   return res.status(500).json({ ok: false, error: 'Internal server error.' });
 });
 
@@ -185,6 +220,9 @@ server.listen(PORT, () => {
   console.log(`[print-server] Endpoint: POST http://localhost:${PORT}/print`);
   if (API_KEY) {
     console.log('[print-server] Autenticazione API key abilitata (x-api-key)');
+  }
+  if (CORS_ALLOWED_ORIGINS.length > 0) {
+    console.log('[print-server] CORS origini consentite:', CORS_ALLOWED_ORIGINS.join(', '));
   }
 
   const printers = getPrintersList();

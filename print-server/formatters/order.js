@@ -43,7 +43,7 @@ function formatOrder(job) {
      .align('center').line(job.time ?? '');
 
   if (job.printerId) {
-    enc.align('center').bold(true).line(job.printerId.toUpperCase()).bold(false);
+    enc.align('center').bold(true).line(String(job.printerId).toUpperCase()).bold(false);
   }
 
   enc.rule({ style: 'single' });
