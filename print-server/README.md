@@ -61,6 +61,7 @@ frontend deve corrispondere all'`id` nella voce di `printers.config.js`.
 |---|---|---|
 | `PORT` | `3001` | Porta HTTP del server |
 | `PRINT_SERVER_NAME` | `ESC/POS Print Server` | Nome nei log |
+| `PRINT_SERVER_API_KEY` | *(vuoto)* | Se impostata, ogni `POST /print` deve includere `x-api-key: <valore>` |
 
 > I parametri di connessione alle stampanti (host, porta, dispositivo) si configurano direttamente in `printers.config.js`.
 

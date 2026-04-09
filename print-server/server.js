@@ -12,8 +12,9 @@
  * Il campo `printerId` del job viene usato per instradare il job alla stampante corretta.
  *
  * Configurazione tramite variabili d'ambiente:
- *   PORT              – porta HTTP del server (default: 3001)
- *   PRINT_SERVER_NAME – nome del server nei log (default: 'ESC/POS Print Server')
+ *   PORT                 – porta HTTP del server (default: 3001)
+ *   PRINT_SERVER_NAME    – nome del server nei log (default: 'ESC/POS Print Server')
+ *   PRINT_SERVER_API_KEY – se impostato, richiede header x-api-key su POST /print
  *
  * Avvio:
  *   node server.js
@@ -32,6 +33,7 @@ const { formatPreBill }   = require('./formatters/pre_bill.js');
 
 const PORT        = parseInt(process.env.PORT || '3001', 10);
 const SERVER_NAME = process.env.PRINT_SERVER_NAME || 'ESC/POS Print Server';
+const API_KEY     = process.env.PRINT_SERVER_API_KEY || '';
 
 // ── App Express ───────────────────────────────────────────────────────────────
 
@@ -40,7 +42,7 @@ const app = express();
 // CORS — allow cross-origin requests from the frontend (browser)
 app.use(cors());
 
-// Limita il body a 256 KB per prevenire payload eccessivamente grandi
+// Limit body to 256 KB to prevent excessively large payloads
 app.use(express.json({ limit: '256kb' }));
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -54,6 +56,19 @@ app.use(express.json({ limit: '256kb' }));
  */
 function sanitizeForLog(v) {
   return String(v).replace(/[\r\n\t\x00-\x1f\x7f]/g, ' ').slice(0, 64);
+}
+
+// ── Optional API key middleware ───────────────────────────────────────────────
+
+/**
+ * If PRINT_SERVER_API_KEY is configured, every POST /print request must include
+ * the matching x-api-key header; all other requests (e.g. GET /health) pass through.
+ */
+function apiKeyGuard(req, res, next) {
+  if (!API_KEY || req.method === 'OPTIONS') return next();
+  const provided = req.headers['x-api-key'];
+  if (provided === API_KEY) return next();
+  return res.status(401).json({ ok: false, error: 'API key non valida o mancante.' });
 }
 
 // ── Routes ────────────────────────────────────────────────────────────────────
@@ -79,7 +94,7 @@ app.get('/health', (_req, res) => {
  * Risposta di errore:     400 { ok: false, error } — payload non valido
  *                         500 { ok: false, error } — errore comunicazione stampante
  */
-app.post('/print', async (req, res) => {
+app.post('/print', apiKeyGuard, async (req, res) => {
   const job = req.body;
 
   // Validazione di base
@@ -144,6 +159,23 @@ function buildEscPosBuffer(job) {
   }
 }
 
+// ── JSON / body-size error handler ────────────────────────────────────────────
+
+// Express error-handling middleware: catches SyntaxError (malformed JSON body)
+// and PayloadTooLargeError (body > 256 KB) from express.json() and returns a
+// consistent { ok: false, error } JSON response instead of the default HTML.
+// eslint-disable-next-line no-unused-vars
+app.use((err, req, res, _next) => {
+  if (err.type === 'entity.parse.failed') {
+    return res.status(400).json({ ok: false, error: 'Body JSON non valido.' });
+  }
+  if (err.type === 'entity.too.large') {
+    return res.status(413).json({ ok: false, error: 'Payload troppo grande (max 256 KB).' });
+  }
+  console.error('[print-server] Errore imprevisto:', err.message);
+  return res.status(500).json({ ok: false, error: 'Errore interno del server.' });
+});
+
 // ── Avvio server ──────────────────────────────────────────────────────────────
 
 const server = http.createServer(app);
@@ -151,6 +183,9 @@ const server = http.createServer(app);
 server.listen(PORT, () => {
   console.log(`[print-server] ${SERVER_NAME} in ascolto su http://localhost:${PORT}`);
   console.log(`[print-server] Endpoint: POST http://localhost:${PORT}/print`);
+  if (API_KEY) {
+    console.log('[print-server] Autenticazione API key abilitata (x-api-key)');
+  }
 
   const printers = getPrintersList();
   if (printers.length === 0) {
@@ -170,3 +205,4 @@ server.on('error', (err) => {
   console.error(`[print-server] Errore avvio server sulla porta ${PORT}:`, err.message);
   process.exit(1);
 });
+
