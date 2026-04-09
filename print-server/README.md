@@ -61,20 +61,16 @@ frontend deve corrispondere all'`id` nella voce di `printers.config.js`.
 |---|---|---|
 | `PORT` | `3001` | Porta HTTP del server |
 | `PRINT_SERVER_NAME` | `ESC/POS Print Server` | Nome nei log |
-| `PRINTER_HOST` | `127.0.0.1` | Host stampante demo (letto da `printers.config.js`) |
-| `PRINTER_PORT` | `9100` | Porta stampante demo |
-| `PRINTER_TCP_TIMEOUT_MS` | `5000` | Timeout TCP stampante demo |
 
-> Per stampanti multiple con indirizzi diversi, modificare direttamente `printers.config.js`.
+> I parametri di connessione alle stampanti (host, porta, dispositivo) si configurano direttamente in `printers.config.js`.
 
 ---
 
 ## Avvio
 
 ```bash
-npm start                            # Usa printers.config.js
-npm run dev                          # Con riavvio automatico (node --watch)
-PRINTER_HOST=192.168.1.100 npm start # Override host stampante demo
+npm start      # Usa printers.config.js
+npm run dev    # Con riavvio automatico (node --watch)
 ```
 
 Output di avvio con più stampanti:

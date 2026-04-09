@@ -361,9 +361,8 @@ Per usarla in locale, avviare il servizio Node ESC/POS sulla porta `3001`:
 ```bash
 cd print-server
 npm install
-PRINTER_HOST=192.168.1.100 npm start   # stampante di rete
-# oppure
-PRINTER_TYPE=file PRINTER_DEVICE=/dev/usb/lp0 npm start   # stampante USB
+# Configurare le stampanti in printers.config.js, poi:
+npm start
 ```
 
 Per la documentazione completa del server di stampa vedere [`print-server/README.md`](print-server/README.md).

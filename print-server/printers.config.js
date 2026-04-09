@@ -35,20 +35,14 @@
 
 module.exports = {
   printers: [
-    {
-      id:   'demo',
-      name: 'Stampante Demo',
-      type: 'tcp',
-      host: process.env.PRINTER_HOST || '127.0.0.1',
-      port: parseInt(process.env.PRINTER_PORT || '9100', 10),
-      timeout: parseInt(process.env.PRINTER_TCP_TIMEOUT_MS || '5000', 10),
-    },
-
-    // ── Aggiungere qui le stampanti del locale ────────────────────────────
+    // ── Configurare qui le stampanti del locale ───────────────────────────
+    // Decommentare e adattare le voci di seguito. L'id deve corrispondere
+    // all'id configurato in src/utils/index.js → appConfig.printers[].id.
     //
-    // { id: 'cucina', name: 'Cucina',  type: 'tcp',  host: '192.168.1.100', port: 9100 },
-    // { id: 'bar',    name: 'Bar',     type: 'tcp',  host: '192.168.1.101', port: 9100 },
-    // { id: 'cassa',  name: 'Cassa',   type: 'file', device: '/dev/usb/lp0' },
+    // { id: 'cucina', name: 'Cucina', type: 'tcp',  host: '192.168.1.100', port: 9100 },
+    // { id: 'bar',    name: 'Bar',    type: 'tcp',  host: '192.168.1.101', port: 9100 },
+    // { id: 'cassa',  name: 'Cassa',  type: 'tcp',  host: '192.168.1.102', port: 9100 },
+    // { id: 'usb',    name: 'USB',    type: 'file', device: '/dev/usb/lp0' },
     // ─────────────────────────────────────────────────────────────────────
   ],
 };

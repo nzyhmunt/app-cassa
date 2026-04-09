@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@point-of-sale/receipt-printer-encoder": "^3.0.3",
+    "cors": "^2.8.6",
     "express": "^4.19.2"
   }
 }

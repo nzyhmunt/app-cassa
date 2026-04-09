@@ -20,6 +20,7 @@
  */
 
 const http    = require('http');
+const cors    = require('cors');
 const express = require('express');
 
 const { printBuffer, getPrintersList } = require('./printer.js');
@@ -35,6 +36,9 @@ const SERVER_NAME = process.env.PRINT_SERVER_NAME || 'ESC/POS Print Server';
 // ── App Express ───────────────────────────────────────────────────────────────
 
 const app = express();
+
+// CORS — consente le richieste cross-origin dal frontend (browser)
+app.use(cors());
 
 // Limita il body a 256 KB per prevenire payload eccessivamente grandi
 app.use(express.json({ limit: '256kb' }));
@@ -99,8 +103,9 @@ app.post('/print', async (req, res) => {
   try {
     buf = buildEscPosBuffer(job);
   } catch (err) {
-    console.error('[print-server] Errore formattazione job', safeJobId, '(' + safePrintType + '):', err.message);
-    return res.status(400).json({ ok: false, error: `Errore formattazione: ${err.message}` });
+    const safeMsg = sanitizeForLog(err.message);
+    console.error('[print-server] Errore formattazione job', safeJobId, '(' + safePrintType + '):', safeMsg);
+    return res.status(400).json({ ok: false, error: `Errore formattazione: ${safeMsg}` });
   }
 
   if (!buf || buf.length === 0) {
@@ -113,8 +118,9 @@ app.post('/print', async (req, res) => {
     console.log('[print-server] Job stampato:', safeJobId, '(' + safePrintType + ') → stampante:', safePrinterId);
     return res.json({ ok: true, jobId: jobId ?? null });
   } catch (err) {
-    console.error('[print-server] Errore stampante per job', safeJobId + ':', err.message);
-    return res.status(500).json({ ok: false, error: `Errore stampante: ${err.message}` });
+    const safeMsg = sanitizeForLog(err.message);
+    console.error('[print-server] Errore stampante per job', safeJobId + ':', safeMsg);
+    return res.status(500).json({ ok: false, error: `Errore stampante: ${safeMsg}` });
   }
 });
 
