@@ -8,7 +8,7 @@ e li invia alla stampante termica corretta in base al campo `printerId` del job.
 
 ## Requisiti
 
-- **Node.js ≥ 20**
+- **Node.js ≥ 20.19**
 - Una o più stampanti termiche compatibili ESC/POS (rete TCP o USB)
 
 ---
