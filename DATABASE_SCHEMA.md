@@ -1054,10 +1054,12 @@ Directus, in entrambe le direzioni.
 
 #### 5.7.2 Direzione PUSH — da IndexedDB a Directus
 
-Ogni operazione locale (create / update) viene registrata nella `sync_queue` prima di essere
-applicata al proprio IndexedDB. Non appena `navigator.onLine` è `true` (o scatta l'evento
-`online`), il composable `useSyncQueue` (o il Service Worker dedicato) svuota la coda in ordine
-`date_created` ASC:
+Ogni operazione locale (create / update) viene prima applicata al proprio IndexedDB, così da
+rendere immediata la persistenza locale in modalità offline-first; solo dopo, e solo se la
+scrittura locale è riuscita, viene registrata una voce nella `sync_queue` per la sincronizzazione
+verso Directus. Non appena `navigator.onLine` è `true` (o scatta l'evento `online`), il
+composable `useSyncQueue` (o il Service Worker dedicato) svuota la coda in ordine `date_created`
+ASC:
 
 ```
 Operazione locale
