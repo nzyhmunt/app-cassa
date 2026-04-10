@@ -34,7 +34,7 @@ se si leggono i DDL SQL come schema puro, l'aggiornamento automatico in modifica
 > `cash_movements`) usano **UUID v7** come primary key. UUID v7 è time-ordered (ms prefix),
 > il che garantisce ordinamento cronologico naturale e minimizza la frammentazione degli indici
 > B-tree anche con inserimenti massivi da client offline. Lato Directus: tipo `uuid`; lato
-> IndexedDB: stringa da 36 char generata client-side con una libreria compatible (es. `uuid`
+> IndexedDB: stringa da 36 char generata client-side con una libreria compatibile (es. `uuid`
 > v9+ con `uuidv7()`). PostgreSQL: richiede l'estensione `pg_uuidv7` oppure generazione
 > applicativa.
 
