@@ -824,7 +824,7 @@ Cardinalità:
 | `appConfig.coverCharge.*`             | `venues.cover_charge_*`                |
 | `appConfig.billing.*`                 | `venues.billing_*`                     |
 | `appConfig.billing.allowCustomEntry`  | `venues.billing_allow_custom_entry`    |
-| `appConfig.orders.rejectionReasons`   | `venues.orders_rejection_reasons` (JSON) |
+| `appConfig.orders.rejectionReasons`   | `venues.orders_rejection_reasons` (JSONB) |
 
 ### 5.2 Snapshot dei nomi nel DB
 
