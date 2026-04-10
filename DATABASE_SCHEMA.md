@@ -1156,7 +1156,7 @@ La modalità B è preferita quando disponibile; la A è il fallback per ambienti
 10. Cassa incassa (transaction)
     → IndexedDB transaction + bill_session.status=closed
     → sync_queue: POST /items/transactions
-                  POST /items/bill_sessions (PATCH status=closed)
+                  PATCH /items/bill_sessions/{id} (status=closed)
     → aggiorna orders: status=completed                    ──────→ Directus aggiorna tutto
 ```
 
