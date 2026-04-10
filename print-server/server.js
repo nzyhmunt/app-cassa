@@ -60,9 +60,12 @@ app.use(cors({
     if (!origin) return cb(null, true);
     // Con allowlist: accetta solo le origini esplicitamente elencate
     if (CORS_ALLOWED_ORIGINS.length > 0) {
-      return CORS_ALLOWED_ORIGINS.includes(origin)
-        ? cb(null, true)
-        : cb(new Error('CORS: origine non consentita'));
+      if (CORS_ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
+      // Tag the error with a stable code so the error handler can detect it
+      // without relying on a localised message string.
+      const corsErr = new Error('Origine CORS non consentita.');
+      corsErr.code = 'CORS_ORIGIN_DENIED';
+      return cb(corsErr);
     }
     // Nessuna allowlist configurata: accetta tutte le origini browser (default aperto)
     return cb(null, true);
@@ -190,7 +193,7 @@ function buildEscPosBuffer(job) {
     case 'pre_bill':
       return formatPreBill(job);
     default:
-      return null;
+      throw new Error(`Tipo di stampa non supportato: ${job.printType}`);
   }
 }
 
@@ -207,8 +210,8 @@ app.use((err, req, res, _next) => {
   if (err.type === 'entity.too.large') {
     return res.status(413).json({ ok: false, error: 'Payload too large (max 256 KB).' });
   }
-  // CORS origin callback throws a plain Error — surface it as 403 (not 500)
-  if (err.message === 'CORS: origine non consentita') {
+  // CORS origin callback tags the error with code 'CORS_ORIGIN_DENIED' — surface it as 403 (not 500)
+  if (err.code === 'CORS_ORIGIN_DENIED') {
     return res.status(403).json({ ok: false, error: 'Origine CORS non consentita.' });
   }
   console.error('[print-server] Errore imprevisto:', sanitizeForLog(err.message));

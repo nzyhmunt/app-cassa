@@ -145,6 +145,7 @@ function printViaTcp(buf, host, port, timeoutMs) {
   return new Promise((resolve, reject) => {
     const socket = new net.Socket();
     let settled = false;
+    let endInitiated = false;
 
     function done(err) {
       if (settled) return;
@@ -167,15 +168,19 @@ function printViaTcp(buf, host, port, timeoutMs) {
         if (writeErr) {
           done(writeErr);
         } else {
-          // Resolve after the writable side is flushed (FIN sent).
-          // 'close' remains as an idempotent backstop for peers that close the
-          // connection themselves.
+          // Primary resolution: resolve in the end() flush callback (deterministic).
+          endInitiated = true;
           socket.end(() => done(null));
         }
       });
     });
 
-    socket.on('close', () => done(null));
+    // Backstop: only resolve from close if end has already been initiated.
+    // If close fires before endInitiated (peer hung up before our write/end sequence
+    // completed) we do nothing here — the write/error/timeout path will handle it.
+    socket.on('close', () => {
+      if (endInitiated) done(null);
+    });
   });
 }
 
