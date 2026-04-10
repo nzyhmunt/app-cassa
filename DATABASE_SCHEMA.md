@@ -44,8 +44,7 @@ se si leggono i DDL SQL come schema puro, l'aggiornamento automatico in modifica
 > degli indici B-tree con inserimenti massivi da client offline, e garantisce unicità globale
 > tra dispositivi diversi senza coordinamento server. Nessuna collection operativa usa `SERIAL`
 > o PK composta. Lato Directus: tipo `uuid`; lato IndexedDB: stringa da 36 char generata
-> client-side con una libreria compatibile (es. `uuid` v9+ con `uuidv7()`). PostgreSQL:
-> richiede l'estensione `pg_uuidv7` oppure generazione applicativa.
+> client-side con una libreria compatibile (es. package `uuid` v9+, tipicamente tramite export `v7`).
 
 ---
 
