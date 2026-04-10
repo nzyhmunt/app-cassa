@@ -1075,7 +1075,7 @@ Operazione locale
       │
       ├── 200/201 OK → rimuovi da sync_queue
       └── errore    → incrementa attempts (max 5, back-off esponenziale: 2^n secondi)
-                       dopo 5 tentativi → sposta in sync_queue_dead_letter per revisione manuale
+                       dopo 5 tentativi → rimuovi dal retry automatico e invia a revisione manuale
 ```
 
 **Nota**: poiché gli ID sono UUIDv7 generati client-side, non si verificano collisioni tra
