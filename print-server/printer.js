@@ -127,7 +127,19 @@ function printBuffer(buf, printerId) {
  * @returns {Promise<void>}
  */
 function _dispatch(buf, config) {
-  const type = (config.type || 'tcp').toLowerCase();
+  const rawType = config.type == null ? 'tcp' : config.type;
+  if (typeof rawType !== 'string') {
+    throw new Error(
+      `Invalid printer type for printer "${config.id}": expected "tcp" or "file", got ${typeof rawType}.`
+    );
+  }
+
+  const type = rawType.toLowerCase();
+  if (type !== 'tcp' && type !== 'file') {
+    throw new Error(
+      `Invalid printer type for printer "${config.id}": expected "tcp" or "file", got "${rawType}".`
+    );
+  }
   if (type === 'file') {
     return printToFile(buf, config.device || '/dev/usb/lp0');
   }
