@@ -47,6 +47,9 @@ se si leggono i DDL SQL come schema puro, l'aggiornamento automatico in modifica
 3. [Relazioni](#3-relazioni)
 4. [Diagramma ER](#4-diagramma-er)
 5. [Note di migrazione](#5-note-di-migrazione)
+   - 5.5 [Integrazione Directus](#55-integrazione-directus)
+   - 5.6 [IndexedDB offline-first](#56-integrazione-indexeddb-pwa-offline-first)
+   - 5.7 [Architettura sync multi-dispositivo](#57-architettura-di-sincronizzazione-multi-dispositivo)
 
 ---
 
@@ -996,17 +999,18 @@ ObjectStore: menu_item_modifiers  keyPath: id  indexes: [menu_item]
 ObjectStore: printers         keyPath: id
 
 -- Coda di sincronizzazione (operazioni in attesa di push verso Directus)
+-- Questo store è locale-only: non viene mai inviato a Directus.
 ObjectStore: sync_queue
   keyPath:  id (UUIDv7)
-  indexes:  [collection, created_at]
+  indexes:  [collection, date_created]
   -- record: { id, collection, operation: 'create'|'update'|'delete',
-  --           record_id, payload, created_at, attempts }
+  --           record_id, payload, date_created, attempts }
 ```
 
 La sincronizzazione avviene tramite un **Service Worker** (o un loop `online` nel composable
 dedicato) che:
 1. Quando `navigator.onLine` è `true` o scatta l'evento `online`, legge la `sync_queue`
-   ordinata per `created_at` ASC.
+   ordinata per `date_created` ASC.
 2. Per ogni record tenta un `POST /items/{collection}` (create) o `PATCH /items/{collection}/{record_id}`
    (update) verso l'API Directus. L'`id` del record della coda identifica solo l'entry in
    `sync_queue` e **non** va usato nella URL Directus: per gli update `{record_id}` è l'id del
@@ -1016,3 +1020,191 @@ dedicato) che:
    (max 5) e pianifica un retry con back-off esponenziale.
 4. I conflitti di merge (es. lo stesso ordine modificato su due dispositivi offline) vengono
    risolti con strategia **last-write-wins** su `date_updated`.
+
+---
+
+### 5.7 Architettura di sincronizzazione multi-dispositivo
+
+Questa sezione descrive il modello completo di sincronizzazione dati tra i dispositivi
+(cassa, sala, cucina) — ciascuno con il proprio IndexedDB locale — e l'istanza centralizzata
+Directus, in entrambe le direzioni.
+
+#### 5.7.1 Topologia e ruoli dei dispositivi
+
+```
+┌───────────────────────────────────────────────────────────────────┐
+│                    Istanza Directus (backend)                     │
+│              API REST /items/{collection}                         │
+│              WebSocket / SSE per notifiche real-time              │
+└────────┬──────────────┬──────────────────┬────────────────────────┘
+         │              │                  │
+   ┌─────▼──────┐  ┌────▼───────┐   ┌──────▼──────┐
+   │   Cassa    │  │   Sala     │   │   Cucina    │
+   │ IndexedDB  │  │ IndexedDB  │   │ IndexedDB   │
+   │            │  │            │   │             │
+   │ sync_queue │  │ sync_queue │   │ sync_queue  │
+   └────────────┘  └────────────┘   └─────────────┘
+```
+
+- **Cassa**: legge configurazione completa; scrive `bill_sessions`, `orders` (accepted/rejected),
+  `transactions`, `cash_movements`, `daily_closures`, `print_jobs`.
+- **Sala**: legge `tables`, `bill_sessions`, `orders`; scrive `orders` (pending/delivered).
+- **Cucina**: legge `orders` (accepted → ready); scrive aggiornamenti di stato (`preparing`,
+  `ready`) su `orders` e `order_items.kitchen_ready`.
+
+#### 5.7.2 Direzione PUSH — da IndexedDB a Directus
+
+Ogni operazione locale (create / update) viene registrata nella `sync_queue` prima di essere
+applicata al proprio IndexedDB. Non appena `navigator.onLine` è `true` (o scatta l'evento
+`online`), il composable `useSyncQueue` (o il Service Worker dedicato) svuota la coda in ordine
+`date_created` ASC:
+
+```
+Operazione locale
+      │
+      ▼
+1. Scrivi in IndexedDB (immediato, ottimistico)
+2. Aggiungi voce in sync_queue
+      │
+      ▼  (quando online)
+3. POST /items/{collection}        ← create  → payload contiene id UUIDv7 già assegnato
+   PATCH /items/{collection}/{record_id}  ← update
+   DELETE /items/{collection}/{record_id} ← delete (soft: status = 'archived')
+      │
+      ├── 200/201 OK → rimuovi da sync_queue
+      └── errore    → incrementa attempts (max 5, back-off esponenziale: 2^n secondi)
+                       dopo 5 tentativi → sposta in sync_queue_dead_letter per revisione manuale
+```
+
+**Nota**: poiché gli ID sono UUIDv7 generati client-side, non si verificano collisioni tra
+dispositivi diversi anche in assenza di coordinamento server.
+
+#### 5.7.3 Direzione PULL — da Directus a IndexedDB (aggiornamento remoto)
+
+I dispositivi ricevono aggiornamenti prodotti dagli altri dispositivi in due modi:
+
+**A) Polling periodico (fallback compatibile)**
+```
+Ogni N secondi (es. 5s cassa, 3s sala/cucina):
+  GET /items/orders?filter[date_updated][_gt]={last_pull_ts}&sort=date_updated
+  GET /items/bill_sessions?filter[date_updated][_gt]={last_pull_ts}
+  ...
+  → merge in IndexedDB (upsert per id, last-write-wins su date_updated)
+  → aggiorna last_pull_ts = max(date_updated) tra i record ricevuti
+```
+
+**B) Real-time via Directus Subscriptions (WebSocket)**
+```
+client.subscribe('orders', {
+  query: { filter: { venue: { _eq: venueId } } }
+})
+→ evento 'create'  → insert in IndexedDB
+→ evento 'update'  → upsert in IndexedDB (confronta date_updated)
+→ evento 'delete'  → rimuovi da IndexedDB (o aggiorna status = 'archived')
+```
+
+La modalità B è preferita quando disponibile; la A è il fallback per ambienti senza WebSocket.
+
+#### 5.7.4 Risoluzione conflitti
+
+| Tipo di conflitto | Strategia |
+|---|---|
+| Stesso record modificato su due dispositivi offline | **Last-write-wins** su `date_updated` |
+| `order.status` divergente tra dispositivi | Priorità al valore con rank più alto: `pending < accepted < preparing < ready < delivered < completed` (e `rejected` finale) |
+| `bill_session.status` divergente | `closed` è terminale: non può tornare a `open` |
+| `order_items.kitchen_ready` | OR logico: se un dispositivo ha messo `true`, rimane `true` |
+| Doppio create stesso `id` (UUIDv7) | Impossibile con UUID v7 correttamente generati; in caso di conflitto Directus restituisce 409 → il client tratta come update |
+
+#### 5.7.5 Sequenza completa — esempio flusso comanda
+
+```
+[Sala — offline]               [Cassa]              [Cucina]         [Directus]
+
+1. Sala crea order (pending)
+   → IndexedDB + sync_queue
+
+2. Sala torna online
+   → POST /items/orders        ──────────────────────────────────→  salva order
+   → rimuove da sync_queue
+
+3. Cassa riceve order
+   ← polling / WebSocket ←──────────────────────────────────────── GET orders
+
+4. Cassa accetta order
+   → IndexedDB status=accepted                                    PATCH /items/orders/{id}
+   → sync_queue push                                        ──────→ aggiorna status
+
+5. Cucina riceve order
+   ← polling / WS ←──────────────────────────────────────────────  GET orders (accepted)
+
+6. Cucina mette in preparazione
+   → IndexedDB status=preparing                                   PATCH /items/orders/{id}
+   → sync_queue push                                       ──────→ aggiorna status
+
+7. Sala riceve aggiornamento
+   ← polling / WS ←────────────────────────────────────────────── GET orders
+
+8. Cucina mette ready
+   → IndexedDB status=ready + kitchen_ready=true                  PATCH /items/orders/{id}
+   → sync_queue push                                       ──────→ aggiorna status
+
+9. Cassa / Sala vedono ready
+   ← polling / WS ←──────────────────────────────────────────────
+
+10. Cassa incassa (transaction)
+    → IndexedDB transaction + bill_session.status=closed
+    → sync_queue: POST /items/transactions
+                  POST /items/bill_sessions (PATCH status=closed)
+    → aggiorna orders: status=completed                    ──────→ Directus aggiorna tutto
+```
+
+#### 5.7.6 Configurazione pull per app
+
+| App     | Collections pull obbligatorie                         | Intervallo polling | Real-time |
+|---------|-------------------------------------------------------|--------------------|-----------|
+| Cassa   | `orders`, `bill_sessions`, `tables`                   | 5 s                | preferito |
+| Sala    | `orders`, `bill_sessions`, `tables`, `menu_items`     | 3 s                | preferito |
+| Cucina  | `orders`, `order_items`                               | 3 s                | preferito |
+| Tutti   | `venues`, `rooms`, `payment_methods`, `menu_*`, `printers` | avvio + 5 min | opzionale |
+
+#### 5.7.7 Gestione della coda offline — stato del record locale
+
+Ogni record in IndexedDB ha un campo aggiuntivo `_sync_status` (locale-only, mai inviato a
+Directus) che indica lo stato di allineamento:
+
+| `_sync_status` | Significato |
+|---|---|
+| `'synced'`    | Allineato con Directus |
+| `'pending'`   | In coda per push (operazione in `sync_queue`) |
+| `'error'`     | Ultimo tentativo di push fallito (vedi `sync_queue.attempts`) |
+| `'conflict'`  | Conflitto rilevato durante pull (richiede risoluzione) |
+
+La UI può usare `_sync_status` per mostrare indicatori visivi (es. icona nuvola con X per `error`).
+
+#### 5.7.8 Migrazione da localStorage a IndexedDB
+
+Il piano di migrazione è incrementale per evitare interruzioni del servizio:
+
+```
+Fase 1 — Dual-write (attuale localStorage + nuovo IndexedDB in parallelo)
+  - Ogni scrittura va sia in localStorage (invariato) sia in IndexedDB (nuovo)
+  - Letture ancora da localStorage
+  - Nessun breaking change per le app esistenti
+
+Fase 2 — Dual-read con fallback
+  - Letture da IndexedDB con fallback a localStorage se record mancante
+  - Avvia push verso Directus per tutti i record IndexedDB
+
+Fase 3 — IndexedDB primario
+  - Letture e scritture solo su IndexedDB
+  - localStorage usato solo come backup di emergenza (export/import)
+  - Push sync attivo verso Directus
+
+Fase 4 — Rimozione localStorage
+  - Elimina logica localStorage dalle app
+  - IndexedDB è l'unica sorgente dati locale
+  - Directus è il backend autoritativo
+```
+
+Le chiavi localStorage correnti (`demo_app_state_v1`, `app-settings`) rimangono invariate nella
+Fase 1 e 2 per garantire retrocompatibilità con le sessioni attive.
