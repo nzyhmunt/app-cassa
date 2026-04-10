@@ -10,7 +10,9 @@
  *
  * Nota: questi test DEVONO essere in un file separato da printer.test.js perché
  * la Map _queues è un singleton a livello di modulo e potrebbe accumulare stato.
- * Ogni file di test gira nel proprio processo Node.js figlio in Vitest.
+ * Il file separato riduce il rischio di stato condiviso indesiderato, facendo
+ * affidamento sull'isolamento/esecuzione per file di Vitest senza assumere un
+ * processo Node.js figlio dedicato per ogni file di test.
  */
 
 import { describe, it, expect, afterEach } from 'vitest';
