@@ -1071,7 +1071,7 @@ Operazione locale
       ▼  (quando online)
 3. POST /items/{collection}        ← create  → payload contiene id UUIDv7 già assegnato
    PATCH /items/{collection}/{record_id}  ← update
-   DELETE /items/{collection}/{record_id} ← delete (soft: status = 'archived')
+   PATCH /items/{collection}/{record_id}  ← delete (soft: imposta `status = 'archived'`)
       │
       ├── 200/201 OK → rimuovi da sync_queue
       └── errore    → incrementa attempts (max 5, back-off esponenziale: 2^n secondi)
