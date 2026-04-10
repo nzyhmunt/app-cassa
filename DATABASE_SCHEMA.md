@@ -1417,21 +1417,99 @@ Directus → Settings → Users → Crea "cassa-device" / "sala-device" / "cucin
   Token: generare un token statico → salvare in app-settings del dispositivo
 ```
 
-**Storage nel dispositivo:**
+**Storage sicuro nel dispositivo:**
+
+Il token **non deve essere salvato in `localStorage`** (accessibile a qualsiasi script
+sulla pagina e leggibile dalle DevTools senza autenticazione). La strategia raccomandata
+prevede due livelli:
+
+| Livello | Meccanismo | Note |
+|---------|-----------|------|
+| **Storage** | IndexedDB — ObjectStore `config` (già definito in §5.6) | Stesso processo di sicurezza del browser, isolato per origine |
+| **Cifratura** | Web Crypto API — AES-GCM con chiave device-derived | Protezione aggiuntiva a riposo contro dump del DB |
+
+**Generazione della chiave di cifratura (una-tantum per dispositivo):**
 
 ```js
-// app-settings (localStorage, chiave dedicata)
-{
-  "directusToken": "ey...",      // token statico Directus del dispositivo
-  "directusUrl": "https://...",  // URL istanza Directus
-  "venueId": "uuid-venue",
-  ...
+// Genera e persiste una chiave AES-256-GCM nell'ObjectStore config (origin-isolated)
+async function getOrCreateDeviceKey() {
+  const stored = await idb.get('config', '_deviceKey')
+  if (stored) {
+    // Re-importa la chiave JWK salvata in IDB
+    return crypto.subtle.importKey(
+      'jwk', stored.jwk,
+      { name: 'AES-GCM' },
+      false,             // non estraibile una volta importata
+      ['encrypt', 'decrypt']
+    )
+  }
+
+  // Prima generazione: extractable=true solo per poter esportare in JWK e salvare
+  const key = await crypto.subtle.generateKey(
+    { name: 'AES-GCM', length: 256 },
+    true,
+    ['encrypt', 'decrypt']
+  )
+  const jwk = await crypto.subtle.exportKey('jwk', key)
+  await idb.put('config', { id: '_deviceKey', jwk })
+  return key
 }
 ```
 
-Ogni richiesta API usa `Authorization: Bearer {directusToken}`. Non serve alcun flusso
-OAuth o refresh; se il token viene revocato l'app segnala un errore di autenticazione
-e l'amministratore ne genera uno nuovo.
+**Salvataggio del token (setup iniziale):**
+
+```js
+async function saveDeviceToken(token, directusUrl, venueId) {
+  const key = await getOrCreateDeviceKey()
+  const iv  = crypto.getRandomValues(new Uint8Array(12))
+  const enc = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv },
+    key,
+    new TextEncoder().encode(token)
+  )
+  await idb.put('config', {
+    id: 'device_credentials',
+    encryptedToken: Array.from(new Uint8Array(enc)),
+    iv:             Array.from(iv),
+    directusUrl,
+    venueId,
+  })
+}
+```
+
+**Lettura del token (ad ogni avvio dell'app):**
+
+```js
+async function loadDeviceToken() {
+  const key  = await getOrCreateDeviceKey()
+  const cfg  = await idb.get('config', 'device_credentials')
+  if (!cfg) throw new Error('Token dispositivo non configurato')
+
+  const plain = await crypto.subtle.decrypt(
+    { name: 'AES-GCM', iv: new Uint8Array(cfg.iv) },
+    key,
+    new Uint8Array(cfg.encryptedToken)
+  )
+  return new TextDecoder().decode(plain)   // token in chiaro, solo in memoria
+}
+```
+
+**Considerazioni di sicurezza:**
+
+- La chiave AES è generata una volta sola per dispositivo e salvata in JWK nell'ObjectStore
+  `config`; è protetta dall'isolamento same-origin del browser (un'altra origine non può
+  leggere l'IndexedDB dell'app).
+- Il token decifrato vive **solo in memoria** (variabile JS) e non viene mai re-scritto
+  in localStorage o in una variabile globale persistente.
+- Ogni chiamata API usa il token dalla variabile in-memory; al refresh della pagina viene
+  riletto da IndexedDB e decifrato di nuovo.
+- In caso di revoca del token Directus, l'app riceve `401`; l'amministratore accede
+  fisicamente al dispositivo, esegue il re-setup e salva il nuovo token con `saveDeviceToken()`.
+- **Rotazione periodica consigliata**: almeno ogni 6–12 mesi o in caso di sospetto
+  compromissione; il nuovo token viene sovrascritto con `saveDeviceToken()`.
+
+Ogni richiesta API usa `Authorization: Bearer {token}` (token decifrato in memoria).
+Non serve alcun flusso OAuth o refresh.
 
 ---
 
