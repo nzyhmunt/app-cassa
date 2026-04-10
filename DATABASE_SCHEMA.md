@@ -353,6 +353,7 @@ CREATE TABLE order_items (
     course          VARCHAR(10)     NULL CHECK (course IN ('prima', 'insieme', 'dopo')),  -- serving order: first/together/after
     sort_order      SMALLINT        NOT NULL DEFAULT 0,
     kitchen_ready   BOOLEAN         NOT NULL DEFAULT FALSE,  -- flag per toggle per-voce in App Cucina (Dettaglio)
+    status          VARCHAR(20)     NOT NULL DEFAULT 'active', -- 'active' | 'archived' (soft-delete)
     UNIQUE (uid, "order"),  -- unicità logica preservata come vincolo, non come PK
     CHECK (voided_quantity <= quantity)
 );
@@ -372,6 +373,7 @@ CREATE TABLE order_item_modifiers (
     name            VARCHAR(80)     NOT NULL,       -- snapshot nome modificatore
     price           NUMERIC(8,2)    NOT NULL DEFAULT 0.00,
     voided_quantity SMALLINT        NOT NULL DEFAULT 0 CHECK (voided_quantity >= 0),
+    status          VARCHAR(20)     NOT NULL DEFAULT 'active', -- 'active' | 'archived' (soft-delete)
     FOREIGN KEY (item_uid, "order") REFERENCES order_items(uid, "order") ON DELETE CASCADE
 );
 
@@ -406,6 +408,7 @@ CREATE TABLE transactions (
     -- sconto
     discount_type       discount_type           NULL,
     discount_value      NUMERIC(10,2)           NULL,       -- % o importo fisso
+    status              VARCHAR(20)             NOT NULL DEFAULT 'active', -- 'active' | 'archived' (soft-delete)
     -- Directus standard fields
     user_created        UUID                    NULL REFERENCES directus_users(id),
     date_created        TIMESTAMPTZ             NOT NULL DEFAULT NOW()
@@ -468,6 +471,7 @@ CREATE TABLE cash_movements (
     type        cash_movement_type  NOT NULL,
     amount      NUMERIC(10,2)       NOT NULL CHECK (amount > 0),
     reason      TEXT                NOT NULL DEFAULT '',
+    status      VARCHAR(20)         NOT NULL DEFAULT 'active', -- 'active' | 'archived' (soft-delete)
     -- Directus standard fields
     user_created UUID               NULL REFERENCES directus_users(id),
     date_created TIMESTAMPTZ        NOT NULL DEFAULT NOW()
@@ -496,6 +500,7 @@ CREATE TABLE daily_closures (
     average_receipt     NUMERIC(10,2)   NOT NULL DEFAULT 0.00,
     total_movements     NUMERIC(10,2)   NOT NULL DEFAULT 0.00,  -- netto movimenti cassa
     final_balance       NUMERIC(10,2)   NOT NULL DEFAULT 0.00,
+    status              VARCHAR(20)     NOT NULL DEFAULT 'active', -- 'active' | 'archived' (soft-delete)
     -- Directus standard fields
     user_created        UUID            NULL REFERENCES directus_users(id),
     date_created        TIMESTAMPTZ     NOT NULL DEFAULT NOW()
@@ -513,7 +518,8 @@ CREATE TABLE daily_closure_by_method (
     id              UUID            PRIMARY KEY,    -- UUID v7 generato client-side
     daily_closure   UUID            NOT NULL REFERENCES daily_closures(id) ON DELETE CASCADE,
     payment_method  VARCHAR(30)     NOT NULL REFERENCES payment_methods(id) ON DELETE RESTRICT,
-    amount          NUMERIC(10,2)   NOT NULL DEFAULT 0.00
+    amount          NUMERIC(10,2)   NOT NULL DEFAULT 0.00,
+    status          VARCHAR(20)     NOT NULL DEFAULT 'active' -- 'active' | 'archived' (soft-delete)
 );
 ```
 
@@ -1091,12 +1097,15 @@ Operazione locale
       ▼  (quando online)
 3. POST /items/{collection}        ← create  → payload contiene id UUIDv7 già assegnato
    PATCH /items/{collection}/{record_id}  ← update
-   -- delete strategy dipende dalla collection:
-   --   collection con campo `status` (venues, rooms, tables, menu_*, payment_methods,
-   --   printers, bill_sessions, orders, print_jobs): soft-delete via
-   --     PATCH /items/{collection}/{record_id}  { "status": "archived" }
-   --   collection senza campo `status` (transactions, cash_movements, order_items, ecc.):
-   --     DELETE /items/{collection}/{record_id}  (cancellazione hard, irreversibile)
+   -- delete strategy:
+   --   tabelle primarie (tutte eccetto junction tables):
+   --     PATCH /items/{collection}/{record_id}  { "status": "archived" }  ← soft-delete
+   --     Questo si applica a: bill_sessions, orders, order_items, order_item_modifiers,
+   --     transactions, cash_movements, daily_closures, daily_closure_by_method,
+   --     venues, rooms, tables, menu_*, payment_methods, printers, print_jobs
+   --   junction tables (solo queste):
+   --     DELETE /items/{collection}/{record_id}  ← hard delete
+   --     Questo si applica a: transaction_order_refs, transaction_voce_refs
       │
       ├── 200/201 OK → rimuovi da sync_queue
       └── errore    → incrementa attempts (max 5, back-off esponenziale: 2^n secondi)
