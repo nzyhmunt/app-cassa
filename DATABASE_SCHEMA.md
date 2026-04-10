@@ -30,13 +30,16 @@ se si leggono i DDL SQL come schema puro, l'aggiornamento automatico in modifica
 > di Directus. Nei DDL SQL sottostanti i nomi di colonna riservati come `table` e `order`
 > devono essere quotati (`"table"`, `"order"`).
 
-> **UUID v7**: le collection ad alto traffico (`bill_sessions`, `orders`, `transactions`,
-> `cash_movements`) usano **UUID v7** come primary key. UUID v7 è time-ordered (ms prefix),
-> il che garantisce ordinamento cronologico naturale e minimizza la frammentazione degli indici
-> B-tree anche con inserimenti massivi da client offline. Lato Directus: tipo `uuid`; lato
-> IndexedDB: stringa da 36 char generata client-side con una libreria compatibile (es. `uuid`
-> v9+ con `uuidv7()`). PostgreSQL: richiede l'estensione `pg_uuidv7` oppure generazione
-> applicativa.
+> **UUID v7**: tutte le collection operative (`bill_sessions`, `orders`, `order_items`,
+> `order_item_modifiers`, `transactions`, `transaction_order_refs`, `transaction_voce_refs`,
+> `cash_movements`, `daily_closures`, `daily_closure_by_method`) usano **UUID v7** come
+> primary key — generato client-side prima dell'invio a Directus. UUID v7 è time-ordered
+> (ms prefix), il che garantisce ordinamento cronologico naturale, minimizza la frammentazione
+> degli indici B-tree con inserimenti massivi da client offline, e garantisce unicità globale
+> tra dispositivi diversi senza coordinamento server. Nessuna collection operativa usa `SERIAL`
+> o PK composta. Lato Directus: tipo `uuid`; lato IndexedDB: stringa da 36 char generata
+> client-side con una libreria compatibile (es. `uuid` v9+ con `uuidv7()`). PostgreSQL:
+> richiede l'estensione `pg_uuidv7` oppure generazione applicativa.
 
 ---
 
@@ -255,6 +258,11 @@ Creata al primo ordine accettato; chiusa quando tutti gli ordini sono `completed
 
 Campi Directus standard abilitati: `status`, `user_created`, `date_created`.
 
+> **Nota `status`**: il campo `status` è un **campo di dominio applicativo** con valori custom
+> (`open`/`closed`), non il campo workflow Directus con i valori di default (`published`/`draft`/
+> `archived`). In Directus va configurato come campo `select-dropdown` (o `input`) con i valori
+> applicativi, **non** come "Status Field" nelle impostazioni collection.
+
 ```sql
 CREATE TABLE bill_sessions (
     id              UUID            PRIMARY KEY,    -- UUID v7 generato client-side
@@ -281,8 +289,10 @@ CREATE INDEX idx_bill_sessions_table ON bill_sessions("table", status);
 **Primary key**: UUID v7 (time-ordered, generato client-side — sostituisce il vecchio `ord_rX91`).
 
 Campi Directus standard abilitati: `user_created`, `date_created`, `user_updated`, `date_updated`.
-Il campo `status` è il campo di dominio applicativo (workflow cucina/cassa), non il campo
-workflow Directus.
+Il campo `status` è un **campo di dominio applicativo** (workflow cucina/cassa) con valori custom
+(`pending`/`accepted`/`preparing`/`ready`/`delivered`/`completed`/`rejected`) e **non** va
+configurato come "Status Field" Directus (che userebbe `published`/`draft`/`archived`). In
+Directus questa collection non ha un workflow field nativo; `status` è un normale campo enum.
 
 ```sql
 CREATE TYPE order_status AS ENUM (
@@ -331,6 +341,7 @@ CREATE INDEX idx_orders_venue      ON orders(venue, status);
 
 ```sql
 CREATE TABLE order_items (
+    id              UUID            PRIMARY KEY,    -- UUID v7 generato client-side
     uid             VARCHAR(20)     NOT NULL,       -- es. 'r_1' (univoco nell'ordine)
     "order"         UUID            NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
     dish            VARCHAR(50)     NULL REFERENCES menu_items(id) ON DELETE SET NULL,
@@ -342,7 +353,7 @@ CREATE TABLE order_items (
     course          VARCHAR(10)     NULL CHECK (course IN ('prima', 'insieme', 'dopo')),  -- serving order: first/together/after
     sort_order      SMALLINT        NOT NULL DEFAULT 0,
     kitchen_ready   BOOLEAN         NOT NULL DEFAULT FALSE,  -- flag per toggle per-voce in App Cucina (Dettaglio)
-    PRIMARY KEY (uid, "order"),
+    UNIQUE (uid, "order"),  -- unicità logica preservata come vincolo, non come PK
     CHECK (voided_quantity <= quantity)
 );
 
@@ -355,7 +366,7 @@ CREATE INDEX idx_order_items_order ON order_items("order");
 
 ```sql
 CREATE TABLE order_item_modifiers (
-    id              SERIAL          PRIMARY KEY,
+    id              UUID            PRIMARY KEY,    -- UUID v7 generato client-side
     "order"         UUID            NOT NULL,
     item_uid        VARCHAR(20)     NOT NULL,
     name            VARCHAR(80)     NOT NULL,       -- snapshot nome modificatore
@@ -419,10 +430,11 @@ La chiave (`voce_key`) segue il formato prodotto da `buildFlatAnaliticaItems`:
 
 ```sql
 CREATE TABLE transaction_voce_refs (
+    id              UUID            PRIMARY KEY,    -- UUID v7 generato client-side
     transaction     UUID            NOT NULL REFERENCES transactions(id) ON DELETE CASCADE,
     voce_key        VARCHAR(100)    NOT NULL,   -- es. '<uuid>__r_1' o '<uuid>__r_1__mod__1'
     qty             SMALLINT        NOT NULL CHECK (qty > 0),
-    PRIMARY KEY (transaction, voce_key)
+    UNIQUE (transaction, voce_key)
 );
 ```
 
@@ -432,9 +444,10 @@ CREATE TABLE transaction_voce_refs (
 
 ```sql
 CREATE TABLE transaction_order_refs (
+    id              UUID            PRIMARY KEY,    -- UUID v7 generato client-side
     transaction     UUID            NOT NULL REFERENCES transactions(id) ON DELETE CASCADE,
     "order"         UUID            NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
-    PRIMARY KEY (transaction, "order")
+    UNIQUE (transaction, "order")
 );
 ```
 
@@ -497,7 +510,7 @@ CREATE INDEX idx_daily_closures_venue ON daily_closures(venue, date_created);
 
 ```sql
 CREATE TABLE daily_closure_by_method (
-    id              SERIAL          PRIMARY KEY,
+    id              UUID            PRIMARY KEY,    -- UUID v7 generato client-side
     daily_closure   UUID            NOT NULL REFERENCES daily_closures(id) ON DELETE CASCADE,
     payment_method  VARCHAR(30)     NOT NULL REFERENCES payment_methods(id) ON DELETE RESTRICT,
     amount          NUMERIC(10,2)   NOT NULL DEFAULT 0.00
@@ -586,7 +599,10 @@ CREATE TABLE print_jobs (
 
     -- Riepilogo human-readable (indipendente dal tipo)
     table_label     VARCHAR(120)    NOT NULL DEFAULT '',    -- e.g. '05', '01 → 02'
-    job_timestamp   TIMESTAMPTZ     NOT NULL DEFAULT NOW(), -- job creation time (rinominato da 'timestamp' per evitare conflitti con parole riservate)
+    -- job_timestamp: momento di creazione del job lato app (client-side, impostato offline).
+    -- Differisce da date_created (valorizzato da Directus all'inserimento server-side):
+    -- in scenari offline-first i due campi possono divergere se il push avviene in ritardo.
+    job_timestamp   TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
 
     -- Ristampa
     is_reprint      BOOLEAN         NOT NULL DEFAULT FALSE,
@@ -961,11 +977,11 @@ ObjectStore: orders
   indexes:  [table, status, bill_session]
 
 ObjectStore: order_items
-  keyPath:  [uid, order]   -- chiave composta
-  indexes:  [order]
+  keyPath:  id (UUIDv7)
+  indexes:  [order, uid]   -- uid+order usati per lookup logico (vincolo UNIQUE)
 
 ObjectStore: order_item_modifiers
-  keyPath:  id (auto-increment locale)
+  keyPath:  id (UUIDv7)
   indexes:  [order, item_uid]
 
 ObjectStore: transactions
@@ -973,20 +989,24 @@ ObjectStore: transactions
   indexes:  [table, bill_session]
 
 ObjectStore: transaction_order_refs
-  keyPath:  [transaction, order]
-  indexes:  [transaction]
+  keyPath:  id (UUIDv7)
+  indexes:  [transaction, order]
 
 ObjectStore: transaction_voce_refs
-  keyPath:  [transaction, voce_key]
-  indexes:  [transaction]
+  keyPath:  id (UUIDv7)
+  indexes:  [transaction, voce_key]
 
 ObjectStore: cash_movements
   keyPath:  id (UUIDv7)
   indexes:  [venue, date_created]
 
 ObjectStore: daily_closures
-  keyPath:  id (UUIDv7 generato lato client per i nuovi record)
+  keyPath:  id (UUIDv7)
   indexes:  [venue]
+
+ObjectStore: daily_closure_by_method
+  keyPath:  id (UUIDv7)
+  indexes:  [daily_closure]
 
 -- Collections di configurazione (cache locale, aggiornata al primo avvio online)
 ObjectStore: venues           keyPath: id
@@ -1071,7 +1091,12 @@ Operazione locale
       ▼  (quando online)
 3. POST /items/{collection}        ← create  → payload contiene id UUIDv7 già assegnato
    PATCH /items/{collection}/{record_id}  ← update
-   PATCH /items/{collection}/{record_id}  ← delete (soft: imposta `status = 'archived'`)
+   -- delete strategy dipende dalla collection:
+   --   collection con campo `status` (venues, rooms, tables, menu_*, payment_methods,
+   --   printers, bill_sessions, orders, print_jobs): soft-delete via
+   --     PATCH /items/{collection}/{record_id}  { "status": "archived" }
+   --   collection senza campo `status` (transactions, cash_movements, order_items, ecc.):
+   --     DELETE /items/{collection}/{record_id}  (cancellazione hard, irreversibile)
       │
       ├── 200/201 OK → rimuovi da sync_queue
       └── errore    → incrementa attempts (max 5, back-off esponenziale: 2^n secondi)
