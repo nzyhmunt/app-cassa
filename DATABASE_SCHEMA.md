@@ -494,7 +494,7 @@ CREATE INDEX idx_daily_closures_venue ON daily_closures(venue, date_created);
 ```sql
 CREATE TABLE daily_closure_by_method (
     id              SERIAL          PRIMARY KEY,
-    daily_closure   INTEGER         NOT NULL REFERENCES daily_closures(id) ON DELETE CASCADE,
+    daily_closure   UUID            NOT NULL REFERENCES daily_closures(id) ON DELETE CASCADE,
     payment_method  VARCHAR(30)     NOT NULL REFERENCES payment_methods(id) ON DELETE RESTRICT,
     amount          NUMERIC(10,2)   NOT NULL DEFAULT 0.00
 );
