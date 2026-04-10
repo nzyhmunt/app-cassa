@@ -33,7 +33,28 @@ const { formatPreBill }   = require('./formatters/pre_bill.js');
 
 // ── Configurazione ────────────────────────────────────────────────────────────
 
-const PORT        = parseInt(process.env.PORT || '3001', 10);
+/**
+ * Converte e valida la porta HTTP del server.
+ * Accetta solo interi nel range 1-65535.
+ * In caso di configurazione non valida, termina il processo con un errore chiaro.
+ * @param {string|undefined} rawPort
+ * @returns {number}
+ */
+function parsePortOrExit(rawPort) {
+  const value = rawPort == null || rawPort === '' ? '3001' : rawPort;
+  const port = Number(value);
+
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    console.error(
+      `Configurazione non valida: PORT deve essere un intero tra 1 e 65535. Valore ricevuto: ${JSON.stringify(rawPort)}`
+    );
+    process.exit(1);
+  }
+
+  return port;
+}
+
+const PORT        = parsePortOrExit(process.env.PORT);
 const SERVER_NAME = process.env.PRINT_SERVER_NAME || 'ESC/POS Print Server';
 const API_KEY     = process.env.PRINT_SERVER_API_KEY || '';
 
