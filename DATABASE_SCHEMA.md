@@ -1007,8 +1007,10 @@ dedicato) che:
 1. Quando `navigator.onLine` è `true` o scatta l'evento `online`, legge la `sync_queue`
    ordinata per `created_at` ASC.
 2. Per ogni record tenta un `POST /items/{collection}` (create) o `PATCH /items/{collection}/{record_id}`
-   (update) verso l'API Directus, dove `id` è l'id del record della coda e `record_id` è l'id del
-   record applicativo target su Directus.
+   (update) verso l'API Directus. L'`id` del record della coda identifica solo l'entry in
+   `sync_queue` e **non** va usato nella URL Directus: per gli update `{record_id}` è l'id del
+   record applicativo target su Directus; per i create l'id del record target è tipicamente nel
+   `payload` (se generato lato client) oppure viene restituito dal server.
 3. In caso di successo rimuove il record dalla coda; in caso di errore incrementa `attempts`
    (max 5) e pianifica un retry con back-off esponenziale.
 4. I conflitti di merge (es. lo stesso ordine modificato su due dispositivi offline) vengono
