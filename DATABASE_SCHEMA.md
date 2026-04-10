@@ -14,15 +14,16 @@ riferimento per la configurazione del backend Directus sia come guida per la per
 ## Campi standard Directus
 
 Ogni collection include un sottoinsieme dei seguenti campi di sistema Directus. Vanno abilitati nelle
-*Collection Settings → Fields* e vengono gestiti automaticamente dal server:
+*Collection Settings → Fields*. In Directus questi campi vengono valorizzati automaticamente lato applicazione;
+se si leggono i DDL SQL come schema puro, l'aggiornamento automatico in modifica richiede trigger DB o logica equivalente.
 
-| Campo           | Tipo Directus     | Note                                                                 |
-|-----------------|-------------------|----------------------------------------------------------------------|
-| `status`        | `string`          | Stato workflow (`published`, `draft`, `archived`, o valori custom)   |
-| `user_created`  | M2O `directus_users` | Utente che ha creato il record — aggiornato automaticamente       |
-| `date_created`  | `dateTime`        | Data/ora di creazione — aggiornata automaticamente                   |
-| `user_updated`  | M2O `directus_users` | Ultimo utente che ha modificato il record                        |
-| `date_updated`  | `dateTime`        | Data/ora dell'ultima modifica — aggiornata automaticamente           |
+| Campo           | Tipo Directus        | Note                                                                                          |
+|-----------------|----------------------|-----------------------------------------------------------------------------------------------|
+| `status`        | `string`             | Stato workflow (`published`, `draft`, `archived`, o valori custom)                            |
+| `user_created`  | M2O `directus_users` | Utente che ha creato il record — valorizzato solo alla creazione                              |
+| `date_created`  | `dateTime`           | Data/ora di creazione — valorizzata solo alla creazione                                       |
+| `user_updated`  | M2O `directus_users` | Ultimo utente che ha modificato il record — aggiornato a ogni modifica da Directus            |
+| `date_updated`  | `dateTime`           | Data/ora dell'ultima modifica — aggiornata a ogni modifica da Directus (o via trigger DB)    |
 
 > **Nota sui nomi FK**: le relazioni Many-to-One usano il **nome del campo senza suffisso `_id`**
 > (es. `venue`, non `venue_id`; `room`, non `room_id`). Questo è il comportamento predefinito
