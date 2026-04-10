@@ -58,6 +58,7 @@ se si leggono i DDL SQL come schema puro, l'aggiornamento automatico in modifica
    - 5.5 [Integrazione Directus](#55-integrazione-directus)
    - 5.6 [IndexedDB offline-first](#56-integrazione-indexeddb-pwa-offline-first)
    - 5.7 [Architettura sync multi-dispositivo](#57-architettura-di-sincronizzazione-multi-dispositivo)
+   - 5.8 [Strategia di purge IndexedDB](#58-strategia-di-purge-indexeddb)
 
 ---
 
@@ -1270,3 +1271,103 @@ Attività:
 
 Risultato: architettura completa offline-first con Directus come backend autoritativo.
 ```
+
+---
+
+### 5.8 Strategia di purge IndexedDB
+
+La persistenza storica è gestita da **Directus**: l'IndexedDB locale è una cache operativa
+e non deve crescere indefinitamente. Il composable `useIDBPurge()` implementa la pulizia
+automatica dei dati locali secondo la retention definita per ciascuna collection.
+
+#### 5.8.1 Regole generali
+
+- Un record viene rimosso dal proprio ObjectStore locale **solo se**:
+  1. Il suo `_sync_status` è `'synced'` (già persistito su Directus), **e**
+  2. Il suo `date_updated` (o `date_created` se `date_updated` è assente) è precedente alla
+     soglia di retention della collection.
+- I record con `_sync_status = 'pending'` o `'error'` **non vengono mai purgati** (non sono
+  ancora su Directus).
+- Le voci della `sync_queue` con `attempts >= 5` (dead-letter) vengono rimosse dopo
+  **7 giorni** dalla loro `date_created`.
+- Le collection di **configurazione** (`venues`, `rooms`, `tables`, `menu_*`,
+  `payment_methods`, `printers`) non vengono purgarte: sono piccole, statiche e gestite
+  manualmente tramite Directus; vengono aggiornate solo via PULL.
+
+#### 5.8.2 Soglie di retention per collection
+
+| Collection                  | Soglia di purge                              | Condizione aggiuntiva                        |
+|-----------------------------|----------------------------------------------|----------------------------------------------|
+| `orders`                    | 7 giorni da `date_updated`                   | Solo se `status` in `completed`, `rejected`  |
+| `order_items`               | 7 giorni da `date_updated`                   | Solo se l'order padre è già stato purgato    |
+| `order_item_modifiers`      | 7 giorni da `date_updated`                   | Solo se l'order_item padre è già stato purgato |
+| `bill_sessions`             | 7 giorni da `date_updated`                   | Solo se `status = 'closed'`                  |
+| `transactions`              | 30 giorni da `date_updated`                  | —                                            |
+| `transaction_order_refs`    | 30 giorni da `date_created`                  | —                                            |
+| `transaction_voce_refs`     | 30 giorni da `date_created`                  | —                                            |
+| `cash_movements`            | 30 giorni da `date_updated`                  | —                                            |
+| `daily_closures`            | 90 giorni da `date_updated`                  | —                                            |
+| `daily_closure_by_method`   | 90 giorni da `date_updated`                  | —                                            |
+| `print_jobs`                | 7 giorni da `date_updated`                   | Solo se `status` in `done`, `error`          |
+| `sync_queue`                | 7 giorni da `date_created` (solo dead-letter)| Solo se `attempts >= 5`                      |
+
+> Le soglie sono configurabili tramite un oggetto `IDB_PURGE_RETENTION_DAYS` nei settings
+> dell'app; i valori sopra rappresentano i default.
+
+#### 5.8.3 Implementazione — `useIDBPurge()`
+
+```js
+// composable: src/composables/useIDBPurge.js
+// Trigger: chiamato all'avvio dell'app (App.vue onMounted) e ogni 24 ore via setInterval.
+
+async function purgeCollection(storeName, retentionDays, { statusFilter, dateField = 'date_updated' }) {
+  const cutoff = Date.now() - retentionDays * 86_400_000
+  // Scansiona per indice su dateField (o full-scan se l'indice non esiste)
+  // Rimuove solo record con:
+  //   _sync_status === 'synced'
+  //   && new Date(record[dateField]).getTime() < cutoff
+  //   && (statusFilter == null || statusFilter.includes(record.status))
+}
+
+export async function runIDBPurge() {
+  await purgeCollection('orders',                 7,  { statusFilter: ['completed','rejected'] })
+  await purgeCollection('order_items',            7,  {})
+  await purgeCollection('order_item_modifiers',   7,  {})
+  await purgeCollection('bill_sessions',          7,  { statusFilter: ['closed'] })
+  await purgeCollection('transactions',           30, {})
+  await purgeCollection('transaction_order_refs', 30, { dateField: 'date_created' })
+  await purgeCollection('transaction_voce_refs',  30, { dateField: 'date_created' })
+  await purgeCollection('cash_movements',         30, {})
+  await purgeCollection('daily_closures',         90, {})
+  await purgeCollection('daily_closure_by_method',90, {})
+  await purgeCollection('print_jobs',             7,  { statusFilter: ['done','error'] })
+  // Dead-letter sync_queue
+  await purgeSyncQueueDeadLetter(7)
+}
+```
+
+#### 5.8.4 Ordine di purge e integrità referenziale locale
+
+Il purge deve rispettare l'ordine di dipendenza per evitare record orfani in IndexedDB:
+
+```
+1. order_item_modifiers  (dipende da order_items)
+2. order_items           (dipende da orders)
+3. orders                (dipende da bill_sessions)
+4. transaction_order_refs / transaction_voce_refs  (dipendono da transactions)
+5. transactions          (dipende da bill_sessions)
+6. bill_sessions
+7. daily_closure_by_method  (dipende da daily_closures)
+8. daily_closures
+9. cash_movements
+10. print_jobs
+11. sync_queue (dead-letter)
+```
+
+#### 5.8.5 Interazione con il PULL
+
+Durante il pull periodico, se un record locale è stato purgato ma è ancora presente su
+Directus, verrà re-inserito nell'ObjectStore locale solo se rientra nella finestra di
+retention del watermark (`filter[date_updated][_gt]={last_pull_ts}`). Per evitare
+re-inserimenti indesiderati di dati storici, il composable di pull deve impostare
+`last_pull_ts` **prima** di eseguire il purge, garantendo che il watermark non regredisca.
