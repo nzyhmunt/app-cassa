@@ -1183,30 +1183,42 @@ Directus) che indica lo stato di allineamento:
 
 La UI può usare `_sync_status` per mostrare indicatori visivi (es. icona nuvola con X per `error`).
 
-#### 5.7.8 Migrazione da localStorage a IndexedDB
+#### 5.7.8 Piano di migrazione (sviluppo attivo)
 
-Il piano di migrazione è incrementale per evitare interruzioni del servizio:
+L'applicazione è in fase di sviluppo: il passaggio avviene in **due step sequenziali** senza
+necessità di un periodo di coesistenza (non ci sono sessioni in produzione da preservare).
+
+**Step 1 — da localStorage a IndexedDB (prossimo step)**
+
+Obiettivo: sostituire `demo_app_state_v1` (e `app-settings`) con IndexedDB come unica sorgente
+dati locale, implementando la `sync_queue` per le operazioni offline.
 
 ```
-Fase 1 — Dual-write (attuale localStorage + nuovo IndexedDB in parallelo)
-  - Ogni scrittura va sia in localStorage (invariato) sia in IndexedDB (nuovo)
-  - Letture ancora da localStorage
-  - Nessun breaking change per le app esistenti
+Attività:
+  1. Definire e aprire il database IndexedDB (con versioning e schema degli ObjectStore).
+  2. Sostituire ogni lettura/scrittura su localStorage con le API IndexedDB
+     (es. wrappate in composables come useIDBStore()).
+  3. Implementare useSyncQueue: ogni mutazione scrive prima in IndexedDB, poi aggiunge
+     una voce in sync_queue.
+  4. Rimuovere la logica localStorage dalle app una volta validato il funzionamento.
 
-Fase 2 — Dual-read con fallback
-  - Letture da IndexedDB con fallback a localStorage se record mancante
-  - Avvia push verso Directus per tutti i record IndexedDB
-
-Fase 3 — IndexedDB primario
-  - Letture e scritture solo su IndexedDB
-  - localStorage usato solo come backup di emergenza (export/import)
-  - Push sync attivo verso Directus
-
-Fase 4 — Rimozione localStorage
-  - Elimina logica localStorage dalle app
-  - IndexedDB è l'unica sorgente dati locale
-  - Directus è il backend autoritativo
+Risultato: stato applicativo interamente su IndexedDB, sync verso Directus in coda ma
+ancora non attivo (Directus può essere non configurato in questa fase).
 ```
 
-Le chiavi localStorage correnti (`demo_app_state_v1`, `app-settings`) rimangono invariate nella
-Fase 1 e 2 per garantire retrocompatibilità con le sessioni attive.
+**Step 2 — da IndexedDB a Directus (step successivo)**
+
+Obiettivo: abilitare la sincronizzazione bidirezionale con l'istanza Directus (push + pull)
+come descritto nei §5.7.2 e §5.7.3.
+
+```
+Attività:
+  1. Configurare l'istanza Directus con le collection e i permessi necessari.
+  2. Attivare il loop di push: useSyncQueue drena la sync_queue verso l'API Directus.
+  3. Attivare il loop di pull: polling periodico o Directus Subscriptions (WebSocket)
+     per ricevere aggiornamenti dagli altri dispositivi.
+  4. Validare la risoluzione conflitti (last-write-wins su date_updated) su scenari
+     multi-dispositivo (cassa + sala + cucina contemporaneamente offline).
+
+Risultato: architettura completa offline-first con Directus come backend autoritativo.
+```
