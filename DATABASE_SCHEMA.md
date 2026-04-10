@@ -467,7 +467,7 @@ Campi Directus standard abilitati: `user_created`, `date_created`.
 
 ```sql
 CREATE TABLE daily_closures (
-    id                  SERIAL          PRIMARY KEY,
+    id                  UUID            PRIMARY KEY,    -- UUID v7 generato client-side
     venue               INTEGER         NOT NULL REFERENCES venues(id) ON DELETE CASCADE,
     closure_type        CHAR(1)         NOT NULL DEFAULT 'Z', -- 'Z' = chiusura giornaliera
     cash_balance        NUMERIC(10,2)   NOT NULL DEFAULT 0.00,
