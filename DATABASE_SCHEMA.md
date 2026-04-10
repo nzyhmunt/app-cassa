@@ -1490,30 +1490,30 @@ Timeout inattività (es. 5 min)
 
 ---
 
-#### 5.9.4 Campi audit — `pin_user_created` / `pin_user_updated`
+#### 5.9.4 Campi audit — `venue_user_created` / `venue_user_updated`
 
 Per tracciare quale operatore locale ha creato o modificato un record, le collection
 operative aggiungono due campi **facoltativi** (nullable):
 
 | Campo               | Tipo   | Note                                                                 |
 |---------------------|--------|----------------------------------------------------------------------|
-| `pin_user_created`  | UUID   | FK → `venue_users.id` — chi ha creato il record (operatore locale)  |
-| `pin_user_updated`  | UUID   | FK → `venue_users.id` — ultimo operatore locale che ha modificato   |
+| `venue_user_created`  | UUID   | FK → `venue_users.id` — chi ha creato il record (operatore locale)  |
+| `venue_user_updated`  | UUID   | FK → `venue_users.id` — ultimo operatore locale che ha modificato   |
 
 > Questi campi sono **distinti** da `user_created` / `user_updated` di Directus, che
-> riferiscono all'utente Directus del service account del dispositivo. I campi `pin_user_*`
+> riferiscono all'utente Directus del service account del dispositivo. I campi `venue_user_*`
 > tracciano la persona fisica (cameriere, cassiere, ecc.), non il dispositivo.
 
 **Esempio DDL aggiuntivo** (da aggiungere alle collection operative):
 
 ```sql
 ALTER TABLE orders
-  ADD COLUMN pin_user_created UUID REFERENCES venue_users(id),
-  ADD COLUMN pin_user_updated UUID REFERENCES venue_users(id);
+  ADD COLUMN venue_user_created UUID REFERENCES venue_users(id),
+  ADD COLUMN venue_user_updated UUID REFERENCES venue_users(id);
 
 ALTER TABLE transactions
-  ADD COLUMN pin_user_created UUID REFERENCES venue_users(id),
-  ADD COLUMN pin_user_updated UUID REFERENCES venue_users(id);
+  ADD COLUMN venue_user_created UUID REFERENCES venue_users(id),
+  ADD COLUMN venue_user_updated UUID REFERENCES venue_users(id);
 
 -- Stessa logica per: bill_sessions, cash_movements, order_items, print_jobs
 ```
@@ -1522,10 +1522,10 @@ ALTER TABLE transactions
 
 ```js
 // All'apertura di un record
-record.pin_user_created = currentPinUser?.id ?? null
+record.venue_user_created = currentPinUser?.id ?? null
 
 // Ad ogni modifica
-record.pin_user_updated = currentPinUser?.id ?? null
+record.venue_user_updated = currentPinUser?.id ?? null
 ```
 
 ---
@@ -1569,7 +1569,7 @@ record.pin_user_updated = currentPinUser?.id ?? null
 │                                                                     │
 │  [Operazione]                                                       │
 │    4. Operatore inserisce PIN → currentPinUser impostato in memoria │
-│    5. Ogni record creato/modificato riceve pin_user_created/updated │
+│    5. Ogni record creato/modificato riceve venue_user_created/updated │
 │    6. Record scritto in IndexedDB + aggiunto a sync_queue           │
 │                                                                     │
 │  [Sync]                                                             │
