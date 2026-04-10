@@ -203,7 +203,8 @@ app.post('/print', apiKeyGuard, async (req, res) => {
 /**
  * Seleziona il formatter appropriato in base a job.printType e restituisce il Buffer.
  * @param {object} job
- * @returns {Buffer|null}
+ * @returns {Buffer}
+ * @throws {Error} Se job.printType non è supportato.
  */
 function buildEscPosBuffer(job) {
   switch (job.printType) {
