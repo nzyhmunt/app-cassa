@@ -1104,14 +1104,19 @@ Operazione locale
 3. POST /items/{collection}        ← create  → payload contiene id UUIDv7 già assegnato
    PATCH /items/{collection}/{record_id}  ← update
    -- delete strategy:
-   --   tabelle primarie (tutte eccetto junction tables):
-   --     PATCH /items/{collection}/{record_id}  { "status": "archived" }  ← soft-delete
-   --     Questo si applica a: bill_sessions, orders, order_items, order_item_modifiers,
-   --     transactions, cash_movements, daily_closures, daily_closure_by_method,
-   --     venues, rooms, tables, menu_*, payment_methods, printers, print_jobs
-   --   junction tables (solo queste):
-   --     DELETE /items/{collection}/{record_id}  ← hard delete
-   --     Questo si applica a: transaction_order_refs, transaction_voce_refs
+   --
+   --   (A) Tabelle con status generico/workflow → soft-delete: PATCH { "status": "archived" }
+   --       venues, rooms, tables, menu_*, payment_methods, printers
+   --       transactions, cash_movements, order_items, order_item_modifiers,
+   --       daily_closures, daily_closure_by_method
+   --
+   --   (B) Tabelle con status di dominio (ENUM applicativo) → NESSUN DELETE
+   --       Il ciclo di vita è gestito dalle transizioni di stato: es. bill_sessions
+   --       termina con status='closed', orders con status='completed'/'rejected',
+   --       print_jobs con status='done'/'error'. Non sono mai cancellate.
+   --
+   --   (C) Junction tables → hard DELETE /items/{collection}/{record_id}
+   --       transaction_order_refs, transaction_voce_refs
       │
       ├── 200/201 OK → rimuovi da sync_queue
       └── errore    → incrementa attempts (max 5, back-off esponenziale: 2^n secondi)
@@ -1141,8 +1146,10 @@ client.subscribe('orders', {
   query: { filter: { venue: { _eq: venueId } } }
 })
 → evento 'create'  → insert in IndexedDB
-→ evento 'update'  → upsert in IndexedDB (confronta date_updated)
-→ evento 'delete'  → rimuovi da IndexedDB (o aggiorna status = 'archived')
+→ evento 'update'  → upsert in IndexedDB (confronta date_updated); include anche
+                     archiviazione (status='archived') per le tabelle (A) e le transizioni
+                     di dominio (es. status='closed'/'completed') per le tabelle (B)
+→ evento 'delete'  → solo per junction tables (hard DELETE server-side); rimuovi da IndexedDB
 ```
 
 La modalità B è preferita quando disponibile; la A è il fallback per ambienti senza WebSocket.
