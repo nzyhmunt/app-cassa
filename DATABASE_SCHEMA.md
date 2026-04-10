@@ -416,7 +416,7 @@ La chiave (`voce_key`) segue il formato prodotto da `buildFlatAnaliticaItems`:
 ```sql
 CREATE TABLE transaction_voce_refs (
     transaction     UUID            NOT NULL REFERENCES transactions(id) ON DELETE CASCADE,
-    voce_key        VARCHAR(100)    NOT NULL,   -- es. '<uuid>__itm_xyz' o '<uuid>__itm_xyz__mod__1'
+    voce_key        VARCHAR(100)    NOT NULL,   -- es. '<uuid>__r_1' o '<uuid>__r_1__mod__1'
     qty             SMALLINT        NOT NULL CHECK (qty > 0),
     PRIMARY KEY (transaction, voce_key)
 );
