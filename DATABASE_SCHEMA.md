@@ -59,6 +59,7 @@ se si leggono i DDL SQL come schema puro, l'aggiornamento automatico in modifica
    - 5.6 [IndexedDB offline-first](#56-integrazione-indexeddb-pwa-offline-first)
    - 5.7 [Architettura sync multi-dispositivo](#57-architettura-di-sincronizzazione-multi-dispositivo)
    - 5.8 [Strategia di purge IndexedDB](#58-strategia-di-purge-indexeddb)
+   - 5.9 [Gestione credenziali e autenticazione](#59-gestione-credenziali-e-autenticazione)
 
 ---
 
@@ -84,6 +85,7 @@ se si leggono i DDL SQL come schema puro, l'aggiornamento automatico in modifica
 | `printers`               | Stampanti ESC/POS configurate                            | `appConfig.printers`         |
 | `print_jobs`             | Log dei lavori di stampa inviati (cronologia stampe)     | `printLog` (localStorage)    |
 | `app_settings`           | Impostazioni utente (audio, URL menu, ecc.)              | `app-settings` (localStorage)|
+| `venue_users`            | Operatori locali per venue (PIN personale)               | —                            |
 
 ---
 
@@ -1031,6 +1033,7 @@ ObjectStore: menu_categories  keyPath: id    indexes: [venue]
 ObjectStore: menu_items       keyPath: id    indexes: [category]
 ObjectStore: menu_item_modifiers  keyPath: id  indexes: [menu_item]
 ObjectStore: printers         keyPath: id
+ObjectStore: venue_users      keyPath: id    indexes: [venue, role, status]
 
 -- Coda di sincronizzazione (operazioni in attesa di push verso Directus)
 -- Questo store è locale-only: non viene mai inviato a Directus.
@@ -1211,12 +1214,12 @@ La modalità B è preferita quando disponibile; la A è il fallback per ambienti
 
 #### 5.7.6 Configurazione pull per app
 
-| App     | Collections pull obbligatorie                         | Intervallo polling | Real-time |
-|---------|-------------------------------------------------------|--------------------|-----------|
-| Cassa   | `orders`, `bill_sessions`, `tables`                   | 5 s                | preferito |
-| Sala    | `orders`, `bill_sessions`, `tables`, `menu_items`     | 3 s                | preferito |
-| Cucina  | `orders`, `order_items`                               | 3 s                | preferito |
-| Tutti   | `venues`, `rooms`, `payment_methods`, `menu_*`, `printers` | avvio + 5 min | opzionale |
+| App     | Collections pull obbligatorie                                        | Intervallo polling | Real-time |
+|---------|----------------------------------------------------------------------|--------------------|-----------|
+| Cassa   | `orders`, `bill_sessions`, `tables`                                  | 5 s                | preferito |
+| Sala    | `orders`, `bill_sessions`, `tables`, `menu_items`                    | 3 s                | preferito |
+| Cucina  | `orders`, `order_items`                                              | 3 s                | preferito |
+| Tutti   | `venues`, `rooms`, `payment_methods`, `menu_*`, `printers`, `venue_users` | avvio + 5 min | opzionale |
 
 #### 5.7.7 Gestione della coda offline — stato del record locale
 
@@ -1371,3 +1374,207 @@ Directus, verrà re-inserito nell'ObjectStore locale solo se rientra nella fines
 retention del watermark (`filter[date_updated][_gt]={last_pull_ts}`). Per evitare
 re-inserimenti indesiderati di dati storici, il composable di pull deve impostare
 `last_pull_ts` **prima** di eseguire il purge, garantendo che il watermark non regredisca.
+
+---
+
+### 5.9 Gestione credenziali e autenticazione
+
+#### 5.9.1 Strategia consigliata — due livelli di identità
+
+> **Risposta alla domanda**: la strategia con username/password Directus + TTL lungo è
+> funzionante ma richiede gestione del token di refresh (rotazione, scadenza, errori di
+> rete al momento del rinnovo). L'approccio consigliato è di usare invece **token statici
+> Directus** (senza scadenza) per l'autenticazione dei dispositivi, e di gestire le
+> identità personali del personale tramite una collection `venue_users` con PIN locale.
+
+Il sistema di autenticazione si articola su **due livelli separati**:
+
+| Livello          | Identità                  | Meccanismo               | Scope                                       |
+|------------------|---------------------------|--------------------------|---------------------------------------------|
+| **Dispositivo**  | Service account Directus  | Token statico (no TTL)   | API Directus (sync PUSH/PULL)               |
+| **Utente locale**| `venue_users` (PIN)       | Hash PIN client-side     | Audit trail locale (chi ha fatto cosa)      |
+
+---
+
+#### 5.9.2 Livello 1 — Autenticazione dispositivo (token statico Directus)
+
+Ogni ruolo applicativo (cassa / sala / cucina) dispone di un **service account Directus**
+dedicato con un **token statico** (generato una volta sola in Directus → Settings → Users
+→ Token). Il token non scade e non richiede refresh.
+
+**Vantaggi rispetto a username/password + refresh token:**
+- Nessun flusso di rinnovo: il token viene salvato una volta e rimane valido finché
+  l'amministratore non lo revoca.
+- Nessun rischio di failure durante la sync per token scaduto.
+- Semplice da distribuire: l'amministratore inserisce il token nel setup iniziale del
+  dispositivo (una-tantum).
+
+**Setup:**
+
+```
+Directus → Settings → Users → Crea "cassa-device" / "sala-device" / "cucina-device"
+  Role: assegnare un ruolo con permessi minimi (read/write solo sulle collection necessarie)
+  Token: generare un token statico → salvare in app-settings del dispositivo
+```
+
+**Storage nel dispositivo:**
+
+```js
+// app-settings (localStorage, chiave dedicata)
+{
+  "directusToken": "ey...",      // token statico Directus del dispositivo
+  "directusUrl": "https://...",  // URL istanza Directus
+  "venueId": "uuid-venue",
+  ...
+}
+```
+
+Ogni richiesta API usa `Authorization: Bearer {directusToken}`. Non serve alcun flusso
+OAuth o refresh; se il token viene revocato l'app segnala un errore di autenticazione
+e l'amministratore ne genera uno nuovo.
+
+---
+
+#### 5.9.3 Livello 2 — Utenti locali per venue (PIN personale)
+
+Gli utenti del personale (camerieri, cassieri, cuochi) sono gestiti tramite la collection
+**`venue_users`** su Directus, sincronizzata in IndexedDB. L'autenticazione PIN avviene
+**interamente lato client** (confronto hash): non si effettua alcuna chiamata API per
+verificare il PIN.
+
+##### DDL — `venue_users`
+
+```sql
+CREATE TABLE venue_users (
+  id           UUID PRIMARY KEY,              -- UUID v7 generato client-side
+  venue        UUID NOT NULL REFERENCES venues(id),
+  display_name VARCHAR(100) NOT NULL,
+  role         VARCHAR(50)  NOT NULL,         -- 'admin' | 'cassiere' | 'cameriere' | 'cuoco'
+  pin_hash     VARCHAR(255) NOT NULL,         -- hash bcrypt/argon2 del PIN a 4-6 cifre
+  status       VARCHAR(20)  NOT NULL DEFAULT 'active', -- 'active' | 'archived'
+  date_created TIMESTAMPTZ  DEFAULT now(),
+  date_updated TIMESTAMPTZ  DEFAULT now()
+);
+```
+
+> **Sicurezza PIN**: il PIN viene mai trasmesso in chiaro. Il client calcola
+> `hash = bcrypt(pin, salt)` e lo confronta con `pin_hash` presente in IndexedDB. La
+> libreria consigliata è `bcryptjs` (WebCrypto) oppure un PBKDF2 nativo se si preferisce
+> evitare dipendenze. Il salt è incluso nel campo `pin_hash` (bcrypt standard).
+
+##### ObjectStore IndexedDB — `venue_users`
+
+```
+venue_users
+  keyPath:  id (UUIDv7)
+  Indexes:
+    - venue          (non-unique) — lista utenti per venue
+    - status         (non-unique) — filtra solo 'active'
+    - role           (non-unique) — filtra per ruolo
+```
+
+##### Flusso di accesso con PIN
+
+```
+Avvio app
+  └─ carica venue_users da IndexedDB (filtro: venue = venueId, status = 'active')
+
+Operatore inserisce PIN
+  └─ bcrypt.compare(pin, user.pin_hash) → local boolean
+       ├─ OK → imposta currentPinUser in memoria (non in localStorage)
+       └─ KO → mostra errore, incrementa contatore tentativi
+
+Timeout inattività (es. 5 min)
+  └─ currentPinUser = null → torna alla schermata di scelta utente
+```
+
+---
+
+#### 5.9.4 Campi audit — `pin_user_created` / `pin_user_updated`
+
+Per tracciare quale operatore locale ha creato o modificato un record, le collection
+operative aggiungono due campi **facoltativi** (nullable):
+
+| Campo               | Tipo   | Note                                                                 |
+|---------------------|--------|----------------------------------------------------------------------|
+| `pin_user_created`  | UUID   | FK → `venue_users.id` — chi ha creato il record (operatore locale)  |
+| `pin_user_updated`  | UUID   | FK → `venue_users.id` — ultimo operatore locale che ha modificato   |
+
+> Questi campi sono **distinti** da `user_created` / `user_updated` di Directus, che
+> riferiscono all'utente Directus del service account del dispositivo. I campi `pin_user_*`
+> tracciano la persona fisica (cameriere, cassiere, ecc.), non il dispositivo.
+
+**Esempio DDL aggiuntivo** (da aggiungere alle collection operative):
+
+```sql
+ALTER TABLE orders
+  ADD COLUMN pin_user_created UUID REFERENCES venue_users(id),
+  ADD COLUMN pin_user_updated UUID REFERENCES venue_users(id);
+
+ALTER TABLE transactions
+  ADD COLUMN pin_user_created UUID REFERENCES venue_users(id),
+  ADD COLUMN pin_user_updated UUID REFERENCES venue_users(id);
+
+-- Stessa logica per: bill_sessions, cash_movements, order_items, print_jobs
+```
+
+**Valorizzazione client-side:**
+
+```js
+// All'apertura di un record
+record.pin_user_created = currentPinUser?.id ?? null
+
+// Ad ogni modifica
+record.pin_user_updated = currentPinUser?.id ?? null
+```
+
+---
+
+#### 5.9.5 Sincronizzazione `venue_users` e sicurezza
+
+- **PULL-only**: `venue_users` viene sincronizzata solo in direzione Directus → IndexedDB.
+  Le modifiche agli utenti (creazione, cambio PIN, disattivazione) avvengono esclusivamente
+  tramite l'interfaccia Directus (o un pannello admin dedicato), mai dal dispositivo POS.
+- **Permessi Directus**: i service account di cassa/sala/cucina hanno permesso **read-only**
+  sulla collection `venue_users`. Non possono creare, modificare o cancellare utenti.
+- **PIN hash**: il campo `pin_hash` viene incluso nella risposta API (il dispositivo ne ha
+  bisogno per il confronto locale). Assicurarsi che il ruolo Directus del dispositivo
+  esponga solo i campi necessari (`id`, `display_name`, `role`, `pin_hash`, `status`).
+- **Revoca accesso**: per disattivare un operatore è sufficiente impostare
+  `status = 'archived'` su Directus; il PULL successivo aggiornerà IndexedDB e il PIN
+  non funzionerà più.
+- **Rate limiting PIN**: il client implementa un contatore locale di tentativi falliti
+  (es. blocco dopo 5 tentativi per 30 secondi) per mitigare attacchi brute-force offline.
+
+---
+
+#### 5.9.6 Riepilogo flussi
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  Setup iniziale (una-tantum, admin)                                 │
+│                                                                     │
+│  Admin → Directus → crea service account → genera token statico    │
+│  Admin → Directus → crea venue_users con PIN hash                  │
+│  Admin → configura token + URL Directus nelle app-settings          │
+└─────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────┐
+│  Runtime — ogni dispositivo                                         │
+│                                                                     │
+│  [Avvio]                                                            │
+│    1. Legge directusToken da app-settings                           │
+│    2. Carica venue_users da IndexedDB                               │
+│    3. Mostra schermata selezione utente (PIN)                       │
+│                                                                     │
+│  [Operazione]                                                       │
+│    4. Operatore inserisce PIN → currentPinUser impostato in memoria │
+│    5. Ogni record creato/modificato riceve pin_user_created/updated │
+│    6. Record scritto in IndexedDB + aggiunto a sync_queue           │
+│                                                                     │
+│  [Sync]                                                             │
+│    7. useSyncQueue drena la coda verso Directus API                 │
+│       (Authorization: Bearer {directusToken})                       │
+│    8. PULL aggiorna venue_users + dati operativi da Directus        │
+└─────────────────────────────────────────────────────────────────────┘
+```
