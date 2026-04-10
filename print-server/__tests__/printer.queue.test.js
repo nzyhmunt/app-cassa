@@ -13,8 +13,11 @@
  * Ogni file di test gira nel proprio processo Node.js figlio in Vitest.
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import { createRequire } from 'module';
+import os from 'os';
+import path from 'path';
+import fs from 'fs';
 
 const require = createRequire(import.meta.url);
 const { _enqueue, _dispatch } = require('../printer.js');
@@ -81,9 +84,22 @@ describe('_enqueue — per-printer queue', () => {
 // ── _dispatch — file transport ────────────────────────────────────────────────
 
 describe('_dispatch — file transport', () => {
-  it('writes to /dev/null without error', async () => {
-    const config = { id: 'test', type: 'file', device: '/dev/null' };
+  let tmpFile;
+
+  afterEach(() => {
+    // Rimuovi il file temporaneo dopo ogni test (se esiste)
+    if (tmpFile) {
+      try { fs.unlinkSync(tmpFile); } catch (_) { /* ignora */ }
+      tmpFile = null;
+    }
+  });
+
+  it('writes to a temp file without error', async () => {
+    tmpFile = path.join(os.tmpdir(), `print-server-test-${process.pid}.bin`);
+    const config = { id: 'test', type: 'file', device: tmpFile };
     const buf = Buffer.from([0x1b, 0x40, 0x0a]); // ESC @ LF
     await expect(_dispatch(buf, config)).resolves.toBeUndefined();
+    // Verifica che il file sia stato scritto con il contenuto corretto
+    expect(fs.readFileSync(tmpFile)).toEqual(buf);
   });
 });

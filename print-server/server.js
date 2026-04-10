@@ -196,8 +196,8 @@ function buildEscPosBuffer(job) {
 
 // ── JSON / body-size error handler ────────────────────────────────────────────
 
-// Express error-handling middleware: catches SyntaxError (malformed JSON body)
-// and PayloadTooLargeError (body > 256 KB) from express.json() and returns a
+// Express error-handling middleware: catches SyntaxError (malformed JSON body),
+// PayloadTooLargeError (body > 256 KB) and CORS origin rejections, returning a
 // consistent { ok: false, error } JSON response instead of the default HTML.
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, _next) => {
@@ -206,6 +206,10 @@ app.use((err, req, res, _next) => {
   }
   if (err.type === 'entity.too.large') {
     return res.status(413).json({ ok: false, error: 'Payload too large (max 256 KB).' });
+  }
+  // CORS origin callback throws a plain Error — surface it as 403 (not 500)
+  if (err.message === 'CORS: origine non consentita') {
+    return res.status(403).json({ ok: false, error: 'Origine CORS non consentita.' });
   }
   console.error('[print-server] Errore imprevisto:', sanitizeForLog(err.message));
   return res.status(500).json({ ok: false, error: 'Internal server error.' });
