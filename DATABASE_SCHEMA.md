@@ -17,14 +17,20 @@ Ogni collection include un sottoinsieme dei seguenti campi di sistema Directus. 
 *Collection Settings → Fields*. In Directus questi campi vengono valorizzati automaticamente lato applicazione;
 se si leggono i DDL SQL come schema puro, l'aggiornamento automatico in modifica richiede trigger DB o logica equivalente.
 
-| Campo           | Tipo Directus        | Note                                                                                          |
-|-----------------|----------------------|-----------------------------------------------------------------------------------------------|
-| `status`        | `string`             | Stato workflow (`published`, `draft`, `archived`, o valori custom)                            |
-| `user_created`  | M2O `directus_users` | Utente che ha creato il record — valorizzato solo alla creazione                              |
-| `date_created`  | `dateTime`           | Data/ora di creazione — valorizzata solo alla creazione                                       |
-| `user_updated`  | M2O `directus_users` | Ultimo utente che ha modificato il record — aggiornato a ogni modifica da Directus            |
-| `date_updated`  | `dateTime`           | Data/ora dell'ultima modifica — aggiornata a ogni modifica da Directus (o via trigger DB)    |
+| Campo                  | Tipo Directus        | Note                                                                                                       |
+|------------------------|----------------------|------------------------------------------------------------------------------------------------------------|
+| `status` / `record_status` | `string`         | Stato workflow (`published`, `draft`, `archived`, o valori custom). Usare `status` solo se non è già un campo di dominio; in caso di conflitto usare un campo dedicato come `record_status`. |
+| `user_created`         | M2O `directus_users` | Utente che ha creato il record — valorizzato solo alla creazione                                           |
+| `date_created`         | `dateTime`           | Data/ora di creazione — valorizzata solo alla creazione                                                    |
+| `user_updated`         | M2O `directus_users` | Ultimo utente che ha modificato il record — aggiornato a ogni modifica da Directus                         |
+| `date_updated`         | `dateTime`           | Data/ora dell'ultima modifica — aggiornata a ogni modifica da Directus (o via trigger DB)                 |
 
+> **Separazione tra stato di dominio e soft-delete/workflow**: nelle collection che hanno già un
+> campo `status` applicativo (per esempio `orders`, `bill_sessions`, `print_jobs`), quel campo resta
+> riservato alla semantica di business e **non** deve essere riutilizzato per workflow o archiviazione
+> Directus. In questi casi usare un campo dedicato, ad esempio `record_status`, per valori come
+> `published`, `draft`, `archived`. Di conseguenza, la strategia di soft-delete deve usare
+> `PATCH { "record_status": "archived" }` e non `PATCH { "status": "archived" }`.
 > **Nota sui nomi FK**: le relazioni Many-to-One usano il **nome del campo senza suffisso `_id`**
 > (es. `venue`, non `venue_id`; `room`, non `room_id`). Questo è il comportamento predefinito
 > di Directus. Nei DDL SQL sottostanti i nomi di colonna riservati come `table` e `order`
