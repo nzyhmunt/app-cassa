@@ -262,7 +262,7 @@ Creata al primo ordine accettato; chiusa quando tutti gli ordini sono `completed
 
 **Primary key**: UUID v7 (time-ordered, generato client-side prima dell'invio a Directus).
 
-Campi Directus standard abilitati: `status`, `user_created`, `date_created`.
+Campi Directus standard abilitati: `status`, `user_created`, `date_created`, `user_updated`, `date_updated`.
 
 > **Nota `status`**: il campo `status` è un **campo di dominio applicativo** con valori custom
 > (`open`/`closed`), non il campo workflow Directus con i valori di default (`published`/`draft`/
@@ -282,7 +282,9 @@ CREATE TABLE bill_sessions (
     closed_at       TIMESTAMPTZ     NULL,           -- NULL = sessione ancora aperta
     -- Directus standard fields
     user_created    UUID            NULL REFERENCES directus_users(id),
-    date_created    TIMESTAMPTZ     NOT NULL DEFAULT NOW()
+    date_created    TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    user_updated    UUID            NULL REFERENCES directus_users(id),
+    date_updated    TIMESTAMPTZ     NULL            -- aggiornato a ogni modifica da Directus (o trigger DB)
 );
 
 CREATE INDEX idx_bill_sessions_table ON bill_sessions("table", status);
