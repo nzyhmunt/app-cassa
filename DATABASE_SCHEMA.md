@@ -1004,7 +1004,7 @@ ObjectStore: sync_queue
 
 La sincronizzazione avviene tramite un **Service Worker** (o un loop `online` nel composable
 dedicato) che:
-1. Al ritorno della connessione (`navigator.onLine = true` o evento `online`), legge la `sync_queue`
+1. Quando `navigator.onLine` è `true` o scatta l'evento `online`, legge la `sync_queue`
    ordinata per `created_at` ASC.
 2. Per ogni record tenta un `POST /items/{collection}` (create) o `PATCH /items/{collection}/{id}`
    (update) verso l'API Directus.
