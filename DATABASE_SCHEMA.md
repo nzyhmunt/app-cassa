@@ -1294,7 +1294,7 @@ automatica dei dati locali secondo la retention definita per ciascuna collection
 - Le voci della `sync_queue` con `attempts >= 5` (dead-letter) vengono rimosse dopo
   **7 giorni** dalla loro `date_created`.
 - Le collection di **configurazione** (`venues`, `rooms`, `tables`, `menu_*`,
-  `payment_methods`, `printers`) non vengono purgarte: sono piccole, statiche e gestite
+  `payment_methods`, `printers`) non vengono purgate: sono piccole, statiche e gestite
   manualmente tramite Directus; vengono aggiornate solo via PULL.
 
 #### 5.8.2 Soglie di retention per collection
