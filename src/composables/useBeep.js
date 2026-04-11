@@ -1,29 +1,21 @@
 /**
  * useBeep — shared audio notification composable.
  *
- * Reads the `sounds` toggle from the instance-specific settings key in
- * localStorage and exposes `playBeep()` so both Navbar and SalaNavbar
- * stay in sync. The key is derived via `resolveStorageKeys()` to support
- * multi-instance builds where each instance has an isolated settings entry.
+ * Reads the `sounds` toggle from the Pinia store (populated from IndexedDB
+ * via initStoreFromIDB before app mount) and exposes `playBeep()` so both
+ * Navbar and SalaNavbar stay in sync.
  */
 
-import { resolveStorageKeys } from '../store/persistence.js';
-
-function isSoundsEnabled() {
-  try {
-    const { settingsKey } = resolveStorageKeys();
-    const raw = window.localStorage.getItem(settingsKey);
-    if (!raw) return true;
-    const parsed = JSON.parse(raw);
-    return typeof parsed.sounds === 'boolean' ? parsed.sounds : true;
-  } catch {
-    return true;
-  }
-}
+import { useAppStore } from '../store/index.js';
 
 export function useBeep() {
   function playBeep() {
-    if (!isSoundsEnabled()) return;
+    try {
+      const store = useAppStore();
+      if (store.sounds === false) return;
+    } catch {
+      // Store not available (e.g. in test environments without Pinia) — play by default
+    }
     try {
       const ctx = new (window.AudioContext || window.webkitAudioContext)();
       const osc = ctx.createOscillator();

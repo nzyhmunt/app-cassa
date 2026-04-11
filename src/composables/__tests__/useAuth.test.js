@@ -7,7 +7,9 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { useAuth, _resetAuthSingleton, ALL_APPS, LOCK_TIMEOUT_OPTIONS } from '../useAuth.js';
+import { flushPromises } from '@vue/test-utils';
+import { useAuth, _resetAuthSingleton, _waitForAuth, ALL_APPS, LOCK_TIMEOUT_OPTIONS } from '../useAuth.js';
+import { _resetIDBSingleton } from '../useIDB.js';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -22,7 +24,8 @@ async function sha256(str) {
 
 // ── Test setup ────────────────────────────────────────────────────────────────
 
-beforeEach(() => {
+beforeEach(async () => {
+  await _resetIDBSingleton();
   localStorage.clear();
   _resetAuthSingleton();
 });
@@ -71,14 +74,11 @@ describe('initial state', () => {
 // ── addUser ──────────────────────────────────────────────────────────────────
 
 describe('addUser()', () => {
-  it('adds a user and persists to localStorage', async () => {
+  it('adds a user and updates in-memory state', async () => {
     const { addUser, users } = useAuth();
     await addUser('Mario', '1234');
     expect(users.value).toHaveLength(1);
     expect(users.value[0].name).toBe('Mario');
-    const stored = JSON.parse(localStorage.getItem('auth_users'));
-    expect(stored).toHaveLength(1);
-    expect(stored[0].name).toBe('Mario');
   });
 
   it('stores a hashed PIN, not the plaintext', async () => {
@@ -158,12 +158,12 @@ describe('login()', () => {
     expect(ok).toBe(false);
   });
 
-  it('persists the session to localStorage after a successful login', async () => {
-    const { addUser, login } = useAuth();
+  it('sets the current user and unlocks after a successful login', async () => {
+    const { addUser, login, currentUser, isAuthenticated } = useAuth();
     const user = await addUser('Mario', '1234');
     await login(user.id, '1234');
-    const session = JSON.parse(localStorage.getItem('auth_session'));
-    expect(session?.userId).toBe(user.id);
+    expect(currentUser.value?.id).toBe(user.id);
+    expect(isAuthenticated.value).toBe(true);
   });
 });
 
@@ -196,25 +196,25 @@ describe('logout()', () => {
     expect(isAuthenticated.value).toBe(false);
   });
 
-  it('removes the session from localStorage', async () => {
-    const { addUser, login, logout } = useAuth();
+  it('clears the current user after logout', async () => {
+    const { addUser, login, logout, currentUser, isAuthenticated } = useAuth();
     const user = await addUser('Mario', '1234');
     await login(user.id, '1234');
+    expect(isAuthenticated.value).toBe(true);
     logout();
-    expect(localStorage.getItem('auth_session')).toBeNull();
+    expect(currentUser.value).toBeNull();
+    expect(isAuthenticated.value).toBe(false);
   });
 });
 
 // ── updateUser ───────────────────────────────────────────────────────────────
 
 describe('updateUser()', () => {
-  it('updates the user name and persists to localStorage', async () => {
+  it('updates the user name in in-memory state', async () => {
     const { addUser, updateUser, users } = useAuth();
     const user = await addUser('Mario', '1234');
     await updateUser(user.id, { name: 'Luigi' });
     expect(users.value[0].name).toBe('Luigi');
-    const stored = JSON.parse(localStorage.getItem('auth_users'));
-    expect(stored[0].name).toBe('Luigi');
   });
 
   it('hashes the new PIN if provided', async () => {
@@ -249,14 +249,12 @@ describe('updateUser()', () => {
 // ── removeUser ───────────────────────────────────────────────────────────────
 
 describe('removeUser()', () => {
-  it('removes the user from the list and localStorage', async () => {
+  it('removes the user from the list', async () => {
     const { addUser, removeUser, users } = useAuth();
     const u = await addUser('Mario', '1234');
     expect(users.value).toHaveLength(1);
     removeUser(u.id);
     expect(users.value).toHaveLength(0);
-    const stored = JSON.parse(localStorage.getItem('auth_users') ?? '[]');
-    expect(stored).toHaveLength(0);
   });
 
   it('logs out the current user if they are removed', async () => {
@@ -281,35 +279,32 @@ describe('removeUser()', () => {
 // ── setLockTimeout ───────────────────────────────────────────────────────────
 
 describe('setLockTimeout()', () => {
-  it('updates lockTimeoutMinutes and persists to localStorage', () => {
+  it('updates lockTimeoutMinutes in-memory', async () => {
     const { setLockTimeout, lockTimeoutMinutes } = useAuth();
-    setLockTimeout(10);
+    await setLockTimeout(10);
     expect(lockTimeoutMinutes.value).toBe(10);
-    const stored = JSON.parse(localStorage.getItem('auth_settings'));
-    expect(stored?.lockTimeoutMinutes).toBe(10);
   });
 
-  it('setting timeout to 0 (never) persists correctly', () => {
+  it('setting timeout to 0 (never) updates in-memory correctly', async () => {
     const { setLockTimeout, lockTimeoutMinutes } = useAuth();
-    setLockTimeout(0);
+    await setLockTimeout(0);
     expect(lockTimeoutMinutes.value).toBe(0);
-    expect(JSON.parse(localStorage.getItem('auth_settings')).lockTimeoutMinutes).toBe(0);
   });
 });
 
 // ── clearAllAuthData ──────────────────────────────────────────────────────────
 
 describe('clearAllAuthData()', () => {
-  it('removes all auth keys from localStorage', async () => {
-    const { addUser, login, clearAllAuthData } = useAuth();
+  it('clears in-memory state when clearAllAuthData is called', async () => {
+    const { addUser, login, clearAllAuthData, users, currentUser, isLocked } = useAuth();
     const u = await addUser('Mario', '1234');
     await login(u.id, '1234');
 
     clearAllAuthData();
 
-    expect(localStorage.getItem('auth_users')).toBeNull();
-    expect(localStorage.getItem('auth_session')).toBeNull();
-    expect(localStorage.getItem('auth_settings')).toBeNull();
+    expect(users.value).toHaveLength(0);
+    expect(currentUser.value).toBeNull();
+    expect(isLocked.value).toBe(true);
   });
 
   it('resets in-memory state to empty', async () => {
@@ -386,23 +381,34 @@ describe('isAdmin and hasAdmin', () => {
   });
 });
 
-// ── localStorage persistence across init ─────────────────────────────────────
+// ── IDB persistence across init ──────────────────────────────────────────────
 
 describe('persistence across singleton resets', () => {
-  it('restores manual users from localStorage on next init', async () => {
-    // First session: create a user
-    await useAuth().addUser('Mario', '1234');
+  it('restores manual users from IDB on next init', async () => {
+    // First session: create a user (addUser awaits IDB write before returning)
+    const { addUser } = useAuth();
+    await addUser('Mario', '1234');
 
-    // Reset singleton (simulates a new page load)
+    // Reset singleton (simulates a new page load) — do NOT reset IDB so data persists
     _resetAuthSingleton();
+
+    // Re-init reads from IDB
+    useAuth();
+    await _waitForAuth();
 
     const { users } = useAuth();
     expect(users.value.some((u) => u.name === 'Mario')).toBe(true);
   });
 
-  it('restores lockTimeoutMinutes from localStorage on next init', () => {
-    useAuth().setLockTimeout(15);
+  it('restores lockTimeoutMinutes from IDB on next init', async () => {
+    const { setLockTimeout } = useAuth();
+    await setLockTimeout(15); // awaits IDB write before returning
+
     _resetAuthSingleton();
+
+    useAuth();
+    await _waitForAuth();
+
     const { lockTimeoutMinutes } = useAuth();
     expect(lockTimeoutMinutes.value).toBe(15);
   });
@@ -411,12 +417,19 @@ describe('persistence across singleton resets', () => {
 // ── Auto-lock timer ───────────────────────────────────────────────────────────
 
 describe('auto-lock timer', () => {
+  // Only fake setTimeout/setInterval (used for the lock timer); do NOT fake
+  // setImmediate so that fake-indexeddb's scheduling (which uses setImmediate)
+  // still works when awaiting addUser / setLockTimeout inside these tests.
+  const FAKE_TIMER_OPTIONS = {
+    toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'],
+  };
+
   it('locks the screen after the configured inactivity timeout', async () => {
-    vi.useFakeTimers();
+    vi.useFakeTimers(FAKE_TIMER_OPTIONS);
     try {
       const { addUser, login, setLockTimeout, isLocked } = useAuth();
       const u = await addUser('Mario', '1234');
-      setLockTimeout(1); // 1 minute
+      await setLockTimeout(1); // 1 minute
       await login(u.id, '1234');
       expect(isLocked.value).toBe(false);
 
@@ -428,11 +441,11 @@ describe('auto-lock timer', () => {
   });
 
   it('does not auto-lock when timeout is 0 (never)', async () => {
-    vi.useFakeTimers();
+    vi.useFakeTimers(FAKE_TIMER_OPTIONS);
     try {
       const { addUser, login, setLockTimeout, isLocked } = useAuth();
       const u = await addUser('Mario', '1234');
-      setLockTimeout(0);
+      await setLockTimeout(0);
       await login(u.id, '1234');
       expect(isLocked.value).toBe(false);
 
@@ -444,11 +457,11 @@ describe('auto-lock timer', () => {
   });
 
   it('recordActivity() resets the timer, delaying the auto-lock', async () => {
-    vi.useFakeTimers();
+    vi.useFakeTimers(FAKE_TIMER_OPTIONS);
     try {
       const { addUser, login, setLockTimeout, recordActivity, isLocked } = useAuth();
       const u = await addUser('Mario', '1234');
-      setLockTimeout(1); // 1 minute
+      await setLockTimeout(1); // 1 minute
       await login(u.id, '1234');
 
       // Advance 59 s — not yet locked

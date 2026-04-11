@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { createPinia, setActivePinia } from 'pinia';
 import { useBeep } from '../useBeep.js';
-import { resolveStorageKeys } from '../../store/persistence.js';
+import { useAppStore } from '../../store/index.js';
 
 // ---------------------------------------------------------------------------
 // AudioContext mock factory
@@ -42,13 +43,17 @@ function createMockAudioContext() {
 }
 
 describe('useBeep()', () => {
-  // Derive the settings key the same way the production code does, so the
-  // tests stay correct across all instance-name configurations.
-  const { settingsKey } = resolveStorageKeys();
+  let store;
 
   beforeEach(() => {
     localStorage.clear();
     vi.useFakeTimers();
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => ({}),
+    });
+    setActivePinia(createPinia());
+    store = useAppStore();
   });
 
   afterEach(() => {
@@ -76,8 +81,8 @@ describe('useBeep()', () => {
     expect(ctx.createGain).toHaveBeenCalled();
   });
 
-  it('plays a beep when sounds is explicitly true in localStorage', () => {
-    localStorage.setItem(settingsKey, JSON.stringify({ sounds: true }));
+  it('plays a beep when store.sounds is explicitly true', () => {
+    store.sounds = true;
     const { ctor, ctx } = createMockAudioContext();
     window.AudioContext = ctor;
 
@@ -87,8 +92,8 @@ describe('useBeep()', () => {
     expect(ctor).toHaveBeenCalled();
   });
 
-  it('does NOT play a beep when sounds is false in localStorage', () => {
-    localStorage.setItem(settingsKey, JSON.stringify({ sounds: false }));
+  it('does NOT play a beep when store.sounds is false', () => {
+    store.sounds = false;
     const { ctor } = createMockAudioContext();
     window.AudioContext = ctor;
 
@@ -98,8 +103,8 @@ describe('useBeep()', () => {
     expect(ctor).not.toHaveBeenCalled();
   });
 
-  it('defaults to enabled when localStorage contains malformed JSON', () => {
-    localStorage.setItem(settingsKey, '{not valid json}');
+  it('defaults to enabled when store.sounds is not set (defaults to true)', () => {
+    // store.sounds defaults to true via ref(true)
     const { ctor } = createMockAudioContext();
     window.AudioContext = ctor;
 
@@ -109,8 +114,8 @@ describe('useBeep()', () => {
     expect(ctor).toHaveBeenCalled();
   });
 
-  it('defaults to enabled when sounds key is not a boolean', () => {
-    localStorage.setItem(settingsKey, JSON.stringify({ sounds: 'yes' }));
+  it('defaults to enabled when store.sounds is not a boolean (truthy default)', () => {
+    store.sounds = 'yes'; // non-boolean: useBeep treats non-false as enabled
     const { ctor } = createMockAudioContext();
     window.AudioContext = ctor;
 

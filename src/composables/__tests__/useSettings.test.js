@@ -7,6 +7,18 @@ import { useAppStore } from '../../store/index.js';
 import { resolveStorageKeys } from '../../store/persistence.js';
 import { getPwaDismissKey } from '../usePwaInstall.js';
 
+// Mock the IDB persistence layer so tests stay synchronous and don't need
+// a real IndexedDB environment for settings tests.
+vi.mock('../../store/idbPersistence.js', async (importOriginal) => {
+  const original = await importOriginal();
+  return {
+    ...original,
+    saveSettingsToIDB: vi.fn().mockResolvedValue(undefined),
+    clearAllStateFromIDB: vi.fn().mockResolvedValue(undefined),
+  };
+});
+import { saveSettingsToIDB } from '../../store/idbPersistence.js';
+
 const { settingsKey: SETTINGS_KEY } = resolveStorageKeys();
 
 // ---------------------------------------------------------------------------
@@ -63,22 +75,19 @@ describe('useSettings()', () => {
     wrapper.unmount();
   });
 
-  it('loads all settings from localStorage when the key is present', () => {
+  it('loads all settings from the store when populated before mount', () => {
     // Mock Wake Lock API as supported so preventScreenLock:true is preserved
     Object.defineProperty(navigator, 'wakeLock', {
       value: { request: vi.fn() },
       writable: true,
       configurable: true,
     });
-    localStorage.setItem(
-      SETTINGS_KEY,
-      JSON.stringify({
-        sounds: false,
-        menuUrl: 'https://custom.example.com/menu.json',
-        preventScreenLock: true,
-        customKeyboard: 'center',
-      }),
-    );
+    // Simulate initStoreFromIDB having already populated the store
+    store.sounds = false;
+    store.menuUrl = 'https://custom.example.com/menu.json';
+    store.preventScreenLock = true;
+    store.customKeyboard = 'center';
+
     const props = reactive({ modelValue: false });
     const emit = vi.fn();
 
@@ -92,8 +101,8 @@ describe('useSettings()', () => {
     delete navigator.wakeLock;
   });
 
-  it('falls back to defaults when localStorage contains malformed JSON', () => {
-    localStorage.setItem(SETTINGS_KEY, 'not-valid-json');
+  it('returns defaults when store has initial default values', () => {
+    // Store starts with defaults (sounds=true, preventScreenLock=true)
     const props = reactive({ modelValue: false });
     const emit = vi.fn();
 
@@ -104,8 +113,9 @@ describe('useSettings()', () => {
     wrapper.unmount();
   });
 
-  it('falls back to default menuUrl when stored menuUrl is an empty string', () => {
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ sounds: true, menuUrl: '' }));
+  it('falls back to default menuUrl when store.menuUrl is an empty string', () => {
+    store.menuUrl = '';
+
     const props = reactive({ modelValue: false });
     const emit = vi.fn();
 
@@ -116,8 +126,9 @@ describe('useSettings()', () => {
     wrapper.unmount();
   });
 
-  it('defaults sounds to true when stored sounds value is not a boolean', () => {
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ sounds: 'yes' }));
+  it('defaults sounds to true when store.sounds is not a boolean', () => {
+    store.sounds = 'yes'; // non-boolean value
+
     const props = reactive({ modelValue: false });
     const emit = vi.fn();
 
@@ -168,8 +179,9 @@ describe('useSettings()', () => {
     wrapper.unmount();
   });
 
-  it('defaults customKeyboard to "disabled" when stored value is not a valid position', () => {
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ customKeyboard: 'yes' }));
+  it('defaults customKeyboard to "disabled" when store.customKeyboard is not a valid position', () => {
+    store.customKeyboard = 'yes'; // invalid value
+
     const props = reactive({ modelValue: false });
     const emit = vi.fn();
 
@@ -195,7 +207,8 @@ describe('useSettings()', () => {
     wrapper.unmount();
   });
 
-  it('debounces localStorage writes — only persists after 400 ms', async () => {
+  it('debounces IDB writes — only persists after 400 ms', async () => {
+    saveSettingsToIDB.mockClear();
     const props = reactive({ modelValue: true });
     const emit = vi.fn();
 
@@ -204,15 +217,13 @@ describe('useSettings()', () => {
     result.settings.value.sounds = false;
     await nextTick();
 
-    // Not yet written
-    expect(localStorage.getItem(SETTINGS_KEY)).toBeNull();
+    // Not yet written (debounce has not fired)
+    expect(saveSettingsToIDB).not.toHaveBeenCalledWith(expect.objectContaining({ sounds: false }));
 
     // Advance past the 400 ms debounce threshold
     vi.advanceTimersByTime(400);
 
-    const stored = localStorage.getItem(SETTINGS_KEY);
-    expect(stored).not.toBeNull();
-    expect(JSON.parse(stored).sounds).toBe(false);
+    expect(saveSettingsToIDB).toHaveBeenCalledWith(expect.objectContaining({ sounds: false }));
     wrapper.unmount();
   });
 
@@ -232,7 +243,8 @@ describe('useSettings()', () => {
     wrapper.unmount();
   });
 
-  it('flushes the pending localStorage save immediately when the modal closes', async () => {
+  it('flushes the pending IDB save immediately when the modal closes', async () => {
+    saveSettingsToIDB.mockClear();
     const props = reactive({ modelValue: true });
     const emit = vi.fn();
 
@@ -241,19 +253,18 @@ describe('useSettings()', () => {
     result.settings.value.sounds = false;
     await nextTick();
     // Debounce has not fired yet
-    expect(localStorage.getItem(SETTINGS_KEY)).toBeNull();
+    expect(saveSettingsToIDB).not.toHaveBeenCalledWith(expect.objectContaining({ sounds: false }));
 
     // Closing the modal triggers an immediate save
     props.modelValue = false;
     await nextTick();
 
-    const stored = localStorage.getItem(SETTINGS_KEY);
-    expect(stored).not.toBeNull();
-    expect(JSON.parse(stored).sounds).toBe(false);
+    expect(saveSettingsToIDB).toHaveBeenCalledWith(expect.objectContaining({ sounds: false }));
     wrapper.unmount();
   });
 
-  it('persists settings to localStorage on unmount', async () => {
+  it('persists settings to IDB on unmount', async () => {
+    saveSettingsToIDB.mockClear();
     const props = reactive({ modelValue: true });
     const emit = vi.fn();
 
@@ -263,13 +274,11 @@ describe('useSettings()', () => {
     await nextTick();
 
     // Debounce has not fired yet
-    expect(localStorage.getItem(SETTINGS_KEY)).toBeNull();
+    expect(saveSettingsToIDB).not.toHaveBeenCalledWith(expect.objectContaining({ sounds: false }));
 
     wrapper.unmount(); // onUnmounted fires persistSettings
 
-    const stored = localStorage.getItem(SETTINGS_KEY);
-    expect(stored).not.toBeNull();
-    expect(JSON.parse(stored).sounds).toBe(false);
+    expect(saveSettingsToIDB).toHaveBeenCalledWith(expect.objectContaining({ sounds: false }));
   });
 
   // ── syncMenu() ───────────────────────────────────────────────────────────
@@ -290,7 +299,7 @@ describe('useSettings()', () => {
 
   // ── confirmReset() ───────────────────────────────────────────────────────
 
-  it('confirmReset() clears the storage state and settings keys from localStorage', () => {
+  it('confirmReset() clears storageKey and settingsKey from localStorage', () => {
     const { storageKey, settingsKey } = resolveStorageKeys('');
     localStorage.setItem(storageKey, JSON.stringify({ orders: [] }));
     localStorage.setItem(settingsKey, JSON.stringify({ sounds: false }));
@@ -314,7 +323,9 @@ describe('useSettings()', () => {
 
       result.confirmReset();
 
+      // clearState() removes storageKey from localStorage
       expect(localStorage.getItem(storageKey)).toBeNull();
+      // confirmReset() also removes legacy settingsKey for backwards compatibility
       expect(localStorage.getItem(settingsKey)).toBeNull();
       wrapper.unmount();
     } finally {

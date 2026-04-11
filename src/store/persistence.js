@@ -1,31 +1,26 @@
 /**
  * @file store/persistence.js
- * @description Persistence utilities for the app state.
+ * @description Persistence key-derivation utilities.
  *
- * Persistence is handled by `pinia-plugin-persistedstate`, configured in
- * `src/store/index.js` via the `persist` option. This module exposes the
- * helpers needed to derive the correct localStorage keys and manage the
- * active instance name.
+ * Provides helpers to derive storage keys (for instance isolation) and to
+ * clear state. App state is now stored in IndexedDB via `store/idbPersistence.js`;
+ * this module retains helpers that are shared across multiple files (key
+ * derivation, instance name resolution) and provides `clearState` for
+ * full-reset flows.
  *
  * ── Multi-instance support ────────────────────────────────────────────────
  * Multiple instances of the app can run on the same device by assigning each
  * build a unique `instanceName` in `src/utils/index.js` (`appConfig`).
- * All localStorage keys are derived from that name, so each build operates
+ * All storage keys are derived from that name, so each build operates
  * in complete isolation — no runtime user configuration required.
- *
- * ── Note per la futura migrazione a PWA ──────────────────────────────────
- * TODO (PWA - IndexedDB): Replace localStorage with IndexedDB for larger
- *   datasets and non-blocking async I/O. Recommended library: idb.
- * TODO (PWA - Directus sync): Trigger sync after local writes.
- * ─────────────────────────────────────────────────────────────────────────
  */
 
 import { appConfig } from '../utils/index.js';
 
 /**
  * Schema version. Increment for breaking state structure changes.
- * The localStorage key changes automatically (e.g. demo_app_state_v2),
- * leaving the previous version's data as orphans until cleared.
+ * @deprecated Used only for backwards-compat key references; IndexedDB schema
+ * versioning is handled independently in `composables/useIDB.js` (DB_VERSION).
  */
 export const SCHEMA_VERSION = 1;
 
@@ -40,9 +35,9 @@ export function getInstanceName() {
 }
 
 /**
- * Derives localStorage keys from the active instance name.
- * The default instance (empty name) uses the original key names for backwards
- * compatibility with existing installations.
+ * Derives storage key names from the active instance name.
+ * Kept for backwards compatibility — used by composables that reference the
+ * instance-namespaced IDB database name and legacy references.
  *
  * @param {string} [instanceName] - Instance name; defaults to getInstanceName().
  * @returns {{ storageKey: string, settingsKey: string }}
@@ -57,13 +52,11 @@ export function resolveStorageKeys(instanceName) {
 }
 
 /**
- * Derives the localStorage key used to persist saved custom items in the
- * "Personalizzata" tab of the "Diretto" modal (CassaTableManager). Kept here
- * so both the component and the settings reset logic share the exact same key
- * derivation.
+ * Derives the storage key used to persist saved custom items in the
+ * "Personalizzata" tab of the "Diretto" modal (CassaTableManager).
  *
  * @param {string} [instanceName] - Instance name; defaults to getInstanceName().
- * @returns {string} The localStorage key for saved custom items.
+ * @returns {string}
  */
 export function resolveCustomItemsKey(instanceName) {
   const n = instanceName ?? getInstanceName();
@@ -71,16 +64,19 @@ export function resolveCustomItemsKey(instanceName) {
 }
 
 /**
- * Removes the persisted app state from localStorage.
- * Obtain the key from resolveStorageKeys().storageKey.
+ * Clears the entire persisted app state from IndexedDB (and removes any
+ * legacy localStorage key as a courtesy during the transition period).
  *
- * @param {string} storageKey - The key to remove.
+ * @param {string} [storageKey] - Legacy localStorage key (ignored if not present).
  */
 export function clearState(storageKey) {
-  if (typeof localStorage === 'undefined') return;
-  try {
-    localStorage.removeItem(storageKey);
-  } catch (e) {
-    console.warn('[Persistence] Failed to clear saved state:', e);
+  // Remove legacy localStorage entry if it still exists
+  if (typeof localStorage !== 'undefined') {
+    try { localStorage.removeItem(storageKey); } catch (_) { /* ignore */ }
   }
+  // Clear IndexedDB operative stores (fire-and-forget)
+  import('./idbPersistence.js').then(({ clearAllStateFromIDB }) => {
+    clearAllStateFromIDB().catch(e => console.warn('[Persistence] Failed to clear IDB state:', e));
+  }).catch(e => console.warn('[Persistence] Failed to import idbPersistence:', e));
 }
+

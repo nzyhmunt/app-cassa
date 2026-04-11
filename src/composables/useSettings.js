@@ -1,14 +1,14 @@
 import { ref, watch, onUnmounted } from 'vue';
 import { useAppStore } from '../store/index.js';
-import { getInstanceName, resolveStorageKeys, clearState, resolveCustomItemsKey } from '../store/persistence.js';
+import { getInstanceName, resolveStorageKeys, clearState } from '../store/persistence.js';
 import { appConfig, KEYBOARD_POSITIONS } from '../utils/index.js';
 import { isWakeLockSupported } from './useWakeLock.js';
 import { getPwaDismissKey } from './usePwaInstall.js';
 import { useAuth } from './useAuth.js';
-
+import { saveSettingsToIDB, clearAllStateFromIDB } from '../store/idbPersistence.js';
 /**
  * Shared composable for the Cassa and Sala settings modals.
- * Handles localStorage persistence (debounced), reset, and menu sync.
+ * Handles IndexedDB persistence (debounced), reset, and menu sync.
  *
  * @param {object} props  - Component props (must expose `modelValue: Boolean`)
  * @param {function} emit - Component emit function
@@ -19,8 +19,7 @@ export function useSettings(props, emit) {
   const wakeLockApiSupported = isWakeLockSupported();
 
   const _instanceName = getInstanceName();
-  const { storageKey: _storageKey, settingsKey: SETTINGS_STORAGE_KEY } =
-    resolveStorageKeys(_instanceName);
+  const { storageKey: _storageKey, settingsKey: _settingsKey } = resolveStorageKeys(_instanceName);
 
   /** Validate a stored keyboard value; return 'disabled' if unknown. */
   function _parseKeyboardPosition(v) {
@@ -28,32 +27,21 @@ export function useSettings(props, emit) {
     return 'disabled';
   }
 
+  // Build initial settings from the store (already populated by initStoreFromIDB before mount).
   function loadInitialSettings() {
-    if (typeof window === 'undefined') {
-      return { sounds: true, menuUrl: appConfig.menuUrl, preventScreenLock: true, customKeyboard: 'disabled', preBillPrinterId: '' };
-    }
-    try {
-      const raw = window.localStorage.getItem(SETTINGS_STORAGE_KEY);
-      if (!raw) {
-        return { sounds: true, menuUrl: appConfig.menuUrl, preventScreenLock: true, customKeyboard: 'disabled', preBillPrinterId: '' };
-      }
-      const parsed = JSON.parse(raw);
-      return {
-        sounds: typeof parsed.sounds === 'boolean' ? parsed.sounds : true,
-        menuUrl:
-          typeof parsed.menuUrl === 'string' && parsed.menuUrl.trim() !== ''
-            ? parsed.menuUrl
-            : appConfig.menuUrl,
-        preventScreenLock:
-          typeof parsed.preventScreenLock === 'boolean' && wakeLockApiSupported
-            ? parsed.preventScreenLock
-            : true,
-        customKeyboard: _parseKeyboardPosition(parsed.customKeyboard),
-        preBillPrinterId: typeof parsed.preBillPrinterId === 'string' ? parsed.preBillPrinterId : '',
-      };
-    } catch {
-      return { sounds: true, menuUrl: appConfig.menuUrl, preventScreenLock: true, customKeyboard: 'disabled', preBillPrinterId: '' };
-    }
+    return {
+      sounds: typeof store.sounds === 'boolean' ? store.sounds : true,
+      menuUrl:
+        typeof store.menuUrl === 'string' && store.menuUrl.trim() !== ''
+          ? store.menuUrl
+          : appConfig.menuUrl,
+      preventScreenLock:
+        typeof store.preventScreenLock === 'boolean' && wakeLockApiSupported
+          ? store.preventScreenLock
+          : true,
+      customKeyboard: _parseKeyboardPosition(store.customKeyboard),
+      preBillPrinterId: typeof store.preBillPrinterId === 'string' ? store.preBillPrinterId : '',
+    };
   }
 
   const settings = ref(loadInitialSettings());
@@ -62,12 +50,7 @@ export function useSettings(props, emit) {
   let saveTimer = null;
 
   function persistSettings(val) {
-    if (typeof window === 'undefined') return;
-    try {
-      window.localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(val));
-    } catch {
-      // Ignore storage errors (e.g., quota exceeded or disabled storage)
-    }
+    saveSettingsToIDB(val).catch(e => console.warn('[Settings] Failed to save settings:', e));
   }
 
   // Flush pending save and reset confirm state when the modal closes
@@ -86,12 +69,13 @@ export function useSettings(props, emit) {
     settings,
     (newVal) => {
       // Keep store and parent in sync immediately for responsive UI
+      store.sounds = newVal.sounds;
       store.menuUrl = newVal.menuUrl;
       store.preventScreenLock = newVal.preventScreenLock;
       store.customKeyboard = newVal.customKeyboard;
       store.preBillPrinterId = newVal.preBillPrinterId ?? '';
       emit('settings-changed', newVal);
-      // Debounce localStorage writes to avoid per-keystroke I/O (e.g. menuUrl typing)
+      // Debounce IDB writes to avoid per-keystroke I/O (e.g. menuUrl typing)
       clearTimeout(saveTimer);
       saveTimer = setTimeout(() => persistSettings(newVal), 400);
     },
@@ -108,12 +92,12 @@ export function useSettings(props, emit) {
   }
 
   function confirmReset() {
+    // Clear both IDB operative data and any legacy localStorage entries
     clearState(_storageKey);
-    try {
-      window.localStorage.removeItem(SETTINGS_STORAGE_KEY);
-    } catch (e) {
-      console.warn('[Settings] Failed to remove settings during reset:', e);
-    }
+    // Remove legacy settings key from localStorage (backwards compatibility
+    // during transition from localStorage to IndexedDB)
+    try { window.localStorage.removeItem(_settingsKey); } catch (_) { /* ignore */ }
+    clearAllStateFromIDB().catch(e => console.warn('[Settings] Failed to clear IDB state:', e));
     try {
       window.localStorage.removeItem(getPwaDismissKey());
     } catch (e) {
@@ -125,11 +109,6 @@ export function useSettings(props, emit) {
       clearAllAuthData();
     } catch (e) {
       console.warn('[Settings] Failed to clear auth data during reset:', e);
-    }
-    try {
-      window.localStorage.removeItem(resolveCustomItemsKey(_instanceName));
-    } catch (e) {
-      console.warn('[Settings] Failed to remove custom items during reset:', e);
     }
     if (typeof window !== 'undefined' && window.location) {
       window.location.reload();

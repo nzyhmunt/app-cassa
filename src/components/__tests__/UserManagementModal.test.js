@@ -20,7 +20,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mount, flushPromises, enableAutoUnmount } from '@vue/test-utils';
 import UserManagementModal from '../UserManagementModal.vue';
-import { useAuth, _resetAuthSingleton } from '../../composables/useAuth.js';
+import { useAuth, _resetAuthSingleton, _waitForAuth } from '../../composables/useAuth.js';
+import { _resetIDBSingleton } from '../../composables/useIDB.js';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -78,7 +79,8 @@ async function clickAndWaitForUser(wrapper, submitBtn, expectedUserCount = 1) {
 // Automatically unmount every wrapper created with mount() after each test.
 enableAutoUnmount(afterEach);
 
-beforeEach(() => {
+beforeEach(async () => {
+  await _resetIDBSingleton();
   localStorage.clear();
   _resetAuthSingleton();
 });
@@ -173,16 +175,16 @@ describe('adding the first user', () => {
     expect(wrapper.text()).toContain('Admin');
   });
 
-  it('saves the new admin user to localStorage', async () => {
+  it('saves the new admin user to in-memory auth state', async () => {
     const wrapper = mountModal();
     await wrapper.find('input[placeholder="Nome utente"]').setValue('Admin');
     await wrapper.find('input[placeholder="PIN (4 cifre numeriche)"]').setValue('1234');
     const submitBtn = wrapper.findAll('button').find(b => b.text().trim().includes('Crea account'));
     await clickAndWaitForUser(wrapper, submitBtn);
 
-    const stored = JSON.parse(localStorage.getItem('auth_users') ?? '[]');
-    expect(stored).toHaveLength(1);
-    expect(stored[0].name).toBe('Admin');
+    const { users } = useAuth();
+    expect(users.value).toHaveLength(1);
+    expect(users.value[0].name).toBe('Admin');
   });
 
   it('makes the first added user an admin', async () => {
@@ -192,8 +194,8 @@ describe('adding the first user', () => {
     const submitBtn = wrapper.findAll('button').find(b => b.text().trim().includes('Crea account'));
     await clickAndWaitForUser(wrapper, submitBtn);
 
-    const stored = JSON.parse(localStorage.getItem('auth_users') ?? '[]');
-    expect(stored[0].isAdmin).toBe(true);
+    const { users } = useAuth();
+    expect(users.value[0].isAdmin).toBe(true);
   });
 
   it('shows the user in the list after a successful submission', async () => {
