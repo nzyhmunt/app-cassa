@@ -329,6 +329,9 @@ export async function saveAuthSettingsToIDB(settings) {
 
 const FISCAL_INVOICE_RETENTION = 200;
 
+/** Sorts two records by `timestamp` ISO string descending (newest first). */
+const _byTimestampDesc = (a, b) => (a.timestamp > b.timestamp ? -1 : a.timestamp < b.timestamp ? 1 : 0);
+
 /**
  * Deletes the oldest entries in `storeName` beyond `keepCount`, based on the
  * `timestamp` field. Used to enforce the in-memory retention cap in IDB too,
@@ -340,8 +343,8 @@ const FISCAL_INVOICE_RETENTION = 200;
 async function _pruneToNewest(db, storeName, keepCount) {
   const all = await db.getAll(storeName);
   if (all.length <= keepCount) return;
-  // Sort ascending by timestamp; delete the head (oldest) beyond the cap
-  all.sort((a, b) => (a.timestamp < b.timestamp ? -1 : a.timestamp > b.timestamp ? 1 : 0));
+  // Sort oldest first by timestamp; delete the head (oldest) beyond the cap
+  all.sort((a, b) => -_byTimestampDesc(a, b));
   const toDelete = all.slice(0, all.length - keepCount);
   const tx = db.transaction(storeName, 'readwrite');
   await Promise.all(toDelete.map(r => tx.store.delete(r.id)));
@@ -369,7 +372,7 @@ export async function loadFiscalReceiptsFromIDB() {
   try {
     const db = await getDB();
     const all = await db.getAll('fiscal_receipts');
-    return all.sort((a, b) => (a.timestamp > b.timestamp ? -1 : a.timestamp < b.timestamp ? 1 : 0));
+    return all.sort(_byTimestampDesc);
   } catch (e) {
     console.warn('[IDBPersistence] Failed to load fiscal receipts:', e);
     return [];
@@ -412,7 +415,7 @@ export async function loadInvoiceRequestsFromIDB() {
   try {
     const db = await getDB();
     const all = await db.getAll('invoice_requests');
-    return all.sort((a, b) => (a.timestamp > b.timestamp ? -1 : a.timestamp < b.timestamp ? 1 : 0));
+    return all.sort(_byTimestampDesc);
   } catch (e) {
     console.warn('[IDBPersistence] Failed to load invoice requests:', e);
     return [];
