@@ -381,17 +381,19 @@ CREATE INDEX idx_order_items_order ON order_items("order");
 ```sql
 CREATE TABLE order_item_modifiers (
     id              UUID            PRIMARY KEY,    -- UUID v7 generato client-side
-    "order"         UUID            NOT NULL,
-    item_uid        VARCHAR(20)     NOT NULL,
+    order_item      UUID            NOT NULL REFERENCES order_items(id) ON DELETE CASCADE, -- FK singola verso order_items(id)
+    "order"         UUID            NOT NULL,       -- denormalizzato per query rapide per ordine
+    item_uid        VARCHAR(20)     NOT NULL,       -- uid riga di order_items (unicità logica)
     name            VARCHAR(80)     NOT NULL,       -- snapshot nome modificatore
     price           NUMERIC(8,2)    NOT NULL DEFAULT 0.00,
     voided_quantity SMALLINT        NOT NULL DEFAULT 0 CHECK (voided_quantity >= 0),
     status          VARCHAR(20)     NOT NULL DEFAULT 'active', -- 'active' | 'archived' (soft-delete)
     -- Directus standard fields
     date_created    TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
-    FOREIGN KEY (item_uid, "order") REFERENCES order_items(uid, "order") ON DELETE CASCADE
+    UNIQUE (item_uid, "order", name)               -- unicità logica per modificatore su riga
 );
 
+CREATE INDEX idx_oi_modifiers_order_item ON order_item_modifiers(order_item);
 CREATE INDEX idx_oi_modifiers_item ON order_item_modifiers("order", item_uid);
 ```
 
@@ -1005,7 +1007,7 @@ ObjectStore: order_items
 
 ObjectStore: order_item_modifiers
   keyPath:  id (UUIDv7)
-  indexes:  [order, item_uid]
+  indexes:  [order_item, order, item_uid]  -- order_item usato come FK singola verso order_items(id)
 
 ObjectStore: transactions
   keyPath:  id (UUIDv7)
@@ -1306,20 +1308,24 @@ automatica dei dati locali secondo la retention definita per ciascuna collection
 
 #### 5.8.2 Soglie di retention per collection
 
-| Collection                  | Soglia di purge                              | Condizione aggiuntiva                        |
-|-----------------------------|----------------------------------------------|----------------------------------------------|
-| `orders`                    | 7 giorni da `date_updated`                   | Solo se `status` in `completed`, `rejected`  |
-| `order_items`               | 7 giorni da `date_updated`                   | Solo se l'order padre è già stato purgato    |
-| `order_item_modifiers`      | 7 giorni da `date_updated`                   | Solo se l'order_item padre è già stato purgato |
-| `bill_sessions`             | 7 giorni da `date_updated`                   | Solo se `status = 'closed'`                  |
-| `transactions`              | 30 giorni da `date_updated`                  | —                                            |
-| `transaction_order_refs`    | 30 giorni da `date_created`                  | —                                            |
-| `transaction_voce_refs`     | 30 giorni da `date_created`                  | —                                            |
-| `cash_movements`            | 30 giorni da `date_updated`                  | —                                            |
-| `daily_closures`            | 90 giorni da `date_updated`                  | —                                            |
-| `daily_closure_by_method`   | 90 giorni da `date_updated`                  | —                                            |
-| `print_jobs`                | 7 giorni da `date_updated`                   | Solo se `status` in `done`, `error`          |
-| `sync_queue`                | 7 giorni da `date_created` (solo dead-letter)| Solo se `attempts >= 5`                      |
+| Collection                  | Campo data usato per purge  | Soglia   | Condizione aggiuntiva                          |
+|-----------------------------|----------------------------|----------|------------------------------------------------|
+| `orders`                    | `date_updated`             | 7 giorni | Solo se `status` in `completed`, `rejected`    |
+| `order_items`               | `date_created`             | 7 giorni | Solo se l'order padre è già stato purgato      |
+| `order_item_modifiers`      | `date_created`             | 7 giorni | Solo se l'`order_item` padre è già stato purgato |
+| `bill_sessions`             | `date_updated`             | 7 giorni | Solo se `status = 'closed'`                    |
+| `transactions`              | `date_created`             | 30 giorni| —                                              |
+| `transaction_order_refs`    | `date_created`             | 30 giorni| —                                              |
+| `transaction_voce_refs`     | `date_created`             | 30 giorni| —                                              |
+| `cash_movements`            | `date_created`             | 30 giorni| —                                              |
+| `daily_closures`            | `date_created`             | 90 giorni| —                                              |
+| `daily_closure_by_method`   | `date_created`             | 90 giorni| —                                              |
+| `print_jobs`                | `job_timestamp`            | 7 giorni | Solo se `status` in `done`, `error`            |
+| `sync_queue`                | `date_created` (dead-letter)| 7 giorni| Solo se `attempts >= 5`                        |
+
+> **Nota**: le collection con solo `date_created` (nessun `date_updated`) usano la data di creazione
+> come proxy temporale per la retention. Le collection operative sincronizzate via watermark
+> (`orders`, `bill_sessions`) hanno `date_updated` abilitato e lo usano sia per il PULL che per il purge.
 
 > Le soglie sono configurabili tramite un oggetto `IDB_PURGE_RETENTION_DAYS` nei settings
 > dell'app; i valori sopra rappresentano i default.
