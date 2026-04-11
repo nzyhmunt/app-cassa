@@ -929,9 +929,9 @@ Cardinalità:
 | `cashBalance`                         | somma di `cash_movements` + valore iniziale |
 | `cashMovements[]`                     | `cash_movements`                       |
 | `dailyClosures[]`                     | `daily_closures` + `daily_closure_by_method` |
-| `printLog[]` (ObjectStore `print_jobs`)   | `print_jobs`                           |
+| `printLog[]` (IDB ObjectStore: `print_jobs`)   | `print_jobs`                      |
 | `appConfig.printers`                  | `printers`                             |
-| `app_meta.settings` (ObjectStore `app_settings`) | `app_settings`              |
+| IDB ObjectStore: `app_settings`       | `app_settings`                         |
 | `appConfig.menu`                      | `menu_categories` + `menu_items`       |
 | `appConfig.rooms`                     | `rooms`                                |
 | `appConfig.tables` (derivato)         | `tables`                               |

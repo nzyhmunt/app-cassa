@@ -466,7 +466,9 @@ export const useAppStore = defineStore('app', () => {
         if (getter) payload[key] = getter();
       });
       _pendingSaveKeys.clear();
-      _saveChain = _saveChain.then(() => saveStateToIDB(payload)).catch(() => {});
+      _saveChain = _saveChain
+        .then(() => saveStateToIDB(payload))
+        .catch((e) => console.warn('[Store] IDB save failed for keys', Object.keys(payload), e));
     }, 150);
   }
 
