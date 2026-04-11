@@ -300,7 +300,10 @@ CREATE TABLE bill_sessions (
     user_created    UUID            NULL REFERENCES directus_users(id),
     date_created    TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
     user_updated    UUID            NULL REFERENCES directus_users(id),
-    date_updated    TIMESTAMPTZ     NULL            -- aggiornato a ogni modifica da Directus (o trigger DB)
+    date_updated    TIMESTAMPTZ     NULL,           -- aggiornato a ogni modifica da Directus (o trigger DB)
+    -- Operatore locale (venue_user) — tracciamento audit operatori PIN
+    venue_user_created UUID         NULL REFERENCES venue_users(id),
+    venue_user_updated UUID         NULL REFERENCES venue_users(id)
 );
 
 CREATE INDEX idx_bill_sessions_table ON bill_sessions("table", status);
@@ -351,7 +354,10 @@ CREATE TABLE orders (
     user_created            UUID            NULL REFERENCES directus_users(id),
     date_created            TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
     user_updated            UUID            NULL REFERENCES directus_users(id),
-    date_updated            TIMESTAMPTZ     NOT NULL DEFAULT NOW()
+    date_updated            TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    -- Operatore locale (venue_user) — tracciamento audit operatori PIN
+    venue_user_created      UUID            NULL REFERENCES venue_users(id),
+    venue_user_updated      UUID            NULL REFERENCES venue_users(id)
 );
 
 CREATE INDEX idx_orders_table      ON orders("table", status);
@@ -385,6 +391,9 @@ CREATE TABLE order_items (
     date_created    TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
     user_updated    UUID            NULL REFERENCES directus_users(id),
     date_updated    TIMESTAMPTZ     NULL,
+    -- Operatore locale (venue_user) — tracciamento audit operatori PIN
+    venue_user_created UUID         NULL REFERENCES venue_users(id),
+    venue_user_updated UUID         NULL REFERENCES venue_users(id),
     UNIQUE (uid, "order"),  -- unicità logica preservata come vincolo, non come PK
     CHECK (voided_quantity <= quantity)
 );
@@ -413,6 +422,9 @@ CREATE TABLE order_item_modifiers (
     date_created    TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
     user_updated    UUID            NULL REFERENCES directus_users(id),
     date_updated    TIMESTAMPTZ     NULL,
+    -- Operatore locale (venue_user) — tracciamento audit operatori PIN
+    venue_user_created UUID         NULL REFERENCES venue_users(id),
+    venue_user_updated UUID         NULL REFERENCES venue_users(id),
     UNIQUE (item_uid, "order", name)               -- unicità logica per modificatore su riga
 );
 
@@ -453,7 +465,10 @@ CREATE TABLE transactions (
     user_created        UUID                    NULL REFERENCES directus_users(id),
     date_created        TIMESTAMPTZ             NOT NULL DEFAULT NOW(),
     user_updated        UUID                    NULL REFERENCES directus_users(id),
-    date_updated        TIMESTAMPTZ             NULL
+    date_updated        TIMESTAMPTZ             NULL,
+    -- Operatore locale (venue_user) — tracciamento audit operatori PIN
+    venue_user_created  UUID                    NULL REFERENCES venue_users(id),
+    venue_user_updated  UUID                    NULL REFERENCES venue_users(id)
 );
 
 CREATE INDEX idx_transactions_table   ON transactions("table");
@@ -518,7 +533,10 @@ CREATE TABLE cash_movements (
     user_created UUID               NULL REFERENCES directus_users(id),
     date_created TIMESTAMPTZ        NOT NULL DEFAULT NOW(),
     user_updated UUID               NULL REFERENCES directus_users(id),
-    date_updated TIMESTAMPTZ        NULL
+    date_updated TIMESTAMPTZ        NULL,
+    -- Operatore locale (venue_user) — tracciamento audit operatori PIN
+    venue_user_created UUID         NULL REFERENCES venue_users(id),
+    venue_user_updated UUID         NULL REFERENCES venue_users(id)
 );
 
 CREATE INDEX idx_cash_movements_venue ON cash_movements(venue, date_created);
@@ -549,7 +567,10 @@ CREATE TABLE daily_closures (
     user_created        UUID            NULL REFERENCES directus_users(id),
     date_created        TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
     user_updated        UUID            NULL REFERENCES directus_users(id),
-    date_updated        TIMESTAMPTZ     NULL
+    date_updated        TIMESTAMPTZ     NULL,
+    -- Operatore locale (venue_user) — tracciamento audit operatori PIN
+    venue_user_created  UUID            NULL REFERENCES venue_users(id),
+    venue_user_updated  UUID            NULL REFERENCES venue_users(id)
 );
 
 CREATE INDEX idx_daily_closures_venue ON daily_closures(venue, date_created);
@@ -572,7 +593,10 @@ CREATE TABLE daily_closure_by_method (
     user_created    UUID            NULL REFERENCES directus_users(id),
     date_created    TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
     user_updated    UUID            NULL REFERENCES directus_users(id),
-    date_updated    TIMESTAMPTZ     NULL
+    date_updated    TIMESTAMPTZ     NULL,
+    -- Operatore locale (venue_user) — tracciamento audit operatori PIN
+    venue_user_created UUID         NULL REFERENCES venue_users(id),
+    venue_user_updated UUID         NULL REFERENCES venue_users(id)
 );
 ```
 
@@ -686,7 +710,10 @@ CREATE TABLE print_jobs (
     -- Directus standard fields
     date_created    TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
     user_updated    UUID            NULL REFERENCES directus_users(id),
-    date_updated    TIMESTAMPTZ     NULL
+    date_updated    TIMESTAMPTZ     NULL,
+    -- Operatore locale (venue_user) — tracciamento audit operatori PIN
+    venue_user_created UUID         NULL REFERENCES venue_users(id),
+    venue_user_updated UUID         NULL REFERENCES venue_users(id)
 );
 
 -- Indici per le query più frequenti (cronologia per punto vendita, stampante, tipo, stato)
@@ -1681,7 +1708,7 @@ Timeout inattività (es. 5 min)
 #### 5.9.4 Campi audit — `venue_user_created` / `venue_user_updated`
 
 Per tracciare quale operatore locale ha creato o modificato un record, le collection
-operative aggiungono due campi **facoltativi** (nullable):
+operative includono due campi **facoltativi** (nullable) direttamente nel DDL:
 
 | Campo               | Tipo   | Note                                                                 |
 |---------------------|--------|----------------------------------------------------------------------|
@@ -1692,19 +1719,9 @@ operative aggiungono due campi **facoltativi** (nullable):
 > riferiscono all'utente Directus del service account del dispositivo. I campi `venue_user_*`
 > tracciano la persona fisica (cameriere, cassiere, ecc.), non il dispositivo.
 
-**Esempio DDL aggiuntivo** (da aggiungere alle collection operative):
-
-```sql
-ALTER TABLE orders
-  ADD COLUMN venue_user_created UUID REFERENCES venue_users(id),
-  ADD COLUMN venue_user_updated UUID REFERENCES venue_users(id);
-
-ALTER TABLE transactions
-  ADD COLUMN venue_user_created UUID REFERENCES venue_users(id),
-  ADD COLUMN venue_user_updated UUID REFERENCES venue_users(id);
-
--- Stessa logica per: bill_sessions, cash_movements, order_items, print_jobs
-```
+I campi sono presenti direttamente nel DDL delle seguenti collection operative (vedi §§2.7–2.19):
+`bill_sessions`, `orders`, `order_items`, `order_item_modifiers`, `transactions`,
+`cash_movements`, `daily_closures`, `daily_closure_by_method`, `print_jobs`.
 
 **Valorizzazione client-side:**
 
