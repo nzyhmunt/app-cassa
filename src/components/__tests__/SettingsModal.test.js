@@ -16,6 +16,7 @@ import { mount, flushPromises, enableAutoUnmount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import SettingsModal from '../shared/SettingsModal.vue';
 import { useAuth, _resetAuthSingleton } from '../../composables/useAuth.js';
+import { _resetIDBSingleton } from '../../composables/useIDB.js';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -49,10 +50,14 @@ function mountSettingsModal(extraProps = {}) {
 
 enableAutoUnmount(afterEach);
 
-beforeEach(() => {
+beforeEach(async () => {
+  // Reset IDB before fake timers are installed so deleteDatabase uses real setImmediate.
+  await _resetIDBSingleton();
   localStorage.clear();
   _resetAuthSingleton();
-  vi.useFakeTimers();
+  // Only fake timeout/interval — do NOT fake setImmediate so that fake-indexeddb's
+  // scheduling (which relies on setImmediate) still works when addUser is awaited.
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
   setActivePinia(createPinia());
   // Stub fetch so store initialization cannot trigger real network requests.
   vi.spyOn(globalThis, 'fetch').mockResolvedValue({

@@ -1311,7 +1311,7 @@ import {
 import { useAppStore } from '../store/index.js';
 import { getOrderItemRowTotal, KITCHEN_ACTIVE_STATUSES, getLockedDirectItems, appConfig } from '../utils/index.js';
 import { buildFlatAnaliticaItems, computeAnaliticaTotal, exceedsAmount, getOrdersToComplete } from '../utils/analitica.js';
-import { resolveCustomItemsKey } from '../store/persistence.js';
+import { loadCustomItemsFromIDB, saveCustomItemsToIDB } from '../store/idbPersistence.js';
 import { useNumericKeyboard } from '../composables/useNumericKeyboard.js';
 import { useAuth } from '../composables/useAuth.js';
 import { enqueueTableMoveJob, enqueuePreBillJob } from '../composables/usePrintQueue.js';
@@ -2236,20 +2236,22 @@ const canShowCustomEntryTab = computed(
  */
 const configLockedDirectItems = computed(() => getLockedDirectItems(store.config.coverCharge));
 
-// Saved custom items — persisted in localStorage
-// Key is derived from the instance name so multiple instances stay isolated.
-const SAVED_CUSTOM_KEY = resolveCustomItemsKey();
+// Saved custom items — persisted in IndexedDB
+const savedCustomItems = ref([]);
+let _customItemsHydrated = false;
 
-const savedCustomItems = ref(
-  (() => {
-    try { return JSON.parse(localStorage.getItem(SAVED_CUSTOM_KEY) || '[]'); }
-    catch (e) { console.warn('[CassaTableManager] Failed to load saved custom items:', e); return []; }
-  })(),
-);
+// Load saved custom items asynchronously from IDB
+loadCustomItemsFromIDB().then(items => {
+  savedCustomItems.value = items;
+  _customItemsHydrated = true;
+}).catch(e => {
+  _customItemsHydrated = true; // still mark hydrated so future changes persist
+  console.warn('[CassaTableManager] Failed to load saved custom items:', e);
+});
 
 watch(savedCustomItems, (val) => {
-  try { localStorage.setItem(SAVED_CUSTOM_KEY, JSON.stringify(val)); }
-  catch (e) { console.warn('[CassaTableManager] Failed to save custom items:', e); }
+  if (!_customItemsHydrated) return;
+  saveCustomItemsToIDB(val).catch(e => console.warn('[CassaTableManager] Failed to save custom items:', e));
 }, { deep: true });
 
 function openDirectItemModal() {

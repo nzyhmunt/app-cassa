@@ -23,3 +23,13 @@ if (typeof localStorage !== 'undefined' && typeof localStorage.clear !== 'functi
     }
   };
 }
+
+/**
+ * ── IndexedDB polyfill ───────────────────────────────────────────────────────
+ * jsdom does not implement IndexedDB. `fake-indexeddb/auto` provides a complete
+ * in-memory implementation. Vitest runs each test file in an isolated worker
+ * context, so every file automatically gets a fresh IDB environment.
+ * Individual test files reset the `useIDB` singleton in their own `beforeEach`
+ * hooks via `_resetIDBSingleton()` to ensure clean state between test cases.
+ */
+import 'fake-indexeddb/auto';

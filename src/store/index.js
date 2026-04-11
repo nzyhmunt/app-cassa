@@ -15,15 +15,13 @@
  *   closedBills[]              – Archived sessions after full payment (computed)
  */
 import { defineStore } from 'pinia';
-import { ref, computed } from 'vue';
+import { ref, computed, watch } from 'vue';
 import { appConfig, updateOrderTotals, KITCHEN_ACTIVE_STATUSES, KEYBOARD_POSITIONS } from '../utils/index.js';
-import { getInstanceName, resolveStorageKeys } from './persistence.js';
 import { newUUID } from './storeUtils.js';
 import { makeTableOps } from './tableOps.js';
 import { makeReportOps } from './reportOps.js';
-
-const _instanceName = getInstanceName();
-const { storageKey, settingsKey } = resolveStorageKeys(_instanceName);
+import { loadStateFromIDB, saveStateToIDB, loadSettingsFromIDB } from './idbPersistence.js';
+import { enqueue } from '../composables/useSyncQueue.js';
 
 export const useAppStore = defineStore('app', () => {
 
@@ -32,29 +30,13 @@ export const useAppStore = defineStore('app', () => {
   const orders = ref([]);
   const transactions = ref([]);
 
-  // ── Settings (read from localStorage before Pinia hydrates) ───────────────
-  const _savedSettings = (() => {
-    try {
-      if (typeof window === 'undefined') return null;
-      const raw = window.localStorage.getItem(settingsKey);
-      return raw ? JSON.parse(raw) : null;
-    } catch { return null; }
-  })();
-
-  const menuUrl = ref(
-    (typeof _savedSettings?.menuUrl === 'string' && _savedSettings.menuUrl.trim() !== '')
-      ? _savedSettings.menuUrl : appConfig.menuUrl,
-  );
-  const preventScreenLock = ref(
-    typeof _savedSettings?.preventScreenLock === 'boolean' ? _savedSettings.preventScreenLock : true,
-  );
-  const customKeyboard = ref(
-    (() => { const v = _savedSettings?.customKeyboard; return KEYBOARD_POSITIONS.includes(v) ? v : 'disabled'; })(),
-  );
+  // ── Settings (defaults; populated async by initStoreFromIDB before mount) ──
+  const sounds = ref(true);
+  const menuUrl = ref(appConfig.menuUrl);
+  const preventScreenLock = ref(true);
+  const customKeyboard = ref('disabled');
   // ID of the printer chosen for pre-conto dispatch (empty string = disabled)
-  const preBillPrinterId = ref(
-    typeof _savedSettings?.preBillPrinterId === 'string' ? _savedSettings.preBillPrinterId : '',
-  );
+  const preBillPrinterId = ref('');
   const menuLoading = ref(false);
   const menuError = ref(null);
 
@@ -223,10 +205,18 @@ export const useAppStore = defineStore('app', () => {
 
   function openTableSession(tableId, adults = 0, children = 0) {
     const billSessionId = newUUID('bill');
+    const session = { billSessionId, adults, children };
     tableCurrentBillSession.value = {
       ...tableCurrentBillSession.value,
-      [tableId]: { billSessionId, adults, children },
+      [tableId]: session,
     };
+    // Note: the sync_queue payload uses Directus field names (snake_case) for
+    // bill_sessions.adults_count / children_count, which differ from the local
+    // camelCase shape (adults / children). This is intentional — the payload is
+    // structured for future direct transmission to the Directus REST API.
+    enqueue('bill_sessions', 'create', billSessionId, {
+      id: billSessionId, table: tableId, adults_count: adults, children_count: children, status: 'open',
+    });
     return billSessionId;
   }
 
@@ -235,6 +225,7 @@ export const useAppStore = defineStore('app', () => {
     if (order.globalNote === undefined) order.globalNote = '';
     if (!order.noteVisibility) order.noteVisibility = { cassa: true, sala: true, cucina: true };
     orders.value.push(order);
+    enqueue('orders', 'create', order.id, order);
   }
 
   function changeOrderStatus(order, newStatus, rejectionReason = null) {
@@ -259,6 +250,7 @@ export const useAppStore = defineStore('app', () => {
       tableCurrentBillSession.value = nextSession;
       setBillRequested(order.table, false);
     }
+    enqueue('orders', 'update', order.id, { status: newStatus, rejectionReason: order.rejectionReason ?? null });
   }
 
   function updateQtyGlobal(ord, idx, delta) {
@@ -331,11 +323,12 @@ export const useAppStore = defineStore('app', () => {
   function addTransaction(txn) {
     transactions.value.push(txn);
     if (txn.tableId) setBillRequested(txn.tableId, false);
+    enqueue('transactions', 'create', txn.transactionId, txn);
   }
 
   function addTipTransaction(tableId, billSessionId, tipValue) {
     if (!tableId || tipValue <= 0) return;
-    transactions.value.push({
+    const txn = {
       transactionId: newUUID('tip'),
       tableId,
       billSessionId: billSessionId ?? null,
@@ -345,7 +338,9 @@ export const useAppStore = defineStore('app', () => {
       tipAmount: tipValue,
       timestamp: new Date().toISOString(),
       orderRefs: [],
-    });
+    };
+    transactions.value.push(txn);
+    enqueue('transactions', 'create', txn.transactionId, txn);
   }
 
   // ── Direct orders (bypass kitchen workflow) ────────────────────────────────
@@ -378,13 +373,15 @@ export const useAppStore = defineStore('app', () => {
   const setFondoCassa = setCashBalance; // backwards-compat alias
 
   function addCashMovement(type, amount, reason) {
-    cashMovements.value.push({
+    const mov = {
       id: newUUID('mov'),
       type,
       amount: parseFloat(amount) || 0,
       reason,
       timestamp: new Date().toISOString(),
-    });
+    };
+    cashMovements.value.push(mov);
+    enqueue('cash_movements', 'create', mov.id, mov);
   }
 
   function simulateNewOrder() {
@@ -435,13 +432,64 @@ export const useAppStore = defineStore('app', () => {
   const pendingSelectOrder = ref(null);
   const pendingNewOrder = ref(null);
 
+  // ── IDB persistence watchers ───────────────────────────────────────────────
+  // Debounced: batches rapid successive mutations into a single IDB write.
+  // Uses a 150 ms timeout so UI interactions feel instant while writes are async.
+  // Persist only the state slices that actually changed during the debounce window
+  // instead of re-writing every persisted collection on each deep mutation.
+  let _saveTimer = null;
+  // Promise chain that serializes IDB writes so a slower earlier save can never
+  // overwrite a newer one (last scheduled write always commits last).
+  let _saveChain = Promise.resolve();
+  const _pendingSaveKeys = new Set();
+  const _persistableStateGetters = {
+    orders: () => orders.value,
+    transactions: () => transactions.value,
+    cashBalance: () => cashBalance.value,
+    cashMovements: () => cashMovements.value,
+    dailyClosures: () => dailyClosures.value,
+    printLog: () => printLog.value,
+    tableCurrentBillSession: () => tableCurrentBillSession.value,
+    tableMergedInto: () => tableMergedInto.value,
+    tableOccupiedAt: () => tableOccupiedAt.value,
+    billRequestedTables: () => billRequestedTables.value,
+  };
+
+  function _scheduleSave(...keys) {
+    keys.forEach((key) => _pendingSaveKeys.add(key));
+    clearTimeout(_saveTimer);
+    _saveTimer = setTimeout(() => {
+      if (!_pendingSaveKeys.size) return;
+      const payload = {};
+      _pendingSaveKeys.forEach((key) => {
+        const getter = _persistableStateGetters[key];
+        if (getter) payload[key] = getter();
+      });
+      _pendingSaveKeys.clear();
+      _saveChain = _saveChain
+        .then(() => saveStateToIDB(payload))
+        .catch((e) => console.warn('[Store] IDB save failed for keys', Object.keys(payload), e));
+    }, 150);
+  }
+
+  watch(orders, () => _scheduleSave('orders'), { deep: true });
+  watch(transactions, () => _scheduleSave('transactions'), { deep: true });
+  watch(cashBalance, () => _scheduleSave('cashBalance'));
+  watch(cashMovements, () => _scheduleSave('cashMovements'), { deep: true });
+  watch(dailyClosures, () => _scheduleSave('dailyClosures'), { deep: true });
+  watch(printLog, () => _scheduleSave('printLog'), { deep: true });
+  watch(tableCurrentBillSession, () => _scheduleSave('tableCurrentBillSession'), { deep: true });
+  watch(tableMergedInto, () => _scheduleSave('tableMergedInto'), { deep: true });
+  watch(tableOccupiedAt, () => _scheduleSave('tableOccupiedAt'), { deep: true });
+  watch(billRequestedTables, () => _scheduleSave('billRequestedTables'), { deep: true });
+
   return {
     // state
     config, orders, transactions,
     cashBalance, cashMovements, dailyClosures,
     tableOccupiedAt, billRequestedTables, tableCurrentBillSession, tableMergedInto,
     pendingOpenTable, pendingSelectOrder, pendingNewOrder,
-    menuUrl, preventScreenLock, customKeyboard, preBillPrinterId, menuLoading, menuError,
+    sounds, menuUrl, preventScreenLock, customKeyboard, preBillPrinterId, menuLoading, menuError,
     // print log
     printLog, addPrintLogEntry, updatePrintLogEntry, clearPrintLog,
     // computed
@@ -461,50 +509,67 @@ export const useAppStore = defineStore('app', () => {
     // cassa operations
     setFondoCassa, addCashMovement, generateXReport, performDailyClose,
   };
-}, {
-  // ── Persistence (pinia-plugin-persistedstate) ──────────────────────────────
-  // billRequestedTables is a Set — serialised as Array and restored on hydrate.
-  // TODO (PWA): Replace localStorage with IndexedDB (storage: useIDBKeyval()).
-  persist: {
-    key: storageKey,
-    pick: [
-      'orders', 'transactions',
-      'tableOccupiedAt', 'billRequestedTables', 'tableCurrentBillSession', 'tableMergedInto',
-      'cashBalance', 'cashMovements', 'dailyClosures',
-      'printLog',
-    ],
-    serializer: {
-      serialize(state) {
-        // Strip the full `payload` from each printLog entry before persisting to avoid
-        // localStorage quota issues with large orders. The full payload is kept in-memory
-        // only and is not available after a page reload (status/metadata are retained).
-        // The reprint button in PrintHistoryModal is disabled for entries without payload,
-        // and reprintJob() also guards against missing payload.
-        const printLog = (Array.isArray(state.printLog) ? state.printLog : [])
-          .slice(0, 200)
-          .map(({ payload: _payload, ...rest }) => rest);
-        return JSON.stringify({ ...state, billRequestedTables: Array.from(state.billRequestedTables), printLog });
-      },
-      deserialize(raw) {
-        try {
-          const data = JSON.parse(raw);
-          return { ...data, billRequestedTables: new Set(Array.isArray(data.billRequestedTables) ? data.billRequestedTables : []) };
-        } catch {
-          try {
-            if (typeof window !== 'undefined' && window.localStorage) window.localStorage.removeItem(storageKey);
-          } catch (_) { /* ignore */ }
-          return { billRequestedTables: new Set() };
-        }
-      },
-    },
-    afterHydrate(ctx) {
-      if (!ctx.store.orders.length) {
-        ctx.store.orders = (appConfig.demoOrders ?? []).map(o => ({ ...o }));
-      }
-      for (const ord of ctx.store.orders) {
+});
+
+// ── App initialisation helper ─────────────────────────────────────────────────
+
+/**
+ * Loads persisted state and settings from IndexedDB and applies them to the
+ * store. Call this once per app page **before** `app.mount()` to ensure the UI
+ * never renders with stale defaults.
+ *
+ * Also backfills demo orders when no persisted orders are found (development
+ * mode), mirroring the behaviour of the old `afterHydrate` hook.
+ *
+ * @param {import('pinia').Pinia} pinia - The active Pinia instance
+ */
+export async function initStoreFromIDB(pinia) {
+  const store = useAppStore(pinia);
+
+  // ── Load operational state ──────────────────────────────────────────────────
+  const [idbState, settings] = await Promise.all([
+    loadStateFromIDB(),
+    loadSettingsFromIDB(),
+  ]);
+
+  if (idbState) {
+    if (idbState.orders.length === 0) {
+      store.orders = (appConfig.demoOrders ?? []).map(o => ({ ...o }));
+    } else {
+      store.orders = idbState.orders;
+      for (const ord of store.orders) {
         if (ord.globalNote === undefined) ord.globalNote = '';
         if (!ord.noteVisibility) ord.noteVisibility = { cassa: true, sala: true, cucina: true };
       }
-    },
-  },
-});
+    }
+    store.transactions = idbState.transactions;
+    store.cashBalance = idbState.cashBalance;
+    store.cashMovements = idbState.cashMovements;
+    store.dailyClosures = idbState.dailyClosures;
+    store.printLog = idbState.printLog;
+    store.tableCurrentBillSession = idbState.tableCurrentBillSession;
+    store.tableMergedInto = idbState.tableMergedInto;
+    store.tableOccupiedAt = idbState.tableOccupiedAt;
+    store.billRequestedTables = idbState.billRequestedTables;
+  } else {
+    if (store.orders.length === 0) {
+      store.orders = (appConfig.demoOrders ?? []).map(o => ({ ...o }));
+    }
+  }
+
+  // ── Apply settings ──────────────────────────────────────────────────────────
+  if (settings) {
+    if (typeof settings.sounds === 'boolean') store.sounds = settings.sounds;
+    if (typeof settings.menuUrl === 'string' && settings.menuUrl.trim() !== '') {
+      store.menuUrl = settings.menuUrl;
+    }
+    if (typeof settings.preventScreenLock === 'boolean') {
+      store.preventScreenLock = settings.preventScreenLock;
+    }
+    if (KEYBOARD_POSITIONS.includes(settings.customKeyboard)) store.customKeyboard = settings.customKeyboard;
+    if (typeof settings.preBillPrinterId === 'string') {
+      store.preBillPrinterId = settings.preBillPrinterId;
+    }
+  }
+}
+

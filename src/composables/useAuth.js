@@ -1,6 +1,12 @@
 import { ref, computed } from 'vue';
 import { getInstanceName } from '../store/persistence.js';
 import { appConfig } from '../utils/index.js';
+import { newUUID } from '../store/storeUtils.js';
+import {
+  loadUsersFromIDB, saveUsersToIDB,
+  loadAuthSessionFromIDB, saveAuthSessionToIDB,
+  loadAuthSettingsFromIDB, saveAuthSettingsToIDB,
+} from '../store/idbPersistence.js';
 
 /**
  * The three app identifiers used throughout the auth system.
@@ -42,8 +48,6 @@ async function hashPin(pin) {
 
 /**
  * Detect which app is currently running from the page URL.
- * Since each app is served from a separate HTML file, the pathname
- * reliably identifies it.
  * @returns {'cassa'|'sala'|'cucina'}
  */
 function detectCurrentApp() {
@@ -65,110 +69,15 @@ function normalizeUserApps(apps) {
   return [...ALL_APPS];
 }
 
-// ── Key helpers ─────────────────────────────────────────────────────────────
-
-function resolveAuthKeys(instanceName) {
-  const n = instanceName ?? getInstanceName();
-  const suffix = n ? `_${n}` : '';
-  return {
-    usersKey: `auth_users${suffix}`,
-    sessionKey: `auth_session${suffix}`,
-    settingsKey: `auth_settings${suffix}`,
-  };
-}
-
-// ── localStorage helpers ─────────────────────────────────────────────────────
-
-function readUsers(usersKey) {
-  if (typeof localStorage === 'undefined') return [];
-  try {
-    const raw = localStorage.getItem(usersKey);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .filter((u) => u && u.id && u.name && u.pin)
-      .map((u) => ({
-        ...u,
-        apps: normalizeUserApps(u.apps),
-        isAdmin: u.isAdmin === true,
-        fromConfig: false,
-      }));
-  } catch {
-    return [];
-  }
-}
-
-function writeUsers(usersKey, users) {
-  if (typeof localStorage === 'undefined') return;
-  try {
-    localStorage.setItem(usersKey, JSON.stringify(users));
-  } catch {
-    // Ignore quota / disabled-storage errors
-  }
-}
-
-function readSession(sessionKey) {
-  if (typeof localStorage === 'undefined') return null;
-  try {
-    const raw = localStorage.getItem(sessionKey);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    return parsed?.userId ?? null;
-  } catch {
-    return null;
-  }
-}
-
-function writeSession(sessionKey, userId) {
-  if (typeof localStorage === 'undefined') return;
-  try {
-    if (userId == null) {
-      localStorage.removeItem(sessionKey);
-    } else {
-      localStorage.setItem(sessionKey, JSON.stringify({ userId }));
-    }
-  } catch {
-    // Ignore
-  }
-}
-
-function readSettings(settingsKey) {
-  if (typeof localStorage === 'undefined') return { lockTimeoutMinutes: 5 };
-  try {
-    const raw = localStorage.getItem(settingsKey);
-    if (!raw) return { lockTimeoutMinutes: 5 };
-    const parsed = JSON.parse(raw);
-    return {
-      lockTimeoutMinutes:
-        typeof parsed.lockTimeoutMinutes === 'number' ? parsed.lockTimeoutMinutes : 5,
-    };
-  } catch {
-    return { lockTimeoutMinutes: 5 };
-  }
-}
-
-function writeSettings(settingsKey, settings) {
-  if (typeof localStorage === 'undefined') return;
-  try {
-    localStorage.setItem(settingsKey, JSON.stringify(settings));
-  } catch {
-    // Ignore
-  }
-}
-
 // ── Module-level singleton ────────────────────────────────────────────────────
-// Each app page (cassa / sala / cucina) is a separate HTML document, so one
-// singleton per page is the correct scope.
 
 let _initialized = false;
-/** Manual users persisted in localStorage (excludes appConfig users). */
+/** Manual users persisted in IndexedDB (excludes appConfig users). */
 const _users = ref(/** @type {Array} */ ([]));
 const _currentUserId = ref(/** @type {string|null} */ (null));
 const _isLocked = ref(true);
 const _lockTimeoutMinutes = ref(5);
 let _lockTimer = null;
-let _keys = null;
 /** The app running on this page, determined once at init. */
 let _currentApp = 'cassa';
 /**
@@ -178,6 +87,23 @@ let _currentApp = 'cassa';
 const _configUserHashes = new Map();
 /** Resolves when all appConfig user hashes are ready. */
 let _configHashesReady = null;
+
+/**
+ * Version counter — incremented by every mutation to `_users`, `_currentUserId`,
+ * or `_lockTimeoutMinutes`. Used by `_init()` to detect whether the IDB hydration
+ * should be applied: if any mutation happened before the IDB load completes, the
+ * in-memory state is authoritative and the IDB data is discarded for that init.
+ * This prevents async IDB reads from overwriting synchronous mutations made while
+ * the load was in-flight (race condition guard).
+ */
+let _mutationVersion = 0;
+
+/**
+ * Promise that resolves when the initial IDB load in `_init()` completes.
+ * Tests can `await _waitForAuth()` to ensure IDB hydration has finished before
+ * checking state.
+ */
+let _initPromise = null;
 
 /**
  * Build the in-memory list of appConfig users (shape matches manual users,
@@ -207,18 +133,42 @@ function _init() {
   _initialized = true;
 
   _currentApp = detectCurrentApp();
-  _keys = resolveAuthKeys();
 
-  _users.value = readUsers(_keys.usersKey);
+  // Capture the mutation version at init time.
+  // If any mutation happens before IDB load completes, skip hydration.
+  const capturedVersion = _mutationVersion;
 
-  const savedSettings = readSettings(_keys.settingsKey);
-  _lockTimeoutMinutes.value = savedSettings.lockTimeoutMinutes;
+  _initPromise = Promise.all([
+    loadUsersFromIDB(),
+    loadAuthSessionFromIDB(),
+    loadAuthSettingsFromIDB(),
+  ]).then(([users, savedUserId, savedSettings]) => {
+    // Bail if the singleton was reset while the load was in-flight.
+    // (_resetAuthSingleton sets _initialized = false; if we applied IDB data
+    // after that, it would overwrite the clean state of the new singleton.)
+    if (!_initialized) return;
+    // Skip if any mutation (addUser, login, setLockTimeout, etc.) occurred
+    // while the IDB load was in-flight. In that case the in-memory state is
+    // already authoritative — applying stale IDB data would overwrite it.
+    if (_mutationVersion !== capturedVersion) return;
 
-  // Restore session (always re-lock on page load for security)
-  const savedUserId = readSession(_keys.sessionKey);
-  const userExists = _allUsers.value.some((u) => u.id === savedUserId);
-  _currentUserId.value = savedUserId && userExists ? savedUserId : null;
-  _isLocked.value = true;
+    _users.value = users.filter(u =>
+      u && u.id && u.name && u.pin,
+    ).map(u => ({
+      ...u,
+      apps: normalizeUserApps(u.apps),
+      isAdmin: u.isAdmin === true,
+      fromConfig: false,
+    }));
+
+    _lockTimeoutMinutes.value = typeof savedSettings?.lockTimeoutMinutes === 'number'
+      ? savedSettings.lockTimeoutMinutes
+      : 5;
+
+    const userExists = _allUsers.value.some((u) => u.id === savedUserId);
+    _currentUserId.value = savedUserId && userExists ? savedUserId : null;
+    _isLocked.value = true; // always re-lock on page load for security
+  }).catch(e => console.warn('[Auth] Failed to load from IDB:', e));
 
   // Pre-hash appConfig PINs in memory (async, never persisted)
   const configs = appConfig.auth?.users ?? [];
@@ -286,8 +236,6 @@ export function useAuth() {
 
   /**
    * Attempt to log in as `userId` with the given `pin`.
-   * Handles both appConfig users (PIN verified against in-memory hash) and
-   * manual users (PIN verified against localStorage hash).
    * @returns {Promise<boolean>} true on success
    */
   async function login(userId, pin) {
@@ -301,9 +249,10 @@ export function useAuth() {
     if (configUser) {
       const storedHash = _configUserHashes.get(userId);
       if (!storedHash || hash !== storedHash) return false;
+      _mutationVersion++;
       _currentUserId.value = userId;
       _isLocked.value = false;
-      writeSession(_keys.sessionKey, userId);
+      saveAuthSessionToIDB(userId).catch(e => console.warn('[Auth] Failed to save session:', e));
       _resetLockTimer();
       return true;
     }
@@ -312,9 +261,10 @@ export function useAuth() {
     const user = _users.value.find((u) => u.id === userId);
     if (!user) return false;
     if (user.pin !== hash) return false;
+    _mutationVersion++;
     _currentUserId.value = userId;
     _isLocked.value = false;
-    writeSession(_keys.sessionKey, userId);
+    saveAuthSessionToIDB(userId).catch(e => console.warn('[Auth] Failed to save session:', e));
     _resetLockTimer();
     return true;
   }
@@ -330,9 +280,10 @@ export function useAuth() {
 
   /** Log out completely (clears current user). */
   function logout() {
+    _mutationVersion++;
     _currentUserId.value = null;
     _isLocked.value = true;
-    writeSession(_keys.sessionKey, null);
+    saveAuthSessionToIDB(null).catch(e => console.warn('[Auth] Failed to clear session:', e));
     if (_lockTimer) {
       clearTimeout(_lockTimer);
       _lockTimer = null;
@@ -353,14 +304,14 @@ export function useAuth() {
 
   /**
    * Create a new manual user account.
-   * The first manual user added automatically receives admin privileges.
    * @param {string}   name - Display name
    * @param {string}   pin  - Numeric 4-digit PIN (hashed with SHA-256 before storage)
    * @param {string[]} [apps] - Apps this user can access; defaults to all three
+   * @param {boolean}  [makeAdmin=false]
    * @returns {Promise<object>} The new user object
    */
   async function addUser(name, pin, apps = [...ALL_APPS], makeAdmin = false) {
-    const id = crypto.randomUUID();
+    const id = newUUID('usr');
     const pinHash = await hashPin(pin);
     const isFirstManual = _users.value.length === 0;
     const adminFlag = isFirstManual || makeAdmin;
@@ -372,43 +323,48 @@ export function useAuth() {
       isAdmin: adminFlag,
       fromConfig: false,
     };
+    _mutationVersion++;
     _users.value = [..._users.value, user];
-    writeUsers(_keys.usersKey, _users.value);
+    try {
+      await saveUsersToIDB(_users.value);
+    } catch (e) {
+      console.warn('[Auth] Failed to save users:', e);
+    }
     return user;
   }
 
   /**
    * Update an existing manual user.
-   * If `updates.pin` is provided it is hashed before storage.
-   * Cannot update appConfig users (no-op for those).
    * @param {string} id      - User id
    * @param {object} updates - Partial user fields to update
    * @returns {Promise<void>}
    */
   async function updateUser(id, updates) {
-    // Block editing of appConfig users
     if ((appConfig.auth?.users ?? []).some((u) => u.id === id)) return;
     const resolved = { ...updates };
     if (resolved.pin != null) {
       resolved.pin = await hashPin(resolved.pin);
     }
+    _mutationVersion++;
     _users.value = _users.value.map((u) =>
       u.id === id ? { ...u, ...resolved } : u,
     );
-    writeUsers(_keys.usersKey, _users.value);
+    try {
+      await saveUsersToIDB(_users.value);
+    } catch (e) {
+      console.warn('[Auth] Failed to save users:', e);
+    }
   }
 
   /**
    * Remove a manual user account.
-   * If the removed user is currently logged in they are also logged out.
-   * Cannot remove appConfig users (no-op for those).
    * @param {string} id - User id
    */
   function removeUser(id) {
-    // Block deleting appConfig users
     if ((appConfig.auth?.users ?? []).some((u) => u.id === id)) return;
+    _mutationVersion++;
     _users.value = _users.value.filter((u) => u.id !== id);
-    writeUsers(_keys.usersKey, _users.value);
+    saveUsersToIDB(_users.value).catch(e => console.warn('[Auth] Failed to save users:', e));
     if (_currentUserId.value === id) {
       logout();
     }
@@ -417,30 +373,44 @@ export function useAuth() {
   /**
    * Set the inactivity auto-lock timeout.
    * @param {number} minutes - 0 = never
+   * @returns {Promise<void>}
    */
-  function setLockTimeout(minutes) {
+  async function setLockTimeout(minutes) {
+    _mutationVersion++;
     _lockTimeoutMinutes.value = minutes;
-    writeSettings(_keys.settingsKey, { lockTimeoutMinutes: minutes });
+    try {
+      await saveAuthSettingsToIDB({ lockTimeoutMinutes: minutes });
+    } catch (e) {
+      console.warn('[Auth] Failed to save auth settings:', e);
+    }
     _resetLockTimer();
   }
 
   /**
-   * Wipe all auth data from localStorage and reset in-memory state.
+   * Wipe all auth data from IndexedDB and reset in-memory state.
    * Called during "Ripristina dati di default".
    */
   function clearAllAuthData() {
-    if (typeof localStorage !== 'undefined') {
-      try {
-        localStorage.removeItem(_keys.usersKey);
-        localStorage.removeItem(_keys.sessionKey);
-        localStorage.removeItem(_keys.settingsKey);
-      } catch {
-        // Ignore
-      }
-    }
+    const defaultLockTimeoutMinutes = 5;
+    const persistenceTargets = ['users', 'auth session', 'auth settings'];
+
+    void Promise.allSettled([
+      saveUsersToIDB([]),
+      saveAuthSessionToIDB(null),
+      saveAuthSettingsToIDB({ lockTimeoutMinutes: defaultLockTimeoutMinutes }),
+    ]).then((results) => {
+      results.forEach((result, index) => {
+        if (result.status === 'rejected') {
+          console.warn(`[Auth] Failed to clear ${persistenceTargets[index]} from IDB:`, result.reason);
+        }
+      });
+    });
+
+    _mutationVersion++;
     _users.value = [];
     _currentUserId.value = null;
     _isLocked.value = true;
+    _lockTimeoutMinutes.value = defaultLockTimeoutMinutes;
     if (_lockTimer) {
       clearTimeout(_lockTimer);
       _lockTimer = null;
@@ -485,6 +455,16 @@ export function useAuth() {
 }
 
 /**
+ * Returns a Promise that resolves when the initial IDB hydration in `_init()`
+ * has completed (or immediately if `_init()` has not been called yet).
+ * For use in tests only — ensures IDB data is loaded before making assertions.
+ * @internal
+ */
+export function _waitForAuth() {
+  return _initPromise ?? Promise.resolve();
+}
+
+/**
  * Reset all module-level singleton state.
  * For use in tests only — not exported from the public API in production builds.
  * @internal
@@ -496,8 +476,9 @@ export function _resetAuthSingleton() {
   _isLocked.value = true;
   _lockTimeoutMinutes.value = 5;
   if (_lockTimer) { clearTimeout(_lockTimer); _lockTimer = null; }
-  _keys = null;
   _currentApp = 'cassa';
   _configUserHashes.clear();
   _configHashesReady = null;
+  _mutationVersion = 0;
+  _initPromise = null;
 }
