@@ -10,7 +10,7 @@
 import { openDB } from 'idb';
 import { getInstanceName } from '../store/persistence.js';
 
-export const DB_VERSION = 1;
+export const DB_VERSION = 2;
 const DB_NAME_PREFIX = 'app-cassa';
 
 /** @type {Promise<import('idb').IDBPDatabase>|null} */
@@ -103,6 +103,26 @@ export function getDB() {
         const s = db.createObjectStore('print_jobs', { keyPath: 'logId' });
         s.createIndex('status', 'status', { unique: false });
         s.createIndex('job_timestamp', 'timestamp', { unique: false });
+      }
+
+      // fiscal_receipts: XML request/response payloads for fiscal printer commands.
+      // Each record represents one closed-bill fiscal print attempt.
+      if (!db.objectStoreNames.contains('fiscal_receipts')) {
+        const s = db.createObjectStore('fiscal_receipts', { keyPath: 'id' });
+        s.createIndex('table', 'tableId', { unique: false });
+        s.createIndex('bill_session', 'billSessionId', { unique: false });
+        s.createIndex('status', 'status', { unique: false });
+        s.createIndex('timestamp', 'timestamp', { unique: false });
+      }
+
+      // invoice_requests: billing data collected for electronic invoices (fatturazione elettronica).
+      // Each record represents one closed-bill invoice request.
+      if (!db.objectStoreNames.contains('invoice_requests')) {
+        const s = db.createObjectStore('invoice_requests', { keyPath: 'id' });
+        s.createIndex('table', 'tableId', { unique: false });
+        s.createIndex('bill_session', 'billSessionId', { unique: false });
+        s.createIndex('status', 'status', { unique: false });
+        s.createIndex('timestamp', 'timestamp', { unique: false });
       }
 
       // ── Configuration caches ───────────────────────────────────────────────

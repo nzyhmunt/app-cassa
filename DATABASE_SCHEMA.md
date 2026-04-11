@@ -90,6 +90,8 @@ trigger DB o logica equivalente.
 | `daily_closures`         | Chiusure giornaliere (rapporto Z)                        | ObjectStore `daily_closures` |
 | `printers`               | Stampanti ESC/POS configurate                            | `appConfig.printers`         |
 | `print_jobs`             | Log dei lavori di stampa inviati (cronologia stampe)     | ObjectStore `print_jobs`     |
+| `fiscal_receipts`        | Payload XML per comandi alla stampante fiscale           | ObjectStore `fiscal_receipts` |
+| `invoice_requests`       | Dati di fatturazione elettronica richiesti a chiusura conto | ObjectStore `invoice_requests` |
 | `app_settings`           | Impostazioni utente (audio, URL menu, ecc.)              | ObjectStore `app_settings`   |
 | `venue_users`            | Operatori locali per venue (PIN personale)               | ObjectStore `venue_users`    |
 
@@ -729,6 +731,77 @@ CREATE INDEX idx_print_jobs_type_status ON print_jobs (print_type, status);
 
 ---
 
+### 2.20 `fiscal_receipts` — Comandi stampante fiscale (scontrini RT)
+
+Ogni record rappresenta un tentativo di emissione di uno scontrino fiscale a chiusura conto.
+Non riutilizza `print_jobs` perché il formato (XML RT) e il ciclo di vita (request/response XML) sono completamente diversi dai lavori ESC/POS.
+
+```sql
+CREATE TABLE fiscal_receipts (
+    id              TEXT        PRIMARY KEY,   -- 'fis_' + nanoid
+    table_id        TEXT        NOT NULL REFERENCES tables(id),
+    bill_session_id TEXT        REFERENCES bill_sessions(id),
+    table_label     TEXT,
+    total_amount    NUMERIC(10,2) NOT NULL DEFAULT 0,
+    total_paid      NUMERIC(10,2) NOT NULL DEFAULT 0,
+    payment_methods TEXT,                      -- JSON array di stringhe
+    orders          TEXT,                      -- JSON snapshot voci (name/qty/unitPrice)
+    xml_request     TEXT,                      -- Payload XML inviato alla stampante
+    xml_response    TEXT,                      -- Risposta XML ricevuta dalla stampante (null se non ancora ricevuta)
+    status          TEXT        NOT NULL DEFAULT 'pending'
+                                CHECK (status IN ('pending','sent','ok','error')),
+    timestamp       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    date_updated    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_fiscal_receipts_table        ON fiscal_receipts (table_id);
+CREATE INDEX idx_fiscal_receipts_bill_session ON fiscal_receipts (bill_session_id);
+CREATE INDEX idx_fiscal_receipts_status       ON fiscal_receipts (status);
+CREATE INDEX idx_fiscal_receipts_timestamp    ON fiscal_receipts (timestamp DESC);
+```
+
+---
+
+### 2.21 `invoice_requests` — Richieste fattura elettronica
+
+Ogni record rappresenta una richiesta di fatturazione elettronica raccolta a chiusura conto.
+I dati di fatturazione (denominazione, CF/PIVA, indirizzo, SDI) vengono inseriti dall'operatore al momento della chiusura.
+
+```sql
+CREATE TABLE invoice_requests (
+    id                   TEXT        PRIMARY KEY,   -- 'inv_' + nanoid
+    table_id             TEXT        NOT NULL REFERENCES tables(id),
+    bill_session_id      TEXT        REFERENCES bill_sessions(id),
+    table_label          TEXT,
+    total_amount         NUMERIC(10,2) NOT NULL DEFAULT 0,
+    total_paid           NUMERIC(10,2) NOT NULL DEFAULT 0,
+    payment_methods      TEXT,                      -- JSON array di stringhe
+    orders               TEXT,                      -- JSON snapshot voci
+    -- Dati anagrafici cliente
+    denominazione        TEXT        NOT NULL,      -- Ragione sociale o nome/cognome
+    codice_fiscale       TEXT,
+    piva                 TEXT,
+    indirizzo            TEXT        NOT NULL,
+    cap                  TEXT        NOT NULL,
+    comune               TEXT        NOT NULL,
+    provincia            TEXT,
+    paese                TEXT        NOT NULL DEFAULT 'IT',
+    codice_destinatario  TEXT,                      -- Codice SDI (7 caratteri)
+    pec                  TEXT,
+    status               TEXT        NOT NULL DEFAULT 'pending'
+                                     CHECK (status IN ('pending','sent','ok','error')),
+    timestamp            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    date_updated         TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_invoice_requests_table        ON invoice_requests (table_id);
+CREATE INDEX idx_invoice_requests_bill_session ON invoice_requests (bill_session_id);
+CREATE INDEX idx_invoice_requests_status       ON invoice_requests (status);
+CREATE INDEX idx_invoice_requests_timestamp    ON invoice_requests (timestamp DESC);
+```
+
+---
+
 ## 3. Relazioni
 
 ```
@@ -750,6 +823,8 @@ venues ──< daily_closures ──< daily_closure_by_method
 venues ──< printers
 venues ──< print_jobs >── printers
 Nota: `print_jobs.original_job_id` conserva il `job_id` originale per ristampe, ma non è una FK
+bill_sessions ──< fiscal_receipts
+bill_sessions ──< invoice_requests
 venues ──< app_settings
 ```
 

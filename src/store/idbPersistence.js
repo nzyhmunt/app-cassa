@@ -325,6 +325,64 @@ export async function saveAuthSettingsToIDB(settings) {
   }
 }
 
+// ── Fiscal receipts ───────────────────────────────────────────────────────────
+
+/**
+ * Persists a single fiscal receipt record to the `fiscal_receipts` ObjectStore.
+ * @param {object} record - Must include `id` as keyPath.
+ */
+export async function saveFiscalReceiptToIDB(record) {
+  try {
+    const db = await getDB();
+    await db.put('fiscal_receipts', JSON.parse(JSON.stringify(record)));
+  } catch (e) {
+    console.warn('[IDBPersistence] Failed to save fiscal receipt:', e);
+  }
+}
+
+/**
+ * Loads all fiscal receipt records from IDB.
+ * @returns {Promise<Array>}
+ */
+export async function loadFiscalReceiptsFromIDB() {
+  try {
+    const db = await getDB();
+    return await db.getAll('fiscal_receipts');
+  } catch (e) {
+    console.warn('[IDBPersistence] Failed to load fiscal receipts:', e);
+    return [];
+  }
+}
+
+// ── Invoice requests ──────────────────────────────────────────────────────────
+
+/**
+ * Persists a single invoice request record to the `invoice_requests` ObjectStore.
+ * @param {object} record - Must include `id` as keyPath.
+ */
+export async function saveInvoiceRequestToIDB(record) {
+  try {
+    const db = await getDB();
+    await db.put('invoice_requests', JSON.parse(JSON.stringify(record)));
+  } catch (e) {
+    console.warn('[IDBPersistence] Failed to save invoice request:', e);
+  }
+}
+
+/**
+ * Loads all invoice request records from IDB.
+ * @returns {Promise<Array>}
+ */
+export async function loadInvoiceRequestsFromIDB() {
+  try {
+    const db = await getDB();
+    return await db.getAll('invoice_requests');
+  } catch (e) {
+    console.warn('[IDBPersistence] Failed to load invoice requests:', e);
+    return [];
+  }
+}
+
 // ── Direct custom items ───────────────────────────────────────────────────────
 
 const CUSTOM_ITEMS_RECORD_ID = 'local';
@@ -370,6 +428,7 @@ export async function saveCustomItemsToIDB(items) {
 export async function clearAllStateFromIDB() {
   const operativeStores = [
     'orders', 'transactions', 'cash_movements', 'daily_closures', 'print_jobs',
+    'fiscal_receipts', 'invoice_requests',
     'app_meta', 'app_settings', 'direct_custom_items',
   ];
   try {
