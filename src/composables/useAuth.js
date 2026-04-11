@@ -142,9 +142,13 @@ function _init() {
     loadAuthSessionFromIDB(),
     loadAuthSettingsFromIDB(),
   ]).then(([users, savedUserId, savedSettings]) => {
-    // Bail if the singleton was reset while the load was in-flight
+    // Bail if the singleton was reset while the load was in-flight.
+    // (_resetAuthSingleton sets _initialized = false; if we applied IDB data
+    // after that, it would overwrite the clean state of the new singleton.)
     if (!_initialized) return;
-    // Skip if mutations happened during load (race condition guard)
+    // Skip if any mutation (addUser, login, setLockTimeout, etc.) occurred
+    // while the IDB load was in-flight. In that case the in-memory state is
+    // already authoritative — applying stale IDB data would overwrite it.
     if (_mutationVersion !== capturedVersion) return;
 
     _users.value = users.filter(u =>

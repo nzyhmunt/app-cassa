@@ -19,6 +19,13 @@ import { appConfig } from '../utils/index.js';
 /**
  * Replaces all records in an ObjectStore with the provided array.
  * Uses a readwrite transaction for atomicity.
+ *
+ * Records are passed through JSON.parse(JSON.stringify(...)) before storage.
+ * This strips Vue reactive proxies (which cannot be structuredCloned) but also
+ * means that non-JSON-serialisable values (functions, Symbols, undefined, BigInt,
+ * circular references) will be silently dropped or throw. All app data stored here
+ * is plain JSON-serialisable objects, so this is safe for current usage.
+ *
  * @param {import('idb').IDBPDatabase} db
  * @param {string} storeName
  * @param {Array} records

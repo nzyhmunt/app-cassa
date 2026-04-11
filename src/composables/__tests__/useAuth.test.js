@@ -420,6 +420,7 @@ describe('auto-lock timer', () => {
   // Only fake setTimeout/setInterval (used for the lock timer); do NOT fake
   // setImmediate so that fake-indexeddb's scheduling (which uses setImmediate)
   // still works when awaiting addUser / setLockTimeout inside these tests.
+  // Defined at describe-block level so it is shared by all tests in this group.
   const FAKE_TIMER_OPTIONS = {
     toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'],
   };

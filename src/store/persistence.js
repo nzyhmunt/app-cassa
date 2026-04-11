@@ -74,9 +74,14 @@ export function clearState(storageKey) {
   if (typeof localStorage !== 'undefined') {
     try { localStorage.removeItem(storageKey); } catch (_) { /* ignore */ }
   }
-  // Clear IndexedDB operative stores (fire-and-forget)
-  import('./idbPersistence.js').then(({ clearAllStateFromIDB }) => {
-    clearAllStateFromIDB().catch(e => console.warn('[Persistence] Failed to clear IDB state:', e));
-  }).catch(e => console.warn('[Persistence] Failed to import idbPersistence:', e));
+  // Clear IndexedDB operative stores asynchronously (fire-and-forget)
+  (async () => {
+    try {
+      const { clearAllStateFromIDB } = await import('./idbPersistence.js');
+      await clearAllStateFromIDB();
+    } catch (e) {
+      console.warn('[Persistence] Failed to clear IDB state:', e);
+    }
+  })();
 }
 

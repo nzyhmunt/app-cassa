@@ -171,6 +171,10 @@ export function getDB() {
     },
   });
 
+  // Reset the singleton if the open fails so subsequent calls can retry
+  // (e.g. after a QuotaExceededError or a blocked upgrade resolves).
+  _dbPromise.catch(() => { _dbPromise = null; });
+
   return _dbPromise;
 }
 
