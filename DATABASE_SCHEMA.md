@@ -6,10 +6,10 @@ riferimento per la configurazione del backend Directus sia come guida per la per
 (offline-first, sync push verso Directus non appena torna la connessione).
 
 **Sorgente dati corrente** (IndexedDB — database locale `app-cassa[_<instanceName>]`):
-- ObjectStore `app_meta` — stato operativo (ordini, sessioni tavoli, movimenti di cassa, chiusure, impostazioni, sessione auth)
-- ObjectStore `orders`, `transactions`, `cash_movements`, `daily_closures`, `print_jobs` — dati operativi
+- ObjectStore `app_meta` — metadati applicativi, impostazioni e sessione auth
+- ObjectStore `orders`, `transactions`, `cash_movements`, `daily_closures`, `print_jobs` — dati operativi persistiti in store dedicati
 - ObjectStore `venue_users` — operatori locali con PIN hashato
-- ObjectStore `custom_items` — voci personalizzate
+- ObjectStore `direct_custom_items` — voci personalizzate
 - ObjectStore `sync_queue` — coda di operazioni in attesa di push verso Directus
 
 > I dati erano precedentemente persisti in `localStorage` (`demo_app_state_v1`, `app-settings`) tramite `pinia-plugin-persistedstate`. La migrazione a IndexedDB è completata.
