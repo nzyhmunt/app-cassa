@@ -1464,6 +1464,7 @@ import { useAppStore } from '../store/index.js';
 import { getOrderItemRowTotal, KITCHEN_ACTIVE_STATUSES, getLockedDirectItems, appConfig } from '../utils/index.js';
 import { buildFlatAnaliticaItems, computeAnaliticaTotal, exceedsAmount, getOrdersToComplete } from '../utils/analitica.js';
 import { loadCustomItemsFromIDB, saveCustomItemsToIDB } from '../store/idbPersistence.js';
+import { useNumericKeyboard } from '../composables/useNumericKeyboard.js';
 import { useAuth } from '../composables/useAuth.js';
 import { enqueueTableMoveJob, enqueuePreBillJob } from '../composables/usePrintQueue.js';
 import TableStatsBar from './shared/TableStatsBar.vue';
@@ -2595,7 +2596,7 @@ function _buildBillSummaryBase() {
 
 function _buildFiscalXmlRequest(base) {
   const lines = base.orders.flatMap(o => o.items).map(item => {
-    const description = item.name.replace(/[<>&"]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c]));
+    const description = item.name.replace(/[<>&"']/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;' }[c]));
     const qty = item.quantity.toFixed(3);
     const price = item.unitPrice.toFixed(2);
     return `  <printRecItem description="${description}" quantity="${qty}" unitPrice="${price}" department="1" />`;
