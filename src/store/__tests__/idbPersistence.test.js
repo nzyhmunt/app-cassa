@@ -181,6 +181,56 @@ describe('saveStateToIDB() + loadStateFromIDB()', () => {
     expect(loaded.orders).toEqual([{ id: 'ord_new' }]);
     expect(loaded.cashBalance).toBe(99);
   });
+
+  it('partial save: only touches the specified stores, leaves others intact', async () => {
+    // Seed full state
+    await saveStateToIDB({
+      orders: [{ id: 'ord_1' }],
+      transactions: [{ transactionId: 'tx_1', amount: 5 }],
+      cashBalance: 10,
+      cashMovements: [{ id: 'cm_1' }],
+      dailyClosures: [],
+      printLog: [],
+      tableCurrentBillSession: { T1: 'bill_1' },
+      tableMergedInto: {},
+      tableOccupiedAt: { T1: '2024-01-01T12:00:00.000Z' },
+      billRequestedTables: new Set(['T1']),
+    });
+
+    // Partial save: only update orders — must NOT wipe transactions/cashBalance/etc.
+    await saveStateToIDB({ orders: [{ id: 'ord_2' }] });
+    const loaded = await loadStateFromIDB();
+
+    expect(loaded.orders).toEqual([{ id: 'ord_2' }]);
+    // All other stores must be unchanged
+    expect(loaded.transactions).toEqual([{ transactionId: 'tx_1', amount: 5 }]);
+    expect(loaded.cashBalance).toBe(10);
+    expect(loaded.cashMovements).toEqual([{ id: 'cm_1' }]);
+    expect(loaded.tableCurrentBillSession).toEqual({ T1: 'bill_1' });
+    expect(loaded.tableOccupiedAt).toEqual({ T1: '2024-01-01T12:00:00.000Z' });
+    expect(loaded.billRequestedTables.has('T1')).toBe(true);
+  });
+
+  it('partial save: updating tableOccupiedAt does not clobber tableCurrentBillSession', async () => {
+    // Seed full table-state
+    await saveStateToIDB({
+      orders: [], transactions: [], cashBalance: 0, cashMovements: [],
+      dailyClosures: [], printLog: [],
+      tableCurrentBillSession: { T1: 'bill_abc' },
+      tableMergedInto: { T2: 'T1' },
+      tableOccupiedAt: {},
+      billRequestedTables: new Set(),
+    });
+
+    // Simulate watcher firing only for tableOccupiedAt
+    await saveStateToIDB({ tableOccupiedAt: { T1: '2024-06-01T09:00:00.000Z' } });
+    const loaded = await loadStateFromIDB();
+
+    expect(loaded.tableOccupiedAt).toEqual({ T1: '2024-06-01T09:00:00.000Z' });
+    // The other table-state fields must survive untouched
+    expect(loaded.tableCurrentBillSession).toEqual({ T1: 'bill_abc' });
+    expect(loaded.tableMergedInto).toEqual({ T2: 'T1' });
+  });
 });
 
 // ── clearAllStateFromIDB ──────────────────────────────────────────────────────

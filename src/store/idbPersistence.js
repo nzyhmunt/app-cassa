@@ -57,22 +57,26 @@ export async function loadStateFromIDB() {
       cashMovements,
       dailyClosures,
       printLogRaw,
-      tableState,
       cashBalanceRecord,
+      tableCurrentBillSessionRecord,
+      tableMergedIntoRecord,
+      tableOccupiedAtRecord,
+      billRequestedTablesRecord,
     ] = await Promise.all([
       db.getAll('orders'),
       db.getAll('transactions'),
       db.getAll('cash_movements'),
       db.getAll('daily_closures'),
       db.getAll('print_jobs'),
-      db.get('app_meta', 'tableState'),
       db.get('app_meta', 'cashBalance'),
+      db.get('app_meta', 'tableCurrentBillSession'),
+      db.get('app_meta', 'tableMergedInto'),
+      db.get('app_meta', 'tableOccupiedAt'),
+      db.get('app_meta', 'billRequestedTables'),
     ]);
 
     // printLog: strip payload field (same behaviour as the old localStorage serialiser)
     const printLog = printLogRaw.map(({ payload: _p, ...rest }) => rest);
-
-    const ts = tableState ?? {};
 
     return {
       orders,
@@ -81,10 +85,10 @@ export async function loadStateFromIDB() {
       cashMovements,
       dailyClosures,
       printLog,
-      tableCurrentBillSession: ts.tableCurrentBillSession ?? {},
-      tableMergedInto: ts.tableMergedInto ?? {},
-      tableOccupiedAt: ts.tableOccupiedAt ?? {},
-      billRequestedTables: new Set(ts.billRequestedTables ?? []),
+      tableCurrentBillSession: tableCurrentBillSessionRecord?.value ?? {},
+      tableMergedInto: tableMergedIntoRecord?.value ?? {},
+      tableOccupiedAt: tableOccupiedAtRecord?.value ?? {},
+      billRequestedTables: new Set(billRequestedTablesRecord?.value ?? []),
     };
   } catch (e) {
     console.warn('[IDBPersistence] Failed to load state:', e);
@@ -95,54 +99,88 @@ export async function loadStateFromIDB() {
 // ── Save — bulk ───────────────────────────────────────────────────────────────
 
 /**
- * Persists all Pinia store arrays to their respective ObjectStores.
- * Called by the debounced watcher in the store; individual mutation helpers
- * are called for targeted writes triggered by specific actions.
+ * Persists Pinia store state slices to their respective IndexedDB ObjectStores.
+ * Only stores whose key is **present** in the `state` object are written —
+ * absent keys are silently skipped, so callers can pass a partial payload
+ * (e.g. from the debounced `_scheduleSave` watcher) without wiping unrelated stores.
+ *
+ * Each table-state field (`tableCurrentBillSession`, `tableMergedInto`,
+ * `tableOccupiedAt`, `billRequestedTables`) is stored as its own `app_meta`
+ * record so that they can be written independently.
  *
  * @param {{
- *   orders: Array,
- *   transactions: Array,
- *   cashBalance: number,
- *   cashMovements: Array,
- *   dailyClosures: Array,
- *   printLog: Array,
- *   tableCurrentBillSession: object,
- *   tableMergedInto: object,
- *   tableOccupiedAt: object,
- *   billRequestedTables: Set,
- * }} state
+ *   orders?: Array,
+ *   transactions?: Array,
+ *   cashBalance?: number,
+ *   cashMovements?: Array,
+ *   dailyClosures?: Array,
+ *   printLog?: Array,
+ *   tableCurrentBillSession?: object,
+ *   tableMergedInto?: object,
+ *   tableOccupiedAt?: object,
+ *   billRequestedTables?: Set|Array,
+ * }} state - Partial or full state snapshot; only present keys are persisted.
  */
 export async function saveStateToIDB(state) {
   try {
     const db = await getDB();
+    const ops = [];
 
-    // Strip payload from printLog entries before persisting (same as old serialiser)
-    const printLogToStore = (state.printLog ?? [])
-      .slice(0, 200)
-      .map(({ payload: _p, ...rest }) => rest);
-
-    await Promise.all([
-      _replaceAll(db, 'orders', state.orders ?? []),
-      _replaceAll(db, 'transactions', state.transactions ?? []),
-      _replaceAll(db, 'cash_movements', state.cashMovements ?? []),
-      _replaceAll(db, 'daily_closures', state.dailyClosures ?? []),
-      _replaceAll(db, 'print_jobs', printLogToStore),
-      db.put('app_meta', JSON.parse(JSON.stringify({
-        id: 'tableState',
-        tableCurrentBillSession: state.tableCurrentBillSession ?? {},
-        tableMergedInto: state.tableMergedInto ?? {},
-        tableOccupiedAt: state.tableOccupiedAt ?? {},
-        billRequestedTables: state.billRequestedTables instanceof Set
+    if ('orders' in state) {
+      ops.push(_replaceAll(db, 'orders', state.orders ?? []));
+    }
+    if ('transactions' in state) {
+      ops.push(_replaceAll(db, 'transactions', state.transactions ?? []));
+    }
+    if ('cashMovements' in state) {
+      ops.push(_replaceAll(db, 'cash_movements', state.cashMovements ?? []));
+    }
+    if ('dailyClosures' in state) {
+      ops.push(_replaceAll(db, 'daily_closures', state.dailyClosures ?? []));
+    }
+    if ('printLog' in state) {
+      // Strip payload from printLog entries before persisting (same as old serialiser)
+      const printLogToStore = (state.printLog ?? [])
+        .slice(0, 200)
+        .map(({ payload: _p, ...rest }) => rest);
+      ops.push(_replaceAll(db, 'print_jobs', printLogToStore));
+    }
+    if ('cashBalance' in state) {
+      ops.push(db.put('app_meta', JSON.parse(JSON.stringify({
+        id: 'cashBalance',
+        cashBalance: state.cashBalance ?? 0,
+      }))));
+    }
+    if ('tableCurrentBillSession' in state) {
+      ops.push(db.put('app_meta', JSON.parse(JSON.stringify({
+        id: 'tableCurrentBillSession',
+        value: state.tableCurrentBillSession ?? {},
+      }))));
+    }
+    if ('tableMergedInto' in state) {
+      ops.push(db.put('app_meta', JSON.parse(JSON.stringify({
+        id: 'tableMergedInto',
+        value: state.tableMergedInto ?? {},
+      }))));
+    }
+    if ('tableOccupiedAt' in state) {
+      ops.push(db.put('app_meta', JSON.parse(JSON.stringify({
+        id: 'tableOccupiedAt',
+        value: state.tableOccupiedAt ?? {},
+      }))));
+    }
+    if ('billRequestedTables' in state) {
+      ops.push(db.put('app_meta', JSON.parse(JSON.stringify({
+        id: 'billRequestedTables',
+        value: state.billRequestedTables instanceof Set
           ? Array.from(state.billRequestedTables)
           : Array.isArray(state.billRequestedTables)
             ? state.billRequestedTables
             : [],
-      }))),
-      db.put('app_meta', JSON.parse(JSON.stringify({
-        id: 'cashBalance',
-        cashBalance: state.cashBalance ?? 0,
-      }))),
-    ]);
+      }))));
+    }
+
+    await Promise.all(ops);
   } catch (e) {
     console.warn('[IDBPersistence] Failed to save state:', e);
   }
