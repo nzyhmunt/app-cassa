@@ -130,7 +130,7 @@ CREATE TABLE venues (
 
 ### 2.1b `rooms` — Sale / Aree mappa tavoli
 
-Campi Directus standard abilitati: `status`, `user_created`, `date_created`.
+Campi Directus standard abilitati: `status`, `user_created`, `date_created`, `user_updated`, `date_updated`.
 
 ```sql
 CREATE TABLE rooms (
@@ -141,7 +141,9 @@ CREATE TABLE rooms (
     sort_order      SMALLINT        NOT NULL DEFAULT 0,
     -- Directus standard fields
     user_created    UUID            NULL REFERENCES directus_users(id),
-    date_created    TIMESTAMPTZ     NOT NULL DEFAULT NOW()
+    date_created    TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    user_updated    UUID            NULL REFERENCES directus_users(id),
+    date_updated    TIMESTAMPTZ     NULL
 );
 ```
 
@@ -149,7 +151,7 @@ Ogni tavolo appartiene a una sala tramite `room`:
 
 ### 2.2 `tables` — Tavoli
 
-Campi Directus standard abilitati: `status`, `user_created`, `date_created`.
+Campi Directus standard abilitati: `status`, `user_created`, `date_created`, `user_updated`, `date_updated`.
 
 ```sql
 CREATE TABLE tables (
@@ -166,7 +168,9 @@ CREATE TABLE tables (
     sort_order      SMALLINT        NOT NULL DEFAULT 0,
     -- Directus standard fields
     user_created    UUID            NULL REFERENCES directus_users(id),
-    date_created    TIMESTAMPTZ     NOT NULL DEFAULT NOW()
+    date_created    TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    user_updated    UUID            NULL REFERENCES directus_users(id),
+    date_updated    TIMESTAMPTZ     NULL
 );
 ```
 
@@ -174,7 +178,7 @@ CREATE TABLE tables (
 
 ### 2.3 `payment_methods` — Metodi di pagamento
 
-Campi Directus standard abilitati: `status`, `user_created`, `date_created`.
+Campi Directus standard abilitati: `status`, `user_created`, `date_created`, `user_updated`, `date_updated`.
 
 ```sql
 CREATE TABLE payment_methods (
@@ -187,7 +191,9 @@ CREATE TABLE payment_methods (
     sort_order      SMALLINT        NOT NULL DEFAULT 0,
     -- Directus standard fields
     user_created    UUID            NULL REFERENCES directus_users(id),
-    date_created    TIMESTAMPTZ     NOT NULL DEFAULT NOW()
+    date_created    TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    user_updated    UUID            NULL REFERENCES directus_users(id),
+    date_updated    TIMESTAMPTZ     NULL
 );
 ```
 
@@ -195,7 +201,7 @@ CREATE TABLE payment_methods (
 
 ### 2.4 `menu_categories` — Categorie menu
 
-Campi Directus standard abilitati: `status`, `user_created`, `date_created`.
+Campi Directus standard abilitati: `status`, `user_created`, `date_created`, `user_updated`, `date_updated`.
 
 ```sql
 CREATE TABLE menu_categories (
@@ -207,6 +213,8 @@ CREATE TABLE menu_categories (
     -- Directus standard fields
     user_created    UUID            NULL REFERENCES directus_users(id),
     date_created    TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    user_updated    UUID            NULL REFERENCES directus_users(id),
+    date_updated    TIMESTAMPTZ     NULL,
     UNIQUE (venue, name)
 );
 ```
@@ -243,7 +251,7 @@ CREATE TABLE menu_items (
 
 ### 2.6 `menu_item_modifiers` — Modificatori disponibili per voce menu
 
-Campi Directus standard abilitati: `status`.
+Campi Directus standard abilitati: `status`, `user_created`, `date_created`, `user_updated`, `date_updated`.
 
 ```sql
 CREATE TABLE menu_item_modifiers (
@@ -252,7 +260,12 @@ CREATE TABLE menu_item_modifiers (
     menu_item       VARCHAR(50)     NOT NULL REFERENCES menu_items(id) ON DELETE CASCADE,
     name            VARCHAR(80)     NOT NULL,       -- es. 'Extra aglio'
     price           NUMERIC(8,2)    NOT NULL DEFAULT 0.00,
-    sort_order      SMALLINT        NOT NULL DEFAULT 0
+    sort_order      SMALLINT        NOT NULL DEFAULT 0,
+    -- Directus standard fields
+    user_created    UUID            NULL REFERENCES directus_users(id),
+    date_created    TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    user_updated    UUID            NULL REFERENCES directus_users(id),
+    date_updated    TIMESTAMPTZ     NULL
 );
 ```
 
@@ -350,6 +363,8 @@ CREATE INDEX idx_orders_venue      ON orders(venue, status);
 
 ### 2.9 `order_items` — Righe comanda
 
+Campi Directus standard abilitati: `user_created`, `date_created`, `user_updated`, `date_updated`.
+
 ```sql
 CREATE TABLE order_items (
     id              UUID            PRIMARY KEY,    -- UUID v7 generato client-side
@@ -366,7 +381,10 @@ CREATE TABLE order_items (
     kitchen_ready   BOOLEAN         NOT NULL DEFAULT FALSE,  -- flag per toggle per-voce in App Cucina (Dettaglio)
     status          VARCHAR(20)     NOT NULL DEFAULT 'active', -- 'active' | 'archived' (soft-delete)
     -- Directus standard fields
+    user_created    UUID            NULL REFERENCES directus_users(id),
     date_created    TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    user_updated    UUID            NULL REFERENCES directus_users(id),
+    date_updated    TIMESTAMPTZ     NULL,
     UNIQUE (uid, "order"),  -- unicità logica preservata come vincolo, non come PK
     CHECK (voided_quantity <= quantity)
 );
@@ -377,6 +395,8 @@ CREATE INDEX idx_order_items_order ON order_items("order");
 ---
 
 ### 2.10 `order_item_modifiers` — Modificatori applicati a riga comanda
+
+Campi Directus standard abilitati: `user_created`, `date_created`, `user_updated`, `date_updated`.
 
 ```sql
 CREATE TABLE order_item_modifiers (
@@ -389,7 +409,10 @@ CREATE TABLE order_item_modifiers (
     voided_quantity SMALLINT        NOT NULL DEFAULT 0 CHECK (voided_quantity >= 0),
     status          VARCHAR(20)     NOT NULL DEFAULT 'active', -- 'active' | 'archived' (soft-delete)
     -- Directus standard fields
+    user_created    UUID            NULL REFERENCES directus_users(id),
     date_created    TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    user_updated    UUID            NULL REFERENCES directus_users(id),
+    date_updated    TIMESTAMPTZ     NULL,
     UNIQUE (item_uid, "order", name)               -- unicità logica per modificatore su riga
 );
 
@@ -403,7 +426,7 @@ CREATE INDEX idx_oi_modifiers_item ON order_item_modifiers("order", item_uid);
 
 **Primary key**: UUID v7 (time-ordered, generato client-side — sostituisce il vecchio `txn_abc123`).
 
-Campi Directus standard abilitati: `user_created`, `date_created`.
+Campi Directus standard abilitati: `user_created`, `date_created`, `user_updated`, `date_updated`.
 
 ```sql
 CREATE TYPE transaction_operation AS ENUM ('unico', 'romana', 'ordini', 'analitica', 'discount', 'tip');
@@ -428,7 +451,9 @@ CREATE TABLE transactions (
     status              VARCHAR(20)             NOT NULL DEFAULT 'active', -- 'active' | 'archived' (soft-delete)
     -- Directus standard fields
     user_created        UUID                    NULL REFERENCES directus_users(id),
-    date_created        TIMESTAMPTZ             NOT NULL DEFAULT NOW()
+    date_created        TIMESTAMPTZ             NOT NULL DEFAULT NOW(),
+    user_updated        UUID                    NULL REFERENCES directus_users(id),
+    date_updated        TIMESTAMPTZ             NULL
 );
 
 CREATE INDEX idx_transactions_table   ON transactions("table");
@@ -477,7 +502,7 @@ CREATE TABLE transaction_order_refs (
 
 **Primary key**: UUID v7 (time-ordered, generato client-side — sostituisce il vecchio `mov_abc123`).
 
-Campi Directus standard abilitati: `user_created`, `date_created`.
+Campi Directus standard abilitati: `user_created`, `date_created`, `user_updated`, `date_updated`.
 
 ```sql
 CREATE TYPE cash_movement_type AS ENUM ('deposit', 'withdrawal');
@@ -491,7 +516,9 @@ CREATE TABLE cash_movements (
     status      VARCHAR(20)         NOT NULL DEFAULT 'active', -- 'active' | 'archived' (soft-delete)
     -- Directus standard fields
     user_created UUID               NULL REFERENCES directus_users(id),
-    date_created TIMESTAMPTZ        NOT NULL DEFAULT NOW()
+    date_created TIMESTAMPTZ        NOT NULL DEFAULT NOW(),
+    user_updated UUID               NULL REFERENCES directus_users(id),
+    date_updated TIMESTAMPTZ        NULL
 );
 
 CREATE INDEX idx_cash_movements_venue ON cash_movements(venue, date_created);
@@ -501,7 +528,7 @@ CREATE INDEX idx_cash_movements_venue ON cash_movements(venue, date_created);
 
 ### 2.15 `daily_closures` — Chiusure giornaliere (rapporto Z)
 
-Campi Directus standard abilitati: `user_created`, `date_created`.
+Campi Directus standard abilitati: `user_created`, `date_created`, `user_updated`, `date_updated`.
 
 ```sql
 CREATE TABLE daily_closures (
@@ -520,7 +547,9 @@ CREATE TABLE daily_closures (
     status              VARCHAR(20)     NOT NULL DEFAULT 'active', -- 'active' | 'archived' (soft-delete)
     -- Directus standard fields
     user_created        UUID            NULL REFERENCES directus_users(id),
-    date_created        TIMESTAMPTZ     NOT NULL DEFAULT NOW()
+    date_created        TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    user_updated        UUID            NULL REFERENCES directus_users(id),
+    date_updated        TIMESTAMPTZ     NULL
 );
 
 CREATE INDEX idx_daily_closures_venue ON daily_closures(venue, date_created);
@@ -530,6 +559,8 @@ CREATE INDEX idx_daily_closures_venue ON daily_closures(venue, date_created);
 
 ### 2.16 `daily_closure_by_method` — Dettaglio incassi per metodo (riga di daily_closures)
 
+Campi Directus standard abilitati: `user_created`, `date_created`, `user_updated`, `date_updated`.
+
 ```sql
 CREATE TABLE daily_closure_by_method (
     id              UUID            PRIMARY KEY,    -- UUID v7 generato client-side
@@ -538,7 +569,10 @@ CREATE TABLE daily_closure_by_method (
     amount          NUMERIC(10,2)   NOT NULL DEFAULT 0.00,
     status          VARCHAR(20)     NOT NULL DEFAULT 'active', -- 'active' | 'archived' (soft-delete)
     -- Directus standard fields
-    date_created    TIMESTAMPTZ     NOT NULL DEFAULT NOW()
+    user_created    UUID            NULL REFERENCES directus_users(id),
+    date_created    TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    user_updated    UUID            NULL REFERENCES directus_users(id),
+    date_updated    TIMESTAMPTZ     NULL
 );
 ```
 
@@ -546,7 +580,7 @@ CREATE TABLE daily_closure_by_method (
 
 ### 2.17 `app_settings` — Impostazioni applicazione per utente/dispositivo
 
-Campi Directus standard abilitati: `date_updated`.
+Campi Directus standard abilitati: `user_created`, `date_created`, `user_updated`, `date_updated`.
 
 ```sql
 CREATE TABLE app_settings (
@@ -557,6 +591,9 @@ CREATE TABLE app_settings (
     menu_url        TEXT,                                        -- URL menu digitale (corrisponde a `menuUrl` in app-settings)
     pre_bill_printer VARCHAR(40)    NULL REFERENCES printers(id) ON DELETE SET NULL, -- default printer for pre-bill dispatch
     -- Directus standard fields
+    user_created    UUID            NULL REFERENCES directus_users(id),
+    date_created    TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    user_updated    UUID            NULL REFERENCES directus_users(id),
     date_updated    TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
     UNIQUE (venue, device_key)
 );
@@ -601,7 +638,7 @@ CREATE TABLE printers (
 Struttura dati unificata e flessibile per tutti i tipi di lavoro di stampa.
 Il campo `payload` (JSONB) contiene i dati specifici per ogni tipo.
 
-Campi Directus standard abilitati: `date_created`.
+Campi Directus standard abilitati: `date_created`, `user_updated`, `date_updated`.
 
 ```sql
 -- Enum dei possibili stati del lavoro di stampa
@@ -647,7 +684,9 @@ CREATE TABLE print_jobs (
     payload         JSONB           NOT NULL DEFAULT '{}',
 
     -- Directus standard fields
-    date_created    TIMESTAMPTZ     NOT NULL DEFAULT NOW()
+    date_created    TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    user_updated    UUID            NULL REFERENCES directus_users(id),
+    date_updated    TIMESTAMPTZ     NULL
 );
 
 -- Indici per le query più frequenti (cronologia per punto vendita, stampante, tipo, stato)
@@ -995,23 +1034,23 @@ mantenute in cache mentre le tabelle operative gestiscono una coda di sync.
 -- Collections operative (UUID v7 come keyPath, generate client-side)
 ObjectStore: bill_sessions
   keyPath:  id (UUIDv7)
-  indexes:  [table, status]
+  indexes:  [table, status, date_updated]
 
 ObjectStore: orders
   keyPath:  id (UUIDv7)
-  indexes:  [table, status, bill_session]
+  indexes:  [table, status, bill_session, date_updated]
 
 ObjectStore: order_items
   keyPath:  id (UUIDv7)
-  indexes:  [order, uid]   -- uid+order usati per lookup logico (vincolo UNIQUE)
+  indexes:  [order, uid, date_updated]   -- uid+order usati per lookup logico (vincolo UNIQUE)
 
 ObjectStore: order_item_modifiers
   keyPath:  id (UUIDv7)
-  indexes:  [order_item, order, item_uid]  -- order_item usato come FK singola verso order_items(id)
+  indexes:  [order_item, order, item_uid, date_updated]  -- order_item usato come FK singola verso order_items(id)
 
 ObjectStore: transactions
   keyPath:  id (UUIDv7)
-  indexes:  [table, bill_session]
+  indexes:  [table, bill_session, date_updated]
 
 ObjectStore: transaction_order_refs
   keyPath:  id (UUIDv7)
@@ -1023,15 +1062,15 @@ ObjectStore: transaction_voce_refs
 
 ObjectStore: cash_movements
   keyPath:  id (UUIDv7)
-  indexes:  [venue, date_created]
+  indexes:  [venue, date_updated]
 
 ObjectStore: daily_closures
   keyPath:  id (UUIDv7)
-  indexes:  [venue]
+  indexes:  [venue, date_updated]
 
 ObjectStore: daily_closure_by_method
   keyPath:  id (UUIDv7)
-  indexes:  [daily_closure]
+  indexes:  [daily_closure, date_updated]
 
 -- Collections di configurazione (cache locale, aggiornata al primo avvio online)
 ObjectStore: venues           keyPath: id
@@ -1296,8 +1335,7 @@ automatica dei dati locali secondo la retention definita per ciascuna collection
 
 - Un record viene rimosso dal proprio ObjectStore locale **solo se**:
   1. Il suo `_sync_status` è `'synced'` (già persistito su Directus), **e**
-  2. Il suo `date_updated` (o `date_created` se `date_updated` è assente) è precedente alla
-     soglia di retention della collection.
+  2. Il suo `date_updated` è precedente alla soglia di retention della collection.
 - I record con `_sync_status = 'pending'` o `'error'` **non vengono mai purgati** (non sono
   ancora su Directus).
 - Le voci della `sync_queue` con `attempts >= 5` (dead-letter) vengono rimosse dopo
@@ -1311,21 +1349,21 @@ automatica dei dati locali secondo la retention definita per ciascuna collection
 | Collection                  | Campo data usato per purge  | Soglia   | Condizione aggiuntiva                          |
 |-----------------------------|----------------------------|----------|------------------------------------------------|
 | `orders`                    | `date_updated`             | 7 giorni | Solo se `status` in `completed`, `rejected`    |
-| `order_items`               | `date_created`             | 7 giorni | Solo se l'order padre è già stato purgato      |
-| `order_item_modifiers`      | `date_created`             | 7 giorni | Solo se l'`order_item` padre è già stato purgato |
+| `order_items`               | `date_updated`             | 7 giorni | Solo se l'order padre è già stato purgato      |
+| `order_item_modifiers`      | `date_updated`             | 7 giorni | Solo se l'`order_item` padre è già stato purgato |
 | `bill_sessions`             | `date_updated`             | 7 giorni | Solo se `status = 'closed'`                    |
-| `transactions`              | `date_created`             | 30 giorni| —                                              |
+| `transactions`              | `date_updated`             | 30 giorni| —                                              |
 | `transaction_order_refs`    | `date_created`             | 30 giorni| —                                              |
 | `transaction_voce_refs`     | `date_created`             | 30 giorni| —                                              |
-| `cash_movements`            | `date_created`             | 30 giorni| —                                              |
-| `daily_closures`            | `date_created`             | 90 giorni| —                                              |
-| `daily_closure_by_method`   | `date_created`             | 90 giorni| —                                              |
+| `cash_movements`            | `date_updated`             | 30 giorni| —                                              |
+| `daily_closures`            | `date_updated`             | 90 giorni| —                                              |
+| `daily_closure_by_method`   | `date_updated`             | 90 giorni| —                                              |
 | `print_jobs`                | `job_timestamp`            | 7 giorni | Solo se `status` in `done`, `error`            |
 | `sync_queue`                | `date_created` (dead-letter)| 7 giorni| Solo se `attempts >= 5`                        |
 
-> **Nota**: le collection con solo `date_created` (nessun `date_updated`) usano la data di creazione
-> come proxy temporale per la retention. Le collection operative sincronizzate via watermark
-> (`orders`, `bill_sessions`) hanno `date_updated` abilitato e lo usano sia per il PULL che per il purge.
+> Tutte le collection operative hanno ora `date_updated` abilitato (valorizzato da Directus ad ogni modifica).
+> Le junction table immutabili (`transaction_order_refs`, `transaction_voce_refs`) usano `date_created` come proxy di retention in quanto non ricevono aggiornamenti dopo la creazione.
+> `print_jobs` usa `job_timestamp` (momento di invio client-side) che è semanticamente più preciso della data di modifica server-side.
 
 > Le soglie sono configurabili tramite un oggetto `IDB_PURGE_RETENTION_DAYS` nei settings
 > dell'app; i valori sopra rappresentano i default.
@@ -1375,37 +1413,33 @@ export async function runIDBPurge() {
   // 1) Pre-cleanup child-first: rimuove solo figli già orfani da purge precedenti.
   await purgeCollectionIfParentMissing('order_item_modifiers', 7, {
     parentStoreName: 'order_items',
-    foreignKey: 'order_item',
-    dateField: 'date_created'
+    foreignKey: 'order_item'
   })
   await purgeCollectionIfParentMissing('order_items', 7, {
     parentStoreName: 'orders',
-    foreignKey: 'order',
-    dateField: 'date_created'
+    foreignKey: 'order'
   })
 
   // 2) Purge dei padri/root.
   await purgeCollection('orders',                 7,  { statusFilter: ['completed','rejected'] })
   await purgeCollection('bill_sessions',          7,  { statusFilter: ['closed'] })
-  await purgeCollection('transactions',           30, { dateField: 'date_created' })
-  await purgeCollection('cash_movements',         30, { dateField: 'date_created' })
-  await purgeCollection('daily_closures',         90, { dateField: 'date_created' })
+  await purgeCollection('transactions',           30)
+  await purgeCollection('cash_movements',         30)
+  await purgeCollection('daily_closures',         90)
   await purgeCollection('print_jobs',             7,  { statusFilter: ['done','error'], dateField: 'job_timestamp' })
 
   // 3) Post-cleanup child-first: rimuove i figli diventati orfani in questo run.
   await purgeCollectionIfParentMissing('order_items', 7, {
     parentStoreName: 'orders',
-    foreignKey: 'order',
-    dateField: 'date_created'
+    foreignKey: 'order'
   })
   await purgeCollectionIfParentMissing('order_item_modifiers', 7, {
     parentStoreName: 'order_items',
-    foreignKey: 'order_item',
-    dateField: 'date_created'
+    foreignKey: 'order_item'
   })
   await purgeCollection('transaction_order_refs', 30, { dateField: 'date_created' })
   await purgeCollection('transaction_voce_refs',  30, { dateField: 'date_created' })
-  await purgeCollection('daily_closure_by_method',90, { dateField: 'date_created' })
+  await purgeCollection('daily_closure_by_method',90)
   // Dead-letter sync_queue
   await purgeSyncQueueDeadLetter(7)
 }
@@ -1590,6 +1624,8 @@ verificare il PIN.
 
 ##### DDL — `venue_users`
 
+Campi Directus standard abilitati: `user_created`, `date_created`, `user_updated`, `date_updated`.
+
 ```sql
 CREATE TABLE venue_users (
   id           UUID PRIMARY KEY,              -- UUID v7 generato client-side
@@ -1598,7 +1634,10 @@ CREATE TABLE venue_users (
   role         VARCHAR(50)  NOT NULL,         -- 'admin' | 'cassiere' | 'cameriere' | 'cuoco'
   pin_hash     VARCHAR(255) NOT NULL,         -- hash bcrypt/argon2 del PIN a 4-6 cifre
   status       VARCHAR(20)  NOT NULL DEFAULT 'active', -- 'active' | 'archived'
+  -- Directus standard fields
+  user_created UUID         NULL REFERENCES directus_users(id),
   date_created TIMESTAMPTZ  DEFAULT now(),
+  user_updated UUID         NULL REFERENCES directus_users(id),
   date_updated TIMESTAMPTZ  DEFAULT now()
 );
 ```
