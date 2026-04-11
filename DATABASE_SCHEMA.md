@@ -89,8 +89,8 @@ trigger DB o logica equivalente.
 | `cash_movements`         | Versamenti e prelievi di cassa                           | ObjectStore `cash_movements` |
 | `daily_closures`         | Chiusure giornaliere (rapporto Z)                        | ObjectStore `daily_closures` |
 | `printers`               | Stampanti ESC/POS configurate                            | `appConfig.printers`         |
-| `print_jobs`             | Log dei lavori di stampa inviati (cronologia stampe)     | `app_meta.printLog`          |
-| `app_settings`           | Impostazioni utente (audio, URL menu, ecc.)              | `app_meta.settings`          |
+| `print_jobs`             | Log dei lavori di stampa inviati (cronologia stampe)     | ObjectStore `print_jobs`     |
+| `app_settings`           | Impostazioni utente (audio, URL menu, ecc.)              | ObjectStore `app_settings`   |
 | `venue_users`            | Operatori locali per venue (PIN personale)               | ObjectStore `venue_users`    |
 
 ---
