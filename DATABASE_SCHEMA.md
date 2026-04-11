@@ -1694,14 +1694,15 @@ record.venue_user_updated = currentPinUser?.id ?? null
 │                                                                     │
 │  Admin → Directus → crea service account → genera token statico    │
 │  Admin → Directus → crea venue_users con PIN hash                  │
-│  Admin → configura token + URL Directus nelle app-settings          │
+│  Admin → configura token + URL Directus nello store config         │
+│           cifrato in IndexedDB                                     │
 └─────────────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────────────┐
 │  Runtime — ogni dispositivo                                         │
 │                                                                     │
 │  [Avvio]                                                            │
-│    1. Legge directusToken da app-settings                           │
+│    1. Legge directusToken cifrato da IndexedDB/config               │
 │    2. Carica venue_users da IndexedDB                               │
 │    3. Mostra schermata selezione utente (PIN)                       │
 │                                                                     │
