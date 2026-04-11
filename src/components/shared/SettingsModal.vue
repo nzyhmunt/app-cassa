@@ -82,6 +82,31 @@
           <p v-if="store.menuError" class="text-xs text-red-600 text-center">Errore: {{ store.menuError }}</p>
         </div>
 
+        <!-- Stampante Preconto (solo Cassa, solo se ci sono stampanti configurate) -->
+        <div v-if="showPrinterSettings && preBillPrinters.length > 0" class="pt-4 border-t border-gray-100 mt-2 space-y-2">
+          <div class="flex items-center gap-2 mb-1">
+            <Printer class="size-4 text-gray-400 shrink-0" />
+            <span class="text-xs font-bold text-gray-600 uppercase tracking-wider">Stampante Preconto</span>
+          </div>
+          <p class="text-[10px] text-gray-500 -mt-1">Seleziona la stampante su cui inviare il preconto dalla Cassa</p>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center gap-2 px-3 py-2 rounded-xl border cursor-pointer transition-colors"
+              :class="!settings.preBillPrinterId ? 'border-[var(--brand-primary)] bg-[var(--brand-primary)]/5' : 'border-gray-200 hover:bg-gray-50'">
+              <input type="radio" name="preBillPrinter" value="" v-model="settings.preBillPrinterId" class="accent-[var(--brand-primary)] shrink-0" />
+              <span class="text-sm text-gray-600">Nessuna (non stampare)</span>
+            </label>
+            <label v-for="p in preBillPrinters" :key="p.id ?? p.url"
+              class="flex items-center gap-2 px-3 py-2 rounded-xl border cursor-pointer transition-colors"
+              :class="settings.preBillPrinterId === p.id ? 'border-[var(--brand-primary)] bg-[var(--brand-primary)]/5' : 'border-gray-200 hover:bg-gray-50'">
+              <input type="radio" name="preBillPrinter" :value="p.id" v-model="settings.preBillPrinterId" class="accent-[var(--brand-primary)] shrink-0" />
+              <div class="min-w-0">
+                <span class="text-sm font-bold text-gray-800 block truncate">{{ p.name ?? p.id }}</span>
+                <span class="text-[10px] text-gray-400 truncate block">{{ p.url }}</span>
+              </div>
+            </label>
+          </div>
+        </div>
+
         <!-- Gestione Utenti -->
         <div class="pt-4 border-t border-gray-100 mt-2">
           <!-- Prominent admin setup notice when no users have been configured -->
@@ -99,7 +124,7 @@
               Aggiungi amministratore
             </button>
           </template>
-          <button v-if="isAdmin" @click="showUserManagement = true"
+          <button v-else-if="isAdmin" @click="showUserManagement = true"
             class="w-full py-3 bg-gray-50 hover:bg-gray-100 text-gray-700 font-bold rounded-2xl flex items-center justify-center gap-2 border border-gray-200 transition-colors shadow-sm active:scale-95">
             <Users class="size-4 text-gray-500" />
             Gestione Utenti &amp; Blocco Schermo
@@ -143,9 +168,10 @@
 </template>
 
 <script setup>
-import { ref } from 'vue';
-import { Settings, X, RefreshCw, RotateCcw, Users, ShieldCheck, ShieldAlert, KeyRound } from 'lucide-vue-next';
+import { ref, computed } from 'vue';
+import { Settings, X, RefreshCw, RotateCcw, Users, ShieldCheck, ShieldAlert, KeyRound, Printer } from 'lucide-vue-next';
 import { useSettings } from '../../composables/useSettings.js';
+import { appConfig } from '../../utils/index.js';
 import UserManagementModal from '../UserManagementModal.vue';
 import { useAuth } from '../../composables/useAuth.js';
 
@@ -154,6 +180,7 @@ const props = defineProps({
   title: { type: String, required: true },
   showKeyboardToggle: { type: Boolean, default: false },
   showMenuSync: { type: Boolean, default: true },
+  showPrinterSettings: { type: Boolean, default: false },
 });
 const emit = defineEmits(['update:modelValue', 'settings-changed']);
 
@@ -169,4 +196,18 @@ const keyboardPositionOptions = [
   { value: 'left',     label: 'Sinistra' },
   { value: 'right',    label: 'Destra' },
 ];
+
+/** Printers configured in appConfig that can receive pre_bill jobs.
+ * Includes both printers that explicitly list 'pre_bill' in printTypes
+ * AND catch-all printers (printTypes absent or empty), consistent with
+ * how getPrintersForType() routes jobs and the README documentation. */
+const preBillPrinters = computed(() => {
+  const printers = appConfig.printers ?? [];
+  return printers.filter(p => {
+    if (typeof p?.id !== 'string' || !p.id.trim()) return false;
+    if (!p?.url) return false;
+    if (!Array.isArray(p.printTypes) || p.printTypes.length === 0) return true;
+    return p.printTypes.includes('pre_bill');
+  });
+});
 </script>

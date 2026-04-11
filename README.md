@@ -26,13 +26,12 @@ src/
 │   │   ├── PwaInstallBanner.vue       ← Banner installazione PWA (Android + iOS)
 │   │   ├── SettingsModal.vue          ← Modale impostazioni condivisa (Cassa, Sala e Cucina)
 │   │   ├── TableGrid.vue              ← Griglia pulsanti tavolo con timer trascorso e slot #status
-│   │   └── TableStatsBar.vue          ← Pillole stato tavoli (Liberi / Occupati / In Attesa)
+│   │   └── TableStatsBar.vue          ← Pillole stato tavoli (Liberi / Occupati / In Attesa / Conto Rich. / Saldati) con filtro click
 │   ├── CassaNavbar.vue                ← Navigazione (Cassa)
 │   ├── CassaTableManager.vue          ← Mappa sala + cassa + checkout (Cassa only)
 │   ├── CassaOrderManager.vue          ← Gestione ordini + accettazione (Cassa only)
 │   ├── CassaDashboard.vue             ← Fondo cassa, movimenti, report X/Z (Cassa only)
 │   ├── CassaBillCard.vue              ← Card riepilogo conto chiuso (Cassa only)
-│   ├── CassaClosedBillsList.vue       ← Lista conti chiusi sessione (Cassa only)
 │   ├── CassaSettingsModal.vue         ← Impostazioni Cassa (thin wrapper su shared/SettingsModal)
 │   ├── LockScreen.vue                 ← Overlay blocco schermo con tastierino PIN
 │   ├── UserManagementModal.vue        ← Gestione utenti e configurazione blocco automatico
@@ -48,6 +47,7 @@ src/
 │   ├── useAuth.js                     ← Autenticazione utenti, PIN hashing, auto-lock timer
 │   ├── useBeep.js                     ← Notifiche audio (Web Audio API)
 │   ├── useNumericKeyboard.js          ← Singleton state per la tastiera numerica custom (Cassa only)
+│   ├── usePrintQueue.js               ← Coda di stampa comande → servizio Node ESC/POS
 │   ├── usePwaInstall.js               ← Rilevamento installazione PWA
 │   ├── useSettings.js                 ← Lettura/scrittura impostazioni localStorage
 │   └── useWakeLock.js                 ← Prevenzione blocco schermo (Screen Wake Lock API)
@@ -81,11 +81,13 @@ src/
 ## Funzionalità Principali
 
 ### 🗺️ Mappa Sala (Cassa & Sala)
-- Visualizzazione in tempo reale dei tavoli con 4 stati distinti:
+- Visualizzazione in tempo reale dei tavoli con **5 stati distinti**:
   - **Libero** — tavolo disponibile
-  - **Ordini in Attesa** — comande inviate, in attesa di accettazione (badge ambra)
   - **Occupato** — ordini accettati / in preparazione / pronti
-  - **Conto Richiesto** — cliente ha richiesto il conto (badge blu)
+  - **In Attesa** — comande inviate, in attesa di accettazione (badge ambra)
+  - **Conto Richiesto** — cliente ha richiesto il conto (badge blu, solo Cassa)
+  - **Saldato** — importo totalmente pagato ma tavolo non ancora chiuso (badge viola)
+- Supporto **multi-sala**: configurazione `rooms` raggruppa i tavoli per sala; tab *Tutti* + tab per sala; filtri stato funzionano su tutte le sale contemporaneamente
 - Apertura del tavolo con selezione coperti (adulti + bambini) e anteprima del coperto
 - Operazioni avanzate su tavoli (Cassa & Sala):
   - **Sposta tavolo**: trasferisce tutti gli ordini e le transazioni a un altro tavolo libero
@@ -175,10 +177,11 @@ pending → accepted → preparing → ready → delivered → completed
 - Lista read-only degli ordini `delivered`, piatti raggruppati per portata, ordinati dal più recente
 
 ### 💳 Cassa & Pagamenti
-- **Tre modalità di pagamento**:
+- **Quattro modalità di pagamento**:
   - **Unico**: saldo completo del tavolo in un'unica transazione
   - **Alla Romana**: divisione equa tra N persone con pagamento parziale o multiplo di quote
   - **Per Ordine**: selezione manuale degli ordini da saldare
+  - **Analitica**: selezione voce-per-voce con stepper di quantità (es. 1 su 2 coperti); include variazioni a pagamento e voci dirette; registra `vociRefs` (chiave + quantità) nella transazione per tracciabilità precisa
 - **Metodi di pagamento** configurabili (default: Contanti e POS/Carta)
 - **Calcolatore resto** per pagamenti in contanti (importo ricevuto → resto da dare)
 - **Mancia** configurabile su ogni transazione
@@ -233,7 +236,7 @@ pending → accepted → preparing → ready → delivered → completed
 
 ### ⚙️ Impostazioni (Cassa, Sala & Cucina)
 - Abilitazione/disabilitazione avvisi audio ("Ding" alla ricezione di nuovi ordini)
-- Abilitazione/disabilitazione blocco schermo (Wake Lock)
+- Abilitazione/disabilitazione blocco schermo (Wake Lock) — **attivo di default** al primo avvio
 - Configurazione URL menu JSON remoto e sincronizzazione manuale (Cassa e Sala)
 - **Gestione Utenti & Blocco Schermo**: accesso rapido alla configurazione del sistema di autenticazione
 - Reset completo dei dati con conferma (fine turno) — cancella anche tutti i dati di autenticazione
@@ -309,13 +312,140 @@ export const appConfig = {
     ],
   },
 
-
-
-
-
-
+  // Coda di stampa comande — ciascuna stampante punta a un servizio Node ESC/POS.
+  // Stampante di prova attiva per default (catch-all); sostituire con la configurazione
+  // del locale prima del deployment in produzione. Impostare a [] per disabilitare la stampa.
+  // categories: categorie del menu instradate su questa stampante (case-insensitive).
+  // Se assente o vuoto, la stampante riceve tutte le voci (catch-all).
+  printers: [
+    { id: 'demo', name: 'Stampante Demo', url: 'http://localhost:3001/print' },
+    // { id: 'cucina', name: 'Cucina', url: 'http://localhost:3001/print',
+    //   printTypes: ['order'], categories: ['Antipasti', 'Primi', 'Secondi', 'Contorni'] },
+    // { id: 'bar', name: 'Bar', url: 'http://localhost:3002/print',
+    //   printTypes: ['order'], categories: ['Bevande', 'Digestivi'] },
+    // { id: 'cassa', name: 'Cassa', url: 'http://localhost:3003/print',
+    //   printTypes: ['pre_bill', 'table_move'] },
+  ],
 };
 ```
+
+---
+
+## Stampa Comande (ESC/POS)
+
+La coda di stampa automatica è gestita dal composable `src/composables/usePrintQueue.js`.
+
+Quando un ordine viene accettato (dalla Cassa o dalla Sala), `enqueuePrintJobs(order)` invia
+una HTTP POST a ciascun servizio stampante configurato in `appConfig.printers`. Il servizio Node
+ricevente gestisce la comunicazione ESC/POS verso la stampante fisica.
+
+### Stampante demo (pronta per il test)
+
+La configurazione predefinita include una **stampante demo catch-all** attiva sulla porta `3001`:
+
+```js
+// src/utils/index.js — appConfig
+printers: [
+  {
+    id: 'demo',
+    name: 'Stampante Demo',
+    url: 'http://localhost:3001/print',
+    // printTypes assente → catch-all (riceve order, table_move, pre_bill)
+    // categories assente  → catch-all (riceve tutte le voci del menu)
+  },
+],
+```
+
+Per usarla in locale, avviare il servizio Node ESC/POS sulla porta `3001`:
+
+```bash
+cd print-server
+npm install
+# Configurare le stampanti in printers.config.js, poi:
+npm start
+```
+
+Per la documentazione completa del server di stampa vedere [`print-server/README.md`](print-server/README.md).
+
+**Prima del deployment in produzione**, sostituire con la configurazione del locale.
+
+### Configurazione multi-stampante
+
+```js
+printers: [
+  { id: 'cucina', name: 'Cucina', url: 'http://localhost:3001/print',
+    printTypes: ['order'],
+    categories: ['Antipasti', 'Primi', 'Secondi', 'Contorni'] },
+  { id: 'bar', name: 'Bar', url: 'http://localhost:3002/print',
+    printTypes: ['order'],
+    categories: ['Bevande', 'Digestivi'] },
+  { id: 'cassa', name: 'Cassa', url: 'http://localhost:3003/print',
+    printTypes: ['pre_bill', 'table_move'] },
+],
+```
+
+Ogni stampante accetta:
+- **`printTypes`**: tipi di lavoro ricevuti — `'order'`, `'table_move'`, `'pre_bill'`; assente/vuoto = catch-all
+- **`categories`**: categorie menu (solo per tipo `'order'`); assente/vuoto = tutte le voci
+
+### Tipi di stampa
+
+| Tipo | Evento | Fonte |
+|------|--------|-------|
+| `order` | Comanda accettata | `CassaOrderManager` / `SalaOrderManager` |
+| `table_move` | Tavolo spostato | `CassaTableManager` → Sposta Tavolo |
+| `pre_bill` | Preconto inviato | `CassaTableManager` → Preconto |
+
+### Cronologia stampe e ristampa (Cassa)
+
+Il pulsante **"Stampe"** nella barra della Mappa Sala (visibile solo con stampanti configurate)
+apre la cronologia di tutti i lavori inviati, con stato (`in coda`, `stampa…`, `inviato`, `errore`)
+e possibilità di ristampare su qualsiasi stampante configurata.
+
+### Stampante preconto predefinita
+
+Nelle **Impostazioni Cassa** → sezione "Stampante Preconto" è possibile scegliere la stampante
+su cui inviare automaticamente il preconto. La sezione è visibile se esiste almeno una
+stampante idonea a ricevere job `pre_bill`: una stampante che ha `pre_bill` nei `printTypes`,
+oppure una stampante "catch-all" con `printTypes` assente o vuoto.
+
+### Formato del job di stampa
+
+Tutti i job contengono: `jobId`, `printType`, `printerId`, `table`, `timestamp`.
+
+**`order`** (comanda):
+```json
+{
+  "jobId": "job_<uuid>", "printType": "order", "printerId": "cucina",
+  "orderId": "ord_<uuid>", "table": "05", "time": "20:15", "globalNote": "",
+  "items": [
+    { "name": "Bruschetta", "quantity": 2, "unitPrice": 3.00,
+      "notes": ["Senza aglio"], "course": "prima",
+      "modifiers": [{ "name": "Extra mozzarella", "price": 1.00 }] }
+  ]
+}
+```
+
+**`table_move`** (spostamento tavolo):
+```json
+{
+  "jobId": "job_<uuid>", "printType": "table_move", "printerId": "cassa",
+  "fromTableId": "T1", "fromTableLabel": "01", "toTableId": "T2", "toTableLabel": "02",
+  "table": "01 → 02"
+}
+```
+
+**`pre_bill`** (preconto): include il payload completo del conto (tavolo, importi, voci).
+
+### Comportamento
+
+- **Routing per categoria**: ogni stampante riceve solo le voci il cui `dishId` appartiene
+  a una delle categorie elencate in `categories` (confronto case-insensitive).
+- **Catch-all**: se `categories` è assente o vuoto, la stampante riceve tutte le voci.
+- **Fire-and-forget**: gli errori di rete vengono loggati in console ma non bloccano l'UI.
+- **Stato job**: ogni job viene tracciato come `pending → printing → done | error`.
+- **Voci stornate**: solo le quantità attive (non stornate) vengono incluse nel job.
+- **Ordini diretti** (`isDirectEntry: true`): non vengono mai stampati (coperti, voci libere).
 
 ---
 

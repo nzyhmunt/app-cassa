@@ -3,7 +3,7 @@
   <Transition name="kb-fade">
     <div
       v-if="keyboard.isVisible.value"
-      class="fixed inset-0 z-[80] bg-black/50 backdrop-blur-sm"
+      class="fixed inset-0 z-[150] bg-black/50 backdrop-blur-sm"
       @click="keyboard.closeKeyboard()"
     />
   </Transition>
@@ -16,12 +16,12 @@
       @click.stop
     >
       <!-- Drag handle -->
-      <div class="flex justify-center pt-3 pb-1">
+      <div class="flex justify-center pt-3 pb-1 landscape:pt-1.5 landscape:pb-0.5">
         <div class="w-10 h-1 bg-gray-300 rounded-full"></div>
       </div>
 
       <!-- Header -->
-      <div class="bg-gray-50 border-b border-gray-200 px-4 py-3 flex justify-between items-center">
+      <div class="bg-gray-50 border-b border-gray-200 px-4 py-3 landscape:py-1.5 flex justify-between items-center">
         <h3 class="font-bold text-sm text-gray-800 uppercase tracking-wider">Inserisci valore</h3>
         <button
           @click="keyboard.closeKeyboard()"
@@ -33,8 +33,8 @@
       </div>
 
       <!-- Display area -->
-      <div class="px-4 pt-3 pb-2">
-        <div class="flex items-center bg-gray-50 border-2 border-[var(--brand-primary)] rounded-2xl px-4 py-3 gap-3 min-h-[60px]">
+      <div class="px-4 pt-3 pb-2 landscape:pt-1.5 landscape:pb-1">
+        <div class="flex items-center bg-gray-50 border-2 border-[var(--brand-primary)] rounded-2xl px-4 py-3 landscape:py-2 gap-3 min-h-[60px] landscape:min-h-[44px]">
           <!-- Type toggle (e.g. % / €) — replaces prefix when present -->
           <div
             v-if="keyboard.typeToggle.value"
@@ -52,19 +52,19 @@
           </div>
           <!-- Static prefix (shown when no toggle) -->
           <span v-else-if="keyboard.prefix.value" class="text-gray-500 font-bold text-xl shrink-0">{{ keyboard.prefix.value }}</span>
-          <span class="flex-1 text-4xl font-black text-gray-900 tracking-wider text-right tabular-nums leading-none">
+          <span class="flex-1 text-4xl landscape:text-2xl font-black text-gray-900 tracking-wider text-right tabular-nums leading-none">
             {{ keyboard.displayValue.value || '0' }}
           </span>
         </div>
       </div>
 
       <!-- Button grid -->
-      <div class="grid grid-cols-3 gap-2.5 px-4 pb-2">
+      <div class="grid grid-cols-3 gap-2.5 landscape:gap-1.5 px-4 pb-2 landscape:pb-1">
         <button
           v-for="key in keyRows"
           :key="key.label"
           @click="key.action()"
-          class="py-4 rounded-2xl font-bold text-xl transition-all active:scale-95 select-none"
+          class="py-4 landscape:py-2 rounded-2xl font-bold text-xl landscape:text-base transition-all active:scale-95 select-none"
           :class="key.style"
           :aria-label="key.ariaLabel || key.label"
         >
@@ -74,15 +74,15 @@
       </div>
 
       <!-- Confirm + AC row -->
-      <div class="grid grid-cols-3 gap-2.5 px-4 pb-8">
+      <div class="grid grid-cols-3 gap-2.5 landscape:gap-1.5 px-4 pb-8 landscape:pb-3">
         <button
           @click="keyboard.clear()"
-          class="py-4 rounded-2xl font-bold text-xl bg-orange-50 hover:bg-orange-100 text-orange-500 border border-orange-200 shadow-sm transition-all active:scale-95"
+          class="py-4 landscape:py-2 rounded-2xl font-bold text-xl landscape:text-base bg-orange-50 hover:bg-orange-100 text-orange-500 border border-orange-200 shadow-sm transition-all active:scale-95"
           aria-label="Cancella tutto"
         >AC</button>
         <button
           @click="keyboard.confirm()"
-          class="col-span-2 py-4 theme-bg text-white font-bold text-xl rounded-2xl shadow-md hover:opacity-90 transition-opacity active:scale-95 flex items-center justify-center gap-2"
+          class="col-span-2 py-4 landscape:py-2 theme-bg text-white font-bold text-xl landscape:text-base rounded-2xl shadow-md hover:opacity-90 transition-opacity active:scale-95 flex items-center justify-center gap-2"
           aria-label="Conferma"
         >
           <Check class="size-5" />
@@ -104,11 +104,12 @@ const store = useAppStore();
 
 /** CSS classes for the keyboard panel based on the chosen position setting. */
 const panelClass = computed(() => {
+  const base = 'max-h-[100dvh] overflow-y-auto';
   const pos = store.customKeyboard;
-  if (pos === 'left')  return 'fixed bottom-0 left-0 z-[81] bg-white rounded-tr-3xl shadow-2xl select-none w-full max-w-sm';
-  if (pos === 'right') return 'fixed bottom-0 right-0 z-[81] bg-white rounded-tl-3xl shadow-2xl select-none w-full max-w-sm';
+  if (pos === 'left')  return `fixed bottom-0 left-0 z-[151] bg-white rounded-tr-3xl shadow-2xl select-none w-full max-w-sm ${base}`;
+  if (pos === 'right') return `fixed bottom-0 right-0 z-[151] bg-white rounded-tl-3xl shadow-2xl select-none w-full max-w-sm ${base}`;
   // 'center' or fallback
-  return 'fixed bottom-0 left-0 right-0 z-[81] bg-white rounded-t-3xl shadow-2xl select-none mx-auto max-w-sm w-full';
+  return `fixed bottom-0 left-0 right-0 z-[151] bg-white rounded-t-3xl shadow-2xl select-none mx-auto max-w-sm w-full ${base}`;
 });
 
 const keyRows = computed(() => [

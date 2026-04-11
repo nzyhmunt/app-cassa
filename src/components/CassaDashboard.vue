@@ -330,8 +330,9 @@ watch(activeTab, (tab) => {
 const cashBalanceInput = ref(store.cashBalance);
 
 function saveCashBalance() {
-  if (cashBalanceInput.value >= 0) {
-    store.setFondoCassa(cashBalanceInput.value);
+  const amount = parseFloat(cashBalanceInput.value);
+  if (!isNaN(amount) && amount >= 0) {
+    store.setFondoCassa(amount);
   }
 }
 
@@ -341,8 +342,9 @@ const movementAmount = ref(0);
 const movementReason = ref('');
 
 function addMovement() {
-  if (!movementAmount.value || movementAmount.value <= 0) return;
-  store.addCashMovement(movementType.value, movementAmount.value, movementReason.value || movementType.value);
+  const amount = parseFloat(movementAmount.value);
+  if (isNaN(amount) || amount <= 0) return;
+  store.addCashMovement(movementType.value, amount, movementReason.value || movementType.value);
   movementAmount.value = 0;
   movementReason.value = '';
 }

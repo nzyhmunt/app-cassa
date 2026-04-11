@@ -86,6 +86,12 @@ describe('no users configured (open access)', () => {
     const wrapper = mountSettingsModal();
     expect(wrapper.text()).toContain('Avvisi Audio');
   });
+
+  it('shows only "Aggiungi amministratore" button and not "Gestione Utenti" when no users configured', () => {
+    const wrapper = mountSettingsModal();
+    expect(wrapper.text()).toContain('Aggiungi amministratore');
+    expect(wrapper.text()).not.toContain('Gestione Utenti');
+  });
 });
 
 // ── Admin user logged in ──────────────────────────────────────────────────────
@@ -114,6 +120,13 @@ describe('admin user logged in', () => {
     const wrapper = mountSettingsModal();
     await flushPromises();
     expect(wrapper.text()).toContain('Ripristina dati di default');
+  });
+
+  it('shows "Gestione Utenti" button and not "Aggiungi amministratore" when admin is logged in', async () => {
+    const wrapper = mountSettingsModal();
+    await flushPromises();
+    expect(wrapper.text()).toContain('Gestione Utenti');
+    expect(wrapper.text()).not.toContain('Aggiungi amministratore');
   });
 });
 

@@ -57,7 +57,7 @@ describe('useSettings()', () => {
     const { result, wrapper } = withSetup(() => useSettings(props, emit));
 
     expect(result.settings.value.sounds).toBe(true);
-    expect(result.settings.value.preventScreenLock).toBe(false);
+    expect(result.settings.value.preventScreenLock).toBe(true);
     expect(result.settings.value.customKeyboard).toBe('disabled');
     expect(typeof result.settings.value.menuUrl).toBe('string');
     wrapper.unmount();
@@ -100,7 +100,7 @@ describe('useSettings()', () => {
     const { result, wrapper } = withSetup(() => useSettings(props, emit));
 
     expect(result.settings.value.sounds).toBe(true);
-    expect(result.settings.value.preventScreenLock).toBe(false);
+    expect(result.settings.value.preventScreenLock).toBe(true);
     wrapper.unmount();
   });
 

@@ -53,18 +53,42 @@ export const appConfig = {
 
   // CONFIGURAZIONE DINAMICA METODI PAGAMENTO CASSA
   paymentMethods: [
-    { id: 'cash', label: 'Contanti', icon: 'banknote', colorClass: 'border-emerald-500 text-emerald-600 hover:bg-emerald-50' },
-    { id: 'card', label: 'Pos/Carta', icon: 'credit-card', colorClass: 'theme-bg text-white border-transparent hover:opacity-90 shadow-md' },
+    { id: 'cash', label: 'Contanti', icon: 'banknote', colorClass: 'bg-emerald-600 hover:bg-emerald-700 text-white' },
+    { id: 'card', label: 'Pos/Carta', icon: 'credit-card', colorClass: 'theme-bg text-white hover:opacity-90' },
   ],
 
-  tables: [
-    { id: "01", label: "01", covers: 2 }, { id: "02", label: "02", covers: 2 },
-    { id: "03", label: "03", covers: 4 }, { id: "04", label: "04", covers: 4 },
-    { id: "05", label: "05", covers: 6 }, { id: "06", label: "06", covers: 2 },
-    { id: "07", label: "07", covers: 2 }, { id: "08", label: "08", covers: 8 },
-    { id: "09", label: "09", covers: 4 }, { id: "10", label: "10", covers: 4 },
-    { id: "11", label: "11", covers: 2 }, { id: "12", label: "12", covers: 2 },
+  // CONFIGURAZIONE SALE — ogni sala raggruppa un sottoinsieme di tavoli.
+  // Se è presente una sola sala, la UI non mostra le tab di selezione sala.
+  // Se sono presenti più sale, la mappa tavoli (App Cassa e App Sala) mostra
+  // una tab per ogni sala; lo switch tra tab filtra i tavoli visualizzati
+  // mantenendo le statistiche globali nel banner in cima.
+  //
+  // Struttura di ogni sala:
+  //   id:     identificatore univoco usato internamente (stringa, es. 'sala', 'terrazza')
+  //   label:  nome visualizzato nella tab (es. 'Sala Interna', 'Terrazza')
+  //   tables: array di tavoli { id, label, covers } — ogni id deve essere globalmente univoco
+  //
+  // NOTA: `appConfig.tables` è derivato automaticamente da `rooms` e contiene
+  //   la lista piatta di tutti i tavoli; non modificare `tables` direttamente.
+  rooms: [
+    {
+      id: 'sala', label: 'Sala', tables: [
+        { id: "01", label: "01", covers: 2 }, { id: "02", label: "02", covers: 2 },
+        { id: "03", label: "03", covers: 4 }, { id: "04", label: "04", covers: 4 },
+        { id: "05", label: "05", covers: 6 }, { id: "06", label: "06", covers: 2 },
+      ],
+    },
+    {
+      id: 'terrazza', label: 'Terrazza', tables: [
+        { id: "07", label: "07", covers: 2 }, { id: "08", label: "08", covers: 8 },
+        { id: "09", label: "09", covers: 4 }, { id: "10", label: "10", covers: 4 },
+        { id: "11", label: "11", covers: 2 }, { id: "12", label: "12", covers: 2 },
+      ],
+    },
   ],
+  // Flat list of all tables derived from rooms — used by store internals and backward-compat code.
+  // Do not edit manually: it is generated at module load time.
+  tables: [],
 
   // CONFIGURAZIONE COPERTO
   // enabled: abilita/disabilita il coperto automatico
@@ -83,6 +107,48 @@ export const appConfig = {
     dishId: 'coperto',
     name: 'Coperto',
   },
+
+  // CONFIGURAZIONE STAMPANTI (coda di stampa comande/ordini)
+  // Ciascuna stampante punta a un servizio Node separato che gestisce la
+  // comunicazione ESC/POS verso la stampante fisica.
+  //
+  // Struttura di ogni stampante:
+  //   id:         identificatore univoco (stringa, es. 'cucina', 'bar')
+  //   name:       nome descrittivo (usato nell'interfaccia e nei log)
+  //   url:        URL del servizio di stampa Node (es. 'http://localhost:3001/print')
+  //   categories: array di nomi di categorie del menu da instradare su questa
+  //               stampante (confronto case-insensitive). Se vuoto o assente,
+  //               la stampante è catch-all per le voci (solo per tipo 'order').
+  //   printTypes: array di tipi di stampa che questa stampante accetta:
+  //               'order'      → comanda cucina/bar
+  //               'table_move' → notifica spostamento tavolo
+  //               'pre_bill'   → preconto inviato manualmente dalla Cassa
+  //               Se vuoto o assente, la stampante accetta tutti i tipi (catch-all).
+  //
+  // Esempio configurazione multi-stampante:
+  //   printers: [
+  //     { id: 'cucina', name: 'Cucina', url: 'http://localhost:3001/print',
+  //       printTypes: ['order'],
+  //       categories: ['Antipasti', 'Primi', 'Secondi', 'Contorni'] },
+  //     { id: 'bar',    name: 'Bar',    url: 'http://localhost:3002/print',
+  //       printTypes: ['order'],
+  //       categories: ['Bevande', 'Digestivi'] },
+  //     { id: 'cassa',  name: 'Cassa',  url: 'http://localhost:3003/print',
+  //       printTypes: ['pre_bill', 'table_move'] },
+  //   ],
+  //
+  // Stampante di prova (catch-all, riceve tutti i tipi e tutte le voci):
+  // Attiva per default — punta al servizio Node ESC/POS locale sulla porta 3001.
+  // Rimuovere o sostituire con la configurazione del locale prima del deployment in produzione.
+  printers: [
+    {
+      id: 'demo',
+      name: 'Stampante Demo',
+      url: 'http://localhost:3001/print',
+      // printTypes assente → catch-all (riceve order, table_move, pre_bill)
+      // categories assente  → catch-all (riceve tutte le voci del menu)
+    },
+  ],
 
   // CONFIGURAZIONE GESTIONE ORDINI
   // rejectionReasons: elenco delle voci predefinite mostrate nel dialog di conferma rifiuto.
@@ -177,6 +243,12 @@ export const appConfig = {
     },
   ],
 };
+
+// Derive flat tables list from rooms — kept in sync at module load time.
+// All store/component code that needs the full table list reads appConfig.tables.
+appConfig.tables = Array.isArray(appConfig.rooms)
+  ? appConfig.rooms.flatMap(r => r.tables || [])
+  : (Array.isArray(appConfig.tables) ? appConfig.tables : []);
 
 /**
  * Returns a stable, unique string key for a closed bill.

@@ -2,11 +2,21 @@
   <!-- WORKSPACE: MAPPA SALA -->
   <div class="flex-1 flex flex-col bg-gray-100/80 overflow-y-auto p-4 md:p-8 relative min-h-0">
     <div class="max-w-6xl mx-auto w-full">
-      <div class="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-2 mb-4 md:mb-6">
+      <div class="flex flex-row justify-between items-center gap-2 mb-4 md:mb-6">
         <h2 class="text-xl md:text-2xl font-black text-gray-800 flex items-center gap-2 md:gap-3">
           <Grid3x3 class="text-gray-500 size-6 md:size-8" /> Mappa Sala
         </h2>
-        <div class="flex items-center gap-3">
+        <div class="flex items-center gap-2">
+          <!-- Cronologia Stampe button — only shown when printers are configured -->
+          <button
+            v-if="store.config.printers?.length"
+            @click="showPrintHistory = true"
+            class="flex items-center gap-1.5 text-[10px] md:text-xs font-bold text-violet-700 bg-violet-50 hover:bg-violet-100 border border-violet-200 px-3 py-2 rounded-xl transition-colors shadow-sm active:scale-95"
+            title="Cronologia Stampe"
+            aria-label="Cronologia Stampe"
+          >
+            <Printer class="size-4" /> <span>Stampe</span>
+          </button>
           <!-- Storico Conti button -->
           <router-link
             to="/storico-conti"
@@ -14,39 +24,86 @@
             title="Cronologia Conti Chiusi"
             aria-label="Storico Conti"
           >
-            <History class="size-4" /> <span class="hidden sm:inline">Storico Conti</span>
+            <History class="size-4" /> <span>Storico Conti</span>
           </router-link>
-          <!-- Legenda -->
-          <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] font-bold uppercase text-gray-500">
-            <span class="flex items-center gap-1"><span class="size-3 rounded-full border-2 border-emerald-400 bg-emerald-100"></span> Libero</span>
-            <span class="flex items-center gap-1"><span class="size-3 rounded-full border-2 border-amber-400 bg-amber-100"></span> Ordini in Attesa</span>
-            <span class="flex items-center gap-1"><span class="size-3 rounded-full border-2 border-blue-400 bg-blue-100"></span> Conto Richiesto</span>
-            <span class="flex items-center gap-1"><span class="size-3 rounded-full theme-bg border-2 border-white shadow-sm"></span> Occupato / In Cassa</span>
-          </div>
         </div>
       </div>
 
-      <!-- Riepilogo stato tavoli -->
-      <TableStatsBar
-        :freeCount="freeTablesCount"
-        :occupiedCount="occupiedTablesCount"
-        :pendingCount="pendingTablesCount"
-      />
+      <!-- Riepilogo stato tavoli + Tab Sala + Filtri stato — tutto nella stessa barra -->
+      <div class="flex flex-wrap items-center gap-2 mb-4 md:mb-5 overflow-x-auto pb-1 -mx-1 px-1">
+        <!-- Room tabs — visibili solo quando sono configurate più sale -->
+        <template v-if="store.rooms.length > 1">
+          <!-- Tutti -->
+          <button
+            @click="activeRoomId = 'all'; activeStatusFilter = null"
+            class="shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl font-bold text-xs transition-all active:scale-95"
+            :class="activeRoomId === 'all'
+              ? 'theme-bg text-white shadow-md'
+              : 'bg-white text-gray-600 border border-gray-200 hover:border-gray-300 shadow-sm'"
+          >
+            <Grid3x3 class="size-3 shrink-0" />
+            <span>Tutti</span>
+            <span class="text-[10px] font-black opacity-70">{{ store.config.tables.length }}</span>
+          </button>
+          <!-- Singole sale -->
+          <button
+            v-for="room in store.rooms"
+            :key="room.id"
+            @click="activeRoomId = room.id; activeStatusFilter = null"
+            class="shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl font-bold text-xs transition-all active:scale-95"
+            :class="activeRoomId === room.id
+              ? 'theme-bg text-white shadow-md'
+              : 'bg-white text-gray-600 border border-gray-200 hover:border-gray-300 shadow-sm'"
+          >
+            <Grid3x3 class="size-3 shrink-0" />
+            <span>{{ room.label }}</span>
+            <span class="text-[10px] font-black opacity-70">{{ room.tables.length }}</span>
+          </button>
+          <!-- Divisore -->
+          <span class="w-px h-5 bg-gray-300 shrink-0 self-center"></span>
+        </template>
 
-      <!-- Griglia Tavoli -->
-      <TableGrid @open-table="openTableDetails">
-        <template #status="{ table }">
+        <!-- Filtri stato tavoli -->
+        <TableStatsBar
+          :freeCount="freeTablesCount"
+          :occupiedCount="occupiedTablesCount"
+          :pendingCount="pendingTablesCount"
+          :paidCount="paidTablesCount"
+          :billRequestedCount="billRequestedTablesCount"
+          :activeFilter="activeStatusFilter"
+          @update:activeFilter="onStatusFilterChange"
+        />
+      </div>
+
+      <!-- Griglia Tavoli — vista "Tutti" raggruppata per sala -->
+      <template v-if="activeRoomId === 'all' && store.rooms.length > 1">
+        <div v-for="room in store.rooms" :key="room.id" class="mb-6 last:mb-0">
+          <p class="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-2 px-0.5">{{ room.label }}</p>
+          <TableGrid :tables="filteredTablesForRoom(room)" @open-table="openTableDetails">
+            <template #status="{ table, tableStatus }">
+              <span class="block text-[8px] md:text-[10px] font-bold uppercase tracking-widest opacity-80 mb-0.5 md:mb-1 truncate">
+                {{ tableStatus.status === 'pending' ? 'In Attesa' : tableStatus.status === 'paid' ? 'Saldato' : tableStatus.status === 'bill_requested' ? 'Conto!' : 'Occupato' }}
+              </span>
+              <span class="block font-black text-sm md:text-lg bg-white/20 rounded-md md:rounded-lg py-0.5 px-1 truncate">
+                {{ store.config.ui.currency }}{{ tableStatus.remaining.toFixed(2) }}
+              </span>
+            </template>
+          </TableGrid>
+        </div>
+      </template>
+
+      <!-- Griglia Tavoli — vista singola sala -->
+      <TableGrid v-else :tables="activeRoomTables" @open-table="openTableDetails">
+        <template #status="{ table, tableStatus }">
           <span class="block text-[8px] md:text-[10px] font-bold uppercase tracking-widest opacity-80 mb-0.5 md:mb-1 truncate">
-            {{ store.getTableStatus(table.id).status === 'pending' ? 'Attesa' : store.getTableStatus(table.id).status === 'conto_richiesto' ? 'Conto!' : 'In Cassa' }}
+            {{ tableStatus.status === 'pending' ? 'In Attesa' : tableStatus.status === 'paid' ? 'Saldato' : tableStatus.status === 'bill_requested' ? 'Conto!' : 'Occupato' }}
           </span>
           <span class="block font-black text-sm md:text-lg bg-white/20 rounded-md md:rounded-lg py-0.5 px-1 truncate">
-            {{ store.config.ui.currency }}{{ store.getTableStatus(table.id).remaining.toFixed(2) }}
+            {{ store.config.ui.currency }}{{ tableStatus.remaining.toFixed(2) }}
           </span>
         </template>
       </TableGrid>
 
-      <!-- Riepilogo Conti Chiusi -->
-      <CassaClosedBillsList />
     </div>
   </div>
 
@@ -69,65 +126,186 @@
           <button v-if="tableOrders.some(o => o.status === 'accepted')"
             @click="toggleBillRequested"
             :class="store.billRequestedTables.has(selectedTable.id) ? 'bg-blue-500 text-white' : 'bg-white/10 hover:bg-white/20 text-white'"
-            class="px-3 py-2 rounded-xl font-bold text-[10px] md:text-xs flex items-center gap-1.5 transition-all active:scale-95 shrink-0"
-            title="Segna Conto Richiesto">
-            <Receipt class="size-4" /> <span class="hidden sm:inline">{{ store.billRequestedTables.has(selectedTable.id) ? 'Conto Richiesto' : 'Richiedi Conto' }}</span>
+            class="p-2 sm:px-3 sm:py-2 rounded-xl font-bold text-[10px] md:text-xs flex items-center gap-1.5 transition-all active:scale-95 shrink-0"
+            :title="store.billRequestedTables.has(selectedTable.id) ? 'Conto richiesto' : 'Segna Conto Richiesto'"
+            :aria-label="store.billRequestedTables.has(selectedTable.id) ? 'Conto richiesto' : 'Segna conto richiesto'"
+            :aria-pressed="store.billRequestedTables.has(selectedTable.id)">
+            <Receipt class="size-4" /> <span class="hidden sm:inline">Conto</span>
           </button>
-          <!-- Sposta button -->
-          <button v-if="tableOrders.length > 0" @click="openMoveModal"
-            class="bg-white/10 hover:bg-white/20 px-3 py-2 rounded-xl font-bold text-[10px] md:text-xs flex items-center gap-1.5 transition-all active:scale-95 shrink-0"
+          <!-- Sposta button: visible when not a slave -->
+          <button v-if="tableOrders.length > 0 && !selectedTableMasterTableId" @click="openMoveModal"
+            class="bg-white/10 hover:bg-white/20 p-2 sm:px-3 sm:py-2 rounded-xl font-bold text-[10px] md:text-xs flex items-center gap-1.5 transition-all active:scale-95 shrink-0"
             title="Sposta Tavolo">
             <ArrowRightLeft class="size-4" /> <span class="hidden sm:inline">Sposta</span>
           </button>
-          <!-- Unisci button -->
-          <button v-if="tableOrders.length > 0" @click="openMergeModal"
-            class="bg-white/10 hover:bg-white/20 px-3 py-2 rounded-xl font-bold text-[10px] md:text-xs flex items-center gap-1.5 transition-all active:scale-95 shrink-0"
+          <!-- Unisci button: visible when not a slave -->
+          <button v-if="tableOrders.length > 0 && !selectedTableMasterTableId" @click="openMergeModal"
+            class="bg-white/10 hover:bg-white/20 p-2 sm:px-3 sm:py-2 rounded-xl font-bold text-[10px] md:text-xs flex items-center gap-1.5 transition-all active:scale-95 shrink-0"
             title="Unisci con altro Tavolo">
             <Merge class="size-4" /> <span class="hidden sm:inline">Unisci</span>
           </button>
+          <!-- Dividi button: visible when this table has slaves OR when it has active orders
+               (single-table split). Hidden when table is itself a slave (managed from master).
+               Disabled when there are pending (not yet accepted) orders. The tooltip is placed
+               on the wrapper span so it remains visible even when the button is disabled
+               (browsers typically suppress title on disabled elements). -->
+          <span
+            v-if="tableOrders.length > 0 && !selectedTableMasterTableId"
+            :title="hasPendingOrdersInTable ? 'Impossibile dividere: ci sono ordini in attesa' : slaveTables.length > 0 ? 'Dividi Tavoli Uniti' : 'Dividi Conto per Voce'"
+            class="shrink-0">
+            <button @click="openSplitModal"
+              class="bg-orange-500/80 hover:bg-orange-500 p-2 sm:px-3 sm:py-2 rounded-xl font-bold text-[10px] md:text-xs flex items-center gap-1.5 transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none"
+              :disabled="hasPendingOrdersInTable">
+              <Split class="size-4" /> <span class="hidden sm:inline">Dividi</span>
+            </button>
+          </span>
           <!-- Storico Conti button -->
           <router-link
             to="/storico-conti"
             @click="closeTableModal"
-            class="bg-white/10 hover:bg-white/20 px-3 py-2 rounded-xl font-bold text-[10px] md:text-xs flex items-center gap-1.5 transition-all active:scale-95 shrink-0 text-white"
+            class="bg-white/10 hover:bg-white/20 p-2 sm:px-3 sm:py-2 rounded-xl font-bold text-[10px] md:text-xs flex items-center gap-1.5 transition-all active:scale-95 shrink-0 text-white"
             title="Cronologia Conti Chiusi"
-            aria-label="Storico Conti"
+            aria-label="Storico"
           >
-            <History class="size-4" /> <span class="hidden lg:inline">Storico Conti</span>
+            <History class="size-4" /> <span class="hidden sm:inline">Storico</span>
           </router-link>
           <button @click="closeTableModal" class="bg-white/10 hover:bg-white/20 p-2 md:p-2.5 rounded-full transition-colors active:scale-95"><X class="size-5 md:size-6" /></button>
         </div>
       </div>
 
-      <div class="flex flex-1 min-h-0 flex-col lg:flex-row">
+      <!-- Banner: slave table merged into a master -->
+      <div v-if="selectedTableMasterTable" class="shrink-0 bg-orange-50 border-b border-orange-200 px-4 py-2 flex items-center gap-2 text-xs text-orange-800 font-medium">
+        <Link class="size-4 shrink-0 text-orange-500" />
+        <span>Questo tavolo è unito al Tavolo <strong>{{ selectedTableMasterTable.label }}</strong>. Il conto è gestito dal tavolo principale.</span>
+      </div>
+
+      <!-- Banner: master table with slaves merged in -->
+      <div v-else-if="slaveTables.length > 0" class="shrink-0 bg-blue-50 border-b border-blue-200 px-4 py-2 flex items-center gap-2 text-xs text-blue-800 font-medium">
+        <Merge class="size-4 shrink-0 text-blue-500" />
+        <span>Tavoli uniti: <strong>{{ slaveTables.map(t => `T.${t.label}`).join(', ') }}</strong>. Il conto include tutti gli ordini.</span>
+      </div>
+
+      <div class="flex flex-1 min-h-0 flex-col sm:flex-row">
 
         <!-- PANNELLO SINISTRO: Riepilogo Comande e Storni dalla Cassa -->
-        <div class="w-full lg:w-[55%] border-b lg:border-b-0 lg:border-r border-gray-200 bg-gray-50 flex flex-col h-[42%] shrink-0 overflow-hidden lg:h-auto lg:shrink lg:flex-1">
-          <div class="p-3 md:p-4 bg-white border-b border-gray-200 shrink-0 flex items-center gap-2">
-            <span class="font-bold text-gray-700 text-xs md:text-sm uppercase tracking-wider shrink-0">Riepilogo Voci</span>
-            <!-- Vista switch (inline in header) -->
-            <div class="flex bg-gray-100 p-0.5 rounded-xl gap-0.5 flex-1 mx-1">
+        <div class="w-full sm:w-[55%] border-b sm:border-b-0 sm:border-r border-gray-200 bg-gray-50 flex flex-col h-[42%] shrink-0 overflow-hidden sm:h-auto sm:shrink sm:flex-1">
+          <div class="p-2 lg:p-3 bg-white border-b border-gray-200 shrink-0 flex items-center gap-1.5 overflow-hidden">
+            <span class="hidden lg:block font-bold text-gray-700 text-xs uppercase tracking-wider shrink-0">Riepilogo Voci</span>
+            <!-- Vista switch (inline in header) — hidden in analitica/ordini mode -->
+            <div v-if="checkoutMode !== 'analitica' && checkoutMode !== 'ordini'" class="flex bg-gray-100 p-0.5 rounded-xl gap-0.5 flex-1 min-w-0">
               <button @click="cassaViewMode = 'voce'"
                 :class="cassaViewMode === 'voce' ? 'bg-white shadow text-gray-900 border border-gray-200' : 'text-gray-500 hover:bg-gray-200/50'"
-                class="flex-1 py-1 px-1.5 text-[9px] md:text-[10px] font-bold rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1">
-                <LayoutGrid class="size-3 shrink-0" /> Per Voce
+                aria-label="Vista per voce"
+                class="flex-1 py-1.5 px-2 text-[10px] font-bold rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1 min-w-0">
+                <LayoutGrid class="size-3.5 shrink-0" /> <span>Per Voce</span>
               </button>
               <button @click="cassaViewMode = 'ordine'"
                 :class="cassaViewMode === 'ordine' ? 'bg-white shadow text-gray-900 border border-gray-200' : 'text-gray-500 hover:bg-gray-200/50'"
-                class="flex-1 py-1 px-1.5 text-[9px] md:text-[10px] font-bold rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1">
-                <ListOrdered class="size-3 shrink-0" /> Per Ordine
+                aria-label="Vista per ordine"
+                class="flex-1 py-1.5 px-2 text-[10px] font-bold rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1 min-w-0">
+                <ListOrdered class="size-3.5 shrink-0" /> <span>Per Ordine</span>
               </button>
             </div>
-            <button @click="openDirectItemModal" class="theme-bg hover:opacity-90 text-white px-3 py-2 rounded-lg text-xs md:text-sm font-bold flex items-center gap-1.5 active:scale-95 shadow-sm transition-opacity shrink-0" title="Aggiungi voci direttamente al conto senza passare per la cucina">
-              <Zap class="size-4 md:size-5" /> <span class="hidden sm:inline">Diretto</span>
+            <!-- Comanda mode header: selection hint -->
+            <div v-else-if="checkoutMode === 'ordini'" class="flex-1 min-w-0 flex items-center gap-1.5 text-[10px] font-bold text-purple-600 bg-purple-50 border border-purple-200 px-2 py-1.5 rounded-xl overflow-hidden">
+              <ListChecks class="size-3.5 shrink-0" /> <span class="truncate hidden sm:inline">Tocca per selezionare</span>
+            </div>
+            <!-- Analitica mode header: select-all toggle -->
+            <button
+              v-else-if="flatAnaliticaItems.length > 0"
+              @click="toggleSelectAllVoci"
+              class="flex-1 min-w-0 text-[10px] font-bold text-teal-700 bg-teal-50 border border-teal-200 px-2 py-1.5 rounded-xl hover:bg-teal-100 active:scale-95 transition-all truncate"
+            >{{ flatAnaliticaItems.every(i => (analiticaQty[i.key] || 0) === i.netQty) ? 'Deseleziona' : 'Seleziona Tutto' }}</button>
+            <div v-else class="flex-1 min-w-0"></div>
+            <button @click="openDirectItemModal" aria-label="Aggiungi voce diretta" class="theme-bg hover:opacity-90 text-white p-2 sm:px-3 sm:py-2 rounded-lg text-[10px] md:text-xs font-bold flex items-center gap-1.5 active:scale-95 shadow-sm transition-opacity shrink-0" title="Aggiungi voci direttamente al conto senza passare per la cucina">
+              <Zap class="size-4 shrink-0" /> <span class="hidden sm:inline">Diretto</span>
             </button>
-            <button @click="createNewOrderForTable" class="bg-gray-900 hover:bg-black text-white px-3 py-2 rounded-lg text-xs md:text-sm font-bold flex items-center gap-1.5 active:scale-95 shadow-sm transition-colors shrink-0">
-              <Plus class="size-4 md:size-5" /> <span class="hidden sm:inline">Comanda</span>
+            <button @click="createNewOrderForTable" aria-label="Crea nuova comanda" class="bg-gray-900 hover:bg-black text-white p-2 sm:px-3 sm:py-2 rounded-lg text-[10px] md:text-xs font-bold flex items-center gap-1.5 active:scale-95 shadow-sm transition-colors shrink-0">
+              <Plus class="size-4 shrink-0" /> <span class="hidden sm:inline">Comanda</span>
             </button>
           </div>
 
+          <!-- ══ ANALITICA MODE: per-item steppers in left panel ══════════════ -->
+          <div v-if="checkoutMode === 'analitica'" class="flex-1 overflow-y-auto p-2 md:p-4">
+            <div v-if="flatAnaliticaItems.length === 0" class="text-center text-gray-400 py-8">
+              <Coffee class="size-10 mx-auto mb-2 opacity-30" />
+              <p class="text-sm font-medium">Nessuna voce disponibile o da pagare.</p>
+            </div>
+            <div v-else class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+              <template v-for="voce in flatAnaliticaItems" :key="'av_'+voce.key">
+                <!-- Modifier sub-row (indented, purple) -->
+                <div
+                  v-if="voce.isModifier"
+                  class="flex items-center pl-10 pr-3 py-2 gap-2 bg-purple-50/40 border-b border-gray-100 last:border-0"
+                  :class="voce.netQty <= 0 ? 'opacity-40' : ''"
+                >
+                  <div class="flex items-center gap-2 flex-1 min-w-0">
+                    <span class="font-bold w-6 shrink-0 text-center text-[10px] text-purple-600">{{ voce.netQty }}x</span>
+                    <span class="text-[10px] md:text-xs font-bold text-purple-700 truncate">
+                      + {{ voce.name }} (+{{ store.config.ui.currency }}{{ voce.unitPrice.toFixed(2) }})
+                    </span>
+                  </div>
+                  <span class="font-black text-[11px] text-purple-700 shrink-0 w-10 text-right">
+                    {{ store.config.ui.currency }}{{ ((analiticaQty[voce.key] || 0) * voce.unitPrice).toFixed(2) }}
+                  </span>
+                  <div class="flex items-center gap-0.5 shrink-0">
+                    <button @click="decrementAnalitica(voce.key)"
+                      :aria-label="`Diminuisci ${voce.name}`"
+                      :disabled="(analiticaQty[voce.key] || 0) === 0"
+                      class="p-1 bg-white border border-purple-200 text-purple-600 hover:bg-purple-50 rounded shadow-sm transition-colors active:scale-95 disabled:opacity-30">
+                      <Minus class="size-3" />
+                    </button>
+                    <span class="w-5 text-center text-xs font-black text-purple-800 tabular-nums">{{ analiticaQty[voce.key] || 0 }}</span>
+                    <button @click="incrementAnalitica(voce.key, voce.netQty)"
+                      :aria-label="`Aumenta ${voce.name}`"
+                      :disabled="(analiticaQty[voce.key] || 0) >= voce.netQty"
+                      class="p-1 bg-white border border-purple-200 text-purple-600 hover:bg-purple-50 rounded shadow-sm transition-colors active:scale-95 disabled:opacity-30">
+                      <Plus class="size-3" />
+                    </button>
+                  </div>
+                </div>
+
+                <!-- Base item row -->
+                <div
+                  v-else
+                  class="flex items-center justify-between px-3 py-2.5 gap-2 border-b border-gray-100 last:border-0"
+                  :class="voce.netQty <= 0 ? 'opacity-40' : ''"
+                >
+                  <div class="flex items-center gap-2 flex-1 min-w-0">
+                    <span class="font-black w-7 shrink-0 text-center text-[11px] md:text-sm text-gray-700">{{ voce.netQty }}x</span>
+                    <div class="flex flex-col min-w-0">
+                      <span class="font-bold text-gray-800 text-xs md:text-sm truncate flex items-center gap-1">
+                        {{ voce.name }}
+                        <Zap v-if="voce.isDirectEntry" class="size-2.5 theme-text shrink-0" title="Voce Diretta" />
+                      </span>
+                      <span class="text-[10px] text-gray-400 font-medium">{{ store.config.ui.currency }}{{ voce.unitPrice.toFixed(2) }}/cad</span>
+                    </div>
+                  </div>
+                  <div class="flex items-center gap-1 shrink-0">
+                    <span class="font-black text-[12px] md:text-sm shrink-0 w-12 text-right" :class="(analiticaQty[voce.key] || 0) > 0 ? 'text-teal-700' : 'text-gray-300'">
+                      {{ store.config.ui.currency }}{{ ((analiticaQty[voce.key] || 0) * voce.unitPrice).toFixed(2) }}
+                    </span>
+                    <button @click="decrementAnalitica(voce.key)"
+                      :aria-label="`Diminuisci quantità di ${voce.name}`"
+                      :disabled="(analiticaQty[voce.key] || 0) === 0"
+                      class="p-1.5 bg-white border border-teal-200 text-teal-600 hover:bg-teal-50 rounded shadow-sm transition-colors active:scale-95 disabled:opacity-30">
+                      <Minus class="size-4" />
+                    </button>
+                    <span class="w-6 text-center text-sm font-black text-teal-800 tabular-nums">{{ analiticaQty[voce.key] || 0 }}</span>
+                    <button @click="incrementAnalitica(voce.key, voce.netQty)"
+                      :aria-label="`Aumenta quantità di ${voce.name}`"
+                      :disabled="(analiticaQty[voce.key] || 0) >= voce.netQty"
+                      class="p-1.5 bg-white border border-teal-200 text-teal-600 hover:bg-teal-50 rounded shadow-sm transition-colors active:scale-95 disabled:opacity-30">
+                      <Plus class="size-4" />
+                    </button>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </div>
+
           <!-- ══ VISTA: PER VOCE (menu raggruppato) ══════════════════════════ -->
-          <div v-if="cassaViewMode === 'voce'" class="flex-1 overflow-y-auto p-2 md:p-4">
+          <div v-else-if="cassaViewMode === 'voce'" class="flex-1 overflow-y-auto p-2 md:p-4">
             <div v-if="tableMenuGrouped.length === 0" class="text-center text-gray-400 py-8">
               <Coffee class="size-10 mx-auto mb-2 opacity-30" />
               <p class="text-sm font-medium">{{ tableOrders.length === 0 ? 'Il tavolo è libero.' : 'Nessuna comanda ancora accettata.' }}</p>
@@ -190,11 +368,29 @@
             </div>
 
             <!-- Card Singolo Ordine (Mappa Cassa) -->
-            <div v-for="ord in tableOrders" :key="'cas_'+ord.id" class="bg-white p-3 rounded-xl border shadow-sm relative overflow-hidden group" :class="ord.status === 'pending' ? 'border-amber-200 bg-amber-50/30' : 'border-gray-200'">
+            <div v-for="ord in tableOrders" :key="'cas_'+ord.id"
+              class="bg-white p-3 rounded-xl border shadow-sm relative overflow-hidden group transition-all"
+              :class="[
+                checkoutMode === 'ordini' && KITCHEN_ACTIVE_STATUSES.includes(ord.status)
+                  ? selectedOrdersToPay.includes(ord.id)
+                    ? 'border-purple-400 bg-purple-50/40 ring-2 ring-purple-300 cursor-pointer'
+                    : 'border-purple-200 hover:border-purple-300 hover:bg-purple-50/20 cursor-pointer'
+                  : ord.status === 'pending' ? 'border-amber-200 bg-amber-50/30' : 'border-gray-200'
+              ]"
+              @click="checkoutMode === 'ordini' && KITCHEN_ACTIVE_STATUSES.includes(ord.status) && !$event.target.closest('button, a, input, select, textarea, label') ? toggleOrderSelection(ord.id) : null"
+            >
 
               <div class="flex justify-between items-center border-b border-gray-100 pb-2 mb-3 pl-1">
                 <div class="flex items-center gap-3">
-                  <button v-if="ord.status === 'pending'" @click="$emit('open-order-from-table', ord)" class="p-2 md:p-2.5 text-[var(--brand-primary)] bg-[var(--brand-primary)]/10 hover:bg-[var(--brand-primary)]/20 border border-[var(--brand-primary)]/20 rounded-xl transition-all active:scale-95 flex items-center justify-center shadow-sm shrink-0" title="Modifica in vista Ordini">
+                  <!-- Comanda mode: selection checkbox indicator -->
+                  <div v-if="checkoutMode === 'ordini' && KITCHEN_ACTIVE_STATUSES.includes(ord.status)"
+                    class="size-7 rounded-full border-2 flex items-center justify-center shrink-0 transition-all"
+                    :class="selectedOrdersToPay.includes(ord.id)
+                      ? 'border-purple-500 bg-purple-500 text-white'
+                      : 'border-purple-300 bg-white text-transparent'">
+                    <CheckCircle class="size-4" />
+                  </div>
+                  <button v-else-if="ord.status === 'pending'" @click.stop="$emit('open-order-from-table', ord)" class="p-2 md:p-2.5 text-[var(--brand-primary)] bg-[var(--brand-primary)]/10 hover:bg-[var(--brand-primary)]/20 border border-[var(--brand-primary)]/20 rounded-xl transition-all active:scale-95 flex items-center justify-center shadow-sm shrink-0" title="Modifica in vista Ordini">
                     <Edit class="size-5" />
                   </button>
                   <div class="flex flex-col">
@@ -205,7 +401,7 @@
                   </div>
                 </div>
                 <div class="text-right">
-                  <span class="font-black text-lg md:text-xl" :class="ord.status === 'pending' ? 'text-amber-700' : 'theme-text'">{{ store.config.ui.currency }}{{ ord.totalAmount.toFixed(2) }}</span>
+                  <span class="font-black text-lg md:text-xl" :class="checkoutMode === 'ordini' && selectedOrdersToPay.includes(ord.id) ? 'text-purple-700' : ord.status === 'pending' ? 'text-amber-700' : 'theme-text'">{{ store.config.ui.currency }}{{ ord.totalAmount.toFixed(2) }}</span>
                 </div>
               </div>
 
@@ -277,202 +473,235 @@
         </div>
 
         <!-- PANNELLO DESTRA: Area Checkout e Transazioni -->
-        <div class="w-full lg:w-[45%] bg-white flex flex-col relative z-20 shadow-[0_-10px_20px_rgba(0,0,0,0.05)] lg:shadow-none flex-1 min-h-0">
+        <div class="w-full sm:w-[45%] bg-white flex flex-col relative z-20 shadow-[0_-10px_20px_rgba(0,0,0,0.05)] sm:shadow-none flex-1 min-h-0">
 
-          <div class="p-4 md:p-6 flex-1 overflow-y-auto">
-            <div class="flex justify-between items-center mb-2">
-              <h4 class="font-bold text-gray-400 uppercase tracking-widest text-[10px] md:text-xs flex items-center gap-1">Conto Da Pagare <span class="bg-gray-200 text-gray-600 px-1.5 rounded-full text-[9px] uppercase">Rimanente Netto</span></h4>
-              <button @click="generateTableCheckoutJson('info')" class="text-blue-600 font-bold text-[10px] md:text-xs uppercase tracking-wider flex items-center gap-1.5 bg-blue-50 hover:bg-blue-100 px-3 py-2 rounded-lg border border-blue-200 transition-colors active:scale-95">
-                <Code class="size-4" /> <span class="hidden sm:inline">Json Scontrino</span>
+          <div class="p-2 sm:p-3 md:p-5 flex-1 overflow-y-auto">
+            <div class="flex justify-between items-center mb-1">
+              <h4 class="font-bold text-gray-400 uppercase tracking-widest text-[10px] flex items-center gap-1">Da Pagare <span class="hidden sm:inline bg-gray-200 text-gray-600 px-1.5 rounded-full text-[9px] uppercase">Netto</span></h4>
+              <button @click="generateTableCheckoutJson()" class="text-blue-600 font-bold text-[10px] uppercase tracking-wider flex items-center gap-1.5 bg-blue-50 hover:bg-blue-100 p-2 sm:px-2.5 sm:py-1.5 rounded-lg border border-blue-200 transition-colors active:scale-95">
+                <Code class="size-3.5" /> <span class="hidden sm:inline">JSON</span>
               </button>
             </div>
 
             <!-- Cifra Cassa Dinamica -->
-            <div class="mb-2">
-              <div class="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-0.5">Totale conto: <span class="text-gray-600">{{ store.config.ui.currency }}{{ tableTotalAmount.toFixed(2) }}</span></div>
-              <div class="text-5xl md:text-6xl font-black text-gray-900">{{ store.config.ui.currency }}{{ tableAmountRemaining.toFixed(2) }}</div>
+            <div class="mb-1">
+              <div v-if="tableTransactions.length > 0" class="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Totale: <span class="text-gray-600">{{ store.config.ui.currency }}{{ tableTotalAmount.toFixed(2) }}</span></div>
+              <div class="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-black text-gray-900 leading-none">{{ store.config.ui.currency }}{{ tableAmountRemaining.toFixed(2) }}</div>
             </div>
 
             <!-- Storico Transazioni -->
-            <div v-if="tableTransactions.length > 0" class="mb-5 space-y-2">
-              <h5 class="text-[10px] font-bold text-gray-400 uppercase tracking-wider border-b border-gray-100 pb-1">Storico Pagamenti Effettuati:</h5>
+            <div v-if="tableTransactions.length > 0" class="mb-3 space-y-1.5">
+              <h5 class="text-[10px] font-bold text-gray-400 uppercase tracking-wider border-b border-gray-100 pb-0.5">Pagamenti:</h5>
               <div v-for="(txn, tIdx) in tableTransactions" :key="txn.transactionId"
-                class="text-xs font-bold px-2.5 py-2 rounded-lg flex flex-col gap-1 shadow-sm border"
-                :class="txn.operationType === 'discount' ? 'bg-amber-50 border-amber-200 text-amber-700' : 'bg-emerald-50 border-emerald-200 text-emerald-700'">
-                <div class="flex items-center justify-between">
-                  <span class="flex items-center gap-1.5">
-                    <Tag v-if="txn.operationType === 'discount'" class="size-3.5" />
-                    <component v-else :is="getPaymentIcon(txn.paymentMethod)" class="size-3.5" />
-                    <span class="uppercase tracking-wider">{{ txn.paymentMethod }}</span>
-                    <span v-if="txn.operationType === 'romana'" class="text-[9px] opacity-70 font-medium">
-                      ({{ txn.splitQuota }}/{{ txn.splitWays }}<template v-if="(txn.romanaSplitCount || 1) > 1"> · {{ txn.romanaSplitCount }} quote</template>)
-                    </span>
-                    <span v-if="txn.operationType === 'discount'" class="text-[9px] opacity-70 font-medium">
-                      ({{ txn.discountType === 'percent' ? txn.discountValue + '%' : store.config.ui.currency + (txn.discountValue ?? 0).toFixed(2) }})
-                    </span>
-                  </span>
-                  <div class="text-right">
-                    <span class="font-black">
+                class="rounded-xl border overflow-hidden shadow-sm"
+                :class="txn.operationType === 'discount' ? 'border-amber-200' : 'border-emerald-200'">
+                <!-- Main row -->
+                <div class="flex items-center justify-between px-3 py-2.5"
+                  :class="txn.operationType === 'discount' ? 'bg-amber-50' : 'bg-emerald-50'">
+                  <div class="flex items-center gap-2 min-w-0">
+                    <div class="size-7 rounded-lg flex items-center justify-center shrink-0"
+                      :class="txn.operationType === 'discount' ? 'bg-amber-200 text-amber-700' : 'bg-emerald-200 text-emerald-700'">
+                      <Tag v-if="txn.operationType === 'discount'" class="size-3.5" />
+                      <component v-else :is="getPaymentIcon(txn.paymentMethod)" class="size-3.5" />
+                    </div>
+                    <div class="flex flex-col min-w-0">
+                      <span class="text-xs font-black uppercase tracking-wide"
+                        :class="txn.operationType === 'discount' ? 'text-amber-800' : 'text-emerald-800'">
+                        {{ txn.operationType === 'discount' ? 'Sconto' : txn.paymentMethod }}
+                      </span>
+                      <span class="text-[9px] font-medium"
+                        :class="txn.operationType === 'discount' ? 'text-amber-600' : 'text-emerald-600'">
+                        <template v-if="txn.operationType === 'romana'">Quota {{ txn.splitQuota }}/{{ txn.splitWays }}<template v-if="(txn.romanaSplitCount || 1) > 1"> · {{ txn.romanaSplitCount }} quote</template></template>
+                        <template v-else-if="txn.operationType === 'discount'">{{ txn.discountType === 'percent' ? txn.discountValue + '%' : store.config.ui.currency + (txn.discountValue ?? 0).toFixed(2) }}</template>
+                        <template v-else-if="txn.operationType === 'ordini'">Per Comanda</template>
+                        <template v-else-if="txn.operationType === 'analitica'">Analitica</template>
+                      </span>
+                    </div>
+                  </div>
+                  <div class="text-right shrink-0">
+                    <span class="font-black text-sm"
+                      :class="txn.operationType === 'discount' ? 'text-amber-800' : 'text-emerald-800'">
                       <span v-if="txn.operationType === 'discount'">-</span>{{ store.config.ui.currency }}{{ txn.amountPaid.toFixed(2) }}
                     </span>
-                    <div v-if="txn.grossAmount" class="text-[9px] font-medium opacity-70">Consegnato: {{ store.config.ui.currency }}{{ txn.grossAmount.toFixed(2) }}</div>
-                    <div v-if="txn.changeAmount" class="text-[9px] font-bold text-blue-600">Resto: -{{ store.config.ui.currency }}{{ txn.changeAmount.toFixed(2) }}</div>
-                    <div v-if="txn.tipAmount" class="text-[9px] font-bold text-purple-600">+{{ store.config.ui.currency }}{{ txn.tipAmount.toFixed(2) }} mancia</div>
                   </div>
                 </div>
-                <span class="text-[9px] font-medium opacity-80">{{ new Date(txn.timestamp).toLocaleTimeString(appConfig.locale, { hour: '2-digit', minute: '2-digit', timeZone: appConfig.timezone }) }} - ID: {{ txn.transactionId }}</span>
+                <!-- Secondary details row (change / tip / time) -->
+                <div class="flex items-center justify-between px-3 py-1.5 bg-white border-t"
+                  :class="txn.operationType === 'discount' ? 'border-amber-100' : 'border-emerald-100'">
+                  <span class="text-[9px] font-medium text-gray-400">
+                    {{ new Date(txn.timestamp).toLocaleTimeString(appConfig.locale, { hour: '2-digit', minute: '2-digit', timeZone: appConfig.timezone }) }}
+                  </span>
+                  <div class="flex items-center gap-2 text-[9px] font-bold">
+                    <span v-if="txn.grossAmount" class="text-gray-500">Consegnato {{ store.config.ui.currency }}{{ txn.grossAmount.toFixed(2) }}</span>
+                    <span v-if="txn.changeAmount" class="text-blue-600">Resto -{{ store.config.ui.currency }}{{ txn.changeAmount.toFixed(2) }}</span>
+                    <span v-if="txn.tipAmount" class="text-purple-600">+{{ store.config.ui.currency }}{{ txn.tipAmount.toFixed(2) }} mancia</span>
+                  </div>
+                </div>
               </div>
             </div>
-            <div v-else class="mb-5"></div>
+            <div v-else class="mb-1"></div>
 
-            <!-- Sconto (Discount) -->
-            <div v-if="discountsEnabled && tableAmountRemaining > 0 && isAdmin" class="mb-4 bg-amber-50 border border-amber-200 rounded-xl p-3 md:p-4">
-              <label class="block text-xs font-bold text-amber-800 uppercase mb-2 flex items-center gap-1.5">
-                <Tag class="size-3.5" /> Applica Sconto
-              </label>
-              <div class="flex gap-2 items-center">
-                <div class="flex bg-white border border-amber-200 rounded-xl overflow-hidden shrink-0">
-                  <button @click="discountType = 'percent'" :class="discountType === 'percent' ? 'bg-amber-500 text-white' : 'text-amber-700 hover:bg-amber-100'" class="px-3 py-2 text-xs font-bold transition-colors">
-                    %
-                  </button>
-                  <button @click="discountType = 'fixed'" :class="discountType === 'fixed' ? 'bg-amber-500 text-white' : 'text-amber-700 hover:bg-amber-100'" class="px-3 py-2 text-xs font-bold transition-colors">
-                    {{ store.config.ui.currency }}
+            <!-- Sconto (Discount) — collapsible toggle -->
+            <div v-if="discountsEnabled && tableAmountRemaining > 0 && isAdmin" class="mb-2">
+              <button @click="discountExpanded = !discountExpanded"
+                class="w-full flex items-center justify-between px-2 py-1.5 text-amber-700 bg-amber-50 hover:bg-amber-100 rounded-lg border border-amber-200 transition-colors text-[10px] font-bold">
+                <span class="flex items-center gap-1.5"><Tag class="size-3 shrink-0" /> Applica Sconto</span>
+                <ChevronDown :class="discountExpanded ? 'rotate-180' : ''" class="size-3.5 transition-transform shrink-0" />
+              </button>
+              <div v-if="discountExpanded" class="mt-1.5 bg-amber-50 border border-amber-200 rounded-xl p-2 sm:p-3">
+                <div class="flex gap-2 items-center">
+                  <div class="flex bg-white border border-amber-200 rounded-xl overflow-hidden shrink-0">
+                    <button @click="discountType = 'percent'" :class="discountType === 'percent' ? 'bg-amber-500 text-white' : 'text-amber-700 hover:bg-amber-100'" class="px-2.5 py-1.5 text-xs font-bold transition-colors">
+                      %
+                    </button>
+                    <button @click="discountType = 'fixed'" :class="discountType === 'fixed' ? 'bg-amber-500 text-white' : 'text-amber-700 hover:bg-amber-100'" class="px-2.5 py-1.5 text-xs font-bold transition-colors">
+                      {{ store.config.ui.currency }}
+                    </button>
+                  </div>
+                  <NumericInput
+                    v-model="discountInput"
+                    min="0"
+                    :max="discountType === 'percent' ? 100 : tableAmountRemaining"
+                    step="0.01"
+                    :placeholder="discountType === 'percent' ? 'Es. 10' : 'Es. 5.00'"
+                    :typeToggleLabels="['%', store.config.ui.currency]"
+                    :typeToggleIndex="discountType === 'percent' ? 0 : 1"
+                    @update:typeToggleIndex="i => discountType = i === 0 ? 'percent' : 'fixed'"
+                    class="flex-1 min-w-0 text-sm font-bold border border-amber-200 rounded-xl px-3 py-1.5 bg-white focus:outline-none focus:border-amber-400 text-amber-900"
+                  />
+                  <button
+                    @click="applyDiscount"
+                    :disabled="discountPreview <= 0"
+                    class="shrink-0 bg-amber-500 hover:bg-amber-600 disabled:bg-gray-200 disabled:text-gray-400 text-white font-bold text-xs px-2.5 py-1.5 rounded-xl transition-colors active:scale-95"
+                  >
+                    Applica
                   </button>
                 </div>
-                <NumericInput
-                  v-model="discountInput"
-                  min="0"
-                  :max="discountType === 'percent' ? 100 : tableAmountRemaining"
-                  step="0.01"
-                  :placeholder="discountType === 'percent' ? 'Es. 10' : 'Es. 5.00'"
-                  :typeToggleLabels="['%', store.config.ui.currency]"
-                  :typeToggleIndex="discountType === 'percent' ? 0 : 1"
-                  @update:typeToggleIndex="i => discountType = i === 0 ? 'percent' : 'fixed'"
-                  class="flex-1 min-w-0 text-sm font-bold border border-amber-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:border-amber-400 text-amber-900"
-                />
-                <button
-                  @click="applyDiscount"
-                  :disabled="discountPreview <= 0"
-                  class="shrink-0 bg-amber-500 hover:bg-amber-600 disabled:bg-gray-200 disabled:text-gray-400 text-white font-bold text-xs px-3 py-2 rounded-xl transition-colors active:scale-95"
-                >
-                  Applica
-                </button>
-              </div>
-              <div v-if="discountInputExceedsMax" class="mt-1.5 text-[10px] text-red-600 font-bold flex items-center gap-1">
-                <AlertTriangle class="size-3 shrink-0" />
-                {{ discountType === 'percent' ? 'Il valore verrà limitato al 100%' : 'Lo sconto non può superare il totale rimanente' }}
-              </div>
-              <div v-else-if="discountPreview > 0" class="mt-2 text-xs text-amber-700 font-bold flex items-center justify-between">
-                <span>Sconto da applicare:</span>
-                <span>-{{ store.config.ui.currency }}{{ discountPreview.toFixed(2) }}</span>
+                <div v-if="discountInputExceedsMax" class="mt-1.5 text-[10px] text-red-600 font-bold flex items-center gap-1">
+                  <AlertTriangle class="size-3 shrink-0" />
+                  {{ discountType === 'percent' ? 'Valore limitato al 100%' : 'Non può superare il totale' }}
+                </div>
+                <div v-else-if="discountPreview > 0" class="mt-1.5 text-[10px] text-amber-700 font-bold flex items-center justify-between">
+                  <span>Sconto:</span>
+                  <span>-{{ store.config.ui.currency }}{{ discountPreview.toFixed(2) }}</span>
+                </div>
               </div>
             </div>
 
             <!-- Scelta Split Conto -->
-            <div v-if="tableAmountRemaining > 0" class="space-y-4">
-              <h4 class="font-bold text-gray-800 text-sm">Modalità Incasso:</h4>
-
-              <div class="flex bg-gray-100 p-1 rounded-xl">
-                <button @click="checkoutMode = 'unico'" :class="checkoutMode === 'unico' ? 'bg-white shadow-sm text-gray-900 border border-gray-200' : 'text-gray-500 hover:bg-gray-200/50'" class="flex-1 py-2 text-xs md:text-sm font-bold rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1.5"><Layers class="size-3.5 shrink-0" />Tutto</button>
-                <button @click="checkoutMode = 'romana'" :class="checkoutMode === 'romana' ? 'bg-white shadow-sm text-gray-900 border border-gray-200' : 'text-gray-500 hover:bg-gray-200/50'" class="flex-1 py-2 text-xs md:text-sm font-bold rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1.5"><Users class="size-3.5 shrink-0" />Romana</button>
-                <button @click="checkoutMode = 'ordini'" :class="checkoutMode === 'ordini' ? 'bg-white shadow-sm text-gray-900 border border-gray-200' : 'text-gray-500 hover:bg-gray-200/50'" class="flex-1 py-2 text-xs md:text-sm font-bold rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1.5"><ListChecks class="size-3.5 shrink-0" />Comanda</button>
+            <div v-if="!canManuallyCloseBill" class="space-y-2 sm:space-y-3">
+              <div class="flex gap-1.5">
+                <button aria-label="Tutto" @click="checkoutMode = 'unico'" :class="checkoutMode === 'unico' ? 'bg-gray-200 text-gray-800 border-gray-300 font-bold' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100'" class="flex-1 py-1.5 sm:py-2 text-xs rounded-xl border transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-sm"><Layers class="size-3.5 shrink-0" /><span class="hidden md:inline">Tutto</span></button>
+                <button aria-label="Romana" @click="checkoutMode = 'romana'" :class="checkoutMode === 'romana' ? 'bg-blue-100 text-blue-800 border-blue-200 font-bold' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100'" class="flex-1 py-1.5 sm:py-2 text-xs rounded-xl border transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-sm"><Users class="size-3.5 shrink-0" /><span class="hidden md:inline">Romana</span></button>
+                <button aria-label="Analitica" @click="checkoutMode = 'analitica'" :disabled="hasRomanaPayment" :class="checkoutMode === 'analitica' ? 'bg-teal-100 text-teal-800 border-teal-200 font-bold' : hasRomanaPayment ? 'bg-white text-gray-300 border-gray-200 cursor-not-allowed opacity-50' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100'" :title="hasRomanaPayment ? 'Non disponibile dopo un pagamento alla Romana' : undefined" class="flex-1 py-1.5 sm:py-2 text-xs rounded-xl border transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-sm"><SquareCheck class="size-3.5 shrink-0" /><span class="hidden md:inline">Analitica</span></button>
+                <button aria-label="Comanda" @click="checkoutMode = 'ordini'" :disabled="hasRomanaPayment" :class="checkoutMode === 'ordini' ? 'bg-purple-100 text-purple-800 border-purple-200 font-bold' : hasRomanaPayment ? 'bg-white text-gray-300 border-gray-200 cursor-not-allowed opacity-50' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100'" :title="hasRomanaPayment ? 'Non disponibile dopo un pagamento alla Romana' : undefined" class="flex-1 py-1.5 sm:py-2 text-xs rounded-xl border transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-sm"><ListChecks class="size-3.5 shrink-0" /><span class="hidden md:inline">Comanda</span></button>
               </div>
 
               <!-- Romana -->
-              <div v-if="checkoutMode === 'romana'" class="bg-blue-50 border border-blue-100 p-4 rounded-xl md:rounded-2xl transition-all space-y-4">
-                <!-- Total split ways -->
-                <div>
-                  <label class="block text-xs font-bold text-blue-800 uppercase mb-3">Dividi Conto In (Parti Totali):</label>
-                  <div class="flex items-center gap-3">
-                    <button
-                      @click="splitWays > minSplitWays ? splitWays-- : null"
-                      :disabled="splitWays <= minSplitWays"
-                      class="size-12 bg-white rounded-xl flex items-center justify-center font-black text-blue-600 shadow-sm border border-blue-100 active:scale-95 transition-all disabled:opacity-30"
-                    ><Minus class="size-5" /></button>
-                    <span class="text-3xl font-black text-blue-900 w-16 text-center">{{ splitWays }}</span>
-                    <button @click="splitWays++" class="size-12 bg-white rounded-xl flex items-center justify-center font-black text-blue-600 shadow-sm border border-blue-100 active:scale-95 transition-all"><Plus class="size-5" /></button>
+              <div v-if="checkoutMode === 'romana'" class="bg-blue-50 border border-blue-100 p-2 sm:p-3 rounded-xl transition-all space-y-2 sm:space-y-3">
+                <!-- Steppers row -->
+                <div class="grid gap-3" :class="splitWays - splitPaidQuotas > 1 ? 'grid-cols-2' : 'grid-cols-1'">
+                  <!-- Parti totali -->
+                  <div>
+                    <label class="block text-[10px] font-bold text-blue-500 uppercase tracking-wider mb-1.5">Dividi in</label>
+                    <div class="flex items-center gap-1.5">
+                      <button
+                        @click="splitWays > minSplitWays ? splitWays-- : null"
+                        :disabled="splitWays <= minSplitWays"
+                        class="size-8 bg-white rounded-lg flex items-center justify-center font-bold text-blue-600 shadow-sm border border-blue-200 active:scale-95 transition-all disabled:opacity-30 shrink-0"
+                      ><Minus class="size-4" /></button>
+                      <span class="flex-1 text-center text-xl font-black text-blue-900">{{ splitWays }}<span class="text-xs font-bold text-blue-400 ml-1">parti</span></span>
+                      <button @click="splitWays++"
+                        class="size-8 bg-white rounded-lg flex items-center justify-center font-bold text-blue-600 shadow-sm border border-blue-200 active:scale-95 transition-all shrink-0"
+                      ><Plus class="size-4" /></button>
+                    </div>
                   </div>
-                  <div v-if="splitPaidQuotas > 0" class="mt-2 text-xs text-blue-600 font-medium">
-                    {{ splitPaidQuotas }}/{{ splitWays }} quote già pagate
+                  <!-- Quote da pagare ora (solo se >1 rimanenti) -->
+                  <div v-if="splitWays - splitPaidQuotas > 1">
+                    <label class="block text-[10px] font-bold text-blue-500 uppercase tracking-wider mb-1.5">Quote ora</label>
+                    <div class="flex items-center gap-1.5">
+                      <button
+                        @click="romanaSplitCount > 1 ? romanaSplitCount-- : null"
+                        :disabled="romanaSplitCount <= 1"
+                        class="size-8 bg-white rounded-lg flex items-center justify-center font-bold text-blue-600 shadow-sm border border-blue-200 active:scale-95 transition-all disabled:opacity-30 shrink-0"
+                      ><Minus class="size-4" /></button>
+                      <span class="flex-1 text-center text-xl font-black text-blue-900">{{ romanaSplitCount }}<span class="text-xs font-bold text-blue-400 ml-1">/ {{ splitWays - splitPaidQuotas }}</span></span>
+                      <button
+                        @click="romanaSplitCount < (splitWays - splitPaidQuotas) ? romanaSplitCount++ : null"
+                        :disabled="romanaSplitCount >= (splitWays - splitPaidQuotas)"
+                        class="size-8 bg-white rounded-lg flex items-center justify-center font-bold text-blue-600 shadow-sm border border-blue-200 active:scale-95 transition-all disabled:opacity-30 shrink-0"
+                      ><Plus class="size-4" /></button>
+                    </div>
                   </div>
                 </div>
 
-                <!-- Quotas being paid this transaction -->
-                <div v-if="splitWays - splitPaidQuotas > 1">
-                  <label class="block text-xs font-bold text-blue-800 uppercase mb-3">Quote Da Pagare Ora:</label>
-                  <div class="flex items-center gap-3">
-                    <button
-                      @click="romanaSplitCount > 1 ? romanaSplitCount-- : null"
-                      :disabled="romanaSplitCount <= 1"
-                      class="size-10 bg-white rounded-xl flex items-center justify-center font-bold text-blue-600 shadow-sm border border-blue-100 active:scale-95 transition-all disabled:opacity-30"
-                    ><Minus class="size-4" /></button>
-                    <span class="text-2xl font-black text-blue-900 w-12 text-center">{{ romanaSplitCount }}</span>
-                    <button
-                      @click="romanaSplitCount < (splitWays - splitPaidQuotas) ? romanaSplitCount++ : null"
-                      :disabled="romanaSplitCount >= (splitWays - splitPaidQuotas)"
-                      class="size-10 bg-white rounded-xl flex items-center justify-center font-bold text-blue-600 shadow-sm border border-blue-100 active:scale-95 transition-all disabled:opacity-30"
-                    ><Plus class="size-4" /></button>
-                    <span class="text-xs text-blue-600 font-medium">su {{ splitWays - splitPaidQuotas }} rimanenti</span>
+                <!-- Progress pills -->
+                <div class="flex gap-0.5">
+                  <div v-for="n in splitWays" :key="n"
+                    class="h-1.5 flex-1 min-w-[6px] rounded-full transition-all"
+                    :class="n <= splitPaidQuotas ? 'bg-emerald-400' : 'bg-blue-200'">
                   </div>
                 </div>
+                <div v-if="splitPaidQuotas > 0" class="text-[10px] text-blue-600 font-bold flex items-center gap-1 -mt-1">
+                  <CheckCircle class="size-3 text-emerald-500 shrink-0" />
+                  {{ splitPaidQuotas }} di {{ splitWays }} quote già saldate
+                </div>
 
-                <div class="pt-3 border-t border-blue-200 flex justify-between items-center">
-                  <span class="font-bold text-blue-800 text-sm">
-                    Quota da incassare
-                    <span v-if="romanaSplitCount > 1" class="text-xs font-medium">(×{{ romanaSplitCount }})</span>:
-                  </span>
-                  <span class="font-black text-2xl text-blue-600">{{ store.config.ui.currency }}{{ quotaRomana.toFixed(2) }}</span>
+                <!-- Quota amount summary -->
+                <div class="border-t border-blue-200 pt-2.5 flex justify-between items-center">
+                  <div>
+                    <span class="text-[10px] font-bold text-blue-500 uppercase tracking-wider">Quota<span v-if="romanaSplitCount > 1"> × {{ romanaSplitCount }}</span></span>
+                    <div v-if="romanaSplitCount > 1" class="text-[10px] text-blue-400">{{ store.config.ui.currency }}{{ (tableAmountRemaining / Math.max(1, splitWays - splitPaidQuotas)).toFixed(2) }} cad.</div>
+                  </div>
+                  <span class="font-black text-xl text-blue-700">{{ store.config.ui.currency }}{{ quotaRomana.toFixed(2) }}</span>
                 </div>
               </div>
 
-              <!-- Per Comanda -->
-              <div v-if="checkoutMode === 'ordini'" class="bg-purple-50 border border-purple-100 p-4 rounded-xl md:rounded-2xl space-y-2 max-h-[150px] md:max-h-[250px] overflow-y-auto transition-all">
-                <label class="block text-[10px] md:text-xs font-bold text-purple-800 uppercase mb-2">Comande Pagabili (Accettate):</label>
-                <label v-for="ord in tableAcceptedPayableOrders" :key="'chk_'+ord.id" class="flex justify-between items-center p-3 bg-white rounded-xl cursor-pointer hover:border-purple-300 border border-transparent shadow-sm">
-                  <div class="flex items-center gap-3">
-                    <input type="checkbox" v-model="selectedOrdersToPay" :value="ord.id" class="size-5 accent-purple-600 rounded">
-                    <span class="text-sm font-bold text-gray-700 leading-none">Comanda #{{ ord.id.substring(0,4) }}</span>
-                  </div>
-                  <span class="font-black text-base text-purple-700">{{ store.config.ui.currency }}{{ ord.totalAmount.toFixed(2) }}</span>
-                </label>
-                <div v-if="tableAcceptedPayableOrders.length === 0" class="text-xs text-purple-600 font-bold italic">Nessuna comanda disponibile o da pagare.</div>
+              <div v-if="checkoutMode === 'ordini'" class="bg-purple-50 border border-purple-100 p-2 sm:p-3 rounded-xl flex items-center gap-2 text-xs font-bold text-purple-700">
+                <ListChecks class="size-3.5 shrink-0" />
+                <span>{{ selectedOrdersToPay.length === 0 ? 'Seleziona dal riepilogo ←' : selectedOrdersToPay.length + ' comanda/e selezionata/e' }}</span>
               </div>
             </div>
           </div>
 
           <!-- Bottoni di Pagamento -->
-          <div class="p-4 md:p-6 bg-gray-50 border-t border-gray-200 shrink-0 pb-6 md:pb-5 space-y-3">
-            <div v-if="hasPendingOrdersInTable" class="bg-amber-100 text-amber-800 p-3 rounded-xl text-[10px] md:text-xs font-bold flex items-center gap-2 border border-amber-200 shadow-sm">
-              <AlertTriangle class="size-5 shrink-0" /> <span>Tavolo con comande in Attesa. Se incassi ora, il tavolo <b>resterà aperto</b> per quelle voci.</span>
+          <div class="p-2 sm:p-3 md:p-5 bg-gray-50 border-t border-gray-200 shrink-0 pb-4 space-y-1.5 sm:space-y-2">
+            <div v-if="hasPendingOrdersInTable" class="bg-amber-100 text-amber-800 p-2 sm:p-3 rounded-xl text-[10px] font-bold flex items-center gap-1.5 border border-amber-200">
+              <AlertTriangle class="size-4 shrink-0" /> <span>Comande in Attesa — tavolo resterà aperto.</span>
             </div>
 
-            <div v-if="checkoutMode !== 'unico' && tableAmountRemaining > 0" class="flex justify-between items-center px-1">
-              <span class="text-xs font-bold text-gray-500 uppercase tracking-wider">Acconto Corrente:</span>
-              <span class="text-xl font-black theme-text">{{ store.config.ui.currency }}{{ amountBeingPaid.toFixed(2) }}</span>
+            <div v-if="analiticaSelectionExceedsRemaining" class="bg-red-50 border border-red-200 text-red-700 p-3 rounded-xl text-[10px] md:text-xs font-bold flex items-center gap-2">
+              <AlertTriangle class="size-4 shrink-0" />
+              Totale selezionato supera il conto rimanente ({{ store.config.ui.currency }}{{ tableAmountRemaining.toFixed(2) }})
             </div>
 
-            <!-- Metodi di pagamento -->
-            <div class="grid grid-cols-2 gap-3">
+            <div v-if="checkoutMode !== 'unico' && !canManuallyCloseBill" class="flex justify-between items-center px-0.5">
+              <span class="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Da pagare:</span>
+              <span class="text-lg font-black theme-text">{{ store.config.ui.currency }}{{ amountBeingPaid.toFixed(2) }}</span>
+            </div>
+
+            <!-- Metodi di pagamento (nascosti quando il conto è saldato) -->
+            <div v-if="!canManuallyCloseBill" class="grid grid-cols-2 gap-2.5">
               <button
                 v-for="method in store.config.paymentMethods"
                 :key="method.id"
                 @click="openPaymentModal(method.id)"
                 :disabled="!canPay"
                 :class="method.colorClass"
-                class="py-3.5 border-2 rounded-xl md:rounded-2xl font-bold flex items-center justify-center gap-2 transition-all disabled:opacity-50 disabled:bg-gray-100 disabled:border-gray-300 disabled:text-gray-400 active:scale-95 text-sm md:text-base"
+                class="py-3 xl:py-4 rounded-xl font-bold flex items-center justify-center gap-2 transition-all disabled:bg-gray-100 disabled:text-gray-400 disabled:shadow-none active:scale-95 text-sm md:text-base shadow-md"
               >
                 <component :is="getPaymentIcon(method.id)" class="size-5" /> {{ method.label }}
               </button>
             </div>
 
             <!-- Manual bill close button (shown when fully paid) -->
-            <div v-if="canManuallyCloseBill" class="rounded-2xl border-2 border-emerald-300 bg-emerald-50 p-4 space-y-3">
+            <div v-if="canManuallyCloseBill" class="rounded-xl border-2 border-emerald-300 bg-emerald-50 p-2.5 sm:p-3 space-y-2">
               <div class="flex items-center gap-2 text-emerald-700">
-                <CheckCircle class="size-5 shrink-0" />
-                <span class="text-sm font-bold">Conto saldato — nessun residuo.</span>
+                <CheckCircle class="size-4 shrink-0" />
+                <span class="text-xs font-bold">Conto saldato — nessun residuo.</span>
               </div>
-              <button @click="closeTableBill" class="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl active:scale-95 transition-all shadow-md flex items-center justify-center gap-2">
-                <CheckCircle class="size-5" /> Chiudi Conto e Genera Riepilogo
+              <button @click="closeTableBill" class="w-full py-2.5 sm:py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl active:scale-95 transition-all shadow-md flex items-center justify-center gap-2 text-sm">
+                <CheckCircle class="size-4" /> Chiudi Conto
               </button>
             </div>
           </div>
@@ -494,9 +723,12 @@
           </div>
           <div>
             <h3 class="font-bold text-base md:text-lg leading-tight">{{ modalMethodLabel }}</h3>
-            <p class="text-white/60 text-[10px]">
-              {{ checkoutMode === 'romana' ? 'Incasso Quota Romana' : checkoutMode === 'ordini' ? 'Incasso Per Comanda' : 'Incasso Conto' }}
-            </p>
+            <span
+              class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold mt-0.5"
+              :class="checkoutMode === 'romana' ? 'bg-blue-500/20 text-blue-200' : checkoutMode === 'ordini' ? 'bg-purple-500/20 text-purple-200' : checkoutMode === 'analitica' ? 'bg-teal-500/20 text-teal-200' : 'bg-white/10 text-white/70'"
+            >
+              {{ checkoutMode === 'romana' ? 'Quota Romana' : checkoutMode === 'ordini' ? 'Per Comanda' : checkoutMode === 'analitica' ? 'Analitico' : 'Conto Intero' }}
+            </span>
           </div>
         </div>
         <button @click="closePaymentModal" class="bg-white/10 hover:bg-white/20 p-2 rounded-full transition-colors active:scale-95">
@@ -621,7 +853,7 @@
       <div class="p-4 border-t border-gray-200 space-y-2 shrink-0">
         <button
           @click="confirmPaymentModal"
-          :disabled="modalRicevutoParsed <= 0"
+          :disabled="modalRicevutoParsed <= 0 || (checkoutMode === 'analitica' && modalRicevutoParsed < amountBeingPaid - BILL_SETTLED_THRESHOLD)"
           class="w-full py-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl disabled:opacity-40 disabled:bg-gray-300 disabled:text-gray-400 active:scale-95 transition-all flex items-center justify-center gap-2 text-base shadow-md"
         >
           <CheckCircle class="size-5" />
@@ -864,20 +1096,41 @@
   <!-- MODAL: SPOSTA TAVOLO                                              -->
   <!-- ================================================================ -->
   <div v-if="showMoveModal" class="fixed inset-0 z-[100] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-5 max-h-[90dvh] overflow-y-auto">
-      <div class="flex justify-between items-center mb-4">
-        <h3 class="font-bold text-gray-800 flex items-center gap-2"><ArrowRightLeft class="size-5 theme-text" /> Sposta Tavolo {{ selectedTable?.label }}</h3>
-        <button @click="showMoveModal = false" class="text-gray-400 hover:text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-full p-1.5 transition-colors"><X class="size-4" /></button>
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col max-h-[90dvh]">
+      <!-- Header -->
+      <div class="bg-gray-900 text-white px-5 py-4 flex justify-between items-center shrink-0">
+        <h3 class="font-bold flex items-center gap-2"><ArrowRightLeft class="size-5 theme-text" /> Sposta Tavolo {{ selectedTable?.label }}</h3>
+        <button @click="showMoveModal = false" class="bg-white/10 hover:bg-white/20 p-2 rounded-full transition-colors active:scale-95"><X class="size-4" /></button>
       </div>
-      <p class="text-xs text-gray-500 mb-4">Seleziona il tavolo di destinazione libero. Tutti gli ordini verranno spostati.</p>
-      <div class="grid grid-cols-4 gap-2 max-h-64 overflow-y-auto">
-        <button v-for="table in freeTables" :key="'sp_'+table.id"
-          @click="confirmMove(table)"
-          class="aspect-square rounded-xl border-2 border-emerald-200 bg-emerald-50 text-emerald-800 font-black text-lg flex items-center justify-center hover:bg-emerald-100 active:scale-95 transition-all">
-          {{ table.label }}
-        </button>
+      <!-- Body -->
+      <div class="p-5 overflow-y-auto">
+        <p class="text-xs text-gray-500 mb-4">Seleziona il tavolo di destinazione. Se il tavolo è occupato, gli ordini verranno spostati e i conti uniti.</p>
+        <!-- Tavoli liberi -->
+        <div v-if="freeTables.length > 0">
+          <p class="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-2">Tavoli Liberi</p>
+          <div class="grid grid-cols-4 gap-2 mb-4">
+            <button v-for="table in freeTables" :key="'sp_'+table.id"
+              @click="confirmMove(table)"
+              class="aspect-square rounded-xl border-2 border-emerald-200 bg-emerald-50 text-emerald-800 relative flex flex-col items-center justify-center p-1.5 hover:bg-emerald-100 active:scale-95 transition-all">
+              <span class="absolute top-1 right-1 text-[9px] font-bold opacity-50 flex items-center gap-0.5"><Users class="size-2.5" />{{ table.covers }}</span>
+              <span class="font-black text-xl">{{ table.label }}</span>
+            </button>
+          </div>
+        </div>
+        <!-- Tavoli occupati -->
+        <div v-if="otherOccupiedTables.length > 0">
+          <p class="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-2">Tavoli Occupati (unione conto)</p>
+          <div class="grid grid-cols-4 gap-2">
+            <button v-for="table in otherOccupiedTables" :key="'spo_'+table.id"
+              @click="confirmMove(table)"
+              class="aspect-square rounded-xl border-2 border-[var(--brand-primary)] theme-bg text-white relative flex flex-col items-center justify-center p-1.5 hover:opacity-90 active:scale-95 transition-all">
+              <span class="absolute top-1 right-1 text-[9px] font-bold opacity-60 flex items-center gap-0.5"><Users class="size-2.5" />{{ table.covers }}</span>
+              <span class="font-black text-xl">{{ table.label }}</span>
+            </button>
+          </div>
+        </div>
+        <div v-if="freeTables.length === 0 && otherOccupiedTables.length === 0" class="text-center text-gray-400 text-sm py-4">Nessun altro tavolo disponibile.</div>
       </div>
-      <div v-if="freeTables.length === 0" class="text-center text-gray-400 text-sm py-4">Nessun tavolo libero disponibile.</div>
     </div>
   </div>
 
@@ -885,20 +1138,144 @@
   <!-- MODAL: UNISCI TAVOLI                                              -->
   <!-- ================================================================ -->
   <div v-if="showMergeModal" class="fixed inset-0 z-[100] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-5 max-h-[90dvh] overflow-y-auto">
-      <div class="flex justify-between items-center mb-4">
-        <h3 class="font-bold text-gray-800 flex items-center gap-2"><Merge class="size-5 theme-text" /> Unisci con Tavolo {{ selectedTable?.label }}</h3>
-        <button @click="showMergeModal = false" class="text-gray-400 hover:text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-full p-1.5 transition-colors"><X class="size-4" /></button>
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col max-h-[90dvh]">
+      <!-- Header -->
+      <div class="bg-gray-900 text-white px-5 py-4 flex justify-between items-center shrink-0">
+        <h3 class="font-bold flex items-center gap-2"><Merge class="size-5 theme-text" /> Unisci con Tavolo {{ selectedTable?.label }}</h3>
+        <button @click="showMergeModal = false" class="bg-white/10 hover:bg-white/20 p-2 rounded-full transition-colors active:scale-95"><X class="size-4" /></button>
       </div>
-      <p class="text-xs text-gray-500 mb-4">Seleziona il tavolo con cui fondere gli ordini. I suoi ordini e i coperti verranno uniti con questo tavolo.</p>
-      <div class="grid grid-cols-4 gap-2 max-h-64 overflow-y-auto">
-        <button v-for="table in occupiedTables" :key="'un_'+table.id"
-          @click="confirmMerge(table)"
-          class="aspect-square rounded-xl border-2 border-[var(--brand-primary)] theme-bg text-white font-black text-lg flex items-center justify-center hover:opacity-90 active:scale-95 transition-all">
-          {{ table.label }}
-        </button>
+      <!-- Body -->
+      <div class="p-5 overflow-y-auto">
+        <p class="text-xs text-gray-500 mb-4">Seleziona il tavolo da unire. Entrambi i tavoli restano occupati e il conto viene gestito insieme. Usa "Dividi" per separare i tavoli.</p>
+        <div class="grid grid-cols-4 gap-2">
+          <button v-for="table in mergeCandidates" :key="'un_'+table.id"
+            @click="confirmMerge(table)"
+            class="aspect-square rounded-xl border-2 border-[var(--brand-primary)] theme-bg text-white relative flex flex-col items-center justify-center p-1.5 hover:opacity-90 active:scale-95 transition-all">
+            <span class="absolute top-1 right-1 text-[9px] font-bold opacity-60 flex items-center gap-0.5"><Users class="size-2.5" />{{ table.covers }}</span>
+            <span class="font-black text-xl">{{ table.label }}</span>
+          </button>
+        </div>
+        <div v-if="mergeCandidates.length === 0" class="text-center text-gray-400 text-sm py-4">Nessun altro tavolo occupato disponibile.</div>
       </div>
-      <div v-if="occupiedTables.length === 0" class="text-center text-gray-400 text-sm py-4">Nessun altro tavolo occupato disponibile.</div>
+    </div>
+  </div>
+
+  <!-- ================================================================ -->
+  <!-- MODAL: DIVIDI CONTO PER VOCE / SEPARA TAVOLI UNITI             -->
+  <!-- ================================================================ -->
+  <div v-if="showSplitModal" class="fixed inset-0 z-[100] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col max-h-[90dvh]">
+      <!-- Header -->
+      <div class="bg-gray-900 text-white px-5 py-4 flex justify-between items-center shrink-0">
+        <h3 class="font-bold flex items-center gap-2">
+          <Split class="size-5 text-orange-400" />
+          {{ splitTargetIsSlave ? 'Separa Tavoli Uniti' : 'Dividi Conto per Voce' }}
+        </h3>
+        <button @click="showSplitModal = false" class="bg-white/10 hover:bg-white/20 p-2 rounded-full transition-colors active:scale-95"><X class="size-4" /></button>
+      </div>
+
+      <!-- Body -->
+      <div class="p-5 overflow-y-auto flex-1 min-h-0 flex flex-col">
+
+        <!-- Description -->
+        <p class="text-xs text-gray-500 mb-4 shrink-0">
+          Seleziona il tavolo di destinazione, poi le voci da trasferire.
+          I tavoli già uniti (<Link class="size-3 inline-block" />) possono essere separati anche senza spostare voci.
+        </p>
+
+        <!-- Unified target picker: slave tables + free tables -->
+        <div class="mb-4 shrink-0">
+          <p class="text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-2">Tavolo di destinazione</p>
+          <div v-if="splitAvailableTargets.length > 0" class="grid grid-cols-4 gap-2">
+            <button
+              v-for="t in splitAvailableTargets" :key="'spl_'+t.id"
+              @click="splitTargetTableId = t.id"
+              :class="splitTargetTableId === t.id
+                ? (t.isSlave ? 'border-orange-400 bg-orange-50 text-orange-800' : 'border-emerald-400 bg-emerald-50 text-emerald-800')
+                : 'border-gray-200 bg-gray-50 text-gray-700 hover:bg-gray-100'"
+              class="aspect-square rounded-xl border-2 relative flex flex-col items-center justify-center p-1.5 transition-all active:scale-95">
+              <Link v-if="t.isSlave" class="absolute top-1 left-1 size-3 opacity-50" />
+              <span class="font-black text-xl">{{ t.label }}</span>
+            </button>
+          </div>
+          <div v-else class="text-xs text-gray-400 py-2">Nessun tavolo disponibile.</div>
+        </div>
+
+        <!-- Item-level quantity stepper list (shown once a target is selected) -->
+        <template v-if="splitTargetTableId">
+          <p class="text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-2 shrink-0">
+            {{ splitTargetIsSlave ? 'Voci da trasferire al tavolo separato' : 'Seleziona le voci da spostare' }}
+          </p>
+
+          <div class="bg-gray-50 rounded-xl border border-gray-200 divide-y divide-gray-100 overflow-y-auto flex-1 min-h-0 mb-4">
+            <div v-if="splitFlatItemsComputed.length === 0" class="px-3 py-6 text-center text-gray-400 text-xs">
+              Nessuna voce attiva.
+            </div>
+            <div
+              v-for="row in splitFlatItemsComputed" :key="'spr_'+row.key"
+              class="flex items-center gap-3 px-3 py-2.5"
+            >
+              <!-- Item name + unit price -->
+              <div class="flex-1 min-w-0">
+                <span class="font-semibold text-xs text-gray-800 truncate block">{{ row.name }}</span>
+                <span class="text-[10px] text-gray-400">{{ store.config.ui.currency }}{{ row.unitPrice.toFixed(2) }} / cad.</span>
+              </div>
+              <!-- Quantity stepper -->
+              <div class="flex items-center gap-1 shrink-0">
+                <button
+                  @click="setSplitQty(row.key, row.netQty, -1)"
+                  :disabled="(splitItemQtyMap[row.key] ?? 0) <= 0"
+                  class="size-7 rounded-lg border border-gray-200 bg-white flex items-center justify-center text-gray-600 hover:bg-gray-100 active:scale-95 transition-all disabled:opacity-30 disabled:cursor-not-allowed text-sm font-bold">
+                  −
+                </button>
+                <span class="w-8 text-center font-black text-sm text-gray-800">
+                  {{ splitItemQtyMap[row.key] ?? 0 }}
+                </span>
+                <button
+                  @click="setSplitQty(row.key, row.netQty, +1)"
+                  :disabled="(splitItemQtyMap[row.key] ?? 0) >= row.netQty"
+                  class="size-7 rounded-lg border border-gray-200 bg-white flex items-center justify-center text-gray-600 hover:bg-gray-100 active:scale-95 transition-all disabled:opacity-30 disabled:cursor-not-allowed text-sm font-bold">
+                  +
+                </button>
+                <span class="text-[10px] text-gray-400 w-5 text-center">/ {{ row.netQty }}</span>
+              </div>
+              <!-- Row total for selected qty -->
+              <span class="text-xs font-bold text-gray-600 shrink-0 w-14 text-right">
+                {{ store.config.ui.currency }}{{ splitRowAmount(row, splitItemQtyMap[row.key] ?? 0).toFixed(2) }}
+              </span>
+            </div>
+          </div>
+
+          <!-- Summary + actions -->
+          <div class="shrink-0 space-y-3">
+            <div class="flex items-center justify-between bg-orange-50 border border-orange-200 rounded-xl px-4 py-2.5">
+              <span class="text-xs text-gray-600 font-medium">
+                {{ splitTargetIsSlave ? 'Totale da trasferire al tavolo separato:' : 'Totale da spostare:' }}
+              </span>
+              <span class="font-black text-orange-600 text-base">{{ store.config.ui.currency }}{{ splitSelectedTotal.toFixed(2) }}</span>
+            </div>
+            <div class="flex gap-2">
+              <button @click="showSplitModal = false" class="flex-1 py-3 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50 active:scale-95 transition-all">Annulla</button>
+              <button
+                @click="confirmSplit"
+                :disabled="!splitTargetIsSlave && splitSelectedTotal === 0"
+                class="flex-1 py-3 rounded-xl theme-bg text-white text-sm font-bold flex items-center justify-center gap-2 shadow-md hover:opacity-90 active:scale-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed">
+                <Split class="size-4" />
+                {{ splitTargetIsSlave ? 'Separa Tavolo' : 'Sposta Voci' }}
+              </button>
+            </div>
+          </div>
+        </template>
+
+        <!-- Placeholder when no target selected yet -->
+        <template v-else>
+          <div class="flex-1 flex items-center justify-center text-gray-400 text-xs text-center py-6">
+            <span>Seleziona il tavolo di destinazione.</span>
+          </div>
+          <button @click="showSplitModal = false" class="w-full py-3 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50 active:scale-95 transition-all shrink-0">Annulla</button>
+        </template>
+
+      </div>
     </div>
   </div>
 
@@ -915,28 +1292,35 @@
     @cancel="showPeopleModal = false; pendingTableToOpen = null"
     @confirm="confirmPeopleAndOpenTable"
   />
+
+  <!-- ================================================================ -->
+  <!-- MODAL: CRONOLOGIA STAMPE                                           -->
+  <!-- ================================================================ -->
+  <PrintHistoryModal v-model="showPrintHistory" />
 </template>
 
 <script setup>
-import { ref, computed, watch } from 'vue';
+import { ref, computed, watch, nextTick } from 'vue';
 import {
   Grid3x3, Users, X, Plus, Coffee, Edit, AlertTriangle, CheckCircle,
   Ban, Undo2, Code, Minus, Receipt, ArrowRightLeft, Merge, Trash2,
   Layers, ListChecks, History, LayoutGrid, ListOrdered,
-  Tag, Wallet,
-  Percent, Zap, BookOpen, PlusCircle, Banknote, CreditCard, Lock,
+  Tag, Wallet, ChevronDown,
+  Percent, Zap, BookOpen, PlusCircle, Banknote, CreditCard, Lock, SquareCheck, Split, Link, Printer,
 } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
 import { getOrderItemRowTotal, KITCHEN_ACTIVE_STATUSES, getLockedDirectItems, appConfig } from '../utils/index.js';
+import { buildFlatAnaliticaItems, computeAnaliticaTotal, exceedsAmount, getOrdersToComplete } from '../utils/analitica.js';
 import { resolveCustomItemsKey } from '../store/persistence.js';
 import { useNumericKeyboard } from '../composables/useNumericKeyboard.js';
 import { useAuth } from '../composables/useAuth.js';
-import CassaClosedBillsList from './CassaClosedBillsList.vue';
+import { enqueueTableMoveJob, enqueuePreBillJob } from '../composables/usePrintQueue.js';
 import TableStatsBar from './shared/TableStatsBar.vue';
 import TableGrid from './shared/TableGrid.vue';
 // Shared component — used by both Sala and Cassa apps.
 import PeopleModal from './shared/PeopleModal.vue';
 import NumericInput from './NumericInput.vue';
+import PrintHistoryModal from './shared/PrintHistoryModal.vue';
 
 const emit = defineEmits(['open-order-from-table', 'new-order-for-ordini']);
 
@@ -944,55 +1328,348 @@ const store = useAppStore();
 const { isAdmin } = useAuth();
 const keyboard = useNumericKeyboard();
 
+// ── Print history modal ────────────────────────────────────────────────────
+const showPrintHistory = ref(false);
+
+// ── Pre-bill printer (reactive, driven by store which mirrors settings) ────
+const preBillPrinterConfig = computed(() => {
+  const printerId = store.preBillPrinterId;
+  if (!printerId) return null;
+  return (appConfig.printers ?? []).find(p => p.id === printerId) ?? null;
+});
+
 // ── Table modal state ──────────────────────────────────────────────────────
 const showTableModal = ref(false);
 const selectedTable = ref(null);
 
+// ── Room tabs ─────────────────────────────────────────────────────────────
+function getInitialActiveRoomId(rooms) {
+  return rooms.length > 1 ? 'all' : (rooms[0]?.id ?? null);
+}
+
+function getTablesForActiveRoom(rooms, allTables, roomId) {
+  if (roomId === 'all') return allTables;
+  const room = rooms.find(r => r.id === roomId);
+  return room ? room.tables : allTables;
+}
+
+const tableStatusMap = computed(() => {
+  const map = {};
+  const seenTableIds = new Set();
+  const allKnownTables = [
+    ...(store.config.tables || []),
+    ...store.rooms.flatMap(room => room.tables || []),
+  ];
+
+  allKnownTables.forEach((table) => {
+    if (!table?.id || seenTableIds.has(table.id)) return;
+    seenTableIds.add(table.id);
+    map[table.id] = store.getTableStatus(table.id);
+  });
+
+  return map;
+});
+
+function filterTablesByStatus(tables, statusFilter) {
+  if (!statusFilter) return tables;
+  return tables.filter(t => tableStatusMap.value[t.id]?.status === statusFilter);
+}
+
+const activeRoomId = ref(getInitialActiveRoomId(store.rooms));
+const activeStatusFilter = ref(null);
+
+function onStatusFilterChange(filter) {
+  activeStatusFilter.value = filter;
+  if (filter && store.rooms.length > 1) {
+    activeRoomId.value = 'all';
+  }
+}
+
+function filteredTablesForRoom(room) {
+  return filterTablesByStatus(room.tables, activeStatusFilter.value);
+}
+
+const activeRoomTables = computed(() => {
+  const tables = getTablesForActiveRoom(
+    store.rooms,
+    store.config.tables,
+    activeRoomId.value,
+  );
+  return filterTablesByStatus(tables, activeStatusFilter.value);
+});
+
 // ── Sposta / Unisci modal state ────────────────────────────────────────────
 const showMoveModal = ref(false);
 const showMergeModal = ref(false);
+const showSplitModal = ref(false);
+
+// Selected destination table for the split flow.
+const splitTargetTableId = ref(null);
+// Item-level quantity map: { key: qty } — qty = number of units to move to target
+const splitItemQtyMap = ref({});
 
 const freeTables = computed(() =>
   store.config.tables.filter(
-    t => t.id !== selectedTable.value?.id && store.getTableStatus(t.id).status === 'free',
+    t => t.id !== selectedTable.value?.id && tableStatusMap.value[t.id]?.status === 'free',
   ),
 );
 
+// All non-current, non-free, non-slave tables available for move target selection.
+// Merged slave tables are excluded because moving orders onto a slave creates an
+// invalid state (the slave gets its own session while still logically merged into
+// its master, causing totals/status inconsistencies).
+const otherOccupiedTables = computed(() =>
+  store.config.tables.filter(
+    t =>
+      t.id !== selectedTable.value?.id &&
+      tableStatusMap.value[t.id]?.status !== 'free' &&
+      !store.isMergedSlave(t.id),
+  ),
+);
+
+// Tables available to be merged INTO the currently selected master table.
+// Excludes: self, free tables, tables already merged into this master (already
+// slaves), and tables that are already slaves of a different master (each table
+// can only belong to one merge group at a time).
+const mergeCandidates = computed(() => {
+  const currentId = selectedTable.value?.id;
+  if (!currentId) return [];
+  return store.config.tables.filter(t => {
+    if (t.id === currentId) return false; // not self
+    // Skip free tables — at least one active order is needed
+    if (tableStatusMap.value[t.id]?.status === 'free') return false;
+    // Skip tables that are already slaves of ANY master (including this one)
+    if (store.isMergedSlave(t.id)) return false;
+    return true;
+  });
+});
+
+// Slave table IDs merged into the currently selected table (as master)
+const slaveTableIds = computed(() =>
+  store.slaveIdsOf(selectedTable.value?.id),
+);
+
+// True when the selected table is itself a slave (merged into another)
+const selectedTableMasterTableId = computed(() =>
+  selectedTable.value ? store.masterTableOf(selectedTable.value.id) : null,
+);
+
+const selectedTableMasterTable = computed(() => {
+  const masterId = selectedTableMasterTableId.value;
+  return masterId ? store.config.tables.find(t => t.id === masterId) ?? null : null;
+});
+
+// Slave table objects for the split modal
+const slaveTables = computed(() =>
+  slaveTableIds.value
+    .map(id => store.config.tables.find(t => t.id === id))
+    .filter(Boolean),
+);
+
+// All valid target tables for the split modal: merged slaves + free tables.
+// Slave tables can be separated (with or without transferring items).
+// Free tables receive a portion of the current table's items.
+const splitAvailableTargets = computed(() => {
+  const slaves = slaveTables.value.map(t => ({ ...t, isSlave: true }));
+  const free = freeTables.value.map(t => ({ ...t, isSlave: false }));
+  return [...slaves, ...free];
+});
+
+// True when the currently selected split target is a merged slave of this table.
+const splitTargetIsSlave = computed(() =>
+  !!splitTargetTableId.value &&
+  store.masterTableOf(splitTargetTableId.value) === selectedTable.value?.id,
+);
+
 const tableStatusCounts = computed(() => {
-  let free = 0, occupied = 0, pending = 0;
+  let free = 0, occupied = 0, pending = 0, paid = 0, billRequested = 0;
   for (const t of store.config.tables) {
-    const s = store.getTableStatus(t.id).status;
+    const s = tableStatusMap.value[t.id]?.status;
     if (s === 'free') free++;
-    else if (s === 'occupied' || s === 'conto_richiesto') occupied++;
+    else if (s === 'paid') paid++;
+    else if (s === 'bill_requested') billRequested++;
+    else if (s === 'occupied') occupied++;
     else if (s === 'pending') pending++;
   }
-  return { free, occupied, pending };
+  return { free, occupied, pending, paid, billRequested };
 });
 const freeTablesCount = computed(() => tableStatusCounts.value.free);
 const occupiedTablesCount = computed(() => tableStatusCounts.value.occupied);
 const pendingTablesCount = computed(() => tableStatusCounts.value.pending);
+const paidTablesCount = computed(() => tableStatusCounts.value.paid);
+const billRequestedTablesCount = computed(() => tableStatusCounts.value.billRequested);
 
-const occupiedTables = computed(() =>
-  store.config.tables.filter(
-    t => t.id !== selectedTable.value?.id && store.getTableStatus(t.id).status !== 'free',
-  ),
+// Flat item list for the split modal — built from the appropriate source orders.
+// Includes ALL non-completed/non-rejected orders (not just kitchen-accepted) so
+// pending items can also be moved during a split.
+const splitSourceOrders = computed(() => {
+  if (!showSplitModal.value || !selectedTable.value) return [];
+  // Both merged and single mode: source is always the current (master/standalone) table.
+  // After a merge, all orders are physically on the master table, so the slave has none.
+  return store.orders.filter(
+    o => o.table === selectedTable.value.id &&
+      o.status !== 'completed' && o.status !== 'rejected',
+  );
+});
+
+const splitFlatItemsComputed = computed(() => {
+  // Build rows: include all active items regardless of kitchen status
+  const rows = [];
+  for (const ord of splitSourceOrders.value) {
+    for (let itemIdx = 0; itemIdx < ord.orderItems.length; itemIdx++) {
+      const item = ord.orderItems[itemIdx];
+      const netQty = item.quantity - (item.voidedQuantity || 0);
+      if (netQty <= 0) continue;
+      rows.push({
+        key: `${ord.id}__${item.uid}`,
+        orderId: ord.id,
+        itemUid: item.uid,
+        itemIdx,
+        name: item.name,
+        netQty,
+        unitPrice: item.unitPrice,
+        rowTotal: getOrderItemRowTotal(item),
+        sourceItem: item,
+      });
+    }
+  }
+  return rows;
+});
+
+function buildSplitTargetItem(sourceItem, qty) {
+  const sourceVoidedQty = sourceItem.voidedQuantity || 0;
+  const sourceActiveQty = Math.max(0, (sourceItem.quantity || 0) - sourceVoidedQty);
+  const movedQty = Math.max(0, Math.min(qty || 0, sourceActiveQty));
+  const sourceActiveAfterSplit = Math.max(0, sourceActiveQty - movedQty);
+
+  const targetItem = {
+    ...sourceItem,
+    quantity: movedQty,
+    voidedQuantity: 0,
+  };
+
+  if (Array.isArray(sourceItem.modifiers)) {
+    targetItem.modifiers = sourceItem.modifiers.map((modifier) => {
+      const modifierQuantity = modifier.quantity ?? sourceItem.quantity ?? 0;
+      const modifierVoidedQuantity = modifier.voidedQuantity || 0;
+      const modifierActiveQuantity = Math.max(0, modifierQuantity - modifierVoidedQuantity);
+      const targetModifierQuantity = Math.min(modifierQuantity, movedQty);
+      const targetModifierActiveQuantity = Math.max(
+        0,
+        Math.min(targetModifierQuantity, modifierActiveQuantity - sourceActiveAfterSplit),
+      );
+      return {
+        ...modifier,
+        quantity: targetModifierQuantity,
+        voidedQuantity: Math.max(0, targetModifierQuantity - targetModifierActiveQuantity),
+      };
+    });
+  }
+
+  return targetItem;
+}
+
+// Returns the exact total for the quantity that would be moved by the split modal.
+// This mirrors the split behavior by reconstructing the moved row and repricing it,
+// instead of assuming the full row total is linearly proportional to quantity.
+function splitRowAmount(row, qty) {
+  if (!row?.sourceItem || !qty || qty <= 0) return 0;
+  return getOrderItemRowTotal(buildSplitTargetItem(row.sourceItem, qty));
+}
+
+// Total amount of items currently selected in the split modal
+// Both modes: total of items that MOVE to the target / slave
+const splitSelectedTotal = computed(() =>
+  splitFlatItemsComputed.value.reduce((sum, row) => {
+    const qty = splitItemQtyMap.value[row.key] ?? 0;
+    return sum + splitRowAmount(row, qty);
+  }, 0),
 );
 
 function openMoveModal() { showMoveModal.value = true; }
 function openMergeModal() { showMergeModal.value = true; }
 
+function openSplitModal() {
+  splitTargetTableId.value = null;
+  splitItemQtyMap.value = {};
+  showSplitModal.value = true;
+}
+
+// Pre-fill splitItemQtyMap with zeros (nothing moves by default).
+// Called when a target table is chosen.
+function initSplitQtyMap() {
+  const map = {};
+  for (const row of splitFlatItemsComputed.value) {
+    map[row.key] = 0;
+  }
+  splitItemQtyMap.value = map;
+}
+
+function queueInitSplitQtyMap() {
+  if (!showSplitModal.value) return;
+  // Ensure reactive selection changes have been applied before rebuilding qty state
+  nextTick(initSplitQtyMap);
+}
+
+// Re-initialize qty map when target table changes
+watch(splitTargetTableId, () => {
+  queueInitSplitQtyMap();
+}, { immediate: false });
+
+// When the modal opens, also init (source orders are already determined at this point)
+watch(showSplitModal, (open) => {
+  if (open) {
+    queueInitSplitQtyMap();
+  }
+});
+
+function setSplitQty(key, maxQty, delta) {
+  const current = splitItemQtyMap.value[key] ?? 0;
+  splitItemQtyMap.value = {
+    ...splitItemQtyMap.value,
+    [key]: Math.max(0, Math.min(maxQty, current + delta)),
+  };
+}
+
 function confirmMove(targetTable) {
   if (!selectedTable.value) return;
-  store.moveTableOrders(selectedTable.value.id, targetTable.id);
+  const fromId = selectedTable.value.id;
+  const fromLabel = selectedTable.value.label;
+  store.moveTableOrders(fromId, targetTable.id);
   showMoveModal.value = false;
   // Update selectedTable to the new one
   selectedTable.value = targetTable;
+  // Notify configured printers about the table move
+  enqueueTableMoveJob(fromId, fromLabel, targetTable.id, targetTable.label);
 }
 
 function confirmMerge(sourceTable) {
   if (!selectedTable.value) return;
   store.mergeTableOrders(sourceTable.id, selectedTable.value.id);
   showMergeModal.value = false;
+}
+
+function confirmSplit() {
+  if (!selectedTable.value || !splitTargetTableId.value) return;
+
+  const qtyMap = {};
+  for (const row of splitFlatItemsComputed.value) {
+    const qty = splitItemQtyMap.value[row.key] ?? 0;
+    if (qty > 0) qtyMap[row.key] = qty;
+  }
+
+  // When the target is a slave of this table and no items are selected, the user
+  // wants a clean detach (separate tables without moving any items). Call
+  // detachSlaveTable() directly; splitItemsToTable() requires at least one item.
+  if (splitTargetIsSlave.value && Object.keys(qtyMap).length === 0) {
+    store.detachSlaveTable(selectedTable.value.id, splitTargetTableId.value);
+  } else {
+    store.splitItemsToTable(selectedTable.value.id, splitTargetTableId.value, qtyMap);
+  }
+
+  showSplitModal.value = false;
+  splitTargetTableId.value = null;
+  splitItemQtyMap.value = {};
 }
 
 // ── Bill Requested ─────────────────────────────────────────────────────────
@@ -1011,6 +1688,7 @@ const splitWays = ref(2);
 const splitPaidQuotas = ref(0);
 const romanaSplitCount = ref(1); // how many quotas to pay in this single transaction
 const selectedOrdersToPay = ref([]);
+const analiticaQty = ref({}); // analitica mode: map of 'key' → selected quantity (0 = not selected)
 
 // ── Payment modal state ───────────────────────────────────────────────────
 // Opened when the cashier clicks a payment method button.
@@ -1026,6 +1704,7 @@ const modalMancia = ref('');
 // ── Discount (sconto) state ────────────────────────────────────────────────
 const discountInput = ref('');
 const discountType = ref('percent'); // 'percent' | 'fixed'
+const discountExpanded = ref(false);
 
 // ── People modal state (shown when opening a free table) ───────────────────
 const showPeopleModal = ref(false);
@@ -1045,6 +1724,7 @@ const jsonContext = ref('table');
 const jsonPayloadData = ref('{}');
 
 // ── Computed: table orders ─────────────────────────────────────────────────
+// All orders are physically on the master table after a merge, so no slave aggregation needed.
 const tableOrders = computed(() => {
   if (!selectedTable.value) return [];
   return store.orders.filter(
@@ -1087,6 +1767,13 @@ const tableAmountRemaining = computed(() =>
   Math.max(0, tableTotalAmount.value - tableAmountPaid.value),
 );
 
+// True when at least one Romana transaction has been recorded for this bill
+// session. In that case, Comanda and Analitica modes are disabled to prevent
+// item-level selections from conflicting with the per-quota split logic.
+const hasRomanaPayment = computed(() =>
+  tableTransactions.value.some(t => t.operationType === 'romana'),
+);
+
 const hasPendingOrdersInTable = computed(() =>
   tableOrders.value.some(o => o.status === 'pending'),
 );
@@ -1098,6 +1785,48 @@ const customPayAmount = computed(() => {
   return Math.min(val, tableAmountRemaining.value);
 });
 
+// ── Analitica mode: flat list of individually selectable line items ─────────
+// Delegates to the shared helper in utils/analitica.js so that the test suite
+// validates the exact same production logic (no duplication).
+const flatAnaliticaItems = computed(() => buildFlatAnaliticaItems(tableAcceptedPayableOrders.value));
+
+const analiticaSelectedTotal = computed(() =>
+  computeAnaliticaTotal(flatAnaliticaItems.value, analiticaQty.value),
+);
+
+// Cent-level comparison avoids IEEE-754 rounding artefacts blocking a
+// selection that is effectively equal to the remaining balance.
+const analiticaSelectionExceedsRemaining = computed(() =>
+  exceedsAmount(analiticaSelectedTotal.value, tableAmountRemaining.value),
+);
+
+const analiticaAmount = computed(() => analiticaSelectedTotal.value);
+
+// Sanitize analiticaQty whenever the payable item list changes (e.g. cashier
+// voids an item while the modal is open).  Drop stale keys and clamp remaining
+// quantities to the current netQty so that order-completion logic stays sound.
+watch(flatAnaliticaItems, (newItems) => {
+  const validKeys = new Set(newItems.map(i => i.key));
+  const netQtyMap = Object.fromEntries(newItems.map(i => [i.key, i.netQty]));
+  const cleaned = {};
+  for (const [key, qty] of Object.entries(analiticaQty.value)) {
+    if (!validKeys.has(key)) continue; // drop stale row
+    const clamped = Math.min(qty, netQtyMap[key]);
+    if (clamped > 0) cleaned[key] = clamped;
+  }
+  analiticaQty.value = cleaned;
+});
+
+// Auto-switch left panel to "Per Ordine" when comanda checkout mode is selected.
+// Also reset per-mode selections so stale state (e.g. the "totale selezionato
+// supera il conto rimanente" warning) does not bleed into the new mode.
+watch(checkoutMode, (mode) => {
+  analiticaQty.value = {};
+  selectedOrdersToPay.value = [];
+  if (mode === 'ordini') {
+    cassaViewMode.value = 'ordine';
+  }
+});
 const quotaRomana = computed(() => {
   if (splitWays.value <= 0) return 0;
   const waysLeft = splitWays.value - splitPaidQuotas.value;
@@ -1129,7 +1858,9 @@ const modalRestoParsed = computed(() => Math.max(0, parseFloat(modalResto.value)
 const modalManciaParsed = computed(() => Math.max(0, parseFloat(modalMancia.value) || 0));
 
 // True when the customer is paying less than the amount due (partial payment).
+// Analitica mode does not allow partial payments (vociRefs must match amountPaid).
 const modalIsPartial = computed(() =>
+  checkoutMode.value !== 'analitica' &&
   modalRicevutoParsed.value > 0 && modalRicevutoParsed.value < amountBeingPaid.value,
 );
 
@@ -1223,12 +1954,17 @@ const discountInputExceedsMax = computed(() => {
 const amountBeingPaid = computed(() => {
   if (checkoutMode.value === 'unico') return tableAmountRemaining.value;
   if (checkoutMode.value === 'romana') return quotaRomana.value;
+  if (checkoutMode.value === 'analitica') return analiticaAmount.value;
   return customPayAmount.value;
 });
 
 const canPay = computed(() => {
   if (tableAmountRemaining.value <= BILL_SETTLED_THRESHOLD) return false;
   if (checkoutMode.value === 'ordini' && selectedOrdersToPay.value.length === 0) return false;
+  if (checkoutMode.value === 'analitica') {
+    if (!flatAnaliticaItems.value.some(i => (analiticaQty.value[i.key] || 0) > 0)) return false;
+    if (analiticaSelectionExceedsRemaining.value) return false;
+  }
   return true;
 });
 
@@ -1248,6 +1984,42 @@ function getPaymentIcon(methodIdOrLabel) {
   const m = store.config.paymentMethods.find(x => x.label === methodIdOrLabel || x.id === methodIdOrLabel);
   if (!m) return Banknote;
   return m.icon === 'credit-card' ? CreditCard : Banknote;
+}
+
+// ── Analitica mode: increment / decrement per-item quantity ───────────────
+function incrementAnalitica(key, max) {
+  const current = analiticaQty.value[key] || 0;
+  if (current < max) analiticaQty.value[key] = current + 1;
+}
+
+function decrementAnalitica(key) {
+  const current = analiticaQty.value[key] || 0;
+  if (current <= 1) {
+    delete analiticaQty.value[key];
+  } else {
+    analiticaQty.value[key] = current - 1;
+  }
+}
+
+// ── Analitica mode: select all at max qty / deselect all ───────────────────
+function toggleSelectAllVoci() {
+  const allMaxed = flatAnaliticaItems.value.every(i => (analiticaQty.value[i.key] || 0) === i.netQty);
+  if (allMaxed) {
+    analiticaQty.value = {};
+  } else {
+    const newQty = {};
+    for (const item of flatAnaliticaItems.value) newQty[item.key] = item.netQty;
+    analiticaQty.value = newQty;
+  }
+}
+
+function toggleOrderSelection(ordId) {
+  const idx = selectedOrdersToPay.value.indexOf(ordId);
+  if (idx === -1) {
+    selectedOrdersToPay.value.push(ordId);
+  } else {
+    selectedOrdersToPay.value.splice(idx, 1);
+  }
 }
 
 // ── Computed: grouped menu view (items aggregated by dish name) ────────────
@@ -1296,6 +2068,18 @@ const tableMenuGrouped = computed(() => {
 
 // ── Table actions ──────────────────────────────────────────────────────────
 function openTableDetails(table) {
+  // If the table is a merged slave with active orders, open the master's billing panel instead.
+  // All transactions are managed under the master, so the cashier sees the full bill.
+  // If the slave is free (e.g. merge state not yet cleaned up after payment), let it open normally.
+  const masterId = store.masterTableOf(table.id);
+  if (masterId && store.getTableStatus(table.id).status !== 'free') {
+    const masterTable = store.config.tables.find(t => t.id === masterId);
+    if (masterTable) {
+      _openTableModal(masterTable);
+      return;
+    }
+  }
+
   const status = store.getTableStatus(table.id).status;
   if (status === 'free') {
     // Show people-count prompt before opening a free table
@@ -1310,7 +2094,12 @@ function openTableDetails(table) {
 
 function _openTableModal(table) {
   selectedTable.value = table;
-  const session = store.tableCurrentBillSession[table.id];
+  // For slave tables, read the session from the master only while the slave is still actively merged.
+  // If the table is free, a stale merge mapping may still exist and the table should use its own session.
+  const status = store.getTableStatus(table.id).status;
+  const masterId = store.masterTableOf(table.id);
+  const sessionTableId = masterId && status !== 'free' ? masterId : table.id;
+  const session = store.tableCurrentBillSession[sessionTableId];
   // Default romana split to adults count; fall back to total people or table covers
   if (session) {
     splitWays.value = session.adults > 0 ? session.adults : (session.adults + session.children) || (table.covers || 2);
@@ -1320,9 +2109,11 @@ function _openTableModal(table) {
   checkoutMode.value = 'unico';
   cassaViewMode.value = 'voce';
   selectedOrdersToPay.value = [];
+  analiticaQty.value = {};
   romanaSplitCount.value = 1;
   discountInput.value = '';
   discountType.value = 'percent';
+  discountExpanded.value = false;
   showPaymentModal.value = false;
   modalMethodId.value = null;
   modalRicevuto.value = '';
@@ -1330,7 +2121,7 @@ function _openTableModal(table) {
   modalMancia.value = '';
 
   const pastRomana = store.transactions.filter(
-    t => t.tableId === table.id && t.operationType === 'romana' &&
+    t => t.tableId === sessionTableId && t.operationType === 'romana' &&
       (!session || t.billSessionId === session.billSessionId),
   );
   // FIX: sum romanaSplitCount per transaction (supports flexible multi-quota payments)
@@ -1397,7 +2188,12 @@ function closeTableModal() {
 
 function createNewOrderForTable() {
   if (!selectedTable.value) return;
-  const session = store.tableCurrentBillSession[selectedTable.value.id];
+  const tableId = selectedTable.value.id;
+  const ownSession = store.tableCurrentBillSession[tableId];
+  const masterId = store.masterTableOf(tableId);
+  // Prefer the table's own active session. Fall back to the master's session
+  // only when the table does not currently have an independent session.
+  const session = ownSession ?? (masterId != null ? store.tableCurrentBillSession[masterId] : null);
   const newOrd = {
     id: 'ord_' + Math.random().toString(36).slice(2, 11),
     table: selectedTable.value.id,
@@ -1629,6 +2425,11 @@ function processTablePayment(paymentMethodId, extra = {}, overrideAmount = null)
     payload.orderRefs = [...selectedOrdersToPay.value];
     // Orders are intentionally NOT marked completed here yet; they are handled below
     // after the transaction is recorded so the auto-close check sees correct balances.
+  } else if (checkoutMode.value === 'analitica') {
+    // Record which order IDs are involved and the specific item keys with their selected quantities.
+    const selectedItems = flatAnaliticaItems.value.filter(i => (analiticaQty.value[i.key] || 0) > 0);
+    payload.orderRefs = [...new Set(selectedItems.map(i => i.orderId))];
+    payload.vociRefs = selectedItems.map(i => ({ key: i.key, qty: analiticaQty.value[i.key] }));
   }
 
   store.addTransaction(payload);
@@ -1645,6 +2446,22 @@ function processTablePayment(paymentMethodId, extra = {}, overrideAmount = null)
       });
     }
     selectedOrdersToPay.value = [];
+  }
+
+  // In analitica mode, complete any orders whose items AND paid modifiers are ALL fully selected
+  // (selectedQty === netQty for every row belonging to that order).
+  if (checkoutMode.value === 'analitica') {
+    if (amount + BILL_SETTLED_THRESHOLD >= analiticaAmount.value) {
+      const ordersToComplete = getOrdersToComplete(
+        tableAcceptedPayableOrders.value,
+        flatAnaliticaItems.value,
+        analiticaQty.value,
+      );
+      for (const ord of tableAcceptedPayableOrders.value) {
+        if (ordersToComplete.includes(ord.id)) store.changeOrderStatus(ord, 'completed');
+      }
+    }
+    analiticaQty.value = {};
   }
 
   jsonContext.value = 'receipt';
@@ -1682,13 +2499,22 @@ function swapRestoMancia() {
 // Confirms the payment from the modal: records the transaction and closes the modal.
 // Partial payments (ricevuto < due) record only the ricevuto amount; the remaining
 // balance stays open until a subsequent transaction completes it.
+// Exception: in analitica mode partial payments are not allowed because vociRefs
+// must exactly match the paid amount; the cashier must receive at least the full
+// selected total.
 function confirmPaymentModal() {
   if (!modalMethodId.value) return;
   const ricevuto = parseFloat(modalRicevuto.value) || 0;
   if (ricevuto <= 0) return;
 
   const due = amountBeingPaid.value;
-  const amountPaid = Math.min(ricevuto, due);
+  const dueCents = Math.round(due * 100);
+  const ricevutoCents = Math.round(ricevuto * 100);
+  // In analitica mode require full coverage at cent precision to keep vociRefs consistent.
+  if (checkoutMode.value === 'analitica' && ricevutoCents < dueCents) return;
+  const amountPaid = checkoutMode.value === 'analitica'
+    ? dueCents / 100
+    : Math.min(ricevuto, due);
   const extra = {};
 
   if (tipsEnabled.value && modalManciaParsed.value > 0) {
@@ -1735,6 +2561,7 @@ function generateTableCheckoutJson(ctx = 'table') {
   const payload = {
     type: 'PRECONTO_API_TAVOLO',
     table: selectedTable.value.id,
+    tableLabel: selectedTable.value.label,
     grossAmount: tableTotalAmount.value,
     paymentsRecorded: tableAmountPaid.value,
     amountDue: tableAmountRemaining.value,
@@ -1744,12 +2571,21 @@ function generateTableCheckoutJson(ctx = 'table') {
         .map(r => ({
           name: r.name,
           quantity: r.quantity - (r.voidedQuantity || 0),
-          subtotal: r.unitPrice * (r.quantity - (r.voidedQuantity || 0)),
+          unitPrice: r.unitPrice ?? 0,
+          subtotal: (r.unitPrice ?? 0) * (r.quantity - (r.voidedQuantity || 0)),
         })),
     ),
   };
   jsonPayloadData.value = JSON.stringify(payload, null, 2);
   showPrecontoJson.value = true;
+
+  // Send to configured pre-bill printer (if any selected in settings)
+  if (ctx === 'table') {
+    const preBillPrinter = preBillPrinterConfig.value;
+    if (preBillPrinter?.url) {
+      enqueuePreBillJob(payload, preBillPrinter.url, preBillPrinter.name ?? preBillPrinter.id);
+    }
+  }
 }
 
 function closeJsonModal() {

@@ -4,6 +4,7 @@
     title="Impostazioni Cassa"
     :showKeyboardToggle="true"
     :showMenuSync="isAdmin"
+    :showPrinterSettings="true"
     @update:modelValue="value => emit('update:modelValue', value)"
     @settings-changed="payload => emit('settings-changed', payload)"
   />

@@ -30,12 +30,12 @@ export function useSettings(props, emit) {
 
   function loadInitialSettings() {
     if (typeof window === 'undefined') {
-      return { sounds: true, menuUrl: appConfig.menuUrl, preventScreenLock: false, customKeyboard: 'disabled' };
+      return { sounds: true, menuUrl: appConfig.menuUrl, preventScreenLock: true, customKeyboard: 'disabled', preBillPrinterId: '' };
     }
     try {
       const raw = window.localStorage.getItem(SETTINGS_STORAGE_KEY);
       if (!raw) {
-        return { sounds: true, menuUrl: appConfig.menuUrl, preventScreenLock: false, customKeyboard: 'disabled' };
+        return { sounds: true, menuUrl: appConfig.menuUrl, preventScreenLock: true, customKeyboard: 'disabled', preBillPrinterId: '' };
       }
       const parsed = JSON.parse(raw);
       return {
@@ -47,11 +47,12 @@ export function useSettings(props, emit) {
         preventScreenLock:
           typeof parsed.preventScreenLock === 'boolean' && wakeLockApiSupported
             ? parsed.preventScreenLock
-            : false,
+            : true,
         customKeyboard: _parseKeyboardPosition(parsed.customKeyboard),
+        preBillPrinterId: typeof parsed.preBillPrinterId === 'string' ? parsed.preBillPrinterId : '',
       };
     } catch {
-      return { sounds: true, menuUrl: appConfig.menuUrl, preventScreenLock: false, customKeyboard: 'disabled' };
+      return { sounds: true, menuUrl: appConfig.menuUrl, preventScreenLock: true, customKeyboard: 'disabled', preBillPrinterId: '' };
     }
   }
 
@@ -88,6 +89,7 @@ export function useSettings(props, emit) {
       store.menuUrl = newVal.menuUrl;
       store.preventScreenLock = newVal.preventScreenLock;
       store.customKeyboard = newVal.customKeyboard;
+      store.preBillPrinterId = newVal.preBillPrinterId ?? '';
       emit('settings-changed', newVal);
       // Debounce localStorage writes to avoid per-keystroke I/O (e.g. menuUrl typing)
       clearTimeout(saveTimer);

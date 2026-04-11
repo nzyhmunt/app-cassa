@@ -5,6 +5,9 @@
  * The WakeLock API sentinel is automatically re-acquired when:
  *  - The page becomes visible again after being hidden (`visibilitychange`).
  *  - The sentinel is released by the OS or browser policy (`release` event).
+ *  - The user interacts with the page (click/touchstart) after a failed initial
+ *    acquisition — required on iOS Safari, which only permits the API after a
+ *    user gesture.
  *
  * @see https://developer.mozilla.org/en-US/docs/Web/API/Screen_Wake_Lock_API
  */
@@ -83,6 +86,22 @@ export function useWakeLock() {
     }
   }
 
+  // iOS Safari requires a user gesture before the Wake Lock API can be used.
+  // If the initial acquisition on mount is rejected, this handler retries once
+  // on the first user interaction (click or touch). The listeners are registered
+  // with { once: true } so they auto-remove after the first invocation;
+  // the onUnmounted cleanup handles early removal if the component unmounts
+  // before any interaction occurs.
+  async function handleUserInteraction() {
+    if (store.preventScreenLock && !wakeLock) {
+      try {
+        await requestWakeLock();
+      } catch {
+        // Ignore — requestWakeLock() already handles and logs internal errors.
+      }
+    }
+  }
+
   watch(
     () => store.preventScreenLock,
     async (enabled) => {
@@ -96,11 +115,15 @@ export function useWakeLock() {
 
   onMounted(async () => {
     document.addEventListener('visibilitychange', handleVisibilityChange);
+    document.addEventListener('click', handleUserInteraction, { once: true });
+    document.addEventListener('touchstart', handleUserInteraction, { once: true, passive: true });
     await requestWakeLock();
   });
 
   onUnmounted(async () => {
     document.removeEventListener('visibilitychange', handleVisibilityChange);
+    document.removeEventListener('click', handleUserInteraction);
+    document.removeEventListener('touchstart', handleUserInteraction, { passive: true });
     await releaseWakeLock();
   });
 }

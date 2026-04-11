@@ -94,19 +94,31 @@ La navbar della Cassa contiene:
 
 ### 3.2 Mappa sala
 
-La mappa mostra tutti i tavoli configurati (default: 12 tavoli, da 2 a 8 coperti ciascuno) con stati visivi distinti:
+La mappa mostra tutti i tavoli configurati con stati visivi distinti:
 
 | Stato | Colore bordo | Testo visualizzato | Significato |
 |-------|-------------|-------------------|-------------|
 | **Libero** | Verde smeraldo chiaro | — | Nessun cliente |
-| **In Attesa** | Ambra | "Attesa" | Comande inviate, non ancora accettate |
+| **In Attesa** | Ambra | "In Attesa" | Comande inviate, non ancora accettate |
+| **Saldato** | Viola | "Saldato" + importo residuo (€0.00) | Tutto pagato, conto non ancora chiuso |
 | **Conto Richiesto** | Blu | "Conto!" | Cliente ha richiesto il conto |
-| **Occupato** | Verde tema (teal) | "In Cassa" + importo residuo | Ordini accettati/in preparazione |
+| **Occupato** | Verde tema (teal) | "Occupato" + importo residuo | Ordini accettati/in preparazione |
 
-La **barra statistiche** in fondo alla mappa mostra le pillole di riepilogo:
+#### Più sale (raggruppamento)
+
+Quando sono configurate **più sale** (es. Sala Interna + Terrazza), sopra la griglia dei tavoli appaiono le **tab di selezione sala**:
+
+- Ogni tab mostra il nome della sala e il numero di tavoli che contiene
+- Fare clic su una tab filtra la griglia mostrando solo i tavoli di quella sala
+- La **barra statistiche** rimane sempre globale e conta i tavoli di tutte le sale
+- La configurazione avviene in `appConfig.rooms` tramite `src/utils/index.js`
+
+La **barra statistiche** in cima alla mappa mostra le pillole cliccabili (fungono anche da filtro e da legenda):
 - 🟢 **Liberi** — tavoli disponibili
-- 🔵 **Occupati** — tavoli con clienti e ordini attivi  
 - 🟡 **In Attesa** — tavoli con comande non ancora approvate
+- 🟣 **Saldati** — tutto pagato, conto non ancora chiuso
+- 🔵 **Conto Rich.** — cliente ha richiesto il conto *(solo App Cassa)*
+- 🟤 **Occupati** — tavoli con clienti e ordini attivi
 
 ### 3.3 Aprire un tavolo
 
@@ -221,7 +233,7 @@ Visibile quando gli sconti sono abilitati e c'è un saldo residuo:
 
 ### 4.3 Modalità di pagamento
 
-Tre modalità selezionabili con i tab in cima al pannello di incasso:
+Quattro modalità selezionabili con i tab in cima al pannello di incasso:
 
 #### Tutto (pagamento unico)
 
@@ -252,6 +264,25 @@ Permette di selezionare individualmente quali comande pagare in questa transazio
 - Spuntare le comande da saldare
 - Il totale si aggiorna dinamicamente
 - Utile per pagamenti separati su gruppi che hanno ordinato comande distinte
+
+#### Analitica (selezione voce per voce)
+
+Permette di scegliere esattamente **quante unità** di ogni singola voce incassare in questa transazione:
+
+- Ogni voce (e ogni variazione a pagamento) appare come riga con uno stepper **[−] qty [+]**
+- Lo stepper parte da 0 e arriva alla quantità netta pagabile (es. 2 coperti → max 2)
+- Voci dirette (⚡) sono evidenziate con l'icona corrispondente
+- Le variazioni a pagamento appaiono come sotto-righe indentate in viola
+- L'acconto si aggiorna in tempo reale: `qty × prezzo unitario`
+- **Seleziona Tutto** / **Deseleziona Tutto** per comodità
+- Se il totale selezionato supera il saldo rimanente, viene mostrato un avviso e i pulsanti di pagamento vengono disabilitati
+- Una comanda viene chiusa automaticamente solo quando tutte le sue voci (incluse variazioni a pagamento) sono state integralmente selezionate e pagate
+
+**Esempio pratico:**  
+Tavolo con 2 coperti (€2.50 cad.) e 1 Tagliere x2 (€20.00).
+- Selezionare 1 coperto (qty=1) → Acconto €2.50
+- Selezionare il Tagliere (qty=1) + 1 coperto → Acconto €22.50
+- Incassare → rimane da pagare €2.50 (il secondo coperto)
 
 ### 4.4 Mancia
 
@@ -410,8 +441,11 @@ Stessa griglia della Cassa ma con interfaccia più semplice:
 | Stato | Visualizzato |
 |-------|-------------|
 | **Libero** | Tavolo vuoto, cliccabile |
-| **In Attesa** | "Attesa" + numero comande |
-| **Occupato** | "In Cassa" + numero comande |
+| **In Attesa** | Tavolo con comande aperte in attesa, con numero comande |
+| **Occupato** | Tavolo con conto aperto, con numero comande |
+
+Nella sezione **Comande** e nei relativi filtri è presente anche lo stato **`Saldato`**.
+Quando sono configurate **più sale**, l'App Sala mostra le stesse **tab di selezione sala** dell'App Cassa — vedere [§ 3.2 Più sale](#più-sale-raggruppamento).
 
 ### 8.3 Aprire un tavolo libero
 
