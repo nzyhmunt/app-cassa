@@ -438,6 +438,9 @@ export const useAppStore = defineStore('app', () => {
   // Persist only the state slices that actually changed during the debounce window
   // instead of re-writing every persisted collection on each deep mutation.
   let _saveTimer = null;
+  // Promise chain that serializes IDB writes so a slower earlier save can never
+  // overwrite a newer one (last scheduled write always commits last).
+  let _saveChain = Promise.resolve();
   const _pendingSaveKeys = new Set();
   const _persistableStateGetters = {
     orders: () => orders.value,
@@ -463,7 +466,7 @@ export const useAppStore = defineStore('app', () => {
         if (getter) payload[key] = getter();
       });
       _pendingSaveKeys.clear();
-      saveStateToIDB(payload);
+      _saveChain = _saveChain.then(() => saveStateToIDB(payload)).catch(() => {});
     }, 150);
   }
 

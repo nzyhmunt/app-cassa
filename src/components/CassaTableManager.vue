@@ -2238,13 +2238,19 @@ const configLockedDirectItems = computed(() => getLockedDirectItems(store.config
 
 // Saved custom items — persisted in IndexedDB
 const savedCustomItems = ref([]);
+let _customItemsHydrated = false;
 
 // Load saved custom items asynchronously from IDB
 loadCustomItemsFromIDB().then(items => {
   savedCustomItems.value = items;
-}).catch(e => console.warn('[CassaTableManager] Failed to load saved custom items:', e));
+  _customItemsHydrated = true;
+}).catch(e => {
+  _customItemsHydrated = true; // still mark hydrated so future changes persist
+  console.warn('[CassaTableManager] Failed to load saved custom items:', e);
+});
 
 watch(savedCustomItems, (val) => {
+  if (!_customItemsHydrated) return;
   saveCustomItemsToIDB(val).catch(e => console.warn('[CassaTableManager] Failed to save custom items:', e));
 }, { deep: true });
 
