@@ -1457,7 +1457,7 @@ async function getOrCreateDeviceKey() {
 ```
 
 **Salvataggio del token (setup iniziale):**
-
+> **Sicurezza PIN**: il PIN non viene mai trasmesso in chiaro. Il client calcola
 ```js
 async function saveDeviceToken(token, directusUrl, venueId) {
   const key = await getOrCreateDeviceKey()
