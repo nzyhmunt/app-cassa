@@ -561,8 +561,7 @@ export async function initStoreFromIDB(pinia) {
     if (typeof settings.preventScreenLock === 'boolean') {
       store.preventScreenLock = settings.preventScreenLock;
     }
-    const { KEYBOARD_POSITIONS: KP } = await import('../utils/index.js');
-    if (KP.includes(settings.customKeyboard)) store.customKeyboard = settings.customKeyboard;
+    if (KEYBOARD_POSITIONS.includes(settings.customKeyboard)) store.customKeyboard = settings.customKeyboard;
     if (typeof settings.preBillPrinterId === 'string') {
       store.preBillPrinterId = settings.preBillPrinterId;
     }
