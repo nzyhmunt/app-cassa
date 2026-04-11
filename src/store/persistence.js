@@ -71,7 +71,11 @@ export function resolveCustomItemsKey(instanceName) {
  */
 export function clearState(storageKey) {
   // Remove legacy localStorage entry if it still exists
-  if (typeof localStorage !== 'undefined') {
+  if (
+    typeof localStorage !== 'undefined' &&
+    typeof storageKey === 'string' &&
+    storageKey !== ''
+  ) {
     try { localStorage.removeItem(storageKey); } catch (_) { /* ignore */ }
   }
   // Clear IndexedDB operative stores asynchronously (fire-and-forget)
