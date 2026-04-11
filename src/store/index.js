@@ -435,35 +435,48 @@ export const useAppStore = defineStore('app', () => {
   // ── IDB persistence watchers ───────────────────────────────────────────────
   // Debounced: batches rapid successive mutations into a single IDB write.
   // Uses a 150 ms timeout so UI interactions feel instant while writes are async.
+  // Persist only the state slices that actually changed during the debounce window
+  // instead of re-writing every persisted collection on each deep mutation.
   let _saveTimer = null;
-  function _scheduleSave() {
+  const _pendingSaveKeys = new Set();
+  const _persistableStateGetters = {
+    orders: () => orders.value,
+    transactions: () => transactions.value,
+    cashBalance: () => cashBalance.value,
+    cashMovements: () => cashMovements.value,
+    dailyClosures: () => dailyClosures.value,
+    printLog: () => printLog.value,
+    tableCurrentBillSession: () => tableCurrentBillSession.value,
+    tableMergedInto: () => tableMergedInto.value,
+    tableOccupiedAt: () => tableOccupiedAt.value,
+    billRequestedTables: () => billRequestedTables.value,
+  };
+
+  function _scheduleSave(...keys) {
+    keys.forEach((key) => _pendingSaveKeys.add(key));
     clearTimeout(_saveTimer);
     _saveTimer = setTimeout(() => {
-      saveStateToIDB({
-        orders: orders.value,
-        transactions: transactions.value,
-        cashBalance: cashBalance.value,
-        cashMovements: cashMovements.value,
-        dailyClosures: dailyClosures.value,
-        printLog: printLog.value,
-        tableCurrentBillSession: tableCurrentBillSession.value,
-        tableMergedInto: tableMergedInto.value,
-        tableOccupiedAt: tableOccupiedAt.value,
-        billRequestedTables: billRequestedTables.value,
+      if (!_pendingSaveKeys.size) return;
+      const payload = {};
+      _pendingSaveKeys.forEach((key) => {
+        const getter = _persistableStateGetters[key];
+        if (getter) payload[key] = getter();
       });
+      _pendingSaveKeys.clear();
+      saveStateToIDB(payload);
     }, 150);
   }
 
-  watch(orders, _scheduleSave, { deep: true });
-  watch(transactions, _scheduleSave, { deep: true });
-  watch(cashBalance, _scheduleSave);
-  watch(cashMovements, _scheduleSave, { deep: true });
-  watch(dailyClosures, _scheduleSave, { deep: true });
-  watch(printLog, _scheduleSave, { deep: true });
-  watch(tableCurrentBillSession, _scheduleSave, { deep: true });
-  watch(tableMergedInto, _scheduleSave, { deep: true });
-  watch(tableOccupiedAt, _scheduleSave, { deep: true });
-  watch(billRequestedTables, _scheduleSave, { deep: true });
+  watch(orders, () => _scheduleSave('orders'), { deep: true });
+  watch(transactions, () => _scheduleSave('transactions'), { deep: true });
+  watch(cashBalance, () => _scheduleSave('cashBalance'));
+  watch(cashMovements, () => _scheduleSave('cashMovements'), { deep: true });
+  watch(dailyClosures, () => _scheduleSave('dailyClosures'), { deep: true });
+  watch(printLog, () => _scheduleSave('printLog'), { deep: true });
+  watch(tableCurrentBillSession, () => _scheduleSave('tableCurrentBillSession'), { deep: true });
+  watch(tableMergedInto, () => _scheduleSave('tableMergedInto'), { deep: true });
+  watch(tableOccupiedAt, () => _scheduleSave('tableOccupiedAt'), { deep: true });
+  watch(billRequestedTables, () => _scheduleSave('billRequestedTables'), { deep: true });
 
   return {
     // state
