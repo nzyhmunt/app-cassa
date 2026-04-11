@@ -1461,6 +1461,7 @@ import {
   FileText, Building2,
 } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
+import { newUUIDv7 } from '../store/storeUtils.js';
 import { getOrderItemRowTotal, KITCHEN_ACTIVE_STATUSES, getLockedDirectItems, appConfig } from '../utils/index.js';
 import { buildFlatAnaliticaItems, computeAnaliticaTotal, exceedsAmount, getOrdersToComplete } from '../utils/analitica.js';
 import { loadCustomItemsFromIDB, saveCustomItemsToIDB } from '../store/idbPersistence.js';
@@ -2595,14 +2596,14 @@ function _buildBillSummaryBase() {
 }
 
 function _buildFiscalXmlRequest(base) {
+  const escXml = s => String(s).replace(/[<>&"']/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;' }[c]));
   const lines = base.orders.flatMap(o => o.items).map(item => {
-    const description = item.name.replace(/[<>&"']/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;' }[c]));
     const qty = item.quantity.toFixed(3);
     const price = item.unitPrice.toFixed(2);
-    return `  <printRecItem description="${description}" quantity="${qty}" unitPrice="${price}" department="1" />`;
+    return `  <printRecItem description="${escXml(item.name)}" quantity="${qty}" unitPrice="${price}" department="1" />`;
   });
   const paymentType = base.paymentMethods.some(m => /cart|bancomat|pos|visa|master|carta/i.test(m)) ? '2' : '0';
-  const paymentLabel = base.paymentMethods.join(' + ') || 'CONTANTI';
+  const paymentLabel = escXml(base.paymentMethods.join(' + ') || 'CONTANTI');
   const total = base.totalPaid.toFixed(2);
   return [
     '<printerFiscalReceipt>',
@@ -2620,7 +2621,7 @@ function closeTableBillFiscale() {
   if (!base) return;
   const xmlRequest = _buildFiscalXmlRequest(base);
   const entry = {
-    id: 'fis_' + Math.random().toString(36).slice(2, 11),
+    id: newUUIDv7('fis'),
     ...base,
     xmlRequest,
     xmlResponse: null,
@@ -2635,22 +2636,46 @@ function closeTableBillFiscale() {
 function confirmInvoice() {
   if (!selectedTable.value) return;
   const form = invoiceForm.value;
-  if (!form.denominazione.trim()) {
+  const trim = v => (v ?? '').trim();
+
+  if (!trim(form.denominazione)) {
     invoiceFormError.value = 'Denominazione obbligatoria.';
     return;
   }
-  if (!form.codiceFiscale.trim() && !form.piva.trim()) {
+  if (!trim(form.codiceFiscale) && !trim(form.piva)) {
     invoiceFormError.value = 'Inserire almeno Codice Fiscale o P.IVA.';
     return;
   }
-  if (!form.indirizzo.trim() || !form.cap.trim() || !form.comune.trim()) {
+  if (!trim(form.indirizzo) || !trim(form.cap) || !trim(form.comune)) {
     invoiceFormError.value = 'Indirizzo, CAP e Comune sono obbligatori.';
+    return;
+  }
+  if (!/^\d{5}$/.test(trim(form.cap))) {
+    invoiceFormError.value = 'Il CAP deve essere di 5 cifre.';
+    return;
+  }
+  if (!trim(form.paese)) {
+    invoiceFormError.value = 'Il campo Paese è obbligatorio.';
+    return;
+  }
+  const sdi = trim(form.codiceDestinatario);
+  const pec = trim(form.pec);
+  if (!sdi && !pec) {
+    invoiceFormError.value = 'Inserire Codice SDI o PEC per la trasmissione della fattura.';
+    return;
+  }
+  if (sdi && !/^[A-Z0-9]{7}$/i.test(sdi)) {
+    invoiceFormError.value = 'Il Codice SDI deve essere di 7 caratteri alfanumerici.';
+    return;
+  }
+  if (pec && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(pec)) {
+    invoiceFormError.value = 'Indirizzo PEC non valido.';
     return;
   }
   const base = _buildBillSummaryBase();
   if (!base) return;
   const entry = {
-    id: 'inv_' + Math.random().toString(36).slice(2, 11),
+    id: newUUIDv7('inv'),
     ...base,
     billingData: { ...form },
     status: 'pending',

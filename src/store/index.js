@@ -20,7 +20,7 @@ import { appConfig, updateOrderTotals, KITCHEN_ACTIVE_STATUSES, KEYBOARD_POSITIO
 import { newUUID } from './storeUtils.js';
 import { makeTableOps } from './tableOps.js';
 import { makeReportOps } from './reportOps.js';
-import { loadStateFromIDB, saveStateToIDB, loadSettingsFromIDB, saveFiscalReceiptToIDB, saveInvoiceRequestToIDB } from './idbPersistence.js';
+import { loadStateFromIDB, saveStateToIDB, loadSettingsFromIDB, saveFiscalReceiptToIDB, saveInvoiceRequestToIDB, loadFiscalReceiptsFromIDB, loadInvoiceRequestsFromIDB } from './idbPersistence.js';
 import { enqueue } from '../composables/useSyncQueue.js';
 
 export const useAppStore = defineStore('app', () => {
@@ -113,9 +113,9 @@ export const useAppStore = defineStore('app', () => {
   //     paymentMethods, xmlRequest, xmlResponse, status, timestamp }
   const fiscalReceipts = ref([]);
 
-  /** Prepends a fiscal receipt entry and persists it to IDB. */
+  /** Prepends a fiscal receipt entry (capped to 200) and persists it to IDB. */
   function addFiscalReceipt(entry) {
-    fiscalReceipts.value = [entry, ...fiscalReceipts.value];
+    fiscalReceipts.value = [entry, ...fiscalReceipts.value].slice(0, 200);
     saveFiscalReceiptToIDB(entry);
   }
 
@@ -137,30 +137,27 @@ export const useAppStore = defineStore('app', () => {
   //     status, timestamp }
   const invoiceRequests = ref([]);
 
-  /** Prepends an invoice request entry and persists it to IDB. */
+  /** Prepends an invoice request entry (capped to 200) and persists it to IDB. */
   function addInvoiceRequest(entry) {
-    invoiceRequests.value = [entry, ...invoiceRequests.value];
+    invoiceRequests.value = [entry, ...invoiceRequests.value].slice(0, 200);
     saveInvoiceRequestToIDB(entry);
   }
 
   /**
-   * Hydrates collections that are persisted but not reconstructed by default
-   * store initialization paths.
+   * Hydrates fiscal receipts and invoice requests from their dedicated IDB stores.
+   * Called once at store creation so the in-memory lists reflect persisted data
+   * after a page reload (these collections are not part of loadStateFromIDB).
    */
-  async function hydratePersistedCollections() {
-    const persistedState = await loadStateFromIDB();
-    if (!persistedState || typeof persistedState !== 'object') return;
-
-    if (Array.isArray(persistedState.fiscalReceipts)) {
-      fiscalReceipts.value = persistedState.fiscalReceipts;
-    }
-
-    if (Array.isArray(persistedState.invoiceRequests)) {
-      invoiceRequests.value = persistedState.invoiceRequests;
-    }
+  async function _hydrateFiscalAndInvoice() {
+    const [receipts, invoices] = await Promise.all([
+      loadFiscalReceiptsFromIDB(),
+      loadInvoiceRequestsFromIDB(),
+    ]);
+    fiscalReceipts.value = receipts.slice(0, 200);
+    invoiceRequests.value = invoices.slice(0, 200);
   }
 
-  hydratePersistedCollections();
+  _hydrateFiscalAndInvoice();
   // ── Table state ────────────────────────────────────────────────────────────
   const tableOccupiedAt = ref({});
   const billRequestedTables = ref(new Set());

@@ -738,7 +738,7 @@ Non riutilizza `print_jobs` perché il formato (XML RT) e il ciclo di vita (requ
 
 ```sql
 CREATE TABLE fiscal_receipts (
-    id              TEXT        PRIMARY KEY,   -- 'fis_' + nanoid
+    id              TEXT        PRIMARY KEY,   -- 'fis_' + UUID v7 (time-ordered, e.g. fis_0192fa3c-b41a-7e8d-a312-…)
     table_id        TEXT        NOT NULL REFERENCES tables(id),
     bill_session_id TEXT        REFERENCES bill_sessions(id),
     table_label     TEXT,
@@ -769,7 +769,7 @@ I dati di fatturazione (denominazione, CF/PIVA, indirizzo, SDI) vengono inseriti
 
 ```sql
 CREATE TABLE invoice_requests (
-    id                   TEXT        PRIMARY KEY,   -- 'inv_' + nanoid
+    id                   TEXT        PRIMARY KEY,   -- 'inv_' + UUID v7 (time-ordered, e.g. inv_0192fa3c-b41a-7e8d-a312-…)
     table_id             TEXT        NOT NULL REFERENCES tables(id),
     bill_session_id      TEXT        REFERENCES bill_sessions(id),
     table_label          TEXT,
