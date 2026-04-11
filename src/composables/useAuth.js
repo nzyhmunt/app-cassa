@@ -1,6 +1,7 @@
 import { ref, computed } from 'vue';
 import { getInstanceName } from '../store/persistence.js';
 import { appConfig } from '../utils/index.js';
+import { newUUID } from '../store/storeUtils.js';
 import {
   loadUsersFromIDB, saveUsersToIDB,
   loadAuthSessionFromIDB, saveAuthSessionToIDB,
@@ -310,7 +311,7 @@ export function useAuth() {
    * @returns {Promise<object>} The new user object
    */
   async function addUser(name, pin, apps = [...ALL_APPS], makeAdmin = false) {
-    const id = crypto.randomUUID();
+    const id = newUUID('usr');
     const pinHash = await hashPin(pin);
     const isFirstManual = _users.value.length === 0;
     const adminFlag = isFirstManual || makeAdmin;
