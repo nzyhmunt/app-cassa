@@ -2672,12 +2672,25 @@ function confirmInvoice() {
     invoiceFormError.value = 'Indirizzo PEC non valido.';
     return;
   }
+  const billingData = {
+    ...form,
+    denominazione: trim(form.denominazione),
+    codiceFiscale: trim(form.codiceFiscale),
+    piva: trim(form.piva),
+    indirizzo: trim(form.indirizzo),
+    cap: trim(form.cap),
+    comune: trim(form.comune),
+    paese: trim(form.paese).toUpperCase(),
+    provincia: trim(form.provincia).toUpperCase(),
+    codiceDestinatario: sdi.toUpperCase(),
+    pec,
+  };
   const base = _buildBillSummaryBase();
   if (!base) return;
   const entry = {
     id: newUUIDv7('inv'),
     ...base,
-    billingData: { ...form },
+    billingData,
     status: 'pending',
     timestamp: base.closedAt,
   };
