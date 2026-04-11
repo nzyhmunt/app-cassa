@@ -390,13 +390,27 @@ export function useAuth() {
    * Called during "Ripristina dati di default".
    */
   function clearAllAuthData() {
-    import('../store/idbPersistence.js').then(({ clearAllStateFromIDB }) => {
-      clearAllStateFromIDB().catch(e => console.warn('[Auth] Failed to clear IDB:', e));
-    }).catch(() => {});
+    const defaultLockTimeoutMinutes = 5;
+    const persistedSession = { currentUserId: null, isLocked: true };
+    const persistenceTargets = ['users', 'auth session', 'auth settings'];
+
+    void Promise.allSettled([
+      saveUsersToIDB([]),
+      saveAuthSessionToIDB(persistedSession),
+      saveAuthSettingsToIDB({ lockTimeoutMinutes: defaultLockTimeoutMinutes }),
+    ]).then((results) => {
+      results.forEach((result, index) => {
+        if (result.status === 'rejected') {
+          console.warn(`[Auth] Failed to clear ${persistenceTargets[index]} from IDB:`, result.reason);
+        }
+      });
+    });
+
     _mutationVersion++;
     _users.value = [];
     _currentUserId.value = null;
     _isLocked.value = true;
+    _lockTimeoutMinutes.value = defaultLockTimeoutMinutes;
     if (_lockTimer) {
       clearTimeout(_lockTimer);
       _lockTimer = null;
