@@ -14,8 +14,9 @@ riferimento per la configurazione del backend Directus sia come guida per la per
 ## Campi standard Directus
 
 Ogni collection include un sottoinsieme dei seguenti campi di sistema Directus. Vanno abilitati nelle
-*Collection Settings → Fields*. In Directus questi campi vengono valorizzati automaticamente lato applicazione;
-se si leggono i DDL SQL come schema puro, l'aggiornamento automatico in modifica richiede trigger DB o logica equivalente.
+*Collection Settings → Fields*. In Directus questi campi vengono valorizzati automaticamente dal server Directus
+(non dal client); se si leggono i DDL SQL come schema puro, l'aggiornamento automatico in modifica richiede
+trigger DB o logica equivalente.
 
 | Campo                  | Tipo Directus        | Note                                                                                                       |
 |------------------------|----------------------|------------------------------------------------------------------------------------------------------------|
