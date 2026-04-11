@@ -1197,7 +1197,7 @@
         </div>
         <!-- Paese -->
         <div>
-          <label class="block text-xs font-bold text-gray-700 mb-1">Paese</label>
+          <label class="block text-xs font-bold text-gray-700 mb-1">Paese *</label>
           <input
             v-model="invoiceForm.paese"
             type="text"
