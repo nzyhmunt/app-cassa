@@ -1482,13 +1482,18 @@ prevede due livelli:
 
 | Livello | Meccanismo | Note |
 |---------|-----------|------|
-| **Storage** | IndexedDB — ObjectStore `config` (già definito in §5.6) | Stesso processo di sicurezza del browser, isolato per origine |
+| **Storage** | IndexedDB — ObjectStore `config` dedicato | Store locale isolato per origine, usato per segreti e parametri di configurazione del dispositivo |
 | **Cifratura** | Web Crypto API — AES-GCM con chiave device-derived | Protezione aggiuntiva a riposo contro dump del DB |
+
+Per coerenza con gli esempi seguenti, lo store `config` va considerato definito con:
+- **ObjectStore**: `config`
+- **keyPath**: `id`
+- **chiavi usate in questa sezione**: `_deviceKey` per la chiave AES salvata in JWK
 
 **Generazione della chiave di cifratura (una-tantum per dispositivo):**
 
 ```js
-// Genera e persiste una chiave AES-256-GCM nell'ObjectStore config (origin-isolated)
+// Genera e persiste una chiave AES-256-GCM nell'ObjectStore `config` (keyPath: `id`)
 async function getOrCreateDeviceKey() {
   const stored = await idb.get('config', '_deviceKey')
   if (stored) {
