@@ -1323,27 +1323,72 @@ automatica dei dati locali secondo la retention definita per ciascuna collection
 // composable: src/composables/useIDBPurge.js
 // Trigger: chiamato all'avvio dell'app (App.vue onMounted) e ogni 24 ore via setInterval.
 
-async function purgeCollection(storeName, retentionDays, { statusFilter, dateField = 'date_updated' }) {
+async function purgeCollection(
+  storeName,
+  retentionDays,
+  { statusFilter, dateField = 'date_updated', requireMissingParent = null }
+) {
   const cutoff = Date.now() - retentionDays * 86_400_000
   // Scansiona per indice su dateField (o full-scan se l'indice non esiste)
   // Rimuove solo record con:
   //   _sync_status === 'synced'
   //   && new Date(record[dateField]).getTime() < cutoff
   //   && (statusFilter == null || statusFilter.includes(record.status))
+  //   && (
+  //        requireMissingParent == null
+  //        || parentRecordDoesNotExist(
+  //             requireMissingParent.storeName,
+  //             record[requireMissingParent.foreignKey]
+  //           )
+  //      )
+}
+
+async function purgeCollectionIfParentMissing(
+  storeName,
+  retentionDays,
+  { parentStoreName, foreignKey, statusFilter, dateField = 'date_updated' }
+) {
+  await purgeCollection(storeName, retentionDays, {
+    statusFilter,
+    dateField,
+    requireMissingParent: {
+      storeName: parentStoreName,
+      foreignKey
+    }
+  })
 }
 
 export async function runIDBPurge() {
+  // 1) Pre-cleanup child-first: rimuove solo figli già orfani da purge precedenti.
+  await purgeCollectionIfParentMissing('order_item_modifiers', 7, {
+    parentStoreName: 'order_items',
+    foreignKey: 'order_item'
+  })
+  await purgeCollectionIfParentMissing('order_items', 7, {
+    parentStoreName: 'orders',
+    foreignKey: 'order'
+  })
+
+  // 2) Purge dei padri/root.
   await purgeCollection('orders',                 7,  { statusFilter: ['completed','rejected'] })
-  await purgeCollection('order_items',            7,  {})
-  await purgeCollection('order_item_modifiers',   7,  {})
   await purgeCollection('bill_sessions',          7,  { statusFilter: ['closed'] })
   await purgeCollection('transactions',           30, {})
-  await purgeCollection('transaction_order_refs', 30, { dateField: 'date_created' })
-  await purgeCollection('transaction_voce_refs',  30, { dateField: 'date_created' })
   await purgeCollection('cash_movements',         30, {})
   await purgeCollection('daily_closures',         90, {})
-  await purgeCollection('daily_closure_by_method',90, {})
   await purgeCollection('print_jobs',             7,  { statusFilter: ['done','error'] })
+
+  // 3) Post-cleanup child-first: rimuove i figli diventati orfani in questo run.
+  await purgeCollectionIfParentMissing('order_items', 7, {
+    parentStoreName: 'orders',
+    foreignKey: 'order'
+  })
+  await purgeCollectionIfParentMissing('order_item_modifiers', 7, {
+    parentStoreName: 'order_items',
+    foreignKey: 'order_item'
+  })
+  await purgeCollection('transaction_order_refs', 30, { dateField: 'date_created' })
+  await purgeCollection('transaction_voce_refs',  30, { dateField: 'date_created' })
+  await purgeCollection('daily_closure_by_method',90, {})
   // Dead-letter sync_queue
   await purgeSyncQueueDeadLetter(7)
 }
