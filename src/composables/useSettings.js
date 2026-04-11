@@ -1,6 +1,6 @@
 import { ref, watch, onUnmounted } from 'vue';
 import { useAppStore } from '../store/index.js';
-import { getInstanceName, resolveStorageKeys, clearState } from '../store/persistence.js';
+import { getInstanceName, resolveStorageKeys } from '../store/persistence.js';
 import { appConfig, KEYBOARD_POSITIONS } from '../utils/index.js';
 import { isWakeLockSupported } from './useWakeLock.js';
 import { getPwaDismissKey } from './usePwaInstall.js';
@@ -91,19 +91,19 @@ export function useSettings(props, emit) {
     await store.loadMenu();
   }
 
-  function confirmReset() {
-    // Clear both IDB operative data and any legacy localStorage entries
-    clearState(_storageKey);
-    // Remove legacy settings key from localStorage (backwards compatibility
-    // during transition from localStorage to IndexedDB)
+  async function confirmReset() {
+    // Remove legacy localStorage entries synchronously
+    try { window.localStorage.removeItem(_storageKey); } catch (_) { /* ignore */ }
     try { window.localStorage.removeItem(_settingsKey); } catch (_) { /* ignore */ }
-    clearAllStateFromIDB().catch(e => console.warn('[Settings] Failed to clear IDB state:', e));
     try {
       window.localStorage.removeItem(getPwaDismissKey());
     } catch (e) {
       console.warn('[Settings] Failed to remove PWA dismiss key during reset:', e);
     }
-    // Also wipe all auth data (users, sessions, auth settings)
+    // Await the IDB clear so all transactions commit before the page reloads.
+    // (Fire-and-forget clears could be cancelled by the reload mid-transaction.)
+    await clearAllStateFromIDB();
+    // Clear in-memory auth state (its internal IDB call is harmless — already cleared)
     try {
       const { clearAllAuthData } = useAuth();
       clearAllAuthData();

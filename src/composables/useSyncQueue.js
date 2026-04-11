@@ -13,6 +13,7 @@
  */
 
 import { getDB } from './useIDB.js';
+import { newUUID } from '../store/storeUtils.js';
 
 /**
  * Adds a new entry to the sync_queue ObjectStore.
@@ -27,7 +28,7 @@ export async function enqueue(collection, operation, recordId, payload) {
   try {
     const db = await getDB();
     await db.add('sync_queue', {
-      id: crypto.randomUUID(),
+      id: newUUID('sq'),
       collection,
       operation,
       record_id: recordId,

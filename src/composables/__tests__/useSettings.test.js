@@ -337,7 +337,7 @@ describe('useSettings()', () => {
     }
   });
 
-  it('confirmReset() calls window.location.reload()', () => {
+  it('confirmReset() calls window.location.reload()', async () => {
     const reloadMock = vi.fn();
     const originalLocationDescriptor = Object.getOwnPropertyDescriptor(window, 'location');
     const originalLocationValue = window.location;
@@ -353,7 +353,7 @@ describe('useSettings()', () => {
       const emit = vi.fn();
 
       const { result, wrapper } = withSetup(() => useSettings(props, emit));
-      result.confirmReset();
+      await result.confirmReset();
 
       expect(reloadMock).toHaveBeenCalled();
       wrapper.unmount();
@@ -366,7 +366,7 @@ describe('useSettings()', () => {
     }
   });
 
-  it('confirmReset() removes the PWA dismiss key from localStorage', () => {
+  it('confirmReset() removes the PWA dismiss key from localStorage', async () => {
     const reloadMock = vi.fn();
     const originalLocationDescriptor = Object.getOwnPropertyDescriptor(window, 'location');
     const originalLocationValue = window.location;
@@ -385,7 +385,7 @@ describe('useSettings()', () => {
       const emit = vi.fn();
 
       const { result, wrapper } = withSetup(() => useSettings(props, emit));
-      result.confirmReset();
+      await result.confirmReset();
 
       expect(localStorage.getItem(pwaDismissKey)).toBeNull();
       wrapper.unmount();
