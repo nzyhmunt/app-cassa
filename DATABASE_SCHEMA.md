@@ -264,7 +264,7 @@ Creata al primo ordine accettato; chiusa quando tutti gli ordini sono `completed
 
 **Primary key**: UUID v7 (time-ordered, generato client-side prima dell'invio a Directus).
 
-Campi Directus standard abilitati: `status`, `user_created`, `date_created`, `user_updated`, `date_updated`.
+Campi Directus standard abilitati: `user_created`, `date_created`, `user_updated`, `date_updated`.
 
 > **Nota `status`**: il campo `status` è un **campo di dominio applicativo** con valori custom
 > (`open`/`closed`), non il campo workflow Directus con i valori di default (`published`/`draft`/
@@ -364,6 +364,8 @@ CREATE TABLE order_items (
     sort_order      SMALLINT        NOT NULL DEFAULT 0,
     kitchen_ready   BOOLEAN         NOT NULL DEFAULT FALSE,  -- flag per toggle per-voce in App Cucina (Dettaglio)
     status          VARCHAR(20)     NOT NULL DEFAULT 'active', -- 'active' | 'archived' (soft-delete)
+    -- Directus standard fields
+    date_created    TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
     UNIQUE (uid, "order"),  -- unicità logica preservata come vincolo, non come PK
     CHECK (voided_quantity <= quantity)
 );
@@ -384,6 +386,8 @@ CREATE TABLE order_item_modifiers (
     price           NUMERIC(8,2)    NOT NULL DEFAULT 0.00,
     voided_quantity SMALLINT        NOT NULL DEFAULT 0 CHECK (voided_quantity >= 0),
     status          VARCHAR(20)     NOT NULL DEFAULT 'active', -- 'active' | 'archived' (soft-delete)
+    -- Directus standard fields
+    date_created    TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
     FOREIGN KEY (item_uid, "order") REFERENCES order_items(uid, "order") ON DELETE CASCADE
 );
 
@@ -529,7 +533,9 @@ CREATE TABLE daily_closure_by_method (
     daily_closure   UUID            NOT NULL REFERENCES daily_closures(id) ON DELETE CASCADE,
     payment_method  VARCHAR(30)     NOT NULL REFERENCES payment_methods(id) ON DELETE RESTRICT,
     amount          NUMERIC(10,2)   NOT NULL DEFAULT 0.00,
-    status          VARCHAR(20)     NOT NULL DEFAULT 'active' -- 'active' | 'archived' (soft-delete)
+    status          VARCHAR(20)     NOT NULL DEFAULT 'active', -- 'active' | 'archived' (soft-delete)
+    -- Directus standard fields
+    date_created    TIMESTAMPTZ     NOT NULL DEFAULT NOW()
 );
 ```
 
@@ -1362,33 +1368,37 @@ export async function runIDBPurge() {
   // 1) Pre-cleanup child-first: rimuove solo figli già orfani da purge precedenti.
   await purgeCollectionIfParentMissing('order_item_modifiers', 7, {
     parentStoreName: 'order_items',
-    foreignKey: 'order_item'
+    foreignKey: 'order_item',
+    dateField: 'date_created'
   })
   await purgeCollectionIfParentMissing('order_items', 7, {
     parentStoreName: 'orders',
-    foreignKey: 'order'
+    foreignKey: 'order',
+    dateField: 'date_created'
   })
 
   // 2) Purge dei padri/root.
   await purgeCollection('orders',                 7,  { statusFilter: ['completed','rejected'] })
   await purgeCollection('bill_sessions',          7,  { statusFilter: ['closed'] })
-  await purgeCollection('transactions',           30, {})
-  await purgeCollection('cash_movements',         30, {})
-  await purgeCollection('daily_closures',         90, {})
-  await purgeCollection('print_jobs',             7,  { statusFilter: ['done','error'] })
+  await purgeCollection('transactions',           30, { dateField: 'date_created' })
+  await purgeCollection('cash_movements',         30, { dateField: 'date_created' })
+  await purgeCollection('daily_closures',         90, { dateField: 'date_created' })
+  await purgeCollection('print_jobs',             7,  { statusFilter: ['done','error'], dateField: 'job_timestamp' })
 
   // 3) Post-cleanup child-first: rimuove i figli diventati orfani in questo run.
   await purgeCollectionIfParentMissing('order_items', 7, {
     parentStoreName: 'orders',
-    foreignKey: 'order'
+    foreignKey: 'order',
+    dateField: 'date_created'
   })
   await purgeCollectionIfParentMissing('order_item_modifiers', 7, {
     parentStoreName: 'order_items',
-    foreignKey: 'order_item'
+    foreignKey: 'order_item',
+    dateField: 'date_created'
   })
   await purgeCollection('transaction_order_refs', 30, { dateField: 'date_created' })
   await purgeCollection('transaction_voce_refs',  30, { dateField: 'date_created' })
-  await purgeCollection('daily_closure_by_method',90, {})
+  await purgeCollection('daily_closure_by_method',90, { dateField: 'date_created' })
   // Dead-letter sync_queue
   await purgeSyncQueueDeadLetter(7)
 }
@@ -1459,7 +1469,8 @@ dedicato con un **token statico** (generato una volta sola in Directus → Setti
 ```
 Directus → Settings → Users → Crea "cassa-device" / "sala-device" / "cucina-device"
   Role: assegnare un ruolo con permessi minimi (read/write solo sulle collection necessarie)
-  Token: generare un token statico → salvare in app-settings del dispositivo
+  Token: generare un token statico → copiarlo nel setup iniziale del dispositivo
+         (verrà salvato cifrato in IndexedDB, vedi §5.9.2)
 ```
 
 **Storage sicuro nel dispositivo:**
@@ -1492,7 +1503,7 @@ async function getOrCreateDeviceKey() {
   // Prima generazione: extractable=true solo per poter esportare in JWK e salvare
   const key = await crypto.subtle.generateKey(
     { name: 'AES-GCM', length: 256 },
-  venue        INTEGER NOT NULL REFERENCES venues(id),
+    true,              // extractable=true per poter esportare in JWK e salvare
     ['encrypt', 'decrypt']
   )
   const jwk = await crypto.subtle.exportKey('jwk', key)
@@ -1502,7 +1513,7 @@ async function getOrCreateDeviceKey() {
 ```
 
 **Salvataggio del token (setup iniziale):**
-> **Sicurezza PIN**: il PIN non viene mai trasmesso in chiaro. Il client calcola
+
 ```js
 async function saveDeviceToken(token, directusUrl, venueId) {
   const key = await getOrCreateDeviceKey()
@@ -1570,7 +1581,7 @@ verificare il PIN.
 ```sql
 CREATE TABLE venue_users (
   id           UUID PRIMARY KEY,              -- UUID v7 generato client-side
-  venue        UUID NOT NULL REFERENCES venues(id),
+  venue        INTEGER      NOT NULL REFERENCES venues(id),
   display_name VARCHAR(100) NOT NULL,
   role         VARCHAR(50)  NOT NULL,         -- 'admin' | 'cassiere' | 'cameriere' | 'cuoco'
   pin_hash     VARCHAR(255) NOT NULL,         -- hash bcrypt/argon2 del PIN a 4-6 cifre
@@ -1580,10 +1591,13 @@ CREATE TABLE venue_users (
 );
 ```
 
-> **Sicurezza PIN**: il PIN viene mai trasmesso in chiaro. Il client calcola
-> `hash = bcrypt(pin, salt)` e lo confronta con `pin_hash` presente in IndexedDB. La
-> libreria consigliata è `bcryptjs` (WebCrypto) oppure un PBKDF2 nativo se si preferisce
-> evitare dipendenze. Il salt è incluso nel campo `pin_hash` (bcrypt standard).
+> **Sicurezza PIN**: il PIN **non** viene mai trasmesso in chiaro. Il client calcola
+> `hash = bcrypt(pin, salt)` e lo confronta con `pin_hash` presente in IndexedDB.
+> Opzioni di implementazione:
+> - **`bcryptjs`**: libreria JS pura (non WebCrypto), più semplice da integrare ma senza accelerazione nativa.
+> - **PBKDF2 via SubtleCrypto** (`crypto.subtle.deriveBits`): nativo nel browser, nessuna dipendenza esterna.
+> - **Argon2** (es. `argon2-browser`): più resistente agli attacchi brute-force, richiede una libreria dedicata.
+> Il salt è incluso nel campo `pin_hash` (bcrypt/argon2 standard).
 
 ##### ObjectStore IndexedDB — `venue_users`
 
