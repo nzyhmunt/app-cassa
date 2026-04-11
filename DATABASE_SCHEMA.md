@@ -763,7 +763,7 @@ Cardinalità:
                                ┌────────▼──────────┐
                                │   order_items     │
                                │───────────────────│
-                               │ uid + order PK    │
+                               │ id (PK)           │
                                │ dish (FK null)    │
                                │ name (snapshot)   │
                                │ unit_price        │
