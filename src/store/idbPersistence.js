@@ -324,17 +324,30 @@ export async function saveCustomItemsToIDB(items) {
 /**
  * Removes all operational data from IndexedDB (equivalent to the old clearState).
  * Clears the operative collections and app_meta/app_settings/direct_custom_items.
+ * Selectively removes only `_type === 'manual_user'` records from `venue_users`
+ * so that cached Directus venue-user records are preserved.
  * Does NOT clear configuration caches (venues, rooms, tables, menu_*, etc.) or
  * the sync_queue.
  */
 export async function clearAllStateFromIDB() {
   const operativeStores = [
     'orders', 'transactions', 'cash_movements', 'daily_closures', 'print_jobs',
-    'app_meta', 'app_settings', 'direct_custom_items', 'venue_users',
+    'app_meta', 'app_settings', 'direct_custom_items',
   ];
   try {
     const db = await getDB();
+    // Bulk-clear operative stores
     await Promise.all(operativeStores.map(name => db.clear(name)));
+    // Selectively remove only manual-user records from venue_users so that
+    // future Directus-synced venue users (if any) are not wiped.
+    const tx = db.transaction('venue_users', 'readwrite');
+    const allUsers = await tx.store.getAll();
+    await Promise.all(
+      allUsers
+        .filter(r => r._type === 'manual_user')
+        .map(r => tx.store.delete(r.id)),
+    );
+    await tx.done;
   } catch (e) {
     console.warn('[IDBPersistence] Failed to clear state:', e);
   }
