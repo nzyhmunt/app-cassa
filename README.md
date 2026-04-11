@@ -49,11 +49,14 @@ src/
 │   ├── useNumericKeyboard.js          ← Singleton state per la tastiera numerica custom (Cassa only)
 │   ├── usePrintQueue.js               ← Coda di stampa comande → servizio Node ESC/POS
 │   ├── usePwaInstall.js               ← Rilevamento installazione PWA
-│   ├── useSettings.js                 ← Lettura/scrittura impostazioni localStorage
+│   ├── useIDB.js                      ← Connessione IndexedDB singleton (apertura DB, tutti gli ObjectStore)
+│   ├── useSettings.js                 ← Lettura/scrittura impostazioni (IndexedDB)
+│   ├── useSyncQueue.js                ← Gestione coda sync offline verso Directus (ObjectStore sync_queue)
 │   └── useWakeLock.js                 ← Prevenzione blocco schermo (Screen Wake Lock API)
 ├── store/
+│   ├── idbPersistence.js              ← Funzioni load/save/clear per tutti gli store su IndexedDB
 │   ├── index.js                       ← Pinia store condiviso (unica sorgente di verità)
-│   └── persistence.js                 ← Chiavi localStorage, schema versioning, clearState, resolveCustomItemsKey
+│   └── persistence.js                 ← Schema versioning, clearState, resolveCustomItemsKey
 ├── utils/
 │   ├── index.js                       ← Configurazione app + funzioni di calcolo condivise
 │   └── pwaManifest.js                 ← Iniezione logo custom nei manifest PWA
@@ -215,15 +218,16 @@ pending → accepted → preparing → ready → delivered → completed
 - Logo personalizzato iniettabile nei manifesti tramite configurazione build (`appConfig.pwaLogo`)
 
 ### 💾 Persistenza & Multi-Istanza
-- **Persistenza automatica** in `localStorage` via `pinia-plugin-persistedstate`:
+- **Persistenza automatica** su **IndexedDB** (`useIDB.js` + `idbPersistence.js`):
   - Ordini, transazioni, sessioni tavoli, movimenti di cassa, chiusure giornaliere
   - Serializzazione Set↔Array per `billRequestedTables`
+  - Scritture IDB parziali sicure: ogni watcher aggiorna solo il proprio store senza toccare gli altri
   - Dati demo al primo avvio
 - **Schema versionato** (`SCHEMA_VERSION`): incremento automatico al cambio struttura
-- **Recupero da corruzione**: fallback a stato vuoto se il JSON è invalido
+- **Recupero da corruzione**: fallback a stato vuoto se i dati sono invalidi
 - **Multi-istanza** — più terminali sullo stesso dispositivo/dominio con storage completamente isolato:
   - Configurazione a build time tramite `appConfig.instanceName`
-  - Chiavi localStorage con suffisso `_<instanceName>`
+  - Database IDB con suffisso `_<instanceName>`
 - **Sincronizzazione cross-tab in tempo reale**: tutte e tre le app (`CassaApp`, `SalaApp`, `CucinaApp`) ascoltano l'evento `window.storage`. Qualsiasi modifica di stato in una tab (es. cambio stato ordine in Cucina) viene propagata istantaneamente alle altre tab aperte sullo stesso dispositivo tramite `store.$hydrate()`.
 
 ### ⌨️ Tastiera Numerica Personalizzata (Cassa only)
@@ -261,7 +265,7 @@ Sistema di autenticazione opzionale a PIN numerico disponibile su tutte e tre le
 
 **Sicurezza:**
 - I PIN sono hashati con **SHA-256** (Web Crypto API) prima di essere salvati; il testo in chiaro non viene mai persistito
-- Gli utenti configurati tramite `appConfig.auth.users` sono in sola lettura nell'UI; il loro PIN viene hashato in memoria e mai scritto in `localStorage`
+- Gli utenti configurati tramite `appConfig.auth.users` sono in sola lettura nell'UI; il loro PIN viene hashato in memoria e mai scritto in IndexedDB
 
 **Accesso per-app:**
 - Ogni utente ha un campo `apps: ['cassa', 'sala', 'cucina']` che indica le app a cui può accedere
@@ -455,7 +459,7 @@ Tutti i job contengono: `jobId`, `printType`, `printerId`, `table`, `timestamp`.
 |----------|---------|---------|
 | **Vue 3** | 3.5 | Framework UI, Composition API |
 | **Pinia** | 3.0 | Gestione stato globale |
-| **pinia-plugin-persistedstate** | 4.7 | Persistenza automatica localStorage |
+| **fake-indexeddb** | — | Polyfill IDB per i test Vitest |
 | **Vue Router** | 4.6 | Navigazione multi-view |
 | **TailwindCSS** | 4.2 | Styling utility-first |
 | **Lucide Vue Next** | 0.577 | Icone SVG |

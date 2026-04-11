@@ -5,9 +5,14 @@ Le collection rispecchiano le convenzioni standard di Directus (ultima versione 
 riferimento per la configurazione del backend Directus sia come guida per la persistenza locale su **IndexedDB**
 (offline-first, sync push verso Directus non appena torna la connessione).
 
-**Sorgenti dati correnti** (localStorage):
-- `demo_app_state_v1` (eventualmente con suffisso di istanza, da `resolveStorageKeys()` in `src/store/persistence.js`)
-- `app-settings`
+**Sorgente dati corrente** (IndexedDB — database locale `app-cassa[_<instanceName>]`):
+- ObjectStore `app_meta` — stato operativo (ordini, sessioni tavoli, movimenti di cassa, chiusure, impostazioni, sessione auth)
+- ObjectStore `orders`, `transactions`, `cash_movements`, `daily_closures`, `print_jobs` — dati operativi
+- ObjectStore `venue_users` — operatori locali con PIN hashato
+- ObjectStore `custom_items` — voci personalizzate
+- ObjectStore `sync_queue` — coda di operazioni in attesa di push verso Directus
+
+> I dati erano precedentemente persisti in `localStorage` (`demo_app_state_v1`, `app-settings`) tramite `pinia-plugin-persistedstate`. La migrazione a IndexedDB è completata.
 
 ---
 
@@ -66,7 +71,7 @@ trigger DB o logica equivalente.
 
 ## 1. Entità principali
 
-| Collection               | Descrizione                                              | Fonte localStorage           |
+| Collection               | Descrizione                                              | Fonte IndexedDB / appConfig  |
 |--------------------------|----------------------------------------------------------|------------------------------|
 | `venues`                 | Ristorante / punto vendita                               | `appConfig.ui`               |
 | `rooms`                  | Sale / aree della mappa tavoli                           | `appConfig.rooms`            |
@@ -75,18 +80,18 @@ trigger DB o logica equivalente.
 | `menu_categories`        | Categorie del menu (Antipasti, Primi, …)                 | `appConfig.menu` (chiavi)    |
 | `menu_items`             | Voci del menu (piatti, bevande, ecc.)                    | `appConfig.menu[categoria]`  |
 | `menu_item_modifiers`    | Modificatori/varianti disponibili per voce menu          | (configurazione menu)        |
-| `bill_sessions`          | Sessione di occupazione tavolo (un'apertura tavolo)      | `tableCurrentBillSession`    |
-| `orders`                 | Comande inviate dal tavolo                               | `orders`                     |
+| `bill_sessions`          | Sessione di occupazione tavolo (un'apertura tavolo)      | `app_meta.tableCurrentBillSession` |
+| `orders`                 | Comande inviate dal tavolo                               | ObjectStore `orders`         |
 | `order_items`            | Righe singole di una comanda                             | `order.orderItems`           |
 | `order_item_modifiers`   | Modificatori applicati a una riga comanda                | `orderItem.modifiers`        |
-| `transactions`           | Pagamenti e sconti applicati a un conto                  | `transactions`               |
+| `transactions`           | Pagamenti e sconti applicati a un conto                  | ObjectStore `transactions`   |
 | `transaction_order_refs` | Collegamento N:M tra pagamenti e comande                 | `transaction.orderRefs`      |
-| `cash_movements`         | Versamenti e prelievi di cassa                           | `cashMovements`              |
-| `daily_closures`         | Chiusure giornaliere (rapporto Z)                        | `dailyClosures`              |
+| `cash_movements`         | Versamenti e prelievi di cassa                           | ObjectStore `cash_movements` |
+| `daily_closures`         | Chiusure giornaliere (rapporto Z)                        | ObjectStore `daily_closures` |
 | `printers`               | Stampanti ESC/POS configurate                            | `appConfig.printers`         |
-| `print_jobs`             | Log dei lavori di stampa inviati (cronologia stampe)     | `printLog` (localStorage)    |
-| `app_settings`           | Impostazioni utente (audio, URL menu, ecc.)              | `app-settings` (localStorage)|
-| `venue_users`            | Operatori locali per venue (PIN personale)               | —                            |
+| `print_jobs`             | Log dei lavori di stampa inviati (cronologia stampe)     | `app_meta.printLog`          |
+| `app_settings`           | Impostazioni utente (audio, URL menu, ecc.)              | `app_meta.settings`          |
+| `venue_users`            | Operatori locali per venue (PIN personale)               | ObjectStore `venue_users`    |
 
 ---
 
@@ -907,9 +912,9 @@ Cardinalità:
 
 ## 5. Note di migrazione
 
-### 5.1 Corrispondenza localStorage → Collection Directus
+### 5.1 Corrispondenza stato locale → Collection Directus
 
-| localStorage (`demo_app_state_v1`)    | Collection Directus                             |
+| Stato locale (IndexedDB / `app_meta`)  | Collection Directus                             |
 |---------------------------------------|----------------------------------------|
 | `orders[]`                            | `orders` + `order_items` + `order_item_modifiers` |
 | `order.globalNote`                    | `orders.global_note`                   |
@@ -924,9 +929,9 @@ Cardinalità:
 | `cashBalance`                         | somma di `cash_movements` + valore iniziale |
 | `cashMovements[]`                     | `cash_movements`                       |
 | `dailyClosures[]`                     | `daily_closures` + `daily_closure_by_method` |
-| `printLog[]` (localStorage)           | `print_jobs`                           |
+| `printLog[]` (IDB `app_meta`)         | `print_jobs`                           |
 | `appConfig.printers`                  | `printers`                             |
-| `app-settings` (localStorage)         | `app_settings`                         |
+| `app_meta.settings` (IDB)             | `app_settings`                         |
 | `appConfig.menu`                      | `menu_categories` + `menu_items`       |
 | `appConfig.rooms`                     | `rooms`                                |
 | `appConfig.tables` (derivato)         | `tables`                               |
@@ -972,7 +977,7 @@ WHERE o."table" = :table_id
 ### 5.2c Tavoli uniti (`tableMergedInto`)
 
 La funzione **Unisci** in App Cassa permette di accorpare il conto di due tavoli occupati.
-L'unione è rappresentata nel localStorage da `tableMergedInto`, un oggetto `{ slaveTableId: masterTableId }`.
+L'unione è rappresentata in IndexedDB (`app_meta.tableMergedInto`) da un oggetto `{ slaveTableId: masterTableId }`.
 
 Semantica:
 - Al momento dell'unione (`mergeTableOrders`), vengono fisicamente spostate sul tavolo master **solo le comande appartenenti alla sessione di conto attiva dello slave** (`orders[]."table" = masterTableId` per gli ordini della current bill session). Il conto del master assorbe immediatamente queste voci attive.
@@ -1053,8 +1058,8 @@ Flusso di integrazione previsto:
 
 ### 5.6 Integrazione IndexedDB (PWA offline-first)
 
-Per uso offline, la struttura `demo_app_state_v1` (localStorage) verrà sostituita da **object
-store IndexedDB** che rispecchiano le collection Directus. Le tabelle di configurazione vengono
+Lo stato applicativo è persisto interamente su **IndexedDB** (database `app-cassa[_<instanceName>]`).
+Gli object store rispecchiano le collection Directus. Le tabelle di configurazione vengono
 mantenute in cache mentre le tabelle operative gestiscono una coda di sync.
 
 ```
