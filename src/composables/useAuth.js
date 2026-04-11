@@ -392,12 +392,11 @@ export function useAuth() {
    */
   function clearAllAuthData() {
     const defaultLockTimeoutMinutes = 5;
-    const persistedSession = { currentUserId: null, isLocked: true };
     const persistenceTargets = ['users', 'auth session', 'auth settings'];
 
     void Promise.allSettled([
       saveUsersToIDB([]),
-      saveAuthSessionToIDB(persistedSession),
+      saveAuthSessionToIDB(null),
       saveAuthSettingsToIDB({ lockTimeoutMinutes: defaultLockTimeoutMinutes }),
     ]).then((results) => {
       results.forEach((result, index) => {
