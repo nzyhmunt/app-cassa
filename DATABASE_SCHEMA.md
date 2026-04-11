@@ -1447,7 +1447,7 @@ async function getOrCreateDeviceKey() {
   // Prima generazione: extractable=true solo per poter esportare in JWK e salvare
   const key = await crypto.subtle.generateKey(
     { name: 'AES-GCM', length: 256 },
-    true,
+  venue        INTEGER NOT NULL REFERENCES venues(id),
     ['encrypt', 'decrypt']
   )
   const jwk = await crypto.subtle.exportKey('jwk', key)
