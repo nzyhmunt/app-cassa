@@ -2604,7 +2604,7 @@ function _buildFiscalXmlRequest(base) {
   });
   const paymentType = base.paymentMethods.some(m => /cart|bancomat|pos|visa|master|carta/i.test(m)) ? '2' : '0';
   const paymentLabel = escXml(base.paymentMethods.join(' + ') || 'CONTANTI');
-  const total = base.totalPaid.toFixed(2);
+  const total = base.totalAmount.toFixed(2);
   return [
     '<printerFiscalReceipt>',
     '  <beginFiscalReceipt operator="1" />',

@@ -327,6 +327,27 @@ export async function saveAuthSettingsToIDB(settings) {
 
 // ── Fiscal receipts ───────────────────────────────────────────────────────────
 
+const FISCAL_INVOICE_RETENTION = 200;
+
+/**
+ * Deletes the oldest entries in `storeName` beyond `keepCount`, based on the
+ * `timestamp` field. Used to enforce the in-memory retention cap in IDB too,
+ * preventing unbounded storage growth.
+ * @param {import('idb').IDBPDatabase} db
+ * @param {string} storeName
+ * @param {number} keepCount
+ */
+async function _pruneToNewest(db, storeName, keepCount) {
+  const all = await db.getAll(storeName);
+  if (all.length <= keepCount) return;
+  // Sort ascending by timestamp; delete the head (oldest) beyond the cap
+  all.sort((a, b) => (a.timestamp < b.timestamp ? -1 : a.timestamp > b.timestamp ? 1 : 0));
+  const toDelete = all.slice(0, all.length - keepCount);
+  const tx = db.transaction(storeName, 'readwrite');
+  await Promise.all(toDelete.map(r => tx.store.delete(r.id)));
+  await tx.done;
+}
+
 /**
  * Persists a single fiscal receipt record to the `fiscal_receipts` ObjectStore.
  * @param {object} record - Must include `id` as keyPath.
@@ -341,16 +362,30 @@ export async function saveFiscalReceiptToIDB(record) {
 }
 
 /**
- * Loads all fiscal receipt records from IDB.
+ * Loads all fiscal receipt records from IDB, sorted newest-first by timestamp.
  * @returns {Promise<Array>}
  */
 export async function loadFiscalReceiptsFromIDB() {
   try {
     const db = await getDB();
-    return await db.getAll('fiscal_receipts');
+    const all = await db.getAll('fiscal_receipts');
+    return all.sort((a, b) => (a.timestamp > b.timestamp ? -1 : a.timestamp < b.timestamp ? 1 : 0));
   } catch (e) {
     console.warn('[IDBPersistence] Failed to load fiscal receipts:', e);
     return [];
+  }
+}
+
+/**
+ * Prunes the `fiscal_receipts` store to keep only the newest `keepCount` entries.
+ * @param {number} [keepCount=200]
+ */
+export async function pruneFiscalReceiptsInIDB(keepCount = FISCAL_INVOICE_RETENTION) {
+  try {
+    const db = await getDB();
+    await _pruneToNewest(db, 'fiscal_receipts', keepCount);
+  } catch (e) {
+    console.warn('[IDBPersistence] Failed to prune fiscal receipts:', e);
   }
 }
 
@@ -370,16 +405,30 @@ export async function saveInvoiceRequestToIDB(record) {
 }
 
 /**
- * Loads all invoice request records from IDB.
+ * Loads all invoice request records from IDB, sorted newest-first by timestamp.
  * @returns {Promise<Array>}
  */
 export async function loadInvoiceRequestsFromIDB() {
   try {
     const db = await getDB();
-    return await db.getAll('invoice_requests');
+    const all = await db.getAll('invoice_requests');
+    return all.sort((a, b) => (a.timestamp > b.timestamp ? -1 : a.timestamp < b.timestamp ? 1 : 0));
   } catch (e) {
     console.warn('[IDBPersistence] Failed to load invoice requests:', e);
     return [];
+  }
+}
+
+/**
+ * Prunes the `invoice_requests` store to keep only the newest `keepCount` entries.
+ * @param {number} [keepCount=200]
+ */
+export async function pruneInvoiceRequestsInIDB(keepCount = FISCAL_INVOICE_RETENTION) {
+  try {
+    const db = await getDB();
+    await _pruneToNewest(db, 'invoice_requests', keepCount);
+  } catch (e) {
+    console.warn('[IDBPersistence] Failed to prune invoice requests:', e);
   }
 }
 

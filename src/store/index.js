@@ -20,7 +20,7 @@ import { appConfig, updateOrderTotals, KITCHEN_ACTIVE_STATUSES, KEYBOARD_POSITIO
 import { newUUID } from './storeUtils.js';
 import { makeTableOps } from './tableOps.js';
 import { makeReportOps } from './reportOps.js';
-import { loadStateFromIDB, saveStateToIDB, loadSettingsFromIDB, saveFiscalReceiptToIDB, saveInvoiceRequestToIDB, loadFiscalReceiptsFromIDB, loadInvoiceRequestsFromIDB } from './idbPersistence.js';
+import { loadStateFromIDB, saveStateToIDB, loadSettingsFromIDB, saveFiscalReceiptToIDB, saveInvoiceRequestToIDB, loadFiscalReceiptsFromIDB, loadInvoiceRequestsFromIDB, pruneFiscalReceiptsInIDB, pruneInvoiceRequestsInIDB } from './idbPersistence.js';
 import { enqueue } from '../composables/useSyncQueue.js';
 
 export const useAppStore = defineStore('app', () => {
@@ -147,14 +147,21 @@ export const useAppStore = defineStore('app', () => {
    * Hydrates fiscal receipts and invoice requests from their dedicated IDB stores.
    * Called once at store creation so the in-memory lists reflect persisted data
    * after a page reload (these collections are not part of loadStateFromIDB).
+   * After loading, prunes IDB to the same cap to prevent unbounded storage growth.
    */
   async function _hydrateFiscalAndInvoice() {
     const [receipts, invoices] = await Promise.all([
       loadFiscalReceiptsFromIDB(),
       loadInvoiceRequestsFromIDB(),
     ]);
+    // Both load functions return newest-first; slice(0, 200) keeps the newest.
     fiscalReceipts.value = receipts.slice(0, 200);
     invoiceRequests.value = invoices.slice(0, 200);
+    // Prune IDB entries beyond the retention cap (fire-and-forget; non-critical).
+    Promise.all([
+      pruneFiscalReceiptsInIDB(200),
+      pruneInvoiceRequestsInIDB(200),
+    ]).catch(e => console.warn('[Store] Failed to prune fiscal/invoice IDB entries:', e));
   }
 
   _hydrateFiscalAndInvoice();
