@@ -143,6 +143,24 @@ export const useAppStore = defineStore('app', () => {
     saveInvoiceRequestToIDB(entry);
   }
 
+  /**
+   * Hydrates collections that are persisted but not reconstructed by default
+   * store initialization paths.
+   */
+  async function hydratePersistedCollections() {
+    const persistedState = await loadStateFromIDB();
+    if (!persistedState || typeof persistedState !== 'object') return;
+
+    if (Array.isArray(persistedState.fiscalReceipts)) {
+      fiscalReceipts.value = persistedState.fiscalReceipts;
+    }
+
+    if (Array.isArray(persistedState.invoiceRequests)) {
+      invoiceRequests.value = persistedState.invoiceRequests;
+    }
+  }
+
+  hydratePersistedCollections();
   // ── Table state ────────────────────────────────────────────────────────────
   const tableOccupiedAt = ref({});
   const billRequestedTables = ref(new Set());
