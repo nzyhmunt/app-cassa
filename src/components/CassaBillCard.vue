@@ -102,9 +102,28 @@
           </div>
         </div>
 
-        <!-- Aggiungi Mancia post-pagamento -->
+        <!-- Aggiungi Mancia / Fiscale / Fattura post-pagamento -->
         <div class="mt-3 pt-3 border-t border-gray-200">
-          <div v-if="!showTipInput" class="flex justify-end">
+          <div v-if="!showTipInput" class="flex flex-wrap justify-end gap-2">
+            <!-- Fiscal / Invoice actions: shown only when not yet emitted and hydration is done -->
+            <template v-if="store.fiscalInvoiceHydrated && !alreadyFiscalized">
+              <button
+                @click="emitFiscale"
+                class="flex items-center gap-1.5 text-[10px] font-bold text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-3 py-1.5 rounded-xl transition-colors active:scale-95"
+              >
+                <Printer class="size-3.5" /> Fiscale
+              </button>
+              <button
+                @click="openInvoiceModal"
+                class="flex items-center gap-1.5 text-[10px] font-bold text-violet-600 hover:text-violet-800 bg-violet-50 hover:bg-violet-100 border border-violet-200 px-3 py-1.5 rounded-xl transition-colors active:scale-95"
+              >
+                <FileText class="size-3.5" /> Fattura
+              </button>
+            </template>
+            <!-- Badge shown when fiscal/invoice already emitted -->
+            <span v-else-if="store.fiscalInvoiceHydrated && alreadyFiscalized" class="flex items-center gap-1 text-[10px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-xl">
+              <CheckCircle class="size-3.5" /> {{ hasFiscalReceipt ? 'Fiscale emesso' : 'Fattura emessa' }}
+            </span>
             <button
               @click="showTipInput = true; postTipValue = ''"
               class="flex items-center gap-1.5 text-[10px] font-bold text-purple-600 hover:text-purple-800 bg-purple-50 hover:bg-purple-100 border border-purple-200 px-3 py-1.5 rounded-xl transition-colors active:scale-95"
@@ -202,14 +221,25 @@
       </div>
     </div>
   </div>
+
+  <!-- ================================================================ -->
+  <!-- MODAL: DATI FATTURA (storico conti)                               -->
+  <!-- ================================================================ -->
+  <InvoiceModal
+    :show="showInvoiceModal"
+    @cancel="showInvoiceModal = false"
+    @confirm="confirmInvoice"
+  />
 </template>
 
 <script setup>
 import { ref, computed } from 'vue';
-import { ChevronDown, CreditCard, ClipboardList, Banknote, Tag, Wallet, CheckCircle } from 'lucide-vue-next';
+import { ChevronDown, CreditCard, ClipboardList, Banknote, Tag, Wallet, CheckCircle, Printer, FileText } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
-import { appConfig, billKey, getOrderItemRowTotal } from '../utils/index.js';
+import { appConfig, billKey, getOrderItemRowTotal, buildFiscalXmlRequest } from '../utils/index.js';
+import { newUUIDv7 } from '../store/storeUtils.js';
 import NumericInput from './NumericInput.vue';
+import InvoiceModal from './shared/InvoiceModal.vue';
 
 const props = defineProps({
   bill: {
@@ -235,6 +265,93 @@ function confirmPostTip() {
   store.addTipTransaction(props.bill.tableId, props.bill.billSessionId, postTipParsed.value);
   showTipInput.value = false;
   postTipValue.value = '';
+}
+
+// ── Fiscal receipt / Invoice state ─────────────────────────────────────────
+// Match against the stored entry using billKey(), which derives the same
+// stable key (tableId + '_' + (billSessionId ?? closedAt ?? '')) that is
+// used when the entry is written, so bills without a billSessionId are still
+// correctly discriminated by their closedAt timestamp.
+const hasFiscalReceipt = computed(() => {
+  const key = billKey(props.bill);
+  return store.fiscalReceipts.some(r => billKey(r) === key);
+});
+const hasInvoice = computed(() => {
+  const key = billKey(props.bill);
+  return store.invoiceRequests.some(r => billKey(r) === key);
+});
+const alreadyFiscalized = computed(() => hasFiscalReceipt.value || hasInvoice.value);
+
+// Invoice modal state
+const showInvoiceModal = ref(false);
+
+function _buildBillSummaryBase() {
+  const bill = props.bill;
+  const paymentTxns = bill.transactions.filter(
+    t => t.operationType !== 'discount' && t.operationType !== 'tip',
+  );
+  const payableOrders = bill.orders.filter(o => o.status !== 'rejected');
+  const totalAmount = payableOrders.reduce(
+    (sum, o) => sum + o.orderItems.reduce((s, item) => s + getOrderItemRowTotal(item), 0),
+    0,
+  );
+  return {
+    tableId: bill.tableId,
+    tableLabel: bill.table?.label ?? bill.tableId,
+    billSessionId: bill.billSessionId,
+    closedAt: bill.closedAt,
+    totalAmount,
+    // Include discount transaction amounts so that totalPaid mirrors the live-cassa
+    // CassaTableManager._buildBillSummaryBase() shape (where tableAmountPaid sums
+    // all transactions including discounts). For bills without discounts, no effect.
+    totalPaid: bill.totalPaid + (bill.totalDiscount ?? 0),
+    paymentMethods: [...new Set(paymentTxns.map(t => t.paymentMethod))],
+    orders: payableOrders.map(o => ({
+      id: o.id,
+      items: o.orderItems.map(r => ({
+        name: r.name,
+        quantity: r.quantity - (r.voidedQuantity || 0),
+        unitPrice: r.unitPrice ?? 0,
+      })).filter(r => r.quantity > 0),
+    })),
+  };
+}
+
+function emitFiscale() {
+  if (alreadyFiscalized.value) return;
+  const base = _buildBillSummaryBase();
+  const xmlRequest = buildFiscalXmlRequest(base);
+  const entry = {
+    id: newUUIDv7('fis'),
+    ...base,
+    xmlRequest,
+    xmlResponse: null,
+    status: 'pending',
+    timestamp: new Date().toISOString(),
+  };
+  store.addFiscalReceipt(entry);
+}
+
+function openInvoiceModal() {
+  showInvoiceModal.value = true;
+}
+
+const _invoiceSubmitting = ref(false);
+
+function confirmInvoice(billingData) {
+  if (alreadyFiscalized.value || _invoiceSubmitting.value) return;
+  _invoiceSubmitting.value = true;
+  const base = _buildBillSummaryBase();
+  const entry = {
+    id: newUUIDv7('inv'),
+    ...base,
+    billingData,
+    status: 'pending',
+    timestamp: new Date().toISOString(),
+  };
+  store.addInvoiceRequest(entry);
+  showInvoiceModal.value = false;
+  _invoiceSubmitting.value = false;
 }
 
 function formatTime(isoString) {

@@ -393,3 +393,41 @@ export function groupOrderItemsByCourse(items, includeIndex = true) {
 // ── Numeric keyboard positions ──────────────────────────────────────────────
 /** Valid values for the `customKeyboard` setting. */
 export const KEYBOARD_POSITIONS = /** @type {const} */ (['disabled', 'center', 'left', 'right']);
+
+// ── Fiscal receipt XML builder ──────────────────────────────────────────────
+
+/**
+ * Builds the RT-printer XML payload for a fiscal receipt.
+ *
+ * This is the single, shared implementation used by both the live-cassa close
+ * flow (CassaTableManager) and the post-close fiscal emission from the bill
+ * history (CassaBillCard). Keeping it here ensures any future protocol tweaks
+ * (e.g. per official RT-printer documentation) are applied in one place only.
+ *
+ * @param {object} base - Bill summary produced by `_buildBillSummaryBase()`.
+ * @param {Array}  base.orders          - Orders with items (name, quantity, unitPrice).
+ * @param {Array}  base.paymentMethods  - List of payment method labels.
+ * @param {number} base.totalAmount     - Gross order total used as fiscal total.
+ * @returns {string} XML string for the RT printer.
+ */
+export function buildFiscalXmlRequest(base) {
+  const escXml = s => String(s).replace(/[<>&"']/g, c => (
+    { '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;' }[c]
+  ));
+  const lines = base.orders.flatMap(o => o.items).map(item => {
+    const qty = item.quantity.toFixed(3);
+    const price = item.unitPrice.toFixed(2);
+    return `  <printRecItem description="${escXml(item.name)}" quantity="${qty}" unitPrice="${price}" department="1" />`;
+  });
+  const paymentType = base.paymentMethods.some(m => /cart|bancomat|pos|visa|master|carta/i.test(m)) ? '2' : '0';
+  const paymentLabel = escXml(base.paymentMethods.join(' + ') || 'CONTANTI');
+  const total = base.totalAmount.toFixed(2);
+  return [
+    '<printerFiscalReceipt>',
+    '  <beginFiscalReceipt operator="1" />',
+    ...lines,
+    `  <printRecTotal payment="${total}" paymentType="${paymentType}" description="${paymentLabel}" />`,
+    '  <endFiscalReceipt />',
+    '</printerFiscalReceipt>',
+  ].join('\n');
+}

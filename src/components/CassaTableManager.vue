@@ -1103,145 +1103,11 @@
   <!-- ================================================================ -->
   <!-- MODAL: DATI FATTURA                                               -->
   <!-- ================================================================ -->
-  <div v-if="showInvoiceModal" class="fixed inset-0 z-[96] bg-black/70 backdrop-blur-sm flex items-end md:items-center justify-center p-0 md:p-4">
-    <div class="bg-white rounded-t-3xl md:rounded-3xl shadow-2xl w-full max-w-lg flex flex-col overflow-hidden max-h-[95dvh] md:max-h-[90dvh]">
-      <!-- Header -->
-      <div class="bg-violet-700 text-white p-4 md:p-5 flex justify-between items-center shrink-0">
-        <div class="flex items-center gap-3">
-          <div class="size-10 rounded-full bg-white/10 flex items-center justify-center shrink-0">
-            <FileText class="size-5" />
-          </div>
-          <div>
-            <h3 class="font-bold text-base md:text-lg leading-tight">Dati Fattura</h3>
-            <span class="text-[10px] text-white/70">Fatturazione elettronica</span>
-          </div>
-        </div>
-        <button @click="showInvoiceModal = false" class="bg-white/10 hover:bg-white/20 p-2 rounded-full transition-colors active:scale-95">
-          <X class="size-5" />
-        </button>
-      </div>
-      <!-- Body -->
-      <div class="flex-1 overflow-y-auto p-4 md:p-6 space-y-4">
-        <!-- Denominazione / Ragione Sociale -->
-        <div>
-          <label class="block text-xs font-bold text-gray-700 mb-1">Denominazione / Ragione Sociale *</label>
-          <input
-            v-model="invoiceForm.denominazione"
-            type="text"
-            placeholder="Es. Mario Rossi / Rossi S.r.l."
-            class="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400"
-          />
-        </div>
-        <!-- Codice Fiscale / P.IVA -->
-        <div class="grid grid-cols-2 gap-3">
-          <div>
-            <label class="block text-xs font-bold text-gray-700 mb-1">Codice Fiscale</label>
-            <input
-              v-model="invoiceForm.codiceFiscale"
-              type="text"
-              placeholder="RSSMRA80A01H501Z"
-              class="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400"
-            />
-          </div>
-          <div>
-            <label class="block text-xs font-bold text-gray-700 mb-1">P.IVA</label>
-            <input
-              v-model="invoiceForm.piva"
-              type="text"
-              placeholder="01234567890"
-              class="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400"
-            />
-          </div>
-        </div>
-        <!-- Indirizzo -->
-        <div>
-          <label class="block text-xs font-bold text-gray-700 mb-1">Indirizzo *</label>
-          <input
-            v-model="invoiceForm.indirizzo"
-            type="text"
-            placeholder="Via Roma 1"
-            class="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400"
-          />
-        </div>
-        <!-- CAP / Comune / Provincia -->
-        <div class="grid grid-cols-3 gap-3">
-          <div>
-            <label class="block text-xs font-bold text-gray-700 mb-1">CAP *</label>
-            <input
-              v-model="invoiceForm.cap"
-              type="text"
-              placeholder="00100"
-              maxlength="5"
-              class="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400"
-            />
-          </div>
-          <div>
-            <label class="block text-xs font-bold text-gray-700 mb-1">Comune *</label>
-            <input
-              v-model="invoiceForm.comune"
-              type="text"
-              placeholder="Roma"
-              class="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400"
-            />
-          </div>
-          <div>
-            <label class="block text-xs font-bold text-gray-700 mb-1">Prov.</label>
-            <input
-              v-model="invoiceForm.provincia"
-              type="text"
-              placeholder="RM"
-              maxlength="2"
-              class="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400"
-            />
-          </div>
-        </div>
-        <!-- Paese -->
-        <div>
-          <label class="block text-xs font-bold text-gray-700 mb-1">Paese *</label>
-          <input
-            v-model="invoiceForm.paese"
-            type="text"
-            placeholder="IT"
-            maxlength="2"
-            class="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400"
-          />
-        </div>
-        <!-- Codice Destinatario / PEC -->
-        <div class="grid grid-cols-2 gap-3">
-          <div>
-            <label class="block text-xs font-bold text-gray-700 mb-1">Codice SDI</label>
-            <input
-              v-model="invoiceForm.codiceDestinatario"
-              type="text"
-              placeholder="0000000"
-              maxlength="7"
-              class="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400"
-            />
-          </div>
-          <div>
-            <label class="block text-xs font-bold text-gray-700 mb-1">PEC</label>
-            <input
-              v-model="invoiceForm.pec"
-              type="email"
-              placeholder="fatture@pec.it"
-              class="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400"
-            />
-          </div>
-        </div>
-        <!-- Validation error -->
-        <p v-if="invoiceFormError" class="text-xs text-red-600 font-bold">{{ invoiceFormError }}</p>
-      </div>
-      <!-- Footer -->
-      <div class="p-4 border-t border-gray-200 bg-gray-50 rounded-b-3xl flex gap-3">
-        <button @click="showInvoiceModal = false" class="flex-1 py-3 border border-gray-300 text-gray-700 font-bold rounded-xl active:scale-95 transition-all text-sm">
-          Annulla
-        </button>
-        <button @click="confirmInvoice" class="flex-1 py-3 bg-violet-600 hover:bg-violet-700 text-white font-bold rounded-xl active:scale-95 transition-all shadow-md flex items-center justify-center gap-2 text-sm">
-          <Building2 class="size-4" /> Conferma Fattura
-        </button>
-      </div>
-    </div>
-  </div>
+  <InvoiceModal
+    :show="showInvoiceModal"
+    @cancel="showInvoiceModal = false"
+    @confirm="confirmInvoice"
+  />
 
   <!-- ================================================================ -->
   <!-- MODAL: SPOSTA TAVOLO                                              -->
@@ -1458,11 +1324,11 @@ import {
   Layers, ListChecks, History, LayoutGrid, ListOrdered,
   Tag, Wallet, ChevronDown,
   Percent, Zap, BookOpen, PlusCircle, Banknote, CreditCard, Lock, SquareCheck, Split, Link, Printer,
-  FileText, Building2,
+  FileText,
 } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
 import { newUUIDv7 } from '../store/storeUtils.js';
-import { getOrderItemRowTotal, KITCHEN_ACTIVE_STATUSES, getLockedDirectItems, appConfig } from '../utils/index.js';
+import { getOrderItemRowTotal, KITCHEN_ACTIVE_STATUSES, getLockedDirectItems, appConfig, buildFiscalXmlRequest } from '../utils/index.js';
 import { buildFlatAnaliticaItems, computeAnaliticaTotal, exceedsAmount, getOrdersToComplete } from '../utils/analitica.js';
 import { loadCustomItemsFromIDB, saveCustomItemsToIDB } from '../store/idbPersistence.js';
 import { useNumericKeyboard } from '../composables/useNumericKeyboard.js';
@@ -1474,6 +1340,7 @@ import TableGrid from './shared/TableGrid.vue';
 import PeopleModal from './shared/PeopleModal.vue';
 import NumericInput from './NumericInput.vue';
 import PrintHistoryModal from './shared/PrintHistoryModal.vue';
+import InvoiceModal from './shared/InvoiceModal.vue';
 
 const emit = defineEmits(['open-order-from-table', 'new-order-for-ordini']);
 
@@ -1878,34 +1745,8 @@ const jsonPayloadData = ref('{}');
 
 // ── Invoice modal state ────────────────────────────────────────────────────
 const showInvoiceModal = ref(false);
-const invoiceFormError = ref('');
-const invoiceForm = ref({
-  denominazione: '',
-  codiceFiscale: '',
-  piva: '',
-  indirizzo: '',
-  cap: '',
-  comune: '',
-  provincia: '',
-  paese: 'IT',
-  codiceDestinatario: '',
-  pec: '',
-});
 
 function openInvoiceModal() {
-  invoiceFormError.value = '';
-  invoiceForm.value = {
-    denominazione: '',
-    codiceFiscale: '',
-    piva: '',
-    indirizzo: '',
-    cap: '',
-    comune: '',
-    provincia: '',
-    paese: 'IT',
-    codiceDestinatario: '',
-    pec: '',
-  };
   showInvoiceModal.value = true;
 }
 
@@ -2595,31 +2436,11 @@ function _buildBillSummaryBase() {
   };
 }
 
-function _buildFiscalXmlRequest(base) {
-  const escXml = s => String(s).replace(/[<>&"']/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;' }[c]));
-  const lines = base.orders.flatMap(o => o.items).map(item => {
-    const qty = item.quantity.toFixed(3);
-    const price = item.unitPrice.toFixed(2);
-    return `  <printRecItem description="${escXml(item.name)}" quantity="${qty}" unitPrice="${price}" department="1" />`;
-  });
-  const paymentType = base.paymentMethods.some(m => /cart|bancomat|pos|visa|master|carta/i.test(m)) ? '2' : '0';
-  const paymentLabel = escXml(base.paymentMethods.join(' + ') || 'CONTANTI');
-  const total = base.totalAmount.toFixed(2);
-  return [
-    '<printerFiscalReceipt>',
-    '  <beginFiscalReceipt operator="1" />',
-    ...lines,
-    `  <printRecTotal payment="${total}" paymentType="${paymentType}" description="${paymentLabel}" />`,
-    '  <endFiscalReceipt />',
-    '</printerFiscalReceipt>',
-  ].join('\n');
-}
-
 function closeTableBillFiscale() {
   if (!selectedTable.value) return;
   const base = _buildBillSummaryBase();
   if (!base) return;
-  const xmlRequest = _buildFiscalXmlRequest(base);
+  const xmlRequest = buildFiscalXmlRequest(base);
   const entry = {
     id: newUUIDv7('fis'),
     ...base,
@@ -2633,60 +2454,8 @@ function closeTableBillFiscale() {
   closeTableModal();
 }
 
-function confirmInvoice() {
+function confirmInvoice(billingData) {
   if (!selectedTable.value) return;
-  const form = invoiceForm.value;
-  const trim = v => (v ?? '').trim();
-
-  if (!trim(form.denominazione)) {
-    invoiceFormError.value = 'Denominazione obbligatoria.';
-    return;
-  }
-  if (!trim(form.codiceFiscale) && !trim(form.piva)) {
-    invoiceFormError.value = 'Inserire almeno Codice Fiscale o P.IVA.';
-    return;
-  }
-  if (!trim(form.indirizzo) || !trim(form.cap) || !trim(form.comune)) {
-    invoiceFormError.value = 'Indirizzo, CAP e Comune sono obbligatori.';
-    return;
-  }
-  if (!/^\d{5}$/.test(trim(form.cap))) {
-    invoiceFormError.value = 'Il CAP deve essere di 5 cifre.';
-    return;
-  }
-  if (!trim(form.paese)) {
-    invoiceFormError.value = 'Il campo Paese è obbligatorio.';
-    return;
-  }
-  // provincia is intentionally optional (not required for foreign addresses or
-  // when the country is not IT; left blank by the user if not applicable)
-  const sdi = trim(form.codiceDestinatario);
-  const pec = trim(form.pec);
-  if (!sdi && !pec) {
-    invoiceFormError.value = 'Inserire Codice SDI o PEC per la trasmissione della fattura.';
-    return;
-  }
-  if (sdi && !/^[A-Z0-9]{7}$/i.test(sdi)) {
-    invoiceFormError.value = 'Il Codice SDI deve essere di 7 caratteri alfanumerici.';
-    return;
-  }
-  if (pec && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(pec)) {
-    invoiceFormError.value = 'Indirizzo PEC non valido.';
-    return;
-  }
-  const billingData = {
-    ...form,
-    denominazione: trim(form.denominazione),
-    codiceFiscale: trim(form.codiceFiscale),
-    piva: trim(form.piva),
-    indirizzo: trim(form.indirizzo),
-    cap: trim(form.cap),
-    comune: trim(form.comune),
-    paese: trim(form.paese).toUpperCase(),
-    provincia: trim(form.provincia).toUpperCase(),
-    codiceDestinatario: sdi.toUpperCase(),
-    pec,
-  };
   const base = _buildBillSummaryBase();
   if (!base) return;
   const entry = {

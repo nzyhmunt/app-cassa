@@ -112,6 +112,9 @@ export const useAppStore = defineStore('app', () => {
   //   { id, tableId, billSessionId, tableLabel, totalAmount, totalPaid,
   //     paymentMethods, xmlRequest, xmlResponse, status, timestamp }
   const fiscalReceipts = ref([]);
+  /** True once _hydrateFiscalAndInvoice() has resolved. Used by components to guard
+   *  against showing stale (empty) fiscal/invoice state during the async IDB load. */
+  const fiscalInvoiceHydrated = ref(false);
 
   /** Prepends a fiscal receipt entry (capped to 200) and persists it to IDB. */
   function addFiscalReceipt(entry) {
@@ -166,6 +169,7 @@ export const useAppStore = defineStore('app', () => {
       pruneFiscalReceiptsInIDB(200),
       pruneInvoiceRequestsInIDB(200),
     ]).catch(e => console.warn('[Store] Failed to prune fiscal/invoice IDB entries:', e));
+    fiscalInvoiceHydrated.value = true;
   }
 
   _hydrateFiscalAndInvoice();
@@ -557,6 +561,7 @@ export const useAppStore = defineStore('app', () => {
     printLog, addPrintLogEntry, updatePrintLogEntry, clearPrintLog,
     // fiscal receipts
     fiscalReceipts, addFiscalReceipt, updateFiscalReceipt,
+    fiscalInvoiceHydrated,
     // invoice requests
     invoiceRequests, addInvoiceRequest,
     // computed

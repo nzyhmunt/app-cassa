@@ -9,7 +9,7 @@
         </h2>
         <router-link
           to="/sala"
-          class="flex items-center gap-1.5 text-xs font-bold text-gray-500 hover:text-gray-800 bg-white border border-gray-200 hover:border-gray-300 px-3 py-2 rounded-xl transition-colors shadow-sm active:scale-95"
+          class="flex items-center gap-1.5 text-[10px] md:text-xs font-bold text-gray-500 hover:text-gray-800 bg-white border border-gray-200 hover:border-gray-300 px-3 py-2 rounded-xl transition-colors shadow-sm active:scale-95"
         >
           <ArrowLeft class="size-4" /> Torna alla Sala
         </router-link>
