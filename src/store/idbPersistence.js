@@ -419,14 +419,25 @@ export async function saveInvoiceRequestToIDB(record) {
 }
 
 /**
- * Loads all invoice request records from IDB, sorted newest-first by timestamp.
+ * Loads the newest invoice request records from IDB, sorted newest-first by timestamp.
+ * Reads directly from the `timestamp` index to avoid loading the full store into memory.
  * @returns {Promise<Array>}
  */
 export async function loadInvoiceRequestsFromIDB() {
   try {
     const db = await getDB();
-    const all = await db.getAll('invoice_requests');
-    return all.sort(_byTimestampDesc);
+    const tx = db.transaction('invoice_requests', 'readonly');
+    const index = tx.store.index('timestamp');
+    const records = [];
+
+    let cursor = await index.openCursor(null, 'prev');
+    while (cursor && records.length < FISCAL_INVOICE_RETENTION) {
+      records.push(cursor.value);
+      cursor = await cursor.continue();
+    }
+
+    await tx.done;
+    return records;
   } catch (e) {
     console.warn('[IDBPersistence] Failed to load invoice requests:', e);
     return [];
