@@ -365,14 +365,25 @@ export async function saveFiscalReceiptToIDB(record) {
 }
 
 /**
- * Loads all fiscal receipt records from IDB, sorted newest-first by timestamp.
+ * Loads the newest retained fiscal receipt records from IDB, sorted newest-first
+ * by timestamp.
  * @returns {Promise<Array>}
  */
 export async function loadFiscalReceiptsFromIDB() {
   try {
     const db = await getDB();
-    const all = await db.getAll('fiscal_receipts');
-    return all.sort(_byTimestampDesc);
+    const tx = db.transaction('fiscal_receipts');
+    const index = tx.store.index('timestamp');
+    const receipts = [];
+    let cursor = await index.openCursor(null, 'prev');
+
+    while (cursor && receipts.length < FISCAL_INVOICE_RETENTION) {
+      receipts.push(cursor.value);
+      cursor = await cursor.continue();
+    }
+
+    await tx.done;
+    return receipts;
   } catch (e) {
     console.warn('[IDBPersistence] Failed to load fiscal receipts:', e);
     return [];
