@@ -87,6 +87,16 @@ describe('visibility', () => {
     const wrapper = mountModal(false);
     expect(wrapper.text()).not.toContain('Dati Fattura');
   });
+
+  it('dialog container has correct accessibility attributes', () => {
+    const wrapper = mountModal(true);
+    const dialog = wrapper.find('[role="dialog"]');
+    expect(dialog.exists()).toBe(true);
+    expect(dialog.attributes('aria-modal')).toBe('true');
+    const labelledById = dialog.attributes('aria-labelledby');
+    expect(labelledById).toBeTruthy();
+    expect(wrapper.find(`#${labelledById}`).exists()).toBe(true);
+  });
 });
 
 // ── Cancel ────────────────────────────────────────────────────────────────────

@@ -8,7 +8,12 @@
   <!-- ================================================================ -->
   <Teleport to="body">
     <div v-if="show" class="fixed inset-0 z-[96] bg-black/70 backdrop-blur-sm flex items-end md:items-center justify-center p-0 md:p-4">
-      <div class="bg-white rounded-t-3xl md:rounded-3xl shadow-2xl w-full max-w-lg flex flex-col overflow-hidden max-h-[95dvh] md:max-h-[90dvh]">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="invoice-modal-title"
+        class="bg-white rounded-t-3xl md:rounded-3xl shadow-2xl w-full max-w-lg flex flex-col overflow-hidden max-h-[95dvh] md:max-h-[90dvh]"
+      >
         <!-- Header -->
         <div class="bg-violet-700 text-white p-4 md:p-5 flex justify-between items-center shrink-0">
           <div class="flex items-center gap-3">
@@ -16,7 +21,7 @@
               <FileText class="size-5" />
             </div>
             <div>
-              <h3 class="font-bold text-base md:text-lg leading-tight">Dati Fattura</h3>
+              <h3 id="invoice-modal-title" class="font-bold text-base md:text-lg leading-tight">Dati Fattura</h3>
               <span class="text-[10px] text-white/70">Fatturazione elettronica</span>
             </div>
           </div>
