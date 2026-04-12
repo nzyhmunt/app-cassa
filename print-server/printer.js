@@ -106,7 +106,7 @@ let _cachedPrinters = null;
  * Il risultato viene memoizzato: le variabili d'ambiente vengono lette una sola
  * volta per evitare overhead durante la stampa ad alto volume. Per invalidare
  * la cache (es. nei test) usare _resetPrinterCache().
- * Il caricamento lazy garantisce che vi.mock('../printers.config.js') nei test
+ * Il caricamento lazy garantisce che vi.mock('./printers.config.js') nei test
  * venga sempre rispettato senza richiedere trucchi sulla module cache.
  * @returns {object[]}
  */
