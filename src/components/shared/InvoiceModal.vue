@@ -28,8 +28,9 @@
         <div class="flex-1 overflow-y-auto p-4 md:p-6 space-y-4">
           <!-- Denominazione / Ragione Sociale -->
           <div>
-            <label class="block text-xs font-bold text-gray-700 mb-1">Denominazione / Ragione Sociale *</label>
+            <label for="inv-denominazione" class="block text-xs font-bold text-gray-700 mb-1">Denominazione / Ragione Sociale *</label>
             <input
+              id="inv-denominazione"
               v-model="form.denominazione"
               type="text"
               placeholder="Es. Mario Rossi / Rossi S.r.l."
@@ -39,8 +40,9 @@
           <!-- Codice Fiscale / P.IVA -->
           <div class="grid grid-cols-2 gap-3">
             <div>
-              <label class="block text-xs font-bold text-gray-700 mb-1">Codice Fiscale</label>
+              <label for="inv-cf" class="block text-xs font-bold text-gray-700 mb-1">Codice Fiscale</label>
               <input
+                id="inv-cf"
                 v-model="form.codiceFiscale"
                 type="text"
                 placeholder="RSSMRA80A01H501Z"
@@ -48,8 +50,9 @@
               />
             </div>
             <div>
-              <label class="block text-xs font-bold text-gray-700 mb-1">P.IVA</label>
+              <label for="inv-piva" class="block text-xs font-bold text-gray-700 mb-1">P.IVA</label>
               <input
+                id="inv-piva"
                 v-model="form.piva"
                 type="text"
                 placeholder="01234567890"
@@ -59,8 +62,9 @@
           </div>
           <!-- Indirizzo -->
           <div>
-            <label class="block text-xs font-bold text-gray-700 mb-1">Indirizzo *</label>
+            <label for="inv-indirizzo" class="block text-xs font-bold text-gray-700 mb-1">Indirizzo *</label>
             <input
+              id="inv-indirizzo"
               v-model="form.indirizzo"
               type="text"
               placeholder="Via Roma 1"
@@ -70,8 +74,9 @@
           <!-- CAP / Comune / Provincia -->
           <div class="grid grid-cols-3 gap-3">
             <div>
-              <label class="block text-xs font-bold text-gray-700 mb-1">CAP *</label>
+              <label for="inv-cap" class="block text-xs font-bold text-gray-700 mb-1">CAP *</label>
               <input
+                id="inv-cap"
                 v-model="form.cap"
                 type="text"
                 placeholder="00100"
@@ -80,8 +85,9 @@
               />
             </div>
             <div>
-              <label class="block text-xs font-bold text-gray-700 mb-1">Comune *</label>
+              <label for="inv-comune" class="block text-xs font-bold text-gray-700 mb-1">Comune *</label>
               <input
+                id="inv-comune"
                 v-model="form.comune"
                 type="text"
                 placeholder="Roma"
@@ -89,8 +95,9 @@
               />
             </div>
             <div>
-              <label class="block text-xs font-bold text-gray-700 mb-1">Prov.</label>
+              <label for="inv-provincia" class="block text-xs font-bold text-gray-700 mb-1">Prov.</label>
               <input
+                id="inv-provincia"
                 v-model="form.provincia"
                 type="text"
                 placeholder="RM"
@@ -101,8 +108,9 @@
           </div>
           <!-- Paese -->
           <div>
-            <label class="block text-xs font-bold text-gray-700 mb-1">Paese *</label>
+            <label for="inv-paese" class="block text-xs font-bold text-gray-700 mb-1">Paese *</label>
             <input
+              id="inv-paese"
               v-model="form.paese"
               type="text"
               placeholder="IT"
@@ -113,8 +121,9 @@
           <!-- Codice Destinatario / PEC -->
           <div class="grid grid-cols-2 gap-3">
             <div>
-              <label class="block text-xs font-bold text-gray-700 mb-1">Codice SDI</label>
+              <label for="inv-sdi" class="block text-xs font-bold text-gray-700 mb-1">Codice SDI</label>
               <input
+                id="inv-sdi"
                 v-model="form.codiceDestinatario"
                 type="text"
                 placeholder="0000000"
@@ -123,8 +132,9 @@
               />
             </div>
             <div>
-              <label class="block text-xs font-bold text-gray-700 mb-1">PEC</label>
+              <label for="inv-pec" class="block text-xs font-bold text-gray-700 mb-1">PEC</label>
               <input
+                id="inv-pec"
                 v-model="form.pec"
                 type="email"
                 placeholder="fatture@pec.it"

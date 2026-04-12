@@ -318,6 +318,7 @@ function _buildBillSummaryBase() {
 }
 
 function emitFiscale() {
+  if (alreadyFiscalized.value) return;
   const base = _buildBillSummaryBase();
   const xmlRequest = buildFiscalXmlRequest(base);
   const entry = {
@@ -335,7 +336,11 @@ function openInvoiceModal() {
   showInvoiceModal.value = true;
 }
 
+const _invoiceSubmitting = ref(false);
+
 function confirmInvoice(billingData) {
+  if (alreadyFiscalized.value || _invoiceSubmitting.value) return;
+  _invoiceSubmitting.value = true;
   const base = _buildBillSummaryBase();
   const entry = {
     id: newUUIDv7('inv'),
@@ -346,6 +351,7 @@ function confirmInvoice(billingData) {
   };
   store.addInvoiceRequest(entry);
   showInvoiceModal.value = false;
+  _invoiceSubmitting.value = false;
 }
 
 function formatTime(isoString) {
