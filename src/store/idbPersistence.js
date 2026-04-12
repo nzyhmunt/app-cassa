@@ -329,25 +329,28 @@ export async function saveAuthSettingsToIDB(settings) {
 
 const FISCAL_INVOICE_RETENTION = 200;
 
-/** Sorts two records by `timestamp` ISO string descending (newest first). */
-const _byTimestampDesc = (a, b) => (a.timestamp > b.timestamp ? -1 : a.timestamp < b.timestamp ? 1 : 0);
-
 /**
- * Deletes the oldest entries in `storeName` beyond `keepCount`, based on the
- * `timestamp` field. Used to enforce the in-memory retention cap in IDB too,
- * preventing unbounded storage growth.
+ * Deletes the oldest entries in `storeName` beyond `keepCount`, using the
+ * `timestamp` index cursor to avoid loading all records into memory.
+ * Only stores with a `timestamp` index are supported (fiscal_receipts, invoice_requests).
  * @param {import('idb').IDBPDatabase} db
  * @param {string} storeName
  * @param {number} keepCount
  */
 async function _pruneToNewest(db, storeName, keepCount) {
-  const all = await db.getAll(storeName);
-  if (all.length <= keepCount) return;
-  // Sort oldest first by timestamp; delete the head (oldest) beyond the cap
-  all.sort((a, b) => -_byTimestampDesc(a, b));
-  const toDelete = all.slice(0, all.length - keepCount);
+  const total = await db.count(storeName);
+  if (total <= keepCount) return;
+  const deleteCount = total - keepCount;
   const tx = db.transaction(storeName, 'readwrite');
-  await Promise.all(toDelete.map(r => tx.store.delete(r.id)));
+  const index = tx.store.index('timestamp');
+  // Iterate oldest-first (ascending); delete excess entries without loading full records.
+  let cursor = await index.openCursor(null, 'next');
+  let deleted = 0;
+  while (cursor && deleted < deleteCount) {
+    await cursor.delete();
+    deleted++;
+    cursor = await cursor.continue();
+  }
   await tx.done;
 }
 

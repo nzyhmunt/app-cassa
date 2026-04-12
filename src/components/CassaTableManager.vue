@@ -2583,7 +2583,7 @@ function _buildBillSummaryBase() {
     closedAt: new Date().toISOString(),
     totalAmount: tableTotalAmount.value,
     totalPaid: tableAmountPaid.value,
-    paymentMethods: [...new Set(billTxns.filter(t => t.operationType !== 'discount').map(t => t.paymentMethod))],
+    paymentMethods: [...new Set(billTxns.filter(t => t.operationType !== 'discount' && t.operationType !== 'tip').map(t => t.paymentMethod))],
     orders: tableAcceptedPayableOrders.value.map(o => ({
       id: o.id,
       items: o.orderItems.map(r => ({
@@ -2658,6 +2658,8 @@ function confirmInvoice() {
     invoiceFormError.value = 'Il campo Paese è obbligatorio.';
     return;
   }
+  // provincia is intentionally optional (not required for foreign addresses or
+  // when the country is not IT; left blank by the user if not applicable)
   const sdi = trim(form.codiceDestinatario);
   const pec = trim(form.pec);
   if (!sdi && !pec) {
