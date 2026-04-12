@@ -116,7 +116,11 @@ export const useAppStore = defineStore('app', () => {
   /** Prepends a fiscal receipt entry (capped to 200) and persists it to IDB. */
   function addFiscalReceipt(entry) {
     fiscalReceipts.value = [entry, ...fiscalReceipts.value].slice(0, 200);
-    saveFiscalReceiptToIDB(entry);
+    Promise.resolve(saveFiscalReceiptToIDB(entry))
+      .then(() => pruneFiscalReceiptsInIDB())
+      .catch((error) => {
+        console.error('Failed to persist/prune fiscal receipts in IDB:', error);
+      });
   }
 
   /** Updates a fiscal receipt entry in-place by id and persists changes. */
