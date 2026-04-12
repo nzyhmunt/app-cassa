@@ -236,7 +236,7 @@
 import { ref, computed } from 'vue';
 import { ChevronDown, CreditCard, ClipboardList, Banknote, Tag, Wallet, CheckCircle, Printer, FileText } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
-import { appConfig, billKey, getOrderItemRowTotal } from '../utils/index.js';
+import { appConfig, billKey, getOrderItemRowTotal, buildFiscalXmlRequest } from '../utils/index.js';
 import { newUUIDv7 } from '../store/storeUtils.js';
 import NumericInput from './NumericInput.vue';
 import InvoiceModal from './shared/InvoiceModal.vue';
@@ -268,17 +268,17 @@ function confirmPostTip() {
 }
 
 // ── Fiscal receipt / Invoice state ─────────────────────────────────────────
-// Match against the stored entry's tableId + (billSessionId ?? closedAt) key,
-// mirroring the same logic used by billKey(). This handles bills that have no
-// billSessionId (the fallback discriminator is closedAt instead).
-const _entryKey = r => r.tableId + '_' + (r.billSessionId ?? r.closedAt ?? '');
+// Match against the stored entry using billKey(), which derives the same
+// stable key (tableId + '_' + (billSessionId ?? closedAt ?? '')) that is
+// used when the entry is written, so bills without a billSessionId are still
+// correctly discriminated by their closedAt timestamp.
 const hasFiscalReceipt = computed(() => {
   const key = billKey(props.bill);
-  return store.fiscalReceipts.some(r => _entryKey(r) === key);
+  return store.fiscalReceipts.some(r => billKey(r) === key);
 });
 const hasInvoice = computed(() => {
   const key = billKey(props.bill);
-  return store.invoiceRequests.some(r => _entryKey(r) === key);
+  return store.invoiceRequests.some(r => billKey(r) === key);
 });
 const alreadyFiscalized = computed(() => hasFiscalReceipt.value || hasInvoice.value);
 
@@ -301,7 +301,10 @@ function _buildBillSummaryBase() {
     billSessionId: bill.billSessionId,
     closedAt: bill.closedAt,
     totalAmount,
-    totalPaid: bill.totalPaid,
+    // Include discount transaction amounts so that totalPaid mirrors the live-cassa
+    // _buildBillSummaryBase() shape (where tableAmountPaid sums all transactions
+    // including discounts). For bills without discounts this has no effect.
+    totalPaid: bill.totalPaid + (bill.totalDiscount ?? 0),
     paymentMethods: [...new Set(paymentTxns.map(t => t.paymentMethod))],
     orders: payableOrders.map(o => ({
       id: o.id,
@@ -314,29 +317,9 @@ function _buildBillSummaryBase() {
   };
 }
 
-function _buildFiscalXmlRequest(base) {
-  const escXml = s => String(s).replace(/[<>&"']/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;' }[c]));
-  const lines = base.orders.flatMap(o => o.items).map(item => {
-    const qty = item.quantity.toFixed(3);
-    const price = item.unitPrice.toFixed(2);
-    return `  <printRecItem description="${escXml(item.name)}" quantity="${qty}" unitPrice="${price}" department="1" />`;
-  });
-  const paymentType = base.paymentMethods.some(m => /cart|bancomat|pos|visa|master|carta/i.test(m)) ? '2' : '0';
-  const paymentLabel = escXml(base.paymentMethods.join(' + ') || 'CONTANTI');
-  const total = base.totalAmount.toFixed(2);
-  return [
-    '<printerFiscalReceipt>',
-    '  <beginFiscalReceipt operator="1" />',
-    ...lines,
-    `  <printRecTotal payment="${total}" paymentType="${paymentType}" description="${paymentLabel}" />`,
-    '  <endFiscalReceipt />',
-    '</printerFiscalReceipt>',
-  ].join('\n');
-}
-
 function emitFiscale() {
   const base = _buildBillSummaryBase();
-  const xmlRequest = _buildFiscalXmlRequest(base);
+  const xmlRequest = buildFiscalXmlRequest(base);
   const entry = {
     id: newUUIDv7('fis'),
     ...base,

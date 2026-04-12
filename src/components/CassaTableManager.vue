@@ -1328,7 +1328,7 @@ import {
 } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
 import { newUUIDv7 } from '../store/storeUtils.js';
-import { getOrderItemRowTotal, KITCHEN_ACTIVE_STATUSES, getLockedDirectItems, appConfig } from '../utils/index.js';
+import { getOrderItemRowTotal, KITCHEN_ACTIVE_STATUSES, getLockedDirectItems, appConfig, buildFiscalXmlRequest } from '../utils/index.js';
 import { buildFlatAnaliticaItems, computeAnaliticaTotal, exceedsAmount, getOrdersToComplete } from '../utils/analitica.js';
 import { loadCustomItemsFromIDB, saveCustomItemsToIDB } from '../store/idbPersistence.js';
 import { useNumericKeyboard } from '../composables/useNumericKeyboard.js';
@@ -2436,31 +2436,11 @@ function _buildBillSummaryBase() {
   };
 }
 
-function _buildFiscalXmlRequest(base) {
-  const escXml = s => String(s).replace(/[<>&"']/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;' }[c]));
-  const lines = base.orders.flatMap(o => o.items).map(item => {
-    const qty = item.quantity.toFixed(3);
-    const price = item.unitPrice.toFixed(2);
-    return `  <printRecItem description="${escXml(item.name)}" quantity="${qty}" unitPrice="${price}" department="1" />`;
-  });
-  const paymentType = base.paymentMethods.some(m => /cart|bancomat|pos|visa|master|carta/i.test(m)) ? '2' : '0';
-  const paymentLabel = escXml(base.paymentMethods.join(' + ') || 'CONTANTI');
-  const total = base.totalAmount.toFixed(2);
-  return [
-    '<printerFiscalReceipt>',
-    '  <beginFiscalReceipt operator="1" />',
-    ...lines,
-    `  <printRecTotal payment="${total}" paymentType="${paymentType}" description="${paymentLabel}" />`,
-    '  <endFiscalReceipt />',
-    '</printerFiscalReceipt>',
-  ].join('\n');
-}
-
 function closeTableBillFiscale() {
   if (!selectedTable.value) return;
   const base = _buildBillSummaryBase();
   if (!base) return;
-  const xmlRequest = _buildFiscalXmlRequest(base);
+  const xmlRequest = buildFiscalXmlRequest(base);
   const entry = {
     id: newUUIDv7('fis'),
     ...base,
