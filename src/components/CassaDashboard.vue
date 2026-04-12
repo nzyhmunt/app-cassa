@@ -160,7 +160,7 @@
             </div>
 
             <!-- Tipologia Chiusura Conto -->
-            <div v-if="xSummary.fiscalCount > 0 || xSummary.invoiceCount > 0" class="bg-white rounded-2xl border border-gray-200 shadow-sm p-4">
+            <div v-if="xHasClosureTypeData" class="bg-white rounded-2xl border border-gray-200 shadow-sm p-4">
               <h5 class="font-bold text-gray-600 text-xs uppercase tracking-wider mb-3 flex items-center gap-1">
                 <ClipboardList class="size-4" /> Tipologia Chiusura Conto
               </h5>
@@ -297,7 +297,7 @@
               <div class="flex justify-between pt-1 border-t border-gray-100 mt-1"><span class="text-gray-500">Scontrini</span><span class="font-bold">{{ zPreview.receiptCount }}</span></div>
               <div class="flex justify-between"><span class="text-gray-500">Coperti totali</span><span class="font-bold">{{ zPreview.totalCovers }}</span></div>
               <div class="flex justify-between"><span class="text-gray-500">Scontrino medio</span><span class="font-bold">€{{ zPreview.averageReceipt.toFixed(2) }}</span></div>
-              <template v-if="zPreview.fiscalCount > 0 || zPreview.invoiceCount > 0">
+              <template v-if="zHasClosureTypeData">
                 <div class="pt-1 border-t border-gray-100 mt-1">
                   <p class="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Tipologia Chiusura</p>
                   <div v-if="zPreview.fiscalCount > 0" class="flex justify-between items-center py-1">
@@ -330,7 +330,7 @@
 </template>
 
 <script setup>
-import { ref, watch } from 'vue';
+import { ref, computed, watch } from 'vue';
 import {
   X, Landmark, Wallet, ArrowLeftRight, ArrowDownCircle, ArrowUpCircle, Plus,
   Eye, AlertTriangle, Lock, RefreshCw, Save, TrendingUp, CreditCard, Users,
@@ -415,4 +415,11 @@ function getMethodIcon(methodLabel) {
   if (!m) return Banknote;
   return m.icon === 'credit-card' ? CreditCard : Banknote;
 }
+
+const xHasClosureTypeData = computed(() =>
+  xSummary.value != null && (xSummary.value.fiscalCount > 0 || xSummary.value.invoiceCount > 0),
+);
+const zHasClosureTypeData = computed(() =>
+  zPreview.value != null && (zPreview.value.fiscalCount > 0 || zPreview.value.invoiceCount > 0),
+);
 </script>

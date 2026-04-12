@@ -57,13 +57,13 @@ export function makeReportOps(state, helpers) {
     const sessionStart = lastCloseTimestamp ? new Date(lastCloseTimestamp) : null;
     const _afterSessionStart = entry => !sessionStart || new Date(entry.timestamp) > sessionStart;
 
-    const sessionFiscal = (fiscalReceipts?.value ?? []).filter(_afterSessionStart);
-    const sessionInvoices = (invoiceRequests?.value ?? []).filter(_afterSessionStart);
+    const sessionFiscalReceipts = (fiscalReceipts?.value ?? []).filter(_afterSessionStart);
+    const sessionInvoiceRequests = (invoiceRequests?.value ?? []).filter(_afterSessionStart);
 
-    const fiscalCount = sessionFiscal.length;
-    const fiscalTotal = sessionFiscal.reduce((acc, e) => acc + (e.totalAmount || 0), 0);
-    const invoiceCount = sessionInvoices.length;
-    const invoiceTotal = sessionInvoices.reduce((acc, e) => acc + (e.totalAmount || 0), 0);
+    const fiscalCount = sessionFiscalReceipts.length;
+    const fiscalTotal = sessionFiscalReceipts.reduce((acc, e) => acc + (e.totalAmount || 0), 0);
+    const invoiceCount = sessionInvoiceRequests.length;
+    const invoiceTotal = sessionInvoiceRequests.reduce((acc, e) => acc + (e.totalAmount || 0), 0);
 
     return {
       timestamp: new Date().toISOString(),
