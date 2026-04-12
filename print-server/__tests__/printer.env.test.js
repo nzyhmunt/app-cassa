@@ -64,6 +64,13 @@ describe('loadPrintersFromEnv — TCP printer', () => {
     });
   });
 
+  it('falls back to default port/timeout when env values are non-numeric', () => {
+    cleanup = withPrinterEnv([{ ID: 'test', TYPE: 'tcp', HOST: '10.0.0.1', PORT: 'abc', TIMEOUT: 'xyz' }]);
+    const printers = loadPrintersFromEnv();
+    expect(printers[0].port).toBe(9100);
+    expect(printers[0].timeout).toBe(5000);
+  });
+
   it('converts PORT and TIMEOUT to numbers', () => {
     cleanup = withPrinterEnv([{ ID: 'cassa', TYPE: 'tcp', HOST: '10.0.0.1', PORT: '9200', TIMEOUT: '3000' }]);
     const printers = loadPrintersFromEnv();

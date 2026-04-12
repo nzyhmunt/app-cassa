@@ -77,7 +77,7 @@ function loadPrintersFromEnv() {
   while (true) {
     const id = process.env[`PRINTER_${n}_ID`];
     if (!id) break;
-    const type = (process.env[`PRINTER_${n}_TYPE`] || 'tcp').toLowerCase();
+    const type = process.env[`PRINTER_${n}_TYPE`]?.toLowerCase() || 'tcp';
     const name = process.env[`PRINTER_${n}_NAME`] || id;
     const entry = { id, name, type };
     if (type === 'file') {
@@ -86,8 +86,10 @@ function loadPrintersFromEnv() {
       entry.host = process.env[`PRINTER_${n}_HOST`] || '127.0.0.1';
       const rawPort    = process.env[`PRINTER_${n}_PORT`];
       const rawTimeout = process.env[`PRINTER_${n}_TIMEOUT`];
-      entry.port    = rawPort    ? parseInt(rawPort, 10)    : 9100;
-      entry.timeout = rawTimeout ? parseInt(rawTimeout, 10) : 5000;
+      const parsedPort    = parseInt(rawPort, 10);
+      const parsedTimeout = parseInt(rawTimeout, 10);
+      entry.port    = rawPort    && !isNaN(parsedPort)    ? parsedPort    : 9100;
+      entry.timeout = rawTimeout && !isNaN(parsedTimeout) ? parsedTimeout : 5000;
     }
     printers.push(entry);
     n++;
