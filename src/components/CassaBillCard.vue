@@ -302,8 +302,8 @@ function _buildBillSummaryBase() {
     closedAt: bill.closedAt,
     totalAmount,
     // Include discount transaction amounts so that totalPaid mirrors the live-cassa
-    // _buildBillSummaryBase() shape (where tableAmountPaid sums all transactions
-    // including discounts). For bills without discounts this has no effect.
+    // CassaTableManager._buildBillSummaryBase() shape (where tableAmountPaid sums
+    // all transactions including discounts). For bills without discounts, no effect.
     totalPaid: bill.totalPaid + (bill.totalDiscount ?? 0),
     paymentMethods: [...new Set(paymentTxns.map(t => t.paymentMethod))],
     orders: payableOrders.map(o => ({
