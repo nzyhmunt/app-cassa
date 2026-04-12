@@ -46,7 +46,13 @@ npm install
    PORT=4000 PRINT_SERVER_API_KEY=segreto docker compose up -d
    ```
 
-2. Configura le stampanti in **`printers.config.js`** (vedi [sezione sotto](#configurazione-stampanti)).
+2. Configura le stampanti scegliendo uno dei metodi disponibili:
+   - **`printers.config.js`** — modifica il file direttamente (adatto all'installazione locale).
+   - **Variabili d'ambiente** `PRINTER_<N>_*` — aggiungile al file `.env` o alla sezione
+     `environment` di `docker-compose.yml` (consigliato con Docker, non richiede rebuild
+     quando cambia la configurazione delle stampanti).
+   
+   Vedi la [sezione Configurazione stampanti](#configurazione-stampanti) per i dettagli.
 
 ### Avvio
 
@@ -111,8 +117,11 @@ devices:
 
 ## Configurazione stampanti
 
-Le stampanti fisiche sono definite in **`printers.config.js`**. Ogni voce mappa
-un `id` (usato dal frontend in `appConfig.printers[].id`) a una connessione fisica.
+Le stampanti fisiche possono essere configurate in due modi:
+
+### Opzione A — `printers.config.js` (default)
+
+Modifica direttamente il file `printers.config.js`:
 
 ```js
 // printers.config.js
@@ -125,6 +134,50 @@ module.exports = {
 };
 ```
 
+### Opzione B — variabili d'ambiente `PRINTER_<N>_*` (consigliata con Docker)
+
+Se è impostata almeno una variabile `PRINTER_0_ID`, le stampanti vengono lette dalle
+variabili d'ambiente **al posto** di `printers.config.js`. `N` inizia da 0 e deve essere
+consecutivo (0, 1, 2 — senza salti).
+
+| Variabile | Default | Descrizione |
+|---|---|---|
+| `PRINTER_<N>_ID` | — | **Obbligatoria.** Identificatore univoco della stampante |
+| `PRINTER_<N>_NAME` | *(uguale a ID)* | Nome descrittivo (solo per i log) |
+| `PRINTER_<N>_TYPE` | `tcp` | Tipo di connessione: `tcp` \| `file` |
+| `PRINTER_<N>_HOST` | `127.0.0.1` | *(solo tcp)* Indirizzo IP o hostname |
+| `PRINTER_<N>_PORT` | `9100` | *(solo tcp)* Porta TCP |
+| `PRINTER_<N>_TIMEOUT` | `5000` | *(solo tcp)* Timeout connessione in ms |
+| `PRINTER_<N>_DEVICE` | `/dev/usb/lp0` | *(solo file)* Percorso del file di dispositivo |
+
+**Esempio** con due stampanti TCP via `.env`:
+
+```env
+PRINTER_0_ID=cucina
+PRINTER_0_NAME=Cucina
+PRINTER_0_TYPE=tcp
+PRINTER_0_HOST=192.168.1.100
+PRINTER_0_PORT=9100
+
+PRINTER_1_ID=bar
+PRINTER_1_NAME=Bar
+PRINTER_1_TYPE=tcp
+PRINTER_1_HOST=192.168.1.101
+PRINTER_1_PORT=9100
+```
+
+**Esempio** con stampante USB via `.env`:
+
+```env
+PRINTER_0_ID=cassa
+PRINTER_0_TYPE=file
+PRINTER_0_DEVICE=/dev/usb/lp0
+```
+
+> **Nota:** con Docker Compose, è sufficiente aggiungere le variabili nel file `.env`
+> (o nella sezione `environment` di `docker-compose.yml`) e decommentare le relative
+> righe nella sezione `environment`. Vedi i commenti in `docker-compose.yml` per gli esempi.
+
 ### Tipi di connessione
 
 | `type` | Parametri richiesti | Uso tipico |
@@ -135,10 +188,10 @@ module.exports = {
 ### Routing per printerId
 
 Quando arriva un job con `printerId: 'cucina'`, il server cerca la voce con `id: 'cucina'`
-in `printers.config.js` e la usa. Se non trovata, viene usata la **prima stampante** come fallback.
+e la usa. Se non trovata, viene usata la **prima stampante** come fallback.
 
 Questo rispecchia esattamente il comportamento del frontend: `appConfig.printers[].id` nel
-frontend deve corrispondere all'`id` nella voce di `printers.config.js`.
+frontend deve corrispondere all'`id` della stampante configurata.
 
 ---
 
@@ -150,8 +203,14 @@ frontend deve corrispondere all'`id` nella voce di `printers.config.js`.
 | `PRINT_SERVER_NAME` | `ESC/POS Print Server` | Nome nei log |
 | `PRINT_SERVER_API_KEY` | *(vuoto)* | Se impostata, ogni `POST /print` deve includere `x-api-key: <valore>` |
 | `CORS_ALLOWED_ORIGINS` | *(vuoto — tutte le origini)* | Origini CORS consentite (virgola separata). Se vuota, tutte le origini sono accettate. |
+| `PRINTER_<N>_ID` | — | Identificatore stampante N (abilita configurazione via env vars se impostato) |
+| `PRINTER_<N>_TYPE` | `tcp` | Tipo connessione: `tcp` \| `file` |
+| `PRINTER_<N>_HOST` | `127.0.0.1` | *(solo tcp)* Indirizzo IP o hostname |
+| `PRINTER_<N>_PORT` | `9100` | *(solo tcp)* Porta TCP |
+| `PRINTER_<N>_TIMEOUT` | `5000` | *(solo tcp)* Timeout connessione in ms |
+| `PRINTER_<N>_DEVICE` | `/dev/usb/lp0` | *(solo file)* Percorso dispositivo |
 
-> I parametri di connessione alle stampanti (host, porta, dispositivo) si configurano direttamente in `printers.config.js`.
+> Per la configurazione completa delle stampanti via env vars vedi la [sezione Configurazione stampanti](#configurazione-stampanti).
 
 ---
 

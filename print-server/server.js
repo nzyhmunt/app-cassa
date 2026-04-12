@@ -17,6 +17,16 @@
  *   PRINT_SERVER_API_KEY  – se impostato, richiede header x-api-key su POST /print
  *   CORS_ALLOWED_ORIGINS  – lista di origini CORS consentite (virgola separata).
  *                           Se vuota, tutte le origini sono accettate.
+ *   PRINTER_<N>_ID        – id stampante (N=0,1,2,…). Se impostato almeno uno,
+ *                           sovrascrive printers.config.js.
+ *   PRINTER_<N>_NAME      – nome descrittivo (default: uguale a ID)
+ *   PRINTER_<N>_TYPE      – 'tcp' | 'file' (default: 'tcp')
+ *   Per type='tcp':
+ *     PRINTER_<N>_HOST    – IP/hostname (default: '127.0.0.1')
+ *     PRINTER_<N>_PORT    – porta TCP (default: 9100)
+ *     PRINTER_<N>_TIMEOUT – timeout connessione in ms (default: 5000)
+ *   Per type='file':
+ *     PRINTER_<N>_DEVICE  – percorso dispositivo (default: '/dev/usb/lp0')
  *
  * Avvio:
  *   node server.js

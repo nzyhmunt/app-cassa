@@ -13,6 +13,29 @@ services:
       - PRINT_SERVER_NAME=${PRINT_SERVER_NAME:-ESC/POS Print Server}
       - PRINT_SERVER_API_KEY=${PRINT_SERVER_API_KEY:-}
       - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-}
+      # ── Stampanti via env vars (opzionale) ──────────────────────────────
+      # Se impostata almeno una variabile PRINTER_<N>_ID, le stampanti vengono
+      # lette da queste variabili al posto di printers.config.js.
+      # N inizia da 0 e deve essere consecutivo (0, 1, 2 — senza salti).
+      #
+      # Stampante TCP (rete):
+      # - PRINTER_0_ID=${PRINTER_0_ID:-}
+      # - PRINTER_0_NAME=${PRINTER_0_NAME:-}
+      # - PRINTER_0_TYPE=${PRINTER_0_TYPE:-tcp}
+      # - PRINTER_0_HOST=${PRINTER_0_HOST:-}
+      # - PRINTER_0_PORT=${PRINTER_0_PORT:-9100}
+      # - PRINTER_0_TIMEOUT=${PRINTER_0_TIMEOUT:-5000}
+      #
+      # Seconda stampante TCP:
+      # - PRINTER_1_ID=${PRINTER_1_ID:-}
+      # - PRINTER_1_TYPE=${PRINTER_1_TYPE:-tcp}
+      # - PRINTER_1_HOST=${PRINTER_1_HOST:-}
+      # - PRINTER_1_PORT=${PRINTER_1_PORT:-9100}
+      #
+      # Stampante USB (file di dispositivo):
+      # - PRINTER_2_ID=${PRINTER_2_ID:-}
+      # - PRINTER_2_TYPE=${PRINTER_2_TYPE:-file}
+      # - PRINTER_2_DEVICE=${PRINTER_2_DEVICE:-/dev/usb/lp0}
     env_file:
       - path: .env
         required: false
