@@ -486,7 +486,7 @@ export const useAppStore = defineStore('app', () => {
   // ── Report operations (extracted to reportOps.js) ─────────────────────────
   const { generateXReport, performDailyClose, closedBills } =
     makeReportOps(
-      { orders, transactions, cashBalance, cashMovements, dailyClosures, config },
+      { orders, transactions, cashBalance, cashMovements, dailyClosures, config, fiscalReceipts, invoiceRequests },
       { getTableStatus },
     );
 
