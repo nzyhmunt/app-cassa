@@ -25,6 +25,9 @@ COPY formatters/ ./formatters/
 
 # Default port — can be overridden at runtime via the PORT environment variable
 # (set it in .env or in the docker-compose environment section).
+# NOTE: EXPOSE is informational only and always reflects the default port (3001).
+# When using a custom PORT value the port is still published correctly through
+# the docker-compose `ports` mapping; `docker run -p` users must map manually.
 ENV PORT=3001
 
 # Use the built-in non-root user provided by the official Node image.
@@ -34,6 +37,6 @@ ENV PORT=3001
 # (preferred) or run as root with `user: root`.
 USER node
 
-EXPOSE $PORT
+EXPOSE 3001
 
 CMD ["node", "-r", "dotenv/config", "server.js"]
