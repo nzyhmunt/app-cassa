@@ -105,8 +105,8 @@
         <!-- Aggiungi Mancia / Fiscale / Fattura post-pagamento -->
         <div class="mt-3 pt-3 border-t border-gray-200">
           <div v-if="!showTipInput" class="flex flex-wrap justify-end gap-2">
-            <!-- Fiscal / Invoice actions: shown only when not yet emitted -->
-            <template v-if="!alreadyFiscalized">
+            <!-- Fiscal / Invoice actions: shown only when not yet emitted and hydration is done -->
+            <template v-if="store.fiscalInvoiceHydrated && !alreadyFiscalized">
               <button
                 @click="emitFiscale"
                 class="flex items-center gap-1.5 text-[10px] font-bold text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-3 py-1.5 rounded-xl transition-colors active:scale-95"
@@ -121,7 +121,7 @@
               </button>
             </template>
             <!-- Badge shown when fiscal/invoice already emitted -->
-            <span v-else class="flex items-center gap-1 text-[10px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-xl">
+            <span v-else-if="store.fiscalInvoiceHydrated && alreadyFiscalized" class="flex items-center gap-1 text-[10px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-xl">
               <CheckCircle class="size-3.5" /> {{ hasFiscalReceipt ? 'Fiscale emesso' : 'Fattura emessa' }}
             </span>
             <button
