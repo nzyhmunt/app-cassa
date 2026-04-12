@@ -2,32 +2,56 @@
  * @file __tests__/printer.env.test.js
  * @description Unit test per loadPrintersFromEnv() — configurazione stampanti
  * tramite variabili d'ambiente PRINTER_<N>_*.
+ * Include anche test di integrazione per la priorità env vars → printers.config.js
+ * in getPrintersList() e getPrinterConfig().
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
-const { loadPrintersFromEnv } = require('../printer.js');
+const { loadPrintersFromEnv, getPrintersList, getPrinterConfig } = require('../printer.js');
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /**
- * Imposta le variabili d'ambiente per N stampanti e le rimuove dopo il test.
+ * Imposta le variabili d'ambiente per N stampanti, salva i valori precedenti
+ * e restituisce una funzione di cleanup che ripristina lo stato originale.
  * @param {object[]} printers — array di oggetti PRINTER_<N>_* (chiavi senza prefisso)
  * @returns {() => void} cleanup function
  */
 function withPrinterEnv(printers) {
-  const keys = [];
+  const saved = {};
   printers.forEach((p, n) => {
     Object.entries(p).forEach(([key, value]) => {
       const envKey = `PRINTER_${n}_${key}`;
+      saved[envKey] = process.env[envKey]; // undefined se non esisteva
       process.env[envKey] = String(value);
-      keys.push(envKey);
     });
   });
-  return () => keys.forEach(k => delete process.env[k]);
+  return () => {
+    for (const [k, v] of Object.entries(saved)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  };
 }
+
+/**
+ * Rimuove tutte le variabili d'ambiente PRINTER_* attualmente impostate.
+ * Usato in beforeEach per garantire un ambiente pulito prima di ogni test.
+ */
+function clearAllPrinterEnvVars() {
+  for (const key of Object.keys(process.env)) {
+    if (/^PRINTER_\d+_/.test(key)) delete process.env[key];
+  }
+}
+
+// ── Setup globale ─────────────────────────────────────────────────────────────
+
+beforeEach(() => {
+  clearAllPrinterEnvVars();
+});
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
@@ -125,14 +149,49 @@ describe('loadPrintersFromEnv — multiple printers', () => {
     // Set PRINTER_0 and PRINTER_2 but skip PRINTER_1
     process.env.PRINTER_0_ID = 'cucina';
     process.env.PRINTER_2_ID = 'bar';
-    try {
-      const printers = loadPrintersFromEnv();
-      // Should only return the first printer (stops at missing PRINTER_1)
-      expect(printers).toHaveLength(1);
-      expect(printers[0].id).toBe('cucina');
-    } finally {
-      delete process.env.PRINTER_0_ID;
-      delete process.env.PRINTER_2_ID;
-    }
+    const printers = loadPrintersFromEnv();
+    // Should only return the first printer (stops at missing PRINTER_1)
+    expect(printers).toHaveLength(1);
+    expect(printers[0].id).toBe('cucina');
+  });
+});
+
+// ── Integration: _loadPrinters priority (env vars > printers.config.js) ───────
+
+describe('getPrintersList / getPrinterConfig — env vars take priority', () => {
+  let cleanup;
+  afterEach(() => cleanup?.());
+
+  it('getPrintersList returns env-configured printers when PRINTER_0_ID is set', () => {
+    cleanup = withPrinterEnv([{ ID: 'env-cucina', TYPE: 'tcp', HOST: '10.0.0.1' }]);
+    const list = getPrintersList();
+    expect(list).toHaveLength(1);
+    expect(list[0].id).toBe('env-cucina');
+  });
+
+  it('getPrinterConfig resolves a printer from env vars', () => {
+    cleanup = withPrinterEnv([
+      { ID: 'env-cucina', TYPE: 'tcp', HOST: '10.0.0.1' },
+      { ID: 'env-bar',    TYPE: 'tcp', HOST: '10.0.0.2' },
+    ]);
+    const cfg = getPrinterConfig('env-bar');
+    expect(cfg).not.toBeNull();
+    expect(cfg.id).toBe('env-bar');
+    expect(cfg.host).toBe('10.0.0.2');
+  });
+
+  it('getPrinterConfig falls back to first env printer when id is not found', () => {
+    cleanup = withPrinterEnv([{ ID: 'env-cucina', TYPE: 'tcp', HOST: '10.0.0.1' }]);
+    const cfg = getPrinterConfig('unknown-id');
+    expect(cfg.id).toBe('env-cucina');
+  });
+
+  it('getPrintersList falls back to printers.config.js when no PRINTER_0_ID is set', () => {
+    // No env vars set — should fall back to printers.config.js
+    // The default printers.config.js has an empty array
+    const list = getPrintersList();
+    expect(Array.isArray(list)).toBe(true);
+    // The default config has no entries
+    expect(list).toHaveLength(0);
   });
 });

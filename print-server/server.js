@@ -17,8 +17,10 @@
  *   PRINT_SERVER_API_KEY  – se impostato, richiede header x-api-key su POST /print
  *   CORS_ALLOWED_ORIGINS  – lista di origini CORS consentite (virgola separata).
  *                           Se vuota, tutte le origini sono accettate.
- *   PRINTER_<N>_ID        – id stampante (N=0,1,2,…). Se impostato almeno uno,
- *                           sovrascrive printers.config.js.
+ *   PRINTER_<N>_ID        – id stampante. La numerazione parte da N=0 e deve essere
+ *                           consecutiva (0,1,2,…). Se PRINTER_0_ID è impostato,
+ *                           le stampanti vengono lette da queste variabili al posto
+ *                           di printers.config.js.
  *   PRINTER_<N>_NAME      – nome descrittivo (default: uguale a ID)
  *   PRINTER_<N>_TYPE      – 'tcp' | 'file' (default: 'tcp')
  *   Per type='tcp':

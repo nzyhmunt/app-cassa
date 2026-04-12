@@ -174,9 +174,12 @@ PRINTER_0_TYPE=file
 PRINTER_0_DEVICE=/dev/usb/lp0
 ```
 
-> **Nota:** con Docker Compose, è sufficiente aggiungere le variabili nel file `.env`
-> (o nella sezione `environment` di `docker-compose.yml`) e decommentare le relative
-> righe nella sezione `environment`. Vedi i commenti in `docker-compose.yml` per gli esempi.
+> **Nota Docker Compose:**
+> - Se le variabili `PRINTER_<N>_*` sono nel file **`.env`**, vengono caricate automaticamente
+>   dal blocco `env_file: .env` già presente nel compose — non è necessario decommentare nulla.
+> - Se vuoi impostarle come **variabili di shell** (es. `PRINTER_0_ID=cucina docker compose up`),
+>   aggiungi le corrispondenti righe nella sezione `environment` del compose
+>   (vedi i commenti in `docker-compose.yml`).
 
 ### Tipi di connessione
 
@@ -203,7 +206,8 @@ frontend deve corrispondere all'`id` della stampante configurata.
 | `PRINT_SERVER_NAME` | `ESC/POS Print Server` | Nome nei log |
 | `PRINT_SERVER_API_KEY` | *(vuoto)* | Se impostata, ogni `POST /print` deve includere `x-api-key: <valore>` |
 | `CORS_ALLOWED_ORIGINS` | *(vuoto — tutte le origini)* | Origini CORS consentite (virgola separata). Se vuota, tutte le origini sono accettate. |
-| `PRINTER_<N>_ID` | — | Identificatore stampante N (abilita configurazione via env vars se impostato) |
+| `PRINTER_<N>_ID` | — | Identificatore stampante N (abilita configurazione via env vars se impostato a partire da `PRINTER_0_ID`, indici consecutivi) |
+| `PRINTER_<N>_NAME` | *(uguale a ID)* | Nome descrittivo (solo per i log) |
 | `PRINTER_<N>_TYPE` | `tcp` | Tipo connessione: `tcp` \| `file` |
 | `PRINTER_<N>_HOST` | `127.0.0.1` | *(solo tcp)* Indirizzo IP o hostname |
 | `PRINTER_<N>_PORT` | `9100` | *(solo tcp)* Porta TCP |
