@@ -86,6 +86,23 @@ devices:
   - /dev/usb/lp0:/dev/usb/lp0
 ```
 
+> **Permessi dispositivo:** il container gira come utente non-root (`node`).
+> I device file USB sono in genere di proprietà `root:lp` (modo 660), quindi
+> una semplice mappatura del device può causare un errore `EACCES`.
+> Per concedere l'accesso in scrittura scegli una delle opzioni seguenti
+> e decommentala in `docker-compose.yml`:
+>
+> **Opzione A — aggiungere il container al gruppo del device (consigliata):**
+> ```yaml
+> group_add:
+>   - lp
+> ```
+>
+> **Opzione B — avviare il container come root (meno sicura):**
+> ```yaml
+> user: root
+> ```
+
 > **Nota:** `printers.config.js` viene montato come volume in sola lettura.
 > Dopo aver modificato il file, riavvia il container con `docker compose restart`
 > affinché il server carichi la nuova configurazione; non è necessario ricostruire l'immagine.

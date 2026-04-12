@@ -26,3 +26,14 @@ services:
     #
     # devices:
     #   - /dev/usb/lp0:/dev/usb/lp0
+    #
+    # The container runs as the non-root user `node`. USB device files are
+    # typically owned by root:lp (mode 660). To grant write access choose one
+    # of the following options (uncomment the relevant block):
+    #
+    # Option A — add the container to the device group (recommended):
+    # group_add:
+    #   - lp
+    #
+    # Option B — run the container as root (less secure):
+    # user: root
