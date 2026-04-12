@@ -8,11 +8,11 @@ import { computed } from 'vue';
 
 /**
  * @param {object} state   – Reactive refs: orders, transactions, cashBalance, cashMovements,
- *                           dailyClosures, config
+ *                           dailyClosures, config, fiscalReceipts, invoiceRequests
  * @param {object} helpers – Store functions: getTableStatus
  */
 export function makeReportOps(state, helpers) {
-  const { orders, transactions, cashBalance, cashMovements, dailyClosures, config } = state;
+  const { orders, transactions, cashBalance, cashMovements, dailyClosures, config, fiscalReceipts, invoiceRequests } = state;
   const { getTableStatus } = helpers;
 
   function _buildDailySummary() {
@@ -50,6 +50,21 @@ export function makeReportOps(state, helpers) {
       (acc, m) => acc + (m.type === 'deposit' ? m.amount : -m.amount), 0,
     );
 
+    // Fiscal receipts and invoices issued in the current session (after last Z-close).
+    const lastCloseTimestamp = dailyClosures.value.length > 0
+      ? dailyClosures.value[dailyClosures.value.length - 1].timestamp
+      : null;
+    const sessionStart = lastCloseTimestamp ? new Date(lastCloseTimestamp) : null;
+    const _afterSessionStart = entry => !sessionStart || new Date(entry.timestamp) > sessionStart;
+
+    const sessionFiscal = (fiscalReceipts?.value ?? []).filter(_afterSessionStart);
+    const sessionInvoices = (invoiceRequests?.value ?? []).filter(_afterSessionStart);
+
+    const fiscalCount = sessionFiscal.length;
+    const fiscalTotal = sessionFiscal.reduce((acc, e) => acc + (e.totalAmount || 0), 0);
+    const invoiceCount = sessionInvoices.length;
+    const invoiceTotal = sessionInvoices.reduce((acc, e) => acc + (e.totalAmount || 0), 0);
+
     return {
       timestamp: new Date().toISOString(),
       cashBalance: cashBalance.value,
@@ -63,6 +78,10 @@ export function makeReportOps(state, helpers) {
       cashMovementsData: [...cashMovements.value],
       totalMovements,
       finalBalance: cashBalance.value + totalReceived + totalMovements,
+      fiscalCount,
+      fiscalTotal,
+      invoiceCount,
+      invoiceTotal,
     };
   }
 

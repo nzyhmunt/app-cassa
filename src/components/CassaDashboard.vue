@@ -159,6 +159,29 @@
               </div>
             </div>
 
+            <!-- Tipologia Chiusura Conto -->
+            <div v-if="xSummary.fiscalCount > 0 || xSummary.invoiceCount > 0" class="bg-white rounded-2xl border border-gray-200 shadow-sm p-4">
+              <h5 class="font-bold text-gray-600 text-xs uppercase tracking-wider mb-3 flex items-center gap-1">
+                <ClipboardList class="size-4" /> Tipologia Chiusura Conto
+              </h5>
+              <div class="space-y-2 text-sm">
+                <div v-if="xSummary.fiscalCount > 0" class="flex justify-between items-center py-2 border-b border-gray-100">
+                  <span class="font-bold text-gray-700 flex items-center gap-2">
+                    <Receipt class="size-4 text-blue-500" /> Scontrino Fiscale
+                    <span class="text-[10px] font-bold text-blue-400 bg-blue-50 px-1.5 py-0.5 rounded-full">× {{ xSummary.fiscalCount }}</span>
+                  </span>
+                  <span class="font-black text-blue-700">€{{ xSummary.fiscalTotal.toFixed(2) }}</span>
+                </div>
+                <div v-if="xSummary.invoiceCount > 0" class="flex justify-between items-center py-2 border-b border-gray-100 last:border-0">
+                  <span class="font-bold text-gray-700 flex items-center gap-2">
+                    <FileText class="size-4 text-violet-500" /> Fattura
+                    <span class="text-[10px] font-bold text-violet-400 bg-violet-50 px-1.5 py-0.5 rounded-full">× {{ xSummary.invoiceCount }}</span>
+                  </span>
+                  <span class="font-black text-violet-700">€{{ xSummary.invoiceTotal.toFixed(2) }}</span>
+                </div>
+              </div>
+            </div>
+
             <!-- Coperti e scontrino medio -->
             <div class="grid grid-cols-3 gap-3">
               <div class="bg-white rounded-2xl border border-gray-200 shadow-sm p-3 md:p-4 text-center">
@@ -274,6 +297,19 @@
               <div class="flex justify-between pt-1 border-t border-gray-100 mt-1"><span class="text-gray-500">Scontrini</span><span class="font-bold">{{ zPreview.receiptCount }}</span></div>
               <div class="flex justify-between"><span class="text-gray-500">Coperti totali</span><span class="font-bold">{{ zPreview.totalCovers }}</span></div>
               <div class="flex justify-between"><span class="text-gray-500">Scontrino medio</span><span class="font-bold">€{{ zPreview.averageReceipt.toFixed(2) }}</span></div>
+              <template v-if="zPreview.fiscalCount > 0 || zPreview.invoiceCount > 0">
+                <div class="pt-1 border-t border-gray-100 mt-1">
+                  <p class="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Tipologia Chiusura</p>
+                  <div v-if="zPreview.fiscalCount > 0" class="flex justify-between items-center py-1">
+                    <span class="text-gray-500 flex items-center gap-1.5"><Receipt class="size-3 text-blue-400" /> Scontrino Fiscale <span class="text-[10px] text-blue-400">×{{ zPreview.fiscalCount }}</span></span>
+                    <span class="font-bold text-blue-600">€{{ zPreview.fiscalTotal.toFixed(2) }}</span>
+                  </div>
+                  <div v-if="zPreview.invoiceCount > 0" class="flex justify-between items-center py-1">
+                    <span class="text-gray-500 flex items-center gap-1.5"><FileText class="size-3 text-violet-400" /> Fattura <span class="text-[10px] text-violet-400">×{{ zPreview.invoiceCount }}</span></span>
+                    <span class="font-bold text-violet-600">€{{ zPreview.invoiceTotal.toFixed(2) }}</span>
+                  </div>
+                </div>
+              </template>
             </div>
           </div>
 
@@ -298,7 +334,7 @@ import { ref, watch } from 'vue';
 import {
   X, Landmark, Wallet, ArrowLeftRight, ArrowDownCircle, ArrowUpCircle, Plus,
   Eye, AlertTriangle, Lock, RefreshCw, Save, TrendingUp, CreditCard, Users,
-  Receipt, History, ClipboardList, Tag, Gift,
+  Receipt, History, ClipboardList, Tag, Gift, FileText,
 } from 'lucide-vue-next';
 import { Banknote } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
