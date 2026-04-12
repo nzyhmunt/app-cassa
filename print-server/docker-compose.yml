@@ -1,0 +1,19 @@
+services:
+  print-server:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3001}:${PORT:-3001}"
+    env_file:
+      - path: .env
+        required: false
+    # Mount printers.config.js so it can be edited without rebuilding the image.
+    volumes:
+      - ./printers.config.js:/app/printers.config.js:ro
+    # ── USB / parallel-port printers ────────────────────────────────────────
+    # If you use a `type: 'file'` printer (e.g. /dev/usb/lp0), grant the
+    # container access to the host device by uncommenting the lines below and
+    # adjusting the device path.
+    #
+    # devices:
+    #   - /dev/usb/lp0:/dev/usb/lp0

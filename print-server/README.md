@@ -22,6 +22,69 @@ npm install
 
 ---
 
+## Installazione con Docker
+
+### Prerequisiti
+
+- [Docker](https://docs.docker.com/get-docker/) ≥ 24
+- [Docker Compose](https://docs.docker.com/compose/) ≥ 2 (incluso in Docker Desktop)
+
+### Configurazione iniziale
+
+1. Crea il file `.env` (opzionale) a partire dall'esempio:
+
+   ```bash
+   cp .env.example .env
+   ```
+
+   Modifica i valori secondo necessità (porta, API key, origini CORS).
+
+2. Configura le stampanti in **`printers.config.js`** (vedi [sezione sotto](#configurazione-stampanti)).
+
+### Avvio
+
+```bash
+# Nella cartella print-server/
+docker compose up -d
+```
+
+Il servizio partirà in background. Per vedere i log:
+
+```bash
+docker compose logs -f
+```
+
+Per fermare il servizio:
+
+```bash
+docker compose down
+```
+
+### Aggiornamento
+
+Dopo aver modificato il codice sorgente, ricostruisci l'immagine:
+
+```bash
+docker compose up -d --build
+```
+
+### Stampanti USB (`type: 'file'`)
+
+Le stampanti collegate via USB (es. `/dev/usb/lp0`) richiedono di passare il
+dispositivo al container. Decommentare la sezione `devices` in
+`docker-compose.yml` e adattare il percorso del dispositivo:
+
+```yaml
+devices:
+  - /dev/usb/lp0:/dev/usb/lp0
+```
+
+> **Nota:** `printers.config.js` viene montato come volume in sola lettura;
+> qualsiasi modifica al file è immediatamente visibile al container al riavvio,
+> senza dover ricostruire l'immagine.
+
+---
+
 ## Configurazione stampanti
 
 Le stampanti fisiche sono definite in **`printers.config.js`**. Ogni voce mappa
@@ -168,6 +231,9 @@ print-server/
 │   ├── order.js           # Formatter comanda cucina/bar
 │   ├── table_move.js      # Formatter spostamento tavolo
 │   └── pre_bill.js        # Formatter preconto
+├── Dockerfile             # Immagine Docker del print-server
+├── docker-compose.yml     # Configurazione Docker Compose
+├── .dockerignore          # File esclusi dalla build Docker
 ├── package.json
 ├── .env.example
 └── README.md
