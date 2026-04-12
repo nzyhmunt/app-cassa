@@ -171,7 +171,7 @@
               </div>
               <!-- Mance autonome (metodi non presenti nello scontrino, es. "Mancia" post-pagamento) -->
               <template v-if="xSummary.tipsByMethod">
-                <div v-for="(tipVal, tipMethod) in xSummary.tipsByMethod" :key="'tip_' + tipMethod">
+                <template v-for="(tipVal, tipMethod) in xSummary.tipsByMethod" :key="'tip_' + tipMethod">
                   <div v-if="!Object.prototype.hasOwnProperty.call(xSummary.byMethod, tipMethod)"
                     class="flex justify-between items-center py-2 border-b border-gray-100 last:border-0">
                     <span class="text-sm text-amber-700 flex items-center gap-2 font-bold">
@@ -179,7 +179,7 @@
                     </span>
                     <span class="text-sm font-black text-amber-600">+€{{ tipVal.toFixed(2) }}</span>
                   </div>
-                </div>
+                </template>
               </template>
             </div>
 
@@ -318,12 +318,12 @@
               </div>
               <!-- Mance autonome (metodi non presenti nello scontrino) -->
               <template v-if="zPreview.tipsByMethod">
-                <div v-for="(tipVal, tipMethod) in zPreview.tipsByMethod" :key="'ztip_' + tipMethod">
+                <template v-for="(tipVal, tipMethod) in zPreview.tipsByMethod" :key="'ztip_' + tipMethod">
                   <div v-if="!(tipMethod in zPreview.byMethod)" class="flex justify-between ml-3 text-xs">
                     <span class="text-amber-500 flex items-center gap-1"><Gift class="size-2.5" /> {{ tipMethod }}</span>
                     <span class="font-bold text-amber-500">+€{{ tipVal.toFixed(2) }}</span>
                   </div>
-                </div>
+                </template>
               </template>
               <div v-if="zPreview.totalDiscount > 0 || zPreview.totalTips > 0" class="pt-1 border-t border-gray-100 mt-1 space-y-1">
                 <div v-if="zPreview.totalDiscount > 0" class="flex justify-between items-center">
