@@ -319,7 +319,7 @@
               <!-- Mance autonome (metodi non presenti nello scontrino) -->
               <template v-if="zPreview.tipsByMethod">
                 <div v-for="(tipVal, tipMethod) in zPreview.tipsByMethod" :key="'ztip_' + tipMethod">
-                  <div v-if="!zPreview.byMethod[tipMethod]" class="flex justify-between ml-3 text-xs">
+                  <div v-if="!(tipMethod in zPreview.byMethod)" class="flex justify-between ml-3 text-xs">
                     <span class="text-amber-500 flex items-center gap-1"><Gift class="size-2.5" /> {{ tipMethod }}</span>
                     <span class="font-bold text-amber-500">+€{{ tipVal.toFixed(2) }}</span>
                   </div>
