@@ -97,19 +97,38 @@ function loadPrintersFromEnv() {
   return printers;
 }
 
+/** @type {object[]|null} Cache delle stampanti — null = non ancora caricata. */
+let _cachedPrinters = null;
+
 /**
- * Carica la lista di stampanti.
+ * Carica la lista di stampanti (con cache per il ciclo di vita del processo).
  * Priorità: variabili d'ambiente PRINTER_<N>_* → printers.config.js (fallback).
+ * Il risultato viene memoizzato: le variabili d'ambiente vengono lette una sola
+ * volta per evitare overhead durante la stampa ad alto volume. Per invalidare
+ * la cache (es. nei test) usare _resetPrinterCache().
  * Il caricamento lazy garantisce che vi.mock('../printers.config.js') nei test
  * venga sempre rispettato senza richiedere trucchi sulla module cache.
  * @returns {object[]}
  */
 function _loadPrinters() {
+  if (_cachedPrinters !== null) return _cachedPrinters;
   const fromEnv = loadPrintersFromEnv();
-  if (fromEnv.length > 0) return fromEnv;
+  if (fromEnv.length > 0) {
+    _cachedPrinters = fromEnv;
+    return _cachedPrinters;
+  }
   // eslint-disable-next-line global-require
   const cfg = require('./printers.config.js');
-  return Array.isArray(cfg.printers) ? cfg.printers : [];
+  _cachedPrinters = Array.isArray(cfg.printers) ? cfg.printers : [];
+  return _cachedPrinters;
+}
+
+/**
+ * Azzera la cache delle stampanti, forzando il ricaricamento al prossimo accesso.
+ * Da usare esclusivamente nei test per simulare ambienti diversi tra un test e l'altro.
+ */
+function _resetPrinterCache() {
+  _cachedPrinters = null;
 }
 
 /**
@@ -259,5 +278,5 @@ function printToFile(buf, device) {
   });
 }
 
-module.exports = { printBuffer, getPrintersList, getPrinterConfig, findPrinterConfig, loadPrintersFromEnv, _enqueue, _dispatch };
+module.exports = { printBuffer, getPrintersList, getPrinterConfig, findPrinterConfig, loadPrintersFromEnv, _enqueue, _dispatch, _resetPrinterCache };
 

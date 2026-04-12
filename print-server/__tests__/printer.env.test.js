@@ -6,11 +6,11 @@
  * in getPrintersList() e getPrinterConfig().
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterAll, afterEach } from 'vitest';
 import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
-const { loadPrintersFromEnv, getPrintersList, getPrinterConfig } = require('../printer.js');
+const { loadPrintersFromEnv, getPrintersList, getPrinterConfig, _resetPrinterCache } = require('../printer.js');
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -49,8 +49,25 @@ function clearAllPrinterEnvVars() {
 
 // ── Setup globale ─────────────────────────────────────────────────────────────
 
+/** Snapshot delle variabili PRINTER_* presenti nell'ambiente prima dei test. */
+let _printerEnvSnapshot = {};
+
+beforeAll(() => {
+  for (const key of Object.keys(process.env)) {
+    if (/^PRINTER_\d+_/.test(key)) _printerEnvSnapshot[key] = process.env[key];
+  }
+});
+
 beforeEach(() => {
   clearAllPrinterEnvVars();
+  _resetPrinterCache();
+});
+
+afterAll(() => {
+  clearAllPrinterEnvVars();
+  for (const [k, v] of Object.entries(_printerEnvSnapshot)) {
+    process.env[k] = v;
+  }
 });
 
 // ── Tests ─────────────────────────────────────────────────────────────────────

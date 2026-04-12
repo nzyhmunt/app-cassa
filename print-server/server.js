@@ -8,8 +8,8 @@
  *   POST /print  – riceve un job JSON, lo converte in ESC/POS e lo invia alla stampante.
  *   GET  /health – ritorna { status: 'ok' } per il controllo di salute del servizio.
  *
- * Le stampanti fisiche sono configurate in `printers.config.js`.
- * Il campo `printerId` del job viene usato per instradare il job alla stampante corretta.
+ * Le stampanti fisiche sono configurate in `printers.config.js` (Opzione A) oppure
+ * tramite variabili d'ambiente `PRINTER_<N>_*` (Opzione B — le env vars hanno la precedenza).
  *
  * Configurazione tramite variabili d'ambiente:
  *   PORT                  – porta HTTP del server (default: 3001)
