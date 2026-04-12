@@ -8,8 +8,8 @@
  *   POST /print  – riceve un job JSON, lo converte in ESC/POS e lo invia alla stampante.
  *   GET  /health – ritorna { status: 'ok' } per il controllo di salute del servizio.
  *
- * Le stampanti fisiche sono configurate in `printers.config.js`.
- * Il campo `printerId` del job viene usato per instradare il job alla stampante corretta.
+ * Le stampanti fisiche sono configurate in `printers.config.js` (Opzione A) oppure
+ * tramite variabili d'ambiente `PRINTER_<N>_*` (Opzione B — le env vars hanno la precedenza).
  *
  * Configurazione tramite variabili d'ambiente:
  *   PORT                  – porta HTTP del server (default: 3001)
@@ -17,6 +17,18 @@
  *   PRINT_SERVER_API_KEY  – se impostato, richiede header x-api-key su POST /print
  *   CORS_ALLOWED_ORIGINS  – lista di origini CORS consentite (virgola separata).
  *                           Se vuota, tutte le origini sono accettate.
+ *   PRINTER_<N>_ID        – id stampante. La numerazione parte da N=0 e deve essere
+ *                           consecutiva (0,1,2,…). Se PRINTER_0_ID è impostato,
+ *                           le stampanti vengono lette da queste variabili al posto
+ *                           di printers.config.js.
+ *   PRINTER_<N>_NAME      – nome descrittivo (default: uguale a ID)
+ *   PRINTER_<N>_TYPE      – 'tcp' | 'file' (default: 'tcp')
+ *   Per type='tcp':
+ *     PRINTER_<N>_HOST    – IP/hostname (default: '127.0.0.1')
+ *     PRINTER_<N>_PORT    – porta TCP (default: 9100)
+ *     PRINTER_<N>_TIMEOUT – timeout connessione in ms (default: 5000)
+ *   Per type='file':
+ *     PRINTER_<N>_DEVICE  – percorso dispositivo (default: '/dev/usb/lp0')
  *
  * Avvio:
  *   node server.js

@@ -22,10 +22,106 @@ npm install
 
 ---
 
+## Installazione con Docker
+
+### Prerequisiti
+
+- [Docker](https://docs.docker.com/get-docker/) ≥ 24
+- [Docker Compose](https://docs.docker.com/compose/) ≥ 2 (incluso in Docker Desktop)
+
+### Configurazione iniziale
+
+1. Crea il file `.env` (opzionale) a partire dall'esempio:
+
+   ```bash
+   cp .env.example .env
+   ```
+
+   Modifica i valori secondo necessità. Tutte le [variabili d'ambiente](#variabili-dampiente)
+   (`PORT`, `PRINT_SERVER_NAME`, `PRINT_SERVER_API_KEY`, `CORS_ALLOWED_ORIGINS`) vengono
+   lette dal file `.env` **e** inoltrate automaticamente al container.
+   In alternativa puoi impostarle come variabili di shell prima di avviare Compose:
+
+   ```bash
+   PORT=4000 PRINT_SERVER_API_KEY=segreto docker compose up -d
+   ```
+
+2. Configura le stampanti scegliendo uno dei metodi disponibili:
+   - **`printers.config.js`** — modifica il file direttamente (adatto all'installazione locale).
+   - **Variabili d'ambiente** `PRINTER_<N>_*` — aggiungile al file `.env` o alla sezione
+     `environment` di `docker-compose.yml` (consigliato con Docker, non richiede rebuild
+     quando cambia la configurazione delle stampanti).
+   
+   Vedi la [sezione Configurazione stampanti](#configurazione-stampanti) per i dettagli.
+
+### Avvio
+
+```bash
+# Nella cartella print-server/
+docker compose up -d
+```
+
+Il servizio partirà in background. Per vedere i log:
+
+```bash
+docker compose logs -f
+```
+
+Per fermare il servizio:
+
+```bash
+docker compose down
+```
+
+### Aggiornamento
+
+Dopo aver modificato il codice sorgente, ricostruisci l'immagine:
+
+```bash
+docker compose up -d --build
+```
+
+### Stampanti USB (`type: 'file'`)
+
+Le stampanti collegate via USB (es. `/dev/usb/lp0`) richiedono di passare il
+dispositivo al container. Decommentare la sezione `devices` in
+`docker-compose.yml` e adattare il percorso del dispositivo:
+
+```yaml
+devices:
+  - /dev/usb/lp0:/dev/usb/lp0
+```
+
+> **Permessi dispositivo:** il container gira come utente non-root (`node`).
+> I device file USB sono in genere di proprietà `root:lp` (modo 660), quindi
+> una semplice mappatura del device può causare un errore `EACCES`.
+> Per concedere l'accesso in scrittura scegli una delle opzioni seguenti
+> e decommentala in `docker-compose.yml`:
+>
+> **Opzione A — aggiungere il container al gruppo del device (consigliata):**
+> ```yaml
+> group_add:
+>   - lp
+> ```
+>
+> **Opzione B — avviare il container come root (meno sicura):**
+> ```yaml
+> user: root
+> ```
+
+> **Nota:** `printers.config.js` viene montato come volume in sola lettura.
+> Dopo aver modificato il file, riavvia il container con `docker compose restart`
+> affinché il server carichi la nuova configurazione; non è necessario ricostruire l'immagine.
+
+---
+
 ## Configurazione stampanti
 
-Le stampanti fisiche sono definite in **`printers.config.js`**. Ogni voce mappa
-un `id` (usato dal frontend in `appConfig.printers[].id`) a una connessione fisica.
+Le stampanti fisiche possono essere configurate in due modi:
+
+### Opzione A — `printers.config.js` (default)
+
+Modifica direttamente il file `printers.config.js`:
 
 ```js
 // printers.config.js
@@ -38,6 +134,53 @@ module.exports = {
 };
 ```
 
+### Opzione B — variabili d'ambiente `PRINTER_<N>_*` (consigliata con Docker)
+
+Se è impostata almeno una variabile `PRINTER_0_ID`, le stampanti vengono lette dalle
+variabili d'ambiente **al posto** di `printers.config.js`. `N` inizia da 0 e deve essere
+consecutivo (0, 1, 2 — senza salti).
+
+| Variabile | Default | Descrizione |
+|---|---|---|
+| `PRINTER_<N>_ID` | — | **Obbligatoria.** Identificatore univoco della stampante |
+| `PRINTER_<N>_NAME` | *(uguale a ID)* | Nome descrittivo (solo per i log) |
+| `PRINTER_<N>_TYPE` | `tcp` | Tipo di connessione: `tcp` \| `file` |
+| `PRINTER_<N>_HOST` | `127.0.0.1` | *(solo tcp)* Indirizzo IP o hostname |
+| `PRINTER_<N>_PORT` | `9100` | *(solo tcp)* Porta TCP |
+| `PRINTER_<N>_TIMEOUT` | `5000` | *(solo tcp)* Timeout connessione in ms |
+| `PRINTER_<N>_DEVICE` | `/dev/usb/lp0` | *(solo file)* Percorso del file di dispositivo |
+
+**Esempio** con due stampanti TCP via `.env`:
+
+```env
+PRINTER_0_ID=cucina
+PRINTER_0_NAME=Cucina
+PRINTER_0_TYPE=tcp
+PRINTER_0_HOST=192.168.1.100
+PRINTER_0_PORT=9100
+
+PRINTER_1_ID=bar
+PRINTER_1_NAME=Bar
+PRINTER_1_TYPE=tcp
+PRINTER_1_HOST=192.168.1.101
+PRINTER_1_PORT=9100
+```
+
+**Esempio** con stampante USB via `.env`:
+
+```env
+PRINTER_0_ID=cassa
+PRINTER_0_TYPE=file
+PRINTER_0_DEVICE=/dev/usb/lp0
+```
+
+> **Nota Docker Compose:**
+> - Se le variabili `PRINTER_<N>_*` sono nel file **`.env`**, vengono caricate automaticamente
+>   dal blocco `env_file: .env` già presente nel compose — non è necessario decommentare nulla.
+> - Se vuoi impostarle come **variabili di shell** (es. `PRINTER_0_ID=cucina docker compose up`),
+>   aggiungi le corrispondenti righe nella sezione `environment` del compose
+>   (vedi i commenti in `docker-compose.yml`).
+
 ### Tipi di connessione
 
 | `type` | Parametri richiesti | Uso tipico |
@@ -48,10 +191,10 @@ module.exports = {
 ### Routing per printerId
 
 Quando arriva un job con `printerId: 'cucina'`, il server cerca la voce con `id: 'cucina'`
-in `printers.config.js` e la usa. Se non trovata, viene usata la **prima stampante** come fallback.
+e la usa. Se non trovata, viene usata la **prima stampante** come fallback.
 
 Questo rispecchia esattamente il comportamento del frontend: `appConfig.printers[].id` nel
-frontend deve corrispondere all'`id` nella voce di `printers.config.js`.
+frontend deve corrispondere all'`id` della stampante configurata.
 
 ---
 
@@ -63,8 +206,15 @@ frontend deve corrispondere all'`id` nella voce di `printers.config.js`.
 | `PRINT_SERVER_NAME` | `ESC/POS Print Server` | Nome nei log |
 | `PRINT_SERVER_API_KEY` | *(vuoto)* | Se impostata, ogni `POST /print` deve includere `x-api-key: <valore>` |
 | `CORS_ALLOWED_ORIGINS` | *(vuoto — tutte le origini)* | Origini CORS consentite (virgola separata). Se vuota, tutte le origini sono accettate. |
+| `PRINTER_<N>_ID` | — | Identificatore stampante N (abilita configurazione via env vars se impostato a partire da `PRINTER_0_ID`, indici consecutivi) |
+| `PRINTER_<N>_NAME` | *(uguale a ID)* | Nome descrittivo (solo per i log) |
+| `PRINTER_<N>_TYPE` | `tcp` | Tipo connessione: `tcp` \| `file` |
+| `PRINTER_<N>_HOST` | `127.0.0.1` | *(solo tcp)* Indirizzo IP o hostname |
+| `PRINTER_<N>_PORT` | `9100` | *(solo tcp)* Porta TCP |
+| `PRINTER_<N>_TIMEOUT` | `5000` | *(solo tcp)* Timeout connessione in ms |
+| `PRINTER_<N>_DEVICE` | `/dev/usb/lp0` | *(solo file)* Percorso dispositivo |
 
-> I parametri di connessione alle stampanti (host, porta, dispositivo) si configurano direttamente in `printers.config.js`.
+> Per la configurazione completa delle stampanti via env vars vedi la [sezione Configurazione stampanti](#configurazione-stampanti).
 
 ---
 
@@ -168,6 +318,9 @@ print-server/
 │   ├── order.js           # Formatter comanda cucina/bar
 │   ├── table_move.js      # Formatter spostamento tavolo
 │   └── pre_bill.js        # Formatter preconto
+├── Dockerfile             # Immagine Docker del print-server
+├── docker-compose.yml     # Configurazione Docker Compose
+├── .dockerignore          # File esclusi dalla build Docker
 ├── package.json
 ├── .env.example
 └── README.md

@@ -23,6 +23,10 @@
  *
  *   getPrinterConfig(printerId) → object|null
  *     Restituisce la configurazione della stampante (esportata per test).
+ *
+ *   loadPrintersFromEnv() → object[]
+ *     Restituisce le stampanti lette dalle variabili d'ambiente PRINTER_<N>_*.
+ *     Array vuoto se nessuna variabile è impostata.
  */
 
 const net = require('net');
@@ -49,15 +53,82 @@ function findPrinterConfig(printersList, printerId) {
 }
 
 /**
- * Carica la lista di stampanti da printers.config.js in modo lazy.
- * Il caricamento lazy garantisce che vi.mock('../printers.config.js') nei test
+ * Parses printer configurations from environment variables.
+ *
+ * Convention: indexed entries starting from 0.
+ *   PRINTER_0_ID      – (required) unique printer id
+ *   PRINTER_0_NAME    – display name (default: same as ID)
+ *   PRINTER_0_TYPE    – 'tcp' | 'file' (default: 'tcp')
+ *   For type='tcp':
+ *     PRINTER_0_HOST    – IP or hostname (default: '127.0.0.1')
+ *     PRINTER_0_PORT    – TCP port (default: 9100)
+ *     PRINTER_0_TIMEOUT – connection timeout in ms (default: 5000)
+ *   For type='file':
+ *     PRINTER_0_DEVICE  – device path (default: '/dev/usb/lp0')
+ *
+ * Iteration stops at the first missing PRINTER_<N>_ID.
+ * Returns an empty array when no printer env vars are set.
+ *
+ * @returns {object[]}
+ */
+function loadPrintersFromEnv() {
+  const printers = [];
+  let n = 0;
+  while (true) {
+    const id = process.env[`PRINTER_${n}_ID`];
+    if (!id) break;
+    const type = process.env[`PRINTER_${n}_TYPE`]?.toLowerCase() || 'tcp';
+    const name = process.env[`PRINTER_${n}_NAME`] || id;
+    const entry = { id, name, type };
+    if (type === 'file') {
+      entry.device = process.env[`PRINTER_${n}_DEVICE`] || '/dev/usb/lp0';
+    } else {
+      entry.host = process.env[`PRINTER_${n}_HOST`] || '127.0.0.1';
+      const rawPort    = process.env[`PRINTER_${n}_PORT`];
+      const rawTimeout = process.env[`PRINTER_${n}_TIMEOUT`];
+      const parsedPort    = parseInt(rawPort, 10);
+      const parsedTimeout = parseInt(rawTimeout, 10);
+      entry.port    = rawPort    && !isNaN(parsedPort)    ? parsedPort    : 9100;
+      entry.timeout = rawTimeout && !isNaN(parsedTimeout) ? parsedTimeout : 5000;
+    }
+    printers.push(entry);
+    n++;
+  }
+  return printers;
+}
+
+/** @type {object[]|null} Cache delle stampanti — null = non ancora caricata. */
+let _cachedPrinters = null;
+
+/**
+ * Carica la lista di stampanti (con cache per il ciclo di vita del processo).
+ * Priorità: variabili d'ambiente PRINTER_<N>_* → printers.config.js (fallback).
+ * Il risultato viene memoizzato: le variabili d'ambiente vengono lette una sola
+ * volta per evitare overhead durante la stampa ad alto volume. Per invalidare
+ * la cache (es. nei test) usare _resetPrinterCache().
+ * Il caricamento lazy garantisce che vi.mock('./printers.config.js') nei test
  * venga sempre rispettato senza richiedere trucchi sulla module cache.
  * @returns {object[]}
  */
 function _loadPrinters() {
+  if (_cachedPrinters !== null) return _cachedPrinters;
+  const fromEnv = loadPrintersFromEnv();
+  if (fromEnv.length > 0) {
+    _cachedPrinters = fromEnv;
+    return _cachedPrinters;
+  }
   // eslint-disable-next-line global-require
   const cfg = require('./printers.config.js');
-  return Array.isArray(cfg.printers) ? cfg.printers : [];
+  _cachedPrinters = Array.isArray(cfg.printers) ? cfg.printers : [];
+  return _cachedPrinters;
+}
+
+/**
+ * Azzera la cache delle stampanti, forzando il ricaricamento al prossimo accesso.
+ * Da usare esclusivamente nei test per simulare ambienti diversi tra un test e l'altro.
+ */
+function _resetPrinterCache() {
+  _cachedPrinters = null;
 }
 
 /**
@@ -207,5 +278,5 @@ function printToFile(buf, device) {
   });
 }
 
-module.exports = { printBuffer, getPrintersList, getPrinterConfig, findPrinterConfig, _enqueue, _dispatch };
+module.exports = { printBuffer, getPrintersList, getPrinterConfig, findPrinterConfig, loadPrintersFromEnv, _enqueue, _dispatch, _resetPrinterCache };
 
