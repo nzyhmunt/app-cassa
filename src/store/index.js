@@ -20,7 +20,7 @@ import { appConfig, updateOrderTotals, KITCHEN_ACTIVE_STATUSES, KEYBOARD_POSITIO
 import { newUUID } from './storeUtils.js';
 import { makeTableOps } from './tableOps.js';
 import { makeReportOps } from './reportOps.js';
-import { loadStateFromIDB, saveStateToIDB, loadSettingsFromIDB } from './idbPersistence.js';
+import { loadStateFromIDB, saveStateToIDB, loadSettingsFromIDB, saveFiscalReceiptToIDB, saveInvoiceRequestToIDB, loadFiscalReceiptsFromIDB, loadInvoiceRequestsFromIDB, pruneFiscalReceiptsInIDB, pruneInvoiceRequestsInIDB } from './idbPersistence.js';
 import { enqueue } from '../composables/useSyncQueue.js';
 
 export const useAppStore = defineStore('app', () => {
@@ -106,6 +106,69 @@ export const useAppStore = defineStore('app', () => {
     printLog.value = [];
   }
 
+  // ── Fiscal receipts (scontrini fiscali) ────────────────────────────────────
+  // In-memory list of fiscal printer commands issued at bill close.
+  // Each entry shape:
+  //   { id, tableId, billSessionId, tableLabel, totalAmount, totalPaid,
+  //     paymentMethods, xmlRequest, xmlResponse, status, timestamp }
+  const fiscalReceipts = ref([]);
+
+  /** Prepends a fiscal receipt entry (capped to 200) and persists it to IDB. */
+  function addFiscalReceipt(entry) {
+    fiscalReceipts.value = [entry, ...fiscalReceipts.value].slice(0, 200);
+    Promise.resolve(saveFiscalReceiptToIDB(entry))
+      .then(() => pruneFiscalReceiptsInIDB())
+      .catch((error) => {
+        console.error('Failed to persist/prune fiscal receipts in IDB:', error);
+      });
+  }
+
+  /** Updates a fiscal receipt entry in-place by id and persists changes. */
+  function updateFiscalReceipt(id, updates) {
+    const idx = fiscalReceipts.value.findIndex(e => e.id === id);
+    if (idx !== -1) {
+      fiscalReceipts.value[idx] = { ...fiscalReceipts.value[idx], ...updates };
+      saveFiscalReceiptToIDB(fiscalReceipts.value[idx]);
+    }
+  }
+
+  // ── Invoice requests (richieste fattura) ───────────────────────────────────
+  // In-memory list of electronic invoice requests collected at bill close.
+  // Each entry shape:
+  //   { id, tableId, billSessionId, tableLabel, totalAmount, totalPaid,
+  //     billingData: { denominazione, codiceFiscale, piva, indirizzo, cap,
+  //                    comune, provincia, paese, codiceDestinatario, pec },
+  //     status, timestamp }
+  const invoiceRequests = ref([]);
+
+  /** Prepends an invoice request entry (capped to 200) and persists it to IDB. */
+  function addInvoiceRequest(entry) {
+    invoiceRequests.value = [entry, ...invoiceRequests.value].slice(0, 200);
+    saveInvoiceRequestToIDB(entry);
+  }
+
+  /**
+   * Hydrates fiscal receipts and invoice requests from their dedicated IDB stores.
+   * Called once at store creation so the in-memory lists reflect persisted data
+   * after a page reload (these collections are not part of loadStateFromIDB).
+   * After loading, prunes IDB to the same cap to prevent unbounded storage growth.
+   */
+  async function _hydrateFiscalAndInvoice() {
+    const [receipts, invoices] = await Promise.all([
+      loadFiscalReceiptsFromIDB(),
+      loadInvoiceRequestsFromIDB(),
+    ]);
+    // Both load functions return newest-first; slice(0, 200) keeps the newest.
+    fiscalReceipts.value = receipts.slice(0, 200);
+    invoiceRequests.value = invoices.slice(0, 200);
+    // Prune IDB entries beyond the retention cap (fire-and-forget; non-critical).
+    Promise.all([
+      pruneFiscalReceiptsInIDB(200),
+      pruneInvoiceRequestsInIDB(200),
+    ]).catch(e => console.warn('[Store] Failed to prune fiscal/invoice IDB entries:', e));
+  }
+
+  _hydrateFiscalAndInvoice();
   // ── Table state ────────────────────────────────────────────────────────────
   const tableOccupiedAt = ref({});
   const billRequestedTables = ref(new Set());
@@ -492,6 +555,10 @@ export const useAppStore = defineStore('app', () => {
     sounds, menuUrl, preventScreenLock, customKeyboard, preBillPrinterId, menuLoading, menuError,
     // print log
     printLog, addPrintLogEntry, updatePrintLogEntry, clearPrintLog,
+    // fiscal receipts
+    fiscalReceipts, addFiscalReceipt, updateFiscalReceipt,
+    // invoice requests
+    invoiceRequests, addInvoiceRequest,
     // computed
     cssVars, rooms, pendingCount, inKitchenCount, closedBills,
     // helpers

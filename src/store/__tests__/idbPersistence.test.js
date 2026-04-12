@@ -29,6 +29,12 @@ import {
   saveAuthSettingsToIDB,
   loadCustomItemsFromIDB,
   saveCustomItemsToIDB,
+  saveFiscalReceiptToIDB,
+  loadFiscalReceiptsFromIDB,
+  pruneFiscalReceiptsInIDB,
+  saveInvoiceRequestToIDB,
+  loadInvoiceRequestsFromIDB,
+  pruneInvoiceRequestsInIDB,
 } from '../idbPersistence.js';
 
 beforeEach(async () => {
@@ -440,5 +446,174 @@ describe('saveCustomItemsToIDB() + loadCustomItemsFromIDB()', () => {
     const loaded = await loadCustomItemsFromIDB();
     expect(loaded).toHaveLength(1);
     expect(loaded[0].name).toBe('New');
+  });
+});
+
+// ── Fiscal receipts ───────────────────────────────────────────────────────────
+
+describe('saveFiscalReceiptToIDB() + loadFiscalReceiptsFromIDB()', () => {
+  it('returns an empty array when nothing is stored', async () => {
+    const loaded = await loadFiscalReceiptsFromIDB();
+    expect(loaded).toEqual([]);
+  });
+
+  it('round-trips a fiscal receipt record', async () => {
+    const record = {
+      id: 'fis_001',
+      tableId: 'T1',
+      billSessionId: 'bill_abc',
+      tableLabel: 'Tavolo 1',
+      totalAmount: 24.00,
+      totalPaid: 24.00,
+      paymentMethods: ['CONTANTI'],
+      xmlRequest: '<printerFiscalReceipt />',
+      xmlResponse: null,
+      status: 'pending',
+      timestamp: '2024-06-01T12:00:00.000Z',
+    };
+    await saveFiscalReceiptToIDB(record);
+    const loaded = await loadFiscalReceiptsFromIDB();
+    expect(loaded).toHaveLength(1);
+    expect(loaded[0]).toMatchObject({ id: 'fis_001', tableId: 'T1', totalAmount: 24 });
+  });
+
+  it('accumulates multiple records (put semantics)', async () => {
+    await saveFiscalReceiptToIDB({ id: 'fis_001', timestamp: '2024-06-01T10:00:00.000Z', status: 'done' });
+    await saveFiscalReceiptToIDB({ id: 'fis_002', timestamp: '2024-06-01T11:00:00.000Z', status: 'pending' });
+    const loaded = await loadFiscalReceiptsFromIDB();
+    expect(loaded).toHaveLength(2);
+  });
+
+  it('returns records sorted newest-first by timestamp', async () => {
+    await saveFiscalReceiptToIDB({ id: 'fis_old', timestamp: '2024-01-01T08:00:00.000Z', status: 'done' });
+    await saveFiscalReceiptToIDB({ id: 'fis_new', timestamp: '2024-12-31T23:00:00.000Z', status: 'done' });
+    await saveFiscalReceiptToIDB({ id: 'fis_mid', timestamp: '2024-06-15T12:00:00.000Z', status: 'done' });
+    const loaded = await loadFiscalReceiptsFromIDB();
+    expect(loaded[0].id).toBe('fis_new');
+    expect(loaded[1].id).toBe('fis_mid');
+    expect(loaded[2].id).toBe('fis_old');
+  });
+
+  it('updates an existing record on re-save with the same id', async () => {
+    await saveFiscalReceiptToIDB({ id: 'fis_001', timestamp: '2024-06-01T12:00:00.000Z', status: 'pending' });
+    await saveFiscalReceiptToIDB({ id: 'fis_001', timestamp: '2024-06-01T12:00:00.000Z', status: 'done' });
+    const loaded = await loadFiscalReceiptsFromIDB();
+    expect(loaded).toHaveLength(1);
+    expect(loaded[0].status).toBe('done');
+  });
+});
+
+describe('pruneFiscalReceiptsInIDB()', () => {
+  it('deletes oldest entries beyond the keep limit', async () => {
+    // Insert 5 records with known timestamps
+    for (let i = 1; i <= 5; i++) {
+      const ts = new Date(2024, 0, i).toISOString();
+      await saveFiscalReceiptToIDB({ id: `fis_00${i}`, timestamp: ts, status: 'done' });
+    }
+    await pruneFiscalReceiptsInIDB(3);
+    const loaded = await loadFiscalReceiptsFromIDB();
+    expect(loaded).toHaveLength(3);
+    // The 3 newest should survive (Jan 3, 4, 5)
+    const ids = loaded.map(r => r.id);
+    expect(ids).toContain('fis_003');
+    expect(ids).toContain('fis_004');
+    expect(ids).toContain('fis_005');
+    expect(ids).not.toContain('fis_001');
+    expect(ids).not.toContain('fis_002');
+  });
+
+  it('does nothing when record count is within the limit', async () => {
+    await saveFiscalReceiptToIDB({ id: 'fis_001', timestamp: '2024-01-01T00:00:00.000Z', status: 'done' });
+    await pruneFiscalReceiptsInIDB(200);
+    const loaded = await loadFiscalReceiptsFromIDB();
+    expect(loaded).toHaveLength(1);
+  });
+});
+
+// ── Invoice requests ──────────────────────────────────────────────────────────
+
+describe('saveInvoiceRequestToIDB() + loadInvoiceRequestsFromIDB()', () => {
+  it('returns an empty array when nothing is stored', async () => {
+    const loaded = await loadInvoiceRequestsFromIDB();
+    expect(loaded).toEqual([]);
+  });
+
+  it('round-trips an invoice request record', async () => {
+    const record = {
+      id: 'inv_001',
+      tableId: 'T2',
+      billSessionId: 'bill_xyz',
+      tableLabel: 'Tavolo 2',
+      totalAmount: 50.00,
+      totalPaid: 50.00,
+      billingData: {
+        denominazione: 'Acme SRL',
+        codiceFiscale: '',
+        piva: '12345678901',
+        indirizzo: 'Via Roma 1',
+        cap: '00100',
+        comune: 'Roma',
+        provincia: 'RM',
+        paese: 'IT',
+        codiceDestinatario: 'ABCDEFG',
+        pec: '',
+      },
+      status: 'pending',
+      timestamp: '2024-07-01T09:00:00.000Z',
+    };
+    await saveInvoiceRequestToIDB(record);
+    const loaded = await loadInvoiceRequestsFromIDB();
+    expect(loaded).toHaveLength(1);
+    expect(loaded[0]).toMatchObject({ id: 'inv_001', tableId: 'T2' });
+    expect(loaded[0].billingData.denominazione).toBe('Acme SRL');
+  });
+
+  it('returns records sorted newest-first by timestamp', async () => {
+    await saveInvoiceRequestToIDB({ id: 'inv_old', timestamp: '2024-03-01T08:00:00.000Z', status: 'done' });
+    await saveInvoiceRequestToIDB({ id: 'inv_new', timestamp: '2024-11-15T20:00:00.000Z', status: 'done' });
+    const loaded = await loadInvoiceRequestsFromIDB();
+    expect(loaded[0].id).toBe('inv_new');
+    expect(loaded[1].id).toBe('inv_old');
+  });
+});
+
+describe('pruneInvoiceRequestsInIDB()', () => {
+  it('deletes oldest entries beyond the keep limit', async () => {
+    for (let i = 1; i <= 5; i++) {
+      const ts = new Date(2024, 2, i).toISOString();
+      await saveInvoiceRequestToIDB({ id: `inv_00${i}`, timestamp: ts, status: 'done' });
+    }
+    await pruneInvoiceRequestsInIDB(2);
+    const loaded = await loadInvoiceRequestsFromIDB();
+    expect(loaded).toHaveLength(2);
+    const ids = loaded.map(r => r.id);
+    expect(ids).toContain('inv_004');
+    expect(ids).toContain('inv_005');
+    expect(ids).not.toContain('inv_001');
+  });
+
+  it('does nothing when record count is within the limit', async () => {
+    await saveInvoiceRequestToIDB({ id: 'inv_001', timestamp: '2024-01-01T00:00:00.000Z', status: 'pending' });
+    await pruneInvoiceRequestsInIDB(200);
+    const loaded = await loadInvoiceRequestsFromIDB();
+    expect(loaded).toHaveLength(1);
+  });
+});
+
+// ── clearAllStateFromIDB covers fiscal / invoice ──────────────────────────────
+
+describe('clearAllStateFromIDB() — fiscal receipts and invoice requests', () => {
+  it('clears fiscal_receipts', async () => {
+    await saveFiscalReceiptToIDB({ id: 'fis_001', timestamp: '2024-01-01T00:00:00.000Z', status: 'done' });
+    await clearAllStateFromIDB();
+    const loaded = await loadFiscalReceiptsFromIDB();
+    expect(loaded).toEqual([]);
+  });
+
+  it('clears invoice_requests', async () => {
+    await saveInvoiceRequestToIDB({ id: 'inv_001', timestamp: '2024-01-01T00:00:00.000Z', status: 'pending' });
+    await clearAllStateFromIDB();
+    const loaded = await loadInvoiceRequestsFromIDB();
+    expect(loaded).toEqual([]);
   });
 });
