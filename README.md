@@ -19,10 +19,12 @@ src/
 │   ├── shared/                        ← Componenti riutilizzati dalle app
 │   │   ├── DishInfoModal.vue          ← Modale dettaglio piatto (foto, allergeni, HTML sanificato)
 │   │   ├── GlobalOrderNoteModal.vue   ← Modale nota globale ordine con toggle visibilità per app
+│   │   ├── InvoiceModal.vue           ← Modale dati fattura (form + validazione condivisa tra Cassa e Storico)
 │   │   ├── OrderItemsList.vue         ← Pannello voci ordine (portate, quantità, note, modificatori)
 │   │   ├── OrderSidebarCard.vue       ← Card ordine nella lista laterale (stato, importo, pezzi)
 │   │   ├── OrderStatusBadge.vue       ← Pill stato ordine colorata (pending → rejected)
 │   │   ├── PeopleModal.vue            ← Modale conteggio coperti + anteprima coperto
+│   │   ├── PrintHistoryModal.vue      ← Cronologia e ristampa lavori di stampa
 │   │   ├── PwaInstallBanner.vue       ← Banner installazione PWA (Android + iOS)
 │   │   ├── SettingsModal.vue          ← Modale impostazioni condivisa (Cassa, Sala e Cucina)
 │   │   ├── TableGrid.vue              ← Griglia pulsanti tavolo con timer trascorso e slot #status
@@ -190,6 +192,28 @@ pending → accepted → preparing → ready → delivered → completed
 - **Mancia** configurabile su ogni transazione
 - **Sconti** applicabili per percentuale o importo fisso, con anteprima dell'importo
 - Chiusura automatica del tavolo al saldo completo (configurabile)
+- **Chiusura conto**: tre pulsanti nella barra di chiusura dopo il saldo completo:
+  - **Chiudi** — chiusura senza documento fiscale
+  - **Fiscale** — emette scontrino fiscale XML (protocollo RT printer) e chiude il tavolo
+  - **Fattura** — apre il modale dati fattura (`InvoiceModal`) per la fatturazione elettronica e chiude il tavolo
+
+### 🧾 Scontrino Fiscale & Fattura
+
+Funzionalità disponibile sia in **cassa live** (al momento della chiusura del conto) sia dallo **Storico Conti** (per conti già chiusi senza documento fiscale).
+
+**Scontrino Fiscale:**
+- Costruisce un payload XML nel protocollo RT printer (`<printerFiscalReceipt>`) con le voci del conto (quantità, prezzi unitari)
+- Rileva automaticamente il tipo di pagamento (contanti = `0`, carta/POS = `2`)
+- Registra la richiesta in `store.fiscalReceipts` (persistita su IDB) con stato `pending`
+
+**Fattura elettronica:**
+- Modale condiviso (`shared/InvoiceModal.vue`) con form dati intestatario:
+  - Denominazione / Ragione Sociale, Codice Fiscale, P.IVA
+  - Indirizzo, CAP, Comune, Provincia, Paese
+  - Codice SDI (7 caratteri alfanumerici) e/o PEC
+- Validazione integrata nel componente (obbligo CF o PIVA, CAP 5 cifre, SDI o PEC almeno uno)
+- Registra la richiesta in `store.invoiceRequests` (persistita su IDB) con stato `pending`
+- I dati validati vengono emessi dal modale via `@confirm(billingData)` al componente padre
 
 ### 💰 Gestione Cassa (CassaDashboard)
 - Impostazione **fondo cassa** iniziale con preset rapidi (€50, €100, €150, €200)
@@ -202,6 +226,11 @@ pending → accepted → preparing → ready → delivered → completed
 - Riepilogo per sessione di conto: tavolo, coperti, orario chiusura, totale, mance, sconti
 - Dettaglio espandibile di ogni transazione (metodo, importo, orario)
 - Statistiche aggregate: conti chiusi, incasso totale, scontrino medio
+- **Aggiunta mancia postuma**: possibile aggiungere una mancia a un conto già chiuso
+- **Scontrino Fiscale / Fattura postumi**: se un conto è stato chiuso senza documento fiscale, dallo storico è possibile:
+  - **Fiscale** — emettere lo scontrino fiscale XML (stessa logica della cassa live)
+  - **Fattura** — aprire il modale `InvoiceModal` e creare la richiesta fattura
+  - I pulsanti sono visibili solo se non è già stato emesso un documento per quel conto; altrimenti compare un badge "Fiscale emesso" / "Fattura emessa"
 
 ### 🔔 Notifiche Audio
 - Suono "ding" (Web Audio API) alla ricezione di nuovi ordini
