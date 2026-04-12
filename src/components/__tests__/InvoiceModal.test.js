@@ -281,4 +281,3 @@ describe('form reset', () => {
     expect(wrapper.text()).not.toContain('Denominazione obbligatoria');
   });
 });
-
