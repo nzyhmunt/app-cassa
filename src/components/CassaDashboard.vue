@@ -165,7 +165,7 @@
                 <ClipboardList class="size-4" /> Tipologia Chiusura Conto
               </h5>
               <div class="space-y-2 text-sm">
-                <div v-if="xSummary.fiscalCount > 0" class="flex justify-between items-center py-2 border-b border-gray-100">
+                <div v-if="xSummary.fiscalCount > 0" class="flex justify-between items-center py-2 border-b border-gray-100 last:border-0">
                   <span class="font-bold text-gray-700 flex items-center gap-2">
                     <Receipt class="size-4 text-blue-500" /> Scontrino Fiscale
                     <span class="text-[10px] font-bold text-blue-400 bg-blue-50 px-1.5 py-0.5 rounded-full">× {{ xSummary.fiscalCount }}</span>
