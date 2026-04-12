@@ -50,12 +50,12 @@ export function makeReportOps(state, helpers) {
       (acc, m) => acc + (m.type === 'deposit' ? m.amount : -m.amount), 0,
     );
 
-    // Fiscal receipts and invoices issued in the current session (after last Z-close).
+    // Fiscal receipts and invoices issued in the current session (from last Z-close onward).
     const lastCloseTimestamp = dailyClosures.value.length > 0
       ? dailyClosures.value[dailyClosures.value.length - 1].timestamp
       : null;
     const sessionStart = lastCloseTimestamp ? new Date(lastCloseTimestamp) : null;
-    const _afterSessionStart = entry => !sessionStart || new Date(entry.timestamp) > sessionStart;
+    const _afterSessionStart = entry => !sessionStart || new Date(entry.timestamp).getTime() >= sessionStart.getTime();
 
     const sessionFiscalReceipts = (fiscalReceipts?.value ?? []).filter(_afterSessionStart);
     const sessionInvoiceRequests = (invoiceRequests?.value ?? []).filter(_afterSessionStart);
