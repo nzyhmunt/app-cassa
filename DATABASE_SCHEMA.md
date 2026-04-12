@@ -742,15 +742,17 @@ CREATE TABLE fiscal_receipts (
     table_id        TEXT        NOT NULL REFERENCES tables(id),
     bill_session_id TEXT        REFERENCES bill_sessions(id),
     table_label     TEXT,
+    closed_at       TIMESTAMPTZ,               -- Data di chiusura originale del conto (bill.closedAt per storico; NOW() per cassa live)
     total_amount    NUMERIC(10,2) NOT NULL DEFAULT 0,
     total_paid      NUMERIC(10,2) NOT NULL DEFAULT 0,
+                                               -- Per conti dallo storico: include bill.totalDiscount per allineamento con la cassa live
     payment_methods TEXT,                      -- JSON array di stringhe
     orders          TEXT,                      -- JSON snapshot voci (name/qty/unitPrice)
     xml_request     TEXT,                      -- Payload XML inviato alla stampante
     xml_response    TEXT,                      -- Risposta XML ricevuta dalla stampante (null se non ancora ricevuta)
     status          TEXT        NOT NULL DEFAULT 'pending'
                                 CHECK (status IN ('pending','sent','ok','error')),
-    timestamp       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    timestamp       TIMESTAMPTZ NOT NULL DEFAULT NOW(),  -- Istante della richiesta (non della chiusura conto)
     date_updated    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -773,8 +775,10 @@ CREATE TABLE invoice_requests (
     table_id             TEXT        NOT NULL REFERENCES tables(id),
     bill_session_id      TEXT        REFERENCES bill_sessions(id),
     table_label          TEXT,
+    closed_at            TIMESTAMPTZ,               -- Data di chiusura originale del conto (bill.closedAt per storico; NOW() per cassa live)
     total_amount         NUMERIC(10,2) NOT NULL DEFAULT 0,
     total_paid           NUMERIC(10,2) NOT NULL DEFAULT 0,
+                                                    -- Per conti dallo storico: include bill.totalDiscount per allineamento con la cassa live
     payment_methods      TEXT,                      -- JSON array di stringhe
     orders               TEXT,                      -- JSON snapshot voci
     -- Dati anagrafici cliente
@@ -790,7 +794,7 @@ CREATE TABLE invoice_requests (
     pec                  TEXT,
     status               TEXT        NOT NULL DEFAULT 'pending'
                                      CHECK (status IN ('pending','sent','ok','error')),
-    timestamp            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    timestamp            TIMESTAMPTZ NOT NULL DEFAULT NOW(),  -- Istante della richiesta (non della chiusura conto)
     date_updated         TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 

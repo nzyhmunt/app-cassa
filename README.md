@@ -211,6 +211,7 @@ Funzionalità disponibile sia in **cassa live** (al momento della chiusura del c
   - Denominazione / Ragione Sociale, Codice Fiscale, P.IVA
   - Indirizzo, CAP, Comune, Provincia, Paese
   - Codice SDI (7 caratteri alfanumerici) e/o PEC
+- Tutti i campi hanno `id` e `<label for>` corrispondenti per accessibilità screen-reader e click-to-focus
 - Validazione integrata nel componente (obbligo CF o PIVA, CAP 5 cifre, SDI o PEC almeno uno)
 - Registra la richiesta in `store.invoiceRequests` (persistita su IDB) con stato `pending`
 - I dati validati vengono emessi dal modale via `@confirm(billingData)` al componente padre
@@ -228,8 +229,9 @@ Funzionalità disponibile sia in **cassa live** (al momento della chiusura del c
 - Statistiche aggregate: conti chiusi, incasso totale, scontrino medio
 - **Aggiunta mancia postuma**: possibile aggiungere una mancia a un conto già chiuso
 - **Scontrino Fiscale / Fattura postumi**: se un conto è stato chiuso senza documento fiscale, dallo storico è possibile:
-  - **Fiscale** — emettere lo scontrino fiscale XML (stessa logica della cassa live)
-  - **Fattura** — aprire il modale `InvoiceModal` e creare la richiesta fattura
+  - **Fiscale** — emettere lo scontrino fiscale XML (stessa logica della cassa live); doppio click protetto da guard sincrono
+  - **Fattura** — aprire il modale `InvoiceModal` e creare la richiesta fattura; flag `_invoiceSubmitting` previene invii duplicati
+  - I pulsanti sono visibili solo dopo il completamento dell'idratazione IDB (`store.fiscalInvoiceHydrated`), evitando duplicati nel breve intervallo post-reload in cui le collezioni sono ancora vuote
   - I pulsanti sono visibili solo se non è già stato emesso un documento per quel conto; altrimenti compare un badge "Fiscale emesso" / "Fattura emessa"
 
 ### 🔔 Notifiche Audio
