@@ -1,5 +1,7 @@
 node_modules/
 .env
+.git
+.github
 __tests__
 vitest.config.js
 npm-debug.log*

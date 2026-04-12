@@ -1,5 +1,9 @@
+# Pin the Node.js version once — shared by both stages.
+# Must satisfy the engines.node constraint in package.json (>=20.19.0).
+ARG NODE_VERSION=20.19.0
+
 # ── Build stage ──────────────────────────────────────────────────────────────
-FROM node:20-alpine AS deps
+FROM node:${NODE_VERSION}-alpine AS deps
 
 WORKDIR /app
 
@@ -8,7 +12,7 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 
 # ── Runtime stage ─────────────────────────────────────────────────────────────
-FROM node:20-alpine
+FROM node:${NODE_VERSION}-alpine
 
 WORKDIR /app
 

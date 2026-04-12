@@ -37,7 +37,14 @@ npm install
    cp .env.example .env
    ```
 
-   Modifica i valori secondo necessità (porta, API key, origini CORS).
+   Modifica i valori secondo necessità. Tutte le [variabili d'ambiente](#variabili-dampiente)
+   (`PORT`, `PRINT_SERVER_NAME`, `PRINT_SERVER_API_KEY`, `CORS_ALLOWED_ORIGINS`) vengono
+   lette dal file `.env` **e** inoltrate automaticamente al container.
+   In alternativa puoi impostarle come variabili di shell prima di avviare Compose:
+
+   ```bash
+   PORT=4000 PRINT_SERVER_API_KEY=segreto docker compose up -d
+   ```
 
 2. Configura le stampanti in **`printers.config.js`** (vedi [sezione sotto](#configurazione-stampanti)).
 

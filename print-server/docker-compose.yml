@@ -4,6 +4,15 @@ services:
     restart: unless-stopped
     ports:
       - "${PORT:-3001}:${PORT:-3001}"
+    # Environment variables — values are read from the shell or from the .env
+    # file loaded by env_file below. Declaring them here ensures they are always
+    # forwarded to the container even when set as shell variables at runtime
+    # (e.g. PORT=4000 docker compose up).
+    environment:
+      - PORT=${PORT:-3001}
+      - PRINT_SERVER_NAME=${PRINT_SERVER_NAME:-ESC/POS Print Server}
+      - PRINT_SERVER_API_KEY=${PRINT_SERVER_API_KEY:-}
+      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-}
     env_file:
       - path: .env
         required: false
