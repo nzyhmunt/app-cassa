@@ -172,7 +172,7 @@
               <!-- Mance autonome (metodi non presenti nello scontrino, es. "Mancia" post-pagamento) -->
               <template v-if="xSummary.tipsByMethod">
                 <div v-for="(tipVal, tipMethod) in xSummary.tipsByMethod" :key="'tip_' + tipMethod">
-                  <div v-if="!xSummary.byMethod[tipMethod]"
+                  <div v-if="!Object.prototype.hasOwnProperty.call(xSummary.byMethod, tipMethod)"
                     class="flex justify-between items-center py-2 border-b border-gray-100 last:border-0">
                     <span class="text-sm text-amber-700 flex items-center gap-2 font-bold">
                       <Gift class="size-4 text-amber-500" /> {{ tipMethod }}
