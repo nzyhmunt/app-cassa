@@ -20,7 +20,7 @@
               <span class="text-[10px] text-white/70">Fatturazione elettronica</span>
             </div>
           </div>
-          <button @click="$emit('cancel')" class="bg-white/10 hover:bg-white/20 p-2 rounded-full transition-colors active:scale-95">
+          <button @click="$emit('cancel')" aria-label="Chiudi" class="bg-white/10 hover:bg-white/20 p-2 rounded-full transition-colors active:scale-95">
             <X class="size-5" />
           </button>
         </div>

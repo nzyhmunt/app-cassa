@@ -268,16 +268,18 @@ function confirmPostTip() {
 }
 
 // ── Fiscal receipt / Invoice state ─────────────────────────────────────────
-const hasFiscalReceipt = computed(() =>
-  store.fiscalReceipts.some(r =>
-    r.tableId === props.bill.tableId && r.billSessionId === props.bill.billSessionId,
-  ),
-);
-const hasInvoice = computed(() =>
-  store.invoiceRequests.some(r =>
-    r.tableId === props.bill.tableId && r.billSessionId === props.bill.billSessionId,
-  ),
-);
+// Match against the stored entry's tableId + (billSessionId ?? closedAt) key,
+// mirroring the same logic used by billKey(). This handles bills that have no
+// billSessionId (the fallback discriminator is closedAt instead).
+const _entryKey = r => r.tableId + '_' + (r.billSessionId ?? r.closedAt ?? '');
+const hasFiscalReceipt = computed(() => {
+  const key = billKey(props.bill);
+  return store.fiscalReceipts.some(r => _entryKey(r) === key);
+});
+const hasInvoice = computed(() => {
+  const key = billKey(props.bill);
+  return store.invoiceRequests.some(r => _entryKey(r) === key);
+});
 const alreadyFiscalized = computed(() => hasFiscalReceipt.value || hasInvoice.value);
 
 // Invoice modal state
@@ -297,7 +299,7 @@ function _buildBillSummaryBase() {
     tableId: bill.tableId,
     tableLabel: bill.table?.label ?? bill.tableId,
     billSessionId: bill.billSessionId,
-    closedAt: new Date().toISOString(),
+    closedAt: bill.closedAt,
     totalAmount,
     totalPaid: bill.totalPaid,
     paymentMethods: [...new Set(paymentTxns.map(t => t.paymentMethod))],
@@ -341,7 +343,7 @@ function emitFiscale() {
     xmlRequest,
     xmlResponse: null,
     status: 'pending',
-    timestamp: base.closedAt,
+    timestamp: new Date().toISOString(),
   };
   store.addFiscalReceipt(entry);
 }
@@ -357,7 +359,7 @@ function confirmInvoice(billingData) {
     ...base,
     billingData,
     status: 'pending',
-    timestamp: base.closedAt,
+    timestamp: new Date().toISOString(),
   };
   store.addInvoiceRequest(entry);
   showInvoiceModal.value = false;
