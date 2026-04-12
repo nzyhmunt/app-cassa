@@ -137,10 +137,13 @@
           </div>
 
           <div v-if="xSummary" class="space-y-3">
-            <!-- Totale incassato -->
+            <!-- Totale incassato (scontrino, mance escluse) -->
             <div class="bg-white rounded-2xl border border-gray-200 shadow-sm p-4 md:p-5">
-              <p class="text-[10px] font-bold uppercase text-gray-400 mb-1">Totale Incassato</p>
+              <p class="text-[10px] font-bold uppercase text-gray-400 mb-1">Totale Incassato (scontrino)</p>
               <p class="text-4xl md:text-5xl font-black theme-text">€{{ xSummary.totalReceived.toFixed(2) }}</p>
+              <p v-if="xSummary.totalTips > 0" class="text-xs font-bold text-amber-600 mt-1 flex items-center gap-1">
+                <Gift class="size-3.5" /> + €{{ xSummary.totalTips.toFixed(2) }} mance
+              </p>
             </div>
 
             <!-- Per metodo pagamento -->
@@ -150,13 +153,34 @@
               </h5>
               <div v-if="Object.keys(xSummary.byMethod).length === 0" class="text-sm text-gray-400 italic">Nessuna transazione.</div>
               <div v-for="(val, method) in xSummary.byMethod" :key="method"
-                class="flex justify-between items-center py-2 border-b border-gray-100 last:border-0">
-                <span class="font-bold text-sm text-gray-700 flex items-center gap-2">
-                  <component :is="getMethodIcon(method)" class="size-4 text-gray-500" />
-                  {{ method }}
-                </span>
-                <span class="font-black text-base text-gray-800">€{{ val.toFixed(2) }}</span>
+                class="py-2 border-b border-gray-100 last:border-0">
+                <div class="flex justify-between items-center">
+                  <span class="font-bold text-sm text-gray-700 flex items-center gap-2">
+                    <component :is="getMethodIcon(method)" class="size-4 text-gray-500" />
+                    {{ method }}
+                  </span>
+                  <span class="font-black text-base text-gray-800">€{{ val.toFixed(2) }}</span>
+                </div>
+                <div v-if="xSummary.tipsByMethod && xSummary.tipsByMethod[method]"
+                  class="flex justify-between items-center mt-0.5 ml-6">
+                  <span class="text-[11px] text-amber-600 flex items-center gap-1">
+                    <Gift class="size-3" /> mancia
+                  </span>
+                  <span class="text-[11px] font-bold text-amber-600">+€{{ xSummary.tipsByMethod[method].toFixed(2) }}</span>
+                </div>
               </div>
+              <!-- Mance autonome (metodi non presenti nello scontrino, es. "Mancia" post-pagamento) -->
+              <template v-if="xSummary.tipsByMethod">
+                <template v-for="(tipVal, tipMethod) in xSummary.tipsByMethod" :key="'tip_' + tipMethod">
+                  <div v-if="!Object.prototype.hasOwnProperty.call(xSummary.byMethod, tipMethod)"
+                    class="flex justify-between items-center py-2 border-b border-gray-100 last:border-0">
+                    <span class="text-sm text-amber-700 flex items-center gap-2 font-bold">
+                      <Gift class="size-4 text-amber-500" /> {{ tipMethod }}
+                    </span>
+                    <span class="text-sm font-black text-amber-600">+€{{ tipVal.toFixed(2) }}</span>
+                  </div>
+                </template>
+              </template>
             </div>
 
             <!-- Tipologia Chiusura Conto -->
@@ -217,7 +241,7 @@
                 </div>
                 <div v-if="xSummary.totalDiscount > 0" class="flex justify-between items-center border-t border-gray-100 pt-2 mt-1">
                   <span class="text-gray-500">Lordo (incluse mance, prima degli sconti)</span>
-                  <span class="font-bold text-gray-700">€{{ (xSummary.totalReceived + xSummary.totalDiscount).toFixed(2) }}</span>
+                  <span class="font-bold text-gray-700">€{{ (xSummary.totalReceived + xSummary.totalTips + xSummary.totalDiscount).toFixed(2) }}</span>
                 </div>
               </div>
             </div>
@@ -279,11 +303,28 @@
               <ClipboardList class="size-4" /> Riepilogo da Chiudere
             </h5>
             <div class="space-y-1 text-sm">
-              <div class="flex justify-between"><span class="text-gray-500">Totale incassato</span><span class="font-black theme-text text-base">€{{ zPreview.totalReceived.toFixed(2) }}</span></div>
-              <div v-for="(val, method) in zPreview.byMethod" :key="method" class="flex justify-between text-xs">
-                <span class="text-gray-400 ml-3">– {{ method }}</span>
-                <span class="font-bold">€{{ val.toFixed(2) }}</span>
+              <div class="flex justify-between"><span class="text-gray-500">Totale scontrino</span><span class="font-black theme-text text-base">€{{ zPreview.totalReceived.toFixed(2) }}</span></div>
+              <!-- Scontrino per metodo -->
+              <div v-for="(val, method) in zPreview.byMethod" :key="method" class="text-xs">
+                <div class="flex justify-between ml-3">
+                  <span class="text-gray-400">– {{ method }}</span>
+                  <span class="font-bold">€{{ val.toFixed(2) }}</span>
+                </div>
+                <div v-if="zPreview.tipsByMethod && zPreview.tipsByMethod[method]"
+                  class="flex justify-between ml-6">
+                  <span class="text-amber-500 flex items-center gap-0.5"><Gift class="size-2.5" /> mancia</span>
+                  <span class="font-bold text-amber-500">+€{{ zPreview.tipsByMethod[method].toFixed(2) }}</span>
+                </div>
               </div>
+              <!-- Mance autonome (metodi non presenti nello scontrino) -->
+              <template v-if="zPreview.tipsByMethod">
+                <template v-for="(tipVal, tipMethod) in zPreview.tipsByMethod" :key="'ztip_' + tipMethod">
+                  <div v-if="!(tipMethod in zPreview.byMethod)" class="flex justify-between ml-3 text-xs">
+                    <span class="text-amber-500 flex items-center gap-1"><Gift class="size-2.5" /> {{ tipMethod }}</span>
+                    <span class="font-bold text-amber-500">+€{{ tipVal.toFixed(2) }}</span>
+                  </div>
+                </template>
+              </template>
               <div v-if="zPreview.totalDiscount > 0 || zPreview.totalTips > 0" class="pt-1 border-t border-gray-100 mt-1 space-y-1">
                 <div v-if="zPreview.totalDiscount > 0" class="flex justify-between items-center">
                   <span class="text-gray-500 flex items-center gap-1"><Tag class="size-3 text-red-400" /> Sconti applicati</span>

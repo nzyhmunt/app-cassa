@@ -16,19 +16,35 @@ export function makeReportOps(state, helpers) {
   const { getTableStatus } = helpers;
 
   function _buildDailySummary() {
-    const byMethod = {};
+    const byMethod = {};    // scontrino per metodo (solo amountPaid, escluse mance)
+    const tipsByMethod = {}; // mance per metodo di pagamento
+
     const totalDiscount = transactions.value
       .filter(t => t.operationType === 'discount')
       .reduce((acc, t) => acc + (t.amountPaid || 0), 0);
-    const totalTips = transactions.value
-      .filter(t => t.operationType !== 'discount')
-      .reduce((acc, t) => acc + (t.tipAmount || 0), 0);
+
+    // Transazioni di pagamento: escludi sconti e transazioni-mancia autonome
     transactions.value
-      .filter(t => t.operationType !== 'discount')
+      .filter(t => t.operationType !== 'discount' && t.operationType !== 'tip')
       .forEach(t => {
         const label = t.paymentMethod || 'Altro';
-        byMethod[label] = (byMethod[label] || 0) + (t.amountPaid || 0) + (t.tipAmount || 0);
+        // Scontrino: solo l'importo del conto (senza mancia)
+        byMethod[label] = (byMethod[label] || 0) + (t.amountPaid || 0);
+        // Mancia eventualmente inclusa nella stessa transazione → scorporata per metodo
+        if ((t.tipAmount || 0) > 0) {
+          tipsByMethod[label] = (tipsByMethod[label] || 0) + t.tipAmount;
+        }
       });
+
+    // Transazioni-mancia autonome (operationType === 'tip', da CassaBillCard post-pagamento)
+    transactions.value
+      .filter(t => t.operationType === 'tip')
+      .forEach(t => {
+        const label = t.paymentMethod || 'Mancia';
+        tipsByMethod[label] = (tipsByMethod[label] || 0) + (t.tipAmount || 0);
+      });
+
+    const totalTips = Object.values(tipsByMethod).reduce((a, b) => a + b, 0);
     const totalReceived = Object.values(byMethod).reduce((a, b) => a + b, 0);
 
     // Count unique bill sessions (keyed by tableId::billSessionId or tableId for legacy rows)
@@ -72,12 +88,13 @@ export function makeReportOps(state, helpers) {
       totalDiscount,
       totalTips,
       byMethod,
+      tipsByMethod,
       totalCovers,
       averageReceipt: receiptCount > 0 ? totalReceived / receiptCount : 0,
       receiptCount,
       cashMovementsData: [...cashMovements.value],
       totalMovements,
-      finalBalance: cashBalance.value + totalReceived + totalMovements,
+      finalBalance: cashBalance.value + totalReceived + totalTips + totalMovements,
       fiscalCount,
       fiscalTotal,
       invoiceCount,

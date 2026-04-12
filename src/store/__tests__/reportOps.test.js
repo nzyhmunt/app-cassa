@@ -10,6 +10,10 @@
  *  - Boundary case: entry whose timestamp equals the Z-close is included (>=).
  *  - Counts and totals are summed correctly.
  *  - fiscalReceipts/invoiceRequests absent/empty → counts/totals default to 0.
+ *  - byMethod contains only amountPaid (tips excluded from scontrino).
+ *  - tipsByMethod correctly splits embedded tips and standalone tip transactions.
+ *  - totalReceived excludes tips; totalTips matches tipsByMethod totals.
+ *  - finalBalance = cashBalance + totalReceived + totalTips + totalMovements.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { ref } from 'vue';
@@ -19,12 +23,12 @@ import { makeReportOps } from '../reportOps.js';
 const helpers = { getTableStatus: () => ({ status: 'free' }) };
 
 // Build a minimal state object to pass into makeReportOps().
-function makeState({ dailyClosures = [], fiscalReceipts = [], invoiceRequests = [] } = {}) {
+function makeState({ dailyClosures = [], fiscalReceipts = [], invoiceRequests = [], transactions = [], cashBalance = 0, cashMovements = [] } = {}) {
   return {
     orders: ref([]),
-    transactions: ref([]),
-    cashBalance: ref(0),
-    cashMovements: ref([]),
+    transactions: ref(transactions),
+    cashBalance: ref(cashBalance),
+    cashMovements: ref(cashMovements),
     config: ref({ tables: [] }),
     dailyClosures: ref(dailyClosures),
     fiscalReceipts: ref(fiscalReceipts),
@@ -188,3 +192,120 @@ describe('generateXReport() – fiscal/invoice session filtering', () => {
     expect(report.invoiceTotal).toBe(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// byMethod / tipsByMethod scorporo tests
+// ---------------------------------------------------------------------------
+describe('generateXReport() – scorporo mance da scontrino', () => {
+
+  let _txnCounter = 0;
+  function txn(overrides) {
+    return {
+      transactionId: `txn_test_${++_txnCounter}`,
+      tableId: 't1',
+      billSessionId: 'bill_1',
+      paymentMethod: 'Contanti',
+      operationType: 'unico',
+      amountPaid: 0,
+      timestamp: TS_AFTER,
+      ...overrides,
+    };
+  }
+
+  it('byMethod includes only amountPaid, not tipAmount', () => {
+    const state = makeState({
+      transactions: [
+        txn({ paymentMethod: 'Contanti', amountPaid: 50, tipAmount: 5 }),
+      ],
+    });
+    const { generateXReport } = makeReportOps(state, helpers);
+    const report = generateXReport();
+
+    expect(report.byMethod['Contanti']).toBeCloseTo(50);
+    expect(report.totalReceived).toBeCloseTo(50);
+  });
+
+  it('tipsByMethod captures embedded tip on the correct payment method', () => {
+    const state = makeState({
+      transactions: [
+        txn({ paymentMethod: 'Contanti', amountPaid: 40, tipAmount: 3 }),
+        txn({ paymentMethod: 'POS', amountPaid: 60, tipAmount: 2 }),
+      ],
+    });
+    const { generateXReport } = makeReportOps(state, helpers);
+    const report = generateXReport();
+
+    expect(report.tipsByMethod['Contanti']).toBeCloseTo(3);
+    expect(report.tipsByMethod['POS']).toBeCloseTo(2);
+    expect(report.totalTips).toBeCloseTo(5);
+    expect(report.totalReceived).toBeCloseTo(100);
+  });
+
+  it('standalone tip transaction (operationType=tip) goes into tipsByMethod, not byMethod', () => {
+    const state = makeState({
+      transactions: [
+        txn({ paymentMethod: 'Contanti', amountPaid: 80 }),
+        txn({ paymentMethod: 'Mancia', operationType: 'tip', amountPaid: 0, tipAmount: 10 }),
+      ],
+    });
+    const { generateXReport } = makeReportOps(state, helpers);
+    const report = generateXReport();
+
+    expect(report.byMethod['Contanti']).toBeCloseTo(80);
+    expect(report.byMethod['Mancia']).toBeUndefined();
+    expect(report.tipsByMethod['Mancia']).toBeCloseTo(10);
+    expect(report.totalTips).toBeCloseTo(10);
+    expect(report.totalReceived).toBeCloseTo(80);
+  });
+
+  it('finalBalance = cashBalance + totalReceived + totalTips + totalMovements', () => {
+    const state = makeState({
+      cashBalance: 100,
+      cashMovements: [{ id: 'm1', type: 'deposit', amount: 20, timestamp: TS_AFTER, reason: '' }],
+      transactions: [
+        txn({ paymentMethod: 'Contanti', amountPaid: 50, tipAmount: 5 }),
+        txn({ paymentMethod: 'POS', amountPaid: 30 }),
+      ],
+    });
+    const { generateXReport } = makeReportOps(state, helpers);
+    const report = generateXReport();
+
+    // finalBalance = 100 (fondo) + 80 (scontrini) + 5 (mance) + 20 (movimenti) = 205
+    expect(report.finalBalance).toBeCloseTo(205);
+    expect(report.totalReceived).toBeCloseTo(80);
+    expect(report.totalTips).toBeCloseTo(5);
+  });
+
+  it('discount transactions do not appear in byMethod or tipsByMethod', () => {
+    const state = makeState({
+      transactions: [
+        txn({ paymentMethod: 'Contanti', amountPaid: 100 }),
+        txn({ paymentMethod: 'Sconto', operationType: 'discount', amountPaid: 10 }),
+      ],
+    });
+    const { generateXReport } = makeReportOps(state, helpers);
+    const report = generateXReport();
+
+    expect(report.byMethod['Sconto']).toBeUndefined();
+    expect(report.tipsByMethod['Sconto']).toBeUndefined();
+    expect(report.totalDiscount).toBeCloseTo(10);
+    expect(report.totalReceived).toBeCloseTo(100);
+  });
+
+  it('averageReceipt is based on totalReceived without tips', () => {
+    // Two bill sessions paying 50 each with 5 tip each
+    const state = makeState({
+      transactions: [
+        txn({ tableId: 't1', billSessionId: 'b1', paymentMethod: 'Contanti', amountPaid: 50, tipAmount: 5 }),
+        txn({ tableId: 't2', billSessionId: 'b2', paymentMethod: 'Contanti', amountPaid: 50, tipAmount: 5 }),
+      ],
+    });
+    const { generateXReport } = makeReportOps(state, helpers);
+    const report = generateXReport();
+
+    // receiptCount = 2, totalReceived = 100, averageReceipt = 50 (not 55)
+    expect(report.receiptCount).toBe(2);
+    expect(report.averageReceipt).toBeCloseTo(50);
+  });
+});
+
