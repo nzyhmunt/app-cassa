@@ -79,9 +79,9 @@ devices:
   - /dev/usb/lp0:/dev/usb/lp0
 ```
 
-> **Nota:** `printers.config.js` viene montato come volume in sola lettura;
-> qualsiasi modifica al file è immediatamente visibile al container al riavvio,
-> senza dover ricostruire l'immagine.
+> **Nota:** `printers.config.js` viene montato come volume in sola lettura.
+> Dopo aver modificato il file, riavvia il container con `docker compose restart`
+> affinché il server carichi la nuova configurazione; non è necessario ricostruire l'immagine.
 
 ---
 
