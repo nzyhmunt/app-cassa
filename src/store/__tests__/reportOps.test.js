@@ -198,9 +198,10 @@ describe('generateXReport() – fiscal/invoice session filtering', () => {
 // ---------------------------------------------------------------------------
 describe('generateXReport() – scorporo mance da scontrino', () => {
 
+  let _txnCounter = 0;
   function txn(overrides) {
     return {
-      transactionId: 'txn_' + Math.random().toString(36).slice(2),
+      transactionId: `txn_test_${++_txnCounter}`,
       tableId: 't1',
       billSessionId: 'bill_1',
       paymentMethod: 'Contanti',
