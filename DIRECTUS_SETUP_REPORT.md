@@ -324,3 +324,25 @@ La collection `table_merge_sessions` era originariamente definita con `slave_tab
 - `master_table` come campo stringa con vincolo FK verso `tables`
 
 Questo mantiene la semantica invariante (una sola riga per tavolo slave) tramite il vincolo UNIQUE su `slave_table`.
+
+---
+
+## Fix #2 — Relazioni non funzionanti (Interface "select-dropdown-m2o" not found / Reset Interface)
+
+**Data:** 2026-04-13
+
+**Problema:** Le relazioni M2O mostravano ancora l'errore "The relationship is not configured properly". La causa radice era l'uso dell'interfaccia `select-dropdown-m2o` senza la corretta configurazione meta (creata via API `directus_relations` ma senza i campi O2M alias sul lato "one"). Directus non trovava il campo alias corrispondente e resettava l'interfaccia.
+
+**Soluzione applicata:**
+
+1. **Eliminazione di tutte le 57 relazioni esistenti** (create nel Fix #1 senza i campi O2M).
+2. **Creazione di 19 campi O2M alias** (`type: alias`, `special: ["o2m"]`, `interface: "list-o2m"`) sui lati "one" di ogni relazione strutturale.
+3. **Aggiornamento di tutti i campi M2O** a `display: "related-values"` (standard Directus per campi relazionali).
+4. **Ricreazione di tutte le 57 relazioni** con:
+   - `meta.one_field` valorizzato con il nome del campo O2M alias (dove applicabile)
+   - `schema: null` (Directus auto-crea il FK constraint corretto senza forzare `SET NULL` su colonne NOT NULL)
+
+**Esempio della relazione corretta** (presa dalla correzione manuale `venue_users.venue → venues`):
+- Campo M2O: `venue_users.venue` — `interface: select-dropdown-m2o`, `display: related-values`
+- Campo O2M alias: `venues.users` — `type: alias`, `interface: list-o2m`, `special: ["o2m"]`
+- Relazione: `many_collection: venue_users`, `many_field: venue`, `one_collection: venues`, `one_field: users`
