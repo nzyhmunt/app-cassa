@@ -346,3 +346,54 @@ Questo mantiene la semantica invariante (una sola riga per tavolo slave) tramite
 - Campo M2O: `venue_users.venue` — `interface: select-dropdown-m2o`, `display: related-values`
 - Campo O2M alias: `venues.users` — `type: alias`, `interface: list-o2m`, `special: ["o2m"]`
 - Relazione: `many_collection: venue_users`, `many_field: venue`, `one_collection: venues`, `one_field: users`
+
+---
+
+## Refactoring UI Directus — Cartelle, Icone, Traduzioni, Ordinamento
+
+**Data:** 2026-04-13
+
+### Cartelle (Folder Collections)
+
+Sono state create **6 cartelle** per organizzare le 24 collezioni nel pannello admin:
+
+| Cartella | Colore | Icona | Collezioni |
+|----------|--------|-------|-----------|
+| `folder_configurazione_sede` | `#4CAF50` | `store` | `venues`, `venue_users`, `app_settings` |
+| `folder_gestione_menu` | `#FF9800` | `restaurant_menu` | `menu_categories`, `menu_items`, `menu_item_modifiers` |
+| `folder_sala_infrastruttura` | `#2196F3` | `table_restaurant` | `rooms`, `tables`, `table_merge_sessions`, `printers` |
+| `folder_operativita` | `#9C27B0` | `point_of_sale` | `bill_sessions`, `orders`, `order_items`, `order_item_modifiers`, `payment_methods` |
+| `folder_amministrazione` | `#F44336` | `receipt_long` | `transactions`, `cash_movements`, `daily_closures`, `daily_closure_by_method`, `transaction_order_refs`, `transaction_voce_refs` |
+| `folder_log_integrazioni` | `#607D8B` | `integration_instructions` | `print_jobs`, `fiscal_receipts`, `invoice_requests` |
+
+### Icone e Display per Collezione
+
+Ogni collezione è stata aggiornata con:
+- Icona Material Design appropriata (es. `store` per venues, `restaurant` per orders)
+- `display_template` per mostrare nomi leggibili nei campi relazionali
+- Colore del gruppo (ereditato dalla cartella padre)
+
+### Traduzioni (it-IT / en-US)
+
+Sono state applicate le traduzioni **it-IT** e **en-US** a:
+- Tutti i 24 nomi di collezioni (con forme singolare/plurale)
+- I campi principali di tutte le collezioni chiave
+- Campi di sistema (`date_created`, `date_updated`, ecc.)
+
+Esempi principali:
+- `venues` → "Punti Vendita" / "Venues"
+- `bill_sessions` → "Sessioni Tavolo" / "Table Sessions"
+- `order_items.course` → "Portata" / "Course"
+- `orders.course` → "Portata (Prima/Dopo)" / "Course (First/Later)"
+- `date_created` → "Data Creazione" / "Date Created"
+
+### Ordinamento Campi
+
+Per tutte le collezioni è stato applicato il seguente schema di ordinamento:
+- **sort 1**: ID (hidden)
+- **sort 2-10**: Campi principali (name, status, price, M2O references)
+- **sort 90-95**: Campi operatore (venue_user_created, venue_user_updated)
+- **sort 100**: `date_created` (hidden)
+- **sort 101**: `date_updated` (hidden)
+
+I campi di sistema (`date_created`, `date_updated`) sono stati impostati come `hidden: true` per non ingombrare il form.
