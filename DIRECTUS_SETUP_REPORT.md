@@ -397,3 +397,64 @@ Per tutte le collezioni è stato applicato il seguente schema di ordinamento:
 - **sort 101**: `date_updated` (hidden)
 
 I campi di sistema (`date_created`, `date_updated`) sono stati impostati come `hidden: true` per non ingombrare il form.
+
+---
+
+## Riorganizzazione UI v2 — Cartelle per Contesto Applicativo
+
+**Data:** 2026-04-13
+
+### Motivazione
+
+La struttura precedente (6 cartelle con nomi descrittivi tipo "Gestione Menu", "Sala e Infrastruttura", ecc.) è stata rimpiazzata con una organizzazione che rispecchia i **contesti applicativi reali** di app-cassa (cassa, sala, cucina/menu). Le emoji sono state rimosse. Nomi delle cartelle in minuscolo e senza prefissi.
+
+### Nuova Struttura (5 cartelle)
+
+| Cartella | it-IT | en-US | Icona | Colore | Sort |
+|----------|-------|-------|-------|--------|------|
+| `configurazione` | Configurazione | Settings | `settings` | `#546E7A` | 1 |
+| `menu` | Menu | Menu | `menu_book` | `#EF6C00` | 2 |
+| `sala` | Sala | Dining Room | `table_restaurant` | `#1565C0` | 3 |
+| `cassa` | Cassa | Register | `point_of_sale` | `#2E7D32` | 4 |
+| `sistema` | Sistema | System | `integration_instructions` | `#0277BD` | 5 |
+
+### Assegnazione Collezioni
+
+**configurazione** (setup e configurazione condivisa):
+- `venues` (sort 1) — Punto vendita
+- `venue_users` (sort 2) — Operatori
+- `payment_methods` (sort 3) — Metodi di pagamento
+- `app_settings` (sort 4) — Impostazioni app
+- `printers` (sort 5) — Stampanti
+
+**menu** (gestione listino, usato da admin/cucina):
+- `menu_items` (sort 1) — Voci menu
+- `menu_categories` (sort 2) — Categorie
+- `menu_item_modifiers` (sort 3) — Modificatori
+
+**sala** (modulo Sala — camerieri e floor management):
+- `tables` (sort 1) — Tavoli
+- `rooms` (sort 2) — Sale
+- `table_merge_sessions` (sort 3) — Unioni tavolo attive
+
+**cassa** (modulo Cassa — cassieri, ordini, pagamenti, chiusure):
+- `orders` (sort 1) — Comande
+- `bill_sessions` (sort 2) — Sessioni tavolo
+- `order_items` (sort 3) — Righe ordine
+- `order_item_modifiers` (sort 4) — Modificatori riga
+- `transactions` (sort 5) — Transazioni
+- `cash_movements` (sort 6) — Movimenti cassa
+- `daily_closures` (sort 7) — Chiusure giornaliere
+- `daily_closure_by_method` (sort 8) — Chiusure per metodo
+- `transaction_order_refs` (sort 9) — Riferimenti transazione-ordine
+- `transaction_voce_refs` (sort 10) — Riferimenti transazione-voce
+
+**sistema** (stampa, fiscale, integrazioni):
+- `print_jobs` (sort 1) — Log stampe
+- `fiscal_receipts` (sort 2) — Scontrini fiscali
+- `invoice_requests` (sort 3) — Richieste fattura
+
+### Eliminazioni
+
+Le seguenti 6 cartelle precedenti sono state eliminate:
+`folder_configurazione_sede`, `folder_gestione_menu`, `folder_sala_infrastruttura`, `folder_operativita`, `folder_amministrazione`, `folder_log_integrazioni`
