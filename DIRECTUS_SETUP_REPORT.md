@@ -258,3 +258,69 @@ Le collection con `status` di **workflow Directus** standard (`published`/`draft
 
 ### Campo `venue_user_created` / `venue_user_updated`
 Presente in tutte le collection operative per tracciamento audit degli operatori locali con PIN (non sono utenti Directus).
+
+---
+
+## Fix relazioni (2026-04-13 — patch)
+
+A seguito dell'errore **"The relationship is not configured properly"** riscontrato nell'interfaccia Directus, sono state create le **41 relazioni `directus_relations` mancanti**.
+
+### Causa
+
+Quando le collection vengono create specificando `schema.foreign_key_table` nei campi, Directus crea il vincolo FK nel database ma **non** aggiunge automaticamente il record corrispondente in `directus_relations`. Questo fa sì che i campi M2O abbiano l'interfaccia `select-dropdown-m2o` senza una relazione configurata, generando l'errore nell'UI.
+
+### Relazioni aggiunte
+
+| Collection | Campo | Related collection | on_delete |
+|-----------|-------|-------------------|-----------|
+| `venue_users` | `venue` | `venues` | CASCADE |
+| `printers` | `venue` | `venues` | CASCADE |
+| `cash_movements` | `venue` | `venues` | CASCADE |
+| `cash_movements` | `venue_user_created` | `venue_users` | SET NULL |
+| `cash_movements` | `venue_user_updated` | `venue_users` | SET NULL |
+| `daily_closures` | `venue` | `venues` | CASCADE |
+| `daily_closures` | `venue_user_created` | `venue_users` | SET NULL |
+| `daily_closures` | `venue_user_updated` | `venue_users` | SET NULL |
+| `menu_items` | `venue` | `venues` | CASCADE |
+| `daily_closure_by_method` | `payment_method` | `payment_methods` | RESTRICT |
+| `daily_closure_by_method` | `venue_user_created` | `venue_users` | SET NULL |
+| `daily_closure_by_method` | `venue_user_updated` | `venue_users` | SET NULL |
+| `bill_sessions` | `venue` | `venues` | CASCADE |
+| `bill_sessions` | `venue_user_created` | `venue_users` | SET NULL |
+| `bill_sessions` | `venue_user_updated` | `venue_users` | SET NULL |
+| `app_settings` | `venue` | `venues` | CASCADE |
+| `app_settings` | `pre_bill_printer` | `printers` | SET NULL |
+| `orders` | `venue` | `venues` | CASCADE |
+| `orders` | `table` | `tables` | RESTRICT |
+| `orders` | `venue_user_created` | `venue_users` | SET NULL |
+| `orders` | `venue_user_updated` | `venue_users` | SET NULL |
+| `order_items` | `dish` | `menu_items` | SET NULL |
+| `order_items` | `venue_user_created` | `venue_users` | SET NULL |
+| `order_items` | `venue_user_updated` | `venue_users` | SET NULL |
+| `transactions` | `venue` | `venues` | CASCADE |
+| `transactions` | `table` | `tables` | RESTRICT |
+| `transactions` | `payment_method` | `payment_methods` | RESTRICT |
+| `transactions` | `venue_user_created` | `venue_users` | SET NULL |
+| `transactions` | `venue_user_updated` | `venue_users` | SET NULL |
+| `order_item_modifiers` | `venue_user_created` | `venue_users` | SET NULL |
+| `order_item_modifiers` | `venue_user_updated` | `venue_users` | SET NULL |
+| `transaction_order_refs` | `order` | `orders` | CASCADE |
+| `print_jobs` | `printer` | `printers` | RESTRICT |
+| `print_jobs` | `venue` | `venues` | CASCADE |
+| `print_jobs` | `venue_user_created` | `venue_users` | SET NULL |
+| `print_jobs` | `venue_user_updated` | `venue_users` | SET NULL |
+| `fiscal_receipts` | `table_id` | `tables` | RESTRICT |
+| `fiscal_receipts` | `bill_session_id` | `bill_sessions` | SET NULL |
+| `invoice_requests` | `table_id` | `tables` | RESTRICT |
+| `invoice_requests` | `bill_session_id` | `bill_sessions` | SET NULL |
+| `table_merge_sessions` | `slave_table` | `tables` | CASCADE |
+| `table_merge_sessions` | `master_table` | `tables` | CASCADE |
+
+### Ristrutturazione `table_merge_sessions`
+
+La collection `table_merge_sessions` era originariamente definita con `slave_table` come PRIMARY KEY e FK verso `tables`. Directus non permette di creare relazioni su campi PK. La collection è stata **ricreata** con:
+- Nuovo campo `id` UUID come PK
+- `slave_table` come campo stringa UNIQUE con vincolo FK verso `tables`
+- `master_table` come campo stringa con vincolo FK verso `tables`
+
+Questo mantiene la semantica invariante (una sola riga per tavolo slave) tramite il vincolo UNIQUE su `slave_table`.
