@@ -243,12 +243,12 @@ Le collection sono state create rispettando le dipendenze tra chiavi esterne (FK
 Le collection con `status` di **dominio applicativo** (non workflow Directus) sono:
 - `bill_sessions`: `open` / `closed`
 - `orders`: `pending` / `accepted` / `preparing` / `ready` / `delivered` / `completed` / `rejected`
-- `transactions`, `order_items`, `order_item_modifiers`, `cash_movements`, `daily_closures`, `daily_closure_by_method`: `active` / `archived`
+- `transactions`, `order_items`, `order_item_modifiers`, `cash_movements`, `daily_closures`, `daily_closure_by_method`, `venue_users`: `active` / `archived`
 - `fiscal_receipts`, `invoice_requests`: `pending` / `sent` / `ok` / `error`
 - `print_jobs`: `pending` / `printing` / `done` / `error`
 
 Le collection con `status` di **workflow Directus** standard (`published`/`draft`/`archived`) sono:
-- `venues`, `rooms`, `tables`, `payment_methods`, `menu_categories`, `menu_items`, `menu_item_modifiers`, `printers`, `venue_users`
+- `venues`, `rooms`, `tables`, `payment_methods`, `menu_categories`, `menu_items`, `menu_item_modifiers`, `printers`
 
 ### Soft-delete strategy
 - Tabelle workflow: `PATCH { "status": "archived" }` (non `"record_status"`)
