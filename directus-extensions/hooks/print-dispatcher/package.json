@@ -1,0 +1,14 @@
+{
+  "name": "directus-extension-print-dispatcher",
+  "version": "1.0.0",
+  "description": "Directus hook extension che legge print_jobs e printers e invia i lavori al print-server ESC/POS",
+  "license": "MIT",
+  "type": "module",
+  "directus:extension": {
+    "host": ">=10.0.0",
+    "type": "hook",
+    "path": "src/index.js",
+    "source": "src/index.js",
+    "sandbox": false
+  }
+}

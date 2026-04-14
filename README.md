@@ -402,6 +402,34 @@ npm start
 
 Per la documentazione completa del server di stampa vedere [`print-server/README.md`](print-server/README.md).
 
+### Estensione Directus — Print Dispatcher
+
+Oltre al frontend, è disponibile un'estensione Directus che legge direttamente le collezioni
+`printers` e `print_jobs` e invia automaticamente i lavori al print-server senza passare
+dal browser.
+
+Funziona in due modalità complementari:
+
+- **Hook `items.create`**: dispatch immediato ogni volta che un `print_job` con stato
+  `pending` viene creato (tipicamente via sync offline-first del frontend).
+- **Scheduler** (ogni minuto, configurabile): recupero dei job `pending` rimasti indietro
+  (es. Directus era in restart al momento della creazione).
+
+Per installare l'estensione copia la cartella in `extensions/hooks/` di Directus:
+
+```bash
+cp -r directus-extensions/hooks/print-dispatcher /path/to/directus/extensions/hooks/
+```
+
+Oppure, con Docker Compose, monta il volume nel servizio Directus:
+
+```yaml
+volumes:
+  - ./directus-extensions/hooks/print-dispatcher:/directus/extensions/hooks/print-dispatcher:ro
+```
+
+Per la documentazione completa vedere [`directus-extensions/hooks/print-dispatcher/README.md`](directus-extensions/hooks/print-dispatcher/README.md).
+
 **Prima del deployment in produzione**, sostituire con la configurazione del locale.
 
 ### Configurazione multi-stampante
