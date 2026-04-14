@@ -88,8 +88,8 @@ export async function loadStateFromIDB() {
       dailyClosures,
       printLog,
       tableCurrentBillSession: tableCurrentBillSessionRecord?.value ?? {},
-      // Prefer the dedicated store; fall back to the legacy app_meta blob in case
-      // the v2→v3 migration failed silently (records survive until the next upgrade).
+      // Prefer the dedicated store; fall back to the legacy app_meta blob if the
+      // v2→v3 migration did not populate table_merge_sessions (the upgrade handler warns).
       tableMergedInto: tableMergeRecords.length > 0
         ? Object.fromEntries(tableMergeRecords.map(r => [r.slave_table, r.master_table]))
         : (legacyTableMergedIntoRecord?.value ?? {}),
