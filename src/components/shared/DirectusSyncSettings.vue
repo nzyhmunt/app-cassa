@@ -128,9 +128,9 @@
       <button
         type="button"
         @click="saveConfig"
-        :disabled="!hasChanges"
+        :disabled="saveDisabled"
         class="flex-1 py-3 font-bold rounded-2xl flex items-center justify-center gap-2 transition-colors active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
-        :class="hasChanges ? 'bg-[var(--brand-primary)] text-white' : 'bg-gray-100 text-gray-500 border border-gray-200'"
+        :class="!saveDisabled ? 'bg-[var(--brand-primary)] text-white' : 'bg-gray-100 text-gray-500 border border-gray-200'"
       >
         <Save class="size-4" />
         <span>Salva</span>
@@ -216,6 +216,7 @@ import { appConfig } from '../../utils/index.js';
 import {
   loadDirectusConfigFromStorage,
   saveDirectusConfigToStorage,
+  directusEnabledRef,
 } from '../../composables/useDirectusClient.js';
 import { useDirectusSync } from '../../composables/useDirectusSync.js';
 import SyncQueueLogModal from './SyncQueueLogModal.vue';
@@ -239,8 +240,8 @@ const connectionStatus = ref('idle'); // 'idle' | 'testing' | 'ok' | 'error'
 const connectionMessage = ref('');
 const showQueueLog = ref(false);
 
-/** `true` when the saved config has `enabled = true`. */
-const syncEnabled = computed(() => appConfig.directus?.enabled === true);
+/** `true` when the saved config has `enabled = true` (reactive via directusEnabledRef). */
+const syncEnabled = directusEnabledRef;
 
 /** `true` when the form differs from the last saved state. */
 const _savedSnapshot = ref('');
@@ -253,6 +254,14 @@ const hasChanges = computed(() => {
     wsEnabled: form.wsEnabled,
   }) !== _savedSnapshot.value;
 });
+
+/**
+ * `true` when saving is NOT allowed: either no changes, or sync is being
+ * enabled without the required url and staticToken credentials.
+ */
+const saveDisabled = computed(() =>
+  !hasChanges.value || (form.enabled && (!form.url.trim() || !form.staticToken.trim())),
+);
 
 // ── Lifecycle ─────────────────────────────────────────────────────────────────
 

@@ -552,6 +552,7 @@ import { useBeep } from '../../composables/useBeep.js';
 import { useAuth } from '../../composables/useAuth.js';
 import KitchenOrderCard from './KitchenOrderCard.vue';
 import { useDirectusSync } from '../../composables/useDirectusSync.js';
+import { directusEnabledRef } from '../../composables/useDirectusClient.js';
 import {
   appConfig,
   COURSE_ORDER,
@@ -736,7 +737,7 @@ let refreshTimer = null;
 
 // ── Directus sync state (footer indicators) ──────────────────────────────────
 const _dirSync = useDirectusSync();
-const directusEnabled = computed(() => appConfig.directus?.enabled === true);
+const directusEnabled = directusEnabledRef;
 const isOnline = ref(typeof navigator !== 'undefined' ? navigator.onLine : true);
 
 /**

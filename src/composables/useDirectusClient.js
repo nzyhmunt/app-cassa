@@ -14,8 +14,16 @@
  * and `client.disconnect()`.  The `rest()` mixin activates `client.request(fn)`.
  */
 
+import { ref } from 'vue';
 import { createDirectus, staticToken, rest, realtime } from '@directus/sdk';
 import { appConfig } from '../utils/index.js';
+
+/**
+ * Reactive flag that mirrors `appConfig.directus.enabled`.
+ * Updated by `loadDirectusConfigFromStorage()` and `saveDirectusConfigToStorage()`
+ * so that templates and computeds that depend on it stay in sync.
+ */
+export const directusEnabledRef = ref(false);
 
 /** Cached client instance. */
 let _client = null;
@@ -86,6 +94,7 @@ export function loadDirectusConfigFromStorage() {
         venueId: saved.venueId != null ? saved.venueId : null,
         wsEnabled: typeof saved.wsEnabled === 'boolean' ? saved.wsEnabled : false,
       };
+      directusEnabledRef.value = appConfig.directus.enabled;
       resetDirectusClient();
     }
   } catch (e) {
@@ -108,6 +117,7 @@ export function saveDirectusConfigToStorage() {
       venueId: cfg?.venueId ?? null,
       wsEnabled: cfg?.wsEnabled ?? false,
     }));
+    directusEnabledRef.value = cfg?.enabled ?? false;
     resetDirectusClient();
   } catch (e) {
     console.warn('[DirectusClient] Failed to save config to storage:', e);

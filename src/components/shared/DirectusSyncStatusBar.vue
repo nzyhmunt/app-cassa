@@ -50,6 +50,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { LoaderCircle, AlertCircle, Cloud } from 'lucide-vue-next';
 import { appConfig } from '../../utils/index.js';
+import { directusEnabledRef } from '../../composables/useDirectusClient.js';
 import { useDirectusSync } from '../../composables/useDirectusSync.js';
 import { getPendingEntries } from '../../composables/useSyncQueue.js';
 
@@ -59,7 +60,7 @@ const isOnline = ref(typeof navigator !== 'undefined' ? navigator.onLine : true)
 const pendingCount = ref(0);
 let _refreshTimer = null;
 
-const directusEnabled = computed(() => appConfig.directus?.enabled === true);
+const directusEnabled = directusEnabledRef;
 
 const syncStatus = computed(() => sync.syncStatus.value);
 

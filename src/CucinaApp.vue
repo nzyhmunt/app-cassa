@@ -33,6 +33,10 @@ const showSettings = ref(false);
 
 useWakeLock();
 
+// Load Directus config synchronously before first render so that reactive
+// consumers see the correct initial value.
+loadDirectusConfigFromStorage();
+
 const { storageKey } = resolveStorageKeys(getInstanceName());
 
 function onStorageChange(event) {
@@ -41,7 +45,6 @@ function onStorageChange(event) {
 }
 
 onMounted(() => {
-  loadDirectusConfigFromStorage();
   window.addEventListener('storage', onStorageChange);
   sync.startSync({ appType: 'cucina', store });
 });
