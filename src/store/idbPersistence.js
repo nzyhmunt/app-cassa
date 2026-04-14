@@ -60,6 +60,7 @@ export async function loadStateFromIDB() {
       cashBalanceRecord,
       tableCurrentBillSessionRecord,
       tableMergeRecords,
+      legacyTableMergedIntoRecord,
       tableOccupiedAtRecord,
       billRequestedTablesRecord,
     ] = await Promise.all([
@@ -71,6 +72,7 @@ export async function loadStateFromIDB() {
       db.get('app_meta', 'cashBalance'),
       db.get('app_meta', 'tableCurrentBillSession'),
       db.getAll('table_merge_sessions'),
+      db.get('app_meta', 'tableMergedInto'),
       db.get('app_meta', 'tableOccupiedAt'),
       db.get('app_meta', 'billRequestedTables'),
     ]);
@@ -86,9 +88,11 @@ export async function loadStateFromIDB() {
       dailyClosures,
       printLog,
       tableCurrentBillSession: tableCurrentBillSessionRecord?.value ?? {},
-      tableMergedInto: Object.fromEntries(
-        tableMergeRecords.map(r => [r.slave_table, r.master_table]),
-      ),
+      // Prefer the dedicated store; fall back to the legacy app_meta blob in case
+      // the v2→v3 migration failed silently (records survive until the next upgrade).
+      tableMergedInto: tableMergeRecords.length > 0
+        ? Object.fromEntries(tableMergeRecords.map(r => [r.slave_table, r.master_table]))
+        : (legacyTableMergedIntoRecord?.value ?? {}),
       tableOccupiedAt: tableOccupiedAtRecord?.value ?? {},
       billRequestedTables: new Set(billRequestedTablesRecord?.value ?? []),
     };

@@ -6,6 +6,8 @@
  *  - loadStateFromIDB / saveStateToIDB: round-trip, printLog payload stripping,
  *    billRequestedTables Set↔Array conversion, tableMergedInto ↔ table_merge_sessions
  *  - clearAllStateFromIDB: clears operative stores (incl. table_merge_sessions), preserves non-manual venue_users
+ *  - v2 → v3 migration: app_meta.tableMergedInto → table_merge_sessions
+ *  - loadStateFromIDB backward-compat fallback: reads app_meta.tableMergedInto when store is empty
  *  - saveSettingsToIDB / loadSettingsFromIDB: round-trip
  *  - saveUsersToIDB / loadUsersFromIDB: only manual_user records
  *  - saveAuthSessionToIDB / loadAuthSessionFromIDB: persists/clears userId
@@ -622,6 +624,93 @@ describe('pruneInvoiceRequestsInIDB()', () => {
     await pruneInvoiceRequestsInIDB(200);
     const loaded = await loadInvoiceRequestsFromIDB();
     expect(loaded).toHaveLength(1);
+  });
+});
+
+// ── v2 → v3 migration ────────────────────────────────────────────────────────
+
+/**
+ * Seeds a v2 IndexedDB with the legacy app_meta.tableMergedInto blob so the
+ * upgrade handler can be exercised without needing to downgrade a real DB.
+ */
+async function _seedV2DB(legacyValue) {
+  await new Promise((resolve, reject) => {
+    const req = indexedDB.open('app-cassa', 2);
+    req.onupgradeneeded = (e) => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains('app_meta')) {
+        db.createObjectStore('app_meta', { keyPath: 'id' });
+      }
+    };
+    req.onsuccess = (e) => {
+      const db = e.target.result;
+      const tx = db.transaction('app_meta', 'readwrite');
+      tx.objectStore('app_meta').put({ id: 'tableMergedInto', value: legacyValue });
+      tx.oncomplete = () => { db.close(); resolve(); };
+      tx.onerror = () => { db.close(); reject(tx.error); };
+    };
+    req.onerror = () => reject(req.error);
+  });
+}
+
+describe('v2 → v3 migration: app_meta.tableMergedInto → table_merge_sessions', () => {
+  it('migrates the legacy blob to table_merge_sessions on upgrade', async () => {
+    // Seed v2 DB with legacy merge graph (beforeEach already deleted the previous DB)
+    await _seedV2DB({ T2: 'T1', T3: 'T1' });
+
+    // Open v3 — triggers the upgrade handler
+    const { getDB } = await import('../../composables/useIDB.js');
+    const db = await getDB();
+
+    const records = await db.getAll('table_merge_sessions');
+    expect(records).toHaveLength(2);
+    const bySlave = Object.fromEntries(records.map(r => [r.slave_table, r.master_table]));
+    expect(bySlave).toEqual({ T2: 'T1', T3: 'T1' });
+
+    // Legacy app_meta entry must be removed after migration
+    const legacyRecord = await db.get('app_meta', 'tableMergedInto');
+    expect(legacyRecord).toBeUndefined();
+  });
+
+  it('leaves table_merge_sessions empty when no legacy record exists', async () => {
+    const { getDB } = await import('../../composables/useIDB.js');
+    const db = await getDB();
+    const records = await db.getAll('table_merge_sessions');
+    expect(records).toHaveLength(0);
+  });
+});
+
+// ── loadStateFromIDB backward-compat fallback ─────────────────────────────────
+
+describe('loadStateFromIDB() — backward-compat fallback for tableMergedInto', () => {
+  it('reads app_meta.tableMergedInto when table_merge_sessions is empty', async () => {
+    // Simulate a failed migration: legacy blob still in app_meta, dedicated store empty
+    const { getDB } = await import('../../composables/useIDB.js');
+    const db = await getDB();
+    await db.put('app_meta', { id: 'tableMergedInto', value: { T4: 'T3' } });
+
+    const loaded = await loadStateFromIDB();
+    expect(loaded.tableMergedInto).toEqual({ T4: 'T3' });
+  });
+
+  it('prefers table_merge_sessions over app_meta.tableMergedInto when both exist', async () => {
+    // Seed dedicated store
+    await saveStateToIDB({
+      orders: [], transactions: [], cashBalance: 0, cashMovements: [],
+      dailyClosures: [], printLog: [],
+      tableCurrentBillSession: {},
+      tableMergedInto: { T2: 'T1' },
+      tableOccupiedAt: {},
+      billRequestedTables: new Set(),
+    });
+
+    // Also plant a stale legacy record (should be ignored)
+    const { getDB } = await import('../../composables/useIDB.js');
+    const db = await getDB();
+    await db.put('app_meta', { id: 'tableMergedInto', value: { STALE: 'DATA' } });
+
+    const loaded = await loadStateFromIDB();
+    expect(loaded.tableMergedInto).toEqual({ T2: 'T1' });
   });
 });
 
