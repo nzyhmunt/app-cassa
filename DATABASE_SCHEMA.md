@@ -819,7 +819,7 @@ Campi Directus standard abilitati: `user_created`, `date_created`, `user_updated
 ```sql
 CREATE TABLE venue_users (
     id           UUID         PRIMARY KEY,                -- UUID v7 generato client-side
-    venue        INTEGER      NOT NULL REFERENCES venues(id),
+    venue        INTEGER      NOT NULL REFERENCES venues(id) ON DELETE CASCADE,
     display_name VARCHAR(100) NOT NULL,
     role         VARCHAR(50)  NOT NULL,                  -- 'admin' | 'cassiere' | 'cameriere' | 'cuoco'
     pin_hash     VARCHAR(255) NOT NULL,                  -- hash bcrypt/argon2 del PIN a 4-6 cifre
