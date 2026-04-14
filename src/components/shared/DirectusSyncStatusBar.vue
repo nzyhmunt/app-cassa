@@ -67,9 +67,10 @@ const formattedLastSync = computed(() => {
   const ts = sync.lastPullAt.value || sync.lastPushAt.value;
   if (!ts) return null;
   try {
-    return new Date(ts).toLocaleTimeString('it-IT', {
+    return new Date(ts).toLocaleTimeString(appConfig.locale, {
       hour: '2-digit',
       minute: '2-digit',
+      timeZone: appConfig.timezone,
     });
   } catch {
     return null;

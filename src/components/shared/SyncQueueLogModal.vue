@@ -126,6 +126,7 @@
 <script setup>
 import { ref, computed, watch } from 'vue';
 import { X, RefreshCw, ListOrdered, CheckCircle } from 'lucide-vue-next';
+import { appConfig } from '../../utils/index.js';
 import { getPendingEntries } from '../../composables/useSyncQueue.js';
 
 const props = defineProps({
@@ -161,10 +162,11 @@ async function refresh() {
   loading.value = true;
   try {
     allEntries.value = await getPendingEntries();
-    lastRefresh.value = new Date().toLocaleTimeString('it-IT', {
+    lastRefresh.value = new Date().toLocaleTimeString(appConfig.locale, {
       hour: '2-digit',
       minute: '2-digit',
       second: '2-digit',
+      timeZone: appConfig.timezone,
     });
   } catch {
     allEntries.value = [];
@@ -176,12 +178,13 @@ async function refresh() {
 function formatTs(iso) {
   if (!iso) return '—';
   try {
-    return new Date(iso).toLocaleString('it-IT', {
+    return new Date(iso).toLocaleString(appConfig.locale, {
       day: '2-digit',
       month: '2-digit',
       hour: '2-digit',
       minute: '2-digit',
       second: '2-digit',
+      timeZone: appConfig.timezone,
     });
   } catch {
     return iso;
