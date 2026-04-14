@@ -66,34 +66,38 @@ trigger DB o logica equivalente.
    - 5.7 [Architettura sync multi-dispositivo](#57-architettura-di-sincronizzazione-multi-dispositivo)
    - 5.8 [Strategia di purge IndexedDB](#58-strategia-di-purge-indexeddb)
    - 5.9 [Gestione credenziali e autenticazione](#59-gestione-credenziali-e-autenticazione)
+   - 5.10 [Organizzazione admin Directus](#510-organizzazione-admin-directus)
 
 ---
 
 ## 1. Entità principali
 
-| Collection               | Descrizione                                              | Fonte IndexedDB / appConfig  |
-|--------------------------|----------------------------------------------------------|------------------------------|
-| `venues`                 | Ristorante / punto vendita                               | `appConfig.ui`               |
-| `rooms`                  | Sale / aree della mappa tavoli                           | `appConfig.rooms`            |
-| `tables`                 | Tavoli della sala                                        | `appConfig.tables` (derivato da `appConfig.rooms`) |
-| `payment_methods`        | Metodi di pagamento configurati                          | `appConfig.paymentMethods`   |
-| `menu_categories`        | Categorie del menu (Antipasti, Primi, …)                 | `appConfig.menu` (chiavi)    |
-| `menu_items`             | Voci del menu (piatti, bevande, ecc.)                    | `appConfig.menu[categoria]`  |
-| `menu_item_modifiers`    | Modificatori/varianti disponibili per voce menu          | (configurazione menu)        |
-| `bill_sessions`          | Sessione di occupazione tavolo (un'apertura tavolo)      | `app_meta.tableCurrentBillSession` |
-| `orders`                 | Comande inviate dal tavolo                               | ObjectStore `orders`         |
-| `order_items`            | Righe singole di una comanda                             | `order.orderItems`           |
-| `order_item_modifiers`   | Modificatori applicati a una riga comanda                | `orderItem.modifiers`        |
-| `transactions`           | Pagamenti e sconti applicati a un conto                  | ObjectStore `transactions`   |
-| `transaction_order_refs` | Collegamento N:M tra pagamenti e comande                 | `transaction.orderRefs`      |
-| `cash_movements`         | Versamenti e prelievi di cassa                           | ObjectStore `cash_movements` |
-| `daily_closures`         | Chiusure giornaliere (rapporto Z)                        | ObjectStore `daily_closures` |
-| `printers`               | Stampanti ESC/POS configurate                            | `appConfig.printers`         |
-| `print_jobs`             | Log dei lavori di stampa inviati (cronologia stampe)     | ObjectStore `print_jobs`     |
-| `fiscal_receipts`        | Payload XML per comandi alla stampante fiscale           | ObjectStore `fiscal_receipts` |
-| `invoice_requests`       | Dati di fatturazione elettronica richiesti a chiusura conto | ObjectStore `invoice_requests` |
-| `app_settings`           | Impostazioni utente (audio, URL menu, ecc.)              | ObjectStore `app_settings`   |
-| `venue_users`            | Operatori locali per venue (PIN personale)               | ObjectStore `venue_users`    |
+| Collection                  | Descrizione                                                       | Fonte IndexedDB / appConfig  |
+|-----------------------------|-------------------------------------------------------------------|------------------------------|
+| `venues`                    | Ristorante / punto vendita                                        | `appConfig.ui`               |
+| `venue_users`               | Operatori locali per venue (PIN personale)                        | ObjectStore `venue_users`    |
+| `rooms`                     | Sale / aree della mappa tavoli                                    | `appConfig.rooms`            |
+| `tables`                    | Tavoli della sala                                                 | `appConfig.tables` (derivato da `appConfig.rooms`) |
+| `table_merge_sessions`      | Unioni tavolo attive (slave→master); un solo record per slave     | `store.tableMergedInto`      |
+| `payment_methods`           | Metodi di pagamento configurati                                   | `appConfig.paymentMethods`   |
+| `menu_categories`           | Categorie del menu (Antipasti, Primi, …)                          | `appConfig.menu` (chiavi)    |
+| `menu_items`                | Voci del menu (piatti, bevande, ecc.)                             | `appConfig.menu[categoria]`  |
+| `menu_item_modifiers`       | Modificatori/varianti disponibili per voce menu                   | (configurazione menu)        |
+| `bill_sessions`             | Sessione di occupazione tavolo (un'apertura tavolo)               | `app_meta.tableCurrentBillSession` |
+| `orders`                    | Comande inviate dal tavolo                                        | ObjectStore `orders`         |
+| `order_items`               | Righe singole di una comanda                                      | `order.orderItems`           |
+| `order_item_modifiers`      | Modificatori applicati a una riga comanda                         | `orderItem.modifiers`        |
+| `transactions`              | Pagamenti e sconti applicati a un conto                           | ObjectStore `transactions`   |
+| `transaction_order_refs`    | Collegamento N:M tra pagamenti e comande                          | `transaction.orderRefs`      |
+| `transaction_voce_refs`     | Righe analitiche voce + quantità (tipo `analitica`)               | `transaction.voceRefs`       |
+| `cash_movements`            | Versamenti e prelievi di cassa                                    | ObjectStore `cash_movements` |
+| `daily_closures`            | Chiusure giornaliere (rapporto Z)                                 | ObjectStore `daily_closures` |
+| `daily_closure_by_method`   | Dettaglio incassi per metodo di pagamento (riga di daily_closure) | (embedded in daily_closures) |
+| `printers`                  | Stampanti ESC/POS configurate                                     | `appConfig.printers`         |
+| `print_jobs`                | Log dei lavori di stampa inviati (cronologia stampe)              | ObjectStore `print_jobs`     |
+| `fiscal_receipts`           | Payload XML per comandi alla stampante fiscale                    | ObjectStore `fiscal_receipts` |
+| `invoice_requests`          | Dati di fatturazione elettronica richiesti a chiusura conto       | ObjectStore `invoice_requests` |
+| `app_settings`              | Impostazioni utente (audio, URL menu, ecc.)                       | ObjectStore `app_settings`   |
 
 ---
 
@@ -806,10 +810,67 @@ CREATE INDEX idx_invoice_requests_timestamp    ON invoice_requests (timestamp DE
 
 ---
 
+### 2.22 `venue_users` — Operatori locali (camerieri, cassieri, cuochi)
+
+Campi Directus standard abilitati: `user_created`, `date_created`, `user_updated`, `date_updated`.
+
+> La collection `venue_users` è documentata in dettaglio nella sezione [5.9 — Gestione credenziali e autenticazione](#59-gestione-credenziali-e-autenticazione).
+
+```sql
+CREATE TABLE venue_users (
+    id           UUID         PRIMARY KEY,                -- UUID v7 generato client-side
+    venue        INTEGER      NOT NULL REFERENCES venues(id),
+    display_name VARCHAR(100) NOT NULL,
+    role         VARCHAR(50)  NOT NULL,                  -- 'admin' | 'cassiere' | 'cameriere' | 'cuoco'
+    pin_hash     VARCHAR(255) NOT NULL,                  -- hash bcrypt/argon2 del PIN a 4-6 cifre
+    status       VARCHAR(20)  NOT NULL DEFAULT 'active', -- 'active' | 'archived'
+    -- Directus standard fields
+    user_created UUID         NULL REFERENCES directus_users(id),
+    date_created TIMESTAMPTZ  DEFAULT NOW(),
+    user_updated UUID         NULL REFERENCES directus_users(id),
+    date_updated TIMESTAMPTZ  DEFAULT NOW()
+);
+
+CREATE INDEX idx_venue_users_venue  ON venue_users (venue);
+CREATE INDEX idx_venue_users_status ON venue_users (status);
+CREATE INDEX idx_venue_users_role   ON venue_users (role);
+```
+
+---
+
+### 2.23 `table_merge_sessions` — Unioni tavolo attive
+
+> **Struttura modificata rispetto all'originale**: la PK è ora un UUID `id` separato (non `slave_table`) per
+> compatibilità con Directus, che non permette relazioni M2O su campi PK. Il campo `slave_table` ha vincolo
+> UNIQUE che garantisce al massimo un record per tavolo slave.
+
+```sql
+-- Unioni tavolo attive: ogni riga rappresenta un'unione slave → master.
+-- Il record viene eliminato quando l'unione viene annullata (split).
+CREATE TABLE table_merge_sessions (
+    id           UUID         PRIMARY KEY DEFAULT gen_random_uuid(), -- UUID Directus; non usato lato client
+    slave_table  VARCHAR(10)  NOT NULL UNIQUE REFERENCES tables(id), -- tavolo che delega il proprio stato al master
+    master_table VARCHAR(10)  NOT NULL REFERENCES tables(id),        -- tavolo che riceve le comande
+    merged_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_table_merge_master ON table_merge_sessions (master_table);
+```
+
+**Semantica:**
+- Un tavolo slave ha **esattamente una** riga in questa collection quando è unito.
+- `getTableStatus(slaveId)` delega a `getTableStatus(masterId)` grazie a `tableMergedInto[slaveId]` in store.
+- Le comande dello slave vengono fisicamente spostate sulla `bill_session` del master al momento del merge.
+- L'eliminazione del record (split) ripristina l'autonomia del tavolo slave.
+
+---
+
 ## 3. Relazioni
 
 ```
 venues ──< rooms ──< tables
+venues ──< venue_users
+tables ──< table_merge_sessions (slave_table → master_table)
 venues ──< payment_methods
 venues ──< menu_categories ──< menu_items ──< menu_item_modifiers
 venues ──< bill_sessions >── tables
@@ -837,7 +898,9 @@ Cardinalità:
 | Da             | Relazione | A                        |
 |----------------|-----------|--------------------------|
 | venue          | 1 : N     | rooms                    |
+| venue          | 1 : N     | venue_users              |
 | room           | 1 : N     | tables                   |
+| table          | 0 : 1     | table_merge_sessions (slave_table, UNIQUE) |
 | venue          | 1 : N     | payment_methods          |
 | venue          | 1 : N     | menu_categories          |
 | menu_category  | 1 : N     | menu_items               |
@@ -1064,12 +1127,14 @@ Semantica:
 - In un database relazionale questa relazione è modellata con una collection dedicata per rappresentare il merge attivo:
 
 ```sql
--- Active table merges; row is deleted when the merge is undone (split)
+-- Active table merges; row is deleted when the merge is undone (split).
+-- NOTA: PK UUID separato per compatibilità Directus (non permette relazioni M2O su campi PK).
+--       slave_table ha vincolo UNIQUE: al massimo una riga per tavolo slave.
 CREATE TABLE table_merge_sessions (
-    slave_table   VARCHAR(10) NOT NULL REFERENCES tables(id),
-    master_table  VARCHAR(10) NOT NULL REFERENCES tables(id),
-    merged_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
-    PRIMARY KEY (slave_table)
+    id           UUID        PRIMARY KEY DEFAULT gen_random_uuid(), -- UUID Directus; non usato lato client
+    slave_table  VARCHAR(10) NOT NULL UNIQUE REFERENCES tables(id), -- tavolo che delega il proprio stato al master
+    master_table VARCHAR(10) NOT NULL REFERENCES tables(id),        -- tavolo che riceve le comande
+    merged_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 ```
 
@@ -1868,3 +1933,84 @@ record.venue_user_updated = currentPinUser?.id ?? null
 │    8. PULL aggiorna venue_users + dati operativi da Directus        │
 └─────────────────────────────────────────────────────────────────────┘
 ```
+
+
+---
+
+### 5.10 Organizzazione admin Directus
+
+Il pannello admin di Directus è organizzato in **5 cartelle tematiche** che rispecchiano i moduli
+applicativi reali (cassa, sala, menu, configurazione, sistema). Le collection vengono assegnate a
+una cartella tramite la proprietà `group` dei metadati di collezione (`meta.group = <nome_cartella>`).
+
+#### Struttura cartelle
+
+| Cartella          | Icona                    | Colore    | Collection                                                                                                                                                             |
+|-------------------|--------------------------|-----------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `configurazione`  | `settings`               | `#546E7A` | `venues`, `venue_users`, `payment_methods`, `app_settings`, `printers`                                                                                                |
+| `menu`            | `menu_book`              | `#EF6C00` | `menu_items`, `menu_categories`, `menu_item_modifiers`                                                                                                                 |
+| `sala`            | `table_restaurant`       | `#1565C0` | `tables`, `rooms`, `table_merge_sessions`                                                                                                                              |
+| `cassa`           | `point_of_sale`          | `#2E7D32` | `orders`, `bill_sessions`, `order_items`, `order_item_modifiers`, `transactions`, `cash_movements`, `daily_closures`, `daily_closure_by_method`, `transaction_order_refs`, `transaction_voce_refs` |
+| `sistema`         | `integration_instructions` | `#0277BD` | `print_jobs`, `fiscal_receipts`, `invoice_requests`                                                                                                                   |
+
+#### Icone Material Design per collection
+
+| Collection                  | Icona                   | Traduzione it-IT             | Traduzione en-US            |
+|-----------------------------|-------------------------|------------------------------|-----------------------------|
+| `venues`                    | `store`                 | Punto Vendita / Punti Vendita | Venue / Venues             |
+| `venue_users`               | `badge`                 | Operatore / Operatori        | Operator / Operators        |
+| `payment_methods`           | `payments`              | Metodo di Pagamento / Metodi | Payment Method / Methods   |
+| `app_settings`              | `tune`                  | Impostazioni App             | App Settings                |
+| `printers`                  | `print`                 | Stampante / Stampanti        | Printer / Printers          |
+| `menu_items`                | `restaurant_menu`       | Voce Menu / Voci Menu        | Menu Item / Menu Items      |
+| `menu_categories`           | `category`              | Categoria Menu / Categorie   | Menu Category / Categories  |
+| `menu_item_modifiers`       | `add_circle`            | Modificatore / Modificatori  | Modifier / Modifiers        |
+| `tables`                    | `table_restaurant`      | Tavolo / Tavoli              | Table / Tables              |
+| `rooms`                     | `meeting_room`          | Sala / Sale                  | Room / Rooms                |
+| `table_merge_sessions`      | `merge`                 | Unione Tavoli                | Table Merges                |
+| `orders`                    | `restaurant`            | Comanda / Comande            | Order / Orders              |
+| `bill_sessions`             | `receipt`               | Sessione Tavolo / Sessioni   | Table Session / Sessions    |
+| `order_items`               | `lunch_dining`          | Riga Comanda / Righe         | Order Item / Order Items    |
+| `order_item_modifiers`      | `playlist_add`          | Modificatore Comanda         | Order Item Modifier         |
+| `transactions`              | `receipt_long`          | Transazione / Transazioni    | Transaction / Transactions  |
+| `cash_movements`            | `account_balance_wallet`| Movimento Cassa              | Cash Movement               |
+| `daily_closures`            | `summarize`             | Chiusura Giornaliera         | Daily Closure               |
+| `daily_closure_by_method`   | `bar_chart`             | Dettaglio per Metodo         | Closure by Method           |
+| `transaction_order_refs`    | `link`                  | Ref Pagamento-Comanda        | Payment-Order Ref           |
+| `transaction_voce_refs`     | `analytics`             | Riga Analitica               | Analytic Line               |
+| `print_jobs`                | `print`                 | Job di Stampa / Job          | Print Job / Print Jobs      |
+| `fiscal_receipts`           | `receipt`               | Scontrino Fiscale            | Fiscal Receipt              |
+| `invoice_requests`          | `description`           | Richiesta Fattura            | Invoice Request             |
+
+#### Ordinamento campi nelle form
+
+Per tutte le collection, la convenzione di ordinamento dei campi nella form di dettaglio è:
+
+| Posizione (sort) | Tipo di campo                                          |
+|------------------|--------------------------------------------------------|
+| 1                | `id` (nascosto, readonly)                              |
+| 2–10             | Campi di dominio principali (nome, stato, prezzo, ecc.)|
+| 11–50            | Campi relazionali M2O (venue, table, order, ecc.)      |
+| 51–90            | Campi secondari / flag booleani / JSON payload          |
+| 91–92            | `venue_user_created`, `venue_user_updated` (se presenti)|
+| 100              | `date_created` (nascosto)                              |
+| 101              | `date_updated` (nascosto)                              |
+
+#### Configurazione `display_template`
+
+I `display_template` consentono di mostrare descrizioni leggibili nei selettori relazionali
+invece degli UUID:
+
+| Collection         | `display_template`                    |
+|--------------------|---------------------------------------|
+| `venues`           | `{{name}}`                            |
+| `venue_users`      | `{{display_name}} ({{role}})`         |
+| `rooms`            | `{{name}}`                            |
+| `tables`           | `{{name}}`                            |
+| `menu_categories`  | `{{name}}`                            |
+| `menu_items`       | `{{name}} — {{price}}€`               |
+| `bill_sessions`    | `{{id}} — {{status}}`                 |
+| `orders`           | `{{id}} — {{status}}`                 |
+| `payment_methods`  | `{{name}}`                            |
+| `printers`         | `{{name}}`                            |
+| `transactions`     | `{{id}} — {{operation_type}}`         |
