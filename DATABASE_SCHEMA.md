@@ -654,8 +654,8 @@ CREATE TABLE printers (
     -- ── Endpoint HTTP (per hook push + frontend) ──────────────────────────────
     -- URL del servizio print-server a cui inviare i job via POST /print.
     -- Usato dall'estensione hook print-dispatcher (Modalità 3) e dal frontend
-    -- (Modalità 1). Obbligatorio; può coincidere con http://localhost:3001/print.
-    url             TEXT            NOT NULL,               -- es. 'http://localhost:3001/print'
+    -- (Modalità 1). NULL se si usa solo connessione diretta TCP/File.
+    url             TEXT            NULL,                   -- es. 'http://localhost:3001/print'
 
     -- ── Connessione diretta (per Directus Pull — Modalità 2) ─────────────────
     -- Quando connection_type = 'tcp' o 'file', il print-server in modalità pull
@@ -690,10 +690,10 @@ CREATE TABLE printers (
 ```
 
 > **Nota:** `connection_type`, `tcp_host`, `tcp_port`, `tcp_timeout`, `file_device` sono campi
-> **nuovi** aggiunti per supportare la modalità Directus Pull (Modalità 2). Se si usa solo la
-> Modalità 1 (HTTP Push) o la Modalità 3 (Hook Push), questi campi possono essere omessi e la
-> configurazione fisica delle stampanti rimane in `printers.config.js` o nelle variabili
-> `PRINTER_<N>_*`.
+> aggiunti per supportare la modalità Directus Pull (Modalità 2) e sono già presenti sulla
+> collezione `printers` del server Directus (aggiunti via MCP). Il campo `url` è ora opzionale
+> (nullable): viene mostrato e reso obbligatorio nell'interfaccia Directus solo quando
+> `connection_type = 'http'`. Per le modalità TCP e File/USB, `url` può essere lasciato vuoto.
 
 ---
 
