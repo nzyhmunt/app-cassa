@@ -200,12 +200,11 @@
         WebSocket abilitato (non connesso)
       </p>
     </div>
+
+    <!-- Sync queue log modal (admin only) -->
+    <SyncQueueLogModal v-model="showQueueLog" />
   </div>
 </template>
-
-<!-- Sync queue log modal (admin only) -->
-<SyncQueueLogModal v-model="showQueueLog" />
-
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue';
 import {
