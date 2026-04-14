@@ -39,9 +39,8 @@ const cors    = require('cors');
 const express = require('express');
 
 const { printBuffer, getPrintersList, getPrinterConfig } = require('./printer.js');
-const { formatOrder }     = require('./formatters/order.js');
-const { formatTableMove } = require('./formatters/table_move.js');
-const { formatPreBill }   = require('./formatters/pre_bill.js');
+const { buildEscPosBuffer } = require('./build-buffer.js');
+const directusClient = require('./directus-client.js');
 
 // ── Configurazione ────────────────────────────────────────────────────────────
 
@@ -211,25 +210,7 @@ app.post('/print', apiKeyGuard, async (req, res) => {
 });
 
 // ── Formattazione ESC/POS ─────────────────────────────────────────────────────
-
-/**
- * Seleziona il formatter appropriato in base a job.printType e restituisce il Buffer.
- * @param {object} job
- * @returns {Buffer}
- * @throws {Error} Se job.printType non è supportato.
- */
-function buildEscPosBuffer(job) {
-  switch (job.printType) {
-    case 'order':
-      return formatOrder(job);
-    case 'table_move':
-      return formatTableMove(job);
-    case 'pre_bill':
-      return formatPreBill(job);
-    default:
-      throw new Error(`Tipo di stampa non supportato: ${job.printType}`);
-  }
-}
+// Delegato a build-buffer.js (condiviso con directus-client.js)
 
 // ── JSON / body-size error handler ────────────────────────────────────────────
 
@@ -278,6 +259,12 @@ server.listen(PORT, () => {
       console.log(`[print-server]   [${p.id}] ${p.name}  (${conn})`);
     }
   }
+
+  // Avvia modalità Directus Pull se DIRECTUS_URL e DIRECTUS_TOKEN sono impostati.
+  // La funzione è non bloccante: polling e WebSocket girano in background.
+  directusClient.start(console).catch((err) => {
+    console.error('[print-server] Errore avvio Directus pull mode:', err.message);
+  });
 });
 
 server.on('error', (err) => {
