@@ -307,16 +307,26 @@ async function testConnection() {
 
 /** Persists the form values to localStorage and updates appConfig. */
 function saveConfig() {
-  appConfig.directus = {
+  const nextDirectusConfig = {
     enabled: form.enabled,
     url: form.url.trim(),
     staticToken: form.staticToken.trim(),
     venueId: form.venueId || null,
     wsEnabled: form.wsEnabled,
   };
+
+  appConfig.directus = nextDirectusConfig;
   saveDirectusConfigToStorage();
   _savedSnapshot.value = JSON.stringify({ ...form });
   connectionStatus.value = 'idle';
+
+  window.dispatchEvent(
+    new CustomEvent('directus-config-updated', {
+      detail: {
+        directus: { ...nextDirectusConfig },
+      },
+    }),
+  );
 }
 
 /** Formats an ISO timestamp to a locale-friendly short string. */
