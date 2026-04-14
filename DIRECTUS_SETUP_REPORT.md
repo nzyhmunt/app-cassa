@@ -8,7 +8,7 @@ Riferimento schema: `DATABASE_SCHEMA.md`
 
 ## Riepilogo operazioni
 
-Sono state create **23 collection** su Directus con tutti i campi e le relazioni definiti in `DATABASE_SCHEMA.md`.
+Sono state create **24 collection** su Directus con tutti i campi e le relazioni definiti in `DATABASE_SCHEMA.md`.
 
 ---
 
