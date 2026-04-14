@@ -32,7 +32,7 @@ Per ogni campo di tipo enumerazione o stato è stato impostato:
 | `menu_item_modifiers` | `status` | published / archived | verde / arancione |
 | `printers` | `status` | published / archived | verde / arancione |
 | `bill_sessions` | `status` | open / closed | verde `#4CAF50` / grigio `#9E9E9E` |
-| `orders` | `status` | pending / accepted / preparing / ready / delivered / completed / rejected | arancione / blu / rosso-fuoco / verde / ciano / grigio / rosso |
+| `orders` | `status` | pending / accepted / preparing / ready / delivered / completed / rejected | `#FF9800` / `#2196F3` / `#FF5722` / `#4CAF50` / `#00BCD4` / `#9E9E9E` / `#F44336` |
 | `order_items` | `status` | active / archived | verde / arancione |
 | `order_item_modifiers` | `status` | active / archived | verde / arancione |
 | `transactions` | `status` | active / archived | verde / arancione |
