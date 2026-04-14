@@ -160,12 +160,13 @@ export async function saveStateToIDB(state) {
       }))));
     }
     if ('tableMergedInto' in state) {
+      const now = new Date().toISOString();
       const records = Object.entries(state.tableMergedInto ?? {})
         .filter(([slave, master]) => slave && master)
         .map(([slave, master]) => ({
           slave_table: slave,
           master_table: master,
-          merged_at: new Date().toISOString(),
+          merged_at: now,
         }));
       ops.push(_replaceAll(db, 'table_merge_sessions', records));
     }
