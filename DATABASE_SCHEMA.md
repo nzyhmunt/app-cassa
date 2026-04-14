@@ -849,8 +849,8 @@ CREATE INDEX idx_venue_users_role   ON venue_users (role);
 -- Il record viene eliminato quando l'unione viene annullata (split).
 CREATE TABLE table_merge_sessions (
     id           UUID         PRIMARY KEY DEFAULT gen_random_uuid(), -- UUID Directus; non usato lato client
-    slave_table  VARCHAR(10)  NOT NULL UNIQUE REFERENCES tables(id), -- tavolo che delega il proprio stato al master
-    master_table VARCHAR(10)  NOT NULL REFERENCES tables(id),        -- tavolo che riceve le comande
+    slave_table  VARCHAR(10)  NOT NULL UNIQUE REFERENCES tables(id) ON DELETE CASCADE, -- tavolo che delega il proprio stato al master
+    master_table VARCHAR(10)  NOT NULL REFERENCES tables(id) ON DELETE CASCADE,        -- tavolo che riceve le comande
     merged_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
 
