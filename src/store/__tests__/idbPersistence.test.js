@@ -629,13 +629,18 @@ describe('pruneInvoiceRequestsInIDB()', () => {
 
 // ── v2 → v3 migration ────────────────────────────────────────────────────────
 
+function _getTestDBName() {
+  const instanceName = String(globalThis.appConfig?.instanceName ?? '').trim();
+  return instanceName ? `app-cassa-${instanceName}` : 'app-cassa';
+}
+
 /**
  * Seeds a v2 IndexedDB with the legacy app_meta.tableMergedInto blob so the
  * upgrade handler can be exercised without needing to downgrade a real DB.
  */
 async function _seedV2DB(legacyValue) {
   await new Promise((resolve, reject) => {
-    const req = indexedDB.open('app-cassa', 2);
+    const req = indexedDB.open(_getTestDBName(), 2);
     req.onupgradeneeded = (e) => {
       const db = e.target.result;
       if (!db.objectStoreNames.contains('app_meta')) {
