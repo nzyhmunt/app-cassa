@@ -107,6 +107,13 @@
           <p class="text-[10px] text-gray-400 font-mono truncate leading-tight">
             ID: {{ entry.record_id }}
           </p>
+          <!-- Error message (only on failed entries) -->
+          <p
+            v-if="entry.attempts > 0 && entry.last_error"
+            class="text-[10px] text-red-500 leading-tight break-words line-clamp-2"
+          >
+            {{ entry.last_error }}
+          </p>
           <!-- Timestamp -->
           <p class="text-[10px] text-gray-400 leading-tight">
             {{ formatTs(entry.date_created) }}
