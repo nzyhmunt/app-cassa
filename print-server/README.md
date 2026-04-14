@@ -42,7 +42,7 @@ Directus print_jobs ──WebSocket (real-time)──► print-server ──TCP/
 
 | Meccanismo | Descrizione | Latenza tipica |
 |---|---|---|
-| WebSocket subscription | Riceve ogni `create` su `print_jobs` in tempo reale via `@directus/sdk` `realtime()` | < 100ms |
+| WebSocket subscription | Riceve ogni `create` su `print_jobs` in tempo reale via `@directus/sdk` `realtime()`. Usa il WebSocket nativo di Node.js 22+. | < 100ms |
 | REST polling (fallback) | Query periodica per tutti i job `pending` — recupera job persi durante disconnessioni o riavvii | max `DIRECTUS_POLL_SEC` sec |
 
 Il polling è **sempre attivo** come rete di sicurezza, anche quando il WebSocket
@@ -68,23 +68,45 @@ diretto al database).
 | Variabile | Default | Descrizione |
 |---|---|---|
 | `DIRECTUS_URL` | *(vuoto — disabilitato)* | URL base di Directus (es. `http://localhost:8055`) |
-| `DIRECTUS_TOKEN` | *(vuoto)* | Static token con permessi `read/write` su `print_jobs` |
+| `DIRECTUS_TOKEN` | *(vuoto)* | Static token con permessi `read/write` su `print_jobs`, `read` su `printers` |
 | `DIRECTUS_VENUE_ID` | *(vuoto — tutti)* | Filtra job per venue ID (intero) |
 | `DIRECTUS_POLL_SEC` | `60` | Intervallo polling REST in secondi (minimo: 5) |
 | `DIRECTUS_WS_RETRIES` | `100` | Tentativi di riconnessione WebSocket |
 | `DIRECTUS_WS_RETRY_DELAY` | `3000` | Attesa tra riconnessioni WS in ms |
 | `DIRECTUS_RETRY_MAX` | `3` | Tentativi per job in caso di errore transitorio |
 | `DIRECTUS_RETRY_DELAY_MS` | `2000` | Attesa tra tentativi per job in ms |
+| `DIRECTUS_PRINTERS_REFRESH_SEC` | `300` | Intervallo refresh lista stampanti da Directus (sec) |
 
 **Permessi Directus necessari per il token:**
 
 | Collezione | Permessi |
 |---|---|
 | `print_jobs` | `read`, `update` |
+| `printers` | `read` |
 
-**WebSocket e Node.js:** il modulo `ws` (incluso nelle dipendenze) viene usato come
-implementazione WebSocket esplicita per stabilità su Node.js 18-20. Su Node.js 22+
-è disponibile il WebSocket nativo; `ws` rimane preferito per configurabilità.
+**Configurazione stampanti da Directus (Modalità 2):**
+
+Quando Directus è disponibile, la collezione `printers` diventa la fonte unica di verità per la
+configurazione delle stampanti fisiche. Il print-server legge i campi di connessione diretta
+(`connection_type`, `tcp_host`, `tcp_port`, `tcp_timeout`, `file_device`) e li usa per
+comunicare direttamente con le stampanti, ignorando `printers.config.js` e le variabili
+`PRINTER_<N>_*`.
+
+**Campi aggiuntivi richiesti nella collezione `printers` per la Modalità 2:**
+
+| Campo Directus | Tipo | Valori | Descrizione |
+|---|---|---|---|
+| `connection_type` | `string` | `'tcp'` \| `'file'` \| `'http'` | Tipo di connessione diretta. `http` = non gestita in pull mode |
+| `tcp_host` | `string` | es. `192.168.1.100` | *(tcp)* IP/hostname della stampante |
+| `tcp_port` | `integer` | default `9100` | *(tcp)* Porta TCP ESC/POS |
+| `tcp_timeout` | `integer` | default `5000` | *(tcp)* Timeout connessione in ms |
+| `file_device` | `string` | default `/dev/usb/lp0` | *(file)* Percorso device USB/parallela |
+
+Solo le stampanti con `connection_type = 'tcp'` o `'file'` vengono usate in pull mode.
+Se nessuna stampante ha questi valori (o la collezione non ha i campi), si usa la configurazione
+locale (`printers.config.js` o `PRINTER_<N>_*`).
+
+La lista stampanti viene aggiornata ogni `DIRECTUS_PRINTERS_REFRESH_SEC` secondi (default: 5 min).
 
 ---
 
@@ -123,7 +145,7 @@ Vedi `directus-extensions/hooks/print-dispatcher/README.md` per dettagli.
 
 ## Requisiti
 
-- **Node.js ≥ 20.19**
+- **Node.js ≥ 22** (WebSocket nativo richiesto per la modalità Directus Pull)
 - Una o più stampanti termiche compatibili ESC/POS (rete TCP o USB)
 - *(Modalità 2/3)* Directus ≥ 10.0.0 con le collezioni `print_jobs` e `printers`
 
@@ -249,7 +271,31 @@ devices:
 
 ## Configurazione stampanti
 
-### Opzione A — `printers.config.js`
+Le stampanti fisiche possono essere configurate in tre modi, con ordine di precedenza decrescente:
+
+| Priorità | Metodo | Quando usarlo |
+|---|---|---|
+| **1 (massima)** | Collezione `printers` su Directus (`connection_type = tcp/file`) | Modalità 2 (Directus Pull): configurazione centralizzata |
+| **2** | Variabili d'ambiente `PRINTER_<N>_*` | Docker Compose, deployment containerizzato |
+| **3** | `printers.config.js` | Sviluppo locale, deployment standalone |
+
+### Opzione 1 — Directus `printers` collection (Modalità 2)
+
+Aggiungi i campi di connessione diretta alla collection `printers` in Directus (vedi `DATABASE_SCHEMA.md`
+sezione 2.18) e imposta `connection_type = 'tcp'` o `'file'`. Il print-server leggerà questi dati
+all'avvio e ogni `DIRECTUS_PRINTERS_REFRESH_SEC` secondi.
+
+```
+# Esempio: stampante TCP configurata in Directus
+id: 'cucina'
+name: 'Cucina'
+connection_type: 'tcp'
+tcp_host: '192.168.1.100'
+tcp_port: 9100
+url: 'http://localhost:3001/print'   ← ancora richiesto per hook push / frontend
+```
+
+### Opzione 2 — `printers.config.js`
 
 ```js
 module.exports = {
@@ -261,7 +307,7 @@ module.exports = {
 };
 ```
 
-### Opzione B — variabili d'ambiente `PRINTER_<N>_*` (consigliata con Docker)
+### Opzione 3 — variabili d'ambiente `PRINTER_<N>_*` (consigliata con Docker)
 
 Se è impostata almeno `PRINTER_0_ID`, le stampanti vengono lette dalle
 variabili d'ambiente **al posto** di `printers.config.js`.
@@ -299,6 +345,7 @@ variabili d'ambiente **al posto** di `printers.config.js`.
 | `DIRECTUS_WS_RETRY_DELAY` | `3000` | Attesa tra riconnessioni WS (ms) |
 | `DIRECTUS_RETRY_MAX` | `3` | Tentativi per job (errore transitorio) |
 | `DIRECTUS_RETRY_DELAY_MS` | `2000` | Attesa tra tentativi (ms) |
+| `DIRECTUS_PRINTERS_REFRESH_SEC` | `300` | Refresh stampanti da Directus (sec) |
 
 ---
 

@@ -638,8 +638,9 @@ CREATE TABLE app_settings (
 
 ### 2.18 `printers` — Stampanti ESC/POS configurate
 
-I dati delle stampanti sono configurati staticamente in `appConfig.printers` e non sono persistiti
-in localStorage. Con Directus si tradurrebbero nella seguente collection.
+I dati delle stampanti sono configurati in `appConfig.printers` (frontend) e nella collezione
+Directus `printers` (backend). Quando la modalità Directus Pull è attiva, la collezione
+Directus è la **fonte unica di verità** e sovrascrive `printers.config.js` / `PRINTER_<N>_*`.
 
 Campi Directus standard abilitati: `status`, `user_created`, `date_created`, `user_updated`, `date_updated`.
 
@@ -649,7 +650,28 @@ CREATE TABLE printers (
     status          VARCHAR(20)     NOT NULL DEFAULT 'published', -- 'published' | 'archived'
     venue           INTEGER         NOT NULL REFERENCES venues(id) ON DELETE CASCADE,
     name            VARCHAR(80)     NOT NULL,               -- nome visualizzato nella UI
-    url             TEXT            NOT NULL,               -- URL servizio Node ESC/POS
+
+    -- ── Endpoint HTTP (per hook push + frontend) ──────────────────────────────
+    -- URL del servizio print-server a cui inviare i job via POST /print.
+    -- Usato dall'estensione hook print-dispatcher (Modalità 3) e dal frontend
+    -- (Modalità 1). Obbligatorio; può coincidere con http://localhost:3001/print.
+    url             TEXT            NOT NULL,               -- es. 'http://localhost:3001/print'
+
+    -- ── Connessione diretta (per Directus Pull — Modalità 2) ─────────────────
+    -- Quando connection_type = 'tcp' o 'file', il print-server in modalità pull
+    -- si connette direttamente alla stampante fisica senza passare per l'endpoint HTTP.
+    -- Se connection_type = 'http' o NULL, viene usata la connessione via URL (sopra).
+    connection_type VARCHAR(10)     NOT NULL DEFAULT 'http', -- 'http' | 'tcp' | 'file'
+
+    -- Connessione TCP (per connection_type = 'tcp')
+    tcp_host        VARCHAR(255)    NULL,                   -- IP/hostname stampante (es. 192.168.1.100)
+    tcp_port        SMALLINT        NULL DEFAULT 9100,      -- porta TCP ESC/POS (tipicamente 9100)
+    tcp_timeout     INTEGER         NULL DEFAULT 5000,      -- timeout connessione in ms
+
+    -- Connessione file/USB (per connection_type = 'file')
+    file_device     TEXT            NULL DEFAULT '/dev/usb/lp0', -- percorso device USB/parallela
+
+    -- ── Routing (per frontend — Modalità 1) ──────────────────────────────────
     -- print_types: quali tipi di lavoro riceve questa stampante.
     -- Valori ammessi: 'order', 'table_move', 'pre_bill', oppure un tipo custom.
     -- Array vuoto / NULL = catch-all (riceve tutti i tipi).
@@ -657,6 +679,7 @@ CREATE TABLE printers (
     -- categories: filtro menu per i lavori di tipo 'order'.
     -- Se vuoto, riceve tutte le voci del menu (catch-all).
     categories      TEXT[]          NOT NULL DEFAULT '{}',
+
     sort            INTEGER         NULL,
     -- Directus standard fields
     user_created    UUID            NULL REFERENCES directus_users(id),
@@ -665,6 +688,12 @@ CREATE TABLE printers (
     date_updated    TIMESTAMPTZ     NOT NULL DEFAULT NOW()
 );
 ```
+
+> **Nota:** `connection_type`, `tcp_host`, `tcp_port`, `tcp_timeout`, `file_device` sono campi
+> **nuovi** aggiunti per supportare la modalità Directus Pull (Modalità 2). Se si usa solo la
+> Modalità 1 (HTTP Push) o la Modalità 3 (Hook Push), questi campi possono essere omessi e la
+> configurazione fisica delle stampanti rimane in `printers.config.js` o nelle variabili
+> `PRINTER_<N>_*`.
 
 ---
 

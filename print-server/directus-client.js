@@ -17,6 +17,7 @@
  *     tipicamente entro centesimi di secondo dalla sua creazione su Directus.
  *     Utilizza la funzione `realtime()` dell'SDK Directus con riconnessione
  *     automatica configurabile.
+ *     Richiede Node.js ≥ 22 (WebSocket nativo in globalThis, usato dall'SDK).
  *
  *  2. REST polling (fallback continuo)
  *     Ogni DIRECTUS_POLL_SEC secondi esegue una query REST per tutti i job
@@ -26,14 +27,23 @@
  *       - La sottoscrizione WS ha saltato eventi per un glitch di rete
  *     Il polling è sempre attivo, anche quando il WebSocket funziona correttamente.
  *
- * ── Risoluzione stampante ─────────────────────────────────────────────────────
+ * ── Configurazione stampanti da Directus ─────────────────────────────────────
  *
- *  Il campo `print_jobs.printer` (FK a `printers.id`) viene confrontato con la
- *  configurazione locale delle stampanti fisiche (printers.config.js o variabili
- *  d'ambiente PRINTER_<N>_*). I due sistemi devono usare gli stessi printer ID.
- *  La collezione `printers` in Directus contiene il campo `url` (endpoint HTTP)
- *  usato in modalità push; in modalità pull non serve — la connessione TCP/file
- *  viene letta dalla configurazione locale.
+ *  Quando Directus è disponibile, la lista delle stampanti viene letta dalla
+ *  collezione `printers`. Questa diventa la fonte unica di verità, sostituendo
+ *  printers.config.js e le variabili d'ambiente PRINTER_<N>_*.
+ *
+ *  La collezione `printers` deve avere i campi di connessione:
+ *    connection_type  — 'tcp' | 'file' | 'http'
+ *    tcp_host         — IP/hostname (per type='tcp')
+ *    tcp_port         — porta TCP (default 9100)
+ *    tcp_timeout      — timeout ms (default 5000)
+ *    file_device      — percorso device (per type='file', default /dev/usb/lp0)
+ *
+ *  Se nessuna stampante ha connection_type='tcp' o 'file', il sistema ricade
+ *  sulla configurazione locale (printers.config.js o PRINTER_<N>_*).
+ *
+ *  La lista stampanti viene aggiornata ogni DIRECTUS_PRINTERS_REFRESH_SEC sec.
  *
  * ── Ciclo di vita di un job ───────────────────────────────────────────────────
  *
@@ -42,16 +52,15 @@
  *
  * ── Variabili d'ambiente ──────────────────────────────────────────────────────
  *
- *  DIRECTUS_URL              — URL base di Directus (es. http://directus:8055)
- *  DIRECTUS_TOKEN            — Static token con permessi su print_jobs e printers
- *  DIRECTUS_VENUE_ID         — (opzionale) filtra i job per venue (integer ID)
- *  DIRECTUS_POLL_SEC         — intervallo polling REST in secondi (default: 60)
- *  DIRECTUS_WS_RETRIES       — tentativi di riconnessione WS (default: 100)
- *  DIRECTUS_WS_RETRY_DELAY   — attesa tra riconnessioni WS in ms (default: 3000)
- *  DIRECTUS_TIMEOUT_MS       — timeout per richieste REST in ms (non supportato
- *                              nativamente dall'SDK; vedi AbortController nei retry)
- *  DIRECTUS_RETRY_MAX        — tentativi per job in caso di errore transitorio (default: 3)
- *  DIRECTUS_RETRY_DELAY_MS   — attesa tra tentativi per job in ms (default: 2000)
+ *  DIRECTUS_URL                    — URL base di Directus (es. http://directus:8055)
+ *  DIRECTUS_TOKEN                  — Static token con permessi su print_jobs e printers
+ *  DIRECTUS_VENUE_ID               — (opzionale) filtra i job per venue (integer ID)
+ *  DIRECTUS_POLL_SEC               — intervallo polling REST in secondi (default: 60)
+ *  DIRECTUS_WS_RETRIES             — tentativi di riconnessione WS (default: 100)
+ *  DIRECTUS_WS_RETRY_DELAY         — attesa tra riconnessioni WS in ms (default: 3000)
+ *  DIRECTUS_RETRY_MAX              — tentativi per job in caso di errore transitorio (default: 3)
+ *  DIRECTUS_RETRY_DELAY_MS         — attesa tra tentativi per job in ms (default: 2000)
+ *  DIRECTUS_PRINTERS_REFRESH_SEC   — intervallo di refresh della lista stampanti (default: 300)
  */
 
 const {
@@ -64,8 +73,8 @@ const {
   updateItem,
 } = require('@directus/sdk');
 
-const { printBuffer }      = require('./printer.js');
-const { buildEscPosBuffer } = require('./build-buffer.js');
+const { printBuffer, setPrinters }  = require('./printer.js');
+const { buildEscPosBuffer }          = require('./build-buffer.js');
 
 // ── Configurazione ────────────────────────────────────────────────────────────
 
@@ -87,11 +96,12 @@ const DIRECTUS_TOKEN   = process.env.DIRECTUS_TOKEN   || '';
 /** Filtra i job per venue (opzionale — null = tutti i venue). */
 const DIRECTUS_VENUE   = process.env.DIRECTUS_VENUE_ID || null;
 
-const POLL_SEC          = Math.max(5,    envInt('DIRECTUS_POLL_SEC',        60));
-const WS_RETRIES        = Math.max(1,    envInt('DIRECTUS_WS_RETRIES',     100));
-const WS_RETRY_DELAY    = Math.max(500,  envInt('DIRECTUS_WS_RETRY_DELAY', 3000));
-const RETRY_MAX         = Math.max(0,    envInt('DIRECTUS_RETRY_MAX',         3));
-const RETRY_DELAY_MS    = Math.max(0,    envInt('DIRECTUS_RETRY_DELAY_MS', 2000));
+const POLL_SEC              = Math.max(5,   envInt('DIRECTUS_POLL_SEC',             60));
+const WS_RETRIES            = Math.max(1,   envInt('DIRECTUS_WS_RETRIES',          100));
+const WS_RETRY_DELAY        = Math.max(500, envInt('DIRECTUS_WS_RETRY_DELAY',      3000));
+const RETRY_MAX             = Math.max(0,   envInt('DIRECTUS_RETRY_MAX',              3));
+const RETRY_DELAY_MS        = Math.max(0,   envInt('DIRECTUS_RETRY_DELAY_MS',       2000));
+const PRINTERS_REFRESH_SEC  = Math.max(30,  envInt('DIRECTUS_PRINTERS_REFRESH_SEC', 300));
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -131,6 +141,105 @@ function buildJobFilter() {
 /** Campi da richiedere per ogni job. */
 const JOB_FIELDS = ['log_id', 'job_id', 'printer', 'print_type', 'payload', 'status', 'venue'];
 
+// ── Stampanti da Directus ─────────────────────────────────────────────────────
+
+/**
+ * Campi della collezione `printers` necessari per la connessione fisica.
+ * La collection deve includere i campi di connessione diretta (aggiunti rispetto
+ * allo schema base che aveva solo `id`, `name`, `url`).
+ */
+const PRINTER_FIELDS = [
+  'id', 'name', 'status',
+  'connection_type',  // 'tcp' | 'file' | 'http'
+  'tcp_host',         // IP/hostname per connessioni TCP
+  'tcp_port',         // porta TCP (default 9100)
+  'tcp_timeout',      // timeout ms (default 5000)
+  'file_device',      // percorso device per connessioni file (default /dev/usb/lp0)
+];
+
+/**
+ * Legge le stampanti dalla collezione `printers` di Directus e applica la
+ * configurazione al print-server tramite `setPrinters()`.
+ *
+ * Vengono incluse solo le stampanti con `connection_type` = 'tcp' o 'file'
+ * (quelle con connessione diretta gestita dal print-server). Le stampanti
+ * con `connection_type` = 'http' vengono usate dall'hook push e dal frontend.
+ *
+ * Se nessuna stampante con connessione diretta è configurata in Directus,
+ * la configurazione locale (printers.config.js o PRINTER_<N>_*) viene mantenuta.
+ *
+ * @param {object} restClient
+ * @param {object} log
+ * @returns {Promise<boolean>} true se la configurazione è stata aggiornata
+ */
+async function fetchAndApplyPrinters(restClient, log) {
+  let rawPrinters;
+  try {
+    rawPrinters = await restClient.request(
+      readItems('printers', {
+        filter: { status: { _eq: 'published' } },
+        fields: PRINTER_FIELDS,
+      }),
+    );
+  } catch (err) {
+    log.warn(`[directus-client] Impossibile leggere la collezione printers: ${safeLog(err.message)}`);
+    return false;
+  }
+
+  if (!Array.isArray(rawPrinters)) return false;
+
+  // Mappa i record Directus al formato atteso da printer.js
+  const connectable = rawPrinters
+    .filter(p => p.connection_type === 'tcp' || p.connection_type === 'file')
+    .map(p => {
+      const entry = { id: p.id, name: p.name || p.id, type: p.connection_type };
+      if (p.connection_type === 'file') {
+        entry.device = p.file_device || '/dev/usb/lp0';
+      } else {
+        // type === 'tcp'
+        entry.host    = p.tcp_host    || '127.0.0.1';
+        entry.port    = p.tcp_port    || 9100;
+        entry.timeout = p.tcp_timeout || 5000;
+      }
+      return entry;
+    });
+
+  if (connectable.length === 0) {
+    log.info(
+      '[directus-client] Nessuna stampante con connessione diretta (tcp/file) trovata in Directus ' +
+      '— uso configurazione locale (printers.config.js o PRINTER_<N>_*)',
+    );
+    return false;
+  }
+
+  setPrinters(connectable);
+  log.info(
+    `[directus-client] Stampanti caricate da Directus (${connectable.length}): ` +
+    connectable.map(p => `[${p.id}] ${p.name} (${p.type})`).join(', '),
+  );
+  return true;
+}
+
+/**
+ * Avvia il loop di refresh periodico della lista stampanti da Directus.
+ * Il primo refresh avviene subito (al momento dello start, prima del polling).
+ * I refresh successivi ogni DIRECTUS_PRINTERS_REFRESH_SEC secondi.
+ *
+ * @param {object} restClient
+ * @param {object} log
+ */
+function startPrintersRefresh(restClient, log) {
+  async function tick() {
+    await fetchAndApplyPrinters(restClient, log).catch((err) => {
+      log.warn(`[directus-client] Errore refresh stampanti: ${safeLog(err.message)}`);
+    });
+    setTimeout(tick, PRINTERS_REFRESH_SEC * 1000);
+  }
+  // Primo refresh: ritarda di 15s per non sovraccaricare il bootstrap
+  setTimeout(tick, 15_000);
+  log.info(`[directus-client] Refresh stampanti programmato ogni ${PRINTERS_REFRESH_SEC}s`);
+}
+
 // ── Client factory ────────────────────────────────────────────────────────────
 
 /**
@@ -148,27 +257,17 @@ function createRestClient(url, token) {
 
 /**
  * Crea il client WebSocket Directus.
- * Se il pacchetto `ws` è installato, viene usato come implementazione esplicita
- * di WebSocket per garantire stabilità nei deployment Node.js 18-20.
- * Node.js 20.18+ e 22+ hanno WebSocket nativo, ma `ws` rimane preferito per
- * compatibilità e configurabilità.
+ *
+ * Richiede Node.js ≥ 22, che espone `globalThis.WebSocket` nativamente.
+ * L'SDK Directus (`realtime()`) utilizza automaticamente il WebSocket nativo
+ * quando non viene passato un'implementazione personalizzata tramite `globals`.
+ *
  * @param {string} url
  * @param {string} token
  * @returns {DirectusClient & WebSocketClient}
  */
 function createWsClient(url, token) {
-  let WS;
-  try {
-    // eslint-disable-next-line global-require
-    WS = require('ws');
-  } catch (_) {
-    // ws non installato — usa il WebSocket nativo (Node.js 20.18+)
-    WS = undefined;
-  }
-
-  const globals = WS ? { WebSocket: WS } : {};
-
-  return createDirectus(url, { globals })
+  return createDirectus(url)
     .with(staticToken(token))
     .with(rest())
     .with(realtime({
@@ -345,6 +444,9 @@ function startPolling(restClient, log) {
  * del riavvio. L'SDK gestisce la riconnessione interna; questo loop è un
  * ulteriore livello di resilienza in caso di errori fatali.
  *
+ * Utilizza il WebSocket nativo di Node.js 22+ tramite l'SDK Directus
+ * (`realtime()`). Non è necessario alcun pacchetto aggiuntivo.
+ *
  * @param {object} wsClient    Client con realtime() abilitato
  * @param {object} restClient  Client REST per aggiornare lo stato dei job
  * @param {object} log
@@ -423,7 +525,7 @@ async function verifyConnection(restClient) {
       readItems('print_jobs', { fields: ['log_id'], limit: 1 }),
     );
     return true;
-  } catch (err) {
+  } catch (_err) {
     return false;
   }
 }
@@ -435,9 +537,13 @@ async function verifyConnection(restClient) {
  * Chiamato da server.js in fase di startup se DIRECTUS_URL e DIRECTUS_TOKEN
  * sono impostati.
  *
- * Avvia in parallelo:
- *   - Loop WebSocket (real-time, con riavvio automatico)
- *   - Loop REST polling (fallback, sempre attivo)
+ * Ordine di avvio:
+ *   1. Verifica connessione REST
+ *   2. Carica stampanti da Directus (sovrascrive printers.config.js / env vars
+ *      se la collezione `printers` ha stampanti con connessione diretta tcp/file)
+ *   3. Avvia loop REST polling (fallback, sempre attivo)
+ *   4. Avvia loop WebSocket subscription (real-time)
+ *   5. Avvia refresh periodico delle stampanti
  *
  * @param {object} log   Logger con metodi info, warn, error (es. console)
  * @returns {Promise<void>}
@@ -459,7 +565,7 @@ async function start(log) {
   const restClient = createRestClient(DIRECTUS_URL, DIRECTUS_TOKEN);
   const wsClient   = createWsClient(DIRECTUS_URL, DIRECTUS_TOKEN);
 
-  // Verifica connessione iniziale
+  // ── 1. Verifica connessione iniziale ──────────────────────────────────────
   const ok = await verifyConnection(restClient);
   if (!ok) {
     log.warn(
@@ -471,14 +577,26 @@ async function start(log) {
     log.info('[directus-client] Connessione Directus verificata ✓');
   }
 
-  // Avvia polling REST (sempre attivo, non bloccante)
+  // ── 2. Carica stampanti da Directus ───────────────────────────────────────
+  // Quando disponibili, le stampanti da Directus hanno la precedenza su
+  // printers.config.js e le variabili PRINTER_<N>_*. Questo rende Directus
+  // la fonte unica di verità per tutta la configurazione.
+  await fetchAndApplyPrinters(restClient, log).catch((err) => {
+    log.warn(`[directus-client] Errore caricamento stampanti da Directus: ${safeLog(err.message)}`);
+  });
+
+  // ── 3. Avvia polling REST (sempre attivo, non bloccante) ──────────────────
   startPolling(restClient, log);
 
-  // Avvia WebSocket subscription (non bloccante, si riavvia automaticamente)
+  // ── 4. Avvia WebSocket subscription (non bloccante, si riavvia automaticamente)
   startWebSocketLoop(wsClient, restClient, log).catch((err) => {
     // Non dovrebbe mai arrivare qui (il loop è infinito), ma logga per sicurezza
     log.error(`[directus-client] Errore critico loop WebSocket: ${safeLog(err.message)}`);
   });
+
+  // ── 5. Refresh periodico della lista stampanti ────────────────────────────
+  startPrintersRefresh(restClient, log);
 }
 
 module.exports = { start };
+
