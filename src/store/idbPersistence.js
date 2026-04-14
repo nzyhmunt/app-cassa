@@ -172,11 +172,19 @@ export async function saveStateToIDB(state) {
           master_table: master,
           merged_at: now,
         }));
-      ops.push(_replaceAll(db, 'table_merge_sessions', records));
-      // Also remove the legacy app_meta blob so the fallback in loadStateFromIDB
-      // cannot resurrect stale mappings after an empty-tableMergedInto save clears
-      // table_merge_sessions while the old key is still present.
-      ops.push(db.delete('app_meta', 'tableMergedInto'));
+      // Single transaction spanning both stores: clears table_merge_sessions,
+      // writes the new records, and deletes the legacy app_meta blob atomically
+      // so a partial failure cannot leave a stale blob that would be resurrected
+      // by the backward-compat fallback in loadStateFromIDB.
+      ops.push((async () => {
+        const tx = db.transaction(['table_merge_sessions', 'app_meta'], 'readwrite');
+        const mergeStore = tx.objectStore('table_merge_sessions');
+        const appMetaStore = tx.objectStore('app_meta');
+        await mergeStore.clear();
+        await Promise.all(records.map(r => mergeStore.put(JSON.parse(JSON.stringify(r)))));
+        await appMetaStore.delete('tableMergedInto');
+        await tx.done;
+      })());
     }
     if ('tableOccupiedAt' in state) {
       ops.push(db.put('app_meta', JSON.parse(JSON.stringify({
