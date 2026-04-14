@@ -1,6 +1,6 @@
 /**
  * @file composables/useDirectusSync.js
- * @description Bidirezional sync composable — Step 2 di §5.7.8.
+ * @description Bidirectional sync composable — Step 2 di §5.7.8.
  *
  * Gestisce:
  *  - Push loop  (§5.7.2): svuota la sync_queue verso l'API Directus.
@@ -219,16 +219,20 @@ function _mergeIntoStore(collection, records, store) {
   }
 
   if (collection === 'bill_sessions') {
-    // Merge open sessions into tableCurrentBillSession
+    // Merge open sessions into tableCurrentBillSession.
+    // Pre-build a Map of billSessionId → date_updated to avoid O(n²) lookup into store.orders.
+    const sessionTsMap = new Map(
+      store.orders
+        .filter(o => o.billSessionId && o.date_updated)
+        .map(o => [o.billSessionId, o.date_updated])
+    );
     const currentSessions = { ...store.tableCurrentBillSession };
     for (const incoming of records) {
       if (incoming.status === 'open') {
         const tableId = incoming.table;
         if (!tableId) continue;
         const existingSession = currentSessions[tableId];
-        const existingTs = existingSession ? (
-          store.orders.find(o => o.billSessionId === existingSession.billSessionId)?.date_updated ?? ''
-        ) : '';
+        const existingTs = existingSession ? (sessionTsMap.get(existingSession.billSessionId) ?? '') : '';
         const incomingTs = incoming.date_updated ?? '';
         if (!existingSession || incomingTs > existingTs) {
           currentSessions[tableId] = {
@@ -357,7 +361,7 @@ async function _pullCollection(collection, cfg) {
 
     // Update in-memory store for real-time reactivity
     if (_store && written > 0) {
-      _mergeIntoStore(collection, mapped.filter(r => r.date_updated && written > 0), _store);
+      _mergeIntoStore(collection, mapped.filter(r => r.date_updated), _store);
     }
 
     if (maxTs && (!latestTs || maxTs > latestTs)) latestTs = maxTs;
