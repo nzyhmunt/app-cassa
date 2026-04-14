@@ -102,13 +102,31 @@ export async function enqueue(collection, operation, recordId, payload) {
 export async function getPendingEntries() {
   try {
     const db = await getDB();
-    const all = await db.getAll('sync_queue');
-    return all.sort((a, b) => {
-      const tsA = a.date_created ?? '';
-      const tsB = b.date_created ?? '';
-      if (tsA !== tsB) return tsA < tsB ? -1 : 1;
-      return (a.seq ?? 0) - (b.seq ?? 0);
-    });
+    const all = await db.getAllFromIndex('sync_queue', 'date_created');
+
+    if (all.length < 2) return all;
+
+    for (let start = 0; start < all.length;) {
+      const ts = all[start]?.date_created ?? '';
+      let end = start + 1;
+
+      while (end < all.length && (all[end]?.date_created ?? '') === ts) {
+        end += 1;
+      }
+
+      if (end - start > 1) {
+        all
+          .slice(start, end)
+          .sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0))
+          .forEach((entry, index) => {
+            all[start + index] = entry;
+          });
+      }
+
+      start = end;
+    }
+
+    return all;
   } catch (e) {
     console.warn('[SyncQueue] Failed to read queue:', e);
     return [];
