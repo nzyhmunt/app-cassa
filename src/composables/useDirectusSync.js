@@ -356,7 +356,7 @@ async function _startSubscriptions(collections) {
     return true;
   } catch (e) {
     console.warn('[DirectusSync] WebSocket unavailable, falling back to polling:', e?.message ?? e);
-    _wsConnected.value = false;
+    _stopSubscriptions();
     return false;
   }
 }
