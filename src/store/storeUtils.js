@@ -38,7 +38,11 @@ export function newUUID(prefix = 'id') {
 
 /** @type {number} Last millisecond timestamp seen by newUUIDv7. */
 let _v7LastMs = -1;
-/** @type {number} Monotonic 12-bit counter incremented within the same ms. */
+/**
+ * Monotonic 12-bit counter incremented within the same ms.
+ * Module-level state is intentional: JavaScript is single-threaded and Web Workers
+ * each get their own module instance, so no cross-context race conditions exist.
+ */
 let _v7Seq = 0;
 
 export function newUUIDv7(prefix = 'id') {

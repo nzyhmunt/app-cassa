@@ -269,6 +269,8 @@ function _toDirectusPayload(collection, localPayload) {
     }
 
     // Special: flatten dietaryPreferences → dietary_diets / dietary_allergens
+    // Note: 'diete' and 'allergeni' are legacy store keys (existing data model);
+    // they are read-only from the local payload — not renamed in the store itself.
     if (key === 'dietaryPreferences' && value && typeof value === 'object') {
       out.dietary_diets     = value.diete     ?? null;
       out.dietary_allergens = value.allergeni ?? null;

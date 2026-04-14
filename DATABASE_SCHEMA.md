@@ -1352,8 +1352,8 @@ Operazione locale
                        dopo 5 tentativi → rimuovi dal retry automatico e invia a revisione manuale
 ```
 
-**Nota sul mapping del payload**: prima dell'invio a Directus, `useSyncQueue._toDirectusPayload()`
-traduce automaticamente i nomi dei campi locali (camelCase, convenzione store/IndexedDB) nel
+**Nota sul mapping del payload**: prima dell'invio a Directus, la funzione interna
+`_toDirectusPayload()` in `useSyncQueue.js` traduce automaticamente i nomi dei campi locali (camelCase, convenzione store/IndexedDB) nel
 formato Directus (snake\_case, campi FK senza suffisso `_id`):
 
 | Campo locale (store/IDB)      | Campo Directus API        |
