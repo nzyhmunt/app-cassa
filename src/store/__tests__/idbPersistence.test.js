@@ -4,8 +4,8 @@
  *
  * Covers:
  *  - loadStateFromIDB / saveStateToIDB: round-trip, printLog payload stripping,
- *    billRequestedTables Set↔Array conversion
- *  - clearAllStateFromIDB: clears operative stores, preserves non-manual venue_users
+ *    billRequestedTables Set↔Array conversion, tableMergedInto ↔ table_merge_sessions
+ *  - clearAllStateFromIDB: clears operative stores (incl. table_merge_sessions), preserves non-manual venue_users
  *  - saveSettingsToIDB / loadSettingsFromIDB: round-trip
  *  - saveUsersToIDB / loadUsersFromIDB: only manual_user records
  *  - saveAuthSessionToIDB / loadAuthSessionFromIDB: persists/clears userId
@@ -237,6 +237,30 @@ describe('saveStateToIDB() + loadStateFromIDB()', () => {
     expect(loaded.tableCurrentBillSession).toEqual({ T1: 'bill_abc' });
     expect(loaded.tableMergedInto).toEqual({ T2: 'T1' });
   });
+
+  it('stores tableMergedInto in table_merge_sessions (not app_meta)', async () => {
+    await saveStateToIDB({
+      orders: [], transactions: [], cashBalance: 0, cashMovements: [],
+      dailyClosures: [], printLog: [],
+      tableCurrentBillSession: {},
+      tableMergedInto: { T2: 'T1', T3: 'T1' },
+      tableOccupiedAt: {},
+      billRequestedTables: new Set(),
+    });
+
+    const { getDB } = await import('../../composables/useIDB.js');
+    const db = await getDB();
+
+    // Must be stored in dedicated store
+    const records = await db.getAll('table_merge_sessions');
+    expect(records).toHaveLength(2);
+    const bySlave = Object.fromEntries(records.map(r => [r.slave_table, r.master_table]));
+    expect(bySlave).toEqual({ T2: 'T1', T3: 'T1' });
+
+    // Must NOT be stored in app_meta
+    const legacyRecord = await db.get('app_meta', 'tableMergedInto');
+    expect(legacyRecord).toBeUndefined();
+  });
 });
 
 // ── clearAllStateFromIDB ──────────────────────────────────────────────────────
@@ -251,7 +275,7 @@ describe('clearAllStateFromIDB()', () => {
       dailyClosures: [{ id: 'dc_1' }],
       printLog: [{ logId: 'pj_1', status: 'done' }],
       tableCurrentBillSession: { T1: 'b1' },
-      tableMergedInto: {},
+      tableMergedInto: { T2: 'T1' },
       tableOccupiedAt: {},
       billRequestedTables: new Set(),
     });
@@ -266,6 +290,7 @@ describe('clearAllStateFromIDB()', () => {
     expect(loaded.dailyClosures).toEqual([]);
     expect(loaded.printLog).toEqual([]);
     expect(loaded.tableCurrentBillSession).toEqual({});
+    expect(loaded.tableMergedInto).toEqual({});
   });
 
   it('removes manual_user records from venue_users', async () => {

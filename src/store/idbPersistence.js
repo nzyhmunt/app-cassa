@@ -59,7 +59,7 @@ export async function loadStateFromIDB() {
       printLogRaw,
       cashBalanceRecord,
       tableCurrentBillSessionRecord,
-      tableMergedIntoRecord,
+      tableMergeRecords,
       tableOccupiedAtRecord,
       billRequestedTablesRecord,
     ] = await Promise.all([
@@ -70,7 +70,7 @@ export async function loadStateFromIDB() {
       db.getAll('print_jobs'),
       db.get('app_meta', 'cashBalance'),
       db.get('app_meta', 'tableCurrentBillSession'),
-      db.get('app_meta', 'tableMergedInto'),
+      db.getAll('table_merge_sessions'),
       db.get('app_meta', 'tableOccupiedAt'),
       db.get('app_meta', 'billRequestedTables'),
     ]);
@@ -86,7 +86,9 @@ export async function loadStateFromIDB() {
       dailyClosures,
       printLog,
       tableCurrentBillSession: tableCurrentBillSessionRecord?.value ?? {},
-      tableMergedInto: tableMergedIntoRecord?.value ?? {},
+      tableMergedInto: Object.fromEntries(
+        tableMergeRecords.map(r => [r.slave_table, r.master_table]),
+      ),
       tableOccupiedAt: tableOccupiedAtRecord?.value ?? {},
       billRequestedTables: new Set(billRequestedTablesRecord?.value ?? []),
     };
@@ -158,10 +160,14 @@ export async function saveStateToIDB(state) {
       }))));
     }
     if ('tableMergedInto' in state) {
-      ops.push(db.put('app_meta', JSON.parse(JSON.stringify({
-        id: 'tableMergedInto',
-        value: state.tableMergedInto ?? {},
-      }))));
+      const records = Object.entries(state.tableMergedInto ?? {})
+        .filter(([, master]) => master != null)
+        .map(([slave, master]) => ({
+          slave_table: slave,
+          master_table: master,
+          merged_at: new Date().toISOString(),
+        }));
+      ops.push(_replaceAll(db, 'table_merge_sessions', records));
     }
     if ('tableOccupiedAt' in state) {
       ops.push(db.put('app_meta', JSON.parse(JSON.stringify({
@@ -505,7 +511,7 @@ export async function saveCustomItemsToIDB(items) {
 export async function clearAllStateFromIDB() {
   const operativeStores = [
     'orders', 'transactions', 'cash_movements', 'daily_closures', 'print_jobs',
-    'fiscal_receipts', 'invoice_requests',
+    'fiscal_receipts', 'invoice_requests', 'table_merge_sessions',
     'app_meta', 'app_settings', 'direct_custom_items',
   ];
   try {
