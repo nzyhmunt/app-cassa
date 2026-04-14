@@ -161,7 +161,7 @@ export async function saveStateToIDB(state) {
     }
     if ('tableMergedInto' in state) {
       const records = Object.entries(state.tableMergedInto ?? {})
-        .filter(([, master]) => master != null)
+        .filter(([slave, master]) => slave && master)
         .map(([slave, master]) => ({
           slave_table: slave,
           master_table: master,
