@@ -634,28 +634,37 @@ export async function upsertRecordsIntoIDB(storeName, records) {
 
   try {
     const db = await getDB();
-    const tx = db.transaction(storeName, 'readwrite');
-    let written = 0;
-
-    for (const incoming of records) {
-      const pk = incoming[keyPath];
-      if (!pk) continue;
-
-      const existing = await tx.store.get(pk);
-      if (existing && existing.date_updated && incoming.date_updated) {
-        if (new Date(incoming.date_updated) <= new Date(existing.date_updated)) {
-          continue; // local is newer or equal — skip
+    // Collect writes to perform — filter out records with no PK and those
+    // that are not newer than the local version before opening the transaction.
+    // This avoids opening a readwrite transaction when nothing needs writing.
+    const toWrite = [];
+    {
+      // Read-only pre-scan using a readonly transaction to avoid unnecessary
+      // write locks when all incoming records are already up-to-date.
+      const roTx = db.transaction(storeName, 'readonly');
+      for (const incoming of records) {
+        const pk = incoming[keyPath];
+        if (!pk) continue;
+        const existing = await roTx.store.get(pk);
+        if (existing && existing.date_updated && incoming.date_updated) {
+          if (new Date(incoming.date_updated) <= new Date(existing.date_updated)) {
+            continue; // local is newer or equal — skip
+          }
         }
+        const { _sync_status: _s, ...clean } = incoming;
+        toWrite.push(clean);
       }
-
-      // Strip local-only fields before persisting
-      const { _sync_status: _s, ...clean } = incoming;
-      await tx.store.put(clean);
-      written++;
+      await roTx.done;
     }
 
+    if (toWrite.length === 0) return 0;
+
+    const tx = db.transaction(storeName, 'readwrite');
+    for (const record of toWrite) {
+      await tx.store.put(record);
+    }
     await tx.done;
-    return written;
+    return toWrite.length;
   } catch (e) {
     console.warn('[IDBPersistence] Failed to upsert into', storeName, e);
     return 0;

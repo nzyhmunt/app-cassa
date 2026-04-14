@@ -33,6 +33,9 @@ import {
 const PULL_CONFIG = {
   cassa: {
     collections: ['orders', 'bill_sessions', 'tables'],
+    // 30 s polling: frequent enough for near-real-time UX while keeping
+    // backend load low. Use wsEnabled=true for sub-second updates if the
+    // Directus instance supports WebSocket subscriptions.
     intervalMs: 30_000,
   },
   sala: {
