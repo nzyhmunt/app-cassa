@@ -8,8 +8,8 @@
  * entries and sends them to Directus via the official SDK in chronological order.
  *
  * Queue entry shape:
- *   { id, collection, operation: 'create'|'update'|'delete',
- *     record_id, payload, date_created, seq, attempts }
+ *   { id (UUIDv7), collection, operation: 'create'|'update'|'delete',
+ *     record_id, payload, date_created, attempts }
  *
  * Push strategy per §5.7.2:
  *   create  → createItem(collection, payload)       [POST  /items/{collection}]
@@ -24,7 +24,7 @@
 
 import { createDirectus, staticToken, rest, createItem, updateItem, deleteItem } from '@directus/sdk';
 import { getDB } from './useIDB.js';
-import { newUUID } from '../store/storeUtils.js';
+import { newUUIDv7 } from '../store/storeUtils.js';
 
 /** Maximum push attempts before a queue entry is abandoned. */
 export const MAX_ATTEMPTS = 5;
@@ -60,15 +60,16 @@ const LOCAL_ONLY_FIELDS = new Set([
 
 // ── Core queue helpers ───────────────────────────────────────────────────────
 
-/** Monotonic counter for stable in-batch ordering of sync_queue entries. */
-let _enqueueSeq = 0;
-
-/** @internal Exposed for test isolation only. */
-export function _resetEnqueueSeq() { _enqueueSeq = 0; }
+/** @internal No-op kept for test compatibility. */
+export function _resetEnqueueSeq() {}
 
 /**
  * Adds a new entry to the sync_queue ObjectStore.
  * Fire-and-forget — errors are logged but never propagate to callers.
+ *
+ * The entry `id` is a UUIDv7 so it is time-ordered and lexicographically
+ * sortable — this guarantees cross-tab deterministic ordering even when
+ * two entries share the same `date_created` millisecond timestamp.
  *
  * @param {string} collection  - IDB / Directus collection name (e.g. 'orders')
  * @param {'create'|'update'|'delete'} operation
@@ -79,13 +80,12 @@ export async function enqueue(collection, operation, recordId, payload) {
   try {
     const db = await getDB();
     await db.add('sync_queue', {
-      id: newUUID('sq'),
+      id: newUUIDv7('sq'),
       collection,
       operation,
       record_id: recordId,
       payload: payload ?? null,
       date_created: new Date().toISOString(),
-      seq: ++_enqueueSeq,
       attempts: 0,
     });
   } catch (e) {
@@ -94,9 +94,10 @@ export async function enqueue(collection, operation, recordId, payload) {
 }
 
 /**
- * Returns all pending entries in the sync_queue, ordered by (date_created, seq) ASC.
- * Using seq as a tiebreaker ensures stable ordering when multiple entries share
- * the same millisecond timestamp.
+ * Returns all pending entries in the sync_queue, ordered by (date_created, id) ASC.
+ * Using the UUIDv7 `id` as a tiebreaker is cross-tab safe because UUIDv7 encodes
+ * a millisecond-precision timestamp in the first 48 bits, making lexicographic
+ * comparison monotonic across contexts within the same millisecond window.
  * @returns {Promise<Array>}
  */
 export async function getPendingEntries() {
@@ -117,7 +118,7 @@ export async function getPendingEntries() {
       if (end - start > 1) {
         all
           .slice(start, end)
-          .sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0))
+          .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
           .forEach((entry, index) => {
             all[start + index] = entry;
           });

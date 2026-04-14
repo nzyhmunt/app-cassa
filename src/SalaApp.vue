@@ -47,14 +47,22 @@ function onStorageChange(event) {
   store.$hydrate?.();
 }
 
+function restartSyncFromCurrentConfig() {
+  loadDirectusConfigFromStorage();
+  sync.stopSync();
+  sync.startSync({ appType: 'sala', store });
+}
+
 onMounted(() => {
   if (store.menuError) store.loadMenu();
   window.addEventListener('storage', onStorageChange);
-  sync.startSync({ appType: 'sala', store });
+  window.addEventListener('directus-config-updated', restartSyncFromCurrentConfig);
+  restartSyncFromCurrentConfig();
 });
 
 onUnmounted(() => {
   window.removeEventListener('storage', onStorageChange);
+  window.removeEventListener('directus-config-updated', restartSyncFromCurrentConfig);
   sync.stopSync();
 });
 </script>
