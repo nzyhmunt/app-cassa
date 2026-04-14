@@ -149,7 +149,7 @@ CREATE TABLE rooms (
     status          VARCHAR(20)     NOT NULL DEFAULT 'published', -- 'published' | 'archived'
     venue           INTEGER         NOT NULL REFERENCES venues(id) ON DELETE CASCADE,
     label           VARCHAR(80)     NOT NULL,       -- es. 'Sala Interna', 'Terrazza'
-    sort_order      SMALLINT        NOT NULL DEFAULT 0,
+    sort            INTEGER         NULL,
     -- Directus standard fields
     user_created    UUID            NULL REFERENCES directus_users(id),
     date_created    TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
@@ -176,7 +176,7 @@ CREATE TABLE tables (
     room            VARCHAR(30)     NULL REFERENCES rooms(id) ON DELETE SET NULL,
     label           VARCHAR(80)     NOT NULL,       -- es. 'Tavolo 01'
     covers          SMALLINT        NOT NULL CHECK (covers > 0),  -- posti a sedere
-    sort_order      SMALLINT        NOT NULL DEFAULT 0,
+    sort            INTEGER         NULL,
     -- Directus standard fields
     user_created    UUID            NULL REFERENCES directus_users(id),
     date_created    TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
@@ -199,7 +199,7 @@ CREATE TABLE payment_methods (
     label           VARCHAR(60)     NOT NULL,       -- es. 'Contanti', 'Pos/Carta'
     icon            VARCHAR(50)     NULL,           -- nome icona Lucide
     color_class     VARCHAR(80)     NULL,           -- classe Tailwind CSS
-    sort_order      SMALLINT        NOT NULL DEFAULT 0,
+    sort            INTEGER         NULL,
     -- Directus standard fields
     user_created    UUID            NULL REFERENCES directus_users(id),
     date_created    TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
@@ -220,7 +220,7 @@ CREATE TABLE menu_categories (
     status          VARCHAR(20)     NOT NULL DEFAULT 'published', -- 'published' | 'archived'
     venue           INTEGER         NOT NULL REFERENCES venues(id) ON DELETE CASCADE,
     name            VARCHAR(80)     NOT NULL,       -- es. 'Antipasti', 'Primi Piatti'
-    sort_order      SMALLINT        NOT NULL DEFAULT 0,
+    sort            INTEGER         NULL,
     -- Directus standard fields
     user_created    UUID            NULL REFERENCES directus_users(id),
     date_created    TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
@@ -249,7 +249,7 @@ CREATE TABLE menu_items (
     image_url       TEXT            NULL,
     ingredients     TEXT[]          NULL,           -- array di stringhe
     allergens       TEXT[]          NULL,
-    sort_order      SMALLINT        NOT NULL DEFAULT 0,
+    sort            INTEGER         NULL,
     -- Directus standard fields
     user_created    UUID            NULL REFERENCES directus_users(id),
     date_created    TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
@@ -271,7 +271,7 @@ CREATE TABLE menu_item_modifiers (
     menu_item       VARCHAR(50)     NOT NULL REFERENCES menu_items(id) ON DELETE CASCADE,
     name            VARCHAR(80)     NOT NULL,       -- es. 'Extra aglio'
     price           NUMERIC(8,2)    NOT NULL DEFAULT 0.00,
-    sort_order      SMALLINT        NOT NULL DEFAULT 0,
+    sort            INTEGER         NULL,
     -- Directus standard fields
     user_created    UUID            NULL REFERENCES directus_users(id),
     date_created    TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
@@ -394,7 +394,7 @@ CREATE TABLE order_items (
     voided_quantity SMALLINT        NOT NULL DEFAULT 0 CHECK (voided_quantity >= 0),
     notes           TEXT[]          NULL,
     course          VARCHAR(10)     NULL CHECK (course IN ('prima', 'insieme', 'dopo')),  -- serving order: first/together/after
-    sort_order      SMALLINT        NOT NULL DEFAULT 0,
+    sort            INTEGER         NULL,
     kitchen_ready   BOOLEAN         NOT NULL DEFAULT FALSE,  -- flag per toggle per-voce in App Cucina (Dettaglio)
     status          VARCHAR(20)     NOT NULL DEFAULT 'active', -- 'active' | 'archived' (soft-delete)
     -- Directus standard fields
@@ -657,7 +657,7 @@ CREATE TABLE printers (
     -- categories: filtro menu per i lavori di tipo 'order'.
     -- Se vuoto, riceve tutte le voci del menu (catch-all).
     categories      TEXT[]          NOT NULL DEFAULT '{}',
-    sort_order      SMALLINT        NOT NULL DEFAULT 0,
+    sort            INTEGER         NULL,
     -- Directus standard fields
     user_created    UUID            NULL REFERENCES directus_users(id),
     date_created    TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
@@ -927,7 +927,7 @@ Cardinalità:
 │ id (PK)     │     │ id (PK)          │     │ id (PK)           │
 │ status      │     │ venue (FK)       │     │ category (FK)     │
 │ name        │     │ name             │     │ name              │
-│ primary_    │     │ sort_order       │     │ price             │
+│ primary_    │     │ sort           │     │ price             │
 │  color      │     │ status           │     │ allergens[]       │
 │ currency    │     │ date_created     │     │ status            │
 │ menu_url    │     └──────────────────┘     │ date_created      │
@@ -947,9 +947,9 @@ Cardinalità:
 │ venue (FK)  │     │ venue (FK)       │
 │ label       │     │ room (FK, null)  │
 │ status      │     │ label            │
-│ sort_order  │     │ covers           │
+│ sort        │     │ covers           │
 └─────────────┘     │ status           │
-                    │ sort_order       │
+                    │ sort             │
                     └────────┬─────────┘
                              │ 1
                              │ N
@@ -2014,3 +2014,20 @@ invece degli UUID:
 | `payment_methods`  | `{{label}}`                           |
 | `printers`         | `{{name}}`                            |
 | `transactions`     | `{{id}} — {{operation_type}}`         |
+
+#### Configurazione `sort_field`
+
+Le collection che supportano l'ordinamento manuale via drag-and-drop nell'admin Directus hanno
+`meta.sort_field = "sort"`. Il campo `sort` è di tipo `INTEGER NULL` e viene nascosto nella form
+(`meta.hidden = true`).
+
+| Collection             | `sort_field` |
+|------------------------|--------------|
+| `rooms`                | `sort`       |
+| `tables`               | `sort`       |
+| `payment_methods`      | `sort`       |
+| `menu_categories`      | `sort`       |
+| `menu_items`           | `sort`       |
+| `menu_item_modifiers`  | `sort`       |
+| `printers`             | `sort`       |
+| `order_items`          | `sort`       |

@@ -62,28 +62,28 @@ Le collection sono state create rispettando le dipendenze tra chiavi esterne (FK
 
 ### 3. `rooms` — Sale / Aree mappa tavoli
 - **PK**: `id` (string, VARCHAR 30, es. 'sala')
-- **Campi**: `status`, `venue` (FK→venues), `label`, `sort_order`
+- **Campi**: `status`, `venue` (FK→venues), `label`, `sort`
 - **Campi standard**: `user_created`, `date_created`, `user_updated`, `date_updated`
 - **Relazione**: rooms →(N:1)→ venues con `on_delete: CASCADE`; O2M `venues.rooms`
 - **URL**: https://dev.nanawork.it/admin/content/rooms
 
 ### 4. `payment_methods` — Metodi di pagamento
 - **PK**: `id` (string, VARCHAR 30, es. 'cash')
-- **Campi**: `status`, `venue` (FK→venues), `label`, `icon`, `color_class`, `sort_order`
+- **Campi**: `status`, `venue` (FK→venues), `label`, `icon`, `color_class`, `sort`
 - **Campi standard**: `user_created`, `date_created`, `user_updated`, `date_updated`
 - **Relazione**: →(N:1)→ venues con `on_delete: CASCADE`; O2M `venues.payment_methods`
 - **URL**: https://dev.nanawork.it/admin/content/payment_methods
 
 ### 5. `menu_categories` — Categorie menu
 - **PK**: `id` (integer, auto-increment)
-- **Campi**: `status`, `venue` (FK→venues), `name`, `sort_order`
+- **Campi**: `status`, `venue` (FK→venues), `name`, `sort`
 - **Campi standard**: `user_created`, `date_created`, `user_updated`, `date_updated`
 - **Relazione**: →(N:1)→ venues con `on_delete: CASCADE`; O2M `venues.menu_categories`
 - **URL**: https://dev.nanawork.it/admin/content/menu_categories
 
 ### 6. `printers` — Stampanti ESC/POS
 - **PK**: `id` (string, VARCHAR 40, es. 'cucina')
-- **Campi**: `status`, `venue` (FK→venues), `name`, `url`, `print_types` (JSON array), `categories` (JSON array), `sort_order`
+- **Campi**: `status`, `venue` (FK→venues), `name`, `url`, `print_types` (JSON array), `categories` (JSON array), `sort`
 - **Campi standard**: `user_created`, `date_created`, `user_updated`, `date_updated`
 - **URL**: https://dev.nanawork.it/admin/content/printers
 
@@ -102,14 +102,14 @@ Le collection sono state create rispettando le dipendenze tra chiavi esterne (FK
 
 ### 9. `tables` — Tavoli
 - **PK**: `id` (string, VARCHAR 10, es. '01')
-- **Campi**: `status`, `venue` (FK→venues), `room` (FK→rooms, nullable), `label`, `covers`, `sort_order`
+- **Campi**: `status`, `venue` (FK→venues), `room` (FK→rooms, nullable), `label`, `covers`, `sort`
 - **Campi standard**: `user_created`, `date_created`, `user_updated`, `date_updated`
 - **Relazioni**: →(N:1)→ venues `CASCADE`; →(N:1)→ rooms `SET NULL`; O2M `rooms.tables`
 - **URL**: https://dev.nanawork.it/admin/content/tables
 
 ### 10. `menu_items` — Voci menu
 - **PK**: `id` (string, VARCHAR 50, es. 'ant_2')
-- **Campi**: `status`, `venue` (FK→venues), `category` (FK→menu_categories), `name`, `price`, `description`, `note`, `image_url`, `ingredients` (JSON), `allergens` (JSON), `sort_order`
+- **Campi**: `status`, `venue` (FK→venues), `category` (FK→menu_categories), `name`, `price`, `description`, `note`, `image_url`, `ingredients` (JSON), `allergens` (JSON), `sort`
 - **Campi standard**: `user_created`, `date_created`, `user_updated`, `date_updated`
 - **Relazioni**: →(N:1)→ menu_categories `RESTRICT`; O2M `menu_categories.menu_items`
 - **URL**: https://dev.nanawork.it/admin/content/menu_items
@@ -123,7 +123,7 @@ Le collection sono state create rispettando le dipendenze tra chiavi esterne (FK
 
 ### 12. `menu_item_modifiers` — Modificatori disponibili per voce menu
 - **PK**: `id` (integer, auto-increment)
-- **Campi**: `status`, `menu_item` (FK→menu_items), `name`, `price`, `sort_order`
+- **Campi**: `status`, `menu_item` (FK→menu_items), `name`, `price`, `sort`
 - **Campi standard**: `user_created`, `date_created`, `user_updated`, `date_updated`
 - **Relazioni**: O2M `menu_items.menu_item_modifiers` con `CASCADE`
 - **URL**: https://dev.nanawork.it/admin/content/menu_item_modifiers
@@ -152,7 +152,7 @@ Le collection sono state create rispettando le dipendenze tra chiavi esterne (FK
 
 ### 16. `order_items` — Righe comanda
 - **PK**: `id` (UUID v7)
-- **Campi**: `uid`, `order` (FK→orders), `dish` (FK→menu_items, nullable), `name` (snapshot), `unit_price`, `quantity`, `voided_quantity`, `notes` (JSON), `course` (prima/insieme/dopo), `sort_order`, `kitchen_ready`, `status`
+- **Campi**: `uid`, `order` (FK→orders), `dish` (FK→menu_items, nullable), `name` (snapshot), `unit_price`, `quantity`, `voided_quantity`, `notes` (JSON), `course` (prima/insieme/dopo), `sort`, `kitchen_ready`, `status`
 - **Campi standard + audit**: `user_created`, `date_created`, `user_updated`, `date_updated`, `venue_user_created`, `venue_user_updated`
 - **Relazioni**: O2M `orders.order_items` con `CASCADE`
 - **URL**: https://dev.nanawork.it/admin/content/order_items
