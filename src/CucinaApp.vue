@@ -44,13 +44,24 @@ function onStorageChange(event) {
   store.$hydrate?.();
 }
 
+function restartSync() {
+  sync.stopSync();
+  sync.startSync({ appType: 'cucina', store });
+}
+
+function onDirectusConfigUpdated() {
+  restartSync();
+}
+
 onMounted(() => {
   window.addEventListener('storage', onStorageChange);
-  sync.startSync({ appType: 'cucina', store });
+  window.addEventListener('directus-config-updated', onDirectusConfigUpdated);
+  restartSync();
 });
 
 onUnmounted(() => {
   window.removeEventListener('storage', onStorageChange);
+  window.removeEventListener('directus-config-updated', onDirectusConfigUpdated);
   sync.stopSync();
 });
 </script>
