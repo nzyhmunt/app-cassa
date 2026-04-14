@@ -103,36 +103,42 @@ export function getDB() {
       if (!db.objectStoreNames.contains('table_merge_sessions')) {
         const s = db.createObjectStore('table_merge_sessions', { keyPath: 'slave_table' });
         s.createIndex('master_table', 'master_table', { unique: false });
+      }
 
-        // Migrate existing tableMergedInto blob from app_meta (v2 → v3).
-        // app_meta has existed since v1, so the store is always present when oldVersion >= 1.
-        if (oldVersion >= 1 && db.objectStoreNames.contains('app_meta')) {
-          try {
-            const legacy = await tx.objectStore('app_meta').get('tableMergedInto');
-            if (legacy?.value && typeof legacy.value === 'object') {
-              const now = new Date().toISOString();
-              const mergeStore = tx.objectStore('table_merge_sessions');
-              for (const [slave, master] of Object.entries(legacy.value)) {
-                if (slave && master) {
-                  await mergeStore.put({ slave_table: slave, master_table: master, merged_at: now });
-                }
+      // Migrate existing tableMergedInto blob from app_meta (v2 → v3).
+      // app_meta has existed since v1, so the store is always present when oldVersion >= 1.
+      // Keep this outside store creation so later upgrades can still retry cleanup/migration
+      // if the legacy key remains for any reason.
+      if (
+        oldVersion < 3 &&
+        db.objectStoreNames.contains('app_meta') &&
+        db.objectStoreNames.contains('table_merge_sessions')
+      ) {
+        try {
+          const legacy = await tx.objectStore('app_meta').get('tableMergedInto');
+          if (legacy?.value && typeof legacy.value === 'object') {
+            const now = new Date().toISOString();
+            const mergeStore = tx.objectStore('table_merge_sessions');
+            for (const [slave, master] of Object.entries(legacy.value)) {
+              if (slave && master) {
+                await mergeStore.put({ slave_table: slave, master_table: master, merged_at: now });
               }
-              await tx.objectStore('app_meta').delete('tableMergedInto');
             }
-          } catch (error) {
-            console.warn(
-              '[useIDB] Failed to migrate app_meta.tableMergedInto to table_merge_sessions; legacy merge state may remain unread until migrated.',
-              {
-                dbName,
-                oldVersion,
-                newVersion: DB_VERSION,
-                legacyStore: 'app_meta',
-                legacyKey: 'tableMergedInto',
-                targetStore: 'table_merge_sessions',
-                error,
-              },
-            );
+            await tx.objectStore('app_meta').delete('tableMergedInto');
           }
+        } catch (error) {
+          console.warn(
+            '[useIDB] Failed to migrate app_meta.tableMergedInto to table_merge_sessions; legacy merge state may remain unread until migrated.',
+            {
+              dbName,
+              oldVersion,
+              newVersion: DB_VERSION,
+              legacyStore: 'app_meta',
+              legacyKey: 'tableMergedInto',
+              targetStore: 'table_merge_sessions',
+              error,
+            },
+          );
         }
       }
 
