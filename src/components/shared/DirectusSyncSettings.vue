@@ -172,6 +172,17 @@
       </button>
     </div>
 
+    <!-- Log coda sincronizzazione -->
+    <button
+      v-if="syncEnabled"
+      type="button"
+      @click="showQueueLog = true"
+      class="w-full py-2.5 bg-gray-50 hover:bg-gray-100 text-gray-700 font-bold rounded-2xl flex items-center justify-center gap-2 border border-gray-200 transition-colors active:scale-95 text-xs"
+    >
+      <ListOrdered class="size-3.5 text-gray-500" />
+      <span>Log coda sync</span>
+    </button>
+
     <!-- Info timestamp -->
     <div v-if="syncEnabled" class="text-[10px] text-gray-400 space-y-0.5 px-1">
       <p v-if="sync.lastPushAt.value">
@@ -192,11 +203,14 @@
   </div>
 </template>
 
+<!-- Sync queue log modal (admin only) -->
+<SyncQueueLogModal v-model="showQueueLog" />
+
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue';
 import {
   RefreshCw, Save, Wifi, LoaderCircle, CheckCircle, XCircle,
-  AlertCircle, Upload, Download,
+  AlertCircle, Upload, Download, ListOrdered,
 } from 'lucide-vue-next';
 import { appConfig } from '../../utils/index.js';
 import {
@@ -204,6 +218,7 @@ import {
   saveDirectusConfigToStorage,
 } from '../../composables/useDirectusClient.js';
 import { useDirectusSync } from '../../composables/useDirectusSync.js';
+import SyncQueueLogModal from './SyncQueueLogModal.vue';
 
 const sync = useDirectusSync();
 
@@ -222,6 +237,7 @@ const showToken = ref(false);
 const testing = ref(false);
 const connectionStatus = ref('idle'); // 'idle' | 'testing' | 'ok' | 'error'
 const connectionMessage = ref('');
+const showQueueLog = ref(false);
 
 /** `true` when the saved config has `enabled = true`. */
 const syncEnabled = computed(() => appConfig.directus?.enabled === true);

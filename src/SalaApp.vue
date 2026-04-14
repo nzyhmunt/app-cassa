@@ -8,6 +8,7 @@
   >
     <SalaNavbar @open-settings="showSettings = true" @lock="auth.lock()" />
     <router-view />
+    <DirectusSyncStatusBar />
     <SalaSettingsModal v-model="showSettings" />
     <PwaInstallBanner />
     <LockScreen />
@@ -20,6 +21,7 @@ import SalaNavbar from './components/SalaNavbar.vue';
 import SalaSettingsModal from './components/SalaSettingsModal.vue';
 import PwaInstallBanner from './components/shared/PwaInstallBanner.vue';
 import LockScreen from './components/LockScreen.vue';
+import DirectusSyncStatusBar from './components/shared/DirectusSyncStatusBar.vue';
 import { useAppStore } from './store/index.js';
 import { useWakeLock } from './composables/useWakeLock.js';
 import { resolveStorageKeys, getInstanceName } from './store/persistence.js';

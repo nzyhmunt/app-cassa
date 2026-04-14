@@ -490,7 +490,22 @@
 
     <!-- ── Footer ─────────────────────────────────────────────────────────── -->
     <footer class="shrink-0 flex items-center justify-between px-4 py-2 bg-white border-t border-gray-200 text-xs text-gray-400">
-      <span>Aggiornato: {{ lastSyncLabel }}</span>
+      <div class="flex items-center gap-2">
+        <!-- Online/offline dot (visible when Directus is enabled) -->
+        <span
+          v-if="directusEnabled"
+          class="flex items-center gap-1 font-medium"
+          :class="isOnline ? 'text-emerald-600' : 'text-red-500'"
+        >
+          <span
+            class="inline-block size-1.5 rounded-full shrink-0"
+            :class="isOnline ? 'bg-emerald-500' : 'bg-red-400'"
+          ></span>
+          {{ isOnline ? 'Online' : 'Offline' }}
+        </span>
+        <span v-if="directusEnabled" class="text-gray-300">·</span>
+        <span>Aggiornato: {{ lastSyncDisplayLabel }}</span>
+      </div>
       <span class="font-mono">{{ currentTime }}</span>
     </footer>
 
@@ -536,6 +551,7 @@ import { useAppStore } from '../../store/index.js';
 import { useBeep } from '../../composables/useBeep.js';
 import { useAuth } from '../../composables/useAuth.js';
 import KitchenOrderCard from './KitchenOrderCard.vue';
+import { useDirectusSync } from '../../composables/useDirectusSync.js';
 import {
   appConfig,
   COURSE_ORDER,
@@ -718,6 +734,29 @@ function syncFromStorage() {
 
 let refreshTimer = null;
 
+// ── Directus sync state (footer indicators) ──────────────────────────────────
+const _dirSync = useDirectusSync();
+const directusEnabled = computed(() => appConfig.directus?.enabled === true);
+const isOnline = ref(typeof navigator !== 'undefined' ? navigator.onLine : true);
+
+/**
+ * Shows Directus lastPullAt when sync is active, otherwise falls back to
+ * the local cross-tab hydration timestamp (lastSyncLabel).
+ */
+const lastSyncDisplayLabel = computed(() => {
+  if (directusEnabled.value && _dirSync.lastPullAt.value) {
+    try {
+      return new Date(_dirSync.lastPullAt.value).toLocaleTimeString(appConfig.locale, {
+        hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: appConfig.timezone,
+      });
+    } catch { /* fallthrough */ }
+  }
+  return lastSyncLabel.value;
+});
+
+function _onOnline() { isOnline.value = true; }
+function _onOffline() { isOnline.value = false; }
+
 onMounted(() => {
   clockTimer = setInterval(() => {
     currentTime.value = new Date().toLocaleTimeString(appConfig.locale, { hour: '2-digit', minute: '2-digit', timeZone: appConfig.timezone });
@@ -726,11 +765,16 @@ onMounted(() => {
   refreshTimer = setInterval(syncFromStorage, 30_000);
 
   lastSyncLabel.value = new Date().toLocaleTimeString(appConfig.locale, { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: appConfig.timezone });
+
+  window.addEventListener('online', _onOnline);
+  window.addEventListener('offline', _onOffline);
 });
 
 onUnmounted(() => {
   clearInterval(clockTimer);
   clearInterval(refreshTimer);
+  window.removeEventListener('online', _onOnline);
+  window.removeEventListener('offline', _onOffline);
   // Clear all pending delivery timers
   Object.values(pendingDeliveries.value).forEach(e => clearInterval(e.intervalId));
 });
