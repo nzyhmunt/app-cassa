@@ -281,46 +281,75 @@ function _syncFormFromConfig() {
 
 // ── Actions ───────────────────────────────────────────────────────────────────
 
-/** Verifies the Directus connection using a lightweight /server/ping call. */
+/** Verifies the Directus connection using a lightweight /server/ping call,
+ *  with an authenticated /users/me fallback if the ping endpoint returns a
+ *  5xx error (e.g. 503 from a reverse proxy). */
 async function testConnection() {
   if (!form.url || !form.staticToken) return;
   testing.value = true;
   connectionStatus.value = 'testing';
   connectionMessage.value = 'Connessione in corso…';
 
-  try {
-    // AbortSignal.timeout is not available in all browsers/WebViews; fall back
-    // to an AbortController-based timeout for compatibility.
-    let signal;
-    if (typeof AbortSignal.timeout === 'function') {
-      signal = AbortSignal.timeout(8_000);
-    } else {
-      const ctrl = new AbortController();
-      setTimeout(() => ctrl.abort(), 8_000);
-      signal = ctrl.signal;
-    }
+  const baseUrl = form.url.replace(/\/$/, '');
 
-    const res = await fetch(`${form.url.replace(/\/$/, '')}/server/ping`, {
-      headers: { Authorization: `Bearer ${form.staticToken}` },
-      signal,
-    });
-    if (res.ok) {
-      const text = await res.text();
-      if (text.includes('pong') || res.status === 200) {
+  // Fallback timer IDs for environments that don't support AbortSignal.timeout;
+  // stored here so they can all be cancelled in the finally block.
+  const _pendingTimers = [];
+
+  /** Creates a fresh AbortSignal with an 8-second timeout. */
+  function makeSignal() {
+    if (typeof AbortSignal.timeout === 'function') return AbortSignal.timeout(8_000);
+    const ctrl = new AbortController();
+    _pendingTimers.push(setTimeout(() => ctrl.abort(), 8_000));
+    return ctrl.signal;
+  }
+
+  try {
+    // ── Step 1: try /server/ping (public endpoint, no auth required). ──────
+    // The /server/ping endpoint is unauthenticated — do NOT send a Bearer
+    // token here, as some reverse proxies return 503 when they see an
+    // unexpected Authorization header on health-check paths.
+    // If the ping returns a 5xx error we fall back to /users/me below.
+    const pingRes = await fetch(`${baseUrl}/server/ping`, { signal: makeSignal() });
+
+    if (pingRes.ok) {
+      // ── Step 2: validate the static token against /users/me. ─────────────
+      const meRes = await fetch(`${baseUrl}/users/me`, {
+        headers: { Authorization: `Bearer ${form.staticToken}` },
+        signal: makeSignal(),
+      });
+      if (meRes.ok) {
         connectionStatus.value = 'ok';
         connectionMessage.value = 'Connessione riuscita';
       } else {
         connectionStatus.value = 'error';
-        connectionMessage.value = `Risposta inattesa: ${res.status}`;
+        connectionMessage.value = `Token non valido (HTTP ${meRes.status})`;
+      }
+    } else if (pingRes.status >= 500) {
+      // Ping failed with server-side error (e.g. 503 from proxy) — use the
+      // authenticated /users/me endpoint as a fallback connectivity check.
+      const meRes = await fetch(`${baseUrl}/users/me`, {
+        headers: { Authorization: `Bearer ${form.staticToken}` },
+        signal: makeSignal(),
+      });
+      if (meRes.ok) {
+        connectionStatus.value = 'ok';
+        connectionMessage.value = 'Connessione riuscita';
+      } else {
+        connectionStatus.value = 'error';
+        connectionMessage.value = `Errore HTTP ${meRes.status}`;
       }
     } else {
       connectionStatus.value = 'error';
-      connectionMessage.value = `Errore HTTP ${res.status}`;
+      connectionMessage.value = `Errore HTTP ${pingRes.status}`;
     }
   } catch (e) {
     connectionStatus.value = 'error';
-    connectionMessage.value = e?.message?.includes('abort') ? 'Timeout connessione' : `Errore: ${e?.message ?? e}`;
+    connectionMessage.value = e?.name === 'AbortError' || e?.message?.includes('abort')
+      ? 'Timeout connessione'
+      : `Errore: ${e?.message ?? e}`;
   } finally {
+    _pendingTimers.forEach(clearTimeout);
     testing.value = false;
   }
 }

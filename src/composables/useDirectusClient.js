@@ -127,6 +127,30 @@ export function saveDirectusConfigToStorage() {
   }
 }
 
+/**
+ * Removes the Directus configuration from `localStorage` and resets
+ * `appConfig.directus` to its defaults.  Call this during a factory reset so
+ * that a subsequent page reload starts with a clean slate.
+ */
+export function clearDirectusConfigFromStorage() {
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      window.localStorage.removeItem('directus-config');
+    }
+  } catch (e) {
+    console.warn('[DirectusClient] Failed to clear config from storage:', e);
+  }
+  appConfig.directus = {
+    enabled: false,
+    url: '',
+    staticToken: '',
+    venueId: null,
+    wsEnabled: false,
+  };
+  directusEnabledRef.value = false;
+  resetDirectusClient();
+}
+
 // ── Internal test helpers ─────────────────────────────────────────────────────
 
 /** @internal Exposed for test isolation only. */

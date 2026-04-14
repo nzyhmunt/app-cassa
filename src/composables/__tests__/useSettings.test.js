@@ -366,6 +366,43 @@ describe('useSettings()', () => {
     }
   });
 
+  it('confirmReset() removes the directus-config key from localStorage', async () => {
+    const reloadMock = vi.fn();
+    const originalLocationDescriptor = Object.getOwnPropertyDescriptor(window, 'location');
+    const originalLocationValue = window.location;
+
+    try {
+      Object.defineProperty(window, 'location', {
+        writable: true,
+        configurable: true,
+        value: { reload: reloadMock },
+      });
+
+      localStorage.setItem('directus-config', JSON.stringify({
+        enabled: true,
+        url: 'https://directus.test',
+        staticToken: 'test-token',
+        venueId: 1,
+        wsEnabled: false,
+      }));
+
+      const props = reactive({ modelValue: false });
+      const emit = vi.fn();
+
+      const { result, wrapper } = withSetup(() => useSettings(props, emit));
+      await result.confirmReset();
+
+      expect(localStorage.getItem('directus-config')).toBeNull();
+      wrapper.unmount();
+    } finally {
+      if (originalLocationDescriptor) {
+        Object.defineProperty(window, 'location', originalLocationDescriptor);
+      } else {
+        window.location = originalLocationValue;
+      }
+    }
+  });
+
   it('confirmReset() removes the PWA dismiss key from localStorage', async () => {
     const reloadMock = vi.fn();
     const originalLocationDescriptor = Object.getOwnPropertyDescriptor(window, 'location');

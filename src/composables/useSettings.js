@@ -6,6 +6,7 @@ import { isWakeLockSupported } from './useWakeLock.js';
 import { getPwaDismissKey } from './usePwaInstall.js';
 import { useAuth } from './useAuth.js';
 import { saveSettingsToIDB, clearAllStateFromIDB } from '../store/idbPersistence.js';
+import { clearDirectusConfigFromStorage } from './useDirectusClient.js';
 /**
  * Shared composable for the Cassa and Sala settings modals.
  * Handles IndexedDB persistence (debounced), reset, and menu sync.
@@ -99,6 +100,12 @@ export function useSettings(props, emit) {
       window.localStorage.removeItem(getPwaDismissKey());
     } catch (e) {
       console.warn('[Settings] Failed to remove PWA dismiss key during reset:', e);
+    }
+    // Clear Directus connection config so it is not reloaded after reload.
+    try {
+      clearDirectusConfigFromStorage();
+    } catch (e) {
+      console.warn('[Settings] Failed to clear Directus config during reset:', e);
     }
     // Await the IDB clear so all transactions commit before the page reloads.
     // (Fire-and-forget clears could be cancelled by the reload mid-transaction.)
