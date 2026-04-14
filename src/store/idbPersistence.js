@@ -59,7 +59,8 @@ export async function loadStateFromIDB() {
       printLogRaw,
       cashBalanceRecord,
       tableCurrentBillSessionRecord,
-      tableMergedIntoRecord,
+      tableMergeRecords,
+      legacyTableMergedIntoRecord,
       tableOccupiedAtRecord,
       billRequestedTablesRecord,
     ] = await Promise.all([
@@ -70,6 +71,7 @@ export async function loadStateFromIDB() {
       db.getAll('print_jobs'),
       db.get('app_meta', 'cashBalance'),
       db.get('app_meta', 'tableCurrentBillSession'),
+      db.getAll('table_merge_sessions'),
       db.get('app_meta', 'tableMergedInto'),
       db.get('app_meta', 'tableOccupiedAt'),
       db.get('app_meta', 'billRequestedTables'),
@@ -86,7 +88,11 @@ export async function loadStateFromIDB() {
       dailyClosures,
       printLog,
       tableCurrentBillSession: tableCurrentBillSessionRecord?.value ?? {},
-      tableMergedInto: tableMergedIntoRecord?.value ?? {},
+      // Prefer the dedicated store; fall back to the legacy app_meta blob if the
+      // v2→v3 migration did not populate table_merge_sessions (the upgrade handler warns).
+      tableMergedInto: tableMergeRecords.length > 0
+        ? Object.fromEntries(tableMergeRecords.map(r => [r.slave_table, r.master_table]))
+        : (legacyTableMergedIntoRecord?.value ?? {}),
       tableOccupiedAt: tableOccupiedAtRecord?.value ?? {},
       billRequestedTables: new Set(billRequestedTablesRecord?.value ?? []),
     };
@@ -158,10 +164,27 @@ export async function saveStateToIDB(state) {
       }))));
     }
     if ('tableMergedInto' in state) {
-      ops.push(db.put('app_meta', JSON.parse(JSON.stringify({
-        id: 'tableMergedInto',
-        value: state.tableMergedInto ?? {},
-      }))));
+      const now = new Date().toISOString();
+      const records = Object.entries(state.tableMergedInto ?? {})
+        .filter(([slave, master]) => slave && master)
+        .map(([slave, master]) => ({
+          slave_table: slave,
+          master_table: master,
+          merged_at: now,
+        }));
+      // Single transaction spanning both stores: clears table_merge_sessions,
+      // writes the new records, and deletes the legacy app_meta blob atomically
+      // so a partial failure cannot leave a stale blob that would be resurrected
+      // by the backward-compat fallback in loadStateFromIDB.
+      ops.push((async () => {
+        const tx = db.transaction(['table_merge_sessions', 'app_meta'], 'readwrite');
+        const mergeStore = tx.objectStore('table_merge_sessions');
+        const appMetaStore = tx.objectStore('app_meta');
+        await mergeStore.clear();
+        await Promise.all(records.map(r => mergeStore.put(JSON.parse(JSON.stringify(r)))));
+        await appMetaStore.delete('tableMergedInto');
+        await tx.done;
+      })());
     }
     if ('tableOccupiedAt' in state) {
       ops.push(db.put('app_meta', JSON.parse(JSON.stringify({
@@ -505,7 +528,7 @@ export async function saveCustomItemsToIDB(items) {
 export async function clearAllStateFromIDB() {
   const operativeStores = [
     'orders', 'transactions', 'cash_movements', 'daily_closures', 'print_jobs',
-    'fiscal_receipts', 'invoice_requests',
+    'fiscal_receipts', 'invoice_requests', 'table_merge_sessions',
     'app_meta', 'app_settings', 'direct_custom_items',
   ];
   try {
