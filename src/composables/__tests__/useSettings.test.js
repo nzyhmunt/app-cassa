@@ -15,6 +15,7 @@ vi.mock('../../store/idbPersistence.js', async (importOriginal) => {
     ...original,
     saveSettingsToIDB: vi.fn().mockResolvedValue(undefined),
     clearAllStateFromIDB: vi.fn().mockResolvedValue(undefined),
+    clearSyncQueueFromIDB: vi.fn().mockResolvedValue(undefined),
   };
 });
 import { saveSettingsToIDB } from '../../store/idbPersistence.js';

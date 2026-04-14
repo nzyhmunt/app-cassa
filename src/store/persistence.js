@@ -64,6 +64,19 @@ export function resolveCustomItemsKey(instanceName) {
 }
 
 /**
+ * Resolves the localStorage key for the Directus connection config.
+ * Each app instance stores its own Directus credentials so that multiple
+ * instances running on the same device stay fully isolated.
+ *
+ * @param {string} [instanceName] - Instance name; defaults to getInstanceName().
+ * @returns {string}
+ */
+export function resolveDirectusConfigKey(instanceName) {
+  const n = instanceName ?? getInstanceName();
+  return n ? `directus-config_${n}` : 'directus-config';
+}
+
+/**
  * Clears the entire persisted app state from IndexedDB (and removes any
  * legacy localStorage key as a courtesy during the transition period).
  *

@@ -5,7 +5,7 @@ import { appConfig, KEYBOARD_POSITIONS } from '../utils/index.js';
 import { isWakeLockSupported } from './useWakeLock.js';
 import { getPwaDismissKey } from './usePwaInstall.js';
 import { useAuth } from './useAuth.js';
-import { saveSettingsToIDB, clearAllStateFromIDB } from '../store/idbPersistence.js';
+import { saveSettingsToIDB, clearAllStateFromIDB, clearSyncQueueFromIDB } from '../store/idbPersistence.js';
 import { clearDirectusConfigFromStorage } from './useDirectusClient.js';
 /**
  * Shared composable for the Cassa and Sala settings modals.
@@ -110,6 +110,9 @@ export function useSettings(props, emit) {
     // Await the IDB clear so all transactions commit before the page reloads.
     // (Fire-and-forget clears could be cancelled by the reload mid-transaction.)
     await clearAllStateFromIDB();
+    // Clear sync_queue so stale push operations cannot be replayed after a
+    // factory reset if the user re-enables Directus on a fresh start.
+    await clearSyncQueueFromIDB();
     // Clear in-memory auth state (its internal IDB call is harmless — already cleared)
     try {
       const { clearAllAuthData } = useAuth();

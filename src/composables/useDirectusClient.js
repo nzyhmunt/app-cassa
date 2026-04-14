@@ -17,6 +17,7 @@
 import { ref } from 'vue';
 import { createDirectus, staticToken, rest, realtime } from '@directus/sdk';
 import { appConfig } from '../utils/index.js';
+import { resolveDirectusConfigKey } from '../store/persistence.js';
 
 /**
  * Reactive flag that mirrors `appConfig.directus.enabled`.
@@ -77,13 +78,14 @@ export function resetDirectusClient() {
  * into `appConfig.directus`.  Should be called once at app startup (before
  * `useDirectusSync().startSync()`).
  *
- * Config is stored under the key `'directus-config'` as a JSON object:
+ * Config is stored under the key `'directus-config'` (or `'directus-config_{instanceName}'`
+ * for non-default instances) as a JSON object:
  *   { enabled, url, staticToken, venueId }
  */
 export function loadDirectusConfigFromStorage() {
   try {
     if (typeof window === 'undefined' || !window.localStorage) return;
-    const raw = window.localStorage.getItem('directus-config');
+    const raw = window.localStorage.getItem(resolveDirectusConfigKey());
     if (!raw) return;
     const saved = JSON.parse(raw);
     if (saved && typeof saved === 'object') {
@@ -110,7 +112,7 @@ export function saveDirectusConfigToStorage() {
   try {
     if (typeof window === 'undefined' || !window.localStorage) return;
     const cfg = appConfig.directus;
-    window.localStorage.setItem('directus-config', JSON.stringify({
+    window.localStorage.setItem(resolveDirectusConfigKey(), JSON.stringify({
       enabled: cfg?.enabled ?? false,
       url: cfg?.url ?? '',
       staticToken: cfg?.staticToken ?? '',
@@ -135,7 +137,7 @@ export function saveDirectusConfigToStorage() {
 export function clearDirectusConfigFromStorage() {
   try {
     if (typeof window !== 'undefined' && window.localStorage) {
-      window.localStorage.removeItem('directus-config');
+      window.localStorage.removeItem(resolveDirectusConfigKey());
     }
   } catch (e) {
     console.warn('[DirectusClient] Failed to clear config from storage:', e);
