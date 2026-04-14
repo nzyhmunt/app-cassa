@@ -29,9 +29,11 @@ import { useAppStore } from './store/index.js';
 import { useWakeLock } from './composables/useWakeLock.js';
 import { resolveStorageKeys, getInstanceName } from './store/persistence.js';
 import { useAuth } from './composables/useAuth.js';
+import { useDirectusSync } from './composables/useDirectusSync.js';
 
 const store = useAppStore();
 const auth = useAuth();
+const sync = useDirectusSync();
 const showSettings = ref(false);
 const showCassa = ref(false);
 
@@ -46,9 +48,11 @@ function onStorageChange(event) {
 
 onMounted(() => {
   window.addEventListener('storage', onStorageChange);
+  sync.startSync({ appType: 'cassa', store });
 });
 
 onUnmounted(() => {
   window.removeEventListener('storage', onStorageChange);
+  sync.stopSync();
 });
 </script>

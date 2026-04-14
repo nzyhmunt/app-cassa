@@ -23,9 +23,11 @@ import { useAuth } from './composables/useAuth.js';
 import CucinaSettingsModal from './components/CucinaSettingsModal.vue';
 import PwaInstallBanner from './components/shared/PwaInstallBanner.vue';
 import LockScreen from './components/LockScreen.vue';
+import { useDirectusSync } from './composables/useDirectusSync.js';
 
 const store = useAppStore();
 const auth = useAuth();
+const sync = useDirectusSync();
 const showSettings = ref(false);
 
 useWakeLock();
@@ -39,9 +41,11 @@ function onStorageChange(event) {
 
 onMounted(() => {
   window.addEventListener('storage', onStorageChange);
+  sync.startSync({ appType: 'cucina', store });
 });
 
 onUnmounted(() => {
   window.removeEventListener('storage', onStorageChange);
+  sync.stopSync();
 });
 </script>

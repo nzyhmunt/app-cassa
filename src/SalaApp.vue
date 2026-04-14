@@ -24,9 +24,11 @@ import { useAppStore } from './store/index.js';
 import { useWakeLock } from './composables/useWakeLock.js';
 import { resolveStorageKeys, getInstanceName } from './store/persistence.js';
 import { useAuth } from './composables/useAuth.js';
+import { useDirectusSync } from './composables/useDirectusSync.js';
 
 const store = useAppStore();
 const auth = useAuth();
+const sync = useDirectusSync();
 const showSettings = ref(false);
 
 useWakeLock();
@@ -41,9 +43,11 @@ function onStorageChange(event) {
 onMounted(() => {
   if (store.menuError) store.loadMenu();
   window.addEventListener('storage', onStorageChange);
+  sync.startSync({ appType: 'sala', store });
 });
 
 onUnmounted(() => {
   window.removeEventListener('storage', onStorageChange);
+  sync.stopSync();
 });
 </script>

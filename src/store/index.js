@@ -277,12 +277,8 @@ export const useAppStore = defineStore('app', () => {
       ...tableCurrentBillSession.value,
       [tableId]: session,
     };
-    // Note: the sync_queue payload uses Directus field names (snake_case) for
-    // bill_sessions.adults_count / children_count, which differ from the local
-    // camelCase shape (adults / children). This is intentional — the payload is
-    // structured for future direct transmission to the Directus REST API.
     enqueue('bill_sessions', 'create', billSessionId, {
-      id: billSessionId, table: tableId, adults_count: adults, children_count: children, status: 'open',
+      id: billSessionId, table: tableId, adults, children, status: 'open',
     });
     return billSessionId;
   }

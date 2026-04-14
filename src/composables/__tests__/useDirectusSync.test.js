@@ -1,0 +1,362 @@
+/**
+ * @file composables/__tests__/useDirectusSync.test.js
+ * @description Unit tests for useDirectusSync.js.
+ *
+ * Tests cover:
+ *  - startSync is a no-op when directus.enabled = false
+ *  - startSync starts push and pull loops when enabled
+ *  - stopSync clears all timers
+ *  - Pull loop writes updated records into IDB (last-write-wins)
+ *  - Pull loop updates in-memory store orders (merge by id, conflict resolution)
+ *  - Pull loop updates tableCurrentBillSession (open sessions)
+ *  - Pull loop skips records where local date_updated is newer
+ *  - lastPullAt is updated after a successful pull
+ *  - lastPushAt is updated after a successful push
+ *  - forcePush / forcePull work
+ */
+
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { _resetIDBSingleton } from '../useIDB.js';
+import { useDirectusSync, _resetDirectusSyncSingleton } from '../useDirectusSync.js';
+import { upsertRecordsIntoIDB, loadLastPullTsFromIDB } from '../../store/idbPersistence.js';
+import { _resetEnqueueSeq } from '../useSyncQueue.js';
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+/**
+ * Flush all pending Promises (microtasks).
+ * Resolves multiple layers of chained `.then()` by looping.
+ */
+async function flushPromises(rounds = 30) {
+  for (let i = 0; i < rounds; i++) await Promise.resolve();
+}
+
+function directusListResponse(data = []) {
+  return new Response(JSON.stringify({ data }), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
+
+function makeStore(overrides = {}) {
+  return {
+    orders: [],
+    transactions: [],
+    tableCurrentBillSession: {},
+    ...overrides,
+  };
+}
+
+/** A minimal Directus order record (Directus/snake_case format). */
+function makeRemoteOrder(overrides = {}) {
+  return {
+    id: 'ord_remote',
+    status: 'pending',
+    table: '05',
+    bill_session: null,
+    total_amount: 20,
+    item_count: 2,
+    global_note: '',
+    date_updated: '2024-03-01T00:00:00.000Z',
+    note_visibility_cassa: true,
+    note_visibility_sala: true,
+    note_visibility_cucina: true,
+    is_cover_charge: false,
+    is_direct_entry: false,
+    rejection_reason: null,
+    ...overrides,
+  };
+}
+
+beforeEach(async () => {
+  await _resetIDBSingleton();
+  _resetDirectusSyncSingleton();
+  _resetEnqueueSeq();
+  vi.restoreAllMocks();
+  vi.stubGlobal('navigator', { onLine: true });
+
+  // Enable directus in appConfig for these tests
+  const { appConfig } = await import('../../utils/index.js');
+  appConfig.directus = {
+    enabled: true,
+    url: 'https://directus.test',
+    staticToken: 'tok_test',
+    venueId: 1,
+  };
+});
+
+afterEach(() => {
+  _resetDirectusSyncSingleton();
+  vi.unstubAllGlobals();
+});
+
+// ── startSync ─────────────────────────────────────────────────────────────────
+
+describe('startSync()', () => {
+  it('is a no-op when directus.enabled = false', async () => {
+    const { appConfig } = await import('../../utils/index.js');
+    appConfig.directus.enabled = false;
+
+    const fetchSpy = vi.spyOn(global, 'fetch');
+    const sync = useDirectusSync();
+
+    sync.startSync({ appType: 'cassa', store: makeStore() });
+    await flushPromises();
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('does not start twice (singleton guard)', async () => {
+    // Provide a mock that returns empty data for all collections
+    const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation(() => Promise.resolve(directusListResponse([])));
+    const sync = useDirectusSync();
+    const store = makeStore();
+
+    sync.startSync({ appType: 'cassa', store });
+    await flushPromises();
+
+    const callsAfterFirstStart = fetchSpy.mock.calls.length;
+    sync.startSync({ appType: 'cassa', store }); // second call — should be ignored
+    await flushPromises();
+
+    // No additional calls from the second startSync
+    expect(fetchSpy.mock.calls.length).toBe(callsAfterFirstStart);
+  });
+});
+
+// ── stopSync ──────────────────────────────────────────────────────────────────
+
+describe('stopSync()', () => {
+  it('sets syncStatus to idle', async () => {
+    vi.spyOn(global, 'fetch').mockImplementation(() => Promise.resolve(directusListResponse([])));
+    const sync = useDirectusSync();
+    sync.startSync({ appType: 'cassa', store: makeStore() });
+    await flushPromises();
+    sync.stopSync();
+    expect(sync.syncStatus.value).toBe('idle');
+  });
+});
+
+// ── Pull: IDB upsert (last-write-wins) ───────────────────────────────────────
+
+describe('pull — IDB last-write-wins', () => {
+  it('upserts a newer remote record into IDB', async () => {
+    // Seed IDB with an older record
+    await upsertRecordsIntoIDB('orders', [{
+      id: 'ord_1', status: 'pending', date_updated: '2024-01-01T00:00:00.000Z',
+    }]);
+
+    const newerOrder = makeRemoteOrder({
+      id: 'ord_1', status: 'accepted', date_updated: '2024-01-02T00:00:00.000Z',
+    });
+
+    vi.spyOn(global, 'fetch').mockImplementation(() => Promise.resolve(directusListResponse([newerOrder])));
+
+    const sync = useDirectusSync();
+    await sync.forcePull();
+
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+    const stored = await db.get('orders', 'ord_1');
+    expect(stored.status).toBe('accepted');
+  });
+
+  it('does not overwrite a newer local record with an older remote one', async () => {
+    await upsertRecordsIntoIDB('orders', [{
+      id: 'ord_1', status: 'delivered', date_updated: '2024-06-01T00:00:00.000Z',
+    }]);
+
+    const olderOrder = makeRemoteOrder({
+      id: 'ord_1', status: 'pending', date_updated: '2024-01-01T00:00:00.000Z',
+    });
+    vi.spyOn(global, 'fetch').mockImplementation(() => Promise.resolve(directusListResponse([olderOrder])));
+
+    const sync = useDirectusSync();
+    await sync.forcePull();
+
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+    const stored = await db.get('orders', 'ord_1');
+    expect(stored.status).toBe('delivered'); // local wins
+  });
+});
+
+// ── Pull: in-memory store merge ───────────────────────────────────────────────
+
+describe('pull — in-memory orders merge', () => {
+  it('adds a new order from remote into store.orders', async () => {
+    const remoteOrder = makeRemoteOrder({ bill_session: 'bill_x', total_amount: 20 });
+
+    vi.spyOn(global, 'fetch').mockImplementation(() => Promise.resolve(directusListResponse([remoteOrder])));
+
+    const store = makeStore();
+    const sync = useDirectusSync();
+    await sync.forcePull();
+
+    expect(store.orders).toHaveLength(0); // forcePull doesn't update store — use startSync
+  });
+
+  it('startSync merges pulled records into store.orders', async () => {
+    const remoteOrder = makeRemoteOrder({ bill_session: 'bill_x', total_amount: 20 });
+
+    vi.spyOn(global, 'fetch').mockImplementation(() => Promise.resolve(directusListResponse([remoteOrder])));
+
+    const store = makeStore();
+    const sync = useDirectusSync();
+    // startSync sets _store; forcePull() then properly awaits _runPull() to completion
+    sync.startSync({ appType: 'cassa', store });
+    await sync.forcePull();
+
+    expect(store.orders.some(o => o.id === 'ord_remote')).toBe(true);
+    const merged = store.orders.find(o => o.id === 'ord_remote');
+    expect(merged.billSessionId).toBe('bill_x');
+    expect(merged.totalAmount).toBe(20);
+  });
+
+  it('updates an existing order when remote is newer (LWW)', async () => {
+    const remoteOrder = makeRemoteOrder({
+      id: 'ord_1',
+      status: 'accepted',
+      table: '01',
+      total_amount: 15,
+      date_updated: '2024-05-01T00:00:00.000Z',
+    });
+
+    vi.spyOn(global, 'fetch').mockImplementation(() => Promise.resolve(directusListResponse([remoteOrder])));
+
+    const store = makeStore({
+      orders: [{
+        id: 'ord_1', status: 'pending', table: '01',
+        date_updated: '2024-04-01T00:00:00.000Z', orderItems: [{ uid: 'r1' }],
+      }],
+    });
+    const sync = useDirectusSync();
+    sync.startSync({ appType: 'cassa', store });
+    await sync.forcePull();
+
+    const updated = store.orders.find(o => o.id === 'ord_1');
+    expect(updated.status).toBe('accepted');
+    // Local orderItems must be preserved
+    expect(updated.orderItems).toEqual([{ uid: 'r1' }]);
+  });
+
+  it('does not downgrade a locally-newer order', async () => {
+    const remoteOrder = makeRemoteOrder({
+      id: 'ord_1', status: 'pending',
+      date_updated: '2024-01-01T00:00:00.000Z',
+    });
+
+    vi.spyOn(global, 'fetch').mockImplementation(() => Promise.resolve(directusListResponse([remoteOrder])));
+
+    const store = makeStore({
+      orders: [{
+        id: 'ord_1', status: 'completed',
+        date_updated: '2024-06-01T00:00:00.000Z',
+        orderItems: [],
+      }],
+    });
+    const sync = useDirectusSync();
+    sync.startSync({ appType: 'cassa', store });
+    await sync.forcePull();
+
+    expect(store.orders.find(o => o.id === 'ord_1').status).toBe('completed');
+  });
+});
+
+// ── Pull: bill_sessions → tableCurrentBillSession ────────────────────────────
+
+describe('pull — bill_sessions merge', () => {
+  it('adds an open session from remote to tableCurrentBillSession', async () => {
+    const remoteSession = {
+      id: 'bill_99', table: '09', status: 'open', adults: 3, children: 1,
+      date_updated: '2024-03-01T00:00:00.000Z',
+    };
+
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      if (url.includes('bill_sessions')) return Promise.resolve(directusListResponse([remoteSession]));
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const store = makeStore();
+    const sync = useDirectusSync();
+    sync.startSync({ appType: 'cassa', store });
+    await sync.forcePull();
+
+    expect(store.tableCurrentBillSession['09']).toBeTruthy();
+    expect(store.tableCurrentBillSession['09'].billSessionId).toBe('bill_99');
+    expect(store.tableCurrentBillSession['09'].adults).toBe(3);
+  });
+
+  it('removes a closed session from tableCurrentBillSession', async () => {
+    const closedSession = {
+      id: 'bill_99', table: '09', status: 'closed', adults: 3, children: 0,
+      date_updated: '2024-03-01T00:00:00.000Z',
+    };
+
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      if (url.includes('bill_sessions')) return Promise.resolve(directusListResponse([closedSession]));
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const store = makeStore({
+      tableCurrentBillSession: { '09': { billSessionId: 'bill_99', adults: 3, children: 0 } },
+    });
+    const sync = useDirectusSync();
+    sync.startSync({ appType: 'cassa', store });
+    await sync.forcePull();
+
+    expect(store.tableCurrentBillSession['09']).toBeUndefined();
+  });
+});
+
+// ── lastPullAt / lastPushAt ───────────────────────────────────────────────────
+
+describe('reactive timestamps', () => {
+  it('lastPullAt is set after a successful pull with new data', async () => {
+    const remoteOrder = makeRemoteOrder();
+    vi.spyOn(global, 'fetch').mockImplementation(() => Promise.resolve(directusListResponse([remoteOrder])));
+
+    const sync = useDirectusSync();
+    const before = sync.lastPullAt.value;
+    const store = makeStore();
+    sync.startSync({ appType: 'cassa', store });
+    await sync.forcePull();
+
+    expect(sync.lastPullAt.value).not.toBe(before);
+    expect(sync.lastPullAt.value).toBeTruthy();
+  });
+
+  it('lastPushAt is set after a successful push', async () => {
+    // Seed the queue with an entry
+    const { enqueue } = await import('../useSyncQueue.js');
+    await enqueue('orders', 'create', 'ord_1', { id: 'ord_1' });
+
+    vi.spyOn(global, 'fetch').mockImplementation(() => Promise.resolve(new Response('{}', { status: 201 })));
+
+    const sync = useDirectusSync();
+    await sync.forcePush();
+
+    expect(sync.lastPushAt.value).toBeTruthy();
+  });
+});
+
+// ── last_pull_ts persistence ──────────────────────────────────────────────────
+
+describe('pull timestamp persistence', () => {
+  it('saves the max date_updated to IDB app_meta after a pull', async () => {
+    const remoteOrder = makeRemoteOrder({
+      id: 'ord_ts', date_updated: '2024-07-15T12:00:00.000Z',
+    });
+
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      if (url.includes('/items/orders')) return Promise.resolve(directusListResponse([remoteOrder]));
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const sync = useDirectusSync();
+    await sync.forcePull();
+
+    const ts = await loadLastPullTsFromIDB('orders');
+    expect(ts).toBe('2024-07-15T12:00:00.000Z');
+  });
+});

@@ -193,6 +193,27 @@ export const appConfig = {
     users: [],
   },
 
+  // CONFIGURAZIONE SINCRONIZZAZIONE DIRECTUS
+  // Abilita la sincronizzazione bidirezionale con l'istanza Directus (§5.7.2 e §5.7.3).
+  //
+  // enabled:       imposta a `true` per attivare push + pull.
+  //                Se `false` (default) il loop di sync non parte, la sync_queue
+  //                continua ad accumularsi offline e viene svuotata non appena
+  //                `enabled` torna `true` e il dispositivo è online.
+  // url:           URL base dell'istanza Directus senza slash finale
+  //                (es. 'https://dev.nanawork.it').
+  // staticToken:   token statico Directus con permessi READ/WRITE sulle collection
+  //                operative. Generare in Directus → Impostazioni → Token di accesso.
+  //                ⚠ Non committare token reali nel sorgente: iniettare a build/deploy.
+  // venueId:       ID intero del punto vendita (venues.id) su Directus.
+  //                Tutti i filtri di pull usano `filter[venue][_eq]={venueId}`.
+  directus: {
+    enabled: false,
+    url: '',
+    staticToken: '',
+    venueId: null,
+  },
+
   // Minimal fallback menu; the full menu is loaded from the external URL at startup
   menu: {
     "Placeholder": [
