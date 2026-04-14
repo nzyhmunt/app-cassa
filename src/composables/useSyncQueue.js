@@ -159,7 +159,7 @@ export async function incrementAttempts(id, lastError) {
     const entry = await db.get('sync_queue', id);
     if (entry) {
       const updated = { ...entry, attempts: (entry.attempts ?? 0) + 1 };
-      if (lastError != null) updated.last_error = lastError;
+      if (lastError !== null && lastError !== undefined && lastError !== '') updated.last_error = lastError;
       await db.put('sync_queue', updated);
     }
   } catch (e) {
@@ -377,6 +377,11 @@ async function _pushEntry(entry, sdkClient) {
 
     return true;
   } catch (e) {
+    // Extract a human-readable message from the error:
+    //  - e.errors[0].message   — Directus SDK top-level GraphQL/REST error array
+    //  - e.response.errors[0]  — SDK error wrapped under .response
+    //  - e.message             — standard JS Error (e.g. network failure)
+    //  - String(e)             — last-resort fallback (catches non-Error throws)
     const errorMsg =
       e?.errors?.[0]?.message ??
       e?.response?.errors?.[0]?.message ??
