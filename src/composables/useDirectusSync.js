@@ -473,22 +473,31 @@ export function useDirectusSync() {
     _runPush().catch(() => {});
     _runGlobalPull().catch(() => {});
 
-    // Try WebSocket subscriptions first; fall back to polling on failure
-    const subscribed = await _startSubscriptions(pullCfg.collections);
-    if (!subscribed) {
-      // Polling fallback
-      _runPull().catch(() => {});
-      _pollTimer = setInterval(() => _runPull().catch(() => {}), pullCfg.intervalMs);
-    } else {
-      // Even with WebSocket, do one initial REST pull to catch up on missed updates
-      _runPull().catch(() => {});
-    }
-
     // Push loop: retry every 30 s when online
     _pushTimer = setInterval(() => _runPush().catch(() => {}), 30_000);
 
     // Global config pull: every 5 minutes
     _globalTimer = setInterval(() => _runGlobalPull().catch(() => {}), GLOBAL_INTERVAL_MS);
+
+    // WebSocket subscriptions are opt-in (wsEnabled must be explicitly true).
+    // When disabled, fall back to periodic polling from the start.
+    const wsEnabled = appConfig.directus?.wsEnabled === true;
+
+    if (wsEnabled) {
+      // Try WebSocket subscriptions; fall back to polling if connect fails
+      const subscribed = await _startSubscriptions(pullCfg.collections);
+      if (!subscribed) {
+        _runPull().catch(() => {});
+        _pollTimer = setInterval(() => _runPull().catch(() => {}), pullCfg.intervalMs);
+      } else {
+        // Even with WebSocket, do one initial REST pull to catch up on missed updates
+        _runPull().catch(() => {});
+      }
+    } else {
+      // WebSocket disabled — use REST polling only
+      _runPull().catch(() => {});
+      _pollTimer = setInterval(() => _runPull().catch(() => {}), pullCfg.intervalMs);
+    }
 
     if (typeof window !== 'undefined') {
       window.addEventListener('online', _onOnline);

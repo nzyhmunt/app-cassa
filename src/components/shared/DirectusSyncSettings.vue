@@ -70,6 +70,30 @@
             class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]"
           />
         </div>
+
+        <!-- WebSocket toggle -->
+        <div
+          @click="form.wsEnabled = !form.wsEnabled"
+          class="flex items-center justify-between p-3 border border-gray-200 rounded-2xl cursor-pointer hover:bg-gray-50 transition-colors active:scale-95"
+        >
+          <div>
+            <span class="font-bold text-gray-800 block text-sm">Abilita WebSocket (Subscriptions)</span>
+            <span class="text-[10px] text-gray-500">Solo se l'istanza Directus supporta il modulo WebSocket</span>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            :aria-checked="form.wsEnabled"
+            @click.stop="form.wsEnabled = !form.wsEnabled"
+            class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors shrink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand-primary)] focus-visible:ring-offset-2"
+            :class="form.wsEnabled ? 'bg-[var(--brand-primary)]' : 'bg-gray-300'"
+          >
+            <span
+              class="inline-block size-5 transform rounded-full bg-white shadow-md transition-transform"
+              :class="form.wsEnabled ? 'translate-x-5' : 'translate-x-0.5'"
+            ></span>
+          </button>
+        </div>
       </div>
 
       <!-- Stato connessione -->
@@ -160,6 +184,10 @@
         <span class="inline-block size-1.5 rounded-full bg-emerald-500"></span>
         WebSocket attivo
       </p>
+      <p v-else-if="appConfig.directus?.wsEnabled" class="flex items-center gap-1 text-amber-500">
+        <span class="inline-block size-1.5 rounded-full bg-amber-400"></span>
+        WebSocket abilitato (non connesso)
+      </p>
     </div>
   </div>
 </template>
@@ -187,6 +215,7 @@ const form = reactive({
   url: '',
   staticToken: '',
   venueId: null,
+  wsEnabled: false,
 });
 
 const showToken = ref(false);
@@ -221,6 +250,7 @@ function _syncFormFromConfig() {
   form.url = cfg.url ?? '';
   form.staticToken = cfg.staticToken ?? '';
   form.venueId = cfg.venueId ?? null;
+  form.wsEnabled = cfg.wsEnabled ?? false;
   _savedSnapshot.value = JSON.stringify({ ...form });
 }
 
@@ -266,6 +296,7 @@ function saveConfig() {
     url: form.url.trim(),
     staticToken: form.staticToken.trim(),
     venueId: form.venueId || null,
+    wsEnabled: form.wsEnabled,
   };
   saveDirectusConfigToStorage();
   _savedSnapshot.value = JSON.stringify({ ...form });

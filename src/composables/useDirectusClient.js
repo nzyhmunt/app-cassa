@@ -84,6 +84,7 @@ export function loadDirectusConfigFromStorage() {
         url: typeof saved.url === 'string' ? saved.url : '',
         staticToken: typeof saved.staticToken === 'string' ? saved.staticToken : '',
         venueId: saved.venueId != null ? saved.venueId : null,
+        wsEnabled: typeof saved.wsEnabled === 'boolean' ? saved.wsEnabled : false,
       };
       resetDirectusClient();
     }
@@ -105,6 +106,7 @@ export function saveDirectusConfigToStorage() {
       url: cfg?.url ?? '',
       staticToken: cfg?.staticToken ?? '',
       venueId: cfg?.venueId ?? null,
+      wsEnabled: cfg?.wsEnabled ?? false,
     }));
     resetDirectusClient();
   } catch (e) {

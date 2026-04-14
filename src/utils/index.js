@@ -212,6 +212,10 @@ export const appConfig = {
     url: '',
     staticToken: '',
     venueId: null,
+    // wsEnabled: attiva le Directus Subscriptions (WebSocket) come meccanismo di
+    // pull real-time. Richiede che l'istanza Directus abbia il modulo WebSocket
+    // abilitato. Se false (default), viene usato il polling REST periodico.
+    wsEnabled: false,
   },
 
   // Minimal fallback menu; the full menu is loaded from the external URL at startup
