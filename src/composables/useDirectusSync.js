@@ -33,15 +33,15 @@ import {
 const PULL_CONFIG = {
   cassa: {
     collections: ['orders', 'bill_sessions', 'tables'],
-    intervalMs: 5_000,
+    intervalMs: 30_000,
   },
   sala: {
     collections: ['orders', 'bill_sessions', 'tables', 'menu_items'],
-    intervalMs: 3_000,
+    intervalMs: 30_000,
   },
   cucina: {
     collections: ['orders', 'order_items'],
-    intervalMs: 3_000,
+    intervalMs: 30_000,
   },
 };
 
@@ -280,7 +280,7 @@ async function _pullCollection(collection) {
 /** Active unsubscribe callbacks. */
 const _unsubscribers = [];
 /** Whether we are currently connected via WebSocket. */
-let _wsConnected = false;
+const _wsConnected = ref(false);
 
 /**
  * Processes an incoming realtime message from Directus Subscriptions.
@@ -319,7 +319,7 @@ async function _startSubscriptions(collections) {
 
   try {
     await client.connect();
-    _wsConnected = true;
+    _wsConnected.value = true;
 
     for (const collection of collections) {
       const query = { fields: ['*'] };
@@ -338,7 +338,7 @@ async function _startSubscriptions(collections) {
           }
         } catch (e) {
           console.warn(`[DirectusSync] Subscription ${collection} closed:`, e?.message ?? e);
-          _wsConnected = false;
+          _wsConnected.value = false;
           // Restart polling fallback if the subscription broke unexpectedly
           if (_running && !_pollTimer) {
             const pullCfg = PULL_CONFIG[_appType] ?? PULL_CONFIG.cassa;
@@ -353,7 +353,7 @@ async function _startSubscriptions(collections) {
     return true;
   } catch (e) {
     console.warn('[DirectusSync] WebSocket unavailable, falling back to polling:', e?.message ?? e);
-    _wsConnected = false;
+    _wsConnected.value = false;
     return false;
   }
 }
@@ -366,7 +366,7 @@ function _stopSubscriptions() {
 
   const client = getDirectusClient();
   try { client?.disconnect?.(); } catch (_) { /* best-effort */ }
-  _wsConnected = false;
+  _wsConnected.value = false;
 }
 
 // ── Singleton state ───────────────────────────────────────────────────────────
@@ -531,8 +531,7 @@ export function useDirectusSync() {
     syncStatus,
     lastPushAt,
     lastPullAt,
-    /** `true` when the WebSocket connection is active. */
-    wsConnected: { get value() { return _wsConnected; } },
+    wsConnected: _wsConnected,
     startSync,
     stopSync,
     forcePush,

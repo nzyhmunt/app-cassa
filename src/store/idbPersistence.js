@@ -634,12 +634,14 @@ export async function upsertRecordsIntoIDB(storeName, records) {
 
   try {
     const db = await getDB();
+    const tx = db.transaction(storeName, 'readwrite');
     let written = 0;
+
     for (const incoming of records) {
       const pk = incoming[keyPath];
       if (!pk) continue;
 
-      const existing = await db.get(storeName, pk);
+      const existing = await tx.store.get(pk);
       if (existing && existing.date_updated && incoming.date_updated) {
         if (new Date(incoming.date_updated) <= new Date(existing.date_updated)) {
           continue; // local is newer or equal — skip
@@ -648,9 +650,11 @@ export async function upsertRecordsIntoIDB(storeName, records) {
 
       // Strip local-only fields before persisting
       const { _sync_status: _s, ...clean } = incoming;
-      await db.put(storeName, clean);
+      await tx.store.put(clean);
       written++;
     }
+
+    await tx.done;
     return written;
   } catch (e) {
     console.warn('[IDBPersistence] Failed to upsert into', storeName, e);

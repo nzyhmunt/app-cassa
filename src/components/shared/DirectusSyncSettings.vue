@@ -250,6 +250,7 @@ const hasChanges = computed(() => {
     url: form.url,
     staticToken: form.staticToken,
     venueId: form.venueId,
+    wsEnabled: form.wsEnabled,
   }) !== _savedSnapshot.value;
 });
 
@@ -280,9 +281,20 @@ async function testConnection() {
   connectionMessage.value = 'Connessione in corso…';
 
   try {
+    // AbortSignal.timeout is not available in all browsers/WebViews; fall back
+    // to an AbortController-based timeout for compatibility.
+    let signal;
+    if (typeof AbortSignal.timeout === 'function') {
+      signal = AbortSignal.timeout(8_000);
+    } else {
+      const ctrl = new AbortController();
+      setTimeout(() => ctrl.abort(), 8_000);
+      signal = ctrl.signal;
+    }
+
     const res = await fetch(`${form.url.replace(/\/$/, '')}/server/ping`, {
       headers: { Authorization: `Bearer ${form.staticToken}` },
-      signal: AbortSignal.timeout(8_000),
+      signal,
     });
     if (res.ok) {
       const text = await res.text();
