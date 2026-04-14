@@ -27,11 +27,26 @@ export default ({ action, schedule }, { services, database, getSchema, logger, e
 
   // ── Configurazione ────────────────────────────────────────────────────────
 
-  const PRINT_API_KEY   = env['PRINT_SERVER_API_KEY']           ?? '';
-  const POLL_SEC        = Math.max(1, parseInt(env['PRINT_DISPATCHER_POLL_SEC']       ?? '60',    10));
-  const TIMEOUT_MS      = Math.max(1000, parseInt(env['PRINT_DISPATCHER_TIMEOUT_MS'] ?? '30000', 10));
-  const RETRY_MAX       = Math.max(0, parseInt(env['PRINT_DISPATCHER_RETRY_MAX']      ?? '3',     10));
-  const RETRY_DELAY_MS  = Math.max(0, parseInt(env['PRINT_DISPATCHER_RETRY_DELAY_MS'] ?? '2000', 10));
+  const PRINT_API_KEY   = env['PRINT_SERVER_API_KEY'] ?? '';
+
+  /**
+   * Legge una variabile d'ambiente numerica intera.
+   * Restituisce `fallback` se la variabile non è impostata, è vuota o non è un intero valido.
+   * @param {string} name      Nome variabile d'ambiente
+   * @param {number} fallback  Valore di default
+   * @returns {number}
+   */
+  function envInt(name, fallback) {
+    const raw = env[name];
+    if (raw == null || raw === '') return fallback;
+    const parsed = parseInt(raw, 10);
+    return Number.isNaN(parsed) ? fallback : parsed;
+  }
+
+  const POLL_SEC        = Math.max(1,    envInt('PRINT_DISPATCHER_POLL_SEC',        60));
+  const TIMEOUT_MS      = Math.max(1000, envInt('PRINT_DISPATCHER_TIMEOUT_MS',   30000));
+  const RETRY_MAX       = Math.max(0,    envInt('PRINT_DISPATCHER_RETRY_MAX',         3));
+  const RETRY_DELAY_MS  = Math.max(0,    envInt('PRINT_DISPATCHER_RETRY_DELAY_MS', 2000));
 
   // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -192,12 +207,14 @@ export default ({ action, schedule }, { services, database, getSchema, logger, e
 
   // ── Schedule: recupero job pending rimasti indietro ───────────────────────
 
-  // Converte POLL_SEC in cron espressione:
-  //  ≤ 59 secondi → "*/N * * * * *"  (6 campi, include secondi — node-cron)
-  //  ≥ 60 secondi → "*/M * * * *"    (5 campi, minuti standard — sicuro con qualsiasi cron lib)
+  // Converte POLL_SEC in cron expression.
+  //  ≤ 59 s  → "*/N * * * * *"    (6 campi incl. secondi — node-cron)
+  //  ≥ 60 s  → "*/M * * * *"      (5 campi, minuti — arrotondato al minuto più vicino; min 1)
+  // Nota: per il fallback di polling, la granularità al minuto è sufficiente.
+  const cronMinutes = Math.max(1, Math.round(POLL_SEC / 60));
   const cronExpr = POLL_SEC < 60
     ? `*/${POLL_SEC} * * * * *`
-    : `*/${Math.round(POLL_SEC / 60)} * * * *`;
+    : `*/${cronMinutes} * * * *`;
 
   schedule(cronExpr, async () => {
     let pendingJobs;
