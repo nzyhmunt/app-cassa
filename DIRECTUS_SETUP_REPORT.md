@@ -236,8 +236,8 @@ Le collection sono state create rispettando le dipendenze tra chiavi esterne (FK
 
 ### Primary Key strategy
 - **SERIAL (integer)**: `venues`, `menu_categories`, `menu_item_modifiers`, `app_settings`
-- **String (VARCHAR)**: `rooms`, `tables`, `payment_methods`, `menu_items`, `printers`, `print_jobs`, `fiscal_receipts`, `invoice_requests`, `table_merge_sessions`
-- **UUID v7** (time-ordered, generato client-side): tutte le collection operative (`bill_sessions`, `orders`, `order_items`, `order_item_modifiers`, `transactions`, `transaction_order_refs`, `transaction_voce_refs`, `cash_movements`, `daily_closures`, `daily_closure_by_method`, `venue_users`)
+- **String (VARCHAR)**: `rooms`, `tables`, `payment_methods`, `menu_items`, `printers`, `print_jobs`, `fiscal_receipts`, `invoice_requests`
+- **UUID v7** (time-ordered, generato client-side): tutte le collection operative (`bill_sessions`, `orders`, `order_items`, `order_item_modifiers`, `transactions`, `transaction_order_refs`, `transaction_voce_refs`, `cash_movements`, `daily_closures`, `daily_closure_by_method`, `venue_users`, `table_merge_sessions`)
 
 ### Status fields
 Le collection con `status` di **dominio applicativo** (non workflow Directus) sono:
