@@ -87,8 +87,8 @@ function _mapBillSession(r) {
   return {
     ...r,
     billSessionId: r.id,
-    adults: r.adults ?? 0,
-    children: r.children ?? 0,
+    adults: r.adults ?? r.adults_count ?? 0,
+    children: r.children ?? r.children_count ?? 0,
     _sync_status: 'synced',
   };
 }
