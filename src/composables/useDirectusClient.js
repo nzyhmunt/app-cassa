@@ -119,6 +119,9 @@ export function saveDirectusConfigToStorage() {
     }));
     directusEnabledRef.value = cfg?.enabled ?? false;
     resetDirectusClient();
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent?.(new CustomEvent('directus-config-updated'));
+    }
   } catch (e) {
     console.warn('[DirectusClient] Failed to save config to storage:', e);
   }
