@@ -2005,12 +2005,12 @@ invece degli UUID:
 |--------------------|---------------------------------------|
 | `venues`           | `{{name}}`                            |
 | `venue_users`      | `{{display_name}} ({{role}})`         |
-| `rooms`            | `{{name}}`                            |
-| `tables`           | `{{name}}`                            |
+| `rooms`            | `{{label}}`                           |
+| `tables`           | `{{label}}`                           |
 | `menu_categories`  | `{{name}}`                            |
 | `menu_items`       | `{{name}} — {{price}}€`               |
 | `bill_sessions`    | `{{id}} — {{status}}`                 |
 | `orders`           | `{{id}} — {{status}}`                 |
-| `payment_methods`  | `{{name}}`                            |
+| `payment_methods`  | `{{label}}`                           |
 | `printers`         | `{{name}}`                            |
 | `transactions`     | `{{id}} — {{operation_type}}`         |
