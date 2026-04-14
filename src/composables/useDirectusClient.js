@@ -74,6 +74,7 @@ export function resetDirectusClient() {
  */
 export function loadDirectusConfigFromStorage() {
   try {
+    if (typeof window === 'undefined' || !window.localStorage) return;
     const raw = window.localStorage.getItem('directus-config');
     if (!raw) return;
     const saved = JSON.parse(raw);
@@ -97,6 +98,7 @@ export function loadDirectusConfigFromStorage() {
  */
 export function saveDirectusConfigToStorage() {
   try {
+    if (typeof window === 'undefined' || !window.localStorage) return;
     const cfg = appConfig.directus;
     window.localStorage.setItem('directus-config', JSON.stringify({
       enabled: cfg?.enabled ?? false,

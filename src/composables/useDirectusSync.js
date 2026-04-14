@@ -212,24 +212,25 @@ async function _fetchUpdatedViaSDK(collection, sinceTs, page = 1) {
   if (!cfg) return { data: [], maxTs: null };
 
   const client = _buildRestClient(cfg);
-  const venueId = cfg.venueId;
   const query = {
     limit: 200,
     page,
     sort: ['date_updated'],
     fields: ['*'],
-    ...(sinceTs && { filter: { _and: [{ date_updated: { _gt: sinceTs } }] } }),
   };
 
-  // Add venue filter for collections that have a venue FK
-  if (venueId != null && sinceTs !== undefined) {
-    if (query.filter) {
-      query.filter._and.push({ venue: { _eq: venueId } });
-    } else {
-      query.filter = { venue: { _eq: venueId } };
-    }
-  } else if (venueId != null) {
-    query.filter = { venue: { _eq: venueId } };
+  // Incremental pull filter (only records updated after last known timestamp)
+  const conditions = [];
+  if (sinceTs) {
+    conditions.push({ date_updated: { _gt: sinceTs } });
+  }
+  if (cfg.venueId != null) {
+    conditions.push({ venue: { _eq: cfg.venueId } });
+  }
+  if (conditions.length === 1) {
+    query.filter = conditions[0];
+  } else if (conditions.length > 1) {
+    query.filter = { _and: conditions };
   }
 
   try {
@@ -329,8 +330,8 @@ async function _startSubscriptions(collections) {
       const { subscription, unsubscribe } = await client.subscribe(collection, { query });
       _unsubscribers.push(unsubscribe);
 
-      // Process subscription messages in the background
-      ;(async () => {
+      // Process subscription messages as they arrive
+      async function processSubscription() {
         try {
           for await (const message of subscription) {
             await _handleSubscriptionMessage(collection, message);
@@ -344,7 +345,8 @@ async function _startSubscriptions(collections) {
             _pollTimer = setInterval(() => _runPull().catch(() => {}), pullCfg.intervalMs);
           }
         }
-      })();
+      }
+      processSubscription();
     }
 
     console.info('[DirectusSync] WebSocket subscriptions active for:', collections.join(', '));

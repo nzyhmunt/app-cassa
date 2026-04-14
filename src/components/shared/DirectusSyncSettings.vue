@@ -156,7 +156,7 @@
       <p v-if="sync.lastPullAt.value">
         Ultimo pull: {{ formatTs(sync.lastPullAt.value) }}
       </p>
-      <p v-if="sync.wsConnected && sync.wsConnected.value" class="flex items-center gap-1">
+      <p v-if="sync.wsConnected.value" class="flex items-center gap-1">
         <span class="inline-block size-1.5 rounded-full bg-emerald-500"></span>
         WebSocket attivo
       </p>
