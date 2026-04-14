@@ -53,13 +53,21 @@ function onStorageChange(event) {
   store.$hydrate?.();
 }
 
+function restartSyncFromCurrentConfig() {
+  loadDirectusConfigFromStorage();
+  sync.stopSync();
+  sync.startSync({ appType: 'cassa', store });
+}
+
 onMounted(() => {
   window.addEventListener('storage', onStorageChange);
-  sync.startSync({ appType: 'cassa', store });
+  window.addEventListener('directus-config-updated', restartSyncFromCurrentConfig);
+  restartSyncFromCurrentConfig();
 });
 
 onUnmounted(() => {
   window.removeEventListener('storage', onStorageChange);
+  window.removeEventListener('directus-config-updated', restartSyncFromCurrentConfig);
   sync.stopSync();
 });
 </script>
