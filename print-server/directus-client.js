@@ -103,6 +103,13 @@ const RETRY_MAX             = Math.max(0,   envInt('DIRECTUS_RETRY_MAX',        
 const RETRY_DELAY_MS        = Math.max(0,   envInt('DIRECTUS_RETRY_DELAY_MS',       2000));
 const PRINTERS_REFRESH_SEC  = Math.max(30,  envInt('DIRECTUS_PRINTERS_REFRESH_SEC', 300));
 
+/**
+ * Ritardo iniziale (ms) prima del primo refresh stampanti.
+ * Lascia tempo al server per completare il bootstrap (connessione WS, primo polling)
+ * prima di effettuare una chiamata REST aggiuntiva.
+ */
+const PRINTERS_INITIAL_DELAY_MS = PRINTERS_REFRESH_SEC >= 60 ? 15_000 : 5_000;
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /**
@@ -235,8 +242,8 @@ function startPrintersRefresh(restClient, log) {
     });
     setTimeout(tick, PRINTERS_REFRESH_SEC * 1000);
   }
-  // Primo refresh: ritarda di 15s per non sovraccaricare il bootstrap
-  setTimeout(tick, 15_000);
+  // Primo refresh: ritarda leggermente per non sovraccaricare il bootstrap iniziale
+  setTimeout(tick, PRINTERS_INITIAL_DELAY_MS);
   log.info(`[directus-client] Refresh stampanti programmato ogni ${PRINTERS_REFRESH_SEC}s`);
 }
 
