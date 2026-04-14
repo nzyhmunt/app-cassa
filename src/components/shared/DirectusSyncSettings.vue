@@ -330,7 +330,7 @@ async function testConnection() {
 function saveConfig() {
   const nextDirectusConfig = {
     enabled: form.enabled,
-    url: form.url.trim(),
+    url: form.url.trim().replace(/\/$/, ''),
     staticToken: form.staticToken.trim(),
     venueId: form.venueId || null,
     wsEnabled: form.wsEnabled,

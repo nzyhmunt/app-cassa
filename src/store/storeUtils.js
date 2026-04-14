@@ -23,15 +23,36 @@ export function newUUID(prefix = 'id') {
  * followed by version/variant bits and cryptographically random bytes.
  * This ensures chronological sortability while remaining globally unique.
  *
+ * When multiple UUIDs are generated within the same millisecond the 12-bit
+ * `rand_a` field (bits 12–23 of byte group 3, i.e. bytes 6–7 after the version
+ * nibble) is used as a monotonic counter.  This guarantees that IDs created in
+ * rapid succession within a single execution context sort in creation order even
+ * when their `date_created` timestamps are identical.
+ *
  * Falls back to a timestamp + Math.random composite in environments where
  * crypto.getRandomValues is not available (e.g., legacy jsdom).
  *
  * @param {string} [prefix='id'] – Short prefix for the ID.
  * @returns {string}  e.g. "fis_0192fa3c-b41a-7e8d-a312-0c2e9f4a87b5"
  */
+
+/** @type {number} Last millisecond timestamp seen by newUUIDv7. */
+let _v7LastMs = -1;
+/** @type {number} Monotonic 12-bit counter incremented within the same ms. */
+let _v7Seq = 0;
+
 export function newUUIDv7(prefix = 'id') {
   const now = Date.now();
   const buf = new Uint8Array(16);
+
+  // Maintain per-ms monotonic counter to guarantee lexicographic ordering when
+  // two UUIDs are generated within the same millisecond (rand_a, 12 bits).
+  if (now === _v7LastMs) {
+    _v7Seq = (_v7Seq + 1) & 0xfff; // wrap at 4096 to stay within 12 bits
+  } else {
+    _v7LastMs = now;
+    _v7Seq = 0;
+  }
 
   // Timestamp: 48 bits (bytes 0-5) — milliseconds since Unix epoch, big-endian
   buf[0] = Math.floor(now / 0x10000000000) & 0xff;
@@ -41,15 +62,17 @@ export function newUUIDv7(prefix = 'id') {
   buf[4] = Math.floor(now / 0x100) & 0xff;
   buf[5] = now & 0xff;
 
-  // Random bytes for positions 6-15
+  // Random bytes for positions 8-15 (rand_b, 62 bits after variant)
   if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
-    crypto.getRandomValues(buf.subarray(6));
+    crypto.getRandomValues(buf.subarray(8));
   } else {
-    for (let i = 6; i < 16; i++) buf[i] = Math.floor(Math.random() * 256) & 0xff;
+    for (let i = 8; i < 16; i++) buf[i] = Math.floor(Math.random() * 256) & 0xff;
   }
 
-  // Set version 7 (bits 48-51 → high nibble of byte 6)
-  buf[6] = (buf[6] & 0x0f) | 0x70;
+  // Byte 6: version nibble (0x7) in high 4 bits + top 4 bits of 12-bit seq counter
+  buf[6] = 0x70 | ((_v7Seq >> 8) & 0x0f);
+  // Byte 7: low 8 bits of seq counter
+  buf[7] = _v7Seq & 0xff;
   // Set RFC 4122 variant 10xx (bits 64-65 → high 2 bits of byte 8)
   buf[8] = (buf[8] & 0x3f) | 0x80;
 

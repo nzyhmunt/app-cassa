@@ -180,6 +180,122 @@ function _cleanPayload(payload) {
 }
 
 /**
+ * Additional fields that exist only in the local store and must not be pushed to
+ * Directus (either because they are handled as separate junction collection entries
+ * or because they are UI-only computation helpers).
+ * @type {Set<string>}
+ */
+const PUSH_DROP_FIELDS = new Set([
+  'timestamp',    // local ISO string; Directus auto-sets date_created via server
+  'orderRefs',    // M2M handled separately via transaction_order_refs collection
+  'vociRefs',     // M2M handled separately via transaction_voce_refs collection
+  'grossAmount',  // UI-only display field (not in Directus schema)
+  'changeAmount', // UI-only display field (not in Directus schema)
+]);
+
+/**
+ * Explicit rename map: local in-app field name → Directus collection field name.
+ *
+ * Directus FK fields use the related collection name **without** an `_id` suffix
+ * (e.g. `bill_session`, not `bill_session_id`). This matches the Directus
+ * convention described in DATABASE_SCHEMA.md.
+ *
+ * @type {Record<string, string>}
+ */
+const FIELD_RENAME_MAP = {
+  // FK fields — Directus convention: no _id suffix
+  billSessionId:  'bill_session',
+  orderId:        'order',
+  dishId:         'dish',
+  tableId:        'table',
+  // Local PK alias → Directus PK (transactions use `transactionId` locally)
+  transactionId:  'id',
+  // camelCase → snake_case for domain fields
+  totalAmount:        'total_amount',
+  itemCount:          'item_count',
+  isCoverCharge:      'is_cover_charge',
+  isDirectEntry:      'is_direct_entry',
+  rejectionReason:    'rejection_reason',
+  globalNote:         'global_note',
+  unitPrice:          'unit_price',
+  voidedQuantity:     'voided_quantity',
+  kitchenReady:       'kitchen_ready',
+  operationType:      'operation_type',
+  paymentMethod:      'payment_method',
+  amountPaid:         'amount_paid',
+  tipAmount:          'tip_amount',
+  romanaSplitCount:   'romana_split_count',
+  splitQuota:         'split_quota',
+  splitWays:          'split_ways',
+  discountType:       'discount_type',
+  discountValue:      'discount_value',
+};
+
+/**
+ * Translates a local (camelCase / legacy-named) record payload into the
+ * Directus-compatible field naming convention (snake_case, FK fields without
+ * the `_id` suffix as per DATABASE_SCHEMA.md §2 convention notes).
+ *
+ * The function handles:
+ *  - Explicit field renames via FIELD_RENAME_MAP (e.g. `billSessionId` → `bill_session`)
+ *  - Special nested objects: `noteVisibility` → `note_visibility_{app}` flat fields,
+ *    `dietaryPreferences` → `dietary_diets` / `dietary_allergens`
+ *  - `time` → `order_time` (orders only)
+ *  - Drop of push-local-only fields (PUSH_DROP_FIELDS + LOCAL_ONLY_FIELDS via _cleanPayload)
+ *
+ * Only fields present in the input payload are emitted (safe for partial updates).
+ *
+ * @param {string} collection  - Directus collection name
+ * @param {object|null} localPayload
+ * @returns {object}  Directus-ready payload
+ */
+function _toDirectusPayload(collection, localPayload) {
+  if (!localPayload || typeof localPayload !== 'object') return {};
+
+  // Strip local-only runtime fields first
+  const cleaned = _cleanPayload(localPayload);
+  const out = {};
+
+  for (const [key, value] of Object.entries(cleaned)) {
+    // Drop push-specific local fields
+    if (PUSH_DROP_FIELDS.has(key)) continue;
+
+    // Special: flatten noteVisibility object → per-app boolean columns
+    if (key === 'noteVisibility' && value && typeof value === 'object') {
+      out.note_visibility_cassa   = value.cassa   ?? true;
+      out.note_visibility_sala    = value.sala    ?? true;
+      out.note_visibility_cucina  = value.cucina  ?? true;
+      continue;
+    }
+
+    // Special: flatten dietaryPreferences → dietary_diets / dietary_allergens
+    if (key === 'dietaryPreferences' && value && typeof value === 'object') {
+      out.dietary_diets     = value.diete     ?? null;
+      out.dietary_allergens = value.allergeni ?? null;
+      continue;
+    }
+
+    // Special: `time` → `order_time` only for the orders collection
+    if (key === 'time' && collection === 'orders') {
+      out.order_time = value;
+      continue;
+    }
+
+    // Apply explicit rename (camelCase → snake_case, FK without _id suffix)
+    const renamed = FIELD_RENAME_MAP[key];
+    if (renamed) {
+      out[renamed] = value;
+      continue;
+    }
+
+    // Pass through (already in correct Directus naming or unrecognised field)
+    out[key] = value;
+  }
+
+  return out;
+}
+
+/**
  * Builds a minimal REST-only Directus SDK client from a cfg object.
  * A new, lightweight client is created for each `drainQueue()` invocation
  * so that the push loop does not share connection state with the realtime
@@ -214,6 +330,16 @@ function _buildRestClient(cfg) {
 async function _pushEntry(entry, sdkClient) {
   const { collection, operation, record_id, payload } = entry;
 
+  // Translate local field names to Directus schema names for all non-delete operations
+  const directusPayload = _toDirectusPayload(collection, payload);
+
+  // Ensure the primary key is always present in create payloads.
+  // This guards against cases where the local PK alias was renamed (e.g.
+  // `transactionId` → `id`) or was simply not included in a partial payload.
+  if (operation === 'create' && !directusPayload.id && record_id) {
+    directusPayload.id = record_id;
+  }
+
   try {
     if (operation === 'delete') {
       if (DOMAIN_STATUS_COLLECTIONS.has(collection)) {
@@ -229,18 +355,18 @@ async function _pushEntry(entry, sdkClient) {
       }
     } else if (operation === 'create') {
       try {
-        await sdkClient.request(createItem(collection, _cleanPayload(payload)));
+        await sdkClient.request(createItem(collection, directusPayload));
       } catch (createError) {
         // 409 Conflict: duplicate UUIDv7 — retry as update
         if (createError?.response?.status === 409) {
-          await sdkClient.request(updateItem(collection, record_id, _cleanPayload(payload)));
+          await sdkClient.request(updateItem(collection, record_id, directusPayload));
         } else {
           throw createError;
         }
       }
     } else {
       // update
-      await sdkClient.request(updateItem(collection, record_id, _cleanPayload(payload)));
+      await sdkClient.request(updateItem(collection, record_id, directusPayload));
     }
 
     return true;
