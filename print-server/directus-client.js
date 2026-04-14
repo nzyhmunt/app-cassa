@@ -123,11 +123,13 @@ function sleep(ms) {
 function buildJobFilter() {
   const statusFilter = { status: { _eq: 'pending' } };
   if (!DIRECTUS_VENUE) return statusFilter;
-  return { _and: [statusFilter, { venue: { _eq: parseInt(DIRECTUS_VENUE, 10) || DIRECTUS_VENUE } }] };
+  const parsedVenue = parseInt(DIRECTUS_VENUE, 10);
+  const venueValue  = isNaN(parsedVenue) ? DIRECTUS_VENUE : parsedVenue;
+  return { _and: [statusFilter, { venue: { _eq: venueValue } }] };
 }
 
 /** Campi da richiedere per ogni job. */
-const JOB_FIELDS = ['log_id', 'job_id', 'printer', 'print_type', 'payload', 'status'];
+const JOB_FIELDS = ['log_id', 'job_id', 'printer', 'print_type', 'payload', 'status', 'venue'];
 
 // ── Client factory ────────────────────────────────────────────────────────────
 
@@ -242,8 +244,10 @@ async function processJob(restClient, job, log) {
   for (let attempt = 0; attempt <= RETRY_MAX; attempt++) {
     if (attempt > 0) await sleep(RETRY_DELAY_MS);
     try {
-      // Costruisce il Buffer ESC/POS dal payload del job
-      const buf = buildEscPosBuffer(payload);
+      // Costruisce il Buffer ESC/POS dal payload del job.
+      // Unisce print_type (campo Directus snake_case) come printType (camelCase)
+      // richiesto dal formatter, preservando tutti i campi del payload.
+      const buf = buildEscPosBuffer({ printType: print_type, ...payload });
 
       // Risolve il printer ID: preferisce payload.printerId (campo inviato dal frontend),
       // usa job.printer (FK) come fallback.
