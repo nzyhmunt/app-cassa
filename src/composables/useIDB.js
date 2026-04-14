@@ -128,7 +128,7 @@ export function getDB() {
           }
         } catch (error) {
           console.warn(
-            '[useIDB] Failed to migrate app_meta.tableMergedInto to table_merge_sessions; legacy merge state may remain unread until migrated.',
+            '[useIDB] Failed to migrate app_meta.tableMergedInto to table_merge_sessions; legacy merge state may remain unmigrated in app_meta, will still be read via fallback when needed, and can be rewritten on a later successful save.',
             {
               dbName,
               oldVersion,

@@ -173,6 +173,10 @@ export async function saveStateToIDB(state) {
           merged_at: now,
         }));
       ops.push(_replaceAll(db, 'table_merge_sessions', records));
+      // Also remove the legacy app_meta blob so the fallback in loadStateFromIDB
+      // cannot resurrect stale mappings after an empty-tableMergedInto save clears
+      // table_merge_sessions while the old key is still present.
+      ops.push(db.delete('app_meta', 'tableMergedInto'));
     }
     if ('tableOccupiedAt' in state) {
       ops.push(db.put('app_meta', JSON.parse(JSON.stringify({

@@ -712,6 +712,49 @@ describe('loadStateFromIDB() — backward-compat fallback for tableMergedInto', 
     const loaded = await loadStateFromIDB();
     expect(loaded.tableMergedInto).toEqual({ T2: 'T1' });
   });
+
+  it('saving tableMergedInto removes the stale app_meta.tableMergedInto legacy key', async () => {
+    // Plant stale legacy blob first
+    const { getDB } = await import('../../composables/useIDB.js');
+    const db = await getDB();
+    await db.put('app_meta', { id: 'tableMergedInto', value: { T5: 'T4' } });
+
+    // Save overwrites table_merge_sessions AND must delete the legacy key
+    await saveStateToIDB({
+      orders: [], transactions: [], cashBalance: 0, cashMovements: [],
+      dailyClosures: [], printLog: [],
+      tableCurrentBillSession: {},
+      tableMergedInto: { T2: 'T1' },
+      tableOccupiedAt: {},
+      billRequestedTables: new Set(),
+    });
+
+    const legacyRecord = await db.get('app_meta', 'tableMergedInto');
+    expect(legacyRecord).toBeUndefined();
+  });
+
+  it('saving empty tableMergedInto also removes the stale legacy key (no ghost resurrection)', async () => {
+    // Plant stale legacy blob
+    const { getDB } = await import('../../composables/useIDB.js');
+    const db = await getDB();
+    await db.put('app_meta', { id: 'tableMergedInto', value: { GHOST: 'DATA' } });
+
+    // Clear all merges — table_merge_sessions becomes empty, legacy key must also be deleted
+    await saveStateToIDB({
+      orders: [], transactions: [], cashBalance: 0, cashMovements: [],
+      dailyClosures: [], printLog: [],
+      tableCurrentBillSession: {},
+      tableMergedInto: {},
+      tableOccupiedAt: {},
+      billRequestedTables: new Set(),
+    });
+
+    const loaded = await loadStateFromIDB();
+    expect(loaded.tableMergedInto).toEqual({});
+
+    const legacyRecord = await db.get('app_meta', 'tableMergedInto');
+    expect(legacyRecord).toBeUndefined();
+  });
 });
 
 // ── clearAllStateFromIDB covers fiscal / invoice ──────────────────────────────
