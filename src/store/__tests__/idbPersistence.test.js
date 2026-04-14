@@ -17,6 +17,7 @@
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import { _resetIDBSingleton } from '../../composables/useIDB.js';
+import { getInstanceName } from '../persistence.js';
 import {
   loadStateFromIDB,
   saveStateToIDB,
@@ -630,7 +631,7 @@ describe('pruneInvoiceRequestsInIDB()', () => {
 // ── v2 → v3 migration ────────────────────────────────────────────────────────
 
 function _getTestDBName() {
-  const instanceName = String(globalThis.appConfig?.instanceName ?? '').trim();
+  const instanceName = String(getInstanceName()).trim();
   return instanceName ? `app-cassa-${instanceName}` : 'app-cassa';
 }
 
