@@ -156,19 +156,23 @@
     <div v-if="syncEnabled" class="flex gap-2">
       <button
         type="button"
-        @click="sync.forcePush()"
-        class="flex-1 py-2.5 bg-gray-50 hover:bg-gray-100 text-gray-700 font-bold rounded-2xl flex items-center justify-center gap-2 border border-gray-200 transition-colors active:scale-95 text-xs"
+        @click="handleForcePush"
+        :disabled="pushing || pulling"
+        class="flex-1 py-2.5 bg-gray-50 hover:bg-gray-100 text-gray-700 font-bold rounded-2xl flex items-center justify-center gap-2 border border-gray-200 transition-colors active:scale-95 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
       >
-        <Upload class="size-3.5 text-gray-500" />
-        <span>Push ora</span>
+        <LoaderCircle v-if="pushing" class="size-3.5 text-gray-500 animate-spin" />
+        <Upload v-else class="size-3.5 text-gray-500" />
+        <span>{{ pushing ? 'Invio in corso...' : 'Push ora' }}</span>
       </button>
       <button
         type="button"
-        @click="sync.forcePull()"
-        class="flex-1 py-2.5 bg-gray-50 hover:bg-gray-100 text-gray-700 font-bold rounded-2xl flex items-center justify-center gap-2 border border-gray-200 transition-colors active:scale-95 text-xs"
+        @click="handleForcePull"
+        :disabled="pushing || pulling"
+        class="flex-1 py-2.5 bg-gray-50 hover:bg-gray-100 text-gray-700 font-bold rounded-2xl flex items-center justify-center gap-2 border border-gray-200 transition-colors active:scale-95 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
       >
-        <Download class="size-3.5 text-gray-500" />
-        <span>Pull ora</span>
+        <LoaderCircle v-if="pulling" class="size-3.5 text-gray-500 animate-spin" />
+        <Download v-else class="size-3.5 text-gray-500" />
+        <span>{{ pulling ? 'Ricezione in corso...' : 'Pull ora' }}</span>
       </button>
     </div>
 
@@ -235,6 +239,8 @@ const form = reactive({
 
 const showToken = ref(false);
 const testing = ref(false);
+const pushing = ref(false);
+const pulling = ref(false);
 const connectionStatus = ref('idle'); // 'idle' | 'testing' | 'ok' | 'error'
 const connectionMessage = ref('');
 const showQueueLog = ref(false);
@@ -368,6 +374,28 @@ function saveConfig() {
   saveDirectusConfigToStorage();
   _savedSnapshot.value = JSON.stringify({ ...form });
   connectionStatus.value = 'idle';
+}
+
+/** Triggers a manual push and shows a loading spinner on the button. */
+async function handleForcePush() {
+  if (pushing.value || pulling.value) return;
+  pushing.value = true;
+  try {
+    await sync.forcePush();
+  } finally {
+    pushing.value = false;
+  }
+}
+
+/** Triggers a manual pull and shows a loading spinner on the button. */
+async function handleForcePull() {
+  if (pushing.value || pulling.value) return;
+  pulling.value = true;
+  try {
+    await sync.forcePull();
+  } finally {
+    pulling.value = false;
+  }
 }
 
 /** Formats an ISO timestamp to a locale-friendly short string. */
