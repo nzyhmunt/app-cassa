@@ -1,0 +1,231 @@
+/**
+ * @file store/__tests__/syncQueue.test.js
+ * @description Unit tests for useSyncQueue.js — specifically `drainQueue()`.
+ *
+ * Tests cover:
+ *  - enqueue() adds entries to IDB sync_queue
+ *  - drainQueue() POSTs create operations to Directus
+ *  - drainQueue() PATCHes update operations
+ *  - drainQueue() skips deletes on domain-status collections
+ *  - drainQueue() soft-deletes on soft-delete collections
+ *  - drainQueue() hard-deletes junction collection records
+ *  - drainQueue() retries 409 create as PATCH
+ *  - drainQueue() increments attempts on failure and abandons after MAX_ATTEMPTS
+ *  - drainQueue() strips local-only fields (_sync_status, orderItems)
+ *  - drainQueue() returns push/failed/abandoned counts
+ */
+
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { _resetIDBSingleton } from '../../composables/useIDB.js';
+import {
+  enqueue,
+  getPendingEntries,
+  drainQueue,
+  MAX_ATTEMPTS,
+  _resetEnqueueSeq,
+} from '../../composables/useSyncQueue.js';
+
+// Pass _backoffMs:0 to skip exponential back-off delays in all tests.
+const FAKE_CFG = { url: 'https://directus.test', staticToken: 'tok_test', _backoffMs: 0 };
+
+// Helper: build a mock Response
+function mockResponse(status, body = {}) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
+
+beforeEach(async () => {
+  await _resetIDBSingleton();
+  _resetEnqueueSeq();
+  vi.restoreAllMocks();
+  vi.stubGlobal('navigator', { ...navigator, onLine: true });
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+// ── enqueue ───────────────────────────────────────────────────────────────────
+
+describe('enqueue()', () => {
+  it('adds an entry to the sync_queue', async () => {
+    await enqueue('orders', 'create', 'ord_1', { id: 'ord_1', status: 'pending' });
+    const entries = await getPendingEntries();
+    expect(entries).toHaveLength(1);
+    expect(entries[0].collection).toBe('orders');
+    expect(entries[0].operation).toBe('create');
+    expect(entries[0].record_id).toBe('ord_1');
+    expect(entries[0].attempts).toBe(0);
+  });
+
+  it('enqueues multiple entries in order', async () => {
+    await enqueue('orders', 'create', 'ord_1', { id: 'ord_1' });
+    await enqueue('orders', 'update', 'ord_1', { status: 'accepted' });
+    const entries = await getPendingEntries();
+    expect(entries).toHaveLength(2);
+    expect(entries[0].operation).toBe('create');
+    expect(entries[1].operation).toBe('update');
+  });
+});
+
+// ── drainQueue ───────────────────────────────────────────────────────────────
+
+describe('drainQueue()', () => {
+  it('POSTs create operations and removes entry on success', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue(mockResponse(201, { data: { id: 'ord_1' } }));
+    await enqueue('orders', 'create', 'ord_1', { id: 'ord_1', status: 'pending' });
+
+    const result = await drainQueue(FAKE_CFG);
+
+    expect(result.pushed).toBe(1);
+    expect(result.failed).toBe(0);
+    expect(fetchSpy).toHaveBeenCalledOnce();
+    const [url, opts] = fetchSpy.mock.calls[0];
+    expect(url).toContain('/items/orders');
+    expect(opts.method).toBe('POST');
+    expect(JSON.parse(opts.body)).toMatchObject({ id: 'ord_1', status: 'pending' });
+
+    const remaining = await getPendingEntries();
+    expect(remaining).toHaveLength(0);
+  });
+
+  it('PATCHes update operations', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue(mockResponse(200, { data: { id: 'ord_1' } }));
+    await enqueue('orders', 'update', 'ord_1', { status: 'accepted' });
+
+    await drainQueue(FAKE_CFG);
+
+    const [url, opts] = fetchSpy.mock.calls[0];
+    expect(url).toContain('/items/orders/ord_1');
+    expect(opts.method).toBe('PATCH');
+    expect(JSON.parse(opts.body)).toMatchObject({ status: 'accepted' });
+  });
+
+  it('strips _sync_status and orderItems from payload', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue(mockResponse(201, {}));
+    await enqueue('orders', 'create', 'ord_1', {
+      id: 'ord_1',
+      status: 'pending',
+      _sync_status: 'pending',
+      orderItems: [{ uid: 'r1', name: 'Test' }],
+    });
+
+    await drainQueue(FAKE_CFG);
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body._sync_status).toBeUndefined();
+    expect(body.orderItems).toBeUndefined();
+    expect(body.id).toBe('ord_1');
+  });
+
+  it('retries 409 create as PATCH', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch')
+      .mockResolvedValueOnce(mockResponse(409, { errors: [] }))
+      .mockResolvedValueOnce(mockResponse(200, {}));
+
+    await enqueue('orders', 'create', 'ord_1', { id: 'ord_1' });
+    const result = await drainQueue(FAKE_CFG);
+
+    expect(result.pushed).toBe(1);
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    const secondCall = fetchSpy.mock.calls[1];
+    expect(secondCall[0]).toContain('/items/orders/ord_1');
+    expect(secondCall[1].method).toBe('PATCH');
+  });
+
+  it('skips hard DELETE on domain-status collections (bill_sessions)', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch');
+    await enqueue('bill_sessions', 'delete', 'bill_1', null);
+    const result = await drainQueue(FAKE_CFG);
+
+    // Should be treated as 'skip' — no fetch call, removed from queue
+    expect(result.pushed).toBe(1);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(await getPendingEntries()).toHaveLength(0);
+  });
+
+  it('soft-deletes records in soft-delete collections (transactions)', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue(mockResponse(200, {}));
+    await enqueue('transactions', 'delete', 'mov_1', null);
+    await drainQueue(FAKE_CFG);
+
+    const [url, opts] = fetchSpy.mock.calls[0];
+    expect(url).toContain('/items/transactions/mov_1');
+    expect(opts.method).toBe('PATCH');
+    expect(JSON.parse(opts.body)).toMatchObject({ status: 'archived' });
+  });
+
+  it('hard-deletes junction collection records (transaction_order_refs)', async () => {
+    // 204 No Content is standard for DELETE, but jsdom Response requires 200-599 excluding 204
+    // Use 200 as a proxy for the successful DELETE response
+    const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue(new Response('', { status: 200 }));
+    await enqueue('transaction_order_refs', 'delete', 'ref_1', null);
+    const result = await drainQueue(FAKE_CFG);
+
+    const [url, opts] = fetchSpy.mock.calls[0];
+    expect(url).toContain('/items/transaction_order_refs/ref_1');
+    expect(opts.method).toBe('DELETE');
+    expect(result.pushed).toBe(1);
+  });
+
+  it('increments attempts on network failure', async () => {
+    vi.spyOn(global, 'fetch').mockRejectedValue(new Error('network'));
+    await enqueue('orders', 'create', 'ord_1', { id: 'ord_1' });
+
+    const result = await drainQueue(FAKE_CFG);
+
+    expect(result.failed).toBe(1);
+    const entries = await getPendingEntries();
+    expect(entries[0].attempts).toBe(1);
+  });
+
+  it('abandons entry after MAX_ATTEMPTS and removes from queue', async () => {
+    vi.spyOn(global, 'fetch').mockRejectedValue(new Error('network'));
+
+    await enqueue('orders', 'create', 'ord_1', { id: 'ord_1' });
+
+    // Drain MAX_ATTEMPTS times to exhaust the retry budget (backoffMs=0)
+    let result;
+    for (let i = 0; i < MAX_ATTEMPTS; i++) {
+      result = await drainQueue(FAKE_CFG);
+    }
+
+    // On the last drain the entry should have been abandoned
+    const entries = await getPendingEntries();
+    expect(entries).toHaveLength(0);
+    expect(result.abandoned).toBe(1);
+  });
+
+  it('returns { pushed, failed, abandoned } correctly', async () => {
+    vi.spyOn(global, 'fetch')
+      .mockResolvedValueOnce(mockResponse(200, {}))   // success for ord_1
+      .mockRejectedValueOnce(new Error('net'));         // fail for ord_2
+
+    await enqueue('orders', 'update', 'ord_1', { status: 'accepted' });
+    await enqueue('orders', 'update', 'ord_2', { status: 'preparing' });
+
+    const result = await drainQueue(FAKE_CFG);
+    expect(result.pushed).toBe(1);
+    expect(result.failed).toBe(1);
+    expect(result.abandoned).toBe(0);
+  });
+
+  it('returns immediately when queue is empty', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch');
+    const result = await drainQueue(FAKE_CFG);
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(result).toEqual({ pushed: 0, failed: 0, abandoned: 0 });
+  });
+
+  it('sends Authorization header', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue(mockResponse(201, {}));
+    await enqueue('orders', 'create', 'ord_1', { id: 'ord_1' });
+    await drainQueue(FAKE_CFG);
+
+    const { headers } = fetchSpy.mock.calls[0][1];
+    expect(headers.Authorization).toBe('Bearer tok_test');
+  });
+});

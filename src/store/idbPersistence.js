@@ -569,3 +569,104 @@ export async function deleteDatabase(instanceName) {
     console.warn('[IDBPersistence] Failed to delete database:', e);
   }
 }
+
+// ── Directus pull helpers ────────────────────────────────────────────────────
+
+/**
+ * Returns the last pull timestamp for `collection` stored in app_meta.
+ * Used by the pull loop to build `filter[date_updated][_gt]` queries.
+ *
+ * @param {string} collection
+ * @returns {Promise<string|null>} ISO timestamp or null if never pulled
+ */
+export async function loadLastPullTsFromIDB(collection) {
+  try {
+    const db = await getDB();
+    const record = await db.get('app_meta', `last_pull_ts:${collection}`);
+    return record?.value ?? null;
+  } catch (e) {
+    console.warn('[IDBPersistence] Failed to load last_pull_ts for', collection, e);
+    return null;
+  }
+}
+
+/**
+ * Persists the last pull timestamp for `collection`.
+ * Called after each successful pull cycle.
+ *
+ * @param {string} collection
+ * @param {string} ts - ISO timestamp (e.g. max date_updated in the pulled batch)
+ */
+export async function saveLastPullTsToIDB(collection, ts) {
+  try {
+    const db = await getDB();
+    await db.put('app_meta', { id: `last_pull_ts:${collection}`, value: ts });
+  } catch (e) {
+    console.warn('[IDBPersistence] Failed to save last_pull_ts for', collection, e);
+  }
+}
+
+/**
+ * Batch-upserts Directus records into the given IDB ObjectStore.
+ *
+ * Only inserts/replaces a record when the incoming `date_updated` is strictly
+ * greater than (or the local record has no `date_updated`).  This implements
+ * the last-write-wins conflict resolution described in §5.7.4.
+ *
+ * Strips `_sync_status` before storing (Directus records are authoritative and
+ * implicitly 'synced').
+ *
+ * @param {string} storeName   - IDB ObjectStore name
+ * @param {Array<object>} records - Records received from Directus
+ * @returns {Promise<number>} Number of records actually written
+ */
+export async function upsertRecordsIntoIDB(storeName, records) {
+  if (!records || records.length === 0) return 0;
+
+  // Hardcoded keyPath overrides for stores that deviate from the default 'id'.
+  // All other stores (orders, bill_sessions, order_items, etc.) use 'id'.
+  const KEY_PATH_OVERRIDES = {
+    transactions: 'transactionId',
+    table_merge_sessions: 'slave_table',
+    print_jobs: 'logId',
+  };
+  const keyPath = KEY_PATH_OVERRIDES[storeName] ?? 'id';
+
+  try {
+    const db = await getDB();
+    // Collect writes to perform — filter out records with no PK and those
+    // that are not newer than the local version before opening the transaction.
+    // This avoids opening a readwrite transaction when nothing needs writing.
+    const toWrite = [];
+    {
+      // Read-only pre-scan using a readonly transaction to avoid unnecessary
+      // write locks when all incoming records are already up-to-date.
+      const roTx = db.transaction(storeName, 'readonly');
+      for (const incoming of records) {
+        const pk = incoming[keyPath];
+        if (!pk) continue;
+        const existing = await roTx.store.get(pk);
+        if (existing && existing.date_updated && incoming.date_updated) {
+          if (new Date(incoming.date_updated) <= new Date(existing.date_updated)) {
+            continue; // local is newer or equal — skip
+          }
+        }
+        const { _sync_status: _s, ...clean } = incoming;
+        toWrite.push(clean);
+      }
+      await roTx.done;
+    }
+
+    if (toWrite.length === 0) return 0;
+
+    const tx = db.transaction(storeName, 'readwrite');
+    for (const record of toWrite) {
+      await tx.store.put(record);
+    }
+    await tx.done;
+    return toWrite.length;
+  } catch (e) {
+    console.warn('[IDBPersistence] Failed to upsert into', storeName, e);
+    return 0;
+  }
+}

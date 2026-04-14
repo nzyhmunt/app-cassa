@@ -1352,6 +1352,30 @@ Operazione locale
                        dopo 5 tentativi → rimuovi dal retry automatico e invia a revisione manuale
 ```
 
+**Nota sul mapping del payload**: prima dell'invio a Directus, la funzione interna
+`_toDirectusPayload()` in `useSyncQueue.js` traduce automaticamente i nomi dei campi locali (camelCase, convenzione store/IndexedDB) nel
+formato Directus (snake\_case, campi FK senza suffisso `_id`):
+
+| Campo locale (store/IDB)      | Campo Directus API        |
+|-------------------------------|---------------------------|
+| `billSessionId`               | `bill_session`            |
+| `orderId`                     | `order`                   |
+| `dishId`                      | `dish`                    |
+| `tableId`                     | `table`                   |
+| `transactionId`               | `id` (PK)                 |
+| `totalAmount`                 | `total_amount`            |
+| `itemCount`                   | `item_count`              |
+| `operationType`               | `operation_type`          |
+| `paymentMethod`               | `payment_method`          |
+| `amountPaid`                  | `amount_paid`             |
+| `noteVisibility.{app}`        | `note_visibility_{app}`   |
+| `dietaryPreferences.diete`    | `dietary_diets`           |
+| `dietaryPreferences.allergeni`| `dietary_allergens`       |
+
+I campi puramente locali (`timestamp`, `orderRefs`, `vociRefs`, `grossAmount`, `changeAmount`)
+vengono rimossi prima dell'invio; `orderRefs` e `vociRefs` vengono gestiti come voci separate
+nelle collection junction `transaction_order_refs` / `transaction_voce_refs`.
+
 **Nota**: poiché gli ID sono UUIDv7 generati client-side, non si verificano collisioni tra
 dispositivi diversi anche in assenza di coordinamento server.
 

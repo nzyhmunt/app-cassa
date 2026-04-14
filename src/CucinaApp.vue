@@ -23,12 +23,19 @@ import { useAuth } from './composables/useAuth.js';
 import CucinaSettingsModal from './components/CucinaSettingsModal.vue';
 import PwaInstallBanner from './components/shared/PwaInstallBanner.vue';
 import LockScreen from './components/LockScreen.vue';
+import { useDirectusSync } from './composables/useDirectusSync.js';
+import { loadDirectusConfigFromStorage } from './composables/useDirectusClient.js';
 
 const store = useAppStore();
 const auth = useAuth();
+const sync = useDirectusSync();
 const showSettings = ref(false);
 
 useWakeLock();
+
+// Load Directus config synchronously before first render so that reactive
+// consumers see the correct initial value.
+loadDirectusConfigFromStorage();
 
 const { storageKey } = resolveStorageKeys(getInstanceName());
 
@@ -37,11 +44,24 @@ function onStorageChange(event) {
   store.$hydrate?.();
 }
 
+function restartSync() {
+  sync.stopSync();
+  sync.startSync({ appType: 'cucina', store });
+}
+
+function onDirectusConfigUpdated() {
+  restartSync();
+}
+
 onMounted(() => {
   window.addEventListener('storage', onStorageChange);
+  window.addEventListener('directus-config-updated', onDirectusConfigUpdated);
+  restartSync();
 });
 
 onUnmounted(() => {
   window.removeEventListener('storage', onStorageChange);
+  window.removeEventListener('directus-config-updated', onDirectusConfigUpdated);
+  sync.stopSync();
 });
 </script>

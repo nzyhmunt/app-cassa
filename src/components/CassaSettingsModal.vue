@@ -5,6 +5,7 @@
     :showKeyboardToggle="true"
     :showMenuSync="isAdmin"
     :showPrinterSettings="true"
+    :showDirectusSync="isAdmin"
     @update:modelValue="value => emit('update:modelValue', value)"
     @settings-changed="payload => emit('settings-changed', payload)"
   />
