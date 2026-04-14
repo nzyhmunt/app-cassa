@@ -177,8 +177,8 @@ Le collection sono state create rispettando le dipendenze tra chiavi esterne (FK
 - **URL**: https://dev.nanawork.it/admin/content/invoice_requests
 
 ### 20. `table_merge_sessions` — Tavoli uniti attivi
-- **PK**: `slave_table` (string, FK→tables)
-- **Campi**: `master_table` (FK→tables), `merged_at`
+- **PK**: `id` (UUID v7)
+- **Campi**: `slave_table` (FK→tables, UNIQUE), `master_table` (FK→tables), `merged_at`
 - **Nota**: riga eliminata quando il merge viene annullato (split)
 - **URL**: https://dev.nanawork.it/admin/content/table_merge_sessions
 
