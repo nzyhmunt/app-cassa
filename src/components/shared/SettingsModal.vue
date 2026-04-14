@@ -107,6 +107,9 @@
           </div>
         </div>
 
+        <!-- Sincronizzazione Directus (solo amministratori) -->
+        <DirectusSyncSettings v-if="showDirectusSync" />
+
         <!-- Gestione Utenti -->
         <div class="pt-4 border-t border-gray-100 mt-2">
           <!-- Prominent admin setup notice when no users have been configured -->
@@ -174,6 +177,7 @@ import { useSettings } from '../../composables/useSettings.js';
 import { appConfig } from '../../utils/index.js';
 import UserManagementModal from '../UserManagementModal.vue';
 import { useAuth } from '../../composables/useAuth.js';
+import DirectusSyncSettings from './DirectusSyncSettings.vue';
 
 const props = defineProps({
   modelValue: Boolean,
@@ -181,6 +185,7 @@ const props = defineProps({
   showKeyboardToggle: { type: Boolean, default: false },
   showMenuSync: { type: Boolean, default: true },
   showPrinterSettings: { type: Boolean, default: false },
+  showDirectusSync: { type: Boolean, default: false },
 });
 const emit = defineEmits(['update:modelValue', 'settings-changed']);
 

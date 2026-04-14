@@ -3,9 +3,9 @@
  * @description Bidirectional sync composable — Step 2 di §5.7.8.
  *
  * Gestisce:
- *  - Push loop  (§5.7.2): svuota la sync_queue verso l'API Directus.
- *  - Pull loop  (§5.7.3): polling periodico per ricevere aggiornamenti dagli
- *                          altri dispositivi.
+ *  - Push loop  (§5.7.2): svuota la sync_queue verso Directus via SDK.
+ *  - Pull loop  (§5.7.3): WebSocket subscriptions (SDK realtime) con fallback
+ *                          a polling periodico se il WebSocket non è disponibile.
  *  - Conflict resolution (§5.7.4): last-write-wins su date_updated.
  *
  * Utilizzo (in ogni App root):
@@ -13,12 +13,13 @@
  *   onMounted(() => sync.startSync({ appType: 'cassa', store }));
  *   onUnmounted(() => sync.stopSync());
  *
- * Il composable è un singleton a livello di modulo: più chiamate restituiscono
- * lo stesso oggetto sottostante (garantisce un solo timer attivo per pagina).
+ * Il composable è un singleton a livello di modulo.
  */
 
 import { ref } from 'vue';
+import { createDirectus, staticToken, rest, readItems } from '@directus/sdk';
 import { appConfig } from '../utils/index.js';
+import { getDirectusClient } from './useDirectusClient.js';
 import { drainQueue } from './useSyncQueue.js';
 import {
   loadLastPullTsFromIDB,
@@ -52,20 +53,15 @@ const GLOBAL_COLLECTIONS = [
 ];
 const GLOBAL_INTERVAL_MS = 5 * 60_000;
 
-// ── Field mapping: Directus → local in-memory store format ─────────────────
+// ── Field mapping: Directus → local in-memory store format ───────────────────
 
-/**
- * Maps a raw Directus `orders` record to the shape used by the Pinia store.
- * Fields not listed are passed through as-is.
- * @param {object} r
- * @returns {object}
- */
 function _mapOrder(r) {
   return {
     ...r,
     billSessionId: r.bill_session ?? r.billSessionId ?? null,
     totalAmount: r.total_amount ?? r.totalAmount ?? 0,
     itemCount: r.item_count ?? r.itemCount ?? 0,
+    time: r.order_time ?? r.time ?? '',
     globalNote: r.global_note ?? r.globalNote ?? '',
     noteVisibility: {
       cassa: r.note_visibility_cassa ?? r.noteVisibility?.cassa ?? true,
@@ -75,18 +71,15 @@ function _mapOrder(r) {
     isCoverCharge: r.is_cover_charge ?? r.isCoverCharge ?? false,
     isDirectEntry: r.is_direct_entry ?? r.isDirectEntry ?? false,
     rejectionReason: r.rejection_reason ?? r.rejectionReason ?? null,
-    // Preserve local-only fields that are not in Directus
+    dietaryPreferences: r.dietaryPreferences ?? {
+      diete: r.dietary_diets ?? [],
+      allergeni: r.dietary_allergens ?? [],
+    },
     orderItems: r.orderItems ?? [],
-    dietaryPreferences: r.dietary_preferences ?? r.dietaryPreferences ?? {},
     _sync_status: 'synced',
   };
 }
 
-/**
- * Maps a raw Directus `bill_sessions` record to a local bill session shape.
- * @param {object} r
- * @returns {object}
- */
 function _mapBillSession(r) {
   return {
     ...r,
@@ -97,15 +90,11 @@ function _mapBillSession(r) {
   };
 }
 
-/**
- * Maps a raw Directus `order_items` record to the local shape.
- * @param {object} r
- * @returns {object}
- */
 function _mapOrderItem(r) {
   return {
     ...r,
     orderId: r.order ?? r.orderId ?? null,
+    dishId: r.dish ?? r.dishId ?? null,
     uid: r.uid ?? r.id,
     unitPrice: r.unit_price ?? r.unitPrice ?? 0,
     voidedQuantity: r.voided_quantity ?? r.voidedQuantity ?? 0,
@@ -114,7 +103,6 @@ function _mapOrderItem(r) {
   };
 }
 
-/** @param {string} collection @param {object} r */
 function _mapRecord(collection, r) {
   if (collection === 'orders') return _mapOrder(r);
   if (collection === 'bill_sessions') return _mapBillSession(r);
@@ -122,73 +110,8 @@ function _mapRecord(collection, r) {
   return { ...r, _sync_status: 'synced' };
 }
 
-// ── Directus REST fetch ───────────────────────────────────────────────────────
-
-/**
- * Fetches updated records for a single collection from Directus.
- *
- * Uses `filter[date_updated][_gt]` to request only records changed since the
- * last pull.  Returns an empty array on any error (pull failures are non-fatal).
- *
- * @param {string} collection
- * @param {{ url: string, staticToken: string, venueId: number|null }} cfg
- * @param {string|null} sinceTs  - ISO timestamp; null = fetch all
- * @param {number} [page]
- * @returns {Promise<{ data: object[], maxTs: string|null }>}
- */
-async function _fetchUpdated(collection, cfg, sinceTs, page = 1) {
-  const params = new URLSearchParams({
-    limit: '200',
-    page: String(page),
-    sort: 'date_updated',
-    'fields[]': '*',
-  });
-
-  if (sinceTs) {
-    params.set('filter[date_updated][_gt]', sinceTs);
-  }
-  if (cfg.venueId != null) {
-    // Not all collections have a `venue` FK (e.g. order_items, order_item_modifiers).
-    // Adding the filter unconditionally would break those queries; Directus will
-    // simply ignore unknown filter fields for collections without that relation.
-    params.set('filter[venue][_eq]', String(cfg.venueId));
-  }
-
-  try {
-    const res = await fetch(
-      `${cfg.url}/items/${collection}?${params}`,
-      { headers: { Authorization: `Bearer ${cfg.staticToken}` } },
-    );
-    if (!res.ok) {
-      console.warn(`[DirectusSync] Pull ${collection} → HTTP ${res.status}`);
-      return { data: [], maxTs: null };
-    }
-    const json = await res.json();
-    const records = Array.isArray(json.data) ? json.data : [];
-    const timestamps = records.map(r => r.date_updated).filter(Boolean);
-    const maxTs = timestamps.length > 0
-      ? timestamps.reduce((a, b) => (a > b ? a : b))
-      : null;
-    return { data: records, maxTs };
-  } catch (e) {
-    console.warn(`[DirectusSync] Pull ${collection} network error:`, e);
-    return { data: [], maxTs: null };
-  }
-}
-
 // ── In-memory store merge ─────────────────────────────────────────────────────
 
-/**
- * Merges pulled Directus records into the Pinia store's in-memory state.
- *
- * - `orders`: upserts into `store.orders[]` by id (last-write-wins on date_updated).
- * - `bill_sessions`: rebuilds `store.tableCurrentBillSession` for open sessions.
- * - All other collections: no in-memory update (config caches are read on reload).
- *
- * @param {string} collection
- * @param {object[]} records  - Directus-format records (already mapped to local)
- * @param {object} store      - Pinia store instance (useAppStore)
- */
 function _mergeIntoStore(collection, records, store) {
   if (!store || records.length === 0) return;
 
@@ -197,21 +120,16 @@ function _mergeIntoStore(collection, records, store) {
     for (const incoming of records) {
       const existing = byId.get(incoming.id);
       if (!existing) {
-        // New order from another device — preserve local orderItems if somehow present
         byId.set(incoming.id, incoming);
       } else {
-        // Conflict resolution: last-write-wins on date_updated
         const incomingTs = incoming.date_updated ? new Date(incoming.date_updated).getTime() : 0;
         const existingTs = existing.date_updated ? new Date(existing.date_updated).getTime() : 0;
         if (incomingTs > existingTs) {
-          // Retain local orderItems (not stored in Directus orders collection)
           byId.set(incoming.id, {
             ...incoming,
             orderItems: existing.orderItems ?? incoming.orderItems ?? [],
           });
         }
-        // Apply OR logic for kitchen_ready: if either side is true, set true (§5.7.4)
-        // (kitchen_ready lives on order_items, not orders — handled in order_items branch)
       }
     }
     store.orders = Array.from(byId.values());
@@ -219,8 +137,6 @@ function _mergeIntoStore(collection, records, store) {
   }
 
   if (collection === 'bill_sessions') {
-    // Merge open sessions into tableCurrentBillSession.
-    // Pre-build a Map of billSessionId → date_updated to avoid O(n²) lookup into store.orders.
     const sessionTsMap = new Map(
       store.orders
         .filter(o => o.billSessionId && o.date_updated)
@@ -242,7 +158,6 @@ function _mergeIntoStore(collection, records, store) {
           };
         }
       } else if (incoming.status === 'closed') {
-        // Remove any local session for this table if the remote says it's closed
         const tableId = incoming.table;
         if (tableId && currentSessions[tableId]?.billSessionId === (incoming.billSessionId ?? incoming.id)) {
           delete currentSessions[tableId];
@@ -254,8 +169,6 @@ function _mergeIntoStore(collection, records, store) {
   }
 
   if (collection === 'order_items') {
-    // Merge order items into the nested orderItems arrays on the parent orders.
-    // Apply OR logic for kitchen_ready (§5.7.4).
     const orderMap = new Map(store.orders.map(o => [o.id, o]));
     for (const incoming of records) {
       const orderId = incoming.orderId ?? incoming.order;
@@ -271,42 +184,206 @@ function _mergeIntoStore(collection, records, store) {
         const incomingTs = incoming.date_updated ? new Date(incoming.date_updated).getTime() : 0;
         const existingTs = existing.date_updated ? new Date(existing.date_updated).getTime() : 0;
         if (incomingTs >= existingTs) {
-          // OR logic: if either side has kitchen_ready=true, preserve it
           const kitchenReady = (existing.kitchenReady || incoming.kitchenReady) === true;
           order.orderItems[idx] = { ...incoming, kitchenReady };
         }
       }
     }
-    // trigger reactivity: replace the array (Vue 3 tracks array mutations via Proxy)
     store.orders = store.orders.map(o => ({ ...o }));
     return;
   }
+}
+
+// ── REST pull helpers ─────────────────────────────────────────────────────────
+
+/**
+ * Builds a fresh REST-only client, passing the current `globalThis.fetch`
+ * so that test spies installed after module load are picked up correctly.
+ * (The Directus SDK caches `globalThis.fetch` at `createDirectus()` call time.)
+ */
+function _buildRestClient(cfg) {
+  return createDirectus(cfg.url, { globals: { fetch: globalThis.fetch } })
+    .with(staticToken(cfg.staticToken))
+    .with(rest());
+}
+
+async function _fetchUpdatedViaSDK(collection, sinceTs, page = 1) {
+  const cfg = _getCfg();
+  if (!cfg) return { data: [], maxTs: null };
+
+  const client = _buildRestClient(cfg);
+  const venueId = cfg.venueId;
+  const query = {
+    limit: 200,
+    page,
+    sort: ['date_updated'],
+    fields: ['*'],
+    ...(sinceTs && { filter: { _and: [{ date_updated: { _gt: sinceTs } }] } }),
+  };
+
+  // Add venue filter for collections that have a venue FK
+  if (venueId != null && sinceTs !== undefined) {
+    if (query.filter) {
+      query.filter._and.push({ venue: { _eq: venueId } });
+    } else {
+      query.filter = { venue: { _eq: venueId } };
+    }
+  } else if (venueId != null) {
+    query.filter = { venue: { _eq: venueId } };
+  }
+
+  try {
+    const records = await client.request(readItems(collection, query));
+    const data = Array.isArray(records) ? records : [];
+    const timestamps = data.map(r => r.date_updated).filter(Boolean);
+    const maxTs = timestamps.length > 0 ? timestamps.reduce((a, b) => (a > b ? a : b)) : null;
+    return { data, maxTs };
+  } catch (e) {
+    console.warn(`[DirectusSync] Pull ${collection} error:`, e?.message ?? e);
+    return { data: [], maxTs: null };
+  }
+}
+
+async function _pullCollection(collection) {
+  const sinceTs = await loadLastPullTsFromIDB(collection);
+  let page = 1;
+  let latestTs = sinceTs;
+  let totalMerged = 0;
+
+  while (true) { // eslint-disable-line no-constant-condition
+    const { data, maxTs } = await _fetchUpdatedViaSDK(collection, sinceTs, page);
+    if (data.length === 0) break;
+
+    const mapped = data.map(r => _mapRecord(collection, r));
+    const written = await upsertRecordsIntoIDB(collection, mapped);
+    totalMerged += written;
+
+    if (_store) {
+      _mergeIntoStore(collection, mapped, _store);
+    }
+
+    if (maxTs && (!latestTs || maxTs > latestTs)) latestTs = maxTs;
+    if (data.length < 200) break;
+    page++;
+  }
+
+  if (latestTs && latestTs !== sinceTs) {
+    await saveLastPullTsToIDB(collection, latestTs);
+  }
+
+  return totalMerged;
+}
+
+// ── WebSocket subscription helpers ───────────────────────────────────────────
+
+/** Active unsubscribe callbacks. */
+const _unsubscribers = [];
+/** Whether we are currently connected via WebSocket. */
+let _wsConnected = false;
+
+/**
+ * Processes an incoming realtime message from Directus Subscriptions.
+ * Maps records to local format, upserts into IDB, and merges into the store.
+ *
+ * @param {string} collection
+ * @param {{ event: string, data: object[] }} message
+ */
+async function _handleSubscriptionMessage(collection, message) {
+  const { event, data } = message;
+  if (!data || !Array.isArray(data) || data.length === 0) return;
+
+  const mapped = data.map(r => _mapRecord(collection, r));
+  await upsertRecordsIntoIDB(collection, mapped);
+
+  if (_store) {
+    _mergeIntoStore(collection, mapped, _store);
+  }
+
+  lastPullAt.value = new Date().toISOString();
+  console.info(`[DirectusSync] WS ${event} on ${collection}: ${data.length} record(s)`);
+}
+
+/**
+ * Starts WebSocket subscriptions for the given collections.
+ * Falls back silently if the WebSocket connection fails.
+ *
+ * @param {string[]} collections
+ * @returns {Promise<boolean>} `true` if subscriptions were established
+ */
+async function _startSubscriptions(collections) {
+  const client = getDirectusClient();
+  if (!client) return false;
+
+  const venueId = appConfig.directus?.venueId ?? null;
+
+  try {
+    await client.connect();
+    _wsConnected = true;
+
+    for (const collection of collections) {
+      const query = { fields: ['*'] };
+      if (venueId != null) {
+        query.filter = { venue: { _eq: venueId } };
+      }
+
+      const { subscription, unsubscribe } = await client.subscribe(collection, { query });
+      _unsubscribers.push(unsubscribe);
+
+      // Process subscription messages in the background
+      ;(async () => {
+        try {
+          for await (const message of subscription) {
+            await _handleSubscriptionMessage(collection, message);
+          }
+        } catch (e) {
+          console.warn(`[DirectusSync] Subscription ${collection} closed:`, e?.message ?? e);
+          _wsConnected = false;
+          // Restart polling fallback if the subscription broke unexpectedly
+          if (_running && !_pollTimer) {
+            const pullCfg = PULL_CONFIG[_appType] ?? PULL_CONFIG.cassa;
+            _pollTimer = setInterval(() => _runPull().catch(() => {}), pullCfg.intervalMs);
+          }
+        }
+      })();
+    }
+
+    console.info('[DirectusSync] WebSocket subscriptions active for:', collections.join(', '));
+    return true;
+  } catch (e) {
+    console.warn('[DirectusSync] WebSocket unavailable, falling back to polling:', e?.message ?? e);
+    _wsConnected = false;
+    return false;
+  }
+}
+
+function _stopSubscriptions() {
+  for (const unsub of _unsubscribers) {
+    try { unsub(); } catch (_) { /* best-effort */ }
+  }
+  _unsubscribers.length = 0;
+
+  const client = getDirectusClient();
+  try { client?.disconnect?.(); } catch (_) { /* best-effort */ }
+  _wsConnected = false;
 }
 
 // ── Singleton state ───────────────────────────────────────────────────────────
 
 let _running = false;
 let _pushTimer = null;
-let _pullTimer = null;
+let _pollTimer = null;
 let _globalTimer = null;
-/** @type {object|null} store ref passed to startSync */
+/** @type {object|null} */
 let _store = null;
 /** @type {'cassa'|'sala'|'cucina'} */
 let _appType = 'cassa';
 
-/** Reactive status exposed to the UI. */
 const syncStatus = ref(/** @type {'idle'|'syncing'|'error'} */ ('idle'));
-/** Reactive last-successful-push timestamp. */
 const lastPushAt = ref(/** @type {string|null} */ (null));
-/** Reactive last-successful-pull timestamp. */
 const lastPullAt = ref(/** @type {string|null} */ (null));
 
 // ── Push helpers ──────────────────────────────────────────────────────────────
 
-/**
- * Returns the Directus sync configuration from appConfig.
- * @returns {{ url: string, staticToken: string, venueId: number|null }|null}
- */
 function _getCfg() {
   const d = appConfig.directus;
   if (!d?.enabled || !d?.url || !d?.staticToken) return null;
@@ -333,61 +410,16 @@ async function _runPush() {
 
 // ── Pull helpers ──────────────────────────────────────────────────────────────
 
-/**
- * Pulls all updated records for `collection` since the last pull and merges them
- * into IDB and the in-memory store.
- *
- * @param {string} collection
- * @param {{ url: string, staticToken: string, venueId: number|null }} cfg
- */
-async function _pullCollection(collection, cfg) {
-  const sinceTs = await loadLastPullTsFromIDB(collection);
-
-  let page = 1;
-  let latestTs = sinceTs;
-  let totalMerged = 0;
-
-  // eslint-disable-next-line no-constant-condition
-  while (true) {
-    const { data, maxTs } = await _fetchUpdated(collection, cfg, sinceTs, page);
-    if (data.length === 0) break;
-
-    // Map to local format before storing in IDB
-    const mapped = data.map(r => _mapRecord(collection, r));
-
-    // Upsert into IDB (last-write-wins)
-    const written = await upsertRecordsIntoIDB(collection, mapped);
-    totalMerged += written;
-
-    // Update in-memory store for real-time reactivity
-    if (_store && written > 0) {
-      _mergeIntoStore(collection, mapped.filter(r => r.date_updated), _store);
-    }
-
-    if (maxTs && (!latestTs || maxTs > latestTs)) latestTs = maxTs;
-
-    if (data.length < 200) break; // last page
-    page++;
-  }
-
-  if (latestTs && latestTs !== sinceTs) {
-    await saveLastPullTsToIDB(collection, latestTs);
-  }
-
-  return totalMerged;
-}
-
 async function _runPull() {
   if (!navigator.onLine) return;
-  const cfg = _getCfg();
-  if (!cfg) return;
+  if (!_getCfg()) return;
 
   const pullCfg = PULL_CONFIG[_appType] ?? PULL_CONFIG.cassa;
 
   try {
     let anyMerged = false;
     for (const collection of pullCfg.collections) {
-      const merged = await _pullCollection(collection, cfg);
+      const merged = await _pullCollection(collection);
       if (merged > 0) anyMerged = true;
     }
     if (anyMerged) lastPullAt.value = new Date().toISOString();
@@ -398,12 +430,11 @@ async function _runPull() {
 
 async function _runGlobalPull() {
   if (!navigator.onLine) return;
-  const cfg = _getCfg();
-  if (!cfg) return;
+  if (!_getCfg()) return;
 
   try {
     for (const collection of GLOBAL_COLLECTIONS) {
-      await _pullCollection(collection, cfg);
+      await _pullCollection(collection);
     }
   } catch (e) {
     console.warn('[DirectusSync] Global pull error:', e);
@@ -419,23 +450,16 @@ function _onOnline() {
 
 // ── Public composable ─────────────────────────────────────────────────────────
 
-/**
- * Returns the shared DirectusSync instance.
- *
- * @example
- * const sync = useDirectusSync();
- * onMounted(() => sync.startSync({ appType: 'cassa', store }));
- * onUnmounted(() => sync.stopSync());
- */
 export function useDirectusSync() {
   /**
-   * Starts the push and pull loops.
+   * Starts the push loop, WebSocket subscriptions (with polling fallback), and
+   * global config pull.
    *
    * @param {{ appType: 'cassa'|'sala'|'cucina', store: object }} opts
    */
-  function startSync({ appType, store }) {
+  async function startSync({ appType, store }) {
     if (_running) return;
-    if (!appConfig.directus?.enabled) return; // sync disabled in config
+    if (!appConfig.directus?.enabled) return;
 
     _appType = appType ?? 'cassa';
     _store = store;
@@ -443,64 +467,61 @@ export function useDirectusSync() {
 
     const pullCfg = PULL_CONFIG[_appType] ?? PULL_CONFIG.cassa;
 
-    // Initial push + pull
+    // Initial push + global config pull
     _runPush().catch(() => {});
-    _runPull().catch(() => {});
     _runGlobalPull().catch(() => {});
+
+    // Try WebSocket subscriptions first; fall back to polling on failure
+    const subscribed = await _startSubscriptions(pullCfg.collections);
+    if (!subscribed) {
+      // Polling fallback
+      _runPull().catch(() => {});
+      _pollTimer = setInterval(() => _runPull().catch(() => {}), pullCfg.intervalMs);
+    } else {
+      // Even with WebSocket, do one initial REST pull to catch up on missed updates
+      _runPull().catch(() => {});
+    }
 
     // Push loop: retry every 30 s when online
     _pushTimer = setInterval(() => _runPush().catch(() => {}), 30_000);
 
-    // Pull loop: per-app interval
-    _pullTimer = setInterval(() => _runPull().catch(() => {}), pullCfg.intervalMs);
-
     // Global config pull: every 5 minutes
     _globalTimer = setInterval(() => _runGlobalPull().catch(() => {}), GLOBAL_INTERVAL_MS);
 
-    // Online event: trigger immediate push + pull
     if (typeof window !== 'undefined') {
       window.addEventListener('online', _onOnline);
     }
   }
 
-  /** Stops all sync timers and removes listeners. */
   function stopSync() {
     _running = false;
     _store = null;
     if (_pushTimer) { clearInterval(_pushTimer); _pushTimer = null; }
-    if (_pullTimer) { clearInterval(_pullTimer); _pullTimer = null; }
+    if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
     if (_globalTimer) { clearInterval(_globalTimer); _globalTimer = null; }
+    _stopSubscriptions();
     if (typeof window !== 'undefined') {
       window.removeEventListener('online', _onOnline);
     }
     syncStatus.value = 'idle';
   }
 
-  /**
-   * Manually trigger a push drain (useful from settings / debug UI).
-   * @returns {Promise<void>}
-   */
   async function forcePush() {
     if (!appConfig.directus?.enabled) return;
     await _runPush();
   }
 
-  /**
-   * Manually trigger a full pull for the current app's collections.
-   * @returns {Promise<void>}
-   */
   async function forcePull() {
     if (!appConfig.directus?.enabled) return;
     await _runPull();
   }
 
   return {
-    /** Reactive sync status: 'idle' | 'syncing' | 'error' */
     syncStatus,
-    /** ISO timestamp of the last successful push, or null. */
     lastPushAt,
-    /** ISO timestamp of the last successful pull, or null. */
     lastPullAt,
+    /** `true` when the WebSocket connection is active. */
+    wsConnected: { get value() { return _wsConnected; } },
     startSync,
     stopSync,
     forcePush,
@@ -509,17 +530,16 @@ export function useDirectusSync() {
 }
 
 /**
- * Resets all module-level singleton state.
- * For use in tests only — not exported in production builds.
- * @internal
+ * @internal For test isolation only.
  */
 export function _resetDirectusSyncSingleton() {
   _running = false;
   _store = null;
   _appType = 'cassa';
   if (_pushTimer) { clearInterval(_pushTimer); _pushTimer = null; }
-  if (_pullTimer) { clearInterval(_pullTimer); _pullTimer = null; }
+  if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
   if (_globalTimer) { clearInterval(_globalTimer); _globalTimer = null; }
+  _stopSubscriptions();
   syncStatus.value = 'idle';
   lastPushAt.value = null;
   lastPullAt.value = null;

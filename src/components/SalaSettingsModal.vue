@@ -3,6 +3,7 @@
     v-bind="$props"
     title="Impostazioni Sala"
     :showMenuSync="isAdmin"
+    :showDirectusSync="isAdmin"
     @update:modelValue="value => emit('update:modelValue', value)"
     @settings-changed="payload => emit('settings-changed', payload)"
   />

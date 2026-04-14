@@ -24,6 +24,7 @@ import CucinaSettingsModal from './components/CucinaSettingsModal.vue';
 import PwaInstallBanner from './components/shared/PwaInstallBanner.vue';
 import LockScreen from './components/LockScreen.vue';
 import { useDirectusSync } from './composables/useDirectusSync.js';
+import { loadDirectusConfigFromStorage } from './composables/useDirectusClient.js';
 
 const store = useAppStore();
 const auth = useAuth();
@@ -40,6 +41,7 @@ function onStorageChange(event) {
 }
 
 onMounted(() => {
+  loadDirectusConfigFromStorage();
   window.addEventListener('storage', onStorageChange);
   sync.startSync({ appType: 'cucina', store });
 });

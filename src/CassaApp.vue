@@ -30,6 +30,7 @@ import { useWakeLock } from './composables/useWakeLock.js';
 import { resolveStorageKeys, getInstanceName } from './store/persistence.js';
 import { useAuth } from './composables/useAuth.js';
 import { useDirectusSync } from './composables/useDirectusSync.js';
+import { loadDirectusConfigFromStorage } from './composables/useDirectusClient.js';
 
 const store = useAppStore();
 const auth = useAuth();
@@ -47,6 +48,7 @@ function onStorageChange(event) {
 }
 
 onMounted(() => {
+  loadDirectusConfigFromStorage();
   window.addEventListener('storage', onStorageChange);
   sync.startSync({ appType: 'cassa', store });
 });

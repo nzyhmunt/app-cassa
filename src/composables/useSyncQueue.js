@@ -5,23 +5,24 @@
  * Each operational mutation (create / update / delete) is recorded here so that
  * the push loop can synchronise the changes with Directus.  When the device is
  * online and `directus.enabled` is `true`, `drainQueue()` sweeps all pending
- * entries and POSTs / PATCHes / DELETEs them against the Directus REST API.
+ * entries and sends them to Directus via the official SDK in chronological order.
  *
  * Queue entry shape:
  *   { id, collection, operation: 'create'|'update'|'delete',
- *     record_id, payload, date_created, attempts }
+ *     record_id, payload, date_created, seq, attempts }
  *
  * Push strategy per §5.7.2:
- *   create  → POST  /items/{collection}
- *   update  → PATCH /items/{collection}/{record_id}
- *   delete  → DELETE /items/{collection}/{record_id}
- *            (A) soft-delete tables via PATCH { status: 'archived' }
- *            (B) domain-status tables — NOOP (lifecycle via status transitions)
- *            (C) junction tables   — hard DELETE
- *   409 on create → retry as PATCH (duplicate UUIDv7 treated as update)
+ *   create  → createItem(collection, payload)       [POST  /items/{collection}]
+ *   update  → updateItem(collection, id, payload)   [PATCH /items/{collection}/{id}]
+ *   delete  →
+ *            (A) soft-delete: updateItem({status:'archived'}) — venues, rooms, tables, …
+ *            (B) domain-status (orders, bill_sessions, print_jobs) — NOOP skip
+ *            (C) junction tables — deleteItem(collection, id) [hard DELETE]
+ *   409 on create → retry as updateItem (duplicate UUIDv7 treated as update)
  *   error         → incrementAttempts; exponential back-off 2^n s; max MAX_ATTEMPTS
  */
 
+import { createDirectus, staticToken, rest, createItem, updateItem, deleteItem } from '@directus/sdk';
 import { getDB } from './useIDB.js';
 import { newUUID } from '../store/storeUtils.js';
 
@@ -160,28 +161,41 @@ function _cleanPayload(payload) {
 }
 
 /**
- * Pushes a single sync_queue entry to the Directus REST API.
+ * Builds a minimal REST-only Directus SDK client from a cfg object.
+ * A new, lightweight client is created for each `drainQueue()` invocation
+ * so that the push loop does not share connection state with the realtime
+ * client used for subscriptions.
+ *
+ * `globalThis.fetch` is passed explicitly so that test spies installed via
+ * `vi.spyOn(global, 'fetch')` are picked up at call time rather than at the
+ * moment the `@directus/sdk` module was first loaded (the SDK caches the
+ * fetch reference in its `globals` object when `createDirectus` runs).
+ *
+ * @param {{ url: string, staticToken: string }} cfg
+ * @returns {import('@directus/sdk').DirectusClient<object>}
+ */
+function _buildRestClient(cfg) {
+  return createDirectus(cfg.url, { globals: { fetch: globalThis.fetch } })
+    .with(staticToken(cfg.staticToken))
+    .with(rest());
+}
+
+/**
+ * Pushes a single sync_queue entry to Directus using the official SDK.
  *
  * Returns `true` when the entry was successfully sent (should be removed from
  * the queue), `false` when it failed and should be retried, or `'skip'` when
- * the entry should be silently discarded (e.g. no-op delete on domain-status
+ * the entry should be silently discarded (no-op delete on domain-status
  * collection).
  *
  * @param {object} entry
- * @param {{ url: string, staticToken: string }} cfg
+ * @param {import('@directus/sdk').DirectusClient<object>} sdkClient
  * @returns {Promise<true|false|'skip'>}
  */
-async function _pushEntry(entry, cfg) {
+async function _pushEntry(entry, sdkClient) {
   const { collection, operation, record_id, payload } = entry;
-  const base = `${cfg.url}/items/${collection}`;
-  const headers = {
-    'Content-Type': 'application/json',
-    Authorization: `Bearer ${cfg.staticToken}`,
-  };
 
   try {
-    let response;
-
     if (operation === 'delete') {
       if (DOMAIN_STATUS_COLLECTIONS.has(collection)) {
         // Strategy B: lifecycle via status — silently skip hard deletes
@@ -189,45 +203,30 @@ async function _pushEntry(entry, cfg) {
       }
       if (SOFT_DELETE_COLLECTIONS.has(collection)) {
         // Strategy A: soft-delete via PATCH { status: 'archived' }
-        response = await fetch(`${base}/${record_id}`, {
-          method: 'PATCH',
-          headers,
-          body: JSON.stringify({ status: 'archived' }),
-        });
+        await sdkClient.request(updateItem(collection, record_id, { status: 'archived' }));
       } else {
         // Strategy C: junction tables — hard DELETE
-        response = await fetch(`${base}/${record_id}`, { method: 'DELETE', headers });
-        if (response.status === 204 || response.status === 200) return true;
+        await sdkClient.request(deleteItem(collection, record_id));
       }
     } else if (operation === 'create') {
-      response = await fetch(base, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(_cleanPayload(payload)),
-      });
-      if (response.status === 409) {
-        // Conflict: treat as update (duplicate UUIDv7)
-        response = await fetch(`${base}/${record_id}`, {
-          method: 'PATCH',
-          headers,
-          body: JSON.stringify(_cleanPayload(payload)),
-        });
+      try {
+        await sdkClient.request(createItem(collection, _cleanPayload(payload)));
+      } catch (createError) {
+        // 409 Conflict: duplicate UUIDv7 — retry as update
+        if (createError?.response?.status === 409) {
+          await sdkClient.request(updateItem(collection, record_id, _cleanPayload(payload)));
+        } else {
+          throw createError;
+        }
       }
     } else {
       // update
-      response = await fetch(`${base}/${record_id}`, {
-        method: 'PATCH',
-        headers,
-        body: JSON.stringify(_cleanPayload(payload)),
-      });
+      await sdkClient.request(updateItem(collection, record_id, _cleanPayload(payload)));
     }
 
-    if (response.ok) return true;
-
-    console.warn(`[SyncQueue] Directus ${operation} ${collection}/${record_id} → HTTP ${response.status}`);
-    return false;
+    return true;
   } catch (e) {
-    console.warn(`[SyncQueue] Network error on ${operation} ${collection}/${record_id}:`, e);
+    console.warn(`[SyncQueue] Error on ${operation} ${collection}/${record_id}:`, e?.message ?? e);
     return false;
   }
 }
@@ -249,12 +248,13 @@ async function _pushEntry(entry, cfg) {
  * @returns {Promise<{ pushed: number, failed: number, abandoned: number }>}
  */
 export async function drainQueue(cfg) {
+  const sdkClient = _buildRestClient(cfg);
   const entries = await getPendingEntries();
   const backoffBase = typeof cfg._backoffMs === 'number' ? cfg._backoffMs : 1000;
   let pushed = 0, failed = 0, abandoned = 0;
 
   for (const entry of entries) {
-    const result = await _pushEntry(entry, cfg);
+    const result = await _pushEntry(entry, sdkClient);
 
     if (result === true || result === 'skip') {
       await removeEntry(entry.id);
