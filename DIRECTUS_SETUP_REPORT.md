@@ -384,7 +384,7 @@ Esempi principali:
 - `venues` → "Punti Vendita" / "Venues"
 - `bill_sessions` → "Sessioni Tavolo" / "Table Sessions"
 - `order_items.course` → "Portata" / "Course"
-- `orders.course` → "Portata (Prima/Dopo)" / "Course (First/Later)"
+- `orders` → "Ordini" / "Orders"
 - `date_created` → "Data Creazione" / "Date Created"
 
 ### Ordinamento Campi
