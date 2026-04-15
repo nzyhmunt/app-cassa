@@ -278,13 +278,14 @@ export const useAppStore = defineStore('app', () => {
       ...tableCurrentBillSession.value,
       [tableId]: session,
     };
+    const venueId = appConfig.directus?.venueId ?? null;
     enqueue('bill_sessions', 'create', billSessionId, {
       id: billSessionId, table: tableId, adults, children, status: 'open', opened_at: now,
-      venue: appConfig.directus?.venueId ?? null,
+      ...(venueId != null ? { venue: venueId } : {}),
     });
     // Persist to IDB bill_sessions immediately so offline reloads hydrate the
     // session from the dedicated ObjectStore (not just app_meta) before a pull.
-    upsertBillSessionInIDB({ ...session, venue: appConfig.directus?.venueId ?? null });
+    upsertBillSessionInIDB({ ...session, ...(venueId != null ? { venue: venueId } : {}) });
     return billSessionId;
   }
 

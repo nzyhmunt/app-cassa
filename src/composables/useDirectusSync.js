@@ -494,12 +494,17 @@ async function _runGlobalPull() {
     }
 
     // D3: Hydrate appConfig from IDB after pulling config collections.
-    const cfg = await loadConfigFromIDB(venueId);
-    applyDirectusConfigToAppConfig(cfg);
-    // Keep the reactive store config in sync with the hydrated appConfig so
-    // the UI reflects the pull immediately without requiring a reload.
-    if (_store?.config) {
-      Object.assign(_store.config, appConfig);
+    // Skip hydration when venueId is not configured: without a venue filter
+    // loadConfigFromIDB() would return records for *all* venues and mix them
+    // into a single (incorrect) appConfig.
+    if (venueId != null) {
+      const cfg = await loadConfigFromIDB(venueId);
+      applyDirectusConfigToAppConfig(cfg);
+      // Keep the reactive store config in sync with the hydrated appConfig so
+      // the UI reflects the pull immediately without requiring a reload.
+      if (_store?.config) {
+        Object.assign(_store.config, appConfig);
+      }
     }
   } catch (e) {
     console.warn('[DirectusSync] Global pull error:', e);
