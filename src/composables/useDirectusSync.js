@@ -501,10 +501,9 @@ async function _runGlobalPull() {
         const timestampMs = lastPullTimestamp ? Date.parse(lastPullTimestamp) : NaN;
         if (Number.isFinite(timestampMs) && timestampMs > (Date.now() + GLOBAL_TIMESTAMP_SKEW_TOLERANCE_MS)) {
           console.warn(
-            `[DirectusSync] Resetting invalid future last_pull_ts for ${collection}:`,
+            `[DirectusSync] Ignoring invalid future last_pull_ts for ${collection} and forcing a full pull:`,
             lastPullTimestamp,
           );
-          await saveLastPullTsToIDB(collection, null);
           forceFull = true;
           lastPullTimestamp = null;
         }
