@@ -170,7 +170,10 @@ export default ({ action, schedule }, { services, database, getSchema, logger, e
    * @throws {Error} Se `connection_type` non è supportato per la stampa diretta
    */
   function dispatchBuffer(buf, printer) {
-    const type = (printer.connection_type ?? 'http').toLowerCase();
+    const rawType = printer.connection_type ?? 'http';
+    const type = typeof rawType === 'string'
+      ? rawType.toLowerCase()
+      : String(rawType).toLowerCase();
 
     if (type === 'tcp') {
       const host    = printer.tcp_host    || '127.0.0.1';
