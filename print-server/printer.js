@@ -149,7 +149,22 @@ function _resetPrinterCache() {
  *       device  {string}          — percorso device (default: '/dev/usb/lp0')
  */
 function setPrinters(list) {
-  _cachedPrinters = Array.isArray(list) ? list : [];
+  const printers = Array.isArray(list) ? list : [];
+  _cachedPrinters = printers;
+
+  if (_queues instanceof Map) {
+    const activePrinterIds = new Set(
+      printers
+        .map(p => p && p.id)
+        .filter(id => typeof id === 'string' && id.length > 0)
+    );
+
+    for (const printerId of _queues.keys()) {
+      if (!activePrinterIds.has(printerId)) {
+        _queues.delete(printerId);
+      }
+    }
+  }
 }
 
 /**
