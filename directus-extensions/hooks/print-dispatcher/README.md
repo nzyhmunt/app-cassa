@@ -4,24 +4,30 @@ Estensione Directus di tipo **hook** che legge le collezioni `printers` e `print
 e invia automaticamente i lavori di stampa **direttamente alla stampante fisica** via TCP o
 dispositivo file. Non richiede servizi Node.js / Docker aggiuntivi.
 
+> **Formatter condivisi:** la logica ESC/POS (formattazione comande, preconti, spostamenti
+> tavolo) risiede in `print-server/formatters/*.js` — fonte unica di verità usata sia da
+> questa estensione (bundle Rollup) che dal print-server Node.js. Per modificare un
+> formatter aggiorna il file in `print-server/formatters/` e riesegui `npm run build` qui.
+
 ---
 
 ## Come funziona
 
 ```
 Frontend → sync → print_jobs (status: pending)
-                        │
-                 [hook items.create]
-                 [schedule polling]
-                        │
-            legge printers (connection_type,
-                  tcp_host, tcp_port, ...)
-                        │
-            buildEscPosBuffer (ESC/POS)
-                        │
-         TCP socket / file device  ←── stampante fisica
-                        │
-          status: done / error
+                         │
+                  [hook items.create]
+                  [schedule polling]
+                         │
+             legge printers (connection_type,
+                   tcp_host, tcp_port, ...)
+                         │
+             buildEscPosBuffer (ESC/POS)
+              ← logica da print-server/formatters/
+                         │
+          TCP socket / file device  ←── stampante fisica
+                         │
+           status: done / error
 ```
 
 1. L'app frontend crea un record in `print_jobs` con `status: 'pending'` (via sync offline-first).
@@ -61,23 +67,33 @@ garantendo che job concorrenti non vengano inviati due volte anche in caso di ra
 
 ## Installazione
 
-### 1. Installa le dipendenze npm
+### 1. Build del bundle (prima di deployare)
+
+Il bundle pre-compilato (`dist/index.js`) è già incluso nel repository.
+Se hai modificato i formatter o il codice sorgente, ricompila:
 
 ```bash
 cd directus-extensions/hooks/print-dispatcher
 npm install
+npm run build
 ```
+
+> Il comando bundla `src/index.js` e la logica formatter da `print-server/formatters/`
+> in un unico file `dist/index.js` autocontenuto (include `@point-of-sale/receipt-printer-encoder`).
 
 ### 2. Copia nella directory extensions di Directus
 
 ```bash
-# Opzione A — copia diretta (con node_modules)
+# Opzione A — copia dell'intera cartella
 cp -r directus-extensions/hooks/print-dispatcher \
       /path/to/directus/extensions/hooks/
 
-# Opzione B — symlink (solo sviluppo; node_modules deve essere già installato)
-ln -s $(pwd)/directus-extensions/hooks/print-dispatcher \
-      /path/to/directus/extensions/hooks/print-dispatcher
+# Opzione B — solo i file essenziali (dist/ contiene tutto il codice necessario)
+mkdir -p /path/to/directus/extensions/hooks/print-dispatcher
+cp directus-extensions/hooks/print-dispatcher/dist/index.js \
+   /path/to/directus/extensions/hooks/print-dispatcher/index.js
+cp directus-extensions/hooks/print-dispatcher/package.json \
+   /path/to/directus/extensions/hooks/print-dispatcher/
 ```
 
 Poi riavvia Directus.
@@ -87,15 +103,18 @@ Poi riavvia Directus.
 ```yaml
 services:
   directus:
+    image: directus/directus:11
     volumes:
-      - ./directus-extensions/hooks/print-dispatcher:/directus/extensions/hooks/print-dispatcher:ro
-    # L'estensione ha una sua dipendenza npm (@point-of-sale/receipt-printer-encoder).
-    # Esegui "npm install" nella cartella prima di montarla, oppure usa una build image custom.
+      # Monta il bundle pre-compilato (no node_modules richiesti a runtime)
+      - ./directus-extensions/hooks/print-dispatcher:/directus/extensions/print-dispatcher:ro
+    environment:
+      PRINT_DISPATCHER_POLL_SEC: "60"
+      PRINT_DISPATCHER_RETRY_MAX: "3"
 ```
 
-> **Nota Docker**: se la cartella viene montata come volume, esegui
-> `npm install --prefix ./directus-extensions/hooks/print-dispatcher`
-> prima di avviare il container per installare `@point-of-sale/receipt-printer-encoder`.
+> **Nota Docker**: il bundle `dist/index.js` è auto-contenuto — nessun `npm install`
+> richiesto a runtime. Ricostruisci il bundle in locale (`npm run build`) e committalo
+> prima di deployare il container.
 
 ---
 
@@ -148,15 +167,30 @@ Le stampanti si configurano direttamente nella collezione **`printers`** di Dire
 ```
 print-dispatcher/
 ├── src/
-│   ├── index.js              # Hook extension (ESM, no build step richiesto)
-│   └── formatters/
-│       ├── order.js          # ESC/POS per comande cucina/bar
-│       ├── table_move.js     # ESC/POS per spostamenti tavolo
-│       └── pre_bill.js       # ESC/POS per preconti
-├── package.json              # Dipendenze: @point-of-sale/receipt-printer-encoder
+│   └── index.js              # Hook extension (ESM; importa formatter da print-server/formatters/)
+├── dist/
+│   └── index.js              # Bundle pre-compilato (usato da Directus a runtime)
+├── package.json              # Build script + devDep: @directus/extensions-sdk
 ├── .env.example              # Variabili d'ambiente disponibili
 └── README.md
 ```
+
+> **Nota:** `src/formatters/` non esiste più — la logica dei formatter è in
+> `print-server/formatters/*.js` (fonte unica di verità) e viene inclusa nel bundle
+> durante la build (`npm run build`).
+
+---
+
+## Aggiornare un formatter
+
+1. Modifica il file in `print-server/formatters/` (es. `order.js`)
+2. Riesegui la build dell'estensione:
+   ```bash
+   cd directus-extensions/hooks/print-dispatcher
+   npm run build
+   ```
+3. Commit entrambi: il formatter modificato **e** il `dist/index.js` aggiornato
+4. Riavvia Directus per caricare il nuovo bundle
 
 ---
 

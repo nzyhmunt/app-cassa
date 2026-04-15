@@ -28,9 +28,13 @@
 import net from 'net';
 import fs  from 'fs';
 
-import { formatOrder }     from './formatters/order.js';
-import { formatTableMove } from './formatters/table_move.js';
-import { formatPreBill }   from './formatters/pre_bill.js';
+// ── Shared formatters ─────────────────────────────────────────────────────────
+// Il codice canonico dei formatter si trova in print-server/formatters/*.js (CJS).
+// Le modifiche vanno fatte lì; poi rieseguire `npm run build` in questa cartella.
+// Rollup (@rollup/plugin-commonjs) risolve e include il codice CJS nel bundle.
+import { formatOrder }     from '../../../../print-server/formatters/order.js';
+import { formatTableMove } from '../../../../print-server/formatters/table_move.js';
+import { formatPreBill }   from '../../../../print-server/formatters/pre_bill.js';
 
 export default ({ action, schedule }, { services, database, getSchema, logger, env }) => {
   const { ItemsService } = services;

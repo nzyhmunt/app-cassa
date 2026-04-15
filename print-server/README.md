@@ -3,6 +3,11 @@
 Servizio Node.js che converte job di stampa in comandi ESC/POS e li invia alle stampanti termiche
 (rete TCP o USB). Supporta tre modalità operative che possono coesistere.
 
+> **Formatter ESC/POS condivisi:** la logica di formattazione risiede in `formatters/*.js` (CJS)
+> ed è la **fonte unica di verità** usata sia da questo servizio (CJS `require`) che
+> dall'estensione Directus `print-dispatcher` (bundled da Rollup). Per modificare il layout
+> di una ricevuta basta aggiornare il file in `formatters/`; l'estensione va poi ricompilata.
+
 ---
 
 ## Modalità operative
@@ -110,36 +115,57 @@ La lista stampanti viene aggiornata ogni `DIRECTUS_PRINTERS_REFRESH_SEC` secondi
 
 ---
 
-### Modalità 3 — Directus Hook Push (estensione Directus)
+### Modalità 3 — Directus Hook (stampa diretta, no print-server)
 
-Un'**estensione hook Directus** (`directus-extensions/hooks/print-dispatcher`)
-riceve gli eventi `items.create` su `print_jobs` direttamente nel processo
-Directus e fa un `POST /print` al print-server per ogni job pending.
+> **Questa modalità non usa questo print-server.** È fornita come alternativa
+> autonoma per installazioni in cui Directus è sulla stessa rete locale delle stampanti.
+
+L'**estensione hook Directus** (`directus-extensions/hooks/print-dispatcher`)
+gira all'interno del processo Directus e stampa **direttamente** sulle stampanti
+fisiche via TCP o file di dispositivo, senza bisogno di questo servizio Node.js.
 
 ```
-Directus hook ──POST /print──► print-server ──TCP/USB──► stampante
+Frontend → print_jobs (status: pending)
+                 │
+          [hook Directus] ←── accesso diretto al DB
+                 │
+         printers collection
+                 │
+         buildEscPosBuffer
+                 │
+    TCP socket / file device ──► stampante fisica
+                 │
+        status: done / error
 ```
 
-**Differenze rispetto alla Modalità 2:**
-- L'hook gira **nel processo Directus** (non nel print-server)
-- Ha accesso diretto al database → atomic claim via `UPDATE WHERE status='pending'`
-- Richiede la copia dell'estensione nella cartella `extensions/hooks/` di Directus
-- Ideale per deployment multi-istanza del print-server
+**Caratteristiche:**
+- Gira **nel processo Directus** — nessun servizio aggiuntivo da deployare
+- **Atomic claim** via `UPDATE WHERE status='pending'` sul DB — sicuro per multi-istanza
+- Legge la config stampante dalla collezione `printers` (`connection_type`, `tcp_host`, …)
+- **Tipi supportati:** `tcp` (porta 9100 default) e `file` (device USB/seriale)
+- Scheduler di fallback ogni 60 s per recuperare job persi al riavvio di Directus
 
-Vedi `directus-extensions/hooks/print-dispatcher/README.md` per dettagli.
+Vedi `directus-extensions/hooks/print-dispatcher/README.md` per installazione e configurazione.
 
 ---
 
 ### Confronto modalità
 
-| | Modalità 1 (HTTP Push) | Modalità 2 (Directus Pull) | Modalità 3 (Hook Push) |
+| | Modalità 1 (HTTP Push) | Modalità 2 (Directus Pull) | Modalità 3 (Hook Direct) |
 |---|---|---|---|
 | **Richiede Directus** | ✗ | ✓ | ✓ |
+| **Richiede print-server** | ✓ | ✓ | ✗ |
 | **Real-time** | ✓ | ✓ (WebSocket) | ✓ |
 | **Atomic claim** | N/A | Ottimistico (single-instance) | ✓ (DB diretto) |
-| **Multi-istanza** | ✓ | ✗ (race condition) | ✓ |
+| **Multi-istanza print-server** | ✓ | ✗ (race condition) | ✓ |
 | **Nessun intermediario browser** | ✗ | ✓ | ✓ |
 | **Offline-first compatible** | ✓ (sync frontend) | ✓ | ✓ |
+| **Printer config da Directus** | ✗ | ✓ | ✓ |
+
+**Scelta consigliata:**
+- **Solo print-server, senza Directus** → Modalità 1
+- **Print-server + Directus** → Modalità 2 (con Modalità 1 come fallback)
+- **Solo Directus, stampanti sulla stessa rete** → Modalità 3
 
 ---
 
@@ -408,10 +434,10 @@ Riceve un job JSON, lo converte in ESC/POS e lo invia alla stampante.
 print-server/
 ├── server.js              # Entry point: server HTTP Express
 ├── printer.js             # Multi-printer dispatch (TCP / file, coda serializzata)
-├── build-buffer.js        # Shared: seleziona il formatter ESC/POS corretto
+├── build-buffer.js        # Seleziona il formatter ESC/POS corretto
 ├── directus-client.js     # Modalità 2: Directus Pull (SDK + WebSocket + polling)
 ├── printers.config.js     # ← Configurare qui le stampanti del locale
-├── formatters/
+├── formatters/            # ← FONTE UNICA dei formatter ESC/POS (vedi sotto)
 │   ├── order.js           # Comanda cucina/bar
 │   ├── table_move.js      # Spostamento tavolo
 │   └── pre_bill.js        # Preconto
@@ -420,6 +446,26 @@ print-server/
 ├── .env.example
 └── README.md
 ```
+
+---
+
+## Architettura formatter ESC/POS (fonte unica)
+
+La directory `print-server/formatters/` è la **fonte unica di verità** per la logica
+di formattazione ESC/POS. Sia il print-server che l'estensione Directus usano lo
+stesso codice sorgente:
+
+| Componente | Come usa i formatter |
+|---|---|
+| **Print server** (`build-buffer.js`) | `require('./formatters/order.js')` — CJS diretto |
+| **Directus Extension** (`dist/index.js`) | Bundle Rollup: i file `formatters/*.js` sono inclusi nel bundle a compile-time |
+
+**Per modificare un formatter** (es. layout della comanda):
+1. Modifica `print-server/formatters/order.js`
+2. Ricostruisci il bundle extension: `cd directus-extensions/hooks/print-dispatcher && npm run build`
+3. Commit sia il file modificato che il `dist/index.js` aggiornato
+
+Il print-server usa i file sorgente direttamente (senza rebuild). L'estensione usa il bundle pre-compilato.
 
 ---
 
