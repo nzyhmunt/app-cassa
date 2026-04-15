@@ -471,13 +471,19 @@ async function _runPull() {
   try {
     let anyMerged = false;
     let allOk = true;
+    const mergedSummary = [];
+    const failedCollections = [];
     for (const collection of pullCfg.collections) {
       const { merged, ok } = await _pullCollection(collection);
       if (merged > 0) anyMerged = true;
       if (!ok) allOk = false;
-      if (merged > 0 || !ok) {
-        console.info(`[DirectusSync] Pull ${collection}: merged=${merged}, ok=${ok}`);
-      }
+      if (merged > 0) mergedSummary.push(`${collection}:${merged}`);
+      if (!ok) failedCollections.push(collection);
+    }
+    if (mergedSummary.length > 0 || failedCollections.length > 0) {
+      console.info(
+        `[DirectusSync] Pull cycle details — merged: ${mergedSummary.join(', ') || 'none'}; failed: ${failedCollections.join(', ') || 'none'}.`,
+      );
     }
     if (anyMerged && allOk) {
       lastPullAt.value = new Date().toISOString();
@@ -500,6 +506,8 @@ async function _runGlobalPull() {
 
   try {
     let fullHydrationOk = true;
+    const fullModeCollections = [];
+    const failedCollections = [];
     for (const collection of GLOBAL_COLLECTIONS) {
       // Keep global pull incremental by default (lower backend load), but:
       //  - always force full pull on initial global hydration after startSync
@@ -520,25 +528,28 @@ async function _runGlobalPull() {
       }
       const { ok } = await _pullCollection(collection, { forceFull, lastPullTimestampOverride: lastPullTimestamp });
       if (!ok) fullHydrationOk = false;
-      if (forceFull || !ok) {
-        const mode = forceFull ? 'full' : 'incremental';
-        console.info(`[DirectusSync] Global pull ${collection} (${mode}): ok=${ok}`);
-      }
+      if (forceFull) fullModeCollections.push(collection);
+      if (!ok) failedCollections.push(collection);
+    }
+    if (fullModeCollections.length > 0 || failedCollections.length > 0) {
+      console.info(
+        `[DirectusSync] Global pull details — full mode: ${fullModeCollections.join(', ') || 'none'}; failed: ${failedCollections.join(', ') || 'none'}.`,
+      );
     }
 
     // H3: table_merge_sessions — full-replace semantics.
     // Fetched with a full (non-incremental) pull and replaced atomically in IDB
     // so that dissolved merges (records deleted on Directus) are also cleared.
-    const { data: mergeRecords, error: mergeError } = await _fetchUpdatedViaSDK('table_merge_sessions', null);
+    const { data: mergeSessionRecords, error: mergeError } = await _fetchUpdatedViaSDK('table_merge_sessions', null);
     if (mergeError) {
       fullHydrationOk = false;
       console.warn('[DirectusSync] Skipping table_merge_sessions replace due to fetch error.');
     } else {
-      await replaceTableMergesInIDB(mergeRecords);
+      await replaceTableMergesInIDB(mergeSessionRecords);
       // Rebuild in-memory tableMergedInto from the authoritative Directus data.
       if (_store) {
         const merged = {};
-        for (const r of mergeRecords) {
+        for (const r of mergeSessionRecords) {
           if (r.slave_table && r.master_table) merged[r.slave_table] = r.master_table;
         }
         _store.tableMergedInto = merged;
@@ -565,8 +576,6 @@ async function _runGlobalPull() {
       if (_store?.config) {
         Object.assign(_store.config, appConfig);
       }
-    } else if (!fullHydrationOk) {
-      console.warn('[DirectusSync] Skipping config hydration due to incomplete global pull cycle.');
     }
   } catch (e) {
     console.warn('[DirectusSync] Global pull error:', e);
