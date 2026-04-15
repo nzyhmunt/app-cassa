@@ -538,12 +538,19 @@ async function runWebSocket(wsClient, restClient, log) {
   log.info('[directus-client] Sottoscrizione WebSocket attiva su print_jobs (event: create)');
 
   for await (const event of subscription) {
-    if (event.event === 'create' && Array.isArray(event.data)) {
-      for (const job of event.data) {
+    if (event.event === 'create') {
+      // Directus realtime può restituire `event.data` come array (batch) o come
+      // singolo oggetto (un solo item creato). Normalizziamo sempre ad array.
+      const jobs = Array.isArray(event.data)
+        ? event.data
+        : event.data && typeof event.data === 'object'
+          ? [event.data]
+          : [];
+      for (const job of jobs) {
         // Fire-and-forget: la coda per-printer serializza automaticamente
         processJob(restClient, job, log).catch((err) => {
           log.error(
-            `[directus-client] Errore WS job ${safeLog(job.log_id)}: ${safeLog(err.message)}`,
+            `[directus-client] Errore WS job ${safeLog(job.log_id)}: ${safeLog(err instanceof Error ? err.message : String(err))}`,
           );
         });
       }
