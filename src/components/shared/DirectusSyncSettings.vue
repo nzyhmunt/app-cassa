@@ -187,6 +187,37 @@
       <span>Log coda sync</span>
     </button>
 
+    <!-- Log attività sincronizzazione -->
+    <div v-if="syncEnabled" class="rounded-2xl border border-gray-200 bg-white overflow-hidden">
+      <div class="px-3 py-2.5 border-b border-gray-100 flex items-center justify-between">
+        <span class="text-[11px] font-bold text-gray-700 uppercase tracking-wide">Log attività Directus</span>
+        <button
+          type="button"
+          @click="sync.clearActivityLog()"
+          class="text-[10px] font-bold text-gray-500 hover:text-gray-700 transition-colors"
+        >
+          Pulisci
+        </button>
+      </div>
+      <div class="max-h-44 overflow-y-auto px-3 py-2 space-y-2">
+        <p v-if="sync.activityLog.value.length === 0" class="text-[11px] text-gray-400 py-3 text-center">
+          Nessun evento registrato
+        </p>
+        <div
+          v-for="entry in sync.activityLog.value.slice(0, 40)"
+          :key="entry.id"
+          class="rounded-xl border px-2.5 py-2 text-[11px] space-y-1"
+          :class="levelClass(entry.level)"
+        >
+          <div class="flex items-center justify-between gap-2 text-[10px]">
+            <span class="font-medium text-gray-500">{{ formatTs(entry.ts) }}</span>
+            <span class="font-bold uppercase tracking-wide">{{ levelLabel(entry.level) }}</span>
+          </div>
+          <p class="text-gray-700 break-words leading-tight">{{ entry.message }}</p>
+        </div>
+      </div>
+    </div>
+
     <!-- Info timestamp -->
     <div v-if="syncEnabled" class="text-[10px] text-gray-400 space-y-0.5 px-1">
       <p v-if="sync.lastPushAt.value">
@@ -376,6 +407,12 @@ function saveConfig() {
   };
 
   appConfig.directus = nextDirectusConfig;
+  sync.clearActivityLog();
+  sync.appendActivityLog(
+    'info',
+    `Configurazione salvata (venue: ${nextDirectusConfig.venueId ?? 'n/d'}, ws: ${nextDirectusConfig.wsEnabled ? 'on' : 'off'}).`,
+    { url: nextDirectusConfig.url, venueId: nextDirectusConfig.venueId, wsEnabled: nextDirectusConfig.wsEnabled },
+  );
   saveDirectusConfigToStorage();
   _savedSnapshot.value = JSON.stringify({ ...form });
   connectionStatus.value = 'idle';
@@ -411,5 +448,19 @@ function formatTs(iso) {
   } catch {
     return iso;
   }
+}
+
+function levelLabel(level) {
+  if (level === 'error') return 'Errore';
+  if (level === 'warning') return 'Warning';
+  if (level === 'success') return 'OK';
+  return 'Info';
+}
+
+function levelClass(level) {
+  if (level === 'error') return 'border-red-200 bg-red-50 text-red-700';
+  if (level === 'warning') return 'border-amber-200 bg-amber-50 text-amber-700';
+  if (level === 'success') return 'border-emerald-200 bg-emerald-50 text-emerald-700';
+  return 'border-gray-200 bg-gray-50 text-gray-700';
 }
 </script>

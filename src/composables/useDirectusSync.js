@@ -63,6 +63,7 @@ const GLOBAL_INTERVAL_MS = 5 * 60_000;
 // 24h avoids perpetual full-refreshes on slightly misconfigured tablets while still
 // catching clearly bogus cursors (for example, year 2099).
 const GLOBAL_TIMESTAMP_SKEW_TOLERANCE_MS = 24 * 60 * 60_000;
+const SYNC_ACTIVITY_LOG_LIMIT = 200;
 
 /**
  * Per-collection quirks for collections that deviate from the default schema
@@ -369,6 +370,7 @@ async function _startSubscriptions(collections) {
   try {
     await client.connect();
     _wsConnected.value = true;
+    _addActivity('success', `WebSocket connesso (${collections.length} collection).`);
 
     for (const collection of collections) {
       const query = { fields: ['*'] };
@@ -378,6 +380,7 @@ async function _startSubscriptions(collections) {
 
       const { subscription, unsubscribe } = await client.subscribe(collection, { query });
       _unsubscribers.push(unsubscribe);
+      _addActivity('info', `WebSocket subscription attivata: ${collection}.`);
 
       // Process subscription messages as they arrive
       async function processSubscription() {
@@ -388,6 +391,7 @@ async function _startSubscriptions(collections) {
         } catch (e) {
           console.warn(`[DirectusSync] Subscription ${collection} closed:`, e?.message ?? e);
           _wsConnected.value = false;
+          _addActivity('warning', `WebSocket subscription chiusa: ${collection} (${e?.message ?? e}).`);
           // Restart polling fallback if the subscription broke unexpectedly
           if (_running && !_pollTimer) {
             const pullCfg = PULL_CONFIG[_appType] ?? PULL_CONFIG.cassa;
@@ -402,6 +406,7 @@ async function _startSubscriptions(collections) {
     return true;
   } catch (e) {
     console.warn('[DirectusSync] WebSocket unavailable, falling back to polling:', e?.message ?? e);
+    _addActivity('warning', `WebSocket non disponibile, fallback polling: ${e?.message ?? e}.`);
     _stopSubscriptions();
     return false;
   }
@@ -433,6 +438,18 @@ let _appType = 'cassa';
 const syncStatus = ref(/** @type {'idle'|'syncing'|'error'} */ ('idle'));
 const lastPushAt = ref(/** @type {string|null} */ (null));
 const lastPullAt = ref(/** @type {string|null} */ (null));
+const activityLog = ref([]);
+
+function _addActivity(level, message, meta = null) {
+  const entry = {
+    id: `dsl_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    ts: new Date().toISOString(),
+    level,
+    message,
+    meta,
+  };
+  activityLog.value = [entry, ...activityLog.value].slice(0, SYNC_ACTIVITY_LOG_LIMIT);
+}
 
 // ── Push helpers ──────────────────────────────────────────────────────────────
 
@@ -454,9 +471,16 @@ async function _runPush() {
       lastPushAt.value = new Date().toISOString();
     }
     syncStatus.value = result.failed > 0 ? 'error' : 'idle';
+    if (result.pushed > 0 || result.failed > 0 || result.abandoned > 0) {
+      _addActivity(
+        result.failed > 0 ? 'error' : 'success',
+        `Push completato — inviati: ${result.pushed}, falliti: ${result.failed}, abbandonati: ${result.abandoned}.`,
+      );
+    }
   } catch (e) {
     console.warn('[DirectusSync] Push error:', e);
     syncStatus.value = 'error';
+    _addActivity('error', `Push fallito: ${e?.message ?? e}`);
   }
 }
 
@@ -467,6 +491,7 @@ async function _runPull() {
   if (!_getCfg()) return;
 
   const pullCfg = PULL_CONFIG[_appType] ?? PULL_CONFIG.cassa;
+  _addActivity('info', `Pull ${_appType} avviato: ${pullCfg.collections.join(', ')}.`);
 
   try {
     let anyMerged = false;
@@ -484,6 +509,10 @@ async function _runPull() {
       console.info(
         `[DirectusSync] Pull cycle details — merged: ${mergedSummary.join(', ') || 'none'}; failed: ${failedCollections.join(', ') || 'none'}.`,
       );
+      _addActivity(
+        failedCollections.length > 0 ? 'warning' : 'success',
+        `Pull completato — merged: ${mergedSummary.join(', ') || 'none'}; fallite: ${failedCollections.join(', ') || 'none'}.`,
+      );
     }
     if (anyMerged && allOk) {
       lastPullAt.value = new Date().toISOString();
@@ -493,6 +522,7 @@ async function _runPull() {
     }
   } catch (e) {
     console.warn('[DirectusSync] Pull error:', e);
+    _addActivity('error', `Pull fallito: ${e?.message ?? e}`);
   }
 }
 
@@ -503,6 +533,7 @@ async function _runGlobalPull() {
   // Capture venueId before the pull loop so that appConfig mutations during
   // a long pull cannot change which venue we query / hydrate into (D3 review).
   const venueId = appConfig.directus?.venueId ?? null;
+  _addActivity('info', `Global pull avviato${venueId != null ? ` (venue ${venueId})` : ''}.`);
 
   try {
     let fullHydrationOk = true;
@@ -530,6 +561,10 @@ async function _runGlobalPull() {
       if (!ok) fullHydrationOk = false;
       if (forceFull) fullModeCollections.push(collection);
       if (!ok) failedCollections.push(collection);
+      _addActivity(
+        ok ? 'success' : 'error',
+        `${collection}: pull ${ok ? 'ok' : 'fallito'} (${forceFull ? 'full' : 'incrementale'}).`,
+      );
     }
     if (fullModeCollections.length > 0 || failedCollections.length > 0) {
       console.info(
@@ -544,8 +579,10 @@ async function _runGlobalPull() {
     if (mergeError) {
       fullHydrationOk = false;
       console.warn('[DirectusSync] Skipping table_merge_sessions replace due to fetch error.');
+      _addActivity('error', 'table_merge_sessions: fetch fallita, replace saltato.');
     } else {
       await replaceTableMergesInIDB(mergeSessionRecords);
+      _addActivity('success', `table_merge_sessions: replace completato (${mergeSessionRecords.length} record).`);
       // Rebuild in-memory tableMergedInto from the authoritative Directus data.
       if (_store) {
         const merged = {};
@@ -560,6 +597,7 @@ async function _runGlobalPull() {
       _initialGlobalHydrationDone = true;
     } else {
       console.warn('[DirectusSync] Global config hydration incomplete; hydration/apply was skipped due to pull errors.');
+      _addActivity('warning', 'Hydration globale incompleta: applicazione configurazione saltata.');
     }
 
     // D3: Hydrate appConfig from IDB after pulling config collections.
@@ -576,9 +614,16 @@ async function _runGlobalPull() {
       if (_store?.config) {
         Object.assign(_store.config, appConfig);
       }
+      _addActivity(
+        'success',
+        `Configurazione aggiornata da Directus (rooms: ${cfg.rooms?.length ?? 0}, tavoli: ${cfg.tables?.length ?? 0}, menu: ${cfg.menu?.length ?? 0}).`,
+      );
+    } else if (venueId == null) {
+      _addActivity('warning', 'Hydration configurazione saltata: venueId mancante.');
     }
   } catch (e) {
     console.warn('[DirectusSync] Global pull error:', e);
+    _addActivity('error', `Global pull fallito: ${e?.message ?? e}`);
   }
 }
 
@@ -599,13 +644,20 @@ export function useDirectusSync() {
    * @param {{ appType: 'cassa'|'sala'|'cucina', store: object }} opts
    */
   async function startSync({ appType, store }) {
-    if (_running) return;
-    if (!appConfig.directus?.enabled) return;
+    if (_running) {
+      _addActivity('info', 'startSync ignorato: sincronizzazione già attiva.');
+      return;
+    }
+    if (!appConfig.directus?.enabled) {
+      _addActivity('info', 'startSync ignorato: Directus non abilitato.');
+      return;
+    }
 
     _appType = appType ?? 'cassa';
     _store = store;
     _initialGlobalHydrationDone = false;
     _running = true;
+    _addActivity('info', `Sincronizzazione avviata (app: ${_appType}).`);
 
     const pullCfg = PULL_CONFIG[_appType] ?? PULL_CONFIG.cassa;
 
@@ -622,6 +674,7 @@ export function useDirectusSync() {
     // WebSocket subscriptions are opt-in (wsEnabled must be explicitly true).
     // When disabled, fall back to periodic polling from the start.
     const wsEnabled = appConfig.directus?.wsEnabled === true;
+    _addActivity('info', `Modalità realtime: ${wsEnabled ? 'WebSocket + polling di backup' : 'solo polling REST'}.`);
 
     if (wsEnabled) {
       // Try WebSocket subscriptions; fall back to polling if connect fails
@@ -656,6 +709,7 @@ export function useDirectusSync() {
       window.removeEventListener('online', _onOnline);
     }
     syncStatus.value = 'idle';
+    _addActivity('info', 'Sincronizzazione fermata.');
   }
 
   async function forcePush() {
@@ -672,11 +726,14 @@ export function useDirectusSync() {
     syncStatus,
     lastPushAt,
     lastPullAt,
+    activityLog,
     wsConnected: _wsConnected,
     startSync,
     stopSync,
     forcePush,
     forcePull,
+    appendActivityLog: _addActivity,
+    clearActivityLog: () => { activityLog.value = []; },
   };
 }
 
@@ -695,4 +752,5 @@ export function _resetDirectusSyncSingleton() {
   syncStatus.value = 'idle';
   lastPushAt.value = null;
   lastPullAt.value = null;
+  activityLog.value = [];
 }

@@ -182,6 +182,24 @@ describe('stopSync()', () => {
     sync.stopSync();
     expect(sync.syncStatus.value).toBe('idle');
   });
+
+  it('records lifecycle events in activityLog and allows manual clear', async () => {
+    vi.spyOn(global, 'fetch').mockImplementation(() => Promise.resolve(directusListResponse([])));
+    const sync = useDirectusSync();
+
+    sync.startSync({ appType: 'cassa', store: makeStore() });
+    await flushPromises();
+    expect(sync.activityLog.value.some(entry => entry.message.includes('Sincronizzazione avviata'))).toBe(true);
+
+    sync.stopSync();
+    expect(sync.activityLog.value.some(entry => entry.message.includes('Sincronizzazione fermata'))).toBe(true);
+
+    sync.appendActivityLog('info', 'debug marker');
+    expect(sync.activityLog.value[0].message).toContain('debug marker');
+
+    sync.clearActivityLog();
+    expect(sync.activityLog.value).toEqual([]);
+  });
 });
 
 // ── Pull: IDB upsert (last-write-wins) ───────────────────────────────────────
