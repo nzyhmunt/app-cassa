@@ -526,3 +526,8 @@ L'app sarà disponibile su `http://localhost:5173`. Le quattro entry point sono 
 - `/cassa.html` — Terminale Cassa
 - `/sala.html` — Terminale Sala
 - `/cucina.html` — Display Cucina
+## © Copyright
+
+Copyright (c) 2026 nzyhmunt. **Tutti i diritti riservati.**
+
+Qualsiasi utilizzo, copia, modifica o distribuzione di questo software è **espressamente vietata** senza autorizzazione scritta dell'autore. Vedere il file [LICENSE](./LICENSE) per i dettagli.
