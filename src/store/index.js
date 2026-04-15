@@ -20,7 +20,7 @@ import { appConfig, updateOrderTotals, KITCHEN_ACTIVE_STATUSES, KEYBOARD_POSITIO
 import { newUUIDv7, newShortId } from './storeUtils.js';
 import { makeTableOps } from './tableOps.js';
 import { makeReportOps } from './reportOps.js';
-import { loadStateFromIDB, saveStateToIDB, loadSettingsFromIDB, saveFiscalReceiptToIDB, saveInvoiceRequestToIDB, loadFiscalReceiptsFromIDB, loadInvoiceRequestsFromIDB, pruneFiscalReceiptsInIDB, pruneInvoiceRequestsInIDB } from './idbPersistence.js';
+import { loadStateFromIDB, saveStateToIDB, upsertBillSessionInIDB, closeBillSessionInIDB, loadSettingsFromIDB, saveFiscalReceiptToIDB, saveInvoiceRequestToIDB, loadFiscalReceiptsFromIDB, loadInvoiceRequestsFromIDB, pruneFiscalReceiptsInIDB, pruneInvoiceRequestsInIDB } from './idbPersistence.js';
 import { enqueue } from '../composables/useSyncQueue.js';
 
 export const useAppStore = defineStore('app', () => {
@@ -282,6 +282,10 @@ export const useAppStore = defineStore('app', () => {
       id: billSessionId, table: tableId, adults, children, status: 'open', opened_at: now,
       venue: appConfig.directus?.venueId ?? null,
     });
+    // Persist to IDB bill_sessions immediately so offline reloads hydrate the
+    // session from the dedicated ObjectStore (not just app_meta) before a pull.
+    upsertBillSessionInIDB({ ...session, venue: appConfig.directus?.venueId ?? null })
+      .catch(e => console.warn('[Store] Failed to persist bill_session to IDB:', e));
     return billSessionId;
   }
 
@@ -316,13 +320,12 @@ export const useAppStore = defineStore('app', () => {
       delete nextSession[order.table];
       tableCurrentBillSession.value = nextSession;
       setBillRequested(order.table, false);
-      // Persist the local closure immediately so a reload cannot rehydrate
-      // a stale open bill session from IndexedDB before the next pull/sync.
-      Promise.resolve(saveStateToIDB()).catch((error) => {
-        console.error('Failed to persist closed bill session locally', error);
-      });
-      // Enqueue bill_session closure so Directus reflects the closed state
+      // Enqueue bill_session closure so Directus reflects the closed state, and
+      // mark the IDB record closed immediately to prevent a stale open record from
+      // being resurrected by loadStateFromIDB() on the next reload.
       if (closingSession?.billSessionId) {
+        closeBillSessionInIDB(closingSession.billSessionId)
+          .catch(e => console.warn('[Store] Failed to close bill_session in IDB:', e));
         enqueue('bill_sessions', 'update', closingSession.billSessionId, {
           status: 'closed', closed_at: closedAt,
         });

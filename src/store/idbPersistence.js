@@ -249,6 +249,51 @@ export async function saveStateToIDB(state) {
   }
 }
 
+// ── bill_sessions fine-grained writes ────────────────────────────────────────
+
+/**
+ * Writes (upserts) a single bill_session record to the `bill_sessions` ObjectStore.
+ * Called by `openTableSession()` so that offline reloads hydrate the session from
+ * the dedicated ObjectStore without requiring a Directus pull to populate it first.
+ *
+ * @param {{ billSessionId: string, table: string, adults?: number, children?: number, status?: string, opened_at?: string|null, venue?: string|null }} session
+ */
+export async function upsertBillSessionInIDB(session) {
+  try {
+    const db = await getDB();
+    await db.put('bill_sessions', JSON.parse(JSON.stringify({
+      id: session.billSessionId,
+      table: session.table,
+      adults: session.adults ?? 0,
+      children: session.children ?? 0,
+      status: session.status ?? 'open',
+      opened_at: session.opened_at ?? null,
+      ...(session.venue != null ? { venue: session.venue } : {}),
+    })));
+  } catch (e) {
+    console.warn('[IDBPersistence] Failed to upsert bill_session:', e);
+  }
+}
+
+/**
+ * Marks an existing bill_session record as `closed` in the `bill_sessions` ObjectStore.
+ * Called when closing a table session locally so that a subsequent reload cannot
+ * resurrect the stale open record via the `status` index query in `loadStateFromIDB()`.
+ *
+ * @param {string} billSessionId
+ */
+export async function closeBillSessionInIDB(billSessionId) {
+  try {
+    const db = await getDB();
+    const existing = await db.get('bill_sessions', billSessionId);
+    if (existing) {
+      await db.put('bill_sessions', { ...existing, status: 'closed', closed_at: new Date().toISOString() });
+    }
+  } catch (e) {
+    console.warn('[IDBPersistence] Failed to close bill_session in IDB:', e);
+  }
+}
+
 // ── Settings ──────────────────────────────────────────────────────────────────
 
 const SETTINGS_RECORD_ID = 'local';

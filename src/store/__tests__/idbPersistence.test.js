@@ -24,6 +24,8 @@ import {
   loadStateFromIDB,
   saveStateToIDB,
   clearAllStateFromIDB,
+  upsertBillSessionInIDB,
+  closeBillSessionInIDB,
   loadSettingsFromIDB,
   saveSettingsToIDB,
   loadUsersFromIDB,
@@ -400,6 +402,63 @@ describe('loadStateFromIDB() — bill_sessions hydration', () => {
     expect(loaded.tableCurrentBillSession).toHaveProperty('T2');
     expect(loaded.tableCurrentBillSession.T1.billSessionId).toBe('sess_t1');
     expect(loaded.tableCurrentBillSession.T2.billSessionId).toBe('sess_t2');
+  });
+});
+
+// ── upsertBillSessionInIDB / closeBillSessionInIDB ────────────────────────────
+
+describe('upsertBillSessionInIDB()', () => {
+  it('writes a new session to bill_sessions so loadStateFromIDB hydrates it', async () => {
+    await upsertBillSessionInIDB({
+      billSessionId: 'open_sess',
+      table: 'T1',
+      adults: 2,
+      children: 0,
+      status: 'open',
+      opened_at: '2024-06-01T20:00:00.000Z',
+    });
+
+    const loaded = await loadStateFromIDB();
+    expect(loaded.tableCurrentBillSession).toHaveProperty('T1');
+    expect(loaded.tableCurrentBillSession.T1).toMatchObject({
+      billSessionId: 'open_sess',
+      table: 'T1',
+      status: 'open',
+      adults: 2,
+    });
+  });
+});
+
+describe('closeBillSessionInIDB()', () => {
+  it('marks an existing open session as closed so it is not re-hydrated on reload', async () => {
+    // Seed an open session directly in bill_sessions
+    const { getDB } = await import('../../composables/useIDB.js');
+    const db = await getDB();
+    await db.put('bill_sessions', {
+      id: 'close_sess',
+      table: 'T2',
+      status: 'open',
+      adults: 3,
+      children: 1,
+      opened_at: '2024-06-01T18:00:00.000Z',
+    });
+
+    // Confirm it's visible before closing
+    const before = await loadStateFromIDB();
+    expect(before.tableCurrentBillSession).toHaveProperty('T2');
+
+    await closeBillSessionInIDB('close_sess');
+
+    // After closing, loadStateFromIDB must NOT resurrect the session
+    const after = await loadStateFromIDB();
+    expect(after.tableCurrentBillSession).not.toHaveProperty('T2');
+  });
+
+  it('is a no-op when the session does not exist in IDB', async () => {
+    // Should not throw even when the record is absent
+    await expect(closeBillSessionInIDB('nonexistent')).resolves.toBeUndefined();
+    const loaded = await loadStateFromIDB();
+    expect(loaded.tableCurrentBillSession).toEqual({});
   });
 });
 
