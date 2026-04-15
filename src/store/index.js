@@ -284,8 +284,7 @@ export const useAppStore = defineStore('app', () => {
     });
     // Persist to IDB bill_sessions immediately so offline reloads hydrate the
     // session from the dedicated ObjectStore (not just app_meta) before a pull.
-    upsertBillSessionInIDB({ ...session, venue: appConfig.directus?.venueId ?? null })
-      .catch(e => console.warn('[Store] Failed to persist bill_session to IDB:', e));
+    upsertBillSessionInIDB({ ...session, venue: appConfig.directus?.venueId ?? null });
     return billSessionId;
   }
 
