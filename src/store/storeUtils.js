@@ -30,15 +30,19 @@ export function newUUID(prefix = 'id') {
  * Generates a short, prefixed identifier suitable for local-only fields that are
  * NOT primary keys in Directus (e.g. order_items.uid, logId, jobId).
  *
- * Result is at most 20 characters:
- *   prefix (≤ 4 chars) + '_' + timestamp in base-36 (~9 chars) + '_' + 4 random chars ≤ 19
+ * Result is at most 20 characters when `prefix` is ≤ 4 characters:
+ *   prefix (≤ 4 chars) + '_' + timestamp in base-36 (~9 chars) + '_' + 4 random hex chars ≤ 19
+ *
+ * Prefixes longer than 4 characters are silently truncated so the output
+ * always stays within the 20-character column limit.
  *
  * Example: "cop_lrzmr4kh_a3f2"
  *
- * @param {string} [prefix='id'] – Short prefix (keep ≤ 4 chars to stay within 20-char column limits)
- * @returns {string}
+ * @param {string} [prefix='id'] – Short prefix; values longer than 4 chars are truncated to 4.
+ * @returns {string} ≤ 20-character identifier
  */
 export function newShortId(prefix = 'id') {
+  const safePrefix = String(prefix).slice(0, 4);
   const ts = Date.now().toString(36);
   let rnd;
   if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
@@ -49,7 +53,7 @@ export function newShortId(prefix = 'id') {
     // Fallback for environments without crypto (e.g. legacy jsdom in tests)
     rnd = Math.floor(Math.random() * 0x10000).toString(36).padStart(4, '0');
   }
-  return `${prefix}_${ts}_${rnd}`;
+  return `${safePrefix}_${ts}_${rnd}`;
 }
 
 /**
