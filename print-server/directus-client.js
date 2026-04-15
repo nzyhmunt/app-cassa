@@ -212,10 +212,12 @@ function _mapDirectusPrinters(rawPrinters) {
  * @returns {Promise<boolean>} true se la configurazione è stata aggiornata
  */
 async function fetchAndApplyPrinters(restClient, log) {
-  const directusVenueId = process.env.DIRECTUS_VENUE_ID;
   const printersFilter = { status: { _eq: 'published' } };
-  if (directusVenueId) {
-    printersFilter.venue = { _eq: directusVenueId };
+  if (DIRECTUS_VENUE) {
+    // Normalize to integer if possible, like in buildJobFilter(), for compatibility
+    // with integer-type venue fields in Directus.
+    const parsedVenue = parseInt(DIRECTUS_VENUE, 10);
+    printersFilter.venue = { _eq: isNaN(parsedVenue) ? DIRECTUS_VENUE : parsedVenue };
   }
 
   let rawPrinters;
