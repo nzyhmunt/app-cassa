@@ -329,7 +329,9 @@ async function testConnection() {
         connectionMessage.value = 'Connessione riuscita';
       } else {
         connectionStatus.value = 'error';
-        connectionMessage.value = `Token non valido (HTTP ${meRes.status})`;
+        connectionMessage.value = (meRes.status === 401 || meRes.status === 403)
+          ? `Token non valido (HTTP ${meRes.status})`
+          : `Errore HTTP ${meRes.status}`;
       }
     } else if (pingRes.status >= 500) {
       // Ping failed with server-side error (e.g. 503 from proxy) — use the
