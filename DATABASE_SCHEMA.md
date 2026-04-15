@@ -1121,7 +1121,7 @@ WHERE o."table" = :table_id
 La funzione **Unisci** in App Cassa permette di accorpare il conto di due tavoli occupati.
 L'unione è rappresentata in memoria in store dallo stato reattivo `tableMergedInto` (oggetto `{ slaveTableId: masterTableId }`), persistito nell'ObjectStore IndexedDB dedicato **`table_merge_sessions`** (DB_VERSION = 4). La chiave `app_meta.tableMergedInto` è **legacy** e viene letta solo come fallback di compatibilità durante il primo avvio dopo una migrazione v2 → v3 che non avesse popolato `table_merge_sessions`.
 
-La collection `table_merge_sessions` è ora inclusa in `GLOBAL_COLLECTIONS` in `useDirectusSync.js` (H3): viene sincronizzata da Directus ad ogni pull globale (startup + ogni 5 min), propagando lo stato di unione tra tutti i dispositivi in rete.
+La collection `table_merge_sessions` viene sincronizzata da Directus ad ogni pull globale (startup + ogni 5 min), propagando lo stato di unione tra tutti i dispositivi in rete; in `useDirectusSync.js` non è però gestita come voce di `GLOBAL_COLLECTIONS`, bensì con logica dedicata in `_runGlobalPull()` e semantica di full-replace.
 
 > **Nota schema**: `table_merge_sessions` non ha il campo `venue` né `date_updated`; il pull usa un fetch completo senza filtro incrementale né filtro per venue (la collection è piccola, al massimo un record per tavolo slave attivo). Questo è gestito tramite `COLLECTION_QUIRKS.table_merge_sessions` in `useDirectusSync.js`.
 
