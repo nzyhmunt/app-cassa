@@ -329,8 +329,8 @@ export default ({ action, schedule }, { services, database, getSchema, logger, e
 
   // Converte POLL_SEC in cron expression.
   //  ≤ 59 s  → "*/N * * * * *"  (6 campi incl. secondi — node-cron)
-  //  ≥ 60 s  → "*/M * * * *"    (5 campi, minuti — arrotondato; min 1)
-  const cronMinutes = Math.max(1, Math.round(POLL_SEC / 60));
+  //  ≥ 60 s  → "*/M * * * *"    (5 campi, minuti — arrotondato per eccesso; min 1)
+  const cronMinutes = Math.max(1, Math.ceil(POLL_SEC / 60));
   const cronExpr    = POLL_SEC < 60
     ? `*/${POLL_SEC} * * * * *`
     : `*/${cronMinutes} * * * *`;
