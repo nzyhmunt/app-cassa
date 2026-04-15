@@ -651,10 +651,10 @@ CREATE TABLE printers (
     venue           INTEGER         NOT NULL REFERENCES venues(id) ON DELETE CASCADE,
     name            VARCHAR(80)     NOT NULL,               -- nome visualizzato nella UI
 
-    -- ── Endpoint HTTP (per hook push + frontend) ──────────────────────────────
+    -- ── Endpoint HTTP (per i flussi che usano il print-server via HTTP) ─────
     -- URL del servizio print-server a cui inviare i job via POST /print.
-    -- Usato dall'estensione hook print-dispatcher (Modalità 3) e dal frontend
-    -- (Modalità 1). NULL se si usa solo connessione diretta TCP/File.
+    -- Usato solo quando la stampante è configurata per connessione HTTP
+    -- (ad es. frontend / Modalità 1). NULL se si usa solo connessione diretta TCP/File.
     url             TEXT            NULL,                   -- es. 'http://localhost:3001/print'
 
     -- ── Connessione diretta (per Directus Pull — Modalità 2) ─────────────────
