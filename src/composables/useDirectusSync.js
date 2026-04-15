@@ -59,6 +59,10 @@ const GLOBAL_COLLECTIONS = [
   // it requires full-replace semantics (dissolved merges must be removed).
 ];
 const GLOBAL_INTERVAL_MS = 5 * 60_000;
+// Allow substantial device/server clock drift before treating last_pull_ts as invalid.
+// 24h avoids perpetual full-refreshes on slightly misconfigured tablets while still
+// catching clearly bogus cursors (for example, year 2099).
+const GLOBAL_TIMESTAMP_SKEW_TOLERANCE_MS = 24 * 60 * 60_000;
 
 /**
  * Per-collection quirks for collections that deviate from the default schema
@@ -246,7 +250,7 @@ function _buildRestClient(cfg) {
 
 async function _fetchUpdatedViaSDK(collection, sinceTs, page = 1) {
   const cfg = _getCfg();
-  if (!cfg) return { data: [], maxTs: null };
+  if (!cfg) return { data: [], maxTs: null, error: null };
 
   const quirks = COLLECTION_QUIRKS[collection] ?? {};
   const client = _buildRestClient(cfg);
@@ -278,21 +282,26 @@ async function _fetchUpdatedViaSDK(collection, sinceTs, page = 1) {
     const data = Array.isArray(records) ? records : [];
     const timestamps = data.map(r => r.date_updated).filter(Boolean);
     const maxTs = timestamps.length > 0 ? timestamps.reduce((a, b) => (a > b ? a : b)) : null;
-    return { data, maxTs };
+    return { data, maxTs, error: null };
   } catch (e) {
     console.warn(`[DirectusSync] Pull ${collection} error:`, e?.message ?? e);
-    return { data: [], maxTs: null };
+    return { data: [], maxTs: null, error: e };
   }
 }
 
-async function _pullCollection(collection, { forceFull = false } = {}) {
-  const storedSinceTs = forceFull ? null : await loadLastPullTsFromIDB(collection);
+async function _pullCollection(collection, { forceFull = false, lastPullTimestampOverride = null } = {}) {
+  // forceFull always wins: ignore both lastPullTimestampOverride and persisted cursor.
+  const storedSinceTs = forceFull
+    ? null
+    : lastPullTimestampOverride ?? await loadLastPullTsFromIDB(collection);
   let page = 1;
   let latestTs = storedSinceTs;
   let totalMerged = 0;
+  let hadFetchError = false;
 
   while (true) { // eslint-disable-line no-constant-condition
-    const { data, maxTs } = await _fetchUpdatedViaSDK(collection, storedSinceTs, page);
+    const { data, maxTs, error } = await _fetchUpdatedViaSDK(collection, storedSinceTs, page);
+    if (error) hadFetchError = true;
     if (data.length === 0) break;
 
     const mapped = data.map(r => _mapRecord(collection, r));
@@ -312,7 +321,7 @@ async function _pullCollection(collection, { forceFull = false } = {}) {
     await saveLastPullTsToIDB(collection, latestTs);
   }
 
-  return totalMerged;
+  return { merged: totalMerged, ok: !hadFetchError };
 }
 
 // ── WebSocket subscription helpers ───────────────────────────────────────────
@@ -462,7 +471,7 @@ async function _runPull() {
   try {
     let anyMerged = false;
     for (const collection of pullCfg.collections) {
-      const merged = await _pullCollection(collection);
+      const { merged } = await _pullCollection(collection);
       if (merged > 0) anyMerged = true;
     }
     if (anyMerged) lastPullAt.value = new Date().toISOString();
@@ -480,6 +489,7 @@ async function _runGlobalPull() {
   const venueId = appConfig.directus?.venueId ?? null;
 
   try {
+    let fullHydrationOk = true;
     for (const collection of GLOBAL_COLLECTIONS) {
       // Keep global pull incremental by default (lower backend load), but:
       //  - always force full pull on initial global hydration after startSync
@@ -489,14 +499,24 @@ async function _runGlobalPull() {
       if (!forceFull) {
         lastPullTimestamp = await loadLastPullTsFromIDB(collection);
         const timestampMs = lastPullTimestamp ? Date.parse(lastPullTimestamp) : NaN;
-        if (Number.isFinite(timestampMs) && timestampMs > Date.now()) {
+        if (Number.isFinite(timestampMs) && timestampMs > (Date.now() + GLOBAL_TIMESTAMP_SKEW_TOLERANCE_MS)) {
+          console.warn(
+            `[DirectusSync] Resetting invalid future last_pull_ts for ${collection}:`,
+            lastPullTimestamp,
+          );
+          await saveLastPullTsToIDB(collection, null);
           forceFull = true;
           lastPullTimestamp = null;
         }
       }
-      await _pullCollection(collection, { forceFull, sinceTs: lastPullTimestamp });
+      const { ok } = await _pullCollection(collection, { forceFull, lastPullTimestampOverride: lastPullTimestamp });
+      if (!ok) fullHydrationOk = false;
     }
-    _initialGlobalHydrationDone = true;
+    if (fullHydrationOk) {
+      _initialGlobalHydrationDone = true;
+    } else {
+      console.warn('[DirectusSync] Global config hydration incomplete; keeping full-hydration mode for next run.');
+    }
 
     // H3: table_merge_sessions — full-replace semantics.
     // Fetched with a full (non-incremental) pull and replaced atomically in IDB

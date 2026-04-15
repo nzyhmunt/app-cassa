@@ -30,6 +30,10 @@ import { _resetEnqueueSeq } from '../useSyncQueue.js';
 async function flushPromises(rounds = 30) {
   for (let i = 0; i < rounds; i++) await Promise.resolve();
 }
+// Extra rounds for startSync + timer-driven global pull tests where multiple async
+// chains (initial run + interval callback + nested awaits) must settle.
+// 80 rounds is a conservative upper bound to keep these timer+promise tests stable.
+const LONG_FLUSH_ROUNDS = 80;
 
 /**
  * Returns true when a Directus request URL contains a `date_updated > X` filter.
@@ -456,6 +460,41 @@ describe('global pull config hydration', () => {
       expect(hasDateUpdatedGtFilter(url)).toBe(false);
     }
   });
+
+  it('keeps full-hydration mode for the next cycle if a global collection pull fails', async () => {
+    await saveLastPullTsToIDB('tables', '2024-01-01T00:00:00.000Z');
+    vi.useFakeTimers();
+
+    let tableReqCount = 0;
+    const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      if (String(url).includes('/items/tables')) {
+        tableReqCount += 1;
+        if (tableReqCount === 1) return Promise.reject(new Error('temporary tables failure'));
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const sync = useDirectusSync();
+    const store = makeStore();
+    try {
+      sync.startSync({ appType: 'cucina', store });
+      await flushPromises(LONG_FLUSH_ROUNDS);
+      await vi.advanceTimersByTimeAsync(5 * 60_000);
+      await flushPromises(LONG_FLUSH_ROUNDS);
+    } finally {
+      sync.stopSync();
+      vi.useRealTimers();
+    }
+
+    const tableCalls = fetchSpy.mock.calls
+      .map(([url]) => String(url))
+      .filter(url => url.includes('/items/tables'));
+    expect(tableCalls.length).toBeGreaterThanOrEqual(2);
+    for (const url of tableCalls) {
+      expect(hasDateUpdatedGtFilter(url)).toBe(false);
+    }
+  });
+
 });
 
 // ── WebSocket subscriptions ───────────────────────────────────────────────────
