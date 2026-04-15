@@ -442,7 +442,7 @@ export const useAppStore = defineStore('app', () => {
       dietaryPreferences: {},
       orderItems: items.map(item => ({ ...item })),
       isDirectEntry: true,
-      venue: appConfig.directus?.venueId ?? null,
+      ...(appConfig.directus?.venueId != null ? { venue: appConfig.directus.venueId } : {}),
     };
     updateOrderTotals(order);
     addOrder(order);
