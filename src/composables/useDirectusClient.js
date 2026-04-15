@@ -150,6 +150,7 @@ export function clearDirectusConfigFromStorage() {
   try {
     if (typeof window !== 'undefined' && window.localStorage) {
       window.localStorage.removeItem(resolveDirectusConfigKey());
+      window.localStorage.removeItem('directus-config');
     }
   } catch (e) {
     console.warn('[DirectusClient] Failed to clear config from storage:', e);
