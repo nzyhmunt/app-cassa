@@ -10,8 +10,31 @@
 import { openDB } from 'idb';
 import { getInstanceName } from '../store/persistence.js';
 
-export const DB_VERSION = 3;
+export const DB_VERSION = 4;
 const DB_NAME_PREFIX = 'app-cassa';
+
+/**
+ * H8 — Version history and upgrade guide:
+ *
+ *  v1 — Initial schema: bill_sessions, orders, order_items, app_meta, sync_queue.
+ *  v2 — Added: cash_movements, daily_closures, daily_closure_by_method, print_jobs,
+ *               fiscal_receipts, invoice_requests, venue_users, app_settings,
+ *               direct_custom_items, and all config-cache stores
+ *               (venues, rooms, tables, payment_methods, menu_categories, menu_items,
+ *                menu_item_modifiers, printers).
+ *  v3 — Added: table_merge_sessions (keyPath 'slave_table').
+ *               Migrates legacy app_meta.tableMergedInto blob → table_merge_sessions records.
+ *  v4 — transactions objectStore re-created with keyPath 'id' (was 'transactionId').
+ *               Back-fills `id` from `transactionId` on existing records to preserve data.
+ *
+ * To add a new version (e.g. v5):
+ *   1. Increment DB_VERSION to 5.
+ *   2. Add a new `if (oldVersion < 5) { ... }` block inside the `upgrade()` callback.
+ *   3. Only create new ObjectStores or add new indexes — never drop or modify existing ones
+ *      unless you also provide a data-migration path for users upgrading from earlier versions.
+ *   4. Update this comment block with a description of the new version.
+ *   5. Update DATABASE_SCHEMA.md §5.6 to reflect the new schema and version number.
+ */
 
 /** @type {Promise<import('idb').IDBPDatabase>|null} */
 let _dbPromise = null;
@@ -61,10 +84,25 @@ export function getDB() {
         s.createIndex('date_updated', 'date_updated', { unique: false });
       }
 
-      // NOTE: keyPath is 'transactionId' to match the current in-memory shape.
-      // Will be normalised to 'id' in the Directus-sync step.
-      if (!db.objectStoreNames.contains('transactions')) {
-        const s = db.createObjectStore('transactions', { keyPath: 'transactionId' });
+      // Transactions use `id` as keyPath (aligned with Directus schema).
+      // v3 → v4 migration: the old keyPath was `transactionId`; migrate every
+      // locally-cached record to the new `id` field so offline data is preserved.
+      if (oldVersion < 4 && db.objectStoreNames.contains('transactions')) {
+        // Read all records from the old store before dropping it.
+        const oldRecords = await tx.objectStore('transactions').getAll();
+        db.deleteObjectStore('transactions');
+        const s = db.createObjectStore('transactions', { keyPath: 'id' });
+        s.createIndex('table', 'tableId', { unique: false });
+        s.createIndex('bill_session', 'billSessionId', { unique: false });
+        s.createIndex('date_updated', 'date_updated', { unique: false });
+        for (const rec of oldRecords) {
+          // Back-fill `id` from the legacy `transactionId` field when needed.
+          if (!rec.id && rec.transactionId) rec.id = rec.transactionId;
+          delete rec.transactionId;
+          if (rec.id) await s.add(rec);
+        }
+      } else if (!db.objectStoreNames.contains('transactions')) {
+        const s = db.createObjectStore('transactions', { keyPath: 'id' });
         s.createIndex('table', 'tableId', { unique: false });
         s.createIndex('bill_session', 'billSessionId', { unique: false });
         s.createIndex('date_updated', 'date_updated', { unique: false });
@@ -142,7 +180,9 @@ export function getDB() {
         }
       }
 
-      // NOTE: keyPath is 'logId' to match the current in-memory shape.
+      // print_jobs: LOCAL-ONLY store — never synced with Directus (not in PULL_CONFIG or
+      // GLOBAL_COLLECTIONS). logId is a short client-generated ID, not a Directus UUID.
+      // Decision B2 from PIANO_LAVORO.md: keep as local audit trail only.
       if (!db.objectStoreNames.contains('print_jobs')) {
         const s = db.createObjectStore('print_jobs', { keyPath: 'logId' });
         s.createIndex('status', 'status', { unique: false });

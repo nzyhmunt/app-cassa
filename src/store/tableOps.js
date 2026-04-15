@@ -6,7 +6,7 @@
  * All parameters are the reactive refs / helper functions already defined in the store.
  */
 import { updateOrderTotals } from '../utils/index.js';
-import { newUUID } from './storeUtils.js';
+import { newShortId } from './storeUtils.js';
 
 /**
  * @param {object} state   – Reactive refs: orders, transactions, tableCurrentBillSession,
@@ -288,7 +288,7 @@ export function makeTableOps(state, helpers) {
         moves.forEach(({ item, actualMoveQty, netQty }) => {
           const sourceActiveAfterSplit = netQty - actualMoveQty;
           partialMoveItems.push({
-            uid: newUUID('spl'),
+            uid: newShortId('spl'),
             dishId: item.dishId ?? null,
             name: item.name,
             unitPrice: item.unitPrice,

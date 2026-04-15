@@ -212,8 +212,6 @@ const FIELD_RENAME_MAP = {
   orderId:        'order',
   dishId:         'dish',
   tableId:        'table',
-  // Local PK alias → Directus PK (transactions use `transactionId` locally)
-  transactionId:  'id',
   // camelCase → snake_case for domain fields
   totalAmount:        'total_amount',
   itemCount:          'item_count',
@@ -340,8 +338,7 @@ async function _pushEntry(entry, sdkClient) {
   const directusPayload = _toDirectusPayload(collection, payload);
 
   // Ensure the primary key is always present in create payloads.
-  // This guards against cases where the local PK alias was renamed (e.g.
-  // `transactionId` → `id`) or was simply not included in a partial payload.
+  // This guards against cases where the local PK was not included in a partial payload.
   if (operation === 'create' && !directusPayload.id && record_id) {
     directusPayload.id = record_id;
   }

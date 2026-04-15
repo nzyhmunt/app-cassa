@@ -198,7 +198,8 @@ describe('addDirectOrder()', () => {
     const result = store.addDirectOrder('01', 'session_abc', items);
 
     expect(typeof result.id).toBe('string');
-    expect(result.id).toMatch(/^ord_/);
+    // IDs are bare UUID v7 (no prefix) — verify it looks like a valid UUID
+    expect(result.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
   });
 
   it('two successive calls produce different order ids', () => {
@@ -228,7 +229,7 @@ describe('cover charge via Sala app', () => {
     const session = store.tableCurrentBillSession['01'];
 
     const coverItems = [
-      { uid: 'cop_a_test', dishId: 'coperto_adulto', name: 'Coperto', unitPrice: 2.00, quantity: 2, voidedQuantity: 0, notes: [] },
+      { uid: 'cop_a_test', dishId: null, name: 'Coperto', unitPrice: 2.00, quantity: 2, voidedQuantity: 0, notes: [] },
     ];
     const coverOrder = store.addDirectOrder('01', session.billSessionId, coverItems);
     if (coverOrder) coverOrder.isCoverCharge = true;
@@ -245,8 +246,8 @@ describe('cover charge via Sala app', () => {
     const session = store.tableCurrentBillSession['02'];
 
     const coverItems = [
-      { uid: 'cop_a_r', dishId: 'coperto_adulto', name: 'Coperto', unitPrice: 2.00, quantity: 3, voidedQuantity: 0, notes: [] },
-      { uid: 'cop_c_r', dishId: 'coperto_bambino', name: 'Coperto bambino', unitPrice: 1.00, quantity: 1, voidedQuantity: 0, notes: [] },
+      { uid: 'cop_a_r', dishId: null, name: 'Coperto', unitPrice: 2.00, quantity: 3, voidedQuantity: 0, notes: [] },
+      { uid: 'cop_c_r', dishId: null, name: 'Coperto bambino', unitPrice: 1.00, quantity: 1, voidedQuantity: 0, notes: [] },
     ];
     const coverOrder = store.addDirectOrder('02', session.billSessionId, coverItems);
     if (coverOrder) coverOrder.isCoverCharge = true;

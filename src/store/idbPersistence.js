@@ -57,6 +57,7 @@ export async function loadStateFromIDB() {
       cashMovements,
       dailyClosures,
       printLogRaw,
+      billSessions,
       cashBalanceRecord,
       tableCurrentBillSessionRecord,
       tableMergeRecords,
@@ -69,6 +70,7 @@ export async function loadStateFromIDB() {
       db.getAll('cash_movements'),
       db.getAll('daily_closures'),
       db.getAll('print_jobs'),
+      db.getAllFromIndex('bill_sessions', 'status', 'open'),
       db.get('app_meta', 'cashBalance'),
       db.get('app_meta', 'tableCurrentBillSession'),
       db.getAll('table_merge_sessions'),
@@ -80,6 +82,44 @@ export async function loadStateFromIDB() {
     // printLog: strip payload field (same behaviour as the old localStorage serialiser)
     const printLog = printLogRaw.map(({ payload: _p, ...rest }) => rest);
 
+    // H1: Reconstruct tableCurrentBillSession from the dedicated bill_sessions ObjectStore
+    // for any open sessions stored there (e.g. synced from Directus).  The app_meta blob
+    // is used as a fallback when no records exist in the ObjectStore yet.
+    //
+    // Normalize legacy format: older app versions stored { tableId: billSessionIdString }
+    // instead of { tableId: sessionObject }.  Convert any string values to a minimal
+    // session object so the rest of the store always receives a consistent shape.
+    /** @param {string} tableId @param {string} billSessionId */
+    const makeLegacySession = (tableId, billSessionId) => ({
+      billSessionId, table: tableId, status: 'open', adults: 0, children: 0, opened_at: null,
+    });
+    const rawBlob = tableCurrentBillSessionRecord?.value ?? {};
+    const normalizedBlob = Object.fromEntries(
+      Object.entries(rawBlob).map(([tableId, val]) => {
+        if (typeof val === 'string') {
+          return [tableId, makeLegacySession(tableId, val)];
+        }
+        return [tableId, val];
+      }),
+    );
+    let tableCurrentBillSession = normalizedBlob;
+    if (billSessions.length > 0) {
+      const fromIDB = {};
+      for (const s of billSessions) {
+        if (!s.table) continue;
+        fromIDB[s.table] = {
+          billSessionId: s.id,
+          adults: s.adults ?? 0,
+          children: s.children ?? 0,
+          table: s.table,
+          status: s.status,
+          opened_at: s.opened_at ?? null,
+        };
+      }
+      // Merge: IDB records take precedence over the app_meta blob
+      tableCurrentBillSession = { ...tableCurrentBillSession, ...fromIDB };
+    }
+
     return {
       orders,
       transactions,
@@ -87,7 +127,7 @@ export async function loadStateFromIDB() {
       cashMovements,
       dailyClosures,
       printLog,
-      tableCurrentBillSession: tableCurrentBillSessionRecord?.value ?? {},
+      tableCurrentBillSession,
       // Prefer the dedicated store; fall back to the legacy app_meta blob if the
       // v2→v3 migration did not populate table_merge_sessions (the upgrade handler warns).
       tableMergedInto: tableMergeRecords.length > 0
@@ -209,6 +249,51 @@ export async function saveStateToIDB(state) {
   }
 }
 
+// ── bill_sessions fine-grained writes ────────────────────────────────────────
+
+/**
+ * Writes (upserts) a single bill_session record to the `bill_sessions` ObjectStore.
+ * Called by `openTableSession()` so that offline reloads hydrate the session from
+ * the dedicated ObjectStore without requiring a Directus pull to populate it first.
+ *
+ * @param {{ billSessionId: string, table: string, adults?: number, children?: number, status?: string, opened_at?: string|null, venue?: string|null }} session
+ */
+export async function upsertBillSessionInIDB(session) {
+  try {
+    const db = await getDB();
+    await db.put('bill_sessions', JSON.parse(JSON.stringify({
+      id: session.billSessionId,
+      table: session.table,
+      adults: session.adults ?? 0,
+      children: session.children ?? 0,
+      status: session.status ?? 'open',
+      opened_at: session.opened_at ?? null,
+      ...(session.venue != null ? { venue: session.venue } : {}),
+    })));
+  } catch (e) {
+    console.warn('[IDBPersistence] Failed to upsert bill_session:', e);
+  }
+}
+
+/**
+ * Marks an existing bill_session record as `closed` in the `bill_sessions` ObjectStore.
+ * Called when closing a table session locally so that a subsequent reload cannot
+ * resurrect the stale open record via the `status` index query in `loadStateFromIDB()`.
+ *
+ * @param {string} billSessionId
+ */
+export async function closeBillSessionInIDB(billSessionId) {
+  try {
+    const db = await getDB();
+    const existing = await db.get('bill_sessions', billSessionId);
+    if (existing) {
+      await db.put('bill_sessions', { ...existing, status: 'closed', closed_at: new Date().toISOString() });
+    }
+  } catch (e) {
+    console.warn('[IDBPersistence] Failed to close bill_session in IDB:', e);
+  }
+}
+
 // ── Settings ──────────────────────────────────────────────────────────────────
 
 const SETTINGS_RECORD_ID = 'local';
@@ -244,16 +329,22 @@ export async function saveSettingsToIDB(settings) {
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
 /**
- * Loads manual (non-appConfig) users from the `venue_users` ObjectStore.
- * Each record has a `_type: 'manual_user'` discriminator to distinguish from
- * future venue-user records that may come from Directus.
+ * Loads app-managed users from the `venue_users` ObjectStore.
+ *
+ * Returns both locally-created (manual) users and active users pulled from
+ * Directus (H6).  Manual users are identified by `_type === 'manual_user'`;
+ * Directus-synced users have no `_type` discriminator.  Archived Directus users
+ * (`status === 'archived'`) are excluded so they cannot log in.
  * @returns {Promise<Array>}
  */
 export async function loadUsersFromIDB() {
   try {
     const db = await getDB();
     const all = await db.getAll('venue_users');
-    return all.filter(r => r._type === 'manual_user');
+    return all.filter(r =>
+      r._type === 'manual_user' ||
+      (!r._type && r.status !== 'archived'),
+    );
   } catch (e) {
     console.warn('[IDBPersistence] Failed to load users:', e);
     return [];
@@ -638,16 +729,24 @@ export async function upsertRecordsIntoIDB(storeName, records) {
   if (!records || records.length === 0) return 0;
 
   // Hardcoded keyPath overrides for stores that deviate from the default 'id'.
-  // All other stores (orders, bill_sessions, order_items, etc.) use 'id'.
+  // All other stores (orders, bill_sessions, transactions, order_items, etc.) use 'id'.
+  // Note: print_jobs is LOCAL-ONLY (not synced with Directus) — its keyPath 'logId' is
+  // intentionally excluded here since no Directus records are ever upserted for it.
   const KEY_PATH_OVERRIDES = {
-    transactions: 'transactionId',
     table_merge_sessions: 'slave_table',
-    print_jobs: 'logId',
   };
   const keyPath = KEY_PATH_OVERRIDES[storeName] ?? 'id';
 
   try {
     const db = await getDB();
+
+    // H7: Guard against unknown ObjectStores — avoids silent transaction failures
+    // if a new collection is added to GLOBAL_COLLECTIONS without a matching IDB store.
+    if (!db.objectStoreNames.contains(storeName)) {
+      console.warn('[IDBPersistence] upsertRecordsIntoIDB: unknown ObjectStore:', storeName);
+      return 0;
+    }
+
     // Collect writes to perform — filter out records with no PK and those
     // that are not newer than the local version before opening the transaction.
     // This avoids opening a readwrite transaction when nothing needs writing.
@@ -682,5 +781,98 @@ export async function upsertRecordsIntoIDB(storeName, records) {
   } catch (e) {
     console.warn('[IDBPersistence] Failed to upsert into', storeName, e);
     return 0;
+  }
+}
+
+// ── Config hydration (D) ─────────────────────────────────────────────────────
+
+/**
+ * Reads Directus-sourced configuration collections from IndexedDB and returns
+ * a plain object that `applyDirectusConfigToAppConfig()` (utils/index.js) can
+ * apply to the live `appConfig` singleton.
+ *
+ * Filters by `venueId` when provided and excludes archived records.
+ * Sorting is done client-side using each record's `sort` field.
+ *
+ * @param {number|string|null} venueId - venues.id to filter by, or null for no filter.
+ * @returns {Promise<{venueRecord:object|null, rooms:Array, tables:Array,
+ *                    paymentMethods:Array, printers:Array,
+ *                    categories:Array, items:Array}|null>}
+ */
+export async function loadConfigFromIDB(venueId) {
+  try {
+    const db = await getDB();
+
+    // Normalize venueId to a String for type-safe FK comparison.
+    // Directus INTEGER FKs are stored as numbers server-side but can arrive as
+    // strings from URL params or localStorage; String(x) === String(y) is safe
+    // regardless of the original type.
+    const venueIdStr = venueId != null ? String(venueId) : null;
+    const byVenueAndStatus = (arr) =>
+      arr
+        .filter(r => (venueIdStr == null || String(r.venue) === venueIdStr) && r.status !== 'archived')
+        .sort((a, b) => (a.sort ?? 9999) - (b.sort ?? 9999));
+
+    const [
+      venues,
+      allRooms,
+      allTables,
+      allPaymentMethods,
+      allPrinters,
+      allCategories,
+      allItems,
+    ] = await Promise.all([
+      db.getAll('venues'),
+      db.getAll('rooms'),
+      db.getAll('tables'),
+      db.getAll('payment_methods'),
+      db.getAll('printers'),
+      db.getAll('menu_categories'),
+      db.getAll('menu_items'),
+    ]);
+
+    const venueRecord = venueIdStr != null
+      ? (venues.find(v => String(v.id) === venueIdStr) ?? null)
+      : null;
+
+    return {
+      venueRecord,
+      rooms:          byVenueAndStatus(allRooms),
+      tables:         byVenueAndStatus(allTables),
+      paymentMethods: byVenueAndStatus(allPaymentMethods),
+      printers:       byVenueAndStatus(allPrinters),
+      categories:     byVenueAndStatus(allCategories),
+      items:          byVenueAndStatus(allItems),
+    };
+  } catch (e) {
+    console.warn('[IDBPersistence] loadConfigFromIDB failed:', e);
+    return null;
+  }
+}
+
+/**
+ * Atomically replaces all records in the `table_merge_sessions` ObjectStore.
+ *
+ * Used after a full Directus pull of `table_merge_sessions` so that dissolved
+ * merges (records deleted on Directus) are also removed from IDB, preventing
+ * stale slave→master mappings from persisting after a split.
+ *
+ * @param {Array<object>} records - Complete set of active merge records from Directus.
+ * @returns {Promise<void>}
+ */
+export async function replaceTableMergesInIDB(records) {
+  try {
+    const db = await getDB();
+    const tx = db.transaction('table_merge_sessions', 'readwrite');
+    await tx.store.clear();
+    for (const r of records) {
+      if (r.slave_table) {
+        const { _sync_status: _s, ...clean } = r;
+        await tx.store.put(JSON.parse(JSON.stringify(clean)));
+      }
+    }
+    await tx.done;
+  } catch (e) {
+    console.warn('[IDBPersistence] replaceTableMergesInIDB failed:', e);
   }
 }

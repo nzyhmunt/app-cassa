@@ -492,7 +492,7 @@
             <!-- Storico Transazioni -->
             <div v-if="tableTransactions.length > 0" class="mb-3 space-y-1.5">
               <h5 class="text-[10px] font-bold text-gray-400 uppercase tracking-wider border-b border-gray-100 pb-0.5">Pagamenti:</h5>
-              <div v-for="(txn, tIdx) in tableTransactions" :key="txn.transactionId"
+              <div v-for="(txn, tIdx) in tableTransactions" :key="txn.id"
                 class="rounded-xl border overflow-hidden shadow-sm"
                 :class="txn.operationType === 'discount' ? 'border-amber-200' : 'border-emerald-200'">
                 <!-- Main row -->
@@ -1327,8 +1327,8 @@ import {
   FileText,
 } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
-import { newUUIDv7 } from '../store/storeUtils.js';
-import { getOrderItemRowTotal, KITCHEN_ACTIVE_STATUSES, getLockedDirectItems, appConfig, buildFiscalXmlRequest } from '../utils/index.js';
+import { newUUIDv7, newShortId } from '../store/storeUtils.js';
+import { getOrderItemRowTotal, KITCHEN_ACTIVE_STATUSES, getLockedDirectItems, appConfig, buildFiscalXmlRequest, formatOrderTime } from '../utils/index.js';
 import { buildFlatAnaliticaItems, computeAnaliticaTotal, exceedsAmount, getOrdersToComplete } from '../utils/analitica.js';
 import { loadCustomItemsFromIDB, saveCustomItemsToIDB } from '../store/idbPersistence.js';
 import { useNumericKeyboard } from '../composables/useNumericKeyboard.js';
@@ -2175,8 +2175,8 @@ function confirmPeopleAndOpenTable() {
     const coverItems = [];
     if (peopleAdults.value > 0 && cc.priceAdult > 0) {
       coverItems.push({
-        uid: 'cop_a_' + Math.random().toString(36).slice(2, 11),
-        dishId: cc.dishId + '_adulto',
+        uid: newShortId('cop'),
+        dishId: null,
         name: cc.name,
         unitPrice: cc.priceAdult,
         quantity: peopleAdults.value,
@@ -2187,8 +2187,8 @@ function confirmPeopleAndOpenTable() {
     }
     if (peopleChildren.value > 0 && cc.priceChild > 0) {
       coverItems.push({
-        uid: 'cop_c_' + Math.random().toString(36).slice(2, 11),
-        dishId: cc.dishId + '_bambino',
+        uid: newShortId('cpc'),
+        dishId: null,
         name: cc.name + ' bambino',
         unitPrice: cc.priceChild,
         quantity: peopleChildren.value,
@@ -2222,14 +2222,15 @@ function createNewOrderForTable() {
   // only when the table does not currently have an independent session.
   const session = ownSession ?? (masterId != null ? store.tableCurrentBillSession[masterId] : null);
   const newOrd = {
-    id: 'ord_' + Math.random().toString(36).slice(2, 11),
+    id: newUUIDv7(),
     table: selectedTable.value.id,
     billSessionId: session?.billSessionId ?? null,
     status: 'pending',
-    time: new Date().toLocaleTimeString(appConfig.locale, { hour: '2-digit', minute: '2-digit', timeZone: appConfig.timezone }),
+    time: formatOrderTime(),
     totalAmount: 0, itemCount: 0, dietaryPreferences: {}, orderItems: [],
     globalNote: '',
     noteVisibility: { cassa: true, sala: true, cucina: true },
+    ...(appConfig.directus?.venueId != null ? { venue: appConfig.directus.venueId } : {}),
   };
   store.addOrder(newOrd);
   closeTableModal();
@@ -2300,8 +2301,8 @@ function closeDirectItemModal() {
 /** Shared factory — builds a cart item with all required fields. */
 function makeDirectCartItem(name, price, dishId = null) {
   return {
-    uid: 'dir_' + Math.random().toString(36).slice(2, 11),
-    dishId: dishId ?? ('custom_' + Math.random().toString(36).slice(2, 11)),
+    uid: newShortId('dir'),
+    dishId: dishId ?? null,
     name,
     unitPrice: price,
     quantity: 1,
@@ -2484,7 +2485,7 @@ function processTablePayment(paymentMethodId, extra = {}, overrideAmount = null)
   const tip = extra.tipAmount != null ? extra.tipAmount : 0;
   const session = store.tableCurrentBillSession[selectedTable.value.id];
   const payload = {
-    transactionId: 'txn_' + Math.random().toString(36).slice(2, 11),
+    id: newUUIDv7(),
     tableId: selectedTable.value.id,
     billSessionId: session?.billSessionId ?? null,
     paymentMethod: store.config.paymentMethods.find(m => m.id === paymentMethodId)?.label || paymentMethodId,
@@ -2493,6 +2494,7 @@ function processTablePayment(paymentMethodId, extra = {}, overrideAmount = null)
     tipAmount: tip > 0 ? tip : undefined,
     timestamp: new Date().toISOString(),
     orderRefs: [],
+    ...(appConfig.directus?.venueId != null ? { venue: appConfig.directus.venueId } : {}),
   };
 
   // Record gross amount and change when customer overpays.
@@ -2630,7 +2632,7 @@ function applyDiscount() {
   const clampedPercent = Math.min(100, Math.max(0, rawInput));
   const discountValueToStore = discountType.value === 'percent' ? clampedPercent : discountPreview.value;
   store.addTransaction({
-    transactionId: 'disc_' + Math.random().toString(36).slice(2, 11),
+    id: newUUIDv7(),
     tableId: selectedTable.value.id,
     billSessionId: session?.billSessionId ?? null,
     paymentMethod: 'Sconto',
@@ -2640,6 +2642,7 @@ function applyDiscount() {
     amountPaid: discountPreview.value,
     timestamp: new Date().toISOString(),
     orderRefs: [],
+    ...(appConfig.directus?.venueId != null ? { venue: appConfig.directus.venueId } : {}),
   });
 
   discountInput.value = '';

@@ -1,9 +1,18 @@
 /**
  * @file store/storeUtils.js
  * @description Small shared utilities used across store modules.
+ *
+ * ID generation strategy:
+ *  - newUUIDv7()   → bare 36-char UUID v7; use for ALL primary keys sent to Directus
+ *                    (bill_sessions.id, orders.id, transactions.id, cash_movements.id, …).
+ *  - newShortId()  → short prefixed string ≤ 20 chars; use for LOCAL-ONLY identifiers
+ *                    that are NOT Directus PKs (order_items.uid, print log entries, etc.).
+ *  - newUUID()     → @deprecated kept only for legacy call-sites that have not been
+ *                    migrated yet.  Do NOT use in new code.
  */
 
 /**
+ * @deprecated Use newUUIDv7() for Directus PKs or newShortId() for local UIDs.
  * Generates a unique identifier using crypto.randomUUID when available,
  * falling back to a random base-36 string for environments without it (e.g. jsdom).
  * The prefix is always prepended so callers get consistent ID formats (e.g. "ord_<uuid>").
@@ -15,6 +24,36 @@ export function newUUID(prefix = 'id') {
     ? crypto.randomUUID()
     : `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`;
   return `${prefix}_${base}`;
+}
+
+/**
+ * Generates a short, prefixed identifier suitable for local-only fields that are
+ * NOT primary keys in Directus (e.g. order_items.uid, logId, jobId).
+ *
+ * Result is at most 20 characters when `prefix` is ≤ 4 characters:
+ *   prefix (≤ 4 chars) + '_' + timestamp in base-36 (~9 chars) + '_' + 4 random base-36 chars ≤ 19
+ *
+ * Prefixes longer than 4 characters are silently truncated so the output
+ * always stays within the 20-character column limit.
+ *
+ * Example: "cop_lrzmr4kh_a3f2"
+ *
+ * @param {string} [prefix='id'] – Short prefix; values longer than 4 chars are truncated to 4.
+ * @returns {string} ≤ 20-character identifier
+ */
+export function newShortId(prefix = 'id') {
+  const safePrefix = String(prefix).slice(0, 4);
+  const ts = Date.now().toString(36);
+  let rnd;
+  if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+    const arr = new Uint16Array(1);
+    crypto.getRandomValues(arr);
+    rnd = arr[0].toString(36).padStart(4, '0');
+  } else {
+    // Fallback for environments without crypto (e.g. legacy jsdom in tests)
+    rnd = Math.floor(Math.random() * 0x10000).toString(36).padStart(4, '0');
+  }
+  return `${safePrefix}_${ts}_${rnd}`;
 }
 
 /**
@@ -32,8 +71,9 @@ export function newUUID(prefix = 'id') {
  * Falls back to a timestamp + Math.random composite in environments where
  * crypto.getRandomValues is not available (e.g., legacy jsdom).
  *
- * @param {string} [prefix='id'] – Short prefix for the ID.
- * @returns {string}  e.g. "fis_0192fa3c-b41a-7e8d-a312-0c2e9f4a87b5"
+ * @param {string} [prefix=''] – Optional prefix. When omitted (default) a bare 36-char UUID is returned.
+ *                              Pass a string to get "prefix_UUID" format (e.g. for logging or local debug labels).
+ * @returns {string}  e.g. "0192fa3c-b41a-7e8d-a312-0c2e9f4a87b5" or "fis_0192fa3c-b41a-7e8d-a312-0c2e9f4a87b5"
  */
 
 /** @type {number} Last millisecond timestamp seen by newUUIDv7. */
@@ -45,7 +85,7 @@ let _v7LastMs = -1;
  */
 let _v7Seq = 0;
 
-export function newUUIDv7(prefix = 'id') {
+export function newUUIDv7(prefix = '') {
   const now = Date.now();
   const buf = new Uint8Array(16);
 

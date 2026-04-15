@@ -5,6 +5,8 @@
  * Covers:
  *  - loadStateFromIDB / saveStateToIDB: round-trip, printLog payload stripping,
  *    billRequestedTables Set↔Array conversion, tableMergedInto ↔ table_merge_sessions
+ *  - loadStateFromIDB — bill_sessions hydration: IDB records win over app_meta blob,
+ *    records without table are ignored, legacy fallback, multi-table merge
  *  - clearAllStateFromIDB: clears operative stores (incl. table_merge_sessions), preserves non-manual venue_users
  *  - v2 → v3 migration: app_meta.tableMergedInto → table_merge_sessions
  *  - loadStateFromIDB backward-compat fallback: reads app_meta.tableMergedInto when store is empty
@@ -22,6 +24,8 @@ import {
   loadStateFromIDB,
   saveStateToIDB,
   clearAllStateFromIDB,
+  upsertBillSessionInIDB,
+  closeBillSessionInIDB,
   loadSettingsFromIDB,
   saveSettingsToIDB,
   loadUsersFromIDB,
@@ -66,14 +70,15 @@ describe('loadStateFromIDB()', () => {
 
 describe('saveStateToIDB() + loadStateFromIDB()', () => {
   it('round-trips orders and transactions', async () => {
+    const sessionObj = { billSessionId: 'bill_1', table: 'T1', status: 'open', adults: 2, children: 0, opened_at: '2024-01-01T12:00:00.000Z' };
     const testState = {
       orders: [{ id: 'ord_1', table: 'T1', status: 'open' }],
-      transactions: [{ transactionId: 'tx_1', amount: 10 }],
+      transactions: [{ id: 'tx_1', amount: 10 }],
       cashBalance: 42.5,
       cashMovements: [],
       dailyClosures: [],
       printLog: [],
-      tableCurrentBillSession: { T1: 'bill_1' },
+      tableCurrentBillSession: { T1: sessionObj },
       tableMergedInto: {},
       tableOccupiedAt: { T1: '2024-01-01T12:00:00.000Z' },
       billRequestedTables: new Set(),
@@ -83,9 +88,9 @@ describe('saveStateToIDB() + loadStateFromIDB()', () => {
     const loaded = await loadStateFromIDB();
 
     expect(loaded.orders).toEqual([{ id: 'ord_1', table: 'T1', status: 'open' }]);
-    expect(loaded.transactions).toEqual([{ transactionId: 'tx_1', amount: 10 }]);
+    expect(loaded.transactions).toEqual([{ id: 'tx_1', amount: 10 }]);
     expect(loaded.cashBalance).toBe(42.5);
-    expect(loaded.tableCurrentBillSession).toEqual({ T1: 'bill_1' });
+    expect(loaded.tableCurrentBillSession).toEqual({ T1: sessionObj });
     expect(loaded.tableOccupiedAt).toEqual({ T1: '2024-01-01T12:00:00.000Z' });
   });
 
@@ -192,15 +197,16 @@ describe('saveStateToIDB() + loadStateFromIDB()', () => {
   });
 
   it('partial save: only touches the specified stores, leaves others intact', async () => {
+    const sessionObj = { billSessionId: 'bill_1', table: 'T1', status: 'open', adults: 0, children: 0, opened_at: null };
     // Seed full state
     await saveStateToIDB({
       orders: [{ id: 'ord_1' }],
-      transactions: [{ transactionId: 'tx_1', amount: 5 }],
+      transactions: [{ id: 'tx_1', amount: 5 }],
       cashBalance: 10,
       cashMovements: [{ id: 'cm_1' }],
       dailyClosures: [],
       printLog: [],
-      tableCurrentBillSession: { T1: 'bill_1' },
+      tableCurrentBillSession: { T1: sessionObj },
       tableMergedInto: {},
       tableOccupiedAt: { T1: '2024-01-01T12:00:00.000Z' },
       billRequestedTables: new Set(['T1']),
@@ -212,20 +218,21 @@ describe('saveStateToIDB() + loadStateFromIDB()', () => {
 
     expect(loaded.orders).toEqual([{ id: 'ord_2' }]);
     // All other stores must be unchanged
-    expect(loaded.transactions).toEqual([{ transactionId: 'tx_1', amount: 5 }]);
+    expect(loaded.transactions).toEqual([{ id: 'tx_1', amount: 5 }]);
     expect(loaded.cashBalance).toBe(10);
     expect(loaded.cashMovements).toEqual([{ id: 'cm_1' }]);
-    expect(loaded.tableCurrentBillSession).toEqual({ T1: 'bill_1' });
+    expect(loaded.tableCurrentBillSession).toEqual({ T1: sessionObj });
     expect(loaded.tableOccupiedAt).toEqual({ T1: '2024-01-01T12:00:00.000Z' });
     expect(loaded.billRequestedTables.has('T1')).toBe(true);
   });
 
   it('partial save: updating tableOccupiedAt does not clobber tableCurrentBillSession', async () => {
+    const sessionObj = { billSessionId: 'bill_abc', table: 'T1', status: 'open', adults: 0, children: 0, opened_at: null };
     // Seed full table-state
     await saveStateToIDB({
       orders: [], transactions: [], cashBalance: 0, cashMovements: [],
       dailyClosures: [], printLog: [],
-      tableCurrentBillSession: { T1: 'bill_abc' },
+      tableCurrentBillSession: { T1: sessionObj },
       tableMergedInto: { T2: 'T1' },
       tableOccupiedAt: {},
       billRequestedTables: new Set(),
@@ -237,8 +244,32 @@ describe('saveStateToIDB() + loadStateFromIDB()', () => {
 
     expect(loaded.tableOccupiedAt).toEqual({ T1: '2024-06-01T09:00:00.000Z' });
     // The other table-state fields must survive untouched
-    expect(loaded.tableCurrentBillSession).toEqual({ T1: 'bill_abc' });
+    expect(loaded.tableCurrentBillSession).toEqual({ T1: sessionObj });
     expect(loaded.tableMergedInto).toEqual({ T2: 'T1' });
+  });
+
+  it('normalizes legacy string-value tableCurrentBillSession on load', async () => {
+    // Directly write the legacy format into app_meta (bypassing saveStateToIDB)
+    const { getDB } = await import('../../composables/useIDB.js');
+    const db = await getDB();
+    await db.put('app_meta', { id: 'tableCurrentBillSession', value: { T1: 'legacy_id', T2: 'other_id' } });
+
+    const loaded = await loadStateFromIDB();
+
+    // String values must be promoted to session objects with defaults
+    expect(loaded.tableCurrentBillSession.T1).toMatchObject({
+      billSessionId: 'legacy_id',
+      table: 'T1',
+      status: 'open',
+      adults: 0,
+      children: 0,
+      opened_at: null,
+    });
+    expect(loaded.tableCurrentBillSession.T2).toMatchObject({
+      billSessionId: 'other_id',
+      table: 'T2',
+      status: 'open',
+    });
   });
 
   it('stores tableMergedInto in table_merge_sessions (not app_meta)', async () => {
@@ -266,13 +297,178 @@ describe('saveStateToIDB() + loadStateFromIDB()', () => {
   });
 });
 
+// ── bill_sessions hydration (loadStateFromIDB H1) ─────────────────────────────
+
+describe('loadStateFromIDB() — bill_sessions hydration', () => {
+  it('hydrates tableCurrentBillSession from open bill_sessions in IDB', async () => {
+    // Directly insert an open bill_session record into IDB (simulating a Directus pull)
+    const { getDB } = await import('../../composables/useIDB.js');
+    const db = await getDB();
+    await db.put('bill_sessions', {
+      id: 'sess_abc',
+      table: 'T1',
+      status: 'open',
+      adults: 3,
+      children: 1,
+      opened_at: '2024-06-01T20:00:00.000Z',
+    });
+
+    const loaded = await loadStateFromIDB();
+
+    expect(loaded.tableCurrentBillSession).toHaveProperty('T1');
+    expect(loaded.tableCurrentBillSession.T1).toMatchObject({
+      billSessionId: 'sess_abc',
+      table: 'T1',
+      status: 'open',
+      adults: 3,
+      children: 1,
+      opened_at: '2024-06-01T20:00:00.000Z',
+    });
+  });
+
+  it('IDB bill_sessions records take precedence over the legacy app_meta blob', async () => {
+    // Save a legacy app_meta blob for T1 with stale data
+    await saveStateToIDB({
+      orders: [], transactions: [], cashBalance: 0, cashMovements: [],
+      dailyClosures: [], printLog: [],
+      tableCurrentBillSession: { T1: { billSessionId: 'stale_sess', table: 'T1', status: 'open', adults: 1, children: 0, opened_at: null } },
+      tableMergedInto: {}, tableOccupiedAt: {},
+      billRequestedTables: new Set(),
+    });
+
+    // Insert a fresher open session directly into the bill_sessions store
+    const { getDB } = await import('../../composables/useIDB.js');
+    const db = await getDB();
+    await db.put('bill_sessions', {
+      id: 'fresh_sess',
+      table: 'T1',
+      status: 'open',
+      adults: 4,
+      children: 0,
+      opened_at: '2024-06-02T19:00:00.000Z',
+    });
+
+    const loaded = await loadStateFromIDB();
+
+    // IDB record must win
+    expect(loaded.tableCurrentBillSession.T1.billSessionId).toBe('fresh_sess');
+    expect(loaded.tableCurrentBillSession.T1.adults).toBe(4);
+  });
+
+  it('ignores bill_sessions records that have no table field', async () => {
+    const { getDB } = await import('../../composables/useIDB.js');
+    const db = await getDB();
+    // Record without a table field — should be silently skipped
+    await db.put('bill_sessions', {
+      id: 'orphan_sess',
+      table: null,
+      status: 'open',
+      adults: 2,
+      children: 0,
+      opened_at: '2024-06-01T18:00:00.000Z',
+    });
+
+    const loaded = await loadStateFromIDB();
+    // null/missing table keys must not appear in the result
+    expect(Object.keys(loaded.tableCurrentBillSession)).not.toContain('null');
+    expect(Object.keys(loaded.tableCurrentBillSession)).not.toContain(null);
+    expect(Object.values(loaded.tableCurrentBillSession)).not.toContainEqual(
+      expect.objectContaining({ billSessionId: 'orphan_sess' }),
+    );
+  });
+
+  it('falls back to legacy app_meta blob when bill_sessions store is empty', async () => {
+    await saveStateToIDB({
+      orders: [], transactions: [], cashBalance: 0, cashMovements: [],
+      dailyClosures: [], printLog: [],
+      tableCurrentBillSession: { T3: { billSessionId: 'legacy_sess', table: 'T3', status: 'open', adults: 2, children: 0, opened_at: null } },
+      tableMergedInto: {}, tableOccupiedAt: {},
+      billRequestedTables: new Set(),
+    });
+
+    const loaded = await loadStateFromIDB();
+    expect(loaded.tableCurrentBillSession).toHaveProperty('T3');
+    expect(loaded.tableCurrentBillSession.T3.billSessionId).toBe('legacy_sess');
+  });
+
+  it('merges multiple open sessions for different tables', async () => {
+    const { getDB } = await import('../../composables/useIDB.js');
+    const db = await getDB();
+    await db.put('bill_sessions', { id: 'sess_t1', table: 'T1', status: 'open', adults: 2, children: 0, opened_at: '2024-06-01T18:00:00.000Z' });
+    await db.put('bill_sessions', { id: 'sess_t2', table: 'T2', status: 'open', adults: 4, children: 1, opened_at: '2024-06-01T19:00:00.000Z' });
+
+    const loaded = await loadStateFromIDB();
+    expect(loaded.tableCurrentBillSession).toHaveProperty('T1');
+    expect(loaded.tableCurrentBillSession).toHaveProperty('T2');
+    expect(loaded.tableCurrentBillSession.T1.billSessionId).toBe('sess_t1');
+    expect(loaded.tableCurrentBillSession.T2.billSessionId).toBe('sess_t2');
+  });
+});
+
+// ── upsertBillSessionInIDB / closeBillSessionInIDB ────────────────────────────
+
+describe('upsertBillSessionInIDB()', () => {
+  it('writes a new session to bill_sessions so loadStateFromIDB hydrates it', async () => {
+    await upsertBillSessionInIDB({
+      billSessionId: 'open_sess',
+      table: 'T1',
+      adults: 2,
+      children: 0,
+      status: 'open',
+      opened_at: '2024-06-01T20:00:00.000Z',
+    });
+
+    const loaded = await loadStateFromIDB();
+    expect(loaded.tableCurrentBillSession).toHaveProperty('T1');
+    expect(loaded.tableCurrentBillSession.T1).toMatchObject({
+      billSessionId: 'open_sess',
+      table: 'T1',
+      status: 'open',
+      adults: 2,
+    });
+  });
+});
+
+describe('closeBillSessionInIDB()', () => {
+  it('marks an existing open session as closed so it is not re-hydrated on reload', async () => {
+    // Seed an open session directly in bill_sessions
+    const { getDB } = await import('../../composables/useIDB.js');
+    const db = await getDB();
+    await db.put('bill_sessions', {
+      id: 'close_sess',
+      table: 'T2',
+      status: 'open',
+      adults: 3,
+      children: 1,
+      opened_at: '2024-06-01T18:00:00.000Z',
+    });
+
+    // Confirm it's visible before closing
+    const before = await loadStateFromIDB();
+    expect(before.tableCurrentBillSession).toHaveProperty('T2');
+
+    await closeBillSessionInIDB('close_sess');
+
+    // After closing, loadStateFromIDB must NOT resurrect the session
+    const after = await loadStateFromIDB();
+    expect(after.tableCurrentBillSession).not.toHaveProperty('T2');
+  });
+
+  it('is a no-op when the session does not exist in IDB', async () => {
+    // Should not throw even when the record is absent
+    await expect(closeBillSessionInIDB('nonexistent')).resolves.toBeUndefined();
+    const loaded = await loadStateFromIDB();
+    expect(loaded.tableCurrentBillSession).toEqual({});
+  });
+});
+
 // ── clearAllStateFromIDB ──────────────────────────────────────────────────────
 
 describe('clearAllStateFromIDB()', () => {
   it('removes all operative data', async () => {
     await saveStateToIDB({
       orders: [{ id: 'ord_1' }],
-      transactions: [{ transactionId: 'tx_1', amount: 5 }],
+      transactions: [{ id: 'tx_1', amount: 5 }],
       cashBalance: 50,
       cashMovements: [{ id: 'cm_1' }],
       dailyClosures: [{ id: 'dc_1' }],

@@ -269,6 +269,7 @@ describe('pull — bill_sessions merge', () => {
   it('adds an open session from remote to tableCurrentBillSession', async () => {
     const remoteSession = {
       id: 'bill_99', table: '09', status: 'open', adults: 3, children: 1,
+      opened_at: '2024-03-01T00:00:00.000Z',
       date_updated: '2024-03-01T00:00:00.000Z',
     };
 
@@ -282,9 +283,44 @@ describe('pull — bill_sessions merge', () => {
     sync.startSync({ appType: 'cassa', store });
     await sync.forcePull();
 
-    expect(store.tableCurrentBillSession['09']).toBeTruthy();
-    expect(store.tableCurrentBillSession['09'].billSessionId).toBe('bill_99');
-    expect(store.tableCurrentBillSession['09'].adults).toBe(3);
+    const session = store.tableCurrentBillSession['09'];
+    expect(session).toBeTruthy();
+    expect(session.billSessionId).toBe('bill_99');
+    expect(session.adults).toBe(3);
+    expect(session.children).toBe(1);
+    expect(session.table).toBe('09');
+    expect(session.status).toBe('open');
+    expect(session.opened_at).toBe('2024-03-01T00:00:00.000Z');
+  });
+
+  it('preserves existing session fields not present in incoming record', async () => {
+    const remoteSession = {
+      id: 'bill_99', table: '09', status: 'open', adults: 4, children: 0,
+      date_updated: '2024-03-02T00:00:00.000Z',
+    };
+
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      if (url.includes('bill_sessions')) return Promise.resolve(directusListResponse([remoteSession]));
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const store = makeStore({
+      tableCurrentBillSession: {
+        '09': {
+          billSessionId: 'bill_99', adults: 3, children: 0,
+          table: '09', status: 'open', opened_at: '2024-03-01T00:00:00.000Z',
+        },
+      },
+    });
+    const sync = useDirectusSync();
+    sync.startSync({ appType: 'cassa', store });
+    await sync.forcePull();
+
+    const session = store.tableCurrentBillSession['09'];
+    expect(session.adults).toBe(4);
+    expect(session.opened_at).toBe('2024-03-01T00:00:00.000Z');
+    expect(session.table).toBe('09');
+    expect(session.status).toBe('open');
   });
 
   it('removes a closed session from tableCurrentBillSession', async () => {

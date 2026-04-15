@@ -481,7 +481,7 @@ describe('store.addTransaction() with analitica operationType', () => {
     const store = useAppStore();
     // Keys are uid-based: `${orderId}__${itemUid}` and `${orderId}__${itemUid}__mod__${modIdx}`
     store.addTransaction({
-      transactionId: 'txn_test',
+      id: 'txn_test',
       tableId: 'T1',
       billSessionId: 'sess_1',
       paymentMethod: 'Contanti',
@@ -517,7 +517,7 @@ describe('store.addTransaction() with analitica operationType', () => {
 
     // Pay only 1 of 2 pizzas and 1 of 2 modifier rows
     store.addTransaction({
-      transactionId: 'txn_partial',
+      id: 'txn_partial',
       tableId: 'T1',
       billSessionId,
       paymentMethod: 'Contanti',
@@ -528,7 +528,7 @@ describe('store.addTransaction() with analitica operationType', () => {
       timestamp: new Date().toISOString(),
     });
 
-    const txn = store.transactions.find(t => t.transactionId === 'txn_partial');
+    const txn = store.transactions.find(t => t.id === 'txn_partial');
     expect(txn).toBeDefined();
     expect(txn.vociRefs).toEqual(
       expect.arrayContaining([

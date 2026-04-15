@@ -201,7 +201,7 @@ describe('generateXReport() – scorporo mance da scontrino', () => {
   let _txnCounter = 0;
   function txn(overrides) {
     return {
-      transactionId: `txn_test_${++_txnCounter}`,
+      id: `txn_test_${++_txnCounter}`,
       tableId: 't1',
       billSessionId: 'bill_1',
       paymentMethod: 'Contanti',
