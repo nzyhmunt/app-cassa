@@ -263,7 +263,7 @@ server.listen(PORT, () => {
   // Avvia modalità Directus Pull se DIRECTUS_URL e DIRECTUS_TOKEN sono impostati.
   // La funzione è non bloccante: polling e WebSocket girano in background.
   directusClient.start(console).catch((err) => {
-    console.error('[print-server] Errore avvio Directus pull mode:', err.message);
+    console.error('[print-server] Errore avvio Directus pull mode:', err instanceof Error ? err.message : String(err), err);
   });
 });
 
