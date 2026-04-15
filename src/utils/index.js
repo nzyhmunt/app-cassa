@@ -287,17 +287,26 @@ export function billKey(bill) {
 
 /**
  * Returns the current time as a zero-padded 24-hour "HH:MM" string.
- * Always produces a locale-independent format suitable for the Directus
- * `order_time` TIME field (e.g. "08:05", "14:30", "23:59").
+ * Always produces ASCII digits (0–9) and hours in the range 00–23, suitable
+ * for the Directus `order_time` TIME field (e.g. "08:05", "14:30", "23:59").
+ *
+ * Implementation notes:
+ *  - Locale is hard-coded to `'en-u-nu-latn'` (English + Latin numbering system)
+ *    so non-Latin digits (e.g. Arabic-Indic from an `ar` locale) can never appear
+ *    in the output, regardless of `appConfig.locale`.
+ *  - `hourCycle: 'h23'` forces the range 00–23; midnight is always "00", never "24"
+ *    (which some locales emit with `h24`).
+ *  - `appConfig.timezone` is still respected so the time reflects the venue's zone,
+ *    not the device clock.
  * @returns {string}
  */
 export function formatOrderTime() {
   const now = new Date();
-  const parts = new Intl.DateTimeFormat(appConfig.locale, {
+  const parts = new Intl.DateTimeFormat('en-u-nu-latn', {
     timeZone: appConfig.timezone,
+    hourCycle: 'h23',
     hour: '2-digit',
     minute: '2-digit',
-    hour12: false,
   }).formatToParts(now);
   const hour = parts.find(part => part.type === 'hour')?.value ?? '00';
   const minute = parts.find(part => part.type === 'minute')?.value ?? '00';

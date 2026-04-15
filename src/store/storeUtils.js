@@ -31,7 +31,7 @@ export function newUUID(prefix = 'id') {
  * NOT primary keys in Directus (e.g. order_items.uid, logId, jobId).
  *
  * Result is at most 20 characters when `prefix` is ≤ 4 characters:
- *   prefix (≤ 4 chars) + '_' + timestamp in base-36 (~9 chars) + '_' + 4 random hex chars ≤ 19
+ *   prefix (≤ 4 chars) + '_' + timestamp in base-36 (~9 chars) + '_' + 4 random base-36 chars ≤ 19
  *
  * Prefixes longer than 4 characters are silently truncated so the output
  * always stays within the 20-character column limit.

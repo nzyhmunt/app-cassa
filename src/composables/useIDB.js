@@ -62,12 +62,23 @@ export function getDB() {
       }
 
       // Transactions use `id` as keyPath (aligned with Directus schema).
-      // v3 → v4 migration: recreate the store with keyPath `id` (no data migration
-      // needed — the app is in active development and retro-compatibility is not required).
+      // v3 → v4 migration: the old keyPath was `transactionId`; migrate every
+      // locally-cached record to the new `id` field so offline data is preserved.
       if (oldVersion < 4 && db.objectStoreNames.contains('transactions')) {
+        // Read all records from the old store before dropping it.
+        const oldRecords = await tx.objectStore('transactions').getAll();
         db.deleteObjectStore('transactions');
-      }
-      if (!db.objectStoreNames.contains('transactions')) {
+        const s = db.createObjectStore('transactions', { keyPath: 'id' });
+        s.createIndex('table', 'tableId', { unique: false });
+        s.createIndex('bill_session', 'billSessionId', { unique: false });
+        s.createIndex('date_updated', 'date_updated', { unique: false });
+        for (const rec of oldRecords) {
+          // Back-fill `id` from the legacy `transactionId` field when needed.
+          if (!rec.id && rec.transactionId) rec.id = rec.transactionId;
+          delete rec.transactionId;
+          if (rec.id) s.add(rec);
+        }
+      } else if (!db.objectStoreNames.contains('transactions')) {
         const s = db.createObjectStore('transactions', { keyPath: 'id' });
         s.createIndex('table', 'tableId', { unique: false });
         s.createIndex('bill_session', 'billSessionId', { unique: false });
