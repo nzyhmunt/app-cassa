@@ -347,12 +347,16 @@ export function applyDirectusConfigToAppConfig(cfg) {
       label: r.label,
       tables: tablesByRoom.get(r.id) ?? [],
     }));
-    // Tables with no room assignment: surface in a generic room when no explicit rooms exist.
-    const unassigned = tablesByRoom.get('_unassigned') ?? [];
-    if (unassigned.length > 0 && appConfig.rooms.length === 0) {
-      appConfig.rooms = [{ id: 'sala', label: 'Sala', tables: unassigned }];
-    }
     appConfig.tables = appConfig.rooms.flatMap(r => r.tables);
+  } else if (tables.length > 0) {
+    // No explicit rooms: surface all tables in a generic room so unassigned tables are not lost.
+    const genericTables = tables.map(t => ({
+      id: t.id,
+      label: t.label,
+      covers: t.covers ?? 2,
+    }));
+    appConfig.rooms = [{ id: 'sala', label: 'Sala', tables: genericTables }];
+    appConfig.tables = genericTables;
   }
 
   // ── Payment methods ────────────────────────────────────────────────────────
