@@ -16,7 +16,7 @@
  */
 import { defineStore } from 'pinia';
 import { ref, computed, watch } from 'vue';
-import { appConfig, updateOrderTotals, KITCHEN_ACTIVE_STATUSES, KEYBOARD_POSITIONS } from '../utils/index.js';
+import { appConfig, updateOrderTotals, KITCHEN_ACTIVE_STATUSES, KEYBOARD_POSITIONS, formatOrderTime } from '../utils/index.js';
 import { newUUIDv7, newShortId } from './storeUtils.js';
 import { makeTableOps } from './tableOps.js';
 import { makeReportOps } from './reportOps.js';
@@ -430,7 +430,7 @@ export const useAppStore = defineStore('app', () => {
       table: tableId,
       billSessionId: billSessionId ?? null,
       status: 'pending',
-      time: String(h.getHours()).padStart(2, '0') + ':' + String(h.getMinutes()).padStart(2, '0'),
+      time: formatOrderTime(),
       totalAmount: 0,
       itemCount: 0,
       dietaryPreferences: {},
@@ -464,8 +464,7 @@ export const useAppStore = defineStore('app', () => {
   function simulateNewOrder() {
     const num = Math.floor(Math.random() * 12) + 1;
     const newTav = num < 10 ? '0' + num : '' + num;
-    const h = new Date();
-    const now = String(h.getHours()).padStart(2, '0') + ':' + String(h.getMinutes()).padStart(2, '0');
+    const now = formatOrderTime();
     const session = tableCurrentBillSession.value[newTav];
     orders.value.push({
       id: newUUIDv7(),
@@ -479,7 +478,7 @@ export const useAppStore = defineStore('app', () => {
       globalNote: '',
       noteVisibility: { cassa: true, sala: true, cucina: true },
       orderItems: [
-        { uid: `r_${Date.now()}`, dishId: 'pri_2', name: 'Amatriciana', unitPrice: 12, quantity: 1, voidedQuantity: 0, notes: [], modifiers: [] },
+        { uid: newShortId('r'), dishId: 'pri_2', name: 'Amatriciana', unitPrice: 12, quantity: 1, voidedQuantity: 0, notes: [], modifiers: [] },
       ],
       venue: appConfig.directus?.venueId ?? null,
     });

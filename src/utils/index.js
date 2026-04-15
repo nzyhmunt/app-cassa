@@ -286,6 +286,17 @@ export function billKey(bill) {
 }
 
 /**
+ * Returns the current time as a zero-padded 24-hour "HH:MM" string.
+ * Always produces a locale-independent format suitable for the Directus
+ * `order_time` TIME field (e.g. "08:05", "14:30", "23:59").
+ * @returns {string}
+ */
+export function formatOrderTime() {
+  const now = new Date();
+  return String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+}
+
+/**
  * Computes the total price for a single order-item row, accounting for
  * per-modifier voided quantities.
  * @param {object} item - An orderItem object

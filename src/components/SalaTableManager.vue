@@ -287,7 +287,7 @@ import {
 } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
 import { newUUIDv7, newShortId } from '../store/storeUtils.js';
-import { appConfig } from '../utils/index.js';
+import { appConfig, formatOrderTime } from '../utils/index.js';
 // Shared component — used by both Sala and Cassa apps.
 import PeopleModal from './shared/PeopleModal.vue';
 import TableStatsBar from './shared/TableStatsBar.vue';
@@ -542,7 +542,7 @@ function createNewOrder() {
     table: sessionTableId,
     billSessionId: session?.billSessionId ?? null,
     status: 'pending',
-    time: String(new Date().getHours()).padStart(2, '0') + ':' + String(new Date().getMinutes()).padStart(2, '0'),
+    time: formatOrderTime(),
     totalAmount: 0,
     itemCount: 0,
     dietaryPreferences: {},

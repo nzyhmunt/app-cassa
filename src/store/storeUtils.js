@@ -40,7 +40,15 @@ export function newUUID(prefix = 'id') {
  */
 export function newShortId(prefix = 'id') {
   const ts = Date.now().toString(36);
-  const rnd = Math.random().toString(36).slice(2, 6);
+  let rnd;
+  if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+    const arr = new Uint16Array(1);
+    crypto.getRandomValues(arr);
+    rnd = arr[0].toString(36).padStart(4, '0');
+  } else {
+    // Fallback for environments without crypto (e.g. legacy jsdom in tests)
+    rnd = Math.floor(Math.random() * 0x10000).toString(36).padStart(4, '0');
+  }
   return `${prefix}_${ts}_${rnd}`;
 }
 
