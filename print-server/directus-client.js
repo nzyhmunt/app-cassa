@@ -267,7 +267,7 @@ async function fetchAndApplyPrinters(restClient, log) {
 function startPrintersRefresh(restClient, log) {
   async function tick() {
     await fetchAndApplyPrinters(restClient, log).catch((err) => {
-      log.warn(`[directus-client] Errore refresh stampanti: ${safeLog(err.message)}`);
+      log.warn(`[directus-client] Errore refresh stampanti: ${safeLog(err instanceof Error ? err.message : String(err))}`);
     });
     setTimeout(tick, PRINTERS_REFRESH_SEC * 1000);
   }
@@ -362,7 +362,7 @@ async function tryClaimJob(restClient, logId, log) {
     await restClient.request(updateItem('print_jobs', logId, { status: 'printing' }));
     return true;
   } catch (err) {
-    log.warn(`[directus-client] Impossibile reclamare job ${safeLog(logId)}: ${safeLog(err.message)}`);
+    log.warn(`[directus-client] Impossibile reclamare job ${safeLog(logId)}: ${safeLog(err instanceof Error ? err.message : String(err))}`);
     return false;
   }
 }
@@ -475,7 +475,7 @@ async function pollPendingJobs(restClient, log) {
       }),
     );
   } catch (err) {
-    log.error(`[directus-client] Errore polling REST: ${safeLog(err.message)}`);
+    log.error(`[directus-client] Errore polling REST: ${safeLog(err instanceof Error ? err.message : String(err))}`);
     return;
   }
 
@@ -488,7 +488,7 @@ async function pollPendingJobs(restClient, log) {
       await processJob(restClient, job, log);
     } catch (err) {
       log.error(
-        `[directus-client] Errore processamento job ${safeLog(job.log_id)}: ${safeLog(err.message)}`,
+        `[directus-client] Errore processamento job ${safeLog(job.log_id)}: ${safeLog(err instanceof Error ? err.message : String(err))}`,
       );
     }
   }
@@ -585,7 +585,7 @@ async function startWebSocketLoop(wsClient, restClient, log) {
       attempt++;
       const waitMs = Math.min(60000, 2000 * attempt);
       log.warn(
-        `[directus-client] WebSocket interrotto: ${safeLog(err.message)} — riavvio tra ${waitMs}ms (tentativo ${attempt})`,
+        `[directus-client] WebSocket interrotto: ${safeLog(err instanceof Error ? err.message : String(err))} — riavvio tra ${waitMs}ms (tentativo ${attempt})`,
       );
       await sleep(waitMs);
     }
@@ -663,7 +663,7 @@ async function start(log) {
   // printers.config.js e le variabili PRINTER_<N>_*. Questo rende Directus
   // la fonte unica di verità per tutta la configurazione.
   await fetchAndApplyPrinters(restClient, log).catch((err) => {
-    log.warn(`[directus-client] Errore caricamento stampanti da Directus: ${safeLog(err.message)}`);
+    log.warn(`[directus-client] Errore caricamento stampanti da Directus: ${safeLog(err instanceof Error ? err.message : String(err))}`);
   });
 
   // ── 3. Avvia polling REST (sempre attivo, non bloccante) ──────────────────
@@ -672,7 +672,7 @@ async function start(log) {
   // ── 4. Avvia WebSocket subscription (non bloccante, si riavvia automaticamente)
   startWebSocketLoop(wsClient, restClient, log).catch((err) => {
     // Non dovrebbe mai arrivare qui (il loop è infinito), ma logga per sicurezza
-    log.error(`[directus-client] Errore critico loop WebSocket: ${safeLog(err.message)}`);
+    log.error(`[directus-client] Errore critico loop WebSocket: ${safeLog(err instanceof Error ? err.message : String(err))}`);
   });
 
   // ── 5. Refresh periodico della lista stampanti ────────────────────────────

@@ -321,7 +321,7 @@ export default ({ action, schedule }, { services, database, getSchema, logger, e
     try {
       await processJob(String(key));
     } catch (err) {
-      logger.error(`[print-dispatcher] Errore critico job ${safeLog(key)}: ${safeLog(err.message)}`);
+      logger.error(`[print-dispatcher] Errore critico job ${safeLog(key)}: ${safeLog(err instanceof Error ? err.message : String(err))}`);
     }
   });
 
@@ -347,7 +347,7 @@ export default ({ action, schedule }, { services, database, getSchema, logger, e
         limit:  100,
       });
     } catch (err) {
-      logger.error(`[print-dispatcher] Errore polling pending jobs: ${safeLog(err.message)}`);
+      logger.error(`[print-dispatcher] Errore polling pending jobs: ${safeLog(err instanceof Error ? err.message : String(err))}`);
       return;
     }
 
@@ -359,7 +359,7 @@ export default ({ action, schedule }, { services, database, getSchema, logger, e
       try {
         await processJob(log_id);
       } catch (err) {
-        logger.error(`[print-dispatcher] Errore nel polling per job ${safeLog(log_id)}: ${safeLog(err.message)}`);
+        logger.error(`[print-dispatcher] Errore nel polling per job ${safeLog(log_id)}: ${safeLog(err instanceof Error ? err.message : String(err))}`);
       }
     }
   });
