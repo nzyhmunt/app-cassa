@@ -475,9 +475,15 @@ async function _runPull() {
       const { merged, ok } = await _pullCollection(collection);
       if (merged > 0) anyMerged = true;
       if (!ok) allOk = false;
+      if (merged > 0 || !ok) {
+        console.info(`[DirectusSync] Pull ${collection}: merged=${merged}, ok=${ok}`);
+      }
     }
     if (anyMerged && allOk) {
       lastPullAt.value = new Date().toISOString();
+      console.info('[DirectusSync] Pull cycle completed successfully.');
+    } else if (!allOk) {
+      console.warn('[DirectusSync] Pull cycle incomplete: at least one collection failed.');
     }
   } catch (e) {
     console.warn('[DirectusSync] Pull error:', e);
@@ -514,32 +520,44 @@ async function _runGlobalPull() {
       }
       const { ok } = await _pullCollection(collection, { forceFull, lastPullTimestampOverride: lastPullTimestamp });
       if (!ok) fullHydrationOk = false;
+      if (forceFull || !ok) {
+        const mode = forceFull ? 'full' : 'incremental';
+        console.info(`[DirectusSync] Global pull ${collection} (${mode}): ok=${ok}`);
+      }
     }
+
+    // H3: table_merge_sessions — full-replace semantics.
+    // Fetched with a full (non-incremental) pull and replaced atomically in IDB
+    // so that dissolved merges (records deleted on Directus) are also cleared.
+    const { data: mergeRecords, error: mergeError } = await _fetchUpdatedViaSDK('table_merge_sessions', null);
+    if (mergeError) {
+      fullHydrationOk = false;
+      console.warn('[DirectusSync] Skipping table_merge_sessions replace due to fetch error.');
+    } else {
+      await replaceTableMergesInIDB(mergeRecords);
+      // Rebuild in-memory tableMergedInto from the authoritative Directus data.
+      if (_store) {
+        const merged = {};
+        for (const r of mergeRecords) {
+          if (r.slave_table && r.master_table) merged[r.slave_table] = r.master_table;
+        }
+        _store.tableMergedInto = merged;
+      }
+    }
+
     if (fullHydrationOk) {
       _initialGlobalHydrationDone = true;
     } else {
       console.warn('[DirectusSync] Global config hydration incomplete; keeping full-hydration mode for next run.');
     }
 
-    // H3: table_merge_sessions — full-replace semantics.
-    // Fetched with a full (non-incremental) pull and replaced atomically in IDB
-    // so that dissolved merges (records deleted on Directus) are also cleared.
-    const { data: mergeRecords } = await _fetchUpdatedViaSDK('table_merge_sessions', null);
-    await replaceTableMergesInIDB(mergeRecords);
-    // Rebuild in-memory tableMergedInto from the authoritative Directus data.
-    if (_store) {
-      const merged = {};
-      for (const r of mergeRecords) {
-        if (r.slave_table && r.master_table) merged[r.slave_table] = r.master_table;
-      }
-      _store.tableMergedInto = merged;
-    }
-
     // D3: Hydrate appConfig from IDB after pulling config collections.
     // Skip hydration when venueId is not configured: without a venue filter
     // loadConfigFromIDB() would return records for *all* venues and mix them
     // into a single (incorrect) appConfig.
-    if (venueId != null) {
+    // Also skip hydration when this global cycle had errors, to avoid publishing
+    // partial config snapshots to the live app/store.
+    if (venueId != null && fullHydrationOk) {
       const cfg = await loadConfigFromIDB(venueId);
       applyDirectusConfigToAppConfig(cfg);
       // Keep the reactive store config in sync with the hydrated appConfig so
@@ -547,6 +565,8 @@ async function _runGlobalPull() {
       if (_store?.config) {
         Object.assign(_store.config, appConfig);
       }
+    } else if (!fullHydrationOk) {
+      console.warn('[DirectusSync] Skipping config hydration due to incomplete global pull cycle.');
     }
   } catch (e) {
     console.warn('[DirectusSync] Global pull error:', e);

@@ -18,7 +18,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { _resetIDBSingleton } from '../useIDB.js';
 import { useDirectusSync, _resetDirectusSyncSingleton } from '../useDirectusSync.js';
-import { upsertRecordsIntoIDB, loadLastPullTsFromIDB, saveLastPullTsToIDB } from '../../store/idbPersistence.js';
+import {
+  upsertRecordsIntoIDB,
+  loadLastPullTsFromIDB,
+  saveLastPullTsToIDB,
+  replaceTableMergesInIDB,
+} from '../../store/idbPersistence.js';
 import { _resetEnqueueSeq } from '../useSyncQueue.js';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -534,6 +539,51 @@ describe('global pull config hydration', () => {
     for (const url of tableCalls) {
       expect(hasDateUpdatedGtFilter(url)).toBe(false);
     }
+  });
+
+  it('does not apply config hydration when a global collection pull fails', async () => {
+    const utils = await import('../../utils/index.js');
+    const applySpy = vi.spyOn(utils, 'applyDirectusConfigToAppConfig');
+
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      if (String(url).includes('/items/tables')) {
+        return Promise.reject(new Error('temporary tables failure'));
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const sync = useDirectusSync();
+    const store = makeStore({ config: {} });
+    sync.startSync({ appType: 'cucina', store });
+    await flushPromises(LONG_FLUSH_ROUNDS);
+    sync.stopSync();
+
+    expect(applySpy).not.toHaveBeenCalled();
+  });
+
+  it('does not clear table merges when table_merge_sessions fetch fails', async () => {
+    await replaceTableMergesInIDB([{ id: 'm1', slave_table: 'T2', master_table: 'T1' }]);
+
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      if (String(url).includes('/items/table_merge_sessions')) {
+        return Promise.reject(new Error('table merge fetch failed'));
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const sync = useDirectusSync();
+    const store = makeStore({ tableMergedInto: { T2: 'T1' } });
+    sync.startSync({ appType: 'cucina', store });
+    await flushPromises(LONG_FLUSH_ROUNDS);
+    sync.stopSync();
+
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+    const records = await db.getAll('table_merge_sessions');
+    expect(records).toHaveLength(1);
+    expect(records[0].slave_table).toBe('T2');
+    expect(records[0].master_table).toBe('T1');
+    expect(store.tableMergedInto).toEqual({ T2: 'T1' });
   });
 
 });
