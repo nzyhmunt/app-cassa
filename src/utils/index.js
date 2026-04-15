@@ -293,7 +293,15 @@ export function billKey(bill) {
  */
 export function formatOrderTime() {
   const now = new Date();
-  return String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+  const parts = new Intl.DateTimeFormat(appConfig.locale, {
+    timeZone: appConfig.timezone,
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(now);
+  const hour = parts.find(part => part.type === 'hour')?.value ?? '00';
+  const minute = parts.find(part => part.type === 'minute')?.value ?? '00';
+  return hour + ':' + minute;
 }
 
 /**
