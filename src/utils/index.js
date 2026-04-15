@@ -305,10 +305,10 @@ export function applyDirectusConfigToAppConfig(cfg) {
 
   // ── Venue scalar settings ──────────────────────────────────────────────────
   if (venueRecord) {
-    if (venueRecord.name)                appConfig.ui.name = venueRecord.name;
-    if (venueRecord.primary_color)       appConfig.ui.primaryColor = venueRecord.primary_color;
-    if (venueRecord.primary_color_dark)  appConfig.ui.primaryColorDark = venueRecord.primary_color_dark;
-    if (venueRecord.currency_symbol)     appConfig.ui.currency = venueRecord.currency_symbol;
+    if (venueRecord.name != null)                appConfig.ui.name = venueRecord.name;
+    if (venueRecord.primary_color != null)       appConfig.ui.primaryColor = venueRecord.primary_color;
+    if (venueRecord.primary_color_dark != null)  appConfig.ui.primaryColorDark = venueRecord.primary_color_dark;
+    if (venueRecord.currency_symbol != null)     appConfig.ui.currency = venueRecord.currency_symbol;
     if (venueRecord.allow_custom_variants != null)
       appConfig.ui.allowCustomVariants = venueRecord.allow_custom_variants;
 
