@@ -252,7 +252,12 @@ export default ({ action, schedule }, { services, database, getSchema, logger, e
         fields: ['log_id', 'printer', 'payload', 'print_type', 'job_id'],
       });
     } catch (err) {
-      logger.warn(`[print-dispatcher] Job ${safeLog(logId)} non trovato: ${safeLog(err.message)}`);
+      const msg = safeLog(err?.message ?? err ?? 'Job non trovato dopo il claim');
+      await jobsSvc.updateOne(logId, {
+        status: 'error',
+        error_message: msg,
+      }).catch(() => {});
+      logger.warn(`[print-dispatcher] Job ${safeLog(logId)} non trovato: ${msg}`);
       return;
     }
 
