@@ -2302,7 +2302,7 @@ function closeDirectItemModal() {
 function makeDirectCartItem(name, price, dishId = null) {
   return {
     uid: newShortId('dir'),
-    dishId: dishId ?? newShortId('cx'),
+    dishId: dishId ?? null,
     name,
     unitPrice: price,
     quantity: 1,
