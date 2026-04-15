@@ -278,7 +278,13 @@ export const useAppStore = defineStore('app', () => {
       [tableId]: session,
     };
     enqueue('bill_sessions', 'create', billSessionId, {
-      id: billSessionId, table: tableId, adults, children, status: 'open',
+      id: billSessionId,
+      table: tableId,
+      adults,
+      children,
+      status: 'open',
+      venue: appConfig.directus.venueId,
+      opened_at: new Date().toISOString(),
     });
     return billSessionId;
   }

@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
 import { useAppStore } from '../index.js';
+import { _resetIDBSingleton } from '../../composables/useIDB.js';
+import { getPendingEntries, _resetEnqueueSeq } from '../../composables/useSyncQueue.js';
 
 // Prevent real network requests while loading the menu
 beforeEach(() => {
@@ -441,5 +443,48 @@ describe('kitchen exclusion for direct orders', () => {
     ).length;
 
     expect(acceptedBadge).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// openTableSession() — sync queue payload
+// ---------------------------------------------------------------------------
+describe('openTableSession() — sync queue payload', () => {
+  beforeEach(async () => {
+    await _resetIDBSingleton();
+    _resetEnqueueSeq();
+    setActivePinia(createPinia());
+  });
+
+  it('enqueues a bill_sessions create entry with venue and opened_at', async () => {
+    const { appConfig } = await import('../../utils/index.js');
+    appConfig.directus.venueId = 5;
+
+    const store = useAppStore();
+    store.openTableSession('03', 2, 1);
+
+    const entries = await getPendingEntries();
+    const billEntry = entries.find(e => e.collection === 'bill_sessions' && e.operation === 'create');
+
+    expect(billEntry).toBeTruthy();
+    expect(billEntry.payload.venue).toBe(5);
+    expect(typeof billEntry.payload.opened_at).toBe('string');
+    expect(billEntry.payload.opened_at).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+  });
+
+  it('enqueued bill_sessions payload includes table, adults, children and status', async () => {
+    const { appConfig } = await import('../../utils/index.js');
+    appConfig.directus.venueId = 5;
+
+    const store = useAppStore();
+    store.openTableSession('07', 3, 2);
+
+    const entries = await getPendingEntries();
+    const billEntry = entries.find(e => e.collection === 'bill_sessions' && e.operation === 'create');
+
+    expect(billEntry.payload.table).toBe('07');
+    expect(billEntry.payload.adults).toBe(3);
+    expect(billEntry.payload.children).toBe(2);
+    expect(billEntry.payload.status).toBe('open');
   });
 });

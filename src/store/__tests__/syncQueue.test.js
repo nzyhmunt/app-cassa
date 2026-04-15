@@ -228,4 +228,44 @@ describe('drainQueue()', () => {
     const { headers } = fetchSpy.mock.calls[0][1];
     expect(headers.Authorization).toBe('Bearer tok_test');
   });
+
+  it('injects venueId into create payloads missing venue', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue(mockResponse(201, {}));
+    await enqueue('orders', 'create', 'ord_v', { id: 'ord_v', status: 'pending' });
+
+    await drainQueue({ ...FAKE_CFG, venueId: 42 });
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.venue).toBe(42);
+  });
+
+  it('does not overwrite venue already present in create payload', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue(mockResponse(201, {}));
+    await enqueue('bill_sessions', 'create', 'bill_v', { id: 'bill_v', status: 'open', venue: 7 });
+
+    await drainQueue({ ...FAKE_CFG, venueId: 99 });
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.venue).toBe(7);
+  });
+
+  it('does not inject venue for update operations', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue(mockResponse(200, {}));
+    await enqueue('orders', 'update', 'ord_upd', { status: 'accepted' });
+
+    await drainQueue({ ...FAKE_CFG, venueId: 42 });
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.venue).toBeUndefined();
+  });
+
+  it('does not inject venue when cfg.venueId is null', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue(mockResponse(201, {}));
+    await enqueue('orders', 'create', 'ord_null', { id: 'ord_null', status: 'pending' });
+
+    await drainQueue({ ...FAKE_CFG, venueId: null });
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.venue).toBeUndefined();
+  });
 });

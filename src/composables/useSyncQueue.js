@@ -333,7 +333,7 @@ function _buildRestClient(cfg) {
  * @param {import('@directus/sdk').DirectusClient<object>} sdkClient
  * @returns {Promise<true|'skip'|string>}
  */
-async function _pushEntry(entry, sdkClient) {
+async function _pushEntry(entry, sdkClient, venueId) {
   const { collection, operation, record_id, payload } = entry;
 
   // Translate local field names to Directus schema names for all non-delete operations
@@ -344,6 +344,13 @@ async function _pushEntry(entry, sdkClient) {
   // `transactionId` → `id`) or was simply not included in a partial payload.
   if (operation === 'create' && !directusPayload.id && record_id) {
     directusPayload.id = record_id;
+  }
+
+  // Inject venueId for create payloads that are missing the required `venue` field.
+  // This acts as a safety net for any entry that was enqueued without venue (e.g.
+  // queue entries persisted before this fix was applied).
+  if (operation === 'create' && venueId != null && directusPayload.venue == null) {
+    directusPayload.venue = venueId;
   }
 
   try {
@@ -403,9 +410,11 @@ async function _pushEntry(entry, sdkClient) {
  *   on the window for each abandoned entry so the UI can react).
  * - Entries that should be skipped (no-op deletes) are silently removed.
  *
- * @param {{ url: string, staticToken: string, _backoffMs?: number }} cfg
- *   Directus connection config.  `_backoffMs` overrides the exponential
- *   back-off base (default 1000 ms); set to 0 in tests to skip all delays.
+ * @param {{ url: string, staticToken: string, venueId?: number|null, _backoffMs?: number }} cfg
+ *   Directus connection config.  `venueId` is injected into `create` payloads
+ *   that are missing the required `venue` field (safety net for legacy queue
+ *   entries).  `_backoffMs` overrides the exponential back-off base
+ *   (default 1000 ms); set to 0 in tests to skip all delays.
  * @returns {Promise<{ pushed: number, failed: number, abandoned: number }>}
  */
 export async function drainQueue(cfg) {
@@ -415,7 +424,7 @@ export async function drainQueue(cfg) {
   let pushed = 0, failed = 0, abandoned = 0;
 
   for (const entry of entries) {
-    const result = await _pushEntry(entry, sdkClient);
+    const result = await _pushEntry(entry, sdkClient, cfg.venueId);
 
     if (result === true || result === 'skip') {
       await removeEntry(entry.id);
