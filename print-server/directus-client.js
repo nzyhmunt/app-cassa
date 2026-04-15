@@ -177,6 +177,10 @@ const PRINTER_FIELDS = [
 function _mapDirectusPrinters(rawPrinters) {
   if (!Array.isArray(rawPrinters)) return [];
   return rawPrinters
+    .map(p => ({
+      ...p,
+      connection_type: String(p && p.connection_type || '').toLowerCase().trim(),
+    }))
     .filter(p => p.connection_type === 'tcp' || p.connection_type === 'file')
     .map(p => {
       const entry = { id: p.id, name: p.name || p.id, type: p.connection_type };
