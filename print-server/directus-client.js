@@ -447,7 +447,10 @@ async function processJob(restClient, job, log) {
         updateItem('print_jobs', log_id, { status: 'error', error_message: errMsg }),
       );
     } catch (updateErr) {
-      log.warn(`[directus-client] Impossibile aggiornare stato error per job ${safeId}: ${safeLog(updateErr.message)}`);
+      const updateErrMsg = safeLog(
+        updateErr instanceof Error ? updateErr.message : String(updateErr),
+      );
+      log.warn(`[directus-client] Impossibile aggiornare stato error per job ${safeId}: ${updateErrMsg}`);
     }
     log.error(`[directus-client] ✗ Job ${safeJobId} (${safeLog(print_type)}) errore: ${errMsg}`);
   } finally {
