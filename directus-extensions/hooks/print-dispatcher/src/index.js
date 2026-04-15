@@ -96,16 +96,18 @@ export default ({ action, schedule }, { services, database, getSchema, logger, e
         // Errori 4xx sono definitivi (payload non valido) — non ritentare
         if (resp.status >= 400 && resp.status < 500) {
           const data = await resp.json().catch(() => ({}));
-          throw new Error(data.error ?? `HTTP ${resp.status}`);
+          const err = new Error(data.error ?? `HTTP ${resp.status}`);
+          err.permanent = true; // segnala al catch di non ritentare
+          throw err;
         }
 
         // Errori 5xx: ritenta
         const data = await resp.json().catch(() => ({}));
         lastErr = new Error(data.error ?? `HTTP ${resp.status}`);
       } catch (err) {
-        // Distingue errori di rete (AbortError, ECONNREFUSED, …) dagli errori
-        // 4xx definitivi (che rilanciano direttamente uscendo dal loop).
-        if (err.message?.startsWith('HTTP 4')) throw err;
+        // Gli errori 4xx e gli errori di payload contrassegnati come `permanent`
+        // escono subito dal loop senza ulteriori tentativi.
+        if (err.permanent) throw err;
         lastErr = err;
       }
     }

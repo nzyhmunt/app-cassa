@@ -165,6 +165,34 @@ const PRINTER_FIELDS = [
 ];
 
 /**
+ * Mappa un array di record Directus `printers` al formato atteso da printer.js.
+ * Filtra le stampanti con `connection_type` = 'tcp' o 'file' (connessione diretta);
+ * le stampanti con `connection_type` = 'http' vengono ignorate (usate da hook push/frontend).
+ *
+ * Funzione pura — nessun I/O, esportata per i test.
+ *
+ * @param {Array<object>} rawPrinters  Record Directus dalla collezione `printers`
+ * @returns {Array<object>}            Lista nel formato accettato da `setPrinters()`
+ */
+function _mapDirectusPrinters(rawPrinters) {
+  if (!Array.isArray(rawPrinters)) return [];
+  return rawPrinters
+    .filter(p => p.connection_type === 'tcp' || p.connection_type === 'file')
+    .map(p => {
+      const entry = { id: p.id, name: p.name || p.id, type: p.connection_type };
+      if (p.connection_type === 'file') {
+        entry.device = p.file_device || '/dev/usb/lp0';
+      } else {
+        // type === 'tcp'
+        entry.host    = p.tcp_host    || '127.0.0.1';
+        entry.port    = p.tcp_port    || 9100;
+        entry.timeout = p.tcp_timeout || 5000;
+      }
+      return entry;
+    });
+}
+
+/**
  * Legge le stampanti dalla collezione `printers` di Directus e applica la
  * configurazione al print-server tramite `setPrinters()`.
  *
@@ -195,21 +223,7 @@ async function fetchAndApplyPrinters(restClient, log) {
 
   if (!Array.isArray(rawPrinters)) return false;
 
-  // Mappa i record Directus al formato atteso da printer.js
-  const connectable = rawPrinters
-    .filter(p => p.connection_type === 'tcp' || p.connection_type === 'file')
-    .map(p => {
-      const entry = { id: p.id, name: p.name || p.id, type: p.connection_type };
-      if (p.connection_type === 'file') {
-        entry.device = p.file_device || '/dev/usb/lp0';
-      } else {
-        // type === 'tcp'
-        entry.host    = p.tcp_host    || '127.0.0.1';
-        entry.port    = p.tcp_port    || 9100;
-        entry.timeout = p.tcp_timeout || 5000;
-      }
-      return entry;
-    });
+  const connectable = _mapDirectusPrinters(rawPrinters);
 
   if (connectable.length === 0) {
     log.info(
@@ -229,8 +243,9 @@ async function fetchAndApplyPrinters(restClient, log) {
 
 /**
  * Avvia il loop di refresh periodico della lista stampanti da Directus.
- * Il primo refresh avviene subito (al momento dello start, prima del polling).
- * I refresh successivi ogni DIRECTUS_PRINTERS_REFRESH_SEC secondi.
+ * Il primo refresh è ritardato di PRINTERS_INITIAL_DELAY_MS (5–15 s) per non
+ * sovraccaricare il bootstrap iniziale (connessione WS + primo polling). I
+ * refresh successivi avvengono ogni DIRECTUS_PRINTERS_REFRESH_SEC secondi.
  *
  * @param {object} restClient
  * @param {object} log
@@ -287,6 +302,23 @@ function createWsClient(url, token) {
 
 // ── Gestione job ──────────────────────────────────────────────────────────────
 
+// ── Deduplicazione in-process ─────────────────────────────────────────────────
+
+/**
+ * Set dei `log_id` attualmente in elaborazione in questo processo.
+ *
+ * Previene la doppia stampa quando WebSocket e REST polling ricevono lo stesso
+ * job quasi contemporaneamente: il secondo chiamante trova il log_id già
+ * presente nel Set e ritorna senza inviare nulla alla stampante.
+ *
+ * Il Set è a livello di processo (singola istanza); per ambienti multi-processo
+ * la deduplicazione definitiva resta il compare-and-swap su Directus.
+ *
+ * Esportato per i test.
+ * @type {Set<string>}
+ */
+const _inFlightJobs = new Set();
+
 /**
  * Tenta di reclamare il job impostando status='printing'.
  *
@@ -323,10 +355,11 @@ async function tryClaimJob(restClient, logId, log) {
 
 /**
  * Processa un singolo job di stampa:
- *   1. Tenta di reclamare il job (pending → printing)
- *   2. Costruisce il buffer ESC/POS dal payload
- *   3. Invia alla stampante fisica locale
- *   4. Aggiorna lo stato su Directus (done | error)
+ *   1. Deduplicazione in-process (Set _inFlightJobs)
+ *   2. Tenta di reclamare il job (pending → printing)
+ *   3. Costruisce il buffer ESC/POS dal payload
+ *   4. Invia alla stampante fisica locale
+ *   5. Aggiorna lo stato su Directus (done | error)
  *
  * In caso di errore transitorio (rete, stampante), viene ritentato fino a
  * DIRECTUS_RETRY_MAX volte. Gli errori permanenti (payload non valido) non
@@ -341,52 +374,69 @@ async function processJob(restClient, job, log) {
   const safeId    = safeLog(log_id);
   const safeJobId = safeLog(job_id ?? '?');
 
-  // ── 1. Reclama il job ─────────────────────────────────────────────────────
-  const claimed = await tryClaimJob(restClient, log_id, log);
-  if (!claimed) return;
-
-  // ── 2. Dispatch con retry ─────────────────────────────────────────────────
-  let lastErr;
-  for (let attempt = 0; attempt <= RETRY_MAX; attempt++) {
-    if (attempt > 0) await sleep(RETRY_DELAY_MS);
-    try {
-      // Costruisce il Buffer ESC/POS dal payload del job.
-      // Unisce il payload preservandone i campi, ma forza sempre printType
-      // dal campo Directus print_type per evitare inconsistenze di formato.
-      const buf = buildEscPosBuffer({ ...payload, printType: print_type });
-
-      // Risolve il printer ID: preferisce payload.printerId (campo inviato dal frontend),
-      // usa job.printer (FK) come fallback.
-      const resolvedPrinterId = (payload && payload.printerId) ? payload.printerId : printerId;
-
-      // Invia alla stampante fisica tramite la coda per-printer
-      await printBuffer(buf, resolvedPrinterId);
-
-      // ── 3. Aggiorna stato a done ─────────────────────────────────────────
-      await restClient.request(
-        updateItem('print_jobs', log_id, { status: 'done', error_message: null }),
-      );
-      log.info(
-        `[directus-client] ✓ Job ${safeJobId} (${safeLog(print_type)}) → stampante "${safeLog(resolvedPrinterId)}"`,
-      );
-      return; // successo
-    } catch (err) {
-      lastErr = err;
-      // Errori di formato (payload non valido) sono permanenti — non ritentare
-      if (err.message && err.message.includes('non supportato')) break;
-    }
-  }
-
-  // ── 4. Aggiorna stato a error ─────────────────────────────────────────────
-  const errMsg = safeLog(lastErr?.message ?? String(lastErr));
-  try {
-    await restClient.request(
-      updateItem('print_jobs', log_id, { status: 'error', error_message: errMsg }),
+  // ── 1. Deduplicazione in-process ─────────────────────────────────────────
+  // Evita che WS e polling elaborino lo stesso job in parallelo all'interno
+  // dello stesso processo (es. job arriva via WS appena prima del ciclo di
+  // polling che rileva lo stesso job ancora con status='pending' su Directus).
+  if (_inFlightJobs.has(log_id)) {
+    log.info(
+      `[directus-client] Job ${safeId} già in elaborazione in-process — skip`,
     );
-  } catch (updateErr) {
-    log.warn(`[directus-client] Impossibile aggiornare stato error per job ${safeId}: ${safeLog(updateErr.message)}`);
+    return;
   }
-  log.error(`[directus-client] ✗ Job ${safeJobId} (${safeLog(print_type)}) errore: ${errMsg}`);
+  _inFlightJobs.add(log_id);
+
+  try {
+    // ── 2. Reclama il job ───────────────────────────────────────────────────
+    const claimed = await tryClaimJob(restClient, log_id, log);
+    if (!claimed) return;
+
+    // ── 3. Dispatch con retry ───────────────────────────────────────────────
+    let lastErr;
+    for (let attempt = 0; attempt <= RETRY_MAX; attempt++) {
+      if (attempt > 0) await sleep(RETRY_DELAY_MS);
+      try {
+        // Costruisce il Buffer ESC/POS dal payload del job.
+        // Unisce il payload preservandone i campi, ma forza sempre printType
+        // dal campo Directus print_type per evitare inconsistenze di formato.
+        const buf = buildEscPosBuffer({ ...payload, printType: print_type });
+
+        // Risolve il printer ID: preferisce payload.printerId (campo inviato dal frontend),
+        // usa job.printer (FK) come fallback.
+        const resolvedPrinterId = (payload && payload.printerId) ? payload.printerId : printerId;
+
+        // Invia alla stampante fisica tramite la coda per-printer
+        await printBuffer(buf, resolvedPrinterId);
+
+        // ── 4. Aggiorna stato a done ──────────────────────────────────────
+        await restClient.request(
+          updateItem('print_jobs', log_id, { status: 'done', error_message: null }),
+        );
+        log.info(
+          `[directus-client] ✓ Job ${safeJobId} (${safeLog(print_type)}) → stampante "${safeLog(resolvedPrinterId)}"`,
+        );
+        return; // successo
+      } catch (err) {
+        lastErr = err;
+        // Errori di formato (payload non valido) sono permanenti — non ritentare
+        if (err.message && err.message.includes('non supportato')) break;
+      }
+    }
+
+    // ── 5. Aggiorna stato a error ─────────────────────────────────────────
+    const errMsg = safeLog(lastErr?.message ?? String(lastErr));
+    try {
+      await restClient.request(
+        updateItem('print_jobs', log_id, { status: 'error', error_message: errMsg }),
+      );
+    } catch (updateErr) {
+      log.warn(`[directus-client] Impossibile aggiornare stato error per job ${safeId}: ${safeLog(updateErr.message)}`);
+    }
+    log.error(`[directus-client] ✗ Job ${safeJobId} (${safeLog(print_type)}) errore: ${errMsg}`);
+  } finally {
+    // Rimuove sempre il job dal Set al termine (successo o errore)
+    _inFlightJobs.delete(log_id);
+  }
 }
 
 // ── REST polling ──────────────────────────────────────────────────────────────
@@ -605,5 +655,10 @@ async function start(log) {
   startPrintersRefresh(restClient, log);
 }
 
-module.exports = { start };
+module.exports = {
+  start,
+  // Esportati per i test
+  _mapDirectusPrinters,
+  _inFlightJobs,
+};
 
