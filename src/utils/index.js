@@ -342,11 +342,15 @@ export function applyDirectusConfigToAppConfig(cfg) {
       if (!tablesByRoom.has(key)) tablesByRoom.set(key, []);
       tablesByRoom.get(key).push({ id: t.id, label: t.label, covers: t.covers ?? 2 });
     }
-    appConfig.rooms = rooms.map(r => ({
+    const configuredRooms = rooms.map(r => ({
       id: r.id,
       label: r.label,
       tables: tablesByRoom.get(r.id) ?? [],
     }));
+    const unassignedTables = tablesByRoom.get('_unassigned') ?? [];
+    appConfig.rooms = unassignedTables.length > 0
+      ? [...configuredRooms, { id: '_unassigned', label: 'Unassigned', tables: unassignedTables }]
+      : configuredRooms;
     appConfig.tables = appConfig.rooms.flatMap(r => r.tables);
   } else if (tables.length > 0) {
     // No explicit rooms: surface all tables in a generic room so unassigned tables are not lost.
