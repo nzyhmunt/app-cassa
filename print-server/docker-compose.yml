@@ -36,6 +36,20 @@ services:
       # - PRINTER_2_ID=${PRINTER_2_ID:-}
       # - PRINTER_2_TYPE=${PRINTER_2_TYPE:-file}
       # - PRINTER_2_DEVICE=${PRINTER_2_DEVICE:-/dev/usb/lp0}
+      #
+      # ── Modalità Directus Pull (opzionale) ──────────────────────────────
+      # Imposta DIRECTUS_URL e DIRECTUS_TOKEN per abilitare la lettura diretta
+      # dei job di stampa da Directus (WebSocket real-time + REST polling fallback).
+      # Lascia vuoti per disabilitare la modalità pull (solo HTTP push attivo).
+      - DIRECTUS_URL=${DIRECTUS_URL:-}
+      - DIRECTUS_TOKEN=${DIRECTUS_TOKEN:-}
+      - DIRECTUS_VENUE_ID=${DIRECTUS_VENUE_ID:-}
+      - DIRECTUS_POLL_SEC=${DIRECTUS_POLL_SEC:-60}
+      - DIRECTUS_WS_RETRIES=${DIRECTUS_WS_RETRIES:-100}
+      - DIRECTUS_WS_RETRY_DELAY=${DIRECTUS_WS_RETRY_DELAY:-3000}
+      - DIRECTUS_RETRY_MAX=${DIRECTUS_RETRY_MAX:-3}
+      - DIRECTUS_RETRY_DELAY_MS=${DIRECTUS_RETRY_DELAY_MS:-2000}
+      - DIRECTUS_PRINTERS_REFRESH_SEC=${DIRECTUS_PRINTERS_REFRESH_SEC:-300}
     env_file:
       - path: .env
         required: false

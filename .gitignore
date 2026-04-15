@@ -13,6 +13,9 @@ dist
 dist-ssr
 *.local
 
+# Keep the built Directus extension bundle (needed for deployment without build step)
+!directus-extensions/hooks/print-dispatcher/dist/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

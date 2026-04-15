@@ -132,6 +132,42 @@ function _resetPrinterCache() {
 }
 
 /**
+ * Imposta la lista di stampanti dall'esterno (es. caricata da Directus).
+ * Sovrascrive sia la cache lazy che qualsiasi configurazione locale (env/config).
+ * La nuova lista viene usata immediatamente per tutti i job successivi.
+ *
+ * @param {object[]} list — array di configurazioni stampante
+ *   Ogni voce deve avere:
+ *     id       {string}           — identificatore univoco
+ *     name     {string}           — nome descrittivo
+ *     type     {'tcp'|'file'}     — tipo di connessione
+ *     For type='tcp':
+ *       host    {string}          — IP/hostname (default: '127.0.0.1')
+ *       port    {number}          — porta TCP (default: 9100)
+ *       timeout {number}          — timeout in ms (default: 5000)
+ *     For type='file':
+ *       device  {string}          — percorso device (default: '/dev/usb/lp0')
+ */
+function setPrinters(list) {
+  const printers = Array.isArray(list) ? list : [];
+  _cachedPrinters = printers;
+
+  if (_queues instanceof Map) {
+    const activePrinterIds = new Set(
+      printers
+        .map(p => p && p.id)
+        .filter(id => typeof id === 'string' && id.length > 0)
+    );
+
+    for (const printerId of _queues.keys()) {
+      if (!activePrinterIds.has(printerId)) {
+        _queues.delete(printerId);
+      }
+    }
+  }
+}
+
+/**
  * Restituisce la configurazione della stampante corrispondente a `printerId`.
  * Se non trovata, restituisce la prima stampante come fallback.
  * @param {string|undefined} printerId
@@ -278,5 +314,5 @@ function printToFile(buf, device) {
   });
 }
 
-module.exports = { printBuffer, getPrintersList, getPrinterConfig, findPrinterConfig, loadPrintersFromEnv, _enqueue, _dispatch, _resetPrinterCache };
+module.exports = { printBuffer, getPrintersList, getPrinterConfig, findPrinterConfig, loadPrintersFromEnv, setPrinters, _enqueue, _dispatch, _resetPrinterCache };
 

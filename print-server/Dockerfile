@@ -1,6 +1,6 @@
 # Pin the Node.js version once — shared by both stages.
-# Must satisfy the engines.node constraint in package.json (>=20.19.0).
-ARG NODE_VERSION=20.19.0
+# Must satisfy the engines.node constraint in package.json (>=22).
+ARG NODE_VERSION=22
 
 # ── Build stage ──────────────────────────────────────────────────────────────
 FROM node:${NODE_VERSION}-alpine AS deps
@@ -20,7 +20,7 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 
 # Copy application source
-COPY server.js printer.js printers.config.js ./
+COPY server.js printer.js build-buffer.js directus-client.js printers.config.js ./
 COPY formatters/ ./formatters/
 
 # Default port — can be overridden at runtime via the PORT environment variable
