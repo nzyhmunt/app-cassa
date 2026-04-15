@@ -312,12 +312,17 @@ export const useAppStore = defineStore('app', () => {
       }
       const nextSession = { ...tableCurrentBillSession.value };
       const closingSession = nextSession[order.table];
+      const closedAt = new Date().toISOString();
       delete nextSession[order.table];
       tableCurrentBillSession.value = nextSession;
       setBillRequested(order.table, false);
+      // Persist the local closure immediately so a reload cannot rehydrate
+      // a stale open bill session from IndexedDB before the next pull/sync.
+      Promise.resolve(saveStateToIDB()).catch((error) => {
+        console.error('Failed to persist closed bill session locally', error);
+      });
       // Enqueue bill_session closure so Directus reflects the closed state
       if (closingSession?.billSessionId) {
-        const closedAt = new Date().toISOString();
         enqueue('bill_sessions', 'update', closingSession.billSessionId, {
           status: 'closed', closed_at: closedAt,
         });
