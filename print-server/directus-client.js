@@ -223,7 +223,9 @@ async function fetchAndApplyPrinters(restClient, log) {
       }),
     );
   } catch (err) {
-    log.warn(`[directus-client] Impossibile leggere la collezione printers: ${safeLog(err.message)}`);
+    log.warn(
+      `[directus-client] Impossibile leggere la collezione printers: ${safeLog(err instanceof Error ? err.message : String(err))}`,
+    );
     return false;
   }
 
