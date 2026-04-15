@@ -410,9 +410,9 @@ async function processJob(restClient, job, log) {
             : {};
         const buf = buildEscPosBuffer({ ...safePayload, printType: print_type });
 
-        // Risolve il printer ID: preferisce payload.printerId (campo inviato dal frontend),
-        // usa job.printer (FK) come fallback.
-        const resolvedPrinterId = safePayload.printerId || printerId;
+        // Risolve il printer ID usando come fonte canonica job.printer (FK).
+        // Usa payload.printerId solo come fallback se job.printer è mancante/null.
+        const resolvedPrinterId = printerId ?? safePayload.printerId;
 
         // Invia alla stampante fisica tramite la coda per-printer
         await printBuffer(buf, resolvedPrinterId);
