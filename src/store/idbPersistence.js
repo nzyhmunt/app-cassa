@@ -85,7 +85,20 @@ export async function loadStateFromIDB() {
     // H1: Reconstruct tableCurrentBillSession from the dedicated bill_sessions ObjectStore
     // for any open sessions stored there (e.g. synced from Directus).  The app_meta blob
     // is used as a fallback when no records exist in the ObjectStore yet.
-    let tableCurrentBillSession = tableCurrentBillSessionRecord?.value ?? {};
+    //
+    // Normalize legacy format: older app versions stored { tableId: billSessionIdString }
+    // instead of { tableId: sessionObject }.  Convert any string values to a minimal
+    // session object so the rest of the store always receives a consistent shape.
+    const rawBlob = tableCurrentBillSessionRecord?.value ?? {};
+    const normalizedBlob = Object.fromEntries(
+      Object.entries(rawBlob).map(([tableId, val]) => {
+        if (typeof val === 'string') {
+          return [tableId, { billSessionId: val, table: tableId, status: 'open', adults: 0, children: 0, opened_at: null }];
+        }
+        return [tableId, val];
+      }),
+    );
+    let tableCurrentBillSession = normalizedBlob;
     if (billSessions.length > 0) {
       const fromIDB = {};
       for (const s of billSessions) {

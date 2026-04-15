@@ -2176,7 +2176,7 @@ function confirmPeopleAndOpenTable() {
     if (peopleAdults.value > 0 && cc.priceAdult > 0) {
       coverItems.push({
         uid: newShortId('cop'),
-        dishId: cc.dishId + '_adulto',
+        dishId: null,
         name: cc.name,
         unitPrice: cc.priceAdult,
         quantity: peopleAdults.value,
@@ -2188,7 +2188,7 @@ function confirmPeopleAndOpenTable() {
     if (peopleChildren.value > 0 && cc.priceChild > 0) {
       coverItems.push({
         uid: newShortId('cpc'),
-        dishId: cc.dishId + '_bambino',
+        dishId: null,
         name: cc.name + ' bambino',
         unitPrice: cc.priceChild,
         quantity: peopleChildren.value,
