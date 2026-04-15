@@ -208,11 +208,17 @@ function _mapDirectusPrinters(rawPrinters) {
  * @returns {Promise<boolean>} true se la configurazione è stata aggiornata
  */
 async function fetchAndApplyPrinters(restClient, log) {
+  const directusVenueId = process.env.DIRECTUS_VENUE_ID;
+  const printersFilter = { status: { _eq: 'published' } };
+  if (directusVenueId) {
+    printersFilter.venue = { _eq: directusVenueId };
+  }
+
   let rawPrinters;
   try {
     rawPrinters = await restClient.request(
       readItems('printers', {
-        filter: { status: { _eq: 'published' } },
+        filter: printersFilter,
         fields: PRINTER_FIELDS,
       }),
     );
