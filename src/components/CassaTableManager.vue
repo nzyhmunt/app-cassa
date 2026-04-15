@@ -2230,7 +2230,7 @@ function createNewOrderForTable() {
     totalAmount: 0, itemCount: 0, dietaryPreferences: {}, orderItems: [],
     globalNote: '',
     noteVisibility: { cassa: true, sala: true, cucina: true },
-    venue: appConfig.directus?.venueId ?? null,
+    ...(appConfig.directus?.venueId != null ? { venue: appConfig.directus.venueId } : {}),
   };
   store.addOrder(newOrd);
   closeTableModal();
@@ -2494,7 +2494,7 @@ function processTablePayment(paymentMethodId, extra = {}, overrideAmount = null)
     tipAmount: tip > 0 ? tip : undefined,
     timestamp: new Date().toISOString(),
     orderRefs: [],
-    venue: appConfig.directus?.venueId ?? null,
+    ...(appConfig.directus?.venueId != null ? { venue: appConfig.directus.venueId } : {}),
   };
 
   // Record gross amount and change when customer overpays.
@@ -2642,7 +2642,7 @@ function applyDiscount() {
     amountPaid: discountPreview.value,
     timestamp: new Date().toISOString(),
     orderRefs: [],
-    venue: appConfig.directus?.venueId ?? null,
+    ...(appConfig.directus?.venueId != null ? { venue: appConfig.directus.venueId } : {}),
   });
 
   discountInput.value = '';

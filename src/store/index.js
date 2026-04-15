@@ -418,7 +418,7 @@ export const useAppStore = defineStore('app', () => {
       tipAmount: tipValue,
       timestamp: new Date().toISOString(),
       orderRefs: [],
-      venue: appConfig.directus?.venueId ?? null,
+      ...(appConfig.directus?.venueId != null ? { venue: appConfig.directus.venueId } : {}),
     };
     transactions.value.push(txn);
     enqueue('transactions', 'create', txn.id, txn);
@@ -461,7 +461,7 @@ export const useAppStore = defineStore('app', () => {
       amount: parseFloat(amount) || 0,
       reason,
       timestamp: new Date().toISOString(),
-      venue: appConfig.directus?.venueId ?? null,
+      ...(appConfig.directus?.venueId != null ? { venue: appConfig.directus.venueId } : {}),
     };
     cashMovements.value.push(mov);
     enqueue('cash_movements', 'create', mov.id, mov);
@@ -486,7 +486,7 @@ export const useAppStore = defineStore('app', () => {
       orderItems: [
         { uid: newShortId('r'), dishId: 'pri_2', name: 'Amatriciana', unitPrice: 12, quantity: 1, voidedQuantity: 0, notes: [], modifiers: [] },
       ],
-      venue: appConfig.directus?.venueId ?? null,
+      ...(appConfig.directus?.venueId != null ? { venue: appConfig.directus.venueId } : {}),
     });
     const cc = config.value.coverCharge;
     if (cc?.enabled && cc?.autoAdd && cc?.priceAdult > 0) {

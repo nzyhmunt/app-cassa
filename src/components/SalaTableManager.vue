@@ -549,7 +549,7 @@ function createNewOrder() {
     orderItems: [],
     globalNote: '',
     noteVisibility: { cassa: true, sala: true, cucina: true },
-    venue: appConfig.directus?.venueId ?? null,
+    ...(appConfig.directus?.venueId != null ? { venue: appConfig.directus.venueId } : {}),
   };
   store.addOrder(newOrd);
   closeTableModal();
