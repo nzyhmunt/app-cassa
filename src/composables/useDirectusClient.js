@@ -89,17 +89,36 @@ export function loadDirectusConfigFromStorage() {
     const storageKey = resolveDirectusConfigKey();
     const legacyStorageKey = 'directus-config';
     let raw = window.localStorage.getItem(storageKey);
+    let saved = null;
 
-    if (!raw) {
-      raw = window.localStorage.getItem(legacyStorageKey);
-      if (!raw) return;
+    if (raw) {
+      try {
+        saved = JSON.parse(raw);
+      } catch (e) {
+        console.warn(`[DirectusClient] Failed to parse config from storage key "${storageKey}", removing invalid value:`, e);
+        window.localStorage.removeItem(storageKey);
+        raw = null;
+      }
+    }
+
+    if (!saved) {
+      const legacyRaw = window.localStorage.getItem(legacyStorageKey);
+      if (!legacyRaw) return;
+
+      try {
+        saved = JSON.parse(legacyRaw);
+        raw = legacyRaw;
+      } catch (e) {
+        console.warn(`[DirectusClient] Failed to parse config from legacy storage key "${legacyStorageKey}", removing invalid value:`, e);
+        window.localStorage.removeItem(legacyStorageKey);
+        return;
+      }
 
       if (storageKey !== legacyStorageKey) {
         window.localStorage.setItem(storageKey, raw);
         window.localStorage.removeItem(legacyStorageKey);
       }
     }
-    const saved = JSON.parse(raw);
     if (saved && typeof saved === 'object') {
       appConfig.directus = {
         enabled: typeof saved.enabled === 'boolean' ? saved.enabled : false,
