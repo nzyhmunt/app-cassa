@@ -351,9 +351,9 @@ async function processJob(restClient, job, log) {
     if (attempt > 0) await sleep(RETRY_DELAY_MS);
     try {
       // Costruisce il Buffer ESC/POS dal payload del job.
-      // Unisce print_type (campo Directus snake_case) come printType (camelCase)
-      // richiesto dal formatter, preservando tutti i campi del payload.
-      const buf = buildEscPosBuffer({ printType: print_type, ...payload });
+      // Unisce il payload preservandone i campi, ma forza sempre printType
+      // dal campo Directus print_type per evitare inconsistenze di formato.
+      const buf = buildEscPosBuffer({ ...payload, printType: print_type });
 
       // Risolve il printer ID: preferisce payload.printerId (campo inviato dal frontend),
       // usa job.printer (FK) come fallback.
