@@ -291,12 +291,13 @@ function _syncFormFromConfig() {
  *  with an authenticated /users/me fallback if the ping endpoint returns a
  *  5xx error (e.g. 503 from a reverse proxy). */
 async function testConnection() {
-  if (!form.url || !form.staticToken) return;
+  const normalizedUrl = form.url.trim();
+  if (!normalizedUrl || !form.staticToken) return;
   testing.value = true;
   connectionStatus.value = 'testing';
   connectionMessage.value = 'Connessione in corso…';
 
-  const baseUrl = form.url.replace(/\/$/, '');
+  const baseUrl = normalizedUrl.replace(/\/$/, '');
 
   // Fallback timer IDs for environments that don't support AbortSignal.timeout;
   // stored here so they can all be cancelled in the finally block.
