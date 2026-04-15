@@ -89,11 +89,15 @@ export async function loadStateFromIDB() {
     // Normalize legacy format: older app versions stored { tableId: billSessionIdString }
     // instead of { tableId: sessionObject }.  Convert any string values to a minimal
     // session object so the rest of the store always receives a consistent shape.
+    /** @param {string} tableId @param {string} billSessionId */
+    const makeLegacySession = (tableId, billSessionId) => ({
+      billSessionId, table: tableId, status: 'open', adults: 0, children: 0, opened_at: null,
+    });
     const rawBlob = tableCurrentBillSessionRecord?.value ?? {};
     const normalizedBlob = Object.fromEntries(
       Object.entries(rawBlob).map(([tableId, val]) => {
         if (typeof val === 'string') {
-          return [tableId, { billSessionId: val, table: tableId, status: 'open', adults: 0, children: 0, opened_at: null }];
+          return [tableId, makeLegacySession(tableId, val)];
         }
         return [tableId, val];
       }),
