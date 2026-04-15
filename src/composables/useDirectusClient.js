@@ -85,8 +85,20 @@ export function resetDirectusClient() {
 export function loadDirectusConfigFromStorage() {
   try {
     if (typeof window === 'undefined' || !window.localStorage) return;
-    const raw = window.localStorage.getItem(resolveDirectusConfigKey());
-    if (!raw) return;
+
+    const storageKey = resolveDirectusConfigKey();
+    const legacyStorageKey = 'directus-config';
+    let raw = window.localStorage.getItem(storageKey);
+
+    if (!raw) {
+      raw = window.localStorage.getItem(legacyStorageKey);
+      if (!raw) return;
+
+      if (storageKey !== legacyStorageKey) {
+        window.localStorage.setItem(storageKey, raw);
+        window.localStorage.removeItem(legacyStorageKey);
+      }
+    }
     const saved = JSON.parse(raw);
     if (saved && typeof saved === 'object') {
       appConfig.directus = {
