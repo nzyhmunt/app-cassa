@@ -424,7 +424,6 @@ export const useAppStore = defineStore('app', () => {
    */
   function addDirectOrder(tableId, billSessionId, items) {
     if (!tableId || !Array.isArray(items) || items.length === 0) return null;
-    const h = new Date();
     const order = {
       id: newUUIDv7(),
       table: tableId,
