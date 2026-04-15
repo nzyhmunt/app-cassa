@@ -485,12 +485,16 @@ async function _runGlobalPull() {
       //  - always force full pull on initial global hydration after startSync
       //  - force full pull when stored cursor is clearly invalid (future timestamp)
       let forceFull = !_initialGlobalHydrationDone;
+      let lastPullTimestamp = null;
       if (!forceFull) {
-        const lastPullTimestamp = await loadLastPullTsFromIDB(collection);
+        lastPullTimestamp = await loadLastPullTsFromIDB(collection);
         const timestampMs = lastPullTimestamp ? Date.parse(lastPullTimestamp) : NaN;
-        if (Number.isFinite(timestampMs) && timestampMs > Date.now()) forceFull = true;
+        if (Number.isFinite(timestampMs) && timestampMs > Date.now()) {
+          forceFull = true;
+          lastPullTimestamp = null;
+        }
       }
-      await _pullCollection(collection, { forceFull });
+      await _pullCollection(collection, { forceFull, sinceTs: lastPullTimestamp });
     }
     _initialGlobalHydrationDone = true;
 
