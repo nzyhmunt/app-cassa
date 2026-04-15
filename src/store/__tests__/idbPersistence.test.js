@@ -68,7 +68,7 @@ describe('saveStateToIDB() + loadStateFromIDB()', () => {
   it('round-trips orders and transactions', async () => {
     const testState = {
       orders: [{ id: 'ord_1', table: 'T1', status: 'open' }],
-      transactions: [{ transactionId: 'tx_1', amount: 10 }],
+      transactions: [{ id: 'tx_1', amount: 10 }],
       cashBalance: 42.5,
       cashMovements: [],
       dailyClosures: [],
@@ -83,7 +83,7 @@ describe('saveStateToIDB() + loadStateFromIDB()', () => {
     const loaded = await loadStateFromIDB();
 
     expect(loaded.orders).toEqual([{ id: 'ord_1', table: 'T1', status: 'open' }]);
-    expect(loaded.transactions).toEqual([{ transactionId: 'tx_1', amount: 10 }]);
+    expect(loaded.transactions).toEqual([{ id: 'tx_1', amount: 10 }]);
     expect(loaded.cashBalance).toBe(42.5);
     expect(loaded.tableCurrentBillSession).toEqual({ T1: 'bill_1' });
     expect(loaded.tableOccupiedAt).toEqual({ T1: '2024-01-01T12:00:00.000Z' });
@@ -195,7 +195,7 @@ describe('saveStateToIDB() + loadStateFromIDB()', () => {
     // Seed full state
     await saveStateToIDB({
       orders: [{ id: 'ord_1' }],
-      transactions: [{ transactionId: 'tx_1', amount: 5 }],
+      transactions: [{ id: 'tx_1', amount: 5 }],
       cashBalance: 10,
       cashMovements: [{ id: 'cm_1' }],
       dailyClosures: [],
@@ -212,7 +212,7 @@ describe('saveStateToIDB() + loadStateFromIDB()', () => {
 
     expect(loaded.orders).toEqual([{ id: 'ord_2' }]);
     // All other stores must be unchanged
-    expect(loaded.transactions).toEqual([{ transactionId: 'tx_1', amount: 5 }]);
+    expect(loaded.transactions).toEqual([{ id: 'tx_1', amount: 5 }]);
     expect(loaded.cashBalance).toBe(10);
     expect(loaded.cashMovements).toEqual([{ id: 'cm_1' }]);
     expect(loaded.tableCurrentBillSession).toEqual({ T1: 'bill_1' });
@@ -272,7 +272,7 @@ describe('clearAllStateFromIDB()', () => {
   it('removes all operative data', async () => {
     await saveStateToIDB({
       orders: [{ id: 'ord_1' }],
-      transactions: [{ transactionId: 'tx_1', amount: 5 }],
+      transactions: [{ id: 'tx_1', amount: 5 }],
       cashBalance: 50,
       cashMovements: [{ id: 'cm_1' }],
       dailyClosures: [{ id: 'dc_1' }],

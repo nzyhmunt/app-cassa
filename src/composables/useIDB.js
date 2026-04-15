@@ -10,7 +10,7 @@
 import { openDB } from 'idb';
 import { getInstanceName } from '../store/persistence.js';
 
-export const DB_VERSION = 3;
+export const DB_VERSION = 4;
 const DB_NAME_PREFIX = 'app-cassa';
 
 /** @type {Promise<import('idb').IDBPDatabase>|null} */
@@ -61,10 +61,14 @@ export function getDB() {
         s.createIndex('date_updated', 'date_updated', { unique: false });
       }
 
-      // NOTE: keyPath is 'transactionId' to match the current in-memory shape.
-      // Will be normalised to 'id' in the Directus-sync step.
+      // Transactions use `id` as keyPath (aligned with Directus schema).
+      // v3 → v4 migration: recreate the store with keyPath `id` (no data migration
+      // needed — the app is in active development and retro-compatibility is not required).
+      if (oldVersion < 4 && db.objectStoreNames.contains('transactions')) {
+        db.deleteObjectStore('transactions');
+      }
       if (!db.objectStoreNames.contains('transactions')) {
-        const s = db.createObjectStore('transactions', { keyPath: 'transactionId' });
+        const s = db.createObjectStore('transactions', { keyPath: 'id' });
         s.createIndex('table', 'tableId', { unique: false });
         s.createIndex('bill_session', 'billSessionId', { unique: false });
         s.createIndex('date_updated', 'date_updated', { unique: false });
@@ -142,7 +146,9 @@ export function getDB() {
         }
       }
 
-      // NOTE: keyPath is 'logId' to match the current in-memory shape.
+      // print_jobs: LOCAL-ONLY store — never synced with Directus (not in PULL_CONFIG or
+      // GLOBAL_COLLECTIONS). logId is a short client-generated ID, not a Directus UUID.
+      // Decision B2 from PIANO_LAVORO.md: keep as local audit trail only.
       if (!db.objectStoreNames.contains('print_jobs')) {
         const s = db.createObjectStore('print_jobs', { keyPath: 'logId' });
         s.createIndex('status', 'status', { unique: false });

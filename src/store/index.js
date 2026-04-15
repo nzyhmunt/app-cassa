@@ -17,7 +17,7 @@
 import { defineStore } from 'pinia';
 import { ref, computed, watch } from 'vue';
 import { appConfig, updateOrderTotals, KITCHEN_ACTIVE_STATUSES, KEYBOARD_POSITIONS } from '../utils/index.js';
-import { newUUID } from './storeUtils.js';
+import { newUUIDv7, newShortId } from './storeUtils.js';
 import { makeTableOps } from './tableOps.js';
 import { makeReportOps } from './reportOps.js';
 import { loadStateFromIDB, saveStateToIDB, loadSettingsFromIDB, saveFiscalReceiptToIDB, saveInvoiceRequestToIDB, loadFiscalReceiptsFromIDB, loadInvoiceRequestsFromIDB, pruneFiscalReceiptsInIDB, pruneInvoiceRequestsInIDB } from './idbPersistence.js';
@@ -271,14 +271,16 @@ export const useAppStore = defineStore('app', () => {
   }
 
   function openTableSession(tableId, adults = 0, children = 0) {
-    const billSessionId = newUUID('bill');
-    const session = { billSessionId, adults, children };
+    const billSessionId = newUUIDv7();
+    const now = new Date().toISOString();
+    const session = { billSessionId, adults, children, table: tableId, status: 'open', opened_at: now };
     tableCurrentBillSession.value = {
       ...tableCurrentBillSession.value,
       [tableId]: session,
     };
     enqueue('bill_sessions', 'create', billSessionId, {
-      id: billSessionId, table: tableId, adults, children, status: 'open',
+      id: billSessionId, table: tableId, adults, children, status: 'open', opened_at: now,
+      venue: appConfig.directus?.venueId ?? null,
     });
     return billSessionId;
   }
@@ -309,9 +311,17 @@ export const useAppStore = defineStore('app', () => {
         tableMergedInto.value = nextMerge;
       }
       const nextSession = { ...tableCurrentBillSession.value };
+      const closingSession = nextSession[order.table];
       delete nextSession[order.table];
       tableCurrentBillSession.value = nextSession;
       setBillRequested(order.table, false);
+      // Enqueue bill_session closure so Directus reflects the closed state
+      if (closingSession?.billSessionId) {
+        const closedAt = new Date().toISOString();
+        enqueue('bill_sessions', 'update', closingSession.billSessionId, {
+          status: 'closed', closed_at: closedAt,
+        });
+      }
     }
     enqueue('orders', 'update', order.id, { status: newStatus, rejectionReason: order.rejectionReason ?? null });
   }
@@ -386,13 +396,13 @@ export const useAppStore = defineStore('app', () => {
   function addTransaction(txn) {
     transactions.value.push(txn);
     if (txn.tableId) setBillRequested(txn.tableId, false);
-    enqueue('transactions', 'create', txn.transactionId, txn);
+    enqueue('transactions', 'create', txn.id, txn);
   }
 
   function addTipTransaction(tableId, billSessionId, tipValue) {
     if (!tableId || tipValue <= 0) return;
     const txn = {
-      transactionId: newUUID('tip'),
+      id: newUUIDv7(),
       tableId,
       billSessionId: billSessionId ?? null,
       paymentMethod: 'Mancia',
@@ -401,9 +411,10 @@ export const useAppStore = defineStore('app', () => {
       tipAmount: tipValue,
       timestamp: new Date().toISOString(),
       orderRefs: [],
+      venue: appConfig.directus?.venueId ?? null,
     };
     transactions.value.push(txn);
-    enqueue('transactions', 'create', txn.transactionId, txn);
+    enqueue('transactions', 'create', txn.id, txn);
   }
 
   // ── Direct orders (bypass kitchen workflow) ────────────────────────────────
@@ -413,17 +424,19 @@ export const useAppStore = defineStore('app', () => {
    */
   function addDirectOrder(tableId, billSessionId, items) {
     if (!tableId || !Array.isArray(items) || items.length === 0) return null;
+    const h = new Date();
     const order = {
-      id: newUUID('ord'),
+      id: newUUIDv7(),
       table: tableId,
       billSessionId: billSessionId ?? null,
       status: 'pending',
-      time: new Date().toLocaleTimeString(appConfig.locale, { hour: '2-digit', minute: '2-digit', timeZone: appConfig.timezone }),
+      time: String(h.getHours()).padStart(2, '0') + ':' + String(h.getMinutes()).padStart(2, '0'),
       totalAmount: 0,
       itemCount: 0,
       dietaryPreferences: {},
       orderItems: items.map(item => ({ ...item })),
       isDirectEntry: true,
+      venue: appConfig.directus?.venueId ?? null,
     };
     updateOrderTotals(order);
     addOrder(order);
@@ -437,11 +450,12 @@ export const useAppStore = defineStore('app', () => {
 
   function addCashMovement(type, amount, reason) {
     const mov = {
-      id: newUUID('mov'),
+      id: newUUIDv7(),
       type,
       amount: parseFloat(amount) || 0,
       reason,
       timestamp: new Date().toISOString(),
+      venue: appConfig.directus?.venueId ?? null,
     };
     cashMovements.value.push(mov);
     enqueue('cash_movements', 'create', mov.id, mov);
@@ -450,10 +464,11 @@ export const useAppStore = defineStore('app', () => {
   function simulateNewOrder() {
     const num = Math.floor(Math.random() * 12) + 1;
     const newTav = num < 10 ? '0' + num : '' + num;
-    const now = new Date().toLocaleTimeString(appConfig.locale, { hour: '2-digit', minute: '2-digit', timeZone: appConfig.timezone });
+    const h = new Date();
+    const now = String(h.getHours()).padStart(2, '0') + ':' + String(h.getMinutes()).padStart(2, '0');
     const session = tableCurrentBillSession.value[newTav];
     orders.value.push({
-      id: newUUID('ord'),
+      id: newUUIDv7(),
       table: newTav,
       billSessionId: session?.billSessionId ?? null,
       status: 'pending',
@@ -466,11 +481,12 @@ export const useAppStore = defineStore('app', () => {
       orderItems: [
         { uid: `r_${Date.now()}`, dishId: 'pri_2', name: 'Amatriciana', unitPrice: 12, quantity: 1, voidedQuantity: 0, notes: [], modifiers: [] },
       ],
+      venue: appConfig.directus?.venueId ?? null,
     });
     const cc = config.value.coverCharge;
     if (cc?.enabled && cc?.autoAdd && cc?.priceAdult > 0) {
       const coverOrder = addDirectOrder(newTav, session?.billSessionId ?? null, [
-        { uid: newUUID('cop'), dishId: cc.dishId + '_adulto', name: cc.name, unitPrice: cc.priceAdult, quantity: 2, voidedQuantity: 0, notes: [], modifiers: [] },
+        { uid: newShortId('cop'), dishId: cc.dishId + '_adulto', name: cc.name, unitPrice: cc.priceAdult, quantity: 2, voidedQuantity: 0, notes: [], modifiers: [] },
       ]);
       if (coverOrder) coverOrder.isCoverCharge = true;
     }

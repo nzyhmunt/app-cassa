@@ -286,6 +286,7 @@ import {
   Grid3x3, Users, Timer, X, Coffee, ChevronRight, Plus, ArrowRightLeft, Merge, Zap, Link,
 } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
+import { newUUIDv7, newShortId } from '../store/storeUtils.js';
 import { appConfig } from '../utils/index.js';
 // Shared component — used by both Sala and Cassa apps.
 import PeopleModal from './shared/PeopleModal.vue';
@@ -494,7 +495,7 @@ function confirmPeopleAndOpenTable() {
     const coverItems = [];
     if (peopleAdults.value > 0 && cc.priceAdult > 0) {
       coverItems.push({
-        uid: 'cop_a_' + Math.random().toString(36).slice(2, 11),
+        uid: newShortId('cop'),
         dishId: cc.dishId + '_adulto',
         name: cc.name,
         unitPrice: cc.priceAdult,
@@ -505,7 +506,7 @@ function confirmPeopleAndOpenTable() {
     }
     if (peopleChildren.value > 0 && cc.priceChild > 0) {
       coverItems.push({
-        uid: 'cop_c_' + Math.random().toString(36).slice(2, 11),
+        uid: newShortId('cpc'),
         dishId: cc.dishId + '_bambino',
         name: cc.name + ' bambino',
         unitPrice: cc.priceChild,
@@ -536,19 +537,19 @@ function createNewOrder() {
   const sessionTableId = isActiveMergedSlave ? masterId : selectedTable.value.id;
   const session = store.tableCurrentBillSession[sessionTableId];
 
-  // TODO API: replace store.addOrder() with POST /api/orders when API is available
   const newOrd = {
-    id: 'ord_' + Math.random().toString(36).slice(2, 11),
+    id: newUUIDv7(),
     table: sessionTableId,
     billSessionId: session?.billSessionId ?? null,
     status: 'pending',
-    time: new Date().toLocaleTimeString(appConfig.locale, { hour: '2-digit', minute: '2-digit', timeZone: appConfig.timezone }),
+    time: String(new Date().getHours()).padStart(2, '0') + ':' + String(new Date().getMinutes()).padStart(2, '0'),
     totalAmount: 0,
     itemCount: 0,
     dietaryPreferences: {},
     orderItems: [],
     globalNote: '',
     noteVisibility: { cassa: true, sala: true, cucina: true },
+    venue: appConfig.directus?.venueId ?? null,
   };
   store.addOrder(newOrd);
   closeTableModal();

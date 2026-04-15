@@ -57,6 +57,7 @@ export async function loadStateFromIDB() {
       cashMovements,
       dailyClosures,
       printLogRaw,
+      billSessions,
       cashBalanceRecord,
       tableCurrentBillSessionRecord,
       tableMergeRecords,
@@ -69,6 +70,7 @@ export async function loadStateFromIDB() {
       db.getAll('cash_movements'),
       db.getAll('daily_closures'),
       db.getAll('print_jobs'),
+      db.getAllFromIndex('bill_sessions', 'status', 'open'),
       db.get('app_meta', 'cashBalance'),
       db.get('app_meta', 'tableCurrentBillSession'),
       db.getAll('table_merge_sessions'),
@@ -80,6 +82,27 @@ export async function loadStateFromIDB() {
     // printLog: strip payload field (same behaviour as the old localStorage serialiser)
     const printLog = printLogRaw.map(({ payload: _p, ...rest }) => rest);
 
+    // H1: Reconstruct tableCurrentBillSession from the dedicated bill_sessions ObjectStore
+    // for any open sessions stored there (e.g. synced from Directus).  The app_meta blob
+    // is used as a fallback when no records exist in the ObjectStore yet.
+    let tableCurrentBillSession = tableCurrentBillSessionRecord?.value ?? {};
+    if (billSessions.length > 0) {
+      const fromIDB = {};
+      for (const s of billSessions) {
+        if (!s.table) continue;
+        fromIDB[s.table] = {
+          billSessionId: s.id,
+          adults: s.adults ?? 0,
+          children: s.children ?? 0,
+          table: s.table,
+          status: s.status,
+          opened_at: s.opened_at ?? null,
+        };
+      }
+      // Merge: IDB records take precedence over the app_meta blob
+      tableCurrentBillSession = { ...tableCurrentBillSession, ...fromIDB };
+    }
+
     return {
       orders,
       transactions,
@@ -87,7 +110,7 @@ export async function loadStateFromIDB() {
       cashMovements,
       dailyClosures,
       printLog,
-      tableCurrentBillSession: tableCurrentBillSessionRecord?.value ?? {},
+      tableCurrentBillSession,
       // Prefer the dedicated store; fall back to the legacy app_meta blob if the
       // v2→v3 migration did not populate table_merge_sessions (the upgrade handler warns).
       tableMergedInto: tableMergeRecords.length > 0
@@ -638,11 +661,11 @@ export async function upsertRecordsIntoIDB(storeName, records) {
   if (!records || records.length === 0) return 0;
 
   // Hardcoded keyPath overrides for stores that deviate from the default 'id'.
-  // All other stores (orders, bill_sessions, order_items, etc.) use 'id'.
+  // All other stores (orders, bill_sessions, transactions, order_items, etc.) use 'id'.
+  // Note: print_jobs is LOCAL-ONLY (not synced with Directus) — its keyPath 'logId' is
+  // intentionally excluded here since no Directus records are ever upserted for it.
   const KEY_PATH_OVERRIDES = {
-    transactions: 'transactionId',
     table_merge_sessions: 'slave_table',
-    print_jobs: 'logId',
   };
   const keyPath = KEY_PATH_OVERRIDES[storeName] ?? 'id';
 

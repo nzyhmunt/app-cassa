@@ -54,7 +54,7 @@
         <div class="space-y-1.5">
           <div
             v-for="txn in bill.transactions"
-            :key="txn.transactionId"
+            :key="txn.id"
             class="flex items-center justify-between rounded-xl px-3 py-2 border"
             :class="txn.operationType === 'discount' ? 'bg-amber-50 border-amber-100' : 'bg-emerald-50 border-emerald-100'"
           >

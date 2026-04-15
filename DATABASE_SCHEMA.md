@@ -1119,7 +1119,7 @@ WHERE o."table" = :table_id
 ### 5.2c Tavoli uniti (`tableMergedInto`)
 
 La funzione **Unisci** in App Cassa permette di accorpare il conto di due tavoli occupati.
-L'unione è rappresentata in memoria in store dallo stato reattivo `tableMergedInto` (oggetto `{ slaveTableId: masterTableId }`), persistito nell'ObjectStore IndexedDB dedicato **`table_merge_sessions`** (DB_VERSION = 3). La chiave `app_meta.tableMergedInto` è **legacy** e viene letta solo come fallback di compatibilità durante il primo avvio dopo una migrazione v2 → v3 che non avesse popolato `table_merge_sessions`.
+L'unione è rappresentata in memoria in store dallo stato reattivo `tableMergedInto` (oggetto `{ slaveTableId: masterTableId }`), persistito nell'ObjectStore IndexedDB dedicato **`table_merge_sessions`** (DB_VERSION = 4). La chiave `app_meta.tableMergedInto` è **legacy** e viene letta solo come fallback di compatibilità durante il primo avvio dopo una migrazione v2 → v3 che non avesse popolato `table_merge_sessions`.
 
 Semantica:
 - Al momento dell'unione (`mergeTableOrders`), vengono fisicamente spostate sul tavolo master **solo le comande appartenenti alla sessione di conto attiva dello slave** (`orders[]."table" = masterTableId` per gli ordini della current bill session). Il conto del master assorbe immediatamente queste voci attive.
@@ -1362,7 +1362,6 @@ formato Directus (snake\_case, campi FK senza suffisso `_id`):
 | `orderId`                     | `order`                   |
 | `dishId`                      | `dish`                    |
 | `tableId`                     | `table`                   |
-| `transactionId`               | `id` (PK)                 |
 | `totalAmount`                 | `total_amount`            |
 | `itemCount`                   | `item_count`              |
 | `operationType`               | `operation_type`          |

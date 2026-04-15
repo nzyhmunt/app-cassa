@@ -198,7 +198,8 @@ describe('addDirectOrder()', () => {
     const result = store.addDirectOrder('01', 'session_abc', items);
 
     expect(typeof result.id).toBe('string');
-    expect(result.id).toMatch(/^ord_/);
+    // IDs are bare UUID v7 (no prefix) — verify it looks like a valid UUID
+    expect(result.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
   });
 
   it('two successive calls produce different order ids', () => {
