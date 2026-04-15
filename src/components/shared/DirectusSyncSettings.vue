@@ -345,7 +345,9 @@ async function testConnection() {
         connectionMessage.value = 'Connessione riuscita';
       } else {
         connectionStatus.value = 'error';
-        connectionMessage.value = `Errore HTTP ${meRes.status}`;
+        connectionMessage.value = (meRes.status === 401 || meRes.status === 403)
+          ? `Token non valido (HTTP ${meRes.status})`
+          : `Errore HTTP ${meRes.status}`;
       }
     } else {
       connectionStatus.value = 'error';
