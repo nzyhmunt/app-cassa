@@ -172,9 +172,13 @@ function _mergeIntoStore(collection, records, store) {
         const incomingTs = incoming.date_updated ?? '';
         if (!existingSession || incomingTs > existingTs) {
           currentSessions[tableId] = {
+            ...(existingSession ?? {}),
             billSessionId: incoming.billSessionId ?? incoming.id,
             adults: incoming.adults ?? 0,
             children: incoming.children ?? 0,
+            table: incoming.table ?? existingSession?.table,
+            status: incoming.status ?? existingSession?.status,
+            opened_at: incoming.opened_at ?? existingSession?.opened_at ?? null,
           };
         }
       } else if (incoming.status === 'closed') {
