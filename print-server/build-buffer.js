@@ -23,8 +23,11 @@ function buildEscPosBuffer(job) {
     case 'order':      return formatOrder(job);
     case 'table_move': return formatTableMove(job);
     case 'pre_bill':   return formatPreBill(job);
-    default:
-      throw new Error(`Tipo di stampa non supportato: ${job.printType}`);
+    default: {
+      const err = new Error(`Tipo di stampa non supportato: ${job.printType}`);
+      err.permanent = true;
+      throw err;
+    }
   }
 }
 
