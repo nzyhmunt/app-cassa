@@ -449,7 +449,7 @@ describe('global pull config hydration', () => {
     const sync = useDirectusSync();
     const store = makeStore();
     sync.startSync({ appType: 'cucina', store });
-    await flushPromises(80);
+    await flushPromises(LONG_FLUSH_ROUNDS);
     sync.stopSync();
 
     const tableCalls = fetchSpy.mock.calls
