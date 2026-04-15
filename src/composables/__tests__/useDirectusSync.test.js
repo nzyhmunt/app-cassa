@@ -31,6 +31,44 @@ async function flushPromises(rounds = 30) {
   for (let i = 0; i < rounds; i++) await Promise.resolve();
 }
 
+/**
+ * Returns true when a Directus request URL contains a `date_updated > X` filter.
+ * Supports both query styles:
+ *  - bracketed params: `filter[date_updated][_gt]=...`
+ *  - JSON filter param: `filter={"date_updated":{"_gt":"..."}}`
+ *
+ * @param {string} urlString
+ * @returns {boolean}
+ */
+function hasDateUpdatedGtFilter(urlString) {
+  const url = new URL(String(urlString));
+  const keys = Array.from(url.searchParams.keys());
+
+  // Pattern like filter[date_updated][_gt]=...
+  if (keys.some(k => k.includes('date_updated') && k.includes('_gt'))) return true;
+
+  // Pattern like filter={...} JSON-encoded
+  const rawFilter = url.searchParams.get('filter');
+  if (!rawFilter) return false;
+
+  try {
+    const parsed = JSON.parse(rawFilter);
+    const stack = [parsed];
+    while (stack.length > 0) {
+      const node = stack.pop();
+      if (!node || typeof node !== 'object') continue;
+      if (node.date_updated?._gt !== undefined) {
+        return true;
+      }
+      for (const v of Object.values(node)) stack.push(v);
+    }
+  } catch {
+    // Ignore unparseable filter formats in this helper
+  }
+
+  return false;
+}
+
 function directusListResponse(data = []) {
   return new Response(JSON.stringify({ data }), {
     status: 200,
@@ -107,15 +145,20 @@ describe('startSync()', () => {
   });
 
   it('does not start twice (singleton guard)', async () => {
-    // Provide a mock that returns empty data for all collections
-    const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation(() => Promise.resolve(directusListResponse([])));
+    // Keep requests pending so call counts are stable and attributable to each startSync call.
+    const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation(() => new Promise(() => {}));
     const sync = useDirectusSync();
     const store = makeStore();
 
     sync.startSync({ appType: 'cassa', store });
-    const callsBeforeSecondStart = fetchSpy.mock.calls.length;
-    sync.startSync({ appType: 'cassa', store }); // second call — should be ignored immediately
-    expect(fetchSpy.mock.calls.length).toBe(callsBeforeSecondStart);
+    await flushPromises();
+    const callsAfterFirstStart = fetchSpy.mock.calls.length;
+
+    sync.startSync({ appType: 'cassa', store }); // second call — should be ignored
+    await flushPromises();
+
+    expect(fetchSpy.mock.calls.length).toBe(callsAfterFirstStart);
+    sync.stopSync();
   });
 });
 
@@ -393,7 +436,7 @@ describe('pull timestamp persistence', () => {
 });
 
 describe('global pull config hydration', () => {
-  it('pulls tables globally without date_updated filter even when last_pull_ts is stale', async () => {
+  it('uses full pull on first global hydration even when tables last_pull_ts is stale', async () => {
     // Simulate stale incremental cursor that would otherwise exclude older rows.
     await saveLastPullTsToIDB('tables', '2099-01-01T00:00:00.000Z');
 
@@ -410,9 +453,7 @@ describe('global pull config hydration', () => {
       .filter(url => url.includes('/items/tables'));
     expect(tableCalls.length).toBeGreaterThan(0);
     for (const url of tableCalls) {
-      expect(url.includes('2099-01-01T00%3A00%3A00.000Z')).toBe(false);
-      expect(url.includes('date_updated][_gt]')).toBe(false);
-      expect(url.includes('date_updated%5D%5B_gt%5D')).toBe(false);
+      expect(hasDateUpdatedGtFilter(url)).toBe(false);
     }
   });
 });

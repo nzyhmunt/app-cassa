@@ -415,6 +415,7 @@ let _running = false;
 let _pushTimer = null;
 let _pollTimer = null;
 let _globalTimer = null;
+let _initialGlobalHydrationDone = false;
 /** @type {object|null} */
 let _store = null;
 /** @type {'cassa'|'sala'|'cucina'} */
@@ -479,12 +480,19 @@ async function _runGlobalPull() {
   const venueId = appConfig.directus?.venueId ?? null;
 
   try {
-    // Force full pulls for global config collections so stale incremental cursors
-    // (for example from a previous venue/config) cannot block initial hydration of
-    // tables/menu and related configuration records.
     for (const collection of GLOBAL_COLLECTIONS) {
-      await _pullCollection(collection, { forceFull: true });
+      // Keep global pull incremental by default (lower backend load), but:
+      //  - always force full pull on initial global hydration after startSync
+      //  - force full pull when stored cursor is clearly invalid (future timestamp)
+      let forceFull = !_initialGlobalHydrationDone;
+      if (!forceFull) {
+        const lastPullTimestamp = await loadLastPullTsFromIDB(collection);
+        const timestampMs = lastPullTimestamp ? Date.parse(lastPullTimestamp) : NaN;
+        if (Number.isFinite(timestampMs) && timestampMs > Date.now()) forceFull = true;
+      }
+      await _pullCollection(collection, { forceFull });
     }
+    _initialGlobalHydrationDone = true;
 
     // H3: table_merge_sessions — full-replace semantics.
     // Fetched with a full (non-incremental) pull and replaced atomically in IDB
@@ -540,6 +548,7 @@ export function useDirectusSync() {
 
     _appType = appType ?? 'cassa';
     _store = store;
+    _initialGlobalHydrationDone = false;
     _running = true;
 
     const pullCfg = PULL_CONFIG[_appType] ?? PULL_CONFIG.cassa;
@@ -581,6 +590,7 @@ export function useDirectusSync() {
 
   function stopSync() {
     _running = false;
+    _initialGlobalHydrationDone = false;
     _store = null;
     if (_pushTimer) { clearInterval(_pushTimer); _pushTimer = null; }
     if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
@@ -619,6 +629,7 @@ export function useDirectusSync() {
  */
 export function _resetDirectusSyncSingleton() {
   _running = false;
+  _initialGlobalHydrationDone = false;
   _store = null;
   _appType = 'cassa';
   if (_pushTimer) { clearInterval(_pushTimer); _pushTimer = null; }
