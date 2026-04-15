@@ -59,6 +59,10 @@ const GLOBAL_COLLECTIONS = [
   // it requires full-replace semantics (dissolved merges must be removed).
 ];
 const GLOBAL_INTERVAL_MS = 5 * 60_000;
+// Allow substantial device/server clock drift before treating last_pull_ts as invalid.
+// 24h avoids perpetual full-refreshes on slightly misconfigured tablets while still
+// catching clearly bogus cursors (for example, year 2099).
+const GLOBAL_TIMESTAMP_SKEW_TOLERANCE_MS = 24 * 60 * 60_000;
 
 /**
  * Per-collection quirks for collections that deviate from the default schema
@@ -246,7 +250,7 @@ function _buildRestClient(cfg) {
 
 async function _fetchUpdatedViaSDK(collection, sinceTs, page = 1) {
   const cfg = _getCfg();
-  if (!cfg) return { data: [], maxTs: null };
+  if (!cfg) return { data: [], maxTs: null, error: null };
 
   const quirks = COLLECTION_QUIRKS[collection] ?? {};
   const client = _buildRestClient(cfg);
@@ -278,21 +282,26 @@ async function _fetchUpdatedViaSDK(collection, sinceTs, page = 1) {
     const data = Array.isArray(records) ? records : [];
     const timestamps = data.map(r => r.date_updated).filter(Boolean);
     const maxTs = timestamps.length > 0 ? timestamps.reduce((a, b) => (a > b ? a : b)) : null;
-    return { data, maxTs };
+    return { data, maxTs, error: null };
   } catch (e) {
     console.warn(`[DirectusSync] Pull ${collection} error:`, e?.message ?? e);
-    return { data: [], maxTs: null };
+    return { data: [], maxTs: null, error: e };
   }
 }
 
-async function _pullCollection(collection) {
-  const sinceTs = await loadLastPullTsFromIDB(collection);
+async function _pullCollection(collection, { forceFull = false, lastPullTimestampOverride = null } = {}) {
+  // forceFull always wins: ignore both lastPullTimestampOverride and persisted cursor.
+  const storedSinceTs = forceFull
+    ? null
+    : lastPullTimestampOverride ?? await loadLastPullTsFromIDB(collection);
   let page = 1;
-  let latestTs = sinceTs;
+  let latestTs = storedSinceTs;
   let totalMerged = 0;
+  let hadFetchError = false;
 
   while (true) { // eslint-disable-line no-constant-condition
-    const { data, maxTs } = await _fetchUpdatedViaSDK(collection, sinceTs, page);
+    const { data, maxTs, error } = await _fetchUpdatedViaSDK(collection, storedSinceTs, page);
+    if (error) hadFetchError = true;
     if (data.length === 0) break;
 
     const mapped = data.map(r => _mapRecord(collection, r));
@@ -308,11 +317,11 @@ async function _pullCollection(collection) {
     page++;
   }
 
-  if (latestTs && latestTs !== sinceTs) {
+  if (!hadFetchError && latestTs && latestTs !== storedSinceTs) {
     await saveLastPullTsToIDB(collection, latestTs);
   }
 
-  return totalMerged;
+  return { merged: totalMerged, ok: !hadFetchError };
 }
 
 // ── WebSocket subscription helpers ───────────────────────────────────────────
@@ -415,6 +424,7 @@ let _running = false;
 let _pushTimer = null;
 let _pollTimer = null;
 let _globalTimer = null;
+let _initialGlobalHydrationDone = false;
 /** @type {object|null} */
 let _store = null;
 /** @type {'cassa'|'sala'|'cucina'} */
@@ -460,11 +470,27 @@ async function _runPull() {
 
   try {
     let anyMerged = false;
+    let allOk = true;
+    const mergedSummary = [];
+    const failedCollections = [];
     for (const collection of pullCfg.collections) {
-      const merged = await _pullCollection(collection);
+      const { merged, ok } = await _pullCollection(collection);
       if (merged > 0) anyMerged = true;
+      if (!ok) allOk = false;
+      if (merged > 0) mergedSummary.push(`${collection}:${merged}`);
+      if (!ok) failedCollections.push(collection);
     }
-    if (anyMerged) lastPullAt.value = new Date().toISOString();
+    if (mergedSummary.length > 0 || failedCollections.length > 0) {
+      console.info(
+        `[DirectusSync] Pull cycle details — merged: ${mergedSummary.join(', ') || 'none'}; failed: ${failedCollections.join(', ') || 'none'}.`,
+      );
+    }
+    if (anyMerged && allOk) {
+      lastPullAt.value = new Date().toISOString();
+      console.info('[DirectusSync] Pull cycle completed successfully.');
+    } else if (!allOk) {
+      console.warn('[DirectusSync] Pull cycle incomplete: at least one collection failed.');
+    }
   } catch (e) {
     console.warn('[DirectusSync] Pull error:', e);
   }
@@ -479,29 +505,70 @@ async function _runGlobalPull() {
   const venueId = appConfig.directus?.venueId ?? null;
 
   try {
+    let fullHydrationOk = true;
+    const fullModeCollections = [];
+    const failedCollections = [];
     for (const collection of GLOBAL_COLLECTIONS) {
-      await _pullCollection(collection);
+      // Keep global pull incremental by default (lower backend load), but:
+      //  - always force full pull on initial global hydration after startSync
+      //  - force full pull when stored cursor is clearly invalid (future timestamp)
+      let forceFull = !_initialGlobalHydrationDone;
+      let lastPullTimestamp = null;
+      if (!forceFull) {
+        lastPullTimestamp = await loadLastPullTsFromIDB(collection);
+        const timestampMs = lastPullTimestamp ? Date.parse(lastPullTimestamp) : NaN;
+        if (Number.isFinite(timestampMs) && timestampMs > (Date.now() + GLOBAL_TIMESTAMP_SKEW_TOLERANCE_MS)) {
+          console.warn(
+            `[DirectusSync] Ignoring invalid future last_pull_ts for ${collection} and forcing a full pull:`,
+            lastPullTimestamp,
+          );
+          forceFull = true;
+          lastPullTimestamp = null;
+        }
+      }
+      const { ok } = await _pullCollection(collection, { forceFull, lastPullTimestampOverride: lastPullTimestamp });
+      if (!ok) fullHydrationOk = false;
+      if (forceFull) fullModeCollections.push(collection);
+      if (!ok) failedCollections.push(collection);
+    }
+    if (fullModeCollections.length > 0 || failedCollections.length > 0) {
+      console.info(
+        `[DirectusSync] Global pull details — full mode: ${fullModeCollections.join(', ') || 'none'}; failed: ${failedCollections.join(', ') || 'none'}.`,
+      );
     }
 
     // H3: table_merge_sessions — full-replace semantics.
     // Fetched with a full (non-incremental) pull and replaced atomically in IDB
     // so that dissolved merges (records deleted on Directus) are also cleared.
-    const { data: mergeRecords } = await _fetchUpdatedViaSDK('table_merge_sessions', null);
-    await replaceTableMergesInIDB(mergeRecords);
-    // Rebuild in-memory tableMergedInto from the authoritative Directus data.
-    if (_store) {
-      const merged = {};
-      for (const r of mergeRecords) {
-        if (r.slave_table && r.master_table) merged[r.slave_table] = r.master_table;
+    const { data: mergeSessionRecords, error: mergeError } = await _fetchUpdatedViaSDK('table_merge_sessions', null);
+    if (mergeError) {
+      fullHydrationOk = false;
+      console.warn('[DirectusSync] Skipping table_merge_sessions replace due to fetch error.');
+    } else {
+      await replaceTableMergesInIDB(mergeSessionRecords);
+      // Rebuild in-memory tableMergedInto from the authoritative Directus data.
+      if (_store) {
+        const merged = {};
+        for (const r of mergeSessionRecords) {
+          if (r.slave_table && r.master_table) merged[r.slave_table] = r.master_table;
+        }
+        _store.tableMergedInto = merged;
       }
-      _store.tableMergedInto = merged;
+    }
+
+    if (fullHydrationOk) {
+      _initialGlobalHydrationDone = true;
+    } else {
+      console.warn('[DirectusSync] Global config hydration incomplete; hydration/apply was skipped due to pull errors.');
     }
 
     // D3: Hydrate appConfig from IDB after pulling config collections.
     // Skip hydration when venueId is not configured: without a venue filter
     // loadConfigFromIDB() would return records for *all* venues and mix them
     // into a single (incorrect) appConfig.
-    if (venueId != null) {
+    // Also skip hydration when this global cycle had errors, to avoid publishing
+    // partial config snapshots to the live app/store.
+    if (venueId != null && fullHydrationOk) {
       const cfg = await loadConfigFromIDB(venueId);
       applyDirectusConfigToAppConfig(cfg);
       // Keep the reactive store config in sync with the hydrated appConfig so
@@ -537,6 +604,7 @@ export function useDirectusSync() {
 
     _appType = appType ?? 'cassa';
     _store = store;
+    _initialGlobalHydrationDone = false;
     _running = true;
 
     const pullCfg = PULL_CONFIG[_appType] ?? PULL_CONFIG.cassa;
@@ -578,6 +646,7 @@ export function useDirectusSync() {
 
   function stopSync() {
     _running = false;
+    _initialGlobalHydrationDone = false;
     _store = null;
     if (_pushTimer) { clearInterval(_pushTimer); _pushTimer = null; }
     if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
@@ -616,6 +685,7 @@ export function useDirectusSync() {
  */
 export function _resetDirectusSyncSingleton() {
   _running = false;
+  _initialGlobalHydrationDone = false;
   _store = null;
   _appType = 'cassa';
   if (_pushTimer) { clearInterval(_pushTimer); _pushTimer = null; }

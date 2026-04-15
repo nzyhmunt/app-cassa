@@ -18,7 +18,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { _resetIDBSingleton } from '../useIDB.js';
 import { useDirectusSync, _resetDirectusSyncSingleton } from '../useDirectusSync.js';
-import { upsertRecordsIntoIDB, loadLastPullTsFromIDB } from '../../store/idbPersistence.js';
+import {
+  upsertRecordsIntoIDB,
+  loadLastPullTsFromIDB,
+  saveLastPullTsToIDB,
+  replaceTableMergesInIDB,
+} from '../../store/idbPersistence.js';
 import { _resetEnqueueSeq } from '../useSyncQueue.js';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -29,6 +34,48 @@ import { _resetEnqueueSeq } from '../useSyncQueue.js';
  */
 async function flushPromises(rounds = 30) {
   for (let i = 0; i < rounds; i++) await Promise.resolve();
+}
+// Extra rounds for startSync + timer-driven global pull tests where multiple async
+// chains (initial run + interval callback + nested awaits) must settle.
+// 80 rounds is a conservative upper bound to keep these timer+promise tests stable.
+const LONG_FLUSH_ROUNDS = 80;
+
+/**
+ * Returns true when a Directus request URL contains a `date_updated > X` filter.
+ * Supports both query styles:
+ *  - bracketed params: `filter[date_updated][_gt]=...`
+ *  - JSON filter param: `filter={"date_updated":{"_gt":"..."}}`
+ *
+ * @param {string} urlString
+ * @returns {boolean}
+ */
+function hasDateUpdatedGtFilter(urlString) {
+  const url = new URL(String(urlString));
+  const keys = Array.from(url.searchParams.keys());
+
+  // Pattern like filter[date_updated][_gt]=...
+  if (keys.some(k => k.includes('date_updated') && k.includes('_gt'))) return true;
+
+  // Pattern like filter={...} JSON-encoded
+  const rawFilter = url.searchParams.get('filter');
+  if (!rawFilter) return false;
+
+  try {
+    const parsed = JSON.parse(rawFilter);
+    const stack = [parsed];
+    while (stack.length > 0) {
+      const node = stack.pop();
+      if (!node || typeof node !== 'object') continue;
+      if (node.date_updated?._gt !== undefined) {
+        return true;
+      }
+      for (const v of Object.values(node)) stack.push(v);
+    }
+  } catch {
+    // Ignore unparseable filter formats in this helper
+  }
+
+  return false;
 }
 
 function directusListResponse(data = []) {
@@ -107,20 +154,20 @@ describe('startSync()', () => {
   });
 
   it('does not start twice (singleton guard)', async () => {
-    // Provide a mock that returns empty data for all collections
-    const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation(() => Promise.resolve(directusListResponse([])));
+    // Keep requests pending so call counts are stable and attributable to each startSync call.
+    const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation(() => new Promise(() => {}));
     const sync = useDirectusSync();
     const store = makeStore();
 
     sync.startSync({ appType: 'cassa', store });
     await flushPromises();
-
     const callsAfterFirstStart = fetchSpy.mock.calls.length;
+
     sync.startSync({ appType: 'cassa', store }); // second call — should be ignored
     await flushPromises();
 
-    // No additional calls from the second startSync
     expect(fetchSpy.mock.calls.length).toBe(callsAfterFirstStart);
+    sync.stopSync();
   });
 });
 
@@ -374,6 +421,26 @@ describe('reactive timestamps', () => {
 
     expect(sync.lastPushAt.value).toBeTruthy();
   });
+
+  it('lastPullAt is not updated when any pull collection fails', async () => {
+    const page1Orders = Array.from({ length: 200 }, (_, i) => makeRemoteOrder({
+      id: `ord_page1_${i}`,
+      date_updated: `2024-03-01T00:00:${String(i % 60).padStart(2, '0')}.000Z`,
+    }));
+
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      const u = String(url);
+      if (!u.includes('/items/orders')) return Promise.resolve(directusListResponse([]));
+      if (u.includes('page=1')) return Promise.resolve(directusListResponse(page1Orders));
+      return Promise.reject(new Error('orders page 2 failed'));
+    });
+
+    const sync = useDirectusSync();
+    const before = sync.lastPullAt.value;
+    await sync.forcePull();
+
+    expect(sync.lastPullAt.value).toBe(before);
+  });
 });
 
 // ── last_pull_ts persistence ──────────────────────────────────────────────────
@@ -395,6 +462,130 @@ describe('pull timestamp persistence', () => {
     const ts = await loadLastPullTsFromIDB('orders');
     expect(ts).toBe('2024-07-15T12:00:00.000Z');
   });
+
+  it('does not advance last_pull_ts when a paginated pull fails mid-cycle', async () => {
+    await saveLastPullTsToIDB('orders', '2024-01-01T00:00:00.000Z');
+    const page1Orders = Array.from({ length: 200 }, (_, i) => makeRemoteOrder({
+      id: `ord_partial_${i}`,
+      date_updated: `2024-08-01T00:00:${String(i % 60).padStart(2, '0')}.000Z`,
+    }));
+
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      const u = String(url);
+      if (!u.includes('/items/orders')) return Promise.resolve(directusListResponse([]));
+      if (u.includes('page=1')) return Promise.resolve(directusListResponse(page1Orders));
+      return Promise.reject(new Error('orders page 2 failed'));
+    });
+
+    const sync = useDirectusSync();
+    await sync.forcePull();
+
+    const ts = await loadLastPullTsFromIDB('orders');
+    expect(ts).toBe('2024-01-01T00:00:00.000Z');
+  });
+});
+
+describe('global pull config hydration', () => {
+  it('uses full pull on first global hydration even when tables last_pull_ts is stale', async () => {
+    // Simulate stale incremental cursor that would otherwise exclude older rows.
+    await saveLastPullTsToIDB('tables', '2099-01-01T00:00:00.000Z');
+
+    const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation(() => Promise.resolve(directusListResponse([])));
+
+    const sync = useDirectusSync();
+    const store = makeStore();
+    sync.startSync({ appType: 'cucina', store });
+    await flushPromises(LONG_FLUSH_ROUNDS);
+    sync.stopSync();
+
+    const tableCalls = fetchSpy.mock.calls
+      .map(([url]) => String(url))
+      .filter(url => url.includes('/items/tables'));
+    expect(tableCalls.length).toBeGreaterThan(0);
+    for (const url of tableCalls) {
+      expect(hasDateUpdatedGtFilter(url)).toBe(false);
+    }
+  });
+
+  it('keeps full-hydration mode for the next cycle if a global collection pull fails', async () => {
+    await saveLastPullTsToIDB('tables', '2024-01-01T00:00:00.000Z');
+    vi.useFakeTimers();
+
+    let tableReqCount = 0;
+    const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      if (String(url).includes('/items/tables')) {
+        tableReqCount += 1;
+        if (tableReqCount === 1) return Promise.reject(new Error('temporary tables failure'));
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const sync = useDirectusSync();
+    const store = makeStore();
+    try {
+      sync.startSync({ appType: 'cucina', store });
+      await flushPromises(LONG_FLUSH_ROUNDS);
+      await vi.advanceTimersByTimeAsync(5 * 60_000);
+      await flushPromises(LONG_FLUSH_ROUNDS);
+    } finally {
+      sync.stopSync();
+      vi.useRealTimers();
+    }
+
+    const tableCalls = fetchSpy.mock.calls
+      .map(([url]) => String(url))
+      .filter(url => url.includes('/items/tables'));
+    expect(tableCalls.length).toBeGreaterThanOrEqual(2);
+    for (const url of tableCalls) {
+      expect(hasDateUpdatedGtFilter(url)).toBe(false);
+    }
+  });
+
+  it('does not apply config hydration when a global collection pull fails', async () => {
+    const utils = await import('../../utils/index.js');
+    const applySpy = vi.spyOn(utils, 'applyDirectusConfigToAppConfig');
+
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      if (String(url).includes('/items/tables')) {
+        return Promise.reject(new Error('temporary tables failure'));
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const sync = useDirectusSync();
+    const store = makeStore({ config: {} });
+    sync.startSync({ appType: 'cucina', store });
+    await flushPromises(LONG_FLUSH_ROUNDS);
+    sync.stopSync();
+
+    expect(applySpy).not.toHaveBeenCalled();
+  });
+
+  it('does not clear table merges when table_merge_sessions fetch fails', async () => {
+    await replaceTableMergesInIDB([{ id: 'm1', slave_table: 'T2', master_table: 'T1' }]);
+
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      if (String(url).includes('/items/table_merge_sessions')) {
+        return Promise.reject(new Error('table merge fetch failed'));
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const sync = useDirectusSync();
+    const store = makeStore({ tableMergedInto: { T2: 'T1' } });
+    sync.startSync({ appType: 'cucina', store });
+    await flushPromises(LONG_FLUSH_ROUNDS);
+    sync.stopSync();
+
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+    const records = await db.getAll('table_merge_sessions');
+    expect(records).toHaveLength(1);
+    expect(records[0].slave_table).toBe('T2');
+    expect(records[0].master_table).toBe('T1');
+    expect(store.tableMergedInto).toEqual({ T2: 'T1' });
+  });
+
 });
 
 // ── WebSocket subscriptions ───────────────────────────────────────────────────
