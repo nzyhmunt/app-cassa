@@ -267,16 +267,22 @@ export async function saveSettingsToIDB(settings) {
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
 /**
- * Loads manual (non-appConfig) users from the `venue_users` ObjectStore.
- * Each record has a `_type: 'manual_user'` discriminator to distinguish from
- * future venue-user records that may come from Directus.
+ * Loads app-managed users from the `venue_users` ObjectStore.
+ *
+ * Returns both locally-created (manual) users and active users pulled from
+ * Directus (H6).  Manual users are identified by `_type === 'manual_user'`;
+ * Directus-synced users have no `_type` discriminator.  Archived Directus users
+ * (`status === 'archived'`) are excluded so they cannot log in.
  * @returns {Promise<Array>}
  */
 export async function loadUsersFromIDB() {
   try {
     const db = await getDB();
     const all = await db.getAll('venue_users');
-    return all.filter(r => r._type === 'manual_user');
+    return all.filter(r =>
+      r._type === 'manual_user' ||
+      (!r._type && r.status !== 'archived'),
+    );
   } catch (e) {
     console.warn('[IDBPersistence] Failed to load users:', e);
     return [];
@@ -671,6 +677,14 @@ export async function upsertRecordsIntoIDB(storeName, records) {
 
   try {
     const db = await getDB();
+
+    // H7: Guard against unknown ObjectStores — avoids silent transaction failures
+    // if a new collection is added to GLOBAL_COLLECTIONS without a matching IDB store.
+    if (!db.objectStoreNames.contains(storeName)) {
+      console.warn('[IDBPersistence] upsertRecordsIntoIDB: unknown ObjectStore:', storeName);
+      return 0;
+    }
+
     // Collect writes to perform — filter out records with no PK and those
     // that are not newer than the local version before opening the transaction.
     // This avoids opening a readwrite transaction when nothing needs writing.
@@ -705,5 +719,98 @@ export async function upsertRecordsIntoIDB(storeName, records) {
   } catch (e) {
     console.warn('[IDBPersistence] Failed to upsert into', storeName, e);
     return 0;
+  }
+}
+
+// ── Config hydration (D) ─────────────────────────────────────────────────────
+
+/**
+ * Reads Directus-sourced configuration collections from IndexedDB and returns
+ * a plain object that `applyDirectusConfigToAppConfig()` (utils/index.js) can
+ * apply to the live `appConfig` singleton.
+ *
+ * Filters by `venueId` when provided and excludes archived records.
+ * Sorting is done client-side using each record's `sort` field.
+ *
+ * @param {number|string|null} venueId - venues.id to filter by, or null for no filter.
+ * @returns {Promise<{venueRecord:object|null, rooms:Array, tables:Array,
+ *                    paymentMethods:Array, printers:Array,
+ *                    categories:Array, items:Array}|null>}
+ */
+export async function loadConfigFromIDB(venueId) {
+  try {
+    const db = await getDB();
+
+    // Normalize venueId to a String for type-safe FK comparison.
+    // Directus INTEGER FKs are stored as numbers server-side but can arrive as
+    // strings from URL params or localStorage; String(x) === String(y) is safe
+    // regardless of the original type.
+    const venueIdStr = venueId != null ? String(venueId) : null;
+    const byVenueAndStatus = (arr) =>
+      arr
+        .filter(r => (venueIdStr == null || String(r.venue) === venueIdStr) && r.status !== 'archived')
+        .sort((a, b) => (a.sort ?? 9999) - (b.sort ?? 9999));
+
+    const [
+      venues,
+      allRooms,
+      allTables,
+      allPaymentMethods,
+      allPrinters,
+      allCategories,
+      allItems,
+    ] = await Promise.all([
+      db.getAll('venues'),
+      db.getAll('rooms'),
+      db.getAll('tables'),
+      db.getAll('payment_methods'),
+      db.getAll('printers'),
+      db.getAll('menu_categories'),
+      db.getAll('menu_items'),
+    ]);
+
+    const venueRecord = venueIdStr != null
+      ? (venues.find(v => String(v.id) === venueIdStr) ?? null)
+      : null;
+
+    return {
+      venueRecord,
+      rooms:          byVenueAndStatus(allRooms),
+      tables:         byVenueAndStatus(allTables),
+      paymentMethods: byVenueAndStatus(allPaymentMethods),
+      printers:       byVenueAndStatus(allPrinters),
+      categories:     byVenueAndStatus(allCategories),
+      items:          byVenueAndStatus(allItems),
+    };
+  } catch (e) {
+    console.warn('[IDBPersistence] loadConfigFromIDB failed:', e);
+    return null;
+  }
+}
+
+/**
+ * Atomically replaces all records in the `table_merge_sessions` ObjectStore.
+ *
+ * Used after a full Directus pull of `table_merge_sessions` so that dissolved
+ * merges (records deleted on Directus) are also removed from IDB, preventing
+ * stale slave→master mappings from persisting after a split.
+ *
+ * @param {Array<object>} records - Complete set of active merge records from Directus.
+ * @returns {Promise<void>}
+ */
+export async function replaceTableMergesInIDB(records) {
+  try {
+    const db = await getDB();
+    const tx = db.transaction('table_merge_sessions', 'readwrite');
+    await tx.store.clear();
+    for (const r of records) {
+      if (r.slave_table) {
+        const { _sync_status: _s, ...clean } = r;
+        await tx.store.put(JSON.parse(JSON.stringify(clean)));
+      }
+    }
+    await tx.done;
+  } catch (e) {
+    console.warn('[IDBPersistence] replaceTableMergesInIDB failed:', e);
   }
 }

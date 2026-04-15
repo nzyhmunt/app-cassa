@@ -1121,6 +1121,10 @@ WHERE o."table" = :table_id
 La funzione **Unisci** in App Cassa permette di accorpare il conto di due tavoli occupati.
 L'unione è rappresentata in memoria in store dallo stato reattivo `tableMergedInto` (oggetto `{ slaveTableId: masterTableId }`), persistito nell'ObjectStore IndexedDB dedicato **`table_merge_sessions`** (DB_VERSION = 4). La chiave `app_meta.tableMergedInto` è **legacy** e viene letta solo come fallback di compatibilità durante il primo avvio dopo una migrazione v2 → v3 che non avesse popolato `table_merge_sessions`.
 
+La collection `table_merge_sessions` è ora inclusa in `GLOBAL_COLLECTIONS` in `useDirectusSync.js` (H3): viene sincronizzata da Directus ad ogni pull globale (startup + ogni 5 min), propagando lo stato di unione tra tutti i dispositivi in rete.
+
+> **Nota schema**: `table_merge_sessions` non ha il campo `venue` né `date_updated`; il pull usa un fetch completo senza filtro incrementale né filtro per venue (la collection è piccola, al massimo un record per tavolo slave attivo). Questo è gestito tramite `COLLECTION_QUIRKS.table_merge_sessions` in `useDirectusSync.js`.
+
 Semantica:
 - Al momento dell'unione (`mergeTableOrders`), vengono fisicamente spostate sul tavolo master **solo le comande appartenenti alla sessione di conto attiva dello slave** (`orders[]."table" = masterTableId` per gli ordini della current bill session). Il conto del master assorbe immediatamente queste voci attive.
 - Il tavolo **slave** non ha più una sessione attiva propria (`tableCurrentBillSession[slaveId]` = undefined) né comande residue nella sessione corrente. Eventuali comande storiche / di sessioni precedenti restano invece associate al tavolo e alla `bill_session` originari, così da preservare l'isolamento per sessione. Il tavolo appare comunque **occupato** nella piantina grazie alla voce `tableMergedInto[slaveId] = masterId`: `getTableStatus(slaveId)` delega direttamente a `getTableStatus(masterId)`.
@@ -1199,6 +1203,22 @@ Flusso di integrazione previsto:
    sincronizzati verso Directus in modalità **push** non appena `navigator.onLine` torna `true`.
 3. **Sessioni tavolo** (bill_sessions): create localmente e sincronizzate come gli ordini.
 4. **Reportistica** (daily_closures, print_jobs): push-only, mai modificati dopo la creazione.
+
+#### Hydration appConfig da Directus (D1–D4)
+
+Dopo ogni pull globale delle collection di configurazione, `useDirectusSync.js` chiama:
+
+1. `loadConfigFromIDB(venueId)` (`idbPersistence.js`) — legge venues, rooms, tables,
+   payment_methods, printers, menu_categories, menu_items dall'IDB e li restituisce come
+   oggetto plain (filtrando per `venue` e `status !== 'archived'`, ordinando per `sort`).
+2. `applyDirectusConfigToAppConfig(cfg)` (`utils/index.js`) — applica il risultato sul
+   singleton `appConfig` live, aggiornando `appConfig.ui`, `.rooms`, `.tables`,
+   `.paymentMethods`, `.printers`, `.menu` senza ricaricare la pagina.
+
+Regole di priorità:
+- Campi scalari venue: Directus vince se il valore è non-null.
+- Rooms/tables, payment_methods, printers: sostituiti wholesale quando Directus restituisce ≥1 record.
+- Menu (D4): Directus vince sul menu statico / URL quando ≥1 categoria con ≥1 voce è presente.
 
 ### 5.6 Integrazione IndexedDB (PWA offline-first)
 
@@ -1920,6 +1940,10 @@ record.venue_user_updated = currentPinUser?.id ?? null
 - **Revoca accesso**: per disattivare un operatore è sufficiente impostare
   `status = 'archived'` su Directus; il PULL successivo aggiornerà IndexedDB e il PIN
   non funzionerà più.
+- **Hydration (H6)**: `loadUsersFromIDB()` restituisce sia gli utenti locali (campo
+  `_type === 'manual_user'`) sia gli utenti sincronizzati da Directus (campo `_type` assente,
+  `status !== 'archived'`). I record Directus vengono persisti dall'upsert globale in IDB
+  e sono disponibili per l'autenticazione PIN sin dal primo avvio dopo un pull.
 - **Rate limiting PIN**: il client implementa un contatore locale di tentativi falliti
   (es. blocco dopo 5 tentativi per 30 secondi) per mitigare attacchi brute-force offline.
 

@@ -13,6 +13,29 @@ import { getInstanceName } from '../store/persistence.js';
 export const DB_VERSION = 4;
 const DB_NAME_PREFIX = 'app-cassa';
 
+/**
+ * H8 — Version history and upgrade guide:
+ *
+ *  v1 — Initial schema: bill_sessions, orders, order_items, app_meta, sync_queue.
+ *  v2 — Added: cash_movements, daily_closures, daily_closure_by_method, print_jobs,
+ *               fiscal_receipts, invoice_requests, venue_users, app_settings,
+ *               direct_custom_items, and all config-cache stores
+ *               (venues, rooms, tables, payment_methods, menu_categories, menu_items,
+ *                menu_item_modifiers, printers).
+ *  v3 — Added: table_merge_sessions (keyPath 'slave_table').
+ *               Migrates legacy app_meta.tableMergedInto blob → table_merge_sessions records.
+ *  v4 — transactions objectStore re-created with keyPath 'id' (was 'transactionId').
+ *               Back-fills `id` from `transactionId` on existing records to preserve data.
+ *
+ * To add a new version (e.g. v5):
+ *   1. Increment DB_VERSION to 5.
+ *   2. Add a new `if (oldVersion < 5) { ... }` block inside the `upgrade()` callback.
+ *   3. Only create new ObjectStores or add new indexes — never drop or modify existing ones
+ *      unless you also provide a data-migration path for users upgrading from earlier versions.
+ *   4. Update this comment block with a description of the new version.
+ *   5. Update DATABASE_SCHEMA.md §5.6 to reflect the new schema and version number.
+ */
+
 /** @type {Promise<import('idb').IDBPDatabase>|null} */
 let _dbPromise = null;
 

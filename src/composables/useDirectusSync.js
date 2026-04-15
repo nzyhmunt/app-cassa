@@ -18,13 +18,15 @@
 
 import { ref } from 'vue';
 import { createDirectus, staticToken, rest, readItems } from '@directus/sdk';
-import { appConfig } from '../utils/index.js';
+import { appConfig, applyDirectusConfigToAppConfig } from '../utils/index.js';
 import { getDirectusClient } from './useDirectusClient.js';
 import { drainQueue } from './useSyncQueue.js';
 import {
   loadLastPullTsFromIDB,
   saveLastPullTsToIDB,
   upsertRecordsIntoIDB,
+  loadConfigFromIDB,
+  replaceTableMergesInIDB,
 } from '../store/idbPersistence.js';
 
 // ── Per-app pull config (§5.7.6) ─────────────────────────────────────────────
@@ -50,11 +52,26 @@ const PULL_CONFIG = {
 
 /** Collections for all apps: fetched once at startup and every 5 minutes. */
 const GLOBAL_COLLECTIONS = [
-  'venues', 'rooms', 'payment_methods',
+  'venues', 'rooms', 'tables', 'payment_methods',
   'menu_categories', 'menu_items', 'menu_item_modifiers',
   'printers', 'venue_users',
+  // NOTE: table_merge_sessions is handled separately in _runGlobalPull because
+  // it requires full-replace semantics (dissolved merges must be removed).
 ];
 const GLOBAL_INTERVAL_MS = 5 * 60_000;
+
+/**
+ * Per-collection quirks for collections that deviate from the default schema
+ * assumed by _fetchUpdatedViaSDK (venue FK + date_updated timestamp field).
+ *
+ * H3: table_merge_sessions has neither a `venue` FK nor `date_updated`, so:
+ *   - noVenueFilter: skip the `venue` filter to avoid an API error.
+ *   - noDateUpdated: skip the incremental `date_updated` filter — full fetch
+ *     every global pull cycle (the collection is small and short-lived).
+ */
+const COLLECTION_QUIRKS = {
+  table_merge_sessions: { noVenueFilter: true, noDateUpdated: true },
+};
 
 // ── Field mapping: Directus → local in-memory store format ───────────────────
 
@@ -195,6 +212,19 @@ function _mergeIntoStore(collection, records, store) {
     store.orders = store.orders.map(o => ({ ...o }));
     return;
   }
+
+  // H3: Merge table_merge_sessions into store.tableMergedInto.
+  // Each Directus record maps slave_table → master_table.
+  if (collection === 'table_merge_sessions') {
+    const merged = { ...(store.tableMergedInto ?? {}) };
+    for (const r of records) {
+      if (r.slave_table && r.master_table) {
+        merged[r.slave_table] = r.master_table;
+      }
+    }
+    store.tableMergedInto = merged;
+    return;
+  }
 }
 
 // ── REST pull helpers ─────────────────────────────────────────────────────────
@@ -214,20 +244,23 @@ async function _fetchUpdatedViaSDK(collection, sinceTs, page = 1) {
   const cfg = _getCfg();
   if (!cfg) return { data: [], maxTs: null };
 
+  const quirks = COLLECTION_QUIRKS[collection] ?? {};
   const client = _buildRestClient(cfg);
   const query = {
     limit: 200,
     page,
-    sort: ['date_updated'],
+    sort: [quirks.noDateUpdated ? 'id' : 'date_updated'],
     fields: ['*'],
   };
 
-  // Incremental pull filter (only records updated after last known timestamp)
+  // Incremental pull filter (only records updated after last known timestamp).
+  // Skipped for collections that have no date_updated field (noDateUpdated quirk).
   const conditions = [];
-  if (sinceTs) {
+  if (sinceTs && !quirks.noDateUpdated) {
     conditions.push({ date_updated: { _gt: sinceTs } });
   }
-  if (cfg.venueId != null) {
+  // Venue filter — skipped for collections without a `venue` FK (noVenueFilter quirk).
+  if (!quirks.noVenueFilter && cfg.venueId != null) {
     conditions.push({ venue: { _eq: cfg.venueId } });
   }
   if (conditions.length === 1) {
@@ -437,10 +470,32 @@ async function _runGlobalPull() {
   if (!navigator.onLine) return;
   if (!_getCfg()) return;
 
+  // Capture venueId before the pull loop so that appConfig mutations during
+  // a long pull cannot change which venue we query / hydrate into (D3 review).
+  const venueId = appConfig.directus?.venueId ?? null;
+
   try {
     for (const collection of GLOBAL_COLLECTIONS) {
       await _pullCollection(collection);
     }
+
+    // H3: table_merge_sessions — full-replace semantics.
+    // Fetched with a full (non-incremental) pull and replaced atomically in IDB
+    // so that dissolved merges (records deleted on Directus) are also cleared.
+    const { data: mergeRecords } = await _fetchUpdatedViaSDK('table_merge_sessions', null);
+    await replaceTableMergesInIDB(mergeRecords);
+    // Rebuild in-memory tableMergedInto from the authoritative Directus data.
+    if (_store) {
+      const merged = {};
+      for (const r of mergeRecords) {
+        if (r.slave_table && r.master_table) merged[r.slave_table] = r.master_table;
+      }
+      _store.tableMergedInto = merged;
+    }
+
+    // D3: Hydrate appConfig from IDB after pulling config collections.
+    const cfg = await loadConfigFromIDB(venueId);
+    applyDirectusConfigToAppConfig(cfg);
   } catch (e) {
     console.warn('[DirectusSync] Global pull error:', e);
   }

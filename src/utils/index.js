@@ -232,7 +232,7 @@ export const appConfig = {
   demoOrders: [
     // ── Tavolo 04 ────────────────────────────────────────────────────────────
     {
-      id: "ord_rX91", table: "04", status: "pending", time: "19:30", totalAmount: 26.00, itemCount: 4,
+      id: "01960000-0000-7000-8000-000000000001", table: "04", status: "pending", time: "19:30", totalAmount: 26.00, itemCount: 4,
       dietaryPreferences: { diete: ["Vegetariano"] },
       globalNote: '', noteVisibility: { cassa: true, sala: true, cucina: true },
       orderItems: [
@@ -241,16 +241,16 @@ export const appConfig = {
       ],
     },
     {
-      id: "ord_cop04", table: "04", status: "accepted", time: "19:30", totalAmount: 5.00, itemCount: 2,
+      id: "01960000-0000-7000-8000-000000000002", table: "04", status: "accepted", time: "19:30", totalAmount: 5.00, itemCount: 2,
       dietaryPreferences: {}, globalNote: '', noteVisibility: { cassa: true, sala: true, cucina: true },
       isDirectEntry: true, isCoverCharge: true,
       orderItems: [
-        { uid: "cop_a_04", dishId: "coperto_adulto", name: "Coperto", unitPrice: 2.50, quantity: 2, voidedQuantity: 0, notes: [], modifiers: [] },
+        { uid: "cop_04", dishId: null, name: "Coperto", unitPrice: 2.50, quantity: 2, voidedQuantity: 0, notes: [], modifiers: [] },
       ],
     },
     // ── Tavolo 08 ────────────────────────────────────────────────────────────
     {
-      id: "ord_mP02", table: "08", status: "accepted", time: "19:15", totalAmount: 33.00, itemCount: 2,
+      id: "01960000-0000-7000-8000-000000000003", table: "08", status: "accepted", time: "19:15", totalAmount: 33.00, itemCount: 2,
       dietaryPreferences: {},
       globalNote: '', noteVisibility: { cassa: true, sala: true, cucina: true },
       orderItems: [
@@ -259,11 +259,11 @@ export const appConfig = {
       ],
     },
     {
-      id: "ord_cop08", table: "08", status: "accepted", time: "19:15", totalAmount: 5.00, itemCount: 2,
+      id: "01960000-0000-7000-8000-000000000004", table: "08", status: "accepted", time: "19:15", totalAmount: 5.00, itemCount: 2,
       dietaryPreferences: {}, globalNote: '', noteVisibility: { cassa: true, sala: true, cucina: true },
       isDirectEntry: true, isCoverCharge: true,
       orderItems: [
-        { uid: "cop_a_08", dishId: "coperto_adulto", name: "Coperto", unitPrice: 2.50, quantity: 2, voidedQuantity: 0, notes: [], modifiers: [] },
+        { uid: "cop_08", dishId: null, name: "Coperto", unitPrice: 2.50, quantity: 2, voidedQuantity: 0, notes: [], modifiers: [] },
       ],
     },
   ],
@@ -274,6 +274,131 @@ export const appConfig = {
 appConfig.tables = Array.isArray(appConfig.rooms)
   ? appConfig.rooms.flatMap(r => r.tables || [])
   : (Array.isArray(appConfig.tables) ? appConfig.tables : []);
+
+/**
+ * Applies Directus-sourced configuration (fetched from IndexedDB) onto appConfig.
+ *
+ * Called after each global pull cycle so that venue settings, rooms, tables,
+ * payment methods, printers, and menu are kept in sync with the Directus backend
+ * without requiring a full page reload.
+ *
+ * Priority rules (D4):
+ *  - Venue scalar fields: Directus wins if the field is non-null.
+ *  - Rooms/tables: replaced wholesale when Directus returns ≥1 room.
+ *  - Payment methods / printers: replaced wholesale when ≥1 record is returned.
+ *  - Menu: Directus menu wins over the static/URL-loaded menu when ≥1 category
+ *    with ≥1 item is returned.
+ *
+ * **Empty-array behaviour**: if a collection array is empty (e.g. no rooms were
+ * returned from IDB because Directus hasn't populated them yet), the corresponding
+ * appConfig field is left unchanged.  This is intentional — an empty result is
+ * treated as "no data available" rather than "clear existing data".  The static
+ * defaults defined in appConfig remain active until Directus provides actual records.
+ *
+ * @param {{ venueRecord: object|null, rooms: Array, tables: Array,
+ *           paymentMethods: Array, printers: Array,
+ *           categories: Array, items: Array }|null} cfg - Output of loadConfigFromIDB()
+ */
+export function applyDirectusConfigToAppConfig(cfg) {
+  if (!cfg) return;
+  const { venueRecord, rooms, tables, paymentMethods, printers, categories, items } = cfg;
+
+  // ── Venue scalar settings ──────────────────────────────────────────────────
+  if (venueRecord) {
+    if (venueRecord.name)                appConfig.ui.name = venueRecord.name;
+    if (venueRecord.primary_color)       appConfig.ui.primaryColor = venueRecord.primary_color;
+    if (venueRecord.primary_color_dark)  appConfig.ui.primaryColorDark = venueRecord.primary_color_dark;
+    if (venueRecord.currency_symbol)     appConfig.ui.currency = venueRecord.currency_symbol;
+    if (venueRecord.allow_custom_variants != null)
+      appConfig.ui.allowCustomVariants = venueRecord.allow_custom_variants;
+
+    if (venueRecord.cover_charge_enabled != null)
+      appConfig.coverCharge.enabled = venueRecord.cover_charge_enabled;
+    if (venueRecord.cover_charge_auto_add != null)
+      appConfig.coverCharge.autoAdd = venueRecord.cover_charge_auto_add;
+    if (venueRecord.cover_charge_price_adult != null)
+      appConfig.coverCharge.priceAdult = Number(venueRecord.cover_charge_price_adult);
+    if (venueRecord.cover_charge_price_child != null)
+      appConfig.coverCharge.priceChild = Number(venueRecord.cover_charge_price_child);
+
+    if (venueRecord.billing_enable_cash_change_calculator != null)
+      appConfig.billing.enableCashChangeCalculator = venueRecord.billing_enable_cash_change_calculator;
+    if (venueRecord.billing_enable_tips != null)
+      appConfig.billing.enableTips = venueRecord.billing_enable_tips;
+    if (venueRecord.billing_enable_discounts != null)
+      appConfig.billing.enableDiscounts = venueRecord.billing_enable_discounts;
+    if (venueRecord.billing_allow_custom_entry != null)
+      appConfig.billing.allowCustomEntry = venueRecord.billing_allow_custom_entry;
+
+    if (Array.isArray(venueRecord.orders_rejection_reasons) && venueRecord.orders_rejection_reasons.length > 0)
+      appConfig.orders.rejectionReasons = venueRecord.orders_rejection_reasons;
+  }
+
+  // ── Rooms and tables ───────────────────────────────────────────────────────
+  if (rooms.length > 0) {
+    const tablesByRoom = new Map();
+    for (const t of tables) {
+      const key = t.room ?? '_unassigned';
+      if (!tablesByRoom.has(key)) tablesByRoom.set(key, []);
+      tablesByRoom.get(key).push({ id: t.id, label: t.label, covers: t.covers ?? 2 });
+    }
+    appConfig.rooms = rooms.map(r => ({
+      id: r.id,
+      label: r.label,
+      tables: tablesByRoom.get(r.id) ?? [],
+    }));
+    // Tables with no room assignment: surface in a generic room when no explicit rooms exist.
+    const unassigned = tablesByRoom.get('_unassigned') ?? [];
+    if (unassigned.length > 0 && appConfig.rooms.length === 0) {
+      appConfig.rooms = [{ id: 'sala', label: 'Sala', tables: unassigned }];
+    }
+    appConfig.tables = appConfig.rooms.flatMap(r => r.tables);
+  }
+
+  // ── Payment methods ────────────────────────────────────────────────────────
+  if (paymentMethods.length > 0) {
+    appConfig.paymentMethods = paymentMethods.map(pm => ({
+      id: pm.id,
+      label: pm.label,
+      icon: pm.icon ?? '',
+      colorClass: pm.color_class ?? '',
+    }));
+  }
+
+  // ── Printers ───────────────────────────────────────────────────────────────
+  if (printers.length > 0) {
+    appConfig.printers = printers.map(p => {
+      const entry = { id: p.id, name: p.name, url: p.url };
+      if (p.print_types?.length) entry.printTypes = p.print_types;
+      if (p.categories?.length)  entry.categories = p.categories;
+      return entry;
+    });
+  }
+
+  // ── Menu (D4) — Directus wins when at least one category + item is present ──
+  if (categories.length > 0 && items.length > 0) {
+    const itemsByCategory = new Map();
+    for (const item of items) {
+      if (!itemsByCategory.has(item.category)) itemsByCategory.set(item.category, []);
+      itemsByCategory.get(item.category).push({
+        id: item.id,
+        name: item.name,
+        price: Number(item.price),
+        descrizione: item.description ?? '',
+        note: item.note ?? '',
+        ingredienti: item.ingredients ?? [],
+        allergeni: item.allergens ?? [],
+        immagine_url: item.image_url ?? '',
+      });
+    }
+    const menu = {};
+    for (const cat of categories) {
+      const catItems = itemsByCategory.get(cat.id) ?? [];
+      if (catItems.length > 0) menu[cat.name] = catItems;
+    }
+    if (Object.keys(menu).length > 0) appConfig.menu = menu;
+  }
+}
 
 /**
  * Returns a stable, unique string key for a closed bill.
