@@ -18,7 +18,7 @@ vi.mock('../../store/idbPersistence.js', async (importOriginal) => {
     clearSyncQueueFromIDB: vi.fn().mockResolvedValue(undefined),
   };
 });
-import { saveSettingsToIDB } from '../../store/idbPersistence.js';
+import { saveSettingsToIDB, clearAllStateFromIDB, clearSyncQueueFromIDB } from '../../store/idbPersistence.js';
 
 const { settingsKey: SETTINGS_KEY } = resolveStorageKeys();
 
@@ -470,6 +470,39 @@ describe('useSettings()', () => {
       await result.confirmReset();
 
       expect(localStorage.getItem(pwaDismissKey)).toBeNull();
+      wrapper.unmount();
+    } finally {
+      if (originalLocationDescriptor) {
+        Object.defineProperty(window, 'location', originalLocationDescriptor);
+      } else {
+        window.location = originalLocationValue;
+      }
+    }
+  });
+
+  it('confirmReset() calls clearAllStateFromIDB() and clearSyncQueueFromIDB()', async () => {
+    const reloadMock = vi.fn();
+    const originalLocationDescriptor = Object.getOwnPropertyDescriptor(window, 'location');
+    const originalLocationValue = window.location;
+
+    try {
+      Object.defineProperty(window, 'location', {
+        writable: true,
+        configurable: true,
+        value: { reload: reloadMock, pathname: '/' },
+      });
+
+      vi.mocked(clearAllStateFromIDB).mockClear();
+      vi.mocked(clearSyncQueueFromIDB).mockClear();
+
+      const props = reactive({ modelValue: false });
+      const emit = vi.fn();
+
+      const { result, wrapper } = withSetup(() => useSettings(props, emit));
+      await result.confirmReset();
+
+      expect(clearAllStateFromIDB).toHaveBeenCalledOnce();
+      expect(clearSyncQueueFromIDB).toHaveBeenCalledOnce();
       wrapper.unmount();
     } finally {
       if (originalLocationDescriptor) {
