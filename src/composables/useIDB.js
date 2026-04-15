@@ -99,7 +99,7 @@ export function getDB() {
           // Back-fill `id` from the legacy `transactionId` field when needed.
           if (!rec.id && rec.transactionId) rec.id = rec.transactionId;
           delete rec.transactionId;
-          if (rec.id) s.add(rec);
+          if (rec.id) await s.add(rec);
         }
       } else if (!db.objectStoreNames.contains('transactions')) {
         const s = db.createObjectStore('transactions', { keyPath: 'id' });
