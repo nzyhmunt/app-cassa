@@ -324,8 +324,7 @@ export const useAppStore = defineStore('app', () => {
       // mark the IDB record closed immediately to prevent a stale open record from
       // being resurrected by loadStateFromIDB() on the next reload.
       if (closingSession?.billSessionId) {
-        closeBillSessionInIDB(closingSession.billSessionId)
-          .catch(e => console.warn('[Store] Failed to close bill_session in IDB:', e));
+        closeBillSessionInIDB(closingSession.billSessionId);
         enqueue('bill_sessions', 'update', closingSession.billSessionId, {
           status: 'closed', closed_at: closedAt,
         });
