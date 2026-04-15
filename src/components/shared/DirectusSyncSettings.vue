@@ -204,7 +204,7 @@
           Nessun evento registrato
         </p>
         <div
-          v-for="entry in sync.activityLog.value.slice(0, 40)"
+          v-for="entry in displayedActivityLog"
           :key="entry.id"
           class="rounded-xl border px-2.5 py-2 text-[11px] space-y-1"
           :class="levelClass(entry.level)"
@@ -275,6 +275,8 @@ const pulling = ref(false);
 const connectionStatus = ref('idle'); // 'idle' | 'testing' | 'ok' | 'error'
 const connectionMessage = ref('');
 const showQueueLog = ref(false);
+const ACTIVITY_LOG_DISPLAY_LIMIT = 40;
+const displayedActivityLog = computed(() => sync.activityLog.value.slice(0, ACTIVITY_LOG_DISPLAY_LIMIT));
 
 /** `true` when the saved config has `enabled = true` (reactive via directusEnabledRef). */
 const syncEnabled = directusEnabledRef;
@@ -410,8 +412,8 @@ function saveConfig() {
   sync.clearActivityLog();
   sync.appendActivityLog(
     'info',
-    `Configurazione salvata (venue: ${nextDirectusConfig.venueId ?? 'n/d'}, ws: ${nextDirectusConfig.wsEnabled ? 'on' : 'off'}).`,
-    { url: nextDirectusConfig.url, venueId: nextDirectusConfig.venueId, wsEnabled: nextDirectusConfig.wsEnabled },
+    `Configurazione salvata (venue: ${nextDirectusConfig.venueId ?? 'n.d.'}, ws: ${nextDirectusConfig.wsEnabled ? 'on' : 'off'}).`,
+    { venueId: nextDirectusConfig.venueId, wsEnabled: nextDirectusConfig.wsEnabled },
   );
   saveDirectusConfigToStorage();
   _savedSnapshot.value = JSON.stringify({ ...form });
@@ -452,7 +454,7 @@ function formatTs(iso) {
 
 function levelLabel(level) {
   if (level === 'error') return 'Errore';
-  if (level === 'warning') return 'Warning';
+  if (level === 'warning') return 'Avviso';
   if (level === 'success') return 'OK';
   return 'Info';
 }

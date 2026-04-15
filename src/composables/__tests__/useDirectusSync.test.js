@@ -195,7 +195,14 @@ describe('stopSync()', () => {
     expect(sync.activityLog.value.some(entry => entry.message.includes('Sincronizzazione fermata'))).toBe(true);
 
     sync.appendActivityLog('info', 'debug marker');
-    expect(sync.activityLog.value[0].message).toContain('debug marker');
+    expect(sync.activityLog.value[0]).toMatchObject({
+      level: 'info',
+      message: 'debug marker',
+      meta: null,
+    });
+    expect(typeof sync.activityLog.value[0].id).toBe('string');
+    expect(sync.activityLog.value[0].id.length).toBeGreaterThan(0);
+    expect(Number.isNaN(Date.parse(sync.activityLog.value[0].ts))).toBe(false);
 
     sync.clearActivityLog();
     expect(sync.activityLog.value).toEqual([]);

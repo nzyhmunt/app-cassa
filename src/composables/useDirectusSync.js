@@ -370,7 +370,7 @@ async function _startSubscriptions(collections) {
   try {
     await client.connect();
     _wsConnected.value = true;
-    _addActivity('success', `WebSocket connesso (${collections.length} collection).`);
+    _addActivity('success', `WebSocket connesso (${collections.length} collezioni).`);
 
     for (const collection of collections) {
       const query = { fields: ['*'] };
@@ -439,16 +439,24 @@ const syncStatus = ref(/** @type {'idle'|'syncing'|'error'} */ ('idle'));
 const lastPushAt = ref(/** @type {string|null} */ (null));
 const lastPullAt = ref(/** @type {string|null} */ (null));
 const activityLog = ref([]);
+let _activitySeq = 0;
 
 function _addActivity(level, message, meta = null) {
+  _activitySeq += 1;
+  const id = typeof crypto?.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `directus_sync_log_${Date.now()}_${_activitySeq}`;
   const entry = {
-    id: `dsl_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    id,
     ts: new Date().toISOString(),
     level,
     message,
     meta,
   };
-  activityLog.value = [entry, ...activityLog.value].slice(0, SYNC_ACTIVITY_LOG_LIMIT);
+  activityLog.value.unshift(entry);
+  if (activityLog.value.length > SYNC_ACTIVITY_LOG_LIMIT) {
+    activityLog.value.length = SYNC_ACTIVITY_LOG_LIMIT;
+  }
 }
 
 // ── Push helpers ──────────────────────────────────────────────────────────────
@@ -753,4 +761,5 @@ export function _resetDirectusSyncSingleton() {
   lastPushAt.value = null;
   lastPullAt.value = null;
   activityLog.value = [];
+  _activitySeq = 0;
 }
