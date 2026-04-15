@@ -559,7 +559,7 @@ async function _runGlobalPull() {
     if (fullHydrationOk) {
       _initialGlobalHydrationDone = true;
     } else {
-      console.warn('[DirectusSync] Global config hydration incomplete; keeping full-hydration mode for next run.');
+      console.warn('[DirectusSync] Global config hydration incomplete; hydration/apply was skipped due to pull errors.');
     }
 
     // D3: Hydrate appConfig from IDB after pulling config collections.
