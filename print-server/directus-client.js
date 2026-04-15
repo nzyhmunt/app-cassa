@@ -396,14 +396,17 @@ async function processJob(restClient, job, log) {
     for (let attempt = 0; attempt <= RETRY_MAX; attempt++) {
       if (attempt > 0) await sleep(RETRY_DELAY_MS);
       try {
-        // Costruisce il Buffer ESC/POS dal payload del job.
-        // Unisce il payload preservandone i campi, ma forza sempre printType
-        // dal campo Directus print_type per evitare inconsistenze di formato.
-        const buf = buildEscPosBuffer({ ...payload, printType: print_type });
+        // Normalizza payload: deve essere un plain object (non array, non stringa).
+        // Forza sempre printType dal campo Directus print_type per evitare inconsistenze.
+        const safePayload =
+          payload && typeof payload === 'object' && !Array.isArray(payload)
+            ? payload
+            : {};
+        const buf = buildEscPosBuffer({ ...safePayload, printType: print_type });
 
         // Risolve il printer ID: preferisce payload.printerId (campo inviato dal frontend),
         // usa job.printer (FK) come fallback.
-        const resolvedPrinterId = (payload && payload.printerId) ? payload.printerId : printerId;
+        const resolvedPrinterId = safePayload.printerId || printerId;
 
         // Invia alla stampante fisica tramite la coda per-printer
         await printBuffer(buf, resolvedPrinterId);

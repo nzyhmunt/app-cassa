@@ -321,19 +321,7 @@ tcp_port: 9100
 url: 'http://localhost:3001/print'   ← ancora richiesto per hook push / frontend
 ```
 
-### Opzione 2 — `printers.config.js`
-
-```js
-module.exports = {
-  printers: [
-    { id: 'cucina', name: 'Cucina', type: 'tcp',  host: '192.168.1.100', port: 9100 },
-    { id: 'bar',    name: 'Bar',    type: 'tcp',  host: '192.168.1.101', port: 9100 },
-    { id: 'cassa',  name: 'Cassa',  type: 'file', device: '/dev/usb/lp0' },
-  ],
-};
-```
-
-### Opzione 3 — variabili d'ambiente `PRINTER_<N>_*` (consigliata con Docker)
+### Opzione 2 — variabili d'ambiente `PRINTER_<N>_*` (consigliata con Docker)
 
 Se è impostata almeno `PRINTER_0_ID`, le stampanti vengono lette dalle
 variabili d'ambiente **al posto** di `printers.config.js`.
@@ -351,6 +339,18 @@ variabili d'ambiente **al posto** di `printers.config.js`.
 > **Importante:** l'`id` della stampante configurata qui deve corrispondere
 > al campo `printer` in `print_jobs` (Modalità 2/3) e al campo `id`/`printerId`
 > inviato dal frontend (Modalità 1).
+
+### Opzione 3 — `printers.config.js` (sviluppo locale)
+
+```js
+module.exports = {
+  printers: [
+    { id: 'cucina', name: 'Cucina', type: 'tcp',  host: '192.168.1.100', port: 9100 },
+    { id: 'bar',    name: 'Bar',    type: 'tcp',  host: '192.168.1.101', port: 9100 },
+    { id: 'cassa',  name: 'Cassa',  type: 'file', device: '/dev/usb/lp0' },
+  ],
+};
+```
 
 ---
 

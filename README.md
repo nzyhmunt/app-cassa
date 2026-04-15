@@ -404,16 +404,21 @@ Per la documentazione completa del server di stampa vedere [`print-server/README
 
 ### Estensione Directus — Print Dispatcher
 
-Oltre al frontend, è disponibile un'estensione Directus che legge direttamente le collezioni
-`printers` e `print_jobs` e invia automaticamente i lavori al print-server senza passare
-dal browser.
+È disponibile un'estensione Directus che legge direttamente le collezioni `printers` e `print_jobs`
+e **stampa fisicamente sulla stampante di rete** (via TCP) o su device locale (via file/USB) **senza
+alcun print-server esterno**. Ideale per deployment dove Directus si trova sulla stessa LAN delle
+stampanti.
 
 Funziona in due modalità complementari:
 
-- **Hook `items.create`**: dispatch immediato ogni volta che un `print_job` con stato
-  `pending` viene creato (tipicamente via sync offline-first del frontend).
+- **Hook `items.create`**: dispatch immediato ogni volta che un `print_job` con stato `pending`
+  viene creato (tipicamente via sync offline-first del frontend).
 - **Scheduler** (ogni minuto, configurabile): recupero dei job `pending` rimasti indietro
   (es. Directus era in restart al momento della creazione).
+
+> **Prerequisito**: le stampanti devono avere `connection_type = 'tcp'` o `'file'` nella
+> collezione `printers` di Directus. Le stampanti con `connection_type = 'http'` vengono
+> ignorate dall'estensione (vengono gestite dal print-server HTTP).
 
 Per installare l'estensione copia la cartella in `extensions/hooks/` di Directus:
 

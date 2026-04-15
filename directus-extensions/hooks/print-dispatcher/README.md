@@ -106,7 +106,7 @@ services:
     image: directus/directus:11
     volumes:
       # Monta il bundle pre-compilato (no node_modules richiesti a runtime)
-      - ./directus-extensions/hooks/print-dispatcher:/directus/extensions/print-dispatcher:ro
+      - ./directus-extensions/hooks/print-dispatcher:/directus/extensions/hooks/print-dispatcher:ro
     environment:
       PRINT_DISPATCHER_POLL_SEC: "60"
       PRINT_DISPATCHER_RETRY_MAX: "3"
