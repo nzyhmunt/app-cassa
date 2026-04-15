@@ -222,7 +222,9 @@ export default ({ action, schedule }, { services, database, getSchema, logger, e
       fields: ['id', 'name', 'connection_type', 'tcp_host', 'tcp_port', 'tcp_timeout', 'file_device'],
     });
     if (!printer) {
-      throw new Error(`Stampante "${safeLog(printerId)}" non trovata`);
+      const err = new Error(`Stampante "${safeLog(printerId)}" non trovata`);
+      err.permanent = true;
+      throw err;
     }
     return printer;
   }
