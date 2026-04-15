@@ -490,7 +490,9 @@ printers: [
 
 I job vengono scritti su Directus dal frontend (tramite sync offline-first).
 Il print-server (o l'hook Directus) li legge e li stampa autonomamente.
-`appConfig.printers[].id` deve corrispondere all'`id` in `printers.config.js`.
+`appConfig.printers[].id` deve corrispondere all'`id` della collezione Directus
+`printers` (cioè al valore referenziato da `print_jobs.printer`); `printers.config.js`
+resta solo un eventuale fallback locale, se usato.
 
 ```js
 // src/utils/index.js — appConfig (Modalità 2/3)
