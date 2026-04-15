@@ -1,7 +1,7 @@
 {
   "name": "directus-extension-print-dispatcher",
-  "version": "1.0.0",
-  "description": "Directus hook extension che legge print_jobs e printers e invia i lavori al print-server ESC/POS",
+  "version": "2.0.0",
+  "description": "Directus hook extension che legge print_jobs e printers e stampa direttamente via TCP o dispositivo file (no servizi esterni)",
   "license": "MIT",
   "type": "module",
   "directus:extension": {
@@ -10,5 +10,8 @@
     "path": "src/index.js",
     "source": "src/index.js",
     "sandbox": false
+  },
+  "dependencies": {
+    "@point-of-sale/receipt-printer-encoder": "^3.0.3"
   }
 }

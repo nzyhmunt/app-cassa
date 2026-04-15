@@ -1,9 +1,10 @@
 /**
  * @file directus-extensions/hooks/print-dispatcher/src/index.js
- * @description Directus hook extension — Print Dispatcher
+ * @description Directus hook extension — Print Dispatcher (stampa diretta ESC/POS)
  *
  * Legge le collezioni `print_jobs` e `printers` e invia automaticamente
- * ogni lavoro di stampa con stato `pending` al relativo servizio ESC/POS.
+ * ogni lavoro di stampa con stato `pending` direttamente alla stampante fisica
+ * via TCP o dispositivo file. Non richiede servizi Node.js / Docker esterni.
  *
  * Comportamento:
  *  - Hook `items.create` su `print_jobs`: dispatch immediato appena il job
@@ -13,21 +14,28 @@
  *  - Blocco ottimistico: l'UPDATE atomico `WHERE status='pending'` garantisce
  *    che due processi concorrenti non spediscano lo stesso job due volte.
  *
+ * Tipi di connessione supportati (campo `connection_type` nella collezione `printers`):
+ *  - `tcp`  — connessione TCP diretta sulla porta ESC/POS (default 9100)
+ *  - `file` — scrittura su dispositivo USB/seriale (es. /dev/usb/lp0)
+ *  - `http` — NON supportato in modalità diretta (richiede print-server esterno)
+ *
  * Variabili d'ambiente:
- *  PRINT_SERVER_API_KEY       — Header `x-api-key` inviato al print-server
- *                               (opzionale; usare solo se il server richiede auth).
- *  PRINT_DISPATCHER_POLL_SEC  — Intervallo di polling in secondi (default: 60).
- *  PRINT_DISPATCHER_TIMEOUT_MS — Timeout HTTP per ogni job in ms (default: 30000).
- *  PRINT_DISPATCHER_RETRY_MAX  — Numero massimo di tentativi per job (default: 3).
- *  PRINT_DISPATCHER_RETRY_DELAY_MS — Attesa tra i tentativi in ms (default: 2000).
+ *  PRINT_DISPATCHER_POLL_SEC        — Intervallo di polling in secondi (default: 60).
+ *  PRINT_DISPATCHER_RETRY_MAX       — Numero massimo di tentativi per job (default: 3).
+ *  PRINT_DISPATCHER_RETRY_DELAY_MS  — Attesa tra i tentativi in ms (default: 2000).
  */
+
+import net from 'net';
+import fs  from 'fs';
+
+import { formatOrder }     from './formatters/order.js';
+import { formatTableMove } from './formatters/table_move.js';
+import { formatPreBill }   from './formatters/pre_bill.js';
 
 export default ({ action, schedule }, { services, database, getSchema, logger, env }) => {
   const { ItemsService } = services;
 
   // ── Configurazione ────────────────────────────────────────────────────────
-
-  const PRINT_API_KEY   = env['PRINT_SERVER_API_KEY'] ?? '';
 
   /**
    * Legge una variabile d'ambiente numerica intera.
@@ -43,10 +51,9 @@ export default ({ action, schedule }, { services, database, getSchema, logger, e
     return Number.isNaN(parsed) ? fallback : parsed;
   }
 
-  const POLL_SEC        = Math.max(1,    envInt('PRINT_DISPATCHER_POLL_SEC',        60));
-  const TIMEOUT_MS      = Math.max(1000, envInt('PRINT_DISPATCHER_TIMEOUT_MS',   30000));
-  const RETRY_MAX       = Math.max(0,    envInt('PRINT_DISPATCHER_RETRY_MAX',         3));
-  const RETRY_DELAY_MS  = Math.max(0,    envInt('PRINT_DISPATCHER_RETRY_DELAY_MS', 2000));
+  const POLL_SEC       = Math.max(1, envInt('PRINT_DISPATCHER_POLL_SEC',        60));
+  const RETRY_MAX      = Math.max(0, envInt('PRINT_DISPATCHER_RETRY_MAX',         3));
+  const RETRY_DELAY_MS = Math.max(0, envInt('PRINT_DISPATCHER_RETRY_DELAY_MS', 2000));
 
   // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -68,50 +75,118 @@ export default ({ action, schedule }, { services, database, getSchema, logger, e
     return new Promise((r) => setTimeout(r, ms));
   }
 
+  // ── Formatters ESC/POS ────────────────────────────────────────────────────
+
   /**
-   * Invia il payload al print-server con retry automatico in caso di errore
-   * di rete o risposta HTTP 5xx.
-   * @param {string} url          URL del print-server (es. http://localhost:3001/print)
-   * @param {object} payload      Corpo JSON da inviare
-   * @returns {Promise<void>}
-   * @throws {Error} Dopo aver esaurito tutti i tentativi
+   * Converte il payload di un job in un Buffer ESC/POS.
+   * @param {object} job  Payload con `printType` e campi specifici del tipo
+   * @returns {Buffer}
+   * @throws {Error} Se `printType` non è supportato
    */
-  async function postWithRetry(url, payload) {
-    let lastErr;
-    for (let attempt = 0; attempt <= RETRY_MAX; attempt++) {
-      if (attempt > 0) await sleep(RETRY_DELAY_MS);
-      try {
-        const headers = { 'Content-Type': 'application/json' };
-        if (PRINT_API_KEY) headers['x-api-key'] = PRINT_API_KEY;
-
-        const resp = await fetch(url, {
-          method:  'POST',
-          headers,
-          body:    JSON.stringify(payload),
-          signal:  AbortSignal.timeout(TIMEOUT_MS),
-        });
-
-        if (resp.ok) return; // successo
-
-        // Errori 4xx sono definitivi (payload non valido) — non ritentare
-        if (resp.status >= 400 && resp.status < 500) {
-          const data = await resp.json().catch(() => ({}));
-          const err = new Error(data.error ?? `HTTP ${resp.status}`);
-          err.permanent = true; // segnala al catch di non ritentare
-          throw err;
-        }
-
-        // Errori 5xx: ritenta
-        const data = await resp.json().catch(() => ({}));
-        lastErr = new Error(data.error ?? `HTTP ${resp.status}`);
-      } catch (err) {
-        // Gli errori 4xx e gli errori di payload contrassegnati come `permanent`
-        // escono subito dal loop senza ulteriori tentativi.
-        if (err.permanent) throw err;
-        lastErr = err;
+  function buildEscPosBuffer(job) {
+    switch (job.printType) {
+      case 'order':      return formatOrder(job);
+      case 'table_move': return formatTableMove(job);
+      case 'pre_bill':   return formatPreBill(job);
+      default: {
+        const err = new Error(`Tipo di stampa non supportato: ${job.printType}`);
+        err.permanent = true;
+        throw err;
       }
     }
-    throw lastErr ?? new Error('Invio fallito dopo tutti i tentativi');
+  }
+
+  // ── Stampa diretta ────────────────────────────────────────────────────────
+
+  /**
+   * Invia un Buffer ESC/POS alla stampante via TCP.
+   * @param {Buffer} buf
+   * @param {string} host
+   * @param {number} port
+   * @param {number} timeoutMs
+   * @returns {Promise<void>}
+   */
+  function printViaTcp(buf, host, port, timeoutMs) {
+    return new Promise((resolve, reject) => {
+      const socket = new net.Socket();
+      let settled        = false;
+      let endInitiated   = false;
+
+      function done(err) {
+        if (settled) return;
+        settled = true;
+        socket.destroy();
+        if (err) reject(err);
+        else resolve();
+      }
+
+      socket.setTimeout(timeoutMs);
+      socket.on('timeout', () => done(new Error(
+        `TCP timeout (${timeoutMs}ms) connettendo a ${host}:${port}`,
+      )));
+      socket.on('error', done);
+
+      socket.connect(port, host, () => {
+        socket.write(buf, (writeErr) => {
+          if (writeErr) {
+            done(writeErr);
+          } else {
+            endInitiated = true;
+            socket.end(() => done(null));
+          }
+        });
+      });
+
+      socket.on('close', () => {
+        if (endInitiated) done(null);
+      });
+    });
+  }
+
+  /**
+   * Scrive un Buffer ESC/POS su un dispositivo file (USB/seriale).
+   * @param {Buffer} buf
+   * @param {string} device  Percorso del dispositivo (es. /dev/usb/lp0)
+   * @returns {Promise<void>}
+   */
+  function printToFile(buf, device) {
+    return new Promise((resolve, reject) => {
+      fs.writeFile(device, buf, { flag: 'w' }, (err) => {
+        if (err) reject(err);
+        else resolve();
+      });
+    });
+  }
+
+  /**
+   * Invia il Buffer ESC/POS alla stampante in base alla configurazione.
+   * @param {Buffer} buf
+   * @param {object} printer  Configurazione stampante da Directus
+   * @returns {Promise<void>}
+   * @throws {Error} Se `connection_type` non è supportato per la stampa diretta
+   */
+  function dispatchBuffer(buf, printer) {
+    const type = (printer.connection_type ?? 'http').toLowerCase();
+
+    if (type === 'tcp') {
+      const host    = printer.tcp_host    || '127.0.0.1';
+      const port    = printer.tcp_port    || 9100;
+      const timeout = printer.tcp_timeout || 5000;
+      return printViaTcp(buf, host, port, timeout);
+    }
+
+    if (type === 'file') {
+      const device = printer.file_device || '/dev/usb/lp0';
+      return printToFile(buf, device);
+    }
+
+    // http e altri: non supportati in modalità diretta
+    const err = new Error(
+      `Stampante "${safeLog(printer.id)}" usa connection_type="${type}" che non è supportato in modalità diretta. ` +
+      `Usare tcp o file per la stampa senza print-server esterno.`,
+    );
+    err.permanent = true;
+    return Promise.reject(err);
   }
 
   // ── Core dispatch ─────────────────────────────────────────────────────────
@@ -131,39 +206,39 @@ export default ({ action, schedule }, { services, database, getSchema, logger, e
   }
 
   /**
-   * Legge l'URL della stampante dalla collezione `printers`.
-   * @param {string}   printerId  ID della stampante (FK in print_jobs.printer)
-   * @param {object}   schema     Schema Directus corrente
-   * @returns {Promise<string>}   URL del print-server
-   * @throws {Error}  Se la stampante non esiste o non ha un URL
+   * Legge la configurazione della stampante dalla collezione `printers`.
+   * @param {string} printerId
+   * @param {object} schema
+   * @returns {Promise<object>}
+   * @throws {Error} Se la stampante non esiste
    */
-  async function getPrinterUrl(printerId, schema) {
+  async function getPrinterConfig(printerId, schema) {
     const svc = new ItemsService('printers', { database, schema });
-    const printer = await svc.readOne(printerId, { fields: ['id', 'url'] });
-    if (!printer?.url) {
-      throw new Error(`Stampante "${safeLog(printerId)}" non trovata o URL non configurato`);
+    const printer = await svc.readOne(printerId, {
+      fields: ['id', 'name', 'connection_type', 'tcp_host', 'tcp_port', 'tcp_timeout', 'file_device'],
+    });
+    if (!printer) {
+      throw new Error(`Stampante "${safeLog(printerId)}" non trovata`);
     }
-    return printer.url;
+    return printer;
   }
 
   /**
    * Processa un singolo job di stampa:
    *   1. Acquisisce il lock (status pending → printing)
-   *   2. Legge URL stampante da `printers`
-   *   3. Invia il payload via HTTP al print-server
-   *   4. Aggiorna lo stato a `done` o `error`
+   *   2. Legge la configurazione della stampante da `printers`
+   *   3. Costruisce il Buffer ESC/POS
+   *   4. Invia direttamente alla stampante fisica (TCP / file)
+   *   5. Aggiorna lo stato a `done` o `error`
    *
    * @param {string} logId  Chiave primaria del job (print_jobs.log_id)
    */
   async function processJob(logId) {
     // ── 1. Acquisizione lock ──────────────────────────────────────────────
     const claimed = await tryClaimJob(logId);
-    if (!claimed) {
-      // Un altro processo ha già acquisito o completato il job
-      return;
-    }
+    if (!claimed) return; // già acquisito da un altro processo
 
-    const schema = await getSchema();
+    const schema  = await getSchema();
     const jobsSvc = new ItemsService('print_jobs', { database, schema });
 
     // ── 2. Lettura record completo ────────────────────────────────────────
@@ -173,37 +248,56 @@ export default ({ action, schedule }, { services, database, getSchema, logger, e
         fields: ['log_id', 'printer', 'payload', 'print_type', 'job_id'],
       });
     } catch (err) {
-      // Il record non esiste più: non fare nulla (il lock non è stato acquisito)
       logger.warn(`[print-dispatcher] Job ${safeLog(logId)} non trovato: ${safeLog(err.message)}`);
       return;
     }
 
-    // ── 3. Invio al print-server ─────────────────────────────────────────
-    try {
-      const printerUrl = await getPrinterUrl(job.printer, schema);
-      const basePayload =
-        job.payload && typeof job.payload === 'object' && !Array.isArray(job.payload)
-          ? job.payload
-          : {};
-      const dispatchPayload = {
-        ...basePayload,
-        printType: job.print_type,
-        printerId: job.printer,
-        jobId: job.job_id,
-      };
-      await postWithRetry(printerUrl, dispatchPayload);
+    // ── 3. Invio diretto alla stampante ───────────────────────────────────
+    let lastErr;
+    for (let attempt = 0; attempt <= RETRY_MAX; attempt++) {
+      if (attempt > 0) await sleep(RETRY_DELAY_MS);
+      try {
+        // Legge config stampante (inclusi campi connessione diretta)
+        const printer = await getPrinterConfig(job.printer, schema);
 
-      await jobsSvc.updateOne(logId, { status: 'done', error_message: null });
-      logger.info(
-        `[print-dispatcher] ✓ Job ${safeLog(job.job_id)} (${safeLog(job.print_type)}) → stampante "${safeLog(job.printer)}"`,
-      );
-    } catch (err) {
-      const msg = safeLog(err.message ?? err);
-      await jobsSvc.updateOne(logId, { status: 'error', error_message: msg }).catch(() => {});
-      logger.error(
-        `[print-dispatcher] ✗ Job ${safeLog(job.job_id ?? logId)} errore: ${msg}`,
-      );
+        // Costruisce payload canonico (print_type dal record Directus ha precedenza)
+        const basePayload =
+          job.payload && typeof job.payload === 'object' && !Array.isArray(job.payload)
+            ? job.payload
+            : {};
+        const printPayload = {
+          ...basePayload,
+          printType: job.print_type,  // sempre dal record Directus
+          printerId: job.printer,
+          jobId:     job.job_id,
+        };
+
+        // Genera buffer ESC/POS e invia direttamente
+        const buf = buildEscPosBuffer(printPayload);
+        await dispatchBuffer(buf, printer);
+
+        await jobsSvc.updateOne(logId, { status: 'done', error_message: null });
+        logger.info(
+          `[print-dispatcher] ✓ Job ${safeLog(job.job_id)} (${safeLog(job.print_type)}) → stampante "${safeLog(job.printer)}"`,
+        );
+        return; // successo
+
+      } catch (err) {
+        // Errori permanenti (tipo non supportato, printType non valido): non ritentare
+        if (err.permanent) {
+          const msg = safeLog(err.message ?? err);
+          await jobsSvc.updateOne(logId, { status: 'error', error_message: msg }).catch(() => {});
+          logger.error(`[print-dispatcher] ✗ Job ${safeLog(job.job_id ?? logId)} errore permanente: ${msg}`);
+          return;
+        }
+        lastErr = err;
+      }
     }
+
+    // Esauriti i tentativi: segna errore
+    const msg = safeLog(lastErr?.message ?? lastErr ?? 'Errore sconosciuto');
+    await jobsSvc.updateOne(logId, { status: 'error', error_message: msg }).catch(() => {});
+    logger.error(`[print-dispatcher] ✗ Job ${safeLog(job.job_id ?? logId)} fallito dopo ${RETRY_MAX + 1} tentativi: ${msg}`);
   }
 
   // ── Hook: dispatch immediato alla creazione ───────────────────────────────
@@ -220,20 +314,19 @@ export default ({ action, schedule }, { services, database, getSchema, logger, e
   // ── Schedule: recupero job pending rimasti indietro ───────────────────────
 
   // Converte POLL_SEC in cron expression.
-  //  ≤ 59 s  → "*/N * * * * *"    (6 campi incl. secondi — node-cron)
-  //  ≥ 60 s  → "*/M * * * *"      (5 campi, minuti — arrotondato al minuto più vicino; min 1)
-  // Nota: per il fallback di polling, la granularità al minuto è sufficiente.
+  //  ≤ 59 s  → "*/N * * * * *"  (6 campi incl. secondi — node-cron)
+  //  ≥ 60 s  → "*/M * * * *"    (5 campi, minuti — arrotondato; min 1)
   const cronMinutes = Math.max(1, Math.round(POLL_SEC / 60));
-  const cronExpr = POLL_SEC < 60
+  const cronExpr    = POLL_SEC < 60
     ? `*/${POLL_SEC} * * * * *`
     : `*/${cronMinutes} * * * *`;
 
   schedule(cronExpr, async () => {
     let pendingJobs;
     try {
-      const schema = await getSchema();
+      const schema  = await getSchema();
       const jobsSvc = new ItemsService('print_jobs', { database, schema });
-      pendingJobs = await jobsSvc.readByQuery({
+      pendingJobs   = await jobsSvc.readByQuery({
         filter: { status: { _eq: 'pending' } },
         fields: ['log_id'],
         sort:   ['job_timestamp'],
@@ -258,6 +351,6 @@ export default ({ action, schedule }, { services, database, getSchema, logger, e
   });
 
   logger.info(
-    `[print-dispatcher] Estensione caricata — polling ogni ${POLL_SEC}s, timeout HTTP ${TIMEOUT_MS}ms, max retry ${RETRY_MAX}`,
+    `[print-dispatcher] Estensione caricata (stampa diretta) — polling ogni ${POLL_SEC}s, max retry ${RETRY_MAX}`,
   );
 };
