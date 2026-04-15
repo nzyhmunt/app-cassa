@@ -416,6 +416,26 @@ describe('reactive timestamps', () => {
 
     expect(sync.lastPushAt.value).toBeTruthy();
   });
+
+  it('lastPullAt is not updated when any pull collection fails', async () => {
+    const page1Orders = Array.from({ length: 200 }, (_, i) => makeRemoteOrder({
+      id: `ord_page1_${i}`,
+      date_updated: `2024-03-01T00:00:${String(i % 60).padStart(2, '0')}.000Z`,
+    }));
+
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      const u = String(url);
+      if (!u.includes('/items/orders')) return Promise.resolve(directusListResponse([]));
+      if (u.includes('page=1')) return Promise.resolve(directusListResponse(page1Orders));
+      return Promise.reject(new Error('orders page 2 failed'));
+    });
+
+    const sync = useDirectusSync();
+    const before = sync.lastPullAt.value;
+    await sync.forcePull();
+
+    expect(sync.lastPullAt.value).toBe(before);
+  });
 });
 
 // ── last_pull_ts persistence ──────────────────────────────────────────────────
@@ -436,6 +456,27 @@ describe('pull timestamp persistence', () => {
 
     const ts = await loadLastPullTsFromIDB('orders');
     expect(ts).toBe('2024-07-15T12:00:00.000Z');
+  });
+
+  it('does not advance last_pull_ts when a paginated pull fails mid-cycle', async () => {
+    await saveLastPullTsToIDB('orders', '2024-01-01T00:00:00.000Z');
+    const page1Orders = Array.from({ length: 200 }, (_, i) => makeRemoteOrder({
+      id: `ord_partial_${i}`,
+      date_updated: `2024-08-01T00:00:${String(i % 60).padStart(2, '0')}.000Z`,
+    }));
+
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      const u = String(url);
+      if (!u.includes('/items/orders')) return Promise.resolve(directusListResponse([]));
+      if (u.includes('page=1')) return Promise.resolve(directusListResponse(page1Orders));
+      return Promise.reject(new Error('orders page 2 failed'));
+    });
+
+    const sync = useDirectusSync();
+    await sync.forcePull();
+
+    const ts = await loadLastPullTsFromIDB('orders');
+    expect(ts).toBe('2024-01-01T00:00:00.000Z');
   });
 });
 

@@ -317,7 +317,7 @@ async function _pullCollection(collection, { forceFull = false, lastPullTimestam
     page++;
   }
 
-  if (latestTs && latestTs !== storedSinceTs) {
+  if (!hadFetchError && latestTs && latestTs !== storedSinceTs) {
     await saveLastPullTsToIDB(collection, latestTs);
   }
 
@@ -470,11 +470,15 @@ async function _runPull() {
 
   try {
     let anyMerged = false;
+    let allOk = true;
     for (const collection of pullCfg.collections) {
-      const { merged } = await _pullCollection(collection);
+      const { merged, ok } = await _pullCollection(collection);
       if (merged > 0) anyMerged = true;
+      if (!ok) allOk = false;
     }
-    if (anyMerged) lastPullAt.value = new Date().toISOString();
+    if (anyMerged && allOk) {
+      lastPullAt.value = new Date().toISOString();
+    }
   } catch (e) {
     console.warn('[DirectusSync] Pull error:', e);
   }
