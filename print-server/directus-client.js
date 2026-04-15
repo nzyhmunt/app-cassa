@@ -427,8 +427,8 @@ async function processJob(restClient, job, log) {
         return; // successo
       } catch (err) {
         lastErr = err;
-        // Errori di formato (payload non valido) sono permanenti — non ritentare
-        if (err.message && err.message.includes('non supportato')) break;
+        // Gli errori permanenti devono essere marcati esplicitamente da chi li genera/intercetta
+        if (err && err.permanent === true) break;
       }
     }
 
