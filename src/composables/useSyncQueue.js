@@ -148,15 +148,19 @@ export async function removeEntry(id) {
 }
 
 /**
- * Increments the `attempts` counter on a failed entry.
+ * Increments the `attempts` counter on a failed entry and optionally records
+ * the last error message so the UI can surface it.
  * @param {string} id
+ * @param {string|null} [lastError] - Human-readable error message from the last failure
  */
-export async function incrementAttempts(id) {
+export async function incrementAttempts(id, lastError) {
   try {
     const db = await getDB();
     const entry = await db.get('sync_queue', id);
     if (entry) {
-      await db.put('sync_queue', { ...entry, attempts: (entry.attempts ?? 0) + 1 });
+      const updated = { ...entry, attempts: (entry.attempts ?? 0) + 1 };
+      if (lastError !== null && lastError !== undefined && lastError !== '') updated.last_error = lastError;
+      await db.put('sync_queue', updated);
     }
   } catch (e) {
     console.warn('[SyncQueue] Failed to increment attempts:', e);
@@ -321,13 +325,13 @@ function _buildRestClient(cfg) {
  * Pushes a single sync_queue entry to Directus using the official SDK.
  *
  * Returns `true` when the entry was successfully sent (should be removed from
- * the queue), `false` when it failed and should be retried, or `'skip'` when
- * the entry should be silently discarded (no-op delete on domain-status
- * collection).
+ * the queue), `'skip'` when the entry should be silently discarded (no-op
+ * delete on domain-status collection), or an error message string when the
+ * push failed and should be retried.
  *
  * @param {object} entry
  * @param {import('@directus/sdk').DirectusClient<object>} sdkClient
- * @returns {Promise<true|false|'skip'>}
+ * @returns {Promise<true|'skip'|string>}
  */
 async function _pushEntry(entry, sdkClient) {
   const { collection, operation, record_id, payload } = entry;
@@ -373,8 +377,18 @@ async function _pushEntry(entry, sdkClient) {
 
     return true;
   } catch (e) {
-    console.warn(`[SyncQueue] Error on ${operation} ${collection}/${record_id}:`, e?.message ?? e);
-    return false;
+    // Extract a human-readable message from the error:
+    //  - e.errors[0].message   — Directus SDK top-level GraphQL/REST error array
+    //  - e.response.errors[0]  — SDK error wrapped under .response
+    //  - e.message             — standard JS Error (e.g. network failure)
+    //  - String(e)             — last-resort fallback (catches non-Error throws)
+    const errorMsg =
+      e?.errors?.[0]?.message ??
+      e?.response?.errors?.[0]?.message ??
+      e?.message ??
+      String(e);
+    console.warn(`[SyncQueue] Error on ${operation} ${collection}/${record_id}:`, errorMsg);
+    return errorMsg;
   }
 }
 
@@ -416,7 +430,7 @@ export async function drainQueue(cfg) {
         await removeEntry(entry.id);
         abandoned++;
       } else {
-        await incrementAttempts(entry.id);
+        await incrementAttempts(entry.id, typeof result === 'string' ? result : null);
         failed++;
         // Exponential back-off: pause 2^attempts × backoffBase ms before next entry
         const delayMs = Math.min(2 ** newAttempts * backoffBase, 30_000);

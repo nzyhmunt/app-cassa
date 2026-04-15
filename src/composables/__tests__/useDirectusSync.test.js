@@ -399,3 +399,74 @@ describe('WebSocket subscriptions', () => {
     expect(sync.syncStatus.value).not.toBe('error');
   });
 });
+
+// ── drainQueue: last_error persistence ───────────────────────────────────────
+
+describe('drainQueue — last_error on failed push', () => {
+  it('sets last_error on a failed entry after a push error', async () => {
+    const { enqueue, drainQueue } = await import('../useSyncQueue.js');
+    await enqueue('orders', 'create', 'ord_fail', { id: 'ord_fail' });
+
+    // Make the push fail with a recognisable error message
+    vi.spyOn(global, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ errors: [{ message: 'You are not allowed.' }] }), {
+        status: 403,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+
+    const cfg = { url: 'https://directus.test', staticToken: 'tok_test', venueId: 1, _backoffMs: 0 };
+    await drainQueue(cfg);
+
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+    const all = await db.getAll('sync_queue');
+    const entry = all.find(e => e.record_id === 'ord_fail');
+
+    // attempts must be incremented and last_error must be set
+    expect(entry).toBeTruthy();
+    expect(entry.attempts).toBeGreaterThan(0);
+    expect(typeof entry.last_error).toBe('string');
+    expect(entry.last_error.length).toBeGreaterThan(0);
+  });
+
+  it('updates last_error on subsequent failures', async () => {
+    const { enqueue, drainQueue } = await import('../useSyncQueue.js');
+    await enqueue('orders', 'update', 'ord_retry', { id: 'ord_retry', status: 'accepted' });
+
+    const cfg = { url: 'https://directus.test', staticToken: 'tok_test', venueId: 1, _backoffMs: 0 };
+
+    vi.spyOn(global, 'fetch')
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ errors: [{ message: 'First error' }] }), {
+          status: 500,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ errors: [{ message: 'Second error' }] }), {
+          status: 500,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      );
+
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+
+    // First drain — sets last_error to 'First error'
+    await drainQueue(cfg);
+    const allAfterFirst = await db.getAll('sync_queue');
+    const entryAfterFirst = allAfterFirst.find(e => e.record_id === 'ord_retry');
+    expect(entryAfterFirst).toBeTruthy();
+    expect(entryAfterFirst.attempts).toBe(1);
+    expect(entryAfterFirst.last_error).toContain('First error');
+
+    // Second drain — updates last_error to 'Second error'
+    await drainQueue(cfg);
+    const allAfterSecond = await db.getAll('sync_queue');
+    const entryAfterSecond = allAfterSecond.find(e => e.record_id === 'ord_retry');
+    expect(entryAfterSecond).toBeTruthy();
+    expect(entryAfterSecond.attempts).toBe(2);
+    expect(entryAfterSecond.last_error).toContain('Second error');
+  });
+});

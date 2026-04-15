@@ -4,7 +4,7 @@ import { defineComponent, reactive, nextTick } from 'vue';
 import { createPinia, setActivePinia } from 'pinia';
 import { useSettings } from '../useSettings.js';
 import { useAppStore } from '../../store/index.js';
-import { resolveStorageKeys } from '../../store/persistence.js';
+import { resolveStorageKeys, resolveDirectusConfigKey } from '../../store/persistence.js';
 import { getPwaDismissKey } from '../usePwaInstall.js';
 
 // Mock the IDB persistence layer so tests stay synchronous and don't need
@@ -15,9 +15,10 @@ vi.mock('../../store/idbPersistence.js', async (importOriginal) => {
     ...original,
     saveSettingsToIDB: vi.fn().mockResolvedValue(undefined),
     clearAllStateFromIDB: vi.fn().mockResolvedValue(undefined),
+    clearSyncQueueFromIDB: vi.fn().mockResolvedValue(undefined),
   };
 });
-import { saveSettingsToIDB } from '../../store/idbPersistence.js';
+import { saveSettingsToIDB, clearAllStateFromIDB, clearSyncQueueFromIDB } from '../../store/idbPersistence.js';
 
 const { settingsKey: SETTINGS_KEY } = resolveStorageKeys();
 
@@ -366,6 +367,87 @@ describe('useSettings()', () => {
     }
   });
 
+  it('confirmReset() removes the directus-config key from localStorage', async () => {
+    const reloadMock = vi.fn();
+    const originalLocationDescriptor = Object.getOwnPropertyDescriptor(window, 'location');
+    const originalLocationValue = window.location;
+
+    try {
+      Object.defineProperty(window, 'location', {
+        writable: true,
+        configurable: true,
+        value: { reload: reloadMock },
+      });
+
+      // Use resolveDirectusConfigKey() so the key matches the production code
+      const configKey = resolveDirectusConfigKey();
+      localStorage.setItem(configKey, JSON.stringify({
+        enabled: true,
+        url: 'https://directus.test',
+        staticToken: 'test-token',
+        venueId: 1,
+        wsEnabled: false,
+      }));
+
+      const props = reactive({ modelValue: false });
+      const emit = vi.fn();
+
+      const { result, wrapper } = withSetup(() => useSettings(props, emit));
+      await result.confirmReset();
+
+      expect(localStorage.getItem(configKey)).toBeNull();
+      wrapper.unmount();
+    } finally {
+      if (originalLocationDescriptor) {
+        Object.defineProperty(window, 'location', originalLocationDescriptor);
+      } else {
+        window.location = originalLocationValue;
+      }
+    }
+  });
+
+  it('confirmReset() removes both the namespaced and legacy directus-config key when instanceName is set', async () => {
+    const reloadMock = vi.fn();
+    const originalLocationDescriptor = Object.getOwnPropertyDescriptor(window, 'location');
+    const originalLocationValue = window.location;
+    const { appConfig } = await import('../../utils/index.js');
+    const originalInstanceName = appConfig.instanceName;
+
+    try {
+      Object.defineProperty(window, 'location', {
+        writable: true,
+        configurable: true,
+        value: { reload: reloadMock },
+      });
+
+      // Simulate a named instance (e.g. a second POS terminal)
+      appConfig.instanceName = 'cassa2';
+      const namespacedKey = resolveDirectusConfigKey();  // 'directus-config_cassa2'
+      const legacyKey = 'directus-config';
+
+      // Both keys present: namespaced (current) + legacy (pre-upgrade)
+      localStorage.setItem(namespacedKey, JSON.stringify({ enabled: true, url: 'https://directus.test' }));
+      localStorage.setItem(legacyKey, JSON.stringify({ enabled: true, url: 'https://directus.test' }));
+
+      const props = reactive({ modelValue: false });
+      const emit = vi.fn();
+
+      const { result, wrapper } = withSetup(() => useSettings(props, emit));
+      await result.confirmReset();
+
+      expect(localStorage.getItem(namespacedKey)).toBeNull();
+      expect(localStorage.getItem(legacyKey)).toBeNull();
+      wrapper.unmount();
+    } finally {
+      appConfig.instanceName = originalInstanceName;
+      if (originalLocationDescriptor) {
+        Object.defineProperty(window, 'location', originalLocationDescriptor);
+      } else {
+        window.location = originalLocationValue;
+      }
+    }
+  });
+
   it('confirmReset() removes the PWA dismiss key from localStorage', async () => {
     const reloadMock = vi.fn();
     const originalLocationDescriptor = Object.getOwnPropertyDescriptor(window, 'location');
@@ -388,6 +470,39 @@ describe('useSettings()', () => {
       await result.confirmReset();
 
       expect(localStorage.getItem(pwaDismissKey)).toBeNull();
+      wrapper.unmount();
+    } finally {
+      if (originalLocationDescriptor) {
+        Object.defineProperty(window, 'location', originalLocationDescriptor);
+      } else {
+        window.location = originalLocationValue;
+      }
+    }
+  });
+
+  it('confirmReset() calls clearAllStateFromIDB() and clearSyncQueueFromIDB()', async () => {
+    const reloadMock = vi.fn();
+    const originalLocationDescriptor = Object.getOwnPropertyDescriptor(window, 'location');
+    const originalLocationValue = window.location;
+
+    try {
+      Object.defineProperty(window, 'location', {
+        writable: true,
+        configurable: true,
+        value: { reload: reloadMock, pathname: '/' },
+      });
+
+      vi.mocked(clearAllStateFromIDB).mockClear();
+      vi.mocked(clearSyncQueueFromIDB).mockClear();
+
+      const props = reactive({ modelValue: false });
+      const emit = vi.fn();
+
+      const { result, wrapper } = withSetup(() => useSettings(props, emit));
+      await result.confirmReset();
+
+      expect(clearAllStateFromIDB).toHaveBeenCalledOnce();
+      expect(clearSyncQueueFromIDB).toHaveBeenCalledOnce();
       wrapper.unmount();
     } finally {
       if (originalLocationDescriptor) {

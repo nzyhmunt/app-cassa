@@ -551,6 +551,20 @@ export async function clearAllStateFromIDB() {
 }
 
 /**
+ * Removes all pending entries from the `sync_queue` IndexedDB store.
+ * Called during a factory reset so that stale push operations cannot be
+ * replayed after the user re-enables Directus.
+ */
+export async function clearSyncQueueFromIDB() {
+  try {
+    const db = await getDB();
+    await db.clear('sync_queue');
+  } catch (e) {
+    console.warn('[IDBPersistence] Failed to clear sync_queue:', e);
+  }
+}
+
+/**
  * Deletes the entire IndexedDB database for the current instance.
  * Nuclear option — used only during full reset.
  * @param {string} [instanceName]

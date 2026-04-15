@@ -156,19 +156,23 @@
     <div v-if="syncEnabled" class="flex gap-2">
       <button
         type="button"
-        @click="sync.forcePush()"
-        class="flex-1 py-2.5 bg-gray-50 hover:bg-gray-100 text-gray-700 font-bold rounded-2xl flex items-center justify-center gap-2 border border-gray-200 transition-colors active:scale-95 text-xs"
+        @click="handleForcePush"
+        :disabled="pushing || pulling"
+        class="flex-1 py-2.5 bg-gray-50 hover:bg-gray-100 text-gray-700 font-bold rounded-2xl flex items-center justify-center gap-2 border border-gray-200 transition-colors active:scale-95 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
       >
-        <Upload class="size-3.5 text-gray-500" />
-        <span>Push ora</span>
+        <LoaderCircle v-if="pushing" class="size-3.5 text-gray-500 animate-spin" />
+        <Upload v-else class="size-3.5 text-gray-500" />
+        <span>{{ pushing ? 'Invio in corso...' : 'Push ora' }}</span>
       </button>
       <button
         type="button"
-        @click="sync.forcePull()"
-        class="flex-1 py-2.5 bg-gray-50 hover:bg-gray-100 text-gray-700 font-bold rounded-2xl flex items-center justify-center gap-2 border border-gray-200 transition-colors active:scale-95 text-xs"
+        @click="handleForcePull"
+        :disabled="pushing || pulling"
+        class="flex-1 py-2.5 bg-gray-50 hover:bg-gray-100 text-gray-700 font-bold rounded-2xl flex items-center justify-center gap-2 border border-gray-200 transition-colors active:scale-95 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
       >
-        <Download class="size-3.5 text-gray-500" />
-        <span>Pull ora</span>
+        <LoaderCircle v-if="pulling" class="size-3.5 text-gray-500 animate-spin" />
+        <Download v-else class="size-3.5 text-gray-500" />
+        <span>{{ pulling ? 'Ricezione in corso...' : 'Pull ora' }}</span>
       </button>
     </div>
 
@@ -235,6 +239,8 @@ const form = reactive({
 
 const showToken = ref(false);
 const testing = ref(false);
+const pushing = ref(false);
+const pulling = ref(false);
 const connectionStatus = ref('idle'); // 'idle' | 'testing' | 'ok' | 'error'
 const connectionMessage = ref('');
 const showQueueLog = ref(false);
@@ -281,46 +287,80 @@ function _syncFormFromConfig() {
 
 // ── Actions ───────────────────────────────────────────────────────────────────
 
-/** Verifies the Directus connection using a lightweight /server/ping call. */
+/** Verifies the Directus connection using a lightweight /server/ping call,
+ *  with an authenticated /users/me fallback if the ping endpoint returns a
+ *  5xx error (e.g. 503 from a reverse proxy). */
 async function testConnection() {
-  if (!form.url || !form.staticToken) return;
+  const normalizedUrl = form.url.trim();
+  if (!normalizedUrl || !form.staticToken) return;
   testing.value = true;
   connectionStatus.value = 'testing';
   connectionMessage.value = 'Connessione in corso…';
 
-  try {
-    // AbortSignal.timeout is not available in all browsers/WebViews; fall back
-    // to an AbortController-based timeout for compatibility.
-    let signal;
-    if (typeof AbortSignal.timeout === 'function') {
-      signal = AbortSignal.timeout(8_000);
-    } else {
-      const ctrl = new AbortController();
-      setTimeout(() => ctrl.abort(), 8_000);
-      signal = ctrl.signal;
-    }
+  const baseUrl = normalizedUrl.replace(/\/$/, '');
 
-    const res = await fetch(`${form.url.replace(/\/$/, '')}/server/ping`, {
-      headers: { Authorization: `Bearer ${form.staticToken}` },
-      signal,
-    });
-    if (res.ok) {
-      const text = await res.text();
-      if (text.includes('pong') || res.status === 200) {
+  // Fallback timer IDs for environments that don't support AbortSignal.timeout;
+  // stored here so they can all be cancelled in the finally block.
+  const _pendingTimers = [];
+
+  /** Creates a fresh AbortSignal with an 8-second timeout. */
+  function makeSignal() {
+    if (typeof AbortSignal.timeout === 'function') return AbortSignal.timeout(8_000);
+    const ctrl = new AbortController();
+    _pendingTimers.push(setTimeout(() => ctrl.abort(), 8_000));
+    return ctrl.signal;
+  }
+
+  try {
+    // ── Step 1: try /server/ping (public endpoint, no auth required). ──────
+    // The /server/ping endpoint is unauthenticated — do NOT send a Bearer
+    // token here, as some reverse proxies return 503 when they see an
+    // unexpected Authorization header on health-check paths.
+    // If the ping returns a 5xx error we fall back to /users/me below.
+    const pingRes = await fetch(`${baseUrl}/server/ping`, { signal: makeSignal() });
+
+    if (pingRes.ok) {
+      // ── Step 2: validate the static token against /users/me. ─────────────
+      const meRes = await fetch(`${baseUrl}/users/me`, {
+        headers: { Authorization: `Bearer ${form.staticToken}` },
+        signal: makeSignal(),
+      });
+      if (meRes.ok) {
         connectionStatus.value = 'ok';
         connectionMessage.value = 'Connessione riuscita';
       } else {
         connectionStatus.value = 'error';
-        connectionMessage.value = `Risposta inattesa: ${res.status}`;
+        connectionMessage.value = (meRes.status === 401 || meRes.status === 403)
+          ? `Token non valido (HTTP ${meRes.status})`
+          : `Errore HTTP ${meRes.status}`;
+      }
+    } else if (pingRes.status >= 500) {
+      // Ping failed with server-side error (e.g. 503 from proxy) — use the
+      // authenticated /users/me endpoint as a fallback connectivity check.
+      const meRes = await fetch(`${baseUrl}/users/me`, {
+        headers: { Authorization: `Bearer ${form.staticToken}` },
+        signal: makeSignal(),
+      });
+      if (meRes.ok) {
+        connectionStatus.value = 'ok';
+        connectionMessage.value = 'Connessione riuscita';
+      } else {
+        connectionStatus.value = 'error';
+        connectionMessage.value = (meRes.status === 401 || meRes.status === 403)
+          ? `Token non valido (HTTP ${meRes.status})`
+          : `Errore HTTP ${meRes.status}`;
       }
     } else {
       connectionStatus.value = 'error';
-      connectionMessage.value = `Errore HTTP ${res.status}`;
+      connectionMessage.value = `Errore HTTP ${pingRes.status}`;
     }
   } catch (e) {
     connectionStatus.value = 'error';
-    connectionMessage.value = e?.message?.includes('abort') ? 'Timeout connessione' : `Errore: ${e?.message ?? e}`;
+    connectionMessage.value = e?.name === 'AbortError' || e?.message?.includes('abort')
+      ? 'Timeout connessione'
+      : `Errore: ${e?.message ?? e}`;
   } finally {
+    _pendingTimers.forEach(clearTimeout);
     testing.value = false;
   }
 }
@@ -339,6 +379,28 @@ function saveConfig() {
   saveDirectusConfigToStorage();
   _savedSnapshot.value = JSON.stringify({ ...form });
   connectionStatus.value = 'idle';
+}
+
+/** Triggers a manual push and shows a loading spinner on the button. */
+async function handleForcePush() {
+  if (pushing.value || pulling.value) return;
+  pushing.value = true;
+  try {
+    await sync.forcePush();
+  } finally {
+    pushing.value = false;
+  }
+}
+
+/** Triggers a manual pull and shows a loading spinner on the button. */
+async function handleForcePull() {
+  if (pushing.value || pulling.value) return;
+  pulling.value = true;
+  try {
+    await sync.forcePull();
+  } finally {
+    pulling.value = false;
+  }
 }
 
 /** Formats an ISO timestamp to a locale-friendly short string. */
