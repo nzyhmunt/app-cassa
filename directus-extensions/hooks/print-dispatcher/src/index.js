@@ -179,7 +179,17 @@ export default ({ action, schedule }, { services, database, getSchema, logger, e
     // ── 3. Invio al print-server ─────────────────────────────────────────
     try {
       const printerUrl = await getPrinterUrl(job.printer, schema);
-      await postWithRetry(printerUrl, job.payload);
+      const basePayload =
+        job.payload && typeof job.payload === 'object' && !Array.isArray(job.payload)
+          ? job.payload
+          : {};
+      const dispatchPayload = {
+        ...basePayload,
+        printType: job.print_type,
+        printerId: job.printer,
+        jobId: job.job_id,
+      };
+      await postWithRetry(printerUrl, dispatchPayload);
 
       await jobsSvc.updateOne(logId, { status: 'done', error_message: null });
       logger.info(
