@@ -285,14 +285,14 @@ async function _fetchUpdatedViaSDK(collection, sinceTs, page = 1) {
   }
 }
 
-async function _pullCollection(collection) {
-  const sinceTs = await loadLastPullTsFromIDB(collection);
+async function _pullCollection(collection, { forceFull = false } = {}) {
+  const storedSinceTs = forceFull ? null : await loadLastPullTsFromIDB(collection);
   let page = 1;
-  let latestTs = sinceTs;
+  let latestTs = storedSinceTs;
   let totalMerged = 0;
 
   while (true) { // eslint-disable-line no-constant-condition
-    const { data, maxTs } = await _fetchUpdatedViaSDK(collection, sinceTs, page);
+    const { data, maxTs } = await _fetchUpdatedViaSDK(collection, storedSinceTs, page);
     if (data.length === 0) break;
 
     const mapped = data.map(r => _mapRecord(collection, r));
@@ -308,7 +308,7 @@ async function _pullCollection(collection) {
     page++;
   }
 
-  if (latestTs && latestTs !== sinceTs) {
+  if (latestTs && latestTs !== storedSinceTs) {
     await saveLastPullTsToIDB(collection, latestTs);
   }
 
@@ -479,8 +479,11 @@ async function _runGlobalPull() {
   const venueId = appConfig.directus?.venueId ?? null;
 
   try {
+    // Force full pulls for global config collections so stale incremental cursors
+    // (for example from a previous venue/config) cannot block initial hydration of
+    // tables/menu and related configuration records.
     for (const collection of GLOBAL_COLLECTIONS) {
-      await _pullCollection(collection);
+      await _pullCollection(collection, { forceFull: true });
     }
 
     // H3: table_merge_sessions — full-replace semantics.

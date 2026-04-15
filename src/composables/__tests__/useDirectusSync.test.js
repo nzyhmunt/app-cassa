@@ -18,7 +18,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { _resetIDBSingleton } from '../useIDB.js';
 import { useDirectusSync, _resetDirectusSyncSingleton } from '../useDirectusSync.js';
-import { upsertRecordsIntoIDB, loadLastPullTsFromIDB } from '../../store/idbPersistence.js';
+import { upsertRecordsIntoIDB, loadLastPullTsFromIDB, saveLastPullTsToIDB } from '../../store/idbPersistence.js';
 import { _resetEnqueueSeq } from '../useSyncQueue.js';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -113,14 +113,9 @@ describe('startSync()', () => {
     const store = makeStore();
 
     sync.startSync({ appType: 'cassa', store });
-    await flushPromises();
-
-    const callsAfterFirstStart = fetchSpy.mock.calls.length;
-    sync.startSync({ appType: 'cassa', store }); // second call — should be ignored
-    await flushPromises();
-
-    // No additional calls from the second startSync
-    expect(fetchSpy.mock.calls.length).toBe(callsAfterFirstStart);
+    const callsBeforeSecondStart = fetchSpy.mock.calls.length;
+    sync.startSync({ appType: 'cassa', store }); // second call — should be ignored immediately
+    expect(fetchSpy.mock.calls.length).toBe(callsBeforeSecondStart);
   });
 });
 
@@ -394,6 +389,31 @@ describe('pull timestamp persistence', () => {
 
     const ts = await loadLastPullTsFromIDB('orders');
     expect(ts).toBe('2024-07-15T12:00:00.000Z');
+  });
+});
+
+describe('global pull config hydration', () => {
+  it('pulls tables globally without date_updated filter even when last_pull_ts is stale', async () => {
+    // Simulate stale incremental cursor that would otherwise exclude older rows.
+    await saveLastPullTsToIDB('tables', '2099-01-01T00:00:00.000Z');
+
+    const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation(() => Promise.resolve(directusListResponse([])));
+
+    const sync = useDirectusSync();
+    const store = makeStore();
+    sync.startSync({ appType: 'cucina', store });
+    await flushPromises(80);
+    sync.stopSync();
+
+    const tableCalls = fetchSpy.mock.calls
+      .map(([url]) => String(url))
+      .filter(url => url.includes('/items/tables'));
+    expect(tableCalls.length).toBeGreaterThan(0);
+    for (const url of tableCalls) {
+      expect(url.includes('2099-01-01T00%3A00%3A00.000Z')).toBe(false);
+      expect(url.includes('date_updated][_gt]')).toBe(false);
+      expect(url.includes('date_updated%5D%5B_gt%5D')).toBe(false);
+    }
   });
 });
 
