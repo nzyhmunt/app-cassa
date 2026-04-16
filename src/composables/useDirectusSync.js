@@ -702,7 +702,18 @@ function _extractModifierTree(venueRecord, menuSource) {
     const modifier = value && typeof value === 'object' ? value : null;
     const id = modifier?.id ?? value;
     if (id == null) return null;
-    const normalized = modifier ? { ...modifier, venue: _relationId(modifier.venue) ?? venueRecord.id } : { id, venue: venueRecord.id };
+    let normalized;
+    if (modifier) {
+      normalized = {
+        ...modifier,
+        venue: _relationId(modifier.venue) ?? venueRecord.id,
+      };
+    } else {
+      normalized = {
+        id,
+        venue: venueRecord.id,
+      };
+    }
     modifierById.set(String(id), normalized);
     return id;
   };
@@ -884,7 +895,9 @@ export function useDirectusSync() {
     const venueId = appConfig.directus?.venueId ?? null;
 
     // Local-first: apply cached config snapshot from IDB before any remote call.
-    _hydrateConfigFromLocalCache(venueId).catch(() => {});
+    _hydrateConfigFromLocalCache(venueId).catch((e) => {
+      console.warn('[DirectusSync] Local cache hydration failed:', e);
+    });
 
     // Initial push + deep global config pull
     _runPush().catch(() => {});
