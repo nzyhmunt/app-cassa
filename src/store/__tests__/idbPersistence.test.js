@@ -42,6 +42,7 @@ import {
   saveInvoiceRequestToIDB,
   loadInvoiceRequestsFromIDB,
   pruneInvoiceRequestsInIDB,
+  clearLocalConfigCacheFromIDB,
 } from '../idbPersistence.js';
 
 beforeEach(async () => {
@@ -528,6 +529,44 @@ describe('clearAllStateFromIDB()', () => {
     await clearAllStateFromIDB();
     const settings = await loadSettingsFromIDB();
     expect(settings).toBeNull();
+  });
+});
+
+describe('clearLocalConfigCacheFromIDB()', () => {
+  it('clears all local Directus config caches and global pull cursors', async () => {
+    const { getDB } = await import('../../composables/useIDB.js');
+    const db = await getDB();
+
+    await Promise.all([
+      db.put('venues', { id: 1, name: 'Venue' }),
+      db.put('rooms', { id: 'room_1', venue: 1 }),
+      db.put('tables', { id: 'T1', venue: 1, room: 'room_1' }),
+      db.put('payment_methods', { id: 'cash', label: 'Contanti' }),
+      db.put('menu_categories', { id: 'cat_1', venue: 1, name: 'Primi' }),
+      db.put('menu_items', { id: 'item_1', category: 'cat_1', name: 'Pasta' }),
+      db.put('menu_item_modifiers', { id: 'mod_1', menu_item: 'item_1' }),
+      db.put('printers', { id: 'prn_1', name: 'Stampante' }),
+      db.put('venue_users', { id: 'vu_1', _type: 'venue_user' }),
+      db.put('table_merge_sessions', { slave_table: 'T2', master_table: 'T1' }),
+      db.put('app_meta', { id: 'last_pull_ts:venues', value: '2025-01-01T00:00:00.000Z' }),
+      db.put('app_meta', { id: 'auth:userId', value: 'u1' }),
+    ]);
+
+    await clearLocalConfigCacheFromIDB();
+
+    expect(await db.getAll('venues')).toEqual([]);
+    expect(await db.getAll('rooms')).toEqual([]);
+    expect(await db.getAll('tables')).toEqual([]);
+    expect(await db.getAll('payment_methods')).toEqual([]);
+    expect(await db.getAll('menu_categories')).toEqual([]);
+    expect(await db.getAll('menu_items')).toEqual([]);
+    expect(await db.getAll('menu_item_modifiers')).toEqual([]);
+    expect(await db.getAll('printers')).toEqual([]);
+    expect(await db.getAll('venue_users')).toEqual([]);
+    expect(await db.getAll('table_merge_sessions')).toEqual([]);
+    expect(await db.get('app_meta', 'last_pull_ts:venues')).toBeUndefined();
+    // Unrelated app_meta keys must be preserved.
+    expect(await db.get('app_meta', 'auth:userId')).toEqual({ id: 'auth:userId', value: 'u1' });
   });
 });
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { appConfig } from '../index.js';
+import { appConfig, resetAppConfigFromDefaults } from '../index.js';
 
 describe('appConfig', () => {
   describe('pwaLogo', () => {
@@ -32,6 +32,19 @@ describe('appConfig', () => {
       const coverOrders = appConfig.demoOrders.filter(o => o.isCoverCharge && o.isDirectEntry);
       const demoTables = [...new Set(appConfig.demoOrders.map(o => o.table))];
       expect(coverOrders.length).toBeGreaterThanOrEqual(demoTables.length);
+    });
+  });
+
+  describe('resetAppConfigFromDefaults', () => {
+    it('restores config defaults while preserving directus settings by default', () => {
+      const originalDirectus = { ...appConfig.directus, enabled: true, url: 'https://example.test' };
+      appConfig.directus = originalDirectus;
+      appConfig.ui.primaryColor = '#000000';
+
+      resetAppConfigFromDefaults();
+
+      expect(appConfig.ui.primaryColor).not.toBe('#000000');
+      expect(appConfig.directus).toEqual(originalDirectus);
     });
   });
 });
