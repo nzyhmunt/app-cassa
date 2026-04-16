@@ -26,7 +26,10 @@ import { createDirectus, staticToken, rest, createItem, updateItem, deleteItem }
 import { getDB } from './useIDB.js';
 import { newUUIDv7 } from '../store/storeUtils.js';
 
-/** Maximum push attempts before a queue entry is abandoned. */
+/**
+ * Maximum push attempts before a queue entry is abandoned.
+ * Increased to retain failed entries for longer in offline/unstable scenarios.
+ */
 export const MAX_ATTEMPTS = 20;
 
 /**

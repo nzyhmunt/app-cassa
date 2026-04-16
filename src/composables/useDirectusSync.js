@@ -1008,8 +1008,17 @@ function _syncPreBillPrinterSelection(venueRecord = null) {
   if (current && candidates.some((printer) => printer.id === current)) return;
   // Accept both Directus snake_case and local camelCase keys for robustness
   // across deep-fetch payload shapes and cached snapshots.
+  const snakeDefault = _relationId(venueRecord?.pre_bill_printer);
+  const camelDefault = _relationId(venueRecord?.preBillPrinter);
+  if (snakeDefault && camelDefault && snakeDefault !== camelDefault) {
+    console.warn('[DirectusSync] Conflicting pre-bill default printer values in venue record:', {
+      pre_bill_printer: snakeDefault,
+      preBillPrinter: camelDefault,
+    });
+  }
   const remoteDefault =
-    _relationId(venueRecord?.pre_bill_printer ?? venueRecord?.preBillPrinter) ??
+    snakeDefault ??
+    camelDefault ??
     null;
   if (remoteDefault && candidates.some((printer) => printer.id === remoteDefault)) {
     _store.preBillPrinterId = remoteDefault;
