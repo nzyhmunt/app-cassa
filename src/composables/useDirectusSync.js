@@ -87,7 +87,7 @@ const COLLECTION_QUIRKS = {
 // ── Field mapping: Directus → local in-memory store format ───────────────────
 
 function _mapOrder(r) {
-  const tableId = typeof r.table === 'object' ? (r.table?.id ?? r.table?.label ?? null) : r.table;
+  const tableId = typeof r.table === 'object' ? (r.table?.id ?? null) : r.table;
   const billSessionIdRaw = r.bill_session ?? r.billSessionId ?? null;
   const billSessionId = typeof billSessionIdRaw === 'object' ? (billSessionIdRaw?.id ?? null) : billSessionIdRaw;
   return {
