@@ -49,23 +49,90 @@ describe('appConfig', () => {
   });
 
   describe('applyDirectusConfigToAppConfig', () => {
-    it('maps tables to rooms when table.room is an expanded relation object', () => {
+    it('maps rooms and tables when table relations are scalar ids', () => {
       resetAppConfigFromDefaults();
 
       applyDirectusConfigToAppConfig({
         venueRecord: null,
-        rooms: [{ id: 'sala', label: 'Sala Principale' }],
-        tables: [{ id: 'T1', label: 'Tavolo 1', covers: 4, room: { id: 'sala', label: 'Sala Principale' } }],
+        rooms: [
+          { id: 'room_terrazza', label: 'Terrazza', tables: ['tbl_T1', 'tbl_T2', 'tbl_T3'] },
+          { id: 'room_sala-interna', label: 'Sala Interna', tables: ['tbl_01', 'tbl_02', 'tbl_03', 'tbl_04'] },
+        ],
+        tables: [
+          { id: 'tbl_01', room: 'room_sala-interna', label: '01', covers: 4 },
+          { id: 'tbl_02', room: 'room_sala-interna', label: '02', covers: 4 },
+          { id: 'tbl_03', room: 'room_sala-interna', label: '03', covers: 2 },
+          { id: 'tbl_04', room: 'room_sala-interna', label: '04', covers: 6 },
+          { id: 'tbl_T1', room: 'room_terrazza', label: 'T1', covers: 4 },
+          { id: 'tbl_T2', room: 'room_terrazza', label: 'T2', covers: 4 },
+          { id: 'tbl_T3', room: 'room_terrazza', label: 'T3', covers: 8 },
+        ],
         paymentMethods: [],
         printers: [],
         categories: [],
         items: [],
       });
 
-      expect(appConfig.rooms).toHaveLength(1);
-      expect(appConfig.rooms[0].id).toBe('sala');
-      expect(appConfig.rooms[0].tables).toEqual([{ id: 'T1', label: 'Tavolo 1', covers: 4 }]);
-      expect(appConfig.tables).toEqual([{ id: 'T1', label: 'Tavolo 1', covers: 4 }]);
+      expect(appConfig.rooms).toEqual([
+        {
+          id: 'room_terrazza',
+          label: 'Terrazza',
+          tables: [
+            { id: 'tbl_T1', label: 'T1', covers: 4 },
+            { id: 'tbl_T2', label: 'T2', covers: 4 },
+            { id: 'tbl_T3', label: 'T3', covers: 8 },
+          ],
+        },
+        {
+          id: 'room_sala-interna',
+          label: 'Sala Interna',
+          tables: [
+            { id: 'tbl_01', label: '01', covers: 4 },
+            { id: 'tbl_02', label: '02', covers: 4 },
+            { id: 'tbl_03', label: '03', covers: 2 },
+            { id: 'tbl_04', label: '04', covers: 6 },
+          ],
+        },
+      ]);
+      expect(appConfig.tables).toEqual(appConfig.rooms.flatMap((room) => room.tables));
+    });
+
+    it('uses room.tables expanded objects when tables collection is empty', () => {
+      resetAppConfigFromDefaults();
+
+      applyDirectusConfigToAppConfig({
+        venueRecord: null,
+        rooms: [
+          {
+            id: 'room_terrazza',
+            label: 'Terrazza',
+            tables: [
+              { id: 'tbl_T1', label: 'T1', covers: 4 },
+              { id: 'tbl_T2', label: 'T2', covers: 4 },
+            ],
+          },
+        ],
+        tables: [],
+        paymentMethods: [],
+        printers: [],
+        categories: [],
+        items: [],
+      });
+
+      expect(appConfig.rooms).toEqual([
+        {
+          id: 'room_terrazza',
+          label: 'Terrazza',
+          tables: [
+            { id: 'tbl_T1', label: 'T1', covers: 4 },
+            { id: 'tbl_T2', label: 'T2', covers: 4 },
+          ],
+        },
+      ]);
+      expect(appConfig.tables).toEqual([
+        { id: 'tbl_T1', label: 'T1', covers: 4 },
+        { id: 'tbl_T2', label: 'T2', covers: 4 },
+      ]);
     });
   });
 });
