@@ -710,6 +710,27 @@ function _normalizeToArray(value) {
   return Array.isArray(value) ? value : [];
 }
 
+function _unwrapDeepRelationRecord(record, nestedRelationKey = null) {
+  if (!record || typeof record !== 'object' || Array.isArray(record)) return record;
+  if (!nestedRelationKey || !Object.prototype.hasOwnProperty.call(record, nestedRelationKey)) {
+    return record;
+  }
+
+  const nested = record[nestedRelationKey];
+  if (nested && typeof nested === 'object' && !Array.isArray(nested)) {
+    return { ...nested };
+  }
+  const nestedId = _relationId(nested);
+  if (nestedId != null) return { id: nestedId };
+  return record;
+}
+
+function _normalizeDeepRelationRecords(records, { nestedRelationKey = null } = {}) {
+  return _normalizeToArray(records)
+    .map(record => _unwrapDeepRelationRecord(record, nestedRelationKey))
+    .filter(Boolean);
+}
+
 function _extractDeepVenuePayload(payload) {
   if (payload == null) return null;
   if (Array.isArray(payload)) {
@@ -742,8 +763,22 @@ function _extractModifierTree(venueRecord, menuSource) {
     };
   }
 
-  const categories = _normalizeToArray(venueRecord.menu_categories);
-  const items = _normalizeToArray(venueRecord.menu_items);
+  const categories = _normalizeDeepRelationRecords(venueRecord.menu_categories, {
+    nestedRelationKey: 'menu_categories_id',
+  });
+  const directItems = _normalizeDeepRelationRecords(venueRecord.menu_items, {
+    nestedRelationKey: 'menu_items_id',
+  });
+  const categoryItems = categories.flatMap(category => _normalizeDeepRelationRecords(category?.menu_items, {
+    nestedRelationKey: 'menu_items_id',
+  }));
+  const itemsById = new Map();
+  for (const item of [...directItems, ...categoryItems]) {
+    const itemId = _relationId(item?.id);
+    if (itemId == null) continue;
+    itemsById.set(String(itemId), item);
+  }
+  const items = Array.from(itemsById.values());
   const modifierById = new Map();
   const categoryLinks = [];
   const itemLinks = [];
@@ -831,12 +866,12 @@ async function _fanOutVenueTreeToIDB(venueRecord, { menuSource }) {
 
   const payloadByStore = {
     venues: [{ ...flatVenueRecord }],
-    rooms: withVenueFallback(venueRecord.rooms),
-    tables: withVenueFallback(venueRecord.tables),
-    payment_methods: withVenueFallback(venueRecord.payment_methods),
-    printers: withVenueFallback(venueRecord.printers),
-    venue_users: withVenueFallback(venueRecord.venue_users),
-    table_merge_sessions: withVenueFallback(venueRecord.table_merge_sessions),
+    rooms: withVenueFallback(_normalizeDeepRelationRecords(venueRecord.rooms, { nestedRelationKey: 'rooms_id' })),
+    tables: withVenueFallback(_normalizeDeepRelationRecords(venueRecord.tables, { nestedRelationKey: 'tables_id' })),
+    payment_methods: withVenueFallback(_normalizeDeepRelationRecords(venueRecord.payment_methods, { nestedRelationKey: 'payment_methods_id' })),
+    printers: withVenueFallback(_normalizeDeepRelationRecords(venueRecord.printers, { nestedRelationKey: 'printers_id' })),
+    venue_users: withVenueFallback(_normalizeDeepRelationRecords(venueRecord.venue_users, { nestedRelationKey: 'venue_users_id' })),
+    table_merge_sessions: withVenueFallback(_normalizeDeepRelationRecords(venueRecord.table_merge_sessions, { nestedRelationKey: 'table_merge_sessions_id' })),
     menu_categories: withVenueFallback(categories),
     menu_items: withVenueFallback(items),
     menu_modifiers: withVenueFallback(modifiers),
