@@ -72,16 +72,19 @@ const DEEP_FETCH_FIELDS = [
   'venue_users.*',
   'table_merge_sessions.*',
 ];
-const DEEP_FETCH_FALLBACK_FIELDS = [
+const DEEP_FETCH_BASE_RELATION_FIELDS = [
   '*',
   'rooms.*',
   'tables.*',
   'payment_methods.*',
-  'menu_categories.*',
-  'menu_items.*',
   'printers.*',
   'venue_users.*',
   'table_merge_sessions.*',
+];
+const DEEP_FETCH_FALLBACK_FIELDS = [
+  ...DEEP_FETCH_BASE_RELATION_FIELDS,
+  'menu_categories.*',
+  'menu_items.*',
 ];
 const DEEP_FETCH_FIELD_SETS = [
   { key: 'full', fields: DEEP_FETCH_FIELDS },
@@ -98,6 +101,7 @@ const VENUE_NESTED_RELATION_KEYS = [
   'table_merge_sessions',
 ];
 const GLOBAL_INTERVAL_MS = 5 * 60_000;
+const DEEP_FETCH_PAYLOAD_UNWRAP_MAX_DEPTH = 3;
 // Allow substantial device/server clock drift before treating last_pull_ts as invalid.
 // 24h avoids perpetual full-refreshes on slightly misconfigured tablets while still
 // catching clearly bogus cursors (for example, year 2099).
@@ -706,6 +710,27 @@ function _normalizeToArray(value) {
   return Array.isArray(value) ? value : [];
 }
 
+function _extractDeepVenuePayload(payload) {
+  if (payload == null) return null;
+  if (Array.isArray(payload)) {
+    const [first] = payload;
+    return first && typeof first === 'object' ? first : null;
+  }
+  if (typeof payload !== 'object') return null;
+
+  let node = payload;
+  for (let depth = 0; depth < DEEP_FETCH_PAYLOAD_UNWRAP_MAX_DEPTH; depth += 1) {
+    if (Array.isArray(node)) {
+      const [first] = node;
+      return first && typeof first === 'object' ? first : null;
+    }
+    if (!node || typeof node !== 'object') return null;
+    if (!Object.prototype.hasOwnProperty.call(node, 'data')) return node;
+    node = node.data;
+  }
+  return (node && typeof node === 'object' && !Array.isArray(node)) ? node : null;
+}
+
 function _extractModifierTree(venueRecord, menuSource) {
   if (menuSource === 'json') {
     return {
@@ -871,7 +896,9 @@ async function _runGlobalPull({ onProgress = null } = {}) {
     let deepFetchError = null;
     for (const [index, fieldSet] of DEEP_FETCH_FIELD_SETS.entries()) {
       try {
-        deepVenue = await client.request(readItem('venues', venueId, { fields: fieldSet.fields }));
+        const deepVenueRaw = await client.request(readItem('venues', venueId, { fields: fieldSet.fields }));
+        deepVenue = _extractDeepVenuePayload(deepVenueRaw);
+        if (!deepVenue) throw new Error('Deep fetch payload is empty or invalid.');
         deepFetchMode = fieldSet.key;
         deepFetchError = null;
         break;

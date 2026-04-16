@@ -16,10 +16,19 @@
 
 // Default URL for loading the external menu JSON
 export const DEFAULT_MENU_URL = 'https://nanawork.it/menu.json';
+const DEFAULT_UI_PRIMARY_COLOR = '#00846c';
+const DEFAULT_UI_PRIMARY_COLOR_DARK = '#0c7262';
+const DEFAULT_UI_CURRENCY = '€';
 
 // Configurazione applicazione centralizzata
 export const appConfig = {
-  ui: { name: "Osteria del Grillo", primaryColor: "#00846c", primaryColorDark: "#0c7262", currency: "€", allowCustomVariants: true },
+  ui: {
+    name: "Osteria del Grillo",
+    primaryColor: DEFAULT_UI_PRIMARY_COLOR,
+    primaryColorDark: DEFAULT_UI_PRIMARY_COLOR_DARK,
+    currency: DEFAULT_UI_CURRENCY,
+    allowCustomVariants: true,
+  },
 
   // Timezone used for all locale time formatting across Cassa, Sala and Cucina.
   // Must be a valid IANA timezone identifier (e.g. 'Europe/Rome', 'Europe/Berlin').
@@ -326,13 +335,13 @@ export function resetAppConfigFromDefaults({ keepDirectusConfig = true } = {}) {
 export function applyDirectusConfigToAppConfig(cfg) {
   if (!cfg) return;
   const {
-    venueRecord,
-    rooms,
-    tables,
-    paymentMethods,
-    printers,
-    categories,
-    items,
+    venueRecord = null,
+    rooms = [],
+    tables = [],
+    paymentMethods = [],
+    printers = [],
+    categories = [],
+    items = [],
     modifiers = [],
     categoryModifierLinks = [],
     itemModifierLinks = [],
@@ -345,12 +354,20 @@ export function applyDirectusConfigToAppConfig(cfg) {
 
   // ── Venue scalar settings ──────────────────────────────────────────────────
   if (venueRecord) {
-    if (venueRecord.name != null)                appConfig.ui.name = venueRecord.name;
-    if (venueRecord.primary_color != null)       appConfig.ui.primaryColor = venueRecord.primary_color;
-    if (venueRecord.primary_color_dark != null)  appConfig.ui.primaryColorDark = venueRecord.primary_color_dark;
-    if (venueRecord.currency_symbol != null)     appConfig.ui.currency = venueRecord.currency_symbol;
-    if (venueRecord.allow_custom_variants != null)
-      appConfig.ui.allowCustomVariants = venueRecord.allow_custom_variants;
+    const fallbackUi = _defaultAppConfigSnapshot?.ui ?? {};
+    const name = venueRecord?.name;
+    // Empty strings from Directus are treated as "unset" for UI colors/currency,
+    // so we intentionally fall back to defaults via `||`.
+    const primary = venueRecord?.primary_color || fallbackUi.primaryColor || DEFAULT_UI_PRIMARY_COLOR;
+    const primaryDark = venueRecord?.primary_color_dark || fallbackUi.primaryColorDark || DEFAULT_UI_PRIMARY_COLOR_DARK;
+    const currency = venueRecord?.currency_symbol || fallbackUi.currency || DEFAULT_UI_CURRENCY;
+    const allowCustomVariants = venueRecord?.allow_custom_variants;
+
+    if (name != null) appConfig.ui.name = name;
+    appConfig.ui.primaryColor = primary;
+    appConfig.ui.primaryColorDark = primaryDark;
+    appConfig.ui.currency = currency;
+    if (allowCustomVariants != null) appConfig.ui.allowCustomVariants = allowCustomVariants;
 
     if (venueRecord.cover_charge_enabled != null)
       appConfig.coverCharge.enabled = venueRecord.cover_charge_enabled;

@@ -134,5 +134,42 @@ describe('appConfig', () => {
         { id: 'tbl_T2', label: 'T2', covers: 4 },
       ]);
     });
+
+    it('applies UI fallbacks safely when venue scalar fields are missing/null', () => {
+      resetAppConfigFromDefaults();
+      appConfig.ui.primaryColor = '#123456';
+      appConfig.ui.primaryColorDark = '#234567';
+      appConfig.ui.currency = '$';
+
+      applyDirectusConfigToAppConfig({
+        venueRecord: {
+          id: 1,
+          name: 'Venue Test',
+          primary_color: '',
+          primary_color_dark: null,
+          currency_symbol: null,
+        },
+      });
+
+      expect(appConfig.ui.name).toBe('Venue Test');
+      expect(appConfig.ui.primaryColor).toBe('#00846c');
+      expect(appConfig.ui.primaryColorDark).toBe('#0c7262');
+      expect(appConfig.ui.currency).toBe('€');
+    });
+
+    it('applies UI fallbacks safely when venue scalar fields are undefined', () => {
+      resetAppConfigFromDefaults();
+      applyDirectusConfigToAppConfig({
+        venueRecord: {
+          id: 1,
+          name: 'Venue Undefined',
+        },
+      });
+
+      expect(appConfig.ui.name).toBe('Venue Undefined');
+      expect(appConfig.ui.primaryColor).toBe('#00846c');
+      expect(appConfig.ui.primaryColorDark).toBe('#0c7262');
+      expect(appConfig.ui.currency).toBe('€');
+    });
   });
 });

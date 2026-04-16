@@ -253,7 +253,7 @@ describe('reconfigureAndApply()', () => {
     expect(result.ok).toBe(false);
   });
 
-  it('can clear local config cache and run a full global pull with progress logs', async () => {
+  it('can clear local config cache and repopulate venues via global pull with progress logs', async () => {
     const { appConfig } = await import('../../utils/index.js');
     appConfig.ui.primaryColor = '#123456';
 
@@ -263,7 +263,24 @@ describe('reconfigureAndApply()', () => {
     await db.put('app_meta', { id: 'last_pull_ts:venues', value: '2026-01-01T00:00:00.000Z' });
 
     const progress = [];
-    const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation(() => Promise.resolve(directusListResponse([])));
+    const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      if (String(url).includes('/items/venues/')) {
+        return Promise.resolve(directusItemResponse({
+          id: 1,
+          name: 'Venue clear cache',
+          menu_source: 'directus',
+          rooms: [],
+          tables: [],
+          payment_methods: [],
+          printers: [],
+          venue_users: [],
+          table_merge_sessions: [],
+          menu_categories: [],
+          menu_items: [],
+        }));
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
 
     const sync = useDirectusSync();
     sync.startSync({ appType: 'cassa', store: makeStore({ config: {} }) });
@@ -277,7 +294,9 @@ describe('reconfigureAndApply()', () => {
     expect(progress.length).toBeGreaterThan(0);
     expect(progress.some(p => String(p?.message ?? '').includes('Svuotamento completo'))).toBe(true);
     expect(progress.some(p => p?.level === 'success')).toBe(true);
-    expect(await db.getAll('venues')).toEqual([]);
+    expect(await db.getAll('venues')).toEqual([
+      expect.objectContaining({ id: 1, name: 'Venue clear cache' }),
+    ]);
     expect(await db.get('app_meta', 'last_pull_ts:venues')).toBeUndefined();
     expect(appConfig.ui.primaryColor).not.toBe('#123456');
 
@@ -336,6 +355,35 @@ describe('reconfigureAndApply()', () => {
       .map(([url]) => String(url))
       .filter((url) => url.includes(`/items/venues/${venueId}`));
     expect(venueCalls.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('accepts deep venue payload wrapped as data.data', async () => {
+    const venueId = 1;
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      const requestUrl = String(url);
+      if (requestUrl.includes(`/items/venues/${venueId}`)) {
+        return Promise.resolve(directusItemResponse({
+          data: {
+            id: venueId,
+            name: 'Venue wrapped',
+            menu_source: 'directus',
+            rooms: [],
+            tables: [],
+            payment_methods: [],
+            printers: [],
+            venue_users: [],
+            table_merge_sessions: [],
+            menu_categories: [],
+            menu_items: [],
+          },
+        }));
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const sync = useDirectusSync();
+    const result = await sync.reconfigureAndApply();
+    expect(result.ok).toBe(true);
   });
 });
 
