@@ -105,6 +105,7 @@ const VENUE_NESTED_RELATION_KEYS = [
   'table_merge_sessions',
 ];
 const GLOBAL_INTERVAL_MS = 5 * 60_000;
+const TABLE_FETCH_BATCH_SIZE = 200;
 const DEEP_FETCH_PAYLOAD_UNWRAP_MAX_DEPTH = 3;
 // Allow substantial device/server clock drift before treating last_pull_ts as invalid.
 // 24h avoids perpetual full-refreshes on slightly misconfigured tablets while still
@@ -752,16 +753,16 @@ async function _hydrateVenueTablesFromRoomRefs(client, venueRecord, venueId) {
 
   try {
     const fetched = [];
-    for (let offset = 0; offset < tableIds.length; offset += 200) {
-      const idChunk = tableIds.slice(offset, offset + 200);
+    for (let offset = 0; offset < tableIds.length; offset += TABLE_FETCH_BATCH_SIZE) {
+      const idChunk = tableIds.slice(offset, offset + TABLE_FETCH_BATCH_SIZE);
       const filterConditions = [{ id: { _in: idChunk } }];
       if (venueId != null) {
         filterConditions.push({ venue: { _eq: venueId } });
       }
       const filter = filterConditions.length === 1 ? filterConditions[0] : { _and: filterConditions };
       const records = await client.request(readItems('tables', {
-        fields: ['*'],
-        limit: 200,
+        fields: ['id', 'label', 'covers', 'room', 'venue', 'sort', 'status'],
+        limit: TABLE_FETCH_BATCH_SIZE,
         filter,
       }));
       fetched.push(..._normalizeToArray(records).filter(_isObjectRecord));

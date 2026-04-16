@@ -566,7 +566,7 @@ describe('reconfigureAndApply()', () => {
     ]);
   });
 
-  it('hydrates tables from table collection when deep venue has only room table ids', async () => {
+  it('hydrates tables from tables collection when deep venue has only room table references', async () => {
     const venueId = 1;
     vi.spyOn(global, 'fetch').mockImplementation((url) => {
       const requestUrl = String(url);
