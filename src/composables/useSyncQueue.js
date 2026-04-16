@@ -55,7 +55,7 @@ const DOMAIN_STATUS_COLLECTIONS = new Set([
  * @type {Set<string>}
  */
 const LOCAL_ONLY_FIELDS = new Set([
-  '_sync_status', 'orderItems', 'modifiers',
+  '_sync_status',
 ]);
 
 // ── Core queue helpers ───────────────────────────────────────────────────────
@@ -276,6 +276,36 @@ function _toDirectusPayload(collection, localPayload) {
     if (key === 'dietaryPreferences' && value && typeof value === 'object') {
       out.dietary_diets     = value.diete     ?? null;
       out.dietary_allergens = value.allergeni ?? null;
+      continue;
+    }
+
+    // Special: local nested orderItems[] -> Directus nested order_items[]
+    if (key === 'orderItems' && collection === 'orders' && Array.isArray(value)) {
+      out.order_items = value.map((item) => {
+        const directItem = _toDirectusPayload('order_items', item);
+        // Keep deterministic PKs for offline-first create/update.
+        if (!directItem.id && item?.id) directItem.id = item.id;
+        // order is resolved by parent relation in nested create; keep only when explicitly present.
+        if (directItem.order == null && item?.orderId) directItem.order = item.orderId;
+        if (Array.isArray(item?.modifiers)) {
+          directItem.order_item_modifiers = item.modifiers.map((mod) => {
+            const directMod = _toDirectusPayload('order_item_modifiers', mod);
+            if (!directMod.id && mod?.id) directMod.id = mod.id;
+            if (directMod.order_item == null && item?.id) directMod.order_item = item.id;
+            if (directMod.order == null && (item?.orderId ?? localPayload?.id)) {
+              directMod.order = item?.orderId ?? localPayload?.id;
+            }
+            return directMod;
+          });
+        }
+        return directItem;
+      });
+      continue;
+    }
+
+    // Special: local order_item modifiers[] -> Directus order_item_modifiers[]
+    if (key === 'modifiers' && collection === 'order_items' && Array.isArray(value)) {
+      out.order_item_modifiers = value.map((mod) => _toDirectusPayload('order_item_modifiers', mod));
       continue;
     }
 

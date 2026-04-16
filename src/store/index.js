@@ -297,6 +297,11 @@ export const useAppStore = defineStore('app', () => {
     enqueue('orders', 'create', order.id, order);
   }
 
+  function _enqueueOrderSnapshot(ord) {
+    if (!ord?.id) return;
+    enqueue('orders', 'update', ord.id, ord);
+  }
+
   function changeOrderStatus(order, newStatus, rejectionReason = null) {
     order.status = newStatus;
     if (newStatus === 'rejected' && rejectionReason) order.rejectionReason = rejectionReason;
@@ -336,15 +341,18 @@ export const useAppStore = defineStore('app', () => {
   function updateQtyGlobal(ord, idx, delta) {
     if (!ord || ord.status !== 'pending') return;
     const item = ord.orderItems[idx];
+    if (!item) return;
     item.quantity += delta;
     if (item.quantity <= 0) ord.orderItems.splice(idx, 1);
     updateOrderTotals(ord);
+    _enqueueOrderSnapshot(ord);
   }
 
   function removeRowGlobal(ord, idx) {
     if (!ord || ord.status !== 'pending') return;
     ord.orderItems.splice(idx, 1);
     updateOrderTotals(ord);
+    _enqueueOrderSnapshot(ord);
   }
 
   function voidOrderItems(ord, idx, qtyToVoid) {
@@ -359,6 +367,7 @@ export const useAppStore = defineStore('app', () => {
         m.voidedQuantity = Math.min(m.voidedQuantity || 0, maxModActive);
       }
       updateOrderTotals(ord);
+      _enqueueOrderSnapshot(ord);
     }
   }
 
@@ -369,6 +378,7 @@ export const useAppStore = defineStore('app', () => {
     if (item.voidedQuantity && item.voidedQuantity >= qtyToRestore) {
       item.voidedQuantity -= qtyToRestore;
       updateOrderTotals(ord);
+      _enqueueOrderSnapshot(ord);
     }
   }
 
@@ -382,6 +392,7 @@ export const useAppStore = defineStore('app', () => {
     if (mod.voidedQuantity + qty + (item.voidedQuantity || 0) <= item.quantity) {
       mod.voidedQuantity += qty;
       updateOrderTotals(ord);
+      _enqueueOrderSnapshot(ord);
     }
   }
 
@@ -391,12 +402,17 @@ export const useAppStore = defineStore('app', () => {
     const item = ord.orderItems[itemIdx];
     if (!item || !item.modifiers || modIdx < 0 || modIdx >= item.modifiers.length) return;
     const mod = item.modifiers[modIdx];
-    if ((mod.voidedQuantity || 0) >= qty) { mod.voidedQuantity -= qty; updateOrderTotals(ord); }
+    if ((mod.voidedQuantity || 0) >= qty) {
+      mod.voidedQuantity -= qty;
+      updateOrderTotals(ord);
+      _enqueueOrderSnapshot(ord);
+    }
   }
 
   function setItemKitchenReady(order, itemIdx, ready) {
     if (!order || !order.orderItems || itemIdx < 0 || itemIdx >= order.orderItems.length) return;
     order.orderItems[itemIdx].kitchenReady = ready;
+    _enqueueOrderSnapshot(order);
   }
 
   // ── Transactions ───────────────────────────────────────────────────────────
@@ -661,4 +677,3 @@ export async function initStoreFromIDB(pinia) {
     }
   }
 }
-

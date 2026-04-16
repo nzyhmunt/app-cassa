@@ -1148,7 +1148,7 @@ WHERE o."table" = :table_id
 ### 5.2c Tavoli uniti (`tableMergedInto`)
 
 La funzione **Unisci** in App Cassa permette di accorpare il conto di due tavoli occupati.
-L'unione è rappresentata in memoria in store dallo stato reattivo `tableMergedInto` (oggetto `{ slaveTableId: masterTableId }`), persistito nell'ObjectStore IndexedDB dedicato **`table_merge_sessions`** (DB_VERSION = 4). La chiave `app_meta.tableMergedInto` è **legacy** e viene letta solo come fallback di compatibilità durante il primo avvio dopo una migrazione v2 → v3 che non avesse popolato `table_merge_sessions`.
+L'unione è rappresentata in memoria in store dallo stato reattivo `tableMergedInto` (oggetto `{ slaveTableId: masterTableId }`), persistito nell'ObjectStore IndexedDB dedicato **`table_merge_sessions`** (DB_VERSION = 5). La chiave `app_meta.tableMergedInto` è **legacy** e viene letta solo come fallback di compatibilità durante il primo avvio dopo una migrazione v2 → v3 che non avesse popolato `table_merge_sessions`.
 
 La collection `table_merge_sessions` viene sincronizzata da Directus ad ogni pull globale (startup + ogni 5 min), propagando lo stato di unione tra tutti i dispositivi in rete; in `useDirectusSync.js` non è però gestita come voce di `GLOBAL_COLLECTIONS`, bensì con logica dedicata in `_runGlobalPull()` e semantica di full-replace.
 
@@ -1263,15 +1263,16 @@ ObjectStore: bill_sessions
 
 ObjectStore: orders
   keyPath:  id (UUIDv7)
-  indexes:  [table, status, bill_session, date_updated]
+  indexes:  [table, status, bill_session, bill_session_legacy, date_updated]
 
 ObjectStore: order_items
   keyPath:  id (UUIDv7)
-  indexes:  [order, uid, date_updated]   -- uid+order usati per lookup logico (vincolo UNIQUE)
+  indexes:  [order, order_legacy, uid, date_updated]   -- uid+order usati per lookup logico (vincolo UNIQUE)
 
 ObjectStore: order_item_modifiers
   keyPath:  id (UUIDv7)
-  indexes:  [order_item, order, item_uid, date_updated]  -- order_item usato come FK singola verso order_items(id)
+  indexes:  [order_item, order_item_legacy, order, order_legacy, item_uid, item_uid_legacy, date_updated]
+            -- indici legacy mantenuti per compatibilità con payload camelCase storici
 
 ObjectStore: transactions
   keyPath:  id (UUIDv7)

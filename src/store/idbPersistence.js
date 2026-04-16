@@ -299,13 +299,13 @@ export async function closeBillSessionInIDB(billSessionId) {
 const SETTINGS_RECORD_ID = 'local';
 
 /**
- * Loads app settings from the `app_settings` ObjectStore.
+ * Loads app settings from the `local_settings` ObjectStore.
  * @returns {Promise<object|null>}
  */
 export async function loadSettingsFromIDB() {
   try {
     const db = await getDB();
-    const record = await db.get('app_settings', SETTINGS_RECORD_ID);
+    const record = await db.get('local_settings', SETTINGS_RECORD_ID);
     return record ?? null;
   } catch (e) {
     console.warn('[IDBPersistence] Failed to load settings:', e);
@@ -314,13 +314,13 @@ export async function loadSettingsFromIDB() {
 }
 
 /**
- * Persists app settings to the `app_settings` ObjectStore.
+ * Persists app settings to the `local_settings` ObjectStore.
  * @param {object} settings
  */
 export async function saveSettingsToIDB(settings) {
   try {
     const db = await getDB();
-    await db.put('app_settings', JSON.parse(JSON.stringify({ id: SETTINGS_RECORD_ID, ...settings })));
+    await db.put('local_settings', JSON.parse(JSON.stringify({ id: SETTINGS_RECORD_ID, ...settings })));
   } catch (e) {
     console.warn('[IDBPersistence] Failed to save settings:', e);
   }
@@ -610,7 +610,7 @@ export async function saveCustomItemsToIDB(items) {
 
 /**
  * Removes all operational data from IndexedDB (equivalent to the old clearState).
- * Clears the operative collections and app_meta/app_settings/direct_custom_items.
+ * Clears the operative collections and app_meta/local_settings/direct_custom_items.
  * Selectively removes only `_type === 'manual_user'` records from `venue_users`
  * so that cached Directus venue-user records are preserved.
  * Does NOT clear configuration caches (venues, rooms, tables, menu_*, etc.) or
@@ -620,7 +620,7 @@ export async function clearAllStateFromIDB() {
   const operativeStores = [
     'orders', 'transactions', 'cash_movements', 'daily_closures', 'print_jobs',
     'fiscal_receipts', 'invoice_requests', 'table_merge_sessions',
-    'app_meta', 'app_settings', 'direct_custom_items',
+    'app_meta', 'local_settings', 'direct_custom_items',
   ];
   try {
     const db = await getDB();
@@ -668,6 +668,7 @@ export async function clearLocalConfigCacheFromIDB() {
     'rooms',
     'tables',
     'payment_methods',
+    'app_settings',
     'menu_categories',
     'menu_items',
     'menu_item_modifiers',
@@ -774,6 +775,53 @@ export async function upsertRecordsIntoIDB(storeName, records) {
   };
   const keyPath = KEY_PATH_OVERRIDES[storeName] ?? 'id';
 
+  const relationId = (value) => {
+    if (value == null) return value;
+    if (typeof value === 'object') {
+      return value.id ?? value.slug ?? null;
+    }
+    return value;
+  };
+
+  const normalizeIncoming = (collection, record) => {
+    if (!record || typeof record !== 'object') return record;
+    const normalized = { ...record };
+    if (collection === 'orders') {
+      const billSession = relationId(normalized.bill_session ?? normalized.billSessionId);
+      if (billSession != null) {
+        normalized.bill_session = billSession;
+        normalized.billSessionId = billSession;
+      }
+      const table = relationId(normalized.table);
+      if (table != null) normalized.table = table;
+    } else if (collection === 'order_items') {
+      const orderId = relationId(normalized.order ?? normalized.orderId);
+      if (orderId != null) {
+        normalized.order = orderId;
+        normalized.orderId = orderId;
+      }
+      const dishId = relationId(normalized.dish ?? normalized.dishId);
+      if (dishId != null) {
+        normalized.dish = dishId;
+        normalized.dishId = dishId;
+      }
+    } else if (collection === 'order_item_modifiers') {
+      const orderItem = relationId(normalized.order_item ?? normalized.orderItemId);
+      if (orderItem != null) {
+        normalized.order_item = orderItem;
+        normalized.orderItemId = orderItem;
+      }
+      const orderId = relationId(normalized.order ?? normalized.orderId);
+      if (orderId != null) {
+        normalized.order = orderId;
+        normalized.orderId = orderId;
+      }
+      if (normalized.item_uid == null && normalized.itemUid != null) normalized.item_uid = normalized.itemUid;
+      if (normalized.itemUid == null && normalized.item_uid != null) normalized.itemUid = normalized.item_uid;
+    }
+    return normalized;
+  };
+
   try {
     const db = await getDB();
 
@@ -792,7 +840,8 @@ export async function upsertRecordsIntoIDB(storeName, records) {
       // Read-only pre-scan using a readonly transaction to avoid unnecessary
       // write locks when all incoming records are already up-to-date.
       const roTx = db.transaction(storeName, 'readonly');
-      for (const incoming of records) {
+      for (const incomingRaw of records) {
+        const incoming = normalizeIncoming(storeName, incomingRaw);
         const pk = incoming[keyPath];
         if (!pk) continue;
         const existing = await roTx.store.get(pk);
@@ -817,6 +866,32 @@ export async function upsertRecordsIntoIDB(storeName, records) {
     return toWrite.length;
   } catch (e) {
     console.warn('[IDBPersistence] Failed to upsert into', storeName, e);
+    return 0;
+  }
+}
+
+/**
+ * Deletes records from an ObjectStore by primary key.
+ * Used for realtime delete events from Directus.
+ *
+ * @param {string} storeName
+ * @param {Array<string|number>} keys
+ * @returns {Promise<number>} number of deleted keys attempted
+ */
+export async function deleteRecordsFromIDB(storeName, keys) {
+  if (!Array.isArray(keys) || keys.length === 0) return 0;
+  try {
+    const db = await getDB();
+    if (!db.objectStoreNames.contains(storeName)) return 0;
+    const tx = db.transaction(storeName, 'readwrite');
+    for (const key of keys) {
+      if (key == null) continue;
+      await tx.store.delete(key);
+    }
+    await tx.done;
+    return keys.length;
+  } catch (e) {
+    console.warn('[IDBPersistence] Failed to delete records from', storeName, e);
     return 0;
   }
 }

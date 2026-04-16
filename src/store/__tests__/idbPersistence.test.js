@@ -525,7 +525,7 @@ describe('clearAllStateFromIDB()', () => {
     expect(directusRecord._type).toBe('venue_user');
   });
 
-  it('clears app_settings', async () => {
+  it('clears local_settings', async () => {
     await saveSettingsToIDB({ menuUrl: 'https://example.com', sounds: true });
     await clearAllStateFromIDB();
     const settings = await loadSettingsFromIDB();
@@ -543,6 +543,7 @@ describe('clearLocalConfigCacheFromIDB()', () => {
       db.put('rooms', { id: 'room_1', venue: 1 }),
       db.put('tables', { id: 'T1', venue: 1, room: 'room_1' }),
       db.put('payment_methods', { id: 'cash', label: 'Contanti' }),
+      db.put('app_settings', { id: 99, venue: 1, device_key: 'kiosk-1', sounds: true }),
       db.put('menu_categories', { id: 'cat_1', venue: 1, name: 'Primi' }),
       db.put('menu_items', { id: 'item_1', category: 'cat_1', name: 'Pasta' }),
       db.put('menu_item_modifiers', { id: 'mod_1', menu_item: 'item_1' }),
@@ -559,6 +560,7 @@ describe('clearLocalConfigCacheFromIDB()', () => {
     expect(await db.getAll('rooms')).toEqual([]);
     expect(await db.getAll('tables')).toEqual([]);
     expect(await db.getAll('payment_methods')).toEqual([]);
+    expect(await db.getAll('app_settings')).toEqual([]);
     expect(await db.getAll('menu_categories')).toEqual([]);
     expect(await db.getAll('menu_items')).toEqual([]);
     expect(await db.getAll('menu_item_modifiers')).toEqual([]);

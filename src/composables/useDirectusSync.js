@@ -25,6 +25,7 @@ import {
   loadLastPullTsFromIDB,
   saveLastPullTsToIDB,
   upsertRecordsIntoIDB,
+  deleteRecordsFromIDB,
   loadConfigFromIDB,
   replaceTableMergesInIDB,
   clearLocalConfigCacheFromIDB,
@@ -53,7 +54,7 @@ const PULL_CONFIG = {
 
 /** Collections for all apps: fetched once at startup and every 5 minutes. */
 const GLOBAL_COLLECTIONS = [
-  'venues', 'rooms', 'tables', 'payment_methods',
+  'venues', 'rooms', 'tables', 'payment_methods', 'app_settings',
   'menu_categories', 'menu_items', 'menu_item_modifiers',
   'printers', 'venue_users',
   // NOTE: table_merge_sessions is handled separately in _runGlobalPull because
@@ -86,9 +87,14 @@ const COLLECTION_QUIRKS = {
 // ── Field mapping: Directus → local in-memory store format ───────────────────
 
 function _mapOrder(r) {
+  const tableId = typeof r.table === 'object' ? (r.table?.id ?? r.table?.label ?? null) : r.table;
+  const billSessionIdRaw = r.bill_session ?? r.billSessionId ?? null;
+  const billSessionId = typeof billSessionIdRaw === 'object' ? (billSessionIdRaw?.id ?? null) : billSessionIdRaw;
   return {
     ...r,
-    billSessionId: r.bill_session ?? r.billSessionId ?? null,
+    table: tableId ?? r.table ?? null,
+    bill_session: billSessionId,
+    billSessionId,
     totalAmount: r.total_amount ?? r.totalAmount ?? 0,
     itemCount: r.item_count ?? r.itemCount ?? 0,
     time: r.order_time ?? r.time ?? '',
@@ -105,7 +111,7 @@ function _mapOrder(r) {
       diete: r.dietary_diets ?? [],
       allergeni: r.dietary_allergens ?? [],
     },
-    orderItems: r.orderItems ?? [],
+    orderItems: r.orderItems ?? r.order_items ?? [],
     _sync_status: 'synced',
   };
 }
@@ -121,10 +127,16 @@ function _mapBillSession(r) {
 }
 
 function _mapOrderItem(r) {
+  const orderIdRaw = r.order ?? r.orderId ?? null;
+  const dishIdRaw = r.dish ?? r.dishId ?? null;
+  const orderId = typeof orderIdRaw === 'object' ? (orderIdRaw?.id ?? null) : orderIdRaw;
+  const dishId = typeof dishIdRaw === 'object' ? (dishIdRaw?.id ?? null) : dishIdRaw;
   return {
     ...r,
-    orderId: r.order ?? r.orderId ?? null,
-    dishId: r.dish ?? r.dishId ?? null,
+    order: orderId,
+    orderId,
+    dish: dishId,
+    dishId,
     uid: r.uid ?? r.id,
     unitPrice: r.unit_price ?? r.unitPrice ?? 0,
     voidedQuantity: r.voided_quantity ?? r.voidedQuantity ?? 0,
@@ -241,6 +253,35 @@ function _mergeIntoStore(collection, records, store) {
   }
 }
 
+function _deleteFromStore(collection, records, store) {
+  if (!store || !Array.isArray(records) || records.length === 0) return;
+  if (collection === 'orders') {
+    const ids = new Set(records.map(r => String(r?.id ?? r)).filter(Boolean));
+    store.orders = store.orders.filter(o => !ids.has(String(o.id)));
+    return;
+  }
+  if (collection === 'order_items') {
+    const ids = new Set(records.map(r => String(r?.id ?? r)).filter(Boolean));
+    store.orders = store.orders.map((o) => ({
+      ...o,
+      orderItems: Array.isArray(o.orderItems)
+        ? o.orderItems.filter((item) => !ids.has(String(item.id ?? item.uid)))
+        : [],
+    }));
+    return;
+  }
+  if (collection === 'bill_sessions') {
+    const ids = new Set(records.map(r => String(r?.id ?? r)).filter(Boolean));
+    const next = { ...(store.tableCurrentBillSession ?? {}) };
+    for (const [tableId, session] of Object.entries(next)) {
+      if (ids.has(String(session?.billSessionId ?? session?.id))) {
+        delete next[tableId];
+      }
+    }
+    store.tableCurrentBillSession = next;
+  }
+}
+
 // ── REST pull helpers ─────────────────────────────────────────────────────────
 
 /**
@@ -348,11 +389,16 @@ async function _handleSubscriptionMessage(collection, message) {
   const { event, data } = message;
   if (!data || !Array.isArray(data) || data.length === 0) return;
 
-  const mapped = data.map(r => _mapRecord(collection, r));
-  await upsertRecordsIntoIDB(collection, mapped);
-
-  if (_store) {
-    _mergeIntoStore(collection, mapped, _store);
+  if (event === 'delete') {
+    const ids = data.map(r => (typeof r === 'object' ? r.id : r)).filter(Boolean);
+    await deleteRecordsFromIDB(collection, ids);
+    if (_store) _deleteFromStore(collection, ids, _store);
+  } else {
+    const mapped = data.map(r => _mapRecord(collection, r));
+    await upsertRecordsIntoIDB(collection, mapped);
+    if (_store) {
+      _mergeIntoStore(collection, mapped, _store);
+    }
   }
 
   lastPullAt.value = new Date().toISOString();
@@ -378,7 +424,8 @@ async function _startSubscriptions(collections) {
 
     for (const collection of collections) {
       const query = { fields: ['*'] };
-      if (venueId != null) {
+      const quirks = COLLECTION_QUIRKS[collection] ?? {};
+      if (!quirks.noVenueFilter && venueId != null) {
         query.filter = { venue: { _eq: venueId } };
       }
 
