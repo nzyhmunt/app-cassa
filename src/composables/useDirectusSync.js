@@ -843,7 +843,6 @@ async function _runGlobalPull({ forceFullAll = false, onProgress = null } = {}) 
     const menuSource = deepVenue.menu_source ?? appConfig.menuSource ?? 'directus';
     const fanOutSummary = await _fanOutVenueTreeToIDB(deepVenue, { menuSource });
     await saveLastPullTsToIDB('deep_venue_config', new Date().toISOString());
-    _initialGlobalHydrationDone = true;
 
     if (appConfig.directus?.debugLogs === true) {
       console.info('[DirectusSync] Deep fetch fields:', DEEP_FETCH_FIELDS_LOG);
