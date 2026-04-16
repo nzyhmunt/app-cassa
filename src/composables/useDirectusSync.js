@@ -809,6 +809,12 @@ function _extractModifierTree(venueRecord, menuSource) {
 
 async function _fanOutVenueTreeToIDB(venueRecord, { menuSource }) {
   if (!venueRecord || Array.isArray(venueRecord) || typeof venueRecord !== 'object') return {};
+  const venueId = _relationId(venueRecord.id);
+  const withVenueFallback = (records) => _normalizeToArray(records).map((record) => {
+    if (!record || typeof record !== 'object' || Array.isArray(record) || venueId == null) return record;
+    if (_relationId(record.venue) != null) return record;
+    return { ...record, venue: venueId };
+  });
 
   const {
     categories,
@@ -825,17 +831,17 @@ async function _fanOutVenueTreeToIDB(venueRecord, { menuSource }) {
 
   const payloadByStore = {
     venues: [{ ...flatVenueRecord }],
-    rooms: _normalizeToArray(venueRecord.rooms),
-    tables: _normalizeToArray(venueRecord.tables),
-    payment_methods: _normalizeToArray(venueRecord.payment_methods),
-    printers: _normalizeToArray(venueRecord.printers),
-    venue_users: _normalizeToArray(venueRecord.venue_users),
-    table_merge_sessions: _normalizeToArray(venueRecord.table_merge_sessions),
-    menu_categories: categories,
-    menu_items: items,
-    menu_modifiers: modifiers,
-    menu_categories_menu_modifiers: categoryLinks,
-    menu_items_menu_modifiers: itemLinks,
+    rooms: withVenueFallback(venueRecord.rooms),
+    tables: withVenueFallback(venueRecord.tables),
+    payment_methods: withVenueFallback(venueRecord.payment_methods),
+    printers: withVenueFallback(venueRecord.printers),
+    venue_users: withVenueFallback(venueRecord.venue_users),
+    table_merge_sessions: withVenueFallback(venueRecord.table_merge_sessions),
+    menu_categories: withVenueFallback(categories),
+    menu_items: withVenueFallback(items),
+    menu_modifiers: withVenueFallback(modifiers),
+    menu_categories_menu_modifiers: withVenueFallback(categoryLinks),
+    menu_items_menu_modifiers: withVenueFallback(itemLinks),
   };
 
   if (menuSource === 'json') {
