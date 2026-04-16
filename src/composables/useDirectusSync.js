@@ -53,7 +53,7 @@ const PULL_CONFIG = {
 };
 
 /** Collections for all apps: fetched once at startup and every 5 minutes. */
-const GLOBAL_COLLECTIONS = [
+const VENUE_RELATED_COLLECTIONS = [
   'venues', 'rooms', 'tables', 'payment_methods',
   'menu_categories', 'menu_items', 'menu_modifiers',
   'menu_categories_menu_modifiers', 'menu_items_menu_modifiers',
@@ -71,6 +71,7 @@ const DEEP_FETCH_FIELDS = [
   'printers.*',
   'venue_users.*',
 ];
+const DEEP_FETCH_FIELDS_LOG = DEEP_FETCH_FIELDS.join(', ');
 const GLOBAL_INTERVAL_MS = 5 * 60_000;
 // Allow substantial device/server clock drift before treating last_pull_ts as invalid.
 // 24h avoids perpetual full-refreshes on slightly misconfigured tablets while still
@@ -825,7 +826,7 @@ async function _runGlobalPull({ forceFullAll = false, onProgress = null } = {}) 
         level: 'error',
         message: 'Applicazione configurazione saltata: venueId non configurato.',
       });
-      return { ok: false, failedCollections: GLOBAL_COLLECTIONS };
+      return { ok: false, failedCollections: VENUE_RELATED_COLLECTIONS };
     }
 
     _emitProgress(onProgress, { level: 'info', message: `Deep fetch venue ${venueId}…` });
@@ -845,7 +846,7 @@ async function _runGlobalPull({ forceFullAll = false, onProgress = null } = {}) 
     _initialGlobalHydrationDone = true;
 
     if (appConfig.directus?.debugLogs === true) {
-      console.info('[DirectusSync] Deep fetch fields:', DEEP_FETCH_FIELDS.join(', '));
+      console.info('[DirectusSync] Deep fetch fields:', DEEP_FETCH_FIELDS_LOG);
       console.info('[DirectusSync] Deep fetch fan-out summary:', fanOutSummary);
     }
     _emitProgress(onProgress, {
@@ -897,9 +898,11 @@ export function useDirectusSync() {
     const venueId = appConfig.directus?.venueId ?? null;
 
     // Local-first: apply cached config snapshot from IDB before any remote call.
-    _hydrateConfigFromLocalCache(venueId).catch((e) => {
+    try {
+      await _hydrateConfigFromLocalCache(venueId);
+    } catch (e) {
       console.warn(`[DirectusSync] WARN: Fallback to remote sync after local cache hydration failed for venue ${String(venueId)}:`, e);
-    });
+    }
 
     // Initial push + deep global config pull
     _runPush().catch(() => {});

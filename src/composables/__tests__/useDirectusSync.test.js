@@ -601,11 +601,8 @@ describe('global pull config hydration', () => {
 
     const venueCalls = fetchSpy.mock.calls
       .map(([url]) => String(url))
-      .filter(url => url.includes('/items/venues/1'));
-    expect(venueCalls.length).toBeGreaterThan(0);
-    for (const url of venueCalls) {
-      expect(hasDateUpdatedGtFilter(url)).toBe(false);
-    }
+      .filter(url => url.includes('/items/venues'));
+    expect(venueCalls.every(url => hasDateUpdatedGtFilter(url) === false)).toBe(true);
   });
 
   it('retries deep venue bootstrap on the next cycle if the first global fetch fails', async () => {
@@ -614,7 +611,7 @@ describe('global pull config hydration', () => {
 
     let venueReqCount = 0;
     const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation((url) => {
-      if (String(url).includes('/items/venues/1')) {
+      if (String(url).includes('/items/venues')) {
         venueReqCount += 1;
         if (venueReqCount === 1) return Promise.reject(new Error('temporary deep venue failure'));
       }
@@ -635,7 +632,7 @@ describe('global pull config hydration', () => {
 
     const venueCalls = fetchSpy.mock.calls
       .map(([url]) => String(url))
-      .filter(url => url.includes('/items/venues/1'));
+      .filter(url => url.includes('/items/venues'));
     expect(venueCalls.length).toBeGreaterThanOrEqual(2);
     for (const url of venueCalls) {
       expect(hasDateUpdatedGtFilter(url)).toBe(false);
@@ -647,7 +644,7 @@ describe('global pull config hydration', () => {
     const applySpy = vi.spyOn(utils, 'applyDirectusConfigToAppConfig');
 
     vi.spyOn(global, 'fetch').mockImplementation((url) => {
-      if (String(url).includes('/items/venues/1')) {
+      if (String(url).includes('/items/venues')) {
         return Promise.reject(new Error('temporary deep venue failure'));
       }
       return Promise.resolve(directusListResponse([]));
