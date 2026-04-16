@@ -990,6 +990,8 @@ function _preBillPrinters() {
   return (appConfig.printers ?? []).filter((printer) => {
     if (typeof printer?.id !== 'string' || !printer.id.trim()) return false;
     if (!printer?.url) return false;
+    // Empty/missing printTypes means catch-all printer (includes pre_bill),
+    // consistent with usePrintQueue routing semantics.
     if (!Array.isArray(printer.printTypes) || printer.printTypes.length === 0) return true;
     return printer.printTypes.includes('pre_bill');
   });
@@ -1004,6 +1006,8 @@ function _syncPreBillPrinterSelection(venueRecord = null) {
   }
   const current = typeof _store.preBillPrinterId === 'string' ? _store.preBillPrinterId : '';
   if (current && candidates.some((printer) => printer.id === current)) return;
+  // Accept both Directus snake_case and local camelCase keys for robustness
+  // across deep-fetch payload shapes and cached snapshots.
   const remoteDefault =
     _relationId(venueRecord?.pre_bill_printer ?? venueRecord?.preBillPrinter) ??
     null;
