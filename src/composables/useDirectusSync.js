@@ -70,6 +70,7 @@ const DEEP_FETCH_FIELDS = [
   'menu_items.menu_modifiers.menu_modifiers_id.*',
   'printers.*',
   'venue_users.*',
+  'table_merge_sessions.*',
 ];
 const DEEP_FETCH_FIELDS_LOG = DEEP_FETCH_FIELDS.join(', ');
 const GLOBAL_INTERVAL_MS = 5 * 60_000;
@@ -604,7 +605,6 @@ let _running = false;
 let _pushTimer = null;
 let _pollTimer = null;
 let _globalTimer = null;
-let _initialGlobalHydrationDone = false;
 /** @type {object|null} */
 let _store = null;
 /** @type {'cassa'|'sala'|'cucina'} */
@@ -759,7 +759,7 @@ function _extractModifierTree(venueRecord, menuSource) {
 }
 
 async function _fanOutVenueTreeToIDB(venueRecord, { menuSource }) {
-  if (!venueRecord || typeof venueRecord !== 'object') return {};
+  if (!venueRecord || typeof venueRecord !== 'object' || Array.isArray(venueRecord)) return {};
 
   const {
     categories,
@@ -769,13 +769,24 @@ async function _fanOutVenueTreeToIDB(venueRecord, { menuSource }) {
     itemLinks,
   } = _extractModifierTree(venueRecord, menuSource);
 
+  const flatVenueRecord = { ...venueRecord };
+  delete flatVenueRecord.rooms;
+  delete flatVenueRecord.tables;
+  delete flatVenueRecord.payment_methods;
+  delete flatVenueRecord.menu_categories;
+  delete flatVenueRecord.menu_items;
+  delete flatVenueRecord.printers;
+  delete flatVenueRecord.venue_users;
+  delete flatVenueRecord.table_merge_sessions;
+
   const payloadByStore = {
-    venues: [{ ...venueRecord }],
+    venues: [{ ...flatVenueRecord }],
     rooms: _normalizeToArray(venueRecord.rooms),
     tables: _normalizeToArray(venueRecord.tables),
     payment_methods: _normalizeToArray(venueRecord.payment_methods),
     printers: _normalizeToArray(venueRecord.printers),
     venue_users: _normalizeToArray(venueRecord.venue_users),
+    table_merge_sessions: _normalizeToArray(venueRecord.table_merge_sessions),
     menu_categories: categories,
     menu_items: items,
     menu_modifiers: modifiers,
@@ -792,7 +803,10 @@ async function _fanOutVenueTreeToIDB(venueRecord, { menuSource }) {
   }
 
   const stores = Object.entries(payloadByStore);
-  await Promise.all(stores.map(([storeName, records]) => upsertRecordsIntoIDB(storeName, records)));
+  await Promise.all(stores
+    .filter(([storeName]) => storeName !== 'table_merge_sessions')
+    .map(([storeName, records]) => upsertRecordsIntoIDB(storeName, records)));
+  await replaceTableMergesInIDB(payloadByStore.table_merge_sessions);
   return Object.fromEntries(stores.map(([storeName, records]) => [storeName, records.length]));
 }
 
@@ -813,7 +827,7 @@ function _emitProgress(onProgress, payload) {
   }
 }
 
-async function _runGlobalPull({ forceFullAll = false, onProgress = null } = {}) {
+async function _runGlobalPull({ onProgress = null } = {}) {
   if (!navigator.onLine) return;
   const cfg = _getCfg();
   if (!cfg) return;
@@ -890,7 +904,6 @@ export function useDirectusSync() {
 
     _appType = appType ?? 'cassa';
     _store = store;
-    _initialGlobalHydrationDone = false;
     _running = true;
 
     const pullCfg = PULL_CONFIG[_appType] ?? PULL_CONFIG.cassa;
@@ -940,7 +953,6 @@ export function useDirectusSync() {
 
   function stopSync() {
     _running = false;
-    _initialGlobalHydrationDone = false;
     _store = null;
     if (_pushTimer) { clearInterval(_pushTimer); _pushTimer = null; }
     if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
@@ -992,7 +1004,7 @@ export function useDirectusSync() {
         _emitProgress(onProgress, { level: 'info', message: 'Cache configurazione locale svuotata.' });
       }
 
-      const result = await _runGlobalPull({ forceFullAll: true, onProgress });
+      const result = await _runGlobalPull({ onProgress });
       syncStatus.value = result?.ok ? 'idle' : 'error';
       return result ?? { ok: false, failedCollections: [] };
     } catch (e) {
@@ -1024,7 +1036,6 @@ export function useDirectusSync() {
  */
 export function _resetDirectusSyncSingleton() {
   _running = false;
-  _initialGlobalHydrationDone = false;
   _store = null;
   _appType = 'cassa';
   if (_pushTimer) { clearInterval(_pushTimer); _pushTimer = null; }

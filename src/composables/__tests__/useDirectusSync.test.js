@@ -651,19 +651,17 @@ describe('global pull config hydration', () => {
     });
 
     const sync = useDirectusSync();
-    const store = makeStore({ config: {} });
-    sync.startSync({ appType: 'cucina', store });
-    await flushPromises(LONG_FLUSH_ROUNDS);
-    sync.stopSync();
+    const result = await sync.reconfigureAndApply();
+    expect(result.ok).toBe(false);
 
     expect(applySpy).not.toHaveBeenCalled();
   });
 
-  it('does not clear table merges when table_merge_sessions fetch fails', async () => {
+  it('does not clear table merges when deep venue fetch fails', async () => {
     await replaceTableMergesInIDB([{ id: 'm1', slave_table: 'T2', master_table: 'T1' }]);
 
     vi.spyOn(global, 'fetch').mockImplementation((url) => {
-      if (String(url).includes('/items/table_merge_sessions')) {
+      if (String(url).includes('/items/venues')) {
         return Promise.reject(new Error('table merge fetch failed'));
       }
       return Promise.resolve(directusListResponse([]));
