@@ -292,9 +292,9 @@ function _toDirectusPayload(collection, localPayload) {
             const directMod = _toDirectusPayload('order_item_modifiers', mod);
             if (!directMod.id && mod?.id) directMod.id = mod.id;
             if (directMod.order_item == null && item?.id) directMod.order_item = item.id;
-            const nestedOrderId = item?.orderId ?? localPayload?.id;
-            if (directMod.order == null && nestedOrderId) {
-              directMod.order = nestedOrderId;
+            const resolvedOrderId = item?.orderId ?? localPayload?.id;
+            if (directMod.order == null && resolvedOrderId) {
+              directMod.order = resolvedOrderId;
             }
             return directMod;
           });

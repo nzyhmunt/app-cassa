@@ -333,7 +333,7 @@ export function getDB() {
             await tx.objectStore('app_settings').delete('local');
           }
         } catch (error) {
-          console.warn('[useIDB] Failed to migrate legacy local settings from app_settings to local_settings during v5 upgrade.', {
+          console.warn('[useIDB] Failed to migrate legacy local settings from app_settings to local_settings during v5 upgrade (non-fatal, local settings may reset to defaults).', {
             dbName,
             oldVersion,
             newVersion: DB_VERSION,

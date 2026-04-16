@@ -255,7 +255,7 @@ function _mergeIntoStore(collection, records, store) {
 
 function _deleteFromStore(collection, records, store) {
   if (!store || !Array.isArray(records) || records.length === 0) return;
-  const extractIdSet = () => new Set(records.map(r => String(r?.id ?? r)).filter(Boolean));
+  const extractIdSet = () => new Set(_extractRecordIds(records));
   if (collection === 'orders') {
     const ids = extractIdSet();
     store.orders = store.orders.filter(o => !ids.has(String(o.id)));
@@ -281,6 +281,12 @@ function _deleteFromStore(collection, records, store) {
     }
     store.tableCurrentBillSession = next;
   }
+}
+
+function _extractRecordIds(records) {
+  return records
+    .map((r) => String(r?.id ?? r))
+    .filter(Boolean);
 }
 
 // ── REST pull helpers ─────────────────────────────────────────────────────────
@@ -391,7 +397,7 @@ async function _handleSubscriptionMessage(collection, message) {
   if (!data || !Array.isArray(data) || data.length === 0) return;
 
   if (event === 'delete') {
-    const ids = data.map(r => (typeof r === 'object' ? r.id : r)).filter(Boolean);
+    const ids = _extractRecordIds(data);
     await deleteRecordsFromIDB(collection, ids);
     if (_store) _deleteFromStore(collection, ids, _store);
   } else {
