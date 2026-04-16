@@ -498,6 +498,73 @@ describe('reconfigureAndApply()', () => {
       expect.objectContaining({ id: 'item_1', name: 'Carbonara' }),
     ]);
   });
+
+  it('prefers direct tables/items over nested duplicates when both are present', async () => {
+    const venueId = 1;
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      const requestUrl = String(url);
+      if (requestUrl.includes(`/items/venues/${venueId}`)) {
+        return Promise.resolve(directusItemResponse({
+          id: venueId,
+          name: 'Venue dedupe shape',
+          menu_source: 'directus',
+          rooms: [{
+            id: 'room_1',
+            label: 'Sala Giardino',
+            tables: [{ id: 'tbl_1', label: 'T1 (nested partial)' }],
+          }],
+          tables: [{ id: 'tbl_1', label: 'T1', room: 'room_1', covers: 6 }],
+          payment_methods: [{ id: 'pm_1', label: 'Carta' }],
+          printers: [{ id: 'prt_1', name: 'Stampante Bar', url: 'http://printer.bar.local' }],
+          venue_users: [],
+          table_merge_sessions: [],
+          menu_categories: [{
+            id: 'cat_1',
+            name: 'Dessert',
+            sort: 2,
+            menu_items: [{
+              id: 'item_1',
+              name: 'Tiramisù (nested partial)',
+              category: 'cat_1',
+              price: '6.00',
+              ingredients: '[]',
+              allergens: '[]',
+            }],
+          }],
+          menu_items: [{
+            id: 'item_1',
+            name: 'Tiramisù',
+            category: 'cat_1',
+            price: '6.00',
+            description: 'Dessert classico',
+            ingredients: '[]',
+            allergens: '[]',
+          }],
+        }));
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const { appConfig } = await import('../../utils/index.js');
+    const sync = useDirectusSync();
+    const result = await sync.reconfigureAndApply();
+    expect(result.ok).toBe(true);
+    expect(appConfig.rooms).toEqual([
+      expect.objectContaining({ id: 'room_1', label: 'Sala Giardino' }),
+    ]);
+    expect(appConfig.tables).toEqual([
+      expect.objectContaining({ id: 'tbl_1', label: 'T1', covers: 6 }),
+    ]);
+    expect(appConfig.paymentMethods).toEqual([
+      expect.objectContaining({ id: 'pm_1', label: 'Carta' }),
+    ]);
+    expect(appConfig.printers).toEqual([
+      expect.objectContaining({ id: 'prt_1', name: 'Stampante Bar' }),
+    ]);
+    expect(appConfig.menu.Dessert).toEqual([
+      expect.objectContaining({ id: 'item_1', name: 'Tiramisù' }),
+    ]);
+  });
 });
 
 // ── Pull: IDB upsert (last-write-wins) ───────────────────────────────────────

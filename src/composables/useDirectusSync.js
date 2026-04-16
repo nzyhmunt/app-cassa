@@ -62,9 +62,11 @@ const VENUE_RELATED_COLLECTIONS = [
 const DEEP_FETCH_FIELDS = [
   '*',
   'rooms.*',
+  'rooms.tables.*',
   'tables.*',
   'payment_methods.*',
   'menu_categories.*',
+  'menu_categories.menu_items.*',
   'menu_categories.menu_modifiers.menu_modifiers_id.*',
   'menu_items.*',
   'menu_items.menu_modifiers.menu_modifiers_id.*',
@@ -83,7 +85,9 @@ const DEEP_FETCH_BASE_RELATION_FIELDS = [
 ];
 const DEEP_FETCH_FALLBACK_FIELDS = [
   ...DEEP_FETCH_BASE_RELATION_FIELDS,
+  'rooms.tables.*',
   'menu_categories.*',
+  'menu_categories.menu_items.*',
   'menu_items.*',
 ];
 const DEEP_FETCH_FIELD_SETS = [
@@ -710,6 +714,16 @@ function _normalizeToArray(value) {
   return Array.isArray(value) ? value : [];
 }
 
+function _dedupeRecordsById(records) {
+  const byId = new Map();
+  for (const record of _normalizeToArray(records)) {
+    const id = _relationId(record?.id);
+    if (id == null) continue;
+    byId.set(String(id), record);
+  }
+  return Array.from(byId.values());
+}
+
 function _extractDeepVenuePayload(payload) {
   if (payload == null) return null;
   if (Array.isArray(payload)) {
@@ -742,18 +756,17 @@ function _extractModifierTree(venueRecord, menuSource) {
     };
   }
 
-  const categories = _normalizeToArray(venueRecord.menu_categories);
-  const directItems = _normalizeToArray(venueRecord.menu_items);
+  const categories = _normalizeToArray(venueRecord.menu_categories)
+    .filter(record => record && typeof record === 'object' && !Array.isArray(record));
+  const directItems = _normalizeToArray(venueRecord.menu_items)
+    .filter(record => record && typeof record === 'object' && !Array.isArray(record));
   const categoryItems = categories
     .filter(category => Array.isArray(category?.menu_items) && category.menu_items.length > 0)
-    .flatMap(category => category.menu_items);
-  const itemsById = new Map();
-  for (const item of [...directItems, ...categoryItems]) {
-    const itemId = _relationId(item);
-    if (itemId == null) continue;
-    itemsById.set(String(itemId), item);
-  }
-  const items = Array.from(itemsById.values());
+    .flatMap(category => _normalizeToArray(category.menu_items))
+    .filter(record => record && typeof record === 'object' && !Array.isArray(record));
+  // Prefer direct venue.menu_items records when both direct and category-nested arrays
+  // contain the same item id, because direct items preserve the canonical payload shape.
+  const items = _dedupeRecordsById([...categoryItems, ...directItems]);
   const modifierById = new Map();
   const categoryLinks = [];
   const itemLinks = [];
@@ -780,7 +793,7 @@ function _extractModifierTree(venueRecord, menuSource) {
 
   for (const category of categories) {
     for (const link of _normalizeToArray(category.menu_modifiers)) {
-      const modifierId = addNormalizedModifier(link.menu_modifiers_id);
+      const modifierId = addNormalizedModifier(link.menu_modifiers_id ?? link.menu_modifier_id ?? link);
       if (modifierId == null) continue;
       categoryLinks.push({
         id: link.id ?? `category::${String(category.id)}::modifier::${String(modifierId)}`,
@@ -795,7 +808,7 @@ function _extractModifierTree(venueRecord, menuSource) {
 
   for (const item of items) {
     for (const link of _normalizeToArray(item.menu_modifiers)) {
-      const modifierId = addNormalizedModifier(link.menu_modifiers_id);
+      const modifierId = addNormalizedModifier(link.menu_modifiers_id ?? link.menu_modifier_id ?? link);
       if (modifierId == null) continue;
       itemLinks.push({
         id: link.id ?? `item::${String(item.id)}::modifier::${String(modifierId)}`,
@@ -833,6 +846,25 @@ async function _fanOutVenueTreeToIDB(venueRecord, { menuSource }) {
     categoryLinks,
     itemLinks,
   } = _extractModifierTree(venueRecord, menuSource);
+  const rooms = _normalizeToArray(venueRecord.rooms)
+    .filter(record => record && typeof record === 'object' && !Array.isArray(record));
+  const directTables = _normalizeToArray(venueRecord.tables)
+    .filter(record => record && typeof record === 'object' && !Array.isArray(record));
+  const nestedRoomTables = rooms
+    .filter((room) => Array.isArray(room?.tables) && room.tables.length > 0)
+    .flatMap((room) => _normalizeToArray(room.tables))
+    .filter(record => record && typeof record === 'object' && !Array.isArray(record));
+  // Prefer direct venue.tables records to avoid losing fields when nested room tables
+  // contain partial projections.
+  const tables = _dedupeRecordsById([...nestedRoomTables, ...directTables]);
+  const paymentMethods = _normalizeToArray(venueRecord.payment_methods)
+    .filter(record => record && typeof record === 'object' && !Array.isArray(record));
+  const printers = _normalizeToArray(venueRecord.printers)
+    .filter(record => record && typeof record === 'object' && !Array.isArray(record));
+  const venueUsers = _normalizeToArray(venueRecord.venue_users)
+    .filter(record => record && typeof record === 'object' && !Array.isArray(record));
+  const tableMergeSessions = _normalizeToArray(venueRecord.table_merge_sessions)
+    .filter(record => record && typeof record === 'object' && !Array.isArray(record));
 
   const flatVenueRecord = { ...venueRecord };
   for (const key of VENUE_NESTED_RELATION_KEYS) {
@@ -841,12 +873,12 @@ async function _fanOutVenueTreeToIDB(venueRecord, { menuSource }) {
 
   const payloadByStore = {
     venues: [{ ...flatVenueRecord }],
-    rooms: withVenueFallback(venueRecord.rooms),
-    tables: withVenueFallback(venueRecord.tables),
-    payment_methods: withVenueFallback(venueRecord.payment_methods),
-    printers: withVenueFallback(venueRecord.printers),
-    venue_users: withVenueFallback(venueRecord.venue_users),
-    table_merge_sessions: withVenueFallback(venueRecord.table_merge_sessions),
+    rooms: withVenueFallback(rooms),
+    tables: withVenueFallback(tables),
+    payment_methods: withVenueFallback(paymentMethods),
+    printers: withVenueFallback(printers),
+    venue_users: withVenueFallback(venueUsers),
+    table_merge_sessions: withVenueFallback(tableMergeSessions),
     menu_categories: withVenueFallback(categories),
     menu_items: withVenueFallback(items),
     menu_modifiers: withVenueFallback(modifiers),
