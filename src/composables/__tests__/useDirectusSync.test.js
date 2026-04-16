@@ -253,7 +253,7 @@ describe('reconfigureAndApply()', () => {
     expect(result.ok).toBe(false);
   });
 
-  it('can clear local config cache and run a full global pull with progress logs', async () => {
+  it('can clear local config cache and repopulate venues via global pull with progress logs', async () => {
     const { appConfig } = await import('../../utils/index.js');
     appConfig.ui.primaryColor = '#123456';
 

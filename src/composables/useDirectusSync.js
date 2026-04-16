@@ -72,7 +72,7 @@ const DEEP_FETCH_FIELDS = [
   'venue_users.*',
   'table_merge_sessions.*',
 ];
-const DEEP_FETCH_FALLBACK_FIELDS = [
+const DEEP_FETCH_BASE_RELATION_FIELDS = [
   '*',
   'rooms.*',
   'tables.*',
@@ -81,14 +81,13 @@ const DEEP_FETCH_FALLBACK_FIELDS = [
   'venue_users.*',
   'table_merge_sessions.*',
 ];
+const DEEP_FETCH_FALLBACK_FIELDS = [
+  ...DEEP_FETCH_BASE_RELATION_FIELDS,
+  'menu_categories.*',
+  'menu_items.*',
+];
 const DEEP_FETCH_SAFE_FIELDS = [
-  '*',
-  'rooms.*',
-  'tables.*',
-  'payment_methods.*',
-  'printers.*',
-  'venue_users.*',
-  'table_merge_sessions.*',
+  ...DEEP_FETCH_BASE_RELATION_FIELDS,
 ];
 const DEEP_FETCH_FIELD_SETS = [
   { key: 'full', fields: DEEP_FETCH_FIELDS },
@@ -106,6 +105,7 @@ const VENUE_NESTED_RELATION_KEYS = [
   'table_merge_sessions',
 ];
 const GLOBAL_INTERVAL_MS = 5 * 60_000;
+const DEEP_FETCH_PAYLOAD_UNWRAP_MAX_DEPTH = 3;
 // Allow substantial device/server clock drift before treating last_pull_ts as invalid.
 // 24h avoids perpetual full-refreshes on slightly misconfigured tablets while still
 // catching clearly bogus cursors (for example, year 2099).
@@ -723,13 +723,12 @@ function _extractDeepVenuePayload(payload) {
   if (typeof payload !== 'object') return null;
 
   let node = payload;
-  for (let depth = 0; depth < 3; depth += 1) {
+  for (let depth = 0; depth < DEEP_FETCH_PAYLOAD_UNWRAP_MAX_DEPTH; depth += 1) {
     if (Array.isArray(node)) {
       const [first] = node;
       return first && typeof first === 'object' ? first : null;
     }
     if (!node || typeof node !== 'object') return null;
-    if (node.id != null || node.name != null || node.primary_color != null) return node;
     if (!Object.prototype.hasOwnProperty.call(node, 'data')) return node;
     node = node.data;
   }
@@ -903,7 +902,7 @@ async function _runGlobalPull({ onProgress = null } = {}) {
       try {
         const deepVenueRaw = await client.request(readItem('venues', venueId, { fields: fieldSet.fields }));
         deepVenue = _extractDeepVenuePayload(deepVenueRaw);
-        if (!deepVenue) throw new Error('Deep fetch payload vuoto o non valido.');
+        if (!deepVenue) throw new Error('Deep fetch payload is empty or invalid.');
         deepFetchMode = fieldSet.key;
         deepFetchError = null;
         break;

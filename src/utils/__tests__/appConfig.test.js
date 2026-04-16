@@ -156,5 +156,20 @@ describe('appConfig', () => {
       expect(appConfig.ui.primaryColorDark).toBe('#0c7262');
       expect(appConfig.ui.currency).toBe('€');
     });
+
+    it('applies UI fallbacks safely when venue scalar fields are undefined', () => {
+      resetAppConfigFromDefaults();
+      applyDirectusConfigToAppConfig({
+        venueRecord: {
+          id: 1,
+          name: 'Venue Undefined',
+        },
+      });
+
+      expect(appConfig.ui.name).toBe('Venue Undefined');
+      expect(appConfig.ui.primaryColor).toBe('#00846c');
+      expect(appConfig.ui.primaryColorDark).toBe('#0c7262');
+      expect(appConfig.ui.currency).toBe('€');
+    });
   });
 });

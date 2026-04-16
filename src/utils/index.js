@@ -16,10 +16,19 @@
 
 // Default URL for loading the external menu JSON
 export const DEFAULT_MENU_URL = 'https://nanawork.it/menu.json';
+const DEFAULT_UI_PRIMARY_COLOR = '#00846c';
+const DEFAULT_UI_PRIMARY_COLOR_DARK = '#0c7262';
+const DEFAULT_UI_CURRENCY = '€';
 
 // Configurazione applicazione centralizzata
 export const appConfig = {
-  ui: { name: "Osteria del Grillo", primaryColor: "#00846c", primaryColorDark: "#0c7262", currency: "€", allowCustomVariants: true },
+  ui: {
+    name: "Osteria del Grillo",
+    primaryColor: DEFAULT_UI_PRIMARY_COLOR,
+    primaryColorDark: DEFAULT_UI_PRIMARY_COLOR_DARK,
+    currency: DEFAULT_UI_CURRENCY,
+    allowCustomVariants: true,
+  },
 
   // Timezone used for all locale time formatting across Cassa, Sala and Cucina.
   // Must be a valid IANA timezone identifier (e.g. 'Europe/Rome', 'Europe/Berlin').
@@ -347,9 +356,11 @@ export function applyDirectusConfigToAppConfig(cfg) {
   if (venueRecord) {
     const fallbackUi = _defaultAppConfigSnapshot?.ui ?? {};
     const name = venueRecord?.name;
-    const primary = venueRecord?.primary_color || fallbackUi.primaryColor || '#00846c';
-    const primaryDark = venueRecord?.primary_color_dark || fallbackUi.primaryColorDark || '#0c7262';
-    const currency = venueRecord?.currency_symbol || fallbackUi.currency || '€';
+    // Empty strings from Directus are treated as "unset" for UI colors/currency,
+    // so we intentionally fall back to defaults via `||`.
+    const primary = venueRecord?.primary_color || fallbackUi.primaryColor || DEFAULT_UI_PRIMARY_COLOR;
+    const primaryDark = venueRecord?.primary_color_dark || fallbackUi.primaryColorDark || DEFAULT_UI_PRIMARY_COLOR_DARK;
+    const currency = venueRecord?.currency_symbol || fallbackUi.currency || DEFAULT_UI_CURRENCY;
     const allowCustomVariants = venueRecord?.allow_custom_variants;
 
     if (name != null) appConfig.ui.name = name;
