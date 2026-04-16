@@ -15,7 +15,7 @@
  *   closedBills[]              – Archived sessions after full payment (computed)
  */
 import { defineStore } from 'pinia';
-import { ref, computed, watch } from 'vue';
+import { ref, computed, watch, toRaw } from 'vue';
 import { appConfig, updateOrderTotals, KITCHEN_ACTIVE_STATUSES, KEYBOARD_POSITIONS, formatOrderTime } from '../utils/index.js';
 import { newUUIDv7, newShortId } from './storeUtils.js';
 import { makeTableOps } from './tableOps.js';
@@ -304,7 +304,14 @@ export const useAppStore = defineStore('app', () => {
 
   function _enqueueOrderSnapshot(ord) {
     if (!ord?.id) return;
-    enqueue('orders', 'update', ord.id, ord);
+    const rawOrder = toRaw(ord);
+    let payload = rawOrder;
+    try {
+      payload = structuredClone(rawOrder);
+    } catch (_) {
+      payload = JSON.parse(JSON.stringify(rawOrder));
+    }
+    enqueue('orders', 'update', ord.id, payload);
   }
 
   function changeOrderStatus(order, newStatus, rejectionReason = null) {

@@ -818,6 +818,8 @@ export async function upsertRecordsIntoIDB(storeName, records) {
       }
       const table = relationId(normalized.table);
       if (table != null) normalized.table = table;
+      normalized.dietary_diets = parseJsonArray(normalized.dietary_diets);
+      normalized.dietary_allergens = parseJsonArray(normalized.dietary_allergens);
     } else if (collection === 'order_items') {
       const orderId = relationId(normalized.order ?? normalized.orderId);
       if (orderId != null) {
@@ -858,9 +860,6 @@ export async function upsertRecordsIntoIDB(storeName, records) {
     } else if (collection === 'menu_items') {
       normalized.ingredients = parseJsonArray(normalized.ingredients);
       normalized.allergens = parseJsonArray(normalized.allergens);
-    } else if (collection === 'orders') {
-      normalized.dietary_diets = parseJsonArray(normalized.dietary_diets);
-      normalized.dietary_allergens = parseJsonArray(normalized.dietary_allergens);
     } else if (collection === 'printers') {
       normalized.print_types = parseJsonArray(normalized.print_types);
       normalized.categories = parseJsonArray(normalized.categories);
