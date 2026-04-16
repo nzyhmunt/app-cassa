@@ -698,7 +698,7 @@ function _extractModifierTree(venueRecord, menuSource) {
   const categoryLinks = [];
   const itemLinks = [];
 
-  const addModifier = (value) => {
+  const addNormalizedModifier = (value) => {
     const modifier = value && typeof value === 'object' ? value : null;
     const id = modifier?.id ?? value;
     if (id == null) return null;
@@ -720,10 +720,10 @@ function _extractModifierTree(venueRecord, menuSource) {
 
   for (const category of categories) {
     for (const link of _toArray(category.menu_modifiers)) {
-      const modifierId = addModifier(link.menu_modifiers_id);
+      const modifierId = addNormalizedModifier(link.menu_modifiers_id);
       if (modifierId == null) continue;
       categoryLinks.push({
-        id: link.id ?? `${category.id}_${modifierId}`,
+        id: link.id ?? `category::${String(category.id)}::modifier::${String(modifierId)}`,
         menu_categories_id: category.id,
         menu_modifiers_id: modifierId,
         venue: _relationId(link.venue) ?? venueRecord.id,
@@ -735,10 +735,10 @@ function _extractModifierTree(venueRecord, menuSource) {
 
   for (const item of items) {
     for (const link of _toArray(item.menu_modifiers)) {
-      const modifierId = addModifier(link.menu_modifiers_id);
+      const modifierId = addNormalizedModifier(link.menu_modifiers_id);
       if (modifierId == null) continue;
       itemLinks.push({
-        id: link.id ?? `${item.id}_${modifierId}`,
+        id: link.id ?? `item::${String(item.id)}::modifier::${String(modifierId)}`,
         menu_items_id: item.id,
         menu_modifiers_id: modifierId,
         venue: _relationId(link.venue) ?? venueRecord.id,
@@ -896,7 +896,7 @@ export function useDirectusSync() {
 
     // Local-first: apply cached config snapshot from IDB before any remote call.
     _hydrateConfigFromLocalCache(venueId).catch((e) => {
-      console.warn('[DirectusSync] Local cache hydration failed:', e);
+      console.warn(`[DirectusSync] Local cache hydration failed for venue ${String(venueId)}:`, e);
     });
 
     // Initial push + deep global config pull
