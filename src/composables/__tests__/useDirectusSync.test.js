@@ -498,6 +498,64 @@ describe('reconfigureAndApply()', () => {
       expect.objectContaining({ id: 'item_1', name: 'Carbonara' }),
     ]);
   });
+
+  it('hydrates config from wrapper-shaped deep fetch relations', async () => {
+    const venueId = 1;
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      const requestUrl = String(url);
+      if (requestUrl.includes(`/items/venues/${venueId}`)) {
+        return Promise.resolve(directusItemResponse({
+          id: venueId,
+          name: 'Venue wrapper shape',
+          menu_source: 'directus',
+          rooms: [{ id: 'junction_room_1', rooms_id: { id: 'room_1', label: 'Sala Giardino' } }],
+          tables: [],
+          payment_methods: [{ id: 'junction_pm_1', payment_methods_id: { id: 'pm_1', label: 'Carta' } }],
+          printers: [{ id: 'junction_printer_1', printers_id: { id: 'prt_1', name: 'Stampante Bar', url: 'http://printer.bar.local' } }],
+          venue_users: [],
+          table_merge_sessions: [],
+          menu_categories: [{
+            id: 'junction_cat_1',
+            menu_categories_id: {
+              id: 'cat_1',
+              name: 'Dessert',
+              sort: 2,
+              menu_items: [{
+                id: 'junction_item_1',
+                menu_items_id: {
+                  id: 'item_1',
+                  name: 'Tiramisù',
+                  category: 'cat_1',
+                  price: '6.00',
+                  ingredients: '[]',
+                  allergens: '[]',
+                },
+              }],
+            },
+          }],
+          menu_items: [],
+        }));
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const { appConfig } = await import('../../utils/index.js');
+    const sync = useDirectusSync();
+    const result = await sync.reconfigureAndApply();
+    expect(result.ok).toBe(true);
+    expect(appConfig.rooms).toEqual([
+      expect.objectContaining({ id: 'room_1', label: 'Sala Giardino' }),
+    ]);
+    expect(appConfig.paymentMethods).toEqual([
+      expect.objectContaining({ id: 'pm_1', label: 'Carta' }),
+    ]);
+    expect(appConfig.printers).toEqual([
+      expect.objectContaining({ id: 'prt_1', name: 'Stampante Bar' }),
+    ]);
+    expect(appConfig.menu.Dessert).toEqual([
+      expect.objectContaining({ id: 'item_1', name: 'Tiramisù' }),
+    ]);
+  });
 });
 
 // ── Pull: IDB upsert (last-write-wins) ───────────────────────────────────────

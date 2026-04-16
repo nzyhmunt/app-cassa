@@ -62,9 +62,11 @@ const VENUE_RELATED_COLLECTIONS = [
 const DEEP_FETCH_FIELDS = [
   '*',
   'rooms.*',
+  'rooms.tables.*',
   'tables.*',
   'payment_methods.*',
   'menu_categories.*',
+  'menu_categories.menu_items.*',
   'menu_categories.menu_modifiers.menu_modifiers_id.*',
   'menu_items.*',
   'menu_items.menu_modifiers.menu_modifiers_id.*',
@@ -83,7 +85,9 @@ const DEEP_FETCH_BASE_RELATION_FIELDS = [
 ];
 const DEEP_FETCH_FALLBACK_FIELDS = [
   ...DEEP_FETCH_BASE_RELATION_FIELDS,
+  'rooms.tables.*',
   'menu_categories.*',
+  'menu_categories.menu_items.*',
   'menu_items.*',
 ];
 const DEEP_FETCH_FIELD_SETS = [
@@ -710,6 +714,48 @@ function _normalizeToArray(value) {
   return Array.isArray(value) ? value : [];
 }
 
+function _normalizeDeepRelationRecords(records, candidateKeys = []) {
+  return _normalizeToArray(records)
+    .map((record) => {
+      if (!record || typeof record !== 'object' || Array.isArray(record)) return null;
+
+      for (const key of candidateKeys) {
+        if (!Object.prototype.hasOwnProperty.call(record, key)) continue;
+        const nested = record[key];
+        if (nested == null) continue;
+
+        let normalized = null;
+        if (typeof nested === 'object' && !Array.isArray(nested)) {
+          normalized = { ...nested };
+        } else {
+          const nestedId = _relationId(nested);
+          if (nestedId == null) continue;
+          normalized = { id: nestedId };
+        }
+
+        for (const passthroughField of ['venue', 'status', 'sort', 'date_updated', 'date_created']) {
+          if (normalized[passthroughField] == null && record[passthroughField] != null) {
+            normalized[passthroughField] = record[passthroughField];
+          }
+        }
+        return normalized;
+      }
+
+      return record;
+    })
+    .filter(Boolean);
+}
+
+function _dedupeRecordsById(records) {
+  const byId = new Map();
+  for (const record of _normalizeToArray(records)) {
+    const id = _relationId(record?.id);
+    if (id == null) continue;
+    byId.set(String(id), record);
+  }
+  return Array.from(byId.values());
+}
+
 function _extractDeepVenuePayload(payload) {
   if (payload == null) return null;
   if (Array.isArray(payload)) {
@@ -742,18 +788,12 @@ function _extractModifierTree(venueRecord, menuSource) {
     };
   }
 
-  const categories = _normalizeToArray(venueRecord.menu_categories);
-  const directItems = _normalizeToArray(venueRecord.menu_items);
+  const categories = _normalizeDeepRelationRecords(venueRecord.menu_categories, ['menu_categories_id', 'category_id']);
+  const directItems = _normalizeDeepRelationRecords(venueRecord.menu_items, ['menu_items_id', 'item_id']);
   const categoryItems = categories
     .filter(category => Array.isArray(category?.menu_items) && category.menu_items.length > 0)
-    .flatMap(category => category.menu_items);
-  const itemsById = new Map();
-  for (const item of [...directItems, ...categoryItems]) {
-    const itemId = _relationId(item);
-    if (itemId == null) continue;
-    itemsById.set(String(itemId), item);
-  }
-  const items = Array.from(itemsById.values());
+    .flatMap(category => _normalizeDeepRelationRecords(category.menu_items, ['menu_items_id', 'item_id']));
+  const items = _dedupeRecordsById([...directItems, ...categoryItems]);
   const modifierById = new Map();
   const categoryLinks = [];
   const itemLinks = [];
@@ -780,7 +820,7 @@ function _extractModifierTree(venueRecord, menuSource) {
 
   for (const category of categories) {
     for (const link of _normalizeToArray(category.menu_modifiers)) {
-      const modifierId = addNormalizedModifier(link.menu_modifiers_id);
+      const modifierId = addNormalizedModifier(link.menu_modifiers_id ?? link.menu_modifier_id ?? link);
       if (modifierId == null) continue;
       categoryLinks.push({
         id: link.id ?? `category::${String(category.id)}::modifier::${String(modifierId)}`,
@@ -795,7 +835,7 @@ function _extractModifierTree(venueRecord, menuSource) {
 
   for (const item of items) {
     for (const link of _normalizeToArray(item.menu_modifiers)) {
-      const modifierId = addNormalizedModifier(link.menu_modifiers_id);
+      const modifierId = addNormalizedModifier(link.menu_modifiers_id ?? link.menu_modifier_id ?? link);
       if (modifierId == null) continue;
       itemLinks.push({
         id: link.id ?? `item::${String(item.id)}::modifier::${String(modifierId)}`,
@@ -833,6 +873,19 @@ async function _fanOutVenueTreeToIDB(venueRecord, { menuSource }) {
     categoryLinks,
     itemLinks,
   } = _extractModifierTree(venueRecord, menuSource);
+  const rooms = _normalizeDeepRelationRecords(venueRecord.rooms, ['rooms_id', 'room_id']);
+  const directTables = _normalizeDeepRelationRecords(venueRecord.tables, ['tables_id', 'table_id']);
+  const nestedRoomTables = rooms
+    .filter((room) => Array.isArray(room?.tables) && room.tables.length > 0)
+    .flatMap((room) => _normalizeDeepRelationRecords(room.tables, ['tables_id', 'table_id']));
+  const tables = _dedupeRecordsById([...directTables, ...nestedRoomTables]);
+  const paymentMethods = _normalizeDeepRelationRecords(venueRecord.payment_methods, ['payment_methods_id', 'payment_method_id']);
+  const printers = _normalizeDeepRelationRecords(venueRecord.printers, ['printers_id', 'printer_id']);
+  const venueUsers = _normalizeDeepRelationRecords(venueRecord.venue_users, ['venue_users_id', 'user_id']);
+  const tableMergeSessions = _normalizeDeepRelationRecords(
+    venueRecord.table_merge_sessions,
+    ['table_merge_sessions_id', 'table_merge_session_id'],
+  );
 
   const flatVenueRecord = { ...venueRecord };
   for (const key of VENUE_NESTED_RELATION_KEYS) {
@@ -841,12 +894,12 @@ async function _fanOutVenueTreeToIDB(venueRecord, { menuSource }) {
 
   const payloadByStore = {
     venues: [{ ...flatVenueRecord }],
-    rooms: withVenueFallback(venueRecord.rooms),
-    tables: withVenueFallback(venueRecord.tables),
-    payment_methods: withVenueFallback(venueRecord.payment_methods),
-    printers: withVenueFallback(venueRecord.printers),
-    venue_users: withVenueFallback(venueRecord.venue_users),
-    table_merge_sessions: withVenueFallback(venueRecord.table_merge_sessions),
+    rooms: withVenueFallback(rooms),
+    tables: withVenueFallback(tables),
+    payment_methods: withVenueFallback(paymentMethods),
+    printers: withVenueFallback(printers),
+    venue_users: withVenueFallback(venueUsers),
+    table_merge_sessions: withVenueFallback(tableMergeSessions),
     menu_categories: withVenueFallback(categories),
     menu_items: withVenueFallback(items),
     menu_modifiers: withVenueFallback(modifiers),
