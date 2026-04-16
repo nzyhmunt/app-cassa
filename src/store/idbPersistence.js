@@ -656,6 +656,43 @@ export async function clearSyncQueueFromIDB() {
 }
 
 /**
+ * Removes all locally cached Directus configuration collections and related
+ * global pull cursors (`last_pull_ts:*`) from app_meta.
+ *
+ * This is used when the user explicitly asks for a full local config reset
+ * before forcing a new Directus configuration pull.
+ */
+export async function clearLocalConfigCacheFromIDB() {
+  const configStores = [
+    'venues',
+    'rooms',
+    'tables',
+    'payment_methods',
+    'menu_categories',
+    'menu_items',
+    'menu_item_modifiers',
+    'printers',
+    'venue_users',
+    'table_merge_sessions',
+  ];
+  try {
+    const db = await getDB();
+    await Promise.all(configStores.map(store => db.clear(store)));
+
+    const tx = db.transaction('app_meta', 'readwrite');
+    const keys = await tx.store.getAllKeys();
+    await Promise.all(
+      keys
+        .filter(key => typeof key === 'string' && key.startsWith('last_pull_ts:'))
+        .map(key => tx.store.delete(key)),
+    );
+    await tx.done;
+  } catch (e) {
+    console.warn('[IDBPersistence] Failed to clear local config cache:', e);
+  }
+}
+
+/**
  * Deletes the entire IndexedDB database for the current instance.
  * Nuclear option — used only during full reset.
  * @param {string} [instanceName]

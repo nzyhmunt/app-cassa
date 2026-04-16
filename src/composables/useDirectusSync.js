@@ -18,7 +18,7 @@
 
 import { ref } from 'vue';
 import { createDirectus, staticToken, rest, readItems } from '@directus/sdk';
-import { appConfig, applyDirectusConfigToAppConfig } from '../utils/index.js';
+import { appConfig, applyDirectusConfigToAppConfig, resetAppConfigFromDefaults } from '../utils/index.js';
 import { getDirectusClient } from './useDirectusClient.js';
 import { drainQueue } from './useSyncQueue.js';
 import {
@@ -27,6 +27,7 @@ import {
   upsertRecordsIntoIDB,
   loadConfigFromIDB,
   replaceTableMergesInIDB,
+  clearLocalConfigCacheFromIDB,
 } from '../store/idbPersistence.js';
 
 // ── Per-app pull config (§5.7.6) ─────────────────────────────────────────────
@@ -496,7 +497,15 @@ async function _runPull() {
   }
 }
 
-async function _runGlobalPull() {
+function _emitProgress(onProgress, payload) {
+  if (typeof onProgress === 'function') {
+    try { onProgress(payload); } catch (e) {
+      console.warn('[DirectusSync] onProgress callback error:', e);
+    }
+  }
+}
+
+async function _runGlobalPull({ forceFullAll = false, onProgress = null } = {}) {
   if (!navigator.onLine) return;
   if (!_getCfg()) return;
 
@@ -505,16 +514,18 @@ async function _runGlobalPull() {
   const venueId = appConfig.directus?.venueId ?? null;
 
   try {
+    _emitProgress(onProgress, { level: 'info', message: 'Avvio pull globale configurazione Directus…' });
     let configHydrationOk = true;
     const fullModeCollections = [];
     const failedCollections = [];
     for (const collection of GLOBAL_COLLECTIONS) {
+      _emitProgress(onProgress, { level: 'info', message: `Pull collezione "${collection}"…` });
       // Keep global pull incremental by default (lower backend load), but:
       //  - always force full pull on initial global hydration after startSync
       //  - force full pull when stored cursor is clearly invalid (future timestamp)
-      let forceFull = !_initialGlobalHydrationDone;
+      let forceFull = forceFullAll || !_initialGlobalHydrationDone;
       let lastPullTimestamp = null;
-      if (!forceFull) {
+      if (!forceFullAll && !forceFull) {
         lastPullTimestamp = await loadLastPullTsFromIDB(collection);
         const timestampMs = lastPullTimestamp ? Date.parse(lastPullTimestamp) : NaN;
         if (Number.isFinite(timestampMs) && timestampMs > (Date.now() + GLOBAL_TIMESTAMP_SKEW_TOLERANCE_MS)) {
@@ -530,6 +541,12 @@ async function _runGlobalPull() {
       if (!ok) configHydrationOk = false;
       if (forceFull) fullModeCollections.push(collection);
       if (!ok) failedCollections.push(collection);
+      _emitProgress(onProgress, {
+        level: ok ? 'info' : 'error',
+        message: ok
+          ? `Pull "${collection}" completato.`
+          : `Pull "${collection}" fallito.`,
+      });
     }
     if (fullModeCollections.length > 0 || failedCollections.length > 0) {
       console.info(
@@ -540,11 +557,21 @@ async function _runGlobalPull() {
     // H3: table_merge_sessions — full-replace semantics.
     // Fetched with a full (non-incremental) pull and replaced atomically in IDB
     // so that dissolved merges (records deleted on Directus) are also cleared.
+    _emitProgress(onProgress, { level: 'info', message: 'Pull collezione "table_merge_sessions"…' });
     const { data: mergeSessionRecords, error: mergeError } = await _fetchUpdatedViaSDK('table_merge_sessions', null);
     if (mergeError) {
       console.warn('[DirectusSync] Skipping table_merge_sessions replace due to fetch error.');
+      _emitProgress(onProgress, {
+        level: 'error',
+        message: 'Pull "table_merge_sessions" fallito.',
+        details: String(mergeError?.message ?? mergeError),
+      });
     } else {
       await replaceTableMergesInIDB(mergeSessionRecords);
+      _emitProgress(onProgress, {
+        level: 'info',
+        message: `Pull "table_merge_sessions" completato (${mergeSessionRecords.length} record).`,
+      });
       // Rebuild in-memory tableMergedInto from the authoritative Directus data.
       if (_store) {
         const merged = {};
@@ -568,6 +595,7 @@ async function _runGlobalPull() {
     // Also skip hydration when this global cycle had errors, to avoid publishing
     // partial config snapshots to the live app/store.
     if (venueId != null && configHydrationOk) {
+      _emitProgress(onProgress, { level: 'info', message: 'Idratazione configurazione da IndexedDB…' });
       const cfg = await loadConfigFromIDB(venueId);
       applyDirectusConfigToAppConfig(cfg);
       // Keep the reactive store config in sync with the hydrated appConfig so
@@ -575,9 +603,27 @@ async function _runGlobalPull() {
       if (_store?.config) {
         Object.assign(_store.config, appConfig);
       }
+      _emitProgress(onProgress, { level: 'success', message: 'Configurazione applicata con successo.' });
+    } else if (venueId == null) {
+      _emitProgress(onProgress, {
+        level: 'error',
+        message: 'Applicazione configurazione saltata: venueId non configurato.',
+      });
+    } else {
+      _emitProgress(onProgress, {
+        level: 'error',
+        message: 'Applicazione configurazione saltata: pull globale incompleto.',
+      });
     }
+    return { ok: configHydrationOk && venueId != null, failedCollections };
   } catch (e) {
     console.warn('[DirectusSync] Global pull error:', e);
+    _emitProgress(onProgress, {
+      level: 'error',
+      message: 'Errore durante il pull globale.',
+      details: String(e?.message ?? e),
+    });
+    return { ok: false, failedCollections: GLOBAL_COLLECTIONS };
   }
 }
 
@@ -667,6 +713,50 @@ export function useDirectusSync() {
     await _runPull();
   }
 
+  /**
+   * Applies a fresh Directus configuration snapshot with an optional local cache wipe.
+   * Intended for explicit post-save reconfiguration from the settings UI.
+   *
+   * @param {{ clearLocalConfig?: boolean, onProgress?: Function }} [opts]
+   * @returns {Promise<{ ok: boolean, failedCollections: string[] }>}
+   */
+  async function reconfigureAndApply({
+    clearLocalConfig = false,
+    onProgress = null,
+  } = {}) {
+    if (!appConfig.directus?.enabled) {
+      const result = { ok: false, failedCollections: [] };
+      _emitProgress(onProgress, {
+        level: 'error',
+        message: 'Sincronizzazione Directus disabilitata: impossibile applicare la configurazione.',
+      });
+      return result;
+    }
+
+    syncStatus.value = 'syncing';
+    try {
+      if (clearLocalConfig) {
+        _emitProgress(onProgress, { level: 'info', message: 'Svuotamento completo cache configurazione locale…' });
+        await clearLocalConfigCacheFromIDB();
+        resetAppConfigFromDefaults({ keepDirectusConfig: true });
+        if (_store?.config) Object.assign(_store.config, appConfig);
+        _emitProgress(onProgress, { level: 'info', message: 'Cache configurazione locale svuotata.' });
+      }
+
+      const result = await _runGlobalPull({ forceFullAll: true, onProgress });
+      syncStatus.value = result?.ok ? 'idle' : 'error';
+      return result ?? { ok: false, failedCollections: [] };
+    } catch (e) {
+      syncStatus.value = 'error';
+      _emitProgress(onProgress, {
+        level: 'error',
+        message: 'Errore durante la procedura di applicazione configurazione.',
+        details: String(e?.message ?? e),
+      });
+      return { ok: false, failedCollections: [] };
+    }
+  }
+
   return {
     syncStatus,
     lastPushAt,
@@ -676,6 +766,7 @@ export function useDirectusSync() {
     stopSync,
     forcePush,
     forcePull,
+    reconfigureAndApply,
   };
 }
 

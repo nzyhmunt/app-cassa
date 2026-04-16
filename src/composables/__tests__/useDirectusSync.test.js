@@ -184,6 +184,53 @@ describe('stopSync()', () => {
   });
 });
 
+describe('reconfigureAndApply()', () => {
+  it('returns an error result when directus is disabled', async () => {
+    const { appConfig } = await import('../../utils/index.js');
+    appConfig.directus.enabled = false;
+    const sync = useDirectusSync();
+    const result = await sync.reconfigureAndApply();
+    expect(result.ok).toBe(false);
+  });
+
+  it('can clear local config cache and run a full global pull with progress logs', async () => {
+    const { appConfig } = await import('../../utils/index.js');
+    appConfig.ui.primaryColor = '#123456';
+
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+    await db.put('venues', { id: 999, name: 'Legacy venue' });
+    await db.put('app_meta', { id: 'last_pull_ts:venues', value: '2026-01-01T00:00:00.000Z' });
+
+    const progress = [];
+    const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation(() => Promise.resolve(directusListResponse([])));
+
+    const sync = useDirectusSync();
+    sync.startSync({ appType: 'cassa', store: makeStore({ config: {} }) });
+    const result = await sync.reconfigureAndApply({
+      clearLocalConfig: true,
+      onProgress: (entry) => progress.push(entry),
+    });
+    sync.stopSync();
+
+    expect(result.ok).toBe(true);
+    expect(progress.length).toBeGreaterThan(0);
+    expect(progress.some(p => String(p?.message ?? '').includes('Svuotamento completo'))).toBe(true);
+    expect(progress.some(p => p?.level === 'success')).toBe(true);
+    expect(await db.getAll('venues')).toEqual([]);
+    expect(await db.get('app_meta', 'last_pull_ts:venues')).toBeUndefined();
+    expect(appConfig.ui.primaryColor).not.toBe('#123456');
+
+    const venueCalls = fetchSpy.mock.calls
+      .map(([url]) => String(url))
+      .filter(url => url.includes('/items/venues'));
+    expect(venueCalls.length).toBeGreaterThan(0);
+    for (const url of venueCalls) {
+      expect(hasDateUpdatedGtFilter(url)).toBe(false);
+    }
+  });
+});
+
 // ── Pull: IDB upsert (last-write-wins) ───────────────────────────────────────
 
 describe('pull — IDB last-write-wins', () => {

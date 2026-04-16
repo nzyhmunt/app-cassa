@@ -207,6 +207,87 @@
 
     <!-- Sync queue log modal (admin only) -->
     <SyncQueueLogModal v-model="showQueueLog" />
+
+    <!-- Modale applicazione nuova configurazione Directus -->
+    <div
+      v-if="showReconfigureModal"
+      class="fixed inset-0 z-[98] bg-black/60 backdrop-blur-sm flex items-end md:items-center justify-center p-0 md:p-4"
+      @click.self="!reconfigureRunning && (showReconfigureModal = false)"
+    >
+      <div class="bg-white rounded-t-3xl md:rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[85dvh]">
+        <div class="bg-gray-50 border-b border-gray-200 p-4 flex justify-between items-center shrink-0">
+          <h3 class="font-bold text-base flex items-center gap-2 text-gray-800">
+            <RefreshCw class="size-4 text-gray-500" />
+            Applica nuova configurazione
+          </h3>
+          <button
+            :disabled="reconfigureRunning"
+            @click="showReconfigureModal = false"
+            class="text-gray-400 hover:text-gray-800 bg-gray-200 hover:bg-gray-300 rounded-full p-1.5 transition-colors active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <XCircle class="size-5" />
+          </button>
+        </div>
+
+        <div class="p-4 space-y-3 overflow-y-auto">
+          <p class="text-sm text-gray-700">
+            Confermi l'applicazione completa della nuova configurazione Directus?
+          </p>
+
+          <label class="flex items-start gap-2 p-3 border border-gray-200 rounded-xl bg-gray-50">
+            <input
+              v-model="clearLocalConfigBeforeApply"
+              type="checkbox"
+              class="mt-0.5 accent-[var(--brand-primary)]"
+              :disabled="reconfigureRunning"
+            />
+            <span class="text-xs text-gray-700">
+              Svuota completamente la configurazione locale prima del pull.
+            </span>
+          </label>
+
+          <div class="border border-gray-200 rounded-xl bg-gray-50 min-h-36 max-h-60 overflow-y-auto p-3 space-y-1">
+            <p
+              v-for="entry in reconfigureLogs"
+              :key="entry.id"
+              class="text-[11px] leading-tight break-words"
+              :class="{
+                'text-gray-600': entry.level === 'info',
+                'text-emerald-700': entry.level === 'success',
+                'text-red-700 font-semibold': entry.level === 'error',
+              }"
+            >
+              {{ entry.ts }} · {{ entry.message }}
+              <span v-if="entry.details" class="block text-[10px] text-red-500 font-normal mt-0.5">{{ entry.details }}</span>
+            </p>
+            <p v-if="reconfigureLogs.length === 0" class="text-[11px] text-gray-400">
+              Nessuna operazione avviata.
+            </p>
+          </div>
+        </div>
+
+        <div class="shrink-0 px-4 py-3 border-t border-gray-100 bg-white flex gap-2">
+          <button
+            type="button"
+            @click="showReconfigureModal = false"
+            :disabled="reconfigureRunning"
+            class="flex-1 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-xl border border-gray-200 transition-colors active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed text-xs"
+          >
+            Chiudi
+          </button>
+          <button
+            type="button"
+            @click="runFullConfigApply"
+            :disabled="reconfigureRunning || !form.enabled"
+            class="flex-1 py-2.5 bg-[var(--brand-primary)] text-white font-bold rounded-xl border border-[var(--brand-primary)] transition-colors active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed text-xs flex items-center justify-center gap-1.5"
+          >
+            <LoaderCircle v-if="reconfigureRunning" class="size-3.5 animate-spin" />
+            <RefreshCw v-else class="size-3.5" />
+            <span>{{ reconfigureRunning ? 'Applicazione...' : 'Conferma e applica' }}</span>
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 <script setup>
@@ -244,6 +325,11 @@ const pulling = ref(false);
 const connectionStatus = ref('idle'); // 'idle' | 'testing' | 'ok' | 'error'
 const connectionMessage = ref('');
 const showQueueLog = ref(false);
+const showReconfigureModal = ref(false);
+const reconfigureRunning = ref(false);
+const clearLocalConfigBeforeApply = ref(true);
+const reconfigureLogs = ref([]);
+let reconfigureLogSeq = 0;
 
 /** `true` when the saved config has `enabled = true` (reactive via directusEnabledRef). */
 const syncEnabled = directusEnabledRef;
@@ -379,6 +465,16 @@ function saveConfig() {
   saveDirectusConfigToStorage();
   _savedSnapshot.value = JSON.stringify({ ...form });
   connectionStatus.value = 'idle';
+  showReconfigureModal.value = true;
+  reconfigureLogSeq = 0;
+  reconfigureLogs.value = [];
+  _appendReconfigureLog({ level: 'info', message: 'Configurazione salvata in locale.' });
+  if (!form.enabled) {
+    _appendReconfigureLog({
+      level: 'error',
+      message: 'Sincronizzazione disabilitata: riattivala per applicare la configurazione da Directus.',
+    });
+  }
 }
 
 /** Triggers a manual push and shows a loading spinner on the button. */
@@ -410,6 +506,52 @@ function formatTs(iso) {
     return new Date(iso).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
   } catch {
     return iso;
+  }
+}
+
+function _appendReconfigureLog({ level = 'info', message, details = '' }) {
+  const now = new Date();
+  reconfigureLogs.value.push({
+    id: `${now.getTime()}-${reconfigureLogSeq++}`,
+    ts: now.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+    level,
+    message,
+    details,
+  });
+}
+
+async function runFullConfigApply() {
+  if (reconfigureRunning.value || !form.enabled) return;
+  reconfigureRunning.value = true;
+  _appendReconfigureLog({ level: 'info', message: 'Avvio procedura di re-sync configurazione…' });
+  try {
+    const result = await sync.reconfigureAndApply({
+      clearLocalConfig: clearLocalConfigBeforeApply.value,
+      onProgress: (entry) => _appendReconfigureLog({
+        level: entry?.level ?? 'info',
+        message: entry?.message ?? 'Operazione completata.',
+        details: entry?.details ?? '',
+      }),
+    });
+    if (result?.ok) {
+      _appendReconfigureLog({ level: 'success', message: 'Procedura completata con successo.' });
+    } else {
+      _appendReconfigureLog({
+        level: 'error',
+        message: 'Procedura completata con errori.',
+        details: (result?.failedCollections?.length ?? 0) > 0
+          ? `Collezioni fallite: ${result.failedCollections.join(', ')}`
+          : '',
+      });
+    }
+  } catch (e) {
+    _appendReconfigureLog({
+      level: 'error',
+      message: 'Errore inatteso durante la procedura.',
+      details: String(e?.message ?? e),
+    });
+  } finally {
+    reconfigureRunning.value = false;
   }
 }
 </script>

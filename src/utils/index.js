@@ -275,6 +275,25 @@ appConfig.tables = Array.isArray(appConfig.rooms)
   ? appConfig.rooms.flatMap(r => r.tables || [])
   : (Array.isArray(appConfig.tables) ? appConfig.tables : []);
 
+// Immutable runtime snapshot used to restore full local config defaults before
+// applying a fresh Directus configuration pull.
+const _defaultAppConfigSnapshot = JSON.parse(JSON.stringify(appConfig));
+
+/**
+ * Restores appConfig to module defaults.
+ *
+ * @param {{ keepDirectusConfig?: boolean }} [opts]
+ */
+export function resetAppConfigFromDefaults({ keepDirectusConfig = true } = {}) {
+  const hasDirectusConfig = Object.prototype.hasOwnProperty.call(appConfig, 'directus');
+  const directusConfig = (keepDirectusConfig && hasDirectusConfig)
+    ? JSON.parse(JSON.stringify(appConfig.directus))
+    : null;
+  const clonedDefaults = JSON.parse(JSON.stringify(_defaultAppConfigSnapshot));
+  Object.assign(appConfig, clonedDefaults);
+  if (keepDirectusConfig && hasDirectusConfig) appConfig.directus = directusConfig;
+}
+
 /**
  * Applies Directus-sourced configuration (fetched from IndexedDB) onto appConfig.
  *
