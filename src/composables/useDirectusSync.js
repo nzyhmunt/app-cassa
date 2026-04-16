@@ -677,7 +677,7 @@ async function _runPull() {
   }
 }
 
-function _toArray(value) {
+function _normalizeToArray(value) {
   return Array.isArray(value) ? value : [];
 }
 
@@ -692,8 +692,8 @@ function _extractModifierTree(venueRecord, menuSource) {
     };
   }
 
-  const categories = _toArray(venueRecord.menu_categories);
-  const items = _toArray(venueRecord.menu_items);
+  const categories = _normalizeToArray(venueRecord.menu_categories);
+  const items = _normalizeToArray(venueRecord.menu_items);
   const modifierById = new Map();
   const categoryLinks = [];
   const itemLinks = [];
@@ -719,7 +719,7 @@ function _extractModifierTree(venueRecord, menuSource) {
   };
 
   for (const category of categories) {
-    for (const link of _toArray(category.menu_modifiers)) {
+    for (const link of _normalizeToArray(category.menu_modifiers)) {
       const modifierId = addNormalizedModifier(link.menu_modifiers_id);
       if (modifierId == null) continue;
       categoryLinks.push({
@@ -734,7 +734,7 @@ function _extractModifierTree(venueRecord, menuSource) {
   }
 
   for (const item of items) {
-    for (const link of _toArray(item.menu_modifiers)) {
+    for (const link of _normalizeToArray(item.menu_modifiers)) {
       const modifierId = addNormalizedModifier(link.menu_modifiers_id);
       if (modifierId == null) continue;
       itemLinks.push({
@@ -770,11 +770,11 @@ async function _fanOutVenueTreeToIDB(venueRecord, { menuSource }) {
 
   const payloadByStore = {
     venues: [{ ...venueRecord }],
-    rooms: _toArray(venueRecord.rooms),
-    tables: _toArray(venueRecord.tables),
-    payment_methods: _toArray(venueRecord.payment_methods),
-    printers: _toArray(venueRecord.printers),
-    venue_users: _toArray(venueRecord.venue_users),
+    rooms: _normalizeToArray(venueRecord.rooms),
+    tables: _normalizeToArray(venueRecord.tables),
+    payment_methods: _normalizeToArray(venueRecord.payment_methods),
+    printers: _normalizeToArray(venueRecord.printers),
+    venue_users: _normalizeToArray(venueRecord.venue_users),
     menu_categories: categories,
     menu_items: items,
     menu_modifiers: modifiers,
@@ -800,7 +800,7 @@ async function _hydrateConfigFromLocalCache(venueId, onProgress = null) {
   const cached = await loadConfigFromIDB(venueId);
   applyDirectusConfigToAppConfig(cached);
   if (_store?.config) Object.assign(_store.config, appConfig);
-  _emitProgress(onProgress, { level: 'info', message: 'Configurazione locale (IndexedDB) applicata.' });
+  _emitProgress(onProgress, { level: 'info', message: 'Configurazione locale applicata.' });
   return true;
 }
 
@@ -844,8 +844,10 @@ async function _runGlobalPull({ forceFullAll = false, onProgress = null } = {}) 
     await saveLastPullTsToIDB('deep_venue_config', new Date().toISOString());
     _initialGlobalHydrationDone = true;
 
-    console.info('[DirectusSync] Deep fetch fields:', DEEP_FETCH_FIELDS.join(', '));
-    console.info('[DirectusSync] Deep fetch fan-out summary:', fanOutSummary);
+    if (appConfig.directus?.debugLogs === true) {
+      console.info('[DirectusSync] Deep fetch fields:', DEEP_FETCH_FIELDS.join(', '));
+      console.info('[DirectusSync] Deep fetch fan-out summary:', fanOutSummary);
+    }
     _emitProgress(onProgress, {
       level: 'info',
       message: `Deep fetch completato (menu_source=${menuSource}).`,
@@ -896,7 +898,7 @@ export function useDirectusSync() {
 
     // Local-first: apply cached config snapshot from IDB before any remote call.
     _hydrateConfigFromLocalCache(venueId).catch((e) => {
-      console.warn(`[DirectusSync] Local cache hydration failed for venue ${String(venueId)}:`, e);
+      console.warn(`[DirectusSync] WARN: Fallback to remote sync after local cache hydration failed for venue ${String(venueId)}:`, e);
     });
 
     // Initial push + deep global config pull
