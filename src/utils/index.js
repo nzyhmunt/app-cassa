@@ -367,7 +367,7 @@ export function applyDirectusConfigToAppConfig(cfg) {
       const key = roomId != null ? String(roomId) : '_unassigned';
       if (!tablesByRoom.has(key)) tablesByRoom.set(key, []);
       tablesByRoom.get(key).push({
-        id: relationId(t.id) ?? t.id,
+        id: t.id,
         label: t.label,
         covers: t.covers ?? 2,
       });
@@ -385,7 +385,7 @@ export function applyDirectusConfigToAppConfig(cfg) {
   } else if (tables.length > 0) {
     // No explicit rooms: surface all tables in a generic room so unassigned tables are not lost.
     const genericTables = tables.map(t => ({
-      id: relationId(t.id) ?? t.id,
+      id: t.id,
       label: t.label,
       covers: t.covers ?? 2,
     }));
