@@ -743,7 +743,17 @@ function _extractModifierTree(venueRecord, menuSource) {
   }
 
   const categories = _normalizeToArray(venueRecord.menu_categories);
-  const items = _normalizeToArray(venueRecord.menu_items);
+  const directItems = _normalizeToArray(venueRecord.menu_items);
+  const categoryItems = categories
+    .filter(category => Array.isArray(category?.menu_items) && category.menu_items.length > 0)
+    .flatMap(category => category.menu_items);
+  const itemsById = new Map();
+  for (const item of [...directItems, ...categoryItems]) {
+    const itemId = _relationId(item);
+    if (itemId == null) continue;
+    itemsById.set(String(itemId), item);
+  }
+  const items = Array.from(itemsById.values());
   const modifierById = new Map();
   const categoryLinks = [];
   const itemLinks = [];
