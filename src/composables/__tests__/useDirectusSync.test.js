@@ -78,6 +78,59 @@ function hasDateUpdatedGtFilter(urlString) {
   return false;
 }
 
+/**
+ * Returns true when a Directus request URL contains a `venue = X` filter.
+ * Supports both query styles:
+ *  - bracketed params: `filter[venue][_eq]=...`
+ *  - JSON filter param: `filter={"venue":{"_eq":...}}`
+ *
+ * @param {string} urlString
+ * @returns {boolean}
+ */
+function hasVenueEqFilter(urlString) {
+  const url = new URL(String(urlString));
+  const keys = Array.from(url.searchParams.keys());
+
+  // Pattern like filter[venue][_eq]=...
+  if (keys.some(k => k.includes('venue') && k.includes('_eq'))) return true;
+
+  const rawFilter = url.searchParams.get('filter');
+  if (!rawFilter) return false;
+
+  try {
+    const parsed = JSON.parse(rawFilter);
+    const stack = [parsed];
+    while (stack.length > 0) {
+      const node = stack.pop();
+      if (!node || typeof node !== 'object') continue;
+      if (node.venue?._eq !== undefined) {
+        return true;
+      }
+      for (const v of Object.values(node)) stack.push(v);
+    }
+  } catch {
+    // Ignore unparseable filter formats in this helper
+  }
+
+  return false;
+}
+
+/**
+ * Assert that all requests for a collection do not include `venue = X` filter.
+ *
+ * @param {import('vitest').MockInstance} fetchSpy
+ * @param {string} collection
+ */
+function expectNoVenueEqFilterForCollection(fetchSpy, collection) {
+  const calls = fetchSpy.mock.calls
+    .map(([url]) => String(url))
+    .filter(url => url.includes(`/items/${collection}`));
+  expect(calls.length).toBeGreaterThan(0);
+  for (const url of calls) {
+    expect(hasVenueEqFilter(url)).toBe(false);
+  }
+}
+
 function directusListResponse(data = []) {
   return new Response(JSON.stringify({ data }), {
     status: 200,
@@ -228,6 +281,8 @@ describe('reconfigureAndApply()', () => {
     for (const url of venueCalls) {
       expect(hasDateUpdatedGtFilter(url)).toBe(false);
     }
+    expectNoVenueEqFilterForCollection(fetchSpy, 'venues');
+    expectNoVenueEqFilterForCollection(fetchSpy, 'menu_item_modifiers');
   });
 });
 

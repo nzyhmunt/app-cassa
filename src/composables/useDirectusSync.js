@@ -69,12 +69,17 @@ const GLOBAL_TIMESTAMP_SKEW_TOLERANCE_MS = 24 * 60 * 60_000;
  * Per-collection quirks for collections that deviate from the default schema
  * assumed by _fetchUpdatedViaSDK (venue FK + date_updated timestamp field).
  *
- * H3: table_merge_sessions has neither a `venue` FK nor `date_updated`, so:
+ * H3: Some collections don't expose the standard `venue` FK and/or `date_updated`.
+ * In these cases we must skip unsupported filters to avoid Directus API errors.
+ *
+ * table_merge_sessions has neither a `venue` FK nor `date_updated`, so:
  *   - noVenueFilter: skip the `venue` filter to avoid an API error.
  *   - noDateUpdated: skip the incremental `date_updated` filter — full fetch
  *     every global pull cycle (the collection is small and short-lived).
  */
 const COLLECTION_QUIRKS = {
+  venues: { noVenueFilter: true },
+  menu_item_modifiers: { noVenueFilter: true },
   table_merge_sessions: { noVenueFilter: true, noDateUpdated: true },
 };
 
