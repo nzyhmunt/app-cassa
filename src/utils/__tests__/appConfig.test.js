@@ -96,5 +96,43 @@ describe('appConfig', () => {
       ]);
       expect(appConfig.tables).toEqual(appConfig.rooms.flatMap((room) => room.tables));
     });
+
+    it('uses room.tables expanded objects when tables collection is empty', () => {
+      resetAppConfigFromDefaults();
+
+      applyDirectusConfigToAppConfig({
+        venueRecord: null,
+        rooms: [
+          {
+            id: 'room_terrazza',
+            label: 'Terrazza',
+            tables: [
+              { id: 'tbl_T1', label: 'T1', covers: 4 },
+              { id: 'tbl_T2', label: 'T2', covers: 4 },
+            ],
+          },
+        ],
+        tables: [],
+        paymentMethods: [],
+        printers: [],
+        categories: [],
+        items: [],
+      });
+
+      expect(appConfig.rooms).toEqual([
+        {
+          id: 'room_terrazza',
+          label: 'Terrazza',
+          tables: [
+            { id: 'tbl_T1', label: 'T1', covers: 4 },
+            { id: 'tbl_T2', label: 'T2', covers: 4 },
+          ],
+        },
+      ]);
+      expect(appConfig.tables).toEqual([
+        { id: 'tbl_T1', label: 'T1', covers: 4 },
+        { id: 'tbl_T2', label: 'T2', covers: 4 },
+      ]);
+    });
   });
 });
