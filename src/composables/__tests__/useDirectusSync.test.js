@@ -357,49 +357,6 @@ describe('reconfigureAndApply()', () => {
     expect(venueCalls.length).toBeGreaterThanOrEqual(2);
   });
 
-  it('uses the safe deep fetch field set after full and fallback errors', async () => {
-    const venueId = 1;
-    let venueReqCount = 0;
-    const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation((url) => {
-      const requestUrl = String(url);
-      if (requestUrl.includes(`/items/venues/${venueId}`)) {
-        venueReqCount += 1;
-        if (venueReqCount <= 2) {
-          return Promise.resolve(new Response(JSON.stringify({
-            errors: [{ message: "Cannot read properties of undefined (reading 'primary')" }],
-          }), {
-            status: 500,
-            headers: { 'Content-Type': 'application/json' },
-          }));
-        }
-        return Promise.resolve(directusItemResponse({
-          id: venueId,
-          name: 'Venue safe fallback',
-          menu_source: 'directus',
-          rooms: [],
-          tables: [],
-          payment_methods: [],
-          printers: [],
-          venue_users: [],
-          table_merge_sessions: [],
-          menu_categories: [],
-          menu_items: [],
-        }));
-      }
-      return Promise.resolve(directusListResponse([]));
-    });
-
-    const sync = useDirectusSync();
-    const result = await sync.reconfigureAndApply();
-
-    expect(result.ok).toBe(true);
-    expect(venueReqCount).toBeGreaterThanOrEqual(3);
-    const venueCalls = fetchSpy.mock.calls
-      .map(([url]) => String(url))
-      .filter((url) => url.includes(`/items/venues/${venueId}`));
-    expect(venueCalls.length).toBeGreaterThanOrEqual(3);
-  });
-
   it('accepts deep venue payload wrapped as data.data', async () => {
     const venueId = 1;
     vi.spyOn(global, 'fetch').mockImplementation((url) => {

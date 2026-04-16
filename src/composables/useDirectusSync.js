@@ -86,13 +86,9 @@ const DEEP_FETCH_FALLBACK_FIELDS = [
   'menu_categories.*',
   'menu_items.*',
 ];
-const DEEP_FETCH_SAFE_FIELDS = [
-  ...DEEP_FETCH_BASE_RELATION_FIELDS,
-];
 const DEEP_FETCH_FIELD_SETS = [
   { key: 'full', fields: DEEP_FETCH_FIELDS },
   { key: 'fallback', fields: DEEP_FETCH_FALLBACK_FIELDS },
-  { key: 'safe', fields: DEEP_FETCH_SAFE_FIELDS },
 ];
 const VENUE_NESTED_RELATION_KEYS = [
   'rooms',
