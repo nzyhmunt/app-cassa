@@ -986,6 +986,12 @@ function _syncStoreConfigSnapshot() {
   _store.config = snapshot;
 }
 
+/**
+ * Returns printers that can receive pre-bill jobs.
+ * Printers with missing/empty printTypes are treated as catch-all.
+ *
+ * @returns {Array<{id:string,name?:string,url?:string,printTypes?:string[]}>}
+ */
 function _preBillPrinters() {
   return (appConfig.printers ?? []).filter((printer) => {
     if (typeof printer?.id !== 'string' || !printer.id.trim()) return false;
@@ -997,6 +1003,15 @@ function _preBillPrinters() {
   });
 }
 
+/**
+ * Ensures the store pre-bill default printer points to a valid Directus printer.
+ * Selection priority:
+ *  1) Keep current store selection if still valid
+ *  2) Use Directus venue default (pre_bill_printer / preBillPrinter) when valid
+ *  3) Fallback to first available pre-bill-capable printer
+ *
+ * @param {object|null} venueRecord
+ */
 function _syncPreBillPrinterSelection(venueRecord = null) {
   if (!_store) return;
   const candidates = _preBillPrinters();
@@ -1014,6 +1029,8 @@ function _syncPreBillPrinterSelection(venueRecord = null) {
     console.warn('[DirectusSync] Conflicting pre-bill default printer values in venue record:', {
       pre_bill_printer: snakeDefault,
       preBillPrinter: camelDefault,
+      selected: snakeDefault,
+      note: 'Using pre_bill_printer as precedence.',
     });
   }
   const remoteDefault =
