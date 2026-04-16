@@ -795,6 +795,18 @@ export async function upsertRecordsIntoIDB(storeName, records) {
     }
     return value;
   };
+  const parseJsonArray = (value) => {
+    if (Array.isArray(value)) return value;
+    if (typeof value === 'string' && value.trim() !== '') {
+      try {
+        const parsed = JSON.parse(value);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch (_) {
+        return [];
+      }
+    }
+    return [];
+  };
 
   const normalizeIncoming = (collection, record) => {
     if (!record || typeof record !== 'object') return record;
@@ -845,48 +857,12 @@ export async function upsertRecordsIntoIDB(storeName, records) {
       }
       if (venue != null) normalized.venue = venue;
     } else if (collection === 'menu_items') {
-      const parseJsonArray = (value) => {
-        if (Array.isArray(value)) return value;
-        if (typeof value === 'string' && value.trim() !== '') {
-          try {
-            const parsed = JSON.parse(value);
-            return Array.isArray(parsed) ? parsed : [];
-          } catch (_) {
-            return [];
-          }
-        }
-        return [];
-      };
       normalized.ingredients = parseJsonArray(normalized.ingredients);
       normalized.allergens = parseJsonArray(normalized.allergens);
     } else if (collection === 'orders') {
-      const parseJsonArray = (value) => {
-        if (Array.isArray(value)) return value;
-        if (typeof value === 'string' && value.trim() !== '') {
-          try {
-            const parsed = JSON.parse(value);
-            return Array.isArray(parsed) ? parsed : [];
-          } catch (_) {
-            return [];
-          }
-        }
-        return [];
-      };
       normalized.dietary_diets = parseJsonArray(normalized.dietary_diets);
       normalized.dietary_allergens = parseJsonArray(normalized.dietary_allergens);
     } else if (collection === 'printers') {
-      const parseJsonArray = (value) => {
-        if (Array.isArray(value)) return value;
-        if (typeof value === 'string' && value.trim() !== '') {
-          try {
-            const parsed = JSON.parse(value);
-            return Array.isArray(parsed) ? parsed : [];
-          } catch (_) {
-            return [];
-          }
-        }
-        return [];
-      };
       normalized.print_types = parseJsonArray(normalized.print_types);
       normalized.categories = parseJsonArray(normalized.categories);
     }
@@ -1082,9 +1058,8 @@ export async function replaceTableMergesInIDB(records) {
     const tx = db.transaction('table_merge_sessions', 'readwrite');
     await tx.store.clear();
     for (const r of records) {
-      if (r.slave_table) {
+      if (r.id && r.slave_table) {
         const { _sync_status: _s, ...clean } = r;
-        if (!clean.id) clean.id = newUUIDv7();
         await tx.store.put(JSON.parse(JSON.stringify(clean)));
       }
     }

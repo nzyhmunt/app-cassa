@@ -372,7 +372,7 @@ export function applyDirectusConfigToAppConfig(cfg) {
 
     if (Array.isArray(venueRecord.orders_rejection_reasons) && venueRecord.orders_rejection_reasons.length > 0)
       appConfig.orders.rejectionReasons = venueRecord.orders_rejection_reasons;
-    if (venueRecord.menu_source != null) {
+    if (venueRecord.menu_source !== null && venueRecord.menu_source !== undefined) {
       appConfig.menuSource = venueRecord.menu_source;
     }
     if (venueRecord.menu_url != null && String(venueRecord.menu_url).trim() !== '') {

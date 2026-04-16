@@ -227,7 +227,7 @@ function _mergeIntoStore(collection, records, store) {
       if (!existing) {
         byId.set(incoming.id, incoming);
       } else {
-        if (existing._sync_status === 'pending' && !existing.date_updated) {
+        if (_shouldSkipIncomingRecord(existing)) {
           continue;
         }
         const incomingTs = incoming.date_updated ? new Date(incoming.date_updated).getTime() : 0;
@@ -293,7 +293,7 @@ function _mergeIntoStore(collection, records, store) {
         order.orderItems.push(incoming);
       } else {
         const existing = order.orderItems[idx];
-        if (existing._sync_status === 'pending' && !existing.date_updated) {
+        if (_shouldSkipIncomingRecord(existing)) {
           continue;
         }
         const incomingTs = incoming.date_updated ? new Date(incoming.date_updated).getTime() : 0;
@@ -356,6 +356,11 @@ function _extractRecordIds(records) {
   return records
     .map((r) => String(r?.id ?? r))
     .filter(Boolean);
+}
+
+function _shouldSkipIncomingRecord(existing) {
+  return existing?._sync_status === 'pending'
+    && (existing.date_updated === null || existing.date_updated === undefined);
 }
 
 // ── REST pull helpers ─────────────────────────────────────────────────────────
