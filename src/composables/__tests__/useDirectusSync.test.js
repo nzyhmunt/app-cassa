@@ -444,31 +444,19 @@ describe('reconfigureAndApply()', () => {
     expect((await db.get('printers', 'prt_1'))?.venue).toBe(venueId);
   });
 
-  it('hydrates config from deep-fetch relation wrappers and category-nested menu items', async () => {
+  it('hydrates config from real deep-fetch shape with category-nested menu items', async () => {
     const venueId = 1;
     vi.spyOn(global, 'fetch').mockImplementation((url) => {
       const requestUrl = String(url);
       if (requestUrl.includes(`/items/venues/${venueId}`)) {
         return Promise.resolve(directusItemResponse({
           id: venueId,
-          name: 'Venue wrapped relations',
+          name: 'Venue deep fetch shape',
           menu_source: 'directus',
-          rooms: [{
-            id: 'j_room_1',
-            rooms_id: { id: 'room_1', label: 'Sala Principale' },
-          }],
-          tables: [{
-            id: 'j_table_1',
-            tables_id: { id: 'tbl_1', label: 'T1', room: 'room_1', covers: 4 },
-          }],
-          payment_methods: [{
-            id: 'j_pm_1',
-            payment_methods_id: { id: 'pm_1', label: 'Carta', icon: 'credit_card', color_class: 'text-blue-600' },
-          }],
-          printers: [{
-            id: 'j_printer_1',
-            printers_id: { id: 'prt_1', name: 'Stampante Cucina', url: 'http://printer.cucina.local' },
-          }],
+          rooms: [{ id: 'room_1', label: 'Sala Principale' }],
+          tables: [{ id: 'tbl_1', label: 'T1', room: 'room_1', covers: 4 }],
+          payment_methods: [{ id: 'pm_1', label: 'Carta', icon: 'credit_card', color_class: 'text-blue-600' }],
+          printers: [{ id: 'prt_1', name: 'Stampante Cucina', url: 'http://printer.cucina.local' }],
           venue_users: [],
           table_merge_sessions: [],
           menu_categories: [{
@@ -494,6 +482,12 @@ describe('reconfigureAndApply()', () => {
     const sync = useDirectusSync();
     const result = await sync.reconfigureAndApply();
     expect(result.ok).toBe(true);
+    expect(appConfig.rooms).toEqual([
+      expect.objectContaining({
+        id: 'room_1',
+        label: 'Sala Principale',
+      }),
+    ]);
     expect(appConfig.tables).toEqual([
       expect.objectContaining({ id: 'tbl_1', label: 'T1', covers: 4 }),
     ]);
