@@ -322,6 +322,11 @@ export function resetAppConfigFromDefaults({ keepDirectusConfig = true } = {}) {
 export function applyDirectusConfigToAppConfig(cfg) {
   if (!cfg) return;
   const { venueRecord, rooms, tables, paymentMethods, printers, categories, items } = cfg;
+  const relationId = (value) => {
+    if (value == null) return null;
+    if (typeof value === 'object') return value.id ?? null;
+    return value;
+  };
 
   // ── Venue scalar settings ──────────────────────────────────────────────────
   if (venueRecord) {
@@ -357,15 +362,39 @@ export function applyDirectusConfigToAppConfig(cfg) {
   // ── Rooms and tables ───────────────────────────────────────────────────────
   if (rooms.length > 0) {
     const tablesByRoom = new Map();
+    const tableById = new Map();
     for (const t of tables) {
-      const key = t.room ?? '_unassigned';
+      const roomId = relationId(t.room);
+      const key = roomId != null ? String(roomId) : '_unassigned';
       if (!tablesByRoom.has(key)) tablesByRoom.set(key, []);
-      tablesByRoom.get(key).push({ id: t.id, label: t.label, covers: t.covers ?? 2 });
+      const tableEntry = { id: t.id, label: t.label, covers: t.covers ?? 2 };
+      tablesByRoom.get(key).push(tableEntry);
+      tableById.set(String(t.id), tableEntry);
     }
     const configuredRooms = rooms.map(r => ({
       id: r.id,
       label: r.label,
-      tables: tablesByRoom.get(r.id) ?? [],
+      tables: (() => {
+        const roomId = String(r.id);
+        const directTables = tablesByRoom.get(roomId) ?? [];
+        if (directTables.length > 0 || !Array.isArray(r.tables) || r.tables.length === 0) return directTables;
+        return r.tables
+          .map((roomTable) => {
+          const roomTableId = relationId(roomTable);
+          const tableEntry = roomTableId != null ? tableById.get(String(roomTableId)) : null;
+          if (tableEntry) return tableEntry;
+          if (typeof roomTable === 'object' && roomTableId != null) {
+            return {
+              id: roomTableId,
+              label: roomTable.label ?? String(roomTableId),
+              covers: roomTable.covers ?? 2,
+            };
+          }
+          if (roomTableId == null) return null;
+          return { id: roomTableId, label: String(roomTableId), covers: 2 };
+        })
+          .filter(Boolean);
+      })(),
     }));
     const unassignedTables = tablesByRoom.get('_unassigned') ?? [];
     appConfig.rooms = unassignedTables.length > 0

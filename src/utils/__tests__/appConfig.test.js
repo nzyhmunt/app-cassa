@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { appConfig, resetAppConfigFromDefaults } from '../index.js';
+import { appConfig, applyDirectusConfigToAppConfig, resetAppConfigFromDefaults } from '../index.js';
 
 describe('appConfig', () => {
   describe('pwaLogo', () => {
@@ -45,6 +45,56 @@ describe('appConfig', () => {
 
       expect(appConfig.ui.primaryColor).not.toBe('#000000');
       expect(appConfig.directus).toEqual(originalDirectus);
+    });
+  });
+
+  describe('applyDirectusConfigToAppConfig', () => {
+    it('maps rooms and tables when table relations are scalar ids', () => {
+      resetAppConfigFromDefaults();
+
+      applyDirectusConfigToAppConfig({
+        venueRecord: null,
+        rooms: [
+          { id: 'room_terrazza', label: 'Terrazza', tables: ['tbl_T1', 'tbl_T2', 'tbl_T3'] },
+          { id: 'room_sala-interna', label: 'Sala Interna', tables: ['tbl_01', 'tbl_02', 'tbl_03', 'tbl_04'] },
+        ],
+        tables: [
+          { id: 'tbl_01', room: 'room_sala-interna', label: '01', covers: 4 },
+          { id: 'tbl_02', room: 'room_sala-interna', label: '02', covers: 4 },
+          { id: 'tbl_03', room: 'room_sala-interna', label: '03', covers: 2 },
+          { id: 'tbl_04', room: 'room_sala-interna', label: '04', covers: 6 },
+          { id: 'tbl_T1', room: 'room_terrazza', label: 'T1', covers: 4 },
+          { id: 'tbl_T2', room: 'room_terrazza', label: 'T2', covers: 4 },
+          { id: 'tbl_T3', room: 'room_terrazza', label: 'T3', covers: 8 },
+        ],
+        paymentMethods: [],
+        printers: [],
+        categories: [],
+        items: [],
+      });
+
+      expect(appConfig.rooms).toEqual([
+        {
+          id: 'room_terrazza',
+          label: 'Terrazza',
+          tables: [
+            { id: 'tbl_T1', label: 'T1', covers: 4 },
+            { id: 'tbl_T2', label: 'T2', covers: 4 },
+            { id: 'tbl_T3', label: 'T3', covers: 8 },
+          ],
+        },
+        {
+          id: 'room_sala-interna',
+          label: 'Sala Interna',
+          tables: [
+            { id: 'tbl_01', label: '01', covers: 4 },
+            { id: 'tbl_02', label: '02', covers: 4 },
+            { id: 'tbl_03', label: '03', covers: 2 },
+            { id: 'tbl_04', label: '04', covers: 6 },
+          ],
+        },
+      ]);
+      expect(appConfig.tables).toEqual(appConfig.rooms.flatMap((room) => room.tables));
     });
   });
 });
