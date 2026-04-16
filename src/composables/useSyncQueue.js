@@ -27,7 +27,7 @@ import { getDB } from './useIDB.js';
 import { newUUIDv7 } from '../store/storeUtils.js';
 
 /** Maximum push attempts before a queue entry is abandoned. */
-export const MAX_ATTEMPTS = 5;
+export const MAX_ATTEMPTS = 20;
 
 /**
  * Collections that use soft-delete (PATCH { status: 'archived' }) instead of
@@ -89,6 +89,9 @@ export async function enqueue(collection, operation, recordId, payload) {
       date_created: new Date().toISOString(),
       attempts: 0,
     });
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('sync-queue:enqueue'));
+    }
   } catch (e) {
     console.warn('[SyncQueue] Failed to enqueue:', e);
   }
@@ -516,6 +519,10 @@ export async function drainQueue(cfg) {
         // Exponential back-off: pause 2^attempts × backoffBase ms before next entry
         const delayMs = Math.min(2 ** newAttempts * backoffBase, 30_000);
         if (delayMs > 0) await new Promise(r => setTimeout(r, delayMs));
+        // Preserve queue ordering (create → update) by stopping the current
+        // drain cycle at the first failed entry. The remaining entries stay
+        // queued and will be processed in a subsequent drain attempt.
+        break;
       }
     }
   }

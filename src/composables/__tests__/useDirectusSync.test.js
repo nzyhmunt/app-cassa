@@ -305,6 +305,43 @@ describe('reconfigureAndApply()', () => {
     }
   });
 
+  it('realigns pre-bill default printer when Directus printers change', async () => {
+    const venueId = 1;
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      const requestUrl = String(url);
+      if (requestUrl.includes(`/items/venues/${venueId}`)) {
+        return Promise.resolve(directusItemResponse({
+          id: venueId,
+          name: 'Venue printer defaults',
+          pre_bill_printer: 'prt_pre_2',
+          menu_source: 'directus',
+          rooms: [],
+          tables: [],
+          payment_methods: [],
+          printers: [
+            { id: 'prt_pre_1', name: 'Pre 1', url: 'http://printer.shared.local/print', print_types: ['pre_bill'] },
+            { id: 'prt_pre_2', name: 'Pre 2', url: 'http://printer.shared.local/print', print_types: ['pre_bill'] },
+          ],
+          venue_users: [],
+          table_merge_sessions: [],
+          menu_categories: [],
+          menu_items: [],
+        }));
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const { appConfig } = await import('../../utils/index.js');
+    const store = makeStore({ config: appConfig, preBillPrinterId: 'obsolete_printer' });
+    const sync = useDirectusSync();
+    sync.startSync({ appType: 'cassa', store });
+    const result = await sync.reconfigureAndApply();
+    sync.stopSync();
+
+    expect(result.ok).toBe(true);
+    expect(store.preBillPrinterId).toBe('prt_pre_2');
+  });
+
   it('can clear local config cache and repopulate venues via global pull with progress logs', async () => {
     const { appConfig } = await import('../../utils/index.js');
     appConfig.ui.primaryColor = '#123456';

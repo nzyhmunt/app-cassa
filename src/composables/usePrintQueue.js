@@ -288,14 +288,15 @@ export function enqueueTableMoveJob(fromTableId, fromTableLabel, toTableId, toTa
  * @param {object} payload      – Pre-bill data (tableId, tableLabel, items, amounts …)
  * @param {string} printerUrl   – URL of the target printer service
  * @param {string} printerName  – Human-readable name for the log entry
+ * @param {string|null} [printerIdOverride] – Explicit printer id (preferred when available)
  */
-export function enqueuePreBillJob(payload, printerUrl, printerName) {
+export function enqueuePreBillJob(payload, printerUrl, printerName, printerIdOverride = null) {
   if (!printerUrl) return;
 
   const store = getStore();
   const timestamp = new Date().toISOString();
   const printer = appConfig.printers?.find(p => p.url === printerUrl);
-  const printerId = printer?.id ?? 'pre_bill';
+  const printerId = printerIdOverride ?? printer?.id ?? 'pre_bill';
 
   const job = {
     jobId: newUUID('job'),

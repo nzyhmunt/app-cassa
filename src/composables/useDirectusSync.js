@@ -639,6 +639,7 @@ let _running = false;
 let _pushTimer = null;
 let _pollTimer = null;
 let _globalTimer = null;
+let _pushInFlight = null;
 /** @type {object|null} */
 let _store = null;
 /** @type {'cassa'|'sala'|'cucina'} */
@@ -657,21 +658,27 @@ function _getCfg() {
 }
 
 async function _runPush() {
-  if (!navigator.onLine) return;
-  const cfg = _getCfg();
-  if (!cfg) return;
+  if (_pushInFlight) return _pushInFlight;
+  _pushInFlight = (async () => {
+    if (!navigator.onLine) return;
+    const cfg = _getCfg();
+    if (!cfg) return;
 
-  try {
-    syncStatus.value = 'syncing';
-    const result = await drainQueue(cfg);
-    if (result.pushed > 0 || result.abandoned > 0) {
-      lastPushAt.value = new Date().toISOString();
+    try {
+      syncStatus.value = 'syncing';
+      const result = await drainQueue(cfg);
+      if (result.pushed > 0 || result.abandoned > 0) {
+        lastPushAt.value = new Date().toISOString();
+      }
+      syncStatus.value = result.failed > 0 ? 'error' : 'idle';
+    } catch (e) {
+      console.warn('[DirectusSync] Push error:', e);
+      syncStatus.value = 'error';
+    } finally {
+      _pushInFlight = null;
     }
-    syncStatus.value = result.failed > 0 ? 'error' : 'idle';
-  } catch (e) {
-    console.warn('[DirectusSync] Push error:', e);
-    syncStatus.value = 'error';
-  }
+  })();
+  return _pushInFlight;
 }
 
 // ── Pull helpers ──────────────────────────────────────────────────────────────
@@ -963,6 +970,7 @@ async function _hydrateConfigFromLocalCache(venueId, onProgress = null) {
   if (venueId == null) return false;
   const cached = await loadConfigFromIDB(venueId);
   applyDirectusConfigToAppConfig(cached);
+  _syncPreBillPrinterSelection(cached?.venueRecord ?? null);
   _syncStoreConfigSnapshot();
   _emitProgress(onProgress, { level: 'info', message: 'Configurazione locale applicata.' });
   return true;
@@ -976,6 +984,34 @@ function _syncStoreConfigSnapshot() {
     ? structuredClone(appConfig)
     : JSON.parse(JSON.stringify(appConfig));
   _store.config = snapshot;
+}
+
+function _preBillPrinters() {
+  return (appConfig.printers ?? []).filter((printer) => {
+    if (typeof printer?.id !== 'string' || !printer.id.trim()) return false;
+    if (!printer?.url) return false;
+    if (!Array.isArray(printer.printTypes) || printer.printTypes.length === 0) return true;
+    return printer.printTypes.includes('pre_bill');
+  });
+}
+
+function _syncPreBillPrinterSelection(venueRecord = null) {
+  if (!_store) return;
+  const candidates = _preBillPrinters();
+  if (candidates.length === 0) {
+    _store.preBillPrinterId = '';
+    return;
+  }
+  const current = typeof _store.preBillPrinterId === 'string' ? _store.preBillPrinterId : '';
+  if (current && candidates.some((printer) => printer.id === current)) return;
+  const remoteDefault =
+    _relationId(venueRecord?.pre_bill_printer ?? venueRecord?.preBillPrinter) ??
+    null;
+  if (remoteDefault && candidates.some((printer) => printer.id === remoteDefault)) {
+    _store.preBillPrinterId = remoteDefault;
+    return;
+  }
+  _store.preBillPrinterId = candidates[0]?.id ?? '';
 }
 
 function _emitProgress(onProgress, payload) {
@@ -1074,6 +1110,10 @@ function _onOnline() {
   _runPull().catch(() => {});
 }
 
+function _onQueueEnqueue() {
+  _runPush().catch(() => {});
+}
+
 // ── Public composable ─────────────────────────────────────────────────────────
 
 export function useDirectusSync() {
@@ -1133,6 +1173,7 @@ export function useDirectusSync() {
 
     if (typeof window !== 'undefined') {
       window.addEventListener('online', _onOnline);
+      window.addEventListener('sync-queue:enqueue', _onQueueEnqueue);
     }
   }
 
@@ -1145,6 +1186,7 @@ export function useDirectusSync() {
     _stopSubscriptions();
     if (typeof window !== 'undefined') {
       window.removeEventListener('online', _onOnline);
+      window.removeEventListener('sync-queue:enqueue', _onQueueEnqueue);
     }
     syncStatus.value = 'idle';
   }
@@ -1223,10 +1265,15 @@ export function _resetDirectusSyncSingleton() {
   _running = false;
   _store = null;
   _appType = 'cassa';
+  _pushInFlight = null;
   if (_pushTimer) { clearInterval(_pushTimer); _pushTimer = null; }
   if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
   if (_globalTimer) { clearInterval(_globalTimer); _globalTimer = null; }
   _stopSubscriptions();
+  if (typeof window !== 'undefined') {
+    window.removeEventListener('online', _onOnline);
+    window.removeEventListener('sync-queue:enqueue', _onQueueEnqueue);
+  }
   syncStatus.value = 'idle';
   lastPushAt.value = null;
   lastPullAt.value = null;

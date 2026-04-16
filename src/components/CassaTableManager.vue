@@ -2676,7 +2676,12 @@ function generateTableCheckoutJson(ctx = 'table') {
   if (ctx === 'table') {
     const preBillPrinter = preBillPrinterConfig.value;
     if (preBillPrinter?.url) {
-      enqueuePreBillJob(payload, preBillPrinter.url, preBillPrinter.name ?? preBillPrinter.id);
+      enqueuePreBillJob(
+        payload,
+        preBillPrinter.url,
+        preBillPrinter.name ?? preBillPrinter.id,
+        preBillPrinter.id ?? null,
+      );
     }
   }
 }
