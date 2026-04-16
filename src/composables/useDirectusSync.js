@@ -714,38 +714,6 @@ function _normalizeToArray(value) {
   return Array.isArray(value) ? value : [];
 }
 
-function _normalizeDeepRelationRecords(records, candidateKeys = []) {
-  return _normalizeToArray(records)
-    .map((record) => {
-      if (!record || typeof record !== 'object' || Array.isArray(record)) return null;
-
-      for (const key of candidateKeys) {
-        if (!Object.prototype.hasOwnProperty.call(record, key)) continue;
-        const nested = record[key];
-        if (nested == null) continue;
-
-        let normalized = null;
-        if (typeof nested === 'object' && !Array.isArray(nested)) {
-          normalized = { ...nested };
-        } else {
-          const nestedId = _relationId(nested);
-          if (nestedId == null) continue;
-          normalized = { id: nestedId };
-        }
-
-        for (const passthroughField of ['venue', 'status', 'sort', 'date_updated', 'date_created']) {
-          if (normalized[passthroughField] == null && record[passthroughField] != null) {
-            normalized[passthroughField] = record[passthroughField];
-          }
-        }
-        return normalized;
-      }
-
-      return record;
-    })
-    .filter(Boolean);
-}
-
 function _dedupeRecordsById(records) {
   const byId = new Map();
   for (const record of _normalizeToArray(records)) {
@@ -788,12 +756,17 @@ function _extractModifierTree(venueRecord, menuSource) {
     };
   }
 
-  const categories = _normalizeDeepRelationRecords(venueRecord.menu_categories, ['menu_categories_id', 'category_id']);
-  const directItems = _normalizeDeepRelationRecords(venueRecord.menu_items, ['menu_items_id', 'item_id']);
+  const categories = _normalizeToArray(venueRecord.menu_categories)
+    .filter(record => record && typeof record === 'object' && !Array.isArray(record));
+  const directItems = _normalizeToArray(venueRecord.menu_items)
+    .filter(record => record && typeof record === 'object' && !Array.isArray(record));
   const categoryItems = categories
     .filter(category => Array.isArray(category?.menu_items) && category.menu_items.length > 0)
-    .flatMap(category => _normalizeDeepRelationRecords(category.menu_items, ['menu_items_id', 'item_id']));
-  const items = _dedupeRecordsById([...directItems, ...categoryItems]);
+    .flatMap(category => _normalizeToArray(category.menu_items))
+    .filter(record => record && typeof record === 'object' && !Array.isArray(record));
+  // Prefer direct venue.menu_items records when both direct and category-nested arrays
+  // contain the same item id, because direct items preserve the canonical payload shape.
+  const items = _dedupeRecordsById([...categoryItems, ...directItems]);
   const modifierById = new Map();
   const categoryLinks = [];
   const itemLinks = [];
@@ -873,19 +846,25 @@ async function _fanOutVenueTreeToIDB(venueRecord, { menuSource }) {
     categoryLinks,
     itemLinks,
   } = _extractModifierTree(venueRecord, menuSource);
-  const rooms = _normalizeDeepRelationRecords(venueRecord.rooms, ['rooms_id', 'room_id']);
-  const directTables = _normalizeDeepRelationRecords(venueRecord.tables, ['tables_id', 'table_id']);
+  const rooms = _normalizeToArray(venueRecord.rooms)
+    .filter(record => record && typeof record === 'object' && !Array.isArray(record));
+  const directTables = _normalizeToArray(venueRecord.tables)
+    .filter(record => record && typeof record === 'object' && !Array.isArray(record));
   const nestedRoomTables = rooms
     .filter((room) => Array.isArray(room?.tables) && room.tables.length > 0)
-    .flatMap((room) => _normalizeDeepRelationRecords(room.tables, ['tables_id', 'table_id']));
-  const tables = _dedupeRecordsById([...directTables, ...nestedRoomTables]);
-  const paymentMethods = _normalizeDeepRelationRecords(venueRecord.payment_methods, ['payment_methods_id', 'payment_method_id']);
-  const printers = _normalizeDeepRelationRecords(venueRecord.printers, ['printers_id', 'printer_id']);
-  const venueUsers = _normalizeDeepRelationRecords(venueRecord.venue_users, ['venue_users_id', 'user_id']);
-  const tableMergeSessions = _normalizeDeepRelationRecords(
-    venueRecord.table_merge_sessions,
-    ['table_merge_sessions_id', 'table_merge_session_id'],
-  );
+    .flatMap((room) => _normalizeToArray(room.tables))
+    .filter(record => record && typeof record === 'object' && !Array.isArray(record));
+  // Prefer direct venue.tables records to avoid losing fields when nested room tables
+  // contain partial projections.
+  const tables = _dedupeRecordsById([...nestedRoomTables, ...directTables]);
+  const paymentMethods = _normalizeToArray(venueRecord.payment_methods)
+    .filter(record => record && typeof record === 'object' && !Array.isArray(record));
+  const printers = _normalizeToArray(venueRecord.printers)
+    .filter(record => record && typeof record === 'object' && !Array.isArray(record));
+  const venueUsers = _normalizeToArray(venueRecord.venue_users)
+    .filter(record => record && typeof record === 'object' && !Array.isArray(record));
+  const tableMergeSessions = _normalizeToArray(venueRecord.table_merge_sessions)
+    .filter(record => record && typeof record === 'object' && !Array.isArray(record));
 
   const flatVenueRecord = { ...venueRecord };
   for (const key of VENUE_NESTED_RELATION_KEYS) {
