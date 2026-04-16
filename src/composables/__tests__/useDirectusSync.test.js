@@ -138,6 +138,13 @@ function directusListResponse(data = []) {
   });
 }
 
+function directusItemResponse(data) {
+  return new Response(JSON.stringify({ data }), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
+
 function makeStore(overrides = {}) {
   return {
     orders: [],
@@ -282,6 +289,53 @@ describe('reconfigureAndApply()', () => {
       expect(hasDateUpdatedGtFilter(url)).toBe(false);
     }
     expectNoVenueEqFilterForCollection(fetchSpy, 'venues');
+  });
+
+  it('retries deep venue fetch with fallback fields when advanced fields fail', async () => {
+    const venueId = 1;
+    const progress = [];
+    const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      const requestUrl = String(url);
+      if (
+        requestUrl.includes(`/items/venues/${venueId}`)
+        && requestUrl.includes('menu_modifiers.menu_modifiers_id')
+      ) {
+        return Promise.resolve(new Response(JSON.stringify({
+          errors: [{ message: "Cannot read properties of undefined (reading 'primary')" }],
+        }), {
+          status: 500,
+          headers: { 'Content-Type': 'application/json' },
+        }));
+      }
+      if (requestUrl.includes(`/items/venues/${venueId}`)) {
+        return Promise.resolve(directusItemResponse({
+          id: venueId,
+          name: 'Venue fallback',
+          menu_source: 'directus',
+          rooms: [],
+          tables: [],
+          payment_methods: [],
+          printers: [],
+          venue_users: [],
+          table_merge_sessions: [],
+          menu_categories: [],
+          menu_items: [],
+        }));
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const sync = useDirectusSync();
+    const result = await sync.reconfigureAndApply({
+      onProgress: (entry) => progress.push(entry),
+    });
+
+    expect(result.ok).toBe(true);
+    expect(progress.some((entry) => entry?.level === 'warning')).toBe(true);
+    const venueCalls = fetchSpy.mock.calls
+      .map(([url]) => String(url))
+      .filter((url) => url.includes(`/items/venues/${venueId}`));
+    expect(venueCalls.length).toBeGreaterThanOrEqual(2);
   });
 });
 
