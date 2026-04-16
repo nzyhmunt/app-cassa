@@ -322,11 +322,6 @@ export function resetAppConfigFromDefaults({ keepDirectusConfig = true } = {}) {
 export function applyDirectusConfigToAppConfig(cfg) {
   if (!cfg) return;
   const { venueRecord, rooms, tables, paymentMethods, printers, categories, items } = cfg;
-  const relationId = (value) => {
-    if (value == null) return null;
-    if (typeof value === 'object') return value.id ?? null;
-    return value;
-  };
 
   // ── Venue scalar settings ──────────────────────────────────────────────────
   if (venueRecord) {
@@ -363,19 +358,14 @@ export function applyDirectusConfigToAppConfig(cfg) {
   if (rooms.length > 0) {
     const tablesByRoom = new Map();
     for (const t of tables) {
-      const roomId = relationId(t.room);
-      const key = roomId != null ? String(roomId) : '_unassigned';
+      const key = t.room ?? '_unassigned';
       if (!tablesByRoom.has(key)) tablesByRoom.set(key, []);
-      tablesByRoom.get(key).push({
-        id: t.id,
-        label: t.label,
-        covers: t.covers ?? 2,
-      });
+      tablesByRoom.get(key).push({ id: t.id, label: t.label, covers: t.covers ?? 2 });
     }
     const configuredRooms = rooms.map(r => ({
       id: r.id,
       label: r.label,
-      tables: tablesByRoom.get(String(r.id)) ?? [],
+      tables: tablesByRoom.get(r.id) ?? [],
     }));
     const unassignedTables = tablesByRoom.get('_unassigned') ?? [];
     appConfig.rooms = unassignedTables.length > 0

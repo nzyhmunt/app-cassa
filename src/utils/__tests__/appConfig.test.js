@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { appConfig, applyDirectusConfigToAppConfig, resetAppConfigFromDefaults } from '../index.js';
+import { appConfig, resetAppConfigFromDefaults } from '../index.js';
 
 describe('appConfig', () => {
   describe('pwaLogo', () => {
@@ -45,27 +45,6 @@ describe('appConfig', () => {
 
       expect(appConfig.ui.primaryColor).not.toBe('#000000');
       expect(appConfig.directus).toEqual(originalDirectus);
-    });
-  });
-
-  describe('applyDirectusConfigToAppConfig', () => {
-    it('maps tables to rooms when table.room is an expanded relation object', () => {
-      resetAppConfigFromDefaults();
-
-      applyDirectusConfigToAppConfig({
-        venueRecord: null,
-        rooms: [{ id: 'sala', label: 'Sala Principale' }],
-        tables: [{ id: 'T1', label: 'Tavolo 1', covers: 4, room: { id: 'sala', label: 'Sala Principale' } }],
-        paymentMethods: [],
-        printers: [],
-        categories: [],
-        items: [],
-      });
-
-      expect(appConfig.rooms).toHaveLength(1);
-      expect(appConfig.rooms[0].id).toBe('sala');
-      expect(appConfig.rooms[0].tables).toEqual([{ id: 'T1', label: 'Tavolo 1', covers: 4 }]);
-      expect(appConfig.tables).toEqual([{ id: 'T1', label: 'Tavolo 1', covers: 4 }]);
     });
   });
 });

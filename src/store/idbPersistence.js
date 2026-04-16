@@ -840,22 +840,14 @@ export async function loadConfigFromIDB(venueId) {
   try {
     const db = await getDB();
 
-    // Normalize IDs to String for type-safe FK comparison.
-    // Directus FKs can arrive either as scalar IDs or expanded relation objects
-    // ({ id: ... }) depending on API/project settings.
-    const relationId = (value) => {
-      if (value == null) return null;
-      if (typeof value === 'object') {
-        if (value.id == null) return null;
-        return String(value.id);
-      }
-      return String(value);
-    };
-
+    // Normalize venueId to a String for type-safe FK comparison.
+    // Directus INTEGER FKs are stored as numbers server-side but can arrive as
+    // strings from URL params or localStorage; String(x) === String(y) is safe
+    // regardless of the original type.
     const venueIdStr = venueId != null ? String(venueId) : null;
     const byVenueAndStatus = (arr) =>
       arr
-        .filter(r => (venueIdStr == null || relationId(r.venue) === venueIdStr) && r.status !== 'archived')
+        .filter(r => (venueIdStr == null || String(r.venue) === venueIdStr) && r.status !== 'archived')
         .sort((a, b) => (a.sort ?? 9999) - (b.sort ?? 9999));
 
     const [
@@ -880,25 +872,10 @@ export async function loadConfigFromIDB(venueId) {
       ? (venues.find(v => String(v.id) === venueIdStr) ?? null)
       : null;
 
-    const rooms = byVenueAndStatus(allRooms);
-    const roomIds = new Set(rooms.map(r => String(r.id)));
-    const tables = allTables
-      .filter((t) => {
-        if (t.status === 'archived') return false;
-        if (venueIdStr == null) return true;
-
-        const tableVenueId = relationId(t.venue);
-        if (tableVenueId != null) return tableVenueId === venueIdStr;
-
-        const tableRoomId = relationId(t.room);
-        return tableRoomId != null && roomIds.has(tableRoomId);
-      })
-      .sort((a, b) => (a.sort ?? 9999) - (b.sort ?? 9999));
-
     return {
       venueRecord,
-      rooms,
-      tables,
+      rooms:          byVenueAndStatus(allRooms),
+      tables:         byVenueAndStatus(allTables),
       paymentMethods: byVenueAndStatus(allPaymentMethods),
       printers:       byVenueAndStatus(allPrinters),
       categories:     byVenueAndStatus(allCategories),
