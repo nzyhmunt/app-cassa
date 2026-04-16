@@ -206,7 +206,8 @@ export const appConfig = {
   //                operative. Generare in Directus → Impostazioni → Token di accesso.
   //                ⚠ Non committare token reali nel sorgente: iniettare a build/deploy.
   // venueId:       ID intero del punto vendita (venues.id) su Directus.
-  //                Tutti i filtri di pull usano `filter[venue][_eq]={venueId}`.
+  //                I pull applicano `filter[venue][_eq]={venueId}` sulle collection
+  //                che espongono il campo `venue` (con eccezioni schema-specifiche).
   directus: {
     enabled: false,
     url: '',
