@@ -560,7 +560,10 @@ describe('clearLocalConfigCacheFromIDB()', () => {
     expect(await db.getAll('rooms')).toEqual([]);
     expect(await db.getAll('tables')).toEqual([]);
     expect(await db.getAll('payment_methods')).toEqual([]);
-    expect(await db.getAll('app_settings')).toEqual([]);
+    // app_settings is now device-local and not part of remote config cache reset.
+    expect(await db.getAll('app_settings')).toEqual([
+      { id: 99, venue: 1, device_key: 'kiosk-1', sounds: true },
+    ]);
     expect(await db.getAll('menu_categories')).toEqual([]);
     expect(await db.getAll('menu_items')).toEqual([]);
     expect(await db.getAll('menu_item_modifiers')).toEqual([]);

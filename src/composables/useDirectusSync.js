@@ -17,7 +17,7 @@
  */
 
 import { ref } from 'vue';
-import { createDirectus, staticToken, rest, readItems } from '@directus/sdk';
+import { createDirectus, staticToken, rest, readItems, readItem } from '@directus/sdk';
 import { appConfig, applyDirectusConfigToAppConfig, resetAppConfigFromDefaults } from '../utils/index.js';
 import { getDirectusClient } from './useDirectusClient.js';
 import { drainQueue } from './useSyncQueue.js';
@@ -54,10 +54,22 @@ const PULL_CONFIG = {
 
 /** Collections for all apps: fetched once at startup and every 5 minutes. */
 const GLOBAL_COLLECTIONS = [
-  'venues', 'rooms', 'tables', 'payment_methods', 'app_settings',
+  'venues', 'rooms', 'tables', 'payment_methods',
   'menu_categories', 'menu_items', 'menu_modifiers',
   'menu_categories_menu_modifiers', 'menu_items_menu_modifiers',
   'printers', 'venue_users', 'table_merge_sessions',
+];
+const DEEP_FETCH_FIELDS = [
+  '*',
+  'rooms.*',
+  'tables.*',
+  'payment_methods.*',
+  'menu_categories.*',
+  'menu_categories.menu_modifiers.menu_modifiers_id.*',
+  'menu_items.*',
+  'menu_items.menu_modifiers.menu_modifiers_id.*',
+  'printers.*',
+  'venue_users.*',
 ];
 const GLOBAL_INTERVAL_MS = 5 * 60_000;
 // Allow substantial device/server clock drift before treating last_pull_ts as invalid.
@@ -665,6 +677,122 @@ async function _runPull() {
   }
 }
 
+function _toArray(value) {
+  return Array.isArray(value) ? value : [];
+}
+
+function _extractModifierTree(venueRecord, menuSource) {
+  if (menuSource === 'json') {
+    return {
+      categories: [],
+      items: [],
+      modifiers: [],
+      categoryLinks: [],
+      itemLinks: [],
+    };
+  }
+
+  const categories = _toArray(venueRecord.menu_categories);
+  const items = _toArray(venueRecord.menu_items);
+  const modifierById = new Map();
+  const categoryLinks = [];
+  const itemLinks = [];
+
+  const addModifier = (value) => {
+    const modifier = value && typeof value === 'object' ? value : null;
+    const id = modifier?.id ?? value;
+    if (id == null) return null;
+    const normalized = modifier ? { ...modifier, venue: _relationId(modifier.venue) ?? venueRecord.id } : { id, venue: venueRecord.id };
+    modifierById.set(String(id), normalized);
+    return id;
+  };
+
+  for (const category of categories) {
+    for (const link of _toArray(category.menu_modifiers)) {
+      const modifierId = addModifier(link.menu_modifiers_id);
+      if (modifierId == null) continue;
+      categoryLinks.push({
+        id: link.id ?? `${category.id}_${modifierId}`,
+        menu_categories_id: category.id,
+        menu_modifiers_id: modifierId,
+        venue: _relationId(link.venue) ?? venueRecord.id,
+        sort: link.sort ?? null,
+        date_updated: link.date_updated ?? null,
+      });
+    }
+  }
+
+  for (const item of items) {
+    for (const link of _toArray(item.menu_modifiers)) {
+      const modifierId = addModifier(link.menu_modifiers_id);
+      if (modifierId == null) continue;
+      itemLinks.push({
+        id: link.id ?? `${item.id}_${modifierId}`,
+        menu_items_id: item.id,
+        menu_modifiers_id: modifierId,
+        venue: _relationId(link.venue) ?? venueRecord.id,
+        sort: link.sort ?? null,
+        date_updated: link.date_updated ?? null,
+      });
+    }
+  }
+
+  return {
+    categories,
+    items,
+    modifiers: Array.from(modifierById.values()),
+    categoryLinks,
+    itemLinks,
+  };
+}
+
+async function _fanOutVenueTreeToIDB(venueRecord, { menuSource }) {
+  if (!venueRecord || typeof venueRecord !== 'object') return {};
+
+  const {
+    categories,
+    items,
+    modifiers,
+    categoryLinks,
+    itemLinks,
+  } = _extractModifierTree(venueRecord, menuSource);
+
+  const payloadByStore = {
+    venues: [{ ...venueRecord }],
+    rooms: _toArray(venueRecord.rooms),
+    tables: _toArray(venueRecord.tables),
+    payment_methods: _toArray(venueRecord.payment_methods),
+    printers: _toArray(venueRecord.printers),
+    venue_users: _toArray(venueRecord.venue_users),
+    menu_categories: categories,
+    menu_items: items,
+    menu_modifiers: modifiers,
+    menu_categories_menu_modifiers: categoryLinks,
+    menu_items_menu_modifiers: itemLinks,
+  };
+
+  if (menuSource === 'json') {
+    payloadByStore.menu_categories = [];
+    payloadByStore.menu_items = [];
+    payloadByStore.menu_modifiers = [];
+    payloadByStore.menu_categories_menu_modifiers = [];
+    payloadByStore.menu_items_menu_modifiers = [];
+  }
+
+  const stores = Object.entries(payloadByStore);
+  await Promise.all(stores.map(([storeName, records]) => upsertRecordsIntoIDB(storeName, records)));
+  return Object.fromEntries(stores.map(([storeName, records]) => [storeName, records.length]));
+}
+
+async function _hydrateConfigFromLocalCache(venueId, onProgress = null) {
+  if (venueId == null) return false;
+  const cached = await loadConfigFromIDB(venueId);
+  applyDirectusConfigToAppConfig(cached);
+  if (_store?.config) Object.assign(_store.config, appConfig);
+  _emitProgress(onProgress, { level: 'info', message: 'Configurazione locale (IndexedDB) applicata.' });
+  return true;
+}
+
 function _emitProgress(onProgress, payload) {
   if (typeof onProgress === 'function') {
     try { onProgress(payload); } catch (e) {
@@ -675,102 +803,47 @@ function _emitProgress(onProgress, payload) {
 
 async function _runGlobalPull({ forceFullAll = false, onProgress = null } = {}) {
   if (!navigator.onLine) return;
-  if (!_getCfg()) return;
-
-  // Capture venueId before the pull loop so that appConfig mutations during
-  // a long pull cannot change which venue we query / hydrate into (D3 review).
-  const venueId = appConfig.directus?.venueId ?? null;
-  const MENU_COLLECTIONS = new Set([
-    'menu_categories',
-    'menu_items',
-    'menu_modifiers',
-    'menu_categories_menu_modifiers',
-    'menu_items_menu_modifiers',
-  ]);
+  const cfg = _getCfg();
+  if (!cfg) return;
+  const venueId = cfg.venueId ?? null;
 
   try {
     _emitProgress(onProgress, { level: 'info', message: 'Avvio pull globale configurazione Directus…' });
-    let configHydrationOk = true;
-    const menuSource = appConfig.menuSource ?? 'directus';
-    const fullModeCollections = [];
-    const failedCollections = [];
-    for (const collection of GLOBAL_COLLECTIONS) {
-      if (menuSource === 'json' && MENU_COLLECTIONS.has(collection)) {
-        _emitProgress(onProgress, {
-          level: 'info',
-          message: `Pull "${collection}" saltato (venue.menu_source=json).`,
-        });
-        continue;
-      }
-      _emitProgress(onProgress, { level: 'info', message: `Pull collezione "${collection}"…` });
-      // Keep global pull incremental by default (lower backend load), but:
-      //  - always force full pull on initial global hydration after startSync
-      //  - force full pull when stored cursor is clearly invalid (future timestamp)
-      let forceFull = forceFullAll || !_initialGlobalHydrationDone;
-      let lastPullTimestamp = null;
-      if (!forceFullAll && !forceFull) {
-        lastPullTimestamp = await loadLastPullTsFromIDB(collection);
-        const timestampMs = lastPullTimestamp ? Date.parse(lastPullTimestamp) : NaN;
-        if (Number.isFinite(timestampMs) && timestampMs > (Date.now() + GLOBAL_TIMESTAMP_SKEW_TOLERANCE_MS)) {
-          console.warn(
-            `[DirectusSync] Ignoring invalid future last_pull_ts for ${collection} and forcing a full pull:`,
-            lastPullTimestamp,
-          );
-          forceFull = true;
-          lastPullTimestamp = null;
-        }
-      }
-      const { ok } = await _pullCollection(collection, { forceFull, lastPullTimestampOverride: lastPullTimestamp });
-      if (!ok) configHydrationOk = false;
-      if (forceFull) fullModeCollections.push(collection);
-      if (!ok) failedCollections.push(collection);
-      _emitProgress(onProgress, {
-        level: ok ? 'info' : 'error',
-        message: ok
-          ? `Pull "${collection}" completato.`
-          : `Pull "${collection}" fallito.`,
-      });
-    }
-    if (fullModeCollections.length > 0 || failedCollections.length > 0) {
-      console.info(
-        `[DirectusSync] Global pull details — full mode: ${fullModeCollections.join(', ') || 'none'}; failed: ${failedCollections.join(', ') || 'none'}.`,
-      );
-    }
-
-    if (configHydrationOk) {
-      _initialGlobalHydrationDone = true;
-    } else {
-      console.warn('[DirectusSync] Global config hydration incomplete; hydration/apply was skipped due to pull errors.');
-    }
-
-    // D3: Hydrate appConfig from IDB after pulling config collections.
-    // Skip hydration when venueId is not configured: without a venue filter
-    // loadConfigFromIDB() would return records for *all* venues and mix them
-    // into a single (incorrect) appConfig.
-    // Also skip hydration when this global cycle had errors, to avoid publishing
-    // partial config snapshots to the live app/store.
-    if (venueId != null && configHydrationOk) {
-      _emitProgress(onProgress, { level: 'info', message: 'Idratazione configurazione da IndexedDB…' });
-      const cfg = await loadConfigFromIDB(venueId);
-      applyDirectusConfigToAppConfig(cfg);
-      // Keep the reactive store config in sync with the hydrated appConfig so
-      // the UI reflects the pull immediately without requiring a reload.
-      if (_store?.config) {
-        Object.assign(_store.config, appConfig);
-      }
-      _emitProgress(onProgress, { level: 'success', message: 'Configurazione applicata con successo.' });
-    } else if (venueId == null) {
+    if (venueId == null) {
       _emitProgress(onProgress, {
         level: 'error',
         message: 'Applicazione configurazione saltata: venueId non configurato.',
       });
-    } else {
+      return { ok: false, failedCollections: GLOBAL_COLLECTIONS };
+    }
+
+    _emitProgress(onProgress, { level: 'info', message: `Deep fetch venue ${venueId}…` });
+    const client = _buildRestClient(cfg);
+    const deepVenue = await client.request(readItem('venues', venueId, { fields: DEEP_FETCH_FIELDS }));
+    if (!deepVenue) {
       _emitProgress(onProgress, {
         level: 'error',
-        message: 'Applicazione configurazione saltata: pull globale incompleto.',
+        message: `Venue ${venueId} non trovata durante il deep fetch.`,
       });
+      return { ok: false, failedCollections: ['venues'] };
     }
-    return { ok: configHydrationOk && venueId != null, failedCollections };
+
+    const menuSource = deepVenue.menu_source ?? appConfig.menuSource ?? 'directus';
+    const fanOutSummary = await _fanOutVenueTreeToIDB(deepVenue, { menuSource });
+    await saveLastPullTsToIDB('deep_venue_config', new Date().toISOString());
+    _initialGlobalHydrationDone = true;
+
+    console.info('[DirectusSync] Deep fetch fields:', DEEP_FETCH_FIELDS.join(', '));
+    console.info('[DirectusSync] Deep fetch fan-out summary:', fanOutSummary);
+    _emitProgress(onProgress, {
+      level: 'info',
+      message: `Deep fetch completato (menu_source=${menuSource}).`,
+      details: JSON.stringify(fanOutSummary),
+    });
+
+    await _hydrateConfigFromLocalCache(venueId, onProgress);
+    _emitProgress(onProgress, { level: 'success', message: 'Configurazione applicata con successo.' });
+    return { ok: true, failedCollections: [] };
   } catch (e) {
     console.warn('[DirectusSync] Global pull error:', e);
     _emitProgress(onProgress, {
@@ -778,7 +851,7 @@ async function _runGlobalPull({ forceFullAll = false, onProgress = null } = {}) 
       message: 'Errore durante il pull globale.',
       details: String(e?.message ?? e),
     });
-    return { ok: false, failedCollections: GLOBAL_COLLECTIONS };
+    return { ok: false, failedCollections: ['venues'] };
   }
 }
 
@@ -808,8 +881,12 @@ export function useDirectusSync() {
     _running = true;
 
     const pullCfg = PULL_CONFIG[_appType] ?? PULL_CONFIG.cassa;
+    const venueId = appConfig.directus?.venueId ?? null;
 
-    // Initial push + global config pull
+    // Local-first: apply cached config snapshot from IDB before any remote call.
+    _hydrateConfigFromLocalCache(venueId).catch(() => {});
+
+    // Initial push + deep global config pull
     _runPush().catch(() => {});
     _runGlobalPull().catch(() => {});
 

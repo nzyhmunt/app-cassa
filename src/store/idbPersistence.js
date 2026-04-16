@@ -681,7 +681,6 @@ export async function clearLocalConfigCacheFromIDB() {
     'rooms',
     'tables',
     'payment_methods',
-    'app_settings',
     'menu_categories',
     'menu_items',
     'menu_modifiers',

@@ -587,8 +587,8 @@ describe('pull timestamp persistence', () => {
 });
 
 describe('global pull config hydration', () => {
-  it('uses full pull on first global hydration even when tables last_pull_ts is stale', async () => {
-    // Simulate stale incremental cursor that would otherwise exclude older rows.
+  it('uses deep venue fetch on first global hydration even when legacy cursors are stale', async () => {
+    // Legacy cursors must not influence the deep bootstrap endpoint.
     await saveLastPullTsToIDB('tables', '2099-01-01T00:00:00.000Z');
 
     const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation(() => Promise.resolve(directusListResponse([])));
@@ -599,24 +599,24 @@ describe('global pull config hydration', () => {
     await flushPromises(LONG_FLUSH_ROUNDS);
     sync.stopSync();
 
-    const tableCalls = fetchSpy.mock.calls
+    const venueCalls = fetchSpy.mock.calls
       .map(([url]) => String(url))
-      .filter(url => url.includes('/items/tables'));
-    expect(tableCalls.length).toBeGreaterThan(0);
-    for (const url of tableCalls) {
+      .filter(url => url.includes('/items/venues/1'));
+    expect(venueCalls.length).toBeGreaterThan(0);
+    for (const url of venueCalls) {
       expect(hasDateUpdatedGtFilter(url)).toBe(false);
     }
   });
 
-  it('keeps full-hydration mode for the next cycle if a global collection pull fails', async () => {
+  it('retries deep venue bootstrap on the next cycle if the first global fetch fails', async () => {
     await saveLastPullTsToIDB('tables', '2024-01-01T00:00:00.000Z');
     vi.useFakeTimers();
 
-    let tableReqCount = 0;
+    let venueReqCount = 0;
     const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation((url) => {
-      if (String(url).includes('/items/tables')) {
-        tableReqCount += 1;
-        if (tableReqCount === 1) return Promise.reject(new Error('temporary tables failure'));
+      if (String(url).includes('/items/venues/1')) {
+        venueReqCount += 1;
+        if (venueReqCount === 1) return Promise.reject(new Error('temporary deep venue failure'));
       }
       return Promise.resolve(directusListResponse([]));
     });
@@ -633,11 +633,11 @@ describe('global pull config hydration', () => {
       vi.useRealTimers();
     }
 
-    const tableCalls = fetchSpy.mock.calls
+    const venueCalls = fetchSpy.mock.calls
       .map(([url]) => String(url))
-      .filter(url => url.includes('/items/tables'));
-    expect(tableCalls.length).toBeGreaterThanOrEqual(2);
-    for (const url of tableCalls) {
+      .filter(url => url.includes('/items/venues/1'));
+    expect(venueCalls.length).toBeGreaterThanOrEqual(2);
+    for (const url of venueCalls) {
       expect(hasDateUpdatedGtFilter(url)).toBe(false);
     }
   });
@@ -647,8 +647,8 @@ describe('global pull config hydration', () => {
     const applySpy = vi.spyOn(utils, 'applyDirectusConfigToAppConfig');
 
     vi.spyOn(global, 'fetch').mockImplementation((url) => {
-      if (String(url).includes('/items/tables')) {
-        return Promise.reject(new Error('temporary tables failure'));
+      if (String(url).includes('/items/venues/1')) {
+        return Promise.reject(new Error('temporary deep venue failure'));
       }
       return Promise.resolve(directusListResponse([]));
     });
