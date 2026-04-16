@@ -962,9 +962,17 @@ async function _hydrateConfigFromLocalCache(venueId, onProgress = null) {
   if (venueId == null) return false;
   const cached = await loadConfigFromIDB(venueId);
   applyDirectusConfigToAppConfig(cached);
-  if (_store?.config) Object.assign(_store.config, appConfig);
+  _syncStoreConfigSnapshot();
   _emitProgress(onProgress, { level: 'info', message: 'Configurazione locale applicata.' });
   return true;
+}
+
+function _syncStoreConfigSnapshot() {
+  if (!_store?.config) return;
+  // Force a new reference so Vue/Pinia consumers relying on `store.config`
+  // receive reactive updates even when `appConfig` was mutated out-of-proxy.
+  const snapshot = JSON.parse(JSON.stringify(appConfig));
+  _store.config = snapshot;
 }
 
 function _emitProgress(onProgress, payload) {
@@ -1174,7 +1182,7 @@ export function useDirectusSync() {
         _emitProgress(onProgress, { level: 'info', message: 'Svuotamento completo cache configurazione locale…' });
         await clearLocalConfigCacheFromIDB();
         resetAppConfigFromDefaults({ keepDirectusConfig: true });
-        if (_store?.config) Object.assign(_store.config, appConfig);
+        _syncStoreConfigSnapshot();
         _emitProgress(onProgress, { level: 'info', message: 'Cache configurazione locale svuotata.' });
       }
 
