@@ -565,6 +565,255 @@ describe('reconfigureAndApply()', () => {
       expect.objectContaining({ id: 'item_1', name: 'Tiramisù' }),
     ]);
   });
+
+  it('hydrates tables from tables collection when deep venue has only room table references', async () => {
+    const venueId = 1;
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      const requestUrl = String(url);
+      if (requestUrl.includes(`/items/venues/${venueId}`)) {
+        return Promise.resolve(directusItemResponse({
+          id: venueId,
+          name: 'Venue table refs',
+          menu_source: 'directus',
+          rooms: [{
+            id: 'room_1',
+            label: 'Sala Interna',
+            tables: ['tbl_1'],
+          }],
+          tables: [],
+          payment_methods: [],
+          printers: [],
+          venue_users: [],
+          table_merge_sessions: [],
+          menu_categories: [{
+            id: 'cat_1',
+            name: 'Primi',
+            sort: 1,
+          }],
+          menu_items: [{
+            id: 'item_1',
+            name: 'Carbonara',
+            category: 'cat_1',
+            price: '12.50',
+            ingredients: '[]',
+            allergens: '[]',
+          }],
+        }));
+      }
+      if (requestUrl.includes('/items/tables')) {
+        return Promise.resolve(directusListResponse([{
+          id: 'tbl_1',
+          label: 'T1',
+          room: 'room_1',
+          covers: 6,
+          venue: venueId,
+        }]));
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const { appConfig } = await import('../../utils/index.js');
+    const sync = useDirectusSync();
+    const result = await sync.reconfigureAndApply();
+    expect(result.ok).toBe(true);
+    expect(appConfig.rooms).toEqual([
+      expect.objectContaining({ id: 'room_1', label: 'Sala Interna' }),
+    ]);
+    expect(appConfig.tables).toEqual([
+      expect.objectContaining({ id: 'tbl_1', label: 'T1', covers: 6 }),
+    ]);
+    expect(appConfig.menu.Primi).toEqual([
+      expect.objectContaining({ id: 'item_1', name: 'Carbonara' }),
+    ]);
+  });
+
+  it('processes real-world deep venue payload with room table refs and expanded tables', async () => {
+    const venueId = 1;
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      const requestUrl = String(url);
+      if (requestUrl.includes(`/items/venues/${venueId}`)) {
+        return Promise.resolve(directusItemResponse({
+          id: 1,
+          name: 'Osteria del Grillo – Demo',
+          rooms: [
+            {
+              id: 'room_sala-interna',
+              status: 'published',
+              venue: 1,
+              label: 'Sala Interna',
+              sort: 1,
+              tables: ['tbl_01', 'tbl_02', 'tbl_03', 'tbl_04', 'qa_tbl_20260416'],
+            },
+            {
+              id: 'room_terrazza',
+              status: 'published',
+              venue: 1,
+              label: 'Terrazza',
+              sort: 2,
+              tables: ['tbl_T1', 'tbl_T2', 'tbl_T3'],
+            },
+            {
+              id: 'deep_room_20260416',
+              status: 'published',
+              venue: 1,
+              label: 'Sala Deep Sync Test',
+              sort: 9100,
+              tables: ['deep_tbl_a_20260416', 'deep_tbl_b_20260416'],
+            },
+          ],
+          tables: [
+            { id: 'tbl_01', status: 'published', venue: 1, room: 'room_sala-interna', label: '01', covers: 4, sort: 1 },
+            { id: 'tbl_02', status: 'published', venue: 1, room: 'room_sala-interna', label: '02', covers: 4, sort: 2 },
+            { id: 'tbl_03', status: 'published', venue: 1, room: 'room_sala-interna', label: '03', covers: 2, sort: 3 },
+            { id: 'tbl_04', status: 'published', venue: 1, room: 'room_sala-interna', label: '04', covers: 6, sort: 4 },
+            { id: 'tbl_T1', status: 'published', venue: 1, room: 'room_terrazza', label: 'T1', covers: 4, sort: 5 },
+            { id: 'tbl_T2', status: 'published', venue: 1, room: 'room_terrazza', label: 'T2', covers: 4, sort: 6 },
+            { id: 'tbl_T3', status: 'published', venue: 1, room: 'room_terrazza', label: 'T3', covers: 8, sort: 7 },
+            { id: 'deep_tbl_a_20260416', status: 'published', venue: 1, room: 'deep_room_20260416', label: 'Deep A', covers: 4, sort: 9101 },
+            { id: 'deep_tbl_b_20260416', status: 'published', venue: 1, room: 'deep_room_20260416', label: 'Deep B', covers: 2, sort: 9102 },
+            { id: 'qa_tbl_20260416', status: 'published', venue: 1, room: 'room_sala-interna', label: 'QA-Table', covers: 2, sort: 9201 },
+          ],
+          payment_methods: [
+            { id: 'pm_contanti', status: 'published', venue: 1, label: 'Contanti', icon: 'banknotes', color_class: 'green', sort: 1 },
+            { id: 'pm_carta', status: 'published', venue: 1, label: 'Carta', icon: 'credit-card', color_class: 'blue', sort: 2 },
+            { id: 'pm_ticket', status: 'published', venue: 1, label: 'Ticket', icon: 'ticket', color_class: 'orange', sort: 3 },
+          ],
+          printers: [
+            { id: 'prt_demo-cassa', status: 'published', venue: 1, name: 'Cassa (demo)', url: 'http://localhost:3001/print', print_types: ['order', 'pre_bill'], sort: 1 },
+            { id: 'prt_demo-cucina', status: 'published', venue: 1, name: 'Cucina (demo)', url: 'http://localhost:3002/print', print_types: ['order'], sort: 2 },
+          ],
+          venue_users: [],
+          table_merge_sessions: [],
+          menu_categories: [
+            {
+              id: 1,
+              status: 'published',
+              venue: 1,
+              name: 'Antipasti',
+              sort: 1,
+              menu_items: [
+                {
+                  id: 'mi_01',
+                  status: 'published',
+                  venue: 1,
+                  category: 1,
+                  name: 'Tagliere Misto',
+                  price: '13.00',
+                  description: 'Tagliere misto con salumi, formaggi e bruschette',
+                  ingredients: null,
+                  allergens: null,
+                  sort: 1,
+                },
+              ],
+            },
+            {
+              id: 2,
+              status: 'published',
+              venue: 1,
+              name: 'Primi Piatti',
+              sort: 2,
+              menu_items: [
+                {
+                  id: 'mi_03',
+                  status: 'published',
+                  venue: 1,
+                  category: 2,
+                  name: 'Carbonara',
+                  price: '13.00',
+                  description: 'Classica carbonara con guanciale e pecorino',
+                  ingredients: null,
+                  allergens: null,
+                  sort: 1,
+                },
+              ],
+            },
+            {
+              id: 9,
+              status: 'published',
+              venue: 1,
+              name: 'Categoria Deep Sync Test',
+              sort: 9100,
+              menu_items: [
+                {
+                  id: 'deep_item_20260416',
+                  status: 'published',
+                  venue: 1,
+                  category: 9,
+                  name: 'Piatto Deep Sync Test',
+                  price: '12.50',
+                  description: 'Item test deep fetch',
+                  ingredients: ['test-ing'],
+                  allergens: ['test-all'],
+                  sort: 9100,
+                  menu_modifiers: ['14f2b76c-5f49-4907-b378-5e765f8f4e47', '6d905cfb-127a-4336-be6e-4a2189dd6f88'],
+                },
+              ],
+            },
+            {
+              id: 10,
+              status: 'published',
+              venue: 1,
+              name: 'QA Payload Category 20260416',
+              sort: 9201,
+              menu_items: [
+                {
+                  id: 'qa_item_20260416',
+                  status: 'published',
+                  venue: 1,
+                  category: 10,
+                  name: 'QA Payload Item 20260416',
+                  price: '9.90',
+                  ingredients: ['acqua', 'sale'],
+                  allergens: ['glutine'],
+                  sort: 9201,
+                },
+              ],
+            },
+          ],
+          menu_items: [],
+        }));
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const { appConfig } = await import('../../utils/index.js');
+    const sync = useDirectusSync();
+    const result = await sync.reconfigureAndApply();
+
+    expect(result.ok).toBe(true);
+    expect(appConfig.rooms).toHaveLength(3);
+    expect(appConfig.tables).toHaveLength(10);
+    expect(appConfig.rooms.find(r => r.id === 'room_sala-interna')?.tables).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'tbl_01', label: '01', covers: 4 }),
+        expect.objectContaining({ id: 'qa_tbl_20260416', label: 'QA-Table', covers: 2 }),
+      ]),
+    );
+    expect(appConfig.rooms.find(r => r.id === 'deep_room_20260416')?.tables).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'deep_tbl_a_20260416', label: 'Deep A', covers: 4 }),
+        expect.objectContaining({ id: 'deep_tbl_b_20260416', label: 'Deep B', covers: 2 }),
+      ]),
+    );
+    expect(appConfig.paymentMethods).toEqual([
+      expect.objectContaining({ id: 'pm_contanti', label: 'Contanti' }),
+      expect.objectContaining({ id: 'pm_carta', label: 'Carta' }),
+      expect.objectContaining({ id: 'pm_ticket', label: 'Ticket' }),
+    ]);
+    expect(appConfig.printers).toEqual([
+      expect.objectContaining({ id: 'prt_demo-cassa', name: 'Cassa (demo)' }),
+      expect.objectContaining({ id: 'prt_demo-cucina', name: 'Cucina (demo)' }),
+    ]);
+    expect(appConfig.menu.Antipasti).toEqual([
+      expect.objectContaining({ id: 'mi_01', name: 'Tagliere Misto' }),
+    ]);
+    expect(appConfig.menu['Primi Piatti']).toEqual([
+      expect.objectContaining({ id: 'mi_03', name: 'Carbonara' }),
+    ]);
+    expect(appConfig.menu['QA Payload Category 20260416']).toEqual([
+      expect.objectContaining({ id: 'qa_item_20260416', name: 'QA Payload Item 20260416' }),
+    ]);
+  });
 });
 
 // ── Pull: IDB upsert (last-write-wins) ───────────────────────────────────────
