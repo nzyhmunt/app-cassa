@@ -386,7 +386,7 @@ describe('reconfigureAndApply()', () => {
     expect(result.ok).toBe(true);
   });
 
-  it('hydrates local config when deep venue nested records have no explicit venue field', async () => {
+  it('hydrates local config when nested records lack explicit venue field', async () => {
     const venueId = 1;
     vi.spyOn(global, 'fetch').mockImplementation((url) => {
       const requestUrl = String(url);
