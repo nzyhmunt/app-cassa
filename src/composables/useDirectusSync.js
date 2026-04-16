@@ -774,7 +774,7 @@ function _extractModifierTree(venueRecord, menuSource) {
   }));
   const itemsById = new Map();
   for (const item of [...directItems, ...categoryItems]) {
-    const itemId = _relationId(item?.id);
+    const itemId = _relationId(item?.id ?? item);
     if (itemId == null) continue;
     itemsById.set(String(itemId), item);
   }
