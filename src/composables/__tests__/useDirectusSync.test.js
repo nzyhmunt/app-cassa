@@ -253,6 +253,58 @@ describe('reconfigureAndApply()', () => {
     expect(result.ok).toBe(false);
   });
 
+  it('refreshes store.config with a new snapshot so runtime config updates are reactive', async () => {
+    const venueId = 1;
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      const requestUrl = String(url);
+      if (requestUrl.includes(`/items/venues/${venueId}`)) {
+        return Promise.resolve(directusItemResponse({
+          id: venueId,
+          name: 'Venue reactive snapshot',
+          menu_source: 'directus',
+          rooms: [{ id: 'room_snapshot', label: 'Sala Snapshot' }],
+          tables: [{ id: 'tbl_snapshot', room: 'room_snapshot', label: 'S1', covers: 4 }],
+          payment_methods: [],
+          printers: [{ id: 'prt_snapshot', name: 'Printer Snapshot', url: 'http://printer.snapshot.local' }],
+          venue_users: [],
+          table_merge_sessions: [],
+          menu_categories: [],
+          menu_items: [],
+        }));
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const { appConfig } = await import('../../utils/index.js');
+    const store = makeStore({ config: appConfig });
+    const sync = useDirectusSync();
+    sync.startSync({ appType: 'cassa', store });
+    const result = await sync.reconfigureAndApply();
+    expect(result.ok).toBe(true);
+    sync.stopSync();
+
+    expect(store.config).not.toBe(appConfig);
+    expect(store.config.rooms).toEqual([
+      expect.objectContaining({
+        id: 'room_snapshot',
+        label: 'Sala Snapshot',
+        tables: [expect.objectContaining({ id: 'tbl_snapshot', label: 'S1', covers: 4 })],
+      }),
+    ]);
+    expect(store.config.printers).toEqual([
+      expect.objectContaining({ id: 'prt_snapshot', name: 'Printer Snapshot' }),
+    ]);
+    const prevName = store.config.ui?.name;
+    const prevAppConfigName = appConfig.ui?.name;
+    try {
+      appConfig.ui.name = 'Mutated after sync';
+      expect(appConfig.ui.name).toBe('Mutated after sync');
+      expect(store.config.ui?.name).toBe(prevName);
+    } finally {
+      appConfig.ui.name = prevAppConfigName;
+    }
+  });
+
   it('can clear local config cache and repopulate venues via global pull with progress logs', async () => {
     const { appConfig } = await import('../../utils/index.js');
     appConfig.ui.primaryColor = '#123456';
