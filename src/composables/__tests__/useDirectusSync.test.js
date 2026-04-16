@@ -565,6 +565,67 @@ describe('reconfigureAndApply()', () => {
       expect.objectContaining({ id: 'item_1', name: 'Tiramisù' }),
     ]);
   });
+
+  it('hydrates tables from table collection when deep venue has only room table ids', async () => {
+    const venueId = 1;
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      const requestUrl = String(url);
+      if (requestUrl.includes(`/items/venues/${venueId}`)) {
+        return Promise.resolve(directusItemResponse({
+          id: venueId,
+          name: 'Venue table refs',
+          menu_source: 'directus',
+          rooms: [{
+            id: 'room_1',
+            label: 'Sala Interna',
+            tables: ['tbl_1'],
+          }],
+          tables: [],
+          payment_methods: [],
+          printers: [],
+          venue_users: [],
+          table_merge_sessions: [],
+          menu_categories: [{
+            id: 'cat_1',
+            name: 'Primi',
+            sort: 1,
+          }],
+          menu_items: [{
+            id: 'item_1',
+            name: 'Carbonara',
+            category: 'cat_1',
+            price: '12.50',
+            ingredients: '[]',
+            allergens: '[]',
+          }],
+        }));
+      }
+      if (requestUrl.includes('/items/tables')) {
+        return Promise.resolve(directusListResponse([{
+          id: 'tbl_1',
+          label: 'T1',
+          room: 'room_1',
+          covers: 6,
+          venue: venueId,
+        }]));
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const { appConfig } = await import('../../utils/index.js');
+    const sync = useDirectusSync();
+    const result = await sync.reconfigureAndApply();
+    expect(result.ok).toBe(true);
+    expect(appConfig.rooms).toEqual([
+      expect.objectContaining({ id: 'room_1', label: 'Sala Interna' }),
+    ]);
+    expect(appConfig.tables).toEqual([
+      expect.objectContaining({ id: 'tbl_1', label: 'T1', covers: 6 }),
+    ]);
+    expect(appConfig.menu.Primi).toEqual([
+      expect.objectContaining({ id: 'item_1', name: 'Carbonara' }),
+    ]);
+  });
 });
 
 // ── Pull: IDB upsert (last-write-wins) ───────────────────────────────────────

@@ -714,6 +714,10 @@ function _normalizeToArray(value) {
   return Array.isArray(value) ? value : [];
 }
 
+function _isObjectRecord(value) {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
 function _dedupeRecordsById(records) {
   const byId = new Map();
   for (const record of _normalizeToArray(records)) {
@@ -722,6 +726,55 @@ function _dedupeRecordsById(records) {
     byId.set(String(id), record);
   }
   return Array.from(byId.values());
+}
+
+function _extractRoomTableIds(rooms) {
+  const ids = new Set();
+  for (const room of _normalizeToArray(rooms)) {
+    if (!_isObjectRecord(room)) continue;
+    for (const tableRef of _normalizeToArray(room.tables)) {
+      const id = _relationId(tableRef);
+      if (id == null) continue;
+      ids.add(String(id));
+    }
+  }
+  return Array.from(ids);
+}
+
+async function _hydrateVenueTablesFromRoomRefs(client, venueRecord, venueId) {
+  if (!_isObjectRecord(venueRecord)) return venueRecord;
+
+  const directTables = _normalizeToArray(venueRecord.tables).filter(_isObjectRecord);
+  if (directTables.length > 0) return venueRecord;
+
+  const tableIds = _extractRoomTableIds(venueRecord.rooms);
+  if (tableIds.length === 0) return venueRecord;
+
+  try {
+    const fetched = [];
+    for (let offset = 0; offset < tableIds.length; offset += 200) {
+      const idChunk = tableIds.slice(offset, offset + 200);
+      const filterConditions = [{ id: { _in: idChunk } }];
+      if (venueId != null) {
+        filterConditions.push({ venue: { _eq: venueId } });
+      }
+      const filter = filterConditions.length === 1 ? filterConditions[0] : { _and: filterConditions };
+      const records = await client.request(readItems('tables', {
+        fields: ['*'],
+        limit: 200,
+        filter,
+      }));
+      fetched.push(..._normalizeToArray(records).filter(_isObjectRecord));
+    }
+    if (fetched.length === 0) return venueRecord;
+    return {
+      ...venueRecord,
+      tables: _dedupeRecordsById(fetched),
+    };
+  } catch (error) {
+    console.warn('[DirectusSync] Fallback table hydration by room refs failed:', error?.message ?? error);
+    return venueRecord;
+  }
 }
 
 function _extractDeepVenuePayload(payload) {
@@ -757,13 +810,13 @@ function _extractModifierTree(venueRecord, menuSource) {
   }
 
   const categories = _normalizeToArray(venueRecord.menu_categories)
-    .filter(record => record && typeof record === 'object' && !Array.isArray(record));
+    .filter(_isObjectRecord);
   const directItems = _normalizeToArray(venueRecord.menu_items)
-    .filter(record => record && typeof record === 'object' && !Array.isArray(record));
+    .filter(_isObjectRecord);
   const categoryItems = categories
     .filter(category => Array.isArray(category?.menu_items) && category.menu_items.length > 0)
     .flatMap(category => _normalizeToArray(category.menu_items))
-    .filter(record => record && typeof record === 'object' && !Array.isArray(record));
+    .filter(_isObjectRecord);
   // Prefer direct venue.menu_items records when both direct and category-nested arrays
   // contain the same item id, because direct items preserve the canonical payload shape.
   const items = _dedupeRecordsById([...categoryItems, ...directItems]);
@@ -847,24 +900,24 @@ async function _fanOutVenueTreeToIDB(venueRecord, { menuSource }) {
     itemLinks,
   } = _extractModifierTree(venueRecord, menuSource);
   const rooms = _normalizeToArray(venueRecord.rooms)
-    .filter(record => record && typeof record === 'object' && !Array.isArray(record));
+    .filter(_isObjectRecord);
   const directTables = _normalizeToArray(venueRecord.tables)
-    .filter(record => record && typeof record === 'object' && !Array.isArray(record));
+    .filter(_isObjectRecord);
   const nestedRoomTables = rooms
     .filter((room) => Array.isArray(room?.tables) && room.tables.length > 0)
     .flatMap((room) => _normalizeToArray(room.tables))
-    .filter(record => record && typeof record === 'object' && !Array.isArray(record));
+    .filter(_isObjectRecord);
   // Prefer direct venue.tables records to avoid losing fields when nested room tables
   // contain partial projections.
   const tables = _dedupeRecordsById([...nestedRoomTables, ...directTables]);
   const paymentMethods = _normalizeToArray(venueRecord.payment_methods)
-    .filter(record => record && typeof record === 'object' && !Array.isArray(record));
+    .filter(_isObjectRecord);
   const printers = _normalizeToArray(venueRecord.printers)
-    .filter(record => record && typeof record === 'object' && !Array.isArray(record));
+    .filter(_isObjectRecord);
   const venueUsers = _normalizeToArray(venueRecord.venue_users)
-    .filter(record => record && typeof record === 'object' && !Array.isArray(record));
+    .filter(_isObjectRecord);
   const tableMergeSessions = _normalizeToArray(venueRecord.table_merge_sessions)
-    .filter(record => record && typeof record === 'object' && !Array.isArray(record));
+    .filter(_isObjectRecord);
 
   const flatVenueRecord = { ...venueRecord };
   for (const key of VENUE_NESTED_RELATION_KEYS) {
@@ -970,6 +1023,7 @@ async function _runGlobalPull({ onProgress = null } = {}) {
       });
       return { ok: false, failedCollections: ['venues'] };
     }
+    deepVenue = await _hydrateVenueTablesFromRoomRefs(client, deepVenue, venueId);
 
     const menuSource = deepVenue.menu_source ?? appConfig.menuSource ?? 'directus';
     const fanOutSummary = await _fanOutVenueTreeToIDB(deepVenue, { menuSource });
