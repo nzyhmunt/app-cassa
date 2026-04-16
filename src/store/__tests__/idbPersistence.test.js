@@ -43,6 +43,7 @@ import {
   loadInvoiceRequestsFromIDB,
   pruneInvoiceRequestsInIDB,
   clearLocalConfigCacheFromIDB,
+  loadConfigFromIDB,
 } from '../idbPersistence.js';
 
 beforeEach(async () => {
@@ -567,6 +568,27 @@ describe('clearLocalConfigCacheFromIDB()', () => {
     expect(await db.get('app_meta', 'last_pull_ts:venues')).toBeUndefined();
     // Unrelated app_meta keys must be preserved.
     expect(await db.get('app_meta', 'auth:userId')).toEqual({ id: 'auth:userId', value: 'u1' });
+  });
+});
+
+describe('loadConfigFromIDB()', () => {
+  it('accepts relation objects for venue/room while filtering config records', async () => {
+    const { getDB } = await import('../../composables/useIDB.js');
+    const db = await getDB();
+
+    await Promise.all([
+      db.put('venues', { id: 1, name: 'Venue 1' }),
+      db.put('rooms', { id: 'room_1', venue: { id: 1 }, label: 'Sala 1', status: 'published' }),
+      db.put('tables', { id: 'T1', room: { id: 'room_1' }, label: 'T1', status: 'published' }),
+    ]);
+
+    const cfg = await loadConfigFromIDB(1);
+
+    expect(cfg).not.toBeNull();
+    expect(cfg.rooms).toHaveLength(1);
+    expect(cfg.rooms[0].id).toBe('room_1');
+    expect(cfg.tables).toHaveLength(1);
+    expect(cfg.tables[0].id).toBe('T1');
   });
 });
 
