@@ -283,6 +283,7 @@ describe('reconfigureAndApply()', () => {
     expect(result.ok).toBe(true);
     sync.stopSync();
 
+    expect(store.config).not.toBe(appConfig);
     expect(store.config.rooms).toEqual([
       expect.objectContaining({
         id: 'room_snapshot',
@@ -294,8 +295,14 @@ describe('reconfigureAndApply()', () => {
       expect.objectContaining({ id: 'prt_snapshot', name: 'Printer Snapshot' }),
     ]);
     const prevName = store.config.ui?.name;
-    appConfig.ui.name = 'Mutated after sync';
-    expect(store.config.ui?.name).toBe(prevName);
+    const prevAppConfigName = appConfig.ui?.name;
+    try {
+      appConfig.ui.name = 'Mutated after sync';
+      expect(appConfig.ui.name).toBe('Mutated after sync');
+      expect(store.config.ui?.name).toBe(prevName);
+    } finally {
+      appConfig.ui.name = prevAppConfigName;
+    }
   });
 
   it('can clear local config cache and repopulate venues via global pull with progress logs', async () => {
