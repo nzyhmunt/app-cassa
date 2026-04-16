@@ -77,8 +77,15 @@ const DEEP_FETCH_FALLBACK_FIELDS = [
   'rooms.*',
   'tables.*',
   'payment_methods.*',
-  'menu_categories.*',
-  'menu_items.*',
+  'printers.*',
+  'venue_users.*',
+  'table_merge_sessions.*',
+];
+const DEEP_FETCH_SAFE_FIELDS = [
+  '*',
+  'rooms.*',
+  'tables.*',
+  'payment_methods.*',
   'printers.*',
   'venue_users.*',
   'table_merge_sessions.*',
@@ -86,6 +93,7 @@ const DEEP_FETCH_FALLBACK_FIELDS = [
 const DEEP_FETCH_FIELD_SETS = [
   { key: 'full', fields: DEEP_FETCH_FIELDS },
   { key: 'fallback', fields: DEEP_FETCH_FALLBACK_FIELDS },
+  { key: 'safe', fields: DEEP_FETCH_SAFE_FIELDS },
 ];
 const VENUE_NESTED_RELATION_KEYS = [
   'rooms',
@@ -706,6 +714,28 @@ function _normalizeToArray(value) {
   return Array.isArray(value) ? value : [];
 }
 
+function _extractDeepVenuePayload(payload) {
+  if (payload == null) return null;
+  if (Array.isArray(payload)) {
+    const [first] = payload;
+    return first && typeof first === 'object' ? first : null;
+  }
+  if (typeof payload !== 'object') return null;
+
+  let node = payload;
+  for (let depth = 0; depth < 3; depth += 1) {
+    if (Array.isArray(node)) {
+      const [first] = node;
+      return first && typeof first === 'object' ? first : null;
+    }
+    if (!node || typeof node !== 'object') return null;
+    if (node.id != null || node.name != null || node.primary_color != null) return node;
+    if (!Object.prototype.hasOwnProperty.call(node, 'data')) return node;
+    node = node.data;
+  }
+  return (node && typeof node === 'object' && !Array.isArray(node)) ? node : null;
+}
+
 function _extractModifierTree(venueRecord, menuSource) {
   if (menuSource === 'json') {
     return {
@@ -871,7 +901,9 @@ async function _runGlobalPull({ onProgress = null } = {}) {
     let deepFetchError = null;
     for (const [index, fieldSet] of DEEP_FETCH_FIELD_SETS.entries()) {
       try {
-        deepVenue = await client.request(readItem('venues', venueId, { fields: fieldSet.fields }));
+        const deepVenueRaw = await client.request(readItem('venues', venueId, { fields: fieldSet.fields }));
+        deepVenue = _extractDeepVenuePayload(deepVenueRaw);
+        if (!deepVenue) throw new Error('Deep fetch payload vuoto o non valido.');
         deepFetchMode = fieldSet.key;
         deepFetchError = null;
         break;

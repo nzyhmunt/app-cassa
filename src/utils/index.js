@@ -326,13 +326,13 @@ export function resetAppConfigFromDefaults({ keepDirectusConfig = true } = {}) {
 export function applyDirectusConfigToAppConfig(cfg) {
   if (!cfg) return;
   const {
-    venueRecord,
-    rooms,
-    tables,
-    paymentMethods,
-    printers,
-    categories,
-    items,
+    venueRecord = null,
+    rooms = [],
+    tables = [],
+    paymentMethods = [],
+    printers = [],
+    categories = [],
+    items = [],
     modifiers = [],
     categoryModifierLinks = [],
     itemModifierLinks = [],
@@ -345,12 +345,18 @@ export function applyDirectusConfigToAppConfig(cfg) {
 
   // ── Venue scalar settings ──────────────────────────────────────────────────
   if (venueRecord) {
-    if (venueRecord.name != null)                appConfig.ui.name = venueRecord.name;
-    if (venueRecord.primary_color != null)       appConfig.ui.primaryColor = venueRecord.primary_color;
-    if (venueRecord.primary_color_dark != null)  appConfig.ui.primaryColorDark = venueRecord.primary_color_dark;
-    if (venueRecord.currency_symbol != null)     appConfig.ui.currency = venueRecord.currency_symbol;
-    if (venueRecord.allow_custom_variants != null)
-      appConfig.ui.allowCustomVariants = venueRecord.allow_custom_variants;
+    const fallbackUi = _defaultAppConfigSnapshot?.ui ?? {};
+    const name = venueRecord?.name;
+    const primary = venueRecord?.primary_color || fallbackUi.primaryColor || '#00846c';
+    const primaryDark = venueRecord?.primary_color_dark || fallbackUi.primaryColorDark || '#0c7262';
+    const currency = venueRecord?.currency_symbol || fallbackUi.currency || '€';
+    const allowCustomVariants = venueRecord?.allow_custom_variants;
+
+    if (name != null) appConfig.ui.name = name;
+    appConfig.ui.primaryColor = primary;
+    appConfig.ui.primaryColorDark = primaryDark;
+    appConfig.ui.currency = currency;
+    if (allowCustomVariants != null) appConfig.ui.allowCustomVariants = allowCustomVariants;
 
     if (venueRecord.cover_charge_enabled != null)
       appConfig.coverCharge.enabled = venueRecord.cover_charge_enabled;
