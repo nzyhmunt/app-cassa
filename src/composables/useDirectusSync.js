@@ -73,6 +73,16 @@ const DEEP_FETCH_FIELDS = [
   'table_merge_sessions.*',
 ];
 const DEEP_FETCH_FIELDS_LOG = DEEP_FETCH_FIELDS.join(', ');
+const VENUE_NESTED_RELATION_KEYS = [
+  'rooms',
+  'tables',
+  'payment_methods',
+  'menu_categories',
+  'menu_items',
+  'printers',
+  'venue_users',
+  'table_merge_sessions',
+];
 const GLOBAL_INTERVAL_MS = 5 * 60_000;
 // Allow substantial device/server clock drift before treating last_pull_ts as invalid.
 // 24h avoids perpetual full-refreshes on slightly misconfigured tablets while still
@@ -770,14 +780,9 @@ async function _fanOutVenueTreeToIDB(venueRecord, { menuSource }) {
   } = _extractModifierTree(venueRecord, menuSource);
 
   const flatVenueRecord = { ...venueRecord };
-  delete flatVenueRecord.rooms;
-  delete flatVenueRecord.tables;
-  delete flatVenueRecord.payment_methods;
-  delete flatVenueRecord.menu_categories;
-  delete flatVenueRecord.menu_items;
-  delete flatVenueRecord.printers;
-  delete flatVenueRecord.venue_users;
-  delete flatVenueRecord.table_merge_sessions;
+  for (const key of VENUE_NESTED_RELATION_KEYS) {
+    delete flatVenueRecord[key];
+  }
 
   const payloadByStore = {
     venues: [{ ...flatVenueRecord }],
@@ -806,6 +811,8 @@ async function _fanOutVenueTreeToIDB(venueRecord, { menuSource }) {
   await Promise.all(stores
     .filter(([storeName]) => storeName !== 'table_merge_sessions')
     .map(([storeName, records]) => upsertRecordsIntoIDB(storeName, records)));
+  // table_merge_sessions must be full-replaced so stale dissolved merges are removed
+  // from IDB instead of lingering indefinitely via upsert-only semantics.
   await replaceTableMergesInIDB(payloadByStore.table_merge_sessions);
   return Object.fromEntries(stores.map(([storeName, records]) => [storeName, records.length]));
 }
