@@ -505,7 +505,7 @@ async function _runGlobalPull() {
   const venueId = appConfig.directus?.venueId ?? null;
 
   try {
-    let fullHydrationOk = true;
+    let configHydrationOk = true;
     const fullModeCollections = [];
     const failedCollections = [];
     for (const collection of GLOBAL_COLLECTIONS) {
@@ -527,7 +527,7 @@ async function _runGlobalPull() {
         }
       }
       const { ok } = await _pullCollection(collection, { forceFull, lastPullTimestampOverride: lastPullTimestamp });
-      if (!ok) fullHydrationOk = false;
+      if (!ok) configHydrationOk = false;
       if (forceFull) fullModeCollections.push(collection);
       if (!ok) failedCollections.push(collection);
     }
@@ -542,7 +542,6 @@ async function _runGlobalPull() {
     // so that dissolved merges (records deleted on Directus) are also cleared.
     const { data: mergeSessionRecords, error: mergeError } = await _fetchUpdatedViaSDK('table_merge_sessions', null);
     if (mergeError) {
-      fullHydrationOk = false;
       console.warn('[DirectusSync] Skipping table_merge_sessions replace due to fetch error.');
     } else {
       await replaceTableMergesInIDB(mergeSessionRecords);
@@ -556,7 +555,7 @@ async function _runGlobalPull() {
       }
     }
 
-    if (fullHydrationOk) {
+    if (configHydrationOk) {
       _initialGlobalHydrationDone = true;
     } else {
       console.warn('[DirectusSync] Global config hydration incomplete; hydration/apply was skipped due to pull errors.');
@@ -568,7 +567,7 @@ async function _runGlobalPull() {
     // into a single (incorrect) appConfig.
     // Also skip hydration when this global cycle had errors, to avoid publishing
     // partial config snapshots to the live app/store.
-    if (venueId != null && fullHydrationOk) {
+    if (venueId != null && configHydrationOk) {
       const cfg = await loadConfigFromIDB(venueId);
       applyDirectusConfigToAppConfig(cfg);
       // Keep the reactive store config in sync with the hydrated appConfig so
