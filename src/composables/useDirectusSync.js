@@ -255,13 +255,14 @@ function _mergeIntoStore(collection, records, store) {
 
 function _deleteFromStore(collection, records, store) {
   if (!store || !Array.isArray(records) || records.length === 0) return;
+  const extractIdSet = () => new Set(records.map(r => String(r?.id ?? r)).filter(Boolean));
   if (collection === 'orders') {
-    const ids = new Set(records.map(r => String(r?.id ?? r)).filter(Boolean));
+    const ids = extractIdSet();
     store.orders = store.orders.filter(o => !ids.has(String(o.id)));
     return;
   }
   if (collection === 'order_items') {
-    const ids = new Set(records.map(r => String(r?.id ?? r)).filter(Boolean));
+    const ids = extractIdSet();
     store.orders = store.orders.map((o) => ({
       ...o,
       orderItems: Array.isArray(o.orderItems)
@@ -271,7 +272,7 @@ function _deleteFromStore(collection, records, store) {
     return;
   }
   if (collection === 'bill_sessions') {
-    const ids = new Set(records.map(r => String(r?.id ?? r)).filter(Boolean));
+    const ids = extractIdSet();
     const next = { ...(store.tableCurrentBillSession ?? {}) };
     for (const [tableId, session] of Object.entries(next)) {
       if (ids.has(String(session?.billSessionId ?? session?.id))) {
