@@ -55,10 +55,9 @@ const PULL_CONFIG = {
 /** Collections for all apps: fetched once at startup and every 5 minutes. */
 const GLOBAL_COLLECTIONS = [
   'venues', 'rooms', 'tables', 'payment_methods', 'app_settings',
-  'menu_categories', 'menu_items', 'menu_item_modifiers',
-  'printers', 'venue_users',
-  // NOTE: table_merge_sessions is handled separately in _runGlobalPull because
-  // it requires full-replace semantics (dissolved merges must be removed).
+  'menu_categories', 'menu_items', 'menu_modifiers',
+  'menu_categories_menu_modifiers', 'menu_items_menu_modifiers',
+  'printers', 'venue_users', 'table_merge_sessions',
 ];
 const GLOBAL_INTERVAL_MS = 5 * 60_000;
 // Allow substantial device/server clock drift before treating last_pull_ts as invalid.
@@ -73,23 +72,37 @@ const GLOBAL_TIMESTAMP_SKEW_TOLERANCE_MS = 24 * 60 * 60_000;
  * H3: Some collections don't expose the standard `venue` FK and/or `date_updated`.
  * In these cases we must skip unsupported filters to avoid Directus API errors.
  *
- * table_merge_sessions has neither a `venue` FK nor `date_updated`, so:
- *   - noVenueFilter: skip the `venue` filter to avoid an API error.
- *   - noDateUpdated: skip the incremental `date_updated` filter — full fetch
- *     every global pull cycle (the collection is small and short-lived).
+ * Some collections (for example `venues`) intentionally don't expose a `venue`
+ * FK and therefore must skip the tenant filter in REST/WS queries.
  */
 const COLLECTION_QUIRKS = {
   venues: { noVenueFilter: true },
-  menu_item_modifiers: { noVenueFilter: true },
-  table_merge_sessions: { noVenueFilter: true, noDateUpdated: true },
 };
 
 // ── Field mapping: Directus → local in-memory store format ───────────────────
 
+function _relationId(value) {
+  if (value == null) return null;
+  if (typeof value === 'object') return value.id ?? null;
+  return value;
+}
+
+function _parseJsonArray(value) {
+  if (Array.isArray(value)) return value;
+  if (typeof value === 'string' && value.trim() !== '') {
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (_) {
+      return [];
+    }
+  }
+  return [];
+}
+
 function _mapOrder(r) {
-  const tableId = typeof r.table === 'object' ? (r.table?.id ?? null) : r.table;
-  const billSessionIdRaw = r.bill_session ?? r.billSessionId ?? null;
-  const billSessionId = typeof billSessionIdRaw === 'object' ? (billSessionIdRaw?.id ?? null) : billSessionIdRaw;
+  const tableId = _relationId(r.table);
+  const billSessionId = _relationId(r.bill_session ?? r.billSessionId ?? null);
   return {
     ...r,
     table: tableId ?? r.table ?? null,
@@ -108,8 +121,8 @@ function _mapOrder(r) {
     isDirectEntry: r.is_direct_entry ?? r.isDirectEntry ?? false,
     rejectionReason: r.rejection_reason ?? r.rejectionReason ?? null,
     dietaryPreferences: r.dietaryPreferences ?? {
-      diete: r.dietary_diets ?? [],
-      allergeni: r.dietary_allergens ?? [],
+      diete: _parseJsonArray(r.dietary_diets),
+      allergeni: _parseJsonArray(r.dietary_allergens),
     },
     orderItems: r.orderItems ?? r.order_items ?? [],
     _sync_status: 'synced',
@@ -127,10 +140,8 @@ function _mapBillSession(r) {
 }
 
 function _mapOrderItem(r) {
-  const orderIdRaw = r.order ?? r.orderId ?? null;
-  const dishIdRaw = r.dish ?? r.dishId ?? null;
-  const orderId = typeof orderIdRaw === 'object' ? (orderIdRaw?.id ?? null) : orderIdRaw;
-  const dishId = typeof dishIdRaw === 'object' ? (dishIdRaw?.id ?? null) : dishIdRaw;
+  const orderId = _relationId(r.order ?? r.orderId ?? null);
+  const dishId = _relationId(r.dish ?? r.dishId ?? null);
   return {
     ...r,
     order: orderId,
@@ -145,10 +156,62 @@ function _mapOrderItem(r) {
   };
 }
 
+function _mapMenuItem(r) {
+  return {
+    ...r,
+    ingredients: _parseJsonArray(r.ingredients),
+    allergens: _parseJsonArray(r.allergens),
+    _sync_status: 'synced',
+  };
+}
+
+function _mapMenuModifier(r) {
+  return {
+    ...r,
+    venue: _relationId(r.venue),
+    _sync_status: 'synced',
+  };
+}
+
+function _mapMenuCategoryModifierLink(r) {
+  return {
+    ...r,
+    venue: _relationId(r.venue),
+    menu_categories_id: _relationId(r.menu_categories_id),
+    menu_modifiers_id: _relationId(r.menu_modifiers_id),
+    _sync_status: 'synced',
+  };
+}
+
+function _mapMenuItemModifierLink(r) {
+  return {
+    ...r,
+    venue: _relationId(r.venue),
+    menu_items_id: _relationId(r.menu_items_id),
+    menu_modifiers_id: _relationId(r.menu_modifiers_id),
+    _sync_status: 'synced',
+  };
+}
+
+function _mapTableMergeSession(r) {
+  return {
+    ...r,
+    venue: _relationId(r.venue),
+    master_table: _relationId(r.master_table),
+    slave_table: _relationId(r.slave_table),
+    _sync_status: 'synced',
+  };
+}
+
 function _mapRecord(collection, r) {
   if (collection === 'orders') return _mapOrder(r);
   if (collection === 'bill_sessions') return _mapBillSession(r);
   if (collection === 'order_items') return _mapOrderItem(r);
+  if (collection === 'menu_items') return _mapMenuItem(r);
+  if (collection === 'menu_modifiers') return _mapMenuModifier(r);
+  if (collection === 'menu_categories_menu_modifiers') return _mapMenuCategoryModifierLink(r);
+  if (collection === 'menu_items_menu_modifiers') return _mapMenuItemModifierLink(r);
+  if (collection === 'table_merge_sessions') return _mapTableMergeSession(r);
   return { ...r, _sync_status: 'synced' };
 }
 
@@ -164,6 +227,9 @@ function _mergeIntoStore(collection, records, store) {
       if (!existing) {
         byId.set(incoming.id, incoming);
       } else {
+        if (existing._sync_status === 'pending' && !existing.date_updated) {
+          continue;
+        }
         const incomingTs = incoming.date_updated ? new Date(incoming.date_updated).getTime() : 0;
         const existingTs = existing.date_updated ? new Date(existing.date_updated).getTime() : 0;
         if (incomingTs > existingTs) {
@@ -227,6 +293,9 @@ function _mergeIntoStore(collection, records, store) {
         order.orderItems.push(incoming);
       } else {
         const existing = order.orderItems[idx];
+        if (existing._sync_status === 'pending' && !existing.date_updated) {
+          continue;
+        }
         const incomingTs = incoming.date_updated ? new Date(incoming.date_updated).getTime() : 0;
         const existingTs = existing.date_updated ? new Date(existing.date_updated).getTime() : 0;
         if (incomingTs >= existingTs) {
@@ -344,6 +413,35 @@ async function _fetchUpdatedViaSDK(collection, sinceTs, page = 1) {
 }
 
 async function _pullCollection(collection, { forceFull = false, lastPullTimestampOverride = null } = {}) {
+  if (collection === 'table_merge_sessions' && forceFull) {
+    let page = 1;
+    let latestTs = null;
+    const allMapped = [];
+    let hadFetchError = false;
+    while (true) { // eslint-disable-line no-constant-condition
+      const { data, maxTs, error } = await _fetchUpdatedViaSDK(collection, null, page);
+      if (error) hadFetchError = true;
+      if (data.length === 0) break;
+      const mapped = data.map(r => _mapRecord(collection, r));
+      allMapped.push(...mapped);
+      if (maxTs && (!latestTs || maxTs > latestTs)) latestTs = maxTs;
+      if (data.length < 200) break;
+      page++;
+    }
+    if (!hadFetchError) {
+      await replaceTableMergesInIDB(allMapped);
+      if (_store) {
+        const merged = {};
+        for (const r of allMapped) {
+          if (r.slave_table && r.master_table) merged[r.slave_table] = r.master_table;
+        }
+        _store.tableMergedInto = merged;
+      }
+      if (latestTs) await saveLastPullTsToIDB(collection, latestTs);
+    }
+    return { merged: allMapped.length, ok: !hadFetchError };
+  }
+
   // forceFull always wins: ignore both lastPullTimestampOverride and persisted cursor.
   const storedSinceTs = forceFull
     ? null
@@ -397,6 +495,10 @@ async function _handleSubscriptionMessage(collection, message) {
   if (!data || !Array.isArray(data) || data.length === 0) return;
 
   if (event === 'delete') {
+    if (collection === 'table_merge_sessions') {
+      await _pullCollection('table_merge_sessions', { forceFull: true });
+      return;
+    }
     const ids = _extractRecordIds(data);
     await deleteRecordsFromIDB(collection, ids);
     if (_store) _deleteFromStore(collection, ids, _store);
@@ -527,6 +629,7 @@ async function _runPull() {
   if (!_getCfg()) return;
 
   const pullCfg = PULL_CONFIG[_appType] ?? PULL_CONFIG.cassa;
+  const menuSource = appConfig.menuSource ?? 'directus';
 
   try {
     let anyMerged = false;
@@ -534,6 +637,7 @@ async function _runPull() {
     const mergedSummary = [];
     const failedCollections = [];
     for (const collection of pullCfg.collections) {
+      if (menuSource === 'json' && collection === 'menu_items') continue;
       const { merged, ok } = await _pullCollection(collection);
       if (merged > 0) anyMerged = true;
       if (!ok) allOk = false;
@@ -571,13 +675,28 @@ async function _runGlobalPull({ forceFullAll = false, onProgress = null } = {}) 
   // Capture venueId before the pull loop so that appConfig mutations during
   // a long pull cannot change which venue we query / hydrate into (D3 review).
   const venueId = appConfig.directus?.venueId ?? null;
+  const MENU_COLLECTIONS = new Set([
+    'menu_categories',
+    'menu_items',
+    'menu_modifiers',
+    'menu_categories_menu_modifiers',
+    'menu_items_menu_modifiers',
+  ]);
 
   try {
     _emitProgress(onProgress, { level: 'info', message: 'Avvio pull globale configurazione Directus…' });
     let configHydrationOk = true;
+    const menuSource = appConfig.menuSource ?? 'directus';
     const fullModeCollections = [];
     const failedCollections = [];
     for (const collection of GLOBAL_COLLECTIONS) {
+      if (menuSource === 'json' && MENU_COLLECTIONS.has(collection)) {
+        _emitProgress(onProgress, {
+          level: 'info',
+          message: `Pull "${collection}" saltato (venue.menu_source=json).`,
+        });
+        continue;
+      }
       _emitProgress(onProgress, { level: 'info', message: `Pull collezione "${collection}"…` });
       // Keep global pull incremental by default (lower backend load), but:
       //  - always force full pull on initial global hydration after startSync
@@ -611,34 +730,6 @@ async function _runGlobalPull({ forceFullAll = false, onProgress = null } = {}) 
       console.info(
         `[DirectusSync] Global pull details — full mode: ${fullModeCollections.join(', ') || 'none'}; failed: ${failedCollections.join(', ') || 'none'}.`,
       );
-    }
-
-    // H3: table_merge_sessions — full-replace semantics.
-    // Fetched with a full (non-incremental) pull and replaced atomically in IDB
-    // so that dissolved merges (records deleted on Directus) are also cleared.
-    _emitProgress(onProgress, { level: 'info', message: 'Pull collezione "table_merge_sessions"…' });
-    const { data: mergeSessionRecords, error: mergeError } = await _fetchUpdatedViaSDK('table_merge_sessions', null);
-    if (mergeError) {
-      console.warn('[DirectusSync] Skipping table_merge_sessions replace due to fetch error.');
-      _emitProgress(onProgress, {
-        level: 'error',
-        message: 'Pull "table_merge_sessions" fallito.',
-        details: String(mergeError?.message ?? mergeError),
-      });
-    } else {
-      await replaceTableMergesInIDB(mergeSessionRecords);
-      _emitProgress(onProgress, {
-        level: 'info',
-        message: `Pull "table_merge_sessions" completato (${mergeSessionRecords.length} record).`,
-      });
-      // Rebuild in-memory tableMergedInto from the authoritative Directus data.
-      if (_store) {
-        const merged = {};
-        for (const r of mergeSessionRecords) {
-          if (r.slave_table && r.master_table) merged[r.slave_table] = r.master_table;
-        }
-        _store.tableMergedInto = merged;
-      }
     }
 
     if (configHydrationOk) {

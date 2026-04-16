@@ -549,7 +549,7 @@ describe('clearLocalConfigCacheFromIDB()', () => {
       db.put('menu_item_modifiers', { id: 'mod_1', menu_item: 'item_1' }),
       db.put('printers', { id: 'prn_1', name: 'Stampante' }),
       db.put('venue_users', { id: 'vu_1', _type: 'venue_user' }),
-      db.put('table_merge_sessions', { slave_table: 'T2', master_table: 'T1' }),
+      db.put('table_merge_sessions', { id: 'tm_1', slave_table: 'T2', master_table: 'T1' }),
       db.put('app_meta', { id: 'last_pull_ts:venues', value: '2025-01-01T00:00:00.000Z' }),
       db.put('app_meta', { id: 'auth:userId', value: 'u1' }),
     ]);

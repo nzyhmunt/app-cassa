@@ -35,6 +35,9 @@ export const appConfig = {
 
   // URL used to fetch the remote menu. Override per-build in appConfig or via the Settings modal.
   menuUrl: DEFAULT_MENU_URL,
+  // Menu source strategy. `directus` => menu from Directus collections.
+  // `json` => menu from remote JSON URL.
+  menuSource: 'directus',
 
   // Instance name used to isolate localStorage keys when multiple app instances run
   // on the same device (same origin). Set a unique value per device/shortcut
@@ -306,8 +309,8 @@ export function resetAppConfigFromDefaults({ keepDirectusConfig = true } = {}) {
  *  - Venue scalar fields: Directus wins if the field is non-null.
  *  - Rooms/tables: replaced wholesale when Directus returns ≥1 room.
  *  - Payment methods / printers: replaced wholesale when ≥1 record is returned.
- *  - Menu: Directus menu wins over the static/URL-loaded menu when ≥1 category
- *    with ≥1 item is returned.
+ *  - Menu: when `menuSource === 'directus'`, Directus menu wins over static/URL-loaded
+ *    menu when ≥1 category with ≥1 item is returned.
  *
  * **Empty-array behaviour**: if a collection array is empty (e.g. no rooms were
  * returned from IDB because Directus hasn't populated them yet), the corresponding
@@ -317,11 +320,23 @@ export function resetAppConfigFromDefaults({ keepDirectusConfig = true } = {}) {
  *
  * @param {{ venueRecord: object|null, rooms: Array, tables: Array,
  *           paymentMethods: Array, printers: Array,
- *           categories: Array, items: Array }|null} cfg - Output of loadConfigFromIDB()
+ *           categories: Array, items: Array, modifiers: Array,
+ *           categoryModifierLinks: Array, itemModifierLinks: Array }|null} cfg - Output of loadConfigFromIDB()
  */
 export function applyDirectusConfigToAppConfig(cfg) {
   if (!cfg) return;
-  const { venueRecord, rooms, tables, paymentMethods, printers, categories, items } = cfg;
+  const {
+    venueRecord,
+    rooms,
+    tables,
+    paymentMethods,
+    printers,
+    categories,
+    items,
+    modifiers = [],
+    categoryModifierLinks = [],
+    itemModifierLinks = [],
+  } = cfg;
   const relationId = (value) => {
     if (value == null) return null;
     if (typeof value === 'object') return value.id ?? null;
@@ -357,6 +372,12 @@ export function applyDirectusConfigToAppConfig(cfg) {
 
     if (Array.isArray(venueRecord.orders_rejection_reasons) && venueRecord.orders_rejection_reasons.length > 0)
       appConfig.orders.rejectionReasons = venueRecord.orders_rejection_reasons;
+    if (venueRecord.menu_source != null) {
+      appConfig.menuSource = venueRecord.menu_source;
+    }
+    if (venueRecord.menu_url != null && String(venueRecord.menu_url).trim() !== '') {
+      appConfig.menuUrl = String(venueRecord.menu_url);
+    }
   }
 
   // ── Rooms and tables ───────────────────────────────────────────────────────
@@ -432,25 +453,78 @@ export function applyDirectusConfigToAppConfig(cfg) {
     });
   }
 
-  // ── Menu (D4) — Directus wins when at least one category + item is present ──
-  if (categories.length > 0 && items.length > 0) {
+  // ── Menu (D4) — Directus wins only when menuSource is set to directus ──────
+  if (appConfig.menuSource === 'directus' && categories.length > 0 && items.length > 0) {
+    const parseJsonArray = (value) => {
+      if (Array.isArray(value)) return value;
+      if (typeof value === 'string' && value.trim() !== '') {
+        try {
+          const parsed = JSON.parse(value);
+          return Array.isArray(parsed) ? parsed : [];
+        } catch (_) {
+          return [];
+        }
+      }
+      return [];
+    };
+    const normalizeModifier = (modifier) => ({
+      id: modifier.id,
+      name: modifier.name ?? '',
+      price: Number(modifier.price ?? 0),
+    });
+    const modifiersById = new Map(
+      modifiers
+        .filter((modifier) => modifier.status !== 'archived')
+        .map((modifier) => [String(modifier.id), normalizeModifier(modifier)]),
+    );
+    const categoryModifierIds = new Map();
+    for (const link of categoryModifierLinks) {
+      const categoryId = relationId(link.menu_categories_id);
+      const modifierId = relationId(link.menu_modifiers_id);
+      if (categoryId == null || modifierId == null) continue;
+      const key = String(categoryId);
+      if (!categoryModifierIds.has(key)) categoryModifierIds.set(key, new Set());
+      categoryModifierIds.get(key).add(String(modifierId));
+    }
+    const itemModifierIds = new Map();
+    for (const link of itemModifierLinks) {
+      const itemId = relationId(link.menu_items_id);
+      const modifierId = relationId(link.menu_modifiers_id);
+      if (itemId == null || modifierId == null) continue;
+      const key = String(itemId);
+      if (!itemModifierIds.has(key)) itemModifierIds.set(key, new Set());
+      itemModifierIds.get(key).add(String(modifierId));
+    }
+
     const itemsByCategory = new Map();
     for (const item of items) {
-      if (!itemsByCategory.has(item.category)) itemsByCategory.set(item.category, []);
-      itemsByCategory.get(item.category).push({
+      const categoryId = relationId(item.category);
+      if (categoryId == null) continue;
+      if (!itemsByCategory.has(categoryId)) itemsByCategory.set(categoryId, []);
+      const mergedModifierIds = new Set([
+        ...(categoryModifierIds.get(String(categoryId)) ?? []),
+        ...(itemModifierIds.get(String(item.id)) ?? []),
+      ]);
+      const availableModifiers = [...mergedModifierIds]
+        .map((modifierId) => modifiersById.get(String(modifierId)))
+        .filter(Boolean)
+        .sort((a, b) => a.name.localeCompare(b.name, appConfig.locale));
+
+      itemsByCategory.get(categoryId).push({
         id: item.id,
         name: item.name,
         price: Number(item.price),
         descrizione: item.description ?? '',
         note: item.note ?? '',
-        ingredienti: item.ingredients ?? [],
-        allergeni: item.allergens ?? [],
+        ingredienti: parseJsonArray(item.ingredients),
+        allergeni: parseJsonArray(item.allergens),
         immagine_url: item.image_url ?? '',
+        modifiers: availableModifiers,
       });
     }
     const menu = {};
     for (const cat of categories) {
-      const catItems = itemsByCategory.get(cat.id) ?? [];
+      const catItems = itemsByCategory.get(relationId(cat.id) ?? cat.id) ?? [];
       if (catItems.length > 0) menu[cat.name] = catItems;
     }
     if (Object.keys(menu).length > 0) appConfig.menu = menu;

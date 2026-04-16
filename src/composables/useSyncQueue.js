@@ -35,7 +35,8 @@ export const MAX_ATTEMPTS = 5;
  * @type {Set<string>}
  */
 const SOFT_DELETE_COLLECTIONS = new Set([
-  'venues', 'rooms', 'tables', 'menu_categories', 'menu_items', 'menu_item_modifiers',
+  'venues', 'rooms', 'tables', 'menu_categories', 'menu_items', 'menu_modifiers',
+  'menu_categories_menu_modifiers', 'menu_items_menu_modifiers',
   'payment_methods', 'printers',
   'transactions', 'cash_movements', 'order_items', 'order_item_modifiers',
   'daily_closures', 'daily_closure_by_method',
@@ -231,7 +232,31 @@ const FIELD_RENAME_MAP = {
   splitWays:          'split_ways',
   discountType:       'discount_type',
   discountValue:      'discount_value',
+  menuSource:         'menu_source',
 };
+
+const DIRECTUS_JSON_FIELDS = new Set([
+  'dietary_diets',
+  'dietary_allergens',
+  'ingredients',
+  'allergens',
+  'print_types',
+  'categories',
+]);
+
+const DIRECTUS_RELATION_FIELDS = new Set([
+  'venue',
+  'room',
+  'table',
+  'bill_session',
+  'order',
+  'dish',
+  'order_item',
+  'menu_item',
+  'menu_items_id',
+  'menu_categories_id',
+  'menu_modifiers_id',
+]);
 
 /**
  * Translates a local (camelCase / legacy-named) record payload into the
@@ -325,6 +350,34 @@ function _toDirectusPayload(collection, localPayload) {
 
     // Pass through (already in correct Directus naming or unrecognised field)
     out[key] = value;
+  }
+
+  for (const fieldName of Object.keys(out)) {
+    if (DIRECTUS_RELATION_FIELDS.has(fieldName)) {
+      const value = out[fieldName];
+      if (value && typeof value === 'object') {
+        out[fieldName] = value.id ?? value.value ?? null;
+      }
+    }
+    if (DIRECTUS_JSON_FIELDS.has(fieldName)) {
+      const value = out[fieldName];
+      if (Array.isArray(value)) continue;
+      if (typeof value === 'string') {
+        const trimmed = value.trim();
+        if (trimmed === '') {
+          out[fieldName] = [];
+          continue;
+        }
+        try {
+          const parsed = JSON.parse(trimmed);
+          out[fieldName] = Array.isArray(parsed) ? parsed : [];
+        } catch (_) {
+          out[fieldName] = [value];
+        }
+      } else if (value == null) {
+        out[fieldName] = [];
+      }
+    }
   }
 
   return out;

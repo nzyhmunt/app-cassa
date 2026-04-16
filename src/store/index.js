@@ -41,6 +41,11 @@ export const useAppStore = defineStore('app', () => {
   const menuError = ref(null);
 
   async function loadMenu() {
+    if (config.value?.menuSource === 'directus') {
+      menuLoading.value = false;
+      menuError.value = null;
+      return;
+    }
     menuLoading.value = true;
     menuError.value = null;
     try {

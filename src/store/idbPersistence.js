@@ -13,6 +13,7 @@
 
 import { getDB } from '../composables/useIDB.js';
 import { appConfig } from '../utils/index.js';
+import { newUUIDv7 } from './storeUtils.js';
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
@@ -205,13 +206,6 @@ export async function saveStateToIDB(state) {
     }
     if ('tableMergedInto' in state) {
       const now = new Date().toISOString();
-      const records = Object.entries(state.tableMergedInto ?? {})
-        .filter(([slave, master]) => slave && master)
-        .map(([slave, master]) => ({
-          slave_table: slave,
-          master_table: master,
-          merged_at: now,
-        }));
       // Single transaction spanning both stores: clears table_merge_sessions,
       // writes the new records, and deletes the legacy app_meta blob atomically
       // so a partial failure cannot leave a stale blob that would be resurrected
@@ -220,6 +214,25 @@ export async function saveStateToIDB(state) {
         const tx = db.transaction(['table_merge_sessions', 'app_meta'], 'readwrite');
         const mergeStore = tx.objectStore('table_merge_sessions');
         const appMetaStore = tx.objectStore('app_meta');
+        const existingRecords = await mergeStore.getAll();
+        const existingBySlave = new Map(
+          existingRecords
+            .filter((record) => record?.slave_table)
+            .map((record) => [record.slave_table, record]),
+        );
+        const records = Object.entries(state.tableMergedInto ?? {})
+          .filter(([slave, master]) => slave && master)
+          .map(([slave, master]) => {
+            const existing = existingBySlave.get(slave);
+            return {
+              id: existing?.id ?? newUUIDv7(),
+              slave_table: slave,
+              master_table: master,
+              venue: appConfig.directus?.venueId ?? existing?.venue ?? null,
+              merged_at: existing?.merged_at ?? now,
+              date_updated: now,
+            };
+          });
         await mergeStore.clear();
         await Promise.all(records.map(r => mergeStore.put(JSON.parse(JSON.stringify(r)))));
         await appMetaStore.delete('tableMergedInto');
@@ -671,6 +684,9 @@ export async function clearLocalConfigCacheFromIDB() {
     'app_settings',
     'menu_categories',
     'menu_items',
+    'menu_modifiers',
+    'menu_categories_menu_modifiers',
+    'menu_items_menu_modifiers',
     'menu_item_modifiers',
     'printers',
     'venue_users',
@@ -770,10 +786,7 @@ export async function upsertRecordsIntoIDB(storeName, records) {
   // All other stores (orders, bill_sessions, transactions, order_items, etc.) use 'id'.
   // Note: print_jobs is LOCAL-ONLY (not synced with Directus) — its keyPath 'logId' is
   // intentionally excluded here since no Directus records are ever upserted for it.
-  const KEY_PATH_OVERRIDES = {
-    table_merge_sessions: 'slave_table',
-  };
-  const keyPath = KEY_PATH_OVERRIDES[storeName] ?? 'id';
+  const keyPath = 'id';
 
   const relationId = (value) => {
     if (value == null) return value;
@@ -818,6 +831,64 @@ export async function upsertRecordsIntoIDB(storeName, records) {
       }
       if (normalized.item_uid == null && normalized.itemUid != null) normalized.item_uid = normalized.itemUid;
       if (normalized.itemUid == null && normalized.item_uid != null) normalized.itemUid = normalized.item_uid;
+    } else if (collection === 'table_merge_sessions') {
+      const slave = relationId(normalized.slave_table ?? normalized.slaveTable);
+      const master = relationId(normalized.master_table ?? normalized.masterTable);
+      const venue = relationId(normalized.venue);
+      if (slave != null) {
+        normalized.slave_table = slave;
+        normalized.slaveTable = slave;
+      }
+      if (master != null) {
+        normalized.master_table = master;
+        normalized.masterTable = master;
+      }
+      if (venue != null) normalized.venue = venue;
+    } else if (collection === 'menu_items') {
+      const parseJsonArray = (value) => {
+        if (Array.isArray(value)) return value;
+        if (typeof value === 'string' && value.trim() !== '') {
+          try {
+            const parsed = JSON.parse(value);
+            return Array.isArray(parsed) ? parsed : [];
+          } catch (_) {
+            return [];
+          }
+        }
+        return [];
+      };
+      normalized.ingredients = parseJsonArray(normalized.ingredients);
+      normalized.allergens = parseJsonArray(normalized.allergens);
+    } else if (collection === 'orders') {
+      const parseJsonArray = (value) => {
+        if (Array.isArray(value)) return value;
+        if (typeof value === 'string' && value.trim() !== '') {
+          try {
+            const parsed = JSON.parse(value);
+            return Array.isArray(parsed) ? parsed : [];
+          } catch (_) {
+            return [];
+          }
+        }
+        return [];
+      };
+      normalized.dietary_diets = parseJsonArray(normalized.dietary_diets);
+      normalized.dietary_allergens = parseJsonArray(normalized.dietary_allergens);
+    } else if (collection === 'printers') {
+      const parseJsonArray = (value) => {
+        if (Array.isArray(value)) return value;
+        if (typeof value === 'string' && value.trim() !== '') {
+          try {
+            const parsed = JSON.parse(value);
+            return Array.isArray(parsed) ? parsed : [];
+          } catch (_) {
+            return [];
+          }
+        }
+        return [];
+      };
+      normalized.print_types = parseJsonArray(normalized.print_types);
+      normalized.categories = parseJsonArray(normalized.categories);
     }
     return normalized;
   };
@@ -909,7 +980,8 @@ export async function deleteRecordsFromIDB(storeName, keys) {
  * @param {number|string|null} venueId - venues.id to filter by, or null for no filter.
  * @returns {Promise<{venueRecord:object|null, rooms:Array, tables:Array,
  *                    paymentMethods:Array, printers:Array,
- *                    categories:Array, items:Array}|null>}
+ *                    categories:Array, items:Array, modifiers:Array,
+ *                    categoryModifierLinks:Array, itemModifierLinks:Array}|null>}
  */
 export async function loadConfigFromIDB(venueId) {
   try {
@@ -941,6 +1013,9 @@ export async function loadConfigFromIDB(venueId) {
       allPrinters,
       allCategories,
       allItems,
+      allModifiers,
+      allCategoryModifierLinks,
+      allItemModifierLinks,
     ] = await Promise.all([
       db.getAll('venues'),
       db.getAll('rooms'),
@@ -949,6 +1024,9 @@ export async function loadConfigFromIDB(venueId) {
       db.getAll('printers'),
       db.getAll('menu_categories'),
       db.getAll('menu_items'),
+      db.getAll('menu_modifiers'),
+      db.getAll('menu_categories_menu_modifiers'),
+      db.getAll('menu_items_menu_modifiers'),
     ]);
 
     const venueRecord = venueIdStr != null
@@ -978,6 +1056,9 @@ export async function loadConfigFromIDB(venueId) {
       printers:       byVenueAndStatus(allPrinters),
       categories:     byVenueAndStatus(allCategories),
       items:          byVenueAndStatus(allItems),
+      modifiers:      byVenueAndStatus(allModifiers),
+      categoryModifierLinks: byVenueAndStatus(allCategoryModifierLinks),
+      itemModifierLinks: byVenueAndStatus(allItemModifierLinks),
     };
   } catch (e) {
     console.warn('[IDBPersistence] loadConfigFromIDB failed:', e);
@@ -1003,6 +1084,7 @@ export async function replaceTableMergesInIDB(records) {
     for (const r of records) {
       if (r.slave_table) {
         const { _sync_status: _s, ...clean } = r;
+        if (!clean.id) clean.id = newUUIDv7();
         await tx.store.put(JSON.parse(JSON.stringify(clean)));
       }
     }

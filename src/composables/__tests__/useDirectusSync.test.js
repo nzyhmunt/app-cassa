@@ -282,7 +282,6 @@ describe('reconfigureAndApply()', () => {
       expect(hasDateUpdatedGtFilter(url)).toBe(false);
     }
     expectNoVenueEqFilterForCollection(fetchSpy, 'venues');
-    expectNoVenueEqFilterForCollection(fetchSpy, 'menu_item_modifiers');
   });
 });
 
