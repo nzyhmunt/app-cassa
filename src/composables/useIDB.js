@@ -10,7 +10,7 @@
 import { openDB } from 'idb';
 import { getInstanceName } from '../store/persistence.js';
 
-export const DB_VERSION = 4;
+export const DB_VERSION = 6;
 const DB_NAME_PREFIX = 'app-cassa';
 
 /**
@@ -26,10 +26,19 @@ const DB_NAME_PREFIX = 'app-cassa';
  *               Migrates legacy app_meta.tableMergedInto blob → table_merge_sessions records.
  *  v4 — transactions objectStore re-created with keyPath 'id' (was 'transactionId').
  *               Back-fills `id` from `transactionId` on existing records to preserve data.
+ *  v5 — orders/order_items/order_item_modifiers indexes aligned to Directus FK names
+ *               (`bill_session`, `order`, `order_item`) with backward-compat legacy indexes.
+ *               Existing records are backfilled from legacy camelCase FK fields when needed.
+ *               Added `local_settings` store for device-local preferences to avoid
+ *               collisions with Directus `app_settings` collection cache.
+ *  v6 — table_merge_sessions migrated to keyPath `id` (UUID) and indexed by
+ *               slave_table/master_table/venue/date_updated.
+ *               Added menu_modifiers + junction stores
+ *               (menu_categories_menu_modifiers, menu_items_menu_modifiers).
  *
- * To add a new version (e.g. v5):
- *   1. Increment DB_VERSION to 5.
- *   2. Add a new `if (oldVersion < 5) { ... }` block inside the `upgrade()` callback.
+ * To add a new version (e.g. v7):
+ *   1. Increment DB_VERSION to 7.
+ *   2. Add a new `if (oldVersion < 7) { ... }` block inside the `upgrade()` callback.
  *   3. Only create new ObjectStores or add new indexes — never drop or modify existing ones
  *      unless you also provide a data-migration path for users upgrading from earlier versions.
  *   4. Update this comment block with a description of the new version.
@@ -61,26 +70,76 @@ export function getDB() {
         s.createIndex('date_updated', 'date_updated', { unique: false });
       }
 
-      if (!db.objectStoreNames.contains('orders')) {
+      if (oldVersion < 5 && db.objectStoreNames.contains('orders')) {
+        const oldRecords = await tx.objectStore('orders').getAll();
+        db.deleteObjectStore('orders');
         const s = db.createObjectStore('orders', { keyPath: 'id' });
         s.createIndex('table', 'table', { unique: false });
         s.createIndex('status', 'status', { unique: false });
-        s.createIndex('bill_session', 'billSessionId', { unique: false });
+        s.createIndex('bill_session', 'bill_session', { unique: false });
+        s.createIndex('bill_session_legacy', 'billSessionId', { unique: false });
+        s.createIndex('date_updated', 'date_updated', { unique: false });
+        for (const rec of oldRecords) {
+          if (!rec?.id) continue;
+          if (rec.bill_session == null && rec.billSessionId != null) rec.bill_session = rec.billSessionId;
+          await s.put(rec);
+        }
+      } else if (!db.objectStoreNames.contains('orders')) {
+        const s = db.createObjectStore('orders', { keyPath: 'id' });
+        s.createIndex('table', 'table', { unique: false });
+        s.createIndex('status', 'status', { unique: false });
+        s.createIndex('bill_session', 'bill_session', { unique: false });
+        s.createIndex('bill_session_legacy', 'billSessionId', { unique: false });
         s.createIndex('date_updated', 'date_updated', { unique: false });
       }
 
-      if (!db.objectStoreNames.contains('order_items')) {
+      if (oldVersion < 5 && db.objectStoreNames.contains('order_items')) {
+        const oldRecords = await tx.objectStore('order_items').getAll();
+        db.deleteObjectStore('order_items');
         const s = db.createObjectStore('order_items', { keyPath: 'id' });
-        s.createIndex('order', 'orderId', { unique: false });
+        s.createIndex('order', 'order', { unique: false });
+        s.createIndex('order_legacy', 'orderId', { unique: false });
+        s.createIndex('uid', 'uid', { unique: false });
+        s.createIndex('date_updated', 'date_updated', { unique: false });
+        for (const rec of oldRecords) {
+          if (!rec?.id) continue;
+          if (rec.order == null && rec.orderId != null) rec.order = rec.orderId;
+          await s.put(rec);
+        }
+      } else if (!db.objectStoreNames.contains('order_items')) {
+        const s = db.createObjectStore('order_items', { keyPath: 'id' });
+        s.createIndex('order', 'order', { unique: false });
+        s.createIndex('order_legacy', 'orderId', { unique: false });
         s.createIndex('uid', 'uid', { unique: false });
         s.createIndex('date_updated', 'date_updated', { unique: false });
       }
 
-      if (!db.objectStoreNames.contains('order_item_modifiers')) {
+      if (oldVersion < 5 && db.objectStoreNames.contains('order_item_modifiers')) {
+        const oldRecords = await tx.objectStore('order_item_modifiers').getAll();
+        db.deleteObjectStore('order_item_modifiers');
         const s = db.createObjectStore('order_item_modifiers', { keyPath: 'id' });
-        s.createIndex('order_item', 'orderItemId', { unique: false });
-        s.createIndex('order', 'orderId', { unique: false });
-        s.createIndex('item_uid', 'itemUid', { unique: false });
+        s.createIndex('order_item', 'order_item', { unique: false });
+        s.createIndex('order_item_legacy', 'orderItemId', { unique: false });
+        s.createIndex('order', 'order', { unique: false });
+        s.createIndex('order_legacy', 'orderId', { unique: false });
+        s.createIndex('item_uid', 'item_uid', { unique: false });
+        s.createIndex('item_uid_legacy', 'itemUid', { unique: false });
+        s.createIndex('date_updated', 'date_updated', { unique: false });
+        for (const rec of oldRecords) {
+          if (!rec?.id) continue;
+          if (rec.order_item == null && rec.orderItemId != null) rec.order_item = rec.orderItemId;
+          if (rec.order == null && rec.orderId != null) rec.order = rec.orderId;
+          if (rec.item_uid == null && rec.itemUid != null) rec.item_uid = rec.itemUid;
+          await s.put(rec);
+        }
+      } else if (!db.objectStoreNames.contains('order_item_modifiers')) {
+        const s = db.createObjectStore('order_item_modifiers', { keyPath: 'id' });
+        s.createIndex('order_item', 'order_item', { unique: false });
+        s.createIndex('order_item_legacy', 'orderItemId', { unique: false });
+        s.createIndex('order', 'order', { unique: false });
+        s.createIndex('order_legacy', 'orderId', { unique: false });
+        s.createIndex('item_uid', 'item_uid', { unique: false });
+        s.createIndex('item_uid_legacy', 'itemUid', { unique: false });
         s.createIndex('date_updated', 'date_updated', { unique: false });
       }
 
@@ -136,11 +195,32 @@ export function getDB() {
         s.createIndex('date_updated', 'date_updated', { unique: false });
       }
 
-      // table_merge_sessions: active slave→master table unions (one record per slave).
-      // keyPath is 'slave_table' (UNIQUE client-side key); 'id' is server-generated by Directus.
-      if (!db.objectStoreNames.contains('table_merge_sessions')) {
-        const s = db.createObjectStore('table_merge_sessions', { keyPath: 'slave_table' });
+      if (oldVersion < 6 && db.objectStoreNames.contains('table_merge_sessions')) {
+        const oldRecords = await tx.objectStore('table_merge_sessions').getAll();
+        db.deleteObjectStore('table_merge_sessions');
+        const s = db.createObjectStore('table_merge_sessions', { keyPath: 'id' });
+        s.createIndex('slave_table', 'slave_table', { unique: true });
         s.createIndex('master_table', 'master_table', { unique: false });
+        s.createIndex('venue', 'venue', { unique: false });
+        s.createIndex('date_updated', 'date_updated', { unique: false });
+        for (const rec of oldRecords) {
+          if (!rec) continue;
+          const record = { ...rec };
+          if (!record.id) {
+            if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+              record.id = crypto.randomUUID();
+            } else {
+              record.id = `tm_${Date.now()}_${Math.random().toString(16).slice(2, 10)}`;
+            }
+          }
+          await s.put(record);
+        }
+      } else if (!db.objectStoreNames.contains('table_merge_sessions')) {
+        const s = db.createObjectStore('table_merge_sessions', { keyPath: 'id' });
+        s.createIndex('slave_table', 'slave_table', { unique: true });
+        s.createIndex('master_table', 'master_table', { unique: false });
+        s.createIndex('venue', 'venue', { unique: false });
+        s.createIndex('date_updated', 'date_updated', { unique: false });
       }
 
       // Migrate existing tableMergedInto blob from app_meta (v2 → v3).
@@ -159,7 +239,10 @@ export function getDB() {
             const mergeStore = tx.objectStore('table_merge_sessions');
             for (const [slave, master] of Object.entries(legacy.value)) {
               if (slave && master) {
-                await mergeStore.put({ slave_table: slave, master_table: master, merged_at: now });
+                const id = (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
+                  ? crypto.randomUUID()
+                  : `tm_${Date.now()}_${Math.random().toString(16).slice(2, 10)}`;
+                await mergeStore.put({ id, slave_table: slave, master_table: master, merged_at: now });
               }
             }
             await tx.objectStore('app_meta').delete('tableMergedInto');
@@ -237,6 +320,25 @@ export function getDB() {
         const s = db.createObjectStore('menu_item_modifiers', { keyPath: 'id' });
         s.createIndex('menu_item', 'menu_item', { unique: false });
       }
+      if (!db.objectStoreNames.contains('menu_modifiers')) {
+        const s = db.createObjectStore('menu_modifiers', { keyPath: 'id' });
+        s.createIndex('venue', 'venue', { unique: false });
+        s.createIndex('date_updated', 'date_updated', { unique: false });
+      }
+      if (!db.objectStoreNames.contains('menu_categories_menu_modifiers')) {
+        const s = db.createObjectStore('menu_categories_menu_modifiers', { keyPath: 'id' });
+        s.createIndex('menu_categories_id', 'menu_categories_id', { unique: false });
+        s.createIndex('menu_modifiers_id', 'menu_modifiers_id', { unique: false });
+        s.createIndex('venue', 'venue', { unique: false });
+        s.createIndex('date_updated', 'date_updated', { unique: false });
+      }
+      if (!db.objectStoreNames.contains('menu_items_menu_modifiers')) {
+        const s = db.createObjectStore('menu_items_menu_modifiers', { keyPath: 'id' });
+        s.createIndex('menu_items_id', 'menu_items_id', { unique: false });
+        s.createIndex('menu_modifiers_id', 'menu_modifiers_id', { unique: false });
+        s.createIndex('venue', 'venue', { unique: false });
+        s.createIndex('date_updated', 'date_updated', { unique: false });
+      }
       if (!db.objectStoreNames.contains('printers')) {
         db.createObjectStore('printers', { keyPath: 'id' });
       }
@@ -256,9 +358,35 @@ export function getDB() {
 
       // ── Local-only metadata stores ─────────────────────────────────────────
 
-      // app_settings: user-facing settings (sounds, menuUrl, etc.)
+      // app_settings: Directus collection cache (remote records)
       if (!db.objectStoreNames.contains('app_settings')) {
         db.createObjectStore('app_settings', { keyPath: 'id' });
+      }
+
+      // local_settings: device-local settings (sounds, menuUrl, preventScreenLock, ...)
+      if (!db.objectStoreNames.contains('local_settings')) {
+        db.createObjectStore('local_settings', { keyPath: 'id' });
+      }
+
+      if (
+        oldVersion < 5 &&
+        db.objectStoreNames.contains('app_settings') &&
+        db.objectStoreNames.contains('local_settings')
+      ) {
+        try {
+          const legacyLocalSettings = await tx.objectStore('app_settings').get('local');
+          if (legacyLocalSettings) {
+            await tx.objectStore('local_settings').put(legacyLocalSettings);
+            await tx.objectStore('app_settings').delete('local');
+          }
+        } catch (error) {
+          console.warn('[useIDB] Failed to migrate legacy local settings from app_settings to local_settings during v5 upgrade (non-fatal, local settings may reset to defaults).', {
+            dbName,
+            oldVersion,
+            newVersion: DB_VERSION,
+            error,
+          });
+        }
       }
 
       // app_meta: ephemeral UI state that doesn't map directly to Directus

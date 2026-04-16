@@ -35,7 +35,8 @@ export const MAX_ATTEMPTS = 5;
  * @type {Set<string>}
  */
 const SOFT_DELETE_COLLECTIONS = new Set([
-  'venues', 'rooms', 'tables', 'menu_categories', 'menu_items', 'menu_item_modifiers',
+  'venues', 'rooms', 'tables', 'menu_categories', 'menu_items', 'menu_modifiers',
+  'menu_categories_menu_modifiers', 'menu_items_menu_modifiers',
   'payment_methods', 'printers',
   'transactions', 'cash_movements', 'order_items', 'order_item_modifiers',
   'daily_closures', 'daily_closure_by_method',
@@ -55,7 +56,7 @@ const DOMAIN_STATUS_COLLECTIONS = new Set([
  * @type {Set<string>}
  */
 const LOCAL_ONLY_FIELDS = new Set([
-  '_sync_status', 'orderItems', 'modifiers',
+  '_sync_status',
 ]);
 
 // ── Core queue helpers ───────────────────────────────────────────────────────
@@ -231,7 +232,31 @@ const FIELD_RENAME_MAP = {
   splitWays:          'split_ways',
   discountType:       'discount_type',
   discountValue:      'discount_value',
+  menuSource:         'menu_source',
 };
+
+const DIRECTUS_JSON_FIELDS = new Set([
+  'dietary_diets',
+  'dietary_allergens',
+  'ingredients',
+  'allergens',
+  'print_types',
+  'categories',
+]);
+
+const DIRECTUS_RELATION_FIELDS = new Set([
+  'venue',
+  'room',
+  'table',
+  'bill_session',
+  'order',
+  'dish',
+  'order_item',
+  'menu_item',
+  'menu_items_id',
+  'menu_categories_id',
+  'menu_modifiers_id',
+]);
 
 /**
  * Translates a local (camelCase / legacy-named) record payload into the
@@ -279,6 +304,37 @@ function _toDirectusPayload(collection, localPayload) {
       continue;
     }
 
+    // Special: local nested orderItems[] -> Directus nested order_items[]
+    if (key === 'orderItems' && collection === 'orders' && Array.isArray(value)) {
+      out.order_items = value.map((item) => {
+        const directItem = _toDirectusPayload('order_items', item);
+        // Keep deterministic PKs for offline-first create/update.
+        if (!directItem.id && item?.id) directItem.id = item.id;
+        // order is resolved by parent relation in nested create; keep only when explicitly present.
+        if (directItem.order == null && item?.orderId) directItem.order = item.orderId;
+        if (Array.isArray(item?.modifiers)) {
+          directItem.order_item_modifiers = item.modifiers.map((mod) => {
+            const directMod = _toDirectusPayload('order_item_modifiers', mod);
+            if (!directMod.id && mod?.id) directMod.id = mod.id;
+            if (directMod.order_item == null && item?.id) directMod.order_item = item.id;
+            const resolvedOrderId = item?.orderId ?? localPayload?.id;
+            if (directMod.order == null && resolvedOrderId) {
+              directMod.order = resolvedOrderId;
+            }
+            return directMod;
+          });
+        }
+        return directItem;
+      });
+      continue;
+    }
+
+    // Special: local order_item modifiers[] -> Directus order_item_modifiers[]
+    if (key === 'modifiers' && collection === 'order_items' && Array.isArray(value)) {
+      out.order_item_modifiers = value.map((mod) => _toDirectusPayload('order_item_modifiers', mod));
+      continue;
+    }
+
     // Special: `time` → `order_time` only for the orders collection
     if (key === 'time' && collection === 'orders') {
       out.order_time = value;
@@ -294,6 +350,34 @@ function _toDirectusPayload(collection, localPayload) {
 
     // Pass through (already in correct Directus naming or unrecognised field)
     out[key] = value;
+  }
+
+  for (const fieldName of Object.keys(out)) {
+    if (DIRECTUS_RELATION_FIELDS.has(fieldName)) {
+      const value = out[fieldName];
+      if (value && typeof value === 'object') {
+        out[fieldName] = value.id ?? value.value ?? null;
+      }
+    }
+    if (DIRECTUS_JSON_FIELDS.has(fieldName)) {
+      const value = out[fieldName];
+      if (Array.isArray(value)) continue;
+      if (typeof value === 'string') {
+        const trimmed = value.trim();
+        if (trimmed === '') {
+          out[fieldName] = [];
+          continue;
+        }
+        try {
+          const parsed = JSON.parse(trimmed);
+          out[fieldName] = Array.isArray(parsed) ? parsed : [];
+        } catch (_) {
+          out[fieldName] = [value];
+        }
+      } else if (value == null) {
+        out[fieldName] = [];
+      }
+    }
   }
 
   return out;

@@ -82,7 +82,10 @@ trigger DB o logica equivalente.
 | `payment_methods`           | Metodi di pagamento configurati                                   | `appConfig.paymentMethods`   |
 | `menu_categories`           | Categorie del menu (Antipasti, Primi, …)                          | `appConfig.menu` (chiavi)    |
 | `menu_items`                | Voci del menu (piatti, bevande, ecc.)                             | `appConfig.menu[categoria]`  |
-| `menu_item_modifiers`       | Modificatori/varianti disponibili per voce menu                   | (configurazione menu)        |
+| `menu_modifiers`            | Pool globale modificatori menu (riusabile)                        | (configurazione menu)        |
+| `menu_categories_menu_modifiers` | Junction M2M categorie ↔ modificatori                       | (configurazione menu)        |
+| `menu_items_menu_modifiers` | Junction M2M voci ↔ modificatori                                  | (configurazione menu)        |
+| `menu_item_modifiers`       | **DEPRECATA** (vecchio modello 1:N per-voce)                      | (legacy, non usata nel sync) |
 | `bill_sessions`             | Sessione di occupazione tavolo (un'apertura tavolo)               | `app_meta.tableCurrentBillSession` |
 | `orders`                    | Comande inviate dal tavolo                                        | ObjectStore `orders`         |
 | `order_items`               | Righe singole di una comanda                                      | `order.orderItems`           |
@@ -1148,11 +1151,11 @@ WHERE o."table" = :table_id
 ### 5.2c Tavoli uniti (`tableMergedInto`)
 
 La funzione **Unisci** in App Cassa permette di accorpare il conto di due tavoli occupati.
-L'unione è rappresentata in memoria in store dallo stato reattivo `tableMergedInto` (oggetto `{ slaveTableId: masterTableId }`), persistito nell'ObjectStore IndexedDB dedicato **`table_merge_sessions`** (DB_VERSION = 4). La chiave `app_meta.tableMergedInto` è **legacy** e viene letta solo come fallback di compatibilità durante il primo avvio dopo una migrazione v2 → v3 che non avesse popolato `table_merge_sessions`.
+L'unione è rappresentata in memoria in store dallo stato reattivo `tableMergedInto` (oggetto `{ slaveTableId: masterTableId }`), persistito nell'ObjectStore IndexedDB dedicato **`table_merge_sessions`** (DB_VERSION = 6). La chiave `app_meta.tableMergedInto` è **legacy** e viene letta solo come fallback di compatibilità durante il primo avvio dopo una migrazione v2 → v3 che non avesse popolato `table_merge_sessions`.
 
-La collection `table_merge_sessions` viene sincronizzata da Directus ad ogni pull globale (startup + ogni 5 min), propagando lo stato di unione tra tutti i dispositivi in rete; in `useDirectusSync.js` non è però gestita come voce di `GLOBAL_COLLECTIONS`, bensì con logica dedicata in `_runGlobalPull()` e semantica di full-replace.
+La collection `table_merge_sessions` viene sincronizzata da Directus ad ogni pull globale (startup + ogni 5 min), propagando lo stato di unione tra tutti i dispositivi in rete; è inclusa nel ciclo standard `GLOBAL_COLLECTIONS`.
 
-> **Nota schema**: `table_merge_sessions` non ha il campo `venue` né `date_updated`; il pull usa un fetch completo senza filtro incrementale né filtro per venue (la collection è piccola, al massimo un record per tavolo slave attivo). Questo è gestito tramite `COLLECTION_QUIRKS.table_merge_sessions` in `useDirectusSync.js`.
+> **Nota schema**: `table_merge_sessions` espone `venue` e `date_updated`, quindi supporta filtro tenant e pull incrementale come le altre collection operative/configurazione.
 
 Semantica:
 - Al momento dell'unione (`mergeTableOrders`), vengono fisicamente spostate sul tavolo master **solo le comande appartenenti alla sessione di conto attiva dello slave** (`orders[]."table" = masterTableId` per gli ordini della current bill session). Il conto del master assorbe immediatamente queste voci attive.
@@ -1263,15 +1266,16 @@ ObjectStore: bill_sessions
 
 ObjectStore: orders
   keyPath:  id (UUIDv7)
-  indexes:  [table, status, bill_session, date_updated]
+  indexes:  [table, status, bill_session, bill_session_legacy, date_updated]
 
 ObjectStore: order_items
   keyPath:  id (UUIDv7)
-  indexes:  [order, uid, date_updated]   -- uid+order usati per lookup logico (vincolo UNIQUE)
+  indexes:  [order, order_legacy, uid, date_updated]   -- uid+order usati per lookup logico (vincolo UNIQUE)
 
 ObjectStore: order_item_modifiers
   keyPath:  id (UUIDv7)
-  indexes:  [order_item, order, item_uid, date_updated]  -- order_item usato come FK singola verso order_items(id)
+  indexes:  [order_item, order_item_legacy, order, order_legacy, item_uid, item_uid_legacy, date_updated]
+            -- indici legacy mantenuti per compatibilità con payload camelCase storici
 
 ObjectStore: transactions
   keyPath:  id (UUIDv7)
@@ -1304,6 +1308,9 @@ ObjectStore: tables           keyPath: id    indexes: [room, venue]
 ObjectStore: payment_methods  keyPath: id
 ObjectStore: menu_categories  keyPath: id    indexes: [venue]
 ObjectStore: menu_items       keyPath: id    indexes: [category]
+ObjectStore: menu_modifiers   keyPath: id    indexes: [venue, date_updated]
+ObjectStore: menu_categories_menu_modifiers keyPath: id indexes: [menu_categories_id, menu_modifiers_id, venue, date_updated]
+ObjectStore: menu_items_menu_modifiers      keyPath: id indexes: [menu_items_id, menu_modifiers_id, venue, date_updated]
 ObjectStore: menu_item_modifiers  keyPath: id  indexes: [menu_item]
 ObjectStore: printers         keyPath: id
 ObjectStore: venue_users      keyPath: id    indexes: [venue, role, status]

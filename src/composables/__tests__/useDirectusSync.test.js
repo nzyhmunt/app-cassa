@@ -282,7 +282,6 @@ describe('reconfigureAndApply()', () => {
       expect(hasDateUpdatedGtFilter(url)).toBe(false);
     }
     expectNoVenueEqFilterForCollection(fetchSpy, 'venues');
-    expectNoVenueEqFilterForCollection(fetchSpy, 'menu_item_modifiers');
   });
 });
 
@@ -588,8 +587,8 @@ describe('pull timestamp persistence', () => {
 });
 
 describe('global pull config hydration', () => {
-  it('uses full pull on first global hydration even when tables last_pull_ts is stale', async () => {
-    // Simulate stale incremental cursor that would otherwise exclude older rows.
+  it('uses deep venue fetch on first global hydration even when legacy cursors are stale', async () => {
+    // Legacy cursors must not influence the deep bootstrap endpoint.
     await saveLastPullTsToIDB('tables', '2099-01-01T00:00:00.000Z');
 
     const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation(() => Promise.resolve(directusListResponse([])));
@@ -600,24 +599,21 @@ describe('global pull config hydration', () => {
     await flushPromises(LONG_FLUSH_ROUNDS);
     sync.stopSync();
 
-    const tableCalls = fetchSpy.mock.calls
+    const venueCalls = fetchSpy.mock.calls
       .map(([url]) => String(url))
-      .filter(url => url.includes('/items/tables'));
-    expect(tableCalls.length).toBeGreaterThan(0);
-    for (const url of tableCalls) {
-      expect(hasDateUpdatedGtFilter(url)).toBe(false);
-    }
+      .filter(url => url.includes('/items/venues'));
+    expect(venueCalls.every(url => hasDateUpdatedGtFilter(url) === false)).toBe(true);
   });
 
-  it('keeps full-hydration mode for the next cycle if a global collection pull fails', async () => {
+  it('retries deep venue bootstrap on the next cycle if the first global fetch fails', async () => {
     await saveLastPullTsToIDB('tables', '2024-01-01T00:00:00.000Z');
     vi.useFakeTimers();
 
-    let tableReqCount = 0;
+    let venueReqCount = 0;
     const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation((url) => {
-      if (String(url).includes('/items/tables')) {
-        tableReqCount += 1;
-        if (tableReqCount === 1) return Promise.reject(new Error('temporary tables failure'));
+      if (String(url).includes('/items/venues')) {
+        venueReqCount += 1;
+        if (venueReqCount === 1) return Promise.reject(new Error('temporary deep venue failure'));
       }
       return Promise.resolve(directusListResponse([]));
     });
@@ -634,11 +630,11 @@ describe('global pull config hydration', () => {
       vi.useRealTimers();
     }
 
-    const tableCalls = fetchSpy.mock.calls
+    const venueCalls = fetchSpy.mock.calls
       .map(([url]) => String(url))
-      .filter(url => url.includes('/items/tables'));
-    expect(tableCalls.length).toBeGreaterThanOrEqual(2);
-    for (const url of tableCalls) {
+      .filter(url => url.includes('/items/venues'));
+    expect(venueCalls.length).toBeGreaterThanOrEqual(2);
+    for (const url of venueCalls) {
       expect(hasDateUpdatedGtFilter(url)).toBe(false);
     }
   });
@@ -648,26 +644,24 @@ describe('global pull config hydration', () => {
     const applySpy = vi.spyOn(utils, 'applyDirectusConfigToAppConfig');
 
     vi.spyOn(global, 'fetch').mockImplementation((url) => {
-      if (String(url).includes('/items/tables')) {
-        return Promise.reject(new Error('temporary tables failure'));
+      if (String(url).includes('/items/venues')) {
+        return Promise.reject(new Error('temporary deep venue failure'));
       }
       return Promise.resolve(directusListResponse([]));
     });
 
     const sync = useDirectusSync();
-    const store = makeStore({ config: {} });
-    sync.startSync({ appType: 'cucina', store });
-    await flushPromises(LONG_FLUSH_ROUNDS);
-    sync.stopSync();
+    const result = await sync.reconfigureAndApply();
+    expect(result.ok).toBe(false);
 
     expect(applySpy).not.toHaveBeenCalled();
   });
 
-  it('does not clear table merges when table_merge_sessions fetch fails', async () => {
+  it('does not clear table merges when deep venue fetch fails', async () => {
     await replaceTableMergesInIDB([{ id: 'm1', slave_table: 'T2', master_table: 'T1' }]);
 
     vi.spyOn(global, 'fetch').mockImplementation((url) => {
-      if (String(url).includes('/items/table_merge_sessions')) {
+      if (String(url).includes('/items/venues')) {
         return Promise.reject(new Error('table merge fetch failed'));
       }
       return Promise.resolve(directusListResponse([]));

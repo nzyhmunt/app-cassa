@@ -525,7 +525,7 @@ describe('clearAllStateFromIDB()', () => {
     expect(directusRecord._type).toBe('venue_user');
   });
 
-  it('clears app_settings', async () => {
+  it('clears local_settings', async () => {
     await saveSettingsToIDB({ menuUrl: 'https://example.com', sounds: true });
     await clearAllStateFromIDB();
     const settings = await loadSettingsFromIDB();
@@ -543,12 +543,13 @@ describe('clearLocalConfigCacheFromIDB()', () => {
       db.put('rooms', { id: 'room_1', venue: 1 }),
       db.put('tables', { id: 'T1', venue: 1, room: 'room_1' }),
       db.put('payment_methods', { id: 'cash', label: 'Contanti' }),
+      db.put('app_settings', { id: 99, venue: 1, device_key: 'kiosk-1', sounds: true }),
       db.put('menu_categories', { id: 'cat_1', venue: 1, name: 'Primi' }),
       db.put('menu_items', { id: 'item_1', category: 'cat_1', name: 'Pasta' }),
       db.put('menu_item_modifiers', { id: 'mod_1', menu_item: 'item_1' }),
       db.put('printers', { id: 'prn_1', name: 'Stampante' }),
       db.put('venue_users', { id: 'vu_1', _type: 'venue_user' }),
-      db.put('table_merge_sessions', { slave_table: 'T2', master_table: 'T1' }),
+      db.put('table_merge_sessions', { id: 'tm_1', slave_table: 'T2', master_table: 'T1' }),
       db.put('app_meta', { id: 'last_pull_ts:venues', value: '2025-01-01T00:00:00.000Z' }),
       db.put('app_meta', { id: 'auth:userId', value: 'u1' }),
     ]);
@@ -559,6 +560,10 @@ describe('clearLocalConfigCacheFromIDB()', () => {
     expect(await db.getAll('rooms')).toEqual([]);
     expect(await db.getAll('tables')).toEqual([]);
     expect(await db.getAll('payment_methods')).toEqual([]);
+    // app_settings is preserved by this reset; the device-local store is local_settings.
+    expect(await db.getAll('app_settings')).toEqual([
+      { id: 99, venue: 1, device_key: 'kiosk-1', sounds: true },
+    ]);
     expect(await db.getAll('menu_categories')).toEqual([]);
     expect(await db.getAll('menu_items')).toEqual([]);
     expect(await db.getAll('menu_item_modifiers')).toEqual([]);
