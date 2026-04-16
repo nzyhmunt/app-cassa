@@ -364,6 +364,16 @@ export const appConfig = {
 };
 ```
 
+### Sincronizzazione Directus — applicazione completa post-salvataggio
+
+Nel modale impostazioni (sezione **Sincronizzazione Directus**), dopo il pulsante **Salva** viene ora mostrata una conferma operativa che permette di:
+
+- avviare una **riapplicazione completa** della configurazione da Directus;
+- scegliere se **svuotare prima tutta la cache configurazione locale** (venues/rooms/tables/menu/printers/venue_users + cursori `last_pull_ts:*`);
+- visualizzare nel modale un **log step-by-step** delle operazioni (pull collezioni, idratazione, applicazione) con dettaglio errori.
+
+Questa procedura è pensata per i casi di riconfigurazione sostanziale (nuovo endpoint/token/venue) e forza un pull globale completo prima di applicare la nuova configurazione all'app.
+
 ---
 
 ## Stampa Comande (ESC/POS)

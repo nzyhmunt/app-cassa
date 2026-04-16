@@ -499,7 +499,9 @@ async function _runPull() {
 
 function _emitProgress(onProgress, payload) {
   if (typeof onProgress === 'function') {
-    try { onProgress(payload); } catch (_) { /* best-effort */ }
+    try { onProgress(payload); } catch (e) {
+      console.warn('[DirectusSync] onProgress callback error:', e);
+    }
   }
 }
 

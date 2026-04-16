@@ -466,6 +466,7 @@ function saveConfig() {
   _savedSnapshot.value = JSON.stringify({ ...form });
   connectionStatus.value = 'idle';
   showReconfigureModal.value = true;
+  reconfigureLogSeq = 0;
   reconfigureLogs.value = [];
   _appendReconfigureLog({ level: 'info', message: 'Configurazione salvata in locale.' });
   if (!form.enabled) {

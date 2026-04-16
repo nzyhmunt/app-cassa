@@ -285,10 +285,13 @@ const _defaultAppConfigSnapshot = JSON.parse(JSON.stringify(appConfig));
  * @param {{ keepDirectusConfig?: boolean }} [opts]
  */
 export function resetAppConfigFromDefaults({ keepDirectusConfig = true } = {}) {
-  const directusConfig = keepDirectusConfig ? JSON.parse(JSON.stringify(appConfig.directus ?? {})) : null;
+  const hasDirectusConfig = Object.prototype.hasOwnProperty.call(appConfig, 'directus');
+  const directusConfig = (keepDirectusConfig && hasDirectusConfig)
+    ? JSON.parse(JSON.stringify(appConfig.directus))
+    : null;
   const clonedDefaults = JSON.parse(JSON.stringify(_defaultAppConfigSnapshot));
   Object.assign(appConfig, clonedDefaults);
-  if (keepDirectusConfig) appConfig.directus = directusConfig;
+  if (keepDirectusConfig && hasDirectusConfig) appConfig.directus = directusConfig;
 }
 
 /**
