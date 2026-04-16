@@ -769,7 +769,7 @@ function _extractModifierTree(venueRecord, menuSource) {
 }
 
 async function _fanOutVenueTreeToIDB(venueRecord, { menuSource }) {
-  if (!venueRecord || typeof venueRecord !== 'object' || Array.isArray(venueRecord)) return {};
+  if (!venueRecord || Array.isArray(venueRecord) || typeof venueRecord !== 'object') return {};
 
   const {
     categories,
