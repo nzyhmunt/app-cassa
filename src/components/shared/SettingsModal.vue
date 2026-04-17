@@ -207,6 +207,7 @@
 import { ref, computed } from 'vue';
 import { Settings, X, RefreshCw, RotateCcw, Users, ShieldCheck, ShieldAlert, KeyRound, Printer } from 'lucide-vue-next';
 import { useSettings } from '../../composables/useSettings.js';
+import { appConfig } from '../../utils/index.js';
 import UserManagementModal from '../UserManagementModal.vue';
 import { useAuth } from '../../composables/useAuth.js';
 import DirectusSyncSettings from './DirectusSyncSettings.vue';
@@ -234,12 +235,12 @@ const keyboardPositionOptions = [
   { value: 'right',    label: 'Destra' },
 ];
 
-/** Printers configured in reactive runtime config that can receive pre_bill jobs.
+/** Printers configured in appConfig that can receive pre_bill jobs.
  * Includes both printers that explicitly list 'pre_bill' in printTypes
  * AND catch-all printers (printTypes absent or empty), consistent with
  * how getPrintersForType() routes jobs and the README documentation. */
 const preBillPrinters = computed(() => {
-  const printers = store.config?.printers ?? [];
+  const printers = appConfig.printers ?? [];
   return printers.filter(p => {
     if (typeof p?.id !== 'string' || !p.id.trim()) return false;
     if (!p?.url) return false;
