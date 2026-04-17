@@ -353,8 +353,6 @@ export const useOrderStore = defineStore('orders', () => {
     if (!order.noteVisibility) order.noteVisibility = { cassa: true, sala: true, cucina: true };
 
     orders.value.push(order);
-    saveStateToIDB({ orders: orders.value })
-      .catch((err) => console.warn('[Store] Failed to persist orders:', err));
     enqueue('orders', 'create', order.id, order);
   }
 
