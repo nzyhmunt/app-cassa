@@ -1,6 +1,6 @@
 import { ref, watch, onUnmounted } from 'vue';
 import { useAppStore } from '../store/index.js';
-import { KEYBOARD_POSITIONS, DEFAULT_SETTINGS } from '../utils/index.js';
+import { appConfig, KEYBOARD_POSITIONS, DEFAULT_SETTINGS } from '../utils/index.js';
 import { isWakeLockSupported } from './useWakeLock.js';
 import { useAuth } from './useAuth.js';
 import { saveSettingsToIDB, deleteDatabase } from '../store/persistence/operations.js';
@@ -70,6 +70,8 @@ export function useSettings(props, emit) {
       store.sounds = newVal.sounds;
       store.menuUrl = newVal.menuUrl;
       store.menuSource = newVal.menuSource === 'json' ? 'json' : 'directus';
+      appConfig.menuUrl = store.menuUrl;
+      appConfig.menuSource = store.menuSource;
       if (store.menuSource !== 'json') {
         store.menuError = null;
         store.menuLoading = false;
@@ -109,7 +111,7 @@ export function useSettings(props, emit) {
     } catch (e) {
       console.warn('[Settings] Failed to complete nuclear database reset - data may not be fully cleared:', e);
       if (typeof window !== 'undefined' && typeof window.alert === 'function') {
-        window.alert('Reset bloccato: chiudi le altre schede/app aperte su questo dispositivo e riprova.');
+        window.alert('Reset blocked: close other tabs/apps open on this device and try again.');
       }
       return;
     }

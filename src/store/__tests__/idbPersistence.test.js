@@ -368,6 +368,26 @@ describe('loadStateFromIDB() — bill_sessions hydration', () => {
     expect(loaded.tableCurrentBillSession.T3.billSessionId).toBe('legacy_sess');
   });
 
+  it('normalizes legacy app_meta string values into session objects', async () => {
+    await saveStateToIDB({
+      orders: [], transactions: [], cashBalance: 0, cashMovements: [],
+      dailyClosures: [], printLog: [],
+      tableCurrentBillSession: { T9: 'legacy_session_id' },
+      tableMergedInto: {}, tableOccupiedAt: {},
+      billRequestedTables: new Set(),
+    });
+
+    const loaded = await loadStateFromIDB();
+    expect(loaded.tableCurrentBillSession.T9).toEqual({
+      billSessionId: 'legacy_session_id',
+      table: 'T9',
+      status: 'open',
+      adults: 0,
+      children: 0,
+      opened_at: null,
+    });
+  });
+
   it('merges multiple open sessions for different tables', async () => {
     const { getDB } = await import('../../composables/useIDB.js');
     const db = await getDB();

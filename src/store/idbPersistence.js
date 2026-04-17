@@ -39,6 +39,45 @@ async function _replaceAll(db, storeName, records) {
   await tx.done;
 }
 
+function _normalizeTableCurrentBillSession(rawSessions) {
+  if (!rawSessions || typeof rawSessions !== 'object' || Array.isArray(rawSessions)) return {};
+
+  const normalized = {};
+  for (const [table, rawSession] of Object.entries(rawSessions)) {
+    if (!table) continue;
+
+    if (typeof rawSession === 'string' && rawSession.trim() !== '') {
+      normalized[table] = {
+        billSessionId: rawSession,
+        table,
+        status: 'open',
+        adults: 0,
+        children: 0,
+        opened_at: null,
+      };
+      continue;
+    }
+
+    if (!rawSession || typeof rawSession !== 'object') continue;
+    const billSessionId = typeof rawSession.billSessionId === 'string' && rawSession.billSessionId.trim() !== ''
+      ? rawSession.billSessionId
+      : null;
+    if (!billSessionId) continue;
+
+    normalized[table] = {
+      ...rawSession,
+      billSessionId,
+      table: typeof rawSession.table === 'string' && rawSession.table.trim() !== '' ? rawSession.table : table,
+      status: typeof rawSession.status === 'string' ? rawSession.status : 'open',
+      adults: Number.isFinite(rawSession.adults) ? rawSession.adults : 0,
+      children: Number.isFinite(rawSession.children) ? rawSession.children : 0,
+      opened_at: rawSession.opened_at ?? null,
+    };
+  }
+
+  return normalized;
+}
+
 // ── Load ──────────────────────────────────────────────────────────────────────
 
 /**
@@ -83,7 +122,7 @@ export async function loadStateFromIDB() {
 
     // H1: Reconstruct tableCurrentBillSession from the dedicated bill_sessions ObjectStore
     // for any open sessions stored there (e.g. synced from Directus).
-    let tableCurrentBillSession = tableCurrentBillSessionRecord?.value ?? {};
+    let tableCurrentBillSession = _normalizeTableCurrentBillSession(tableCurrentBillSessionRecord?.value ?? {});
     if (billSessions.length > 0) {
       const fromIDB = {};
       for (const s of billSessions) {

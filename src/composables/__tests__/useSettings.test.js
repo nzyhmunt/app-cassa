@@ -6,6 +6,7 @@ import { useSettings } from '../useSettings.js';
 import { useAppStore } from '../../store/index.js';
 import { resolveStorageKeys, getInstanceName } from '../../store/persistence.js';
 import { getPwaDismissKey } from '../usePwaInstall.js';
+import { appConfig } from '../../utils/index.js';
 
 vi.mock('../useDirectusClient.js', () => ({
   clearDirectusConfigFromStorage: vi.fn().mockResolvedValue(undefined),
@@ -149,26 +150,38 @@ describe('useSettings()', () => {
   it('updates store.menuUrl immediately when settings.menuUrl changes', async () => {
     const props = reactive({ modelValue: true });
     const emit = vi.fn();
+    const originalMenuUrl = appConfig.menuUrl;
 
-    const { result, wrapper } = withSetup(() => useSettings(props, emit));
+    try {
+      const { result, wrapper } = withSetup(() => useSettings(props, emit));
 
-    result.settings.value.menuUrl = 'https://new-menu.example.com/menu.json';
-    await nextTick();
+      result.settings.value.menuUrl = 'https://new-menu.example.com/menu.json';
+      await nextTick();
 
-    expect(store.menuUrl).toBe('https://new-menu.example.com/menu.json');
-    wrapper.unmount();
+      expect(store.menuUrl).toBe('https://new-menu.example.com/menu.json');
+      expect(appConfig.menuUrl).toBe('https://new-menu.example.com/menu.json');
+      wrapper.unmount();
+    } finally {
+      appConfig.menuUrl = originalMenuUrl;
+    }
   });
 
   it('updates store.menuSource immediately when the setting changes', async () => {
     const props = reactive({ modelValue: true });
     const emit = vi.fn();
+    const originalMenuSource = appConfig.menuSource;
 
-    const { result, wrapper } = withSetup(() => useSettings(props, emit));
+    try {
+      const { result, wrapper } = withSetup(() => useSettings(props, emit));
 
-    result.settings.value.menuSource = 'json';
-    await nextTick();
-    expect(store.menuSource).toBe('json');
-    wrapper.unmount();
+      result.settings.value.menuSource = 'json';
+      await nextTick();
+      expect(store.menuSource).toBe('json');
+      expect(appConfig.menuSource).toBe('json');
+      wrapper.unmount();
+    } finally {
+      appConfig.menuSource = originalMenuSource;
+    }
   });
 
   it('updates store.preventScreenLock immediately when the setting changes', async () => {
