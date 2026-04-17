@@ -80,6 +80,8 @@ export function resetDirectusClient() {
  *
  * Config is stored as `app_meta.id = "directus_config"`:
  *   { enabled, url, staticToken, venueId }
+ *
+ * @returns {Promise<void>}
  */
 const DIRECTUS_CONFIG_RECORD_ID = 'directus_config';
 
@@ -93,65 +95,61 @@ function _normalizeDirectusConfig(saved) {
   };
 }
 
-export function loadDirectusConfigFromStorage() {
-  Promise.resolve()
-    .then(async () => {
-      const db = await getDB();
-      const saved = await db.get('app_meta', DIRECTUS_CONFIG_RECORD_ID);
-      if (!saved || typeof saved !== 'object') return;
-      appConfig.directus = _normalizeDirectusConfig(saved.value ?? saved);
-      directusEnabledRef.value = appConfig.directus.enabled;
-      resetDirectusClient();
-    })
-    .catch((e) => {
-      console.warn('[DirectusClient] Failed to load config from IDB:', e);
-    });
+export async function loadDirectusConfigFromStorage() {
+  const db = await getDB();
+  const saved = await db.get('app_meta', DIRECTUS_CONFIG_RECORD_ID);
+  if (!saved || typeof saved !== 'object') return;
+  appConfig.directus = _normalizeDirectusConfig(saved.value ?? saved);
+  directusEnabledRef.value = appConfig.directus.enabled;
+  resetDirectusClient();
 }
 
 /**
  * Persists the current `appConfig.directus` to IndexedDB and rebuilds
  * the SDK client singleton.  Call this after the user saves new credentials.
+ *
+ * @returns {Promise<void>}
  */
-export function saveDirectusConfigToStorage() {
-  Promise.resolve()
-    .then(async () => {
-      const cfg = _normalizeDirectusConfig(appConfig.directus);
-      const db = await getDB();
-      await db.put('app_meta', { id: DIRECTUS_CONFIG_RECORD_ID, value: cfg });
-      directusEnabledRef.value = cfg.enabled;
-      resetDirectusClient();
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent?.(new CustomEvent('directus-config-updated'));
-      }
-    })
-    .catch((e) => {
-      console.warn('[DirectusClient] Failed to save config to IDB:', e);
-    });
+export async function saveDirectusConfigToStorage() {
+  const cfg = _normalizeDirectusConfig(appConfig.directus);
+  const db = await getDB();
+  await db.put('app_meta', { id: DIRECTUS_CONFIG_RECORD_ID, value: cfg });
+  directusEnabledRef.value = cfg.enabled;
+  resetDirectusClient();
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent?.(new CustomEvent('directus-config-updated'));
+  }
 }
 
 /**
  * Removes the Directus configuration from IndexedDB and resets
  * `appConfig.directus` to its defaults.  Call this during a factory reset so
  * that a subsequent page reload starts with a clean slate.
+ *
+ * @returns {Promise<void>}
  */
-export function clearDirectusConfigFromStorage() {
-  Promise.resolve()
-    .then(async () => {
-      const db = await getDB();
-      await db.delete('app_meta', DIRECTUS_CONFIG_RECORD_ID);
-    })
-    .catch((e) => {
-      console.warn('[DirectusClient] Failed to clear config from IDB:', e);
-    });
-  appConfig.directus = {
-    enabled: false,
-    url: '',
-    staticToken: '',
-    venueId: null,
-    wsEnabled: false,
-  };
-  directusEnabledRef.value = false;
-  resetDirectusClient();
+export async function clearDirectusConfigFromStorage() {
+  let deleteError = null;
+  try {
+    const db = await getDB();
+    await db.delete('app_meta', DIRECTUS_CONFIG_RECORD_ID);
+  } catch (e) {
+    deleteError = e;
+  } finally {
+    appConfig.directus = {
+      enabled: false,
+      url: '',
+      staticToken: '',
+      venueId: null,
+      wsEnabled: false,
+    };
+    directusEnabledRef.value = false;
+    resetDirectusClient();
+  }
+
+  if (deleteError) {
+    throw deleteError;
+  }
 }
 
 // ── Internal test helpers ─────────────────────────────────────────────────────

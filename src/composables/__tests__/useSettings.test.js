@@ -7,9 +7,13 @@ import { useAppStore } from '../../store/index.js';
 import { resolveStorageKeys, resolveDirectusConfigKey } from '../../store/persistence.js';
 import { getPwaDismissKey } from '../usePwaInstall.js';
 
+vi.mock('../useDirectusClient.js', () => ({
+  clearDirectusConfigFromStorage: vi.fn().mockResolvedValue(undefined),
+}));
+
 // Mock the IDB persistence layer so tests stay synchronous and don't need
 // a real IndexedDB environment for settings tests.
-vi.mock('../../store/idbPersistence.js', async (importOriginal) => {
+vi.mock('../../store/persistence/operations.js', async (importOriginal) => {
   const original = await importOriginal();
   return {
     ...original,
@@ -18,7 +22,7 @@ vi.mock('../../store/idbPersistence.js', async (importOriginal) => {
     clearSyncQueueFromIDB: vi.fn().mockResolvedValue(undefined),
   };
 });
-import { saveSettingsToIDB, clearAllStateFromIDB, clearSyncQueueFromIDB } from '../../store/idbPersistence.js';
+import { saveSettingsToIDB, clearAllStateFromIDB, clearSyncQueueFromIDB } from '../../store/persistence/operations.js';
 
 const { settingsKey: SETTINGS_KEY } = resolveStorageKeys();
 

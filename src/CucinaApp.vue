@@ -33,9 +33,11 @@ const showSettings = ref(false);
 
 useWakeLock();
 
-// Load Directus config synchronously before first render so that reactive
-// consumers see the correct initial value.
-loadDirectusConfigFromStorage();
+// Load Directus config before first render so reactive consumers
+// see the correct initial value.
+try {
+  await loadDirectusConfigFromStorage();
+} catch (e) { console.warn('[CucinaApp] Failed to load Directus config from IDB:', e); }
 
 const { storageKey } = resolveStorageKeys(getInstanceName());
 
@@ -44,19 +46,22 @@ function onStorageChange(event) {
   store.$hydrate?.();
 }
 
-function restartSync() {
+async function restartSync() {
+  try {
+    await loadDirectusConfigFromStorage();
+  } catch (e) { console.warn('[CucinaApp] Failed to load Directus config from IDB:', e); }
   sync.stopSync();
-  sync.startSync({ appType: 'cucina', store });
+  await sync.startSync({ appType: 'cucina', store });
 }
 
-function onDirectusConfigUpdated() {
-  restartSync();
+async function onDirectusConfigUpdated() {
+  await restartSync();
 }
 
-onMounted(() => {
+onMounted(async () => {
   window.addEventListener('storage', onStorageChange);
   window.addEventListener('directus-config-updated', onDirectusConfigUpdated);
-  restartSync();
+  await restartSync();
 });
 
 onUnmounted(() => {

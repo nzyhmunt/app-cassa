@@ -90,7 +90,7 @@ export function useSettings(props, emit) {
   async function confirmReset() {
     // Clear Directus connection config so it is not reloaded after reload.
     try {
-      clearDirectusConfigFromStorage();
+      await clearDirectusConfigFromStorage();
     } catch (e) {
       console.warn('[Settings] Failed to clear Directus config during reset:', e);
     }
