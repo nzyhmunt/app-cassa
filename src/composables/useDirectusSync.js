@@ -660,11 +660,10 @@ function _getCfg() {
 async function _runPush() {
   if (_pushInFlight) return _pushInFlight;
   _pushInFlight = (async () => {
-    if (!navigator.onLine) return;
-    const cfg = _getCfg();
-    if (!cfg) return;
-
     try {
+      if (!navigator.onLine) return;
+      const cfg = _getCfg();
+      if (!cfg) return;
       syncStatus.value = 'syncing';
       const result = await drainQueue(cfg);
       if (result.pushed > 0 || result.abandoned > 0) {

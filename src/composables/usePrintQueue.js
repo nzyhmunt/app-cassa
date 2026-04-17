@@ -53,7 +53,7 @@
  */
 
 import { appConfig } from '../utils/index.js';
-import { newUUID } from '../store/storeUtils.js';
+import { newUUIDv7 } from '../store/storeUtils.js';
 import { useAppStore } from '../store/index.js';
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -206,7 +206,7 @@ export function enqueuePrintJobs(order) {
 
     const printerId = printer.id ?? printer.name ?? 'unknown';
     const job = {
-      jobId: newUUID('job'),
+      jobId: newUUIDv7('job'),
       printType: 'order',
       printerId,
       orderId: order.id,
@@ -217,7 +217,7 @@ export function enqueuePrintJobs(order) {
       items,
     };
 
-    const logId = newUUID('plog');
+    const logId = newUUIDv7('plog');
     logJob(store, {
       logId,
       jobId: job.jobId,
@@ -253,7 +253,7 @@ export function enqueueTableMoveJob(fromTableId, fromTableLabel, toTableId, toTa
   for (const printer of printers) {
     const printerId = printer.id ?? printer.name ?? 'unknown';
     const job = {
-      jobId: newUUID('job'),
+      jobId: newUUIDv7('job'),
       printType: 'table_move',
       printerId,
       fromTableId,
@@ -264,7 +264,7 @@ export function enqueueTableMoveJob(fromTableId, fromTableLabel, toTableId, toTa
       timestamp,
     };
 
-    const logId = newUUID('plog');
+    const logId = newUUIDv7('plog');
     logJob(store, {
       logId,
       jobId: job.jobId,
@@ -299,14 +299,14 @@ export function enqueuePreBillJob(payload, printerUrl, printerName, printerIdOve
   const printerId = printerIdOverride ?? printer?.id ?? 'pre_bill';
 
   const job = {
-    jobId: newUUID('job'),
+    jobId: newUUIDv7('job'),
     printType: 'pre_bill',
     printerId,
     timestamp,
     ...payload,
   };
 
-  const logId = newUUID('plog');
+  const logId = newUUIDv7('plog');
   logJob(store, {
     logId,
     jobId: job.jobId,
@@ -356,7 +356,7 @@ export function reprintJob(logEntry, overrideUrl = null) {
 
   const job = {
     ...payload,
-    jobId: newUUID('job'),
+    jobId: newUUIDv7('job'),
     reprinted: true,
     timestamp,
     printerId,
@@ -364,7 +364,7 @@ export function reprintJob(logEntry, overrideUrl = null) {
     printerUrl,
   };
 
-  const logId = newUUID('plog');
+  const logId = newUUIDv7('plog');
   logJob(store, {
     logId,
     jobId: job.jobId,
