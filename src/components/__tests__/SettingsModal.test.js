@@ -127,6 +127,7 @@ describe('admin user logged in', () => {
 
     const sourceButtons = wrapper.findAll('button[aria-pressed]');
     const jsonButton = sourceButtons.find((btn) => btn.text().includes('Menu da URL JSON'));
+    expect(jsonButton).toBeTruthy();
     await jsonButton.trigger('click');
     await flushPromises();
     expect(wrapper.text()).toContain('Sincronizza Menu URL');
