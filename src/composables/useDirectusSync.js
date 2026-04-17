@@ -455,7 +455,6 @@ async function _pullCollection(collection, { forceFull = false, lastPullTimestam
     if (_store) {
       _mergeIntoStore(collection, mapped, _store);
     }
-    await _refreshStoreFromIDB(collection);
 
     if (maxTs && (!latestTs || maxTs > latestTs)) latestTs = maxTs;
     if (data.length < 200) break;
