@@ -254,6 +254,7 @@ const preBillPrinters = computed(() => {
 
 const preBillPrintersSorted = computed(() =>
   [...preBillPrinters.value].sort((a, b) => {
+    // UI labels are Italian; keep alphabetical ordering consistent with locale expectations.
     const aLabel = String(a?.name ?? a?.id ?? '').trim();
     const bLabel = String(b?.name ?? b?.id ?? '').trim();
     return aLabel.localeCompare(bLabel, 'it', { sensitivity: 'base' });
