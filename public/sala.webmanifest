@@ -1,8 +1,8 @@
 {
   "id": "./sala.html",
-  "name": "App Sala – Osteria del Grillo",
+  "name": "App Sala – Trattoria Nuvola Blu",
   "short_name": "Sala",
-  "description": "Gestione tavoli e ordini in sala per Osteria del Grillo",
+  "description": "Gestione tavoli e ordini in sala per Trattoria Nuvola Blu",
   "start_url": "./sala.html",
   "scope": "./sala.html",
   "display": "standalone",

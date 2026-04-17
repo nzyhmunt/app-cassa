@@ -779,7 +779,7 @@ describe('reconfigureAndApply()', () => {
       if (requestUrl.includes(`/items/venues/${venueId}`)) {
         return Promise.resolve(directusItemResponse({
           id: 1,
-          name: 'Osteria del Grillo – Demo',
+          name: 'Trattoria Nuvola Blu – Demo',
           rooms: [
             {
               id: 'room_sala-interna',

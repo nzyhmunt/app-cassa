@@ -1,8 +1,8 @@
 {
   "id": "./cassa.html",
-  "name": "Terminale Cassa – Osteria del Grillo",
+  "name": "Terminale Cassa – Trattoria Nuvola Blu",
   "short_name": "Cassa",
-  "description": "Terminale cassa e gestione ordini per Osteria del Grillo",
+  "description": "Terminale cassa e gestione ordini per Trattoria Nuvola Blu",
   "start_url": "./cassa.html",
   "scope": "./cassa.html",
   "display": "standalone",

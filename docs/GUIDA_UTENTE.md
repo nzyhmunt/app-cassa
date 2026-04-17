@@ -1,6 +1,6 @@
 # Guida Utente — Terminale Cassa, Sala & Cucina
 
-> Sistema POS per ristoranti — *Osteria del Grillo*  
+> Sistema POS per ristoranti — *Trattoria Nuvola Blu*  
 > Versione documentata: Marzo 2026
 
 ---

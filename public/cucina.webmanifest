@@ -1,8 +1,8 @@
 {
   "id": "./cucina.html",
-  "name": "App Cucina – Osteria del Grillo",
+  "name": "App Cucina – Trattoria Nuvola Blu",
   "short_name": "Cucina",
-  "description": "Visualizzazione ordini e gestione stato per la cucina – Osteria del Grillo",
+  "description": "Visualizzazione ordini e gestione stato per la cucina – Trattoria Nuvola Blu",
   "start_url": "./cucina.html",
   "scope": "./cucina.html",
   "display": "standalone",
