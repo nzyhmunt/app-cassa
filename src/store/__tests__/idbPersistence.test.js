@@ -6,10 +6,9 @@
  *  - loadStateFromIDB / saveStateToIDB: round-trip, printLog payload stripping,
  *    billRequestedTables Set↔Array conversion, tableMergedInto ↔ table_merge_sessions
  *  - loadStateFromIDB — bill_sessions hydration: IDB records win over app_meta blob,
- *    records without table are ignored, legacy fallback, multi-table merge
+ *    records without table are ignored, multi-table merge
  *  - clearAllStateFromIDB: clears operative stores (incl. table_merge_sessions), preserves non-manual venue_users
  *  - v2 → v3 migration: app_meta.tableMergedInto → table_merge_sessions
- *  - loadStateFromIDB backward-compat fallback: reads app_meta.tableMergedInto when store is empty
  *  - saveSettingsToIDB / loadSettingsFromIDB: round-trip
  *  - saveUsersToIDB / loadUsersFromIDB: only manual_user records
  *  - saveAuthSessionToIDB / loadAuthSessionFromIDB: persists/clears userId
@@ -250,30 +249,6 @@ describe('saveStateToIDB() + loadStateFromIDB()', () => {
     expect(loaded.tableMergedInto).toEqual({ T2: 'T1' });
   });
 
-  it('normalizes legacy string-value tableCurrentBillSession on load', async () => {
-    // Directly write the legacy format into app_meta (bypassing saveStateToIDB)
-    const { getDB } = await import('../../composables/useIDB.js');
-    const db = await getDB();
-    await db.put('app_meta', { id: 'tableCurrentBillSession', value: { T1: 'legacy_id', T2: 'other_id' } });
-
-    const loaded = await loadStateFromIDB();
-
-    // String values must be promoted to session objects with defaults
-    expect(loaded.tableCurrentBillSession.T1).toMatchObject({
-      billSessionId: 'legacy_id',
-      table: 'T1',
-      status: 'open',
-      adults: 0,
-      children: 0,
-      opened_at: null,
-    });
-    expect(loaded.tableCurrentBillSession.T2).toMatchObject({
-      billSessionId: 'other_id',
-      table: 'T2',
-      status: 'open',
-    });
-  });
-
   it('stores tableMergedInto in table_merge_sessions (not app_meta)', async () => {
     await saveStateToIDB({
       orders: [], transactions: [], cashBalance: 0, cashMovements: [],
@@ -328,8 +303,8 @@ describe('loadStateFromIDB() — bill_sessions hydration', () => {
     });
   });
 
-  it('IDB bill_sessions records take precedence over the legacy app_meta blob', async () => {
-    // Save a legacy app_meta blob for T1 with stale data
+  it('IDB bill_sessions records take precedence over the app_meta blob', async () => {
+    // Save an app_meta blob for T1 with stale data
     await saveStateToIDB({
       orders: [], transactions: [], cashBalance: 0, cashMovements: [],
       dailyClosures: [], printLog: [],
@@ -379,7 +354,7 @@ describe('loadStateFromIDB() — bill_sessions hydration', () => {
     );
   });
 
-  it('falls back to legacy app_meta blob when bill_sessions store is empty', async () => {
+  it('falls back to app_meta blob when bill_sessions store is empty', async () => {
     await saveStateToIDB({
       orders: [], transactions: [], cashBalance: 0, cashMovements: [],
       dailyClosures: [], printLog: [],
@@ -945,83 +920,6 @@ describe('v2 → v3 migration: app_meta.tableMergedInto → table_merge_sessions
     const db = await getDB();
     const records = await db.getAll('table_merge_sessions');
     expect(records).toHaveLength(0);
-  });
-});
-
-// ── loadStateFromIDB backward-compat fallback ─────────────────────────────────
-
-describe('loadStateFromIDB() — backward-compat fallback for tableMergedInto', () => {
-  it('reads app_meta.tableMergedInto when table_merge_sessions is empty', async () => {
-    // Simulate a failed migration: legacy blob still in app_meta, dedicated store empty
-    const { getDB } = await import('../../composables/useIDB.js');
-    const db = await getDB();
-    await db.put('app_meta', { id: 'tableMergedInto', value: { T4: 'T3' } });
-
-    const loaded = await loadStateFromIDB();
-    expect(loaded.tableMergedInto).toEqual({ T4: 'T3' });
-  });
-
-  it('prefers table_merge_sessions over app_meta.tableMergedInto when both exist', async () => {
-    // Seed dedicated store
-    await saveStateToIDB({
-      orders: [], transactions: [], cashBalance: 0, cashMovements: [],
-      dailyClosures: [], printLog: [],
-      tableCurrentBillSession: {},
-      tableMergedInto: { T2: 'T1' },
-      tableOccupiedAt: {},
-      billRequestedTables: new Set(),
-    });
-
-    // Also plant a stale legacy record (should be ignored)
-    const { getDB } = await import('../../composables/useIDB.js');
-    const db = await getDB();
-    await db.put('app_meta', { id: 'tableMergedInto', value: { STALE: 'DATA' } });
-
-    const loaded = await loadStateFromIDB();
-    expect(loaded.tableMergedInto).toEqual({ T2: 'T1' });
-  });
-
-  it('saving tableMergedInto removes the stale app_meta.tableMergedInto legacy key', async () => {
-    // Plant stale legacy blob first
-    const { getDB } = await import('../../composables/useIDB.js');
-    const db = await getDB();
-    await db.put('app_meta', { id: 'tableMergedInto', value: { T5: 'T4' } });
-
-    // Save overwrites table_merge_sessions AND must delete the legacy key
-    await saveStateToIDB({
-      orders: [], transactions: [], cashBalance: 0, cashMovements: [],
-      dailyClosures: [], printLog: [],
-      tableCurrentBillSession: {},
-      tableMergedInto: { T2: 'T1' },
-      tableOccupiedAt: {},
-      billRequestedTables: new Set(),
-    });
-
-    const legacyRecord = await db.get('app_meta', 'tableMergedInto');
-    expect(legacyRecord).toBeUndefined();
-  });
-
-  it('saving empty tableMergedInto also removes the stale legacy key (no ghost resurrection)', async () => {
-    // Plant stale legacy blob
-    const { getDB } = await import('../../composables/useIDB.js');
-    const db = await getDB();
-    await db.put('app_meta', { id: 'tableMergedInto', value: { GHOST: 'DATA' } });
-
-    // Clear all merges — table_merge_sessions becomes empty, legacy key must also be deleted
-    await saveStateToIDB({
-      orders: [], transactions: [], cashBalance: 0, cashMovements: [],
-      dailyClosures: [], printLog: [],
-      tableCurrentBillSession: {},
-      tableMergedInto: {},
-      tableOccupiedAt: {},
-      billRequestedTables: new Set(),
-    });
-
-    const loaded = await loadStateFromIDB();
-    expect(loaded.tableMergedInto).toEqual({});
-
-    const legacyRecord = await db.get('app_meta', 'tableMergedInto');
-    expect(legacyRecord).toBeUndefined();
   });
 });
 
