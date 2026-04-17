@@ -933,7 +933,13 @@ async function _hydrateConfigFromLocalCache(venueId, onProgress = null) {
   const preservedDirectus = JSON.parse(JSON.stringify(appConfig.directus ?? {}));
   const preservedInstanceName = appConfig.instanceName;
   const preservedPwaLogo = appConfig.pwaLogo;
+  const preservedMenuSource = appConfig.menuSource === 'json' ? 'json' : 'directus';
+  const preservedMenuUrl = appConfig.menuUrl;
   Object.assign(appConfig, runtimeConfig);
+  if (preservedMenuSource === 'json') {
+    appConfig.menuSource = 'json';
+    appConfig.menuUrl = preservedMenuUrl;
+  }
   appConfig.directus = preservedDirectus;
   appConfig.instanceName = preservedInstanceName;
   appConfig.pwaLogo = preservedPwaLogo;
@@ -1070,7 +1076,11 @@ async function _runGlobalPull({ onProgress = null } = {}) {
     }
     deepVenue = await _hydrateVenueTablesFromRoomRefs(client, deepVenue, venueId);
 
-    const menuSource = deepVenue.menu_source ?? appConfig.menuSource ?? 'directus';
+    const localMenuSource = appConfig.menuSource;
+    const remoteMenuSource = deepVenue.menu_source;
+    const menuSource = localMenuSource === 'json'
+      ? 'json'
+      : (remoteMenuSource ?? localMenuSource ?? 'directus');
     const fanOutSummary = await _fanOutVenueTreeToIDB(deepVenue, { menuSource });
     await saveLastPullTsToIDB('deep_venue_config', new Date().toISOString());
 

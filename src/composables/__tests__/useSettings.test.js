@@ -4,7 +4,7 @@ import { defineComponent, reactive, nextTick } from 'vue';
 import { createPinia, setActivePinia } from 'pinia';
 import { useSettings } from '../useSettings.js';
 import { useAppStore } from '../../store/index.js';
-import { resolveStorageKeys, resolveDirectusConfigKey } from '../../store/persistence.js';
+import { resolveStorageKeys, resolveDirectusConfigKey, getInstanceName } from '../../store/persistence.js';
 import { getPwaDismissKey } from '../usePwaInstall.js';
 
 vi.mock('../useDirectusClient.js', () => ({
@@ -18,11 +18,10 @@ vi.mock('../../store/persistence/operations.js', async (importOriginal) => {
   return {
     ...original,
     saveSettingsToIDB: vi.fn().mockResolvedValue(undefined),
-    clearAllStateFromIDB: vi.fn().mockResolvedValue(undefined),
-    clearSyncQueueFromIDB: vi.fn().mockResolvedValue(undefined),
+    deleteDatabase: vi.fn().mockResolvedValue(undefined),
   };
 });
-import { saveSettingsToIDB, clearAllStateFromIDB, clearSyncQueueFromIDB } from '../../store/persistence/operations.js';
+import { saveSettingsToIDB, deleteDatabase } from '../../store/persistence/operations.js';
 
 const { settingsKey: SETTINGS_KEY } = resolveStorageKeys();
 
@@ -90,6 +89,7 @@ describe('useSettings()', () => {
     // Simulate initStoreFromIDB having already populated the store
     store.sounds = false;
     store.menuUrl = 'https://custom.example.com/menu.json';
+    store.menuSource = 'json';
     store.preventScreenLock = true;
     store.customKeyboard = 'center';
 
@@ -100,6 +100,7 @@ describe('useSettings()', () => {
 
     expect(result.settings.value.sounds).toBe(false);
     expect(result.settings.value.menuUrl).toBe('https://custom.example.com/menu.json');
+    expect(result.settings.value.menuSource).toBe('json');
     expect(result.settings.value.preventScreenLock).toBe(true);
     expect(result.settings.value.customKeyboard).toBe('center');
     wrapper.unmount();
@@ -155,6 +156,21 @@ describe('useSettings()', () => {
     await nextTick();
 
     expect(store.menuUrl).toBe('https://new-menu.example.com/menu.json');
+    wrapper.unmount();
+  });
+
+  it('updates store.menuSource immediately when the setting changes', async () => {
+    const props = reactive({ modelValue: true });
+    const emit = vi.fn();
+    const { appConfig } = await import('../../utils/index.js');
+
+    const { result, wrapper } = withSetup(() => useSettings(props, emit));
+
+    result.settings.value.menuSource = 'json';
+    await nextTick();
+
+    expect(store.menuSource).toBe('json');
+    expect(appConfig.menuSource).toBe('json');
     wrapper.unmount();
   });
 
@@ -296,9 +312,24 @@ describe('useSettings()', () => {
 
     const { result, wrapper } = withSetup(() => useSettings(props, emit));
 
+    result.settings.value.menuSource = 'json';
     await result.syncMenu();
 
     expect(mockLoadMenu).toHaveBeenCalled();
+    wrapper.unmount();
+  });
+
+  it('syncMenu() is skipped when menu source is directus', async () => {
+    const props = reactive({ modelValue: false });
+    const emit = vi.fn();
+    const mockLoadMenu = vi.fn().mockResolvedValue(undefined);
+    store.loadMenu = mockLoadMenu;
+
+    const { result, wrapper } = withSetup(() => useSettings(props, emit));
+    result.settings.value.menuSource = 'directus';
+    await result.syncMenu();
+
+    expect(mockLoadMenu).not.toHaveBeenCalled();
     wrapper.unmount();
   });
 
@@ -483,7 +514,7 @@ describe('useSettings()', () => {
     }
   });
 
-  it('confirmReset() calls clearAllStateFromIDB() and clearSyncQueueFromIDB()', async () => {
+  it('confirmReset() calls deleteDatabase() with current instance name', async () => {
     const reloadMock = vi.fn();
     const originalLocationDescriptor = Object.getOwnPropertyDescriptor(window, 'location');
     const originalLocationValue = window.location;
@@ -495,8 +526,7 @@ describe('useSettings()', () => {
         value: { reload: reloadMock, pathname: '/' },
       });
 
-      vi.mocked(clearAllStateFromIDB).mockClear();
-      vi.mocked(clearSyncQueueFromIDB).mockClear();
+      vi.mocked(deleteDatabase).mockClear();
 
       const props = reactive({ modelValue: false });
       const emit = vi.fn();
@@ -504,8 +534,7 @@ describe('useSettings()', () => {
       const { result, wrapper } = withSetup(() => useSettings(props, emit));
       await result.confirmReset();
 
-      expect(clearAllStateFromIDB).toHaveBeenCalledOnce();
-      expect(clearSyncQueueFromIDB).toHaveBeenCalledOnce();
+      expect(deleteDatabase).toHaveBeenCalledWith(getInstanceName());
       wrapper.unmount();
     } finally {
       if (originalLocationDescriptor) {

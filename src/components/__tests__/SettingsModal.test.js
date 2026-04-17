@@ -118,7 +118,45 @@ describe('admin user logged in', () => {
   it('shows the menu sync button to admin', async () => {
     const wrapper = mountSettingsModal();
     await flushPromises(); // let store.menuLoading settle (shows "Sincronizza Menu" when not loading)
-    expect(wrapper.text()).toContain('Sincronizza Menu');
+    expect(wrapper.text()).toContain('Sincronizza Menu URL');
+  });
+
+  it('keeps menu source options mutually exclusive in UI', async () => {
+    const wrapper = mountSettingsModal();
+    await flushPromises();
+    const sourceButtons = wrapper.findAll('button[aria-pressed]');
+    const directusButton = sourceButtons.find((btn) => btn.text().includes('Menu da Directus'));
+    const jsonButton = sourceButtons.find((btn) => btn.text().includes('Menu da URL JSON'));
+    expect(directusButton).toBeTruthy();
+    expect(jsonButton).toBeTruthy();
+
+    await jsonButton.trigger('click');
+    await flushPromises();
+    expect(jsonButton.attributes('aria-pressed')).toBe('true');
+    expect(directusButton.attributes('aria-pressed')).toBe('false');
+
+    await directusButton.trigger('click');
+    await flushPromises();
+    expect(directusButton.attributes('aria-pressed')).toBe('true');
+    expect(jsonButton.attributes('aria-pressed')).toBe('false');
+  });
+
+  it('disables JSON menu URL input when Directus source is selected', async () => {
+    const wrapper = mountSettingsModal();
+    await flushPromises();
+    const sourceButtons = wrapper.findAll('button[aria-pressed]');
+    const directusButton = sourceButtons.find((btn) => btn.text().includes('Menu da Directus'));
+    const jsonButton = sourceButtons.find((btn) => btn.text().includes('Menu da URL JSON'));
+    const urlInput = wrapper.find('input[type="url"]');
+    expect(urlInput.exists()).toBe(true);
+
+    await directusButton.trigger('click');
+    await flushPromises();
+    expect(urlInput.attributes('disabled')).toBeDefined();
+
+    await jsonButton.trigger('click');
+    await flushPromises();
+    expect(urlInput.attributes('disabled')).toBeUndefined();
   });
 
   it('shows the "Ripristina dati di default" button to admin', async () => {

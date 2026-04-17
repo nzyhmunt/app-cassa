@@ -42,11 +42,10 @@ const showCassa = ref(false);
 
 useWakeLock();
 
-// Load Directus config before first render so that reactive consumers
-// (DirectusSyncStatusBar, etc.) see the correct initial value.
-try {
-  await loadDirectusConfigFromStorage();
-} catch (e) { console.warn('[CassaApp] Failed to load Directus config from IDB:', e); }
+// Best-effort preload; full sync startup awaits config in restartSyncFromCurrentConfig().
+loadDirectusConfigFromStorage().catch((e) => {
+  console.warn('[CassaApp] Failed to load Directus config from IDB:', e);
+});
 
 const { storageKey } = resolveStorageKeys(getInstanceName());
 

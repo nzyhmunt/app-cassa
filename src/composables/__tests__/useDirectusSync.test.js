@@ -305,6 +305,62 @@ describe('reconfigureAndApply()', () => {
     }
   });
 
+  it('preserves local JSON menu source preference even if deep venue returns directus', async () => {
+    const venueId = 1;
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      const requestUrl = String(url);
+      if (requestUrl.includes(`/items/venues/${venueId}`)) {
+        return Promise.resolve(directusItemResponse({
+          id: venueId,
+          name: 'Venue prefers directus remotely',
+          menu_source: 'directus',
+          rooms: [],
+          tables: [],
+          payment_methods: [],
+          printers: [],
+          venue_users: [],
+          table_merge_sessions: [],
+          menu_categories: [{ id: 'cat_remote_1', name: 'Remote category', venue: venueId }],
+          menu_items: [{
+            id: 'item_remote_1',
+            name: 'Remote item',
+            category: 'cat_remote_1',
+            price: 5,
+            venue: venueId,
+          }],
+        }));
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const { appConfig } = await import('../../utils/index.js');
+    const previousSource = appConfig.menuSource;
+    const previousUrl = appConfig.menuUrl;
+    try {
+      appConfig.menuSource = 'json';
+      appConfig.menuUrl = 'https://example.com/custom-menu.json';
+
+      const sync = useDirectusSync();
+      sync.startSync({ appType: 'cassa', store: makeStore({ config: appConfig }) });
+      const result = await sync.reconfigureAndApply();
+      sync.stopSync();
+
+      expect(result.ok).toBe(true);
+      expect(appConfig.menuSource).toBe('json');
+      expect(appConfig.menuUrl).toBe('https://example.com/custom-menu.json');
+
+      const { getDB } = await import('../useIDB.js');
+      const db = await getDB();
+      const menuItems = await db.getAll('menu_items');
+      const menuCategories = await db.getAll('menu_categories');
+      expect(menuItems).toEqual([]);
+      expect(menuCategories).toEqual([]);
+    } finally {
+      appConfig.menuSource = previousSource;
+      appConfig.menuUrl = previousUrl;
+    }
+  });
+
   it('realigns pre-bill default printer when Directus printers change', async () => {
     const venueId = 1;
     vi.spyOn(global, 'fetch').mockImplementation((url) => {

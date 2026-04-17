@@ -717,14 +717,22 @@ export async function deleteDatabase(instanceName) {
   const n = instanceName ?? appConfig.instanceName ?? '';
   const dbName = n ? `app-cassa-${n}` : 'app-cassa';
   try {
+    try {
+      const db = await getDB();
+      db?.close?.();
+    } catch (_) {
+      // Best-effort close: deleteDatabase may still succeed even if no active
+      // connection exists or close() throws during shutdown races.
+    }
     await new Promise((resolve, reject) => {
       const req = indexedDB.deleteDatabase(dbName);
       req.onsuccess = resolve;
       req.onerror = () => reject(req.error);
-      req.onblocked = resolve; // proceed even if blocked
+      req.onblocked = () => reject(new Error(`Database deletion blocked for '${dbName}'`));
     });
   } catch (e) {
     console.warn('[IDBPersistence] Failed to delete database:', e);
+    throw e;
   }
 }
 

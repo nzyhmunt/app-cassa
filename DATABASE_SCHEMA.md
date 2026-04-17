@@ -7,6 +7,7 @@ riferimento per la configurazione del backend Directus sia come guida per la per
 
 **Sorgente dati corrente** (IndexedDB — database locale `app-cassa[_<instanceName>]`):
 - ObjectStore `app_meta` — metadati applicativi, impostazioni e sessione auth
+- ObjectStore `local_settings` — local device preferences (`sounds`, `menuUrl`, `menuSource`, `preventScreenLock`, `customKeyboard`, `preBillPrinterId`)
 - ObjectStore `orders`, `transactions`, `cash_movements`, `daily_closures`, `print_jobs` — dati operativi persistiti in store dedicati
 - ObjectStore `venue_users` — operatori locali con PIN hashato
 - ObjectStore `direct_custom_items` — voci personalizzate
@@ -1106,7 +1107,7 @@ Cardinalità:
 | `dailyClosures[]`                     | `daily_closures` + `daily_closure_by_method` |
 | `printLog[]` (IDB ObjectStore: `print_jobs`)   | `print_jobs`                      |
 | `appConfig.printers`                  | `printers`                             |
-| IDB ObjectStore: `app_settings`       | `app_settings`                         |
+| IDB ObjectStore: `local_settings`     | preferenze locali dispositivo (incl. `menuSource`: `directus` \| `json`) |
 | `appConfig.menu`                      | `menu_categories` + `menu_items`       |
 | `appConfig.rooms`                     | `rooms`                                |
 | `appConfig.tables` (derivato)         | `tables`                               |

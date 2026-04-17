@@ -33,11 +33,10 @@ const showSettings = ref(false);
 
 useWakeLock();
 
-// Load Directus config before first render so reactive consumers
-// see the correct initial value.
-try {
-  await loadDirectusConfigFromStorage();
-} catch (e) { console.warn('[CucinaApp] Failed to load Directus config from IDB:', e); }
+// Best-effort preload; full sync startup awaits config in restartSync().
+loadDirectusConfigFromStorage().catch((e) => {
+  console.warn('[CucinaApp] Failed to load Directus config from IDB:', e);
+});
 
 const { storageKey } = resolveStorageKeys(getInstanceName());
 

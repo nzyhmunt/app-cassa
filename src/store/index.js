@@ -47,6 +47,7 @@ export const useAppStore = defineStore('app', () => {
   // ── Settings (defaults; populated async by initStoreFromIDB before mount) ──
   const sounds = ref(true);
   const menuUrl = ref(appConfig.menuUrl);
+  const menuSource = ref(appConfig.menuSource === 'json' ? 'json' : 'directus');
   const preventScreenLock = ref(true);
   const customKeyboard = ref('disabled');
   // ID of the printer chosen for pre-conto dispatch (empty string = disabled)
@@ -55,7 +56,7 @@ export const useAppStore = defineStore('app', () => {
   const menuError = ref(null);
 
   async function loadMenu() {
-    if (config.value?.menuSource === 'directus') {
+    if (menuSource.value !== 'json') {
       menuLoading.value = false;
       menuError.value = null;
       return;
@@ -644,7 +645,7 @@ export const useAppStore = defineStore('app', () => {
     cashBalance, cashMovements, dailyClosures,
     tableOccupiedAt, billRequestedTables, tableCurrentBillSession, tableMergedInto,
     pendingOpenTable, pendingSelectOrder, pendingNewOrder,
-    sounds, menuUrl, preventScreenLock, customKeyboard, preBillPrinterId, menuLoading, menuError,
+    sounds, menuUrl, menuSource, preventScreenLock, customKeyboard, preBillPrinterId, menuLoading, menuError,
     // print log
     printLog, addPrintLogEntry, updatePrintLogEntry, clearPrintLog,
     // fiscal receipts
@@ -688,6 +689,10 @@ export const useConfigStore = defineStore('config', () => {
     menuUrl: computed({
       get: () => app.menuUrl,
       set: (value) => { app.menuUrl = value; },
+    }),
+    menuSource: computed({
+      get: () => app.menuSource,
+      set: (value) => { app.menuSource = value; },
     }),
     preventScreenLock: computed({
       get: () => app.preventScreenLock,
@@ -822,6 +827,10 @@ export async function initStoreFromIDB(pinia) {
     if (typeof settings.sounds === 'boolean') store.sounds = settings.sounds;
     if (typeof settings.menuUrl === 'string' && settings.menuUrl.trim() !== '') {
       store.menuUrl = settings.menuUrl;
+    }
+    if (settings.menuSource === 'json' || settings.menuSource === 'directus') {
+      store.menuSource = settings.menuSource;
+      appConfig.menuSource = settings.menuSource;
     }
     if (typeof settings.preventScreenLock === 'boolean') {
       store.preventScreenLock = settings.preventScreenLock;
