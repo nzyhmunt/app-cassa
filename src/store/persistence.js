@@ -51,6 +51,21 @@ export function resolveStorageKeys(instanceName) {
 }
 
 /**
+ * Emits a cross-tab storage signal for the current instance.
+ * Listeners subscribed to the `storageKey` can use this as a lightweight
+ * trigger to hydrate fresh state from IndexedDB.
+ */
+export function touchStorageKey(instanceName) {
+  if (typeof window === 'undefined' || !window.localStorage) return;
+  try {
+    const { storageKey } = resolveStorageKeys(instanceName);
+    window.localStorage.setItem(storageKey, String(Date.now()));
+  } catch (e) {
+    console.warn('[Persistence] Failed to emit storage signal:', e);
+  }
+}
+
+/**
  * Derives the storage key used to persist saved custom items in the
  * "Personalizzata" tab of the "Diretto" modal (CassaTableManager).
  *

@@ -54,9 +54,6 @@ async function hydrateStateFromStorage() {
       configStore.hydrateConfigFromIDB(),
       orderStore.refreshOperationalStateFromIDB(),
     ]);
-    if (configStore.menuSource === 'json') {
-      await configStore.loadMenu({ skipHydrate: true });
-    }
   } catch (error) {
     console.warn('[CucinaApp] Failed to hydrate state from storage event:', error);
   }
