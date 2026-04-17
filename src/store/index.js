@@ -275,7 +275,8 @@ export const useOrderStore = defineStore('orders', () => {
   }
 
   function getPaymentMethodIcon(methodId) {
-    const m = configStore.config.paymentMethods.find(x => x.label === methodId || x.id === methodId);
+    const methods = configStore.config?.paymentMethods ?? [];
+    const m = methods.find(x => x.label === methodId || x.id === methodId);
     return m ? m.icon : 'banknote';
   }
 
@@ -352,7 +353,8 @@ export const useOrderStore = defineStore('orders', () => {
     if (!order.noteVisibility) order.noteVisibility = { cassa: true, sala: true, cucina: true };
 
     orders.value.push(order);
-    saveStateToIDB({ orders: orders.value }).catch(() => {});
+    saveStateToIDB({ orders: orders.value })
+      .catch((err) => console.warn('[Store] Failed to persist orders:', err));
     enqueue('orders', 'create', order.id, order);
   }
 
@@ -392,7 +394,7 @@ export const useOrderStore = defineStore('orders', () => {
       tableMergedInto: tableMergedInto.value,
       tableCurrentBillSession: tableCurrentBillSession.value,
       billRequestedTables: billRequestedTables.value,
-    }).catch(() => {});
+    }).catch((err) => console.warn('[Store] Failed to persist status update:', err));
     enqueue('orders', 'update', order.id, { status: newStatus, rejectionReason: order.rejectionReason ?? null });
   }
 
@@ -479,7 +481,7 @@ export const useOrderStore = defineStore('orders', () => {
     saveStateToIDB({
       transactions: transactions.value,
       billRequestedTables: billRequestedTables.value,
-    }).catch(() => {});
+    }).catch((err) => console.warn('[Store] Failed to persist transactions:', err));
     enqueue('transactions', 'create', txn.id, txn);
   }
 
@@ -519,8 +521,7 @@ export const useOrderStore = defineStore('orders', () => {
       ...(venueId != null ? { venue: venueId } : {}),
     };
     updateOrderTotals(order);
-    orders.value.push(order);
-    enqueue('orders', 'create', order.id, order);
+    addOrder(order);
     changeOrderStatus(order, 'accepted');
     return order;
   }
@@ -741,6 +742,10 @@ function _createMergedStoreProxy(configStore, orderStore) {
 }
 
 export function useAppStore(pinia) {
+  /**
+   * Backward-compatibility facade that merges the new layered stores.
+   * Prefer `useConfigStore()` and `useOrderStore()` in new code.
+   */
   const configStore = useConfigStore(pinia);
   const orderStore = useOrderStore(pinia);
   return _createMergedStoreProxy(configStore, orderStore);

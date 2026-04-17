@@ -139,6 +139,8 @@ function getStore() {
  */
 function getRuntimeConfig(store = null) {
   const storeConfig = (store ?? getStore())?.config ?? {};
+  // Keep appConfig as last-wins fallback so legacy runtime mutations (tests/settings)
+  // are still reflected while the store refactor is rolled out incrementally.
   return { ...storeConfig, ...appConfig };
 }
 
