@@ -26,8 +26,16 @@ export function useSyncStoreProxy(configStore, orderStore) {
     ownKeys() {
       return [...new Set(sources.flatMap(source => Reflect.ownKeys(source)))];
     },
-    getOwnPropertyDescriptor() {
-      return { enumerable: true, configurable: true };
+    getOwnPropertyDescriptor(_target, prop) {
+      for (const source of sources) {
+        if (Object.prototype.hasOwnProperty.call(source, prop)) {
+          const descriptor = Object.getOwnPropertyDescriptor(source, prop);
+          return descriptor
+            ? { ...descriptor, configurable: true }
+            : { enumerable: true, configurable: true };
+        }
+      }
+      return undefined;
     },
   });
 }
