@@ -55,10 +55,10 @@ export function resolveStorageKeys(instanceName) {
  * Listeners subscribed to the `storageKey` can use this as a lightweight
  * trigger to hydrate fresh state from IndexedDB.
  */
-export function touchStorageKey(instanceName) {
+export function touchStorageKey() {
   if (typeof window === 'undefined' || !window.localStorage) return;
   try {
-    const { storageKey } = resolveStorageKeys(instanceName);
+    const { storageKey } = resolveStorageKeys(getInstanceName());
     window.localStorage.setItem(storageKey, String(Date.now()));
   } catch (e) {
     console.warn('[Persistence] Failed to emit storage signal:', e);
