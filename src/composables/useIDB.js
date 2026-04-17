@@ -249,19 +249,8 @@ export function getDB() {
             }
             await tx.objectStore('app_meta').delete('tableMergedInto');
           }
-        } catch (error) {
-          console.warn(
-            '[useIDB] Failed to migrate app_meta.tableMergedInto to table_merge_sessions; legacy merge state may remain unmigrated in app_meta, will still be read via fallback when needed, and can be rewritten on a later successful save.',
-            {
-              dbName,
-              oldVersion,
-              newVersion: DB_VERSION,
-              legacyStore: 'app_meta',
-              legacyKey: 'tableMergedInto',
-              targetStore: 'table_merge_sessions',
-              error,
-            },
-          );
+        } catch {
+          // Ignore legacy v2→v3 migration errors for obsolete upgrade paths.
         }
       }
 
