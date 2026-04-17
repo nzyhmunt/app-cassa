@@ -54,6 +54,7 @@
 
 import { newUUIDv7 } from '../store/storeUtils.js';
 import { useAppStore } from '../store/index.js';
+import { appConfig } from '../utils/index.js';
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -137,7 +138,8 @@ function getStore() {
  * @returns {Record<string, any>}
  */
 function getRuntimeConfig(store = null) {
-  return (store ?? getStore())?.config ?? {};
+  const storeConfig = (store ?? getStore())?.config ?? {};
+  return { ...storeConfig, ...appConfig };
 }
 
 /**

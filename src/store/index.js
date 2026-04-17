@@ -1,22 +1,15 @@
-/**
- * @file store/index.js
- * @description Pinia store shared between the Cassa and Sala applications.
- *
- * Single source of truth for orders, transactions, table sessions and config.
- * Each browser page/tab gets its own in-memory Pinia instance; the definition
- * (code) is shared but not the live data (see vite.config.js for the multi-page setup).
- *
- * State overview:
- *   orders[]                   – All order objects (pending → … → completed/rejected)
- *   transactions[]             – Payment records linked via billSessionId
- *   tableCurrentBillSession{}  – Active seating session per table
- *   tableOccupiedAt{}          – ISO timestamp when a table was first seated
- *   billRequestedTables (Set)  – Tables that requested the bill
- *   closedBills[]              – Archived sessions after full payment (computed)
- */
 import { defineStore } from 'pinia';
 import { ref, computed, watch, toRaw } from 'vue';
-import { appConfig, updateOrderTotals, KITCHEN_ACTIVE_STATUSES, KEYBOARD_POSITIONS, formatOrderTime } from '../utils/index.js';
+import {
+  appConfig,
+  createRuntimeConfig,
+  DEFAULT_SETTINGS,
+  updateOrderTotals,
+  KITCHEN_ACTIVE_STATUSES,
+  KEYBOARD_POSITIONS,
+  formatOrderTime,
+} from '../utils/index.js';
+import { mapOrderFromDirectus, mapVenueConfigFromDirectus } from '../utils/mappers.js';
 import { newUUIDv7, newShortId } from './storeUtils.js';
 import { makeTableOps } from './tableOps.js';
 import { makeReportOps } from './reportOps.js';
@@ -26,6 +19,9 @@ import {
   upsertBillSessionInIDB,
   closeBillSessionInIDB,
   loadSettingsFromIDB,
+  loadConfigFromIDB,
+  saveJsonMenuToIDB,
+  loadJsonMenuFromIDB,
 } from './persistence/operations.js';
 import {
   saveFiscalReceiptToIDB,
@@ -37,116 +33,150 @@ import {
 } from './persistence/audit.js';
 import { enqueue } from '../composables/useSyncQueue.js';
 
-export const useAppStore = defineStore('app', () => {
+function _clone(value) {
+  if (typeof structuredClone === 'function') {
+    try {
+      return structuredClone(value);
+    } catch (_) {
+      // Fallback for Vue proxies / non-cloneable values in test/runtime mocks.
+    }
+  }
+  return JSON.parse(JSON.stringify(value));
+}
 
-  // ── Core state ─────────────────────────────────────────────────────────────
-  const config = ref(appConfig);
-  const orders = ref([]);
-  const transactions = ref([]);
+function _normalizeJsonMenuPayload(data) {
+  if (typeof data !== 'object' || data === null || Array.isArray(data) || !Object.values(data).every(Array.isArray)) {
+    throw new Error('Formato menu non valido');
+  }
+  const menu = {};
+  Object.keys(data).forEach((category) => {
+    const valid = data[category].filter(item =>
+      item !== null && typeof item === 'object' &&
+      typeof item.id === 'string' && item.id.trim() !== '' &&
+      typeof item.name === 'string' && item.name.trim() !== '' &&
+      typeof item.price === 'number' && Number.isFinite(item.price),
+    );
+    if (valid.length > 0) menu[category] = valid;
+  });
+  if (Object.keys(menu).length === 0) throw new Error('Nessun articolo valido nel menu');
+  return menu;
+}
 
-  // ── Settings (defaults; populated async by initStoreFromIDB before mount) ──
+export const useConfigStore = defineStore('config', () => {
+  const config = ref(createRuntimeConfig(appConfig));
+
   const sounds = ref(true);
-  const menuUrl = ref(appConfig.menuUrl);
-  const menuSource = ref(appConfig.menuSource === 'json' ? 'json' : 'directus');
+  const menuUrl = ref(config.value.menuUrl || DEFAULT_SETTINGS.menuUrl);
+  const menuSource = ref(config.value.menuSource === 'json' ? 'json' : 'directus');
   const preventScreenLock = ref(true);
   const customKeyboard = ref('disabled');
-  // ID of the printer chosen for pre-conto dispatch (empty string = disabled)
   const preBillPrinterId = ref('');
+
   const menuLoading = ref(false);
   const menuError = ref(null);
 
-  async function loadMenu() {
-    if (menuSource.value !== 'json') {
-      menuLoading.value = false;
-      menuError.value = null;
-      return;
+  const cssVars = computed(() => ({
+    '--brand-primary': config.value.ui.primaryColor,
+    '--brand-dark': config.value.ui.primaryColorDark,
+  }));
+
+  const rooms = computed(() => {
+    const r = config.value.rooms;
+    if (Array.isArray(r) && r.length > 0) return r;
+    return [{ id: 'main', label: '', tables: config.value.tables ?? [] }];
+  });
+
+  async function hydrateConfigFromIDB() {
+    const venueId = config.value.directus?.venueId ?? appConfig.directus?.venueId ?? null;
+    const cached = await loadConfigFromIDB(venueId);
+    const mapped = mapVenueConfigFromDirectus(cached, DEFAULT_SETTINGS);
+    config.value = createRuntimeConfig(mapped);
+
+    if (menuSource.value === 'json') {
+      const jsonMenu = await loadJsonMenuFromIDB();
+      if (jsonMenu && typeof jsonMenu === 'object' && !Array.isArray(jsonMenu)) {
+        config.value = { ...config.value, menu: _clone(jsonMenu) };
+      }
     }
+  }
+
+  async function loadMenu() {
     menuLoading.value = true;
     menuError.value = null;
     try {
+      if (menuSource.value === 'directus') {
+        await hydrateConfigFromIDB();
+        return;
+      }
+
       const response = await fetch(menuUrl.value);
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json();
-      if (typeof data !== 'object' || data === null || Array.isArray(data) ||
-          !Object.values(data).every(Array.isArray)) {
-        throw new Error('Formato menu non valido');
-      }
-      const menu = {};
-      Object.keys(data).forEach(category => {
-        const valid = data[category].filter(item =>
-          item !== null && typeof item === 'object' &&
-          typeof item.id === 'string' && item.id.trim() !== '' &&
-          typeof item.name === 'string' && item.name.trim() !== '' &&
-          typeof item.price === 'number' && isFinite(item.price),
-        );
-        if (valid.length > 0) menu[category] = valid;
-      });
-      if (Object.keys(menu).length === 0) throw new Error('Nessun articolo valido nel menu');
-      config.value.menu = menu;
+      const normalizedMenu = _normalizeJsonMenuPayload(data);
+
+      await saveJsonMenuToIDB(normalizedMenu);
+      config.value = { ...config.value, menu: normalizedMenu };
     } catch (e) {
       menuError.value = e instanceof Error ? e.message : String(e);
     } finally {
       menuLoading.value = false;
     }
   }
-  loadMenu();
 
-  // ── Cassa state ────────────────────────────────────────────────────────────
+  return {
+    config,
+    cssVars,
+    rooms,
+    sounds,
+    menuUrl,
+    menuSource,
+    preventScreenLock,
+    customKeyboard,
+    preBillPrinterId,
+    menuLoading,
+    menuError,
+    loadMenu,
+    hydrateConfigFromIDB,
+  };
+});
+
+export const useOrderStore = defineStore('orders', () => {
+  const configStore = useConfigStore();
+  const configRef = computed(() => configStore.config);
+
+  const orders = ref([]);
+  const transactions = ref([]);
+
   const cashBalance = ref(0);
   const cashMovements = ref([]);
   const dailyClosures = ref([]);
 
-  // ── Print log ──────────────────────────────────────────────────────────────
-  // Persisted list of dispatched print jobs metadata (max 200 entries, newest first).
-  // In-memory entry shape:
-  //   { logId, jobId, printerId, printerName, printerUrl,
-  //     printType, table, timestamp, payload?,
-  //     status: 'pending' | 'printing' | 'done' | 'error',
-  //     errorMessage?: string,
-  //     isReprint?: boolean, originalJobId?: string }
-  // Note: `payload` is in-memory only and is stripped before persistence,
-  // so reloaded entries may not include it.
   const printLog = ref([]);
 
-  /** Prepends a print log entry (status defaults to 'pending'), keeping at most 200 entries. */
   function addPrintLogEntry(entry) {
     printLog.value = [{ status: 'pending', ...entry }, ...printLog.value].slice(0, 200);
   }
 
-  /** Updates a print log entry in-place by logId. */
   function updatePrintLogEntry(logId, updates) {
     const idx = printLog.value.findIndex(e => e.logId === logId);
-    if (idx !== -1) {
-      printLog.value[idx] = { ...printLog.value[idx], ...updates };
-    }
+    if (idx !== -1) printLog.value[idx] = { ...printLog.value[idx], ...updates };
   }
 
-  /** Clears the entire print log. */
   function clearPrintLog() {
     printLog.value = [];
   }
 
-  // ── Fiscal receipts (scontrini fiscali) ────────────────────────────────────
-  // In-memory list of fiscal printer commands issued at bill close.
-  // Each entry shape:
-  //   { id, tableId, billSessionId, tableLabel, totalAmount, totalPaid,
-  //     paymentMethods, xmlRequest, xmlResponse, status, timestamp }
   const fiscalReceipts = ref([]);
-  /** True once _hydrateFiscalAndInvoice() has resolved. Used by components to guard
-   *  against showing stale (empty) fiscal/invoice state during the async IDB load. */
+  const invoiceRequests = ref([]);
   const fiscalInvoiceHydrated = ref(false);
 
-  /** Prepends a fiscal receipt entry (capped to 200) and persists it to IDB. */
   function addFiscalReceipt(entry) {
     fiscalReceipts.value = [entry, ...fiscalReceipts.value].slice(0, 200);
     Promise.resolve(saveFiscalReceiptToIDB(entry))
       .then(() => pruneFiscalReceiptsInIDB())
-      .catch((error) => {
-        console.error('Failed to persist/prune fiscal receipts in IDB:', error);
-      });
+      .catch((error) => console.error('Failed to persist/prune fiscal receipts in IDB:', error));
   }
 
-  /** Updates a fiscal receipt entry in-place by id and persists changes. */
   function updateFiscalReceipt(id, updates) {
     const idx = fiscalReceipts.value.findIndex(e => e.id === id);
     if (idx !== -1) {
@@ -155,36 +185,18 @@ export const useAppStore = defineStore('app', () => {
     }
   }
 
-  // ── Invoice requests (richieste fattura) ───────────────────────────────────
-  // In-memory list of electronic invoice requests collected at bill close.
-  // Each entry shape:
-  //   { id, tableId, billSessionId, tableLabel, totalAmount, totalPaid,
-  //     billingData: { denominazione, codiceFiscale, piva, indirizzo, cap,
-  //                    comune, provincia, paese, codiceDestinatario, pec },
-  //     status, timestamp }
-  const invoiceRequests = ref([]);
-
-  /** Prepends an invoice request entry (capped to 200) and persists it to IDB. */
   function addInvoiceRequest(entry) {
     invoiceRequests.value = [entry, ...invoiceRequests.value].slice(0, 200);
     saveInvoiceRequestToIDB(entry);
   }
 
-  /**
-   * Hydrates fiscal receipts and invoice requests from their dedicated IDB stores.
-   * Called once at store creation so the in-memory lists reflect persisted data
-   * after a page reload (these collections are not part of loadStateFromIDB).
-   * After loading, prunes IDB to the same cap to prevent unbounded storage growth.
-   */
   async function _hydrateFiscalAndInvoice() {
     const [receipts, invoices] = await Promise.all([
       loadFiscalReceiptsFromIDB(),
       loadInvoiceRequestsFromIDB(),
     ]);
-    // Both load functions return newest-first; slice(0, 200) keeps the newest.
     fiscalReceipts.value = receipts.slice(0, 200);
     invoiceRequests.value = invoices.slice(0, 200);
-    // Prune IDB entries beyond the retention cap (fire-and-forget; non-critical).
     Promise.all([
       pruneFiscalReceiptsInIDB(200),
       pruneInvoiceRequestsInIDB(200),
@@ -193,18 +205,17 @@ export const useAppStore = defineStore('app', () => {
   }
 
   _hydrateFiscalAndInvoice();
-  // ── Table state ────────────────────────────────────────────────────────────
+
   const tableOccupiedAt = ref({});
   const billRequestedTables = ref(new Set());
   const tableCurrentBillSession = ref({});
-  // slaveTableId → masterTableId; slave shows as "occupied" by delegating to master
   const tableMergedInto = ref({});
 
-  // ── Merge-graph helpers (used by getTableStatus & changeOrderStatus) ────────
   function slaveIdsOf(masterId) {
     if (!masterId) return [];
     return Object.keys(tableMergedInto.value).filter(id => tableMergedInto.value[id] === masterId);
   }
+
   function resolveMaster(tableId) {
     const visited = new Set();
     let cur = tableId;
@@ -216,36 +227,19 @@ export const useAppStore = defineStore('app', () => {
     return cur;
   }
 
-  // Floor-plan display query helpers — use these in components instead of
-  // accessing tableMergedInto directly.  tableMergedInto is an internal
-  // implementation detail whose sole purpose is the floor-plan ghost-occupied
-  // display; exposing a stable API keeps components decoupled from the raw shape.
-  /** Returns true when tableId is a merged slave delegating its status to a master. */
   function isMergedSlave(tableId) { return !!tableMergedInto.value[tableId]; }
-  /** Returns the master table ID for a merged slave, or null if not a slave. */
   function masterTableOf(tableId) { return tableMergedInto.value[tableId] ?? null; }
 
-  // ── Computed ───────────────────────────────────────────────────────────────
-  const cssVars = computed(() => ({
-    '--brand-primary': config.value.ui.primaryColor,
-    '--brand-dark': config.value.ui.primaryColorDark,
-  }));
-  const rooms = computed(() => {
-    const r = config.value.rooms;
-    if (Array.isArray(r) && r.length > 0) return r;
-    return [{ id: 'main', label: '', tables: config.value.tables ?? [] }];
-  });
   const pendingCount = computed(() => orders.value.filter(o => o.status === 'pending').length);
   const inKitchenCount = computed(() =>
     orders.value.filter(o => KITCHEN_ACTIVE_STATUSES.includes(o.status)).length,
   );
 
-  // ── Table helpers ──────────────────────────────────────────────────────────
   function getTableStatus(tableId) {
     const master = resolveMaster(tableId);
     if (tableMergedInto.value[tableId]) {
       if (master !== tableId) return { ...getTableStatus(master), isMergedSlave: true, masterTableId: master };
-      return { status: 'free', total: 0, remaining: 0 }; // cycle guard
+      return { status: 'free', total: 0, remaining: 0 };
     }
     const ords = orders.value.filter(
       o => o.table === tableId && o.status !== 'completed' && o.status !== 'rejected',
@@ -275,15 +269,16 @@ export const useAppStore = defineStore('app', () => {
     if (status === 'bill_requested') return 'border-blue-400 text-blue-900 bg-blue-100 shadow-[0_0_15px_rgba(59,130,246,0.3)]';
     return 'border-[var(--brand-primary)] text-white theme-bg shadow-md';
   }
+
   function getTableColorClass(tableId) {
     return getTableColorClassFromStatus(getTableStatus(tableId).status);
   }
+
   function getPaymentMethodIcon(methodId) {
-    const m = config.value.paymentMethods.find(x => x.label === methodId || x.id === methodId);
+    const m = configStore.config.paymentMethods.find(x => x.label === methodId || x.id === methodId);
     return m ? m.icon : 'banknote';
   }
 
-  // ── Table session ──────────────────────────────────────────────────────────
   function setBillRequested(tableId, val) {
     if (val) billRequestedTables.value.add(tableId);
     else billRequestedTables.value.delete(tableId);
@@ -298,23 +293,46 @@ export const useAppStore = defineStore('app', () => {
       ...tableCurrentBillSession.value,
       [tableId]: session,
     };
-    const venueId = appConfig.directus?.venueId ?? null;
+    const venueId = configStore.config.directus?.venueId ?? null;
     enqueue('bill_sessions', 'create', billSessionId, {
-      id: billSessionId, table: tableId, adults, children, status: 'open', opened_at: now,
+      id: billSessionId,
+      table: tableId,
+      adults,
+      children,
+      status: 'open',
+      opened_at: now,
       ...(venueId != null ? { venue: venueId } : {}),
     });
-    // Persist to IDB bill_sessions immediately so offline reloads hydrate the
-    // session from the dedicated ObjectStore (not just app_meta) before a pull.
     upsertBillSessionInIDB({ ...session, ...(venueId != null ? { venue: venueId } : {}) });
     return billSessionId;
   }
 
-  // ── Order mutations ────────────────────────────────────────────────────────
-  function addOrder(order) {
-    if (order.globalNote === undefined) order.globalNote = '';
-    if (!order.noteVisibility) order.noteVisibility = { cassa: true, sala: true, cucina: true };
-    orders.value.push(order);
-    enqueue('orders', 'create', order.id, order);
+  async function refreshOperationalStateFromIDB(options = {}) {
+    const operationalStateRefs = {
+      orders,
+      transactions,
+      cashBalance,
+      cashMovements,
+      dailyClosures,
+      printLog,
+      tableCurrentBillSession,
+      tableMergedInto,
+      tableOccupiedAt,
+      billRequestedTables,
+    };
+    const { collection, collections } = options;
+    const requestedCollections = collections ?? (collection ? [collection] : Object.keys(operationalStateRefs));
+    const targetCollections = requestedCollections.filter((key) => Object.prototype.hasOwnProperty.call(operationalStateRefs, key));
+    if (!targetCollections.length) return;
+
+    const idbState = await loadStateFromIDB();
+    if (!idbState) return;
+
+    targetCollections.forEach((key) => {
+      if (Object.prototype.hasOwnProperty.call(idbState, key)) {
+        operationalStateRefs[key].value = idbState[key];
+      }
+    });
   }
 
   function _enqueueOrderSnapshot(ord) {
@@ -327,6 +345,15 @@ export const useAppStore = defineStore('app', () => {
       payload = JSON.parse(JSON.stringify(rawOrder));
     }
     enqueue('orders', 'update', ord.id, payload);
+  }
+
+  function addOrder(order) {
+    if (order.globalNote === undefined) order.globalNote = '';
+    if (!order.noteVisibility) order.noteVisibility = { cassa: true, sala: true, cucina: true };
+
+    orders.value.push(order);
+    saveStateToIDB({ orders: orders.value }).catch(() => {});
+    enqueue('orders', 'create', order.id, order);
   }
 
   function changeOrderStatus(order, newStatus, rejectionReason = null) {
@@ -352,9 +379,6 @@ export const useAppStore = defineStore('app', () => {
       delete nextSession[order.table];
       tableCurrentBillSession.value = nextSession;
       setBillRequested(order.table, false);
-      // Enqueue bill_session closure so Directus reflects the closed state, and
-      // mark the IDB record closed immediately to prevent a stale open record from
-      // being resurrected by loadStateFromIDB() on the next reload.
       if (closingSession?.billSessionId) {
         closeBillSessionInIDB(closingSession.billSessionId);
         enqueue('bill_sessions', 'update', closingSession.billSessionId, {
@@ -362,6 +386,13 @@ export const useAppStore = defineStore('app', () => {
         });
       }
     }
+    saveStateToIDB({
+      orders: orders.value,
+      tableOccupiedAt: tableOccupiedAt.value,
+      tableMergedInto: tableMergedInto.value,
+      tableCurrentBillSession: tableCurrentBillSession.value,
+      billRequestedTables: billRequestedTables.value,
+    }).catch(() => {});
     enqueue('orders', 'update', order.id, { status: newStatus, rejectionReason: order.rejectionReason ?? null });
   }
 
@@ -442,15 +473,19 @@ export const useAppStore = defineStore('app', () => {
     _enqueueOrderSnapshot(order);
   }
 
-  // ── Transactions ───────────────────────────────────────────────────────────
   function addTransaction(txn) {
     transactions.value.push(txn);
     if (txn.tableId) setBillRequested(txn.tableId, false);
+    saveStateToIDB({
+      transactions: transactions.value,
+      billRequestedTables: billRequestedTables.value,
+    }).catch(() => {});
     enqueue('transactions', 'create', txn.id, txn);
   }
 
   function addTipTransaction(tableId, billSessionId, tipValue) {
     if (!tableId || tipValue <= 0) return;
+    const venueId = configStore.config.directus?.venueId;
     const txn = {
       id: newUUIDv7(),
       tableId,
@@ -461,19 +496,15 @@ export const useAppStore = defineStore('app', () => {
       tipAmount: tipValue,
       timestamp: new Date().toISOString(),
       orderRefs: [],
-      ...(appConfig.directus?.venueId != null ? { venue: appConfig.directus.venueId } : {}),
+      ...(venueId != null ? { venue: venueId } : {}),
     };
     transactions.value.push(txn);
     enqueue('transactions', 'create', txn.id, txn);
   }
 
-  // ── Direct orders (bypass kitchen workflow) ────────────────────────────────
-  /**
-   * Creates an order that immediately transitions to 'accepted', bypassing the kitchen queue.
-   * Used for counter items, service charges, or items from splitItemsToTable.
-   */
   function addDirectOrder(tableId, billSessionId, items) {
     if (!tableId || !Array.isArray(items) || items.length === 0) return null;
+    const venueId = configStore.config.directus?.venueId;
     const order = {
       id: newUUIDv7(),
       table: tableId,
@@ -485,26 +516,29 @@ export const useAppStore = defineStore('app', () => {
       dietaryPreferences: {},
       orderItems: items.map(item => ({ ...item })),
       isDirectEntry: true,
-      ...(appConfig.directus?.venueId != null ? { venue: appConfig.directus.venueId } : {}),
+      ...(venueId != null ? { venue: venueId } : {}),
     };
     updateOrderTotals(order);
-    addOrder(order);
+    orders.value.push(order);
+    enqueue('orders', 'create', order.id, order);
     changeOrderStatus(order, 'accepted');
     return order;
   }
 
-  // ── Cassa operations ───────────────────────────────────────────────────────
-  function setCashBalance(amount) { cashBalance.value = parseFloat(amount) || 0; }
-  const setFondoCassa = setCashBalance; // backwards-compat alias
+  function setCashBalance(amount) {
+    cashBalance.value = parseFloat(amount) || 0;
+  }
+  const setFondoCassa = setCashBalance;
 
   function addCashMovement(type, amount, reason) {
+    const venueId = configStore.config.directus?.venueId;
     const mov = {
       id: newUUIDv7(),
       type,
       amount: parseFloat(amount) || 0,
       reason,
       timestamp: new Date().toISOString(),
-      ...(appConfig.directus?.venueId != null ? { venue: appConfig.directus.venueId } : {}),
+      ...(venueId != null ? { venue: venueId } : {}),
     };
     cashMovements.value.push(mov);
     enqueue('cash_movements', 'create', mov.id, mov);
@@ -515,6 +549,8 @@ export const useAppStore = defineStore('app', () => {
     const newTav = num < 10 ? '0' + num : '' + num;
     const now = formatOrderTime();
     const session = tableCurrentBillSession.value[newTav];
+    const venueId = configStore.config.directus?.venueId;
+
     orders.value.push({
       id: newUUIDv7(),
       table: newTav,
@@ -529,9 +565,10 @@ export const useAppStore = defineStore('app', () => {
       orderItems: [
         { uid: newShortId('r'), dishId: 'pri_2', name: 'Amatriciana', unitPrice: 12, quantity: 1, voidedQuantity: 0, notes: [], modifiers: [] },
       ],
-      ...(appConfig.directus?.venueId != null ? { venue: appConfig.directus.venueId } : {}),
+      ...(venueId != null ? { venue: venueId } : {}),
     });
-    const cc = config.value.coverCharge;
+
+    const cc = configStore.config.coverCharge;
     if (cc?.enabled && cc?.autoAdd && cc?.priceAdult > 0) {
       const coverOrder = addDirectOrder(newTav, session?.billSessionId ?? null, [
         { uid: newShortId('cop'), dishId: null, name: cc.name, unitPrice: cc.priceAdult, quantity: 2, voidedQuantity: 0, notes: [], modifiers: [] },
@@ -540,33 +577,32 @@ export const useAppStore = defineStore('app', () => {
     }
   }
 
-  // ── Table operations (extracted to tableOps.js) ────────────────────────────
   const { moveTableOrders, mergeTableOrders, detachSlaveTable, splitItemsToTable } =
     makeTableOps(
       { orders, transactions, tableCurrentBillSession, tableOccupiedAt, billRequestedTables, tableMergedInto },
       { addDirectOrder, openTableSession, getTableStatus, setBillRequested, slaveIdsOf, resolveMaster },
     );
 
-  // ── Report operations (extracted to reportOps.js) ─────────────────────────
   const { generateXReport, performDailyClose, closedBills } =
     makeReportOps(
-      { orders, transactions, cashBalance, cashMovements, dailyClosures, config, fiscalReceipts, invoiceRequests },
+      {
+        orders,
+        transactions,
+        cashBalance,
+        cashMovements,
+        dailyClosures,
+        config: configRef,
+        fiscalReceipts,
+        invoiceRequests,
+      },
       { getTableStatus },
     );
 
-  // ── Cross-view navigation state ────────────────────────────────────────────
   const pendingOpenTable = ref(null);
   const pendingSelectOrder = ref(null);
   const pendingNewOrder = ref(null);
 
-  // ── IDB persistence watchers ───────────────────────────────────────────────
-  // Debounced: batches rapid successive mutations into a single IDB write.
-  // Uses a 150 ms timeout so UI interactions feel instant while writes are async.
-  // Persist only the state slices that actually changed during the debounce window
-  // instead of re-writing every persisted collection on each deep mutation.
   let _saveTimer = null;
-  // Promise chain that serializes IDB writes so a slower earlier save can never
-  // overwrite a newer one (last scheduled write always commits last).
   let _saveChain = Promise.resolve();
   const _pendingSaveKeys = new Set();
   const _persistableStateGetters = {
@@ -610,235 +646,148 @@ export const useAppStore = defineStore('app', () => {
   watch(tableOccupiedAt, () => _scheduleSave('tableOccupiedAt'), { deep: true });
   watch(billRequestedTables, () => _scheduleSave('billRequestedTables'), { deep: true });
 
-  const operationalStateRefs = {
+  return {
     orders,
     transactions,
     cashBalance,
     cashMovements,
     dailyClosures,
-    printLog,
-    tableCurrentBillSession,
-    tableMergedInto,
     tableOccupiedAt,
     billRequestedTables,
-  };
-
-  async function refreshOperationalStateFromIDB(options = {}) {
-    const { collection, collections } = options;
-    const requestedCollections = collections ?? (collection ? [collection] : Object.keys(operationalStateRefs));
-    const targetCollections = requestedCollections.filter((key) => Object.prototype.hasOwnProperty.call(operationalStateRefs, key));
-    if (!targetCollections.length) return;
-
-    const idbState = await loadStateFromIDB();
-    if (!idbState) return;
-
-    targetCollections.forEach((key) => {
-      if (Object.prototype.hasOwnProperty.call(idbState, key)) {
-        operationalStateRefs[key].value = idbState[key];
-      }
-    });
-  }
-
-  return {
-    // state
-    config, orders, transactions,
-    cashBalance, cashMovements, dailyClosures,
-    tableOccupiedAt, billRequestedTables, tableCurrentBillSession, tableMergedInto,
-    pendingOpenTable, pendingSelectOrder, pendingNewOrder,
-    sounds, menuUrl, menuSource, preventScreenLock, customKeyboard, preBillPrinterId, menuLoading, menuError,
-    // print log
-    printLog, addPrintLogEntry, updatePrintLogEntry, clearPrintLog,
-    // fiscal receipts
-    fiscalReceipts, addFiscalReceipt, updateFiscalReceipt,
+    tableCurrentBillSession,
+    tableMergedInto,
+    pendingOpenTable,
+    pendingSelectOrder,
+    pendingNewOrder,
+    printLog,
+    addPrintLogEntry,
+    updatePrintLogEntry,
+    clearPrintLog,
+    fiscalReceipts,
+    addFiscalReceipt,
+    updateFiscalReceipt,
     fiscalInvoiceHydrated,
-    // invoice requests
-    invoiceRequests, addInvoiceRequest,
-    // computed
-    cssVars, rooms, pendingCount, inKitchenCount, closedBills,
-    // helpers
-    getTableStatus, getTableColorClass, getTableColorClassFromStatus, getPaymentMethodIcon,
-    // merge-graph display helpers (prefer these over raw tableMergedInto access in components)
-    isMergedSlave, masterTableOf, slaveIdsOf,
-    // order mutations
-    addOrder, changeOrderStatus, setItemKitchenReady,
-    updateQtyGlobal, removeRowGlobal,
-    voidOrderItems, restoreOrderItems, voidModifier, restoreModifier,
-    addTransaction, addTipTransaction, addDirectOrder, simulateNewOrder, loadMenu,
-    // table operations
-    setBillRequested, openTableSession,
-    moveTableOrders, mergeTableOrders, detachSlaveTable, splitItemsToTable,
-    // cassa operations
-    setFondoCassa, addCashMovement, generateXReport, performDailyClose,
+    invoiceRequests,
+    addInvoiceRequest,
+    pendingCount,
+    inKitchenCount,
+    closedBills,
+    getTableStatus,
+    getTableColorClass,
+    getTableColorClassFromStatus,
+    getPaymentMethodIcon,
+    isMergedSlave,
+    masterTableOf,
+    slaveIdsOf,
+    addOrder,
+    changeOrderStatus,
+    setItemKitchenReady,
+    updateQtyGlobal,
+    removeRowGlobal,
+    voidOrderItems,
+    restoreOrderItems,
+    voidModifier,
+    restoreModifier,
+    addTransaction,
+    addTipTransaction,
+    addDirectOrder,
+    simulateNewOrder,
+    setBillRequested,
+    openTableSession,
+    moveTableOrders,
+    mergeTableOrders,
+    detachSlaveTable,
+    splitItemsToTable,
+    setFondoCassa,
+    addCashMovement,
+    generateXReport,
+    performDailyClose,
     refreshOperationalStateFromIDB,
   };
 });
 
-export const useConfigStore = defineStore('config', () => {
-  const app = useAppStore();
-  return {
-    config: computed({
-      get: () => app.config,
-      set: (value) => { app.config = value; },
-    }),
-    rooms: computed(() => app.rooms),
-    cssVars: computed(() => app.cssVars),
-    sounds: computed({
-      get: () => app.sounds,
-      set: (value) => { app.sounds = value; },
-    }),
-    menuUrl: computed({
-      get: () => app.menuUrl,
-      set: (value) => { app.menuUrl = value; },
-    }),
-    menuSource: computed({
-      get: () => app.menuSource,
-      set: (value) => { app.menuSource = value; },
-    }),
-    preventScreenLock: computed({
-      get: () => app.preventScreenLock,
-      set: (value) => { app.preventScreenLock = value; },
-    }),
-    customKeyboard: computed({
-      get: () => app.customKeyboard,
-      set: (value) => { app.customKeyboard = value; },
-    }),
-    preBillPrinterId: computed({
-      get: () => app.preBillPrinterId,
-      set: (value) => { app.preBillPrinterId = value; },
-    }),
-    menuLoading: computed(() => app.menuLoading),
-    menuError: computed(() => app.menuError),
-    loadMenu: app.loadMenu,
-  };
-});
+function _createMergedStoreProxy(configStore, orderStore) {
+  const sources = [orderStore, configStore];
+  return new Proxy({}, {
+    get(_target, prop) {
+      for (const source of sources) {
+        if (prop in source) {
+          const value = source[prop];
+          return typeof value === 'function' ? value.bind(source) : value;
+        }
+      }
+      return undefined;
+    },
+    set(_target, prop, value) {
+      for (const source of sources) {
+        if (prop in source) {
+          source[prop] = value;
+          return true;
+        }
+      }
+      configStore[prop] = value;
+      return true;
+    },
+    has(_target, prop) {
+      return sources.some(source => prop in source);
+    },
+    ownKeys() {
+      return [...new Set(sources.flatMap(source => Reflect.ownKeys(source)))];
+    },
+    getOwnPropertyDescriptor() {
+      return { enumerable: true, configurable: true };
+    },
+  });
+}
 
-export const useOrderStore = defineStore('orders', () => {
-  const app = useAppStore();
-  return {
-    orders: computed({
-      get: () => app.orders,
-      set: (value) => { app.orders = value; },
-    }),
-    transactions: computed({
-      get: () => app.transactions,
-      set: (value) => { app.transactions = value; },
-    }),
-    cashBalance: computed({
-      get: () => app.cashBalance,
-      set: (value) => { app.cashBalance = value; },
-    }),
-    cashMovements: computed({
-      get: () => app.cashMovements,
-      set: (value) => { app.cashMovements = value; },
-    }),
-    dailyClosures: computed({
-      get: () => app.dailyClosures,
-      set: (value) => { app.dailyClosures = value; },
-    }),
-    tableOccupiedAt: computed({
-      get: () => app.tableOccupiedAt,
-      set: (value) => { app.tableOccupiedAt = value; },
-    }),
-    billRequestedTables: computed({
-      get: () => app.billRequestedTables,
-      set: (value) => { app.billRequestedTables = value; },
-    }),
-    tableCurrentBillSession: computed({
-      get: () => app.tableCurrentBillSession,
-      set: (value) => { app.tableCurrentBillSession = value; },
-    }),
-    tableMergedInto: computed({
-      get: () => app.tableMergedInto,
-      set: (value) => { app.tableMergedInto = value; },
-    }),
-    pendingCount: computed(() => app.pendingCount),
-    inKitchenCount: computed(() => app.inKitchenCount),
-    closedBills: computed(() => app.closedBills),
-    addOrder: app.addOrder,
-    changeOrderStatus: app.changeOrderStatus,
-    setItemKitchenReady: app.setItemKitchenReady,
-    updateQtyGlobal: app.updateQtyGlobal,
-    removeRowGlobal: app.removeRowGlobal,
-    voidOrderItems: app.voidOrderItems,
-    restoreOrderItems: app.restoreOrderItems,
-    voidModifier: app.voidModifier,
-    restoreModifier: app.restoreModifier,
-    addTransaction: app.addTransaction,
-    addTipTransaction: app.addTipTransaction,
-    addDirectOrder: app.addDirectOrder,
-    simulateNewOrder: app.simulateNewOrder,
-    setBillRequested: app.setBillRequested,
-    openTableSession: app.openTableSession,
-    moveTableOrders: app.moveTableOrders,
-    mergeTableOrders: app.mergeTableOrders,
-    detachSlaveTable: app.detachSlaveTable,
-    splitItemsToTable: app.splitItemsToTable,
-  };
-});
+export function useAppStore(pinia) {
+  const configStore = useConfigStore(pinia);
+  const orderStore = useOrderStore(pinia);
+  return _createMergedStoreProxy(configStore, orderStore);
+}
 
-// ── App initialisation helper ─────────────────────────────────────────────────
-
-/**
- * Loads persisted state and settings from IndexedDB and applies them to the
- * store. Call this once per app page **before** `app.mount()` to ensure the UI
- * never renders with stale defaults.
- *
- * Also backfills demo orders when no persisted orders are found (development
- * mode), mirroring the behaviour of the old `afterHydrate` hook.
- *
- * @param {import('pinia').Pinia} pinia - The active Pinia instance
- */
 export async function initStoreFromIDB(pinia) {
-  const store = useAppStore(pinia);
+  const configStore = useConfigStore(pinia);
+  const orderStore = useOrderStore(pinia);
 
-  // ── Load operational state ──────────────────────────────────────────────────
   const [idbState, settings] = await Promise.all([
     loadStateFromIDB(),
     loadSettingsFromIDB(),
+    configStore.hydrateConfigFromIDB(),
   ]);
 
   if (idbState) {
-    if (idbState.orders.length === 0) {
-      store.orders = (appConfig.demoOrders ?? []).map(o => ({ ...o }));
+    if ((idbState.orders ?? []).length === 0) {
+      orderStore.orders = (appConfig.demoOrders ?? []).map(o => ({ ...o }));
     } else {
-      store.orders = idbState.orders;
-      for (const ord of store.orders) {
-        if (ord.globalNote === undefined) ord.globalNote = '';
-        if (!ord.noteVisibility) ord.noteVisibility = { cassa: true, sala: true, cucina: true };
-      }
+      orderStore.orders = (idbState.orders ?? []).map((order) => {
+        const mapped = mapOrderFromDirectus(order);
+        if (mapped.globalNote === undefined) mapped.globalNote = '';
+        if (!mapped.noteVisibility) mapped.noteVisibility = { cassa: true, sala: true, cucina: true };
+        return mapped;
+      });
     }
-    store.transactions = idbState.transactions;
-    store.cashBalance = idbState.cashBalance;
-    store.cashMovements = idbState.cashMovements;
-    store.dailyClosures = idbState.dailyClosures;
-    store.printLog = idbState.printLog;
-    store.tableCurrentBillSession = idbState.tableCurrentBillSession;
-    store.tableMergedInto = idbState.tableMergedInto;
-    store.tableOccupiedAt = idbState.tableOccupiedAt;
-    store.billRequestedTables = idbState.billRequestedTables;
-  } else {
-    if (store.orders.length === 0) {
-      store.orders = (appConfig.demoOrders ?? []).map(o => ({ ...o }));
-    }
+    orderStore.transactions = idbState.transactions ?? [];
+    orderStore.cashBalance = idbState.cashBalance ?? 0;
+    orderStore.cashMovements = idbState.cashMovements ?? [];
+    orderStore.dailyClosures = idbState.dailyClosures ?? [];
+    orderStore.printLog = idbState.printLog ?? [];
+    orderStore.tableCurrentBillSession = idbState.tableCurrentBillSession ?? {};
+    orderStore.tableMergedInto = idbState.tableMergedInto ?? {};
+    orderStore.tableOccupiedAt = idbState.tableOccupiedAt ?? {};
+    orderStore.billRequestedTables = idbState.billRequestedTables ?? new Set();
+  } else if (orderStore.orders.length === 0) {
+    orderStore.orders = (appConfig.demoOrders ?? []).map(o => ({ ...o }));
   }
 
-  // ── Apply settings ──────────────────────────────────────────────────────────
   if (settings) {
-    if (typeof settings.sounds === 'boolean') store.sounds = settings.sounds;
-    if (typeof settings.menuUrl === 'string' && settings.menuUrl.trim() !== '') {
-      store.menuUrl = settings.menuUrl;
-      appConfig.menuUrl = settings.menuUrl;
-    }
-    if (settings.menuSource === 'json' || settings.menuSource === 'directus') {
-      store.menuSource = settings.menuSource;
-      appConfig.menuSource = settings.menuSource;
-    }
-    if (typeof settings.preventScreenLock === 'boolean') {
-      store.preventScreenLock = settings.preventScreenLock;
-    }
-    if (KEYBOARD_POSITIONS.includes(settings.customKeyboard)) store.customKeyboard = settings.customKeyboard;
-    if (typeof settings.preBillPrinterId === 'string') {
-      store.preBillPrinterId = settings.preBillPrinterId;
-    }
+    if (typeof settings.sounds === 'boolean') configStore.sounds = settings.sounds;
+    if (typeof settings.menuUrl === 'string' && settings.menuUrl.trim() !== '') configStore.menuUrl = settings.menuUrl;
+    if (settings.menuSource === 'json' || settings.menuSource === 'directus') configStore.menuSource = settings.menuSource;
+    if (typeof settings.preventScreenLock === 'boolean') configStore.preventScreenLock = settings.preventScreenLock;
+    if (KEYBOARD_POSITIONS.includes(settings.customKeyboard)) configStore.customKeyboard = settings.customKeyboard;
+    if (typeof settings.preBillPrinterId === 'string') configStore.preBillPrinterId = settings.preBillPrinterId;
   }
+
+  await configStore.loadMenu();
 }

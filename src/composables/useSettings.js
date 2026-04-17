@@ -56,6 +56,13 @@ export function useSettings(props, emit) {
     store.menuUrl = menuUrl;
     appConfig.menuSource = store.menuSource;
     appConfig.menuUrl = store.menuUrl;
+    if (store.config && typeof store.config === 'object') {
+      store.config = {
+        ...store.config,
+        menuSource: store.menuSource,
+        menuUrl: store.menuUrl,
+      };
+    }
   }
 
   // Flush pending save and reset confirm state when the modal closes
