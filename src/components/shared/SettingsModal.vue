@@ -67,9 +67,7 @@
 
         <!-- Sincronizzazione Directus (solo amministratori) -->
         <div v-if="showDirectusSync" class="pt-4 border-t border-gray-100 mt-2 space-y-2">
-          <div class="flex items-center gap-2">
-            <span class="text-xs font-bold text-gray-600 uppercase tracking-wider">Sincronizzazione Directus</span>
-          </div>
+          <span class="block text-xs font-bold text-gray-600 uppercase tracking-wider">Sincronizzazione Directus</span>
           <DirectusSyncSettings />
         </div>
 

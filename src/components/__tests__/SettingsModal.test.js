@@ -288,8 +288,8 @@ describe('pre-bill printer settings (runtime config alignment)', () => {
     const wrapper = mountSettingsModal({ showPrinterSettings: true });
     await flushPromises();
 
-    const labels = wrapper.findAll('input[name="preBillPrinter"]').map((input) => input.element.value);
-    expect(labels).toEqual(['', 'alfa', 'zeta']);
+    const printerIds = wrapper.findAll('input[name="preBillPrinter"]').map((input) => input.element.value);
+    expect(printerIds).toEqual(['', 'alfa', 'zeta']);
   });
 
   it('reacts to runtime config snapshot updates while the modal is open', async () => {
