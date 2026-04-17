@@ -8,7 +8,7 @@
  *   enqueuePreBillJob(payload, printerUrl, printerName)   – Pre-conto sent to printer
  *   reprintJob(logEntry, overrideUrl?)               – Re-send a logged job
  *
- * Printer configuration lives in appConfig.printers (src/utils/index.js).
+ * Printer configuration lives in the reactive runtime config (store.config.printers).
  *
  * Each printer can be scoped to specific job types via `printTypes[]`:
  *   'order'      – new accepted kitchen/bar order
@@ -52,7 +52,6 @@
  *   fromTableId, fromTableLabel, toTableId, toTableLabel strings
  */
 
-import { appConfig } from '../utils/index.js';
 import { newUUIDv7 } from '../store/storeUtils.js';
 import { useAppStore } from '../store/index.js';
 
@@ -60,13 +59,13 @@ import { useAppStore } from '../store/index.js';
 
 /**
  * Builds a reverse look-up map: dishId → category name.
- * Uses the current appConfig.menu. Called lazily because the menu may be
+ * Uses the current runtime menu config. Called lazily because the menu may be
  * loaded asynchronously after the app boots.
  * @returns {Map<string, string>}
  */
 function buildDishCategoryMap() {
   const map = new Map();
-  const menu = appConfig.menu ?? {};
+  const menu = getRuntimeConfig().menu ?? {};
   for (const [category, items] of Object.entries(menu)) {
     if (Array.isArray(items)) {
       for (const item of items) {
@@ -130,6 +129,10 @@ function getStore() {
   }
 }
 
+function getRuntimeConfig() {
+  return getStore()?.config ?? {};
+}
+
 /**
  * Returns all configured printers that accept the given printType.
  * A printer with no printTypes (or an empty array) acts as catch-all.
@@ -137,7 +140,7 @@ function getStore() {
  * @returns {object[]}
  */
 function getPrintersForType(printType) {
-  const printers = appConfig.printers;
+  const printers = getRuntimeConfig().printers;
   if (!Array.isArray(printers)) return [];
   return printers.filter(p => {
     if (!p?.url) return false;
@@ -295,7 +298,7 @@ export function enqueuePreBillJob(payload, printerUrl, printerName, printerIdOve
 
   const store = getStore();
   const timestamp = new Date().toISOString();
-  const printer = appConfig.printers?.find(p => p.url === printerUrl);
+  const printer = getRuntimeConfig().printers?.find(p => p.url === printerUrl);
   const printerId = printerIdOverride ?? printer?.id ?? 'pre_bill';
 
   const job = {
@@ -347,7 +350,7 @@ export function reprintJob(logEntry, overrideUrl = null) {
   const timestamp = new Date().toISOString();
 
   const printer = overrideUrl
-    ? appConfig.printers?.find(p => p.url === overrideUrl)
+    ? getRuntimeConfig().printers?.find(p => p.url === overrideUrl)
     : null;
 
   const printerId = printer?.id ?? logEntry.printerId;

@@ -212,7 +212,7 @@
 <script setup>
 import { ref, computed, watch } from 'vue';
 import { X, RefreshCw, ListOrdered, CheckCircle, AlertTriangle, Copy } from 'lucide-vue-next';
-import { appConfig } from '../../utils/index.js';
+import { useAppStore } from '../../store/index.js';
 import { getPendingEntries, getFailedSyncCalls } from '../../composables/useSyncQueue.js';
 
 const props = defineProps({
@@ -220,6 +220,8 @@ const props = defineProps({
 });
 
 defineEmits(['update:modelValue']);
+const store = useAppStore();
+const runtimeConfig = computed(() => store.config ?? {});
 
 const SCREENS = [
   { key: 'queue', label: 'Coda attiva' },
@@ -261,11 +263,11 @@ async function refresh() {
     ]);
     allEntries.value = queueEntries;
     failedCalls.value = failedEntries;
-    lastRefresh.value = new Date().toLocaleTimeString(appConfig.locale, {
+    lastRefresh.value = new Date().toLocaleTimeString(runtimeConfig.value.locale ?? 'it-IT', {
       hour: '2-digit',
       minute: '2-digit',
       second: '2-digit',
-      timeZone: appConfig.timezone,
+      timeZone: runtimeConfig.value.timezone ?? 'Europe/Rome',
     });
   } catch {
     allEntries.value = [];
@@ -278,13 +280,13 @@ async function refresh() {
 function formatTs(iso) {
   if (!iso) return '—';
   try {
-    return new Date(iso).toLocaleString(appConfig.locale, {
+    return new Date(iso).toLocaleString(runtimeConfig.value.locale ?? 'it-IT', {
       day: '2-digit',
       month: '2-digit',
       hour: '2-digit',
       minute: '2-digit',
       second: '2-digit',
-      timeZone: appConfig.timezone,
+      timeZone: runtimeConfig.value.timezone ?? 'Europe/Rome',
     });
   } catch {
     return iso;

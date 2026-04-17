@@ -149,7 +149,6 @@ describe('useSettings()', () => {
   it('updates store.menuUrl immediately when settings.menuUrl changes', async () => {
     const props = reactive({ modelValue: true });
     const emit = vi.fn();
-    const { appConfig } = await import('../../utils/index.js');
 
     const { result, wrapper } = withSetup(() => useSettings(props, emit));
 
@@ -157,22 +156,18 @@ describe('useSettings()', () => {
     await nextTick();
 
     expect(store.menuUrl).toBe('https://new-menu.example.com/menu.json');
-    expect(appConfig.menuUrl).toBe('https://new-menu.example.com/menu.json');
     wrapper.unmount();
   });
 
   it('updates store.menuSource immediately when the setting changes', async () => {
     const props = reactive({ modelValue: true });
     const emit = vi.fn();
-    const { appConfig } = await import('../../utils/index.js');
 
     const { result, wrapper } = withSetup(() => useSettings(props, emit));
 
     result.settings.value.menuSource = 'json';
     await nextTick();
-
     expect(store.menuSource).toBe('json');
-    expect(appConfig.menuSource).toBe('json');
     wrapper.unmount();
   });
 

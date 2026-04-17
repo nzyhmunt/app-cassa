@@ -287,7 +287,7 @@ import {
 } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
 import { newUUIDv7, newShortId } from '../store/storeUtils.js';
-import { appConfig, formatOrderTime } from '../utils/index.js';
+import { formatOrderTime } from '../utils/index.js';
 // Shared component — used by both Sala and Cassa apps.
 import PeopleModal from './shared/PeopleModal.vue';
 import TableStatsBar from './shared/TableStatsBar.vue';
@@ -296,6 +296,7 @@ import TableGrid from './shared/TableGrid.vue';
 const emit = defineEmits(['new-order-for-comande', 'view-order']);
 
 const store = useAppStore();
+const runtimeConfig = computed(() => store.config ?? {});
 
 // ── Room tabs ─────────────────────────────────────────────────────────────
 const activeRoomId = ref(store.rooms.length > 1 ? 'all' : (store.rooms[0]?.id ?? null));
@@ -445,7 +446,11 @@ const occupiedSince = computed(() => {
   if (!selectedTable.value) return null;
   const ts = store.tableOccupiedAt[selectedTable.value.id];
   if (!ts) return null;
-  return new Date(ts).toLocaleTimeString(appConfig.locale, { hour: '2-digit', minute: '2-digit', timeZone: appConfig.timezone });
+  return new Date(ts).toLocaleTimeString(runtimeConfig.value.locale ?? 'it-IT', {
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: runtimeConfig.value.timezone ?? 'Europe/Rome',
+  });
 });
 
 // ── Actions ──────────────────────────────────────────────────────────────────
@@ -549,7 +554,7 @@ function createNewOrder() {
     orderItems: [],
     globalNote: '',
     noteVisibility: { cassa: true, sala: true, cucina: true },
-    ...(appConfig.directus?.venueId != null ? { venue: appConfig.directus.venueId } : {}),
+    ...(runtimeConfig.value.directus?.venueId != null ? { venue: runtimeConfig.value.directus.venueId } : {}),
   };
   store.addOrder(newOrd);
   closeTableModal();

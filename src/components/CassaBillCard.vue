@@ -236,7 +236,7 @@
 import { ref, computed } from 'vue';
 import { ChevronDown, CreditCard, ClipboardList, Banknote, Tag, Wallet, CheckCircle, Printer, FileText } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
-import { appConfig, billKey, getOrderItemRowTotal, buildFiscalXmlRequest } from '../utils/index.js';
+import { billKey, getOrderItemRowTotal, buildFiscalXmlRequest } from '../utils/index.js';
 import { newUUIDv7 } from '../store/storeUtils.js';
 import NumericInput from './NumericInput.vue';
 import InvoiceModal from './shared/InvoiceModal.vue';
@@ -253,6 +253,7 @@ const props = defineProps({
 });
 
 const store = useAppStore();
+const runtimeConfig = computed(() => store.config ?? {});
 const isOpen = ref(props.initiallyOpen);
 
 // Post-payment tip state
@@ -356,7 +357,10 @@ function confirmInvoice(billingData) {
 
 function formatTime(isoString) {
   if (!isoString) return '–';
-  return new Date(isoString).toLocaleTimeString(appConfig.locale, { hour: '2-digit', minute: '2-digit', timeZone: appConfig.timezone });
+  return new Date(isoString).toLocaleTimeString(
+    runtimeConfig.value.locale ?? 'it-IT',
+    { hour: '2-digit', minute: '2-digit', timeZone: runtimeConfig.value.timezone ?? 'Europe/Rome' },
+  );
 }
 
 function getPaymentIcon(methodIdOrLabel) {
