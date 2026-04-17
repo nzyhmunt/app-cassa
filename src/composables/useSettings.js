@@ -145,7 +145,6 @@ export function useSettings(props, emit) {
     }
     applyMenuRuntimeConfig('json', resetSettings.menuUrl);
     if (typeof window !== 'undefined' && window.location) {
-      emit('update:modelValue', false);
       window.location.reload();
     }
   }
