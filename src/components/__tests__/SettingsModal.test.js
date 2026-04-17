@@ -17,6 +17,7 @@ import { createPinia, setActivePinia } from 'pinia';
 import SettingsModal from '../shared/SettingsModal.vue';
 import { useAuth, _resetAuthSingleton } from '../../composables/useAuth.js';
 import { _resetIDBSingleton } from '../../composables/useIDB.js';
+import { useAppStore } from '../../store/index.js';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -28,6 +29,8 @@ const ICON_STUBS = {
   Users: { template: '<span />' },
   ShieldCheck: { template: '<span />' },
   ShieldAlert: { template: '<span />' },
+  KeyRound: { template: '<span />' },
+  Printer: { template: '<span />' },
   Volume2: { template: '<span />' },
   VolumeX: { template: '<span />' },
   Monitor: { template: '<span />' },
@@ -243,5 +246,47 @@ describe('showMenuSync prop', () => {
     await flushPromises();
     expect(wrapper.text()).toContain('URL Menu JSON');
     expect(wrapper.text()).toContain('Sincronizza Menu');
+  });
+});
+
+describe('pre-bill printer settings (runtime config alignment)', () => {
+  it('shows only printers that can handle pre-bill jobs', async () => {
+    const store = useAppStore();
+    store.config = {
+      ...store.config,
+      printers: [
+        { id: 'all', name: 'Stampante Tutto', url: 'http://all.local' },
+        { id: 'pre', name: 'Stampante Preconto', url: 'http://pre.local', printTypes: ['pre_bill'] },
+        { id: 'kitchen', name: 'Stampante Cucina', url: 'http://kitchen.local', printTypes: ['order'] },
+      ],
+    };
+
+    const wrapper = mountSettingsModal({ showPrinterSettings: true });
+    await flushPromises();
+
+    expect(wrapper.text()).toContain('Stampante Preconto');
+    expect(wrapper.text()).toContain('Stampante Tutto');
+    expect(wrapper.text()).not.toContain('Stampante Cucina');
+  });
+
+  it('reacts to runtime config snapshot updates while the modal is open', async () => {
+    const store = useAppStore();
+    store.config = {
+      ...store.config,
+      printers: [{ id: 'old', name: 'Stampante Vecchia', url: 'http://old.local', printTypes: ['pre_bill'] }],
+    };
+
+    const wrapper = mountSettingsModal({ showPrinterSettings: true });
+    await flushPromises();
+    expect(wrapper.text()).toContain('Stampante Vecchia');
+
+    store.config = {
+      ...store.config,
+      printers: [{ id: 'new', name: 'Stampante Nuova', url: 'http://new.local', printTypes: ['pre_bill'] }],
+    };
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.text()).toContain('Stampante Nuova');
+    expect(wrapper.text()).not.toContain('Stampante Vecchia');
   });
 });
