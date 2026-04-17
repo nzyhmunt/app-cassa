@@ -336,6 +336,25 @@ async function _refreshStoreFromIDB(collection = null) {
   if (!collection || operationalCollections.has(collection)) {
     const state = await loadStateFromIDB();
     if (!state) return;
+
+    const applySlice = (storeKey) => {
+      if (Object.prototype.hasOwnProperty.call(state, storeKey)) {
+        _store[storeKey] = state[storeKey];
+      }
+    };
+
+    if (!collection || collection === 'orders' || collection === 'order_items' || collection === 'order_item_modifiers') {
+      applySlice('orders');
+    }
+    if (!collection || collection === 'bill_sessions') {
+      applySlice('tableCurrentBillSession');
+    }
+    if (!collection || collection === 'transactions') {
+      applySlice('transactions');
+    }
+    if (!collection || collection === 'table_merge_sessions') {
+      applySlice('tableMergeSessions');
+    }
   }
 }
 
