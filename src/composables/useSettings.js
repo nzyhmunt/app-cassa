@@ -111,7 +111,7 @@ export function useSettings(props, emit) {
     } catch (e) {
       console.warn('[Settings] Failed to complete nuclear database reset - data may not be fully cleared:', e);
       if (typeof window !== 'undefined' && typeof window.alert === 'function') {
-        window.alert('Reset blocked: close other tabs/apps open on this device and try again.');
+        window.alert('Reset bloccato: chiudi le altre schede/app aperte su questo dispositivo e riprova.');
       }
       return;
     }
