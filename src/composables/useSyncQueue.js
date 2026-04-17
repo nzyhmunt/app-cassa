@@ -145,11 +145,11 @@ export async function getPendingEntries() {
  * even after the original queue entry has been removed.
  *
  * @param {object} entry
- * @param {{ message?: string, request?: object|null, response?: object|null }} failure
- * @param {number} attempt
+ * @param {{ message?: string, request?: (Object|null), response?: (Object|null) }} failure
+ * @param {number} attempts
  * @param {boolean} abandoned
  */
-export async function addFailedSyncCall(entry, failure, attempt, abandoned) {
+export async function addFailedSyncCall(entry, failure, attempts, abandoned) {
   try {
     const db = await getDB();
     await db.add('sync_failed_calls', {
@@ -159,9 +159,9 @@ export async function addFailedSyncCall(entry, failure, attempt, abandoned) {
       operation: entry?.operation ?? null,
       record_id: entry?.record_id ?? null,
       payload: entry?.payload ?? null,
-      attempts: attempt,
+      attempts,
       abandoned: Boolean(abandoned),
-      error_message: failure?.message ?? 'Errore sconosciuto',
+      error_message: failure?.message ?? 'Unknown error',
       request: failure?.request ?? null,
       response: failure?.response ?? null,
       failed_at: new Date().toISOString(),
@@ -181,7 +181,7 @@ export async function getFailedSyncCalls(limit = 200) {
   try {
     const db = await getDB();
     const all = await db.getAllFromIndex('sync_failed_calls', 'failed_at');
-    const sorted = all.reverse();
+    const sorted = [...all].reverse();
     return Number.isFinite(limit) ? sorted.slice(0, Math.max(0, limit)) : sorted;
   } catch (e) {
     console.warn('[SyncQueue] Failed to read failed call log:', e);
@@ -481,16 +481,7 @@ async function _pushEntry(entry, sdkClient) {
     directusPayload.id = record_id;
   }
 
-  const requestContext = {
-    collection,
-    operation,
-    record_id,
-    endpoint: operation === 'create'
-      ? `/items/${collection}`
-      : `/items/${collection}/${record_id}`,
-    method: operation === 'create' ? 'POST' : operation === 'update' ? 'PATCH' : 'DELETE',
-    body: operation === 'delete' ? null : directusPayload,
-  };
+  let requestContext = null;
 
   try {
     if (operation === 'delete') {
@@ -500,26 +491,49 @@ async function _pushEntry(entry, sdkClient) {
       }
       if (SOFT_DELETE_COLLECTIONS.has(collection)) {
         // Strategy A: soft-delete via PATCH { status: 'archived' }
-        requestContext.method = 'PATCH';
-        requestContext.body = { status: 'archived' };
+        requestContext = {
+          collection,
+          operation,
+          record_id,
+          endpoint: `/items/${collection}/${record_id}`,
+          method: 'PATCH',
+          body: { status: 'archived' },
+        };
         await sdkClient.request(updateItem(collection, record_id, { status: 'archived' }));
       } else {
         // Strategy C: junction tables — hard DELETE
-        requestContext.method = 'DELETE';
-        requestContext.body = null;
+        requestContext = {
+          collection,
+          operation,
+          record_id,
+          endpoint: `/items/${collection}/${record_id}`,
+          method: 'DELETE',
+          body: null,
+        };
         await sdkClient.request(deleteItem(collection, record_id));
       }
     } else if (operation === 'create') {
       try {
-        requestContext.method = 'POST';
-        requestContext.body = directusPayload;
+        requestContext = {
+          collection,
+          operation,
+          record_id,
+          endpoint: `/items/${collection}`,
+          method: 'POST',
+          body: directusPayload,
+        };
         await sdkClient.request(createItem(collection, directusPayload));
       } catch (createError) {
         // 409 Conflict: duplicate UUIDv7 — retry as update
         if (createError?.response?.status === 409) {
-          requestContext.method = 'PATCH';
-          requestContext.endpoint = `/items/${collection}/${record_id}`;
-          requestContext.body = directusPayload;
+          requestContext = {
+            collection,
+            operation,
+            record_id,
+            endpoint: `/items/${collection}/${record_id}`,
+            method: 'PATCH',
+            body: directusPayload,
+          };
           await sdkClient.request(updateItem(collection, record_id, directusPayload));
         } else {
           throw createError;
@@ -527,8 +541,14 @@ async function _pushEntry(entry, sdkClient) {
       }
     } else {
       // update
-      requestContext.method = 'PATCH';
-      requestContext.body = directusPayload;
+      requestContext = {
+        collection,
+        operation,
+        record_id,
+        endpoint: `/items/${collection}/${record_id}`,
+        method: 'PATCH',
+        body: directusPayload,
+      };
       await sdkClient.request(updateItem(collection, record_id, directusPayload));
     }
 

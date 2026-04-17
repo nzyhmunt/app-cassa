@@ -72,7 +72,9 @@
             "
           >
             {{ tab.label }}
-            <span v-if="countFor(tab.key) > 0" class="ml-0.5 text-[9px] opacity-60">({{ countFor(tab.key) }})</span>
+            <span v-if="countFor(tab.key) > 0" class="ml-0.5 text-[9px] opacity-60">
+              ({{ countFor(tab.key) }})
+            </span>
           </button>
         </div>
       </div>
@@ -314,7 +316,7 @@ async function copyFailedCall(call) {
     copyMessage.value = 'Copia non disponibile su questo dispositivo';
   }
   setTimeout(() => {
-    if (copyMessage.value) copyMessage.value = '';
+    copyMessage.value = '';
   }, 2000);
 }
 

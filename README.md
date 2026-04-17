@@ -251,6 +251,7 @@ Funzionalità disponibile sia in **cassa live** (al momento della chiusura del c
 ### 💾 Persistenza & Multi-Istanza
 - **Persistenza automatica** su **IndexedDB** (`useIDB.js` + `idbPersistence.js`):
   - Ordini, transazioni, sessioni tavoli, movimenti di cassa, chiusure giornaliere
+  - Coda sync (`sync_queue`) e storico diagnostico delle chiamate fallite (`sync_failed_calls`) con request/response copiabili da UI
   - Serializzazione Set↔Array per `billRequestedTables`
   - Scritture IDB parziali sicure: ogni watcher aggiorna solo il proprio store senza toccare gli altri
   - Dati demo al primo avvio
