@@ -62,6 +62,11 @@ function _normalizeJsonMenuPayload(data) {
   return menu;
 }
 
+function _normalizeMenuSource(value, fallback = null) {
+  if (value === 'json' || value === 'directus') return value;
+  return fallback;
+}
+
 export const useConfigStore = defineStore('config', () => {
   const config = ref(createRuntimeConfig(appConfig));
 
@@ -88,7 +93,7 @@ export const useConfigStore = defineStore('config', () => {
   });
 
   async function hydrateConfigFromIDB(options = {}) {
-    const nextMenuSource = options.menuSource === 'json' ? 'json' : options.menuSource === 'directus' ? 'directus' : null;
+    const nextMenuSource = _normalizeMenuSource(options.menuSource);
     const nextMenuUrl = typeof options.menuUrl === 'string' && options.menuUrl.trim() !== ''
       ? options.menuUrl
       : null;
@@ -97,7 +102,7 @@ export const useConfigStore = defineStore('config', () => {
     const mapped = mapVenueConfigFromDirectus(cached, DEFAULT_SETTINGS);
     const hydrated = createRuntimeConfig(mapped);
 
-    const resolvedMenuSource = nextMenuSource ?? (hydrated.menuSource === 'json' ? 'json' : 'directus');
+    const resolvedMenuSource = nextMenuSource ?? _normalizeMenuSource(hydrated.menuSource, 'directus');
     const resolvedMenuUrl = nextMenuUrl ?? hydrated.menuUrl ?? DEFAULT_SETTINGS.menuUrl;
     menuSource.value = resolvedMenuSource;
     menuUrl.value = resolvedMenuUrl;
