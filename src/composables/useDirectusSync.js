@@ -353,7 +353,7 @@ async function _refreshStoreFromIDB(collection = null) {
       applySlice('transactions');
     }
     if (!collection || collection === 'table_merge_sessions') {
-      applySlice('tableMergeSessions');
+      applySlice('tableMergedInto');
     }
   }
 }
