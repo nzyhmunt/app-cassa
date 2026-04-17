@@ -70,6 +70,7 @@ export function useSettings(props, emit) {
       store.sounds = newVal.sounds;
       store.menuUrl = newVal.menuUrl;
       store.menuSource = newVal.menuSource === 'json' ? 'json' : 'directus';
+      appConfig.menuUrl = store.menuUrl;
       appConfig.menuSource = store.menuSource;
       if (store.menuSource !== 'json') {
         store.menuError = null;
@@ -109,6 +110,10 @@ export function useSettings(props, emit) {
       await deleteDatabase(getInstanceName());
     } catch (e) {
       console.warn('[Settings] Failed to complete nuclear database reset - data may not be fully cleared:', e);
+      if (typeof window !== 'undefined' && typeof window.alert === 'function') {
+        window.alert('Reset bloccato: chiudi le altre schede/app aperte su questo dispositivo e riprova.');
+      }
+      return;
     }
     // Clear in-memory auth state (its internal IDB call is harmless — already cleared)
     try {

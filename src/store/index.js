@@ -827,6 +827,7 @@ export async function initStoreFromIDB(pinia) {
     if (typeof settings.sounds === 'boolean') store.sounds = settings.sounds;
     if (typeof settings.menuUrl === 'string' && settings.menuUrl.trim() !== '') {
       store.menuUrl = settings.menuUrl;
+      appConfig.menuUrl = settings.menuUrl;
     }
     if (settings.menuSource === 'json' || settings.menuSource === 'directus') {
       store.menuSource = settings.menuSource;

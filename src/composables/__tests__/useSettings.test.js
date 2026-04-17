@@ -149,6 +149,7 @@ describe('useSettings()', () => {
   it('updates store.menuUrl immediately when settings.menuUrl changes', async () => {
     const props = reactive({ modelValue: true });
     const emit = vi.fn();
+    const { appConfig } = await import('../../utils/index.js');
 
     const { result, wrapper } = withSetup(() => useSettings(props, emit));
 
@@ -156,6 +157,7 @@ describe('useSettings()', () => {
     await nextTick();
 
     expect(store.menuUrl).toBe('https://new-menu.example.com/menu.json');
+    expect(appConfig.menuUrl).toBe('https://new-menu.example.com/menu.json');
     wrapper.unmount();
   });
 
@@ -537,6 +539,41 @@ describe('useSettings()', () => {
       expect(deleteDatabase).toHaveBeenCalledWith(getInstanceName());
       wrapper.unmount();
     } finally {
+      if (originalLocationDescriptor) {
+        Object.defineProperty(window, 'location', originalLocationDescriptor);
+      } else {
+        window.location = originalLocationValue;
+      }
+    }
+  });
+
+  it('confirmReset() does not reload when deleteDatabase() is blocked and shows actionable alert', async () => {
+    const reloadMock = vi.fn();
+    const alertMock = vi.fn();
+    const originalLocationDescriptor = Object.getOwnPropertyDescriptor(window, 'location');
+    const originalAlert = window.alert;
+    const originalLocationValue = window.location;
+
+    try {
+      Object.defineProperty(window, 'location', {
+        writable: true,
+        configurable: true,
+        value: { reload: reloadMock, pathname: '/' },
+      });
+      window.alert = alertMock;
+      vi.mocked(deleteDatabase).mockRejectedValueOnce(new Error('Database deletion blocked'));
+
+      const props = reactive({ modelValue: false });
+      const emit = vi.fn();
+
+      const { result, wrapper } = withSetup(() => useSettings(props, emit));
+      await result.confirmReset();
+
+      expect(alertMock).toHaveBeenCalled();
+      expect(reloadMock).not.toHaveBeenCalled();
+      wrapper.unmount();
+    } finally {
+      window.alert = originalAlert;
       if (originalLocationDescriptor) {
         Object.defineProperty(window, 'location', originalLocationDescriptor);
       } else {

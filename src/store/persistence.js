@@ -63,7 +63,9 @@ export function resolveCustomItemsKey(instanceName) {
 }
 
 /**
- * Resolves the logical key for the Directus connection config record.
+ * Resolves the legacy localStorage key historically used for Directus config.
+ * The active storage is now IndexedDB (`app_meta.id = "directus_config"`).
+ * Kept for backwards-compatible cleanup/tests.
  *
  * @param {string} [instanceName] - Instance name; defaults to getInstanceName().
  * @returns {string}
