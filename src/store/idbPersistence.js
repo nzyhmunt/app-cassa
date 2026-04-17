@@ -320,6 +320,7 @@ export async function closeBillSessionInIDB(billSessionId) {
 // ── Settings ──────────────────────────────────────────────────────────────────
 
 const SETTINGS_RECORD_ID = 'local';
+const JSON_MENU_RECORD_ID = 'json_menu_snapshot';
 
 /**
  * Loads app settings from the `local_settings` ObjectStore.
@@ -346,6 +347,37 @@ export async function saveSettingsToIDB(settings) {
     await db.put('local_settings', JSON.parse(JSON.stringify({ id: SETTINGS_RECORD_ID, ...settings })));
   } catch (e) {
     console.warn('[IDBPersistence] Failed to save settings:', e);
+  }
+}
+
+/**
+ * Persists normalized JSON menu payload in app_meta.
+ * @param {object} menu
+ */
+export async function saveJsonMenuToIDB(menu) {
+  try {
+    const db = await getDB();
+    await db.put('app_meta', JSON.parse(JSON.stringify({
+      id: JSON_MENU_RECORD_ID,
+      value: menu ?? {},
+    })));
+  } catch (e) {
+    console.warn('[IDBPersistence] Failed to save JSON menu:', e);
+  }
+}
+
+/**
+ * Loads normalized JSON menu payload from app_meta.
+ * @returns {Promise<object|null>}
+ */
+export async function loadJsonMenuFromIDB() {
+  try {
+    const db = await getDB();
+    const record = await db.get('app_meta', JSON_MENU_RECORD_ID);
+    return record?.value ?? null;
+  } catch (e) {
+    console.warn('[IDBPersistence] Failed to load JSON menu:', e);
+    return null;
   }
 }
 

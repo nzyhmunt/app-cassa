@@ -54,6 +54,7 @@
 
 import { newUUIDv7 } from '../store/storeUtils.js';
 import { useAppStore } from '../store/index.js';
+import { appConfig } from '../utils/index.js';
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -137,7 +138,14 @@ function getStore() {
  * @returns {Record<string, any>}
  */
 function getRuntimeConfig(store = null) {
-  return (store ?? getStore())?.config ?? {};
+  const resolvedStore = store ?? getStore();
+  const storeConfig = resolvedStore?.config ?? {};
+  const storeHydrated = resolvedStore?.configHydrated === true;
+  // Once config is hydrated from IDB/Directus, store config becomes authoritative.
+  // Before hydration, keep appConfig as last-wins fallback for legacy startup/tests.
+  return storeHydrated
+    ? { ...appConfig, ...storeConfig }
+    : { ...storeConfig, ...appConfig };
 }
 
 /**
