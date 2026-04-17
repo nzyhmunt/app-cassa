@@ -1,6 +1,6 @@
 # 🚀 Miglioramenti Funzionali Proposti — Terminale Cassa, Sala & Cucina
 
-Analisi del repository `nzyhmunt/app-cassa` — sistema POS multi-app per l'**Trattoria Nuvola Blu**, costruito con **Vue 3 + Pinia + Tailwind CSS 4**, con tre entry point indipendenti (Cassa, Sala, Cucina) e persistenza su `localStorage`.
+Analisi del repository `nzyhmunt/app-cassa` — sistema POS multi-app per l'**Ristorante**, costruito con **Vue 3 + Pinia + Tailwind CSS 4**, con tre entry point indipendenti (Cassa, Sala, Cucina) e persistenza su `localStorage`.
 
 > ✅ Le funzionalità già realizzate (menu dinamico, allergeni, immagini, timestamp ordini, calcolo resto, riepilogo turno, coperti dinamici, persistenza) sono state rimosse da questo documento.
 

@@ -1,6 +1,6 @@
 # Guida Utente — Terminale Cassa, Sala & Cucina
 
-> Sistema POS per ristoranti — *Trattoria Nuvola Blu*  
+> Sistema POS per ristoranti — *Ristorante*  
 > Versione documentata: Marzo 2026
 
 ---

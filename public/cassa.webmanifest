@@ -1,8 +1,8 @@
 {
   "id": "./cassa.html",
-  "name": "Terminale Cassa – Trattoria Nuvola Blu",
+  "name": "Terminale Cassa – Ristorante",
   "short_name": "Cassa",
-  "description": "Terminale cassa e gestione ordini per Trattoria Nuvola Blu",
+  "description": "Terminale cassa e gestione ordini per Ristorante",
   "start_url": "./cassa.html",
   "scope": "./cassa.html",
   "display": "standalone",

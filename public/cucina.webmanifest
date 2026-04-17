@@ -1,8 +1,8 @@
 {
   "id": "./cucina.html",
-  "name": "App Cucina – Trattoria Nuvola Blu",
+  "name": "App Cucina – Ristorante",
   "short_name": "Cucina",
-  "description": "Visualizzazione ordini e gestione stato per la cucina – Trattoria Nuvola Blu",
+  "description": "Visualizzazione ordini e gestione stato per la cucina – Ristorante",
   "start_url": "./cucina.html",
   "scope": "./cucina.html",
   "display": "standalone",
