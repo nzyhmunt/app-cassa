@@ -60,11 +60,11 @@ src/
 │   ├── useSyncQueue.js                ← Gestione coda sync offline verso Directus (ObjectStore sync_queue)
 │   └── useWakeLock.js                 ← Prevenzione blocco schermo (Screen Wake Lock API)
 ├── store/
-│   ├── idbPersistence.js              ← Barrel di compatibilità per persistenza IDB
+│   ├── idbPersistence.js              ← Implementazione completa della persistenza IDB
 │   ├── persistence/
-│   │   ├── config.js                  ← Cache configurazione venue/menu/sale/tavoli
-│   │   ├── operations.js              ← Dati operativi (ordini/transazioni/sessioni)
-│   │   └── audit.js                   ← Audit stampa/ricevute fiscali/fatture
+│   │   ├── config.js                  ← Barrel di re-export per persistenza configurazione venue/menu/sale/tavoli
+│   │   ├── operations.js              ← Barrel di re-export per dati operativi (ordini/transazioni/sessioni)
+│   │   └── audit.js                   ← Barrel di re-export per audit stampa/ricevute fiscali/fatture
 │   ├── index.js                       ← Store facade + split store (`useConfigStore`, `useOrderStore`)
 │   └── persistence.js                 ← Schema versioning, clearState, resolveCustomItemsKey
 ├── utils/
