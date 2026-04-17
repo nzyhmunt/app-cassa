@@ -122,6 +122,21 @@ export function useSettings(props, emit) {
     } catch (e) {
       console.warn('[Settings] Failed to clear auth data during reset:', e);
     }
+    // After reset, enforce JSON menu as startup default.
+    const resetSettings = {
+      ...DEFAULT_SETTINGS,
+      menuSource: 'json',
+      menuUrl: DEFAULT_SETTINGS.menuUrl,
+    };
+    try {
+      await saveSettingsToIDB(resetSettings);
+    } catch (e) {
+      console.warn('[Settings] Failed to persist post-reset default settings:', e);
+    }
+    store.menuSource = 'json';
+    store.menuUrl = resetSettings.menuUrl;
+    appConfig.menuSource = 'json';
+    appConfig.menuUrl = resetSettings.menuUrl;
     if (typeof window !== 'undefined' && window.location) {
       window.location.reload();
     }

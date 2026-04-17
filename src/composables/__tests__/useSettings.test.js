@@ -474,6 +474,39 @@ describe('useSettings()', () => {
     }
   });
 
+  it('confirmReset() persists menuSource=json as post-reset default', async () => {
+    const reloadMock = vi.fn();
+    const originalLocationDescriptor = Object.getOwnPropertyDescriptor(window, 'location');
+    const originalLocationValue = window.location;
+
+    try {
+      Object.defineProperty(window, 'location', {
+        writable: true,
+        configurable: true,
+        value: { reload: reloadMock, pathname: '/' },
+      });
+
+      vi.mocked(saveSettingsToIDB).mockClear();
+
+      const props = reactive({ modelValue: false });
+      const emit = vi.fn();
+
+      const { result, wrapper } = withSetup(() => useSettings(props, emit));
+      await result.confirmReset();
+
+      expect(saveSettingsToIDB).toHaveBeenCalledWith(expect.objectContaining({
+        menuSource: 'json',
+      }));
+      wrapper.unmount();
+    } finally {
+      if (originalLocationDescriptor) {
+        Object.defineProperty(window, 'location', originalLocationDescriptor);
+      } else {
+        window.location = originalLocationValue;
+      }
+    }
+  });
+
   it('confirmReset() does not reload when deleteDatabase() is blocked and shows actionable alert', async () => {
     const reloadMock = vi.fn();
     const alertMock = vi.fn();
