@@ -29,7 +29,7 @@ export function useAppClock() {
         minute: '2-digit',
         timeZone: timezone.value,
       });
-    }, 1000);
+    }, 60_000);
   });
 
   onUnmounted(() => {
