@@ -28,9 +28,8 @@ import { newUUIDv7 } from '../store/storeUtils.js';
 
 /**
  * Maximum push attempts before a queue entry is abandoned.
- * Increased to retain failed entries for longer in offline/unstable scenarios.
  */
-export const MAX_ATTEMPTS = 20;
+export const MAX_ATTEMPTS = 5;
 
 /**
  * Collections that use soft-delete (PATCH { status: 'archived' }) instead of
@@ -137,6 +136,55 @@ export async function getPendingEntries() {
     return all;
   } catch (e) {
     console.warn('[SyncQueue] Failed to read queue:', e);
+    return [];
+  }
+}
+
+/**
+ * Persists a failed sync call audit entry so operators can inspect failures
+ * even after the original queue entry has been removed.
+ *
+ * @param {object} entry
+ * @param {{ message?: string, request?: object|null, response?: object|null }} failure
+ * @param {number} attempt
+ * @param {boolean} abandoned
+ */
+export async function addFailedSyncCall(entry, failure, attempt, abandoned) {
+  try {
+    const db = await getDB();
+    await db.add('sync_failed_calls', {
+      id: newUUIDv7('sqf'),
+      queue_entry_id: entry?.id ?? null,
+      collection: entry?.collection ?? null,
+      operation: entry?.operation ?? null,
+      record_id: entry?.record_id ?? null,
+      payload: entry?.payload ?? null,
+      attempts: attempt,
+      abandoned: Boolean(abandoned),
+      error_message: failure?.message ?? 'Errore sconosciuto',
+      request: failure?.request ?? null,
+      response: failure?.response ?? null,
+      failed_at: new Date().toISOString(),
+    });
+  } catch (e) {
+    console.warn('[SyncQueue] Failed to persist failed call log:', e);
+  }
+}
+
+/**
+ * Returns failed sync-call audit entries sorted by most recent first.
+ *
+ * @param {number} [limit=200]
+ * @returns {Promise<Array>}
+ */
+export async function getFailedSyncCalls(limit = 200) {
+  try {
+    const db = await getDB();
+    const all = await db.getAllFromIndex('sync_failed_calls', 'failed_at');
+    const sorted = all.reverse();
+    return Number.isFinite(limit) ? sorted.slice(0, Math.max(0, limit)) : sorted;
+  } catch (e) {
+    console.warn('[SyncQueue] Failed to read failed call log:', e);
     return [];
   }
 }
@@ -433,6 +481,17 @@ async function _pushEntry(entry, sdkClient) {
     directusPayload.id = record_id;
   }
 
+  const requestContext = {
+    collection,
+    operation,
+    record_id,
+    endpoint: operation === 'create'
+      ? `/items/${collection}`
+      : `/items/${collection}/${record_id}`,
+    method: operation === 'create' ? 'POST' : operation === 'update' ? 'PATCH' : 'DELETE',
+    body: operation === 'delete' ? null : directusPayload,
+  };
+
   try {
     if (operation === 'delete') {
       if (DOMAIN_STATUS_COLLECTIONS.has(collection)) {
@@ -441,17 +500,26 @@ async function _pushEntry(entry, sdkClient) {
       }
       if (SOFT_DELETE_COLLECTIONS.has(collection)) {
         // Strategy A: soft-delete via PATCH { status: 'archived' }
+        requestContext.method = 'PATCH';
+        requestContext.body = { status: 'archived' };
         await sdkClient.request(updateItem(collection, record_id, { status: 'archived' }));
       } else {
         // Strategy C: junction tables — hard DELETE
+        requestContext.method = 'DELETE';
+        requestContext.body = null;
         await sdkClient.request(deleteItem(collection, record_id));
       }
     } else if (operation === 'create') {
       try {
+        requestContext.method = 'POST';
+        requestContext.body = directusPayload;
         await sdkClient.request(createItem(collection, directusPayload));
       } catch (createError) {
         // 409 Conflict: duplicate UUIDv7 — retry as update
         if (createError?.response?.status === 409) {
+          requestContext.method = 'PATCH';
+          requestContext.endpoint = `/items/${collection}/${record_id}`;
+          requestContext.body = directusPayload;
           await sdkClient.request(updateItem(collection, record_id, directusPayload));
         } else {
           throw createError;
@@ -459,6 +527,8 @@ async function _pushEntry(entry, sdkClient) {
       }
     } else {
       // update
+      requestContext.method = 'PATCH';
+      requestContext.body = directusPayload;
       await sdkClient.request(updateItem(collection, record_id, directusPayload));
     }
 
@@ -475,7 +545,14 @@ async function _pushEntry(entry, sdkClient) {
       e?.message ??
       String(e);
     console.warn(`[SyncQueue] Error on ${operation} ${collection}/${record_id}:`, errorMsg);
-    return errorMsg;
+    return {
+      message: errorMsg,
+      request: requestContext,
+      response: {
+        status: e?.response?.status ?? null,
+        body: e?.response?.errors ?? e?.errors ?? null,
+      },
+    };
   }
 }
 
@@ -509,6 +586,8 @@ export async function drainQueue(cfg) {
       pushed++;
     } else {
       const newAttempts = (entry.attempts ?? 0) + 1;
+      const failureDetails = typeof result === 'string' ? { message: result } : result;
+      await addFailedSyncCall(entry, failureDetails, newAttempts, newAttempts >= MAX_ATTEMPTS);
       if (newAttempts >= MAX_ATTEMPTS) {
         console.warn(`[SyncQueue] Abandoning entry after ${MAX_ATTEMPTS} attempts:`, entry);
         if (typeof window !== 'undefined') {
@@ -517,7 +596,7 @@ export async function drainQueue(cfg) {
         await removeEntry(entry.id);
         abandoned++;
       } else {
-        await incrementAttempts(entry.id, typeof result === 'string' ? result : null);
+        await incrementAttempts(entry.id, failureDetails?.message ?? null);
         failed++;
         // Exponential back-off: pause 2^attempts × backoffBase ms before next entry
         const delayMs = Math.min(2 ** newAttempts * backoffBase, 30_000);

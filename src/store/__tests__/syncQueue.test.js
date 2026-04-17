@@ -20,6 +20,7 @@ import { _resetIDBSingleton } from '../../composables/useIDB.js';
 import {
   enqueue,
   getPendingEntries,
+  getFailedSyncCalls,
   drainQueue,
   MAX_ATTEMPTS,
   _resetEnqueueSeq,
@@ -226,6 +227,25 @@ describe('drainQueue()', () => {
     const entries = await getPendingEntries();
     expect(entries).toHaveLength(0);
     expect(result.abandoned).toBe(1);
+  });
+
+  it('persists failed-call history even after queue entry is abandoned', async () => {
+    vi.spyOn(global, 'fetch').mockRejectedValue(new Error('network'));
+    await enqueue('orders', 'create', 'ord_failed_history', { id: 'ord_failed_history' });
+
+    for (let i = 0; i < MAX_ATTEMPTS; i++) {
+      await drainQueue(FAKE_CFG);
+    }
+
+    expect(await getPendingEntries()).toHaveLength(0);
+    const failedCalls = await getFailedSyncCalls();
+    expect(failedCalls.length).toBeGreaterThan(0);
+    expect(failedCalls[0]).toMatchObject({
+      collection: 'orders',
+      operation: 'create',
+      record_id: 'ord_failed_history',
+    });
+    expect(failedCalls.some((call) => call.abandoned === true)).toBe(true);
   });
 
   it('returns { pushed, failed, abandoned } correctly', async () => {
