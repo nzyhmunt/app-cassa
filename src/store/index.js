@@ -71,6 +71,7 @@ export const useConfigStore = defineStore('config', () => {
   const preventScreenLock = ref(true);
   const customKeyboard = ref('disabled');
   const preBillPrinterId = ref('');
+  const configHydrated = ref(false);
 
   const menuLoading = ref(false);
   const menuError = ref(null);
@@ -86,11 +87,26 @@ export const useConfigStore = defineStore('config', () => {
     return [{ id: 'main', label: '', tables: config.value.tables ?? [] }];
   });
 
-  async function hydrateConfigFromIDB() {
+  async function hydrateConfigFromIDB(options = {}) {
+    const nextMenuSource = options.menuSource === 'json' ? 'json' : options.menuSource === 'directus' ? 'directus' : null;
+    const nextMenuUrl = typeof options.menuUrl === 'string' && options.menuUrl.trim() !== ''
+      ? options.menuUrl
+      : null;
     const venueId = config.value.directus?.venueId ?? appConfig.directus?.venueId ?? null;
     const cached = await loadConfigFromIDB(venueId);
     const mapped = mapVenueConfigFromDirectus(cached, DEFAULT_SETTINGS);
-    config.value = createRuntimeConfig(mapped);
+    const hydrated = createRuntimeConfig(mapped);
+
+    const resolvedMenuSource = nextMenuSource ?? (hydrated.menuSource === 'json' ? 'json' : 'directus');
+    const resolvedMenuUrl = nextMenuUrl ?? hydrated.menuUrl ?? DEFAULT_SETTINGS.menuUrl;
+    menuSource.value = resolvedMenuSource;
+    menuUrl.value = resolvedMenuUrl;
+    config.value = {
+      ...hydrated,
+      menuSource: resolvedMenuSource,
+      menuUrl: resolvedMenuUrl,
+    };
+    configHydrated.value = true;
 
     if (menuSource.value === 'json') {
       const jsonMenu = await loadJsonMenuFromIDB();
@@ -100,12 +116,20 @@ export const useConfigStore = defineStore('config', () => {
     }
   }
 
-  async function loadMenu() {
+  async function loadMenu(options = {}) {
+    const shouldHydrateDirectus = options.skipHydrate === true ? false : true;
+    const applyJsonSnapshot = async () => {
+      const jsonMenu = await loadJsonMenuFromIDB();
+      if (!jsonMenu || typeof jsonMenu !== 'object' || Array.isArray(jsonMenu)) return false;
+      config.value = { ...config.value, menu: _clone(jsonMenu) };
+      return true;
+    };
+
     menuLoading.value = true;
     menuError.value = null;
     try {
       if (menuSource.value === 'directus') {
-        await hydrateConfigFromIDB();
+        if (shouldHydrateDirectus) await hydrateConfigFromIDB();
         return;
       }
 
@@ -118,6 +142,9 @@ export const useConfigStore = defineStore('config', () => {
       config.value = { ...config.value, menu: normalizedMenu };
     } catch (e) {
       menuError.value = e instanceof Error ? e.message : String(e);
+      if (menuSource.value === 'json') {
+        await applyJsonSnapshot();
+      }
     } finally {
       menuLoading.value = false;
     }
@@ -133,6 +160,7 @@ export const useConfigStore = defineStore('config', () => {
     preventScreenLock,
     customKeyboard,
     preBillPrinterId,
+    configHydrated,
     menuLoading,
     menuError,
     loadMenu,
@@ -756,8 +784,30 @@ export async function initStoreFromIDB(pinia) {
   const [idbState, settings] = await Promise.all([
     loadStateFromIDB(),
     loadSettingsFromIDB(),
-    configStore.hydrateConfigFromIDB(),
   ]);
+
+  let startupMenuSource = configStore.menuSource;
+  let startupMenuUrl = configStore.menuUrl;
+
+  if (settings) {
+    if (typeof settings.sounds === 'boolean') configStore.sounds = settings.sounds;
+    if (typeof settings.menuUrl === 'string' && settings.menuUrl.trim() !== '') {
+      configStore.menuUrl = settings.menuUrl;
+      startupMenuUrl = settings.menuUrl;
+    }
+    if (settings.menuSource === 'json' || settings.menuSource === 'directus') {
+      configStore.menuSource = settings.menuSource;
+      startupMenuSource = settings.menuSource;
+    }
+    if (typeof settings.preventScreenLock === 'boolean') configStore.preventScreenLock = settings.preventScreenLock;
+    if (KEYBOARD_POSITIONS.includes(settings.customKeyboard)) configStore.customKeyboard = settings.customKeyboard;
+    if (typeof settings.preBillPrinterId === 'string') configStore.preBillPrinterId = settings.preBillPrinterId;
+  }
+
+  await configStore.hydrateConfigFromIDB({
+    menuSource: startupMenuSource,
+    menuUrl: startupMenuUrl,
+  });
 
   if (idbState) {
     if ((idbState.orders ?? []).length === 0) {
@@ -783,14 +833,5 @@ export async function initStoreFromIDB(pinia) {
     orderStore.orders = (appConfig.demoOrders ?? []).map(o => ({ ...o }));
   }
 
-  if (settings) {
-    if (typeof settings.sounds === 'boolean') configStore.sounds = settings.sounds;
-    if (typeof settings.menuUrl === 'string' && settings.menuUrl.trim() !== '') configStore.menuUrl = settings.menuUrl;
-    if (settings.menuSource === 'json' || settings.menuSource === 'directus') configStore.menuSource = settings.menuSource;
-    if (typeof settings.preventScreenLock === 'boolean') configStore.preventScreenLock = settings.preventScreenLock;
-    if (KEYBOARD_POSITIONS.includes(settings.customKeyboard)) configStore.customKeyboard = settings.customKeyboard;
-    if (typeof settings.preBillPrinterId === 'string') configStore.preBillPrinterId = settings.preBillPrinterId;
-  }
-
-  await configStore.loadMenu();
+  await configStore.loadMenu({ skipHydrate: true });
 }

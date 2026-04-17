@@ -138,10 +138,14 @@ function getStore() {
  * @returns {Record<string, any>}
  */
 function getRuntimeConfig(store = null) {
-  const storeConfig = (store ?? getStore())?.config ?? {};
-  // Use appConfig as fallback defaults, but keep hydrated store config as the
-  // source of truth while legacy runtime mutation paths are retired.
-  return { ...appConfig, ...storeConfig };
+  const resolvedStore = store ?? getStore();
+  const storeConfig = resolvedStore?.config ?? {};
+  const storeHydrated = resolvedStore?.configHydrated === true;
+  // Once config is hydrated from IDB/Directus, store config becomes authoritative.
+  // Before hydration, keep appConfig as last-wins fallback for legacy startup/tests.
+  return storeHydrated
+    ? { ...appConfig, ...storeConfig }
+    : { ...storeConfig, ...appConfig };
 }
 
 /**
