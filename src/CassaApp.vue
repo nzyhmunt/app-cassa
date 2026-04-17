@@ -33,6 +33,7 @@ import { resolveStorageKeys, getInstanceName } from './store/persistence.js';
 import { useAuth } from './composables/useAuth.js';
 import { useDirectusSync } from './composables/useDirectusSync.js';
 import { loadDirectusConfigFromStorage } from './composables/useDirectusClient.js';
+import { useSyncStoreProxy } from './composables/useSyncStoreProxy.js';
 
 const configStore = useConfigStore();
 const orderStore = useOrderStore();
@@ -40,20 +41,7 @@ const auth = useAuth();
 const sync = useDirectusSync();
 const showSettings = ref(false);
 const showCassa = ref(false);
-const syncStore = new Proxy({}, {
-  get(_target, prop) {
-    if (prop in orderStore) return orderStore[prop];
-    return configStore[prop];
-  },
-  set(_target, prop, value) {
-    if (prop in orderStore) {
-      orderStore[prop] = value;
-      return true;
-    }
-    configStore[prop] = value;
-    return true;
-  },
-});
+const syncStore = useSyncStoreProxy(configStore, orderStore);
 
 useWakeLock();
 
@@ -70,12 +58,16 @@ function onStorageChange(event) {
 }
 
 async function hydrateStateFromStorage() {
-  await Promise.all([
-    configStore.hydrateConfigFromIDB(),
-    orderStore.refreshOperationalStateFromIDB(),
-  ]);
-  if (configStore.menuSource === 'json') {
-    await configStore.loadMenu({ skipHydrate: true });
+  try {
+    await Promise.all([
+      configStore.hydrateConfigFromIDB(),
+      orderStore.refreshOperationalStateFromIDB(),
+    ]);
+    if (configStore.menuSource === 'json') {
+      await configStore.loadMenu({ skipHydrate: true });
+    }
+  } catch (error) {
+    console.warn('[CassaApp] Failed to hydrate state from storage event:', error);
   }
 }
 

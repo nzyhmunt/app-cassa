@@ -734,10 +734,12 @@ let clockTimer = null;
 const lastSyncLabel = ref('—');
 
 function syncFromStorage() {
-  void Promise.all([
+  Promise.all([
     configStore.hydrateConfigFromIDB(),
     orderStore.refreshOperationalStateFromIDB(),
-  ]);
+  ]).catch((error) => {
+    console.warn('[CucinaView] Manual storage sync failed:', error);
+  });
   lastSyncLabel.value = new Date().toLocaleTimeString(config.value.locale ?? 'it-IT', {
     hour: '2-digit',
     minute: '2-digit',
