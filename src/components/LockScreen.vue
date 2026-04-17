@@ -110,10 +110,11 @@ import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { Lock, ChevronRight, ChevronLeft } from 'lucide-vue-next';
 import { useAuth } from '../composables/useAuth.js';
 import { useAppStore } from '../store/index.js';
-import { appConfig } from '../utils/index.js';
 
 const store = useAppStore();
 const { visibleUsers: users, currentUser, requiresAuth, isLocked, login } = useAuth();
+const locale = computed(() => store.config?.locale ?? 'it-IT');
+const timezone = computed(() => store.config?.timezone ?? 'Europe/Rome');
 
 /** Whether the overlay should be rendered. */
 const visible = computed(() => requiresAuth.value && isLocked.value);
@@ -158,15 +159,15 @@ const currentDate = ref(formatDate());
 let clockTimer = null;
 
 function formatTime() {
-  return new Date().toLocaleTimeString(appConfig.locale, { hour: '2-digit', minute: '2-digit', timeZone: appConfig.timezone });
+  return new Date().toLocaleTimeString(locale.value, { hour: '2-digit', minute: '2-digit', timeZone: timezone.value });
 }
 
 function formatDate() {
-  return new Date().toLocaleDateString(appConfig.locale, {
+  return new Date().toLocaleDateString(locale.value, {
     weekday: 'long',
     day: 'numeric',
     month: 'long',
-    timeZone: appConfig.timezone,
+    timeZone: timezone.value,
   });
 }
 

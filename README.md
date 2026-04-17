@@ -1,4 +1,4 @@
-# Terminale Cassa, Sala & Cucina - Osteria del Grillo
+# Terminale Cassa, Sala & Cucina - Ristorante
 
 Questo progetto è un'applicazione web POS (Point of Sale) progettata per ristoranti e attività di ristorazione. Realizzato con **Vue 3**, offre una gestione completa di sala, comande, cassa, cucina e reportistica, con supporto PWA per l'utilizzo come app nativa su dispositivi mobili e desktop.
 
@@ -321,7 +321,7 @@ Sistema di autenticazione opzionale a PIN numerico disponibile su tutte e tre le
 
 ```js
 export const appConfig = {
-  ui: { name: "Osteria del Grillo", primaryColor: "#00846c", currency: "€" },
+  ui: { name: "Ristorante", primaryColor: "#00846c", currency: "€" },
   menuUrl: 'https://nanawork.it/menu.json',    // URL menu remoto (configurabile)
   instanceName: '',                            // Multi-istanza (es. 'cassa1')
   pwaLogo: '',                                 // URL logo custom per PWA manifest

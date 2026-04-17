@@ -529,7 +529,7 @@
                 <div class="flex items-center justify-between px-3 py-1.5 bg-white border-t"
                   :class="txn.operationType === 'discount' ? 'border-amber-100' : 'border-emerald-100'">
                   <span class="text-[9px] font-medium text-gray-400">
-                    {{ new Date(txn.timestamp).toLocaleTimeString(appConfig.locale, { hour: '2-digit', minute: '2-digit', timeZone: appConfig.timezone }) }}
+                    {{ new Date(txn.timestamp).toLocaleTimeString(runtimeConfig.locale ?? 'it-IT', { hour: '2-digit', minute: '2-digit', timeZone: runtimeConfig.timezone ?? 'Europe/Rome' }) }}
                   </span>
                   <div class="flex items-center gap-2 text-[9px] font-bold">
                     <span v-if="txn.grossAmount" class="text-gray-500">Consegnato {{ store.config.ui.currency }}{{ txn.grossAmount.toFixed(2) }}</span>
@@ -1328,7 +1328,7 @@ import {
 } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
 import { newUUIDv7, newShortId } from '../store/storeUtils.js';
-import { getOrderItemRowTotal, KITCHEN_ACTIVE_STATUSES, getLockedDirectItems, appConfig, buildFiscalXmlRequest, formatOrderTime } from '../utils/index.js';
+import { getOrderItemRowTotal, KITCHEN_ACTIVE_STATUSES, getLockedDirectItems, buildFiscalXmlRequest, formatOrderTime } from '../utils/index.js';
 import { buildFlatAnaliticaItems, computeAnaliticaTotal, exceedsAmount, getOrdersToComplete } from '../utils/analitica.js';
 import { loadCustomItemsFromIDB, saveCustomItemsToIDB } from '../store/persistence/operations.js';
 import { useNumericKeyboard } from '../composables/useNumericKeyboard.js';
@@ -1347,6 +1347,7 @@ const emit = defineEmits(['open-order-from-table', 'new-order-for-ordini']);
 const store = useAppStore();
 const { isAdmin } = useAuth();
 const keyboard = useNumericKeyboard();
+const runtimeConfig = computed(() => store.config ?? {});
 
 // ── Print history modal ────────────────────────────────────────────────────
 const showPrintHistory = ref(false);
@@ -1355,7 +1356,7 @@ const showPrintHistory = ref(false);
 const preBillPrinterConfig = computed(() => {
   const printerId = store.preBillPrinterId;
   if (!printerId) return null;
-  return (appConfig.printers ?? []).find(p => p.id === printerId) ?? null;
+  return (runtimeConfig.value.printers ?? []).find(p => p.id === printerId) ?? null;
 });
 
 // ── Table modal state ──────────────────────────────────────────────────────
@@ -2230,7 +2231,7 @@ function createNewOrderForTable() {
     totalAmount: 0, itemCount: 0, dietaryPreferences: {}, orderItems: [],
     globalNote: '',
     noteVisibility: { cassa: true, sala: true, cucina: true },
-    ...(appConfig.directus?.venueId != null ? { venue: appConfig.directus.venueId } : {}),
+    ...(runtimeConfig.value.directus?.venueId != null ? { venue: runtimeConfig.value.directus.venueId } : {}),
   };
   store.addOrder(newOrd);
   closeTableModal();
@@ -2258,7 +2259,7 @@ const canShowCustomEntryTab = computed(
 );
 
 /**
- * Items pinned by appConfig.coverCharge — automatically injected into the
+ * Items pinned by runtime config coverCharge — automatically injected into the
  * Personalizzata tab and cannot be removed from the UI.
  * Adulto is added when priceAdult > 0; bambino when priceChild > 0.
  */
@@ -2494,7 +2495,7 @@ function processTablePayment(paymentMethodId, extra = {}, overrideAmount = null)
     tipAmount: tip > 0 ? tip : undefined,
     timestamp: new Date().toISOString(),
     orderRefs: [],
-    ...(appConfig.directus?.venueId != null ? { venue: appConfig.directus.venueId } : {}),
+    ...(runtimeConfig.value.directus?.venueId != null ? { venue: runtimeConfig.value.directus.venueId } : {}),
   };
 
   // Record gross amount and change when customer overpays.
@@ -2642,7 +2643,7 @@ function applyDiscount() {
     amountPaid: discountPreview.value,
     timestamp: new Date().toISOString(),
     orderRefs: [],
-    ...(appConfig.directus?.venueId != null ? { venue: appConfig.directus.venueId } : {}),
+    ...(runtimeConfig.value.directus?.venueId != null ? { venue: runtimeConfig.value.directus.venueId } : {}),
   });
 
   discountInput.value = '';

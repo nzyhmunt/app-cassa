@@ -39,6 +39,45 @@ async function _replaceAll(db, storeName, records) {
   await tx.done;
 }
 
+function _normalizeTableCurrentBillSession(rawSessions) {
+  if (!rawSessions || typeof rawSessions !== 'object' || Array.isArray(rawSessions)) return {};
+
+  const normalized = {};
+  for (const [table, rawSession] of Object.entries(rawSessions)) {
+    if (!table) continue;
+
+    if (typeof rawSession === 'string' && rawSession.trim() !== '') {
+      normalized[table] = {
+        billSessionId: rawSession,
+        table,
+        status: 'open',
+        adults: 0,
+        children: 0,
+        opened_at: null,
+      };
+      continue;
+    }
+
+    if (!rawSession || typeof rawSession !== 'object') continue;
+    const billSessionId = typeof rawSession.billSessionId === 'string' && rawSession.billSessionId.trim() !== ''
+      ? rawSession.billSessionId
+      : null;
+    if (!billSessionId) continue;
+
+    normalized[table] = {
+      ...rawSession,
+      billSessionId,
+      table: typeof rawSession.table === 'string' && rawSession.table.trim() !== '' ? rawSession.table : table,
+      status: typeof rawSession.status === 'string' ? rawSession.status : 'open',
+      adults: Number.isFinite(rawSession.adults) ? rawSession.adults : 0,
+      children: Number.isFinite(rawSession.children) ? rawSession.children : 0,
+      opened_at: rawSession.opened_at ?? null,
+    };
+  }
+
+  return normalized;
+}
+
 // ── Load ──────────────────────────────────────────────────────────────────────
 
 /**
@@ -62,7 +101,6 @@ export async function loadStateFromIDB() {
       cashBalanceRecord,
       tableCurrentBillSessionRecord,
       tableMergeRecords,
-      legacyTableMergedIntoRecord,
       tableOccupiedAtRecord,
       billRequestedTablesRecord,
     ] = await Promise.all([
@@ -75,7 +113,6 @@ export async function loadStateFromIDB() {
       db.get('app_meta', 'cashBalance'),
       db.get('app_meta', 'tableCurrentBillSession'),
       db.getAll('table_merge_sessions'),
-      db.get('app_meta', 'tableMergedInto'),
       db.get('app_meta', 'tableOccupiedAt'),
       db.get('app_meta', 'billRequestedTables'),
     ]);
@@ -84,26 +121,8 @@ export async function loadStateFromIDB() {
     const printLog = printLogRaw.map(({ payload: _p, ...rest }) => rest);
 
     // H1: Reconstruct tableCurrentBillSession from the dedicated bill_sessions ObjectStore
-    // for any open sessions stored there (e.g. synced from Directus).  The app_meta blob
-    // is used as a fallback when no records exist in the ObjectStore yet.
-    //
-    // Normalize legacy format: older app versions stored { tableId: billSessionIdString }
-    // instead of { tableId: sessionObject }.  Convert any string values to a minimal
-    // session object so the rest of the store always receives a consistent shape.
-    /** @param {string} tableId @param {string} billSessionId */
-    const makeLegacySession = (tableId, billSessionId) => ({
-      billSessionId, table: tableId, status: 'open', adults: 0, children: 0, opened_at: null,
-    });
-    const rawBlob = tableCurrentBillSessionRecord?.value ?? {};
-    const normalizedBlob = Object.fromEntries(
-      Object.entries(rawBlob).map(([tableId, val]) => {
-        if (typeof val === 'string') {
-          return [tableId, makeLegacySession(tableId, val)];
-        }
-        return [tableId, val];
-      }),
-    );
-    let tableCurrentBillSession = normalizedBlob;
+    // for any open sessions stored there (e.g. synced from Directus).
+    let tableCurrentBillSession = _normalizeTableCurrentBillSession(tableCurrentBillSessionRecord?.value ?? {});
     if (billSessions.length > 0) {
       const fromIDB = {};
       for (const s of billSessions) {
@@ -129,11 +148,7 @@ export async function loadStateFromIDB() {
       dailyClosures,
       printLog,
       tableCurrentBillSession,
-      // Prefer the dedicated store; fall back to the legacy app_meta blob if the
-      // v2→v3 migration did not populate table_merge_sessions (the upgrade handler warns).
-      tableMergedInto: tableMergeRecords.length > 0
-        ? Object.fromEntries(tableMergeRecords.map(r => [r.slave_table, r.master_table]))
-        : (legacyTableMergedIntoRecord?.value ?? {}),
+      tableMergedInto: Object.fromEntries(tableMergeRecords.map(r => [r.slave_table, r.master_table])),
       tableOccupiedAt: tableOccupiedAtRecord?.value ?? {},
       billRequestedTables: new Set(billRequestedTablesRecord?.value ?? []),
     };
@@ -206,14 +221,9 @@ export async function saveStateToIDB(state) {
     }
     if ('tableMergedInto' in state) {
       const now = new Date().toISOString();
-      // Single transaction spanning both stores: clears table_merge_sessions,
-      // writes the new records, and deletes the legacy app_meta blob atomically
-      // so a partial failure cannot leave a stale blob that would be resurrected
-      // by the backward-compat fallback in loadStateFromIDB.
       ops.push((async () => {
         const tx = db.transaction(['table_merge_sessions', 'app_meta'], 'readwrite');
         const mergeStore = tx.objectStore('table_merge_sessions');
-        const appMetaStore = tx.objectStore('app_meta');
         const existingRecords = await mergeStore.getAll();
         const existingBySlave = new Map(
           existingRecords
@@ -235,7 +245,7 @@ export async function saveStateToIDB(state) {
           });
         await mergeStore.clear();
         await Promise.all(records.map(r => mergeStore.put(JSON.parse(JSON.stringify(r)))));
-        await appMetaStore.delete('tableMergedInto');
+        await tx.objectStore('app_meta').delete('tableMergedInto');
         await tx.done;
       })());
     }

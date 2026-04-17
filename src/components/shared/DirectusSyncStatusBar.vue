@@ -1,5 +1,5 @@
 <template>
-  <!-- Shown only when Directus sync is enabled in appConfig -->
+  <!-- Shown only when Directus sync is enabled -->
   <div
     v-if="directusEnabled"
     class="shrink-0 flex items-center gap-2 px-4 py-1 bg-white border-t border-gray-100 text-[10px] text-gray-400 select-none"
@@ -49,12 +49,14 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { LoaderCircle, AlertCircle, Cloud } from 'lucide-vue-next';
-import { appConfig } from '../../utils/index.js';
+import { useAppStore } from '../../store/index.js';
 import { directusEnabledRef } from '../../composables/useDirectusClient.js';
 import { useDirectusSync } from '../../composables/useDirectusSync.js';
 import { getPendingEntries } from '../../composables/useSyncQueue.js';
 
 const sync = useDirectusSync();
+const store = useAppStore();
+const runtimeConfig = computed(() => store.config ?? {});
 
 const isOnline = ref(typeof navigator !== 'undefined' ? navigator.onLine : true);
 const pendingCount = ref(0);
@@ -68,10 +70,10 @@ const formattedLastSync = computed(() => {
   const ts = sync.lastPullAt.value || sync.lastPushAt.value;
   if (!ts) return null;
   try {
-    return new Date(ts).toLocaleTimeString(appConfig.locale, {
+    return new Date(ts).toLocaleTimeString(runtimeConfig.value.locale ?? 'it-IT', {
       hour: '2-digit',
       minute: '2-digit',
-      timeZone: appConfig.timezone,
+      timeZone: runtimeConfig.value.timezone ?? 'Europe/Rome',
     });
   } catch {
     return null;

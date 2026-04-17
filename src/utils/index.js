@@ -23,7 +23,7 @@ const DEFAULT_UI_CURRENCY = '€';
 // Configurazione applicazione centralizzata (static defaults, immutable fallback)
 export const DEFAULT_SETTINGS = {
   ui: {
-    name: "Osteria del Grillo",
+    name: "Ristorante",
     primaryColor: DEFAULT_UI_PRIMARY_COLOR,
     primaryColorDark: DEFAULT_UI_PRIMARY_COLOR_DARK,
     currency: DEFAULT_UI_CURRENCY,

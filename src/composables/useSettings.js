@@ -1,6 +1,6 @@
 import { ref, watch, onUnmounted } from 'vue';
 import { useAppStore } from '../store/index.js';
-import { appConfig, KEYBOARD_POSITIONS } from '../utils/index.js';
+import { appConfig, KEYBOARD_POSITIONS, DEFAULT_SETTINGS } from '../utils/index.js';
 import { isWakeLockSupported } from './useWakeLock.js';
 import { useAuth } from './useAuth.js';
 import { saveSettingsToIDB, deleteDatabase } from '../store/persistence/operations.js';
@@ -31,7 +31,7 @@ export function useSettings(props, emit) {
       menuUrl:
         typeof store.menuUrl === 'string' && store.menuUrl.trim() !== ''
           ? store.menuUrl
-          : appConfig.menuUrl,
+          : (store.config?.menuUrl ?? DEFAULT_SETTINGS.menuUrl),
       menuSource: store.menuSource === 'json' ? 'json' : 'directus',
       preventScreenLock:
         typeof store.preventScreenLock === 'boolean' && wakeLockApiSupported
@@ -51,6 +51,13 @@ export function useSettings(props, emit) {
     saveSettingsToIDB(val).catch(e => console.warn('[Settings] Failed to save settings:', e));
   }
 
+  function applyMenuRuntimeConfig(menuSource, menuUrl) {
+    store.menuSource = menuSource === 'json' ? 'json' : 'directus';
+    store.menuUrl = menuUrl;
+    appConfig.menuSource = store.menuSource;
+    appConfig.menuUrl = store.menuUrl;
+  }
+
   // Flush pending save and reset confirm state when the modal closes
   watch(
     () => props.modelValue,
@@ -68,10 +75,7 @@ export function useSettings(props, emit) {
     (newVal) => {
       // Keep store and parent in sync immediately for responsive UI
       store.sounds = newVal.sounds;
-      store.menuUrl = newVal.menuUrl;
-      store.menuSource = newVal.menuSource === 'json' ? 'json' : 'directus';
-      appConfig.menuUrl = store.menuUrl;
-      appConfig.menuSource = store.menuSource;
+      applyMenuRuntimeConfig(newVal.menuSource, newVal.menuUrl);
       if (store.menuSource !== 'json') {
         store.menuError = null;
         store.menuLoading = false;
@@ -122,6 +126,17 @@ export function useSettings(props, emit) {
     } catch (e) {
       console.warn('[Settings] Failed to clear auth data during reset:', e);
     }
+    // After reset, enforce JSON menu as startup default.
+    const resetSettings = {
+      ...DEFAULT_SETTINGS,
+      menuSource: 'json',
+    };
+    try {
+      await saveSettingsToIDB(resetSettings);
+    } catch (e) {
+      console.warn('[Settings] Failed to persist post-reset default settings; menu source may not default to JSON on reload:', e);
+    }
+    applyMenuRuntimeConfig('json', resetSettings.menuUrl);
     if (typeof window !== 'undefined' && window.location) {
       window.location.reload();
     }

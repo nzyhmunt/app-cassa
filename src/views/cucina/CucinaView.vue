@@ -554,7 +554,6 @@ import KitchenOrderCard from './KitchenOrderCard.vue';
 import { useDirectusSync } from '../../composables/useDirectusSync.js';
 import { directusEnabledRef } from '../../composables/useDirectusClient.js';
 import {
-  appConfig,
   COURSE_ORDER,
   DEFAULT_COURSE,
   getCourseBorderClass,
@@ -566,6 +565,7 @@ const emit = defineEmits(['open-settings']);
 const { requiresAuth, ...auth } = useAuth();
 
 const store = useAppStore();
+const config = computed(() => store.config ?? {});
 
 // ── Kitchen tab navigation: Kanban / Detail / History / Totals ───────────────
 const cucinaTab = ref('kanban'); // 'kanban' | 'detail' | 'history' | 'totals'
@@ -621,7 +621,7 @@ const aggregatedTotals = computed(() => {
   // Sort by canonical course order, then alphabetically within each course
   return [...map.values()].sort((a, b) => {
     const ci = COURSE_ORDER.indexOf(a.course) - COURSE_ORDER.indexOf(b.course);
-    return ci !== 0 ? ci : a.name.localeCompare(b.name, appConfig.locale);
+    return ci !== 0 ? ci : a.name.localeCompare(b.name, config.value.locale ?? 'it-IT');
   });
 });
 
@@ -718,7 +718,11 @@ watch(acceptedOrderCount, (newVal, oldVal) => {
 });
 
 // ── Live clock ─────────────────────────────────────────────────────────────
-const currentTime = ref(new Date().toLocaleTimeString(appConfig.locale, { hour: '2-digit', minute: '2-digit', timeZone: appConfig.timezone }));
+const currentTime = ref(new Date().toLocaleTimeString(config.value.locale ?? 'it-IT', {
+  hour: '2-digit',
+  minute: '2-digit',
+  timeZone: config.value.timezone ?? 'Europe/Rome',
+}));
 let clockTimer = null;
 
 // ── Manual sync ─────────────────────────────────────────────────────────────
@@ -730,7 +734,12 @@ const lastSyncLabel = ref('—');
 
 function syncFromStorage() {
   store.$hydrate?.();
-  lastSyncLabel.value = new Date().toLocaleTimeString(appConfig.locale, { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: appConfig.timezone });
+  lastSyncLabel.value = new Date().toLocaleTimeString(config.value.locale ?? 'it-IT', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    timeZone: config.value.timezone ?? 'Europe/Rome',
+  });
 }
 
 let refreshTimer = null;
@@ -747,8 +756,8 @@ const isOnline = ref(typeof navigator !== 'undefined' ? navigator.onLine : true)
 const lastSyncDisplayLabel = computed(() => {
   if (directusEnabled.value && _dirSync.lastPullAt.value) {
     try {
-      return new Date(_dirSync.lastPullAt.value).toLocaleTimeString(appConfig.locale, {
-        hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: appConfig.timezone,
+      return new Date(_dirSync.lastPullAt.value).toLocaleTimeString(config.value.locale ?? 'it-IT', {
+        hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: config.value.timezone ?? 'Europe/Rome',
       });
     } catch { /* fallthrough */ }
   }
@@ -760,12 +769,21 @@ function _onOffline() { isOnline.value = false; }
 
 onMounted(() => {
   clockTimer = setInterval(() => {
-    currentTime.value = new Date().toLocaleTimeString(appConfig.locale, { hour: '2-digit', minute: '2-digit', timeZone: appConfig.timezone });
+    currentTime.value = new Date().toLocaleTimeString(config.value.locale ?? 'it-IT', {
+      hour: '2-digit',
+      minute: '2-digit',
+      timeZone: config.value.timezone ?? 'Europe/Rome',
+    });
   }, 60_000);
 
   refreshTimer = setInterval(syncFromStorage, 30_000);
 
-  lastSyncLabel.value = new Date().toLocaleTimeString(appConfig.locale, { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: appConfig.timezone });
+  lastSyncLabel.value = new Date().toLocaleTimeString(config.value.locale ?? 'it-IT', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    timeZone: config.value.timezone ?? 'Europe/Rome',
+  });
 
   window.addEventListener('online', _onOnline);
   window.addEventListener('offline', _onOffline);
