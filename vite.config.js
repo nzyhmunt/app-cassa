@@ -128,5 +128,9 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     setupFiles: ['./vitest.setup.js'],
+    exclude: [
+      'print-server/**',
+      'directus-extensions/**',
+    ],
   },
 })
