@@ -51,6 +51,13 @@ export function useSettings(props, emit) {
     saveSettingsToIDB(val).catch(e => console.warn('[Settings] Failed to save settings:', e));
   }
 
+  function applyMenuRuntimeConfig(menuSource, menuUrl) {
+    store.menuSource = menuSource === 'json' ? 'json' : 'directus';
+    store.menuUrl = menuUrl;
+    appConfig.menuSource = store.menuSource;
+    appConfig.menuUrl = store.menuUrl;
+  }
+
   // Flush pending save and reset confirm state when the modal closes
   watch(
     () => props.modelValue,
@@ -68,10 +75,7 @@ export function useSettings(props, emit) {
     (newVal) => {
       // Keep store and parent in sync immediately for responsive UI
       store.sounds = newVal.sounds;
-      store.menuUrl = newVal.menuUrl;
-      store.menuSource = newVal.menuSource === 'json' ? 'json' : 'directus';
-      appConfig.menuUrl = store.menuUrl;
-      appConfig.menuSource = store.menuSource;
+      applyMenuRuntimeConfig(newVal.menuSource, newVal.menuUrl);
       if (store.menuSource !== 'json') {
         store.menuError = null;
         store.menuLoading = false;
@@ -131,12 +135,9 @@ export function useSettings(props, emit) {
     try {
       await saveSettingsToIDB(resetSettings);
     } catch (e) {
-      console.warn('[Settings] Failed to persist post-reset default settings:', e);
+      console.warn('[Settings] Failed to persist post-reset default settings; menu source may not default to JSON on reload:', e);
     }
-    store.menuSource = 'json';
-    store.menuUrl = resetSettings.menuUrl;
-    appConfig.menuSource = 'json';
-    appConfig.menuUrl = resetSettings.menuUrl;
+    applyMenuRuntimeConfig('json', resetSettings.menuUrl);
     if (typeof window !== 'undefined' && window.location) {
       window.location.reload();
     }
