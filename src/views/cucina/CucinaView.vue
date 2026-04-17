@@ -11,7 +11,7 @@
           <ChefHat class="size-5 md:size-6 theme-text" />
         </div>
         <div class="flex flex-col truncate">
-          <h1 class="text-sm md:text-xl font-bold leading-none truncate">{{ store.config.ui.name }}</h1>
+          <h1 class="text-sm md:text-xl font-bold leading-none truncate">{{ configStore.config.ui.name }}</h1>
           <p class="text-white/80 text-[9px] md:text-xs mt-0.5 font-bold uppercase tracking-wider truncate">APP CUCINA</p>
         </div>
       </div>
@@ -547,7 +547,7 @@
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { Bell, BellRing, ChefHat, Check, CheckCircle2, Clock, Flame, Hash, Layers, Lock, Pencil, RefreshCw, RotateCcw, Settings, ClipboardList, X } from 'lucide-vue-next';
-import { useAppStore } from '../../store/index.js';
+import { useConfigStore, useOrderStore } from '../../store/index.js';
 import { useBeep } from '../../composables/useBeep.js';
 import { useAuth } from '../../composables/useAuth.js';
 import KitchenOrderCard from './KitchenOrderCard.vue';
@@ -564,15 +564,16 @@ import {
 const emit = defineEmits(['open-settings']);
 const { requiresAuth, ...auth } = useAuth();
 
-const store = useAppStore();
-const config = computed(() => store.config ?? {});
+const configStore = useConfigStore();
+const orderStore = useOrderStore();
+const config = computed(() => configStore.config ?? {});
 
 // ── Kitchen tab navigation: Kanban / Detail / History / Totals ───────────────
 const cucinaTab = ref('kanban'); // 'kanban' | 'detail' | 'history' | 'totals'
 
 // All active kitchen orders for the detail tab (accepted → preparing → ready)
 const allKitchenOrders = computed(() =>
-  store.orders
+  orderStore.orders
     .filter(o => ['accepted', 'preparing', 'ready'].includes(o.status) && !o.isDirectEntry)
     .slice()
     .sort((a, b) => a.time.localeCompare(b.time)),
@@ -580,7 +581,7 @@ const allKitchenOrders = computed(() =>
 
 // Delivered orders for the Cronologia tab
 const deliveredOrders = computed(() =>
-  store.orders
+  orderStore.orders
     .filter(o => o.status === 'delivered' && !o.isDirectEntry)
     .slice()
     .sort((a, b) => b.time.localeCompare(a.time)), // newest first
@@ -595,7 +596,7 @@ const aggregatedTotals = computed(() => {
   const statuses = totalsStatusFilter.value === 'all'
     ? ['accepted', 'preparing', 'ready']
     : [totalsStatusFilter.value];
-  const orders = store.orders.filter(o => statuses.includes(o.status) && !o.isDirectEntry);
+  const orders = orderStore.orders.filter(o => statuses.includes(o.status) && !o.isDirectEntry);
 
   // Accumulate net quantities keyed by course + name + notes + modifiers
   // so items with different notes/variations appear as separate rows
@@ -628,7 +629,7 @@ const aggregatedTotals = computed(() => {
 // Badge count for the Totali tab button — always reflects 'all' active statuses
 // so the number shown is consistent regardless of the active filter inside the tab
 const aggregatedTotalsBadgeCount = computed(() => {
-  const orders = store.orders.filter(o => ['accepted', 'preparing', 'ready'].includes(o.status) && !o.isDirectEntry);
+  const orders = orderStore.orders.filter(o => ['accepted', 'preparing', 'ready'].includes(o.status) && !o.isDirectEntry);
   const names = new Set();
   for (const order of orders) {
     for (const item of order.orderItems) {
@@ -641,8 +642,8 @@ const aggregatedTotalsBadgeCount = computed(() => {
 function toggleItemReady(order, itemIdx) {
   const item = order.orderItems[itemIdx];
   if (!item) return;
-  store.setItemKitchenReady(order, itemIdx, !item.kitchenReady);
-  store.$persist?.();
+  orderStore.setItemKitchenReady(order, itemIdx, !item.kitchenReady);
+
 }
 
 // ── Pending-delivery timer: button-level 5s countdown ────────────────────────
@@ -683,10 +684,10 @@ function handleConsegnataClick(order) {
     if (e.remaining <= 0) {
       clearInterval(intervalId);
       delete pendingDeliveries.value[orderId];
-      const currentOrder = store.orders.find(o => o.id === orderId);
+      const currentOrder = orderStore.orders.find(o => o.id === orderId);
       if (currentOrder) {
-        store.changeOrderStatus(currentOrder, 'delivered');
-        store.$persist?.();
+        orderStore.changeOrderStatus(currentOrder, 'delivered');
+
       }
     }
   }, 1000);
@@ -711,7 +712,7 @@ function detailStatusLabel(status) {
 // ── Audio alerts: beep when a new order enters the kitchen (accepted) ────────
 const { playBeep } = useBeep();
 const acceptedOrderCount = computed(() =>
-  store.orders.filter(o => o.status === 'accepted' && !o.isDirectEntry).length,
+  orderStore.orders.filter(o => o.status === 'accepted' && !o.isDirectEntry).length,
 );
 watch(acceptedOrderCount, (newVal, oldVal) => {
   if (newVal > oldVal) playBeep();
@@ -733,7 +734,10 @@ let clockTimer = null;
 const lastSyncLabel = ref('—');
 
 function syncFromStorage() {
-  store.$hydrate?.();
+  void Promise.all([
+    configStore.hydrateConfigFromIDB(),
+    orderStore.refreshOperationalStateFromIDB(),
+  ]);
   lastSyncLabel.value = new Date().toLocaleTimeString(config.value.locale ?? 'it-IT', {
     hour: '2-digit',
     minute: '2-digit',
@@ -801,19 +805,19 @@ onUnmounted(() => {
 // ── Computed order lists ────────────────────────────────────────────────────
 // Column 1: orders accepted by Cassa but not yet started by kitchen
 const pendingOrders = computed(() =>
-  store.orders.filter(o => o.status === 'accepted' && !o.isDirectEntry).slice().sort((a, b) => a.time.localeCompare(b.time)),
+  orderStore.orders.filter(o => o.status === 'accepted' && !o.isDirectEntry).slice().sort((a, b) => a.time.localeCompare(b.time)),
 );
 
 // Column 2: orders currently being prepared / cooked
 const preparingOrders = computed(() =>
-  store.orders
+  orderStore.orders
     .filter(o => o.status === 'preparing' && !o.isDirectEntry)
     .slice()
     .sort((a, b) => a.time.localeCompare(b.time)),
 );
 
 const readyOrders = computed(() =>
-  store.orders.filter(o => o.status === 'ready' && !o.isDirectEntry).slice().sort((a, b) => a.time.localeCompare(b.time)),
+  orderStore.orders.filter(o => o.status === 'ready' && !o.isDirectEntry).slice().sort((a, b) => a.time.localeCompare(b.time)),
 );
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -854,14 +858,14 @@ function elapsedColor(orderTime) {
 // ── Actions ─────────────────────────────────────────────────────────────────
 function acceptOrder(order) {
   // accepted → preparing (kitchen starts working on it)
-  store.changeOrderStatus(order, 'preparing');
-  store.$persist?.();
+  orderStore.changeOrderStatus(order, 'preparing');
+
 }
 
 function advancePreparingOrder(order) {
   // preparing → ready
-  store.changeOrderStatus(order, 'ready');
-  store.$persist?.();
+  orderStore.changeOrderStatus(order, 'ready');
+
 }
 
 // ── Back-state actions (undo buttons) ────────────────────────────────────────
@@ -886,26 +890,26 @@ function cancelReturnToPending() {
 
 function returnToPending(order) {
   // accepted → pending (return to Cassa queue)
-  store.changeOrderStatus(order, 'pending');
-  store.$persist?.();
+  orderStore.changeOrderStatus(order, 'pending');
+
 }
 
 function backToAccepted(order) {
   // preparing → accepted
-  store.changeOrderStatus(order, 'accepted');
-  store.$persist?.();
+  orderStore.changeOrderStatus(order, 'accepted');
+
 }
 
 function backToPreparing(order) {
   // ready → preparing
-  store.changeOrderStatus(order, 'preparing');
-  store.$persist?.();
+  orderStore.changeOrderStatus(order, 'preparing');
+
 }
 
 function restoreFromHistory(order) {
   // delivered → ready (undo accidental delivery from Cronologia)
-  store.changeOrderStatus(order, 'ready');
-  store.$persist?.();
+  orderStore.changeOrderStatus(order, 'ready');
+
 }
 
 // ── Detail view helpers ───────────────────────────────────────────────────────

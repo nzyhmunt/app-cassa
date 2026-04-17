@@ -24,7 +24,7 @@
 
 <script setup>
 import { computed } from 'vue';
-import { useAppStore } from '../store/index.js';
+import { useConfigStore, useOrderStore } from '../store/index.js';
 import { useNumericKeyboard } from '../composables/useNumericKeyboard.js';
 
 defineOptions({ inheritAttrs: false });
@@ -40,10 +40,11 @@ const props = defineProps({
 
 const emit = defineEmits(['update:modelValue', 'update:typeToggleIndex']);
 
-const store = useAppStore();
+const configStore = useConfigStore();
+const orderStore = useOrderStore();
 const keyboard = useNumericKeyboard();
 
-const isKeyboardEnabled = computed(() => store.customKeyboard !== 'disabled');
+const isKeyboardEnabled = computed(() => configStore.customKeyboard !== 'disabled');
 
 /** Value shown in the read-only text input (custom keyboard mode). */
 const displayVal = computed(() => {

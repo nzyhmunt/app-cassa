@@ -70,7 +70,7 @@
                 <!-- +/- controls (pending only) -->
                 <div v-if="order.status === 'pending'" class="flex items-center gap-1 bg-gray-100 rounded-md p-0.5 border border-gray-200 shrink-0">
                   <button
-                    @click="store.updateQtyGlobal(order, row.index, -1)"
+                    @click="orderStore.updateQtyGlobal(order, row.index, -1)"
                     class="size-6 md:size-7 flex items-center justify-center bg-white rounded shadow-sm active:scale-95 transition-colors"
                     :class="row.item.quantity === 1 ? 'text-red-500' : 'text-gray-600'"
                     :title="row.item.quantity === 1 ? 'Rimuovi voce' : 'Diminuisci quantità'"
@@ -79,7 +79,7 @@
                     <Minus v-else class="size-3" />
                   </button>
                   <span class="w-5 md:w-6 text-center font-black text-xs md:text-sm text-gray-800">{{ row.item.quantity }}</span>
-                  <button @click="store.updateQtyGlobal(order, row.index, 1)" class="size-6 md:size-7 flex items-center justify-center bg-white theme-text rounded shadow-sm active:scale-95">
+                  <button @click="orderStore.updateQtyGlobal(order, row.index, 1)" class="size-6 md:size-7 flex items-center justify-center bg-white theme-text rounded shadow-sm active:scale-95">
                     <Plus class="size-3" />
                   </button>
                 </div>
@@ -108,7 +108,7 @@
                       class="text-[9px] md:text-[10px] font-bold bg-purple-50 border border-purple-200 text-purple-700 px-1.5 py-0.5 rounded flex items-center gap-0.5"
                     >
                       <Sparkles class="size-2.5" />
-                      {{ mod.name }}{{ mod.price > 0 ? ' +' + store.config.ui.currency + mod.price.toFixed(2) : '' }}
+                      {{ mod.name }}{{ mod.price > 0 ? ' +' + configStore.config.ui.currency + mod.price.toFixed(2) : '' }}
                     </span>
                   </div>
                 </div>
@@ -121,9 +121,9 @@
                     class="font-black text-sm md:text-base text-gray-800"
                     :class="{ 'line-through text-gray-400': row.item.voidedQuantity === row.item.quantity }"
                   >
-                    {{ store.config.ui.currency }}{{ getOrderItemRowTotal(row.item).toFixed(2) }}
+                    {{ configStore.config.ui.currency }}{{ getOrderItemRowTotal(row.item).toFixed(2) }}
                   </span>
-                  <span v-if="order.status === 'pending'" class="text-[9px] text-gray-400">{{ store.config.ui.currency }}{{ getItemUnitPrice(row.item).toFixed(2) }} cad.</span>
+                  <span v-if="order.status === 'pending'" class="text-[9px] text-gray-400">{{ configStore.config.ui.currency }}{{ getItemUnitPrice(row.item).toFixed(2) }} cad.</span>
                 </div>
                 <div v-if="order.status === 'pending'" class="flex items-center gap-1 ml-1">
                   <button
@@ -157,7 +157,7 @@
 <script setup>
 import { computed } from 'vue';
 import { ShieldCheck, ShoppingCart, PlusCircle, Layers, Trash2, Minus, Plus, MessageSquareWarning, PenLine, Sparkles } from 'lucide-vue-next';
-import { useAppStore } from '../../store/index.js';
+import { useConfigStore, useOrderStore } from '../../store/index.js';
 import {
   getOrderItemRowTotal,
   getCourseBorderClass,
@@ -192,7 +192,8 @@ defineEmits([
   'add-items',
 ]);
 
-const store = useAppStore();
+const configStore = useConfigStore();
+const orderStore = useOrderStore();
 
 const isReadOnly = computed(() => KITCHEN_ACTIVE_STATUSES.includes(props.order.status));
 

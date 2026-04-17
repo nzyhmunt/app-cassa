@@ -7,7 +7,7 @@
         <Monitor class="size-5 md:size-6 theme-text" />
       </div>
       <div class="flex flex-col truncate">
-        <h1 class="text-sm md:text-xl font-bold leading-none truncate">{{ store.config.ui.name }}</h1>
+        <h1 class="text-sm md:text-xl font-bold leading-none truncate">{{ configStore.config.ui.name }}</h1>
         <p class="text-white/80 text-[9px] md:text-xs mt-0.5 font-bold uppercase tracking-wider truncate">POS Cassa &amp; Ordini</p>
       </div>
     </div>
@@ -22,7 +22,7 @@
       >
         <div class="relative shrink-0">
           <Receipt class="size-4 md:size-5" />
-          <span v-if="store.pendingCount > 0 && !isOrdersActive" class="absolute -top-1.5 -right-2 bg-red-500 text-white text-[9px] font-black size-4 flex items-center justify-center rounded-full border border-white">{{ store.pendingCount }}</span>
+          <span v-if="orderStore.pendingCount > 0 && !isOrdersActive" class="absolute -top-1.5 -right-2 bg-red-500 text-white text-[9px] font-black size-4 flex items-center justify-center rounded-full border border-white">{{ orderStore.pendingCount }}</span>
         </div>
         <span class="hidden sm:inline">Ordini</span>
       </router-link>
@@ -42,7 +42,7 @@
         <p class="text-[10px] text-white/80 uppercase truncate">Turno Attivo</p>
       </div>
       <!-- Test Audio rapido -->
-      <button v-if="store.config.demoOrders?.length > 0" @click="onSimulateOrder" aria-label="Simula Ordine da App" class="hidden md:flex bg-white/10 hover:bg-white/20 p-2 md:p-2.5 rounded-full transition-colors text-white" title="Simula Ordine da App">
+      <button v-if="configStore.config.demoOrders?.length > 0" @click="onSimulateOrder" aria-label="Simula Ordine da App" class="hidden md:flex bg-white/10 hover:bg-white/20 p-2 md:p-2.5 rounded-full transition-colors text-white" title="Simula Ordine da App">
         <BellPlus class="size-5 md:size-5" />
       </button>
       <!-- Tasto Cassa Dashboard -->
@@ -67,14 +67,15 @@
 import { computed } from 'vue';
 import { useRoute } from 'vue-router';
 import { Monitor, Receipt, LayoutGrid, BellPlus, Settings, Landmark, Lock } from 'lucide-vue-next';
-import { useAppStore } from '../store/index.js';
+import { useConfigStore, useOrderStore } from '../store/index.js';
 import { useBeep } from '../composables/useBeep.js';
 import { useAuth } from '../composables/useAuth.js';
 import { useAppClock } from '../composables/useAppClock.js';
 
 const emit = defineEmits(['open-settings', 'open-cassa', 'lock']);
 
-const store = useAppStore();
+const configStore = useConfigStore();
+const orderStore = useOrderStore();
 const { requiresAuth } = useAuth();
 const route = useRoute();
 const { currentTime } = useAppClock();
@@ -85,7 +86,7 @@ const isRoomActive = computed(() => route.name === 'sala' || route.name === 'sto
 const { playBeep } = useBeep();
 
 function onSimulateOrder() {
-  store.simulateNewOrder();
+  orderStore.simulateNewOrder();
   playBeep();
 }
 </script>

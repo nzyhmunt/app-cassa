@@ -13,7 +13,7 @@
       <!-- Riepilogo stato tavoli + Tab Sala + Filtri stato — tutto nella stessa barra -->
       <div class="flex flex-wrap items-center gap-2 mb-4 md:mb-5 overflow-x-auto pb-1 -mx-1 px-1">
         <!-- Room tabs — visibili solo quando sono configurate più sale -->
-        <template v-if="store.rooms.length > 1">
+        <template v-if="configStore.rooms.length > 1">
           <!-- Tutti -->
           <button
             @click="activeRoomId = 'all'; activeStatusFilter = null"
@@ -24,11 +24,11 @@
           >
             <Grid3x3 class="size-3 shrink-0" />
             <span>Tutti</span>
-            <span class="text-[10px] font-black opacity-70">{{ store.config.tables.length }}</span>
+            <span class="text-[10px] font-black opacity-70">{{ configStore.config.tables.length }}</span>
           </button>
           <!-- Singole sale -->
           <button
-            v-for="room in store.rooms"
+            v-for="room in configStore.rooms"
             :key="room.id"
             @click="activeRoomId = room.id; activeStatusFilter = null"
             class="shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl font-bold text-xs transition-all active:scale-95"
@@ -56,8 +56,8 @@
       </div>
 
       <!-- Griglia Tavoli — vista "Tutti" raggruppata per sala -->
-      <template v-if="activeRoomId === 'all' && store.rooms.length > 1">
-        <div v-for="room in store.rooms" :key="room.id" class="mb-6 last:mb-0">
+      <template v-if="activeRoomId === 'all' && configStore.rooms.length > 1">
+        <div v-for="room in configStore.rooms" :key="room.id" class="mb-6 last:mb-0">
           <p class="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-2 px-0.5">{{ room.label }}</p>
           <TableGrid :tables="filteredTablesForRoom(room)" @open-table="openTableDetails">
             <template #status="{ table, tableStatus }">
@@ -285,7 +285,7 @@ import { ref, computed } from 'vue';
 import {
   Grid3x3, Users, Timer, X, Coffee, ChevronRight, Plus, ArrowRightLeft, Merge, Zap, Link,
 } from 'lucide-vue-next';
-import { useAppStore } from '../store/index.js';
+import { useConfigStore, useOrderStore } from '../store/index.js';
 import { newUUIDv7, newShortId } from '../store/storeUtils.js';
 import { formatOrderTime } from '../utils/index.js';
 // Shared component — used by both Sala and Cassa apps.
@@ -295,16 +295,17 @@ import TableGrid from './shared/TableGrid.vue';
 
 const emit = defineEmits(['new-order-for-comande', 'view-order']);
 
-const store = useAppStore();
-const runtimeConfig = computed(() => store.config ?? {});
+const configStore = useConfigStore();
+const orderStore = useOrderStore();
+const runtimeConfig = computed(() => configStore.config ?? {});
 
 // ── Room tabs ─────────────────────────────────────────────────────────────
-const activeRoomId = ref(store.rooms.length > 1 ? 'all' : (store.rooms[0]?.id ?? null));
+const activeRoomId = ref(configStore.rooms.length > 1 ? 'all' : (configStore.rooms[0]?.id ?? null));
 const activeStatusFilter = ref(null);
 
 function onStatusFilterChange(filter) {
   activeStatusFilter.value = filter;
-  if (filter && store.rooms.length > 1) {
+  if (filter && configStore.rooms.length > 1) {
     activeRoomId.value = 'all';
   }
 }
@@ -312,8 +313,8 @@ function onStatusFilterChange(filter) {
 // Compute status once per table for all tables; reused by filtering, counters, and slot.
 const allTablesStatusMap = computed(() => {
   const map = {};
-  for (const table of store.config.tables) {
-    map[table.id] = store.getTableStatus(table.id);
+  for (const table of configStore.config.tables) {
+    map[table.id] = orderStore.getTableStatus(table.id);
   }
   return map;
 });
@@ -322,8 +323,8 @@ const allTablesStatusMap = computed(() => {
 // Orders are physically on the master table after a merge, so no slave aggregation needed.
 const orderCountMap = computed(() => {
   const map = {};
-  for (const table of store.config.tables) {
-    map[table.id] = store.orders.filter(
+  for (const table of configStore.config.tables) {
+    map[table.id] = orderStore.orders.filter(
       o => o.table === table.id && o.status !== 'completed' && o.status !== 'rejected',
     ).length;
   }
@@ -346,31 +347,31 @@ function filteredTablesForRoom(room) {
 
 const activeRoomTables = computed(() => {
   if (activeRoomId.value === 'all') {
-    const all = store.config.tables;
+    const all = configStore.config.tables;
     if (!activeStatusFilter.value) return all;
     return all.filter(matchesActiveStatusFilter);
   }
-  const room = store.rooms.find(r => r.id === activeRoomId.value);
-  const tables = room ? room.tables : store.config.tables;
+  const room = configStore.rooms.find(r => r.id === activeRoomId.value);
+  const tables = room ? room.tables : configStore.config.tables;
   if (!activeStatusFilter.value) return tables;
   return tables.filter(matchesActiveStatusFilter);
 });
 
 // ── Table status counters ──────────────────────────────────────────────────
 const freeTablesCount = computed(() =>
-  store.config.tables.filter(t => allTablesStatusMap.value[t.id]?.status === 'free').length,
+  configStore.config.tables.filter(t => allTablesStatusMap.value[t.id]?.status === 'free').length,
 );
 const occupiedTablesCount = computed(() =>
-  store.config.tables.filter(t => {
+  configStore.config.tables.filter(t => {
     const st = allTablesStatusMap.value[t.id]?.status;
     return st === 'occupied' || st === 'bill_requested';
   }).length,
 );
 const pendingTablesCount = computed(() =>
-  store.config.tables.filter(t => allTablesStatusMap.value[t.id]?.status === 'pending').length,
+  configStore.config.tables.filter(t => allTablesStatusMap.value[t.id]?.status === 'pending').length,
 );
 const paidTablesCount = computed(() =>
-  store.config.tables.filter(t => allTablesStatusMap.value[t.id]?.status === 'paid').length,
+  configStore.config.tables.filter(t => allTablesStatusMap.value[t.id]?.status === 'paid').length,
 );
 
 // ── People modal ────────────────────────────────────────────────────────────
@@ -380,7 +381,7 @@ const peopleAdults = ref(2);
 const peopleChildren = ref(0);
 
 const showChildrenInput = computed(() =>
-  !!(store.config.coverCharge?.enabled && (store.config.coverCharge?.priceChild ?? 0) > 0),
+  !!(configStore.config.coverCharge?.enabled && (configStore.config.coverCharge?.priceChild ?? 0) > 0),
 );
 
 // ── Table modal ──────────────────────────────────────────────────────────────
@@ -392,8 +393,8 @@ const showMoveModal = ref(false);
 const showMergeModal = ref(false);
 
 const freeTables = computed(() =>
-  store.config.tables.filter(
-    t => t.id !== selectedTable.value?.id && store.getTableStatus(t.id).status === 'free',
+  configStore.config.tables.filter(
+    t => t.id !== selectedTable.value?.id && orderStore.getTableStatus(t.id).status === 'free',
   ),
 );
 
@@ -401,11 +402,11 @@ const freeTables = computed(() =>
 // Merged slave tables are excluded: targeting a slave with "Sposta" would give it
 // its own session while still merged into a master, causing billing inconsistencies.
 const otherOccupiedTables = computed(() =>
-  store.config.tables.filter(
+  configStore.config.tables.filter(
     t =>
       t.id !== selectedTable.value?.id &&
       allTablesStatusMap.value[t.id]?.status !== 'free' &&
-      !store.isMergedSlave(t.id),
+      !orderStore.isMergedSlave(t.id),
   ),
 );
 
@@ -413,38 +414,38 @@ const otherOccupiedTables = computed(() =>
 const mergeCandidates = computed(() => {
   const currentId = selectedTable.value?.id;
   if (!currentId) return [];
-  return store.config.tables.filter(t => {
+  return configStore.config.tables.filter(t => {
     if (t.id === currentId) return false;
     if (allTablesStatusMap.value[t.id]?.status === 'free') return false;
-    if (store.isMergedSlave(t.id)) return false;
+    if (orderStore.isMergedSlave(t.id)) return false;
     return true;
   });
 });
 
 // True when the selected table is a slave (merged into another)
 const selectedTableMasterTableId = computed(() =>
-  selectedTable.value ? store.masterTableOf(selectedTable.value.id) : null,
+  selectedTable.value ? orderStore.masterTableOf(selectedTable.value.id) : null,
 );
 
 const selectedTableMasterTable = computed(() => {
   const masterId = selectedTableMasterTableId.value;
-  return masterId ? store.config.tables.find(t => t.id === masterId) ?? null : null;
+  return masterId ? configStore.config.tables.find(t => t.id === masterId) ?? null : null;
 });
 
 const tableSession = computed(() =>
-  selectedTable.value ? store.tableCurrentBillSession[selectedTable.value.id] : null,
+  selectedTable.value ? orderStore.tableCurrentBillSession[selectedTable.value.id] : null,
 );
 
 const tableOrders = computed(() => {
   if (!selectedTable.value) return [];
-  return store.orders.filter(
+  return orderStore.orders.filter(
     o => o.table === selectedTable.value.id && o.status !== 'completed' && o.status !== 'rejected',
   );
 });
 
 const occupiedSince = computed(() => {
   if (!selectedTable.value) return null;
-  const ts = store.tableOccupiedAt[selectedTable.value.id];
+  const ts = orderStore.tableOccupiedAt[selectedTable.value.id];
   if (!ts) return null;
   return new Date(ts).toLocaleTimeString(runtimeConfig.value.locale ?? 'it-IT', {
     hour: '2-digit',
@@ -457,10 +458,10 @@ const occupiedSince = computed(() => {
 function openTableDetails(table) {
   // If the table is a merged slave with active orders, open the master's panel instead.
   // In the physical-move model the slave holds no orders; all billing is on the master.
-  const status = store.getTableStatus(table.id).status;
-  const masterId = store.masterTableOf(table.id);
+  const status = orderStore.getTableStatus(table.id).status;
+  const masterId = orderStore.masterTableOf(table.id);
   if (masterId && status !== 'free') {
-    const masterTable = store.config.tables.find(t => t.id === masterId);
+    const masterTable = configStore.config.tables.find(t => t.id === masterId);
     if (masterTable) {
       _openTableModal(masterTable);
       return;
@@ -492,10 +493,10 @@ function confirmPeopleAndOpenTable() {
   if (!table) return;
 
   // Open a billing session for this table seating
-  const billSessionId = store.openTableSession(table.id, peopleAdults.value, peopleChildren.value);
+  const billSessionId = orderStore.openTableSession(table.id, peopleAdults.value, peopleChildren.value);
 
   // Auto-add cover charge order if configured
-  const cc = store.config.coverCharge;
+  const cc = configStore.config.coverCharge;
   if (cc?.enabled && cc?.autoAdd) {
     const coverItems = [];
     if (peopleAdults.value > 0 && cc.priceAdult > 0) {
@@ -521,7 +522,7 @@ function confirmPeopleAndOpenTable() {
       });
     }
     if (coverItems.length > 0) {
-      const coverOrder = store.addDirectOrder(table.id, billSessionId, coverItems);
+      const coverOrder = orderStore.addDirectOrder(table.id, billSessionId, coverItems);
       if (coverOrder) coverOrder.isCoverCharge = true;
     }
   }
@@ -536,11 +537,11 @@ function createNewOrder() {
   // Use the master's session only while this table is still actively participating in a merge.
   // If a stale merge mapping remains after the table becomes free, create the order against
   // the selected table so it does not inherit the master's bill session incorrectly.
-  const masterId = store.masterTableOf(selectedTable.value.id);
-  const selectedTableStatus = store.getTableStatus(selectedTable.value.id)?.status;
+  const masterId = orderStore.masterTableOf(selectedTable.value.id);
+  const selectedTableStatus = orderStore.getTableStatus(selectedTable.value.id)?.status;
   const isActiveMergedSlave = masterId != null && selectedTableStatus !== 'free';
   const sessionTableId = isActiveMergedSlave ? masterId : selectedTable.value.id;
-  const session = store.tableCurrentBillSession[sessionTableId];
+  const session = orderStore.tableCurrentBillSession[sessionTableId];
 
   const newOrd = {
     id: newUUIDv7(),
@@ -556,7 +557,7 @@ function createNewOrder() {
     noteVisibility: { cassa: true, sala: true, cucina: true },
     ...(runtimeConfig.value.directus?.venueId != null ? { venue: runtimeConfig.value.directus.venueId } : {}),
   };
-  store.addOrder(newOrd);
+  orderStore.addOrder(newOrd);
   closeTableModal();
   emit('new-order-for-comande', newOrd);
 }
@@ -571,7 +572,7 @@ function openMergeModal() { showMergeModal.value = true; }
 
 function confirmMove(targetTable) {
   if (!selectedTable.value) return;
-  store.moveTableOrders(selectedTable.value.id, targetTable.id);
+  orderStore.moveTableOrders(selectedTable.value.id, targetTable.id);
   showMoveModal.value = false;
   // Update selectedTable to the new one
   selectedTable.value = targetTable;
@@ -579,7 +580,7 @@ function confirmMove(targetTable) {
 
 function confirmMerge(sourceTable) {
   if (!selectedTable.value) return;
-  store.mergeTableOrders(sourceTable.id, selectedTable.value.id);
+  orderStore.mergeTableOrders(sourceTable.id, selectedTable.value.id);
   showMergeModal.value = false;
 }
 

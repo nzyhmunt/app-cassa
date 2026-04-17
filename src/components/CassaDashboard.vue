@@ -44,7 +44,7 @@
                 <NumericInput
                   v-model="cashBalanceInput"
                   min="0" step="0.50"
-                  :prefix="store.config.ui.currency"
+                  :prefix="configStore.config.ui.currency"
                   class="w-full pl-8 pr-4 py-3 border-2 border-gray-200 rounded-xl font-black text-xl text-gray-800 focus:border-[var(--brand-primary)] focus:outline-none transition-colors"
                   placeholder="0.00" />
               </div>
@@ -57,12 +57,12 @@
               <span class="text-[10px] font-bold text-gray-400 uppercase tracking-wider shrink-0">Preset:</span>
               <button v-for="preset in [50, 100, 150, 200]" :key="preset" @click="cashBalanceInput = preset"
                 class="px-3 py-1.5 text-xs font-bold rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-gray-700 active:scale-95 transition-all shadow-sm">
-                {{ store.config.ui.currency }}{{ preset }}
+                {{ configStore.config.ui.currency }}{{ preset }}
               </button>
             </div>
             <div class="mt-3 flex items-center gap-2 p-3 bg-emerald-50 border border-emerald-100 rounded-xl">
               <TrendingUp class="size-4 text-emerald-600 shrink-0" />
-              <span class="text-xs font-bold text-emerald-700">Fondo attuale: <span class="text-base">€{{ store.cashBalance.toFixed(2) }}</span></span>
+              <span class="text-xs font-bold text-emerald-700">Fondo attuale: <span class="text-base">€{{ orderStore.cashBalance.toFixed(2) }}</span></span>
             </div>
           </div>
 
@@ -91,7 +91,7 @@
                 <NumericInput
                   v-model="movementAmount"
                   min="0.01" step="0.50"
-                  :prefix="store.config.ui.currency"
+                  :prefix="configStore.config.ui.currency"
                   class="w-full pl-8 pr-3 py-2.5 border border-gray-200 rounded-xl text-sm font-bold focus:border-[var(--brand-primary)] focus:outline-none"
                   placeholder="Importo" />
               </div>
@@ -107,10 +107,10 @@
 
             <!-- Lista movimenti -->
             <div class="space-y-2 max-h-48 overflow-y-auto">
-              <div v-if="store.cashMovements.length === 0" class="text-center text-gray-400 py-4 text-sm">
+              <div v-if="orderStore.cashMovements.length === 0" class="text-center text-gray-400 py-4 text-sm">
                 Nessun movimento registrato.
               </div>
-              <div v-for="mov in [...store.cashMovements].reverse()" :key="mov.id"
+              <div v-for="mov in [...orderStore.cashMovements].reverse()" :key="mov.id"
                 class="flex items-center justify-between p-3 rounded-xl border text-sm font-bold"
                 :class="mov.type === 'deposit' ? 'bg-emerald-50 border-emerald-100 text-emerald-800' : 'bg-red-50 border-red-100 text-red-800'">
                 <div class="flex items-center gap-2">
@@ -276,15 +276,15 @@
           </div>
 
           <!-- Storico chiusure -->
-          <div v-if="store.dailyClosures.length > 0" class="bg-white rounded-2xl border border-gray-200 shadow-sm p-4">
+          <div v-if="orderStore.dailyClosures.length > 0" class="bg-white rounded-2xl border border-gray-200 shadow-sm p-4">
             <h5 class="font-bold text-gray-600 text-xs uppercase tracking-wider mb-3 flex items-center gap-1">
               <History class="size-4" /> Chiusure Precedenti
             </h5>
             <div class="space-y-2 max-h-40 overflow-y-auto">
-              <div v-for="(ch, idx) in [...store.dailyClosures].reverse()" :key="idx"
+              <div v-for="(ch, idx) in [...orderStore.dailyClosures].reverse()" :key="idx"
                 class="flex justify-between items-center p-3 bg-gray-50 rounded-xl border border-gray-100 text-sm">
                 <div>
-                  <p class="font-bold text-gray-800">Chiusura Z #{{ store.dailyClosures.length - idx }}</p>
+                  <p class="font-bold text-gray-800">Chiusura Z #{{ orderStore.dailyClosures.length - idx }}</p>
                   <p class="text-[10px] text-gray-400">{{ new Date(ch.timestamp).toLocaleString(locale, { timeZone: timezone }) }}</p>
                 </div>
                 <div class="text-right">
@@ -378,17 +378,18 @@ import {
   Receipt, History, ClipboardList, Tag, Gift, FileText,
 } from 'lucide-vue-next';
 import { Banknote } from 'lucide-vue-next';
-import { useAppStore } from '../store/index.js';
+import { useConfigStore, useOrderStore } from '../store/index.js';
 import { useAuth } from '../composables/useAuth.js';
 import NumericInput from './NumericInput.vue';
 
 defineProps({ modelValue: Boolean });
 defineEmits(['update:modelValue']);
 
-const store = useAppStore();
+const configStore = useConfigStore();
+const orderStore = useOrderStore();
 const { isAdmin } = useAuth();
-const locale = computed(() => store.config?.locale ?? 'it-IT');
-const timezone = computed(() => store.config?.timezone ?? 'Europe/Rome');
+const locale = computed(() => configStore.config?.locale ?? 'it-IT');
+const timezone = computed(() => configStore.config?.timezone ?? 'Europe/Rome');
 
 const tabs = [
   { id: 'cashBalance', label: 'Fondo Cassa', icon: Wallet },
@@ -405,12 +406,12 @@ watch(activeTab, (tab) => {
 });
 
 // ── Cash Balance ────────────────────────────────────────────────────────────
-const cashBalanceInput = ref(store.cashBalance);
+const cashBalanceInput = ref(orderStore.cashBalance);
 
 function saveCashBalance() {
   const amount = parseFloat(cashBalanceInput.value);
   if (!isNaN(amount) && amount >= 0) {
-    store.setFondoCassa(amount);
+    orderStore.setFondoCassa(amount);
   }
 }
 
@@ -422,7 +423,7 @@ const movementReason = ref('');
 function addMovement() {
   const amount = parseFloat(movementAmount.value);
   if (isNaN(amount) || amount <= 0) return;
-  store.addCashMovement(movementType.value, amount, movementReason.value || movementType.value);
+  orderStore.addCashMovement(movementType.value, amount, movementReason.value || movementType.value);
   movementAmount.value = 0;
   movementReason.value = '';
 }
@@ -431,29 +432,29 @@ function addMovement() {
 const xSummary = ref(null);
 
 function refreshXReport() {
-  xSummary.value = store.generateXReport();
+  xSummary.value = orderStore.generateXReport();
 }
 
 // ── Daily Close ────────────────────────────────────────────────────────────
 const zPreview = ref(null);
 
 function previewDailyClose() {
-  zPreview.value = store.generateXReport();
+  zPreview.value = orderStore.generateXReport();
 }
 
 function confirmDailyClose() {
   if (!zPreview.value) {
-    zPreview.value = store.generateXReport();
+    zPreview.value = orderStore.generateXReport();
   }
   if (!confirm(`Confermi la Chiusura Z? Totale: €${zPreview.value.totalReceived.toFixed(2)}. Questa operazione è irreversibile.`)) return;
-  store.performDailyClose();
+  orderStore.performDailyClose();
   zPreview.value = null;
-  cashBalanceInput.value = store.cashBalance;
+  cashBalanceInput.value = orderStore.cashBalance;
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 function getMethodIcon(methodLabel) {
-  const m = store.config.paymentMethods.find(x => x.label === methodLabel);
+  const m = configStore.config.paymentMethods.find(x => x.label === methodLabel);
   if (!m) return Banknote;
   return m.icon === 'credit-card' ? CreditCard : Banknote;
 }

@@ -3,7 +3,7 @@
     <div
       v-if="visible"
       class="fixed inset-0 z-[200] flex flex-col landscape:flex-row items-center justify-center select-none"
-      :style="store.cssVars"
+      :style="configStore.cssVars"
       style="background: linear-gradient(135deg, var(--brand-primary, #16a34a) 0%, var(--brand-primary-dark, #15803d) 100%)"
     >
       <!-- Clock & branding -->
@@ -13,7 +13,7 @@
         </div>
         <p class="text-5xl md:text-6xl font-black text-white tracking-tight tabular-nums">{{ currentTime }}</p>
         <p class="text-white/70 text-xs md:text-sm font-bold uppercase tracking-widest mt-1">{{ currentDate }}</p>
-        <p class="text-white/60 text-[11px] mt-2 font-semibold">{{ store.config.ui.name }}</p>
+        <p class="text-white/60 text-[11px] mt-2 font-semibold">{{ configStore.config.ui.name }}</p>
       </div>
 
       <!-- Card -->
@@ -109,12 +109,13 @@
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { Lock, ChevronRight, ChevronLeft } from 'lucide-vue-next';
 import { useAuth } from '../composables/useAuth.js';
-import { useAppStore } from '../store/index.js';
+import { useConfigStore, useOrderStore } from '../store/index.js';
 
-const store = useAppStore();
+const configStore = useConfigStore();
+const orderStore = useOrderStore();
 const { visibleUsers: users, currentUser, requiresAuth, isLocked, login } = useAuth();
-const locale = computed(() => store.config?.locale ?? 'it-IT');
-const timezone = computed(() => store.config?.timezone ?? 'Europe/Rome');
+const locale = computed(() => configStore.config?.locale ?? 'it-IT');
+const timezone = computed(() => configStore.config?.timezone ?? 'Europe/Rome');
 
 /** Whether the overlay should be rendered. */
 const visible = computed(() => requiresAuth.value && isLocked.value);

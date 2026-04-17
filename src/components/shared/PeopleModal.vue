@@ -97,7 +97,7 @@
 
 <script setup>
 import { Users, X, Plus, Minus, Receipt } from 'lucide-vue-next';
-import { useAppStore } from '../../store/index.js';
+import { useConfigStore, useOrderStore } from '../../store/index.js';
 import { computed } from 'vue';
 
 /**
@@ -121,11 +121,12 @@ const props = defineProps({
 
 defineEmits(['cancel', 'confirm', 'update:adults', 'update:children']);
 
-const store = useAppStore();
+const configStore = useConfigStore();
+const orderStore = useOrderStore();
 
 /** Cover charge configuration taken directly from the shared store. */
-const coverCharge = computed(() => store.config.coverCharge);
+const coverCharge = computed(() => configStore.config.coverCharge);
 
 /** Currency symbol from store configuration. */
-const currency = computed(() => store.config.ui.currency);
+const currency = computed(() => configStore.config.ui.currency);
 </script>

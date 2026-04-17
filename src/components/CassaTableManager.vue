@@ -9,7 +9,7 @@
         <div class="flex items-center gap-2">
           <!-- Cronologia Stampe button — only shown when printers are configured -->
           <button
-            v-if="store.config.printers?.length"
+            v-if="configStore.config.printers?.length"
             @click="showPrintHistory = true"
             class="flex items-center gap-1.5 text-[10px] md:text-xs font-bold text-violet-700 bg-violet-50 hover:bg-violet-100 border border-violet-200 px-3 py-2 rounded-xl transition-colors shadow-sm active:scale-95"
             title="Cronologia Stampe"
@@ -32,7 +32,7 @@
       <!-- Riepilogo stato tavoli + Tab Sala + Filtri stato — tutto nella stessa barra -->
       <div class="flex flex-wrap items-center gap-2 mb-4 md:mb-5 overflow-x-auto pb-1 -mx-1 px-1">
         <!-- Room tabs — visibili solo quando sono configurate più sale -->
-        <template v-if="store.rooms.length > 1">
+        <template v-if="configStore.rooms.length > 1">
           <!-- Tutti -->
           <button
             @click="activeRoomId = 'all'; activeStatusFilter = null"
@@ -43,11 +43,11 @@
           >
             <Grid3x3 class="size-3 shrink-0" />
             <span>Tutti</span>
-            <span class="text-[10px] font-black opacity-70">{{ store.config.tables.length }}</span>
+            <span class="text-[10px] font-black opacity-70">{{ configStore.config.tables.length }}</span>
           </button>
           <!-- Singole sale -->
           <button
-            v-for="room in store.rooms"
+            v-for="room in configStore.rooms"
             :key="room.id"
             @click="activeRoomId = room.id; activeStatusFilter = null"
             class="shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl font-bold text-xs transition-all active:scale-95"
@@ -76,8 +76,8 @@
       </div>
 
       <!-- Griglia Tavoli — vista "Tutti" raggruppata per sala -->
-      <template v-if="activeRoomId === 'all' && store.rooms.length > 1">
-        <div v-for="room in store.rooms" :key="room.id" class="mb-6 last:mb-0">
+      <template v-if="activeRoomId === 'all' && configStore.rooms.length > 1">
+        <div v-for="room in configStore.rooms" :key="room.id" class="mb-6 last:mb-0">
           <p class="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-2 px-0.5">{{ room.label }}</p>
           <TableGrid :tables="filteredTablesForRoom(room)" @open-table="openTableDetails">
             <template #status="{ table, tableStatus }">
@@ -85,7 +85,7 @@
                 {{ tableStatus.status === 'pending' ? 'In Attesa' : tableStatus.status === 'paid' ? 'Saldato' : tableStatus.status === 'bill_requested' ? 'Conto!' : 'Occupato' }}
               </span>
               <span class="block font-black text-sm md:text-lg bg-white/20 rounded-md md:rounded-lg py-0.5 px-1 truncate">
-                {{ store.config.ui.currency }}{{ tableStatus.remaining.toFixed(2) }}
+                {{ configStore.config.ui.currency }}{{ tableStatus.remaining.toFixed(2) }}
               </span>
             </template>
           </TableGrid>
@@ -99,7 +99,7 @@
             {{ tableStatus.status === 'pending' ? 'In Attesa' : tableStatus.status === 'paid' ? 'Saldato' : tableStatus.status === 'bill_requested' ? 'Conto!' : 'Occupato' }}
           </span>
           <span class="block font-black text-sm md:text-lg bg-white/20 rounded-md md:rounded-lg py-0.5 px-1 truncate">
-            {{ store.config.ui.currency }}{{ tableStatus.remaining.toFixed(2) }}
+            {{ configStore.config.ui.currency }}{{ tableStatus.remaining.toFixed(2) }}
           </span>
         </template>
       </TableGrid>
@@ -125,11 +125,11 @@
           <!-- Conto Richiesto button -->
           <button v-if="tableOrders.some(o => o.status === 'accepted')"
             @click="toggleBillRequested"
-            :class="store.billRequestedTables.has(selectedTable.id) ? 'bg-blue-500 text-white' : 'bg-white/10 hover:bg-white/20 text-white'"
+            :class="orderStore.billRequestedTables.has(selectedTable.id) ? 'bg-blue-500 text-white' : 'bg-white/10 hover:bg-white/20 text-white'"
             class="p-2 sm:px-3 sm:py-2 rounded-xl font-bold text-[10px] md:text-xs flex items-center gap-1.5 transition-all active:scale-95 shrink-0"
-            :title="store.billRequestedTables.has(selectedTable.id) ? 'Conto richiesto' : 'Segna Conto Richiesto'"
-            :aria-label="store.billRequestedTables.has(selectedTable.id) ? 'Conto richiesto' : 'Segna conto richiesto'"
-            :aria-pressed="store.billRequestedTables.has(selectedTable.id)">
+            :title="orderStore.billRequestedTables.has(selectedTable.id) ? 'Conto richiesto' : 'Segna Conto Richiesto'"
+            :aria-label="orderStore.billRequestedTables.has(selectedTable.id) ? 'Conto richiesto' : 'Segna conto richiesto'"
+            :aria-pressed="orderStore.billRequestedTables.has(selectedTable.id)">
             <Receipt class="size-4" /> <span class="hidden sm:inline">Conto</span>
           </button>
           <!-- Sposta button: visible when not a slave -->
@@ -242,11 +242,11 @@
                   <div class="flex items-center gap-2 flex-1 min-w-0">
                     <span class="font-bold w-6 shrink-0 text-center text-[10px] text-purple-600">{{ voce.netQty }}x</span>
                     <span class="text-[10px] md:text-xs font-bold text-purple-700 truncate">
-                      + {{ voce.name }} (+{{ store.config.ui.currency }}{{ voce.unitPrice.toFixed(2) }})
+                      + {{ voce.name }} (+{{ configStore.config.ui.currency }}{{ voce.unitPrice.toFixed(2) }})
                     </span>
                   </div>
                   <span class="font-black text-[11px] text-purple-700 shrink-0 w-10 text-right">
-                    {{ store.config.ui.currency }}{{ ((analiticaQty[voce.key] || 0) * voce.unitPrice).toFixed(2) }}
+                    {{ configStore.config.ui.currency }}{{ ((analiticaQty[voce.key] || 0) * voce.unitPrice).toFixed(2) }}
                   </span>
                   <div class="flex items-center gap-0.5 shrink-0">
                     <button @click="decrementAnalitica(voce.key)"
@@ -278,12 +278,12 @@
                         {{ voce.name }}
                         <Zap v-if="voce.isDirectEntry" class="size-2.5 theme-text shrink-0" title="Voce Diretta" />
                       </span>
-                      <span class="text-[10px] text-gray-400 font-medium">{{ store.config.ui.currency }}{{ voce.unitPrice.toFixed(2) }}/cad</span>
+                      <span class="text-[10px] text-gray-400 font-medium">{{ configStore.config.ui.currency }}{{ voce.unitPrice.toFixed(2) }}/cad</span>
                     </div>
                   </div>
                   <div class="flex items-center gap-1 shrink-0">
                     <span class="font-black text-[12px] md:text-sm shrink-0 w-12 text-right" :class="(analiticaQty[voce.key] || 0) > 0 ? 'text-teal-700' : 'text-gray-300'">
-                      {{ store.config.ui.currency }}{{ ((analiticaQty[voce.key] || 0) * voce.unitPrice).toFixed(2) }}
+                      {{ configStore.config.ui.currency }}{{ ((analiticaQty[voce.key] || 0) * voce.unitPrice).toFixed(2) }}
                     </span>
                     <button @click="decrementAnalitica(voce.key)"
                       :aria-label="`Diminuisci quantità di ${voce.name}`"
@@ -334,7 +334,7 @@
                     </div>
                   </div>
                   <span class="font-black text-[12px] md:text-sm text-gray-800 shrink-0">
-                    {{ store.config.ui.currency }}{{ dish.totalSubtotal.toFixed(2) }}
+                    {{ configStore.config.ui.currency }}{{ dish.totalSubtotal.toFixed(2) }}
                   </span>
                 </div>
 
@@ -350,7 +350,7 @@
                       </span>
                       <span class="text-[10px] md:text-xs font-bold text-purple-700 truncate"
                         :class="{'line-through text-gray-400': mod.qty - mod.voided <= 0}">
-                        + {{ mod.name }}{{ mod.price > 0 ? ' (+' + store.config.ui.currency + mod.price.toFixed(2) + ')' : '' }}
+                        + {{ mod.name }}{{ mod.price > 0 ? ' (+' + configStore.config.ui.currency + mod.price.toFixed(2) + ')' : '' }}
                       </span>
                       <span v-if="mod.modVoided > 0" class="text-[8px] text-red-500 font-bold uppercase">-{{ mod.modVoided }}</span>
                     </div>
@@ -401,7 +401,7 @@
                   </div>
                 </div>
                 <div class="text-right">
-                  <span class="font-black text-lg md:text-xl" :class="checkoutMode === 'ordini' && selectedOrdersToPay.includes(ord.id) ? 'text-purple-700' : ord.status === 'pending' ? 'text-amber-700' : 'theme-text'">{{ store.config.ui.currency }}{{ ord.totalAmount.toFixed(2) }}</span>
+                  <span class="font-black text-lg md:text-xl" :class="checkoutMode === 'ordini' && selectedOrdersToPay.includes(ord.id) ? 'text-purple-700' : ord.status === 'pending' ? 'text-amber-700' : 'theme-text'">{{ configStore.config.ui.currency }}{{ ord.totalAmount.toFixed(2) }}</span>
                 </div>
               </div>
 
@@ -420,13 +420,13 @@
                     </div>
                     <div class="flex items-center gap-2 shrink-0">
                       <span class="font-black text-[13px] md:text-sm" :class="item.voidedQuantity === item.quantity ? 'text-gray-400 line-through' : 'text-gray-800'">
-                        {{ store.config.ui.currency }}{{getOrderItemRowTotal(item).toFixed(2)}}
+                        {{ configStore.config.ui.currency }}{{getOrderItemRowTotal(item).toFixed(2)}}
                       </span>
                       <div v-if="ord.status === 'accepted'" class="flex items-center gap-1 ml-1">
-                        <button @click="store.voidOrderItems(ord, idx, 1)" :disabled="item.quantity - (item.voidedQuantity || 0) <= 0" class="p-1.5 bg-white border border-orange-200 text-orange-500 hover:bg-orange-50 rounded shadow-sm transition-colors active:scale-95 disabled:opacity-30" title="Storna dal conto">
+                        <button @click="orderStore.voidOrderItems(ord, idx, 1)" :disabled="item.quantity - (item.voidedQuantity || 0) <= 0" class="p-1.5 bg-white border border-orange-200 text-orange-500 hover:bg-orange-50 rounded shadow-sm transition-colors active:scale-95 disabled:opacity-30" title="Storna dal conto">
                           <Ban class="size-4 md:size-4" />
                         </button>
-                        <button @click="store.restoreOrderItems(ord, idx, 1)" :disabled="(item.voidedQuantity || 0) <= 0" class="p-1.5 bg-white border border-blue-200 text-blue-500 hover:bg-blue-50 rounded shadow-sm transition-colors active:scale-95 disabled:opacity-30" title="Ripristina nel conto">
+                        <button @click="orderStore.restoreOrderItems(ord, idx, 1)" :disabled="(item.voidedQuantity || 0) <= 0" class="p-1.5 bg-white border border-blue-200 text-blue-500 hover:bg-blue-50 rounded shadow-sm transition-colors active:scale-95 disabled:opacity-30" title="Ripristina nel conto">
                           <Undo2 class="size-4 md:size-4" />
                         </button>
                       </div>
@@ -445,18 +445,18 @@
                           </span>
                           <span class="text-[9px] md:text-[10px] font-bold text-purple-700 truncate"
                             :class="{'line-through text-gray-400': item.quantity - (item.voidedQuantity || 0) - (mod.voidedQuantity || 0) <= 0}">
-                            + {{ mod.name }} (+{{ store.config.ui.currency }}{{ mod.price.toFixed(2) }})
+                            + {{ mod.name }} (+{{ configStore.config.ui.currency }}{{ mod.price.toFixed(2) }})
                           </span>
                           <span v-if="(mod.voidedQuantity || 0) > 0" class="text-[8px] text-red-500 font-bold uppercase shrink-0">-{{ mod.voidedQuantity }}</span>
                         </div>
                         <div v-if="ord.status === 'accepted'" class="flex items-center gap-0.5 shrink-0">
-                          <button @click="store.voidModifier(ord, idx, modIdx, 1)"
+                          <button @click="orderStore.voidModifier(ord, idx, modIdx, 1)"
                             :disabled="item.quantity - (item.voidedQuantity || 0) - (mod.voidedQuantity || 0) <= 0"
                             class="p-1 bg-white border border-orange-200 text-orange-500 hover:bg-orange-50 rounded shadow-sm transition-colors active:scale-95 disabled:opacity-30"
                             title="Storna questa variazione">
                             <Ban class="size-3" />
                           </button>
-                          <button @click="store.restoreModifier(ord, idx, modIdx, 1)"
+                          <button @click="orderStore.restoreModifier(ord, idx, modIdx, 1)"
                             :disabled="(mod.voidedQuantity || 0) <= 0"
                             class="p-1 bg-white border border-blue-200 text-blue-500 hover:bg-blue-50 rounded shadow-sm transition-colors active:scale-95 disabled:opacity-30"
                             title="Ripristina questa variazione">
@@ -485,8 +485,8 @@
 
             <!-- Cifra Cassa Dinamica -->
             <div class="mb-1">
-              <div v-if="tableTransactions.length > 0" class="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Totale: <span class="text-gray-600">{{ store.config.ui.currency }}{{ tableTotalAmount.toFixed(2) }}</span></div>
-              <div class="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-black text-gray-900 leading-none">{{ store.config.ui.currency }}{{ tableAmountRemaining.toFixed(2) }}</div>
+              <div v-if="tableTransactions.length > 0" class="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Totale: <span class="text-gray-600">{{ configStore.config.ui.currency }}{{ tableTotalAmount.toFixed(2) }}</span></div>
+              <div class="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-black text-gray-900 leading-none">{{ configStore.config.ui.currency }}{{ tableAmountRemaining.toFixed(2) }}</div>
             </div>
 
             <!-- Storico Transazioni -->
@@ -512,7 +512,7 @@
                       <span class="text-[9px] font-medium"
                         :class="txn.operationType === 'discount' ? 'text-amber-600' : 'text-emerald-600'">
                         <template v-if="txn.operationType === 'romana'">Quota {{ txn.splitQuota }}/{{ txn.splitWays }}<template v-if="(txn.romanaSplitCount || 1) > 1"> · {{ txn.romanaSplitCount }} quote</template></template>
-                        <template v-else-if="txn.operationType === 'discount'">{{ txn.discountType === 'percent' ? txn.discountValue + '%' : store.config.ui.currency + (txn.discountValue ?? 0).toFixed(2) }}</template>
+                        <template v-else-if="txn.operationType === 'discount'">{{ txn.discountType === 'percent' ? txn.discountValue + '%' : configStore.config.ui.currency + (txn.discountValue ?? 0).toFixed(2) }}</template>
                         <template v-else-if="txn.operationType === 'ordini'">Per Comanda</template>
                         <template v-else-if="txn.operationType === 'analitica'">Analitica</template>
                       </span>
@@ -521,7 +521,7 @@
                   <div class="text-right shrink-0">
                     <span class="font-black text-sm"
                       :class="txn.operationType === 'discount' ? 'text-amber-800' : 'text-emerald-800'">
-                      <span v-if="txn.operationType === 'discount'">-</span>{{ store.config.ui.currency }}{{ txn.amountPaid.toFixed(2) }}
+                      <span v-if="txn.operationType === 'discount'">-</span>{{ configStore.config.ui.currency }}{{ txn.amountPaid.toFixed(2) }}
                     </span>
                   </div>
                 </div>
@@ -532,9 +532,9 @@
                     {{ new Date(txn.timestamp).toLocaleTimeString(runtimeConfig.locale ?? 'it-IT', { hour: '2-digit', minute: '2-digit', timeZone: runtimeConfig.timezone ?? 'Europe/Rome' }) }}
                   </span>
                   <div class="flex items-center gap-2 text-[9px] font-bold">
-                    <span v-if="txn.grossAmount" class="text-gray-500">Consegnato {{ store.config.ui.currency }}{{ txn.grossAmount.toFixed(2) }}</span>
-                    <span v-if="txn.changeAmount" class="text-blue-600">Resto -{{ store.config.ui.currency }}{{ txn.changeAmount.toFixed(2) }}</span>
-                    <span v-if="txn.tipAmount" class="text-purple-600">+{{ store.config.ui.currency }}{{ txn.tipAmount.toFixed(2) }} mancia</span>
+                    <span v-if="txn.grossAmount" class="text-gray-500">Consegnato {{ configStore.config.ui.currency }}{{ txn.grossAmount.toFixed(2) }}</span>
+                    <span v-if="txn.changeAmount" class="text-blue-600">Resto -{{ configStore.config.ui.currency }}{{ txn.changeAmount.toFixed(2) }}</span>
+                    <span v-if="txn.tipAmount" class="text-purple-600">+{{ configStore.config.ui.currency }}{{ txn.tipAmount.toFixed(2) }} mancia</span>
                   </div>
                 </div>
               </div>
@@ -555,7 +555,7 @@
                       %
                     </button>
                     <button @click="discountType = 'fixed'" :class="discountType === 'fixed' ? 'bg-amber-500 text-white' : 'text-amber-700 hover:bg-amber-100'" class="px-2.5 py-1.5 text-xs font-bold transition-colors">
-                      {{ store.config.ui.currency }}
+                      {{ configStore.config.ui.currency }}
                     </button>
                   </div>
                   <NumericInput
@@ -564,7 +564,7 @@
                     :max="discountType === 'percent' ? 100 : tableAmountRemaining"
                     step="0.01"
                     :placeholder="discountType === 'percent' ? 'Es. 10' : 'Es. 5.00'"
-                    :typeToggleLabels="['%', store.config.ui.currency]"
+                    :typeToggleLabels="['%', configStore.config.ui.currency]"
                     :typeToggleIndex="discountType === 'percent' ? 0 : 1"
                     @update:typeToggleIndex="i => discountType = i === 0 ? 'percent' : 'fixed'"
                     class="flex-1 min-w-0 text-sm font-bold border border-amber-200 rounded-xl px-3 py-1.5 bg-white focus:outline-none focus:border-amber-400 text-amber-900"
@@ -583,7 +583,7 @@
                 </div>
                 <div v-else-if="discountPreview > 0" class="mt-1.5 text-[10px] text-amber-700 font-bold flex items-center justify-between">
                   <span>Sconto:</span>
-                  <span>-{{ store.config.ui.currency }}{{ discountPreview.toFixed(2) }}</span>
+                  <span>-{{ configStore.config.ui.currency }}{{ discountPreview.toFixed(2) }}</span>
                 </div>
               </div>
             </div>
@@ -651,9 +651,9 @@
                 <div class="border-t border-blue-200 pt-2.5 flex justify-between items-center">
                   <div>
                     <span class="text-[10px] font-bold text-blue-500 uppercase tracking-wider">Quota<span v-if="romanaSplitCount > 1"> × {{ romanaSplitCount }}</span></span>
-                    <div v-if="romanaSplitCount > 1" class="text-[10px] text-blue-400">{{ store.config.ui.currency }}{{ (tableAmountRemaining / Math.max(1, splitWays - splitPaidQuotas)).toFixed(2) }} cad.</div>
+                    <div v-if="romanaSplitCount > 1" class="text-[10px] text-blue-400">{{ configStore.config.ui.currency }}{{ (tableAmountRemaining / Math.max(1, splitWays - splitPaidQuotas)).toFixed(2) }} cad.</div>
                   </div>
-                  <span class="font-black text-xl text-blue-700">{{ store.config.ui.currency }}{{ quotaRomana.toFixed(2) }}</span>
+                  <span class="font-black text-xl text-blue-700">{{ configStore.config.ui.currency }}{{ quotaRomana.toFixed(2) }}</span>
                 </div>
               </div>
 
@@ -672,18 +672,18 @@
 
             <div v-if="analiticaSelectionExceedsRemaining" class="bg-red-50 border border-red-200 text-red-700 p-3 rounded-xl text-[10px] md:text-xs font-bold flex items-center gap-2">
               <AlertTriangle class="size-4 shrink-0" />
-              Totale selezionato supera il conto rimanente ({{ store.config.ui.currency }}{{ tableAmountRemaining.toFixed(2) }})
+              Totale selezionato supera il conto rimanente ({{ configStore.config.ui.currency }}{{ tableAmountRemaining.toFixed(2) }})
             </div>
 
             <div v-if="checkoutMode !== 'unico' && !canManuallyCloseBill" class="flex justify-between items-center px-0.5">
               <span class="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Da pagare:</span>
-              <span class="text-lg font-black theme-text">{{ store.config.ui.currency }}{{ amountBeingPaid.toFixed(2) }}</span>
+              <span class="text-lg font-black theme-text">{{ configStore.config.ui.currency }}{{ amountBeingPaid.toFixed(2) }}</span>
             </div>
 
             <!-- Metodi di pagamento (nascosti quando il conto è saldato) -->
             <div v-if="!canManuallyCloseBill" class="grid grid-cols-2 gap-2.5">
               <button
-                v-for="method in store.config.paymentMethods"
+                v-for="method in configStore.config.paymentMethods"
                 :key="method.id"
                 @click="openPaymentModal(method.id)"
                 :disabled="!canPay"
@@ -749,7 +749,7 @@
         <!-- Da pagare -->
         <div class="bg-gray-50 rounded-2xl border border-gray-200 px-4 py-3 flex justify-between items-center">
           <span class="text-xs font-bold text-gray-400 uppercase tracking-wider">Da Pagare</span>
-          <span class="text-3xl font-black text-gray-900">{{ store.config.ui.currency }}{{ amountBeingPaid.toFixed(2) }}</span>
+          <span class="text-3xl font-black text-gray-900">{{ configStore.config.ui.currency }}{{ amountBeingPaid.toFixed(2) }}</span>
         </div>
 
         <!-- Importo Ricevuto -->
@@ -761,7 +761,7 @@
             v-model="modalRicevutiComputed"
             min="0"
             step="0.50"
-            :prefix="store.config.ui.currency"
+            :prefix="configStore.config.ui.currency"
             class="w-full text-lg font-black border-2 border-gray-300 rounded-xl px-4 py-3 bg-white focus:outline-none focus:border-gray-500 text-gray-900"
           />
         </div>
@@ -778,7 +778,7 @@
                 v-model="modalRestoComputed"
                 min="0"
                 step="0.50"
-                :prefix="store.config.ui.currency"
+                :prefix="configStore.config.ui.currency"
                 class="w-full text-base font-black border-2 border-blue-200 rounded-xl px-3 py-3 bg-white focus:outline-none focus:border-blue-400 text-blue-900"
               />
             </div>
@@ -797,7 +797,7 @@
                 v-model="modalManciaComputed"
                 min="0"
                 step="0.50"
-                :prefix="store.config.ui.currency"
+                :prefix="configStore.config.ui.currency"
                 class="w-full text-base font-black border-2 border-purple-200 rounded-xl px-3 py-3 bg-white focus:outline-none focus:border-purple-400 text-purple-900"
               />
             </div>
@@ -812,7 +812,7 @@
               v-model="modalRestoComputed"
               min="0"
               step="0.50"
-              :prefix="store.config.ui.currency"
+              :prefix="configStore.config.ui.currency"
               class="w-full text-lg font-black border-2 border-blue-200 rounded-xl px-4 py-3 bg-white focus:outline-none focus:border-blue-400 text-blue-900"
             />
           </div>
@@ -824,31 +824,31 @@
           :class="modalIsPartial ? 'bg-amber-50 border-amber-200' : 'bg-emerald-50 border-emerald-200'">
           <div class="flex justify-between">
             <span class="text-gray-600">Ricevuto:</span>
-            <span class="font-bold text-gray-800">{{ store.config.ui.currency }}{{ modalRicevutoParsed.toFixed(2) }}</span>
+            <span class="font-bold text-gray-800">{{ configStore.config.ui.currency }}{{ modalRicevutoParsed.toFixed(2) }}</span>
           </div>
           <div class="flex justify-between text-xs text-gray-500">
             <span>– Da pagare:</span>
-            <span class="font-bold">{{ store.config.ui.currency }}{{ amountBeingPaid.toFixed(2) }}</span>
+            <span class="font-bold">{{ configStore.config.ui.currency }}{{ amountBeingPaid.toFixed(2) }}</span>
           </div>
           <template v-if="!modalIsPartial">
             <div v-if="modalIsCash && modalRestoParsed > 0" class="flex justify-between text-blue-600 border-t border-blue-200 pt-1.5">
               <span>= Resto da dare:</span>
-              <span class="font-bold">{{ store.config.ui.currency }}{{ modalRestoParsed.toFixed(2) }}</span>
+              <span class="font-bold">{{ configStore.config.ui.currency }}{{ modalRestoParsed.toFixed(2) }}</span>
             </div>
             <div v-if="tipsEnabled && modalManciaParsed > 0" class="flex justify-between text-purple-600"
               :class="{ 'border-t border-purple-200 pt-1.5': !(modalIsCash && modalRestoParsed > 0) }">
               <span>+ Mancia:</span>
-              <span class="font-bold">{{ store.config.ui.currency }}{{ modalManciaParsed.toFixed(2) }}</span>
+              <span class="font-bold">{{ configStore.config.ui.currency }}{{ modalManciaParsed.toFixed(2) }}</span>
             </div>
           </template>
           <div v-if="modalIsPartial" class="border-t border-amber-300 pt-1.5 mt-0.5 space-y-1">
             <div class="flex justify-between text-amber-700 font-bold">
               <span>Incassato ora:</span>
-              <span>{{ store.config.ui.currency }}{{ modalRicevutoParsed.toFixed(2) }}</span>
+              <span>{{ configStore.config.ui.currency }}{{ modalRicevutoParsed.toFixed(2) }}</span>
             </div>
             <div class="flex justify-between text-amber-600 text-xs">
               <span>Residuo da pagare:</span>
-              <span class="font-bold">{{ store.config.ui.currency }}{{ (amountBeingPaid - modalRicevutoParsed).toFixed(2) }}</span>
+              <span class="font-bold">{{ configStore.config.ui.currency }}{{ (amountBeingPaid - modalRicevutoParsed).toFixed(2) }}</span>
             </div>
             <p class="text-[10px] text-amber-700 font-bold flex items-center gap-1 pt-0.5">
               <AlertTriangle class="size-3 shrink-0" /> Pagamento parziale: sarà richiesta un'ulteriore transazione.
@@ -865,9 +865,9 @@
           class="w-full py-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl disabled:opacity-40 disabled:bg-gray-300 disabled:text-gray-400 active:scale-95 transition-all flex items-center justify-center gap-2 text-base shadow-md"
         >
           <CheckCircle class="size-5" />
-          <template v-if="modalIsCash && modalRestoParsed > 0">Conferma · Resto {{ store.config.ui.currency }}{{ modalRestoParsed.toFixed(2) }}</template>
-          <template v-else-if="!modalIsCash && !modalIsPartial && tipsEnabled && modalManciaParsed > 0">Conferma · Mancia {{ store.config.ui.currency }}{{ modalManciaParsed.toFixed(2) }}</template>
-          <template v-else-if="modalIsPartial">Incassa {{ store.config.ui.currency }}{{ modalRicevutoParsed.toFixed(2) }}</template>
+          <template v-if="modalIsCash && modalRestoParsed > 0">Conferma · Resto {{ configStore.config.ui.currency }}{{ modalRestoParsed.toFixed(2) }}</template>
+          <template v-else-if="!modalIsCash && !modalIsPartial && tipsEnabled && modalManciaParsed > 0">Conferma · Mancia {{ configStore.config.ui.currency }}{{ modalManciaParsed.toFixed(2) }}</template>
+          <template v-else-if="modalIsPartial">Incassa {{ configStore.config.ui.currency }}{{ modalRicevutoParsed.toFixed(2) }}</template>
           <template v-else>Conferma Incasso</template>
         </button>
         <button
@@ -921,7 +921,7 @@
           <!-- Categories sidebar -->
           <div class="w-full md:w-[180px] border-b md:border-b-0 md:border-r border-gray-200 bg-gray-50 flex md:flex-col overflow-x-auto md:overflow-y-auto no-scrollbar shrink-0">
             <button
-              v-for="(menuItems, category) in store.config.menu"
+              v-for="(menuItems, category) in configStore.config.menu"
               :key="'dcat_'+category"
               @click="directActiveMenuCategory = category"
               :class="directActiveMenuCategory === category ? 'bg-white border-b-2 md:border-b-0 md:border-l-4 theme-border-b theme-border-l theme-text font-bold' : 'text-gray-500 hover:bg-gray-100'"
@@ -932,12 +932,12 @@
           <!-- Menu items grid -->
           <div class="flex-1 overflow-y-auto p-3 grid grid-cols-2 md:grid-cols-3 gap-2 content-start">
             <button
-              v-for="item in (store.config.menu[directActiveMenuCategory] || [])"
+              v-for="item in (configStore.config.menu[directActiveMenuCategory] || [])"
               :key="'dmi_'+item.id"
               @click="addMenuItemToDirectCart(item)"
               class="bg-white border border-gray-200 rounded-xl p-3 text-left hover:border-emerald-300 hover:bg-emerald-50 active:scale-95 transition-all shadow-sm flex flex-col gap-1">
               <span class="font-bold text-gray-800 text-xs leading-tight line-clamp-2">{{ item.name }}</span>
-              <span class="theme-text font-black text-sm mt-auto">{{ store.config.ui.currency }}{{ item.price.toFixed(2) }}</span>
+              <span class="theme-text font-black text-sm mt-auto">{{ configStore.config.ui.currency }}{{ item.price.toFixed(2) }}</span>
             </button>
           </div>
         </div>
@@ -959,7 +959,7 @@
                 />
               </div>
               <div class="w-28 shrink-0">
-                <label class="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1.5">Prezzo ({{ store.config.ui.currency }})</label>
+                <label class="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1.5">Prezzo ({{ configStore.config.ui.currency }})</label>
                 <input
                   :value="directCustomPrice"
                   type="text"
@@ -994,7 +994,7 @@
                     @click="addSavedCustomItemToDirectCart(locked)"
                     class="flex-1 p-3 text-left hover:bg-emerald-50 active:scale-95 transition-colors min-w-0 flex flex-col gap-1 bg-emerald-50/50">
                     <span class="font-bold text-gray-800 text-xs leading-snug line-clamp-2">{{ locked.name }}</span>
-                    <span class="theme-text font-black text-sm mt-auto">{{ store.config.ui.currency }}{{ locked.price.toFixed(2) }}</span>
+                    <span class="theme-text font-black text-sm mt-auto">{{ configStore.config.ui.currency }}{{ locked.price.toFixed(2) }}</span>
                   </button>
                   <span
                     class="shrink-0 w-8 border-l border-emerald-100 text-emerald-500 bg-emerald-50/50 flex items-center justify-center"
@@ -1011,7 +1011,7 @@
                     @click="addSavedCustomItemToDirectCart(saved)"
                     class="flex-1 p-3 text-left hover:bg-emerald-50 active:scale-95 transition-colors min-w-0 flex flex-col gap-1">
                     <span class="font-bold text-gray-800 text-xs leading-snug line-clamp-2">{{ saved.name }}</span>
-                    <span class="theme-text font-black text-sm mt-auto">{{ store.config.ui.currency }}{{ saved.price.toFixed(2) }}</span>
+                    <span class="theme-text font-black text-sm mt-auto">{{ configStore.config.ui.currency }}{{ saved.price.toFixed(2) }}</span>
                   </button>
                   <button
                     v-if="isAdmin"
@@ -1053,7 +1053,7 @@
                 <Plus class="size-3" />
               </button>
             </div>
-            <span class="font-black text-xs theme-text shrink-0 tabular-nums">{{ store.config.ui.currency }}{{ (item.unitPrice * item.quantity).toFixed(2) }}</span>
+            <span class="font-black text-xs theme-text shrink-0 tabular-nums">{{ configStore.config.ui.currency }}{{ (item.unitPrice * item.quantity).toFixed(2) }}</span>
           </div>
         </div>
         <div v-else class="text-center text-gray-400 text-xs py-2 mb-2 italic">Nessuna voce selezionata.</div>
@@ -1061,7 +1061,7 @@
         <!-- Total + confirm button -->
         <div class="flex items-center justify-between gap-3">
           <div class="text-sm font-black text-gray-800">
-            Totale: <span class="theme-text text-base">{{ store.config.ui.currency }}{{ directCartTotal.toFixed(2) }}</span>
+            Totale: <span class="theme-text text-base">{{ configStore.config.ui.currency }}{{ directCartTotal.toFixed(2) }}</span>
           </div>
           <button
             @click="confirmDirectItems"
@@ -1235,7 +1235,7 @@
               <!-- Item name + unit price -->
               <div class="flex-1 min-w-0">
                 <span class="font-semibold text-xs text-gray-800 truncate block">{{ row.name }}</span>
-                <span class="text-[10px] text-gray-400">{{ store.config.ui.currency }}{{ row.unitPrice.toFixed(2) }} / cad.</span>
+                <span class="text-[10px] text-gray-400">{{ configStore.config.ui.currency }}{{ row.unitPrice.toFixed(2) }} / cad.</span>
               </div>
               <!-- Quantity stepper -->
               <div class="flex items-center gap-1 shrink-0">
@@ -1258,7 +1258,7 @@
               </div>
               <!-- Row total for selected qty -->
               <span class="text-xs font-bold text-gray-600 shrink-0 w-14 text-right">
-                {{ store.config.ui.currency }}{{ splitRowAmount(row, splitItemQtyMap[row.key] ?? 0).toFixed(2) }}
+                {{ configStore.config.ui.currency }}{{ splitRowAmount(row, splitItemQtyMap[row.key] ?? 0).toFixed(2) }}
               </span>
             </div>
           </div>
@@ -1269,7 +1269,7 @@
               <span class="text-xs text-gray-600 font-medium">
                 {{ splitTargetIsSlave ? 'Totale da trasferire al tavolo separato:' : 'Totale da spostare:' }}
               </span>
-              <span class="font-black text-orange-600 text-base">{{ store.config.ui.currency }}{{ splitSelectedTotal.toFixed(2) }}</span>
+              <span class="font-black text-orange-600 text-base">{{ configStore.config.ui.currency }}{{ splitSelectedTotal.toFixed(2) }}</span>
             </div>
             <div class="flex gap-2">
               <button @click="showSplitModal = false" class="flex-1 py-3 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50 active:scale-95 transition-all">Annulla</button>
@@ -1326,7 +1326,7 @@ import {
   Percent, Zap, BookOpen, PlusCircle, Banknote, CreditCard, Lock, SquareCheck, Split, Link, Printer,
   FileText,
 } from 'lucide-vue-next';
-import { useAppStore } from '../store/index.js';
+import { useConfigStore, useOrderStore } from '../store/index.js';
 import { newUUIDv7, newShortId } from '../store/storeUtils.js';
 import { getOrderItemRowTotal, KITCHEN_ACTIVE_STATUSES, getLockedDirectItems, buildFiscalXmlRequest, formatOrderTime } from '../utils/index.js';
 import { buildFlatAnaliticaItems, computeAnaliticaTotal, exceedsAmount, getOrdersToComplete } from '../utils/analitica.js';
@@ -1344,17 +1344,18 @@ import InvoiceModal from './shared/InvoiceModal.vue';
 
 const emit = defineEmits(['open-order-from-table', 'new-order-for-ordini']);
 
-const store = useAppStore();
+const configStore = useConfigStore();
+const orderStore = useOrderStore();
 const { isAdmin } = useAuth();
 const keyboard = useNumericKeyboard();
-const runtimeConfig = computed(() => store.config ?? {});
+const runtimeConfig = computed(() => configStore.config ?? {});
 
 // ── Print history modal ────────────────────────────────────────────────────
 const showPrintHistory = ref(false);
 
 // ── Pre-bill printer (reactive, driven by store which mirrors settings) ────
 const preBillPrinterConfig = computed(() => {
-  const printerId = store.preBillPrinterId;
+  const printerId = configStore.preBillPrinterId;
   if (!printerId) return null;
   return (runtimeConfig.value.printers ?? []).find(p => p.id === printerId) ?? null;
 });
@@ -1378,14 +1379,14 @@ const tableStatusMap = computed(() => {
   const map = {};
   const seenTableIds = new Set();
   const allKnownTables = [
-    ...(store.config.tables || []),
-    ...store.rooms.flatMap(room => room.tables || []),
+    ...(configStore.config.tables || []),
+    ...configStore.rooms.flatMap(room => room.tables || []),
   ];
 
   allKnownTables.forEach((table) => {
     if (!table?.id || seenTableIds.has(table.id)) return;
     seenTableIds.add(table.id);
-    map[table.id] = store.getTableStatus(table.id);
+    map[table.id] = orderStore.getTableStatus(table.id);
   });
 
   return map;
@@ -1396,12 +1397,12 @@ function filterTablesByStatus(tables, statusFilter) {
   return tables.filter(t => tableStatusMap.value[t.id]?.status === statusFilter);
 }
 
-const activeRoomId = ref(getInitialActiveRoomId(store.rooms));
+const activeRoomId = ref(getInitialActiveRoomId(configStore.rooms));
 const activeStatusFilter = ref(null);
 
 function onStatusFilterChange(filter) {
   activeStatusFilter.value = filter;
-  if (filter && store.rooms.length > 1) {
+  if (filter && configStore.rooms.length > 1) {
     activeRoomId.value = 'all';
   }
 }
@@ -1412,8 +1413,8 @@ function filteredTablesForRoom(room) {
 
 const activeRoomTables = computed(() => {
   const tables = getTablesForActiveRoom(
-    store.rooms,
-    store.config.tables,
+    configStore.rooms,
+    configStore.config.tables,
     activeRoomId.value,
   );
   return filterTablesByStatus(tables, activeStatusFilter.value);
@@ -1430,7 +1431,7 @@ const splitTargetTableId = ref(null);
 const splitItemQtyMap = ref({});
 
 const freeTables = computed(() =>
-  store.config.tables.filter(
+  configStore.config.tables.filter(
     t => t.id !== selectedTable.value?.id && tableStatusMap.value[t.id]?.status === 'free',
   ),
 );
@@ -1440,11 +1441,11 @@ const freeTables = computed(() =>
 // invalid state (the slave gets its own session while still logically merged into
 // its master, causing totals/status inconsistencies).
 const otherOccupiedTables = computed(() =>
-  store.config.tables.filter(
+  configStore.config.tables.filter(
     t =>
       t.id !== selectedTable.value?.id &&
       tableStatusMap.value[t.id]?.status !== 'free' &&
-      !store.isMergedSlave(t.id),
+      !orderStore.isMergedSlave(t.id),
   ),
 );
 
@@ -1455,35 +1456,35 @@ const otherOccupiedTables = computed(() =>
 const mergeCandidates = computed(() => {
   const currentId = selectedTable.value?.id;
   if (!currentId) return [];
-  return store.config.tables.filter(t => {
+  return configStore.config.tables.filter(t => {
     if (t.id === currentId) return false; // not self
     // Skip free tables — at least one active order is needed
     if (tableStatusMap.value[t.id]?.status === 'free') return false;
     // Skip tables that are already slaves of ANY master (including this one)
-    if (store.isMergedSlave(t.id)) return false;
+    if (orderStore.isMergedSlave(t.id)) return false;
     return true;
   });
 });
 
 // Slave table IDs merged into the currently selected table (as master)
 const slaveTableIds = computed(() =>
-  store.slaveIdsOf(selectedTable.value?.id),
+  orderStore.slaveIdsOf(selectedTable.value?.id),
 );
 
 // True when the selected table is itself a slave (merged into another)
 const selectedTableMasterTableId = computed(() =>
-  selectedTable.value ? store.masterTableOf(selectedTable.value.id) : null,
+  selectedTable.value ? orderStore.masterTableOf(selectedTable.value.id) : null,
 );
 
 const selectedTableMasterTable = computed(() => {
   const masterId = selectedTableMasterTableId.value;
-  return masterId ? store.config.tables.find(t => t.id === masterId) ?? null : null;
+  return masterId ? configStore.config.tables.find(t => t.id === masterId) ?? null : null;
 });
 
 // Slave table objects for the split modal
 const slaveTables = computed(() =>
   slaveTableIds.value
-    .map(id => store.config.tables.find(t => t.id === id))
+    .map(id => configStore.config.tables.find(t => t.id === id))
     .filter(Boolean),
 );
 
@@ -1499,12 +1500,12 @@ const splitAvailableTargets = computed(() => {
 // True when the currently selected split target is a merged slave of this table.
 const splitTargetIsSlave = computed(() =>
   !!splitTargetTableId.value &&
-  store.masterTableOf(splitTargetTableId.value) === selectedTable.value?.id,
+  orderStore.masterTableOf(splitTargetTableId.value) === selectedTable.value?.id,
 );
 
 const tableStatusCounts = computed(() => {
   let free = 0, occupied = 0, pending = 0, paid = 0, billRequested = 0;
-  for (const t of store.config.tables) {
+  for (const t of configStore.config.tables) {
     const s = tableStatusMap.value[t.id]?.status;
     if (s === 'free') free++;
     else if (s === 'paid') paid++;
@@ -1527,7 +1528,7 @@ const splitSourceOrders = computed(() => {
   if (!showSplitModal.value || !selectedTable.value) return [];
   // Both merged and single mode: source is always the current (master/standalone) table.
   // After a merge, all orders are physically on the master table, so the slave has none.
-  return store.orders.filter(
+  return orderStore.orders.filter(
     o => o.table === selectedTable.value.id &&
       o.status !== 'completed' && o.status !== 'rejected',
   );
@@ -1656,7 +1657,7 @@ function confirmMove(targetTable) {
   if (!selectedTable.value) return;
   const fromId = selectedTable.value.id;
   const fromLabel = selectedTable.value.label;
-  store.moveTableOrders(fromId, targetTable.id);
+  orderStore.moveTableOrders(fromId, targetTable.id);
   showMoveModal.value = false;
   // Update selectedTable to the new one
   selectedTable.value = targetTable;
@@ -1666,7 +1667,7 @@ function confirmMove(targetTable) {
 
 function confirmMerge(sourceTable) {
   if (!selectedTable.value) return;
-  store.mergeTableOrders(sourceTable.id, selectedTable.value.id);
+  orderStore.mergeTableOrders(sourceTable.id, selectedTable.value.id);
   showMergeModal.value = false;
 }
 
@@ -1683,9 +1684,9 @@ function confirmSplit() {
   // wants a clean detach (separate tables without moving any items). Call
   // detachSlaveTable() directly; splitItemsToTable() requires at least one item.
   if (splitTargetIsSlave.value && Object.keys(qtyMap).length === 0) {
-    store.detachSlaveTable(selectedTable.value.id, splitTargetTableId.value);
+    orderStore.detachSlaveTable(selectedTable.value.id, splitTargetTableId.value);
   } else {
-    store.splitItemsToTable(selectedTable.value.id, splitTargetTableId.value, qtyMap);
+    orderStore.splitItemsToTable(selectedTable.value.id, splitTargetTableId.value, qtyMap);
   }
 
   showSplitModal.value = false;
@@ -1696,8 +1697,8 @@ function confirmSplit() {
 // ── Bill Requested ─────────────────────────────────────────────────────────
 function toggleBillRequested() {
   if (!selectedTable.value) return;
-  const isSet = store.billRequestedTables.has(selectedTable.value.id);
-  store.setBillRequested(selectedTable.value.id, !isSet);
+  const isSet = orderStore.billRequestedTables.has(selectedTable.value.id);
+  orderStore.setBillRequested(selectedTable.value.id, !isSet);
 }
 
 // ── Checkout state ─────────────────────────────────────────────────────────
@@ -1736,7 +1737,7 @@ const peopleChildren = ref(0);
 // enabled and has a non-zero price; otherwise a single generic "Persone"
 // counter is sufficient.
 const showChildrenInput = computed(() =>
-  !!(store.config.coverCharge?.enabled && (store.config.coverCharge?.priceChild ?? 0) > 0),
+  !!(configStore.config.coverCharge?.enabled && (configStore.config.coverCharge?.priceChild ?? 0) > 0),
 );
 
 // ── JSON modal state ───────────────────────────────────────────────────────
@@ -1755,7 +1756,7 @@ function openInvoiceModal() {
 // All orders are physically on the master table after a merge, so no slave aggregation needed.
 const tableOrders = computed(() => {
   if (!selectedTable.value) return [];
-  return store.orders.filter(
+  return orderStore.orders.filter(
     o => o.table === selectedTable.value.id && o.status !== 'completed' && o.status !== 'rejected',
   );
 });
@@ -1766,8 +1767,8 @@ const tableAcceptedPayableOrders = computed(() =>
 
 const tableTotalAmount = computed(() => {
   if (!selectedTable.value) return 0;
-  const session = store.tableCurrentBillSession[selectedTable.value.id];
-  return store.orders
+  const session = orderStore.tableCurrentBillSession[selectedTable.value.id];
+  return orderStore.orders
     .filter(o => {
       if (o.table !== selectedTable.value.id) return false;
       if (!KITCHEN_ACTIVE_STATUSES.includes(o.status) && o.status !== 'completed') return false;
@@ -1779,8 +1780,8 @@ const tableTotalAmount = computed(() => {
 
 const tableTransactions = computed(() => {
   if (!selectedTable.value) return [];
-  const session = store.tableCurrentBillSession[selectedTable.value.id];
-  return store.transactions.filter(t => {
+  const session = orderStore.tableCurrentBillSession[selectedTable.value.id];
+  return orderStore.transactions.filter(t => {
     if (t.tableId !== selectedTable.value.id) return false;
     if (session) return t.billSessionId === session.billSessionId;
     return true;
@@ -1865,12 +1866,12 @@ const quotaRomana = computed(() => {
 });
 
 // ── Feature flags from config ──────────────────────────────────────────────
-const tipsEnabled = computed(() => store.config.billing?.enableTips ?? false);
-const discountsEnabled = computed(() => store.config.billing?.enableDiscounts ?? false);
+const tipsEnabled = computed(() => configStore.config.billing?.enableTips ?? false);
+const discountsEnabled = computed(() => configStore.config.billing?.enableDiscounts ?? false);
 
 // ── Payment modal computed ───────────────────────────────────────────────────────────────────
 const modalMethod = computed(() =>
-  store.config.paymentMethods.find(m => m.id === modalMethodId.value) ?? null,
+  configStore.config.paymentMethods.find(m => m.id === modalMethodId.value) ?? null,
 );
 const modalMethodLabel = computed(() => modalMethod.value?.label ?? '');
 const modalMethodIcon = computed(() => getPaymentIcon(modalMethodId.value));
@@ -2009,7 +2010,7 @@ watch(splitWays, (newVal) => {
 
 // ── Helper: payment method icon ────────────────────────────────────────────
 function getPaymentIcon(methodIdOrLabel) {
-  const m = store.config.paymentMethods.find(x => x.label === methodIdOrLabel || x.id === methodIdOrLabel);
+  const m = configStore.config.paymentMethods.find(x => x.label === methodIdOrLabel || x.id === methodIdOrLabel);
   if (!m) return Banknote;
   return m.icon === 'credit-card' ? CreditCard : Banknote;
 }
@@ -2099,16 +2100,16 @@ function openTableDetails(table) {
   // If the table is a merged slave with active orders, open the master's billing panel instead.
   // All transactions are managed under the master, so the cashier sees the full bill.
   // If the slave is free (e.g. merge state not yet cleaned up after payment), let it open normally.
-  const masterId = store.masterTableOf(table.id);
-  if (masterId && store.getTableStatus(table.id).status !== 'free') {
-    const masterTable = store.config.tables.find(t => t.id === masterId);
+  const masterId = orderStore.masterTableOf(table.id);
+  if (masterId && orderStore.getTableStatus(table.id).status !== 'free') {
+    const masterTable = configStore.config.tables.find(t => t.id === masterId);
     if (masterTable) {
       _openTableModal(masterTable);
       return;
     }
   }
 
-  const status = store.getTableStatus(table.id).status;
+  const status = orderStore.getTableStatus(table.id).status;
   if (status === 'free') {
     // Show people-count prompt before opening a free table
     pendingTableToOpen.value = table;
@@ -2124,10 +2125,10 @@ function _openTableModal(table) {
   selectedTable.value = table;
   // For slave tables, read the session from the master only while the slave is still actively merged.
   // If the table is free, a stale merge mapping may still exist and the table should use its own session.
-  const status = store.getTableStatus(table.id).status;
-  const masterId = store.masterTableOf(table.id);
+  const status = orderStore.getTableStatus(table.id).status;
+  const masterId = orderStore.masterTableOf(table.id);
   const sessionTableId = masterId && status !== 'free' ? masterId : table.id;
-  const session = store.tableCurrentBillSession[sessionTableId];
+  const session = orderStore.tableCurrentBillSession[sessionTableId];
   // Default romana split to adults count; fall back to total people or table covers
   if (session) {
     splitWays.value = session.adults > 0 ? session.adults : (session.adults + session.children) || (table.covers || 2);
@@ -2148,7 +2149,7 @@ function _openTableModal(table) {
   modalResto.value = '';
   modalMancia.value = '';
 
-  const pastRomana = store.transactions.filter(
+  const pastRomana = orderStore.transactions.filter(
     t => t.tableId === sessionTableId && t.operationType === 'romana' &&
       (!session || t.billSessionId === session.billSessionId),
   );
@@ -2168,10 +2169,10 @@ function confirmPeopleAndOpenTable() {
   if (!table) return;
 
   // Open a new billing session for this table seating
-  const billSessionId = store.openTableSession(table.id, peopleAdults.value, peopleChildren.value);
+  const billSessionId = orderStore.openTableSession(table.id, peopleAdults.value, peopleChildren.value);
 
   // Auto-add cover charge order if configured
-  const cc = store.config.coverCharge;
+  const cc = configStore.config.coverCharge;
   if (cc?.enabled && cc?.autoAdd) {
     const coverItems = [];
     if (peopleAdults.value > 0 && cc.priceAdult > 0) {
@@ -2199,7 +2200,7 @@ function confirmPeopleAndOpenTable() {
       });
     }
     if (coverItems.length > 0) {
-      const coverOrder = store.addDirectOrder(table.id, billSessionId, coverItems);
+      const coverOrder = orderStore.addDirectOrder(table.id, billSessionId, coverItems);
       if (coverOrder) coverOrder.isCoverCharge = true;
     }
   }
@@ -2217,11 +2218,11 @@ function closeTableModal() {
 function createNewOrderForTable() {
   if (!selectedTable.value) return;
   const tableId = selectedTable.value.id;
-  const ownSession = store.tableCurrentBillSession[tableId];
-  const masterId = store.masterTableOf(tableId);
+  const ownSession = orderStore.tableCurrentBillSession[tableId];
+  const masterId = orderStore.masterTableOf(tableId);
   // Prefer the table's own active session. Fall back to the master's session
   // only when the table does not currently have an independent session.
-  const session = ownSession ?? (masterId != null ? store.tableCurrentBillSession[masterId] : null);
+  const session = ownSession ?? (masterId != null ? orderStore.tableCurrentBillSession[masterId] : null);
   const newOrd = {
     id: newUUIDv7(),
     table: selectedTable.value.id,
@@ -2233,7 +2234,7 @@ function createNewOrderForTable() {
     noteVisibility: { cassa: true, sala: true, cucina: true },
     ...(runtimeConfig.value.directus?.venueId != null ? { venue: runtimeConfig.value.directus.venueId } : {}),
   };
-  store.addOrder(newOrd);
+  orderStore.addOrder(newOrd);
   closeTableModal();
   emit('new-order-for-ordini', newOrd);
 }
@@ -2255,7 +2256,7 @@ function onDirectCustomPriceInput(event) {
 
 /** True when the "Personalizzata" custom-entry tab is available (driven by config flag). */
 const canShowCustomEntryTab = computed(
-  () => store.config.billing?.allowCustomEntry !== false,
+  () => configStore.config.billing?.allowCustomEntry !== false,
 );
 
 /**
@@ -2263,7 +2264,7 @@ const canShowCustomEntryTab = computed(
  * Personalizzata tab and cannot be removed from the UI.
  * Adulto is added when priceAdult > 0; bambino when priceChild > 0.
  */
-const configLockedDirectItems = computed(() => getLockedDirectItems(store.config.coverCharge));
+const configLockedDirectItems = computed(() => getLockedDirectItems(configStore.config.coverCharge));
 
 // Saved custom items — persisted in IndexedDB
 const savedCustomItems = ref([]);
@@ -2286,7 +2287,7 @@ watch(savedCustomItems, (val) => {
 function openDirectItemModal() {
   directCart.value = [];
   directItemMode.value = 'menu';
-  directActiveMenuCategory.value = Object.keys(store.config.menu)[0] || '';
+  directActiveMenuCategory.value = Object.keys(configStore.config.menu)[0] || '';
   directCustomName.value = '';
   directCustomPrice.value = '';
   showDirectItemModal.value = true;
@@ -2370,8 +2371,8 @@ const directCartTotal = computed(() =>
 
 function confirmDirectItems() {
   if (!selectedTable.value || directCart.value.length === 0) return;
-  const session = store.tableCurrentBillSession[selectedTable.value.id];
-  store.addDirectOrder(
+  const session = orderStore.tableCurrentBillSession[selectedTable.value.id];
+  orderStore.addDirectOrder(
     selectedTable.value.id,
     session?.billSessionId ?? null,
     directCart.value,
@@ -2386,8 +2387,8 @@ const canManuallyCloseBill = computed(() =>
 
 function closeTableBill() {
   if (!selectedTable.value) return;
-  const session = store.tableCurrentBillSession[selectedTable.value.id];
-  const billTxns = store.transactions.filter(
+  const session = orderStore.tableCurrentBillSession[selectedTable.value.id];
+  const billTxns = orderStore.transactions.filter(
     t => t.tableId === selectedTable.value.id &&
       (!session || t.billSessionId === session.billSessionId),
   );
@@ -2406,7 +2407,7 @@ function closeTableBill() {
       items: o.orderItems,
     })),
   };
-  tableAcceptedPayableOrders.value.forEach(o => store.changeOrderStatus(o, 'completed'));
+  tableAcceptedPayableOrders.value.forEach(o => orderStore.changeOrderStatus(o, 'completed'));
   jsonContext.value = 'receipt';
   jsonPayloadData.value = JSON.stringify(summary, null, 2);
   showPrecontoJson.value = true;
@@ -2414,8 +2415,8 @@ function closeTableBill() {
 
 function _buildBillSummaryBase() {
   if (!selectedTable.value) return null;
-  const session = store.tableCurrentBillSession[selectedTable.value.id];
-  const billTxns = store.transactions.filter(
+  const session = orderStore.tableCurrentBillSession[selectedTable.value.id];
+  const billTxns = orderStore.transactions.filter(
     t => t.tableId === selectedTable.value.id &&
       (!session || t.billSessionId === session.billSessionId),
   );
@@ -2451,8 +2452,8 @@ function closeTableBillFiscale() {
     status: 'pending',
     timestamp: base.closedAt,
   };
-  tableAcceptedPayableOrders.value.forEach(o => store.changeOrderStatus(o, 'completed'));
-  store.addFiscalReceipt(entry);
+  tableAcceptedPayableOrders.value.forEach(o => orderStore.changeOrderStatus(o, 'completed'));
+  orderStore.addFiscalReceipt(entry);
   closeTableModal();
 }
 
@@ -2467,12 +2468,11 @@ function confirmInvoice(billingData) {
     status: 'pending',
     timestamp: base.closedAt,
   };
-  tableAcceptedPayableOrders.value.forEach(o => store.changeOrderStatus(o, 'completed'));
-  store.addInvoiceRequest(entry);
+  tableAcceptedPayableOrders.value.forEach(o => orderStore.changeOrderStatus(o, 'completed'));
+  orderStore.addInvoiceRequest(entry);
   showInvoiceModal.value = false;
   closeTableModal();
 }
-
 
 // extra: { grossAmount?, changeAmount?, tipAmount? }
 //   grossAmount = total handed over (cash); changeAmount = returned to customer.
@@ -2484,12 +2484,12 @@ function processTablePayment(paymentMethodId, extra = {}, overrideAmount = null)
 
   const amount = overrideAmount !== null ? overrideAmount : amountBeingPaid.value;
   const tip = extra.tipAmount != null ? extra.tipAmount : 0;
-  const session = store.tableCurrentBillSession[selectedTable.value.id];
+  const session = orderStore.tableCurrentBillSession[selectedTable.value.id];
   const payload = {
     id: newUUIDv7(),
     tableId: selectedTable.value.id,
     billSessionId: session?.billSessionId ?? null,
-    paymentMethod: store.config.paymentMethods.find(m => m.id === paymentMethodId)?.label || paymentMethodId,
+    paymentMethod: configStore.config.paymentMethods.find(m => m.id === paymentMethodId)?.label || paymentMethodId,
     operationType: checkoutMode.value,
     amountPaid: amount,
     tipAmount: tip > 0 ? tip : undefined,
@@ -2525,7 +2525,7 @@ function processTablePayment(paymentMethodId, extra = {}, overrideAmount = null)
     payload.vociRefs = selectedItems.map(i => ({ key: i.key, qty: analiticaQty.value[i.key] }));
   }
 
-  store.addTransaction(payload);
+  orderStore.addTransaction(payload);
 
   // Mark only the selected orders as completed.
   // In ordini mode, only complete the selected orders when the payment fully
@@ -2535,7 +2535,7 @@ function processTablePayment(paymentMethodId, extra = {}, overrideAmount = null)
   if (checkoutMode.value === 'ordini') {
     if (amount + BILL_SETTLED_THRESHOLD >= amountBeingPaid.value) {
       tableAcceptedPayableOrders.value.forEach(o => {
-        if (payload.orderRefs.includes(o.id)) store.changeOrderStatus(o, 'completed');
+        if (payload.orderRefs.includes(o.id)) orderStore.changeOrderStatus(o, 'completed');
       });
     }
     selectedOrdersToPay.value = [];
@@ -2551,7 +2551,7 @@ function processTablePayment(paymentMethodId, extra = {}, overrideAmount = null)
         analiticaQty.value,
       );
       for (const ord of tableAcceptedPayableOrders.value) {
-        if (ordersToComplete.includes(ord.id)) store.changeOrderStatus(ord, 'completed');
+        if (ordersToComplete.includes(ord.id)) orderStore.changeOrderStatus(ord, 'completed');
       }
     }
     analiticaQty.value = {};
@@ -2625,14 +2625,14 @@ function confirmPaymentModal() {
 // ── Apply discount ─────────────────────────────────────────────────────────
 function applyDiscount() {
   if (!selectedTable.value || discountPreview.value <= 0) return;
-  const session = store.tableCurrentBillSession[selectedTable.value.id];
+  const session = orderStore.tableCurrentBillSession[selectedTable.value.id];
   const rawInput = parseFloat(discountInput.value) || 0;
   // For percent discounts store the (clamped) percentage value; for fixed discounts
   // store the actually applied amount (= discountPreview) so discountValue never
   // exceeds amountPaid and display stays consistent.
   const clampedPercent = Math.min(100, Math.max(0, rawInput));
   const discountValueToStore = discountType.value === 'percent' ? clampedPercent : discountPreview.value;
-  store.addTransaction({
+  orderStore.addTransaction({
     id: newUUIDv7(),
     tableId: selectedTable.value.id,
     billSessionId: session?.billSessionId ?? null,

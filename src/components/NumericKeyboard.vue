@@ -97,15 +97,16 @@
 import { computed } from 'vue';
 import { X, Delete, Check } from 'lucide-vue-next';
 import { useNumericKeyboard } from '../composables/useNumericKeyboard.js';
-import { useAppStore } from '../store/index.js';
+import { useConfigStore, useOrderStore } from '../store/index.js';
 
 const keyboard = useNumericKeyboard();
-const store = useAppStore();
+const configStore = useConfigStore();
+const orderStore = useOrderStore();
 
 /** CSS classes for the keyboard panel based on the chosen position setting. */
 const panelClass = computed(() => {
   const base = 'max-h-[100dvh] overflow-y-auto';
-  const pos = store.customKeyboard;
+  const pos = configStore.customKeyboard;
   if (pos === 'left')  return `fixed bottom-0 left-0 z-[151] bg-white rounded-tr-3xl shadow-2xl select-none w-full max-w-sm ${base}`;
   if (pos === 'right') return `fixed bottom-0 right-0 z-[151] bg-white rounded-tl-3xl shadow-2xl select-none w-full max-w-sm ${base}`;
   // 'center' or fallback

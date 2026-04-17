@@ -212,7 +212,7 @@
 <script setup>
 import { ref, computed, watch } from 'vue';
 import { X, RefreshCw, ListOrdered, CheckCircle, AlertTriangle, Copy } from 'lucide-vue-next';
-import { useAppStore } from '../../store/index.js';
+import { useConfigStore, useOrderStore } from '../../store/index.js';
 import { getPendingEntries, getFailedSyncCalls } from '../../composables/useSyncQueue.js';
 
 const props = defineProps({
@@ -220,8 +220,9 @@ const props = defineProps({
 });
 
 defineEmits(['update:modelValue']);
-const store = useAppStore();
-const runtimeConfig = computed(() => store.config ?? {});
+const configStore = useConfigStore();
+const orderStore = useOrderStore();
+const runtimeConfig = computed(() => configStore.config ?? {});
 
 const SCREENS = [
   { key: 'queue', label: 'Coda attiva' },
