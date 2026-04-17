@@ -6,7 +6,7 @@ import {
   loadUsersFromIDB, saveUsersToIDB,
   loadAuthSessionFromIDB, saveAuthSessionToIDB,
   loadAuthSettingsFromIDB, saveAuthSettingsToIDB,
-} from '../store/idbPersistence.js';
+} from '../store/persistence/operations.js';
 
 /**
  * The three app identifiers used throughout the auth system.

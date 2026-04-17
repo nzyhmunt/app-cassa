@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { appConfig, applyDirectusConfigToAppConfig, resetAppConfigFromDefaults } from '../index.js';
+import { appConfig, DEFAULT_SETTINGS, createRuntimeConfig } from '../index.js';
+import { mapVenueConfigFromDirectus } from '../mappers.js';
 
 describe('appConfig', () => {
   describe('pwaLogo', () => {
@@ -35,24 +36,9 @@ describe('appConfig', () => {
     });
   });
 
-  describe('resetAppConfigFromDefaults', () => {
-    it('restores config defaults while preserving directus settings by default', () => {
-      const originalDirectus = { ...appConfig.directus, enabled: true, url: 'https://example.test' };
-      appConfig.directus = originalDirectus;
-      appConfig.ui.primaryColor = '#000000';
-
-      resetAppConfigFromDefaults();
-
-      expect(appConfig.ui.primaryColor).not.toBe('#000000');
-      expect(appConfig.directus).toEqual(originalDirectus);
-    });
-  });
-
-  describe('applyDirectusConfigToAppConfig', () => {
+  describe('mapVenueConfigFromDirectus', () => {
     it('maps rooms and tables when table relations are scalar ids', () => {
-      resetAppConfigFromDefaults();
-
-      applyDirectusConfigToAppConfig({
+      const runtime = mapVenueConfigFromDirectus({
         venueRecord: null,
         rooms: [
           { id: 'room_terrazza', label: 'Terrazza', tables: ['tbl_T1', 'tbl_T2', 'tbl_T3'] },
@@ -71,9 +57,9 @@ describe('appConfig', () => {
         printers: [],
         categories: [],
         items: [],
-      });
+      }, DEFAULT_SETTINGS);
 
-      expect(appConfig.rooms).toEqual([
+      expect(runtime.rooms).toEqual([
         {
           id: 'room_terrazza',
           label: 'Terrazza',
@@ -94,13 +80,11 @@ describe('appConfig', () => {
           ],
         },
       ]);
-      expect(appConfig.tables).toEqual(appConfig.rooms.flatMap((room) => room.tables));
+      expect(runtime.tables).toEqual(runtime.rooms.flatMap((room) => room.tables));
     });
 
     it('uses room.tables expanded objects when tables collection is empty', () => {
-      resetAppConfigFromDefaults();
-
-      applyDirectusConfigToAppConfig({
+      const runtime = mapVenueConfigFromDirectus({
         venueRecord: null,
         rooms: [
           {
@@ -117,9 +101,9 @@ describe('appConfig', () => {
         printers: [],
         categories: [],
         items: [],
-      });
+      }, DEFAULT_SETTINGS);
 
-      expect(appConfig.rooms).toEqual([
+      expect(runtime.rooms).toEqual([
         {
           id: 'room_terrazza',
           label: 'Terrazza',
@@ -129,19 +113,14 @@ describe('appConfig', () => {
           ],
         },
       ]);
-      expect(appConfig.tables).toEqual([
+      expect(runtime.tables).toEqual([
         { id: 'tbl_T1', label: 'T1', covers: 4 },
         { id: 'tbl_T2', label: 'T2', covers: 4 },
       ]);
     });
 
     it('applies UI fallbacks safely when venue scalar fields are missing/null', () => {
-      resetAppConfigFromDefaults();
-      appConfig.ui.primaryColor = '#123456';
-      appConfig.ui.primaryColorDark = '#234567';
-      appConfig.ui.currency = '$';
-
-      applyDirectusConfigToAppConfig({
+      const runtime = mapVenueConfigFromDirectus({
         venueRecord: {
           id: 1,
           name: 'Venue Test',
@@ -149,27 +128,34 @@ describe('appConfig', () => {
           primary_color_dark: null,
           currency_symbol: null,
         },
-      });
+      }, DEFAULT_SETTINGS);
 
-      expect(appConfig.ui.name).toBe('Venue Test');
-      expect(appConfig.ui.primaryColor).toBe('#00846c');
-      expect(appConfig.ui.primaryColorDark).toBe('#0c7262');
-      expect(appConfig.ui.currency).toBe('€');
+      expect(runtime.ui.name).toBe('Venue Test');
+      expect(runtime.ui.primaryColor).toBe('#00846c');
+      expect(runtime.ui.primaryColorDark).toBe('#0c7262');
+      expect(runtime.ui.currency).toBe('€');
     });
 
     it('applies UI fallbacks safely when venue scalar fields are undefined', () => {
-      resetAppConfigFromDefaults();
-      applyDirectusConfigToAppConfig({
+      const runtime = mapVenueConfigFromDirectus({
         venueRecord: {
           id: 1,
           name: 'Venue Undefined',
         },
-      });
+      }, DEFAULT_SETTINGS);
 
-      expect(appConfig.ui.name).toBe('Venue Undefined');
-      expect(appConfig.ui.primaryColor).toBe('#00846c');
-      expect(appConfig.ui.primaryColorDark).toBe('#0c7262');
-      expect(appConfig.ui.currency).toBe('€');
+      expect(runtime.ui.name).toBe('Venue Undefined');
+      expect(runtime.ui.primaryColor).toBe('#00846c');
+      expect(runtime.ui.primaryColorDark).toBe('#0c7262');
+      expect(runtime.ui.currency).toBe('€');
+    });
+  });
+
+  describe('createRuntimeConfig', () => {
+    it('returns a fresh runtime copy with derived tables', () => {
+      const runtime = createRuntimeConfig();
+      expect(runtime).not.toBe(DEFAULT_SETTINGS);
+      expect(runtime.tables).toEqual(runtime.rooms.flatMap((room) => room.tables ?? []));
     });
   });
 });

@@ -20,7 +20,21 @@ import { appConfig, updateOrderTotals, KITCHEN_ACTIVE_STATUSES, KEYBOARD_POSITIO
 import { newUUIDv7, newShortId } from './storeUtils.js';
 import { makeTableOps } from './tableOps.js';
 import { makeReportOps } from './reportOps.js';
-import { loadStateFromIDB, saveStateToIDB, upsertBillSessionInIDB, closeBillSessionInIDB, loadSettingsFromIDB, saveFiscalReceiptToIDB, saveInvoiceRequestToIDB, loadFiscalReceiptsFromIDB, loadInvoiceRequestsFromIDB, pruneFiscalReceiptsInIDB, pruneInvoiceRequestsInIDB } from './idbPersistence.js';
+import {
+  loadStateFromIDB,
+  saveStateToIDB,
+  upsertBillSessionInIDB,
+  closeBillSessionInIDB,
+  loadSettingsFromIDB,
+} from './persistence/operations.js';
+import {
+  saveFiscalReceiptToIDB,
+  saveInvoiceRequestToIDB,
+  loadFiscalReceiptsFromIDB,
+  loadInvoiceRequestsFromIDB,
+  pruneFiscalReceiptsInIDB,
+  pruneInvoiceRequestsInIDB,
+} from './persistence/audit.js';
 import { enqueue } from '../composables/useSyncQueue.js';
 
 export const useAppStore = defineStore('app', () => {
@@ -33,6 +47,7 @@ export const useAppStore = defineStore('app', () => {
   // ── Settings (defaults; populated async by initStoreFromIDB before mount) ──
   const sounds = ref(true);
   const menuUrl = ref(appConfig.menuUrl);
+  const menuSource = ref(appConfig.menuSource === 'json' ? 'json' : 'directus');
   const preventScreenLock = ref(true);
   const customKeyboard = ref('disabled');
   // ID of the printer chosen for pre-conto dispatch (empty string = disabled)
@@ -41,7 +56,7 @@ export const useAppStore = defineStore('app', () => {
   const menuError = ref(null);
 
   async function loadMenu() {
-    if (config.value?.menuSource === 'directus') {
+    if (menuSource.value !== 'json') {
       menuLoading.value = false;
       menuError.value = null;
       return;
@@ -595,13 +610,42 @@ export const useAppStore = defineStore('app', () => {
   watch(tableOccupiedAt, () => _scheduleSave('tableOccupiedAt'), { deep: true });
   watch(billRequestedTables, () => _scheduleSave('billRequestedTables'), { deep: true });
 
+  const operationalStateRefs = {
+    orders,
+    transactions,
+    cashBalance,
+    cashMovements,
+    dailyClosures,
+    printLog,
+    tableCurrentBillSession,
+    tableMergedInto,
+    tableOccupiedAt,
+    billRequestedTables,
+  };
+
+  async function refreshOperationalStateFromIDB(options = {}) {
+    const { collection, collections } = options;
+    const requestedCollections = collections ?? (collection ? [collection] : Object.keys(operationalStateRefs));
+    const targetCollections = requestedCollections.filter((key) => Object.prototype.hasOwnProperty.call(operationalStateRefs, key));
+    if (!targetCollections.length) return;
+
+    const idbState = await loadStateFromIDB();
+    if (!idbState) return;
+
+    targetCollections.forEach((key) => {
+      if (Object.prototype.hasOwnProperty.call(idbState, key)) {
+        operationalStateRefs[key].value = idbState[key];
+      }
+    });
+  }
+
   return {
     // state
     config, orders, transactions,
     cashBalance, cashMovements, dailyClosures,
     tableOccupiedAt, billRequestedTables, tableCurrentBillSession, tableMergedInto,
     pendingOpenTable, pendingSelectOrder, pendingNewOrder,
-    sounds, menuUrl, preventScreenLock, customKeyboard, preBillPrinterId, menuLoading, menuError,
+    sounds, menuUrl, menuSource, preventScreenLock, customKeyboard, preBillPrinterId, menuLoading, menuError,
     // print log
     printLog, addPrintLogEntry, updatePrintLogEntry, clearPrintLog,
     // fiscal receipts
@@ -625,6 +669,110 @@ export const useAppStore = defineStore('app', () => {
     moveTableOrders, mergeTableOrders, detachSlaveTable, splitItemsToTable,
     // cassa operations
     setFondoCassa, addCashMovement, generateXReport, performDailyClose,
+    refreshOperationalStateFromIDB,
+  };
+});
+
+export const useConfigStore = defineStore('config', () => {
+  const app = useAppStore();
+  return {
+    config: computed({
+      get: () => app.config,
+      set: (value) => { app.config = value; },
+    }),
+    rooms: computed(() => app.rooms),
+    cssVars: computed(() => app.cssVars),
+    sounds: computed({
+      get: () => app.sounds,
+      set: (value) => { app.sounds = value; },
+    }),
+    menuUrl: computed({
+      get: () => app.menuUrl,
+      set: (value) => { app.menuUrl = value; },
+    }),
+    menuSource: computed({
+      get: () => app.menuSource,
+      set: (value) => { app.menuSource = value; },
+    }),
+    preventScreenLock: computed({
+      get: () => app.preventScreenLock,
+      set: (value) => { app.preventScreenLock = value; },
+    }),
+    customKeyboard: computed({
+      get: () => app.customKeyboard,
+      set: (value) => { app.customKeyboard = value; },
+    }),
+    preBillPrinterId: computed({
+      get: () => app.preBillPrinterId,
+      set: (value) => { app.preBillPrinterId = value; },
+    }),
+    menuLoading: computed(() => app.menuLoading),
+    menuError: computed(() => app.menuError),
+    loadMenu: app.loadMenu,
+  };
+});
+
+export const useOrderStore = defineStore('orders', () => {
+  const app = useAppStore();
+  return {
+    orders: computed({
+      get: () => app.orders,
+      set: (value) => { app.orders = value; },
+    }),
+    transactions: computed({
+      get: () => app.transactions,
+      set: (value) => { app.transactions = value; },
+    }),
+    cashBalance: computed({
+      get: () => app.cashBalance,
+      set: (value) => { app.cashBalance = value; },
+    }),
+    cashMovements: computed({
+      get: () => app.cashMovements,
+      set: (value) => { app.cashMovements = value; },
+    }),
+    dailyClosures: computed({
+      get: () => app.dailyClosures,
+      set: (value) => { app.dailyClosures = value; },
+    }),
+    tableOccupiedAt: computed({
+      get: () => app.tableOccupiedAt,
+      set: (value) => { app.tableOccupiedAt = value; },
+    }),
+    billRequestedTables: computed({
+      get: () => app.billRequestedTables,
+      set: (value) => { app.billRequestedTables = value; },
+    }),
+    tableCurrentBillSession: computed({
+      get: () => app.tableCurrentBillSession,
+      set: (value) => { app.tableCurrentBillSession = value; },
+    }),
+    tableMergedInto: computed({
+      get: () => app.tableMergedInto,
+      set: (value) => { app.tableMergedInto = value; },
+    }),
+    pendingCount: computed(() => app.pendingCount),
+    inKitchenCount: computed(() => app.inKitchenCount),
+    closedBills: computed(() => app.closedBills),
+    addOrder: app.addOrder,
+    changeOrderStatus: app.changeOrderStatus,
+    setItemKitchenReady: app.setItemKitchenReady,
+    updateQtyGlobal: app.updateQtyGlobal,
+    removeRowGlobal: app.removeRowGlobal,
+    voidOrderItems: app.voidOrderItems,
+    restoreOrderItems: app.restoreOrderItems,
+    voidModifier: app.voidModifier,
+    restoreModifier: app.restoreModifier,
+    addTransaction: app.addTransaction,
+    addTipTransaction: app.addTipTransaction,
+    addDirectOrder: app.addDirectOrder,
+    simulateNewOrder: app.simulateNewOrder,
+    setBillRequested: app.setBillRequested,
+    openTableSession: app.openTableSession,
+    moveTableOrders: app.moveTableOrders,
+    mergeTableOrders: app.mergeTableOrders,
+    detachSlaveTable: app.detachSlaveTable,
+    splitItemsToTable: app.splitItemsToTable,
   };
 });
 
@@ -679,6 +827,11 @@ export async function initStoreFromIDB(pinia) {
     if (typeof settings.sounds === 'boolean') store.sounds = settings.sounds;
     if (typeof settings.menuUrl === 'string' && settings.menuUrl.trim() !== '') {
       store.menuUrl = settings.menuUrl;
+      appConfig.menuUrl = settings.menuUrl;
+    }
+    if (settings.menuSource === 'json' || settings.menuSource === 'directus') {
+      store.menuSource = settings.menuSource;
+      appConfig.menuSource = settings.menuSource;
     }
     if (typeof settings.preventScreenLock === 'boolean') {
       store.preventScreenLock = settings.preventScreenLock;

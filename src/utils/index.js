@@ -20,8 +20,8 @@ const DEFAULT_UI_PRIMARY_COLOR = '#00846c';
 const DEFAULT_UI_PRIMARY_COLOR_DARK = '#0c7262';
 const DEFAULT_UI_CURRENCY = '€';
 
-// Configurazione applicazione centralizzata
-export const appConfig = {
+// Configurazione applicazione centralizzata (static defaults, immutable fallback)
+export const DEFAULT_SETTINGS = {
   ui: {
     name: "Osteria del Grillo",
     primaryColor: DEFAULT_UI_PRIMARY_COLOR,
@@ -48,7 +48,7 @@ export const appConfig = {
   // `json` => menu from remote JSON URL.
   menuSource: 'directus',
 
-  // Instance name used to isolate localStorage keys when multiple app instances run
+  // Instance name used to isolate IndexedDB namespace when multiple app instances run
   // on the same device (same origin). Set a unique value per device/shortcut
   // (e.g. 'cassa1', 'sala2'). This value is configured at build/deploy time.
   // Empty string (default) keeps the original key names for backwards compatibility.
@@ -282,270 +282,24 @@ export const appConfig = {
   ],
 };
 
-// Derive flat tables list from rooms — kept in sync at module load time.
-// All store/component code that needs the full table list reads appConfig.tables.
-appConfig.tables = Array.isArray(appConfig.rooms)
-  ? appConfig.rooms.flatMap(r => r.tables || [])
-  : (Array.isArray(appConfig.tables) ? appConfig.tables : []);
-
-// Immutable runtime snapshot used to restore full local config defaults before
-// applying a fresh Directus configuration pull.
-const _defaultAppConfigSnapshot = JSON.parse(JSON.stringify(appConfig));
-
-/**
- * Restores appConfig to module defaults.
- *
- * @param {{ keepDirectusConfig?: boolean }} [opts]
- */
-export function resetAppConfigFromDefaults({ keepDirectusConfig = true } = {}) {
-  const hasDirectusConfig = Object.prototype.hasOwnProperty.call(appConfig, 'directus');
-  const directusConfig = (keepDirectusConfig && hasDirectusConfig)
-    ? JSON.parse(JSON.stringify(appConfig.directus))
-    : null;
-  const clonedDefaults = JSON.parse(JSON.stringify(_defaultAppConfigSnapshot));
-  Object.assign(appConfig, clonedDefaults);
-  if (keepDirectusConfig && hasDirectusConfig) appConfig.directus = directusConfig;
+function _deepClone(value) {
+  return JSON.parse(JSON.stringify(value));
 }
 
-/**
- * Applies Directus-sourced configuration (fetched from IndexedDB) onto appConfig.
- *
- * Called after each global pull cycle so that venue settings, rooms, tables,
- * payment methods, printers, and menu are kept in sync with the Directus backend
- * without requiring a full page reload.
- *
- * Priority rules (D4):
- *  - Venue scalar fields: Directus wins if the field is non-null.
- *  - Rooms/tables: replaced wholesale when Directus returns ≥1 room.
- *  - Payment methods / printers: replaced wholesale when ≥1 record is returned.
- *  - Menu: when `menuSource === 'directus'`, Directus menu wins over static/URL-loaded
- *    menu when ≥1 category with ≥1 item is returned.
- *
- * **Empty-array behaviour**: if a collection array is empty (e.g. no rooms were
- * returned from IDB because Directus hasn't populated them yet), the corresponding
- * appConfig field is left unchanged.  This is intentional — an empty result is
- * treated as "no data available" rather than "clear existing data".  The static
- * defaults defined in appConfig remain active until Directus provides actual records.
- *
- * @param {{ venueRecord: object|null, rooms: Array, tables: Array,
- *           paymentMethods: Array, printers: Array,
- *           categories: Array, items: Array, modifiers: Array,
- *           categoryModifierLinks: Array, itemModifierLinks: Array }|null} cfg - Output of loadConfigFromIDB()
- */
-export function applyDirectusConfigToAppConfig(cfg) {
-  if (!cfg) return;
-  const {
-    venueRecord = null,
-    rooms = [],
-    tables = [],
-    paymentMethods = [],
-    printers = [],
-    categories = [],
-    items = [],
-    modifiers = [],
-    categoryModifierLinks = [],
-    itemModifierLinks = [],
-  } = cfg;
-  const relationId = (value) => {
-    if (value == null) return null;
-    if (typeof value === 'object') return value.id ?? null;
-    return value;
-  };
+function _withDerivedTables(settings) {
+  const next = _deepClone(settings);
+  next.tables = Array.isArray(next.rooms)
+    ? next.rooms.flatMap(r => r.tables || [])
+    : (Array.isArray(next.tables) ? next.tables : []);
+  return next;
+}
 
-  // ── Venue scalar settings ──────────────────────────────────────────────────
-  if (venueRecord) {
-    const fallbackUi = _defaultAppConfigSnapshot?.ui ?? {};
-    const name = venueRecord?.name;
-    // Empty strings from Directus are treated as "unset" for UI colors/currency,
-    // so we intentionally fall back to defaults via `||`.
-    const primary = venueRecord?.primary_color || fallbackUi.primaryColor || DEFAULT_UI_PRIMARY_COLOR;
-    const primaryDark = venueRecord?.primary_color_dark || fallbackUi.primaryColorDark || DEFAULT_UI_PRIMARY_COLOR_DARK;
-    const currency = venueRecord?.currency_symbol || fallbackUi.currency || DEFAULT_UI_CURRENCY;
-    const allowCustomVariants = venueRecord?.allow_custom_variants;
+export const appConfig = _withDerivedTables(DEFAULT_SETTINGS);
 
-    if (name != null) appConfig.ui.name = name;
-    appConfig.ui.primaryColor = primary;
-    appConfig.ui.primaryColorDark = primaryDark;
-    appConfig.ui.currency = currency;
-    if (allowCustomVariants != null) appConfig.ui.allowCustomVariants = allowCustomVariants;
-
-    if (venueRecord.cover_charge_enabled != null)
-      appConfig.coverCharge.enabled = venueRecord.cover_charge_enabled;
-    if (venueRecord.cover_charge_auto_add != null)
-      appConfig.coverCharge.autoAdd = venueRecord.cover_charge_auto_add;
-    if (venueRecord.cover_charge_price_adult != null)
-      appConfig.coverCharge.priceAdult = Number(venueRecord.cover_charge_price_adult);
-    if (venueRecord.cover_charge_price_child != null)
-      appConfig.coverCharge.priceChild = Number(venueRecord.cover_charge_price_child);
-
-    if (venueRecord.billing_enable_cash_change_calculator != null)
-      appConfig.billing.enableCashChangeCalculator = venueRecord.billing_enable_cash_change_calculator;
-    if (venueRecord.billing_enable_tips != null)
-      appConfig.billing.enableTips = venueRecord.billing_enable_tips;
-    if (venueRecord.billing_enable_discounts != null)
-      appConfig.billing.enableDiscounts = venueRecord.billing_enable_discounts;
-    if (venueRecord.billing_allow_custom_entry != null)
-      appConfig.billing.allowCustomEntry = venueRecord.billing_allow_custom_entry;
-
-    if (Array.isArray(venueRecord.orders_rejection_reasons) && venueRecord.orders_rejection_reasons.length > 0)
-      appConfig.orders.rejectionReasons = venueRecord.orders_rejection_reasons;
-    if (venueRecord.menu_source !== null && venueRecord.menu_source !== undefined) {
-      appConfig.menuSource = venueRecord.menu_source;
-    }
-    if (venueRecord.menu_url != null && String(venueRecord.menu_url).trim() !== '') {
-      appConfig.menuUrl = String(venueRecord.menu_url);
-    }
-  }
-
-  // ── Rooms and tables ───────────────────────────────────────────────────────
-  if (rooms.length > 0) {
-    const tablesByRoom = new Map();
-    const tableById = new Map();
-    for (const t of tables) {
-      const roomId = relationId(t.room);
-      const key = roomId != null ? String(roomId) : '_unassigned';
-      if (!tablesByRoom.has(key)) tablesByRoom.set(key, []);
-      const tableEntry = { id: t.id, label: t.label, covers: t.covers ?? 2 };
-      tablesByRoom.get(key).push(tableEntry);
-      tableById.set(String(t.id), tableEntry);
-    }
-    const configuredRooms = rooms.map(r => ({
-      id: r.id,
-      label: r.label,
-      tables: (() => {
-        const roomId = String(r.id);
-        const directTables = tablesByRoom.get(roomId) ?? [];
-        if (directTables.length > 0 || !Array.isArray(r.tables) || r.tables.length === 0) return directTables;
-        return r.tables
-          .map((roomTable) => {
-          const roomTableId = relationId(roomTable);
-          const tableEntry = roomTableId != null ? tableById.get(String(roomTableId)) : null;
-          if (tableEntry) return tableEntry;
-          if (typeof roomTable === 'object' && roomTableId != null) {
-            return {
-              id: roomTableId,
-              label: roomTable.label ?? String(roomTableId),
-              covers: roomTable.covers ?? 2,
-            };
-          }
-          if (roomTableId == null) return null;
-          return { id: roomTableId, label: String(roomTableId), covers: 2 };
-        })
-          .filter(Boolean);
-      })(),
-    }));
-    const unassignedTables = tablesByRoom.get('_unassigned') ?? [];
-    appConfig.rooms = unassignedTables.length > 0
-      ? [...configuredRooms, { id: '_unassigned', label: 'Unassigned', tables: unassignedTables }]
-      : configuredRooms;
-    appConfig.tables = appConfig.rooms.flatMap(r => r.tables);
-  } else if (tables.length > 0) {
-    // No explicit rooms: surface all tables in a generic room so unassigned tables are not lost.
-    const genericTables = tables.map(t => ({
-      id: t.id,
-      label: t.label,
-      covers: t.covers ?? 2,
-    }));
-    appConfig.rooms = [{ id: 'sala', label: 'Sala', tables: genericTables }];
-    appConfig.tables = genericTables;
-  }
-
-  // ── Payment methods ────────────────────────────────────────────────────────
-  if (paymentMethods.length > 0) {
-    appConfig.paymentMethods = paymentMethods.map(pm => ({
-      id: pm.id,
-      label: pm.label,
-      icon: pm.icon ?? '',
-      colorClass: pm.color_class ?? '',
-    }));
-  }
-
-  // ── Printers ───────────────────────────────────────────────────────────────
-  if (printers.length > 0) {
-    appConfig.printers = printers.map(p => {
-      const entry = { id: p.id, name: p.name, url: p.url };
-      if (p.print_types?.length) entry.printTypes = p.print_types;
-      if (p.categories?.length)  entry.categories = p.categories;
-      return entry;
-    });
-  }
-
-  // ── Menu (D4) — Directus wins only when menuSource is set to directus ──────
-  if (appConfig.menuSource === 'directus' && categories.length > 0 && items.length > 0) {
-    const parseJsonArray = (value) => {
-      if (Array.isArray(value)) return value;
-      if (typeof value === 'string' && value.trim() !== '') {
-        try {
-          const parsed = JSON.parse(value);
-          return Array.isArray(parsed) ? parsed : [];
-        } catch (_) {
-          return [];
-        }
-      }
-      return [];
-    };
-    const normalizeModifier = (modifier) => ({
-      id: modifier.id,
-      name: modifier.name ?? '',
-      price: Number(modifier.price ?? 0),
-    });
-    const modifiersById = new Map(
-      modifiers
-        .filter((modifier) => modifier.status !== 'archived')
-        .map((modifier) => [String(modifier.id), normalizeModifier(modifier)]),
-    );
-    const categoryModifierIds = new Map();
-    for (const link of categoryModifierLinks) {
-      const categoryId = relationId(link.menu_categories_id);
-      const modifierId = relationId(link.menu_modifiers_id);
-      if (categoryId == null || modifierId == null) continue;
-      const key = String(categoryId);
-      if (!categoryModifierIds.has(key)) categoryModifierIds.set(key, new Set());
-      categoryModifierIds.get(key).add(String(modifierId));
-    }
-    const itemModifierIds = new Map();
-    for (const link of itemModifierLinks) {
-      const itemId = relationId(link.menu_items_id);
-      const modifierId = relationId(link.menu_modifiers_id);
-      if (itemId == null || modifierId == null) continue;
-      const key = String(itemId);
-      if (!itemModifierIds.has(key)) itemModifierIds.set(key, new Set());
-      itemModifierIds.get(key).add(String(modifierId));
-    }
-
-    const itemsByCategory = new Map();
-    for (const item of items) {
-      const categoryId = relationId(item.category);
-      if (categoryId == null) continue;
-      if (!itemsByCategory.has(categoryId)) itemsByCategory.set(categoryId, []);
-      const mergedModifierIds = new Set([
-        ...(categoryModifierIds.get(String(categoryId)) ?? []),
-        ...(itemModifierIds.get(String(item.id)) ?? []),
-      ]);
-      const availableModifiers = [...mergedModifierIds]
-        .map((modifierId) => modifiersById.get(String(modifierId)))
-        .filter(Boolean)
-        .sort((a, b) => a.name.localeCompare(b.name, appConfig.locale));
-
-      itemsByCategory.get(categoryId).push({
-        id: item.id,
-        name: item.name,
-        price: Number(item.price),
-        descrizione: item.description ?? '',
-        note: item.note ?? '',
-        ingredienti: parseJsonArray(item.ingredients),
-        allergeni: parseJsonArray(item.allergens),
-        immagine_url: item.image_url ?? '',
-        modifiers: availableModifiers,
-      });
-    }
-    const menu = {};
-    for (const cat of categories) {
-      const catItems = itemsByCategory.get(relationId(cat.id) ?? cat.id) ?? [];
-      if (catItems.length > 0) menu[cat.name] = catItems;
-    }
-    if (Object.keys(menu).length > 0) appConfig.menu = menu;
-  }
+export function createRuntimeConfig(overrides = null) {
+  const base = _withDerivedTables(DEFAULT_SETTINGS);
+  if (!overrides || typeof overrides !== 'object') return base;
+  return _withDerivedTables({ ...base, ..._deepClone(overrides) });
 }
 
 /**

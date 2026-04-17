@@ -1,12 +1,11 @@
 import { ref, watch, onUnmounted } from 'vue';
 import { useAppStore } from '../store/index.js';
-import { getInstanceName, resolveStorageKeys } from '../store/persistence.js';
 import { appConfig, KEYBOARD_POSITIONS } from '../utils/index.js';
 import { isWakeLockSupported } from './useWakeLock.js';
-import { getPwaDismissKey } from './usePwaInstall.js';
 import { useAuth } from './useAuth.js';
-import { saveSettingsToIDB, clearAllStateFromIDB, clearSyncQueueFromIDB } from '../store/idbPersistence.js';
+import { saveSettingsToIDB, deleteDatabase } from '../store/persistence/operations.js';
 import { clearDirectusConfigFromStorage } from './useDirectusClient.js';
+import { getInstanceName } from '../store/persistence.js';
 /**
  * Shared composable for the Cassa and Sala settings modals.
  * Handles IndexedDB persistence (debounced), reset, and menu sync.
@@ -18,9 +17,6 @@ import { clearDirectusConfigFromStorage } from './useDirectusClient.js';
 export function useSettings(props, emit) {
   const store = useAppStore();
   const wakeLockApiSupported = isWakeLockSupported();
-
-  const _instanceName = getInstanceName();
-  const { storageKey: _storageKey, settingsKey: _settingsKey } = resolveStorageKeys(_instanceName);
 
   /** Validate a stored keyboard value; return 'disabled' if unknown. */
   function _parseKeyboardPosition(v) {
@@ -36,6 +32,7 @@ export function useSettings(props, emit) {
         typeof store.menuUrl === 'string' && store.menuUrl.trim() !== ''
           ? store.menuUrl
           : appConfig.menuUrl,
+      menuSource: store.menuSource === 'json' ? 'json' : 'directus',
       preventScreenLock:
         typeof store.preventScreenLock === 'boolean' && wakeLockApiSupported
           ? store.preventScreenLock
@@ -72,6 +69,13 @@ export function useSettings(props, emit) {
       // Keep store and parent in sync immediately for responsive UI
       store.sounds = newVal.sounds;
       store.menuUrl = newVal.menuUrl;
+      store.menuSource = newVal.menuSource === 'json' ? 'json' : 'directus';
+      appConfig.menuUrl = store.menuUrl;
+      appConfig.menuSource = store.menuSource;
+      if (store.menuSource !== 'json') {
+        store.menuError = null;
+        store.menuLoading = false;
+      }
       store.preventScreenLock = newVal.preventScreenLock;
       store.customKeyboard = newVal.customKeyboard;
       store.preBillPrinterId = newVal.preBillPrinterId ?? '';
@@ -89,30 +93,28 @@ export function useSettings(props, emit) {
   });
 
   async function syncMenu() {
+    if (settings.value.menuSource !== 'json') return;
     await store.loadMenu();
   }
 
   async function confirmReset() {
-    // Remove legacy localStorage entries synchronously
-    try { window.localStorage.removeItem(_storageKey); } catch (_) { /* ignore */ }
-    try { window.localStorage.removeItem(_settingsKey); } catch (_) { /* ignore */ }
-    try {
-      window.localStorage.removeItem(getPwaDismissKey());
-    } catch (e) {
-      console.warn('[Settings] Failed to remove PWA dismiss key during reset:', e);
-    }
     // Clear Directus connection config so it is not reloaded after reload.
     try {
-      clearDirectusConfigFromStorage();
+      await clearDirectusConfigFromStorage();
     } catch (e) {
       console.warn('[Settings] Failed to clear Directus config during reset:', e);
     }
-    // Await the IDB clear so all transactions commit before the page reloads.
-    // (Fire-and-forget clears could be cancelled by the reload mid-transaction.)
-    await clearAllStateFromIDB();
-    // Clear sync_queue so stale push operations cannot be replayed after a
-    // factory reset if the user re-enables Directus on a fresh start.
-    await clearSyncQueueFromIDB();
+    // Nuclear reset: physically delete the entire IndexedDB database.
+    // This guarantees a full clean slate for every object store.
+    try {
+      await deleteDatabase(getInstanceName());
+    } catch (e) {
+      console.warn('[Settings] Failed to complete nuclear database reset - data may not be fully cleared:', e);
+      if (typeof window !== 'undefined' && typeof window.alert === 'function') {
+        window.alert('Reset bloccato: chiudi le altre schede/app aperte su questo dispositivo e riprova.');
+      }
+      return;
+    }
     // Clear in-memory auth state (its internal IDB call is harmless — already cleared)
     try {
       const { clearAllAuthData } = useAuth();

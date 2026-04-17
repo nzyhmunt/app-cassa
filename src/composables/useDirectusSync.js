@@ -18,18 +18,27 @@
 
 import { ref } from 'vue';
 import { createDirectus, staticToken, rest, readItems, readItem } from '@directus/sdk';
-import { appConfig, applyDirectusConfigToAppConfig, resetAppConfigFromDefaults } from '../utils/index.js';
+import { appConfig, createRuntimeConfig, DEFAULT_SETTINGS } from '../utils/index.js';
+import {
+  mapOrderFromDirectus,
+  mapOrderItemFromDirectus,
+  mapBillSessionFromDirectus,
+  mapVenueConfigFromDirectus,
+} from '../utils/mappers.js';
 import { getDirectusClient } from './useDirectusClient.js';
 import { drainQueue } from './useSyncQueue.js';
 import {
+  loadStateFromIDB,
   loadLastPullTsFromIDB,
   saveLastPullTsToIDB,
   upsertRecordsIntoIDB,
   deleteRecordsFromIDB,
+} from '../store/persistence/operations.js';
+import {
   loadConfigFromIDB,
   replaceTableMergesInIDB,
   clearLocalConfigCacheFromIDB,
-} from '../store/idbPersistence.js';
+} from '../store/persistence/config.js';
 
 // ── Per-app pull config (§5.7.6) ─────────────────────────────────────────────
 
@@ -148,118 +157,23 @@ function _parseJsonArray(value) {
   return [];
 }
 
-function _mapOrder(r) {
-  const tableId = _relationId(r.table);
-  const billSessionId = _relationId(r.bill_session ?? r.billSessionId ?? null);
-  return {
-    ...r,
-    table: tableId ?? r.table ?? null,
-    bill_session: billSessionId,
-    billSessionId,
-    totalAmount: r.total_amount ?? r.totalAmount ?? 0,
-    itemCount: r.item_count ?? r.itemCount ?? 0,
-    time: r.order_time ?? r.time ?? '',
-    globalNote: r.global_note ?? r.globalNote ?? '',
-    noteVisibility: {
-      cassa: r.note_visibility_cassa ?? r.noteVisibility?.cassa ?? true,
-      sala: r.note_visibility_sala ?? r.noteVisibility?.sala ?? true,
-      cucina: r.note_visibility_cucina ?? r.noteVisibility?.cucina ?? true,
-    },
-    isCoverCharge: r.is_cover_charge ?? r.isCoverCharge ?? false,
-    isDirectEntry: r.is_direct_entry ?? r.isDirectEntry ?? false,
-    rejectionReason: r.rejection_reason ?? r.rejectionReason ?? null,
-    dietaryPreferences: r.dietaryPreferences ?? {
-      diete: _parseJsonArray(r.dietary_diets),
-      allergeni: _parseJsonArray(r.dietary_allergens),
-    },
-    orderItems: r.orderItems ?? r.order_items ?? [],
-    _sync_status: 'synced',
-  };
-}
-
-function _mapBillSession(r) {
-  return {
-    ...r,
-    billSessionId: r.id,
-    adults: r.adults ?? r.adults_count ?? 0,
-    children: r.children ?? r.children_count ?? 0,
-    _sync_status: 'synced',
-  };
-}
-
-function _mapOrderItem(r) {
-  const orderId = _relationId(r.order ?? r.orderId ?? null);
-  const dishId = _relationId(r.dish ?? r.dishId ?? null);
-  return {
-    ...r,
-    order: orderId,
-    orderId,
-    dish: dishId,
-    dishId,
-    uid: r.uid ?? r.id,
-    unitPrice: r.unit_price ?? r.unitPrice ?? 0,
-    voidedQuantity: r.voided_quantity ?? r.voidedQuantity ?? 0,
-    kitchenReady: r.kitchen_ready ?? r.kitchenReady ?? false,
-    _sync_status: 'synced',
-  };
-}
-
-function _mapMenuItem(r) {
-  return {
-    ...r,
-    ingredients: _parseJsonArray(r.ingredients),
-    allergens: _parseJsonArray(r.allergens),
-    _sync_status: 'synced',
-  };
-}
-
-function _mapMenuModifier(r) {
-  return {
-    ...r,
-    venue: _relationId(r.venue),
-    _sync_status: 'synced',
-  };
-}
-
-function _mapMenuCategoryModifierLink(r) {
-  return {
-    ...r,
-    venue: _relationId(r.venue),
-    menu_categories_id: _relationId(r.menu_categories_id),
-    menu_modifiers_id: _relationId(r.menu_modifiers_id),
-    _sync_status: 'synced',
-  };
-}
-
-function _mapMenuItemModifierLink(r) {
-  return {
-    ...r,
-    venue: _relationId(r.venue),
-    menu_items_id: _relationId(r.menu_items_id),
-    menu_modifiers_id: _relationId(r.menu_modifiers_id),
-    _sync_status: 'synced',
-  };
-}
-
-function _mapTableMergeSession(r) {
-  return {
-    ...r,
-    venue: _relationId(r.venue),
-    master_table: _relationId(r.master_table),
-    slave_table: _relationId(r.slave_table),
-    _sync_status: 'synced',
-  };
-}
-
 function _mapRecord(collection, r) {
-  if (collection === 'orders') return _mapOrder(r);
-  if (collection === 'bill_sessions') return _mapBillSession(r);
-  if (collection === 'order_items') return _mapOrderItem(r);
-  if (collection === 'menu_items') return _mapMenuItem(r);
-  if (collection === 'menu_modifiers') return _mapMenuModifier(r);
-  if (collection === 'menu_categories_menu_modifiers') return _mapMenuCategoryModifierLink(r);
-  if (collection === 'menu_items_menu_modifiers') return _mapMenuItemModifierLink(r);
-  if (collection === 'table_merge_sessions') return _mapTableMergeSession(r);
+  if (collection === 'orders') return mapOrderFromDirectus(r);
+  if (collection === 'bill_sessions') return mapBillSessionFromDirectus(r);
+  if (collection === 'order_items') return mapOrderItemFromDirectus(r);
+  if (collection === 'menu_items') {
+    return { ...r, ingredients: _parseJsonArray(r.ingredients), allergens: _parseJsonArray(r.allergens), _sync_status: 'synced' };
+  }
+  if (collection === 'menu_modifiers') return { ...r, venue: _relationId(r.venue), _sync_status: 'synced' };
+  if (collection === 'menu_categories_menu_modifiers') {
+    return { ...r, venue: _relationId(r.venue), menu_categories_id: _relationId(r.menu_categories_id), menu_modifiers_id: _relationId(r.menu_modifiers_id), _sync_status: 'synced' };
+  }
+  if (collection === 'menu_items_menu_modifiers') {
+    return { ...r, venue: _relationId(r.venue), menu_items_id: _relationId(r.menu_items_id), menu_modifiers_id: _relationId(r.menu_modifiers_id), _sync_status: 'synced' };
+  }
+  if (collection === 'table_merge_sessions') {
+    return { ...r, venue: _relationId(r.venue), master_table: _relationId(r.master_table), slave_table: _relationId(r.slave_table), _sync_status: 'synced' };
+  }
   return { ...r, _sync_status: 'synced' };
 }
 
@@ -397,6 +311,50 @@ function _deleteFromStore(collection, records, store) {
       }
     }
     store.tableCurrentBillSession = next;
+  }
+}
+
+async function _refreshStoreFromIDB(collection = null) {
+  if (!_store) return;
+  if (typeof _store.refreshOperationalStateFromIDB === 'function') {
+    await _store.refreshOperationalStateFromIDB(collection ? { collection } : {});
+    return;
+  }
+  if (typeof _store.refreshFromIDB === 'function') {
+    await _store.refreshFromIDB(collection);
+    return;
+  }
+
+  const operationalCollections = new Set([
+    'orders',
+    'order_items',
+    'order_item_modifiers',
+    'bill_sessions',
+    'transactions',
+    'table_merge_sessions',
+  ]);
+  if (!collection || operationalCollections.has(collection)) {
+    const state = await loadStateFromIDB();
+    if (!state) return;
+
+    const applySlice = (storeKey) => {
+      if (Object.prototype.hasOwnProperty.call(state, storeKey)) {
+        _store[storeKey] = state[storeKey];
+      }
+    };
+
+    if (!collection || collection === 'orders' || collection === 'order_items' || collection === 'order_item_modifiers') {
+      applySlice('orders');
+    }
+    if (!collection || collection === 'bill_sessions') {
+      applySlice('tableCurrentBillSession');
+    }
+    if (!collection || collection === 'transactions') {
+      applySlice('transactions');
+    }
+    if (!collection || collection === 'table_merge_sessions') {
+      applySlice('tableMergedInto');
+    }
   }
 }
 
@@ -555,12 +513,14 @@ async function _handleSubscriptionMessage(collection, message) {
     const ids = _extractRecordIds(data);
     await deleteRecordsFromIDB(collection, ids);
     if (_store) _deleteFromStore(collection, ids, _store);
+    await _refreshStoreFromIDB(collection);
   } else {
     const mapped = data.map(r => _mapRecord(collection, r));
     await upsertRecordsIntoIDB(collection, mapped);
     if (_store) {
       _mergeIntoStore(collection, mapped, _store);
     }
+    await _refreshStoreFromIDB(collection);
   }
 
   lastPullAt.value = new Date().toISOString();
@@ -968,7 +928,21 @@ async function _fanOutVenueTreeToIDB(venueRecord, { menuSource }) {
 async function _hydrateConfigFromLocalCache(venueId, onProgress = null) {
   if (venueId == null) return false;
   const cached = await loadConfigFromIDB(venueId);
-  applyDirectusConfigToAppConfig(cached);
+  const mappedConfig = mapVenueConfigFromDirectus(cached, DEFAULT_SETTINGS);
+  const runtimeConfig = createRuntimeConfig(mappedConfig);
+  const preservedDirectus = JSON.parse(JSON.stringify(appConfig.directus ?? {}));
+  const preservedInstanceName = appConfig.instanceName;
+  const preservedPwaLogo = appConfig.pwaLogo;
+  const preservedMenuSource = appConfig.menuSource === 'json' ? 'json' : 'directus';
+  const preservedMenuUrl = appConfig.menuUrl;
+  Object.assign(appConfig, runtimeConfig);
+  if (preservedMenuSource === 'json') {
+    appConfig.menuSource = 'json';
+    appConfig.menuUrl = preservedMenuUrl;
+  }
+  appConfig.directus = preservedDirectus;
+  appConfig.instanceName = preservedInstanceName;
+  appConfig.pwaLogo = preservedPwaLogo;
   _syncPreBillPrinterSelection(cached?.venueRecord ?? null);
   _syncStoreConfigSnapshot();
   _emitProgress(onProgress, { level: 'info', message: 'Configurazione locale applicata.' });
@@ -1102,7 +1076,11 @@ async function _runGlobalPull({ onProgress = null } = {}) {
     }
     deepVenue = await _hydrateVenueTablesFromRoomRefs(client, deepVenue, venueId);
 
-    const menuSource = deepVenue.menu_source ?? appConfig.menuSource ?? 'directus';
+    const localMenuSource = appConfig.menuSource;
+    const remoteMenuSource = deepVenue.menu_source;
+    const menuSource = localMenuSource === 'json'
+      ? 'json'
+      : (remoteMenuSource ?? localMenuSource ?? 'directus');
     const fanOutSummary = await _fanOutVenueTreeToIDB(deepVenue, { menuSource });
     await saveLastPullTsToIDB('deep_venue_config', new Date().toISOString());
 
@@ -1255,7 +1233,9 @@ export function useDirectusSync() {
       if (clearLocalConfig) {
         _emitProgress(onProgress, { level: 'info', message: 'Svuotamento completo cache configurazione locale…' });
         await clearLocalConfigCacheFromIDB();
-        resetAppConfigFromDefaults({ keepDirectusConfig: true });
+        const preservedDirectus = JSON.parse(JSON.stringify(appConfig.directus ?? {}));
+        Object.assign(appConfig, createRuntimeConfig(DEFAULT_SETTINGS));
+        appConfig.directus = preservedDirectus;
         _syncStoreConfigSnapshot();
         _emitProgress(onProgress, { level: 'info', message: 'Cache configurazione locale svuotata.' });
       }

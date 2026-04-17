@@ -2,7 +2,7 @@
  * @file store/idbPersistence.js
  * @description IndexedDB-based persistence helpers for the Pinia store.
  *
- * Replaces `pinia-plugin-persistedstate` + localStorage with structured
+ * Replaces `pinia-plugin-persistedstate` with structured
  * IndexedDB ObjectStores as defined in DATABASE_SCHEMA.md §5.6.
  *
  * Architecture:
@@ -80,7 +80,7 @@ export async function loadStateFromIDB() {
       db.get('app_meta', 'billRequestedTables'),
     ]);
 
-    // printLog: strip payload field (same behaviour as the old localStorage serialiser)
+    // printLog: strip payload field before persistence
     const printLog = printLogRaw.map(({ payload: _p, ...rest }) => rest);
 
     // H1: Reconstruct tableCurrentBillSession from the dedicated bill_sessions ObjectStore
@@ -717,14 +717,22 @@ export async function deleteDatabase(instanceName) {
   const n = instanceName ?? appConfig.instanceName ?? '';
   const dbName = n ? `app-cassa-${n}` : 'app-cassa';
   try {
+    try {
+      const db = await getDB();
+      db?.close?.();
+    } catch (_) {
+      // Best-effort close: deleteDatabase may still succeed even if no active
+      // connection exists or close() throws during shutdown races.
+    }
     await new Promise((resolve, reject) => {
       const req = indexedDB.deleteDatabase(dbName);
       req.onsuccess = resolve;
       req.onerror = () => reject(req.error);
-      req.onblocked = resolve; // proceed even if blocked
+      req.onblocked = () => reject(new Error(`Database deletion blocked for '${dbName}'`));
     });
   } catch (e) {
     console.warn('[IDBPersistence] Failed to delete database:', e);
+    throw e;
   }
 }
 

@@ -4,7 +4,11 @@ Questo progetto è un'applicazione web POS (Point of Sale) progettata per ristor
 
 ## Architettura — Tre Entry Point, un Codebase
 
-Il progetto contiene tre applicazioni operative più una pagina di selezione, tutte condivise su un unico store Pinia e le stesse utilità:
+Il progetto contiene tre applicazioni operative più una pagina di selezione, con architettura dati a layer:
+- `DEFAULT_SETTINGS` statici immutabili (fallback)
+- IndexedDB come source of truth locale
+- Due store Pinia separati (`useConfigStore`, `useOrderStore`) con facade `useAppStore`
+- Sync Directus asincrona su IndexedDB
 
 | App | Entry | URL locale | Pubblico |
 |-----|-------|-----------|---------|
@@ -56,11 +60,16 @@ src/
 │   ├── useSyncQueue.js                ← Gestione coda sync offline verso Directus (ObjectStore sync_queue)
 │   └── useWakeLock.js                 ← Prevenzione blocco schermo (Screen Wake Lock API)
 ├── store/
-│   ├── idbPersistence.js              ← Funzioni load/save/clear per tutti gli store su IndexedDB
-│   ├── index.js                       ← Pinia store condiviso (unica sorgente di verità)
+│   ├── idbPersistence.js              ← Implementazione completa della persistenza IDB
+│   ├── persistence/
+│   │   ├── config.js                  ← Barrel di re-export per persistenza configurazione venue/menu/sale/tavoli
+│   │   ├── operations.js              ← Barrel di re-export per dati operativi (ordini/transazioni/sessioni)
+│   │   └── audit.js                   ← Barrel di re-export per audit stampa/ricevute fiscali/fatture
+│   ├── index.js                       ← Store facade + split store (`useConfigStore`, `useOrderStore`)
 │   └── persistence.js                 ← Schema versioning, clearState, resolveCustomItemsKey
 ├── utils/
-│   ├── index.js                       ← Configurazione app + funzioni di calcolo condivise
+│   ├── index.js                       ← Default statici + funzioni di calcolo condivise
+│   ├── mappers.js                     ← Mapping centralizzato Directus (snake_case) ↔ locale (camelCase)
 │   └── pwaManifest.js                 ← Iniezione logo custom nei manifest PWA
 ├── views/
 │   ├── cassa/                         ← View Cassa

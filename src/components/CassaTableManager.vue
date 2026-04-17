@@ -1330,7 +1330,7 @@ import { useAppStore } from '../store/index.js';
 import { newUUIDv7, newShortId } from '../store/storeUtils.js';
 import { getOrderItemRowTotal, KITCHEN_ACTIVE_STATUSES, getLockedDirectItems, appConfig, buildFiscalXmlRequest, formatOrderTime } from '../utils/index.js';
 import { buildFlatAnaliticaItems, computeAnaliticaTotal, exceedsAmount, getOrdersToComplete } from '../utils/analitica.js';
-import { loadCustomItemsFromIDB, saveCustomItemsToIDB } from '../store/idbPersistence.js';
+import { loadCustomItemsFromIDB, saveCustomItemsToIDB } from '../store/persistence/operations.js';
 import { useNumericKeyboard } from '../composables/useNumericKeyboard.js';
 import { useAuth } from '../composables/useAuth.js';
 import { enqueueTableMoveJob, enqueuePreBillJob } from '../composables/usePrintQueue.js';

@@ -356,8 +356,10 @@ const saveDisabled = computed(() =>
 
 // ── Lifecycle ─────────────────────────────────────────────────────────────────
 
-onMounted(() => {
-  loadDirectusConfigFromStorage();
+onMounted(async () => {
+  try {
+    await loadDirectusConfigFromStorage();
+  } catch (e) { console.warn('[DirectusSyncSettings] Failed to load Directus config from IDB:', e); }
   _syncFormFromConfig();
 });
 
@@ -451,8 +453,8 @@ async function testConnection() {
   }
 }
 
-/** Persists the form values to localStorage and updates appConfig. */
-function saveConfig() {
+/** Persists the form values to IndexedDB and updates appConfig. */
+async function saveConfig() {
   const nextDirectusConfig = {
     enabled: form.enabled,
     url: form.url.trim().replace(/\/$/, ''),
@@ -462,7 +464,16 @@ function saveConfig() {
   };
 
   appConfig.directus = nextDirectusConfig;
-  saveDirectusConfigToStorage();
+  try {
+    await saveDirectusConfigToStorage();
+  } catch (e) {
+    _appendReconfigureLog({
+      level: 'error',
+      message: 'Errore salvataggio configurazione locale. Verifica lo spazio/permessi del browser e riprova.',
+      details: String(e?.message ?? e),
+    });
+    return;
+  }
   _savedSnapshot.value = JSON.stringify({ ...form });
   connectionStatus.value = 'idle';
   showReconfigureModal.value = true;

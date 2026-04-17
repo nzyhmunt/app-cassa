@@ -67,18 +67,51 @@
 
         <div v-if="showMenuSync" class="pt-4 border-t border-gray-100 mt-2 space-y-3">
           <div>
+            <p class="block text-xs font-bold text-gray-600 mb-2">Sorgente Menu</p>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <button
+                type="button"
+                class="rounded-xl border px-3 py-2 text-left transition-colors"
+                :class="settings.menuSource === 'directus'
+                  ? 'border-[var(--brand-primary)] bg-[var(--brand-primary)]/5 text-gray-800'
+                  : 'border-gray-200 text-gray-600 hover:bg-gray-50'"
+                :aria-pressed="settings.menuSource === 'directus'"
+                @click="settings.menuSource = 'directus'"
+              >
+                <span class="block text-xs font-bold">Menu da Directus</span>
+                <span class="block text-[10px] text-gray-500">Sincronizzato via Directus</span>
+              </button>
+              <button
+                type="button"
+                class="rounded-xl border px-3 py-2 text-left transition-colors"
+                :class="settings.menuSource === 'json'
+                  ? 'border-[var(--brand-primary)] bg-[var(--brand-primary)]/5 text-gray-800'
+                  : 'border-gray-200 text-gray-600 hover:bg-gray-50'"
+                :aria-pressed="settings.menuSource === 'json'"
+                @click="settings.menuSource = 'json'"
+              >
+                <span class="block text-xs font-bold">Menu da URL JSON</span>
+                <span class="block text-[10px] text-gray-500">Caricato da URL esterno</span>
+              </button>
+            </div>
+          </div>
+          <div>
             <label class="block text-xs font-bold text-gray-600 mb-1">URL Menu JSON</label>
             <input
               v-model="settings.menuUrl"
               type="url"
               placeholder="https://..."
-              class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]"
+              :disabled="settings.menuSource !== 'json'"
+              class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)] disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed"
             />
           </div>
-          <button @click="syncMenu" :disabled="store.menuLoading" class="w-full py-4 bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold rounded-2xl flex items-center justify-center gap-2 border border-gray-200 transition-colors shadow-sm active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed">
+          <button @click="syncMenu" :disabled="store.menuLoading || settings.menuSource !== 'json'" class="w-full py-4 bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold rounded-2xl flex items-center justify-center gap-2 border border-gray-200 transition-colors shadow-sm active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed">
             <RefreshCw class="size-5" :class="store.menuLoading ? 'animate-spin text-emerald-600' : 'text-gray-600'" />
-            <span>{{ store.menuLoading ? 'Sincronizzazione...' : 'Sincronizza Menu' }}</span>
+            <span>{{ store.menuLoading ? 'Sincronizzazione...' : 'Sincronizza Menu URL' }}</span>
           </button>
+          <p v-if="settings.menuSource !== 'json'" class="text-[10px] text-gray-500 text-center">
+            Menu JSON disattivato: è attiva la sorgente Directus.
+          </p>
           <p v-if="store.menuError" class="text-xs text-red-600 text-center">Errore: {{ store.menuError }}</p>
         </div>
 

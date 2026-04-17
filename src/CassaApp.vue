@@ -42,9 +42,10 @@ const showCassa = ref(false);
 
 useWakeLock();
 
-// Load Directus config synchronously before first render so that reactive
-// consumers (DirectusSyncStatusBar, etc.) see the correct initial value.
-loadDirectusConfigFromStorage();
+// Best-effort preload; full sync startup awaits config in restartSyncFromCurrentConfig().
+loadDirectusConfigFromStorage().catch((e) => {
+  console.warn('[CassaApp] Failed to load Directus config from IDB:', e);
+});
 
 const { storageKey } = resolveStorageKeys(getInstanceName());
 
@@ -53,16 +54,18 @@ function onStorageChange(event) {
   store.$hydrate?.();
 }
 
-function restartSyncFromCurrentConfig() {
-  loadDirectusConfigFromStorage();
+async function restartSyncFromCurrentConfig() {
+  try {
+    await loadDirectusConfigFromStorage();
+  } catch (e) { console.warn('[CassaApp] Failed to load Directus config from IDB:', e); }
   sync.stopSync();
-  sync.startSync({ appType: 'cassa', store });
+  await sync.startSync({ appType: 'cassa', store });
 }
 
-onMounted(() => {
+onMounted(async () => {
   window.addEventListener('storage', onStorageChange);
   window.addEventListener('directus-config-updated', restartSyncFromCurrentConfig);
-  restartSyncFromCurrentConfig();
+  await restartSyncFromCurrentConfig();
 });
 
 onUnmounted(() => {
