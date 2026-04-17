@@ -139,13 +139,13 @@
 import { ref, computed, watch } from 'vue';
 import { History, Printer, X, RefreshCw, ArrowRightLeft, FileText, ClipboardList } from 'lucide-vue-next';
 import { useAppStore } from '../../store/index.js';
-import { appConfig } from '../../utils/index.js';
 import { reprintJob } from '../../composables/usePrintQueue.js';
 
 const props = defineProps({ modelValue: Boolean });
 const emit = defineEmits(['update:modelValue']);
 
 const store = useAppStore();
+const runtimeConfig = computed(() => store.config ?? {});
 
 const confirmingClear = ref(false);
 const reprintEntry = ref(null);
@@ -174,7 +174,7 @@ function confirmReprint(overrideUrl) {
 }
 
 /** All configured printers except the one already used for the selected entry. */
-const configuredPrinters = computed(() => appConfig.printers ?? []);
+const configuredPrinters = computed(() => runtimeConfig.value.printers ?? []);
 const otherPrinters = computed(() => {
   if (!reprintEntry.value) return [];
   return configuredPrinters.value.filter(
@@ -186,9 +186,9 @@ const otherPrinters = computed(() => {
 
 function formatTime(iso) {
   try {
-    return new Date(iso).toLocaleString(appConfig.locale, {
+    return new Date(iso).toLocaleString(runtimeConfig.value.locale ?? 'it-IT', {
       day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
-      timeZone: appConfig.timezone,
+      timeZone: runtimeConfig.value.timezone ?? 'Europe/Rome',
     });
   } catch {
     return iso ?? '';

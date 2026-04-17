@@ -119,7 +119,7 @@
                 </div>
                 <div class="flex items-center gap-2 shrink-0">
                   <span class="font-black">{{ mov.type === 'deposit' ? '+' : '-' }}€{{ mov.amount.toFixed(2) }}</span>
-                  <span class="text-[9px] opacity-60">{{ new Date(mov.timestamp).toLocaleTimeString(appConfig.locale, { hour: '2-digit', minute: '2-digit', timeZone: appConfig.timezone }) }}</span>
+                  <span class="text-[9px] opacity-60">{{ new Date(mov.timestamp).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit', timeZone: timezone }) }}</span>
                 </div>
               </div>
             </div>
@@ -285,7 +285,7 @@
                 class="flex justify-between items-center p-3 bg-gray-50 rounded-xl border border-gray-100 text-sm">
                 <div>
                   <p class="font-bold text-gray-800">Chiusura Z #{{ store.dailyClosures.length - idx }}</p>
-                  <p class="text-[10px] text-gray-400">{{ new Date(ch.timestamp).toLocaleString(appConfig.locale, { timeZone: appConfig.timezone }) }}</p>
+                  <p class="text-[10px] text-gray-400">{{ new Date(ch.timestamp).toLocaleString(locale, { timeZone: timezone }) }}</p>
                 </div>
                 <div class="text-right">
                   <p class="font-black text-base theme-text">€{{ ch.totalReceived.toFixed(2) }}</p>
@@ -379,7 +379,6 @@ import {
 } from 'lucide-vue-next';
 import { Banknote } from 'lucide-vue-next';
 import { useAppStore } from '../store/index.js';
-import { appConfig } from '../utils/index.js';
 import { useAuth } from '../composables/useAuth.js';
 import NumericInput from './NumericInput.vue';
 
@@ -388,6 +387,8 @@ defineEmits(['update:modelValue']);
 
 const store = useAppStore();
 const { isAdmin } = useAuth();
+const locale = computed(() => store.config?.locale ?? 'it-IT');
+const timezone = computed(() => store.config?.timezone ?? 'Europe/Rome');
 
 const tabs = [
   { id: 'cashBalance', label: 'Fondo Cassa', icon: Wallet },

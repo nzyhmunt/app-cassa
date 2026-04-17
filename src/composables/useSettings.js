@@ -1,6 +1,6 @@
 import { ref, watch, onUnmounted } from 'vue';
 import { useAppStore } from '../store/index.js';
-import { appConfig, KEYBOARD_POSITIONS } from '../utils/index.js';
+import { KEYBOARD_POSITIONS, DEFAULT_SETTINGS } from '../utils/index.js';
 import { isWakeLockSupported } from './useWakeLock.js';
 import { useAuth } from './useAuth.js';
 import { saveSettingsToIDB, deleteDatabase } from '../store/persistence/operations.js';
@@ -31,7 +31,7 @@ export function useSettings(props, emit) {
       menuUrl:
         typeof store.menuUrl === 'string' && store.menuUrl.trim() !== ''
           ? store.menuUrl
-          : appConfig.menuUrl,
+          : (store.config?.menuUrl ?? DEFAULT_SETTINGS.menuUrl),
       menuSource: store.menuSource === 'json' ? 'json' : 'directus',
       preventScreenLock:
         typeof store.preventScreenLock === 'boolean' && wakeLockApiSupported
@@ -70,8 +70,6 @@ export function useSettings(props, emit) {
       store.sounds = newVal.sounds;
       store.menuUrl = newVal.menuUrl;
       store.menuSource = newVal.menuSource === 'json' ? 'json' : 'directus';
-      appConfig.menuUrl = store.menuUrl;
-      appConfig.menuSource = store.menuSource;
       if (store.menuSource !== 'json') {
         store.menuError = null;
         store.menuLoading = false;

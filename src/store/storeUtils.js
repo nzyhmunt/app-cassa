@@ -7,24 +7,7 @@
  *                    (bill_sessions.id, orders.id, transactions.id, cash_movements.id, …).
  *  - newShortId()  → short prefixed string ≤ 20 chars; use for LOCAL-ONLY identifiers
  *                    that are NOT Directus PKs (order_items.uid, print log entries, etc.).
- *  - newUUID()     → @deprecated kept only for legacy call-sites that have not been
- *                    migrated yet.  Do NOT use in new code.
  */
-
-/**
- * @deprecated Use newUUIDv7() for Directus PKs or newShortId() for local UIDs.
- * Generates a unique identifier using crypto.randomUUID when available,
- * falling back to a random base-36 string for environments without it (e.g. jsdom).
- * The prefix is always prepended so callers get consistent ID formats (e.g. "ord_<uuid>").
- * @param {string} [prefix='id'] – Short prefix for the ID.
- * @returns {string}
- */
-export function newUUID(prefix = 'id') {
-  const base = (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
-    ? crypto.randomUUID()
-    : `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`;
-  return `${prefix}_${base}`;
-}
 
 /**
  * Generates a short, prefixed identifier suitable for local-only fields that are
