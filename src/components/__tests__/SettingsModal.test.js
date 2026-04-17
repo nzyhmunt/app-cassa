@@ -17,6 +17,7 @@ import { createPinia, setActivePinia } from 'pinia';
 import SettingsModal from '../shared/SettingsModal.vue';
 import { useAuth, _resetAuthSingleton } from '../../composables/useAuth.js';
 import { _resetIDBSingleton } from '../../composables/useIDB.js';
+import { useAppStore } from '../../store/index.js';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -28,6 +29,8 @@ const ICON_STUBS = {
   Users: { template: '<span />' },
   ShieldCheck: { template: '<span />' },
   ShieldAlert: { template: '<span />' },
+  KeyRound: { template: '<span />' },
+  Printer: { template: '<span />' },
   Volume2: { template: '<span />' },
   VolumeX: { template: '<span />' },
   Monitor: { template: '<span />' },
@@ -109,15 +112,24 @@ describe('admin user logged in', () => {
   });
 
   // Admin: wrapper passes showMenuSync=true (isAdmin=true)
-  it('shows the "URL Menu JSON" label to admin', async () => {
+  it('shows menu source selector to admin', async () => {
     const wrapper = mountSettingsModal();
     await flushPromises(); // let store.menuLoading settle
-    expect(wrapper.text()).toContain('URL Menu JSON');
+    expect(wrapper.text()).toContain('Sorgente Menu');
+    expect(wrapper.text()).toContain('Menu da Directus');
+    expect(wrapper.text()).toContain('Menu da URL JSON');
   });
 
-  it('shows the menu sync button to admin', async () => {
+  it('shows the menu sync button to admin only when JSON source is selected', async () => {
     const wrapper = mountSettingsModal();
-    await flushPromises(); // let store.menuLoading settle (shows "Sincronizza Menu" when not loading)
+    await flushPromises();
+    expect(wrapper.text()).not.toContain('Sincronizza Menu URL');
+
+    const sourceButtons = wrapper.findAll('button[aria-pressed]');
+    const jsonButton = sourceButtons.find((btn) => btn.text().includes('Menu da URL JSON'));
+    expect(jsonButton).toBeTruthy();
+    await jsonButton.trigger('click');
+    await flushPromises();
     expect(wrapper.text()).toContain('Sincronizza Menu URL');
   });
 
@@ -141,22 +153,20 @@ describe('admin user logged in', () => {
     expect(jsonButton.attributes('aria-pressed')).toBe('false');
   });
 
-  it('disables JSON menu URL input when Directus source is selected', async () => {
+  it('hides JSON menu URL input when Directus source is selected', async () => {
     const wrapper = mountSettingsModal();
     await flushPromises();
     const sourceButtons = wrapper.findAll('button[aria-pressed]');
     const directusButton = sourceButtons.find((btn) => btn.text().includes('Menu da Directus'));
     const jsonButton = sourceButtons.find((btn) => btn.text().includes('Menu da URL JSON'));
-    const urlInput = wrapper.find('input[type="url"]');
-    expect(urlInput.exists()).toBe(true);
 
     await directusButton.trigger('click');
     await flushPromises();
-    expect(urlInput.attributes('disabled')).toBeDefined();
+    expect(wrapper.find('input[type="url"]').exists()).toBe(false);
 
     await jsonButton.trigger('click');
     await flushPromises();
-    expect(urlInput.attributes('disabled')).toBeUndefined();
+    expect(wrapper.find('input[type="url"]').exists()).toBe(true);
   });
 
   it('shows the "Ripristina dati di default" button to admin', async () => {
@@ -241,7 +251,66 @@ describe('showMenuSync prop', () => {
   it('shows the menu sync section when showMenuSync=true and user is admin', async () => {
     const wrapper = mountSettingsModal(); // default showMenuSync=true
     await flushPromises();
-    expect(wrapper.text()).toContain('URL Menu JSON');
-    expect(wrapper.text()).toContain('Sincronizza Menu');
+    expect(wrapper.text()).toContain('Sorgente Menu');
+    expect(wrapper.text()).toContain('Menu da URL JSON');
+  });
+});
+
+describe('pre-bill printer settings (runtime config alignment)', () => {
+  it('shows only printers that can handle pre-bill jobs', async () => {
+    const store = useAppStore();
+    store.config = {
+      ...store.config,
+      printers: [
+        { id: 'all', name: 'Stampante Tutto', url: 'http://all.local' },
+        { id: 'pre', name: 'Stampante Preconto', url: 'http://pre.local', printTypes: ['pre_bill'] },
+        { id: 'kitchen', name: 'Stampante Cucina', url: 'http://kitchen.local', printTypes: ['order'] },
+      ],
+    };
+
+    const wrapper = mountSettingsModal({ showPrinterSettings: true });
+    await flushPromises();
+
+    expect(wrapper.text()).toContain('Stampante Preconto');
+    expect(wrapper.text()).toContain('Stampante Tutto');
+    expect(wrapper.text()).not.toContain('Stampante Cucina');
+  });
+
+  it('orders pre-bill printers by display label', async () => {
+    const store = useAppStore();
+    store.config = {
+      ...store.config,
+      printers: [
+        { id: 'zeta', name: 'Zeta', url: 'http://zeta.local', printTypes: ['pre_bill'] },
+        { id: 'alfa', name: 'Alfa', url: 'http://alfa.local', printTypes: ['pre_bill'] },
+      ],
+    };
+
+    const wrapper = mountSettingsModal({ showPrinterSettings: true });
+    await flushPromises();
+
+    const printerIds = wrapper.findAll('input[name="preBillPrinter"]').map((input) => input.element.value);
+    expect(printerIds).toEqual(['', 'alfa', 'zeta']);
+  });
+
+  it('reacts to runtime config snapshot updates while the modal is open', async () => {
+    const store = useAppStore();
+    store.config = {
+      ...store.config,
+      printers: [{ id: 'old', name: 'Stampante Vecchia', url: 'http://old.local', printTypes: ['pre_bill'] }],
+    };
+
+    const wrapper = mountSettingsModal({ showPrinterSettings: true });
+    await flushPromises();
+    expect(wrapper.text()).toContain('Stampante Vecchia');
+
+    store.config = {
+      ...store.config,
+      printers: [{ id: 'new', name: 'Stampante Nuova', url: 'http://new.local', printTypes: ['pre_bill'] }],
+    };
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.text()).toContain('Stampante Nuova');
+    expect(wrapper.text()).not.toContain('Stampante Vecchia');
   });
 });

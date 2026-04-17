@@ -65,6 +65,12 @@
           </div>
         </div>
 
+        <!-- Sincronizzazione Directus (solo amministratori) -->
+        <div v-if="showDirectusSync" class="pt-4 border-t border-gray-100 mt-2 space-y-2">
+          <span class="block text-xs font-bold text-gray-600 uppercase tracking-wider">Sincronizzazione Directus</span>
+          <DirectusSyncSettings />
+        </div>
+
         <div v-if="showMenuSync" class="pt-4 border-t border-gray-100 mt-2 space-y-3">
           <div>
             <p class="block text-xs font-bold text-gray-600 mb-2">Sorgente Menu</p>
@@ -95,22 +101,21 @@
               </button>
             </div>
           </div>
-          <div>
+          <div v-if="settings.menuSource === 'json'">
             <label class="block text-xs font-bold text-gray-600 mb-1">URL Menu JSON</label>
             <input
               v-model="settings.menuUrl"
               type="url"
               placeholder="https://..."
-              :disabled="settings.menuSource !== 'json'"
-              class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)] disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed"
+              class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]"
             />
           </div>
-          <button @click="syncMenu" :disabled="store.menuLoading || settings.menuSource !== 'json'" class="w-full py-4 bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold rounded-2xl flex items-center justify-center gap-2 border border-gray-200 transition-colors shadow-sm active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed">
+          <button v-if="settings.menuSource === 'json'" @click="syncMenu" :disabled="store.menuLoading" class="w-full py-4 bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold rounded-2xl flex items-center justify-center gap-2 border border-gray-200 transition-colors shadow-sm active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed">
             <RefreshCw class="size-5" :class="store.menuLoading ? 'animate-spin text-emerald-600' : 'text-gray-600'" />
             <span>{{ store.menuLoading ? 'Sincronizzazione...' : 'Sincronizza Menu URL' }}</span>
           </button>
-          <p v-if="settings.menuSource !== 'json'" class="text-[10px] text-gray-500 text-center">
-            Menu JSON disattivato: è attiva la sorgente Directus.
+          <p v-if="settings.menuSource !== 'json'" class="text-[10px] text-gray-500 text-center bg-gray-50 border border-gray-200 rounded-xl px-3 py-2">
+            Sorgente Directus attiva: il campo URL Menu JSON è nascosto.
           </p>
           <p v-if="store.menuError" class="text-xs text-red-600 text-center">Errore: {{ store.menuError }}</p>
         </div>
@@ -128,7 +133,7 @@
               <input type="radio" name="preBillPrinter" value="" v-model="settings.preBillPrinterId" class="accent-[var(--brand-primary)] shrink-0" />
               <span class="text-sm text-gray-600">Nessuna (non stampare)</span>
             </label>
-            <label v-for="p in preBillPrinters" :key="p.id ?? p.url"
+            <label v-for="p in preBillPrintersSorted" :key="p.id ?? p.url"
               class="flex items-center gap-2 px-3 py-2 rounded-xl border cursor-pointer transition-colors"
               :class="settings.preBillPrinterId === p.id ? 'border-[var(--brand-primary)] bg-[var(--brand-primary)]/5' : 'border-gray-200 hover:bg-gray-50'">
               <input type="radio" name="preBillPrinter" :value="p.id" v-model="settings.preBillPrinterId" class="accent-[var(--brand-primary)] shrink-0" />
@@ -139,9 +144,6 @@
             </label>
           </div>
         </div>
-
-        <!-- Sincronizzazione Directus (solo amministratori) -->
-        <DirectusSyncSettings v-if="showDirectusSync" />
 
         <!-- Gestione Utenti -->
         <div class="pt-4 border-t border-gray-100 mt-2">
@@ -207,7 +209,6 @@
 import { ref, computed } from 'vue';
 import { Settings, X, RefreshCw, RotateCcw, Users, ShieldCheck, ShieldAlert, KeyRound, Printer } from 'lucide-vue-next';
 import { useSettings } from '../../composables/useSettings.js';
-import { appConfig } from '../../utils/index.js';
 import UserManagementModal from '../UserManagementModal.vue';
 import { useAuth } from '../../composables/useAuth.js';
 import DirectusSyncSettings from './DirectusSyncSettings.vue';
@@ -235,12 +236,12 @@ const keyboardPositionOptions = [
   { value: 'right',    label: 'Destra' },
 ];
 
-/** Printers configured in appConfig that can receive pre_bill jobs.
+/** Printers configured in runtime config that can receive pre_bill jobs.
  * Includes both printers that explicitly list 'pre_bill' in printTypes
  * AND catch-all printers (printTypes absent or empty), consistent with
  * how getPrintersForType() routes jobs and the README documentation. */
 const preBillPrinters = computed(() => {
-  const printers = appConfig.printers ?? [];
+  const printers = store.config?.printers ?? [];
   return printers.filter(p => {
     if (typeof p?.id !== 'string' || !p.id.trim()) return false;
     if (!p?.url) return false;
@@ -248,4 +249,13 @@ const preBillPrinters = computed(() => {
     return p.printTypes.includes('pre_bill');
   });
 });
+
+const preBillPrintersSorted = computed(() =>
+  [...preBillPrinters.value].sort((a, b) => {
+    // Keep alphabetical ordering consistent with the configured app locale.
+    const aLabel = String(a?.name ?? a?.id ?? '').trim();
+    const bLabel = String(b?.name ?? b?.id ?? '').trim();
+    return aLabel.localeCompare(bLabel, store.config?.locale, { sensitivity: 'base' });
+  })
+);
 </script>
