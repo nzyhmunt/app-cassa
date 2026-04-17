@@ -11,6 +11,7 @@ riferimento per la configurazione del backend Directus sia come guida per la per
 - ObjectStore `venue_users` — operatori locali con PIN hashato
 - ObjectStore `direct_custom_items` — voci personalizzate
 - ObjectStore `sync_queue` — coda di operazioni in attesa di push verso Directus
+- ObjectStore `sync_failed_calls` — storico persistente delle chiamate di sync fallite (request/response completi)
 
 > I dati erano precedentemente persisti in `localStorage` (`demo_app_state_v1`, `app-settings`) tramite `pinia-plugin-persistedstate`. La migrazione a IndexedDB è completata.
 
@@ -1151,7 +1152,7 @@ WHERE o."table" = :table_id
 ### 5.2c Tavoli uniti (`tableMergedInto`)
 
 La funzione **Unisci** in App Cassa permette di accorpare il conto di due tavoli occupati.
-L'unione è rappresentata in memoria in store dallo stato reattivo `tableMergedInto` (oggetto `{ slaveTableId: masterTableId }`), persistito nell'ObjectStore IndexedDB dedicato **`table_merge_sessions`** (DB_VERSION = 6). La chiave `app_meta.tableMergedInto` è **legacy** e viene letta solo come fallback di compatibilità durante il primo avvio dopo una migrazione v2 → v3 che non avesse popolato `table_merge_sessions`.
+L'unione è rappresentata in memoria in store dallo stato reattivo `tableMergedInto` (oggetto `{ slaveTableId: masterTableId }`), persistito nell'ObjectStore IndexedDB dedicato **`table_merge_sessions`** (DB_VERSION = 7). La chiave `app_meta.tableMergedInto` è **legacy** e viene letta solo come fallback di compatibilità durante il primo avvio dopo una migrazione v2 → v3 che non avesse popolato `table_merge_sessions`.
 
 La collection `table_merge_sessions` viene sincronizzata da Directus ad ogni pull globale (startup + ogni 5 min), propagando lo stato di unione tra tutti i dispositivi in rete; è inclusa nel ciclo standard `GLOBAL_COLLECTIONS`.
 
@@ -1322,6 +1323,12 @@ ObjectStore: sync_queue
   indexes:  [collection, date_created]
   -- record: { id, collection, operation: 'create'|'update'|'delete',
   --           record_id, payload, date_created, attempts }
+
+ObjectStore: sync_failed_calls
+  keyPath:  id (UUIDv7)
+  indexes:  [failed_at, collection]
+  -- record: { id, queue_entry_id, collection, operation, record_id, payload,
+  --           attempts, abandoned, error_message, request, response, failed_at }
 ```
 
 La sincronizzazione avviene tramite un **Service Worker** (o un loop `online` nel composable

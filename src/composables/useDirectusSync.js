@@ -639,6 +639,7 @@ let _running = false;
 let _pushTimer = null;
 let _pollTimer = null;
 let _globalTimer = null;
+let _pushInFlight = null;
 /** @type {object|null} */
 let _store = null;
 /** @type {'cassa'|'sala'|'cucina'} */
@@ -657,21 +658,26 @@ function _getCfg() {
 }
 
 async function _runPush() {
-  if (!navigator.onLine) return;
-  const cfg = _getCfg();
-  if (!cfg) return;
-
-  try {
-    syncStatus.value = 'syncing';
-    const result = await drainQueue(cfg);
-    if (result.pushed > 0 || result.abandoned > 0) {
-      lastPushAt.value = new Date().toISOString();
+  if (_pushInFlight) return _pushInFlight;
+  _pushInFlight = (async () => {
+    try {
+      if (!navigator.onLine) return;
+      const cfg = _getCfg();
+      if (!cfg) return;
+      syncStatus.value = 'syncing';
+      const result = await drainQueue(cfg);
+      if (result.pushed > 0 || result.abandoned > 0) {
+        lastPushAt.value = new Date().toISOString();
+      }
+      syncStatus.value = result.failed > 0 ? 'error' : 'idle';
+    } catch (e) {
+      console.warn('[DirectusSync] Push error:', e);
+      syncStatus.value = 'error';
+    } finally {
+      _pushInFlight = null;
     }
-    syncStatus.value = result.failed > 0 ? 'error' : 'idle';
-  } catch (e) {
-    console.warn('[DirectusSync] Push error:', e);
-    syncStatus.value = 'error';
-  }
+  })();
+  return _pushInFlight;
 }
 
 // ── Pull helpers ──────────────────────────────────────────────────────────────
@@ -963,6 +969,7 @@ async function _hydrateConfigFromLocalCache(venueId, onProgress = null) {
   if (venueId == null) return false;
   const cached = await loadConfigFromIDB(venueId);
   applyDirectusConfigToAppConfig(cached);
+  _syncPreBillPrinterSelection(cached?.venueRecord ?? null);
   _syncStoreConfigSnapshot();
   _emitProgress(onProgress, { level: 'info', message: 'Configurazione locale applicata.' });
   return true;
@@ -976,6 +983,64 @@ function _syncStoreConfigSnapshot() {
     ? structuredClone(appConfig)
     : JSON.parse(JSON.stringify(appConfig));
   _store.config = snapshot;
+}
+
+/**
+ * Returns printers that can receive pre-bill jobs.
+ * Printers with missing/empty printTypes are treated as catch-all.
+ *
+ * @returns {Array<{id:string,name?:string,url?:string,printTypes?:string[]}>}
+ */
+function _preBillPrinters() {
+  return (appConfig.printers ?? []).filter((printer) => {
+    if (typeof printer?.id !== 'string' || !printer.id.trim()) return false;
+    if (!printer?.url) return false;
+    // Empty/missing printTypes means catch-all printer (includes pre_bill),
+    // consistent with usePrintQueue routing semantics.
+    if (!Array.isArray(printer.printTypes) || printer.printTypes.length === 0) return true;
+    return printer.printTypes.includes('pre_bill');
+  });
+}
+
+/**
+ * Ensures the store pre-bill default printer points to a valid Directus printer.
+ * Selection priority:
+ *  1) Keep current store selection if still valid
+ *  2) Use Directus venue default (pre_bill_printer / preBillPrinter) when valid
+ *  3) Fallback to first available pre-bill-capable printer
+ *
+ * @param {object|null} venueRecord
+ */
+function _syncPreBillPrinterSelection(venueRecord = null) {
+  if (!_store) return;
+  const candidates = _preBillPrinters();
+  if (candidates.length === 0) {
+    _store.preBillPrinterId = '';
+    return;
+  }
+  const current = typeof _store.preBillPrinterId === 'string' ? _store.preBillPrinterId : '';
+  if (current && candidates.some((printer) => printer.id === current)) return;
+  // Accept both Directus snake_case and local camelCase keys for robustness
+  // across deep-fetch payload shapes and cached snapshots.
+  const snakeDefault = _relationId(venueRecord?.pre_bill_printer);
+  const camelDefault = _relationId(venueRecord?.preBillPrinter);
+  if (snakeDefault && camelDefault && snakeDefault !== camelDefault) {
+    console.warn('[DirectusSync] Conflicting pre-bill default printer values in venue record:', {
+      pre_bill_printer: snakeDefault,
+      preBillPrinter: camelDefault,
+      selected: snakeDefault,
+      note: 'Using pre_bill_printer as precedence.',
+    });
+  }
+  const remoteDefault =
+    snakeDefault ??
+    camelDefault ??
+    null;
+  if (remoteDefault && candidates.some((printer) => printer.id === remoteDefault)) {
+    _store.preBillPrinterId = remoteDefault;
+    return;
+  }
+  _store.preBillPrinterId = candidates[0]?.id ?? '';
 }
 
 function _emitProgress(onProgress, payload) {
@@ -1074,6 +1139,10 @@ function _onOnline() {
   _runPull().catch(() => {});
 }
 
+function _onQueueEnqueue() {
+  _runPush().catch(() => {});
+}
+
 // ── Public composable ─────────────────────────────────────────────────────────
 
 export function useDirectusSync() {
@@ -1133,6 +1202,7 @@ export function useDirectusSync() {
 
     if (typeof window !== 'undefined') {
       window.addEventListener('online', _onOnline);
+      window.addEventListener('sync-queue:enqueue', _onQueueEnqueue);
     }
   }
 
@@ -1145,6 +1215,7 @@ export function useDirectusSync() {
     _stopSubscriptions();
     if (typeof window !== 'undefined') {
       window.removeEventListener('online', _onOnline);
+      window.removeEventListener('sync-queue:enqueue', _onQueueEnqueue);
     }
     syncStatus.value = 'idle';
   }
@@ -1223,10 +1294,15 @@ export function _resetDirectusSyncSingleton() {
   _running = false;
   _store = null;
   _appType = 'cassa';
+  _pushInFlight = null;
   if (_pushTimer) { clearInterval(_pushTimer); _pushTimer = null; }
   if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
   if (_globalTimer) { clearInterval(_globalTimer); _globalTimer = null; }
   _stopSubscriptions();
+  if (typeof window !== 'undefined') {
+    window.removeEventListener('online', _onOnline);
+    window.removeEventListener('sync-queue:enqueue', _onQueueEnqueue);
+  }
   syncStatus.value = 'idle';
   lastPushAt.value = null;
   lastPullAt.value = null;

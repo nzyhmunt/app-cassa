@@ -10,7 +10,7 @@
 import { openDB } from 'idb';
 import { getInstanceName } from '../store/persistence.js';
 
-export const DB_VERSION = 6;
+export const DB_VERSION = 7;
 const DB_NAME_PREFIX = 'app-cassa';
 
 /**
@@ -35,6 +35,8 @@ const DB_NAME_PREFIX = 'app-cassa';
  *               slave_table/master_table/venue/date_updated.
  *               Added menu_modifiers + junction stores
  *               (menu_categories_menu_modifiers, menu_items_menu_modifiers).
+ *  v7 — Added `sync_failed_calls` store to persist full request/response details
+ *               for failed sync attempts, even after queue entries are removed.
  *
  * To add a new version (e.g. v7):
  *   1. Increment DB_VERSION to 7.
@@ -354,6 +356,11 @@ export function getDB() {
         const s = db.createObjectStore('sync_queue', { keyPath: 'id' });
         s.createIndex('collection', 'collection', { unique: false });
         s.createIndex('date_created', 'date_created', { unique: false });
+      }
+      if (!db.objectStoreNames.contains('sync_failed_calls')) {
+        const s = db.createObjectStore('sync_failed_calls', { keyPath: 'id' });
+        s.createIndex('failed_at', 'failed_at', { unique: false });
+        s.createIndex('collection', 'collection', { unique: false });
       }
 
       // ── Local-only metadata stores ─────────────────────────────────────────

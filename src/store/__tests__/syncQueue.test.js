@@ -20,6 +20,7 @@ import { _resetIDBSingleton } from '../../composables/useIDB.js';
 import {
   enqueue,
   getPendingEntries,
+  getFailedSyncCalls,
   drainQueue,
   MAX_ATTEMPTS,
   _resetEnqueueSeq,
@@ -50,6 +51,17 @@ afterEach(() => {
 // ── enqueue ───────────────────────────────────────────────────────────────────
 
 describe('enqueue()', () => {
+  it('dispatches a sync-queue enqueue event', async () => {
+    const listener = vi.fn();
+    window.addEventListener('sync-queue:enqueue', listener);
+    try {
+      await enqueue('orders', 'create', 'ord_evt_1', { id: 'ord_evt_1' });
+      expect(listener).toHaveBeenCalledTimes(1);
+    } finally {
+      window.removeEventListener('sync-queue:enqueue', listener);
+    }
+  });
+
   it('adds an entry to the sync_queue', async () => {
     await enqueue('orders', 'create', 'ord_1', { id: 'ord_1', status: 'pending' });
     const entries = await getPendingEntries();
@@ -181,6 +193,25 @@ describe('drainQueue()', () => {
     expect(entries[0].attempts).toBe(1);
   });
 
+  it('stops processing remaining entries after first failure to preserve order', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch').mockRejectedValueOnce(new Error('network'));
+    await enqueue('orders', 'create', 'ord_1', { id: 'ord_1' });
+    await enqueue('orders', 'update', 'ord_1', { status: 'accepted' });
+
+    const result = await drainQueue(FAKE_CFG);
+
+    expect(result.pushed).toBe(0);
+    expect(result.failed).toBe(1);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+
+    const entries = await getPendingEntries();
+    expect(entries).toHaveLength(2);
+    expect(entries[0].operation).toBe('create');
+    expect(entries[0].attempts).toBe(1);
+    expect(entries[1].operation).toBe('update');
+    expect(entries[1].attempts).toBe(0);
+  });
+
   it('abandons entry after MAX_ATTEMPTS and removes from queue', async () => {
     vi.spyOn(global, 'fetch').mockRejectedValue(new Error('network'));
 
@@ -196,6 +227,25 @@ describe('drainQueue()', () => {
     const entries = await getPendingEntries();
     expect(entries).toHaveLength(0);
     expect(result.abandoned).toBe(1);
+  });
+
+  it('persists failed-call history even after queue entry is abandoned', async () => {
+    vi.spyOn(global, 'fetch').mockRejectedValue(new Error('network'));
+    await enqueue('orders', 'create', 'ord_failed_history', { id: 'ord_failed_history' });
+
+    for (let i = 0; i < MAX_ATTEMPTS; i++) {
+      await drainQueue(FAKE_CFG);
+    }
+
+    expect(await getPendingEntries()).toHaveLength(0);
+    const failedCalls = await getFailedSyncCalls();
+    expect(failedCalls.length).toBeGreaterThan(0);
+    expect(failedCalls[0]).toMatchObject({
+      collection: 'orders',
+      operation: 'create',
+      record_id: 'ord_failed_history',
+    });
+    expect(failedCalls.some((call) => call.abandoned === true)).toBe(true);
   });
 
   it('returns { pushed, failed, abandoned } correctly', async () => {
