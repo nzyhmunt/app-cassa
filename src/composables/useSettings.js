@@ -130,7 +130,6 @@ export function useSettings(props, emit) {
     const resetSettings = {
       ...DEFAULT_SETTINGS,
       menuSource: 'json',
-      menuUrl: DEFAULT_SETTINGS.menuUrl,
     };
     try {
       await saveSettingsToIDB(resetSettings);
