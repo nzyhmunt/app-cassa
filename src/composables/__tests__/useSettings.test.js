@@ -411,7 +411,7 @@ describe('useSettings()', () => {
     }
   });
 
-  it('confirmReset() removes the PWA dismiss key from localStorage', async () => {
+  it('confirmReset() preserves the PWA dismiss key in localStorage', async () => {
     const reloadMock = vi.fn();
     const originalLocationDescriptor = Object.getOwnPropertyDescriptor(window, 'location');
     const originalLocationValue = window.location;

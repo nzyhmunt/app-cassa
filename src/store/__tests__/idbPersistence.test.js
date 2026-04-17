@@ -272,6 +272,24 @@ describe('saveStateToIDB() + loadStateFromIDB()', () => {
     const legacyRecord = await db.get('app_meta', 'tableMergedInto');
     expect(legacyRecord).toBeUndefined();
   });
+
+  it('removes stale legacy app_meta.tableMergedInto when saving tableMergedInto', async () => {
+    const { getDB } = await import('../../composables/useIDB.js');
+    const db = await getDB();
+    await db.put('app_meta', { id: 'tableMergedInto', value: { OLD: 'T1' } });
+
+    await saveStateToIDB({
+      orders: [], transactions: [], cashBalance: 0, cashMovements: [],
+      dailyClosures: [], printLog: [],
+      tableCurrentBillSession: {},
+      tableMergedInto: { T2: 'T1' },
+      tableOccupiedAt: {},
+      billRequestedTables: new Set(),
+    });
+
+    const legacyRecord = await db.get('app_meta', 'tableMergedInto');
+    expect(legacyRecord).toBeUndefined();
+  });
 });
 
 // ── bill_sessions hydration (loadStateFromIDB H1) ─────────────────────────────

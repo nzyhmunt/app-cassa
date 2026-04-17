@@ -222,7 +222,7 @@ export async function saveStateToIDB(state) {
     if ('tableMergedInto' in state) {
       const now = new Date().toISOString();
       ops.push((async () => {
-        const tx = db.transaction('table_merge_sessions', 'readwrite');
+        const tx = db.transaction(['table_merge_sessions', 'app_meta'], 'readwrite');
         const mergeStore = tx.objectStore('table_merge_sessions');
         const existingRecords = await mergeStore.getAll();
         const existingBySlave = new Map(
@@ -245,6 +245,7 @@ export async function saveStateToIDB(state) {
           });
         await mergeStore.clear();
         await Promise.all(records.map(r => mergeStore.put(JSON.parse(JSON.stringify(r)))));
+        await tx.objectStore('app_meta').delete('tableMergedInto');
         await tx.done;
       })());
     }
