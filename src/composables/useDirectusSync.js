@@ -317,7 +317,7 @@ function _deleteFromStore(collection, records, store) {
 async function _refreshStoreFromIDB(collection = null) {
   if (!_store) return;
   if (typeof _store.refreshOperationalStateFromIDB === 'function') {
-    await _store.refreshOperationalStateFromIDB(collection);
+    await _store.refreshOperationalStateFromIDB(collection ? { collection } : {});
     return;
   }
   if (typeof _store.refreshFromIDB === 'function') {
