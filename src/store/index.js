@@ -609,19 +609,33 @@ export const useAppStore = defineStore('app', () => {
   watch(tableOccupiedAt, () => _scheduleSave('tableOccupiedAt'), { deep: true });
   watch(billRequestedTables, () => _scheduleSave('billRequestedTables'), { deep: true });
 
-  async function refreshOperationalStateFromIDB() {
+  const operationalStateRefs = {
+    orders,
+    transactions,
+    cashBalance,
+    cashMovements,
+    dailyClosures,
+    printLog,
+    tableCurrentBillSession,
+    tableMergedInto,
+    tableOccupiedAt,
+    billRequestedTables,
+  };
+
+  async function refreshOperationalStateFromIDB(options = {}) {
+    const { collection, collections } = options;
+    const requestedCollections = collections ?? (collection ? [collection] : Object.keys(operationalStateRefs));
+    const targetCollections = requestedCollections.filter((key) => Object.prototype.hasOwnProperty.call(operationalStateRefs, key));
+    if (!targetCollections.length) return;
+
     const idbState = await loadStateFromIDB();
     if (!idbState) return;
-    orders.value = idbState.orders;
-    transactions.value = idbState.transactions;
-    cashBalance.value = idbState.cashBalance;
-    cashMovements.value = idbState.cashMovements;
-    dailyClosures.value = idbState.dailyClosures;
-    printLog.value = idbState.printLog;
-    tableCurrentBillSession.value = idbState.tableCurrentBillSession;
-    tableMergedInto.value = idbState.tableMergedInto;
-    tableOccupiedAt.value = idbState.tableOccupiedAt;
-    billRequestedTables.value = idbState.billRequestedTables;
+
+    targetCollections.forEach((key) => {
+      if (Object.prototype.hasOwnProperty.call(idbState, key)) {
+        operationalStateRefs[key].value = idbState[key];
+      }
+    });
   }
 
   return {
