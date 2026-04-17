@@ -3,7 +3,7 @@
  * @description Persistence key-derivation utilities.
  *
  * Provides helpers to derive storage keys (for instance isolation) and to
- * clear state. App state is now stored in IndexedDB via `store/idbPersistence.js`;
+ * clear state. App state is stored in IndexedDB via `store/idbPersistence.js`;
  * this module retains helpers that are shared across multiple files (key
  * derivation, instance name resolution) and provides `clearState` for
  * full-reset flows.
@@ -35,9 +35,8 @@ export function getInstanceName() {
 }
 
 /**
- * Derives storage key names from the active instance name.
- * Kept for backwards compatibility — used by composables that reference the
- * instance-namespaced IDB database name and legacy references.
+ * Derives namespaced logical keys from the active instance name.
+ * Used for instance-isolated IndexedDB records.
  *
  * @param {string} [instanceName] - Instance name; defaults to getInstanceName().
  * @returns {{ storageKey: string, settingsKey: string }}
@@ -64,9 +63,7 @@ export function resolveCustomItemsKey(instanceName) {
 }
 
 /**
- * Resolves the localStorage key for the Directus connection config.
- * Each app instance stores its own Directus credentials so that multiple
- * instances running on the same device stay fully isolated.
+ * Resolves the logical key for the Directus connection config record.
  *
  * @param {string} [instanceName] - Instance name; defaults to getInstanceName().
  * @returns {string}
@@ -77,20 +74,11 @@ export function resolveDirectusConfigKey(instanceName) {
 }
 
 /**
- * Clears the entire persisted app state from IndexedDB (and removes any
- * legacy localStorage key as a courtesy during the transition period).
+ * Clears the entire persisted app state from IndexedDB.
  *
- * @param {string} [storageKey] - Legacy localStorage key (ignored if not present).
+ * @param {string} [_storageKey] - Reserved for backward-compatible signatures.
  */
-export function clearState(storageKey) {
-  // Remove legacy localStorage entry if it still exists
-  if (
-    typeof localStorage !== 'undefined' &&
-    typeof storageKey === 'string' &&
-    storageKey !== ''
-  ) {
-    try { localStorage.removeItem(storageKey); } catch (_) { /* ignore */ }
-  }
+export function clearState(_storageKey) {
   // Clear IndexedDB operative stores asynchronously (fire-and-forget)
   (async () => {
     try {
@@ -101,4 +89,3 @@ export function clearState(storageKey) {
     }
   })();
 }
-

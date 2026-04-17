@@ -2,7 +2,7 @@
  * @file store/idbPersistence.js
  * @description IndexedDB-based persistence helpers for the Pinia store.
  *
- * Replaces `pinia-plugin-persistedstate` + localStorage with structured
+ * Replaces `pinia-plugin-persistedstate` with structured
  * IndexedDB ObjectStores as defined in DATABASE_SCHEMA.md §5.6.
  *
  * Architecture:
@@ -80,7 +80,7 @@ export async function loadStateFromIDB() {
       db.get('app_meta', 'billRequestedTables'),
     ]);
 
-    // printLog: strip payload field (same behaviour as the old localStorage serialiser)
+    // printLog: strip payload field before persistence
     const printLog = printLogRaw.map(({ payload: _p, ...rest }) => rest);
 
     // H1: Reconstruct tableCurrentBillSession from the dedicated bill_sessions ObjectStore

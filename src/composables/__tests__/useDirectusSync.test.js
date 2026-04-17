@@ -1260,8 +1260,8 @@ describe('global pull config hydration', () => {
   });
 
   it('does not apply config hydration when a global collection pull fails', async () => {
-    const utils = await import('../../utils/index.js');
-    const applySpy = vi.spyOn(utils, 'applyDirectusConfigToAppConfig');
+    const mappers = await import('../../utils/mappers.js');
+    const applySpy = vi.spyOn(mappers, 'mapVenueConfigFromDirectus');
 
     vi.spyOn(global, 'fetch').mockImplementation((url) => {
       if (String(url).includes('/items/venues')) {

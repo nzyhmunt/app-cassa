@@ -297,7 +297,7 @@
  * - App: almeno una deve essere selezionata.
  *
  * ## Persistenza
- * Tutti gli utenti manuali sono salvati in localStorage tramite `useAuth()`.
+ * Tutti gli utenti manuali sono salvati in IndexedDB tramite `useAuth()`.
  * Gli utenti definiti in `appConfig.auth.users` sono in sola lettura
  * (badge "Config") e non possono essere modificati o eliminati dall'UI.
  *

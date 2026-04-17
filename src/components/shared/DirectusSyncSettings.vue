@@ -451,7 +451,7 @@ async function testConnection() {
   }
 }
 
-/** Persists the form values to localStorage and updates appConfig. */
+/** Persists the form values to IndexedDB and updates appConfig. */
 function saveConfig() {
   const nextDirectusConfig = {
     enabled: form.enabled,

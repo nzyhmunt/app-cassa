@@ -82,17 +82,17 @@ describe('resolveStorageKeys()', () => {
 describe('clearState()', () => {
   beforeEach(() => localStorage.clear());
 
-  it('removes the given key from localStorage', () => {
+  it('does not mutate localStorage keys (IDB-only reset)', () => {
     localStorage.setItem('test_key', 'some_data');
     clearState('test_key');
-    expect(localStorage.getItem('test_key')).toBeNull();
+    expect(localStorage.getItem('test_key')).toBe('some_data');
   });
 
   it('is a no-op when the key does not exist', () => {
     expect(() => clearState('nonexistent_key')).not.toThrow();
   });
 
-  it('does not affect other localStorage keys', () => {
+  it('does not affect unrelated localStorage keys', () => {
     localStorage.setItem('key_a', 'a');
     localStorage.setItem('key_b', 'b');
     clearState('key_a');

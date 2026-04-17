@@ -1237,16 +1237,16 @@ Flusso di integrazione previsto:
 3. **Sessioni tavolo** (bill_sessions): create localmente e sincronizzate come gli ordini.
 4. **Reportistica** (daily_closures, print_jobs): push-only, mai modificati dopo la creazione.
 
-#### Hydration appConfig da Directus (D1–D4)
+#### Hydration configurazione runtime da Directus (D1–D4)
 
-Dopo ogni pull globale delle collection di configurazione, `useDirectusSync.js` chiama:
+Dopo ogni pull globale delle collection di configurazione, `useDirectusSync.js` esegue:
 
-1. `loadConfigFromIDB(venueId)` (`idbPersistence.js`) — legge venues, rooms, tables,
+1. `loadConfigFromIDB(venueId)` (`store/persistence/config.js`) — legge venues, rooms, tables,
    payment_methods, printers, menu_categories, menu_items dall'IDB e li restituisce come
    oggetto plain (filtrando per `venue` e `status !== 'archived'`, ordinando per `sort`).
-2. `applyDirectusConfigToAppConfig(cfg)` (`utils/index.js`) — applica il risultato sul
-   singleton `appConfig` live, aggiornando `appConfig.ui`, `.rooms`, `.tables`,
-   `.paymentMethods`, `.printers`, `.menu` senza ricaricare la pagina.
+2. `mapVenueConfigFromDirectus(cfg, DEFAULT_SETTINGS)` (`utils/mappers.js`) — converte il payload
+   Directus (snake_case + relazioni) in configurazione runtime locale (camelCase).
+3. `createRuntimeConfig(...)` (`utils/index.js`) — produce il runtime config reattivo partendo dai default statici.
 
 Regole di priorità:
 - Campi scalari venue: Directus vince se il valore è non-null.

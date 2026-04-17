@@ -129,6 +129,8 @@ export default defineConfig({
     globals: true,
     setupFiles: ['./vitest.setup.js'],
     exclude: [
+      '**/node_modules/**',
+      '**/dist/**',
       'print-server/**',
       'directus-extensions/**',
     ],

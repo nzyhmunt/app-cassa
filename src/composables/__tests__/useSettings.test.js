@@ -324,10 +324,9 @@ describe('useSettings()', () => {
 
       result.confirmReset();
 
-      // clearState() removes storageKey from localStorage
-      expect(localStorage.getItem(storageKey)).toBeNull();
-      // confirmReset() also removes legacy settingsKey for backwards compatibility
-      expect(localStorage.getItem(settingsKey)).toBeNull();
+      // Reset ora agisce solo su IndexedDB; localStorage legacy non viene toccato.
+      expect(localStorage.getItem(storageKey)).toBe(JSON.stringify({ orders: [] }));
+      expect(localStorage.getItem(settingsKey)).toBe(JSON.stringify({ sounds: false }));
       wrapper.unmount();
     } finally {
       if (originalLocationDescriptor) {
@@ -395,7 +394,7 @@ describe('useSettings()', () => {
       const { result, wrapper } = withSetup(() => useSettings(props, emit));
       await result.confirmReset();
 
-      expect(localStorage.getItem(configKey)).toBeNull();
+      expect(localStorage.getItem(configKey)).toBeTruthy();
       wrapper.unmount();
     } finally {
       if (originalLocationDescriptor) {
@@ -435,8 +434,8 @@ describe('useSettings()', () => {
       const { result, wrapper } = withSetup(() => useSettings(props, emit));
       await result.confirmReset();
 
-      expect(localStorage.getItem(namespacedKey)).toBeNull();
-      expect(localStorage.getItem(legacyKey)).toBeNull();
+      expect(localStorage.getItem(namespacedKey)).toBeTruthy();
+      expect(localStorage.getItem(legacyKey)).toBeTruthy();
       wrapper.unmount();
     } finally {
       appConfig.instanceName = originalInstanceName;
@@ -469,7 +468,7 @@ describe('useSettings()', () => {
       const { result, wrapper } = withSetup(() => useSettings(props, emit));
       await result.confirmReset();
 
-      expect(localStorage.getItem(pwaDismissKey)).toBeNull();
+      expect(localStorage.getItem(pwaDismissKey)).toBe('true');
       wrapper.unmount();
     } finally {
       if (originalLocationDescriptor) {

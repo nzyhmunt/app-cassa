@@ -20,7 +20,21 @@ import { appConfig, updateOrderTotals, KITCHEN_ACTIVE_STATUSES, KEYBOARD_POSITIO
 import { newUUIDv7, newShortId } from './storeUtils.js';
 import { makeTableOps } from './tableOps.js';
 import { makeReportOps } from './reportOps.js';
-import { loadStateFromIDB, saveStateToIDB, upsertBillSessionInIDB, closeBillSessionInIDB, loadSettingsFromIDB, saveFiscalReceiptToIDB, saveInvoiceRequestToIDB, loadFiscalReceiptsFromIDB, loadInvoiceRequestsFromIDB, pruneFiscalReceiptsInIDB, pruneInvoiceRequestsInIDB } from './idbPersistence.js';
+import {
+  loadStateFromIDB,
+  saveStateToIDB,
+  upsertBillSessionInIDB,
+  closeBillSessionInIDB,
+  loadSettingsFromIDB,
+} from './persistence/operations.js';
+import {
+  saveFiscalReceiptToIDB,
+  saveInvoiceRequestToIDB,
+  loadFiscalReceiptsFromIDB,
+  loadInvoiceRequestsFromIDB,
+  pruneFiscalReceiptsInIDB,
+  pruneInvoiceRequestsInIDB,
+} from './persistence/audit.js';
 import { enqueue } from '../composables/useSyncQueue.js';
 
 export const useAppStore = defineStore('app', () => {
@@ -595,6 +609,21 @@ export const useAppStore = defineStore('app', () => {
   watch(tableOccupiedAt, () => _scheduleSave('tableOccupiedAt'), { deep: true });
   watch(billRequestedTables, () => _scheduleSave('billRequestedTables'), { deep: true });
 
+  async function refreshOperationalStateFromIDB() {
+    const idbState = await loadStateFromIDB();
+    if (!idbState) return;
+    orders.value = idbState.orders;
+    transactions.value = idbState.transactions;
+    cashBalance.value = idbState.cashBalance;
+    cashMovements.value = idbState.cashMovements;
+    dailyClosures.value = idbState.dailyClosures;
+    printLog.value = idbState.printLog;
+    tableCurrentBillSession.value = idbState.tableCurrentBillSession;
+    tableMergedInto.value = idbState.tableMergedInto;
+    tableOccupiedAt.value = idbState.tableOccupiedAt;
+    billRequestedTables.value = idbState.billRequestedTables;
+  }
+
   return {
     // state
     config, orders, transactions,
@@ -625,6 +654,106 @@ export const useAppStore = defineStore('app', () => {
     moveTableOrders, mergeTableOrders, detachSlaveTable, splitItemsToTable,
     // cassa operations
     setFondoCassa, addCashMovement, generateXReport, performDailyClose,
+    refreshOperationalStateFromIDB,
+  };
+});
+
+export const useConfigStore = defineStore('config', () => {
+  const app = useAppStore();
+  return {
+    config: computed({
+      get: () => app.config,
+      set: (value) => { app.config = value; },
+    }),
+    rooms: computed(() => app.rooms),
+    cssVars: computed(() => app.cssVars),
+    sounds: computed({
+      get: () => app.sounds,
+      set: (value) => { app.sounds = value; },
+    }),
+    menuUrl: computed({
+      get: () => app.menuUrl,
+      set: (value) => { app.menuUrl = value; },
+    }),
+    preventScreenLock: computed({
+      get: () => app.preventScreenLock,
+      set: (value) => { app.preventScreenLock = value; },
+    }),
+    customKeyboard: computed({
+      get: () => app.customKeyboard,
+      set: (value) => { app.customKeyboard = value; },
+    }),
+    preBillPrinterId: computed({
+      get: () => app.preBillPrinterId,
+      set: (value) => { app.preBillPrinterId = value; },
+    }),
+    menuLoading: computed(() => app.menuLoading),
+    menuError: computed(() => app.menuError),
+    loadMenu: app.loadMenu,
+  };
+});
+
+export const useOrderStore = defineStore('orders', () => {
+  const app = useAppStore();
+  return {
+    orders: computed({
+      get: () => app.orders,
+      set: (value) => { app.orders = value; },
+    }),
+    transactions: computed({
+      get: () => app.transactions,
+      set: (value) => { app.transactions = value; },
+    }),
+    cashBalance: computed({
+      get: () => app.cashBalance,
+      set: (value) => { app.cashBalance = value; },
+    }),
+    cashMovements: computed({
+      get: () => app.cashMovements,
+      set: (value) => { app.cashMovements = value; },
+    }),
+    dailyClosures: computed({
+      get: () => app.dailyClosures,
+      set: (value) => { app.dailyClosures = value; },
+    }),
+    tableOccupiedAt: computed({
+      get: () => app.tableOccupiedAt,
+      set: (value) => { app.tableOccupiedAt = value; },
+    }),
+    billRequestedTables: computed({
+      get: () => app.billRequestedTables,
+      set: (value) => { app.billRequestedTables = value; },
+    }),
+    tableCurrentBillSession: computed({
+      get: () => app.tableCurrentBillSession,
+      set: (value) => { app.tableCurrentBillSession = value; },
+    }),
+    tableMergedInto: computed({
+      get: () => app.tableMergedInto,
+      set: (value) => { app.tableMergedInto = value; },
+    }),
+    pendingCount: computed(() => app.pendingCount),
+    inKitchenCount: computed(() => app.inKitchenCount),
+    closedBills: computed(() => app.closedBills),
+    addOrder: app.addOrder,
+    changeOrderStatus: app.changeOrderStatus,
+    setItemKitchenReady: app.setItemKitchenReady,
+    updateQtyGlobal: app.updateQtyGlobal,
+    removeRowGlobal: app.removeRowGlobal,
+    voidOrderItems: app.voidOrderItems,
+    restoreOrderItems: app.restoreOrderItems,
+    voidModifier: app.voidModifier,
+    restoreModifier: app.restoreModifier,
+    addTransaction: app.addTransaction,
+    addTipTransaction: app.addTipTransaction,
+    addDirectOrder: app.addDirectOrder,
+    simulateNewOrder: app.simulateNewOrder,
+    setBillRequested: app.setBillRequested,
+    openTableSession: app.openTableSession,
+    moveTableOrders: app.moveTableOrders,
+    mergeTableOrders: app.mergeTableOrders,
+    detachSlaveTable: app.detachSlaveTable,
+    splitItemsToTable: app.splitItemsToTable,
   };
 });
 

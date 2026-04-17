@@ -1,11 +1,9 @@
 import { ref, watch, onUnmounted } from 'vue';
 import { useAppStore } from '../store/index.js';
-import { getInstanceName, resolveStorageKeys } from '../store/persistence.js';
 import { appConfig, KEYBOARD_POSITIONS } from '../utils/index.js';
 import { isWakeLockSupported } from './useWakeLock.js';
-import { getPwaDismissKey } from './usePwaInstall.js';
 import { useAuth } from './useAuth.js';
-import { saveSettingsToIDB, clearAllStateFromIDB, clearSyncQueueFromIDB } from '../store/idbPersistence.js';
+import { saveSettingsToIDB, clearAllStateFromIDB, clearSyncQueueFromIDB } from '../store/persistence/operations.js';
 import { clearDirectusConfigFromStorage } from './useDirectusClient.js';
 /**
  * Shared composable for the Cassa and Sala settings modals.
@@ -18,9 +16,6 @@ import { clearDirectusConfigFromStorage } from './useDirectusClient.js';
 export function useSettings(props, emit) {
   const store = useAppStore();
   const wakeLockApiSupported = isWakeLockSupported();
-
-  const _instanceName = getInstanceName();
-  const { storageKey: _storageKey, settingsKey: _settingsKey } = resolveStorageKeys(_instanceName);
 
   /** Validate a stored keyboard value; return 'disabled' if unknown. */
   function _parseKeyboardPosition(v) {
@@ -93,14 +88,6 @@ export function useSettings(props, emit) {
   }
 
   async function confirmReset() {
-    // Remove legacy localStorage entries synchronously
-    try { window.localStorage.removeItem(_storageKey); } catch (_) { /* ignore */ }
-    try { window.localStorage.removeItem(_settingsKey); } catch (_) { /* ignore */ }
-    try {
-      window.localStorage.removeItem(getPwaDismissKey());
-    } catch (e) {
-      console.warn('[Settings] Failed to remove PWA dismiss key during reset:', e);
-    }
     // Clear Directus connection config so it is not reloaded after reload.
     try {
       clearDirectusConfigFromStorage();
