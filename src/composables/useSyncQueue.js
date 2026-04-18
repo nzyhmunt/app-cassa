@@ -252,7 +252,7 @@ function _cleanPayload(payload) {
  */
 const PUSH_DROP_FIELDS = new Set([
   'timestamp',         // local ISO string; Directus auto-sets date_created via server
-  'paymentMethod',     // UI label snapshot; Directus persists the relation id in payment_method
+  'paymentMethod',     // UI-only display label; Directus persists only the relation id in payment_method
   'orderRefs',         // M2M handled separately via transaction_order_refs collection
   'vociRefs',          // M2M handled separately via transaction_voce_refs collection
   'grossAmount',       // UI-only display field (not in Directus schema)
@@ -342,6 +342,7 @@ const TO_DIRECTUS_MAPPERS = {
   order_items: mapOrderItemToDirectus,
   bill_sessions: mapBillSessionToDirectus,
 };
+const PAYMENT_METHOD_RELATION_COLLECTIONS = new Set(['transactions', 'daily_closure_by_method']);
 
 function _resolveConfiguredPaymentMethod(rawValue) {
   if (typeof rawValue !== 'string') return null;
@@ -446,7 +447,7 @@ function _toDirectusPayload(collection, localPayload) {
 
   const mapper = TO_DIRECTUS_MAPPERS[collection];
   const mapped = mapper ? mapper(out) : out;
-  if (collection === 'transactions' || collection === 'daily_closure_by_method') {
+  if (PAYMENT_METHOD_RELATION_COLLECTIONS.has(collection)) {
     const resolvedPaymentMethodId = _resolvePaymentMethodId(localPayload, mapped);
     if (resolvedPaymentMethodId) mapped.payment_method = resolvedPaymentMethodId;
     else delete mapped.payment_method;

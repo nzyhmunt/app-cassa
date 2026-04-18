@@ -943,9 +943,9 @@ function _preBillPrinters() {
  *  1) Keep the current local selection if still valid
  *  2) Fallback to the first available pre-bill-capable printer
  *
- * @param {object|null} venueRecord
+ * @param {object|null} _venueRecord
  */
-function _syncPreBillPrinterSelection(venueRecord = null) {
+function _syncPreBillPrinterSelection(_venueRecord = null) {
   if (!_store) return;
   const candidates = _preBillPrinters();
   if (candidates.length === 0) {
@@ -958,7 +958,6 @@ function _syncPreBillPrinterSelection(venueRecord = null) {
   }
   const current = typeof _store.preBillPrinterId === 'string' ? _store.preBillPrinterId : '';
   if (current && candidates.some((printer) => printer.id === current)) return;
-  void venueRecord;
   const newPrinterId = candidates[0]?.id ?? '';
   _store.preBillPrinterId = newPrinterId;
   // Persist the auto-selected printer to IDB so the selection survives a reload.

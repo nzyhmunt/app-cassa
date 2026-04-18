@@ -8,6 +8,8 @@ import { computed } from 'vue';
 import { newUUIDv7 } from './storeUtils.js';
 import { saveStateToIDB } from './persistence/operations.js';
 
+const FALLBACK_PAYMENT_METHOD_LABEL = 'Altro';
+
 /**
  * @param {object} state   – Reactive refs: orders, transactions, cashBalance, cashMovements,
  *                           dailyClosures, config, fiscalReceipts, invoiceRequests
@@ -30,7 +32,7 @@ export function makeReportOps(state, helpers) {
     }
 
     const rawLabel = typeof transaction?.paymentMethod === 'string' ? transaction.paymentMethod.trim() : '';
-    if (!rawLabel) return { id: '', label: 'Altro' };
+    if (!rawLabel) return { id: '', label: FALLBACK_PAYMENT_METHOD_LABEL };
     const match = methods.find((method) => method?.id === rawLabel || method?.label === rawLabel);
     return { id: match?.id ?? '', label: match?.label ?? rawLabel };
   }
