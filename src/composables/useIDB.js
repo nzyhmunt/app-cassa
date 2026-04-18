@@ -354,7 +354,7 @@ export function getDB() {
         s.createIndex('collection', 'collection', { unique: false });
       }
 
-       // ── Local-only metadata stores ─────────────────────────────────────────
+      // ── Local-only metadata stores ─────────────────────────────────────────
 
       // local_settings: device-local settings (sounds, menuUrl, preventScreenLock, ...)
       if (!db.objectStoreNames.contains('local_settings')) {
