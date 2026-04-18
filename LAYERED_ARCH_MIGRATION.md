@@ -239,3 +239,38 @@ P1-4 (init IDB-only)         ← dopo P0-1/P0-3
 P1-6 (legacy fields)         ← coordinare con release Directus
 P2-*                         ← in qualunque slot libero
 ```
+
+---
+
+## Scaletta operativa consigliata — P2
+
+> Obiettivo: chiudere il debito tecnico P2 in step piccoli, testabili e con rollback semplice.
+
+### Fase 1 · Allineamento schema/documentazione
+
+- [ ] **P2-1 (parte docs)** aggiornare `DATABASE_SCHEMA.md` sul modello M2M dei modifier.
+- [ ] **P2-5** chiarire lo stato di `app_settings` (non sincronizzata vs piano sync).
+- [ ] Definire decisione esplicita su eventuale deprecazione backend (`menu_item_modifiers`, `app_settings`).
+
+### Fase 2 · Pulizia runtime a basso rischio
+
+- [ ] **P2-4** marcare `clearState()` come deprecata e indicare il path ufficiale.
+- [ ] **P2-2** censire mapper legacy non usati e rimuovere solo quelli non referenziati in runtime.
+- [ ] Eseguire test mirati su store/persistence/sync queue dopo ogni rimozione.
+
+### Fase 3 · Migrazione tecnica con impatto dati
+
+- [ ] **P2-3** rinomina `demo_app_state` → `app_state` con bump `SCHEMA_VERSION` e migrazione sicura.
+- [ ] **P2-1 (parte IDB)** decidere e applicare rimozione/mantenimento store `menu_item_modifiers`.
+- [ ] Validare bootstrap/hydration su device con stato preesistente (upgrade path).
+
+### Fase 4 · Allineamento config Directus
+
+- [ ] **P2-6** aggiungere mapping `venues.billing_auto_close_on_full_payment` verso `appConfig.billing.autoCloseOnFullPayment` (oppure rimozione campo lato schema).
+- [ ] Aggiornare test composable/config per il nuovo mapping.
+
+### Definition of Done P2
+
+- [ ] Checklist P2-1..P2-6 tutta spuntata.
+- [ ] `DATABASE_SCHEMA.md` e `LAYERED_ARCH_MIGRATION.md` coerenti con il codice.
+- [ ] Build e test mirati verdi su aree toccate.
