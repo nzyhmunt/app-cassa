@@ -80,6 +80,24 @@ function makeOrder(id, table = 'T1', status = 'pending') {
   };
 }
 
+function makeOrderWithItems(id, table = 'T1', status = 'accepted') {
+  return {
+    id,
+    table,
+    billSessionId: 'sess_1',
+    status,
+    time: '19:00',
+    totalAmount: 20,
+    itemCount: 2,
+    dietaryPreferences: {},
+    globalNote: '',
+    noteVisibility: { cassa: true, sala: true, cucina: true },
+    orderItems: [
+      { uid: 'item_1', dishId: 'd1', name: 'Pasta', unitPrice: 10, quantity: 2, voidedQuantity: 0, notes: [], modifiers: [] },
+    ],
+  };
+}
+
 beforeEach(() => {
   vi.useFakeTimers();
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 503 }));
@@ -263,5 +281,96 @@ describe('P0-1 IDB rejection — state must not mutate when IDB write fails', ()
     })).rejects.toThrow('IDB write failed');
     expect(store.transactions).toHaveLength(0);
     expect(enqueueMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('P0-2 IDB-first — order item mutations', () => {
+  it('updateQtyGlobal saves projected order to IDB before reactive mutation and enqueue', async () => {
+    const store = useAppStore();
+    runtime.store = store;
+    const order = makeOrderWithItems('ord_qty');
+    await store.addOrder(order);
+    runtime.snapshots = [];
+    vi.clearAllMocks();
+
+    const liveOrder = store.orders.find(o => o.id === 'ord_qty');
+    liveOrder.status = 'pending';
+    await store.updateQtyGlobal(liveOrder, 0, 1);
+    vi.advanceTimersByTime(200);
+
+    const saveSnapshot = runtime.snapshots.find(e => e.type === 'save-state');
+    expect(saveSnapshot).toBeDefined();
+    // IDB was called with the updated quantity before orders.value was mutated
+    expect(saveSnapshot.payload.orders[0].orderItems[0].quantity).toBe(3);
+
+    const saveCall = saveStateToIDBMock.mock.invocationCallOrder[0];
+    const enqueueCall = enqueueMock.mock.invocationCallOrder[0];
+    expect(saveCall).toBeLessThan(enqueueCall);
+    expect(saveStateToIDBMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('updateQtyGlobal does not mutate orders when IDB rejects', async () => {
+    const store = useAppStore();
+    const order = makeOrderWithItems('ord_qty_fail');
+    order.status = 'pending';
+    store.orders = [order];
+    saveStateToIDBMock.mockRejectedValueOnce(new Error('IDB write failed'));
+
+    await expect(store.updateQtyGlobal(order, 0, 1)).rejects.toThrow('IDB write failed');
+    // quantity must remain unchanged
+    expect(store.orders[0].orderItems[0].quantity).toBe(2);
+    expect(enqueueMock).not.toHaveBeenCalled();
+  });
+
+  it('voidOrderItems saves projected state to IDB before reactive mutation', async () => {
+    const store = useAppStore();
+    runtime.store = store;
+    const order = makeOrderWithItems('ord_void');
+    await store.addOrder(order);
+    runtime.snapshots = [];
+    vi.clearAllMocks();
+
+    const liveOrder = store.orders.find(o => o.id === 'ord_void');
+    await store.voidOrderItems(liveOrder, 0, 1);
+    vi.advanceTimersByTime(200);
+
+    const saveSnapshot = runtime.snapshots.find(e => e.type === 'save-state');
+    expect(saveSnapshot).toBeDefined();
+    expect(saveSnapshot.payload.orders[0].orderItems[0].voidedQuantity).toBe(1);
+
+    const saveCall = saveStateToIDBMock.mock.invocationCallOrder[0];
+    const enqueueCall = enqueueMock.mock.invocationCallOrder[0];
+    expect(saveCall).toBeLessThan(enqueueCall);
+    expect(saveStateToIDBMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('setBillRequested initiates IDB write before reactive state update', () => {
+    const store = useAppStore();
+    runtime.store = store;
+
+    store.setBillRequested('T_bill', true);
+
+    // saveStateToIDB should have been called with the new Set
+    expect(saveStateToIDBMock).toHaveBeenCalledTimes(1);
+    const [payload] = saveStateToIDBMock.mock.calls[0];
+    expect(payload.billRequestedTables instanceof Set
+      ? payload.billRequestedTables.has('T_bill')
+      : Array.isArray(payload.billRequestedTables)
+        ? payload.billRequestedTables.includes('T_bill')
+        : false,
+    ).toBe(true);
+    expect(store.billRequestedTables.has('T_bill')).toBe(true);
+  });
+
+  it('setCashBalance initiates IDB write before reactive state update', () => {
+    const store = useAppStore();
+    runtime.store = store;
+
+    store.setFondoCassa(250);
+
+    expect(saveStateToIDBMock).toHaveBeenCalledTimes(1);
+    const [payload] = saveStateToIDBMock.mock.calls[0];
+    expect(payload.cashBalance).toBe(250);
+    expect(store.cashBalance).toBe(250);
   });
 });

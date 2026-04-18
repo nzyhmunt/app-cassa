@@ -435,10 +435,24 @@ export const useOrderStore = defineStore('orders', () => {
     return m ? m.icon : 'banknote';
   }
 
-  function setBillRequested(tableId, val) {
+  // Internal helper: reactive-only update, no IDB write.
+  // Used by functions that already include billRequestedTables in their own saveStateToIDB call.
+  function _updateBillRequestedState(tableId, val) {
     if (val) billRequestedTables.value.add(tableId);
     else billRequestedTables.value.delete(tableId);
     billRequestedTables.value = new Set(billRequestedTables.value);
+  }
+
+  // Public API: initiates an IDB write before updating reactive state, then suppresses the
+  // watcher-driven debounced save to prevent a redundant write.
+  function setBillRequested(tableId, val) {
+    const nextSet = new Set(billRequestedTables.value);
+    if (val) nextSet.add(tableId);
+    else nextSet.delete(tableId);
+    // Initiate IDB write before reactive update; watcher provides safety-net backup.
+    saveStateToIDB({ billRequestedTables: nextSet })
+      .catch(e => console.warn('[Store] setBillRequested IDB save failed:', e));
+    billRequestedTables.value = nextSet;
   }
 
   async function openTableSession(tableId, adults = 0, children = 0) {
@@ -584,7 +598,7 @@ export const useOrderStore = defineStore('orders', () => {
       const closedSession = nextSession[order.table];
       delete nextSession[order.table];
       tableCurrentBillSession.value = nextSession;
-      setBillRequested(order.table, false);
+      _updateBillRequestedState(order.table, false);
       if (closedSession?.billSessionId) {
         enqueue('bill_sessions', 'update', closedSession.billSessionId, {
           status: 'closed', closed_at: closedAt,
@@ -594,81 +608,123 @@ export const useOrderStore = defineStore('orders', () => {
     enqueue('orders', 'update', order.id, { status: newStatus, rejectionReason: order.rejectionReason ?? null });
   }
 
-  function updateQtyGlobal(ord, idx, delta) {
+  async function updateQtyGlobal(ord, idx, delta) {
     if (!ord || ord.status !== 'pending') return;
     const item = ord.orderItems[idx];
     if (!item) return;
-    item.quantity += delta;
-    if (item.quantity <= 0) ord.orderItems.splice(idx, 1);
-    updateOrderTotals(ord);
-    _enqueueOrderSnapshot(ord);
+    const ordId = ord.id;
+    const projected = _clone(toRaw(ord));
+    const projItem = projected.orderItems[idx];
+    projItem.quantity += delta;
+    if (projItem.quantity <= 0) projected.orderItems.splice(idx, 1);
+    updateOrderTotals(projected);
+    const projectedOrders = orders.value.map(o => String(o.id) === String(ordId) ? projected : o);
+    await saveStateToIDB({ orders: projectedOrders });
+    _skipNextScheduledSave('orders');
+    orders.value = projectedOrders;
+    enqueue('orders', 'update', ordId, projected);
   }
 
-  function removeRowGlobal(ord, idx) {
+  async function removeRowGlobal(ord, idx) {
     if (!ord || ord.status !== 'pending') return;
-    ord.orderItems.splice(idx, 1);
-    updateOrderTotals(ord);
-    _enqueueOrderSnapshot(ord);
+    const ordId = ord.id;
+    const projected = _clone(toRaw(ord));
+    projected.orderItems.splice(idx, 1);
+    updateOrderTotals(projected);
+    const projectedOrders = orders.value.map(o => String(o.id) === String(ordId) ? projected : o);
+    await saveStateToIDB({ orders: projectedOrders });
+    _skipNextScheduledSave('orders');
+    orders.value = projectedOrders;
+    enqueue('orders', 'update', ordId, projected);
   }
 
-  function voidOrderItems(ord, idx, qtyToVoid) {
+  async function voidOrderItems(ord, idx, qtyToVoid) {
     if (!ord || !KITCHEN_ACTIVE_STATUSES.includes(ord.status)) return;
     if (!Number.isInteger(qtyToVoid) || qtyToVoid <= 0) return;
     const item = ord.orderItems[idx];
-    if (!item.voidedQuantity) item.voidedQuantity = 0;
-    if (item.voidedQuantity + qtyToVoid <= item.quantity) {
-      item.voidedQuantity += qtyToVoid;
-      const maxModActive = item.quantity - item.voidedQuantity;
-      for (const m of (item.modifiers || [])) {
-        m.voidedQuantity = Math.min(m.voidedQuantity || 0, maxModActive);
-      }
-      updateOrderTotals(ord);
-      _enqueueOrderSnapshot(ord);
+    if (!item) return;
+    if ((item.voidedQuantity || 0) + qtyToVoid > item.quantity) return;
+    const ordId = ord.id;
+    const projected = _clone(toRaw(ord));
+    const projItem = projected.orderItems[idx];
+    if (!projItem.voidedQuantity) projItem.voidedQuantity = 0;
+    projItem.voidedQuantity += qtyToVoid;
+    const maxModActive = projItem.quantity - projItem.voidedQuantity;
+    for (const m of (projItem.modifiers || [])) {
+      m.voidedQuantity = Math.min(m.voidedQuantity || 0, maxModActive);
     }
+    updateOrderTotals(projected);
+    const projectedOrders = orders.value.map(o => String(o.id) === String(ordId) ? projected : o);
+    await saveStateToIDB({ orders: projectedOrders });
+    _skipNextScheduledSave('orders');
+    orders.value = projectedOrders;
+    enqueue('orders', 'update', ordId, projected);
   }
 
-  function restoreOrderItems(ord, idx, qtyToRestore) {
+  async function restoreOrderItems(ord, idx, qtyToRestore) {
     if (!ord || !KITCHEN_ACTIVE_STATUSES.includes(ord.status)) return;
     if (!Number.isInteger(qtyToRestore) || qtyToRestore <= 0) return;
     const item = ord.orderItems[idx];
-    if (item.voidedQuantity && item.voidedQuantity >= qtyToRestore) {
-      item.voidedQuantity -= qtyToRestore;
-      updateOrderTotals(ord);
-      _enqueueOrderSnapshot(ord);
-    }
+    if (!item || !(item.voidedQuantity && item.voidedQuantity >= qtyToRestore)) return;
+    const ordId = ord.id;
+    const projected = _clone(toRaw(ord));
+    projected.orderItems[idx].voidedQuantity -= qtyToRestore;
+    updateOrderTotals(projected);
+    const projectedOrders = orders.value.map(o => String(o.id) === String(ordId) ? projected : o);
+    await saveStateToIDB({ orders: projectedOrders });
+    _skipNextScheduledSave('orders');
+    orders.value = projectedOrders;
+    enqueue('orders', 'update', ordId, projected);
   }
 
-  function voidModifier(ord, itemIdx, modIdx, qty) {
+  async function voidModifier(ord, itemIdx, modIdx, qty) {
     if (!ord || !KITCHEN_ACTIVE_STATUSES.includes(ord.status)) return;
     if (!Number.isInteger(qty) || qty <= 0) return;
     const item = ord.orderItems[itemIdx];
     if (!item || !item.modifiers || modIdx < 0 || modIdx >= item.modifiers.length) return;
     const mod = item.modifiers[modIdx];
-    if (!mod.voidedQuantity) mod.voidedQuantity = 0;
-    if (mod.voidedQuantity + qty + (item.voidedQuantity || 0) <= item.quantity) {
-      mod.voidedQuantity += qty;
-      updateOrderTotals(ord);
-      _enqueueOrderSnapshot(ord);
-    }
+    if ((mod.voidedQuantity || 0) + qty + (item.voidedQuantity || 0) > item.quantity) return;
+    const ordId = ord.id;
+    const projected = _clone(toRaw(ord));
+    const projMod = projected.orderItems[itemIdx].modifiers[modIdx];
+    if (!projMod.voidedQuantity) projMod.voidedQuantity = 0;
+    projMod.voidedQuantity += qty;
+    updateOrderTotals(projected);
+    const projectedOrders = orders.value.map(o => String(o.id) === String(ordId) ? projected : o);
+    await saveStateToIDB({ orders: projectedOrders });
+    _skipNextScheduledSave('orders');
+    orders.value = projectedOrders;
+    enqueue('orders', 'update', ordId, projected);
   }
 
-  function restoreModifier(ord, itemIdx, modIdx, qty) {
+  async function restoreModifier(ord, itemIdx, modIdx, qty) {
     if (!ord || !KITCHEN_ACTIVE_STATUSES.includes(ord.status)) return;
     if (!Number.isInteger(qty) || qty <= 0) return;
     const item = ord.orderItems[itemIdx];
     if (!item || !item.modifiers || modIdx < 0 || modIdx >= item.modifiers.length) return;
     const mod = item.modifiers[modIdx];
-    if ((mod.voidedQuantity || 0) >= qty) {
-      mod.voidedQuantity -= qty;
-      updateOrderTotals(ord);
-      _enqueueOrderSnapshot(ord);
-    }
+    if ((mod.voidedQuantity || 0) < qty) return;
+    const ordId = ord.id;
+    const projected = _clone(toRaw(ord));
+    projected.orderItems[itemIdx].modifiers[modIdx].voidedQuantity -= qty;
+    updateOrderTotals(projected);
+    const projectedOrders = orders.value.map(o => String(o.id) === String(ordId) ? projected : o);
+    await saveStateToIDB({ orders: projectedOrders });
+    _skipNextScheduledSave('orders');
+    orders.value = projectedOrders;
+    enqueue('orders', 'update', ordId, projected);
   }
 
-  function setItemKitchenReady(order, itemIdx, ready) {
+  async function setItemKitchenReady(order, itemIdx, ready) {
     if (!order || !order.orderItems || itemIdx < 0 || itemIdx >= order.orderItems.length) return;
-    order.orderItems[itemIdx].kitchenReady = ready;
-    _enqueueOrderSnapshot(order);
+    const ordId = order.id;
+    const projected = _clone(toRaw(order));
+    projected.orderItems[itemIdx].kitchenReady = ready;
+    const projectedOrders = orders.value.map(o => String(o.id) === String(ordId) ? projected : o);
+    await saveStateToIDB({ orders: projectedOrders });
+    _skipNextScheduledSave('orders');
+    orders.value = projectedOrders;
+    enqueue('orders', 'update', ordId, projected);
   }
 
   async function addTransaction(txn) {
@@ -681,7 +737,7 @@ export const useOrderStore = defineStore('orders', () => {
     });
     _skipNextScheduledSave('transactions', 'billRequestedTables');
     transactions.value = nextTransactions;
-    if (txn.tableId) setBillRequested(txn.tableId, false);
+    if (txn.tableId) _updateBillRequestedState(txn.tableId, false);
     enqueue('transactions', 'create', txn.id, txn);
 
     if (txn?.operationType === 'analitica') {
@@ -785,7 +841,11 @@ export const useOrderStore = defineStore('orders', () => {
   }
 
   function setCashBalance(amount) {
-    cashBalance.value = parseFloat(amount) || 0;
+    const next = parseFloat(amount) || 0;
+    // Initiate IDB write before reactive update; watcher provides safety-net backup.
+    saveStateToIDB({ cashBalance: next })
+      .catch(e => console.warn('[Store] setCashBalance IDB save failed:', e));
+    cashBalance.value = next;
   }
   const setFondoCassa = setCashBalance;
 

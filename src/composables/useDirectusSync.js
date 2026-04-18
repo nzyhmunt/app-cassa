@@ -1129,10 +1129,16 @@ export function useDirectusSync() {
     // WebSocket subscriptions are opt-in (wsEnabled must be explicitly true).
     // When disabled, fall back to periodic polling from the start.
     const wsEnabled = appConfig.directus?.wsEnabled === true;
+    // When menu data comes from a local JSON file, exclude menu_items from WebSocket
+    // subscriptions to avoid unnecessary subscription traffic and IDB fan-out.
+    const menuSource = appConfig.menuSource ?? 'directus';
+    const wsCollections = menuSource === 'json'
+      ? pullCfg.collections.filter(c => c !== 'menu_items')
+      : pullCfg.collections;
 
     if (wsEnabled) {
       // Try WebSocket subscriptions; fall back to polling if connect fails
-      const subscribed = await _startSubscriptions(pullCfg.collections);
+      const subscribed = await _startSubscriptions(wsCollections);
       if (!subscribed) {
         _runPull().catch(() => {});
         _pollTimer = setInterval(() => _runPull().catch(() => {}), pullCfg.intervalMs);
