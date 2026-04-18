@@ -9,7 +9,7 @@
         <button @click="changeTab('pending')" aria-label="In Attesa" :class="activeTab === 'pending' ? 'bg-amber-100 text-amber-800 border-amber-200 font-bold' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100'" class="flex-1 py-1.5 md:py-2 px-1 rounded-xl border transition-all flex items-center justify-center gap-1.5 shadow-sm">
           <div class="relative shrink-0">
             <Bell class="size-4 md:size-5" />
-            <span v-if="store.pendingCount > 0" class="absolute -top-1.5 -right-2 bg-red-500 text-white text-[9px] font-bold size-4 flex items-center justify-center rounded-full border border-white">{{ store.pendingCount }}</span>
+            <span v-if="orderStore.pendingCount > 0" class="absolute -top-1.5 -right-2 bg-red-500 text-white text-[9px] font-bold size-4 flex items-center justify-center rounded-full border border-white">{{ orderStore.pendingCount }}</span>
           </div>
           <span class="text-[9px] md:text-[10px] uppercase tracking-wider hidden sm:inline">In Attesa</span>
         </button>
@@ -172,7 +172,7 @@
           </div>
           <div class="text-right">
             <p class="text-gray-400 font-bold uppercase tracking-wider text-[10px] md:text-xs mb-0.5">Importo Comanda</p>
-            <p class="text-2xl md:text-4xl font-black theme-text leading-none">{{ store.config.ui.currency }}{{ selectedOrder.totalAmount.toFixed(2) }}</p>
+            <p class="text-2xl md:text-4xl font-black theme-text leading-none">{{ configStore.config.ui.currency }}{{ selectedOrder.totalAmount.toFixed(2) }}</p>
           </div>
         </div>
       </div>
@@ -223,16 +223,16 @@
 
           <div v-if="noteModal.modifiersArray.length > 0" class="mb-3 space-y-1.5 max-h-[120px] overflow-y-auto border border-purple-100 p-2 rounded-xl bg-purple-50">
             <div v-for="(mod, idx) in noteModal.modifiersArray" :key="idx" class="flex justify-between items-center bg-white border border-purple-200 text-purple-800 px-3 py-2 rounded-lg text-xs font-bold shadow-sm">
-              <span>{{ mod.name }}{{ mod.price > 0 ? ' +' + store.config.ui.currency + mod.price.toFixed(2) : '' }}</span>
+              <span>{{ mod.name }}{{ mod.price > 0 ? ' +' + configStore.config.ui.currency + mod.price.toFixed(2) : '' }}</span>
               <button @click="removeModFromNoteModal(idx)" class="text-red-500 p-1 hover:bg-red-50 rounded-md transition-colors"><Trash2 class="size-4" /></button>
             </div>
           </div>
 
-          <div v-if="store.config.ui.allowCustomVariants" class="flex gap-2 mb-3">
+          <div v-if="configStore.config.ui.allowCustomVariants" class="flex gap-2 mb-3">
             <input v-model="noteModal.modName" type="text" placeholder="Es. Mozzarella, Senza glutine..." class="flex-1 bg-gray-100 border border-gray-200 rounded-xl px-3 py-3 focus:bg-white theme-ring transition-all text-gray-800 font-medium text-sm" @keyup.enter="addModToNoteModal">
             <div class="relative w-24 shrink-0">
-              <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm font-bold">{{ store.config.ui.currency }}</span>
-              <NumericInput v-model="noteModal.modPrice" min="0" step="0.50" placeholder="0.00" :prefix="store.config.ui.currency" class="w-full pl-7 pr-2 py-3 bg-gray-100 border border-gray-200 rounded-xl focus:bg-white theme-ring transition-all text-gray-800 font-medium text-sm" />
+              <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm font-bold">{{ configStore.config.ui.currency }}</span>
+              <NumericInput v-model="noteModal.modPrice" min="0" step="0.50" placeholder="0.00" :prefix="configStore.config.ui.currency" class="w-full pl-7 pr-2 py-3 bg-gray-100 border border-gray-200 rounded-xl focus:bg-white theme-ring transition-all text-gray-800 font-medium text-sm" />
             </div>
             <button @click="addModToNoteModal" class="bg-purple-600 hover:bg-purple-700 text-white px-4 rounded-xl font-bold shadow-sm active:scale-95 flex items-center justify-center"><Plus class="size-5" /></button>
           </div>
@@ -313,7 +313,7 @@
 
         <!-- Categorie Menu -->
         <div class="w-full md:w-[220px] border-b md:border-b-0 md:border-r border-gray-200 bg-gray-50 flex md:flex-col overflow-x-auto md:overflow-y-auto no-scrollbar shrink-0">
-          <button v-for="(items, category) in store.config.menu" :key="'cat_'+category" @click="activeMenuCategory = category"
+          <button v-for="(items, category) in configStore.config.menu" :key="'cat_'+category" @click="activeMenuCategory = category"
               class="whitespace-nowrap md:whitespace-normal md:w-full text-center md:text-left px-4 md:px-5 py-3 md:py-4 border-b-4 md:border-b-0 md:border-l-4 border-transparent font-bold transition-colors md:flex md:justify-between md:items-center text-sm md:text-base"
               :class="activeMenuCategory === category ? 'bg-white theme-text theme-border-b md:!border-b-transparent theme-border-l shadow-sm' : 'text-gray-600 hover:bg-gray-100'">
             {{ category }}
@@ -325,7 +325,7 @@
 
         <!-- Piatti Griglia -->
         <div class="flex-1 overflow-y-auto p-2 md:p-4 bg-gray-100 md:bg-white grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 gap-2 md:gap-3 content-start min-h-0">
-          <div v-for="item in store.config.menu[activeMenuCategory]" :key="'item_'+item.id"
+          <div v-for="item in configStore.config.menu[activeMenuCategory]" :key="'item_'+item.id"
               class="bg-white border border-gray-200 rounded-xl md:rounded-2xl shadow-sm hover:border-emerald-400 transition-all group flex flex-col h-full min-h-[100px] md:min-h-[120px] relative overflow-visible">
 
             <span v-if="getQtyCombined(item.id) > 0" class="absolute -top-2 -right-2 bg-emerald-500 text-white size-6 md:size-7 rounded-full flex items-center justify-center text-[10px] md:text-xs font-black border-2 border-white shadow-sm z-10">
@@ -341,7 +341,7 @@
 
             <!-- Bottom row: price left, icon actions + add button right -->
             <div class="px-3 md:px-4 pb-3 md:pb-4 flex items-center justify-between gap-1">
-              <span class="font-black theme-text text-xs md:text-sm bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100 shrink-0">{{ store.config.ui.currency }}{{ item.price.toFixed(2) }}</span>
+              <span class="font-black theme-text text-xs md:text-sm bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100 shrink-0">{{ configStore.config.ui.currency }}{{ item.price.toFixed(2) }}</span>
               <div class="flex items-center gap-0.5 shrink-0">
                 <!-- Info button -->
                 <button @click="showItemInfo(item)"
@@ -384,7 +384,7 @@
               <div class="p-2.5 flex items-start justify-between">
                 <div class="flex flex-col flex-1 min-w-0 pr-2">
                   <span class="font-bold text-sm text-gray-800 truncate">{{ cartItem.name }}</span>
-                  <span class="text-[10px] text-gray-500">{{ store.config.ui.currency }}{{ (cartItem.unitPrice + (cartItem.modifiers || []).reduce((a, m) => a + (Number(m.price) || 0), 0)).toFixed(2) }} cad.</span>
+                  <span class="text-[10px] text-gray-500">{{ configStore.config.ui.currency }}{{ (cartItem.unitPrice + (cartItem.modifiers || []).reduce((a, m) => a + (Number(m.price) || 0), 0)).toFixed(2) }} cad.</span>
                   <div v-if="cartItem.notes && cartItem.notes.length > 0" class="text-[9px] text-amber-600 font-bold italic mt-0.5 truncate flex items-center gap-1">
                     <MessageSquareWarning class="size-3 shrink-0" /> {{ cartItem.notes.join(', ') }}
                   </div>
@@ -414,7 +414,7 @@
                   <span v-for="(mod, mi) in cartItem.modifiers" :key="mi"
                     class="text-[9px] font-bold bg-purple-50 border border-purple-200 text-purple-700 px-1.5 py-0.5 rounded flex items-center gap-1">
                     <Sparkles class="size-2.5" />
-                    {{ mod.name }}{{ mod.price > 0 ? ' +' + store.config.ui.currency + mod.price.toFixed(2) : '' }}
+                    {{ mod.name }}{{ mod.price > 0 ? ' +' + configStore.config.ui.currency + mod.price.toFixed(2) : '' }}
                     <button @click="removeModFromCart(idx, mi)" class="text-purple-400 hover:text-red-500 transition-colors"><X class="size-2.5" /></button>
                   </span>
                 </div>
@@ -426,7 +426,7 @@
           <div class="p-3 md:p-4 bg-white border-t border-gray-200 shrink-0 pb-8 md:pb-4 shadow-[0_-5px_15px_rgba(0,0,0,0.05)] z-10">
             <div class="flex justify-between items-center mb-3">
               <span class="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Totale Aggiunte:</span>
-              <span class="font-black text-lg text-gray-900">{{ store.config.ui.currency }}{{ tempCartTotal.toFixed(2) }}</span>
+              <span class="font-black text-lg text-gray-900">{{ configStore.config.ui.currency }}{{ tempCartTotal.toFixed(2) }}</span>
             </div>
             <button @click="confirmAndPushCart" :disabled="tempCart.length === 0" class="w-full theme-bg text-white py-3 md:py-4 rounded-xl font-bold shadow-md hover:opacity-90 transition-opacity active:scale-95 text-sm flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
               <CheckCircle class="size-5" /> <span>Inserisci nella Comanda</span>
@@ -488,7 +488,7 @@ import {
   CheckCircle, ShieldCheck, Minus, Plus, MessageSquareWarning, PenLine, PlusCircle,
   X, BookOpen, ChevronRight, ShoppingCart, Sparkles, Layers, Info, Flame, BellRing,
 } from 'lucide-vue-next';
-import { useAppStore } from '../store/index.js';
+import { useConfigStore, useOrderStore } from '../store/index.js';
 import {
   updateOrderTotals,
   KITCHEN_ACTIVE_STATUSES,
@@ -505,7 +505,8 @@ import DishInfoModal from './shared/DishInfoModal.vue';
 
 defineEmits(['jump-to-cassa']);
 
-const store = useAppStore();
+const configStore = useConfigStore();
+const orderStore = useOrderStore();
 
 // ── Tab & selection state ──────────────────────────────────────────────────
 const activeTab = ref('pending');
@@ -513,9 +514,9 @@ const selectedOrder = ref(null);
 
 const filteredOrders = computed(() => {
   if (activeTab.value === 'history')
-    return store.orders.filter(o => (o.status === 'completed' || o.status === 'rejected') && !o.isDirectEntry);
+    return orderStore.orders.filter(o => (o.status === 'completed' || o.status === 'rejected') && !o.isDirectEntry);
   if (activeTab.value === 'accepted')
-    return store.orders
+    return orderStore.orders
       .filter(o => KITCHEN_ACTIVE_STATUSES.includes(o.status) && !o.isDirectEntry)
       .sort((a, b) => {
         const pa = KITCHEN_STATUS_PRIORITY[a.status] ?? 4;
@@ -523,13 +524,13 @@ const filteredOrders = computed(() => {
         if (pa !== pb) return pa - pb;
         return b.time.localeCompare(a.time);
       });
-  return store.orders
+  return orderStore.orders
     .filter(o => o.status === activeTab.value && !o.isDirectEntry)
     .sort((a, b) => a.time.localeCompare(b.time)); // oldest first → most urgent on top
 });
 
 const orderStatusCounts = computed(() =>
-  store.orders.reduce(
+  orderStore.orders.reduce(
     (acc, o) => {
       if (o.isDirectEntry) return acc;
       // Badge counts only active kitchen orders (not delivered — those are already handled)
@@ -553,14 +554,14 @@ function selectOrder(ord) {
 }
 
 function acceptAndPrint(order) {
-  store.changeOrderStatus(order, 'accepted');
-  store.$persist?.();
+  orderStore.changeOrderStatus(order, 'accepted');
+
   enqueuePrintJobs(order);
 }
 
 function forceDeliver(order) {
-  store.changeOrderStatus(order, 'delivered');
-  store.$persist?.();
+  orderStore.changeOrderStatus(order, 'delivered');
+
 }
 
 // ── Reject order confirmation ───────────────────────────────────────────────
@@ -568,7 +569,7 @@ const showRejectConfirm = ref(false);
 const orderToReject = ref(null);
 const rejectReason = ref('');
 const rejectOtherText = ref('');
-const rejectReasons = computed(() => store.config.orders?.rejectionReasons ?? [
+const rejectReasons = computed(() => configStore.config.orders?.rejectionReasons ?? [
   { value: 'duplicato',        label: 'Ordine duplicato' },
   { value: 'errore_cameriere', label: 'Errore cameriere' },
   { value: 'altro',            label: 'Altro' },
@@ -590,8 +591,8 @@ function confirmDeleteOrder() {
   } else if (rejectReason.value) {
     reason = rejectReasons.value.find(r => r.value === rejectReason.value)?.label ?? rejectReason.value;
   }
-  store.changeOrderStatus(orderToReject.value, 'rejected', reason);
-  store.$persist?.();
+  orderStore.changeOrderStatus(orderToReject.value, 'rejected', reason);
+
   showRejectConfirm.value = false;
   orderToReject.value = null;
   selectedOrder.value = null;
@@ -603,7 +604,6 @@ function cancelDeleteOrder() {
   rejectReason.value = '';
   rejectOtherText.value = '';
 }
-
 
 const noteModalCloseBtn = ref(null);
 const noteModal = ref({
@@ -727,11 +727,11 @@ function saveNotes() {
 const showAddMenuModal = ref(false);
 const targetOrderForMenu = ref(null);
 const tempCart = ref([]);
-const activeMenuCategory = ref(Object.keys(store.config.menu)[0]);
+const activeMenuCategory = ref(Object.keys(configStore.config.menu)[0]);
 
 // ── Shared modifier presets ────────────────────────────────────────────────
 const modPresets = computed(() => {
-  const c = store.config.ui.currency;
+  const c = configStore.config.ui.currency;
   return [
     { name: 'Mozzarella',     price: 1.50, label: `+ Mozzarella ${c}1.50` },
     { name: 'Parmigiano',     price: 1.00, label: `+ Parmigiano ${c}1.00` },

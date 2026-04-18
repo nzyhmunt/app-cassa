@@ -49,14 +49,15 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { LoaderCircle, AlertCircle, Cloud } from 'lucide-vue-next';
-import { useAppStore } from '../../store/index.js';
+import { useConfigStore, useOrderStore } from '../../store/index.js';
 import { directusEnabledRef } from '../../composables/useDirectusClient.js';
 import { useDirectusSync } from '../../composables/useDirectusSync.js';
 import { getPendingEntries } from '../../composables/useSyncQueue.js';
 
 const sync = useDirectusSync();
-const store = useAppStore();
-const runtimeConfig = computed(() => store.config ?? {});
+const configStore = useConfigStore();
+const orderStore = useOrderStore();
+const runtimeConfig = computed(() => configStore.config ?? {});
 
 const isOnline = ref(typeof navigator !== 'undefined' ? navigator.onLine : true);
 const pendingCount = ref(0);

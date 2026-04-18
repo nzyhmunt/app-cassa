@@ -2,7 +2,7 @@
   <div
     id="app"
     class="h-full flex flex-col relative w-full"
-    :style="store.cssVars"
+    :style="configStore.cssVars"
     @click="auth.recordActivity()"
     @keydown="auth.recordActivity()"
     @touchstart.passive="auth.recordActivity()"
@@ -16,7 +16,7 @@
 
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue';
-import { useAppStore } from './store/index.js';
+import { useConfigStore, useOrderStore } from './store/index.js';
 import { useWakeLock } from './composables/useWakeLock.js';
 import { resolveStorageKeys, getInstanceName } from './store/persistence.js';
 import { useAuth } from './composables/useAuth.js';
@@ -25,11 +25,14 @@ import PwaInstallBanner from './components/shared/PwaInstallBanner.vue';
 import LockScreen from './components/LockScreen.vue';
 import { useDirectusSync } from './composables/useDirectusSync.js';
 import { loadDirectusConfigFromStorage } from './composables/useDirectusClient.js';
+import { useSyncStoreProxy } from './composables/useSyncStoreProxy.js';
 
-const store = useAppStore();
+const configStore = useConfigStore();
+const orderStore = useOrderStore();
 const auth = useAuth();
 const sync = useDirectusSync();
 const showSettings = ref(false);
+const syncStore = useSyncStoreProxy(configStore, orderStore);
 
 useWakeLock();
 
@@ -42,7 +45,18 @@ const { storageKey } = resolveStorageKeys(getInstanceName());
 
 function onStorageChange(event) {
   if (event.key !== storageKey) return;
-  store.$hydrate?.();
+  void hydrateStateFromStorage();
+}
+
+async function hydrateStateFromStorage() {
+  try {
+    await Promise.all([
+      configStore.hydrateConfigFromIDB(),
+      orderStore.refreshOperationalStateFromIDB(),
+    ]);
+  } catch (error) {
+    console.warn('[CucinaApp] Failed to hydrate state from storage event:', error);
+  }
 }
 
 async function restartSync() {
@@ -50,7 +64,7 @@ async function restartSync() {
     await loadDirectusConfigFromStorage();
   } catch (e) { console.warn('[CucinaApp] Failed to load Directus config from IDB:', e); }
   sync.stopSync();
-  await sync.startSync({ appType: 'cucina', store });
+  await sync.startSync({ appType: 'cucina', store: syncStore });
 }
 
 async function onDirectusConfigUpdated() {

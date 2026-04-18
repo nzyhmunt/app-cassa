@@ -27,14 +27,14 @@
             {{ bill.transactions.filter(t => t.operationType !== 'discount').length }} pagament{{ bill.transactions.filter(t => t.operationType !== 'discount').length !== 1 ? 'i' : 'o' }}
           </p>
           <p v-if="bill.totalDiscount > 0" class="text-[10px] text-amber-600 font-bold">
-            -{{ store.config.ui.currency }}{{ bill.totalDiscount.toFixed(2) }} sconto
+            -{{ configStore.config.ui.currency }}{{ bill.totalDiscount.toFixed(2) }} sconto
           </p>
           <p v-if="bill.totalTips > 0" class="text-[10px] text-purple-600 font-bold">
-            +{{ store.config.ui.currency }}{{ bill.totalTips.toFixed(2) }} mancia
+            +{{ configStore.config.ui.currency }}{{ bill.totalTips.toFixed(2) }} mancia
           </p>
         </div>
         <span class="font-black text-lg text-emerald-700">
-          {{ store.config.ui.currency }}{{ bill.totalPaid.toFixed(2) }}
+          {{ configStore.config.ui.currency }}{{ bill.totalPaid.toFixed(2) }}
         </span>
         <ChevronDown
           class="size-4 text-gray-400 transition-transform duration-200 shrink-0"
@@ -67,7 +67,7 @@
                 ({{ txn.splitQuota }}/{{ txn.splitWays }}<template v-if="(txn.romanaSplitCount || 1) > 1"> · {{ txn.romanaSplitCount }} quote</template>)
               </span>
               <span v-if="txn.operationType === 'discount'" class="text-[9px] font-medium opacity-70">
-                ({{ txn.discountType === 'percent' ? txn.discountValue + '%' : store.config.ui.currency + (txn.discountValue ?? 0).toFixed(2) }})
+                ({{ txn.discountType === 'percent' ? txn.discountValue + '%' : configStore.config.ui.currency + (txn.discountValue ?? 0).toFixed(2) }})
               </span>
               <span class="text-[9px] font-medium opacity-70">
                 · {{ formatTime(txn.timestamp) }}
@@ -75,12 +75,12 @@
             </div>
             <div class="text-right">
               <span class="font-black text-sm" :class="txn.operationType === 'discount' ? 'text-amber-800' : 'text-emerald-800'">
-                <span v-if="txn.operationType === 'discount'">-</span>{{ store.config.ui.currency }}{{ txn.amountPaid.toFixed(2) }}
+                <span v-if="txn.operationType === 'discount'">-</span>{{ configStore.config.ui.currency }}{{ txn.amountPaid.toFixed(2) }}
               </span>
-              <div v-if="txn.grossAmount" class="text-[9px] font-medium text-gray-500">Consegnato: {{ store.config.ui.currency }}{{ txn.grossAmount.toFixed(2) }}</div>
-              <div v-if="txn.changeAmount" class="text-[9px] font-bold text-blue-600">Resto: -{{ store.config.ui.currency }}{{ txn.changeAmount.toFixed(2) }}</div>
+              <div v-if="txn.grossAmount" class="text-[9px] font-medium text-gray-500">Consegnato: {{ configStore.config.ui.currency }}{{ txn.grossAmount.toFixed(2) }}</div>
+              <div v-if="txn.changeAmount" class="text-[9px] font-bold text-blue-600">Resto: -{{ configStore.config.ui.currency }}{{ txn.changeAmount.toFixed(2) }}</div>
               <div v-if="txn.tipAmount" class="text-[9px] font-bold text-purple-600">
-                +{{ store.config.ui.currency }}{{ txn.tipAmount.toFixed(2) }} mancia
+                +{{ configStore.config.ui.currency }}{{ txn.tipAmount.toFixed(2) }} mancia
               </div>
             </div>
           </div>
@@ -90,15 +90,15 @@
         <div v-if="bill.totalDiscount > 0 || bill.totalTips > 0" class="mt-3 pt-3 border-t border-gray-200 space-y-1">
           <div v-if="bill.totalDiscount > 0" class="flex justify-between text-xs font-bold text-amber-600">
             <span>Sconto totale:</span>
-            <span>-{{ store.config.ui.currency }}{{ bill.totalDiscount.toFixed(2) }}</span>
+            <span>-{{ configStore.config.ui.currency }}{{ bill.totalDiscount.toFixed(2) }}</span>
           </div>
           <div v-if="bill.totalTips > 0" class="flex justify-between text-xs font-bold text-purple-600">
             <span>Mance totali:</span>
-            <span>+{{ store.config.ui.currency }}{{ bill.totalTips.toFixed(2) }}</span>
+            <span>+{{ configStore.config.ui.currency }}{{ bill.totalTips.toFixed(2) }}</span>
           </div>
           <div class="flex justify-between text-xs font-bold text-emerald-700">
             <span>Incasso netto:</span>
-            <span>{{ store.config.ui.currency }}{{ bill.totalPaid.toFixed(2) }}</span>
+            <span>{{ configStore.config.ui.currency }}{{ bill.totalPaid.toFixed(2) }}</span>
           </div>
         </div>
 
@@ -106,7 +106,7 @@
         <div class="mt-3 pt-3 border-t border-gray-200">
           <div v-if="!showTipInput" class="flex flex-wrap justify-end gap-2">
             <!-- Fiscal / Invoice actions: shown only when not yet emitted and hydration is done -->
-            <template v-if="store.fiscalInvoiceHydrated && !alreadyFiscalized">
+            <template v-if="orderStore.fiscalInvoiceHydrated && !alreadyFiscalized">
               <button
                 @click="emitFiscale"
                 class="flex items-center gap-1.5 text-[10px] font-bold text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-3 py-1.5 rounded-xl transition-colors active:scale-95"
@@ -121,7 +121,7 @@
               </button>
             </template>
             <!-- Badge shown when fiscal/invoice already emitted -->
-            <span v-else-if="store.fiscalInvoiceHydrated && alreadyFiscalized" class="flex items-center gap-1 text-[10px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-xl">
+            <span v-else-if="orderStore.fiscalInvoiceHydrated && alreadyFiscalized" class="flex items-center gap-1 text-[10px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-xl">
               <CheckCircle class="size-3.5" /> {{ hasFiscalReceipt ? 'Fiscale emesso' : 'Fattura emessa' }}
             </span>
             <button
@@ -136,7 +136,7 @@
               <Wallet class="size-3.5" /> Mancia da aggiungere
             </label>
             <div class="flex items-center gap-2">
-              <span class="text-sm font-bold text-purple-600">{{ store.config.ui.currency }}</span>
+              <span class="text-sm font-bold text-purple-600">{{ configStore.config.ui.currency }}</span>
               <NumericInput
                 v-model="postTipValue"
                 min="0"
@@ -185,7 +185,7 @@
                 >Rifiutata</span>
               </span>
               <span class="font-black text-sm text-gray-800">
-                {{ store.config.ui.currency }}{{ ord.totalAmount.toFixed(2) }}
+                {{ configStore.config.ui.currency }}{{ ord.totalAmount.toFixed(2) }}
               </span>
             </div>
             <div class="space-y-1">
@@ -208,7 +208,7 @@
                   </span>
                 </div>
                 <span class="font-bold shrink-0 ml-2">
-                  {{ store.config.ui.currency }}{{ getOrderItemRowTotal(item).toFixed(2) }}
+                  {{ configStore.config.ui.currency }}{{ getOrderItemRowTotal(item).toFixed(2) }}
                 </span>
               </div>
             </div>
@@ -235,7 +235,7 @@
 <script setup>
 import { ref, computed } from 'vue';
 import { ChevronDown, CreditCard, ClipboardList, Banknote, Tag, Wallet, CheckCircle, Printer, FileText } from 'lucide-vue-next';
-import { useAppStore } from '../store/index.js';
+import { useConfigStore, useOrderStore } from '../store/index.js';
 import { billKey, getOrderItemRowTotal, buildFiscalXmlRequest } from '../utils/index.js';
 import { newUUIDv7 } from '../store/storeUtils.js';
 import NumericInput from './NumericInput.vue';
@@ -252,8 +252,9 @@ const props = defineProps({
   },
 });
 
-const store = useAppStore();
-const runtimeConfig = computed(() => store.config ?? {});
+const configStore = useConfigStore();
+const orderStore = useOrderStore();
+const runtimeConfig = computed(() => configStore.config ?? {});
 const isOpen = ref(props.initiallyOpen);
 
 // Post-payment tip state
@@ -263,7 +264,7 @@ const postTipParsed = computed(() => Math.max(0, parseFloat(postTipValue.value) 
 
 function confirmPostTip() {
   if (!postTipParsed.value) return;
-  store.addTipTransaction(props.bill.tableId, props.bill.billSessionId, postTipParsed.value);
+  orderStore.addTipTransaction(props.bill.tableId, props.bill.billSessionId, postTipParsed.value);
   showTipInput.value = false;
   postTipValue.value = '';
 }
@@ -275,11 +276,11 @@ function confirmPostTip() {
 // correctly discriminated by their closedAt timestamp.
 const hasFiscalReceipt = computed(() => {
   const key = billKey(props.bill);
-  return store.fiscalReceipts.some(r => billKey(r) === key);
+  return orderStore.fiscalReceipts.some(r => billKey(r) === key);
 });
 const hasInvoice = computed(() => {
   const key = billKey(props.bill);
-  return store.invoiceRequests.some(r => billKey(r) === key);
+  return orderStore.invoiceRequests.some(r => billKey(r) === key);
 });
 const alreadyFiscalized = computed(() => hasFiscalReceipt.value || hasInvoice.value);
 
@@ -330,7 +331,7 @@ function emitFiscale() {
     status: 'pending',
     timestamp: new Date().toISOString(),
   };
-  store.addFiscalReceipt(entry);
+  orderStore.addFiscalReceipt(entry);
 }
 
 function openInvoiceModal() {
@@ -350,7 +351,7 @@ function confirmInvoice(billingData) {
     status: 'pending',
     timestamp: new Date().toISOString(),
   };
-  store.addInvoiceRequest(entry);
+  orderStore.addInvoiceRequest(entry);
   showInvoiceModal.value = false;
   _invoiceSubmitting.value = false;
 }
@@ -364,7 +365,7 @@ function formatTime(isoString) {
 }
 
 function getPaymentIcon(methodIdOrLabel) {
-  const m = store.config.paymentMethods.find(x => x.label === methodIdOrLabel || x.id === methodIdOrLabel);
+  const m = configStore.config.paymentMethods.find(x => x.label === methodIdOrLabel || x.id === methodIdOrLabel);
   if (!m) return Banknote;
   return m.icon === 'credit-card' ? CreditCard : Banknote;
 }

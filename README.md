@@ -269,7 +269,7 @@ Funzionalità disponibile sia in **cassa live** (al momento della chiusura del c
 - **Multi-istanza** — più terminali sullo stesso dispositivo/dominio con storage completamente isolato:
   - Configurazione a build time tramite `appConfig.instanceName`
   - Database IDB con suffisso `_<instanceName>`
-- **Sincronizzazione cross-tab in tempo reale**: tutte e tre le app (`CassaApp`, `SalaApp`, `CucinaApp`) ascoltano l'evento `window.storage`. Qualsiasi modifica di stato in una tab (es. cambio stato ordine in Cucina) viene propagata istantaneamente alle altre tab aperte sullo stesso dispositivo tramite `store.$hydrate()`.
+- **Sincronizzazione cross-tab in tempo reale**: tutte e tre le app (`CassaApp`, `SalaApp`, `CucinaApp`) ascoltano l'evento `window.storage`. Qualsiasi modifica di stato in una tab (es. cambio stato ordine in Cucina) viene propagata alle altre tab aperte sullo stesso dispositivo ricaricando lo stato operativo (`useOrderStore`) e la configurazione/menu (`useConfigStore`) da IndexedDB.
 
 ### ⌨️ Tastiera Numerica Personalizzata (Cassa only)
 - Overlay a scomparsa dal basso (`NumericKeyboard.vue`) che sostituisce la tastiera del dispositivo per tutti i campi numerici della Cassa
@@ -282,7 +282,9 @@ Funzionalità disponibile sia in **cassa live** (al momento della chiusura del c
 ### ⚙️ Impostazioni (Cassa, Sala & Cucina)
 - Abilitazione/disabilitazione avvisi audio ("Ding" alla ricezione di nuovi ordini)
 - Abilitazione/disabilitazione blocco schermo (Wake Lock) — **attivo di default** al primo avvio
-- Configurazione URL menu JSON remoto e sincronizzazione manuale (Cassa e Sala)
+- Configurazione sorgente menu:
+  - `json`: mostra URL configurato e pulsante di sincronizzazione manuale
+  - `directus`: mostra stato sincronizzazione Directus (`Directus disabilitato` · `Sincronizzazione in corso` · `Errore sincronizzazione` · `Directus attivo`)
 - **Gestione Utenti & Blocco Schermo**: accesso rapido alla configurazione del sistema di autenticazione
 - Reset completo dei dati con conferma (fine turno) — cancella anche tutti i dati di autenticazione
 
