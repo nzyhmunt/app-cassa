@@ -324,11 +324,13 @@ export const useOrderStore = defineStore('orders', () => {
     const billSessionId = newUUIDv7();
     const now = new Date().toISOString();
     const session = { billSessionId, adults, children, table: tableId, status: 'open', opened_at: now };
+    const venueId = configStore.config.directus?.venueId ?? null;
+    upsertBillSessionInIDB({ ...session, ...(venueId != null ? { venue: venueId } : {}) })
+      .catch((err) => console.warn('[Store] Failed to persist bill session:', err));
     tableCurrentBillSession.value = {
       ...tableCurrentBillSession.value,
       [tableId]: session,
     };
-    const venueId = configStore.config.directus?.venueId ?? null;
     enqueue('bill_sessions', 'create', billSessionId, {
       id: billSessionId,
       table: tableId,
@@ -338,7 +340,6 @@ export const useOrderStore = defineStore('orders', () => {
       opened_at: now,
       ...(venueId != null ? { venue: venueId } : {}),
     });
-    upsertBillSessionInIDB({ ...session, ...(venueId != null ? { venue: venueId } : {}) });
     return billSessionId;
   }
 
@@ -385,16 +386,62 @@ export const useOrderStore = defineStore('orders', () => {
   function addOrder(order) {
     if (order.globalNote === undefined) order.globalNote = '';
     if (!order.noteVisibility) order.noteVisibility = { cassa: true, sala: true, cucina: true };
-
-    orders.value.push(order);
+    const nextOrders = [...orders.value, order];
+    saveStateToIDB({ orders: nextOrders })
+      .catch((err) => console.warn('[Store] Failed to persist order creation:', err));
+    orders.value = nextOrders;
     enqueue('orders', 'create', order.id, order);
   }
 
   function changeOrderStatus(order, newStatus, rejectionReason = null) {
+    if (!order?.id) return;
+    const projectedOrders = orders.value.map((current) => {
+      if (current.id !== order.id) return current;
+      const next = { ...current, status: newStatus };
+      if (newStatus === 'rejected' && rejectionReason) next.rejectionReason = rejectionReason;
+      return next;
+    });
+    const projectedTableOccupiedAt = { ...tableOccupiedAt.value };
+    const projectedTableMergedInto = { ...tableMergedInto.value };
+    const projectedBillRequestedTables = new Set(billRequestedTables.value);
+    let projectedTableCurrentBillSession = tableCurrentBillSession.value;
+    let closingSession = null;
+    const closedAt = new Date().toISOString();
+
+    if (KITCHEN_ACTIVE_STATUSES.includes(newStatus) && !projectedTableOccupiedAt[order.table]) {
+      projectedTableOccupiedAt[order.table] = closedAt;
+    }
+    const projectedActiveOrds = projectedOrders.filter(
+      o => o.table === order.table && o.status !== 'completed' && o.status !== 'rejected',
+    );
+    if (projectedActiveOrds.length === 0) {
+      delete projectedTableOccupiedAt[order.table];
+      const idsToUnmap = [...slaveIdsOf(order.table), ...(projectedTableMergedInto[order.table] ? [order.table] : [])];
+      if (idsToUnmap.length > 0) {
+        idsToUnmap.forEach(id => delete projectedTableMergedInto[id]);
+      }
+      const nextSession = { ...tableCurrentBillSession.value };
+      closingSession = nextSession[order.table];
+      delete nextSession[order.table];
+      projectedTableCurrentBillSession = nextSession;
+      projectedBillRequestedTables.delete(order.table);
+    }
+    saveStateToIDB({
+      orders: projectedOrders,
+      tableOccupiedAt: projectedTableOccupiedAt,
+      tableMergedInto: projectedTableMergedInto,
+      tableCurrentBillSession: projectedTableCurrentBillSession,
+      billRequestedTables: projectedBillRequestedTables,
+    }).catch((err) => console.warn('[Store] Failed to persist status update:', err));
+    if (closingSession?.billSessionId) {
+      closeBillSessionInIDB(closingSession.billSessionId)
+        .catch((err) => console.warn('[Store] Failed to close bill session in IDB:', err));
+    }
+
     order.status = newStatus;
     if (newStatus === 'rejected' && rejectionReason) order.rejectionReason = rejectionReason;
     if (KITCHEN_ACTIVE_STATUSES.includes(newStatus) && !tableOccupiedAt.value[order.table]) {
-      tableOccupiedAt.value[order.table] = new Date().toISOString();
+      tableOccupiedAt.value[order.table] = closedAt;
     }
     const activeOrds = orders.value.filter(
       o => o.table === order.table && o.status !== 'completed' && o.status !== 'rejected',
@@ -408,25 +455,16 @@ export const useOrderStore = defineStore('orders', () => {
         tableMergedInto.value = nextMerge;
       }
       const nextSession = { ...tableCurrentBillSession.value };
-      const closingSession = nextSession[order.table];
-      const closedAt = new Date().toISOString();
+      const closedSession = nextSession[order.table];
       delete nextSession[order.table];
       tableCurrentBillSession.value = nextSession;
       setBillRequested(order.table, false);
-      if (closingSession?.billSessionId) {
-        closeBillSessionInIDB(closingSession.billSessionId);
-        enqueue('bill_sessions', 'update', closingSession.billSessionId, {
+      if (closedSession?.billSessionId) {
+        enqueue('bill_sessions', 'update', closedSession.billSessionId, {
           status: 'closed', closed_at: closedAt,
         });
       }
     }
-    saveStateToIDB({
-      orders: orders.value,
-      tableOccupiedAt: tableOccupiedAt.value,
-      tableMergedInto: tableMergedInto.value,
-      tableCurrentBillSession: tableCurrentBillSession.value,
-      billRequestedTables: billRequestedTables.value,
-    }).catch((err) => console.warn('[Store] Failed to persist status update:', err));
     enqueue('orders', 'update', order.id, { status: newStatus, rejectionReason: order.rejectionReason ?? null });
   }
 
@@ -508,12 +546,15 @@ export const useOrderStore = defineStore('orders', () => {
   }
 
   function addTransaction(txn) {
-    transactions.value.push(txn);
-    if (txn.tableId) setBillRequested(txn.tableId, false);
+    const nextTransactions = [...transactions.value, txn];
+    const nextBillRequestedTables = new Set(billRequestedTables.value);
+    if (txn.tableId) nextBillRequestedTables.delete(txn.tableId);
     saveStateToIDB({
-      transactions: transactions.value,
-      billRequestedTables: billRequestedTables.value,
+      transactions: nextTransactions,
+      billRequestedTables: nextBillRequestedTables,
     }).catch((err) => console.warn('[Store] Failed to persist transactions:', err));
+    transactions.value = nextTransactions;
+    if (txn.tableId) setBillRequested(txn.tableId, false);
     enqueue('transactions', 'create', txn.id, txn);
 
     if (txn?.operationType === 'analitica') {
@@ -628,7 +669,10 @@ export const useOrderStore = defineStore('orders', () => {
       timestamp: new Date().toISOString(),
       ...(venueId != null ? { venue: venueId } : {}),
     };
-    cashMovements.value.push(mov);
+    const nextCashMovements = [...cashMovements.value, mov];
+    saveStateToIDB({ cashMovements: nextCashMovements })
+      .catch((err) => console.warn('[Store] Failed to persist cash movement:', err));
+    cashMovements.value = nextCashMovements;
     enqueue('cash_movements', 'create', mov.id, mov);
   }
 

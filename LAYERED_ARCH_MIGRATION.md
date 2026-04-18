@@ -15,17 +15,17 @@
 
 **File**: `src/store/index.js`
 
-- [ ] Ogni azione che produce una mutazione persistente deve seguire l'ordine
+- [x] Ogni azione che produce una mutazione persistente deve seguire l'ordine
   1. **Scrivi su IDB** (`saveOrdersToIDB`, `upsertRecordsIntoIDB`, ecc.)
   2. **Aggiorna lo stato Pinia** (reactivity)
   3. **Enqueue** per sync remoto
-- [ ] Azioni da correggere in ordine di rischio:
+- [x] Azioni da correggere in ordine di rischio:
   - `addOrder` / `addDirectOrder` — mutano `orders.value` prima di `saveOrdersToIDB`
   - `changeOrderStatus` — aggiorna campo inline poi salva
   - `addTransaction` — costruisce `txn`, lo pusha in `transactions.value` e **poi** chiama `enqueue`
   - `openTableSession` — muta `tableCurrentBillSession.value` prima di `enqueue('bill_sessions', …)`
   - `recordCashMovement` — stessa sequenza inversa
-- [ ] Aggiungere test di regressione per ogni azione corretta che verifichino
+- [x] Aggiungere test di regressione per ogni azione corretta che verifichino
   l'ordine effettivo delle chiamate IDB vs stato reattivo.
 
 ---
