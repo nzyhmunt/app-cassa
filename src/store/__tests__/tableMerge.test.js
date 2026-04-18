@@ -65,20 +65,20 @@ function makeTransaction(tableId, amountPaid, billSessionId = null) {
 // ---------------------------------------------------------------------------
 
 describe('moveTableOrders() — to a free table', () => {
-  it('moves active orders to target and source becomes free', () => {
+  it('moves active orders to target and source becomes free', async () => {
     const store = useAppStore();
     const ord = makeOrder('T1', 'accepted', 20);
-    store.addOrder(ord);
+    await store.addOrder(ord);
     store.moveTableOrders('T1', 'T2');
     expect(store.orders.find(o => o.id === ord.id).table).toBe('T2');
     expect(store.getTableStatus('T1').status).toBe('free');
     expect(store.getTableStatus('T2').status).toBe('occupied');
   });
 
-  it('does NOT move completed or rejected orders', () => {
+  it('does NOT move completed or rejected orders', async () => {
     const store = useAppStore();
     const completed = makeOrder('T1', 'completed', 15);
-    store.addOrder(completed);
+    await store.addOrder(completed);
     store.moveTableOrders('T1', 'T2');
     // completed stays on T1
     expect(store.orders.find(o => o.id === completed.id).table).toBe('T1');
@@ -90,14 +90,14 @@ describe('moveTableOrders() — to a free table', () => {
 // ---------------------------------------------------------------------------
 
 describe('moveTableOrders() — to an occupied table (bill merge)', () => {
-  it('moves source orders to occupied target and retags to target session', () => {
+  it('moves source orders to occupied target and retags to target session', async () => {
     const store = useAppStore();
-    const sessionA = store.openTableSession('A', 2, 0);
-    const sessionB = store.openTableSession('B', 2, 0);
+    const sessionA = await store.openTableSession('A', 2, 0);
+    const sessionB = await store.openTableSession('B', 2, 0);
     const ordA = makeOrder('A', 'accepted', 10, sessionA);
     const ordB = makeOrder('B', 'accepted', 20, sessionB);
-    store.addOrder(ordA);
-    store.addOrder(ordB);
+    await store.addOrder(ordA);
+    await store.addOrder(ordB);
 
     store.moveTableOrders('A', 'B');
 
@@ -112,14 +112,14 @@ describe('moveTableOrders() — to an occupied table (bill merge)', () => {
     expect(statusB.total).toBe(30);
   });
 
-  it('moves source transactions to target when target already has a session', () => {
+  it('moves source transactions to target when target already has a session', async () => {
     const store = useAppStore();
-    const sessionA = store.openTableSession('A', 2, 0);
-    const sessionB = store.openTableSession('B', 2, 0);
+    const sessionA = await store.openTableSession('A', 2, 0);
+    const sessionB = await store.openTableSession('B', 2, 0);
     const ordA = makeOrder('A', 'accepted', 30, sessionA);
     const txnA = makeTransaction('A', 10, sessionA);
-    store.addOrder(ordA);
-    store.addTransaction(txnA);
+    await store.addOrder(ordA);
+    await store.addTransaction(txnA);
 
     store.moveTableOrders('A', 'B');
 
@@ -135,100 +135,100 @@ describe('moveTableOrders() — to an occupied table (bill merge)', () => {
 // ---------------------------------------------------------------------------
 
 describe('mergeTableOrders() — orders physically move to master, both tables remain occupied', () => {
-  it('source orders move to master table (o.table = masterTableId)', () => {
+  it('source orders move to master table (o.table = masterTableId)', async () => {
     const store = useAppStore();
-    const sessA = store.openTableSession('A', 2, 0);
-    const sessB = store.openTableSession('B', 2, 0);
+    const sessA = await store.openTableSession('A', 2, 0);
+    const sessB = await store.openTableSession('B', 2, 0);
     const ordA = makeOrder('A', 'accepted', 15, sessA);
     const ordB = makeOrder('B', 'accepted', 25, sessB);
-    store.addOrder(ordA);
-    store.addOrder(ordB);
+    await store.addOrder(ordA);
+    await store.addOrder(ordB);
 
-    store.mergeTableOrders('A', 'B'); // merge A (slave) into B (master)
+    await store.mergeTableOrders('A', 'B'); // merge A (slave) into B (master)
 
     // A's order now belongs to B
     expect(store.orders.find(o => o.id === ordA.id).table).toBe('B');
   });
 
-  it('source orders are tagged to master bill session', () => {
+  it('source orders are tagged to master bill session', async () => {
     const store = useAppStore();
-    const sessA = store.openTableSession('A', 2, 0);
-    const sessB = store.openTableSession('B', 2, 0);
+    const sessA = await store.openTableSession('A', 2, 0);
+    const sessB = await store.openTableSession('B', 2, 0);
     const ordA = makeOrder('A', 'accepted', 15, sessA);
-    store.addOrder(ordA);
-    store.addOrder(makeOrder('B', 'accepted', 25, sessB));
+    await store.addOrder(ordA);
+    await store.addOrder(makeOrder('B', 'accepted', 25, sessB));
 
-    store.mergeTableOrders('A', 'B');
+    await store.mergeTableOrders('A', 'B');
 
     const movedOrd = store.orders.find(o => o.id === ordA.id);
     expect(movedOrd.billSessionId).toBe(sessB);
     expect(movedOrd.table).toBe('B');
   });
 
-  it('records tableMergedInto[source] = master', () => {
+  it('records tableMergedInto[source] = master', async () => {
     const store = useAppStore();
-    store.openTableSession('A', 2, 0);
-    store.openTableSession('B', 2, 0);
-    store.addOrder(makeOrder('A', 'accepted', 10, store.tableCurrentBillSession['A'].billSessionId));
-    store.addOrder(makeOrder('B', 'accepted', 20, store.tableCurrentBillSession['B'].billSessionId));
+    await store.openTableSession('A', 2, 0);
+    await store.openTableSession('B', 2, 0);
+    await store.addOrder(makeOrder('A', 'accepted', 10, store.tableCurrentBillSession['A'].billSessionId));
+    await store.addOrder(makeOrder('B', 'accepted', 20, store.tableCurrentBillSession['B'].billSessionId));
 
-    store.mergeTableOrders('A', 'B');
+    await store.mergeTableOrders('A', 'B');
 
     expect(store.tableMergedInto['A']).toBe('B');
   });
 
-  it('slave table shows as occupied (not free) after merge', () => {
+  it('slave table shows as occupied (not free) after merge', async () => {
     const store = useAppStore();
-    const sessA = store.openTableSession('A', 2, 0);
-    const sessB = store.openTableSession('B', 2, 0);
-    store.addOrder(makeOrder('A', 'accepted', 12, sessA));
-    store.addOrder(makeOrder('B', 'accepted', 18, sessB));
+    const sessA = await store.openTableSession('A', 2, 0);
+    const sessB = await store.openTableSession('B', 2, 0);
+    await store.addOrder(makeOrder('A', 'accepted', 12, sessA));
+    await store.addOrder(makeOrder('B', 'accepted', 18, sessB));
 
-    store.mergeTableOrders('A', 'B');
+    await store.mergeTableOrders('A', 'B');
 
     const slaveStatus = store.getTableStatus('A');
     expect(slaveStatus.status).not.toBe('free');
   });
 
-  it('master getTableStatus includes slave orders in total', () => {
+  it('master getTableStatus includes slave orders in total', async () => {
     const store = useAppStore();
-    const sessA = store.openTableSession('A', 2, 0);
-    const sessB = store.openTableSession('B', 2, 0);
-    store.addOrder(makeOrder('A', 'accepted', 10, sessA));
-    store.addOrder(makeOrder('B', 'accepted', 20, sessB));
+    const sessA = await store.openTableSession('A', 2, 0);
+    const sessB = await store.openTableSession('B', 2, 0);
+    await store.addOrder(makeOrder('A', 'accepted', 10, sessA));
+    await store.addOrder(makeOrder('B', 'accepted', 20, sessB));
 
-    store.mergeTableOrders('A', 'B');
+    await store.mergeTableOrders('A', 'B');
 
     const masterStatus = store.getTableStatus('B');
     expect(masterStatus.total).toBe(30);
     expect(masterStatus.remaining).toBe(30);
   });
 
-  it('slave transactions move to master table', () => {
+  it('slave transactions move to master table', async () => {
     const store = useAppStore();
-    const sessA = store.openTableSession('A', 2, 0);
-    const sessB = store.openTableSession('B', 2, 0);
+    const sessA = await store.openTableSession('A', 2, 0);
+    const sessB = await store.openTableSession('B', 2, 0);
     const ordA = makeOrder('A', 'accepted', 20, sessA);
-    store.addOrder(ordA);
-    store.addOrder(makeOrder('B', 'accepted', 30, sessB));
+    await store.addOrder(ordA);
+    await store.addOrder(makeOrder('B', 'accepted', 30, sessB));
     const txnA = makeTransaction('A', 10, sessA);
-    store.addTransaction(txnA);
+    await store.addTransaction(txnA);
 
-    store.mergeTableOrders('A', 'B');
+    await store.mergeTableOrders('A', 'B');
 
     const movedTxn = store.transactions.find(t => t.id === txnA.id);
     expect(movedTxn.tableId).toBe('B');
     expect(movedTxn.billSessionId).toBe(sessB);
   });
 
-  it('slave source has no current bill session after merge', () => {
+  it('slave source has no current bill session after merge', async () => {
     const store = useAppStore();
-    const sessA = store.openTableSession('A', 2, 0);
-    const sessB = store.openTableSession('B', 2, 0);
-    store.addOrder(makeOrder('A', 'accepted', 10, sessA));
-    store.addOrder(makeOrder('B', 'accepted', 20, sessB));
+    const sessA = await store.openTableSession('A', 2, 0);
+    const sessB = await store.openTableSession('B', 2, 0);
+    await store.addOrder(makeOrder('A', 'accepted', 10, sessA));
+    await store.addOrder(makeOrder('B', 'accepted', 20, sessB));
 
-    store.mergeTableOrders('A', 'B');
+    await store.mergeTableOrders('A', 'B');
 
     expect(store.tableCurrentBillSession['A']).toBeUndefined();
   });
@@ -239,24 +239,24 @@ describe('mergeTableOrders() — orders physically move to master, both tables r
 // ---------------------------------------------------------------------------
 
 describe('mergeTableOrders() — bug fix: paid table + open table', () => {
-  it('after merging open slave into paid master, master total increases and remaining > 0', () => {
+  it('after merging open slave into paid master, master total increases and remaining > 0', async () => {
     const store = useAppStore();
     // Master (B): paid — has an order fully paid
-    const sessB = store.openTableSession('B', 2, 0);
+    const sessB = await store.openTableSession('B', 2, 0);
     const ordBPaid = makeOrder('B', 'accepted', 30, sessB);
-    store.addOrder(ordBPaid);
-    store.addTransaction(makeTransaction('B', 30, sessB)); // fully paid
+    await store.addOrder(ordBPaid);
+    await store.addTransaction(makeTransaction('B', 30, sessB)); // fully paid
 
     // Initially B is "paid"
     expect(store.getTableStatus('B').status).toBe('paid');
 
     // Slave (A): open — unpaid order
-    const sessA = store.openTableSession('A', 2, 0);
+    const sessA = await store.openTableSession('A', 2, 0);
     const ordAOpen = makeOrder('A', 'accepted', 15, sessA);
-    store.addOrder(ordAOpen);
+    await store.addOrder(ordAOpen);
 
     // Merge A (slave) into B (master)
-    store.mergeTableOrders('A', 'B');
+    await store.mergeTableOrders('A', 'B');
 
     const masterStatus = store.getTableStatus('B');
     expect(masterStatus.total).toBeGreaterThan(0);
@@ -264,22 +264,22 @@ describe('mergeTableOrders() — bug fix: paid table + open table', () => {
     expect(masterStatus.status).not.toBe('paid'); // should now be occupied
   });
 
-  it('after merging paid slave into open master, remaining correctly reflects only unpaid portion', () => {
+  it('after merging paid slave into open master, remaining correctly reflects only unpaid portion', async () => {
     const store = useAppStore();
     // Master (B): open — unpaid
-    const sessB = store.openTableSession('B', 2, 0);
+    const sessB = await store.openTableSession('B', 2, 0);
     const ordBOpen = makeOrder('B', 'accepted', 20, sessB);
-    store.addOrder(ordBOpen);
+    await store.addOrder(ordBOpen);
 
     // Slave (A): paid — fully paid order
-    const sessA = store.openTableSession('A', 2, 0);
+    const sessA = await store.openTableSession('A', 2, 0);
     const ordAPaid = makeOrder('A', 'accepted', 10, sessA);
-    store.addOrder(ordAPaid);
-    store.addTransaction(makeTransaction('A', 10, sessA));
+    await store.addOrder(ordAPaid);
+    await store.addTransaction(makeTransaction('A', 10, sessA));
     expect(store.getTableStatus('A').status).toBe('paid');
 
     // Merge A (paid slave) into B (open master)
-    store.mergeTableOrders('A', 'B');
+    await store.mergeTableOrders('A', 'B');
 
     const masterStatus = store.getTableStatus('B');
     // B's session total: B's original order (20) + A's order (now retagged to B session, 10) = 30
@@ -289,29 +289,29 @@ describe('mergeTableOrders() — bug fix: paid table + open table', () => {
     expect(masterStatus.remaining).toBe(20);
   });
 
-  it('historical orders from older sessions are NOT pulled into master when merging', () => {
+  it('historical orders from older sessions are NOT pulled into master when merging', async () => {
     const store = useAppStore();
     // Table A: had a previous session (oldSess) with a completed order — already closed
-    const oldSessA = store.openTableSession('A', 2, 0);
+    const oldSessA = await store.openTableSession('A', 2, 0);
     const oldOrd = makeOrder('A', 'completed', 50, oldSessA);
-    store.addOrder(oldOrd);
+    await store.addOrder(oldOrd);
     // Simulate session close: remove session entry (order stays as historical)
     const next = { ...store.tableCurrentBillSession };
     delete next['A'];
     store.$patch({ tableCurrentBillSession: next });
 
     // Table A: new session starts
-    const newSessA = store.openTableSession('A', 2, 0);
+    const newSessA = await store.openTableSession('A', 2, 0);
     const newOrd = makeOrder('A', 'accepted', 25, newSessA);
-    store.addOrder(newOrd);
+    await store.addOrder(newOrd);
 
     // Table B: open session
-    const sessB = store.openTableSession('B', 2, 0);
+    const sessB = await store.openTableSession('B', 2, 0);
     const ordB = makeOrder('B', 'accepted', 10, sessB);
-    store.addOrder(ordB);
+    await store.addOrder(ordB);
 
     // Merge A (slave) into B (master)
-    store.mergeTableOrders('A', 'B');
+    await store.mergeTableOrders('A', 'B');
 
     // Only the current-session order (25) should be on master; historical order stays on A
     const masterStatus = store.getTableStatus('B');
@@ -325,7 +325,7 @@ describe('mergeTableOrders() — bug fix: paid table + open table', () => {
     expect(historicalOrder.billSessionId).toBe(oldSessA);
   });
 
-  it('source has no session entry but has both active and historical completed orders: only active orders are moved', () => {
+  it('source has no session entry but has both active and historical completed orders: only active orders are moved', async () => {
     const store = useAppStore();
     // Table A: historical completed order with an old closed session.
     // We simulate a "closed" session by adding a completed order tagged to a
@@ -345,7 +345,7 @@ describe('mergeTableOrders() — bug fix: paid table + open table', () => {
       noteVisibility: { cassa: true, sala: true, cucina: true },
       isDirectEntry: false,
     };
-    store.addOrder(historicalOrd);
+    await store.addOrder(historicalOrd);
 
     // Table A: active pending order with no bill session (created without opening a session)
     const activeOrd = {
@@ -360,15 +360,15 @@ describe('mergeTableOrders() — bug fix: paid table + open table', () => {
       noteVisibility: { cassa: true, sala: true, cucina: true },
       isDirectEntry: false,
     };
-    store.addOrder(activeOrd);
+    await store.addOrder(activeOrd);
 
     // Table B: open session
-    const sessB = store.openTableSession('B', 2, 0);
+    const sessB = await store.openTableSession('B', 2, 0);
     const ordB = makeOrder('B', 'accepted', 10, sessB);
-    store.addOrder(ordB);
+    await store.addOrder(ordB);
 
     // Merge A (no session entry at all) into B
-    store.mergeTableOrders('A', 'B');
+    await store.mergeTableOrders('A', 'B');
 
     // The active (pending) order must have moved to master
     const movedActive = store.orders.find(o => o.id === activeOrd.id);
@@ -386,31 +386,31 @@ describe('mergeTableOrders() — bug fix: paid table + open table', () => {
 // ---------------------------------------------------------------------------
 
 describe('getTableStatus() — slave mirrors master', () => {
-  it('slave shows paid status when master is paid', () => {
+  it('slave shows paid status when master is paid', async () => {
     const store = useAppStore();
-    const sessA = store.openTableSession('A', 2, 0);
-    const sessB = store.openTableSession('B', 2, 0);
-    store.addOrder(makeOrder('A', 'accepted', 10, sessA));
-    store.addOrder(makeOrder('B', 'accepted', 20, sessB));
+    const sessA = await store.openTableSession('A', 2, 0);
+    const sessB = await store.openTableSession('B', 2, 0);
+    await store.addOrder(makeOrder('A', 'accepted', 10, sessA));
+    await store.addOrder(makeOrder('B', 'accepted', 20, sessB));
 
-    store.mergeTableOrders('A', 'B'); // A slave of B; ordA moves to B
+    await store.mergeTableOrders('A', 'B'); // A slave of B; ordA moves to B
 
     // Pay B's combined bill (30 — both orders are now on B)
-    store.addTransaction(makeTransaction('B', 30, sessB));
+    await store.addTransaction(makeTransaction('B', 30, sessB));
 
     const slaveStatus = store.getTableStatus('A');
     expect(slaveStatus.status).toBe('paid');
     expect(slaveStatus.remaining).toBe(0);
   });
 
-  it('slave mirrors occupied status when master has active orders', () => {
+  it('slave mirrors occupied status when master has active orders', async () => {
     const store = useAppStore();
-    const sessA = store.openTableSession('A', 2, 0);
-    const sessB = store.openTableSession('B', 2, 0);
-    store.addOrder(makeOrder('A', 'accepted', 10, sessA));
-    store.addOrder(makeOrder('B', 'accepted', 20, sessB));
+    const sessA = await store.openTableSession('A', 2, 0);
+    const sessB = await store.openTableSession('B', 2, 0);
+    await store.addOrder(makeOrder('A', 'accepted', 10, sessA));
+    await store.addOrder(makeOrder('B', 'accepted', 20, sessB));
 
-    store.mergeTableOrders('A', 'B');
+    await store.mergeTableOrders('A', 'B');
 
     // Master B has active orders → slave A mirrors that status
     const slaveStatus = store.getTableStatus('A');
@@ -425,43 +425,43 @@ describe('getTableStatus() — slave mirrors master', () => {
 // ---------------------------------------------------------------------------
 
 describe('changeOrderStatus() — session lifecycle with merged tables', () => {
-  it('does not clear master session when one order completes but another is still active', () => {
+  it('does not clear master session when one order completes but another is still active', async () => {
     const store = useAppStore();
-    const sessA = store.openTableSession('A', 2, 0);
-    const sessB = store.openTableSession('B', 2, 0);
+    const sessA = await store.openTableSession('A', 2, 0);
+    const sessB = await store.openTableSession('B', 2, 0);
     const ordA = makeOrder('A', 'accepted', 10, sessA);
     const ordB = makeOrder('B', 'accepted', 20, sessB);
-    store.addOrder(ordA);
-    store.addOrder(ordB);
+    await store.addOrder(ordA);
+    await store.addOrder(ordB);
 
     // A becomes slave of B; both orders are now on B
-    store.mergeTableOrders('A', 'B');
+    await store.mergeTableOrders('A', 'B');
     expect(store.tableMergedInto['A']).toBe('B');
 
     // Complete one of B's orders — the other is still active
-    store.changeOrderStatus(ordB, 'completed');
+    await store.changeOrderStatus(ordB, 'completed');
 
     // Master B session must still be alive (ordA is still active on B)
     expect(store.tableCurrentBillSession['B']).toBeDefined();
   });
 
-  it('clears master session and slave mapping when all orders are completed', () => {
+  it('clears master session and slave mapping when all orders are completed', async () => {
     const store = useAppStore();
-    const sessA = store.openTableSession('A', 2, 0);
-    const sessB = store.openTableSession('B', 2, 0);
+    const sessA = await store.openTableSession('A', 2, 0);
+    const sessB = await store.openTableSession('B', 2, 0);
     const ordA = makeOrder('A', 'accepted', 10, sessA);
     const ordB = makeOrder('B', 'accepted', 20, sessB);
-    store.addOrder(ordA);
-    store.addOrder(ordB);
+    await store.addOrder(ordA);
+    await store.addOrder(ordB);
 
-    store.mergeTableOrders('A', 'B');
+    await store.mergeTableOrders('A', 'B');
 
     // Complete first order — B still has the second one active
-    store.changeOrderStatus(ordA, 'completed');
+    await store.changeOrderStatus(ordA, 'completed');
     expect(store.tableCurrentBillSession['B']).toBeDefined();
 
     // Complete second order — no more active orders on B
-    store.changeOrderStatus(ordB, 'completed');
+    await store.changeOrderStatus(ordB, 'completed');
     // Master session must be cleared
     expect(store.tableCurrentBillSession['B']).toBeUndefined();
     expect(store.tableOccupiedAt['B']).toBeUndefined();
@@ -475,19 +475,19 @@ describe('changeOrderStatus() — session lifecycle with merged tables', () => {
 // ---------------------------------------------------------------------------
 
 describe('detachSlaveTable()', () => {
-  it('removes from tableMergedInto after split; slave is free since all its orders moved to master', () => {
+  it('removes from tableMergedInto after split; slave is free since all its orders moved to master', async () => {
     const store = useAppStore();
-    const sessA = store.openTableSession('A', 2, 0);
-    const sessB = store.openTableSession('B', 2, 0);
+    const sessA = await store.openTableSession('A', 2, 0);
+    const sessB = await store.openTableSession('B', 2, 0);
     const ordA = makeOrder('A', 'accepted', 10, sessA);
-    store.addOrder(ordA);
-    store.addOrder(makeOrder('B', 'accepted', 20, sessB));
+    await store.addOrder(ordA);
+    await store.addOrder(makeOrder('B', 'accepted', 20, sessB));
 
-    store.mergeTableOrders('A', 'B'); // A becomes slave; ordA moves to B
+    await store.mergeTableOrders('A', 'B'); // A becomes slave; ordA moves to B
 
     expect(store.tableMergedInto['A']).toBe('B');
 
-    store.detachSlaveTable('B', 'A'); // split A back out
+    await store.detachSlaveTable('B', 'A'); // split A back out
 
     expect(store.tableMergedInto['A']).toBeUndefined();
     // A has no orders (they moved to B on merge), so no session is opened
@@ -496,31 +496,31 @@ describe('detachSlaveTable()', () => {
     expect(store.getTableStatus('A').status).toBe('free');
   });
 
-  it('detachSlaveTable alone does not open a session for slave (no orders on slave)', () => {
+  it('detachSlaveTable alone does not open a session for slave (no orders on slave)', async () => {
     const store = useAppStore();
-    const sessA = store.openTableSession('A', 2, 0);
-    const sessB = store.openTableSession('B', 2, 0);
+    const sessA = await store.openTableSession('A', 2, 0);
+    const sessB = await store.openTableSession('B', 2, 0);
     const ordA = makeOrder('A', 'accepted', 10, sessA);
-    store.addOrder(ordA);
-    store.addOrder(makeOrder('B', 'accepted', 20, sessB));
+    await store.addOrder(ordA);
+    await store.addOrder(makeOrder('B', 'accepted', 20, sessB));
 
-    store.mergeTableOrders('A', 'B'); // ordA moves to B
-    store.detachSlaveTable('B', 'A'); // detach A
+    await store.mergeTableOrders('A', 'B'); // ordA moves to B
+    await store.detachSlaveTable('B', 'A'); // detach A
 
     // A has no orders on it, so detachSlaveTable must NOT open a session
     expect(store.tableCurrentBillSession['A']).toBeUndefined();
     expect(store.getTableStatus('A').status).toBe('free');
   });
 
-  it('after split, slave is free and master retains all orders', () => {
+  it('after split, slave is free and master retains all orders', async () => {
     const store = useAppStore();
-    const sessA = store.openTableSession('A', 2, 0);
-    const sessB = store.openTableSession('B', 2, 0);
-    store.addOrder(makeOrder('A', 'accepted', 10, sessA));
-    store.addOrder(makeOrder('B', 'accepted', 20, sessB));
+    const sessA = await store.openTableSession('A', 2, 0);
+    const sessB = await store.openTableSession('B', 2, 0);
+    await store.addOrder(makeOrder('A', 'accepted', 10, sessA));
+    await store.addOrder(makeOrder('B', 'accepted', 20, sessB));
 
-    store.mergeTableOrders('A', 'B'); // ordA moves to B; B has both orders (30)
-    store.detachSlaveTable('B', 'A'); // detach A
+    await store.mergeTableOrders('A', 'B'); // ordA moves to B; B has both orders (30)
+    await store.detachSlaveTable('B', 'A'); // detach A
 
     const statusA = store.getTableStatus('A');
     const statusB = store.getTableStatus('B');
@@ -531,33 +531,33 @@ describe('detachSlaveTable()', () => {
     expect(statusB.total).toBe(30);
   });
 
-  it('is a no-op when slave is not merged into master', () => {
+  it('is a no-op when slave is not merged into master', async () => {
     const store = useAppStore();
-    const sessA = store.openTableSession('A', 2, 0);
-    store.addOrder(makeOrder('A', 'accepted', 10, sessA));
+    const sessA = await store.openTableSession('A', 2, 0);
+    await store.addOrder(makeOrder('A', 'accepted', 10, sessA));
 
     // Call split without prior merge — should not crash or change state
     expect(() => store.detachSlaveTable('B', 'A')).not.toThrow();
     expect(store.tableMergedInto['A']).toBeUndefined();
   });
 
-  it('after merge, orders on master are on master\'s session; split does not retag master orders', () => {
+  it('after merge, orders on master are on master\'s session; split does not retag master orders', async () => {
     const store = useAppStore();
-    const sessA = store.openTableSession('A', 2, 0);
-    const sessB = store.openTableSession('B', 2, 0);
+    const sessA = await store.openTableSession('A', 2, 0);
+    const sessB = await store.openTableSession('B', 2, 0);
     const completedOrdA = makeOrder('A', 'completed', 10, sessA);
     const activeOrdA = makeOrder('A', 'accepted', 5, sessA);
-    store.addOrder(completedOrdA);
-    store.addOrder(activeOrdA);
-    store.addOrder(makeOrder('B', 'accepted', 20, sessB));
+    await store.addOrder(completedOrdA);
+    await store.addOrder(activeOrdA);
+    await store.addOrder(makeOrder('B', 'accepted', 20, sessB));
 
-    store.mergeTableOrders('A', 'B');
+    await store.mergeTableOrders('A', 'B');
     // After merge: both A orders moved to B and tagged to sessB
     expect(store.orders.find(o => o.id === completedOrdA.id).table).toBe('B');
     expect(store.orders.find(o => o.id === completedOrdA.id).billSessionId).toBe(sessB);
     expect(store.orders.find(o => o.id === activeOrdA.id).table).toBe('B');
 
-    store.detachSlaveTable('B', 'A');
+    await store.detachSlaveTable('B', 'A');
 
     // A has no orders (not moved back) — A is free
     const statusA = store.getTableStatus('A');
@@ -573,21 +573,21 @@ describe('detachSlaveTable()', () => {
 // ---------------------------------------------------------------------------
 
 describe('mergeTableOrders() — chain: slave-of-slave flattening', () => {
-  it('merging C (already slave of B) into A re-parents C to A', () => {
+  it('merging C (already slave of B) into A re-parents C to A', async () => {
     const store = useAppStore();
-    const sessA = store.openTableSession('A', 2, 0);
-    const sessB = store.openTableSession('B', 2, 0);
-    const sessC = store.openTableSession('C', 2, 0);
-    store.addOrder(makeOrder('A', 'accepted', 5, sessA));
-    store.addOrder(makeOrder('B', 'accepted', 10, sessB));
-    store.addOrder(makeOrder('C', 'accepted', 15, sessC));
+    const sessA = await store.openTableSession('A', 2, 0);
+    const sessB = await store.openTableSession('B', 2, 0);
+    const sessC = await store.openTableSession('C', 2, 0);
+    await store.addOrder(makeOrder('A', 'accepted', 5, sessA));
+    await store.addOrder(makeOrder('B', 'accepted', 10, sessB));
+    await store.addOrder(makeOrder('C', 'accepted', 15, sessC));
 
     // First: C becomes slave of B
-    store.mergeTableOrders('C', 'B');
+    await store.mergeTableOrders('C', 'B');
     expect(store.tableMergedInto['C']).toBe('B');
 
     // Then: B becomes slave of A
-    store.mergeTableOrders('B', 'A');
+    await store.mergeTableOrders('B', 'A');
 
     // B's slaves (C) should now be slaves of A too
     expect(store.tableMergedInto['B']).toBe('A');
@@ -595,18 +595,18 @@ describe('mergeTableOrders() — chain: slave-of-slave flattening', () => {
     expect(store.tableMergedInto['C']).toBe('A');
   });
 
-  it('after chain-merge A includes orders from B and C in total', () => {
+  it('after chain-merge A includes orders from B and C in total', async () => {
     const store = useAppStore();
-    const sessA = store.openTableSession('A', 2, 0);
-    const sessB = store.openTableSession('B', 2, 0);
-    const sessC = store.openTableSession('C', 2, 0);
-    store.addOrder(makeOrder('A', 'accepted', 5, sessA));
-    store.addOrder(makeOrder('B', 'accepted', 10, sessB));
-    store.addOrder(makeOrder('C', 'accepted', 15, sessC));
+    const sessA = await store.openTableSession('A', 2, 0);
+    const sessB = await store.openTableSession('B', 2, 0);
+    const sessC = await store.openTableSession('C', 2, 0);
+    await store.addOrder(makeOrder('A', 'accepted', 5, sessA));
+    await store.addOrder(makeOrder('B', 'accepted', 10, sessB));
+    await store.addOrder(makeOrder('C', 'accepted', 15, sessC));
 
     // C → slave of B, B → slave of A
-    store.mergeTableOrders('C', 'B');
-    store.mergeTableOrders('B', 'A');
+    await store.mergeTableOrders('C', 'B');
+    await store.mergeTableOrders('B', 'A');
 
     const masterStatus = store.getTableStatus('A');
     // Master total must include A (5) + B (10) + C (15) = 30
@@ -648,17 +648,17 @@ describe('splitItemsToTable()', () => {
     };
   }
 
-  it('moves selected item quantities from source to target, reducing quantity on source (no storno)', () => {
+  it('moves selected item quantities from source to target, reducing quantity on source (no storno)', async () => {
     const store = useAppStore();
-    const sessA = store.openTableSession('A', 2, 0);
+    const sessA = await store.openTableSession('A', 2, 0);
     const ord = makeOrderWithItems('A', 'accepted', sessA,
       { name: 'Pizza', unitPrice: 10, quantity: 2 },
       { name: 'Pasta', unitPrice: 8, quantity: 1 },
     );
-    store.addOrder(ord);
+    await store.addOrder(ord);
 
     const itemQtyMap = { [`${ord.id}__${ord.orderItems[0].uid}`]: 1 }; // move 1 pizza
-    store.splitItemsToTable('A', 'B', itemQtyMap);
+    await store.splitItemsToTable('A', 'B', itemQtyMap);
 
     // Source pizza item has its quantity reduced (no storno/voidedQuantity)
     const sourceOrd = store.orders.find(o => o.id === ord.id);
@@ -672,56 +672,56 @@ describe('splitItemsToTable()', () => {
     expect(targetOrd.orderItems[0].quantity).toBe(1);
   });
 
-  it('source order total is updated after split', () => {
+  it('source order total is updated after split', async () => {
     const store = useAppStore();
-    const sessA = store.openTableSession('A', 2, 0);
+    const sessA = await store.openTableSession('A', 2, 0);
     const ord = makeOrderWithItems('A', 'accepted', sessA,
       { name: 'Pizza', unitPrice: 12, quantity: 2 },
     );
-    store.addOrder(ord);
+    await store.addOrder(ord);
 
     const itemQtyMap = { [`${ord.id}__${ord.orderItems[0].uid}`]: 1 };
-    store.splitItemsToTable('A', 'B', itemQtyMap);
+    await store.splitItemsToTable('A', 'B', itemQtyMap);
 
     const sourceOrd = store.orders.find(o => o.id === ord.id);
     expect(sourceOrd.totalAmount).toBe(12); // only 1 pizza remaining
   });
 
-  it('creates target session if target has no session', () => {
+  it('creates target session if target has no session', async () => {
     const store = useAppStore();
-    const sessA = store.openTableSession('A', 2, 0);
+    const sessA = await store.openTableSession('A', 2, 0);
     const ord = makeOrderWithItems('A', 'accepted', sessA,
       { name: 'Vino', unitPrice: 5, quantity: 1 },
     );
-    store.addOrder(ord);
+    await store.addOrder(ord);
 
     const itemQtyMap = { [`${ord.id}__${ord.orderItems[0].uid}`]: 1 };
 
     expect(store.tableCurrentBillSession['B']).toBeUndefined();
-    store.splitItemsToTable('A', 'B', itemQtyMap);
+    await store.splitItemsToTable('A', 'B', itemQtyMap);
     expect(store.tableCurrentBillSession['B']).toBeDefined();
   });
 
-  it('returns false and does nothing when itemQtyMap has no matching items', () => {
+  it('returns false and does nothing when itemQtyMap has no matching items', async () => {
     const store = useAppStore();
-    const sessA = store.openTableSession('A', 2, 0);
+    const sessA = await store.openTableSession('A', 2, 0);
     const ord = makeOrderWithItems('A', 'accepted', sessA, { name: 'Acqua', unitPrice: 2, quantity: 1 });
-    store.addOrder(ord);
+    await store.addOrder(ord);
 
-    const result = store.splitItemsToTable('A', 'B', { 'nonexistent__key': 1 });
+    const result = await store.splitItemsToTable('A', 'B', { 'nonexistent__key': 1 });
     expect(result).toBe(false);
     expect(store.orders.filter(o => o.table === 'B').length).toBe(0);
   });
 
-  it('returns false and does nothing when source has a pending order', () => {
+  it('returns false and does nothing when source has a pending order', async () => {
     const store = useAppStore();
-    const sessA = store.openTableSession('A', 2, 0);
+    const sessA = await store.openTableSession('A', 2, 0);
     // One pending order (not yet accepted by kitchen)
     const pendingOrd = makeOrderWithItems('A', 'pending', sessA, { name: 'Pizza', unitPrice: 10, quantity: 2 });
-    store.addOrder(pendingOrd);
+    await store.addOrder(pendingOrd);
 
     const itemQtyMap = { [`${pendingOrd.id}__${pendingOrd.orderItems[0].uid}`]: 1 };
-    const result = store.splitItemsToTable('A', 'B', itemQtyMap);
+    const result = await store.splitItemsToTable('A', 'B', itemQtyMap);
 
     expect(result).toBe(false);
     // Source order is unchanged
@@ -731,42 +731,42 @@ describe('splitItemsToTable()', () => {
     expect(store.tableCurrentBillSession['B']).toBeUndefined();
   });
 
-  it('returns false when source has a mix of pending and accepted orders', () => {
+  it('returns false when source has a mix of pending and accepted orders', async () => {
     const store = useAppStore();
-    const sessA = store.openTableSession('A', 2, 0);
+    const sessA = await store.openTableSession('A', 2, 0);
     const acceptedOrd = makeOrderWithItems('A', 'accepted', sessA, { name: 'Acqua', unitPrice: 2, quantity: 1 });
     const pendingOrd = makeOrderWithItems('A', 'pending', sessA, { name: 'Pizza', unitPrice: 10, quantity: 1 });
-    store.addOrder(acceptedOrd);
-    store.addOrder(pendingOrd);
+    await store.addOrder(acceptedOrd);
+    await store.addOrder(pendingOrd);
 
     // Attempting to split the accepted item is still blocked because pending order exists
     const itemQtyMap = { [`${acceptedOrd.id}__${acceptedOrd.orderItems[0].uid}`]: 1 };
-    const result = store.splitItemsToTable('A', 'B', itemQtyMap);
+    const result = await store.splitItemsToTable('A', 'B', itemQtyMap);
 
     expect(result).toBe(false);
     expect(store.orders.filter(o => o.table === 'B').length).toBe(0);
   });
 
-  it('clamps moveQty to netQty (cannot move more than available)', () => {
+  it('clamps moveQty to netQty (cannot move more than available)', async () => {
     const store = useAppStore();
-    const sessA = store.openTableSession('A', 2, 0);
+    const sessA = await store.openTableSession('A', 2, 0);
     const ord = makeOrderWithItems('A', 'accepted', sessA,
       { name: 'Birra', unitPrice: 4, quantity: 2 },
     );
-    store.addOrder(ord);
+    await store.addOrder(ord);
 
     // Try to move 5 (more than the 2 available)
     const itemQtyMap = { [`${ord.id}__${ord.orderItems[0].uid}`]: 5 };
-    store.splitItemsToTable('A', 'B', itemQtyMap);
+    await store.splitItemsToTable('A', 'B', itemQtyMap);
 
     const targetOrd = store.orders.find(o => o.table === 'B');
     expect(targetOrd.orderItems[0].quantity).toBe(2); // clamped to 2
   });
 
-  it('full flow: split slave back out — detach first, then move items from master to slave', () => {
+  it('full flow: split slave back out — detach first, then move items from master to slave', async () => {
     const store = useAppStore();
-    const sessA = store.openTableSession('A', 2, 0);
-    const sessB = store.openTableSession('B', 2, 0);
+    const sessA = await store.openTableSession('A', 2, 0);
+    const sessB = await store.openTableSession('B', 2, 0);
     const ordA = makeOrderWithItems('A', 'accepted', sessA,
       { name: 'Pizza', unitPrice: 10, quantity: 2 },
       { name: 'Pasta', unitPrice: 8, quantity: 1 },
@@ -774,23 +774,23 @@ describe('splitItemsToTable()', () => {
     const ordB = makeOrderWithItems('B', 'accepted', sessB,
       { name: 'Bistecca', unitPrice: 20, quantity: 1 },
     );
-    store.addOrder(ordA);
-    store.addOrder(ordB);
+    await store.addOrder(ordA);
+    await store.addOrder(ordB);
 
     // Merge A into B — ordA (pizza x2, pasta x1) physically moves to B
-    store.mergeTableOrders('A', 'B');
+    await store.mergeTableOrders('A', 'B');
 
     // ordA is now on B
     expect(store.orders.find(o => o.id === ordA.id).table).toBe('B');
 
     // Correct split flow in new model:
     // 1. Detach A from the merge (A becomes free again)
-    store.detachSlaveTable('B', 'A');
+    await store.detachSlaveTable('B', 'A');
     expect(store.tableMergedInto['A']).toBeUndefined();
 
     // 2. Move 1 pizza from master B to now-free slave A
     const pizzaKey = `${ordA.id}__${ordA.orderItems[0].uid}`;
-    store.splitItemsToTable('B', 'A', { [pizzaKey]: 1 });
+    await store.splitItemsToTable('B', 'A', { [pizzaKey]: 1 });
 
     // A is now independent with 1 pizza (direct order)
     expect(store.tableCurrentBillSession['A']).toBeDefined();
@@ -808,18 +808,18 @@ describe('splitItemsToTable()', () => {
     expect(store.getTableStatus('B').status).toBe('occupied');
   });
 
-  it('single table split: moves selected items to a free target table', () => {
+  it('single table split: moves selected items to a free target table', async () => {
     const store = useAppStore();
-    const sessA = store.openTableSession('A', 2, 0);
+    const sessA = await store.openTableSession('A', 2, 0);
     const ord = makeOrderWithItems('A', 'accepted', sessA,
       { name: 'Pizza', unitPrice: 10, quantity: 2 },
       { name: 'Acqua', unitPrice: 2, quantity: 1 },
     );
-    store.addOrder(ord);
+    await store.addOrder(ord);
 
     // Move 1 pizza to table B (free table, no prior session)
     const pizzaKey = `${ord.id}__${ord.orderItems[0].uid}`;
-    store.splitItemsToTable('A', 'B', { [pizzaKey]: 1 });
+    await store.splitItemsToTable('A', 'B', { [pizzaKey]: 1 });
 
     const statusA = store.getTableStatus('A');
     const statusB = store.getTableStatus('B');
@@ -834,9 +834,9 @@ describe('splitItemsToTable()', () => {
     expect(bOrd.orderItems[0].quantity).toBe(1);
   });
 
-  it('preserves combined pricing invariant when splitting an item with partially-voided modifiers', () => {
+  it('preserves combined pricing invariant when splitting an item with partially-voided modifiers', async () => {
     const store = useAppStore();
-    const sessA = store.openTableSession('A', 2, 0);
+    const sessA = await store.openTableSession('A', 2, 0);
 
     // Build an order manually to set modifier.price and correct totalAmount.
     // Item: 2 Burgers × €10 = €20 base
@@ -868,11 +868,11 @@ describe('splitItemsToTable()', () => {
       noteVisibility: { cassa: true, sala: true, cucina: true },
       isDirectEntry: false,
     };
-    store.addOrder(ord);
+    await store.addOrder(ord);
 
     // Split 1 of 2 Burgers to table B
     const itemQtyMap = { [`ord_mod_test__${itemUid}`]: 1 };
-    store.splitItemsToTable('A', 'B', itemQtyMap);
+    await store.splitItemsToTable('A', 'B', itemQtyMap);
 
     const sourceOrd = store.orders.find(o => o.id === 'ord_mod_test');
     const targetOrd = store.orders.find(o => o.table === 'B');
@@ -904,9 +904,9 @@ describe('splitItemsToTable()', () => {
     expect(sourceOrd.totalAmount + targetOrd.totalAmount).toBe(27);
   });
 
-  it('fully-voided modifier does not resurface on target after split', () => {
+  it('fully-voided modifier does not resurface on target after split', async () => {
     const store = useAppStore();
-    const sessA = store.openTableSession('A', 2, 0);
+    const sessA = await store.openTableSession('A', 2, 0);
 
     // 2 items, modifier fully voided (voidedQty=2) — modifier contributes €0
     const itemUid = 'item_test';
@@ -933,10 +933,10 @@ describe('splitItemsToTable()', () => {
       noteVisibility: { cassa: true, sala: true, cucina: true },
       isDirectEntry: false,
     };
-    store.addOrder(ord);
+    await store.addOrder(ord);
 
     // Split 1 item to B
-    store.splitItemsToTable('A', 'B', { [`ord_fullvoid__${itemUid}`]: 1 });
+    await store.splitItemsToTable('A', 'B', { [`ord_fullvoid__${itemUid}`]: 1 });
 
     const sourceOrd = store.orders.find(o => o.id === 'ord_fullvoid');
     const targetOrd = store.orders.find(o => o.table === 'B');
@@ -950,16 +950,16 @@ describe('splitItemsToTable()', () => {
     expect(sourceOrd.totalAmount + targetOrd.totalAmount).toBe(16);
   });
 
-  it('moving ALL items of an order physically relocates the order — no storno on source', () => {
+  it('moving ALL items of an order physically relocates the order — no storno on source', async () => {
     const store = useAppStore();
-    const sessA = store.openTableSession('A', 2, 0);
+    const sessA = await store.openTableSession('A', 2, 0);
     const ord = makeOrderWithItems('A', 'accepted', sessA,
       { name: 'Pizza', unitPrice: 10, quantity: 2 },
     );
-    store.addOrder(ord);
+    await store.addOrder(ord);
 
     // Move all 2 pizzas to B
-    const result = store.splitItemsToTable('A', 'B', { [`${ord.id}__${ord.orderItems[0].uid}`]: 2 });
+    const result = await store.splitItemsToTable('A', 'B', { [`${ord.id}__${ord.orderItems[0].uid}`]: 2 });
 
     expect(result).toBe(true);
 
@@ -987,20 +987,20 @@ describe('splitItemsToTable()', () => {
     expect(store.getTableStatus('B').status).toBe('occupied');
   });
 
-  it('source session is cleaned up when all orders are physically moved away', () => {
+  it('source session is cleaned up when all orders are physically moved away', async () => {
     const store = useAppStore();
-    const sessA = store.openTableSession('A', 2, 0);
+    const sessA = await store.openTableSession('A', 2, 0);
     const ord = makeOrderWithItems('A', 'accepted', sessA,
       { name: 'Acqua', unitPrice: 2, quantity: 1 },
     );
-    store.addOrder(ord);
+    await store.addOrder(ord);
 
     // Mark A as bill-requested
     store.setBillRequested('A', true);
     expect(store.billRequestedTables.has('A')).toBe(true);
 
     // Move the only item to B (full order move)
-    store.splitItemsToTable('A', 'B', { [`${ord.id}__${ord.orderItems[0].uid}`]: 1 });
+    await store.splitItemsToTable('A', 'B', { [`${ord.id}__${ord.orderItems[0].uid}`]: 1 });
 
     // The moved order is on B with B's session ID
     const sessB = store.tableCurrentBillSession['B'];
@@ -1015,21 +1015,21 @@ describe('splitItemsToTable()', () => {
     expect(store.billRequestedTables.has('A')).toBe(false);
   });
 
-  it('current-session transactions are retagged to target when all orders are physically relocated', () => {
+  it('current-session transactions are retagged to target when all orders are physically relocated', async () => {
     const store = useAppStore();
-    const sessA = store.openTableSession('A', 2, 0);
+    const sessA = await store.openTableSession('A', 2, 0);
     const ord = makeOrderWithItems('A', 'accepted', sessA,
       { name: 'Acqua', unitPrice: 2, quantity: 1 },
     );
-    store.addOrder(ord);
+    await store.addOrder(ord);
 
     // Record a partial payment on A before the move
     const txn = makeTransaction('A', 1, sessA);
-    store.addTransaction(txn);
+    await store.addTransaction(txn);
     expect(store.transactions.find(t => t.id === txn.id).tableId).toBe('A');
 
     // Move the only item to B (full order → physical relocation)
-    store.splitItemsToTable('A', 'B', { [`${ord.id}__${ord.orderItems[0].uid}`]: 1 });
+    await store.splitItemsToTable('A', 'B', { [`${ord.id}__${ord.orderItems[0].uid}`]: 1 });
 
     // The transaction should now be retagged to B and its new session
     const sessB = store.tableCurrentBillSession['B'];
@@ -1039,23 +1039,23 @@ describe('splitItemsToTable()', () => {
     expect(migratedTxn.billSessionId).toBe(sessB.billSessionId);
   });
 
-  it('partial and full moves from the same source: partial-move orders have quantity reduced, full-move orders relocate', () => {
+  it('partial and full moves from the same source: partial-move orders have quantity reduced, full-move orders relocate', async () => {
     const store = useAppStore();
-    const sessA = store.openTableSession('A', 2, 0);
+    const sessA = await store.openTableSession('A', 2, 0);
     const ordFull = makeOrderWithItems('A', 'accepted', sessA,
       { name: 'Pizza', unitPrice: 10, quantity: 1 }, // will be fully moved
     );
     const ordPartial = makeOrderWithItems('A', 'accepted', sessA,
       { name: 'Birra', unitPrice: 4, quantity: 2 },  // only 1 of 2 will move
     );
-    store.addOrder(ordFull);
-    store.addOrder(ordPartial);
+    await store.addOrder(ordFull);
+    await store.addOrder(ordPartial);
 
     const qtyMap = {
       [`${ordFull.id}__${ordFull.orderItems[0].uid}`]: 1,    // full move
       [`${ordPartial.id}__${ordPartial.orderItems[0].uid}`]: 1, // partial move
     };
-    store.splitItemsToTable('A', 'B', qtyMap);
+    await store.splitItemsToTable('A', 'B', qtyMap);
 
     // ordFull is physically on B — no void
     expect(store.orders.find(o => o.id === ordFull.id).table).toBe('B');
