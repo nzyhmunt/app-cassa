@@ -52,20 +52,70 @@ export function mapOrderFromDirectus(record) {
 }
 
 export function mapOrderToDirectus(record) {
-  return {
-    ...record,
-    total_amount: record.total_amount ?? record.totalAmount ?? 0,
-    item_count: record.item_count ?? record.itemCount ?? 0,
-    order_time: record.order_time ?? record.time ?? null,
-    global_note: record.global_note ?? record.globalNote ?? '',
-    note_visibility_cassa: record.note_visibility_cassa ?? record.noteVisibility?.cassa ?? true,
-    note_visibility_sala: record.note_visibility_sala ?? record.noteVisibility?.sala ?? true,
-    note_visibility_cucina: record.note_visibility_cucina ?? record.noteVisibility?.cucina ?? true,
-    is_cover_charge: record.is_cover_charge ?? record.isCoverCharge ?? false,
-    is_direct_entry: record.is_direct_entry ?? record.isDirectEntry ?? false,
-    rejection_reason: record.rejection_reason ?? record.rejectionReason ?? null,
-    bill_session: relationId(record.bill_session ?? record.billSessionId ?? null),
-  };
+  const source = record ?? {};
+  const out = { ...source };
+
+  if (!Object.prototype.hasOwnProperty.call(out, 'total_amount') && Object.prototype.hasOwnProperty.call(source, 'totalAmount')) {
+    out.total_amount = source.totalAmount;
+  }
+  if (!Object.prototype.hasOwnProperty.call(out, 'item_count') && Object.prototype.hasOwnProperty.call(source, 'itemCount')) {
+    out.item_count = source.itemCount;
+  }
+  if (!Object.prototype.hasOwnProperty.call(out, 'order_time') && Object.prototype.hasOwnProperty.call(source, 'time')) {
+    out.order_time = source.time;
+  }
+  if (!Object.prototype.hasOwnProperty.call(out, 'global_note') && Object.prototype.hasOwnProperty.call(source, 'globalNote')) {
+    out.global_note = source.globalNote;
+  }
+  if (!Object.prototype.hasOwnProperty.call(out, 'is_cover_charge') && Object.prototype.hasOwnProperty.call(source, 'isCoverCharge')) {
+    out.is_cover_charge = source.isCoverCharge;
+  }
+  if (!Object.prototype.hasOwnProperty.call(out, 'is_direct_entry') && Object.prototype.hasOwnProperty.call(source, 'isDirectEntry')) {
+    out.is_direct_entry = source.isDirectEntry;
+  }
+  if (!Object.prototype.hasOwnProperty.call(out, 'rejection_reason') && Object.prototype.hasOwnProperty.call(source, 'rejectionReason')) {
+    out.rejection_reason = source.rejectionReason;
+  }
+  if (!Object.prototype.hasOwnProperty.call(out, 'bill_session') && Object.prototype.hasOwnProperty.call(source, 'billSessionId')) {
+    out.bill_session = relationId(source.billSessionId);
+  }
+  if (Object.prototype.hasOwnProperty.call(out, 'bill_session')) {
+    out.bill_session = relationId(out.bill_session);
+  }
+
+  if (Object.prototype.hasOwnProperty.call(source, 'noteVisibility') && source.noteVisibility && typeof source.noteVisibility === 'object') {
+    if (!Object.prototype.hasOwnProperty.call(out, 'note_visibility_cassa') && Object.prototype.hasOwnProperty.call(source.noteVisibility, 'cassa')) {
+      out.note_visibility_cassa = source.noteVisibility.cassa;
+    }
+    if (!Object.prototype.hasOwnProperty.call(out, 'note_visibility_sala') && Object.prototype.hasOwnProperty.call(source.noteVisibility, 'sala')) {
+      out.note_visibility_sala = source.noteVisibility.sala;
+    }
+    if (!Object.prototype.hasOwnProperty.call(out, 'note_visibility_cucina') && Object.prototype.hasOwnProperty.call(source.noteVisibility, 'cucina')) {
+      out.note_visibility_cucina = source.noteVisibility.cucina;
+    }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(source, 'dietaryPreferences') && source.dietaryPreferences && typeof source.dietaryPreferences === 'object') {
+    if (!Object.prototype.hasOwnProperty.call(out, 'dietary_diets') && Object.prototype.hasOwnProperty.call(source.dietaryPreferences, 'diete')) {
+      out.dietary_diets = source.dietaryPreferences.diete;
+    }
+    if (!Object.prototype.hasOwnProperty.call(out, 'dietary_allergens') && Object.prototype.hasOwnProperty.call(source.dietaryPreferences, 'allergeni')) {
+      out.dietary_allergens = source.dietaryPreferences.allergeni;
+    }
+  }
+
+  delete out.totalAmount;
+  delete out.itemCount;
+  delete out.time;
+  delete out.globalNote;
+  delete out.noteVisibility;
+  delete out.dietaryPreferences;
+  delete out.isCoverCharge;
+  delete out.isDirectEntry;
+  delete out.rejectionReason;
+  delete out.billSessionId;
+
+  return out;
 }
 
 export function mapOrderItemFromDirectus(record) {
@@ -100,18 +150,14 @@ export function mapBillSessionFromDirectus(record) {
   return {
     ...record,
     billSessionId: record.id,
-    adults: record.adults ?? record.adults_count ?? 0,
-    children: record.children ?? record.children_count ?? 0,
+    adults: record.adults ?? 0,
+    children: record.children ?? 0,
     _sync_status: 'synced',
   };
 }
 
 export function mapBillSessionToDirectus(record) {
-  return {
-    ...record,
-    adults_count: record.adults_count ?? record.adults ?? 0,
-    children_count: record.children_count ?? record.children ?? 0,
-  };
+  return { ...(record ?? {}) };
 }
 
 function normalizeMenu(modifiers, categoryModifierLinks, itemModifierLinks, categories, items, locale) {

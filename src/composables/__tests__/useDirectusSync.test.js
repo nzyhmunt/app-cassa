@@ -363,6 +363,54 @@ describe('reconfigureAndApply()', () => {
     }
   });
 
+  it('uses minimal deep-fetch fields when local menuSource is json', async () => {
+    const venueId = 1;
+    const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      const requestUrl = String(url);
+      if (requestUrl.includes(`/items/venues/${venueId}`)) {
+        return Promise.resolve(directusItemResponse({
+          id: venueId,
+          name: 'Venue minimal json pull',
+          status: 'published',
+          cover_charge_enabled: false,
+          cover_charge_auto_add: false,
+          cover_charge_price_adult: '0',
+          cover_charge_price_child: '0',
+          billing_enable_cash_change_calculator: true,
+          billing_enable_tips: false,
+          billing_enable_discounts: true,
+          billing_allow_custom_entry: true,
+        }));
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const { appConfig } = await import('../../utils/index.js');
+    const previousSource = appConfig.menuSource;
+    try {
+      appConfig.menuSource = 'json';
+
+      const sync = useDirectusSync();
+      const result = await sync.reconfigureAndApply();
+      expect(result.ok).toBe(true);
+
+      const venueCall = fetchSpy.mock.calls
+        .map(([url]) => String(url))
+        .find((url) => url.includes(`/items/venues/${venueId}`));
+      expect(venueCall).toBeTruthy();
+      const decodedVenueCall = decodeURIComponent(venueCall);
+      expect(decodedVenueCall).toContain('cover_charge_enabled');
+      expect(decodedVenueCall).toContain('billing_enable_cash_change_calculator');
+      expect(decodedVenueCall).not.toContain('rooms.*');
+      expect(decodedVenueCall).not.toContain('tables.*');
+      expect(decodedVenueCall).not.toContain('menu_categories.*');
+      expect(decodedVenueCall).not.toContain('menu_items.*');
+      expect(decodedVenueCall).not.toContain('menu_modifiers.*');
+    } finally {
+      appConfig.menuSource = previousSource;
+    }
+  });
+
   it('realigns pre-bill default printer when Directus printers change', async () => {
     const venueId = 1;
     vi.spyOn(global, 'fetch').mockImplementation((url) => {

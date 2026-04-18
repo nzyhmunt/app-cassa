@@ -292,6 +292,10 @@ CREATE TABLE menu_item_modifiers (
 Una riga per ogni volta che un tavolo viene aperto.
 Creata al primo ordine accettato; chiusa quando tutti gli ordini sono `completed` o `rejected`.
 
+> **Allineamento campi persone (P1-6)**: i campi canonicali sono `adults` e
+> `children`. I legacy `adults_count` / `children_count` non sono più usati nel
+> mapper di push/hydration runtime.
+
 **Primary key**: UUID v7 (time-ordered, generato client-side prima dell'invio a Directus).
 
 Campi Directus standard abilitati: `user_created`, `date_created`, `user_updated`, `date_updated`.

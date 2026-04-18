@@ -25,6 +25,11 @@
 import { createDirectus, staticToken, rest, createItem, updateItem, deleteItem } from '@directus/sdk';
 import { getDB } from './useIDB.js';
 import { newUUIDv7 } from '../store/storeUtils.js';
+import {
+  mapOrderToDirectus,
+  mapOrderItemToDirectus,
+  mapBillSessionToDirectus,
+} from '../utils/mappers.js';
 
 /**
  * Maximum push attempts before a queue entry is abandoned.
@@ -312,6 +317,12 @@ const DIRECTUS_RELATION_FIELDS = new Set([
   'menu_modifiers_id',
 ]);
 
+const TO_DIRECTUS_MAPPERS = {
+  orders: mapOrderToDirectus,
+  order_items: mapOrderItemToDirectus,
+  bill_sessions: mapBillSessionToDirectus,
+};
+
 /**
  * Translates a local (camelCase / legacy-named) record payload into the
  * Directus-compatible field naming convention (snake_case, FK fields without
@@ -319,12 +330,12 @@ const DIRECTUS_RELATION_FIELDS = new Set([
  *
  * The function handles:
  *  - Explicit field renames via FIELD_RENAME_MAP (e.g. `billSessionId` → `bill_session`)
- *  - Special nested objects: `noteVisibility` → `note_visibility_{app}` flat fields,
- *    `dietaryPreferences` → `dietary_diets` / `dietary_allergens`
- *  - `time` → `order_time` (orders only)
+ *  - Canonical collection mappers in `utils/mappers.js` for
+ *    `orders`/`order_items`/`bill_sessions` (other collections pass through)
  *  - Drop of push-local-only fields (PUSH_DROP_FIELDS + LOCAL_ONLY_FIELDS via _cleanPayload)
  *
- * Only fields present in the input payload are emitted (safe for partial updates).
+ * Only fields present in the input payload (and explicit mapper-derived aliases)
+ * are emitted (safe for partial updates).
  *
  * @param {string} collection  - Directus collection name
  * @param {object|null} localPayload
@@ -340,23 +351,6 @@ function _toDirectusPayload(collection, localPayload) {
   for (const [key, value] of Object.entries(cleaned)) {
     // Drop push-specific local fields
     if (PUSH_DROP_FIELDS.has(key)) continue;
-
-    // Special: flatten noteVisibility object → per-app boolean columns
-    if (key === 'noteVisibility' && value && typeof value === 'object') {
-      out.note_visibility_cassa   = value.cassa   ?? true;
-      out.note_visibility_sala    = value.sala    ?? true;
-      out.note_visibility_cucina  = value.cucina  ?? true;
-      continue;
-    }
-
-    // Special: flatten dietaryPreferences → dietary_diets / dietary_allergens
-    // Note: 'diete' and 'allergeni' are legacy store keys (existing data model);
-    // they are read-only from the local payload — not renamed in the store itself.
-    if (key === 'dietaryPreferences' && value && typeof value === 'object') {
-      out.dietary_diets     = value.diete     ?? null;
-      out.dietary_allergens = value.allergeni ?? null;
-      continue;
-    }
 
     // Special: local nested orderItems[] -> Directus nested order_items[]
     if (key === 'orderItems' && collection === 'orders' && Array.isArray(value)) {
@@ -389,12 +383,6 @@ function _toDirectusPayload(collection, localPayload) {
       continue;
     }
 
-    // Special: `time` → `order_time` only for the orders collection
-    if (key === 'time' && collection === 'orders') {
-      out.order_time = value;
-      continue;
-    }
-
     // Apply explicit rename (camelCase → snake_case, FK without _id suffix)
     const renamed = FIELD_RENAME_MAP[key];
     if (renamed) {
@@ -406,35 +394,37 @@ function _toDirectusPayload(collection, localPayload) {
     out[key] = value;
   }
 
-  for (const fieldName of Object.keys(out)) {
+  const mapper = TO_DIRECTUS_MAPPERS[collection];
+  const mapped = mapper ? mapper(out) : out;
+  for (const fieldName of Object.keys(mapped)) {
     if (DIRECTUS_RELATION_FIELDS.has(fieldName)) {
-      const value = out[fieldName];
+      const value = mapped[fieldName];
       if (value && typeof value === 'object') {
-        out[fieldName] = value.id ?? value.value ?? null;
+        mapped[fieldName] = value.id ?? value.value ?? null;
       }
     }
     if (DIRECTUS_JSON_FIELDS.has(fieldName)) {
-      const value = out[fieldName];
+      const value = mapped[fieldName];
       if (Array.isArray(value)) continue;
       if (typeof value === 'string') {
         const trimmed = value.trim();
         if (trimmed === '') {
-          out[fieldName] = [];
+          mapped[fieldName] = [];
           continue;
         }
         try {
           const parsed = JSON.parse(trimmed);
-          out[fieldName] = Array.isArray(parsed) ? parsed : [];
+          mapped[fieldName] = Array.isArray(parsed) ? parsed : [];
         } catch (_) {
-          out[fieldName] = [value];
+          mapped[fieldName] = [value];
         }
       } else if (value == null) {
-        out[fieldName] = [];
+        mapped[fieldName] = [];
       }
     }
   }
 
-  return out;
+  return mapped;
 }
 
 /**

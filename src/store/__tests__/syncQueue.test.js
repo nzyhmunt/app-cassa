@@ -113,6 +113,9 @@ describe('drainQueue()', () => {
     expect(url).toContain('/items/orders/ord_1');
     expect(opts.method).toBe('PATCH');
     expect(JSON.parse(opts.body)).toMatchObject({ status: 'accepted' });
+    expect(JSON.parse(opts.body).total_amount).toBeUndefined();
+    expect(JSON.parse(opts.body).item_count).toBeUndefined();
+    expect(JSON.parse(opts.body).order_time).toBeUndefined();
   });
 
   it('strips _sync_status and orderItems from payload', async () => {
@@ -130,6 +133,61 @@ describe('drainQueue()', () => {
     expect(body._sync_status).toBeUndefined();
     expect(body.orderItems).toBeUndefined();
     expect(body.id).toBe('ord_1');
+  });
+
+  it('maps orders payload through canonical mapper fields', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue(mockResponse(201, {}));
+    await enqueue('orders', 'create', 'ord_1', {
+      id: 'ord_1',
+      time: '10:15',
+      noteVisibility: { cassa: false, sala: true, cucina: false },
+      dietaryPreferences: { diete: ['vegana'], allergeni: ['glutine'] },
+    });
+
+    await drainQueue(FAKE_CFG);
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.order_time).toBe('10:15');
+    expect(body.note_visibility_cassa).toBe(false);
+    expect(body.note_visibility_sala).toBe(true);
+    expect(body.note_visibility_cucina).toBe(false);
+    expect(body.dietary_diets).toEqual(['vegana']);
+    expect(body.dietary_allergens).toEqual(['glutine']);
+    expect(body.time).toBeUndefined();
+    expect(body.noteVisibility).toBeUndefined();
+    expect(body.dietaryPreferences).toBeUndefined();
+  });
+
+  it('maps bill_sessions payload with canonical adults/children fields', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue(mockResponse(201, {}));
+    await enqueue('bill_sessions', 'create', 'bill_1', {
+      id: 'bill_1',
+      table: 'T1',
+      adults: 3,
+      children: 1,
+    });
+
+    await drainQueue(FAKE_CFG);
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.adults).toBe(3);
+    expect(body.children).toBe(1);
+  });
+
+  it('does not inject adults/children on sparse bill_sessions update', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue(mockResponse(200, { data: { id: 'bill_1' } }));
+    await enqueue('bill_sessions', 'update', 'bill_1', {
+      status: 'closed',
+      closed_at: '2026-01-01T10:00:00.000Z',
+    });
+
+    await drainQueue(FAKE_CFG);
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.status).toBe('closed');
+    expect(body.closed_at).toBe('2026-01-01T10:00:00.000Z');
+    expect(body.adults).toBeUndefined();
+    expect(body.children).toBeUndefined();
   });
 
   it('retries 409 create as PATCH', async () => {

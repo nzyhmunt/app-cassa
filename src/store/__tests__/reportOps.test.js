@@ -23,13 +23,21 @@ import { makeReportOps } from '../reportOps.js';
 const helpers = { getTableStatus: () => ({ status: 'free' }) };
 
 // Build a minimal state object to pass into makeReportOps().
-function makeState({ dailyClosures = [], fiscalReceipts = [], invoiceRequests = [], transactions = [], cashBalance = 0, cashMovements = [] } = {}) {
+function makeState({
+  dailyClosures = [],
+  fiscalReceipts = [],
+  invoiceRequests = [],
+  transactions = [],
+  cashBalance = 0,
+  cashMovements = [],
+  config = { tables: [] },
+} = {}) {
   return {
     orders: ref([]),
     transactions: ref(transactions),
     cashBalance: ref(cashBalance),
     cashMovements: ref(cashMovements),
-    config: ref({ tables: [] }),
+    config: ref(config),
     dailyClosures: ref(dailyClosures),
     fiscalReceipts: ref(fiscalReceipts),
     invoiceRequests: ref(invoiceRequests),
@@ -309,3 +317,80 @@ describe('generateXReport() – scorporo mance da scontrino', () => {
   });
 });
 
+describe('performDailyClose() – persistenza IDB e sync queue', () => {
+  it('persists daily closure and by-method rows before resetting in-memory counters', () => {
+    const upsertRecordsIntoIDB = vi.fn(async () => {});
+    const enqueue = vi.fn();
+    const state = makeState({
+      cashBalance: 100,
+      cashMovements: [{ id: 'mov_1', type: 'deposit', amount: 20, timestamp: TS_AFTER, reason: '' }],
+      transactions: [
+        {
+          id: 'txn_close_1',
+          tableId: 'T1',
+          billSessionId: 'bill_close_1',
+          paymentMethod: 'Contanti',
+          operationType: 'unico',
+          amountPaid: 50,
+          tipAmount: 5,
+          timestamp: TS_AFTER,
+        },
+      ],
+      config: {
+        directus: { venueId: 77 },
+        tables: [{ id: 'T1', covers: 2 }],
+      },
+    });
+
+    const { performDailyClose } = makeReportOps(state, {
+      getTableStatus: () => ({ status: 'free' }),
+      upsertRecordsIntoIDB,
+      enqueue,
+    });
+    const closure = performDailyClose();
+
+    expect(state.dailyClosures.value).toHaveLength(1);
+    expect(state.transactions.value).toEqual([]);
+    expect(state.cashMovements.value).toEqual([]);
+    expect(state.cashBalance.value).toBeCloseTo(175);
+
+    const [firstUpsertCall, secondUpsertCall] = upsertRecordsIntoIDB.mock.calls;
+    expect(firstUpsertCall[0]).toBe('daily_closures');
+    expect(firstUpsertCall[1]).toHaveLength(1);
+    expect(firstUpsertCall[1][0]).toMatchObject({
+      id: closure.id,
+      type: 'Z',
+      closure_type: 'Z',
+      venue: 77,
+      totalReceived: 50,
+      totalTips: 5,
+      totalMovements: 20,
+      finalBalance: 175,
+    });
+    expect(secondUpsertCall[0]).toBe('daily_closure_by_method');
+    expect(secondUpsertCall[1]).toHaveLength(1);
+    expect(secondUpsertCall[1][0]).toMatchObject({
+      daily_closure: closure.id,
+      payment_method: 'Contanti',
+      amount: 50,
+      venue: 77,
+    });
+
+    expect(enqueue).toHaveBeenCalledWith(
+      'daily_closures',
+      'create',
+      closure.id,
+      expect.objectContaining({ id: closure.id, closure_type: 'Z' }),
+    );
+    expect(enqueue).toHaveBeenCalledWith(
+      'daily_closure_by_method',
+      'create',
+      secondUpsertCall[1][0].id,
+      expect.objectContaining({
+        id: secondUpsertCall[1][0].id,
+        daily_closure: closure.id,
+        payment_method: 'Contanti',
+      }),
+    );
+  });
+});

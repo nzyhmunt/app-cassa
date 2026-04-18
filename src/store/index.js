@@ -852,7 +852,7 @@ export const useOrderStore = defineStore('orders', () => {
         fiscalReceipts,
         invoiceRequests,
       },
-      { getTableStatus },
+      { getTableStatus, upsertRecordsIntoIDB, enqueue },
     );
 
   const pendingOpenTable = ref(null);
@@ -1087,5 +1087,4 @@ export async function initStoreFromIDB(pinia) {
     orderStore.orders = (appConfig.demoOrders ?? []).map(o => ({ ...o }));
   }
 
-  await configStore.loadMenu({ skipHydrate: true });
 }

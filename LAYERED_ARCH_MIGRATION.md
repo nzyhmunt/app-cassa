@@ -81,11 +81,11 @@
 
 **File**: `src/utils/mappers.js`, `src/composables/useSyncQueue.js`
 
-- [ ] In `useSyncQueue._toDirectusPayload` sostituire la logica di conversione
+- [x] In `useSyncQueue._toDirectusPayload` sostituire la logica di conversione
   inline con le funzioni `map<Entity>ToDirectus` già definite in `mappers.js`.
-- [ ] Verificare che `mapBillSessionToDirectus` usi `adults`/`children`
+- [x] Verificare che `mapBillSessionToDirectus` usi `adults`/`children`
   invece dei campi legacy `adults_count`/`children_count`.
-- [ ] Rimuovere i duplicati inline in `useSyncQueue` una volta che i mapper sono
+- [x] Rimuovere i duplicati inline in `useSyncQueue` una volta che i mapper sono
   usati sistematicamente.
 
 ---
@@ -94,9 +94,9 @@
 
 **File**: `src/store/reportOps.js`
 
-- [ ] `performDailyClose` svuota `transactions.value` e `cashMovements.value` solo
+- [x] `performDailyClose` svuota `transactions.value` e `cashMovements.value` solo
   in memoria senza salvare il closure in IDB né enqueue verso Directus.
-- [ ] Aggiungere:
+- [x] Aggiungere:
   1. `upsertRecordsIntoIDB('daily_closures', [closure])` prima di azzerare le array
   2. `enqueue('daily_closures', 'create', closure.id, closure)`
   3. Eventualmente `enqueue('daily_closure_by_method', 'create', …)` per i dettagli per metodo
@@ -107,9 +107,9 @@
 
 **File**: `src/composables/useDirectusSync.js` → `_runGlobalPull`
 
-- [ ] Quando `menuSource === 'json'`, saltare completamente il deep-fetch dei campi
+- [x] Quando `menuSource === 'json'`, saltare completamente il deep-fetch dei campi
   menu nel payload di `readItem('venues', venueId, { fields: … })`.
-- [ ] Rimuovere dai `DEEP_FETCH_FIELDS` i campi
+- [x] Rimuovere dai `DEEP_FETCH_FIELDS` i campi
   `rooms.*`, `tables.*`, `menu_categories.*`, `menu_items.*`, `menu_modifiers.*`
   quando la fonte è `json` (richiedere solo `id`, `name`, `status` e i campi billing/cover_charge).
 
@@ -119,9 +119,9 @@
 
 **File**: `src/store/index.js` → `initStoreFromIDB`
 
-- [ ] Spostare la chiamata a `configStore.loadMenu({ skipHydrate: true })` fuori
+- [x] Spostare la chiamata a `configStore.loadMenu({ skipHydrate: true })` fuori
   dall'init IDB, in un passo separato del bootstrap (es. `App.vue` lifecycle).
-- [ ] `initStoreFromIDB` deve leggere solo da IndexedDB e non fare fetch di rete.
+- [x] `initStoreFromIDB` deve leggere solo da IndexedDB e non fare fetch di rete.
 
 ---
 
@@ -129,10 +129,10 @@
 
 **File**: `src/store/idbPersistence.js` → `clearAllStateFromIDB`
 
-- [ ] Verificare che la funzione di reset svuoti anche `table_merge_sessions`,
+- [x] Verificare che la funzione di reset svuoti anche `table_merge_sessions`,
   `transaction_order_refs`, `transaction_voce_refs`, `daily_closures`,
   `daily_closure_by_method`, `bill_sessions`, `fiscal_receipts`, `invoice_requests`.
-- [ ] Il reset deve azzerare il DB **intero** (eccetto `local_settings`), non solo
+- [x] Il reset deve azzerare il DB **intero** (eccetto `local_settings`), non solo
   gli store operativi.
 
 ---
@@ -141,10 +141,10 @@
 
 **File**: `src/utils/mappers.js`, `DATABASE_SCHEMA.md`
 
-- [ ] Rimuovere ogni riferimento a `adults_count`/`children_count` nel mapper
+- [x] Rimuovere ogni riferimento a `adults_count`/`children_count` nel mapper
   `mapBillSessionToDirectus` e nei punti di hydration.
-- [ ] Aggiornare `DATABASE_SCHEMA.md` section 2.8 per rispecchiare i campi correnti.
-- [ ] Su Directus: rimuovere (o nascondere) i campi legacy se ancora presenti.
+- [x] Aggiornare `DATABASE_SCHEMA.md` section 2.7 (`bill_sessions`) per rispecchiare i campi correnti.
+- [x] Su Directus: rimuovere (o nascondere) i campi legacy se ancora presenti.
 
 ---
 
@@ -218,8 +218,8 @@
 
 | Priorità | Item | Stato |
 |----------|------|-------|
-| P0       | 4    | ⬜ tutti aperti |
-| P1       | 6    | ⬜ tutti aperti |
+| P0       | 4    | ✅ 4/4 completati |
+| P1       | 6    | ✅ 6/6 completati (P1-1, P1-2, P1-3, P1-4, P1-5, P1-6) |
 | P2       | 6    | ⬜ tutti aperti |
 
 ---
@@ -239,3 +239,38 @@ P1-4 (init IDB-only)         ← dopo P0-1/P0-3
 P1-6 (legacy fields)         ← coordinare con release Directus
 P2-*                         ← in qualunque slot libero
 ```
+
+---
+
+## Scaletta operativa consigliata — P2
+
+> Obiettivo: chiudere il debito tecnico P2 in step piccoli, testabili e con rollback semplice.
+
+### Fase 1 · Allineamento schema/documentazione
+
+- [ ] **P2-1 (parte docs)** aggiornare `DATABASE_SCHEMA.md` sul modello M2M dei modifier.
+- [ ] **P2-5** chiarire lo stato di `app_settings` (non sincronizzata vs piano sync).
+- [ ] Definire decisione esplicita su eventuale deprecazione backend (`menu_item_modifiers`, `app_settings`).
+
+### Fase 2 · Pulizia runtime a basso rischio
+
+- [ ] **P2-4** marcare `clearState()` come deprecata e indicare il path ufficiale.
+- [ ] **P2-2** censire mapper legacy non usati e rimuovere solo quelli non referenziati in runtime.
+- [ ] Eseguire test mirati su store/persistence/sync queue dopo ogni rimozione.
+
+### Fase 3 · Migrazione tecnica con impatto dati
+
+- [ ] **P2-3** rinomina `demo_app_state` → `app_state` con bump `SCHEMA_VERSION` e migrazione sicura.
+- [ ] **P2-1 (parte IDB)** decidere e applicare rimozione/mantenimento store `menu_item_modifiers`.
+- [ ] Validare bootstrap/hydration su device con stato preesistente (upgrade path).
+
+### Fase 4 · Allineamento config Directus
+
+- [ ] **P2-6** aggiungere mapping `venues.billing_auto_close_on_full_payment` verso `appConfig.billing.autoCloseOnFullPayment` (oppure rimozione campo lato schema).
+- [ ] Aggiornare test composable/config per il nuovo mapping.
+
+### Definition of Done P2
+
+- [ ] Checklist P2-1..P2-6 tutta spuntata.
+- [ ] `DATABASE_SCHEMA.md` e `LAYERED_ARCH_MIGRATION.md` coerenti con il codice.
+- [ ] Build e test mirati verdi su aree toccate.
