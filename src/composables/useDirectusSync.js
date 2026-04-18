@@ -959,13 +959,11 @@ async function _syncPreBillPrinterSelection(_venueRecord = null) {
     if (typeof _store.saveLocalSettings === 'function') {
       try {
         await _store.saveLocalSettings({ preBillPrinterId: '' });
-        _store.preBillPrinterId = '';
       } catch (err) {
         console.warn('[DirectusSync] Failed to persist cleared preBillPrinterId:', err);
       }
-    } else {
-      _store.preBillPrinterId = '';
     }
+    _store.preBillPrinterId = '';
     return;
   }
   const current = typeof _store.preBillPrinterId === 'string' ? _store.preBillPrinterId : '';
@@ -975,13 +973,11 @@ async function _syncPreBillPrinterSelection(_venueRecord = null) {
   if (typeof _store.saveLocalSettings === 'function') {
     try {
       await _store.saveLocalSettings({ preBillPrinterId: newPrinterId });
-      _store.preBillPrinterId = newPrinterId;
     } catch (err) {
       console.warn('[DirectusSync] Failed to persist preBillPrinterId:', err);
     }
-  } else {
-    _store.preBillPrinterId = newPrinterId;
   }
+  _store.preBillPrinterId = newPrinterId;
 }
 
 function _emitProgress(onProgress, payload) {

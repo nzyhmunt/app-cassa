@@ -463,6 +463,48 @@ describe('reconfigureAndApply()', () => {
     expect(store.preBillPrinterId).toBe('prt_pre_1');
   });
 
+  it('keeps runtime pre-bill fallback aligned even when persisting to IDB fails', async () => {
+    const venueId = 1;
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      const requestUrl = String(url);
+      if (requestUrl.includes(`/items/venues/${venueId}`)) {
+        return Promise.resolve(directusItemResponse({
+          id: venueId,
+          name: 'Venue printer fallback',
+          menu_source: 'directus',
+          rooms: [],
+          tables: [],
+          payment_methods: [],
+          printers: [
+            { id: 'prt_pre_1', name: 'Pre 1', url: 'http://printer.shared.local/print', print_types: ['pre_bill'] },
+          ],
+          venue_users: [],
+          table_merge_sessions: [],
+          menu_categories: [],
+          menu_items: [],
+        }));
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const { appConfig } = await import('../../utils/index.js');
+    const store = makeStore({
+      config: appConfig,
+      preBillPrinterId: 'obsolete_printer',
+      saveLocalSettings: vi.fn(async () => {
+        throw new Error('IDB write failed');
+      }),
+    });
+    const sync = useDirectusSync();
+    sync.startSync({ appType: 'cassa', store });
+    const result = await sync.reconfigureAndApply();
+    sync.stopSync();
+
+    expect(result.ok).toBe(true);
+    expect(store.saveLocalSettings).toHaveBeenCalledWith({ preBillPrinterId: 'prt_pre_1' });
+    expect(store.preBillPrinterId).toBe('prt_pre_1');
+  });
+
   it('can clear local config cache and repopulate venues via global pull with progress logs', async () => {
     const { appConfig } = await import('../../utils/index.js');
     appConfig.ui.primaryColor = '#123456';
