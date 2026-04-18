@@ -879,7 +879,7 @@ async function _fanOutVenueTreeToIDB(venueRecord, { menuSource }) {
  *
  * @param {object} runtimeConfig - New config values from Directus/DEFAULT_SETTINGS.
  * @param {object} options
- * @param {object} options.preservedDirectus - Always restored after Object.assign.
+ * @param {object} options.preservedDirectus - Always restored; never overwritten by runtimeConfig.
  * @param {string|undefined} options.preservedInstanceName - Restored when provided.
  * @param {string|undefined} options.preservedPwaLogo - Restored when provided.
  * @param {boolean} [options.preserveMenuSource=false] - If true, restores menuSource='json' and menuUrl.
@@ -891,7 +891,22 @@ function _applyDirectusRuntimeConfigToAppConfig(runtimeConfig, options = {}) {
     preservedMenuUrl = null,
     preserveMenuSource = false,
   } = options;
-  Object.assign(appConfig, runtimeConfig);
+  // Compute which keys must not be overwritten; they are restored from
+  // preserved values below and must never be touched by runtimeConfig.
+  const skipKeys = new Set(['directus']);
+  if ('preservedInstanceName' in options) skipKeys.add('instanceName');
+  if ('preservedPwaLogo' in options) skipKeys.add('pwaLogo');
+  if (preserveMenuSource) {
+    skipKeys.add('menuSource');
+    skipKeys.add('menuUrl');
+  }
+  // Selective assignment — avoids the write-then-restore anti-pattern that
+  // temporarily corrupts preserved fields for any reactive observer that fires
+  // between the Object.assign and the subsequent restore assignments.
+  for (const [key, value] of Object.entries(runtimeConfig)) {
+    if (!skipKeys.has(key)) appConfig[key] = value;
+  }
+  // Explicitly restore preserved values that runtimeConfig must never overwrite.
   appConfig.directus = preservedDirectus;
   if ('preservedInstanceName' in options) appConfig.instanceName = options.preservedInstanceName;
   if ('preservedPwaLogo' in options) appConfig.pwaLogo = options.preservedPwaLogo;

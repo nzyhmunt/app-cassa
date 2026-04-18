@@ -226,6 +226,57 @@ export function mapBillSessionToDirectus(record) {
   return out;
 }
 
+/**
+ * Explicit rename map: local in-app field name → Directus collection field name.
+ *
+ * Directus FK fields use the related collection name **without** an `_id` suffix
+ * (e.g. `bill_session`, not `bill_session_id`). This matches the Directus
+ * convention described in DATABASE_SCHEMA.md.
+ *
+ * This is the single source of truth for field renaming; it is consumed by
+ * `useSyncQueue._toDirectusPayload` for collections that do not have a dedicated
+ * mapper (e.g. `transactions`, `daily_closures`).
+ *
+ * @type {Record<string, string>}
+ */
+export const FIELD_RENAME_MAP = {
+  // FK fields — Directus convention: no _id suffix
+  billSessionId:  'bill_session',
+  orderId:        'order',
+  dishId:         'dish',
+  tableId:        'table',
+  // camelCase → snake_case for domain fields
+  totalAmount:        'total_amount',
+  itemCount:          'item_count',
+  isCoverCharge:      'is_cover_charge',
+  isDirectEntry:      'is_direct_entry',
+  rejectionReason:    'rejection_reason',
+  globalNote:         'global_note',
+  unitPrice:          'unit_price',
+  voidedQuantity:     'voided_quantity',
+  kitchenReady:       'kitchen_ready',
+  operationType:      'operation_type',
+  paymentMethodId:    'payment_method',
+  amountPaid:         'amount_paid',
+  tipAmount:          'tip_amount',
+  romanaSplitCount:   'romana_split_count',
+  splitQuota:         'split_quota',
+  splitWays:          'split_ways',
+  discountType:       'discount_type',
+  discountValue:      'discount_value',
+  menuSource:         'menu_source',
+  // daily_closures camelCase → snake_case (DATABASE_SCHEMA.md §2.15)
+  cashBalance:        'cash_balance',
+  totalReceived:      'total_received',
+  totalDiscount:      'total_discount',
+  totalTips:          'total_tips',
+  totalCovers:        'total_covers',
+  receiptCount:       'receipt_count',
+  averageReceipt:     'average_receipt',
+  totalMovements:     'total_movements',
+  finalBalance:       'final_balance',
+};
+
 function normalizeMenu(modifiers, categoryModifierLinks, itemModifierLinks, categories, items, locale) {
   const modifiersById = new Map(
     (modifiers ?? [])

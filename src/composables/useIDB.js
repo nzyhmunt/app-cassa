@@ -10,7 +10,7 @@
 import { openDB } from 'idb';
 import { getInstanceName } from '../store/persistence.js';
 
-export const DB_VERSION = 9;
+export const DB_VERSION = 10;
 const DB_NAME_PREFIX = 'app-cassa';
 
 /**
@@ -39,10 +39,14 @@ const DB_NAME_PREFIX = 'app-cassa';
  *               for failed sync attempts, even after queue entries are removed.
  *  v8 — Removed legacy `menu_item_modifiers` configuration cache ObjectStore.
  *  v9 — Removed deprecated `app_settings` ObjectStore (legacy Directus cache).
+ *  v10 — Removed backward-compat legacy IDB indexes: `bill_session_legacy` (orders),
+ *               `order_legacy` (order_items), `order_item_legacy`/`order_legacy`/
+ *               `item_uid_legacy` (order_item_modifiers). All records carry canonical
+ *               snake_case FK values since v5; these indexes are no longer queried.
  *
- * To add a new version (e.g. v10):
- *   1. Increment DB_VERSION to 10.
- *   2. Add a new `if (oldVersion < 10) { ... }` block inside the `upgrade()` callback.
+ * To add a new version (e.g. v11):
+ *   1. Increment DB_VERSION to 11.
+ *   2. Add a new `if (oldVersion < 11) { ... }` block inside the `upgrade()` callback.
  *   3. Only create new ObjectStores or add new indexes — never drop or modify existing ones
  *      unless you also provide a data-migration path for users upgrading from earlier versions.
  *   4. Update this comment block with a description of the new version.
@@ -93,7 +97,6 @@ export function getDB() {
         s.createIndex('table', 'table', { unique: false });
         s.createIndex('status', 'status', { unique: false });
         s.createIndex('bill_session', 'bill_session', { unique: false });
-        s.createIndex('bill_session_legacy', 'billSessionId', { unique: false });
         s.createIndex('date_updated', 'date_updated', { unique: false });
       }
 
@@ -113,7 +116,6 @@ export function getDB() {
       } else if (!db.objectStoreNames.contains('order_items')) {
         const s = db.createObjectStore('order_items', { keyPath: 'id' });
         s.createIndex('order', 'order', { unique: false });
-        s.createIndex('order_legacy', 'orderId', { unique: false });
         s.createIndex('uid', 'uid', { unique: false });
         s.createIndex('date_updated', 'date_updated', { unique: false });
       }
@@ -139,11 +141,8 @@ export function getDB() {
       } else if (!db.objectStoreNames.contains('order_item_modifiers')) {
         const s = db.createObjectStore('order_item_modifiers', { keyPath: 'id' });
         s.createIndex('order_item', 'order_item', { unique: false });
-        s.createIndex('order_item_legacy', 'orderItemId', { unique: false });
         s.createIndex('order', 'order', { unique: false });
-        s.createIndex('order_legacy', 'orderId', { unique: false });
         s.createIndex('item_uid', 'item_uid', { unique: false });
-        s.createIndex('item_uid_legacy', 'itemUid', { unique: false });
         s.createIndex('date_updated', 'date_updated', { unique: false });
       }
 
@@ -386,6 +385,26 @@ export function getDB() {
       // had a chance to migrate legacy local settings into `local_settings`.
       if (oldVersion < 9 && db.objectStoreNames.contains('app_settings')) {
         db.deleteObjectStore('app_settings');
+      }
+
+      // v10: Drop backward-compat camelCase FK indexes (added in v5 for backfill support).
+      // Since v5 all records carry canonical snake_case FK values; no production code
+      // queries by these legacy index names.
+      if (oldVersion < 10) {
+        if (db.objectStoreNames.contains('orders')) {
+          const s = tx.objectStore('orders');
+          if (s.indexNames.contains('bill_session_legacy')) s.deleteIndex('bill_session_legacy');
+        }
+        if (db.objectStoreNames.contains('order_items')) {
+          const s = tx.objectStore('order_items');
+          if (s.indexNames.contains('order_legacy')) s.deleteIndex('order_legacy');
+        }
+        if (db.objectStoreNames.contains('order_item_modifiers')) {
+          const s = tx.objectStore('order_item_modifiers');
+          if (s.indexNames.contains('order_item_legacy')) s.deleteIndex('order_item_legacy');
+          if (s.indexNames.contains('order_legacy')) s.deleteIndex('order_legacy');
+          if (s.indexNames.contains('item_uid_legacy')) s.deleteIndex('item_uid_legacy');
+        }
       }
 
       // app_meta: ephemeral UI state that doesn't map directly to Directus
