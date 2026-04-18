@@ -265,7 +265,12 @@ CREATE TABLE menu_items (
 
 ---
 
-### 2.6 `menu_item_modifiers` — Modificatori disponibili per voce menu
+### 2.6 `menu_item_modifiers` — **Legacy deprecata** (modello 1:N per voce)
+
+> ⚠️ Collection mantenuta solo per retrocompatibilità storica.
+> Il modello attivo usa `menu_modifiers` + junction M2M
+> (`menu_categories_menu_modifiers`, `menu_items_menu_modifiers`).
+> La cache IndexedDB non include più questo store.
 
 Campi Directus standard abilitati: `status`, `user_created`, `date_created`, `user_updated`, `date_updated`.
 
@@ -910,7 +915,10 @@ venues ──< rooms ──< tables
 venues ──< venue_users
 tables ──< table_merge_sessions (slave_table → master_table)
 venues ──< payment_methods
-venues ──< menu_categories ──< menu_items ──< menu_item_modifiers
+venues ──< menu_categories ──< menu_items
+venues ──< menu_modifiers
+menu_categories >──< menu_modifiers (via menu_categories_menu_modifiers)
+menu_items >──< menu_modifiers (via menu_items_menu_modifiers)
 venues ──< bill_sessions >── tables
 venues ──< orders >── tables
                     >── bill_sessions
@@ -942,7 +950,9 @@ Cardinalità:
 | venue          | 1 : N     | payment_methods          |
 | venue          | 1 : N     | menu_categories          |
 | menu_category  | 1 : N     | menu_items               |
-| menu_item      | 1 : N     | menu_item_modifiers      |
+| venue          | 1 : N     | menu_modifiers           |
+| menu_category  | N : M     | menu_modifiers           |
+| menu_item      | N : M     | menu_modifiers           |
 | table          | 1 : N     | bill_sessions            |
 | bill_session   | 1 : N     | orders                   |
 | order          | 1 : N     | order_items              |
@@ -963,36 +973,29 @@ Cardinalità:
 │   venues    │──1──│ menu_categories  │──1──│   menu_items      │
 │─────────────│  N  │──────────────────│  N  │───────────────────│
 │ id (PK)     │     │ id (PK)          │     │ id (PK)           │
-│ status      │     │ venue (FK)       │     │ category (FK)     │
-│ name        │     │ name             │     │ name              │
-│ primary_    │     │ sort           │     │ price             │
-│  color      │     │ status           │     │ allergens[]       │
-│ currency    │     │ date_created     │     │ status            │
-│ menu_url    │     └──────────────────┘     │ date_created      │
-│ cover_      │                              │ date_updated      │
-│  charge_*   │                              └────────┬──────────┘
-│ billing_*   │                                       │ 1
-│ date_created│                                       │ N
-│ date_updated│                              ┌────────▼──────────┐
-└──────┬──────┘                              │menu_item_modifiers│
-       │ 1                                   │───────────────────│
-       │                                     │ menu_item (FK)    │
-       │ N                                   │ name              │
-┌──────▼──────┐     ┌──────────────────┐     │ price             │
-│   rooms     │──1──│     tables       │     │ status            │
-│─────────────│  N  │──────────────────│     └───────────────────┘
-│ id (PK)     │     │ id (PK)          │
-│ venue (FK)  │     │ venue (FK)       │
-│ label       │     │ room (FK, null)  │
-│ status      │     │ label            │
-│ sort        │     │ covers           │
-└─────────────┘     │ status           │
-                    │ sort             │
-                    └────────┬─────────┘
-                             │ 1
-                             │ N
-                    ┌────────▼──────────┐
-                    │  bill_sessions    │
+│ name        │     │ venue (FK)       │     │ category (FK)     │
+│ ...         │     │ name             │     │ name / price / ...│
+└──────┬──────┘     └────────┬─────────┘     └────────┬──────────┘
+       │ 1                   │ N                      │ N
+       │ N                   │                        │
+┌──────▼──────┐     ┌────────▼──────────┐     ┌───────▼────────────────────┐
+│   rooms     │──1──│      tables       │     │ menu_items_menu_modifiers  │
+│─────────────│  N  │───────────────────│     │      (junction M2M)        │
+│ id (PK)     │     │ id (PK)           │     └───────────┬─────────────────┘
+│ venue (FK)  │     │ room (FK, null)   │                 │ N
+│ ...         │     │ ...               │                 │
+└─────────────┘     └────────┬──────────┘        ┌────────▼──────────┐
+                             │ 1                 │   menu_modifiers  │
+                             │ N                 │───────────────────│
+                             │           ┌───────│ id (PK), venue FK │
+                             │           │ N     │ name / price / ...│
+                             │   ┌───────▼───────────────────────────┐
+                             │   │ menu_categories_menu_modifiers    │
+                             │   │        (junction M2M)             │
+                             │   └────────────────────────────────────┘
+                             │
+                             ┌────────▼──────────┐
+                             │  bill_sessions    │
                     │──────────────────│
                     │ id (PK, UUIDv7)  │
                     │ table (FK)       │
@@ -1317,7 +1320,6 @@ ObjectStore: menu_items       keyPath: id    indexes: [category]
 ObjectStore: menu_modifiers   keyPath: id    indexes: [venue, date_updated]
 ObjectStore: menu_categories_menu_modifiers keyPath: id indexes: [menu_categories_id, menu_modifiers_id, venue, date_updated]
 ObjectStore: menu_items_menu_modifiers      keyPath: id indexes: [menu_items_id, menu_modifiers_id, venue, date_updated]
-ObjectStore: menu_item_modifiers  keyPath: id  indexes: [menu_item]
 ObjectStore: printers         keyPath: id
 ObjectStore: venue_users      keyPath: id    indexes: [venue, role, status]
 
@@ -2043,7 +2045,7 @@ una cartella tramite la proprietà `group` dei metadati di collezione (`meta.gro
 | Cartella          | Icona                    | Colore    | Collection                                                                                                                                                             |
 |-------------------|--------------------------|-----------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `configurazione`  | `settings`               | `#546E7A` | `venues`, `venue_users`, `payment_methods`, `app_settings`, `printers`                                                                                                |
-| `menu`            | `menu_book`              | `#EF6C00` | `menu_items`, `menu_categories`, `menu_item_modifiers`                                                                                                                 |
+| `menu`            | `menu_book`              | `#EF6C00` | `menu_items`, `menu_categories`, `menu_modifiers`, `menu_categories_menu_modifiers`, `menu_items_menu_modifiers`                                                     |
 | `sala`            | `table_restaurant`       | `#1565C0` | `tables`, `rooms`, `table_merge_sessions`                                                                                                                              |
 | `cassa`           | `point_of_sale`          | `#2E7D32` | `orders`, `bill_sessions`, `order_items`, `order_item_modifiers`, `transactions`, `cash_movements`, `daily_closures`, `daily_closure_by_method`, `transaction_order_refs`, `transaction_voce_refs` |
 | `sistema`         | `integration_instructions` | `#0277BD` | `print_jobs`, `fiscal_receipts`, `invoice_requests`                                                                                                                   |
@@ -2059,7 +2061,9 @@ una cartella tramite la proprietà `group` dei metadati di collezione (`meta.gro
 | `printers`                  | `print`                 | Stampante / Stampanti        | Printer / Printers          |
 | `menu_items`                | `restaurant_menu`       | Voce Menu / Voci Menu        | Menu Item / Menu Items      |
 | `menu_categories`           | `category`              | Categoria Menu / Categorie   | Menu Category / Categories  |
-| `menu_item_modifiers`       | `add_circle`            | Modificatore / Modificatori  | Modifier / Modifiers        |
+| `menu_modifiers`            | `add_circle`            | Modificatore / Modificatori  | Modifier / Modifiers        |
+| `menu_categories_menu_modifiers` | `join_inner`      | Link Categoria-Modificatore  | Category-Modifier Link      |
+| `menu_items_menu_modifiers` | `join_inner`            | Link Voce-Modificatore       | Item-Modifier Link          |
 | `tables`                    | `table_restaurant`      | Tavolo / Tavoli              | Table / Tables              |
 | `rooms`                     | `meeting_room`          | Sala / Sale                  | Room / Rooms                |
 | `table_merge_sessions`      | `merge`                 | Unione Tavoli                | Table Merges                |
@@ -2123,6 +2127,6 @@ Le collection che supportano l'ordinamento manuale via drag-and-drop nell'admin 
 | `payment_methods`      | `sort`       |
 | `menu_categories`      | `sort`       |
 | `menu_items`           | `sort`       |
-| `menu_item_modifiers`  | `sort`       |
+| `menu_modifiers`       | `sort`       |
 | `printers`             | `sort`       |
 | `order_items`          | `sort`       |

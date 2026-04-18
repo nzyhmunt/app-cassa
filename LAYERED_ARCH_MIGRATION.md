@@ -154,10 +154,12 @@
 
 **File**: `DATABASE_SCHEMA.md`, `src/composables/useIDB.js`
 
-- [ ] Aggiornare il diagramma relazioni in `DATABASE_SCHEMA.md` (section 3) per
+- [x] Aggiornare il diagramma relazioni in `DATABASE_SCHEMA.md` (section 3) per
   rimuovere la freccia `menu_items ──< menu_item_modifiers` e sostituire con
   il modello M2M via `menu_modifiers` + junction.
-- [ ] Valutare se mantenere l'ObjectStore `menu_item_modifiers` in IDB o rimuoverlo.
+- [x] Valutare se mantenere l'ObjectStore `menu_item_modifiers` in IDB o rimuoverlo.
+- [x] Decisione: rimosso lo store legacy `menu_item_modifiers` (IDB v8), mantenendo
+  il modello attivo `menu_modifiers` + junction.
 - [ ] Su Directus: deprecare / archiviare la collection `menu_item_modifiers`.
 
 ---

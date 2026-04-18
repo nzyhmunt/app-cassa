@@ -10,7 +10,7 @@
 import { openDB } from 'idb';
 import { getInstanceName } from '../store/persistence.js';
 
-export const DB_VERSION = 7;
+export const DB_VERSION = 8;
 const DB_NAME_PREFIX = 'app-cassa';
 
 /**
@@ -37,10 +37,11 @@ const DB_NAME_PREFIX = 'app-cassa';
  *               (menu_categories_menu_modifiers, menu_items_menu_modifiers).
  *  v7 — Added `sync_failed_calls` store to persist full request/response details
  *               for failed sync attempts, even after queue entries are removed.
+ *  v8 — Removed legacy `menu_item_modifiers` configuration cache ObjectStore.
  *
- * To add a new version (e.g. v7):
- *   1. Increment DB_VERSION to 7.
- *   2. Add a new `if (oldVersion < 7) { ... }` block inside the `upgrade()` callback.
+ * To add a new version (e.g. v8):
+ *   1. Increment DB_VERSION to 8.
+ *   2. Add a new `if (oldVersion < 8) { ... }` block inside the `upgrade()` callback.
  *   3. Only create new ObjectStores or add new indexes — never drop or modify existing ones
  *      unless you also provide a data-migration path for users upgrading from earlier versions.
  *   4. Update this comment block with a description of the new version.
@@ -283,6 +284,10 @@ export function getDB() {
         s.createIndex('timestamp', 'timestamp', { unique: false });
       }
 
+      if (oldVersion < 8 && db.objectStoreNames.contains('menu_item_modifiers')) {
+        db.deleteObjectStore('menu_item_modifiers');
+      }
+
       // ── Configuration caches ───────────────────────────────────────────────
 
       if (!db.objectStoreNames.contains('venues')) {
@@ -306,10 +311,6 @@ export function getDB() {
       if (!db.objectStoreNames.contains('menu_items')) {
         const s = db.createObjectStore('menu_items', { keyPath: 'id' });
         s.createIndex('category', 'category', { unique: false });
-      }
-      if (!db.objectStoreNames.contains('menu_item_modifiers')) {
-        const s = db.createObjectStore('menu_item_modifiers', { keyPath: 'id' });
-        s.createIndex('menu_item', 'menu_item', { unique: false });
       }
       if (!db.objectStoreNames.contains('menu_modifiers')) {
         const s = db.createObjectStore('menu_modifiers', { keyPath: 'id' });
