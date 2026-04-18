@@ -393,8 +393,18 @@ function _toDirectusPayload(collection, localPayload) {
     out[key] = value;
   }
 
-  const mapped = TO_DIRECTUS_MAPPERS[collection] ? TO_DIRECTUS_MAPPERS[collection](out) : out;
+  const explicitFields = new Set(Object.keys(out));
+  const mapper = TO_DIRECTUS_MAPPERS[collection];
+  const mappedRaw = mapper ? mapper(out) : out;
+  const mapped = {};
 
+  // Preserve sparse semantics: do not allow collection mappers to re-introduce
+  // fields that were not explicitly present in the transformed input payload.
+  for (const fieldName of explicitFields) {
+    if (Object.prototype.hasOwnProperty.call(mappedRaw, fieldName)) {
+      mapped[fieldName] = mappedRaw[fieldName];
+    }
+  }
   for (const fieldName of Object.keys(mapped)) {
     if (DIRECTUS_RELATION_FIELDS.has(fieldName)) {
       const value = mapped[fieldName];
