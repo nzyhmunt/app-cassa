@@ -72,8 +72,11 @@ export function makeTableOps(state, helpers) {
    * @param {string} dstTableId
    * @param {string|null} srcSessionId
    * @param {string|null} dstSessionId
-   * @param {object[]} ordersArr  - plain order objects (mutated in place)
-   * @param {object[]} txnsArr    - plain transaction objects (mutated in place)
+   * @param {object[]} ordersArr  - plain order objects (mutated in place on the projected copies)
+   * @param {object[]} txnsArr    - plain transaction objects (mutated in place on the projected copies)
+   *
+   * NOTE: mutation is intentional — callers pass shallow-copy arrays (not reactive refs) so
+   * they can accumulate all changes in one pass before persisting to IDB (IDB-first pattern).
    */
   function _relocateOnArrays(srcTableId, dstTableId, srcSessionId, dstSessionId, ordersArr, txnsArr) {
     ordersArr.forEach(o => {
@@ -157,6 +160,9 @@ export function makeTableOps(state, helpers) {
     }
 
     // IDB-first: persist projected state before any reactive assignment.
+    // On IDB failure we log a warning but still proceed with the reactive
+    // update so the UI remains usable in offline/degraded mode. The periodic
+    // debounced save (watcher in store/index.js) will retry the write shortly.
     await saveStateToIDB({
       orders: nextOrders,
       transactions: nextTransactions,
@@ -177,10 +183,8 @@ export function makeTableOps(state, helpers) {
     if (updateBillRequestedState) {
       billRequestedTables.value = nextBillRequested;
     } else {
-      if (billRequestedTables.value.has(fromTableId) || nextBillRequested.has(toTableId)) {
-        if (!nextBillRequested.has(fromTableId)) setBillRequested(fromTableId, false);
-        if (nextBillRequested.has(toTableId)) setBillRequested(toTableId, true);
-      }
+      if (billRequestedTables.value.has(fromTableId)) setBillRequested(fromTableId, false);
+      if (nextBillRequested.has(toTableId)) setBillRequested(toTableId, true);
     }
   }
 
@@ -237,6 +241,7 @@ export function makeTableOps(state, helpers) {
     nextMergedInto[sourceTableId] = resolvedTargetId;
 
     // IDB-first: persist projected state before any reactive assignment.
+    // On IDB failure we log and proceed (offline resilience — watcher retries).
     await saveStateToIDB({
       orders: nextOrders,
       transactions: nextTransactions,
@@ -288,6 +293,7 @@ export function makeTableOps(state, helpers) {
       : orders.value;
 
     // IDB-first: persist projected state before any reactive assignment.
+    // On IDB failure we log and proceed (offline resilience — watcher retries).
     const stateToSave = { tableMergedInto: nextMergedInto };
     if (slaveHasOrders) stateToSave.orders = nextOrders;
     await saveStateToIDB(stateToSave)
