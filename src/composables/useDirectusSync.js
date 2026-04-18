@@ -204,7 +204,13 @@ async function _refreshStoreFromIDB(collection = null) {
     await _store.refreshFromIDB(collection);
     return;
   }
+  // Strict path for Pinia stores: avoid direct assignments and require explicit APIs.
+  if (_store && typeof _store === 'object' && '$id' in _store) {
+    console.warn('[DirectusSync] Pinia store missing refresh API; skipping direct assignment to preserve IDB-first flow.');
+    return;
+  }
 
+  // Backward-compatible fallback for plain-object stores (tests/legacy adapters).
   const operationalCollections = new Set([
     'orders',
     'order_items',
