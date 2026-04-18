@@ -1087,5 +1087,4 @@ export async function initStoreFromIDB(pinia) {
     orderStore.orders = (appConfig.demoOrders ?? []).map(o => ({ ...o }));
   }
 
-  await configStore.loadMenu({ skipHydrate: true });
 }

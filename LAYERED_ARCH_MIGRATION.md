@@ -119,9 +119,9 @@
 
 **File**: `src/store/index.js` → `initStoreFromIDB`
 
-- [ ] Spostare la chiamata a `configStore.loadMenu({ skipHydrate: true })` fuori
+- [x] Spostare la chiamata a `configStore.loadMenu({ skipHydrate: true })` fuori
   dall'init IDB, in un passo separato del bootstrap (es. `App.vue` lifecycle).
-- [ ] `initStoreFromIDB` deve leggere solo da IndexedDB e non fare fetch di rete.
+- [x] `initStoreFromIDB` deve leggere solo da IndexedDB e non fare fetch di rete.
 
 ---
 
@@ -219,7 +219,7 @@
 | Priorità | Item | Stato |
 |----------|------|-------|
 | P0       | 4    | ✅ 4/4 completati |
-| P1       | 6    | 🟨 4/6 completati (P1-1, P1-2, P1-3, P1-5) |
+| P1       | 6    | 🟨 5/6 completati (P1-1, P1-2, P1-3, P1-4, P1-5) |
 | P2       | 6    | ⬜ tutti aperti |
 
 ---
