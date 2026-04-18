@@ -39,9 +39,9 @@ const DB_NAME_PREFIX = 'app-cassa';
  *               for failed sync attempts, even after queue entries are removed.
  *  v8 — Removed legacy `menu_item_modifiers` configuration cache ObjectStore.
  *
- * To add a new version (e.g. v8):
- *   1. Increment DB_VERSION to 8.
- *   2. Add a new `if (oldVersion < 8) { ... }` block inside the `upgrade()` callback.
+ * To add a new version (e.g. v9):
+ *   1. Increment DB_VERSION to 9.
+ *   2. Add a new `if (oldVersion < 9) { ... }` block inside the `upgrade()` callback.
  *   3. Only create new ObjectStores or add new indexes — never drop or modify existing ones
  *      unless you also provide a data-migration path for users upgrading from earlier versions.
  *   4. Update this comment block with a description of the new version.
