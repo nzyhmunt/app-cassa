@@ -382,7 +382,8 @@ export function getDB() {
         }
       }
 
-      // Remove deprecated Directus cache store after legacy migration has run.
+      // v9 cleanup: remove deprecated Directus cache store after the v5 block
+      // had a chance to migrate legacy local settings into `local_settings`.
       if (oldVersion < 9 && db.objectStoreNames.contains('app_settings')) {
         db.deleteObjectStore('app_settings');
       }
