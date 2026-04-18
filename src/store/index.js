@@ -516,60 +516,60 @@ export const useOrderStore = defineStore('orders', () => {
     }).catch((err) => console.warn('[Store] Failed to persist transactions:', err));
     enqueue('transactions', 'create', txn.id, txn);
 
-    if (txn?.operationType !== 'analitica') return;
+    if (txn?.operationType === 'analitica') {
+      const transactionOrderRefs = (Array.isArray(txn.orderRefs) ? txn.orderRefs : [])
+        .map((entry) => {
+          if (typeof entry === 'string' && entry.trim() !== '') {
+            return { id: newUUIDv7(), transaction: txn.id, order: entry.trim() };
+          }
+          if (entry && typeof entry === 'object') {
+            const orderId = typeof entry.order === 'string' ? entry.order : entry.orderId;
+            if (typeof orderId === 'string' && orderId.trim() !== '') {
+              return {
+                id: typeof entry.id === 'string' && entry.id.trim() !== '' ? entry.id : newUUIDv7(),
+                transaction: txn.id,
+                order: orderId.trim(),
+              };
+            }
+          }
+          return null;
+        })
+        .filter(Boolean);
 
-    const transactionOrderRefs = (Array.isArray(txn.orderRefs) ? txn.orderRefs : [])
-      .map((entry) => {
-        if (typeof entry === 'string' && entry.trim() !== '') {
-          return { id: newUUIDv7(), transaction: txn.id, order: entry.trim() };
-        }
-        if (entry && typeof entry === 'object') {
-          const orderId = typeof entry.order === 'string' ? entry.order : entry.orderId;
-          if (typeof orderId === 'string' && orderId.trim() !== '') {
-            return {
-              id: typeof entry.id === 'string' && entry.id.trim() !== '' ? entry.id : newUUIDv7(),
-              transaction: txn.id,
-              order: orderId.trim(),
-            };
+      const transactionVociRefs = (Array.isArray(txn.vociRefs) ? txn.vociRefs : [])
+        .map((entry) => {
+          if (!entry || typeof entry !== 'object') return null;
+          const voceKey = typeof entry.key === 'string' ? entry.key.trim() : '';
+          const qty = Number(entry.qty);
+          if (!voceKey || !Number.isInteger(qty) || qty <= 0) return null;
+          return {
+            id: typeof entry.id === 'string' && entry.id.trim() !== '' ? entry.id : newUUIDv7(),
+            transaction: txn.id,
+            voce_key: voceKey,
+            qty,
+          };
+        })
+        .filter(Boolean);
+
+      const persistAndEnqueueRefs = async () => {
+        if (transactionOrderRefs.length > 0) {
+          await upsertRecordsIntoIDB('transaction_order_refs', transactionOrderRefs);
+          for (const ref of transactionOrderRefs) {
+            enqueue('transaction_order_refs', 'create', ref.id, ref);
           }
         }
-        return null;
-      })
-      .filter(Boolean);
-
-    const transactionVociRefs = (Array.isArray(txn.vociRefs) ? txn.vociRefs : [])
-      .map((entry) => {
-        if (!entry || typeof entry !== 'object') return null;
-        const voceKey = typeof entry.key === 'string' ? entry.key.trim() : '';
-        const qty = Number.parseInt(entry.qty, 10);
-        if (!voceKey || !Number.isFinite(qty) || qty <= 0) return null;
-        return {
-          id: typeof entry.id === 'string' && entry.id.trim() !== '' ? entry.id : newUUIDv7(),
-          transaction: txn.id,
-          voce_key: voceKey,
-          qty,
-        };
-      })
-      .filter(Boolean);
-
-    const persistAndEnqueueRefs = async () => {
-      if (transactionOrderRefs.length > 0) {
-        await upsertRecordsIntoIDB('transaction_order_refs', transactionOrderRefs);
-        for (const ref of transactionOrderRefs) {
-          enqueue('transaction_order_refs', 'create', ref.id, ref);
+        if (transactionVociRefs.length > 0) {
+          await upsertRecordsIntoIDB('transaction_voce_refs', transactionVociRefs);
+          for (const ref of transactionVociRefs) {
+            enqueue('transaction_voce_refs', 'create', ref.id, ref);
+          }
         }
-      }
-      if (transactionVociRefs.length > 0) {
-        await upsertRecordsIntoIDB('transaction_voce_refs', transactionVociRefs);
-        for (const ref of transactionVociRefs) {
-          enqueue('transaction_voce_refs', 'create', ref.id, ref);
-        }
-      }
-    };
+      };
 
-    persistAndEnqueueRefs().catch((err) => {
-      console.warn('[Store] Failed to persist/enqueue transaction refs:', err);
-    });
+      persistAndEnqueueRefs().catch((err) => {
+        console.warn('[Store] Failed to persist/enqueue transaction refs:', err);
+      });
+    }
   }
 
   function addTipTransaction(tableId, billSessionId, tipValue) {

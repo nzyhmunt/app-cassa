@@ -556,16 +556,23 @@ describe('store.addTransaction() with analitica operationType', () => {
       timestamp: new Date().toISOString(),
     });
 
+    let refsEnqueued = false;
     for (let i = 0; i < 30; i++) {
       const pending = await getPendingEntries();
       if (
-        pending.some((entry) => entry.collection === 'transaction_order_refs')
-        && pending.filter((entry) => entry.collection === 'transaction_voce_refs').length === 2
+        pending.some(
+          (entry) => entry.collection === 'transaction_order_refs' && entry.payload?.transaction === 'txn_refs_test',
+        )
+        && pending.filter(
+          (entry) => entry.collection === 'transaction_voce_refs' && entry.payload?.transaction === 'txn_refs_test',
+        ).length === 2
       ) {
+        refsEnqueued = true;
         break;
       }
       await new Promise((resolve) => setTimeout(resolve, 10));
     }
+    expect(refsEnqueued).toBe(true);
 
     const db = await getDB();
     const orderRefsRows = (await db.getAll('transaction_order_refs'))
