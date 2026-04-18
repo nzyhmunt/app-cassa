@@ -252,7 +252,7 @@ function _cleanPayload(payload) {
  */
 const PUSH_DROP_FIELDS = new Set([
   'timestamp',         // local ISO string; Directus auto-sets date_created via server
-  'paymentMethod',     // UI-only display label; Directus persists only the relation id in payment_method
+  'paymentMethod',     // UI-only display label; Directus persists only the relation identifier in payment_method
   'orderRefs',         // M2M handled separately via transaction_order_refs collection
   'vociRefs',          // M2M handled separately via transaction_voce_refs collection
   'grossAmount',       // UI-only display field (not in Directus schema)
@@ -344,34 +344,34 @@ const TO_DIRECTUS_MAPPERS = {
 };
 const PAYMENT_METHOD_RELATION_COLLECTIONS = new Set(['transactions', 'daily_closure_by_method']);
 
-function _resolveConfiguredPaymentMethod(rawValue) {
+function _resolveConfiguredPaymentMethod(rawValue, methods = []) {
   if (typeof rawValue !== 'string') return null;
   const normalized = rawValue.trim();
   if (!normalized) return null;
-  const methods = Array.isArray(appConfig.paymentMethods) ? appConfig.paymentMethods : [];
   return methods.find((method) => method?.id === normalized || method?.label === normalized) ?? null;
 }
 
 function _resolvePaymentMethodId(localPayload, mappedPayload) {
+  const methods = Array.isArray(appConfig.paymentMethods) ? appConfig.paymentMethods : [];
   const explicitId = typeof localPayload?.paymentMethodId === 'string'
     ? localPayload.paymentMethodId.trim()
     : '';
   if (explicitId) {
-    return _resolveConfiguredPaymentMethod(explicitId)?.id ?? explicitId;
+    return _resolveConfiguredPaymentMethod(explicitId, methods)?.id ?? explicitId;
   }
 
   const mappedValue = typeof mappedPayload?.payment_method === 'string'
     ? mappedPayload.payment_method.trim()
     : '';
   if (mappedValue) {
-    return _resolveConfiguredPaymentMethod(mappedValue)?.id ?? mappedValue;
+    return _resolveConfiguredPaymentMethod(mappedValue, methods)?.id ?? mappedValue;
   }
 
   const labelValue = typeof localPayload?.paymentMethod === 'string'
     ? localPayload.paymentMethod.trim()
     : '';
   if (!labelValue) return null;
-  return _resolveConfiguredPaymentMethod(labelValue)?.id ?? null;
+  return _resolveConfiguredPaymentMethod(labelValue, methods)?.id ?? null;
 }
 
 /**
