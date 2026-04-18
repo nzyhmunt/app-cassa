@@ -2563,7 +2563,8 @@ async function processTablePayment(paymentMethodId, extra = {}, overrideAmount =
   // remaining balance can still be collected.
   if (checkoutMode.value === 'ordini') {
     if (amount + BILL_SETTLED_THRESHOLD >= amountBeingPaid.value) {
-      for (const o of tableAcceptedPayableOrders.value.filter(o => payload.orderRefs.includes(o.id))) {
+      const selectedOrdersToComplete = tableAcceptedPayableOrders.value.filter(o => payload.orderRefs.includes(o.id));
+      for (const o of selectedOrdersToComplete) {
         await orderStore.changeOrderStatus(o, 'completed');
       }
     }
@@ -2579,7 +2580,8 @@ async function processTablePayment(paymentMethodId, extra = {}, overrideAmount =
         flatAnaliticaItems.value,
         analiticaQty.value,
       );
-      for (const o of tableAcceptedPayableOrders.value.filter(o => ordersToComplete.includes(o.id))) {
+      const analiticaOrdersToComplete = tableAcceptedPayableOrders.value.filter(o => ordersToComplete.includes(o.id));
+      for (const o of analiticaOrdersToComplete) {
         await orderStore.changeOrderStatus(o, 'completed');
       }
     }
