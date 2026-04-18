@@ -1,6 +1,15 @@
 /**
  * @file utils/mappers.js
  * @description Mapping layer between Directus payloads (snake_case) and local models (camelCase).
+ *
+ * Official runtime entry points:
+ *  - Pull (Directus -> runtime/IDB): mapOrderFromDirectus, mapOrderItemFromDirectus,
+ *    mapBillSessionFromDirectus, mapVenueConfigFromDirectus
+ *  - Push (runtime/IDB -> Directus): mapOrderToDirectus, mapOrderItemToDirectus,
+ *    mapBillSessionToDirectus
+ *
+ * Verification (P2-2): every exported `map*FromDirectus` / `map*ToDirectus`
+ * mapper is currently referenced by runtime code (not tests-only).
  */
 
 function relationId(value) {

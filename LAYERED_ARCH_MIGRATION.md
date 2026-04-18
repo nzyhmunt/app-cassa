@@ -168,9 +168,10 @@
 
 **File**: `src/utils/mappers.js`
 
-- [ ] Verificare con `grep -n "map.*ToDirectus\|map.*FromDirectus"` quali funzioni
+- [x] Verificare con `grep -n "map.*ToDirectus\|map.*FromDirectus"` quali funzioni
   non sono mai invocate al di fuori dei test e rimuoverle o marcarle `@deprecated`.
-- [ ] Documentare chiaramente quali mapper sono "entry point ufficiali" del layer.
+  (Esito: tutte le funzioni export risultano usate nel runtime, nessuna rimozione/deprecazione necessaria.)
+- [x] Documentare chiaramente quali mapper sono "entry point ufficiali" del layer.
 
 ---
 
