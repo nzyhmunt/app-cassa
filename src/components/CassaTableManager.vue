@@ -2388,7 +2388,8 @@ const canManuallyCloseBill = computed(() =>
 
 /**
  * Automatically closes the selected table bill when enabled and fully settled.
- * It completes all active payable orders and closes the table details modal.
+ * It completes all active payable orders without closing the table details modal,
+ * so cashier end-of-bill actions (e.g. fiscale/fattura) remain available.
  */
 function autoCloseBillOnFullPayment() {
   if (!autoCloseOnFullPaymentEnabled.value || !selectedTable.value) return;
@@ -2404,7 +2405,6 @@ function autoCloseBillOnFullPayment() {
     );
     return;
   }
-  closeTableModal();
 }
 
 function closeTableBill() {
