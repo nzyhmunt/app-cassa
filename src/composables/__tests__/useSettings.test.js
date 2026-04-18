@@ -233,6 +233,12 @@ describe('useSettings()', () => {
     expect(store.preBillPrinterId).toBe('');
   });
 
+  it('falls back menuSource to default when both payload and current are invalid', () => {
+    store.menuSource = 'invalid-current';
+    store.applyLocalSettings({ menuSource: 'invalid-next' });
+    expect(store.menuSource).toBe('directus');
+  });
+
   it('persists directus settings through store.saveDirectusSettings()', async () => {
     vi.mocked(saveDirectusConfigToStorage).mockClear();
 

@@ -80,13 +80,14 @@ function _normalizeMenuSource(value, fallback = null) {
  * @returns {{sounds:boolean,menuUrl:string,menuSource:'json'|'directus',preventScreenLock:boolean,customKeyboard:string,preBillPrinterId:string}}
  */
 function _normalizeLocalSettingsPayload(payload, current) {
+  const normalizedCurrentMenuSource = _normalizeMenuSource(current?.menuSource, 'directus');
   return {
     sounds: typeof payload?.sounds === 'boolean' ? payload.sounds : !!current?.sounds,
     menuUrl:
       typeof payload?.menuUrl === 'string' && payload.menuUrl.trim() !== ''
         ? payload.menuUrl
         : (current?.menuUrl ?? DEFAULT_SETTINGS.menuUrl),
-    menuSource: _normalizeMenuSource(payload?.menuSource, _normalizeMenuSource(current?.menuSource, 'directus')),
+    menuSource: _normalizeMenuSource(payload?.menuSource, normalizedCurrentMenuSource),
     preventScreenLock:
       typeof payload?.preventScreenLock === 'boolean'
         ? payload.preventScreenLock
