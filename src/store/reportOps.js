@@ -6,6 +6,7 @@
  */
 import { computed } from 'vue';
 import { newUUIDv7 } from './storeUtils.js';
+import { saveStateToIDB } from './persistence/operations.js';
 
 /**
  * @param {object} state   – Reactive refs: orders, transactions, cashBalance, cashMovements,
@@ -149,6 +150,15 @@ export function makeReportOps(state, helpers) {
     if (typeof enqueue === 'function') {
       enqueue('daily_closures', 'create', summary.id, summary);
       byMethodRows.forEach((row) => enqueue('daily_closure_by_method', 'create', row.id, row));
+    }
+
+    // IDB-first: persist the cleared operational state before reactive assignment so
+    // that a reload immediately after the close sees empty transactions/movements.
+    try {
+      await saveStateToIDB({ transactions: [], cashMovements: [], cashBalance: summary.finalBalance });
+    } catch (err) {
+      console.warn('[Store] Failed to persist cleared state in IDB after daily close:', err);
+      throw err;
     }
 
     dailyClosures.value.push(summary);

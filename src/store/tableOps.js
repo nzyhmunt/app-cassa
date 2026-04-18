@@ -33,17 +33,9 @@ export function makeTableOps(state, helpers) {
   // tableMergedInto is used *exclusively* for the floor-plan "ghost-occupied"
   // display: a slave table delegates its status to the master so that the
   // cashier sees both tables as occupied even though all billing data lives on
-  // the master.  All writes to tableMergedInto go through these two helpers so
-  // the display concern is visually isolated from the billing operations below.
-
-  /**
-   * Marks slaveId as a floor-plan ghost-occupied slave of masterId.
-   * @param {string} slaveId
-   * @param {string} masterId
-   */
-  function _linkSlave(slaveId, masterId) {
-    tableMergedInto.value = { ...tableMergedInto.value, [slaveId]: masterId };
-  }
+  // the master. Writes may happen from these helpers or from billing flows
+  // below via projected objects + assignment; the invariant is that reactive
+  // state is assigned only after the corresponding IDB update is prepared/saved.
 
   /**
    * Removes the floor-plan ghost-occupied link for slaveId (no-op if not linked).
@@ -341,8 +333,10 @@ export function makeTableOps(state, helpers) {
     });
     if (!hasValidItemsToMove) return false;
 
-    // ── Floor-plan display: detach target slave only after confirming a move will happen
-    if (targetMaster === sourceTableId) _unlinkSlave(targetTableId);
+    // ── Floor-plan display: build projected nextMergedInto without mutating the
+    // reactive ref — actual reactive assignment happens after IDB write (IDB-first).
+    const nextMergedInto = { ...tableMergedInto.value };
+    if (targetMaster === sourceTableId) delete nextMergedInto[targetTableId];
 
     // Ensure target has an open billing session
     let targetSession = tableCurrentBillSession.value[targetTableId];
@@ -417,39 +411,67 @@ export function makeTableOps(state, helpers) {
 
     if (!anyMoved) return false;
 
-    // Persist the projected orders to IDB before mutating reactive state
-    await saveStateToIDB({ orders: projectedOrders });
-    orders.value = projectedOrders;
-
-    if (partialMoveItems.length > 0) await addDirectOrder(targetTableId, targetSessionId, partialMoveItems);
-    if (!tableOccupiedAt.value[targetTableId]) {
-      tableOccupiedAt.value[targetTableId] = new Date().toISOString();
+    // ── Build complete projected cleanup state for all slices that will change ─
+    const nextOccupiedAt = { ...tableOccupiedAt.value };
+    if (!nextOccupiedAt[targetTableId]) {
+      nextOccupiedAt[targetTableId] = new Date().toISOString();
     }
 
-    // If source now has no active orders, clean up its session state
-    const sourceStillHasOrders = orders.value.some(
+    // Determine source cleanup from the projected orders (before any reactive write).
+    const sourceStillHasOrders = projectedOrders.some(
       o => o.table === sourceTableId && o.status !== 'completed' && o.status !== 'rejected',
     );
+
+    let nextTransactions = transactions.value;
+    let nextTCS = tableCurrentBillSession.value;
+    let nextBillRequested = billRequestedTables.value;
+
     if (!sourceStillHasOrders) {
       const srcSessionId = tableCurrentBillSession.value[sourceTableId]?.billSessionId;
-      if (srcSessionId) {
-        transactions.value.forEach(t => {
-          if (t.tableId === sourceTableId && t.billSessionId === srcSessionId) {
-            t.tableId = targetTableId;
-            t.billSessionId = targetSessionId;
-          }
-        });
-      }
-      delete tableOccupiedAt.value[sourceTableId];
-      const nextSession = { ...tableCurrentBillSession.value };
-      delete nextSession[sourceTableId];
-      tableCurrentBillSession.value = nextSession;
-      setBillRequested(sourceTableId, false);
-
-      // ── Floor-plan display: remove any merge links involving the now-empty source
-      slaveIdsOf(sourceTableId).forEach(slaveId => _unlinkSlave(slaveId));
-      _unlinkSlave(sourceTableId);
+      // Retag transactions from the closing source session to the target (immutable update).
+      nextTransactions = srcSessionId
+        ? transactions.value.map(t =>
+            t.tableId === sourceTableId && t.billSessionId === srcSessionId
+              ? { ...t, tableId: targetTableId, billSessionId: targetSessionId }
+              : t,
+          )
+        : transactions.value;
+      const projectedTCS = { ...tableCurrentBillSession.value };
+      delete projectedTCS[sourceTableId];
+      nextTCS = projectedTCS;
+      delete nextOccupiedAt[sourceTableId];
+      const projectedBillRequested = new Set(billRequestedTables.value);
+      projectedBillRequested.delete(sourceTableId);
+      nextBillRequested = projectedBillRequested;
+      // Floor-plan display: remove all merge links involving the now-empty source.
+      slaveIdsOf(sourceTableId).forEach(slaveId => { delete nextMergedInto[slaveId]; });
+      delete nextMergedInto[sourceTableId];
     }
+
+    // IDB-first: persist all projected state before any reactive assignment.
+    // On IDB failure we log and proceed (offline resilience — watcher retries).
+    await saveStateToIDB({
+      orders: projectedOrders,
+      transactions: nextTransactions,
+      tableCurrentBillSession: nextTCS,
+      tableOccupiedAt: nextOccupiedAt,
+      tableMergedInto: nextMergedInto,
+      billRequestedTables: nextBillRequested,
+    }).catch(err => console.warn('[Store] splitItemsToTable IDB save failed:', err));
+
+    // Assign reactive refs after IDB write completes.
+    orders.value = projectedOrders;
+    transactions.value = nextTransactions;
+    tableCurrentBillSession.value = nextTCS;
+    tableOccupiedAt.value = nextOccupiedAt;
+    tableMergedInto.value = nextMergedInto;
+    if (updateBillRequestedState) {
+      billRequestedTables.value = nextBillRequested;
+    } else if (!sourceStillHasOrders) {
+      setBillRequested(sourceTableId, false);
+    }
+
+    if (partialMoveItems.length > 0) await addDirectOrder(targetTableId, targetSessionId, partialMoveItems);
 
     return true;
   }

@@ -947,11 +947,13 @@ function _preBillPrinters() {
  */
 function _syncPreBillPrinterSelection(venueRecord = null) {
   if (!_store) return;
-  // P0-4 exception: this is UI-only local state and does not belong to Directus
-  // sync payloads, so we intentionally keep this direct assignment path.
   const candidates = _preBillPrinters();
   if (candidates.length === 0) {
     _store.preBillPrinterId = '';
+    if (typeof _store.saveLocalSettings === 'function') {
+      _store.saveLocalSettings({ preBillPrinterId: '' })
+        .catch((err) => console.warn('[DirectusSync] Failed to persist cleared preBillPrinterId:', err));
+    }
     return;
   }
   const current = typeof _store.preBillPrinterId === 'string' ? _store.preBillPrinterId : '';
@@ -972,11 +974,16 @@ function _syncPreBillPrinterSelection(venueRecord = null) {
     snakeDefault ??
     camelDefault ??
     null;
-  if (remoteDefault && candidates.some((printer) => printer.id === remoteDefault)) {
-    _store.preBillPrinterId = remoteDefault;
-    return;
+  const newPrinterId =
+    remoteDefault && candidates.some((printer) => printer.id === remoteDefault)
+      ? remoteDefault
+      : (candidates[0]?.id ?? '');
+  _store.preBillPrinterId = newPrinterId;
+  // Persist the auto-selected printer to IDB so the selection survives a reload.
+  if (typeof _store.saveLocalSettings === 'function') {
+    _store.saveLocalSettings({ preBillPrinterId: newPrinterId })
+      .catch((err) => console.warn('[DirectusSync] Failed to persist preBillPrinterId:', err));
   }
-  _store.preBillPrinterId = candidates[0]?.id ?? '';
 }
 
 function _emitProgress(onProgress, payload) {
