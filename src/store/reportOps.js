@@ -7,8 +7,7 @@
 import { computed } from 'vue';
 import { newUUIDv7 } from './storeUtils.js';
 import { saveStateToIDB } from './persistence/operations.js';
-
-const FALLBACK_PAYMENT_METHOD_LABEL = 'Altro';
+import { resolvePaymentMethodMeta } from '../utils/paymentMethods.js';
 
 /**
  * @param {object} state   – Reactive refs: orders, transactions, cashBalance, cashMovements,
@@ -24,17 +23,7 @@ export function makeReportOps(state, helpers) {
   } = helpers;
 
   function _resolvePaymentMethodMeta(transaction) {
-    const methods = Array.isArray(config?.value?.paymentMethods) ? config.value.paymentMethods : [];
-    const explicitId = typeof transaction?.paymentMethodId === 'string' ? transaction.paymentMethodId.trim() : '';
-    if (explicitId) {
-      const match = methods.find((method) => method?.id === explicitId || method?.label === explicitId);
-      return { id: match?.id ?? explicitId, label: match?.label ?? explicitId };
-    }
-
-    const rawLabel = typeof transaction?.paymentMethod === 'string' ? transaction.paymentMethod.trim() : '';
-    if (!rawLabel) return { id: '', label: FALLBACK_PAYMENT_METHOD_LABEL };
-    const match = methods.find((method) => method?.id === rawLabel || method?.label === rawLabel);
-    return { id: match?.id ?? '', label: match?.label ?? rawLabel };
+    return resolvePaymentMethodMeta(config?.value?.paymentMethods, transaction);
   }
 
   function _buildDailySummary() {

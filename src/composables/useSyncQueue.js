@@ -26,6 +26,7 @@ import { createDirectus, staticToken, rest, createItem, updateItem, deleteItem }
 import { getDB } from './useIDB.js';
 import { newUUIDv7 } from '../store/storeUtils.js';
 import { appConfig } from '../utils/index.js';
+import { resolvePaymentMethodMeta } from '../utils/paymentMethods.js';
 import {
   mapOrderToDirectus,
   mapOrderItemToDirectus,
@@ -344,34 +345,14 @@ const TO_DIRECTUS_MAPPERS = {
 };
 const PAYMENT_METHOD_RELATION_COLLECTIONS = new Set(['transactions', 'daily_closure_by_method']);
 
-function _resolveConfiguredPaymentMethod(rawValue, methods = []) {
-  if (typeof rawValue !== 'string') return null;
-  const normalized = rawValue.trim();
-  if (!normalized) return null;
-  return methods.find((method) => method?.id === normalized || method?.label === normalized) ?? null;
-}
-
 function _resolvePaymentMethodId(localPayload, mappedPayload) {
   const methods = Array.isArray(appConfig.paymentMethods) ? appConfig.paymentMethods : [];
-  const explicitId = typeof localPayload?.paymentMethodId === 'string'
-    ? localPayload.paymentMethodId.trim()
-    : '';
-  if (explicitId) {
-    return _resolveConfiguredPaymentMethod(explicitId, methods)?.id ?? explicitId;
-  }
-
-  const mappedValue = typeof mappedPayload?.payment_method === 'string'
-    ? mappedPayload.payment_method.trim()
-    : '';
-  if (mappedValue) {
-    return _resolveConfiguredPaymentMethod(mappedValue, methods)?.id ?? mappedValue;
-  }
-
-  const labelValue = typeof localPayload?.paymentMethod === 'string'
-    ? localPayload.paymentMethod.trim()
-    : '';
-  if (!labelValue) return null;
-  return _resolveConfiguredPaymentMethod(labelValue, methods)?.id ?? null;
+  const resolved = resolvePaymentMethodMeta(methods, {
+    paymentMethodId: localPayload?.paymentMethodId,
+    payment_method: mappedPayload?.payment_method,
+    paymentMethod: localPayload?.paymentMethod,
+  });
+  return resolved.id || null;
 }
 
 /**
