@@ -2386,12 +2386,24 @@ const canManuallyCloseBill = computed(() =>
   !!selectedTable.value &&
   tableAmountRemaining.value <= BILL_SETTLED_THRESHOLD);
 
+/**
+ * Automatically closes the selected table bill when enabled and fully settled.
+ * It completes all active payable orders and closes the table details modal.
+ */
 function autoCloseBillOnFullPayment() {
   if (!autoCloseOnFullPaymentEnabled.value || !selectedTable.value) return;
   if (hasPendingOrdersInTable.value || tableAmountRemaining.value > BILL_SETTLED_THRESHOLD) return;
   const ordersToComplete = tableAcceptedPayableOrders.value.filter(o => KITCHEN_ACTIVE_STATUSES.includes(o.status));
   if (ordersToComplete.length === 0) return;
-  ordersToComplete.forEach(o => orderStore.changeOrderStatus(o, 'completed'));
+  try {
+    ordersToComplete.forEach(o => orderStore.changeOrderStatus(o, 'completed'));
+  } catch (e) {
+    console.warn(
+      `[CassaTableManager] Failed to auto-close bill on full payment for ${ordersToComplete.length} orders:`,
+      e,
+    );
+    return;
+  }
   closeTableModal();
 }
 
@@ -2567,13 +2579,10 @@ function processTablePayment(paymentMethodId, extra = {}, overrideAmount = null)
     analiticaQty.value = {};
   }
 
-  if (autoCloseOnFullPaymentEnabled.value) {
-    nextTick(() => autoCloseBillOnFullPayment());
-  }
-
   jsonContext.value = 'receipt';
   jsonPayloadData.value = JSON.stringify(payload, null, 2);
   showPrecontoJson.value = true;
+  autoCloseBillOnFullPayment();
 }
 
 // ── Payment modal helpers ──────────────────────────────────────────────────
@@ -2661,9 +2670,7 @@ function applyDiscount() {
   });
 
   discountInput.value = '';
-  if (autoCloseOnFullPaymentEnabled.value) {
-    nextTick(() => autoCloseBillOnFullPayment());
-  }
+  autoCloseBillOnFullPayment();
 }
 
 // ── JSON modal ─────────────────────────────────────────────────────────────
