@@ -207,10 +207,18 @@ export function mapBillSessionFromDirectus(record) {
 export function mapBillSessionToDirectus(record) {
   const source = record ?? {};
   const out = { ...source };
-  if (!Object.prototype.hasOwnProperty.call(out, 'venue_user_created') && Object.prototype.hasOwnProperty.call(source, 'venueUserCreated')) {
+  if (
+    !Object.prototype.hasOwnProperty.call(out, 'venue_user_created')
+    && Object.prototype.hasOwnProperty.call(source, 'venueUserCreated')
+    && source.venueUserCreated != null
+  ) {
     out.venue_user_created = relationId(source.venueUserCreated);
   }
-  if (!Object.prototype.hasOwnProperty.call(out, 'venue_user_updated') && Object.prototype.hasOwnProperty.call(source, 'venueUserUpdated')) {
+  if (
+    !Object.prototype.hasOwnProperty.call(out, 'venue_user_updated')
+    && Object.prototype.hasOwnProperty.call(source, 'venueUserUpdated')
+    && source.venueUserUpdated != null
+  ) {
     out.venue_user_updated = relationId(source.venueUserUpdated);
   }
   delete out.venueUserCreated;
