@@ -517,6 +517,14 @@ export const useOrderStore = defineStore('orders', () => {
     enqueue('orders', 'update', ord.id, payload);
   }
 
+  /**
+   * Returns a new orders array with the entry matching ordId replaced by updated.
+   * String coercion ensures reactive-proxy IDs compare correctly against raw strings.
+   */
+  function _replaceOrderById(ordId, updated) {
+    return orders.value.map(o => String(o.id) === String(ordId) ? updated : o);
+  }
+
   async function addOrder(order) {
     if (order.globalNote === undefined) order.globalNote = '';
     if (!order.noteVisibility) order.noteVisibility = { cassa: true, sala: true, cucina: true };
@@ -618,7 +626,7 @@ export const useOrderStore = defineStore('orders', () => {
     projItem.quantity += delta;
     if (projItem.quantity <= 0) projected.orderItems.splice(idx, 1);
     updateOrderTotals(projected);
-    const projectedOrders = orders.value.map(o => String(o.id) === String(ordId) ? projected : o);
+    const projectedOrders = _replaceOrderById(ordId, projected);
     await saveStateToIDB({ orders: projectedOrders });
     _skipNextScheduledSave('orders');
     orders.value = projectedOrders;
@@ -631,7 +639,7 @@ export const useOrderStore = defineStore('orders', () => {
     const projected = _clone(toRaw(ord));
     projected.orderItems.splice(idx, 1);
     updateOrderTotals(projected);
-    const projectedOrders = orders.value.map(o => String(o.id) === String(ordId) ? projected : o);
+    const projectedOrders = _replaceOrderById(ordId, projected);
     await saveStateToIDB({ orders: projectedOrders });
     _skipNextScheduledSave('orders');
     orders.value = projectedOrders;
@@ -654,7 +662,7 @@ export const useOrderStore = defineStore('orders', () => {
       m.voidedQuantity = Math.min(m.voidedQuantity || 0, maxModActive);
     }
     updateOrderTotals(projected);
-    const projectedOrders = orders.value.map(o => String(o.id) === String(ordId) ? projected : o);
+    const projectedOrders = _replaceOrderById(ordId, projected);
     await saveStateToIDB({ orders: projectedOrders });
     _skipNextScheduledSave('orders');
     orders.value = projectedOrders;
@@ -670,7 +678,7 @@ export const useOrderStore = defineStore('orders', () => {
     const projected = _clone(toRaw(ord));
     projected.orderItems[idx].voidedQuantity -= qtyToRestore;
     updateOrderTotals(projected);
-    const projectedOrders = orders.value.map(o => String(o.id) === String(ordId) ? projected : o);
+    const projectedOrders = _replaceOrderById(ordId, projected);
     await saveStateToIDB({ orders: projectedOrders });
     _skipNextScheduledSave('orders');
     orders.value = projectedOrders;
@@ -690,7 +698,7 @@ export const useOrderStore = defineStore('orders', () => {
     if (!projMod.voidedQuantity) projMod.voidedQuantity = 0;
     projMod.voidedQuantity += qty;
     updateOrderTotals(projected);
-    const projectedOrders = orders.value.map(o => String(o.id) === String(ordId) ? projected : o);
+    const projectedOrders = _replaceOrderById(ordId, projected);
     await saveStateToIDB({ orders: projectedOrders });
     _skipNextScheduledSave('orders');
     orders.value = projectedOrders;
@@ -708,7 +716,7 @@ export const useOrderStore = defineStore('orders', () => {
     const projected = _clone(toRaw(ord));
     projected.orderItems[itemIdx].modifiers[modIdx].voidedQuantity -= qty;
     updateOrderTotals(projected);
-    const projectedOrders = orders.value.map(o => String(o.id) === String(ordId) ? projected : o);
+    const projectedOrders = _replaceOrderById(ordId, projected);
     await saveStateToIDB({ orders: projectedOrders });
     _skipNextScheduledSave('orders');
     orders.value = projectedOrders;
@@ -720,7 +728,7 @@ export const useOrderStore = defineStore('orders', () => {
     const ordId = order.id;
     const projected = _clone(toRaw(order));
     projected.orderItems[itemIdx].kitchenReady = ready;
-    const projectedOrders = orders.value.map(o => String(o.id) === String(ordId) ? projected : o);
+    const projectedOrders = _replaceOrderById(ordId, projected);
     await saveStateToIDB({ orders: projectedOrders });
     _skipNextScheduledSave('orders');
     orders.value = projectedOrders;
@@ -973,6 +981,8 @@ export const useOrderStore = defineStore('orders', () => {
     }, 150);
   }
 
+  // Prevents the watcher-driven debounced save from creating a redundant IDB write
+  // after an explicit IDB-first action that already persisted the same keys.
   function _skipNextScheduledSave(...keys) {
     keys.forEach((key) => {
       const pendingSkipValue = _skipNextSaveCount.get(key);

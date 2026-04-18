@@ -353,12 +353,7 @@ describe('P0-2 IDB-first — order item mutations', () => {
     // saveStateToIDB should have been called with the new Set
     expect(saveStateToIDBMock).toHaveBeenCalledTimes(1);
     const [payload] = saveStateToIDBMock.mock.calls[0];
-    expect(payload.billRequestedTables instanceof Set
-      ? payload.billRequestedTables.has('T_bill')
-      : Array.isArray(payload.billRequestedTables)
-        ? payload.billRequestedTables.includes('T_bill')
-        : false,
-    ).toBe(true);
+    expect(payload.billRequestedTables.has('T_bill')).toBe(true);
     expect(store.billRequestedTables.has('T_bill')).toBe(true);
   });
 
