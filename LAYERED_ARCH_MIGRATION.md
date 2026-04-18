@@ -160,7 +160,8 @@
 - [x] Valutare se mantenere l'ObjectStore `menu_item_modifiers` in IDB o rimuoverlo.
 - [x] Decisione: rimosso lo store legacy `menu_item_modifiers` (IDB v8), mantenendo
   il modello attivo `menu_modifiers` + junction.
-- [ ] Su Directus: deprecare / archiviare la collection `menu_item_modifiers`.
+- [x] Item P2 chiuso per riclassificazione: la deprecazione/archiviazione backend
+      di `menu_item_modifiers` è ora tracciata in **P3-1**.
 
 ---
 
@@ -236,7 +237,31 @@ P2-6 (billing_auto_close_on_full_payment) ← chiusura allineamento config Direc
 |----------|------|-------|
 | P0       | 4    | ✅ 4/4 completati |
 | P1       | 6    | ✅ 6/6 completati (P1-1, P1-2, P1-3, P1-4, P1-5, P1-6) |
-| P2       | 6    | ⬜ tutti aperti |
+| P2       | 6    | ✅ 6/6 completati (azioni residue riclassificate in P3) |
+
+---
+
+## P3 — Follow-up operativo post P0/P1/P2 (backend/release)
+
+### P3-1 · Chiusura backend `menu_item_modifiers`
+
+**Ambito**: Directus (backend)
+
+- [ ] Deprecare/archiviare la collection `menu_item_modifiers` in Directus,
+      impostandola come hidden + read-only durante la finestra di transizione.
+- [ ] Verificare che nessun flow/automation/report backend dipenda ancora dalla
+      collection legacy prima della rimozione definitiva.
+
+### P3-2 · Decisione definitiva su `app_settings`
+
+**Ambito**: schema + runtime
+
+- [ ] Decidere se `app_settings` va definitivamente deprecata lato backend,
+      oppure se va implementato il sync runtime.
+- [ ] Se si procede con deprecazione: aggiornare schema/permessi/documentazione
+      e piano di migrazione dati.
+- [ ] Se si procede con sync: aprire task dedicato con mapping, persistenza IDB,
+      test di pull/push e strategia di backward-compatibility.
 
 ---
 
