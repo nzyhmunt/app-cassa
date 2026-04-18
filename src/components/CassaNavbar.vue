@@ -85,8 +85,8 @@ const isRoomActive = computed(() => route.name === 'sala' || route.name === 'sto
 
 const { playBeep } = useBeep();
 
-function onSimulateOrder() {
-  orderStore.simulateNewOrder();
+async function onSimulateOrder() {
+  await orderStore.simulateNewOrder();
   playBeep();
 }
 </script>

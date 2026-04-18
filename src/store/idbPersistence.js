@@ -271,6 +271,7 @@ export async function saveStateToIDB(state) {
     touchStorageKey();
   } catch (e) {
     console.warn('[IDBPersistence] Failed to save state:', e);
+    throw e;
   }
 }
 
@@ -298,6 +299,7 @@ export async function upsertBillSessionInIDB(session) {
     touchStorageKey();
   } catch (e) {
     console.warn('[IDBPersistence] Failed to upsert bill_session:', e);
+    throw e;
   }
 }
 
@@ -318,6 +320,7 @@ export async function closeBillSessionInIDB(billSessionId) {
     }
   } catch (e) {
     console.warn('[IDBPersistence] Failed to close bill_session in IDB:', e);
+    throw e;
   }
 }
 
@@ -351,6 +354,7 @@ export async function saveSettingsToIDB(settings) {
     await db.put('local_settings', JSON.parse(JSON.stringify({ id: SETTINGS_RECORD_ID, ...settings })));
   } catch (e) {
     console.warn('[IDBPersistence] Failed to save settings:', e);
+    throw e;
   }
 }
 

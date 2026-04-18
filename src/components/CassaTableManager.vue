@@ -1665,13 +1665,13 @@ function confirmMove(targetTable) {
   enqueueTableMoveJob(fromId, fromLabel, targetTable.id, targetTable.label);
 }
 
-function confirmMerge(sourceTable) {
+async function confirmMerge(sourceTable) {
   if (!selectedTable.value) return;
-  orderStore.mergeTableOrders(sourceTable.id, selectedTable.value.id);
+  await orderStore.mergeTableOrders(sourceTable.id, selectedTable.value.id);
   showMergeModal.value = false;
 }
 
-function confirmSplit() {
+async function confirmSplit() {
   if (!selectedTable.value || !splitTargetTableId.value) return;
 
   const qtyMap = {};
@@ -1684,9 +1684,9 @@ function confirmSplit() {
   // wants a clean detach (separate tables without moving any items). Call
   // detachSlaveTable() directly; splitItemsToTable() requires at least one item.
   if (splitTargetIsSlave.value && Object.keys(qtyMap).length === 0) {
-    orderStore.detachSlaveTable(selectedTable.value.id, splitTargetTableId.value);
+    await orderStore.detachSlaveTable(selectedTable.value.id, splitTargetTableId.value);
   } else {
-    orderStore.splitItemsToTable(selectedTable.value.id, splitTargetTableId.value, qtyMap);
+    await orderStore.splitItemsToTable(selectedTable.value.id, splitTargetTableId.value, qtyMap);
   }
 
   showSplitModal.value = false;
@@ -2397,7 +2397,9 @@ async function autoCloseBillOnFullPayment() {
   const ordersToComplete = tableAcceptedPayableOrders.value.filter(o => KITCHEN_ACTIVE_STATUSES.includes(o.status));
   if (ordersToComplete.length === 0) return;
   try {
-    await Promise.all(ordersToComplete.map(o => orderStore.changeOrderStatus(o, 'completed')));
+    for (const o of ordersToComplete) {
+      await orderStore.changeOrderStatus(o, 'completed');
+    }
   } catch (e) {
     console.warn(
       `[CassaTableManager] Failed to auto-close bill on full payment for ${ordersToComplete.length} orders:`,
@@ -2428,7 +2430,9 @@ async function closeTableBill() {
       items: o.orderItems,
     })),
   };
-  await Promise.all(tableAcceptedPayableOrders.value.map(o => orderStore.changeOrderStatus(o, 'completed')));
+  for (const o of tableAcceptedPayableOrders.value) {
+    await orderStore.changeOrderStatus(o, 'completed');
+  }
   jsonContext.value = 'receipt';
   jsonPayloadData.value = JSON.stringify(summary, null, 2);
   showPrecontoJson.value = true;
@@ -2473,7 +2477,9 @@ async function closeTableBillFiscale() {
     status: 'pending',
     timestamp: base.closedAt,
   };
-  await Promise.all(tableAcceptedPayableOrders.value.map(o => orderStore.changeOrderStatus(o, 'completed')));
+  for (const o of tableAcceptedPayableOrders.value) {
+    await orderStore.changeOrderStatus(o, 'completed');
+  }
   orderStore.addFiscalReceipt(entry);
   closeTableModal();
 }
@@ -2489,7 +2495,9 @@ async function confirmInvoice(billingData) {
     status: 'pending',
     timestamp: base.closedAt,
   };
-  await Promise.all(tableAcceptedPayableOrders.value.map(o => orderStore.changeOrderStatus(o, 'completed')));
+  for (const o of tableAcceptedPayableOrders.value) {
+    await orderStore.changeOrderStatus(o, 'completed');
+  }
   orderStore.addInvoiceRequest(entry);
   showInvoiceModal.value = false;
   closeTableModal();
@@ -2555,11 +2563,9 @@ async function processTablePayment(paymentMethodId, extra = {}, overrideAmount =
   // remaining balance can still be collected.
   if (checkoutMode.value === 'ordini') {
     if (amount + BILL_SETTLED_THRESHOLD >= amountBeingPaid.value) {
-      await Promise.all(
-        tableAcceptedPayableOrders.value
-          .filter(o => payload.orderRefs.includes(o.id))
-          .map(o => orderStore.changeOrderStatus(o, 'completed')),
-      );
+      for (const o of tableAcceptedPayableOrders.value.filter(o => payload.orderRefs.includes(o.id))) {
+        await orderStore.changeOrderStatus(o, 'completed');
+      }
     }
     selectedOrdersToPay.value = [];
   }
@@ -2573,11 +2579,9 @@ async function processTablePayment(paymentMethodId, extra = {}, overrideAmount =
         flatAnaliticaItems.value,
         analiticaQty.value,
       );
-      await Promise.all(
-        tableAcceptedPayableOrders.value
-          .filter(o => ordersToComplete.includes(o.id))
-          .map(o => orderStore.changeOrderStatus(o, 'completed')),
-      );
+      for (const o of tableAcceptedPayableOrders.value.filter(o => ordersToComplete.includes(o.id))) {
+        await orderStore.changeOrderStatus(o, 'completed');
+      }
     }
     analiticaQty.value = {};
   }

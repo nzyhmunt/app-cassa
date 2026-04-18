@@ -206,3 +206,62 @@ describe('P0-1 write order (IDB-first)', () => {
     expect(saveStateToIDBMock).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('P0-1 IDB rejection — state must not mutate when IDB write fails', () => {
+  const idbError = new Error('IDB write failed');
+
+  it('addOrder does not mutate orders when IDB rejects', async () => {
+    const store = useAppStore();
+    saveStateToIDBMock.mockRejectedValueOnce(idbError);
+
+    await expect(store.addOrder(makeOrder('ord_fail'))).rejects.toThrow('IDB write failed');
+    expect(store.orders).toHaveLength(0);
+    expect(enqueueMock).not.toHaveBeenCalled();
+  });
+
+  it('changeOrderStatus does not mutate order when IDB rejects', async () => {
+    const store = useAppStore();
+    const order = makeOrder('ord_fail2', 'T5', 'pending');
+    store.orders = [order];
+    saveStateToIDBMock.mockRejectedValueOnce(idbError);
+
+    await expect(store.changeOrderStatus(order, 'accepted')).rejects.toThrow('IDB write failed');
+    expect(store.orders[0].status).toBe('pending');
+    expect(enqueueMock).not.toHaveBeenCalled();
+  });
+
+  it('addCashMovement does not mutate cashMovements when IDB rejects', async () => {
+    const store = useAppStore();
+    saveStateToIDBMock.mockRejectedValueOnce(idbError);
+
+    await expect(store.addCashMovement('in', 20, 'Test')).rejects.toThrow('IDB write failed');
+    expect(store.cashMovements).toHaveLength(0);
+    expect(enqueueMock).not.toHaveBeenCalled();
+  });
+
+  it('openTableSession does not mutate tableCurrentBillSession when IDB rejects', async () => {
+    const store = useAppStore();
+    upsertBillSessionInIDBMock.mockRejectedValueOnce(idbError);
+
+    await expect(store.openTableSession('T6', 1, 0)).rejects.toThrow('IDB write failed');
+    expect(store.tableCurrentBillSession['T6']).toBeUndefined();
+    expect(enqueueMock).not.toHaveBeenCalled();
+  });
+
+  it('addTransaction does not mutate transactions when IDB rejects', async () => {
+    const store = useAppStore();
+    saveStateToIDBMock.mockRejectedValueOnce(idbError);
+
+    await expect(store.addTransaction({
+      id: 'txn_fail',
+      tableId: 'T7',
+      amountPaid: 10,
+      tipAmount: 0,
+      paymentMethod: 'Contanti',
+      operationType: 'payment',
+      timestamp: new Date().toISOString(),
+    })).rejects.toThrow('IDB write failed');
+    expect(store.transactions).toHaveLength(0);
+    expect(enqueueMock).not.toHaveBeenCalled();
+  });
+});

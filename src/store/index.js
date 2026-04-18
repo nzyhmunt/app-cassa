@@ -236,7 +236,7 @@ export const useConfigStore = defineStore('config', () => {
       preBillPrinterId: preBillPrinterId.value,
     });
     await saveSettingsToIDB(normalized);
-    applyLocalSettings(payload);
+    applyLocalSettings(normalized);
     return normalized;
   }
 
