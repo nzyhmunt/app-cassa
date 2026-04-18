@@ -98,6 +98,48 @@ function makeOrderWithItems(id, table = 'T1', status = 'accepted') {
   };
 }
 
+function makeOrderWithVoidedItem(id, table = 'T1', status = 'accepted') {
+  return {
+    id, table,
+    billSessionId: 'sess_1', status, time: '19:00',
+    totalAmount: 20, itemCount: 2, dietaryPreferences: {}, globalNote: '',
+    noteVisibility: { cassa: true, sala: true, cucina: true },
+    orderItems: [
+      { uid: 'item_1', dishId: 'd1', name: 'Pasta', unitPrice: 10, quantity: 2, voidedQuantity: 1, notes: [], modifiers: [] },
+    ],
+  };
+}
+
+function makeOrderWithModifiers(id, table = 'T1', status = 'accepted') {
+  return {
+    id, table,
+    billSessionId: 'sess_1', status, time: '19:00',
+    totalAmount: 20, itemCount: 2, dietaryPreferences: {}, globalNote: '',
+    noteVisibility: { cassa: true, sala: true, cucina: true },
+    orderItems: [
+      {
+        uid: 'item_1', dishId: 'd1', name: 'Pasta', unitPrice: 10, quantity: 2, voidedQuantity: 0, notes: [],
+        modifiers: [{ uid: 'mod_1', name: 'Extra', quantity: 2, unitPrice: 1, voidedQuantity: 0 }],
+      },
+    ],
+  };
+}
+
+function makeOrderWithVoidedModifier(id, table = 'T1', status = 'accepted') {
+  return {
+    id, table,
+    billSessionId: 'sess_1', status, time: '19:00',
+    totalAmount: 20, itemCount: 2, dietaryPreferences: {}, globalNote: '',
+    noteVisibility: { cassa: true, sala: true, cucina: true },
+    orderItems: [
+      {
+        uid: 'item_1', dishId: 'd1', name: 'Pasta', unitPrice: 10, quantity: 2, voidedQuantity: 0, notes: [],
+        modifiers: [{ uid: 'mod_1', name: 'Extra', quantity: 2, unitPrice: 1, voidedQuantity: 1 }],
+      },
+    ],
+  };
+}
+
 beforeEach(() => {
   vi.useFakeTimers();
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 503 }));
@@ -341,6 +383,176 @@ describe('P0-2 IDB-first — order item mutations', () => {
     const enqueueCall = enqueueMock.mock.invocationCallOrder[0];
     expect(saveCall).toBeLessThan(enqueueCall);
     expect(saveStateToIDBMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('removeRowGlobal removes item in IDB before reactive mutation', async () => {
+    const store = useAppStore();
+    runtime.store = store;
+    const order = makeOrderWithItems('ord_remove', 'T1', 'pending');
+    await store.addOrder(order);
+    runtime.snapshots = [];
+    vi.clearAllMocks();
+
+    const liveOrder = store.orders.find(o => o.id === 'ord_remove');
+    await store.removeRowGlobal(liveOrder, 0);
+    vi.advanceTimersByTime(200);
+
+    const saveSnapshot = runtime.snapshots.find(e => e.type === 'save-state');
+    expect(saveSnapshot).toBeDefined();
+    expect(saveSnapshot.payload.orders[0].orderItems).toHaveLength(0);
+
+    const saveCall = saveStateToIDBMock.mock.invocationCallOrder[0];
+    const enqueueCall = enqueueMock.mock.invocationCallOrder[0];
+    expect(saveCall).toBeLessThan(enqueueCall);
+    expect(saveStateToIDBMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('removeRowGlobal returns false and leaves state unchanged when IDB rejects', async () => {
+    const store = useAppStore();
+    const order = makeOrderWithItems('ord_remove_fail', 'T1', 'pending');
+    store.orders = [order];
+    saveStateToIDBMock.mockRejectedValueOnce(new Error('IDB fail'));
+
+    const result = await store.removeRowGlobal(order, 0);
+    expect(result).toBe(false);
+    expect(store.orders[0].orderItems).toHaveLength(1);
+    expect(enqueueMock).not.toHaveBeenCalled();
+  });
+
+  it('restoreOrderItems saves projected state to IDB before reactive mutation', async () => {
+    const store = useAppStore();
+    runtime.store = store;
+    const order = makeOrderWithVoidedItem('ord_restore');
+    await store.addOrder(order);
+    runtime.snapshots = [];
+    vi.clearAllMocks();
+
+    const liveOrder = store.orders.find(o => o.id === 'ord_restore');
+    await store.restoreOrderItems(liveOrder, 0, 1);
+    vi.advanceTimersByTime(200);
+
+    const saveSnapshot = runtime.snapshots.find(e => e.type === 'save-state');
+    expect(saveSnapshot).toBeDefined();
+    expect(saveSnapshot.payload.orders[0].orderItems[0].voidedQuantity).toBe(0);
+
+    const saveCall = saveStateToIDBMock.mock.invocationCallOrder[0];
+    const enqueueCall = enqueueMock.mock.invocationCallOrder[0];
+    expect(saveCall).toBeLessThan(enqueueCall);
+    expect(saveStateToIDBMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('restoreOrderItems returns false and leaves state unchanged when IDB rejects', async () => {
+    const store = useAppStore();
+    const order = makeOrderWithVoidedItem('ord_restore_fail');
+    store.orders = [order];
+    saveStateToIDBMock.mockRejectedValueOnce(new Error('IDB fail'));
+
+    const result = await store.restoreOrderItems(order, 0, 1);
+    expect(result).toBe(false);
+    expect(store.orders[0].orderItems[0].voidedQuantity).toBe(1);
+    expect(enqueueMock).not.toHaveBeenCalled();
+  });
+
+  it('voidModifier saves projected state to IDB before reactive mutation', async () => {
+    const store = useAppStore();
+    runtime.store = store;
+    const order = makeOrderWithModifiers('ord_vmod');
+    await store.addOrder(order);
+    runtime.snapshots = [];
+    vi.clearAllMocks();
+
+    const liveOrder = store.orders.find(o => o.id === 'ord_vmod');
+    await store.voidModifier(liveOrder, 0, 0, 1);
+    vi.advanceTimersByTime(200);
+
+    const saveSnapshot = runtime.snapshots.find(e => e.type === 'save-state');
+    expect(saveSnapshot).toBeDefined();
+    expect(saveSnapshot.payload.orders[0].orderItems[0].modifiers[0].voidedQuantity).toBe(1);
+
+    const saveCall = saveStateToIDBMock.mock.invocationCallOrder[0];
+    const enqueueCall = enqueueMock.mock.invocationCallOrder[0];
+    expect(saveCall).toBeLessThan(enqueueCall);
+    expect(saveStateToIDBMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('voidModifier returns false and leaves state unchanged when IDB rejects', async () => {
+    const store = useAppStore();
+    const order = makeOrderWithModifiers('ord_vmod_fail');
+    store.orders = [order];
+    saveStateToIDBMock.mockRejectedValueOnce(new Error('IDB fail'));
+
+    const result = await store.voidModifier(order, 0, 0, 1);
+    expect(result).toBe(false);
+    expect(store.orders[0].orderItems[0].modifiers[0].voidedQuantity).toBe(0);
+    expect(enqueueMock).not.toHaveBeenCalled();
+  });
+
+  it('restoreModifier saves projected state to IDB before reactive mutation', async () => {
+    const store = useAppStore();
+    runtime.store = store;
+    const order = makeOrderWithVoidedModifier('ord_rmod');
+    await store.addOrder(order);
+    runtime.snapshots = [];
+    vi.clearAllMocks();
+
+    const liveOrder = store.orders.find(o => o.id === 'ord_rmod');
+    await store.restoreModifier(liveOrder, 0, 0, 1);
+    vi.advanceTimersByTime(200);
+
+    const saveSnapshot = runtime.snapshots.find(e => e.type === 'save-state');
+    expect(saveSnapshot).toBeDefined();
+    expect(saveSnapshot.payload.orders[0].orderItems[0].modifiers[0].voidedQuantity).toBe(0);
+
+    const saveCall = saveStateToIDBMock.mock.invocationCallOrder[0];
+    const enqueueCall = enqueueMock.mock.invocationCallOrder[0];
+    expect(saveCall).toBeLessThan(enqueueCall);
+    expect(saveStateToIDBMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('restoreModifier returns false and leaves state unchanged when IDB rejects', async () => {
+    const store = useAppStore();
+    const order = makeOrderWithVoidedModifier('ord_rmod_fail');
+    store.orders = [order];
+    saveStateToIDBMock.mockRejectedValueOnce(new Error('IDB fail'));
+
+    const result = await store.restoreModifier(order, 0, 0, 1);
+    expect(result).toBe(false);
+    expect(store.orders[0].orderItems[0].modifiers[0].voidedQuantity).toBe(1);
+    expect(enqueueMock).not.toHaveBeenCalled();
+  });
+
+  it('setItemKitchenReady saves projected state to IDB before reactive mutation', async () => {
+    const store = useAppStore();
+    runtime.store = store;
+    const order = makeOrderWithItems('ord_kitchen');
+    await store.addOrder(order);
+    runtime.snapshots = [];
+    vi.clearAllMocks();
+
+    const liveOrder = store.orders.find(o => o.id === 'ord_kitchen');
+    await store.setItemKitchenReady(liveOrder, 0, true);
+    vi.advanceTimersByTime(200);
+
+    const saveSnapshot = runtime.snapshots.find(e => e.type === 'save-state');
+    expect(saveSnapshot).toBeDefined();
+    expect(saveSnapshot.payload.orders[0].orderItems[0].kitchenReady).toBe(true);
+
+    const saveCall = saveStateToIDBMock.mock.invocationCallOrder[0];
+    const enqueueCall = enqueueMock.mock.invocationCallOrder[0];
+    expect(saveCall).toBeLessThan(enqueueCall);
+    expect(saveStateToIDBMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('setItemKitchenReady returns false and leaves state unchanged when IDB rejects', async () => {
+    const store = useAppStore();
+    const order = makeOrderWithItems('ord_kitchen_fail');
+    store.orders = [order];
+    saveStateToIDBMock.mockRejectedValueOnce(new Error('IDB fail'));
+
+    const result = await store.setItemKitchenReady(order, 0, true);
+    expect(result).toBe(false);
+    expect(store.orders[0].orderItems[0].kitchenReady).toBeFalsy();
+    expect(enqueueMock).not.toHaveBeenCalled();
   });
 
   it('setBillRequested initiates IDB write before reactive state update', () => {
