@@ -16,7 +16,7 @@
 
 import { ref } from 'vue';
 import { createDirectus, staticToken, rest, realtime } from '@directus/sdk';
-import { appConfig } from '../utils/index.js';
+import { appConfig, applyDirectusConfigToAppConfig } from '../utils/index.js';
 import { getDB } from './useIDB.js';
 
 /**
@@ -99,8 +99,8 @@ export async function loadDirectusConfigFromStorage() {
   const db = await getDB();
   const saved = await db.get('app_meta', DIRECTUS_CONFIG_RECORD_ID);
   if (!saved || typeof saved !== 'object') return;
-  appConfig.directus = _normalizeDirectusConfig(saved.value ?? saved);
-  directusEnabledRef.value = appConfig.directus.enabled;
+  const normalized = applyDirectusConfigToAppConfig(_normalizeDirectusConfig(saved.value ?? saved));
+  directusEnabledRef.value = normalized.enabled;
   resetDirectusClient();
 }
 
@@ -136,14 +136,14 @@ export async function clearDirectusConfigFromStorage() {
   } catch (e) {
     deleteError = e;
   } finally {
-    appConfig.directus = {
+    const normalized = applyDirectusConfigToAppConfig({
       enabled: false,
       url: '',
       staticToken: '',
       venueId: null,
       wsEnabled: false,
-    };
-    directusEnabledRef.value = false;
+    });
+    directusEnabledRef.value = normalized.enabled;
     resetDirectusClient();
   }
 

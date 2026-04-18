@@ -3,6 +3,7 @@ import { mount } from '@vue/test-utils';
 import { defineComponent, reactive, nextTick } from 'vue';
 import { createPinia, setActivePinia } from 'pinia';
 import { useSettings } from '../useSettings.js';
+import { saveDirectusConfigToStorage } from '../useDirectusClient.js';
 import { useAppStore } from '../../store/index.js';
 import { resolveStorageKeys, getInstanceName } from '../../store/persistence.js';
 import { getPwaDismissKey } from '../usePwaInstall.js';
@@ -10,6 +11,7 @@ import { appConfig } from '../../utils/index.js';
 
 vi.mock('../useDirectusClient.js', () => ({
   clearDirectusConfigFromStorage: vi.fn().mockResolvedValue(undefined),
+  saveDirectusConfigToStorage: vi.fn().mockResolvedValue(undefined),
 }));
 
 // Mock the IDB persistence layer so tests stay synchronous and don't need
@@ -208,6 +210,55 @@ describe('useSettings()', () => {
 
     expect(store.customKeyboard).toBe('center');
     wrapper.unmount();
+  });
+
+  it('normalizes local settings through store.applyLocalSettings()', () => {
+    store.menuSource = 'directus';
+    store.menuUrl = 'https://initial.example.com/menu.json';
+    store.applyLocalSettings({
+      menuSource: 'invalid-source',
+      menuUrl: '',
+      customKeyboard: 'not-valid',
+      sounds: false,
+      preventScreenLock: false,
+      preBillPrinterId: 123,
+    });
+
+    expect(store.menuSource).toBe('directus');
+    expect(typeof store.menuUrl).toBe('string');
+    expect(store.menuUrl.length).toBeGreaterThan(0);
+    expect(store.customKeyboard).toBe('disabled');
+    expect(store.sounds).toBe(false);
+    expect(store.preventScreenLock).toBe(false);
+    expect(store.preBillPrinterId).toBe('');
+  });
+
+  it('persists directus settings through store.saveDirectusSettings()', async () => {
+    vi.mocked(saveDirectusConfigToStorage).mockClear();
+
+    await store.saveDirectusSettings({
+      enabled: true,
+      url: 'https://directus.example.com',
+      staticToken: 'tok_test',
+      venueId: 7,
+      wsEnabled: true,
+    });
+
+    expect(saveDirectusConfigToStorage).toHaveBeenCalledTimes(1);
+    expect(appConfig.directus).toEqual({
+      enabled: true,
+      url: 'https://directus.example.com',
+      staticToken: 'tok_test',
+      venueId: 7,
+      wsEnabled: true,
+    });
+    expect(store.config.directus).toEqual(expect.objectContaining({
+      enabled: true,
+      url: 'https://directus.example.com',
+      staticToken: 'tok_test',
+      venueId: 7,
+      wsEnabled: true,
+    }));
   });
 
   it('defaults customKeyboard to "disabled" when store.customKeyboard is not a valid position', () => {

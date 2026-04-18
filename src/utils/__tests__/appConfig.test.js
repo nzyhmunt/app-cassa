@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { appConfig, DEFAULT_SETTINGS, createRuntimeConfig } from '../index.js';
+import { appConfig, DEFAULT_SETTINGS, createRuntimeConfig, applyDirectusConfigToAppConfig } from '../index.js';
 import { mapVenueConfigFromDirectus } from '../mappers.js';
 
 describe('appConfig', () => {
@@ -156,6 +156,53 @@ describe('appConfig', () => {
       const runtime = createRuntimeConfig();
       expect(runtime).not.toBe(DEFAULT_SETTINGS);
       expect(runtime.tables).toEqual(runtime.rooms.flatMap((room) => room.tables ?? []));
+    });
+  });
+
+  describe('applyDirectusConfigToAppConfig', () => {
+    it('normalizes values and updates appConfig.directus', () => {
+      const previous = { ...appConfig.directus };
+      try {
+        const next = applyDirectusConfigToAppConfig({
+          enabled: true,
+          url: 'https://directus.example.com',
+          staticToken: 'tok_test',
+          venueId: 12,
+          wsEnabled: true,
+        });
+        expect(next).toEqual({
+          enabled: true,
+          url: 'https://directus.example.com',
+          staticToken: 'tok_test',
+          venueId: 12,
+          wsEnabled: true,
+        });
+        expect(appConfig.directus).toEqual(next);
+      } finally {
+        appConfig.directus = previous;
+      }
+    });
+
+    it('falls back to defaults for invalid payload values', () => {
+      const previous = { ...appConfig.directus };
+      try {
+        const next = applyDirectusConfigToAppConfig({
+          enabled: 'yes',
+          url: null,
+          staticToken: 123,
+          venueId: undefined,
+          wsEnabled: 'no',
+        });
+        expect(next).toEqual({
+          enabled: false,
+          url: '',
+          staticToken: '',
+          venueId: null,
+          wsEnabled: false,
+        });
+      } finally {
+        appConfig.directus = previous;
+      }
     });
   });
 });

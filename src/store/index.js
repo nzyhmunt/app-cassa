@@ -4,6 +4,7 @@ import {
   appConfig,
   createRuntimeConfig,
   DEFAULT_SETTINGS,
+  applyDirectusConfigToAppConfig,
   updateOrderTotals,
   KITCHEN_ACTIVE_STATUSES,
   KEYBOARD_POSITIONS,
@@ -20,6 +21,7 @@ import {
   upsertBillSessionInIDB,
   closeBillSessionInIDB,
   loadSettingsFromIDB,
+  saveSettingsToIDB,
   loadConfigFromIDB,
   saveJsonMenuToIDB,
   loadJsonMenuFromIDB,
@@ -33,6 +35,7 @@ import {
   pruneInvoiceRequestsInIDB,
 } from './persistence/audit.js';
 import { enqueue } from '../composables/useSyncQueue.js';
+import { saveDirectusConfigToStorage } from '../composables/useDirectusClient.js';
 
 function _clone(value) {
   if (typeof structuredClone === 'function') {
@@ -66,6 +69,36 @@ function _normalizeJsonMenuPayload(data) {
 function _normalizeMenuSource(value, fallback = null) {
   if (value === 'json' || value === 'directus') return value;
   return fallback;
+}
+
+/**
+ * Normalizes device-local settings payloads and fills missing/invalid values
+ * with explicit fallbacks from current store state / defaults.
+ *
+ * @param {object} payload
+ * @param {object} current
+ * @returns {{sounds:boolean,menuUrl:string,menuSource:'json'|'directus',preventScreenLock:boolean,customKeyboard:string,preBillPrinterId:string}}
+ */
+function _normalizeLocalSettingsPayload(payload, current) {
+  return {
+    sounds: typeof payload?.sounds === 'boolean' ? payload.sounds : !!current?.sounds,
+    menuUrl:
+      typeof payload?.menuUrl === 'string' && payload.menuUrl.trim() !== ''
+        ? payload.menuUrl
+        : (current?.menuUrl ?? DEFAULT_SETTINGS.menuUrl),
+    menuSource: _normalizeMenuSource(payload?.menuSource, _normalizeMenuSource(current?.menuSource, 'directus')),
+    preventScreenLock:
+      typeof payload?.preventScreenLock === 'boolean'
+        ? payload.preventScreenLock
+        : !!current?.preventScreenLock,
+    customKeyboard: KEYBOARD_POSITIONS.includes(payload?.customKeyboard)
+      ? payload.customKeyboard
+      : (KEYBOARD_POSITIONS.includes(current?.customKeyboard) ? current.customKeyboard : 'disabled'),
+    preBillPrinterId:
+      typeof payload?.preBillPrinterId === 'string'
+        ? payload.preBillPrinterId
+        : (typeof current?.preBillPrinterId === 'string' ? current.preBillPrinterId : ''),
+  };
 }
 
 export const useConfigStore = defineStore('config', () => {
@@ -156,6 +189,70 @@ export const useConfigStore = defineStore('config', () => {
     }
   }
 
+  /**
+   * Applies local settings to reactive store state and runtime appConfig
+   * (menuSource/menuUrl) without persisting to IndexedDB.
+   *
+   * @param {object} payload
+   * @returns {{sounds:boolean,menuUrl:string,menuSource:'json'|'directus',preventScreenLock:boolean,customKeyboard:string,preBillPrinterId:string}}
+   */
+  function applyLocalSettings(payload = {}) {
+    const normalized = _normalizeLocalSettingsPayload(payload, {
+      sounds: sounds.value,
+      menuUrl: menuUrl.value,
+      menuSource: menuSource.value,
+      preventScreenLock: preventScreenLock.value,
+      customKeyboard: customKeyboard.value,
+      preBillPrinterId: preBillPrinterId.value,
+    });
+    sounds.value = normalized.sounds;
+    menuUrl.value = normalized.menuUrl;
+    menuSource.value = normalized.menuSource;
+    preventScreenLock.value = normalized.preventScreenLock;
+    customKeyboard.value = normalized.customKeyboard;
+    preBillPrinterId.value = normalized.preBillPrinterId;
+    appConfig.menuSource = normalized.menuSource;
+    appConfig.menuUrl = normalized.menuUrl;
+    config.value = {
+      ...config.value,
+      menuSource: normalized.menuSource,
+      menuUrl: normalized.menuUrl,
+    };
+    return normalized;
+  }
+
+  /**
+   * Applies and persists local settings to `local_settings` in IndexedDB.
+   *
+   * @param {object} payload
+   * @returns {Promise<{sounds:boolean,menuUrl:string,menuSource:'json'|'directus',preventScreenLock:boolean,customKeyboard:string,preBillPrinterId:string}>}
+   */
+  async function saveLocalSettings(payload = {}) {
+    const normalized = applyLocalSettings(payload);
+    await saveSettingsToIDB(normalized);
+    return normalized;
+  }
+
+  /**
+   * Applies and persists Directus settings through the centralized appConfig
+   * mutation path and Directus config storage adapter.
+   *
+   * @param {object} payload
+   * @returns {Promise<{enabled:boolean,url:string,staticToken:string,venueId:number|string|null,wsEnabled:boolean}>}
+   */
+  async function saveDirectusSettings(payload = {}) {
+    const normalized = applyDirectusConfigToAppConfig(payload);
+    await saveDirectusConfigToStorage();
+    config.value = {
+      ...config.value,
+      directus: {
+        ...(config.value.directus ?? {}),
+        ...normalized,
+      },
+    };
+    return normalized;
+  }
+
   return {
     config,
     cssVars,
@@ -171,6 +268,9 @@ export const useConfigStore = defineStore('config', () => {
     menuError,
     loadMenu,
     hydrateConfigFromIDB,
+    applyLocalSettings,
+    saveLocalSettings,
+    saveDirectusSettings,
   };
 });
 
