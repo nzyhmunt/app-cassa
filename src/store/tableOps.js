@@ -5,6 +5,7 @@
  * Usage: call `makeTableOps(state, helpers)` inside the Pinia store definition.
  * All parameters are the reactive refs / helper functions already defined in the store.
  */
+import { saveStateToIDB } from './persistence/operations.js';
 import { updateOrderTotals } from '../utils/index.js';
 import { newShortId } from './storeUtils.js';
 
@@ -258,33 +259,37 @@ export function makeTableOps(state, helpers) {
     let anyMoved = false;
     const partialMoveItems = [];
 
-    orders.value.forEach(ord => {
-      if (ord.table !== sourceTableId) return;
-      if (ord.status === 'completed' || ord.status === 'rejected') return;
+    // Build a projected orders array by applying all mutations to deep clones.
+    // This lets us persist the projected state to IDB *before* touching any reactive refs,
+    // maintaining the IDB-first invariant even for existing-order relocations.
+    const projectedOrders = orders.value.map(ord => {
+      if (ord.table !== sourceTableId) return ord;
+      if (ord.status === 'completed' || ord.status === 'rejected') return ord;
 
+      const clone = JSON.parse(JSON.stringify(ord));
       const moves = [];
       let totalActiveInOrder = 0;
       let totalMovingFromOrder = 0;
 
-      ord.orderItems.forEach(item => {
+      clone.orderItems.forEach(item => {
         const netQty = item.quantity - (item.voidedQuantity || 0);
         if (netQty <= 0) return;
         totalActiveInOrder += netQty;
-        const key = `${ord.id}__${item.uid}`;
+        const key = `${clone.id}__${item.uid}`;
         const actualMoveQty = Math.min(Math.max(0, Math.floor(itemQtyMap[key] || 0)), netQty);
         totalMovingFromOrder += actualMoveQty;
         if (actualMoveQty > 0) moves.push({ item, actualMoveQty, netQty });
       });
 
-      if (moves.length === 0) return;
+      if (moves.length === 0) return clone;
       anyMoved = true;
 
       if (totalMovingFromOrder === totalActiveInOrder) {
         // All active items move → physically relocate the whole order
-        ord.table = targetTableId;
-        ord.billSessionId = targetSessionId;
+        clone.table = targetTableId;
+        clone.billSessionId = targetSessionId;
       } else {
-        // Partial move: copy items to target, reduce source quantity directly
+        // Partial move: copy items to target, reduce source quantity in clone
         moves.forEach(({ item, actualMoveQty, netQty }) => {
           const sourceActiveAfterSplit = netQty - actualMoveQty;
           partialMoveItems.push({
@@ -305,12 +310,18 @@ export function makeTableOps(state, helpers) {
             m.voidedQuantity = Math.min(m.voidedQuantity || 0, sourceActiveAfterSplit);
           }
         });
-        ord.orderItems = ord.orderItems.filter(i => i.quantity - (i.voidedQuantity || 0) > 0);
-        updateOrderTotals(ord);
+        clone.orderItems = clone.orderItems.filter(i => i.quantity - (i.voidedQuantity || 0) > 0);
+        updateOrderTotals(clone);
       }
+
+      return clone;
     });
 
     if (!anyMoved) return false;
+
+    // Persist the projected orders to IDB before mutating reactive state
+    await saveStateToIDB({ orders: projectedOrders });
+    orders.value = projectedOrders;
 
     if (partialMoveItems.length > 0) await addDirectOrder(targetTableId, targetSessionId, partialMoveItems);
     if (!tableOccupiedAt.value[targetTableId]) {

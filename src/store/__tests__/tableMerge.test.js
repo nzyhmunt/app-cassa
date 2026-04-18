@@ -537,7 +537,7 @@ describe('detachSlaveTable()', () => {
     await store.addOrder(makeOrder('A', 'accepted', 10, sessA));
 
     // Call split without prior merge — should not crash or change state
-    expect(() => store.detachSlaveTable('B', 'A')).not.toThrow();
+    await expect(store.detachSlaveTable('B', 'A')).resolves.not.toThrow();
     expect(store.tableMergedInto['A']).toBeUndefined();
   });
 

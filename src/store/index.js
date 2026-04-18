@@ -755,9 +755,10 @@ export const useOrderStore = defineStore('orders', () => {
       orderRefs: [],
       ...(venueId != null ? { venue: venueId } : {}),
     };
-    await saveStateToIDB({ transactions: [...transactions.value, txn] });
+    const nextTransactions = [...transactions.value, txn];
+    await saveStateToIDB({ transactions: nextTransactions });
     _skipNextScheduledSave('transactions');
-    transactions.value.push(txn);
+    transactions.value = nextTransactions;
     enqueue('transactions', 'create', txn.id, txn);
   }
 
