@@ -1261,7 +1261,7 @@ export async function initStoreFromIDB(pinia) {
     orderStore.tableMergedInto = idbState.tableMergedInto ?? {};
     orderStore.tableOccupiedAt = idbState.tableOccupiedAt ?? {};
     orderStore.billRequestedTables = idbState.billRequestedTables ?? new Set();
-  } else if (orderStore.orders.length > 0) {
+  } else {
     orderStore.orders = [];
   }
 

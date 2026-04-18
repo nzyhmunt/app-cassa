@@ -952,6 +952,7 @@ async function _syncPreBillPrinterSelection(_venueRecord = null) {
     if (typeof _store.saveLocalSettings === 'function') {
       try {
         await _store.saveLocalSettings({ preBillPrinterId: '' });
+        _store.preBillPrinterId = '';
       } catch (err) {
         console.warn('[DirectusSync] Failed to persist cleared preBillPrinterId:', err);
       }
@@ -967,6 +968,7 @@ async function _syncPreBillPrinterSelection(_venueRecord = null) {
   if (typeof _store.saveLocalSettings === 'function') {
     try {
       await _store.saveLocalSettings({ preBillPrinterId: newPrinterId });
+      _store.preBillPrinterId = newPrinterId;
     } catch (err) {
       console.warn('[DirectusSync] Failed to persist preBillPrinterId:', err);
     }
