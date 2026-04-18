@@ -938,14 +938,14 @@ function _preBillPrinters() {
 
 /**
  * Ensures the store pre-bill default printer points to a valid Directus printer.
- * Selection priority:
- *  1) Keep current store selection if still valid
- *  2) Use Directus venue default (pre_bill_printer / preBillPrinter) when valid
- *  3) Fallback to first available pre-bill-capable printer
+ * `app_settings.pre_bill_printer` exists in the backend schema but is currently
+ * not part of the runtime sync contract (§2.17 / P2-5), so the runtime can only:
+ *  1) Keep the current local selection if still valid
+ *  2) Fallback to the first available pre-bill-capable printer
  *
- * @param {object|null} venueRecord
+ * @param {object|null} _venueRecord
  */
-function _syncPreBillPrinterSelection(venueRecord = null) {
+function _syncPreBillPrinterSelection(_venueRecord = null) {
   if (!_store) return;
   const candidates = _preBillPrinters();
   if (candidates.length === 0) {
@@ -958,26 +958,7 @@ function _syncPreBillPrinterSelection(venueRecord = null) {
   }
   const current = typeof _store.preBillPrinterId === 'string' ? _store.preBillPrinterId : '';
   if (current && candidates.some((printer) => printer.id === current)) return;
-  // Accept both Directus snake_case and local camelCase keys for robustness
-  // across deep-fetch payload shapes and cached snapshots.
-  const snakeDefault = _relationId(venueRecord?.pre_bill_printer);
-  const camelDefault = _relationId(venueRecord?.preBillPrinter);
-  if (snakeDefault && camelDefault && snakeDefault !== camelDefault) {
-    console.warn('[DirectusSync] Conflicting pre-bill default printer values in venue record:', {
-      pre_bill_printer: snakeDefault,
-      preBillPrinter: camelDefault,
-      selected: snakeDefault,
-      note: 'Using pre_bill_printer as precedence.',
-    });
-  }
-  const remoteDefault =
-    snakeDefault ??
-    camelDefault ??
-    null;
-  const newPrinterId =
-    remoteDefault && candidates.some((printer) => printer.id === remoteDefault)
-      ? remoteDefault
-      : (candidates[0]?.id ?? '');
+  const newPrinterId = candidates[0]?.id ?? '';
   _store.preBillPrinterId = newPrinterId;
   // Persist the auto-selected printer to IDB so the selection survives a reload.
   if (typeof _store.saveLocalSettings === 'function') {

@@ -7,6 +7,7 @@
 import { computed } from 'vue';
 import { newUUIDv7 } from './storeUtils.js';
 import { saveStateToIDB } from './persistence/operations.js';
+import { resolvePaymentMethodMeta } from '../utils/paymentMethods.js';
 
 /**
  * @param {object} state   – Reactive refs: orders, transactions, cashBalance, cashMovements,
@@ -21,6 +22,10 @@ export function makeReportOps(state, helpers) {
     enqueue = null,
   } = helpers;
 
+  function _resolvePaymentMethodMeta(transaction) {
+    return resolvePaymentMethodMeta(config?.value?.paymentMethods, transaction);
+  }
+
   function _buildDailySummary() {
     const byMethod = {};    // scontrino per metodo (solo amountPaid, escluse mance)
     const tipsByMethod = {}; // mance per metodo di pagamento
@@ -33,7 +38,7 @@ export function makeReportOps(state, helpers) {
     transactions.value
       .filter(t => t.operationType !== 'discount' && t.operationType !== 'tip')
       .forEach(t => {
-        const label = t.paymentMethod || 'Altro';
+        const { label } = _resolvePaymentMethodMeta(t);
         // Scontrino: solo l'importo del conto (senza mancia)
         byMethod[label] = (byMethod[label] || 0) + (t.amountPaid || 0);
         // Mancia eventualmente inclusa nella stessa transazione → scorporata per metodo
@@ -46,7 +51,7 @@ export function makeReportOps(state, helpers) {
     transactions.value
       .filter(t => t.operationType === 'tip')
       .forEach(t => {
-        const label = t.paymentMethod || 'Mancia';
+        const { label } = _resolvePaymentMethodMeta(t);
         tipsByMethod[label] = (tipsByMethod[label] || 0) + (t.tipAmount || 0);
       });
 
@@ -122,17 +127,30 @@ export function makeReportOps(state, helpers) {
       status: 'active',
       ...venueFragment,
     };
-    const byMethodRows = Object.entries(summary.byMethod ?? {})
-      .filter(([paymentMethod, amount]) => (
-        typeof paymentMethod === 'string' &&
-        paymentMethod.trim() !== '' &&
-        Number.isFinite(Number(amount))
-      ))
-      .map(([paymentMethod, amount]) => ({
+    const byMethodTotals = new Map();
+    transactions.value
+      .filter((transaction) => transaction.operationType !== 'discount' && transaction.operationType !== 'tip')
+      .forEach((transaction) => {
+        const { id } = _resolvePaymentMethodMeta(transaction);
+        if (!id) {
+          console.warn('[ReportOps] Skipping by-method closure row for transaction without resolvable payment method id:', {
+            transactionId: transaction?.id ?? null,
+            paymentMethodId: transaction?.paymentMethodId ?? null,
+            paymentMethod: transaction?.paymentMethod ?? null,
+          });
+          return;
+        }
+        const amount = Number(transaction.amountPaid ?? 0);
+        if (!Number.isFinite(amount)) return;
+        byMethodTotals.set(id, (byMethodTotals.get(id) ?? 0) + amount);
+      });
+
+    const byMethodRows = Array.from(byMethodTotals.entries())
+      .map(([paymentMethodId, amount]) => ({
         id: newUUIDv7(),
         daily_closure: summary.id,
-        payment_method: paymentMethod,
-        amount: Number(amount),
+        payment_method: paymentMethodId,
+        amount,
         status: 'active',
         ...venueFragment,
       }));

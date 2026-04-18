@@ -568,7 +568,7 @@ describe('useSettings()', () => {
     }
   });
 
-  it('confirmReset() persists menuSource=json as post-reset default', async () => {
+  it('confirmReset() does not recreate local settings after deleting IndexedDB', async () => {
     const reloadMock = vi.fn();
     const originalLocationDescriptor = Object.getOwnPropertyDescriptor(window, 'location');
     const originalLocationValue = window.location;
@@ -588,9 +588,7 @@ describe('useSettings()', () => {
       const { result, wrapper } = withSetup(() => useSettings(props, emit));
       await result.confirmReset();
 
-      expect(saveSettingsToIDB).toHaveBeenCalledWith(expect.objectContaining({
-        menuSource: 'json',
-      }));
+      expect(saveSettingsToIDB).not.toHaveBeenCalled();
       wrapper.unmount();
     } finally {
       if (originalLocationDescriptor) {

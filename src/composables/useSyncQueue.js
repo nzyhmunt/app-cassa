@@ -25,6 +25,8 @@
 import { createDirectus, staticToken, rest, createItem, updateItem, deleteItem } from '@directus/sdk';
 import { getDB } from './useIDB.js';
 import { newUUIDv7 } from '../store/storeUtils.js';
+import { appConfig } from '../utils/index.js';
+import { resolvePaymentMethodMeta } from '../utils/paymentMethods.js';
 import {
   mapOrderToDirectus,
   mapOrderItemToDirectus,
@@ -251,6 +253,7 @@ function _cleanPayload(payload) {
  */
 const PUSH_DROP_FIELDS = new Set([
   'timestamp',         // local ISO string; Directus auto-sets date_created via server
+  'paymentMethod',     // UI-only display label; Directus persists only the relation identifier in payment_method
   'orderRefs',         // M2M handled separately via transaction_order_refs collection
   'vociRefs',          // M2M handled separately via transaction_voce_refs collection
   'grossAmount',       // UI-only display field (not in Directus schema)
@@ -291,7 +294,7 @@ const FIELD_RENAME_MAP = {
   voidedQuantity:     'voided_quantity',
   kitchenReady:       'kitchen_ready',
   operationType:      'operation_type',
-  paymentMethod:      'payment_method',
+  paymentMethodId:    'payment_method',
   amountPaid:         'amount_paid',
   tipAmount:          'tip_amount',
   romanaSplitCount:   'romana_split_count',
@@ -340,6 +343,17 @@ const TO_DIRECTUS_MAPPERS = {
   order_items: mapOrderItemToDirectus,
   bill_sessions: mapBillSessionToDirectus,
 };
+const PAYMENT_METHOD_RELATION_COLLECTIONS = new Set(['transactions', 'daily_closure_by_method']);
+
+function _resolvePaymentMethodId(localPayload, mappedPayload) {
+  const methods = Array.isArray(appConfig?.paymentMethods) ? appConfig.paymentMethods : [];
+  const resolved = resolvePaymentMethodMeta(methods, {
+    paymentMethodId: localPayload?.paymentMethodId,
+    payment_method: mappedPayload?.payment_method,
+    paymentMethod: localPayload?.paymentMethod,
+  });
+  return resolved.id || null;
+}
 
 /**
  * Translates a local (camelCase / legacy-named) record payload into the
@@ -414,6 +428,22 @@ function _toDirectusPayload(collection, localPayload) {
 
   const mapper = TO_DIRECTUS_MAPPERS[collection];
   const mapped = mapper ? mapper(out) : out;
+  if (PAYMENT_METHOD_RELATION_COLLECTIONS.has(collection)) {
+    const resolvedPaymentMethodId = _resolvePaymentMethodId(localPayload, mapped);
+    if (resolvedPaymentMethodId) mapped.payment_method = resolvedPaymentMethodId;
+    else {
+      if (mapped.payment_method != null || localPayload?.paymentMethodId != null || localPayload?.paymentMethod != null) {
+        console.warn('[SyncQueue] Dropping unresolved payment method from payload:', {
+          collection,
+          recordId: localPayload?.id ?? null,
+          paymentMethodId: localPayload?.paymentMethodId ?? null,
+          paymentMethod: localPayload?.paymentMethod ?? null,
+          payment_method: mapped.payment_method ?? null,
+        });
+      }
+      delete mapped.payment_method;
+    }
+  }
   for (const fieldName of Object.keys(mapped)) {
     if (DIRECTUS_RELATION_FIELDS.has(fieldName)) {
       const value = mapped[fieldName];

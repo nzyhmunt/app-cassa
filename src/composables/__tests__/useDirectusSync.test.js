@@ -427,7 +427,7 @@ describe('reconfigureAndApply()', () => {
     }
   });
 
-  it('realigns pre-bill default printer when Directus printers change', async () => {
+  it('realigns pre-bill default printer to the first valid synced printer when current selection is invalid', async () => {
     const venueId = 1;
     vi.spyOn(global, 'fetch').mockImplementation((url) => {
       const requestUrl = String(url);
@@ -435,7 +435,6 @@ describe('reconfigureAndApply()', () => {
         return Promise.resolve(directusItemResponse({
           id: venueId,
           name: 'Venue printer defaults',
-          pre_bill_printer: 'prt_pre_2',
           menu_source: 'directus',
           rooms: [],
           tables: [],
@@ -461,7 +460,7 @@ describe('reconfigureAndApply()', () => {
     sync.stopSync();
 
     expect(result.ok).toBe(true);
-    expect(store.preBillPrinterId).toBe('prt_pre_2');
+    expect(store.preBillPrinterId).toBe('prt_pre_1');
   });
 
   it('can clear local config cache and repopulate venues via global pull with progress logs', async () => {

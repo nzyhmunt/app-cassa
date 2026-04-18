@@ -2518,6 +2518,7 @@ async function processTablePayment(paymentMethodId, extra = {}, overrideAmount =
     id: newUUIDv7(),
     tableId: selectedTable.value.id,
     billSessionId: session?.billSessionId ?? null,
+    paymentMethodId: paymentMethodId,
     paymentMethod: configStore.config.paymentMethods.find(m => m.id === paymentMethodId)?.label || paymentMethodId,
     operationType: checkoutMode.value,
     amountPaid: amount,

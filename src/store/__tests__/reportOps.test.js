@@ -329,6 +329,7 @@ describe('performDailyClose() – persistenza IDB e sync queue', () => {
           id: 'txn_close_1',
           tableId: 'T1',
           billSessionId: 'bill_close_1',
+          paymentMethodId: 'cash',
           paymentMethod: 'Contanti',
           operationType: 'unico',
           amountPaid: 50,
@@ -339,6 +340,7 @@ describe('performDailyClose() – persistenza IDB e sync queue', () => {
       config: {
         directus: { venueId: 77 },
         tables: [{ id: 'T1', covers: 2 }],
+        paymentMethods: [{ id: 'cash', label: 'Contanti' }],
       },
     });
 
@@ -370,7 +372,7 @@ describe('performDailyClose() – persistenza IDB e sync queue', () => {
     expect(secondUpsertCall[1]).toHaveLength(1);
     expect(secondUpsertCall[1][0]).toMatchObject({
       daily_closure: closure.id,
-      payment_method: 'Contanti',
+      payment_method: 'cash',
       amount: 50,
       venue: 77,
     });
@@ -388,7 +390,7 @@ describe('performDailyClose() – persistenza IDB e sync queue', () => {
       expect.objectContaining({
         id: secondUpsertCall[1][0].id,
         daily_closure: closure.id,
-        payment_method: 'Contanti',
+        payment_method: 'cash',
       }),
     );
   });
