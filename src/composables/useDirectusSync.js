@@ -205,6 +205,8 @@ async function _refreshStoreFromIDB(collection = null) {
     return;
   }
   // Strict path for Pinia stores: avoid direct assignments and require explicit APIs.
+  // Pinia setup stores expose `$id`; this guard prevents accidental direct
+  // runtime mutations when a store adapter forgot to provide refresh methods.
   if (_store && typeof _store === 'object' && '$id' in _store) {
     console.warn('[DirectusSync] Pinia store missing refresh API; skipping direct assignment to preserve IDB-first flow.');
     return;
