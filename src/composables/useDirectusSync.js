@@ -103,6 +103,22 @@ const DEEP_FETCH_FIELD_SETS = [
   { key: 'full', fields: DEEP_FETCH_FIELDS },
   { key: 'fallback', fields: DEEP_FETCH_FALLBACK_FIELDS },
 ];
+const DEEP_FETCH_JSON_FIELDS = [
+  'id',
+  'name',
+  'status',
+  'cover_charge_enabled',
+  'cover_charge_auto_add',
+  'cover_charge_price_adult',
+  'cover_charge_price_child',
+  'billing_enable_cash_change_calculator',
+  'billing_enable_tips',
+  'billing_enable_discounts',
+  'billing_allow_custom_entry',
+];
+const DEEP_FETCH_JSON_FIELD_SETS = [
+  { key: 'json_minimal', fields: DEEP_FETCH_JSON_FIELDS },
+];
 const VENUE_NESTED_RELATION_KEYS = [
   'rooms',
   'tables',
@@ -963,10 +979,14 @@ async function _runGlobalPull({ onProgress = null } = {}) {
 
     _emitProgress(onProgress, { level: 'info', message: `Deep fetch venue ${venueId}…` });
     const client = _buildRestClient(cfg);
+    const preferredMenuSource = appConfig.menuSource ?? 'directus';
+    const deepFetchFieldSets = preferredMenuSource === 'json'
+      ? DEEP_FETCH_JSON_FIELD_SETS
+      : DEEP_FETCH_FIELD_SETS;
     let deepVenue = null;
-    let deepFetchMode = 'full';
+    let deepFetchMode = deepFetchFieldSets[0]?.key ?? 'full';
     let deepFetchError = null;
-    for (const [index, fieldSet] of DEEP_FETCH_FIELD_SETS.entries()) {
+    for (const [index, fieldSet] of deepFetchFieldSets.entries()) {
       try {
         const deepVenueRaw = await client.request(readItem('venues', venueId, { fields: fieldSet.fields }));
         deepVenue = _extractDeepVenuePayload(deepVenueRaw);
@@ -976,7 +996,7 @@ async function _runGlobalPull({ onProgress = null } = {}) {
         break;
       } catch (err) {
         deepFetchError = err;
-        if (index < DEEP_FETCH_FIELD_SETS.length - 1) {
+        if (index < deepFetchFieldSets.length - 1) {
           console.warn(`[DirectusSync] Deep fetch (${fieldSet.key}) failed, retrying with fallback fields:`, err?.message ?? err);
           _emitProgress(onProgress, {
             level: 'warning',
@@ -1005,7 +1025,9 @@ async function _runGlobalPull({ onProgress = null } = {}) {
     await saveLastPullTsToIDB('deep_venue_config', new Date().toISOString());
 
     if (appConfig.directus?.debugLogs === true) {
-      const usedFields = DEEP_FETCH_FIELD_SETS.find(set => set.key === deepFetchMode)?.fields ?? DEEP_FETCH_FIELDS;
+      const usedFields =
+        deepFetchFieldSets.find(set => set.key === deepFetchMode)?.fields
+        ?? DEEP_FETCH_FIELDS;
       console.info('[DirectusSync] Deep fetch mode:', deepFetchMode);
       console.info('[DirectusSync] Deep fetch fields:', usedFields.join(', '));
       console.info('[DirectusSync] Deep fetch fan-out summary:', fanOutSummary);

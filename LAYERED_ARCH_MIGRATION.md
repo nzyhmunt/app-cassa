@@ -107,9 +107,9 @@
 
 **File**: `src/composables/useDirectusSync.js` → `_runGlobalPull`
 
-- [ ] Quando `menuSource === 'json'`, saltare completamente il deep-fetch dei campi
+- [x] Quando `menuSource === 'json'`, saltare completamente il deep-fetch dei campi
   menu nel payload di `readItem('venues', venueId, { fields: … })`.
-- [ ] Rimuovere dai `DEEP_FETCH_FIELDS` i campi
+- [x] Rimuovere dai `DEEP_FETCH_FIELDS` i campi
   `rooms.*`, `tables.*`, `menu_categories.*`, `menu_items.*`, `menu_modifiers.*`
   quando la fonte è `json` (richiedere solo `id`, `name`, `status` e i campi billing/cover_charge).
 
@@ -219,7 +219,7 @@
 | Priorità | Item | Stato |
 |----------|------|-------|
 | P0       | 4    | ✅ 4/4 completati |
-| P1       | 6    | 🟨 3/6 completati (P1-1, P1-2, P1-5) |
+| P1       | 6    | 🟨 4/6 completati (P1-1, P1-2, P1-3, P1-5) |
 | P2       | 6    | ⬜ tutti aperti |
 
 ---
