@@ -637,7 +637,11 @@ export const useOrderStore = defineStore('orders', () => {
   //     concurrent rapid clicks from projecting from a stale pre-mutation snapshot.
   //   - Inside the lock, the latest order is re-read from orders.value.
   //   - IDB is written before reactive state is updated.
-  //   - Returns true on success, false if the IDB write fails (state unchanged).
+  //   - Returns true when the mutation is persisted and applied.
+  //   - Returns false if the IDB write fails (state unchanged).
+  //   - Returns undefined when no mutation is applied because preconditions are not
+  //     met (for example: missing orderId, order not found/not pending, or invalid
+  //     item/index input).
   // The false-return-on-failure pattern prevents uncaught async errors in Vue
   // click handlers that invoke these functions without await.
 
