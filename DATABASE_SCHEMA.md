@@ -134,6 +134,8 @@ CREATE TABLE venues (
     billing_allow_custom_entry            BOOLEAN NOT NULL DEFAULT TRUE,  -- abilita voci libere nel modal Voce Diretta
     -- orders configuration
     orders_rejection_reasons  JSONB    NULL,           -- appConfig.orders.rejectionReasons — array [{value,label}]; NULL = usa i predefiniti dell'applicazione
+    -- menu source: 'directus' (usa collection menu_categories/menu_items) o 'json' (usa menu_url)
+    menu_source     VARCHAR(20)     NOT NULL DEFAULT 'directus', -- appConfig.menuSource
     -- Directus standard fields
     user_created    UUID            NULL REFERENCES directus_users(id),
     date_created    TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
@@ -709,11 +711,24 @@ CREATE TABLE printers (
 );
 ```
 
-> **Nota:** `connection_type`, `tcp_host`, `tcp_port`, `tcp_timeout`, `file_device` sono campi
-> aggiunti per supportare la modalità Directus Pull (Modalità 2) e sono già presenti sulla
-> collezione `printers` del server Directus (aggiunti via MCP). Il campo `url` è ora opzionale
-> (nullable): viene mostrato e reso obbligatorio nell'interfaccia Directus solo quando
-> `connection_type = 'http'`. Per le modalità TCP e File/USB, `url` può essere lasciato vuoto.
+> ⚠️ **NON RIMUOVERE i seguenti campi dalla collection `printers`:**
+> `connection_type`, `tcp_host`, `tcp_port`, `tcp_timeout`, `file_device`
+>
+> Questi campi **non sono usati dal frontend** (App Cassa / App Cucina) ma sono consumati
+> esclusivamente dal componente **Print Server** (servizio Node.js separato) per aprire
+> connessioni dirette alle stampanti ESC/POS senza passare per l'endpoint HTTP:
+>
+> | Campo             | Consumer         | Descrizione                                                        |
+> |-------------------|------------------|--------------------------------------------------------------------|
+> | `connection_type` | **Print Server** | `'http'` → endpoint URL; `'tcp'` → socket TCP; `'file'` → device file USB/parallela |
+> | `tcp_host`        | **Print Server** | IP/hostname della stampante sulla LAN (modalità `tcp`)             |
+> | `tcp_port`        | **Print Server** | Porta TCP ESC/POS, default 9100 (modalità `tcp`)                   |
+> | `tcp_timeout`     | **Print Server** | Timeout connessione TCP in ms, default 5000 (modalità `tcp`)       |
+> | `file_device`     | **Print Server** | Path device file USB/parallelo, es. `/dev/usb/lp0` (modalità `file`) |
+> | `url`             | Frontend + Print Server | Endpoint HTTP del print-server (modalità `http`). Nullable: obbligatorio solo quando `connection_type = 'http'` |
+>
+> Rimuovere questi campi da Directus renderebbe inutilizzabili le modalità TCP e File/USB del
+> Print Server, impedendo la stampa diretta senza service intermediary.
 
 ---
 
@@ -1129,6 +1144,7 @@ Cardinalità:
 | `appConfig.ui.*`                      | `venues`                               |
 | `appConfig.coverCharge.*`             | `venues.cover_charge_*`                |
 | `appConfig.billing.*`                 | `venues.billing_*`                     |
+| `appConfig.menuSource`                | `venues.menu_source`                   |
 | `appConfig.billing.allowCustomEntry`  | `venues.billing_allow_custom_entry`    |
 | `appConfig.orders.rejectionReasons`   | `venues.orders_rejection_reasons` (JSONB) |
 
