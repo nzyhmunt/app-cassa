@@ -21,6 +21,20 @@ export function makeReportOps(state, helpers) {
     enqueue = null,
   } = helpers;
 
+  function _resolvePaymentMethodMeta(transaction) {
+    const methods = Array.isArray(config?.value?.paymentMethods) ? config.value.paymentMethods : [];
+    const explicitId = typeof transaction?.paymentMethodId === 'string' ? transaction.paymentMethodId.trim() : '';
+    if (explicitId) {
+      const match = methods.find((method) => method?.id === explicitId || method?.label === explicitId);
+      return { id: match?.id ?? explicitId, label: match?.label ?? explicitId };
+    }
+
+    const rawLabel = typeof transaction?.paymentMethod === 'string' ? transaction.paymentMethod.trim() : '';
+    if (!rawLabel) return { id: '', label: 'Altro' };
+    const match = methods.find((method) => method?.id === rawLabel || method?.label === rawLabel);
+    return { id: match?.id ?? '', label: match?.label ?? rawLabel };
+  }
+
   function _buildDailySummary() {
     const byMethod = {};    // scontrino per metodo (solo amountPaid, escluse mance)
     const tipsByMethod = {}; // mance per metodo di pagamento
@@ -33,7 +47,7 @@ export function makeReportOps(state, helpers) {
     transactions.value
       .filter(t => t.operationType !== 'discount' && t.operationType !== 'tip')
       .forEach(t => {
-        const label = t.paymentMethod || 'Altro';
+        const { label } = _resolvePaymentMethodMeta(t);
         // Scontrino: solo l'importo del conto (senza mancia)
         byMethod[label] = (byMethod[label] || 0) + (t.amountPaid || 0);
         // Mancia eventualmente inclusa nella stessa transazione → scorporata per metodo
@@ -46,7 +60,7 @@ export function makeReportOps(state, helpers) {
     transactions.value
       .filter(t => t.operationType === 'tip')
       .forEach(t => {
-        const label = t.paymentMethod || 'Mancia';
+        const { label } = _resolvePaymentMethodMeta(t);
         tipsByMethod[label] = (tipsByMethod[label] || 0) + (t.tipAmount || 0);
       });
 
@@ -122,17 +136,23 @@ export function makeReportOps(state, helpers) {
       status: 'active',
       ...venueFragment,
     };
-    const byMethodRows = Object.entries(summary.byMethod ?? {})
-      .filter(([paymentMethod, amount]) => (
-        typeof paymentMethod === 'string' &&
-        paymentMethod.trim() !== '' &&
-        Number.isFinite(Number(amount))
-      ))
-      .map(([paymentMethod, amount]) => ({
+    const byMethodTotals = new Map();
+    transactions.value
+      .filter((transaction) => transaction.operationType !== 'discount' && transaction.operationType !== 'tip')
+      .forEach((transaction) => {
+        const { id } = _resolvePaymentMethodMeta(transaction);
+        if (!id) return;
+        const amount = Number(transaction.amountPaid ?? 0);
+        if (!Number.isFinite(amount)) return;
+        byMethodTotals.set(id, (byMethodTotals.get(id) ?? 0) + amount);
+      });
+
+    const byMethodRows = Array.from(byMethodTotals.entries())
+      .map(([paymentMethodId, amount]) => ({
         id: newUUIDv7(),
         daily_closure: summary.id,
-        payment_method: paymentMethod,
-        amount: Number(amount),
+        payment_method: paymentMethodId,
+        amount,
         status: 'active',
         ...venueFragment,
       }));

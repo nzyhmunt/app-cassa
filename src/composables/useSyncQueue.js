@@ -25,6 +25,7 @@
 import { createDirectus, staticToken, rest, createItem, updateItem, deleteItem } from '@directus/sdk';
 import { getDB } from './useIDB.js';
 import { newUUIDv7 } from '../store/storeUtils.js';
+import { appConfig } from '../utils/index.js';
 import {
   mapOrderToDirectus,
   mapOrderItemToDirectus,
@@ -251,6 +252,7 @@ function _cleanPayload(payload) {
  */
 const PUSH_DROP_FIELDS = new Set([
   'timestamp',         // local ISO string; Directus auto-sets date_created via server
+  'paymentMethod',     // UI label snapshot; Directus persists the relation id in payment_method
   'orderRefs',         // M2M handled separately via transaction_order_refs collection
   'vociRefs',          // M2M handled separately via transaction_voce_refs collection
   'grossAmount',       // UI-only display field (not in Directus schema)
@@ -291,7 +293,7 @@ const FIELD_RENAME_MAP = {
   voidedQuantity:     'voided_quantity',
   kitchenReady:       'kitchen_ready',
   operationType:      'operation_type',
-  paymentMethod:      'payment_method',
+  paymentMethodId:    'payment_method',
   amountPaid:         'amount_paid',
   tipAmount:          'tip_amount',
   romanaSplitCount:   'romana_split_count',
@@ -340,6 +342,36 @@ const TO_DIRECTUS_MAPPERS = {
   order_items: mapOrderItemToDirectus,
   bill_sessions: mapBillSessionToDirectus,
 };
+
+function _resolveConfiguredPaymentMethod(rawValue) {
+  if (typeof rawValue !== 'string') return null;
+  const normalized = rawValue.trim();
+  if (!normalized) return null;
+  const methods = Array.isArray(appConfig.paymentMethods) ? appConfig.paymentMethods : [];
+  return methods.find((method) => method?.id === normalized || method?.label === normalized) ?? null;
+}
+
+function _resolvePaymentMethodId(localPayload, mappedPayload) {
+  const explicitId = typeof localPayload?.paymentMethodId === 'string'
+    ? localPayload.paymentMethodId.trim()
+    : '';
+  if (explicitId) {
+    return _resolveConfiguredPaymentMethod(explicitId)?.id ?? explicitId;
+  }
+
+  const mappedValue = typeof mappedPayload?.payment_method === 'string'
+    ? mappedPayload.payment_method.trim()
+    : '';
+  if (mappedValue) {
+    return _resolveConfiguredPaymentMethod(mappedValue)?.id ?? mappedValue;
+  }
+
+  const labelValue = typeof localPayload?.paymentMethod === 'string'
+    ? localPayload.paymentMethod.trim()
+    : '';
+  if (!labelValue) return null;
+  return _resolveConfiguredPaymentMethod(labelValue)?.id ?? null;
+}
 
 /**
  * Translates a local (camelCase / legacy-named) record payload into the
@@ -414,6 +446,11 @@ function _toDirectusPayload(collection, localPayload) {
 
   const mapper = TO_DIRECTUS_MAPPERS[collection];
   const mapped = mapper ? mapper(out) : out;
+  if (collection === 'transactions' || collection === 'daily_closure_by_method') {
+    const resolvedPaymentMethodId = _resolvePaymentMethodId(localPayload, mapped);
+    if (resolvedPaymentMethodId) mapped.payment_method = resolvedPaymentMethodId;
+    else delete mapped.payment_method;
+  }
   for (const fieldName of Object.keys(mapped)) {
     if (DIRECTUS_RELATION_FIELDS.has(fieldName)) {
       const value = mapped[fieldName];

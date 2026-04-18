@@ -174,6 +174,26 @@ describe('drainQueue()', () => {
     expect(body.children).toBe(1);
   });
 
+  it('maps transaction payment methods to Directus relation ids', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue(mockResponse(201, {}));
+    await enqueue('transactions', 'create', 'txn_1', {
+      id: 'txn_1',
+      tableId: 'T1',
+      billSessionId: 'bill_1',
+      paymentMethodId: 'cash',
+      paymentMethod: 'Contanti',
+      operationType: 'unico',
+      amountPaid: 25,
+    });
+
+    await drainQueue(FAKE_CFG);
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.payment_method).toBe('cash');
+    expect(body.paymentMethod).toBeUndefined();
+    expect(body.paymentMethodId).toBeUndefined();
+  });
+
   it('does not inject adults/children on sparse bill_sessions update', async () => {
     const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue(mockResponse(200, { data: { id: 'bill_1' } }));
     await enqueue('bill_sessions', 'update', 'bill_1', {
