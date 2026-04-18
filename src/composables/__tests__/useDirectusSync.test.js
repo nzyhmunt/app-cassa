@@ -400,6 +400,7 @@ describe('reconfigureAndApply()', () => {
       expect(venueCall).toBeTruthy();
       const decodedVenueCall = decodeURIComponent(venueCall);
       expect(decodedVenueCall).toContain('cover_charge_enabled');
+      expect(decodedVenueCall).toContain('billing_auto_close_on_full_payment');
       expect(decodedVenueCall).toContain('billing_enable_cash_change_calculator');
       expect(decodedVenueCall).not.toContain('rooms.*');
       expect(decodedVenueCall).not.toContain('tables.*');

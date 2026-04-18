@@ -11,8 +11,8 @@ import { appConfig } from '../../utils/index.js';
 // SCHEMA_VERSION
 // ---------------------------------------------------------------------------
 describe('SCHEMA_VERSION', () => {
-  it('is 1', () => {
-    expect(SCHEMA_VERSION).toBe(1);
+  it('is 2', () => {
+    expect(SCHEMA_VERSION).toBe(2);
   });
 });
 
@@ -52,26 +52,26 @@ describe('getInstanceName()', () => {
 describe('resolveStorageKeys()', () => {
   it('returns default keys when called with an empty instance name', () => {
     const { storageKey, settingsKey } = resolveStorageKeys('');
-    expect(storageKey).toBe('demo_app_state_v1');
+    expect(storageKey).toBe('app_state_v2');
     expect(settingsKey).toBe('app-settings');
   });
 
   it('returns namespaced keys when an instance name is provided', () => {
     const { storageKey, settingsKey } = resolveStorageKeys('cassa1');
-    expect(storageKey).toBe('demo_app_state_cassa1_v1');
+    expect(storageKey).toBe('app_state_cassa1_v2');
     expect(settingsKey).toBe('app-settings_cassa1');
   });
 
   it('falls back to getInstanceName() when no argument is given', () => {
     // Default build has instanceName === '' so keys match the default set
     const { storageKey, settingsKey } = resolveStorageKeys();
-    expect(storageKey).toBe('demo_app_state_v1');
+    expect(storageKey).toBe('app_state_v2');
     expect(settingsKey).toBe('app-settings');
   });
 
   it('derives the correct key suffix for arbitrary instance names', () => {
     const { storageKey, settingsKey } = resolveStorageKeys('sala2');
-    expect(storageKey).toBe('demo_app_state_sala2_v1');
+    expect(storageKey).toBe('app_state_sala2_v2');
     expect(settingsKey).toBe('app-settings_sala2');
   });
 });

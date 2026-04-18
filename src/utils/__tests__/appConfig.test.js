@@ -149,6 +149,17 @@ describe('appConfig', () => {
       expect(runtime.ui.primaryColorDark).toBe('#0c7262');
       expect(runtime.ui.currency).toBe('€');
     });
+
+    it('maps billing_auto_close_on_full_payment to billing.autoCloseOnFullPayment', () => {
+      const runtime = mapVenueConfigFromDirectus({
+        venueRecord: {
+          id: 1,
+          billing_auto_close_on_full_payment: false,
+        },
+      }, DEFAULT_SETTINGS);
+
+      expect(runtime.billing.autoCloseOnFullPayment).toBe(false);
+    });
   });
 
   describe('createRuntimeConfig', () => {

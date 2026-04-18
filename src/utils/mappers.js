@@ -1,6 +1,15 @@
 /**
  * @file utils/mappers.js
  * @description Mapping layer between Directus payloads (snake_case) and local models (camelCase).
+ *
+ * Official runtime entry points:
+ *  - Pull (Directus -> runtime/IDB): mapOrderFromDirectus, mapOrderItemFromDirectus,
+ *    mapBillSessionFromDirectus, mapVenueConfigFromDirectus
+ *  - Push (runtime/IDB -> Directus): mapOrderToDirectus, mapOrderItemToDirectus,
+ *    mapBillSessionToDirectus
+ *
+ * Verification (P2-2): every exported `map*FromDirectus` / `map*ToDirectus`
+ * mapper is currently referenced by runtime code (not tests-only).
  */
 
 function relationId(value) {
@@ -258,6 +267,7 @@ export function mapVenueConfigFromDirectus(cachedConfig, defaults) {
     if (venueRecord.billing_enable_cash_change_calculator != null) next.billing.enableCashChangeCalculator = venueRecord.billing_enable_cash_change_calculator;
     if (venueRecord.billing_enable_tips != null) next.billing.enableTips = venueRecord.billing_enable_tips;
     if (venueRecord.billing_enable_discounts != null) next.billing.enableDiscounts = venueRecord.billing_enable_discounts;
+    if (venueRecord.billing_auto_close_on_full_payment != null) next.billing.autoCloseOnFullPayment = venueRecord.billing_auto_close_on_full_payment;
     if (venueRecord.billing_allow_custom_entry != null) next.billing.allowCustomEntry = venueRecord.billing_allow_custom_entry;
 
     if (Array.isArray(venueRecord.orders_rejection_reasons) && venueRecord.orders_rejection_reasons.length > 0) {

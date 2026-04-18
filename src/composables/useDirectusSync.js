@@ -111,6 +111,7 @@ const DEEP_FETCH_JSON_FIELDS = [
   'cover_charge_auto_add',
   'cover_charge_price_adult',
   'cover_charge_price_child',
+  'billing_auto_close_on_full_payment',
   'billing_enable_cash_change_calculator',
   'billing_enable_tips',
   'billing_enable_discounts',

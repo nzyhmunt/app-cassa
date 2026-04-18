@@ -154,11 +154,14 @@
 
 **File**: `DATABASE_SCHEMA.md`, `src/composables/useIDB.js`
 
-- [ ] Aggiornare il diagramma relazioni in `DATABASE_SCHEMA.md` (section 3) per
+- [x] Aggiornare il diagramma relazioni in `DATABASE_SCHEMA.md` (section 3) per
   rimuovere la freccia `menu_items ──< menu_item_modifiers` e sostituire con
   il modello M2M via `menu_modifiers` + junction.
-- [ ] Valutare se mantenere l'ObjectStore `menu_item_modifiers` in IDB o rimuoverlo.
-- [ ] Su Directus: deprecare / archiviare la collection `menu_item_modifiers`.
+- [x] Valutare se mantenere l'ObjectStore `menu_item_modifiers` in IDB o rimuoverlo.
+- [x] Decisione: rimosso lo store legacy `menu_item_modifiers` (IDB v8), mantenendo
+  il modello attivo `menu_modifiers` + junction.
+- [x] Item P2 chiuso per riclassificazione: la deprecazione/archiviazione backend
+      di `menu_item_modifiers` è ora tracciata in **P3-1**.
 
 ---
 
@@ -166,9 +169,10 @@
 
 **File**: `src/utils/mappers.js`
 
-- [ ] Verificare con `grep -n "map.*ToDirectus\|map.*FromDirectus"` quali funzioni
+- [x] Verificare con `grep -n "map.*ToDirectus\|map.*FromDirectus"` quali funzioni
   non sono mai invocate al di fuori dei test e rimuoverle o marcarle `@deprecated`.
-- [ ] Documentare chiaramente quali mapper sono "entry point ufficiali" del layer.
+  (Esito: tutte le funzioni export risultano usate nel runtime, nessuna rimozione/deprecazione necessaria.)
+- [x] Documentare chiaramente quali mapper sono "entry point ufficiali" del layer.
 
 ---
 
@@ -176,8 +180,8 @@
 
 **File**: `src/store/persistence.js`
 
-- [ ] Il prefisso `demo_app_state` nel `storageKey` è residuo legacy.
-- [ ] Rinominare (con bump del valore SCHEMA_VERSION) in `app_state` o in qualcosa
+- [x] Il prefisso `demo_app_state` nel `storageKey` è residuo legacy.
+- [x] Rinominare (con bump del valore SCHEMA_VERSION) in `app_state` o in qualcosa
   di semanticamente corretto.
 
 ---
@@ -186,7 +190,7 @@
 
 **File**: `src/store/persistence.js`
 
-- [ ] La funzione `clearState()` è un thin wrapper fire-and-forget su
+- [x] La funzione `clearState()` è un thin wrapper fire-and-forget su
   `clearAllStateFromIDB()`; documentare la deprecazione e invitare i caller
   a usare direttamente `clearAllStateFromIDB()`.
 
@@ -196,9 +200,9 @@
 
 **File**: `DATABASE_SCHEMA.md`
 
-- [ ] Indicare esplicitamente che `app_settings` **non è sincronizzata** nel
+- [x] Indicare esplicitamente che `app_settings` **non è sincronizzata** nel
   runtime corrente (il sync attivo usa `local_settings` IDB-side).
-- [ ] Se confermata la non-sincronizzazione, segnare il campo per deprecazione
+- [x] Se confermata la non-sincronizzazione, segnare il campo per deprecazione
   backend o pianificare l'implementazione del sync.
 
 ---
@@ -207,9 +211,9 @@
 
 **File**: `src/utils/mappers.js`, `src/composables/useDirectusSync.js`
 
-- [ ] Il campo è presente nello schema Directus ma non mappato in
+- [x] Il campo è presente nello schema Directus ma non mappato in
   `applyVenueRecordToConfig`.
-- [ ] Aggiungere mapping verso `appConfig.billing.autoCloseOnFullPayment` o
+- [x] Aggiungere mapping verso `appConfig.billing.autoCloseOnFullPayment` o
   rimuovere il campo da Directus se la funzionalità non è prevista.
 
 ---
@@ -233,7 +237,31 @@ P2-6 (billing_auto_close_on_full_payment) ← chiusura allineamento config Direc
 |----------|------|-------|
 | P0       | 4    | ✅ 4/4 completati |
 | P1       | 6    | ✅ 6/6 completati (P1-1, P1-2, P1-3, P1-4, P1-5, P1-6) |
-| P2       | 6    | ⬜ tutti aperti |
+| P2       | 6    | ✅ 6/6 completati (azioni residue riclassificate in P3) |
+
+---
+
+## P3 — Follow-up operativo post P0/P1/P2 (backend/release)
+
+### P3-1 · Chiusura backend `menu_item_modifiers`
+
+**Ambito**: Directus (backend)
+
+- [ ] Deprecare/archiviare la collection `menu_item_modifiers` in Directus,
+      impostandola come hidden + read-only durante la finestra di transizione.
+- [ ] Verificare che nessun flow/automation/report backend dipenda ancora dalla
+      collection legacy prima della rimozione definitiva.
+
+### P3-2 · Decisione definitiva su `app_settings`
+
+**Ambito**: schema + runtime
+
+- [ ] Decidere se `app_settings` va definitivamente deprecata lato backend,
+      oppure se va implementato il sync runtime.
+- [ ] Se si procede con deprecazione: aggiornare schema/permessi/documentazione
+      e piano di migrazione dati.
+- [ ] Se si procede con sync: aprire task dedicato con mapping, persistenza IDB,
+      test di pull/push e strategia di backward-compatibility.
 
 ---
 

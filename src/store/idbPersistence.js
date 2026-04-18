@@ -715,14 +715,14 @@ export async function clearLocalConfigCacheFromIDB() {
     'menu_modifiers',
     'menu_categories_menu_modifiers',
     'menu_items_menu_modifiers',
-    'menu_item_modifiers',
     'printers',
     'venue_users',
     'table_merge_sessions',
   ];
   try {
     const db = await getDB();
-    await Promise.all(configStores.map(store => db.clear(store)));
+    const existingStores = configStores.filter(store => db.objectStoreNames.contains(store));
+    await Promise.all(existingStores.map(store => db.clear(store)));
 
     const tx = db.transaction('app_meta', 'readwrite');
     const keys = await tx.store.getAllKeys();

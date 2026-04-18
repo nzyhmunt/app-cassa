@@ -5,8 +5,8 @@
  * Provides helpers to derive storage keys (for instance isolation) and to
  * clear state. App state is stored in IndexedDB via `store/idbPersistence.js`;
  * this module retains helpers that are shared across multiple files (key
- * derivation, instance name resolution) and provides `clearState` for
- * full-reset flows.
+ * derivation, instance name resolution) and retains `clearState` only as a
+ * deprecated compatibility wrapper for full-reset flows.
  *
  * ── Multi-instance support ────────────────────────────────────────────────
  * Multiple instances of the app can run on the same device by assigning each
@@ -22,7 +22,7 @@ import { appConfig } from '../utils/index.js';
  * @deprecated Used only for backwards-compat key references; IndexedDB schema
  * versioning is handled independently in `composables/useIDB.js` (DB_VERSION).
  */
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 /**
  * Returns the active instance name from `appConfig.instanceName`.
@@ -45,7 +45,7 @@ export function resolveStorageKeys(instanceName) {
   const n = instanceName ?? getInstanceName();
   const suffix = n ? `_${n}` : '';
   return {
-    storageKey: `demo_app_state${suffix}_v${SCHEMA_VERSION}`,
+    storageKey: `app_state${suffix}_v${SCHEMA_VERSION}`,
     settingsKey: n ? `app-settings_${n}` : 'app-settings',
   };
 }
@@ -79,6 +79,10 @@ export function resolveCustomItemsKey(instanceName) {
 
 /**
  * Clears the entire persisted app state from IndexedDB.
+ *
+ * @deprecated Use `clearAllStateFromIDB()` directly from
+ * `store/idbPersistence.js`. This function is kept for backward-compatible
+ * signatures and performs a fire-and-forget reset.
  *
  * @param {string} [_storageKey] - Reserved for backward-compatible signatures.
  */
