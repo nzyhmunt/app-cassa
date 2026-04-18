@@ -359,7 +359,6 @@ describe('performDailyClose() – persistenza IDB e sync queue', () => {
     expect(firstUpsertCall[1]).toHaveLength(1);
     expect(firstUpsertCall[1][0]).toMatchObject({
       id: closure.id,
-      type: 'Z',
       closure_type: 'Z',
       venue: 77,
       totalReceived: 50,

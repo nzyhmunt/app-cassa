@@ -117,7 +117,6 @@ export function makeReportOps(state, helpers) {
     const summary = {
       ..._buildDailySummary(),
       id: newUUIDv7(),
-      type: 'Z',
       closure_type: 'Z',
       status: 'active',
       ...venueFragment,

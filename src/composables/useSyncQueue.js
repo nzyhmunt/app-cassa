@@ -256,7 +256,6 @@ const PUSH_DROP_FIELDS = new Set([
   'grossAmount',       // UI-only display field (not in Directus schema)
   'changeAmount',      // UI-only display field (not in Directus schema)
   // daily_closures local-only aggregation fields — not columns in Directus schema
-  'type',              // local alias for closure_type; dropped to avoid duplicate
   'byMethod',          // per-method amount map; detail rows sent as daily_closure_by_method
   'tipsByMethod',      // per-method tip map; local-only aggregation
   'cashMovementsData', // cash movement detail list; stored separately in cash_movements
