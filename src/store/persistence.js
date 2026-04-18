@@ -82,18 +82,16 @@ export function resolveCustomItemsKey(instanceName) {
  *
  * @deprecated Use `clearAllStateFromIDB()` directly from
  * `store/idbPersistence.js`. This function is kept for backward-compatible
- * signatures and performs a fire-and-forget reset.
+ * signatures and now returns a Promise so callers can await completion.
  *
  * @param {string} [_storageKey] - Reserved for backward-compatible signatures.
+ * @returns {Promise<void>}
  */
-export function clearState(_storageKey) {
-  // Clear IndexedDB operative stores asynchronously (fire-and-forget)
-  (async () => {
-    try {
-      const { clearAllStateFromIDB } = await import('./idbPersistence.js');
-      await clearAllStateFromIDB();
-    } catch (e) {
-      console.warn('[Persistence] Failed to clear IDB state:', e);
-    }
-  })();
+export async function clearState(_storageKey) {
+  try {
+    const { clearAllStateFromIDB } = await import('./idbPersistence.js');
+    await clearAllStateFromIDB();
+  } catch (e) {
+    console.warn('[Persistence] Failed to clear IDB state:', e);
+  }
 }

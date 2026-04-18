@@ -10,7 +10,7 @@
 import { openDB } from 'idb';
 import { getInstanceName } from '../store/persistence.js';
 
-export const DB_VERSION = 8;
+export const DB_VERSION = 9;
 const DB_NAME_PREFIX = 'app-cassa';
 
 /**
@@ -18,7 +18,7 @@ const DB_NAME_PREFIX = 'app-cassa';
  *
  *  v1 — Initial schema: bill_sessions, orders, order_items, app_meta, sync_queue.
  *  v2 — Added: cash_movements, daily_closures, daily_closure_by_method, print_jobs,
- *               fiscal_receipts, invoice_requests, venue_users, app_settings,
+ *               fiscal_receipts, invoice_requests, venue_users,
  *               direct_custom_items, and all config-cache stores
  *               (venues, rooms, tables, payment_methods, menu_categories, menu_items,
  *                menu_item_modifiers, printers).
@@ -29,8 +29,8 @@ const DB_NAME_PREFIX = 'app-cassa';
  *  v5 — orders/order_items/order_item_modifiers indexes aligned to Directus FK names
  *               (`bill_session`, `order`, `order_item`) with backward-compat legacy indexes.
  *               Existing records are backfilled from legacy camelCase FK fields when needed.
- *               Added `local_settings` store for device-local preferences to avoid
- *               collisions with Directus `app_settings` collection cache.
+ *               Added `local_settings` store for device-local preferences and migrated
+ *               legacy local settings out of `app_settings`.
  *  v6 — table_merge_sessions migrated to keyPath `id` (UUID) and indexed by
  *               slave_table/master_table/venue/date_updated.
  *               Added menu_modifiers + junction stores
@@ -38,10 +38,11 @@ const DB_NAME_PREFIX = 'app-cassa';
  *  v7 — Added `sync_failed_calls` store to persist full request/response details
  *               for failed sync attempts, even after queue entries are removed.
  *  v8 — Removed legacy `menu_item_modifiers` configuration cache ObjectStore.
+ *  v9 — Removed deprecated `app_settings` ObjectStore (legacy Directus cache).
  *
- * To add a new version (e.g. v9):
- *   1. Increment DB_VERSION to 9.
- *   2. Add a new `if (oldVersion < 9) { ... }` block inside the `upgrade()` callback.
+ * To add a new version (e.g. v10):
+ *   1. Increment DB_VERSION to 10.
+ *   2. Add a new `if (oldVersion < 10) { ... }` block inside the `upgrade()` callback.
  *   3. Only create new ObjectStores or add new indexes — never drop or modify existing ones
  *      unless you also provide a data-migration path for users upgrading from earlier versions.
  *   4. Update this comment block with a description of the new version.
@@ -355,11 +356,6 @@ export function getDB() {
 
       // ── Local-only metadata stores ─────────────────────────────────────────
 
-      // app_settings: Directus collection cache (remote records)
-      if (!db.objectStoreNames.contains('app_settings')) {
-        db.createObjectStore('app_settings', { keyPath: 'id' });
-      }
-
       // local_settings: device-local settings (sounds, menuUrl, preventScreenLock, ...)
       if (!db.objectStoreNames.contains('local_settings')) {
         db.createObjectStore('local_settings', { keyPath: 'id' });
@@ -384,6 +380,12 @@ export function getDB() {
             error,
           });
         }
+      }
+
+      // v9 cleanup: remove deprecated Directus cache store after the v5 block
+      // had a chance to migrate legacy local settings into `local_settings`.
+      if (oldVersion < 9 && db.objectStoreNames.contains('app_settings')) {
+        db.deleteObjectStore('app_settings');
       }
 
       // app_meta: ephemeral UI state that doesn't map directly to Directus

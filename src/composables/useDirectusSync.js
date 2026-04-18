@@ -204,7 +204,15 @@ async function _refreshStoreFromIDB(collection = null) {
     await _store.refreshFromIDB(collection);
     return;
   }
+  // Strict path for Pinia stores: avoid direct assignments and require explicit APIs.
+  // Pinia setup stores expose `$id`; this guard prevents accidental direct
+  // runtime mutations when a store adapter forgot to provide refresh methods.
+  if (_store && typeof _store === 'object' && '$id' in _store) {
+    console.warn('[DirectusSync] Pinia store missing refresh API; skipping direct assignment to preserve IDB-first flow.');
+    return;
+  }
 
+  // Backward-compatible fallback for plain-object stores (tests/legacy adapters).
   const operationalCollections = new Set([
     'orders',
     'order_items',
@@ -914,7 +922,7 @@ async function _hydrateConfigFromLocalCache(venueId, onProgress = null) {
     menuSource: appConfig.menuSource,
     menuUrl: appConfig.menuUrl,
   });
-  _syncPreBillPrinterSelection(cached?.venueRecord ?? null);
+  await _syncPreBillPrinterSelection(cached?.venueRecord ?? null);
   _emitProgress(onProgress, { level: 'info', message: 'Configurazione locale applicata.' });
   return true;
 }
@@ -938,33 +946,38 @@ function _preBillPrinters() {
 
 /**
  * Ensures the store pre-bill default printer points to a valid Directus printer.
- * `app_settings.pre_bill_printer` exists in the backend schema but is currently
- * not part of the runtime sync contract (§2.17 / P2-5), so the runtime can only:
+ * The runtime keeps this preference only in local IDB (`local_settings`), so it can:
  *  1) Keep the current local selection if still valid
  *  2) Fallback to the first available pre-bill-capable printer
  *
  * @param {object|null} _venueRecord
  */
-function _syncPreBillPrinterSelection(_venueRecord = null) {
+async function _syncPreBillPrinterSelection(_venueRecord = null) {
   if (!_store) return;
   const candidates = _preBillPrinters();
   if (candidates.length === 0) {
-    _store.preBillPrinterId = '';
     if (typeof _store.saveLocalSettings === 'function') {
-      _store.saveLocalSettings({ preBillPrinterId: '' })
-        .catch((err) => console.warn('[DirectusSync] Failed to persist cleared preBillPrinterId:', err));
+      try {
+        await _store.saveLocalSettings({ preBillPrinterId: '' });
+      } catch (err) {
+        console.warn('[DirectusSync] Failed to persist cleared preBillPrinterId:', err);
+      }
     }
+    _store.preBillPrinterId = '';
     return;
   }
   const current = typeof _store.preBillPrinterId === 'string' ? _store.preBillPrinterId : '';
   if (current && candidates.some((printer) => printer.id === current)) return;
   const newPrinterId = candidates[0]?.id ?? '';
-  _store.preBillPrinterId = newPrinterId;
   // Persist the auto-selected printer to IDB so the selection survives a reload.
   if (typeof _store.saveLocalSettings === 'function') {
-    _store.saveLocalSettings({ preBillPrinterId: newPrinterId })
-      .catch((err) => console.warn('[DirectusSync] Failed to persist preBillPrinterId:', err));
+    try {
+      await _store.saveLocalSettings({ preBillPrinterId: newPrinterId });
+    } catch (err) {
+      console.warn('[DirectusSync] Failed to persist preBillPrinterId:', err);
+    }
   }
+  _store.preBillPrinterId = newPrinterId;
 }
 
 function _emitProgress(onProgress, payload) {

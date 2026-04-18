@@ -549,7 +549,6 @@ describe('clearAllStateFromIDB()', () => {
       db.put('bill_sessions', { id: 'bs_1', table: 'T1', status: 'open' }),
       db.put('sync_queue', { id: 'sq_1', collection: 'orders', operation: 'create', record_id: 'o1', payload: {}, date_created: '2024-01-01T00:00:00.000Z', attempts: 0 }),
       db.put('sync_failed_calls', { id: 'sfc_1', failed_at: '2024-01-01T00:00:00.000Z' }),
-      db.put('app_settings', { id: 1, venue: 1, device_key: 'kiosk', sounds: true }),
       db.put('venues', { id: 1, name: 'Venue 1' }),
     ]);
     await saveSettingsToIDB({ menuUrl: 'https://example.com', sounds: true });
@@ -562,7 +561,6 @@ describe('clearAllStateFromIDB()', () => {
     expect(await db.getAll('bill_sessions')).toEqual([]);
     expect(await db.getAll('sync_queue')).toEqual([]);
     expect(await db.getAll('sync_failed_calls')).toEqual([]);
-    expect(await db.getAll('app_settings')).toEqual([]);
     expect(await db.getAll('venues')).toEqual([]);
     expect(await loadSettingsFromIDB()).toMatchObject({ menuUrl: 'https://example.com', sounds: true });
   });
@@ -578,7 +576,6 @@ describe('clearLocalConfigCacheFromIDB()', () => {
       db.put('rooms', { id: 'room_1', venue: 1 }),
       db.put('tables', { id: 'T1', venue: 1, room: 'room_1' }),
       db.put('payment_methods', { id: 'cash', label: 'Contanti' }),
-      db.put('app_settings', { id: 99, venue: 1, device_key: 'kiosk-1', sounds: true }),
       db.put('menu_categories', { id: 'cat_1', venue: 1, name: 'Primi' }),
       db.put('menu_items', { id: 'item_1', category: 'cat_1', name: 'Pasta' }),
       db.put('printers', { id: 'prn_1', name: 'Stampante' }),
@@ -594,10 +591,7 @@ describe('clearLocalConfigCacheFromIDB()', () => {
     expect(await db.getAll('rooms')).toEqual([]);
     expect(await db.getAll('tables')).toEqual([]);
     expect(await db.getAll('payment_methods')).toEqual([]);
-    // app_settings is preserved by this reset; the device-local store is local_settings.
-    expect(await db.getAll('app_settings')).toEqual([
-      { id: 99, venue: 1, device_key: 'kiosk-1', sounds: true },
-    ]);
+    expect(db.objectStoreNames.contains('app_settings')).toBe(false);
     expect(await db.getAll('menu_categories')).toEqual([]);
     expect(await db.getAll('menu_items')).toEqual([]);
     expect(db.objectStoreNames.contains('menu_item_modifiers')).toBe(false);

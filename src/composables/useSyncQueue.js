@@ -378,6 +378,10 @@ function _toDirectusPayload(collection, localPayload) {
 
   // Strip local-only runtime fields first
   const cleaned = _cleanPayload(localPayload);
+  // For collections with a canonical mapper in utils/mappers.js, avoid applying
+  // FIELD_RENAME_MAP here to prevent duplicate naming logic in two layers.
+  const mapper = TO_DIRECTUS_MAPPERS[collection];
+  const shouldUseRenameMap = !mapper;
   const out = {};
 
   for (const [key, value] of Object.entries(cleaned)) {
@@ -416,7 +420,7 @@ function _toDirectusPayload(collection, localPayload) {
     }
 
     // Apply explicit rename (camelCase → snake_case, FK without _id suffix)
-    const renamed = FIELD_RENAME_MAP[key];
+    const renamed = shouldUseRenameMap ? FIELD_RENAME_MAP[key] : null;
     if (renamed) {
       out[renamed] = value;
       continue;
@@ -426,7 +430,6 @@ function _toDirectusPayload(collection, localPayload) {
     out[key] = value;
   }
 
-  const mapper = TO_DIRECTUS_MAPPERS[collection];
   const mapped = mapper ? mapper(out) : out;
   if (PAYMENT_METHOD_RELATION_COLLECTIONS.has(collection)) {
     const resolvedPaymentMethodId = _resolvePaymentMethodId(localPayload, mapped);

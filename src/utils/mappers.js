@@ -51,6 +51,8 @@ export function mapOrderFromDirectus(record) {
     isCoverCharge: record.is_cover_charge ?? record.isCoverCharge ?? false,
     isDirectEntry: record.is_direct_entry ?? record.isDirectEntry ?? false,
     rejectionReason: record.rejection_reason ?? record.rejectionReason ?? null,
+    venueUserCreated: relationId(record.venue_user_created ?? record.venueUserCreated ?? null),
+    venueUserUpdated: relationId(record.venue_user_updated ?? record.venueUserUpdated ?? null),
     dietaryPreferences: record.dietaryPreferences ?? {
       diete: parseJsonArray(record.dietary_diets),
       allergeni: parseJsonArray(record.dietary_allergens),
@@ -84,6 +86,20 @@ export function mapOrderToDirectus(record) {
   }
   if (!Object.prototype.hasOwnProperty.call(out, 'rejection_reason') && Object.prototype.hasOwnProperty.call(source, 'rejectionReason')) {
     out.rejection_reason = source.rejectionReason;
+  }
+  if (
+    !Object.prototype.hasOwnProperty.call(out, 'venue_user_created') &&
+    Object.prototype.hasOwnProperty.call(source, 'venueUserCreated') &&
+    source.venueUserCreated != null
+  ) {
+    out.venue_user_created = relationId(source.venueUserCreated);
+  }
+  if (
+    !Object.prototype.hasOwnProperty.call(out, 'venue_user_updated') &&
+    Object.prototype.hasOwnProperty.call(source, 'venueUserUpdated') &&
+    source.venueUserUpdated != null
+  ) {
+    out.venue_user_updated = relationId(source.venueUserUpdated);
   }
   if (!Object.prototype.hasOwnProperty.call(out, 'bill_session') && Object.prototype.hasOwnProperty.call(source, 'billSessionId')) {
     out.bill_session = relationId(source.billSessionId);
@@ -122,6 +138,8 @@ export function mapOrderToDirectus(record) {
   delete out.isCoverCharge;
   delete out.isDirectEntry;
   delete out.rejectionReason;
+  delete out.venueUserCreated;
+  delete out.venueUserUpdated;
   delete out.billSessionId;
 
   return out;
@@ -140,19 +158,38 @@ export function mapOrderItemFromDirectus(record) {
     unitPrice: record.unit_price ?? record.unitPrice ?? 0,
     voidedQuantity: record.voided_quantity ?? record.voidedQuantity ?? 0,
     kitchenReady: record.kitchen_ready ?? record.kitchenReady ?? false,
+    venueUserCreated: relationId(record.venue_user_created ?? record.venueUserCreated ?? null),
+    venueUserUpdated: relationId(record.venue_user_updated ?? record.venueUserUpdated ?? null),
     _sync_status: 'synced',
   };
 }
 
 export function mapOrderItemToDirectus(record) {
-  return {
-    ...record,
-    unit_price: record.unit_price ?? record.unitPrice ?? 0,
-    voided_quantity: record.voided_quantity ?? record.voidedQuantity ?? 0,
-    kitchen_ready: record.kitchen_ready ?? record.kitchenReady ?? false,
-    order: relationId(record.order ?? record.orderId ?? null),
-    dish: relationId(record.dish ?? record.dishId ?? null),
+  const source = record ?? {};
+  const out = {
+    ...source,
+    unit_price: source.unit_price ?? source.unitPrice ?? 0,
+    voided_quantity: source.voided_quantity ?? source.voidedQuantity ?? 0,
+    kitchen_ready: source.kitchen_ready ?? source.kitchenReady ?? false,
+    order: relationId(source.order ?? source.orderId ?? null),
+    dish: relationId(source.dish ?? source.dishId ?? null),
   };
+  const venueUserCreated = source.venue_user_created ?? source.venueUserCreated;
+  if (venueUserCreated != null) {
+    out.venue_user_created = relationId(venueUserCreated);
+  }
+  const venueUserUpdated = source.venue_user_updated ?? source.venueUserUpdated;
+  if (venueUserUpdated != null) {
+    out.venue_user_updated = relationId(venueUserUpdated);
+  }
+  delete out.unitPrice;
+  delete out.voidedQuantity;
+  delete out.kitchenReady;
+  delete out.orderId;
+  delete out.dishId;
+  delete out.venueUserCreated;
+  delete out.venueUserUpdated;
+  return out;
 }
 
 export function mapBillSessionFromDirectus(record) {
@@ -161,12 +198,32 @@ export function mapBillSessionFromDirectus(record) {
     billSessionId: record.id,
     adults: record.adults ?? 0,
     children: record.children ?? 0,
+    venueUserCreated: relationId(record.venue_user_created ?? record.venueUserCreated ?? null),
+    venueUserUpdated: relationId(record.venue_user_updated ?? record.venueUserUpdated ?? null),
     _sync_status: 'synced',
   };
 }
 
 export function mapBillSessionToDirectus(record) {
-  return { ...(record ?? {}) };
+  const source = record ?? {};
+  const out = { ...source };
+  if (
+    !Object.prototype.hasOwnProperty.call(out, 'venue_user_created')
+    && Object.prototype.hasOwnProperty.call(source, 'venueUserCreated')
+    && source.venueUserCreated != null
+  ) {
+    out.venue_user_created = relationId(source.venueUserCreated);
+  }
+  if (
+    !Object.prototype.hasOwnProperty.call(out, 'venue_user_updated')
+    && Object.prototype.hasOwnProperty.call(source, 'venueUserUpdated')
+    && source.venueUserUpdated != null
+  ) {
+    out.venue_user_updated = relationId(source.venueUserUpdated);
+  }
+  delete out.venueUserCreated;
+  delete out.venueUserUpdated;
+  return out;
 }
 
 function normalizeMenu(modifiers, categoryModifierLinks, itemModifierLinks, categories, items, locale) {
