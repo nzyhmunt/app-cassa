@@ -346,7 +346,7 @@ const TO_DIRECTUS_MAPPERS = {
 const PAYMENT_METHOD_RELATION_COLLECTIONS = new Set(['transactions', 'daily_closure_by_method']);
 
 function _resolvePaymentMethodId(localPayload, mappedPayload) {
-  const methods = Array.isArray(appConfig.paymentMethods) ? appConfig.paymentMethods : [];
+  const methods = Array.isArray(appConfig?.paymentMethods) ? appConfig.paymentMethods : [];
   const resolved = resolvePaymentMethodMeta(methods, {
     paymentMethodId: localPayload?.paymentMethodId,
     payment_method: mappedPayload?.payment_method,
@@ -431,7 +431,18 @@ function _toDirectusPayload(collection, localPayload) {
   if (PAYMENT_METHOD_RELATION_COLLECTIONS.has(collection)) {
     const resolvedPaymentMethodId = _resolvePaymentMethodId(localPayload, mapped);
     if (resolvedPaymentMethodId) mapped.payment_method = resolvedPaymentMethodId;
-    else delete mapped.payment_method;
+    else {
+      if (mapped.payment_method != null || localPayload?.paymentMethodId != null || localPayload?.paymentMethod != null) {
+        console.warn('[SyncQueue] Dropping unresolved payment method from payload:', {
+          collection,
+          recordId: localPayload?.id ?? null,
+          paymentMethodId: localPayload?.paymentMethodId ?? null,
+          paymentMethod: localPayload?.paymentMethod ?? null,
+          payment_method: mapped.payment_method ?? null,
+        });
+      }
+      delete mapped.payment_method;
+    }
   }
   for (const fieldName of Object.keys(mapped)) {
     if (DIRECTUS_RELATION_FIELDS.has(fieldName)) {

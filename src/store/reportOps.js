@@ -132,7 +132,14 @@ export function makeReportOps(state, helpers) {
       .filter((transaction) => transaction.operationType !== 'discount' && transaction.operationType !== 'tip')
       .forEach((transaction) => {
         const { id } = _resolvePaymentMethodMeta(transaction);
-        if (!id) return;
+        if (!id) {
+          console.warn('[ReportOps] Skipping by-method closure row for transaction without resolvable payment method id:', {
+            transactionId: transaction?.id ?? null,
+            paymentMethodId: transaction?.paymentMethodId ?? null,
+            paymentMethod: transaction?.paymentMethod ?? null,
+          });
+          return;
+        }
         const amount = Number(transaction.amountPaid ?? 0);
         if (!Number.isFinite(amount)) return;
         byMethodTotals.set(id, (byMethodTotals.get(id) ?? 0) + amount);
