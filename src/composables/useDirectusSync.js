@@ -914,7 +914,7 @@ async function _hydrateConfigFromLocalCache(venueId, onProgress = null) {
     menuSource: appConfig.menuSource,
     menuUrl: appConfig.menuUrl,
   });
-  _syncPreBillPrinterSelection(cached?.venueRecord ?? null);
+  await _syncPreBillPrinterSelection(cached?.venueRecord ?? null);
   _emitProgress(onProgress, { level: 'info', message: 'Configurazione locale applicata.' });
   return true;
 }
@@ -945,25 +945,33 @@ function _preBillPrinters() {
  *
  * @param {object|null} _venueRecord
  */
-function _syncPreBillPrinterSelection(_venueRecord = null) {
+async function _syncPreBillPrinterSelection(_venueRecord = null) {
   if (!_store) return;
   const candidates = _preBillPrinters();
   if (candidates.length === 0) {
-    _store.preBillPrinterId = '';
     if (typeof _store.saveLocalSettings === 'function') {
-      _store.saveLocalSettings({ preBillPrinterId: '' })
-        .catch((err) => console.warn('[DirectusSync] Failed to persist cleared preBillPrinterId:', err));
+      try {
+        await _store.saveLocalSettings({ preBillPrinterId: '' });
+      } catch (err) {
+        console.warn('[DirectusSync] Failed to persist cleared preBillPrinterId:', err);
+      }
+    } else {
+      _store.preBillPrinterId = '';
     }
     return;
   }
   const current = typeof _store.preBillPrinterId === 'string' ? _store.preBillPrinterId : '';
   if (current && candidates.some((printer) => printer.id === current)) return;
   const newPrinterId = candidates[0]?.id ?? '';
-  _store.preBillPrinterId = newPrinterId;
   // Persist the auto-selected printer to IDB so the selection survives a reload.
   if (typeof _store.saveLocalSettings === 'function') {
-    _store.saveLocalSettings({ preBillPrinterId: newPrinterId })
-      .catch((err) => console.warn('[DirectusSync] Failed to persist preBillPrinterId:', err));
+    try {
+      await _store.saveLocalSettings({ preBillPrinterId: newPrinterId });
+    } catch (err) {
+      console.warn('[DirectusSync] Failed to persist preBillPrinterId:', err);
+    }
+  } else {
+    _store.preBillPrinterId = newPrinterId;
   }
 }
 

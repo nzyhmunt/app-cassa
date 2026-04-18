@@ -22,10 +22,10 @@ import {
   closeBillSessionInIDB,
   loadSettingsFromIDB,
   saveSettingsToIDB,
-  loadConfigFromIDB,
   saveJsonMenuToIDB,
   loadJsonMenuFromIDB,
 } from './persistence/operations.js';
+import { loadConfigFromIDB } from './persistence/config.js';
 import {
   saveFiscalReceiptToIDB,
   saveInvoiceRequestToIDB,
@@ -1246,16 +1246,12 @@ export async function initStoreFromIDB(pinia) {
   });
 
   if (idbState) {
-    if ((idbState.orders ?? []).length === 0) {
-      orderStore.orders = (appConfig.demoOrders ?? []).map(o => ({ ...o }));
-    } else {
-      orderStore.orders = (idbState.orders ?? []).map((order) => {
-        const mapped = mapOrderFromDirectus(order);
-        if (mapped.globalNote === undefined) mapped.globalNote = '';
-        if (!mapped.noteVisibility) mapped.noteVisibility = { cassa: true, sala: true, cucina: true };
-        return mapped;
-      });
-    }
+    orderStore.orders = (idbState.orders ?? []).map((order) => {
+      const mapped = mapOrderFromDirectus(order);
+      if (mapped.globalNote === undefined) mapped.globalNote = '';
+      if (!mapped.noteVisibility) mapped.noteVisibility = { cassa: true, sala: true, cucina: true };
+      return mapped;
+    });
     orderStore.transactions = idbState.transactions ?? [];
     orderStore.cashBalance = idbState.cashBalance ?? 0;
     orderStore.cashMovements = idbState.cashMovements ?? [];
@@ -1265,8 +1261,8 @@ export async function initStoreFromIDB(pinia) {
     orderStore.tableMergedInto = idbState.tableMergedInto ?? {};
     orderStore.tableOccupiedAt = idbState.tableOccupiedAt ?? {};
     orderStore.billRequestedTables = idbState.billRequestedTables ?? new Set();
-  } else if (orderStore.orders.length === 0) {
-    orderStore.orders = (appConfig.demoOrders ?? []).map(o => ({ ...o }));
+  } else if (orderStore.orders.length > 0) {
+    orderStore.orders = [];
   }
 
 }

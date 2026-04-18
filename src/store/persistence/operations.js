@@ -5,7 +5,6 @@ export {
   closeBillSessionInIDB,
   loadSettingsFromIDB,
   saveSettingsToIDB,
-  loadConfigFromIDB,
   saveJsonMenuToIDB,
   loadJsonMenuFromIDB,
   loadUsersFromIDB,
