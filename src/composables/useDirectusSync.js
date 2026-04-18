@@ -240,12 +240,18 @@ function _extractRecordIds(records) {
     .filter(Boolean);
 }
 
-async function _preparePullRecordsForIDB(collection, mapped) {
-  if (!Array.isArray(mapped) || mapped.length === 0) return mapped;
-  if (collection !== 'orders' && collection !== 'bill_sessions') return mapped;
+async function _preparePullRecordsForIDB(collection, mapped, cachedState = null) {
+  if (!Array.isArray(mapped) || mapped.length === 0) {
+    return { records: mapped, state: cachedState };
+  }
+  if (collection !== 'orders' && collection !== 'bill_sessions') {
+    return { records: mapped, state: cachedState };
+  }
 
-  const state = await loadStateFromIDB();
-  if (!state) return mapped;
+  const state = cachedState ?? await loadStateFromIDB();
+  if (!state) {
+    return { records: mapped, state };
+  }
 
   if (collection === 'orders') {
     const existingById = new Map(
@@ -253,7 +259,7 @@ async function _preparePullRecordsForIDB(collection, mapped) {
         .filter((record) => record?.id)
         .map((record) => [String(record.id), record]),
     );
-    return mapped.map((incoming) => {
+    const records = mapped.map((incoming) => {
       const existing = existingById.get(String(incoming?.id ?? ''));
       if (!existing) return incoming;
       if (Array.isArray(existing.orderItems) && existing.orderItems.length > 0) {
@@ -264,6 +270,7 @@ async function _preparePullRecordsForIDB(collection, mapped) {
       }
       return incoming;
     });
+    return { records, state };
   }
 
   const existingByBillSessionId = new Map(
@@ -271,7 +278,7 @@ async function _preparePullRecordsForIDB(collection, mapped) {
       .filter((session) => session?.billSessionId)
       .map((session) => [String(session.billSessionId), session]),
   );
-  return mapped.map((incoming) => {
+  const records = mapped.map((incoming) => {
     const billSessionId = incoming?.billSessionId ?? incoming?.id;
     const existing = billSessionId != null
       ? existingByBillSessionId.get(String(billSessionId))
@@ -282,6 +289,7 @@ async function _preparePullRecordsForIDB(collection, mapped) {
     }
     return incoming;
   });
+  return { records, state };
 }
 
 // ── REST pull helpers ─────────────────────────────────────────────────────────
@@ -371,6 +379,7 @@ async function _pullCollection(collection, { forceFull = false, lastPullTimestam
   let totalMerged = 0;
   let hadFetchError = false;
   let hadRemoteRecords = false;
+  let cachedState = null;
 
   while (true) { // eslint-disable-line no-constant-condition
     const { data, maxTs, error } = await _fetchUpdatedViaSDK(collection, storedSinceTs, page);
@@ -379,7 +388,9 @@ async function _pullCollection(collection, { forceFull = false, lastPullTimestam
     hadRemoteRecords = true;
 
     const mapped = data.map(r => _mapRecord(collection, r));
-    const prepared = await _preparePullRecordsForIDB(collection, mapped);
+    const preparedResult = await _preparePullRecordsForIDB(collection, mapped, cachedState);
+    cachedState = preparedResult.state;
+    const prepared = preparedResult.records;
     const written = await upsertRecordsIntoIDB(collection, prepared);
     totalMerged += written;
 

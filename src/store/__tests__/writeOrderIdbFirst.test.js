@@ -81,6 +81,7 @@ function makeOrder(id, table = 'T1', status = 'pending') {
 }
 
 beforeEach(() => {
+  vi.useFakeTimers();
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 503 }));
   setActivePinia(createPinia());
   runtime.store = null;
@@ -89,6 +90,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
@@ -99,6 +101,7 @@ describe('P0-1 write order (IDB-first)', () => {
     const order = makeOrder('ord_1');
 
     store.addOrder(order);
+    vi.advanceTimersByTime(200);
 
     const saveSnapshot = runtime.snapshots.find((entry) => entry.type === 'save-state');
     expect(saveSnapshot.ordersLenAtCall).toBe(0);
@@ -108,6 +111,7 @@ describe('P0-1 write order (IDB-first)', () => {
     const saveCall = saveStateToIDBMock.mock.invocationCallOrder[0];
     const enqueueCall = enqueueMock.mock.invocationCallOrder[0];
     expect(saveCall).toBeLessThan(enqueueCall);
+    expect(saveStateToIDBMock).toHaveBeenCalledTimes(1);
   });
 
   it('changeOrderStatus persists projected state before mutating order and enqueueing', () => {
@@ -119,6 +123,7 @@ describe('P0-1 write order (IDB-first)', () => {
     vi.clearAllMocks();
 
     store.changeOrderStatus(order, 'accepted');
+    vi.advanceTimersByTime(200);
 
     const saveSnapshot = runtime.snapshots.find((entry) => entry.type === 'save-state');
     expect(saveSnapshot.ordersLenAtCall).toBe(1);
@@ -129,6 +134,7 @@ describe('P0-1 write order (IDB-first)', () => {
       enqueueMock.mock.calls[idx][0] === 'orders' && enqueueMock.mock.calls[idx][1] === 'update'
     ));
     expect(saveCall).toBeLessThan(enqueueCall);
+    expect(saveStateToIDBMock).toHaveBeenCalledTimes(1);
   });
 
   it('addTransaction writes projected transactions first, then updates state and queue', () => {
@@ -147,6 +153,7 @@ describe('P0-1 write order (IDB-first)', () => {
       operationType: 'payment',
       timestamp: new Date().toISOString(),
     });
+    vi.advanceTimersByTime(200);
 
     const saveSnapshot = runtime.snapshots.find((entry) => entry.type === 'save-state');
     expect(saveSnapshot.transactionsLenAtCall).toBe(0);
@@ -159,6 +166,7 @@ describe('P0-1 write order (IDB-first)', () => {
       enqueueMock.mock.calls[idx][0] === 'transactions' && enqueueMock.mock.calls[idx][1] === 'create'
     ));
     expect(saveCall).toBeLessThan(enqueueCall);
+    expect(saveStateToIDBMock).toHaveBeenCalledTimes(1);
   });
 
   it('openTableSession persists bill session to IDB before state mutation and enqueue', () => {
@@ -183,6 +191,7 @@ describe('P0-1 write order (IDB-first)', () => {
     runtime.store = store;
 
     store.addCashMovement('in', 15, 'Test');
+    vi.advanceTimersByTime(200);
 
     const saveSnapshot = runtime.snapshots.find((entry) => entry.type === 'save-state');
     expect(saveSnapshot.cashMovementsLenAtCall).toBe(0);
@@ -194,5 +203,6 @@ describe('P0-1 write order (IDB-first)', () => {
       enqueueMock.mock.calls[idx][0] === 'cash_movements' && enqueueMock.mock.calls[idx][1] === 'create'
     ));
     expect(saveCall).toBeLessThan(enqueueCall);
+    expect(saveStateToIDBMock).toHaveBeenCalledTimes(1);
   });
 });

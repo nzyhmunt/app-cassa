@@ -242,8 +242,20 @@ export const useConfigStore = defineStore('config', () => {
    * @returns {Promise<{enabled:boolean,url:string,staticToken:string,venueId:number|string|null,wsEnabled:boolean}>}
    */
   async function saveDirectusSettings(payload = {}) {
-    const normalized = applyDirectusConfigToAppConfig(payload);
+    const normalized = applyDirectusSettings(payload);
     await saveDirectusConfigToStorage();
+    return normalized;
+  }
+
+  /**
+   * Applies Directus settings to runtime appConfig + config store snapshot
+   * without persisting to IndexedDB.
+   *
+   * @param {object} payload
+   * @returns {{enabled:boolean,url:string,staticToken:string,venueId:number|string|null,wsEnabled:boolean}}
+   */
+  function applyDirectusSettings(payload = {}) {
+    const normalized = applyDirectusConfigToAppConfig(payload);
     config.value = {
       ...config.value,
       directus: {
@@ -271,6 +283,7 @@ export const useConfigStore = defineStore('config', () => {
     hydrateConfigFromIDB,
     applyLocalSettings,
     saveLocalSettings,
+    applyDirectusSettings,
     saveDirectusSettings,
   };
 });
@@ -490,6 +503,7 @@ export const useOrderStore = defineStore('orders', () => {
     const nextOrders = [...orders.value, order];
     saveStateToIDB({ orders: nextOrders })
       .catch((err) => console.warn('[Store] Failed to persist order creation:', err));
+    _skipNextScheduledSave('orders');
     orders.value = nextOrders;
     enqueue('orders', 'create', order.id, order);
   }
@@ -539,6 +553,13 @@ export const useOrderStore = defineStore('orders', () => {
         .catch((err) => console.warn('[Store] Failed to close bill session in IDB:', err));
     }
 
+    _skipNextScheduledSave(
+      'orders',
+      'tableOccupiedAt',
+      'tableMergedInto',
+      'tableCurrentBillSession',
+      'billRequestedTables',
+    );
     order.status = newStatus;
     if (newStatus === 'rejected' && rejectionReason) order.rejectionReason = rejectionReason;
     if (KITCHEN_ACTIVE_STATUSES.includes(newStatus) && !tableOccupiedAt.value[order.table]) {
@@ -654,6 +675,7 @@ export const useOrderStore = defineStore('orders', () => {
       transactions: nextTransactions,
       billRequestedTables: nextBillRequestedTables,
     }).catch((err) => console.warn('[Store] Failed to persist transactions:', err));
+    _skipNextScheduledSave('transactions', 'billRequestedTables');
     transactions.value = nextTransactions;
     if (txn.tableId) setBillRequested(txn.tableId, false);
     enqueue('transactions', 'create', txn.id, txn);
@@ -773,6 +795,7 @@ export const useOrderStore = defineStore('orders', () => {
     const nextCashMovements = [...cashMovements.value, mov];
     saveStateToIDB({ cashMovements: nextCashMovements })
       .catch((err) => console.warn('[Store] Failed to persist cash movement:', err));
+    _skipNextScheduledSave('cashMovements');
     cashMovements.value = nextCashMovements;
     enqueue('cash_movements', 'create', mov.id, mov);
   }
@@ -838,6 +861,7 @@ export const useOrderStore = defineStore('orders', () => {
   let _saveTimer = null;
   let _saveChain = Promise.resolve();
   const _pendingSaveKeys = new Set();
+  const _skipNextSaveCount = new Map();
   const _persistableStateGetters = {
     orders: () => orders.value,
     transactions: () => transactions.value,
@@ -852,7 +876,16 @@ export const useOrderStore = defineStore('orders', () => {
   };
 
   function _scheduleSave(...keys) {
-    keys.forEach((key) => _pendingSaveKeys.add(key));
+    keys.forEach((key) => {
+      const pendingSkip = _skipNextSaveCount.get(key) ?? 0;
+      if (pendingSkip > 0) {
+        if (pendingSkip === 1) _skipNextSaveCount.delete(key);
+        else _skipNextSaveCount.set(key, pendingSkip - 1);
+        return;
+      }
+      _pendingSaveKeys.add(key);
+    });
+    if (_pendingSaveKeys.size === 0) return;
     clearTimeout(_saveTimer);
     _saveTimer = setTimeout(() => {
       if (!_pendingSaveKeys.size) return;
@@ -866,6 +899,12 @@ export const useOrderStore = defineStore('orders', () => {
         .then(() => saveStateToIDB(payload))
         .catch((e) => console.warn('[Store] IDB save failed for keys', Object.keys(payload), e));
     }, 150);
+  }
+
+  function _skipNextScheduledSave(...keys) {
+    keys.forEach((key) => {
+      _skipNextSaveCount.set(key, (_skipNextSaveCount.get(key) ?? 0) + 1);
+    });
   }
 
   watch(orders, () => _scheduleSave('orders'), { deep: true });

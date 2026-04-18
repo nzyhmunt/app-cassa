@@ -267,6 +267,41 @@ describe('useSettings()', () => {
     }));
   });
 
+  it('applies directus settings to runtime config without persisting when using applyDirectusSettings()', () => {
+    vi.mocked(saveDirectusConfigToStorage).mockClear();
+
+    const normalized = store.applyDirectusSettings({
+      enabled: true,
+      url: 'https://directus.runtime.example.com',
+      staticToken: 'tok_runtime',
+      venueId: 9,
+      wsEnabled: false,
+    });
+
+    expect(saveDirectusConfigToStorage).not.toHaveBeenCalled();
+    expect(normalized).toEqual(expect.objectContaining({
+      enabled: true,
+      url: 'https://directus.runtime.example.com',
+      staticToken: 'tok_runtime',
+      venueId: 9,
+      wsEnabled: false,
+    }));
+    expect(store.config.directus).toEqual(expect.objectContaining({
+      enabled: true,
+      url: 'https://directus.runtime.example.com',
+      staticToken: 'tok_runtime',
+      venueId: 9,
+      wsEnabled: false,
+    }));
+    expect(appConfig.directus).toEqual(expect.objectContaining({
+      enabled: true,
+      url: 'https://directus.runtime.example.com',
+      staticToken: 'tok_runtime',
+      venueId: 9,
+      wsEnabled: false,
+    }));
+  });
+
   it('defaults customKeyboard to "disabled" when store.customKeyboard is not a valid position', () => {
     store.customKeyboard = 'yes'; // invalid value
 
