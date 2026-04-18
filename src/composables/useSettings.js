@@ -1,9 +1,9 @@
 import { ref, watch, onUnmounted } from 'vue';
 import { useConfigStore } from '../store/index.js';
-import { appConfig, KEYBOARD_POSITIONS, DEFAULT_SETTINGS } from '../utils/index.js';
+import { KEYBOARD_POSITIONS, DEFAULT_SETTINGS } from '../utils/index.js';
 import { isWakeLockSupported } from './useWakeLock.js';
 import { useAuth } from './useAuth.js';
-import { saveSettingsToIDB, deleteDatabase } from '../store/persistence/operations.js';
+import { deleteDatabase } from '../store/persistence/operations.js';
 import { clearDirectusConfigFromStorage } from './useDirectusClient.js';
 import { getInstanceName } from '../store/persistence.js';
 /**
@@ -48,21 +48,7 @@ export function useSettings(props, emit) {
   let saveTimer = null;
 
   function persistSettings(val) {
-    saveSettingsToIDB(val).catch(e => console.warn('[Settings] Failed to save settings:', e));
-  }
-
-  function applyMenuRuntimeConfig(menuSource, menuUrl) {
-    configStore.menuSource = menuSource === 'json' ? 'json' : 'directus';
-    configStore.menuUrl = menuUrl;
-    appConfig.menuSource = configStore.menuSource;
-    appConfig.menuUrl = configStore.menuUrl;
-    if (configStore.config && typeof configStore.config === 'object') {
-      configStore.config = {
-        ...configStore.config,
-        menuSource: configStore.menuSource,
-        menuUrl: configStore.menuUrl,
-      };
-    }
+    configStore.saveLocalSettings(val).catch(e => console.warn('[Settings] Failed to save settings:', e));
   }
 
   // Flush pending save and reset confirm state when the modal closes
@@ -81,15 +67,11 @@ export function useSettings(props, emit) {
     settings,
     (newVal) => {
       // Keep store and parent in sync immediately for responsive UI
-      configStore.sounds = newVal.sounds;
-      applyMenuRuntimeConfig(newVal.menuSource, newVal.menuUrl);
+      configStore.applyLocalSettings(newVal);
       if (configStore.menuSource !== 'json') {
         configStore.menuError = null;
         configStore.menuLoading = false;
       }
-      configStore.preventScreenLock = newVal.preventScreenLock;
-      configStore.customKeyboard = newVal.customKeyboard;
-      configStore.preBillPrinterId = newVal.preBillPrinterId ?? '';
       emit('settings-changed', newVal);
       // Debounce IDB writes to avoid per-keystroke I/O (e.g. menuUrl typing)
       clearTimeout(saveTimer);
@@ -139,11 +121,10 @@ export function useSettings(props, emit) {
       menuSource: 'json',
     };
     try {
-      await saveSettingsToIDB(resetSettings);
+      await configStore.saveLocalSettings(resetSettings);
     } catch (e) {
       console.warn('[Settings] Failed to persist post-reset default settings; menu source may not default to JSON on reload:', e);
     }
-    applyMenuRuntimeConfig('json', resetSettings.menuUrl);
     if (typeof window !== 'undefined' && window.location) {
       window.location.reload();
     }

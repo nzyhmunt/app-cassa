@@ -303,6 +303,28 @@ export function createRuntimeConfig(overrides = null) {
 }
 
 /**
+ * Applies Directus runtime settings to `appConfig` through a single normalized
+ * entry-point.
+ * This is the only allowed write path for `appConfig.directus` outside
+ * `useDirectusSync`: callers should never assign `appConfig.directus = ...`
+ * directly to keep normalization/shape guarantees centralized.
+ *
+ * @param {object} next
+ * @returns {{enabled:boolean,url:string,staticToken:string,venueId:number|string|null,wsEnabled:boolean}}
+ */
+export function applyDirectusConfigToAppConfig(next = {}) {
+  const normalized = {
+    enabled: typeof next?.enabled === 'boolean' ? next.enabled : false,
+    url: typeof next?.url === 'string' ? next.url : '',
+    staticToken: typeof next?.staticToken === 'string' ? next.staticToken : '',
+    venueId: next?.venueId != null ? next.venueId : null,
+    wsEnabled: typeof next?.wsEnabled === 'boolean' ? next.wsEnabled : false,
+  };
+  appConfig.directus = normalized;
+  return normalized;
+}
+
+/**
  * Returns a stable, unique string key for a closed bill.
  * Use as :key in v-for lists and as the base for ARIA panel ids.
  * @param {object} bill - Closed bill object

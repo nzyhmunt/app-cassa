@@ -18,6 +18,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
 import { useAppStore } from '../index.js';
+import { getDB } from '../../composables/useIDB.js';
+import { getPendingEntries } from '../../composables/useSyncQueue.js';
 import { getOrderItemRowTotal } from '../../utils/index.js';
 import {
   buildFlatAnaliticaItems,
@@ -537,6 +539,83 @@ describe('store.addTransaction() with analitica operationType', () => {
       ])
     );
     expect(txn.amountPaid).toBeCloseTo(11.50, 2);
+  });
+
+  it('persists and enqueues transaction_order_refs and transaction_voce_refs rows', async () => {
+    const store = useAppStore();
+
+    store.addTransaction({
+      id: 'txn_refs_test',
+      tableId: 'T1',
+      billSessionId: 'sess_refs_1',
+      paymentMethod: 'Contanti',
+      operationType: 'analitica',
+      amountPaid: 15.00,
+      vociRefs: [{ key: 'ord_1__itm_a', qty: 1 }, { key: 'ord_1__itm_a__mod__0', qty: 1 }],
+      orderRefs: ['ord_1'],
+      timestamp: new Date().toISOString(),
+    });
+
+    let refsEnqueued = false;
+    for (let i = 0; i < 30; i++) {
+      const pending = await getPendingEntries();
+      if (
+        pending.some(
+          (entry) => entry.collection === 'transaction_order_refs' && entry.payload?.transaction === 'txn_refs_test',
+        )
+        && pending.filter(
+          (entry) => entry.collection === 'transaction_voce_refs' && entry.payload?.transaction === 'txn_refs_test',
+        ).length === 2
+      ) {
+        refsEnqueued = true;
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    expect(refsEnqueued).toBe(true);
+
+    const db = await getDB();
+    const orderRefsRows = (await db.getAll('transaction_order_refs'))
+      .filter((row) => row.transaction === 'txn_refs_test');
+    const vociRefsRows = (await db.getAll('transaction_voce_refs'))
+      .filter((row) => row.transaction === 'txn_refs_test');
+    const pending = await getPendingEntries();
+
+    expect(orderRefsRows).toHaveLength(1);
+    expect(orderRefsRows[0]).toMatchObject({
+      transaction: 'txn_refs_test',
+      order: 'ord_1',
+    });
+
+    expect(vociRefsRows).toHaveLength(2);
+    expect(vociRefsRows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ transaction: 'txn_refs_test', voce_key: 'ord_1__itm_a', qty: 1 }),
+        expect.objectContaining({ transaction: 'txn_refs_test', voce_key: 'ord_1__itm_a__mod__0', qty: 1 }),
+      ]),
+    );
+
+    const orderQueueEntries = pending.filter(
+      (entry) => entry.collection === 'transaction_order_refs' && entry.payload?.transaction === 'txn_refs_test',
+    );
+    const vociQueueEntries = pending.filter(
+      (entry) => entry.collection === 'transaction_voce_refs' && entry.payload?.transaction === 'txn_refs_test',
+    );
+
+    expect(orderQueueEntries).toHaveLength(1);
+    expect(vociQueueEntries).toHaveLength(2);
+    expect(orderQueueEntries[0]).toMatchObject({
+      operation: 'create',
+      record_id: orderRefsRows[0].id,
+      payload: orderRefsRows[0],
+    });
+    expect(vociQueueEntries).toEqual(
+      expect.arrayContaining(vociRefsRows.map((row) => expect.objectContaining({
+        operation: 'create',
+        record_id: row.id,
+        payload: row,
+      }))),
+    );
   });
 });
 

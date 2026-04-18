@@ -15,17 +15,17 @@
 
 **File**: `src/store/index.js`
 
-- [ ] Ogni azione che produce una mutazione persistente deve seguire l'ordine
+- [x] Ogni azione che produce una mutazione persistente deve seguire l'ordine
   1. **Scrivi su IDB** (`saveOrdersToIDB`, `upsertRecordsIntoIDB`, ecc.)
   2. **Aggiorna lo stato Pinia** (reactivity)
   3. **Enqueue** per sync remoto
-- [ ] Azioni da correggere in ordine di rischio:
+- [x] Azioni da correggere in ordine di rischio:
   - `addOrder` / `addDirectOrder` — mutano `orders.value` prima di `saveOrdersToIDB`
   - `changeOrderStatus` — aggiorna campo inline poi salva
   - `addTransaction` — costruisce `txn`, lo pusha in `transactions.value` e **poi** chiama `enqueue`
   - `openTableSession` — muta `tableCurrentBillSession.value` prima di `enqueue('bill_sessions', …)`
   - `recordCashMovement` — stessa sequenza inversa
-- [ ] Aggiungere test di regressione per ogni azione corretta che verifichino
+- [x] Aggiungere test di regressione per ogni azione corretta che verifichino
   l'ordine effettivo delle chiamate IDB vs stato reattivo.
 
 ---
@@ -34,11 +34,11 @@
 
 **File**: `src/store/index.js`, `src/composables/useSyncQueue.js`
 
-- [ ] In `addTransaction` (path `analitica`), dopo aver creato la transazione, fare
+- [x] In `addTransaction` (path `analitica`), dopo aver creato la transazione, fare
   `enqueue('transaction_order_refs', 'create', ref.id, ref)` per ogni entry di `orderRefs`.
-- [ ] Stesso per `transaction_voce_refs`: iterare `vociRefs` e fare enqueue di ogni record.
-- [ ] Aggiungere IDB pre-save (`upsertRecordsIntoIDB`) delle stesse righe prima di enqueue.
-- [ ] Aggiungere test di integrazione che simulino un pagamento analitico e
+- [x] Stesso per `transaction_voce_refs`: iterare `vociRefs` e fare enqueue di ogni record.
+- [x] Aggiungere IDB pre-save (`upsertRecordsIntoIDB`) delle stesse righe prima di enqueue.
+- [x] Aggiungere test di integrazione che simulino un pagamento analitico e
   verifichino che le junction rows arrivino in sync queue.
 
 ---
@@ -48,13 +48,13 @@
 **File**: `src/composables/useSettings.js`, `src/composables/useDirectusClient.js`,
          `src/components/shared/DirectusSyncSettings.vue`
 
-- [ ] Censire tutti i punti che scrivono direttamente su `appConfig.*` al di fuori
+- [x] Censire tutti i punti che scrivono direttamente su `appConfig.*` al di fuori
   di `useDirectusSync.js` / `applyDirectusConfigToAppConfig`.
-- [ ] Per le impostazioni UI (sounds, menuUrl, ecc.) convogliare la persistenza
+- [x] Per le impostazioni UI (sounds, menuUrl, ecc.) convogliare la persistenza
   attraverso `useConfigStore.saveLocalSettings(…)` → IDB → `local_settings`.
-- [ ] Per le impostazioni Directus (`directus.*`) convogliare tramite
+- [x] Per le impostazioni Directus (`directus.*`) convogliare tramite
   `useConfigStore.saveDirectusSettings(…)` → IDB → `app_settings`.
-- [ ] Rimuovere gli `Object.assign(appConfig, …)` sparsi; l'unico punto legittimo
+- [x] Rimuovere gli `Object.assign(appConfig, …)` sparsi; l'unico punto legittimo
   di aggiornamento runtime di `appConfig` deve essere `applyDirectusConfigToAppConfig`.
 
 ---
@@ -63,13 +63,13 @@
 
 **File**: `src/composables/useDirectusSync.js`
 
-- [ ] Rimuovere `_mergeIntoStore`, `_deleteFromStore`, `_syncStoreConfigSnapshot`
+- [x] Rimuovere `_mergeIntoStore`, `_deleteFromStore`, `_syncStoreConfigSnapshot`
   come chiamate che scrivono direttamente su `_store.*`.
-- [ ] Sostituire con:
+- [x] Sostituire con:
   1. `upsertRecordsIntoIDB(collection, records)` — salva in IDB
   2. Emetti evento / chiama `store.hydrateFromIDB()` — lo store legge da IDB e
      aggiorna il reattivo
-- [ ] La funzione `_syncPreBillPrinterSelection` (che scrive `_store.preBillPrinterId`)
+- [x] La funzione `_syncPreBillPrinterSelection` (che scrive `_store.preBillPrinterId`)
   è un'eccezione legittima di UI state; documentarla esplicitamente o spostarla
   nel composable `useSettings`.
 

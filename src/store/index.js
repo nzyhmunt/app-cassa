@@ -4,6 +4,7 @@ import {
   appConfig,
   createRuntimeConfig,
   DEFAULT_SETTINGS,
+  applyDirectusConfigToAppConfig,
   updateOrderTotals,
   KITCHEN_ACTIVE_STATUSES,
   KEYBOARD_POSITIONS,
@@ -16,9 +17,11 @@ import { makeReportOps } from './reportOps.js';
 import {
   loadStateFromIDB,
   saveStateToIDB,
+  upsertRecordsIntoIDB,
   upsertBillSessionInIDB,
   closeBillSessionInIDB,
   loadSettingsFromIDB,
+  saveSettingsToIDB,
   loadConfigFromIDB,
   saveJsonMenuToIDB,
   loadJsonMenuFromIDB,
@@ -32,6 +35,7 @@ import {
   pruneInvoiceRequestsInIDB,
 } from './persistence/audit.js';
 import { enqueue } from '../composables/useSyncQueue.js';
+import { saveDirectusConfigToStorage } from '../composables/useDirectusClient.js';
 
 function _clone(value) {
   if (typeof structuredClone === 'function') {
@@ -65,6 +69,37 @@ function _normalizeJsonMenuPayload(data) {
 function _normalizeMenuSource(value, fallback = null) {
   if (value === 'json' || value === 'directus') return value;
   return fallback;
+}
+
+/**
+ * Normalizes device-local settings payloads and fills missing/invalid values
+ * with explicit fallbacks from current store state / defaults.
+ *
+ * @param {object} payload
+ * @param {object} current
+ * @returns {{sounds:boolean,menuUrl:string,menuSource:'json'|'directus',preventScreenLock:boolean,customKeyboard:string,preBillPrinterId:string}}
+ */
+function _normalizeLocalSettingsPayload(payload, current) {
+  const normalizedCurrentMenuSource = _normalizeMenuSource(current?.menuSource, 'directus');
+  return {
+    sounds: typeof payload?.sounds === 'boolean' ? payload.sounds : !!current?.sounds,
+    menuUrl:
+      typeof payload?.menuUrl === 'string' && payload.menuUrl.trim() !== ''
+        ? payload.menuUrl
+        : (current?.menuUrl ?? DEFAULT_SETTINGS.menuUrl),
+    menuSource: _normalizeMenuSource(payload?.menuSource, normalizedCurrentMenuSource),
+    preventScreenLock:
+      typeof payload?.preventScreenLock === 'boolean'
+        ? payload.preventScreenLock
+        : !!current?.preventScreenLock,
+    customKeyboard: KEYBOARD_POSITIONS.includes(payload?.customKeyboard)
+      ? payload.customKeyboard
+      : (KEYBOARD_POSITIONS.includes(current?.customKeyboard) ? current.customKeyboard : 'disabled'),
+    preBillPrinterId:
+      typeof payload?.preBillPrinterId === 'string'
+        ? payload.preBillPrinterId
+        : (typeof current?.preBillPrinterId === 'string' ? current.preBillPrinterId : ''),
+  };
 }
 
 export const useConfigStore = defineStore('config', () => {
@@ -155,6 +190,83 @@ export const useConfigStore = defineStore('config', () => {
     }
   }
 
+  /**
+   * Applies local settings to reactive store state and runtime appConfig
+   * (menuSource/menuUrl) without persisting to IndexedDB.
+   *
+   * @param {object} payload
+   * @returns {{sounds:boolean,menuUrl:string,menuSource:'json'|'directus',preventScreenLock:boolean,customKeyboard:string,preBillPrinterId:string}}
+   */
+  function applyLocalSettings(payload = {}) {
+    const normalized = _normalizeLocalSettingsPayload(payload, {
+      sounds: sounds.value,
+      menuUrl: menuUrl.value,
+      menuSource: menuSource.value,
+      preventScreenLock: preventScreenLock.value,
+      customKeyboard: customKeyboard.value,
+      preBillPrinterId: preBillPrinterId.value,
+    });
+    sounds.value = normalized.sounds;
+    menuUrl.value = normalized.menuUrl;
+    menuSource.value = normalized.menuSource;
+    preventScreenLock.value = normalized.preventScreenLock;
+    customKeyboard.value = normalized.customKeyboard;
+    preBillPrinterId.value = normalized.preBillPrinterId;
+    appConfig.menuSource = normalized.menuSource;
+    appConfig.menuUrl = normalized.menuUrl;
+    config.value = {
+      ...config.value,
+      menuSource: normalized.menuSource,
+      menuUrl: normalized.menuUrl,
+    };
+    return normalized;
+  }
+
+  /**
+   * Applies and persists local settings to `local_settings` in IndexedDB.
+   *
+   * @param {object} payload
+   * @returns {Promise<{sounds:boolean,menuUrl:string,menuSource:'json'|'directus',preventScreenLock:boolean,customKeyboard:string,preBillPrinterId:string}>}
+   */
+  async function saveLocalSettings(payload = {}) {
+    const normalized = applyLocalSettings(payload);
+    await saveSettingsToIDB(normalized);
+    return normalized;
+  }
+
+  /**
+   * Applies and persists Directus settings through the centralized appConfig
+   * mutation path and Directus config storage adapter.
+   * Delegates runtime mutation to `applyDirectusSettings()` and then persists.
+   *
+   * @param {object} payload
+   * @returns {Promise<{enabled:boolean,url:string,staticToken:string,venueId:number|string|null,wsEnabled:boolean}>}
+   */
+  async function saveDirectusSettings(payload = {}) {
+    const normalized = applyDirectusSettings(payload);
+    await saveDirectusConfigToStorage();
+    return normalized;
+  }
+
+  /**
+   * Applies Directus settings to runtime appConfig + config store snapshot
+   * without persisting to IndexedDB.
+   *
+   * @param {object} payload
+   * @returns {{enabled:boolean,url:string,staticToken:string,venueId:number|string|null,wsEnabled:boolean}}
+   */
+  function applyDirectusSettings(payload = {}) {
+    const normalized = applyDirectusConfigToAppConfig(payload);
+    config.value = {
+      ...config.value,
+      directus: {
+        ...(config.value.directus ?? {}),
+        ...normalized,
+      },
+    };
+    return normalized;
+  }
+
   return {
     config,
     cssVars,
@@ -170,6 +282,10 @@ export const useConfigStore = defineStore('config', () => {
     menuError,
     loadMenu,
     hydrateConfigFromIDB,
+    applyLocalSettings,
+    saveLocalSettings,
+    applyDirectusSettings,
+    saveDirectusSettings,
   };
 });
 
@@ -323,11 +439,13 @@ export const useOrderStore = defineStore('orders', () => {
     const billSessionId = newUUIDv7();
     const now = new Date().toISOString();
     const session = { billSessionId, adults, children, table: tableId, status: 'open', opened_at: now };
+    const venueId = configStore.config.directus?.venueId ?? null;
+    upsertBillSessionInIDB({ ...session, ...(venueId != null ? { venue: venueId } : {}) })
+      .catch((err) => console.warn('[Store] Failed to persist bill session:', err));
     tableCurrentBillSession.value = {
       ...tableCurrentBillSession.value,
       [tableId]: session,
     };
-    const venueId = configStore.config.directus?.venueId ?? null;
     enqueue('bill_sessions', 'create', billSessionId, {
       id: billSessionId,
       table: tableId,
@@ -337,7 +455,6 @@ export const useOrderStore = defineStore('orders', () => {
       opened_at: now,
       ...(venueId != null ? { venue: venueId } : {}),
     });
-    upsertBillSessionInIDB({ ...session, ...(venueId != null ? { venue: venueId } : {}) });
     return billSessionId;
   }
 
@@ -384,16 +501,70 @@ export const useOrderStore = defineStore('orders', () => {
   function addOrder(order) {
     if (order.globalNote === undefined) order.globalNote = '';
     if (!order.noteVisibility) order.noteVisibility = { cassa: true, sala: true, cucina: true };
-
-    orders.value.push(order);
+    const nextOrders = [...orders.value, order];
+    saveStateToIDB({ orders: nextOrders })
+      .catch((err) => console.warn('[Store] Failed to persist order creation:', err));
+    _skipNextScheduledSave('orders');
+    orders.value = nextOrders;
     enqueue('orders', 'create', order.id, order);
   }
 
   function changeOrderStatus(order, newStatus, rejectionReason = null) {
+    if (!order?.id) return;
+    const projectedOrders = orders.value.map((current) => {
+      if (current.id !== order.id) return current;
+      const next = { ...current, status: newStatus };
+      if (newStatus === 'rejected' && rejectionReason) next.rejectionReason = rejectionReason;
+      return next;
+    });
+    const projectedTableOccupiedAt = { ...tableOccupiedAt.value };
+    const projectedTableMergedInto = { ...tableMergedInto.value };
+    const projectedBillRequestedTables = new Set(billRequestedTables.value);
+    let projectedTableCurrentBillSession = tableCurrentBillSession.value;
+    let closingSession = null;
+    const closedAt = new Date().toISOString();
+
+    if (KITCHEN_ACTIVE_STATUSES.includes(newStatus) && !projectedTableOccupiedAt[order.table]) {
+      projectedTableOccupiedAt[order.table] = closedAt;
+    }
+    const projectedActiveOrds = projectedOrders.filter(
+      o => o.table === order.table && o.status !== 'completed' && o.status !== 'rejected',
+    );
+    if (projectedActiveOrds.length === 0) {
+      delete projectedTableOccupiedAt[order.table];
+      const idsToUnmap = [...slaveIdsOf(order.table), ...(projectedTableMergedInto[order.table] ? [order.table] : [])];
+      if (idsToUnmap.length > 0) {
+        idsToUnmap.forEach(id => delete projectedTableMergedInto[id]);
+      }
+      const nextSession = { ...tableCurrentBillSession.value };
+      closingSession = nextSession[order.table];
+      delete nextSession[order.table];
+      projectedTableCurrentBillSession = nextSession;
+      projectedBillRequestedTables.delete(order.table);
+    }
+    saveStateToIDB({
+      orders: projectedOrders,
+      tableOccupiedAt: projectedTableOccupiedAt,
+      tableMergedInto: projectedTableMergedInto,
+      tableCurrentBillSession: projectedTableCurrentBillSession,
+      billRequestedTables: projectedBillRequestedTables,
+    }).catch((err) => console.warn('[Store] Failed to persist status update:', err));
+    if (closingSession?.billSessionId) {
+      closeBillSessionInIDB(closingSession.billSessionId)
+        .catch((err) => console.warn('[Store] Failed to close bill session in IDB:', err));
+    }
+
+    _skipNextScheduledSave(
+      'orders',
+      'tableOccupiedAt',
+      'tableMergedInto',
+      'tableCurrentBillSession',
+      'billRequestedTables',
+    );
     order.status = newStatus;
     if (newStatus === 'rejected' && rejectionReason) order.rejectionReason = rejectionReason;
     if (KITCHEN_ACTIVE_STATUSES.includes(newStatus) && !tableOccupiedAt.value[order.table]) {
-      tableOccupiedAt.value[order.table] = new Date().toISOString();
+      tableOccupiedAt.value[order.table] = closedAt;
     }
     const activeOrds = orders.value.filter(
       o => o.table === order.table && o.status !== 'completed' && o.status !== 'rejected',
@@ -407,25 +578,16 @@ export const useOrderStore = defineStore('orders', () => {
         tableMergedInto.value = nextMerge;
       }
       const nextSession = { ...tableCurrentBillSession.value };
-      const closingSession = nextSession[order.table];
-      const closedAt = new Date().toISOString();
+      const closedSession = nextSession[order.table];
       delete nextSession[order.table];
       tableCurrentBillSession.value = nextSession;
       setBillRequested(order.table, false);
-      if (closingSession?.billSessionId) {
-        closeBillSessionInIDB(closingSession.billSessionId);
-        enqueue('bill_sessions', 'update', closingSession.billSessionId, {
+      if (closedSession?.billSessionId) {
+        enqueue('bill_sessions', 'update', closedSession.billSessionId, {
           status: 'closed', closed_at: closedAt,
         });
       }
     }
-    saveStateToIDB({
-      orders: orders.value,
-      tableOccupiedAt: tableOccupiedAt.value,
-      tableMergedInto: tableMergedInto.value,
-      tableCurrentBillSession: tableCurrentBillSession.value,
-      billRequestedTables: billRequestedTables.value,
-    }).catch((err) => console.warn('[Store] Failed to persist status update:', err));
     enqueue('orders', 'update', order.id, { status: newStatus, rejectionReason: order.rejectionReason ?? null });
   }
 
@@ -507,13 +669,72 @@ export const useOrderStore = defineStore('orders', () => {
   }
 
   function addTransaction(txn) {
-    transactions.value.push(txn);
-    if (txn.tableId) setBillRequested(txn.tableId, false);
+    const nextTransactions = [...transactions.value, txn];
+    const nextBillRequestedTables = new Set(billRequestedTables.value);
+    if (txn.tableId) nextBillRequestedTables.delete(txn.tableId);
     saveStateToIDB({
-      transactions: transactions.value,
-      billRequestedTables: billRequestedTables.value,
+      transactions: nextTransactions,
+      billRequestedTables: nextBillRequestedTables,
     }).catch((err) => console.warn('[Store] Failed to persist transactions:', err));
+    _skipNextScheduledSave('transactions', 'billRequestedTables');
+    transactions.value = nextTransactions;
+    if (txn.tableId) setBillRequested(txn.tableId, false);
     enqueue('transactions', 'create', txn.id, txn);
+
+    if (txn?.operationType === 'analitica') {
+      const transactionOrderRefs = (Array.isArray(txn.orderRefs) ? txn.orderRefs : [])
+        .map((entry) => {
+          if (typeof entry === 'string' && entry.trim() !== '') {
+            return { id: newUUIDv7(), transaction: txn.id, order: entry.trim() };
+          }
+          if (entry && typeof entry === 'object') {
+            const orderId = typeof entry.order === 'string' ? entry.order : entry.orderId;
+            if (typeof orderId === 'string' && orderId.trim() !== '') {
+              return {
+                id: typeof entry.id === 'string' && entry.id.trim() !== '' ? entry.id : newUUIDv7(),
+                transaction: txn.id,
+                order: orderId.trim(),
+              };
+            }
+          }
+          return null;
+        })
+        .filter(Boolean);
+
+      const transactionVociRefs = (Array.isArray(txn.vociRefs) ? txn.vociRefs : [])
+        .map((entry) => {
+          if (!entry || typeof entry !== 'object') return null;
+          const voceKey = typeof entry.key === 'string' ? entry.key.trim() : '';
+          const qty = Number(entry.qty);
+          if (!voceKey || !Number.isInteger(qty) || qty <= 0) return null;
+          return {
+            id: typeof entry.id === 'string' && entry.id.trim() !== '' ? entry.id : newUUIDv7(),
+            transaction: txn.id,
+            voce_key: voceKey,
+            qty,
+          };
+        })
+        .filter(Boolean);
+
+      const persistAndEnqueueRefs = async () => {
+        if (transactionOrderRefs.length > 0) {
+          await upsertRecordsIntoIDB('transaction_order_refs', transactionOrderRefs);
+          for (const ref of transactionOrderRefs) {
+            enqueue('transaction_order_refs', 'create', ref.id, ref);
+          }
+        }
+        if (transactionVociRefs.length > 0) {
+          await upsertRecordsIntoIDB('transaction_voce_refs', transactionVociRefs);
+          for (const ref of transactionVociRefs) {
+            enqueue('transaction_voce_refs', 'create', ref.id, ref);
+          }
+        }
+      };
+
+      persistAndEnqueueRefs().catch((err) => {
+        console.warn('[Store] Failed to persist/enqueue transaction refs:', err);
+      });
+    }
   }
 
   function addTipTransaction(tableId, billSessionId, tipValue) {
@@ -572,7 +793,11 @@ export const useOrderStore = defineStore('orders', () => {
       timestamp: new Date().toISOString(),
       ...(venueId != null ? { venue: venueId } : {}),
     };
-    cashMovements.value.push(mov);
+    const nextCashMovements = [...cashMovements.value, mov];
+    saveStateToIDB({ cashMovements: nextCashMovements })
+      .catch((err) => console.warn('[Store] Failed to persist cash movement:', err));
+    _skipNextScheduledSave('cashMovements');
+    cashMovements.value = nextCashMovements;
     enqueue('cash_movements', 'create', mov.id, mov);
   }
 
@@ -637,6 +862,7 @@ export const useOrderStore = defineStore('orders', () => {
   let _saveTimer = null;
   let _saveChain = Promise.resolve();
   const _pendingSaveKeys = new Set();
+  const _skipNextSaveCount = new Map();
   const _persistableStateGetters = {
     orders: () => orders.value,
     transactions: () => transactions.value,
@@ -651,7 +877,22 @@ export const useOrderStore = defineStore('orders', () => {
   };
 
   function _scheduleSave(...keys) {
-    keys.forEach((key) => _pendingSaveKeys.add(key));
+    keys.forEach((key) => {
+      // Explicit IDB-first actions mark keys to skip once so watcher-driven
+      // debounced persistence doesn't rewrite the same payload immediately after.
+      const pendingSkipValue = _skipNextSaveCount.get(key);
+      const pendingSkip = pendingSkipValue === undefined ? 0 : pendingSkipValue;
+      if (pendingSkip > 0) {
+        if (pendingSkip === 1) _skipNextSaveCount.delete(key);
+        else _skipNextSaveCount.set(key, pendingSkip - 1);
+        return;
+      }
+      _pendingSaveKeys.add(key);
+    });
+    // Safe early return: `_pendingSaveKeys` is only populated in this function
+    // and we just filtered all incoming keys (all skipped), so there is nothing
+    // to flush and no timer is needed.
+    if (_pendingSaveKeys.size === 0) return;
     clearTimeout(_saveTimer);
     _saveTimer = setTimeout(() => {
       if (!_pendingSaveKeys.size) return;
@@ -665,6 +906,14 @@ export const useOrderStore = defineStore('orders', () => {
         .then(() => saveStateToIDB(payload))
         .catch((e) => console.warn('[Store] IDB save failed for keys', Object.keys(payload), e));
     }, 150);
+  }
+
+  function _skipNextScheduledSave(...keys) {
+    keys.forEach((key) => {
+      const pendingSkipValue = _skipNextSaveCount.get(key);
+      const pendingSkip = pendingSkipValue === undefined ? 0 : pendingSkipValue;
+      _skipNextSaveCount.set(key, pendingSkip + 1);
+    });
   }
 
   watch(orders, () => _scheduleSave('orders'), { deep: true });

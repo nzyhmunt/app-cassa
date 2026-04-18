@@ -20,10 +20,12 @@ import { _resetIDBSingleton } from '../useIDB.js';
 import { useDirectusSync, _resetDirectusSyncSingleton } from '../useDirectusSync.js';
 import {
   upsertRecordsIntoIDB,
+  saveStateToIDB,
   loadLastPullTsFromIDB,
   saveLastPullTsToIDB,
   replaceTableMergesInIDB,
 } from '../../store/idbPersistence.js';
+import * as persistenceOps from '../../store/persistence/operations.js';
 import { _resetEnqueueSeq } from '../useSyncQueue.js';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -1048,12 +1050,14 @@ describe('pull — in-memory orders merge', () => {
 
     vi.spyOn(global, 'fetch').mockImplementation(() => Promise.resolve(directusListResponse([remoteOrder])));
 
-    const store = makeStore({
-      orders: [{
-        id: 'ord_1', status: 'pending', table: '01',
-        date_updated: '2024-04-01T00:00:00.000Z', orderItems: [{ uid: 'r1' }],
-      }],
-    });
+    await upsertRecordsIntoIDB('orders', [{
+      id: 'ord_1',
+      status: 'pending',
+      table: '01',
+      date_updated: '2024-04-01T00:00:00.000Z',
+      orderItems: [{ uid: 'r1' }],
+    }]);
+    const store = makeStore();
     const sync = useDirectusSync();
     sync.startSync({ appType: 'cassa', store });
     await sync.forcePull();
@@ -1072,13 +1076,13 @@ describe('pull — in-memory orders merge', () => {
 
     vi.spyOn(global, 'fetch').mockImplementation(() => Promise.resolve(directusListResponse([remoteOrder])));
 
-    const store = makeStore({
-      orders: [{
-        id: 'ord_1', status: 'completed',
-        date_updated: '2024-06-01T00:00:00.000Z',
-        orderItems: [],
-      }],
-    });
+    await upsertRecordsIntoIDB('orders', [{
+      id: 'ord_1',
+      status: 'completed',
+      date_updated: '2024-06-01T00:00:00.000Z',
+      orderItems: [],
+    }]);
+    const store = makeStore();
     const sync = useDirectusSync();
     sync.startSync({ appType: 'cassa', store });
     await sync.forcePull();
@@ -1128,14 +1132,19 @@ describe('pull — bill_sessions merge', () => {
       return Promise.resolve(directusListResponse([]));
     });
 
-    const store = makeStore({
+    await saveStateToIDB({
       tableCurrentBillSession: {
         '09': {
-          billSessionId: 'bill_99', adults: 3, children: 0,
-          table: '09', status: 'open', opened_at: '2024-03-01T00:00:00.000Z',
+          billSessionId: 'bill_99',
+          adults: 3,
+          children: 0,
+          table: '09',
+          status: 'open',
+          opened_at: '2024-03-01T00:00:00.000Z',
         },
       },
     });
+    const store = makeStore();
     const sync = useDirectusSync();
     sync.startSync({ appType: 'cassa', store });
     await sync.forcePull();
@@ -1223,6 +1232,31 @@ describe('reactive timestamps', () => {
 // ── last_pull_ts persistence ──────────────────────────────────────────────────
 
 describe('pull timestamp persistence', () => {
+  it('loads local IDB state once per paginated orders pull cycle', async () => {
+    const page1Orders = Array.from({ length: 200 }, (_, i) => makeRemoteOrder({
+      id: `ord_page1_${i}`,
+      date_updated: `2024-08-01T00:00:${String(i % 60).padStart(2, '0')}.000Z`,
+    }));
+    const page2Orders = [makeRemoteOrder({
+      id: 'ord_page2_1',
+      date_updated: '2024-08-01T00:01:00.000Z',
+    })];
+
+    const loadStateSpy = vi.spyOn(persistenceOps, 'loadStateFromIDB');
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      const u = String(url);
+      if (u.includes('/items/orders') && u.includes('page=1')) return Promise.resolve(directusListResponse(page1Orders));
+      if (u.includes('/items/orders') && u.includes('page=2')) return Promise.resolve(directusListResponse(page2Orders));
+      if (u.includes('/items/orders')) return Promise.resolve(directusListResponse([]));
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const sync = useDirectusSync();
+    await sync.forcePull();
+
+    expect(loadStateSpy).toHaveBeenCalledTimes(1);
+  });
+
   it('saves the max date_updated to IDB app_meta after a pull', async () => {
     const remoteOrder = makeRemoteOrder({
       id: 'ord_ts', date_updated: '2024-07-15T12:00:00.000Z',

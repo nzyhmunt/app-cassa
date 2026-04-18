@@ -16,7 +16,7 @@
 
 import { ref } from 'vue';
 import { createDirectus, staticToken, rest, realtime } from '@directus/sdk';
-import { appConfig } from '../utils/index.js';
+import { appConfig, applyDirectusConfigToAppConfig } from '../utils/index.js';
 import { getDB } from './useIDB.js';
 
 /**
@@ -95,12 +95,27 @@ function _normalizeDirectusConfig(saved) {
   };
 }
 
+async function _syncConfigStoreDirectusSnapshot(normalized) {
+  try {
+    const { useConfigStore } = await import('../store/index.js');
+    const configStore = useConfigStore();
+    if (typeof configStore.applyDirectusSettings === 'function') {
+      configStore.applyDirectusSettings(normalized);
+    }
+  } catch (err) {
+    console.warn('[DirectusClient] Unable to sync ConfigStore directus snapshot:', err);
+    // Best-effort sync: in contexts without active Pinia (or during early
+    // bootstrap), appConfig is still the source of truth.
+  }
+}
+
 export async function loadDirectusConfigFromStorage() {
   const db = await getDB();
   const saved = await db.get('app_meta', DIRECTUS_CONFIG_RECORD_ID);
   if (!saved || typeof saved !== 'object') return;
-  appConfig.directus = _normalizeDirectusConfig(saved.value ?? saved);
-  directusEnabledRef.value = appConfig.directus.enabled;
+  const normalized = applyDirectusConfigToAppConfig(_normalizeDirectusConfig(saved.value ?? saved));
+  await _syncConfigStoreDirectusSnapshot(normalized);
+  directusEnabledRef.value = normalized.enabled;
   resetDirectusClient();
 }
 
@@ -136,14 +151,14 @@ export async function clearDirectusConfigFromStorage() {
   } catch (e) {
     deleteError = e;
   } finally {
-    appConfig.directus = {
+    const normalized = applyDirectusConfigToAppConfig({
       enabled: false,
       url: '',
       staticToken: '',
       venueId: null,
       wsEnabled: false,
-    };
-    directusEnabledRef.value = false;
+    });
+    directusEnabledRef.value = normalized.enabled;
     resetDirectusClient();
   }
 

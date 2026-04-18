@@ -299,13 +299,14 @@ import {
 import { appConfig } from '../../utils/index.js';
 import {
   loadDirectusConfigFromStorage,
-  saveDirectusConfigToStorage,
   directusEnabledRef,
 } from '../../composables/useDirectusClient.js';
 import { useDirectusSync } from '../../composables/useDirectusSync.js';
+import { useConfigStore } from '../../store/index.js';
 import SyncQueueLogModal from './SyncQueueLogModal.vue';
 
 const sync = useDirectusSync();
+const configStore = useConfigStore();
 
 // ── Form state ────────────────────────────────────────────────────────────────
 
@@ -453,7 +454,7 @@ async function testConnection() {
   }
 }
 
-/** Persists the form values to IndexedDB and updates appConfig. */
+/** Persists the form values through ConfigStore (IDB + runtime update). */
 async function saveConfig() {
   const nextDirectusConfig = {
     enabled: form.enabled,
@@ -463,9 +464,8 @@ async function saveConfig() {
     wsEnabled: form.wsEnabled,
   };
 
-  appConfig.directus = nextDirectusConfig;
   try {
-    await saveDirectusConfigToStorage();
+    await configStore.saveDirectusSettings(nextDirectusConfig);
   } catch (e) {
     _appendReconfigureLog({
       level: 'error',
