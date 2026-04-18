@@ -443,8 +443,8 @@ export const useOrderStore = defineStore('orders', () => {
     billRequestedTables.value = new Set(billRequestedTables.value);
   }
 
-  // Public API: initiates an IDB write before updating reactive state, then suppresses the
-  // watcher-driven debounced save to prevent a redundant write.
+  // Public API: initiates an IDB write before updating reactive state.
+  // The watcher-driven debounced save may still run afterward as a safety-net backup.
   function setBillRequested(tableId, val) {
     const nextSet = new Set(billRequestedTables.value);
     if (val) nextSet.add(tableId);
