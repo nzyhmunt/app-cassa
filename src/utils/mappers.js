@@ -173,9 +173,15 @@ export function mapOrderItemToDirectus(record) {
     kitchen_ready: source.kitchen_ready ?? source.kitchenReady ?? false,
     order: relationId(source.order ?? source.orderId ?? null),
     dish: relationId(source.dish ?? source.dishId ?? null),
-    venue_user_created: relationId(source.venue_user_created ?? source.venueUserCreated ?? null),
-    venue_user_updated: relationId(source.venue_user_updated ?? source.venueUserUpdated ?? null),
   };
+  const venueUserCreated = source.venue_user_created ?? source.venueUserCreated;
+  if (venueUserCreated != null) {
+    out.venue_user_created = relationId(venueUserCreated);
+  }
+  const venueUserUpdated = source.venue_user_updated ?? source.venueUserUpdated;
+  if (venueUserUpdated != null) {
+    out.venue_user_updated = relationId(venueUserUpdated);
+  }
   delete out.unitPrice;
   delete out.voidedQuantity;
   delete out.kitchenReady;
