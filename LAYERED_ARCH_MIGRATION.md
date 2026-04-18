@@ -179,8 +179,8 @@
 
 **File**: `src/store/persistence.js`
 
-- [ ] Il prefisso `demo_app_state` nel `storageKey` è residuo legacy.
-- [ ] Rinominare (con bump del valore SCHEMA_VERSION) in `app_state` o in qualcosa
+- [x] Il prefisso `demo_app_state` nel `storageKey` è residuo legacy.
+- [x] Rinominare (con bump del valore SCHEMA_VERSION) in `app_state` o in qualcosa
   di semanticamente corretto.
 
 ---

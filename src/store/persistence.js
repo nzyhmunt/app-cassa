@@ -22,7 +22,7 @@ import { appConfig } from '../utils/index.js';
  * @deprecated Used only for backwards-compat key references; IndexedDB schema
  * versioning is handled independently in `composables/useIDB.js` (DB_VERSION).
  */
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 /**
  * Returns the active instance name from `appConfig.instanceName`.
@@ -45,7 +45,7 @@ export function resolveStorageKeys(instanceName) {
   const n = instanceName ?? getInstanceName();
   const suffix = n ? `_${n}` : '';
   return {
-    storageKey: `demo_app_state${suffix}_v${SCHEMA_VERSION}`,
+    storageKey: `app_state${suffix}_v${SCHEMA_VERSION}`,
     settingsKey: n ? `app-settings_${n}` : 'app-settings',
   };
 }
