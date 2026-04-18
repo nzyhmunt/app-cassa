@@ -267,6 +267,7 @@ export function mapVenueConfigFromDirectus(cachedConfig, defaults) {
     if (venueRecord.billing_enable_cash_change_calculator != null) next.billing.enableCashChangeCalculator = venueRecord.billing_enable_cash_change_calculator;
     if (venueRecord.billing_enable_tips != null) next.billing.enableTips = venueRecord.billing_enable_tips;
     if (venueRecord.billing_enable_discounts != null) next.billing.enableDiscounts = venueRecord.billing_enable_discounts;
+    if (venueRecord.billing_auto_close_on_full_payment != null) next.billing.autoCloseOnFullPayment = venueRecord.billing_auto_close_on_full_payment;
     if (venueRecord.billing_allow_custom_entry != null) next.billing.allowCustomEntry = venueRecord.billing_allow_custom_entry;
 
     if (Array.isArray(venueRecord.orders_rejection_reasons) && venueRecord.orders_rejection_reasons.length > 0) {

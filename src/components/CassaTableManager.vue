@@ -695,7 +695,7 @@
             </div>
 
             <!-- Manual bill close buttons (shown when fully paid) -->
-            <div v-if="canManuallyCloseBill" class="rounded-xl border-2 border-emerald-300 bg-emerald-50 p-2.5 sm:p-3 space-y-2">
+            <div v-if="canManuallyCloseBill && !autoCloseOnFullPaymentEnabled" class="rounded-xl border-2 border-emerald-300 bg-emerald-50 p-2.5 sm:p-3 space-y-2">
               <div class="flex items-center gap-2 text-emerald-700">
                 <CheckCircle class="size-4 shrink-0" />
                 <span class="text-xs font-bold">Conto saldato — nessun residuo.</span>
@@ -1868,6 +1868,7 @@ const quotaRomana = computed(() => {
 // ── Feature flags from config ──────────────────────────────────────────────
 const tipsEnabled = computed(() => configStore.config.billing?.enableTips ?? false);
 const discountsEnabled = computed(() => configStore.config.billing?.enableDiscounts ?? false);
+const autoCloseOnFullPaymentEnabled = computed(() => configStore.config.billing?.autoCloseOnFullPayment !== false);
 
 // ── Payment modal computed ───────────────────────────────────────────────────────────────────
 const modalMethod = computed(() =>
@@ -2385,6 +2386,15 @@ const canManuallyCloseBill = computed(() =>
   !!selectedTable.value &&
   tableAmountRemaining.value <= BILL_SETTLED_THRESHOLD);
 
+function autoCloseBillOnFullPayment() {
+  if (!autoCloseOnFullPaymentEnabled.value || !selectedTable.value) return;
+  if (hasPendingOrdersInTable.value || tableAmountRemaining.value > BILL_SETTLED_THRESHOLD) return;
+  const ordersToComplete = tableAcceptedPayableOrders.value.filter(o => KITCHEN_ACTIVE_STATUSES.includes(o.status));
+  if (ordersToComplete.length === 0) return;
+  ordersToComplete.forEach(o => orderStore.changeOrderStatus(o, 'completed'));
+  closeTableModal();
+}
+
 function closeTableBill() {
   if (!selectedTable.value) return;
   const session = orderStore.tableCurrentBillSession[selectedTable.value.id];
@@ -2557,6 +2567,10 @@ function processTablePayment(paymentMethodId, extra = {}, overrideAmount = null)
     analiticaQty.value = {};
   }
 
+  if (autoCloseOnFullPaymentEnabled.value) {
+    nextTick(() => autoCloseBillOnFullPayment());
+  }
+
   jsonContext.value = 'receipt';
   jsonPayloadData.value = JSON.stringify(payload, null, 2);
   showPrecontoJson.value = true;
@@ -2647,6 +2661,9 @@ function applyDiscount() {
   });
 
   discountInput.value = '';
+  if (autoCloseOnFullPaymentEnabled.value) {
+    nextTick(() => autoCloseBillOnFullPayment());
+  }
 }
 
 // ── JSON modal ─────────────────────────────────────────────────────────────

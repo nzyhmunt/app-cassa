@@ -180,6 +180,7 @@ export const DEFAULT_SETTINGS = {
   // enableCashChangeCalculator: mostra il calcolatore del resto per i pagamenti in contanti
   // enableTips: abilita l'inserimento della mancia per ogni pagamento
   // enableDiscounts: abilita l'applicazione di sconti in cassa
+  // autoCloseOnFullPayment: quando true chiude automaticamente il conto al saldo completo
   // allowCustomEntry: quando true (default), abilita la tab "Personalizzata" nel modal Voce Diretta
   //   per inserire voci libere (nome + prezzo) non collegate al menu. Impostare a false per
   //   limitare le voci dirette solo alle voci presenti nel menu configurato.
@@ -187,6 +188,7 @@ export const DEFAULT_SETTINGS = {
     enableCashChangeCalculator: true,
     enableTips: true,
     enableDiscounts: true,
+    autoCloseOnFullPayment: true,
     allowCustomEntry: true,
   },
 

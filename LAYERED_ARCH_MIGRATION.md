@@ -210,9 +210,9 @@
 
 **File**: `src/utils/mappers.js`, `src/composables/useDirectusSync.js`
 
-- [ ] Il campo è presente nello schema Directus ma non mappato in
+- [x] Il campo è presente nello schema Directus ma non mappato in
   `applyVenueRecordToConfig`.
-- [ ] Aggiungere mapping verso `appConfig.billing.autoCloseOnFullPayment` o
+- [x] Aggiungere mapping verso `appConfig.billing.autoCloseOnFullPayment` o
   rimuovere il campo da Directus se la funzionalità non è prevista.
 
 ---
