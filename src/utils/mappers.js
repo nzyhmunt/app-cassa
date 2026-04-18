@@ -53,6 +53,7 @@ export function mapOrderFromDirectus(record) {
 
 export function mapOrderToDirectus(record) {
   const source = record ?? {};
+  // Destructure UI-only nested helpers so they don't leak in payload spread.
   const { noteVisibility, dietaryPreferences, time, ...rest } = source;
   return {
     ...rest,
@@ -112,6 +113,7 @@ export function mapBillSessionFromDirectus(record) {
 
 export function mapBillSessionToDirectus(record) {
   const source = record ?? {};
+  // Strip legacy *_count fields from spread while still accepting them as fallback input.
   const { adults_count, children_count, ...rest } = source;
   return {
     ...rest,
