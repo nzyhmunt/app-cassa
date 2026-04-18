@@ -94,9 +94,9 @@
 
 **File**: `src/store/reportOps.js`
 
-- [ ] `performDailyClose` svuota `transactions.value` e `cashMovements.value` solo
+- [x] `performDailyClose` svuota `transactions.value` e `cashMovements.value` solo
   in memoria senza salvare il closure in IDB né enqueue verso Directus.
-- [ ] Aggiungere:
+- [x] Aggiungere:
   1. `upsertRecordsIntoIDB('daily_closures', [closure])` prima di azzerare le array
   2. `enqueue('daily_closures', 'create', closure.id, closure)`
   3. Eventualmente `enqueue('daily_closure_by_method', 'create', …)` per i dettagli per metodo
@@ -219,7 +219,7 @@
 | Priorità | Item | Stato |
 |----------|------|-------|
 | P0       | 4    | ⬜ tutti aperti |
-| P1       | 6    | ⬜ tutti aperti |
+| P1       | 6    | 🟨 1/6 completato (P1-2) |
 | P2       | 6    | ⬜ tutti aperti |
 
 ---

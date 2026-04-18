@@ -852,7 +852,7 @@ export const useOrderStore = defineStore('orders', () => {
         fiscalReceipts,
         invoiceRequests,
       },
-      { getTableStatus },
+      { getTableStatus, upsertRecordsIntoIDB, enqueue },
     );
 
   const pendingOpenTable = ref(null);

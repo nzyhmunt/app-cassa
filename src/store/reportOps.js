@@ -5,6 +5,7 @@
  * Usage: call `makeReportOps(state, helpers)` inside the Pinia store definition.
  */
 import { computed } from 'vue';
+import { newUUIDv7 } from './storeUtils.js';
 
 /**
  * @param {object} state   – Reactive refs: orders, transactions, cashBalance, cashMovements,
@@ -13,7 +14,11 @@ import { computed } from 'vue';
  */
 export function makeReportOps(state, helpers) {
   const { orders, transactions, cashBalance, cashMovements, dailyClosures, config, fiscalReceipts, invoiceRequests } = state;
-  const { getTableStatus } = helpers;
+  const {
+    getTableStatus,
+    upsertRecordsIntoIDB = null,
+    enqueue = null,
+  } = helpers;
 
   function _buildDailySummary() {
     const byMethod = {};    // scontrino per metodo (solo amountPaid, escluse mance)
@@ -107,7 +112,43 @@ export function makeReportOps(state, helpers) {
   }
 
   function performDailyClose() {
-    const summary = { ..._buildDailySummary(), type: 'Z' };
+    const venueId = config?.value?.directus?.venueId ?? null;
+    const summary = {
+      ..._buildDailySummary(),
+      id: newUUIDv7(),
+      type: 'Z',
+      closure_type: 'Z',
+      status: 'active',
+      ...(venueId != null ? { venue: venueId } : {}),
+    };
+    const byMethodRows = Object.entries(summary.byMethod ?? {})
+      .filter(([paymentMethod, amount]) => (
+        typeof paymentMethod === 'string' &&
+        paymentMethod.trim() !== '' &&
+        Number.isFinite(Number(amount))
+      ))
+      .map(([paymentMethod, amount]) => ({
+        id: newUUIDv7(),
+        daily_closure: summary.id,
+        payment_method: paymentMethod,
+        amount: Number(amount),
+        status: 'active',
+        ...(venueId != null ? { venue: venueId } : {}),
+      }));
+
+    if (typeof upsertRecordsIntoIDB === 'function') {
+      upsertRecordsIntoIDB('daily_closures', [summary])
+        .catch((err) => console.warn('[Store] Failed to persist daily closure in IDB:', err));
+      if (byMethodRows.length > 0) {
+        upsertRecordsIntoIDB('daily_closure_by_method', byMethodRows)
+          .catch((err) => console.warn('[Store] Failed to persist daily closure by method in IDB:', err));
+      }
+    }
+    if (typeof enqueue === 'function') {
+      enqueue('daily_closures', 'create', summary.id, summary);
+      byMethodRows.forEach((row) => enqueue('daily_closure_by_method', 'create', row.id, row));
+    }
+
     dailyClosures.value.push(summary);
     transactions.value = [];
     cashMovements.value = [];
