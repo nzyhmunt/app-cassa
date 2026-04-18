@@ -214,6 +214,19 @@
 
 ---
 
+### Ordine di esecuzione consigliato — P2
+
+```
+P2-1 (schema/menu_item_modifiers)       ← chiarisce il modello dati prima delle pulizie
+P2-5 (stato app_settings)               ← allineamento documentale/backend
+P2-2 (mapper legacy)                    ← pulizia codice dopo allineamento schema
+P2-4 (deprecazione clearState)          ← rifinitura API interna a basso rischio
+P2-3 (rename demo_app_state)            ← migrazione tecnica con bump schema
+P2-6 (billing_auto_close_on_full_payment) ← chiusura allineamento config Directus
+```
+
+---
+
 ## Riepilogo conteggio
 
 | Priorità | Item | Stato |
@@ -241,36 +254,3 @@ P2-*                         ← in qualunque slot libero
 ```
 
 ---
-
-## Scaletta operativa consigliata — P2
-
-> Obiettivo: chiudere il debito tecnico P2 in step piccoli, testabili e con rollback semplice.
-
-### Fase 1 · Allineamento schema/documentazione
-
-- [ ] **P2-1 (parte docs)** aggiornare `DATABASE_SCHEMA.md` sul modello M2M dei modifier.
-- [ ] **P2-5** chiarire lo stato di `app_settings` (non sincronizzata vs piano sync).
-- [ ] Definire decisione esplicita su eventuale deprecazione backend (`menu_item_modifiers`, `app_settings`).
-
-### Fase 2 · Pulizia runtime a basso rischio
-
-- [ ] **P2-4** marcare `clearState()` come deprecata e indicare il path ufficiale.
-- [ ] **P2-2** censire mapper legacy non usati e rimuovere solo quelli non referenziati in runtime.
-- [ ] Eseguire test mirati su store/persistence/sync queue dopo ogni rimozione.
-
-### Fase 3 · Migrazione tecnica con impatto dati
-
-- [ ] **P2-3** rinomina `demo_app_state` → `app_state` con bump `SCHEMA_VERSION` e migrazione sicura.
-- [ ] **P2-1 (parte IDB)** decidere e applicare rimozione/mantenimento store `menu_item_modifiers`.
-- [ ] Validare bootstrap/hydration su device con stato preesistente (upgrade path).
-
-### Fase 4 · Allineamento config Directus
-
-- [ ] **P2-6** aggiungere mapping `venues.billing_auto_close_on_full_payment` verso `appConfig.billing.autoCloseOnFullPayment` (oppure rimozione campo lato schema).
-- [ ] Aggiornare test composable/config per il nuovo mapping.
-
-### Definition of Done P2
-
-- [ ] Checklist P2-1..P2-6 tutta spuntata.
-- [ ] `DATABASE_SCHEMA.md` e `LAYERED_ARCH_MIGRATION.md` coerenti con il codice.
-- [ ] Build e test mirati verdi su aree toccate.
