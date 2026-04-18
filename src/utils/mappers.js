@@ -53,24 +53,69 @@ export function mapOrderFromDirectus(record) {
 
 export function mapOrderToDirectus(record) {
   const source = record ?? {};
-  // Destructure UI-only nested helpers so they don't leak in payload spread.
-  const { noteVisibility, dietaryPreferences, time, ...rest } = source;
-  return {
-    ...rest,
-    total_amount: source.total_amount ?? source.totalAmount ?? 0,
-    item_count: source.item_count ?? source.itemCount ?? 0,
-    order_time: source.order_time ?? time ?? null,
-    global_note: source.global_note ?? source.globalNote ?? '',
-    note_visibility_cassa: source.note_visibility_cassa ?? noteVisibility?.cassa ?? true,
-    note_visibility_sala: source.note_visibility_sala ?? noteVisibility?.sala ?? true,
-    note_visibility_cucina: source.note_visibility_cucina ?? noteVisibility?.cucina ?? true,
-    dietary_diets: source.dietary_diets ?? dietaryPreferences?.diete ?? [],
-    dietary_allergens: source.dietary_allergens ?? dietaryPreferences?.allergeni ?? [],
-    is_cover_charge: source.is_cover_charge ?? source.isCoverCharge ?? false,
-    is_direct_entry: source.is_direct_entry ?? source.isDirectEntry ?? false,
-    rejection_reason: source.rejection_reason ?? source.rejectionReason ?? null,
-    bill_session: relationId(source.bill_session ?? source.billSessionId ?? null),
-  };
+  const out = { ...source };
+
+  if (!Object.prototype.hasOwnProperty.call(out, 'total_amount') && Object.prototype.hasOwnProperty.call(source, 'totalAmount')) {
+    out.total_amount = source.totalAmount;
+  }
+  if (!Object.prototype.hasOwnProperty.call(out, 'item_count') && Object.prototype.hasOwnProperty.call(source, 'itemCount')) {
+    out.item_count = source.itemCount;
+  }
+  if (!Object.prototype.hasOwnProperty.call(out, 'order_time') && Object.prototype.hasOwnProperty.call(source, 'time')) {
+    out.order_time = source.time;
+  }
+  if (!Object.prototype.hasOwnProperty.call(out, 'global_note') && Object.prototype.hasOwnProperty.call(source, 'globalNote')) {
+    out.global_note = source.globalNote;
+  }
+  if (!Object.prototype.hasOwnProperty.call(out, 'is_cover_charge') && Object.prototype.hasOwnProperty.call(source, 'isCoverCharge')) {
+    out.is_cover_charge = source.isCoverCharge;
+  }
+  if (!Object.prototype.hasOwnProperty.call(out, 'is_direct_entry') && Object.prototype.hasOwnProperty.call(source, 'isDirectEntry')) {
+    out.is_direct_entry = source.isDirectEntry;
+  }
+  if (!Object.prototype.hasOwnProperty.call(out, 'rejection_reason') && Object.prototype.hasOwnProperty.call(source, 'rejectionReason')) {
+    out.rejection_reason = source.rejectionReason;
+  }
+  if (!Object.prototype.hasOwnProperty.call(out, 'bill_session') && Object.prototype.hasOwnProperty.call(source, 'billSessionId')) {
+    out.bill_session = relationId(source.billSessionId);
+  }
+  if (Object.prototype.hasOwnProperty.call(out, 'bill_session')) {
+    out.bill_session = relationId(out.bill_session);
+  }
+
+  if (Object.prototype.hasOwnProperty.call(source, 'noteVisibility') && source.noteVisibility && typeof source.noteVisibility === 'object') {
+    if (!Object.prototype.hasOwnProperty.call(out, 'note_visibility_cassa') && Object.prototype.hasOwnProperty.call(source.noteVisibility, 'cassa')) {
+      out.note_visibility_cassa = source.noteVisibility.cassa;
+    }
+    if (!Object.prototype.hasOwnProperty.call(out, 'note_visibility_sala') && Object.prototype.hasOwnProperty.call(source.noteVisibility, 'sala')) {
+      out.note_visibility_sala = source.noteVisibility.sala;
+    }
+    if (!Object.prototype.hasOwnProperty.call(out, 'note_visibility_cucina') && Object.prototype.hasOwnProperty.call(source.noteVisibility, 'cucina')) {
+      out.note_visibility_cucina = source.noteVisibility.cucina;
+    }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(source, 'dietaryPreferences') && source.dietaryPreferences && typeof source.dietaryPreferences === 'object') {
+    if (!Object.prototype.hasOwnProperty.call(out, 'dietary_diets') && Object.prototype.hasOwnProperty.call(source.dietaryPreferences, 'diete')) {
+      out.dietary_diets = source.dietaryPreferences.diete;
+    }
+    if (!Object.prototype.hasOwnProperty.call(out, 'dietary_allergens') && Object.prototype.hasOwnProperty.call(source.dietaryPreferences, 'allergeni')) {
+      out.dietary_allergens = source.dietaryPreferences.allergeni;
+    }
+  }
+
+  delete out.totalAmount;
+  delete out.itemCount;
+  delete out.time;
+  delete out.globalNote;
+  delete out.noteVisibility;
+  delete out.dietaryPreferences;
+  delete out.isCoverCharge;
+  delete out.isDirectEntry;
+  delete out.rejectionReason;
+  delete out.billSessionId;
+
+  return out;
 }
 
 export function mapOrderItemFromDirectus(record) {
@@ -112,12 +157,7 @@ export function mapBillSessionFromDirectus(record) {
 }
 
 export function mapBillSessionToDirectus(record) {
-  const source = record ?? {};
-  return {
-    ...source,
-    adults: source.adults ?? 0,
-    children: source.children ?? 0,
-  };
+  return { ...(record ?? {}) };
 }
 
 function normalizeMenu(modifiers, categoryModifierLinks, itemModifierLinks, categories, items, locale) {

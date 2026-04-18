@@ -113,6 +113,9 @@ describe('drainQueue()', () => {
     expect(url).toContain('/items/orders/ord_1');
     expect(opts.method).toBe('PATCH');
     expect(JSON.parse(opts.body)).toMatchObject({ status: 'accepted' });
+    expect(JSON.parse(opts.body).total_amount).toBeUndefined();
+    expect(JSON.parse(opts.body).item_count).toBeUndefined();
+    expect(JSON.parse(opts.body).order_time).toBeUndefined();
   });
 
   it('strips _sync_status and orderItems from payload', async () => {
@@ -169,6 +172,22 @@ describe('drainQueue()', () => {
     const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
     expect(body.adults).toBe(3);
     expect(body.children).toBe(1);
+  });
+
+  it('does not inject adults/children on sparse bill_sessions update', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue(mockResponse(200, { data: { id: 'bill_1' } }));
+    await enqueue('bill_sessions', 'update', 'bill_1', {
+      status: 'closed',
+      closed_at: '2026-01-01T10:00:00.000Z',
+    });
+
+    await drainQueue(FAKE_CFG);
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.status).toBe('closed');
+    expect(body.closed_at).toBe('2026-01-01T10:00:00.000Z');
+    expect(body.adults).toBeUndefined();
+    expect(body.children).toBeUndefined();
   });
 
   it('retries 409 create as PATCH', async () => {

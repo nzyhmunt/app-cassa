@@ -10,7 +10,7 @@ import { newUUIDv7 } from './storeUtils.js';
 /**
  * @param {object} state   – Reactive refs: orders, transactions, cashBalance, cashMovements,
  *                           dailyClosures, config, fiscalReceipts, invoiceRequests
- * @param {object} helpers – Store functions: getTableStatus
+ * @param {object} helpers – Store functions: getTableStatus, upsertRecordsIntoIDB, enqueue
  */
 export function makeReportOps(state, helpers) {
   const { orders, transactions, cashBalance, cashMovements, dailyClosures, config, fiscalReceipts, invoiceRequests } = state;

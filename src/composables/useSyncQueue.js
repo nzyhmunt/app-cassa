@@ -334,7 +334,8 @@ const TO_DIRECTUS_MAPPERS = {
  *    `orders`/`order_items`/`bill_sessions` (other collections pass through)
  *  - Drop of push-local-only fields (PUSH_DROP_FIELDS + LOCAL_ONLY_FIELDS via _cleanPayload)
  *
- * Only fields present in the input payload are emitted (safe for partial updates).
+ * Only fields present in the input payload (and explicit mapper-derived aliases)
+ * are emitted (safe for partial updates).
  *
  * @param {string} collection  - Directus collection name
  * @param {object|null} localPayload
@@ -393,18 +394,8 @@ function _toDirectusPayload(collection, localPayload) {
     out[key] = value;
   }
 
-  const explicitFields = new Set(Object.keys(out));
   const mapper = TO_DIRECTUS_MAPPERS[collection];
-  const mappedRaw = mapper ? mapper(out) : out;
-  const mapped = {};
-
-  // Preserve sparse semantics: do not allow collection mappers to re-introduce
-  // fields that were not explicitly present in the transformed input payload.
-  for (const fieldName of explicitFields) {
-    if (Object.prototype.hasOwnProperty.call(mappedRaw, fieldName)) {
-      mapped[fieldName] = mappedRaw[fieldName];
-    }
-  }
+  const mapped = mapper ? mapper(out) : out;
   for (const fieldName of Object.keys(mapped)) {
     if (DIRECTUS_RELATION_FIELDS.has(fieldName)) {
       const value = mapped[fieldName];
