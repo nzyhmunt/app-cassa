@@ -178,8 +178,9 @@ export function makeTableOps(state, helpers) {
     tableCurrentBillSession.value = nextTCS;
     tableOccupiedAt.value = nextOccupiedAt;
     tableMergedInto.value = nextMergedInto;
-    // Use reactive-only helper (no extra IDB write) when available; fall back to
-    // setBillRequested (which issues its own IDB write — redundant but safe).
+    // Apply the projected bill-requested state directly to the reactive ref when a
+    // reactive-only helper is available; otherwise fall back to setBillRequested
+    // (which issues its own IDB write — redundant but safe).
     if (updateBillRequestedState) {
       billRequestedTables.value = nextBillRequested;
     } else {
