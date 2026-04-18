@@ -560,6 +560,8 @@ describe('P0-2 IDB-first — order item mutations', () => {
     runtime.store = store;
 
     store.setBillRequested('T_bill', true);
+    // Advance timers: confirm no watcher-driven debounced save fires on top of the explicit write.
+    vi.advanceTimersByTime(200);
 
     // saveStateToIDB should have been called with the new Set
     expect(saveStateToIDBMock).toHaveBeenCalledTimes(1);
@@ -573,6 +575,8 @@ describe('P0-2 IDB-first — order item mutations', () => {
     runtime.store = store;
 
     store.setFondoCassa(250);
+    // Advance timers: confirm no watcher-driven debounced save fires on top of the explicit write.
+    vi.advanceTimersByTime(200);
 
     expect(saveStateToIDBMock).toHaveBeenCalledTimes(1);
     const [payload] = saveStateToIDBMock.mock.calls[0];

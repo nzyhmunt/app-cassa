@@ -953,13 +953,13 @@ export const useOrderStore = defineStore('orders', () => {
 
   function setCashBalance(amount) {
     const next = parseFloat(amount) || 0;
-    // Initiate IDB write before reactive update; watcher provides safety-net backup.
+    // Initiate IDB write before reactive update; watcher retries only if this save fails.
     saveStateToIDB({ cashBalance: next })
-      .then(() => _skipNextScheduledSave('cashBalance'))
       .catch(e => {
         console.warn('[Store] setCashBalance IDB save failed:', e);
         _scheduleSave('cashBalance');
       });
+    _skipNextScheduledSave('cashBalance');
     cashBalance.value = next;
   }
   const setFondoCassa = setCashBalance;
