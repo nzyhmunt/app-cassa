@@ -536,7 +536,13 @@ export const useOrderStore = defineStore('orders', () => {
   function _withOrderLock(ordId, fn) {
     const prev = (_orderMutexMap.get(ordId) ?? Promise.resolve()).catch(() => {});
     const next = prev.then(fn);
-    _orderMutexMap.set(ordId, next.catch(() => {}));
+    const storedPromise = next.catch(() => {});
+    _orderMutexMap.set(ordId, storedPromise);
+    storedPromise.finally(() => {
+      if (_orderMutexMap.get(ordId) === storedPromise) {
+        _orderMutexMap.delete(ordId);
+      }
+    });
     return next;
   }
 
