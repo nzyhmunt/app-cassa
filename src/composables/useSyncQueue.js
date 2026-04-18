@@ -378,6 +378,8 @@ function _toDirectusPayload(collection, localPayload) {
 
   // Strip local-only runtime fields first
   const cleaned = _cleanPayload(localPayload);
+  // For collections with a canonical mapper in utils/mappers.js, avoid applying
+  // FIELD_RENAME_MAP here to prevent duplicate naming logic in two layers.
   const mapper = TO_DIRECTUS_MAPPERS[collection];
   const shouldUseRenameMap = !mapper;
   const out = {};
