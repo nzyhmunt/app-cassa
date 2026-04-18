@@ -288,13 +288,12 @@ describe('P0-2 IDB-first — order item mutations', () => {
   it('updateQtyGlobal saves projected order to IDB before reactive mutation and enqueue', async () => {
     const store = useAppStore();
     runtime.store = store;
-    const order = makeOrderWithItems('ord_qty');
+    const order = makeOrderWithItems('ord_qty', { status: 'pending' });
     await store.addOrder(order);
     runtime.snapshots = [];
     vi.clearAllMocks();
 
     const liveOrder = store.orders.find(o => o.id === 'ord_qty');
-    liveOrder.status = 'pending';
     await store.updateQtyGlobal(liveOrder, 0, 1);
     vi.advanceTimersByTime(200);
 
