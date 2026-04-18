@@ -262,9 +262,9 @@ const showTipInput = ref(false);
 const postTipValue = ref('');
 const postTipParsed = computed(() => Math.max(0, parseFloat(postTipValue.value) || 0));
 
-function confirmPostTip() {
+async function confirmPostTip() {
   if (!postTipParsed.value) return;
-  orderStore.addTipTransaction(props.bill.tableId, props.bill.billSessionId, postTipParsed.value);
+  await orderStore.addTipTransaction(props.bill.tableId, props.bill.billSessionId, postTipParsed.value);
   showTipInput.value = false;
   postTipValue.value = '';
 }

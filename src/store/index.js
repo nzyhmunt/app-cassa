@@ -212,8 +212,6 @@ export const useConfigStore = defineStore('config', () => {
     preventScreenLock.value = normalized.preventScreenLock;
     customKeyboard.value = normalized.customKeyboard;
     preBillPrinterId.value = normalized.preBillPrinterId;
-    appConfig.menuSource = normalized.menuSource;
-    appConfig.menuUrl = normalized.menuUrl;
     config.value = {
       ...config.value,
       menuSource: normalized.menuSource,
@@ -229,8 +227,16 @@ export const useConfigStore = defineStore('config', () => {
    * @returns {Promise<{sounds:boolean,menuUrl:string,menuSource:'json'|'directus',preventScreenLock:boolean,customKeyboard:string,preBillPrinterId:string}>}
    */
   async function saveLocalSettings(payload = {}) {
-    const normalized = applyLocalSettings(payload);
+    const normalized = _normalizeLocalSettingsPayload(payload, {
+      sounds: sounds.value,
+      menuUrl: menuUrl.value,
+      menuSource: menuSource.value,
+      preventScreenLock: preventScreenLock.value,
+      customKeyboard: customKeyboard.value,
+      preBillPrinterId: preBillPrinterId.value,
+    });
     await saveSettingsToIDB(normalized);
+    applyLocalSettings(normalized);
     return normalized;
   }
 
@@ -435,13 +441,12 @@ export const useOrderStore = defineStore('orders', () => {
     billRequestedTables.value = new Set(billRequestedTables.value);
   }
 
-  function openTableSession(tableId, adults = 0, children = 0) {
+  async function openTableSession(tableId, adults = 0, children = 0) {
     const billSessionId = newUUIDv7();
     const now = new Date().toISOString();
     const session = { billSessionId, adults, children, table: tableId, status: 'open', opened_at: now };
     const venueId = configStore.config.directus?.venueId ?? null;
-    upsertBillSessionInIDB({ ...session, ...(venueId != null ? { venue: venueId } : {}) })
-      .catch((err) => console.warn('[Store] Failed to persist bill session:', err));
+    await upsertBillSessionInIDB({ ...session, ...(venueId != null ? { venue: venueId } : {}) });
     tableCurrentBillSession.value = {
       ...tableCurrentBillSession.value,
       [tableId]: session,
@@ -498,18 +503,17 @@ export const useOrderStore = defineStore('orders', () => {
     enqueue('orders', 'update', ord.id, payload);
   }
 
-  function addOrder(order) {
+  async function addOrder(order) {
     if (order.globalNote === undefined) order.globalNote = '';
     if (!order.noteVisibility) order.noteVisibility = { cassa: true, sala: true, cucina: true };
     const nextOrders = [...orders.value, order];
-    saveStateToIDB({ orders: nextOrders })
-      .catch((err) => console.warn('[Store] Failed to persist order creation:', err));
+    await saveStateToIDB({ orders: nextOrders });
     _skipNextScheduledSave('orders');
     orders.value = nextOrders;
     enqueue('orders', 'create', order.id, order);
   }
 
-  function changeOrderStatus(order, newStatus, rejectionReason = null) {
+  async function changeOrderStatus(order, newStatus, rejectionReason = null) {
     if (!order?.id) return;
     const projectedOrders = orders.value.map((current) => {
       if (current.id !== order.id) return current;
@@ -542,16 +546,15 @@ export const useOrderStore = defineStore('orders', () => {
       projectedTableCurrentBillSession = nextSession;
       projectedBillRequestedTables.delete(order.table);
     }
-    saveStateToIDB({
+    await saveStateToIDB({
       orders: projectedOrders,
       tableOccupiedAt: projectedTableOccupiedAt,
       tableMergedInto: projectedTableMergedInto,
       tableCurrentBillSession: projectedTableCurrentBillSession,
       billRequestedTables: projectedBillRequestedTables,
-    }).catch((err) => console.warn('[Store] Failed to persist status update:', err));
+    });
     if (closingSession?.billSessionId) {
-      closeBillSessionInIDB(closingSession.billSessionId)
-        .catch((err) => console.warn('[Store] Failed to close bill session in IDB:', err));
+      await closeBillSessionInIDB(closingSession.billSessionId);
     }
 
     _skipNextScheduledSave(
@@ -668,14 +671,14 @@ export const useOrderStore = defineStore('orders', () => {
     _enqueueOrderSnapshot(order);
   }
 
-  function addTransaction(txn) {
+  async function addTransaction(txn) {
     const nextTransactions = [...transactions.value, txn];
     const nextBillRequestedTables = new Set(billRequestedTables.value);
     if (txn.tableId) nextBillRequestedTables.delete(txn.tableId);
-    saveStateToIDB({
+    await saveStateToIDB({
       transactions: nextTransactions,
       billRequestedTables: nextBillRequestedTables,
-    }).catch((err) => console.warn('[Store] Failed to persist transactions:', err));
+    });
     _skipNextScheduledSave('transactions', 'billRequestedTables');
     transactions.value = nextTransactions;
     if (txn.tableId) setBillRequested(txn.tableId, false);
@@ -737,7 +740,7 @@ export const useOrderStore = defineStore('orders', () => {
     }
   }
 
-  function addTipTransaction(tableId, billSessionId, tipValue) {
+  async function addTipTransaction(tableId, billSessionId, tipValue) {
     if (!tableId || tipValue <= 0) return;
     const venueId = configStore.config.directus?.venueId;
     const txn = {
@@ -752,11 +755,14 @@ export const useOrderStore = defineStore('orders', () => {
       orderRefs: [],
       ...(venueId != null ? { venue: venueId } : {}),
     };
-    transactions.value.push(txn);
+    const nextTransactions = [...transactions.value, txn];
+    await saveStateToIDB({ transactions: nextTransactions });
+    _skipNextScheduledSave('transactions');
+    transactions.value = nextTransactions;
     enqueue('transactions', 'create', txn.id, txn);
   }
 
-  function addDirectOrder(tableId, billSessionId, items) {
+  async function addDirectOrder(tableId, billSessionId, items) {
     if (!tableId || !Array.isArray(items) || items.length === 0) return null;
     const venueId = configStore.config.directus?.venueId;
     const order = {
@@ -773,8 +779,8 @@ export const useOrderStore = defineStore('orders', () => {
       ...(venueId != null ? { venue: venueId } : {}),
     };
     updateOrderTotals(order);
-    addOrder(order);
-    changeOrderStatus(order, 'accepted');
+    await addOrder(order);
+    await changeOrderStatus(order, 'accepted');
     return order;
   }
 
@@ -783,7 +789,7 @@ export const useOrderStore = defineStore('orders', () => {
   }
   const setFondoCassa = setCashBalance;
 
-  function addCashMovement(type, amount, reason) {
+  async function addCashMovement(type, amount, reason) {
     const venueId = configStore.config.directus?.venueId;
     const mov = {
       id: newUUIDv7(),
@@ -794,21 +800,20 @@ export const useOrderStore = defineStore('orders', () => {
       ...(venueId != null ? { venue: venueId } : {}),
     };
     const nextCashMovements = [...cashMovements.value, mov];
-    saveStateToIDB({ cashMovements: nextCashMovements })
-      .catch((err) => console.warn('[Store] Failed to persist cash movement:', err));
+    await saveStateToIDB({ cashMovements: nextCashMovements });
     _skipNextScheduledSave('cashMovements');
     cashMovements.value = nextCashMovements;
     enqueue('cash_movements', 'create', mov.id, mov);
   }
 
-  function simulateNewOrder() {
+  async function simulateNewOrder() {
     const num = Math.floor(Math.random() * 12) + 1;
     const newTav = num < 10 ? '0' + num : '' + num;
     const now = formatOrderTime();
     const session = tableCurrentBillSession.value[newTav];
     const venueId = configStore.config.directus?.venueId;
 
-    orders.value.push({
+    await addOrder({
       id: newUUIDv7(),
       table: newTav,
       billSessionId: session?.billSessionId ?? null,
@@ -827,7 +832,7 @@ export const useOrderStore = defineStore('orders', () => {
 
     const cc = configStore.config.coverCharge;
     if (cc?.enabled && cc?.autoAdd && cc?.priceAdult > 0) {
-      const coverOrder = addDirectOrder(newTav, session?.billSessionId ?? null, [
+      const coverOrder = await addDirectOrder(newTav, session?.billSessionId ?? null, [
         { uid: newShortId('cop'), dishId: null, name: cc.name, unitPrice: cc.priceAdult, quantity: 2, voidedQuantity: 0, notes: [], modifiers: [] },
       ]);
       if (coverOrder) coverOrder.isCoverCharge = true;

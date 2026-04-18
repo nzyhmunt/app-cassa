@@ -24,9 +24,12 @@ import {
   loadLastPullTsFromIDB,
   saveLastPullTsToIDB,
   replaceTableMergesInIDB,
+  loadConfigFromIDB,
 } from '../../store/idbPersistence.js';
 import * as persistenceOps from '../../store/persistence/operations.js';
 import { _resetEnqueueSeq } from '../useSyncQueue.js';
+import { mapVenueConfigFromDirectus } from '../../utils/mappers.js';
+import { createRuntimeConfig, DEFAULT_SETTINGS } from '../../utils/index.js';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -148,12 +151,24 @@ function directusItemResponse(data) {
 }
 
 function makeStore(overrides = {}) {
-  return {
+  const s = {
     orders: [],
     transactions: [],
     tableCurrentBillSession: {},
     ...overrides,
   };
+  // Provide a default hydrateConfigFromIDB that mimics the real store:
+  // loads the venue config from IDB and replaces s.config with a new object.
+  if (typeof s.hydrateConfigFromIDB !== 'function') {
+    s.hydrateConfigFromIDB = async function (options = {}) {
+      const venueId = this.config?.directus?.venueId ?? null;
+      const cached = await loadConfigFromIDB(venueId);
+      const mapped = mapVenueConfigFromDirectus(cached, DEFAULT_SETTINGS);
+      const hydrated = createRuntimeConfig(mapped);
+      this.config = { ...hydrated };
+    };
+  }
+  return s;
 }
 
 /** A minimal Directus order record (Directus/snake_case format). */

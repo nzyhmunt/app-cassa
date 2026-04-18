@@ -244,11 +244,7 @@ async function _refreshStoreConfigFromIDB(options = {}) {
     await _store.hydrateConfigFromIDB(options);
     return;
   }
-  if (!Object.prototype.hasOwnProperty.call(_store, 'config')) return;
-  const snapshot = SUPPORTS_STRUCTURED_CLONE
-    ? structuredClone(appConfig)
-    : JSON.parse(JSON.stringify(appConfig));
-  _store.config = snapshot;
+  console.warn('[Directus] hydrateConfigFromIDB not available on store; skipping config refresh.');
 }
 
 function _extractRecordIds(records) {
@@ -867,6 +863,36 @@ async function _fanOutVenueTreeToIDB(venueRecord, { menuSource }) {
   return Object.fromEntries(stores.map(([storeName, records]) => [storeName, records.length]));
 }
 
+/**
+ * Applies a Directus-sourced runtimeConfig to appConfig, restoring
+ * preserved values (directus, instanceName, pwaLogo) as instructed.
+ * This is the single canonical writer for Directus-related appConfig mutations
+ * inside useDirectusSync.
+ *
+ * @param {object} runtimeConfig - New config values from Directus/DEFAULT_SETTINGS.
+ * @param {object} options
+ * @param {object} options.preservedDirectus - Always restored after Object.assign.
+ * @param {string|undefined} options.preservedInstanceName - Restored when provided.
+ * @param {string|undefined} options.preservedPwaLogo - Restored when provided.
+ * @param {boolean} [options.preserveMenuSource=false] - If true, restores menuSource='json' and menuUrl.
+ * @param {string|null} [options.preservedMenuUrl=null] - MenuUrl to restore when preserveMenuSource is true.
+ */
+function _applyDirectusRuntimeConfigToAppConfig(runtimeConfig, options = {}) {
+  const {
+    preservedDirectus,
+    preservedMenuUrl = null,
+    preserveMenuSource = false,
+  } = options;
+  Object.assign(appConfig, runtimeConfig);
+  appConfig.directus = preservedDirectus;
+  if ('preservedInstanceName' in options) appConfig.instanceName = options.preservedInstanceName;
+  if ('preservedPwaLogo' in options) appConfig.pwaLogo = options.preservedPwaLogo;
+  if (preserveMenuSource) {
+    appConfig.menuSource = 'json';
+    appConfig.menuUrl = preservedMenuUrl ?? null;
+  }
+}
+
 async function _hydrateConfigFromLocalCache(venueId, onProgress = null) {
   if (venueId == null) return false;
   const cached = await loadConfigFromIDB(venueId);
@@ -877,14 +903,13 @@ async function _hydrateConfigFromLocalCache(venueId, onProgress = null) {
   const preservedPwaLogo = appConfig.pwaLogo;
   const preservedMenuSource = appConfig.menuSource === 'json' ? 'json' : 'directus';
   const preservedMenuUrl = appConfig.menuUrl;
-  Object.assign(appConfig, runtimeConfig);
-  if (preservedMenuSource === 'json') {
-    appConfig.menuSource = 'json';
-    appConfig.menuUrl = preservedMenuUrl;
-  }
-  appConfig.directus = preservedDirectus;
-  appConfig.instanceName = preservedInstanceName;
-  appConfig.pwaLogo = preservedPwaLogo;
+  _applyDirectusRuntimeConfigToAppConfig(runtimeConfig, {
+    preservedDirectus,
+    preservedInstanceName,
+    preservedPwaLogo,
+    preserveMenuSource: preservedMenuSource === 'json',
+    preservedMenuUrl,
+  });
   await _refreshStoreConfigFromIDB({
     menuSource: appConfig.menuSource,
     menuUrl: appConfig.menuUrl,
@@ -1177,8 +1202,9 @@ export function useDirectusSync() {
         _emitProgress(onProgress, { level: 'info', message: 'Svuotamento completo cache configurazione locale…' });
         await clearLocalConfigCacheFromIDB();
         const preservedDirectus = JSON.parse(JSON.stringify(appConfig.directus ?? {}));
-        Object.assign(appConfig, createRuntimeConfig(DEFAULT_SETTINGS));
-        appConfig.directus = preservedDirectus;
+        _applyDirectusRuntimeConfigToAppConfig(createRuntimeConfig(DEFAULT_SETTINGS), {
+          preservedDirectus,
+        });
         await _refreshStoreConfigFromIDB({
           menuSource: appConfig.menuSource,
           menuUrl: appConfig.menuUrl,

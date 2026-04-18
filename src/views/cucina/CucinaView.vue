@@ -686,8 +686,9 @@ function handleConsegnataClick(order) {
       delete pendingDeliveries.value[orderId];
       const currentOrder = orderStore.orders.find(o => o.id === orderId);
       if (currentOrder) {
-        orderStore.changeOrderStatus(currentOrder, 'delivered');
-
+        orderStore.changeOrderStatus(currentOrder, 'delivered').catch(err =>
+          console.warn('[CucinaView] Errore nel marcare ordine come consegnato:', err),
+        );
       }
     }
   }, 1000);
@@ -858,15 +859,15 @@ function elapsedColor(orderTime) {
 }
 
 // ── Actions ─────────────────────────────────────────────────────────────────
-function acceptOrder(order) {
+async function acceptOrder(order) {
   // accepted → preparing (kitchen starts working on it)
-  orderStore.changeOrderStatus(order, 'preparing');
+  await orderStore.changeOrderStatus(order, 'preparing');
 
 }
 
-function advancePreparingOrder(order) {
+async function advancePreparingOrder(order) {
   // preparing → ready
-  orderStore.changeOrderStatus(order, 'ready');
+  await orderStore.changeOrderStatus(order, 'ready');
 
 }
 
@@ -879,9 +880,9 @@ function requestReturnToPending(order) {
   confirmReturnModal.value = { show: true, order };
 }
 
-function confirmReturnToPending() {
+async function confirmReturnToPending() {
   if (confirmReturnModal.value.order) {
-    returnToPending(confirmReturnModal.value.order);
+    await returnToPending(confirmReturnModal.value.order);
   }
   confirmReturnModal.value = { show: false, order: null };
 }
@@ -890,27 +891,27 @@ function cancelReturnToPending() {
   confirmReturnModal.value = { show: false, order: null };
 }
 
-function returnToPending(order) {
+async function returnToPending(order) {
   // accepted → pending (return to Cassa queue)
-  orderStore.changeOrderStatus(order, 'pending');
+  await orderStore.changeOrderStatus(order, 'pending');
 
 }
 
-function backToAccepted(order) {
+async function backToAccepted(order) {
   // preparing → accepted
-  orderStore.changeOrderStatus(order, 'accepted');
+  await orderStore.changeOrderStatus(order, 'accepted');
 
 }
 
-function backToPreparing(order) {
+async function backToPreparing(order) {
   // ready → preparing
-  orderStore.changeOrderStatus(order, 'preparing');
+  await orderStore.changeOrderStatus(order, 'preparing');
 
 }
 
-function restoreFromHistory(order) {
+async function restoreFromHistory(order) {
   // delivered → ready (undo accidental delivery from Cronologia)
-  orderStore.changeOrderStatus(order, 'ready');
+  await orderStore.changeOrderStatus(order, 'ready');
 
 }
 

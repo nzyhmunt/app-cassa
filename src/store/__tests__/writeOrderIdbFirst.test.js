@@ -95,12 +95,12 @@ afterEach(() => {
 });
 
 describe('P0-1 write order (IDB-first)', () => {
-  it('addOrder invokes IDB persistence before reactive mutation and enqueue', () => {
+  it('addOrder invokes IDB persistence before reactive mutation and enqueue', async () => {
     const store = useAppStore();
     runtime.store = store;
     const order = makeOrder('ord_1');
 
-    store.addOrder(order);
+    await store.addOrder(order);
     vi.advanceTimersByTime(200);
 
     const saveSnapshot = runtime.snapshots.find((entry) => entry.type === 'save-state');
@@ -114,7 +114,7 @@ describe('P0-1 write order (IDB-first)', () => {
     expect(saveStateToIDBMock).toHaveBeenCalledTimes(1);
   });
 
-  it('changeOrderStatus persists projected state before mutating order and enqueueing', () => {
+  it('changeOrderStatus persists projected state before mutating order and enqueueing', async () => {
     const store = useAppStore();
     runtime.store = store;
     const order = makeOrder('ord_2', 'T2', 'pending');
@@ -122,7 +122,7 @@ describe('P0-1 write order (IDB-first)', () => {
     runtime.snapshots = [];
     vi.clearAllMocks();
 
-    store.changeOrderStatus(order, 'accepted');
+    await store.changeOrderStatus(order, 'accepted');
     vi.advanceTimersByTime(200);
 
     const saveSnapshot = runtime.snapshots.find((entry) => entry.type === 'save-state');
@@ -137,14 +137,14 @@ describe('P0-1 write order (IDB-first)', () => {
     expect(saveStateToIDBMock).toHaveBeenCalledTimes(1);
   });
 
-  it('addTransaction writes projected transactions first, then updates state and queue', () => {
+  it('addTransaction writes projected transactions first, then updates state and queue', async () => {
     const store = useAppStore();
     runtime.store = store;
     store.setBillRequested('T3', true);
     runtime.snapshots = [];
     vi.clearAllMocks();
 
-    store.addTransaction({
+    await store.addTransaction({
       id: 'txn_1',
       tableId: 'T3',
       amountPaid: 10,
@@ -169,11 +169,11 @@ describe('P0-1 write order (IDB-first)', () => {
     expect(saveStateToIDBMock).toHaveBeenCalledTimes(1);
   });
 
-  it('openTableSession persists bill session to IDB before state mutation and enqueue', () => {
+  it('openTableSession persists bill session to IDB before state mutation and enqueue', async () => {
     const store = useAppStore();
     runtime.store = store;
 
-    const billSessionId = store.openTableSession('T4', 2, 1);
+    const billSessionId = await store.openTableSession('T4', 2, 1);
 
     const upsertSnapshot = runtime.snapshots.find((entry) => entry.type === 'upsert-bill-session');
     expect(upsertSnapshot.sessionAtCall).toBeNull();
@@ -186,11 +186,11 @@ describe('P0-1 write order (IDB-first)', () => {
     expect(upsertCall).toBeLessThan(enqueueCall);
   });
 
-  it('addCashMovement saves to IDB before updating reactive state and enqueue', () => {
+  it('addCashMovement saves to IDB before updating reactive state and enqueue', async () => {
     const store = useAppStore();
     runtime.store = store;
 
-    store.addCashMovement('in', 15, 'Test');
+    await store.addCashMovement('in', 15, 'Test');
     vi.advanceTimersByTime(200);
 
     const saveSnapshot = runtime.snapshots.find((entry) => entry.type === 'save-state');
@@ -204,5 +204,64 @@ describe('P0-1 write order (IDB-first)', () => {
     ));
     expect(saveCall).toBeLessThan(enqueueCall);
     expect(saveStateToIDBMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('P0-1 IDB rejection — state must not mutate when IDB write fails', () => {
+  const idbError = new Error('IDB write failed');
+
+  it('addOrder does not mutate orders when IDB rejects', async () => {
+    const store = useAppStore();
+    saveStateToIDBMock.mockRejectedValueOnce(idbError);
+
+    await expect(store.addOrder(makeOrder('ord_fail'))).rejects.toThrow('IDB write failed');
+    expect(store.orders).toHaveLength(0);
+    expect(enqueueMock).not.toHaveBeenCalled();
+  });
+
+  it('changeOrderStatus does not mutate order when IDB rejects', async () => {
+    const store = useAppStore();
+    const order = makeOrder('ord_fail2', 'T5', 'pending');
+    store.orders = [order];
+    saveStateToIDBMock.mockRejectedValueOnce(idbError);
+
+    await expect(store.changeOrderStatus(order, 'accepted')).rejects.toThrow('IDB write failed');
+    expect(store.orders[0].status).toBe('pending');
+    expect(enqueueMock).not.toHaveBeenCalled();
+  });
+
+  it('addCashMovement does not mutate cashMovements when IDB rejects', async () => {
+    const store = useAppStore();
+    saveStateToIDBMock.mockRejectedValueOnce(idbError);
+
+    await expect(store.addCashMovement('in', 20, 'Test')).rejects.toThrow('IDB write failed');
+    expect(store.cashMovements).toHaveLength(0);
+    expect(enqueueMock).not.toHaveBeenCalled();
+  });
+
+  it('openTableSession does not mutate tableCurrentBillSession when IDB rejects', async () => {
+    const store = useAppStore();
+    upsertBillSessionInIDBMock.mockRejectedValueOnce(idbError);
+
+    await expect(store.openTableSession('T6', 1, 0)).rejects.toThrow('IDB write failed');
+    expect(store.tableCurrentBillSession['T6']).toBeUndefined();
+    expect(enqueueMock).not.toHaveBeenCalled();
+  });
+
+  it('addTransaction does not mutate transactions when IDB rejects', async () => {
+    const store = useAppStore();
+    saveStateToIDBMock.mockRejectedValueOnce(idbError);
+
+    await expect(store.addTransaction({
+      id: 'txn_fail',
+      tableId: 'T7',
+      amountPaid: 10,
+      tipAmount: 0,
+      paymentMethod: 'Contanti',
+      operationType: 'payment',
+      timestamp: new Date().toISOString(),
+    })).rejects.toThrow('IDB write failed');
+    expect(store.transactions).toHaveLength(0);
+    expect(enqueueMock).not.toHaveBeenCalled();
   });
 });

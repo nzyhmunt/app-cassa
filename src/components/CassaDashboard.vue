@@ -420,10 +420,10 @@ const movementType = ref('deposit');
 const movementAmount = ref(0);
 const movementReason = ref('');
 
-function addMovement() {
+async function addMovement() {
   const amount = parseFloat(movementAmount.value);
   if (isNaN(amount) || amount <= 0) return;
-  orderStore.addCashMovement(movementType.value, amount, movementReason.value || movementType.value);
+  await orderStore.addCashMovement(movementType.value, amount, movementReason.value || movementType.value);
   movementAmount.value = 0;
   movementReason.value = '';
 }

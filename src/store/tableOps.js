@@ -5,6 +5,7 @@
  * Usage: call `makeTableOps(state, helpers)` inside the Pinia store definition.
  * All parameters are the reactive refs / helper functions already defined in the store.
  */
+import { saveStateToIDB } from './persistence/operations.js';
 import { updateOrderTotals } from '../utils/index.js';
 import { newShortId } from './storeUtils.js';
 
@@ -141,12 +142,12 @@ export function makeTableOps(state, helpers) {
 
   // ── mergeTableOrders ─────────────────────────────────────────────────────
 
-  function mergeTableOrders(sourceTableId, targetTableId) {
+  async function mergeTableOrders(sourceTableId, targetTableId) {
     const resolvedTargetId = resolveMaster(targetTableId);
     if (sourceTableId === resolvedTargetId) return;
 
     // ── Billing: ensure target has an open session ───────────────────────────
-    if (!tableCurrentBillSession.value[resolvedTargetId]) openTableSession(resolvedTargetId);
+    if (!tableCurrentBillSession.value[resolvedTargetId]) await openTableSession(resolvedTargetId);
     const targetSessionId = tableCurrentBillSession.value[resolvedTargetId].billSessionId;
 
     // ── Floor-plan display: re-point source's slaves to the new master, clear
@@ -187,7 +188,7 @@ export function makeTableOps(state, helpers) {
 
   // ── detachSlaveTable ──────────────────────────────────────────────────────
 
-  function detachSlaveTable(masterTableId, slaveTableId) {
+  async function detachSlaveTable(masterTableId, slaveTableId) {
     if (tableMergedInto.value[slaveTableId] !== masterTableId) return;
 
     // ── Floor-plan display: remove slave's ghost-occupied link ────────────────
@@ -197,7 +198,7 @@ export function makeTableOps(state, helpers) {
       o => o.table === slaveTableId && o.status !== 'completed' && o.status !== 'rejected',
     );
     if (slaveHasOrders) {
-      const newSessionId = openTableSession(slaveTableId, 0, 0);
+      const newSessionId = await openTableSession(slaveTableId, 0, 0);
       orders.value.forEach(o => {
         if (o.table === slaveTableId && o.status !== 'completed' && o.status !== 'rejected') {
           o.billSessionId = newSessionId;
@@ -219,7 +220,7 @@ export function makeTableOps(state, helpers) {
    *
    * @returns {boolean} true if any items were moved
    */
-  function splitItemsToTable(sourceTableId, targetTableId, itemQtyMap) {
+  async function splitItemsToTable(sourceTableId, targetTableId, itemQtyMap) {
     if (!sourceTableId || !targetTableId || sourceTableId === targetTableId) return false;
 
     // Block if any source order is still awaiting kitchen confirmation
@@ -249,7 +250,7 @@ export function makeTableOps(state, helpers) {
     let targetSession = tableCurrentBillSession.value[targetTableId];
     if (!targetSession) {
       if (getTableStatus(targetTableId).status !== 'free') return false;
-      openTableSession(targetTableId);
+      await openTableSession(targetTableId);
       targetSession = tableCurrentBillSession.value[targetTableId];
     }
     if (!targetSession?.billSessionId) return false;
@@ -258,33 +259,37 @@ export function makeTableOps(state, helpers) {
     let anyMoved = false;
     const partialMoveItems = [];
 
-    orders.value.forEach(ord => {
-      if (ord.table !== sourceTableId) return;
-      if (ord.status === 'completed' || ord.status === 'rejected') return;
+    // Build a projected orders array by applying all mutations to deep clones.
+    // This lets us persist the projected state to IDB *before* touching any reactive refs,
+    // maintaining the IDB-first invariant even for existing-order relocations.
+    const projectedOrders = orders.value.map(ord => {
+      if (ord.table !== sourceTableId) return ord;
+      if (ord.status === 'completed' || ord.status === 'rejected') return ord;
 
+      const clone = JSON.parse(JSON.stringify(ord));
       const moves = [];
       let totalActiveInOrder = 0;
       let totalMovingFromOrder = 0;
 
-      ord.orderItems.forEach(item => {
+      clone.orderItems.forEach(item => {
         const netQty = item.quantity - (item.voidedQuantity || 0);
         if (netQty <= 0) return;
         totalActiveInOrder += netQty;
-        const key = `${ord.id}__${item.uid}`;
+        const key = `${clone.id}__${item.uid}`;
         const actualMoveQty = Math.min(Math.max(0, Math.floor(itemQtyMap[key] || 0)), netQty);
         totalMovingFromOrder += actualMoveQty;
         if (actualMoveQty > 0) moves.push({ item, actualMoveQty, netQty });
       });
 
-      if (moves.length === 0) return;
+      if (moves.length === 0) return clone;
       anyMoved = true;
 
       if (totalMovingFromOrder === totalActiveInOrder) {
         // All active items move → physically relocate the whole order
-        ord.table = targetTableId;
-        ord.billSessionId = targetSessionId;
+        clone.table = targetTableId;
+        clone.billSessionId = targetSessionId;
       } else {
-        // Partial move: copy items to target, reduce source quantity directly
+        // Partial move: copy items to target, reduce source quantity in clone
         moves.forEach(({ item, actualMoveQty, netQty }) => {
           const sourceActiveAfterSplit = netQty - actualMoveQty;
           partialMoveItems.push({
@@ -305,14 +310,20 @@ export function makeTableOps(state, helpers) {
             m.voidedQuantity = Math.min(m.voidedQuantity || 0, sourceActiveAfterSplit);
           }
         });
-        ord.orderItems = ord.orderItems.filter(i => i.quantity - (i.voidedQuantity || 0) > 0);
-        updateOrderTotals(ord);
+        clone.orderItems = clone.orderItems.filter(i => i.quantity - (i.voidedQuantity || 0) > 0);
+        updateOrderTotals(clone);
       }
+
+      return clone;
     });
 
     if (!anyMoved) return false;
 
-    if (partialMoveItems.length > 0) addDirectOrder(targetTableId, targetSessionId, partialMoveItems);
+    // Persist the projected orders to IDB before mutating reactive state
+    await saveStateToIDB({ orders: projectedOrders });
+    orders.value = projectedOrders;
+
+    if (partialMoveItems.length > 0) await addDirectOrder(targetTableId, targetSessionId, partialMoveItems);
     if (!tableOccupiedAt.value[targetTableId]) {
       tableOccupiedAt.value[targetTableId] = new Date().toISOString();
     }

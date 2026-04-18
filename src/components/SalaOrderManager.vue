@@ -729,8 +729,8 @@ function changeTab(tab) {
 function selectOrder(ord) {
   selectedOrder.value = ord;
 }
-function markDelivered(order) {
-  orderStore.changeOrderStatus(order, 'delivered');
+async function markDelivered(order) {
+  await orderStore.changeOrderStatus(order, 'delivered');
 
 }
 
@@ -1024,7 +1024,7 @@ function deleteOrder() {
   showRejectConfirm.value = true;
 }
 
-function confirmDeleteOrder() {
+async function confirmDeleteOrder() {
   if (!orderToReject.value) return;
   let reason = null;
   if (rejectReason.value === 'altro') {
@@ -1032,7 +1032,7 @@ function confirmDeleteOrder() {
   } else if (rejectReason.value) {
     reason = rejectReasons.value.find(r => r.value === rejectReason.value)?.label ?? rejectReason.value;
   }
-  orderStore.changeOrderStatus(orderToReject.value, 'rejected', reason);
+  await orderStore.changeOrderStatus(orderToReject.value, 'rejected', reason);
 
   showRejectConfirm.value = false;
   orderToReject.value = null;
@@ -1056,7 +1056,7 @@ function submitOrder() {
   showSubmitConfirm.value = true;
 }
 
-function confirmSubmitOrder() {
+async function confirmSubmitOrder() {
   if (!orderToSubmit.value) return;
   const ord = orderToSubmit.value;
   // TODO API: replace with POST /api/orders when API is available.
@@ -1065,7 +1065,7 @@ function confirmSubmitOrder() {
   showSubmitConfirm.value = false;
   orderToSubmit.value = null;
   // Move the order out of "In Attesa" by marking it as accepted/sent to kitchen.
-  orderStore.changeOrderStatus(ord, 'accepted');
+  await orderStore.changeOrderStatus(ord, 'accepted');
   // Dispatch print jobs to the configured ESC/POS printer(s).
   enqueuePrintJobs(ord);
   // Deselect the order and remain on the pending tab.

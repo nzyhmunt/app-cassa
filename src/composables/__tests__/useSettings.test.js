@@ -161,7 +161,8 @@ describe('useSettings()', () => {
       await nextTick();
 
       expect(store.menuUrl).toBe('https://new-menu.example.com/menu.json');
-      expect(appConfig.menuUrl).toBe('https://new-menu.example.com/menu.json');
+      // appConfig is not mutated by saveLocalSettings (IDB-first: only hydrateConfigFromIDB writes to appConfig)
+      expect(appConfig.menuUrl).toBe(originalMenuUrl);
       wrapper.unmount();
     } finally {
       appConfig.menuUrl = originalMenuUrl;
@@ -179,7 +180,8 @@ describe('useSettings()', () => {
       result.settings.value.menuSource = 'json';
       await nextTick();
       expect(store.menuSource).toBe('json');
-      expect(appConfig.menuSource).toBe('json');
+      // appConfig is not mutated by saveLocalSettings (IDB-first: only hydrateConfigFromIDB writes to appConfig)
+      expect(appConfig.menuSource).toBe(originalMenuSource);
       wrapper.unmount();
     } finally {
       appConfig.menuSource = originalMenuSource;
