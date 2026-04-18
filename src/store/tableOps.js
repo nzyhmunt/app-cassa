@@ -33,8 +33,9 @@ export function makeTableOps(state, helpers) {
   // tableMergedInto is used *exclusively* for the floor-plan "ghost-occupied"
   // display: a slave table delegates its status to the master so that the
   // cashier sees both tables as occupied even though all billing data lives on
-  // the master.  All writes to tableMergedInto go through these two helpers so
-  // the display concern is visually isolated from the billing operations below.
+  // the master. Writes may happen from these helpers or from billing flows
+  // below via projected objects + assignment; the invariant is that reactive
+  // state is assigned only after the corresponding IDB update is prepared/saved.
 
   /**
    * Removes the floor-plan ghost-occupied link for slaveId (no-op if not linked).
