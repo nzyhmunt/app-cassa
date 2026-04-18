@@ -946,8 +946,7 @@ function _preBillPrinters() {
 
 /**
  * Ensures the store pre-bill default printer points to a valid Directus printer.
- * `app_settings.pre_bill_printer` exists in the backend schema but is currently
- * not part of the runtime sync contract (§2.17 / P2-5), so the runtime can only:
+ * The runtime keeps this preference only in local IDB (`local_settings`), so it can:
  *  1) Keep the current local selection if still valid
  *  2) Fallback to the first available pre-bill-capable printer
  *

@@ -102,7 +102,6 @@ trigger DB o logica equivalente.
 | `print_jobs`                | Log dei lavori di stampa inviati (cronologia stampe)              | ObjectStore `print_jobs`     |
 | `fiscal_receipts`           | Payload XML per comandi alla stampante fiscale                    | ObjectStore `fiscal_receipts` |
 | `invoice_requests`          | Dati di fatturazione elettronica richiesti a chiusura conto       | ObjectStore `invoice_requests` |
-| `app_settings`              | Impostazioni utente per-device (legacy backend, non usata a runtime) | Non sincronizzata nel runtime corrente |
 
 ---
 
@@ -629,32 +628,11 @@ CREATE TABLE daily_closure_by_method (
 
 ---
 
-### 2.17 `app_settings` — Impostazioni applicazione per utente/dispositivo
+### 2.17 `app_settings` — **rimossa (deprecated legacy)**
 
-> **Stato runtime (P2-5)**: `app_settings` **non è sincronizzata** nel runtime corrente.
+> La collection Directus `app_settings` è stata deprecata e rimossa.
 > Le impostazioni dispositivo attive (`sounds`, `menuUrl`, `menuSource`, `preventScreenLock`,
-> `customKeyboard`, `preBillPrinterId`) sono lette/scritte solo su IDB store `local_settings`.
-> La collection `app_settings` rimane nel backend come **legacy** e va considerata candidata a
-> deprecazione/archiviazione lato Directus, salvo futura implementazione esplicita di sync.
-
-Campi Directus standard abilitati: `user_created`, `date_created`, `user_updated`, `date_updated`.
-
-```sql
-CREATE TABLE app_settings (
-    id              SERIAL          PRIMARY KEY,
-    venue           INTEGER         NOT NULL REFERENCES venues(id) ON DELETE CASCADE,
-    device_key      VARCHAR(120)    NOT NULL DEFAULT 'default',  -- es. UUID dispositivo
-    sounds          BOOLEAN         NOT NULL DEFAULT TRUE,       -- avvisi audio "ding"
-    menu_url        TEXT,                                        -- URL menu digitale (corrisponde a `menuUrl` in app-settings)
-    pre_bill_printer VARCHAR(40)    NULL REFERENCES printers(id) ON DELETE SET NULL, -- default printer for pre-bill dispatch
-    -- Directus standard fields
-    user_created    UUID            NULL REFERENCES directus_users(id),
-    date_created    TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
-    user_updated    UUID            NULL REFERENCES directus_users(id),
-    date_updated    TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
-    UNIQUE (venue, device_key)
-);
-```
+> `customKeyboard`, `preBillPrinterId`) restano gestite esclusivamente nello store IDB `local_settings`.
 
 ---
 
@@ -957,7 +935,6 @@ venues ──< print_jobs >── printers
 Nota: `print_jobs.original_job_id` conserva il `job_id` originale per ristampe, ma non è una FK
 bill_sessions ──< fiscal_receipts
 bill_sessions ──< invoice_requests
-venues ──< app_settings
 ```
 
 Cardinalità:
@@ -1138,7 +1115,6 @@ Cardinalità:
 | `printLog[]` (IDB ObjectStore: `print_jobs`)   | `print_jobs`                      |
 | `appConfig.printers`                  | `printers`                             |
 | IDB ObjectStore: `local_settings`     | preferenze locali dispositivo (incl. `menuSource`: `directus` \| `json`) |
-| IDB ObjectStore: `app_settings`       | cache legacy non usata dal runtime corrente (nessun push/pull attivo) |
 | `appConfig.menu`                      | `menu_categories` + `menu_items`       |
 | `appConfig.rooms`                     | `rooms`                                |
 | `appConfig.tables` (derivato)         | `tables`                               |
@@ -2069,7 +2045,7 @@ una cartella tramite la proprietà `group` dei metadati di collezione (`meta.gro
 
 | Cartella          | Icona                    | Colore    | Collection                                                                                                                                                             |
 |-------------------|--------------------------|-----------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `configurazione`  | `settings`               | `#546E7A` | `venues`, `venue_users`, `payment_methods`, `app_settings`, `printers`                                                                                                |
+| `configurazione`  | `settings`               | `#546E7A` | `venues`, `venue_users`, `payment_methods`, `printers`                                                                                                                |
 | `menu`            | `menu_book`              | `#EF6C00` | `menu_items`, `menu_categories`, `menu_modifiers`, `menu_categories_menu_modifiers`, `menu_items_menu_modifiers`                                                     |
 | `sala`            | `table_restaurant`       | `#1565C0` | `tables`, `rooms`, `table_merge_sessions`                                                                                                                              |
 | `cassa`           | `point_of_sale`          | `#2E7D32` | `orders`, `bill_sessions`, `order_items`, `order_item_modifiers`, `transactions`, `cash_movements`, `daily_closures`, `daily_closure_by_method`, `transaction_order_refs`, `transaction_voce_refs` |
@@ -2082,7 +2058,6 @@ una cartella tramite la proprietà `group` dei metadati di collezione (`meta.gro
 | `venues`                    | `store`                 | Punto Vendita / Punti Vendita | Venue / Venues             |
 | `venue_users`               | `badge`                 | Operatore / Operatori        | Operator / Operators        |
 | `payment_methods`           | `payments`              | Metodo di Pagamento / Metodi | Payment Method / Methods   |
-| `app_settings`              | `tune`                  | Impostazioni App             | App Settings                |
 | `printers`                  | `print`                 | Stampante / Stampanti        | Printer / Printers          |
 | `menu_items`                | `restaurant_menu`       | Voce Menu / Voci Menu        | Menu Item / Menu Items      |
 | `menu_categories`           | `category`              | Categoria Menu / Categorie   | Menu Category / Categories  |

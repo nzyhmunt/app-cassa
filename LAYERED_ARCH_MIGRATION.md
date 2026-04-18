@@ -256,12 +256,9 @@ P2-6 (billing_auto_close_on_full_payment) ← chiusura allineamento config Direc
 
 **Ambito**: schema + runtime
 
-- [ ] Decidere se `app_settings` va definitivamente deprecata lato backend,
-      oppure se va implementato il sync runtime.
-- [ ] Se si procede con deprecazione: aggiornare schema/permessi/documentazione
-      e piano di migrazione dati.
-- [ ] Se si procede con sync: aprire task dedicato con mapping, persistenza IDB,
-      test di pull/push e strategia di backward-compatibility.
+- [x] `app_settings` deprecata e rimossa lato backend Directus.
+- [x] Runtime confermato su `local_settings` (IDB-only) senza sync `app_settings`.
+- [x] Schema/documentazione aggiornati per riflettere la rimozione.
 
 ---
 
