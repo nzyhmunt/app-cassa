@@ -488,12 +488,12 @@ function closeTableModal() {
   selectedTable.value = null;
 }
 
-function confirmPeopleAndOpenTable() {
+async function confirmPeopleAndOpenTable() {
   const table = pendingTableToOpen.value;
   if (!table) return;
 
   // Open a billing session for this table seating
-  const billSessionId = orderStore.openTableSession(table.id, peopleAdults.value, peopleChildren.value);
+  const billSessionId = await orderStore.openTableSession(table.id, peopleAdults.value, peopleChildren.value);
 
   // Auto-add cover charge order if configured
   const cc = configStore.config.coverCharge;
@@ -522,7 +522,7 @@ function confirmPeopleAndOpenTable() {
       });
     }
     if (coverItems.length > 0) {
-      const coverOrder = orderStore.addDirectOrder(table.id, billSessionId, coverItems);
+      const coverOrder = await orderStore.addDirectOrder(table.id, billSessionId, coverItems);
       if (coverOrder) coverOrder.isCoverCharge = true;
     }
   }
@@ -532,7 +532,7 @@ function confirmPeopleAndOpenTable() {
   _openTableModal(table);
 }
 
-function createNewOrder() {
+async function createNewOrder() {
   if (!selectedTable.value) return;
   // Use the master's session only while this table is still actively participating in a merge.
   // If a stale merge mapping remains after the table becomes free, create the order against
@@ -557,7 +557,7 @@ function createNewOrder() {
     noteVisibility: { cassa: true, sala: true, cucina: true },
     ...(runtimeConfig.value.directus?.venueId != null ? { venue: runtimeConfig.value.directus.venueId } : {}),
   };
-  orderStore.addOrder(newOrd);
+  await orderStore.addOrder(newOrd);
   closeTableModal();
   emit('new-order-for-comande', newOrd);
 }

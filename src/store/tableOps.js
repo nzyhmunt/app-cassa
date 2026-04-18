@@ -141,12 +141,12 @@ export function makeTableOps(state, helpers) {
 
   // ── mergeTableOrders ─────────────────────────────────────────────────────
 
-  function mergeTableOrders(sourceTableId, targetTableId) {
+  async function mergeTableOrders(sourceTableId, targetTableId) {
     const resolvedTargetId = resolveMaster(targetTableId);
     if (sourceTableId === resolvedTargetId) return;
 
     // ── Billing: ensure target has an open session ───────────────────────────
-    if (!tableCurrentBillSession.value[resolvedTargetId]) openTableSession(resolvedTargetId);
+    if (!tableCurrentBillSession.value[resolvedTargetId]) await openTableSession(resolvedTargetId);
     const targetSessionId = tableCurrentBillSession.value[resolvedTargetId].billSessionId;
 
     // ── Floor-plan display: re-point source's slaves to the new master, clear
@@ -187,7 +187,7 @@ export function makeTableOps(state, helpers) {
 
   // ── detachSlaveTable ──────────────────────────────────────────────────────
 
-  function detachSlaveTable(masterTableId, slaveTableId) {
+  async function detachSlaveTable(masterTableId, slaveTableId) {
     if (tableMergedInto.value[slaveTableId] !== masterTableId) return;
 
     // ── Floor-plan display: remove slave's ghost-occupied link ────────────────
@@ -197,7 +197,7 @@ export function makeTableOps(state, helpers) {
       o => o.table === slaveTableId && o.status !== 'completed' && o.status !== 'rejected',
     );
     if (slaveHasOrders) {
-      const newSessionId = openTableSession(slaveTableId, 0, 0);
+      const newSessionId = await openTableSession(slaveTableId, 0, 0);
       orders.value.forEach(o => {
         if (o.table === slaveTableId && o.status !== 'completed' && o.status !== 'rejected') {
           o.billSessionId = newSessionId;
@@ -219,7 +219,7 @@ export function makeTableOps(state, helpers) {
    *
    * @returns {boolean} true if any items were moved
    */
-  function splitItemsToTable(sourceTableId, targetTableId, itemQtyMap) {
+  async function splitItemsToTable(sourceTableId, targetTableId, itemQtyMap) {
     if (!sourceTableId || !targetTableId || sourceTableId === targetTableId) return false;
 
     // Block if any source order is still awaiting kitchen confirmation
@@ -249,7 +249,7 @@ export function makeTableOps(state, helpers) {
     let targetSession = tableCurrentBillSession.value[targetTableId];
     if (!targetSession) {
       if (getTableStatus(targetTableId).status !== 'free') return false;
-      openTableSession(targetTableId);
+      await openTableSession(targetTableId);
       targetSession = tableCurrentBillSession.value[targetTableId];
     }
     if (!targetSession?.billSessionId) return false;
@@ -312,7 +312,7 @@ export function makeTableOps(state, helpers) {
 
     if (!anyMoved) return false;
 
-    if (partialMoveItems.length > 0) addDirectOrder(targetTableId, targetSessionId, partialMoveItems);
+    if (partialMoveItems.length > 0) await addDirectOrder(targetTableId, targetSessionId, partialMoveItems);
     if (!tableOccupiedAt.value[targetTableId]) {
       tableOccupiedAt.value[targetTableId] = new Date().toISOString();
     }

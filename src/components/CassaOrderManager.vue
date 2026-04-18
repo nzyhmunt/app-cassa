@@ -553,14 +553,14 @@ function selectOrder(ord) {
   selectedOrder.value = ord;
 }
 
-function acceptAndPrint(order) {
-  orderStore.changeOrderStatus(order, 'accepted');
+async function acceptAndPrint(order) {
+  await orderStore.changeOrderStatus(order, 'accepted');
 
   enqueuePrintJobs(order);
 }
 
-function forceDeliver(order) {
-  orderStore.changeOrderStatus(order, 'delivered');
+async function forceDeliver(order) {
+  await orderStore.changeOrderStatus(order, 'delivered');
 
 }
 
@@ -583,7 +583,7 @@ function requestDeleteOrder() {
   showRejectConfirm.value = true;
 }
 
-function confirmDeleteOrder() {
+async function confirmDeleteOrder() {
   if (!orderToReject.value) return;
   let reason = null;
   if (rejectReason.value === 'altro') {
@@ -591,7 +591,7 @@ function confirmDeleteOrder() {
   } else if (rejectReason.value) {
     reason = rejectReasons.value.find(r => r.value === rejectReason.value)?.label ?? rejectReason.value;
   }
-  orderStore.changeOrderStatus(orderToReject.value, 'rejected', reason);
+  await orderStore.changeOrderStatus(orderToReject.value, 'rejected', reason);
 
   showRejectConfirm.value = false;
   orderToReject.value = null;

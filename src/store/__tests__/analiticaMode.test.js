@@ -479,10 +479,10 @@ describe('store.addTransaction() with analitica operationType', () => {
     setActivePinia(createPinia());
   });
 
-  it('records the transaction with operationType=analitica and vociRefs', () => {
+  it('records the transaction with operationType=analitica and vociRefs', async () => {
     const store = useAppStore();
     // Keys are uid-based: `${orderId}__${itemUid}` and `${orderId}__${itemUid}__mod__${modIdx}`
-    store.addTransaction({
+    await store.addTransaction({
       id: 'txn_test',
       tableId: 'T1',
       billSessionId: 'sess_1',
@@ -501,9 +501,9 @@ describe('store.addTransaction() with analitica operationType', () => {
     expect(txn.vociRefs[0]).toMatchObject({ key: 'ord_1__itm_abc', qty: 1 });
   });
 
-  it('records modifier keys with partial quantities in vociRefs', () => {
+  it('records modifier keys with partial quantities in vociRefs', async () => {
     const store = useAppStore();
-    const billSessionId = store.openTableSession('T1', 2, 0);
+    const billSessionId = await store.openTableSession('T1', 2, 0);
 
     const items = [
       {
@@ -512,13 +512,13 @@ describe('store.addTransaction() with analitica operationType', () => {
         modifiers: [{ name: 'Mozzarella', price: 1.50, voidedQuantity: 0 }],
       },
     ];
-    const ord = store.addDirectOrder('T1', billSessionId, items);
+    const ord = await store.addDirectOrder('T1', billSessionId, items);
 
     const baseKey = `${ord.id}__u1`;
     const modKey = `${ord.id}__u1__mod__0`;
 
     // Pay only 1 of 2 pizzas and 1 of 2 modifier rows
-    store.addTransaction({
+    await store.addTransaction({
       id: 'txn_partial',
       tableId: 'T1',
       billSessionId,
@@ -544,7 +544,7 @@ describe('store.addTransaction() with analitica operationType', () => {
   it('persists and enqueues transaction_order_refs and transaction_voce_refs rows', async () => {
     const store = useAppStore();
 
-    store.addTransaction({
+    await store.addTransaction({
       id: 'txn_refs_test',
       tableId: 'T1',
       billSessionId: 'sess_refs_1',

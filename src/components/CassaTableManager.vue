@@ -2165,12 +2165,12 @@ function _openTableModal(table) {
   showTableModal.value = true;
 }
 
-function confirmPeopleAndOpenTable() {
+async function confirmPeopleAndOpenTable() {
   const table = pendingTableToOpen.value;
   if (!table) return;
 
   // Open a new billing session for this table seating
-  const billSessionId = orderStore.openTableSession(table.id, peopleAdults.value, peopleChildren.value);
+  const billSessionId = await orderStore.openTableSession(table.id, peopleAdults.value, peopleChildren.value);
 
   // Auto-add cover charge order if configured
   const cc = configStore.config.coverCharge;
@@ -2201,7 +2201,7 @@ function confirmPeopleAndOpenTable() {
       });
     }
     if (coverItems.length > 0) {
-      const coverOrder = orderStore.addDirectOrder(table.id, billSessionId, coverItems);
+      const coverOrder = await orderStore.addDirectOrder(table.id, billSessionId, coverItems);
       if (coverOrder) coverOrder.isCoverCharge = true;
     }
   }
@@ -2216,7 +2216,7 @@ function closeTableModal() {
   selectedTable.value = null;
 }
 
-function createNewOrderForTable() {
+async function createNewOrderForTable() {
   if (!selectedTable.value) return;
   const tableId = selectedTable.value.id;
   const ownSession = orderStore.tableCurrentBillSession[tableId];
@@ -2235,7 +2235,7 @@ function createNewOrderForTable() {
     noteVisibility: { cassa: true, sala: true, cucina: true },
     ...(runtimeConfig.value.directus?.venueId != null ? { venue: runtimeConfig.value.directus.venueId } : {}),
   };
-  orderStore.addOrder(newOrd);
+  await orderStore.addOrder(newOrd);
   closeTableModal();
   emit('new-order-for-ordini', newOrd);
 }
@@ -2370,10 +2370,10 @@ const directCartTotal = computed(() =>
   directCart.value.reduce((a, b) => a + b.unitPrice * b.quantity, 0),
 );
 
-function confirmDirectItems() {
+async function confirmDirectItems() {
   if (!selectedTable.value || directCart.value.length === 0) return;
   const session = orderStore.tableCurrentBillSession[selectedTable.value.id];
-  orderStore.addDirectOrder(
+  await orderStore.addDirectOrder(
     selectedTable.value.id,
     session?.billSessionId ?? null,
     directCart.value,
@@ -2391,23 +2391,22 @@ const canManuallyCloseBill = computed(() =>
  * It completes all active payable orders without closing the table details modal,
  * so cashier end-of-bill actions (e.g. fiscale/fattura) remain available.
  */
-function autoCloseBillOnFullPayment() {
+async function autoCloseBillOnFullPayment() {
   if (!autoCloseOnFullPaymentEnabled.value || !selectedTable.value) return;
   if (hasPendingOrdersInTable.value || tableAmountRemaining.value > BILL_SETTLED_THRESHOLD) return;
   const ordersToComplete = tableAcceptedPayableOrders.value.filter(o => KITCHEN_ACTIVE_STATUSES.includes(o.status));
   if (ordersToComplete.length === 0) return;
   try {
-    ordersToComplete.forEach(o => orderStore.changeOrderStatus(o, 'completed'));
+    await Promise.all(ordersToComplete.map(o => orderStore.changeOrderStatus(o, 'completed')));
   } catch (e) {
     console.warn(
       `[CassaTableManager] Failed to auto-close bill on full payment for ${ordersToComplete.length} orders:`,
       e,
     );
-    return;
   }
 }
 
-function closeTableBill() {
+async function closeTableBill() {
   if (!selectedTable.value) return;
   const session = orderStore.tableCurrentBillSession[selectedTable.value.id];
   const billTxns = orderStore.transactions.filter(
@@ -2429,7 +2428,7 @@ function closeTableBill() {
       items: o.orderItems,
     })),
   };
-  tableAcceptedPayableOrders.value.forEach(o => orderStore.changeOrderStatus(o, 'completed'));
+  await Promise.all(tableAcceptedPayableOrders.value.map(o => orderStore.changeOrderStatus(o, 'completed')));
   jsonContext.value = 'receipt';
   jsonPayloadData.value = JSON.stringify(summary, null, 2);
   showPrecontoJson.value = true;
@@ -2461,7 +2460,7 @@ function _buildBillSummaryBase() {
   };
 }
 
-function closeTableBillFiscale() {
+async function closeTableBillFiscale() {
   if (!selectedTable.value) return;
   const base = _buildBillSummaryBase();
   if (!base) return;
@@ -2474,12 +2473,12 @@ function closeTableBillFiscale() {
     status: 'pending',
     timestamp: base.closedAt,
   };
-  tableAcceptedPayableOrders.value.forEach(o => orderStore.changeOrderStatus(o, 'completed'));
+  await Promise.all(tableAcceptedPayableOrders.value.map(o => orderStore.changeOrderStatus(o, 'completed')));
   orderStore.addFiscalReceipt(entry);
   closeTableModal();
 }
 
-function confirmInvoice(billingData) {
+async function confirmInvoice(billingData) {
   if (!selectedTable.value) return;
   const base = _buildBillSummaryBase();
   if (!base) return;
@@ -2490,7 +2489,7 @@ function confirmInvoice(billingData) {
     status: 'pending',
     timestamp: base.closedAt,
   };
-  tableAcceptedPayableOrders.value.forEach(o => orderStore.changeOrderStatus(o, 'completed'));
+  await Promise.all(tableAcceptedPayableOrders.value.map(o => orderStore.changeOrderStatus(o, 'completed')));
   orderStore.addInvoiceRequest(entry);
   showInvoiceModal.value = false;
   closeTableModal();
@@ -2501,7 +2500,7 @@ function confirmInvoice(billingData) {
 //   tipAmount = voluntary tip (mancia).
 //   amountPaid always = bill portion (net of change and tip).
 // overrideAmount: if provided, uses this instead of amountBeingPaid (for partial payments).
-function processTablePayment(paymentMethodId, extra = {}, overrideAmount = null) {
+async function processTablePayment(paymentMethodId, extra = {}, overrideAmount = null) {
   if (!selectedTable.value) return;
 
   const amount = overrideAmount !== null ? overrideAmount : amountBeingPaid.value;
@@ -2547,7 +2546,7 @@ function processTablePayment(paymentMethodId, extra = {}, overrideAmount = null)
     payload.vociRefs = selectedItems.map(i => ({ key: i.key, qty: analiticaQty.value[i.key] }));
   }
 
-  orderStore.addTransaction(payload);
+  await orderStore.addTransaction(payload);
 
   // Mark only the selected orders as completed.
   // In ordini mode, only complete the selected orders when the payment fully
@@ -2556,9 +2555,11 @@ function processTablePayment(paymentMethodId, extra = {}, overrideAmount = null)
   // remaining balance can still be collected.
   if (checkoutMode.value === 'ordini') {
     if (amount + BILL_SETTLED_THRESHOLD >= amountBeingPaid.value) {
-      tableAcceptedPayableOrders.value.forEach(o => {
-        if (payload.orderRefs.includes(o.id)) orderStore.changeOrderStatus(o, 'completed');
-      });
+      await Promise.all(
+        tableAcceptedPayableOrders.value
+          .filter(o => payload.orderRefs.includes(o.id))
+          .map(o => orderStore.changeOrderStatus(o, 'completed')),
+      );
     }
     selectedOrdersToPay.value = [];
   }
@@ -2572,9 +2573,11 @@ function processTablePayment(paymentMethodId, extra = {}, overrideAmount = null)
         flatAnaliticaItems.value,
         analiticaQty.value,
       );
-      for (const ord of tableAcceptedPayableOrders.value) {
-        if (ordersToComplete.includes(ord.id)) orderStore.changeOrderStatus(ord, 'completed');
-      }
+      await Promise.all(
+        tableAcceptedPayableOrders.value
+          .filter(o => ordersToComplete.includes(o.id))
+          .map(o => orderStore.changeOrderStatus(o, 'completed')),
+      );
     }
     analiticaQty.value = {};
   }
@@ -2582,7 +2585,7 @@ function processTablePayment(paymentMethodId, extra = {}, overrideAmount = null)
   jsonContext.value = 'receipt';
   jsonPayloadData.value = JSON.stringify(payload, null, 2);
   showPrecontoJson.value = true;
-  autoCloseBillOnFullPayment();
+  await autoCloseBillOnFullPayment();
 }
 
 // ── Payment modal helpers ──────────────────────────────────────────────────
@@ -2618,7 +2621,7 @@ function swapRestoMancia() {
 // Exception: in analitica mode partial payments are not allowed because vociRefs
 // must exactly match the paid amount; the cashier must receive at least the full
 // selected total.
-function confirmPaymentModal() {
+async function confirmPaymentModal() {
   if (!modalMethodId.value) return;
   const ricevuto = parseFloat(modalRicevuto.value) || 0;
   if (ricevuto <= 0) return;
@@ -2641,12 +2644,12 @@ function confirmPaymentModal() {
     if (modalRestoParsed.value > 0) extra.changeAmount = modalRestoParsed.value;
   }
 
-  processTablePayment(modalMethodId.value, extra, amountPaid);
+  await processTablePayment(modalMethodId.value, extra, amountPaid);
   closePaymentModal();
 }
 
 // ── Apply discount ─────────────────────────────────────────────────────────
-function applyDiscount() {
+async function applyDiscount() {
   if (!selectedTable.value || discountPreview.value <= 0) return;
   const session = orderStore.tableCurrentBillSession[selectedTable.value.id];
   const rawInput = parseFloat(discountInput.value) || 0;
@@ -2655,7 +2658,7 @@ function applyDiscount() {
   // exceeds amountPaid and display stays consistent.
   const clampedPercent = Math.min(100, Math.max(0, rawInput));
   const discountValueToStore = discountType.value === 'percent' ? clampedPercent : discountPreview.value;
-  orderStore.addTransaction({
+  await orderStore.addTransaction({
     id: newUUIDv7(),
     tableId: selectedTable.value.id,
     billSessionId: session?.billSessionId ?? null,
@@ -2670,7 +2673,7 @@ function applyDiscount() {
   });
 
   discountInput.value = '';
-  autoCloseBillOnFullPayment();
+  await autoCloseBillOnFullPayment();
 }
 
 // ── JSON modal ─────────────────────────────────────────────────────────────
