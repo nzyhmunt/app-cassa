@@ -20,6 +20,7 @@ import { _resetIDBSingleton } from '../useIDB.js';
 import { useDirectusSync, _resetDirectusSyncSingleton } from '../useDirectusSync.js';
 import {
   upsertRecordsIntoIDB,
+  saveStateToIDB,
   loadLastPullTsFromIDB,
   saveLastPullTsToIDB,
   replaceTableMergesInIDB,
@@ -1048,12 +1049,14 @@ describe('pull — in-memory orders merge', () => {
 
     vi.spyOn(global, 'fetch').mockImplementation(() => Promise.resolve(directusListResponse([remoteOrder])));
 
-    const store = makeStore({
-      orders: [{
-        id: 'ord_1', status: 'pending', table: '01',
-        date_updated: '2024-04-01T00:00:00.000Z', orderItems: [{ uid: 'r1' }],
-      }],
-    });
+    await upsertRecordsIntoIDB('orders', [{
+      id: 'ord_1',
+      status: 'pending',
+      table: '01',
+      date_updated: '2024-04-01T00:00:00.000Z',
+      orderItems: [{ uid: 'r1' }],
+    }]);
+    const store = makeStore();
     const sync = useDirectusSync();
     sync.startSync({ appType: 'cassa', store });
     await sync.forcePull();
@@ -1072,13 +1075,13 @@ describe('pull — in-memory orders merge', () => {
 
     vi.spyOn(global, 'fetch').mockImplementation(() => Promise.resolve(directusListResponse([remoteOrder])));
 
-    const store = makeStore({
-      orders: [{
-        id: 'ord_1', status: 'completed',
-        date_updated: '2024-06-01T00:00:00.000Z',
-        orderItems: [],
-      }],
-    });
+    await upsertRecordsIntoIDB('orders', [{
+      id: 'ord_1',
+      status: 'completed',
+      date_updated: '2024-06-01T00:00:00.000Z',
+      orderItems: [],
+    }]);
+    const store = makeStore();
     const sync = useDirectusSync();
     sync.startSync({ appType: 'cassa', store });
     await sync.forcePull();
@@ -1128,14 +1131,19 @@ describe('pull — bill_sessions merge', () => {
       return Promise.resolve(directusListResponse([]));
     });
 
-    const store = makeStore({
+    await saveStateToIDB({
       tableCurrentBillSession: {
         '09': {
-          billSessionId: 'bill_99', adults: 3, children: 0,
-          table: '09', status: 'open', opened_at: '2024-03-01T00:00:00.000Z',
+          billSessionId: 'bill_99',
+          adults: 3,
+          children: 0,
+          table: '09',
+          status: 'open',
+          opened_at: '2024-03-01T00:00:00.000Z',
         },
       },
     });
+    const store = makeStore();
     const sync = useDirectusSync();
     sync.startSync({ appType: 'cassa', store });
     await sync.forcePull();

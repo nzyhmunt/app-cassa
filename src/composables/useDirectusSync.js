@@ -177,143 +177,6 @@ function _mapRecord(collection, r) {
   return { ...r, _sync_status: 'synced' };
 }
 
-// ── In-memory store merge ─────────────────────────────────────────────────────
-
-function _mergeIntoStore(collection, records, store) {
-  if (!store || records.length === 0) return;
-
-  if (collection === 'orders') {
-    const byId = new Map(store.orders.map(o => [o.id, o]));
-    for (const incoming of records) {
-      const existing = byId.get(incoming.id);
-      if (!existing) {
-        byId.set(incoming.id, incoming);
-      } else {
-        if (_shouldSkipIncomingRecord(existing)) {
-          continue;
-        }
-        const incomingTs = incoming.date_updated ? new Date(incoming.date_updated).getTime() : 0;
-        const existingTs = existing.date_updated ? new Date(existing.date_updated).getTime() : 0;
-        if (incomingTs > existingTs) {
-          byId.set(incoming.id, {
-            ...incoming,
-            orderItems: existing.orderItems ?? incoming.orderItems ?? [],
-          });
-        }
-      }
-    }
-    store.orders = Array.from(byId.values());
-    return;
-  }
-
-  if (collection === 'bill_sessions') {
-    const sessionTsMap = new Map(
-      store.orders
-        .filter(o => o.billSessionId && o.date_updated)
-        .map(o => [o.billSessionId, o.date_updated])
-    );
-    const currentSessions = { ...store.tableCurrentBillSession };
-    for (const incoming of records) {
-      if (incoming.status === 'open') {
-        const tableId = incoming.table;
-        if (!tableId) continue;
-        const existingSession = currentSessions[tableId];
-        const existingTs = existingSession ? (sessionTsMap.get(existingSession.billSessionId) ?? '') : '';
-        const incomingTs = incoming.date_updated ?? '';
-        if (!existingSession || incomingTs > existingTs) {
-          currentSessions[tableId] = {
-            ...(existingSession ?? {}),
-            billSessionId: incoming.billSessionId ?? incoming.id,
-            adults: incoming.adults ?? 0,
-            children: incoming.children ?? 0,
-            table: incoming.table ?? existingSession?.table,
-            status: incoming.status ?? existingSession?.status,
-            opened_at: incoming.opened_at ?? existingSession?.opened_at ?? null,
-          };
-        }
-      } else if (incoming.status === 'closed') {
-        const tableId = incoming.table;
-        if (tableId && currentSessions[tableId]?.billSessionId === (incoming.billSessionId ?? incoming.id)) {
-          delete currentSessions[tableId];
-        }
-      }
-    }
-    store.tableCurrentBillSession = currentSessions;
-    return;
-  }
-
-  if (collection === 'order_items') {
-    const orderMap = new Map(store.orders.map(o => [o.id, o]));
-    for (const incoming of records) {
-      const orderId = incoming.orderId ?? incoming.order;
-      if (!orderId) continue;
-      const order = orderMap.get(orderId);
-      if (!order) continue;
-      if (!order.orderItems) order.orderItems = [];
-      const idx = order.orderItems.findIndex(oi => oi.uid === incoming.uid || oi.id === incoming.id);
-      if (idx === -1) {
-        order.orderItems.push(incoming);
-      } else {
-        const existing = order.orderItems[idx];
-        if (_shouldSkipIncomingRecord(existing)) {
-          continue;
-        }
-        const incomingTs = incoming.date_updated ? new Date(incoming.date_updated).getTime() : 0;
-        const existingTs = existing.date_updated ? new Date(existing.date_updated).getTime() : 0;
-        if (incomingTs >= existingTs) {
-          const kitchenReady = (existing.kitchenReady || incoming.kitchenReady) === true;
-          order.orderItems[idx] = { ...incoming, kitchenReady };
-        }
-      }
-    }
-    store.orders = store.orders.map(o => ({ ...o }));
-    return;
-  }
-
-  // H3: Merge table_merge_sessions into store.tableMergedInto.
-  // Each Directus record maps slave_table → master_table.
-  if (collection === 'table_merge_sessions') {
-    const merged = { ...(store.tableMergedInto ?? {}) };
-    for (const r of records) {
-      if (r.slave_table && r.master_table) {
-        merged[r.slave_table] = r.master_table;
-      }
-    }
-    store.tableMergedInto = merged;
-    return;
-  }
-}
-
-function _deleteFromStore(collection, records, store) {
-  if (!store || !Array.isArray(records) || records.length === 0) return;
-  const extractIdSet = () => new Set(_extractRecordIds(records));
-  if (collection === 'orders') {
-    const ids = extractIdSet();
-    store.orders = store.orders.filter(o => !ids.has(String(o.id)));
-    return;
-  }
-  if (collection === 'order_items') {
-    const ids = extractIdSet();
-    store.orders = store.orders.map((o) => ({
-      ...o,
-      orderItems: Array.isArray(o.orderItems)
-        ? o.orderItems.filter((item) => !ids.has(String(item.id ?? item.uid)))
-        : [],
-    }));
-    return;
-  }
-  if (collection === 'bill_sessions') {
-    const ids = extractIdSet();
-    const next = { ...(store.tableCurrentBillSession ?? {}) };
-    for (const [tableId, session] of Object.entries(next)) {
-      if (ids.has(String(session?.billSessionId ?? session?.id))) {
-        delete next[tableId];
-      }
-    }
-    store.tableCurrentBillSession = next;
-  }
-}
-
 async function _refreshStoreFromIDB(collection = null) {
   if (!_store) return;
   if (typeof _store.refreshOperationalStateFromIDB === 'function') {
@@ -358,15 +221,67 @@ async function _refreshStoreFromIDB(collection = null) {
   }
 }
 
+async function _refreshStoreConfigFromIDB(options = {}) {
+  if (!_store) return;
+  if (typeof _store.hydrateConfigFromIDB === 'function') {
+    await _store.hydrateConfigFromIDB(options);
+    return;
+  }
+  if (!Object.prototype.hasOwnProperty.call(_store, 'config')) return;
+  const snapshot = SUPPORTS_STRUCTURED_CLONE
+    ? structuredClone(appConfig)
+    : JSON.parse(JSON.stringify(appConfig));
+  _store.config = snapshot;
+}
+
 function _extractRecordIds(records) {
   return records
     .map((r) => String(r?.id ?? r))
     .filter(Boolean);
 }
 
-function _shouldSkipIncomingRecord(existing) {
-  return existing?._sync_status === 'pending'
-    && (existing.date_updated === null || existing.date_updated === undefined);
+async function _preparePullRecordsForIDB(collection, mapped) {
+  if (!Array.isArray(mapped) || mapped.length === 0) return mapped;
+  if (collection !== 'orders' && collection !== 'bill_sessions') return mapped;
+
+  const state = await loadStateFromIDB();
+  if (!state) return mapped;
+
+  if (collection === 'orders') {
+    const existingById = new Map(
+      (Array.isArray(state.orders) ? state.orders : [])
+        .filter((record) => record?.id)
+        .map((record) => [String(record.id), record]),
+    );
+    return mapped.map((incoming) => {
+      const existing = existingById.get(String(incoming?.id ?? ''));
+      if (!existing) return incoming;
+      if (Array.isArray(existing.orderItems) && existing.orderItems.length > 0) {
+        const hasIncomingItems = Array.isArray(incoming.orderItems) && incoming.orderItems.length > 0;
+        if (!hasIncomingItems) {
+          return { ...incoming, orderItems: existing.orderItems };
+        }
+      }
+      return incoming;
+    });
+  }
+
+  const existingByBillSessionId = new Map(
+    Object.values(state.tableCurrentBillSession ?? {})
+      .filter((session) => session?.billSessionId)
+      .map((session) => [String(session.billSessionId), session]),
+  );
+  return mapped.map((incoming) => {
+    const billSessionId = incoming?.billSessionId ?? incoming?.id;
+    const existing = billSessionId != null
+      ? existingByBillSessionId.get(String(billSessionId))
+      : null;
+    if (!existing) return incoming;
+    if ((incoming.opened_at == null || incoming.opened_at === '') && existing.opened_at) {
+      return { ...incoming, opened_at: existing.opened_at };
+    }
+    return incoming;
+  });
 }
 
 // ── REST pull helpers ─────────────────────────────────────────────────────────
@@ -441,13 +356,7 @@ async function _pullCollection(collection, { forceFull = false, lastPullTimestam
     }
     if (!hadFetchError) {
       await replaceTableMergesInIDB(allMapped);
-      if (_store) {
-        const merged = {};
-        for (const r of allMapped) {
-          if (r.slave_table && r.master_table) merged[r.slave_table] = r.master_table;
-        }
-        _store.tableMergedInto = merged;
-      }
+      await _refreshStoreFromIDB('table_merge_sessions');
       if (latestTs) await saveLastPullTsToIDB(collection, latestTs);
     }
     return { merged: allMapped.length, ok: !hadFetchError };
@@ -461,23 +370,26 @@ async function _pullCollection(collection, { forceFull = false, lastPullTimestam
   let latestTs = storedSinceTs;
   let totalMerged = 0;
   let hadFetchError = false;
+  let hadRemoteRecords = false;
 
   while (true) { // eslint-disable-line no-constant-condition
     const { data, maxTs, error } = await _fetchUpdatedViaSDK(collection, storedSinceTs, page);
     if (error) hadFetchError = true;
     if (data.length === 0) break;
+    hadRemoteRecords = true;
 
     const mapped = data.map(r => _mapRecord(collection, r));
-    const written = await upsertRecordsIntoIDB(collection, mapped);
+    const prepared = await _preparePullRecordsForIDB(collection, mapped);
+    const written = await upsertRecordsIntoIDB(collection, prepared);
     totalMerged += written;
-
-    if (_store) {
-      _mergeIntoStore(collection, mapped, _store);
-    }
 
     if (maxTs && (!latestTs || maxTs > latestTs)) latestTs = maxTs;
     if (data.length < 200) break;
     page++;
+  }
+
+  if (hadRemoteRecords) {
+    await _refreshStoreFromIDB(collection);
   }
 
   if (!hadFetchError && latestTs && latestTs !== storedSinceTs) {
@@ -512,14 +424,10 @@ async function _handleSubscriptionMessage(collection, message) {
     }
     const ids = _extractRecordIds(data);
     await deleteRecordsFromIDB(collection, ids);
-    if (_store) _deleteFromStore(collection, ids, _store);
     await _refreshStoreFromIDB(collection);
   } else {
     const mapped = data.map(r => _mapRecord(collection, r));
     await upsertRecordsIntoIDB(collection, mapped);
-    if (_store) {
-      _mergeIntoStore(collection, mapped, _store);
-    }
     await _refreshStoreFromIDB(collection);
   }
 
@@ -943,20 +851,13 @@ async function _hydrateConfigFromLocalCache(venueId, onProgress = null) {
   appConfig.directus = preservedDirectus;
   appConfig.instanceName = preservedInstanceName;
   appConfig.pwaLogo = preservedPwaLogo;
+  await _refreshStoreConfigFromIDB({
+    menuSource: appConfig.menuSource,
+    menuUrl: appConfig.menuUrl,
+  });
   _syncPreBillPrinterSelection(cached?.venueRecord ?? null);
-  _syncStoreConfigSnapshot();
   _emitProgress(onProgress, { level: 'info', message: 'Configurazione locale applicata.' });
   return true;
-}
-
-function _syncStoreConfigSnapshot() {
-  if (!_store?.config) return;
-  // Force a new reference so Vue/Pinia consumers relying on `store.config`
-  // receive reactive updates even when `appConfig` was mutated out-of-proxy.
-  const snapshot = SUPPORTS_STRUCTURED_CLONE
-    ? structuredClone(appConfig)
-    : JSON.parse(JSON.stringify(appConfig));
-  _store.config = snapshot;
 }
 
 /**
@@ -987,6 +888,8 @@ function _preBillPrinters() {
  */
 function _syncPreBillPrinterSelection(venueRecord = null) {
   if (!_store) return;
+  // P0-4 exception: this is UI-only local state and does not belong to Directus
+  // sync payloads, so we intentionally keep this direct assignment path.
   const candidates = _preBillPrinters();
   if (candidates.length === 0) {
     _store.preBillPrinterId = '';
@@ -1236,7 +1139,10 @@ export function useDirectusSync() {
         const preservedDirectus = JSON.parse(JSON.stringify(appConfig.directus ?? {}));
         Object.assign(appConfig, createRuntimeConfig(DEFAULT_SETTINGS));
         appConfig.directus = preservedDirectus;
-        _syncStoreConfigSnapshot();
+        await _refreshStoreConfigFromIDB({
+          menuSource: appConfig.menuSource,
+          menuUrl: appConfig.menuUrl,
+        });
         _emitProgress(onProgress, { level: 'info', message: 'Cache configurazione locale svuotata.' });
       }
 

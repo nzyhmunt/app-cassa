@@ -63,13 +63,13 @@
 
 **File**: `src/composables/useDirectusSync.js`
 
-- [ ] Rimuovere `_mergeIntoStore`, `_deleteFromStore`, `_syncStoreConfigSnapshot`
+- [x] Rimuovere `_mergeIntoStore`, `_deleteFromStore`, `_syncStoreConfigSnapshot`
   come chiamate che scrivono direttamente su `_store.*`.
-- [ ] Sostituire con:
+- [x] Sostituire con:
   1. `upsertRecordsIntoIDB(collection, records)` — salva in IDB
   2. Emetti evento / chiama `store.hydrateFromIDB()` — lo store legge da IDB e
      aggiorna il reattivo
-- [ ] La funzione `_syncPreBillPrinterSelection` (che scrive `_store.preBillPrinterId`)
+- [x] La funzione `_syncPreBillPrinterSelection` (che scrive `_store.preBillPrinterId`)
   è un'eccezione legittima di UI state; documentarla esplicitamente o spostarla
   nel composable `useSettings`.
 
