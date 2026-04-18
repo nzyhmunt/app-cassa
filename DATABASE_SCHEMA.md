@@ -1127,7 +1127,7 @@ Cardinalità:
 | `order.rejectionReason`               | `orders.rejection_reason`              |
 | `transactions[]`                      | `transactions` + `transaction_order_refs` + `transaction_voce_refs` |
 | `transaction.paymentMethodId`         | `transactions.payment_method`          |
-| `transaction.paymentMethod`           | snapshot locale/UI (label), non persistito su Directus |
+| `transaction.paymentMethod`           | snapshot locale/UI (label), non persistito su Directus; campo solo UI, scartato in push / `_toDirectusPayload()` |
 | `tableOccupiedAt`                     | `bill_sessions.opened_at`              |
 | `billRequestedTables` (Set)           | query: `orders.status = 'pending'` con `bill_session` attiva |
 | `tableCurrentBillSession`             | `bill_sessions` (righe con `status = 'open'`) |
