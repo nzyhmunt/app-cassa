@@ -198,9 +198,9 @@
 
 **File**: `DATABASE_SCHEMA.md`
 
-- [ ] Indicare esplicitamente che `app_settings` **non è sincronizzata** nel
+- [x] Indicare esplicitamente che `app_settings` **non è sincronizzata** nel
   runtime corrente (il sync attivo usa `local_settings` IDB-side).
-- [ ] Se confermata la non-sincronizzazione, segnare il campo per deprecazione
+- [x] Se confermata la non-sincronizzazione, segnare il campo per deprecazione
   backend o pianificare l'implementazione del sync.
 
 ---

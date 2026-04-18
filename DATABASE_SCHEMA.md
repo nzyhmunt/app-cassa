@@ -102,7 +102,7 @@ trigger DB o logica equivalente.
 | `print_jobs`                | Log dei lavori di stampa inviati (cronologia stampe)              | ObjectStore `print_jobs`     |
 | `fiscal_receipts`           | Payload XML per comandi alla stampante fiscale                    | ObjectStore `fiscal_receipts` |
 | `invoice_requests`          | Dati di fatturazione elettronica richiesti a chiusura conto       | ObjectStore `invoice_requests` |
-| `app_settings`              | Impostazioni utente (audio, URL menu, ecc.)                       | ObjectStore `app_settings`   |
+| `app_settings`              | Impostazioni utente per-device (legacy backend, non usata a runtime) | Non sincronizzata nel runtime corrente |
 
 ---
 
@@ -629,6 +629,12 @@ CREATE TABLE daily_closure_by_method (
 
 ### 2.17 `app_settings` — Impostazioni applicazione per utente/dispositivo
 
+> **Stato runtime (P2-5)**: `app_settings` **non è sincronizzata** nel runtime corrente.
+> Le impostazioni dispositivo attive (`sounds`, `menuUrl`, `menuSource`, `preventScreenLock`,
+> `customKeyboard`, `preBillPrinterId`) sono lette/scritte solo su IDB store `local_settings`.
+> La collection `app_settings` rimane nel backend come **legacy** e va considerata candidata a
+> deprecazione/archiviazione lato Directus, salvo futura implementazione esplicita di sync.
+
 Campi Directus standard abilitati: `user_created`, `date_created`, `user_updated`, `date_updated`.
 
 ```sql
@@ -1115,6 +1121,7 @@ Cardinalità:
 | `printLog[]` (IDB ObjectStore: `print_jobs`)   | `print_jobs`                      |
 | `appConfig.printers`                  | `printers`                             |
 | IDB ObjectStore: `local_settings`     | preferenze locali dispositivo (incl. `menuSource`: `directus` \| `json`) |
+| IDB ObjectStore: `app_settings`       | cache legacy non usata dal runtime corrente (nessun push/pull attivo) |
 | `appConfig.menu`                      | `menu_categories` + `menu_items`       |
 | `appConfig.rooms`                     | `rooms`                                |
 | `appConfig.tables` (derivato)         | `tables`                               |
