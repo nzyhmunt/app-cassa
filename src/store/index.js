@@ -616,6 +616,14 @@ export const useOrderStore = defineStore('orders', () => {
     enqueue('orders', 'update', order.id, { status: newStatus, rejectionReason: order.rejectionReason ?? null });
   }
 
+  // ── Order-item mutation helpers (IDB-first) ─────────────────────────────────
+  // All seven functions below follow the same contract:
+  //   - Project the mutation on a deep clone.
+  //   - Persist to IDB before touching reactive state.
+  //   - Return true on success, false if the IDB write fails (state unchanged).
+  // The false-return-on-failure pattern prevents uncaught async errors in Vue
+  // click handlers that invoke these functions without await.
+
   async function updateQtyGlobal(ord, idx, delta) {
     if (!ord || ord.status !== 'pending') return;
     const item = ord.orderItems[idx];
@@ -630,7 +638,7 @@ export const useOrderStore = defineStore('orders', () => {
     try {
       await saveStateToIDB({ orders: projectedOrders });
     } catch (e) {
-      console.warn('[Store] updateQtyGlobal IDB save failed; state unchanged:', e);
+      console.warn('[Store] updateQtyGlobal IDB save failed:', e);
       return false;
     }
     _skipNextScheduledSave('orders');
@@ -649,7 +657,7 @@ export const useOrderStore = defineStore('orders', () => {
     try {
       await saveStateToIDB({ orders: projectedOrders });
     } catch (e) {
-      console.warn('[Store] removeRowGlobal IDB save failed; state unchanged:', e);
+      console.warn('[Store] removeRowGlobal IDB save failed:', e);
       return false;
     }
     _skipNextScheduledSave('orders');
@@ -678,7 +686,7 @@ export const useOrderStore = defineStore('orders', () => {
     try {
       await saveStateToIDB({ orders: projectedOrders });
     } catch (e) {
-      console.warn('[Store] voidOrderItems IDB save failed; state unchanged:', e);
+      console.warn('[Store] voidOrderItems IDB save failed:', e);
       return false;
     }
     _skipNextScheduledSave('orders');
@@ -700,7 +708,7 @@ export const useOrderStore = defineStore('orders', () => {
     try {
       await saveStateToIDB({ orders: projectedOrders });
     } catch (e) {
-      console.warn('[Store] restoreOrderItems IDB save failed; state unchanged:', e);
+      console.warn('[Store] restoreOrderItems IDB save failed:', e);
       return false;
     }
     _skipNextScheduledSave('orders');
@@ -726,7 +734,7 @@ export const useOrderStore = defineStore('orders', () => {
     try {
       await saveStateToIDB({ orders: projectedOrders });
     } catch (e) {
-      console.warn('[Store] voidModifier IDB save failed; state unchanged:', e);
+      console.warn('[Store] voidModifier IDB save failed:', e);
       return false;
     }
     _skipNextScheduledSave('orders');
@@ -750,7 +758,7 @@ export const useOrderStore = defineStore('orders', () => {
     try {
       await saveStateToIDB({ orders: projectedOrders });
     } catch (e) {
-      console.warn('[Store] restoreModifier IDB save failed; state unchanged:', e);
+      console.warn('[Store] restoreModifier IDB save failed:', e);
       return false;
     }
     _skipNextScheduledSave('orders');
@@ -768,7 +776,7 @@ export const useOrderStore = defineStore('orders', () => {
     try {
       await saveStateToIDB({ orders: projectedOrders });
     } catch (e) {
-      console.warn('[Store] setItemKitchenReady IDB save failed; state unchanged:', e);
+      console.warn('[Store] setItemKitchenReady IDB save failed:', e);
       return false;
     }
     _skipNextScheduledSave('orders');
