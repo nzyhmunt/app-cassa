@@ -132,6 +132,47 @@ describe('drainQueue()', () => {
     expect(body.id).toBe('ord_1');
   });
 
+  it('maps orders payload through canonical mapper fields', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue(mockResponse(201, {}));
+    await enqueue('orders', 'create', 'ord_1', {
+      id: 'ord_1',
+      time: '10:15',
+      noteVisibility: { cassa: false, sala: true, cucina: false },
+      dietaryPreferences: { diete: ['vegana'], allergeni: ['glutine'] },
+    });
+
+    await drainQueue(FAKE_CFG);
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.order_time).toBe('10:15');
+    expect(body.note_visibility_cassa).toBe(false);
+    expect(body.note_visibility_sala).toBe(true);
+    expect(body.note_visibility_cucina).toBe(false);
+    expect(body.dietary_diets).toEqual(['vegana']);
+    expect(body.dietary_allergens).toEqual(['glutine']);
+    expect(body.time).toBeUndefined();
+    expect(body.noteVisibility).toBeUndefined();
+    expect(body.dietaryPreferences).toBeUndefined();
+  });
+
+  it('maps bill_sessions payload with adults/children (no legacy *_count fields)', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue(mockResponse(201, {}));
+    await enqueue('bill_sessions', 'create', 'bill_1', {
+      id: 'bill_1',
+      table: 'T1',
+      adults_count: 3,
+      children_count: 1,
+    });
+
+    await drainQueue(FAKE_CFG);
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.adults).toBe(3);
+    expect(body.children).toBe(1);
+    expect(body.adults_count).toBeUndefined();
+    expect(body.children_count).toBeUndefined();
+  });
+
   it('retries 409 create as PATCH', async () => {
     const fetchSpy = vi.spyOn(global, 'fetch')
       .mockResolvedValueOnce(mockResponse(409, { errors: [] }))

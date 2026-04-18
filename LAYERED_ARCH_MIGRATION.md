@@ -81,11 +81,11 @@
 
 **File**: `src/utils/mappers.js`, `src/composables/useSyncQueue.js`
 
-- [ ] In `useSyncQueue._toDirectusPayload` sostituire la logica di conversione
+- [x] In `useSyncQueue._toDirectusPayload` sostituire la logica di conversione
   inline con le funzioni `map<Entity>ToDirectus` già definite in `mappers.js`.
-- [ ] Verificare che `mapBillSessionToDirectus` usi `adults`/`children`
+- [x] Verificare che `mapBillSessionToDirectus` usi `adults`/`children`
   invece dei campi legacy `adults_count`/`children_count`.
-- [ ] Rimuovere i duplicati inline in `useSyncQueue` una volta che i mapper sono
+- [x] Rimuovere i duplicati inline in `useSyncQueue` una volta che i mapper sono
   usati sistematicamente.
 
 ---
@@ -219,7 +219,7 @@
 | Priorità | Item | Stato |
 |----------|------|-------|
 | P0       | 4    | ✅ 4/4 completati |
-| P1       | 6    | 🟨 2/6 completati (P1-2, P1-5) |
+| P1       | 6    | 🟨 3/6 completati (P1-1, P1-2, P1-5) |
 | P2       | 6    | ⬜ tutti aperti |
 
 ---

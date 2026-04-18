@@ -52,19 +52,22 @@ export function mapOrderFromDirectus(record) {
 }
 
 export function mapOrderToDirectus(record) {
+  const { noteVisibility, dietaryPreferences, time, ...rest } = record ?? {};
   return {
-    ...record,
-    total_amount: record.total_amount ?? record.totalAmount ?? 0,
-    item_count: record.item_count ?? record.itemCount ?? 0,
-    order_time: record.order_time ?? record.time ?? null,
-    global_note: record.global_note ?? record.globalNote ?? '',
-    note_visibility_cassa: record.note_visibility_cassa ?? record.noteVisibility?.cassa ?? true,
-    note_visibility_sala: record.note_visibility_sala ?? record.noteVisibility?.sala ?? true,
-    note_visibility_cucina: record.note_visibility_cucina ?? record.noteVisibility?.cucina ?? true,
-    is_cover_charge: record.is_cover_charge ?? record.isCoverCharge ?? false,
-    is_direct_entry: record.is_direct_entry ?? record.isDirectEntry ?? false,
-    rejection_reason: record.rejection_reason ?? record.rejectionReason ?? null,
-    bill_session: relationId(record.bill_session ?? record.billSessionId ?? null),
+    ...rest,
+    total_amount: rest.total_amount ?? rest.totalAmount ?? 0,
+    item_count: rest.item_count ?? rest.itemCount ?? 0,
+    order_time: rest.order_time ?? time ?? null,
+    global_note: rest.global_note ?? rest.globalNote ?? '',
+    note_visibility_cassa: rest.note_visibility_cassa ?? noteVisibility?.cassa ?? true,
+    note_visibility_sala: rest.note_visibility_sala ?? noteVisibility?.sala ?? true,
+    note_visibility_cucina: rest.note_visibility_cucina ?? noteVisibility?.cucina ?? true,
+    dietary_diets: rest.dietary_diets ?? dietaryPreferences?.diete ?? [],
+    dietary_allergens: rest.dietary_allergens ?? dietaryPreferences?.allergeni ?? [],
+    is_cover_charge: rest.is_cover_charge ?? rest.isCoverCharge ?? false,
+    is_direct_entry: rest.is_direct_entry ?? rest.isDirectEntry ?? false,
+    rejection_reason: rest.rejection_reason ?? rest.rejectionReason ?? null,
+    bill_session: relationId(rest.bill_session ?? rest.billSessionId ?? null),
   };
 }
 
@@ -107,10 +110,11 @@ export function mapBillSessionFromDirectus(record) {
 }
 
 export function mapBillSessionToDirectus(record) {
+  const { adults_count, children_count, ...rest } = record ?? {};
   return {
-    ...record,
-    adults_count: record.adults_count ?? record.adults ?? 0,
-    children_count: record.children_count ?? record.children ?? 0,
+    ...rest,
+    adults: rest.adults ?? adults_count ?? 0,
+    children: rest.children ?? children_count ?? 0,
   };
 }
 
