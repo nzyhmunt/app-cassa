@@ -570,17 +570,17 @@ function viewOrder(ord) {
 function openMoveModal() { showMoveModal.value = true; }
 function openMergeModal() { showMergeModal.value = true; }
 
-function confirmMove(targetTable) {
+async function confirmMove(targetTable) {
   if (!selectedTable.value) return;
-  orderStore.moveTableOrders(selectedTable.value.id, targetTable.id);
+  await orderStore.moveTableOrders(selectedTable.value.id, targetTable.id);
   showMoveModal.value = false;
   // Update selectedTable to the new one
   selectedTable.value = targetTable;
 }
 
-function confirmMerge(sourceTable) {
+async function confirmMerge(sourceTable) {
   if (!selectedTable.value) return;
-  orderStore.mergeTableOrders(sourceTable.id, selectedTable.value.id);
+  await orderStore.mergeTableOrders(sourceTable.id, selectedTable.value.id);
   showMergeModal.value = false;
 }
 

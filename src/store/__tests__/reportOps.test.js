@@ -318,7 +318,7 @@ describe('generateXReport() – scorporo mance da scontrino', () => {
 });
 
 describe('performDailyClose() – persistenza IDB e sync queue', () => {
-  it('persists daily closure and by-method rows before resetting in-memory counters', () => {
+  it('persists daily closure and by-method rows before resetting in-memory counters', async () => {
     const upsertRecordsIntoIDB = vi.fn(async () => {});
     const enqueue = vi.fn();
     const state = makeState({
@@ -347,7 +347,7 @@ describe('performDailyClose() – persistenza IDB e sync queue', () => {
       upsertRecordsIntoIDB,
       enqueue,
     });
-    const closure = performDailyClose();
+    const closure = await performDailyClose();
 
     expect(state.dailyClosures.value).toHaveLength(1);
     expect(state.transactions.value).toEqual([]);

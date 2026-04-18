@@ -250,11 +250,20 @@ function _cleanPayload(payload) {
  * @type {Set<string>}
  */
 const PUSH_DROP_FIELDS = new Set([
-  'timestamp',    // local ISO string; Directus auto-sets date_created via server
-  'orderRefs',    // M2M handled separately via transaction_order_refs collection
-  'vociRefs',     // M2M handled separately via transaction_voce_refs collection
-  'grossAmount',  // UI-only display field (not in Directus schema)
-  'changeAmount', // UI-only display field (not in Directus schema)
+  'timestamp',         // local ISO string; Directus auto-sets date_created via server
+  'orderRefs',         // M2M handled separately via transaction_order_refs collection
+  'vociRefs',          // M2M handled separately via transaction_voce_refs collection
+  'grossAmount',       // UI-only display field (not in Directus schema)
+  'changeAmount',      // UI-only display field (not in Directus schema)
+  // daily_closures local-only aggregation fields — not columns in Directus schema
+  'type',              // local alias for closure_type; dropped to avoid duplicate
+  'byMethod',          // per-method amount map; detail rows sent as daily_closure_by_method
+  'tipsByMethod',      // per-method tip map; local-only aggregation
+  'cashMovementsData', // cash movement detail list; stored separately in cash_movements
+  'fiscalCount',       // local fiscal receipt tally; not a Directus column
+  'fiscalTotal',       // local fiscal receipt total; not a Directus column
+  'invoiceCount',      // local invoice request tally; not a Directus column
+  'invoiceTotal',      // local invoice request total; not a Directus column
 ]);
 
 /**
@@ -292,6 +301,16 @@ const FIELD_RENAME_MAP = {
   discountType:       'discount_type',
   discountValue:      'discount_value',
   menuSource:         'menu_source',
+  // daily_closures camelCase → snake_case (DATABASE_SCHEMA.md §2.15)
+  cashBalance:        'cash_balance',
+  totalReceived:      'total_received',
+  totalDiscount:      'total_discount',
+  totalTips:          'total_tips',
+  totalCovers:        'total_covers',
+  receiptCount:       'receipt_count',
+  averageReceipt:     'average_receipt',
+  totalMovements:     'total_movements',
+  finalBalance:       'final_balance',
 };
 
 const DIRECTUS_JSON_FIELDS = new Set([

@@ -442,12 +442,12 @@ function previewDailyClose() {
   zPreview.value = orderStore.generateXReport();
 }
 
-function confirmDailyClose() {
+async function confirmDailyClose() {
   if (!zPreview.value) {
     zPreview.value = orderStore.generateXReport();
   }
   if (!confirm(`Confermi la Chiusura Z? Totale: €${zPreview.value.totalReceived.toFixed(2)}. Questa operazione è irreversibile.`)) return;
-  orderStore.performDailyClose();
+  await orderStore.performDailyClose();
   zPreview.value = null;
   cashBalanceInput.value = orderStore.cashBalance;
 }
