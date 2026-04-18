@@ -110,11 +110,12 @@ export function mapBillSessionFromDirectus(record) {
 }
 
 export function mapBillSessionToDirectus(record) {
-  const { adults_count, children_count, ...rest } = record ?? {};
+  const source = record ?? {};
+  const { adults_count, children_count, ...rest } = source;
   return {
     ...rest,
-    adults: rest.adults ?? adults_count ?? 0,
-    children: rest.children ?? children_count ?? 0,
+    adults: source.adults ?? adults_count ?? 0,
+    children: source.children ?? children_count ?? 0,
   };
 }
 

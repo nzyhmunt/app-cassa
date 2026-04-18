@@ -330,7 +330,8 @@ const TO_DIRECTUS_MAPPERS = {
  *
  * The function handles:
  *  - Explicit field renames via FIELD_RENAME_MAP (e.g. `billSessionId` → `bill_session`)
- *  - Canonical collection mappers in `utils/mappers.js` (orders/order_items/bill_sessions)
+ *  - Canonical collection mappers in `utils/mappers.js` for
+ *    `orders`/`order_items`/`bill_sessions` (other collections pass through)
  *  - Drop of push-local-only fields (PUSH_DROP_FIELDS + LOCAL_ONLY_FIELDS via _cleanPayload)
  *
  * Only fields present in the input payload are emitted (safe for partial updates).
