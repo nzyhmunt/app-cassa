@@ -34,11 +34,11 @@
 
 **File**: `src/store/index.js`, `src/composables/useSyncQueue.js`
 
-- [ ] In `addTransaction` (path `analitica`), dopo aver creato la transazione, fare
+- [x] In `addTransaction` (path `analitica`), dopo aver creato la transazione, fare
   `enqueue('transaction_order_refs', 'create', ref.id, ref)` per ogni entry di `orderRefs`.
-- [ ] Stesso per `transaction_voce_refs`: iterare `vociRefs` e fare enqueue di ogni record.
-- [ ] Aggiungere IDB pre-save (`upsertRecordsIntoIDB`) delle stesse righe prima di enqueue.
-- [ ] Aggiungere test di integrazione che simulino un pagamento analitico e
+- [x] Stesso per `transaction_voce_refs`: iterare `vociRefs` e fare enqueue di ogni record.
+- [x] Aggiungere IDB pre-save (`upsertRecordsIntoIDB`) delle stesse righe prima di enqueue.
+- [x] Aggiungere test di integrazione che simulino un pagamento analitico e
   verifichino che le junction rows arrivino in sync queue.
 
 ---
