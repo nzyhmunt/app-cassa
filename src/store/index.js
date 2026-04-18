@@ -444,14 +444,18 @@ export const useOrderStore = defineStore('orders', () => {
   }
 
   // Public API: initiates an IDB write before updating reactive state.
-  // The watcher-driven debounced save may still run afterward as a safety-net backup.
+  // The watcher-driven debounced save is skipped on success and used as a safety-net on failure.
   function setBillRequested(tableId, val) {
     const nextSet = new Set(billRequestedTables.value);
     if (val) nextSet.add(tableId);
     else nextSet.delete(tableId);
-    // Initiate IDB write before reactive update; watcher provides safety-net backup.
+    // Initiate IDB write before reactive update; watcher retries only if this save fails.
     saveStateToIDB({ billRequestedTables: nextSet })
-      .catch(e => console.warn('[Store] setBillRequested IDB save failed:', e));
+      .catch(e => {
+        _scheduleSave('billRequestedTables');
+        console.warn('[Store] setBillRequested IDB save failed:', e);
+      });
+    _skipNextScheduledSave('billRequestedTables');
     billRequestedTables.value = nextSet;
   }
 
