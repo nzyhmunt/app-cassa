@@ -820,8 +820,10 @@ export const useOrderStore = defineStore('orders', () => {
     return _withOrderLock(ordId, async () => {
       const current = orders.value.find(o => String(o.id) === String(ordId));
       if (!current || !current.orderItems || itemIdx < 0 || itemIdx >= current.orderItems.length) return;
+      const currentReady = !!current.orderItems[itemIdx].kitchenReady;
+      const nextReady = typeof ready === 'boolean' ? ready : !currentReady;
       const projected = _clone(toRaw(current));
-      projected.orderItems[itemIdx].kitchenReady = ready;
+      projected.orderItems[itemIdx].kitchenReady = nextReady;
       const projectedOrders = _replaceOrderById(ordId, projected);
       try {
         await saveStateToIDB({ orders: projectedOrders });
