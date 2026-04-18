@@ -189,7 +189,7 @@
 
 **File**: `src/store/persistence.js`
 
-- [ ] La funzione `clearState()` è un thin wrapper fire-and-forget su
+- [x] La funzione `clearState()` è un thin wrapper fire-and-forget su
   `clearAllStateFromIDB()`; documentare la deprecazione e invitare i caller
   a usare direttamente `clearAllStateFromIDB()`.
 
