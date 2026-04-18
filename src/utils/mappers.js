@@ -52,22 +52,23 @@ export function mapOrderFromDirectus(record) {
 }
 
 export function mapOrderToDirectus(record) {
-  const { noteVisibility, dietaryPreferences, time, ...rest } = record ?? {};
+  const source = record ?? {};
+  const { noteVisibility, dietaryPreferences, time, ...rest } = source;
   return {
     ...rest,
-    total_amount: rest.total_amount ?? rest.totalAmount ?? 0,
-    item_count: rest.item_count ?? rest.itemCount ?? 0,
-    order_time: rest.order_time ?? time ?? null,
-    global_note: rest.global_note ?? rest.globalNote ?? '',
-    note_visibility_cassa: rest.note_visibility_cassa ?? noteVisibility?.cassa ?? true,
-    note_visibility_sala: rest.note_visibility_sala ?? noteVisibility?.sala ?? true,
-    note_visibility_cucina: rest.note_visibility_cucina ?? noteVisibility?.cucina ?? true,
-    dietary_diets: rest.dietary_diets ?? dietaryPreferences?.diete ?? [],
-    dietary_allergens: rest.dietary_allergens ?? dietaryPreferences?.allergeni ?? [],
-    is_cover_charge: rest.is_cover_charge ?? rest.isCoverCharge ?? false,
-    is_direct_entry: rest.is_direct_entry ?? rest.isDirectEntry ?? false,
-    rejection_reason: rest.rejection_reason ?? rest.rejectionReason ?? null,
-    bill_session: relationId(rest.bill_session ?? rest.billSessionId ?? null),
+    total_amount: source.total_amount ?? source.totalAmount ?? 0,
+    item_count: source.item_count ?? source.itemCount ?? 0,
+    order_time: source.order_time ?? time ?? null,
+    global_note: source.global_note ?? source.globalNote ?? '',
+    note_visibility_cassa: source.note_visibility_cassa ?? noteVisibility?.cassa ?? true,
+    note_visibility_sala: source.note_visibility_sala ?? noteVisibility?.sala ?? true,
+    note_visibility_cucina: source.note_visibility_cucina ?? noteVisibility?.cucina ?? true,
+    dietary_diets: source.dietary_diets ?? dietaryPreferences?.diete ?? [],
+    dietary_allergens: source.dietary_allergens ?? dietaryPreferences?.allergeni ?? [],
+    is_cover_charge: source.is_cover_charge ?? source.isCoverCharge ?? false,
+    is_direct_entry: source.is_direct_entry ?? source.isDirectEntry ?? false,
+    rejection_reason: source.rejection_reason ?? source.rejectionReason ?? null,
+    bill_session: relationId(source.bill_session ?? source.billSessionId ?? null),
   };
 }
 
