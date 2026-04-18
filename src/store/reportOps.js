@@ -113,13 +113,14 @@ export function makeReportOps(state, helpers) {
 
   function performDailyClose() {
     const venueId = config?.value?.directus?.venueId ?? null;
+    const venueFragment = venueId != null ? { venue: venueId } : {};
     const summary = {
       ..._buildDailySummary(),
       id: newUUIDv7(),
       type: 'Z',
       closure_type: 'Z',
       status: 'active',
-      ...(venueId != null ? { venue: venueId } : {}),
+      ...venueFragment,
     };
     const byMethodRows = Object.entries(summary.byMethod ?? {})
       .filter(([paymentMethod, amount]) => (
@@ -133,7 +134,7 @@ export function makeReportOps(state, helpers) {
         payment_method: paymentMethod,
         amount: Number(amount),
         status: 'active',
-        ...(venueId != null ? { venue: venueId } : {}),
+        ...venueFragment,
       }));
 
     if (typeof upsertRecordsIntoIDB === 'function') {
