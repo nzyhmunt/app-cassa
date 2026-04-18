@@ -1,5 +1,5 @@
 import { ref, watch, onUnmounted } from 'vue';
-import { useAppStore } from '../store/index.js';
+import { useConfigStore } from '../store/index.js';
 import { appConfig, KEYBOARD_POSITIONS, DEFAULT_SETTINGS } from '../utils/index.js';
 import { isWakeLockSupported } from './useWakeLock.js';
 import { useAuth } from './useAuth.js';
@@ -12,10 +12,10 @@ import { getInstanceName } from '../store/persistence.js';
  *
  * @param {object} props  - Component props (must expose `modelValue: Boolean`)
  * @param {function} emit - Component emit function
- * @returns {{ store, settings, resetConfirmPending, syncMenu, confirmReset, wakeLockApiSupported }}
+ * @returns {{ configStore, settings, resetConfirmPending, syncMenu, confirmReset, wakeLockApiSupported }}
  */
 export function useSettings(props, emit) {
-  const store = useAppStore();
+  const configStore = useConfigStore();
   const wakeLockApiSupported = isWakeLockSupported();
 
   /** Validate a stored keyboard value; return 'disabled' if unknown. */
@@ -27,18 +27,18 @@ export function useSettings(props, emit) {
   // Build initial settings from the store (already populated by initStoreFromIDB before mount).
   function loadInitialSettings() {
     return {
-      sounds: typeof store.sounds === 'boolean' ? store.sounds : true,
+      sounds: typeof configStore.sounds === 'boolean' ? configStore.sounds : true,
       menuUrl:
-        typeof store.menuUrl === 'string' && store.menuUrl.trim() !== ''
-          ? store.menuUrl
-          : (store.config?.menuUrl ?? DEFAULT_SETTINGS.menuUrl),
-      menuSource: store.menuSource === 'json' ? 'json' : 'directus',
+        typeof configStore.menuUrl === 'string' && configStore.menuUrl.trim() !== ''
+          ? configStore.menuUrl
+          : (configStore.config?.menuUrl ?? DEFAULT_SETTINGS.menuUrl),
+      menuSource: configStore.menuSource === 'json' ? 'json' : 'directus',
       preventScreenLock:
-        typeof store.preventScreenLock === 'boolean' && wakeLockApiSupported
-          ? store.preventScreenLock
+        typeof configStore.preventScreenLock === 'boolean' && wakeLockApiSupported
+          ? configStore.preventScreenLock
           : true,
-      customKeyboard: _parseKeyboardPosition(store.customKeyboard),
-      preBillPrinterId: typeof store.preBillPrinterId === 'string' ? store.preBillPrinterId : '',
+      customKeyboard: _parseKeyboardPosition(configStore.customKeyboard),
+      preBillPrinterId: typeof configStore.preBillPrinterId === 'string' ? configStore.preBillPrinterId : '',
     };
   }
 
@@ -52,15 +52,15 @@ export function useSettings(props, emit) {
   }
 
   function applyMenuRuntimeConfig(menuSource, menuUrl) {
-    store.menuSource = menuSource === 'json' ? 'json' : 'directus';
-    store.menuUrl = menuUrl;
-    appConfig.menuSource = store.menuSource;
-    appConfig.menuUrl = store.menuUrl;
-    if (store.config && typeof store.config === 'object') {
-      store.config = {
-        ...store.config,
-        menuSource: store.menuSource,
-        menuUrl: store.menuUrl,
+    configStore.menuSource = menuSource === 'json' ? 'json' : 'directus';
+    configStore.menuUrl = menuUrl;
+    appConfig.menuSource = configStore.menuSource;
+    appConfig.menuUrl = configStore.menuUrl;
+    if (configStore.config && typeof configStore.config === 'object') {
+      configStore.config = {
+        ...configStore.config,
+        menuSource: configStore.menuSource,
+        menuUrl: configStore.menuUrl,
       };
     }
   }
@@ -81,15 +81,15 @@ export function useSettings(props, emit) {
     settings,
     (newVal) => {
       // Keep store and parent in sync immediately for responsive UI
-      store.sounds = newVal.sounds;
+      configStore.sounds = newVal.sounds;
       applyMenuRuntimeConfig(newVal.menuSource, newVal.menuUrl);
-      if (store.menuSource !== 'json') {
-        store.menuError = null;
-        store.menuLoading = false;
+      if (configStore.menuSource !== 'json') {
+        configStore.menuError = null;
+        configStore.menuLoading = false;
       }
-      store.preventScreenLock = newVal.preventScreenLock;
-      store.customKeyboard = newVal.customKeyboard;
-      store.preBillPrinterId = newVal.preBillPrinterId ?? '';
+      configStore.preventScreenLock = newVal.preventScreenLock;
+      configStore.customKeyboard = newVal.customKeyboard;
+      configStore.preBillPrinterId = newVal.preBillPrinterId ?? '';
       emit('settings-changed', newVal);
       // Debounce IDB writes to avoid per-keystroke I/O (e.g. menuUrl typing)
       clearTimeout(saveTimer);
@@ -105,7 +105,7 @@ export function useSettings(props, emit) {
 
   async function syncMenu() {
     if (settings.value.menuSource !== 'json') return;
-    await store.loadMenu();
+    await configStore.loadMenu();
   }
 
   async function confirmReset() {
@@ -150,7 +150,7 @@ export function useSettings(props, emit) {
   }
 
   return {
-    store,
+    configStore,
     settings,
     resetConfirmPending,
     syncMenu,

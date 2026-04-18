@@ -11,7 +11,7 @@
       <div class="bg-gray-50 border-b border-gray-100 px-4 pt-4 pb-3 flex justify-between items-start shrink-0">
         <div>
           <h3 class="font-bold text-base md:text-lg text-gray-800 leading-tight">{{ item.name }}</h3>
-          <span class="font-black theme-text text-sm mt-0.5 block">{{ store.config.ui.currency }}{{ item.price?.toFixed(2) }}</span>
+          <span class="font-black theme-text text-sm mt-0.5 block">{{ configStore.config.ui.currency }}{{ item.price?.toFixed(2) }}</span>
         </div>
         <button
           @click="$emit('update:modelValue', false)"
@@ -82,7 +82,7 @@
 import { computed } from 'vue';
 import DOMPurify from 'dompurify';
 import { X, AlertOctagon, Plus, PenLine } from 'lucide-vue-next';
-import { useAppStore } from '../../store/index.js';
+import { useConfigStore, useOrderStore } from '../../store/index.js';
 
 const props = defineProps({
   modelValue: { type: Boolean, required: true },
@@ -91,6 +91,7 @@ const props = defineProps({
 
 defineEmits(['update:modelValue', 'add-quick', 'add-with-details']);
 
-const store = useAppStore();
+const configStore = useConfigStore();
+const orderStore = useOrderStore();
 const sanitizedInfoHtml = computed(() => DOMPurify.sanitize(props.item?.text ?? ''));
 </script>

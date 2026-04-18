@@ -8,11 +8,11 @@
         <h3 class="font-bold text-base flex items-center gap-2">
           <History class="size-5 theme-text" />
           Cronologia Stampe
-          <span v-if="store.printLog.length" class="text-xs font-bold bg-white/10 px-2 py-0.5 rounded-full">{{ store.printLog.length }}</span>
+          <span v-if="orderStore.printLog.length" class="text-xs font-bold bg-white/10 px-2 py-0.5 rounded-full">{{ orderStore.printLog.length }}</span>
         </h3>
         <div class="flex items-center gap-2">
           <button
-            v-if="store.printLog.length > 0"
+            v-if="orderStore.printLog.length > 0"
             @click="confirmingClear = !confirmingClear"
             class="text-[10px] font-bold bg-red-500/20 hover:bg-red-500/30 text-red-300 px-2.5 py-1.5 rounded-lg transition-colors active:scale-95"
           >
@@ -33,7 +33,7 @@
       </div>
 
       <!-- Empty state -->
-      <div v-if="store.printLog.length === 0" class="flex-1 flex flex-col items-center justify-center gap-3 text-gray-400 p-8">
+      <div v-if="orderStore.printLog.length === 0" class="flex-1 flex flex-col items-center justify-center gap-3 text-gray-400 p-8">
         <Printer class="size-12 opacity-30" />
         <p class="text-sm font-medium">Nessuna stampa registrata.</p>
       </div>
@@ -41,7 +41,7 @@
       <!-- Log list -->
       <div v-else class="flex-1 overflow-y-auto divide-y divide-gray-100">
         <div
-          v-for="entry in store.printLog"
+          v-for="entry in orderStore.printLog"
           :key="entry.logId"
           class="flex items-start gap-3 px-4 py-3 hover:bg-gray-50 transition-colors"
         >
@@ -138,14 +138,15 @@
 <script setup>
 import { ref, computed, watch } from 'vue';
 import { History, Printer, X, RefreshCw, ArrowRightLeft, FileText, ClipboardList } from 'lucide-vue-next';
-import { useAppStore } from '../../store/index.js';
+import { useConfigStore, useOrderStore } from '../../store/index.js';
 import { reprintJob } from '../../composables/usePrintQueue.js';
 
 const props = defineProps({ modelValue: Boolean });
 const emit = defineEmits(['update:modelValue']);
 
-const store = useAppStore();
-const runtimeConfig = computed(() => store.config ?? {});
+const configStore = useConfigStore();
+const orderStore = useOrderStore();
+const runtimeConfig = computed(() => configStore.config ?? {});
 
 const confirmingClear = ref(false);
 const reprintEntry = ref(null);
@@ -159,7 +160,7 @@ watch(() => props.modelValue, (open) => {
 });
 
 function clearLog() {
-  store.clearPrintLog();
+  orderStore.clearPrintLog();
   confirmingClear.value = false;
 }
 

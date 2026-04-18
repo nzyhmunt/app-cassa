@@ -21,7 +21,7 @@
         </div>
       </div>
       <div class="text-right">
-        <span class="font-black text-base md:text-lg text-gray-800">{{ store.config.ui.currency }}{{ order.totalAmount.toFixed(2) }}</span>
+        <span class="font-black text-base md:text-lg text-gray-800">{{ configStore.config.ui.currency }}{{ order.totalAmount.toFixed(2) }}</span>
       </div>
     </div>
 
@@ -44,7 +44,7 @@
 
 <script setup>
 import { Clock, MessageSquareWarning } from 'lucide-vue-next';
-import { useAppStore } from '../../store/index.js';
+import { useConfigStore, useOrderStore } from '../../store/index.js';
 import OrderStatusBadge from './OrderStatusBadge.vue';
 
 defineProps({
@@ -60,5 +60,6 @@ defineProps({
 
 defineEmits(['click']);
 
-const store = useAppStore();
+const configStore = useConfigStore();
+const orderStore = useOrderStore();
 </script>

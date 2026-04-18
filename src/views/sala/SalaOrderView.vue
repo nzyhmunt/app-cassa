@@ -9,17 +9,18 @@
 import { ref, onMounted, nextTick } from 'vue';
 import { useRouter } from 'vue-router';
 import SalaOrderManager from '../../components/SalaOrderManager.vue';
-import { useAppStore } from '../../store/index.js';
+import { useConfigStore, useOrderStore } from '../../store/index.js';
 
-const store = useAppStore();
+const configStore = useConfigStore();
+const orderStore = useOrderStore();
 const router = useRouter();
 const orderManagerRef = ref(null);
 
 onMounted(async () => {
   // Handle cross-view: open add-menu for a newly created order from SalaView
-  if (store.pendingNewOrder) {
-    const ord = store.pendingNewOrder;
-    store.pendingNewOrder = null;
+  if (orderStore.pendingNewOrder) {
+    const ord = orderStore.pendingNewOrder;
+    orderStore.pendingNewOrder = null;
     await nextTick();
     if (orderManagerRef.value) {
       orderManagerRef.value.changeTab('pending');
@@ -32,9 +33,9 @@ onMounted(async () => {
   }
 
   // Handle cross-view: select a specific order from SalaView
-  if (store.pendingSelectOrder) {
-    const ord = store.pendingSelectOrder;
-    store.pendingSelectOrder = null;
+  if (orderStore.pendingSelectOrder) {
+    const ord = orderStore.pendingSelectOrder;
+    orderStore.pendingSelectOrder = null;
     await nextTick();
     if (orderManagerRef.value) {
       orderManagerRef.value.changeTab(ord.status === 'accepted' ? 'accepted' : 'pending');
@@ -45,9 +46,9 @@ onMounted(async () => {
 });
 
 async function handleJumpToSala(tableId) {
-  const table = store.config.tables.find(t => t.id === tableId);
+  const table = configStore.config.tables.find(t => t.id === tableId);
   if (table) {
-    store.pendingOpenTable = table;
+    orderStore.pendingOpenTable = table;
     await router.push('/sala');
   }
 }

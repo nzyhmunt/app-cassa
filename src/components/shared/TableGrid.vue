@@ -38,7 +38,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { Users, Timer } from 'lucide-vue-next';
-import { useAppStore } from '../../store/index.js';
+import { useConfigStore, useOrderStore } from '../../store/index.js';
 
 defineEmits(['open-table']);
 
@@ -46,20 +46,21 @@ const props = defineProps({
   tables: { type: Array, required: true },
 });
 
-const store = useAppStore();
+const configStore = useConfigStore();
+const orderStore = useOrderStore();
 
 // Compute table status once per table so the template doesn't call getTableStatus multiple times.
 const tableStatusMap = computed(() => {
   const map = {};
   for (const table of props.tables) {
-    map[table.id] = store.getTableStatus(table.id);
+    map[table.id] = orderStore.getTableStatus(table.id);
   }
   return map;
 });
 
 // Delegate to the shared store helper so the status→CSS mapping is defined in one place.
 function colorClassFromStatus(status) {
-  return store.getTableColorClassFromStatus(status);
+  return orderStore.getTableColorClassFromStatus(status);
 }
 
 // Reactive clock for elapsed-time display (updates every 30 s)
@@ -69,7 +70,7 @@ onMounted(() => { clockTimer = setInterval(() => { now.value = Date.now(); }, 30
 onUnmounted(() => { if (clockTimer) clearInterval(clockTimer); });
 
 function getElapsedTime(tableId) {
-  const ts = store.tableOccupiedAt[tableId];
+  const ts = orderStore.tableOccupiedAt[tableId];
   if (!ts) return null;
   const diffMs = now.value - new Date(ts).getTime();
   const totalMin = Math.floor(diffMs / 60000);

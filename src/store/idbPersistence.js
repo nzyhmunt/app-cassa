@@ -14,6 +14,7 @@
 import { getDB } from '../composables/useIDB.js';
 import { appConfig } from '../utils/index.js';
 import { newUUIDv7 } from './storeUtils.js';
+import { touchStorageKey } from './persistence.js';
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
@@ -267,6 +268,7 @@ export async function saveStateToIDB(state) {
     }
 
     await Promise.all(ops);
+    touchStorageKey();
   } catch (e) {
     console.warn('[IDBPersistence] Failed to save state:', e);
   }
@@ -293,6 +295,7 @@ export async function upsertBillSessionInIDB(session) {
       opened_at: session.opened_at ?? null,
       ...(session.venue != null ? { venue: session.venue } : {}),
     })));
+    touchStorageKey();
   } catch (e) {
     console.warn('[IDBPersistence] Failed to upsert bill_session:', e);
   }
@@ -311,6 +314,7 @@ export async function closeBillSessionInIDB(billSessionId) {
     const existing = await db.get('bill_sessions', billSessionId);
     if (existing) {
       await db.put('bill_sessions', { ...existing, status: 'closed', closed_at: new Date().toISOString() });
+      touchStorageKey();
     }
   } catch (e) {
     console.warn('[IDBPersistence] Failed to close bill_session in IDB:', e);
@@ -361,6 +365,7 @@ export async function saveJsonMenuToIDB(menu) {
       id: JSON_MENU_RECORD_ID,
       value: menu ?? {},
     })));
+    touchStorageKey();
   } catch (e) {
     console.warn('[IDBPersistence] Failed to save JSON menu:', e);
   }
@@ -958,6 +963,7 @@ export async function upsertRecordsIntoIDB(storeName, records) {
       await tx.store.put(record);
     }
     await tx.done;
+    touchStorageKey();
     return toWrite.length;
   } catch (e) {
     console.warn('[IDBPersistence] Failed to upsert into', storeName, e);
@@ -984,6 +990,7 @@ export async function deleteRecordsFromIDB(storeName, keys) {
       await tx.store.delete(key);
     }
     await tx.done;
+    touchStorageKey();
     return keys.length;
   } catch (e) {
     console.warn('[IDBPersistence] Failed to delete records from', storeName, e);

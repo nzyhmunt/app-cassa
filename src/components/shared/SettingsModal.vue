@@ -110,14 +110,20 @@
               class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]"
             />
           </div>
-          <button v-if="settings.menuSource === 'json'" @click="syncMenu" :disabled="store.menuLoading" class="w-full py-4 bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold rounded-2xl flex items-center justify-center gap-2 border border-gray-200 transition-colors shadow-sm active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed">
-            <RefreshCw class="size-5" :class="store.menuLoading ? 'animate-spin text-emerald-600' : 'text-gray-600'" />
-            <span>{{ store.menuLoading ? 'Sincronizzazione...' : 'Sincronizza Menu URL' }}</span>
+          <button v-if="settings.menuSource === 'json'" @click="syncMenu" :disabled="configStore.menuLoading" class="w-full py-4 bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold rounded-2xl flex items-center justify-center gap-2 border border-gray-200 transition-colors shadow-sm active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed">
+            <RefreshCw class="size-5" :class="configStore.menuLoading ? 'animate-spin text-emerald-600' : 'text-gray-600'" />
+            <span>{{ configStore.menuLoading ? 'Sincronizzazione...' : 'Sincronizza Menu URL' }}</span>
           </button>
-          <p v-if="settings.menuSource !== 'json'" class="text-[10px] text-gray-500 text-center bg-gray-50 border border-gray-200 rounded-xl px-3 py-2">
-            Sorgente Directus attiva: il campo URL Menu JSON è nascosto.
-          </p>
-          <p v-if="store.menuError" class="text-xs text-red-600 text-center">Errore: {{ store.menuError }}</p>
+          <div v-if="settings.menuSource !== 'json'" class="text-[10px] text-gray-500 text-center bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 space-y-1">
+            <p>Sorgente Directus attiva: il campo URL Menu JSON è nascosto.</p>
+            <p
+              class="font-bold"
+              :class="directusSyncStatus === 'error' ? 'text-red-600' : directusSyncStatus === 'syncing' ? 'text-blue-600' : 'text-emerald-600'"
+            >
+              Stato sync: {{ directusSyncStatusLabel }}
+            </p>
+          </div>
+          <p v-if="configStore.menuError" class="text-xs text-red-600 text-center">Errore: {{ configStore.menuError }}</p>
         </div>
 
         <!-- Stampante Preconto (solo Cassa, solo se ci sono stampanti configurate) -->
@@ -212,6 +218,8 @@ import { useSettings } from '../../composables/useSettings.js';
 import UserManagementModal from '../UserManagementModal.vue';
 import { useAuth } from '../../composables/useAuth.js';
 import DirectusSyncSettings from './DirectusSyncSettings.vue';
+import { directusEnabledRef } from '../../composables/useDirectusClient.js';
+import { useDirectusSync } from '../../composables/useDirectusSync.js';
 
 const props = defineProps({
   modelValue: Boolean,
@@ -223,7 +231,9 @@ const props = defineProps({
 });
 const emit = defineEmits(['update:modelValue', 'settings-changed']);
 
-const { store, settings, resetConfirmPending, syncMenu, confirmReset, wakeLockApiSupported } = useSettings(props, emit);
+const { configStore, settings, resetConfirmPending, syncMenu, confirmReset, wakeLockApiSupported } = useSettings(props, emit);
+const sync = useDirectusSync();
+const directusEnabled = directusEnabledRef;
 
 const showUserManagement = ref(false);
 
@@ -241,7 +251,7 @@ const keyboardPositionOptions = [
  * AND catch-all printers (printTypes absent or empty), consistent with
  * how getPrintersForType() routes jobs and the README documentation. */
 const preBillPrinters = computed(() => {
-  const printers = store.config?.printers ?? [];
+  const printers = configStore.config?.printers ?? [];
   return printers.filter(p => {
     if (typeof p?.id !== 'string' || !p.id.trim()) return false;
     if (!p?.url) return false;
@@ -255,7 +265,19 @@ const preBillPrintersSorted = computed(() =>
     // Keep alphabetical ordering consistent with the configured app locale.
     const aLabel = String(a?.name ?? a?.id ?? '').trim();
     const bLabel = String(b?.name ?? b?.id ?? '').trim();
-    return aLabel.localeCompare(bLabel, store.config?.locale, { sensitivity: 'base' });
+    return aLabel.localeCompare(bLabel, configStore.config?.locale, { sensitivity: 'base' });
   })
 );
+
+const directusSyncStatus = computed(() => {
+  if (!directusEnabled.value) return 'disabled';
+  return sync.syncStatus.value || 'idle';
+});
+
+const directusSyncStatusLabel = computed(() => {
+  if (directusSyncStatus.value === 'disabled') return 'Directus disabilitato';
+  if (directusSyncStatus.value === 'syncing') return 'Sincronizzazione in corso';
+  if (directusSyncStatus.value === 'error') return 'Errore sincronizzazione';
+  return 'Directus attivo';
+});
 </script>
