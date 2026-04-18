@@ -129,10 +129,10 @@
 
 **File**: `src/store/idbPersistence.js` → `clearAllStateFromIDB`
 
-- [ ] Verificare che la funzione di reset svuoti anche `table_merge_sessions`,
+- [x] Verificare che la funzione di reset svuoti anche `table_merge_sessions`,
   `transaction_order_refs`, `transaction_voce_refs`, `daily_closures`,
   `daily_closure_by_method`, `bill_sessions`, `fiscal_receipts`, `invoice_requests`.
-- [ ] Il reset deve azzerare il DB **intero** (eccetto `local_settings`), non solo
+- [x] Il reset deve azzerare il DB **intero** (eccetto `local_settings`), non solo
   gli store operativi.
 
 ---
@@ -218,8 +218,8 @@
 
 | Priorità | Item | Stato |
 |----------|------|-------|
-| P0       | 4    | ⬜ tutti aperti |
-| P1       | 6    | 🟨 1/6 completato (P1-2) |
+| P0       | 4    | ✅ 4/4 completati |
+| P1       | 6    | 🟨 2/6 completati (P1-2, P1-5) |
 | P2       | 6    | ⬜ tutti aperti |
 
 ---

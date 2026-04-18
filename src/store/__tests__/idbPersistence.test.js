@@ -7,7 +7,7 @@
  *    billRequestedTables Set↔Array conversion, tableMergedInto ↔ table_merge_sessions
  *  - loadStateFromIDB — bill_sessions hydration: IDB records win over app_meta blob,
  *    records without table are ignored, multi-table merge
- *  - clearAllStateFromIDB: clears operative stores (incl. table_merge_sessions), preserves non-manual venue_users
+ *  - clearAllStateFromIDB: clears every ObjectStore except local_settings
  *  - v2 → v3 migration: app_meta.tableMergedInto → table_merge_sessions
  *  - saveSettingsToIDB / loadSettingsFromIDB: round-trip
  *  - saveUsersToIDB / loadUsersFromIDB: only manual_user records
@@ -518,31 +518,53 @@ describe('clearAllStateFromIDB()', () => {
     expect(usersAfter).toEqual([]);
   });
 
-  it('preserves non-manual_user records in venue_users', async () => {
-    // Directly insert a simulated Directus venue-user (no _type: 'manual_user')
+  it('clears venue_users completely', async () => {
+    // Directly insert a simulated Directus venue-user
     const { getDB } = await import('../../composables/useIDB.js');
     const db = await getDB();
     await db.put('venue_users', { id: 'vu_directus_1', name: 'Staff', _type: 'venue_user' });
 
-    // Also add a manual user
+    // Also add a manual user.
     await saveUsersToIDB([{ id: 'u_manual', name: 'Manuel', pin: '0000' }]);
 
     await clearAllStateFromIDB();
-
-    const manualAfter = await loadUsersFromIDB();
-    expect(manualAfter).toEqual([]);
-
-    // The non-manual record must survive
-    const directusRecord = await db.get('venue_users', 'vu_directus_1');
-    expect(directusRecord).toBeDefined();
-    expect(directusRecord._type).toBe('venue_user');
+    expect(await db.getAll('venue_users')).toEqual([]);
   });
 
-  it('clears local_settings', async () => {
+  it('preserves local_settings', async () => {
     await saveSettingsToIDB({ menuUrl: 'https://example.com', sounds: true });
     await clearAllStateFromIDB();
     const settings = await loadSettingsFromIDB();
-    expect(settings).toBeNull();
+    expect(settings).toMatchObject({ menuUrl: 'https://example.com', sounds: true });
+  });
+
+  it('clears full DB (except local_settings), including refs and audit stores', async () => {
+    const { getDB } = await import('../../composables/useIDB.js');
+    const db = await getDB();
+
+    await Promise.all([
+      db.put('transaction_order_refs', { id: 'tor_1', transaction: 'tx_1', order: 'ord_1' }),
+      db.put('transaction_voce_refs', { id: 'tvr_1', transaction: 'tx_1', voce_key: 'v1', qty: 1 }),
+      db.put('daily_closure_by_method', { id: 'dcbm_1', daily_closure: 'dc_1', payment_method: 'cash', amount: 10 }),
+      db.put('bill_sessions', { id: 'bs_1', table: 'T1', status: 'open' }),
+      db.put('sync_queue', { id: 'sq_1', collection: 'orders', operation: 'create', record_id: 'o1', payload: {}, date_created: '2024-01-01T00:00:00.000Z', attempts: 0 }),
+      db.put('sync_failed_calls', { id: 'sfc_1', failed_at: '2024-01-01T00:00:00.000Z' }),
+      db.put('app_settings', { id: 1, venue: 1, device_key: 'kiosk', sounds: true }),
+      db.put('venues', { id: 1, name: 'Venue 1' }),
+    ]);
+    await saveSettingsToIDB({ menuUrl: 'https://example.com', sounds: true });
+
+    await clearAllStateFromIDB();
+
+    expect(await db.getAll('transaction_order_refs')).toEqual([]);
+    expect(await db.getAll('transaction_voce_refs')).toEqual([]);
+    expect(await db.getAll('daily_closure_by_method')).toEqual([]);
+    expect(await db.getAll('bill_sessions')).toEqual([]);
+    expect(await db.getAll('sync_queue')).toEqual([]);
+    expect(await db.getAll('sync_failed_calls')).toEqual([]);
+    expect(await db.getAll('app_settings')).toEqual([]);
+    expect(await db.getAll('venues')).toEqual([]);
+    expect(await loadSettingsFromIDB()).toMatchObject({ menuUrl: 'https://example.com', sounds: true });
   });
 });
 
