@@ -154,8 +154,12 @@ export function makeReportOps(state, helpers) {
 
     // IDB-first: persist the cleared operational state before reactive assignment so
     // that a reload immediately after the close sees empty transactions/movements.
-    await saveStateToIDB({ transactions: [], cashMovements: [], cashBalance: summary.finalBalance })
-      .catch((err) => console.warn('[Store] Failed to persist cleared state in IDB after daily close:', err));
+    try {
+      await saveStateToIDB({ transactions: [], cashMovements: [], cashBalance: summary.finalBalance });
+    } catch (err) {
+      console.warn('[Store] Failed to persist cleared state in IDB after daily close:', err);
+      throw err;
+    }
 
     dailyClosures.value.push(summary);
     transactions.value = [];
