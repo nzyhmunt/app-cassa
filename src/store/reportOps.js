@@ -111,13 +111,12 @@ export function makeReportOps(state, helpers) {
     return _buildDailySummary();
   }
 
-  function performDailyClose() {
+  async function performDailyClose() {
     const venueId = config?.value?.directus?.venueId ?? null;
     const venueFragment = venueId != null ? { venue: venueId } : {};
     const summary = {
       ..._buildDailySummary(),
       id: newUUIDv7(),
-      type: 'Z',
       closure_type: 'Z',
       status: 'active',
       ...venueFragment,
@@ -137,11 +136,13 @@ export function makeReportOps(state, helpers) {
         ...venueFragment,
       }));
 
+    // IDB-first: persist before mutating reactive state so a reload immediately
+    // after the close still sees the closure record even if the app crashes.
     if (typeof upsertRecordsIntoIDB === 'function') {
-      upsertRecordsIntoIDB('daily_closures', [summary])
+      await upsertRecordsIntoIDB('daily_closures', [summary])
         .catch((err) => console.warn('[Store] Failed to persist daily closure in IDB:', err));
       if (byMethodRows.length > 0) {
-        upsertRecordsIntoIDB('daily_closure_by_method', byMethodRows)
+        await upsertRecordsIntoIDB('daily_closure_by_method', byMethodRows)
           .catch((err) => console.warn('[Store] Failed to persist daily closure by method in IDB:', err));
       }
     }

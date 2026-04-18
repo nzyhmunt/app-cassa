@@ -1017,7 +1017,7 @@ export const useOrderStore = defineStore('orders', () => {
   const { moveTableOrders, mergeTableOrders, detachSlaveTable, splitItemsToTable } =
     makeTableOps(
       { orders, transactions, tableCurrentBillSession, tableOccupiedAt, billRequestedTables, tableMergedInto },
-      { addDirectOrder, openTableSession, getTableStatus, setBillRequested, slaveIdsOf, resolveMaster },
+      { addDirectOrder, openTableSession, getTableStatus, setBillRequested, slaveIdsOf, resolveMaster, updateBillRequestedState: _updateBillRequestedState },
     );
 
   const { generateXReport, performDailyClose, closedBills } =

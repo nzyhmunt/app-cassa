@@ -1653,11 +1653,11 @@ function setSplitQty(key, maxQty, delta) {
   };
 }
 
-function confirmMove(targetTable) {
+async function confirmMove(targetTable) {
   if (!selectedTable.value) return;
   const fromId = selectedTable.value.id;
   const fromLabel = selectedTable.value.label;
-  orderStore.moveTableOrders(fromId, targetTable.id);
+  await orderStore.moveTableOrders(fromId, targetTable.id);
   showMoveModal.value = false;
   // Update selectedTable to the new one
   selectedTable.value = targetTable;

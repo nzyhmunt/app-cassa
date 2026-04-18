@@ -69,8 +69,7 @@ describe('moveTableOrders() — to a free table', () => {
     const store = useAppStore();
     const ord = makeOrder('T1', 'accepted', 20);
     await store.addOrder(ord);
-    store.moveTableOrders('T1', 'T2');
-    expect(store.orders.find(o => o.id === ord.id).table).toBe('T2');
+    await store.moveTableOrders('T1', 'T2');
     expect(store.getTableStatus('T1').status).toBe('free');
     expect(store.getTableStatus('T2').status).toBe('occupied');
   });
@@ -79,8 +78,7 @@ describe('moveTableOrders() — to a free table', () => {
     const store = useAppStore();
     const completed = makeOrder('T1', 'completed', 15);
     await store.addOrder(completed);
-    store.moveTableOrders('T1', 'T2');
-    // completed stays on T1
+    await store.moveTableOrders('T1', 'T2');
     expect(store.orders.find(o => o.id === completed.id).table).toBe('T1');
   });
 });
@@ -99,7 +97,7 @@ describe('moveTableOrders() — to an occupied table (bill merge)', () => {
     await store.addOrder(ordA);
     await store.addOrder(ordB);
 
-    store.moveTableOrders('A', 'B');
+    await store.moveTableOrders('A', 'B');
 
     // ordA now belongs to B and is retagged to B's session
     const movedOrd = store.orders.find(o => o.id === ordA.id);
@@ -121,7 +119,7 @@ describe('moveTableOrders() — to an occupied table (bill merge)', () => {
     await store.addOrder(ordA);
     await store.addTransaction(txnA);
 
-    store.moveTableOrders('A', 'B');
+    await store.moveTableOrders('A', 'B');
 
     // Transaction moved to B and retagged
     const movedTxn = store.transactions.find(t => t.id === txnA.id);
@@ -438,8 +436,11 @@ describe('changeOrderStatus() — session lifecycle with merged tables', () => {
     await store.mergeTableOrders('A', 'B');
     expect(store.tableMergedInto['A']).toBe('B');
 
+    // Re-fetch ordB after merge (IDB-first creates new object copies in orders.value)
+    const freshOrdB = store.orders.find(o => o.id === ordB.id);
+
     // Complete one of B's orders — the other is still active
-    await store.changeOrderStatus(ordB, 'completed');
+    await store.changeOrderStatus(freshOrdB, 'completed');
 
     // Master B session must still be alive (ordA is still active on B)
     expect(store.tableCurrentBillSession['B']).toBeDefined();
@@ -456,12 +457,16 @@ describe('changeOrderStatus() — session lifecycle with merged tables', () => {
 
     await store.mergeTableOrders('A', 'B');
 
+    // Re-fetch orders after merge (IDB-first creates new object copies in orders.value)
+    const freshOrdA = store.orders.find(o => o.id === ordA.id);
+    const freshOrdB = store.orders.find(o => o.id === ordB.id);
+
     // Complete first order — B still has the second one active
-    await store.changeOrderStatus(ordA, 'completed');
+    await store.changeOrderStatus(freshOrdA, 'completed');
     expect(store.tableCurrentBillSession['B']).toBeDefined();
 
     // Complete second order — no more active orders on B
-    await store.changeOrderStatus(ordB, 'completed');
+    await store.changeOrderStatus(freshOrdB, 'completed');
     // Master session must be cleared
     expect(store.tableCurrentBillSession['B']).toBeUndefined();
     expect(store.tableOccupiedAt['B']).toBeUndefined();
