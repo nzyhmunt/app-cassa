@@ -105,20 +105,18 @@ export function mapBillSessionFromDirectus(record) {
   return {
     ...record,
     billSessionId: record.id,
-    adults: record.adults ?? record.adults_count ?? 0,
-    children: record.children ?? record.children_count ?? 0,
+    adults: record.adults ?? 0,
+    children: record.children ?? 0,
     _sync_status: 'synced',
   };
 }
 
 export function mapBillSessionToDirectus(record) {
   const source = record ?? {};
-  // Strip legacy *_count fields from spread while still accepting them as fallback input.
-  const { adults_count, children_count, ...rest } = source;
   return {
-    ...rest,
-    adults: source.adults ?? adults_count ?? 0,
-    children: source.children ?? children_count ?? 0,
+    ...source,
+    adults: source.adults ?? 0,
+    children: source.children ?? 0,
   };
 }
 

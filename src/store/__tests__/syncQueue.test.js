@@ -155,13 +155,13 @@ describe('drainQueue()', () => {
     expect(body.dietaryPreferences).toBeUndefined();
   });
 
-  it('maps bill_sessions payload with adults/children (no legacy *_count fields)', async () => {
+  it('maps bill_sessions payload with canonical adults/children fields', async () => {
     const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue(mockResponse(201, {}));
     await enqueue('bill_sessions', 'create', 'bill_1', {
       id: 'bill_1',
       table: 'T1',
-      adults_count: 3,
-      children_count: 1,
+      adults: 3,
+      children: 1,
     });
 
     await drainQueue(FAKE_CFG);
@@ -169,8 +169,6 @@ describe('drainQueue()', () => {
     const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
     expect(body.adults).toBe(3);
     expect(body.children).toBe(1);
-    expect(body.adults_count).toBeUndefined();
-    expect(body.children_count).toBeUndefined();
   });
 
   it('retries 409 create as PATCH', async () => {

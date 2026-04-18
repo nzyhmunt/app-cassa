@@ -141,10 +141,10 @@
 
 **File**: `src/utils/mappers.js`, `DATABASE_SCHEMA.md`
 
-- [ ] Rimuovere ogni riferimento a `adults_count`/`children_count` nel mapper
+- [x] Rimuovere ogni riferimento a `adults_count`/`children_count` nel mapper
   `mapBillSessionToDirectus` e nei punti di hydration.
-- [ ] Aggiornare `DATABASE_SCHEMA.md` section 2.8 per rispecchiare i campi correnti.
-- [ ] Su Directus: rimuovere (o nascondere) i campi legacy se ancora presenti.
+- [x] Aggiornare `DATABASE_SCHEMA.md` section 2.7 (`bill_sessions`) per rispecchiare i campi correnti.
+- [x] Su Directus: rimuovere (o nascondere) i campi legacy se ancora presenti.
 
 ---
 
@@ -219,7 +219,7 @@
 | Priorità | Item | Stato |
 |----------|------|-------|
 | P0       | 4    | ✅ 4/4 completati |
-| P1       | 6    | 🟨 5/6 completati (P1-1, P1-2, P1-3, P1-4, P1-5) |
+| P1       | 6    | ✅ 6/6 completati (P1-1, P1-2, P1-3, P1-4, P1-5, P1-6) |
 | P2       | 6    | ⬜ tutti aperti |
 
 ---
