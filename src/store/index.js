@@ -237,6 +237,7 @@ export const useConfigStore = defineStore('config', () => {
   /**
    * Applies and persists Directus settings through the centralized appConfig
    * mutation path and Directus config storage adapter.
+   * Delegates runtime mutation to `applyDirectusSettings()` and then persists.
    *
    * @param {object} payload
    * @returns {Promise<{enabled:boolean,url:string,staticToken:string,venueId:number|string|null,wsEnabled:boolean}>}
@@ -877,7 +878,10 @@ export const useOrderStore = defineStore('orders', () => {
 
   function _scheduleSave(...keys) {
     keys.forEach((key) => {
-      const pendingSkip = _skipNextSaveCount.get(key) ?? 0;
+      // Explicit IDB-first actions mark keys to skip once so watcher-driven
+      // debounced persistence doesn't rewrite the same payload immediately after.
+      const pendingSkipValue = _skipNextSaveCount.get(key);
+      const pendingSkip = pendingSkipValue === undefined ? 0 : pendingSkipValue;
       if (pendingSkip > 0) {
         if (pendingSkip === 1) _skipNextSaveCount.delete(key);
         else _skipNextSaveCount.set(key, pendingSkip - 1);
@@ -885,6 +889,9 @@ export const useOrderStore = defineStore('orders', () => {
       }
       _pendingSaveKeys.add(key);
     });
+    // Safe early return: `_pendingSaveKeys` is only populated in this function
+    // and we just filtered all incoming keys (all skipped), so there is nothing
+    // to flush and no timer is needed.
     if (_pendingSaveKeys.size === 0) return;
     clearTimeout(_saveTimer);
     _saveTimer = setTimeout(() => {
@@ -903,7 +910,9 @@ export const useOrderStore = defineStore('orders', () => {
 
   function _skipNextScheduledSave(...keys) {
     keys.forEach((key) => {
-      _skipNextSaveCount.set(key, (_skipNextSaveCount.get(key) ?? 0) + 1);
+      const pendingSkipValue = _skipNextSaveCount.get(key);
+      const pendingSkip = pendingSkipValue === undefined ? 0 : pendingSkipValue;
+      _skipNextSaveCount.set(key, pendingSkip + 1);
     });
   }
 

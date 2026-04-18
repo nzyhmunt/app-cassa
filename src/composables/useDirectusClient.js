@@ -102,7 +102,8 @@ async function _syncConfigStoreDirectusSnapshot(normalized) {
     if (typeof configStore.applyDirectusSettings === 'function') {
       configStore.applyDirectusSettings(normalized);
     }
-  } catch (_) {
+  } catch (err) {
+    console.warn('[DirectusClient] Unable to sync ConfigStore directus snapshot:', err);
     // Best-effort sync: in contexts without active Pinia (or during early
     // bootstrap), appConfig is still the source of truth.
   }

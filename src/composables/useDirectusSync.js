@@ -240,7 +240,13 @@ function _extractRecordIds(records) {
     .filter(Boolean);
 }
 
-async function _preparePullRecordsForIDB(collection, mapped, cachedState = null) {
+/**
+ * Prepares mapped pull records before IDB upsert.
+ * `cachedState` reuses a previously loaded state snapshot across paginated
+ * pulls, avoiding repeated `loadStateFromIDB()` calls per page. `undefined`
+ * means "not loaded yet", while `null` means "loaded, but no state available".
+ */
+async function _preparePullRecordsForIDB(collection, mapped, cachedState = undefined) {
   if (!Array.isArray(mapped) || mapped.length === 0) {
     return { records: mapped, state: cachedState };
   }
@@ -248,7 +254,7 @@ async function _preparePullRecordsForIDB(collection, mapped, cachedState = null)
     return { records: mapped, state: cachedState };
   }
 
-  const state = cachedState ?? await loadStateFromIDB();
+  const state = cachedState === undefined ? await loadStateFromIDB() : cachedState;
   if (!state) {
     return { records: mapped, state };
   }
@@ -379,7 +385,7 @@ async function _pullCollection(collection, { forceFull = false, lastPullTimestam
   let totalMerged = 0;
   let hadFetchError = false;
   let hadRemoteRecords = false;
-  let cachedState = null;
+  let cachedState = undefined;
 
   while (true) { // eslint-disable-line no-constant-condition
     const { data, maxTs, error } = await _fetchUpdatedViaSDK(collection, storedSinceTs, page);
