@@ -288,7 +288,7 @@ describe('P0-2 IDB-first — order item mutations', () => {
   it('updateQtyGlobal saves projected order to IDB before reactive mutation and enqueue', async () => {
     const store = useAppStore();
     runtime.store = store;
-    const order = makeOrderWithItems('ord_qty', { status: 'pending' });
+    const order = makeOrderWithItems('ord_qty', 'T1', 'pending');
     await store.addOrder(order);
     runtime.snapshots = [];
     vi.clearAllMocks();
@@ -310,12 +310,12 @@ describe('P0-2 IDB-first — order item mutations', () => {
 
   it('updateQtyGlobal does not mutate orders when IDB rejects', async () => {
     const store = useAppStore();
-    const order = makeOrderWithItems('ord_qty_fail');
-    order.status = 'pending';
+    const order = makeOrderWithItems('ord_qty_fail', 'T1', 'pending');
     store.orders = [order];
     saveStateToIDBMock.mockRejectedValueOnce(new Error('IDB write failed'));
 
-    await expect(store.updateQtyGlobal(order, 0, 1)).rejects.toThrow('IDB write failed');
+    const result = await store.updateQtyGlobal(order, 0, 1);
+    expect(result).toBe(false);
     // quantity must remain unchanged
     expect(store.orders[0].orderItems[0].quantity).toBe(2);
     expect(enqueueMock).not.toHaveBeenCalled();

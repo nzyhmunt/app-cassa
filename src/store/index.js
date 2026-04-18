@@ -627,10 +627,16 @@ export const useOrderStore = defineStore('orders', () => {
     if (projItem.quantity <= 0) projected.orderItems.splice(idx, 1);
     updateOrderTotals(projected);
     const projectedOrders = _replaceOrderById(ordId, projected);
-    await saveStateToIDB({ orders: projectedOrders });
+    try {
+      await saveStateToIDB({ orders: projectedOrders });
+    } catch (e) {
+      console.warn('[Store] updateQtyGlobal IDB save failed; state unchanged:', e);
+      return false;
+    }
     _skipNextScheduledSave('orders');
     orders.value = projectedOrders;
     enqueue('orders', 'update', ordId, projected);
+    return true;
   }
 
   async function removeRowGlobal(ord, idx) {
@@ -640,10 +646,16 @@ export const useOrderStore = defineStore('orders', () => {
     projected.orderItems.splice(idx, 1);
     updateOrderTotals(projected);
     const projectedOrders = _replaceOrderById(ordId, projected);
-    await saveStateToIDB({ orders: projectedOrders });
+    try {
+      await saveStateToIDB({ orders: projectedOrders });
+    } catch (e) {
+      console.warn('[Store] removeRowGlobal IDB save failed; state unchanged:', e);
+      return false;
+    }
     _skipNextScheduledSave('orders');
     orders.value = projectedOrders;
     enqueue('orders', 'update', ordId, projected);
+    return true;
   }
 
   async function voidOrderItems(ord, idx, qtyToVoid) {
@@ -663,10 +675,16 @@ export const useOrderStore = defineStore('orders', () => {
     }
     updateOrderTotals(projected);
     const projectedOrders = _replaceOrderById(ordId, projected);
-    await saveStateToIDB({ orders: projectedOrders });
+    try {
+      await saveStateToIDB({ orders: projectedOrders });
+    } catch (e) {
+      console.warn('[Store] voidOrderItems IDB save failed; state unchanged:', e);
+      return false;
+    }
     _skipNextScheduledSave('orders');
     orders.value = projectedOrders;
     enqueue('orders', 'update', ordId, projected);
+    return true;
   }
 
   async function restoreOrderItems(ord, idx, qtyToRestore) {
@@ -679,10 +697,16 @@ export const useOrderStore = defineStore('orders', () => {
     projected.orderItems[idx].voidedQuantity -= qtyToRestore;
     updateOrderTotals(projected);
     const projectedOrders = _replaceOrderById(ordId, projected);
-    await saveStateToIDB({ orders: projectedOrders });
+    try {
+      await saveStateToIDB({ orders: projectedOrders });
+    } catch (e) {
+      console.warn('[Store] restoreOrderItems IDB save failed; state unchanged:', e);
+      return false;
+    }
     _skipNextScheduledSave('orders');
     orders.value = projectedOrders;
     enqueue('orders', 'update', ordId, projected);
+    return true;
   }
 
   async function voidModifier(ord, itemIdx, modIdx, qty) {
@@ -699,10 +723,16 @@ export const useOrderStore = defineStore('orders', () => {
     projMod.voidedQuantity += qty;
     updateOrderTotals(projected);
     const projectedOrders = _replaceOrderById(ordId, projected);
-    await saveStateToIDB({ orders: projectedOrders });
+    try {
+      await saveStateToIDB({ orders: projectedOrders });
+    } catch (e) {
+      console.warn('[Store] voidModifier IDB save failed; state unchanged:', e);
+      return false;
+    }
     _skipNextScheduledSave('orders');
     orders.value = projectedOrders;
     enqueue('orders', 'update', ordId, projected);
+    return true;
   }
 
   async function restoreModifier(ord, itemIdx, modIdx, qty) {
@@ -717,10 +747,16 @@ export const useOrderStore = defineStore('orders', () => {
     projected.orderItems[itemIdx].modifiers[modIdx].voidedQuantity -= qty;
     updateOrderTotals(projected);
     const projectedOrders = _replaceOrderById(ordId, projected);
-    await saveStateToIDB({ orders: projectedOrders });
+    try {
+      await saveStateToIDB({ orders: projectedOrders });
+    } catch (e) {
+      console.warn('[Store] restoreModifier IDB save failed; state unchanged:', e);
+      return false;
+    }
     _skipNextScheduledSave('orders');
     orders.value = projectedOrders;
     enqueue('orders', 'update', ordId, projected);
+    return true;
   }
 
   async function setItemKitchenReady(order, itemIdx, ready) {
@@ -729,10 +765,16 @@ export const useOrderStore = defineStore('orders', () => {
     const projected = _clone(toRaw(order));
     projected.orderItems[itemIdx].kitchenReady = ready;
     const projectedOrders = _replaceOrderById(ordId, projected);
-    await saveStateToIDB({ orders: projectedOrders });
+    try {
+      await saveStateToIDB({ orders: projectedOrders });
+    } catch (e) {
+      console.warn('[Store] setItemKitchenReady IDB save failed; state unchanged:', e);
+      return false;
+    }
     _skipNextScheduledSave('orders');
     orders.value = projectedOrders;
     enqueue('orders', 'update', ordId, projected);
+    return true;
   }
 
   async function addTransaction(txn) {
