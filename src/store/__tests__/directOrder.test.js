@@ -457,6 +457,8 @@ describe('simulateNewOrder()', () => {
     // tableNumber: 1..12 → force floor(random * 12) + 1 to match this value.
     // We precompute the Uint32 raw sample that, once normalized to [0,1)
     // (raw / 2^32) and scaled by 12, lands inside the requested bucket.
+    // `+ 0.1` nudges the sample away from bucket boundaries so floor()
+    // deterministically resolves to the intended table index.
     const raw = Math.floor((((tableNumber - 1) + 0.1) / 12) * 4294967296);
     return vi.spyOn(globalThis.crypto, 'getRandomValues').mockImplementation((typedArray) => {
       typedArray[0] = raw;
