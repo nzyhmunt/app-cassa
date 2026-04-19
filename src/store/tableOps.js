@@ -418,7 +418,67 @@ export function makeTableOps(state, helpers) {
   async function splitItemsToTable(sourceTableId, targetTableId, itemQtyMap) {
     const previousOrders = orders.value;
     const previousTransactions = transactions.value;
+    const initialSourceSessionId = tableCurrentBillSession.value[sourceTableId] || null;
+    const initialTargetSessionId = tableCurrentBillSession.value[targetTableId] || null;
     const billSessionPatches = [];
+
+    const mergeBillSessionPatch = (patch) => {
+      if (!patch || !patch.id) return;
+      const existingIndex = billSessionPatches.findIndex(entry => entry && entry.id === patch.id);
+      if (existingIndex === -1) {
+        billSessionPatches.push(patch);
+        return;
+      }
+      billSessionPatches[existingIndex] = {
+        ...billSessionPatches[existingIndex],
+        ...patch,
+      };
+    };
+
+    const finalizeBillSessionPatches = () => {
+      const currentSourceSessionId = tableCurrentBillSession.value[sourceTableId] || null;
+      const currentTargetSessionId = tableCurrentBillSession.value[targetTableId] || null;
+
+      if (initialSourceSessionId && currentSourceSessionId !== initialSourceSessionId) {
+        mergeBillSessionPatch({
+          id: initialSourceSessionId,
+          tableId: sourceTableId,
+          status: 'closed',
+          isOpen: false,
+          closedAt: new Date().toISOString(),
+        });
+      }
+
+      if (currentSourceSessionId && currentSourceSessionId !== initialSourceSessionId) {
+        mergeBillSessionPatch({
+          id: currentSourceSessionId,
+          tableId: sourceTableId,
+          status: 'open',
+          isOpen: true,
+        });
+      }
+
+      if (currentTargetSessionId && currentTargetSessionId !== initialTargetSessionId) {
+        mergeBillSessionPatch({
+          id: currentTargetSessionId,
+          tableId: targetTableId,
+          status: 'open',
+          isOpen: true,
+        });
+      }
+    };
+
+    const originalBillSessionPatchMap = billSessionPatches.map.bind(billSessionPatches);
+    billSessionPatches.map = (...args) => {
+      finalizeBillSessionPatches();
+      return originalBillSessionPatchMap(...args);
+    };
+
+    const originalBillSessionPatchForEach = billSessionPatches.forEach.bind(billSessionPatches);
+    billSessionPatches.forEach = (...args) => {
+      finalizeBillSessionPatches();
+      return originalBillSessionPatchForEach(...args);
+    };
     if (!sourceTableId || !targetTableId || sourceTableId === targetTableId) return false;
 
     // Block if any source order is still awaiting kitchen confirmation
