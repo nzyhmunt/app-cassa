@@ -459,7 +459,8 @@ export const useOrderStore = defineStore('orders', () => {
     billRequestedTables.value = nextSet;
   }
 
-  async function openTableSession(tableId, adults = 0, children = 0) {
+  async function openTableSession(tableId, adults = 0, children = 0, options = {}) {
+    const { enqueueSync = true } = options;
     const billSessionId = newUUIDv7();
     const now = new Date().toISOString();
     const session = { billSessionId, adults, children, table: tableId, status: 'open', opened_at: now };
@@ -469,15 +470,17 @@ export const useOrderStore = defineStore('orders', () => {
       ...tableCurrentBillSession.value,
       [tableId]: session,
     };
-    enqueue('bill_sessions', 'create', billSessionId, {
-      id: billSessionId,
-      table: tableId,
-      adults,
-      children,
-      status: 'open',
-      opened_at: now,
-      ...(venueId != null ? { venue: venueId } : {}),
-    });
+    if (enqueueSync) {
+      enqueue('bill_sessions', 'create', billSessionId, {
+        id: billSessionId,
+        table: tableId,
+        adults,
+        children,
+        status: 'open',
+        opened_at: now,
+        ...(venueId != null ? { venue: venueId } : {}),
+      });
+    }
     return billSessionId;
   }
 
@@ -548,6 +551,24 @@ export const useOrderStore = defineStore('orders', () => {
   function _enqueueBillSessionPatch(billSessionId, payload) {
     if (!billSessionId || !payload || typeof payload !== 'object') return;
     enqueue('bill_sessions', 'update', billSessionId, _clone(payload));
+  }
+
+  function _enqueueBillSessionCreate(session) {
+    if (!session?.billSessionId || !session?.table) return;
+    enqueue('bill_sessions', 'create', session.billSessionId, _clone({
+      id: session.billSessionId,
+      table: session.table,
+      adults: session.adults ?? 0,
+      children: session.children ?? 0,
+      status: session.status ?? 'open',
+      opened_at: session.opened_at ?? new Date().toISOString(),
+      ...(session.venue != null ? { venue: session.venue } : {}),
+    }));
+  }
+
+  function _enqueueOrderPatch(ordId, payload) {
+    if (!ordId || !payload || typeof payload !== 'object' || Object.keys(payload).length === 0) return;
+    enqueue('orders', 'update', ordId, _clone(payload));
   }
 
   /**
@@ -1054,9 +1075,10 @@ export const useOrderStore = defineStore('orders', () => {
         slaveIdsOf,
         resolveMaster,
         updateBillRequestedState: _updateBillRequestedState,
-        enqueueOrderUpdate: _enqueueOrderSnapshot,
+        enqueueOrderUpdate: _enqueueOrderPatch,
         enqueueTransactionUpdate: _enqueueTransactionPatch,
         enqueueBillSessionUpdate: _enqueueBillSessionPatch,
+        enqueueBillSessionCreate: _enqueueBillSessionCreate,
       },
     );
 

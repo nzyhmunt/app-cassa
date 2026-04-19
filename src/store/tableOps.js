@@ -29,6 +29,7 @@ export function makeTableOps(state, helpers) {
     enqueueOrderUpdate = () => {},
     enqueueTransactionUpdate = () => {},
     enqueueBillSessionUpdate = () => {},
+    enqueueBillSessionCreate = () => {},
   } = helpers;
 
   const _deepEqual = (left, right) => {
@@ -56,13 +57,29 @@ export function makeTableOps(state, helpers) {
     return true;
   };
 
+  const _buildOrderSyncPatch = (prev, next) => {
+    if (!prev || !next) return null;
+    const payload = {};
+    if (prev.table !== next.table) payload.table = next.table;
+    if ((prev.billSessionId ?? null) !== (next.billSessionId ?? null)) {
+      payload.billSessionId = next.billSessionId ?? null;
+    }
+    if (!_deepEqual(prev.orderItems ?? [], next.orderItems ?? [])) {
+      payload.orderItems = next.orderItems;
+    }
+    if ((prev.totalAmount ?? null) !== (next.totalAmount ?? null)) {
+      payload.totalAmount = next.totalAmount ?? null;
+    }
+    if ((prev.itemCount ?? null) !== (next.itemCount ?? null)) {
+      payload.itemCount = next.itemCount ?? null;
+    }
+    return payload;
+  };
+
   const _ordersUnchangedForSync = (prev, next) => {
     if (!prev || !next) return false;
-    if (prev.table !== next.table) return false;
-    if ((prev.billSessionId ?? null) !== (next.billSessionId ?? null)) return false;
-    if ((prev.totalAmount ?? null) !== (next.totalAmount ?? null)) return false;
-    if ((prev.itemCount ?? null) !== (next.itemCount ?? null)) return false;
-    return _deepEqual(prev.orderItems ?? [], next.orderItems ?? []);
+    const payload = _buildOrderSyncPatch(prev, next);
+    return payload !== null && Object.keys(payload).length === 0;
   };
 
   const _enqueueChangedOrders = (previousOrders, nextOrders) => {
@@ -74,7 +91,8 @@ export function makeTableOps(state, helpers) {
       const prev = prevById.get(String(order.id));
       if (!prev) return;
       if (_ordersUnchangedForSync(prev, order)) return;
-      enqueueOrderUpdate(order);
+      const payload = _buildOrderSyncPatch(prev, order);
+      enqueueOrderUpdate(order.id, payload);
     });
   };
 
@@ -319,13 +337,17 @@ export function makeTableOps(state, helpers) {
     const previousOrders = orders.value;
     const previousTransactions = transactions.value;
     const billSessionPatches = [];
+    let createdTargetSession = null;
     let persistedToIDB = false;
     const resolvedTargetId = resolveMaster(targetTableId);
     if (sourceTableId === resolvedTargetId) return;
 
     // ── Billing: ensure target has an open session ───────────────────────────
     // openTableSession is already IDB-first (upsertBillSessionInIDB before reactive update).
-    if (!tableCurrentBillSession.value[resolvedTargetId]) await openTableSession(resolvedTargetId);
+    if (!tableCurrentBillSession.value[resolvedTargetId]) {
+      await openTableSession(resolvedTargetId, 0, 0, { enqueueSync: false });
+      createdTargetSession = _cloneSession(tableCurrentBillSession.value[resolvedTargetId]);
+    }
     const targetSessionId = tableCurrentBillSession.value[resolvedTargetId].billSessionId;
 
     // Build projected copies of the remaining state that will change.
@@ -411,6 +433,7 @@ export function makeTableOps(state, helpers) {
     }
 
     if (persistedToIDB) {
+      if (createdTargetSession) enqueueBillSessionCreate(createdTargetSession);
       _enqueueChangedOrders(previousOrders, nextOrders);
       _enqueueChangedTransactions(previousTransactions, nextTransactions);
       billSessionPatches.forEach(({ billSessionId, payload }) => enqueueBillSessionUpdate(billSessionId, payload));
@@ -481,6 +504,7 @@ export function makeTableOps(state, helpers) {
     const previousOrders = orders.value;
     const previousTransactions = transactions.value;
     const billSessionPatches = [];
+    let createdTargetSession = null;
     let persistedToIDB = false;
     if (!sourceTableId || !targetTableId || sourceTableId === targetTableId) return false;
 
@@ -513,8 +537,9 @@ export function makeTableOps(state, helpers) {
     let targetSession = tableCurrentBillSession.value[targetTableId];
     if (!targetSession) {
       if (getTableStatus(targetTableId).status !== 'free') return false;
-      await openTableSession(targetTableId);
+      await openTableSession(targetTableId, 0, 0, { enqueueSync: false });
       targetSession = tableCurrentBillSession.value[targetTableId];
+      createdTargetSession = _cloneSession(targetSession);
     }
     if (!targetSession?.billSessionId) return false;
     const targetSessionId = targetSession.billSessionId;
@@ -654,11 +679,12 @@ export function makeTableOps(state, helpers) {
       setBillRequested(sourceTableId, false);
     }
 
-    if (persistedToIDB) {
-      _enqueueChangedOrders(previousOrders, projectedOrders);
-      _enqueueChangedTransactions(previousTransactions, nextTransactions);
-      billSessionPatches.forEach(({ billSessionId, payload }) => enqueueBillSessionUpdate(billSessionId, payload));
-    }
+    if (!persistedToIDB) return false;
+
+    if (createdTargetSession) enqueueBillSessionCreate(createdTargetSession);
+    _enqueueChangedOrders(previousOrders, projectedOrders);
+    _enqueueChangedTransactions(previousTransactions, nextTransactions);
+    billSessionPatches.forEach(({ billSessionId, payload }) => enqueueBillSessionUpdate(billSessionId, payload));
 
     if (partialMoveItems.length > 0) await addDirectOrder(targetTableId, targetSessionId, partialMoveItems);
 
