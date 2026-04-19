@@ -1032,7 +1032,15 @@ export const useOrderStore = defineStore('orders', () => {
   }
 
   async function simulateNewOrder() {
-    const num = Math.floor(Math.random() * 12) + 1;
+    const randomFraction = (() => {
+      if (globalThis.crypto?.getRandomValues) {
+        const randomBuffer = new Uint32Array(1);
+        globalThis.crypto.getRandomValues(randomBuffer);
+        return randomBuffer[0] / 4294967296; // 2^32
+      }
+      return Math.random();
+    })();
+    const num = Math.floor(randomFraction * 12) + 1;
     const newTav = num < 10 ? '0' + num : '' + num;
     const now = formatOrderTime();
     let billSessionId = tableCurrentBillSession.value[newTav]?.billSessionId ?? null;

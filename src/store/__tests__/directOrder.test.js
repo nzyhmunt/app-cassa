@@ -453,6 +453,15 @@ describe('simulateNewOrder()', () => {
     setActivePinia(createPinia());
   });
 
+  function mockSecureRandomForTable(tableNumber) {
+    // tableNumber: 1..12 → force floor(random * 12) + 1 to match this value.
+    const raw = Math.floor((((tableNumber - 1) + 0.1) / 12) * 4294967296);
+    return vi.spyOn(globalThis.crypto, 'getRandomValues').mockImplementation((typedArray) => {
+      typedArray[0] = raw;
+      return typedArray;
+    });
+  }
+
   it('opens a fresh table bill session when none exists and isolates old bill transactions', async () => {
     const store = useAppStore();
 
@@ -478,7 +487,7 @@ describe('simulateNewOrder()', () => {
     expect(store.tableCurrentBillSession['01']).toBeUndefined();
 
     // Force the simulator to pick table 01.
-    const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0);
+    const randomSpy = mockSecureRandomForTable(1);
     await store.simulateNewOrder();
     randomSpy.mockRestore();
 
@@ -495,7 +504,7 @@ describe('simulateNewOrder()', () => {
 
     // getTableStatus() must only consider the active simulated bill, not old settled data.
     const status = store.getTableStatus('01');
-    expect(status.total).toBeCloseTo(5, 2); // pending comande are excluded from cassa total; only direct cover is billable now
+    expect(status.total).toBeCloseTo(5, 2); // pending orders are excluded from cash register total; only direct cover is billable now
     expect(status.remaining).toBeCloseTo(5, 2);
   });
 
@@ -503,7 +512,7 @@ describe('simulateNewOrder()', () => {
     const store = useAppStore();
     const existingSessionId = await store.openTableSession('02', 2, 0);
 
-    const randomSpy = vi.spyOn(Math, 'random').mockReturnValue((2 - 1) / 12);
+    const randomSpy = mockSecureRandomForTable(2);
     await store.simulateNewOrder();
     randomSpy.mockRestore();
 
