@@ -444,3 +444,94 @@ describe('kitchen exclusion for direct orders', () => {
     expect(acceptedBadge).toBe(1);
   });
 });
+
+// ---------------------------------------------------------------------------
+// simulateNewOrder()
+// ---------------------------------------------------------------------------
+describe('simulateNewOrder()', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+  });
+
+  function mockSecureRandomForTable(tableNumber) {
+    // tableNumber: 1..12 → force floor(random * 12) + 1 to match this value.
+    // We precompute the Uint32 raw sample that, once normalized to [0,1)
+    // (raw / 2^32) and scaled by 12, lands inside the requested bucket.
+    // `+ 0.1` nudges the sample away from bucket boundaries so floor()
+    // deterministically resolves to the intended table index.
+    const raw = Math.floor((((tableNumber - 1) + 0.1) / 12) * 4294967296);
+    return vi.spyOn(globalThis.crypto, 'getRandomValues').mockImplementation((typedArray) => {
+      typedArray[0] = raw;
+      return typedArray;
+    });
+  }
+
+  it('opens a fresh table bill session when none exists and isolates old bill transactions', async () => {
+    const store = useAppStore();
+
+    // Build and close an old bill on table 01 with a payment transaction.
+    const oldSessionId = await store.openTableSession('01', 2, 0);
+    await store.addDirectOrder('01', oldSessionId, [
+      { uid: 'sim_old_ord', dishId: 'bev_1', name: 'Acqua', unitPrice: 10, quantity: 1, voidedQuantity: 0, notes: [], modifiers: [] },
+    ]);
+    await store.addTransaction({
+      id: 'sim_old_txn',
+      tableId: '01',
+      billSessionId: oldSessionId,
+      paymentMethodId: 'cash',
+      paymentMethod: 'Contanti',
+      operationType: 'unico',
+      amountPaid: 10,
+      timestamp: new Date().toISOString(),
+      orderRefs: [],
+    });
+    for (const order of store.orders.filter(o => o.table === '01' && o.status !== 'completed' && o.status !== 'rejected')) {
+      await store.changeOrderStatus(order, 'completed');
+    }
+    expect(store.tableCurrentBillSession['01']).toBeUndefined();
+
+    // Force the simulator to pick table 01.
+    const randomSpy = mockSecureRandomForTable(1);
+    try {
+      await store.simulateNewOrder();
+    } finally {
+      randomSpy.mockRestore();
+    }
+
+    const newSessionId = store.tableCurrentBillSession['01']?.billSessionId;
+    expect(typeof newSessionId).toBe('string');
+    expect(newSessionId).not.toBe(oldSessionId);
+
+    // All active simulated orders must be attached to the new session.
+    const activeOrders = store.orders.filter(
+      o => o.table === '01' && o.status !== 'completed' && o.status !== 'rejected',
+    );
+    expect(activeOrders.length).toBeGreaterThan(0);
+    expect(activeOrders.every(o => o.billSessionId === newSessionId)).toBe(true);
+
+    // getTableStatus() must only consider the active simulated bill, not old settled data.
+    const status = store.getTableStatus('01');
+    const expectedCoverTotal = 2 * (store.config.coverCharge?.priceAdult ?? 0);
+    // In this scenario only the auto-added cover contributes to cassa total.
+    expect(status.total).toBeCloseTo(expectedCoverTotal, 2);
+    expect(status.remaining).toBeCloseTo(expectedCoverTotal, 2);
+  });
+
+  it('reuses existing open table session when present', async () => {
+    const store = useAppStore();
+    const existingSessionId = await store.openTableSession('02', 2, 0);
+
+    const randomSpy = mockSecureRandomForTable(2);
+    try {
+      await store.simulateNewOrder();
+    } finally {
+      randomSpy.mockRestore();
+    }
+
+    const activeOrders = store.orders.filter(
+      o => o.table === '02' && o.status !== 'completed' && o.status !== 'rejected',
+    );
+    expect(activeOrders.length).toBeGreaterThan(0);
+    expect(activeOrders.every(o => o.billSessionId === existingSessionId)).toBe(true);
+  });
+});

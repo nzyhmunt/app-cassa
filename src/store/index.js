@@ -396,15 +396,21 @@ export const useOrderStore = defineStore('orders', () => {
       if (master !== tableId) return { ...getTableStatus(master), isMergedSlave: true, masterTableId: master };
       return { status: 'free', total: 0, remaining: 0 };
     }
+    const session = tableCurrentBillSession.value[tableId];
+    const belongsToCurrentSession = o =>
+      !session || o.billSessionId === session.billSessionId;
     const ords = orders.value.filter(
-      o => o.table === tableId && o.status !== 'completed' && o.status !== 'rejected',
+      o =>
+        o.table === tableId &&
+        o.status !== 'completed' &&
+        o.status !== 'rejected' &&
+        belongsToCurrentSession(o),
     );
     if (ords.length === 0) return { status: 'free', total: 0, remaining: 0 };
-    const session = tableCurrentBillSession.value[tableId];
     const billable = orders.value.filter(
       o => o.table === tableId &&
         (KITCHEN_ACTIVE_STATUSES.includes(o.status) || o.status === 'completed') &&
-        (!session || o.billSessionId === session.billSessionId),
+        belongsToCurrentSession(o),
     );
     const total = billable.reduce((a, b) => a + b.totalAmount, 0);
     const paid = transactions.value
@@ -1032,16 +1038,27 @@ export const useOrderStore = defineStore('orders', () => {
   }
 
   async function simulateNewOrder() {
-    const num = Math.floor(Math.random() * 12) + 1;
+    const randomFraction = (() => {
+      if (globalThis.crypto?.getRandomValues) {
+        const randomBuffer = new Uint32Array(1);
+        globalThis.crypto.getRandomValues(randomBuffer);
+        return randomBuffer[0] / 4294967296; // 4294967296 = 2^32 → normalize to [0, 1)
+      }
+      return Math.random();
+    })();
+    const num = Math.floor(randomFraction * 12) + 1;
     const newTav = num < 10 ? '0' + num : '' + num;
     const now = formatOrderTime();
-    const session = tableCurrentBillSession.value[newTav];
+    let billSessionId = tableCurrentBillSession.value[newTav]?.billSessionId ?? null;
     const venueId = configStore.config.directus?.venueId;
+    if (!billSessionId) {
+      billSessionId = await openTableSession(newTav, 2, 0);
+    }
 
     await addOrder({
       id: newUUIDv7(),
       table: newTav,
-      billSessionId: session?.billSessionId ?? null,
+      billSessionId,
       status: 'pending',
       time: now,
       totalAmount: 12,
@@ -1057,7 +1074,7 @@ export const useOrderStore = defineStore('orders', () => {
 
     const cc = configStore.config.coverCharge;
     if (cc?.enabled && cc?.autoAdd && cc?.priceAdult > 0) {
-      const coverOrder = await addDirectOrder(newTav, session?.billSessionId ?? null, [
+      const coverOrder = await addDirectOrder(newTav, billSessionId, [
         { uid: newShortId('cop'), dishId: null, name: cc.name, unitPrice: cc.priceAdult, quantity: 2, voidedQuantity: 0, notes: [], modifiers: [] },
       ]);
       if (coverOrder) coverOrder.isCoverCharge = true;

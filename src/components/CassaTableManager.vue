@@ -1756,8 +1756,13 @@ function openInvoiceModal() {
 // All orders are physically on the master table after a merge, so no slave aggregation needed.
 const tableOrders = computed(() => {
   if (!selectedTable.value) return [];
+  const session = orderStore.tableCurrentBillSession[selectedTable.value.id];
   return orderStore.orders.filter(
-    o => o.table === selectedTable.value.id && o.status !== 'completed' && o.status !== 'rejected',
+    o =>
+      o.table === selectedTable.value.id &&
+      o.status !== 'completed' &&
+      o.status !== 'rejected' &&
+      (!session || o.billSessionId === session.billSessionId),
   );
 });
 
@@ -1868,7 +1873,7 @@ const quotaRomana = computed(() => {
 // ── Feature flags from config ──────────────────────────────────────────────
 const tipsEnabled = computed(() => configStore.config.billing?.enableTips ?? false);
 const discountsEnabled = computed(() => configStore.config.billing?.enableDiscounts ?? false);
-const autoCloseOnFullPaymentEnabled = computed(() => configStore.config.billing?.autoCloseOnFullPayment !== false);
+const autoCloseOnFullPaymentEnabled = computed(() => configStore.config.billing?.autoCloseOnFullPayment === true);
 
 // ── Payment modal computed ───────────────────────────────────────────────────────────────────
 const modalMethod = computed(() =>

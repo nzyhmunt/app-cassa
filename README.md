@@ -206,7 +206,7 @@ pending → accepted → preparing → ready → delivered → completed
 - **Calcolatore resto** per pagamenti in contanti (importo ricevuto → resto da dare)
 - **Mancia** configurabile su ogni transazione
 - **Sconti** applicabili per percentuale o importo fisso, con anteprima dell'importo
-- Chiusura automatica del tavolo al saldo completo (configurabile)
+- Chiusura automatica del tavolo al saldo completo (configurabile, default disattivata)
 - **Chiusura conto**: tre pulsanti nella barra di chiusura dopo il saldo completo:
   - **Chiudi** — chiusura senza documento fiscale
   - **Fiscale** — emette scontrino fiscale XML (protocollo RT printer) e chiude il tavolo
