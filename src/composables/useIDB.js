@@ -47,8 +47,11 @@ const DB_NAME_PREFIX = 'app-cassa';
  * To add a new version (e.g. v11):
  *   1. Increment DB_VERSION to 11.
  *   2. Add a new `if (oldVersion < 11) { ... }` block inside the `upgrade()` callback.
- *   3. Only create new ObjectStores or add new indexes — never drop or modify existing ones
- *      unless you also provide a data-migration path for users upgrading from earlier versions.
+ *   3. Prefer additive changes (new ObjectStores or new indexes). Only remove or modify
+ *      existing stores/indexes when there is a clear justification: provide a data-migration
+ *      path for users upgrading from earlier versions where needed, and for safe removals
+ *      (such as unused legacy indexes) verify with a repo-wide search that they are no longer
+ *      referenced before deleting them.
  *   4. Update this comment block with a description of the new version.
  *   5. Update DATABASE_SCHEMA.md §5.6 to reflect the new schema and version number.
  */
