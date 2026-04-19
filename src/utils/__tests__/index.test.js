@@ -57,6 +57,17 @@ describe('formatOrderIdShort()', () => {
   it('returns short ids unchanged', () => {
     expect(formatOrderIdShort('abc123')).toBe('abc123');
   });
+
+  it('handles nullish and numeric inputs', () => {
+    expect(formatOrderIdShort(null)).toBe('');
+    expect(formatOrderIdShort(undefined)).toBe('');
+    expect(formatOrderIdShort(1234567890123, 4, 3)).toBe('1234…123');
+  });
+
+  it('keeps values unchanged on boundary length', () => {
+    // 8 + 4 + 1 = 13 → unchanged because not strictly longer than the threshold
+    expect(formatOrderIdShort('1234567890123', 8, 4)).toBe('1234567890123');
+  });
 });
 
 // ---------------------------------------------------------------------------
