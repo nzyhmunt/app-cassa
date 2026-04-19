@@ -917,6 +917,9 @@ describe('sync queue propagation — table mutations', () => {
 
     expect(result).toBe(false);
     expect(enqueueMock).not.toHaveBeenCalled();
+    const sourceOrder = store.orders.find(o => o.id === ord.id);
+    expect(sourceOrder?.table).toBe('A');
+    expect(sourceOrder?.orderItems?.find(i => i.uid === 'item_1')?.quantity).toBe(2);
     expect(store.orders.some(o => o.table === 'B')).toBe(false);
   });
 });

@@ -667,7 +667,9 @@ export function makeTableOps(state, helpers) {
       console.warn('[Store] splitItemsToTable IDB save failed:', err);
     }
 
-    // Assign reactive refs after IDB write completes.
+    if (!persistedToIDB) return false;
+
+    // Assign reactive refs only after IDB write completes successfully.
     orders.value = projectedOrders;
     transactions.value = nextTransactions;
     tableCurrentBillSession.value = nextTCS;
@@ -678,8 +680,6 @@ export function makeTableOps(state, helpers) {
     } else if (!sourceStillHasOrders) {
       setBillRequested(sourceTableId, false);
     }
-
-    if (!persistedToIDB) return false;
 
     if (createdTargetSession) enqueueBillSessionCreate(createdTargetSession);
     _enqueueChangedOrders(previousOrders, projectedOrders);
