@@ -523,15 +523,17 @@ export const useOrderStore = defineStore('orders', () => {
 
   function _enqueueOrderItemsPatch(ordId, projectedOrder) {
     if (!ordId || !projectedOrder || typeof projectedOrder !== 'object') return;
-    const payload = {
-      orderItems: projectedOrder.orderItems,
-    };
+    const payload = {};
+    if (Object.prototype.hasOwnProperty.call(projectedOrder, 'orderItems')) {
+      payload.orderItems = projectedOrder.orderItems;
+    }
     if (Object.prototype.hasOwnProperty.call(projectedOrder, 'totalAmount')) {
       payload.totalAmount = projectedOrder.totalAmount;
     }
     if (Object.prototype.hasOwnProperty.call(projectedOrder, 'itemCount')) {
       payload.itemCount = projectedOrder.itemCount;
     }
+    if (Object.keys(payload).length === 0) return;
     enqueue('orders', 'update', ordId, payload);
   }
 

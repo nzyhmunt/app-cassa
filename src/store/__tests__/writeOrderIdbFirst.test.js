@@ -389,6 +389,8 @@ describe('P0-2 IDB-first — order item mutations', () => {
     const enqueueCall = enqueueMock.mock.invocationCallOrder[0];
     expect(saveCall).toBeLessThan(enqueueCall);
     expect(saveStateToIDBMock).toHaveBeenCalledTimes(1);
+    const [, , , payload] = enqueueMock.mock.calls[0];
+    expect(Object.keys(payload).sort()).toEqual(['itemCount', 'orderItems', 'totalAmount']);
   });
 
   it('removeRowGlobal removes item in IDB before reactive mutation', async () => {
@@ -411,6 +413,8 @@ describe('P0-2 IDB-first — order item mutations', () => {
     const enqueueCall = enqueueMock.mock.invocationCallOrder[0];
     expect(saveCall).toBeLessThan(enqueueCall);
     expect(saveStateToIDBMock).toHaveBeenCalledTimes(1);
+    const [, , , payload] = enqueueMock.mock.calls[0];
+    expect(Object.keys(payload).sort()).toEqual(['itemCount', 'orderItems', 'totalAmount']);
   });
 
   it('removeRowGlobal returns false and leaves state unchanged when IDB rejects', async () => {
@@ -445,6 +449,8 @@ describe('P0-2 IDB-first — order item mutations', () => {
     const enqueueCall = enqueueMock.mock.invocationCallOrder[0];
     expect(saveCall).toBeLessThan(enqueueCall);
     expect(saveStateToIDBMock).toHaveBeenCalledTimes(1);
+    const [, , , payload] = enqueueMock.mock.calls[0];
+    expect(Object.keys(payload).sort()).toEqual(['itemCount', 'orderItems', 'totalAmount']);
   });
 
   it('restoreOrderItems returns false and leaves state unchanged when IDB rejects', async () => {
@@ -479,6 +485,8 @@ describe('P0-2 IDB-first — order item mutations', () => {
     const enqueueCall = enqueueMock.mock.invocationCallOrder[0];
     expect(saveCall).toBeLessThan(enqueueCall);
     expect(saveStateToIDBMock).toHaveBeenCalledTimes(1);
+    const [, , , payload] = enqueueMock.mock.calls[0];
+    expect(Object.keys(payload).sort()).toEqual(['itemCount', 'orderItems', 'totalAmount']);
   });
 
   it('voidModifier returns false and leaves state unchanged when IDB rejects', async () => {
@@ -513,6 +521,8 @@ describe('P0-2 IDB-first — order item mutations', () => {
     const enqueueCall = enqueueMock.mock.invocationCallOrder[0];
     expect(saveCall).toBeLessThan(enqueueCall);
     expect(saveStateToIDBMock).toHaveBeenCalledTimes(1);
+    const [, , , payload] = enqueueMock.mock.calls[0];
+    expect(Object.keys(payload).sort()).toEqual(['itemCount', 'orderItems', 'totalAmount']);
   });
 
   it('restoreModifier returns false and leaves state unchanged when IDB rejects', async () => {
@@ -547,6 +557,8 @@ describe('P0-2 IDB-first — order item mutations', () => {
     const enqueueCall = enqueueMock.mock.invocationCallOrder[0];
     expect(saveCall).toBeLessThan(enqueueCall);
     expect(saveStateToIDBMock).toHaveBeenCalledTimes(1);
+    const [, , , payload] = enqueueMock.mock.calls[0];
+    expect(Object.keys(payload).sort()).toEqual(['itemCount', 'orderItems', 'totalAmount']);
   });
 
   it('setItemKitchenReady returns false and leaves state unchanged when IDB rejects', async () => {
