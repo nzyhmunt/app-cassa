@@ -537,6 +537,19 @@ export const useOrderStore = defineStore('orders', () => {
     enqueue('orders', 'update', ordId, _clone(payload));
   }
 
+  function _enqueueTransactionPatch(txn) {
+    if (!txn?.id) return;
+    enqueue('transactions', 'update', txn.id, _clone({
+      tableId: txn.tableId ?? null,
+      billSessionId: txn.billSessionId ?? null,
+    }));
+  }
+
+  function _enqueueBillSessionPatch(billSessionId, payload) {
+    if (!billSessionId || !payload || typeof payload !== 'object') return;
+    enqueue('bill_sessions', 'update', billSessionId, _clone(payload));
+  }
+
   /**
    * Returns a new orders array with the entry matching ordId replaced by updated.
    * String coercion ensures reactive-proxy IDs compare correctly against raw strings.
@@ -1033,7 +1046,18 @@ export const useOrderStore = defineStore('orders', () => {
   const { moveTableOrders, mergeTableOrders, detachSlaveTable, splitItemsToTable } =
     makeTableOps(
       { orders, transactions, tableCurrentBillSession, tableOccupiedAt, billRequestedTables, tableMergedInto },
-      { addDirectOrder, openTableSession, getTableStatus, setBillRequested, slaveIdsOf, resolveMaster, updateBillRequestedState: _updateBillRequestedState },
+      {
+        addDirectOrder,
+        openTableSession,
+        getTableStatus,
+        setBillRequested,
+        slaveIdsOf,
+        resolveMaster,
+        updateBillRequestedState: _updateBillRequestedState,
+        enqueueOrderUpdate: _enqueueOrderSnapshot,
+        enqueueTransactionUpdate: _enqueueTransactionPatch,
+        enqueueBillSessionUpdate: _enqueueBillSessionPatch,
+      },
     );
 
   const { generateXReport, performDailyClose, closedBills } =

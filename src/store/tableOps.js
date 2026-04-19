@@ -26,7 +26,42 @@ export function makeTableOps(state, helpers) {
     addDirectOrder, openTableSession, getTableStatus, setBillRequested,
     slaveIdsOf, resolveMaster,
     updateBillRequestedState = null,
+    enqueueOrderUpdate = () => {},
+    enqueueTransactionUpdate = () => {},
+    enqueueBillSessionUpdate = () => {},
   } = helpers;
+
+  const _ordersEqualForSync = (prev, next) => {
+    if (!prev || !next) return false;
+    if (prev.table !== next.table) return false;
+    if ((prev.billSessionId ?? null) !== (next.billSessionId ?? null)) return false;
+    if ((prev.totalAmount ?? null) !== (next.totalAmount ?? null)) return false;
+    if ((prev.itemCount ?? null) !== (next.itemCount ?? null)) return false;
+    return JSON.stringify(prev.orderItems ?? []) === JSON.stringify(next.orderItems ?? []);
+  };
+
+  const _enqueueChangedOrders = (previousOrders, nextOrders) => {
+    const prevById = new Map((previousOrders || []).map((order) => [String(order.id), order]));
+    (nextOrders || []).forEach((order) => {
+      const prev = prevById.get(String(order.id));
+      if (!prev) return;
+      if (_ordersEqualForSync(prev, order)) return;
+      enqueueOrderUpdate(order);
+    });
+  };
+
+  const _enqueueChangedTransactions = (previousTransactions, nextTransactions) => {
+    const prevById = new Map((previousTransactions || []).map((txn) => [String(txn.id), txn]));
+    (nextTransactions || []).forEach((txn) => {
+      const prev = prevById.get(String(txn.id));
+      if (!prev) return;
+      if (
+        prev.tableId === txn.tableId &&
+        (prev.billSessionId ?? null) === (txn.billSessionId ?? null)
+      ) return;
+      enqueueTransactionUpdate(txn);
+    });
+  };
 
   // ── Floor-plan display helpers (private) ─────────────────────────────────
   //
@@ -101,6 +136,8 @@ export function makeTableOps(state, helpers) {
   // ── moveTableOrders ──────────────────────────────────────────────────────
 
   async function moveTableOrders(fromTableId, toTableId) {
+    const previousOrders = orders.value;
+    const previousTransactions = transactions.value;
     // Build projected copies of every piece of state that will change, so we
     // can persist to IDB *before* touching any reactive ref (IDB-first invariant).
     const nextOrders = orders.value.map(o => ({ ...o }));
@@ -143,10 +180,21 @@ export function makeTableOps(state, helpers) {
         children: nextTCS[toTableId].children + nextTCS[fromTableId].children,
       };
       delete nextTCS[fromTableId];
+      enqueueBillSessionUpdate(destSessionId, {
+        adults: nextTCS[toTableId].adults,
+        children: nextTCS[toTableId].children,
+      });
+      enqueueBillSessionUpdate(srcSessionId, {
+        status: 'closed',
+        closed_at: new Date().toISOString(),
+      });
     } else if (srcSession) {
       _relocateOnArrays(fromTableId, toTableId, null, srcSessionId, nextOrders, nextTransactions);
       nextTCS[toTableId] = nextTCS[fromTableId];
       delete nextTCS[fromTableId];
+      enqueueBillSessionUpdate(srcSessionId, {
+        table: toTableId,
+      });
     } else {
       _relocateOnArrays(fromTableId, toTableId, null, destSessionId, nextOrders, nextTransactions);
     }
@@ -179,11 +227,16 @@ export function makeTableOps(state, helpers) {
       if (billRequestedTables.value.has(fromTableId)) setBillRequested(fromTableId, false);
       if (nextBillRequested.has(toTableId)) setBillRequested(toTableId, true);
     }
+
+    _enqueueChangedOrders(previousOrders, nextOrders);
+    _enqueueChangedTransactions(previousTransactions, nextTransactions);
   }
 
   // ── mergeTableOrders ─────────────────────────────────────────────────────
 
   async function mergeTableOrders(sourceTableId, targetTableId) {
+    const previousOrders = orders.value;
+    const previousTransactions = transactions.value;
     const resolvedTargetId = resolveMaster(targetTableId);
     if (sourceTableId === resolvedTargetId) return;
 
@@ -227,6 +280,18 @@ export function makeTableOps(state, helpers) {
       children: (nextTCS[resolvedTargetId]?.children ?? 0) + (srcSession?.children ?? 0),
     };
     delete nextTCS[sourceTableId];
+    if (targetSessionId) {
+      enqueueBillSessionUpdate(targetSessionId, {
+        adults: nextTCS[resolvedTargetId].adults,
+        children: nextTCS[resolvedTargetId].children,
+      });
+    }
+    if (srcSessionId) {
+      enqueueBillSessionUpdate(srcSessionId, {
+        status: 'closed',
+        closed_at: new Date().toISOString(),
+      });
+    }
 
     nextBillRequested.delete(sourceTableId);
 
@@ -255,6 +320,9 @@ export function makeTableOps(state, helpers) {
     } else {
       setBillRequested(sourceTableId, false);
     }
+
+    _enqueueChangedOrders(previousOrders, nextOrders);
+    _enqueueChangedTransactions(previousTransactions, nextTransactions);
   }
 
   // ── detachSlaveTable ──────────────────────────────────────────────────────
@@ -265,6 +333,7 @@ export function makeTableOps(state, helpers) {
     const slaveHasOrders = orders.value.some(
       o => o.table === slaveTableId && o.status !== 'completed' && o.status !== 'rejected',
     );
+    const previousOrders = orders.value;
 
     // openTableSession is already IDB-first (upsertBillSessionInIDB before reactive update).
     let newSessionId = null;
@@ -295,6 +364,7 @@ export function makeTableOps(state, helpers) {
     // Assign reactive refs after IDB write completes.
     tableMergedInto.value = nextMergedInto;
     if (slaveHasOrders) orders.value = nextOrders;
+    if (slaveHasOrders) _enqueueChangedOrders(previousOrders, nextOrders);
   }
 
   // ── splitItemsToTable ────────────────────────────────────────────────────
@@ -311,6 +381,8 @@ export function makeTableOps(state, helpers) {
    * @returns {boolean} true if any items were moved
    */
   async function splitItemsToTable(sourceTableId, targetTableId, itemQtyMap) {
+    const previousOrders = orders.value;
+    const previousTransactions = transactions.value;
     if (!sourceTableId || !targetTableId || sourceTableId === targetTableId) return false;
 
     // Block if any source order is still awaiting kitchen confirmation
@@ -446,6 +518,12 @@ export function makeTableOps(state, helpers) {
       // Floor-plan display: remove all merge links involving the now-empty source.
       slaveIdsOf(sourceTableId).forEach(slaveId => { delete nextMergedInto[slaveId]; });
       delete nextMergedInto[sourceTableId];
+      if (srcSessionId) {
+        enqueueBillSessionUpdate(srcSessionId, {
+          status: 'closed',
+          closed_at: new Date().toISOString(),
+        });
+      }
     }
 
     // IDB-first: persist all projected state before any reactive assignment.
@@ -470,6 +548,9 @@ export function makeTableOps(state, helpers) {
     } else if (!sourceStillHasOrders) {
       setBillRequested(sourceTableId, false);
     }
+
+    _enqueueChangedOrders(previousOrders, projectedOrders);
+    _enqueueChangedTransactions(previousTransactions, nextTransactions);
 
     if (partialMoveItems.length > 0) await addDirectOrder(targetTableId, targetSessionId, partialMoveItems);
 
