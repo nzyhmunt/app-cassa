@@ -1035,13 +1035,16 @@ export const useOrderStore = defineStore('orders', () => {
     const num = Math.floor(Math.random() * 12) + 1;
     const newTav = num < 10 ? '0' + num : '' + num;
     const now = formatOrderTime();
-    const session = tableCurrentBillSession.value[newTav];
+    let billSessionId = tableCurrentBillSession.value[newTav]?.billSessionId ?? null;
     const venueId = configStore.config.directus?.venueId;
+    if (!billSessionId) {
+      billSessionId = await openTableSession(newTav, 2, 0);
+    }
 
     await addOrder({
       id: newUUIDv7(),
       table: newTav,
-      billSessionId: session?.billSessionId ?? null,
+      billSessionId,
       status: 'pending',
       time: now,
       totalAmount: 12,
@@ -1057,7 +1060,7 @@ export const useOrderStore = defineStore('orders', () => {
 
     const cc = configStore.config.coverCharge;
     if (cc?.enabled && cc?.autoAdd && cc?.priceAdult > 0) {
-      const coverOrder = await addDirectOrder(newTav, session?.billSessionId ?? null, [
+      const coverOrder = await addDirectOrder(newTav, billSessionId, [
         { uid: newShortId('cop'), dishId: null, name: cc.name, unitPrice: cc.priceAdult, quantity: 2, voidedQuantity: 0, notes: [], modifiers: [] },
       ]);
       if (coverOrder) coverOrder.isCoverCharge = true;
