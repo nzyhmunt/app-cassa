@@ -603,3 +603,386 @@ describe('P0-2 IDB-first — order item mutations', () => {
     expect(store.cashBalance).toBe(250);
   });
 });
+
+describe('sync queue propagation — table mutations', () => {
+  it('moveTableOrders to occupied target enqueues moved orders/transactions and bill-session updates', async () => {
+    const store = useAppStore();
+    runtime.store = store;
+    const sessA = await store.openTableSession('A', 2, 0);
+    const sessB = await store.openTableSession('B', 2, 0);
+    const ordA = makeOrder('ord_move_occ', 'A', 'accepted');
+    ordA.billSessionId = sessA;
+    await store.addOrder(ordA);
+    await store.addTransaction({
+      id: 'txn_move_occ',
+      tableId: 'A',
+      billSessionId: sessA,
+      amountPaid: 10,
+      tipAmount: 0,
+      paymentMethod: 'Contanti',
+      operationType: 'payment',
+      timestamp: new Date().toISOString(),
+    });
+
+    runtime.snapshots = [];
+    vi.clearAllMocks();
+
+    await store.moveTableOrders('A', 'B');
+
+    const saveCallOrder = saveStateToIDBMock.mock.invocationCallOrder[0];
+    const firstEnqueueOrder = enqueueMock.mock.invocationCallOrder[0];
+    expect(saveCallOrder).toBeLessThan(firstEnqueueOrder);
+    const firstUpsertCallOrder = upsertBillSessionInIDBMock.mock.invocationCallOrder[0];
+    expect(saveCallOrder).toBeLessThan(firstUpsertCallOrder);
+
+    const orderUpdateCall = enqueueMock.mock.calls.find(
+      ([collection, operation, recordId]) => collection === 'orders' && operation === 'update' && recordId === ordA.id,
+    );
+    expect(orderUpdateCall?.[3]).toEqual({ table: 'B', billSessionId: sessB });
+
+    const txnUpdateCall = enqueueMock.mock.calls.find(
+      ([collection, operation, recordId]) => collection === 'transactions' && operation === 'update' && recordId === 'txn_move_occ',
+    );
+    expect(txnUpdateCall?.[3]).toEqual({ tableId: 'B', billSessionId: sessB });
+
+    const targetSessionUpdate = enqueueMock.mock.calls.find(
+      ([collection, operation, recordId]) => collection === 'bill_sessions' && operation === 'update' && recordId === sessB,
+    );
+    expect(targetSessionUpdate?.[3]).toMatchObject({ adults: 4, children: 0 });
+
+    const sourceSessionClose = enqueueMock.mock.calls.find(
+      ([collection, operation, recordId]) => collection === 'bill_sessions' && operation === 'update' && recordId === sessA,
+    );
+    expect(sourceSessionClose?.[3]?.status).toBe('closed');
+    expect(typeof sourceSessionClose?.[3]?.closed_at).toBe('string');
+    expect(upsertBillSessionInIDBMock).toHaveBeenCalledWith(expect.objectContaining({
+      billSessionId: sessB,
+      table: 'B',
+      adults: 4,
+      children: 0,
+    }));
+    expect(closeBillSessionInIDBMock).toHaveBeenCalledWith(sessA);
+  });
+
+  it('moveTableOrders to free target enqueues bill-session table retag', async () => {
+    const store = useAppStore();
+    runtime.store = store;
+    const sessA = await store.openTableSession('A', 2, 1);
+    const ordA = makeOrder('ord_move_free', 'A', 'accepted');
+    ordA.billSessionId = sessA;
+    await store.addOrder(ordA);
+
+    runtime.snapshots = [];
+    vi.clearAllMocks();
+
+    await store.moveTableOrders('A', 'B');
+
+    const sourceSessionUpdate = enqueueMock.mock.calls.find(
+      ([collection, operation, recordId]) => collection === 'bill_sessions' && operation === 'update' && recordId === sessA,
+    );
+    expect(sourceSessionUpdate?.[3]).toEqual({ table: 'B' });
+    expect(upsertBillSessionInIDBMock).toHaveBeenCalledWith(expect.objectContaining({
+      billSessionId: sessA,
+      table: 'B',
+    }));
+  });
+
+  it('moveTableOrders keeps local reactive state but suppresses sync enqueue when saveStateToIDB fails', async () => {
+    const store = useAppStore();
+    runtime.store = store;
+    const sessA = await store.openTableSession('A', 2, 0);
+    const sessB = await store.openTableSession('B', 2, 0);
+    const ordA = makeOrder('ord_move_fail', 'A', 'accepted');
+    ordA.billSessionId = sessA;
+    await store.addOrder(ordA);
+    await store.addTransaction({
+      id: 'txn_move_fail',
+      tableId: 'A',
+      billSessionId: sessA,
+      amountPaid: 10,
+      tipAmount: 0,
+      paymentMethod: 'Contanti',
+      operationType: 'payment',
+      timestamp: new Date().toISOString(),
+    });
+
+    runtime.snapshots = [];
+    vi.clearAllMocks();
+    saveStateToIDBMock.mockRejectedValueOnce(new Error('IDB fail'));
+
+    await store.moveTableOrders('A', 'B');
+
+    expect(enqueueMock).not.toHaveBeenCalled();
+    expect(upsertBillSessionInIDBMock).not.toHaveBeenCalled();
+    expect(closeBillSessionInIDBMock).not.toHaveBeenCalled();
+    expect(store.orders.find(o => o.id === ordA.id)?.table).toBe('B');
+    expect(store.orders.find(o => o.id === ordA.id)?.billSessionId).toBe(sessB);
+  });
+
+  it('mergeTableOrders enqueues moved orders/transactions and bill-session updates', async () => {
+    const store = useAppStore();
+    runtime.store = store;
+    const sessA = await store.openTableSession('A', 2, 1);
+    const sessB = await store.openTableSession('B', 1, 0);
+    const ordA = makeOrder('ord_merge', 'A', 'accepted');
+    ordA.billSessionId = sessA;
+    await store.addOrder(ordA);
+    await store.addTransaction({
+      id: 'txn_merge',
+      tableId: 'A',
+      billSessionId: sessA,
+      amountPaid: 15,
+      tipAmount: 0,
+      paymentMethod: 'Contanti',
+      operationType: 'payment',
+      timestamp: new Date().toISOString(),
+    });
+
+    runtime.snapshots = [];
+    vi.clearAllMocks();
+
+    await store.mergeTableOrders('A', 'B');
+
+    const saveCallOrder = saveStateToIDBMock.mock.invocationCallOrder[0];
+    const firstEnqueueOrder = enqueueMock.mock.invocationCallOrder[0];
+    expect(saveCallOrder).toBeLessThan(firstEnqueueOrder);
+
+    const movedOrderUpdate = enqueueMock.mock.calls.find(
+      ([collection, operation, recordId]) => collection === 'orders' && operation === 'update' && recordId === ordA.id,
+    );
+    expect(movedOrderUpdate?.[3]).toEqual({ table: 'B', billSessionId: sessB });
+
+    const movedTxnUpdate = enqueueMock.mock.calls.find(
+      ([collection, operation, recordId]) => collection === 'transactions' && operation === 'update' && recordId === 'txn_merge',
+    );
+    expect(movedTxnUpdate?.[3]).toEqual({ tableId: 'B', billSessionId: sessB });
+
+    const targetSessionUpdate = enqueueMock.mock.calls.find(
+      ([collection, operation, recordId]) => collection === 'bill_sessions' && operation === 'update' && recordId === sessB,
+    );
+    expect(targetSessionUpdate?.[3]).toMatchObject({ adults: 3, children: 1 });
+
+    const sourceSessionClose = enqueueMock.mock.calls.find(
+      ([collection, operation, recordId]) => collection === 'bill_sessions' && operation === 'update' && recordId === sessA,
+    );
+    expect(sourceSessionClose?.[3]?.status).toBe('closed');
+    expect(closeBillSessionInIDBMock).toHaveBeenCalledWith(sessA);
+    expect(upsertBillSessionInIDBMock).toHaveBeenCalledWith(expect.objectContaining({
+      billSessionId: sessB,
+      table: 'B',
+      adults: 3,
+      children: 1,
+    }));
+  });
+
+  it('mergeTableOrders with new target session does not enqueue when projected IDB save fails', async () => {
+    const store = useAppStore();
+    runtime.store = store;
+    const sessA = await store.openTableSession('A', 2, 0);
+    const ordA = makeOrder('ord_merge_fail', 'A', 'accepted');
+    ordA.billSessionId = sessA;
+    await store.addOrder(ordA);
+    await store.addTransaction({
+      id: 'txn_merge_fail',
+      tableId: 'A',
+      billSessionId: sessA,
+      amountPaid: 12,
+      tipAmount: 0,
+      paymentMethod: 'Contanti',
+      operationType: 'payment',
+      timestamp: new Date().toISOString(),
+    });
+
+    runtime.snapshots = [];
+    vi.clearAllMocks();
+    saveStateToIDBMock.mockRejectedValueOnce(new Error('IDB fail'));
+
+    await store.mergeTableOrders('A', 'B');
+
+    expect(enqueueMock).not.toHaveBeenCalled();
+  });
+
+  it('detachSlaveTable with slave orders enqueues order billSession retag', async () => {
+    const store = useAppStore();
+    runtime.store = store;
+    const masterSessionId = await store.openTableSession('B', 2, 0);
+    const ordSlave = makeOrder('ord_detach', 'A', 'accepted');
+    ordSlave.billSessionId = masterSessionId;
+    await store.addOrder(ordSlave);
+    store.tableMergedInto = { A: 'B' };
+
+    runtime.snapshots = [];
+    vi.clearAllMocks();
+
+    await store.detachSlaveTable('B', 'A');
+
+    const saveCallOrder = saveStateToIDBMock.mock.invocationCallOrder[0];
+    const firstEnqueueOrder = enqueueMock.mock.invocationCallOrder[0];
+    expect(saveCallOrder).toBeLessThan(firstEnqueueOrder);
+
+    const orderUpdateCall = enqueueMock.mock.calls.find(
+      ([collection, operation, recordId]) => collection === 'orders' && operation === 'update' && recordId === ordSlave.id,
+    );
+    expect(orderUpdateCall?.[3]).toEqual({
+      billSessionId: store.tableCurrentBillSession.A?.billSessionId,
+    });
+    expect(orderUpdateCall?.[3]?.billSessionId).not.toBe(masterSessionId);
+    const createdSessionCall = enqueueMock.mock.calls.find(
+      ([collection, operation]) => collection === 'bill_sessions' && operation === 'create',
+    );
+    expect(createdSessionCall).toBeTruthy();
+    expect(createdSessionCall?.[3]).toEqual(expect.objectContaining({
+      table: 'A',
+      status: 'open',
+      adults: 0,
+      children: 0,
+    }));
+  });
+
+  it('detachSlaveTable suppresses bill session create enqueue when projected IDB save fails', async () => {
+    const store = useAppStore();
+    runtime.store = store;
+    const masterSessionId = await store.openTableSession('B', 2, 0);
+    const ordSlave = makeOrder('ord_detach_fail', 'A', 'accepted');
+    ordSlave.billSessionId = masterSessionId;
+    await store.addOrder(ordSlave);
+    store.tableMergedInto = { A: 'B' };
+
+    runtime.snapshots = [];
+    vi.clearAllMocks();
+    saveStateToIDBMock.mockRejectedValueOnce(new Error('IDB fail'));
+
+    await store.detachSlaveTable('B', 'A');
+
+    expect(enqueueMock).not.toHaveBeenCalled();
+  });
+
+  it('splitItemsToTable enqueues source order patch on partial split', async () => {
+    const store = useAppStore();
+    runtime.store = store;
+    const sessA = await store.openTableSession('A', 2, 0);
+    const sessB = await store.openTableSession('B', 2, 0);
+    const ord = makeOrderWithItems('ord_split_partial', 'A', 'accepted');
+    ord.billSessionId = sessA;
+    await store.addOrder(ord);
+
+    runtime.snapshots = [];
+    vi.clearAllMocks();
+
+    await store.splitItemsToTable('A', 'B', { [`${ord.id}__item_1`]: 1 });
+
+    const saveCallOrder = saveStateToIDBMock.mock.invocationCallOrder[0];
+    const firstEnqueueOrder = enqueueMock.mock.invocationCallOrder[0];
+    expect(saveCallOrder).toBeLessThan(firstEnqueueOrder);
+
+    const orderUpdateCall = enqueueMock.mock.calls.find(
+      ([collection, operation, recordId]) => collection === 'orders' && operation === 'update' && recordId === ord.id,
+    );
+    expect(orderUpdateCall?.[3]).toEqual({
+      orderItems: expect.arrayContaining([
+        expect.objectContaining({ uid: 'item_1', quantity: 1 }),
+      ]),
+      totalAmount: 10,
+      itemCount: 1,
+    });
+  });
+
+  it('splitItemsToTable persists newly created target bill session only after projected save success', async () => {
+    const store = useAppStore();
+    runtime.store = store;
+    const sessA = await store.openTableSession('A', 2, 0);
+    const ord = makeOrderWithItems('ord_split_create_target_session', 'A', 'accepted');
+    ord.billSessionId = sessA;
+    await store.addOrder(ord);
+
+    runtime.snapshots = [];
+    vi.clearAllMocks();
+
+    const result = await store.splitItemsToTable('A', 'B', { [`${ord.id}__item_1`]: 1 });
+
+    expect(result).toBe(true);
+    const saveCallOrder = saveStateToIDBMock.mock.invocationCallOrder[0];
+    const upsertCallOrder = upsertBillSessionInIDBMock.mock.invocationCallOrder[0];
+    expect(saveCallOrder).toBeLessThan(upsertCallOrder);
+    const createdTargetSessionId = store.tableCurrentBillSession.B?.billSessionId;
+    expect(createdTargetSessionId).toBeTruthy();
+    expect(upsertBillSessionInIDBMock).toHaveBeenCalledWith(expect.objectContaining({
+      billSessionId: createdTargetSessionId,
+      table: 'B',
+      status: 'open',
+      adults: 0,
+      children: 0,
+      opened_at: expect.any(String),
+    }));
+  });
+
+  it('splitItemsToTable full split enqueues moved order/transactions and closes emptied source session', async () => {
+    const store = useAppStore();
+    runtime.store = store;
+    const sessA = await store.openTableSession('A', 2, 0);
+    const sessB = await store.openTableSession('B', 2, 0);
+    const ord = makeOrderWithItems('ord_split_full', 'A', 'accepted');
+    ord.billSessionId = sessA;
+    ord.orderItems[0].quantity = 1;
+    ord.totalAmount = 10;
+    ord.itemCount = 1;
+    await store.addOrder(ord);
+    await store.addTransaction({
+      id: 'txn_split_full',
+      tableId: 'A',
+      billSessionId: sessA,
+      amountPaid: 5,
+      tipAmount: 0,
+      paymentMethod: 'Contanti',
+      operationType: 'payment',
+      timestamp: new Date().toISOString(),
+    });
+
+    runtime.snapshots = [];
+    vi.clearAllMocks();
+
+    await store.splitItemsToTable('A', 'B', { [`${ord.id}__item_1`]: 1 });
+
+    const movedOrderUpdate = enqueueMock.mock.calls.find(
+      ([collection, operation, recordId]) => collection === 'orders' && operation === 'update' && recordId === ord.id,
+    );
+    expect(movedOrderUpdate?.[3]?.table).toBe('B');
+    expect(movedOrderUpdate?.[3]?.billSessionId).toBe(sessB);
+
+    const movedTxnUpdate = enqueueMock.mock.calls.find(
+      ([collection, operation, recordId]) => collection === 'transactions' && operation === 'update' && recordId === 'txn_split_full',
+    );
+    expect(movedTxnUpdate?.[3]).toEqual({ tableId: 'B', billSessionId: sessB });
+
+    const sourceSessionClose = enqueueMock.mock.calls.find(
+      ([collection, operation, recordId]) => collection === 'bill_sessions' && operation === 'update' && recordId === sessA,
+    );
+    expect(sourceSessionClose?.[3]?.status).toBe('closed');
+    expect(typeof sourceSessionClose?.[3]?.closed_at).toBe('string');
+    expect(closeBillSessionInIDBMock).toHaveBeenCalledWith(sessA);
+  });
+
+  it('splitItemsToTable returns false and skips enqueue/addDirectOrder when projected IDB save fails', async () => {
+    const store = useAppStore();
+    runtime.store = store;
+    const sessA = await store.openTableSession('A', 2, 0);
+    const ord = makeOrderWithItems('ord_split_fail', 'A', 'accepted');
+    ord.billSessionId = sessA;
+    await store.addOrder(ord);
+
+    runtime.snapshots = [];
+    vi.clearAllMocks();
+    saveStateToIDBMock.mockRejectedValueOnce(new Error('IDB fail'));
+
+    const result = await store.splitItemsToTable('A', 'B', { [`${ord.id}__item_1`]: 1 });
+
+    expect(result).toBe(false);
+    expect(enqueueMock).not.toHaveBeenCalled();
+    const sourceOrder = store.orders.find(o => o.id === ord.id);
+    expect(sourceOrder?.table).toBe('A');
+    expect(sourceOrder?.orderItems?.find(i => i.uid === 'item_1')?.quantity).toBe(2);
+    expect(store.orders.some(o => o.table === 'B')).toBe(false);
+    expect(store.tableCurrentBillSession.B).toBeUndefined();
+    expect(upsertBillSessionInIDBMock).not.toHaveBeenCalled();
+  });
+});
