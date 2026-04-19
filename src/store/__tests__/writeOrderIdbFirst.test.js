@@ -354,6 +354,7 @@ describe('P0-2 IDB-first — order item mutations', () => {
     expect(saveStateToIDBMock).toHaveBeenCalledTimes(1);
     const [, , , payload] = enqueueMock.mock.calls[0];
     expect(Object.keys(payload).sort()).toEqual(['itemCount', 'orderItems', 'totalAmount']);
+    expect(payload.orderItems).not.toBe(store.orders[0].orderItems);
   });
 
   it('updateQtyGlobal does not mutate orders when IDB rejects', async () => {

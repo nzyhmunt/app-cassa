@@ -502,7 +502,25 @@ function _buildRestClient(cfg) {
  * @param {object} entry
  * @param {import('@directus/sdk').DirectusClient<object>} sdkClient
  * @param {{ venueId?: number|string|null }} cfg
- * @returns {Promise<true|'skip'|string>}
+ * @returns {Promise<
+ *   true |
+ *   'skip' |
+ *   {
+ *     message: string,
+ *     request: {
+ *       collection: string,
+ *       operation: string,
+ *       record_id: string,
+ *       endpoint: string,
+ *       method: 'POST'|'PATCH'|'DELETE',
+ *       body: object|null,
+ *     } | null,
+ *     response: {
+ *       status: number|null,
+ *       body: unknown,
+ *     },
+ *   }
+ * >}
  */
 async function _pushEntry(entry, sdkClient, cfg) {
   const { collection, operation, record_id, payload } = entry;
@@ -623,7 +641,7 @@ async function _pushEntry(entry, sdkClient, cfg) {
  *   on the window for each abandoned entry so the UI can react).
  * - Entries that should be skipped (no-op deletes) are silently removed.
  *
- * @param {{ url: string, staticToken: string, _backoffMs?: number }} cfg
+ * @param {{ url: string, staticToken: string, venueId?: number|string|null, _backoffMs?: number }} cfg
  *   Directus connection config.  `_backoffMs` overrides the exponential
  *   back-off base (default 1000 ms); set to 0 in tests to skip all delays.
  * @returns {Promise<{ pushed: number, failed: number, abandoned: number }>}

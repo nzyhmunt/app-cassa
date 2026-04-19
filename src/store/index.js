@@ -534,7 +534,7 @@ export const useOrderStore = defineStore('orders', () => {
       payload.itemCount = projectedOrder.itemCount;
     }
     if (Object.keys(payload).length === 0) return;
-    enqueue('orders', 'update', ordId, payload);
+    enqueue('orders', 'update', ordId, _clone(payload));
   }
 
   /**
