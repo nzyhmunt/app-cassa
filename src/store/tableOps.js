@@ -7,7 +7,7 @@
  */
 import { saveStateToIDB, upsertBillSessionInIDB, closeBillSessionInIDB } from './persistence/operations.js';
 import { updateOrderTotals } from '../utils/index.js';
-import { newShortId } from './storeUtils.js';
+import { newShortId, newUUIDv7 } from './storeUtils.js';
 
 /**
  * @param {object} state   – Reactive refs: orders, transactions, tableCurrentBillSession,
@@ -533,12 +533,22 @@ export function makeTableOps(state, helpers) {
     const nextMergedInto = { ...tableMergedInto.value };
     if (targetMaster === sourceTableId) delete nextMergedInto[targetTableId];
 
-    // Ensure target has an open billing session
+    // Ensure target has an open billing session as part of projected state
     let targetSession = tableCurrentBillSession.value[targetTableId];
+    let nextTCS = { ...tableCurrentBillSession.value };
     if (!targetSession) {
       if (getTableStatus(targetTableId).status !== 'free') return false;
-      await openTableSession(targetTableId, 0, 0, { enqueueSync: false });
-      targetSession = tableCurrentBillSession.value[targetTableId];
+      const billSessionId = newUUIDv7();
+      const now = new Date().toISOString();
+      targetSession = {
+        billSessionId,
+        adults: 0,
+        children: 0,
+        table: targetTableId,
+        status: 'open',
+        opened_at: now,
+      };
+      nextTCS[targetTableId] = targetSession;
       createdTargetSession = _cloneSession(targetSession);
     }
     if (!targetSession?.billSessionId) return false;
@@ -619,7 +629,6 @@ export function makeTableOps(state, helpers) {
     );
 
     let nextTransactions = transactions.value;
-    let nextTCS = tableCurrentBillSession.value;
     let nextBillRequested = billRequestedTables.value;
 
     if (!sourceStillHasOrders) {
@@ -632,7 +641,7 @@ export function makeTableOps(state, helpers) {
               : t,
           )
         : transactions.value;
-      const projectedTCS = { ...tableCurrentBillSession.value };
+      const projectedTCS = { ...nextTCS };
       delete projectedTCS[sourceTableId];
       nextTCS = projectedTCS;
       delete nextOccupiedAt[sourceTableId];
@@ -661,6 +670,9 @@ export function makeTableOps(state, helpers) {
         tableMergedInto: nextMergedInto,
         billRequestedTables: nextBillRequested,
       });
+      if (createdTargetSession) {
+        await upsertBillSessionInIDB(createdTargetSession);
+      }
       await _persistBillSessionPatchesToIDB(billSessionPatches, nextTCS);
       persistedToIDB = true;
     } catch (err) {

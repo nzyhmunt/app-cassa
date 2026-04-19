@@ -921,5 +921,7 @@ describe('sync queue propagation — table mutations', () => {
     expect(sourceOrder?.table).toBe('A');
     expect(sourceOrder?.orderItems?.find(i => i.uid === 'item_1')?.quantity).toBe(2);
     expect(store.orders.some(o => o.table === 'B')).toBe(false);
+    expect(store.tableCurrentBillSession.B).toBeUndefined();
+    expect(upsertBillSessionInIDBMock).not.toHaveBeenCalled();
   });
 });
