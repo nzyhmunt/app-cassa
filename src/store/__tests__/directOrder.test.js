@@ -492,8 +492,11 @@ describe('simulateNewOrder()', () => {
 
     // Force the simulator to pick table 01.
     const randomSpy = mockSecureRandomForTable(1);
-    await store.simulateNewOrder();
-    randomSpy.mockRestore();
+    try {
+      await store.simulateNewOrder();
+    } finally {
+      randomSpy.mockRestore();
+    }
 
     const newSessionId = store.tableCurrentBillSession['01']?.billSessionId;
     expect(typeof newSessionId).toBe('string');
@@ -519,8 +522,11 @@ describe('simulateNewOrder()', () => {
     const existingSessionId = await store.openTableSession('02', 2, 0);
 
     const randomSpy = mockSecureRandomForTable(2);
-    await store.simulateNewOrder();
-    randomSpy.mockRestore();
+    try {
+      await store.simulateNewOrder();
+    } finally {
+      randomSpy.mockRestore();
+    }
 
     const activeOrders = store.orders.filter(
       o => o.table === '02' && o.status !== 'completed' && o.status !== 'rejected',
