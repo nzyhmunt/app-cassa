@@ -632,6 +632,8 @@ describe('sync queue propagation — table mutations', () => {
     const saveCallOrder = saveStateToIDBMock.mock.invocationCallOrder[0];
     const firstEnqueueOrder = enqueueMock.mock.invocationCallOrder[0];
     expect(saveCallOrder).toBeLessThan(firstEnqueueOrder);
+    const firstUpsertCallOrder = upsertBillSessionInIDBMock.mock.invocationCallOrder[0];
+    expect(saveCallOrder).toBeLessThan(firstUpsertCallOrder);
 
     const orderUpdateCall = enqueueMock.mock.calls.find(
       ([collection, operation, recordId]) => collection === 'orders' && operation === 'update' && recordId === ordA.id,
@@ -654,6 +656,13 @@ describe('sync queue propagation — table mutations', () => {
     );
     expect(sourceSessionClose?.[3]?.status).toBe('closed');
     expect(typeof sourceSessionClose?.[3]?.closed_at).toBe('string');
+    expect(upsertBillSessionInIDBMock).toHaveBeenCalledWith(expect.objectContaining({
+      billSessionId: sessB,
+      table: 'B',
+      adults: 4,
+      children: 0,
+    }));
+    expect(closeBillSessionInIDBMock).toHaveBeenCalledWith(sessA);
   });
 
   it('moveTableOrders to free target enqueues bill-session table retag', async () => {
@@ -673,6 +682,99 @@ describe('sync queue propagation — table mutations', () => {
       ([collection, operation, recordId]) => collection === 'bill_sessions' && operation === 'update' && recordId === sessA,
     );
     expect(sourceSessionUpdate?.[3]).toEqual({ table: 'B' });
+    expect(upsertBillSessionInIDBMock).toHaveBeenCalledWith(expect.objectContaining({
+      billSessionId: sessA,
+      table: 'B',
+    }));
+  });
+
+  it('moveTableOrders keeps local reactive state but suppresses sync enqueue when saveStateToIDB fails', async () => {
+    const store = useAppStore();
+    runtime.store = store;
+    const sessA = await store.openTableSession('A', 2, 0);
+    const sessB = await store.openTableSession('B', 2, 0);
+    const ordA = makeOrder('ord_move_fail', 'A', 'accepted');
+    ordA.billSessionId = sessA;
+    await store.addOrder(ordA);
+    await store.addTransaction({
+      id: 'txn_move_fail',
+      tableId: 'A',
+      billSessionId: sessA,
+      amountPaid: 10,
+      tipAmount: 0,
+      paymentMethod: 'Contanti',
+      operationType: 'payment',
+      timestamp: new Date().toISOString(),
+    });
+
+    runtime.snapshots = [];
+    vi.clearAllMocks();
+    saveStateToIDBMock.mockRejectedValueOnce(new Error('IDB fail'));
+
+    await store.moveTableOrders('A', 'B');
+
+    expect(enqueueMock).not.toHaveBeenCalled();
+    expect(upsertBillSessionInIDBMock).not.toHaveBeenCalled();
+    expect(closeBillSessionInIDBMock).not.toHaveBeenCalled();
+    expect(store.orders.find(o => o.id === ordA.id)?.table).toBe('B');
+    expect(store.orders.find(o => o.id === ordA.id)?.billSessionId).toBe(sessB);
+  });
+
+  it('mergeTableOrders enqueues moved orders/transactions and bill-session updates', async () => {
+    const store = useAppStore();
+    runtime.store = store;
+    const sessA = await store.openTableSession('A', 2, 1);
+    const sessB = await store.openTableSession('B', 1, 0);
+    const ordA = makeOrder('ord_merge', 'A', 'accepted');
+    ordA.billSessionId = sessA;
+    await store.addOrder(ordA);
+    await store.addTransaction({
+      id: 'txn_merge',
+      tableId: 'A',
+      billSessionId: sessA,
+      amountPaid: 15,
+      tipAmount: 0,
+      paymentMethod: 'Contanti',
+      operationType: 'payment',
+      timestamp: new Date().toISOString(),
+    });
+
+    runtime.snapshots = [];
+    vi.clearAllMocks();
+
+    await store.mergeTableOrders('A', 'B');
+
+    const saveCallOrder = saveStateToIDBMock.mock.invocationCallOrder[0];
+    const firstEnqueueOrder = enqueueMock.mock.invocationCallOrder[0];
+    expect(saveCallOrder).toBeLessThan(firstEnqueueOrder);
+
+    const movedOrderUpdate = enqueueMock.mock.calls.find(
+      ([collection, operation, recordId]) => collection === 'orders' && operation === 'update' && recordId === ordA.id,
+    );
+    expect(movedOrderUpdate?.[3]?.table).toBe('B');
+    expect(movedOrderUpdate?.[3]?.billSessionId).toBe(sessB);
+
+    const movedTxnUpdate = enqueueMock.mock.calls.find(
+      ([collection, operation, recordId]) => collection === 'transactions' && operation === 'update' && recordId === 'txn_merge',
+    );
+    expect(movedTxnUpdate?.[3]).toEqual({ tableId: 'B', billSessionId: sessB });
+
+    const targetSessionUpdate = enqueueMock.mock.calls.find(
+      ([collection, operation, recordId]) => collection === 'bill_sessions' && operation === 'update' && recordId === sessB,
+    );
+    expect(targetSessionUpdate?.[3]).toMatchObject({ adults: 3, children: 1 });
+
+    const sourceSessionClose = enqueueMock.mock.calls.find(
+      ([collection, operation, recordId]) => collection === 'bill_sessions' && operation === 'update' && recordId === sessA,
+    );
+    expect(sourceSessionClose?.[3]?.status).toBe('closed');
+    expect(closeBillSessionInIDBMock).toHaveBeenCalledWith(sessA);
+    expect(upsertBillSessionInIDBMock).toHaveBeenCalledWith(expect.objectContaining({
+      billSessionId: sessB,
+      table: 'B',
+      adults: 3,
+      children: 1,
+    }));
   });
 
   it('detachSlaveTable with slave orders enqueues order billSession retag', async () => {
@@ -767,5 +869,6 @@ describe('sync queue propagation — table mutations', () => {
     );
     expect(sourceSessionClose?.[3]?.status).toBe('closed');
     expect(typeof sourceSessionClose?.[3]?.closed_at).toBe('string');
+    expect(closeBillSessionInIDBMock).toHaveBeenCalledWith(sessA);
   });
 });
