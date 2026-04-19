@@ -260,7 +260,7 @@ const configStore = useConfigStore();
 const orderStore = useOrderStore();
 const runtimeConfig = computed(() => configStore.config ?? {});
 const isOpen = ref(props.initiallyOpen);
-const BILL_ZERO_THRESHOLD = 0.01;
+const BILL_SETTLED_THRESHOLD = 0.01;
 
 // Post-payment tip state
 const showTipInput = ref(false);
@@ -294,7 +294,7 @@ const billTotalAmount = computed(() => props.bill.orders
     (sum, o) => sum + o.orderItems.reduce((s, item) => s + getOrderItemRowTotal(item), 0),
     0,
   ));
-const fiscalInvoiceDisabledForZero = computed(() => billTotalAmount.value <= BILL_ZERO_THRESHOLD);
+const fiscalInvoiceDisabledForZero = computed(() => billTotalAmount.value <= BILL_SETTLED_THRESHOLD);
 
 // Invoice modal state
 const showInvoiceModal = ref(false);
