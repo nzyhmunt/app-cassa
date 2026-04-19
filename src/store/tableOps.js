@@ -450,11 +450,16 @@ export function makeTableOps(state, helpers) {
     );
     const previousOrders = orders.value;
     let persistedToIDB = false;
+    let slaveSessionSnapshot = null;
 
     // openTableSession is already IDB-first (upsertBillSessionInIDB before reactive update).
     let newSessionId = null;
     if (slaveHasOrders) {
-      newSessionId = await openTableSession(slaveTableId, 0, 0);
+      newSessionId = await openTableSession(slaveTableId, 0, 0, { enqueueSync: false });
+      const createdSession = tableCurrentBillSession.value[slaveTableId];
+      if (createdSession) {
+        slaveSessionSnapshot = _cloneSession(createdSession);
+      }
     }
 
     // Project state changes on copies.
@@ -484,7 +489,10 @@ export function makeTableOps(state, helpers) {
     // Assign reactive refs after IDB write completes.
     tableMergedInto.value = nextMergedInto;
     if (slaveHasOrders) orders.value = nextOrders;
-    if (persistedToIDB && slaveHasOrders) _enqueueChangedOrders(previousOrders, nextOrders);
+    if (persistedToIDB && slaveHasOrders) {
+      enqueueBillSessionCreate(slaveSessionSnapshot);
+      _enqueueChangedOrders(previousOrders, nextOrders);
+    }
   }
 
   // ── splitItemsToTable ────────────────────────────────────────────────────

@@ -816,6 +816,10 @@ describe('sync queue propagation — table mutations', () => {
 
     await store.detachSlaveTable('B', 'A');
 
+    const saveCallOrder = saveStateToIDBMock.mock.invocationCallOrder[0];
+    const firstEnqueueOrder = enqueueMock.mock.invocationCallOrder[0];
+    expect(saveCallOrder).toBeLessThan(firstEnqueueOrder);
+
     const orderUpdateCall = enqueueMock.mock.calls.find(
       ([collection, operation, recordId]) => collection === 'orders' && operation === 'update' && recordId === ordSlave.id,
     );
@@ -823,6 +827,34 @@ describe('sync queue propagation — table mutations', () => {
       billSessionId: store.tableCurrentBillSession.A?.billSessionId,
     });
     expect(orderUpdateCall?.[3]?.billSessionId).not.toBe(masterSessionId);
+    const createdSessionCall = enqueueMock.mock.calls.find(
+      ([collection, operation]) => collection === 'bill_sessions' && operation === 'create',
+    );
+    expect(createdSessionCall).toBeTruthy();
+    expect(createdSessionCall?.[3]).toEqual(expect.objectContaining({
+      table: 'A',
+      status: 'open',
+      adults: 0,
+      children: 0,
+    }));
+  });
+
+  it('detachSlaveTable suppresses bill session create enqueue when projected IDB save fails', async () => {
+    const store = useAppStore();
+    runtime.store = store;
+    const masterSessionId = await store.openTableSession('B', 2, 0);
+    const ordSlave = makeOrder('ord_detach_fail', 'A', 'accepted');
+    ordSlave.billSessionId = masterSessionId;
+    await store.addOrder(ordSlave);
+    store.tableMergedInto = { A: 'B' };
+
+    runtime.snapshots = [];
+    vi.clearAllMocks();
+    saveStateToIDBMock.mockRejectedValueOnce(new Error('IDB fail'));
+
+    await store.detachSlaveTable('B', 'A');
+
+    expect(enqueueMock).not.toHaveBeenCalled();
   });
 
   it('splitItemsToTable enqueues source order patch on partial split', async () => {
