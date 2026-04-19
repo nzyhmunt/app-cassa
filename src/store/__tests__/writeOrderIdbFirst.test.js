@@ -195,6 +195,10 @@ describe('P0-1 write order (IDB-first)', () => {
     ));
     expect(saveCall).toBeLessThan(enqueueCall);
     expect(saveStateToIDBMock).toHaveBeenCalledTimes(1);
+    const statusUpdateCall = enqueueMock.mock.calls.find(
+      ([collection, operation]) => collection === 'orders' && operation === 'update',
+    );
+    expect(statusUpdateCall?.[3]).toEqual({ status: 'accepted', rejectionReason: null });
   });
 
   it('addTransaction writes projected transactions first, then updates state and queue', async () => {
@@ -348,6 +352,8 @@ describe('P0-2 IDB-first — order item mutations', () => {
     const enqueueCall = enqueueMock.mock.invocationCallOrder[0];
     expect(saveCall).toBeLessThan(enqueueCall);
     expect(saveStateToIDBMock).toHaveBeenCalledTimes(1);
+    const [, , , payload] = enqueueMock.mock.calls[0];
+    expect(Object.keys(payload).sort()).toEqual(['itemCount', 'orderItems', 'totalAmount']);
   });
 
   it('updateQtyGlobal does not mutate orders when IDB rejects', async () => {

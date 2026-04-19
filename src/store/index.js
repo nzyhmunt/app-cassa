@@ -521,6 +521,20 @@ export const useOrderStore = defineStore('orders', () => {
     enqueue('orders', 'update', ord.id, payload);
   }
 
+  function _enqueueOrderItemsPatch(ordId, projectedOrder) {
+    if (!ordId || !projectedOrder || typeof projectedOrder !== 'object') return;
+    const payload = {
+      orderItems: projectedOrder.orderItems,
+    };
+    if (Object.prototype.hasOwnProperty.call(projectedOrder, 'totalAmount')) {
+      payload.totalAmount = projectedOrder.totalAmount;
+    }
+    if (Object.prototype.hasOwnProperty.call(projectedOrder, 'itemCount')) {
+      payload.itemCount = projectedOrder.itemCount;
+    }
+    enqueue('orders', 'update', ordId, payload);
+  }
+
   /**
    * Returns a new orders array with the entry matching ordId replaced by updated.
    * String coercion ensures reactive-proxy IDs compare correctly against raw strings.
@@ -673,7 +687,7 @@ export const useOrderStore = defineStore('orders', () => {
       }
       _skipNextScheduledSave('orders');
       orders.value = projectedOrders;
-      enqueue('orders', 'update', ordId, projected);
+      _enqueueOrderItemsPatch(ordId, projected);
       return true;
     });
   }
@@ -696,7 +710,7 @@ export const useOrderStore = defineStore('orders', () => {
       }
       _skipNextScheduledSave('orders');
       orders.value = projectedOrders;
-      enqueue('orders', 'update', ordId, projected);
+      _enqueueOrderItemsPatch(ordId, projected);
       return true;
     });
   }
@@ -728,7 +742,7 @@ export const useOrderStore = defineStore('orders', () => {
       }
       _skipNextScheduledSave('orders');
       orders.value = projectedOrders;
-      enqueue('orders', 'update', ordId, projected);
+      _enqueueOrderItemsPatch(ordId, projected);
       return true;
     });
   }
@@ -753,7 +767,7 @@ export const useOrderStore = defineStore('orders', () => {
       }
       _skipNextScheduledSave('orders');
       orders.value = projectedOrders;
-      enqueue('orders', 'update', ordId, projected);
+      _enqueueOrderItemsPatch(ordId, projected);
       return true;
     });
   }
@@ -782,7 +796,7 @@ export const useOrderStore = defineStore('orders', () => {
       }
       _skipNextScheduledSave('orders');
       orders.value = projectedOrders;
-      enqueue('orders', 'update', ordId, projected);
+      _enqueueOrderItemsPatch(ordId, projected);
       return true;
     });
   }
@@ -809,7 +823,7 @@ export const useOrderStore = defineStore('orders', () => {
       }
       _skipNextScheduledSave('orders');
       orders.value = projectedOrders;
-      enqueue('orders', 'update', ordId, projected);
+      _enqueueOrderItemsPatch(ordId, projected);
       return true;
     });
   }
@@ -833,7 +847,7 @@ export const useOrderStore = defineStore('orders', () => {
       }
       _skipNextScheduledSave('orders');
       orders.value = projectedOrders;
-      enqueue('orders', 'update', ordId, projected);
+      _enqueueOrderItemsPatch(ordId, projected);
       return true;
     });
   }
