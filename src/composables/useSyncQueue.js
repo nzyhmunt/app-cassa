@@ -508,7 +508,8 @@ async function _pushEntry(entry, sdkClient, cfg) {
   const { collection, operation, record_id, payload } = entry;
 
   // Translate local field names to Directus schema names for all non-delete operations
-  const directusPayload = _withRequiredDefaults(collection, operation, _toDirectusPayload(collection, payload), cfg);
+  const mappedPayload = _toDirectusPayload(collection, payload);
+  const directusPayload = _withRequiredDefaults(collection, operation, mappedPayload, cfg);
 
   // Ensure the primary key is always present in create payloads.
   // This guards against cases where the local PK was not included in a partial payload.
