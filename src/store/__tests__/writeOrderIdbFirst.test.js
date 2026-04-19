@@ -629,6 +629,10 @@ describe('sync queue propagation — table mutations', () => {
 
     await store.moveTableOrders('A', 'B');
 
+    const saveCallOrder = saveStateToIDBMock.mock.invocationCallOrder[0];
+    const firstEnqueueOrder = enqueueMock.mock.invocationCallOrder[0];
+    expect(saveCallOrder).toBeLessThan(firstEnqueueOrder);
+
     const orderUpdateCall = enqueueMock.mock.calls.find(
       ([collection, operation, recordId]) => collection === 'orders' && operation === 'update' && recordId === ordA.id,
     );
@@ -706,6 +710,10 @@ describe('sync queue propagation — table mutations', () => {
     vi.clearAllMocks();
 
     await store.splitItemsToTable('A', 'B', { [`${ord.id}__item_1`]: 1 });
+
+    const saveCallOrder = saveStateToIDBMock.mock.invocationCallOrder[0];
+    const firstEnqueueOrder = enqueueMock.mock.invocationCallOrder[0];
+    expect(saveCallOrder).toBeLessThan(firstEnqueueOrder);
 
     const orderUpdateCall = enqueueMock.mock.calls.find(
       ([collection, operation, recordId]) => collection === 'orders' && operation === 'update' && recordId === ord.id,

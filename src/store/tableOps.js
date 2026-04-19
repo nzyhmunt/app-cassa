@@ -169,6 +169,7 @@ export function makeTableOps(state, helpers) {
   async function moveTableOrders(fromTableId, toTableId) {
     const previousOrders = orders.value;
     const previousTransactions = transactions.value;
+    const billSessionPatches = [];
     // Build projected copies of every piece of state that will change, so we
     // can persist to IDB *before* touching any reactive ref (IDB-first invariant).
     const nextOrders = orders.value.map(o => ({ ...o }));
@@ -211,21 +212,21 @@ export function makeTableOps(state, helpers) {
         children: nextTCS[toTableId].children + nextTCS[fromTableId].children,
       };
       delete nextTCS[fromTableId];
-      enqueueBillSessionUpdate(destSessionId, {
+      billSessionPatches.push([destSessionId, {
         adults: nextTCS[toTableId].adults,
         children: nextTCS[toTableId].children,
-      });
-      enqueueBillSessionUpdate(srcSessionId, {
+      }]);
+      billSessionPatches.push([srcSessionId, {
         status: 'closed',
         closed_at: new Date().toISOString(),
-      });
+      }]);
     } else if (srcSession) {
       _relocateOnArrays(fromTableId, toTableId, null, srcSessionId, nextOrders, nextTransactions);
       nextTCS[toTableId] = nextTCS[fromTableId];
       delete nextTCS[fromTableId];
-      enqueueBillSessionUpdate(srcSessionId, {
+      billSessionPatches.push([srcSessionId, {
         table: toTableId,
-      });
+      }]);
     } else {
       _relocateOnArrays(fromTableId, toTableId, null, destSessionId, nextOrders, nextTransactions);
     }
@@ -261,6 +262,7 @@ export function makeTableOps(state, helpers) {
 
     _enqueueChangedOrders(previousOrders, nextOrders);
     _enqueueChangedTransactions(previousTransactions, nextTransactions);
+    billSessionPatches.forEach(([billSessionId, payload]) => enqueueBillSessionUpdate(billSessionId, payload));
   }
 
   // ── mergeTableOrders ─────────────────────────────────────────────────────
@@ -268,6 +270,7 @@ export function makeTableOps(state, helpers) {
   async function mergeTableOrders(sourceTableId, targetTableId) {
     const previousOrders = orders.value;
     const previousTransactions = transactions.value;
+    const billSessionPatches = [];
     const resolvedTargetId = resolveMaster(targetTableId);
     if (sourceTableId === resolvedTargetId) return;
 
@@ -312,16 +315,16 @@ export function makeTableOps(state, helpers) {
     };
     delete nextTCS[sourceTableId];
     if (targetSessionId) {
-      enqueueBillSessionUpdate(targetSessionId, {
+      billSessionPatches.push([targetSessionId, {
         adults: nextTCS[resolvedTargetId].adults,
         children: nextTCS[resolvedTargetId].children,
-      });
+      }]);
     }
     if (srcSessionId) {
-      enqueueBillSessionUpdate(srcSessionId, {
+      billSessionPatches.push([srcSessionId, {
         status: 'closed',
         closed_at: new Date().toISOString(),
-      });
+      }]);
     }
 
     nextBillRequested.delete(sourceTableId);
@@ -354,6 +357,7 @@ export function makeTableOps(state, helpers) {
 
     _enqueueChangedOrders(previousOrders, nextOrders);
     _enqueueChangedTransactions(previousTransactions, nextTransactions);
+    billSessionPatches.forEach(([billSessionId, payload]) => enqueueBillSessionUpdate(billSessionId, payload));
   }
 
   // ── detachSlaveTable ──────────────────────────────────────────────────────
@@ -414,6 +418,7 @@ export function makeTableOps(state, helpers) {
   async function splitItemsToTable(sourceTableId, targetTableId, itemQtyMap) {
     const previousOrders = orders.value;
     const previousTransactions = transactions.value;
+    const billSessionPatches = [];
     if (!sourceTableId || !targetTableId || sourceTableId === targetTableId) return false;
 
     // Block if any source order is still awaiting kitchen confirmation
@@ -550,10 +555,10 @@ export function makeTableOps(state, helpers) {
       slaveIdsOf(sourceTableId).forEach(slaveId => { delete nextMergedInto[slaveId]; });
       delete nextMergedInto[sourceTableId];
       if (srcSessionId) {
-        enqueueBillSessionUpdate(srcSessionId, {
+        billSessionPatches.push([srcSessionId, {
           status: 'closed',
           closed_at: new Date().toISOString(),
-        });
+        }]);
       }
     }
 
@@ -582,6 +587,7 @@ export function makeTableOps(state, helpers) {
 
     _enqueueChangedOrders(previousOrders, projectedOrders);
     _enqueueChangedTransactions(previousTransactions, nextTransactions);
+    billSessionPatches.forEach(([billSessionId, payload]) => enqueueBillSessionUpdate(billSessionId, payload));
 
     if (partialMoveItems.length > 0) await addDirectOrder(targetTableId, targetSessionId, partialMoveItems);
 
