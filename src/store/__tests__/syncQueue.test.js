@@ -174,14 +174,55 @@ describe('drainQueue()', () => {
     expect(body.children).toBe(1);
   });
 
-  it('injects venue for bill_sessions create when missing and cfg.venueId is available', async () => {
+  it.each([
+    {
+      collection: 'bill_sessions',
+      recordId: 'bill_1',
+      payload: { id: 'bill_1', table: 'T1', adults: 3, children: 1 },
+    },
+    {
+      collection: 'orders',
+      recordId: 'ord_1',
+      payload: {
+        id: 'ord_1',
+        table: 'T1',
+        status: 'pending',
+        order_time: '10:15',
+        total_amount: 10,
+        item_count: 1,
+      },
+    },
+    {
+      collection: 'transactions',
+      recordId: 'txn_venue_1',
+      payload: {
+        id: 'txn_venue_1',
+        table: 'T1',
+        operation_type: 'unico',
+        amount_paid: 10,
+      },
+    },
+    {
+      collection: 'cash_movements',
+      recordId: 'mov_venue_1',
+      payload: {
+        id: 'mov_venue_1',
+        type: 'deposit',
+        amount: 10,
+        reason: 'test',
+      },
+    },
+    {
+      collection: 'daily_closures',
+      recordId: 'close_venue_1',
+      payload: {
+        id: 'close_venue_1',
+        closure_type: 'Z',
+      },
+    },
+  ])('injects venue for $collection create when missing and cfg.venueId is available', async ({ collection, recordId, payload }) => {
     const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue(mockResponse(201, {}));
-    await enqueue('bill_sessions', 'create', 'bill_1', {
-      id: 'bill_1',
-      table: 'T1',
-      adults: 3,
-      children: 1,
-    });
+    await enqueue(collection, 'create', recordId, payload);
 
     await drainQueue({ ...FAKE_CFG, venueId: 77 });
 
@@ -189,21 +230,18 @@ describe('drainQueue()', () => {
     expect(body.venue).toBe(77);
   });
 
-  it('injects venue for orders create when missing and cfg.venueId is available', async () => {
+  it('does not inject venue for collections without venue field', async () => {
     const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue(mockResponse(201, {}));
-    await enqueue('orders', 'create', 'ord_1', {
-      id: 'ord_1',
-      table: 'T1',
-      status: 'pending',
-      order_time: '10:15',
-      total_amount: 10,
-      item_count: 1,
+    await enqueue('transaction_order_refs', 'create', 'ref_1', {
+      id: 'ref_1',
+      transaction: 'txn_1',
+      order: 'ord_1',
     });
 
     await drainQueue({ ...FAKE_CFG, venueId: 77 });
 
     const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
-    expect(body.venue).toBe(77);
+    expect(body.venue).toBeUndefined();
   });
 
   it('maps transaction payment methods to Directus relation ids', async () => {
