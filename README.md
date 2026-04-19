@@ -2,6 +2,12 @@
 
 Questo progetto è un'applicazione web POS (Point of Sale) progettata per ristoranti e attività di ristorazione. Realizzato con **Vue 3**, offre una gestione completa di sala, comande, cassa, cucina e reportistica, con supporto PWA per l'utilizzo come app nativa su dispositivi mobili e desktop.
 
+## Documentazione tecnica aggiuntiva
+
+- [DATABASE_SCHEMA.md](./DATABASE_SCHEMA.md) — schema dati e relazioni Directus
+- [docs/GUIDA_UTENTE.md](./docs/GUIDA_UTENTE.md) — guida operativa per Cassa/Sala/Cucina
+- [docs/SCENARI_CONFLITTI_OFFLINE.md](./docs/SCENARI_CONFLITTI_OFFLINE.md) — simulazioni rete instabile e strategie di risoluzione conflitti
+
 ## Architettura — Tre Entry Point, un Codebase
 
 Il progetto contiene tre applicazioni operative più una pagina di selezione, con architettura dati a layer:
