@@ -432,6 +432,10 @@ function _toDirectusPayload(collection, localPayload) {
   return mapped;
 }
 
+function _isPresentValue(value) {
+  return value != null && value !== '';
+}
+
 /**
  * Injects required Directus defaults for legacy/sparse queue payloads.
  *
@@ -442,13 +446,13 @@ function _toDirectusPayload(collection, localPayload) {
  * @returns {object}
  */
 function _withRequiredDefaults(collection, operation, payload, cfg) {
+  // Shallow clone is sufficient: this helper only sets top-level scalar defaults.
   const out = { ...(payload ?? {}) };
   if (
     operation === 'create'
     && collection === 'bill_sessions'
-    && (out.venue == null || out.venue === '')
-    && cfg?.venueId != null
-    && cfg.venueId !== ''
+    && !_isPresentValue(out.venue)
+    && _isPresentValue(cfg?.venueId)
   ) {
     out.venue = cfg.venueId;
   }
