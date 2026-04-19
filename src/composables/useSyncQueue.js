@@ -437,7 +437,7 @@ function _toDirectusPayload(collection, localPayload) {
  *
  * @param {string} collection
  * @param {'create'|'update'|'delete'} operation
- * @param {object} payload
+ * @param {object|null|undefined} payload
  * @param {{ venueId?: number|string|null }} cfg
  * @returns {object}
  */
