@@ -78,7 +78,7 @@
             <div class="flex flex-col justify-center">
               <h2 class="text-lg md:text-2xl font-bold text-gray-800 leading-tight">Tavolo {{ selectedOrder.table }}</h2>
               <div class="flex flex-wrap items-center gap-2 mt-0.5 md:mt-1">
-                <span class="text-gray-500 text-[10px] md:text-xs font-medium"><Hash class="size-3 inline mr-0.5" />{{ selectedOrder.id.substring(0,8) }}</span>
+                <span class="text-gray-500 text-[10px] md:text-xs font-medium"><Hash class="size-3 inline mr-0.5" />{{ formatOrderIdShort(selectedOrder.id) }}</span>
                 <span v-if="selectedOrder.dietaryPreferences?.diete?.length > 0 || selectedOrder.dietaryPreferences?.allergeni_dichiarati?.length > 0" class="text-red-500 font-bold uppercase text-[9px] flex items-center gap-0.5 bg-red-50 px-1.5 py-0.5 rounded border border-red-100">
                   <AlertTriangle class="size-3" /> Note Allergie
                 </span>
@@ -304,7 +304,7 @@
       <div class="bg-gray-900 text-white p-3 md:p-4 flex justify-between items-center shrink-0">
         <div class="flex flex-col">
           <h3 class="font-bold text-base md:text-xl flex items-center gap-2"><BookOpen class="size-4 md:size-5 text-emerald-400" /> Aggiunta Piatti in Comanda</h3>
-          <p class="text-[10px] text-gray-400 uppercase tracking-widest mt-0.5">Destinazione: Ord #{{ targetOrderForMenu ? targetOrderForMenu.id.substring(0,6) : '' }} - Tavolo {{ targetOrderForMenu?.table }}</p>
+          <p class="text-[10px] text-gray-400 uppercase tracking-widest mt-0.5">Destinazione: Ord #{{ targetOrderForMenu ? formatOrderIdShort(targetOrderForMenu.id, 6, 4) : '' }} - Tavolo {{ targetOrderForMenu?.table }}</p>
         </div>
         <button @click="closeMenuModal" class="bg-white/10 hover:bg-white/20 p-2 md:p-2.5 rounded-full transition-colors active:scale-95"><X class="size-5 md:size-5" /></button>
       </div>
@@ -495,6 +495,7 @@ import {
   KITCHEN_STATUS_PRIORITY,
   DEFAULT_COURSE,
   getCourseBorderClass,
+  formatOrderIdShort,
 } from '../utils/index.js';
 import { enqueuePrintJobs } from '../composables/usePrintQueue.js';
 import NumericInput from './NumericInput.vue';

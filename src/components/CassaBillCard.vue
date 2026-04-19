@@ -177,7 +177,7 @@
           >
             <div class="flex items-center justify-between mb-2">
               <span class="text-xs font-bold text-gray-700">
-                Comanda #{{ ord.id.substring(0, 6) }}
+                Comanda #{{ formatOrderIdShort(ord.id, 6, 4) }}
                 <span class="text-gray-400 font-medium">· {{ ord.time }}</span>
                 <span
                   v-if="ord.status === 'rejected'"
@@ -236,7 +236,7 @@
 import { ref, computed } from 'vue';
 import { ChevronDown, CreditCard, ClipboardList, Banknote, Tag, Wallet, CheckCircle, Printer, FileText } from 'lucide-vue-next';
 import { useConfigStore, useOrderStore } from '../store/index.js';
-import { billKey, getOrderItemRowTotal, buildFiscalXmlRequest } from '../utils/index.js';
+import { billKey, getOrderItemRowTotal, buildFiscalXmlRequest, formatOrderIdShort } from '../utils/index.js';
 import { newUUIDv7 } from '../store/storeUtils.js';
 import NumericInput from './NumericInput.vue';
 import InvoiceModal from './shared/InvoiceModal.vue';

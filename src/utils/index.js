@@ -338,6 +338,23 @@ export function billKey(bill) {
 }
 
 /**
+ * Formats a long order id for compact UI labels while preserving uniqueness.
+ * UUIDv7 values often share the same prefix, so we keep both head and tail.
+ *
+ * @param {string|number|null|undefined} id
+ * @param {number} [head=8]
+ * @param {number} [tail=4]
+ * @returns {string}
+ */
+export function formatOrderIdShort(id, head = 8, tail = 4) {
+  const raw = id == null ? '' : String(id);
+  const safeHead = Math.max(1, Number(head) || 8);
+  const safeTail = Math.max(1, Number(tail) || 4);
+  if (raw.length <= safeHead + safeTail + 1) return raw;
+  return `${raw.slice(0, safeHead)}…${raw.slice(-safeTail)}`;
+}
+
+/**
  * Returns the current time as a zero-padded 24-hour "HH:MM" string.
  * Always produces ASCII digits (0–9) and hours in the range 00–23, suitable
  * for the Directus `order_time` TIME field (e.g. "08:05", "14:30", "23:59").

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   DEFAULT_MENU_URL,
   billKey,
+  formatOrderIdShort,
   getOrderItemRowTotal,
   updateOrderTotals,
   getLockedDirectItems,
@@ -38,6 +39,23 @@ describe('billKey()', () => {
     expect(billKey({ tableId: 'T2', billSessionId: 'sess_xyz', closedAt: '2024-01-01' })).toBe(
       'T2_sess_xyz',
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// formatOrderIdShort()
+// ---------------------------------------------------------------------------
+describe('formatOrderIdShort()', () => {
+  it('keeps both prefix and suffix for long ids', () => {
+    expect(formatOrderIdShort('019da780-1234-7000-8000-abcdef123456')).toBe('019da780…3456');
+  });
+
+  it('supports custom head/tail lengths', () => {
+    expect(formatOrderIdShort('019da780-1234-7000-8000-abcdef123456', 6, 4)).toBe('019da7…3456');
+  });
+
+  it('returns short ids unchanged', () => {
+    expect(formatOrderIdShort('abc123')).toBe('abc123');
   });
 });
 
