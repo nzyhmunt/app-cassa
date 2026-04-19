@@ -455,6 +455,8 @@ describe('simulateNewOrder()', () => {
 
   function mockSecureRandomForTable(tableNumber) {
     // tableNumber: 1..12 → force floor(random * 12) + 1 to match this value.
+    // We precompute the Uint32 raw sample that, once normalized to [0,1)
+    // (raw / 2^32) and scaled by 12, lands inside the requested bucket.
     const raw = Math.floor((((tableNumber - 1) + 0.1) / 12) * 4294967296);
     return vi.spyOn(globalThis.crypto, 'getRandomValues').mockImplementation((typedArray) => {
       typedArray[0] = raw;
@@ -504,10 +506,10 @@ describe('simulateNewOrder()', () => {
 
     // getTableStatus() must only consider the active simulated bill, not old settled data.
     const status = store.getTableStatus('01');
-    // In this scenario only the auto-added cover contributes to cassa total:
-    // 2 covers × default coverCharge.priceAdult (2.50) = 5.00.
-    expect(status.total).toBeCloseTo(5, 2);
-    expect(status.remaining).toBeCloseTo(5, 2);
+    const expectedCoverTotal = 2 * (store.config.coverCharge?.priceAdult ?? 0);
+    // In this scenario only the auto-added cover contributes to cassa total.
+    expect(status.total).toBeCloseTo(expectedCoverTotal, 2);
+    expect(status.remaining).toBeCloseTo(expectedCoverTotal, 2);
   });
 
   it('reuses existing open table session when present', async () => {
