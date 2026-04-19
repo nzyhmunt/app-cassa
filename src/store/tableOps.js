@@ -31,27 +31,58 @@ export function makeTableOps(state, helpers) {
     enqueueBillSessionUpdate = () => {},
   } = helpers;
 
-  const _ordersEqualForSync = (prev, next) => {
+  const _deepEqual = (left, right) => {
+    if (left === right) return true;
+    if (left == null || right == null) return left === right;
+    if (typeof left !== typeof right) return false;
+    if (typeof left !== 'object') return false;
+    if (Array.isArray(left) !== Array.isArray(right)) return false;
+
+    if (Array.isArray(left)) {
+      if (left.length !== right.length) return false;
+      for (let i = 0; i < left.length; i += 1) {
+        if (!_deepEqual(left[i], right[i])) return false;
+      }
+      return true;
+    }
+
+    const leftKeys = Object.keys(left);
+    const rightKeys = Object.keys(right);
+    if (leftKeys.length !== rightKeys.length) return false;
+    for (const key of leftKeys) {
+      if (!Object.prototype.hasOwnProperty.call(right, key)) return false;
+      if (!_deepEqual(left[key], right[key])) return false;
+    }
+    return true;
+  };
+
+  const _ordersUnchangedForSync = (prev, next) => {
     if (!prev || !next) return false;
     if (prev.table !== next.table) return false;
     if ((prev.billSessionId ?? null) !== (next.billSessionId ?? null)) return false;
     if ((prev.totalAmount ?? null) !== (next.totalAmount ?? null)) return false;
     if ((prev.itemCount ?? null) !== (next.itemCount ?? null)) return false;
-    return JSON.stringify(prev.orderItems ?? []) === JSON.stringify(next.orderItems ?? []);
+    return _deepEqual(prev.orderItems ?? [], next.orderItems ?? []);
   };
 
   const _enqueueChangedOrders = (previousOrders, nextOrders) => {
-    const prevById = new Map((previousOrders || []).map((order) => [String(order.id), order]));
+    const prevById = new Map();
+    for (const order of (previousOrders || [])) {
+      prevById.set(String(order.id), order);
+    }
     (nextOrders || []).forEach((order) => {
       const prev = prevById.get(String(order.id));
       if (!prev) return;
-      if (_ordersEqualForSync(prev, order)) return;
+      if (_ordersUnchangedForSync(prev, order)) return;
       enqueueOrderUpdate(order);
     });
   };
 
   const _enqueueChangedTransactions = (previousTransactions, nextTransactions) => {
-    const prevById = new Map((previousTransactions || []).map((txn) => [String(txn.id), txn]));
+    const prevById = new Map();
+    for (const txn of (previousTransactions || [])) {
+      prevById.set(String(txn.id), txn);
+    }
     (nextTransactions || []).forEach((txn) => {
       const prev = prevById.get(String(txn.id));
       if (!prev) return;
