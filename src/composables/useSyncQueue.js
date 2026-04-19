@@ -432,6 +432,45 @@ function _toDirectusPayload(collection, localPayload) {
   return mapped;
 }
 
+function _isPresentValue(value) {
+  return value != null && value !== '';
+}
+
+const VENUE_REQUIRED_CREATE_COLLECTIONS = new Set([
+  'bill_sessions',
+  'orders',
+  'transactions',
+  'cash_movements',
+  'daily_closures',
+  'print_jobs',
+  'table_merge_sessions',
+  'venue_users',
+  'printers',
+]);
+
+/**
+ * Injects required Directus defaults for legacy/sparse queue payloads.
+ *
+ * @param {string} collection
+ * @param {'create'|'update'|'delete'} operation
+ * @param {object|null|undefined} payload
+ * @param {{ venueId?: number|string|null }} cfg
+ * @returns {object}
+ */
+function _withRequiredDefaults(collection, operation, payload, cfg) {
+  // Shallow clone is sufficient: this helper only sets top-level scalar defaults.
+  const out = { ...(payload ?? {}) };
+  if (
+    operation === 'create'
+    && VENUE_REQUIRED_CREATE_COLLECTIONS.has(collection)
+    && !_isPresentValue(out.venue)
+    && _isPresentValue(cfg?.venueId)
+  ) {
+    out.venue = cfg.venueId;
+  }
+  return out;
+}
+
 /**
  * Builds a minimal REST-only Directus SDK client from a cfg object.
  * A new, lightweight client is created for each `drainQueue()` invocation
@@ -462,13 +501,33 @@ function _buildRestClient(cfg) {
  *
  * @param {object} entry
  * @param {import('@directus/sdk').DirectusClient<object>} sdkClient
- * @returns {Promise<true|'skip'|string>}
+ * @param {{ venueId?: number|string|null }} cfg
+ * @returns {Promise<
+ *   true |
+ *   'skip' |
+ *   {
+ *     message: string,
+ *     request: {
+ *       collection: string,
+ *       operation: string,
+ *       record_id: string,
+ *       endpoint: string,
+ *       method: 'POST'|'PATCH'|'DELETE',
+ *       body: object|null,
+ *     } | null,
+ *     response: {
+ *       status: number|null,
+ *       body: unknown,
+ *     },
+ *   }
+ * >}
  */
-async function _pushEntry(entry, sdkClient) {
+async function _pushEntry(entry, sdkClient, cfg) {
   const { collection, operation, record_id, payload } = entry;
 
   // Translate local field names to Directus schema names for all non-delete operations
-  const directusPayload = _toDirectusPayload(collection, payload);
+  const mappedPayload = _toDirectusPayload(collection, payload);
+  const directusPayload = _withRequiredDefaults(collection, operation, mappedPayload, cfg);
 
   // Ensure the primary key is always present in create payloads.
   // This guards against cases where the local PK was not included in a partial payload.
@@ -582,7 +641,7 @@ async function _pushEntry(entry, sdkClient) {
  *   on the window for each abandoned entry so the UI can react).
  * - Entries that should be skipped (no-op deletes) are silently removed.
  *
- * @param {{ url: string, staticToken: string, _backoffMs?: number }} cfg
+ * @param {{ url: string, staticToken: string, venueId?: number|string|null, _backoffMs?: number }} cfg
  *   Directus connection config.  `_backoffMs` overrides the exponential
  *   back-off base (default 1000 ms); set to 0 in tests to skip all delays.
  * @returns {Promise<{ pushed: number, failed: number, abandoned: number }>}
@@ -594,7 +653,7 @@ export async function drainQueue(cfg) {
   let pushed = 0, failed = 0, abandoned = 0;
 
   for (const entry of entries) {
-    const result = await _pushEntry(entry, sdkClient);
+    const result = await _pushEntry(entry, sdkClient, cfg);
 
     if (result === true || result === 'skip') {
       await removeEntry(entry.id);
