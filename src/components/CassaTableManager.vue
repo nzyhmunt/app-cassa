@@ -1121,7 +1121,7 @@
       </div>
       <!-- Body -->
       <div class="p-5 overflow-y-auto">
-        <p class="text-xs text-gray-500 mb-4">Seleziona il tavolo di destinazione. Se il tavolo è occupato, gli ordini verranno spostati e i conti uniti.</p>
+        <p class="text-xs text-gray-500 mb-4">Seleziona un tavolo libero di destinazione. Tutte le comande attive verranno trasferite sul nuovo tavolo.</p>
         <!-- Tavoli liberi -->
         <div v-if="freeTables.length > 0">
           <p class="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-2">Tavoli Liberi</p>
@@ -1134,19 +1134,7 @@
             </button>
           </div>
         </div>
-        <!-- Tavoli occupati -->
-        <div v-if="otherOccupiedTables.length > 0">
-          <p class="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-2">Tavoli Occupati (unione conto)</p>
-          <div class="grid grid-cols-4 gap-2">
-            <button v-for="table in otherOccupiedTables" :key="'spo_'+table.id"
-              @click="confirmMove(table)"
-              class="aspect-square rounded-xl border-2 border-[var(--brand-primary)] theme-bg text-white relative flex flex-col items-center justify-center p-1.5 hover:opacity-90 active:scale-95 transition-all">
-              <span class="absolute top-1 right-1 text-[9px] font-bold opacity-60 flex items-center gap-0.5"><Users class="size-2.5" />{{ table.covers }}</span>
-              <span class="font-black text-xl">{{ table.label }}</span>
-            </button>
-          </div>
-        </div>
-        <div v-if="freeTables.length === 0 && otherOccupiedTables.length === 0" class="text-center text-gray-400 text-sm py-4">Nessun altro tavolo disponibile.</div>
+        <div v-if="freeTables.length === 0" class="text-center text-gray-400 text-sm py-4">Nessun tavolo libero disponibile.</div>
       </div>
     </div>
   </div>
@@ -1196,26 +1184,46 @@
 
         <!-- Description -->
         <p class="text-xs text-gray-500 mb-4 shrink-0">
-          Seleziona il tavolo di destinazione, poi le voci da trasferire.
-          I tavoli già uniti (<Link class="size-3 inline-block" />) possono essere separati anche senza spostare voci.
+          Seleziona prima il tipo di operazione: separa un tavolo già unito oppure sposta voci su un tavolo libero.
         </p>
 
-        <!-- Unified target picker: slave tables + free tables -->
+        <!-- Target picker separato per intento -->
         <div class="mb-4 shrink-0">
           <p class="text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-2">Tavolo di destinazione</p>
-          <div v-if="splitAvailableTargets.length > 0" class="grid grid-cols-4 gap-2">
-            <button
-              v-for="t in splitAvailableTargets" :key="'spl_'+t.id"
-              @click="splitTargetTableId = t.id"
-              :class="splitTargetTableId === t.id
-                ? (t.isSlave ? 'border-orange-400 bg-orange-50 text-orange-800' : 'border-emerald-400 bg-emerald-50 text-emerald-800')
-                : 'border-gray-200 bg-gray-50 text-gray-700 hover:bg-gray-100'"
-              class="aspect-square rounded-xl border-2 relative flex flex-col items-center justify-center p-1.5 transition-all active:scale-95">
-              <Link v-if="t.isSlave" class="absolute top-1 left-1 size-3 opacity-50" />
-              <span class="font-black text-xl">{{ t.label }}</span>
-            </button>
+          <div class="space-y-3">
+            <div v-if="slaveTables.length > 0">
+              <p class="text-[10px] font-bold uppercase tracking-wider text-orange-500 mb-1.5">Tavoli uniti (separazione)</p>
+              <div class="grid grid-cols-4 gap-2">
+                <button
+                  v-for="t in slaveTables" :key="'spl_sl_'+t.id"
+                  @click="splitTargetTableId = t.id"
+                  :class="splitTargetTableId === t.id
+                    ? 'border-orange-400 bg-orange-50 text-orange-800'
+                    : 'border-gray-200 bg-gray-50 text-gray-700 hover:bg-gray-100'"
+                  class="aspect-square rounded-xl border-2 relative flex flex-col items-center justify-center p-1.5 transition-all active:scale-95">
+                  <Link class="absolute top-1 left-1 size-3 opacity-50" />
+                  <span class="font-black text-xl">{{ t.label }}</span>
+                </button>
+              </div>
+            </div>
+
+            <div v-if="freeTables.length > 0">
+              <p class="text-[10px] font-bold uppercase tracking-wider text-emerald-500 mb-1.5">Tavoli liberi (sposta voci)</p>
+              <div class="grid grid-cols-4 gap-2">
+                <button
+                  v-for="t in freeTables" :key="'spl_fr_'+t.id"
+                  @click="splitTargetTableId = t.id"
+                  :class="splitTargetTableId === t.id
+                    ? 'border-emerald-400 bg-emerald-50 text-emerald-800'
+                    : 'border-gray-200 bg-gray-50 text-gray-700 hover:bg-gray-100'"
+                  class="aspect-square rounded-xl border-2 relative flex flex-col items-center justify-center p-1.5 transition-all active:scale-95">
+                  <span class="font-black text-xl">{{ t.label }}</span>
+                </button>
+              </div>
+            </div>
+
+            <div v-if="slaveTables.length === 0 && freeTables.length === 0" class="text-xs text-gray-400 py-2">Nessun tavolo disponibile.</div>
           </div>
-          <div v-else class="text-xs text-gray-400 py-2">Nessun tavolo disponibile.</div>
         </div>
 
         <!-- Item-level quantity stepper list (shown once a target is selected) -->
@@ -1436,19 +1444,6 @@ const freeTables = computed(() =>
   ),
 );
 
-// All non-current, non-free, non-slave tables available for move target selection.
-// Merged slave tables are excluded because moving orders onto a slave creates an
-// invalid state (the slave gets its own session while still logically merged into
-// its master, causing totals/status inconsistencies).
-const otherOccupiedTables = computed(() =>
-  configStore.config.tables.filter(
-    t =>
-      t.id !== selectedTable.value?.id &&
-      tableStatusMap.value[t.id]?.status !== 'free' &&
-      !orderStore.isMergedSlave(t.id),
-  ),
-);
-
 // Tables available to be merged INTO the currently selected master table.
 // Excludes: self, free tables, tables already merged into this master (already
 // slaves), and tables that are already slaves of a different master (each table
@@ -1487,15 +1482,6 @@ const slaveTables = computed(() =>
     .map(id => configStore.config.tables.find(t => t.id === id))
     .filter(Boolean),
 );
-
-// All valid target tables for the split modal: merged slaves + free tables.
-// Slave tables can be separated (with or without transferring items).
-// Free tables receive a portion of the current table's items.
-const splitAvailableTargets = computed(() => {
-  const slaves = slaveTables.value.map(t => ({ ...t, isSlave: true }));
-  const free = freeTables.value.map(t => ({ ...t, isSlave: false }));
-  return [...slaves, ...free];
-});
 
 // True when the currently selected split target is a merged slave of this table.
 const splitTargetIsSlave = computed(() =>

@@ -167,9 +167,15 @@ I pulsanti nell'header del pannello tavolo permettono:
 | Pulsante | Azione |
 |---------|--------|
 | 🧾 **Conto Richiesto** | Attiva/disattiva il flag "cliente ha chiesto il conto" (il tavolo diventa blu sulla mappa) |
-| ↗ **Sposta** | Trasferisce tutti gli ordini e le transazioni a un altro tavolo libero |
-| 🔗 **Unisci** | Combina due tavoli occupati: gli ordini del tavolo sorgente si spostano nel tavolo destinazione, i coperti si sommano |
+| ↗ **Sposta** | Trasferisce tutte le comande attive su un altro **tavolo libero** |
+| 🔗 **Unisci** | Unisce il tavolo corrente con un altro **tavolo occupato**: le comande confluiscono nel tavolo principale e i coperti si sommano |
+| ✂️ **Dividi** *(solo Cassa)* | Separa un tavolo già unito **oppure** sposta solo alcune voci su un tavolo libero |
 | 📄 **Storico Conti** | Visualizza tutti i conti chiusi per questo tavolo nella sessione |
+
+**Modello operativo consigliato (più chiaro):**
+- **Sposta = cambio tavolo** (solo destinazioni libere)
+- **Unisci = crea tavolo principale + tavolo unito**
+- **Dividi = separa tavoli uniti o sposta voci parziali**
 
 #### Spostare un tavolo
 
@@ -181,7 +187,17 @@ I pulsanti nell'header del pannello tavolo permettono:
 
 1. Premere **Unisci**
 2. Si apre la griglia dei tavoli occupati
-3. Selezionare il tavolo con cui unire → il tavolo corrente si libera, gli ordini confluiscono nel destinazione
+3. Selezionare il tavolo con cui unire → il tavolo corrente diventa "unito" al principale e il conto resta gestito dal tavolo principale
+
+#### Dividere tavoli / voci (solo Cassa)
+
+1. Premere **Dividi**
+2. Nella modale sono presenti due sezioni separate:
+   - **Tavoli uniti (separazione)**: per separare un tavolo già unito
+   - **Tavoli liberi (sposta voci)**: per trasferire solo alcune voci
+3. Selezionare il tavolo destinazione e confermare:
+   - su tavolo unito: è possibile separare anche senza spostare voci
+   - su tavolo libero: è necessario selezionare almeno una voce
 
 ### 3.6 Voce Diretta (⚡)
 
@@ -459,7 +475,7 @@ Toccando un tavolo già occupato si apre il pannello con:
 - Numero tavolo + coperti + durata occupazione
 - Pulsante **Nuova Comanda** per aggiungere un'altra comanda al tavolo
 - Lista delle comande attive con stato e anteprima voci
-- Pulsanti **Sposta** e **Unisci** (stessa funzionalità della Cassa)
+- Pulsanti **Sposta** (solo verso tavoli liberi) e **Unisci** (solo con tavoli occupati)
 
 ---
 

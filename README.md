@@ -110,8 +110,9 @@ src/
 - Supporto **multi-sala**: configurazione `rooms` raggruppa i tavoli per sala; tab *Tutti* + tab per sala; filtri stato funzionano su tutte le sale contemporaneamente
 - Apertura del tavolo con selezione coperti (adulti + bambini) e anteprima del coperto
 - Operazioni avanzate su tavoli (Cassa & Sala):
-  - **Sposta tavolo**: trasferisce tutti gli ordini e le transazioni a un altro tavolo libero
-  - **Unisci tavoli**: combina due tavoli occupati, somma coperti e sessioni di conto
+  - **Sposta tavolo**: trasferisce tutte le comande attive solo verso un tavolo libero
+  - **Unisci tavoli**: unisce due tavoli occupati, mantenendo un tavolo principale di conto
+  - **Dividi tavolo/conto** (Cassa): separa tavoli uniti o sposta voci selezionate su un tavolo libero
 
 ### 📋 Gestione Ordini (Cassa)
 - Visualizzazione ordini suddivisa in tre tab: **In Attesa**, **In Cucina**, **Chiusi**

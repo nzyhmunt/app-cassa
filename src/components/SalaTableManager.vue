@@ -225,7 +225,7 @@
       </div>
       <!-- Body -->
       <div class="p-5 overflow-y-auto">
-        <p class="text-xs text-gray-500 mb-4">Seleziona il tavolo di destinazione. Se occupato, gli ordini verranno spostati e i conti uniti.</p>
+        <p class="text-xs text-gray-500 mb-4">Seleziona un tavolo libero di destinazione. Tutte le comande attive verranno trasferite sul nuovo tavolo.</p>
         <div v-if="freeTables.length > 0">
           <p class="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-2">Tavoli Liberi</p>
           <div class="grid grid-cols-4 gap-2 mb-4">
@@ -237,18 +237,7 @@
             </button>
           </div>
         </div>
-        <div v-if="otherOccupiedTables.length > 0">
-          <p class="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-2">Tavoli Occupati (unione conto)</p>
-          <div class="grid grid-cols-4 gap-2">
-            <button v-for="table in otherOccupiedTables" :key="'spo_'+table.id"
-              @click="confirmMove(table)"
-              class="aspect-square rounded-xl border-2 border-[var(--brand-primary)] theme-bg text-white relative flex flex-col items-center justify-center p-1.5 hover:opacity-90 active:scale-95 transition-all">
-              <span class="absolute top-1 right-1 text-[9px] font-bold opacity-60 flex items-center gap-0.5"><Users class="size-2.5" />{{ table.covers }}</span>
-              <span class="font-black text-xl">{{ table.label }}</span>
-            </button>
-          </div>
-        </div>
-        <div v-if="freeTables.length === 0 && otherOccupiedTables.length === 0" class="text-center text-gray-400 text-sm py-4">Nessun altro tavolo disponibile.</div>
+        <div v-if="freeTables.length === 0" class="text-center text-gray-400 text-sm py-4">Nessun tavolo libero disponibile.</div>
       </div>
     </div>
   </div>
@@ -395,18 +384,6 @@ const showMergeModal = ref(false);
 const freeTables = computed(() =>
   configStore.config.tables.filter(
     t => t.id !== selectedTable.value?.id && orderStore.getTableStatus(t.id).status === 'free',
-  ),
-);
-
-// Non-current, non-free, non-slave tables for move (including occupied/paid).
-// Merged slave tables are excluded: targeting a slave with "Sposta" would give it
-// its own session while still merged into a master, causing billing inconsistencies.
-const otherOccupiedTables = computed(() =>
-  configStore.config.tables.filter(
-    t =>
-      t.id !== selectedTable.value?.id &&
-      allTablesStatusMap.value[t.id]?.status !== 'free' &&
-      !orderStore.isMergedSlave(t.id),
   ),
 );
 
