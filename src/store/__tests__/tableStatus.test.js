@@ -258,7 +258,7 @@ describe('getTableStatus() — multi-session isolation', () => {
     const store = useAppStore();
 
     const sess1 = await store.openTableSession('T1', 2, 0);
-    await store.addOrder({ ...makeOrder('ord_old_pending', 'T1', 'pending', 0), billSessionId: sess1 });
+    await store.addOrder({ ...makeOrder('ord_old_pending', 'T1', 'pending', 12), billSessionId: sess1 });
     // Keep historical pending row as simulated legacy data, then switch to a fresh active session.
     const nextSessions = { ...store.tableCurrentBillSession };
     delete nextSessions.T1;
