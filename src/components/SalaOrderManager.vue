@@ -656,7 +656,7 @@
 </template>
 
 <script setup>
-import { ref, computed, nextTick } from 'vue';
+import { ref, computed, nextTick, watch } from 'vue';
 import {
   Bell, ClipboardList, ChefHat, Clock, Hash, MousePointerClick, ArrowLeft,
   AlertTriangle, Trash2, PlusCircle, Send, ShieldCheck, Minus, Plus,
@@ -729,6 +729,17 @@ function changeTab(tab) {
 function selectOrder(ord) {
   selectedOrder.value = ord;
 }
+
+watch(
+  () => orderStore.orders,
+  (nextOrders) => {
+    const currentId = selectedOrder.value?.id;
+    if (!currentId) return;
+    const refreshed = nextOrders.find(o => String(o.id) === String(currentId)) || null;
+    selectedOrder.value = refreshed;
+  },
+);
+
 async function markDelivered(order) {
   await orderStore.changeOrderStatus(order, 'delivered');
 
