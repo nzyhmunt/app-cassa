@@ -504,7 +504,9 @@ describe('simulateNewOrder()', () => {
 
     // getTableStatus() must only consider the active simulated bill, not old settled data.
     const status = store.getTableStatus('01');
-    expect(status.total).toBeCloseTo(5, 2); // pending orders are excluded from cash register total; only direct cover is billable now
+    // In this scenario only the auto-added cover contributes to cassa total:
+    // 2 covers × default coverCharge.priceAdult (2.50) = 5.00.
+    expect(status.total).toBeCloseTo(5, 2);
     expect(status.remaining).toBeCloseTo(5, 2);
   });
 

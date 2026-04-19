@@ -1036,7 +1036,7 @@ export const useOrderStore = defineStore('orders', () => {
       if (globalThis.crypto?.getRandomValues) {
         const randomBuffer = new Uint32Array(1);
         globalThis.crypto.getRandomValues(randomBuffer);
-        return randomBuffer[0] / 4294967296; // 2^32
+        return randomBuffer[0] / 4294967296; // 4294967296 = 2^32 → normalize to [0, 1)
       }
       return Math.random();
     })();
