@@ -189,6 +189,23 @@ describe('drainQueue()', () => {
     expect(body.venue).toBe(77);
   });
 
+  it('injects venue for orders create when missing and cfg.venueId is available', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue(mockResponse(201, {}));
+    await enqueue('orders', 'create', 'ord_1', {
+      id: 'ord_1',
+      table: 'T1',
+      status: 'pending',
+      order_time: '10:15',
+      total_amount: 10,
+      item_count: 1,
+    });
+
+    await drainQueue({ ...FAKE_CFG, venueId: 77 });
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.venue).toBe(77);
+  });
+
   it('maps transaction payment methods to Directus relation ids', async () => {
     const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue(mockResponse(201, {}));
     await enqueue('transactions', 'create', 'txn_1', {

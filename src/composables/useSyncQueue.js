@@ -436,6 +436,18 @@ function _isPresentValue(value) {
   return value != null && value !== '';
 }
 
+const VENUE_REQUIRED_CREATE_COLLECTIONS = new Set([
+  'bill_sessions',
+  'orders',
+  'transactions',
+  'cash_movements',
+  'daily_closures',
+  'print_jobs',
+  'table_merge_sessions',
+  'venue_users',
+  'printers',
+]);
+
 /**
  * Injects required Directus defaults for legacy/sparse queue payloads.
  *
@@ -450,7 +462,7 @@ function _withRequiredDefaults(collection, operation, payload, cfg) {
   const out = { ...(payload ?? {}) };
   if (
     operation === 'create'
-    && collection === 'bill_sessions'
+    && VENUE_REQUIRED_CREATE_COLLECTIONS.has(collection)
     && !_isPresentValue(out.venue)
     && _isPresentValue(cfg?.venueId)
   ) {
@@ -489,14 +501,14 @@ function _buildRestClient(cfg) {
  *
  * @param {object} entry
  * @param {import('@directus/sdk').DirectusClient<object>} sdkClient
+ * @param {{ venueId?: number|string|null }} cfg
  * @returns {Promise<true|'skip'|string>}
  */
 async function _pushEntry(entry, sdkClient, cfg) {
   const { collection, operation, record_id, payload } = entry;
 
   // Translate local field names to Directus schema names for all non-delete operations
-  let directusPayload = _toDirectusPayload(collection, payload);
-  directusPayload = _withRequiredDefaults(collection, operation, directusPayload, cfg);
+  const directusPayload = _withRequiredDefaults(collection, operation, _toDirectusPayload(collection, payload), cfg);
 
   // Ensure the primary key is always present in create payloads.
   // This guards against cases where the local PK was not included in a partial payload.

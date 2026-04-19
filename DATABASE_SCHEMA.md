@@ -1446,6 +1446,11 @@ I campi puramente locali (`timestamp`, `orderRefs`, `vociRefs`, `grossAmount`, `
 vengono rimossi prima dell'invio; `orderRefs` e `vociRefs` vengono gestiti come voci separate
 nelle collection junction `transaction_order_refs` / `transaction_voce_refs`.
 
+**Nota IDB-centric (robustezza payload legacy/sparsi)**: la sorgente di verità resta IndexedDB;
+nel push queue, se una `create` su una collection tenant-scoped arriva senza `venue`, `useSyncQueue`
+applica un backfill con `directus.venueId` di runtime solo come fallback di compatibilità
+(senza alterare la persistenza locale), per evitare errori `FAILED_VALIDATION` lato Directus.
+
 **Nota**: poiché gli ID sono UUIDv7 generati client-side, non si verificano collisioni tra
 dispositivi diversi anche in assenza di coordinamento server.
 
