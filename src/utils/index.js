@@ -181,7 +181,7 @@ export const DEFAULT_SETTINGS = {
   // enableTips: abilita l'inserimento della mancia per ogni pagamento
   // enableDiscounts: abilita l'applicazione di sconti in cassa
   // autoCloseOnFullPayment: quando true chiude automaticamente il conto al saldo completo
-  // (default false, per consentire la scelta manuale Chiudi/Fiscale/Fattura)
+  // (default false, to keep manual Close/Fiscal/Invoice choice available)
   // allowCustomEntry: quando true (default), abilita la tab "Personalizzata" nel modal Voce Diretta
   //   per inserire voci libere (nome + prezzo) non collegate al menu. Impostare a false per
   //   limitare le voci dirette solo alle voci presenti nel menu configurato.
