@@ -1868,7 +1868,7 @@ const quotaRomana = computed(() => {
 // ── Feature flags from config ──────────────────────────────────────────────
 const tipsEnabled = computed(() => configStore.config.billing?.enableTips ?? false);
 const discountsEnabled = computed(() => configStore.config.billing?.enableDiscounts ?? false);
-const autoCloseOnFullPaymentEnabled = computed(() => configStore.config.billing?.autoCloseOnFullPayment !== false);
+const autoCloseOnFullPaymentEnabled = computed(() => configStore.config.billing?.autoCloseOnFullPayment === true);
 
 // ── Payment modal computed ───────────────────────────────────────────────────────────────────
 const modalMethod = computed(() =>

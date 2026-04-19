@@ -148,6 +148,7 @@ describe('appConfig', () => {
       expect(runtime.ui.primaryColor).toBe('#00846c');
       expect(runtime.ui.primaryColorDark).toBe('#0c7262');
       expect(runtime.ui.currency).toBe('€');
+      expect(runtime.billing.autoCloseOnFullPayment).toBe(false);
     });
 
     it('maps billing_auto_close_on_full_payment to billing.autoCloseOnFullPayment', () => {
