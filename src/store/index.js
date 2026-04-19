@@ -396,15 +396,21 @@ export const useOrderStore = defineStore('orders', () => {
       if (master !== tableId) return { ...getTableStatus(master), isMergedSlave: true, masterTableId: master };
       return { status: 'free', total: 0, remaining: 0 };
     }
+    const session = tableCurrentBillSession.value[tableId];
+    const belongsToCurrentSession = o =>
+      !session || o.billSessionId === session.billSessionId;
     const ords = orders.value.filter(
-      o => o.table === tableId && o.status !== 'completed' && o.status !== 'rejected',
+      o =>
+        o.table === tableId &&
+        o.status !== 'completed' &&
+        o.status !== 'rejected' &&
+        belongsToCurrentSession(o),
     );
     if (ords.length === 0) return { status: 'free', total: 0, remaining: 0 };
-    const session = tableCurrentBillSession.value[tableId];
     const billable = orders.value.filter(
       o => o.table === tableId &&
         (KITCHEN_ACTIVE_STATUSES.includes(o.status) || o.status === 'completed') &&
-        (!session || o.billSessionId === session.billSessionId),
+        belongsToCurrentSession(o),
     );
     const total = billable.reduce((a, b) => a + b.totalAmount, 0);
     const paid = transactions.value

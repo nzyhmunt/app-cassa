@@ -253,6 +253,25 @@ describe('getTableStatus() — multi-session isolation', () => {
     expect(result.total).toBe(40);
     expect(result.remaining).toBe(0);
   });
+
+  it('ignores old-session pending orders when evaluating current table status', async () => {
+    const store = useAppStore();
+
+    const sess1 = await store.openTableSession('T1', 2, 0);
+    await store.addOrder({ ...makeOrder('ord_old_pending', 'T1', 'pending', 0), billSessionId: sess1 });
+    // Keep historical pending row as simulated legacy data, then switch to a fresh active session.
+    delete store.tableCurrentBillSession['T1'];
+
+    const sess2 = await store.openTableSession('T1', 2, 0);
+    await store.addDirectOrder('T1', sess2, [
+      { uid: 'cover_1', dishId: null, name: 'Coperto', unitPrice: 2.5, quantity: 2, voidedQuantity: 0, notes: [], modifiers: [] },
+    ]);
+
+    const result = store.getTableStatus('T1');
+    expect(result.status).toBe('occupied');
+    expect(result.total).toBeCloseTo(5, 2);
+    expect(result.remaining).toBeCloseTo(5, 2);
+  });
 });
 
 // ---------------------------------------------------------------------------
