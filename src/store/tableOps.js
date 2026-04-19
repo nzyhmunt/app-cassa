@@ -533,11 +533,12 @@ export function makeTableOps(state, helpers) {
     const nextMergedInto = { ...tableMergedInto.value };
     if (targetMaster === sourceTableId) delete nextMergedInto[targetTableId];
 
-    // Ensure target has an open billing session as part of projected state
+    // Ensure target has an open bill session as part of projected state
     let targetSession = tableCurrentBillSession.value[targetTableId];
-    let nextTCS = { ...tableCurrentBillSession.value };
+    let projectedTableCurrentBillSession = { ...tableCurrentBillSession.value };
     if (!targetSession) {
       if (getTableStatus(targetTableId).status !== 'free') return false;
+      // Mirror openTableSession shape, but keep it projected-only until IDB save succeeds.
       const billSessionId = newUUIDv7();
       const now = new Date().toISOString();
       targetSession = {
@@ -548,7 +549,7 @@ export function makeTableOps(state, helpers) {
         status: 'open',
         opened_at: now,
       };
-      nextTCS[targetTableId] = targetSession;
+      projectedTableCurrentBillSession[targetTableId] = targetSession;
       createdTargetSession = _cloneSession(targetSession);
     }
     if (!targetSession?.billSessionId) return false;
@@ -641,9 +642,9 @@ export function makeTableOps(state, helpers) {
               : t,
           )
         : transactions.value;
-      const projectedTCS = { ...nextTCS };
-      delete projectedTCS[sourceTableId];
-      nextTCS = projectedTCS;
+      const projectedWithoutSourceTCS = { ...projectedTableCurrentBillSession };
+      delete projectedWithoutSourceTCS[sourceTableId];
+      projectedTableCurrentBillSession = projectedWithoutSourceTCS;
       delete nextOccupiedAt[sourceTableId];
       const projectedBillRequested = new Set(billRequestedTables.value);
       projectedBillRequested.delete(sourceTableId);
@@ -665,7 +666,7 @@ export function makeTableOps(state, helpers) {
       await saveStateToIDB({
         orders: projectedOrders,
         transactions: nextTransactions,
-        tableCurrentBillSession: nextTCS,
+        tableCurrentBillSession: projectedTableCurrentBillSession,
         tableOccupiedAt: nextOccupiedAt,
         tableMergedInto: nextMergedInto,
         billRequestedTables: nextBillRequested,
@@ -673,7 +674,7 @@ export function makeTableOps(state, helpers) {
       if (createdTargetSession) {
         await upsertBillSessionInIDB(createdTargetSession);
       }
-      await _persistBillSessionPatchesToIDB(billSessionPatches, nextTCS);
+      await _persistBillSessionPatchesToIDB(billSessionPatches, projectedTableCurrentBillSession);
       persistedToIDB = true;
     } catch (err) {
       console.warn('[Store] splitItemsToTable IDB save failed:', err);
@@ -684,7 +685,7 @@ export function makeTableOps(state, helpers) {
     // Assign reactive refs only after IDB write completes successfully.
     orders.value = projectedOrders;
     transactions.value = nextTransactions;
-    tableCurrentBillSession.value = nextTCS;
+    tableCurrentBillSession.value = projectedTableCurrentBillSession;
     tableOccupiedAt.value = nextOccupiedAt;
     tableMergedInto.value = nextMergedInto;
     if (updateBillRequestedState) {

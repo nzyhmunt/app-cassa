@@ -855,6 +855,35 @@ describe('sync queue propagation — table mutations', () => {
     });
   });
 
+  it('splitItemsToTable persists newly created target bill session only after projected save success', async () => {
+    const store = useAppStore();
+    runtime.store = store;
+    const sessA = await store.openTableSession('A', 2, 0);
+    const ord = makeOrderWithItems('ord_split_create_target_session', 'A', 'accepted');
+    ord.billSessionId = sessA;
+    await store.addOrder(ord);
+
+    runtime.snapshots = [];
+    vi.clearAllMocks();
+
+    const result = await store.splitItemsToTable('A', 'B', { [`${ord.id}__item_1`]: 1 });
+
+    expect(result).toBe(true);
+    const saveCallOrder = saveStateToIDBMock.mock.invocationCallOrder[0];
+    const upsertCallOrder = upsertBillSessionInIDBMock.mock.invocationCallOrder[0];
+    expect(saveCallOrder).toBeLessThan(upsertCallOrder);
+    const createdTargetSessionId = store.tableCurrentBillSession.B?.billSessionId;
+    expect(createdTargetSessionId).toBeTruthy();
+    expect(upsertBillSessionInIDBMock).toHaveBeenCalledWith(expect.objectContaining({
+      billSessionId: createdTargetSessionId,
+      table: 'B',
+      status: 'open',
+      adults: 0,
+      children: 0,
+      opened_at: expect.any(String),
+    }));
+  });
+
   it('splitItemsToTable full split enqueues moved order/transactions and closes emptied source session', async () => {
     const store = useAppStore();
     runtime.store = store;
