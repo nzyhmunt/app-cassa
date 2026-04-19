@@ -385,7 +385,7 @@ export const useOrderStore = defineStore('orders', () => {
   function isMergedSlave(tableId) { return !!tableMergedInto.value[tableId]; }
   function masterTableOf(tableId) { return tableMergedInto.value[tableId] ?? null; }
 
-  const pendingCount = computed(() => orders.value.filter(o => o.status === 'pending').length);
+  const pendingCount = computed(() => orders.value.filter(o => o.status === 'pending' && !o.isDirectEntry).length);
   const inKitchenCount = computed(() =>
     orders.value.filter(o => KITCHEN_ACTIVE_STATUSES.includes(o.status)).length,
   );
