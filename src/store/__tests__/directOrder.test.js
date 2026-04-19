@@ -443,6 +443,29 @@ describe('kitchen exclusion for direct orders', () => {
 
     expect(acceptedBadge).toBe(1);
   });
+
+  it('pendingCount excludes direct-entry pending orders', async () => {
+    const store = useAppStore();
+
+    await store.addOrder({
+      id: 'ord_direct_pending_only',
+      table: '11',
+      billSessionId: 'sess_dp',
+      status: 'pending',
+      time: '21:10',
+      totalAmount: 3,
+      itemCount: 1,
+      dietaryPreferences: {},
+      orderItems: [
+        { uid: 'dp_only_1', dishId: 'coperto', name: 'Coperto', unitPrice: 3, quantity: 1, voidedQuantity: 0, notes: [], modifiers: [] },
+      ],
+      isDirectEntry: true,
+      globalNote: '',
+      noteVisibility: { cassa: true, sala: true, cucina: true },
+    });
+
+    expect(store.pendingCount).toBe(0);
+  });
 });
 
 // ---------------------------------------------------------------------------
