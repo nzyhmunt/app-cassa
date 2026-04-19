@@ -704,10 +704,20 @@
                 <button @click="closeTableBill" class="py-2.5 sm:py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl active:scale-95 transition-all shadow-md flex items-center justify-center gap-1.5 text-xs">
                   <CheckCircle class="size-3.5" /> Chiudi
                 </button>
-                <button @click="closeTableBillFiscale" class="py-2.5 sm:py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl active:scale-95 transition-all shadow-md flex items-center justify-center gap-1.5 text-xs">
+                <button
+                  @click="closeTableBillFiscale"
+                  :disabled="isZeroAmountBill"
+                  :title="isZeroAmountBill ? 'Non disponibile su conto a importo zero' : undefined"
+                  class="py-2.5 sm:py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl active:scale-95 transition-all shadow-md flex items-center justify-center gap-1.5 text-xs disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-blue-600 disabled:active:scale-100"
+                >
                   <Printer class="size-3.5" /> Fiscale
                 </button>
-                <button @click="openInvoiceModal" class="py-2.5 sm:py-3 bg-violet-600 hover:bg-violet-700 text-white font-bold rounded-xl active:scale-95 transition-all shadow-md flex items-center justify-center gap-1.5 text-xs">
+                <button
+                  @click="openInvoiceModal"
+                  :disabled="isZeroAmountBill"
+                  :title="isZeroAmountBill ? 'Non disponibile su conto a importo zero' : undefined"
+                  class="py-2.5 sm:py-3 bg-violet-600 hover:bg-violet-700 text-white font-bold rounded-xl active:scale-95 transition-all shadow-md flex items-center justify-center gap-1.5 text-xs disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-violet-600 disabled:active:scale-100"
+                >
                   <FileText class="size-3.5" /> Fattura
                 </button>
               </div>
@@ -1749,6 +1759,7 @@ const jsonPayloadData = ref('{}');
 const showInvoiceModal = ref(false);
 
 function openInvoiceModal() {
+  if (isZeroAmountBill.value) return;
   showInvoiceModal.value = true;
 }
 
@@ -1800,6 +1811,7 @@ const tableAmountPaid = computed(() =>
 const tableAmountRemaining = computed(() =>
   Math.max(0, tableTotalAmount.value - tableAmountPaid.value),
 );
+const isZeroAmountBill = computed(() => tableTotalAmount.value <= BILL_SETTLED_THRESHOLD);
 
 // True when at least one Romana transaction has been recorded for this bill
 // session. In that case, Comanda and Analitica modes are disabled to prevent
@@ -2471,6 +2483,7 @@ function _buildBillSummaryBase() {
 
 async function closeTableBillFiscale() {
   if (!selectedTable.value) return;
+  if (isZeroAmountBill.value) return;
   const base = _buildBillSummaryBase();
   if (!base) return;
   const xmlRequest = buildFiscalXmlRequest(base);
@@ -2491,6 +2504,7 @@ async function closeTableBillFiscale() {
 
 async function confirmInvoice(billingData) {
   if (!selectedTable.value) return;
+  if (isZeroAmountBill.value) return;
   const base = _buildBillSummaryBase();
   if (!base) return;
   const entry = {

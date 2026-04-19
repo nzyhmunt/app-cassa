@@ -24,6 +24,7 @@ const helpers = { getTableStatus: () => ({ status: 'free' }) };
 
 // Build a minimal state object to pass into makeReportOps().
 function makeState({
+  orders = [],
   dailyClosures = [],
   fiscalReceipts = [],
   invoiceRequests = [],
@@ -33,7 +34,7 @@ function makeState({
   config = { tables: [] },
 } = {}) {
   return {
-    orders: ref([]),
+    orders: ref(orders),
     transactions: ref(transactions),
     cashBalance: ref(cashBalance),
     cashMovements: ref(cashMovements),
@@ -314,6 +315,85 @@ describe('generateXReport() – scorporo mance da scontrino', () => {
     // receiptCount = 2, totalReceived = 100, averageReceipt = 50 (not 55)
     expect(report.receiptCount).toBe(2);
     expect(report.averageReceipt).toBeCloseTo(50);
+  });
+});
+
+describe('closedBills', () => {
+  it('includes a closed bill session with no transactions (importo 0)', () => {
+    const state = makeState({
+      orders: [
+        {
+          id: 'ord_zero_1',
+          table: 'T1',
+          billSessionId: 'bill_zero_1',
+          status: 'completed',
+          orderItems: [{ uid: 'it1', name: 'Acqua', quantity: 1, voidedQuantity: 1, unitPrice: 2 }],
+        },
+      ],
+      transactions: [],
+      config: { tables: [{ id: 'T1', label: '01', covers: 2 }] },
+    });
+    const { closedBills } = makeReportOps(state, {
+      getTableStatus: () => ({ status: 'free' }),
+    });
+
+    expect(closedBills.value).toHaveLength(1);
+    expect(closedBills.value[0]).toMatchObject({
+      tableId: 'T1',
+      billSessionId: 'bill_zero_1',
+      totalPaid: 0,
+      totalDiscount: 0,
+    });
+    expect(closedBills.value[0].transactions).toEqual([]);
+    expect(closedBills.value[0].orders).toHaveLength(1);
+  });
+
+  it('keeps transaction-based totals and groups orders by bill session', () => {
+    const state = makeState({
+      orders: [
+        {
+          id: 'ord_paid_1',
+          table: 'T1',
+          billSessionId: 'bill_paid_1',
+          status: 'completed',
+          orderItems: [{ uid: 'it2', name: 'Pasta', quantity: 1, voidedQuantity: 0, unitPrice: 10 }],
+        },
+      ],
+      transactions: [
+        {
+          id: 'txn_paid_1',
+          tableId: 'T1',
+          billSessionId: 'bill_paid_1',
+          operationType: 'unico',
+          amountPaid: 10,
+          tipAmount: 0,
+          timestamp: TS_AFTER,
+        },
+        {
+          id: 'txn_disc_1',
+          tableId: 'T1',
+          billSessionId: 'bill_paid_1',
+          operationType: 'discount',
+          amountPaid: 2,
+          tipAmount: 0,
+          timestamp: TS_AFTER,
+        },
+      ],
+      config: { tables: [{ id: 'T1', label: '01', covers: 2 }] },
+    });
+    const { closedBills } = makeReportOps(state, {
+      getTableStatus: () => ({ status: 'free' }),
+    });
+
+    expect(closedBills.value).toHaveLength(1);
+    expect(closedBills.value[0]).toMatchObject({
+      tableId: 'T1',
+      billSessionId: 'bill_paid_1',
+      totalPaid: 10,
+      totalDiscount: 2,
+      totalTips: 0,
+    });
+    expect(closedBills.value[0].orders).toHaveLength(1);
   });
 });
 

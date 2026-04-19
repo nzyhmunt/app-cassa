@@ -190,35 +190,45 @@ export function makeReportOps(state, helpers) {
   // Grouped by billSessionId (or tableId for legacy rows without a session id).
   const closedBills = computed(() => {
     const sessionsMap = new Map();
+    const _sessionKey = (tableId, billSessionId) =>
+      billSessionId != null ? `${tableId}::${billSessionId}` : tableId;
+
+    const _ensureSession = (tableId, billSessionId) => {
+      const key = _sessionKey(tableId, billSessionId);
+      if (!sessionsMap.has(key)) {
+        sessionsMap.set(key, {
+          tableId,
+          billSessionId,
+          table: config.value.tables.find(tab => tab.id === tableId),
+          transactions: [],
+          orders: [],
+        });
+      }
+      return sessionsMap.get(key);
+    };
+
     for (const t of transactions.value) {
       if (!t.tableId) continue;
       const sessionId = t.billSessionId ?? null;
-      const key = sessionId != null ? `${t.tableId}::${sessionId}` : t.tableId;
-      if (!sessionsMap.has(key)) {
-        sessionsMap.set(key, {
-          tableId: t.tableId,
-          billSessionId: sessionId,
-          table: config.value.tables.find(tab => tab.id === t.tableId),
-          transactions: [],
-        });
-      }
-      sessionsMap.get(key).transactions.push(t);
+      _ensureSession(t.tableId, sessionId).transactions.push(t);
+    }
+
+    for (const order of orders.value) {
+      if (!order?.table) continue;
+      if (order.status !== 'completed' && order.status !== 'rejected') continue;
+      const sessionId = order.billSessionId ?? null;
+      _ensureSession(order.table, sessionId).orders.push(order);
     }
 
     const bills = [];
-    for (const { tableId, billSessionId, table, transactions: txns } of sessionsMap.values()) {
+    for (const { tableId, billSessionId, table, transactions: txns, orders: sessionOrders } of sessionsMap.values()) {
       if (getTableStatus(tableId).status !== 'free') continue;
       txns.sort((a, b) => new Date(a.timestamp || 0) - new Date(b.timestamp || 0));
-
-      const tableOrds = orders.value.filter(o => {
-        if (o.table !== tableId || (o.status !== 'completed' && o.status !== 'rejected')) return false;
-        return billSessionId == null ? o.billSessionId == null : o.billSessionId === billSessionId;
-      });
 
       const paymentTxns = txns.filter(t => t.operationType !== 'discount');
       const discountTxns = txns.filter(t => t.operationType === 'discount');
       bills.push({
-        tableId, billSessionId, table, transactions: txns, orders: tableOrds,
+        tableId, billSessionId, table, transactions: txns, orders: sessionOrders,
         totalPaid: paymentTxns.reduce((acc, t) => acc + (t.amountPaid || 0), 0),
         totalDiscount: discountTxns.reduce((acc, t) => acc + (t.amountPaid || 0), 0),
         totalTips: txns.reduce((acc, t) => acc + (t.tipAmount || 0), 0),
