@@ -433,6 +433,29 @@ function _toDirectusPayload(collection, localPayload) {
 }
 
 /**
+ * Injects required Directus defaults for legacy/sparse queue payloads.
+ *
+ * @param {string} collection
+ * @param {'create'|'update'|'delete'} operation
+ * @param {object} payload
+ * @param {{ venueId?: number|string|null }} cfg
+ * @returns {object}
+ */
+function _withRequiredDefaults(collection, operation, payload, cfg) {
+  const out = { ...(payload ?? {}) };
+  if (
+    operation === 'create'
+    && collection === 'bill_sessions'
+    && (out.venue == null || out.venue === '')
+    && cfg?.venueId != null
+    && cfg.venueId !== ''
+  ) {
+    out.venue = cfg.venueId;
+  }
+  return out;
+}
+
+/**
  * Builds a minimal REST-only Directus SDK client from a cfg object.
  * A new, lightweight client is created for each `drainQueue()` invocation
  * so that the push loop does not share connection state with the realtime
@@ -464,11 +487,12 @@ function _buildRestClient(cfg) {
  * @param {import('@directus/sdk').DirectusClient<object>} sdkClient
  * @returns {Promise<true|'skip'|string>}
  */
-async function _pushEntry(entry, sdkClient) {
+async function _pushEntry(entry, sdkClient, cfg) {
   const { collection, operation, record_id, payload } = entry;
 
   // Translate local field names to Directus schema names for all non-delete operations
-  const directusPayload = _toDirectusPayload(collection, payload);
+  let directusPayload = _toDirectusPayload(collection, payload);
+  directusPayload = _withRequiredDefaults(collection, operation, directusPayload, cfg);
 
   // Ensure the primary key is always present in create payloads.
   // This guards against cases where the local PK was not included in a partial payload.
@@ -594,7 +618,7 @@ export async function drainQueue(cfg) {
   let pushed = 0, failed = 0, abandoned = 0;
 
   for (const entry of entries) {
-    const result = await _pushEntry(entry, sdkClient);
+    const result = await _pushEntry(entry, sdkClient, cfg);
 
     if (result === true || result === 'skip') {
       await removeEntry(entry.id);
