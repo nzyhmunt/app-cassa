@@ -411,6 +411,10 @@ const _wsConnected = ref(false);
  * Processes an incoming realtime message from Directus Subscriptions.
  * Maps records to local format, upserts into IDB, and merges into the store.
  *
+ * Self-echo suppression: records that this device pushed within the last
+ * ECHO_SUPPRESS_TTL_MS are filtered out to prevent redundant IDB writes and
+ * transient UI rewrites caused by receiving our own changes back via WebSocket.
+ *
  * @param {string} collection
  * @param {{ event: string, data: object[] }} message
  */
@@ -427,7 +431,19 @@ async function _handleSubscriptionMessage(collection, message) {
     await deleteRecordsFromIDB(collection, ids);
     await _refreshStoreFromIDB(collection);
   } else {
-    const mapped = data.map(r => _mapRecord(collection, r));
+    // Filter out records that this device just pushed (self-echo suppression).
+    const nonEcho = data.filter(r => {
+      const id = r?.id != null ? String(r.id) : null;
+      return !_isEchoSuppressed(collection, id);
+    });
+    const suppressedCount = data.length - nonEcho.length;
+    if (suppressedCount > 0) {
+      console.debug(
+        `[DirectusSync] WS ${event} on ${collection}: suppressed ${suppressedCount} self-echo(es)`,
+      );
+    }
+    if (nonEcho.length === 0) return;
+    const mapped = nonEcho.map(r => _mapRecord(collection, r));
     await upsertRecordsIntoIDB(collection, mapped);
     await _refreshStoreFromIDB(collection);
   }
@@ -518,6 +534,54 @@ const syncStatus = ref(/** @type {'idle'|'syncing'|'error'} */ ('idle'));
 const lastPushAt = ref(/** @type {string|null} */ (null));
 const lastPullAt = ref(/** @type {string|null} */ (null));
 
+// ── Echo suppression ──────────────────────────────────────────────────────────
+
+/**
+ * TTL for self-echo suppression entries (ms).
+ * Records pushed by this device are ignored in WebSocket events received within
+ * this window to prevent redundant IDB writes and momentary UI rewrites.
+ */
+const ECHO_SUPPRESS_TTL_MS = 5_000;
+
+/**
+ * Map of "collection:record_id" → expiry timestamp (ms since epoch).
+ * Populated by `_runPush()` after each successful `drainQueue()` cycle.
+ */
+const _recentlyPushed = new Map();
+
+/**
+ * Registers a list of just-pushed records in the echo-suppression map.
+ * @param {{collection: string, record_id: string}[]} pushedIds
+ */
+function _registerPushedEchoes(pushedIds) {
+  const expiry = Date.now() + ECHO_SUPPRESS_TTL_MS;
+  for (const { collection, record_id } of pushedIds) {
+    if (record_id) _recentlyPushed.set(`${collection}:${record_id}`, expiry);
+  }
+  // Prune expired entries on each registration to avoid unbounded growth.
+  const now = Date.now();
+  for (const [key, exp] of _recentlyPushed) {
+    if (now >= exp) _recentlyPushed.delete(key);
+  }
+}
+
+/**
+ * Returns `true` when the given record should be suppressed as a self-echo.
+ * @param {string} collection
+ * @param {string|null|undefined} recordId
+ */
+function _isEchoSuppressed(collection, recordId) {
+  if (!recordId) return false;
+  const key = `${collection}:${recordId}`;
+  const expiry = _recentlyPushed.get(key);
+  if (expiry == null) return false;
+  if (Date.now() >= expiry) {
+    _recentlyPushed.delete(key);
+    return false;
+  }
+  return true;
+}
+
 // ── Push helpers ──────────────────────────────────────────────────────────────
 
 function _getCfg() {
@@ -537,6 +601,10 @@ async function _runPush() {
       const result = await drainQueue(cfg);
       if (result.pushed > 0 || result.abandoned > 0) {
         lastPushAt.value = new Date().toISOString();
+      }
+      // Register pushed IDs so self-echo events from the WebSocket are suppressed.
+      if (Array.isArray(result.pushedIds) && result.pushedIds.length > 0) {
+        _registerPushedEchoes(result.pushedIds);
       }
       syncStatus.value = result.failed > 0 ? 'error' : 'idle';
     } catch (e) {
@@ -1236,6 +1304,7 @@ export function _resetDirectusSyncSingleton() {
   if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
   if (_globalTimer) { clearInterval(_globalTimer); _globalTimer = null; }
   _stopSubscriptions();
+  _recentlyPushed.clear();
   if (typeof window !== 'undefined') {
     window.removeEventListener('online', _onOnline);
     window.removeEventListener('sync-queue:enqueue', _onQueueEnqueue);

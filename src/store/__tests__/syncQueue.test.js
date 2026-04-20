@@ -415,7 +415,7 @@ describe('drainQueue()', () => {
     const result = await drainQueue(FAKE_CFG);
 
     expect(fetchSpy).not.toHaveBeenCalled();
-    expect(result).toEqual({ pushed: 0, failed: 0, abandoned: 0 });
+    expect(result).toEqual({ pushed: 0, failed: 0, abandoned: 0, pushedIds: [] });
   });
 
   it('sends Authorization header', async () => {
