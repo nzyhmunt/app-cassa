@@ -873,7 +873,7 @@ export async function upsertRecordsIntoIDB(storeName, records) {
     return [];
   };
 
-  const normalizeIncoming = async (collection, record) => {
+  const normalizeIncomingSync = (collection, record) => {
     if (!record || typeof record !== 'object') return record;
     const normalized = { ...record };
     if (collection === 'orders') {
@@ -936,23 +936,31 @@ export async function upsertRecordsIntoIDB(storeName, records) {
       if ((normalized.display_name == null || normalized.display_name === '') && normalized.name != null) {
         normalized.display_name = normalized.name;
       }
-      if (typeof normalized.pin === 'string' && normalized.pin.trim() !== '') {
-        const trimmedPin = normalized.pin.trim();
-        const pinDigits = _firstFourNumericChars(trimmedPin);
-        const normalizedPin = pinDigits.length === 4
-          ? await _hashPinForLocalAuth(pinDigits)
-          : '';
-        if (normalizedPin == null) {
-          console.warn('[IDBPersistence] Failed to hash venue_users PIN during sync - hashing returned null. Storing empty PIN hash for security. User ID:', normalized.id ?? 'unknown');
-          normalized.pin = '';
-        } else if (normalizedPin === '') {
-          console.warn('[IDBPersistence] Invalid venue_users PIN during sync - expected exactly 4 numeric digits after trim. User ID:', normalized.id ?? 'unknown');
-          normalized.pin = '';
-        } else {
-          normalized.pin = normalizedPin;
-        }
+    }
+    return normalized;
+  };
+
+  const normalizeIncoming = async (collection, record) => {
+    const normalized = normalizeIncomingSync(collection, record);
+    if (collection !== 'venue_users' || !normalized || typeof normalized !== 'object') return normalized;
+
+    if (typeof normalized.pin === 'string' && normalized.pin.trim() !== '') {
+      const trimmedPin = normalized.pin.trim();
+      const pinDigits = _firstFourNumericChars(trimmedPin);
+      const normalizedPin = pinDigits.length === 4
+        ? await _hashPinForLocalAuth(pinDigits)
+        : '';
+      if (normalizedPin == null) {
+        console.warn('[IDBPersistence] Failed to hash venue_users PIN during sync - hashing returned null. Storing empty PIN hash for security. User ID:', normalized.id ?? 'unknown');
+        normalized.pin = '';
+      } else if (normalizedPin === '') {
+        console.warn('[IDBPersistence] Invalid venue_users PIN during sync - expected exactly 4 numeric digits after trim. User ID:', normalized.id ?? 'unknown');
+        normalized.pin = '';
+      } else {
+        normalized.pin = normalizedPin;
       }
     }
+
     return normalized;
   };
 
@@ -969,25 +977,41 @@ export async function upsertRecordsIntoIDB(storeName, records) {
     // Collect writes to perform — filter out records with no PK and those
     // that are not newer than the local version before opening the transaction.
     // This avoids opening a readwrite transaction when nothing needs writing.
-    const normalizedIncomingRecords = await Promise.all(
-      records.map((incomingRaw) => normalizeIncoming(storeName, incomingRaw)),
-    );
+    const normalizedVenueUsers = storeName === 'venue_users'
+      ? await Promise.all(records.map((incomingRaw) => normalizeIncoming(storeName, incomingRaw)))
+      : null;
     const toWrite = [];
     {
       // Read-only pre-scan using a readonly transaction to avoid unnecessary
       // write locks when all incoming records are already up-to-date.
       const roTx = db.transaction(storeName, 'readonly');
-      for (const incoming of normalizedIncomingRecords) {
-        const pk = incoming[keyPath];
-        if (!pk) continue;
-        const existing = await roTx.store.get(pk);
-        if (existing && existing.date_updated && incoming.date_updated) {
-          if (new Date(incoming.date_updated) <= new Date(existing.date_updated)) {
-            continue; // local is newer or equal — skip
+      if (storeName === 'venue_users') {
+        for (const incoming of normalizedVenueUsers ?? []) {
+          const pk = incoming[keyPath];
+          if (!pk) continue;
+          const existing = await roTx.store.get(pk);
+          if (existing && existing.date_updated && incoming.date_updated) {
+            if (new Date(incoming.date_updated) <= new Date(existing.date_updated)) {
+              continue; // local is newer or equal — skip
+            }
           }
+          const { _sync_status: _s, ...clean } = incoming;
+          toWrite.push(clean);
         }
-        const { _sync_status: _s, ...clean } = incoming;
-        toWrite.push(clean);
+      } else {
+        for (const incomingRaw of records) {
+          const incoming = normalizeIncomingSync(storeName, incomingRaw);
+          const pk = incoming[keyPath];
+          if (!pk) continue;
+          const existing = await roTx.store.get(pk);
+          if (existing && existing.date_updated && incoming.date_updated) {
+            if (new Date(incoming.date_updated) <= new Date(existing.date_updated)) {
+              continue; // local is newer or equal — skip
+            }
+          }
+          const { _sync_status: _s, ...clean } = incoming;
+          toWrite.push(clean);
+        }
       }
       await roTx.done;
     }
