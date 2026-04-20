@@ -538,35 +538,35 @@ const lastPullAt = ref(/** @type {string|null} */ (null));
 
 /**
  * TTL for self-echo suppression entries (ms).
- * Records pushed by this device are ignored in WebSocket events received within
- * this window to prevent redundant IDB writes and momentary UI rewrites.
+ * 5 s covers typical push → WS echo round-trip time (< 1 s on LAN) with a
+ * comfortable margin for slow connections (3G / congested Wi-Fi) while keeping
+ * the suppression window short enough to allow genuine cross-device updates
+ * that arrive shortly after a push to pass through correctly.
+ * Reduce only if sub-second cross-device echo conflicts are observed.
  */
 const ECHO_SUPPRESS_TTL_MS = 5_000;
 
 /**
- * Map of "collection:record_id" → expiry timestamp (ms since epoch).
+ * Map of "collection:recordId" → expiry timestamp (ms since epoch).
  * Populated by `_runPush()` after each successful `drainQueue()` cycle.
+ * Expired entries are lazily deleted in `_isEchoSuppressed`.
  */
 const _recentlyPushed = new Map();
 
 /**
  * Registers a list of just-pushed records in the echo-suppression map.
- * @param {{collection: string, record_id: string}[]} pushedIds
+ * @param {{collection: string, recordId: string}[]} pushedIds
  */
 function _registerPushedEchoes(pushedIds) {
   const expiry = Date.now() + ECHO_SUPPRESS_TTL_MS;
-  for (const { collection, record_id } of pushedIds) {
-    if (record_id) _recentlyPushed.set(`${collection}:${record_id}`, expiry);
-  }
-  // Prune expired entries on each registration to avoid unbounded growth.
-  const now = Date.now();
-  for (const [key, exp] of _recentlyPushed) {
-    if (now >= exp) _recentlyPushed.delete(key);
+  for (const { collection, recordId } of pushedIds) {
+    if (recordId) _recentlyPushed.set(`${collection}:${recordId}`, expiry);
   }
 }
 
 /**
  * Returns `true` when the given record should be suppressed as a self-echo.
+ * Lazily removes expired entries encountered during the check.
  * @param {string} collection
  * @param {string|null|undefined} recordId
  */

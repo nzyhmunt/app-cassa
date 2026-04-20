@@ -439,7 +439,7 @@ export async function drainQueue(cfg) {
   const entries = await getPendingEntries();
   const backoffBase = typeof cfg._backoffMs === 'number' ? cfg._backoffMs : 1000;
   let pushed = 0, failed = 0, abandoned = 0;
-  /** @type {{collection: string, record_id: string}[]} */
+  /** @type {{collection: string, recordId: string}[]} */
   const pushedIds = [];
 
   for (const entry of entries) {
@@ -448,7 +448,7 @@ export async function drainQueue(cfg) {
     if (result === true || result === 'skip') {
       await removeEntry(entry.id);
       pushed++;
-      if (result === true) pushedIds.push({ collection: entry.collection, record_id: entry.record_id });
+      if (result === true) pushedIds.push({ collection: entry.collection, recordId: entry.record_id });
     } else {
       const newAttempts = (entry.attempts ?? 0) + 1;
       const failureDetails = typeof result === 'string' ? { message: result } : result;
