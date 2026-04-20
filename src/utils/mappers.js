@@ -662,12 +662,12 @@ export function mapPayloadToDirectus(collection, payload, ctx = {}) {
   if (collection === 'orders' && Array.isArray(cleaned.orderItems)) {
     preProcessed.order_items = cleaned.orderItems.map((item) => {
       const directItem = mapPayloadToDirectus('order_items', item, ctx);
-      if (!directItem.id && item?.id) directItem.id = item.id;
+      if (directItem.id == null && item?.id) directItem.id = item.id;
       if (directItem.order == null && item?.orderId) directItem.order = item.orderId;
       if (Array.isArray(item?.modifiers)) {
         directItem.order_item_modifiers = item.modifiers.map((mod) => {
           const directMod = mapPayloadToDirectus('order_item_modifiers', mod, ctx);
-          if (!directMod.id && mod?.id) directMod.id = mod.id;
+          if (directMod.id == null && mod?.id) directMod.id = mod.id;
           if (directMod.order_item == null && item?.id) directMod.order_item = item.id;
           const resolvedOrderId = item?.orderId ?? payload?.id;
           if (directMod.order == null && resolvedOrderId) directMod.order = resolvedOrderId;
