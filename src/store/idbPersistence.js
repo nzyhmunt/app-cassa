@@ -18,8 +18,6 @@ import { touchStorageKey } from './persistence.js';
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
-const SHA256_HEX_REGEX = /^[a-f0-9]{64}$/i;
-
 async function _hashPinForLocalAuth(pin) {
   const raw = String(pin ?? '');
   if (!raw) return '';
@@ -928,20 +926,22 @@ export async function upsertRecordsIntoIDB(storeName, records) {
       if ((normalized.display_name == null || normalized.display_name === '') && normalized.name != null) {
         normalized.display_name = normalized.name;
       }
-      const rawPin = normalized.pin ?? normalized.pin_hash;
-      if (typeof rawPin === 'string' && rawPin.trim() !== '') {
-        const trimmedPin = rawPin.trim();
-        const normalizedPin = SHA256_HEX_REGEX.test(trimmedPin)
-          ? trimmedPin.toLowerCase()
-          : await _hashPinForLocalAuth(trimmedPin);
+      if (typeof normalized.pin === 'string' && normalized.pin.trim() !== '') {
+        const trimmedPin = normalized.pin.trim();
+        const pinDigits = (trimmedPin.match(/\d/g) ?? []).slice(0, 4).join('');
+        const normalizedPin = pinDigits.length === 4
+          ? await _hashPinForLocalAuth(pinDigits)
+          : '';
         if (normalizedPin == null) {
           console.warn('[IDBPersistence] Failed to hash venue_users PIN during sync - hashing returned null. Storing empty PIN hash for security. User ID:', normalized.id ?? 'unknown');
+          normalized.pin = '';
+        } else if (normalizedPin === '') {
+          console.warn('[IDBPersistence] Invalid venue_users PIN during sync - expected at least 4 numeric chars after trim. User ID:', normalized.id ?? 'unknown');
           normalized.pin = '';
         } else {
           normalized.pin = normalizedPin;
         }
       }
-      delete normalized.pin_hash;
     }
     return normalized;
   };

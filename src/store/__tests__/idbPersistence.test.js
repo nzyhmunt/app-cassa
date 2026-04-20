@@ -735,13 +735,11 @@ describe('upsertRecordsIntoIDB() venue_users PIN normalization', () => {
     expect(stored.pin).not.toBe('1234');
     expect(stored.name).toBe('Mario');
     expect(stored.display_name).toBe('Mario');
-    expect(stored).not.toHaveProperty('pin_hash');
   });
 
-  it('keeps already-hashed pins and supports legacy pin_hash fallback', async () => {
+  it('uses the first 4 numeric characters from trimmed pin before hashing', async () => {
     const { getDB } = await import('../../composables/useIDB.js');
     const db = await getDB();
-    const hashedPin = await sha256('7777');
 
     const written = await upsertRecordsIntoIDB('venue_users', [
       {
@@ -749,28 +747,16 @@ describe('upsertRecordsIntoIDB() venue_users PIN normalization', () => {
         venue: 1,
         display_name: 'Luigi',
         role: 'cameriere',
-        pin: hashedPin,
+        pin: ' 12a3-4xyz99 ',
         status: 'active',
         date_updated: '2026-01-02T00:00:00.000Z',
       },
-      {
-        id: 'vu_sync_3',
-        venue: 1,
-        display_name: 'Peach',
-        role: 'admin',
-        pin_hash: '8888',
-        status: 'active',
-        date_updated: '2026-01-03T00:00:00.000Z',
-      },
     ]);
 
-    expect(written).toBe(2);
-    const alreadyHashed = await db.get('venue_users', 'vu_sync_2');
-    const legacyPinHash = await db.get('venue_users', 'vu_sync_3');
+    expect(written).toBe(1);
+    const normalizedPin = await db.get('venue_users', 'vu_sync_2');
 
-    expect(alreadyHashed.pin).toBe(hashedPin);
-    expect(legacyPinHash.pin).toBe(await sha256('8888'));
-    expect(legacyPinHash).not.toHaveProperty('pin_hash');
+    expect(normalizedPin.pin).toBe(await sha256('1234'));
   });
 });
 
