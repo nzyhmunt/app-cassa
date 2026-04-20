@@ -186,7 +186,8 @@ export function makeReportOps(state, helpers) {
     return summary;
   }
 
-  // A bill session is "closed" when the table is free and has payment transactions.
+  // A bill session is surfaced in history when the table is free and the session
+  // has either transactions and/or closed orders (completed/rejected).
   // Grouped by billSessionId (or tableId for legacy rows without a session id).
   const closedBills = computed(() => {
     const sessionsMap = new Map();
