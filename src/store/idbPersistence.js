@@ -30,7 +30,7 @@ async function _hashPinForLocalAuth(pin) {
       .map((b) => b.toString(16).padStart(2, '0'))
       .join('');
   } catch (_) {
-    return '';
+    return null;
   }
 }
 
@@ -933,7 +933,12 @@ export async function upsertRecordsIntoIDB(storeName, records) {
         const normalizedPin = SHA256_HEX_REGEX.test(trimmedPin)
           ? trimmedPin.toLowerCase()
           : await _hashPinForLocalAuth(trimmedPin);
-        normalized.pin = normalizedPin;
+        if (normalizedPin == null) {
+          console.warn('[IDBPersistence] Failed to hash venue_users PIN during sync; storing empty hash for user', normalized.id ?? null);
+          normalized.pin = '';
+        } else {
+          normalized.pin = normalizedPin;
+        }
       }
       delete normalized.pin_hash;
     }
