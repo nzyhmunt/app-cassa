@@ -33,6 +33,16 @@ async function _hashPinForLocalAuth(pin) {
   }
 }
 
+function _firstFourNumericChars(value) {
+  const source = String(value ?? '');
+  let digits = '';
+  for (let i = 0; i < source.length && digits.length < 4; i += 1) {
+    const char = source[i];
+    if (char >= '0' && char <= '9') digits += char;
+  }
+  return digits;
+}
+
 /**
  * Replaces all records in an ObjectStore with the provided array.
  * Uses a readwrite transaction for atomicity.
@@ -928,7 +938,7 @@ export async function upsertRecordsIntoIDB(storeName, records) {
       }
       if (typeof normalized.pin === 'string' && normalized.pin.trim() !== '') {
         const trimmedPin = normalized.pin.trim();
-        const pinDigits = (trimmedPin.match(/\d/g) ?? []).slice(0, 4).join('');
+        const pinDigits = _firstFourNumericChars(trimmedPin);
         const normalizedPin = pinDigits.length === 4
           ? await _hashPinForLocalAuth(pinDigits)
           : '';
@@ -936,7 +946,7 @@ export async function upsertRecordsIntoIDB(storeName, records) {
           console.warn('[IDBPersistence] Failed to hash venue_users PIN during sync - hashing returned null. Storing empty PIN hash for security. User ID:', normalized.id ?? 'unknown');
           normalized.pin = '';
         } else if (normalizedPin === '') {
-          console.warn('[IDBPersistence] Invalid venue_users PIN during sync - expected at least 4 numeric chars after trim. User ID:', normalized.id ?? 'unknown');
+          console.warn('[IDBPersistence] Invalid venue_users PIN during sync - expected exactly 4 numeric digits after trim. User ID:', normalized.id ?? 'unknown');
           normalized.pin = '';
         } else {
           normalized.pin = normalizedPin;
