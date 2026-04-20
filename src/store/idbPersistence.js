@@ -939,7 +939,7 @@ export async function upsertRecordsIntoIDB(storeName, records) {
     const normalized = normalizeIncomingSync(collection, record);
     if (collection !== 'venue_users' || !normalized || typeof normalized !== 'object') return normalized;
 
-    if (typeof normalized.pin === 'string' && normalized.pin.trim() !== '') {
+    if (typeof normalized.pin === 'string') {
       const trimmedPin = normalized.pin.trim();
       const pinDigits = _firstFourNumericChars(trimmedPin);
       let normalizedPin = '';
@@ -982,34 +982,18 @@ export async function upsertRecordsIntoIDB(storeName, records) {
       // Read-only pre-scan using a readonly transaction to avoid unnecessary
       // write locks when all incoming records are already up-to-date.
       const roTx = db.transaction(storeName, 'readonly');
-      if (storeName === 'venue_users') {
-        for (const incomingRaw of records) {
-          const incoming = normalizeIncomingSync(storeName, incomingRaw);
-          const pk = incoming[keyPath];
-          if (!pk) continue;
-          const existing = await roTx.store.get(pk);
-          if (existing && existing.date_updated && incoming.date_updated) {
-            if (new Date(incoming.date_updated) <= new Date(existing.date_updated)) {
-              continue; // local is newer or equal — skip
-            }
+      for (const incomingRaw of records) {
+        const incoming = normalizeIncomingSync(storeName, incomingRaw);
+        const pk = incoming[keyPath];
+        if (!pk) continue;
+        const existing = await roTx.store.get(pk);
+        if (existing && existing.date_updated && incoming.date_updated) {
+          if (new Date(incoming.date_updated) <= new Date(existing.date_updated)) {
+            continue; // local is newer or equal — skip
           }
-          const { _sync_status: _s, ...clean } = incoming;
-          toWrite.push(clean);
         }
-      } else {
-        for (const incomingRaw of records) {
-          const incoming = normalizeIncomingSync(storeName, incomingRaw);
-          const pk = incoming[keyPath];
-          if (!pk) continue;
-          const existing = await roTx.store.get(pk);
-          if (existing && existing.date_updated && incoming.date_updated) {
-            if (new Date(incoming.date_updated) <= new Date(existing.date_updated)) {
-              continue; // local is newer or equal — skip
-            }
-          }
-          const { _sync_status: _s, ...clean } = incoming;
-          toWrite.push(clean);
-        }
+        const { _sync_status: _s, ...clean } = incoming;
+        toWrite.push(clean);
       }
       await roTx.done;
     }

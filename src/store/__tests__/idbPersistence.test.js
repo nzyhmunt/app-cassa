@@ -759,6 +759,35 @@ describe('upsertRecordsIntoIDB() venue_users PIN normalization', () => {
     expect(normalizedPin.pin).toBe(await sha256('1234'));
   });
 
+  it('normalizes whitespace-only venue_users pin to empty string', async () => {
+    const { getDB } = await import('../../composables/useIDB.js');
+    const db = await getDB();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const written = await upsertRecordsIntoIDB('venue_users', [
+        {
+          id: 'vu_sync_ws',
+          venue: 1,
+          display_name: 'Toad',
+          role: 'cameriere',
+          pin: '   ',
+          status: 'active',
+          date_updated: '2026-01-03T00:00:00.000Z',
+        },
+      ]);
+
+      expect(written).toBe(1);
+      const stored = await db.get('venue_users', 'vu_sync_ws');
+      expect(stored.pin).toBe('');
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Invalid venue_users PIN during sync - expected exactly 4 numeric digits after trim. User ID:'),
+        'vu_sync_ws',
+      );
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
   it('does not hash or warn for stale venue_users records skipped by date_updated pre-scan', async () => {
     const { getDB } = await import('../../composables/useIDB.js');
     const db = await getDB();
