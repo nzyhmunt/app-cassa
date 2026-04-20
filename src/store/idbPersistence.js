@@ -21,15 +21,11 @@ import { touchStorageKey } from './persistence.js';
 async function _hashPinForLocalAuth(pin) {
   const raw = String(pin ?? '');
   if (!raw) return '';
-  try {
-    const data = new TextEncoder().encode(raw);
-    const hashBuf = await crypto.subtle.digest('SHA-256', data);
-    return Array.from(new Uint8Array(hashBuf))
-      .map((b) => b.toString(16).padStart(2, '0'))
-      .join('');
-  } catch {
-    return null;
-  }
+  const data = new TextEncoder().encode(raw);
+  const hashBuf = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(hashBuf))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
 }
 
 function _firstFourNumericChars(value) {
@@ -946,11 +942,16 @@ export async function upsertRecordsIntoIDB(storeName, records) {
     if (typeof normalized.pin === 'string' && normalized.pin.trim() !== '') {
       const trimmedPin = normalized.pin.trim();
       const pinDigits = _firstFourNumericChars(trimmedPin);
-      const normalizedPin = pinDigits.length === 4
-        ? await _hashPinForLocalAuth(pinDigits)
-        : '';
+      let normalizedPin = '';
+      if (pinDigits.length === 4) {
+        try {
+          normalizedPin = await _hashPinForLocalAuth(pinDigits);
+        } catch (err) {
+          console.warn('[IDBPersistence] Failed to hash venue_users PIN during sync. Storing empty PIN hash for security. User ID:', normalized.id ?? 'unknown', err);
+          normalizedPin = null;
+        }
+      }
       if (normalizedPin == null) {
-        console.warn('[IDBPersistence] Failed to hash venue_users PIN during sync - hashing returned null. Storing empty PIN hash for security. User ID:', normalized.id ?? 'unknown');
         normalized.pin = '';
       } else if (normalizedPin === '') {
         console.warn('[IDBPersistence] Invalid venue_users PIN during sync - expected exactly 4 numeric digits after trim. User ID:', normalized.id ?? 'unknown');
