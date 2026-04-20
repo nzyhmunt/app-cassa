@@ -311,16 +311,20 @@ function _buildRestClient(cfg) {
 async function _pushEntry(entry, sdkClient, cfg) {
   const { collection, operation, record_id, payload } = entry;
 
-  // Translate local field names to Directus schema names for all non-delete operations
-  const mappedPayload = mapPayloadToDirectus(collection, payload, {
-    paymentMethods: Array.isArray(appConfig?.paymentMethods) ? appConfig.paymentMethods : [],
-  });
-  const directusPayload = _withRequiredDefaults(collection, operation, mappedPayload, cfg);
+  // Translate local field names to Directus schema names (create/update only;
+  // delete operations use record_id directly and ignore the payload).
+  let directusPayload = {};
+  if (operation !== 'delete') {
+    const mappedPayload = mapPayloadToDirectus(collection, payload, {
+      paymentMethods: Array.isArray(appConfig?.paymentMethods) ? appConfig.paymentMethods : [],
+    });
+    directusPayload = _withRequiredDefaults(collection, operation, mappedPayload, cfg);
 
-  // Ensure the primary key is always present in create payloads.
-  // This guards against cases where the local PK was not included in a partial payload.
-  if (operation === 'create' && !directusPayload.id && record_id) {
-    directusPayload.id = record_id;
+    // Ensure the primary key is always present in create payloads.
+    // This guards against cases where the local PK was not included in a partial payload.
+    if (operation === 'create' && !directusPayload.id && record_id) {
+      directusPayload.id = record_id;
+    }
   }
 
   let requestContext = null;

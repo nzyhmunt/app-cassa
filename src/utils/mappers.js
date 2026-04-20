@@ -641,7 +641,9 @@ const _TO_DIRECTUS_MAPPERS = {
  *
  * Processing steps (in order):
  *  1. Strip local-only and push-drop fields.
- *  2. Expand nested `orderItems → order_items` (for `orders`).
+ *  2. Expand nested `orderItems → order_items` (for `orders`); then enrich each
+ *     already-expanded `order_item_modifiers` (set by Step 3 in the recursive
+ *     call) with parent-context `order_item`/`order` FKs.
  *  3. Expand nested `modifiers → order_item_modifiers` (for `order_items`).
  *  4. Apply dedicated collection mapper (or generic FIELD_RENAME_MAP).
  *  5. Resolve `payment_method` FK via `resolvePaymentMethodMeta` (where applicable).
@@ -675,17 +677,23 @@ export function mapPayloadToDirectus(collection, payload, ctx = {}) {
   const preProcessed = { ...cleaned };
   if (collection === 'orders' && Array.isArray(cleaned.orderItems)) {
     preProcessed.order_items = cleaned.orderItems.map((item) => {
+      // The recursive call handles Steps 1–4 for order_items, including
+      // Step 3 which expands item.modifiers → order_item_modifiers.
       const directItem = mapPayloadToDirectus('order_items', item, ctx);
       if (directItem.id == null && item?.id) directItem.id = item.id;
       const resolvedOrderId = item?.orderId ?? payload?.id ?? null;
       if (directItem.order == null && resolvedOrderId) directItem.order = resolvedOrderId;
-      if (Array.isArray(item?.modifiers)) {
-        directItem.order_item_modifiers = item.modifiers.map((mod) => {
-          const directMod = mapPayloadToDirectus('order_item_modifiers', mod, ctx);
-          if (directMod.id == null && mod?.id) directMod.id = mod.id;
-          if (directMod.order_item == null && item?.id) directMod.order_item = item.id;
-          if (directMod.order == null && resolvedOrderId) directMod.order = resolvedOrderId;
-          return directMod;
+      // Enrich already-expanded modifiers (populated by Step 3 in the recursive
+      // call above) with parent-context FKs that are not available there.
+      if (Array.isArray(directItem.order_item_modifiers)) {
+        const srcMods = item?.modifiers ?? [];
+        directItem.order_item_modifiers = directItem.order_item_modifiers.map((directMod, i) => {
+          const enriched = { ...directMod };
+          const srcMod = srcMods[i] ?? {};
+          if (enriched.id == null && srcMod.id) enriched.id = srcMod.id;
+          if (enriched.order_item == null && item?.id) enriched.order_item = item.id;
+          if (enriched.order == null && resolvedOrderId) enriched.order = resolvedOrderId;
+          return enriched;
         });
       }
       return directItem;
