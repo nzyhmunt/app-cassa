@@ -416,7 +416,7 @@ const _wsConnected = ref(false);
  * transient UI rewrites caused by receiving our own changes back via WebSocket.
  *
  * @param {string} collection
- * @param {{ event: string, data: object[] }} message
+ * @param {{ event: string, data: Array<object|string> }} message
  */
 async function _handleSubscriptionMessage(collection, message) {
   const { event, data } = message;
