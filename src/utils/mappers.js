@@ -647,7 +647,11 @@ const _TO_DIRECTUS_MAPPERS = {
  *  5. Resolve `payment_method` FK via `resolvePaymentMethodMeta` (where applicable).
  *  6. Normalise relation-object FK values and JSON-array fields.
  *
- * Only fields present in the input payload are emitted (safe for partial updates).
+ * Fields supplied in the input payload are mapped through to Directus naming,
+ * but dedicated collection mappers may also emit normalized/default-valued
+ * fields (for example numeric/boolean defaults) even when those properties are
+ * absent from the input. Do not assume the result is universally safe for
+ * partial updates across all collections.
  *
  * @param {string} collection  - Directus collection name (e.g. 'orders')
  * @param {object|null} payload - Local record payload
