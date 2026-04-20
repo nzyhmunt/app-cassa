@@ -864,7 +864,7 @@ CREATE TABLE venue_users (
     venue        INTEGER      NOT NULL REFERENCES venues(id) ON DELETE CASCADE,
     display_name VARCHAR(100) NOT NULL,
     role         VARCHAR(50)  NOT NULL,                  -- 'admin' | 'cassiere' | 'cameriere' | 'cuoco'
-    pin          VARCHAR(255) NOT NULL,                  -- PIN in chiaro su Directus (hash lato app in fase di sync)
+    pin          VARCHAR(255) NOT NULL,                  -- plaintext PIN su Directus (hash lato app in fase di sync)
     status       VARCHAR(20)  NOT NULL DEFAULT 'active', -- 'active' | 'archived'
     -- Directus standard fields
     user_created UUID         NULL REFERENCES directus_users(id),
@@ -1907,7 +1907,7 @@ CREATE TABLE venue_users (
   venue        INTEGER      NOT NULL REFERENCES venues(id),
   display_name VARCHAR(100) NOT NULL,
   role         VARCHAR(50)  NOT NULL,         -- 'admin' | 'cassiere' | 'cameriere' | 'cuoco'
-  pin          VARCHAR(255) NOT NULL,         -- PIN in chiaro su Directus (hash SHA-256 lato app in fase di sync)
+  pin          VARCHAR(255) NOT NULL,         -- plaintext PIN su Directus (hash SHA-256 lato app in fase di sync)
   status       VARCHAR(20)  NOT NULL DEFAULT 'active', -- 'active' | 'archived'
   -- Directus standard fields
   user_created UUID         NULL REFERENCES directus_users(id),
@@ -1992,7 +1992,7 @@ record.venue_user_updated = currentPinUser?.id ?? null
   tramite l'interfaccia Directus (o un pannello admin dedicato), mai dal dispositivo POS.
 - **Permessi Directus**: i service account di cassa/sala/cucina hanno permesso **read-only**
   sulla collection `venue_users`. Non possono creare, modificare o cancellare utenti.
-- **PIN in chiaro + hash locale**: il campo `pin` viene letto da Directus; prima della
+- **plaintext PIN + hash locale**: il campo `pin` viene letto da Directus; prima della
   persistenza locale il client lo trasforma in hash SHA-256 e mantiene in IndexedDB solo
   l’hash. Assicurarsi che il ruolo Directus del dispositivo esponga solo i campi necessari
   (`id`, `display_name`, `role`, `pin`, `status`).
@@ -2018,7 +2018,7 @@ record.venue_user_updated = currentPinUser?.id ?? null
 │  Setup iniziale (una-tantum, admin)                                 │
 │                                                                     │
 │  Admin → Directus → crea service account → genera token statico    │
-│  Admin → Directus → crea/aggiorna venue_users con PIN in chiaro    │
+│  Admin → Directus → crea/aggiorna venue_users con plaintext PIN     │
 │  Admin → configura token + URL Directus nello store config         │
 │           cifrato in IndexedDB                                     │
 └─────────────────────────────────────────────────────────────────────┘
