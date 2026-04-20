@@ -204,46 +204,9 @@ async function _refreshStoreFromIDB(collection = null) {
     await _store.refreshFromIDB(collection);
     return;
   }
-  // Strict path for Pinia stores: avoid direct assignments and require explicit APIs.
-  // Pinia setup stores expose `$id`; this guard prevents accidental direct
-  // runtime mutations when a store adapter forgot to provide refresh methods.
-  if (_store && typeof _store === 'object' && '$id' in _store) {
-    console.warn('[DirectusSync] Pinia store missing refresh API; skipping direct assignment to preserve IDB-first flow.');
-    return;
-  }
-
-  // Backward-compatible fallback for plain-object stores (tests/legacy adapters).
-  const operationalCollections = new Set([
-    'orders',
-    'order_items',
-    'order_item_modifiers',
-    'bill_sessions',
-    'transactions',
-    'table_merge_sessions',
-  ]);
-  if (!collection || operationalCollections.has(collection)) {
-    const state = await loadStateFromIDB();
-    if (!state) return;
-
-    const applySlice = (storeKey) => {
-      if (Object.prototype.hasOwnProperty.call(state, storeKey)) {
-        _store[storeKey] = state[storeKey];
-      }
-    };
-
-    if (!collection || collection === 'orders' || collection === 'order_items' || collection === 'order_item_modifiers') {
-      applySlice('orders');
-    }
-    if (!collection || collection === 'bill_sessions') {
-      applySlice('tableCurrentBillSession');
-    }
-    if (!collection || collection === 'transactions') {
-      applySlice('transactions');
-    }
-    if (!collection || collection === 'table_merge_sessions') {
-      applySlice('tableMergedInto');
-    }
-  }
+  // No further fallback: stores must expose refreshOperationalStateFromIDB or refreshFromIDB
+  // to preserve strict IDB-first semantics. Direct assignment is intentionally omitted.
+  console.warn('[DirectusSync] Store refresh API missing; skipping to preserve strict IDB-first.');
 }
 
 async function _refreshStoreConfigFromIDB(options = {}) {
@@ -448,29 +411,69 @@ const _wsConnected = ref(false);
  * Processes an incoming realtime message from Directus Subscriptions.
  * Maps records to local format, upserts into IDB, and merges into the store.
  *
+ * Self-echo suppression: records that this device pushed within the last
+ * ECHO_SUPPRESS_TTL_MS are filtered out to prevent redundant IDB writes and
+ * transient UI rewrites caused by receiving our own changes back via WebSocket.
+ *
  * @param {string} collection
- * @param {{ event: string, data: object[] }} message
+ * @param {{ event: string, data: Array<object|string> }} message
  */
 async function _handleSubscriptionMessage(collection, message) {
   const { event, data } = message;
   if (!data || !Array.isArray(data) || data.length === 0) return;
 
+  let writtenCount = data.length;
+  let suppressedCount = 0;
+
   if (event === 'delete') {
+    // Filter out records that this device just pushed (self-echo suppression).
+    const ids = _extractRecordIds(data);
+    const nonEchoIds = ids.filter(id => !_isEchoSuppressed(collection, id != null ? String(id) : null));
+    suppressedCount = ids.length - nonEchoIds.length;
+    writtenCount = nonEchoIds.length;
+    if (suppressedCount > 0) {
+      console.debug(
+        `[DirectusSync] WS ${event} on ${collection}: suppressed ${suppressedCount} self-echo(es)`,
+      );
+    }
+    if (nonEchoIds.length === 0) return;
     if (collection === 'table_merge_sessions') {
       await _pullCollection('table_merge_sessions', { forceFull: true });
       return;
     }
-    const ids = _extractRecordIds(data);
-    await deleteRecordsFromIDB(collection, ids);
+    await deleteRecordsFromIDB(collection, nonEchoIds);
     await _refreshStoreFromIDB(collection);
   } else {
-    const mapped = data.map(r => _mapRecord(collection, r));
+    // Defensively drop any non-object entries that should never appear for
+    // non-delete events but could arrive from a malformed or unexpected
+    // subscription message shape (e.g. bare ID strings).  Spreading a string
+    // in _mapRecord would produce corrupted character-indexed records in IDB.
+    const objectData = data.filter(r => {
+      if (typeof r === 'object' && r !== null) return true;
+      console.warn(`[DirectusSync] WS ${event} on ${collection}: unexpected non-object entry ignored`, r);
+      return false;
+    });
+    // Filter out records that this device just pushed (self-echo suppression).
+    const nonEcho = objectData.filter(r => {
+      const id = r.id != null ? String(r.id) : null;
+      return !_isEchoSuppressed(collection, id);
+    });
+    suppressedCount = objectData.length - nonEcho.length;
+    writtenCount = nonEcho.length;
+    if (suppressedCount > 0) {
+      console.debug(
+        `[DirectusSync] WS ${event} on ${collection}: suppressed ${suppressedCount} self-echo(es)`,
+      );
+    }
+    if (nonEcho.length === 0) return;
+    const mapped = nonEcho.map(r => _mapRecord(collection, r));
     await upsertRecordsIntoIDB(collection, mapped);
     await _refreshStoreFromIDB(collection);
   }
 
   lastPullAt.value = new Date().toISOString();
-  console.info(`[DirectusSync] WS ${event} on ${collection}: ${data.length} record(s)`);
+  const echoNote = suppressedCount > 0 ? ` (${suppressedCount} self-echo(es) suppressed)` : '';
+  console.info(`[DirectusSync] WS ${event} on ${collection}: ${writtenCount} record(s) written${echoNote}`);
 }
 
 /**
@@ -555,6 +558,63 @@ const syncStatus = ref(/** @type {'idle'|'syncing'|'error'} */ ('idle'));
 const lastPushAt = ref(/** @type {string|null} */ (null));
 const lastPullAt = ref(/** @type {string|null} */ (null));
 
+// ── Echo suppression ──────────────────────────────────────────────────────────
+
+/**
+ * TTL for self-echo suppression entries (ms).
+ * 5 s covers typical push → WS echo round-trip time (< 1 s on LAN) with a
+ * comfortable margin for slow connections (3G / congested Wi-Fi) while keeping
+ * the suppression window short enough to allow genuine cross-device updates
+ * that arrive shortly after a push to pass through correctly.
+ * Reduce only if sub-second cross-device echo conflicts are observed.
+ */
+const ECHO_SUPPRESS_TTL_MS = 5_000;
+
+/**
+ * Map of "collection:recordId" → expiry timestamp (ms since epoch).
+ * Populated by `_runPush()` after each successful `drainQueue()` cycle.
+ * Expired entries are lazily deleted in `_isEchoSuppressed`.
+ */
+const _recentlyPushed = new Map();
+
+/**
+ * Registers a list of just-pushed records in the echo-suppression map and
+ * prunes any entries whose TTL has already expired to bound memory usage.
+ * Expired entries are additionally removed lazily in `_isEchoSuppressed`
+ * on every check so the Map stays compact even without frequent pushes.
+ * @param {{collection: string, recordId: string}[]} pushedIds
+ */
+function _registerPushedEchoes(pushedIds) {
+  const now = Date.now();
+  const expiry = now + ECHO_SUPPRESS_TTL_MS;
+  for (const { collection, recordId } of pushedIds) {
+    if (recordId) _recentlyPushed.set(`${collection}:${recordId}`, expiry);
+  }
+  // Prune expired entries to keep the Map size bounded even when the
+  // WebSocket is unavailable and _isEchoSuppressed is never called.
+  for (const [key, exp] of _recentlyPushed) {
+    if (now >= exp) _recentlyPushed.delete(key);
+  }
+}
+
+/**
+ * Returns `true` when the given record should be suppressed as a self-echo.
+ * Lazily removes expired entries encountered during the check.
+ * @param {string} collection
+ * @param {string|null|undefined} recordId
+ */
+function _isEchoSuppressed(collection, recordId) {
+  if (!recordId) return false;
+  const key = `${collection}:${recordId}`;
+  const expiry = _recentlyPushed.get(key);
+  if (expiry == null) return false;
+  if (Date.now() >= expiry) {
+    _recentlyPushed.delete(key);
+    return false;
+  }
+  return true;
+}
+
 // ── Push helpers ──────────────────────────────────────────────────────────────
 
 function _getCfg() {
@@ -574,6 +634,10 @@ async function _runPush() {
       const result = await drainQueue(cfg);
       if (result.pushed > 0 || result.abandoned > 0) {
         lastPushAt.value = new Date().toISOString();
+      }
+      // Register pushed IDs so self-echo events from the WebSocket are suppressed.
+      if (Array.isArray(result.pushedIds) && result.pushedIds.length > 0) {
+        _registerPushedEchoes(result.pushedIds);
       }
       syncStatus.value = result.failed > 0 ? 'error' : 'idle';
     } catch (e) {
@@ -1273,6 +1337,7 @@ export function _resetDirectusSyncSingleton() {
   if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
   if (_globalTimer) { clearInterval(_globalTimer); _globalTimer = null; }
   _stopSubscriptions();
+  _recentlyPushed.clear();
   if (typeof window !== 'undefined') {
     window.removeEventListener('online', _onOnline);
     window.removeEventListener('sync-queue:enqueue', _onQueueEnqueue);
@@ -1281,3 +1346,8 @@ export function _resetDirectusSyncSingleton() {
   lastPushAt.value = null;
   lastPullAt.value = null;
 }
+
+/**
+ * @internal For unit tests only. Direct handle for simulating incoming WS messages.
+ */
+export { _handleSubscriptionMessage, _registerPushedEchoes };

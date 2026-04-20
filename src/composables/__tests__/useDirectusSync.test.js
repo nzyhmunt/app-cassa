@@ -17,10 +17,16 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { _resetIDBSingleton } from '../useIDB.js';
-import { useDirectusSync, _resetDirectusSyncSingleton } from '../useDirectusSync.js';
+import {
+  useDirectusSync,
+  _resetDirectusSyncSingleton,
+  _handleSubscriptionMessage,
+  _registerPushedEchoes,
+} from '../useDirectusSync.js';
 import {
   upsertRecordsIntoIDB,
   saveStateToIDB,
+  loadStateFromIDB,
   loadLastPullTsFromIDB,
   saveLastPullTsToIDB,
   replaceTableMergesInIDB,
@@ -155,6 +161,7 @@ function makeStore(overrides = {}) {
     orders: [],
     transactions: [],
     tableCurrentBillSession: {},
+    tableMergedInto: {},
     ...overrides,
   };
   // Provide a default hydrateConfigFromIDB that mimics the real store:
@@ -166,6 +173,34 @@ function makeStore(overrides = {}) {
       const mapped = mapVenueConfigFromDirectus(cached, DEFAULT_SETTINGS);
       const hydrated = createRuntimeConfig(mapped);
       this.config = { ...hydrated };
+    };
+  }
+  // Provide refreshOperationalStateFromIDB that mirrors the plain-object equivalent
+  // of the Pinia store's method. Translates Directus collection names to store keys.
+  if (typeof s.refreshOperationalStateFromIDB !== 'function') {
+    s.refreshOperationalStateFromIDB = async function (options = {}) {
+      const state = await loadStateFromIDB();
+      if (!state) return;
+      const { collection } = options;
+
+      const applySlice = (storeKey) => {
+        if (Object.prototype.hasOwnProperty.call(state, storeKey)) {
+          this[storeKey] = state[storeKey];
+        }
+      };
+
+      if (!collection || collection === 'orders' || collection === 'order_items' || collection === 'order_item_modifiers') {
+        applySlice('orders');
+      }
+      if (!collection || collection === 'bill_sessions') {
+        applySlice('tableCurrentBillSession');
+      }
+      if (!collection || collection === 'transactions') {
+        applySlice('transactions');
+      }
+      if (!collection || collection === 'table_merge_sessions') {
+        applySlice('tableMergedInto');
+      }
     };
   }
   return s;
@@ -1606,5 +1641,133 @@ describe('drainQueue — last_error on failed push', () => {
     expect(entryAfterSecond).toBeTruthy();
     expect(entryAfterSecond.attempts).toBe(2);
     expect(entryAfterSecond.last_error).toContain('Second error');
+  });
+});
+
+// ── Self-echo suppression ─────────────────────────────────────────────────────
+
+describe('self-echo suppression (_handleSubscriptionMessage)', () => {
+  it('suppresses a create WS event for a record just pushed by this device', async () => {
+    // Pre-seed IDB with the record (simulating what drainQueue already wrote)
+    await upsertRecordsIntoIDB('orders', [{ id: 'ord_echo_1', status: 'pending' }]);
+
+    // Register the record as a self-echo
+    _registerPushedEchoes([{ collection: 'orders', recordId: 'ord_echo_1' }]);
+
+    // Simulate receiving our own WS echo with a different status
+    await _handleSubscriptionMessage('orders', {
+      event: 'create',
+      data: [{ id: 'ord_echo_1', status: 'accepted', date_updated: '2026-01-01T00:00:01.000Z' }],
+    });
+
+    // IDB record must NOT have been overwritten by the echo
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+    const stored = await db.get('orders', 'ord_echo_1');
+    expect(stored?.status).toBe('pending');
+  });
+
+  it('allows a genuine (non-echo) create WS event to update IDB', async () => {
+    // No registration → record is not in the echo set
+    await _handleSubscriptionMessage('orders', {
+      event: 'create',
+      data: [{ id: 'ord_genuine_1', status: 'accepted', date_updated: '2026-01-01T00:00:01.000Z' }],
+    });
+
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+    const stored = await db.get('orders', 'ord_genuine_1');
+    expect(stored?.status).toBe('accepted');
+  });
+
+  it('suppresses a delete WS event for a record just pushed by this device', async () => {
+    // Pre-seed IDB with the record
+    await upsertRecordsIntoIDB('orders', [{ id: 'ord_del_echo', status: 'pending' }]);
+
+    // Register as self-echo
+    _registerPushedEchoes([{ collection: 'orders', recordId: 'ord_del_echo' }]);
+
+    // Simulate receiving our own WS delete echo (Directus sends just the ID string)
+    await _handleSubscriptionMessage('orders', {
+      event: 'delete',
+      data: ['ord_del_echo'],
+    });
+
+    // Record must still be in IDB — delete was suppressed
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+    const stored = await db.get('orders', 'ord_del_echo');
+    expect(stored).toBeTruthy();
+  });
+
+  it('allows a genuine delete event for a non-pushed record', async () => {
+    // Pre-seed IDB with the record
+    await upsertRecordsIntoIDB('orders', [{ id: 'ord_del_genuine', status: 'pending' }]);
+
+    // No registration — not in echo set
+    await _handleSubscriptionMessage('orders', {
+      event: 'delete',
+      data: ['ord_del_genuine'],
+    });
+
+    // Record must have been removed from IDB
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+    const stored = await db.get('orders', 'ord_del_genuine');
+    expect(stored).toBeUndefined();
+  });
+
+  it('allows a create event for the same record after TTL expiry', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      // Seed IDB
+      await upsertRecordsIntoIDB('orders', [{ id: 'ord_ttl_1', status: 'pending' }]);
+
+      // Register echo at current (fake) time
+      _registerPushedEchoes([{ collection: 'orders', recordId: 'ord_ttl_1' }]);
+
+      // Advance only Date.now() past the 5s TTL, without touching setTimeout/setInterval
+      vi.setSystemTime(Date.now() + 6_000);
+
+      // Now the record should NOT be suppressed anymore
+      await _handleSubscriptionMessage('orders', {
+        event: 'create',
+        data: [{ id: 'ord_ttl_1', status: 'accepted', date_updated: '2026-01-01T00:00:01.000Z' }],
+      });
+
+      const { getDB } = await import('../useIDB.js');
+      const db = await getDB();
+      const stored = await db.get('orders', 'ord_ttl_1');
+      // After TTL, echo suppression lifted → IDB updated
+      expect(stored?.status).toBe('accepted');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('ignores non-object entries in a non-delete WS event and still processes valid objects', async () => {
+    // Pre-seed IDB with a known record
+    await upsertRecordsIntoIDB('orders', [{ id: 'ord_valid_obj', status: 'pending' }]);
+
+    // Mix: one valid object, one bare string (should never appear but must not crash)
+    await _handleSubscriptionMessage('orders', {
+      event: 'update',
+      data: [
+        { id: 'ord_valid_obj', status: 'accepted', date_updated: '2026-01-01T00:00:01.000Z' },
+        'bare-string-id',
+        null,
+      ],
+    });
+
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+
+    // The valid object must have been written
+    const stored = await db.get('orders', 'ord_valid_obj');
+    expect(stored?.status).toBe('accepted');
+
+    // The bare string must NOT have produced a corrupted record
+    const corrupted = await db.get('orders', 'bare-string-id');
+    expect(corrupted).toBeUndefined();
   });
 });

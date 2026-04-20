@@ -415,7 +415,38 @@ describe('drainQueue()', () => {
     const result = await drainQueue(FAKE_CFG);
 
     expect(fetchSpy).not.toHaveBeenCalled();
-    expect(result).toEqual({ pushed: 0, failed: 0, abandoned: 0 });
+    expect(result).toEqual({ pushed: 0, failed: 0, abandoned: 0, pushedIds: [] });
+  });
+
+  it('populates pushedIds with collection and recordId for each successful push', async () => {
+    vi.spyOn(global, 'fetch').mockImplementation(() =>
+      Promise.resolve(mockResponse(201, {})),
+    );
+    await enqueue('orders', 'create', 'ord_pushed_1', { id: 'ord_pushed_1' });
+    await enqueue('bill_sessions', 'update', 'bill_pushed_1', { id: 'bill_pushed_1', status: 'open' });
+
+    const result = await drainQueue(FAKE_CFG);
+
+    expect(result.pushed).toBe(2);
+    expect(result.pushedIds).toHaveLength(2);
+    expect(result.pushedIds).toEqual(
+      expect.arrayContaining([
+        { collection: 'orders', recordId: 'ord_pushed_1' },
+        { collection: 'bill_sessions', recordId: 'bill_pushed_1' },
+      ]),
+    );
+  });
+
+  it('does not include skipped or failed entries in pushedIds', async () => {
+    vi.spyOn(global, 'fetch').mockRejectedValue(new Error('network'));
+    // bill_sessions delete is a domain-status skip (no fetch call, pushed++ but NOT in pushedIds)
+    await enqueue('bill_sessions', 'delete', 'bill_skip_1', null);
+    // orders create that fails (network error)
+    await enqueue('orders', 'create', 'ord_fail_1', { id: 'ord_fail_1' });
+
+    const result = await drainQueue(FAKE_CFG);
+
+    expect(result.pushedIds).toEqual([]);
   });
 
   it('sends Authorization header', async () => {
