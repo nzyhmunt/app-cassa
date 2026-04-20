@@ -1918,12 +1918,13 @@ CREATE TABLE venue_users (
 ```
 
 > **Sicurezza PIN**: su Directus il campo `pin` è in chiaro; durante ogni pull
-> (iniziale e successivi) il client calcola `hash = SHA-256(pin)` e salva in IndexedDB
-> solo il valore hashato nel campo `pin`. L’autenticazione confronta quindi
+> (iniziale e successivi) il client estrae **le prime 4 cifre numeriche** dal valore
+> trimmato, calcola `hash = SHA-256(pin4)` e salva in IndexedDB solo il valore
+> hashato nel campo `pin`. L’autenticazione confronta quindi
 > `SHA-256(PIN inserito)` con `user.pin` locale.
 >
 > **Nota sicurezza**: SHA-256 non è una password hash function dedicata; con PIN brevi
-> (4-6 cifre) la resistenza a brute-force/rainbow table è limitata. Questa scelta è
+> (4 cifre) la resistenza a brute-force/rainbow table è limitata. Questa scelta è
 > mantenuta per compatibilità con l’implementazione corrente; in hardening futuro è
 > raccomandata migrazione a KDF con salt (PBKDF2/bcrypt/Argon2).
 

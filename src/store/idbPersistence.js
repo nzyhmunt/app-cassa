@@ -27,8 +27,7 @@ async function _hashPinForLocalAuth(pin) {
     return Array.from(new Uint8Array(hashBuf))
       .map((b) => b.toString(16).padStart(2, '0'))
       .join('');
-  } catch (err) {
-    console.warn('[IDBPersistence] Failed to hash venue_users PIN during sync - will store empty PIN hash for security:', err);
+  } catch {
     return null;
   }
 }
@@ -977,16 +976,14 @@ export async function upsertRecordsIntoIDB(storeName, records) {
     // Collect writes to perform — filter out records with no PK and those
     // that are not newer than the local version before opening the transaction.
     // This avoids opening a readwrite transaction when nothing needs writing.
-    const normalizedVenueUsers = storeName === 'venue_users'
-      ? await Promise.all(records.map((incomingRaw) => normalizeIncoming(storeName, incomingRaw)))
-      : null;
     const toWrite = [];
     {
       // Read-only pre-scan using a readonly transaction to avoid unnecessary
       // write locks when all incoming records are already up-to-date.
       const roTx = db.transaction(storeName, 'readonly');
       if (storeName === 'venue_users') {
-        for (const incoming of normalizedVenueUsers ?? []) {
+        for (const incomingRaw of records) {
+          const incoming = normalizeIncomingSync(storeName, incomingRaw);
           const pk = incoming[keyPath];
           if (!pk) continue;
           const existing = await roTx.store.get(pk);
@@ -995,8 +992,7 @@ export async function upsertRecordsIntoIDB(storeName, records) {
               continue; // local is newer or equal — skip
             }
           }
-          const { _sync_status: _s, ...clean } = incoming;
-          toWrite.push(clean);
+          toWrite.push(incoming);
         }
       } else {
         for (const incomingRaw of records) {
@@ -1017,6 +1013,14 @@ export async function upsertRecordsIntoIDB(storeName, records) {
     }
 
     if (toWrite.length === 0) return 0;
+
+    if (storeName === 'venue_users') {
+      for (let i = 0; i < toWrite.length; i += 1) {
+        const normalized = await normalizeIncoming(storeName, toWrite[i]);
+        const { _sync_status: _s, ...clean } = normalized;
+        toWrite[i] = clean;
+      }
+    }
 
     const tx = db.transaction(storeName, 'readwrite');
     for (const record of toWrite) {

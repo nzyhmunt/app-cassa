@@ -16,7 +16,7 @@
  *  - saveCustomItemsToIDB / loadCustomItemsFromIDB: round-trip
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { _resetIDBSingleton } from '../../composables/useIDB.js';
 import { getInstanceName } from '../persistence.js';
 import {
@@ -757,6 +757,40 @@ describe('upsertRecordsIntoIDB() venue_users PIN normalization', () => {
     const normalizedPin = await db.get('venue_users', 'vu_sync_2');
 
     expect(normalizedPin.pin).toBe(await sha256('1234'));
+  });
+
+  it('does not hash or warn for stale venue_users records skipped by date_updated pre-scan', async () => {
+    const { getDB } = await import('../../composables/useIDB.js');
+    const db = await getDB();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      await db.put('venue_users', {
+        id: 'vu_sync_stale',
+        venue: 1,
+        display_name: 'Peach',
+        role: 'cassiere',
+        pin: await sha256('9999'),
+        status: 'active',
+        date_updated: '2026-01-10T00:00:00.000Z',
+      });
+
+      const written = await upsertRecordsIntoIDB('venue_users', [
+        {
+          id: 'vu_sync_stale',
+          venue: 1,
+          display_name: 'Peach',
+          role: 'cassiere',
+          pin: 'invalid-pin',
+          status: 'active',
+          date_updated: '2026-01-01T00:00:00.000Z',
+        },
+      ]);
+
+      expect(written).toBe(0);
+      expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining('Invalid venue_users PIN during sync'));
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 });
 
