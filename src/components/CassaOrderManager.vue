@@ -560,6 +560,7 @@ watch(
     const currentId = selectedOrder.value?.id;
     if (!currentId) return;
     const refreshed = nextOrders.find(o => String(o.id) === String(currentId)) || null;
+    if (refreshed === selectedOrder.value) return;
     selectedOrder.value = refreshed;
   },
 );
