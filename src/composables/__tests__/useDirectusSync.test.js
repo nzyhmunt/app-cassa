@@ -1744,4 +1744,30 @@ describe('self-echo suppression (_handleSubscriptionMessage)', () => {
       vi.useRealTimers();
     }
   });
+
+  it('ignores non-object entries in a non-delete WS event and still processes valid objects', async () => {
+    // Pre-seed IDB with a known record
+    await upsertRecordsIntoIDB('orders', [{ id: 'ord_valid_obj', status: 'pending' }]);
+
+    // Mix: one valid object, one bare string (should never appear but must not crash)
+    await _handleSubscriptionMessage('orders', {
+      event: 'update',
+      data: [
+        { id: 'ord_valid_obj', status: 'accepted', date_updated: '2026-01-01T00:00:01.000Z' },
+        'bare-string-id',
+        null,
+      ],
+    });
+
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+
+    // The valid object must have been written
+    const stored = await db.get('orders', 'ord_valid_obj');
+    expect(stored?.status).toBe('accepted');
+
+    // The bare string must NOT have produced a corrupted record
+    const corrupted = await db.get('orders', 'bare-string-id');
+    expect(corrupted).toBeUndefined();
+  });
 });

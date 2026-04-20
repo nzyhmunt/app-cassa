@@ -444,12 +444,21 @@ async function _handleSubscriptionMessage(collection, message) {
     await deleteRecordsFromIDB(collection, nonEchoIds);
     await _refreshStoreFromIDB(collection);
   } else {
+    // Defensively drop any non-object entries that should never appear for
+    // non-delete events but could arrive from a malformed or unexpected
+    // subscription message shape (e.g. bare ID strings).  Spreading a string
+    // in _mapRecord would produce corrupted character-indexed records in IDB.
+    const objectData = data.filter(r => {
+      if (typeof r === 'object' && r !== null) return true;
+      console.warn(`[DirectusSync] WS ${event} on ${collection}: unexpected non-object entry ignored`, r);
+      return false;
+    });
     // Filter out records that this device just pushed (self-echo suppression).
-    const nonEcho = data.filter(r => {
-      const id = r?.id != null ? String(r.id) : null;
+    const nonEcho = objectData.filter(r => {
+      const id = r.id != null ? String(r.id) : null;
       return !_isEchoSuppressed(collection, id);
     });
-    suppressedCount = data.length - nonEcho.length;
+    suppressedCount = objectData.length - nonEcho.length;
     writtenCount = nonEcho.length;
     if (suppressedCount > 0) {
       console.debug(
