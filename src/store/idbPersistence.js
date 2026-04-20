@@ -992,7 +992,8 @@ export async function upsertRecordsIntoIDB(storeName, records) {
               continue; // local is newer or equal — skip
             }
           }
-          toWrite.push(incoming);
+          const { _sync_status: _s, ...clean } = incoming;
+          toWrite.push(clean);
         }
       } else {
         for (const incomingRaw of records) {
