@@ -422,6 +422,9 @@ async function _handleSubscriptionMessage(collection, message) {
   const { event, data } = message;
   if (!data || !Array.isArray(data) || data.length === 0) return;
 
+  let writtenCount = data.length;
+  let suppressedCount = 0;
+
   if (event === 'delete') {
     if (collection === 'table_merge_sessions') {
       await _pullCollection('table_merge_sessions', { forceFull: true });
@@ -436,7 +439,8 @@ async function _handleSubscriptionMessage(collection, message) {
       const id = r?.id != null ? String(r.id) : null;
       return !_isEchoSuppressed(collection, id);
     });
-    const suppressedCount = data.length - nonEcho.length;
+    suppressedCount = data.length - nonEcho.length;
+    writtenCount = nonEcho.length;
     if (suppressedCount > 0) {
       console.debug(
         `[DirectusSync] WS ${event} on ${collection}: suppressed ${suppressedCount} self-echo(es)`,
@@ -449,7 +453,8 @@ async function _handleSubscriptionMessage(collection, message) {
   }
 
   lastPullAt.value = new Date().toISOString();
-  console.info(`[DirectusSync] WS ${event} on ${collection}: ${data.length} record(s)`);
+  const echoNote = suppressedCount > 0 ? ` (${suppressedCount} self-echo(es) suppressed)` : '';
+  console.info(`[DirectusSync] WS ${event} on ${collection}: ${writtenCount} record(s) written${echoNote}`);
 }
 
 /**
@@ -554,13 +559,22 @@ const ECHO_SUPPRESS_TTL_MS = 5_000;
 const _recentlyPushed = new Map();
 
 /**
- * Registers a list of just-pushed records in the echo-suppression map.
+ * Registers a list of just-pushed records in the echo-suppression map and
+ * prunes any entries whose TTL has already expired to bound memory usage.
+ * Expired entries are additionally removed lazily in `_isEchoSuppressed`
+ * on every check so the Map stays compact even without frequent pushes.
  * @param {{collection: string, recordId: string}[]} pushedIds
  */
 function _registerPushedEchoes(pushedIds) {
-  const expiry = Date.now() + ECHO_SUPPRESS_TTL_MS;
+  const now = Date.now();
+  const expiry = now + ECHO_SUPPRESS_TTL_MS;
   for (const { collection, recordId } of pushedIds) {
     if (recordId) _recentlyPushed.set(`${collection}:${recordId}`, expiry);
+  }
+  // Prune expired entries to keep the Map size bounded even when the
+  // WebSocket is unavailable and _isEchoSuppressed is never called.
+  for (const [key, exp] of _recentlyPushed) {
+    if (now >= exp) _recentlyPushed.delete(key);
   }
 }
 

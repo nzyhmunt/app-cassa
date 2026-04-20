@@ -236,9 +236,9 @@ export function mapBillSessionToDirectus(record) {
  * (e.g. `bill_session`, not `bill_session_id`). This matches the Directus
  * convention described in DATABASE_SCHEMA.md.
  *
- * This is the single source of truth for `useSyncQueue._toDirectusPayload`
+ * This is the single source of truth for `mapPayloadToDirectus`
  * generic local-to-Directus field renames for collections that do not have a
- * dedicated mapper (e.g. `transactions`, `daily_closures`).
+ * dedicated mapper (e.g. `daily_closures`).
  *
  * @type {Record<string, string>}
  */

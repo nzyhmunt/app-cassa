@@ -432,7 +432,7 @@ async function _pushEntry(entry, sdkClient, cfg) {
  * @param {{ url: string, staticToken: string, venueId?: number|string|null, _backoffMs?: number }} cfg
  *   Directus connection config.  `_backoffMs` overrides the exponential
  *   back-off base (default 1000 ms); set to 0 in tests to skip all delays.
- * @returns {Promise<{ pushed: number, failed: number, abandoned: number }>}
+ * @returns {Promise<{ pushed: number, failed: number, abandoned: number, pushedIds: Array<{collection: string, recordId: string}> }>}
  */
 export async function drainQueue(cfg) {
   const sdkClient = _buildRestClient(cfg);
