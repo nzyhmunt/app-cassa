@@ -1991,6 +1991,9 @@ record.venue_user_updated = currentPinUser?.id ?? null
   persistenza locale il client lo trasforma in hash SHA-256 e mantiene in IndexedDB solo
   l’hash. Assicurarsi che il ruolo Directus del dispositivo esponga solo i campi necessari
   (`id`, `display_name`, `role`, `pin`, `status`).
+- **Protezione trasporto e accesso**: usare sempre HTTPS end-to-end e policy RBAC
+  minimali (read-only per i device) sulla collection `venue_users`; in ambiente server
+  assicurare cifratura at-rest del database Directus secondo policy infrastrutturali.
 - **Revoca accesso**: per disattivare un operatore è sufficiente impostare
   `status = 'archived'` su Directus; il PULL successivo aggiornerà IndexedDB e il PIN
   non funzionerà più.

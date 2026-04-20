@@ -30,7 +30,7 @@ async function _hashPinForLocalAuth(pin) {
       .map((b) => b.toString(16).padStart(2, '0'))
       .join('');
   } catch (_) {
-    return raw;
+    return '';
   }
 }
 
@@ -930,9 +930,10 @@ export async function upsertRecordsIntoIDB(storeName, records) {
       const rawPin = normalized.pin ?? normalized.pin_hash;
       if (typeof rawPin === 'string' && rawPin.trim() !== '') {
         const trimmedPin = rawPin.trim();
-        normalized.pin = SHA256_HEX_REGEX.test(trimmedPin)
+        const normalizedPin = SHA256_HEX_REGEX.test(trimmedPin)
           ? trimmedPin.toLowerCase()
           : await _hashPinForLocalAuth(trimmedPin);
+        normalized.pin = normalizedPin;
       }
       delete normalized.pin_hash;
     }
