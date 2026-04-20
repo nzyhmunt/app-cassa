@@ -426,12 +426,22 @@ async function _handleSubscriptionMessage(collection, message) {
   let suppressedCount = 0;
 
   if (event === 'delete') {
+    // Filter out records that this device just pushed (self-echo suppression).
+    const ids = _extractRecordIds(data);
+    const nonEchoIds = ids.filter(id => !_isEchoSuppressed(collection, id != null ? String(id) : null));
+    suppressedCount = ids.length - nonEchoIds.length;
+    writtenCount = nonEchoIds.length;
+    if (suppressedCount > 0) {
+      console.debug(
+        `[DirectusSync] WS ${event} on ${collection}: suppressed ${suppressedCount} self-echo(es)`,
+      );
+    }
+    if (nonEchoIds.length === 0) return;
     if (collection === 'table_merge_sessions') {
       await _pullCollection('table_merge_sessions', { forceFull: true });
       return;
     }
-    const ids = _extractRecordIds(data);
-    await deleteRecordsFromIDB(collection, ids);
+    await deleteRecordsFromIDB(collection, nonEchoIds);
     await _refreshStoreFromIDB(collection);
   } else {
     // Filter out records that this device just pushed (self-echo suppression).
@@ -1327,3 +1337,8 @@ export function _resetDirectusSyncSingleton() {
   lastPushAt.value = null;
   lastPullAt.value = null;
 }
+
+/**
+ * @internal For unit tests only. Direct handle for simulating incoming WS messages.
+ */
+export { _handleSubscriptionMessage, _registerPushedEchoes };

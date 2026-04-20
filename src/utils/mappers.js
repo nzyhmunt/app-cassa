@@ -539,15 +539,25 @@ export function mapVenueConfigFromDirectus(cachedConfig, defaults) {
  */
 export function mapOrderItemModifierToDirectus(record) {
   const source = record ?? {};
-  const out = {
-    ...source,
-    voided_quantity: source.voided_quantity ?? source.voidedQuantity ?? 0,
-  };
+  const out = { ...source };
   if (!Object.prototype.hasOwnProperty.call(out, 'item_uid') && Object.prototype.hasOwnProperty.call(source, 'itemUid')) {
     out.item_uid = source.itemUid;
   }
+  if (!Object.prototype.hasOwnProperty.call(out, 'order_item') && Object.prototype.hasOwnProperty.call(source, 'orderItemId')) {
+    out.order_item = source.orderItemId;
+  }
+  if (!Object.prototype.hasOwnProperty.call(out, 'order') && Object.prototype.hasOwnProperty.call(source, 'orderId')) {
+    out.order = source.orderId;
+  }
+  if (Object.prototype.hasOwnProperty.call(source, 'voided_quantity')) {
+    out.voided_quantity = source.voided_quantity;
+  } else if (Object.prototype.hasOwnProperty.call(source, 'voidedQuantity')) {
+    out.voided_quantity = source.voidedQuantity;
+  }
   delete out.voidedQuantity;
   delete out.itemUid;
+  delete out.orderItemId;
+  delete out.orderId;
   return out;
 }
 
