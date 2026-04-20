@@ -109,13 +109,17 @@
             <template v-if="orderStore.fiscalInvoiceHydrated && !alreadyFiscalized">
               <button
                 @click="emitFiscale"
-                class="flex items-center gap-1.5 text-[10px] font-bold text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-3 py-1.5 rounded-xl transition-colors active:scale-95"
+                :disabled="fiscalInvoiceDisabledForZero"
+                :title="fiscalInvoiceDisabledForZero ? 'Non disponibile su conto a importo zero' : undefined"
+                class="flex items-center gap-1.5 text-[10px] font-bold text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-3 py-1.5 rounded-xl transition-colors active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-blue-50 disabled:hover:text-blue-600 disabled:active:scale-100"
               >
                 <Printer class="size-3.5" /> Fiscale
               </button>
               <button
                 @click="openInvoiceModal"
-                class="flex items-center gap-1.5 text-[10px] font-bold text-violet-600 hover:text-violet-800 bg-violet-50 hover:bg-violet-100 border border-violet-200 px-3 py-1.5 rounded-xl transition-colors active:scale-95"
+                :disabled="fiscalInvoiceDisabledForZero"
+                :title="fiscalInvoiceDisabledForZero ? 'Non disponibile su conto a importo zero' : undefined"
+                class="flex items-center gap-1.5 text-[10px] font-bold text-violet-600 hover:text-violet-800 bg-violet-50 hover:bg-violet-100 border border-violet-200 px-3 py-1.5 rounded-xl transition-colors active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-violet-50 disabled:hover:text-violet-600 disabled:active:scale-100"
               >
                 <FileText class="size-3.5" /> Fattura
               </button>
@@ -256,6 +260,7 @@ const configStore = useConfigStore();
 const orderStore = useOrderStore();
 const runtimeConfig = computed(() => configStore.config ?? {});
 const isOpen = ref(props.initiallyOpen);
+const BILL_SETTLED_THRESHOLD = 0.01;
 
 // Post-payment tip state
 const showTipInput = ref(false);
@@ -283,6 +288,13 @@ const hasInvoice = computed(() => {
   return orderStore.invoiceRequests.some(r => billKey(r) === key);
 });
 const alreadyFiscalized = computed(() => hasFiscalReceipt.value || hasInvoice.value);
+const billTotalAmount = computed(() => props.bill.orders
+  .filter(o => o.status !== 'rejected')
+  .reduce(
+    (sum, o) => sum + o.orderItems.reduce((s, item) => s + getOrderItemRowTotal(item), 0),
+    0,
+  ));
+const fiscalInvoiceDisabledForZero = computed(() => billTotalAmount.value <= BILL_SETTLED_THRESHOLD);
 
 // Invoice modal state
 const showInvoiceModal = ref(false);
@@ -320,7 +332,7 @@ function _buildBillSummaryBase() {
 }
 
 function emitFiscale() {
-  if (alreadyFiscalized.value) return;
+  if (alreadyFiscalized.value || fiscalInvoiceDisabledForZero.value) return;
   const base = _buildBillSummaryBase();
   const xmlRequest = buildFiscalXmlRequest(base);
   const entry = {
@@ -335,13 +347,14 @@ function emitFiscale() {
 }
 
 function openInvoiceModal() {
+  if (fiscalInvoiceDisabledForZero.value) return;
   showInvoiceModal.value = true;
 }
 
 const _invoiceSubmitting = ref(false);
 
 function confirmInvoice(billingData) {
-  if (alreadyFiscalized.value || _invoiceSubmitting.value) return;
+  if (alreadyFiscalized.value || _invoiceSubmitting.value || fiscalInvoiceDisabledForZero.value) return;
   _invoiceSubmitting.value = true;
   const base = _buildBillSummaryBase();
   const entry = {
