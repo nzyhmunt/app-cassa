@@ -18,6 +18,22 @@ import { touchStorageKey } from './persistence.js';
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
+const SHA256_HEX_REGEX = /^[a-f0-9]{64}$/i;
+
+async function _hashPinForLocalAuth(pin) {
+  const raw = String(pin ?? '');
+  if (!raw) return '';
+  try {
+    const data = new TextEncoder().encode(raw);
+    const hashBuf = await crypto.subtle.digest('SHA-256', data);
+    return Array.from(new Uint8Array(hashBuf))
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('');
+  } catch (_) {
+    return raw;
+  }
+}
+
 /**
  * Replaces all records in an ObjectStore with the provided array.
  * Uses a readwrite transaction for atomicity.
@@ -848,7 +864,7 @@ export async function upsertRecordsIntoIDB(storeName, records) {
     return [];
   };
 
-  const normalizeIncoming = (collection, record) => {
+  const normalizeIncoming = async (collection, record) => {
     if (!record || typeof record !== 'object') return record;
     const normalized = { ...record };
     if (collection === 'orders') {
@@ -904,6 +920,21 @@ export async function upsertRecordsIntoIDB(storeName, records) {
     } else if (collection === 'printers') {
       normalized.print_types = parseJsonArray(normalized.print_types);
       normalized.categories = parseJsonArray(normalized.categories);
+    } else if (collection === 'venue_users') {
+      if ((normalized.name == null || normalized.name === '') && normalized.display_name != null) {
+        normalized.name = normalized.display_name;
+      }
+      if ((normalized.display_name == null || normalized.display_name === '') && normalized.name != null) {
+        normalized.display_name = normalized.name;
+      }
+      const rawPin = normalized.pin ?? normalized.pin_hash;
+      if (typeof rawPin === 'string' && rawPin.trim() !== '') {
+        const trimmedPin = rawPin.trim();
+        normalized.pin = SHA256_HEX_REGEX.test(trimmedPin)
+          ? trimmedPin.toLowerCase()
+          : await _hashPinForLocalAuth(trimmedPin);
+      }
+      delete normalized.pin_hash;
     }
     return normalized;
   };
@@ -921,13 +952,15 @@ export async function upsertRecordsIntoIDB(storeName, records) {
     // Collect writes to perform — filter out records with no PK and those
     // that are not newer than the local version before opening the transaction.
     // This avoids opening a readwrite transaction when nothing needs writing.
+    const normalizedIncomingRecords = await Promise.all(
+      records.map((incomingRaw) => normalizeIncoming(storeName, incomingRaw)),
+    );
     const toWrite = [];
     {
       // Read-only pre-scan using a readonly transaction to avoid unnecessary
       // write locks when all incoming records are already up-to-date.
       const roTx = db.transaction(storeName, 'readonly');
-      for (const incomingRaw of records) {
-        const incoming = normalizeIncoming(storeName, incomingRaw);
+      for (const incoming of normalizedIncomingRecords) {
         const pk = incoming[keyPath];
         if (!pk) continue;
         const existing = await roTx.store.get(pk);

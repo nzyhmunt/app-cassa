@@ -43,11 +43,20 @@ import {
   pruneInvoiceRequestsInIDB,
   clearLocalConfigCacheFromIDB,
   loadConfigFromIDB,
+  upsertRecordsIntoIDB,
 } from '../idbPersistence.js';
 
 beforeEach(async () => {
   await _resetIDBSingleton();
 });
+
+async function sha256(str) {
+  const data = new TextEncoder().encode(String(str));
+  const buf = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(buf))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}
 
 // ── loadStateFromIDB / saveStateToIDB ─────────────────────────────────────────
 
@@ -700,6 +709,33 @@ describe('saveUsersToIDB() + loadUsersFromIDB()', () => {
     const user = { id: 'u1', name: 'Reactive', pin: '0000' };
     // The function should not throw even when data contains nested objects
     await expect(saveUsersToIDB([user])).resolves.not.toThrow();
+  });
+});
+
+describe('upsertRecordsIntoIDB() venue_users PIN normalization', () => {
+  it('hashes plaintext pin from Directus and keeps compatibility fields normalized', async () => {
+    const { getDB } = await import('../../composables/useIDB.js');
+    const db = await getDB();
+    const written = await upsertRecordsIntoIDB('venue_users', [
+      {
+        id: 'vu_sync_1',
+        venue: 1,
+        display_name: 'Mario',
+        role: 'cassiere',
+        pin: '1234',
+        status: 'active',
+        date_updated: '2026-01-01T00:00:00.000Z',
+      },
+    ]);
+
+    expect(written).toBe(1);
+    const stored = await db.get('venue_users', 'vu_sync_1');
+    expect(stored).toBeDefined();
+    expect(stored.pin).toBe(await sha256('1234'));
+    expect(stored.pin).not.toBe('1234');
+    expect(stored.name).toBe('Mario');
+    expect(stored.display_name).toBe('Mario');
+    expect(stored).not.toHaveProperty('pin_hash');
   });
 });
 
