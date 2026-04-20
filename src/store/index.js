@@ -957,7 +957,7 @@ export const useOrderStore = defineStore('orders', () => {
         }
       };
 
-      persistAndEnqueueRefs().catch((err) => {
+      await persistAndEnqueueRefs().catch((err) => {
         console.warn('[Store] Failed to persist/enqueue transaction refs:', err);
       });
     }

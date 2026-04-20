@@ -6,11 +6,14 @@
  *  - Pull (Directus -> runtime/IDB): mapOrderFromDirectus, mapOrderItemFromDirectus,
  *    mapBillSessionFromDirectus, mapVenueConfigFromDirectus
  *  - Push (runtime/IDB -> Directus): mapOrderToDirectus, mapOrderItemToDirectus,
- *    mapBillSessionToDirectus
+ *    mapBillSessionToDirectus, mapTransactionToDirectus, mapOrderItemModifierToDirectus
+ *  - Central dispatch (runtime/IDB -> Directus): mapPayloadToDirectus
  *
  * Verification (P2-2): every exported `map*FromDirectus` / `map*ToDirectus`
  * mapper is currently referenced by runtime code (not tests-only).
  */
+
+import { resolvePaymentMethodMeta } from './paymentMethods.js';
 
 function relationId(value) {
   if (value == null) return null;
@@ -243,6 +246,7 @@ export const FIELD_RENAME_MAP = {
   // FK fields — Directus convention: no _id suffix
   billSessionId:  'bill_session',
   orderId:        'order',
+  orderItemId:    'order_item',
   dishId:         'dish',
   tableId:        'table',
   // camelCase → snake_case for domain fields
@@ -265,6 +269,7 @@ export const FIELD_RENAME_MAP = {
   discountType:       'discount_type',
   discountValue:      'discount_value',
   menuSource:         'menu_source',
+  itemUid:            'item_uid',
   // daily_closures camelCase → snake_case (DATABASE_SCHEMA.md §2.15)
   cashBalance:        'cash_balance',
   totalReceived:      'total_received',
@@ -276,6 +281,77 @@ export const FIELD_RENAME_MAP = {
   totalMovements:     'total_movements',
   finalBalance:       'final_balance',
 };
+
+// ── Push-direction internal helpers ──────────────────────────────────────────
+
+/**
+ * Local-only runtime fields that must NEVER be pushed to Directus.
+ * @type {Set<string>}
+ */
+const _LOCAL_ONLY_FIELDS = new Set(['_sync_status']);
+
+/**
+ * UI-only / transport-local fields that should be stripped before push.
+ * These fields are either display labels, local-aggregation helpers, or
+ * handled via separate junction collection entries.
+ * @type {Set<string>}
+ */
+const _PUSH_DROP_FIELDS = new Set([
+  'timestamp',         // local ISO string; Directus auto-sets date_created via server
+  'paymentMethod',     // UI-only display label; Directus persists only the relation id
+  'orderRefs',         // M2M handled separately via transaction_order_refs collection
+  'vociRefs',          // M2M handled separately via transaction_voce_refs collection
+  'grossAmount',       // UI-only display field (not in Directus schema)
+  'changeAmount',      // UI-only display field (not in Directus schema)
+  // daily_closures local-only aggregation fields — not columns in Directus schema
+  'byMethod',          // per-method amount map; detail rows sent as daily_closure_by_method
+  'tipsByMethod',      // per-method tip map; local-only aggregation
+  'cashMovementsData', // cash movement detail list; stored separately in cash_movements
+  'fiscalCount',       // local fiscal receipt tally; not a Directus column
+  'fiscalTotal',       // local fiscal receipt total; not a Directus column
+  'invoiceCount',      // local invoice request tally; not a Directus column
+  'invoiceTotal',      // local invoice request total; not a Directus column
+]);
+
+/**
+ * Directus array-typed fields stored as JSON strings in some legacy payloads.
+ * When the value is a string it is parsed; when null/undefined it defaults to [].
+ * @type {Set<string>}
+ */
+const _DIRECTUS_JSON_FIELDS = new Set([
+  'dietary_diets',
+  'dietary_allergens',
+  'ingredients',
+  'allergens',
+  'print_types',
+  'categories',
+]);
+
+/**
+ * Directus FK fields whose value may arrive as a relation object { id, … }.
+ * When the value is an object its `.id` is extracted so only the scalar PK is sent.
+ * @type {Set<string>}
+ */
+const _DIRECTUS_RELATION_FIELDS = new Set([
+  'venue',
+  'room',
+  'table',
+  'bill_session',
+  'order',
+  'dish',
+  'order_item',
+  'menu_item',
+  'menu_items_id',
+  'menu_categories_id',
+  'menu_modifiers_id',
+]);
+
+/**
+ * Collections that carry a payment-method FK that requires resolution via
+ * `resolvePaymentMethodMeta` to obtain the canonical Directus relation id.
+ * @type {Set<string>}
+ */
+const _PAYMENT_METHOD_COLLECTIONS = new Set(['transactions', 'daily_closure_by_method']);
 
 function normalizeMenu(modifiers, categoryModifierLinks, itemModifierLinks, categories, items, locale) {
   const modifiersById = new Map(
@@ -451,4 +527,237 @@ export function mapVenueConfigFromDirectus(cachedConfig, defaults) {
   }
 
   return next;
+}
+
+// ── Push mappers: new dedicated mappers ──────────────────────────────────────
+
+/**
+ * Maps a local `order_item_modifiers` record to Directus field names.
+ *
+ * @param {object} record
+ * @returns {object}
+ */
+export function mapOrderItemModifierToDirectus(record) {
+  const source = record ?? {};
+  const out = {
+    ...source,
+    voided_quantity: source.voided_quantity ?? source.voidedQuantity ?? 0,
+  };
+  if (!Object.prototype.hasOwnProperty.call(out, 'item_uid') && Object.prototype.hasOwnProperty.call(source, 'itemUid')) {
+    out.item_uid = source.itemUid;
+  }
+  delete out.voidedQuantity;
+  delete out.itemUid;
+  return out;
+}
+
+/**
+ * Maps a local `transactions` record to Directus field names.
+ *
+ * Handles camelCase → snake_case renames and FK fields (tableId → table,
+ * billSessionId → bill_session, paymentMethodId → payment_method).
+ * The `paymentMethod` UI label is NOT handled here; it is stripped by
+ * `mapPayloadToDirectus` via `_PUSH_DROP_FIELDS` before this mapper runs.
+ *
+ * @param {object} record
+ * @returns {object}
+ */
+export function mapTransactionToDirectus(record) {
+  const source = record ?? {};
+  const out = { ...source };
+
+  if (!Object.prototype.hasOwnProperty.call(out, 'table') && Object.prototype.hasOwnProperty.call(source, 'tableId')) {
+    out.table = source.tableId;
+  }
+  if (!Object.prototype.hasOwnProperty.call(out, 'bill_session') && Object.prototype.hasOwnProperty.call(source, 'billSessionId')) {
+    out.bill_session = source.billSessionId;
+  }
+  if (!Object.prototype.hasOwnProperty.call(out, 'payment_method') && Object.prototype.hasOwnProperty.call(source, 'paymentMethodId')) {
+    out.payment_method = source.paymentMethodId;
+  }
+  if (!Object.prototype.hasOwnProperty.call(out, 'operation_type') && Object.prototype.hasOwnProperty.call(source, 'operationType')) {
+    out.operation_type = source.operationType;
+  }
+  if (!Object.prototype.hasOwnProperty.call(out, 'amount_paid') && Object.prototype.hasOwnProperty.call(source, 'amountPaid')) {
+    out.amount_paid = source.amountPaid;
+  }
+  if (!Object.prototype.hasOwnProperty.call(out, 'tip_amount') && Object.prototype.hasOwnProperty.call(source, 'tipAmount')) {
+    out.tip_amount = source.tipAmount;
+  }
+  if (!Object.prototype.hasOwnProperty.call(out, 'romana_split_count') && Object.prototype.hasOwnProperty.call(source, 'romanaSplitCount')) {
+    out.romana_split_count = source.romanaSplitCount;
+  }
+  if (!Object.prototype.hasOwnProperty.call(out, 'split_quota') && Object.prototype.hasOwnProperty.call(source, 'splitQuota')) {
+    out.split_quota = source.splitQuota;
+  }
+  if (!Object.prototype.hasOwnProperty.call(out, 'split_ways') && Object.prototype.hasOwnProperty.call(source, 'splitWays')) {
+    out.split_ways = source.splitWays;
+  }
+  if (!Object.prototype.hasOwnProperty.call(out, 'discount_type') && Object.prototype.hasOwnProperty.call(source, 'discountType')) {
+    out.discount_type = source.discountType;
+  }
+  if (!Object.prototype.hasOwnProperty.call(out, 'discount_value') && Object.prototype.hasOwnProperty.call(source, 'discountValue')) {
+    out.discount_value = source.discountValue;
+  }
+
+  delete out.tableId;
+  delete out.billSessionId;
+  delete out.paymentMethodId;
+  delete out.operationType;
+  delete out.amountPaid;
+  delete out.tipAmount;
+  delete out.romanaSplitCount;
+  delete out.splitQuota;
+  delete out.splitWays;
+  delete out.discountType;
+  delete out.discountValue;
+
+  return out;
+}
+
+// Declared after the individual mappers so all references are resolved.
+const _TO_DIRECTUS_MAPPERS = {
+  orders: mapOrderToDirectus,
+  order_items: mapOrderItemToDirectus,
+  bill_sessions: mapBillSessionToDirectus,
+  order_item_modifiers: mapOrderItemModifierToDirectus,
+  transactions: mapTransactionToDirectus,
+};
+
+/**
+ * Central dispatch: translates a local (camelCase / legacy-named) record
+ * payload into a Directus-compatible field naming convention (snake_case, FK
+ * fields without the `_id` suffix per DATABASE_SCHEMA.md §2 convention).
+ *
+ * Processing steps (in order):
+ *  1. Strip local-only and push-drop fields.
+ *  2. Expand nested `orderItems → order_items` (for `orders`).
+ *  3. Expand nested `modifiers → order_item_modifiers` (for `order_items`).
+ *  4. Apply dedicated collection mapper (or generic FIELD_RENAME_MAP).
+ *  5. Resolve `payment_method` FK via `resolvePaymentMethodMeta` (where applicable).
+ *  6. Normalise relation-object FK values and JSON-array fields.
+ *
+ * Only fields present in the input payload are emitted (safe for partial updates).
+ *
+ * @param {string} collection  - Directus collection name (e.g. 'orders')
+ * @param {object|null} payload - Local record payload
+ * @param {{ paymentMethods?: Array }} [ctx] - Runtime context (e.g. configured payment methods)
+ * @returns {object}  Directus-ready payload
+ */
+export function mapPayloadToDirectus(collection, payload, ctx = {}) {
+  if (!payload || typeof payload !== 'object') return {};
+
+  const { paymentMethods = [] } = ctx;
+
+  // Step 1 — strip local-only and push-drop fields
+  const cleaned = {};
+  for (const [k, v] of Object.entries(payload)) {
+    if (_LOCAL_ONLY_FIELDS.has(k)) continue;
+    if (_PUSH_DROP_FIELDS.has(k)) continue;
+    cleaned[k] = v;
+  }
+
+  // Step 2 — expand nested orderItems (orders only)
+  const preProcessed = { ...cleaned };
+  if (collection === 'orders' && Array.isArray(cleaned.orderItems)) {
+    preProcessed.order_items = cleaned.orderItems.map((item) => {
+      const directItem = mapPayloadToDirectus('order_items', item, ctx);
+      if (!directItem.id && item?.id) directItem.id = item.id;
+      if (directItem.order == null && item?.orderId) directItem.order = item.orderId;
+      if (Array.isArray(item?.modifiers)) {
+        directItem.order_item_modifiers = item.modifiers.map((mod) => {
+          const directMod = mapPayloadToDirectus('order_item_modifiers', mod, ctx);
+          if (!directMod.id && mod?.id) directMod.id = mod.id;
+          if (directMod.order_item == null && item?.id) directMod.order_item = item.id;
+          const resolvedOrderId = item?.orderId ?? payload?.id;
+          if (directMod.order == null && resolvedOrderId) directMod.order = resolvedOrderId;
+          return directMod;
+        });
+      }
+      return directItem;
+    });
+    delete preProcessed.orderItems;
+  }
+
+  // Step 3 — expand nested modifiers (order_items only)
+  if (collection === 'order_items' && Array.isArray(cleaned.modifiers)) {
+    preProcessed.order_item_modifiers = cleaned.modifiers.map(
+      (mod) => mapPayloadToDirectus('order_item_modifiers', mod, ctx),
+    );
+    delete preProcessed.modifiers;
+  }
+
+  // Step 4 — apply dedicated mapper or generic FIELD_RENAME_MAP
+  let mapped;
+  const dedicatedMapper = _TO_DIRECTUS_MAPPERS[collection];
+  if (dedicatedMapper) {
+    mapped = dedicatedMapper(preProcessed);
+  } else {
+    mapped = {};
+    for (const [key, value] of Object.entries(preProcessed)) {
+      const renamed = FIELD_RENAME_MAP[key];
+      if (renamed) {
+        mapped[renamed] = value;
+      } else {
+        mapped[key] = value;
+      }
+    }
+  }
+
+  // Step 5 — payment method FK resolution
+  if (_PAYMENT_METHOD_COLLECTIONS.has(collection)) {
+    const resolved = resolvePaymentMethodMeta(
+      Array.isArray(paymentMethods) ? paymentMethods : [],
+      {
+        paymentMethodId: payload?.paymentMethodId,
+        payment_method: mapped?.payment_method,
+        paymentMethod: payload?.paymentMethod,
+      },
+    );
+    if (resolved.id) {
+      mapped.payment_method = resolved.id;
+    } else {
+      if (mapped.payment_method != null || payload?.paymentMethodId != null || payload?.paymentMethod != null) {
+        console.warn('[Mappers] Dropping unresolved payment method from payload:', {
+          collection,
+          recordId: payload?.id ?? null,
+          paymentMethodId: payload?.paymentMethodId ?? null,
+          paymentMethod: payload?.paymentMethod ?? null,
+          payment_method: mapped.payment_method ?? null,
+        });
+      }
+      delete mapped.payment_method;
+    }
+  }
+
+  // Step 6 — normalise FK objects and JSON-array fields
+  for (const fieldName of Object.keys(mapped)) {
+    if (_DIRECTUS_RELATION_FIELDS.has(fieldName)) {
+      const value = mapped[fieldName];
+      if (value && typeof value === 'object') {
+        mapped[fieldName] = value.id ?? value.value ?? null;
+      }
+    }
+    if (_DIRECTUS_JSON_FIELDS.has(fieldName)) {
+      const value = mapped[fieldName];
+      if (Array.isArray(value)) continue;
+      if (typeof value === 'string') {
+        const trimmed = value.trim();
+        if (trimmed === '') {
+          mapped[fieldName] = [];
+          continue;
+        }
+        try {
+          const parsed = JSON.parse(trimmed);
+          mapped[fieldName] = Array.isArray(parsed) ? parsed : [];
+        } catch (_) {
+          mapped[fieldName] = [value];
+        }
+      } else if (value == null) {
+        mapped[fieldName] = [];
+      }
+    }
+  }
+
+  return mapped;
 }

@@ -204,46 +204,9 @@ async function _refreshStoreFromIDB(collection = null) {
     await _store.refreshFromIDB(collection);
     return;
   }
-  // Strict path for Pinia stores: avoid direct assignments and require explicit APIs.
-  // Pinia setup stores expose `$id`; this guard prevents accidental direct
-  // runtime mutations when a store adapter forgot to provide refresh methods.
-  if (_store && typeof _store === 'object' && '$id' in _store) {
-    console.warn('[DirectusSync] Pinia store missing refresh API; skipping direct assignment to preserve IDB-first flow.');
-    return;
-  }
-
-  // Backward-compatible fallback for plain-object stores (tests/legacy adapters).
-  const operationalCollections = new Set([
-    'orders',
-    'order_items',
-    'order_item_modifiers',
-    'bill_sessions',
-    'transactions',
-    'table_merge_sessions',
-  ]);
-  if (!collection || operationalCollections.has(collection)) {
-    const state = await loadStateFromIDB();
-    if (!state) return;
-
-    const applySlice = (storeKey) => {
-      if (Object.prototype.hasOwnProperty.call(state, storeKey)) {
-        _store[storeKey] = state[storeKey];
-      }
-    };
-
-    if (!collection || collection === 'orders' || collection === 'order_items' || collection === 'order_item_modifiers') {
-      applySlice('orders');
-    }
-    if (!collection || collection === 'bill_sessions') {
-      applySlice('tableCurrentBillSession');
-    }
-    if (!collection || collection === 'transactions') {
-      applySlice('transactions');
-    }
-    if (!collection || collection === 'table_merge_sessions') {
-      applySlice('tableMergedInto');
-    }
-  }
+  // No further fallback: stores must expose refreshOperationalStateFromIDB or refreshFromIDB
+  // to preserve strict IDB-first semantics. Direct assignment is intentionally omitted.
+  console.warn('[DirectusSync] Store refresh API missing; skipping to preserve strict IDB-first.');
 }
 
 async function _refreshStoreConfigFromIDB(options = {}) {

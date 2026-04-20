@@ -21,6 +21,7 @@ import { useDirectusSync, _resetDirectusSyncSingleton } from '../useDirectusSync
 import {
   upsertRecordsIntoIDB,
   saveStateToIDB,
+  loadStateFromIDB,
   loadLastPullTsFromIDB,
   saveLastPullTsToIDB,
   replaceTableMergesInIDB,
@@ -155,6 +156,7 @@ function makeStore(overrides = {}) {
     orders: [],
     transactions: [],
     tableCurrentBillSession: {},
+    tableMergedInto: {},
     ...overrides,
   };
   // Provide a default hydrateConfigFromIDB that mimics the real store:
@@ -166,6 +168,34 @@ function makeStore(overrides = {}) {
       const mapped = mapVenueConfigFromDirectus(cached, DEFAULT_SETTINGS);
       const hydrated = createRuntimeConfig(mapped);
       this.config = { ...hydrated };
+    };
+  }
+  // Provide refreshOperationalStateFromIDB that mirrors the plain-object equivalent
+  // of the Pinia store's method. Translates Directus collection names to store keys.
+  if (typeof s.refreshOperationalStateFromIDB !== 'function') {
+    s.refreshOperationalStateFromIDB = async function (options = {}) {
+      const state = await loadStateFromIDB();
+      if (!state) return;
+      const { collection } = options;
+
+      const applySlice = (storeKey) => {
+        if (Object.prototype.hasOwnProperty.call(state, storeKey)) {
+          this[storeKey] = state[storeKey];
+        }
+      };
+
+      if (!collection || collection === 'orders' || collection === 'order_items' || collection === 'order_item_modifiers') {
+        applySlice('orders');
+      }
+      if (!collection || collection === 'bill_sessions') {
+        applySlice('tableCurrentBillSession');
+      }
+      if (!collection || collection === 'transactions') {
+        applySlice('transactions');
+      }
+      if (!collection || collection === 'table_merge_sessions') {
+        applySlice('tableMergedInto');
+      }
     };
   }
   return s;

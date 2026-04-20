@@ -26,13 +26,7 @@ import { createDirectus, staticToken, rest, createItem, updateItem, deleteItem }
 import { getDB } from './useIDB.js';
 import { newUUIDv7 } from '../store/storeUtils.js';
 import { appConfig } from '../utils/index.js';
-import { resolvePaymentMethodMeta } from '../utils/paymentMethods.js';
-import {
-  mapOrderToDirectus,
-  mapOrderItemToDirectus,
-  mapBillSessionToDirectus,
-  FIELD_RENAME_MAP,
-} from '../utils/mappers.js';
+import { mapPayloadToDirectus } from '../utils/mappers.js';
 
 /**
  * Maximum push attempts before a queue entry is abandoned.
@@ -59,14 +53,6 @@ const SOFT_DELETE_COLLECTIONS = new Set([
  */
 const DOMAIN_STATUS_COLLECTIONS = new Set([
   'bill_sessions', 'orders', 'print_jobs',
-]);
-
-/**
- * Local-only fields that must NOT be sent to Directus.
- * @type {Set<string>}
- */
-const LOCAL_ONLY_FIELDS = new Set([
-  '_sync_status',
 ]);
 
 // ── Core queue helpers ───────────────────────────────────────────────────────
@@ -232,206 +218,6 @@ export async function incrementAttempts(id, lastError) {
 
 // ── Push drain ───────────────────────────────────────────────────────────────
 
-/**
- * Strips local-only fields from a sync_queue payload before sending to Directus.
- * @param {object|null} payload
- * @returns {object}
- */
-function _cleanPayload(payload) {
-  if (!payload || typeof payload !== 'object') return {};
-  const cleaned = {};
-  for (const [k, v] of Object.entries(payload)) {
-    if (!LOCAL_ONLY_FIELDS.has(k)) cleaned[k] = v;
-  }
-  return cleaned;
-}
-
-/**
- * Additional fields that exist only in the local store and must not be pushed to
- * Directus (either because they are handled as separate junction collection entries
- * or because they are UI-only computation helpers).
- * @type {Set<string>}
- */
-const PUSH_DROP_FIELDS = new Set([
-  'timestamp',         // local ISO string; Directus auto-sets date_created via server
-  'paymentMethod',     // UI-only display label; Directus persists only the relation identifier in payment_method
-  'orderRefs',         // M2M handled separately via transaction_order_refs collection
-  'vociRefs',          // M2M handled separately via transaction_voce_refs collection
-  'grossAmount',       // UI-only display field (not in Directus schema)
-  'changeAmount',      // UI-only display field (not in Directus schema)
-  // daily_closures local-only aggregation fields — not columns in Directus schema
-  'byMethod',          // per-method amount map; detail rows sent as daily_closure_by_method
-  'tipsByMethod',      // per-method tip map; local-only aggregation
-  'cashMovementsData', // cash movement detail list; stored separately in cash_movements
-  'fiscalCount',       // local fiscal receipt tally; not a Directus column
-  'fiscalTotal',       // local fiscal receipt total; not a Directus column
-  'invoiceCount',      // local invoice request tally; not a Directus column
-  'invoiceTotal',      // local invoice request total; not a Directus column
-]);
-
-const DIRECTUS_JSON_FIELDS = new Set([
-  'dietary_diets',
-  'dietary_allergens',
-  'ingredients',
-  'allergens',
-  'print_types',
-  'categories',
-]);
-
-const DIRECTUS_RELATION_FIELDS = new Set([
-  'venue',
-  'room',
-  'table',
-  'bill_session',
-  'order',
-  'dish',
-  'order_item',
-  'menu_item',
-  'menu_items_id',
-  'menu_categories_id',
-  'menu_modifiers_id',
-]);
-
-const TO_DIRECTUS_MAPPERS = {
-  orders: mapOrderToDirectus,
-  order_items: mapOrderItemToDirectus,
-  bill_sessions: mapBillSessionToDirectus,
-};
-const PAYMENT_METHOD_RELATION_COLLECTIONS = new Set(['transactions', 'daily_closure_by_method']);
-
-function _resolvePaymentMethodId(localPayload, mappedPayload) {
-  const methods = Array.isArray(appConfig?.paymentMethods) ? appConfig.paymentMethods : [];
-  const resolved = resolvePaymentMethodMeta(methods, {
-    paymentMethodId: localPayload?.paymentMethodId,
-    payment_method: mappedPayload?.payment_method,
-    paymentMethod: localPayload?.paymentMethod,
-  });
-  return resolved.id || null;
-}
-
-/**
- * Translates a local (camelCase / legacy-named) record payload into the
- * Directus-compatible field naming convention (snake_case, FK fields without
- * the `_id` suffix as per DATABASE_SCHEMA.md §2 convention notes).
- *
- * The function handles:
- *  - Explicit field renames via FIELD_RENAME_MAP (e.g. `billSessionId` → `bill_session`)
- *  - Canonical collection mappers in `utils/mappers.js` for
- *    `orders`/`order_items`/`bill_sessions` (other collections pass through)
- *  - Drop of push-local-only fields (PUSH_DROP_FIELDS + LOCAL_ONLY_FIELDS via _cleanPayload)
- *
- * Only fields present in the input payload (and explicit mapper-derived aliases)
- * are emitted (safe for partial updates).
- *
- * @param {string} collection  - Directus collection name
- * @param {object|null} localPayload
- * @returns {object}  Directus-ready payload
- */
-function _toDirectusPayload(collection, localPayload) {
-  if (!localPayload || typeof localPayload !== 'object') return {};
-
-  // Strip local-only runtime fields first
-  const cleaned = _cleanPayload(localPayload);
-  // For collections with a canonical mapper in utils/mappers.js, avoid applying
-  // FIELD_RENAME_MAP here to prevent duplicate naming logic in two layers.
-  const mapper = TO_DIRECTUS_MAPPERS[collection];
-  const shouldUseRenameMap = !mapper;
-  const out = {};
-
-  for (const [key, value] of Object.entries(cleaned)) {
-    // Drop push-specific local fields
-    if (PUSH_DROP_FIELDS.has(key)) continue;
-
-    // Special: local nested orderItems[] -> Directus nested order_items[]
-    if (key === 'orderItems' && collection === 'orders' && Array.isArray(value)) {
-      out.order_items = value.map((item) => {
-        const directItem = _toDirectusPayload('order_items', item);
-        // Keep deterministic PKs for offline-first create/update.
-        if (!directItem.id && item?.id) directItem.id = item.id;
-        // order is resolved by parent relation in nested create; keep only when explicitly present.
-        if (directItem.order == null && item?.orderId) directItem.order = item.orderId;
-        if (Array.isArray(item?.modifiers)) {
-          directItem.order_item_modifiers = item.modifiers.map((mod) => {
-            const directMod = _toDirectusPayload('order_item_modifiers', mod);
-            if (!directMod.id && mod?.id) directMod.id = mod.id;
-            if (directMod.order_item == null && item?.id) directMod.order_item = item.id;
-            const resolvedOrderId = item?.orderId ?? localPayload?.id;
-            if (directMod.order == null && resolvedOrderId) {
-              directMod.order = resolvedOrderId;
-            }
-            return directMod;
-          });
-        }
-        return directItem;
-      });
-      continue;
-    }
-
-    // Special: local order_item modifiers[] -> Directus order_item_modifiers[]
-    if (key === 'modifiers' && collection === 'order_items' && Array.isArray(value)) {
-      out.order_item_modifiers = value.map((mod) => _toDirectusPayload('order_item_modifiers', mod));
-      continue;
-    }
-
-    // Apply explicit rename (camelCase → snake_case, FK without _id suffix)
-    const renamed = shouldUseRenameMap ? FIELD_RENAME_MAP[key] : null;
-    if (renamed) {
-      out[renamed] = value;
-      continue;
-    }
-
-    // Pass through (already in correct Directus naming or unrecognised field)
-    out[key] = value;
-  }
-
-  const mapped = mapper ? mapper(out) : out;
-  if (PAYMENT_METHOD_RELATION_COLLECTIONS.has(collection)) {
-    const resolvedPaymentMethodId = _resolvePaymentMethodId(localPayload, mapped);
-    if (resolvedPaymentMethodId) mapped.payment_method = resolvedPaymentMethodId;
-    else {
-      if (mapped.payment_method != null || localPayload?.paymentMethodId != null || localPayload?.paymentMethod != null) {
-        console.warn('[SyncQueue] Dropping unresolved payment method from payload:', {
-          collection,
-          recordId: localPayload?.id ?? null,
-          paymentMethodId: localPayload?.paymentMethodId ?? null,
-          paymentMethod: localPayload?.paymentMethod ?? null,
-          payment_method: mapped.payment_method ?? null,
-        });
-      }
-      delete mapped.payment_method;
-    }
-  }
-  for (const fieldName of Object.keys(mapped)) {
-    if (DIRECTUS_RELATION_FIELDS.has(fieldName)) {
-      const value = mapped[fieldName];
-      if (value && typeof value === 'object') {
-        mapped[fieldName] = value.id ?? value.value ?? null;
-      }
-    }
-    if (DIRECTUS_JSON_FIELDS.has(fieldName)) {
-      const value = mapped[fieldName];
-      if (Array.isArray(value)) continue;
-      if (typeof value === 'string') {
-        const trimmed = value.trim();
-        if (trimmed === '') {
-          mapped[fieldName] = [];
-          continue;
-        }
-        try {
-          const parsed = JSON.parse(trimmed);
-          mapped[fieldName] = Array.isArray(parsed) ? parsed : [];
-        } catch (_) {
-          mapped[fieldName] = [value];
-        }
-      } else if (value == null) {
-        mapped[fieldName] = [];
-      }
-    }
-  }
-
-  return mapped;
-}
-
 function _isPresentValue(value) {
   return value != null && value !== '';
 }
@@ -526,7 +312,9 @@ async function _pushEntry(entry, sdkClient, cfg) {
   const { collection, operation, record_id, payload } = entry;
 
   // Translate local field names to Directus schema names for all non-delete operations
-  const mappedPayload = _toDirectusPayload(collection, payload);
+  const mappedPayload = mapPayloadToDirectus(collection, payload, {
+    paymentMethods: Array.isArray(appConfig?.paymentMethods) ? appConfig.paymentMethods : [],
+  });
   const directusPayload = _withRequiredDefaults(collection, operation, mappedPayload, cfg);
 
   // Ensure the primary key is always present in create payloads.
