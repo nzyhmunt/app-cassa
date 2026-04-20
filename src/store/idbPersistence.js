@@ -29,7 +29,8 @@ async function _hashPinForLocalAuth(pin) {
     return Array.from(new Uint8Array(hashBuf))
       .map((b) => b.toString(16).padStart(2, '0'))
       .join('');
-  } catch (_) {
+  } catch (err) {
+    console.warn('[IDBPersistence] Failed to hash venue_users PIN during sync:', err);
     return null;
   }
 }
@@ -934,7 +935,7 @@ export async function upsertRecordsIntoIDB(storeName, records) {
           ? trimmedPin.toLowerCase()
           : await _hashPinForLocalAuth(trimmedPin);
         if (normalizedPin == null) {
-          console.warn('[IDBPersistence] Failed to hash venue_users PIN during sync; storing empty hash for user', normalized.id ?? null);
+          console.warn('[IDBPersistence] Failed to hash venue_users PIN during sync - hashing returned null. Storing empty PIN hash for security. User ID:', normalized.id ?? null);
           normalized.pin = '';
         } else {
           normalized.pin = normalizedPin;
