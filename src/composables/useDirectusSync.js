@@ -128,7 +128,6 @@ const VENUE_NESTED_RELATION_KEYS = [
   'menu_items',
   'printers',
   'venue_users',
-  'users',
   'table_merge_sessions',
 ];
 const VENUE_USERS_RELATION_KEYS = ['venue_users', 'users'];
@@ -906,6 +905,9 @@ async function _fanOutVenueTreeToIDB(venueRecord, { menuSource }) {
   for (const key of VENUE_NESTED_RELATION_KEYS) {
     delete flatVenueRecord[key];
   }
+  // Some Directus setups expose venue users as `users` (one_field alias).
+  // Keep it out of the flat venue snapshot regardless of canonical alias.
+  delete flatVenueRecord.users;
 
   const payloadByStore = {
     venues: [{ ...flatVenueRecord }],
