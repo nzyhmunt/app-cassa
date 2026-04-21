@@ -801,7 +801,7 @@ describe('upsertRecordsIntoIDB() venue_users PIN normalization', () => {
       const stored = await db.get('venue_users', 'vu_sync_ws');
       expect(stored.pin).toBe('');
       expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Invalid venue_users PIN during sync - expected exactly 4 numeric digits after trim. User ID:'),
+        expect.stringContaining('Invalid venue_users PIN during sync - could not extract 4 numeric digits. User ID:'),
         'vu_sync_ws',
       );
     } finally {

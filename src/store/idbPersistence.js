@@ -953,7 +953,7 @@ export async function upsertRecordsIntoIDB(storeName, records) {
       if (normalizedPin == null) {
         normalized.pin = '';
       } else if (normalizedPin === '') {
-        console.warn(`[IDBPersistence] Invalid venue_users PIN during sync - expected exactly ${PIN_LENGTH} numeric digits after trim. User ID:`, normalized.id ?? 'unknown');
+        console.warn(`[IDBPersistence] Invalid venue_users PIN during sync - could not extract ${PIN_LENGTH} numeric digits. User ID:`, normalized.id ?? 'unknown');
         normalized.pin = '';
       } else {
         normalized.pin = normalizedPin;
@@ -1011,7 +1011,6 @@ export async function upsertRecordsIntoIDB(storeName, records) {
           i -= 1;
           continue;
         }
-        if (Object.hasOwn(normalized, '_sync_status')) delete normalized._sync_status;
         toWrite[i] = normalized;
       }
     }
