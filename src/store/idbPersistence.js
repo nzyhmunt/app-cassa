@@ -1003,25 +1003,24 @@ export async function upsertRecordsIntoIDB(storeName, records) {
 
     if (toWrite.length === 0) return 0;
 
+    let recordsToWrite = toWrite;
     if (storeName === 'venue_users') {
-      for (let i = 0; i < toWrite.length; i += 1) {
-        const normalized = await normalizeIncoming(storeName, toWrite[i]);
-        if (!normalized || typeof normalized !== 'object') {
-          toWrite.splice(i, 1);
-          i -= 1;
-          continue;
-        }
-        toWrite[i] = normalized;
+      const normalizedVenueUsers = [];
+      for (const record of toWrite) {
+        const normalized = await normalizeIncoming(storeName, record);
+        if (!normalized || typeof normalized !== 'object') continue;
+        normalizedVenueUsers.push(normalized);
       }
+      recordsToWrite = normalizedVenueUsers;
     }
 
     const tx = db.transaction(storeName, 'readwrite');
-    for (const record of toWrite) {
+    for (const record of recordsToWrite) {
       await tx.store.put(record);
     }
     await tx.done;
     touchStorageKey();
-    return toWrite.length;
+    return recordsToWrite.length;
   } catch (e) {
     console.warn('[IDBPersistence] Failed to upsert into', storeName, e);
     return 0;

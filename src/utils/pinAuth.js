@@ -6,6 +6,7 @@ export const PIN_LENGTH = 4;
 
 /**
  * Returns a SHA-256 hex digest of the given PIN string.
+ * For nullish/empty input, returns an empty string.
  * @param {string} pin
  * @returns {Promise<string>}
  */
