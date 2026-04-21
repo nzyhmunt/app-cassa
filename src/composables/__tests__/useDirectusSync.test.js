@@ -687,7 +687,7 @@ describe('reconfigureAndApply()', () => {
           payment_methods: [],
           printers: [],
           users: [
-            { id: 'vu_alias_1', venue: venueId, display_name: 'Operatore Alias', role: 'admin', status: 'active', pin: '' },
+            { id: 'vu_alias_1', venue: venueId, display_name: 'Alias Operator', role: 'admin', status: 'active', pin: '' },
           ],
           table_merge_sessions: [],
           menu_categories: [],
@@ -707,7 +707,7 @@ describe('reconfigureAndApply()', () => {
       expect.objectContaining({
         id: 'vu_alias_1',
         venue: venueId,
-        display_name: 'Operatore Alias',
+        display_name: 'Alias Operator',
       }),
     );
   });
