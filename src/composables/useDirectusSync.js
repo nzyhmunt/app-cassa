@@ -895,7 +895,7 @@ async function _fanOutVenueTreeToIDB(venueRecord, { menuSource }) {
     .filter(_isObjectRecord);
   const venueUsers = _dedupeRecordsById(
     VENUE_USERS_RELATION_KEYS
-      .flatMap((key) => _normalizeToArray(venueRecord?.[key]))
+      .flatMap((key) => _normalizeToArray(venueRecord[key]))
       .filter(_isObjectRecord),
   );
   const tableMergeSessions = _normalizeToArray(venueRecord.table_merge_sessions)
