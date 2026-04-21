@@ -25,7 +25,7 @@ async function _hashPinForLocalAuth(pin) {
   return hashPin(raw);
 }
 
-function _firstPinNumericChars(value) {
+function _extractFirstNDigits(value) {
   const source = String(value ?? '');
   let digits = '';
   for (let i = 0; i < source.length && digits.length < PIN_LENGTH; i += 1) {
@@ -938,7 +938,7 @@ export async function upsertRecordsIntoIDB(storeName, records) {
 
     if (typeof normalized.pin === 'string') {
       const trimmedPin = normalized.pin.trim();
-      const pinDigits = _firstPinNumericChars(trimmedPin);
+      const pinDigits = _extractFirstNDigits(trimmedPin);
       let normalizedPin = '';
       if (pinDigits.length === PIN_LENGTH) {
         try {
