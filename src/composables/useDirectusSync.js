@@ -128,8 +128,10 @@ const VENUE_NESTED_RELATION_KEYS = [
   'menu_items',
   'printers',
   'venue_users',
+  'users',
   'table_merge_sessions',
 ];
+const VENUE_USERS_RELATION_KEYS = ['venue_users', 'users'];
 const GLOBAL_INTERVAL_MS = 5 * 60_000;
 const TABLE_FETCH_BATCH_SIZE = 200;
 const DEEP_FETCH_PAYLOAD_UNWRAP_MAX_DEPTH = 3;
@@ -892,8 +894,11 @@ async function _fanOutVenueTreeToIDB(venueRecord, { menuSource }) {
     .filter(_isObjectRecord);
   const printers = _normalizeToArray(venueRecord.printers)
     .filter(_isObjectRecord);
-  const venueUsers = _normalizeToArray(venueRecord.venue_users)
-    .filter(_isObjectRecord);
+  const venueUsers = _dedupeRecordsById(
+    VENUE_USERS_RELATION_KEYS
+      .flatMap((key) => _normalizeToArray(venueRecord?.[key]))
+      .filter(_isObjectRecord),
+  );
   const tableMergeSessions = _normalizeToArray(venueRecord.table_merge_sessions)
     .filter(_isObjectRecord);
 
