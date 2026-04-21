@@ -707,7 +707,7 @@ describe('reconfigureAndApply()', () => {
     const decodedVenueRequestUrl = decodeURIComponent(venueRequestUrl);
     expect(decodedVenueRequestUrl).toContain('fields');
     expect(decodedVenueRequestUrl).toContain('users.*');
-    expect(decodedVenueRequestUrl).toContain('venue_users.*');
+    expect(decodedVenueRequestUrl).not.toContain('venue_users.*');
 
     const { getDB } = await import('../useIDB.js');
     const db = await getDB();
