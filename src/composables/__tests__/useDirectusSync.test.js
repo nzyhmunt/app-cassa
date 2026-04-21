@@ -710,6 +710,9 @@ describe('reconfigureAndApply()', () => {
         display_name: 'Alias Operator',
       }),
     );
+    const storedVenue = await db.get('venues', venueId);
+    expect(storedVenue).toBeTruthy();
+    expect(Object.hasOwn(storedVenue, 'users')).toBe(false);
   });
 
   it('hydrates local config when nested records lack explicit venue field', async () => {
