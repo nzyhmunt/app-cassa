@@ -130,6 +130,7 @@ const VENUE_NESTED_RELATION_KEYS = [
   'venue_users',
   'table_merge_sessions',
 ];
+const VENUE_USERS_RELATION_KEYS = ['venue_users', 'users'];
 const GLOBAL_INTERVAL_MS = 5 * 60_000;
 const TABLE_FETCH_BATCH_SIZE = 200;
 const DEEP_FETCH_PAYLOAD_UNWRAP_MAX_DEPTH = 3;
@@ -892,8 +893,14 @@ async function _fanOutVenueTreeToIDB(venueRecord, { menuSource }) {
     .filter(_isObjectRecord);
   const printers = _normalizeToArray(venueRecord.printers)
     .filter(_isObjectRecord);
-  const venueUsers = _normalizeToArray(venueRecord.venue_users)
-    .filter(_isObjectRecord);
+  // `_dedupeRecordsById` keeps the last duplicate, so append canonical
+  // `venue_users` records after legacy alias `users` to preserve the richer shape.
+  const venueUsers = _dedupeRecordsById(
+    [
+      ..._normalizeToArray(venueRecord.users),
+      ..._normalizeToArray(venueRecord.venue_users),
+    ].filter(_isObjectRecord),
+  );
   const tableMergeSessions = _normalizeToArray(venueRecord.table_merge_sessions)
     .filter(_isObjectRecord);
 
@@ -901,6 +908,9 @@ async function _fanOutVenueTreeToIDB(venueRecord, { menuSource }) {
   for (const key of VENUE_NESTED_RELATION_KEYS) {
     delete flatVenueRecord[key];
   }
+  // Some Directus setups expose venue users as `users` (one_field alias).
+  // Keep it out of the flat venue snapshot regardless of canonical alias.
+  delete flatVenueRecord.users;
 
   const payloadByStore = {
     venues: [{ ...flatVenueRecord }],

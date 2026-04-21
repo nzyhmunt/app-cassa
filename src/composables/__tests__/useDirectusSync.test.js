@@ -673,6 +673,48 @@ describe('reconfigureAndApply()', () => {
     expect(result.ok).toBe(true);
   });
 
+  it('hydrates venue_users from legacy deep relation alias users', async () => {
+    const venueId = 1;
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      const requestUrl = String(url);
+      if (requestUrl.includes(`/items/venues/${venueId}`)) {
+        return Promise.resolve(directusItemResponse({
+          id: venueId,
+          name: 'Venue users alias',
+          menu_source: 'directus',
+          rooms: [],
+          tables: [],
+          payment_methods: [],
+          printers: [],
+          users: [
+            { id: 'vu_alias_1', venue: venueId, display_name: 'Alias Operator', role: 'admin', status: 'active', pin: '1234' },
+          ],
+          table_merge_sessions: [],
+          menu_categories: [],
+          menu_items: [],
+        }));
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const sync = useDirectusSync();
+    const result = await sync.reconfigureAndApply();
+    expect(result.ok).toBe(true);
+
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+    expect(await db.get('venue_users', 'vu_alias_1')).toEqual(
+      expect.objectContaining({
+        id: 'vu_alias_1',
+        venue: venueId,
+        display_name: 'Alias Operator',
+      }),
+    );
+    const storedVenue = await db.get('venues', venueId);
+    expect(storedVenue).toBeTruthy();
+    expect(Object.hasOwn(storedVenue, 'users')).toBe(false);
+  });
+
   it('hydrates local config when nested records lack explicit venue field', async () => {
     const venueId = 1;
     vi.spyOn(global, 'fetch').mockImplementation((url) => {
