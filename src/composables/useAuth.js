@@ -72,6 +72,7 @@ let _currentApp = 'cassa';
 const _configUserHashes = new Map();
 /** Resolves when all appConfig user hashes are ready. */
 let _configHashesReady = null;
+const PIN_REGEX = new RegExp(`^\\d{${PIN_LENGTH}}$`);
 
 /**
  * Version counter — incremented by every mutation to `_users`, `_currentUserId`,
@@ -160,7 +161,7 @@ function _init() {
   if (configs.length > 0) {
     _configHashesReady = Promise.all(
       configs.map(async (u) => {
-        if (!(new RegExp(`^\\d{${PIN_LENGTH}}$`)).test(String(u.pin))) {
+        if (!PIN_REGEX.test(String(u.pin))) {
           console.warn(`[Auth] appConfig user "${u.id}" has an invalid PIN (must be exactly ${PIN_LENGTH} digits). Login will fail for this user.`);
         }
         const hash = await hashPin(String(u.pin));
