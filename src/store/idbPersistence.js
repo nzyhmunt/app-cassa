@@ -13,6 +13,7 @@
 
 import { getDB } from '../composables/useIDB.js';
 import { appConfig } from '../utils/index.js';
+import { hashPin, PIN_LENGTH } from '../utils/pinAuth.js';
 import { newUUIDv7 } from './storeUtils.js';
 import { touchStorageKey } from './persistence.js';
 
@@ -21,17 +22,13 @@ import { touchStorageKey } from './persistence.js';
 async function _hashPinForLocalAuth(pin) {
   const raw = String(pin ?? '');
   if (!raw) return '';
-  const data = new TextEncoder().encode(raw);
-  const hashBuf = await crypto.subtle.digest('SHA-256', data);
-  return Array.from(new Uint8Array(hashBuf))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
+  return hashPin(raw);
 }
 
-function _firstFourNumericChars(value) {
+function _firstPinNumericChars(value) {
   const source = String(value ?? '');
   let digits = '';
-  for (let i = 0; i < source.length && digits.length < 4; i += 1) {
+  for (let i = 0; i < source.length && digits.length < PIN_LENGTH; i += 1) {
     const char = source[i];
     if (char >= '0' && char <= '9') digits += char;
   }
@@ -941,9 +938,9 @@ export async function upsertRecordsIntoIDB(storeName, records) {
 
     if (typeof normalized.pin === 'string') {
       const trimmedPin = normalized.pin.trim();
-      const pinDigits = _firstFourNumericChars(trimmedPin);
+      const pinDigits = _firstPinNumericChars(trimmedPin);
       let normalizedPin = '';
-      if (pinDigits.length === 4) {
+      if (pinDigits.length === PIN_LENGTH) {
         try {
           normalizedPin = await _hashPinForLocalAuth(pinDigits);
         } catch (err) {
@@ -954,7 +951,7 @@ export async function upsertRecordsIntoIDB(storeName, records) {
       if (normalizedPin == null) {
         normalized.pin = '';
       } else if (normalizedPin === '') {
-        console.warn('[IDBPersistence] Invalid venue_users PIN during sync - expected exactly 4 numeric digits after trim. User ID:', normalized.id ?? 'unknown');
+        console.warn(`[IDBPersistence] Invalid venue_users PIN during sync - expected exactly ${PIN_LENGTH} numeric digits after trim. User ID:`, normalized.id ?? 'unknown');
         normalized.pin = '';
       } else {
         normalized.pin = normalizedPin;
