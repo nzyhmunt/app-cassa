@@ -959,7 +959,7 @@ export async function upsertRecordsIntoIDB(storeName, records) {
         normalized.pin = normalizedPin;
       }
     } else if (normalized.pin != null) {
-      console.warn('[IDBPersistence] Invalid venue_users PIN type during sync:', pinType, '. Clearing local PIN value. User ID:', normalized.id ?? 'unknown');
+      console.warn('[IDBPersistence] Invalid venue_users PIN type during sync (received:', pinType, '). Clearing local PIN value. User ID:', normalized.id ?? 'unknown');
       normalized.pin = '';
     }
 
@@ -1006,7 +1006,11 @@ export async function upsertRecordsIntoIDB(storeName, records) {
     if (storeName === 'venue_users') {
       for (let i = 0; i < toWrite.length; i += 1) {
         const normalized = await normalizeIncoming(storeName, toWrite[i]);
-        if (!normalized || typeof normalized !== 'object') continue;
+        if (!normalized || typeof normalized !== 'object') {
+          toWrite.splice(i, 1);
+          i -= 1;
+          continue;
+        }
         if (Object.hasOwn(normalized, '_sync_status')) delete normalized._sync_status;
         toWrite[i] = normalized;
       }
