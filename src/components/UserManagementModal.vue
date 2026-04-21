@@ -293,7 +293,7 @@
  *
  * ## Validazioni nel form di aggiunta
  * - Nome utente: obbligatorio, max 30 caratteri.
- * - PIN: esattamente PIN_LENGTH cifre numeriche.
+ * - PIN: esattamente `PIN_LENGTH` cifre numeriche.
  * - App: almeno una deve essere selezionata.
  *
  * ## Persistenza

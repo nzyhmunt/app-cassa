@@ -937,10 +937,7 @@ export async function upsertRecordsIntoIDB(storeName, records) {
     if (collection !== 'venue_users' || !normalized || typeof normalized !== 'object') return normalized;
 
     const pinType = typeof normalized.pin;
-    const isPinScalar = pinType === 'string'
-      || pinType === 'number'
-      || pinType === 'boolean'
-      || pinType === 'bigint';
+    const isPinScalar = pinType === 'string' || pinType === 'number';
     if (normalized.pin != null && isPinScalar) {
       const trimmedPin = String(normalized.pin).trim();
       const pinDigits = _extractPinDigits(trimmedPin);
