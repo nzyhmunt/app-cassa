@@ -13,10 +13,27 @@
 
 import { getDB } from '../composables/useIDB.js';
 import { appConfig } from '../utils/index.js';
+import { hashPin, PIN_LENGTH } from '../utils/pinAuth.js';
 import { newUUIDv7 } from './storeUtils.js';
 import { touchStorageKey } from './persistence.js';
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
+
+async function _hashPinForLocalAuth(pin) {
+  const raw = String(pin ?? '');
+  if (!raw) return '';
+  return hashPin(raw);
+}
+
+function _extractPinDigits(value) {
+  const source = String(value ?? '');
+  let digits = '';
+  for (let i = 0; i < source.length && digits.length < PIN_LENGTH; i += 1) {
+    const char = source[i];
+    if (char >= '0' && char <= '9') digits += char;
+  }
+  return digits;
+}
 
 /**
  * Replaces all records in an ObjectStore with the provided array.
@@ -848,7 +865,7 @@ export async function upsertRecordsIntoIDB(storeName, records) {
     return [];
   };
 
-  const normalizeIncoming = (collection, record) => {
+  const normalizeIncomingSync = (collection, record) => {
     if (!record || typeof record !== 'object') return record;
     const normalized = { ...record };
     if (collection === 'orders') {
@@ -904,7 +921,48 @@ export async function upsertRecordsIntoIDB(storeName, records) {
     } else if (collection === 'printers') {
       normalized.print_types = parseJsonArray(normalized.print_types);
       normalized.categories = parseJsonArray(normalized.categories);
+    } else if (collection === 'venue_users') {
+      if ((normalized.name == null || normalized.name === '') && normalized.display_name != null) {
+        normalized.name = normalized.display_name;
+      }
+      if ((normalized.display_name == null || normalized.display_name === '') && normalized.name != null) {
+        normalized.display_name = normalized.name;
+      }
     }
+    return normalized;
+  };
+
+  const normalizeIncoming = async (collection, record) => {
+    const normalized = normalizeIncomingSync(collection, record);
+    if (collection !== 'venue_users' || !normalized || typeof normalized !== 'object') return normalized;
+
+    const pinType = typeof normalized.pin;
+    const isPinScalar = pinType === 'string' || pinType === 'number';
+    if (normalized.pin != null && isPinScalar) {
+      const trimmedPin = String(normalized.pin).trim();
+      const pinDigits = _extractPinDigits(trimmedPin);
+      let normalizedPin = '';
+      if (pinDigits.length === PIN_LENGTH) {
+        try {
+          normalizedPin = await _hashPinForLocalAuth(pinDigits);
+        } catch (err) {
+          console.warn('[IDBPersistence] Failed to hash venue_users PIN during sync. Clearing local PIN value for security. User ID:', normalized.id ?? 'unknown', err);
+          normalizedPin = null;
+        }
+      }
+      if (normalizedPin == null) {
+        normalized.pin = '';
+      } else if (normalizedPin === '') {
+        console.warn(`[IDBPersistence] Invalid venue_users PIN during sync - could not extract ${PIN_LENGTH} numeric digits. User ID:`, normalized.id ?? 'unknown');
+        normalized.pin = '';
+      } else {
+        normalized.pin = normalizedPin;
+      }
+    } else if (normalized.pin != null) {
+      console.warn('[IDBPersistence] Invalid venue_users PIN type during sync (received:', pinType, '). Clearing local PIN value. User ID:', normalized.id ?? 'unknown');
+      normalized.pin = '';
+    }
+
     return normalized;
   };
 
@@ -927,7 +985,8 @@ export async function upsertRecordsIntoIDB(storeName, records) {
       // write locks when all incoming records are already up-to-date.
       const roTx = db.transaction(storeName, 'readonly');
       for (const incomingRaw of records) {
-        const incoming = normalizeIncoming(storeName, incomingRaw);
+        const incoming = normalizeIncomingSync(storeName, incomingRaw);
+        if (!incoming || typeof incoming !== 'object') continue;
         const pk = incoming[keyPath];
         if (!pk) continue;
         const existing = await roTx.store.get(pk);
@@ -944,13 +1003,24 @@ export async function upsertRecordsIntoIDB(storeName, records) {
 
     if (toWrite.length === 0) return 0;
 
+    let recordsToWrite = toWrite;
+    if (storeName === 'venue_users') {
+      const normalizedVenueUsers = [];
+      for (const record of toWrite) {
+        const normalized = await normalizeIncoming(storeName, record);
+        if (!normalized || typeof normalized !== 'object') continue;
+        normalizedVenueUsers.push(normalized);
+      }
+      recordsToWrite = normalizedVenueUsers;
+    }
+
     const tx = db.transaction(storeName, 'readwrite');
-    for (const record of toWrite) {
+    for (const record of recordsToWrite) {
       await tx.store.put(record);
     }
     await tx.done;
     touchStorageKey();
-    return toWrite.length;
+    return recordsToWrite.length;
   } catch (e) {
     console.warn('[IDBPersistence] Failed to upsert into', storeName, e);
     return 0;

@@ -1,12 +1,15 @@
 import { ref, computed } from 'vue';
 import { getInstanceName } from '../store/persistence.js';
 import { appConfig } from '../utils/index.js';
+import { hashPin, PIN_LENGTH } from '../utils/pinAuth.js';
 import { newUUIDv7 } from '../store/storeUtils.js';
 import {
   loadUsersFromIDB, saveUsersToIDB,
   loadAuthSessionFromIDB, saveAuthSessionToIDB,
   loadAuthSettingsFromIDB, saveAuthSettingsToIDB,
 } from '../store/persistence/operations.js';
+
+const PIN_REGEX = new RegExp(`^\\d{${PIN_LENGTH}}$`);
 
 /**
  * The three app identifiers used throughout the auth system.
@@ -27,22 +30,6 @@ export const LOCK_TIMEOUT_OPTIONS = [
   { value: 15, label: '15 minuti' },
   { value: 30, label: '30 minuti' },
 ];
-
-// ── PIN hashing ───────────────────────────────────────────────────────────────
-
-/**
- * Returns a SHA-256 hex digest of the given PIN string.
- * PINs are hashed before storage so plaintext PINs never persist.
- * @param {string} pin
- * @returns {Promise<string>}
- */
-async function hashPin(pin) {
-  const data = new TextEncoder().encode(String(pin));
-  const hashBuf = await crypto.subtle.digest('SHA-256', data);
-  return Array.from(new Uint8Array(hashBuf))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
-}
 
 // ── App detection ─────────────────────────────────────────────────────────────
 
@@ -175,8 +162,8 @@ function _init() {
   if (configs.length > 0) {
     _configHashesReady = Promise.all(
       configs.map(async (u) => {
-        if (!/^\d{4}$/.test(String(u.pin))) {
-          console.warn(`[Auth] appConfig user "${u.id}" has an invalid PIN (must be exactly 4 digits). Login will fail for this user.`);
+        if (!PIN_REGEX.test(String(u.pin))) {
+          console.warn(`[Auth] appConfig user "${u.id}" has an invalid PIN (must be exactly ${PIN_LENGTH} digits). Login will fail for this user.`);
         }
         const hash = await hashPin(String(u.pin));
         _configUserHashes.set(u.id, hash);

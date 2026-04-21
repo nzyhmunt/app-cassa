@@ -109,6 +109,7 @@
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { Lock, ChevronRight, ChevronLeft } from 'lucide-vue-next';
 import { useAuth } from '../composables/useAuth.js';
+import { PIN_LENGTH } from '../utils/pinAuth.js';
 import { useConfigStore, useOrderStore } from '../store/index.js';
 
 const configStore = useConfigStore();
@@ -120,7 +121,6 @@ const timezone = computed(() => configStore.config?.timezone ?? 'Europe/Rome');
 /** Whether the overlay should be rendered. */
 const visible = computed(() => requiresAuth.value && isLocked.value);
 
-const PIN_LENGTH = 4;
 const KEYPAD = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', '⌫'];
 
 // ── Local state ─────────────────────────────────────────────────────────────

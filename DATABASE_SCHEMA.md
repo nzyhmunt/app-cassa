@@ -9,7 +9,7 @@ riferimento per la configurazione del backend Directus sia come guida per la per
 - ObjectStore `app_meta` — metadati applicativi, impostazioni e sessione auth
 - ObjectStore `local_settings` — local device preferences (`sounds`, `menuUrl`, `menuSource`, `preventScreenLock`, `customKeyboard`, `preBillPrinterId`)
 - ObjectStore `orders`, `transactions`, `cash_movements`, `daily_closures`, `print_jobs` — dati operativi persistiti in store dedicati
-- ObjectStore `venue_users` — operatori locali con PIN hashato
+- ObjectStore `venue_users` — operatori locali con PIN hashato lato applicazione durante la sync
 - ObjectStore `direct_custom_items` — voci personalizzate
 - ObjectStore `sync_queue` — coda di operazioni in attesa di push verso Directus
 - ObjectStore `sync_failed_calls` — storico persistente delle chiamate di sync fallite (request/response completi)
@@ -864,7 +864,7 @@ CREATE TABLE venue_users (
     venue        INTEGER      NOT NULL REFERENCES venues(id) ON DELETE CASCADE,
     display_name VARCHAR(100) NOT NULL,
     role         VARCHAR(50)  NOT NULL,                  -- 'admin' | 'cassiere' | 'cameriere' | 'cuoco'
-    pin_hash     VARCHAR(255) NOT NULL,                  -- hash bcrypt/argon2 del PIN a 4-6 cifre
+    pin          VARCHAR(255) NOT NULL,                  -- plaintext PIN su Directus (hash lato app in fase di sync)
     status       VARCHAR(20)  NOT NULL DEFAULT 'active', -- 'active' | 'archived'
     -- Directus standard fields
     user_created UUID         NULL REFERENCES directus_users(id),
@@ -1907,7 +1907,7 @@ CREATE TABLE venue_users (
   venue        INTEGER      NOT NULL REFERENCES venues(id),
   display_name VARCHAR(100) NOT NULL,
   role         VARCHAR(50)  NOT NULL,         -- 'admin' | 'cassiere' | 'cameriere' | 'cuoco'
-  pin_hash     VARCHAR(255) NOT NULL,         -- hash bcrypt/argon2 del PIN a 4-6 cifre
+  pin          VARCHAR(255) NOT NULL,         -- plaintext PIN su Directus (hash SHA-256 lato app in fase di sync)
   status       VARCHAR(20)  NOT NULL DEFAULT 'active', -- 'active' | 'archived'
   -- Directus standard fields
   user_created UUID         NULL REFERENCES directus_users(id),
@@ -1917,13 +1917,16 @@ CREATE TABLE venue_users (
 );
 ```
 
-> **Sicurezza PIN**: il PIN **non** viene mai trasmesso in chiaro. Il client calcola
-> `hash = bcrypt(pin, salt)` e lo confronta con `pin_hash` presente in IndexedDB.
-> Opzioni di implementazione:
-> - **`bcryptjs`**: libreria JS pura (non WebCrypto), più semplice da integrare ma senza accelerazione nativa.
-> - **PBKDF2 via SubtleCrypto** (`crypto.subtle.deriveBits`): nativo nel browser, nessuna dipendenza esterna.
-> - **Argon2** (es. `argon2-browser`): più resistente agli attacchi brute-force, richiede una libreria dedicata.
-> Il salt è incluso nel campo `pin_hash` (bcrypt/argon2 standard).
+> **Sicurezza PIN**: su Directus il campo `pin` è in chiaro; durante ogni pull
+> (iniziale e successivi) il client estrae **le prime 4 cifre numeriche** dal valore
+> trimmato, calcola `hash = SHA-256(pin4)` e salva in IndexedDB solo il valore
+> hashato nel campo `pin`. L’autenticazione confronta quindi
+> `SHA-256(PIN inserito)` con `user.pin` locale.
+>
+> **Nota sicurezza**: SHA-256 non è una password hash function dedicata; con PIN brevi
+> (4 cifre) la resistenza a brute-force/rainbow table è limitata. Questa scelta è
+> mantenuta per compatibilità con l’implementazione corrente; in hardening futuro è
+> raccomandata migrazione a KDF con salt (PBKDF2/bcrypt/Argon2).
 
 ##### ObjectStore IndexedDB — `venue_users`
 
@@ -1943,7 +1946,7 @@ Avvio app
   └─ carica venue_users da IndexedDB (filtro: venue = venueId, status = 'active')
 
 Operatore inserisce PIN
-  └─ bcrypt.compare(pin, user.pin_hash) → local boolean
+  └─ sha256(pin) === user.pin (hash locale) → local boolean
        ├─ OK → imposta currentPinUser in memoria (non in localStorage)
        └─ KO → mostra errore, incrementa contatore tentativi
 
@@ -1990,9 +1993,13 @@ record.venue_user_updated = currentPinUser?.id ?? null
   tramite l'interfaccia Directus (o un pannello admin dedicato), mai dal dispositivo POS.
 - **Permessi Directus**: i service account di cassa/sala/cucina hanno permesso **read-only**
   sulla collection `venue_users`. Non possono creare, modificare o cancellare utenti.
-- **PIN hash**: il campo `pin_hash` viene incluso nella risposta API (il dispositivo ne ha
-  bisogno per il confronto locale). Assicurarsi che il ruolo Directus del dispositivo
-  esponga solo i campi necessari (`id`, `display_name`, `role`, `pin_hash`, `status`).
+- **plaintext PIN + hash locale**: il campo `pin` viene letto da Directus; prima della
+  persistenza locale il client lo trasforma in hash SHA-256 e mantiene in IndexedDB solo
+  l’hash. Assicurarsi che il ruolo Directus del dispositivo esponga solo i campi necessari
+  (`id`, `display_name`, `role`, `pin`, `status`).
+- **Protezione trasporto e accesso**: usare sempre HTTPS end-to-end e policy RBAC
+  minimali (read-only per i device) sulla collection `venue_users`; in ambiente server
+  assicurare cifratura at-rest del database Directus secondo policy infrastrutturali.
 - **Revoca accesso**: per disattivare un operatore è sufficiente impostare
   `status = 'archived'` su Directus; il PULL successivo aggiornerà IndexedDB e il PIN
   non funzionerà più.
@@ -2012,7 +2019,7 @@ record.venue_user_updated = currentPinUser?.id ?? null
 │  Setup iniziale (una-tantum, admin)                                 │
 │                                                                     │
 │  Admin → Directus → crea service account → genera token statico    │
-│  Admin → Directus → crea venue_users con PIN hash                  │
+│  Admin → Directus → crea/aggiorna venue_users con plaintext PIN     │
 │  Admin → configura token + URL Directus nello store config         │
 │           cifrato in IndexedDB                                     │
 └─────────────────────────────────────────────────────────────────────┘

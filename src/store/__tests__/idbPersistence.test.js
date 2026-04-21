@@ -16,7 +16,7 @@
  *  - saveCustomItemsToIDB / loadCustomItemsFromIDB: round-trip
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { _resetIDBSingleton } from '../../composables/useIDB.js';
 import { getInstanceName } from '../persistence.js';
 import {
@@ -43,11 +43,20 @@ import {
   pruneInvoiceRequestsInIDB,
   clearLocalConfigCacheFromIDB,
   loadConfigFromIDB,
+  upsertRecordsIntoIDB,
 } from '../idbPersistence.js';
 
 beforeEach(async () => {
   await _resetIDBSingleton();
 });
+
+async function sha256(str) {
+  const data = new TextEncoder().encode(String(str));
+  const buf = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(buf))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}
 
 // ── loadStateFromIDB / saveStateToIDB ─────────────────────────────────────────
 
@@ -700,6 +709,165 @@ describe('saveUsersToIDB() + loadUsersFromIDB()', () => {
     const user = { id: 'u1', name: 'Reactive', pin: '0000' };
     // The function should not throw even when data contains nested objects
     await expect(saveUsersToIDB([user])).resolves.not.toThrow();
+  });
+});
+
+describe('upsertRecordsIntoIDB() venue_users PIN normalization', () => {
+  it('hashes plaintext pin from Directus and keeps compatibility fields normalized', async () => {
+    const { getDB } = await import('../../composables/useIDB.js');
+    const db = await getDB();
+    const written = await upsertRecordsIntoIDB('venue_users', [
+      {
+        id: 'vu_sync_1',
+        venue: 1,
+        display_name: 'Mario',
+        role: 'cassiere',
+        pin: '1234',
+        status: 'active',
+        date_updated: '2026-01-01T00:00:00.000Z',
+      },
+    ]);
+
+    expect(written).toBe(1);
+    const stored = await db.get('venue_users', 'vu_sync_1');
+    expect(stored).toBeDefined();
+    expect(stored.pin).toBe(await sha256('1234'));
+    expect(stored.pin).not.toBe('1234');
+    expect(stored.name).toBe('Mario');
+    expect(stored.display_name).toBe('Mario');
+  });
+
+  it('uses the first 4 numeric characters from trimmed pin before hashing', async () => {
+    const { getDB } = await import('../../composables/useIDB.js');
+    const db = await getDB();
+
+    const written = await upsertRecordsIntoIDB('venue_users', [
+      {
+        id: 'vu_sync_2',
+        venue: 1,
+        display_name: 'Luigi',
+        role: 'cameriere',
+        pin: ' 12a3-4xyz99 ',
+        status: 'active',
+        date_updated: '2026-01-02T00:00:00.000Z',
+      },
+    ]);
+
+    expect(written).toBe(1);
+    const normalizedPin = await db.get('venue_users', 'vu_sync_2');
+
+    expect(normalizedPin.pin).toBe(await sha256('1234'));
+  });
+
+  it('normalizes numeric venue_users pin values before hashing', async () => {
+    const { getDB } = await import('../../composables/useIDB.js');
+    const db = await getDB();
+    const written = await upsertRecordsIntoIDB('venue_users', [
+      {
+        id: 'vu_sync_numeric_pin',
+        venue: 1,
+        display_name: 'Numeric',
+        role: 'cassiere',
+        pin: 1234,
+        status: 'active',
+        date_updated: '2026-01-02T12:00:00.000Z',
+      },
+    ]);
+
+    expect(written).toBe(1);
+    const stored = await db.get('venue_users', 'vu_sync_numeric_pin');
+    expect(stored.pin).toBe(await sha256('1234'));
+    expect(stored.pin).not.toBe(1234);
+  });
+
+  it('normalizes whitespace-only venue_users pin to empty string', async () => {
+    const { getDB } = await import('../../composables/useIDB.js');
+    const db = await getDB();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const written = await upsertRecordsIntoIDB('venue_users', [
+        {
+          id: 'vu_sync_ws',
+          venue: 1,
+          display_name: 'Toad',
+          role: 'cameriere',
+          pin: '   ',
+          status: 'active',
+          date_updated: '2026-01-03T00:00:00.000Z',
+        },
+      ]);
+
+      expect(written).toBe(1);
+      const stored = await db.get('venue_users', 'vu_sync_ws');
+      expect(stored.pin).toBe('');
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Invalid venue_users PIN during sync - could not extract 4 numeric digits. User ID:'),
+        'vu_sync_ws',
+      );
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('does not hash or warn for stale venue_users records skipped by date_updated pre-scan', async () => {
+    const { getDB } = await import('../../composables/useIDB.js');
+    const db = await getDB();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      await db.put('venue_users', {
+        id: 'vu_sync_stale',
+        venue: 1,
+        display_name: 'Peach',
+        role: 'cassiere',
+        pin: await sha256('9999'),
+        status: 'active',
+        date_updated: '2026-01-10T00:00:00.000Z',
+      });
+
+      const written = await upsertRecordsIntoIDB('venue_users', [
+        {
+          id: 'vu_sync_stale',
+          venue: 1,
+          display_name: 'Peach',
+          role: 'cassiere',
+          pin: 'invalid-pin',
+          status: 'active',
+          date_updated: '2026-01-01T00:00:00.000Z',
+        },
+      ]);
+
+      expect(written).toBe(0);
+      const hasInvalidPinWarning = warnSpy.mock.calls.some(([message, userId]) =>
+        typeof message === 'string'
+          && message.includes('Invalid venue_users PIN during sync')
+          && userId === 'vu_sync_stale',
+      );
+      expect(hasInvalidPinWarning).toBe(false);
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('skips non-object records in pre-scan without failing valid venue_users upsert', async () => {
+    const { getDB } = await import('../../composables/useIDB.js');
+    const db = await getDB();
+    const written = await upsertRecordsIntoIDB('venue_users', [
+      null,
+      'invalid',
+      {
+        id: 'vu_sync_valid_after_invalid',
+        venue: 1,
+        display_name: 'Daisy',
+        role: 'cassiere',
+        pin: '5678',
+        status: 'active',
+        date_updated: '2026-01-11T00:00:00.000Z',
+      },
+    ]);
+
+    expect(written).toBe(1);
+    const stored = await db.get('venue_users', 'vu_sync_valid_after_invalid');
+    expect(stored.pin).toBe(await sha256('5678'));
   });
 });
 
