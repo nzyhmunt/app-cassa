@@ -759,6 +759,27 @@ describe('upsertRecordsIntoIDB() venue_users PIN normalization', () => {
     expect(normalizedPin.pin).toBe(await sha256('1234'));
   });
 
+  it('normalizes numeric venue_users pin values before hashing', async () => {
+    const { getDB } = await import('../../composables/useIDB.js');
+    const db = await getDB();
+    const written = await upsertRecordsIntoIDB('venue_users', [
+      {
+        id: 'vu_sync_numeric_pin',
+        venue: 1,
+        display_name: 'Numeric',
+        role: 'cassiere',
+        pin: 1234,
+        status: 'active',
+        date_updated: '2026-01-02T12:00:00.000Z',
+      },
+    ]);
+
+    expect(written).toBe(1);
+    const stored = await db.get('venue_users', 'vu_sync_numeric_pin');
+    expect(stored.pin).toBe(await sha256('1234'));
+    expect(stored.pin).not.toBe(1234);
+  });
+
   it('normalizes whitespace-only venue_users pin to empty string', async () => {
     const { getDB } = await import('../../composables/useIDB.js');
     const db = await getDB();

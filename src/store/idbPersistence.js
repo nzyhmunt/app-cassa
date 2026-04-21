@@ -25,7 +25,7 @@ async function _hashPinForLocalAuth(pin) {
   return hashPin(raw);
 }
 
-function _extractFirstNDigits(value) {
+function _extractPinDigits(value) {
   const source = String(value ?? '');
   let digits = '';
   for (let i = 0; i < source.length && digits.length < PIN_LENGTH; i += 1) {
@@ -936,9 +936,14 @@ export async function upsertRecordsIntoIDB(storeName, records) {
     const normalized = normalizeIncomingSync(collection, record);
     if (collection !== 'venue_users' || !normalized || typeof normalized !== 'object') return normalized;
 
-    if (typeof normalized.pin === 'string') {
-      const trimmedPin = normalized.pin.trim();
-      const pinDigits = _extractFirstNDigits(trimmedPin);
+    const pinType = typeof normalized.pin;
+    const isPinScalar = pinType === 'string'
+      || pinType === 'number'
+      || pinType === 'boolean'
+      || pinType === 'bigint';
+    if (normalized.pin != null && isPinScalar) {
+      const trimmedPin = String(normalized.pin).trim();
+      const pinDigits = _extractPinDigits(trimmedPin);
       let normalizedPin = '';
       if (pinDigits.length === PIN_LENGTH) {
         try {
@@ -956,6 +961,9 @@ export async function upsertRecordsIntoIDB(storeName, records) {
       } else {
         normalized.pin = normalizedPin;
       }
+    } else if (normalized.pin != null) {
+      console.warn('[IDBPersistence] Invalid venue_users PIN type during sync. Clearing local PIN value. User ID:', normalized.id ?? 'unknown');
+      normalized.pin = '';
     }
 
     return normalized;
@@ -1001,8 +1009,8 @@ export async function upsertRecordsIntoIDB(storeName, records) {
     if (storeName === 'venue_users') {
       for (let i = 0; i < toWrite.length; i += 1) {
         const normalized = await normalizeIncoming(storeName, toWrite[i]);
-        const { _sync_status: _s, ...clean } = normalized;
-        toWrite[i] = clean;
+        if (!normalized || typeof normalized !== 'object') continue;
+        toWrite[i] = normalized;
       }
     }
 

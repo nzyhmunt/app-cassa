@@ -30,7 +30,7 @@
           <div class="bg-gray-50 rounded-2xl border border-gray-200 p-3 md:p-4 space-y-2">
             <input v-model="firstForm.name" type="text" maxlength="30" placeholder="Nome utente"
               class="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]" />
-            <input v-model="firstForm.pin" type="password" maxlength="8" inputmode="numeric" placeholder="PIN (4 cifre numeriche)"
+            <input v-model="firstForm.pin" type="password" :maxlength="PIN_LENGTH" inputmode="numeric" :placeholder="pinPlaceholder"
               class="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]" />
             <p v-if="firstForm.error" class="text-red-500 text-xs">{{ firstForm.error }}</p>
             <button @click="submitFirstUser"
@@ -125,9 +125,9 @@
                       <input
                         v-model="editPin"
                         type="password"
-                        maxlength="8"
+                        :maxlength="PIN_LENGTH"
                         inputmode="numeric"
-                        placeholder="Nuovo PIN (4 cifre, lascia vuoto per non cambiare)"
+                        :placeholder="editPinPlaceholder"
                         class="w-full border border-gray-300 rounded-lg px-2 py-1 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]"
                       />
                       <p v-if="editError" class="text-red-500 text-[10px] mt-1">{{ editError }}</p>
@@ -200,7 +200,7 @@
             <div class="bg-gray-50 rounded-2xl border border-gray-200 p-3 md:p-4 space-y-2">
               <input v-model="addForm.name" type="text" maxlength="30" placeholder="Nome utente"
                 class="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]" />
-              <input v-model="addForm.pin" type="password" maxlength="8" inputmode="numeric" placeholder="PIN (4 cifre numeriche)"
+              <input v-model="addForm.pin" type="password" :maxlength="PIN_LENGTH" inputmode="numeric" :placeholder="pinPlaceholder"
                 class="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]" />
               <!-- Admin toggle -->
               <div @click="addForm.isAdmin = !addForm.isAdmin"
@@ -293,7 +293,7 @@
  *
  * ## Validazioni nel form di aggiunta
  * - Nome utente: obbligatorio, max 30 caratteri.
- * - PIN: esattamente 4 cifre numeriche (`/^\d{4}$/`).
+ * - PIN: esattamente PIN_LENGTH cifre numeriche.
  * - App: almeno una deve essere selezionata.
  *
  * ## Persistenza
@@ -307,6 +307,7 @@
 import { ref } from 'vue';
 import { Users, X, Pencil, Trash2, Check, Lock, ShieldCheck, ShieldOff, UserPlus } from 'lucide-vue-next';
 import { useAuth } from '../composables/useAuth.js';
+import { PIN_LENGTH } from '../utils/pinAuth.js';
 
 defineProps({ modelValue: Boolean });
 defineEmits(['update:modelValue']);
@@ -326,6 +327,10 @@ const {
   ALL_APPS,
 } = useAuth();
 
+const PIN_REGEX = new RegExp(`^\\d{${PIN_LENGTH}}$`);
+const pinPlaceholder = `PIN (${PIN_LENGTH} cifre numeriche)`;
+const editPinPlaceholder = `Nuovo PIN (${PIN_LENGTH} cifre, lascia vuoto per non cambiare)`;
+
 // ── Form validation helper ────────────────────────────────────────────────────
 
 /**
@@ -336,7 +341,7 @@ const {
  */
 function validateUserForm(name, pin) {
   if (!name) return 'Inserisci un nome utente.';
-  if (!/^\d{4}$/.test(pin)) return 'Il PIN deve essere esattamente 4 cifre numeriche.';
+  if (!PIN_REGEX.test(pin)) return `Il PIN deve essere esattamente ${PIN_LENGTH} cifre numeriche.`;
   return '';
 }
 
@@ -399,8 +404,8 @@ async function confirmEdit(id) {
   if (!name) { editError.value = 'Il nome non può essere vuoto.'; return; }
   const updates = { name };
   if (editPin.value.trim()) {
-    if (!/^\d{4}$/.test(editPin.value.trim())) {
-      editError.value = 'Il PIN deve essere esattamente 4 cifre numeriche.';
+    if (!PIN_REGEX.test(editPin.value.trim())) {
+      editError.value = `Il PIN deve essere esattamente ${PIN_LENGTH} cifre numeriche.`;
       return;
     }
     updates.pin = editPin.value.trim();
