@@ -893,10 +893,13 @@ async function _fanOutVenueTreeToIDB(venueRecord, { menuSource }) {
     .filter(_isObjectRecord);
   const printers = _normalizeToArray(venueRecord.printers)
     .filter(_isObjectRecord);
+  // `_dedupeRecordsById` keeps the last duplicate, so append canonical
+  // `venue_users` records after legacy alias `users` to preserve the richer shape.
   const venueUsers = _dedupeRecordsById(
-    VENUE_USERS_RELATION_KEYS
-      .flatMap((key) => _normalizeToArray(venueRecord[key]))
-      .filter(_isObjectRecord),
+    [
+      ..._normalizeToArray(venueRecord.users),
+      ..._normalizeToArray(venueRecord.venue_users),
+    ].filter(_isObjectRecord),
   );
   const tableMergeSessions = _normalizeToArray(venueRecord.table_merge_sessions)
     .filter(_isObjectRecord);
