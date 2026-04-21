@@ -704,7 +704,10 @@ describe('reconfigureAndApply()', () => {
       .map(([url]) => String(url))
       .find((url) => url.includes(`/items/venues/${venueId}`));
     expect(venueRequestUrl).toBeTruthy();
-    expect(venueRequestUrl).toContain('users');
+    const decodedVenueRequestUrl = decodeURIComponent(venueRequestUrl);
+    expect(decodedVenueRequestUrl).toContain('fields');
+    expect(decodedVenueRequestUrl).toContain('users.*');
+    expect(decodedVenueRequestUrl).toContain('venue_users.*');
 
     const { getDB } = await import('../useIDB.js');
     const db = await getDB();
