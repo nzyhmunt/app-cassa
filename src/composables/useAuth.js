@@ -9,6 +9,8 @@ import {
   loadAuthSettingsFromIDB, saveAuthSettingsToIDB,
 } from '../store/persistence/operations.js';
 
+const PIN_REGEX = new RegExp(`^\\d{${PIN_LENGTH}}$`);
+
 /**
  * The three app identifiers used throughout the auth system.
  * A user with `apps` containing all three has unrestricted access.
@@ -72,7 +74,6 @@ let _currentApp = 'cassa';
 const _configUserHashes = new Map();
 /** Resolves when all appConfig user hashes are ready. */
 let _configHashesReady = null;
-const PIN_REGEX = new RegExp(`^\\d{${PIN_LENGTH}}$`);
 
 /**
  * Version counter — incremented by every mutation to `_users`, `_currentUserId`,

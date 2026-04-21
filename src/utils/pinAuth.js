@@ -1,5 +1,5 @@
 /**
- * Shared PIN policy and hashing helpers used by auth/login and sync pipelines.
+ * Shared PIN policy and hashing helpers used by auth/login and synchronization pipelines.
  */
 
 export const PIN_LENGTH = 4;
