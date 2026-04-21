@@ -1007,6 +1007,7 @@ export async function upsertRecordsIntoIDB(storeName, records) {
       for (let i = 0; i < toWrite.length; i += 1) {
         const normalized = await normalizeIncoming(storeName, toWrite[i]);
         if (!normalized || typeof normalized !== 'object') continue;
+        if (Object.hasOwn(normalized, '_sync_status')) delete normalized._sync_status;
         toWrite[i] = normalized;
       }
     }
