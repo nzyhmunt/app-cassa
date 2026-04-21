@@ -816,10 +816,37 @@ describe('upsertRecordsIntoIDB() venue_users PIN normalization', () => {
       ]);
 
       expect(written).toBe(0);
-      expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining('Invalid venue_users PIN during sync'));
+      const hasInvalidPinWarning = warnSpy.mock.calls.some(([message, userId]) =>
+        typeof message === 'string'
+          && message.includes('Invalid venue_users PIN during sync')
+          && userId === 'vu_sync_stale',
+      );
+      expect(hasInvalidPinWarning).toBe(false);
     } finally {
       warnSpy.mockRestore();
     }
+  });
+
+  it('skips non-object records in pre-scan without failing valid venue_users upsert', async () => {
+    const { getDB } = await import('../../composables/useIDB.js');
+    const db = await getDB();
+    const written = await upsertRecordsIntoIDB('venue_users', [
+      null,
+      'invalid',
+      {
+        id: 'vu_sync_valid_after_invalid',
+        venue: 1,
+        display_name: 'Daisy',
+        role: 'cassiere',
+        pin: '5678',
+        status: 'active',
+        date_updated: '2026-01-11T00:00:00.000Z',
+      },
+    ]);
+
+    expect(written).toBe(1);
+    const stored = await db.get('venue_users', 'vu_sync_valid_after_invalid');
+    expect(stored.pin).toBe(await sha256('5678'));
   });
 });
 

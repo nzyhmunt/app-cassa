@@ -947,7 +947,7 @@ export async function upsertRecordsIntoIDB(storeName, records) {
         try {
           normalizedPin = await _hashPinForLocalAuth(pinDigits);
         } catch (err) {
-          console.warn('[IDBPersistence] Failed to hash venue_users PIN during sync. Storing empty PIN hash for security. User ID:', normalized.id ?? 'unknown', err);
+          console.warn('[IDBPersistence] Failed to hash venue_users PIN during sync. Clearing local PIN value for security. User ID:', normalized.id ?? 'unknown', err);
           normalizedPin = null;
         }
       }
@@ -984,6 +984,7 @@ export async function upsertRecordsIntoIDB(storeName, records) {
       const roTx = db.transaction(storeName, 'readonly');
       for (const incomingRaw of records) {
         const incoming = normalizeIncomingSync(storeName, incomingRaw);
+        if (!incoming || typeof incoming !== 'object') continue;
         const pk = incoming[keyPath];
         if (!pk) continue;
         const existing = await roTx.store.get(pk);
