@@ -675,7 +675,7 @@ describe('reconfigureAndApply()', () => {
 
   it('hydrates venue_users from legacy deep relation alias users', async () => {
     const venueId = 1;
-    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+    const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation((url) => {
       const requestUrl = String(url);
       if (requestUrl.includes(`/items/venues/${venueId}`)) {
         return Promise.resolve(directusItemResponse({
@@ -700,6 +700,11 @@ describe('reconfigureAndApply()', () => {
     const sync = useDirectusSync();
     const result = await sync.reconfigureAndApply();
     expect(result.ok).toBe(true);
+    const venueRequestUrl = fetchSpy.mock.calls
+      .map(([url]) => String(url))
+      .find((url) => url.includes(`/items/venues/${venueId}`));
+    expect(venueRequestUrl).toBeTruthy();
+    expect(venueRequestUrl).toContain('users');
 
     const { getDB } = await import('../useIDB.js');
     const db = await getDB();
