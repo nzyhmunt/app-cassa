@@ -959,7 +959,7 @@ export async function upsertRecordsIntoIDB(storeName, records) {
         normalized.pin = normalizedPin;
       }
     } else if (normalized.pin != null) {
-      console.warn('[IDBPersistence] Invalid venue_users PIN type during sync. Clearing local PIN value. User ID:', normalized.id ?? 'unknown');
+      console.warn('[IDBPersistence] Invalid venue_users PIN type during sync:', pinType, '. Clearing local PIN value. User ID:', normalized.id ?? 'unknown');
       normalized.pin = '';
     }
 
