@@ -80,7 +80,7 @@ const DEEP_FETCH_FIELDS = [
   'menu_items.*',
   'menu_items.menu_modifiers.menu_modifiers_id.*',
   'printers.*',
-  'venue_users.*',
+  'users.*',
   'table_merge_sessions.*',
 ];
 const DEEP_FETCH_BASE_RELATION_FIELDS = [
@@ -89,7 +89,7 @@ const DEEP_FETCH_BASE_RELATION_FIELDS = [
   'tables.*',
   'payment_methods.*',
   'printers.*',
-  'venue_users.*',
+  'users.*',
   'table_merge_sessions.*',
 ];
 const DEEP_FETCH_FALLBACK_FIELDS = [
@@ -107,6 +107,7 @@ const DEEP_FETCH_JSON_FIELDS = [
   'id',
   'name',
   'status',
+  'users.*',
   'cover_charge_enabled',
   'cover_charge_auto_add',
   'cover_charge_price_adult',
