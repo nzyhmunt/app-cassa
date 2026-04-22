@@ -460,7 +460,7 @@ describe('persistence across singleton resets', () => {
     expect(visibleUsers.value.map((u) => u.id)).not.toContain('vu_multi_role');
   });
 
-  it('hydrates Directus users without apps using full app fallback to avoid open-mode bypass', async () => {
+  it('hydrates Directus users without apps with denied app access', async () => {
     const { getDB } = await import('../useIDB.js');
     const db = await getDB();
     await db.put('venue_users', {
@@ -479,9 +479,33 @@ describe('persistence across singleton resets', () => {
     const legacyUser = users.value.find((u) => u.id === 'vu_legacy_no_apps');
     expect(legacyUser).toBeTruthy();
     expect(legacyUser.isAdmin).toBe(false);
-    expect(legacyUser.apps).toEqual(ALL_APPS);
-    expect(visibleUsers.value.map((u) => u.id)).toContain('vu_legacy_no_apps');
-    expect(requiresAuth.value).toBe(true);
+    expect(legacyUser.apps).toEqual([]);
+    expect(visibleUsers.value.map((u) => u.id)).not.toContain('vu_legacy_no_apps');
+    expect(requiresAuth.value).toBe(false);
+  });
+
+  it('hydrates Directus users with empty-string apps entries with denied app access', async () => {
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+    await db.put('venue_users', {
+      id: 'vu_empty_apps_entry',
+      name: 'Empty Apps Entry',
+      display_name: 'Empty Apps Entry',
+      apps: [''],
+      pin: await sha256('6790'),
+      status: 'active',
+    });
+
+    _resetAuthSingleton();
+    useAuth();
+    await _waitForAuth();
+
+    const { users, visibleUsers } = useAuth();
+    const user = users.value.find((u) => u.id === 'vu_empty_apps_entry');
+    expect(user).toBeTruthy();
+    expect(user.isAdmin).toBe(false);
+    expect(user.apps).toEqual([]);
+    expect(visibleUsers.value.map((u) => u.id)).not.toContain('vu_empty_apps_entry');
   });
 });
 

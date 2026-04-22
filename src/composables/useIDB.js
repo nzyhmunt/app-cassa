@@ -352,27 +352,31 @@ export function getDB() {
         }
 
         // Backfill existing records so the new app-based index and auth logic
-        // can see users persisted before v11. Preserve any valid existing apps
-        // array; otherwise map the legacy `role` string to a single app entry.
-        // If neither is available, store an empty array; current auth logic
-        // normalizes empty/invalid `apps` to broad access rather than deny-by-default.
+        // can see users persisted before v11.
+        // Preserve only valid existing `apps` entries and drop all legacy role fields.
         let cursor = await s.openCursor();
         while (cursor) {
           const value = cursor.value || {};
           const hasValidApps = Array.isArray(value.apps);
-          const migratedApps = hasValidApps
+          const normalizedApps = hasValidApps
             ? value.apps.filter((app) => typeof app === 'string' && app.trim())
-            : (typeof value.role === 'string' && value.role.trim() ? [value.role.trim()] : []);
+            : [];
+          const hasLegacyRoleFields = (
+            Object.prototype.hasOwnProperty.call(value, 'role')
+            || Object.prototype.hasOwnProperty.call(value, 'role2')
+          );
 
-          const shouldUpdate =
+          const shouldNormalizeApps =
             !hasValidApps ||
-            migratedApps.length !== value.apps.length ||
-            migratedApps.some((app, i) => app !== value.apps[i]);
+            normalizedApps.length !== value.apps.length ||
+            normalizedApps.some((app, i) => app !== value.apps[i]);
+          const shouldUpdate = shouldNormalizeApps || hasLegacyRoleFields;
 
           if (shouldUpdate) {
+            const { role: _legacyRole, role2: _legacyRole2, ...cleanValue } = value;
             await cursor.update({
-              ...value,
-              apps: migratedApps,
+              ...cleanValue,
+              apps: normalizedApps,
             });
           }
 
