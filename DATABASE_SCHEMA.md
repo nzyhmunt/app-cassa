@@ -1995,7 +1995,7 @@ record.venue_user_updated = currentPinUser?.id ?? null
   sulla collection `venue_users`. Non possono creare, modificare o cancellare utenti.
 - **plaintext PIN + hash locale**: il campo `pin` viene letto da Directus; prima della
   persistenza locale il client lo trasforma in hash SHA-256 e mantiene in IndexedDB solo
-  l’hash. Assicurarsi che il ruolo Directus del dispositivo esponga solo i campi necessari
+  l’hash. Assicurarsi che i permessi Directus del dispositivo espongano solo i campi necessari
   (`id`, `display_name`, `apps`, `pin`, `status`).
 - **Protezione trasporto e accesso**: usare sempre HTTPS end-to-end e policy RBAC
   minimali (read-only per i device) sulla collection `venue_users`; in ambiente server
