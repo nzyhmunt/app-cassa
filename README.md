@@ -276,6 +276,7 @@ Funzionalità disponibile sia in **cassa live** (al momento della chiusura del c
   - Configurazione a build time tramite `appConfig.instanceName`
   - Database IDB con suffisso `_<instanceName>`
 - **Sincronizzazione cross-tab in tempo reale**: tutte e tre le app (`CassaApp`, `SalaApp`, `CucinaApp`) ascoltano l'evento `window.storage`. Qualsiasi modifica di stato in una tab (es. cambio stato ordine in Cucina) viene propagata alle altre tab aperte sullo stesso dispositivo ricaricando lo stato operativo (`useOrderStore`) e la configurazione/menu (`useConfigStore`) da IndexedDB.
+- **Swipe-down refresh (mobile/tablet)**: su Cassa/Sala/Cucina il gesto verso il basso avvia un refresh manuale. Se Directus è abilitato esegue una riapplicazione completa (configurazione + pull dati), altrimenti aggiorna solo da IndexedDB.
 
 ### ⌨️ Tastiera Numerica Personalizzata (Cassa only)
 - Overlay a scomparsa dal basso (`NumericKeyboard.vue`) che sostituisce la tastiera del dispositivo per tutti i campi numerici della Cassa
