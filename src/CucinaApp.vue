@@ -25,8 +25,9 @@ import CucinaSettingsModal from './components/CucinaSettingsModal.vue';
 import PwaInstallBanner from './components/shared/PwaInstallBanner.vue';
 import LockScreen from './components/LockScreen.vue';
 import { useDirectusSync } from './composables/useDirectusSync.js';
-import { loadDirectusConfigFromStorage, directusEnabledRef } from './composables/useDirectusClient.js';
+import { loadDirectusConfigFromStorage } from './composables/useDirectusClient.js';
 import { useSyncStoreProxy } from './composables/useSyncStoreProxy.js';
+import { useAppSwipeRefresh } from './composables/useAppSwipeRefresh.js';
 
 const configStore = useConfigStore();
 const orderStore = useOrderStore();
@@ -34,11 +35,12 @@ const auth = useAuth();
 const sync = useDirectusSync();
 const showSettings = ref(false);
 const syncStore = useSyncStoreProxy(configStore, orderStore);
-const isSwipeRefreshing = ref(false);
-
-const SWIPE_REFRESH_THRESHOLD_PX = 80;
-let swipeStartY = 0;
-let swipeStartedAtTop = false;
+const swipeRefresh = useAppSwipeRefresh({
+  configStore,
+  orderStore,
+  sync,
+  logPrefix: 'CucinaApp',
+});
 
 useWakeLock();
 
@@ -77,52 +79,13 @@ async function onDirectusConfigUpdated() {
   await restartSync();
 }
 
-function _canStartPullRefresh(target) {
-  if (typeof window === 'undefined' || window.scrollY > 0) return false;
-  let node = target instanceof Element ? target : null;
-  while (node && node !== document.body) {
-    const style = window.getComputedStyle(node);
-    const overflowY = style?.overflowY ?? '';
-    const isScrollable = /(auto|scroll|overlay)/.test(overflowY) && node.scrollHeight > node.clientHeight;
-    if (isScrollable && node.scrollTop > 0) return false;
-    node = node.parentElement;
-  }
-  return true;
-}
-
-async function _runSwipeRefresh() {
-  if (isSwipeRefreshing.value) return;
-  isSwipeRefreshing.value = true;
-  try {
-    if (directusEnabledRef.value) {
-      await sync.reconfigureAndApply({ clearLocalConfig: false });
-      await sync.forcePull();
-    }
-    await Promise.all([
-      configStore.hydrateConfigFromIDB(),
-      orderStore.refreshOperationalStateFromIDB(),
-    ]);
-  } catch (error) {
-    console.warn('[CucinaApp] Swipe refresh failed:', error);
-  } finally {
-    isSwipeRefreshing.value = false;
-  }
-}
-
 function onRootTouchStart(event) {
   auth.recordActivity();
-  const touch = event.touches?.[0];
-  if (!touch) return;
-  swipeStartY = touch.clientY;
-  swipeStartedAtTop = _canStartPullRefresh(event.target);
+  swipeRefresh.onTouchStart(event);
 }
 
 function onRootTouchEnd(event) {
-  const touch = event.changedTouches?.[0];
-  if (!touch || !swipeStartedAtTop || isSwipeRefreshing.value) return;
-  const deltaY = touch.clientY - swipeStartY;
-  if (deltaY < SWIPE_REFRESH_THRESHOLD_PX) return;
-  void _runSwipeRefresh();
+  swipeRefresh.onTouchEnd(event);
 }
 
 onMounted(async () => {
