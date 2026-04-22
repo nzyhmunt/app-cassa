@@ -51,16 +51,11 @@ function normalizeSelectableApps(apps) {
   const parsed = normalizeAppsArray(apps);
   const normalized = parsed.filter((app) => ALL_APPS.includes(app));
   if (normalized.length === 0) {
-    const isExplicitEmptyArray = Array.isArray(apps) && apps.length === 0;
-    const shouldWarn = (
-      apps != null
-      && !isExplicitEmptyArray
-      && (!Array.isArray(apps) || parsed.length === 0)
-    );
+    const shouldWarn = apps != null && (!Array.isArray(apps) || parsed.length === 0);
     if (shouldWarn) {
-      console.warn('[Auth] Invalid apps configuration detected (non-array or only invalid entries after normalization), granting full app access by fallback.', apps);
+      console.warn('[Auth] Invalid apps configuration detected (non-array or only invalid entries after normalization), denying app access for this user.', apps);
     }
-    return [...ALL_APPS];
+    return [];
   }
   return normalized;
 }
@@ -77,11 +72,11 @@ function normalizeAccessApps(apps) {
   const scopedApps = normalized.filter((app) => ALL_APPS.includes(app));
   if (scopedApps.length === 0) {
     if (apps != null) {
-      console.warn('[Auth] Invalid or empty user apps detected during access normalization; granting full app access fallback to avoid auth bypass.', apps);
+      console.warn('[Auth] Invalid or empty user apps detected during access normalization; denying app access for this user.', apps);
     }
     return {
       isAdmin: false,
-      apps: [...ALL_APPS],
+      apps: [],
     };
   }
   return {
