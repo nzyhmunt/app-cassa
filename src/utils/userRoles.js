@@ -1,8 +1,9 @@
 /**
- * Normalize Directus `venue_users.apps` into a unique lower-cased array.
+ * Normalize Directus `venue_users.apps` into a unique lowercase array.
  *
  * Accepted shape:
  * - array: ["admin"] or ["cassa", "sala"]
+ * - any non-array input returns []
  *
  * @param {unknown} value
  * @returns {string[]}

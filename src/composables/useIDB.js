@@ -43,7 +43,7 @@ const DB_NAME_PREFIX = 'app-cassa';
  *               `order_legacy` (order_items), `order_item_legacy`/`order_legacy`/
  *               `item_uid_legacy` (order_item_modifiers). All records carry canonical
  *               snake_case FK values since v5; these indexes are no longer queried.
- *  v11 — `venue_users` index renamed from `role` to multiEntry `apps` to align with
+ *  v11 — `venue_users` index migrated from `role` to multiEntry `apps` to align with
  *               Directus `venue_users.apps` permissions model.
  *
  * To add a new version (e.g. v12):

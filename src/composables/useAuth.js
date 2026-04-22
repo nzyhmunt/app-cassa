@@ -17,6 +17,7 @@ const PIN_REGEX = new RegExp(`^\\d{${PIN_LENGTH}}$`);
  * A user with `apps` containing all three has unrestricted access.
  */
 export const ALL_APPS = ['cassa', 'sala', 'cucina'];
+const ADMIN_APP = 'admin';
 
 /**
  * Available auto-lock timeout options (in minutes).
@@ -47,14 +48,20 @@ function detectCurrentApp() {
 }
 
 function normalizeSelectableApps(apps) {
-  const normalized = normalizeAppsArray(apps).filter((app) => ALL_APPS.includes(app));
-  if (normalized.length === 0) return [...ALL_APPS];
+  const parsed = normalizeAppsArray(apps);
+  const normalized = parsed.filter((app) => ALL_APPS.includes(app));
+  if (normalized.length === 0) {
+    if (apps != null && parsed.length === 0) {
+      console.warn('[Auth] Invalid apps configuration detected, granting full app access by fallback.');
+    }
+    return [...ALL_APPS];
+  }
   return normalized;
 }
 
 function normalizeAccessApps(apps) {
   const normalized = normalizeAppsArray(apps);
-  const isAdmin = normalized.includes('admin');
+  const isAdmin = normalized.includes(ADMIN_APP);
   if (isAdmin) {
     return {
       isAdmin: true,
@@ -69,6 +76,8 @@ function normalizeAccessApps(apps) {
 
 function deriveUserAccess(user) {
   const fromApps = normalizeAccessApps(user?.apps);
+  // Manual users are created locally by this app and persisted with `_type: 'manual_user'`
+  // in `saveUsersToIDB()`. Their admin flag stays explicit on `user.isAdmin`.
   const isManualAdmin = user?._type === 'manual_user' && user?.isAdmin === true;
   const isAdmin = isManualAdmin || fromApps.isAdmin;
   return {
