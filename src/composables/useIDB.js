@@ -354,7 +354,8 @@ export function getDB() {
         // Backfill existing records so the new app-based index and auth logic
         // can see users persisted before v11. Preserve any valid existing apps
         // array; otherwise map the legacy `role` string to a single app entry.
-        // If neither is available, default to an empty array (deny by default).
+        // If neither is available, store an empty array; current auth logic
+        // normalizes empty/invalid `apps` to broad access rather than deny-by-default.
         let cursor = await s.openCursor();
         while (cursor) {
           const value = cursor.value || {};
