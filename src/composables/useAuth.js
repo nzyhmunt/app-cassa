@@ -2,7 +2,7 @@ import { ref, computed } from 'vue';
 import { getInstanceName } from '../store/persistence.js';
 import { appConfig } from '../utils/index.js';
 import { hashPin, PIN_LENGTH } from '../utils/pinAuth.js';
-import { normalizeRoleArray } from '../utils/userRoles.js';
+import { normalizeAppsArray } from '../utils/userRoles.js';
 import { newUUIDv7 } from '../store/storeUtils.js';
 import {
   loadUsersFromIDB, saveUsersToIDB,
@@ -17,18 +17,6 @@ const PIN_REGEX = new RegExp(`^\\d{${PIN_LENGTH}}$`);
  * A user with `apps` containing all three has unrestricted access.
  */
 export const ALL_APPS = ['cassa', 'sala', 'cucina'];
-const ROLE_ALIASES_TO_CANONICAL = {
-  // Directus currently stores Italian role labels in `venue_users.role`.
-  admin: 'admin',
-  cassiere: 'cashier',
-  cameriere: 'waiter',
-  cuoco: 'chef',
-};
-const ROLE_TO_APPS = {
-  cashier: ['cassa'],
-  waiter: ['sala'],
-  chef: ['cucina'],
-};
 
 /**
  * Available auto-lock timeout options (in minutes).
@@ -58,41 +46,34 @@ function detectCurrentApp() {
   return 'cassa';
 }
 
-/**
- * Normalise an `apps` value: ensure it is a non-empty subset of ALL_APPS.
- * Falls back to a copy of ALL_APPS when the input is invalid or empty.
- * @param {any} apps
- * @returns {string[]}
- */
-function normalizeUserApps(apps) {
-  if (Array.isArray(apps) && apps.length > 0) return [...apps];
-  return [...ALL_APPS];
+function normalizeSelectableApps(apps) {
+  const normalized = normalizeAppsArray(apps).filter((app) => ALL_APPS.includes(app));
+  if (normalized.length === 0) return [...ALL_APPS];
+  return normalized;
 }
 
-function deriveUserAccess(user) {
-  const role = normalizeRoleArray(user?.role);
-  const canonicalRoles = role.map((entry) => ROLE_ALIASES_TO_CANONICAL[entry] ?? entry);
-  const hasRoleInfo = canonicalRoles.length > 0;
-  if (canonicalRoles.includes('admin')) {
+function normalizeAccessApps(apps) {
+  const normalized = normalizeAppsArray(apps);
+  const isAdmin = normalized.includes('admin');
+  if (isAdmin) {
     return {
-      role,
       isAdmin: true,
       apps: [...ALL_APPS],
     };
   }
-
-  const appsFromRole = new Set();
-  canonicalRoles.forEach((entry) => {
-    const mappedApps = ROLE_TO_APPS[entry] ?? [];
-    mappedApps.forEach((app) => appsFromRole.add(app));
-  });
-
   return {
-    role,
-    // Legacy/manual users may not expose role[] yet; preserve explicit isAdmin
-    // only in that compatibility path.
-    isAdmin: hasRoleInfo ? false : user?.isAdmin === true,
-    apps: appsFromRole.size > 0 ? Array.from(appsFromRole) : normalizeUserApps(user?.apps),
+    isAdmin: false,
+    apps: normalized.filter((app) => ALL_APPS.includes(app)),
+  };
+}
+
+function deriveUserAccess(user) {
+  const fromApps = normalizeAccessApps(user?.apps);
+  const isManualAdmin = user?._type === 'manual_user' && user?.isAdmin === true;
+  const isAdmin = isManualAdmin || fromApps.isAdmin;
+  return {
+    isAdmin,
+    apps: isAdmin ? [...ALL_APPS] : fromApps.apps,
   };
 }
 
@@ -140,7 +121,7 @@ function _buildConfigUsers() {
   return (appConfig.auth?.users ?? []).map((u) => ({
     id: u.id,
     name: u.name,
-    apps: normalizeUserApps(u.apps),
+    apps: normalizeSelectableApps(u.apps),
     fromConfig: true,
     isAdmin: false,
     pin: null, // never stored — hashes are kept in _configUserHashes
@@ -345,7 +326,7 @@ export function useAuth() {
       id,
       name: name.trim(),
       pin: pinHash,
-      apps: adminFlag ? [...ALL_APPS] : normalizeUserApps(apps),
+      apps: adminFlag ? [...ALL_APPS] : normalizeSelectableApps(apps),
       isAdmin: adminFlag,
       fromConfig: false,
     };

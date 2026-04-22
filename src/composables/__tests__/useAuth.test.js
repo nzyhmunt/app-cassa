@@ -413,14 +413,14 @@ describe('persistence across singleton resets', () => {
     expect(lockTimeoutMinutes.value).toBe(15);
   });
 
-  it('hydrates Directus users with role ["admin"] as admin with full app access', async () => {
+  it('hydrates Directus users with apps ["admin"] as admin with full app access', async () => {
     const { getDB } = await import('../useIDB.js');
     const db = await getDB();
     await db.put('venue_users', {
       id: 'vu_admin',
       name: 'Admin Directus',
       display_name: 'Admin Directus',
-      role: ['admin'],
+      apps: ['admin'],
       pin: await sha256('1234'),
       status: 'active',
     });
@@ -436,14 +436,14 @@ describe('persistence across singleton resets', () => {
     expect(adminUser.apps).toEqual(ALL_APPS);
   });
 
-  it('hydrates Directus users with multi-role arrays into the expected app access', async () => {
+  it('hydrates Directus users with scoped apps into the expected app access', async () => {
     const { getDB } = await import('../useIDB.js');
     const db = await getDB();
     await db.put('venue_users', {
       id: 'vu_multi_role',
       name: 'Operatore Multi',
       display_name: 'Operatore Multi',
-      role: ['cameriere', 'cuoco'],
+      apps: ['sala', 'cucina'],
       pin: await sha256('5678'),
       status: 'active',
     });
