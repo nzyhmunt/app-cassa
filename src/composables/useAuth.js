@@ -2,6 +2,7 @@ import { ref, computed } from 'vue';
 import { getInstanceName } from '../store/persistence.js';
 import { appConfig } from '../utils/index.js';
 import { hashPin, PIN_LENGTH } from '../utils/pinAuth.js';
+import { normalizeRoleArray } from '../utils/userRoles.js';
 import { newUUIDv7 } from '../store/storeUtils.js';
 import {
   loadUsersFromIDB, saveUsersToIDB,
@@ -16,10 +17,19 @@ const PIN_REGEX = new RegExp(`^\\d{${PIN_LENGTH}}$`);
  * A user with `apps` containing all three has unrestricted access.
  */
 export const ALL_APPS = ['cassa', 'sala', 'cucina'];
+const ROLE_ALIASES_TO_CANONICAL = {
+  admin: 'admin',
+  cassiere: 'cashier',
+  cameriere: 'waiter',
+  cuoco: 'chef',
+  cashier: 'cashier',
+  waiter: 'waiter',
+  chef: 'chef',
+};
 const ROLE_TO_APPS = {
-  cassiere: ['cassa'],
-  cameriere: ['sala'],
-  cuoco: ['cucina'],
+  cashier: ['cassa'],
+  waiter: ['sala'],
+  chef: ['cucina'],
 };
 
 /**
@@ -61,39 +71,10 @@ function normalizeUserApps(apps) {
   return [...ALL_APPS];
 }
 
-function normalizeUserRoles(roles) {
-  const normalized = [];
-  const appendRole = (raw) => {
-    if (typeof raw !== 'string') return;
-    const role = raw.trim().toLowerCase();
-    if (!role || normalized.includes(role)) return;
-    normalized.push(role);
-  };
-
-  if (Array.isArray(roles)) {
-    roles.forEach(appendRole);
-    return normalized;
-  }
-  if (typeof roles !== 'string') return normalized;
-
-  const trimmed = roles.trim();
-  if (!trimmed) return normalized;
-  try {
-    const parsed = JSON.parse(trimmed);
-    if (Array.isArray(parsed)) {
-      parsed.forEach(appendRole);
-      return normalized;
-    }
-  } catch (_) {
-    // fall through to scalar parsing
-  }
-  appendRole(trimmed);
-  return normalized;
-}
-
 function deriveUserAccess(user) {
-  const role = normalizeUserRoles(user?.role);
-  if (role.includes('admin')) {
+  const role = normalizeRoleArray(user?.role);
+  const canonicalRoles = role.map((entry) => ROLE_ALIASES_TO_CANONICAL[entry] ?? entry);
+  if (canonicalRoles.includes('admin')) {
     return {
       role,
       isAdmin: true,
@@ -102,7 +83,7 @@ function deriveUserAccess(user) {
   }
 
   const appsFromRole = new Set();
-  role.forEach((entry) => {
+  canonicalRoles.forEach((entry) => {
     const mappedApps = ROLE_TO_APPS[entry] ?? [];
     mappedApps.forEach((app) => appsFromRole.add(app));
   });

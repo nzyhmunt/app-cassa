@@ -14,6 +14,7 @@
 import { getDB } from '../composables/useIDB.js';
 import { appConfig } from '../utils/index.js';
 import { hashPin, PIN_LENGTH } from '../utils/pinAuth.js';
+import { normalizeRoleArray } from '../utils/userRoles.js';
 import { newUUIDv7 } from './storeUtils.js';
 import { touchStorageKey } from './persistence.js';
 
@@ -864,43 +865,6 @@ export async function upsertRecordsIntoIDB(storeName, records) {
     }
     return [];
   };
-  const normalizeRoleArray = (value) => {
-    const normalized = [];
-    const appendRole = (raw) => {
-      if (typeof raw !== 'string') return;
-      const role = raw.trim().toLowerCase();
-      if (!role || normalized.includes(role)) return;
-      normalized.push(role);
-    };
-
-    if (Array.isArray(value)) {
-      value.forEach(appendRole);
-      return normalized;
-    }
-    if (typeof value !== 'string') return normalized;
-
-    const trimmed = value.trim();
-    if (!trimmed) return normalized;
-
-    try {
-      const parsed = JSON.parse(trimmed);
-      if (Array.isArray(parsed)) {
-        parsed.forEach(appendRole);
-        return normalized;
-      }
-    } catch (_) {
-      // fall through to scalar / CSV parsing
-    }
-
-    if (trimmed.includes(',')) {
-      trimmed.split(',').forEach(appendRole);
-      return normalized;
-    }
-
-    appendRole(trimmed);
-    return normalized;
-  };
-
   const normalizeIncomingSync = (collection, record) => {
     if (!record || typeof record !== 'object') return record;
     const normalized = { ...record };
