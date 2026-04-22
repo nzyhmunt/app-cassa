@@ -56,7 +56,7 @@ Le collection sono state create rispettando le dipendenze tra chiavi esterne (FK
 
 ### 2. `venue_users` — Operatori locali
 - **PK**: `id` (UUID v7)
-- **Campi**: `venue` (FK→venues), `display_name`, `apps` (array JSON: `admin`, `cassa`, `sala`, `cucina`), `pin_hash` (hash), `status`
+- **Campi**: `venue` (FK→venues), `display_name`, `apps` (array JSON: `admin`, `cassa`, `sala`, `cucina`), `pin` (plaintext in Directus; hashed client-side during sync for local storage), `status`
 - **Campi standard**: `user_created`, `date_created`, `user_updated`, `date_updated`
 - **URL**: https://dev.nanawork.it/admin/content/venue_users
 
