@@ -27,6 +27,7 @@ import { getDB } from './useIDB.js';
 import { newUUIDv7 } from '../store/storeUtils.js';
 import { appConfig } from '../utils/index.js';
 import { mapPayloadToDirectus } from '../utils/mappers.js';
+import { loadAuthSessionFromIDB } from '../store/persistence/operations.js';
 
 /**
  * Maximum push attempts before a queue entry is abandoned.
@@ -75,13 +76,19 @@ export function _resetEnqueueSeq() {}
  */
 export async function enqueue(collection, operation, recordId, payload) {
   try {
+    const venueUserId = await loadAuthSessionFromIDB().catch((error) => {
+      console.warn('[SyncQueue] Failed to load auth session user for audit payload enrichment:', error);
+      return null;
+    });
+    const payloadWithAudit = _withVenueUserAuditPayload(collection, operation, payload ?? null, venueUserId);
+
     const db = await getDB();
     await db.add('sync_queue', {
       id: newUUIDv7('sq'),
       collection,
       operation,
       record_id: recordId,
-      payload: payload ?? null,
+      payload: payloadWithAudit,
       date_created: new Date().toISOString(),
       attempts: 0,
     });
@@ -234,6 +241,18 @@ const VENUE_REQUIRED_CREATE_COLLECTIONS = new Set([
   'printers',
 ]);
 
+const VENUE_USER_AUDIT_COLLECTIONS = new Set([
+  'bill_sessions',
+  'orders',
+  'order_items',
+  'order_item_modifiers',
+  'transactions',
+  'cash_movements',
+  'daily_closures',
+  'daily_closure_by_method',
+  'print_jobs',
+]);
+
 /**
  * Injects required Directus defaults for legacy/sparse queue payloads.
  *
@@ -254,6 +273,26 @@ function _withRequiredDefaults(collection, operation, payload, cfg) {
   ) {
     out.venue = cfg.venueId;
   }
+  return out;
+}
+
+function _withVenueUserAuditPayload(collection, operation, payload, venueUserId) {
+  if (operation === 'delete') return payload ?? null;
+  if (!VENUE_USER_AUDIT_COLLECTIONS.has(collection)) return payload ?? null;
+  if (!payload || typeof payload !== 'object') return payload ?? null;
+  if (!_isPresentValue(venueUserId)) return payload;
+
+  const out = { ...payload };
+  const hasCreated = _isPresentValue(out.venue_user_created);
+  const hasUpdated = _isPresentValue(out.venue_user_updated);
+
+  if (operation === 'create' && !hasCreated) {
+    out.venue_user_created = venueUserId;
+  }
+  if ((operation === 'create' || operation === 'update') && !hasUpdated) {
+    out.venue_user_updated = venueUserId;
+  }
+
   return out;
 }
 
@@ -308,14 +347,15 @@ function _buildRestClient(cfg) {
  *   }
  * >}
  */
-async function _pushEntry(entry, sdkClient, cfg) {
+async function _pushEntry(entry, sdkClient, cfg, venueUserId = null) {
   const { collection, operation, record_id, payload } = entry;
 
   // Translate local field names to Directus schema names (create/update only;
   // delete operations use record_id directly and ignore the payload).
   let directusPayload = {};
   if (operation !== 'delete') {
-    const mappedPayload = mapPayloadToDirectus(collection, payload, {
+    const payloadWithAudit = _withVenueUserAuditPayload(collection, operation, payload, venueUserId);
+    const mappedPayload = mapPayloadToDirectus(collection, payloadWithAudit, {
       paymentMethods: Array.isArray(appConfig?.paymentMethods) ? appConfig.paymentMethods : [],
     });
     directusPayload = _withRequiredDefaults(collection, operation, mappedPayload, cfg);
@@ -441,13 +481,17 @@ async function _pushEntry(entry, sdkClient, cfg) {
 export async function drainQueue(cfg) {
   const sdkClient = _buildRestClient(cfg);
   const entries = await getPendingEntries();
+  const venueUserId = await loadAuthSessionFromIDB().catch((error) => {
+    console.warn('[SyncQueue] Failed to load auth session user for push audit payload enrichment:', error);
+    return null;
+  });
   const backoffBase = typeof cfg._backoffMs === 'number' ? cfg._backoffMs : 1000;
   let pushed = 0, failed = 0, abandoned = 0;
   /** @type {{collection: string, recordId: string}[]} */
   const pushedIds = [];
 
   for (const entry of entries) {
-    const result = await _pushEntry(entry, sdkClient, cfg);
+    const result = await _pushEntry(entry, sdkClient, cfg, venueUserId);
 
     if (result === true || result === 'skip') {
       await removeEntry(entry.id);

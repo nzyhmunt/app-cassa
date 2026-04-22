@@ -25,6 +25,7 @@ import {
   MAX_ATTEMPTS,
   _resetEnqueueSeq,
 } from '../../composables/useSyncQueue.js';
+import { saveAuthSessionToIDB } from '../persistence/operations.js';
 
 // Pass _backoffMs:0 to skip exponential back-off delays in all tests.
 const FAKE_CFG = { url: 'https://directus.test', staticToken: 'tok_test', _backoffMs: 0 };
@@ -79,6 +80,43 @@ describe('enqueue()', () => {
     expect(entries).toHaveLength(2);
     expect(entries[0].operation).toBe('create');
     expect(entries[1].operation).toBe('update');
+  });
+
+  it('injects venue_user_created and venue_user_updated from auth session on create for audit-enabled collections', async () => {
+    await saveAuthSessionToIDB('vu_pin_1');
+    await enqueue('orders', 'create', 'ord_audit_1', { id: 'ord_audit_1', status: 'pending' });
+
+    const entries = await getPendingEntries();
+    expect(entries).toHaveLength(1);
+    expect(entries[0].payload).toMatchObject({
+      id: 'ord_audit_1',
+      venue_user_created: 'vu_pin_1',
+      venue_user_updated: 'vu_pin_1',
+    });
+  });
+
+  it('injects only venue_user_updated from auth session on update for audit-enabled collections', async () => {
+    await saveAuthSessionToIDB('vu_pin_2');
+    await enqueue('transactions', 'update', 'txn_audit_1', { amountPaid: 20 });
+
+    const entries = await getPendingEntries();
+    expect(entries).toHaveLength(1);
+    expect(entries[0].payload.venue_user_created).toBeUndefined();
+    expect(entries[0].payload.venue_user_updated).toBe('vu_pin_2');
+  });
+
+  it('does not override explicit venue_user audit fields in payload', async () => {
+    await saveAuthSessionToIDB('vu_pin_3');
+    await enqueue('daily_closures', 'create', 'close_audit_1', {
+      id: 'close_audit_1',
+      venue_user_created: 'vu_manual_created',
+      venue_user_updated: 'vu_manual_updated',
+    });
+
+    const entries = await getPendingEntries();
+    expect(entries).toHaveLength(1);
+    expect(entries[0].payload.venue_user_created).toBe('vu_manual_created');
+    expect(entries[0].payload.venue_user_updated).toBe('vu_manual_updated');
   });
 });
 
