@@ -23,9 +23,6 @@ const ROLE_ALIASES_TO_CANONICAL = {
   cassiere: 'cashier',
   cameriere: 'waiter',
   cuoco: 'chef',
-  cashier: 'cashier',
-  waiter: 'waiter',
-  chef: 'chef',
 };
 const ROLE_TO_APPS = {
   cashier: ['cassa'],
@@ -92,6 +89,8 @@ function deriveUserAccess(user) {
 
   return {
     role,
+    // Legacy/manual users may not expose role[] yet; preserve explicit isAdmin
+    // only in that compatibility path.
     isAdmin: hasRoleInfo ? false : user?.isAdmin === true,
     apps: appsFromRole.size > 0 ? Array.from(appsFromRole) : normalizeUserApps(user?.apps),
   };
