@@ -18,6 +18,7 @@ const PIN_REGEX = new RegExp(`^\\d{${PIN_LENGTH}}$`);
  */
 export const ALL_APPS = ['cassa', 'sala', 'cucina'];
 const ROLE_ALIASES_TO_CANONICAL = {
+  // Directus currently stores Italian role labels in `venue_users.role`.
   admin: 'admin',
   cassiere: 'cashier',
   cameriere: 'waiter',
@@ -74,6 +75,7 @@ function normalizeUserApps(apps) {
 function deriveUserAccess(user) {
   const role = normalizeRoleArray(user?.role);
   const canonicalRoles = role.map((entry) => ROLE_ALIASES_TO_CANONICAL[entry] ?? entry);
+  const hasRoleInfo = canonicalRoles.length > 0;
   if (canonicalRoles.includes('admin')) {
     return {
       role,
@@ -90,7 +92,7 @@ function deriveUserAccess(user) {
 
   return {
     role,
-    isAdmin: user?.isAdmin === true,
+    isAdmin: hasRoleInfo ? false : user?.isAdmin === true,
     apps: appsFromRole.size > 0 ? Array.from(appsFromRole) : normalizeUserApps(user?.apps),
   };
 }
