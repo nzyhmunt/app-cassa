@@ -459,6 +459,30 @@ describe('persistence across singleton resets', () => {
     expect(multiRoleUser.apps).toEqual(['sala', 'cucina']);
     expect(visibleUsers.value.map((u) => u.id)).not.toContain('vu_multi_role');
   });
+
+  it('hydrates Directus users without apps using full app fallback to avoid open-mode bypass', async () => {
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+    await db.put('venue_users', {
+      id: 'vu_legacy_no_apps',
+      name: 'Legacy User',
+      display_name: 'Legacy User',
+      pin: await sha256('6789'),
+      status: 'active',
+    });
+
+    _resetAuthSingleton();
+    useAuth();
+    await _waitForAuth();
+
+    const { users, visibleUsers, requiresAuth } = useAuth();
+    const legacyUser = users.value.find((u) => u.id === 'vu_legacy_no_apps');
+    expect(legacyUser).toBeTruthy();
+    expect(legacyUser.isAdmin).toBe(false);
+    expect(legacyUser.apps).toEqual(ALL_APPS);
+    expect(visibleUsers.value.map((u) => u.id)).toContain('vu_legacy_no_apps');
+    expect(requiresAuth.value).toBe(true);
+  });
 });
 
 // ── Auto-lock timer ───────────────────────────────────────────────────────────
