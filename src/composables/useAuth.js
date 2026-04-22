@@ -74,9 +74,19 @@ function normalizeAccessApps(apps) {
       apps: [...ALL_APPS],
     };
   }
+  const scopedApps = normalized.filter((app) => ALL_APPS.includes(app));
+  if (scopedApps.length === 0) {
+    if (apps != null) {
+      console.warn('[Auth] Invalid or empty user apps detected during access normalization; granting full app access fallback to avoid auth bypass.', apps);
+    }
+    return {
+      isAdmin: false,
+      apps: [...ALL_APPS],
+    };
+  }
   return {
     isAdmin: false,
-    apps: normalized.filter((app) => ALL_APPS.includes(app)),
+    apps: scopedApps,
   };
 }
 
