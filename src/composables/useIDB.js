@@ -350,6 +350,33 @@ export function getDB() {
         if (!s.indexNames.contains('apps')) {
           s.createIndex('apps', 'apps', { unique: false, multiEntry: true });
         }
+
+        // Backfill existing records so the new app-based index and auth logic
+        // can see users persisted before v11. Preserve any valid existing apps
+        // array; otherwise map the legacy `role` string to a single app entry.
+        // If neither is available, default to an empty array (deny by default).
+        let cursor = await s.openCursor();
+        while (cursor) {
+          const value = cursor.value || {};
+          const hasValidApps = Array.isArray(value.apps);
+          const migratedApps = hasValidApps
+            ? value.apps.filter((app) => typeof app === 'string' && app.trim())
+            : (typeof value.role === 'string' && value.role.trim() ? [value.role.trim()] : []);
+
+          const shouldUpdate =
+            !hasValidApps ||
+            migratedApps.length !== value.apps.length ||
+            migratedApps.some((app, i) => app !== value.apps[i]);
+
+          if (shouldUpdate) {
+            await cursor.update({
+              ...value,
+              apps: migratedApps,
+            });
+          }
+
+          cursor = await cursor.continue();
+        }
       }
 
       // ── Sync queue (local-only, never pushed as-is to Directus) ──────────
