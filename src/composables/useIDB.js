@@ -362,8 +362,8 @@ export function getDB() {
             ? value.apps.filter((app) => typeof app === 'string' && app.trim())
             : [];
           const hasLegacyRoleFields = (
-            Object.prototype.hasOwnProperty.call(value, 'role')
-            || Object.prototype.hasOwnProperty.call(value, 'role2')
+            Object.hasOwn(value, 'role')
+            || Object.hasOwn(value, 'role2')
           );
 
           const shouldNormalizeApps =
