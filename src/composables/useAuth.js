@@ -51,8 +51,14 @@ function normalizeSelectableApps(apps) {
   const parsed = normalizeAppsArray(apps);
   const normalized = parsed.filter((app) => ALL_APPS.includes(app));
   if (normalized.length === 0) {
-    if (apps != null && parsed.length === 0) {
-      console.warn('[Auth] Invalid apps configuration detected (non-array or empty after normalization), granting full app access by fallback.', apps);
+    const isExplicitEmptyArray = Array.isArray(apps) && apps.length === 0;
+    const shouldWarn = (
+      apps != null
+      && !isExplicitEmptyArray
+      && (!Array.isArray(apps) || parsed.length === 0)
+    );
+    if (shouldWarn) {
+      console.warn('[Auth] Invalid apps configuration detected (non-array or only invalid entries after normalization), granting full app access by fallback.', apps);
     }
     return [...ALL_APPS];
   }
