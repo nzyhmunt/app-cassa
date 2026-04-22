@@ -14,6 +14,7 @@
 import { getDB } from '../composables/useIDB.js';
 import { appConfig } from '../utils/index.js';
 import { hashPin, PIN_LENGTH } from '../utils/pinAuth.js';
+import { normalizeAppsArray } from '../utils/userRoles.js';
 import { newUUIDv7 } from './storeUtils.js';
 import { touchStorageKey } from './persistence.js';
 
@@ -864,7 +865,6 @@ export async function upsertRecordsIntoIDB(storeName, records) {
     }
     return [];
   };
-
   const normalizeIncomingSync = (collection, record) => {
     if (!record || typeof record !== 'object') return record;
     const normalized = { ...record };
@@ -928,6 +928,9 @@ export async function upsertRecordsIntoIDB(storeName, records) {
       if ((normalized.display_name == null || normalized.display_name === '') && normalized.name != null) {
         normalized.display_name = normalized.name;
       }
+      normalized.apps = normalizeAppsArray(normalized.apps);
+      delete normalized.role;
+      delete normalized.role2;
     }
     return normalized;
   };

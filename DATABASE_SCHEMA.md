@@ -863,7 +863,7 @@ CREATE TABLE venue_users (
     id           UUID         PRIMARY KEY,                -- UUID v7 generato client-side
     venue        INTEGER      NOT NULL REFERENCES venues(id) ON DELETE CASCADE,
     display_name VARCHAR(100) NOT NULL,
-    role         VARCHAR(50)  NOT NULL,                  -- 'admin' | 'cassiere' | 'cameriere' | 'cuoco'
+    apps         JSONB        NOT NULL,                  -- array: ["admin"] oppure sottoinsieme di ["cassa","sala","cucina"]
     pin          VARCHAR(255) NOT NULL,                  -- plaintext PIN su Directus (hash lato app in fase di sync)
     status       VARCHAR(20)  NOT NULL DEFAULT 'active', -- 'active' | 'archived'
     -- Directus standard fields
@@ -875,7 +875,7 @@ CREATE TABLE venue_users (
 
 CREATE INDEX idx_venue_users_venue  ON venue_users (venue);
 CREATE INDEX idx_venue_users_status ON venue_users (status);
-CREATE INDEX idx_venue_users_role   ON venue_users (role);
+CREATE INDEX idx_venue_users_apps   ON venue_users USING GIN (apps);
 ```
 
 ---
@@ -1322,7 +1322,7 @@ ObjectStore: menu_modifiers   keyPath: id    indexes: [venue, date_updated]
 ObjectStore: menu_categories_menu_modifiers keyPath: id indexes: [menu_categories_id, menu_modifiers_id, venue, date_updated]
 ObjectStore: menu_items_menu_modifiers      keyPath: id indexes: [menu_items_id, menu_modifiers_id, venue, date_updated]
 ObjectStore: printers         keyPath: id
-ObjectStore: venue_users      keyPath: id    indexes: [venue, role, status]
+ObjectStore: venue_users      keyPath: id    indexes: [venue, apps, status]
 
 -- Coda di sincronizzazione (operazioni in attesa di push verso Directus)
 -- Questo store è locale-only: non viene mai inviato a Directus.
@@ -1906,7 +1906,7 @@ CREATE TABLE venue_users (
   id           UUID PRIMARY KEY,              -- UUID v7 generato client-side
   venue        INTEGER      NOT NULL REFERENCES venues(id),
   display_name VARCHAR(100) NOT NULL,
-  role         VARCHAR(50)  NOT NULL,         -- 'admin' | 'cassiere' | 'cameriere' | 'cuoco'
+  apps         JSONB        NOT NULL,         -- array: ["admin"] oppure sottoinsieme di ["cassa","sala","cucina"]
   pin          VARCHAR(255) NOT NULL,         -- plaintext PIN su Directus (hash SHA-256 lato app in fase di sync)
   status       VARCHAR(20)  NOT NULL DEFAULT 'active', -- 'active' | 'archived'
   -- Directus standard fields
@@ -1936,7 +1936,7 @@ venue_users
   Indexes:
     - venue          (non-unique) — lista utenti per venue
     - status         (non-unique) — filtra solo 'active'
-    - role           (non-unique) — filtra per ruolo
+    - apps           (non-unique, multiEntry) — filtra per app abilitata
 ```
 
 ##### Flusso di accesso con PIN
@@ -1995,8 +1995,8 @@ record.venue_user_updated = currentPinUser?.id ?? null
   sulla collection `venue_users`. Non possono creare, modificare o cancellare utenti.
 - **plaintext PIN + hash locale**: il campo `pin` viene letto da Directus; prima della
   persistenza locale il client lo trasforma in hash SHA-256 e mantiene in IndexedDB solo
-  l’hash. Assicurarsi che il ruolo Directus del dispositivo esponga solo i campi necessari
-  (`id`, `display_name`, `role`, `pin`, `status`).
+  l’hash. Assicurarsi che i permessi Directus del dispositivo espongano solo i campi necessari
+  (`id`, `display_name`, `apps`, `pin`, `status`).
 - **Protezione trasporto e accesso**: usare sempre HTTPS end-to-end e policy RBAC
   minimali (read-only per i device) sulla collection `venue_users`; in ambiente server
   assicurare cifratura at-rest del database Directus secondo policy infrastrutturali.
@@ -2115,7 +2115,7 @@ invece degli UUID:
 | Collection         | `display_template`                    |
 |--------------------|---------------------------------------|
 | `venues`           | `{{name}}`                            |
-| `venue_users`      | `{{display_name}} ({{role}})`         |
+| `venue_users`      | `{{display_name}} ({{apps}})`         |
 | `rooms`            | `{{label}}`                           |
 | `tables`           | `{{label}}`                           |
 | `menu_categories`  | `{{name}}`                            |

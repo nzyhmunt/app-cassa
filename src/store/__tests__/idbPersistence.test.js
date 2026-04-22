@@ -721,7 +721,7 @@ describe('upsertRecordsIntoIDB() venue_users PIN normalization', () => {
         id: 'vu_sync_1',
         venue: 1,
         display_name: 'Mario',
-        role: 'cassiere',
+        apps: ['cassa'],
         pin: '1234',
         status: 'active',
         date_updated: '2026-01-01T00:00:00.000Z',
@@ -735,6 +735,7 @@ describe('upsertRecordsIntoIDB() venue_users PIN normalization', () => {
     expect(stored.pin).not.toBe('1234');
     expect(stored.name).toBe('Mario');
     expect(stored.display_name).toBe('Mario');
+    expect(stored.apps).toEqual(['cassa']);
   });
 
   it('uses the first 4 numeric characters from trimmed pin before hashing', async () => {
@@ -746,7 +747,7 @@ describe('upsertRecordsIntoIDB() venue_users PIN normalization', () => {
         id: 'vu_sync_2',
         venue: 1,
         display_name: 'Luigi',
-        role: 'cameriere',
+        apps: ['sala'],
         pin: ' 12a3-4xyz99 ',
         status: 'active',
         date_updated: '2026-01-02T00:00:00.000Z',
@@ -767,7 +768,7 @@ describe('upsertRecordsIntoIDB() venue_users PIN normalization', () => {
         id: 'vu_sync_numeric_pin',
         venue: 1,
         display_name: 'Numeric',
-        role: 'cassiere',
+        apps: ['cassa'],
         pin: 1234,
         status: 'active',
         date_updated: '2026-01-02T12:00:00.000Z',
@@ -790,7 +791,7 @@ describe('upsertRecordsIntoIDB() venue_users PIN normalization', () => {
           id: 'vu_sync_ws',
           venue: 1,
           display_name: 'Toad',
-          role: 'cameriere',
+          apps: ['sala'],
           pin: '   ',
           status: 'active',
           date_updated: '2026-01-03T00:00:00.000Z',
@@ -818,7 +819,7 @@ describe('upsertRecordsIntoIDB() venue_users PIN normalization', () => {
         id: 'vu_sync_stale',
         venue: 1,
         display_name: 'Peach',
-        role: 'cassiere',
+        apps: ['cassa'],
         pin: await sha256('9999'),
         status: 'active',
         date_updated: '2026-01-10T00:00:00.000Z',
@@ -829,7 +830,7 @@ describe('upsertRecordsIntoIDB() venue_users PIN normalization', () => {
           id: 'vu_sync_stale',
           venue: 1,
           display_name: 'Peach',
-          role: 'cassiere',
+          apps: ['cassa'],
           pin: 'invalid-pin',
           status: 'active',
           date_updated: '2026-01-01T00:00:00.000Z',
@@ -858,7 +859,7 @@ describe('upsertRecordsIntoIDB() venue_users PIN normalization', () => {
         id: 'vu_sync_valid_after_invalid',
         venue: 1,
         display_name: 'Daisy',
-        role: 'cassiere',
+        apps: ['cassa'],
         pin: '5678',
         status: 'active',
         date_updated: '2026-01-11T00:00:00.000Z',
@@ -868,6 +869,26 @@ describe('upsertRecordsIntoIDB() venue_users PIN normalization', () => {
     expect(written).toBe(1);
     const stored = await db.get('venue_users', 'vu_sync_valid_after_invalid');
     expect(stored.pin).toBe(await sha256('5678'));
+  });
+
+  it('normalizes venue_users.apps to lowercase unique entries', async () => {
+    const { getDB } = await import('../../composables/useIDB.js');
+    const db = await getDB();
+    await upsertRecordsIntoIDB('venue_users', [
+      {
+        id: 'vu_sync_apps',
+        venue: 1,
+        display_name: 'Apps',
+        apps: ['ADMIN', 'cassa', 'cassa'],
+        pin: '1111',
+        status: 'active',
+        date_updated: '2026-01-12T00:00:00.000Z',
+      },
+    ]);
+
+    const normalized = await db.get('venue_users', 'vu_sync_apps');
+    expect(normalized.apps).toEqual(['admin', 'cassa']);
+    expect(normalized.role).toBeUndefined();
   });
 });
 

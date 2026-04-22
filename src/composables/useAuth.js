@@ -2,6 +2,7 @@ import { ref, computed } from 'vue';
 import { getInstanceName } from '../store/persistence.js';
 import { appConfig } from '../utils/index.js';
 import { hashPin, PIN_LENGTH } from '../utils/pinAuth.js';
+import { normalizeAppsArray } from '../utils/userRoles.js';
 import { newUUIDv7 } from '../store/storeUtils.js';
 import {
   loadUsersFromIDB, saveUsersToIDB,
@@ -16,6 +17,7 @@ const PIN_REGEX = new RegExp(`^\\d{${PIN_LENGTH}}$`);
  * A user with `apps` containing all three has unrestricted access.
  */
 export const ALL_APPS = ['cassa', 'sala', 'cucina'];
+const ADMIN_APP = 'admin';
 
 /**
  * Available auto-lock timeout options (in minutes).
@@ -45,15 +47,54 @@ function detectCurrentApp() {
   return 'cassa';
 }
 
-/**
- * Normalise an `apps` value: ensure it is a non-empty subset of ALL_APPS.
- * Falls back to a copy of ALL_APPS when the input is invalid or empty.
- * @param {any} apps
- * @returns {string[]}
- */
-function normalizeUserApps(apps) {
-  if (Array.isArray(apps) && apps.length > 0) return [...apps];
-  return [...ALL_APPS];
+function normalizeSelectableApps(apps) {
+  const parsed = normalizeAppsArray(apps);
+  const normalized = parsed.filter((app) => ALL_APPS.includes(app));
+  if (normalized.length === 0) {
+    const shouldWarn = apps != null && (!Array.isArray(apps) || parsed.length === 0);
+    if (shouldWarn) {
+      console.warn('[Auth] Invalid apps configuration detected (non-array or only invalid entries after normalization), denying app access for this user.', apps);
+    }
+    return [];
+  }
+  return normalized;
+}
+
+function normalizeAccessApps(apps) {
+  const normalized = normalizeAppsArray(apps);
+  const isAdmin = normalized.includes(ADMIN_APP);
+  if (isAdmin) {
+    return {
+      isAdmin: true,
+      apps: [...ALL_APPS],
+    };
+  }
+  const scopedApps = normalized.filter((app) => ALL_APPS.includes(app));
+  if (scopedApps.length === 0) {
+    if (apps != null) {
+      console.warn('[Auth] Invalid or empty user apps detected during access normalization; denying app access for this user.', apps);
+    }
+    return {
+      isAdmin: false,
+      apps: [],
+    };
+  }
+  return {
+    isAdmin: false,
+    apps: scopedApps,
+  };
+}
+
+function deriveUserAccess(user) {
+  const fromApps = normalizeAccessApps(user?.apps);
+  // Manual users are created locally by this app and persisted with `_type: 'manual_user'`
+  // in `saveUsersToIDB()`. Their admin flag stays explicit on `user.isAdmin`.
+  const isManualAdmin = user?._type === 'manual_user' && user?.isAdmin === true;
+  const isAdmin = isManualAdmin || fromApps.isAdmin;
+  return {
+    isAdmin,
+    apps: isAdmin ? [...ALL_APPS] : fromApps.apps,
+  };
 }
 
 // ── Module-level singleton ────────────────────────────────────────────────────
@@ -100,7 +141,7 @@ function _buildConfigUsers() {
   return (appConfig.auth?.users ?? []).map((u) => ({
     id: u.id,
     name: u.name,
-    apps: normalizeUserApps(u.apps),
+    apps: normalizeSelectableApps(u.apps),
     fromConfig: true,
     isAdmin: false,
     pin: null, // never stored — hashes are kept in _configUserHashes
@@ -143,8 +184,7 @@ function _init() {
       u && u.id && u.name && u.pin,
     ).map(u => ({
       ...u,
-      apps: normalizeUserApps(u.apps),
-      isAdmin: u.isAdmin === true,
+      ...deriveUserAccess(u),
       fromConfig: false,
     }));
 
@@ -306,7 +346,7 @@ export function useAuth() {
       id,
       name: name.trim(),
       pin: pinHash,
-      apps: adminFlag ? [...ALL_APPS] : normalizeUserApps(apps),
+      apps: adminFlag ? [...ALL_APPS] : normalizeSelectableApps(apps),
       isAdmin: adminFlag,
       fromConfig: false,
     };

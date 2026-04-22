@@ -10,7 +10,7 @@
 import { openDB } from 'idb';
 import { getInstanceName } from '../store/persistence.js';
 
-export const DB_VERSION = 10;
+export const DB_VERSION = 11;
 const DB_NAME_PREFIX = 'app-cassa';
 
 /**
@@ -43,10 +43,12 @@ const DB_NAME_PREFIX = 'app-cassa';
  *               `order_legacy` (order_items), `order_item_legacy`/`order_legacy`/
  *               `item_uid_legacy` (order_item_modifiers). All records carry canonical
  *               snake_case FK values since v5; these indexes are no longer queried.
+ *  v11 — `venue_users` index migrated from `role` to multiEntry `apps` to align with
+ *               Directus `venue_users.apps` permissions model.
  *
- * To add a new version (e.g. v11):
- *   1. Increment DB_VERSION to 11.
- *   2. Add a new `if (oldVersion < 11) { ... }` block inside the `upgrade()` callback.
+ * To add a new version (e.g. v12):
+ *   1. Increment DB_VERSION to 12.
+ *   2. Add a new `if (oldVersion < 12) { ... }` block inside the `upgrade()` callback.
  *   3. Prefer additive changes (new ObjectStores or new indexes). Only remove or modify
  *      existing stores/indexes when there is a clear justification: provide a data-migration
  *      path for users upgrading from earlier versions where needed, and for safe removals
@@ -340,8 +342,46 @@ export function getDB() {
       if (!db.objectStoreNames.contains('venue_users')) {
         const s = db.createObjectStore('venue_users', { keyPath: 'id' });
         s.createIndex('venue', 'venue', { unique: false });
-        s.createIndex('role', 'role', { unique: false });
+        s.createIndex('apps', 'apps', { unique: false, multiEntry: true });
         s.createIndex('status', 'status', { unique: false });
+      } else if (oldVersion < 11) {
+        const s = tx.objectStore('venue_users');
+        if (s.indexNames.contains('role')) s.deleteIndex('role');
+        if (!s.indexNames.contains('apps')) {
+          s.createIndex('apps', 'apps', { unique: false, multiEntry: true });
+        }
+
+        // Backfill existing records so the new app-based index and auth logic
+        // can see users persisted before v11.
+        // Preserve only valid existing `apps` entries and drop all legacy role fields.
+        let cursor = await s.openCursor();
+        while (cursor) {
+          const value = cursor.value || {};
+          const hasValidApps = Array.isArray(value.apps);
+          const normalizedApps = hasValidApps
+            ? value.apps.filter((app) => typeof app === 'string' && app.trim())
+            : [];
+          const hasLegacyRoleFields = (
+            Object.hasOwn(value, 'role')
+            || Object.hasOwn(value, 'role2')
+          );
+
+          const shouldNormalizeApps =
+            !hasValidApps ||
+            normalizedApps.length !== value.apps.length ||
+            normalizedApps.some((app, i) => app !== value.apps[i]);
+          const shouldUpdate = shouldNormalizeApps || hasLegacyRoleFields;
+
+          if (shouldUpdate) {
+            const { role: _legacyRole, role2: _legacyRole2, ...cleanValue } = value;
+            await cursor.update({
+              ...cleanValue,
+              apps: normalizedApps,
+            });
+          }
+
+          cursor = await cursor.continue();
+        }
       }
 
       // ── Sync queue (local-only, never pushed as-is to Directus) ──────────

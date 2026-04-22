@@ -317,7 +317,8 @@ Sistema di autenticazione opzionale a PIN numerico disponibile su tutte e tre le
 - Gli utenti configurati tramite `appConfig.auth.users` sono in sola lettura nell'UI; il loro PIN viene hashato in memoria e mai scritto in IndexedDB
 
 **Accesso per-app:**
-- Ogni utente ha un campo `apps: ['cassa', 'sala', 'cucina']` che indica le app a cui può accedere
+- In Directus, ogni utente `venue_users` ha il campo `apps` (array JSON) con valori tra `admin`, `cassa`, `sala`, `cucina`
+- Se `apps` contiene `admin`, l'utente ottiene automaticamente accesso completo a `cassa`, `sala` e `cucina`
 - La lock screen mostra solo gli utenti abilitati per l'app corrente
 - Un utente con accesso solo a `cucina` non compare nella lock screen di Cassa o Sala
 

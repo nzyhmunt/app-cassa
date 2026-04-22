@@ -412,6 +412,101 @@ describe('persistence across singleton resets', () => {
     const { lockTimeoutMinutes } = useAuth();
     expect(lockTimeoutMinutes.value).toBe(15);
   });
+
+  it('hydrates Directus users with apps ["admin"] as admin with full app access', async () => {
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+    await db.put('venue_users', {
+      id: 'vu_admin',
+      name: 'Admin Directus',
+      display_name: 'Admin Directus',
+      apps: ['admin'],
+      pin: await sha256('1234'),
+      status: 'active',
+    });
+
+    _resetAuthSingleton();
+    useAuth();
+    await _waitForAuth();
+
+    const { users } = useAuth();
+    const adminUser = users.value.find((u) => u.id === 'vu_admin');
+    expect(adminUser).toBeTruthy();
+    expect(adminUser.isAdmin).toBe(true);
+    expect(adminUser.apps).toEqual(ALL_APPS);
+  });
+
+  it('hydrates Directus users with scoped apps into the expected app access', async () => {
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+    await db.put('venue_users', {
+      id: 'vu_multi_role',
+      name: 'Operatore Multi',
+      display_name: 'Operatore Multi',
+      apps: ['sala', 'cucina'],
+      pin: await sha256('5678'),
+      status: 'active',
+    });
+
+    _resetAuthSingleton();
+    useAuth();
+    await _waitForAuth();
+
+    const { users, visibleUsers } = useAuth();
+    const multiRoleUser = users.value.find((u) => u.id === 'vu_multi_role');
+    expect(multiRoleUser).toBeTruthy();
+    expect(multiRoleUser.isAdmin).toBe(false);
+    expect(multiRoleUser.apps).toEqual(['sala', 'cucina']);
+    expect(visibleUsers.value.map((u) => u.id)).not.toContain('vu_multi_role');
+  });
+
+  it('hydrates Directus users without apps with denied app access', async () => {
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+    await db.put('venue_users', {
+      id: 'vu_legacy_no_apps',
+      name: 'Legacy User',
+      display_name: 'Legacy User',
+      pin: await sha256('6789'),
+      status: 'active',
+    });
+
+    _resetAuthSingleton();
+    useAuth();
+    await _waitForAuth();
+
+    const { users, visibleUsers, requiresAuth } = useAuth();
+    const legacyUser = users.value.find((u) => u.id === 'vu_legacy_no_apps');
+    expect(legacyUser).toBeTruthy();
+    expect(legacyUser.isAdmin).toBe(false);
+    expect(legacyUser.apps).toEqual([]);
+    expect(visibleUsers.value.map((u) => u.id)).not.toContain('vu_legacy_no_apps');
+    expect(requiresAuth.value).toBe(false);
+  });
+
+  it('hydrates Directus users with empty-string apps entries with denied app access', async () => {
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+    await db.put('venue_users', {
+      id: 'vu_empty_apps_entry',
+      name: 'Empty Apps Entry',
+      display_name: 'Empty Apps Entry',
+      apps: [''],
+      pin: await sha256('6790'),
+      status: 'active',
+    });
+
+    _resetAuthSingleton();
+    useAuth();
+    await _waitForAuth();
+
+    const { users, visibleUsers } = useAuth();
+    const user = users.value.find((u) => u.id === 'vu_empty_apps_entry');
+    expect(user).toBeTruthy();
+    expect(user.isAdmin).toBe(false);
+    expect(user.apps).toEqual([]);
+    expect(visibleUsers.value.map((u) => u.id)).not.toContain('vu_empty_apps_entry');
+  });
 });
 
 // ── Auto-lock timer ───────────────────────────────────────────────────────────
