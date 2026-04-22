@@ -77,7 +77,7 @@ export function _resetEnqueueSeq() {}
 export async function enqueue(collection, operation, recordId, payload) {
   try {
     const venueUserId = await loadAuthSessionFromIDB().catch((error) => {
-      console.warn('[SyncQueue] Failed to load auth session user for audit payload enrichment:', error);
+      console.warn('[SyncQueue] Failed to load auth session user for audit payload enrichment; venue_user fields will not be set:', error);
       return null;
     });
     const payloadWithAudit = _withVenueUserAuditPayload(collection, operation, payload ?? null, venueUserId);
@@ -276,11 +276,27 @@ function _withRequiredDefaults(collection, operation, payload, cfg) {
   return out;
 }
 
+/**
+ * Enriches queue payloads with Directus audit FKs backed by the current PIN session user.
+ *
+ * Injection rules:
+ *  - create: sets `venue_user_created` and `venue_user_updated` when missing/empty
+ *  - update: sets `venue_user_updated` when missing/empty
+ *  - delete: unchanged payload
+ *
+ * Explicit payload values are never overridden.
+ *
+ * @param {string} collection
+ * @param {'create'|'update'|'delete'} operation
+ * @param {object|null|undefined} payload
+ * @param {string|null} venueUserId
+ * @returns {object|null}
+ */
 function _withVenueUserAuditPayload(collection, operation, payload, venueUserId) {
   if (operation === 'delete') return payload ?? null;
   if (!VENUE_USER_AUDIT_COLLECTIONS.has(collection)) return payload ?? null;
   if (!payload || typeof payload !== 'object') return payload ?? null;
-  if (!_isPresentValue(venueUserId)) return payload;
+  if (!_isPresentValue(venueUserId)) return payload ?? null;
 
   const out = { ...payload };
   const hasCreated = _isPresentValue(out.venue_user_created);
@@ -347,15 +363,14 @@ function _buildRestClient(cfg) {
  *   }
  * >}
  */
-async function _pushEntry(entry, sdkClient, cfg, venueUserId = null) {
+async function _pushEntry(entry, sdkClient, cfg) {
   const { collection, operation, record_id, payload } = entry;
 
   // Translate local field names to Directus schema names (create/update only;
   // delete operations use record_id directly and ignore the payload).
   let directusPayload = {};
   if (operation !== 'delete') {
-    const payloadWithAudit = _withVenueUserAuditPayload(collection, operation, payload, venueUserId);
-    const mappedPayload = mapPayloadToDirectus(collection, payloadWithAudit, {
+    const mappedPayload = mapPayloadToDirectus(collection, payload, {
       paymentMethods: Array.isArray(appConfig?.paymentMethods) ? appConfig.paymentMethods : [],
     });
     directusPayload = _withRequiredDefaults(collection, operation, mappedPayload, cfg);
@@ -481,17 +496,13 @@ async function _pushEntry(entry, sdkClient, cfg, venueUserId = null) {
 export async function drainQueue(cfg) {
   const sdkClient = _buildRestClient(cfg);
   const entries = await getPendingEntries();
-  const venueUserId = await loadAuthSessionFromIDB().catch((error) => {
-    console.warn('[SyncQueue] Failed to load auth session user for push audit payload enrichment:', error);
-    return null;
-  });
   const backoffBase = typeof cfg._backoffMs === 'number' ? cfg._backoffMs : 1000;
   let pushed = 0, failed = 0, abandoned = 0;
   /** @type {{collection: string, recordId: string}[]} */
   const pushedIds = [];
 
   for (const entry of entries) {
-    const result = await _pushEntry(entry, sdkClient, cfg, venueUserId);
+    const result = await _pushEntry(entry, sdkClient, cfg);
 
     if (result === true || result === 'skip') {
       await removeEntry(entry.id);
