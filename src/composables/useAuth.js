@@ -16,6 +16,11 @@ const PIN_REGEX = new RegExp(`^\\d{${PIN_LENGTH}}$`);
  * A user with `apps` containing all three has unrestricted access.
  */
 export const ALL_APPS = ['cassa', 'sala', 'cucina'];
+const ROLE_TO_APPS = {
+  cassiere: ['cassa'],
+  cameriere: ['sala'],
+  cuoco: ['cucina'],
+};
 
 /**
  * Available auto-lock timeout options (in minutes).
@@ -54,6 +59,59 @@ function detectCurrentApp() {
 function normalizeUserApps(apps) {
   if (Array.isArray(apps) && apps.length > 0) return [...apps];
   return [...ALL_APPS];
+}
+
+function normalizeUserRoles(roles) {
+  const normalized = [];
+  const appendRole = (raw) => {
+    if (typeof raw !== 'string') return;
+    const role = raw.trim().toLowerCase();
+    if (!role || normalized.includes(role)) return;
+    normalized.push(role);
+  };
+
+  if (Array.isArray(roles)) {
+    roles.forEach(appendRole);
+    return normalized;
+  }
+  if (typeof roles !== 'string') return normalized;
+
+  const trimmed = roles.trim();
+  if (!trimmed) return normalized;
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (Array.isArray(parsed)) {
+      parsed.forEach(appendRole);
+      return normalized;
+    }
+  } catch (_) {
+    // fall through to scalar parsing
+  }
+  appendRole(trimmed);
+  return normalized;
+}
+
+function deriveUserAccess(user) {
+  const role = normalizeUserRoles(user?.role);
+  if (role.includes('admin')) {
+    return {
+      role,
+      isAdmin: true,
+      apps: [...ALL_APPS],
+    };
+  }
+
+  const appsFromRole = new Set();
+  role.forEach((entry) => {
+    const mappedApps = ROLE_TO_APPS[entry] ?? [];
+    mappedApps.forEach((app) => appsFromRole.add(app));
+  });
+
+  return {
+    role,
+    isAdmin: user?.isAdmin === true,
+    apps: appsFromRole.size > 0 ? Array.from(appsFromRole) : normalizeUserApps(user?.apps),
+  };
 }
 
 // ── Module-level singleton ────────────────────────────────────────────────────
@@ -143,8 +201,7 @@ function _init() {
       u && u.id && u.name && u.pin,
     ).map(u => ({
       ...u,
-      apps: normalizeUserApps(u.apps),
-      isAdmin: u.isAdmin === true,
+      ...deriveUserAccess(u),
       fromConfig: false,
     }));
 

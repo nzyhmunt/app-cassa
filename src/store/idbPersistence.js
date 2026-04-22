@@ -864,6 +864,42 @@ export async function upsertRecordsIntoIDB(storeName, records) {
     }
     return [];
   };
+  const normalizeRoleArray = (value) => {
+    const normalized = [];
+    const appendRole = (raw) => {
+      if (typeof raw !== 'string') return;
+      const role = raw.trim().toLowerCase();
+      if (!role || normalized.includes(role)) return;
+      normalized.push(role);
+    };
+
+    if (Array.isArray(value)) {
+      value.forEach(appendRole);
+      return normalized;
+    }
+    if (typeof value !== 'string') return normalized;
+
+    const trimmed = value.trim();
+    if (!trimmed) return normalized;
+
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) {
+        parsed.forEach(appendRole);
+        return normalized;
+      }
+    } catch (_) {
+      // fall through to scalar / CSV parsing
+    }
+
+    if (trimmed.includes(',')) {
+      trimmed.split(',').forEach(appendRole);
+      return normalized;
+    }
+
+    appendRole(trimmed);
+    return normalized;
+  };
 
   const normalizeIncomingSync = (collection, record) => {
     if (!record || typeof record !== 'object') return record;
@@ -928,6 +964,7 @@ export async function upsertRecordsIntoIDB(storeName, records) {
       if ((normalized.display_name == null || normalized.display_name === '') && normalized.name != null) {
         normalized.display_name = normalized.name;
       }
+      normalized.role = normalizeRoleArray(normalized.role);
     }
     return normalized;
   };

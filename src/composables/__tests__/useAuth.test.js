@@ -412,6 +412,53 @@ describe('persistence across singleton resets', () => {
     const { lockTimeoutMinutes } = useAuth();
     expect(lockTimeoutMinutes.value).toBe(15);
   });
+
+  it('hydrates Directus users with role ["admin"] as admin with full app access', async () => {
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+    await db.put('venue_users', {
+      id: 'vu_admin',
+      name: 'Admin Directus',
+      display_name: 'Admin Directus',
+      role: ['admin'],
+      pin: await sha256('1234'),
+      status: 'active',
+    });
+
+    _resetAuthSingleton();
+    useAuth();
+    await _waitForAuth();
+
+    const { users } = useAuth();
+    const adminUser = users.value.find((u) => u.id === 'vu_admin');
+    expect(adminUser).toBeTruthy();
+    expect(adminUser.isAdmin).toBe(true);
+    expect(adminUser.apps).toEqual(ALL_APPS);
+  });
+
+  it('hydrates Directus users with multi-role arrays into the expected app access', async () => {
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+    await db.put('venue_users', {
+      id: 'vu_multi_role',
+      name: 'Operatore Multi',
+      display_name: 'Operatore Multi',
+      role: ['cameriere', 'cuoco'],
+      pin: await sha256('5678'),
+      status: 'active',
+    });
+
+    _resetAuthSingleton();
+    useAuth();
+    await _waitForAuth();
+
+    const { users, visibleUsers } = useAuth();
+    const multiRoleUser = users.value.find((u) => u.id === 'vu_multi_role');
+    expect(multiRoleUser).toBeTruthy();
+    expect(multiRoleUser.isAdmin).toBe(false);
+    expect(multiRoleUser.apps).toEqual(['sala', 'cucina']);
+    expect(visibleUsers.value.map((u) => u.id)).not.toContain('vu_multi_role');
+  });
 });
 
 // ── Auto-lock timer ───────────────────────────────────────────────────────────

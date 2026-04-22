@@ -716,6 +716,7 @@ describe('reconfigureAndApply()', () => {
         id: 'vu_alias_1',
         venue: venueId,
         display_name: 'Alias Operator',
+        role: ['admin'],
       }),
     );
     const storedVenue = await db.get('venues', venueId);
