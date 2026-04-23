@@ -137,12 +137,11 @@ Nel modale tavolo trovi due aree principali:
 
 ### 5.1 Riepilogo voci
 
-Modalità principali:
+Modalità principali del pannello sinistro:
 - **Per Voce** (aggregata)
 - **Per Ordine**
-- **Per Comanda** (selezione ordini da pagare)
-- **Analitica** (selezione quantità voce-per-voce)
 
+Le modalità di incasso/checkout, come **Per Comanda** e **Analitica**, sono descritte in **§6.1**.
 ### 5.2 Voce Diretta (⚡)
 
 Pulsante **Diretto**: aggiunge voci al conto senza passare per la cucina.
