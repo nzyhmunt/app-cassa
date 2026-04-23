@@ -17,7 +17,7 @@
       <!-- Scrollable body -->
       <div class="overflow-y-auto flex-1 p-4 md:p-6 space-y-4">
 
-        <!-- ── No manual users yet: add first (admin) user ─────────────── -->
+        <!-- ── No users yet: add first (admin) user ───────────────────── -->
         <template v-if="allUsers.length === 0">
           <div class="bg-blue-50 border border-blue-200 rounded-2xl p-4 text-sm text-blue-800 flex items-start gap-3">
             <ShieldCheck class="size-5 shrink-0 text-blue-500 mt-0.5" />
@@ -320,7 +320,6 @@ defineEmits(['update:modelValue']);
 
 const {
   users: allUsers,
-  manualUsers,
   currentUser,
   isAdmin,
   hasAdmin,

@@ -303,8 +303,8 @@ function _withVenueUserAuditPayload(collection, operation, payload, venueUserId)
   if (!_isPresentValue(venueUserId)) return payload ?? null;
 
   const out = { ...payload };
-  const hasCreated = _isPresentValue(out.venue_user_created) || _isPresentValue(out.venueUserCreated);
-  const hasUpdated = _isPresentValue(out.venue_user_updated) || _isPresentValue(out.venueUserUpdated);
+  const hasCreated = _hasAuditFieldValue(out, 'venue_user_created', 'venueUserCreated');
+  const hasUpdated = _hasAuditFieldValue(out, 'venue_user_updated', 'venueUserUpdated');
 
   if (operation === 'create' && !hasCreated) {
     out.venue_user_created = venueUserId;
@@ -321,7 +321,15 @@ function _shouldLoadVenueUserAuditUser(collection, operation, payload) {
   if (operation !== 'create' && operation !== 'update') return false;
   if (!VENUE_USER_AUDIT_COLLECTIONS.has(collection)) return false;
   if (!payload || typeof payload !== 'object') return false;
+  const hasExistingAuditValue = operation === 'create'
+    ? _hasAuditFieldValue(payload, 'venue_user_created', 'venueUserCreated')
+    : _hasAuditFieldValue(payload, 'venue_user_updated', 'venueUserUpdated');
+  if (hasExistingAuditValue) return false;
   return true;
+}
+
+function _hasAuditFieldValue(payload, snakeCaseKey, camelCaseKey) {
+  return _isPresentValue(payload?.[snakeCaseKey]) || _isPresentValue(payload?.[camelCaseKey]);
 }
 
 /**

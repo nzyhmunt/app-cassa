@@ -142,6 +142,25 @@ describe('enqueue()', () => {
     await enqueue('orders', 'create', 'ord_skip_2', null);
     expect(loadSpy).not.toHaveBeenCalled();
   });
+
+  it('skips auth-session lookup when relevant audit fields are already present', async () => {
+    const loadSpy = vi.spyOn(persistenceOps, 'loadAuthSessionFromIDB');
+    await enqueue('orders', 'create', 'ord_skip_3', {
+      id: 'ord_skip_3',
+      venue_user_created: 'vu_manual_created',
+    });
+    await enqueue('orders', 'update', 'ord_skip_4', {
+      venueUserUpdated: 'vu_manual_updated',
+    });
+    expect(loadSpy).not.toHaveBeenCalled();
+  });
+
+  it('loads auth-session when relevant audit fields are missing', async () => {
+    const loadSpy = vi.spyOn(persistenceOps, 'loadAuthSessionFromIDB');
+    await enqueue('orders', 'create', 'ord_load_1', { id: 'ord_load_1' });
+    await enqueue('orders', 'update', 'ord_load_2', { status: 'accepted' });
+    expect(loadSpy).toHaveBeenCalledTimes(2);
+  });
 });
 
 // ── drainQueue ───────────────────────────────────────────────────────────────
