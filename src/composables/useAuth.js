@@ -229,7 +229,7 @@ function _init() {
   }).catch(e => {
     console.warn('[Auth] Failed to load from IDB:', e);
     // Mark hydrated even on error so the lock screen / app is not blocked forever.
-    if (_initialized) _isHydrated.value = true;
+    _isHydrated.value = true;
   });
 
   // Pre-hash appConfig PINs in memory (async, never persisted)
