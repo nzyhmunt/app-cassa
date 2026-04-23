@@ -199,6 +199,7 @@ describe('appConfig', () => {
       expect(mapped.orderItems[0].voided_quantity).toBe(0);
       expect(mapped.orderItems[0].modifiers[0].price).toBe(1.5);
       expect(mapped.orderItems[0].modifiers[0].voidedQuantity).toBe(0);
+      expect(mapped.orderItems[0].modifiers[0].voided_quantity).toBe(0);
     });
 
     it('normalizes invalid numeric fields to default fallbacks', () => {
