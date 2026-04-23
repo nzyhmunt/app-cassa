@@ -374,35 +374,35 @@ Nelle impostazioni Cassa è selezionabile la stampante predefinita per `pre_bill
 - Avvisi audio
 - Schermo sempre acceso (Wake Lock, se supportato)
 - Sorgente menu (Directus / URL JSON)
-- Sync menu URL manuale (se menuSource JSON)
+- URL manuale sincronizzazione menu (se `menuSource` è `JSON`)
 
 ### 12.2 Tastiera numerica personalizzata (Cassa)
 
 ![Anteprima Tastiera Numerica](screenshots/settings-keyboard-preview.png)
 
 Modalità:
-- Off
+- Disattivata
 - Centro
 - Sinistra
 - Destra
 
-### 12.3 Sincronizzazione Directus (admin)
+### 12.3 Sincronizzazione Directus (amministratore)
 
 Sezione dedicata con:
-- enable/disable sync
-- URL, token, venue ID
-- toggle WebSocket
-- test connessione
+- attiva/disattiva sincronizzazione
+- URL, token, ID venue
+- abilita/disabilita WebSocket
+- test di connessione
 - salvataggio configurazione
-- Push/Pull manuale
-- Log coda sync
+- invio/ricezione manuale dati
+- registro coda sincronizzazione
 - procedura guidata di riapplicazione completa configurazione (con opzione svuota cache locale)
 
 ### 12.4 Gestione utenti
 
 ![Onboarding Amministratore](screenshots/settings-admin-setup.png)
 
-Quando non esiste alcun amministratore compare CTA dedicata **Aggiungi amministratore**.
+Quando non esiste alcun amministratore compare il pulsante dedicato **Aggiungi amministratore**.
 
 Con admin presente compare **Gestione Utenti & Blocco Schermo**.
 
