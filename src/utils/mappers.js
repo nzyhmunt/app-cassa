@@ -61,6 +61,8 @@ function normalizeNestedOrderItem(record) {
 export function mapOrderFromDirectus(record) {
   const tableId = relationId(record.table);
   const billSessionId = relationId(record.bill_session ?? record.billSessionId ?? null);
+  const totalAmount = numberOr(record.total_amount ?? record.totalAmount);
+  const itemCount = numberOr(record.item_count ?? record.itemCount);
   const rawOrderItems = Array.isArray(record.orderItems)
     ? record.orderItems
     : Array.isArray(record.order_items)
@@ -71,8 +73,10 @@ export function mapOrderFromDirectus(record) {
     table: tableId ?? record.table ?? null,
     bill_session: billSessionId,
     billSessionId,
-    totalAmount: numberOr(record.total_amount ?? record.totalAmount),
-    itemCount: numberOr(record.item_count ?? record.itemCount),
+    total_amount: totalAmount,
+    item_count: itemCount,
+    totalAmount,
+    itemCount,
     time: record.order_time ?? record.time ?? '',
     globalNote: record.global_note ?? record.globalNote ?? '',
     noteVisibility: {
@@ -180,6 +184,9 @@ export function mapOrderToDirectus(record) {
 export function mapOrderItemFromDirectus(record) {
   const orderId = relationId(record.order ?? record.orderId ?? null);
   const dishId = relationId(record.dish ?? record.dishId ?? null);
+  const quantity = numberOr(record.quantity);
+  const unitPrice = numberOr(record.unit_price ?? record.unitPrice);
+  const voidedQuantity = numberOr(record.voided_quantity ?? record.voidedQuantity);
   return {
     ...record,
     order: orderId,
@@ -187,9 +194,11 @@ export function mapOrderItemFromDirectus(record) {
     dish: dishId,
     dishId,
     uid: record.uid ?? record.id,
-    quantity: numberOr(record.quantity),
-    unitPrice: numberOr(record.unit_price ?? record.unitPrice),
-    voidedQuantity: numberOr(record.voided_quantity ?? record.voidedQuantity),
+    quantity,
+    unit_price: unitPrice,
+    unitPrice,
+    voided_quantity: voidedQuantity,
+    voidedQuantity,
     notes: Array.isArray(record.notes) ? record.notes : [],
     modifiers: Array.isArray(record.modifiers)
       ? record.modifiers.map(normalizeOrderItemModifier).filter(Boolean)
