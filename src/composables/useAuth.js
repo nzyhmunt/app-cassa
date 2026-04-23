@@ -173,6 +173,37 @@ const _visibleUsers = computed(() =>
   _allUsers.value.filter((u) => u.apps.includes(_currentApp)),
 );
 
+/**
+ * Process a raw array of users loaded from IDB:
+ * - If any Directus users are present, they become the sole source:
+ *   manual users are stripped from both the array and from IDB storage.
+ * - Returns the processed, reactive-ready user objects.
+ *
+ * @param {Array} users - Raw records returned by `loadUsersFromIDB()`
+ * @returns {Array} processed user objects ready to assign to `_users.value`
+ */
+function _processUsersFromIDB(users) {
+  const hasDirectusUsers = users.some(u => isDirectusVenueUserRecord(u));
+  if (hasDirectusUsers) {
+    // Directus is the sole authoritative source — purge all manually-created users
+    // so stale local accounts cannot accumulate alongside the Directus-managed roster.
+    saveUsersToIDB([]).catch(e => console.warn('[Auth] Failed to purge manual users after Directus sync:', e));
+  }
+  const usersToLoad = hasDirectusUsers
+    ? users.filter(u => isDirectusVenueUserRecord(u))
+    : users;
+  return usersToLoad.filter(u => u && u.id && u.name && u.pin).map((u) => {
+    const fromDirectus = isDirectusVenueUserRecord(u);
+    return {
+      ...u,
+      _type: u._type || (fromDirectus ? 'directus_user' : 'manual_user'),
+      ...deriveUserAccess(u),
+      fromConfig: false,
+      fromDirectus,
+    };
+  });
+}
+
 function _init() {
   if (_initialized) return;
   _initialized = true;
@@ -204,26 +235,7 @@ function _init() {
     // If Directus venue users are present, they are the sole authoritative source.
     // Purge any previously manually-created users so stale local accounts cannot
     // accumulate alongside the Directus-managed roster.
-    const hasDirectusUsers = users.some(u => isDirectusVenueUserRecord(u));
-    if (hasDirectusUsers) {
-      saveUsersToIDB([]).catch(e => console.warn('[Auth] Failed to purge manual users after Directus sync:', e));
-    }
-    const usersToLoad = hasDirectusUsers
-      ? users.filter(u => isDirectusVenueUserRecord(u))
-      : users;
-
-    _users.value = usersToLoad.filter(u =>
-      u && u.id && u.name && u.pin,
-    ).map((u) => {
-      const fromDirectus = isDirectusVenueUserRecord(u);
-      return {
-        ...u,
-        _type: u._type || (fromDirectus ? 'directus_user' : 'manual_user'),
-        ...deriveUserAccess(u),
-        fromConfig: false,
-        fromDirectus,
-      };
-    });
+    _users.value = _processUsersFromIDB(users);
 
     _lockTimeoutMinutes.value = typeof savedSettings?.lockTimeoutMinutes === 'number'
       ? savedSettings.lockTimeoutMinutes
@@ -569,24 +581,7 @@ export async function reloadUsersFromIDB() {
   if (!_initialized) return;
   try {
     const users = await loadUsersFromIDB();
-    const hasDirectusUsers = users.some(u => isDirectusVenueUserRecord(u));
-    if (hasDirectusUsers) {
-      saveUsersToIDB([]).catch(e => console.warn('[Auth] Failed to purge manual users:', e));
-    }
-    const usersToLoad = hasDirectusUsers
-      ? users.filter(u => isDirectusVenueUserRecord(u))
-      : users;
-
-    _users.value = usersToLoad.filter(u => u && u.id && u.name && u.pin).map((u) => {
-      const fromDirectus = isDirectusVenueUserRecord(u);
-      return {
-        ...u,
-        _type: u._type || (fromDirectus ? 'directus_user' : 'manual_user'),
-        ...deriveUserAccess(u),
-        fromConfig: false,
-        fromDirectus,
-      };
-    });
+    _users.value = _processUsersFromIDB(users);
 
     // If the active session is no longer in the updated user list, log them out.
     if (_currentUserId.value != null) {
