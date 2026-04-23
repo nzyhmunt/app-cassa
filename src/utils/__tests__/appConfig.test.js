@@ -1,6 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import { appConfig, DEFAULT_SETTINGS, createRuntimeConfig, applyDirectusConfigToAppConfig } from '../index.js';
-import { mapVenueConfigFromDirectus } from '../mappers.js';
+import {
+  mapVenueConfigFromDirectus,
+  mapOrderFromDirectus,
+  mapOrderToDirectus,
+  mapOrderItemToDirectus,
+} from '../mappers.js';
 
 describe('appConfig', () => {
   describe('pwaLogo', () => {
@@ -160,6 +165,79 @@ describe('appConfig', () => {
       }, DEFAULT_SETTINGS);
 
       expect(runtime.billing.autoCloseOnFullPayment).toBe(false);
+    });
+  });
+
+  describe('mapOrderFromDirectus', () => {
+    it('normalizes nested order_items values to avoid NaN in UI after reload', () => {
+      const mapped = mapOrderFromDirectus({
+        id: 'ord_1',
+        table: '01',
+        total_amount: '19.50',
+        item_count: '2',
+        order_items: [
+          {
+            id: 'item_1',
+            name: 'Pizza',
+            unit_price: '9.75',
+            quantity: '2',
+            voided_quantity: '0',
+            modifiers: [{ name: 'Extra', price: '1.50', voided_quantity: '0' }],
+          },
+        ],
+      });
+
+      expect(mapped.totalAmount).toBe(19.5);
+      expect(mapped.itemCount).toBe(2);
+      expect(mapped.total_amount).toBe(19.5);
+      expect(mapped.item_count).toBe(2);
+      expect(mapped.orderItems).toHaveLength(1);
+      expect(mapped.orderItems[0].unitPrice).toBe(9.75);
+      expect(mapped.orderItems[0].unit_price).toBe(9.75);
+      expect(mapped.orderItems[0].quantity).toBe(2);
+      expect(mapped.orderItems[0].voidedQuantity).toBe(0);
+      expect(mapped.orderItems[0].voided_quantity).toBe(0);
+      expect(mapped.orderItems[0].modifiers[0].price).toBe(1.5);
+      expect(mapped.orderItems[0].modifiers[0].voidedQuantity).toBe(0);
+      expect(mapped.orderItems[0].modifiers[0].voided_quantity).toBe(0);
+    });
+
+    it('normalizes invalid numeric fields to default fallbacks', () => {
+      const mapped = mapOrderFromDirectus({
+        id: 'ord_2',
+        total_amount: 'invalid',
+        item_count: null,
+        order_items: [
+          { id: 'item_2', unit_price: 'x', quantity: 'y', voided_quantity: undefined },
+        ],
+      });
+
+      expect(mapped.totalAmount).toBe(0);
+      expect(mapped.itemCount).toBe(0);
+      expect(mapped.total_amount).toBe(0);
+      expect(mapped.item_count).toBe(0);
+      expect(mapped.orderItems[0].unitPrice).toBe(0);
+      expect(mapped.orderItems[0].unit_price).toBe(0);
+      expect(mapped.orderItems[0].quantity).toBe(0);
+      expect(mapped.orderItems[0].voidedQuantity).toBe(0);
+      expect(mapped.orderItems[0].voided_quantity).toBe(0);
+    });
+
+    it('keeps push payload numeric when source snake_case values are invalid', () => {
+      const mapped = mapOrderFromDirectus({
+        id: 'ord_3',
+        total_amount: 'invalid',
+        item_count: 'invalid',
+        order_items: [{ id: 'item_3', unit_price: 'bad', voided_quantity: 'bad', quantity: 'bad' }],
+      });
+
+      const orderPayload = mapOrderToDirectus(mapped);
+      const itemPayload = mapOrderItemToDirectus(mapped.orderItems[0]);
+
+      expect(orderPayload.total_amount).toBe(0);
+      expect(orderPayload.item_count).toBe(0);
+      expect(itemPayload.unit_price).toBe(0);
+      expect(itemPayload.voided_quantity).toBe(0);
     });
   });
 

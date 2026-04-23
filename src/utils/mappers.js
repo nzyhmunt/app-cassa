@@ -21,6 +21,11 @@ function relationId(value) {
   return value;
 }
 
+function numberOr(value, fallback = 0) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
 function parseJsonArray(value) {
   if (Array.isArray(value)) return value;
   if (typeof value === 'string' && value.trim() !== '') {
@@ -34,16 +39,46 @@ function parseJsonArray(value) {
   return [];
 }
 
+function normalizeOrderItemModifier(modifier) {
+  if (!modifier || typeof modifier !== 'object') return null;
+  const voidedQuantity = numberOr(modifier.voided_quantity ?? modifier.voidedQuantity);
+  return {
+    ...modifier,
+    price: numberOr(modifier.price),
+    voidedQuantity,
+    voided_quantity: voidedQuantity,
+  };
+}
+
+function normalizeNestedOrderItem(record) {
+  if (!record || typeof record !== 'object') return null;
+  const mapped = mapOrderItemFromDirectus(record);
+  return {
+    ...mapped,
+    notes: Array.isArray(mapped.notes) ? mapped.notes : [],
+    modifiers: Array.isArray(mapped.modifiers) ? mapped.modifiers : [],
+  };
+}
+
 export function mapOrderFromDirectus(record) {
   const tableId = relationId(record.table);
   const billSessionId = relationId(record.bill_session ?? record.billSessionId ?? null);
+  const totalAmount = numberOr(record.total_amount ?? record.totalAmount);
+  const itemCount = numberOr(record.item_count ?? record.itemCount);
+  const rawOrderItems = Array.isArray(record.orderItems)
+    ? record.orderItems
+    : Array.isArray(record.order_items)
+      ? record.order_items
+      : [];
   return {
     ...record,
     table: tableId ?? record.table ?? null,
     bill_session: billSessionId,
     billSessionId,
-    totalAmount: Number(record.total_amount ?? record.totalAmount ?? 0),
-    itemCount: Number(record.item_count ?? record.itemCount ?? 0),
+    total_amount: totalAmount,
+    item_count: itemCount,
+    totalAmount,
+    itemCount,
     time: record.order_time ?? record.time ?? '',
     globalNote: record.global_note ?? record.globalNote ?? '',
     noteVisibility: {
@@ -60,7 +95,7 @@ export function mapOrderFromDirectus(record) {
       diete: parseJsonArray(record.dietary_diets),
       allergeni: parseJsonArray(record.dietary_allergens),
     },
-    orderItems: record.orderItems ?? record.order_items ?? [],
+    orderItems: rawOrderItems.map(normalizeNestedOrderItem).filter(Boolean),
     _sync_status: 'synced',
   };
 }
@@ -151,6 +186,9 @@ export function mapOrderToDirectus(record) {
 export function mapOrderItemFromDirectus(record) {
   const orderId = relationId(record.order ?? record.orderId ?? null);
   const dishId = relationId(record.dish ?? record.dishId ?? null);
+  const quantity = numberOr(record.quantity);
+  const unitPrice = numberOr(record.unit_price ?? record.unitPrice);
+  const voidedQuantity = numberOr(record.voided_quantity ?? record.voidedQuantity);
   return {
     ...record,
     order: orderId,
@@ -158,8 +196,15 @@ export function mapOrderItemFromDirectus(record) {
     dish: dishId,
     dishId,
     uid: record.uid ?? record.id,
-    unitPrice: Number(record.unit_price ?? record.unitPrice ?? 0),
-    voidedQuantity: Number(record.voided_quantity ?? record.voidedQuantity ?? 0),
+    quantity,
+    unit_price: unitPrice,
+    unitPrice,
+    voided_quantity: voidedQuantity,
+    voidedQuantity,
+    notes: Array.isArray(record.notes) ? record.notes : [],
+    modifiers: Array.isArray(record.modifiers)
+      ? record.modifiers.map(normalizeOrderItemModifier).filter(Boolean)
+      : [],
     kitchenReady: record.kitchen_ready ?? record.kitchenReady ?? false,
     venueUserCreated: relationId(record.venue_user_created ?? record.venueUserCreated ?? null),
     venueUserUpdated: relationId(record.venue_user_updated ?? record.venueUserUpdated ?? null),
