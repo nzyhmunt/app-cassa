@@ -201,7 +201,18 @@ function _init() {
       return;
     }
 
-    _users.value = users.filter(u =>
+    // If Directus venue users are present, they are the sole authoritative source.
+    // Purge any previously manually-created users so stale local accounts cannot
+    // accumulate alongside the Directus-managed roster.
+    const hasDirectusUsers = users.some(u => isDirectusVenueUserRecord(u));
+    if (hasDirectusUsers) {
+      saveUsersToIDB([]).catch(e => console.warn('[Auth] Failed to purge manual users after Directus sync:', e));
+    }
+    const usersToLoad = hasDirectusUsers
+      ? users.filter(u => isDirectusVenueUserRecord(u))
+      : users;
+
+    _users.value = usersToLoad.filter(u =>
       u && u.id && u.name && u.pin,
     ).map((u) => {
       const fromDirectus = isDirectusVenueUserRecord(u);
@@ -311,8 +322,14 @@ export function useAuth() {
     if (configUser) {
       const storedHash = _configUserHashes.get(userId);
       if (!storedHash || hash !== storedHash) return false;
-      // Verify the user has access to the current app
-      const { isAdmin: cfgIsAdmin, apps: cfgApps } = normalizeAccessApps(configUser.apps);
+      // Verify the user has access to the current app.
+      // Config users with no explicit `apps` (null/undefined/[]) default to ALL_APPS
+      // access — they are not admins, but can use every app on the device.
+      const cfgRawApps = configUser.apps;
+      const cfgHasNoApps = cfgRawApps == null || (Array.isArray(cfgRawApps) && cfgRawApps.length === 0);
+      const { isAdmin: cfgIsAdmin, apps: cfgApps } = cfgHasNoApps
+        ? { isAdmin: false, apps: [...ALL_APPS] }
+        : normalizeAccessApps(cfgRawApps);
       if (!cfgIsAdmin && !cfgApps.includes(_currentApp)) return false;
       _mutationVersion++;
       _currentUserId.value = userId;
@@ -529,6 +546,60 @@ export function useAuth() {
     LOCK_TIMEOUT_OPTIONS,
     ALL_APPS,
   };
+}
+
+/**
+ * Reloads the user list from IndexedDB and updates the in-memory auth state.
+ *
+ * This is the live-sync counterpart of the `_init()` IDB load. Call it after a
+ * Directus sync that writes new `venue_users` so that the in-memory roster stays
+ * consistent without requiring a page reload.
+ *
+ * Behaviour mirrors `_init()`:
+ * - If Directus users are present, all manually-created users are purged from IDB
+ *   and from memory (Directus is the sole source).
+ * - If the currently-logged-in user is removed as a result, they are logged out.
+ *
+ * No-ops when `_init()` has not been called yet (e.g. before the composable
+ * was first used on this page).
+ *
+ * @returns {Promise<void>}
+ */
+export async function reloadUsersFromIDB() {
+  if (!_initialized) return;
+  try {
+    const users = await loadUsersFromIDB();
+    const hasDirectusUsers = users.some(u => isDirectusVenueUserRecord(u));
+    if (hasDirectusUsers) {
+      saveUsersToIDB([]).catch(e => console.warn('[Auth] Failed to purge manual users:', e));
+    }
+    const usersToLoad = hasDirectusUsers
+      ? users.filter(u => isDirectusVenueUserRecord(u))
+      : users;
+
+    _users.value = usersToLoad.filter(u => u && u.id && u.name && u.pin).map((u) => {
+      const fromDirectus = isDirectusVenueUserRecord(u);
+      return {
+        ...u,
+        _type: u._type || (fromDirectus ? 'directus_user' : 'manual_user'),
+        ...deriveUserAccess(u),
+        fromConfig: false,
+        fromDirectus,
+      };
+    });
+
+    // If the active session is no longer in the updated user list, log them out.
+    if (_currentUserId.value != null) {
+      const stillExists = _allUsers.value.some(u => u.id === _currentUserId.value);
+      if (!stillExists) {
+        _currentUserId.value = null;
+        _isLocked.value = true;
+        saveAuthSessionToIDB(null).catch(e => console.warn('[Auth] Failed to clear session:', e));
+      }
+    }
+  } catch (e) {
+    console.warn('[Auth] Failed to reload users from IDB:', e);
+  }
 }
 
 /**
