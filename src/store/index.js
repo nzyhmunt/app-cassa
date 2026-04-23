@@ -653,12 +653,18 @@ export const useOrderStore = defineStore('orders', () => {
       const current = orders.value.find(o => String(o.id) === String(ordId));
       if (!current || current.status !== 'pending') return null;
       const projected = _clone(toRaw(current));
+      if (!Array.isArray(projected.orderItems)) {
+        projected.orderItems = [];
+      }
       for (const cartItem of cartItems) {
+        const safeQuantity = Number(cartItem?.quantity);
+        const normalizedQuantity = Number.isFinite(safeQuantity) ? safeQuantity : 0;
         const existing = projected.orderItems.find(r => _itemsAreMergeable(r, cartItem));
         if (existing) {
-          existing.quantity += cartItem.quantity;
+          const existingQuantity = Number(existing.quantity);
+          existing.quantity = (Number.isFinite(existingQuantity) ? existingQuantity : 0) + normalizedQuantity;
         } else {
-          projected.orderItems.push({ ...cartItem, uid: newShortId('r') });
+          projected.orderItems.push({ ...cartItem, quantity: normalizedQuantity, uid: newShortId('r') });
         }
       }
       updateOrderTotals(projected);
