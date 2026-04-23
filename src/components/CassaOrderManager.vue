@@ -845,21 +845,14 @@ function closeMenuModal() {
   tempCart.value = [];
 }
 
-function confirmAndPushCart() {
+async function confirmAndPushCart() {
   if (!targetOrderForMenu.value || tempCart.value.length === 0) return;
-  const ordRef = targetOrderForMenu.value;
-  tempCart.value.forEach(cartItem => {
-    // Merge into an existing order item when all attributes are identical.
-    const existing = ordRef.orderItems.find(r => itemsAreMergeable(r, cartItem));
-    if (existing) { existing.quantity += cartItem.quantity; return; }
-    cartItem.uid = 'r_new_' + Math.random().toString(36).slice(2, 11);
-    ordRef.orderItems.push(cartItem);
-  });
-  updateOrderTotals(ordRef);
+  const ordId = targetOrderForMenu.value.id;
+  const cartSnapshot = tempCart.value.map(item => ({ ...item }));
   closeMenuModal();
-  // Navigate to orders view and select the order
   activeTab.value = 'pending';
-  selectedOrder.value = ordRef;
+  await orderStore.addItemsToOrder(ordId, cartSnapshot);
+  selectedOrder.value = orderStore.orders.find(o => String(o.id) === String(ordId)) || selectedOrder.value;
 }
 
 // ── Expose methods for parent (SalaView / TableManager) ───────────────────

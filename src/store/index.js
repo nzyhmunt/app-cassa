@@ -9,6 +9,7 @@ import {
   KITCHEN_ACTIVE_STATUSES,
   KEYBOARD_POSITIONS,
   formatOrderTime,
+  DEFAULT_COURSE,
 } from '../utils/index.js';
 import { mapOrderFromDirectus, mapVenueConfigFromDirectus } from '../utils/mappers.js';
 import { newUUIDv7, newShortId } from './storeUtils.js';
@@ -610,6 +611,68 @@ export const useOrderStore = defineStore('orders', () => {
     _skipNextScheduledSave('orders');
     orders.value = nextOrders;
     enqueue('orders', 'create', order.id, order);
+  }
+
+  /**
+   * Returns true when two order/cart items are identical and can be merged:
+   * same dish, same course, same notes (order-insensitive), and same modifiers
+   * (order-insensitive by name+price). Mirrors the component-level helper.
+   */
+  function _itemsAreMergeable(a, b) {
+    if (a.dishId !== b.dishId) return false;
+    if ((a.course || DEFAULT_COURSE) !== (b.course || DEFAULT_COURSE)) return false;
+    const notesA = [...(a.notes || [])].sort();
+    const notesB = [...(b.notes || [])].sort();
+    if (notesA.length !== notesB.length || notesA.some((n, i) => n !== notesB[i])) return false;
+    const normMod = m => ({ name: String(m.name), price: Number(m.price) || 0 });
+    const modsA = [...(a.modifiers || [])].map(normMod).sort((x, y) => x.name < y.name ? -1 : x.name > y.name ? 1 : x.price - y.price);
+    const modsB = [...(b.modifiers || [])].map(normMod).sort((x, y) => x.name < y.name ? -1 : x.name > y.name ? 1 : x.price - y.price);
+    if (modsA.length !== modsB.length) return false;
+    return modsA.every((m, i) => m.name === modsB[i].name && m.price === modsB[i].price);
+  }
+
+  /**
+   * Merges `cartItems` into the pending order identified by `ordId`, then
+   * persists to IDB and enqueues the order-items patch for Directus sync.
+   *
+   * This is the correct, IDB-first alternative to directly mutating the
+   * reactive order object from a component (which would silently skip
+   * persistence and sync).
+   *
+   * @param {string} ordId
+   * @param {Array}  cartItems  – cart rows (each with dishId, name, unitPrice, quantity, …)
+   * @returns {Promise<object|false|null>}
+   *   - updated order object on success
+   *   - false if the IDB write failed (reactive state unchanged)
+   *   - null if preconditions are not met (ordId missing / order not found / not pending)
+   */
+  async function addItemsToOrder(ordId, cartItems) {
+    if (!ordId || !Array.isArray(cartItems) || cartItems.length === 0) return null;
+    return _withOrderLock(ordId, async () => {
+      const current = orders.value.find(o => String(o.id) === String(ordId));
+      if (!current || current.status !== 'pending') return null;
+      const projected = _clone(toRaw(current));
+      for (const cartItem of cartItems) {
+        const existing = projected.orderItems.find(r => _itemsAreMergeable(r, cartItem));
+        if (existing) {
+          existing.quantity += cartItem.quantity;
+        } else {
+          projected.orderItems.push({ ...cartItem, uid: newShortId('r') });
+        }
+      }
+      updateOrderTotals(projected);
+      const projectedOrders = _replaceOrderById(ordId, projected);
+      try {
+        await saveStateToIDB({ orders: projectedOrders });
+      } catch (e) {
+        console.warn('[Store] addItemsToOrder IDB save failed:', e);
+        return false;
+      }
+      _skipNextScheduledSave('orders');
+      orders.value = projectedOrders;
+      _enqueueOrderItemsPatch(ordId, projected);
+      return projected;
+    });
   }
 
   async function changeOrderStatus(order, newStatus, rejectionReason = null) {
@@ -1222,6 +1285,7 @@ export const useOrderStore = defineStore('orders', () => {
     masterTableOf,
     slaveIdsOf,
     addOrder,
+    addItemsToOrder,
     changeOrderStatus,
     setItemKitchenReady,
     updateQtyGlobal,
