@@ -15,9 +15,10 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mount, flushPromises, enableAutoUnmount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import SettingsModal from '../shared/SettingsModal.vue';
-import { useAuth, _resetAuthSingleton } from '../../composables/useAuth.js';
+import { useAuth, _resetAuthSingleton, _waitForAuth } from '../../composables/useAuth.js';
 import { _resetIDBSingleton } from '../../composables/useIDB.js';
 import { useAppStore } from '../../store/index.js';
+import { upsertRecordsIntoIDB } from '../../store/persistence/operations.js';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -253,6 +254,29 @@ describe('showMenuSync prop', () => {
     await flushPromises();
     expect(wrapper.text()).toContain('Sorgente Menu');
     expect(wrapper.text()).toContain('Menu da URL JSON');
+  });
+});
+
+describe('settings users CTA with directus users', () => {
+  beforeEach(async () => {
+    await upsertRecordsIntoIDB('venue_users', [{
+      id: 'vu_directus_admin',
+      name: 'Direttore',
+      display_name: 'Direttore',
+      pin: '1234',
+      apps: ['admin'],
+      status: 'active',
+    }]);
+    const { login } = useAuth();
+    await _waitForAuth();
+    await login('vu_directus_admin', '1234');
+  });
+
+  it('does not show add-admin CTA when at least one directus venue user exists', async () => {
+    const wrapper = mountSettingsModal();
+    await flushPromises();
+    expect(wrapper.text()).not.toContain('Aggiungi amministratore');
+    expect(wrapper.text()).toContain('Gestione Utenti');
   });
 });
 

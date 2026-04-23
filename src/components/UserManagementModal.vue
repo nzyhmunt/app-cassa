@@ -18,7 +18,7 @@
       <div class="overflow-y-auto flex-1 p-4 md:p-6 space-y-4">
 
         <!-- ── No manual users yet: add first (admin) user ─────────────── -->
-        <template v-if="manualUsers.length === 0">
+        <template v-if="allUsers.length === 0">
           <div class="bg-blue-50 border border-blue-200 rounded-2xl p-4 text-sm text-blue-800 flex items-start gap-3">
             <ShieldCheck class="size-5 shrink-0 text-blue-500 mt-0.5" />
             <div>
@@ -77,6 +77,12 @@
             <p class="font-bold text-gray-700 text-xs uppercase tracking-wider mb-2">
               Utenti configurati
             </p>
+            <div
+              v-if="isVenueUsersManagedByDirectus"
+              class="mb-2 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-[11px] text-blue-800"
+            >
+              Utenti sincronizzati da Directus: modifica e aggiunta utenti disabilitati.
+            </div>
 
             <div class="space-y-2">
               <div
@@ -135,7 +141,7 @@
                   </div>
 
                   <!-- Action buttons: admin can edit/delete all; non-admin can edit their own PIN -->
-                  <div v-if="!user.fromConfig && (isAdmin || user.id === currentUser?.id)" class="flex gap-1 shrink-0">
+                   <div v-if="!isVenueUsersManagedByDirectus && !user.fromConfig && (isAdmin || user.id === currentUser?.id)" class="flex gap-1 shrink-0">
                     <template v-if="editingId !== user.id">
                       <button
                         @click="startEdit(user)"
@@ -174,7 +180,7 @@
 
                 <!-- App access toggles (admin only, not for config users, not for admin user themselves) -->
                 <div
-                  v-if="isAdmin && !user.fromConfig && !user.isAdmin && editingId !== user.id"
+                  v-if="!isVenueUsersManagedByDirectus && isAdmin && !user.fromConfig && !user.isAdmin && editingId !== user.id"
                   class="border-t border-gray-100 px-3 py-2 flex items-center gap-2 bg-gray-50"
                 >
                   <span class="text-[10px] text-gray-500 font-bold uppercase tracking-wide mr-1">App:</span>
@@ -195,7 +201,7 @@
           </div>
 
           <!-- ── Add user form (admin only) ─────────────────────────── -->
-          <div v-if="isAdmin">
+          <div v-if="isAdmin && !isVenueUsersManagedByDirectus">
             <p class="font-bold text-gray-700 text-xs uppercase tracking-wider mb-2">Aggiungi utente</p>
             <div class="bg-gray-50 rounded-2xl border border-gray-200 p-3 md:p-4 space-y-2">
               <input v-model="addForm.name" type="text" maxlength="30" placeholder="Nome utente"
@@ -304,7 +310,7 @@
  * @see src/composables/useAuth.js   — logica di autenticazione e gestione utenti
  * @see src/components/__tests__/UserManagementModal.test.js — test di integrazione
  */
-import { ref } from 'vue';
+import { ref, computed } from 'vue';
 import { Users, X, Pencil, Trash2, Check, Lock, ShieldCheck, ShieldOff, UserPlus } from 'lucide-vue-next';
 import { useAuth } from '../composables/useAuth.js';
 import { PIN_LENGTH } from '../utils/pinAuth.js';
@@ -326,6 +332,10 @@ const {
   LOCK_TIMEOUT_OPTIONS,
   ALL_APPS,
 } = useAuth();
+
+const isVenueUsersManagedByDirectus = computed(() =>
+  allUsers.value.some((u) => u.fromDirectus === true),
+);
 
 const PIN_REGEX = new RegExp(`^\\d{${PIN_LENGTH}}$`);
 const pinPlaceholder = `PIN (${PIN_LENGTH} cifre numeriche)`;
@@ -349,6 +359,7 @@ function validateUserForm(name, pin) {
 const firstForm = ref({ name: '', pin: '', error: '' });
 
 async function submitFirstUser() {
+  if (isVenueUsersManagedByDirectus.value) return;
   const n = firstForm.value.name.trim();
   const p = firstForm.value.pin.trim();
   const err = validateUserForm(n, p);
@@ -363,6 +374,7 @@ async function submitFirstUser() {
 const addForm = ref({ name: '', pin: '', error: '', apps: [...ALL_APPS], isAdmin: false });
 
 async function submitAddUser() {
+  if (isVenueUsersManagedByDirectus.value) return;
   const n = addForm.value.name.trim();
   const p = addForm.value.pin.trim();
   const err = validateUserForm(n, p);
@@ -376,6 +388,7 @@ async function submitAddUser() {
 }
 
 function toggleAddApp(app) {
+  if (isVenueUsersManagedByDirectus.value) return;
   if (addForm.value.isAdmin) return; // admin always has all apps
   if (addForm.value.apps.includes(app)) {
     if (addForm.value.apps.length === 1) return; // keep at least one
@@ -392,6 +405,7 @@ const editPin = ref('');
 const editError = ref('');
 
 function startEdit(user) {
+  if (isVenueUsersManagedByDirectus.value) return;
   editingId.value = user.id;
   editName.value = user.name;
   editPin.value = '';
@@ -399,6 +413,7 @@ function startEdit(user) {
 }
 
 async function confirmEdit(id) {
+  if (isVenueUsersManagedByDirectus.value) return;
   editError.value = '';
   const name = editName.value.trim();
   if (!name) { editError.value = 'Il nome non può essere vuoto.'; return; }
@@ -421,6 +436,7 @@ function cancelEdit() {
 
 // ── App access toggle ─────────────────────────────────────────────────────────
 async function toggleApp(userId, app) {
+  if (isVenueUsersManagedByDirectus.value) return;
   const user = allUsers.value.find(u => u.id === userId);
   if (!user) return;
   let newApps;
@@ -437,10 +453,12 @@ async function toggleApp(userId, app) {
 const removeConfirmId = ref(null);
 
 function askRemove(id) {
+  if (isVenueUsersManagedByDirectus.value) return;
   removeConfirmId.value = id;
 }
 
 function confirmRemove() {
+  if (isVenueUsersManagedByDirectus.value) return;
   if (removeConfirmId.value) {
     removeUser(removeConfirmId.value);
     removeConfirmId.value = null;
