@@ -47,7 +47,7 @@
           <!-- User header -->
           <div class="p-4 md:p-5 flex items-center gap-3 border-b border-gray-100">
             <button
-              v-if="users.length > 1"
+              v-if="users.length > 1 || (selectedUserId && !selectedUser)"
               @click="selectedUserId = null; pinDigits = []; pinError = ''"
               class="p-1.5 rounded-full hover:bg-gray-100 active:scale-95 transition-colors shrink-0"
               title="Cambia utente"
@@ -140,8 +140,12 @@ watch(
     if (v) {
       pinDigits.value = [];
       pinError.value = '';
-      // If there's a remembered user or only one user, pre-select them
-      if (currentUser.value) {
+      // Only pre-select the remembered user if they are visible (have access) in
+      // the current app. A cassa-only user must not be pre-selected when sala or
+      // cucina is opened — they cannot log in there and there would be no back
+      // button to escape the PIN screen.
+      const rememberedInApp = currentUser.value && users.value.some(u => u.id === currentUser.value.id);
+      if (rememberedInApp) {
         selectedUserId.value = currentUser.value.id;
       } else if (users.value.length === 1) {
         selectedUserId.value = users.value[0].id;

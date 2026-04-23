@@ -207,8 +207,13 @@ function _init() {
       ? savedSettings.lockTimeoutMinutes
       : 5;
 
-    const userExists = _allUsers.value.some((u) => u.id === savedUserId);
-    _currentUserId.value = savedUserId && userExists ? savedUserId : null;
+    const userRecord = _allUsers.value.find((u) => u.id === savedUserId);
+    // Only restore the session if the user has access to the current app.
+    // This prevents a cassa-only user's saved session from granting access to
+    // sala or cucina when those apps are opened on the same device.
+    const hasAppAccess = userRecord != null &&
+      (userRecord.isAdmin || userRecord.apps.includes(_currentApp));
+    _currentUserId.value = savedUserId && hasAppAccess ? savedUserId : null;
     _isLocked.value = true; // always re-lock on page load for security
   }).catch(e => console.warn('[Auth] Failed to load from IDB:', e));
 
@@ -291,6 +296,9 @@ export function useAuth() {
     if (configUser) {
       const storedHash = _configUserHashes.get(userId);
       if (!storedHash || hash !== storedHash) return false;
+      // Verify the user has access to the current app
+      const { isAdmin: cfgIsAdmin, apps: cfgApps } = normalizeAccessApps(configUser.apps);
+      if (!cfgIsAdmin && !cfgApps.includes(_currentApp)) return false;
       _mutationVersion++;
       _currentUserId.value = userId;
       _isLocked.value = false;
@@ -303,6 +311,8 @@ export function useAuth() {
     const user = _users.value.find((u) => u.id === userId);
     if (!user) return false;
     if (user.pin !== hash) return false;
+    // Verify the user has access to the current app
+    if (!user.isAdmin && !user.apps.includes(_currentApp)) return false;
     _mutationVersion++;
     _currentUserId.value = userId;
     _isLocked.value = false;

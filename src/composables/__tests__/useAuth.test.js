@@ -579,3 +579,88 @@ describe('auto-lock timer', () => {
     }
   });
 });
+
+// ── Cross-app access enforcement ──────────────────────────────────────────────
+
+describe('cross-app access enforcement', () => {
+  it('login() rejects a user who does not have access to the current app', async () => {
+    // Default _currentApp is 'cassa' in jsdom (pathname is '/').
+    // Create a cucina-only user and verify they cannot log in through the cassa app.
+    const { addUser, login, isAuthenticated } = useAuth();
+    await addUser('Admin', '1111'); // first user = admin, gets all apps
+    const cucinaUser = await addUser('Chef', '2222', ['cucina']);
+    const ok = await login(cucinaUser.id, '2222');
+    expect(ok).toBe(false);
+    expect(isAuthenticated.value).toBe(false);
+  });
+
+  it('login() succeeds for a user who has access to the current app', async () => {
+    // A user with cassa access can log in on the cassa page.
+    const { addUser, login, isAuthenticated } = useAuth();
+    await addUser('Admin', '1111'); // first user = admin
+    const cassaUser = await addUser('Cassiere', '3333', ['cassa']);
+    const ok = await login(cassaUser.id, '3333');
+    expect(ok).toBe(true);
+    expect(isAuthenticated.value).toBe(true);
+  });
+
+  it('login() allows admin users to log in regardless of app', async () => {
+    // Admin users have all apps; they must never be blocked by the app check.
+    const { addUser, login, isAuthenticated } = useAuth();
+    const admin = await addUser('Admin', '1111');
+    expect(admin.isAdmin).toBe(true);
+    const ok = await login(admin.id, '1111');
+    expect(ok).toBe(true);
+    expect(isAuthenticated.value).toBe(true);
+  });
+
+  it('session is not restored on next init for a user without access to the current app', async () => {
+    // Simulate: cassa user logs in → session saved → page reload as sala app.
+    // _currentApp for the test environment is 'cassa', so we manually write a
+    // session for a cucina-only user into IDB and then reload.
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+
+    // Write a cucina-only user to venue_users
+    const cucinaHash = await sha256('5555');
+    await db.put('venue_users', {
+      id: 'vu_cucina_only',
+      name: 'Chef Cucina',
+      display_name: 'Chef Cucina',
+      apps: ['cucina'],
+      pin: cucinaHash,
+      status: 'active',
+    });
+    // Persist their session (as if they logged into cucina)
+    await db.put('app_meta', { id: 'auth_session', userId: 'vu_cucina_only' });
+
+    // Simulate page reload (same app = cassa in jsdom)
+    _resetAuthSingleton();
+    useAuth();
+    await _waitForAuth();
+
+    const { currentUser, isAuthenticated } = useAuth();
+    // The cucina user must NOT be restored as the active session on the cassa app
+    expect(currentUser.value).toBeNull();
+    expect(isAuthenticated.value).toBe(false);
+  });
+
+  it('session IS restored on next init for a user who has access to the current app', async () => {
+    // A cassa user's session should survive a reload of the cassa app.
+    const { addUser } = useAuth();
+    const cassaUser = await addUser('Cassiere', '3333', ['cassa']);
+
+    // Persist their session manually
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+    await db.put('app_meta', { id: 'auth_session', userId: cassaUser.id });
+
+    _resetAuthSingleton();
+    useAuth();
+    await _waitForAuth();
+
+    const { currentUser } = useAuth();
+    // The cassa user should be restored (still locked, but currentUser is set)
+    expect(currentUser.value?.id).toBe(cassaUser.id);
+  });
+});
