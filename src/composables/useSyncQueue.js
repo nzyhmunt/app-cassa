@@ -280,7 +280,7 @@ function _withRequiredDefaults(collection, operation, payload, cfg) {
  * Enriches queue payloads with Directus audit FKs backed by the current PIN session user.
  *
  * Injection rules:
- *  - create: sets `venue_user_created` and `venue_user_updated` when missing/empty
+ *  - create: sets `venue_user_created` when missing/empty
  *  - update: sets `venue_user_updated` when missing/empty
  *  - delete: unchanged payload
  *
@@ -305,7 +305,7 @@ function _withVenueUserAuditPayload(collection, operation, payload, venueUserId)
   if (operation === 'create' && !hasCreated) {
     out.venue_user_created = venueUserId;
   }
-  if ((operation === 'create' || operation === 'update') && !hasUpdated) {
+  if (operation === 'update' && !hasUpdated) {
     out.venue_user_updated = venueUserId;
   }
 

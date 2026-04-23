@@ -82,7 +82,7 @@ describe('enqueue()', () => {
     expect(entries[1].operation).toBe('update');
   });
 
-  it('injects venue_user_created and venue_user_updated from auth session on create for audit-enabled collections', async () => {
+  it('injects only venue_user_created from auth session on create for audit-enabled collections', async () => {
     await saveAuthSessionToIDB('vu_pin_1');
     await enqueue('orders', 'create', 'ord_audit_1', { id: 'ord_audit_1', status: 'pending' });
 
@@ -91,8 +91,8 @@ describe('enqueue()', () => {
     expect(entries[0].payload).toMatchObject({
       id: 'ord_audit_1',
       venue_user_created: 'vu_pin_1',
-      venue_user_updated: 'vu_pin_1',
     });
+    expect(entries[0].payload.venue_user_updated).toBeUndefined();
   });
 
   it('injects only venue_user_updated from auth session on update for audit-enabled collections', async () => {
