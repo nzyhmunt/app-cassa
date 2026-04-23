@@ -54,9 +54,7 @@ function normalizeNestedOrderItem(record) {
   return {
     ...mapped,
     notes: Array.isArray(mapped.notes) ? mapped.notes : [],
-    modifiers: Array.isArray(mapped.modifiers)
-      ? mapped.modifiers.map(normalizeOrderItemModifier).filter(Boolean)
-      : [],
+    modifiers: Array.isArray(mapped.modifiers) ? mapped.modifiers : [],
   };
 }
 
