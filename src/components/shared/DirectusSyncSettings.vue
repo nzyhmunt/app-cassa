@@ -176,6 +176,28 @@
       </button>
     </div>
 
+    <!-- Feedback operazioni push/pull -->
+    <template v-if="syncEnabled">
+      <div
+        v-if="pushFeedback"
+        class="flex items-center gap-2 text-xs px-3 py-2 rounded-xl"
+        :class="pushFeedback === 'success' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'"
+      >
+        <CheckCircle v-if="pushFeedback === 'success'" class="size-3 shrink-0" />
+        <XCircle v-else class="size-3 shrink-0" />
+        <span>{{ pushFeedback === 'success' ? 'Push completato.' : 'Errore durante il push.' }}</span>
+      </div>
+      <div
+        v-if="pullFeedback"
+        class="flex items-center gap-2 text-xs px-3 py-2 rounded-xl"
+        :class="pullFeedback === 'success' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'"
+      >
+        <CheckCircle v-if="pullFeedback === 'success'" class="size-3 shrink-0" />
+        <XCircle v-else class="size-3 shrink-0" />
+        <span>{{ pullFeedback === 'success' ? 'Pull completato.' : 'Errore durante il pull.' }}</span>
+      </div>
+    </template>
+
     <!-- Log coda sincronizzazione -->
     <button
       v-if="syncEnabled"
@@ -291,7 +313,7 @@
   </div>
 </template>
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue';
+import { ref, reactive, computed, onMounted, onUnmounted } from 'vue';
 import {
   RefreshCw, Save, Wifi, LoaderCircle, CheckCircle, XCircle,
   AlertCircle, Upload, Download, ListOrdered,
@@ -323,6 +345,10 @@ const showToken = ref(false);
 const testing = ref(false);
 const pushing = ref(false);
 const pulling = ref(false);
+const pushFeedback = ref(null); // null | 'success' | 'error'
+const pullFeedback = ref(null); // null | 'success' | 'error'
+let _pushFeedbackTimer = null;
+let _pullFeedbackTimer = null;
 const connectionStatus = ref('idle'); // 'idle' | 'testing' | 'ok' | 'error'
 const connectionMessage = ref('');
 const showQueueLog = ref(false);
@@ -362,6 +388,11 @@ onMounted(async () => {
     await loadDirectusConfigFromStorage();
   } catch (e) { console.warn('[DirectusSyncSettings] Failed to load Directus config from IDB:', e); }
   _syncFormFromConfig();
+});
+
+onUnmounted(() => {
+  clearTimeout(_pushFeedbackTimer);
+  clearTimeout(_pullFeedbackTimer);
 });
 
 function _syncFormFromConfig() {
@@ -492,10 +523,16 @@ async function saveConfig() {
 async function handleForcePush() {
   if (pushing.value || pulling.value) return;
   pushing.value = true;
+  pushFeedback.value = null;
+  clearTimeout(_pushFeedbackTimer);
   try {
     await sync.forcePush();
+    pushFeedback.value = sync.syncStatus.value === 'error' ? 'error' : 'success';
+  } catch {
+    pushFeedback.value = 'error';
   } finally {
     pushing.value = false;
+    _pushFeedbackTimer = setTimeout(() => { pushFeedback.value = null; }, 3000);
   }
 }
 
@@ -503,11 +540,17 @@ async function handleForcePush() {
 async function handleForcePull() {
   if (pushing.value || pulling.value) return;
   pulling.value = true;
+  pullFeedback.value = null;
+  clearTimeout(_pullFeedbackTimer);
   try {
-    await sync.reconfigureAndApply({ clearLocalConfig: false });
+    const result = await sync.reconfigureAndApply({ clearLocalConfig: false });
     await sync.forcePull();
+    pullFeedback.value = result?.ok ? 'success' : 'error';
+  } catch {
+    pullFeedback.value = 'error';
   } finally {
     pulling.value = false;
+    _pullFeedbackTimer = setTimeout(() => { pullFeedback.value = null; }, 3000);
   }
 }
 

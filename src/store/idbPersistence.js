@@ -837,7 +837,7 @@ export async function saveLastPullTsToIDB(collection, ts) {
  * @param {Array<object>} records - Records received from Directus
  * @returns {Promise<number>} Number of records actually written
  */
-export async function upsertRecordsIntoIDB(storeName, records) {
+export async function upsertRecordsIntoIDB(storeName, records, { forceWrite = false } = {}) {
   if (!records || records.length === 0) return 0;
 
   // Hardcoded keyPath overrides for stores that deviate from the default 'id'.
@@ -993,7 +993,7 @@ export async function upsertRecordsIntoIDB(storeName, records) {
         const pk = incoming[keyPath];
         if (!pk) continue;
         const existing = await roTx.store.get(pk);
-        if (existing && existing.date_updated && incoming.date_updated) {
+        if (!forceWrite && existing && existing.date_updated && incoming.date_updated) {
           if (new Date(incoming.date_updated) <= new Date(existing.date_updated)) {
             continue; // local is newer or equal — skip
           }
@@ -1180,5 +1180,79 @@ export async function replaceTableMergesInIDB(records) {
     await tx.done;
   } catch (e) {
     console.warn('[IDBPersistence] replaceTableMergesInIDB failed:', e);
+  }
+}
+
+/**
+ * Atomically replaces all records in the `venue_users` ObjectStore.
+ *
+ * Used after a full Directus deep-fetch so that users removed from Directus
+ * are also removed locally (upsert-only semantics would leave stale users).
+ * Records are normalized (name/display_name, apps array, PIN hashing) before
+ * being written, matching the normalization applied by upsertRecordsIntoIDB.
+ *
+ * @param {Array<object>} records - Complete set of venue_users from Directus.
+ * @returns {Promise<void>}
+ */
+export async function replaceVenueUsersInIDB(records) {
+  try {
+    const db = await getDB();
+
+    const normalized = [];
+    for (const rawRecord of records) {
+      if (!rawRecord || typeof rawRecord !== 'object') continue;
+      const record = { ...rawRecord };
+
+      // Normalize name / display_name aliases
+      if ((record.name == null || record.name === '') && record.display_name != null) {
+        record.name = record.display_name;
+      }
+      if ((record.display_name == null || record.display_name === '') && record.name != null) {
+        record.display_name = record.name;
+      }
+
+      // Normalize apps array
+      record.apps = normalizeAppsArray(record.apps);
+
+      // Strip internal fields that must not reach IDB
+      delete record.role;
+      delete record.role2;
+      delete record._sync_status;
+
+      // Hash PIN (same logic as upsertRecordsIntoIDB)
+      const pinType = typeof record.pin;
+      const isPinScalar = pinType === 'string' || pinType === 'number';
+      if (record.pin != null && isPinScalar) {
+        const trimmedPin = String(record.pin).trim();
+        const pinDigits = _extractPinDigits(trimmedPin);
+        if (pinDigits.length === PIN_LENGTH) {
+          try {
+            const hashed = await _hashPinForLocalAuth(pinDigits);
+            record.pin = hashed ?? '';
+          } catch (err) {
+            console.warn('[IDBPersistence] Failed to hash venue_users PIN during replaceVenueUsersInIDB. Clearing PIN. User ID:', record.id ?? 'unknown', err);
+            record.pin = '';
+          }
+        } else {
+          console.warn(`[IDBPersistence] Invalid venue_users PIN during replaceVenueUsersInIDB — could not extract ${PIN_LENGTH} numeric digits. User ID:`, record.id ?? 'unknown');
+          record.pin = '';
+        }
+      } else if (record.pin != null) {
+        record.pin = '';
+      }
+
+      if (!record.id) continue;
+      normalized.push(record);
+    }
+
+    const tx = db.transaction('venue_users', 'readwrite');
+    await tx.store.clear();
+    for (const r of normalized) {
+      await tx.store.put(JSON.parse(JSON.stringify(r)));
+    }
+    await tx.done;
+    touchStorageKey();
+  } catch (e) {
+    console.warn('[IDBPersistence] replaceVenueUsersInIDB failed:', e);
   }
 }

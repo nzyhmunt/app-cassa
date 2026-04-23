@@ -37,6 +37,7 @@ import {
 import {
   loadConfigFromIDB,
   replaceTableMergesInIDB,
+  replaceVenueUsersInIDB,
   clearLocalConfigCacheFromIDB,
 } from '../store/persistence/config.js';
 
@@ -107,6 +108,12 @@ const DEEP_FETCH_JSON_FIELDS = [
   'id',
   'name',
   'status',
+  'date_updated',
+  'primary_color',
+  'primary_color_dark',
+  'currency_symbol',
+  'allow_custom_variants',
+  'orders_rejection_reasons',
   'users.*',
   'cover_charge_enabled',
   'cover_charge_auto_add',
@@ -938,8 +945,11 @@ async function _fanOutVenueTreeToIDB(venueRecord, { menuSource }) {
 
   const stores = Object.entries(payloadByStore);
   await Promise.all(stores
-    .filter(([storeName]) => storeName !== 'table_merge_sessions')
-    .map(([storeName, records]) => upsertRecordsIntoIDB(storeName, records)));
+    .filter(([storeName]) => storeName !== 'table_merge_sessions' && storeName !== 'venue_users')
+    .map(([storeName, records]) => upsertRecordsIntoIDB(storeName, records, { forceWrite: true })));
+  // venue_users must be full-replaced so users removed from Directus are also
+  // removed from IDB instead of lingering indefinitely via upsert-only semantics.
+  await replaceVenueUsersInIDB(payloadByStore.venue_users);
   // table_merge_sessions must be full-replaced so stale dissolved merges are removed
   // from IDB instead of lingering indefinitely via upsert-only semantics.
   await replaceTableMergesInIDB(payloadByStore.table_merge_sessions);
