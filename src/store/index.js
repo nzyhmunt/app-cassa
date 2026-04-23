@@ -625,8 +625,9 @@ export const useOrderStore = defineStore('orders', () => {
     const notesB = [...(b.notes || [])].sort();
     if (notesA.length !== notesB.length || notesA.some((n, i) => n !== notesB[i])) return false;
     const normMod = m => ({ name: String(m.name), price: Number(m.price) || 0 });
-    const modsA = [...(a.modifiers || [])].map(normMod).sort((x, y) => x.name < y.name ? -1 : x.name > y.name ? 1 : x.price - y.price);
-    const modsB = [...(b.modifiers || [])].map(normMod).sort((x, y) => x.name < y.name ? -1 : x.name > y.name ? 1 : x.price - y.price);
+    const modComparator = (x, y) => x.name < y.name ? -1 : x.name > y.name ? 1 : x.price - y.price;
+    const modsA = [...(a.modifiers || [])].map(normMod).sort(modComparator);
+    const modsB = [...(b.modifiers || [])].map(normMod).sort(modComparator);
     if (modsA.length !== modsB.length) return false;
     return modsA.every((m, i) => m.name === modsB[i].name && m.price === modsB[i].price);
   }
