@@ -53,9 +53,6 @@ function normalizeNestedOrderItem(record) {
   const mapped = mapOrderItemFromDirectus(record);
   return {
     ...mapped,
-    quantity: numberOr(record.quantity ?? mapped.quantity),
-    voidedQuantity: numberOr(record.voided_quantity ?? record.voidedQuantity ?? mapped.voidedQuantity),
-    unitPrice: numberOr(mapped.unitPrice),
     notes: Array.isArray(mapped.notes) ? mapped.notes : [],
     modifiers: Array.isArray(mapped.modifiers)
       ? mapped.modifiers.map(normalizeOrderItemModifier).filter(Boolean)
