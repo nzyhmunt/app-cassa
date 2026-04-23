@@ -27,6 +27,7 @@ import { getDB } from './useIDB.js';
 import { newUUIDv7 } from '../store/storeUtils.js';
 import { appConfig } from '../utils/index.js';
 import { mapPayloadToDirectus } from '../utils/mappers.js';
+import { loadAuthSessionFromIDB } from '../store/persistence/operations.js';
 
 /**
  * Maximum push attempts before a queue entry is abandoned.
@@ -75,13 +76,23 @@ export function _resetEnqueueSeq() {}
  */
 export async function enqueue(collection, operation, recordId, payload) {
   try {
+    const sourcePayload = payload ?? null;
+    let venueUserId = null;
+    if (_shouldLoadVenueUserAuditUser(collection, operation, sourcePayload)) {
+      venueUserId = await loadAuthSessionFromIDB().catch((error) => {
+        console.warn('[SyncQueue] Failed to load auth session user for audit payload enrichment; venue_user fields will not be set:', error);
+        return null;
+      });
+    }
+    const payloadWithAudit = _withVenueUserAuditPayload(collection, operation, sourcePayload, venueUserId);
+
     const db = await getDB();
     await db.add('sync_queue', {
       id: newUUIDv7('sq'),
       collection,
       operation,
       record_id: recordId,
-      payload: payload ?? null,
+      payload: payloadWithAudit,
       date_created: new Date().toISOString(),
       attempts: 0,
     });
@@ -234,6 +245,18 @@ const VENUE_REQUIRED_CREATE_COLLECTIONS = new Set([
   'printers',
 ]);
 
+const VENUE_USER_AUDIT_COLLECTIONS = new Set([
+  'bill_sessions',
+  'orders',
+  'order_items',
+  'order_item_modifiers',
+  'transactions',
+  'cash_movements',
+  'daily_closures',
+  'daily_closure_by_method',
+  'print_jobs',
+]);
+
 /**
  * Injects required Directus defaults for legacy/sparse queue payloads.
  *
@@ -255,6 +278,58 @@ function _withRequiredDefaults(collection, operation, payload, cfg) {
     out.venue = cfg.venueId;
   }
   return out;
+}
+
+/**
+ * Enriches queue payloads with Directus audit FKs backed by the current PIN session user.
+ *
+ * Injection rules:
+ *  - create: sets `venue_user_created` when missing/empty
+ *  - update: sets `venue_user_updated` when missing/empty
+ *  - delete: unchanged payload
+ *
+ * Explicit payload values are never overridden (snake_case or camelCase).
+ *
+ * @param {string} collection
+ * @param {'create'|'update'|'delete'} operation
+ * @param {object|null|undefined} payload
+ * @param {string|null} venueUserId
+ * @returns {object|null}
+ */
+function _withVenueUserAuditPayload(collection, operation, payload, venueUserId) {
+  if (operation === 'delete') return payload ?? null;
+  if (!VENUE_USER_AUDIT_COLLECTIONS.has(collection)) return payload ?? null;
+  if (!payload || typeof payload !== 'object') return payload ?? null;
+  if (!_isPresentValue(venueUserId)) return payload ?? null;
+
+  const out = { ...payload };
+  const hasCreated = _hasAuditFieldValue(out, 'venue_user_created', 'venueUserCreated');
+  const hasUpdated = _hasAuditFieldValue(out, 'venue_user_updated', 'venueUserUpdated');
+
+  if (operation === 'create' && !hasCreated) {
+    out.venue_user_created = venueUserId;
+  }
+  if (operation === 'update' && !hasUpdated) {
+    out.venue_user_updated = venueUserId;
+  }
+
+  return out;
+}
+
+function _shouldLoadVenueUserAuditUser(collection, operation, payload) {
+  if (operation === 'delete') return false;
+  if (operation !== 'create' && operation !== 'update') return false;
+  if (!VENUE_USER_AUDIT_COLLECTIONS.has(collection)) return false;
+  if (!payload || typeof payload !== 'object') return false;
+  const hasExistingAuditValue = operation === 'create'
+    ? _hasAuditFieldValue(payload, 'venue_user_created', 'venueUserCreated')
+    : _hasAuditFieldValue(payload, 'venue_user_updated', 'venueUserUpdated');
+  if (hasExistingAuditValue) return false;
+  return true;
+}
+
+function _hasAuditFieldValue(payload, snakeCaseKey, camelCaseKey) {
+  return _isPresentValue(payload?.[snakeCaseKey]) || _isPresentValue(payload?.[camelCaseKey]);
 }
 
 /**

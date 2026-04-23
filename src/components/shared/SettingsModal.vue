@@ -154,7 +154,7 @@
         <!-- Gestione Utenti -->
         <div class="pt-4 border-t border-gray-100 mt-2">
           <!-- Prominent admin setup notice when no users have been configured -->
-          <template v-if="manualUsers.length === 0">
+          <template v-if="!hasVenueUsers">
             <div class="bg-amber-50 border border-amber-200 rounded-2xl p-3 mb-2 flex items-start gap-2">
               <ShieldAlert class="size-4 shrink-0 text-amber-500 mt-0.5" />
               <div class="text-xs text-amber-800">
@@ -237,7 +237,8 @@ const directusEnabled = directusEnabledRef;
 
 const showUserManagement = ref(false);
 
-const { manualUsers, isAdmin, currentUser } = useAuth();
+const { users, manualUsers, directusUsers, isAdmin, currentUser } = useAuth();
+const hasVenueUsers = computed(() => (manualUsers.value.length + directusUsers.value.length) > 0);
 
 const keyboardPositionOptions = [
   { value: 'disabled', label: 'Off' },

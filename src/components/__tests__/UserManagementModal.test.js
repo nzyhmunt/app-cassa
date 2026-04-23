@@ -22,6 +22,8 @@ import { mount, flushPromises, enableAutoUnmount } from '@vue/test-utils';
 import UserManagementModal from '../UserManagementModal.vue';
 import { useAuth, _resetAuthSingleton, _waitForAuth } from '../../composables/useAuth.js';
 import { _resetIDBSingleton } from '../../composables/useIDB.js';
+import { upsertRecordsIntoIDB } from '../../store/persistence/operations.js';
+import { appConfig } from '../../utils/index.js';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -340,5 +342,63 @@ describe('non-empty state with non-admin user logged in', () => {
     const wrapper = mountModal();
     const deleteBtns = wrapper.findAll('button[title="Elimina"]');
     expect(deleteBtns.length).toBe(0);
+  });
+
+  it('does not show auto-lock controls for non-admin manual users', () => {
+    const wrapper = mountModal();
+    expect(wrapper.text()).not.toContain('Blocco automatico');
+  });
+});
+
+describe('directus-managed venue users', () => {
+  beforeEach(async () => {
+    // Plaintext PIN here intentionally exercises the sync-normalization path:
+    // upsertRecordsIntoIDB hashes venue_users PINs before auth checks run.
+    await upsertRecordsIntoIDB('venue_users', [{
+      id: 'vu_directus_admin',
+      name: 'Direttore',
+      display_name: 'Direttore',
+      pin: '1234',
+      apps: ['admin'],
+      status: 'active',
+    }]);
+    const { login } = useAuth();
+    await _waitForAuth();
+    await login('vu_directus_admin', '1234');
+  });
+
+  it('shows directus read-only notice and hides add/edit controls', async () => {
+    const wrapper = mountModal();
+    await flushPromises();
+
+    expect(wrapper.text()).toContain('Utenti sincronizzati da Directus');
+    expect(wrapper.text()).toContain('Blocco automatico');
+    expect(wrapper.text()).not.toContain('Aggiungi utente');
+    expect(wrapper.find('button[title="Modifica"]').exists()).toBe(false);
+  });
+});
+
+describe('config users without venue users', () => {
+  beforeEach(() => {
+    appConfig.auth.users = [{
+      id: 'cfg_cashier',
+      name: 'Config Utente',
+      pin: '1234',
+      apps: ['cassa'],
+    }];
+  });
+
+  afterEach(() => {
+    appConfig.auth.users = [];
+  });
+
+  it('keeps first-admin form reachable when only appConfig users exist', async () => {
+    const wrapper = mountModal();
+    await _waitForAuth();
+    await flushPromises();
+
+    expect(wrapper.text()).toContain('Nessun utente configurato');
+    expect(wrapper.text()).toContain('Crea account amministratore');
+    expect(wrapper.text()).not.toContain('Aggiungi utente');
   });
 });

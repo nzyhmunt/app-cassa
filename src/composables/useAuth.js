@@ -85,6 +85,15 @@ function normalizeAccessApps(apps) {
   };
 }
 
+function isDirectusVenueUserRecord(user) {
+  if (!user || typeof user !== 'object') return false;
+  if (user._type === 'directus_user') return true;
+  if (user._type === 'manual_user') return false;
+  // Backward compatibility for older records that predate `_type` markers:
+  // Directus-synced users carry `status`; legacy manual users do not.
+  return Object.prototype.hasOwnProperty.call(user, 'status');
+}
+
 function deriveUserAccess(user) {
   const fromApps = normalizeAccessApps(user?.apps);
   // Manual users are created locally by this app and persisted with `_type: 'manual_user'`
@@ -143,6 +152,7 @@ function _buildConfigUsers() {
     name: u.name,
     apps: normalizeSelectableApps(u.apps),
     fromConfig: true,
+    fromDirectus: false,
     isAdmin: false,
     pin: null, // never stored — hashes are kept in _configUserHashes
   }));
@@ -182,11 +192,16 @@ function _init() {
 
     _users.value = users.filter(u =>
       u && u.id && u.name && u.pin,
-    ).map(u => ({
-      ...u,
-      ...deriveUserAccess(u),
-      fromConfig: false,
-    }));
+    ).map((u) => {
+      const fromDirectus = isDirectusVenueUserRecord(u);
+      return {
+        ...u,
+        _type: u._type || (fromDirectus ? 'directus_user' : 'manual_user'),
+        ...deriveUserAccess(u),
+        fromConfig: false,
+        fromDirectus,
+      };
+    });
 
     _lockTimeoutMinutes.value = typeof savedSettings?.lockTimeoutMinutes === 'number'
       ? savedSettings.lockTimeoutMinutes
@@ -349,11 +364,13 @@ export function useAuth() {
       apps: adminFlag ? [...ALL_APPS] : normalizeSelectableApps(apps),
       isAdmin: adminFlag,
       fromConfig: false,
+      fromDirectus: false,
+      _type: 'manual_user',
     };
     _mutationVersion++;
     _users.value = [..._users.value, user];
     try {
-      await saveUsersToIDB(_users.value);
+      await saveUsersToIDB(_users.value.filter((u) => !isDirectusVenueUserRecord(u)));
     } catch (e) {
       console.warn('[Auth] Failed to save users:', e);
     }
@@ -368,6 +385,8 @@ export function useAuth() {
    */
   async function updateUser(id, updates) {
     if ((appConfig.auth?.users ?? []).some((u) => u.id === id)) return;
+    const target = _users.value.find((u) => u.id === id);
+    if (!target || isDirectusVenueUserRecord(target)) return;
     const resolved = { ...updates };
     if (resolved.pin != null) {
       resolved.pin = await hashPin(resolved.pin);
@@ -377,7 +396,7 @@ export function useAuth() {
       u.id === id ? { ...u, ...resolved } : u,
     );
     try {
-      await saveUsersToIDB(_users.value);
+      await saveUsersToIDB(_users.value.filter((u) => !isDirectusVenueUserRecord(u)));
     } catch (e) {
       console.warn('[Auth] Failed to save users:', e);
     }
@@ -389,9 +408,11 @@ export function useAuth() {
    */
   function removeUser(id) {
     if ((appConfig.auth?.users ?? []).some((u) => u.id === id)) return;
+    const target = _users.value.find((u) => u.id === id);
+    if (!target || isDirectusVenueUserRecord(target)) return;
     _mutationVersion++;
     _users.value = _users.value.filter((u) => u.id !== id);
-    saveUsersToIDB(_users.value).catch(e => console.warn('[Auth] Failed to save users:', e));
+    saveUsersToIDB(_users.value.filter((u) => !isDirectusVenueUserRecord(u))).catch(e => console.warn('[Auth] Failed to save users:', e));
     if (_currentUserId.value === id) {
       logout();
     }
@@ -448,7 +469,9 @@ export function useAuth() {
     /** Reactive list of all users (appConfig + manual). */
     users: _allUsers,
     /** Only manually-created users (editable). */
-    manualUsers: computed(() => _users.value),
+    manualUsers: computed(() => _users.value.filter((u) => !isDirectusVenueUserRecord(u))),
+    /** Users synced from Directus (read-only from app settings UI). */
+    directusUsers: computed(() => _users.value.filter((u) => isDirectusVenueUserRecord(u))),
     /** Users accessible for the current app (used by LockScreen). */
     visibleUsers: _visibleUsers,
     /** The currently logged-in user (or null). */
