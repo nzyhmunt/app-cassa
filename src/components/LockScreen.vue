@@ -20,8 +20,16 @@
       <!-- 2rem in calc() matches landscape:my-4 (1rem top + 1rem bottom) -->
       <div class="bg-white rounded-3xl shadow-2xl w-full max-w-xs md:max-w-sm mx-4 overflow-hidden landscape:overflow-y-auto landscape:my-4 landscape:max-h-[calc(var(--app-height,100dvh)-2rem)]">
 
+        <!-- ── Loading state (shown until IDB hydration completes) ─────────── -->
+        <template v-if="!isHydrated">
+          <div class="p-8 flex flex-col items-center justify-center gap-3">
+            <div class="size-8 rounded-full border-4 border-gray-200 border-t-[var(--brand-primary)] animate-spin" />
+            <p class="text-gray-400 text-sm font-medium">Caricamento…</p>
+          </div>
+        </template>
+
         <!-- ── User picker (shown when no user is selected) ──────────────── -->
-        <template v-if="!selectedUserId">
+        <template v-else-if="!selectedUserId">
           <div class="p-4 md:p-5 border-b border-gray-100">
             <h3 class="font-bold text-gray-800 text-center text-sm md:text-base">Seleziona utente</h3>
           </div>
@@ -137,26 +145,32 @@ const selectedUser = computed(
   () => users.value.find((u) => u.id === selectedUserId.value) ?? null,
 );
 
-// Pre-select the user when the lock screen becomes visible
+// Pre-select the user when the lock screen becomes visible OR when hydration
+// completes while the overlay is already showing (e.g. cold start: visible is
+// forced true by !isHydrated before users are loaded from IDB).
 watch(
-  visible,
-  (v) => {
-    if (v) {
-      pinDigits.value = [];
-      pinError.value = '';
-      // Only pre-select the remembered user if they are visible (have access) in
-      // the current app. A cassa-only user must not be pre-selected when sala or
-      // cucina is opened — they cannot log in there and there would be no back
-      // button to escape the PIN screen.
-      const currentUserId = currentUser.value?.id;
-      const rememberedInApp = currentUserId && users.value.some(u => u.id === currentUserId);
-      if (rememberedInApp) {
-        selectedUserId.value = currentUser.value.id;
-      } else if (users.value.length === 1) {
-        selectedUserId.value = users.value[0].id;
-      } else {
-        selectedUserId.value = null;
-      }
+  [visible, isHydrated],
+  ([v, hydrated], prev) => {
+    if (!v) return;
+    const [prevV, prevHydrated] = prev ?? [false, false];
+    const justBecameVisible = !prevV;
+    const justHydrated = hydrated && !prevHydrated;
+    if (!justBecameVisible && !justHydrated) return;
+
+    pinDigits.value = [];
+    pinError.value = '';
+    // Only pre-select the remembered user if they are visible (have access) in
+    // the current app. A cassa-only user must not be pre-selected when sala or
+    // cucina is opened — they cannot log in there and there would be no back
+    // button to escape the PIN screen.
+    const currentUserId = currentUser.value?.id;
+    const rememberedInApp = currentUserId && users.value.some(u => u.id === currentUserId);
+    if (rememberedInApp) {
+      selectedUserId.value = currentUser.value.id;
+    } else if (users.value.length === 1) {
+      selectedUserId.value = users.value[0].id;
+    } else {
+      selectedUserId.value = null;
     }
   },
   { immediate: true },
