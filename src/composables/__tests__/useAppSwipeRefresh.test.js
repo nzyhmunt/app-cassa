@@ -117,9 +117,9 @@ describe('useAppSwipeRefresh()', () => {
     document.body.appendChild(root);
 
     swipe.onTouchStart({ touches: [touch(1, 20)], target: root });
-    swipe.onTouchMove({ touches: [touch(1, 30)] });
+    swipe.onTouchMove({ touches: [touch(1, 35)] });
     expect(swipe.isPulling.value).toBe(true);
-    expect(swipe.pullProgress.value).toBeCloseTo(0.1, 2);
+    expect(swipe.pullProgress.value).toBeCloseTo(0.15, 2);
     expect(swipe.isThresholdReached.value).toBe(false);
 
     swipe.onTouchMove({ touches: [touch(1, 150)] });

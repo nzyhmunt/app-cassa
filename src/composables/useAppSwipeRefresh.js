@@ -108,7 +108,7 @@ export function useAppSwipeRefresh({
     const touch = findTouchById(event.touches);
     if (!touch) return;
     const deltaY = touch.clientY - swipeStartY;
-    if (deltaY <= pullGestureMinPx) {
+    if (deltaY < pullGestureMinPx) {
       isPulling.value = false;
       pullDistance.value = 0;
       return;
