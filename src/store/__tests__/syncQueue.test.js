@@ -25,7 +25,7 @@ import {
   MAX_ATTEMPTS,
   _resetEnqueueSeq,
 } from '../../composables/useSyncQueue.js';
-import { saveAuthSessionToIDB } from '../persistence/operations.js';
+import * as persistenceOps from '../persistence/operations.js';
 
 // Pass _backoffMs:0 to skip exponential back-off delays in all tests.
 const FAKE_CFG = { url: 'https://directus.test', staticToken: 'tok_test', _backoffMs: 0 };
@@ -83,7 +83,7 @@ describe('enqueue()', () => {
   });
 
   it('injects only venue_user_created from auth session on create for audit-enabled collections', async () => {
-    await saveAuthSessionToIDB('vu_pin_1');
+    await persistenceOps.saveAuthSessionToIDB('vu_pin_1');
     await enqueue('orders', 'create', 'ord_audit_1', { id: 'ord_audit_1', status: 'pending' });
 
     const entries = await getPendingEntries();
@@ -96,7 +96,7 @@ describe('enqueue()', () => {
   });
 
   it('injects only venue_user_updated from auth session on update for audit-enabled collections', async () => {
-    await saveAuthSessionToIDB('vu_pin_2');
+    await persistenceOps.saveAuthSessionToIDB('vu_pin_2');
     await enqueue('transactions', 'update', 'txn_audit_1', { amountPaid: 20 });
 
     const entries = await getPendingEntries();
@@ -106,7 +106,7 @@ describe('enqueue()', () => {
   });
 
   it('does not override explicit venue_user audit fields in payload', async () => {
-    await saveAuthSessionToIDB('vu_pin_3');
+    await persistenceOps.saveAuthSessionToIDB('vu_pin_3');
     await enqueue('daily_closures', 'create', 'close_audit_1', {
       id: 'close_audit_1',
       venue_user_created: 'vu_manual_created',
@@ -117,6 +117,30 @@ describe('enqueue()', () => {
     expect(entries).toHaveLength(1);
     expect(entries[0].payload.venue_user_created).toBe('vu_manual_created');
     expect(entries[0].payload.venue_user_updated).toBe('vu_manual_updated');
+  });
+
+  it('does not override explicit camelCase venue user audit fields in payload', async () => {
+    await persistenceOps.saveAuthSessionToIDB('vu_pin_4');
+    await enqueue('daily_closures', 'create', 'close_audit_2', {
+      id: 'close_audit_2',
+      venueUserCreated: 'vu_manual_created_cc',
+      venueUserUpdated: 'vu_manual_updated_cc',
+    });
+
+    const entries = await getPendingEntries();
+    expect(entries).toHaveLength(1);
+    expect(entries[0].payload.venueUserCreated).toBe('vu_manual_created_cc');
+    expect(entries[0].payload.venueUserUpdated).toBe('vu_manual_updated_cc');
+    expect(entries[0].payload.venue_user_created).toBeUndefined();
+    expect(entries[0].payload.venue_user_updated).toBeUndefined();
+  });
+
+  it('skips auth-session lookup when venue user audit enrichment cannot apply', async () => {
+    const loadSpy = vi.spyOn(persistenceOps, 'loadAuthSessionFromIDB');
+    await enqueue('orders', 'delete', 'ord_skip_1', { id: 'ord_skip_1' });
+    await enqueue('menu_items', 'create', 'item_skip_1', { id: 'item_skip_1' });
+    await enqueue('orders', 'create', 'ord_skip_2', null);
+    expect(loadSpy).not.toHaveBeenCalled();
   });
 });
 

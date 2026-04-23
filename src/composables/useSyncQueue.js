@@ -76,11 +76,15 @@ export function _resetEnqueueSeq() {}
  */
 export async function enqueue(collection, operation, recordId, payload) {
   try {
-    const venueUserId = await loadAuthSessionFromIDB().catch((error) => {
-      console.warn('[SyncQueue] Failed to load auth session user for audit payload enrichment; venue_user fields will not be set:', error);
-      return null;
-    });
-    const payloadWithAudit = _withVenueUserAuditPayload(collection, operation, payload ?? null, venueUserId);
+    const sourcePayload = payload ?? null;
+    let venueUserId = null;
+    if (_shouldLoadVenueUserAuditUser(collection, operation, sourcePayload)) {
+      venueUserId = await loadAuthSessionFromIDB().catch((error) => {
+        console.warn('[SyncQueue] Failed to load auth session user for audit payload enrichment; venue_user fields will not be set:', error);
+        return null;
+      });
+    }
+    const payloadWithAudit = _withVenueUserAuditPayload(collection, operation, sourcePayload, venueUserId);
 
     const db = await getDB();
     await db.add('sync_queue', {
@@ -284,7 +288,7 @@ function _withRequiredDefaults(collection, operation, payload, cfg) {
  *  - update: sets `venue_user_updated` when missing/empty
  *  - delete: unchanged payload
  *
- * Explicit payload values are never overridden.
+ * Explicit payload values are never overridden (snake_case or camelCase).
  *
  * @param {string} collection
  * @param {'create'|'update'|'delete'} operation
@@ -299,8 +303,8 @@ function _withVenueUserAuditPayload(collection, operation, payload, venueUserId)
   if (!_isPresentValue(venueUserId)) return payload ?? null;
 
   const out = { ...payload };
-  const hasCreated = _isPresentValue(out.venue_user_created);
-  const hasUpdated = _isPresentValue(out.venue_user_updated);
+  const hasCreated = _isPresentValue(out.venue_user_created) || _isPresentValue(out.venueUserCreated);
+  const hasUpdated = _isPresentValue(out.venue_user_updated) || _isPresentValue(out.venueUserUpdated);
 
   if (operation === 'create' && !hasCreated) {
     out.venue_user_created = venueUserId;
@@ -310,6 +314,14 @@ function _withVenueUserAuditPayload(collection, operation, payload, venueUserId)
   }
 
   return out;
+}
+
+function _shouldLoadVenueUserAuditUser(collection, operation, payload) {
+  if (operation === 'delete') return false;
+  if (operation !== 'create' && operation !== 'update') return false;
+  if (!VENUE_USER_AUDIT_COLLECTIONS.has(collection)) return false;
+  if (!payload || typeof payload !== 'object') return false;
+  return true;
 }
 
 /**
