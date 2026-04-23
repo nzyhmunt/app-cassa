@@ -144,7 +144,8 @@ watch(
       // the current app. A cassa-only user must not be pre-selected when sala or
       // cucina is opened — they cannot log in there and there would be no back
       // button to escape the PIN screen.
-      const rememberedInApp = currentUser.value && users.value.some(u => u.id === currentUser.value.id);
+      const currentUserId = currentUser.value?.id;
+      const rememberedInApp = currentUserId && users.value.some(u => u.id === currentUserId);
       if (rememberedInApp) {
         selectedUserId.value = currentUser.value.id;
       } else if (users.value.length === 1) {

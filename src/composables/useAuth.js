@@ -211,8 +211,7 @@ function _init() {
     // Only restore the session if the user has access to the current app.
     // This prevents a cassa-only user's saved session from granting access to
     // sala or cucina when those apps are opened on the same device.
-    const hasAppAccess = userRecord != null &&
-      (userRecord.isAdmin || userRecord.apps.includes(_currentApp));
+    const hasAppAccess = userRecord?.isAdmin || userRecord?.apps.includes(_currentApp);
     _currentUserId.value = savedUserId && hasAppAccess ? savedUserId : null;
     _isLocked.value = true; // always re-lock on page load for security
   }).catch(e => console.warn('[Auth] Failed to load from IDB:', e));
