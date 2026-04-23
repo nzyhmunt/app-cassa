@@ -342,6 +342,11 @@ describe('non-empty state with non-admin user logged in', () => {
     const deleteBtns = wrapper.findAll('button[title="Elimina"]');
     expect(deleteBtns.length).toBe(0);
   });
+
+  it('does not show auto-lock controls for non-admin manual users', () => {
+    const wrapper = mountModal();
+    expect(wrapper.text()).not.toContain('Blocco automatico');
+  });
 });
 
 describe('directus-managed venue users', () => {
@@ -366,6 +371,7 @@ describe('directus-managed venue users', () => {
     await flushPromises();
 
     expect(wrapper.text()).toContain('Utenti sincronizzati da Directus');
+    expect(wrapper.text()).toContain('Blocco automatico');
     expect(wrapper.text()).not.toContain('Aggiungi utente');
     expect(wrapper.find('button[title="Modifica"]').exists()).toBe(false);
   });

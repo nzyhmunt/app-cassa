@@ -45,7 +45,7 @@
         <template v-else>
 
           <!-- ── Non-admin notice ────────────────────────────────────── -->
-          <div v-if="!isAdmin && hasAdmin" class="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-sm text-amber-800 flex items-start gap-3">
+          <div v-if="!isAdmin && hasAdmin && !isVenueUsersManagedByDirectus" class="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-sm text-amber-800 flex items-start gap-3">
             <ShieldOff class="size-5 shrink-0 text-amber-500 mt-0.5" />
             <div>
               <p class="font-bold mb-1">Accesso limitato</p>
@@ -53,8 +53,8 @@
             </div>
           </div>
 
-          <!-- ── Auto-lock (admin only) ─────────────────────────────── -->
-          <div v-if="isAdmin" class="bg-gray-50 rounded-2xl border border-gray-200 p-3 md:p-4">
+          <!-- ── Auto-lock ───────────────────────────────────────────── -->
+          <div v-if="isAdmin || isVenueUsersManagedByDirectus" class="bg-gray-50 rounded-2xl border border-gray-200 p-3 md:p-4">
             <p class="font-bold text-gray-800 text-sm mb-1">Blocco automatico</p>
             <p class="text-[10px] text-gray-500 mb-3">Blocca lo schermo dopo un periodo di inattività.</p>
             <div class="grid grid-cols-3 gap-1.5 sm:grid-cols-4">
