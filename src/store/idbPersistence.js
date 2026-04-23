@@ -1242,13 +1242,14 @@ export async function replaceVenueUsersInIDB(records) {
       }
 
       if (!record.id) continue;
-      normalized.push(record);
+      // JSON round-trip strips Vue reactive proxies before IDB's structuredClone.
+      normalized.push(JSON.parse(JSON.stringify(record)));
     }
 
     const tx = db.transaction('venue_users', 'readwrite');
     await tx.store.clear();
     for (const r of normalized) {
-      await tx.store.put(JSON.parse(JSON.stringify(r)));
+      await tx.store.put(r);
     }
     await tx.done;
     touchStorageKey();
