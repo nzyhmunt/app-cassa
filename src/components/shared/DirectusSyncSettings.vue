@@ -504,7 +504,7 @@ async function handleForcePull() {
   if (pushing.value || pulling.value) return;
   pulling.value = true;
   try {
-    await sync.forcePull();
+    await sync.reconfigureAndApply({ clearLocalConfig: false });
   } finally {
     pulling.value = false;
   }
