@@ -469,7 +469,13 @@ async function _handleSubscriptionMessage(collection, message) {
     }
     if (nonEcho.length === 0) return;
     const mapped = nonEcho.map(r => _mapRecord(collection, r));
-    await upsertRecordsIntoIDB(collection, mapped);
+    // Apply the same local-data preservation logic used in the HTTP poll path:
+    // WS subscriptions use fields:['*'] which does not expand nested relations
+    // (e.g. order_items), so orderItems would be empty in every incoming record.
+    // _preparePullRecordsForIDB merges back the local orderItems when the
+    // incoming payload lacks them, preventing IDB from being overwritten with [].
+    const { records: prepared } = await _preparePullRecordsForIDB(collection, mapped);
+    await upsertRecordsIntoIDB(collection, prepared);
     await _refreshStoreFromIDB(collection);
   }
 

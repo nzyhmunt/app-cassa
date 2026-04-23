@@ -1821,4 +1821,34 @@ describe('self-echo suppression (_handleSubscriptionMessage)', () => {
     const corrupted = await db.get('orders', 'bare-string-id');
     expect(corrupted).toBeUndefined();
   });
+
+  it('preserves local orderItems when a WS event arrives without nested items', async () => {
+    // Pre-seed IDB with an order that has orderItems (e.g. a cover charge order)
+    const existingItems = [
+      { uid: 'cop_1', name: 'Coperto', unitPrice: 2.5, quantity: 4, voidedQuantity: 0, notes: [], modifiers: [] },
+    ];
+    await upsertRecordsIntoIDB('orders', [{
+      id: 'ord_ws_items',
+      status: 'pending',
+      orderItems: existingItems,
+      totalAmount: 10,
+    }]);
+
+    // Simulate a WS status-update event — Directus never returns order_items in fields:['*']
+    await _handleSubscriptionMessage('orders', {
+      event: 'update',
+      data: [{ id: 'ord_ws_items', status: 'accepted', date_updated: '2026-01-01T00:00:05.000Z' }],
+    });
+
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+    const stored = await db.get('orders', 'ord_ws_items');
+
+    // Status must be updated
+    expect(stored?.status).toBe('accepted');
+    // orderItems must NOT have been wiped by the incoming empty array
+    expect(Array.isArray(stored?.orderItems)).toBe(true);
+    expect(stored.orderItems.length).toBe(1);
+    expect(stored.orderItems[0].name).toBe('Coperto');
+  });
 });
