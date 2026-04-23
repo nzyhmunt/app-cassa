@@ -21,9 +21,14 @@ export function useAppSwipeRefresh({
     if (thresholdPx <= 0) return 1;
     return Math.max(0, Math.min(1, pullDistance.value / thresholdPx));
   });
+  const maxPullRotationDeg = 180;
+  const pullRotationDeg = computed(() => Math.round(pullProgress.value * maxPullRotationDeg));
 
-  const PULL_DISTANCE_MAX_MULTIPLIER = 1.6;
-  const PULL_GESTURE_MIN_PX = 6;
+  // Cap visual drag feedback to 160% of threshold to keep the indicator stable
+  // and avoid over-stretch effects on long pull gestures.
+  const pullDistanceMaxMultiplier = 1.6;
+  // Ignore tiny finger jitter so taps and micro-movements don't show pull UI.
+  const pullGestureMinPx = 6;
   let swipeStartY = 0;
   /** @type {number|null} */
   let activeTouchId = null;
@@ -103,7 +108,7 @@ export function useAppSwipeRefresh({
     const touch = findTouchById(event.touches);
     if (!touch) return;
     const deltaY = touch.clientY - swipeStartY;
-    if (deltaY <= PULL_GESTURE_MIN_PX) {
+    if (deltaY <= pullGestureMinPx) {
       isPulling.value = false;
       pullDistance.value = 0;
       return;
@@ -114,7 +119,7 @@ export function useAppSwipeRefresh({
       return;
     }
     isPulling.value = true;
-    pullDistance.value = Math.min(deltaY, thresholdPx * PULL_DISTANCE_MAX_MULTIPLIER);
+    pullDistance.value = Math.min(deltaY, thresholdPx * pullDistanceMaxMultiplier);
   }
 
   function onTouchEnd(event) {
@@ -142,6 +147,7 @@ export function useAppSwipeRefresh({
     isThresholdReached,
     pullDistance,
     pullProgress,
+    pullRotationDeg,
     runRefresh,
     onTouchStart,
     onTouchMove,

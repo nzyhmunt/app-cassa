@@ -17,7 +17,7 @@
       <div class="rounded-full border border-gray-200 bg-white/95 shadow-sm px-3 py-1.5">
         <RefreshCw
           class="size-4"
-          :style="!isSwipeRefreshing ? { transform: `rotate(${Math.round(pullProgress * 180)}deg)` } : undefined"
+          :style="!isSwipeRefreshing ? { transform: `rotate(${pullRotationDeg}deg)` } : undefined"
           :class="isSwipeRefreshing ? 'animate-spin text-blue-600' : isThresholdReached ? 'text-emerald-600' : 'text-gray-500'"
         />
       </div>
@@ -54,7 +54,7 @@ const {
   isSwipeRefreshing,
   isPulling,
   isThresholdReached,
-  pullProgress,
+  pullRotationDeg,
   onTouchStart,
   onTouchMove,
   onTouchEnd,
