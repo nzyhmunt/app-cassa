@@ -17,8 +17,8 @@
       <!-- Scrollable body -->
       <div class="overflow-y-auto flex-1 p-4 md:p-6 space-y-4">
 
-        <!-- ── No users yet: add first (admin) user ───────────────────── -->
-        <template v-if="allUsers.length === 0">
+        <!-- ── No venue users yet: add first (admin) user ─────────────── -->
+        <template v-if="!hasVenueUsers">
           <div class="bg-blue-50 border border-blue-200 rounded-2xl p-4 text-sm text-blue-800 flex items-start gap-3">
             <ShieldCheck class="size-5 shrink-0 text-blue-500 mt-0.5" />
             <div>
@@ -280,7 +280,7 @@
  * CucinaSettingsModal tramite il pulsante "Gestione Utenti & Blocco Schermo".
  *
  * ## Flusso principale
- * 1. **Nessun utente manuale** (`manualUsers.length === 0`):
+  * 1. **Nessun utente venue** (manuale o Directus):
  *    Viene mostrato il banner informativo e il form inline con campi nome/PIN.
  *    Il primo utente creato riceve automaticamente i privilegi di amministratore
  *    (gestito da `useAuth().addUser()`).
@@ -320,6 +320,8 @@ defineEmits(['update:modelValue']);
 
 const {
   users: allUsers,
+  manualUsers,
+  directusUsers,
   currentUser,
   isAdmin,
   hasAdmin,
@@ -332,9 +334,8 @@ const {
   ALL_APPS,
 } = useAuth();
 
-const isVenueUsersManagedByDirectus = computed(() =>
-  allUsers.value.some((u) => u.fromDirectus === true),
-);
+const hasVenueUsers = computed(() => (manualUsers.value.length + directusUsers.value.length) > 0);
+const isVenueUsersManagedByDirectus = computed(() => directusUsers.value.length > 0);
 
 const PIN_REGEX = new RegExp(`^\\d{${PIN_LENGTH}}$`);
 const pinPlaceholder = `PIN (${PIN_LENGTH} cifre numeriche)`;

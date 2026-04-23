@@ -19,6 +19,7 @@ import { useAuth, _resetAuthSingleton, _waitForAuth } from '../../composables/us
 import { _resetIDBSingleton } from '../../composables/useIDB.js';
 import { useAppStore } from '../../store/index.js';
 import { upsertRecordsIntoIDB } from '../../store/persistence/operations.js';
+import { appConfig } from '../../utils/index.js';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -277,6 +278,30 @@ describe('settings users CTA with directus users', () => {
     await flushPromises();
     expect(wrapper.text()).not.toContain('Aggiungi amministratore');
     expect(wrapper.text()).toContain('Gestione Utenti');
+  });
+});
+
+describe('settings users CTA with appConfig-only users', () => {
+  beforeEach(() => {
+    appConfig.auth.users = [{
+      id: 'cfg_cashier',
+      name: 'Config Utente',
+      pin: '1234',
+      apps: ['cassa'],
+    }];
+  });
+
+  afterEach(() => {
+    appConfig.auth.users = [];
+  });
+
+  it('shows add-admin CTA when no venue users exist', async () => {
+    const wrapper = mountSettingsModal();
+    await _waitForAuth();
+    await flushPromises();
+
+    expect(wrapper.text()).toContain('Aggiungi amministratore');
+    expect(wrapper.text()).not.toContain('Gestione Utenti');
   });
 });
 

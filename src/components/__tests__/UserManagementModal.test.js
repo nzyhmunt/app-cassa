@@ -23,6 +23,7 @@ import UserManagementModal from '../UserManagementModal.vue';
 import { useAuth, _resetAuthSingleton, _waitForAuth } from '../../composables/useAuth.js';
 import { _resetIDBSingleton } from '../../composables/useIDB.js';
 import { upsertRecordsIntoIDB } from '../../store/persistence/operations.js';
+import { appConfig } from '../../utils/index.js';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -374,5 +375,30 @@ describe('directus-managed venue users', () => {
     expect(wrapper.text()).toContain('Blocco automatico');
     expect(wrapper.text()).not.toContain('Aggiungi utente');
     expect(wrapper.find('button[title="Modifica"]').exists()).toBe(false);
+  });
+});
+
+describe('config users without venue users', () => {
+  beforeEach(() => {
+    appConfig.auth.users = [{
+      id: 'cfg_cashier',
+      name: 'Config Utente',
+      pin: '1234',
+      apps: ['cassa'],
+    }];
+  });
+
+  afterEach(() => {
+    appConfig.auth.users = [];
+  });
+
+  it('keeps first-admin form reachable when only appConfig users exist', async () => {
+    const wrapper = mountModal();
+    await _waitForAuth();
+    await flushPromises();
+
+    expect(wrapper.text()).toContain('Nessun utente configurato');
+    expect(wrapper.text()).toContain('Crea account amministratore');
+    expect(wrapper.text()).not.toContain('Aggiungi utente');
   });
 });
