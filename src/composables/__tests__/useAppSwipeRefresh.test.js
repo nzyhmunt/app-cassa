@@ -170,4 +170,26 @@ describe('useAppSwipeRefresh()', () => {
     expect(orderStore.refreshOperationalStateFromIDB).not.toHaveBeenCalled();
     expect(swipe.pullProgress.value).toBe(0);
   });
+
+  it('normalizes non-element targets and blocks refresh inside scrolled containers', async () => {
+    const { configStore, orderStore, sync } = makeStoresAndSync();
+    const swipe = useAppSwipeRefresh({ configStore, orderStore, sync, thresholdPx: 40 });
+    const scroller = document.createElement('div');
+    scroller.style.overflowY = 'auto';
+    Object.defineProperty(scroller, 'clientHeight', { value: 100, configurable: true });
+    Object.defineProperty(scroller, 'scrollHeight', { value: 400, configurable: true });
+    scroller.scrollTop = 10;
+    const span = document.createElement('span');
+    const textNode = document.createTextNode('content');
+    span.appendChild(textNode);
+    scroller.appendChild(span);
+    document.body.appendChild(scroller);
+
+    swipe.onTouchStart({ touches: [touch(8, 0)], target: textNode });
+    swipe.onTouchEnd({ changedTouches: [touch(8, 80)] });
+    await flushPromises();
+
+    expect(configStore.hydrateConfigFromIDB).not.toHaveBeenCalled();
+    expect(orderStore.refreshOperationalStateFromIDB).not.toHaveBeenCalled();
+  });
 });

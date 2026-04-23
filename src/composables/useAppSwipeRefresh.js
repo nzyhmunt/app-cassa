@@ -39,7 +39,13 @@ export function useAppSwipeRefresh({
 
   function canStartPullRefresh(target) {
     if (typeof window === 'undefined' || window.scrollY > 0) return false;
-    let node = target instanceof Element ? target : null;
+    const normalizedTarget =
+      target instanceof Element
+        ? target
+        : typeof Node !== 'undefined' && target instanceof Node
+          ? target.parentElement
+          : null;
+    let node = normalizedTarget;
     while (node && node !== document.body) {
       const style = window.getComputedStyle(node);
       const overflowY = style?.overflowY ?? '';
@@ -61,7 +67,8 @@ export function useAppSwipeRefresh({
 
   function findTouchById(touchList) {
     if (activeTouchId == null || !touchList) return null;
-    for (const touch of touchList) {
+    for (let i = 0; i < touchList.length; i += 1) {
+      const touch = touchList[i];
       if (touch.identifier === activeTouchId) return touch;
     }
     return null;
