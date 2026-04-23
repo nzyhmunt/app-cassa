@@ -114,6 +114,13 @@ const _users = ref(/** @type {Array} */ ([]));
 const _currentUserId = ref(/** @type {string|null} */ (null));
 const _isLocked = ref(true);
 const _lockTimeoutMinutes = ref(5);
+/**
+ * Becomes `true` once the initial IDB hydration in `_init()` has settled
+ * (resolved or rejected). Used by the LockScreen to block app content from
+ * rendering before we know whether authentication is required, preventing a
+ * brief blink of app data on startup.
+ */
+const _isHydrated = ref(false);
 let _lockTimer = null;
 /** The app running on this page, determined once at init. */
 let _currentApp = 'cassa';
@@ -188,7 +195,11 @@ function _init() {
     // Skip if any mutation (addUser, login, setLockTimeout, etc.) occurred
     // while the IDB load was in-flight. In that case the in-memory state is
     // already authoritative — applying stale IDB data would overwrite it.
-    if (_mutationVersion !== capturedVersion) return;
+    // Still mark hydrated so the UI unblocks.
+    if (_mutationVersion !== capturedVersion) {
+      _isHydrated.value = true;
+      return;
+    }
 
     _users.value = users.filter(u =>
       u && u.id && u.name && u.pin,
@@ -214,7 +225,12 @@ function _init() {
     const hasAppAccess = userRecord?.isAdmin || userRecord?.apps.includes(_currentApp);
     _currentUserId.value = savedUserId && hasAppAccess ? savedUserId : null;
     _isLocked.value = true; // always re-lock on page load for security
-  }).catch(e => console.warn('[Auth] Failed to load from IDB:', e));
+    _isHydrated.value = true;
+  }).catch(e => {
+    console.warn('[Auth] Failed to load from IDB:', e);
+    // Mark hydrated even on error so the lock screen / app is not blocked forever.
+    if (_initialized) _isHydrated.value = true;
+  });
 
   // Pre-hash appConfig PINs in memory (async, never persisted)
   const configs = appConfig.auth?.users ?? [];
@@ -485,6 +501,8 @@ export function useAuth() {
     visibleUsers: _visibleUsers,
     /** The currently logged-in user (or null). */
     currentUser,
+    /** True when the initial IDB hydration has completed. */
+    isHydrated: computed(() => _isHydrated.value),
     /** True when logged in and not locked. */
     isAuthenticated,
     /** True when the lock screen is shown. */
@@ -533,6 +551,7 @@ export function _resetAuthSingleton() {
   _users.value = [];
   _currentUserId.value = null;
   _isLocked.value = true;
+  _isHydrated.value = false;
   _lockTimeoutMinutes.value = 5;
   if (_lockTimer) { clearTimeout(_lockTimer); _lockTimer = null; }
   _currentApp = 'cassa';

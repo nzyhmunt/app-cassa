@@ -664,3 +664,42 @@ describe('cross-app access enforcement', () => {
     expect(currentUser.value?.id).toBe(cassaUser.id);
   });
 });
+
+// ── isHydrated ────────────────────────────────────────────────────────────────
+
+describe('isHydrated', () => {
+  it('is false before the IDB load completes', () => {
+    // _init() is called by useAuth() but IDB load is async; isHydrated stays
+    // false until the promise settles.
+    const { isHydrated } = useAuth();
+    expect(isHydrated.value).toBe(false);
+  });
+
+  it('becomes true once IDB hydration has settled', async () => {
+    const { isHydrated } = useAuth();
+    expect(isHydrated.value).toBe(false);
+    await _waitForAuth();
+    expect(isHydrated.value).toBe(true);
+  });
+
+  it('resets to false after _resetAuthSingleton() and becomes true again on next init', async () => {
+    useAuth();
+    await _waitForAuth();
+
+    _resetAuthSingleton();
+    const { isHydrated } = useAuth();
+    // After reset, new init starts but IDB load hasn't settled yet
+    expect(isHydrated.value).toBe(false);
+    await _waitForAuth();
+    expect(isHydrated.value).toBe(true);
+  });
+
+  it('is true after adding a user (mutation skips IDB hydration but still marks hydrated)', async () => {
+    const { addUser, isHydrated } = useAuth();
+    // addUser fires before IDB load completes; _mutationVersion changes so
+    // hydration is skipped, but isHydrated must still become true.
+    await addUser('Mario', '1234');
+    await _waitForAuth();
+    expect(isHydrated.value).toBe(true);
+  });
+});

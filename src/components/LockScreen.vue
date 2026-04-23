@@ -114,12 +114,16 @@ import { useConfigStore, useOrderStore } from '../store/index.js';
 
 const configStore = useConfigStore();
 const orderStore = useOrderStore();
-const { visibleUsers: users, currentUser, requiresAuth, isLocked, login } = useAuth();
+const { visibleUsers: users, currentUser, requiresAuth, isLocked, login, isHydrated } = useAuth();
 const locale = computed(() => configStore.config?.locale ?? 'it-IT');
 const timezone = computed(() => configStore.config?.timezone ?? 'Europe/Rome');
 
-/** Whether the overlay should be rendered. */
-const visible = computed(() => requiresAuth.value && isLocked.value);
+/**
+ * Whether the overlay should be rendered.
+ * Also shown while IDB hydration is in-flight (!isHydrated) to prevent a
+ * brief blink of app data before we know whether authentication is required.
+ */
+const visible = computed(() => !isHydrated.value || (requiresAuth.value && isLocked.value));
 
 const KEYPAD = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', '⌫'];
 
