@@ -6,8 +6,22 @@
     @click="auth.recordActivity()"
     @keydown="auth.recordActivity()"
     @touchstart.passive="onRootTouchStart"
+    @touchmove.passive="onRootTouchMove"
     @touchend.passive="onRootTouchEnd"
+    @touchcancel.passive="onRootTouchCancel"
   >
+    <div
+      class="pointer-events-none absolute left-1/2 top-2 -translate-x-1/2 z-[95] transition-all duration-150"
+      :class="(isPulling || isSwipeRefreshing) ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-3'"
+    >
+      <div class="rounded-full border border-gray-200 bg-white/95 shadow-sm px-3 py-1.5">
+        <RefreshCw
+          class="size-4"
+          :style="!isSwipeRefreshing ? { transform: `rotate(${Math.round(pullProgress * 180)}deg)` } : undefined"
+          :class="isSwipeRefreshing ? 'animate-spin text-blue-600' : isThresholdReached ? 'text-emerald-600' : 'text-gray-500'"
+        />
+      </div>
+    </div>
     <router-view @open-settings="showSettings = true" />
     <CucinaSettingsModal v-model="showSettings" />
     <PwaInstallBanner />
@@ -24,6 +38,7 @@ import { useAuth } from './composables/useAuth.js';
 import CucinaSettingsModal from './components/CucinaSettingsModal.vue';
 import PwaInstallBanner from './components/shared/PwaInstallBanner.vue';
 import LockScreen from './components/LockScreen.vue';
+import { RefreshCw } from 'lucide-vue-next';
 import { useDirectusSync } from './composables/useDirectusSync.js';
 import { loadDirectusConfigFromStorage } from './composables/useDirectusClient.js';
 import { useSyncStoreProxy } from './composables/useSyncStoreProxy.js';
@@ -35,7 +50,16 @@ const auth = useAuth();
 const sync = useDirectusSync();
 const showSettings = ref(false);
 const syncStore = useSyncStoreProxy(configStore, orderStore);
-const swipeRefresh = useAppSwipeRefresh({
+const {
+  isSwipeRefreshing,
+  isPulling,
+  isThresholdReached,
+  pullProgress,
+  onTouchStart,
+  onTouchMove,
+  onTouchEnd,
+  onTouchCancel,
+} = useAppSwipeRefresh({
   configStore,
   orderStore,
   sync,
@@ -81,11 +105,19 @@ async function onDirectusConfigUpdated() {
 
 function onRootTouchStart(event) {
   auth.recordActivity();
-  swipeRefresh.onTouchStart(event);
+  onTouchStart(event);
+}
+
+function onRootTouchMove(event) {
+  onTouchMove(event);
 }
 
 function onRootTouchEnd(event) {
-  swipeRefresh.onTouchEnd(event);
+  onTouchEnd(event);
+}
+
+function onRootTouchCancel() {
+  onTouchCancel();
 }
 
 onMounted(async () => {

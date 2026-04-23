@@ -1,0 +1,157 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { useAppSwipeRefresh } from '../useAppSwipeRefresh.js';
+
+const { mockDirectusEnabledRef } = vi.hoisted(() => ({
+  mockDirectusEnabledRef: { value: false },
+}));
+
+vi.mock('../useDirectusClient.js', () => ({
+  directusEnabledRef: mockDirectusEnabledRef,
+}));
+
+function makeStoresAndSync() {
+  const configStore = {
+    hydrateConfigFromIDB: vi.fn().mockResolvedValue(undefined),
+  };
+  const orderStore = {
+    refreshOperationalStateFromIDB: vi.fn().mockResolvedValue(undefined),
+  };
+  const sync = {
+    reconfigureAndApply: vi.fn().mockResolvedValue({ ok: true, failedCollections: [] }),
+    forcePull: vi.fn().mockResolvedValue(undefined),
+  };
+  return { configStore, orderStore, sync };
+}
+
+function touch(identifier, y) {
+  return { identifier, clientY: y };
+}
+
+function setScrollY(value) {
+  Object.defineProperty(window, 'scrollY', {
+    value,
+    writable: true,
+    configurable: true,
+  });
+}
+
+async function flushPromises(rounds = 10) {
+  for (let i = 0; i < rounds; i += 1) {
+    await Promise.resolve();
+  }
+}
+
+describe('useAppSwipeRefresh()', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    mockDirectusEnabledRef.value = false;
+    setScrollY(0);
+  });
+
+  it('does not traverse DOM on touchstart and refreshes only after threshold', async () => {
+    const { configStore, orderStore, sync } = makeStoresAndSync();
+    const swipe = useAppSwipeRefresh({
+      configStore,
+      orderStore,
+      sync,
+      thresholdPx: 80,
+    });
+    const root = document.createElement('div');
+    document.body.appendChild(root);
+    const computedSpy = vi.spyOn(window, 'getComputedStyle');
+
+    swipe.onTouchStart({ touches: [touch(1, 10)], target: root });
+    expect(computedSpy).not.toHaveBeenCalled();
+
+    swipe.onTouchEnd({ changedTouches: [touch(1, 70)] });
+    expect(configStore.hydrateConfigFromIDB).not.toHaveBeenCalled();
+
+    swipe.onTouchStart({ touches: [touch(2, 20)], target: root });
+    swipe.onTouchEnd({ changedTouches: [touch(2, 120)] });
+    await flushPromises();
+
+    expect(computedSpy).toHaveBeenCalled();
+    expect(configStore.hydrateConfigFromIDB).toHaveBeenCalledTimes(1);
+    expect(orderStore.refreshOperationalStateFromIDB).toHaveBeenCalledTimes(1);
+    expect(sync.reconfigureAndApply).not.toHaveBeenCalled();
+    expect(sync.forcePull).not.toHaveBeenCalled();
+  });
+
+  it('uses IDB-only refresh when Directus is disabled', async () => {
+    const { configStore, orderStore, sync } = makeStoresAndSync();
+    const swipe = useAppSwipeRefresh({ configStore, orderStore, sync, thresholdPx: 40 });
+    const root = document.createElement('div');
+    document.body.appendChild(root);
+
+    swipe.onTouchStart({ touches: [touch(1, 0)], target: root });
+    swipe.onTouchEnd({ changedTouches: [touch(1, 60)] });
+    await flushPromises();
+
+    expect(configStore.hydrateConfigFromIDB).toHaveBeenCalledTimes(1);
+    expect(orderStore.refreshOperationalStateFromIDB).toHaveBeenCalledTimes(1);
+    expect(sync.reconfigureAndApply).not.toHaveBeenCalled();
+    expect(sync.forcePull).not.toHaveBeenCalled();
+  });
+
+  it('uses full Directus path when enabled', async () => {
+    mockDirectusEnabledRef.value = true;
+    const { configStore, orderStore, sync } = makeStoresAndSync();
+    const swipe = useAppSwipeRefresh({ configStore, orderStore, sync, thresholdPx: 40 });
+    const root = document.createElement('div');
+    document.body.appendChild(root);
+
+    swipe.onTouchStart({ touches: [touch(1, 0)], target: root });
+    swipe.onTouchEnd({ changedTouches: [touch(1, 80)] });
+    await flushPromises();
+
+    expect(sync.reconfigureAndApply).toHaveBeenCalledWith({ clearLocalConfig: false });
+    expect(sync.forcePull).toHaveBeenCalledTimes(1);
+    expect(configStore.hydrateConfigFromIDB).toHaveBeenCalledTimes(1);
+    expect(orderStore.refreshOperationalStateFromIDB).toHaveBeenCalledTimes(1);
+  });
+
+  it('tracks pulling state and threshold progression from touchmove', () => {
+    const { configStore, orderStore, sync } = makeStoresAndSync();
+    const swipe = useAppSwipeRefresh({ configStore, orderStore, sync, thresholdPx: 100 });
+    const root = document.createElement('div');
+    document.body.appendChild(root);
+
+    swipe.onTouchStart({ touches: [touch(1, 20)], target: root });
+    swipe.onTouchMove({ touches: [touch(1, 30)] });
+    expect(swipe.isPulling.value).toBe(true);
+    expect(swipe.pullProgress.value).toBeCloseTo(0.1, 2);
+    expect(swipe.isThresholdReached.value).toBe(false);
+
+    swipe.onTouchMove({ touches: [touch(1, 150)] });
+    expect(swipe.isThresholdReached.value).toBe(true);
+  });
+
+  it('matches touch identifier to avoid multi-touch false positives', async () => {
+    const { configStore, orderStore, sync } = makeStoresAndSync();
+    const swipe = useAppSwipeRefresh({ configStore, orderStore, sync, thresholdPx: 40 });
+    const root = document.createElement('div');
+    document.body.appendChild(root);
+
+    swipe.onTouchStart({ touches: [touch(11, 0)], target: root });
+    swipe.onTouchEnd({ changedTouches: [touch(22, 120)] });
+    await Promise.resolve();
+
+    expect(configStore.hydrateConfigFromIDB).not.toHaveBeenCalled();
+    expect(orderStore.refreshOperationalStateFromIDB).not.toHaveBeenCalled();
+  });
+
+  it('resets gesture state on touchcancel', () => {
+    const { configStore, orderStore, sync } = makeStoresAndSync();
+    const swipe = useAppSwipeRefresh({ configStore, orderStore, sync, thresholdPx: 40 });
+    const root = document.createElement('div');
+    document.body.appendChild(root);
+
+    swipe.onTouchStart({ touches: [touch(2, 0)], target: root });
+    swipe.onTouchMove({ touches: [touch(2, 60)] });
+    expect(swipe.isPulling.value).toBe(true);
+
+    swipe.onTouchCancel();
+    expect(swipe.isPulling.value).toBe(false);
+    expect(swipe.pullDistance.value).toBe(0);
+  });
+});

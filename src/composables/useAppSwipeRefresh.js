@@ -1,4 +1,4 @@
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import { directusEnabledRef } from './useDirectusClient.js';
 
 /**
@@ -14,8 +14,23 @@ export function useAppSwipeRefresh({
   thresholdPx = 80,
 }) {
   const isSwipeRefreshing = ref(false);
+  const isPulling = ref(false);
+  const pullDistance = ref(0);
+  const isThresholdReached = computed(() => pullDistance.value >= thresholdPx);
+  const pullProgress = computed(() => {
+    if (thresholdPx <= 0) return 1;
+    return Math.max(0, Math.min(1, pullDistance.value / thresholdPx));
+  });
+
+  const PULL_DISTANCE_MAX_MULTIPLIER = 1.6;
+  const PULL_GESTURE_MIN_PX = 6;
   let swipeStartY = 0;
-  let swipeStartedAtTop = false;
+  /** @type {number|null} */
+  let activeTouchId = null;
+  /** @type {EventTarget|null} */
+  let swipeStartTarget = null;
+  /** @type {boolean|null} */
+  let swipeStartedAtTop = null;
 
   function canStartPullRefresh(target) {
     if (typeof window === 'undefined' || window.scrollY > 0) return false;
@@ -28,6 +43,29 @@ export function useAppSwipeRefresh({
       node = node.parentElement;
     }
     return true;
+  }
+
+  function resetPullState() {
+    isPulling.value = false;
+    pullDistance.value = 0;
+    activeTouchId = null;
+    swipeStartY = 0;
+    swipeStartTarget = null;
+    swipeStartedAtTop = null;
+  }
+
+  function findTouchById(touchList) {
+    if (activeTouchId == null || !touchList) return null;
+    for (const touch of touchList) {
+      if (touch.identifier === activeTouchId) return touch;
+    }
+    return null;
+  }
+
+  function canPullFromStartTarget() {
+    if (swipeStartedAtTop != null) return swipeStartedAtTop;
+    swipeStartedAtTop = canStartPullRefresh(swipeStartTarget);
+    return swipeStartedAtTop;
   }
 
   async function runRefresh() {
@@ -50,24 +88,64 @@ export function useAppSwipeRefresh({
   }
 
   function onTouchStart(event) {
-    const touch = event.touches?.[0];
+    if (activeTouchId != null) return;
+    const touch = event.changedTouches?.[0] ?? event.touches?.[0];
     if (!touch) return;
+    activeTouchId = touch.identifier;
     swipeStartY = touch.clientY;
-    swipeStartedAtTop = canStartPullRefresh(event.target);
+    swipeStartTarget = event.target ?? null;
+    swipeStartedAtTop = null;
+    isPulling.value = false;
+    pullDistance.value = 0;
+  }
+
+  function onTouchMove(event) {
+    const touch = findTouchById(event.touches);
+    if (!touch) return;
+    const deltaY = touch.clientY - swipeStartY;
+    if (deltaY <= PULL_GESTURE_MIN_PX) {
+      isPulling.value = false;
+      pullDistance.value = 0;
+      return;
+    }
+    if (!canPullFromStartTarget()) {
+      isPulling.value = false;
+      pullDistance.value = 0;
+      return;
+    }
+    isPulling.value = true;
+    pullDistance.value = Math.min(deltaY, thresholdPx * PULL_DISTANCE_MAX_MULTIPLIER);
   }
 
   function onTouchEnd(event) {
-    const touch = event.changedTouches?.[0];
-    if (!touch || !swipeStartedAtTop || isSwipeRefreshing.value) return;
+    const touch = findTouchById(event.changedTouches);
+    if (!touch) {
+      resetPullState();
+      return;
+    }
     const deltaY = touch.clientY - swipeStartY;
-    if (deltaY < thresholdPx) return;
+    const canRefresh = canPullFromStartTarget();
+    const reachedThreshold = deltaY >= thresholdPx;
+    const shouldRefresh = !isSwipeRefreshing.value && canRefresh && reachedThreshold;
+    resetPullState();
+    if (!shouldRefresh) return;
     void runRefresh();
+  }
+
+  function onTouchCancel() {
+    resetPullState();
   }
 
   return {
     isSwipeRefreshing,
+    isPulling,
+    isThresholdReached,
+    pullDistance,
+    pullProgress,
     runRefresh,
     onTouchStart,
+    onTouchMove,
     onTouchEnd,
+    onTouchCancel,
   };
 }
