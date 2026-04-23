@@ -175,7 +175,7 @@
           </button>
           <button v-else-if="currentUser" @click="showUserManagement = true"
             class="w-full py-3 bg-gray-50 hover:bg-gray-100 text-gray-700 font-bold rounded-2xl flex items-center justify-center gap-2 border border-gray-200 transition-colors shadow-sm active:scale-95">
-            <KeyRound class="size-4 text-gray-500" />
+            <Users class="size-4 text-gray-500" />
             Gestione Utenti
           </button>
         </div>
@@ -213,7 +213,7 @@
 
 <script setup>
 import { ref, computed } from 'vue';
-import { Settings, X, RefreshCw, RotateCcw, Users, ShieldCheck, ShieldAlert, KeyRound, Printer } from 'lucide-vue-next';
+import { Settings, X, RefreshCw, RotateCcw, Users, ShieldCheck, ShieldAlert, Printer } from 'lucide-vue-next';
 import { useSettings } from '../../composables/useSettings.js';
 import UserManagementModal from '../UserManagementModal.vue';
 import { useAuth } from '../../composables/useAuth.js';
