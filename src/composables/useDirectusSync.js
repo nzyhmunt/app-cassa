@@ -34,6 +34,7 @@ import {
   upsertRecordsIntoIDB,
   deleteRecordsFromIDB,
 } from '../store/persistence/operations.js';
+import { getDB } from './useIDB.js';
 import {
   loadConfigFromIDB,
   replaceTableMergesInIDB,
@@ -469,12 +470,29 @@ async function _handleSubscriptionMessage(collection, message) {
     }
     if (nonEcho.length === 0) return;
     const mapped = nonEcho.map(r => _mapRecord(collection, r));
-    // Apply the same local-data preservation logic used in the HTTP poll path:
     // WS subscriptions use fields:['*'] which does not expand nested relations
-    // (e.g. order_items), so orderItems would be empty in every incoming record.
-    // _preparePullRecordsForIDB merges back the local orderItems when the
-    // incoming payload lacks them, preventing IDB from being overwritten with [].
-    const { records: prepared } = await _preparePullRecordsForIDB(collection, mapped);
+    // (e.g. order_items), so orderItems would be [] in every incoming order record.
+    // To avoid overwriting locally-stored orderItems with an empty array, we do
+    // a lightweight per-record IDB lookup for orders whose incoming orderItems is
+    // empty – much cheaper than loading full app state via loadStateFromIDB().
+    let prepared = mapped;
+    if (collection === 'orders') {
+      const db = await getDB();
+      prepared = await Promise.all(mapped.map(async (incoming) => {
+        const hasItems = Array.isArray(incoming.orderItems) && incoming.orderItems.length > 0;
+        const id = incoming?.id;
+        if (hasItems || !id) return incoming;
+        try {
+          const existing = await db.get('orders', String(id));
+          if (existing && Array.isArray(existing.orderItems) && existing.orderItems.length > 0) {
+            return { ...incoming, orderItems: existing.orderItems };
+          }
+        } catch (e) {
+          console.warn('[DirectusSync] WS orderItems merge: IDB lookup failed for', id, e);
+        }
+        return incoming;
+      }));
+    }
     await upsertRecordsIntoIDB(collection, prepared);
     await _refreshStoreFromIDB(collection);
   }

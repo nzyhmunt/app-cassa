@@ -849,10 +849,12 @@ async function confirmAndPushCart() {
   if (!targetOrderForMenu.value || tempCart.value.length === 0) return;
   const ordId = targetOrderForMenu.value.id;
   const cartSnapshot = tempCart.value.map(item => ({ ...item }));
-  closeMenuModal();
-  activeTab.value = 'pending';
-  await orderStore.addItemsToOrder(ordId, cartSnapshot);
-  selectedOrder.value = orderStore.orders.find(o => String(o.id) === String(ordId)) || selectedOrder.value;
+  const result = await orderStore.addItemsToOrder(ordId, cartSnapshot);
+  if (result) {
+    closeMenuModal();
+    activeTab.value = 'pending';
+    selectedOrder.value = orderStore.orders.find(o => String(o.id) === String(ordId)) || selectedOrder.value;
+  }
 }
 
 // ── Expose methods for parent (SalaView / TableManager) ───────────────────
