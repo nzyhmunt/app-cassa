@@ -192,7 +192,7 @@ describe('appConfig', () => {
       expect(mapped.orderItems[0].modifiers[0].voidedQuantity).toBe(0);
     });
 
-    it('sanitizes invalid numeric fields to safe fallbacks', () => {
+    it('normalizes invalid numeric fields to default fallbacks', () => {
       const mapped = mapOrderFromDirectus({
         id: 'ord_2',
         total_amount: 'invalid',

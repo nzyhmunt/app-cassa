@@ -43,8 +43,8 @@ function normalizeOrderItemModifier(modifier) {
   if (!modifier || typeof modifier !== 'object') return null;
   return {
     ...modifier,
-    price: numberOr(modifier.price ?? 0),
-    voidedQuantity: numberOr(modifier.voided_quantity ?? modifier.voidedQuantity ?? 0),
+    price: numberOr(modifier.price),
+    voidedQuantity: numberOr(modifier.voided_quantity ?? modifier.voidedQuantity),
   };
 }
 
@@ -53,9 +53,9 @@ function normalizeNestedOrderItem(record) {
   const mapped = mapOrderItemFromDirectus(record);
   return {
     ...mapped,
-    quantity: numberOr(record.quantity ?? mapped.quantity ?? 0),
-    voidedQuantity: numberOr(record.voided_quantity ?? record.voidedQuantity ?? mapped.voidedQuantity ?? 0),
-    unitPrice: numberOr(mapped.unitPrice ?? 0),
+    quantity: numberOr(record.quantity ?? mapped.quantity),
+    voidedQuantity: numberOr(record.voided_quantity ?? record.voidedQuantity ?? mapped.voidedQuantity),
+    unitPrice: numberOr(mapped.unitPrice),
     notes: Array.isArray(mapped.notes) ? mapped.notes : [],
     modifiers: Array.isArray(mapped.modifiers)
       ? mapped.modifiers.map(normalizeOrderItemModifier).filter(Boolean)
@@ -76,8 +76,8 @@ export function mapOrderFromDirectus(record) {
     table: tableId ?? record.table ?? null,
     bill_session: billSessionId,
     billSessionId,
-    totalAmount: numberOr(record.total_amount ?? record.totalAmount ?? 0),
-    itemCount: numberOr(record.item_count ?? record.itemCount ?? 0),
+    totalAmount: numberOr(record.total_amount ?? record.totalAmount),
+    itemCount: numberOr(record.item_count ?? record.itemCount),
     time: record.order_time ?? record.time ?? '',
     globalNote: record.global_note ?? record.globalNote ?? '',
     noteVisibility: {
@@ -192,11 +192,13 @@ export function mapOrderItemFromDirectus(record) {
     dish: dishId,
     dishId,
     uid: record.uid ?? record.id,
-    quantity: numberOr(record.quantity ?? 0),
-    unitPrice: numberOr(record.unit_price ?? record.unitPrice ?? 0),
-    voidedQuantity: numberOr(record.voided_quantity ?? record.voidedQuantity ?? 0),
+    quantity: numberOr(record.quantity),
+    unitPrice: numberOr(record.unit_price ?? record.unitPrice),
+    voidedQuantity: numberOr(record.voided_quantity ?? record.voidedQuantity),
     notes: Array.isArray(record.notes) ? record.notes : [],
-    modifiers: Array.isArray(record.modifiers) ? record.modifiers.map(normalizeOrderItemModifier).filter(Boolean) : [],
+    modifiers: Array.isArray(record.modifiers)
+      ? record.modifiers.map(normalizeOrderItemModifier).filter(Boolean)
+      : [],
     kitchenReady: record.kitchen_ready ?? record.kitchenReady ?? false,
     venueUserCreated: relationId(record.venue_user_created ?? record.venueUserCreated ?? null),
     venueUserUpdated: relationId(record.venue_user_updated ?? record.venueUserUpdated ?? null),
