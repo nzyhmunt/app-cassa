@@ -41,10 +41,12 @@ function parseJsonArray(value) {
 
 function normalizeOrderItemModifier(modifier) {
   if (!modifier || typeof modifier !== 'object') return null;
+  const voidedQuantity = numberOr(modifier.voided_quantity ?? modifier.voidedQuantity);
   return {
     ...modifier,
     price: numberOr(modifier.price),
-    voidedQuantity: numberOr(modifier.voided_quantity ?? modifier.voidedQuantity),
+    voidedQuantity,
+    voided_quantity: voidedQuantity,
   };
 }
 
