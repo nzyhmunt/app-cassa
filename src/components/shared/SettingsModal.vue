@@ -171,7 +171,7 @@
           <button v-else-if="isAdmin" @click="showUserManagement = true"
             class="w-full py-3 bg-gray-50 hover:bg-gray-100 text-gray-700 font-bold rounded-2xl flex items-center justify-center gap-2 border border-gray-200 transition-colors shadow-sm active:scale-95">
             <Users class="size-4 text-gray-500" />
-            Gestione Utenti &amp; Blocco Schermo
+            Gestione Utenti
           </button>
           <button v-else-if="currentUser" @click="showUserManagement = true"
             class="w-full py-3 bg-gray-50 hover:bg-gray-100 text-gray-700 font-bold rounded-2xl flex items-center justify-center gap-2 border border-gray-200 transition-colors shadow-sm active:scale-95">

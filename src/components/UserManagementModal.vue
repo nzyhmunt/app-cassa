@@ -277,7 +277,7 @@
  *
  * Modale per la creazione, modifica ed eliminazione di utenti manuali.
  * Accessibile dall'icona "Config" presente in CassaNavbar, SalaNavbar e
- * CucinaSettingsModal tramite il pulsante "Gestione Utenti & Blocco Schermo".
+ * CucinaSettingsModal tramite il pulsante "Gestione Utenti".
  *
  * ## Flusso principale
   * 1. **Nessun utente venue** (manuale o Directus):
