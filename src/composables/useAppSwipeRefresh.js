@@ -13,13 +13,13 @@ export function useAppSwipeRefresh({
   logPrefix = 'App',
   thresholdPx = 80,
 }) {
+  const effectiveThresholdPx = Number.isFinite(thresholdPx) && thresholdPx > 0 ? thresholdPx : 80;
   const isSwipeRefreshing = ref(false);
   const isPulling = ref(false);
   const pullDistance = ref(0);
-  const isThresholdReached = computed(() => pullDistance.value >= thresholdPx);
+  const isThresholdReached = computed(() => pullDistance.value >= effectiveThresholdPx);
   const pullProgress = computed(() => {
-    if (thresholdPx <= 0) return 1;
-    return Math.max(0, Math.min(1, pullDistance.value / thresholdPx));
+    return Math.max(0, Math.min(1, pullDistance.value / effectiveThresholdPx));
   });
   const maxPullRotationDeg = 180;
   const pullRotationDeg = computed(() => Math.round(pullProgress.value * maxPullRotationDeg));
@@ -119,7 +119,7 @@ export function useAppSwipeRefresh({
       return;
     }
     isPulling.value = true;
-    pullDistance.value = Math.min(deltaY, thresholdPx * pullDistanceMaxMultiplier);
+    pullDistance.value = Math.min(deltaY, effectiveThresholdPx * pullDistanceMaxMultiplier);
   }
 
   function onTouchEnd(event) {
@@ -129,11 +129,22 @@ export function useAppSwipeRefresh({
       return;
     }
     const deltaY = touch.clientY - swipeStartY;
+    if (deltaY < pullGestureMinPx) {
+      resetPullState();
+      return;
+    }
+    const reachedThreshold = deltaY >= effectiveThresholdPx;
+    if (!reachedThreshold) {
+      resetPullState();
+      return;
+    }
+    if (isSwipeRefreshing.value) {
+      resetPullState();
+      return;
+    }
     const canRefresh = canPullFromStartTarget();
-    const reachedThreshold = deltaY >= thresholdPx;
-    const shouldRefresh = !isSwipeRefreshing.value && canRefresh && reachedThreshold;
     resetPullState();
-    if (!shouldRefresh) return;
+    if (!canRefresh) return;
     void runRefresh();
   }
 

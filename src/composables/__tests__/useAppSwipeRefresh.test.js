@@ -46,6 +46,7 @@ describe('useAppSwipeRefresh()', () => {
     vi.restoreAllMocks();
     mockDirectusEnabledRef.value = false;
     setScrollY(0);
+    document.body.innerHTML = '';
   });
 
   it('does not traverse DOM on touchstart and refreshes only after threshold', async () => {
@@ -153,5 +154,20 @@ describe('useAppSwipeRefresh()', () => {
     swipe.onTouchCancel();
     expect(swipe.isPulling.value).toBe(false);
     expect(swipe.pullDistance.value).toBe(0);
+  });
+
+  it('clamps non-positive thresholds to default to avoid accidental tap refresh', async () => {
+    const { configStore, orderStore, sync } = makeStoresAndSync();
+    const swipe = useAppSwipeRefresh({ configStore, orderStore, sync, thresholdPx: 0 });
+    const root = document.createElement('div');
+    document.body.appendChild(root);
+
+    swipe.onTouchStart({ touches: [touch(5, 0)], target: root });
+    swipe.onTouchEnd({ changedTouches: [touch(5, 10)] });
+    await flushPromises();
+
+    expect(configStore.hydrateConfigFromIDB).not.toHaveBeenCalled();
+    expect(orderStore.refreshOperationalStateFromIDB).not.toHaveBeenCalled();
+    expect(swipe.pullProgress.value).toBe(0);
   });
 });
