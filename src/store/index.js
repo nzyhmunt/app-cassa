@@ -1052,22 +1052,41 @@ export const useOrderStore = defineStore('orders', () => {
   async function addDirectOrder(tableId, billSessionId, items) {
     if (!tableId || !Array.isArray(items) || items.length === 0) return null;
     const venueId = configStore.config.directus?.venueId;
+    const now = new Date().toISOString();
+    // Direct orders (cover charge, cassa-added items) are immediately accepted:
+    // create with status 'accepted' so no pending→accepted transition is needed.
     const order = {
       id: newUUIDv7(),
       table: tableId,
       billSessionId: billSessionId ?? null,
-      status: 'pending',
+      status: 'accepted',
       time: formatOrderTime(),
       totalAmount: 0,
       itemCount: 0,
       dietaryPreferences: {},
+      globalNote: '',
+      noteVisibility: { cassa: true, sala: true, cucina: true },
       orderItems: items.map(item => ({ ...item })),
       isDirectEntry: true,
       ...(venueId != null ? { venue: venueId } : {}),
     };
     updateOrderTotals(order);
-    await addOrder(order);
-    await changeOrderStatus(order, 'accepted');
+
+    // Mark the table as occupied atomically with the order create (IDB-first).
+    const projectedTableOccupiedAt = { ...tableOccupiedAt.value };
+    if (!projectedTableOccupiedAt[tableId]) {
+      projectedTableOccupiedAt[tableId] = now;
+    }
+    const nextOrders = [...orders.value, order];
+
+    // IDB-first: persist orders + tableOccupiedAt before reactive update.
+    await saveStateToIDB({ orders: nextOrders, tableOccupiedAt: projectedTableOccupiedAt });
+    _skipNextScheduledSave('orders', 'tableOccupiedAt');
+    orders.value = nextOrders;
+    tableOccupiedAt.value = projectedTableOccupiedAt;
+
+    // Single Directus enqueue — the create already carries accepted status + full orderItems.
+    enqueue('orders', 'create', order.id, order);
     return order;
   }
 
