@@ -1247,7 +1247,19 @@ export async function replaceVenueUsersInIDB(records) {
     }
 
     const tx = db.transaction('venue_users', 'readwrite');
+    const existingRecords = await tx.store.getAll();
+    const manualUsers = existingRecords.filter((record) => (
+      record &&
+      typeof record === 'object' &&
+      record._type === 'manual_user' &&
+      record.id
+    ));
+
     await tx.store.clear();
+
+    for (const manualUser of manualUsers) {
+      await tx.store.put(manualUser);
+    }
     for (const r of normalized) {
       await tx.store.put(r);
     }
