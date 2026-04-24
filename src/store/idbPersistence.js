@@ -1259,8 +1259,11 @@ export async function replaceVenueUsersInIDB(records) {
     const manualUsers = existingRecords.filter((record) => (
       record &&
       typeof record === 'object' &&
-      record._type === 'manual_user' &&
-      record.id
+      record.id &&
+      (
+        record._type === 'manual_user' ||
+        (!record._type && !Object.prototype.hasOwnProperty.call(record, 'status'))
+      )
     ));
 
     await tx.store.clear();
