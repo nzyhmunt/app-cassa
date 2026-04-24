@@ -638,8 +638,10 @@ export const useOrderStore = defineStore('orders', () => {
         projected.orderItems = [];
       }
       for (const cartItem of cartItems) {
-        const safeQuantity = Number(cartItem?.quantity);
+        if (!cartItem || typeof cartItem !== 'object') continue;
+        const safeQuantity = Number(cartItem.quantity);
         const normalizedQuantity = Number.isFinite(safeQuantity) ? safeQuantity : 0;
+        if (normalizedQuantity <= 0) continue;
         const existing = projected.orderItems.find(r => itemsAreMergeable(r, cartItem));
         if (existing) {
           const existingQuantity = Number(existing.quantity);

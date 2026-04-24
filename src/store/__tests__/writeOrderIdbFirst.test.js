@@ -604,6 +604,153 @@ describe('P0-2 IDB-first — order item mutations', () => {
   });
 });
 
+describe('addItemsToOrder — cart merge, guard rails, and IDB-first persistence', () => {
+  it('merges cart item into an existing matching row (IDB first, then reactive, then enqueue)', async () => {
+    const store = useAppStore();
+    runtime.store = store;
+    const order = makeOrder('ord_ait_merge', 'T1', 'pending');
+    order.orderItems = [
+      { uid: 'e1', dishId: 'd1', name: 'Pasta', unitPrice: 10, quantity: 1, voidedQuantity: 0, notes: [], modifiers: [] },
+    ];
+    await store.addOrder(order);
+    runtime.snapshots = [];
+    vi.clearAllMocks();
+
+    const liveOrder = store.orders.find(o => o.id === 'ord_ait_merge');
+    const result = await store.addItemsToOrder(liveOrder.id, [
+      { dishId: 'd1', name: 'Pasta', unitPrice: 10, quantity: 2, voidedQuantity: 0, notes: [], modifiers: [] },
+    ]);
+
+    const saveSnapshot = runtime.snapshots.find(e => e.type === 'save-state');
+    expect(saveSnapshot).toBeDefined();
+    expect(saveSnapshot.payload.orders.find(o => o.id === 'ord_ait_merge').orderItems[0].quantity).toBe(3);
+    expect(store.orders.find(o => o.id === 'ord_ait_merge').orderItems[0].quantity).toBe(3);
+    const saveCall = saveStateToIDBMock.mock.invocationCallOrder[0];
+    const enqueueCall = enqueueMock.mock.invocationCallOrder[0];
+    expect(saveCall).toBeLessThan(enqueueCall);
+    expect(result).toBeTruthy();
+    expect(result.orderItems[0].quantity).toBe(3);
+  });
+
+  it('appends a new row for a cart item that does not match any existing order row', async () => {
+    const store = useAppStore();
+    const order = makeOrder('ord_ait_newrow', 'T1', 'pending');
+    order.orderItems = [
+      { uid: 'e1', dishId: 'd1', name: 'Pasta', unitPrice: 10, quantity: 1, voidedQuantity: 0, notes: [], modifiers: [] },
+    ];
+    store.orders = [order];
+
+    await store.addItemsToOrder('ord_ait_newrow', [
+      { dishId: 'd2', name: 'Pizza', unitPrice: 8, quantity: 1, voidedQuantity: 0, notes: [], modifiers: [] },
+    ]);
+
+    expect(store.orders.find(o => o.id === 'ord_ait_newrow').orderItems).toHaveLength(2);
+  });
+
+  it('does NOT merge direct-entry rows (null dishId) with different name or unitPrice', async () => {
+    const store = useAppStore();
+    const order = makeOrder('ord_ait_direct_diff', 'T1', 'pending');
+    order.orderItems = [
+      { uid: 'e1', dishId: null, name: 'Coperto', unitPrice: 1.5, quantity: 2, voidedQuantity: 0, notes: [], modifiers: [] },
+    ];
+    store.orders = [order];
+
+    await store.addItemsToOrder('ord_ait_direct_diff', [
+      { dishId: null, name: 'Acqua', unitPrice: 2, quantity: 1, voidedQuantity: 0, notes: [], modifiers: [] },
+    ]);
+
+    expect(store.orders.find(o => o.id === 'ord_ait_direct_diff').orderItems).toHaveLength(2);
+  });
+
+  it('merges direct-entry rows (null dishId) with identical name and unitPrice', async () => {
+    const store = useAppStore();
+    const order = makeOrder('ord_ait_direct_merge', 'T1', 'pending');
+    order.orderItems = [
+      { uid: 'e1', dishId: null, name: 'Coperto', unitPrice: 1.5, quantity: 2, voidedQuantity: 0, notes: [], modifiers: [] },
+    ];
+    store.orders = [order];
+
+    await store.addItemsToOrder('ord_ait_direct_merge', [
+      { dishId: null, name: 'Coperto', unitPrice: 1.5, quantity: 3, voidedQuantity: 0, notes: [], modifiers: [] },
+    ]);
+
+    const items = store.orders.find(o => o.id === 'ord_ait_direct_merge').orderItems;
+    expect(items).toHaveLength(1);
+    expect(items[0].quantity).toBe(5);
+  });
+
+  it('returns null when the order is not found', async () => {
+    const store = useAppStore();
+    const result = await store.addItemsToOrder('nonexistent_id', [
+      { dishId: 'd1', name: 'Pasta', unitPrice: 10, quantity: 1, voidedQuantity: 0, notes: [], modifiers: [] },
+    ]);
+    expect(result).toBeNull();
+    expect(saveStateToIDBMock).not.toHaveBeenCalled();
+    expect(enqueueMock).not.toHaveBeenCalled();
+  });
+
+  it('returns null when the order status is not pending', async () => {
+    const store = useAppStore();
+    const order = makeOrder('ord_ait_notpending', 'T1', 'accepted');
+    store.orders = [order];
+
+    const result = await store.addItemsToOrder('ord_ait_notpending', [
+      { dishId: 'd1', name: 'Pasta', unitPrice: 10, quantity: 1, voidedQuantity: 0, notes: [], modifiers: [] },
+    ]);
+    expect(result).toBeNull();
+    expect(saveStateToIDBMock).not.toHaveBeenCalled();
+    expect(enqueueMock).not.toHaveBeenCalled();
+  });
+
+  it('returns false and leaves reactive state unchanged when IDB write fails', async () => {
+    const store = useAppStore();
+    const order = makeOrder('ord_ait_idbfail', 'T1', 'pending');
+    order.orderItems = [];
+    store.orders = [order];
+    saveStateToIDBMock.mockRejectedValueOnce(new Error('IDB fail'));
+
+    const result = await store.addItemsToOrder('ord_ait_idbfail', [
+      { dishId: 'd1', name: 'Pasta', unitPrice: 10, quantity: 1, voidedQuantity: 0, notes: [], modifiers: [] },
+    ]);
+
+    expect(result).toBe(false);
+    expect(store.orders.find(o => o.id === 'ord_ait_idbfail').orderItems).toHaveLength(0);
+    expect(enqueueMock).not.toHaveBeenCalled();
+  });
+
+  it('skips null/undefined/non-object elements in cartItems without throwing', async () => {
+    const store = useAppStore();
+    const order = makeOrder('ord_ait_invalid', 'T1', 'pending');
+    order.orderItems = [];
+    store.orders = [order];
+
+    const result = await store.addItemsToOrder('ord_ait_invalid', [
+      null,
+      undefined,
+      'string-element',
+      { dishId: 'd1', name: 'Pasta', unitPrice: 10, quantity: 1, voidedQuantity: 0, notes: [], modifiers: [] },
+    ]);
+
+    expect(result).not.toBeNull();
+    expect(result).not.toBe(false);
+    expect(store.orders.find(o => o.id === 'ord_ait_invalid').orderItems).toHaveLength(1);
+  });
+
+  it('skips cart items with zero or negative quantity and does not add them as rows', async () => {
+    const store = useAppStore();
+    const order = makeOrder('ord_ait_zeroqty', 'T1', 'pending');
+    order.orderItems = [];
+    store.orders = [order];
+
+    await store.addItemsToOrder('ord_ait_zeroqty', [
+      { dishId: 'd1', name: 'Pasta', unitPrice: 10, quantity: 0, voidedQuantity: 0, notes: [], modifiers: [] },
+      { dishId: 'd2', name: 'Pizza', unitPrice: 8, quantity: -1, voidedQuantity: 0, notes: [], modifiers: [] },
+    ]);
+
+    expect(store.orders.find(o => o.id === 'ord_ait_zeroqty').orderItems).toHaveLength(0);
+  });
+});
+
 describe('sync queue propagation — table mutations', () => {
   it('moveTableOrders to occupied target enqueues moved orders/transactions and bill-session updates', async () => {
     const store = useAppStore();
