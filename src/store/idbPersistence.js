@@ -991,7 +991,17 @@ export async function upsertRecordsIntoIDB(storeName, records, { forceWrite = fa
     // that are not newer than the local version before opening the transaction.
     // This avoids opening a readwrite transaction when nothing needs writing.
     const toWrite = [];
-    {
+    if (forceWrite) {
+      // Short-circuit: skip readonly pre-scan entirely — every valid record goes straight to write.
+      for (const incomingRaw of records) {
+        const incoming = normalizeIncomingSync(storeName, incomingRaw);
+        if (!incoming || typeof incoming !== 'object') continue;
+        const pk = incoming[keyPath];
+        if (!pk) continue;
+        const { _sync_status: _s, ...clean } = incoming;
+        toWrite.push(clean);
+      }
+    } else {
       // Read-only pre-scan using a readonly transaction to avoid unnecessary
       // write locks when all incoming records are already up-to-date.
       const roTx = db.transaction(storeName, 'readonly');
@@ -1001,7 +1011,7 @@ export async function upsertRecordsIntoIDB(storeName, records, { forceWrite = fa
         const pk = incoming[keyPath];
         if (!pk) continue;
         const existing = await roTx.store.get(pk);
-        if (!forceWrite && existing && existing.date_updated && incoming.date_updated) {
+        if (existing && existing.date_updated && incoming.date_updated) {
           if (new Date(incoming.date_updated) <= new Date(existing.date_updated)) {
             continue; // local is newer or equal — skip
           }
