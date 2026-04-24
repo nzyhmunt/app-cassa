@@ -740,6 +740,7 @@ export function mapPayloadToDirectus(collection, payload, ctx = {}) {
           const enriched = { ...directMod };
           const srcMod = srcMods[i] ?? {};
           if (enriched.id == null && srcMod.id) enriched.id = srcMod.id;
+          if (enriched.item_uid == null && item?.uid) enriched.item_uid = item.uid;
           if (enriched.order_item == null && item?.id) enriched.order_item = item.id;
           if (enriched.order == null && resolvedOrderId) enriched.order = resolvedOrderId;
           return enriched;

@@ -385,6 +385,43 @@ describe('drainQueue()', () => {
     }
   });
 
+  it('sets item_uid on nested order_item_modifiers from parent order_item uid', async () => {
+    // Reproduces: "Validation failed for field 'item_uid' at 'order_items.order_item_modifiers'. Value is required."
+    // The modifier's item_uid must be the uid of the parent order_item.
+    const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue(mockResponse(200, { data: {} }));
+    await enqueue('orders', 'update', 'ord_mod_1', {
+      venue_user_updated: 'usr_1',
+      orderItems: [
+        {
+          uid: 'item_uid_abc',
+          dishId: 'dish_1',
+          name: 'Carbonara',
+          unitPrice: 13,
+          quantity: 1,
+          notes: [],
+          voidedQuantity: 0,
+          modifiers: [
+            { name: 'Parmigiano', price: 1, voidedQuantity: 0 },
+          ],
+          course: 'insieme',
+        },
+      ],
+      totalAmount: 14,
+      itemCount: 1,
+    });
+
+    await drainQueue(FAKE_CFG);
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    const item = body.order_items[0];
+    expect(Array.isArray(item.order_item_modifiers)).toBe(true);
+    expect(item.order_item_modifiers).toHaveLength(1);
+    // item_uid must equal the parent order_item's uid
+    expect(item.order_item_modifiers[0].item_uid).toBe('item_uid_abc');
+    // order FK must also be populated
+    expect(item.order_item_modifiers[0].order).toBe('ord_mod_1');
+  });
+
   it('retries 409 create as PATCH', async () => {
     const fetchSpy = vi.spyOn(global, 'fetch')
       .mockResolvedValueOnce(mockResponse(409, { errors: [] }))
