@@ -24,19 +24,27 @@ import {
   mapOrderItemFromDirectus,
   mapBillSessionFromDirectus,
   mapVenueConfigFromDirectus,
+  mapMenuItemFromDirectus,
+  mapMenuCategoryFromDirectus,
+  mapMenuModifierFromDirectus,
+  mapMenuCategoryModifierLinkFromDirectus,
+  mapMenuItemModifierLinkFromDirectus,
+  mapTableMergeSessionFromDirectus,
+  mergeOrderFromWSPayload,
+  relationId,
 } from '../utils/mappers.js';
 import { getDirectusClient } from './useDirectusClient.js';
 import { drainQueue } from './useSyncQueue.js';
 import {
   loadStateFromIDB,
-  loadLastPullTsFromIDB,
-  saveLastPullTsToIDB,
   upsertRecordsIntoIDB,
   deleteRecordsFromIDB,
 } from '../store/persistence/operations.js';
 import { getDB } from './useIDB.js';
 import {
   loadConfigFromIDB,
+  loadLastPullTsFromIDB,
+  saveLastPullTsToIDB,
   replaceTableMergesInIDB,
   replaceVenueUsersInIDB,
   clearLocalConfigCacheFromIDB,
@@ -149,8 +157,6 @@ const SUPPORTS_STRUCTURED_CLONE = typeof structuredClone === 'function';
 // 24h avoids perpetual full-refreshes on slightly misconfigured tablets while still
 // catching clearly bogus cursors (for example, year 2099).
 const GLOBAL_TIMESTAMP_SKEW_TOLERANCE_MS = 24 * 60 * 60_000;
-// Module-level helper to check own properties without prototype pollution.
-const _hasOwnKey = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key);
 
 /**
  * Per-collection quirks for collections that deviate from the default schema
@@ -168,42 +174,16 @@ const COLLECTION_QUIRKS = {
 
 // ── Field mapping: Directus → local in-memory store format ───────────────────
 
-function _relationId(value) {
-  if (value == null) return null;
-  if (typeof value === 'object') return value.id ?? null;
-  return value;
-}
-
-function _parseJsonArray(value) {
-  if (Array.isArray(value)) return value;
-  if (typeof value === 'string' && value.trim() !== '') {
-    try {
-      const parsed = JSON.parse(value);
-      return Array.isArray(parsed) ? parsed : [];
-    } catch (_) {
-      return [];
-    }
-  }
-  return [];
-}
-
 function _mapRecord(collection, r) {
   if (collection === 'orders') return mapOrderFromDirectus(r);
   if (collection === 'bill_sessions') return mapBillSessionFromDirectus(r);
   if (collection === 'order_items') return mapOrderItemFromDirectus(r);
-  if (collection === 'menu_items') {
-    return { ...r, ingredients: _parseJsonArray(r.ingredients), allergens: _parseJsonArray(r.allergens), _sync_status: 'synced' };
-  }
-  if (collection === 'menu_modifiers') return { ...r, venue: _relationId(r.venue), _sync_status: 'synced' };
-  if (collection === 'menu_categories_menu_modifiers') {
-    return { ...r, venue: _relationId(r.venue), menu_categories_id: _relationId(r.menu_categories_id), menu_modifiers_id: _relationId(r.menu_modifiers_id), _sync_status: 'synced' };
-  }
-  if (collection === 'menu_items_menu_modifiers') {
-    return { ...r, venue: _relationId(r.venue), menu_items_id: _relationId(r.menu_items_id), menu_modifiers_id: _relationId(r.menu_modifiers_id), _sync_status: 'synced' };
-  }
-  if (collection === 'table_merge_sessions') {
-    return { ...r, venue: _relationId(r.venue), master_table: _relationId(r.master_table), slave_table: _relationId(r.slave_table), _sync_status: 'synced' };
-  }
+  if (collection === 'menu_items') return mapMenuItemFromDirectus(r);
+  if (collection === 'menu_categories') return mapMenuCategoryFromDirectus(r);
+  if (collection === 'menu_modifiers') return mapMenuModifierFromDirectus(r);
+  if (collection === 'menu_categories_menu_modifiers') return mapMenuCategoryModifierLinkFromDirectus(r);
+  if (collection === 'menu_items_menu_modifiers') return mapMenuItemModifierLinkFromDirectus(r);
+  if (collection === 'table_merge_sessions') return mapTableMergeSessionFromDirectus(r);
   return { ...r, _sync_status: 'synced' };
 }
 
@@ -486,9 +466,9 @@ async function _handleSubscriptionMessage(collection, message) {
     // fills all absent fields with zero/empty defaults, so a straight put() would
     // wipe IDB fields like totalAmount, globalNote, orderItems etc.
     //
-    // For update events we therefore fetch the existing IDB record and merge,
-    // overwriting only the fields that were actually present in the raw WS payload.
-    // create events use the incoming record as-is (no prior IDB record to preserve).
+    // For update events we therefore fetch the existing IDB record and merge via
+    // mergeOrderFromWSPayload(), overwriting only the fields present in the raw
+    // WS payload. create events use the incoming record as-is.
     let prepared = mapped;
     if (collection === 'orders' && event !== 'create') {
       try {
@@ -500,60 +480,7 @@ async function _handleSubscriptionMessage(collection, message) {
           try {
             const existing = await db.get('orders', String(id));
             if (!existing) return incoming;
-
-            // Start from existing record; selectively overwrite only fields
-            // that were present in the raw WS payload.
-            const merged = { ...existing };
-            if (_hasOwnKey(raw, 'id')) merged.id = incoming.id;
-            if (_hasOwnKey(raw, 'status')) merged.status = incoming.status;
-            if (_hasOwnKey(raw, 'date_created')) merged.date_created = incoming.date_created;
-            if (_hasOwnKey(raw, 'date_updated')) merged.date_updated = incoming.date_updated;
-            if (_hasOwnKey(raw, 'number')) merged.number = incoming.number;
-            if (_hasOwnKey(raw, 'date')) merged.date = incoming.date;
-            if (_hasOwnKey(raw, 'store_id')) merged.store_id = incoming.store_id;
-            if (_hasOwnKey(raw, 'terminal_id')) merged.terminal_id = incoming.terminal_id;
-            if (_hasOwnKey(raw, 'table')) merged.table = incoming.table;
-            if (_hasOwnKey(raw, 'bill_session')) {
-              merged.billSessionId = incoming.billSessionId;
-              merged.bill_session = incoming.bill_session;
-            }
-            if (_hasOwnKey(raw, 'total_amount')) {
-              merged.totalAmount = incoming.totalAmount;
-              merged.total_amount = incoming.total_amount;
-            }
-            if (_hasOwnKey(raw, 'item_count')) {
-              merged.itemCount = incoming.itemCount;
-              merged.item_count = incoming.item_count;
-            }
-            if (_hasOwnKey(raw, 'order_time')) merged.time = incoming.time;
-            if (_hasOwnKey(raw, 'global_note')) merged.globalNote = incoming.globalNote;
-            if (
-              _hasOwnKey(raw, 'note_visibility_cassa') ||
-              _hasOwnKey(raw, 'note_visibility_sala') ||
-              _hasOwnKey(raw, 'note_visibility_cucina')
-            ) {
-              merged.noteVisibility = incoming.noteVisibility;
-            }
-            if (_hasOwnKey(raw, 'is_cover_charge')) merged.isCoverCharge = incoming.isCoverCharge;
-            if (_hasOwnKey(raw, 'is_direct_entry')) merged.isDirectEntry = incoming.isDirectEntry;
-            if (_hasOwnKey(raw, 'rejection_reason')) merged.rejectionReason = incoming.rejectionReason;
-            if (_hasOwnKey(raw, 'venue_user_created')) merged.venueUserCreated = incoming.venueUserCreated;
-            if (_hasOwnKey(raw, 'venue_user_updated')) merged.venueUserUpdated = incoming.venueUserUpdated;
-            if (
-              _hasOwnKey(raw, 'dietary_diets') ||
-              _hasOwnKey(raw, 'dietary_allergens') ||
-              _hasOwnKey(raw, 'dietaryPreferences')
-            ) {
-              merged.dietaryPreferences = incoming.dietaryPreferences;
-            }
-            // For orderItems: use incoming non-empty array; else preserve existing.
-            if (_hasOwnKey(raw, 'order_items') || _hasOwnKey(raw, 'orderItems')) {
-              if (Array.isArray(incoming.orderItems) && incoming.orderItems.length > 0) {
-                merged.orderItems = incoming.orderItems;
-              }
-              // else keep existing.orderItems (already in merged via spread)
-            }
-            return merged;
+            return mergeOrderFromWSPayload(existing, raw, incoming);
           } catch (e) {
             console.warn('[DirectusSync] WS order merge: IDB lookup failed for', id, e);
             return incoming;
@@ -796,7 +723,7 @@ function _isObjectRecord(value) {
 function _dedupeRecordsById(records) {
   const byId = new Map();
   for (const record of _normalizeToArray(records)) {
-    const id = _relationId(record?.id);
+    const id = relationId(record?.id);
     if (id == null) continue;
     byId.set(String(id), record);
   }
@@ -808,7 +735,7 @@ function _extractRoomTableIds(rooms) {
   for (const room of _normalizeToArray(rooms)) {
     if (!_isObjectRecord(room)) continue;
     for (const tableRef of _normalizeToArray(room.tables)) {
-      const id = _relationId(tableRef);
+      const id = relationId(tableRef);
       if (id == null) continue;
       ids.add(String(id));
     }
@@ -907,7 +834,7 @@ function _extractModifierTree(venueRecord, menuSource) {
     if (modifier) {
       normalized = {
         ...modifier,
-        venue: _relationId(modifier.venue) ?? venueRecord.id,
+        venue: relationId(modifier.venue) ?? venueRecord.id,
       };
     } else {
       normalized = {
@@ -927,7 +854,7 @@ function _extractModifierTree(venueRecord, menuSource) {
         id: link.id ?? `category::${String(category.id)}::modifier::${String(modifierId)}`,
         menu_categories_id: category.id,
         menu_modifiers_id: modifierId,
-        venue: _relationId(link.venue) ?? venueRecord.id,
+        venue: relationId(link.venue) ?? venueRecord.id,
         sort: link.sort ?? null,
         date_updated: link.date_updated ?? null,
       });
@@ -942,7 +869,7 @@ function _extractModifierTree(venueRecord, menuSource) {
         id: link.id ?? `item::${String(item.id)}::modifier::${String(modifierId)}`,
         menu_items_id: item.id,
         menu_modifiers_id: modifierId,
-        venue: _relationId(link.venue) ?? venueRecord.id,
+        venue: relationId(link.venue) ?? venueRecord.id,
         sort: link.sort ?? null,
         date_updated: link.date_updated ?? null,
       });
@@ -960,10 +887,10 @@ function _extractModifierTree(venueRecord, menuSource) {
 
 async function _fanOutVenueTreeToIDB(venueRecord, { menuSource }) {
   if (!venueRecord || Array.isArray(venueRecord) || typeof venueRecord !== 'object') return {};
-  const venueId = _relationId(venueRecord.id);
+  const venueId = relationId(venueRecord.id);
   const withVenueFallback = (records) => _normalizeToArray(records).map((record) => {
     if (!record || typeof record !== 'object' || Array.isArray(record) || venueId == null) return record;
-    if (_relationId(record.venue) != null) return record;
+    if (relationId(record.venue) != null) return record;
     return { ...record, venue: venueId };
   });
 
@@ -1157,7 +1084,6 @@ async function _syncPreBillPrinterSelection(_venueRecord = null) {
   const current = typeof _store.preBillPrinterId === 'string' ? _store.preBillPrinterId : '';
   if (current && candidates.some((printer) => printer.id === current)) return;
   const newPrinterId = candidates[0]?.id ?? '';
-  // Persist the auto-selected printer to IDB so the selection survives a reload.
   if (typeof _store.saveLocalSettings === 'function') {
     try {
       await _store.saveLocalSettings({ preBillPrinterId: newPrinterId });

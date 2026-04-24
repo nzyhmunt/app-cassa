@@ -2142,3 +2142,130 @@ Le collection che supportano l'ordinamento manuale via drag-and-drop nell'admin 
 | `menu_modifiers`       | `sort`       |
 | `printers`             | `sort`       |
 | `order_items`          | `sort`       |
+
+---
+
+## 6. Note di Architettura del Codice (Post-Audit)
+
+Questa sezione documenta le scelte architetturali rilevanti emerse dall'audit del codice
+(refactoring Step 1–10) che non rientrano nella struttura schema Directus / IDB.
+
+---
+
+### 6.1 Modulo di Persistenza — Struttura a Layer (`src/store/persistence/`)
+
+Dopo il refactoring (Step 5), la persistenza IndexedDB è suddivisa in moduli dedicati:
+
+| Modulo                      | Funzioni principali                                                                     |
+|-----------------------------|-----------------------------------------------------------------------------------------|
+| `persistence/operations.js` | `loadStateFromIDB`, `saveStateToIDB`, `upsertRecordsIntoIDB`, `deleteRecordsFromIDB`, `upsertBillSessionInIDB`, `closeBillSessionInIDB` — più re-export backward-compat da tutti i sottomoduli |
+| `persistence/config.js`     | `loadConfigFromIDB`, `loadLastPullTsFromIDB`, `saveLastPullTsToIDB`, `replaceTableMergesInIDB`, `replaceVenueUsersInIDB`, `clearLocalConfigCacheFromIDB` |
+| `persistence/settings.js`   | `loadSettingsFromIDB`, `saveSettingsToIDB`, `saveJsonMenuToIDB`, `loadJsonMenuFromIDB`, `loadCustomItemsFromIDB`, `saveCustomItemsToIDB` |
+| `persistence/auth.js`       | `loadUsersFromIDB`, `saveUsersToIDB`, `loadAuthSessionFromIDB`, `saveAuthSessionToIDB`, `loadAuthSettingsFromIDB`, `saveAuthSettingsToIDB` |
+| `persistence/audit.js`      | `saveFiscalReceiptToIDB`, `loadFiscalReceiptsFromIDB`, `pruneFiscalReceiptsInIDB`, `saveInvoiceRequestToIDB`, `loadInvoiceRequestsFromIDB`, `pruneInvoiceRequestsInIDB` |
+| `persistence/reset.js`      | `clearAllStateFromIDB`, `clearSyncQueueFromIDB`, `deleteDatabase` |
+
+**Compatibilità**: `store/idbPersistence.js` e `store/persistence/operations.js` sono barrel
+file che re-esportano tutto dai sottomoduli. Tutti i percorsi di import esistenti continuano
+a funzionare invariati.
+
+---
+
+### 6.2 Store Pinia — Divisione in Moduli (`src/store/`)
+
+Dopo il refactoring (Step 6), il file monolitico `store/index.js` è stato suddiviso:
+
+| File                  | Contenuto                                                                                       |
+|-----------------------|-------------------------------------------------------------------------------------------------|
+| `store/configStore.js`| `useConfigStore` — venue config, menu loading, local settings, Directus connection settings     |
+| `store/orderStore.js` | `useOrderStore` — orders, transactions, cash, bill sessions, table merge, print/fiscal audit    |
+| `store/index.js`      | Barrel re-export; `useAppStore()` (proxy unificato per backward-compat); `initStoreFromIDB()`   |
+
+---
+
+### 6.3 Mapper Centralizzati (`src/utils/mappers.js`)
+
+Tutte le funzioni di trasformazione Directus → formato locale sono in `mappers.js`:
+
+| Funzione                            | Collezione                               |
+|-------------------------------------|------------------------------------------|
+| `mapOrderFromDirectus`              | `orders`                                 |
+| `mapOrderToDirectus`                | `orders` (reverse)                       |
+| `mapOrderItemFromDirectus`          | `order_items`                            |
+| `mapOrderItemModifierToDirectus`    | `order_item_modifiers`                   |
+| `mapBillSessionFromDirectus`        | `bill_sessions`                          |
+| `mapBillSessionToDirectus`          | `bill_sessions` (reverse)                |
+| `mapTransactionToDirectus`          | `transactions`                           |
+| `mapMenuItemFromDirectus`           | `menu_items`                             |
+| `mapMenuCategoryFromDirectus`       | `menu_categories`                        |
+| `mapMenuModifierFromDirectus`       | `menu_modifiers`                         |
+| `mapTableMergeSessionFromDirectus`  | `table_merge_sessions`                   |
+| `mapVenueConfigFromDirectus`        | `venues` (config derivato)               |
+| `mergeOrderFromWSPayload`           | merge WebSocket payload su ordine locale |
+| `normalizeMenu`                     | payload menu JSON/Directus               |
+| `relationId`                        | helper: estrae ID da relazione M2O       |
+| `parseJsonArray`                    | helper: parsa campo JSON/array           |
+
+---
+
+### 6.4 Stato `transaction_order_refs` e `transaction_voce_refs` in IDB
+
+Gli ObjectStore `transaction_order_refs` e `transaction_voce_refs` vengono **scritti** in IDB
+durante il pull globale tramite `upsertRecordsIntoIDB`, ma **non vengono riletti** in
+`loadStateFromIDB()` né idratati nello store Pinia.
+
+In memoria, i campi `orderRefs` e `voceRefs` sugli oggetti `transaction` contengono i dati
+relazionali inlineati al momento della creazione lato client (non provengono da questi store).
+Questi ObjectStore esistono per coerenza di schema con Directus ma non partecipano al ciclo
+di hydration locale.
+
+> **Stato**: write-only in IDB; non impattano la funzionalità attuale.
+
+---
+
+### 6.5 Stato `daily_closure_by_method` in IDB
+
+L'ObjectStore `daily_closure_by_method` esiste in IDB (creato dalla migration v7) e viene
+popolato durante il pull globale via `upsertRecordsIntoIDB`. Tuttavia **non viene caricato**
+da `loadStateFromIDB()`: solo `daily_closures` viene idratato nello store.
+
+Il campo `byMethod` sugli oggetti `daily_closure` è in `_PUSH_DROP_FIELDS` (non viene pushato
+a Directus) e viene calcolato client-side. La collection Directus `daily_closure_by_method` è
+separata e gestita server-side come relazione O2M.
+
+> **Stato**: store IDB presente ma non idratato in memoria; coerente con l'uso corrente.
+
+---
+
+### 6.6 Schema IDB — Versione v12 (indici `transactions`)
+
+La migration **v12** (in `useIDB.js`) aggiorna gli indici dell'ObjectStore `transactions`:
+
+- **Rimossi** i vecchi indici `table` (keyPath `tableId`) e `bill_session` (keyPath `billSessionId`)
+  che puntavano a campi camelCase mai presenti nei record synced da Directus.
+- **Aggiunti** nuovi indici `table` (keyPath `table`) e `bill_session` (keyPath `bill_session`)
+  allineati al formato snake_case effettivamente usato dai record.
+- I record esistenti vengono backfillati durante l'upgrade: le migration apre il cursore
+  dell'ObjectStore e aggiorna ogni record che abbia solo i campi camelCase.
+
+| Versione | Modifica                                                                         |
+|----------|----------------------------------------------------------------------------------|
+| v1       | Schema iniziale                                                                  |
+| v2       | Migration `app_meta.orders` → `orders`                                           |
+| v3       | Migration `app_meta.tableMergedInto` → `table_merge_sessions`                   |
+| v4–v11   | Aggiunta progressive di ObjectStore e indici                                     |
+| v12      | Fix indici `transactions`: `tableId`/`billSessionId` → `table`/`bill_session`   |
+
+---
+
+### 6.7 Gestione `deleteDatabase` — Correttezza Race Condition
+
+`deleteDatabase()` in `persistence/reset.js` utilizza `closeAndResetDB()` da `useIDB.js`
+per chiudere la connessione e resettare il singleton `_dbPromise` **prima** di lanciare il
+`indexedDB.deleteDatabase()`. Questo previene `InvalidStateError` se altri handler asincroni
+tentano di usare `getDB()` durante la stessa micro-task queue.
+
+Il gestore `onblocked` attende 3 secondi (timeout) prima di procedere con il reload, invece
+di fare `reject()` immediato, per gestire gracefully il caso in cui altri tab o frame
+mantengano aperta la connessione.
+

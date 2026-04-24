@@ -7,7 +7,30 @@
  *                    (bill_sessions.id, orders.id, transactions.id, cash_movements.id, …).
  *  - newShortId()  → short prefixed string ≤ 20 chars; use for LOCAL-ONLY identifiers
  *                    that are NOT Directus PKs (order_items.uid, print log entries, etc.).
+ *
+ * Deep clone:
+ *  - cloneValue()  → deep-clones a value using structuredClone (or JSON fallback).
+ *                    Safe for Vue reactive proxies and plain objects alike.
  */
+
+/**
+ * Deep-clones a value using `structuredClone` when available, falling back to a
+ * JSON round-trip for Vue reactive proxies and non-cloneable values.
+ *
+ * @template T
+ * @param {T} value
+ * @returns {T}
+ */
+export function cloneValue(value) {
+  if (typeof structuredClone === 'function') {
+    try {
+      return structuredClone(value);
+    } catch (_) {
+      // Fallback for Vue proxies / non-cloneable values in test/runtime mocks.
+    }
+  }
+  return JSON.parse(JSON.stringify(value));
+}
 
 /**
  * Generates a short, prefixed identifier suitable for local-only fields that are
