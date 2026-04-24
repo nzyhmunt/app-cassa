@@ -718,7 +718,7 @@ describe('addItemsToOrder — cart merge, guard rails, and IDB-first persistence
     expect(enqueueMock).not.toHaveBeenCalled();
   });
 
-  it('skips null/undefined/non-object elements in cartItems without throwing', async () => {
+  it('skips null/undefined/non-object/array elements in cartItems without throwing', async () => {
     const store = useAppStore();
     const order = makeOrder('ord_ait_invalid', 'T1', 'pending');
     order.orderItems = [];
@@ -728,6 +728,7 @@ describe('addItemsToOrder — cart merge, guard rails, and IDB-first persistence
       null,
       undefined,
       'string-element',
+      [{ dishId: 'd_arr', name: 'Should be skipped', unitPrice: 5, quantity: 1 }],
       { dishId: 'd1', name: 'Pasta', unitPrice: 10, quantity: 1, voidedQuantity: 0, notes: [], modifiers: [] },
     ]);
 

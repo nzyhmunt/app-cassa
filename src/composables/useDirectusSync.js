@@ -482,7 +482,7 @@ async function _handleSubscriptionMessage(collection, message) {
         prepared = await Promise.all(mapped.map(async (incoming) => {
           const hasItems = Array.isArray(incoming.orderItems) && incoming.orderItems.length > 0;
           const id = incoming?.id;
-          if (hasItems || !id) return incoming;
+          if (hasItems || !id || event === 'create') return incoming;
           try {
             const existing = await db.get('orders', String(id));
             if (existing && Array.isArray(existing.orderItems) && existing.orderItems.length > 0) {

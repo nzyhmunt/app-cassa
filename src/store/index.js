@@ -638,7 +638,7 @@ export const useOrderStore = defineStore('orders', () => {
         projected.orderItems = [];
       }
       for (const cartItem of cartItems) {
-        if (!cartItem || typeof cartItem !== 'object') continue;
+        if (!cartItem || typeof cartItem !== 'object' || Array.isArray(cartItem)) continue;
         const safeQuantity = Number(cartItem.quantity);
         const normalizedQuantity = Number.isFinite(safeQuantity) ? safeQuantity : 0;
         if (normalizedQuantity <= 0) continue;
