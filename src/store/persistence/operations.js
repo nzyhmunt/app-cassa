@@ -59,17 +59,11 @@ function _normalizeIncomingSync(collection, record) {
     if (normalized.item_uid == null && normalized.itemUid != null) normalized.item_uid = normalized.itemUid;
     if (normalized.itemUid == null && normalized.item_uid != null) normalized.itemUid = normalized.item_uid;
   } else if (collection === 'table_merge_sessions') {
-    const slave = _relationId(normalized.slave_table ?? normalized.slaveTable);
-    const master = _relationId(normalized.master_table ?? normalized.masterTable);
+    const slave = _relationId(normalized.slave_table);
+    const master = _relationId(normalized.master_table);
     const venue = _relationId(normalized.venue);
-    if (slave != null) {
-      normalized.slave_table = slave;
-      normalized.slaveTable = slave;
-    }
-    if (master != null) {
-      normalized.master_table = master;
-      normalized.masterTable = master;
-    }
+    if (slave != null) normalized.slave_table = slave;
+    if (master != null) normalized.master_table = master;
     if (venue != null) normalized.venue = venue;
   } else if (collection === 'menu_items') {
     normalized.ingredients = parseJsonArray(normalized.ingredients);
