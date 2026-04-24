@@ -516,6 +516,10 @@ export function groupOrderItemsByCourse(items, includeIndex = true) {
  * a single row.  Two rows are mergeable when they share the same dish, course,
  * notes (order-insensitive), and modifiers (order-insensitive by name + price).
  *
+ * For direct-entry rows (dishId is falsy, e.g. cover charge), `name` and
+ * `unitPrice` are also compared so that distinct direct items are never
+ * incorrectly merged into one.
+ *
  * Used by `orderStore.addItemsToOrder()`, `CassaOrderManager`, and
  * `SalaOrderManager` — keeping the logic in one place prevents drift.
  *
@@ -525,6 +529,8 @@ export function groupOrderItemsByCourse(items, includeIndex = true) {
  */
 export function itemsAreMergeable(a, b) {
   if (a.dishId !== b.dishId) return false;
+  // For direct-entry rows (no dishId), also require identical name and price.
+  if (!a.dishId && (a.name !== b.name || Number(a.unitPrice) !== Number(b.unitPrice))) return false;
   if ((a.course || DEFAULT_COURSE) !== (b.course || DEFAULT_COURSE)) return false;
   const notesA = [...(a.notes || [])].sort();
   const notesB = [...(b.notes || [])].sort();
