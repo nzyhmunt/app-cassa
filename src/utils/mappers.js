@@ -728,6 +728,8 @@ export function mapPayloadToDirectus(collection, payload, ctx = {}) {
       // Step 3 which expands item.modifiers → order_item_modifiers.
       const directItem = mapPayloadToDirectus('order_items', item, ctx);
       if (directItem.id == null && item?.id) directItem.id = item.id;
+      // Fallback order: item.orderId (explicit) → payload.id (create path where id is in payload)
+      // → ctx.recordId (update path where id is in queue entry.record_id, not in payload body)
       const resolvedOrderId = item?.orderId ?? payload?.id ?? ctx?.recordId ?? null;
       if (directItem.order == null && resolvedOrderId) directItem.order = resolvedOrderId;
       // Enrich already-expanded modifiers (populated by Step 3 in the recursive
