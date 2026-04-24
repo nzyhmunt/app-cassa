@@ -1069,7 +1069,11 @@ export const useOrderStore = defineStore('orders', () => {
     const nextOrders = [...orders.value, order];
 
     // IDB-first: persist both values before the reactive update.
-    await saveStateToIDB({ orders: nextOrders, tableOccupiedAt: projectedTableOccupiedAt });
+    try {
+      await saveStateToIDB({ orders: nextOrders, tableOccupiedAt: projectedTableOccupiedAt });
+    } catch (_) {
+      return false;
+    }
     _skipNextScheduledSave('orders', 'tableOccupiedAt');
     orders.value = nextOrders;
     tableOccupiedAt.value = projectedTableOccupiedAt;
