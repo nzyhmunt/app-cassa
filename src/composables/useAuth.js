@@ -193,7 +193,13 @@ function _processUsersFromIDB(users) {
   if (hasDirectusUsers) {
     // Directus is the sole authoritative source — purge all manually-created users
     // so stale local accounts cannot accumulate alongside the Directus-managed roster.
-    saveUsersToIDB([]).catch(e => console.warn('[Auth] Failed to purge manual users after Directus sync:', e));
+    // Guard the write: only call saveUsersToIDB when manual users are actually
+    // present in the payload, to avoid unnecessary IDB writes on every subsequent
+    // reload (e.g. periodic Directus global pulls after the initial purge).
+    const hasManualUsers = users.some(u => !isDirectusVenueUserRecord(u));
+    if (hasManualUsers) {
+      saveUsersToIDB([]).catch(e => console.warn('[Auth] Failed to purge manual users after Directus sync:', e));
+    }
   }
   const usersToLoad = hasDirectusUsers
     ? users.filter(u => isDirectusVenueUserRecord(u))
@@ -208,6 +214,26 @@ function _processUsersFromIDB(users) {
       fromDirectus,
     };
   });
+}
+
+/**
+ * Clear the active session, stop any running lock timer, and bump
+ * `_mutationVersion` so that any in-flight IDB hydration (e.g. _init()'s
+ * Promise) recognises that the in-memory state has been deliberately modified
+ * and skips overwriting it.
+ *
+ * Used by both the public `logout()` action and `reloadUsersFromIDB()` to
+ * keep session teardown logic in one place.
+ */
+function _performLogout() {
+  _mutationVersion++;
+  _currentUserId.value = null;
+  _isLocked.value = true;
+  saveAuthSessionToIDB(null).catch(e => console.warn('[Auth] Failed to clear session:', e));
+  if (_lockTimer) {
+    clearTimeout(_lockTimer);
+    _lockTimer = null;
+  }
 }
 
 function _init() {
@@ -382,14 +408,7 @@ export function useAuth() {
 
   /** Log out completely (clears current user). */
   function logout() {
-    _mutationVersion++;
-    _currentUserId.value = null;
-    _isLocked.value = true;
-    saveAuthSessionToIDB(null).catch(e => console.warn('[Auth] Failed to clear session:', e));
-    if (_lockTimer) {
-      clearTimeout(_lockTimer);
-      _lockTimer = null;
-    }
+    _performLogout();
   }
 
   /**
@@ -585,6 +604,11 @@ export function useAuth() {
  */
 export async function reloadUsersFromIDB() {
   if (!_initialized) return;
+  // Wait for the initial hydration to settle before applying changes so we
+  // don't race with _init()'s IDB load overwriting the refreshed roster or
+  // session we are about to set. Once _initPromise resolves, _init() can no
+  // longer overwrite any in-memory state (it checks _mutationVersion first).
+  if (_initPromise) await _initPromise;
   try {
     const users = await loadUsersFromIDB();
     _users.value = _processUsersFromIDB(users);
@@ -596,9 +620,7 @@ export async function reloadUsersFromIDB() {
       const activeUser = _allUsers.value.find(u => u.id === _currentUserId.value);
       const hasAppAccess = activeUser?.isAdmin || activeUser?.apps.includes(_currentApp);
       if (!activeUser || !hasAppAccess) {
-        _currentUserId.value = null;
-        _isLocked.value = true;
-        saveAuthSessionToIDB(null).catch(e => console.warn('[Auth] Failed to clear session:', e));
+        _performLogout();
       }
     }
   } catch (e) {
