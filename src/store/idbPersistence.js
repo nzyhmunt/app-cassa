@@ -437,8 +437,8 @@ export async function loadUsersFromIDB() {
  * Persists the full list of manual users to IDB.
  * Removes all manual user records — including legacy entries that predate the
  * `_type` marker (no `_type` field and no own `status` property) — then writes
- * the new list.  Directus-synced records (`_type: 'directus_user'` or own
- * `status`) are never touched.
+ * the new list. Directus-synced records, identified by having an own
+ * `status` field, are never touched.
  * @param {Array} users
  */
 export async function saveUsersToIDB(users) {
