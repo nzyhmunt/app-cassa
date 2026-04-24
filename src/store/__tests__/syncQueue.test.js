@@ -361,6 +361,30 @@ describe('drainQueue()', () => {
     expect(body.children).toBeUndefined();
   });
 
+  it('sets order FK on nested order_items when payload has no id (partial update)', async () => {
+    // Reproduces: "Validation failed for field 'order' at 'order_items'. Value can't be null."
+    // The order ID lives in record_id; the partial-update payload does NOT carry `id`.
+    const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue(mockResponse(200, { data: {} }));
+    await enqueue('orders', 'update', 'ord_partial_1', {
+      venue_user_updated: 'usr_1',
+      orderItems: [
+        { uid: 'item_a', dishId: 'dish_1', name: 'Tagliere', unitPrice: 13, quantity: 1, notes: [], voidedQuantity: 0, modifiers: [], course: 'insieme' },
+        { uid: 'item_b', dishId: 'dish_2', name: 'Carbonara', unitPrice: 13, quantity: 1, notes: [], voidedQuantity: 0, modifiers: [], course: 'insieme' },
+      ],
+      totalAmount: 26,
+      itemCount: 2,
+    });
+
+    await drainQueue(FAKE_CFG);
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(Array.isArray(body.order_items)).toBe(true);
+    expect(body.order_items).toHaveLength(2);
+    for (const item of body.order_items) {
+      expect(item.order).toBe('ord_partial_1');
+    }
+  });
+
   it('retries 409 create as PATCH', async () => {
     const fetchSpy = vi.spyOn(global, 'fetch')
       .mockResolvedValueOnce(mockResponse(409, { errors: [] }))

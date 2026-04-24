@@ -392,6 +392,7 @@ async function _pushEntry(entry, sdkClient, cfg) {
   if (operation !== 'delete') {
     const mappedPayload = mapPayloadToDirectus(collection, payload, {
       paymentMethods: Array.isArray(appConfig?.paymentMethods) ? appConfig.paymentMethods : [],
+      recordId: record_id,
     });
     directusPayload = _withRequiredDefaults(collection, operation, mappedPayload, cfg);
 
