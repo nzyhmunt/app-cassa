@@ -19,7 +19,9 @@
  *            (B) domain-status (orders, bill_sessions, print_jobs) — NOOP skip
  *            (C) junction tables — deleteItem(collection, id) [hard DELETE]
  *   409 on create → retry as updateItem (duplicate UUIDv7 treated as update)
- *   error         → incrementAttempts; exponential back-off 2^n s; max MAX_ATTEMPTS
+ *   error         → incrementAttempts; block same (collection, record_id) chain for the
+ *                   current drain cycle; abandon after MAX_ATTEMPTS.  Retry timing is
+ *                   delegated to the external push-loop interval (no inline sleep).
  */
 
 import { createDirectus, staticToken, rest, createItem, updateItem, deleteItem } from '@directus/sdk';
@@ -232,6 +234,23 @@ export async function incrementAttempts(id, lastError) {
 function _isPresentValue(value) {
   return value != null && value !== '';
 }
+
+/**
+ * Defines cross-collection parent→child FK dependencies used by `drainQueue()`
+ * to propagate blocks when a parent entry fails.
+ *
+ * If a parent entry for `parentCollection:parentId` is added to `blockedKeys`,
+ * any child entry whose `payload[fkField] === parentId` is also skipped for the
+ * rest of the same drain cycle (since the child can never succeed without the
+ * parent already in Directus).
+ *
+ * @type {Map<string, { parentCollection: string, fkField: string }>}
+ */
+const PARENT_DEPENDENCY_MAP = new Map([
+  ['transaction_order_refs',  { parentCollection: 'transactions',   fkField: 'transaction' }],
+  ['transaction_voce_refs',   { parentCollection: 'transactions',   fkField: 'transaction' }],
+  ['daily_closure_by_method', { parentCollection: 'daily_closures', fkField: 'daily_closure' }],
+]);
 
 const VENUE_REQUIRED_CREATE_COLLECTIONS = new Set([
   'bill_sessions',
@@ -540,6 +559,16 @@ export async function drainQueue(cfg) {
     // Skip entries whose record chain is blocked by a prior failure this cycle.
     if (blockedKeys.has(entryKey)) continue;
 
+    // Also skip entries whose parent record is blocked (cross-collection FK dependency).
+    // For example: if `transactions:txn_1` failed, we must not attempt
+    // `transaction_order_refs` entries whose `payload.transaction === 'txn_1'`
+    // because Directus would reject them with a FK-not-found error.
+    const dep = PARENT_DEPENDENCY_MAP.get(entry.collection);
+    if (dep) {
+      const parentId = entry.payload?.[dep.fkField];
+      if (parentId && blockedKeys.has(`${dep.parentCollection}:${parentId}`)) continue;
+    }
+
     const result = await _pushEntry(entry, sdkClient, cfg);
 
     if (result === true || result === 'skip') {
@@ -560,11 +589,12 @@ export async function drainQueue(cfg) {
       } else {
         await incrementAttempts(entry.id, failureDetails?.message ?? null);
         failed++;
-        // Block this (collection, record_id) pair for the rest of this cycle
-        // to preserve intra-record operation ordering.  The failed entry will
-        // be retried on the next drain cycle (triggered by the push-loop timer).
-        blockedKeys.add(entryKey);
       }
+      // Block this (collection, record_id) pair for the rest of this cycle in
+      // both the retry and abandon cases — any later operation on the same record
+      // (e.g. an update after a failed create) cannot succeed and must wait for
+      // the next drain cycle.
+      blockedKeys.add(entryKey);
     }
   }
 

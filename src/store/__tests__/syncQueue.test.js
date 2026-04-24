@@ -12,7 +12,10 @@
  *  - drainQueue() retries 409 create as PATCH
  *  - drainQueue() increments attempts on failure and abandons after MAX_ATTEMPTS
  *  - drainQueue() blocks same-record operations after a failure (preserves ordering)
+ *  - drainQueue() blocks same-record operations even when entry is abandoned
  *  - drainQueue() continues with unrelated records after a failure (no full-queue block)
+ *  - drainQueue() blocks child collection entries when parent transaction create fails
+ *  - drainQueue() blocks daily_closure_by_method when parent daily_closures fails
  *  - drainQueue() strips local-only fields (_sync_status, orderItems)
  *  - drainQueue() returns push/failed/abandoned counts
  */
@@ -611,5 +614,77 @@ describe('drainQueue()', () => {
 
     const { headers } = fetchSpy.mock.calls[0][1];
     expect(headers.Authorization).toBe('Bearer tok_test');
+  });
+
+  it('blocks same-record operations even when the parent entry is abandoned (MAX_ATTEMPTS)', async () => {
+    // Seed attempts so next drain triggers abandon (attempts already at MAX_ATTEMPTS - 1)
+    vi.spyOn(global, 'fetch').mockRejectedValue(new Error('network'));
+
+    await enqueue('orders', 'create', 'ord_abandon_1', { id: 'ord_abandon_1' });
+    await enqueue('orders', 'update', 'ord_abandon_1', { status: 'accepted' }); // must stay blocked
+
+    // Exhaust retry budget so the create is abandoned on this drain
+    for (let i = 0; i < MAX_ATTEMPTS - 1; i++) {
+      await drainQueue(FAKE_CFG);
+    }
+    const finalResult = await drainQueue(FAKE_CFG);
+
+    // The create was abandoned (removed), but the update must still be in the queue
+    // untouched (attempts === 0) because it was blocked the whole time.
+    expect(finalResult.abandoned).toBe(1);
+    const entries = await getPendingEntries();
+    expect(entries).toHaveLength(1);
+    expect(entries[0].operation).toBe('update');
+    expect(entries[0].attempts).toBe(0);
+  });
+
+  it('blocks child collection entries when parent transaction create fails', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch')
+      .mockRejectedValueOnce(new Error('network'))    // transactions:txn_1 create fails
+      .mockResolvedValueOnce(mockResponse(201, {}));  // a different, unrelated entry succeeds
+
+    await enqueue('transactions', 'create', 'txn_1', { id: 'txn_1', amount_paid: 10 });
+    // Child refs depend on the parent FK "transaction === 'txn_1'"
+    await enqueue('transaction_order_refs', 'create', 'ref_1', { id: 'ref_1', transaction: 'txn_1', order: 'ord_1' });
+    await enqueue('transaction_voce_refs',  'create', 'ref_2', { id: 'ref_2', transaction: 'txn_1', voce_key: 'v1', qty: 1 });
+    // Unrelated entry for a different transaction — must NOT be blocked
+    await enqueue('transactions', 'create', 'txn_2', { id: 'txn_2', amount_paid: 20 });
+
+    const result = await drainQueue(FAKE_CFG);
+
+    // txn_1 failed → ref_1 and ref_2 skipped; txn_2 pushed
+    expect(result.pushed).toBe(1);
+    expect(result.failed).toBe(1);
+    expect(fetchSpy).toHaveBeenCalledTimes(2); // txn_1 (failed) + txn_2 (ok); refs skipped
+
+    const entries = await getPendingEntries();
+    expect(entries).toHaveLength(3); // txn_1 + ref_1 + ref_2 remain
+    const remaining = entries.map(e => e.record_id);
+    expect(remaining).toContain('txn_1');
+    expect(remaining).toContain('ref_1');
+    expect(remaining).toContain('ref_2');
+
+    // Refs must NOT have been attempted (attempts still 0)
+    const ref1 = entries.find(e => e.record_id === 'ref_1');
+    const ref2 = entries.find(e => e.record_id === 'ref_2');
+    expect(ref1.attempts).toBe(0);
+    expect(ref2.attempts).toBe(0);
+  });
+
+  it('blocks daily_closure_by_method entries when parent daily_closures create fails', async () => {
+    vi.spyOn(global, 'fetch').mockRejectedValueOnce(new Error('network'));
+
+    await enqueue('daily_closures', 'create', 'close_1', { id: 'close_1' });
+    await enqueue('daily_closure_by_method', 'create', 'cbm_1', { id: 'cbm_1', daily_closure: 'close_1', amount: 50 });
+
+    const result = await drainQueue(FAKE_CFG);
+
+    expect(result.pushed).toBe(0);
+    expect(result.failed).toBe(1);
+
+    const entries = await getPendingEntries();
+    expect(entries).toHaveLength(2);
+    const cbm = entries.find(e => e.record_id === 'cbm_1');
+    expect(cbm.attempts).toBe(0); // was blocked, never attempted
   });
 });
