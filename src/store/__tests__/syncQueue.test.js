@@ -16,6 +16,8 @@
  *  - drainQueue() continues with unrelated records after a failure (no full-queue block)
  *  - drainQueue() blocks child collection entries when parent transaction create fails
  *  - drainQueue() blocks daily_closure_by_method when parent daily_closures fails
+ *  - drainQueue() blocks orders create when parent bill_session create fails
+ *  - drainQueue() blocks transactions create when parent bill_session create fails
  *  - drainQueue() strips local-only fields (_sync_status, orderItems)
  *  - drainQueue() returns push/failed/abandoned counts
  */
@@ -686,5 +688,40 @@ describe('drainQueue()', () => {
     expect(entries).toHaveLength(2);
     const cbm = entries.find(e => e.record_id === 'cbm_1');
     expect(cbm.attempts).toBe(0); // was blocked, never attempted
+  });
+
+  it('blocks orders create when parent bill_session create fails', async () => {
+    vi.spyOn(global, 'fetch').mockRejectedValueOnce(new Error('network'));
+
+    await enqueue('bill_sessions', 'create', 'bill_1', { id: 'bill_1', table: 'T1', status: 'open' });
+    // order references the bill_session via camelCase billSessionId (raw queue payload)
+    await enqueue('orders', 'create', 'ord_1', { id: 'ord_1', table: 'T1', billSessionId: 'bill_1' });
+
+    const result = await drainQueue(FAKE_CFG);
+
+    expect(result.pushed).toBe(0);
+    expect(result.failed).toBe(1);
+
+    const entries = await getPendingEntries();
+    expect(entries).toHaveLength(2);
+    const ord = entries.find(e => e.record_id === 'ord_1');
+    expect(ord.attempts).toBe(0); // blocked, never attempted
+  });
+
+  it('blocks transactions create when parent bill_session create fails', async () => {
+    vi.spyOn(global, 'fetch').mockRejectedValueOnce(new Error('network'));
+
+    await enqueue('bill_sessions', 'create', 'bill_2', { id: 'bill_2', table: 'T2', status: 'open' });
+    await enqueue('transactions', 'create', 'txn_2', { id: 'txn_2', billSessionId: 'bill_2', amount_paid: 20 });
+
+    const result = await drainQueue(FAKE_CFG);
+
+    expect(result.pushed).toBe(0);
+    expect(result.failed).toBe(1);
+
+    const entries = await getPendingEntries();
+    expect(entries).toHaveLength(2);
+    const txn = entries.find(e => e.record_id === 'txn_2');
+    expect(txn.attempts).toBe(0); // blocked, never attempted
   });
 });

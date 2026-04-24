@@ -247,9 +247,16 @@ function _isPresentValue(value) {
  * @type {Map<string, { parentCollection: string, fkField: string }>}
  */
 const PARENT_DEPENDENCY_MAP = new Map([
+  // transactions / refs — refs carry payload.transaction === parent txn.id
   ['transaction_order_refs',  { parentCollection: 'transactions',   fkField: 'transaction' }],
   ['transaction_voce_refs',   { parentCollection: 'transactions',   fkField: 'transaction' }],
+  // daily closures — by-method rows carry payload.daily_closure === parent closure.id
   ['daily_closure_by_method', { parentCollection: 'daily_closures', fkField: 'daily_closure' }],
+  // bill_sessions — orders and transactions reference the session via the
+  // camelCase `billSessionId` in the raw queue payload (mappers convert it to
+  // `bill_session` only at push time, after it leaves the queue store).
+  ['orders',                  { parentCollection: 'bill_sessions',  fkField: 'billSessionId' }],
+  ['transactions',            { parentCollection: 'bill_sessions',  fkField: 'billSessionId' }],
 ]);
 
 const VENUE_REQUIRED_CREATE_COLLECTIONS = new Set([
