@@ -9,7 +9,6 @@ import {
   KITCHEN_ACTIVE_STATUSES,
   KEYBOARD_POSITIONS,
   formatOrderTime,
-  DEFAULT_COURSE,
   itemsAreMergeable,
 } from '../utils/index.js';
 import { mapOrderFromDirectus, mapVenueConfigFromDirectus } from '../utils/mappers.js';
