@@ -1427,6 +1427,8 @@ export async function initStoreFromIDB(pinia) {
       // (variants) added after the last Directus sync are always reflected,
       // regardless of the potentially stale `total_amount` stored in IDB.
       updateOrderTotals(mapped);
+      mapped.total_amount = mapped.totalAmount;
+      mapped.item_count = mapped.itemCount;
       return mapped;
     });
     orderStore.transactions = idbState.transactions ?? [];
