@@ -1078,14 +1078,14 @@ export const useOrderStore = defineStore('orders', () => {
     };
     updateOrderTotals(order);
 
-    // Mark the table as occupied atomically with the order create (IDB-first).
+    // Prepare the table occupancy timestamp together with the new order (persisted IDB-first).
     const projectedTableOccupiedAt = { ...tableOccupiedAt.value };
     if (!projectedTableOccupiedAt[tableId]) {
       projectedTableOccupiedAt[tableId] = now;
     }
     const nextOrders = [...orders.value, order];
 
-    // IDB-first: persist orders + tableOccupiedAt before reactive update.
+    // IDB-first: persist both values before the reactive update.
     await saveStateToIDB({ orders: nextOrders, tableOccupiedAt: projectedTableOccupiedAt });
     _skipNextScheduledSave('orders', 'tableOccupiedAt');
     orders.value = nextOrders;
