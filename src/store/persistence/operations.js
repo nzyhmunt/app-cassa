@@ -1,6 +1,7 @@
 export {
   loadStateFromIDB,
   saveStateToIDB,
+  saveOrdersAndOccupancyInIDB,
   upsertBillSessionInIDB,
   closeBillSessionInIDB,
   loadSettingsFromIDB,

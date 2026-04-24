@@ -293,6 +293,45 @@ export async function saveStateToIDB(state) {
   }
 }
 
+// ── Atomic orders + occupancy write ──────────────────────────────────────────
+
+/**
+ * Persists a new orders array and the tableOccupiedAt map inside a **single**
+ * IDB transaction spanning both the `orders` and `app_meta` object stores.
+ *
+ * Unlike `saveStateToIDB({ orders, tableOccupiedAt })` (which issues two
+ * independent `Promise.all` ops), this function guarantees that either both
+ * writes commit together or both are rolled back — preventing the "ghost order"
+ * divergence that would arise when one succeeds and the other fails.
+ *
+ * Used by `addDirectOrder()` which must atomically record a new order and mark
+ * its table as occupied.
+ *
+ * @param {Array}  orders          - Full projected orders array (including the new order).
+ * @param {object} tableOccupiedAt - Projected table-occupancy timestamp map.
+ */
+export async function saveOrdersAndOccupancyInIDB(orders, tableOccupiedAt) {
+  try {
+    const db = await getDB();
+    const tx = db.transaction(['orders', 'app_meta'], 'readwrite');
+    const ordersStore = tx.objectStore('orders');
+    const metaStore = tx.objectStore('app_meta');
+    // Queue all operations without intermediate awaits so the transaction
+    // stays open and commits atomically via tx.done.
+    ordersStore.clear();
+    (orders ?? []).forEach(r => ordersStore.put(JSON.parse(JSON.stringify(r))));
+    metaStore.put(JSON.parse(JSON.stringify({
+      id: 'tableOccupiedAt',
+      value: tableOccupiedAt ?? {},
+    })));
+    await tx.done;
+    touchStorageKey();
+  } catch (e) {
+    console.warn('[IDBPersistence] saveOrdersAndOccupancyInIDB failed:', e);
+    throw e;
+  }
+}
+
 // ── bill_sessions fine-grained writes ────────────────────────────────────────
 
 /**

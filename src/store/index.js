@@ -18,6 +18,7 @@ import { makeReportOps } from './reportOps.js';
 import {
   loadStateFromIDB,
   saveStateToIDB,
+  saveOrdersAndOccupancyInIDB,
   upsertRecordsIntoIDB,
   upsertBillSessionInIDB,
   closeBillSessionInIDB,
@@ -1068,9 +1069,11 @@ export const useOrderStore = defineStore('orders', () => {
     }
     const nextOrders = [...orders.value, order];
 
-    // IDB-first: persist both values before the reactive update.
+    // IDB-first: persist both values in a single multi-store transaction so that
+    // either both the new order and the occupancy timestamp are written together
+    // or neither is — preventing ghost orders on partial-failure reloads.
     try {
-      await saveStateToIDB({ orders: nextOrders, tableOccupiedAt: projectedTableOccupiedAt });
+      await saveOrdersAndOccupancyInIDB(nextOrders, projectedTableOccupiedAt);
     } catch (_) {
       return false;
     }
