@@ -189,7 +189,13 @@ const _visibleUsers = computed(() =>
  * @returns {Array} processed user objects ready to assign to `_users.value`
  */
 function _processUsersFromIDB(users) {
-  const hasDirectusUsers = users.some(u => isDirectusVenueUserRecord(u));
+  // Only treat Directus as the sole authoritative source when at least one
+  // Directus user is authenticatable (has a non-empty pin).  A Directus record
+  // with an empty/missing pin (e.g. sync wrote the record before the PIN was
+  // set on the server) must NOT trigger the manual-user purge, because that
+  // would leave _users empty and drop the app into open/admin mode even though
+  // legitimate local accounts still exist.
+  const hasDirectusUsers = users.some(u => isDirectusVenueUserRecord(u) && u.pin);
   if (hasDirectusUsers) {
     // Directus is the sole authoritative source — purge all manually-created users
     // so stale local accounts cannot accumulate alongside the Directus-managed roster.

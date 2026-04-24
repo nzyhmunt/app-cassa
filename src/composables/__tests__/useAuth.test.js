@@ -793,6 +793,29 @@ describe('Directus sole-source enforcement', () => {
     expect(manualUsers.value).toHaveLength(1);
     expect(manualUsers.value[0].name).toBe('Mario');
   });
+
+  it('does NOT purge manual users when the only Directus user has an empty pin', async () => {
+    // A Directus record with an empty pin (e.g. sync ran before the PIN was set
+    // on the server) must not trigger the sole-source purge, because that would
+    // leave _users empty and drop requiresAuth to false (open/admin mode).
+    const { reloadUsersFromIDB } = await import('../useAuth.js');
+    const { upsertRecordsIntoIDB } = await import('../../store/persistence/operations.js');
+
+    const { addUser, manualUsers, requiresAuth } = useAuth();
+    await addUser('Mario', '1111');
+    await _waitForAuth();
+    expect(manualUsers.value).toHaveLength(1);
+
+    // A Directus user arrives but has no PIN (empty string from server normalization).
+    await upsertRecordsIntoIDB('venue_users', [{
+      id: 'vu_nopin', name: 'NoPinUser', pin: '', apps: ['admin'], status: 'active',
+    }]);
+    await reloadUsersFromIDB();
+
+    // Manual user must NOT be purged — requiresAuth should remain true.
+    expect(manualUsers.value).toHaveLength(1);
+    expect(requiresAuth.value).toBe(true);
+  });
 });
 
 // ── Config-user login (no explicit apps) ─────────────────────────────────────
