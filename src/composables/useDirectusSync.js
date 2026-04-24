@@ -477,21 +477,26 @@ async function _handleSubscriptionMessage(collection, message) {
     // empty – much cheaper than loading full app state via loadStateFromIDB().
     let prepared = mapped;
     if (collection === 'orders') {
-      const db = await getDB();
-      prepared = await Promise.all(mapped.map(async (incoming) => {
-        const hasItems = Array.isArray(incoming.orderItems) && incoming.orderItems.length > 0;
-        const id = incoming?.id;
-        if (hasItems || !id) return incoming;
-        try {
-          const existing = await db.get('orders', String(id));
-          if (existing && Array.isArray(existing.orderItems) && existing.orderItems.length > 0) {
-            return { ...incoming, orderItems: existing.orderItems };
+      try {
+        const db = await getDB();
+        prepared = await Promise.all(mapped.map(async (incoming) => {
+          const hasItems = Array.isArray(incoming.orderItems) && incoming.orderItems.length > 0;
+          const id = incoming?.id;
+          if (hasItems || !id) return incoming;
+          try {
+            const existing = await db.get('orders', String(id));
+            if (existing && Array.isArray(existing.orderItems) && existing.orderItems.length > 0) {
+              return { ...incoming, orderItems: existing.orderItems };
+            }
+          } catch (e) {
+            console.warn('[DirectusSync] WS orderItems merge: IDB lookup failed for', id, e);
           }
-        } catch (e) {
-          console.warn('[DirectusSync] WS orderItems merge: IDB lookup failed for', id, e);
-        }
-        return incoming;
-      }));
+          return incoming;
+        }));
+      } catch (e) {
+        console.warn('[DirectusSync] WS orderItems merge: IDB unavailable, falling back to incoming records', e);
+        prepared = mapped;
+      }
     }
     await upsertRecordsIntoIDB(collection, prepared);
     await _refreshStoreFromIDB(collection);
