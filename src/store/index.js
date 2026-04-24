@@ -520,8 +520,12 @@ export const useOrderStore = defineStore('orders', () => {
           // modifiers are always reflected even when the Directus-sourced
           // total_amount in IDB is stale or missing their prices.
           operationalStateRefs[key].value = (idbState[key] ?? []).map((order) => {
-            updateOrderTotals(order);
-            return order;
+            const mappedOrder = mapOrderFromDirectus(order);
+            if (!Array.isArray(mappedOrder.orderItems)) {
+              mappedOrder.orderItems = [];
+            }
+            updateOrderTotals(mappedOrder);
+            return mappedOrder;
           });
         } else {
           operationalStateRefs[key].value = idbState[key];
