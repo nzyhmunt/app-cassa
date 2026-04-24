@@ -826,15 +826,23 @@ export async function saveLastPullTsToIDB(collection, ts) {
 /**
  * Batch-upserts Directus records into the given IDB ObjectStore.
  *
- * Only inserts/replaces a record when the incoming `date_updated` is strictly
- * greater than (or the local record has no `date_updated`).  This implements
- * the last-write-wins conflict resolution described in §5.7.4.
+ * By default only inserts/replaces a record when the incoming `date_updated` is
+ * strictly greater than (or the local record has no `date_updated`). This
+ * implements the last-write-wins conflict resolution described in §5.7.4.
+ *
+ * Pass `{ forceWrite: true }` to bypass the `date_updated` timestamp check and
+ * unconditionally overwrite every incoming record. Use this during forced deep
+ * pulls where the data comes directly from Directus and should always win over
+ * whatever is currently in IDB (e.g. config collections refreshed via Pull ora).
  *
  * Strips `_sync_status` before storing (Directus records are authoritative and
  * implicitly 'synced').
  *
  * @param {string} storeName   - IDB ObjectStore name
  * @param {Array<object>} records - Records received from Directus
+ * @param {{ forceWrite?: boolean }} [options]
+ * @param {boolean} [options.forceWrite=false] - When true, skip the date_updated
+ *   staleness check and always write the incoming record.
  * @returns {Promise<number>} Number of records actually written
  */
 export async function upsertRecordsIntoIDB(storeName, records, { forceWrite = false } = {}) {
