@@ -968,7 +968,7 @@ CREATE INDEX idx_venue_users_apps   ON venue_users USING GIN (apps);
 -- Unioni tavolo attive: ogni riga rappresenta un'unione slave → master.
 -- Il record viene eliminato quando l'unione viene annullata (split).
 CREATE TABLE table_merge_sessions (
-    id           UUID         PRIMARY KEY DEFAULT gen_random_uuid(), -- UUID generato client-side (UUIDv7) e riutilizzato nei cicli successivi per evitare duplicati
+    id           UUID         PRIMARY KEY,                          -- UUID v7 generato client-side; riutilizzato tra cicli di write per preservare l'identità Directus
     venue        INTEGER      NOT NULL REFERENCES venues(id) ON DELETE CASCADE,
     slave_table  VARCHAR(10)  NOT NULL UNIQUE REFERENCES tables(id) ON DELETE CASCADE, -- tavolo che delega il proprio stato al master
     master_table VARCHAR(10)  NOT NULL REFERENCES tables(id) ON DELETE CASCADE,        -- tavolo che riceve le comande
