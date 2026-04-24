@@ -739,7 +739,7 @@ describe('Directus sole-source enforcement', () => {
 
     // Start with a manual user only.
     const { addUser, users, manualUsers, directusUsers } = useAuth();
-    await addUser('Mario', '1111');
+    const manualUser = await addUser('Mario', '1111');
     await _waitForAuth();
     expect(manualUsers.value).toHaveLength(1);
 
@@ -753,7 +753,8 @@ describe('Directus sole-source enforcement', () => {
 
     expect(manualUsers.value).toHaveLength(0);
     expect(directusUsers.value.some(u => u.id === 'vu_dir2')).toBe(true);
-    expect(users.value.every(u => u.id !== 'mu_mario')).toBe(true);
+    // The manual user's actual id must no longer appear in the roster.
+    expect(users.value.every(u => u.id !== manualUser.id)).toBe(true);
   });
 
   it('reloadUsersFromIDB() logs out a manual user who is purged by an arriving Directus sync', async () => {
