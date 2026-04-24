@@ -141,6 +141,8 @@ const SUPPORTS_STRUCTURED_CLONE = typeof structuredClone === 'function';
 // 24h avoids perpetual full-refreshes on slightly misconfigured tablets while still
 // catching clearly bogus cursors (for example, year 2099).
 const GLOBAL_TIMESTAMP_SKEW_TOLERANCE_MS = 24 * 60 * 60_000;
+// Module-level helper to check own properties without prototype pollution.
+const _hasOwnKey = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key);
 
 /**
  * Per-collection quirks for collections that deviate from the default schema
@@ -481,7 +483,6 @@ async function _handleSubscriptionMessage(collection, message) {
     // create events use the incoming record as-is (no prior IDB record to preserve).
     let prepared = mapped;
     if (collection === 'orders' && event !== 'create') {
-      const hasOwn = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key);
       try {
         const db = await getDB();
         prepared = await Promise.all(nonEcho.map(async (raw, i) => {
@@ -495,50 +496,50 @@ async function _handleSubscriptionMessage(collection, message) {
             // Start from existing record; selectively overwrite only fields
             // that were present in the raw WS payload.
             const merged = { ...existing };
-            if (hasOwn(raw, 'id')) merged.id = incoming.id;
-            if (hasOwn(raw, 'status')) merged.status = incoming.status;
-            if (hasOwn(raw, 'date_created')) merged.date_created = incoming.date_created;
-            if (hasOwn(raw, 'date_updated')) merged.date_updated = incoming.date_updated;
-            if (hasOwn(raw, 'number')) merged.number = incoming.number;
-            if (hasOwn(raw, 'date')) merged.date = incoming.date;
-            if (hasOwn(raw, 'store_id')) merged.store_id = incoming.store_id;
-            if (hasOwn(raw, 'terminal_id')) merged.terminal_id = incoming.terminal_id;
-            if (hasOwn(raw, 'table')) merged.table = incoming.table;
-            if (hasOwn(raw, 'bill_session')) {
+            if (_hasOwnKey(raw, 'id')) merged.id = incoming.id;
+            if (_hasOwnKey(raw, 'status')) merged.status = incoming.status;
+            if (_hasOwnKey(raw, 'date_created')) merged.date_created = incoming.date_created;
+            if (_hasOwnKey(raw, 'date_updated')) merged.date_updated = incoming.date_updated;
+            if (_hasOwnKey(raw, 'number')) merged.number = incoming.number;
+            if (_hasOwnKey(raw, 'date')) merged.date = incoming.date;
+            if (_hasOwnKey(raw, 'store_id')) merged.store_id = incoming.store_id;
+            if (_hasOwnKey(raw, 'terminal_id')) merged.terminal_id = incoming.terminal_id;
+            if (_hasOwnKey(raw, 'table')) merged.table = incoming.table;
+            if (_hasOwnKey(raw, 'bill_session')) {
               merged.billSessionId = incoming.billSessionId;
               merged.bill_session = incoming.bill_session;
             }
-            if (hasOwn(raw, 'total_amount')) {
+            if (_hasOwnKey(raw, 'total_amount')) {
               merged.totalAmount = incoming.totalAmount;
               merged.total_amount = incoming.total_amount;
             }
-            if (hasOwn(raw, 'item_count')) {
+            if (_hasOwnKey(raw, 'item_count')) {
               merged.itemCount = incoming.itemCount;
               merged.item_count = incoming.item_count;
             }
-            if (hasOwn(raw, 'order_time')) merged.time = incoming.time;
-            if (hasOwn(raw, 'global_note')) merged.globalNote = incoming.globalNote;
+            if (_hasOwnKey(raw, 'order_time')) merged.time = incoming.time;
+            if (_hasOwnKey(raw, 'global_note')) merged.globalNote = incoming.globalNote;
             if (
-              hasOwn(raw, 'note_visibility_cassa') ||
-              hasOwn(raw, 'note_visibility_sala') ||
-              hasOwn(raw, 'note_visibility_cucina')
+              _hasOwnKey(raw, 'note_visibility_cassa') ||
+              _hasOwnKey(raw, 'note_visibility_sala') ||
+              _hasOwnKey(raw, 'note_visibility_cucina')
             ) {
               merged.noteVisibility = incoming.noteVisibility;
             }
-            if (hasOwn(raw, 'is_cover_charge')) merged.isCoverCharge = incoming.isCoverCharge;
-            if (hasOwn(raw, 'is_direct_entry')) merged.isDirectEntry = incoming.isDirectEntry;
-            if (hasOwn(raw, 'rejection_reason')) merged.rejectionReason = incoming.rejectionReason;
-            if (hasOwn(raw, 'venue_user_created')) merged.venueUserCreated = incoming.venueUserCreated;
-            if (hasOwn(raw, 'venue_user_updated')) merged.venueUserUpdated = incoming.venueUserUpdated;
+            if (_hasOwnKey(raw, 'is_cover_charge')) merged.isCoverCharge = incoming.isCoverCharge;
+            if (_hasOwnKey(raw, 'is_direct_entry')) merged.isDirectEntry = incoming.isDirectEntry;
+            if (_hasOwnKey(raw, 'rejection_reason')) merged.rejectionReason = incoming.rejectionReason;
+            if (_hasOwnKey(raw, 'venue_user_created')) merged.venueUserCreated = incoming.venueUserCreated;
+            if (_hasOwnKey(raw, 'venue_user_updated')) merged.venueUserUpdated = incoming.venueUserUpdated;
             if (
-              hasOwn(raw, 'dietary_diets') ||
-              hasOwn(raw, 'dietary_allergens') ||
-              hasOwn(raw, 'dietaryPreferences')
+              _hasOwnKey(raw, 'dietary_diets') ||
+              _hasOwnKey(raw, 'dietary_allergens') ||
+              _hasOwnKey(raw, 'dietaryPreferences')
             ) {
               merged.dietaryPreferences = incoming.dietaryPreferences;
             }
             // For orderItems: use incoming non-empty array; else preserve existing.
-            if (hasOwn(raw, 'order_items') || hasOwn(raw, 'orderItems')) {
+            if (_hasOwnKey(raw, 'order_items') || _hasOwnKey(raw, 'orderItems')) {
               if (Array.isArray(incoming.orderItems) && incoming.orderItems.length > 0) {
                 merged.orderItems = incoming.orderItems;
               }
