@@ -88,6 +88,8 @@ function makeOrderWithStaleTotal({
 beforeEach(async () => {
   await _resetIDBSingleton();
   setActivePinia(createPinia());
+  // Stub fetch to prevent real network requests during store initialization
+  // (e.g. menu JSON fetch). The tests only exercise IDB loading logic.
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 503 }));
 });
 
@@ -113,7 +115,7 @@ describe('initStoreFromIDB — paid modifiers survive reload', () => {
     const store = useOrderStore(pinia);
     expect(store.orders).toHaveLength(1);
     // After reload the total must include the modifier price (1.5 × 2 = 3).
-    expect(store.orders[0].totalAmount).toBeCloseTo(19, 5);
+    expect(store.orders[0].totalAmount).toBe(19);
   });
 
   it('sets totalAmount = 0 for an order with no active items', async () => {
@@ -178,9 +180,9 @@ describe('initStoreFromIDB — paid modifiers survive reload', () => {
     const plain = loaded.find(o => o.id === 'ord_plain');
 
     // mod: unitPrice=8, qty=2, modifierPrice=1.5 → (8+1.5)*2 = 19
-    expect(mod.totalAmount).toBeCloseTo(19, 5);
+    expect(mod.totalAmount).toBe(19);
     // plain: unitPrice=10, qty=2 → 20 (unchanged)
-    expect(plain.totalAmount).toBeCloseTo(20, 5);
+    expect(plain.totalAmount).toBe(20);
   });
 });
 
@@ -200,7 +202,7 @@ describe('refreshOperationalStateFromIDB — paid modifiers survive sync refresh
     await store.refreshOperationalStateFromIDB({ collection: 'orders' });
 
     expect(store.orders).toHaveLength(1);
-    expect(store.orders[0].totalAmount).toBeCloseTo(19, 5);
+    expect(store.orders[0].totalAmount).toBe(19);
   });
 
   it('handles an order with a voided modifier correctly', async () => {
@@ -245,7 +247,7 @@ describe('refreshOperationalStateFromIDB — paid modifiers survive sync refresh
     expect(store.orders).toHaveLength(1);
     // active items = 2, active modifier qty = 2 - 1 = 1
     // total = 8*2 + 1.5*1 = 17.5
-    expect(store.orders[0].totalAmount).toBeCloseTo(17.5, 5);
+    expect(store.orders[0].totalAmount).toBe(17.5);
   });
 
   it('does not affect non-order collections', async () => {
