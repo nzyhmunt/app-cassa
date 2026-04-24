@@ -247,24 +247,32 @@ function _isPresentValue(value) {
  * Defines cross-collection parent→child FK dependencies used by `drainQueue()`
  * to propagate blocks when a parent entry fails.
  *
- * If a parent entry for `parentCollection:parentId` is added to `blockedKeys`,
- * any child entry whose `payload[fkField] === parentId` is also skipped for the
- * rest of the same drain cycle (since the child can never succeed without the
- * parent already in Directus).
+ * Each entry maps a child collection to an array of parent dependencies.
+ * If ANY parent entry for `parentCollection:parentId` is added to `blockedKeys`,
+ * or is still pending but not yet pushed in this drain cycle, the child entry is
+ * skipped for the rest of the same drain cycle (since the child can never succeed
+ * without all its parents already in Directus).
  *
- * @type {Map<string, { parentCollection: string, fkField: string }>}
+ * @type {Map<string, Array<{ parentCollection: string, fkField: string }>>}
  */
 const PARENT_DEPENDENCY_MAP = new Map([
-  // transactions / refs — refs carry payload.transaction === parent txn.id
-  ['transaction_order_refs',  { parentCollection: 'transactions',   fkField: 'transaction' }],
-  ['transaction_voce_refs',   { parentCollection: 'transactions',   fkField: 'transaction' }],
+  // transaction_order_refs has TWO parent FKs:
+  //   • payload.transaction → transactions  (primary: the ref belongs to this txn)
+  //   • payload.order       → orders        (secondary: the ref references this order)
+  // Both must exist in Directus before the ref can be created.
+  ['transaction_order_refs',  [
+    { parentCollection: 'transactions',   fkField: 'transaction' },
+    { parentCollection: 'orders',         fkField: 'order' },
+  ]],
+  // transaction_voce_refs only references the parent transaction
+  ['transaction_voce_refs',   [{ parentCollection: 'transactions',   fkField: 'transaction' }]],
   // daily closures — by-method rows carry payload.daily_closure === parent closure.id
-  ['daily_closure_by_method', { parentCollection: 'daily_closures', fkField: 'daily_closure' }],
+  ['daily_closure_by_method', [{ parentCollection: 'daily_closures', fkField: 'daily_closure' }]],
   // bill_sessions — orders and transactions reference the session via the
   // camelCase `billSessionId` in the raw queue payload (mappers convert it to
   // `bill_session` only at push time, after it leaves the queue store).
-  ['orders',                  { parentCollection: 'bill_sessions',  fkField: 'billSessionId' }],
-  ['transactions',            { parentCollection: 'bill_sessions',  fkField: 'billSessionId' }],
+  ['orders',                  [{ parentCollection: 'bill_sessions',  fkField: 'billSessionId' }]],
+  ['transactions',            [{ parentCollection: 'bill_sessions',  fkField: 'billSessionId' }]],
 ]);
 
 const VENUE_REQUIRED_CREATE_COLLECTIONS = new Set([
@@ -642,13 +650,22 @@ export async function drainQueue(cfg) {
     // The second condition handles the BFS case: a child (attempts=0) may be
     // sorted before its parent (attempts>0).  If the parent is still in the
     // pending set but has not been pushed yet this cycle, defer the child.
-    const dep = PARENT_DEPENDENCY_MAP.get(entry.collection);
-    if (dep) {
-      const parentId = entry.payload?.[dep.fkField];
-      if (parentId) {
-        const parentKey = `${dep.parentCollection}:${parentId}`;
-        if (blockedKeys.has(parentKey) || (pendingSet.has(parentKey) && !pushedInThisCycle.has(parentKey))) continue;
+    // A collection can have multiple parents (e.g. transaction_order_refs depends
+    // on both 'transactions' and 'orders'); ALL parents are checked.
+    const deps = PARENT_DEPENDENCY_MAP.get(entry.collection);
+    if (deps) {
+      let skipEntry = false;
+      for (const dep of deps) {
+        const parentId = entry.payload?.[dep.fkField];
+        if (parentId) {
+          const parentKey = `${dep.parentCollection}:${parentId}`;
+          if (blockedKeys.has(parentKey) || (pendingSet.has(parentKey) && !pushedInThisCycle.has(parentKey))) {
+            skipEntry = true;
+            break;
+          }
+        }
       }
+      if (skipEntry) continue;
     }
 
     const result = await _pushEntry(entry, sdkClient, cfg);

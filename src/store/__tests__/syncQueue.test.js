@@ -679,6 +679,36 @@ describe('drainQueue()', () => {
     expect(ref2.attempts).toBe(0);
   });
 
+  it('blocks transaction_order_refs when the referenced order (secondary FK) has failed', async () => {
+    // Scenario: orders:create fails (HTTP error, not network) while
+    // transactions:create succeeds.  The transaction_order_refs entry depends
+    // on BOTH the parent transaction AND the referenced order.  Even though the
+    // transaction was pushed, the ref must be skipped because orders:ord_1 is
+    // in blockedKeys.
+    // Use a plain Error (not TypeError) so _pushEntry treats this as an
+    // application-level failure that burns a retry attempt but does NOT
+    // trigger the offline-halt path (which only fires on TypeError).
+    vi.spyOn(global, 'fetch')
+      .mockRejectedValueOnce(new Error('HTTP 400 Bad Request')) // orders:create fails
+      .mockImplementation(() => Promise.resolve(mockResponse(201, {})));
+
+    await enqueue('orders', 'create', 'ord_1', { id: 'ord_1' });
+    await enqueue('transactions', 'create', 'txn_1', { id: 'txn_1', amount_paid: 10 });
+    // ref depends on BOTH transactions:txn_1 AND orders:ord_1
+    await enqueue('transaction_order_refs', 'create', 'ref_1', { id: 'ref_1', transaction: 'txn_1', order: 'ord_1' });
+
+    const result = await drainQueue(FAKE_CFG);
+
+    // ord_1 failed, txn_1 pushed (no bill_session dep, no block), ref_1 skipped (orders:ord_1 blocked)
+    expect(result.pushed).toBe(1);
+    expect(result.failed).toBe(1);
+
+    const entries = await getPendingEntries();
+    expect(entries).toHaveLength(2); // ord_1 + ref_1 remain
+    const ref = entries.find(e => e.record_id === 'ref_1');
+    expect(ref.attempts).toBe(0); // blocked via secondary FK — no attempts burned
+  });
+
   it('blocks daily_closure_by_method entries when parent daily_closures create fails', async () => {
     vi.spyOn(global, 'fetch').mockRejectedValueOnce(new Error('network'));
 
