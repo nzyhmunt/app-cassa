@@ -549,8 +549,9 @@ async function handleForcePull() {
       return;
     }
 
-    await sync.forcePull();
-    pullFeedback.value = 'success';
+    const pullResult = await sync.forcePull();
+    const pullFailed = pullResult?.ok === false || sync.syncStatus.value === 'error';
+    pullFeedback.value = pullFailed ? 'error' : 'success';
   } catch {
     pullFeedback.value = 'error';
   } finally {
