@@ -266,6 +266,83 @@ CREATE TABLE menu_items (
 
 ---
 
+### 2.5a `menu_modifiers` — Pool globale modificatori menu
+
+Contiene i modificatori riutilizzabili (es. "Extra aglio", "Senza glutine") condivisi tra più voci menu e/o categorie.
+Sostituisce il vecchio modello 1:N `menu_item_modifiers` con un pool M2M centralizzato.
+
+Campi Directus standard abilitati: `status`, `user_created`, `date_created`, `user_updated`, `date_updated`.
+
+```sql
+CREATE TABLE menu_modifiers (
+    id              SERIAL          PRIMARY KEY,
+    status          VARCHAR(20)     NOT NULL DEFAULT 'published', -- 'published' | 'archived'
+    venue           INTEGER         NOT NULL REFERENCES venues(id) ON DELETE CASCADE,
+    name            VARCHAR(80)     NOT NULL,       -- es. 'Extra aglio', 'Senza glutine'
+    price           NUMERIC(8,2)    NOT NULL DEFAULT 0.00,
+    sort            INTEGER         NULL,
+    -- Directus standard fields
+    user_created    UUID            NULL REFERENCES directus_users(id),
+    date_created    TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    user_updated    UUID            NULL REFERENCES directus_users(id),
+    date_updated    TIMESTAMPTZ     NULL
+);
+```
+
+---
+
+### 2.5b `menu_categories_menu_modifiers` — Junction M2M categorie ↔ modificatori
+
+Assegna modificatori a intere categorie: tutti gli item di quella categoria ereditano i modificatori
+della loro categoria più eventuali modificatori assegnati direttamente all'item (vedi 2.5c).
+
+```sql
+CREATE TABLE menu_categories_menu_modifiers (
+    id                  SERIAL      PRIMARY KEY,                              -- PK integer (Directus convention per M2M)
+    menu_categories_id  INTEGER     NOT NULL REFERENCES menu_categories(id) ON DELETE CASCADE,
+    menu_modifiers_id   INTEGER     NOT NULL REFERENCES menu_modifiers(id)   ON DELETE CASCADE,
+    venue               INTEGER     NOT NULL REFERENCES venues(id)            ON DELETE CASCADE, -- denormalizzato per indice IDB
+    sort                INTEGER     NULL,
+    date_updated        TIMESTAMPTZ NULL,
+    UNIQUE (menu_categories_id, menu_modifiers_id)
+);
+
+CREATE INDEX idx_cat_mod_category ON menu_categories_menu_modifiers (menu_categories_id);
+CREATE INDEX idx_cat_mod_modifier ON menu_categories_menu_modifiers (menu_modifiers_id);
+```
+
+> **Campo `venue`**: denormalizzato per consentire query veloci per `venue` nell'ObjectStore IDB
+> (`menu_categories_menu_modifiers` — keyPath: `id`, index: `venue`). Coerente con il pattern
+> `withVenueFallback` di `_fanOutVenueTreeToIDB`.
+
+---
+
+### 2.5c `menu_items_menu_modifiers` — Junction M2M voci menu ↔ modificatori
+
+Assegna modificatori direttamente a singole voci menu (override/estensione rispetto alla categoria).
+
+```sql
+CREATE TABLE menu_items_menu_modifiers (
+    id                  SERIAL          PRIMARY KEY,                              -- PK integer (Directus convention per M2M)
+    menu_items_id       VARCHAR(50)     NOT NULL REFERENCES menu_items(id)       ON DELETE CASCADE,
+    menu_modifiers_id   INTEGER         NOT NULL REFERENCES menu_modifiers(id)   ON DELETE CASCADE,
+    venue               INTEGER         NOT NULL REFERENCES venues(id)            ON DELETE CASCADE, -- denormalizzato per indice IDB
+    sort                INTEGER         NULL,
+    date_updated        TIMESTAMPTZ     NULL,
+    UNIQUE (menu_items_id, menu_modifiers_id)
+);
+
+CREATE INDEX idx_item_mod_item     ON menu_items_menu_modifiers (menu_items_id);
+CREATE INDEX idx_item_mod_modifier ON menu_items_menu_modifiers (menu_modifiers_id);
+```
+
+> **Relazione nei deep-fetch**: `menu_categories.menu_modifiers.menu_modifiers_id.*` e
+> `menu_items.menu_modifiers.menu_modifiers_id.*` — usate in `DEEP_FETCH_FIELDS` di
+> `useDirectusSync.js`. Richiedono che `menu_categories` e `menu_items` abbiano un campo
+> **O2M alias** `menu_modifiers` configurato in Directus (vedi §5.x `DIRECTUS_SETUP_REPORT.md`).
+
+---
+
 ### 2.6 `menu_item_modifiers` — **Legacy deprecata** (modello 1:N per voce)
 
 > ⚠️ Collection mantenuta solo per retrocompatibilità storica.
@@ -2268,4 +2345,23 @@ tentano di usare `getDB()` durante la stessa micro-task queue.
 Il gestore `onblocked` attende 3 secondi (timeout) prima di procedere con il reload, invece
 di fare `reject()` immediato, per gestire gracefully il caso in cui altri tab o frame
 mantengano aperta la connessione.
+
+---
+
+### 6.8 Migrazione Directus Pendente — M2M Menu Modificatori
+
+Le tre collection `menu_modifiers`, `menu_categories_menu_modifiers`,
+`menu_items_menu_modifiers` (sezioni 2.5a–2.5c) sono **già presenti nel codice applicativo**
+(mapper, IDB ObjectStore, sync loop) ma **non ancora create nell'istanza Directus**.
+
+> ⚠️ Finché queste collection non esistono in Directus, il pull di `VENUE_RELATED_COLLECTIONS`
+> restituirà errori `403 / collection not found` per queste tre collection.
+> I modificatori menu non verranno quindi sincronizzati e `normalizeMenu()` riceverà array vuoti.
+
+**Azioni richieste nell'istanza Directus** (vedere `DIRECTUS_SETUP_REPORT.md` §Migrazione M2M):
+1. Creare la collection `menu_modifiers` con i campi elencati in §2.5a.
+2. Creare la collection `menu_categories_menu_modifiers` con i campi di §2.5b e le relazioni M2M.
+3. Creare la collection `menu_items_menu_modifiers` con i campi di §2.5c e le relazioni M2M.
+4. Aggiungere il campo O2M alias `menu_modifiers` a `menu_categories` e a `menu_items`.
+5. Migrare i dati da `menu_item_modifiers` (deprecated) alle nuove collection se esistono record.
 
