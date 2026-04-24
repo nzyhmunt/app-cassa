@@ -545,7 +545,8 @@ async function handleForcePull() {
   try {
     const result = await sync.reconfigureAndApply({ clearLocalConfig: false });
     await sync.forcePull();
-    pullFeedback.value = result?.ok ? 'success' : 'error';
+    const pullSucceeded = sync.syncStatus.value !== 'error';
+    pullFeedback.value = result?.ok && pullSucceeded ? 'success' : 'error';
   } catch {
     pullFeedback.value = 'error';
   } finally {
