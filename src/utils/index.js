@@ -511,6 +511,32 @@ export function groupOrderItemsByCourse(items, includeIndex = true) {
   return result;
 }
 
+/**
+ * Returns `true` when two order-item rows can be merged (incremented) into
+ * a single row.  Two rows are mergeable when they share the same dish, course,
+ * notes (order-insensitive), and modifiers (order-insensitive by name + price).
+ *
+ * Used by `orderStore.addItemsToOrder()`, `CassaOrderManager`, and
+ * `SalaOrderManager` — keeping the logic in one place prevents drift.
+ *
+ * @param {object} a
+ * @param {object} b
+ * @returns {boolean}
+ */
+export function itemsAreMergeable(a, b) {
+  if (a.dishId !== b.dishId) return false;
+  if ((a.course || DEFAULT_COURSE) !== (b.course || DEFAULT_COURSE)) return false;
+  const notesA = [...(a.notes || [])].sort();
+  const notesB = [...(b.notes || [])].sort();
+  if (notesA.length !== notesB.length || notesA.some((n, i) => n !== notesB[i])) return false;
+  const normMod = m => ({ name: String(m.name), price: Number(m.price) || 0 });
+  const modComparator = (x, y) => x.name < y.name ? -1 : x.name > y.name ? 1 : x.price - y.price;
+  const modsA = [...(a.modifiers || [])].map(normMod).sort(modComparator);
+  const modsB = [...(b.modifiers || [])].map(normMod).sort(modComparator);
+  if (modsA.length !== modsB.length) return false;
+  return modsA.every((m, i) => m.name === modsB[i].name && m.price === modsB[i].price);
+}
+
 
 // ── Numeric keyboard positions ──────────────────────────────────────────────
 /** Valid values for the `customKeyboard` setting. */

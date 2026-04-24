@@ -496,6 +496,7 @@ import {
   DEFAULT_COURSE,
   getCourseBorderClass,
   formatOrderIdShort,
+  itemsAreMergeable,
 } from '../utils/index.js';
 import { enqueuePrintJobs } from '../composables/usePrintQueue.js';
 import NumericInput from './NumericInput.vue';
@@ -790,26 +791,6 @@ function getQtyCombined(itemId) {
 }
 
 // ── Cart merge helpers ────────────────────────────────────────────────────
-
-/**
- * Returns true when two order/cart items are identical and can be merged:
- * same dish, same course, same notes (order-insensitive), and same modifiers
- * (order-insensitive comparison by name + price).
- */
-function itemsAreMergeable(a, b) {
-  if (a.dishId !== b.dishId) return false;
-  if ((a.course || DEFAULT_COURSE) !== (b.course || DEFAULT_COURSE)) return false;
-  // Compare notes as sorted arrays element-by-element.
-  const notesA = [...(a.notes || [])].sort();
-  const notesB = [...(b.notes || [])].sort();
-  if (notesA.length !== notesB.length || notesA.some((n, i) => n !== notesB[i])) return false;
-  // Compare modifiers as sorted arrays of {name, price} objects.
-  const normMod = m => ({ name: String(m.name), price: Number(m.price) || 0 });
-  const modsA = [...(a.modifiers || [])].map(normMod).sort((x, y) => x.name < y.name ? -1 : x.name > y.name ? 1 : x.price - y.price);
-  const modsB = [...(b.modifiers || [])].map(normMod).sort((x, y) => x.name < y.name ? -1 : x.name > y.name ? 1 : x.price - y.price);
-  if (modsA.length !== modsB.length) return false;
-  return modsA.every((m, i) => m.name === modsB[i].name && m.price === modsB[i].price);
-}
 
 function makeTempCartRow(item) {
   return { uid: 'tmp_' + Math.random().toString(36).slice(2, 11), dishId: item.id, name: item.name, unitPrice: item.price, quantity: 1, notes: [], voidedQuantity: 0, modifiers: [], course: DEFAULT_COURSE };
