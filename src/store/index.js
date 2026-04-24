@@ -9,6 +9,7 @@ import {
   KITCHEN_ACTIVE_STATUSES,
   KEYBOARD_POSITIONS,
   formatOrderTime,
+  itemsAreMergeable,
 } from '../utils/index.js';
 import { mapOrderFromDirectus, mapVenueConfigFromDirectus } from '../utils/mappers.js';
 import { newUUIDv7, newShortId } from './storeUtils.js';
@@ -17,6 +18,7 @@ import { makeReportOps } from './reportOps.js';
 import {
   loadStateFromIDB,
   saveStateToIDB,
+  saveOrdersAndOccupancyInIDB,
   upsertRecordsIntoIDB,
   upsertBillSessionInIDB,
   closeBillSessionInIDB,
@@ -612,6 +614,58 @@ export const useOrderStore = defineStore('orders', () => {
     enqueue('orders', 'create', order.id, order);
   }
 
+  /**
+   * Merges `cartItems` into the pending order identified by `ordId`, then
+   * persists to IDB and enqueues the order-items patch for Directus sync.
+   *
+   * This is the correct, IDB-first alternative to directly mutating the
+   * reactive order object from a component (which would silently skip
+   * persistence and sync).
+   *
+   * @param {string} ordId
+   * @param {Array}  cartItems  – cart rows (each with dishId, name, unitPrice, quantity, …)
+   * @returns {Promise<object|false|null>}
+   *   - updated order object on success
+   *   - false if the IDB write failed (reactive state unchanged)
+   *   - null if preconditions are not met (ordId missing / order not found / not pending)
+   */
+  async function addItemsToOrder(ordId, cartItems) {
+    if (!ordId || !Array.isArray(cartItems) || cartItems.length === 0) return null;
+    return _withOrderLock(ordId, async () => {
+      const current = orders.value.find(o => String(o.id) === String(ordId));
+      if (!current || current.status !== 'pending') return null;
+      const projected = _clone(toRaw(current));
+      if (!Array.isArray(projected.orderItems)) {
+        projected.orderItems = [];
+      }
+      for (const cartItem of cartItems) {
+        if (!cartItem || typeof cartItem !== 'object' || Array.isArray(cartItem)) continue;
+        const safeQuantity = Number(cartItem.quantity);
+        const normalizedQuantity = Number.isFinite(safeQuantity) ? safeQuantity : 0;
+        if (normalizedQuantity <= 0) continue;
+        const existing = projected.orderItems.find(r => itemsAreMergeable(r, cartItem));
+        if (existing) {
+          const existingQuantity = Number(existing.quantity);
+          existing.quantity = (Number.isFinite(existingQuantity) ? existingQuantity : 0) + normalizedQuantity;
+        } else {
+          projected.orderItems.push({ ...cartItem, quantity: normalizedQuantity, uid: newShortId('r') });
+        }
+      }
+      updateOrderTotals(projected);
+      const projectedOrders = _replaceOrderById(ordId, projected);
+      try {
+        await saveStateToIDB({ orders: projectedOrders });
+      } catch (e) {
+        console.warn('[Store] addItemsToOrder IDB save failed:', e);
+        return false;
+      }
+      _skipNextScheduledSave('orders');
+      orders.value = projectedOrders;
+      _enqueueOrderItemsPatch(ordId, projected);
+      return projected;
+    });
+  }
+
   async function changeOrderStatus(order, newStatus, rejectionReason = null) {
     if (!order?.id) return;
     const projectedOrders = orders.value.map((current) => {
@@ -988,22 +1042,47 @@ export const useOrderStore = defineStore('orders', () => {
   async function addDirectOrder(tableId, billSessionId, items) {
     if (!tableId || !Array.isArray(items) || items.length === 0) return null;
     const venueId = configStore.config.directus?.venueId;
+    const now = new Date().toISOString();
+    // Direct orders (cover charge, cassa-added items) are immediately accepted:
+    // create with status 'accepted' so no pending→accepted transition is needed.
     const order = {
       id: newUUIDv7(),
       table: tableId,
       billSessionId: billSessionId ?? null,
-      status: 'pending',
+      status: 'accepted',
       time: formatOrderTime(),
       totalAmount: 0,
       itemCount: 0,
       dietaryPreferences: {},
+      globalNote: '',
+      noteVisibility: { cassa: true, sala: true, cucina: true },
       orderItems: items.map(item => ({ ...item })),
       isDirectEntry: true,
       ...(venueId != null ? { venue: venueId } : {}),
     };
     updateOrderTotals(order);
-    await addOrder(order);
-    await changeOrderStatus(order, 'accepted');
+
+    // Prepare the table occupancy timestamp together with the new order (persisted IDB-first).
+    const projectedTableOccupiedAt = { ...tableOccupiedAt.value };
+    if (!projectedTableOccupiedAt[tableId]) {
+      projectedTableOccupiedAt[tableId] = now;
+    }
+    const nextOrders = [...orders.value, order];
+
+    // IDB-first: persist both values in a single multi-store transaction so that
+    // either both the new order and the occupancy timestamp are written together
+    // or neither is — preventing ghost orders on partial-failure reloads.
+    try {
+      await saveOrdersAndOccupancyInIDB(nextOrders, projectedTableOccupiedAt);
+    } catch (_) {
+      return false;
+    }
+    _skipNextScheduledSave('orders', 'tableOccupiedAt');
+    orders.value = nextOrders;
+    tableOccupiedAt.value = projectedTableOccupiedAt;
+
+    // Single Directus enqueue — the create already carries accepted status + full orderItems.
+    enqueue('orders', 'create', order.id, order);
     return order;
   }
 
@@ -1222,6 +1301,7 @@ export const useOrderStore = defineStore('orders', () => {
     masterTableOf,
     slaveIdsOf,
     addOrder,
+    addItemsToOrder,
     changeOrderStatus,
     setItemKitchenReady,
     updateQtyGlobal,

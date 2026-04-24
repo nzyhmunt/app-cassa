@@ -1821,4 +1821,82 @@ describe('self-echo suppression (_handleSubscriptionMessage)', () => {
     const corrupted = await db.get('orders', 'bare-string-id');
     expect(corrupted).toBeUndefined();
   });
+
+  it('preserves local orderItems when a WS event arrives without nested items', async () => {
+    // Pre-seed IDB with an order that has orderItems (e.g. a cover charge order)
+    const existingItems = [
+      { uid: 'cop_1', name: 'Coperto', unitPrice: 2.5, quantity: 4, voidedQuantity: 0, notes: [], modifiers: [] },
+    ];
+    await upsertRecordsIntoIDB('orders', [{
+      id: 'ord_ws_items',
+      status: 'pending',
+      orderItems: existingItems,
+      totalAmount: 10,
+    }]);
+
+    // Simulate a WS status-update event — Directus never returns order_items in fields:['*']
+    await _handleSubscriptionMessage('orders', {
+      event: 'update',
+      data: [{ id: 'ord_ws_items', status: 'accepted', date_updated: '2026-01-01T00:00:05.000Z' }],
+    });
+
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+    const stored = await db.get('orders', 'ord_ws_items');
+
+    // Status must be updated
+    expect(stored?.status).toBe('accepted');
+    // orderItems must NOT have been wiped by the incoming empty array
+    expect(Array.isArray(stored?.orderItems)).toBe(true);
+    expect(stored.orderItems.length).toBe(1);
+    expect(stored.orderItems[0].name).toBe('Coperto');
+  });
+
+  it('preserves non-orderItems IDB fields when WS update omits them (partial payload)', async () => {
+    // Pre-seed IDB with an order that has a non-zero totalAmount and globalNote
+    await upsertRecordsIntoIDB('orders', [{
+      id: 'ord_ws_partial',
+      status: 'pending',
+      totalAmount: 25.5,
+      total_amount: 25.5,
+      itemCount: 3,
+      item_count: 3,
+      globalNote: 'allergia noci',
+      orderItems: [{ uid: 'r1', name: 'Pasta', unitPrice: 8.5, quantity: 3, voidedQuantity: 0, notes: [], modifiers: [] }],
+    }]);
+
+    // Simulate a WS status-update with only {id, status, date_updated} — no total_amount etc.
+    await _handleSubscriptionMessage('orders', {
+      event: 'update',
+      data: [{ id: 'ord_ws_partial', status: 'accepted', date_updated: '2026-01-01T00:00:10.000Z' }],
+    });
+
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+    const stored = await db.get('orders', 'ord_ws_partial');
+
+    // Status must be updated
+    expect(stored?.status).toBe('accepted');
+    // totalAmount and globalNote must NOT have been wiped by mapOrderFromDirectus defaults
+    expect(stored?.totalAmount).toBe(25.5);
+    expect(stored?.globalNote).toBe('allergia noci');
+    // orderItems must also be preserved
+    expect(stored?.orderItems?.length).toBe(1);
+    expect(stored?.orderItems[0].name).toBe('Pasta');
+  });
+
+  it('does NOT merge existing for WS create events (new records use incoming data)', async () => {
+    // Simulate a WS create event for a brand-new order
+    await _handleSubscriptionMessage('orders', {
+      event: 'create',
+      data: [{ id: 'ord_ws_new', status: 'pending', total_amount: 12, date_updated: '2026-01-01T00:00:01.000Z' }],
+    });
+
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+    const stored = await db.get('orders', 'ord_ws_new');
+
+    expect(stored?.status).toBe('pending');
+    expect(stored?.totalAmount).toBe(12);
+  });
 });

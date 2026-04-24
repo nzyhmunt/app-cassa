@@ -34,6 +34,7 @@ import {
   upsertRecordsIntoIDB,
   deleteRecordsFromIDB,
 } from '../store/persistence/operations.js';
+import { getDB } from './useIDB.js';
 import {
   loadConfigFromIDB,
   replaceTableMergesInIDB,
@@ -140,6 +141,8 @@ const SUPPORTS_STRUCTURED_CLONE = typeof structuredClone === 'function';
 // 24h avoids perpetual full-refreshes on slightly misconfigured tablets while still
 // catching clearly bogus cursors (for example, year 2099).
 const GLOBAL_TIMESTAMP_SKEW_TOLERANCE_MS = 24 * 60 * 60_000;
+// Module-level helper to check own properties without prototype pollution.
+const _hasOwnKey = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key);
 
 /**
  * Per-collection quirks for collections that deviate from the default schema
@@ -469,7 +472,91 @@ async function _handleSubscriptionMessage(collection, message) {
     }
     if (nonEcho.length === 0) return;
     const mapped = nonEcho.map(r => _mapRecord(collection, r));
-    await upsertRecordsIntoIDB(collection, mapped);
+    // WS subscriptions use fields:['*'] which does NOT expand nested relations
+    // (e.g. order_items), and can also send partial payloads (e.g. only
+    // {id, status, date_updated}) for status-change events. mapOrderFromDirectus()
+    // fills all absent fields with zero/empty defaults, so a straight put() would
+    // wipe IDB fields like totalAmount, globalNote, orderItems etc.
+    //
+    // For update events we therefore fetch the existing IDB record and merge,
+    // overwriting only the fields that were actually present in the raw WS payload.
+    // create events use the incoming record as-is (no prior IDB record to preserve).
+    let prepared = mapped;
+    if (collection === 'orders' && event !== 'create') {
+      try {
+        const db = await getDB();
+        prepared = await Promise.all(nonEcho.map(async (raw, i) => {
+          const incoming = mapped[i];
+          const id = incoming?.id;
+          if (!id) return incoming;
+          try {
+            const existing = await db.get('orders', String(id));
+            if (!existing) return incoming;
+
+            // Start from existing record; selectively overwrite only fields
+            // that were present in the raw WS payload.
+            const merged = { ...existing };
+            if (_hasOwnKey(raw, 'id')) merged.id = incoming.id;
+            if (_hasOwnKey(raw, 'status')) merged.status = incoming.status;
+            if (_hasOwnKey(raw, 'date_created')) merged.date_created = incoming.date_created;
+            if (_hasOwnKey(raw, 'date_updated')) merged.date_updated = incoming.date_updated;
+            if (_hasOwnKey(raw, 'number')) merged.number = incoming.number;
+            if (_hasOwnKey(raw, 'date')) merged.date = incoming.date;
+            if (_hasOwnKey(raw, 'store_id')) merged.store_id = incoming.store_id;
+            if (_hasOwnKey(raw, 'terminal_id')) merged.terminal_id = incoming.terminal_id;
+            if (_hasOwnKey(raw, 'table')) merged.table = incoming.table;
+            if (_hasOwnKey(raw, 'bill_session')) {
+              merged.billSessionId = incoming.billSessionId;
+              merged.bill_session = incoming.bill_session;
+            }
+            if (_hasOwnKey(raw, 'total_amount')) {
+              merged.totalAmount = incoming.totalAmount;
+              merged.total_amount = incoming.total_amount;
+            }
+            if (_hasOwnKey(raw, 'item_count')) {
+              merged.itemCount = incoming.itemCount;
+              merged.item_count = incoming.item_count;
+            }
+            if (_hasOwnKey(raw, 'order_time')) merged.time = incoming.time;
+            if (_hasOwnKey(raw, 'global_note')) merged.globalNote = incoming.globalNote;
+            if (
+              _hasOwnKey(raw, 'note_visibility_cassa') ||
+              _hasOwnKey(raw, 'note_visibility_sala') ||
+              _hasOwnKey(raw, 'note_visibility_cucina')
+            ) {
+              merged.noteVisibility = incoming.noteVisibility;
+            }
+            if (_hasOwnKey(raw, 'is_cover_charge')) merged.isCoverCharge = incoming.isCoverCharge;
+            if (_hasOwnKey(raw, 'is_direct_entry')) merged.isDirectEntry = incoming.isDirectEntry;
+            if (_hasOwnKey(raw, 'rejection_reason')) merged.rejectionReason = incoming.rejectionReason;
+            if (_hasOwnKey(raw, 'venue_user_created')) merged.venueUserCreated = incoming.venueUserCreated;
+            if (_hasOwnKey(raw, 'venue_user_updated')) merged.venueUserUpdated = incoming.venueUserUpdated;
+            if (
+              _hasOwnKey(raw, 'dietary_diets') ||
+              _hasOwnKey(raw, 'dietary_allergens') ||
+              _hasOwnKey(raw, 'dietaryPreferences')
+            ) {
+              merged.dietaryPreferences = incoming.dietaryPreferences;
+            }
+            // For orderItems: use incoming non-empty array; else preserve existing.
+            if (_hasOwnKey(raw, 'order_items') || _hasOwnKey(raw, 'orderItems')) {
+              if (Array.isArray(incoming.orderItems) && incoming.orderItems.length > 0) {
+                merged.orderItems = incoming.orderItems;
+              }
+              // else keep existing.orderItems (already in merged via spread)
+            }
+            return merged;
+          } catch (e) {
+            console.warn('[DirectusSync] WS order merge: IDB lookup failed for', id, e);
+            return incoming;
+          }
+        }));
+      } catch (e) {
+        console.warn('[DirectusSync] WS order merge: IDB unavailable, falling back to incoming records', e);
+        prepared = mapped;
+      }
+    }
+    await upsertRecordsIntoIDB(collection, prepared);
     await _refreshStoreFromIDB(collection);
   }
 
