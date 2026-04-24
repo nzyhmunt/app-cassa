@@ -663,21 +663,18 @@ export async function drainQueue(cfg) {
         pushedInThisCycle.add(entryKey);
       }
     } else {
-      const failureDetails = typeof result === 'string' ? { message: result } : result;
-
       // Detect network-level failure: the fetch itself threw before any HTTP
       // response was received — Directus is unreachable (no internet / server
       // completely down, CORS pre-flight failed, etc.).  In browsers and Node.js
       // these surface as TypeError.  Halt the drain WITHOUT incrementing any
       // attempt counter so that no records are abandoned simply because
       // connectivity was temporarily lost.
-      const isNetworkError = typeof result === 'object' && result !== null
-        && result.networkError === true;
-      if (isNetworkError) {
+      if (typeof result === 'object' && result !== null && result.networkError) {
         offline = true;
         break;
       }
 
+      const failureDetails = typeof result === 'string' ? { message: result } : result;
       const newAttempts = (entry.attempts ?? 0) + 1;
       await addFailedSyncCall(entry, failureDetails, newAttempts, newAttempts >= MAX_ATTEMPTS);
       if (newAttempts >= MAX_ATTEMPTS) {
