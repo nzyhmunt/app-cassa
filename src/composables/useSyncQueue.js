@@ -516,9 +516,8 @@ async function _pushEntry(entry, sdkClient, cfg) {
  *   Retry timing is managed by the external push-loop interval; no inline
  *   sleep is applied so that unrelated records are not delayed.
  *
- * @param {{ url: string, staticToken: string, venueId?: number|string|null, _backoffMs?: number }} cfg
- *   Directus connection config.  `_backoffMs` is accepted for test compatibility
- *   but no longer used to sleep inside the loop.
+ * @param {{ url: string, staticToken: string, venueId?: number|string|null }} cfg
+ *   Directus connection config.
  * @returns {Promise<{ pushed: number, failed: number, abandoned: number, pushedIds: Array<{collection: string, recordId: string}> }>}
  */
 export async function drainQueue(cfg) {
