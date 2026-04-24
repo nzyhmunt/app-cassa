@@ -525,6 +525,8 @@ export const useOrderStore = defineStore('orders', () => {
               mappedOrder.orderItems = [];
             }
             updateOrderTotals(mappedOrder);
+            mappedOrder.total_amount = mappedOrder.totalAmount;
+            mappedOrder.item_count = mappedOrder.itemCount;
             return mappedOrder;
           });
         } else {
