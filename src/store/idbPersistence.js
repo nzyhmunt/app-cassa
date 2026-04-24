@@ -474,18 +474,26 @@ export async function loadUsersFromIDB() {
 
 /**
  * Persists the full list of manual users to IDB.
- * Replaces only records with `_type: 'manual_user'`.
+ * Removes all manual user records — including legacy entries that predate the
+ * `_type` marker (no `_type` field and no own `status` property) — then writes
+ * the new list. Directus-synced records, identified by having an own
+ * `status` field, are never touched.
  * @param {Array} users
  */
 export async function saveUsersToIDB(users) {
   try {
     const db = await getDB();
     const tx = db.transaction('venue_users', 'readwrite');
-    // Remove all existing manual user records
+    // Remove all existing manual user records, including legacy ones that
+    // predate the `_type` marker: those have no `_type` field AND no own
+    // `status` property (Directus records always carry `status`).
     const existing = await tx.store.getAll();
     await Promise.all(
       existing
-        .filter(r => r._type === 'manual_user')
+        .filter(r =>
+          r._type === 'manual_user' ||
+          (r._type == null && !Object.prototype.hasOwnProperty.call(r, 'status')),
+        )
         .map(r => tx.store.delete(r.id)),
     );
     // Write new list — JSON round-trip strips Vue reactive proxies before

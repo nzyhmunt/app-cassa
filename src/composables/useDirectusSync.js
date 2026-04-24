@@ -40,6 +40,7 @@ import {
   replaceTableMergesInIDB,
   clearLocalConfigCacheFromIDB,
 } from '../store/persistence/config.js';
+import { reloadUsersFromIDB } from './useAuth.js';
 
 // ── Per-app pull config (§5.7.6) ─────────────────────────────────────────────
 
@@ -1227,6 +1228,13 @@ async function _runGlobalPull({ onProgress = null } = {}) {
       : (remoteMenuSource ?? localMenuSource ?? 'directus');
     const fanOutSummary = await _fanOutVenueTreeToIDB(deepVenue, { menuSource });
     await saveLastPullTsToIDB('deep_venue_config', new Date().toISOString());
+
+    // Refresh the in-memory auth state whenever Directus venue users were written.
+    // This ensures manual users are purged and the lock screen shows the up-to-date
+    // Directus roster without requiring a page reload.
+    if (fanOutSummary.venue_users > 0) {
+      reloadUsersFromIDB().catch(e => console.warn('[DirectusSync] Auth user refresh failed:', e));
+    }
 
     if (appConfig.directus?.debugLogs === true) {
       const usedFields =

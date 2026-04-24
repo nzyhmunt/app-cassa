@@ -579,3 +579,289 @@ describe('auto-lock timer', () => {
     }
   });
 });
+
+// ── Cross-app access enforcement ──────────────────────────────────────────────
+
+describe('cross-app access enforcement', () => {
+  it('login() rejects a user who does not have access to the current app', async () => {
+    // Default _currentApp is 'cassa' in jsdom (pathname is '/').
+    // Create a cucina-only user and verify they cannot log in through the cassa app.
+    const { addUser, login, isAuthenticated } = useAuth();
+    await addUser('Admin', '1111'); // first user = admin, gets all apps
+    const cucinaUser = await addUser('Chef', '2222', ['cucina']);
+    const ok = await login(cucinaUser.id, '2222');
+    expect(ok).toBe(false);
+    expect(isAuthenticated.value).toBe(false);
+  });
+
+  it('login() succeeds for a user who has access to the current app', async () => {
+    // A user with cassa access can log in on the cassa page.
+    const { addUser, login, isAuthenticated } = useAuth();
+    await addUser('Admin', '1111'); // first user = admin
+    const cassaUser = await addUser('Cassiere', '3333', ['cassa']);
+    const ok = await login(cassaUser.id, '3333');
+    expect(ok).toBe(true);
+    expect(isAuthenticated.value).toBe(true);
+  });
+
+  it('login() allows admin users to log in regardless of app', async () => {
+    // Admin users have all apps; they must never be blocked by the app check.
+    const { addUser, login, isAuthenticated } = useAuth();
+    const admin = await addUser('Admin', '1111');
+    expect(admin.isAdmin).toBe(true);
+    const ok = await login(admin.id, '1111');
+    expect(ok).toBe(true);
+    expect(isAuthenticated.value).toBe(true);
+  });
+
+  it('session is not restored on next init for a user without access to the current app', async () => {
+    // Simulate: cassa user logs in → session saved → page reload as sala app.
+    // _currentApp for the test environment is 'cassa', so we manually write a
+    // session for a cucina-only user into IDB and then reload.
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+
+    // Write a cucina-only user to venue_users
+    const cucinaHash = await sha256('5555');
+    await db.put('venue_users', {
+      id: 'vu_cucina_only',
+      name: 'Chef Cucina',
+      display_name: 'Chef Cucina',
+      apps: ['cucina'],
+      pin: cucinaHash,
+      status: 'active',
+    });
+    // Persist their session (as if they logged into cucina)
+    await db.put('app_meta', { id: 'auth_session', userId: 'vu_cucina_only' });
+
+    // Simulate page reload (same app = cassa in jsdom)
+    _resetAuthSingleton();
+    useAuth();
+    await _waitForAuth();
+
+    const { currentUser, isAuthenticated } = useAuth();
+    // The cucina user must NOT be restored as the active session on the cassa app
+    expect(currentUser.value).toBeNull();
+    expect(isAuthenticated.value).toBe(false);
+  });
+
+  it('session IS restored on next init for a user who has access to the current app', async () => {
+    // A non-admin cassa-only user's session should survive a reload of the cassa app.
+    // Create an admin first so the second addUser() call is NOT auto-promoted to admin,
+    // which ensures this test actually exercises the apps.includes(_currentApp) branch
+    // rather than the isAdmin === true bypass.
+    const { addUser } = useAuth();
+    await addUser('Admin', '0000'); // first user → always admin (isFirstManual)
+    const cassaUser = await addUser('Cassiere', '3333', ['cassa']); // second user → cassa-only
+
+    // Persist the cassa user's session manually
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+    await db.put('app_meta', { id: 'auth_session', userId: cassaUser.id });
+
+    _resetAuthSingleton();
+    useAuth();
+    await _waitForAuth();
+
+    const { currentUser } = useAuth();
+    // The cassa user should be restored (still locked, but currentUser is set)
+    expect(currentUser.value?.id).toBe(cassaUser.id);
+  });
+});
+
+// ── isHydrated ────────────────────────────────────────────────────────────────
+
+describe('isHydrated', () => {
+  it('is false before the IDB load completes', () => {
+    // _init() is called by useAuth() but IDB load is async; isHydrated stays
+    // false until the promise settles.
+    const { isHydrated } = useAuth();
+    expect(isHydrated.value).toBe(false);
+  });
+
+  it('becomes true once IDB hydration has settled', async () => {
+    const { isHydrated } = useAuth();
+    expect(isHydrated.value).toBe(false);
+    await _waitForAuth();
+    expect(isHydrated.value).toBe(true);
+  });
+
+  it('resets to false after _resetAuthSingleton() and becomes true again on next init', async () => {
+    useAuth();
+    await _waitForAuth();
+
+    _resetAuthSingleton();
+    const { isHydrated } = useAuth();
+    // After reset, new init starts but IDB load hasn't settled yet
+    expect(isHydrated.value).toBe(false);
+    await _waitForAuth();
+    expect(isHydrated.value).toBe(true);
+  });
+
+  it('is true after adding a user (mutation skips IDB hydration but still marks hydrated)', async () => {
+    const { addUser, isHydrated } = useAuth();
+    // addUser fires before IDB load completes; _mutationVersion changes so
+    // hydration is skipped, but isHydrated must still become true.
+    await addUser('Mario', '1234');
+    await _waitForAuth();
+    expect(isHydrated.value).toBe(true);
+  });
+});
+
+// ── Directus sole-source enforcement ─────────────────────────────────────────
+
+describe('Directus sole-source enforcement', () => {
+  it('purges manual users from memory at startup when Directus users are present', async () => {
+    // Pre-populate IDB with one manual user and one Directus user.
+    const { saveUsersToIDB } = await import('../../store/persistence/operations.js');
+    const { upsertRecordsIntoIDB } = await import('../../store/persistence/operations.js');
+    await saveUsersToIDB([{
+      id: 'mu_mario', name: 'Mario', pin: await sha256('1111'), apps: ['cassa'], isAdmin: false, _type: 'manual_user',
+    }]);
+    await upsertRecordsIntoIDB('venue_users', [{
+      id: 'vu_dir', name: 'Direttore', pin: '2222', apps: ['admin'], status: 'active',
+    }]);
+
+    // Reload singleton — Directus user detected → manual user should be dropped.
+    _resetAuthSingleton();
+    useAuth();
+    await _waitForAuth();
+
+    const { users, manualUsers, directusUsers } = useAuth();
+    expect(manualUsers.value).toHaveLength(0);
+    expect(directusUsers.value.some(u => u.id === 'vu_dir')).toBe(true);
+    expect(users.value.every(u => u.id !== 'mu_mario')).toBe(true);
+  });
+
+  it('reloadUsersFromIDB() purges manual users and shows Directus users when Directus users arrive mid-session', async () => {
+    const { reloadUsersFromIDB } = await import('../useAuth.js');
+    const { upsertRecordsIntoIDB } = await import('../../store/persistence/operations.js');
+
+    // Start with a manual user only.
+    const { addUser, users, manualUsers, directusUsers } = useAuth();
+    const manualUser = await addUser('Mario', '1111');
+    await _waitForAuth();
+    expect(manualUsers.value).toHaveLength(1);
+
+    // Directus sync writes a venue user during the session.
+    await upsertRecordsIntoIDB('venue_users', [{
+      id: 'vu_dir2', name: 'Direttore', pin: '2222', apps: ['admin'], status: 'active',
+    }]);
+
+    // Simulate the live-sync hook.
+    await reloadUsersFromIDB();
+
+    expect(manualUsers.value).toHaveLength(0);
+    expect(directusUsers.value.some(u => u.id === 'vu_dir2')).toBe(true);
+    // The manual user's actual id must no longer appear in the roster.
+    expect(users.value.every(u => u.id !== manualUser.id)).toBe(true);
+  });
+
+  it('reloadUsersFromIDB() logs out a manual user who is purged by an arriving Directus sync', async () => {
+    const { reloadUsersFromIDB } = await import('../useAuth.js');
+    const { upsertRecordsIntoIDB } = await import('../../store/persistence/operations.js');
+
+    // Manual user logs in.
+    const { addUser, login, currentUser, isAuthenticated } = useAuth();
+    const u = await addUser('Mario', '1111');
+    await _waitForAuth();
+    await login(u.id, '1111');
+    expect(isAuthenticated.value).toBe(true);
+
+    // Directus sync arrives with a venue user.
+    await upsertRecordsIntoIDB('venue_users', [{
+      id: 'vu_dir3', name: 'Direttore', pin: '2222', apps: ['admin'], status: 'active',
+    }]);
+    await reloadUsersFromIDB();
+
+    // The manual user's session must be cleared.
+    expect(currentUser.value).toBeNull();
+    expect(isAuthenticated.value).toBe(false);
+  });
+
+  it('reloadUsersFromIDB() keeps manual users when no Directus users are present', async () => {
+    const { reloadUsersFromIDB } = await import('../useAuth.js');
+
+    const { addUser, manualUsers } = useAuth();
+    await addUser('Mario', '1111');
+    await _waitForAuth();
+    expect(manualUsers.value).toHaveLength(1);
+
+    await reloadUsersFromIDB();
+
+    // Still has the manual user — nothing was purged.
+    expect(manualUsers.value).toHaveLength(1);
+    expect(manualUsers.value[0].name).toBe('Mario');
+  });
+
+  it('does NOT purge manual users when the only Directus user has an empty pin', async () => {
+    // A Directus record with an empty pin (e.g. sync ran before the PIN was set
+    // on the server) must not trigger the sole-source purge, because that would
+    // leave _users empty and drop requiresAuth to false (open/admin mode).
+    const { reloadUsersFromIDB } = await import('../useAuth.js');
+    const { upsertRecordsIntoIDB } = await import('../../store/persistence/operations.js');
+
+    const { addUser, manualUsers, requiresAuth } = useAuth();
+    await addUser('Mario', '1111');
+    await _waitForAuth();
+    expect(manualUsers.value).toHaveLength(1);
+
+    // A Directus user arrives but has no PIN (empty string from server normalization).
+    await upsertRecordsIntoIDB('venue_users', [{
+      id: 'vu_nopin', name: 'NoPinUser', pin: '', apps: ['admin'], status: 'active',
+    }]);
+    await reloadUsersFromIDB();
+
+    // Manual user must NOT be purged — requiresAuth should remain true.
+    expect(manualUsers.value).toHaveLength(1);
+    expect(requiresAuth.value).toBe(true);
+  });
+});
+
+// ── Config-user login (no explicit apps) ─────────────────────────────────────
+
+describe('login() config user with no explicit apps', () => {
+  let savedConfigUsers;
+  beforeEach(() => {
+    const { appConfig } = require('../../utils/index.js');
+    savedConfigUsers = appConfig.auth?.users ? [...appConfig.auth.users] : [];
+  });
+  afterEach(() => {
+    const { appConfig } = require('../../utils/index.js');
+    if (appConfig.auth) appConfig.auth.users = savedConfigUsers;
+  });
+
+  it('allows a config user with no apps field to log in (defaults to all apps)', async () => {
+    // Dynamic import to set up appConfig before useAuth reads it.
+    const { appConfig } = await import('../../utils/index.js');
+    appConfig.auth = appConfig.auth ?? {};
+    appConfig.auth.users = [{ id: 'cfg_all', name: 'Config Admin', pin: '9999' }]; // no apps
+    _resetAuthSingleton();
+    const { login, isAuthenticated, visibleUsers, requiresAuth } = useAuth();
+    await _waitForAuth();
+    // The config user must be visible for the current app and auth must be required.
+    expect(requiresAuth.value).toBe(true);
+    expect(visibleUsers.value.some(u => u.id === 'cfg_all')).toBe(true);
+    const ok = await login('cfg_all', '9999');
+    expect(ok).toBe(true);
+    expect(isAuthenticated.value).toBe(true);
+    appConfig.auth.users = [];
+  });
+
+  it('allows a config user with empty apps array to log in (defaults to all apps)', async () => {
+    const { appConfig } = await import('../../utils/index.js');
+    appConfig.auth = appConfig.auth ?? {};
+    appConfig.auth.users = [{ id: 'cfg_empty', name: 'Config User', pin: '8888', apps: [] }];
+    _resetAuthSingleton();
+    const { login, isAuthenticated, visibleUsers, requiresAuth } = useAuth();
+    await _waitForAuth();
+    // The config user must be visible for the current app and auth must be required.
+    expect(requiresAuth.value).toBe(true);
+    expect(visibleUsers.value.some(u => u.id === 'cfg_empty')).toBe(true);
+    const ok = await login('cfg_empty', '8888');
+    expect(ok).toBe(true);
+    expect(isAuthenticated.value).toBe(true);
+    appConfig.auth.users = [];
+  });
+});
+
