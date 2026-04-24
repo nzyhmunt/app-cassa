@@ -702,7 +702,9 @@ const _TO_DIRECTUS_MAPPERS = {
  *
  * @param {string} collection  - Directus collection name (e.g. 'orders')
  * @param {object|null} payload - Local record payload
- * @param {{ paymentMethods?: Array }} [ctx] - Runtime context (e.g. configured payment methods)
+ * @param {{ paymentMethods?: Array, recordId?: string|null }} [ctx] - Runtime context. `recordId` is
+ *   the queue entry's `record_id` and is used as a last-resort fallback for the `order` FK on
+ *   nested `order_items` when the payload does not carry an `id` field (partial updates).
  * @returns {object}  Directus-ready payload
  */
 export function mapPayloadToDirectus(collection, payload, ctx = {}) {
@@ -726,7 +728,7 @@ export function mapPayloadToDirectus(collection, payload, ctx = {}) {
       // Step 3 which expands item.modifiers → order_item_modifiers.
       const directItem = mapPayloadToDirectus('order_items', item, ctx);
       if (directItem.id == null && item?.id) directItem.id = item.id;
-      const resolvedOrderId = item?.orderId ?? payload?.id ?? null;
+      const resolvedOrderId = item?.orderId ?? payload?.id ?? ctx?.recordId ?? null;
       if (directItem.order == null && resolvedOrderId) directItem.order = resolvedOrderId;
       // Enrich already-expanded modifiers (populated by Step 3 in the recursive
       // call above) with parent-context FKs that are not available there.
