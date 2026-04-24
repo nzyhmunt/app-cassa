@@ -425,6 +425,7 @@ function _buildRestClient(cfg) {
  *       status: number|null,
  *       body: unknown,
  *     },
+ *     networkError: boolean,
  *   }
  * >}
  */
