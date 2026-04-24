@@ -515,7 +515,17 @@ export const useOrderStore = defineStore('orders', () => {
 
     targetCollections.forEach((key) => {
       if (Object.prototype.hasOwnProperty.call(idbState, key)) {
-        operationalStateRefs[key].value = idbState[key];
+        if (key === 'orders') {
+          // Recompute totalAmount/itemCount from orderItems so that paid
+          // modifiers are always reflected even when the Directus-sourced
+          // total_amount in IDB is stale or missing their prices.
+          operationalStateRefs[key].value = (idbState[key] ?? []).map((order) => {
+            updateOrderTotals(order);
+            return order;
+          });
+        } else {
+          operationalStateRefs[key].value = idbState[key];
+        }
       }
     });
   }
@@ -1409,6 +1419,10 @@ export async function initStoreFromIDB(pinia) {
       const mapped = mapOrderFromDirectus(order);
       if (mapped.globalNote === undefined) mapped.globalNote = '';
       if (!mapped.noteVisibility) mapped.noteVisibility = { cassa: true, sala: true, cucina: true };
+      // Recompute totalAmount/itemCount from orderItems so that paid modifiers
+      // (variants) added after the last Directus sync are always reflected,
+      // regardless of the potentially stale `total_amount` stored in IDB.
+      updateOrderTotals(mapped);
       return mapped;
     });
     orderStore.transactions = idbState.transactions ?? [];
