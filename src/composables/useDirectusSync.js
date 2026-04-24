@@ -651,7 +651,7 @@ let _store = null;
 /** @type {'cassa'|'sala'|'cucina'} */
 let _appType = 'cassa';
 
-const syncStatus = ref(/** @type {'idle'|'syncing'|'error'} */ ('idle'));
+const syncStatus = ref(/** @type {'idle'|'syncing'|'error'|'offline'} */ ('idle'));
 const lastPushAt = ref(/** @type {string|null} */ (null));
 const lastPullAt = ref(/** @type {string|null} */ (null));
 
@@ -736,7 +736,9 @@ async function _runPush() {
       if (Array.isArray(result.pushedIds) && result.pushedIds.length > 0) {
         _registerPushedEchoes(result.pushedIds);
       }
-      syncStatus.value = result.failed > 0 ? 'error' : 'idle';
+      syncStatus.value = result.offline
+        ? 'offline'
+        : result.failed > 0 ? 'error' : 'idle';
     } catch (e) {
       console.warn('[DirectusSync] Push error:', e);
       syncStatus.value = 'error';

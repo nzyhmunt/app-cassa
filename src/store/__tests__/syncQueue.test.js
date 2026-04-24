@@ -20,6 +20,12 @@
  *  - drainQueue() blocks transactions create when parent bill_session create fails
  *  - drainQueue() strips local-only fields (_sync_status, orderItems)
  *  - drainQueue() returns push/failed/abandoned counts
+ *  - drainQueue() returns offline:false when all entries succeed
+ *  - drainQueue() returns offline:true and halts when network error (no attempts burned)
+ *  - drainQueue() stops after partial success on mid-drain network error
+ *  - drainQueue() does NOT set offline:true for HTTP 4xx/5xx errors
+ *  - drainQueue() processes entries with fewer attempts first (BFS ordering)
+ *  - drainQueue() defers child entry (attempts=0) until parent (attempts>0) is pushed
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -575,7 +581,7 @@ describe('drainQueue()', () => {
     const result = await drainQueue(FAKE_CFG);
 
     expect(fetchSpy).not.toHaveBeenCalled();
-    expect(result).toEqual({ pushed: 0, failed: 0, abandoned: 0, pushedIds: [] });
+    expect(result).toEqual({ pushed: 0, failed: 0, abandoned: 0, pushedIds: [], offline: false });
   });
 
   it('populates pushedIds with collection and recordId for each successful push', async () => {
@@ -723,5 +729,136 @@ describe('drainQueue()', () => {
     expect(entries).toHaveLength(2);
     const txn = entries.find(e => e.record_id === 'txn_2');
     expect(txn.attempts).toBe(0); // blocked, never attempted
+  });
+});
+
+// ── Offline halt ──────────────────────────────────────────────────────────────
+
+describe('drainQueue() — offline halt', () => {
+  it('returns offline:false when all entries succeed', async () => {
+    vi.spyOn(global, 'fetch').mockResolvedValue(mockResponse(201, {}));
+    await enqueue('orders', 'create', 'ord_1', { id: 'ord_1' });
+
+    const result = await drainQueue(FAKE_CFG);
+
+    expect(result.offline).toBe(false);
+    expect(result.pushed).toBe(1);
+  });
+
+  it('returns offline:true and halts when the first entry gets a network error', async () => {
+    vi.spyOn(global, 'fetch').mockRejectedValue(new TypeError('Failed to fetch'));
+    await enqueue('orders', 'create', 'ord_1', { id: 'ord_1' });
+    await enqueue('orders', 'create', 'ord_2', { id: 'ord_2' });
+    await enqueue('orders', 'create', 'ord_3', { id: 'ord_3' });
+
+    const result = await drainQueue(FAKE_CFG);
+
+    expect(result.offline).toBe(true);
+    expect(result.pushed).toBe(0);
+    expect(result.failed).toBe(0);
+    expect(result.abandoned).toBe(0);
+    // All entries remain untouched (attempts still 0)
+    const entries = await getPendingEntries();
+    expect(entries).toHaveLength(3);
+    for (const e of entries) expect(e.attempts).toBe(0);
+  });
+
+  it('returns offline:true and stops after partial success when a network error occurs mid-drain', async () => {
+    vi.spyOn(global, 'fetch')
+      .mockResolvedValueOnce(mockResponse(201, {}))  // ord_1 succeeds
+      .mockRejectedValue(new TypeError('Failed to fetch')); // ord_2 → network error
+
+    await enqueue('orders', 'create', 'ord_1', { id: 'ord_1' });
+    await enqueue('orders', 'create', 'ord_2', { id: 'ord_2' });
+    await enqueue('orders', 'create', 'ord_3', { id: 'ord_3' });
+
+    const result = await drainQueue(FAKE_CFG);
+
+    expect(result.offline).toBe(true);
+    expect(result.pushed).toBe(1);
+    expect(result.failed).toBe(0);  // network errors do NOT count as failed
+    expect(result.abandoned).toBe(0);
+
+    // ord_1 was removed; ord_2 and ord_3 remain untouched
+    const entries = await getPendingEntries();
+    expect(entries).toHaveLength(2);
+    for (const e of entries) expect(e.attempts).toBe(0);
+  });
+
+  it('does NOT set offline:true for server-level HTTP errors (4xx/5xx)', async () => {
+    vi.spyOn(global, 'fetch').mockResolvedValue(mockResponse(400, { errors: [{ message: 'Bad Request' }] }));
+
+    await enqueue('orders', 'create', 'ord_1', { id: 'ord_1' });
+
+    const result = await drainQueue(FAKE_CFG);
+
+    expect(result.offline).toBe(false);
+    expect(result.failed).toBe(1);
+    const entries = await getPendingEntries();
+    expect(entries[0].attempts).toBe(1); // attempt counter IS incremented for HTTP errors
+  });
+});
+
+// ── BFS retry ordering ────────────────────────────────────────────────────────
+
+describe('drainQueue() — BFS fair-retry ordering', () => {
+  it('processes entries with fewer attempts first (BFS ordering for independent records)', async () => {
+    // Chain: first call fails (server error, not a network TypeError), all subsequent succeed.
+    // Note: mockImplementation creates a fresh Response for each call (Response body is
+    // a one-time-read stream; mockResolvedValue would reuse the same instance).
+    vi.spyOn(global, 'fetch')
+      .mockRejectedValueOnce(new Error('server error 500'))
+      .mockImplementation(() => Promise.resolve(mockResponse(201, {})));
+
+    // Drain 1: ord_A fails → attempts becomes 1
+    await enqueue('orders', 'create', 'ord_A', { id: 'ord_A' });
+    await drainQueue(FAKE_CFG);
+
+    // Now enqueue ord_B (fresh, attempts=0) after A has already failed once
+    await enqueue('orders', 'create', 'ord_B', { id: 'ord_B' });
+
+    // Queue: ord_A(1), ord_B(0). BFS should try ord_B before ord_A.
+    const result = await drainQueue(FAKE_CFG);
+
+    expect(result.pushed).toBe(2);
+    expect(result.failed).toBe(0);
+    // ord_B (attempts=0) should appear before ord_A (attempts=1) in pushedIds
+    const bIdx = result.pushedIds.findIndex(p => p.recordId === 'ord_B');
+    const aIdx = result.pushedIds.findIndex(p => p.recordId === 'ord_A');
+    expect(bIdx).toBeLessThan(aIdx);
+  });
+
+  it('defers a child entry (attempts=0) when its parent (attempts>0) has not been pushed yet this cycle', async () => {
+    // Chain: first call fails (server error, not a network TypeError), all subsequent succeed.
+    // Note: mockImplementation creates a fresh Response for each call (Response body is
+    // a one-time-read stream; mockResolvedValue would reuse the same instance).
+    vi.spyOn(global, 'fetch')
+      .mockRejectedValueOnce(new Error('server error'))
+      .mockImplementation(() => Promise.resolve(mockResponse(201, {})));
+
+    // Drain 1: bill_1 fails → attempts becomes 1; ord_1 was blocked, still at 0
+    await enqueue('bill_sessions', 'create', 'bill_1', { id: 'bill_1', table: 'T1', status: 'open' });
+    await enqueue('orders', 'create', 'ord_1', { id: 'ord_1', table: 'T1', billSessionId: 'bill_1' });
+    await drainQueue(FAKE_CFG); // bill_1 fails (1), ord_1 blocked (0)
+
+    // Drain 2: bill_1(1), ord_1(0). Group BFS would sort ord_1 before bill_1.
+    // But pendingSet guard must defer ord_1 until bill_1 is processed.
+    const result = await drainQueue(FAKE_CFG);
+
+    // bill_1 should be pushed; ord_1 should be deferred (still in queue)
+    // because when ord_1 is evaluated (first in BFS order), bill_1 hasn't
+    // been pushed yet in this cycle.
+    expect(result.pushed).toBe(1); // only bill_1 pushed
+    const entries = await getPendingEntries();
+    expect(entries).toHaveLength(1);
+    expect(entries[0].record_id).toBe('ord_1');
+    expect(entries[0].attempts).toBe(0); // not burned — was deferred
+
+    // Drain 3: bill_1 no longer in queue; ord_1 can be pushed freely
+    const result3 = await drainQueue(FAKE_CFG);
+    expect(result3.pushed).toBe(1);
+    expect(result3.failed).toBe(0);
+    const remaining = await getPendingEntries();
+    expect(remaining).toHaveLength(0);
   });
 });

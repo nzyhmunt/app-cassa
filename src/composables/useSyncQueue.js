@@ -19,9 +19,17 @@
  *            (B) domain-status (orders, bill_sessions, print_jobs) — NOOP skip
  *            (C) junction tables — deleteItem(collection, id) [hard DELETE]
  *   409 on create → retry as updateItem (duplicate UUIDv7 treated as update)
- *   error         → incrementAttempts; block same (collection, record_id) chain for the
- *                   current drain cycle; abandon after MAX_ATTEMPTS.  Retry timing is
- *                   delegated to the external push-loop interval (no inline sleep).
+ *   error (HTTP)  → incrementAttempts; block same (collection, record_id) chain for the
+ *                   current drain cycle; abandon after MAX_ATTEMPTS.
+ *   error (network) → no attempt counter increment; drain halts immediately; returns
+ *                   offline:true.  Retry timing is delegated to the external push-loop
+ *                   interval (no inline sleep).
+ *
+ * Drain ordering (§5.7.2-bis):
+ *   Entries are sorted by (attempts ASC, date_created ASC) so that never-tried records
+ *   are always attempted before re-tried ones (BFS-style fair-retry).  Dependent entries
+ *   (child FK → parent collection) are deferred within the cycle when their parent has
+ *   not yet been pushed, preventing FK-not-found failures from burning retry budget.
  */
 
 import { createDirectus, staticToken, rest, createItem, updateItem, deleteItem } from '@directus/sdk';
@@ -520,13 +528,18 @@ async function _pushEntry(entry, sdkClient, cfg) {
         status: e?.response?.status ?? null,
         body: e?.response?.errors ?? e?.errors ?? null,
       },
+      // True only when the fetch itself threw (no HTTP response received).
+      // In browsers and Node.js, fetch network failures surface as TypeError.
+      // Distinguishing these from HTTP errors (4xx/5xx, where e.response.status
+      // is set) allows the caller to decide whether to increment attempt counters.
+      networkError: e instanceof TypeError,
     };
   }
 }
 
 /**
  * Drains the sync_queue by sending every pending entry to Directus in
- * chronological order (date_created ASC).
+ * BFS-ordered passes (attempts ASC, date_created ASC).
  *
  * - Successfully pushed entries are removed from the queue.
  * - Failed entries have their `attempts` counter incremented.
@@ -534,17 +547,23 @@ async function _pushEntry(entry, sdkClient, cfg) {
  *   caller may inspect logs; a `drainQueue:error` CustomEvent is dispatched
  *   on the window for each abandoned entry so the UI can react).
  * - Entries that should be skipped (no-op deletes) are silently removed.
- * - When an entry fails, its `collection:record_id` key is added to a
- *   `blockedKeys` set and all subsequent entries sharing the same key are
- *   skipped for the rest of this drain cycle.  This preserves intra-record
- *   ordering (a create must succeed before the paired update runs) while
- *   allowing entries for DIFFERENT records to continue draining unblocked.
- *   Retry timing is managed by the external push-loop interval; no inline
- *   sleep is applied so that unrelated records are not delayed.
+ * - When an entry fails with an HTTP error, its `collection:record_id` key is
+ *   added to a `blockedKeys` set and all subsequent entries sharing the same
+ *   key are skipped for the rest of this drain cycle.  This preserves
+ *   intra-record ordering (a create must succeed before the paired update runs)
+ *   while allowing entries for DIFFERENT records to continue draining unblocked.
+ * - When an entry fails with a network-level error (no HTTP response — Directus
+ *   unreachable), the drain halts immediately WITHOUT incrementing any attempt
+ *   counter.  The `offline` flag in the return value is set to `true`.  This
+ *   prevents retry-budget exhaustion while the device is offline.
+ * - Cross-collection FK dependencies are guarded by `PARENT_DEPENDENCY_MAP`.
+ *   A child entry whose parent is still pending in this cycle (not yet pushed)
+ *   is deferred until the next cycle so it does not burn attempts on a
+ *   FK-not-found error it can never avoid.
  *
  * @param {{ url: string, staticToken: string, venueId?: number|string|null }} cfg
  *   Directus connection config.
- * @returns {Promise<{ pushed: number, failed: number, abandoned: number, pushedIds: Array<{collection: string, recordId: string}> }>}
+ * @returns {Promise<{ pushed: number, failed: number, abandoned: number, pushedIds: Array<{collection: string, recordId: string}>, offline: boolean }>}
  */
 export async function drainQueue(cfg) {
   const sdkClient = _buildRestClient(cfg);
@@ -552,6 +571,50 @@ export async function drainQueue(cfg) {
   let pushed = 0, failed = 0, abandoned = 0;
   /** @type {{collection: string, recordId: string}[]} */
   const pushedIds = [];
+  let offline = false;
+
+  // BFS-style ordering: process entries with fewer attempts first so that no
+  // record burns through its retry budget faster than independent peers.
+  // Critically, BFS applies at the GROUP level — all entries sharing the same
+  // (collection, record_id) are sorted as a unit so that their internal
+  // create → update → delete sequence is always preserved even after retries
+  // push the first entry in a chain to a higher attempt tier than its successors.
+  //
+  // Algorithm:
+  //   1. Group entries by "collection:record_id".
+  //   2. Within each group sort chronologically (date_created, id) to preserve
+  //      the original enqueue order (create before update before delete).
+  //   3. Sort groups by (min_attempts_in_group ASC, date_created_of_first_entry ASC).
+  //   4. Flatten groups in group-priority order.
+  const groupMap = new Map(); // "collection:record_id" → entry[]
+  for (const entry of entries) {
+    const key = `${entry.collection}:${entry.record_id}`;
+    if (!groupMap.has(key)) groupMap.set(key, []);
+    groupMap.get(key).push(entry);
+  }
+  for (const grp of groupMap.values()) {
+    grp.sort((a, b) => {
+      if (a.date_created < b.date_created) return -1;
+      if (a.date_created > b.date_created) return 1;
+      return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+    });
+  }
+  const sortedEntries = [...groupMap.values()]
+    .sort((ga, gb) => {
+      const minA = Math.min(...ga.map(e => e.attempts ?? 0));
+      const minB = Math.min(...gb.map(e => e.attempts ?? 0));
+      if (minA !== minB) return minA - minB;
+      const dateA = ga[0]?.date_created ?? '';
+      const dateB = gb[0]?.date_created ?? '';
+      return dateA < dateB ? -1 : dateA > dateB ? 1 : 0;
+    })
+    .flat();
+
+  // Pre-compute the full set of (collection:record_id) keys present in this
+  // drain cycle.  Used by the cross-collection dependency check to detect when
+  // a parent entry is still pending (i.e. not yet pushed), so BFS reordering
+  // cannot accidentally schedule a child before its parent.
+  const pendingSet = new Set(sortedEntries.map(e => `${e.collection}:${e.record_id}`));
 
   // (collection:record_id) keys that have failed in this drain cycle.
   // Subsequent entries sharing the same key are skipped so that operation
@@ -560,7 +623,13 @@ export async function drainQueue(cfg) {
   // from halting the entire queue.
   const blockedKeys = new Set();
 
-  for (const entry of entries) {
+  // Tracks entries successfully pushed in this cycle — used by the cross-
+  // collection dependency check to distinguish "already pushed" parents from
+  // "still pending" ones even after BFS reordering moves a child before its
+  // parent in the sorted list.
+  const pushedInThisCycle = new Set();
+
+  for (const entry of sortedEntries) {
     const entryKey = `${entry.collection}:${entry.record_id}`;
 
     // Skip entries whose record chain is blocked by a prior failure this cycle.
@@ -570,10 +639,16 @@ export async function drainQueue(cfg) {
     // For example: if `transactions:txn_1` failed, we must not attempt
     // `transaction_order_refs` entries whose `payload.transaction === 'txn_1'`
     // because Directus would reject them with a FK-not-found error.
+    // The second condition handles the BFS case: a child (attempts=0) may be
+    // sorted before its parent (attempts>0).  If the parent is still in the
+    // pending set but has not been pushed yet this cycle, defer the child.
     const dep = PARENT_DEPENDENCY_MAP.get(entry.collection);
     if (dep) {
       const parentId = entry.payload?.[dep.fkField];
-      if (parentId && blockedKeys.has(`${dep.parentCollection}:${parentId}`)) continue;
+      if (parentId) {
+        const parentKey = `${dep.parentCollection}:${parentId}`;
+        if (blockedKeys.has(parentKey) || (pendingSet.has(parentKey) && !pushedInThisCycle.has(parentKey))) continue;
+      }
     }
 
     const result = await _pushEntry(entry, sdkClient, cfg);
@@ -581,10 +656,29 @@ export async function drainQueue(cfg) {
     if (result === true || result === 'skip') {
       await removeEntry(entry.id);
       pushed++;
-      if (result === true) pushedIds.push({ collection: entry.collection, recordId: entry.record_id });
+      if (result === true) {
+        pushedIds.push({ collection: entry.collection, recordId: entry.record_id });
+        // Record as pushed so sibling child entries processed later this cycle
+        // are not incorrectly deferred by the pendingSet guard.
+        pushedInThisCycle.add(entryKey);
+      }
     } else {
-      const newAttempts = (entry.attempts ?? 0) + 1;
       const failureDetails = typeof result === 'string' ? { message: result } : result;
+
+      // Detect network-level failure: the fetch itself threw before any HTTP
+      // response was received — Directus is unreachable (no internet / server
+      // completely down, CORS pre-flight failed, etc.).  In browsers and Node.js
+      // these surface as TypeError.  Halt the drain WITHOUT incrementing any
+      // attempt counter so that no records are abandoned simply because
+      // connectivity was temporarily lost.
+      const isNetworkError = typeof result === 'object' && result !== null
+        && result.networkError === true;
+      if (isNetworkError) {
+        offline = true;
+        break;
+      }
+
+      const newAttempts = (entry.attempts ?? 0) + 1;
       await addFailedSyncCall(entry, failureDetails, newAttempts, newAttempts >= MAX_ATTEMPTS);
       if (newAttempts >= MAX_ATTEMPTS) {
         console.warn(`[SyncQueue] Abandoning entry after ${MAX_ATTEMPTS} attempts:`, entry);
@@ -605,5 +699,5 @@ export async function drainQueue(cfg) {
     }
   }
 
-  return { pushed, failed, abandoned, pushedIds };
+  return { pushed, failed, abandoned, pushedIds, offline };
 }
