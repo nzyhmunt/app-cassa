@@ -646,11 +646,15 @@ describe('cross-app access enforcement', () => {
   });
 
   it('session IS restored on next init for a user who has access to the current app', async () => {
-    // A cassa user's session should survive a reload of the cassa app.
+    // A non-admin cassa-only user's session should survive a reload of the cassa app.
+    // Create an admin first so the second addUser() call is NOT auto-promoted to admin,
+    // which ensures this test actually exercises the apps.includes(_currentApp) branch
+    // rather than the isAdmin === true bypass.
     const { addUser } = useAuth();
-    const cassaUser = await addUser('Cassiere', '3333', ['cassa']);
+    await addUser('Admin', '0000'); // first user → always admin (isFirstManual)
+    const cassaUser = await addUser('Cassiere', '3333', ['cassa']); // second user → cassa-only
 
-    // Persist their session manually
+    // Persist the cassa user's session manually
     const { getDB } = await import('../useIDB.js');
     const db = await getDB();
     await db.put('app_meta', { id: 'auth_session', userId: cassaUser.id });
@@ -809,8 +813,11 @@ describe('login() config user with no explicit apps', () => {
     appConfig.auth = appConfig.auth ?? {};
     appConfig.auth.users = [{ id: 'cfg_all', name: 'Config Admin', pin: '9999' }]; // no apps
     _resetAuthSingleton();
-    const { login, isAuthenticated } = useAuth();
+    const { login, isAuthenticated, visibleUsers, requiresAuth } = useAuth();
     await _waitForAuth();
+    // The config user must be visible for the current app and auth must be required.
+    expect(requiresAuth.value).toBe(true);
+    expect(visibleUsers.value.some(u => u.id === 'cfg_all')).toBe(true);
     const ok = await login('cfg_all', '9999');
     expect(ok).toBe(true);
     expect(isAuthenticated.value).toBe(true);
@@ -822,8 +829,11 @@ describe('login() config user with no explicit apps', () => {
     appConfig.auth = appConfig.auth ?? {};
     appConfig.auth.users = [{ id: 'cfg_empty', name: 'Config User', pin: '8888', apps: [] }];
     _resetAuthSingleton();
-    const { login, isAuthenticated } = useAuth();
+    const { login, isAuthenticated, visibleUsers, requiresAuth } = useAuth();
     await _waitForAuth();
+    // The config user must be visible for the current app and auth must be required.
+    expect(requiresAuth.value).toBe(true);
+    expect(visibleUsers.value.some(u => u.id === 'cfg_empty')).toBe(true);
     const ok = await login('cfg_empty', '8888');
     expect(ok).toBe(true);
     expect(isAuthenticated.value).toBe(true);

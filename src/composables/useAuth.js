@@ -154,15 +154,21 @@ let _initPromise = null;
  * but with `fromConfig: true` and no persisted PIN hash).
  */
 function _buildConfigUsers() {
-  return (appConfig.auth?.users ?? []).map((u) => ({
-    id: u.id,
-    name: u.name,
-    apps: normalizeSelectableApps(u.apps),
-    fromConfig: true,
-    fromDirectus: false,
-    isAdmin: false,
-    pin: null, // never stored — hashes are kept in _configUserHashes
-  }));
+  return (appConfig.auth?.users ?? []).map((u) => {
+    // Config users with no explicit apps (null/undefined/[]) default to ALL_APPS,
+    // matching the documented "omit or leave empty = all apps" contract and the
+    // same defaulting already applied in login() for app-access checks.
+    const hasNoApps = u.apps == null || (Array.isArray(u.apps) && u.apps.length === 0);
+    return {
+      id: u.id,
+      name: u.name,
+      apps: hasNoApps ? [...ALL_APPS] : normalizeSelectableApps(u.apps),
+      fromConfig: true,
+      fromDirectus: false,
+      isAdmin: false,
+      pin: null, // never stored — hashes are kept in _configUserHashes
+    };
+  });
 }
 
 /** Module-level computed: all users (config + manual). */
@@ -583,10 +589,13 @@ export async function reloadUsersFromIDB() {
     const users = await loadUsersFromIDB();
     _users.value = _processUsersFromIDB(users);
 
-    // If the active session is no longer in the updated user list, log them out.
+    // If the active session is no longer in the updated user list, or if the
+    // user still exists but has lost access to the current app (e.g. Directus
+    // updated their apps field), log them out to prevent a cross-app bypass.
     if (_currentUserId.value != null) {
-      const stillExists = _allUsers.value.some(u => u.id === _currentUserId.value);
-      if (!stillExists) {
+      const activeUser = _allUsers.value.find(u => u.id === _currentUserId.value);
+      const hasAppAccess = activeUser?.isAdmin || activeUser?.apps.includes(_currentApp);
+      if (!activeUser || !hasAppAccess) {
         _currentUserId.value = null;
         _isLocked.value = true;
         saveAuthSessionToIDB(null).catch(e => console.warn('[Auth] Failed to clear session:', e));
