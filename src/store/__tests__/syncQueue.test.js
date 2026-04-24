@@ -11,6 +11,8 @@
  *  - drainQueue() hard-deletes junction collection records
  *  - drainQueue() retries 409 create as PATCH
  *  - drainQueue() increments attempts on failure and abandons after MAX_ATTEMPTS
+ *  - drainQueue() blocks same-record operations after a failure (preserves ordering)
+ *  - drainQueue() continues with unrelated records after a failure (no full-queue block)
  *  - drainQueue() strips local-only fields (_sync_status, orderItems)
  *  - drainQueue() returns push/failed/abandoned counts
  */
@@ -446,13 +448,14 @@ describe('drainQueue()', () => {
     expect(entries[0].attempts).toBe(1);
   });
 
-  it('stops processing remaining entries after first failure to preserve order', async () => {
+  it('blocks subsequent operations on the same record after a failure to preserve ordering', async () => {
     const fetchSpy = vi.spyOn(global, 'fetch').mockRejectedValueOnce(new Error('network'));
     await enqueue('orders', 'create', 'ord_1', { id: 'ord_1' });
     await enqueue('orders', 'update', 'ord_1', { status: 'accepted' });
 
     const result = await drainQueue(FAKE_CFG);
 
+    // create failed → update for the same record is skipped (not attempted)
     expect(result.pushed).toBe(0);
     expect(result.failed).toBe(1);
     expect(fetchSpy).toHaveBeenCalledTimes(1);
@@ -463,6 +466,53 @@ describe('drainQueue()', () => {
     expect(entries[0].attempts).toBe(1);
     expect(entries[1].operation).toBe('update');
     expect(entries[1].attempts).toBe(0);
+  });
+
+  it('continues processing unrelated entries after a failure', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch')
+      .mockRejectedValueOnce(new Error('network'))          // ord_1 create fails
+      .mockResolvedValueOnce(mockResponse(201, {}));        // ord_2 create succeeds
+
+    await enqueue('orders', 'create', 'ord_1', { id: 'ord_1' });
+    await enqueue('orders', 'create', 'ord_2', { id: 'ord_2' }); // different record
+
+    const result = await drainQueue(FAKE_CFG);
+
+    // ord_1 failed but ord_2 (different record) should still be pushed
+    expect(result.pushed).toBe(1);
+    expect(result.failed).toBe(1);
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+
+    const entries = await getPendingEntries();
+    expect(entries).toHaveLength(1);
+    expect(entries[0].record_id).toBe('ord_1');
+    expect(entries[0].attempts).toBe(1);
+  });
+
+  it('skips later operations on the failed record but continues with unrelated entries', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch')
+      .mockRejectedValueOnce(new Error('network'))          // ord_1 create fails
+      .mockResolvedValueOnce(mockResponse(201, {}));        // ord_2 create succeeds
+    // ord_1 update should be skipped (blocked), ord_2 create should succeed
+
+    await enqueue('orders', 'create', 'ord_1', { id: 'ord_1' });
+    await enqueue('orders', 'update', 'ord_1', { status: 'accepted' }); // blocked by failed create
+    await enqueue('orders', 'create', 'ord_2', { id: 'ord_2' });       // different record, unblocked
+
+    const result = await drainQueue(FAKE_CFG);
+
+    expect(result.pushed).toBe(1);   // ord_2 succeeded
+    expect(result.failed).toBe(1);   // ord_1 create failed
+    expect(fetchSpy).toHaveBeenCalledTimes(2); // ord_1 create + ord_2 create (ord_1 update skipped)
+
+    const entries = await getPendingEntries();
+    expect(entries).toHaveLength(2); // ord_1 create + ord_1 update remain
+    expect(entries[0].record_id).toBe('ord_1');
+    expect(entries[0].operation).toBe('create');
+    expect(entries[0].attempts).toBe(1);
+    expect(entries[1].record_id).toBe('ord_1');
+    expect(entries[1].operation).toBe('update');
+    expect(entries[1].attempts).toBe(0); // update was skipped, not attempted
   });
 
   it('abandons entry after MAX_ATTEMPTS and removes from queue', async () => {

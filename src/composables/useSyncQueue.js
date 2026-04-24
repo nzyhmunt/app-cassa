@@ -508,21 +508,39 @@ async function _pushEntry(entry, sdkClient, cfg) {
  *   caller may inspect logs; a `drainQueue:error` CustomEvent is dispatched
  *   on the window for each abandoned entry so the UI can react).
  * - Entries that should be skipped (no-op deletes) are silently removed.
+ * - When an entry fails, its `collection:record_id` key is added to a
+ *   `blockedKeys` set and all subsequent entries sharing the same key are
+ *   skipped for the rest of this drain cycle.  This preserves intra-record
+ *   ordering (a create must succeed before the paired update runs) while
+ *   allowing entries for DIFFERENT records to continue draining unblocked.
+ *   Retry timing is managed by the external push-loop interval; no inline
+ *   sleep is applied so that unrelated records are not delayed.
  *
  * @param {{ url: string, staticToken: string, venueId?: number|string|null, _backoffMs?: number }} cfg
- *   Directus connection config.  `_backoffMs` overrides the exponential
- *   back-off base (default 1000 ms); set to 0 in tests to skip all delays.
+ *   Directus connection config.  `_backoffMs` is accepted for test compatibility
+ *   but no longer used to sleep inside the loop.
  * @returns {Promise<{ pushed: number, failed: number, abandoned: number, pushedIds: Array<{collection: string, recordId: string}> }>}
  */
 export async function drainQueue(cfg) {
   const sdkClient = _buildRestClient(cfg);
   const entries = await getPendingEntries();
-  const backoffBase = typeof cfg._backoffMs === 'number' ? cfg._backoffMs : 1000;
   let pushed = 0, failed = 0, abandoned = 0;
   /** @type {{collection: string, recordId: string}[]} */
   const pushedIds = [];
 
+  // (collection:record_id) keys that have failed in this drain cycle.
+  // Subsequent entries sharing the same key are skipped so that operation
+  // ordering within a single record is preserved (create → update → delete).
+  // Entries for DIFFERENT records are NOT blocked, preventing one bad payload
+  // from halting the entire queue.
+  const blockedKeys = new Set();
+
   for (const entry of entries) {
+    const entryKey = `${entry.collection}:${entry.record_id}`;
+
+    // Skip entries whose record chain is blocked by a prior failure this cycle.
+    if (blockedKeys.has(entryKey)) continue;
+
     const result = await _pushEntry(entry, sdkClient, cfg);
 
     if (result === true || result === 'skip') {
@@ -543,13 +561,10 @@ export async function drainQueue(cfg) {
       } else {
         await incrementAttempts(entry.id, failureDetails?.message ?? null);
         failed++;
-        // Exponential back-off: pause 2^attempts × backoffBase ms before next entry
-        const delayMs = Math.min(2 ** newAttempts * backoffBase, 30_000);
-        if (delayMs > 0) await new Promise(r => setTimeout(r, delayMs));
-        // Preserve queue ordering (create → update) by stopping the current
-        // drain cycle at the first failed entry. The remaining entries stay
-        // queued and will be processed in a subsequent drain attempt.
-        break;
+        // Block this (collection, record_id) pair for the rest of this cycle
+        // to preserve intra-record operation ordering.  The failed entry will
+        // be retried on the next drain cycle (triggered by the push-loop timer).
+        blockedKeys.add(entryKey);
       }
     }
   }
