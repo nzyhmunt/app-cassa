@@ -833,7 +833,8 @@ export async function saveLastPullTsToIDB(collection, ts) {
  * Pass `{ forceWrite: true }` to bypass the `date_updated` timestamp check and
  * unconditionally overwrite every incoming record. Use this during forced deep
  * pulls where the data comes directly from Directus and should always win over
- * whatever is currently in IDB (e.g. config collections refreshed via Pull ora).
+ * whatever is currently in IDB (e.g. config collections refreshed via Pull or
+ * other forced sync flows).
  *
  * Strips `_sync_status` before storing (Directus records are authoritative and
  * implicitly 'synced').
