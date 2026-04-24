@@ -26,10 +26,13 @@
  *                   interval (no inline sleep).
  *
  * Drain ordering (§5.7.2-bis):
- *   Entries are sorted by (attempts ASC, date_created ASC) so that never-tried records
- *   are always attempted before re-tried ones (BFS-style fair-retry).  Dependent entries
- *   (child FK → parent collection) are deferred within the cycle when their parent has
- *   not yet been pushed, preventing FK-not-found failures from burning retry budget.
+ *   Entries are drained breadth-first by logical record chain, grouped by
+ *   (collection, record_id).  Groups are ordered by the group's minimum
+ *   attempts count first, then by the first entry's date_created, so never-tried
+ *   chains are attempted before retried ones.  Within each group, entries are
+ *   processed in chronological order.  Dependent entries (child FK → parent
+ *   collection) are deferred within the cycle when their parent has not yet been
+ *   pushed, preventing FK-not-found failures from burning retry budget.
  */
 
 import { createDirectus, staticToken, rest, createItem, updateItem, deleteItem } from '@directus/sdk';
