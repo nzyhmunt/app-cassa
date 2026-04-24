@@ -59,7 +59,7 @@ export async function deleteDatabase(instanceName) {
       req.onsuccess = resolve;
       req.onerror = () => reject(req.error);
       req.onblocked = () => {
-        console.warn(`[IDBPersistence] Database deletion blocked for '${dbName}'; proceeding after 3 s timeout`);
+        console.warn(`[IDBPersistence] Database deletion blocked for '${dbName}'; proceeding after 3 seconds timeout`);
         setTimeout(resolve, 3000);
       };
     });
