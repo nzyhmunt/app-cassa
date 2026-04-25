@@ -5,6 +5,7 @@
  */
 
 import { getDB } from '../../composables/useIDB.js';
+import { emitIDBChange } from './eventBus.js';
 import { appConfig } from '../../utils/index.js';
 import { PIN_LENGTH } from '../../utils/pinAuth.js';
 import { normalizeAppsArray } from '../../utils/userRoles.js';
@@ -292,6 +293,7 @@ export async function saveStateToIDB(state) {
 
     await Promise.all(ops);
     touchStorageKey();
+    emitIDBChange(state);
   } catch (e) {
     console.warn('[IDBPersistence] Failed to save state:', e);
     throw e;
@@ -321,6 +323,7 @@ export async function saveOrdersAndOccupancyInIDB(orders, tableOccupiedAt) {
     })));
     await tx.done;
     touchStorageKey();
+    emitIDBChange({ orders, tableOccupiedAt });
   } catch (e) {
     console.warn('[IDBPersistence] saveOrdersAndOccupancyInIDB failed:', e);
     throw e;
