@@ -19,7 +19,8 @@
  *            (A) soft-delete: updateItem({status:'archived'}) — venues, rooms, tables, …
  *            (B) domain-status (orders, bill_sessions, print_jobs) — NOOP skip
  *            (C) junction tables — deleteItem(collection, id) [hard DELETE]
- *   409 on create → retry as updateItem (duplicate UUIDv7 treated as update)
+ *   duplicate on create (primarily HTTP 400 + extensions.code='RECORD_NOT_UNIQUE',
+ *   with HTTP 409 as fallback) → retry as updateItem (duplicate UUIDv7 treated as update)
  *   error (HTTP)  → incrementAttempts; block same (collection, record_id) chain for the
  *                   current drain cycle; abandon after MAX_ATTEMPTS.
  *   error (network) → no attempt counter increment; drain halts immediately; returns
