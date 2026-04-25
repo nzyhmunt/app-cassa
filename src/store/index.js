@@ -702,8 +702,8 @@ export const useOrderStore = defineStore('orders', () => {
           existing.quantity = (Number.isFinite(existingQuantity) ? existingQuantity : 0) + normalizedQuantity;
         } else {
           const normalizedModifiers = (Array.isArray(cartItem.modifiers) ? cartItem.modifiers : []).map(mod => ({
-            id: mod.id ?? newUUIDv7(),
             ...mod,
+            id: mod.id ?? newUUIDv7(),
           }));
           projected.orderItems.push({ id: newUUIDv7(), ...cartItem, quantity: normalizedQuantity, uid: newShortId('r'), modifiers: normalizedModifiers });
         }
