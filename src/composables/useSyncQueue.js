@@ -524,6 +524,7 @@ async function _pushEntry(entry, sdkClient, cfg) {
         // FK is satisfiable).
         const isDuplicateRecord =
           createError?.errors?.some(e => e?.extensions?.code === 'RECORD_NOT_UNIQUE') ||
+          createError?.response?.errors?.some(e => e?.extensions?.code === 'RECORD_NOT_UNIQUE') ||
           createError?.response?.status === 409;
         if (isDuplicateRecord) {
           recordAlreadyExists = true;
