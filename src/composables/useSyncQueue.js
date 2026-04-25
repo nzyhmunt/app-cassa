@@ -432,9 +432,11 @@ function _buildRestClient(cfg) {
  *       body: unknown,
  *     },
  *     networkError: boolean,
- *     // True when a create POST received 409 and the fallback PATCH also failed.
- *     // The record exists in Directus so child FK entries remain satisfiable.
- *     recordExistsIn409: boolean,
+ *     // True when a create POST detected a duplicate record (HTTP 400
+ *     // RECORD_NOT_UNIQUE, or HTTP 409 from a proxy) and the fallback PATCH
+ *     // also failed.  The record exists in Directus so child FK entries remain
+ *     // satisfiable.
+ *     recordAlreadyExists: boolean,
  *   }
  * >}
  */
@@ -459,11 +461,12 @@ async function _pushEntry(entry, sdkClient, cfg) {
   }
 
   let requestContext = null;
-  // Set to true when a create POST receives a 409 (record already exists in
-  // Directus).  If the fallback PATCH also fails, the record is still present
-  // in Directus so child FK entries remain satisfiable — they must not be
-  // blocked via `failedCreates` / cascade-abandoned.
-  let recordExistsIn409 = false;
+  // Set to true when a create POST detects a duplicate record (HTTP 400 with
+  // RECORD_NOT_UNIQUE, or HTTP 409 from a proxy — see isDuplicateRecord below).
+  // If the fallback PATCH also fails, the record is still present in Directus,
+  // so child FK entries remain satisfiable — they must not be blocked via
+  // `failedCreates` / cascade-abandoned.
+  let recordAlreadyExists = false;
 
   try {
     if (operation === 'delete') {
@@ -506,11 +509,23 @@ async function _pushEntry(entry, sdkClient, cfg) {
         };
         await sdkClient.request(createItem(collection, directusPayload));
       } catch (createError) {
-        // 409 Conflict: duplicate UUIDv7 — record already exists in Directus.
-        // Retry as PATCH update.  Set recordExistsIn409 so the outer catch can
-        // propagate this to the caller and avoid gating child FK entries.
-        if (createError?.response?.status === 409) {
-          recordExistsIn409 = true;
+        // Duplicate record — the UUID already exists in Directus (e.g. the same
+        // entry was pushed in an earlier cycle that never received the HTTP
+        // response due to a network timeout).
+        //
+        // Directus signals this with HTTP 400 and error code RECORD_NOT_UNIQUE
+        // (extensions.code === 'RECORD_NOT_UNIQUE').  HTTP 409 is kept as a
+        // fallback for compatibility with proxies or future API changes.
+        //
+        // When detected, retry as PATCH update and set recordAlreadyExists so the
+        // outer catch propagates the flag to the caller — which avoids gating
+        // child FK entries via failedCreates (the record IS in Directus, so its
+        // FK is satisfiable).
+        const isDuplicateRecord =
+          createError?.errors?.some(e => e?.extensions?.code === 'RECORD_NOT_UNIQUE') ||
+          createError?.response?.status === 409;
+        if (isDuplicateRecord) {
+          recordAlreadyExists = true;
           requestContext = {
             collection,
             operation,
@@ -562,10 +577,11 @@ async function _pushEntry(entry, sdkClient, cfg) {
       // Distinguishing these from HTTP errors (4xx/5xx, where e.response.status
       // is set) allows the caller to decide whether to increment attempt counters.
       networkError: e instanceof TypeError,
-      // True when a create POST hit 409 (record already exists in Directus) and
-      // the fallback PATCH also failed.  The record IS in Directus so child FK
+      // True when a create POST detected a duplicate record (HTTP 400
+      // RECORD_NOT_UNIQUE from Directus, or HTTP 409 from a proxy) and the
+      // fallback PATCH also failed.  The record IS in Directus so child FK
       // entries remain satisfiable — callers must NOT gate them via failedCreates.
-      recordExistsIn409,
+      recordAlreadyExists,
     };
   }
 }
@@ -780,13 +796,15 @@ export async function drainQueue(cfg) {
       //
       // Two cases where we must NOT block children:
       //   1. The operation is UPDATE or DELETE — the record already exists.
-      //   2. The operation is CREATE but got a 409 (record already exists) and
-      //      the fallback PATCH also failed (failureDetails.recordExistsIn409 = true).
+      //   2. The operation is CREATE but Directus returned RECORD_NOT_UNIQUE
+      //      (HTTP 400, or HTTP 409 from a proxy) meaning the record already
+      //      exists, and the fallback PATCH also failed
+      //      (failureDetails.recordAlreadyExists = true).
       //      The record IS in Directus; the child FK is satisfiable.
-      if (entry.operation === 'create' && failureDetails?.recordExistsIn409) {
-        // 409-path: record exists in Directus even though this entry failed.
-        // Mark as "processed" so the pendingCreates guard doesn't defer children
-        // whose FK is already satisfied.
+      if (entry.operation === 'create' && failureDetails?.recordAlreadyExists) {
+        // Duplicate-record path: record exists in Directus even though this
+        // entry failed.  Mark as "processed" so the pendingCreates guard does
+        // not defer children whose FK is already satisfied.
         pushedInThisCycle.add(entryKey);
       } else if (entry.operation === 'create') {
         failedCreates.add(entryKey);

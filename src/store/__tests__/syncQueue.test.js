@@ -9,7 +9,8 @@
  *  - drainQueue() skips deletes on domain-status collections
  *  - drainQueue() soft-deletes on soft-delete collections
  *  - drainQueue() hard-deletes junction collection records
- *  - drainQueue() retries 409 create as PATCH
+ *  - drainQueue() retries RECORD_NOT_UNIQUE (HTTP 400) create as PATCH
+ *  - drainQueue() retries HTTP 409 create as PATCH (proxy/fallback compatibility)
  *  - drainQueue() increments attempts on failure and abandons after MAX_ATTEMPTS
  *  - drainQueue() blocks same-record operations after a failure (preserves ordering)
  *  - drainQueue() blocks same-record operations even when entry is abandoned
@@ -29,7 +30,7 @@
  *  - drainQueue() defers child entry (attempts=0) until parent (attempts>0) is pushed
  *  - drainQueue() cascade-abandons child entries when parent CREATE reaches MAX_ATTEMPTS
  *  - drainQueue() does NOT cascade-abandon children when parent fails with a non-final error
- *  - drainQueue() does NOT block children via failedCreates when parent CREATE hits 409 and fallback PATCH fails
+ *  - drainQueue() does NOT block children via failedCreates when parent CREATE gets RECORD_NOT_UNIQUE and fallback PATCH fails
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -402,9 +403,11 @@ describe('drainQueue()', () => {
     }
   });
 
-  it('retries 409 create as PATCH', async () => {
+  it('retries RECORD_NOT_UNIQUE (HTTP 400) create as PATCH', async () => {
+    // Directus signals duplicate primary key with HTTP 400 and error code
+    // RECORD_NOT_UNIQUE (not 409).  drainQueue must detect this and retry as PATCH.
     const fetchSpy = vi.spyOn(global, 'fetch')
-      .mockResolvedValueOnce(mockResponse(409, { errors: [] }))
+      .mockResolvedValueOnce(mockResponse(400, { errors: [{ message: 'Value for field "id" in collection "orders" has to be unique.', extensions: { code: 'RECORD_NOT_UNIQUE', collection: 'orders', field: 'id', primaryKey: true } }] }))
       .mockResolvedValueOnce(mockResponse(200, {}));
 
     await enqueue('orders', 'create', 'ord_1', { id: 'ord_1' });
@@ -416,6 +419,23 @@ describe('drainQueue()', () => {
     expect(secondCall[0]).toContain('/items/orders/ord_1');
     expect(secondCall[1].method).toBe('PATCH');
   });
+
+  it('retries HTTP 409 create as PATCH (proxy/fallback compatibility)', async () => {
+    // HTTP 409 is kept as a fallback for proxies or future Directus versions.
+    const fetchSpy = vi.spyOn(global, 'fetch')
+      .mockResolvedValueOnce(mockResponse(409, { errors: [] }))
+      .mockResolvedValueOnce(mockResponse(200, {}));
+
+    await enqueue('orders', 'create', 'ord_409fallback', { id: 'ord_409fallback' });
+    const result = await drainQueue(FAKE_CFG);
+
+    expect(result.pushed).toBe(1);
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    const secondCall = fetchSpy.mock.calls[1];
+    expect(secondCall[0]).toContain('/items/orders/ord_409fallback');
+    expect(secondCall[1].method).toBe('PATCH');
+  });
+
 
   it('skips hard DELETE on domain-status collections (bill_sessions)', async () => {
     const fetchSpy = vi.spyOn(global, 'fetch');
@@ -1027,16 +1047,17 @@ describe('drainQueue() — BFS fair-retry ordering', () => {
     expect(ordEntry.attempts).toBe(0); // not burned — blocked but not cascade-abandoned
   });
 
-  it('does NOT block children via failedCreates when parent CREATE hits 409 (record exists) and fallback PATCH fails', async () => {
-    // Scenario: the parent CREATE receives 409 (duplicate — record already exists
-    // in Directus from a previous push).  The fallback PATCH then fails (e.g.
-    // permission error).  The record IS in Directus, so child FK entries remain
-    // satisfiable and must NOT be deferred via failedCreates or cascade-abandoned.
+  it('does NOT block children via failedCreates when parent CREATE gets RECORD_NOT_UNIQUE and fallback PATCH fails', async () => {
+    // Scenario: the parent CREATE receives HTTP 400 RECORD_NOT_UNIQUE (duplicate
+    // — record already exists in Directus from a previous push).  The fallback
+    // PATCH then fails (e.g. permission error).  The record IS in Directus, so
+    // child FK entries remain satisfiable and must NOT be deferred via
+    // failedCreates or cascade-abandoned.
     const fetchSpy = vi.spyOn(global, 'fetch')
-      // bill_sessions:create → 409 (already exists)
-      .mockResolvedValueOnce(mockResponse(409, { errors: [] }))
+      // bill_sessions:create → 400 RECORD_NOT_UNIQUE (already exists)
+      .mockResolvedValueOnce(mockResponse(400, { errors: [{ message: 'Value for field "id" in collection "bill_sessions" has to be unique.', extensions: { code: 'RECORD_NOT_UNIQUE', collection: 'bill_sessions', field: 'id', primaryKey: true } }] }))
       // bill_sessions:create fallback PATCH → 403 permission error
-      .mockResolvedValueOnce(mockResponse(403, { errors: [{ message: 'Forbidden' }] }))
+      .mockResolvedValueOnce(mockResponse(403, { errors: [{ message: 'Forbidden', extensions: { code: 'FORBIDDEN' } }] }))
       // orders:create → success (record exists in Directus, FK satisfied)
       .mockResolvedValueOnce(mockResponse(200, {}));
 
@@ -1050,7 +1071,7 @@ describe('drainQueue() — BFS fair-retry ordering', () => {
     expect(result.pushed).toBe(1);
     expect(result.abandoned).toBe(0);
 
-    // ord_409 must have been pushed (FK satisfied because record exists via 409)
+    // ord_409 must have been pushed (FK satisfied because record exists via RECORD_NOT_UNIQUE)
     expect(fetchSpy).toHaveBeenCalledTimes(3);
     const thirdCall = fetchSpy.mock.calls[2];
     expect(thirdCall[0]).toContain('/items/orders');
