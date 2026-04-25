@@ -31,6 +31,7 @@
  *  - drainQueue() cascade-abandons child entries when parent CREATE reaches MAX_ATTEMPTS
  *  - drainQueue() does NOT cascade-abandon children when parent fails with a non-final error
  *  - drainQueue() does NOT block children via failedCreates when parent CREATE gets RECORD_NOT_UNIQUE and fallback PATCH fails
+ *  - drainQueue() second-pass: child CREATE (attempts=0) deferred in main loop is retried in same cycle when parent is marked satisfiable later
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -956,24 +957,21 @@ describe('drainQueue() — BFS fair-retry ordering', () => {
     await drainQueue(FAKE_CFG); // bill_1 fails (1), ord_1 blocked (0)
 
     // Drain 2: bill_1(1), ord_1(0). Group BFS would sort ord_1 before bill_1.
-    // But pendingSet guard must defer ord_1 until bill_1 is processed.
+    // Main-loop: ord_1 is FK-deferred (pendingCreates has bill_1, not yet pushed).
+    //            bill_1 is then pushed → pushedInThisCycle.add('bill_sessions:bill_1').
+    // Second-pass: ord_1 re-evaluated — parent is now in pushedInThisCycle →
+    //              no longer blocked → pushed in the same cycle.
     const result = await drainQueue(FAKE_CFG);
 
-    // bill_1 should be pushed; ord_1 should be deferred (still in queue)
-    // because when ord_1 is evaluated (first in BFS order), bill_1 hasn't
-    // been pushed yet in this cycle.
-    expect(result.pushed).toBe(1); // only bill_1 pushed
+    // Both entries resolved in Drain 2: bill_1 in main loop, ord_1 via second pass.
+    expect(result.pushed).toBe(2);
     const entries = await getPendingEntries();
-    expect(entries).toHaveLength(1);
-    expect(entries[0].record_id).toBe('ord_1');
-    expect(entries[0].attempts).toBe(0); // not burned — was deferred
+    expect(entries).toHaveLength(0); // queue fully drained in a single cycle
 
-    // Drain 3: bill_1 no longer in queue; ord_1 can be pushed freely
+    // Drain 3 — sanity: nothing left to process
     const result3 = await drainQueue(FAKE_CFG);
-    expect(result3.pushed).toBe(1);
+    expect(result3.pushed).toBe(0);
     expect(result3.failed).toBe(0);
-    const remaining = await getPendingEntries();
-    expect(remaining).toHaveLength(0);
   });
 
   it('group with failed gate entry (attempts>0) is sorted after a fully fresh group (not treated as "never tried")', async () => {
@@ -1152,5 +1150,57 @@ describe('drainQueue() — BFS fair-retry ordering', () => {
     expect(remaining).toHaveLength(1);
     expect(remaining[0].record_id).toBe('bill_409');
     expect(remaining[0].attempts).toBe(1);
+  });
+
+  it('second-pass: child CREATE (attempts=0) deferred in main loop is retried in same cycle when parent is marked satisfiable later', async () => {
+    // Scenario: parent (bill_sessions) has been attempted before (attempts=1).
+    // In BFS order, the fresh child (orders, attempts=0) is sorted BEFORE the
+    // retried parent (bill_sessions, attempts=1).
+    //
+    // Main loop first pass:
+    //   - orders:create → deferred (pendingCreates has parent, not in pushedInThisCycle)
+    //   - bill_sessions:create → 400 RECORD_NOT_UNIQUE → fallback PATCH fails
+    //     → recordAlreadyExists=true → pushedInThisCycle.add('bill_sessions:bill_2p')
+    //
+    // Without the second pass, orders would be starved for another cycle.
+    // With the second pass, orders is retried and succeeds in the same drain.
+
+    // Drain 1: bill_sessions fails (attempts=1), orders blocked (attempts=0)
+    vi.spyOn(global, 'fetch').mockRejectedValueOnce(new Error('server error'));
+    await enqueue('bill_sessions', 'create', 'bill_2p', { id: 'bill_2p', table: 'T1', status: 'open' });
+    await drainQueue(FAKE_CFG); // bill_2p.attempts → 1
+
+    // Now enqueue a fresh child order (attempts=0)
+    vi.restoreAllMocks();
+    await enqueue('orders', 'create', 'ord_2p', { id: 'ord_2p', billSessionId: 'bill_2p' });
+
+    // Drain 2 fetch sequence (BFS: orders first, then bill_sessions):
+    //   [main loop] orders:create → deferred (no fetch call) — still first in BFS
+    //   [main loop] bill_sessions:create → 400 RECORD_NOT_UNIQUE
+    //   [main loop] bill_sessions:create fallback PATCH → 403 (fails, recordAlreadyExists=true)
+    //   [second pass] orders:create → 201 success
+    const fetchSpy = vi.spyOn(global, 'fetch')
+      .mockResolvedValueOnce(mockResponse(400, { errors: [{ message: 'Value for field "id" in collection "bill_sessions" has to be unique.', extensions: { code: 'RECORD_NOT_UNIQUE', collection: 'bill_sessions', field: 'id', primaryKey: true } }] }))
+      .mockResolvedValueOnce(mockResponse(403, { errors: [{ message: 'Forbidden', extensions: { code: 'FORBIDDEN' } }] }))
+      .mockResolvedValueOnce(mockResponse(201, {}));
+
+    const result = await drainQueue(FAKE_CFG);
+
+    // bill_sessions failed (recordAlreadyExists), orders succeeded via second pass
+    expect(result.failed).toBe(1);  // bill_sessions PATCH failed
+    expect(result.pushed).toBe(1);  // orders pushed in second pass
+    expect(result.abandoned).toBe(0);
+
+    // Verify 3 fetch calls: bill POST, bill PATCH, orders POST (in that order)
+    expect(fetchSpy).toHaveBeenCalledTimes(3);
+    expect(fetchSpy.mock.calls[0][0]).toContain('/items/bill_sessions');
+    expect(fetchSpy.mock.calls[1][0]).toContain('/items/bill_sessions/bill_2p');
+    expect(fetchSpy.mock.calls[2][0]).toContain('/items/orders');
+
+    // orders is gone; bill_sessions remains (attempts=2)
+    const remaining = await getPendingEntries();
+    expect(remaining).toHaveLength(1);
+    expect(remaining[0].record_id).toBe('bill_2p');
+    expect(remaining[0].attempts).toBe(2);
   });
 });

@@ -715,6 +715,127 @@ export async function drainQueue(cfg) {
     if ((grp[0]?.operation ?? '') === 'create') pendingCreates.add(key);
   }
 
+  // ── Shared failure-handling helper ──────────────────────────────────────
+  // Defined inside drainQueue so it can close over the mutable loop state
+  // (offline, pushed, failed, abandoned, pushedIds, blockedKeys,
+  // failedCreates, pushedInThisCycle, sortedEntries) without the callers
+  // needing to pass every piece of state explicitly.
+  //
+  // @param {object} entry  - Queue entry being processed.
+  // @param {string} entryKey - "collection:record_id" key for the entry.
+  // @param {*}      result - Return value from _pushEntry().
+  // @returns {boolean} true if a network error was detected (caller must break).
+  async function _handleEntryFailure(entry, entryKey, result) {
+    if (typeof result === 'object' && result !== null && result.networkError) {
+      offline = true;
+      return true; // signal caller to break / stop processing
+    }
+    const failureDetails = typeof result === 'string' ? { message: result } : result;
+    const newAttempts = (entry.attempts ?? 0) + 1;
+    await addFailedSyncCall(entry, failureDetails, newAttempts, newAttempts >= MAX_ATTEMPTS);
+    if (newAttempts >= MAX_ATTEMPTS) {
+      console.warn(`[SyncQueue] Abandoning entry after ${MAX_ATTEMPTS} attempts:`, entry);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('drainQueue:error', { detail: entry }));
+      }
+      await removeEntry(entry.id);
+      abandoned++;
+    } else {
+      await incrementAttempts(entry.id, failureDetails?.message ?? null);
+      failed++;
+    }
+    // Block this (collection, record_id) pair for the rest of this cycle in
+    // both the retry and abandon cases — any later operation on the same record
+    // (e.g. an update after a failed create) cannot succeed and must wait for
+    // the next drain cycle.
+    blockedKeys.add(entryKey);
+    // For FK dependency gating: only a failed CREATE where the record was never
+    // written to Directus means children's FK is unsatisfied.
+    //
+    // Two cases where we must NOT block children:
+    //   1. The operation is UPDATE or DELETE — the record already exists.
+    //   2. The operation is CREATE but Directus returned RECORD_NOT_UNIQUE
+    //      (HTTP 400, or HTTP 409 from a proxy) meaning the record already
+    //      exists, and the fallback PATCH also failed
+    //      (failureDetails.recordAlreadyExists = true).
+    //      The record IS in Directus; the child FK is satisfiable.
+    if (entry.operation === 'create' && failureDetails?.recordAlreadyExists) {
+      // Duplicate-record path: record exists in Directus even though this
+      // entry failed.  Mark as "processed" so the pendingCreates guard does
+      // not defer children whose FK is already satisfied.
+      pushedInThisCycle.add(entryKey);
+    } else if (entry.operation === 'create') {
+      failedCreates.add(entryKey);
+      // When the parent CREATE is permanently abandoned (MAX_ATTEMPTS reached),
+      // cascade-abandon all in-queue child entries that FK-reference this record.
+      // They can never succeed without their parent existing in Directus, so
+      // burning their retry budget and flooding the failed-call log is pointless.
+      //
+      // A local `cascadeAbandoned` set (seeded with the abandoned parent key) is
+      // used for matching, NOT the global `failedCreates`.  Using `failedCreates`
+      // could falsely cascade children of OTHER parents that merely failed (but
+      // were not permanently abandoned) in the same drain cycle.  The local set
+      // grows as transitive grandchildren are identified, enabling the BFS-ordered
+      // scan to also catch grandchildren in a single pass.
+      //
+      // The scan is O(n) per abandoned parent.  Abandons are rare (MAX_ATTEMPTS
+      // reached) and queue sizes are small, so this is an acceptable trade-off
+      // over maintaining a separate reverse-index data structure.
+      if (newAttempts >= MAX_ATTEMPTS) {
+        const cascadeAbandoned = new Set([entryKey]);
+        for (const cascadeEntry of sortedEntries) {
+          const cascadeKey = `${cascadeEntry.collection}:${cascadeEntry.record_id}`;
+          if (cascadeKey === entryKey) continue;          // skip the parent itself
+          // Skip entries already handled by their own failure — but allow
+          // FK-deferred entries (in fkDeferredSet) to be cascade-abandoned even
+          // though they are also in blockedKeys.
+          if (blockedKeys.has(cascadeKey) && !fkDeferredSet.has(cascadeKey)) continue;
+          if (pushedInThisCycle.has(cascadeKey)) continue; // already pushed this cycle
+          const childDeps = PARENT_DEPENDENCY_MAP.get(cascadeEntry.collection);
+          if (!childDeps) continue;
+          let isCascadeChild = false;
+          for (const childDep of childDeps) {
+            const parentId = cascadeEntry.payload?.[childDep.fkField];
+            if (parentId) {
+              const parentKey = `${childDep.parentCollection}:${parentId}`;
+              if (cascadeAbandoned.has(parentKey)) { isCascadeChild = true; break; }
+            }
+          }
+          if (!isCascadeChild) continue;
+          const cascadeMsg = `Cascade abandon: parent CREATE ${entryKey} permanently failed`;
+          console.warn('[SyncQueue] Cascade-abandoning child entry:', cascadeEntry.id, '—', cascadeMsg);
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('drainQueue:error', { detail: cascadeEntry }));
+          }
+          await addFailedSyncCall(cascadeEntry, { message: cascadeMsg }, cascadeEntry.attempts ?? 0, true);
+          await removeEntry(cascadeEntry.id);
+          abandoned++;
+          blockedKeys.add(cascadeKey);
+          // Enable transitive cascade: if this cascade child is itself a CREATE,
+          // add it to the local set so its own children are matched in subsequent
+          // iterations of this same scan
+          // (e.g. orders→transaction_order_refs after bill_sessions→orders).
+          if (cascadeEntry.operation === 'create') {
+            cascadeAbandoned.add(cascadeKey);
+          }
+        }
+      }
+    }
+    return false; // not offline
+  }
+
+  // Child CREATEs whose parent was still in pendingCreates (and not yet in
+  // pushedInThisCycle) when they were evaluated in the main loop are tracked
+  // here for a second pass.  After the main loop completes, pushedInThisCycle
+  // may contain parent keys that were processed later in the same cycle (e.g.
+  // via the recordAlreadyExists path), allowing the deferred children to be
+  // attempted without waiting for the next drain cycle.
+  const fkDeferredEntries = [];
+  // Parallel set for O(1) lookup in the cascade-abandon scan: entries blocked
+  // only by parent FK deferral (not their own failure) must be cascade-abandoned
+  // when their parent is permanently abandoned, even though they are in blockedKeys.
+  const fkDeferredSet = new Set();
+
   for (const entry of sortedEntries) {
     const entryKey = `${entry.collection}:${entry.record_id}`;
 
@@ -752,7 +873,9 @@ export async function drainQueue(cfg) {
         }
       }
       if (skipEntry) {
-        blockedKeys.add(entryKey);
+        fkDeferredEntries.push(entry); // track for second pass (see below)
+        fkDeferredSet.add(entryKey);   // allow cascade scan to find us (see _handleEntryFailure)
+        blockedKeys.add(entryKey);     // prevent same-record UPDATE/DELETE this cycle
         continue;
       }
     }
@@ -770,105 +893,56 @@ export async function drainQueue(cfg) {
         pushedIds.push({ collection: entry.collection, recordId: entry.record_id });
       }
     } else {
-      // Detect network-level failure: the fetch itself threw before any HTTP
-      // response was received — Directus is unreachable (no internet / server
-      // completely down, CORS pre-flight failed, etc.).  In browsers and Node.js
-      // these surface as TypeError.  Halt the drain WITHOUT incrementing any
-      // attempt counter so that no records are abandoned simply because
-      // connectivity was temporarily lost.
-      if (typeof result === 'object' && result !== null && result.networkError) {
-        offline = true;
-        break;
-      }
+      if (await _handleEntryFailure(entry, entryKey, result)) break;
+    }
+  }
 
-      const failureDetails = typeof result === 'string' ? { message: result } : result;
-      const newAttempts = (entry.attempts ?? 0) + 1;
-      await addFailedSyncCall(entry, failureDetails, newAttempts, newAttempts >= MAX_ATTEMPTS);
-      if (newAttempts >= MAX_ATTEMPTS) {
-        console.warn(`[SyncQueue] Abandoning entry after ${MAX_ATTEMPTS} attempts:`, entry);
-        if (typeof window !== 'undefined') {
-          window.dispatchEvent(new CustomEvent('drainQueue:error', { detail: entry }));
-        }
-        await removeEntry(entry.id);
-        abandoned++;
-      } else {
-        await incrementAttempts(entry.id, failureDetails?.message ?? null);
-        failed++;
-      }
-      // Block this (collection, record_id) pair for the rest of this cycle in
-      // both the retry and abandon cases — any later operation on the same record
-      // (e.g. an update after a failed create) cannot succeed and must wait for
-      // the next drain cycle.
-      blockedKeys.add(entryKey);
-      // For FK dependency gating: only a failed CREATE where the record was never
-      // written to Directus means children's FK is unsatisfied.
-      //
-      // Two cases where we must NOT block children:
-      //   1. The operation is UPDATE or DELETE — the record already exists.
-      //   2. The operation is CREATE but Directus returned RECORD_NOT_UNIQUE
-      //      (HTTP 400, or HTTP 409 from a proxy) meaning the record already
-      //      exists, and the fallback PATCH also failed
-      //      (failureDetails.recordAlreadyExists = true).
-      //      The record IS in Directus; the child FK is satisfiable.
-      if (entry.operation === 'create' && failureDetails?.recordAlreadyExists) {
-        // Duplicate-record path: record exists in Directus even though this
-        // entry failed.  Mark as "processed" so the pendingCreates guard does
-        // not defer children whose FK is already satisfied.
-        pushedInThisCycle.add(entryKey);
-      } else if (entry.operation === 'create') {
-        failedCreates.add(entryKey);
-        // When the parent CREATE is permanently abandoned (MAX_ATTEMPTS reached),
-        // cascade-abandon all in-queue child entries that FK-reference this record.
-        // They can never succeed without their parent existing in Directus, so
-        // burning their retry budget and flooding the failed-call log is pointless.
-        //
-        // A local `cascadeAbandoned` set (seeded with the abandoned parent key) is
-        // used for matching, NOT the global `failedCreates`.  Using `failedCreates`
-        // could falsely cascade children of OTHER parents that merely failed (but
-        // were not permanently abandoned) in the same drain cycle.  The local set
-        // grows as transitive grandchildren are identified, enabling the BFS-ordered
-        // scan to also catch grandchildren in a single pass.
-        //
-        // The scan is O(n) per abandoned parent.  Abandons are rare (MAX_ATTEMPTS
-        // reached) and queue sizes are small, so this is an acceptable trade-off
-        // over maintaining a separate reverse-index data structure.
-        if (newAttempts >= MAX_ATTEMPTS) {
-          const cascadeAbandoned = new Set([entryKey]);
-          for (const cascadeEntry of sortedEntries) {
-            const cascadeKey = `${cascadeEntry.collection}:${cascadeEntry.record_id}`;
-            if (cascadeKey === entryKey) continue;          // skip the parent itself
-            if (blockedKeys.has(cascadeKey)) continue;      // already handled this cycle
-            if (pushedInThisCycle.has(cascadeKey)) continue; // already pushed this cycle
-            const childDeps = PARENT_DEPENDENCY_MAP.get(cascadeEntry.collection);
-            if (!childDeps) continue;
-            let isCascadeChild = false;
-            for (const childDep of childDeps) {
-              const parentId = cascadeEntry.payload?.[childDep.fkField];
-              if (parentId) {
-                const parentKey = `${childDep.parentCollection}:${parentId}`;
-                if (cascadeAbandoned.has(parentKey)) { isCascadeChild = true; break; }
-              }
-            }
-            if (!isCascadeChild) continue;
-            const cascadeMsg = `Cascade abandon: parent CREATE ${entryKey} permanently failed`;
-            console.warn('[SyncQueue] Cascade-abandoning child entry:', cascadeEntry.id, '—', cascadeMsg);
-            if (typeof window !== 'undefined') {
-              window.dispatchEvent(new CustomEvent('drainQueue:error', { detail: cascadeEntry }));
-            }
-            await addFailedSyncCall(cascadeEntry, { message: cascadeMsg }, cascadeEntry.attempts ?? 0, true);
-            await removeEntry(cascadeEntry.id);
-            abandoned++;
-            blockedKeys.add(cascadeKey);
-            // Enable transitive cascade: if this cascade child is itself a CREATE,
-            // add it to the local set so its own children are matched in subsequent
-            // iterations of this same scan
-            // (e.g. orders→transaction_order_refs after bill_sessions→orders).
-            if (cascadeEntry.operation === 'create') {
-              cascadeAbandoned.add(cascadeKey);
-            }
-          }
+  // ── Second pass: retry FK-deferred child CREATEs ────────────────────────
+  // Some child CREATEs were deferred in the main loop because their parent was
+  // still in pendingCreates but hadn't been pushed yet.  If the parent was
+  // processed later in the same main loop and added to pushedInThisCycle
+  // (including the recordAlreadyExists path where the record already existed in
+  // Directus), those children can now be attempted in the same cycle rather
+  // than waiting for the next drain.
+  //
+  // Without this second pass, a fresh child (attempts=0) BFS-sorted before a
+  // retried parent (attempts>0) would be starved for up to MAX_ATTEMPTS cycles
+  // even though the parent record is known to exist in Directus.
+  for (const deferredEntry of fkDeferredEntries) {
+    if (offline) break;
+    const deferredKey = `${deferredEntry.collection}:${deferredEntry.record_id}`;
+
+    // Re-evaluate FK deps with the pushedInThisCycle state updated by the
+    // main loop.  If the parent is now satisfiable, attempt the entry.
+    const deferredDeps = PARENT_DEPENDENCY_MAP.get(deferredEntry.collection);
+    let stillBlocked = false;
+    for (const dep of deferredDeps ?? []) {
+      const parentId = deferredEntry.payload?.[dep.fkField];
+      if (parentId) {
+        const parentKey = `${dep.parentCollection}:${parentId}`;
+        if (failedCreates.has(parentKey) || (pendingCreates.has(parentKey) && !pushedInThisCycle.has(parentKey))) {
+          stillBlocked = true;
+          break;
         }
       }
+    }
+    if (stillBlocked) continue; // parent still pending or failed — retry next cycle
+
+    // Parent is now satisfiable — attempt this entry.
+    const result = await _pushEntry(deferredEntry, sdkClient, cfg);
+    if (result === true || result === 'skip') {
+      await removeEntry(deferredEntry.id);
+      pushed++;
+      // Update pushedInThisCycle so subsequent siblings in this same second
+      // pass can also proceed if they depend on this entry.
+      pushedInThisCycle.add(deferredKey);
+      if (result === true) {
+        pushedIds.push({ collection: deferredEntry.collection, recordId: deferredEntry.record_id });
+      }
+    } else {
+      // blockedKeys already contains deferredKey from the first pass, so
+      // _handleEntryFailure's blockedKeys.add(entryKey) is a harmless no-op.
+      if (await _handleEntryFailure(deferredEntry, deferredKey, result)) break;
     }
   }
 
