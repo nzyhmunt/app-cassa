@@ -604,23 +604,34 @@ export async function drainQueue(cfg) {
     if (!groupMap.has(key)) groupMap.set(key, []);
     groupMap.get(key).push(entry);
   }
-  for (const grp of groupMap.values()) {
+  const groupedEntries = [...groupMap.values()].map(grp => {
     grp.sort((a, b) => {
       if (a.date_created < b.date_created) return -1;
       if (a.date_created > b.date_created) return 1;
       return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
     });
-  }
-  const sortedEntries = [...groupMap.values()]
+
+    let minAttempts = Infinity;
+    for (const entry of grp) {
+      const attempts = entry.attempts ?? 0;
+      if (attempts < minAttempts) minAttempts = attempts;
+    }
+
+    return {
+      entries: grp,
+      minAttempts,
+      firstDateCreated: grp[0]?.date_created ?? '',
+      firstId: grp[0]?.id ?? '',
+    };
+  });
+  const sortedEntries = groupedEntries
     .sort((ga, gb) => {
-      const minA = Math.min(...ga.map(e => e.attempts ?? 0));
-      const minB = Math.min(...gb.map(e => e.attempts ?? 0));
-      if (minA !== minB) return minA - minB;
-      const dateA = ga[0]?.date_created ?? '';
-      const dateB = gb[0]?.date_created ?? '';
-      return dateA < dateB ? -1 : dateA > dateB ? 1 : 0;
+      if (ga.minAttempts !== gb.minAttempts) return ga.minAttempts - gb.minAttempts;
+      if (ga.firstDateCreated < gb.firstDateCreated) return -1;
+      if (ga.firstDateCreated > gb.firstDateCreated) return 1;
+      return ga.firstId < gb.firstId ? -1 : ga.firstId > gb.firstId ? 1 : 0;
     })
-    .flat();
+    .flatMap(group => group.entries);
 
   // Pre-compute the full set of (collection:record_id) keys present in this
   // drain cycle.  Used by the cross-collection dependency check to detect when
