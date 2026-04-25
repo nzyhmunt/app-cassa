@@ -5,7 +5,8 @@
  * Each operational mutation (create / update / delete) is recorded here so that
  * the push loop can synchronise the changes with Directus.  When the device is
  * online and `directus.enabled` is `true`, `drainQueue()` sweeps all pending
- * entries and sends them to Directus via the official SDK in chronological order.
+ * entries and sends them to Directus via the official SDK using BFS group ordering
+ * (attempts-first, then chronological within each group — see §5.7.2-bis below).
  *
  * Queue entry shape:
  *   { id (UUIDv7), collection, operation: 'create'|'update'|'delete',
