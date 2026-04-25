@@ -766,6 +766,52 @@ export async function drainQueue(cfg) {
       // unnecessarily blocked.
       if (entry.operation === 'create') {
         failedCreates.add(entryKey);
+        // When the parent CREATE is permanently abandoned (MAX_ATTEMPTS reached),
+        // cascade-abandon all in-queue child entries that FK-reference this record.
+        // They can never succeed without their parent existing in Directus, so
+        // burning their retry budget and flooding the failed-call log is pointless.
+        //
+        // sortedEntries is BFS-ordered (parents before children), so as we add
+        // cascade targets to failedCreates during this scan, grandchildren are
+        // caught automatically in the same pass (transitive cascade).
+        //
+        // The scan is O(n) per abandoned parent.  Abandons are rare (MAX_ATTEMPTS
+        // reached) and queue sizes are small, so this is an acceptable trade-off
+        // over maintaining a separate reverse-index data structure.
+        if (newAttempts >= MAX_ATTEMPTS) {
+          for (const cascadeEntry of sortedEntries) {
+            const cascadeKey = `${cascadeEntry.collection}:${cascadeEntry.record_id}`;
+            if (cascadeKey === entryKey) continue;          // skip the parent itself
+            if (blockedKeys.has(cascadeKey)) continue;      // already handled this cycle
+            if (pushedInThisCycle.has(cascadeKey)) continue; // already pushed this cycle
+            const childDeps = PARENT_DEPENDENCY_MAP.get(cascadeEntry.collection);
+            if (!childDeps) continue;
+            let isCascadeChild = false;
+            for (const childDep of childDeps) {
+              const parentId = cascadeEntry.payload?.[childDep.fkField];
+              if (parentId) {
+                const parentKey = `${childDep.parentCollection}:${parentId}`;
+                if (failedCreates.has(parentKey)) { isCascadeChild = true; break; }
+              }
+            }
+            if (!isCascadeChild) continue;
+            const cascadeMsg = `Cascade abandon: parent CREATE ${entryKey} permanently failed`;
+            console.warn('[SyncQueue] Cascade-abandoning child entry:', cascadeEntry.id, '—', cascadeMsg);
+            if (typeof window !== 'undefined') {
+              window.dispatchEvent(new CustomEvent('drainQueue:error', { detail: cascadeEntry }));
+            }
+            await addFailedSyncCall(cascadeEntry, { message: cascadeMsg }, cascadeEntry.attempts ?? 0, true);
+            await removeEntry(cascadeEntry.id);
+            abandoned++;
+            blockedKeys.add(cascadeKey);
+            // Enable transitive cascade: if this cascade child is itself a CREATE,
+            // its own children can now be matched in subsequent iterations of this
+            // same scan (e.g. orders→transaction_order_refs after bill_sessions→orders).
+            if (cascadeEntry.operation === 'create') {
+              failedCreates.add(cascadeKey);
+            }
+          }
+        }
       }
     }
   }

@@ -27,6 +27,8 @@
  *  - drainQueue() does NOT set offline:true for HTTP 4xx/5xx errors
  *  - drainQueue() processes entries with fewer attempts first (BFS ordering)
  *  - drainQueue() defers child entry (attempts=0) until parent (attempts>0) is pushed
+ *  - drainQueue() cascade-abandons child entries when parent CREATE reaches MAX_ATTEMPTS
+ *  - drainQueue() does NOT cascade-abandon children when parent fails with a non-final error
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -954,5 +956,73 @@ describe('drainQueue() — BFS fair-retry ordering', () => {
     const bIdx = result.pushedIds.findIndex(p => p.recordId === 'ord_B');
     const aIdx = result.pushedIds.findIndex(p => p.recordId === 'ord_A');
     expect(bIdx).toBeLessThan(aIdx);
+  });
+
+  it('cascade-abandons child entries when parent CREATE reaches MAX_ATTEMPTS', async () => {
+    // When a parent CREATE is permanently abandoned, any in-queue children that
+    // FK-reference that parent are also immediately removed from the queue so
+    // they do not waste retry budget and spam the failed-call log with
+    // FK-not-found errors that will never resolve.
+    vi.spyOn(global, 'fetch').mockRejectedValue(new Error('server error'));
+
+    // Parent: bill_sessions CREATE that will be abandoned
+    await enqueue('bill_sessions', 'create', 'bill_X', { id: 'bill_X', table: 'T99', status: 'open' });
+    // Direct child: orders references bill_sessions via billSessionId
+    await enqueue('orders', 'create', 'ord_X', { id: 'ord_X', billSessionId: 'bill_X' });
+    // Transitive grandchild: transaction_order_refs references orders via "order" FK
+    await enqueue('transaction_order_refs', 'create', 'ref_X', { id: 'ref_X', transaction: 'txn_other', order: 'ord_X' });
+
+    // Drain MAX_ATTEMPTS-1 times so bill_X is about to be abandoned.
+    // ord_X and ref_X are shielded by the pendingCreates guard and stay at 0.
+    for (let i = 0; i < MAX_ATTEMPTS - 1; i++) {
+      await drainQueue(FAKE_CFG);
+    }
+
+    // Add an unrelated order AFTER the retry cycles so it has 0 attempts
+    // and its bill_sessions (bill_other) is NOT in failedCreates — it must
+    // survive the cascade and stay in the queue.
+    await enqueue('orders', 'create', 'ord_unrelated', { id: 'ord_unrelated', billSessionId: 'bill_other' });
+
+    // Final drain: bill_X hits MAX_ATTEMPTS → abandon + cascade
+    const result = await drainQueue(FAKE_CFG);
+
+    // bill_X itself + ord_X (direct child) + ref_X (transitive grandchild) all abandoned
+    expect(result.abandoned).toBe(3);
+    // ord_unrelated failed (only 1 attempt so far) but not abandoned
+    expect(result.failed).toBe(1);
+
+    // Only ord_unrelated (different bill_session) should remain in the queue
+    const remaining = await getPendingEntries();
+    expect(remaining).toHaveLength(1);
+    expect(remaining[0].record_id).toBe('ord_unrelated');
+    expect(remaining[0].attempts).toBe(1); // burned once, not cascade-affected
+
+    // All three abandoned entries must appear in the failed-call log with abandoned=true
+    const failedCalls = await getFailedSyncCalls();
+    const abandonedIds = failedCalls.filter(c => c.abandoned).map(c => c.record_id);
+    expect(abandonedIds).toContain('bill_X');
+    expect(abandonedIds).toContain('ord_X');
+    expect(abandonedIds).toContain('ref_X');
+    expect(abandonedIds).not.toContain('ord_unrelated');
+  });
+
+  it('does NOT cascade-abandon children when parent fails with a non-final error', async () => {
+    // Cascade only triggers on final abandon (MAX_ATTEMPTS reached).
+    // A non-final failure must leave children in the queue untouched (attempts 0).
+    vi.spyOn(global, 'fetch').mockRejectedValue(new Error('server error'));
+
+    await enqueue('bill_sessions', 'create', 'bill_Y', { id: 'bill_Y', table: 'T98', status: 'open' });
+    await enqueue('orders', 'create', 'ord_Y', { id: 'ord_Y', billSessionId: 'bill_Y' });
+
+    // Only one drain — bill_Y gets attempts=1 (not yet abandoned)
+    const result = await drainQueue(FAKE_CFG);
+
+    expect(result.abandoned).toBe(0);
+    expect(result.failed).toBe(1); // bill_Y incremented
+    const entries = await getPendingEntries();
+    // Both entries must still be in the queue
+    expect(entries).toHaveLength(2);
+    const ordEntry = entries.find(e => e.record_id === 'ord_Y');
+    expect(ordEntry.attempts).toBe(0); // not burned — blocked but not cascade-abandoned
   });
 });
