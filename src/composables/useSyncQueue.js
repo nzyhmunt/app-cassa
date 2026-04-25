@@ -695,11 +695,12 @@ export async function drainQueue(cfg) {
     if (result === true || result === 'skip') {
       await removeEntry(entry.id);
       pushed++;
+      // Record as processed so sibling child entries processed later this cycle
+      // are not incorrectly deferred by the pendingSet guard, even when this
+      // entry was skipped and removed from the queue.
+      pushedInThisCycle.add(entryKey);
       if (result === true) {
         pushedIds.push({ collection: entry.collection, recordId: entry.record_id });
-        // Record as pushed so sibling child entries processed later this cycle
-        // are not incorrectly deferred by the pendingSet guard.
-        pushedInThisCycle.add(entryKey);
       }
     } else {
       // Detect network-level failure: the fetch itself threw before any HTTP
