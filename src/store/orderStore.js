@@ -366,7 +366,6 @@ export const useOrderStore = defineStore('orders', () => {
     if (!order.noteVisibility) order.noteVisibility = { cassa: true, sala: true, cucina: true };
     const nextOrders = [...orders.value, order];
     await saveStateToIDB({ orders: nextOrders });
-    orders.value = nextOrders;
     enqueue('orders', 'create', order.id, order);
   }
 
