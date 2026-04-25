@@ -751,7 +751,10 @@ export async function drainQueue(cfg) {
           }
         }
       }
-      if (skipEntry) continue;
+      if (skipEntry) {
+        blockedKeys.add(entryKey);
+        continue;
+      }
     }
 
     const result = await _pushEntry(entry, sdkClient, cfg);
