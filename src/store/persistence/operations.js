@@ -517,5 +517,12 @@ export {
   loadAuthSettingsFromIDB, saveAuthSettingsToIDB,
 } from './auth.js';
 
-export { loadSettingsFromIDB, saveSettingsToIDB, loadCustomItemsFromIDB, saveCustomItemsToIDB } from './settings.js';
+export {
+  loadSettingsFromIDB,
+  saveSettingsToIDB,
+  loadCustomItemsFromIDB,
+  saveCustomItemsToIDB,
+  loadJsonMenuFromIDB,
+  saveJsonMenuToIDB,
+} from './settings.js';
 export { deleteDatabase, clearAllStateFromIDB, clearSyncQueueFromIDB } from './reset.js';
