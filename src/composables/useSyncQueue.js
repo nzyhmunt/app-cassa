@@ -258,10 +258,12 @@ function _isPresentValue(value) {
  * Each entry maps a child collection to an array of parent dependencies.
  * If ANY required parent entry for `parentCollection:parentId` is recorded in
  * `failedCreates`, or is still in `pendingCreates` and has not yet been added to
- * `pushedInThisCycle`, the child entry is skipped for the rest of the same drain
- * cycle (since the child can never succeed without all its parents already in
- * Directus). This gating is specific to parent CREATE ordering and does not imply
- * that unrelated UPDATE/DELETE failures should also block children.
+ * `pushedInThisCycle`, the child entry is deferred during the main pass because
+ * it cannot yet succeed without all required parents already in Directus. Some
+ * such deferred child entries may be retried later in the same drain cycle once
+ * the needed parent CREATEs have been pushed and become satisfiable. This gating
+ * is specific to parent CREATE ordering and does not imply that unrelated
+ * UPDATE/DELETE failures should also block children.
  *
  * @type {Map<string, Array<{ parentCollection: string, fkField: string }>>}
  */
