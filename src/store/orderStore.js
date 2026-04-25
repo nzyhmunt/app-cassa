@@ -1031,7 +1031,8 @@ export const useOrderStore = defineStore('orders', () => {
     if ('cashBalance' in state) { cashBalance.value = state.cashBalance; keys.push('cashBalance'); }
     if ('cashMovements' in state) { cashMovements.value = state.cashMovements; keys.push('cashMovements'); }
     if ('dailyClosures' in state) { dailyClosures.value = state.dailyClosures; keys.push('dailyClosures'); }
-    if ('printLog' in state) { printLog.value = state.printLog; keys.push('printLog'); }
+    // printLog is not handled here: the IDB-persisted form has `payload` stripped,
+    // so updating the ref from the bus would lose reprint data. The watcher path handles persistence.
     if ('tableCurrentBillSession' in state) { tableCurrentBillSession.value = state.tableCurrentBillSession; keys.push('tableCurrentBillSession'); }
     if ('tableMergedInto' in state) { tableMergedInto.value = state.tableMergedInto; keys.push('tableMergedInto'); }
     if ('tableOccupiedAt' in state) { tableOccupiedAt.value = state.tableOccupiedAt; keys.push('tableOccupiedAt'); }

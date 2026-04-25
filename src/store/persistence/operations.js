@@ -290,11 +290,9 @@ export async function saveStateToIDB(state) {
     if ('transactions' in state) sanitized.transactions = state.transactions ?? [];
     if ('cashMovements' in state) sanitized.cashMovements = state.cashMovements ?? [];
     if ('dailyClosures' in state) sanitized.dailyClosures = state.dailyClosures ?? [];
-    if ('printLog' in state) {
-      sanitized.printLog = (state.printLog ?? [])
-        .slice(0, 200)
-        .map(({ payload: _p, ...rest }) => rest);
-    }
+    // printLog is intentionally excluded: the IDB-persisted form strips `entry.payload`
+    // (needed for reprint), so emitting it would destroy in-memory payload data.
+    // The printLog ref is maintained in-store and persisted via the normal watcher path.
     if ('cashBalance' in state) sanitized.cashBalance = state.cashBalance ?? 0;
     if ('tableCurrentBillSession' in state) sanitized.tableCurrentBillSession = state.tableCurrentBillSession ?? {};
     if ('tableMergedInto' in state) sanitized.tableMergedInto = state.tableMergedInto ?? {};
