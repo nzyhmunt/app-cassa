@@ -5,6 +5,7 @@ import {
   mapOrderFromDirectus,
   mapOrderToDirectus,
   mapOrderItemToDirectus,
+  mapOrderItemModifierToDirectus,
 } from '../mappers.js';
 
 describe('appConfig', () => {
@@ -273,6 +274,35 @@ describe('appConfig', () => {
       };
 
       const payload = mapOrderItemToDirectus(item);
+
+      expect(payload.voided_quantity).toBe(1);
+    });
+  });
+
+  describe('mapOrderItemModifierToDirectus', () => {
+    it('prefers voidedQuantity (camelCase) over voided_quantity (snake_case)', () => {
+      // Simulates the scenario after voidModifier updates voidedQuantity but leaves
+      // the stale voided_quantity from the last Directus fetch unchanged.
+      const modifier = {
+        name: 'Parmigiano',
+        price: 1,
+        voidedQuantity: 1,   // updated locally after void
+        voided_quantity: 0,  // stale value from previous Directus fetch
+      };
+
+      const payload = mapOrderItemModifierToDirectus(modifier);
+
+      expect(payload.voided_quantity).toBe(1);
+    });
+
+    it('falls back to voided_quantity when voidedQuantity is absent', () => {
+      const modifier = {
+        name: 'Parmigiano',
+        price: 1,
+        voided_quantity: 1,  // only snake_case available (e.g. raw Directus record)
+      };
+
+      const payload = mapOrderItemModifierToDirectus(modifier);
 
       expect(payload.voided_quantity).toBe(1);
     });

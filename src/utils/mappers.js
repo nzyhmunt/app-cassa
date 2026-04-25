@@ -594,10 +594,10 @@ export function mapOrderItemModifierToDirectus(record) {
   if (!Object.prototype.hasOwnProperty.call(out, 'order') && Object.prototype.hasOwnProperty.call(source, 'orderId')) {
     out.order = source.orderId;
   }
-  if (Object.prototype.hasOwnProperty.call(source, 'voided_quantity')) {
-    out.voided_quantity = source.voided_quantity;
-  } else if (Object.prototype.hasOwnProperty.call(source, 'voidedQuantity')) {
+  if (Object.prototype.hasOwnProperty.call(source, 'voidedQuantity')) {
     out.voided_quantity = source.voidedQuantity;
+  } else if (Object.prototype.hasOwnProperty.call(source, 'voided_quantity')) {
+    out.voided_quantity = source.voided_quantity;
   }
   delete out.voidedQuantity;
   delete out.itemUid;
