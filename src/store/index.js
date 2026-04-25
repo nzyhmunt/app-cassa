@@ -556,16 +556,28 @@ export const useOrderStore = defineStore('orders', () => {
     //   • the addItemsToOrder merge path where an existing item may still lack an id,
     //   • any other code path that pushes items/modifiers into orderItems without an id.
     // Mutating projectedOrder here also updates orders.value[n] (shared reference),
-    // so reactive state is kept in sync; the next scheduled IDB save will persist the ids.
+    // so reactive state is kept in sync. If this safety-net adds any ids, persist
+    // immediately instead of relying only on the next scheduled orders save, which
+    // may have been intentionally skipped by an earlier IDB-first mutation path.
+    let didGenerateMissingIds = false;
     if (Array.isArray(projectedOrder.orderItems)) {
       for (const item of projectedOrder.orderItems) {
-        if (item && !item.id) item.id = newUUIDv7();
+        if (item && !item.id) {
+          item.id = newUUIDv7();
+          didGenerateMissingIds = true;
+        }
         if (Array.isArray(item?.modifiers)) {
           for (const mod of item.modifiers) {
-            if (mod && !mod.id) mod.id = newUUIDv7();
+            if (mod && !mod.id) {
+              mod.id = newUUIDv7();
+              didGenerateMissingIds = true;
+            }
           }
         }
       }
+    }
+    if (didGenerateMissingIds) {
+      void saveStateToIDB();
     }
     const payload = {};
     if (Object.prototype.hasOwnProperty.call(projectedOrder, 'orderItems')) {
