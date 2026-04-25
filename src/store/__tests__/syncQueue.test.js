@@ -29,6 +29,7 @@
  *  - drainQueue() defers child entry (attempts=0) until parent (attempts>0) is pushed
  *  - drainQueue() cascade-abandons child entries when parent CREATE reaches MAX_ATTEMPTS
  *  - drainQueue() does NOT cascade-abandon children when parent fails with a non-final error
+ *  - drainQueue() does NOT block children via failedCreates when parent CREATE hits 409 and fallback PATCH fails
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -1024,5 +1025,40 @@ describe('drainQueue() — BFS fair-retry ordering', () => {
     expect(entries).toHaveLength(2);
     const ordEntry = entries.find(e => e.record_id === 'ord_Y');
     expect(ordEntry.attempts).toBe(0); // not burned — blocked but not cascade-abandoned
+  });
+
+  it('does NOT block children via failedCreates when parent CREATE hits 409 (record exists) and fallback PATCH fails', async () => {
+    // Scenario: the parent CREATE receives 409 (duplicate — record already exists
+    // in Directus from a previous push).  The fallback PATCH then fails (e.g.
+    // permission error).  The record IS in Directus, so child FK entries remain
+    // satisfiable and must NOT be deferred via failedCreates or cascade-abandoned.
+    const fetchSpy = vi.spyOn(global, 'fetch')
+      // bill_sessions:create → 409 (already exists)
+      .mockResolvedValueOnce(mockResponse(409, { errors: [] }))
+      // bill_sessions:create fallback PATCH → 403 permission error
+      .mockResolvedValueOnce(mockResponse(403, { errors: [{ message: 'Forbidden' }] }))
+      // orders:create → success (record exists in Directus, FK satisfied)
+      .mockResolvedValueOnce(mockResponse(200, {}));
+
+    await enqueue('bill_sessions', 'create', 'bill_409', { id: 'bill_409', table: 'T1', status: 'open' });
+    await enqueue('orders', 'create', 'ord_409', { id: 'ord_409', billSessionId: 'bill_409' });
+
+    const result = await drainQueue(FAKE_CFG);
+
+    // bill_sessions:create failed (attempts++), orders:create succeeded
+    expect(result.failed).toBe(1);
+    expect(result.pushed).toBe(1);
+    expect(result.abandoned).toBe(0);
+
+    // ord_409 must have been pushed (FK satisfied because record exists via 409)
+    expect(fetchSpy).toHaveBeenCalledTimes(3);
+    const thirdCall = fetchSpy.mock.calls[2];
+    expect(thirdCall[0]).toContain('/items/orders');
+
+    // bill_sessions:create is still in queue (incremented), orders is gone
+    const remaining = await getPendingEntries();
+    expect(remaining).toHaveLength(1);
+    expect(remaining[0].record_id).toBe('bill_409');
+    expect(remaining[0].attempts).toBe(1);
   });
 });

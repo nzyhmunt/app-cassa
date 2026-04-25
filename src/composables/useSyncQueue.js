@@ -432,6 +432,9 @@ function _buildRestClient(cfg) {
  *       body: unknown,
  *     },
  *     networkError: boolean,
+ *     // True when a create POST received 409 and the fallback PATCH also failed.
+ *     // The record exists in Directus so child FK entries remain satisfiable.
+ *     recordExistsIn409: boolean,
  *   }
  * >}
  */
@@ -456,6 +459,11 @@ async function _pushEntry(entry, sdkClient, cfg) {
   }
 
   let requestContext = null;
+  // Set to true when a create POST receives a 409 (record already exists in
+  // Directus).  If the fallback PATCH also fails, the record is still present
+  // in Directus so child FK entries remain satisfiable — they must not be
+  // blocked via `failedCreates` / cascade-abandoned.
+  let recordExistsIn409 = false;
 
   try {
     if (operation === 'delete') {
@@ -498,8 +506,11 @@ async function _pushEntry(entry, sdkClient, cfg) {
         };
         await sdkClient.request(createItem(collection, directusPayload));
       } catch (createError) {
-        // 409 Conflict: duplicate UUIDv7 — retry as update
+        // 409 Conflict: duplicate UUIDv7 — record already exists in Directus.
+        // Retry as PATCH update.  Set recordExistsIn409 so the outer catch can
+        // propagate this to the caller and avoid gating child FK entries.
         if (createError?.response?.status === 409) {
+          recordExistsIn409 = true;
           requestContext = {
             collection,
             operation,
@@ -551,6 +562,10 @@ async function _pushEntry(entry, sdkClient, cfg) {
       // Distinguishing these from HTTP errors (4xx/5xx, where e.response.status
       // is set) allows the caller to decide whether to increment attempt counters.
       networkError: e instanceof TypeError,
+      // True when a create POST hit 409 (record already exists in Directus) and
+      // the fallback PATCH also failed.  The record IS in Directus so child FK
+      // entries remain satisfiable — callers must NOT gate them via failedCreates.
+      recordExistsIn409,
     };
   }
 }
@@ -760,11 +775,20 @@ export async function drainQueue(cfg) {
       // (e.g. an update after a failed create) cannot succeed and must wait for
       // the next drain cycle.
       blockedKeys.add(entryKey);
-      // For FK dependency gating: only a failed CREATE means the record doesn't
-      // yet exist in Directus.  A failed UPDATE or DELETE leaves the record intact,
-      // so children whose FK points to that record remain valid and must not be
-      // unnecessarily blocked.
-      if (entry.operation === 'create') {
+      // For FK dependency gating: only a failed CREATE where the record was never
+      // written to Directus means children's FK is unsatisfied.
+      //
+      // Two cases where we must NOT block children:
+      //   1. The operation is UPDATE or DELETE — the record already exists.
+      //   2. The operation is CREATE but got a 409 (record already exists) and
+      //      the fallback PATCH also failed (failureDetails.recordExistsIn409 = true).
+      //      The record IS in Directus; the child FK is satisfiable.
+      if (entry.operation === 'create' && failureDetails?.recordExistsIn409) {
+        // 409-path: record exists in Directus even though this entry failed.
+        // Mark as "processed" so the pendingCreates guard doesn't defer children
+        // whose FK is already satisfied.
+        pushedInThisCycle.add(entryKey);
+      } else if (entry.operation === 'create') {
         failedCreates.add(entryKey);
         // When the parent CREATE is permanently abandoned (MAX_ATTEMPTS reached),
         // cascade-abandon all in-queue child entries that FK-reference this record.
