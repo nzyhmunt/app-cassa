@@ -15,6 +15,7 @@ import {
   parseJsonArray,
   relationId as _relationId,
   replaceAll as _replaceAll,
+  replaceAllSerialized as _replaceAllSerialized,
   normalizeTableCurrentBillSession as _normalizeTableCurrentBillSession,
   hashPinForLocalAuth as _hashPinForLocalAuth,
   extractPinDigits as _extractPinDigits,
@@ -211,30 +212,57 @@ export async function saveStateToIDB(state) {
   try {
     const db = await getDB();
     const ops = [];
+    // Serialize each field once so the same payload drives both the IDB write
+    // and the event-bus emission. JSON.parse(JSON.stringify(...)) is safe with
+    // Vue reactive proxies (structuredClone throws DataCloneError on proxies)
+    // and matches the semantics of the IDB write path.
+    const ser = (v) => JSON.parse(JSON.stringify(v));
+    const sanitized = {};
 
-    if ('orders' in state) ops.push(_replaceAll(db, 'orders', state.orders ?? []));
-    if ('transactions' in state) ops.push(_replaceAll(db, 'transactions', state.transactions ?? []));
-    if ('cashMovements' in state) ops.push(_replaceAll(db, 'cash_movements', state.cashMovements ?? []));
-    if ('dailyClosures' in state) ops.push(_replaceAll(db, 'daily_closures', state.dailyClosures ?? []));
+    if ('orders' in state) {
+      const v = ser(state.orders ?? []);
+      sanitized.orders = v;
+      ops.push(_replaceAllSerialized(db, 'orders', v));
+    }
+    if ('transactions' in state) {
+      const v = ser(state.transactions ?? []);
+      sanitized.transactions = v;
+      ops.push(_replaceAllSerialized(db, 'transactions', v));
+    }
+    if ('cashMovements' in state) {
+      const v = ser(state.cashMovements ?? []);
+      sanitized.cashMovements = v;
+      ops.push(_replaceAllSerialized(db, 'cash_movements', v));
+    }
+    if ('dailyClosures' in state) {
+      const v = ser(state.dailyClosures ?? []);
+      sanitized.dailyClosures = v;
+      ops.push(_replaceAllSerialized(db, 'daily_closures', v));
+    }
     if ('printLog' in state) {
+      // printLog is NOT emitted on the bus: the IDB-persisted form strips
+      // entry.payload (needed for reprint), so the in-memory ref must stay
+      // intact.  Persisted via the normal watcher → _scheduleSave path.
       const printLogToStore = (state.printLog ?? [])
         .slice(0, 200)
         .map(({ payload: _p, ...rest }) => rest);
       ops.push(_replaceAll(db, 'print_jobs', printLogToStore));
     }
     if ('cashBalance' in state) {
-      ops.push(db.put('app_meta', JSON.parse(JSON.stringify({
-        id: 'cashBalance',
-        cashBalance: state.cashBalance ?? 0,
-      }))));
+      const v = ser(state.cashBalance ?? 0);
+      sanitized.cashBalance = v;
+      ops.push(db.put('app_meta', { id: 'cashBalance', cashBalance: v }));
     }
     if ('tableCurrentBillSession' in state) {
-      ops.push(db.put('app_meta', JSON.parse(JSON.stringify({
-        id: 'tableCurrentBillSession',
-        value: state.tableCurrentBillSession ?? {},
-      }))));
+      const v = ser(state.tableCurrentBillSession ?? {});
+      sanitized.tableCurrentBillSession = v;
+      ops.push(db.put('app_meta', { id: 'tableCurrentBillSession', value: v }));
     }
     if ('tableMergedInto' in state) {
+      // Emit the raw merge-map on the bus (serialized once for safety).
+      // The actual IDB write transforms it into normalized table_merge_sessions
+      // records via the async IIFE below; the two paths are intentionally separate.
+      sanitized.tableMergedInto = ser(state.tableMergedInto ?? {});
       const now = new Date().toISOString();
       ops.push((async () => {
         const tx = db.transaction(['table_merge_sessions', 'app_meta'], 'readwrite');
@@ -265,52 +293,24 @@ export async function saveStateToIDB(state) {
       })());
     }
     if ('tableOccupiedAt' in state) {
-      ops.push(db.put('app_meta', JSON.parse(JSON.stringify({
-        id: 'tableOccupiedAt',
-        value: state.tableOccupiedAt ?? {},
-      }))));
+      const v = ser(state.tableOccupiedAt ?? {});
+      sanitized.tableOccupiedAt = v;
+      ops.push(db.put('app_meta', { id: 'tableOccupiedAt', value: v }));
     }
     if ('billRequestedTables' in state) {
-      ops.push(db.put('app_meta', JSON.parse(JSON.stringify({
-        id: 'billRequestedTables',
-        value: state.billRequestedTables instanceof Set
-          ? Array.from(state.billRequestedTables)
-          : Array.isArray(state.billRequestedTables)
-            ? state.billRequestedTables
-            : [],
-      }))));
-    }
-
-    await Promise.all(ops);
-    touchStorageKey();
-    // Emit a sanitized copy that mirrors the shape actually written to IDB so
-    // reactive refs never diverge from the persisted data.  We use the same
-    // JSON round-trip as the IDB put() calls above: this is safe with Vue
-    // reactive proxies (structuredClone would throw DataCloneError) and
-    // guarantees the emitted shape is identical to what was persisted
-    // (undefined fields dropped, Dates stringified, functions removed).
-    const serializeForEmit = (v) => JSON.parse(JSON.stringify(v));
-    const sanitized = {};
-    if ('orders' in state) sanitized.orders = serializeForEmit(state.orders ?? []);
-    if ('transactions' in state) sanitized.transactions = serializeForEmit(state.transactions ?? []);
-    if ('cashMovements' in state) sanitized.cashMovements = serializeForEmit(state.cashMovements ?? []);
-    if ('dailyClosures' in state) sanitized.dailyClosures = serializeForEmit(state.dailyClosures ?? []);
-    // printLog is intentionally excluded: the IDB-persisted form strips `entry.payload`
-    // (needed for reprint), so emitting it would destroy in-memory payload data.
-    // The printLog ref is maintained in-store and persisted via the normal watcher path.
-    if ('cashBalance' in state) sanitized.cashBalance = serializeForEmit(state.cashBalance ?? 0);
-    if ('tableCurrentBillSession' in state) sanitized.tableCurrentBillSession = serializeForEmit(state.tableCurrentBillSession ?? {});
-    if ('tableMergedInto' in state) sanitized.tableMergedInto = serializeForEmit(state.tableMergedInto ?? {});
-    if ('tableOccupiedAt' in state) sanitized.tableOccupiedAt = serializeForEmit(state.tableOccupiedAt ?? {});
-    if ('billRequestedTables' in state) {
-      sanitized.billRequestedTables = serializeForEmit(
+      const v = ser(
         state.billRequestedTables instanceof Set
           ? Array.from(state.billRequestedTables)
           : Array.isArray(state.billRequestedTables)
             ? state.billRequestedTables
             : []
       );
+      sanitized.billRequestedTables = v;
+      ops.push(db.put('app_meta', { id: 'billRequestedTables', value: v }));
     }
+
+    await Promise.all(ops);
+    touchStorageKey();
     emitIDBChange(sanitized);
   } catch (e) {
     console.warn('[IDBPersistence] Failed to save state:', e);
@@ -334,19 +334,15 @@ export async function saveOrdersAndOccupancyInIDB(orders, tableOccupiedAt) {
     const ordersStore = tx.objectStore('orders');
     const metaStore = tx.objectStore('app_meta');
     ordersStore.clear();
-    (orders ?? []).forEach(r => ordersStore.put(JSON.parse(JSON.stringify(r))));
-    metaStore.put(JSON.parse(JSON.stringify({
-      id: 'tableOccupiedAt',
-      value: tableOccupiedAt ?? {},
-    })));
+    // Serialize each order once; the same plain objects are written to IDB and
+    // emitted on the bus so there is no second JSON round-trip.
+    const serializedOrders = (orders ?? []).map(r => JSON.parse(JSON.stringify(r)));
+    serializedOrders.forEach(r => ordersStore.put(r));
+    const serializedTableOccupiedAt = JSON.parse(JSON.stringify(tableOccupiedAt ?? {}));
+    metaStore.put({ id: 'tableOccupiedAt', value: serializedTableOccupiedAt });
     await tx.done;
     touchStorageKey();
-    // Use JSON round-trip (same as the IDB put() calls above) so the emitted
-    // shape is safe with Vue reactive proxies and matches exactly what was persisted.
-    emitIDBChange({
-      orders: JSON.parse(JSON.stringify(orders ?? [])),
-      tableOccupiedAt: JSON.parse(JSON.stringify(tableOccupiedAt ?? {})),
-    });
+    emitIDBChange({ orders: serializedOrders, tableOccupiedAt: serializedTableOccupiedAt });
   } catch (e) {
     console.warn('[IDBPersistence] saveOrdersAndOccupancyInIDB failed:', e);
     throw e;
