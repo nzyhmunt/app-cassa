@@ -6,7 +6,6 @@
  */
 
 import { hashPin, PIN_LENGTH } from '../../utils/pinAuth.js';
-import { relationId as _relationIdFromMappers } from '../../utils/mappers.js';
 
 export { parseJsonArray } from '../../utils/mappers.js';
 
@@ -34,7 +33,7 @@ export function relationId(value) {
  * @returns {string|null}
  */
 export function relationIdStr(value) {
-  const id = _relationIdFromMappers(value);
+  const id = relationId(value);
   return id != null ? String(id) : null;
 }
 
