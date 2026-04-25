@@ -25,17 +25,7 @@ import {
 function _normalizeIncomingSync(collection, record) {
   if (!record || typeof record !== 'object') return record;
   const normalized = { ...record };
-  if (collection === 'orders') {
-    const billSession = _relationId(normalized.bill_session ?? normalized.billSessionId);
-    if (billSession != null) {
-      normalized.bill_session = billSession;
-      normalized.billSessionId = billSession;
-    }
-    const table = _relationId(normalized.table);
-    if (table != null) normalized.table = table;
-    normalized.dietary_diets = parseJsonArray(normalized.dietary_diets);
-    normalized.dietary_allergens = parseJsonArray(normalized.dietary_allergens);
-  } else if (collection === 'order_items') {
+  if (collection === 'order_items') {
     const orderId = _relationId(normalized.order ?? normalized.orderId);
     if (orderId != null) {
       normalized.order = orderId;
