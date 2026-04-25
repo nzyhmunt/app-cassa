@@ -611,10 +611,13 @@ async function _pushEntry(entry, sdkClient, cfg) {
  *   prevents retry-budget exhaustion while the device is offline.
  * - Cross-collection FK dependencies are guarded by `PARENT_DEPENDENCY_MAP`.
  *   A child entry whose parent CREATE is still pending in this cycle (not yet
- *   pushed) is deferred until the next cycle so it does not burn attempts on a
- *   FK-not-found error it can never avoid.  Only CREATE failures gate children —
- *   if a parent UPDATE or DELETE fails the record already exists in Directus and
- *   the child's FK is satisfied, so it proceeds unblocked.
+ *   pushed) is deferred until the parent has been pushed, so it does not burn
+ *   attempts on a FK-not-found error it can never avoid. Depending on drain
+ *   ordering, that child may be retried in a later pass of the SAME drain cycle
+ *   once the parent succeeds, or else remain deferred to a future cycle. Only
+ *   CREATE failures gate children — if a parent UPDATE or DELETE fails the
+ *   record already exists in Directus and the child's FK is satisfied, so it
+ *   proceeds unblocked.
  *
  * @param {{ url: string, staticToken: string, venueId?: number|string|null }} cfg
  *   Directus connection config.
