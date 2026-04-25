@@ -3,12 +3,13 @@
  * @description In-process event bus for IDB write notifications.
  *
  * After a successful IDB write, persistence helpers call `emitIDBChange(state)`
- * with the state slice that was persisted. Subscribers (Pinia stores) update
- * their reactive refs in response, so that reactive state is always driven by
- * the database — never set directly inside action bodies.
+ * with the state slice that was persisted. Subscribers (Pinia stores) can update
+ * their reactive refs in response, and stores should prefer driving reactive
+ * state from these persisted writes rather than direct ref assignments in
+ * action bodies when possible.
  *
- * This ensures a single reactive-update path regardless of whether the write
- * originates from a UI action or the Sync Loop.
+ * The goal is to converge on a single reactive-update path regardless of
+ * whether the write originates from a UI action or the Sync Loop.
  */
 
 const _listeners = new Set();
