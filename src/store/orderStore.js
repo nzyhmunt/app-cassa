@@ -931,11 +931,19 @@ export const useOrderStore = defineStore('orders', () => {
       },
     );
 
+  const reportTransactions = computed(() =>
+    (transactions.value || []).map((t) => ({
+      ...t,
+      tableId: t?.tableId ?? t?.table,
+      billSessionId: t?.billSessionId ?? t?.bill_session,
+    })),
+  );
+
   const { generateXReport, performDailyClose, closedBills } =
     makeReportOps(
       {
         orders,
-        transactions,
+        transactions: reportTransactions,
         cashBalance,
         cashMovements,
         dailyClosures,
