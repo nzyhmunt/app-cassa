@@ -333,13 +333,13 @@ export async function saveOrdersAndOccupancyInIDB(orders, tableOccupiedAt) {
     const tx = db.transaction(['orders', 'app_meta'], 'readwrite');
     const ordersStore = tx.objectStore('orders');
     const metaStore = tx.objectStore('app_meta');
-    ordersStore.clear();
+    await ordersStore.clear();
     // Serialize each order once; the same plain objects are written to IDB and
     // emitted on the bus so there is no second JSON round-trip.
     const serializedOrders = (orders ?? []).map(r => JSON.parse(JSON.stringify(r)));
-    serializedOrders.forEach(r => ordersStore.put(r));
+    await Promise.all(serializedOrders.map(r => ordersStore.put(r)));
     const serializedTableOccupiedAt = JSON.parse(JSON.stringify(tableOccupiedAt ?? {}));
-    metaStore.put({ id: 'tableOccupiedAt', value: serializedTableOccupiedAt });
+    await metaStore.put({ id: 'tableOccupiedAt', value: serializedTableOccupiedAt });
     await tx.done;
     touchStorageKey();
     emitIDBChange({ orders: serializedOrders, tableOccupiedAt: serializedTableOccupiedAt });
