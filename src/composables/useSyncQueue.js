@@ -734,7 +734,11 @@ export async function drainQueue(cfg) {
     // not be blocked.
     // A collection can have multiple parents (e.g. transaction_order_refs depends
     // on both 'transactions' and 'orders'); ALL parents are checked.
-    const deps = PARENT_DEPENDENCY_MAP.get(entry.collection);
+    // Only CREATE entries need their parent record to exist first.  UPDATE/DELETE
+    // operations on a child collection are safe to push regardless of any pending
+    // or failed parent CREATE: the child record already exists in Directus (it was
+    // created in a prior cycle) so the FK is already satisfied.
+    const deps = entry.operation === 'create' ? PARENT_DEPENDENCY_MAP.get(entry.collection) : null;
     if (deps) {
       let skipEntry = false;
       for (const dep of deps) {
@@ -815,14 +819,18 @@ export async function drainQueue(cfg) {
         // They can never succeed without their parent existing in Directus, so
         // burning their retry budget and flooding the failed-call log is pointless.
         //
-        // sortedEntries is BFS-ordered (parents before children), so as we add
-        // cascade targets to failedCreates during this scan, grandchildren are
-        // caught automatically in the same pass (transitive cascade).
+        // A local `cascadeAbandoned` set (seeded with the abandoned parent key) is
+        // used for matching, NOT the global `failedCreates`.  Using `failedCreates`
+        // could falsely cascade children of OTHER parents that merely failed (but
+        // were not permanently abandoned) in the same drain cycle.  The local set
+        // grows as transitive grandchildren are identified, enabling the BFS-ordered
+        // scan to also catch grandchildren in a single pass.
         //
         // The scan is O(n) per abandoned parent.  Abandons are rare (MAX_ATTEMPTS
         // reached) and queue sizes are small, so this is an acceptable trade-off
         // over maintaining a separate reverse-index data structure.
         if (newAttempts >= MAX_ATTEMPTS) {
+          const cascadeAbandoned = new Set([entryKey]);
           for (const cascadeEntry of sortedEntries) {
             const cascadeKey = `${cascadeEntry.collection}:${cascadeEntry.record_id}`;
             if (cascadeKey === entryKey) continue;          // skip the parent itself
@@ -835,7 +843,7 @@ export async function drainQueue(cfg) {
               const parentId = cascadeEntry.payload?.[childDep.fkField];
               if (parentId) {
                 const parentKey = `${childDep.parentCollection}:${parentId}`;
-                if (failedCreates.has(parentKey)) { isCascadeChild = true; break; }
+                if (cascadeAbandoned.has(parentKey)) { isCascadeChild = true; break; }
               }
             }
             if (!isCascadeChild) continue;
@@ -849,10 +857,11 @@ export async function drainQueue(cfg) {
             abandoned++;
             blockedKeys.add(cascadeKey);
             // Enable transitive cascade: if this cascade child is itself a CREATE,
-            // its own children can now be matched in subsequent iterations of this
-            // same scan (e.g. orders→transaction_order_refs after bill_sessions→orders).
+            // add it to the local set so its own children are matched in subsequent
+            // iterations of this same scan
+            // (e.g. orders→transaction_order_refs after bill_sessions→orders).
             if (cascadeEntry.operation === 'create') {
-              failedCreates.add(cascadeKey);
+              cascadeAbandoned.add(cascadeKey);
             }
           }
         }

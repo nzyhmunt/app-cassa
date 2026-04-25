@@ -817,6 +817,33 @@ describe('drainQueue()', () => {
     // ref_1 was pushed, not deferred
     expect(entries.find(e => e.record_id === 'ref_1')).toBeUndefined();
   });
+
+  it('does NOT block child UPDATE/DELETE entries when parent CREATE is pending', async () => {
+    // FK gating only applies to child CREATE entries.  An UPDATE or DELETE on a
+    // child collection must proceed even when the same parent record has a pending
+    // CREATE (the child record already exists in Directus; only new child records
+    // need to wait for the parent to be created first).
+    const fetchSpy = vi.spyOn(global, 'fetch')
+      .mockRejectedValueOnce(new Error('server error')) // bill_sessions:create fails
+      .mockResolvedValueOnce(mockResponse(200, {}));    // orders:update succeeds
+
+    await enqueue('bill_sessions', 'create', 'bill_upd', { id: 'bill_upd', table: 'T_U', status: 'open' });
+    // Child UPDATE — the order already exists in Directus; this is just an update
+    await enqueue('orders', 'update', 'ord_upd', { id: 'ord_upd', billSessionId: 'bill_upd', status: 'accepted' });
+
+    const result = await drainQueue(FAKE_CFG);
+
+    // bill_sessions:create failed (attempts++), orders:update should succeed
+    expect(result.failed).toBe(1);
+    expect(result.pushed).toBe(1); // orders:update not gated, pushed through
+
+    // The orders:update fetch call must have been made (2 calls total)
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+
+    const entries = await getPendingEntries();
+    expect(entries).toHaveLength(1);
+    expect(entries[0].record_id).toBe('bill_upd'); // only the CREATE remains
+  });
 });
 
 // ── Offline halt ──────────────────────────────────────────────────────────────
@@ -1025,6 +1052,50 @@ describe('drainQueue() — BFS fair-retry ordering', () => {
     expect(abandonedIds).toContain('ord_X');
     expect(abandonedIds).toContain('ref_X');
     expect(abandonedIds).not.toContain('ord_unrelated');
+  });
+
+  it('does NOT cascade-abandon children of a sibling parent that only failed non-fatally in the same cycle', async () => {
+    // Regression test for the scoping of the cascade-abandon scan:
+    // When parent_A is permanently abandoned and parent_B fails non-fatally in
+    // the SAME drain cycle, children of parent_B must NOT be cascade-abandoned.
+    // (The fix: use a local cascadeAbandoned set seeded with parent_A's key,
+    //  instead of the global failedCreates that contains BOTH parent keys.)
+    vi.spyOn(global, 'fetch').mockRejectedValue(new Error('server error'));
+
+    // Parent A: already has MAX_ATTEMPTS-1 attempts → will be abandoned next drain
+    await enqueue('bill_sessions', 'create', 'bill_A', { id: 'bill_A', table: 'T_A', status: 'open' });
+    await enqueue('orders', 'create', 'ord_A_child', { id: 'ord_A_child', billSessionId: 'bill_A' });
+
+    for (let i = 0; i < MAX_ATTEMPTS - 1; i++) {
+      await drainQueue(FAKE_CFG);
+    }
+    // bill_A.attempts = MAX_ATTEMPTS-1 now; ord_A_child.attempts = 0 (blocked)
+
+    // Parent B: only 0 attempts — will fail non-fatally in this drain
+    await enqueue('bill_sessions', 'create', 'bill_B', { id: 'bill_B', table: 'T_B', status: 'open' });
+    await enqueue('orders', 'create', 'ord_B_child', { id: 'ord_B_child', billSessionId: 'bill_B' });
+
+    // Final drain: bill_A hits MAX_ATTEMPTS → cascade abandons ord_A_child
+    //              bill_B fails (attempts=1) → must NOT cascade-abandon ord_B_child
+    const result = await drainQueue(FAKE_CFG);
+
+    // bill_A + ord_A_child cascade-abandoned = 2; bill_B failed non-fatally = 1
+    expect(result.abandoned).toBe(2);
+    expect(result.failed).toBe(1);
+
+    // ord_B_child must remain in the queue untouched (attempts=0, blocked this cycle)
+    const remaining = await getPendingEntries();
+    const bChild = remaining.find(e => e.record_id === 'ord_B_child');
+    expect(bChild).toBeDefined();
+    expect(bChild.attempts).toBe(0);
+
+    // Only A-side entries should appear in the failed-call log as abandoned
+    const failedCalls = await getFailedSyncCalls();
+    const abandonedIds = failedCalls.filter(c => c.abandoned).map(c => c.record_id);
+    expect(abandonedIds).toContain('bill_A');
+    expect(abandonedIds).toContain('ord_A_child');
+    expect(abandonedIds).not.toContain('bill_B');
+    expect(abandonedIds).not.toContain('ord_B_child');
   });
 
   it('does NOT cascade-abandon children when parent fails with a non-final error', async () => {
