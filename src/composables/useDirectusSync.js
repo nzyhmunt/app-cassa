@@ -1280,6 +1280,7 @@ async function _runGlobalPull({ onProgress = null } = {}) {
     // user triggered reconfigureAndApply), skip applying stale config to the
     // store so the newer pull's result is not overwritten.
     if (_globalPullGeneration !== myGeneration) {
+      console.debug('[DirectusSync] Global pull superseded by a newer pull — skipping config apply.');
       return { ok: true, failedCollections: [] };
     }
 

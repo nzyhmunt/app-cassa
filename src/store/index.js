@@ -528,7 +528,9 @@ export const useOrderStore = defineStore('orders', () => {
             // Directus but were not expanded in this pull — in that case the
             // authoritative total_amount already mapped from IDB is preserved
             // to avoid a spurious reset to 0.
-            if (mappedOrder.orderItems.length > 0 || mappedOrder.itemCount === 0) {
+            // Note: mapOrderFromDirectus always populates item_count, so this
+            // check uses the snake_case field that is directly from the source.
+            if (mappedOrder.orderItems.length > 0 || mappedOrder.item_count === 0) {
               updateOrderTotals(mappedOrder);
               mappedOrder.total_amount = mappedOrder.totalAmount;
               mappedOrder.item_count = mappedOrder.itemCount;
@@ -1438,7 +1440,9 @@ export async function initStoreFromIDB(pinia) {
       // Directus but were not expanded in this pull — in that case the
       // authoritative total_amount already mapped from IDB is preserved
       // to avoid a spurious reset to 0.
-      if ((Array.isArray(mapped.orderItems) && mapped.orderItems.length > 0) || mapped.itemCount === 0) {
+      // Note: mapOrderFromDirectus always populates item_count, so this
+      // check uses the snake_case field that is directly from the source.
+      if ((Array.isArray(mapped.orderItems) && mapped.orderItems.length > 0) || mapped.item_count === 0) {
         updateOrderTotals(mapped);
         mapped.total_amount = mapped.totalAmount;
         mapped.item_count = mapped.itemCount;
