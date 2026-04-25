@@ -740,7 +740,7 @@ export function mapVenueConfigFromDirectus(cachedConfig, defaults) {
     });
   }
 
-  if ((next.venueMenuSource ?? next.menuSource) === 'directus' && categories.length > 0 && items.length > 0) {
+  if (next.menuSource === 'directus' && categories.length > 0 && items.length > 0) {
     const menu = normalizeMenu(modifiers, categoryModifierLinks, itemModifierLinks, categories, items, next.locale ?? 'it-IT');
     if (Object.keys(menu).length > 0) next.menu = menu;
   }
