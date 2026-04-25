@@ -1035,7 +1035,7 @@ export const useOrderStore = defineStore('orders', () => {
     if ('tableCurrentBillSession' in state) { tableCurrentBillSession.value = state.tableCurrentBillSession; keys.push('tableCurrentBillSession'); }
     if ('tableMergedInto' in state) { tableMergedInto.value = state.tableMergedInto; keys.push('tableMergedInto'); }
     if ('tableOccupiedAt' in state) { tableOccupiedAt.value = state.tableOccupiedAt; keys.push('tableOccupiedAt'); }
-    if ('billRequestedTables' in state) { billRequestedTables.value = state.billRequestedTables; keys.push('billRequestedTables'); }
+    if ('billRequestedTables' in state) { billRequestedTables.value = new Set(state.billRequestedTables ?? []); keys.push('billRequestedTables'); }
     if (keys.length) _skipNextScheduledSave(...keys);
   });
 
