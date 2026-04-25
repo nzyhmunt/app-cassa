@@ -283,7 +283,30 @@ export async function saveStateToIDB(state) {
 
     await Promise.all(ops);
     touchStorageKey();
-    emitIDBChange(state);
+    // Emit a sanitized copy that mirrors the shape actually written to IDB,
+    // so reactive refs never diverge from the persisted data.
+    const sanitized = {};
+    if ('orders' in state) sanitized.orders = state.orders ?? [];
+    if ('transactions' in state) sanitized.transactions = state.transactions ?? [];
+    if ('cashMovements' in state) sanitized.cashMovements = state.cashMovements ?? [];
+    if ('dailyClosures' in state) sanitized.dailyClosures = state.dailyClosures ?? [];
+    if ('printLog' in state) {
+      sanitized.printLog = (state.printLog ?? [])
+        .slice(0, 200)
+        .map(({ payload: _p, ...rest }) => rest);
+    }
+    if ('cashBalance' in state) sanitized.cashBalance = state.cashBalance ?? 0;
+    if ('tableCurrentBillSession' in state) sanitized.tableCurrentBillSession = state.tableCurrentBillSession ?? {};
+    if ('tableMergedInto' in state) sanitized.tableMergedInto = state.tableMergedInto ?? {};
+    if ('tableOccupiedAt' in state) sanitized.tableOccupiedAt = state.tableOccupiedAt ?? {};
+    if ('billRequestedTables' in state) {
+      sanitized.billRequestedTables = state.billRequestedTables instanceof Set
+        ? Array.from(state.billRequestedTables)
+        : Array.isArray(state.billRequestedTables)
+          ? state.billRequestedTables
+          : [];
+    }
+    emitIDBChange(sanitized);
   } catch (e) {
     console.warn('[IDBPersistence] Failed to save state:', e);
     throw e;
@@ -313,7 +336,7 @@ export async function saveOrdersAndOccupancyInIDB(orders, tableOccupiedAt) {
     })));
     await tx.done;
     touchStorageKey();
-    emitIDBChange({ orders, tableOccupiedAt });
+    emitIDBChange({ orders: orders ?? [], tableOccupiedAt: tableOccupiedAt ?? {} });
   } catch (e) {
     console.warn('[IDBPersistence] saveOrdersAndOccupancyInIDB failed:', e);
     throw e;

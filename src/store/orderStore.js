@@ -5,7 +5,7 @@
  */
 
 import { defineStore } from 'pinia';
-import { ref, computed, watch, toRaw } from 'vue';
+import { ref, computed, watch, toRaw, onScopeDispose } from 'vue';
 import {
   appConfig,
   updateOrderTotals,
@@ -1024,7 +1024,7 @@ export const useOrderStore = defineStore('orders', () => {
   // This subscriber applies persisted state to the reactive refs after a confirmed
   // IDB write. Some store actions still update refs directly in other code paths,
   // so this is an important synchronization path, but not yet the only one.
-  onIDBChange((state) => {
+  const unsubIDBChange = onIDBChange((state) => {
     const keys = [];
     if ('orders' in state) { orders.value = state.orders; keys.push('orders'); }
     if ('transactions' in state) { transactions.value = state.transactions; keys.push('transactions'); }
@@ -1038,6 +1038,7 @@ export const useOrderStore = defineStore('orders', () => {
     if ('billRequestedTables' in state) { billRequestedTables.value = new Set(state.billRequestedTables ?? []); keys.push('billRequestedTables'); }
     if (keys.length) _skipNextScheduledSave(...keys);
   });
+  onScopeDispose(unsubIDBChange);
 
   return {
     orders,
