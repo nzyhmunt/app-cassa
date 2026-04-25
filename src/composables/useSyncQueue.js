@@ -252,13 +252,15 @@ function _isPresentValue(value) {
 
 /**
  * Defines cross-collection parent→child FK dependencies used by `drainQueue()`
- * to propagate blocks when a parent entry fails.
+ * to defer child CREATEs until their required parent CREATEs are available.
  *
  * Each entry maps a child collection to an array of parent dependencies.
- * If ANY parent entry for `parentCollection:parentId` is added to `blockedKeys`,
- * or is still pending but not yet pushed in this drain cycle, the child entry is
- * skipped for the rest of the same drain cycle (since the child can never succeed
- * without all its parents already in Directus).
+ * If ANY required parent entry for `parentCollection:parentId` is recorded in
+ * `failedCreates`, or is still in `pendingCreates` and has not yet been added to
+ * `pushedInThisCycle`, the child entry is skipped for the rest of the same drain
+ * cycle (since the child can never succeed without all its parents already in
+ * Directus). This gating is specific to parent CREATE ordering and does not imply
+ * that unrelated UPDATE/DELETE failures should also block children.
  *
  * @type {Map<string, Array<{ parentCollection: string, fkField: string }>>}
  */
