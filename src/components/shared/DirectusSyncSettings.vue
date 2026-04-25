@@ -623,7 +623,13 @@ async function runFullConfigApply() {
       }),
     });
     if (result?.ok) {
-      _appendReconfigureLog({ level: 'success', message: 'Procedura completata con successo.' });
+      _appendReconfigureLog({ level: 'info', message: 'Configurazione aggiornata. Avvio pull dati operativi…' });
+      try {
+        await sync.forcePull();
+        _appendReconfigureLog({ level: 'success', message: 'Procedura completata con successo.' });
+      } catch {
+        _appendReconfigureLog({ level: 'warning', message: 'Configurazione aggiornata ma il pull dati operativi non è riuscito.' });
+      }
     } else {
       _appendReconfigureLog({
         level: 'error',

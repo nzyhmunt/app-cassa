@@ -490,7 +490,7 @@ describe('reconfigureAndApply()', () => {
     const { appConfig } = await import('../../utils/index.js');
     const store = makeStore({ config: appConfig, preBillPrinterId: 'obsolete_printer' });
     const sync = useDirectusSync();
-    sync.startSync({ appType: 'cassa', store });
+    await sync.startSync({ appType: 'cassa', store });
     const result = await sync.reconfigureAndApply();
     sync.stopSync();
 
@@ -531,7 +531,7 @@ describe('reconfigureAndApply()', () => {
       }),
     });
     const sync = useDirectusSync();
-    sync.startSync({ appType: 'cassa', store });
+    await sync.startSync({ appType: 'cassa', store });
     const result = await sync.reconfigureAndApply();
     sync.stopSync();
 

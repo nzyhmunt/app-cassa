@@ -650,6 +650,15 @@ let _pushInFlight = null;
 let _store = null;
 /** @type {'cassa'|'sala'|'cucina'} */
 let _appType = 'cassa';
+/**
+ * Monotonically increasing counter incremented at the start of every
+ * `_runGlobalPull` call.  Each invocation captures its own value; before
+ * writing runtime config back to the store it checks whether a newer pull
+ * has started in the meantime and, if so, skips the (now stale) write.
+ * This prevents a background global-pull that was superseded by an explicit
+ * `reconfigureAndApply` from resetting the primary colour back to defaults.
+ */
+let _globalPullGeneration = 0;
 
 const syncStatus = ref(/** @type {'idle'|'syncing'|'error'|'offline'} */ ('idle'));
 const lastPushAt = ref(/** @type {string|null} */ (null));
@@ -1183,6 +1192,11 @@ async function _runGlobalPull({ onProgress = null } = {}) {
   const cfg = _getCfg();
   if (!cfg) return;
   const venueId = cfg.venueId ?? null;
+  // Capture the current generation counter so we can detect whether a newer
+  // global pull has been started (e.g. by reconfigureAndApply) while this one
+  // is awaiting network/IDB work.  If superseded, skip the config-apply step
+  // to avoid overwriting the freshly applied runtime config with stale data.
+  const myGeneration = ++_globalPullGeneration;
 
   try {
     _emitProgress(onProgress, { level: 'info', message: 'Avvio pull globale configurazione Directus…' });
@@ -1261,6 +1275,13 @@ async function _runGlobalPull({ onProgress = null } = {}) {
       message: `Deep fetch completato (menu_source=${menuSource}).`,
       details: JSON.stringify(fanOutSummary),
     });
+
+    // If a newer global pull started while we were fetching (e.g. because the
+    // user triggered reconfigureAndApply), skip applying stale config to the
+    // store so the newer pull's result is not overwritten.
+    if (_globalPullGeneration !== myGeneration) {
+      return { ok: true, failedCollections: [] };
+    }
 
     await _hydrateConfigFromLocalCache(venueId, onProgress);
     _emitProgress(onProgress, { level: 'success', message: 'Configurazione applicata con successo.' });
@@ -1451,6 +1472,7 @@ export function _resetDirectusSyncSingleton() {
   _store = null;
   _appType = 'cassa';
   _pushInFlight = null;
+  _globalPullGeneration = 0;
   if (_pushTimer) { clearInterval(_pushTimer); _pushTimer = null; }
   if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
   if (_globalTimer) { clearInterval(_globalTimer); _globalTimer = null; }

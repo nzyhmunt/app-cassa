@@ -516,17 +516,23 @@ export const useOrderStore = defineStore('orders', () => {
     targetCollections.forEach((key) => {
       if (Object.prototype.hasOwnProperty.call(idbState, key)) {
         if (key === 'orders') {
-          // Recompute totalAmount/itemCount from orderItems so that paid
-          // modifiers are always reflected even when the Directus-sourced
-          // total_amount in IDB is stale or missing their prices.
           operationalStateRefs[key].value = (idbState[key] ?? []).map((order) => {
             const mappedOrder = mapOrderFromDirectus(order);
             if (!Array.isArray(mappedOrder.orderItems)) {
               mappedOrder.orderItems = [];
             }
-            updateOrderTotals(mappedOrder);
-            mappedOrder.total_amount = mappedOrder.totalAmount;
-            mappedOrder.item_count = mappedOrder.itemCount;
+            // Recompute totals from orderItems when they are populated locally,
+            // or when the order is genuinely empty (item_count = 0) so that a
+            // locally cleared order is correctly reflected as €0.
+            // When orderItems is empty but item_count > 0 the items exist in
+            // Directus but were not expanded in this pull — in that case the
+            // authoritative total_amount already mapped from IDB is preserved
+            // to avoid a spurious reset to 0.
+            if (mappedOrder.orderItems.length > 0 || mappedOrder.itemCount === 0) {
+              updateOrderTotals(mappedOrder);
+              mappedOrder.total_amount = mappedOrder.totalAmount;
+              mappedOrder.item_count = mappedOrder.itemCount;
+            }
             return mappedOrder;
           });
         } else {
@@ -1425,12 +1431,18 @@ export async function initStoreFromIDB(pinia) {
       const mapped = mapOrderFromDirectus(order);
       if (mapped.globalNote === undefined) mapped.globalNote = '';
       if (!mapped.noteVisibility) mapped.noteVisibility = { cassa: true, sala: true, cucina: true };
-      // Recompute totalAmount/itemCount from orderItems so that paid modifiers
-      // (variants) added after the last Directus sync are always reflected,
-      // regardless of the potentially stale `total_amount` stored in IDB.
-      updateOrderTotals(mapped);
-      mapped.total_amount = mapped.totalAmount;
-      mapped.item_count = mapped.itemCount;
+      // Recompute totals from orderItems when they are populated locally,
+      // or when the order is genuinely empty (item_count = 0) so that a
+      // locally cleared order is correctly reflected as €0.
+      // When orderItems is empty but item_count > 0 the items exist in
+      // Directus but were not expanded in this pull — in that case the
+      // authoritative total_amount already mapped from IDB is preserved
+      // to avoid a spurious reset to 0.
+      if ((Array.isArray(mapped.orderItems) && mapped.orderItems.length > 0) || mapped.itemCount === 0) {
+        updateOrderTotals(mapped);
+        mapped.total_amount = mapped.totalAmount;
+        mapped.item_count = mapped.itemCount;
+      }
       return mapped;
     });
     orderStore.transactions = idbState.transactions ?? [];
