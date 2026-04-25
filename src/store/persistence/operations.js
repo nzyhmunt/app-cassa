@@ -5,6 +5,7 @@
  */
 
 import { getDB } from '../../composables/useIDB.js';
+import { emitIDBChange } from './eventBus.js';
 import { appConfig } from '../../utils/index.js';
 import { PIN_LENGTH } from '../../utils/pinAuth.js';
 import { normalizeAppsArray } from '../../utils/userRoles.js';
@@ -14,6 +15,7 @@ import {
   parseJsonArray,
   relationId as _relationId,
   replaceAll as _replaceAll,
+  replaceAllSerialized as _replaceAllSerialized,
   normalizeTableCurrentBillSession as _normalizeTableCurrentBillSession,
   hashPinForLocalAuth as _hashPinForLocalAuth,
   extractPinDigits as _extractPinDigits,
@@ -24,17 +26,7 @@ import {
 function _normalizeIncomingSync(collection, record) {
   if (!record || typeof record !== 'object') return record;
   const normalized = { ...record };
-  if (collection === 'orders') {
-    const billSession = _relationId(normalized.bill_session ?? normalized.billSessionId);
-    if (billSession != null) {
-      normalized.bill_session = billSession;
-      normalized.billSessionId = billSession;
-    }
-    const table = _relationId(normalized.table);
-    if (table != null) normalized.table = table;
-    normalized.dietary_diets = parseJsonArray(normalized.dietary_diets);
-    normalized.dietary_allergens = parseJsonArray(normalized.dietary_allergens);
-  } else if (collection === 'order_items') {
+  if (collection === 'order_items') {
     const orderId = _relationId(normalized.order ?? normalized.orderId);
     if (orderId != null) {
       normalized.order = orderId;
@@ -59,17 +51,11 @@ function _normalizeIncomingSync(collection, record) {
     if (normalized.item_uid == null && normalized.itemUid != null) normalized.item_uid = normalized.itemUid;
     if (normalized.itemUid == null && normalized.item_uid != null) normalized.itemUid = normalized.item_uid;
   } else if (collection === 'table_merge_sessions') {
-    const slave = _relationId(normalized.slave_table ?? normalized.slaveTable);
-    const master = _relationId(normalized.master_table ?? normalized.masterTable);
+    const slave = _relationId(normalized.slave_table);
+    const master = _relationId(normalized.master_table);
     const venue = _relationId(normalized.venue);
-    if (slave != null) {
-      normalized.slave_table = slave;
-      normalized.slaveTable = slave;
-    }
-    if (master != null) {
-      normalized.master_table = master;
-      normalized.masterTable = master;
-    }
+    if (slave != null) normalized.slave_table = slave;
+    if (master != null) normalized.master_table = master;
     if (venue != null) normalized.venue = venue;
   } else if (collection === 'menu_items') {
     normalized.ingredients = parseJsonArray(normalized.ingredients);
@@ -226,30 +212,57 @@ export async function saveStateToIDB(state) {
   try {
     const db = await getDB();
     const ops = [];
+    // Serialize each field once so the same payload drives both the IDB write
+    // and the event-bus emission. JSON.parse(JSON.stringify(...)) is safe with
+    // Vue reactive proxies (structuredClone throws DataCloneError on proxies)
+    // and matches the semantics of the IDB write path.
+    const ser = (v) => JSON.parse(JSON.stringify(v));
+    const sanitized = {};
 
-    if ('orders' in state) ops.push(_replaceAll(db, 'orders', state.orders ?? []));
-    if ('transactions' in state) ops.push(_replaceAll(db, 'transactions', state.transactions ?? []));
-    if ('cashMovements' in state) ops.push(_replaceAll(db, 'cash_movements', state.cashMovements ?? []));
-    if ('dailyClosures' in state) ops.push(_replaceAll(db, 'daily_closures', state.dailyClosures ?? []));
+    if ('orders' in state) {
+      const v = ser(state.orders ?? []);
+      sanitized.orders = v;
+      ops.push(_replaceAllSerialized(db, 'orders', v));
+    }
+    if ('transactions' in state) {
+      const v = ser(state.transactions ?? []);
+      sanitized.transactions = v;
+      ops.push(_replaceAllSerialized(db, 'transactions', v));
+    }
+    if ('cashMovements' in state) {
+      const v = ser(state.cashMovements ?? []);
+      sanitized.cashMovements = v;
+      ops.push(_replaceAllSerialized(db, 'cash_movements', v));
+    }
+    if ('dailyClosures' in state) {
+      const v = ser(state.dailyClosures ?? []);
+      sanitized.dailyClosures = v;
+      ops.push(_replaceAllSerialized(db, 'daily_closures', v));
+    }
     if ('printLog' in state) {
+      // printLog is NOT emitted on the bus: the IDB-persisted form strips
+      // entry.payload (needed for reprint), so the in-memory ref must stay
+      // intact.  Persisted via the normal watcher → _scheduleSave path.
       const printLogToStore = (state.printLog ?? [])
         .slice(0, 200)
         .map(({ payload: _p, ...rest }) => rest);
       ops.push(_replaceAll(db, 'print_jobs', printLogToStore));
     }
     if ('cashBalance' in state) {
-      ops.push(db.put('app_meta', JSON.parse(JSON.stringify({
-        id: 'cashBalance',
-        cashBalance: state.cashBalance ?? 0,
-      }))));
+      const v = ser(state.cashBalance ?? 0);
+      sanitized.cashBalance = v;
+      ops.push(db.put('app_meta', { id: 'cashBalance', cashBalance: v }));
     }
     if ('tableCurrentBillSession' in state) {
-      ops.push(db.put('app_meta', JSON.parse(JSON.stringify({
-        id: 'tableCurrentBillSession',
-        value: state.tableCurrentBillSession ?? {},
-      }))));
+      const v = ser(state.tableCurrentBillSession ?? {});
+      sanitized.tableCurrentBillSession = v;
+      ops.push(db.put('app_meta', { id: 'tableCurrentBillSession', value: v }));
     }
     if ('tableMergedInto' in state) {
+      // Emit the raw merge-map on the bus (serialized once for safety).
+      // The actual IDB write transforms it into normalized table_merge_sessions
+      // records via the async IIFE below; the two paths are intentionally separate.
+      sanitized.tableMergedInto = ser(state.tableMergedInto ?? {});
       const now = new Date().toISOString();
       ops.push((async () => {
         const tx = db.transaction(['table_merge_sessions', 'app_meta'], 'readwrite');
@@ -280,24 +293,25 @@ export async function saveStateToIDB(state) {
       })());
     }
     if ('tableOccupiedAt' in state) {
-      ops.push(db.put('app_meta', JSON.parse(JSON.stringify({
-        id: 'tableOccupiedAt',
-        value: state.tableOccupiedAt ?? {},
-      }))));
+      const v = ser(state.tableOccupiedAt ?? {});
+      sanitized.tableOccupiedAt = v;
+      ops.push(db.put('app_meta', { id: 'tableOccupiedAt', value: v }));
     }
     if ('billRequestedTables' in state) {
-      ops.push(db.put('app_meta', JSON.parse(JSON.stringify({
-        id: 'billRequestedTables',
-        value: state.billRequestedTables instanceof Set
+      const v = ser(
+        state.billRequestedTables instanceof Set
           ? Array.from(state.billRequestedTables)
           : Array.isArray(state.billRequestedTables)
             ? state.billRequestedTables
-            : [],
-      }))));
+            : []
+      );
+      sanitized.billRequestedTables = v;
+      ops.push(db.put('app_meta', { id: 'billRequestedTables', value: v }));
     }
 
     await Promise.all(ops);
     touchStorageKey();
+    emitIDBChange(sanitized);
   } catch (e) {
     console.warn('[IDBPersistence] Failed to save state:', e);
     throw e;
@@ -320,13 +334,15 @@ export async function saveOrdersAndOccupancyInIDB(orders, tableOccupiedAt) {
     const ordersStore = tx.objectStore('orders');
     const metaStore = tx.objectStore('app_meta');
     ordersStore.clear();
-    (orders ?? []).forEach(r => ordersStore.put(JSON.parse(JSON.stringify(r))));
-    metaStore.put(JSON.parse(JSON.stringify({
-      id: 'tableOccupiedAt',
-      value: tableOccupiedAt ?? {},
-    })));
+    // Serialize each order once; the same plain objects are written to IDB and
+    // emitted on the bus so there is no second JSON round-trip.
+    const serializedOrders = (orders ?? []).map(r => JSON.parse(JSON.stringify(r)));
+    serializedOrders.forEach(r => ordersStore.put(r));
+    const serializedTableOccupiedAt = JSON.parse(JSON.stringify(tableOccupiedAt ?? {}));
+    metaStore.put({ id: 'tableOccupiedAt', value: serializedTableOccupiedAt });
     await tx.done;
     touchStorageKey();
+    emitIDBChange({ orders: serializedOrders, tableOccupiedAt: serializedTableOccupiedAt });
   } catch (e) {
     console.warn('[IDBPersistence] saveOrdersAndOccupancyInIDB failed:', e);
     throw e;

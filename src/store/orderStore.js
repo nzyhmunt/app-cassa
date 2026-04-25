@@ -5,7 +5,7 @@
  */
 
 import { defineStore } from 'pinia';
-import { ref, computed, watch, toRaw } from 'vue';
+import { ref, computed, watch, toRaw, onScopeDispose } from 'vue';
 import {
   appConfig,
   updateOrderTotals,
@@ -35,6 +35,7 @@ import {
   pruneInvoiceRequestsInIDB,
 } from './persistence/audit.js';
 import { enqueue } from '../composables/useSyncQueue.js';
+import { onIDBChange } from './persistence/eventBus.js';
 import { useConfigStore } from './configStore.js';
 
 export const useOrderStore = defineStore('orders', () => {
@@ -365,8 +366,6 @@ export const useOrderStore = defineStore('orders', () => {
     if (!order.noteVisibility) order.noteVisibility = { cassa: true, sala: true, cucina: true };
     const nextOrders = [...orders.value, order];
     await saveStateToIDB({ orders: nextOrders });
-    _skipNextScheduledSave('orders');
-    orders.value = nextOrders;
     enqueue('orders', 'create', order.id, order);
   }
 
@@ -1022,6 +1021,27 @@ export const useOrderStore = defineStore('orders', () => {
   watch(tableMergedInto, () => _scheduleSave('tableMergedInto'), { deep: true });
   watch(tableOccupiedAt, () => _scheduleSave('tableOccupiedAt'), { deep: true });
   watch(billRequestedTables, () => _scheduleSave('billRequestedTables'), { deep: true });
+
+  // ── IDB event-bus subscriber ──────────────────────────────────────────────────
+  // This subscriber applies persisted state to the reactive refs after a confirmed
+  // IDB write. Some store actions still update refs directly in other code paths,
+  // so this is an important synchronization path, but not yet the only one.
+  const unsubIDBChange = onIDBChange((state) => {
+    const keys = [];
+    if ('orders' in state) { orders.value = state.orders; keys.push('orders'); }
+    if ('transactions' in state) { transactions.value = state.transactions; keys.push('transactions'); }
+    if ('cashBalance' in state) { cashBalance.value = state.cashBalance; keys.push('cashBalance'); }
+    if ('cashMovements' in state) { cashMovements.value = state.cashMovements; keys.push('cashMovements'); }
+    if ('dailyClosures' in state) { dailyClosures.value = state.dailyClosures; keys.push('dailyClosures'); }
+    // printLog is not handled here: the IDB-persisted form has `payload` stripped,
+    // so updating the ref from the bus would lose reprint data. The watcher path handles persistence.
+    if ('tableCurrentBillSession' in state) { tableCurrentBillSession.value = state.tableCurrentBillSession; keys.push('tableCurrentBillSession'); }
+    if ('tableMergedInto' in state) { tableMergedInto.value = state.tableMergedInto; keys.push('tableMergedInto'); }
+    if ('tableOccupiedAt' in state) { tableOccupiedAt.value = state.tableOccupiedAt; keys.push('tableOccupiedAt'); }
+    if ('billRequestedTables' in state) { billRequestedTables.value = new Set(state.billRequestedTables ?? []); keys.push('billRequestedTables'); }
+    if (keys.length) _skipNextScheduledSave(...keys);
+  });
+  onScopeDispose(unsubIDBChange);
 
   return {
     orders,

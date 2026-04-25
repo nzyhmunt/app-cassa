@@ -102,6 +102,7 @@ trigger DB o logica equivalente.
 | `print_jobs`                | Log dei lavori di stampa inviati (cronologia stampe)              | ObjectStore `print_jobs`     |
 | `fiscal_receipts`           | Payload XML per comandi alla stampante fiscale                    | ObjectStore `fiscal_receipts` |
 | `invoice_requests`          | Dati di fatturazione elettronica richiesti a chiusura conto       | ObjectStore `invoice_requests` |
+| `ai_prompts`                | Prompt AI (Directus-interno, non usato dal frontend)              | *(nessuna — solo backend)*   |
 
 ---
 
@@ -967,13 +968,21 @@ CREATE INDEX idx_venue_users_apps   ON venue_users USING GIN (apps);
 -- Unioni tavolo attive: ogni riga rappresenta un'unione slave → master.
 -- Il record viene eliminato quando l'unione viene annullata (split).
 CREATE TABLE table_merge_sessions (
-    id           UUID         PRIMARY KEY DEFAULT gen_random_uuid(), -- UUID Directus; non usato lato client
+    id           UUID         PRIMARY KEY,                          -- UUID v7 generato client-side; riutilizzato tra cicli di write per preservare l'identità Directus
+    venue        INTEGER      NOT NULL REFERENCES venues(id) ON DELETE CASCADE,
     slave_table  VARCHAR(10)  NOT NULL UNIQUE REFERENCES tables(id) ON DELETE CASCADE, -- tavolo che delega il proprio stato al master
     master_table VARCHAR(10)  NOT NULL REFERENCES tables(id) ON DELETE CASCADE,        -- tavolo che riceve le comande
-    merged_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+    merged_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    sort         INTEGER      NULL,
+    -- Directus standard fields
+    user_created UUID         NULL REFERENCES directus_users(id),
+    date_created TIMESTAMPTZ  DEFAULT NOW(),
+    user_updated UUID         NULL REFERENCES directus_users(id),
+    date_updated TIMESTAMPTZ  DEFAULT NOW()
 );
 
 CREATE INDEX idx_table_merge_master ON table_merge_sessions (master_table);
+CREATE INDEX idx_table_merge_venue  ON table_merge_sessions (venue);
 ```
 
 **Semantica:**
@@ -981,6 +990,18 @@ CREATE INDEX idx_table_merge_master ON table_merge_sessions (master_table);
 - `getTableStatus(slaveId)` delega a `getTableStatus(masterId)` grazie a `tableMergedInto[slaveId]` in store.
 - Le comande dello slave vengono fisicamente spostate sulla `bill_session` del master al momento del merge.
 - L'eliminazione del record (split) ripristina l'autonomia del tavolo slave.
+- Il campo `id` è un UUID v7 generato client-side e riutilizzato tra cicli di write per preservare l'identità del record Directus.
+
+---
+
+### 2.24 `ai_prompts` — Prompt AI (Directus-interno)
+
+> **Nota**: questa collection è gestita interamente dal server Directus (via Directus MCP Extension o
+> script admin). **Non è usata dal frontend app-cassa** e non richiede integrazione con IndexedDB o
+> la coda di sync. Documentata qui solo ai fini dell'inventario schema live.
+
+Campi principali: `id` (UUID), `name`, `description`, `system_prompt` (markdown), `messages` (JSON array
+con oggetti `{role, text}`), `status`, campi standard Directus (`user_created`, `date_created`, ecc.).
 
 ---
 
@@ -990,6 +1011,7 @@ CREATE INDEX idx_table_merge_master ON table_merge_sessions (master_table);
 venues ──< rooms ──< tables
 venues ──< venue_users
 tables ──< table_merge_sessions (slave_table → master_table)
+venues ──< table_merge_sessions
 venues ──< payment_methods
 venues ──< menu_categories ──< menu_items
 venues ──< menu_modifiers

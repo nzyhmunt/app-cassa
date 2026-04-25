@@ -75,6 +75,23 @@ export async function replaceAll(db, storeName, records) {
 }
 
 /**
+ * Like `replaceAll` but accepts records that have already been JSON-serialized
+ * (plain objects, no Vue reactive proxies).  Skips the per-record JSON
+ * round-trip so the same serialized payload can be shared between the IDB
+ * write and the event-bus emission without duplicating serialization work.
+ *
+ * @param {import('idb').IDBPDatabase} db
+ * @param {string} storeName
+ * @param {Array} serializedRecords - Records already produced by JSON.parse(JSON.stringify(...)).
+ */
+export async function replaceAllSerialized(db, storeName, serializedRecords) {
+  const tx = db.transaction(storeName, 'readwrite');
+  await tx.store.clear();
+  await Promise.all(serializedRecords.map(r => tx.store.put(r)));
+  await tx.done;
+}
+
+/**
  * Normalises the `tableCurrentBillSession` map stored in app_meta.
  * Handles both the legacy scalar string format and the current object format.
  *

@@ -10,14 +10,36 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
 import { useAppStore } from '../index.js';
+import { _resetListeners } from '../persistence/eventBus.js';
+
+// Drain pending setImmediate callbacks (fake-indexeddb uses setImmediate for
+// IDB transaction processing).  Called in afterEach before clearing bus
+// listeners so that any fire-and-forget IDB writes from the current test
+// (e.g. setBillRequested's unawaited saveStateToIDB) complete and deliver
+// their bus event to the OLD store, not to the next test's fresh store.
+function flushIDB(rounds = 3) {
+  return Array.from({ length: rounds }).reduce(
+    (p) => p.then(() => new Promise((r) => setImmediate(r))),
+    Promise.resolve(),
+  );
+}
 
 // Prevent real network requests while loading the menu
 beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 503 }));
   setActivePinia(createPinia());
 });
 
-afterEach(() => {
+afterEach(async () => {
+  // Kill any pending _scheduleSave timers from old store instances.
+  vi.clearAllTimers();
+  vi.useRealTimers();
+  // Drain pending IDB setImmediate callbacks so fire-and-forget IDB writes
+  // complete (emitting to the OLD store's subscribers) before we clear the bus.
+  await flushIDB();
+  // Clear IDB-bus subscribers so future emissions cannot reach the next test's store.
+  _resetListeners();
   vi.unstubAllGlobals();
 });
 
