@@ -337,7 +337,8 @@ export async function saveOrdersAndOccupancyInIDB(orders, tableOccupiedAt) {
     })));
     await tx.done;
     touchStorageKey();
-    emitIDBChange({ orders: orders ?? [], tableOccupiedAt: tableOccupiedAt ?? {} });
+    const cloneForEmit = (v) => JSON.parse(JSON.stringify(v));
+    emitIDBChange({ orders: cloneForEmit(orders ?? []), tableOccupiedAt: cloneForEmit(tableOccupiedAt ?? {}) });
   } catch (e) {
     console.warn('[IDBPersistence] saveOrdersAndOccupancyInIDB failed:', e);
     throw e;
