@@ -285,24 +285,27 @@ export async function saveStateToIDB(state) {
     touchStorageKey();
     // Emit a sanitized copy that mirrors the shape actually written to IDB,
     // so reactive refs never diverge from the persisted data.
+    const cloneForEmit = (value) => JSON.parse(JSON.stringify(value));
     const sanitized = {};
-    if ('orders' in state) sanitized.orders = state.orders ?? [];
-    if ('transactions' in state) sanitized.transactions = state.transactions ?? [];
-    if ('cashMovements' in state) sanitized.cashMovements = state.cashMovements ?? [];
-    if ('dailyClosures' in state) sanitized.dailyClosures = state.dailyClosures ?? [];
+    if ('orders' in state) sanitized.orders = cloneForEmit(state.orders ?? []);
+    if ('transactions' in state) sanitized.transactions = cloneForEmit(state.transactions ?? []);
+    if ('cashMovements' in state) sanitized.cashMovements = cloneForEmit(state.cashMovements ?? []);
+    if ('dailyClosures' in state) sanitized.dailyClosures = cloneForEmit(state.dailyClosures ?? []);
     // printLog is intentionally excluded: the IDB-persisted form strips `entry.payload`
     // (needed for reprint), so emitting it would destroy in-memory payload data.
     // The printLog ref is maintained in-store and persisted via the normal watcher path.
-    if ('cashBalance' in state) sanitized.cashBalance = state.cashBalance ?? 0;
-    if ('tableCurrentBillSession' in state) sanitized.tableCurrentBillSession = state.tableCurrentBillSession ?? {};
-    if ('tableMergedInto' in state) sanitized.tableMergedInto = state.tableMergedInto ?? {};
-    if ('tableOccupiedAt' in state) sanitized.tableOccupiedAt = state.tableOccupiedAt ?? {};
+    if ('cashBalance' in state) sanitized.cashBalance = cloneForEmit(state.cashBalance ?? 0);
+    if ('tableCurrentBillSession' in state) sanitized.tableCurrentBillSession = cloneForEmit(state.tableCurrentBillSession ?? {});
+    if ('tableMergedInto' in state) sanitized.tableMergedInto = cloneForEmit(state.tableMergedInto ?? {});
+    if ('tableOccupiedAt' in state) sanitized.tableOccupiedAt = cloneForEmit(state.tableOccupiedAt ?? {});
     if ('billRequestedTables' in state) {
-      sanitized.billRequestedTables = state.billRequestedTables instanceof Set
-        ? Array.from(state.billRequestedTables)
-        : Array.isArray(state.billRequestedTables)
-          ? state.billRequestedTables
-          : [];
+      sanitized.billRequestedTables = cloneForEmit(
+        state.billRequestedTables instanceof Set
+          ? Array.from(state.billRequestedTables)
+          : Array.isArray(state.billRequestedTables)
+            ? state.billRequestedTables
+            : []
+      );
     }
     emitIDBChange(sanitized);
   } catch (e) {
