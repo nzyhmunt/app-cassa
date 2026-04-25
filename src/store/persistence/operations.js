@@ -285,7 +285,9 @@ export async function saveStateToIDB(state) {
     touchStorageKey();
     // Emit a sanitized copy that mirrors the shape actually written to IDB,
     // so reactive refs never diverge from the persisted data.
-    const cloneForEmit = (value) => JSON.parse(JSON.stringify(value));
+    // structuredClone matches IDB's own structured-clone write algorithm and
+    // avoids the double JSON-string allocation of JSON.parse(JSON.stringify(...)).
+    const cloneForEmit = structuredClone;
     const sanitized = {};
     if ('orders' in state) sanitized.orders = cloneForEmit(state.orders ?? []);
     if ('transactions' in state) sanitized.transactions = cloneForEmit(state.transactions ?? []);
@@ -337,8 +339,7 @@ export async function saveOrdersAndOccupancyInIDB(orders, tableOccupiedAt) {
     })));
     await tx.done;
     touchStorageKey();
-    const cloneForEmit = (v) => JSON.parse(JSON.stringify(v));
-    emitIDBChange({ orders: cloneForEmit(orders ?? []), tableOccupiedAt: cloneForEmit(tableOccupiedAt ?? {}) });
+    emitIDBChange({ orders: structuredClone(orders ?? []), tableOccupiedAt: structuredClone(tableOccupiedAt ?? {}) });
   } catch (e) {
     console.warn('[IDBPersistence] saveOrdersAndOccupancyInIDB failed:', e);
     throw e;

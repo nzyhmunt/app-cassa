@@ -415,6 +415,8 @@ export const useOrderStore = defineStore('orders', () => {
         console.warn('[Store] addItemsToOrder IDB save failed:', e);
         return false;
       }
+      _skipNextScheduledSave('orders');
+      orders.value = projectedOrders;
       _enqueueOrderItemsPatch(ordId, projected);
       return projected;
     });
