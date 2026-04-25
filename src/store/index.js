@@ -1117,8 +1117,8 @@ export const useOrderStore = defineStore('orders', () => {
         id: item.id ?? newUUIDv7(),
         ...item,
         modifiers: (Array.isArray(item.modifiers) ? item.modifiers : []).map(mod => ({
-          id: mod.id ?? newUUIDv7(),
           ...mod,
+          id: mod.id ?? newUUIDv7(),
         })),
       })),
       isDirectEntry: true,
