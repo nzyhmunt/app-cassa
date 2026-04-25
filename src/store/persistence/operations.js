@@ -283,11 +283,13 @@ export async function saveStateToIDB(state) {
 
     await Promise.all(ops);
     touchStorageKey();
-    // Emit a sanitized copy that mirrors the shape actually written to IDB,
-    // so reactive refs never diverge from the persisted data.
-    // structuredClone matches IDB's own structured-clone write algorithm and
-    // avoids the double JSON-string allocation of JSON.parse(JSON.stringify(...)).
-    const cloneForEmit = structuredClone;
+    // Emit a sanitized copy that mirrors the shape actually written to IDB so
+    // reactive refs never diverge from the persisted data.  We use the same
+    // JSON round-trip as the IDB put() calls above: this is safe with Vue
+    // reactive proxies (structuredClone would throw DataCloneError) and
+    // guarantees the emitted shape is identical to what was persisted
+    // (undefined fields dropped, Dates stringified, functions removed).
+    const cloneForEmit = (v) => JSON.parse(JSON.stringify(v));
     const sanitized = {};
     if ('orders' in state) sanitized.orders = cloneForEmit(state.orders ?? []);
     if ('transactions' in state) sanitized.transactions = cloneForEmit(state.transactions ?? []);
@@ -339,7 +341,12 @@ export async function saveOrdersAndOccupancyInIDB(orders, tableOccupiedAt) {
     })));
     await tx.done;
     touchStorageKey();
-    emitIDBChange({ orders: structuredClone(orders ?? []), tableOccupiedAt: structuredClone(tableOccupiedAt ?? {}) });
+    // Use JSON round-trip (same as the IDB put() calls above) so the emitted
+    // shape is safe with Vue reactive proxies and matches exactly what was persisted.
+    emitIDBChange({
+      orders: JSON.parse(JSON.stringify(orders ?? [])),
+      tableOccupiedAt: JSON.parse(JSON.stringify(tableOccupiedAt ?? {})),
+    });
   } catch (e) {
     console.warn('[IDBPersistence] saveOrdersAndOccupancyInIDB failed:', e);
     throw e;
