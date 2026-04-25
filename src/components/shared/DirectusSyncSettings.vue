@@ -152,7 +152,7 @@
         <AlertCircle v-else class="size-3 shrink-0" />
         <span>{{
           sync.syncStatus.value === 'syncing' ? 'Sincronizzazione in corso...' :
-          sync.syncStatus.value === 'offline' ? 'Directus non raggiungibile — riprovo appena torna online' :
+          sync.syncStatus.value === 'offline' ? 'Directus non raggiungibile — operazione non completata, riprovo appena torna online' :
           'Errore durante la sincronizzazione'
         }}</span>
       </div>
