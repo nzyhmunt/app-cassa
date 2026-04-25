@@ -573,9 +573,11 @@ async function _pushEntry(entry, sdkClient, cfg) {
  *   counter.  The `offline` flag in the return value is set to `true`.  This
  *   prevents retry-budget exhaustion while the device is offline.
  * - Cross-collection FK dependencies are guarded by `PARENT_DEPENDENCY_MAP`.
- *   A child entry whose parent is still pending in this cycle (not yet pushed)
- *   is deferred until the next cycle so it does not burn attempts on a
- *   FK-not-found error it can never avoid.
+ *   A child entry whose parent CREATE is still pending in this cycle (not yet
+ *   pushed) is deferred until the next cycle so it does not burn attempts on a
+ *   FK-not-found error it can never avoid.  Only CREATE failures gate children —
+ *   if a parent UPDATE or DELETE fails the record already exists in Directus and
+ *   the child's FK is satisfied, so it proceeds unblocked.
  *
  * @param {{ url: string, staticToken: string, venueId?: number|string|null }} cfg
  *   Directus connection config.
@@ -600,10 +602,13 @@ export async function drainQueue(cfg) {
   //   1. Group entries by "collection:record_id".
   //   2. Within each group sort chronologically (date_created, id) to preserve
   //      the original enqueue order (create before update before delete).
-  //   3. Sort groups by (first_entry_attempts ASC, date_created_of_first_entry ASC).
-  //      Using the first (gate) entry's attempts — not the minimum across the group —
-  //      ensures that a partially-failed chain (gate tried N times, later entries still
-  //      at 0) is correctly ranked as "tried N times" rather than "never tried".
+  //   3. Sort groups by (first_entry_attempts ASC, date_created_of_first_entry ASC,
+  //      firstId ASC, groupKey ASC).  Using the first (gate) entry's attempts —
+  //      not the minimum across the group — ensures that a partially-failed chain
+  //      (gate tried N times, later entries still at 0) is correctly ranked as
+  //      "tried N times" rather than "never tried".  The groupKey final tie-breaker
+  //      guarantees a stable, deterministic order even when two groups share the
+  //      same timestamp and UUIDv7 prefix.
   //   4. Flatten groups in group-priority order.
   const groupMap = new Map(); // "collection:record_id" → entry[]
   for (const entry of entries) {
@@ -611,7 +616,7 @@ export async function drainQueue(cfg) {
     if (!groupMap.has(key)) groupMap.set(key, []);
     groupMap.get(key).push(entry);
   }
-  const groupedEntries = [...groupMap.values()].map(grp => {
+  const groupedEntries = [...groupMap.entries()].map(([groupKey, grp]) => {
     grp.sort((a, b) => {
       if (a.date_created < b.date_created) return -1;
       if (a.date_created > b.date_created) return 1;
@@ -629,6 +634,7 @@ export async function drainQueue(cfg) {
       firstAttempts,
       firstDateCreated: grp[0]?.date_created ?? '',
       firstId: grp[0]?.id ?? '',
+      groupKey,
     };
   });
   const sortedEntries = groupedEntries
@@ -636,15 +642,11 @@ export async function drainQueue(cfg) {
       if (ga.firstAttempts !== gb.firstAttempts) return ga.firstAttempts - gb.firstAttempts;
       if (ga.firstDateCreated < gb.firstDateCreated) return -1;
       if (ga.firstDateCreated > gb.firstDateCreated) return 1;
-      return ga.firstId < gb.firstId ? -1 : ga.firstId > gb.firstId ? 1 : 0;
+      if (ga.firstId < gb.firstId) return -1;
+      if (ga.firstId > gb.firstId) return 1;
+      return ga.groupKey < gb.groupKey ? -1 : ga.groupKey > gb.groupKey ? 1 : 0;
     })
     .flatMap(group => group.entries);
-
-  // Pre-compute the full set of (collection:record_id) keys present in this
-  // drain cycle.  Used by the cross-collection dependency check to detect when
-  // a parent entry is still pending (i.e. not yet pushed), so BFS reordering
-  // cannot accidentally schedule a child before its parent.
-  const pendingSet = new Set(sortedEntries.map(e => `${e.collection}:${e.record_id}`));
 
   // (collection:record_id) keys that have failed in this drain cycle.
   // Subsequent entries sharing the same key are skipped so that operation
@@ -653,11 +655,30 @@ export async function drainQueue(cfg) {
   // from halting the entire queue.
   const blockedKeys = new Set();
 
+  // Subset of blockedKeys: only entries whose FAILED operation was a CREATE.
+  // Used exclusively for cross-collection FK dependency gating.  An UPDATE or
+  // DELETE failure does NOT remove the record from Directus, so child entries
+  // that reference it via FK remain valid and must not be unnecessarily deferred.
+  const failedCreates = new Set();
+
   // Tracks entries successfully pushed in this cycle — used by the cross-
   // collection dependency check to distinguish "already pushed" parents from
   // "still pending" ones even after BFS reordering moves a child before its
   // parent in the sorted list.
   const pushedInThisCycle = new Set();
+
+  // Set of (collection:record_id) keys whose FIRST (gate) pending operation is a
+  // CREATE.  Used by the FK dependency check together with pushedInThisCycle to
+  // decide whether to defer a child entry when the parent is still in the queue
+  // but hasn't been processed yet this cycle.
+  // Only keys with a pending CREATE matter: if the gate op is UPDATE/DELETE the
+  // record already exists in Directus and the FK constraint is already satisfied.
+  const pendingCreates = new Set();
+  for (const [key, grp] of groupMap) {
+    // Each grp was sorted chronologically inside the groupedEntries .map() above
+    // (grp.sort() mutates in place), so grp[0] is the earliest-enqueued entry.
+    if ((grp[0]?.operation ?? '') === 'create') pendingCreates.add(key);
+  }
 
   for (const entry of sortedEntries) {
     const entryKey = `${entry.collection}:${entry.record_id}`;
@@ -665,13 +686,17 @@ export async function drainQueue(cfg) {
     // Skip entries whose record chain is blocked by a prior failure this cycle.
     if (blockedKeys.has(entryKey)) continue;
 
-    // Also skip entries whose parent record is blocked (cross-collection FK dependency).
-    // For example: if `transactions:txn_1` failed, we must not attempt
+    // Also skip entries whose parent record's CREATE is blocked or still pending
+    // (cross-collection FK dependency).
+    // For example: if `transactions:txn_1` CREATE failed, we must not attempt
     // `transaction_order_refs` entries whose `payload.transaction === 'txn_1'`
     // because Directus would reject them with a FK-not-found error.
     // The second condition handles the BFS case: a child (attempts=0) may be
-    // sorted before its parent (attempts>0).  If the parent is still in the
-    // pending set but has not been pushed yet this cycle, defer the child.
+    // sorted before its parent CREATE (attempts>0).  If the parent's CREATE is
+    // still pending and has not been pushed yet this cycle, defer the child.
+    // NOTE: only CREATE failures gate children.  If a parent UPDATE/DELETE fails,
+    // the record still exists in Directus so the FK is valid — child entries must
+    // not be blocked.
     // A collection can have multiple parents (e.g. transaction_order_refs depends
     // on both 'transactions' and 'orders'); ALL parents are checked.
     const deps = PARENT_DEPENDENCY_MAP.get(entry.collection);
@@ -681,7 +706,7 @@ export async function drainQueue(cfg) {
         const parentId = entry.payload?.[dep.fkField];
         if (parentId) {
           const parentKey = `${dep.parentCollection}:${parentId}`;
-          if (blockedKeys.has(parentKey) || (pendingSet.has(parentKey) && !pushedInThisCycle.has(parentKey))) {
+          if (failedCreates.has(parentKey) || (pendingCreates.has(parentKey) && !pushedInThisCycle.has(parentKey))) {
             skipEntry = true;
             break;
           }
@@ -733,6 +758,13 @@ export async function drainQueue(cfg) {
       // (e.g. an update after a failed create) cannot succeed and must wait for
       // the next drain cycle.
       blockedKeys.add(entryKey);
+      // For FK dependency gating: only a failed CREATE means the record doesn't
+      // yet exist in Directus.  A failed UPDATE or DELETE leaves the record intact,
+      // so children whose FK points to that record remain valid and must not be
+      // unnecessarily blocked.
+      if (entry.operation === 'create') {
+        failedCreates.add(entryKey);
+      }
     }
   }
 

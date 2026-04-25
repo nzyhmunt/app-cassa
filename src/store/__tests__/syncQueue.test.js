@@ -18,6 +18,7 @@
  *  - drainQueue() blocks daily_closure_by_method when parent daily_closures fails
  *  - drainQueue() blocks orders create when parent bill_session create fails
  *  - drainQueue() blocks transactions create when parent bill_session create fails
+ *  - drainQueue() does NOT block children when parent fails with an UPDATE (record already in Directus)
  *  - drainQueue() strips local-only fields (_sync_status, orderItems)
  *  - drainQueue() returns push/failed/abandoned counts
  *  - drainQueue() returns offline:false when all entries succeed
@@ -759,6 +760,39 @@ describe('drainQueue()', () => {
     expect(entries).toHaveLength(2);
     const txn = entries.find(e => e.record_id === 'txn_2');
     expect(txn.attempts).toBe(0); // blocked, never attempted
+  });
+
+  it('does NOT block child entries when the parent fails with an UPDATE (record already in Directus)', async () => {
+    // Scenario: orders:update fails (parent record already exists in Directus from a
+    // previous successful CREATE).  transaction_order_refs that reference ord_1 via FK
+    // 'order' should NOT be blocked — the FK is already satisfied even though the
+    // UPDATE fails.  Only failed CREATE operations (record doesn't exist yet) should
+    // gate children.
+    vi.spyOn(global, 'fetch')
+      .mockRejectedValueOnce(new Error('HTTP 400 Bad Request')) // orders:update fails
+      .mockImplementation(() => Promise.resolve(mockResponse(201, {})));  // refs succeed
+
+    // Simulate parent already existing in Directus: only enqueue an UPDATE (no pending CREATE)
+    await enqueue('orders', 'update', 'ord_1', { status: 'accepted' });
+    // Child ref references ord_1 via FK 'order' — ord_1 already exists in Directus
+    await enqueue('transaction_order_refs', 'create', 'ref_1', {
+      id: 'ref_1', transaction: 'txn_1', order: 'ord_1',
+    });
+
+    const result = await drainQueue(FAKE_CFG);
+
+    // orders:update failed → ord_1 in blockedKeys but NOT in failedCreates (UPDATE,
+    // not CREATE) → ref_1 must NOT be gated because the parent op is an UPDATE
+    // (record already exists in Directus) not a CREATE.
+    expect(result.pushed).toBe(1); // ref_1 pushed successfully
+    expect(result.failed).toBe(1); // orders:update failed
+
+    const entries = await getPendingEntries();
+    expect(entries).toHaveLength(1);
+    expect(entries[0].record_id).toBe('ord_1');
+    expect(entries[0].operation).toBe('update');
+    // ref_1 was pushed, not deferred
+    expect(entries.find(e => e.record_id === 'ref_1')).toBeUndefined();
   });
 });
 
