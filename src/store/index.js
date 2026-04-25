@@ -664,7 +664,7 @@ export const useOrderStore = defineStore('orders', () => {
           const existingQuantity = Number(existing.quantity);
           existing.quantity = (Number.isFinite(existingQuantity) ? existingQuantity : 0) + normalizedQuantity;
         } else {
-          projected.orderItems.push({ ...cartItem, quantity: normalizedQuantity, uid: newShortId('r') });
+          projected.orderItems.push({ id: newUUIDv7(), ...cartItem, quantity: normalizedQuantity, uid: newShortId('r') });
         }
       }
       updateOrderTotals(projected);
@@ -1072,7 +1072,7 @@ export const useOrderStore = defineStore('orders', () => {
       dietaryPreferences: {},
       globalNote: '',
       noteVisibility: { cassa: true, sala: true, cucina: true },
-      orderItems: items.map(item => ({ ...item })),
+      orderItems: items.map(item => ({ id: item.id ?? newUUIDv7(), ...item })),
       isDirectEntry: true,
       ...(venueId != null ? { venue: venueId } : {}),
     };

@@ -217,7 +217,7 @@ export function mapOrderItemToDirectus(record) {
   const out = {
     ...source,
     unit_price: source.unit_price ?? source.unitPrice ?? 0,
-    voided_quantity: source.voided_quantity ?? source.voidedQuantity ?? 0,
+    voided_quantity: source.voidedQuantity ?? source.voided_quantity ?? 0,
     kitchen_ready: source.kitchen_ready ?? source.kitchenReady ?? false,
     order: relationId(source.order ?? source.orderId ?? null),
     dish: relationId(source.dish ?? source.dishId ?? null),

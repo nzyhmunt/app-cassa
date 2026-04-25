@@ -213,6 +213,45 @@ describe('addDirectOrder()', () => {
 
     expect(a.id).not.toBe(b.id);
   });
+
+  it('each order item gets a UUID v7 id assigned client-side', async () => {
+    const store = useAppStore();
+    const items = [
+      { uid: 'test_id_1', dishId: 'cafe_1', name: 'Caffè', unitPrice: 1.50, quantity: 1, voidedQuantity: 0, notes: [], modifiers: [] },
+      { uid: 'test_id_2', dishId: 'bev_1', name: 'Acqua', unitPrice: 2.00, quantity: 2, voidedQuantity: 0, notes: [], modifiers: [] },
+    ];
+
+    const result = await store.addDirectOrder('01', 'session_uuid', items);
+
+    for (const item of result.orderItems) {
+      expect(typeof item.id).toBe('string');
+      expect(item.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+    }
+  });
+
+  it('two items in the same order receive distinct ids', async () => {
+    const store = useAppStore();
+    const items = [
+      { uid: 'test_uniq_1', dishId: 'cafe_1', name: 'Caffè', unitPrice: 1.50, quantity: 1, voidedQuantity: 0, notes: [], modifiers: [] },
+      { uid: 'test_uniq_2', dishId: 'bev_1', name: 'Acqua', unitPrice: 2.00, quantity: 1, voidedQuantity: 0, notes: [], modifiers: [] },
+    ];
+
+    const result = await store.addDirectOrder('01', 'session_uniq', items);
+
+    expect(result.orderItems[0].id).not.toBe(result.orderItems[1].id);
+  });
+
+  it('preserves a pre-existing id on an item if already set', async () => {
+    const store = useAppStore();
+    const existingId = '01900000-0000-7000-8000-000000000001';
+    const items = [
+      { id: existingId, uid: 'test_preid', dishId: 'cafe_1', name: 'Caffè', unitPrice: 1.50, quantity: 1, voidedQuantity: 0, notes: [], modifiers: [] },
+    ];
+
+    const result = await store.addDirectOrder('01', 'session_preid', items);
+
+    expect(result.orderItems[0].id).toBe(existingId);
+  });
 });
 
 // ---------------------------------------------------------------------------

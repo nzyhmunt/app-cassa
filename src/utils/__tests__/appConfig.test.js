@@ -239,6 +239,43 @@ describe('appConfig', () => {
       expect(itemPayload.unit_price).toBe(0);
       expect(itemPayload.voided_quantity).toBe(0);
     });
+
+    it('mapOrderItemToDirectus prefers voidedQuantity (camelCase) over voided_quantity (snake_case)', () => {
+      // Simulates the scenario after voidOrderItems updates voidedQuantity but leaves
+      // the stale voided_quantity from the last Directus fetch unchanged.
+      const item = {
+        uid: 'cop_test',
+        dishId: null,
+        name: 'Coperto',
+        unitPrice: 2.5,
+        unit_price: 2.5,
+        quantity: 2,
+        voidedQuantity: 1,   // updated locally after void
+        voided_quantity: 0,  // stale value from previous Directus fetch
+        notes: [],
+        modifiers: [],
+      };
+
+      const payload = mapOrderItemToDirectus(item);
+
+      expect(payload.voided_quantity).toBe(1);
+    });
+
+    it('mapOrderItemToDirectus falls back to voided_quantity when voidedQuantity is absent', () => {
+      const item = {
+        uid: 'cop_test2',
+        name: 'Coperto',
+        unit_price: 2.5,
+        quantity: 2,
+        voided_quantity: 1,  // only snake_case available (e.g. raw Directus record)
+        notes: [],
+        modifiers: [],
+      };
+
+      const payload = mapOrderItemToDirectus(item);
+
+      expect(payload.voided_quantity).toBe(1);
+    });
   });
 
   describe('createRuntimeConfig', () => {

@@ -800,6 +800,37 @@ describe('addItemsToOrder — cart merge, guard rails, and IDB-first persistence
 
     expect(store.orders.find(o => o.id === 'ord_ait_zeroqty').orderItems).toHaveLength(0);
   });
+
+  it('new row appended by addItemsToOrder gets a UUID v7 id', async () => {
+    const store = useAppStore();
+    const order = makeOrder('ord_ait_uuid', 'T1', 'pending');
+    order.orderItems = [];
+    store.orders = [order];
+
+    await store.addItemsToOrder('ord_ait_uuid', [
+      { dishId: 'd1', name: 'Pasta', unitPrice: 10, quantity: 1, voidedQuantity: 0, notes: [], modifiers: [] },
+    ]);
+
+    const addedItem = store.orders.find(o => o.id === 'ord_ait_uuid').orderItems[0];
+    expect(typeof addedItem.id).toBe('string');
+    expect(addedItem.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+  });
+
+  it('two different new rows added in the same call get distinct ids', async () => {
+    const store = useAppStore();
+    const order = makeOrder('ord_ait_uuid2', 'T1', 'pending');
+    order.orderItems = [];
+    store.orders = [order];
+
+    await store.addItemsToOrder('ord_ait_uuid2', [
+      { dishId: 'd1', name: 'Pasta', unitPrice: 10, quantity: 1, voidedQuantity: 0, notes: [], modifiers: [] },
+      { dishId: 'd2', name: 'Pizza', unitPrice: 8, quantity: 1, voidedQuantity: 0, notes: [], modifiers: [] },
+    ]);
+
+    const items = store.orders.find(o => o.id === 'ord_ait_uuid2').orderItems;
+    expect(items).toHaveLength(2);
+    expect(items[0].id).not.toBe(items[1].id);
+  });
 });
 
 describe('sync queue propagation — table mutations', () => {
