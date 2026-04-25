@@ -31,7 +31,7 @@
  *  - drainQueue() cascade-abandons child entries when parent CREATE reaches MAX_ATTEMPTS
  *  - drainQueue() does NOT cascade-abandon children when parent fails with a non-final error
  *  - drainQueue() does NOT block children via failedCreates when parent CREATE gets RECORD_NOT_UNIQUE and fallback PATCH fails
- *  - drainQueue() second-pass: child CREATE (attempts=0) deferred in main loop is retried in same cycle when parent is marked satisfiable later
+ *  - drainQueue() retries a deferred child CREATE (attempts=0) in same cycle when parent is marked satisfiable later (second pass)
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -1152,7 +1152,7 @@ describe('drainQueue() — BFS fair-retry ordering', () => {
     expect(remaining[0].attempts).toBe(1);
   });
 
-  it('second-pass: child CREATE (attempts=0) deferred in main loop is retried in same cycle when parent is marked satisfiable later', async () => {
+  it('retries a deferred child CREATE (attempts=0) in same cycle when parent is marked satisfiable later (second pass)', async () => {
     // Scenario: parent (bill_sessions) has been attempted before (attempts=1).
     // In BFS order, the fresh child (orders, attempts=0) is sorted BEFORE the
     // retried parent (bill_sessions, attempts=1).
