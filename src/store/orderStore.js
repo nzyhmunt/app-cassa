@@ -1021,9 +1021,9 @@ export const useOrderStore = defineStore('orders', () => {
   watch(billRequestedTables, () => _scheduleSave('billRequestedTables'), { deep: true });
 
   // ── IDB event-bus subscriber ──────────────────────────────────────────────────
-  // Reactive refs are updated here — and only here — in response to a confirmed
-  // IDB write. Actions project state and persist it; this subscriber applies the
-  // projection to the store once persistence succeeds.
+  // This subscriber applies persisted state to the reactive refs after a confirmed
+  // IDB write. Some store actions still update refs directly in other code paths,
+  // so this is an important synchronization path, but not yet the only one.
   onIDBChange((state) => {
     const keys = [];
     if ('orders' in state) { orders.value = state.orders; keys.push('orders'); }
