@@ -891,4 +891,34 @@ describe('drainQueue() — BFS fair-retry ordering', () => {
     const remaining = await getPendingEntries();
     expect(remaining).toHaveLength(0);
   });
+
+  it('group with failed gate entry (attempts>0) is sorted after a fully fresh group (not treated as "never tried")', async () => {
+    // Verifies the firstAttempts fix: a group whose gate entry has attempts=1 but
+    // later entries still have attempts=0 must NOT steal BFS priority from a fresh
+    // group (gate=0).  With the old minAttempts approach, min(1,0)=0 would make the
+    // retried group appear as "never tried", incorrectly jumping ahead.
+    vi.spyOn(global, 'fetch')
+      .mockRejectedValueOnce(new Error('server error'))   // ord_A create fails
+      .mockImplementation(() => Promise.resolve(mockResponse(201, {})));
+
+    // Drain 1: ord_A create fails → ord_A.create.attempts = 1
+    await enqueue('orders', 'create', 'ord_A', { id: 'ord_A' });
+    await drainQueue(FAKE_CFG);
+
+    // Now add an update for ord_A (gate=1, update=0) and a fresh ord_B (gate=0).
+    await enqueue('orders', 'update', 'ord_A', { status: 'updated' });
+    await enqueue('orders', 'create', 'ord_B', { id: 'ord_B' });
+
+    // Queue now:
+    //   ord_A group: [create(1), update(0)] → firstAttempts = 1
+    //   ord_B group: [create(0)]            → firstAttempts = 0
+    // BFS must process ord_B before ord_A group.
+    const result = await drainQueue(FAKE_CFG);
+
+    expect(result.pushed).toBe(3); // ord_B.create + ord_A.create + ord_A.update
+    // ord_B (firstAttempts=0) must appear before ord_A entries in pushedIds
+    const bIdx = result.pushedIds.findIndex(p => p.recordId === 'ord_B');
+    const aIdx = result.pushedIds.findIndex(p => p.recordId === 'ord_A');
+    expect(bIdx).toBeLessThan(aIdx);
+  });
 });

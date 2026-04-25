@@ -143,12 +143,18 @@
         class="flex items-center gap-2 text-xs px-3 py-2 rounded-xl"
         :class="{
           'bg-blue-50 text-blue-700': sync.syncStatus.value === 'syncing',
+          'bg-amber-50 text-amber-700': sync.syncStatus.value === 'offline',
           'bg-red-50 text-red-700': sync.syncStatus.value === 'error',
         }"
       >
         <LoaderCircle v-if="sync.syncStatus.value === 'syncing'" class="size-3 animate-spin shrink-0" />
+        <WifiOff v-else-if="sync.syncStatus.value === 'offline'" class="size-3 shrink-0" />
         <AlertCircle v-else class="size-3 shrink-0" />
-        <span>{{ sync.syncStatus.value === 'syncing' ? 'Sincronizzazione in corso...' : 'Errore durante la sincronizzazione' }}</span>
+        <span>{{
+          sync.syncStatus.value === 'syncing' ? 'Sincronizzazione in corso...' :
+          sync.syncStatus.value === 'offline' ? 'Directus non raggiungibile — riprovo appena torna online' :
+          'Errore durante la sincronizzazione'
+        }}</span>
       </div>
     </template>
 
@@ -316,7 +322,7 @@
 import { ref, reactive, computed, onMounted, onUnmounted } from 'vue';
 import {
   RefreshCw, Save, Wifi, LoaderCircle, CheckCircle, XCircle,
-  AlertCircle, Upload, Download, ListOrdered,
+  AlertCircle, WifiOff, Upload, Download, ListOrdered,
 } from 'lucide-vue-next';
 import { appConfig } from '../../utils/index.js';
 import {

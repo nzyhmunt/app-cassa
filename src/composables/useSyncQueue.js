@@ -28,12 +28,15 @@
  *
  * Drain ordering (§5.7.2-bis):
  *   Entries are drained breadth-first by logical record chain, grouped by
- *   (collection, record_id).  Groups are ordered by the group's minimum
- *   attempts count first, then by the first entry's date_created, so never-tried
- *   chains are attempted before retried ones.  Within each group, entries are
- *   processed in chronological order.  Dependent entries (child FK → parent
- *   collection) are deferred within the cycle when their parent has not yet been
- *   pushed, preventing FK-not-found failures from burning retry budget.
+ *   (collection, record_id).  Groups are ordered by the gate (first chronological)
+ *   entry's attempts count first, then by the first entry's date_created, so
+ *   never-tried chains are attempted before retried ones.  Using the gate entry's
+ *   attempts (rather than the group minimum) prevents a partially-failed chain from
+ *   being misclassified as "never tried" because later entries in that chain still
+ *   have attempts=0.  Within each group, entries are processed in chronological
+ *   order.  Dependent entries (child FK → parent collection) are deferred within
+ *   the cycle when their parent has not yet been pushed, preventing FK-not-found
+ *   failures from burning retry budget.
  */
 
 import { createDirectus, staticToken, rest, createItem, updateItem, deleteItem } from '@directus/sdk';
@@ -597,7 +600,10 @@ export async function drainQueue(cfg) {
   //   1. Group entries by "collection:record_id".
   //   2. Within each group sort chronologically (date_created, id) to preserve
   //      the original enqueue order (create before update before delete).
-  //   3. Sort groups by (min_attempts_in_group ASC, date_created_of_first_entry ASC).
+  //   3. Sort groups by (first_entry_attempts ASC, date_created_of_first_entry ASC).
+  //      Using the first (gate) entry's attempts — not the minimum across the group —
+  //      ensures that a partially-failed chain (gate tried N times, later entries still
+  //      at 0) is correctly ranked as "tried N times" rather than "never tried".
   //   4. Flatten groups in group-priority order.
   const groupMap = new Map(); // "collection:record_id" → entry[]
   for (const entry of entries) {
@@ -612,22 +618,22 @@ export async function drainQueue(cfg) {
       return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
     });
 
-    let minAttempts = Infinity;
-    for (const entry of grp) {
-      const attempts = entry.attempts ?? 0;
-      if (attempts < minAttempts) minAttempts = attempts;
-    }
+    // Use the gate (first chronological) entry's attempts as the group's retry tier.
+    // Subsequent entries in the same group are blocked until the gate succeeds, so
+    // their attempt count (always 0 until unblocked) must not drag the group back to
+    // a lower tier than it has already reached.
+    const firstAttempts = grp[0]?.attempts ?? 0;
 
     return {
       entries: grp,
-      minAttempts,
+      firstAttempts,
       firstDateCreated: grp[0]?.date_created ?? '',
       firstId: grp[0]?.id ?? '',
     };
   });
   const sortedEntries = groupedEntries
     .sort((ga, gb) => {
-      if (ga.minAttempts !== gb.minAttempts) return ga.minAttempts - gb.minAttempts;
+      if (ga.firstAttempts !== gb.firstAttempts) return ga.firstAttempts - gb.firstAttempts;
       if (ga.firstDateCreated < gb.firstDateCreated) return -1;
       if (ga.firstDateCreated > gb.firstDateCreated) return 1;
       return ga.firstId < gb.firstId ? -1 : ga.firstId > gb.firstId ? 1 : 0;

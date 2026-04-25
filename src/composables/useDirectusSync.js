@@ -737,7 +737,7 @@ async function _runPush() {
         _registerPushedEchoes(result.pushedIds);
       }
       syncStatus.value = result.offline
-        ? 'error'
+        ? 'offline'
         : result.failed > 0 ? 'error' : 'idle';
     } catch (e) {
       console.warn('[DirectusSync] Push error:', e);

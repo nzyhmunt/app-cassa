@@ -23,6 +23,10 @@
       <LoaderCircle class="size-3 shrink-0 animate-spin" />
       <span>Sincronizzazione…</span>
     </span>
+    <span v-else-if="syncStatus === 'offline'" class="flex items-center gap-1 text-amber-500">
+      <WifiOff class="size-3 shrink-0" />
+      <span>Directus non raggiungibile</span>
+    </span>
     <span v-else-if="syncStatus === 'error'" class="flex items-center gap-1 text-red-500">
       <AlertCircle class="size-3 shrink-0" />
       <span>Errore sync</span>
@@ -48,7 +52,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue';
-import { LoaderCircle, AlertCircle, Cloud } from 'lucide-vue-next';
+import { LoaderCircle, AlertCircle, Cloud, WifiOff } from 'lucide-vue-next';
 import { useConfigStore, useOrderStore } from '../../store/index.js';
 import { directusEnabledRef } from '../../composables/useDirectusClient.js';
 import { useDirectusSync } from '../../composables/useDirectusSync.js';
