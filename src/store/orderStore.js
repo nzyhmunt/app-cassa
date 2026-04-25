@@ -157,7 +157,7 @@ export const useOrderStore = defineStore('orders', () => {
     );
     const total = billable.reduce((a, b) => a + b.totalAmount, 0);
     const paid = transactions.value
-      .filter(t => t.tableId === tableId && (!session || t.billSessionId === session.billSessionId))
+      .filter(t => t.table === tableId && (!session || t.bill_session === session.billSessionId))
       .reduce((a, t) => a + t.amountPaid, 0);
     const remaining = Math.max(0, total - paid);
     if (ords.some(o => o.status === 'pending')) return { status: 'pending', total, remaining };
@@ -308,8 +308,8 @@ export const useOrderStore = defineStore('orders', () => {
   function _enqueueTransactionPatch(txn) {
     if (!txn?.id) return;
     enqueue('transactions', 'update', txn.id, _clone({
-      tableId: txn.tableId ?? null,
-      billSessionId: txn.billSessionId ?? null,
+      table: txn.table ?? null,
+      bill_session: txn.bill_session ?? null,
     }));
   }
 
@@ -706,14 +706,14 @@ export const useOrderStore = defineStore('orders', () => {
   async function addTransaction(txn) {
     const nextTransactions = [...transactions.value, txn];
     const nextBillRequestedTables = new Set(billRequestedTables.value);
-    if (txn.tableId) nextBillRequestedTables.delete(txn.tableId);
+    if (txn.table) nextBillRequestedTables.delete(txn.table);
     await saveStateToIDB({
       transactions: nextTransactions,
       billRequestedTables: nextBillRequestedTables,
     });
     _skipNextScheduledSave('transactions', 'billRequestedTables');
     transactions.value = nextTransactions;
-    if (txn.tableId) _updateBillRequestedState(txn.tableId, false);
+    if (txn.table) _updateBillRequestedState(txn.table, false);
     enqueue('transactions', 'create', txn.id, txn);
 
     if (txn?.operationType === 'analitica') {
@@ -777,8 +777,8 @@ export const useOrderStore = defineStore('orders', () => {
     const venueId = configStore.config.directus?.venueId;
     const txn = {
       id: newUUIDv7(),
-      tableId,
-      billSessionId: billSessionId ?? null,
+      table: tableId,
+      bill_session: billSessionId ?? null,
       paymentMethod: 'Mancia',
       operationType: 'tip',
       amountPaid: 0,

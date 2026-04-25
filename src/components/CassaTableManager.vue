@@ -1798,8 +1798,8 @@ const tableTransactions = computed(() => {
   if (!selectedTable.value) return [];
   const session = orderStore.tableCurrentBillSession[selectedTable.value.id];
   return orderStore.transactions.filter(t => {
-    if (t.tableId !== selectedTable.value.id) return false;
-    if (session) return t.billSessionId === session.billSessionId;
+    if (t.table !== selectedTable.value.id) return false;
+    if (session) return t.bill_session === session.billSessionId;
     return true;
   });
 });
@@ -2168,8 +2168,8 @@ function _openTableModal(table) {
   modalMancia.value = '';
 
   const pastRomana = orderStore.transactions.filter(
-    t => t.tableId === sessionTableId && t.operationType === 'romana' &&
-      (!session || t.billSessionId === session.billSessionId),
+    t => t.table === sessionTableId && t.operationType === 'romana' &&
+      (!session || t.bill_session === session.billSessionId),
   );
   // FIX: sum romanaSplitCount per transaction (supports flexible multi-quota payments)
   splitPaidQuotas.value = pastRomana.reduce((sum, t) => sum + (t.romanaSplitCount || 1), 0);
@@ -2429,8 +2429,8 @@ async function closeTableBill() {
   if (!selectedTable.value) return;
   const session = orderStore.tableCurrentBillSession[selectedTable.value.id];
   const billTxns = orderStore.transactions.filter(
-    t => t.tableId === selectedTable.value.id &&
-      (!session || t.billSessionId === session.billSessionId),
+    t => t.table === selectedTable.value.id &&
+      (!session || t.bill_session === session.billSessionId),
   );
   const summary = {
     type: 'CONTO_CHIUSO',
@@ -2459,8 +2459,8 @@ function _buildBillSummaryBase() {
   if (!selectedTable.value) return null;
   const session = orderStore.tableCurrentBillSession[selectedTable.value.id];
   const billTxns = orderStore.transactions.filter(
-    t => t.tableId === selectedTable.value.id &&
-      (!session || t.billSessionId === session.billSessionId),
+    t => t.table === selectedTable.value.id &&
+      (!session || t.bill_session === session.billSessionId),
   );
   return {
     tableId: selectedTable.value.id,
@@ -2535,8 +2535,8 @@ async function processTablePayment(paymentMethodId, extra = {}, overrideAmount =
   const session = orderStore.tableCurrentBillSession[selectedTable.value.id];
   const payload = {
     id: newUUIDv7(),
-    tableId: selectedTable.value.id,
-    billSessionId: session?.billSessionId ?? null,
+    table: selectedTable.value.id,
+    bill_session: session?.billSessionId ?? null,
     paymentMethodId: paymentMethodId,
     paymentMethod: configStore.config.paymentMethods.find(m => m.id === paymentMethodId)?.label || paymentMethodId,
     operationType: checkoutMode.value,
@@ -2686,8 +2686,8 @@ async function applyDiscount() {
   const discountValueToStore = discountType.value === 'percent' ? clampedPercent : discountPreview.value;
   await orderStore.addTransaction({
     id: newUUIDv7(),
-    tableId: selectedTable.value.id,
-    billSessionId: session?.billSessionId ?? null,
+    table: selectedTable.value.id,
+    bill_session: session?.billSessionId ?? null,
     paymentMethod: 'Sconto',
     operationType: 'discount',
     discountType: discountType.value,

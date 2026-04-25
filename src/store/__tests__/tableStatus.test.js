@@ -65,7 +65,7 @@ function makeOrder(id, tableId, status, totalAmount) {
 function makeTransaction(tableId, amountPaid) {
   return {
     id: `txn_${Math.random().toString(36).slice(2)}`,
-    tableId,
+    table: tableId,
     amountPaid,
     tipAmount: 0,
     method: 'cash',
@@ -237,7 +237,7 @@ describe('getTableStatus() — multi-session isolation', () => {
     const sess1 = await store.openTableSession('T1', 2, 0);
     const ord1 = { ...makeOrder('ord1', 'T1', 'accepted', 30), billSessionId: sess1 };
     await store.addOrder(ord1);
-    await store.addTransaction({ ...makeTransaction('T1', 30), billSessionId: sess1 });
+    await store.addTransaction({ ...makeTransaction('T1', 30), bill_session: sess1 });
     // Completing the order triggers changeOrderStatus which clears the session
     await store.changeOrderStatus(store.orders.find(o => o.id === 'ord1'), 'completed');
     expect(store.tableCurrentBillSession['T1']).toBeUndefined();
@@ -261,14 +261,14 @@ describe('getTableStatus() — multi-session isolation', () => {
     const sess1 = await store.openTableSession('T1', 2, 0);
     const ord1 = { ...makeOrder('ord1', 'T1', 'accepted', 30), billSessionId: sess1 };
     await store.addOrder(ord1);
-    await store.addTransaction({ ...makeTransaction('T1', 30), billSessionId: sess1 });
+    await store.addTransaction({ ...makeTransaction('T1', 30), bill_session: sess1 });
     await store.changeOrderStatus(store.orders.find(o => o.id === 'ord1'), 'completed');
 
     // Session 2: new customer with $40 order, also fully paid
     const sess2 = await store.openTableSession('T1', 2, 0);
     const ord2 = { ...makeOrder('ord2', 'T1', 'accepted', 40), billSessionId: sess2 };
     await store.addOrder(ord2);
-    await store.addTransaction({ ...makeTransaction('T1', 40), billSessionId: sess2 });
+    await store.addTransaction({ ...makeTransaction('T1', 40), bill_session: sess2 });
 
     const result = store.getTableStatus('T1');
     expect(result.status).toBe('paid');

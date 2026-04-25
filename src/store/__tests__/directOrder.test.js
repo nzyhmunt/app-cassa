@@ -499,8 +499,8 @@ describe('simulateNewOrder()', () => {
     ]);
     await store.addTransaction({
       id: 'sim_old_txn',
-      tableId: '01',
-      billSessionId: oldSessionId,
+      table: '01',
+      bill_session: oldSessionId,
       paymentMethodId: 'cash',
       paymentMethod: 'Contanti',
       operationType: 'unico',
