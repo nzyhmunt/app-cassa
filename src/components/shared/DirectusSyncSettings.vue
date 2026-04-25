@@ -187,20 +187,38 @@
       <div
         v-if="pushFeedback"
         class="flex items-center gap-2 text-xs px-3 py-2 rounded-xl"
-        :class="pushFeedback === 'success' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'"
+        :class="{
+          'bg-emerald-50 text-emerald-700': pushFeedback === 'success',
+          'bg-amber-50 text-amber-700': pushFeedback === 'offline',
+          'bg-red-50 text-red-700': pushFeedback === 'error',
+        }"
       >
         <CheckCircle v-if="pushFeedback === 'success'" class="size-3 shrink-0" />
+        <WifiOff v-else-if="pushFeedback === 'offline'" class="size-3 shrink-0" />
         <XCircle v-else class="size-3 shrink-0" />
-        <span>{{ pushFeedback === 'success' ? 'Push completato.' : 'Errore durante il push.' }}</span>
+        <span>{{
+          pushFeedback === 'success' ? 'Push completato.' :
+          pushFeedback === 'offline' ? 'Directus non raggiungibile — riprovo appena torna online.' :
+          'Errore durante il push.'
+        }}</span>
       </div>
       <div
         v-if="pullFeedback"
         class="flex items-center gap-2 text-xs px-3 py-2 rounded-xl"
-        :class="pullFeedback === 'success' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'"
+        :class="{
+          'bg-emerald-50 text-emerald-700': pullFeedback === 'success',
+          'bg-amber-50 text-amber-700': pullFeedback === 'offline',
+          'bg-red-50 text-red-700': pullFeedback === 'error',
+        }"
       >
         <CheckCircle v-if="pullFeedback === 'success'" class="size-3 shrink-0" />
+        <WifiOff v-else-if="pullFeedback === 'offline'" class="size-3 shrink-0" />
         <XCircle v-else class="size-3 shrink-0" />
-        <span>{{ pullFeedback === 'success' ? 'Pull completato.' : 'Errore durante il pull.' }}</span>
+        <span>{{
+          pullFeedback === 'success' ? 'Pull completato.' :
+          pullFeedback === 'offline' ? 'Directus non raggiungibile — riprovo appena torna online.' :
+          'Errore durante il pull.'
+        }}</span>
       </div>
     </template>
 
@@ -351,8 +369,8 @@ const showToken = ref(false);
 const testing = ref(false);
 const pushing = ref(false);
 const pulling = ref(false);
-const pushFeedback = ref(null); // null | 'success' | 'error'
-const pullFeedback = ref(null); // null | 'success' | 'error'
+const pushFeedback = ref(null); // null | 'success' | 'offline' | 'error'
+const pullFeedback = ref(null); // null | 'success' | 'offline' | 'error'
 let _pushFeedbackTimer = null;
 let _pullFeedbackTimer = null;
 const connectionStatus = ref('idle'); // 'idle' | 'testing' | 'ok' | 'error'
@@ -533,7 +551,9 @@ async function handleForcePush() {
   clearTimeout(_pushFeedbackTimer);
   try {
     await sync.forcePush();
-    pushFeedback.value = sync.syncStatus.value === 'error' ? 'error' : 'success';
+    pushFeedback.value = sync.syncStatus.value === 'error' ? 'error'
+      : sync.syncStatus.value === 'offline' ? 'offline'
+      : 'success';
   } catch {
     pushFeedback.value = 'error';
   } finally {
@@ -557,7 +577,9 @@ async function handleForcePull() {
 
     const pullResult = await sync.forcePull();
     const pullFailed = pullResult?.ok === false || sync.syncStatus.value === 'error';
-    pullFeedback.value = pullFailed ? 'error' : 'success';
+    pullFeedback.value = pullFailed ? 'error'
+      : sync.syncStatus.value === 'offline' ? 'offline'
+      : 'success';
   } catch {
     pullFeedback.value = 'error';
   } finally {
