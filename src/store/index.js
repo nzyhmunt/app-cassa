@@ -1113,11 +1113,11 @@ export const useOrderStore = defineStore('orders', () => {
       dietaryPreferences: {},
       globalNote: '',
       noteVisibility: { cassa: true, sala: true, cucina: true },
-      orderItems: items.map(item => ({
-        id: item.id ?? newUUIDv7(),
         ...item,
+        id: item.id ?? newUUIDv7(),
         modifiers: (Array.isArray(item.modifiers) ? item.modifiers : []).map(mod => ({
           ...mod,
+          id: mod.id ?? newUUIDv7(),
           id: mod.id ?? newUUIDv7(),
         })),
       })),
