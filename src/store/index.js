@@ -694,7 +694,8 @@ export const useOrderStore = defineStore('orders', () => {
           // Normalise ids on the existing item and its modifiers so subsequent PATCH
           // payloads can always match the Directus record (legacy IDB items may lack ids).
           if (!existing.id) existing.id = newUUIDv7();
-          for (const mod of (Array.isArray(existing.modifiers) ? existing.modifiers : [])) {
+          const existingModifiers = Array.isArray(existing.modifiers) ? existing.modifiers : [];
+          for (const mod of existingModifiers) {
             if (!mod.id) mod.id = newUUIDv7();
           }
           const existingQuantity = Number(existing.quantity);
