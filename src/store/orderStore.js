@@ -7,10 +7,8 @@
 import { defineStore } from 'pinia';
 import { ref, computed, watch, toRaw, onScopeDispose } from 'vue';
 import {
-  appConfig,
   updateOrderTotals,
   KITCHEN_ACTIVE_STATUSES,
-  KEYBOARD_POSITIONS,
   formatOrderTime,
   itemsAreMergeable,
 } from '../utils/index.js';
