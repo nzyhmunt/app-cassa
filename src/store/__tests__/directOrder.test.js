@@ -252,6 +252,43 @@ describe('addDirectOrder()', () => {
 
     expect(result.orderItems[0].id).toBe(existingId);
   });
+
+  it('modifiers of items also receive UUID v7 ids', async () => {
+    const store = useAppStore();
+    const items = [
+      {
+        uid: 'test_mod_id', dishId: 'pri_1', name: 'Tagliere', unitPrice: 12, quantity: 1, voidedQuantity: 0, notes: [],
+        modifiers: [
+          { name: 'Parmigiano', price: 1 },
+          { name: 'Mozzarella', price: 0.5 },
+        ],
+      },
+    ];
+
+    const result = await store.addDirectOrder('01', 'session_mods', items);
+
+    expect(result.orderItems[0].modifiers).toHaveLength(2);
+    for (const mod of result.orderItems[0].modifiers) {
+      expect(typeof mod.id).toBe('string');
+      expect(mod.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+    }
+    expect(result.orderItems[0].modifiers[0].id).not.toBe(result.orderItems[0].modifiers[1].id);
+  });
+
+  it('preserves a pre-existing id on a modifier', async () => {
+    const store = useAppStore();
+    const modId = '01900000-0000-7000-8000-000000000002';
+    const items = [
+      {
+        uid: 'test_preid_mod', dishId: 'pri_1', name: 'Tagliere', unitPrice: 12, quantity: 1, voidedQuantity: 0, notes: [],
+        modifiers: [{ id: modId, name: 'Parmigiano', price: 1 }],
+      },
+    ];
+
+    const result = await store.addDirectOrder('01', 'session_preid_mod', items);
+
+    expect(result.orderItems[0].modifiers[0].id).toBe(modId);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -595,5 +632,24 @@ describe('simulateNewOrder()', () => {
     );
     expect(activeOrders.length).toBeGreaterThan(0);
     expect(activeOrders.every(o => o.billSessionId === existingSessionId)).toBe(true);
+  });
+
+  it('the simulated Amatriciana order item has a UUID v7 id', async () => {
+    const store = useAppStore();
+    const randomSpy = mockSecureRandomForTable(3);
+    try {
+      await store.simulateNewOrder();
+    } finally {
+      randomSpy.mockRestore();
+    }
+
+    const simOrder = store.orders.find(
+      o => o.table === '03' && !o.isDirectEntry,
+    );
+    expect(simOrder).toBeDefined();
+    expect(simOrder.orderItems.length).toBeGreaterThan(0);
+    const item = simOrder.orderItems[0];
+    expect(typeof item.id).toBe('string');
+    expect(item.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
   });
 });

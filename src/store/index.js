@@ -550,6 +550,23 @@ export const useOrderStore = defineStore('orders', () => {
 
   function _enqueueOrderItemsPatch(ordId, projectedOrder) {
     if (!ordId || !projectedOrder || typeof projectedOrder !== 'object') return;
+    // Safety-net: ensure every order item and its modifiers have a stable Directus
+    // PK before the payload is cloned and enqueued.  This covers:
+    //   • legacy IDB items created before client-side UUID assignment was introduced,
+    //   • the addItemsToOrder merge path where an existing item may still lack an id,
+    //   • any other code path that pushes items/modifiers into orderItems without an id.
+    // Mutating projectedOrder here also updates orders.value[n] (shared reference),
+    // so reactive state is kept in sync; the next scheduled IDB save will persist the ids.
+    if (Array.isArray(projectedOrder.orderItems)) {
+      for (const item of projectedOrder.orderItems) {
+        if (item && !item.id) item.id = newUUIDv7();
+        if (Array.isArray(item?.modifiers)) {
+          for (const mod of item.modifiers) {
+            if (mod && !mod.id) mod.id = newUUIDv7();
+          }
+        }
+      }
+    }
     const payload = {};
     if (Object.prototype.hasOwnProperty.call(projectedOrder, 'orderItems')) {
       payload.orderItems = projectedOrder.orderItems;
@@ -592,6 +609,19 @@ export const useOrderStore = defineStore('orders', () => {
 
   function _enqueueOrderPatch(ordId, payload) {
     if (!ordId || !payload || typeof payload !== 'object' || Object.keys(payload).length === 0) return;
+    // Safety-net: normalise missing ids on any orderItems carried in the payload
+    // (e.g. the changed-order slice produced by splitItemsToTable via _buildOrderSyncPatch).
+    // Mutating the original items also updates orders.value[n] (shared reference).
+    if (Array.isArray(payload.orderItems)) {
+      for (const item of payload.orderItems) {
+        if (item && !item.id) item.id = newUUIDv7();
+        if (Array.isArray(item?.modifiers)) {
+          for (const mod of item.modifiers) {
+            if (mod && !mod.id) mod.id = newUUIDv7();
+          }
+        }
+      }
+    }
     enqueue('orders', 'update', ordId, _clone(payload));
   }
 
@@ -661,10 +691,20 @@ export const useOrderStore = defineStore('orders', () => {
         if (normalizedQuantity <= 0) continue;
         const existing = projected.orderItems.find(r => itemsAreMergeable(r, cartItem));
         if (existing) {
+          // Normalise ids on the existing item and its modifiers so subsequent PATCH
+          // payloads can always match the Directus record (legacy IDB items may lack ids).
+          if (!existing.id) existing.id = newUUIDv7();
+          for (const mod of (Array.isArray(existing.modifiers) ? existing.modifiers : [])) {
+            if (!mod.id) mod.id = newUUIDv7();
+          }
           const existingQuantity = Number(existing.quantity);
           existing.quantity = (Number.isFinite(existingQuantity) ? existingQuantity : 0) + normalizedQuantity;
         } else {
-          projected.orderItems.push({ id: newUUIDv7(), ...cartItem, quantity: normalizedQuantity, uid: newShortId('r') });
+          const normalizedModifiers = (Array.isArray(cartItem.modifiers) ? cartItem.modifiers : []).map(mod => ({
+            id: mod.id ?? newUUIDv7(),
+            ...mod,
+          }));
+          projected.orderItems.push({ id: newUUIDv7(), ...cartItem, quantity: normalizedQuantity, uid: newShortId('r'), modifiers: normalizedModifiers });
         }
       }
       updateOrderTotals(projected);
@@ -1072,7 +1112,14 @@ export const useOrderStore = defineStore('orders', () => {
       dietaryPreferences: {},
       globalNote: '',
       noteVisibility: { cassa: true, sala: true, cucina: true },
-      orderItems: items.map(item => ({ id: item.id ?? newUUIDv7(), ...item })),
+      orderItems: items.map(item => ({
+        id: item.id ?? newUUIDv7(),
+        ...item,
+        modifiers: (Array.isArray(item.modifiers) ? item.modifiers : []).map(mod => ({
+          id: mod.id ?? newUUIDv7(),
+          ...mod,
+        })),
+      })),
       isDirectEntry: true,
       ...(venueId != null ? { venue: venueId } : {}),
     };
@@ -1162,7 +1209,7 @@ export const useOrderStore = defineStore('orders', () => {
       globalNote: '',
       noteVisibility: { cassa: true, sala: true, cucina: true },
       orderItems: [
-        { uid: newShortId('r'), dishId: 'pri_2', name: 'Amatriciana', unitPrice: 12, quantity: 1, voidedQuantity: 0, notes: [], modifiers: [] },
+        { id: newUUIDv7(), uid: newShortId('r'), dishId: 'pri_2', name: 'Amatriciana', unitPrice: 12, quantity: 1, voidedQuantity: 0, notes: [], modifiers: [] },
       ],
       ...(venueId != null ? { venue: venueId } : {}),
     });
