@@ -289,21 +289,21 @@ export async function saveStateToIDB(state) {
     // reactive proxies (structuredClone would throw DataCloneError) and
     // guarantees the emitted shape is identical to what was persisted
     // (undefined fields dropped, Dates stringified, functions removed).
-    const cloneForEmit = (v) => JSON.parse(JSON.stringify(v));
+    const serializeForEmit = (v) => JSON.parse(JSON.stringify(v));
     const sanitized = {};
-    if ('orders' in state) sanitized.orders = cloneForEmit(state.orders ?? []);
-    if ('transactions' in state) sanitized.transactions = cloneForEmit(state.transactions ?? []);
-    if ('cashMovements' in state) sanitized.cashMovements = cloneForEmit(state.cashMovements ?? []);
-    if ('dailyClosures' in state) sanitized.dailyClosures = cloneForEmit(state.dailyClosures ?? []);
+    if ('orders' in state) sanitized.orders = serializeForEmit(state.orders ?? []);
+    if ('transactions' in state) sanitized.transactions = serializeForEmit(state.transactions ?? []);
+    if ('cashMovements' in state) sanitized.cashMovements = serializeForEmit(state.cashMovements ?? []);
+    if ('dailyClosures' in state) sanitized.dailyClosures = serializeForEmit(state.dailyClosures ?? []);
     // printLog is intentionally excluded: the IDB-persisted form strips `entry.payload`
     // (needed for reprint), so emitting it would destroy in-memory payload data.
     // The printLog ref is maintained in-store and persisted via the normal watcher path.
-    if ('cashBalance' in state) sanitized.cashBalance = cloneForEmit(state.cashBalance ?? 0);
-    if ('tableCurrentBillSession' in state) sanitized.tableCurrentBillSession = cloneForEmit(state.tableCurrentBillSession ?? {});
-    if ('tableMergedInto' in state) sanitized.tableMergedInto = cloneForEmit(state.tableMergedInto ?? {});
-    if ('tableOccupiedAt' in state) sanitized.tableOccupiedAt = cloneForEmit(state.tableOccupiedAt ?? {});
+    if ('cashBalance' in state) sanitized.cashBalance = serializeForEmit(state.cashBalance ?? 0);
+    if ('tableCurrentBillSession' in state) sanitized.tableCurrentBillSession = serializeForEmit(state.tableCurrentBillSession ?? {});
+    if ('tableMergedInto' in state) sanitized.tableMergedInto = serializeForEmit(state.tableMergedInto ?? {});
+    if ('tableOccupiedAt' in state) sanitized.tableOccupiedAt = serializeForEmit(state.tableOccupiedAt ?? {});
     if ('billRequestedTables' in state) {
-      sanitized.billRequestedTables = cloneForEmit(
+      sanitized.billRequestedTables = serializeForEmit(
         state.billRequestedTables instanceof Set
           ? Array.from(state.billRequestedTables)
           : Array.isArray(state.billRequestedTables)

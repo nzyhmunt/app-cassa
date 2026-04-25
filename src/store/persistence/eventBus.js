@@ -38,3 +38,12 @@ export function emitIDBChange(state) {
     }
   }
 }
+
+/**
+ * Removes all subscribers. Intended for use in test teardown only.
+ * Prevents cross-test contamination when async IDB writes complete after a
+ * test's Pinia instance has already been replaced.
+ */
+export function _resetListeners() {
+  _listeners.clear();
+}
