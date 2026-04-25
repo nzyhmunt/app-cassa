@@ -705,7 +705,7 @@ export const useOrderStore = defineStore('orders', () => {
             ...mod,
             id: mod.id ?? newUUIDv7(),
           }));
-          projected.orderItems.push({ id: newUUIDv7(), ...cartItem, quantity: normalizedQuantity, uid: newShortId('r'), modifiers: normalizedModifiers });
+          projected.orderItems.push({ ...cartItem, quantity: normalizedQuantity, uid: newShortId('r'), modifiers: normalizedModifiers, id: newUUIDv7() });
         }
       }
       updateOrderTotals(projected);
@@ -1113,11 +1113,11 @@ export const useOrderStore = defineStore('orders', () => {
       dietaryPreferences: {},
       globalNote: '',
       noteVisibility: { cassa: true, sala: true, cucina: true },
+      orderItems: items.map(item => ({
         ...item,
         id: item.id ?? newUUIDv7(),
         modifiers: (Array.isArray(item.modifiers) ? item.modifiers : []).map(mod => ({
           ...mod,
-          id: mod.id ?? newUUIDv7(),
           id: mod.id ?? newUUIDv7(),
         })),
       })),
