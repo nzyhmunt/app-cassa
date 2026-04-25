@@ -617,7 +617,13 @@ export const useOrderStore = defineStore('orders', () => {
         if (item && !item.id) item.id = newUUIDv7();
         if (Array.isArray(item?.modifiers)) {
           for (const mod of item.modifiers) {
-            if (mod && !mod.id) mod.id = newUUIDv7();
+            if (!mod) continue;
+            if (!mod.id) mod.id = newUUIDv7();
+            if (Object.prototype.hasOwnProperty.call(mod, 'voidedQuantity')) {
+              mod.voided_quantity = mod.voidedQuantity;
+            } else if (Object.prototype.hasOwnProperty.call(mod, 'voided_quantity')) {
+              mod.voidedQuantity = mod.voided_quantity;
+            }
           }
         }
       }
