@@ -308,20 +308,23 @@ export function makeTableOps(state, helpers) {
       console.warn('[Store] moveTableOrders IDB save failed:', err);
     }
 
-    // Assign reactive refs after IDB write completes.
-    orders.value = nextOrders;
-    transactions.value = nextTransactions;
-    tableCurrentBillSession.value = nextTCS;
-    tableOccupiedAt.value = nextOccupiedAt;
-    tableMergedInto.value = nextMergedInto;
-    // Apply the projected bill-requested state directly to the reactive ref when a
-    // reactive-only helper is available; otherwise fall back to setBillRequested
-    // (which issues its own IDB write — redundant but safe).
-    if (updateBillRequestedState) {
-      billRequestedTables.value = nextBillRequested;
-    } else {
-      if (billRequestedTables.value.has(fromTableId)) setBillRequested(fromTableId, false);
-      if (nextBillRequested.has(toTableId)) setBillRequested(toTableId, true);
+    // Assign reactive refs only when IDB write failed (offline resilience).
+    // On success the IDB event bus has already applied the projected state.
+    if (!persistedToIDB) {
+      orders.value = nextOrders;
+      transactions.value = nextTransactions;
+      tableCurrentBillSession.value = nextTCS;
+      tableOccupiedAt.value = nextOccupiedAt;
+      tableMergedInto.value = nextMergedInto;
+      // Apply the projected bill-requested state directly to the reactive ref when a
+      // reactive-only helper is available; otherwise fall back to setBillRequested
+      // (which issues its own IDB write — redundant but safe).
+      if (updateBillRequestedState) {
+        billRequestedTables.value = nextBillRequested;
+      } else {
+        if (billRequestedTables.value.has(fromTableId)) setBillRequested(fromTableId, false);
+        if (nextBillRequested.has(toTableId)) setBillRequested(toTableId, true);
+      }
     }
 
     if (persistedToIDB) {
@@ -420,16 +423,19 @@ export function makeTableOps(state, helpers) {
       console.warn('[Store] mergeTableOrders IDB save failed:', err);
     }
 
-    // Assign reactive refs after IDB write completes.
-    orders.value = nextOrders;
-    transactions.value = nextTransactions;
-    tableCurrentBillSession.value = nextTCS;
-    tableOccupiedAt.value = nextOccupiedAt;
-    tableMergedInto.value = nextMergedInto;
-    if (updateBillRequestedState) {
-      billRequestedTables.value = nextBillRequested;
-    } else {
-      setBillRequested(sourceTableId, false);
+    // Assign reactive refs only when IDB write failed (offline resilience).
+    // On success the IDB event bus has already applied the projected state.
+    if (!persistedToIDB) {
+      orders.value = nextOrders;
+      transactions.value = nextTransactions;
+      tableCurrentBillSession.value = nextTCS;
+      tableOccupiedAt.value = nextOccupiedAt;
+      tableMergedInto.value = nextMergedInto;
+      if (updateBillRequestedState) {
+        billRequestedTables.value = nextBillRequested;
+      } else {
+        setBillRequested(sourceTableId, false);
+      }
     }
 
     if (persistedToIDB) {
@@ -486,9 +492,12 @@ export function makeTableOps(state, helpers) {
       console.warn('[Store] detachSlaveTable IDB save failed:', err);
     }
 
-    // Assign reactive refs after IDB write completes.
-    tableMergedInto.value = nextMergedInto;
-    if (slaveHasOrders) orders.value = nextOrders;
+    // Assign reactive refs only when IDB write failed (offline resilience).
+    // On success the IDB event bus has already applied the projected state.
+    if (!persistedToIDB) {
+      tableMergedInto.value = nextMergedInto;
+      if (slaveHasOrders) orders.value = nextOrders;
+    }
     if (persistedToIDB && slaveHasOrders) {
       enqueueBillSessionCreate(slaveSessionSnapshot);
       _enqueueChangedOrders(previousOrders, nextOrders);
@@ -690,18 +699,7 @@ export function makeTableOps(state, helpers) {
 
     if (!persistedToIDB) return false;
 
-    // Assign reactive refs only after IDB write completes successfully.
-    orders.value = projectedOrders;
-    transactions.value = nextTransactions;
-    tableCurrentBillSession.value = projectedTableCurrentBillSession;
-    tableOccupiedAt.value = nextOccupiedAt;
-    tableMergedInto.value = nextMergedInto;
-    if (updateBillRequestedState) {
-      billRequestedTables.value = nextBillRequested;
-    } else if (!sourceStillHasOrders) {
-      setBillRequested(sourceTableId, false);
-    }
-
+    // Reactive state already applied via the IDB event bus (emitIDBChange in saveStateToIDB).
     if (createdTargetSession) enqueueBillSessionCreate(createdTargetSession);
     _enqueueChangedOrders(previousOrders, projectedOrders);
     _enqueueChangedTransactions(previousTransactions, nextTransactions);
