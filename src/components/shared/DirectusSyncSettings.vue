@@ -625,8 +625,23 @@ async function runFullConfigApply() {
     if (result?.ok) {
       _appendReconfigureLog({ level: 'info', message: 'Configurazione aggiornata. Avvio pull dati operativi…' });
       try {
-        await sync.forcePull();
-        _appendReconfigureLog({ level: 'success', message: 'Procedura completata con successo.' });
+        const pullResult = await sync.forcePull();
+        if (pullResult?.ok === true) {
+          _appendReconfigureLog({ level: 'success', message: 'Procedura completata con successo.' });
+        } else if (pullResult?.ok === false) {
+          _appendReconfigureLog({
+            level: 'warning',
+            message: 'Configurazione aggiornata ma il pull dati operativi è stato completato con errori.',
+            details: (pullResult?.failedCollections?.length ?? 0) > 0
+              ? `Collezioni fallite: ${pullResult.failedCollections.join(', ')}`
+              : '',
+          });
+        } else {
+          _appendReconfigureLog({
+            level: 'warning',
+            message: 'Configurazione aggiornata, ma l’esito del pull dati operativi non è verificabile.',
+          });
+        }
       } catch {
         _appendReconfigureLog({ level: 'warning', message: 'Configurazione aggiornata ma il pull dati operativi non è riuscito.' });
       }
