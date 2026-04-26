@@ -110,13 +110,10 @@ export function useAppSwipeRefresh({
     }
     if (success) {
       isRefreshDone.value = true;
-      await new Promise((resolve) => {
-        refreshDoneTimer = setTimeout(() => {
-          refreshDoneTimer = null;
-          resolve();
-        }, 800);
-      });
-      isRefreshDone.value = false;
+      refreshDoneTimer = setTimeout(() => {
+        refreshDoneTimer = null;
+        isRefreshDone.value = false;
+      }, 800);
     }
   }
 
