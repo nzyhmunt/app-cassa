@@ -629,13 +629,25 @@ async function runFullConfigApply() {
         if (pullResult?.ok === true) {
           _appendReconfigureLog({ level: 'success', message: 'Procedura completata con successo.' });
         } else if (pullResult?.ok === false) {
-          _appendReconfigureLog({
-            level: 'warning',
-            message: 'Configurazione aggiornata ma il pull dati operativi è stato completato con errori.',
-            details: (pullResult?.failedCollections?.length ?? 0) > 0
-              ? `Collezioni fallite: ${pullResult.failedCollections.join(', ')}`
-              : '',
-          });
+          if (pullResult?.skippedReason === 'offline') {
+            _appendReconfigureLog({
+              level: 'warning',
+              message: 'Configurazione aggiornata, ma il pull dati operativi è stato saltato: dispositivo offline.',
+            });
+          } else if (pullResult?.skippedReason === 'no-config') {
+            _appendReconfigureLog({
+              level: 'warning',
+              message: 'Configurazione aggiornata, ma il pull dati operativi è stato saltato: configurazione mancante.',
+            });
+          } else {
+            _appendReconfigureLog({
+              level: 'warning',
+              message: 'Configurazione aggiornata ma il pull dati operativi è stato completato con errori.',
+              details: (pullResult?.failedCollections?.length ?? 0) > 0
+                ? `Collezioni fallite: ${pullResult.failedCollections.join(', ')}`
+                : '',
+            });
+          }
         } else {
           _appendReconfigureLog({
             level: 'warning',
