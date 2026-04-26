@@ -577,7 +577,7 @@ export const useOrderStore = defineStore('orders', () => {
       }
     }
     if (didGenerateMissingIds) {
-      void saveStateToIDB();
+      void saveStateToIDB({ orders: orders.value });
     }
     const payload = {};
     if (Object.prototype.hasOwnProperty.call(projectedOrder, 'orderItems')) {
