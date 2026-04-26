@@ -174,7 +174,7 @@ Analogamente, fiscal_receipts e invoice_requests venivano salvati solo in IDB lo
 Fix (implementato):
 - Aggiunti mapper dedicati: mapPrintJobToDirectus, mapFiscalReceiptToDirectus, mapInvoiceRequestToDirectus
 - Registrati in _TO_DIRECTUS_MAPPERS; mapPayloadToDirectus passa l'original payload ai mapper per
-  recuperare il campo  (rimosso da _PUSH_DROP_FIELDS)
+  recuperare il campo `timestamp` (rimosso da _PUSH_DROP_FIELDS)
 - fiscal_receipts e invoice_requests aggiunti a DOMAIN_STATUS_COLLECTIONS (push-only, no delete)
 - enqueue() chiamato in addPrintLogEntry, updatePrintLogEntry, addFiscalReceipt, updateFiscalReceipt,
   addInvoiceRequest

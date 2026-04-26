@@ -74,6 +74,16 @@ const DOMAIN_STATUS_COLLECTIONS = new Set([
   'bill_sessions', 'orders', 'print_jobs', 'fiscal_receipts', 'invoice_requests',
 ]);
 
+/**
+ * Collections that use a non-standard primary key field (i.e. not `id`).
+ * Mapped to their actual PK field name so that `_pushEntry` can skip the
+ * generic `id` injection for create operations.
+ * @type {Map<string, string>}
+ */
+const NON_STANDARD_PK_COLLECTIONS = new Map([
+  ['print_jobs', 'log_id'],
+]);
+
 // ── Core queue helpers ───────────────────────────────────────────────────────
 
 /** @internal No-op kept for test compatibility. */
@@ -458,8 +468,10 @@ async function _pushEntry(entry, sdkClient, cfg) {
 
     // Ensure the primary key is always present in create payloads.
     // This guards against cases where the local PK was not included in a partial payload.
-    // Skip for collections that use a non-standard PK field (e.g. print_jobs uses log_id).
-    if (operation === 'create' && !directusPayload.id && record_id && !directusPayload.log_id) {
+    // Skip for collections that use a non-standard PK field (checked via NON_STANDARD_PK_COLLECTIONS).
+    const nonStandardPkField = NON_STANDARD_PK_COLLECTIONS.get(collection);
+    if (operation === 'create' && !directusPayload.id && record_id
+        && !(nonStandardPkField && directusPayload[nonStandardPkField])) {
       directusPayload.id = record_id;
     }
   }
