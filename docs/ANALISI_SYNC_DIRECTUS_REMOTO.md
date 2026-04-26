@@ -1,7 +1,8 @@
 # Analisi sincronizzazione con Directus remoto
 
-Data: 2026-04-23  
+Data: 2026-04-26  
 Repository: `nzyhmunt/app-cassa`
+Baseline analizzata: `origin/dev` (aggiornata agli ultimi merge in dev)
 
 ## 1) Come funziona oggi (sintesi)
 
@@ -14,7 +15,28 @@ La sincronizzazione è implementata in `src/composables/useDirectusSync.js` con 
 
 ---
 
-## 2) Problematiche rilevate e proposte
+## 2) Aggiornamenti introdotti dagli ultimi merge su dev
+
+Rispetto alla fotografia iniziale, nel ramo `dev` sono entrati miglioramenti importanti:
+
+- **Push queue più robusta** (`useSyncQueue.js`):
+  - ordinamento BFS per gruppo `collection:record_id` (migliore fairness tra record);
+  - blocco intra-record e gestione dipendenze FK parent→child;
+  - stop immediato su network error senza consumare tentativi (`offline: true`);
+  - cascade-abandon dei figli quando un parent CREATE è definitivamente abbandonato;
+  - log persistente dettagliato su `sync_failed_calls`.
+- **Global pull più sicura** (`useDirectusSync.js`):
+  - guardia di generazione (`_globalPullGeneration` / `_lastAppliedGlobalPullGeneration`) per evitare apply stale in caso di pull concorrenti;
+  - fallback deep-fetch più compatibile;
+  - refresh utenti auth (`reloadUsersFromIDB`) dopo fan-out `venue_users`.
+- **Osservabilità UI migliorata**:
+  - modale log coda sync e fallimenti storici già disponibile in impostazioni.
+
+Questi merge riducono diversi rischi operativi, ma restano alcuni gap strutturali.
+
+---
+
+## 3) Problematiche ancora aperte e proposte
 
 ## P1 — Polling REST non rimuove i record cancellati sul remoto
 
@@ -56,12 +78,13 @@ La sincronizzazione è implementata in `src/composables/useDirectusSync.js` con 
 
 ---
 
-## P3 — Global pull configurazione usa upsert (tranne table_merge_sessions) e può lasciare residui
+## P3 — Cache configurazione: upsert prevalente (tranne table_merge_sessions) e possibili residui
 
 **Evidenza**
 
 - `_fanOutVenueTreeToIDB()` fa upsert per quasi tutti gli store.
 - Solo `table_merge_sessions` viene full-replace con `replaceTableMergesInIDB()`.
+- I nuovi merge hanno risolto race di apply, ma non il tema “remove-orphan records” su tutte le collection configurative.
 
 **Impatto**
 
@@ -74,11 +97,12 @@ La sincronizzazione è implementata in `src/composables/useDirectusSync.js` con 
 
 ---
 
-## P4 — Entry in coda abbandonate dopo `MAX_ATTEMPTS` (potenziale perdita operativa)
+## P4 — Entry in coda ancora rimosse dopo `MAX_ATTEMPTS` (rischio perdita business)
 
 **Evidenza**
 
-- In `drainQueue()` dopo `MAX_ATTEMPTS` l'entry viene rimossa (`abandoned`) e rimane solo lo storico in `sync_failed_calls`.
+- In `drainQueue()` dopo `MAX_ATTEMPTS` l'entry viene rimossa (`abandoned`) e rimane lo storico in `sync_failed_calls`.
+- È presente hardening (FK gating, offline short-circuit, cascade-abandon), ma il modello finale resta “drop after max attempts”.
 
 **Impatto**
 
@@ -86,17 +110,17 @@ La sincronizzazione è implementata in `src/composables/useDirectusSync.js` con 
 
 **Proposta**
 
-- Introdurre stato **dead-letter retryable** (non rimuovere automaticamente dal backlog operativo).
+- Introdurre stato **dead-letter retryable** (non rimuovere automaticamente dal backlog operativo per collection critiche).
 - Aggiungere azioni UI: retry selettivo, correzione payload, export errori, alert esplicito su dashboard.
 - Rendere configurabile la policy per collection critiche (`orders`, `bill_sessions`, `transactions`).
 
 ---
 
-## P5 — Assenza di metriche/telemetria strutturata della sync
+## P5 — Osservabilità parziale: log presenti, KPI strutturati ancora assenti
 
 **Evidenza**
 
-- Sono presenti log console e modal diagnostico, ma non KPI persistenti (tempo medio flush, error rate per collection, queue age).
+- Sono presenti log console e modal diagnostico, ma non KPI persistenti/aggregati (tempo medio flush, error rate per collection, queue age, convergenza push→pull).
 
 **Impatto**
 
@@ -112,7 +136,7 @@ La sincronizzazione è implementata in `src/composables/useDirectusSync.js` con 
 
 ---
 
-## 3) Priorità consigliata
+## 4) Priorità consigliata
 
 1. **Alta**: P1 + P2 (consistenza dati incrementale e delete handling).
 2. **Alta**: P4 (riduzione perdita operativa su errori persistenti).
@@ -121,10 +145,9 @@ La sincronizzazione è implementata in `src/composables/useDirectusSync.js` con 
 
 ---
 
-## 4) Piano di hardening incrementale
+## 5) Piano di hardening incrementale
 
 - **Fase A (sicurezza dati)**: cursor robusto + delete reconciliation in polling.
 - **Fase B (affidabilità)**: dead-letter queue con retry guidato e policy per collection.
 - **Fase C (coerenza config)**: replace atomico dataset configurativi per venue.
 - **Fase D (operatività)**: metriche sync e alerting UI.
-
