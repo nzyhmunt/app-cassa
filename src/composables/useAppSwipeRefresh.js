@@ -178,10 +178,7 @@ export function useAppSwipeRefresh({
   }
 
   onUnmounted(() => {
-    if (refreshDoneTimer != null) {
-      clearTimeout(refreshDoneTimer);
-      refreshDoneTimer = null;
-    }
+    isRefreshDone.value = false;
   });
 
   return {
