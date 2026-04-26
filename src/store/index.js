@@ -723,7 +723,8 @@ export const useOrderStore = defineStore('orders', () => {
             ...mod,
             id: mod.id ?? newUUIDv7(),
           }));
-          projected.orderItems.push({ ...cartItem, quantity: normalizedQuantity, uid: newShortId('r'), modifiers: normalizedModifiers, id: newUUIDv7() });
+          const normalizedItemId = cartItem.id === '' || cartItem.id == null ? newUUIDv7() : cartItem.id;
+          projected.orderItems.push({ ...cartItem, quantity: normalizedQuantity, uid: newShortId('r'), modifiers: normalizedModifiers, id: normalizedItemId });
         }
       }
       updateOrderTotals(projected);
