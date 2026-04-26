@@ -653,12 +653,24 @@ let _appType = 'cassa';
 /**
  * Monotonically increasing counter incremented at the start of every
  * `_runGlobalPull` call.  Each invocation captures its own value; before
- * writing runtime config back to the store it checks whether a newer pull
- * has started in the meantime and, if so, skips the (now stale) write.
- * This prevents a background global-pull that was superseded by an explicit
- * `reconfigureAndApply` from resetting the primary colour back to defaults.
+ * writing runtime config back to the store it checks whether a **newer pull
+ * has already successfully applied** config in the meantime and, if so, skips
+ * the (now stale) write.
+ *
+ * Two counters are used:
+ *  - `_globalPullGeneration`: incremented when any pull *starts* (assigns order).
+ *  - `_lastAppliedGlobalPullGeneration`: set to `myGeneration` only after a pull
+ *    *successfully* calls `_hydrateConfigFromLocalCache`.
+ *
+ * The skip condition is `_lastAppliedGlobalPullGeneration > myGeneration`:
+ *  - A later pull that succeeded → current pull is stale, skip apply.
+ *  - A later pull that failed → `_lastApplied` was not advanced, current pull
+ *    is free to apply its successfully fetched data (fixes the case where a
+ *    newer but failing pull would have permanently prevented the older
+ *    successful pull from hydrating runtime config).
  */
 let _globalPullGeneration = 0;
+let _lastAppliedGlobalPullGeneration = 0;
 
 const syncStatus = ref(/** @type {'idle'|'syncing'|'error'|'offline'} */ ('idle'));
 const lastPushAt = ref(/** @type {string|null} */ (null));
@@ -1276,15 +1288,18 @@ async function _runGlobalPull({ onProgress = null } = {}) {
       details: JSON.stringify(fanOutSummary),
     });
 
-    // If a newer global pull started while we were fetching (e.g. because the
-    // user triggered reconfigureAndApply), skip applying stale config to the
-    // store so the newer pull's result is not overwritten.
-    if (_globalPullGeneration !== myGeneration) {
+    // Skip apply only if a *newer* pull has already successfully applied config.
+    // Using the "last applied" generation (rather than "last started") means a
+    // newer pull that failed does NOT prevent this pull from applying its
+    // successfully fetched data — avoiding stale settings when the newer pull
+    // errors out before reaching _hydrateConfigFromLocalCache.
+    if (_lastAppliedGlobalPullGeneration > myGeneration) {
       console.debug('[DirectusSync] Global pull superseded by a newer pull — skipping config apply.');
       return { ok: true, failedCollections: [] };
     }
 
     await _hydrateConfigFromLocalCache(venueId, onProgress);
+    _lastAppliedGlobalPullGeneration = myGeneration;
     _emitProgress(onProgress, { level: 'success', message: 'Configurazione applicata con successo.' });
     return { ok: true, failedCollections: [] };
   } catch (e) {
@@ -1474,6 +1489,7 @@ export function _resetDirectusSyncSingleton() {
   _appType = 'cassa';
   _pushInFlight = null;
   _globalPullGeneration = 0;
+  _lastAppliedGlobalPullGeneration = 0;
   if (_pushTimer) { clearInterval(_pushTimer); _pushTimer = null; }
   if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
   if (_globalTimer) { clearInterval(_globalTimer); _globalTimer = null; }
