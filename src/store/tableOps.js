@@ -309,7 +309,7 @@ export function makeTableOps(state, helpers) {
     }
 
     // Assign reactive refs only when IDB write failed (offline resilience).
-    // On success the IDB event bus has already applied the projected state.
+    // On success the IDB event bus will apply the projected state (emitIDBChange fires after the IDB write resolves).
     if (!persistedToIDB) {
       orders.value = nextOrders;
       transactions.value = nextTransactions;
@@ -424,7 +424,7 @@ export function makeTableOps(state, helpers) {
     }
 
     // Assign reactive refs only when IDB write failed (offline resilience).
-    // On success the IDB event bus has already applied the projected state.
+    // On success the IDB event bus will apply the projected state (emitIDBChange fires after the IDB write resolves).
     if (!persistedToIDB) {
       orders.value = nextOrders;
       transactions.value = nextTransactions;
@@ -493,7 +493,7 @@ export function makeTableOps(state, helpers) {
     }
 
     // Assign reactive refs only when IDB write failed (offline resilience).
-    // On success the IDB event bus has already applied the projected state.
+    // On success the IDB event bus will apply the projected state (emitIDBChange fires after the IDB write resolves).
     if (!persistedToIDB) {
       tableMergedInto.value = nextMergedInto;
       if (slaveHasOrders) orders.value = nextOrders;
@@ -699,7 +699,7 @@ export function makeTableOps(state, helpers) {
 
     if (!persistedToIDB) return false;
 
-    // Reactive state already applied via the IDB event bus (emitIDBChange in saveStateToIDB).
+    // Reactive state is applied asynchronously via the IDB event bus (emitIDBChange in saveStateToIDB).
     if (createdTargetSession) enqueueBillSessionCreate(createdTargetSession);
     _enqueueChangedOrders(previousOrders, projectedOrders);
     _enqueueChangedTransactions(previousTransactions, nextTransactions);

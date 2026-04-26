@@ -325,10 +325,12 @@ export const useOrderStore = defineStore('orders', () => {
       }
     }
     if (didGenerateMissingIds) {
-      // Push the updated projected order into orders.value so reactive state
-      // reflects the newly assigned IDs, then persist immediately.
-      orders.value = _replaceOrderById(ordId, projectedOrder);
-      saveStateToIDB({ orders: orders.value }).catch((error) => {
+      // IDB-first: persist the newly assigned IDs before relying on the event bus
+      // to propagate them to reactive state. Even without await, the event bus
+      // fires synchronously inside the mock (in tests) and after the IDB write in
+      // production (a brief async window that is acceptable for this safety-net path).
+      const nextOrders = _replaceOrderById(ordId, projectedOrder);
+      saveStateToIDB({ orders: nextOrders }).catch((error) => {
         console.error('Failed to persist generated order item IDs to IDB', error);
         _scheduleSave('orders');
       });
@@ -1058,8 +1060,15 @@ export const useOrderStore = defineStore('orders', () => {
   watch(billRequestedTables, () => _scheduleSave('billRequestedTables'), { deep: true });
 
   // ── IDB event-bus subscriber ──────────────────────────────────────────────────
-  // This subscriber is the sole reactive-update path for all IDB-first action bodies.
-  // Every confirmed IDB write emits on this bus; no store action mutates refs directly.
+  // This subscriber is the primary reactive-update path for IDB-first action bodies.
+  // Every confirmed IDB write emits on this bus and updates the reactive refs below.
+  // Exceptions that still assign directly:
+  //   • openTableSession – uses upsertBillSessionInIDB (different bus path)
+  //   • performDailyClose (makeReportOps) – uses raw Vue refs outside the bus context;
+  //     the duplicate bus assignment that follows is harmless but acknowledged.
+  //   • _enqueueOrderItemsPatch safety-net – fires a non-awaited saveStateToIDB so
+  //     the bus update is asynchronous; the direct assignment was removed as of this
+  //     refactor (the brief async window is acceptable for this legacy-only path).
   const unsubIDBChange = onIDBChange((state) => {
     const keys = [];
     if ('orders' in state) { orders.value = state.orders; keys.push('orders'); }
