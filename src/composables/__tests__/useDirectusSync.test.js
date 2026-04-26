@@ -1607,19 +1607,20 @@ describe('global pull config hydration', () => {
     expect(result.failedCollections).toContain('orders');
   });
 
-  it('older successful pull still applies config when newer pull fails before hydration', async () => {
-    // Simulate two overlapping _runGlobalPull calls:
-    //  - Pull A (generation 1): succeeds — should apply config
-    //  - Pull B (generation 2): starts after A but fails during fetch — must NOT block A from applying
+  it('older concurrent pull still applies config when newer pull fails before hydration', async () => {
+    // True concurrency test: pull A is launched but blocked mid-flight (before its
+    // venue fetch resolves) while pull B starts, increments the generation counter
+    // to 2, and fails immediately on the venue fetch.  Only then is pull A unblocked.
     //
-    // We model this via reconfigureAndApply() (which internally calls _runGlobalPull):
-    //  - First call succeeds (valid venue payload) → config should be applied
-    //  - Second call fails (venue fetch error) → should not retroactively block the first
+    // Expected: _lastAppliedGlobalPullGeneration stays 0 after B fails, so when A
+    // resumes it sees 0 <= 1 (myGeneration_A) and is free to write IDB and apply config.
 
-    const { appConfig } = await import('../../utils/index.js');
+    const mappers = await import('../../utils/mappers.js');
+    const mapperSpy = vi.spyOn(mappers, 'mapVenueConfigFromDirectus');
+
     const venuePayload = {
       id: 1,
-      name: 'Test Venue Generation',
+      name: 'Concurrent Race Venue',
       menu_source: 'directus',
       rooms: [],
       tables: [],
@@ -1632,31 +1633,55 @@ describe('global pull config hydration', () => {
       primary_color: '#aabbcc',
     };
 
-    // First reconfigureAndApply — succeeds
+    // Deferred: lets us control exactly when pull A's venue response arrives.
+    let resolveVenueA;
+    const venueAFetch = new Promise((resolve) => { resolveVenueA = resolve; });
+
+    // First venue request (pull A) — deferred.
+    // Subsequent venue requests (pull B full + fallback field sets) — fail immediately.
+    let venueFetchCount = 0;
     vi.spyOn(global, 'fetch').mockImplementation((url) => {
-      if (String(url).includes('/items/venues/')) return Promise.resolve(directusItemResponse(venuePayload));
+      if (String(url).includes('/items/venues/')) {
+        venueFetchCount += 1;
+        if (venueFetchCount === 1) {
+          return venueAFetch.then(() => directusItemResponse(venuePayload));
+        }
+        return Promise.reject(new Error('concurrent pull B failure'));
+      }
       return Promise.resolve(directusListResponse([]));
     });
+
     const sync = useDirectusSync();
-    const resultA = await sync.reconfigureAndApply();
-    expect(resultA.ok).toBe(true);
 
-    // Capture the color set by pull A
-    const colorAfterA = appConfig.ui?.primaryColor;
+    // Launch pull A without awaiting.  The ++_globalPullGeneration increment in
+    // _runGlobalPull runs synchronously (before the first await), so by the time
+    // this assignment returns, _globalPullGeneration is already 1 and pull A is
+    // suspended waiting for its venue fetch.
+    const promiseA = sync.reconfigureAndApply();
 
-    // Second reconfigureAndApply — fails (simulates a concurrent pull that errors out)
-    vi.spyOn(global, 'fetch').mockImplementation((url) => {
-      if (String(url).includes('/items/venues/')) return Promise.reject(new Error('network error'));
-      return Promise.resolve(directusListResponse([]));
-    });
+    // Flush a few microtask rounds to let pull A reach its suspended await.
+    await flushPromises(5);
+
+    // Launch pull B and wait for it to finish — it fails immediately on the venue
+    // fetch (venueFetchCount >= 2).  _globalPullGeneration is now 2.
+    // _lastAppliedGlobalPullGeneration stays 0 because B never hydrates config.
     const resultB = await sync.reconfigureAndApply();
     expect(resultB.ok).toBe(false);
 
-    // The config from pull A must still be in effect — the failing pull B must not have
-    // retroactively prevented pull A from being the applied state.
-    // (In practice, since pull A already succeeded and advanced _lastAppliedGlobalPullGeneration,
-    // pull B's failure leaves the state set by A intact.)
-    expect(appConfig.ui?.primaryColor).toBe(colorAfterA);
+    // Unblock pull A's venue fetch.
+    resolveVenueA();
+
+    // Await pull A — it must complete successfully.
+    // Supersession check: _lastAppliedGlobalPullGeneration (0) is NOT > myGeneration_A (1),
+    // so pull A proceeds to write IDB and hydrate config.
+    const resultA = await promiseA;
+    expect(resultA.ok).toBe(true);
+    expect(resultA.failedCollections).toHaveLength(0);
+
+    // mapVenueConfigFromDirectus being called proves _hydrateConfigFromLocalCache ran
+    // (i.e. pull A was not blocked from applying config by pull B's failure).
+    expect(mapperSpy).toHaveBeenCalled();
+
     sync.stopSync();
   });
 
