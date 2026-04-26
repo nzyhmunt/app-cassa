@@ -1304,8 +1304,25 @@ async function _runGlobalPull({ onProgress = null } = {}) {
       details: JSON.stringify(fanOutSummary),
     });
 
+    if (myGeneration < _globalPullGeneration || myGeneration <= (_lastAppliedGlobalPullGeneration ?? 0)) {
+      _emitProgress(onProgress, {
+        level: 'info',
+        message: 'Applicazione configurazione saltata: pull globale superato da una versione più recente.',
+      });
+      return { ok: true, failedCollections: [] };
+    }
+
     await _hydrateConfigFromLocalCache(venueId, onProgress);
-    _lastAppliedGlobalPullGeneration = myGeneration;
+
+    if (myGeneration < _globalPullGeneration || myGeneration <= (_lastAppliedGlobalPullGeneration ?? 0)) {
+      _emitProgress(onProgress, {
+        level: 'info',
+        message: 'Configurazione idratata ma non applicata: pull globale superato durante l’aggiornamento.',
+      });
+      return { ok: true, failedCollections: [] };
+    }
+
+    _lastAppliedGlobalPullGeneration = Math.max(_lastAppliedGlobalPullGeneration ?? 0, myGeneration);
     _emitProgress(onProgress, { level: 'success', message: 'Configurazione applicata con successo.' });
     return { ok: true, failedCollections: [] };
   } catch (e) {
