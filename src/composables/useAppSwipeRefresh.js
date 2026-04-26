@@ -15,6 +15,7 @@ export function useAppSwipeRefresh({
 }) {
   const effectiveThresholdPx = Number.isFinite(thresholdPx) && thresholdPx > 0 ? thresholdPx : 80;
   const isSwipeRefreshing = ref(false);
+  const isRefreshDone = ref(false);
   const isPulling = ref(false);
   const pullDistance = ref(0);
   const isThresholdReached = computed(() => pullDistance.value >= effectiveThresholdPx);
@@ -83,6 +84,8 @@ export function useAppSwipeRefresh({
   async function runRefresh() {
     if (isSwipeRefreshing.value) return;
     isSwipeRefreshing.value = true;
+    isRefreshDone.value = false;
+    let success = false;
     try {
       if (directusEnabledRef.value) {
         await sync.reconfigureAndApply({ clearLocalConfig: false });
@@ -92,10 +95,16 @@ export function useAppSwipeRefresh({
         configStore.hydrateConfigFromIDB(),
         orderStore.refreshOperationalStateFromIDB(),
       ]);
+      success = true;
     } catch (error) {
       console.warn(`[${logPrefix}] Swipe refresh failed:`, error);
     } finally {
       isSwipeRefreshing.value = false;
+    }
+    if (success) {
+      isRefreshDone.value = true;
+      await new Promise((resolve) => setTimeout(resolve, 800));
+      isRefreshDone.value = false;
     }
   }
 
@@ -161,6 +170,7 @@ export function useAppSwipeRefresh({
 
   return {
     isSwipeRefreshing,
+    isRefreshDone,
     isPulling,
     isThresholdReached,
     pullDistance,
