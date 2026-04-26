@@ -305,8 +305,9 @@ export const useOrderStore = defineStore('orders', () => {
     //   • legacy IDB items created before client-side UUID assignment was introduced,
     //   • the addItemsToOrder merge path where an existing item may still lack an id,
     //   • any other code path that pushes items/modifiers into orderItems without an id.
-    // When IDs are generated, orders.value is updated explicitly so that reactive state
-    // stays in sync, and the result is persisted immediately to IDB.
+    // When IDs are generated, this path persists the updated order snapshot to IDB;
+    // reactive state is then refreshed via the persistence event bus, which may be
+    // asynchronous in production.
     let didGenerateMissingIds = false;
     if (Array.isArray(projectedOrder.orderItems)) {
       for (const item of projectedOrder.orderItems) {
