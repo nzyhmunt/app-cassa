@@ -1119,7 +1119,7 @@ export const useOrderStore = defineStore('orders', () => {
     const keys = [];
     if ('orders' in state) { orders.value = state.orders; keys.push('orders'); }
     if ('transactions' in state) { transactions.value = state.transactions; keys.push('transactions'); }
-    if ('cashBalance' in state) { cashBalance.value = state.cashBalance; keys.push('cashBalance'); }
+    if ('cashBalance' in state && cashBalance.value !== state.cashBalance) { cashBalance.value = state.cashBalance; keys.push('cashBalance'); }
     if ('cashMovements' in state) { cashMovements.value = state.cashMovements; keys.push('cashMovements'); }
     if ('dailyClosures' in state) { dailyClosures.value = state.dailyClosures; keys.push('dailyClosures'); }
     // printLog is not handled here: the IDB-persisted form has `payload` stripped,
