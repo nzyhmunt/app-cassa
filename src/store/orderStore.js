@@ -333,6 +333,9 @@ export const useOrderStore = defineStore('orders', () => {
       const nextOrders = _replaceOrderById(ordId, projectedOrder);
       saveStateToIDB({ orders: nextOrders }).catch((error) => {
         console.error('Failed to persist generated order item IDs to IDB', error);
+        // Keep orders.value in sync with nextOrders so the scheduled retry
+        // persists the generated IDs rather than the old array.
+        orders.value = nextOrders;
         _scheduleSave('orders');
       });
     }
