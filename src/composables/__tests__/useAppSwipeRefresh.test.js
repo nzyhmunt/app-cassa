@@ -216,6 +216,36 @@ describe('useAppSwipeRefresh()', () => {
     vi.useRealTimers();
   });
 
+  it('cancels a pending isRefreshDone timer when a second refresh starts', async () => {
+    vi.useFakeTimers();
+    const { configStore, orderStore, sync } = makeStoresAndSync();
+    const swipe = useAppSwipeRefresh({ configStore, orderStore, sync, thresholdPx: 40 });
+    const root = document.createElement('div');
+    document.body.appendChild(root);
+
+    // First refresh — finishes, starts 800 ms timer
+    swipe.onTouchStart({ touches: [touch(1, 0)], target: root });
+    swipe.onTouchEnd({ changedTouches: [touch(1, 60)] });
+    await flushPromises();
+    expect(swipe.isRefreshDone.value).toBe(true);
+
+    // Second refresh starts before the first timer fires
+    swipe.onTouchStart({ touches: [touch(2, 0)], target: root });
+    swipe.onTouchEnd({ changedTouches: [touch(2, 60)] });
+    // Timer should have been cancelled — isRefreshDone is false while refreshing
+    expect(swipe.isRefreshDone.value).toBe(false);
+    expect(swipe.isSwipeRefreshing.value).toBe(true);
+
+    await flushPromises();
+    // Second refresh completes, isRefreshDone is true again
+    expect(swipe.isRefreshDone.value).toBe(true);
+
+    vi.advanceTimersByTime(800);
+    await flushPromises();
+    expect(swipe.isRefreshDone.value).toBe(false);
+    vi.useRealTimers();
+  });
+
   it('does not set isRefreshDone when refresh throws', async () => {
     vi.useFakeTimers();
     const { configStore, orderStore, sync } = makeStoresAndSync();

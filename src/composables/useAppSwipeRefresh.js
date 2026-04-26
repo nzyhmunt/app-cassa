@@ -1,4 +1,4 @@
-import { computed, ref } from 'vue';
+import { computed, onUnmounted, ref } from 'vue';
 import { directusEnabledRef } from './useDirectusClient.js';
 
 /**
@@ -17,6 +17,8 @@ export function useAppSwipeRefresh({
   const isSwipeRefreshing = ref(false);
   const isRefreshDone = ref(false);
   const isPulling = ref(false);
+  /** @type {ReturnType<typeof setTimeout>|null} */
+  let refreshDoneTimer = null;
   const pullDistance = ref(0);
   const isThresholdReached = computed(() => pullDistance.value >= effectiveThresholdPx);
   const pullProgress = computed(() => {
@@ -83,6 +85,11 @@ export function useAppSwipeRefresh({
 
   async function runRefresh() {
     if (isSwipeRefreshing.value) return;
+    if (refreshDoneTimer != null) {
+      clearTimeout(refreshDoneTimer);
+      refreshDoneTimer = null;
+      isRefreshDone.value = false;
+    }
     isSwipeRefreshing.value = true;
     isRefreshDone.value = false;
     let success = false;
@@ -103,7 +110,12 @@ export function useAppSwipeRefresh({
     }
     if (success) {
       isRefreshDone.value = true;
-      await new Promise((resolve) => setTimeout(resolve, 800));
+      await new Promise((resolve) => {
+        refreshDoneTimer = setTimeout(() => {
+          refreshDoneTimer = null;
+          resolve();
+        }, 800);
+      });
       isRefreshDone.value = false;
     }
   }
@@ -167,6 +179,13 @@ export function useAppSwipeRefresh({
   function onTouchCancel() {
     resetPullState();
   }
+
+  onUnmounted(() => {
+    if (refreshDoneTimer != null) {
+      clearTimeout(refreshDoneTimer);
+      refreshDoneTimer = null;
+    }
+  });
 
   return {
     isSwipeRefreshing,
