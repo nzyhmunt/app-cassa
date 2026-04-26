@@ -650,6 +650,28 @@ let _pushInFlight = null;
 let _store = null;
 /** @type {'cassa'|'sala'|'cucina'} */
 let _appType = 'cassa';
+/**
+ * Monotonically increasing counter incremented by each `_runGlobalPull` call
+ * that proceeds past the online/config early-exit checks.  Each such invocation
+ * captures its own value; before writing runtime config back to the store it
+ * checks whether a **newer pull has already successfully applied** config in the
+ * meantime and, if so, skips the (now stale) write.
+ *
+ * Two counters are used:
+ *  - `_globalPullGeneration`: incremented for each pull attempt that passes the
+ *    online/config checks (assigns ordering among concurrent pulls).
+ *  - `_lastAppliedGlobalPullGeneration`: set to `myGeneration` only after a pull
+ *    *successfully* calls `_hydrateConfigFromLocalCache`.
+ *
+ * The skip condition is `_lastAppliedGlobalPullGeneration > myGeneration`:
+ *  - A later pull that succeeded → current pull is stale, skip apply.
+ *  - A later pull that failed → `_lastApplied` was not advanced, current pull
+ *    is free to apply its successfully fetched data (fixes the case where a
+ *    newer but failing pull would have permanently prevented the older
+ *    successful pull from hydrating runtime config).
+ */
+let _globalPullGeneration = 0;
+let _lastAppliedGlobalPullGeneration = 0;
 
 const syncStatus = ref(/** @type {'idle'|'syncing'|'error'|'offline'} */ ('idle'));
 const lastPushAt = ref(/** @type {string|null} */ (null));
@@ -752,8 +774,12 @@ async function _runPush() {
 // ── Pull helpers ──────────────────────────────────────────────────────────────
 
 async function _runPull() {
-  if (!navigator.onLine) return;
-  if (!_getCfg()) return;
+  if (!navigator.onLine) {
+    return { ok: false, failedCollections: [], skippedReason: 'offline' };
+  }
+  if (!_getCfg()) {
+    return { ok: false, failedCollections: [], skippedReason: 'no-config' };
+  }
 
   const pullCfg = PULL_CONFIG[_appType] ?? PULL_CONFIG.cassa;
   const menuSource = appConfig.menuSource ?? 'directus';
@@ -782,8 +808,10 @@ async function _runPull() {
     } else if (!allOk) {
       console.warn('[DirectusSync] Pull cycle incomplete: at least one collection failed.');
     }
+    return { ok: allOk, failedCollections };
   } catch (e) {
     console.warn('[DirectusSync] Pull error:', e);
+    return { ok: false, failedCollections: [] };
   }
 }
 
@@ -1183,6 +1211,11 @@ async function _runGlobalPull({ onProgress = null } = {}) {
   const cfg = _getCfg();
   if (!cfg) return;
   const venueId = cfg.venueId ?? null;
+  // Capture the current generation counter so we can detect whether a newer
+  // global pull has been started (e.g. by reconfigureAndApply) while this one
+  // is awaiting network/IDB work.  If superseded, skip the config-apply step
+  // to avoid overwriting the freshly applied runtime config with stale data.
+  const myGeneration = ++_globalPullGeneration;
 
   try {
     _emitProgress(onProgress, { level: 'info', message: 'Avvio pull globale configurazione Directus…' });
@@ -1233,6 +1266,16 @@ async function _runGlobalPull({ onProgress = null } = {}) {
     }
     deepVenue = await _hydrateVenueTablesFromRoomRefs(client, deepVenue, venueId);
 
+    // Skip IDB write and config apply only if a *newer* pull has already
+    // successfully applied config.  Checking here (after network fetch but
+    // before writing to IDB) prevents an older, slower pull from
+    // overwriting IDB with stale venue data after a newer pull has already
+    // written and applied fresher data.
+    if (_lastAppliedGlobalPullGeneration > myGeneration) {
+      console.debug('[DirectusSync] Global pull superseded by a newer pull — skipping IDB write and config apply.');
+      return { ok: true, failedCollections: [] };
+    }
+
     const localMenuSource = appConfig.menuSource;
     const remoteMenuSource = deepVenue.menu_source;
     const menuSource = localMenuSource === 'json'
@@ -1262,7 +1305,25 @@ async function _runGlobalPull({ onProgress = null } = {}) {
       details: JSON.stringify(fanOutSummary),
     });
 
+    if ((_lastAppliedGlobalPullGeneration ?? 0) > myGeneration) {
+      _emitProgress(onProgress, {
+        level: 'info',
+        message: 'Applicazione configurazione saltata: una pull globale più recente è già stata applicata.',
+      });
+      return { ok: true, failedCollections: [] };
+    }
+
     await _hydrateConfigFromLocalCache(venueId, onProgress);
+
+    if ((_lastAppliedGlobalPullGeneration ?? 0) > myGeneration) {
+      _emitProgress(onProgress, {
+        level: 'info',
+        message: 'Configurazione idratata ma non applicata: una pull globale più recente è stata applicata durante l’aggiornamento.',
+      });
+      return { ok: true, failedCollections: [] };
+    }
+
+    _lastAppliedGlobalPullGeneration = Math.max(_lastAppliedGlobalPullGeneration ?? 0, myGeneration);
     _emitProgress(onProgress, { level: 'success', message: 'Configurazione applicata con successo.' });
     return { ok: true, failedCollections: [] };
   } catch (e) {
@@ -1376,8 +1437,8 @@ export function useDirectusSync() {
   }
 
   async function forcePull() {
-    if (!appConfig.directus?.enabled) return;
-    await _runPull();
+    if (!appConfig.directus?.enabled) return { ok: true, failedCollections: [] };
+    return _runPull();
   }
 
   /**
@@ -1451,6 +1512,8 @@ export function _resetDirectusSyncSingleton() {
   _store = null;
   _appType = 'cassa';
   _pushInFlight = null;
+  _globalPullGeneration = 0;
+  _lastAppliedGlobalPullGeneration = 0;
   if (_pushTimer) { clearInterval(_pushTimer); _pushTimer = null; }
   if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
   if (_globalTimer) { clearInterval(_globalTimer); _globalTimer = null; }
