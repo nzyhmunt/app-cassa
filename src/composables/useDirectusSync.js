@@ -1304,20 +1304,20 @@ async function _runGlobalPull({ onProgress = null } = {}) {
       details: JSON.stringify(fanOutSummary),
     });
 
-    if (myGeneration < _globalPullGeneration || myGeneration <= (_lastAppliedGlobalPullGeneration ?? 0)) {
+    if ((_lastAppliedGlobalPullGeneration ?? 0) > myGeneration) {
       _emitProgress(onProgress, {
         level: 'info',
-        message: 'Applicazione configurazione saltata: pull globale superato da una versione più recente.',
+        message: 'Applicazione configurazione saltata: una pull globale più recente è già stata applicata.',
       });
       return { ok: true, failedCollections: [] };
     }
 
     await _hydrateConfigFromLocalCache(venueId, onProgress);
 
-    if (myGeneration < _globalPullGeneration || myGeneration <= (_lastAppliedGlobalPullGeneration ?? 0)) {
+    if ((_lastAppliedGlobalPullGeneration ?? 0) > myGeneration) {
       _emitProgress(onProgress, {
         level: 'info',
-        message: 'Configurazione idratata ma non applicata: pull globale superato durante l’aggiornamento.',
+        message: 'Configurazione idratata ma non applicata: una pull globale più recente è stata applicata durante l’aggiornamento.',
       });
       return { ok: true, failedCollections: [] };
     }
