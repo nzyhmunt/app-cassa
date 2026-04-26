@@ -280,11 +280,11 @@ const PARENT_DEPENDENCY_MAP = new Map([
   ['transaction_voce_refs',   [{ parentCollection: 'transactions',   fkField: 'transaction' }]],
   // daily closures — by-method rows carry payload.daily_closure === parent closure.id
   ['daily_closure_by_method', [{ parentCollection: 'daily_closures', fkField: 'daily_closure' }]],
-  // bill_sessions — orders and transactions reference the session via the
-  // camelCase `billSessionId` in the raw queue payload (mappers convert it to
-  // `bill_session` only at push time, after it leaves the queue store).
+  // bill_sessions — orders reference the session via camelCase `billSessionId` in the raw
+  // queue payload (mappers convert it to `bill_session` only at push time).
+  // Transactions use snake_case `bill_session` directly in the queue payload.
   ['orders',                  [{ parentCollection: 'bill_sessions',  fkField: 'billSessionId' }]],
-  ['transactions',            [{ parentCollection: 'bill_sessions',  fkField: 'billSessionId' }]],
+  ['transactions',            [{ parentCollection: 'bill_sessions',  fkField: 'bill_session' }]],
 ]);
 
 const VENUE_REQUIRED_CREATE_COLLECTIONS = new Set([

@@ -219,7 +219,7 @@ describe('P0-1 write order (IDB-first)', () => {
 
     await store.addTransaction({
       id: 'txn_1',
-      tableId: 'T3',
+      table: 'T3',
       amountPaid: 10,
       tipAmount: 0,
       paymentMethod: 'Contanti',
@@ -355,7 +355,7 @@ describe('P0-1 IDB rejection — state must not mutate when IDB write fails', ()
 
     await expect(store.addTransaction({
       id: 'txn_fail',
-      tableId: 'T7',
+      table: 'T7',
       amountPaid: 10,
       tipAmount: 0,
       paymentMethod: 'Contanti',
@@ -981,8 +981,8 @@ describe('sync queue propagation — table mutations', () => {
     await store.addOrder(ordA);
     await store.addTransaction({
       id: 'txn_move_occ',
-      tableId: 'A',
-      billSessionId: sessA,
+      table: 'A',
+      bill_session: sessA,
       amountPaid: 10,
       tipAmount: 0,
       paymentMethod: 'Contanti',
@@ -1009,7 +1009,7 @@ describe('sync queue propagation — table mutations', () => {
     const txnUpdateCall = enqueueMock.mock.calls.find(
       ([collection, operation, recordId]) => collection === 'transactions' && operation === 'update' && recordId === 'txn_move_occ',
     );
-    expect(txnUpdateCall?.[3]).toEqual({ tableId: 'B', billSessionId: sessB });
+    expect(txnUpdateCall?.[3]).toEqual({ table: 'B', bill_session: sessB });
 
     const targetSessionUpdate = enqueueMock.mock.calls.find(
       ([collection, operation, recordId]) => collection === 'bill_sessions' && operation === 'update' && recordId === sessB,
@@ -1063,8 +1063,8 @@ describe('sync queue propagation — table mutations', () => {
     await store.addOrder(ordA);
     await store.addTransaction({
       id: 'txn_move_fail',
-      tableId: 'A',
-      billSessionId: sessA,
+      table: 'A',
+      bill_session: sessA,
       amountPaid: 10,
       tipAmount: 0,
       paymentMethod: 'Contanti',
@@ -1095,8 +1095,8 @@ describe('sync queue propagation — table mutations', () => {
     await store.addOrder(ordA);
     await store.addTransaction({
       id: 'txn_merge',
-      tableId: 'A',
-      billSessionId: sessA,
+      table: 'A',
+      bill_session: sessA,
       amountPaid: 15,
       tipAmount: 0,
       paymentMethod: 'Contanti',
@@ -1121,7 +1121,7 @@ describe('sync queue propagation — table mutations', () => {
     const movedTxnUpdate = enqueueMock.mock.calls.find(
       ([collection, operation, recordId]) => collection === 'transactions' && operation === 'update' && recordId === 'txn_merge',
     );
-    expect(movedTxnUpdate?.[3]).toEqual({ tableId: 'B', billSessionId: sessB });
+    expect(movedTxnUpdate?.[3]).toEqual({ table: 'B', bill_session: sessB });
 
     const targetSessionUpdate = enqueueMock.mock.calls.find(
       ([collection, operation, recordId]) => collection === 'bill_sessions' && operation === 'update' && recordId === sessB,
@@ -1150,8 +1150,8 @@ describe('sync queue propagation — table mutations', () => {
     await store.addOrder(ordA);
     await store.addTransaction({
       id: 'txn_merge_fail',
-      tableId: 'A',
-      billSessionId: sessA,
+      table: 'A',
+      bill_session: sessA,
       amountPaid: 12,
       tipAmount: 0,
       paymentMethod: 'Contanti',
@@ -1295,8 +1295,8 @@ describe('sync queue propagation — table mutations', () => {
     await store.addOrder(ord);
     await store.addTransaction({
       id: 'txn_split_full',
-      tableId: 'A',
-      billSessionId: sessA,
+      table: 'A',
+      bill_session: sessA,
       amountPaid: 5,
       tipAmount: 0,
       paymentMethod: 'Contanti',
@@ -1318,7 +1318,7 @@ describe('sync queue propagation — table mutations', () => {
     const movedTxnUpdate = enqueueMock.mock.calls.find(
       ([collection, operation, recordId]) => collection === 'transactions' && operation === 'update' && recordId === 'txn_split_full',
     );
-    expect(movedTxnUpdate?.[3]).toEqual({ tableId: 'B', billSessionId: sessB });
+    expect(movedTxnUpdate?.[3]).toEqual({ table: 'B', bill_session: sessB });
 
     const sourceSessionClose = enqueueMock.mock.calls.find(
       ([collection, operation, recordId]) => collection === 'bill_sessions' && operation === 'update' && recordId === sessA,

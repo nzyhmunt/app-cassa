@@ -105,8 +105,8 @@ export function makeTableOps(state, helpers) {
       const prev = prevById.get(String(txn.id));
       if (!prev) return;
       if (
-        prev.tableId === txn.tableId &&
-        (prev.billSessionId ?? null) === (txn.billSessionId ?? null)
+        prev.table === txn.table &&
+        (prev.bill_session ?? null) === (txn.bill_session ?? null)
       ) return;
       enqueueTransactionUpdate(txn);
     });
@@ -179,7 +179,7 @@ export function makeTableOps(state, helpers) {
    *
    * If srcSessionId is provided, only orders and transactions for that session are moved.
    * If srcSessionId is null, all non-completed/rejected orders move (transactions retagged
-   * by tableId only, with billSessionId set to dstSessionId when provided).
+   * by table only, with bill_session set to dstSessionId when provided).
    *
    * @param {string} srcTableId
    * @param {string} dstTableId
@@ -200,20 +200,20 @@ export function makeTableOps(state, helpers) {
     });
     if (srcSessionId) {
       txnsArr.forEach(t => {
-        if (t.tableId === srcTableId && t.billSessionId === srcSessionId) {
-          t.tableId = dstTableId;
-          t.billSessionId = dstSessionId;
+        if (t.table === srcTableId && t.bill_session === srcSessionId) {
+          t.table = dstTableId;
+          t.bill_session = dstSessionId;
         }
       });
     } else {
-      // When there is no source session context, only retag tableId.
+      // When there is no source session context, only retag table.
       // Only assign dstSessionId to transactions that have no existing session
-      // (t.billSessionId == null) to avoid corrupting historical/closed-bill
-      // transactions that already carry their own billSessionId.
+      // (t.bill_session == null) to avoid corrupting historical/closed-bill
+      // transactions that already carry their own bill_session.
       txnsArr.forEach(t => {
-        if (t.tableId === srcTableId) {
-          t.tableId = dstTableId;
-          if (dstSessionId && t.billSessionId == null) t.billSessionId = dstSessionId;
+        if (t.table === srcTableId) {
+          t.table = dstTableId;
+          if (dstSessionId && t.bill_session == null) t.bill_session = dstSessionId;
         }
       });
     }
@@ -645,8 +645,8 @@ export function makeTableOps(state, helpers) {
       // Retag transactions from the closing source session to the target (immutable update).
       nextTransactions = srcSessionId
         ? transactions.value.map(t =>
-            t.tableId === sourceTableId && t.billSessionId === srcSessionId
-              ? { ...t, tableId: targetTableId, billSessionId: targetSessionId }
+            t.table === sourceTableId && t.bill_session === srcSessionId
+              ? { ...t, table: targetTableId, bill_session: targetSessionId }
               : t,
           )
         : transactions.value;

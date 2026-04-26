@@ -15,7 +15,7 @@
 
 import { resolvePaymentMethodMeta } from './paymentMethods.js';
 
-function relationId(value) {
+export function relationId(value) {
   if (value == null) return null;
   if (typeof value === 'object') return value.id ?? null;
   return value;
@@ -26,7 +26,7 @@ function numberOr(value, fallback = 0) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-function parseJsonArray(value) {
+export function parseJsonArray(value) {
   if (Array.isArray(value)) return value;
   if (typeof value === 'string' && value.trim() !== '') {
     try {
@@ -274,6 +274,231 @@ export function mapBillSessionToDirectus(record) {
   return out;
 }
 
+// ── Pull mappers: venue config sub-collections ────────────────────────────────
+
+/**
+ * Maps a raw Directus `menu_items` record to the local in-memory format.
+ * Normalises JSON-encoded arrays (`ingredients`, `allergens`) so consumers
+ * always receive plain JS arrays regardless of how the value was stored.
+ *
+ * @param {object} record
+ * @returns {object}
+ */
+export function mapMenuItemFromDirectus(record) {
+  return {
+    ...record,
+    ingredients: parseJsonArray(record.ingredients),
+    allergens: parseJsonArray(record.allergens),
+    _sync_status: 'synced',
+  };
+}
+
+/**
+ * Maps a raw Directus `menu_categories` record to the local format.
+ *
+ * @param {object} record
+ * @returns {object}
+ */
+export function mapMenuCategoryFromDirectus(record) {
+  return {
+    ...record,
+    _sync_status: 'synced',
+  };
+}
+
+/**
+ * Maps a raw Directus `menu_modifiers` record to the local format.
+ * Extracts the `venue` FK scalar.
+ *
+ * @param {object} record
+ * @returns {object}
+ */
+export function mapMenuModifierFromDirectus(record) {
+  return {
+    ...record,
+    venue: relationId(record.venue),
+    _sync_status: 'synced',
+  };
+}
+
+/**
+ * Maps a raw Directus `menu_categories_menu_modifiers` junction record.
+ * Extracts relation FKs for `venue`, `menu_categories_id`, `menu_modifiers_id`.
+ *
+ * @param {object} record
+ * @returns {object}
+ */
+export function mapMenuCategoryModifierLinkFromDirectus(record) {
+  return {
+    ...record,
+    venue: relationId(record.venue),
+    menu_categories_id: relationId(record.menu_categories_id),
+    menu_modifiers_id: relationId(record.menu_modifiers_id),
+    _sync_status: 'synced',
+  };
+}
+
+/**
+ * Maps a raw Directus `menu_items_menu_modifiers` junction record.
+ * Extracts relation FKs for `venue`, `menu_items_id`, `menu_modifiers_id`.
+ *
+ * @param {object} record
+ * @returns {object}
+ */
+export function mapMenuItemModifierLinkFromDirectus(record) {
+  return {
+    ...record,
+    venue: relationId(record.venue),
+    menu_items_id: relationId(record.menu_items_id),
+    menu_modifiers_id: relationId(record.menu_modifiers_id),
+    _sync_status: 'synced',
+  };
+}
+
+/**
+ * Maps a raw Directus `table_merge_sessions` record to the local format.
+ * Extracts relation FKs for `venue`, `master_table`, `slave_table`.
+ *
+ * @param {object} record
+ * @returns {object}
+ */
+export function mapTableMergeSessionFromDirectus(record) {
+  return {
+    ...record,
+    venue: relationId(record.venue),
+    master_table: relationId(record.master_table),
+    slave_table: relationId(record.slave_table),
+    _sync_status: 'synced',
+  };
+}
+
+// ── WebSocket order merge ─────────────────────────────────────────────────────
+
+/**
+ * Merges a partial WebSocket update payload into an existing order record from IDB.
+ *
+ * WS subscriptions use `fields:['*']` which does NOT expand nested relations,
+ * and can send partial payloads (e.g. only `{id, status, date_updated}`).
+ * `mapOrderFromDirectus()` fills absent fields with zero/empty defaults, so a
+ * straight overwrite would wipe IDB fields such as `totalAmount`, `globalNote`
+ * and `orderItems`.
+ *
+ * Only fields **present in the raw WS payload** are propagated to `merged`;
+ * all other fields are preserved from `existing`. This is the single source of
+ * truth for the order-field merge rule — previously duplicated inline inside
+ * `_handleSubscriptionMessage`.
+ *
+ * @param {object} existing - Current order record from IDB.
+ * @param {object} raw      - Raw WS payload (used to detect which fields were sent).
+ * @param {object} incoming - Already-mapped record via `mapOrderFromDirectus(raw)`.
+ * @returns {object} Merged order record ready to be written back to IDB.
+ */
+export function mergeOrderFromWSPayload(existing, raw, incoming) {
+  const merged = { ...existing };
+  const hasOwn = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key);
+
+  if (hasOwn(raw, 'id')) merged.id = incoming.id;
+  if (hasOwn(raw, 'status')) merged.status = incoming.status;
+  if (hasOwn(raw, 'date_created')) merged.date_created = incoming.date_created;
+  if (hasOwn(raw, 'date_updated')) merged.date_updated = incoming.date_updated;
+  if (hasOwn(raw, 'number')) merged.number = incoming.number;
+  if (hasOwn(raw, 'date')) merged.date = incoming.date;
+  if (hasOwn(raw, 'store_id')) merged.store_id = incoming.store_id;
+  if (hasOwn(raw, 'terminal_id')) merged.terminal_id = incoming.terminal_id;
+  if (hasOwn(raw, 'table')) merged.table = incoming.table;
+  if (hasOwn(raw, 'bill_session')) {
+    merged.billSessionId = incoming.billSessionId;
+    merged.bill_session = incoming.bill_session;
+  }
+  if (hasOwn(raw, 'total_amount')) {
+    merged.totalAmount = incoming.totalAmount;
+    merged.total_amount = incoming.total_amount;
+  }
+  if (hasOwn(raw, 'item_count')) {
+    merged.itemCount = incoming.itemCount;
+    merged.item_count = incoming.item_count;
+  }
+  if (hasOwn(raw, 'order_time')) {
+    merged.time = incoming.time;
+    merged.order_time = incoming.order_time;
+  }
+  if (hasOwn(raw, 'global_note')) {
+    merged.globalNote = incoming.globalNote;
+    merged.global_note = incoming.global_note;
+  }
+  if (
+    hasOwn(raw, 'note_visibility_cassa') ||
+    hasOwn(raw, 'note_visibility_sala') ||
+    hasOwn(raw, 'note_visibility_cucina')
+  ) {
+    // Merge per-subkey so that a partial WS update (e.g. only note_visibility_cassa)
+    // does not clobber the other visibility flags with mapper-supplied defaults.
+    const nv = { ...(existing.noteVisibility ?? {}) };
+    if (hasOwn(raw, 'note_visibility_cassa')) {
+      nv.cassa = incoming.noteVisibility.cassa;
+      merged.note_visibility_cassa = incoming.note_visibility_cassa;
+    }
+    if (hasOwn(raw, 'note_visibility_sala')) {
+      nv.sala = incoming.noteVisibility.sala;
+      merged.note_visibility_sala = incoming.note_visibility_sala;
+    }
+    if (hasOwn(raw, 'note_visibility_cucina')) {
+      nv.cucina = incoming.noteVisibility.cucina;
+      merged.note_visibility_cucina = incoming.note_visibility_cucina;
+    }
+    merged.noteVisibility = nv;
+  }
+  if (hasOwn(raw, 'is_cover_charge')) {
+    merged.isCoverCharge = incoming.isCoverCharge;
+    merged.is_cover_charge = incoming.is_cover_charge;
+  }
+  if (hasOwn(raw, 'is_direct_entry')) {
+    merged.isDirectEntry = incoming.isDirectEntry;
+    merged.is_direct_entry = incoming.is_direct_entry;
+  }
+  if (hasOwn(raw, 'rejection_reason')) {
+    merged.rejectionReason = incoming.rejectionReason;
+    merged.rejection_reason = incoming.rejection_reason;
+  }
+  if (hasOwn(raw, 'venue_user_created')) {
+    merged.venueUserCreated = incoming.venueUserCreated;
+    merged.venue_user_created = incoming.venue_user_created;
+  }
+  if (hasOwn(raw, 'venue_user_updated')) {
+    merged.venueUserUpdated = incoming.venueUserUpdated;
+    merged.venue_user_updated = incoming.venue_user_updated;
+  }
+  if (
+    hasOwn(raw, 'dietary_diets') ||
+    hasOwn(raw, 'dietary_allergens') ||
+    hasOwn(raw, 'dietaryPreferences')
+  ) {
+    // Merge per-subkey so that a partial WS update (e.g. only dietary_diets)
+    // does not clobber dietaryPreferences.allergeni with a mapper-supplied default.
+    const dp = { ...(existing.dietaryPreferences ?? {}) };
+    if (hasOwn(raw, 'dietary_diets')) {
+      dp.diete = incoming.dietaryPreferences.diete;
+      merged.dietary_diets = incoming.dietary_diets;
+    }
+    if (hasOwn(raw, 'dietary_allergens')) {
+      dp.allergeni = incoming.dietaryPreferences.allergeni;
+      merged.dietary_allergens = incoming.dietary_allergens;
+    }
+    if (hasOwn(raw, 'dietaryPreferences') && !hasOwn(raw, 'dietary_diets') && !hasOwn(raw, 'dietary_allergens')) {
+      // WS sent the composed camelCase object directly — replace both subkeys.
+      Object.assign(dp, incoming.dietaryPreferences);
+    }
+    merged.dietaryPreferences = dp;
+  }
+  if (hasOwn(raw, 'order_items') || hasOwn(raw, 'orderItems')) {
+    if (Array.isArray(incoming.orderItems) && incoming.orderItems.length > 0) {
+      merged.orderItems = incoming.orderItems;
+    }
+    // else keep existing.orderItems (already in merged via spread)
+  }
+  return merged;
+}
+
 /**
  * Explicit rename map: local in-app field name → Directus collection field name.
  *
@@ -502,7 +727,10 @@ export function mapVenueConfigFromDirectus(cachedConfig, defaults) {
     if (Array.isArray(venueRecord.orders_rejection_reasons) && venueRecord.orders_rejection_reasons.length > 0) {
       next.orders.rejectionReasons = venueRecord.orders_rejection_reasons;
     }
-    if (venueRecord.menu_source !== null && venueRecord.menu_source !== undefined) next.menuSource = venueRecord.menu_source;
+    if (venueRecord.menu_source !== null && venueRecord.menu_source !== undefined) {
+      next.menuSource = venueRecord.menu_source;
+      next.venueMenuSource = venueRecord.menu_source;
+    }
     if (venueRecord.menu_url != null && String(venueRecord.menu_url).trim() !== '') next.menuUrl = String(venueRecord.menu_url);
   }
 

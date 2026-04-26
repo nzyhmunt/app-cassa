@@ -458,3 +458,110 @@ La struttura precedente (6 cartelle con nomi descrittivi tipo "Gestione Menu", "
 
 Le seguenti 6 cartelle precedenti sono state eliminate:
 `folder_configurazione_sede`, `folder_gestione_menu`, `folder_sala_infrastruttura`, `folder_operativita`, `folder_amministrazione`, `folder_log_integrazioni`
+
+---
+
+## Migrazione M2M — Menu Modificatori
+
+**Data:** da eseguire (post-audit layered architecture)
+
+### Contesto
+
+Il codice applicativo (mapper, sync loop, IDB) implementa già il modello M2M per i modificatori menu
+tramite tre collection:
+
+| Collection | Ruolo |
+|---|---|
+| `menu_modifiers` | Pool globale di modificatori riutilizzabili (per venue) |
+| `menu_categories_menu_modifiers` | Junction M2M categorie ↔ modificatori |
+| `menu_items_menu_modifiers` | Junction M2M voci ↔ modificatori |
+
+Queste collection **non esistono ancora nell'istanza Directus** e devono essere create manualmente.
+Finché non vengono create, il pull di `VENUE_RELATED_COLLECTIONS` genera errori per queste tre
+collection (i modificatori non vengono sincronizzati e `normalizeMenu()` riceve array vuoti).
+
+La collection `menu_item_modifiers` (modello legacy 1:N) rimane presente ma è deprecata: la sync
+non la legge più e può essere archiviata dopo la migrazione dei dati.
+
+---
+
+### 25. `menu_modifiers` — Pool globale modificatori
+
+- **PK**: `id` (integer, auto-increment)
+- **Campi**: `status`, `venue` (FK→venues), `name`, `price`, `sort`
+- **Campi standard**: `user_created`, `date_created`, `user_updated`, `date_updated`
+- **Archive**: `status = archived`
+- **Indici IDB**: `venue`, `date_updated`
+- **Cartella Directus**: `menu`
+
+**Relazioni da creare:**
+
+| Campo | Tipo | Collection correlata | on_delete |
+|---|---|---|---|
+| `venue` | M2O | `venues` | CASCADE |
+| *(alias)* `menu_categories` | O2M (alias) | `menu_categories_menu_modifiers` | — |
+| *(alias)* `menu_items` | O2M (alias) | `menu_items_menu_modifiers` | — |
+
+---
+
+### 26. `menu_categories_menu_modifiers` — Junction categorie ↔ modificatori
+
+- **PK**: `id` (integer, auto-increment)
+- **Campi**: `menu_categories_id` (FK→menu_categories), `menu_modifiers_id` (FK→menu_modifiers), `venue` (FK→venues), `sort`
+- **Constraint**: `UNIQUE (menu_categories_id, menu_modifiers_id)`
+- **Indici IDB**: `menu_categories_id`, `menu_modifiers_id`, `venue`, `date_updated`
+- **Cartella Directus**: `menu` (hidden dalla sidebar admin, visibile solo come relazione)
+
+**Relazioni da creare:**
+
+| Campo | Tipo | Collection correlata | on_delete | one_field |
+|---|---|---|---|---|
+| `menu_categories_id` | M2O | `menu_categories` | CASCADE | `menu_modifiers` |
+| `menu_modifiers_id` | M2O | `menu_modifiers` | CASCADE | *(alias su menu_modifiers)* |
+| `venue` | M2O | `venues` | CASCADE | — |
+
+> Aggiungere il campo **O2M alias** `menu_modifiers` a `menu_categories` (type: `alias`, special: `["o2m"]`,
+> interface: `list-m2m`, one_field `menu_categories_menu_modifiers.menu_categories_id`).
+> Questo campo è richiesto da `DEEP_FETCH_FIELDS`:
+> `menu_categories.menu_modifiers.menu_modifiers_id.*`
+
+---
+
+### 27. `menu_items_menu_modifiers` — Junction voci menu ↔ modificatori
+
+- **PK**: `id` (integer, auto-increment)
+- **Campi**: `menu_items_id` (FK→menu_items), `menu_modifiers_id` (FK→menu_modifiers), `venue` (FK→venues), `sort`
+- **Constraint**: `UNIQUE (menu_items_id, menu_modifiers_id)`
+- **Indici IDB**: `menu_items_id`, `menu_modifiers_id`, `venue`, `date_updated`
+- **Cartella Directus**: `menu` (hidden dalla sidebar admin)
+
+**Relazioni da creare:**
+
+| Campo | Tipo | Collection correlata | on_delete | one_field |
+|---|---|---|---|---|
+| `menu_items_id` | M2O | `menu_items` | CASCADE | `menu_modifiers` |
+| `menu_modifiers_id` | M2O | `menu_modifiers` | CASCADE | *(alias su menu_modifiers)* |
+| `venue` | M2O | `venues` | CASCADE | — |
+
+> Aggiungere il campo **O2M alias** `menu_modifiers` a `menu_items` (type: `alias`, special: `["o2m"]`,
+> interface: `list-m2m`, one_field `menu_items_menu_modifiers.menu_items_id`).
+> Questo campo è richiesto da `DEEP_FETCH_FIELDS`:
+> `menu_items.menu_modifiers.menu_modifiers_id.*`
+
+---
+
+### Checklist operazioni Directus
+
+1. - [ ] Creare collection `menu_modifiers` con i campi sopra descritti
+2. - [ ] Creare relazione `menu_modifiers.venue → venues` (M2O, CASCADE)
+3. - [ ] Creare collection `menu_categories_menu_modifiers` con i campi sopra
+4. - [ ] Creare relazioni M2O su `menu_categories_menu_modifiers` (menu_categories_id, menu_modifiers_id, venue)
+5. - [ ] Aggiungere campo O2M alias `menu_modifiers` a `menu_categories`
+6. - [ ] Creare collection `menu_items_menu_modifiers` con i campi sopra
+7. - [ ] Creare relazioni M2O su `menu_items_menu_modifiers` (menu_items_id, menu_modifiers_id, venue)
+8. - [ ] Aggiungere campo O2M alias `menu_modifiers` a `menu_items`
+9. - [ ] Assegnare le collection `menu_modifiers`, `menu_categories_menu_modifiers`, `menu_items_menu_modifiers` alla cartella `menu`
+10. - [ ] Impostare `menu_categories_menu_modifiers` e `menu_items_menu_modifiers` come `hidden: true` nel sidebar admin
+11. - [ ] Migrare i dati da `menu_item_modifiers` → `menu_modifiers` + junction tables (se esistono record)
+12. - [ ] Archiviare / eliminare la collection `menu_item_modifiers` dopo la migrazione dei dati
+
