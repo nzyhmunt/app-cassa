@@ -32,7 +32,7 @@ export async function loadSettingsFromIDB() {
 export async function saveSettingsToIDB(settings) {
   try {
     const db = await getDB();
-    await db.put('local_settings', JSON.parse(JSON.stringify({ id: SETTINGS_RECORD_ID, ...settings })));
+    await db.put('local_settings', JSON.parse(JSON.stringify({ ...settings, id: SETTINGS_RECORD_ID })));
   } catch (e) {
     console.warn('[IDBPersistence] Failed to save settings:', e);
     throw e;
