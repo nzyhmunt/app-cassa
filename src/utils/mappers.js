@@ -418,26 +418,62 @@ export function mergeOrderFromWSPayload(existing, raw, incoming) {
     merged.itemCount = incoming.itemCount;
     merged.item_count = incoming.item_count;
   }
-  if (hasOwn(raw, 'order_time')) merged.time = incoming.time;
-  if (hasOwn(raw, 'global_note')) merged.globalNote = incoming.globalNote;
+  if (hasOwn(raw, 'order_time')) {
+    merged.time = incoming.time;
+    merged.order_time = incoming.order_time;
+  }
+  if (hasOwn(raw, 'global_note')) {
+    merged.globalNote = incoming.globalNote;
+    merged.global_note = incoming.global_note;
+  }
   if (
     hasOwn(raw, 'note_visibility_cassa') ||
     hasOwn(raw, 'note_visibility_sala') ||
     hasOwn(raw, 'note_visibility_cucina')
   ) {
     merged.noteVisibility = incoming.noteVisibility;
+    if (hasOwn(raw, 'note_visibility_cassa')) {
+      merged.note_visibility_cassa = incoming.note_visibility_cassa;
+    }
+    if (hasOwn(raw, 'note_visibility_sala')) {
+      merged.note_visibility_sala = incoming.note_visibility_sala;
+    }
+    if (hasOwn(raw, 'note_visibility_cucina')) {
+      merged.note_visibility_cucina = incoming.note_visibility_cucina;
+    }
   }
-  if (hasOwn(raw, 'is_cover_charge')) merged.isCoverCharge = incoming.isCoverCharge;
-  if (hasOwn(raw, 'is_direct_entry')) merged.isDirectEntry = incoming.isDirectEntry;
-  if (hasOwn(raw, 'rejection_reason')) merged.rejectionReason = incoming.rejectionReason;
-  if (hasOwn(raw, 'venue_user_created')) merged.venueUserCreated = incoming.venueUserCreated;
-  if (hasOwn(raw, 'venue_user_updated')) merged.venueUserUpdated = incoming.venueUserUpdated;
+  if (hasOwn(raw, 'is_cover_charge')) {
+    merged.isCoverCharge = incoming.isCoverCharge;
+    merged.is_cover_charge = incoming.is_cover_charge;
+  }
+  if (hasOwn(raw, 'is_direct_entry')) {
+    merged.isDirectEntry = incoming.isDirectEntry;
+    merged.is_direct_entry = incoming.is_direct_entry;
+  }
+  if (hasOwn(raw, 'rejection_reason')) {
+    merged.rejectionReason = incoming.rejectionReason;
+    merged.rejection_reason = incoming.rejection_reason;
+  }
+  if (hasOwn(raw, 'venue_user_created')) {
+    merged.venueUserCreated = incoming.venueUserCreated;
+    merged.venue_user_created = incoming.venue_user_created;
+  }
+  if (hasOwn(raw, 'venue_user_updated')) {
+    merged.venueUserUpdated = incoming.venueUserUpdated;
+    merged.venue_user_updated = incoming.venue_user_updated;
+  }
   if (
     hasOwn(raw, 'dietary_diets') ||
     hasOwn(raw, 'dietary_allergens') ||
     hasOwn(raw, 'dietaryPreferences')
   ) {
     merged.dietaryPreferences = incoming.dietaryPreferences;
+    if (hasOwn(raw, 'dietary_diets')) {
+      merged.dietary_diets = incoming.dietary_diets;
+    }
+    if (hasOwn(raw, 'dietary_allergens')) {
+      merged.dietary_allergens = incoming.dietary_allergens;
+    }
   }
   if (hasOwn(raw, 'order_items') || hasOwn(raw, 'orderItems')) {
     if (Array.isArray(incoming.orderItems) && incoming.orderItems.length > 0) {
