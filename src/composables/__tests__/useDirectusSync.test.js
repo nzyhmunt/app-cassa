@@ -490,7 +490,7 @@ describe('reconfigureAndApply()', () => {
     const { appConfig } = await import('../../utils/index.js');
     const store = makeStore({ config: appConfig, preBillPrinterId: 'obsolete_printer' });
     const sync = useDirectusSync();
-    sync.startSync({ appType: 'cassa', store });
+    await sync.startSync({ appType: 'cassa', store });
     const result = await sync.reconfigureAndApply();
     sync.stopSync();
 
@@ -531,7 +531,7 @@ describe('reconfigureAndApply()', () => {
       }),
     });
     const sync = useDirectusSync();
-    sync.startSync({ appType: 'cassa', store });
+    await sync.startSync({ appType: 'cassa', store });
     const result = await sync.reconfigureAndApply();
     sync.stopSync();
 
@@ -1583,7 +1583,110 @@ describe('global pull config hydration', () => {
     expect(store.tableMergedInto).toEqual({ T2: 'T1' });
   });
 
+  it('forcePull returns {ok:true} when all collections succeed', async () => {
+    vi.spyOn(global, 'fetch').mockImplementation(() => Promise.resolve(directusListResponse([])));
+
+    const sync = useDirectusSync();
+    const result = await sync.forcePull();
+
+    expect(result).toEqual(expect.objectContaining({ ok: true }));
+    expect(Array.isArray(result.failedCollections)).toBe(true);
+    expect(result.failedCollections).toHaveLength(0);
+  });
+
+  it('forcePull returns {ok:false, failedCollections} when a collection fetch fails', async () => {
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      if (String(url).includes('/items/orders')) return Promise.reject(new Error('orders fetch failed'));
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const sync = useDirectusSync();
+    const result = await sync.forcePull();
+
+    expect(result.ok).toBe(false);
+    expect(result.failedCollections).toContain('orders');
+  });
+
+  it('older concurrent pull still applies config when newer pull fails before hydration', async () => {
+    // True concurrency test: pull A is launched but blocked mid-flight (before its
+    // venue fetch resolves) while pull B starts, increments the generation counter
+    // to 2, and fails immediately on the venue fetch.  Only then is pull A unblocked.
+    //
+    // Expected: _lastAppliedGlobalPullGeneration stays 0 after B fails, so when A
+    // resumes it sees 0 <= 1 (myGeneration_A) and is free to write IDB and apply config.
+
+    const mappers = await import('../../utils/mappers.js');
+    const mapperSpy = vi.spyOn(mappers, 'mapVenueConfigFromDirectus');
+
+    const venuePayload = {
+      id: 1,
+      name: 'Concurrent Race Venue',
+      menu_source: 'directus',
+      rooms: [],
+      tables: [],
+      payment_methods: [],
+      printers: [],
+      venue_users: [],
+      table_merge_sessions: [],
+      menu_categories: [],
+      menu_items: [],
+      primary_color: '#aabbcc',
+    };
+
+    // Deferred: lets us control exactly when pull A's venue response arrives.
+    let resolveVenueA;
+    const venueAFetch = new Promise((resolve) => { resolveVenueA = resolve; });
+
+    // First venue request (pull A) — deferred.
+    // Subsequent venue requests (pull B full + fallback field sets) — fail immediately.
+    let venueFetchCount = 0;
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      if (String(url).includes('/items/venues/')) {
+        venueFetchCount += 1;
+        if (venueFetchCount === 1) {
+          return venueAFetch.then(() => directusItemResponse(venuePayload));
+        }
+        return Promise.reject(new Error('concurrent pull B failure'));
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const sync = useDirectusSync();
+
+    // Launch pull A without awaiting.  The ++_globalPullGeneration increment in
+    // _runGlobalPull runs synchronously (before the first await), so by the time
+    // this assignment returns, _globalPullGeneration is already 1 and pull A is
+    // suspended waiting for its venue fetch.
+    const promiseA = sync.reconfigureAndApply();
+
+    // Flush a few microtask rounds to let pull A reach its suspended await.
+    await flushPromises(5);
+
+    // Launch pull B and wait for it to finish — it fails immediately on the venue
+    // fetch (venueFetchCount >= 2).  _globalPullGeneration is now 2.
+    // _lastAppliedGlobalPullGeneration stays 0 because B never hydrates config.
+    const resultB = await sync.reconfigureAndApply();
+    expect(resultB.ok).toBe(false);
+
+    // Unblock pull A's venue fetch.
+    resolveVenueA();
+
+    // Await pull A — it must complete successfully.
+    // Supersession check: _lastAppliedGlobalPullGeneration (0) is NOT > myGeneration_A (1),
+    // so pull A proceeds to write IDB and hydrate config.
+    const resultA = await promiseA;
+    expect(resultA.ok).toBe(true);
+    expect(resultA.failedCollections).toHaveLength(0);
+
+    // mapVenueConfigFromDirectus being called proves _hydrateConfigFromLocalCache ran
+    // (i.e. pull A was not blocked from applying config by pull B's failure).
+    expect(mapperSpy).toHaveBeenCalled();
+
+    sync.stopSync();
+  });
+
 });
+
 
 // ── WebSocket subscriptions ───────────────────────────────────────────────────
 

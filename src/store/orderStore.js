@@ -255,17 +255,28 @@ export const useOrderStore = defineStore('orders', () => {
     targetCollections.forEach((key) => {
       if (Object.prototype.hasOwnProperty.call(idbState, key)) {
         if (key === 'orders') {
-          // Recompute totalAmount/itemCount from orderItems so that paid
-          // modifiers are always reflected even when the Directus-sourced
-          // total_amount in IDB is stale or missing their prices.
           operationalStateRefs[key].value = (idbState[key] ?? []).map((order) => {
             const mappedOrder = mapOrderFromDirectus(order);
             if (!Array.isArray(mappedOrder.orderItems)) {
               mappedOrder.orderItems = [];
             }
-            updateOrderTotals(mappedOrder);
-            mappedOrder.total_amount = mappedOrder.totalAmount;
-            mappedOrder.item_count = mappedOrder.itemCount;
+            // Recompute totals from orderItems when they are populated locally,
+            // or when the order is genuinely empty (item_count = 0) so that a
+            // locally cleared order is correctly reflected as €0.
+            // When orderItems is empty but item_count > 0 the items exist in
+            // Directus but were not expanded in this pull — in that case the
+            // authoritative total_amount already mapped from IDB is preserved
+            // to avoid a spurious reset to 0.
+            if (mappedOrder.orderItems.length > 0 || mappedOrder.item_count === 0) {
+              updateOrderTotals(mappedOrder);
+              mappedOrder.total_amount = mappedOrder.totalAmount;
+              mappedOrder.item_count = mappedOrder.itemCount;
+            } else {
+              mappedOrder.totalAmount = mappedOrder.total_amount ?? mappedOrder.totalAmount;
+              mappedOrder.total_amount = mappedOrder.totalAmount;
+              mappedOrder.itemCount = mappedOrder.item_count ?? mappedOrder.itemCount;
+              mappedOrder.item_count = mappedOrder.itemCount;
+            }
             return mappedOrder;
           });
         } else {
@@ -289,6 +300,35 @@ export const useOrderStore = defineStore('orders', () => {
 
   function _enqueueOrderItemsPatch(ordId, projectedOrder) {
     if (!ordId || !projectedOrder || typeof projectedOrder !== 'object') return;
+    // Safety-net: ensure every order item and its modifiers have a stable Directus
+    // PK before the payload is cloned and enqueued.  This covers:
+    //   • legacy IDB items created before client-side UUID assignment was introduced,
+    //   • the addItemsToOrder merge path where an existing item may still lack an id,
+    //   • any other code path that pushes items/modifiers into orderItems without an id.
+    // Mutating projectedOrder here also updates orders.value[n] (shared reference),
+    // so reactive state is kept in sync. If this safety-net adds any ids, persist
+    // immediately instead of relying only on the next scheduled orders save, which
+    // may have been intentionally skipped by an earlier IDB-first mutation path.
+    let didGenerateMissingIds = false;
+    if (Array.isArray(projectedOrder.orderItems)) {
+      for (const item of projectedOrder.orderItems) {
+        if (item && !item.id) {
+          item.id = newUUIDv7();
+          didGenerateMissingIds = true;
+        }
+        if (Array.isArray(item?.modifiers)) {
+          for (const mod of item.modifiers) {
+            if (mod && !mod.id) {
+              mod.id = newUUIDv7();
+              didGenerateMissingIds = true;
+            }
+          }
+        }
+      }
+    }
+    if (didGenerateMissingIds) {
+      void saveStateToIDB({ orders: orders.value });
+    }
     const payload = {};
     if (Object.prototype.hasOwnProperty.call(projectedOrder, 'orderItems')) {
       payload.orderItems = projectedOrder.orderItems;
@@ -331,6 +371,25 @@ export const useOrderStore = defineStore('orders', () => {
 
   function _enqueueOrderPatch(ordId, payload) {
     if (!ordId || !payload || typeof payload !== 'object' || Object.keys(payload).length === 0) return;
+    // Safety-net: normalise missing ids on any orderItems carried in the payload
+    // (e.g. the changed-order slice produced by splitItemsToTable via _buildOrderSyncPatch).
+    // Mutating the original items also updates orders.value[n] (shared reference).
+    if (Array.isArray(payload.orderItems)) {
+      for (const item of payload.orderItems) {
+        if (item && !item.id) item.id = newUUIDv7();
+        if (Array.isArray(item?.modifiers)) {
+          for (const mod of item.modifiers) {
+            if (!mod) continue;
+            if (!mod.id) mod.id = newUUIDv7();
+            if (Object.prototype.hasOwnProperty.call(mod, 'voidedQuantity')) {
+              mod.voided_quantity = mod.voidedQuantity;
+            } else if (Object.prototype.hasOwnProperty.call(mod, 'voided_quantity')) {
+              mod.voidedQuantity = mod.voided_quantity;
+            }
+          }
+        }
+      }
+    }
     enqueue('orders', 'update', ordId, _clone(payload));
   }
 
@@ -364,6 +423,8 @@ export const useOrderStore = defineStore('orders', () => {
     if (!order.noteVisibility) order.noteVisibility = { cassa: true, sala: true, cucina: true };
     const nextOrders = [...orders.value, order];
     await saveStateToIDB({ orders: nextOrders });
+    _skipNextScheduledSave('orders');
+    orders.value = nextOrders;
     enqueue('orders', 'create', order.id, order);
   }
 
@@ -398,10 +459,22 @@ export const useOrderStore = defineStore('orders', () => {
         if (normalizedQuantity <= 0) continue;
         const existing = projected.orderItems.find(r => itemsAreMergeable(r, cartItem));
         if (existing) {
+          // Normalise ids on the existing item and its modifiers so subsequent PATCH
+          // payloads can always match the Directus record (legacy IDB items may lack ids).
+          if (!existing.id) existing.id = newUUIDv7();
+          const existingModifiers = Array.isArray(existing.modifiers) ? existing.modifiers : [];
+          for (const mod of existingModifiers) {
+            if (!mod.id) mod.id = newUUIDv7();
+          }
           const existingQuantity = Number(existing.quantity);
           existing.quantity = (Number.isFinite(existingQuantity) ? existingQuantity : 0) + normalizedQuantity;
         } else {
-          projected.orderItems.push({ ...cartItem, quantity: normalizedQuantity, uid: newShortId('r') });
+          const normalizedModifiers = (Array.isArray(cartItem.modifiers) ? cartItem.modifiers : []).map(mod => ({
+            ...mod,
+            id: mod.id ?? newUUIDv7(),
+          }));
+          const normalizedItemId = cartItem.id === '' || cartItem.id == null ? newUUIDv7() : cartItem.id;
+          projected.orderItems.push({ ...cartItem, quantity: normalizedQuantity, uid: newShortId('r'), modifiers: normalizedModifiers, id: normalizedItemId });
         }
       }
       updateOrderTotals(projected);
@@ -809,7 +882,14 @@ export const useOrderStore = defineStore('orders', () => {
       dietaryPreferences: {},
       globalNote: '',
       noteVisibility: { cassa: true, sala: true, cucina: true },
-      orderItems: items.map(item => ({ ...item })),
+      orderItems: items.map(item => ({
+        ...item,
+        id: (item.id === '' || item.id == null) ? newUUIDv7() : item.id,
+        modifiers: (Array.isArray(item.modifiers) ? item.modifiers : []).map(mod => ({
+          ...mod,
+          id: (mod.id === '' || mod.id == null) ? newUUIDv7() : mod.id,
+        })),
+      })),
       isDirectEntry: true,
       ...(venueId != null ? { venue: venueId } : {}),
     };
@@ -899,7 +979,7 @@ export const useOrderStore = defineStore('orders', () => {
       globalNote: '',
       noteVisibility: { cassa: true, sala: true, cucina: true },
       orderItems: [
-        { uid: newShortId('r'), dishId: 'pri_2', name: 'Amatriciana', unitPrice: 12, quantity: 1, voidedQuantity: 0, notes: [], modifiers: [] },
+        { id: newUUIDv7(), uid: newShortId('r'), dishId: 'pri_2', name: 'Amatriciana', unitPrice: 12, quantity: 1, voidedQuantity: 0, notes: [], modifiers: [] },
       ],
       ...(venueId != null ? { venue: venueId } : {}),
     });

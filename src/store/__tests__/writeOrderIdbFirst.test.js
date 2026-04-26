@@ -102,7 +102,7 @@ function makeOrderWithItems(id, table = 'T1', status = 'accepted') {
     globalNote: '',
     noteVisibility: { cassa: true, sala: true, cucina: true },
     orderItems: [
-      { uid: 'item_1', dishId: 'd1', name: 'Pasta', unitPrice: 10, quantity: 2, voidedQuantity: 0, notes: [], modifiers: [] },
+      { id: `${id}_item_1`, uid: 'item_1', dishId: 'd1', name: 'Pasta', unitPrice: 10, quantity: 2, voidedQuantity: 0, notes: [], modifiers: [] },
     ],
   };
 }
@@ -114,7 +114,7 @@ function makeOrderWithVoidedItem(id, table = 'T1', status = 'accepted') {
     totalAmount: 20, itemCount: 2, dietaryPreferences: {}, globalNote: '',
     noteVisibility: { cassa: true, sala: true, cucina: true },
     orderItems: [
-      { uid: 'item_1', dishId: 'd1', name: 'Pasta', unitPrice: 10, quantity: 2, voidedQuantity: 1, notes: [], modifiers: [] },
+      { id: `${id}_item_1`, uid: 'item_1', dishId: 'd1', name: 'Pasta', unitPrice: 10, quantity: 2, voidedQuantity: 1, notes: [], modifiers: [] },
     ],
   };
 }
@@ -127,8 +127,8 @@ function makeOrderWithModifiers(id, table = 'T1', status = 'accepted') {
     noteVisibility: { cassa: true, sala: true, cucina: true },
     orderItems: [
       {
-        uid: 'item_1', dishId: 'd1', name: 'Pasta', unitPrice: 10, quantity: 2, voidedQuantity: 0, notes: [],
-        modifiers: [{ uid: 'mod_1', name: 'Extra', quantity: 2, unitPrice: 1, voidedQuantity: 0 }],
+        id: `${id}_item_1`, uid: 'item_1', dishId: 'd1', name: 'Pasta', unitPrice: 10, quantity: 2, voidedQuantity: 0, notes: [],
+        modifiers: [{ id: `${id}_mod_1`, uid: 'mod_1', name: 'Extra', quantity: 2, unitPrice: 1, voidedQuantity: 0 }],
       },
     ],
   };
@@ -142,8 +142,8 @@ function makeOrderWithVoidedModifier(id, table = 'T1', status = 'accepted') {
     noteVisibility: { cassa: true, sala: true, cucina: true },
     orderItems: [
       {
-        uid: 'item_1', dishId: 'd1', name: 'Pasta', unitPrice: 10, quantity: 2, voidedQuantity: 0, notes: [],
-        modifiers: [{ uid: 'mod_1', name: 'Extra', quantity: 2, unitPrice: 1, voidedQuantity: 1 }],
+        id: `${id}_item_1`, uid: 'item_1', dishId: 'd1', name: 'Pasta', unitPrice: 10, quantity: 2, voidedQuantity: 0, notes: [],
+        modifiers: [{ id: `${id}_mod_1`, uid: 'mod_1', name: 'Extra', quantity: 2, unitPrice: 1, voidedQuantity: 1 }],
       },
     ],
   };
@@ -799,6 +799,174 @@ describe('addItemsToOrder — cart merge, guard rails, and IDB-first persistence
     ]);
 
     expect(store.orders.find(o => o.id === 'ord_ait_zeroqty').orderItems).toHaveLength(0);
+  });
+
+  it('new row appended by addItemsToOrder gets a UUID v7 id', async () => {
+    const store = useAppStore();
+    const order = makeOrder('ord_ait_uuid', 'T1', 'pending');
+    order.orderItems = [];
+    store.orders = [order];
+
+    await store.addItemsToOrder('ord_ait_uuid', [
+      { dishId: 'd1', name: 'Pasta', unitPrice: 10, quantity: 1, voidedQuantity: 0, notes: [], modifiers: [] },
+    ]);
+
+    const addedItem = store.orders.find(o => o.id === 'ord_ait_uuid').orderItems[0];
+    expect(typeof addedItem.id).toBe('string');
+    expect(addedItem.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+  });
+
+  it('two different new rows added in the same call get distinct ids', async () => {
+    const store = useAppStore();
+    const order = makeOrder('ord_ait_uuid2', 'T1', 'pending');
+    order.orderItems = [];
+    store.orders = [order];
+
+    await store.addItemsToOrder('ord_ait_uuid2', [
+      { dishId: 'd1', name: 'Pasta', unitPrice: 10, quantity: 1, voidedQuantity: 0, notes: [], modifiers: [] },
+      { dishId: 'd2', name: 'Pizza', unitPrice: 8, quantity: 1, voidedQuantity: 0, notes: [], modifiers: [] },
+    ]);
+
+    const items = store.orders.find(o => o.id === 'ord_ait_uuid2').orderItems;
+    expect(items).toHaveLength(2);
+    expect(items[0].id).not.toBe(items[1].id);
+  });
+
+  it('merge path: existing item without id receives a UUID v7 id', async () => {
+    const store = useAppStore();
+    const order = makeOrder('ord_ait_merge_noid', 'T1', 'pending');
+    // Simulate a legacy IDB item that has no id (created before the client-side UUID fix).
+    order.orderItems = [
+      { uid: 'leg_1', dishId: 'd1', name: 'Pasta', unitPrice: 10, quantity: 1, voidedQuantity: 0, notes: [], modifiers: [] },
+    ];
+    store.orders = [order];
+
+    await store.addItemsToOrder('ord_ait_merge_noid', [
+      { dishId: 'd1', name: 'Pasta', unitPrice: 10, quantity: 1, voidedQuantity: 0, notes: [], modifiers: [] },
+    ]);
+
+    const mergedItem = store.orders.find(o => o.id === 'ord_ait_merge_noid').orderItems[0];
+    expect(mergedItem.quantity).toBe(2);
+    expect(typeof mergedItem.id).toBe('string');
+    expect(mergedItem.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+  });
+
+  it('merge path: pre-existing id is preserved when item already has one', async () => {
+    const store = useAppStore();
+    const existingId = '01900000-0000-7000-8000-000000000099';
+    const order = makeOrder('ord_ait_merge_preid', 'T1', 'pending');
+    order.orderItems = [
+      { id: existingId, uid: 'leg_2', dishId: 'd2', name: 'Pizza', unitPrice: 8, quantity: 1, voidedQuantity: 0, notes: [], modifiers: [] },
+    ];
+    store.orders = [order];
+
+    await store.addItemsToOrder('ord_ait_merge_preid', [
+      { dishId: 'd2', name: 'Pizza', unitPrice: 8, quantity: 1, voidedQuantity: 0, notes: [], modifiers: [] },
+    ]);
+
+    const mergedItem = store.orders.find(o => o.id === 'ord_ait_merge_preid').orderItems[0];
+    expect(mergedItem.id).toBe(existingId);
+    expect(mergedItem.quantity).toBe(2);
+  });
+
+  it('new non-merge row: modifiers without ids receive UUID v7 ids', async () => {
+    const store = useAppStore();
+    const order = makeOrder('ord_ait_mod_ids', 'T1', 'pending');
+    order.orderItems = [];
+    store.orders = [order];
+
+    await store.addItemsToOrder('ord_ait_mod_ids', [
+      {
+        dishId: 'd3', name: 'Tagliere', unitPrice: 12, quantity: 1, voidedQuantity: 0, notes: [],
+        modifiers: [
+          { name: 'Parmigiano', price: 1 },
+          { name: 'Mozzarella', price: 0.5 },
+        ],
+      },
+    ]);
+
+    const item = store.orders.find(o => o.id === 'ord_ait_mod_ids').orderItems[0];
+    expect(item.modifiers).toHaveLength(2);
+    for (const mod of item.modifiers) {
+      expect(typeof mod.id).toBe('string');
+      expect(mod.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+    }
+    expect(item.modifiers[0].id).not.toBe(item.modifiers[1].id);
+  });
+});
+
+describe('_enqueueOrderItemsPatch safety-net — items/modifiers without ids receive UUID v7 ids', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+    vi.clearAllMocks();
+    runtime.snapshots = [];
+  });
+
+  it('legacy item without id receives a UUID v7 id in enqueued payload via voidOrderItems', async () => {
+    const store = useAppStore();
+    runtime.store = store;
+    // Simulate a legacy IDB item that has no Directus PK.
+    const order = {
+      id: 'ord_legacy_void',
+      table: 'T1', billSessionId: 'sess_1', status: 'accepted',
+      time: '19:00', totalAmount: 10, itemCount: 1, dietaryPreferences: {},
+      globalNote: '', noteVisibility: { cassa: true, sala: true, cucina: true },
+      orderItems: [
+        { uid: 'leg_void_1', dishId: 'd1', name: 'Pasta', unitPrice: 10, quantity: 2, voidedQuantity: 0, notes: [], modifiers: [] },
+      ],
+    };
+    await store.addOrder(order);
+    runtime.snapshots = [];
+    vi.clearAllMocks();
+
+    const liveOrder = store.orders.find(o => o.id === 'ord_legacy_void');
+    await store.voidOrderItems(liveOrder, 0, 1);
+
+    const enqueueCall = enqueueMock.mock.calls.find(
+      ([collection, operation, recordId]) => collection === 'orders' && operation === 'update' && recordId === 'ord_legacy_void',
+    );
+    expect(enqueueCall).toBeDefined();
+    const [, , , payload] = enqueueCall;
+    const enqueuedItem = payload.orderItems[0];
+    expect(typeof enqueuedItem.id).toBe('string');
+    expect(enqueuedItem.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+    // Reactive state also gets the id (safety-net mutates projectedOrder).
+    const stateItem = store.orders.find(o => o.id === 'ord_legacy_void').orderItems[0];
+    expect(stateItem.id).toBe(enqueuedItem.id);
+  });
+
+  it('legacy modifier without id receives a UUID v7 id in enqueued payload via voidModifier', async () => {
+    const store = useAppStore();
+    runtime.store = store;
+    const order = {
+      id: 'ord_legacy_mod_void',
+      table: 'T1', billSessionId: 'sess_1', status: 'accepted',
+      time: '19:00', totalAmount: 12, itemCount: 1, dietaryPreferences: {},
+      globalNote: '', noteVisibility: { cassa: true, sala: true, cucina: true },
+      orderItems: [
+        {
+          id: '01900000-0000-7000-8000-000000000010',
+          uid: 'leg_m_1', dishId: 'd2', name: 'Tagliere', unitPrice: 12, quantity: 1, voidedQuantity: 0, notes: [],
+          // modifier without id — simulates legacy/sala-created modifier pre-fix
+          modifiers: [{ name: 'Parmigiano', price: 1, voidedQuantity: 0 }],
+        },
+      ],
+    };
+    await store.addOrder(order);
+    runtime.snapshots = [];
+    vi.clearAllMocks();
+
+    const liveOrder = store.orders.find(o => o.id === 'ord_legacy_mod_void');
+    await store.voidModifier(liveOrder, 0, 0, 1);
+
+    const enqueueCall = enqueueMock.mock.calls.find(
+      ([collection, operation, recordId]) => collection === 'orders' && operation === 'update' && recordId === 'ord_legacy_mod_void',
+    );
+    expect(enqueueCall).toBeDefined();
+    const [, , , payload] = enqueueCall;
+    const enqueuedMod = payload.orderItems[0].modifiers[0];
+    expect(typeof enqueuedMod.id).toBe('string');
+    expect(enqueuedMod.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
   });
 });
 

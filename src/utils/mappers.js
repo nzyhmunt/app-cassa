@@ -217,7 +217,7 @@ export function mapOrderItemToDirectus(record) {
   const out = {
     ...source,
     unit_price: source.unit_price ?? source.unitPrice ?? 0,
-    voided_quantity: source.voided_quantity ?? source.voidedQuantity ?? 0,
+    voided_quantity: source.voidedQuantity ?? source.voided_quantity ?? 0,
     kitchen_ready: source.kitchen_ready ?? source.kitchenReady ?? false,
     order: relationId(source.order ?? source.orderId ?? null),
     dish: relationId(source.dish ?? source.dishId ?? null),
@@ -768,10 +768,10 @@ export function mapOrderItemModifierToDirectus(record) {
   if (!Object.prototype.hasOwnProperty.call(out, 'order') && Object.prototype.hasOwnProperty.call(source, 'orderId')) {
     out.order = source.orderId;
   }
-  if (Object.prototype.hasOwnProperty.call(source, 'voided_quantity')) {
-    out.voided_quantity = source.voided_quantity;
-  } else if (Object.prototype.hasOwnProperty.call(source, 'voidedQuantity')) {
+  if (Object.prototype.hasOwnProperty.call(source, 'voidedQuantity')) {
     out.voided_quantity = source.voidedQuantity;
+  } else if (Object.prototype.hasOwnProperty.call(source, 'voided_quantity')) {
+    out.voided_quantity = source.voided_quantity;
   }
   delete out.voidedQuantity;
   delete out.itemUid;
