@@ -528,8 +528,9 @@ export const useOrderStore = defineStore('orders', () => {
             // Directus but were not expanded in this pull — in that case the
             // authoritative total_amount already mapped from IDB is preserved
             // to avoid a spurious reset to 0.
-            // Note: mapOrderFromDirectus always populates item_count, so this
-            // check uses the snake_case field that is directly from the source.
+            // Note: mapOrderFromDirectus normalizes item_count from either
+            // record.item_count or record.itemCount, and this check uses that
+            // mapped snake_case field for compatibility with persisted records.
             if (mappedOrder.orderItems.length > 0 || mappedOrder.item_count === 0) {
               updateOrderTotals(mappedOrder);
               mappedOrder.total_amount = mappedOrder.totalAmount;
