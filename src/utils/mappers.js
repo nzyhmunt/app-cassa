@@ -431,16 +431,22 @@ export function mergeOrderFromWSPayload(existing, raw, incoming) {
     hasOwn(raw, 'note_visibility_sala') ||
     hasOwn(raw, 'note_visibility_cucina')
   ) {
-    merged.noteVisibility = incoming.noteVisibility;
+    // Merge per-subkey so that a partial WS update (e.g. only note_visibility_cassa)
+    // does not clobber the other visibility flags with mapper-supplied defaults.
+    const nv = { ...(existing.noteVisibility ?? {}) };
     if (hasOwn(raw, 'note_visibility_cassa')) {
+      nv.cassa = incoming.noteVisibility.cassa;
       merged.note_visibility_cassa = incoming.note_visibility_cassa;
     }
     if (hasOwn(raw, 'note_visibility_sala')) {
+      nv.sala = incoming.noteVisibility.sala;
       merged.note_visibility_sala = incoming.note_visibility_sala;
     }
     if (hasOwn(raw, 'note_visibility_cucina')) {
+      nv.cucina = incoming.noteVisibility.cucina;
       merged.note_visibility_cucina = incoming.note_visibility_cucina;
     }
+    merged.noteVisibility = nv;
   }
   if (hasOwn(raw, 'is_cover_charge')) {
     merged.isCoverCharge = incoming.isCoverCharge;
@@ -467,13 +473,22 @@ export function mergeOrderFromWSPayload(existing, raw, incoming) {
     hasOwn(raw, 'dietary_allergens') ||
     hasOwn(raw, 'dietaryPreferences')
   ) {
-    merged.dietaryPreferences = incoming.dietaryPreferences;
+    // Merge per-subkey so that a partial WS update (e.g. only dietary_diets)
+    // does not clobber dietaryPreferences.allergeni with a mapper-supplied default.
+    const dp = { ...(existing.dietaryPreferences ?? {}) };
     if (hasOwn(raw, 'dietary_diets')) {
+      dp.diete = incoming.dietaryPreferences.diete;
       merged.dietary_diets = incoming.dietary_diets;
     }
     if (hasOwn(raw, 'dietary_allergens')) {
+      dp.allergeni = incoming.dietaryPreferences.allergeni;
       merged.dietary_allergens = incoming.dietary_allergens;
     }
+    if (hasOwn(raw, 'dietaryPreferences') && !hasOwn(raw, 'dietary_diets') && !hasOwn(raw, 'dietary_allergens')) {
+      // WS sent the composed camelCase object directly — replace both subkeys.
+      Object.assign(dp, incoming.dietaryPreferences);
+    }
+    merged.dietaryPreferences = dp;
   }
   if (hasOwn(raw, 'order_items') || hasOwn(raw, 'orderItems')) {
     if (Array.isArray(incoming.orderItems) && incoming.orderItems.length > 0) {
