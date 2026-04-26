@@ -727,7 +727,10 @@ export function mapVenueConfigFromDirectus(cachedConfig, defaults) {
     if (Array.isArray(venueRecord.orders_rejection_reasons) && venueRecord.orders_rejection_reasons.length > 0) {
       next.orders.rejectionReasons = venueRecord.orders_rejection_reasons;
     }
-    if (venueRecord.menu_source !== null && venueRecord.menu_source !== undefined) next.venueMenuSource = venueRecord.menu_source;
+    if (venueRecord.menu_source !== null && venueRecord.menu_source !== undefined) {
+      next.menuSource = venueRecord.menu_source;
+      next.venueMenuSource = venueRecord.menu_source;
+    }
     if (venueRecord.menu_url != null && String(venueRecord.menu_url).trim() !== '') next.menuUrl = String(venueRecord.menu_url);
   }
 
