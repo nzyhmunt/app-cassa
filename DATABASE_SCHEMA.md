@@ -862,26 +862,34 @@ Non riutilizza `print_jobs` perché il formato (XML RT) e il ciclo di vita (requ
 
 ```sql
 CREATE TABLE fiscal_receipts (
-    id              TEXT        PRIMARY KEY,   -- 'fis_' + UUID v7 (time-ordered, e.g. fis_0192fa3c-b41a-7e8d-a312-…)
-    table_id        TEXT        NOT NULL REFERENCES tables(id),
-    bill_session_id TEXT        REFERENCES bill_sessions(id),
-    table_label     TEXT,
-    closed_at       TIMESTAMPTZ,               -- Data di chiusura originale del conto (bill.closedAt per storico; NOW() per cassa live)
-    total_amount    NUMERIC(10,2) NOT NULL DEFAULT 0,
-    total_paid      NUMERIC(10,2) NOT NULL DEFAULT 0,
-                                               -- Per conti dallo storico: include bill.totalDiscount per allineamento con la cassa live
-    payment_methods TEXT,                      -- JSON array di stringhe
-    orders          TEXT,                      -- JSON snapshot voci (name/qty/unitPrice)
-    xml_request     TEXT,                      -- Payload XML inviato alla stampante
-    xml_response    TEXT,                      -- Risposta XML ricevuta dalla stampante (null se non ancora ricevuta)
-    status          TEXT        NOT NULL DEFAULT 'pending'
-                                CHECK (status IN ('pending','sent','ok','error')),
-    timestamp       TIMESTAMPTZ NOT NULL DEFAULT NOW(),  -- Istante della richiesta (non della chiusura conto)
-    date_updated    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    id                  TEXT        PRIMARY KEY,   -- 'fis_' + UUID v7 (time-ordered, e.g. fis_0192fa3c-b41a-7e8d-a312-…)
+    -- Relazioni (senza suffisso _id — convenzione app)
+    venue               INTEGER     REFERENCES venues(id) ON DELETE SET NULL,
+    "table"             TEXT        NOT NULL REFERENCES tables(id),
+    bill_session        TEXT        REFERENCES bill_sessions(id) ON DELETE SET NULL,
+    table_label         TEXT,
+    closed_at           TIMESTAMPTZ,               -- Data di chiusura originale del conto (bill.closedAt per storico; NOW() per cassa live)
+    total_amount        NUMERIC(10,2) NOT NULL DEFAULT 0,
+    total_paid          NUMERIC(10,2) NOT NULL DEFAULT 0,
+                                                   -- Per conti dallo storico: include bill.totalDiscount per allineamento con la cassa live
+    payment_methods     TEXT,                      -- JSON array di stringhe
+    orders              TEXT,                      -- JSON snapshot voci (name/qty/unitPrice)
+    xml_request         TEXT,                      -- Payload XML inviato alla stampante
+    xml_response        TEXT,                      -- Risposta XML ricevuta dalla stampante (null se non ancora ricevuta)
+    status              TEXT        NOT NULL DEFAULT 'pending'
+                                    CHECK (status IN ('pending','sent','ok','error')),
+    timestamp           TIMESTAMPTZ NOT NULL DEFAULT NOW(),  -- Istante della richiesta (non della chiusura conto)
+    -- Directus standard fields
+    date_created        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    date_updated        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    -- Operatori locali (venue_user) — tracciamento audit operatori PIN
+    venue_user_created  TEXT        REFERENCES venue_users(id) ON DELETE SET NULL,
+    venue_user_updated  TEXT        REFERENCES venue_users(id) ON DELETE SET NULL
 );
 
-CREATE INDEX idx_fiscal_receipts_table        ON fiscal_receipts (table_id);
-CREATE INDEX idx_fiscal_receipts_bill_session ON fiscal_receipts (bill_session_id);
+CREATE INDEX idx_fiscal_receipts_venue        ON fiscal_receipts (venue);
+CREATE INDEX idx_fiscal_receipts_table        ON fiscal_receipts ("table");
+CREATE INDEX idx_fiscal_receipts_bill_session ON fiscal_receipts (bill_session);
 CREATE INDEX idx_fiscal_receipts_status       ON fiscal_receipts (status);
 CREATE INDEX idx_fiscal_receipts_timestamp    ON fiscal_receipts (timestamp DESC);
 ```
@@ -896,8 +904,10 @@ I dati di fatturazione (denominazione, CF/PIVA, indirizzo, SDI) vengono inseriti
 ```sql
 CREATE TABLE invoice_requests (
     id                   TEXT        PRIMARY KEY,   -- 'inv_' + UUID v7 (time-ordered, e.g. inv_0192fa3c-b41a-7e8d-a312-…)
-    table_id             TEXT        NOT NULL REFERENCES tables(id),
-    bill_session_id      TEXT        REFERENCES bill_sessions(id),
+    -- Relazioni (senza suffisso _id — convenzione app)
+    venue                INTEGER     REFERENCES venues(id) ON DELETE SET NULL,
+    "table"              TEXT        NOT NULL REFERENCES tables(id),
+    bill_session         TEXT        REFERENCES bill_sessions(id) ON DELETE SET NULL,
     table_label          TEXT,
     closed_at            TIMESTAMPTZ,               -- Data di chiusura originale del conto (bill.closedAt per storico; NOW() per cassa live)
     total_amount         NUMERIC(10,2) NOT NULL DEFAULT 0,
@@ -919,11 +929,17 @@ CREATE TABLE invoice_requests (
     status               TEXT        NOT NULL DEFAULT 'pending'
                                      CHECK (status IN ('pending','sent','ok','error')),
     timestamp            TIMESTAMPTZ NOT NULL DEFAULT NOW(),  -- Istante della richiesta (non della chiusura conto)
-    date_updated         TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    -- Directus standard fields
+    date_created         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    date_updated         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    -- Operatori locali (venue_user) — tracciamento audit operatori PIN
+    venue_user_created   TEXT        REFERENCES venue_users(id) ON DELETE SET NULL,
+    venue_user_updated   TEXT        REFERENCES venue_users(id) ON DELETE SET NULL
 );
 
-CREATE INDEX idx_invoice_requests_table        ON invoice_requests (table_id);
-CREATE INDEX idx_invoice_requests_bill_session ON invoice_requests (bill_session_id);
+CREATE INDEX idx_invoice_requests_venue        ON invoice_requests (venue);
+CREATE INDEX idx_invoice_requests_table        ON invoice_requests ("table");
+CREATE INDEX idx_invoice_requests_bill_session ON invoice_requests (bill_session);
 CREATE INDEX idx_invoice_requests_status       ON invoice_requests (status);
 CREATE INDEX idx_invoice_requests_timestamp    ON invoice_requests (timestamp DESC);
 ```

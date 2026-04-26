@@ -983,9 +983,9 @@ export function mapFiscalReceiptToDirectus(record, originalRecord) {
   const original = originalRecord ?? {};
   const out = { ...source };
 
-  // tableId → table_id (FK to tables)
-  if (!Object.prototype.hasOwnProperty.call(out, 'table_id') && Object.prototype.hasOwnProperty.call(source, 'tableId')) {
-    out.table_id = source.tableId;
+  // tableId → table (FK to tables; follows app convention: no _id suffix)
+  if (!Object.prototype.hasOwnProperty.call(out, 'table') && Object.prototype.hasOwnProperty.call(source, 'tableId')) {
+    out.table = source.tableId;
   }
   delete out.tableId;
   // tableLabel → table_label
@@ -993,9 +993,9 @@ export function mapFiscalReceiptToDirectus(record, originalRecord) {
     out.table_label = source.tableLabel;
   }
   delete out.tableLabel;
-  // billSessionId → bill_session_id (FK to bill_sessions)
-  if (!Object.prototype.hasOwnProperty.call(out, 'bill_session_id') && Object.prototype.hasOwnProperty.call(source, 'billSessionId')) {
-    out.bill_session_id = source.billSessionId;
+  // billSessionId → bill_session (FK to bill_sessions; follows app convention: no _id suffix)
+  if (!Object.prototype.hasOwnProperty.call(out, 'bill_session') && Object.prototype.hasOwnProperty.call(source, 'billSessionId')) {
+    out.bill_session = source.billSessionId;
   }
   delete out.billSessionId;
   // closedAt → closed_at
@@ -1059,9 +1059,9 @@ export function mapInvoiceRequestToDirectus(record, originalRecord) {
   const original = originalRecord ?? {};
   const out = { ...source };
 
-  // tableId → table_id (FK to tables)
-  if (!Object.prototype.hasOwnProperty.call(out, 'table_id') && Object.prototype.hasOwnProperty.call(source, 'tableId')) {
-    out.table_id = source.tableId;
+  // tableId → table (FK to tables; follows app convention: no _id suffix)
+  if (!Object.prototype.hasOwnProperty.call(out, 'table') && Object.prototype.hasOwnProperty.call(source, 'tableId')) {
+    out.table = source.tableId;
   }
   delete out.tableId;
   // tableLabel → table_label
@@ -1069,9 +1069,9 @@ export function mapInvoiceRequestToDirectus(record, originalRecord) {
     out.table_label = source.tableLabel;
   }
   delete out.tableLabel;
-  // billSessionId → bill_session_id (FK to bill_sessions)
-  if (!Object.prototype.hasOwnProperty.call(out, 'bill_session_id') && Object.prototype.hasOwnProperty.call(source, 'billSessionId')) {
-    out.bill_session_id = source.billSessionId;
+  // billSessionId → bill_session (FK to bill_sessions; follows app convention: no _id suffix)
+  if (!Object.prototype.hasOwnProperty.call(out, 'bill_session') && Object.prototype.hasOwnProperty.call(source, 'billSessionId')) {
+    out.bill_session = source.billSessionId;
   }
   delete out.billSessionId;
   // closedAt → closed_at

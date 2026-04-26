@@ -293,8 +293,11 @@ const PARENT_DEPENDENCY_MAP = new Map([
   // bill_sessions — orders reference the session via camelCase `billSessionId` in the raw
   // queue payload (mappers convert it to `bill_session` only at push time).
   // Transactions use snake_case `bill_session` directly in the queue payload.
+  // fiscal_receipts and invoice_requests also carry camelCase `billSessionId` in the queue payload.
   ['orders',                  [{ parentCollection: 'bill_sessions',  fkField: 'billSessionId' }]],
   ['transactions',            [{ parentCollection: 'bill_sessions',  fkField: 'bill_session' }]],
+  ['fiscal_receipts',         [{ parentCollection: 'bill_sessions',  fkField: 'billSessionId' }]],
+  ['invoice_requests',        [{ parentCollection: 'bill_sessions',  fkField: 'billSessionId' }]],
 ]);
 
 const VENUE_REQUIRED_CREATE_COLLECTIONS = new Set([
@@ -304,6 +307,8 @@ const VENUE_REQUIRED_CREATE_COLLECTIONS = new Set([
   'cash_movements',
   'daily_closures',
   'print_jobs',
+  'fiscal_receipts',
+  'invoice_requests',
   'table_merge_sessions',
   'venue_users',
   'printers',
@@ -319,6 +324,8 @@ const VENUE_USER_AUDIT_COLLECTIONS = new Set([
   'daily_closures',
   'daily_closure_by_method',
   'print_jobs',
+  'fiscal_receipts',
+  'invoice_requests',
 ]);
 
 /**
