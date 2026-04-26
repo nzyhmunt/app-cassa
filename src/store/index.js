@@ -104,9 +104,12 @@ export async function initStoreFromIDB(pinia) {
       const mapped = mapOrderFromDirectus(order);
       if (mapped.globalNote === undefined) mapped.globalNote = '';
       if (!mapped.noteVisibility) mapped.noteVisibility = { cassa: true, sala: true, cucina: true };
-      updateOrderTotals(mapped);
-      mapped.total_amount = mapped.totalAmount;
-      mapped.item_count = mapped.itemCount;
+      const hasPopulatedOrderItems = Array.isArray(mapped.orderItems) && mapped.orderItems.length > 0;
+      if (hasPopulatedOrderItems || mapped.item_count === 0) {
+        updateOrderTotals(mapped);
+        mapped.total_amount = mapped.totalAmount;
+        mapped.item_count = mapped.itemCount;
+      }
       return mapped;
     });
     orderStore.transactions = idbState.transactions ?? [];
