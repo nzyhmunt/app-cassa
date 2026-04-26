@@ -773,8 +773,12 @@ async function _runPush() {
 // ── Pull helpers ──────────────────────────────────────────────────────────────
 
 async function _runPull() {
-  if (!navigator.onLine) return { ok: true, failedCollections: [] };
-  if (!_getCfg()) return { ok: true, failedCollections: [] };
+  if (!navigator.onLine) {
+    return { ok: false, failedCollections: [], skippedReason: 'offline' };
+  }
+  if (!_getCfg()) {
+    return { ok: false, failedCollections: [], skippedReason: 'no-config' };
+  }
 
   const pullCfg = PULL_CONFIG[_appType] ?? PULL_CONFIG.cassa;
   const menuSource = appConfig.menuSource ?? 'directus';
