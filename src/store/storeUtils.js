@@ -63,6 +63,19 @@ export function newShortId(prefix = 'id') {
 }
 
 /**
+ * Normalises an entity id field: returns the id as-is when it is a non-empty
+ * string, otherwise generates a new UUID v7.  Covers the cases where an item
+ * arrived from Directus with `id: ''` (empty string) or `id: null/undefined`
+ * (e.g. legacy records written before client-side UUID assignment was introduced).
+ *
+ * @param {string|null|undefined} id
+ * @returns {string} A non-empty UUID string
+ */
+export function normalizeEntityId(id) {
+  return (typeof id === 'string' && id !== '') ? id : newUUIDv7();
+}
+
+/**
  * Generates a UUID v7 (time-ordered) prefixed ID.
  * UUID v7 encodes a millisecond-precision Unix timestamp in the first 48 bits,
  * followed by version/variant bits and cryptographically random bytes.

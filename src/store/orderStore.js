@@ -13,7 +13,7 @@ import {
   itemsAreMergeable,
 } from '../utils/index.js';
 import { mapOrderFromDirectus } from '../utils/mappers.js';
-import { newUUIDv7, newShortId, cloneValue as _clone } from './storeUtils.js';
+import { newUUIDv7, normalizeEntityId, newShortId, cloneValue as _clone } from './storeUtils.js';
 import { makeTableOps } from './tableOps.js';
 import { makeReportOps } from './reportOps.js';
 import {
@@ -471,9 +471,9 @@ export const useOrderStore = defineStore('orders', () => {
         } else {
           const normalizedModifiers = (Array.isArray(cartItem.modifiers) ? cartItem.modifiers : []).map(mod => ({
             ...mod,
-            id: mod.id ?? newUUIDv7(),
+            id: normalizeEntityId(mod.id),
           }));
-          const normalizedItemId = cartItem.id === '' || cartItem.id == null ? newUUIDv7() : cartItem.id;
+          const normalizedItemId = normalizeEntityId(cartItem.id);
           projected.orderItems.push({ ...cartItem, quantity: normalizedQuantity, uid: newShortId('r'), modifiers: normalizedModifiers, id: normalizedItemId });
         }
       }
@@ -884,10 +884,10 @@ export const useOrderStore = defineStore('orders', () => {
       noteVisibility: { cassa: true, sala: true, cucina: true },
       orderItems: items.map(item => ({
         ...item,
-        id: (item.id === '' || item.id == null) ? newUUIDv7() : item.id,
+        id: normalizeEntityId(item.id),
         modifiers: (Array.isArray(item.modifiers) ? item.modifiers : []).map(mod => ({
           ...mod,
-          id: (mod.id === '' || mod.id == null) ? newUUIDv7() : mod.id,
+          id: normalizeEntityId(mod.id),
         })),
       })),
       isDirectEntry: true,
