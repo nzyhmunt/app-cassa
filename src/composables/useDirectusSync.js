@@ -773,8 +773,8 @@ async function _runPush() {
 // ── Pull helpers ──────────────────────────────────────────────────────────────
 
 async function _runPull() {
-  if (!navigator.onLine) return;
-  if (!_getCfg()) return;
+  if (!navigator.onLine) return { ok: true, failedCollections: [] };
+  if (!_getCfg()) return { ok: true, failedCollections: [] };
 
   const pullCfg = PULL_CONFIG[_appType] ?? PULL_CONFIG.cassa;
   const menuSource = appConfig.menuSource ?? 'directus';
@@ -803,8 +803,10 @@ async function _runPull() {
     } else if (!allOk) {
       console.warn('[DirectusSync] Pull cycle incomplete: at least one collection failed.');
     }
+    return { ok: allOk, failedCollections };
   } catch (e) {
     console.warn('[DirectusSync] Pull error:', e);
+    return { ok: false, failedCollections: [] };
   }
 }
 
@@ -1413,8 +1415,8 @@ export function useDirectusSync() {
   }
 
   async function forcePull() {
-    if (!appConfig.directus?.enabled) return;
-    await _runPull();
+    if (!appConfig.directus?.enabled) return { ok: true, failedCollections: [] };
+    return _runPull();
   }
 
   /**

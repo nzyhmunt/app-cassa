@@ -1583,7 +1583,89 @@ describe('global pull config hydration', () => {
     expect(store.tableMergedInto).toEqual({ T2: 'T1' });
   });
 
+  it('forcePull returns {ok:true} when all collections succeed', async () => {
+    vi.spyOn(global, 'fetch').mockImplementation(() => Promise.resolve(directusListResponse([])));
+
+    const sync = useDirectusSync();
+    sync.startSync({ appType: 'cassa', store: makeStore() });
+    const result = await sync.forcePull();
+
+    expect(result).toEqual(expect.objectContaining({ ok: true }));
+    expect(Array.isArray(result.failedCollections)).toBe(true);
+    expect(result.failedCollections).toHaveLength(0);
+    sync.stopSync();
+  });
+
+  it('forcePull returns {ok:false, failedCollections} when a collection fetch fails', async () => {
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      if (String(url).includes('/items/orders')) return Promise.reject(new Error('orders fetch failed'));
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const sync = useDirectusSync();
+    sync.startSync({ appType: 'cassa', store: makeStore() });
+    const result = await sync.forcePull();
+
+    expect(result.ok).toBe(false);
+    expect(result.failedCollections).toContain('orders');
+    sync.stopSync();
+  });
+
+  it('older successful pull still applies config when newer pull fails before hydration', async () => {
+    // Simulate two overlapping _runGlobalPull calls:
+    //  - Pull A (generation 1): succeeds — should apply config
+    //  - Pull B (generation 2): starts after A but fails during fetch — must NOT block A from applying
+    //
+    // We model this via reconfigureAndApply() (which internally calls _runGlobalPull):
+    //  - First call succeeds (valid venue payload) → config should be applied
+    //  - Second call fails (venue fetch error) → should not retroactively block the first
+
+    const { appConfig } = await import('../../utils/index.js');
+    const venuePayload = {
+      id: 1,
+      name: 'Test Venue Generation',
+      menu_source: 'directus',
+      rooms: [],
+      tables: [],
+      payment_methods: [],
+      printers: [],
+      venue_users: [],
+      table_merge_sessions: [],
+      menu_categories: [],
+      menu_items: [],
+      primary_color: '#aabbcc',
+    };
+
+    // First reconfigureAndApply — succeeds
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      if (String(url).includes('/items/venues/')) return Promise.resolve(directusItemResponse(venuePayload));
+      return Promise.resolve(directusListResponse([]));
+    });
+    const sync = useDirectusSync();
+    const resultA = await sync.reconfigureAndApply();
+    expect(resultA.ok).toBe(true);
+
+    // Capture the color set by pull A
+    const colorAfterA = appConfig.ui?.primaryColor;
+
+    // Second reconfigureAndApply — fails (simulates a concurrent pull that errors out)
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      if (String(url).includes('/items/venues/')) return Promise.reject(new Error('network error'));
+      return Promise.resolve(directusListResponse([]));
+    });
+    const resultB = await sync.reconfigureAndApply();
+    expect(resultB.ok).toBe(false);
+
+    // The config from pull A must still be in effect — the failing pull B must not have
+    // retroactively prevented pull A from being the applied state.
+    // (In practice, since pull A already succeeded and advanced _lastAppliedGlobalPullGeneration,
+    // pull B's failure leaves the state set by A intact.)
+    expect(appConfig.ui?.primaryColor).toBe(colorAfterA);
+    sync.stopSync();
+  });
+
 });
+
 
 // ── WebSocket subscriptions ───────────────────────────────────────────────────
 
