@@ -1587,13 +1587,11 @@ describe('global pull config hydration', () => {
     vi.spyOn(global, 'fetch').mockImplementation(() => Promise.resolve(directusListResponse([])));
 
     const sync = useDirectusSync();
-    sync.startSync({ appType: 'cassa', store: makeStore() });
     const result = await sync.forcePull();
 
     expect(result).toEqual(expect.objectContaining({ ok: true }));
     expect(Array.isArray(result.failedCollections)).toBe(true);
     expect(result.failedCollections).toHaveLength(0);
-    sync.stopSync();
   });
 
   it('forcePull returns {ok:false, failedCollections} when a collection fetch fails', async () => {
@@ -1603,12 +1601,10 @@ describe('global pull config hydration', () => {
     });
 
     const sync = useDirectusSync();
-    sync.startSync({ appType: 'cassa', store: makeStore() });
     const result = await sync.forcePull();
 
     expect(result.ok).toBe(false);
     expect(result.failedCollections).toContain('orders');
-    sync.stopSync();
   });
 
   it('older successful pull still applies config when newer pull fails before hydration', async () => {

@@ -1265,6 +1265,16 @@ async function _runGlobalPull({ onProgress = null } = {}) {
     }
     deepVenue = await _hydrateVenueTablesFromRoomRefs(client, deepVenue, venueId);
 
+    // Skip IDB write and config apply only if a *newer* pull has already
+    // successfully applied config.  Checking here (after network fetch but
+    // before writing to IDB) prevents an older, slower pull from
+    // overwriting IDB with stale venue data after a newer pull has already
+    // written and applied fresher data.
+    if (_lastAppliedGlobalPullGeneration > myGeneration) {
+      console.debug('[DirectusSync] Global pull superseded by a newer pull — skipping IDB write and config apply.');
+      return { ok: true, failedCollections: [] };
+    }
+
     const localMenuSource = appConfig.menuSource;
     const remoteMenuSource = deepVenue.menu_source;
     const menuSource = localMenuSource === 'json'
@@ -1293,16 +1303,6 @@ async function _runGlobalPull({ onProgress = null } = {}) {
       message: `Deep fetch completato (menu_source=${menuSource}).`,
       details: JSON.stringify(fanOutSummary),
     });
-
-    // Skip apply only if a *newer* pull has already successfully applied config.
-    // Using the "last applied" generation (rather than "last started") means a
-    // newer pull that failed does NOT prevent this pull from applying its
-    // successfully fetched data — avoiding stale settings when the newer pull
-    // errors out before reaching _hydrateConfigFromLocalCache.
-    if (_lastAppliedGlobalPullGeneration > myGeneration) {
-      console.debug('[DirectusSync] Global pull superseded by a newer pull — skipping config apply.');
-      return { ok: true, failedCollections: [] };
-    }
 
     await _hydrateConfigFromLocalCache(venueId, onProgress);
     _lastAppliedGlobalPullGeneration = myGeneration;
