@@ -113,7 +113,7 @@ export async function loadAuthSettingsFromIDB() {
 export async function saveAuthSettingsToIDB(settings) {
   try {
     const db = await getDB();
-    await db.put('app_meta', JSON.parse(JSON.stringify({ id: 'auth_settings', ...settings })));
+    await db.put('app_meta', JSON.parse(JSON.stringify({ ...settings, id: 'auth_settings' })));
   } catch (e) {
     console.warn('[IDBPersistence] Failed to save auth settings:', e);
   }
