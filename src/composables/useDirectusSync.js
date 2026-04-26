@@ -651,14 +651,15 @@ let _store = null;
 /** @type {'cassa'|'sala'|'cucina'} */
 let _appType = 'cassa';
 /**
- * Monotonically increasing counter incremented at the start of every
- * `_runGlobalPull` call.  Each invocation captures its own value; before
- * writing runtime config back to the store it checks whether a **newer pull
- * has already successfully applied** config in the meantime and, if so, skips
- * the (now stale) write.
+ * Monotonically increasing counter incremented by each `_runGlobalPull` call
+ * that proceeds past the online/config early-exit checks.  Each such invocation
+ * captures its own value; before writing runtime config back to the store it
+ * checks whether a **newer pull has already successfully applied** config in the
+ * meantime and, if so, skips the (now stale) write.
  *
  * Two counters are used:
- *  - `_globalPullGeneration`: incremented when any pull *starts* (assigns order).
+ *  - `_globalPullGeneration`: incremented for each pull attempt that passes the
+ *    online/config checks (assigns ordering among concurrent pulls).
  *  - `_lastAppliedGlobalPullGeneration`: set to `myGeneration` only after a pull
  *    *successfully* calls `_hydrateConfigFromLocalCache`.
  *
