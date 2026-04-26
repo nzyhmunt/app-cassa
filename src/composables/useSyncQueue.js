@@ -71,7 +71,7 @@ const SOFT_DELETE_COLLECTIONS = new Set([
  * @type {Set<string>}
  */
 const DOMAIN_STATUS_COLLECTIONS = new Set([
-  'bill_sessions', 'orders', 'print_jobs',
+  'bill_sessions', 'orders', 'print_jobs', 'fiscal_receipts', 'invoice_requests',
 ]);
 
 // ── Core queue helpers ───────────────────────────────────────────────────────
@@ -458,7 +458,8 @@ async function _pushEntry(entry, sdkClient, cfg) {
 
     // Ensure the primary key is always present in create payloads.
     // This guards against cases where the local PK was not included in a partial payload.
-    if (operation === 'create' && !directusPayload.id && record_id) {
+    // Skip for collections that use a non-standard PK field (e.g. print_jobs uses log_id).
+    if (operation === 'create' && !directusPayload.id && record_id && !directusPayload.log_id) {
       directusPayload.id = record_id;
     }
   }

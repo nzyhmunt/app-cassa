@@ -1343,7 +1343,8 @@ Flusso di integrazione previsto:
 2. **Operazioni** (orders, transactions, cash_movements): creati localmente con UUID v7 e
    sincronizzati verso Directus in modalità **push** non appena `navigator.onLine` torna `true`.
 3. **Sessioni tavolo** (bill_sessions): create localmente e sincronizzate come gli ordini.
-4. **Reportistica** (daily_closures, print_jobs): push-only, mai modificati dopo la creazione.
+4. **Reportistica** (daily_closures, print_jobs, fiscal_receipts, invoice_requests): push-only, mai
+   modificati dopo la creazione (eccetto aggiornamenti di stato per fiscal_receipts e invoice_requests).
 
 #### Hydration configurazione runtime da Directus (D1–D4)
 

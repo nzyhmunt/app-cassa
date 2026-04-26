@@ -51,11 +51,15 @@ export const useOrderStore = defineStore('orders', () => {
 
   function addPrintLogEntry(entry) {
     printLog.value = [{ status: 'pending', ...entry }, ...printLog.value].slice(0, 200);
+    enqueue('print_jobs', 'create', entry.logId, entry);
   }
 
   function updatePrintLogEntry(logId, updates) {
     const idx = printLog.value.findIndex(e => e.logId === logId);
-    if (idx !== -1) printLog.value[idx] = { ...printLog.value[idx], ...updates };
+    if (idx !== -1) {
+      printLog.value[idx] = { ...printLog.value[idx], ...updates };
+      enqueue('print_jobs', 'update', logId, { logId, ...updates });
+    }
   }
 
   function clearPrintLog() {
@@ -71,6 +75,7 @@ export const useOrderStore = defineStore('orders', () => {
     Promise.resolve(saveFiscalReceiptToIDB(entry))
       .then(() => pruneFiscalReceiptsInIDB())
       .catch((error) => console.error('Failed to persist/prune fiscal receipts in IDB:', error));
+    enqueue('fiscal_receipts', 'create', entry.id, entry);
   }
 
   function updateFiscalReceipt(id, updates) {
@@ -78,12 +83,14 @@ export const useOrderStore = defineStore('orders', () => {
     if (idx !== -1) {
       fiscalReceipts.value[idx] = { ...fiscalReceipts.value[idx], ...updates };
       saveFiscalReceiptToIDB(fiscalReceipts.value[idx]);
+      enqueue('fiscal_receipts', 'update', id, { id, ...updates });
     }
   }
 
   function addInvoiceRequest(entry) {
     invoiceRequests.value = [entry, ...invoiceRequests.value].slice(0, 200);
     saveInvoiceRequestToIDB(entry);
+    enqueue('invoice_requests', 'create', entry.id, entry);
   }
 
   async function _hydrateFiscalAndInvoice() {
