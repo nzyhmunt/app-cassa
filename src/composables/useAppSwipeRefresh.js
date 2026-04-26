@@ -1,6 +1,9 @@
 import { computed, onUnmounted, ref } from 'vue';
 import { directusEnabledRef } from './useDirectusClient.js';
 
+/** How long (ms) to keep the success indicator visible after a completed refresh. */
+export const REFRESH_DONE_HOLD_MS = 800;
+
 /**
  * Shared swipe-down refresh for app roots.
  * - Directus enabled: full reconfigure+pull, then local IDB hydration.
@@ -113,7 +116,7 @@ export function useAppSwipeRefresh({
       refreshDoneTimer = setTimeout(() => {
         refreshDoneTimer = null;
         isRefreshDone.value = false;
-      }, 800);
+      }, REFRESH_DONE_HOLD_MS);
     }
   }
 

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { useAppSwipeRefresh } from '../useAppSwipeRefresh.js';
+import { REFRESH_DONE_HOLD_MS, useAppSwipeRefresh } from '../useAppSwipeRefresh.js';
 
 const { mockDirectusEnabledRef } = vi.hoisted(() => ({
   mockDirectusEnabledRef: { value: false },
@@ -198,7 +198,7 @@ describe('useAppSwipeRefresh()', () => {
       vi.useRealTimers();
     });
 
-    it('sets isRefreshDone after successful refresh and clears it after 800ms', async () => {
+    it(`sets isRefreshDone after successful refresh and clears it after ${REFRESH_DONE_HOLD_MS}ms`, async () => {
       vi.useFakeTimers();
       const { configStore, orderStore, sync } = makeStoresAndSync();
       const swipe = useAppSwipeRefresh({ configStore, orderStore, sync, thresholdPx: 40 });
@@ -208,13 +208,13 @@ describe('useAppSwipeRefresh()', () => {
       swipe.onTouchStart({ touches: [touch(1, 0)], target: root });
       swipe.onTouchEnd({ changedTouches: [touch(1, 60)] });
 
-      // Let async work finish but don't advance the 800 ms timer yet
+      // Let async work finish but don't advance the hold timer yet
       await flushPromises();
 
       expect(swipe.isRefreshDone.value).toBe(true);
       expect(swipe.isSwipeRefreshing.value).toBe(false);
 
-      vi.advanceTimersByTime(800);
+      vi.advanceTimersByTime(REFRESH_DONE_HOLD_MS);
       await flushPromises();
 
       expect(swipe.isRefreshDone.value).toBe(false);
@@ -227,7 +227,7 @@ describe('useAppSwipeRefresh()', () => {
       const root = document.createElement('div');
       document.body.appendChild(root);
 
-      // First refresh — finishes, starts 800 ms timer
+      // First refresh — finishes, starts hold timer
       swipe.onTouchStart({ touches: [touch(1, 0)], target: root });
       swipe.onTouchEnd({ changedTouches: [touch(1, 60)] });
       await flushPromises();
@@ -244,7 +244,7 @@ describe('useAppSwipeRefresh()', () => {
       // Second refresh completes, isRefreshDone is true again
       expect(swipe.isRefreshDone.value).toBe(true);
 
-      vi.advanceTimersByTime(800);
+      vi.advanceTimersByTime(REFRESH_DONE_HOLD_MS);
       await flushPromises();
       expect(swipe.isRefreshDone.value).toBe(false);
     });
