@@ -327,7 +327,10 @@ export const useOrderStore = defineStore('orders', () => {
       }
     }
     if (didGenerateMissingIds) {
-      void saveStateToIDB({ orders: orders.value });
+      saveStateToIDB({ orders: orders.value }).catch((error) => {
+        console.error('Failed to persist generated order item IDs to IDB', error);
+        _scheduleSave('orders');
+      });
     }
     const payload = {};
     if (Object.prototype.hasOwnProperty.call(projectedOrder, 'orderItems')) {
