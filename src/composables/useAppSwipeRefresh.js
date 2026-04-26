@@ -1,5 +1,8 @@
-import { computed, ref } from 'vue';
+import { computed, onUnmounted, ref } from 'vue';
 import { directusEnabledRef } from './useDirectusClient.js';
+
+/** How long (ms) to keep the success indicator visible after a completed refresh. */
+export const REFRESH_DONE_HOLD_MS = 800;
 
 /**
  * Shared swipe-down refresh for app roots.
@@ -15,7 +18,10 @@ export function useAppSwipeRefresh({
 }) {
   const effectiveThresholdPx = Number.isFinite(thresholdPx) && thresholdPx > 0 ? thresholdPx : 80;
   const isSwipeRefreshing = ref(false);
+  const isRefreshDone = ref(false);
   const isPulling = ref(false);
+  /** @type {ReturnType<typeof setTimeout>|null} */
+  let refreshDoneTimer = null;
   const pullDistance = ref(0);
   const isThresholdReached = computed(() => pullDistance.value >= effectiveThresholdPx);
   const pullProgress = computed(() => {
@@ -82,7 +88,14 @@ export function useAppSwipeRefresh({
 
   async function runRefresh() {
     if (isSwipeRefreshing.value) return;
+    if (refreshDoneTimer != null) {
+      clearTimeout(refreshDoneTimer);
+      refreshDoneTimer = null;
+      isRefreshDone.value = false;
+    }
     isSwipeRefreshing.value = true;
+    isRefreshDone.value = false;
+    let success = false;
     try {
       if (directusEnabledRef.value) {
         await sync.reconfigureAndApply({ clearLocalConfig: false });
@@ -92,10 +105,18 @@ export function useAppSwipeRefresh({
         configStore.hydrateConfigFromIDB(),
         orderStore.refreshOperationalStateFromIDB(),
       ]);
+      success = true;
     } catch (error) {
       console.warn(`[${logPrefix}] Swipe refresh failed:`, error);
     } finally {
       isSwipeRefreshing.value = false;
+    }
+    if (success) {
+      isRefreshDone.value = true;
+      refreshDoneTimer = setTimeout(() => {
+        refreshDoneTimer = null;
+        isRefreshDone.value = false;
+      }, REFRESH_DONE_HOLD_MS);
     }
   }
 
@@ -159,8 +180,17 @@ export function useAppSwipeRefresh({
     resetPullState();
   }
 
+  onUnmounted(() => {
+    if (refreshDoneTimer != null) {
+      clearTimeout(refreshDoneTimer);
+      refreshDoneTimer = null;
+    }
+    isRefreshDone.value = false;
+  });
+
   return {
     isSwipeRefreshing,
+    isRefreshDone,
     isPulling,
     isThresholdReached,
     pullDistance,
