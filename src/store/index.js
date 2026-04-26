@@ -1134,10 +1134,10 @@ export const useOrderStore = defineStore('orders', () => {
       noteVisibility: { cassa: true, sala: true, cucina: true },
       orderItems: items.map(item => ({
         ...item,
-        id: item.id ?? newUUIDv7(),
+        id: (item.id === '' || item.id == null) ? newUUIDv7() : item.id,
         modifiers: (Array.isArray(item.modifiers) ? item.modifiers : []).map(mod => ({
           ...mod,
-          id: mod.id ?? newUUIDv7(),
+          id: (mod.id === '' || mod.id == null) ? newUUIDv7() : mod.id,
         })),
       })),
       isDirectEntry: true,

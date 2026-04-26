@@ -102,7 +102,7 @@ function makeOrderWithItems(id, table = 'T1', status = 'accepted') {
     globalNote: '',
     noteVisibility: { cassa: true, sala: true, cucina: true },
     orderItems: [
-      { uid: 'item_1', dishId: 'd1', name: 'Pasta', unitPrice: 10, quantity: 2, voidedQuantity: 0, notes: [], modifiers: [] },
+      { id: `${id}_item_1`, uid: 'item_1', dishId: 'd1', name: 'Pasta', unitPrice: 10, quantity: 2, voidedQuantity: 0, notes: [], modifiers: [] },
     ],
   };
 }
@@ -114,7 +114,7 @@ function makeOrderWithVoidedItem(id, table = 'T1', status = 'accepted') {
     totalAmount: 20, itemCount: 2, dietaryPreferences: {}, globalNote: '',
     noteVisibility: { cassa: true, sala: true, cucina: true },
     orderItems: [
-      { uid: 'item_1', dishId: 'd1', name: 'Pasta', unitPrice: 10, quantity: 2, voidedQuantity: 1, notes: [], modifiers: [] },
+      { id: `${id}_item_1`, uid: 'item_1', dishId: 'd1', name: 'Pasta', unitPrice: 10, quantity: 2, voidedQuantity: 1, notes: [], modifiers: [] },
     ],
   };
 }
@@ -127,8 +127,8 @@ function makeOrderWithModifiers(id, table = 'T1', status = 'accepted') {
     noteVisibility: { cassa: true, sala: true, cucina: true },
     orderItems: [
       {
-        uid: 'item_1', dishId: 'd1', name: 'Pasta', unitPrice: 10, quantity: 2, voidedQuantity: 0, notes: [],
-        modifiers: [{ uid: 'mod_1', name: 'Extra', quantity: 2, unitPrice: 1, voidedQuantity: 0 }],
+        id: `${id}_item_1`, uid: 'item_1', dishId: 'd1', name: 'Pasta', unitPrice: 10, quantity: 2, voidedQuantity: 0, notes: [],
+        modifiers: [{ id: `${id}_mod_1`, uid: 'mod_1', name: 'Extra', quantity: 2, unitPrice: 1, voidedQuantity: 0 }],
       },
     ],
   };
@@ -142,8 +142,8 @@ function makeOrderWithVoidedModifier(id, table = 'T1', status = 'accepted') {
     noteVisibility: { cassa: true, sala: true, cucina: true },
     orderItems: [
       {
-        uid: 'item_1', dishId: 'd1', name: 'Pasta', unitPrice: 10, quantity: 2, voidedQuantity: 0, notes: [],
-        modifiers: [{ uid: 'mod_1', name: 'Extra', quantity: 2, unitPrice: 1, voidedQuantity: 1 }],
+        id: `${id}_item_1`, uid: 'item_1', dishId: 'd1', name: 'Pasta', unitPrice: 10, quantity: 2, voidedQuantity: 0, notes: [],
+        modifiers: [{ id: `${id}_mod_1`, uid: 'mod_1', name: 'Extra', quantity: 2, unitPrice: 1, voidedQuantity: 1 }],
       },
     ],
   };
