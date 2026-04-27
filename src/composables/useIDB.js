@@ -52,8 +52,8 @@ const DB_NAME_PREFIX = 'app-cassa';
  *  v13 — Added `sync_logs` ObjectStore for Activity Logging & Debugging.
  *               Each record captures direction (IN/OUT), type (PULL/PUSH/WS), endpoint,
  *               payload, response, status, statusCode, and durationMs.
- *               A `timestamp` index supports chronological reads and auto-purge
- *               (circular buffer, keep newest 200 entries).
+ *               A `timestamp` index supports chronological reads and two-bucket
+ *               auto-purge (success ≤100, errors ≤200 + all within last 48 h).
  *
  * To add a new version (e.g. v14):
  *   1. Increment DB_VERSION to 14.
@@ -409,8 +409,9 @@ export function getDB() {
 
       // v13: sync_logs — activity log for all sync exchanges (push/pull/ws).
       // keyPath is autoincrement so entries are ordered by insertion.
-      // The `timestamp` index supports chronological reads and the auto-purge
-      // (circular buffer) that retains the newest SYNC_LOGS_MAX_ENTRIES entries.
+      // The `timestamp` index supports chronological reads and the two-bucket
+      // auto-purge (success ≤SYNC_LOGS_MAX_SUCCESS, errors ≤SYNC_LOGS_MAX_ERRORS
+      // + all entries within the last SYNC_LOGS_ERROR_RETENTION_MS window).
       if (oldVersion < 13 && !db.objectStoreNames.contains('sync_logs')) {
         const s = db.createObjectStore('sync_logs', { keyPath: 'id', autoIncrement: true });
         s.createIndex('timestamp', 'timestamp', { unique: false });

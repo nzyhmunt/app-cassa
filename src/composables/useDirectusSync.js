@@ -318,8 +318,8 @@ async function _fetchUpdatedViaSDK(collection, sinceTs, page = 1) {
     query.filter = { _and: conditions };
   }
 
+  const _pullStart = Date.now();
   try {
-    const _pullStart = Date.now();
     const records = await client.request(readItems(collection, query));
     const _pullDuration = Date.now() - _pullStart;
     const data = Array.isArray(records) ? records : [];
@@ -348,7 +348,7 @@ async function _fetchUpdatedViaSDK(collection, sinceTs, page = 1) {
       response: { error: e?.message ?? String(e) },
       status: 'error',
       statusCode: e?.response?.status ?? null,
-      durationMs: null,
+      durationMs: Date.now() - _pullStart,
       collection,
       recordCount: 0,
     }).catch(() => {});

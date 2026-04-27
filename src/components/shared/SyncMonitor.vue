@@ -299,7 +299,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, computed, watch, onUnmounted } from 'vue';
 import {
   Activity, X, ArrowUpCircle, ArrowDownCircle, RefreshCw,
   FileDown, Trash2, Search, Copy, ClipboardList,
@@ -561,7 +561,7 @@ function _onLogsChanged() { loadLogs(); }
 function _onOnline()  { isOnline.value = true; }
 function _onOffline() { isOnline.value = false; }
 
-onMounted(() => {
+function _attach() {
   loadLogs();
   _initBC();
   if (typeof window !== 'undefined') {
@@ -569,15 +569,35 @@ onMounted(() => {
     window.addEventListener('online',  _onOnline);
     window.addEventListener('offline', _onOffline);
   }
-});
+}
 
-onUnmounted(() => {
+function _detach() {
   _closeBC();
   if (typeof window !== 'undefined') {
     window.removeEventListener('sync-logs:changed', _onLogsChanged);
     window.removeEventListener('online',  _onOnline);
     window.removeEventListener('offline', _onOffline);
   }
+}
+
+// Only open the channel and register listeners while the modal is visible.
+// This avoids a permanently-open BroadcastChannel and loadLogs() calls
+// while the modal is hidden but the component is still mounted.
+watch(
+  () => props.modelValue,
+  (open) => {
+    if (open) {
+      _attach();
+    } else {
+      _detach();
+      selectedLog.value = null;
+    }
+  },
+  { immediate: true },
+);
+
+onUnmounted(() => {
+  _detach();
 });
 </script>
 
