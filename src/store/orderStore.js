@@ -326,16 +326,15 @@ export const useOrderStore = defineStore('orders', () => {
       }
     }
     if (didGenerateMissingIds) {
-      // IDB-first: persist the newly assigned IDs before relying on the event bus
-      // to propagate them to reactive state. Even without await, the event bus
-      // fires synchronously inside the mock (in tests) and after the IDB write in
-      // production (a brief async window that is acceptable for this safety-net path).
+      // Make the generated IDs visible in reactive state immediately so any
+      // subsequent mutation on the same order observes the same item/modifier
+      // IDs even if the IDB write or event-bus propagation is still pending.
       const nextOrders = _replaceOrderById(ordId, projectedOrder);
+      orders.value = nextOrders;
       saveStateToIDB({ orders: nextOrders }).catch((error) => {
         console.error('Failed to persist generated order item IDs to IDB', error);
-        // Keep orders.value in sync with nextOrders so the scheduled retry
-        // persists the generated IDs rather than the old array.
-        orders.value = nextOrders;
+        // orders.value is already synchronized with nextOrders; schedule a retry
+        // so persistence catches up without regenerating IDs.
         _scheduleSave('orders');
       });
     }
