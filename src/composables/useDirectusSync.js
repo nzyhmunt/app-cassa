@@ -33,7 +33,7 @@ import {
   mergeOrderFromWSPayload,
   relationId,
 } from '../utils/mappers.js';
-import { getDirectusClient } from './useDirectusClient.js';
+import { getDirectusClient, resetDirectusClient } from './useDirectusClient.js';
 import { drainQueue } from './useSyncQueue.js';
 import {
   loadStateFromIDB,
@@ -623,9 +623,13 @@ function _stopSubscriptions() {
     try { unsub(); } catch (_) { /* best-effort */ }
   }
   _unsubscribers.length = 0;
-
-  const client = getDirectusClient();
-  try { client?.disconnect?.(); } catch (_) { /* best-effort */ }
+  // Use resetDirectusClient() rather than getDirectusClient() + disconnect() to avoid
+  // creating a brand-new SDK client just to immediately disconnect it.  When stopSync()
+  // is called after a config change (loadDirectusConfigFromStorage already called
+  // resetDirectusClient()), getDirectusClient() would create a new client and cache it,
+  // so the subsequent _startSubscriptions() → connect() would attempt to reconnect a
+  // client that was just disconnected — causing the WebSocket to never come back up.
+  resetDirectusClient();
   _wsConnected.value = false;
 }
 
