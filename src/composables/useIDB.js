@@ -412,12 +412,7 @@ export function getDB() {
       // The `timestamp` index supports chronological reads and the two-bucket
       // auto-purge (success ≤SYNC_LOGS_MAX_SUCCESS, errors ≤SYNC_LOGS_MAX_ERRORS
       // + all entries within the last SYNC_LOGS_ERROR_RETENTION_MS window).
-      if (oldVersion < 13 && !db.objectStoreNames.contains('sync_logs')) {
-        const s = db.createObjectStore('sync_logs', { keyPath: 'id', autoIncrement: true });
-        s.createIndex('timestamp', 'timestamp', { unique: false });
-        s.createIndex('type', 'type', { unique: false });
-        s.createIndex('direction', 'direction', { unique: false });
-      } else if (!db.objectStoreNames.contains('sync_logs')) {
+      if (!db.objectStoreNames.contains('sync_logs')) {
         const s = db.createObjectStore('sync_logs', { keyPath: 'id', autoIncrement: true });
         s.createIndex('timestamp', 'timestamp', { unique: false });
         s.createIndex('type', 'type', { unique: false });
