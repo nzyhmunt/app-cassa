@@ -3,7 +3,7 @@ import { useConfigStore } from '../store/index.js';
 import { KEYBOARD_POSITIONS, DEFAULT_SETTINGS } from '../utils/index.js';
 import { isWakeLockSupported } from './useWakeLock.js';
 import { useAuth } from './useAuth.js';
-import { deleteDatabase } from '../store/persistence/operations.js';
+import { deleteDatabase, clearAllStateFromIDB } from '../store/persistence/operations.js';
 import { clearDirectusConfigFromStorage } from './useDirectusClient.js';
 import { getInstanceName } from '../store/persistence.js';
 /**
@@ -96,6 +96,19 @@ export function useSettings(props, emit) {
       await clearDirectusConfigFromStorage();
     } catch (e) {
       console.warn('[Settings] Failed to clear Directus config during reset:', e);
+    }
+    // Proactively wipe all IDB stores before the physical database delete.
+    // deleteDatabase() uses an onblocked handler that resolves after a 3-second
+    // timeout when another connection (e.g. an in-flight WebSocket write or
+    // polling timer) is holding the DB open. In that case the physical delete
+    // silently does NOT happen, so app_meta (including lastPullTs cursors) and
+    // all operational stores (orders, bill_sessions …) survive the reload.
+    // Calling clearAllStateFromIDB() first guarantees a clean slate regardless
+    // of whether the subsequent physical delete succeeds.
+    try {
+      await clearAllStateFromIDB();
+    } catch (e) {
+      console.warn('[Settings] Failed to pre-clear IDB stores during reset:', e);
     }
     // Nuclear reset: physically delete the entire IndexedDB database.
     // This guarantees a full clean slate for every object store.
