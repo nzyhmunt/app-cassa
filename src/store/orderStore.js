@@ -1072,9 +1072,10 @@ export const useOrderStore = defineStore('orders', () => {
   //   • openTableSession – uses upsertBillSessionInIDB (different bus path)
   //   • performDailyClose (makeReportOps) – uses raw Vue refs outside the bus context;
   //     the duplicate bus assignment that follows is harmless but acknowledged.
-  //   • _enqueueOrderItemsPatch safety-net – fires a non-awaited saveStateToIDB so
-  //     the bus update is asynchronous; the direct assignment was removed as of this
-  //     refactor (the brief async window is acceptable for this legacy-only path).
+  //   • _enqueueOrderItemsPatch safety-net – directly assigns orders.value = nextOrders
+  //     so generated IDs are visible immediately, then explicitly calls saveStateToIDB.
+  //     When that save later emits on the bus, this subscriber applies the persisted
+  //     state and uses _skipNextScheduledSave('orders') to avoid a redundant re-save.
   const unsubIDBChange = onIDBChange((state) => {
     const keys = [];
     if ('orders' in state) { orders.value = state.orders; keys.push('orders'); }
