@@ -573,9 +573,13 @@ async function handleForcePull() {
     await sync.reconfigureAndApply({ clearLocalConfig: false });
 
     const pullResult = await sync.forcePull();
-    pullFeedback.value = pullResult?.ok === false
-      ? (pullResult?.skippedReason === 'offline' ? 'offline' : 'error')
-      : 'success';
+    if (pullResult?.ok !== false) {
+      pullFeedback.value = 'success';
+    } else if (pullResult?.skippedReason === 'offline') {
+      pullFeedback.value = 'offline';
+    } else {
+      pullFeedback.value = 'error';
+    }
   } catch {
     pullFeedback.value = 'error';
   } finally {

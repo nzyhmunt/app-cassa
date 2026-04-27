@@ -1411,10 +1411,13 @@ export function useDirectusSync() {
     syncStatus.value = 'syncing';
     try {
       const result = await _runPull();
-      const skippedOffline = result?.skippedReason === 'offline';
-      syncStatus.value = result?.ok === false
-        ? (skippedOffline ? 'offline' : 'error')
-        : 'idle';
+      if (result?.ok !== false) {
+        syncStatus.value = 'idle';
+      } else if (result?.skippedReason === 'offline') {
+        syncStatus.value = 'offline';
+      } else {
+        syncStatus.value = 'error';
+      }
       return result;
     } catch (e) {
       syncStatus.value = 'error';
