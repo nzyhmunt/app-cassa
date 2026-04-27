@@ -735,9 +735,11 @@ async function handleForcePush() {
   clearTimeout(_pushFeedbackTimer);
   try {
     const result = await sync.forcePush();
-    if (result?.offline) {
+    if (result?.offline || result?.skippedReason === 'offline') {
       pushFeedback.value = 'offline';
     } else if (result?.failed > 0) {
+      pushFeedback.value = 'error';
+    } else if (result?.skippedReason) {
       pushFeedback.value = 'error';
     } else {
       pushFeedback.value = 'success';
