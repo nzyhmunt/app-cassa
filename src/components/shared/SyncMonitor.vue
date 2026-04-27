@@ -124,7 +124,7 @@
             class="flex items-center gap-2 text-xs px-3 py-2 rounded-xl"
             :class="{
               'bg-emerald-50 text-emerald-700': pushFeedback === 'success',
-              'bg-amber-50 text-amber-700': pushFeedback === 'offline',
+              'bg-amber-50 text-amber-700': pushFeedback === 'offline' || pushFeedback === 'skipped',
               'bg-red-50 text-red-700': pushFeedback === 'error',
             }"
           >
@@ -134,6 +134,7 @@
             <span>{{
               pushFeedback === 'success' ? 'Push completato.' :
               pushFeedback === 'offline' ? 'Directus non raggiungibile — riprovo appena torna online.' :
+              pushFeedback === 'skipped' ? 'Push non disponibile: controlla le impostazioni Directus.' :
               'Errore durante il push.'
             }}</span>
           </div>
@@ -534,7 +535,7 @@ const queueEntries = ref([]);
 const failedCalls = ref([]);
 const pushing = ref(false);
 const pulling = ref(false);
-const pushFeedback = ref(null); // null | 'success' | 'offline' | 'error'
+const pushFeedback = ref(null); // null | 'success' | 'offline' | 'error' | 'skipped'
 const pullFeedback = ref(null); // null | 'success' | 'offline' | 'error'
 let _pushFeedbackTimer = null;
 let _pullFeedbackTimer = null;
@@ -740,7 +741,7 @@ async function handleForcePush() {
     } else if (result?.failed > 0) {
       pushFeedback.value = 'error';
     } else if (result?.skippedReason) {
-      pushFeedback.value = 'error';
+      pushFeedback.value = 'skipped';
     } else {
       pushFeedback.value = 'success';
     }

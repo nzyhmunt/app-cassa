@@ -1349,6 +1349,18 @@ async function _runGlobalPull({ onProgress = null } = {}) {
 async function _reconnectWs() {
   if (!_running || _wsConnected.value) return;
   if (appConfig.directus?.wsEnabled !== true) return;
+
+  // Recompute the collection list from the current config so that changes to
+  // appConfig.menuSource (json ↔ directus) or _appType are picked up at
+  // reconnect time rather than using the potentially-stale list captured at
+  // startSync() time.
+  const pullCfg = PULL_CONFIG[_appType] ?? PULL_CONFIG.cassa;
+  const menuSource = appConfig.menuSource ?? 'directus';
+  const wsCollections = menuSource === 'json'
+    ? pullCfg.collections.filter(c => c !== 'menu_items')
+    : pullCfg.collections;
+  _wsCollections = wsCollections;
+
   if (_wsCollections.length === 0) return;
 
   // Cancel any pending debounced reconnect timer — this call IS the reconnect.

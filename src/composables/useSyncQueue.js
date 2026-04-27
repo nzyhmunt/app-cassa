@@ -617,7 +617,7 @@ async function _pushEntry(entry, sdkClient, cfg) {
 
 /**
  * Derives a minimal endpoint string from a sync queue entry.
- * Used for success-path logging where _pushEntry only returns `true`.
+ * Used for success-path logging where requestContext is unavailable (e.g. early skip path).
  * @param {object} entry
  * @returns {string}
  */
@@ -630,26 +630,25 @@ function _entryEndpoint(entry) {
 /**
  * Logs the outcome of a single push entry to the sync_logs store.
  * @param {object} entry
- * @param {true|'skip'|{ok:boolean,record:*,method:string,requestContext:*}|object} result - Return value from _pushEntry
+ * @param {'skip'|{ok:boolean,record:*,method:string,requestContext:*}|object} result - Return value from _pushEntry
  * @param {number} durationMs
  */
 function _logPushResult(entry, result, durationMs) {
   if (result === 'skip') return; // no-op deletes are not worth logging
   let logEntry;
-  if (result === true || (result && typeof result === 'object' && result.ok === true)) {
-    const successResult = typeof result === 'object' ? result : null;
+  if (result && typeof result === 'object' && result.ok === true) {
     logEntry = {
       direction: 'OUT',
       type: 'PUSH',
-      endpoint: successResult?.requestContext?.endpoint ?? _entryEndpoint(entry),
-      payload: successResult?.requestContext?.body ?? entry.payload ?? null,
-      response: successResult?.record ?? null,
+      endpoint: result.requestContext?.endpoint ?? _entryEndpoint(entry),
+      payload: result.requestContext?.body ?? entry.payload ?? null,
+      response: result.record ?? null,
       status: 'success',
       statusCode: null,
       durationMs,
       collection: entry.collection,
       operation: entry.operation ?? null,
-      method: successResult?.method ?? null,
+      method: result.method ?? null,
     };
   } else {
     const failure = typeof result === 'object' && result !== null ? result : { message: String(result) };
@@ -967,7 +966,7 @@ export async function drainQueue(cfg) {
     const result = await _pushEntry(entry, sdkClient, cfg);
     _logPushResult(entry, result, Date.now() - _pushStart);
 
-    if (result === true || result === 'skip' || (result && typeof result === 'object' && result.ok === true)) {
+    if (result === 'skip' || (result && typeof result === 'object' && result.ok === true)) {
       await removeEntry(entry.id);
       pushed++;
       // Record as processed so sibling child entries processed later this cycle
@@ -1017,7 +1016,7 @@ export async function drainQueue(cfg) {
     const _deferredPushStart = Date.now();
     const result = await _pushEntry(deferredEntry, sdkClient, cfg);
     _logPushResult(deferredEntry, result, Date.now() - _deferredPushStart);
-    if (result === true || result === 'skip' || (result && typeof result === 'object' && result.ok === true)) {
+    if (result === 'skip' || (result && typeof result === 'object' && result.ok === true)) {
       await removeEntry(deferredEntry.id);
       pushed++;
       // Update pushedInThisCycle so subsequent siblings in this same second
