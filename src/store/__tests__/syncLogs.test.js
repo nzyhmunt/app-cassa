@@ -154,7 +154,7 @@ describe('addSyncLog()', () => {
     expect(log.method).toBe('POST');
   });
 
-  it('persists all operation values (update/delete) and method values (PATCH/DELETE)', async () => {
+  it('persists update/delete operations with PATCH/DELETE methods', async () => {
     await addSyncLog(makeSuccess({ operation: 'update', method: 'PATCH' }));
     await addSyncLog(makeSuccess({ operation: 'delete', method: 'DELETE' }));
     const logs = await getSyncLogs();
