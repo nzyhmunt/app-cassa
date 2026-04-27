@@ -268,7 +268,7 @@ export async function exportSyncLogs() {
 }
 
 /**
- * Returns the name of the BroadcastChannel used for cross-tab notifications.
- * Exposed for test use only.
+ * Name of the BroadcastChannel used for cross-tab sync log notifications.
+ * Shared with runtime UI listeners and also exported for tests.
  */
 export const _BC_CHANNEL = BC_CHANNEL;
