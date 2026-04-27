@@ -205,7 +205,7 @@
                 </div>
               </div>
               <div class="mt-1 flex items-center gap-3 text-[10px]" :class="logMetaClass(log)">
-                <span v-if="log.collection && log.collection !== log.endpoint">{{ log.collection }}</span>
+                <span v-if="log.collection && (!log.endpoint || !log.endpoint.includes(log.collection))">{{ log.collection }}</span>
                 <span v-if="log.recordCount != null">{{ log.recordCount }} rec</span>
                 <span v-if="log.durationMs != null">{{ log.durationMs }}ms</span>
                 <span
