@@ -126,13 +126,20 @@ export function makeTableOps(state, helpers) {
       const { billSessionId, payload } = patch;
       if (!billSessionId || !payload || typeof payload !== 'object') continue;
       try {
+        let didPersist = false;
         if (payload.status === 'closed') {
           await closeBillSessionInIDB(billSessionId);
+          didPersist = true;
         } else {
           const session = sessionsById.get(billSessionId);
-          if (session) await upsertBillSessionInIDB(session);
+          if (!session) {
+            console.warn('[Store] bill-session IDB patch skipped; no session found for', billSessionId);
+            continue;
+          }
+          await upsertBillSessionInIDB(session);
+          didPersist = true;
         }
-        persisted.push(patch);
+        if (didPersist) persisted.push(patch);
       } catch (err) {
         console.warn('[Store] bill-session IDB patch failed for', billSessionId, err);
       }
