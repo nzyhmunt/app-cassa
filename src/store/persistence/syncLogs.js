@@ -152,20 +152,24 @@ async function _purge(db) {
 // ── Public API ────────────────────────────────────────────────────────────────
 
 /**
+ * @typedef {null|boolean|number|string|JsonValue[]|{[key: string]: JsonValue}} JsonValue
+ */
+
+/**
  * Adds a new entry to the sync_logs ObjectStore and applies smart retention.
  * Fire-and-forget — errors are swallowed so logging never disrupts callers.
  *
  * @param {{
- *   direction: 'IN'|'OUT',
- *   type: 'PULL'|'PUSH'|'WS',
- *   endpoint: string,
- *   payload: object|null,
- *   response: object|null,
- *   status: 'success'|'error',
- *   statusCode: number|null,
- *   durationMs: number|null,
- *   collection?: string,
- *   recordCount?: number,
+ *   direction?: 'IN'|'OUT',
+ *   type?: 'PULL'|'PUSH'|'WS',
+ *   endpoint?: string|null,
+ *   payload?: JsonValue,
+ *   response?: JsonValue,
+ *   status?: 'success'|'error',
+ *   statusCode?: number|null,
+ *   durationMs?: number|null,
+ *   collection?: string|null,
+ *   recordCount?: number|null,
  * }} entry
  */
 export async function addSyncLog(entry) {
