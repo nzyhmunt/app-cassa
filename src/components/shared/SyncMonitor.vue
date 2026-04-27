@@ -216,7 +216,7 @@
                   class="font-bold"
                   :class="log.status === 'error' ? '' : 'font-normal'"
                 >HTTP {{ log.statusCode }}</span>
-                <span v-if="log.status === 'error' && !log.statusCode" class="font-bold">Network Error</span>
+                <span v-if="log.status === 'error' && log.statusCode == null" class="font-bold">Network Error</span>
               </div>
             </button>
           </div>
