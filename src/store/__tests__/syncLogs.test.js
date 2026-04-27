@@ -137,6 +137,32 @@ describe('addSyncLog()', () => {
     expect(log.response).toBeNull();
     expect(log.statusCode).toBeNull();
     expect(log.durationMs).toBeNull();
+    // operation and method must default to null when not provided
+    expect(log.operation).toBeNull();
+    expect(log.method).toBeNull();
+  });
+
+  it('persists operation and method when provided', async () => {
+    await addSyncLog(makeSuccess({
+      collection: 'orders',
+      operation: 'create',
+      method: 'POST',
+    }));
+    const [log] = await getSyncLogs();
+    expect(log.collection).toBe('orders');
+    expect(log.operation).toBe('create');
+    expect(log.method).toBe('POST');
+  });
+
+  it('persists update/delete operations with PATCH/DELETE methods', async () => {
+    await addSyncLog(makeSuccess({ operation: 'update', method: 'PATCH' }));
+    await addSyncLog(makeSuccess({ operation: 'delete', method: 'DELETE' }));
+    const logs = await getSyncLogs();
+    // most-recent first
+    expect(logs[0].operation).toBe('delete');
+    expect(logs[0].method).toBe('DELETE');
+    expect(logs[1].operation).toBe('update');
+    expect(logs[1].method).toBe('PATCH');
   });
 });
 

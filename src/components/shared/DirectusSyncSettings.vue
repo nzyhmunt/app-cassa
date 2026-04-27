@@ -158,70 +158,6 @@
       </div>
     </template>
 
-    <!-- Pulsanti force push/pull (solo se abilitato e configurato) -->
-    <div v-if="syncEnabled" class="flex gap-2">
-      <button
-        type="button"
-        @click="handleForcePush"
-        :disabled="pushing || pulling"
-        class="flex-1 py-2.5 bg-gray-50 hover:bg-gray-100 text-gray-700 font-bold rounded-2xl flex items-center justify-center gap-2 border border-gray-200 transition-colors active:scale-95 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
-      >
-        <LoaderCircle v-if="pushing" class="size-3.5 text-gray-500 animate-spin" />
-        <Upload v-else class="size-3.5 text-gray-500" />
-        <span>{{ pushing ? 'Invio in corso...' : 'Push ora' }}</span>
-      </button>
-      <button
-        type="button"
-        @click="handleForcePull"
-        :disabled="pushing || pulling"
-        class="flex-1 py-2.5 bg-gray-50 hover:bg-gray-100 text-gray-700 font-bold rounded-2xl flex items-center justify-center gap-2 border border-gray-200 transition-colors active:scale-95 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
-      >
-        <LoaderCircle v-if="pulling" class="size-3.5 text-gray-500 animate-spin" />
-        <Download v-else class="size-3.5 text-gray-500" />
-        <span>{{ pulling ? 'Ricezione in corso...' : 'Pull ora' }}</span>
-      </button>
-    </div>
-
-    <!-- Feedback operazioni push/pull -->
-    <template v-if="syncEnabled">
-      <div
-        v-if="pushFeedback"
-        class="flex items-center gap-2 text-xs px-3 py-2 rounded-xl"
-        :class="{
-          'bg-emerald-50 text-emerald-700': pushFeedback === 'success',
-          'bg-amber-50 text-amber-700': pushFeedback === 'offline',
-          'bg-red-50 text-red-700': pushFeedback === 'error',
-        }"
-      >
-        <CheckCircle v-if="pushFeedback === 'success'" class="size-3 shrink-0" />
-        <WifiOff v-else-if="pushFeedback === 'offline'" class="size-3 shrink-0" />
-        <XCircle v-else class="size-3 shrink-0" />
-        <span>{{
-          pushFeedback === 'success' ? 'Push completato.' :
-          pushFeedback === 'offline' ? 'Directus non raggiungibile — riprovo appena torna online.' :
-          'Errore durante il push.'
-        }}</span>
-      </div>
-      <div
-        v-if="pullFeedback"
-        class="flex items-center gap-2 text-xs px-3 py-2 rounded-xl"
-        :class="{
-          'bg-emerald-50 text-emerald-700': pullFeedback === 'success',
-          'bg-amber-50 text-amber-700': pullFeedback === 'offline',
-          'bg-red-50 text-red-700': pullFeedback === 'error',
-        }"
-      >
-        <CheckCircle v-if="pullFeedback === 'success'" class="size-3 shrink-0" />
-        <WifiOff v-else-if="pullFeedback === 'offline'" class="size-3 shrink-0" />
-        <XCircle v-else class="size-3 shrink-0" />
-        <span>{{
-          pullFeedback === 'success' ? 'Pull completato.' :
-          pullFeedback === 'offline' ? 'Directus non raggiungibile — riprovo appena torna online.' :
-          'Errore durante il pull.'
-        }}</span>
-      </div>
-    </template>
-
     <!-- Monitor Activity -->
     <button
       v-if="syncEnabled"
@@ -337,10 +273,10 @@
   </div>
 </template>
 <script setup>
-import { ref, reactive, computed, onMounted, onUnmounted } from 'vue';
+import { ref, reactive, computed, onMounted } from 'vue';
 import {
   RefreshCw, Save, Wifi, LoaderCircle, CheckCircle, XCircle,
-  AlertCircle, WifiOff, Upload, Download, Activity,
+  AlertCircle, WifiOff, Activity,
 } from 'lucide-vue-next';
 import { appConfig } from '../../utils/index.js';
 import {
@@ -367,12 +303,6 @@ const form = reactive({
 
 const showToken = ref(false);
 const testing = ref(false);
-const pushing = ref(false);
-const pulling = ref(false);
-const pushFeedback = ref(null); // null | 'success' | 'offline' | 'error'
-const pullFeedback = ref(null); // null | 'success' | 'offline' | 'error'
-let _pushFeedbackTimer = null;
-let _pullFeedbackTimer = null;
 const connectionStatus = ref('idle'); // 'idle' | 'testing' | 'ok' | 'error'
 const connectionMessage = ref('');
 const showSyncMonitor = ref(false);
@@ -412,11 +342,6 @@ onMounted(async () => {
     await loadDirectusConfigFromStorage();
   } catch (e) { console.warn('[DirectusSyncSettings] Failed to load Directus config from IDB:', e); }
   _syncFormFromConfig();
-});
-
-onUnmounted(() => {
-  clearTimeout(_pushFeedbackTimer);
-  clearTimeout(_pullFeedbackTimer);
 });
 
 function _syncFormFromConfig() {
@@ -540,51 +465,6 @@ async function saveConfig() {
       level: 'error',
       message: 'Sincronizzazione disabilitata: riattivala per applicare la configurazione da Directus.',
     });
-  }
-}
-
-/** Triggers a manual push and shows a loading spinner on the button. */
-async function handleForcePush() {
-  if (pushing.value || pulling.value) return;
-  pushing.value = true;
-  pushFeedback.value = null;
-  clearTimeout(_pushFeedbackTimer);
-  try {
-    await sync.forcePush();
-    pushFeedback.value = sync.syncStatus.value === 'error' ? 'error'
-      : sync.syncStatus.value === 'offline' ? 'offline'
-      : 'success';
-  } catch {
-    pushFeedback.value = 'error';
-  } finally {
-    pushing.value = false;
-    _pushFeedbackTimer = setTimeout(() => { pushFeedback.value = null; }, 3000);
-  }
-}
-
-/** Triggers a manual pull and shows a loading spinner on the button. */
-async function handleForcePull() {
-  if (pushing.value || pulling.value) return;
-  pulling.value = true;
-  pullFeedback.value = null;
-  clearTimeout(_pullFeedbackTimer);
-  try {
-    // Best-effort config refresh; do not abort the operational data pull on failure.
-    await sync.reconfigureAndApply({ clearLocalConfig: false });
-
-    const pullResult = await sync.forcePull();
-    if (pullResult?.ok !== false) {
-      pullFeedback.value = 'success';
-    } else if (pullResult?.skippedReason === 'offline') {
-      pullFeedback.value = 'offline';
-    } else {
-      pullFeedback.value = 'error';
-    }
-  } catch {
-    pullFeedback.value = 'error';
-  } finally {
-    pulling.value = false;
-    _pullFeedbackTimer = setTimeout(() => { pullFeedback.value = null; }, 3000);
   }
 }
 

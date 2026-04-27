@@ -84,9 +84,183 @@
               </div>
             </div>
           </div>
+
+          <!-- Coda push in attesa -->
+          <div
+            v-if="pendingQueueCount > 0"
+            class="flex items-center gap-2 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2"
+          >
+            <Clock class="size-3.5 text-amber-500 shrink-0" />
+            <span class="text-xs font-bold text-amber-700">
+              {{ pendingQueueCount }} {{ pendingQueueCount === 1 ? 'operazione in attesa' : 'operazioni in attesa' }} nella coda push
+            </span>
+          </div>
+
+          <!-- Push / Pull now buttons -->
+          <div class="flex gap-2">
+            <button
+              @click="handleForcePush"
+              :disabled="pushing || pulling"
+              class="flex-1 py-2.5 bg-gray-50 hover:bg-gray-100 text-gray-700 font-bold rounded-2xl flex items-center justify-center gap-1.5 border border-gray-200 transition-colors active:scale-95 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <LoaderCircle v-if="pushing" class="size-3.5 text-gray-500 animate-spin" />
+              <Upload v-else class="size-3.5 text-gray-500" />
+              <span>{{ pushing ? 'Invio…' : 'Push ora' }}</span>
+            </button>
+            <button
+              @click="handleForcePull"
+              :disabled="pushing || pulling"
+              class="flex-1 py-2.5 bg-gray-50 hover:bg-gray-100 text-gray-700 font-bold rounded-2xl flex items-center justify-center gap-1.5 border border-gray-200 transition-colors active:scale-95 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <LoaderCircle v-if="pulling" class="size-3.5 text-gray-500 animate-spin" />
+              <Download v-else class="size-3.5 text-gray-500" />
+              <span>{{ pulling ? 'Ricezione…' : 'Pull ora' }}</span>
+            </button>
+          </div>
+
+          <!-- Push/Pull feedback -->
+          <div
+            v-if="pushFeedback"
+            class="flex items-center gap-2 text-xs px-3 py-2 rounded-xl"
+            :class="{
+              'bg-emerald-50 text-emerald-700': pushFeedback === 'success',
+              'bg-amber-50 text-amber-700': pushFeedback === 'offline' || pushFeedback === 'skipped',
+              'bg-red-50 text-red-700': pushFeedback === 'error',
+            }"
+          >
+            <CheckCircle v-if="pushFeedback === 'success'" class="size-3 shrink-0" />
+            <WifiOff v-else-if="pushFeedback === 'offline'" class="size-3 shrink-0" />
+            <WifiOff v-else-if="pushFeedback === 'skipped'" class="size-3 shrink-0" />
+            <XCircle v-else class="size-3 shrink-0" />
+            <span>{{
+              pushFeedback === 'success' ? 'Push completato.' :
+              pushFeedback === 'offline' ? 'Directus non raggiungibile — riprovo appena torna online.' :
+              pushFeedback === 'skipped' ? 'Push non disponibile: controlla le impostazioni Directus.' :
+              'Errore durante il push.'
+            }}</span>
+          </div>
+          <div
+            v-if="pullFeedback"
+            class="flex items-center gap-2 text-xs px-3 py-2 rounded-xl"
+            :class="{
+              'bg-emerald-50 text-emerald-700': pullFeedback === 'success',
+              'bg-amber-50 text-amber-700': pullFeedback === 'offline',
+              'bg-red-50 text-red-700': pullFeedback === 'error',
+            }"
+          >
+            <CheckCircle v-if="pullFeedback === 'success'" class="size-3 shrink-0" />
+            <WifiOff v-else-if="pullFeedback === 'offline'" class="size-3 shrink-0" />
+            <XCircle v-else class="size-3 shrink-0" />
+            <span>{{
+              pullFeedback === 'success' ? 'Pull completato.' :
+              pullFeedback === 'offline' ? 'Directus non raggiungibile — riprovo appena torna online.' :
+              'Errore durante il pull.'
+            }}</span>
+          </div>
         </div>
 
-        <!-- Sezione 2: Activity Log -->
+        <!-- Sezione 2: Coda push attiva -->
+        <div class="space-y-2">
+          <div class="flex items-center justify-between">
+            <span class="block text-xs font-bold text-gray-600 uppercase tracking-wider">
+              Coda push
+              <span v-if="queueEntries.length > 0" class="ml-1 normal-case text-[10px] font-normal text-amber-500">({{ queueEntries.length }})</span>
+            </span>
+            <button
+              @click="_loadQueueData"
+              class="flex items-center gap-1 text-[10px] font-bold text-gray-500 hover:text-gray-700 bg-gray-100 hover:bg-gray-200 px-2 py-1 rounded-lg transition-colors active:scale-95"
+              title="Aggiorna coda e fallimenti"
+            >
+              <RefreshCw class="size-3" />
+              Aggiorna
+            </button>
+          </div>
+
+          <div v-if="queueEntries.length === 0" class="flex items-center gap-2 rounded-2xl border border-gray-100 bg-gray-50 px-3 py-2.5">
+            <CheckCircle class="size-3.5 text-emerald-400 shrink-0" />
+            <span class="text-xs text-gray-400">Coda vuota</span>
+          </div>
+          <div v-else class="space-y-1.5">
+            <div
+              v-for="entry in queueEntries"
+              :key="entry.id"
+              class="rounded-2xl border px-3 py-2.5 space-y-1"
+              :class="entry.attempts > 0 ? 'border-red-200 bg-red-50' : 'border-gray-100 bg-white'"
+            >
+              <div class="flex items-center justify-between gap-2">
+                <div class="flex items-center gap-1.5 min-w-0">
+                  <span
+                    class="shrink-0 text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-md"
+                    :class="{
+                      'bg-sky-100 text-sky-700':    entry.operation === 'create',
+                      'bg-amber-100 text-amber-700': entry.operation === 'update',
+                      'bg-red-100 text-red-600':    entry.operation === 'delete',
+                    }"
+                  >{{ entry.operation }}</span>
+                  <span class="text-xs font-semibold text-gray-700 truncate">{{ entry.collection }}</span>
+                </div>
+                <span
+                  class="shrink-0 text-[9px] font-medium px-1.5 py-0.5 rounded-full"
+                  :class="entry.attempts > 0 ? 'bg-red-100 text-red-600' : 'bg-gray-100 text-gray-500'"
+                >{{ entry.attempts > 0 ? `${entry.attempts} tent.` : 'in coda' }}</span>
+              </div>
+              <p class="text-[10px] text-gray-400 font-mono truncate">ID: {{ entry.record_id }}</p>
+              <p v-if="entry.attempts > 0 && entry.last_error" class="text-[10px] text-red-500 break-words">{{ entry.last_error }}</p>
+              <p class="text-[10px] text-gray-400">{{ formatTs(entry.date_created) }}</p>
+              <details v-if="entry.payload" class="text-[10px]">
+                <summary class="cursor-pointer text-gray-500 font-semibold select-none">Payload</summary>
+                <pre class="mt-1 bg-gray-50 border border-gray-200 rounded-xl p-2 text-[9px] text-gray-700 overflow-x-auto max-h-24 whitespace-pre-wrap break-all font-mono">{{ formatJSON(entry.payload) }}</pre>
+              </details>
+            </div>
+          </div>
+        </div>
+
+        <!-- Sezione 3: Chiamate fallite -->
+        <div class="space-y-2">
+          <span class="block text-xs font-bold text-gray-600 uppercase tracking-wider">
+            Chiamate fallite
+            <span v-if="failedCalls.length > 0" class="ml-1 normal-case text-[10px] font-normal text-red-500">({{ failedCalls.length }})</span>
+          </span>
+
+          <div v-if="failedCalls.length === 0" class="flex items-center gap-2 rounded-2xl border border-gray-100 bg-gray-50 px-3 py-2.5">
+            <CheckCircle class="size-3.5 text-emerald-400 shrink-0" />
+            <span class="text-xs text-gray-400">Nessuna chiamata fallita</span>
+          </div>
+          <div v-else class="space-y-1.5">
+            <div
+              v-for="call in failedCalls"
+              :key="call.id"
+              class="rounded-2xl border border-red-200 bg-red-50 px-3 py-2.5 space-y-1"
+            >
+              <div class="flex items-start justify-between gap-2">
+                <div class="flex items-center gap-1.5 min-w-0">
+                  <span
+                    class="shrink-0 text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-md"
+                    :class="{
+                      'bg-sky-100 text-sky-700':    call.operation === 'create',
+                      'bg-amber-100 text-amber-700': call.operation === 'update',
+                      'bg-red-100 text-red-600':    call.operation === 'delete',
+                    }"
+                  >{{ call.operation }}</span>
+                  <span class="text-xs font-semibold text-gray-700 truncate">{{ call.collection }}</span>
+                </div>
+                <div class="flex items-center gap-1 shrink-0">
+                  <span class="text-[9px] px-1.5 py-0.5 rounded-full bg-red-100 text-red-600">{{ call.attempts }} tent.</span>
+                  <span v-if="call.abandoned" class="text-[9px] px-1.5 py-0.5 rounded-full bg-gray-200 text-gray-600">Rimossa</span>
+                </div>
+              </div>
+              <p class="text-[10px] text-gray-400 font-mono truncate">Record: {{ call.record_id }}</p>
+              <p class="text-[10px] text-red-600 break-words">{{ call.error_message }}</p>
+              <p class="text-[10px] text-gray-400">{{ formatTs(call.failed_at) }}</p>
+              <details class="text-[10px]">
+                <summary class="cursor-pointer text-gray-500 font-semibold select-none">Dettagli request/response</summary>
+                <pre class="mt-1 bg-white border border-red-200 rounded-xl p-2 text-[9px] text-gray-700 overflow-x-auto max-h-32 whitespace-pre-wrap break-all font-mono">{{ formatFailedCall(call) }}</pre>
+              </details>
+            </div>
+          </div>
+        </div>
+
+        <!-- Sezione 4: Activity Log -->
         <div class="space-y-2">
           <!-- Log header with export/clear -->
           <div class="flex items-center justify-between">
@@ -207,7 +381,15 @@
                   <span class="text-[10px] text-gray-400">{{ formatTs(log.timestamp) }}</span>
                 </div>
               </div>
-              <div class="mt-1 flex items-center gap-3 text-[10px]" :class="logMetaClass(log)">
+              <div class="mt-1 flex items-center flex-wrap gap-1.5 text-[10px]" :class="logMetaClass(log)">
+                <span v-if="log.operation" class="inline-flex items-center px-1.5 py-0.5 rounded font-bold uppercase tracking-wide shrink-0"
+                  :class="{
+                    'bg-sky-100 text-sky-700':    log.operation === 'create',
+                    'bg-amber-100 text-amber-700': log.operation === 'update',
+                    'bg-red-100 text-red-600':    log.operation === 'delete',
+                  }"
+                >{{ log.operation }}</span>
+                <span v-if="log.method" class="inline-flex items-center px-1.5 py-0.5 rounded font-bold uppercase tracking-wide bg-gray-100 text-gray-600 shrink-0">{{ log.method }}</span>
                 <span v-if="log.collection && (!log.endpoint || !log.endpoint.includes(log.collection))">{{ log.collection }}</span>
                 <span v-if="log.recordCount != null">{{ log.recordCount }} rec</span>
                 <span v-if="log.durationMs != null">{{ log.durationMs }}ms</span>
@@ -306,9 +488,11 @@ import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import {
   Activity, X, ArrowUpCircle, ArrowDownCircle, RefreshCw,
   FileDown, Trash2, Search, Copy, ClipboardList,
+  Upload, Download, CheckCircle, WifiOff, XCircle, LoaderCircle, Clock,
 } from 'lucide-vue-next';
 import { useDirectusSync } from '../../composables/useDirectusSync.js';
 import { getSyncLogs, clearSyncLogs, exportSyncLogs, _BC_CHANNEL, _TAB_ID, SYNC_LOGS_MAX_SUCCESS, SYNC_LOGS_MAX_ERRORS } from '../../store/persistence/syncLogs.js';
+import { getPendingEntries, getFailedSyncCalls } from '../../composables/useSyncQueue.js';
 
 const props = defineProps({
   modelValue: Boolean,
@@ -345,6 +529,19 @@ const searchText   = ref('');
 const copyRequestLabel  = ref('Copia');
 const copyResponseLabel = ref('Copia');
 const copyBlockLabel    = ref('Blocco');
+
+// Push / Pull state
+const pendingQueueCount = ref(0);
+const queueEntries = ref([]);
+const failedCalls = ref([]);
+const pushing = ref(false);
+const pulling = ref(false);
+const pushFeedback = ref(null); // null | 'success' | 'offline' | 'error' | 'skipped'
+const pullFeedback = ref(null); // null | 'success' | 'offline' | 'error'
+let _pushFeedbackTimer = null;
+let _pullFeedbackTimer = null;
+let _queuePollTimer = null;
+let _loadQueueDataInFlight = false;
 
 // ── Computed ─────────────────────────────────────────────────────────────────
 
@@ -401,6 +598,26 @@ function formatJSON(value) {
     return JSON.stringify(value, null, 2);
   } catch {
     return String(value);
+  }
+}
+
+function formatFailedCall(call) {
+  try {
+    return JSON.stringify({
+      failed_at: call.failed_at,
+      queue_entry_id: call.queue_entry_id,
+      collection: call.collection,
+      operation: call.operation,
+      record_id: call.record_id,
+      attempts: call.attempts,
+      abandoned: call.abandoned,
+      error_message: call.error_message,
+      request: call.request,
+      response: call.response,
+      payload: call.payload,
+    }, null, 2);
+  } catch {
+    return '(impossibile serializzare i dettagli)';
   }
 }
 
@@ -468,6 +685,25 @@ async function loadLogs() {
   logs.value = await getSyncLogs(SYNC_LOGS_UI_FETCH_LIMIT);
 }
 
+async function _loadQueueData() {
+  if (_loadQueueDataInFlight) return;
+  _loadQueueDataInFlight = true;
+  try {
+    const entries = await getPendingEntries();
+    pendingQueueCount.value = entries.length;
+    queueEntries.value = entries;
+  } catch {
+    pendingQueueCount.value = 0;
+    queueEntries.value = [];
+  }
+  try {
+    failedCalls.value = await getFailedSyncCalls();
+  } catch {
+    failedCalls.value = [];
+  }
+  _loadQueueDataInFlight = false;
+}
+
 function selectLog(log) {
   selectedLog.value = selectedLog.value?.id === log.id ? null : log;
 }
@@ -492,6 +728,55 @@ async function exportSession() {
   setTimeout(() => {
     URL.revokeObjectURL(url);
   }, 1000);
+}
+
+async function handleForcePush() {
+  if (pushing.value || pulling.value) return;
+  pushing.value = true;
+  pushFeedback.value = null;
+  clearTimeout(_pushFeedbackTimer);
+  try {
+    const result = await sync.forcePush();
+    if (result?.offline) {
+      pushFeedback.value = 'offline';
+    } else if (result?.failed > 0) {
+      pushFeedback.value = 'error';
+    } else if (result?.skippedReason) {
+      pushFeedback.value = 'skipped';
+    } else {
+      pushFeedback.value = 'success';
+    }
+  } catch {
+    pushFeedback.value = 'error';
+  } finally {
+    pushing.value = false;
+    await _loadQueueData();
+    _pushFeedbackTimer = setTimeout(() => { pushFeedback.value = null; }, 3000);
+  }
+}
+
+async function handleForcePull() {
+  if (pushing.value || pulling.value) return;
+  pulling.value = true;
+  pullFeedback.value = null;
+  clearTimeout(_pullFeedbackTimer);
+  try {
+    // Best-effort config refresh first (venues, menu, etc.) — don't abort the operational pull on failure.
+    try { await sync.reconfigureAndApply({ clearLocalConfig: false }); } catch (e) { console.debug('[SyncMonitor] Config refresh failed:', e); }
+    const pullResult = await sync.forcePull();
+    if (pullResult?.ok) {
+      pullFeedback.value = 'success';
+    } else if (pullResult?.skippedReason === 'offline') {
+      pullFeedback.value = 'offline';
+    } else {
+      pullFeedback.value = 'error';
+    }
+  } catch {
+    pullFeedback.value = 'error';
+  } finally {
+    pulling.value = false;
+    _pullFeedbackTimer = setTimeout(() => { pullFeedback.value = null; }, 3000);
+  }
 }
 
 async function _copyToClipboard(text, labelRef, resetLabel) {
@@ -529,6 +814,7 @@ function copyTechBlock() {
     `ID:         ${log.id ?? '—'}`,
     `Timestamp:  ${log.timestamp ?? '—'}`,
     `Direction:  ${log.direction ?? '—'}  Type: ${log.type ?? '—'}`,
+    `Operazione: ${log.operation ?? '—'}  Metodo: ${log.method ?? '—'}`,
     `Endpoint:   ${log.endpoint ?? '—'}`,
     `Collection: ${log.collection ?? '—'}`,
     `Status:     ${log.status ?? '—'}${statusSuffix}`,
@@ -575,12 +861,17 @@ function _closeBC() {
 function _onLogsChanged() { loadLogs(); }
 function _onOnline()  { isOnline.value = true; }
 function _onOffline() { isOnline.value = false; }
+function _onQueueEnqueue() { _loadQueueData(); }
 
 function _attach() {
   loadLogs();
+  _loadQueueData();
   _initBC();
+  // Poll queue count every 5 seconds while the modal is open so the badge stays fresh.
+  _queuePollTimer = setInterval(_loadQueueData, 5_000);
   if (typeof window !== 'undefined') {
     window.addEventListener('sync-logs:changed', _onLogsChanged);
+    window.addEventListener('sync-queue:enqueue', _onQueueEnqueue);
     window.addEventListener('online',  _onOnline);
     window.addEventListener('offline', _onOffline);
   }
@@ -588,8 +879,13 @@ function _attach() {
 
 function _detach() {
   _closeBC();
+  clearInterval(_queuePollTimer);
+  _queuePollTimer = null;
+  clearTimeout(_pushFeedbackTimer);
+  clearTimeout(_pullFeedbackTimer);
   if (typeof window !== 'undefined') {
     window.removeEventListener('sync-logs:changed', _onLogsChanged);
+    window.removeEventListener('sync-queue:enqueue', _onQueueEnqueue);
     window.removeEventListener('online',  _onOnline);
     window.removeEventListener('offline', _onOffline);
   }

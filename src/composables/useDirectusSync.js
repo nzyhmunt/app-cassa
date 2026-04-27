@@ -576,8 +576,26 @@ async function _startSubscriptions(collections) {
         } catch (e) {
           console.warn(`[DirectusSync] Subscription ${collection} closed:`, e?.message ?? e);
           _wsConnected.value = false;
-          // Restart polling fallback if the subscription broke unexpectedly
-          if (_running && !_pollTimer) {
+          if (!_running) return;
+          // If wsEnabled is still on, schedule a reconnect attempt.
+          // Otherwise fall back to polling.
+          if (appConfig.directus?.wsEnabled === true) {
+            // Use a single shared timer so that concurrent subscription errors for
+            // multiple collections don't queue overlapping _reconnectWs() calls.
+            if (!_reconnectTimer) {
+              _reconnectTimer = setTimeout(() => {
+                _reconnectTimer = null;
+                if (!_running) return;
+                if (!_wsConnected.value && appConfig.directus?.wsEnabled === true) {
+                  _reconnectWs().catch(() => {});
+                } else if (!_pollTimer && appConfig.directus?.wsEnabled !== true) {
+                  // wsEnabled was turned off while reconnect was pending — fall back to polling.
+                  const pullCfg = PULL_CONFIG[_appType] ?? PULL_CONFIG.cassa;
+                  _pollTimer = setInterval(() => _runPull().catch(() => {}), pullCfg.intervalMs);
+                }
+              }, 5_000);
+            }
+          } else if (!_pollTimer) {
             const pullCfg = PULL_CONFIG[_appType] ?? PULL_CONFIG.cassa;
             _pollTimer = setInterval(() => _runPull().catch(() => {}), pullCfg.intervalMs);
           }
@@ -613,10 +631,14 @@ let _pushTimer = null;
 let _pollTimer = null;
 let _globalTimer = null;
 let _pushInFlight = null;
+/** Single debounced timer for WS reconnect — prevents overlapping reconnect attempts. */
+let _reconnectTimer = null;
 /** @type {object|null} */
 let _store = null;
 /** @type {'cassa'|'sala'|'cucina'} */
 let _appType = 'cassa';
+/** Collections currently subscribed via WebSocket (populated on startSync). */
+let _wsCollections = [];
 /**
  * Monotonically increasing counter incremented by each `_runGlobalPull` call
  * that proceeds past the online/config early-exit checks.  Each such invocation
@@ -713,9 +735,22 @@ async function _runPush() {
   if (_pushInFlight) return _pushInFlight;
   _pushInFlight = (async () => {
     try {
-      if (!navigator.onLine) return;
+      if (!navigator.onLine) {
+        syncStatus.value = 'offline';
+        return { pushed: 0, failed: 0, abandoned: 0, pushedIds: [], offline: true };
+      }
       const cfg = _getCfg();
-      if (!cfg) return;
+      if (!cfg) {
+        syncStatus.value = 'idle';
+        return {
+          pushed: 0,
+          failed: 0,
+          abandoned: 0,
+          pushedIds: [],
+          offline: false,
+          skippedReason: 'no-config',
+        };
+      }
       syncStatus.value = 'syncing';
       const result = await drainQueue(cfg);
       if (result.pushed > 0 || result.abandoned > 0) {
@@ -728,9 +763,11 @@ async function _runPush() {
       syncStatus.value = result.offline
         ? 'offline'
         : result.failed > 0 ? 'error' : 'idle';
+      return result;
     } catch (e) {
       console.warn('[DirectusSync] Push error:', e);
       syncStatus.value = 'error';
+      return { pushed: 0, failed: 0, abandoned: 0, pushedIds: [], offline: false };
     } finally {
       _pushInFlight = null;
     }
@@ -1309,9 +1346,59 @@ async function _runGlobalPull({ onProgress = null } = {}) {
 
 // ── Online/offline listener ───────────────────────────────────────────────────
 
+/**
+ * Attempts to restore WebSocket subscriptions after a connection loss.
+ * Cleans up any stale subscriptions/poll timer first, then calls
+ * `_startSubscriptions`.  If that fails, re-enables the polling fallback.
+ */
+async function _reconnectWs() {
+  if (!_running || _wsConnected.value) return;
+  if (appConfig.directus?.wsEnabled !== true) return;
+
+  // Recompute the collection list from the current config so that changes to
+  // appConfig.menuSource (json ↔ directus) or _appType are picked up at
+  // reconnect time rather than using the potentially-stale list captured at
+  // startSync() time.
+  const pullCfg = PULL_CONFIG[_appType] ?? PULL_CONFIG.cassa;
+  const menuSource = appConfig.menuSource ?? 'directus';
+  const wsCollections = menuSource === 'json'
+    ? pullCfg.collections.filter(c => c !== 'menu_items')
+    : pullCfg.collections;
+  _wsCollections = wsCollections;
+
+  if (_wsCollections.length === 0) return;
+
+  // Cancel any pending debounced reconnect timer — this call IS the reconnect.
+  if (_reconnectTimer) { clearTimeout(_reconnectTimer); _reconnectTimer = null; }
+
+  console.info('[DirectusSync] Attempting WebSocket reconnect…');
+
+  // Stop polling before trying WS — avoids duplicate pulls during reconnect.
+  if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
+
+  // Clean up stale subscriptions/connection before reconnecting.
+  _stopSubscriptions();
+
+  const subscribed = await _startSubscriptions(_wsCollections);
+  if (!subscribed) {
+    // Reconnect failed — restart polling fallback.
+    const pullCfg = PULL_CONFIG[_appType] ?? PULL_CONFIG.cassa;
+    if (!_pollTimer) {
+      _pollTimer = setInterval(() => _runPull().catch(() => {}), pullCfg.intervalMs);
+    }
+  } else {
+    // WS is back — do an immediate pull to catch up on missed updates.
+    _runPull().catch(() => {});
+  }
+}
+
 function _onOnline() {
   _runPush().catch(() => {});
   _runPull().catch(() => {});
+  // If WebSocket was enabled but is currently disconnected, attempt to reconnect.
+  if (appConfig.directus?.wsEnabled === true && !_wsConnected.value && _running) {
+    _reconnectWs().catch(() => {});
+  }
 }
 
 function _onQueueEnqueue() {
@@ -1364,6 +1451,9 @@ export function useDirectusSync() {
     const wsCollections = menuSource === 'json'
       ? pullCfg.collections.filter(c => c !== 'menu_items')
       : pullCfg.collections;
+    // Persist the last computed collection list at module level; reconnect logic
+    // recomputes the effective list from the current appConfig when reconnecting.
+    _wsCollections = wsCollections;
 
     if (wsEnabled) {
       // Try WebSocket subscriptions; fall back to polling if connect fails
@@ -1393,6 +1483,7 @@ export function useDirectusSync() {
     if (_pushTimer) { clearInterval(_pushTimer); _pushTimer = null; }
     if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
     if (_globalTimer) { clearInterval(_globalTimer); _globalTimer = null; }
+    if (_reconnectTimer) { clearTimeout(_reconnectTimer); _reconnectTimer = null; }
     _stopSubscriptions();
     if (typeof window !== 'undefined') {
       window.removeEventListener('online', _onOnline);
@@ -1401,9 +1492,20 @@ export function useDirectusSync() {
     syncStatus.value = 'idle';
   }
 
+  /**
+   * Manually triggers a full push drain of the sync queue.
+   * @returns {Promise<{
+   *   pushed: number,
+   *   failed: number,
+   *   abandoned: number,
+   *   pushedIds: Array<{ collection: string, recordId: string }>,
+   *   offline: boolean,
+   *   skippedReason?: 'no-config' | 'disabled',
+   * }>}
+   */
   async function forcePush() {
-    if (!appConfig.directus?.enabled) return;
-    await _runPush();
+    if (!appConfig.directus?.enabled) return { pushed: 0, failed: 0, abandoned: 0, pushedIds: [], offline: false, skippedReason: 'disabled' };
+    return _runPush();
   }
 
   async function forcePull() {
@@ -1502,12 +1604,14 @@ export function _resetDirectusSyncSingleton() {
   _running = false;
   _store = null;
   _appType = 'cassa';
+  _wsCollections = [];
   _pushInFlight = null;
   _globalPullGeneration = 0;
   _lastAppliedGlobalPullGeneration = 0;
   if (_pushTimer) { clearInterval(_pushTimer); _pushTimer = null; }
   if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
   if (_globalTimer) { clearInterval(_globalTimer); _globalTimer = null; }
+  if (_reconnectTimer) { clearTimeout(_reconnectTimer); _reconnectTimer = null; }
   _stopSubscriptions();
   _recentlyPushed.clear();
   if (typeof window !== 'undefined') {
