@@ -455,14 +455,15 @@ export function makeTableOps(state, helpers) {
     }
 
     // Enqueue order/transaction changes when state was successfully persisted.
-    // Bill-session enqueues (including the auto-created target session) are gated
-    // on their own persistence succeeding.
+    // The auto-created target session is persisted earlier by openTableSession(..., { enqueueSync:false }),
+    // so its create enqueue must not be suppressed by unrelated bill-session patch persistence failures.
     if (stateSavedToIDB) {
       _enqueueChangedOrders(previousOrders, nextOrders);
       _enqueueChangedTransactions(previousTransactions, nextTransactions);
-    }
-    if (billSessionsSavedToIDB) {
       if (createdTargetSession) enqueueBillSessionCreate(createdTargetSession);
+    }
+    // Bill-session patch enqueues remain gated on their own persistence succeeding.
+    if (billSessionsSavedToIDB) {
       billSessionPatches.forEach(({ billSessionId, payload }) => enqueueBillSessionUpdate(billSessionId, payload));
     }
   }
