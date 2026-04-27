@@ -130,6 +130,7 @@
           >
             <CheckCircle v-if="pushFeedback === 'success'" class="size-3 shrink-0" />
             <WifiOff v-else-if="pushFeedback === 'offline'" class="size-3 shrink-0" />
+            <WifiOff v-else-if="pushFeedback === 'skipped'" class="size-3 shrink-0" />
             <XCircle v-else class="size-3 shrink-0" />
             <span>{{
               pushFeedback === 'success' ? 'Push completato.' :
