@@ -462,10 +462,10 @@ function logTypeBadgeClass(log) {
 
 // ── Actions ───────────────────────────────────────────────────────────────────
 
-const MAX_SYNC_LOGS = SYNC_LOGS_MAX_SUCCESS + SYNC_LOGS_MAX_ERRORS; // 300 — derived from retention caps
+const SYNC_LOGS_UI_FETCH_LIMIT = SYNC_LOGS_MAX_SUCCESS + SYNC_LOGS_MAX_ERRORS; // UI fetch/display cap; not a bound on retained logs
 
 async function loadLogs() {
-  logs.value = await getSyncLogs(MAX_SYNC_LOGS);
+  logs.value = await getSyncLogs(SYNC_LOGS_UI_FETCH_LIMIT);
 }
 
 function selectLog(log) {
