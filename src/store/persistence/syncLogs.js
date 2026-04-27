@@ -231,6 +231,7 @@ export async function exportSyncLogs() {
       results.push(cursor.value);
       cursor = await cursor.continue();
     }
+    await tx.done;
     return results;
   } catch (e) {
     console.warn('[SyncLogs] Failed to export sync logs:', e);
