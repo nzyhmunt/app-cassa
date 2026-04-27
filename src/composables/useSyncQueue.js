@@ -628,7 +628,7 @@ function _logPushResult(entry, result, durationMs) {
       direction: 'OUT',
       type: 'PUSH',
       endpoint: successResult?.requestContext?.endpoint ?? _entryEndpoint(entry),
-      payload: entry.payload ?? null,
+      payload: successResult?.requestContext?.body ?? entry.payload ?? null,
       response: successResult?.record ?? null,
       status: 'success',
       statusCode: null,
