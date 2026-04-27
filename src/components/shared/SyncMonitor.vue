@@ -669,7 +669,7 @@ function copyTechBlock() {
     `ID:         ${log.id ?? '—'}`,
     `Timestamp:  ${log.timestamp ?? '—'}`,
     `Direction:  ${log.direction ?? '—'}  Type: ${log.type ?? '—'}`,
-    `Operation:  ${log.operation ?? '—'}  Method: ${log.method ?? '—'}`,
+    `Operazione: ${log.operation ?? '—'}  Metodo: ${log.method ?? '—'}`,
     `Endpoint:   ${log.endpoint ?? '—'}`,
     `Collection: ${log.collection ?? '—'}`,
     `Status:     ${log.status ?? '—'}${statusSuffix}`,
@@ -722,7 +722,7 @@ function _attach() {
   loadLogs();
   _loadPendingQueueCount();
   _initBC();
-  // Poll queue count every 5 s while the modal is open so the badge stays fresh.
+  // Poll queue count every 5 seconds while the modal is open so the badge stays fresh.
   _queuePollTimer = setInterval(_loadPendingQueueCount, 5_000);
   if (typeof window !== 'undefined') {
     window.addEventListener('sync-logs:changed', _onLogsChanged);
