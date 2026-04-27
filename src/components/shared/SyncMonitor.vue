@@ -308,7 +308,7 @@ import {
   FileDown, Trash2, Search, Copy, ClipboardList,
 } from 'lucide-vue-next';
 import { useDirectusSync } from '../../composables/useDirectusSync.js';
-import { getSyncLogs, clearSyncLogs, exportSyncLogs, _BC_CHANNEL } from '../../store/persistence/syncLogs.js';
+import { getSyncLogs, clearSyncLogs, exportSyncLogs, _BC_CHANNEL, _TAB_ID } from '../../store/persistence/syncLogs.js';
 
 const props = defineProps({
   modelValue: Boolean,
@@ -552,7 +552,10 @@ function _initBC() {
   try {
     _bc = new BroadcastChannel(_BC_CHANNEL);
     _bc.onmessage = (e) => {
-      if (e.data?.type === 'changed') loadLogs();
+      // Ignore messages originating from this tab — same-tab updates are already
+      // handled by the 'sync-logs:changed' CustomEvent on window, so acting on
+      // both would cause duplicate loadLogs() / IDB reads per write.
+      if (e.data?.type === 'changed' && e.data?.sourceId !== _TAB_ID) loadLogs();
     };
   } catch (e) {
     console.warn('[SyncMonitor] BroadcastChannel init failed — cross-tab sync unavailable:', e);

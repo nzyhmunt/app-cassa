@@ -42,9 +42,18 @@ export const SYNC_LOGS_ERROR_RETENTION_MS = 48 * 60 * 60 * 1000;
 const BC_CHANNEL = 'sync-logs';
 
 /**
+ * A stable per-tab identifier included in BroadcastChannel messages so that
+ * SyncMonitor can filter out notifications that originated in the same tab
+ * (same-tab updates are already covered by the CustomEvent on `window`).
+ */
+export const _TAB_ID = Math.random().toString(36).slice(2);
+
+/**
  * Notifies all listeners:
  *  - Same-tab via CustomEvent for zero-latency updates.
  *  - Other tabs via BroadcastChannel so all open monitor instances stay in sync.
+ *    The message carries `sourceId` so receivers can ignore cross-tab delivery
+ *    of a notification that the same tab already handled via the CustomEvent.
  *
  * A new channel is created and immediately closed on each notification to avoid
  * holding an open port when the monitor modal is not visible.
@@ -56,7 +65,7 @@ function _notifyChange() {
   if (typeof BroadcastChannel !== 'undefined') {
     try {
       const bc = new BroadcastChannel(BC_CHANNEL);
-      bc.postMessage({ type: 'changed' });
+      bc.postMessage({ type: 'changed', sourceId: _TAB_ID });
       bc.close();
     } catch { /* silently ignore in environments without BC support */ }
   }
@@ -192,6 +201,9 @@ export async function addSyncLog(entry) {
  * @returns {Promise<Array>}
  */
 export async function getSyncLogs(limit) {
+  // A limit of 0 (or negative) means "return nothing" — short-circuit before
+  // opening any IDB transaction so callers can safely pass computed values.
+  if (Number.isFinite(limit) && limit <= 0) return [];
   try {
     const db = await getDB();
     const tx = db.transaction('sync_logs', 'readonly');
