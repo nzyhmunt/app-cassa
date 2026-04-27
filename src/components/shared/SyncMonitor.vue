@@ -881,7 +881,6 @@ function _detach() {
   _closeBC();
   clearInterval(_queuePollTimer);
   _queuePollTimer = null;
-  _loadQueueDataInFlight = false;
   clearTimeout(_pushFeedbackTimer);
   clearTimeout(_pullFeedbackTimer);
   if (typeof window !== 'undefined') {
