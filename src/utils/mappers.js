@@ -901,6 +901,9 @@ export function mapTransactionToDirectus(record) {
 /**
  * Maps a local print log entry to Directus `print_jobs` field names.
  *
+ * The Directus PK is now the standard `id` field (UUID v7, no prefix).
+ * `logId` is mapped to `log_id` (a regular display/reference field).
+ *
  * The `timestamp` field is stripped by `_PUSH_DROP_FIELDS` before this mapper
  * runs, so the original (unstripped) payload is passed as `originalRecord` to
  * allow it to be mapped to the Directus `job_timestamp` column.
@@ -914,7 +917,7 @@ export function mapPrintJobToDirectus(record, originalRecord) {
   const original = originalRecord ?? {};
   const out = { ...source };
 
-  // logId → log_id (primary key)
+  // logId → log_id (regular display/reference field — not the PK)
   if (Object.prototype.hasOwnProperty.call(source, 'logId')) {
     if (!Object.prototype.hasOwnProperty.call(out, 'log_id')) out.log_id = source.logId;
     delete out.logId;

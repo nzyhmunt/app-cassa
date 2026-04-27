@@ -23,7 +23,8 @@
  * Every dispatched job is appended to store.printLog for the print-history view.
  *
  * Print-job log entry common fields (stored in store.printLog):
- *   logId      string  – unique log entry identifier (plog_<uuid>)
+ *   id         string  – UUID v7 (Directus PK; standard UUID, no prefix)
+ *   logId      string  – unique log entry identifier (plog_<uuid>; IDB keyPath)
  *   jobId      string  – unique job identifier sent to the printer (job_<uuid>)
  *   printType  string  – 'order' | 'table_move' | 'pre_bill' | (any future type)
  *   printerId  string  – printer id from config
@@ -239,6 +240,7 @@ export function enqueuePrintJobs(order) {
     const logId = newUUIDv7('plog');
     logJob(store, {
       logId,
+      id: newUUIDv7(),
       jobId: job.jobId,
       printerId,
       printerName: printer.name ?? printer.id ?? 'Stampante',
@@ -286,6 +288,7 @@ export function enqueueTableMoveJob(fromTableId, fromTableLabel, toTableId, toTa
     const logId = newUUIDv7('plog');
     logJob(store, {
       logId,
+      id: newUUIDv7(),
       jobId: job.jobId,
       printerId,
       printerName: printer.name ?? printer.id ?? 'Stampante',
@@ -328,6 +331,7 @@ export function enqueuePreBillJob(payload, printerUrl, printerName, printerIdOve
   const logId = newUUIDv7('plog');
   logJob(store, {
     logId,
+    id: newUUIDv7(),
     jobId: job.jobId,
     printerId,
     printerName: printerName ?? printer?.name ?? 'Stampante',
@@ -386,6 +390,7 @@ export function reprintJob(logEntry, overrideUrl = null) {
   const logId = newUUIDv7('plog');
   logJob(store, {
     logId,
+    id: newUUIDv7(),
     jobId: job.jobId,
     printerId,
     printerName,

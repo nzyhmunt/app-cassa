@@ -264,9 +264,10 @@ export function getDB() {
         }
       }
 
-      // print_jobs: IDB audit store pushed to Directus via sync_queue.
-      // keyPath is `logId` (client-generated); the Directus PK is `log_id` (mapped by
-      // mapPrintJobToDirectus). The store is NOT in PULL_CONFIG — push-only.
+      // print_jobs: IDB audit store pushed to Directus via sync_queue (push-only, not in PULL_CONFIG).
+      // keyPath is `logId` (plog_<uuid>, client-generated display identifier).
+      // Directus PK is the standard `id` field (UUID v7, no prefix), generated alongside logId
+      // in usePrintQueue.js and used as record_id for enqueue.
       if (!db.objectStoreNames.contains('print_jobs')) {
         const s = db.createObjectStore('print_jobs', { keyPath: 'logId' });
         s.createIndex('status', 'status', { unique: false });

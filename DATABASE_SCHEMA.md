@@ -801,10 +801,11 @@ CREATE TYPE print_job_status AS ENUM ('pending', 'printing', 'done', 'error');
 
 CREATE TABLE print_jobs (
     -- Identificatori
-    log_id          VARCHAR(40)     PRIMARY KEY,            -- plog_<uuid> — chiave del log entry
+    id              UUID            PRIMARY KEY,            -- UUID v7 standard (Directus PK)
+    log_id          VARCHAR(40)     NULL,                   -- plog_<uuid> — identificatore locale del log entry (IDB keyPath)
     job_id          VARCHAR(40)     NOT NULL,               -- job_<uuid>  — inviato nella richiesta al servizio ESC/POS
-    printer         VARCHAR(40)     NOT NULL REFERENCES printers(id) ON DELETE RESTRICT,
-    venue           INTEGER         NOT NULL REFERENCES venues(id) ON DELETE CASCADE,
+    printer         VARCHAR(40)     NULL REFERENCES printers(id) ON DELETE SET NULL,
+    venue           INTEGER         NULL REFERENCES venues(id) ON DELETE SET NULL,
 
     -- Tipo di stampa (estensibile: aggiungere nuovi valori senza modificare lo schema)
     -- Valori correnti: 'order', 'table_move', 'pre_bill'

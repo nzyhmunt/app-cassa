@@ -51,14 +51,14 @@ export const useOrderStore = defineStore('orders', () => {
 
   function addPrintLogEntry(entry) {
     printLog.value = [{ status: 'pending', ...entry }, ...printLog.value].slice(0, 200);
-    enqueue('print_jobs', 'create', entry.logId, entry);
+    enqueue('print_jobs', 'create', entry.id, entry);
   }
 
   function updatePrintLogEntry(logId, updates) {
     const idx = printLog.value.findIndex(e => e.logId === logId);
     if (idx !== -1) {
       printLog.value[idx] = { ...printLog.value[idx], ...updates };
-      enqueue('print_jobs', 'update', logId, { logId, ...updates });
+      enqueue('print_jobs', 'update', printLog.value[idx].id, { logId, ...updates });
     }
   }
 
