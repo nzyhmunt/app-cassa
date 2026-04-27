@@ -580,11 +580,16 @@ async function _startSubscriptions(collections) {
           // If wsEnabled is still on, schedule a reconnect attempt.
           // Otherwise fall back to polling.
           if (appConfig.directus?.wsEnabled === true) {
-            setTimeout(() => {
-              if (_running && !_wsConnected.value && appConfig.directus?.wsEnabled === true) {
-                _reconnectWs().catch(() => {});
-              }
-            }, 5_000);
+            // Use a single shared timer so that concurrent subscription errors for
+            // multiple collections don't queue overlapping _reconnectWs() calls.
+            if (!_reconnectTimer) {
+              _reconnectTimer = setTimeout(() => {
+                _reconnectTimer = null;
+                if (_running && !_wsConnected.value && appConfig.directus?.wsEnabled === true) {
+                  _reconnectWs().catch(() => {});
+                }
+              }, 5_000);
+            }
           } else if (!_pollTimer) {
             const pullCfg = PULL_CONFIG[_appType] ?? PULL_CONFIG.cassa;
             _pollTimer = setInterval(() => _runPull().catch(() => {}), pullCfg.intervalMs);
@@ -621,6 +626,8 @@ let _pushTimer = null;
 let _pollTimer = null;
 let _globalTimer = null;
 let _pushInFlight = null;
+/** Single debounced timer for WS reconnect — prevents overlapping reconnect attempts. */
+let _reconnectTimer = null;
 /** @type {object|null} */
 let _store = null;
 /** @type {'cassa'|'sala'|'cucina'} */
@@ -1336,6 +1343,9 @@ async function _reconnectWs() {
   if (appConfig.directus?.wsEnabled !== true) return;
   if (_wsCollections.length === 0) return;
 
+  // Cancel any pending debounced reconnect timer — this call IS the reconnect.
+  if (_reconnectTimer) { clearTimeout(_reconnectTimer); _reconnectTimer = null; }
+
   console.info('[DirectusSync] Attempting WebSocket reconnect…');
 
   // Stop polling before trying WS — avoids duplicate pulls during reconnect.
@@ -1447,6 +1457,7 @@ export function useDirectusSync() {
     if (_pushTimer) { clearInterval(_pushTimer); _pushTimer = null; }
     if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
     if (_globalTimer) { clearInterval(_globalTimer); _globalTimer = null; }
+    if (_reconnectTimer) { clearTimeout(_reconnectTimer); _reconnectTimer = null; }
     _stopSubscriptions();
     if (typeof window !== 'undefined') {
       window.removeEventListener('online', _onOnline);
@@ -1457,7 +1468,7 @@ export function useDirectusSync() {
 
   /**
    * Manually triggers a full push drain of the sync queue.
-   * @returns {Promise<{ pushed: number, failed: number, abandoned: number, pushedIds: string[], offline: boolean }>}
+   * @returns {Promise<{ pushed: number, failed: number, abandoned: number, pushedIds: Array<{ collection: string, recordId: string }>, offline: boolean }>}
    */
   async function forcePush() {
     if (!appConfig.directus?.enabled) return { pushed: 0, failed: 0, abandoned: 0, pushedIds: [], offline: false };
@@ -1567,6 +1578,7 @@ export function _resetDirectusSyncSingleton() {
   if (_pushTimer) { clearInterval(_pushTimer); _pushTimer = null; }
   if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
   if (_globalTimer) { clearInterval(_globalTimer); _globalTimer = null; }
+  if (_reconnectTimer) { clearTimeout(_reconnectTimer); _reconnectTimer = null; }
   _stopSubscriptions();
   _recentlyPushed.clear();
   if (typeof window !== 'undefined') {

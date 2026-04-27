@@ -539,6 +539,7 @@ const pullFeedback = ref(null); // null | 'success' | 'offline' | 'error'
 let _pushFeedbackTimer = null;
 let _pullFeedbackTimer = null;
 let _queuePollTimer = null;
+let _loadQueueDataInFlight = false;
 
 // ── Computed ─────────────────────────────────────────────────────────────────
 
@@ -683,6 +684,8 @@ async function loadLogs() {
 }
 
 async function _loadQueueData() {
+  if (_loadQueueDataInFlight) return;
+  _loadQueueDataInFlight = true;
   try {
     const entries = await getPendingEntries();
     pendingQueueCount.value = entries.length;
@@ -696,6 +699,7 @@ async function _loadQueueData() {
   } catch {
     failedCalls.value = [];
   }
+  _loadQueueDataInFlight = false;
 }
 
 function selectLog(log) {
@@ -873,6 +877,7 @@ function _detach() {
   _closeBC();
   clearInterval(_queuePollTimer);
   _queuePollTimer = null;
+  _loadQueueDataInFlight = false;
   clearTimeout(_pushFeedbackTimer);
   clearTimeout(_pullFeedbackTimer);
   if (typeof window !== 'undefined') {
