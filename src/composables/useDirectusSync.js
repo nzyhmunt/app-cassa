@@ -585,8 +585,13 @@ async function _startSubscriptions(collections) {
             if (!_reconnectTimer) {
               _reconnectTimer = setTimeout(() => {
                 _reconnectTimer = null;
-                if (_running && !_wsConnected.value && appConfig.directus?.wsEnabled === true) {
+                if (!_running) return;
+                if (!_wsConnected.value && appConfig.directus?.wsEnabled === true) {
                   _reconnectWs().catch(() => {});
+                } else if (!_pollTimer && appConfig.directus?.wsEnabled !== true) {
+                  // wsEnabled was turned off while reconnect was pending — fall back to polling.
+                  const pullCfg = PULL_CONFIG[_appType] ?? PULL_CONFIG.cassa;
+                  _pollTimer = setInterval(() => _runPull().catch(() => {}), pullCfg.intervalMs);
                 }
               }, 5_000);
             }

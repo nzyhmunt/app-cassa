@@ -417,8 +417,6 @@ function _buildRestClient(cfg) {
 /**
  * Pushes a single sync_queue entry to Directus using the official SDK.
  *
- * Pushes a single queue entry to Directus.
- *
  * Returns a success object when the entry was successfully sent (should be
  * removed from the queue), `'skip'` when the entry should be silently
  * discarded (no-op delete on a domain-status collection), or a failure object
