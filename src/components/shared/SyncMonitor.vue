@@ -308,7 +308,7 @@ import {
   FileDown, Trash2, Search, Copy, ClipboardList,
 } from 'lucide-vue-next';
 import { useDirectusSync } from '../../composables/useDirectusSync.js';
-import { getSyncLogs, clearSyncLogs, exportSyncLogs, _BC_CHANNEL, _TAB_ID } from '../../store/persistence/syncLogs.js';
+import { getSyncLogs, clearSyncLogs, exportSyncLogs, _BC_CHANNEL, _TAB_ID, SYNC_LOGS_MAX_SUCCESS, SYNC_LOGS_MAX_ERRORS } from '../../store/persistence/syncLogs.js';
 
 const props = defineProps({
   modelValue: Boolean,
@@ -462,7 +462,7 @@ function logTypeBadgeClass(log) {
 
 // ── Actions ───────────────────────────────────────────────────────────────────
 
-const MAX_SYNC_LOGS = 200;
+const MAX_SYNC_LOGS = SYNC_LOGS_MAX_SUCCESS + SYNC_LOGS_MAX_ERRORS; // 300 — derived from retention caps
 
 async function loadLogs() {
   logs.value = await getSyncLogs(MAX_SYNC_LOGS);

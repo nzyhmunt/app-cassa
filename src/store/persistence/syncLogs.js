@@ -74,6 +74,23 @@ function _notifyChange() {
 // ── Smart Retention ───────────────────────────────────────────────────────────
 
 /**
+ * Threshold above which `_purge` throttles the O(N) cursor scan to at most
+ * once every `_PURGE_THROTTLE_WRITES` writes.
+ *
+ * Below this value (which covers all test scenarios, max ~215 entries) purge
+ * still runs on every write so retention semantics are enforced immediately.
+ * Above it (e.g., during a prolonged outage that keeps accumulating errors)
+ * we trade a slight retention lag for greatly reduced per-write I/O cost.
+ */
+const _PURGE_LARGE_STORE_THRESHOLD = SYNC_LOGS_MAX_SUCCESS + SYNC_LOGS_MAX_ERRORS + 50; // 350
+
+/** Number of writes between purge scans when the store is above the threshold. */
+const _PURGE_THROTTLE_WRITES = 20;
+
+/** Monotonically increasing write counter used for throttle decisions. */
+let _purgeCallCount = 0;
+
+/**
  * Two-bucket purge applied after every write:
  *  1. Success bucket: delete oldest successes beyond SYNC_LOGS_MAX_SUCCESS.
  *  2. Error bucket:   delete error entries that are BOTH older than
@@ -82,18 +99,19 @@ function _notifyChange() {
  * @param {import('idb').IDBPDatabase} db
  */
 async function _purge(db) {
-  // Fast path: if total entries ≤ SYNC_LOGS_MAX_SUCCESS (100), neither bucket can
-  // be over its limit.  Specifically:
-  //  • Success bucket has at most 100 entries, which equals the cap — no eviction.
-  //  • Error bucket also has at most 100 entries, which is ≤ SYNC_LOGS_MAX_ERRORS
-  //    (200) — numeric cap not exceeded.  Time-window purge also fires only when
-  //    old errors sit outside the newest-200 window, which cannot happen when the
-  //    total error count is ≤ 100.
-  // Using SYNC_LOGS_MAX_SUCCESS (not the combined 300) keeps the threshold low
-  // enough that the retention tests still trigger the scan when needed, while
-  // avoiding the O(N) cursor traversal for any store with ≤ 100 records.
+  _purgeCallCount++;
+
+  // O(1) fast path: if total entries ≤ SYNC_LOGS_MAX_SUCCESS (100), neither
+  // bucket can be over its limit so no eviction is needed.
   const total = await db.count('sync_logs');
   if (total <= SYNC_LOGS_MAX_SUCCESS) return;
+
+  // Throttle: when the store has grown very large (e.g., during a prolonged
+  // outage), running an O(N) cursor scan on every single write is expensive.
+  // Below _PURGE_LARGE_STORE_THRESHOLD (350) we still purge on every write
+  // (covers all normal and test scenarios). Above it we limit scans to at most
+  // once every _PURGE_THROTTLE_WRITES writes.
+  if (total >= _PURGE_LARGE_STORE_THRESHOLD && _purgeCallCount % _PURGE_THROTTLE_WRITES !== 0) return;
 
   const tx = db.transaction('sync_logs', 'readwrite');
   const index = tx.store.index('timestamp');
