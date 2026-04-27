@@ -202,11 +202,14 @@ export function mapOrderItemFromDirectus(record) {
     voided_quantity: voidedQuantity,
     voidedQuantity,
     notes: Array.isArray(record.notes) ? record.notes : [],
-    modifiers: Array.isArray(record.modifiers)
-      ? record.modifiers.map(normalizeOrderItemModifier).filter(Boolean)
-      : Array.isArray(record.order_item_modifiers)
-        ? record.order_item_modifiers.map(normalizeOrderItemModifier).filter(Boolean)
-        : [],
+    modifiers: (() => {
+      const rawMods = Array.isArray(record.modifiers)
+        ? record.modifiers
+        : Array.isArray(record.order_item_modifiers)
+          ? record.order_item_modifiers
+          : [];
+      return rawMods.map(normalizeOrderItemModifier).filter(Boolean);
+    })(),
     kitchenReady: record.kitchen_ready ?? record.kitchenReady ?? false,
     venueUserCreated: relationId(record.venue_user_created ?? record.venueUserCreated ?? null),
     venueUserUpdated: relationId(record.venue_user_updated ?? record.venueUserUpdated ?? null),
