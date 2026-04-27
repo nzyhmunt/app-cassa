@@ -28,6 +28,9 @@ import {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+/** 50 hours in milliseconds — exceeds the 48 h error retention window. */
+const FIFTY_HOURS_MS = 50 * 60 * 60 * 1000;
+
 /** Minimal success entry */
 function makeSuccess(overrides = {}) {
   return {
@@ -103,12 +106,13 @@ describe('addSyncLog()', () => {
   });
 
   it('stamps a timestamp on the record', async () => {
-    const before = new Date().toISOString();
+    const before = Date.now();
     await addSyncLog(makeSuccess());
-    const after = new Date().toISOString();
+    const after = Date.now();
     const [log] = await getSyncLogs();
-    expect(log.timestamp >= before).toBe(true);
-    expect(log.timestamp <= after).toBe(true);
+    const ts = new Date(log.timestamp).getTime();
+    expect(ts).toBeGreaterThanOrEqual(before);
+    expect(ts).toBeLessThanOrEqual(after);
   });
 
   it('fires the sync-logs:changed CustomEvent after write', async () => {
@@ -245,7 +249,7 @@ describe('Smart Retention — error bucket (numeric cap)', () => {
     // Add SYNC_LOGS_MAX_ERRORS + 5 errors with a stale timestamp (50 h ago).
     // Only fake `Date` so IDB async operations are not affected.
     vi.useFakeTimers({ toFake: ['Date'] });
-    vi.setSystemTime(Date.now() - 50 * 60 * 60 * 1000);
+    vi.setSystemTime(Date.now() - FIFTY_HOURS_MS);
     await addErrors(SYNC_LOGS_MAX_ERRORS + 5);
     vi.useRealTimers();
     // Add one current entry to trigger purge with a cutoff that classifies the
@@ -260,7 +264,7 @@ describe('Smart Retention — error bucket (numeric cap)', () => {
   it('retains the NEWEST errors when count cap is enforced', async () => {
     // Add 5 stale errors (only fake `Date` to keep IDB async working)
     vi.useFakeTimers({ toFake: ['Date'] });
-    vi.setSystemTime(Date.now() - 50 * 60 * 60 * 1000);
+    vi.setSystemTime(Date.now() - FIFTY_HOURS_MS);
     for (let i = 0; i < 5; i++) {
       await addSyncLog(makeError({ endpoint: `/items/old_${i}` }));
     }
@@ -299,7 +303,7 @@ describe('Smart Retention — error bucket (time window)', () => {
     // Add SYNC_LOGS_MAX_ERRORS + 5 errors with a stale timestamp (50 h ago).
     // Only fake `Date` to avoid blocking IDB Promise chains.
     vi.useFakeTimers({ toFake: ['Date'] });
-    vi.setSystemTime(Date.now() - 50 * 60 * 60 * 1000);
+    vi.setSystemTime(Date.now() - FIFTY_HOURS_MS);
     for (let i = 0; i < SYNC_LOGS_MAX_ERRORS + 5; i++) {
       await addSyncLog(makeError({ endpoint: `/items/old_e_${i}` }));
     }

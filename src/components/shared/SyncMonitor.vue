@@ -299,7 +299,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onUnmounted } from 'vue';
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import {
   Activity, X, ArrowUpCircle, ArrowDownCircle, RefreshCw,
   FileDown, Trash2, Search, Copy, ClipboardList,
@@ -583,6 +583,8 @@ function _detach() {
 // Only open the channel and register listeners while the modal is visible.
 // This avoids a permanently-open BroadcastChannel and loadLogs() calls
 // while the modal is hidden but the component is still mounted.
+// The watcher handles transitions after mount; onMounted handles the initial
+// open state so listeners are never registered before the component is ready.
 watch(
   () => props.modelValue,
   (open) => {
@@ -593,8 +595,12 @@ watch(
       selectedLog.value = null;
     }
   },
-  { immediate: true },
 );
+
+onMounted(() => {
+  // Handle the initial open state (if the modal is open when first mounted).
+  if (props.modelValue) _attach();
+});
 
 onUnmounted(() => {
   _detach();
