@@ -568,8 +568,6 @@ async function _pushEntry(entry, sdkClient, cfg) {
       const updated = await sdkClient.request(updateItem(collection, record_id, directusPayload));
       return { ok: true, record: updated ?? null, method: 'PATCH', requestContext };
     }
-
-    return true;
   } catch (e) {
     // Extract a human-readable message from the error:
     //  - e.errors[0].message   — Directus SDK top-level GraphQL/REST error array
