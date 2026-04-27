@@ -34,7 +34,7 @@ export function cloneValue(value) {
 
 /**
  * Generates a short, prefixed identifier suitable for local-only fields that are
- * NOT primary keys in Directus (e.g. order_items.uid, logId, jobId).
+ * NOT primary keys in Directus (e.g. order_items.uid, logId).
  *
  * Result is at most 20 characters when `prefix` is ≤ 4 characters:
  *   prefix (≤ 4 chars) + '_' + timestamp in base-36 (~9 chars) + '_' + 4 random base-36 chars ≤ 19

@@ -146,7 +146,7 @@ function buildJobFilter() {
 }
 
 /** Campi da richiedere per ogni job. */
-const JOB_FIELDS = ['log_id', 'job_id', 'printer', 'print_type', 'payload', 'status', 'venue'];
+const JOB_FIELDS = ['id', 'printer', 'print_type', 'payload', 'status', 'venue'];
 
 // ── Stampanti da Directus ─────────────────────────────────────────────────────
 
@@ -319,10 +319,10 @@ function createWsClient(url, token) {
 // ── Deduplicazione in-process ─────────────────────────────────────────────────
 
 /**
- * Set dei `log_id` attualmente in elaborazione in questo processo.
+ * Set degli `id` (PK UUID) attualmente in elaborazione in questo processo.
  *
  * Previene la doppia stampa quando WebSocket e REST polling ricevono lo stesso
- * job quasi contemporaneamente: il secondo chiamante trova il log_id già
+ * job quasi contemporaneamente: il secondo chiamante trova l'id già
  * presente nel Set e ritorna senza inviare nulla alla stampante.
  *
  * Il Set è a livello di processo (singola istanza); per ambienti multi-processo
@@ -342,27 +342,27 @@ const _inFlightJobs = new Set();
  * multi-istanza, usare l'estensione hook Directus che usa database direttamente.
  *
  * @param {object} restClient
- * @param {string} logId
+ * @param {string} id - PK UUID del job (print_jobs.id)
  * @param {object} log
  * @returns {Promise<boolean>} true se il claim è andato a buon fine
  */
-async function tryClaimJob(restClient, logId, log) {
+async function tryClaimJob(restClient, id, log) {
   try {
     // Re-legge il job per verificare che sia ancora pending (riduce race condition)
     const current = await restClient.request(
-      readItem('print_jobs', logId, { fields: ['status'] }),
+      readItem('print_jobs', id, { fields: ['status'] }),
     );
     if (current?.status !== 'pending') {
       log.info(
-        `[directus-client] Job ${safeLog(logId)} già in stato "${safeLog(current?.status)}" — skip`,
+        `[directus-client] Job ${safeLog(id)} già in stato "${safeLog(current?.status)}" — skip`,
       );
       return false;
     }
     // Aggiorna a 'printing'
-    await restClient.request(updateItem('print_jobs', logId, { status: 'printing' }));
+    await restClient.request(updateItem('print_jobs', id, { status: 'printing' }));
     return true;
   } catch (err) {
-    log.warn(`[directus-client] Impossibile reclamare job ${safeLog(logId)}: ${safeLog(err instanceof Error ? err.message : String(err))}`);
+    log.warn(`[directus-client] Impossibile reclamare job ${safeLog(id)}: ${safeLog(err instanceof Error ? err.message : String(err))}`);
     return false;
   }
 }
@@ -384,25 +384,24 @@ async function tryClaimJob(restClient, logId, log) {
  * @param {object} log          Logger
  */
 async function processJob(restClient, job, log) {
-  const { log_id, job_id, printer: printerId, print_type, payload } = job;
-  const safeId    = safeLog(log_id);
-  const safeJobId = safeLog(job_id ?? '?');
+  const { id, printer: printerId, print_type, payload } = job;
+  const safeId = safeLog(id);
 
   // ── 1. Deduplicazione in-process ─────────────────────────────────────────
   // Evita che WS e polling elaborino lo stesso job in parallelo all'interno
   // dello stesso processo (es. job arriva via WS appena prima del ciclo di
   // polling che rileva lo stesso job ancora con status='pending' su Directus).
-  if (_inFlightJobs.has(log_id)) {
+  if (_inFlightJobs.has(id)) {
     log.info(
       `[directus-client] Job ${safeId} già in elaborazione in-process — skip`,
     );
     return;
   }
-  _inFlightJobs.add(log_id);
+  _inFlightJobs.add(id);
 
   try {
     // ── 2. Reclama il job ───────────────────────────────────────────────────
-    const claimed = await tryClaimJob(restClient, log_id, log);
+    const claimed = await tryClaimJob(restClient, id, log);
     if (!claimed) return;
 
     // ── 3. Dispatch con retry ───────────────────────────────────────────────
@@ -427,10 +426,10 @@ async function processJob(restClient, job, log) {
 
         // ── 4. Aggiorna stato a done ──────────────────────────────────────
         await restClient.request(
-          updateItem('print_jobs', log_id, { status: 'done', error_message: null }),
+          updateItem('print_jobs', id, { status: 'done', error_message: null }),
         );
         log.info(
-          `[directus-client] ✓ Job ${safeJobId} (${safeLog(print_type)}) → stampante "${safeLog(resolvedPrinterId)}"`,
+          `[directus-client] ✓ Job ${safeId} (${safeLog(print_type)}) → stampante "${safeLog(resolvedPrinterId)}"`,
         );
         return; // successo
       } catch (err) {
@@ -444,7 +443,7 @@ async function processJob(restClient, job, log) {
     const errMsg = safeLog(lastErr?.message ?? String(lastErr));
     try {
       await restClient.request(
-        updateItem('print_jobs', log_id, { status: 'error', error_message: errMsg }),
+        updateItem('print_jobs', id, { status: 'error', error_message: errMsg }),
       );
     } catch (updateErr) {
       const updateErrMsg = safeLog(
@@ -452,10 +451,10 @@ async function processJob(restClient, job, log) {
       );
       log.warn(`[directus-client] Impossibile aggiornare stato error per job ${safeId}: ${updateErrMsg}`);
     }
-    log.error(`[directus-client] ✗ Job ${safeJobId} (${safeLog(print_type)}) errore: ${errMsg}`);
+    log.error(`[directus-client] ✗ Job ${safeId} (${safeLog(print_type)}) errore: ${errMsg}`);
   } finally {
     // Rimuove sempre il job dal Set al termine (successo o errore)
-    _inFlightJobs.delete(log_id);
+    _inFlightJobs.delete(id);
   }
 }
 
@@ -491,7 +490,7 @@ async function pollPendingJobs(restClient, log) {
       await processJob(restClient, job, log);
     } catch (err) {
       log.error(
-        `[directus-client] Errore processamento job ${safeLog(job.log_id)}: ${safeLog(err instanceof Error ? err.message : String(err))}`,
+        `[directus-client] Errore processamento job ${safeLog(job.id)}: ${safeLog(err instanceof Error ? err.message : String(err))}`,
       );
     }
   }
@@ -555,7 +554,7 @@ async function runWebSocket(wsClient, restClient, log) {
         // Fire-and-forget: la coda per-printer serializza automaticamente
         processJob(restClient, job, log).catch((err) => {
           log.error(
-            `[directus-client] Errore WS job ${safeLog(job.log_id)}: ${safeLog(err instanceof Error ? err.message : String(err))}`,
+            `[directus-client] Errore WS job ${safeLog(job.id)}: ${safeLog(err instanceof Error ? err.message : String(err))}`,
           );
         });
       }
@@ -606,7 +605,7 @@ async function verifyConnection(restClient) {
   try {
     // Legge un solo job per verificare accesso alla collezione
     await restClient.request(
-      readItems('print_jobs', { fields: ['log_id'], limit: 1 }),
+      readItems('print_jobs', { fields: ['id'], limit: 1 }),
     );
     return true;
   } catch (_err) {

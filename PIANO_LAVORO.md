@@ -64,7 +64,7 @@ B1. transactions: keyPath IDB transactionId ≠ Directus id
 
 Fix: Migrare il PK locale da transactionId a id in tutta l’app (IDB, store, componenti). È un refactoring pervasivo. Aggiornare useIDB.js (keyPath → id), idbPersistence.js (keyPath overrides), e tutti i riferimenti nel store.
 
-B2. print_jobs: keyPath IDB logId ≠ Directus log_id
+B2. print_jobs: keyPath IDB logId ≠ Directus log_id [RISOLTO]
 
 • useIDB.js:146: keyPath: 'logId'
 
@@ -72,7 +72,11 @@ B2. print_jobs: keyPath IDB logId ≠ Directus log_id
 
 • upsertRecordsIntoIDB override print_jobs: 'logId' non funziona con record Directus che hanno log_id
 
-Fix: Decidere strategia: (a) print_jobs è solo locale (non sincronizzato con Directus) oppure (b) allineare keyPath a id o log_id. Attualmente i print_jobs non sono in nessun PULL_CONFIG né GLOBAL_COLLECTIONS quindi sono effettivamente solo locali. Documentare chiaramente questa scelta e rimuovere l’override da upsertRecordsIntoIDB.
+Fix (implementato): print_jobs è push-only (non nel PULL_CONFIG). La collezione è stata ricreata
+con `id` (UUID v7) come unico PK standard in Directus, eliminando i campi ridondanti `log_id`,
+`job_id` e `original_job_id`. Il mapper mapPrintJobToDirectus usa il PK `id`; `logId`
+(`plog_<uuid>`) rimane come keyPath IDB locale e non diventa colonna Directus.
+addPrintLogEntry e updatePrintLogEntry ora chiamano enqueue() per sincronizzare con Directus.
 
 
 C. PKs auto-increment nascosti in Directus (Impedisce inserimento nuovi dati)
@@ -164,9 +168,18 @@ H1. bill_sessions non caricati dall’ObjectStore IDB dedicato
 
 loadStateFromIDB() legge tableCurrentBillSession dall’app_meta blob, non dall’ObjectStore bill_sessions. I record bill_session scritti da upsertRecordsIntoIDB nell’ObjectStore bill_sessions non vengono quindi mai letti all’avvio. Mancanza di una funzione loadBillSessionsFromIDB() che legga dall’ObjectStore e ripristini lo stato.
 
-H2. print_jobs non sincronizzati con Directus
+H2. print_jobs, fiscal_receipts e invoice_requests non sincronizzati con Directus [RISOLTO]
 
-I print_jobs non sono in PULL_CONFIG né GLOBAL_COLLECTIONS e non vengono pushati tramite useSyncQueue. La collection Directus esiste ma rimane vuota. Decidere se sincronizzarli (valore di audit trail) e implementare push/pull.
+I print_jobs non erano in PULL_CONFIG né GLOBAL_COLLECTIONS e non venivano pushati tramite useSyncQueue.
+Analogamente, fiscal_receipts e invoice_requests venivano salvati solo in IDB locale.
+
+Fix (implementato):
+- Aggiunti mapper dedicati: mapPrintJobToDirectus, mapFiscalReceiptToDirectus, mapInvoiceRequestToDirectus
+- Registrati in _TO_DIRECTUS_MAPPERS; mapPayloadToDirectus passa l'original payload ai mapper per
+  recuperare il campo `timestamp` (rimosso da _PUSH_DROP_FIELDS)
+- fiscal_receipts e invoice_requests aggiunti a DOMAIN_STATUS_COLLECTIONS (push-only, no delete)
+- enqueue() chiamato in addPrintLogEntry, updatePrintLogEntry, addFiscalReceipt, updateFiscalReceipt,
+  addInvoiceRequest
 
 H3. table_merge_sessions solo locale
 

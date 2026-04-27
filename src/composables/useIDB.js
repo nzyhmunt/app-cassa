@@ -264,9 +264,11 @@ export function getDB() {
         }
       }
 
-      // print_jobs: LOCAL-ONLY store — never synced with Directus (not in PULL_CONFIG or
-      // GLOBAL_COLLECTIONS). logId is a short client-generated ID, not a Directus UUID.
-      // Decision B2 from PIANO_LAVORO.md: keep as local audit trail only.
+      // print_jobs: IDB audit store pushed to Directus via sync_queue (push-only, not in PULL_CONFIG).
+      // keyPath is `logId` (plog_<uuid>, client-generated local identifier).
+      // Directus PK is the standard `id` field (UUID v7, no prefix), generated alongside logId
+      // in usePrintQueue.js and used as record_id for enqueue.
+      // Note: logId, jobId and originalJobId are local-only — not stored as Directus columns.
       if (!db.objectStoreNames.contains('print_jobs')) {
         const s = db.createObjectStore('print_jobs', { keyPath: 'logId' });
         s.createIndex('status', 'status', { unique: false });

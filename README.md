@@ -219,7 +219,7 @@ Funzionalità disponibile sia in **cassa live** (al momento della chiusura del c
 **Scontrino Fiscale:**
 - Costruisce un payload XML nel protocollo RT printer (`<printerFiscalReceipt>`) con le voci del conto (quantità, prezzi unitari)
 - Rileva automaticamente il tipo di pagamento (contanti = `0`, carta/POS = `2`)
-- Registra la richiesta in `store.fiscalReceipts` (persistita su IDB) con stato `pending`
+- Registra la richiesta in `store.fiscalReceipts` (persistita su IDB e **sincronizzata su Directus** `fiscal_receipts` via sync queue) con stato `pending`
 
 **Fattura elettronica:**
 - Modale condiviso (`shared/InvoiceModal.vue`) con form dati intestatario:
@@ -228,7 +228,7 @@ Funzionalità disponibile sia in **cassa live** (al momento della chiusura del c
   - Codice SDI (7 caratteri alfanumerici) e/o PEC
 - Tutti i campi hanno `id` e `<label for>` corrispondenti per accessibilità screen-reader e click-to-focus
 - Validazione integrata nel componente (obbligo CF o PIVA, CAP 5 cifre, SDI o PEC almeno uno)
-- Registra la richiesta in `store.invoiceRequests` (persistita su IDB) con stato `pending`
+- Registra la richiesta in `store.invoiceRequests` (persistita su IDB e **sincronizzata su Directus** `invoice_requests` via sync queue) con stato `pending`
 - I dati validati vengono emessi dal modale via `@confirm(billingData)` al componente padre
 
 ### 💰 Gestione Cassa (CassaDashboard)
@@ -265,10 +265,11 @@ Funzionalità disponibile sia in **cassa live** (al momento della chiusura del c
 
 ### 💾 Persistenza & Multi-Istanza
 - **Persistenza automatica** su **IndexedDB** (`useIDB.js` + `idbPersistence.js`):
-  - Ordini, transazioni, sessioni tavoli, movimenti di cassa, chiusure giornaliere
+  - Ordini, transazioni, sessioni tavoli, movimenti di cassa, chiusure giornaliere, log stampe, ricevute fiscali, richieste fattura
   - Coda sync (`sync_queue`) e storico diagnostico delle chiamate fallite (`sync_failed_calls`) con request/response copiabili da UI
   - Serializzazione Set↔Array per `billRequestedTables`
-  - Scritture IDB parziali sicure: ogni watcher aggiorna solo il proprio store senza toccare gli altri
+  - **Scritture IDB-first**: `addOrder`, `addItemsToOrder`, `addCashMovement`, `addDirectOrder`, `addCashTransaction` persistono su IndexedDB prima di aggiornare il reactive state — garantisce consistenza anche in caso di crash durante l'applicazione degli update
+  - Ogni watcher aggiorna solo il proprio store senza toccare gli altri
   - Dati demo al primo avvio
 - **Schema versionato** (`SCHEMA_VERSION`): incremento automatico al cambio struttura
 - **Recupero da corruzione**: fallback a stato vuoto se i dati sono invalidi
@@ -276,7 +277,7 @@ Funzionalità disponibile sia in **cassa live** (al momento della chiusura del c
   - Configurazione a build time tramite `appConfig.instanceName`
   - Database IDB con suffisso `_<instanceName>`
 - **Sincronizzazione cross-tab in tempo reale**: tutte e tre le app (`CassaApp`, `SalaApp`, `CucinaApp`) ascoltano l'evento `window.storage`. Qualsiasi modifica di stato in una tab (es. cambio stato ordine in Cucina) viene propagata alle altre tab aperte sullo stesso dispositivo ricaricando lo stato operativo (`useOrderStore`) e la configurazione/menu (`useConfigStore`) da IndexedDB.
-- **Swipe-down refresh (mobile/tablet)**: su Cassa/Sala/Cucina il gesto verso il basso avvia un refresh manuale. Se Directus è abilitato esegue una riapplicazione completa (configurazione + pull dati), altrimenti aggiorna solo da IndexedDB.
+- **Swipe-down refresh (mobile/tablet)**: su Cassa/Sala/Cucina il gesto verso il basso avvia un refresh manuale. Se Directus è abilitato esegue una riapplicazione completa (configurazione + pull dati), altrimenti aggiorna solo da IndexedDB. L'indicatore visivo rimane visibile per un breve hold (`REFRESH_DONE_HOLD_MS`) dopo il completamento, garantendo feedback percettibile anche su refresh rapidi; annulla correttamente il timer se il componente viene smontato durante il hold.
 
 ### ⌨️ Tastiera Numerica Personalizzata (Cassa only)
 - Overlay a scomparsa dal basso (`NumericKeyboard.vue`) che sostituisce la tastiera del dispositivo per tutti i campi numerici della Cassa
@@ -394,6 +395,18 @@ Nel modale impostazioni (sezione **Sincronizzazione Directus**), dopo il pulsant
 
 Questa procedura è pensata per i casi di riconfigurazione sostanziale (nuovo endpoint/token/venue) e forza un pull globale completo prima di applicare la nuova configurazione all'app.
 
+### Sync queue — collezioni push-only
+
+Le seguenti collezioni sono **push-only** (nessun pull da Directus): vengono create localmente con UUID v7 e inviate in background tramite `drainQueue()` della sync queue.
+
+| Collezione | Evento locale | Note |
+|------------|---------------|-------|
+| `print_jobs` | Ogni job di stampa inviato | `id` UUID v7 standard (PK Directus); `logId` (`plog_<uuid>`) è l'identificatore locale / keyPath IndexedDB |
+| `fiscal_receipts` | Chiusura conto con scontrino fiscale | FK `venue` diretto; dipende da `bill_sessions` |
+| `invoice_requests` | Chiusura conto con fattura elettronica | FK `venue` diretto; dipende da `bill_sessions` |
+
+I record di queste collezioni non vengono mai hard-delete da Directus — il ciclo di vita è gestito tramite il campo `status`.
+
 ---
 
 ## Stampa Comande (ESC/POS)
@@ -403,6 +416,10 @@ La coda di stampa automatica è gestita dal composable `src/composables/usePrint
 Quando un ordine viene accettato (dalla Cassa o dalla Sala), `enqueuePrintJobs(order)` invia
 una HTTP POST a ciascun servizio stampante configurato in `appConfig.printers`. Il servizio Node
 ricevente gestisce la comunicazione ESC/POS verso la stampante fisica.
+
+Ogni lavoro di stampa viene registrato in `store.printLog` (persistito su IDB e **sincronizzato
+su Directus** `print_jobs` via sync queue) con stato `pending → printing → done | error`.
+Ogni entry ha un `id` (UUID v7, PK Directus) e un `logId` (`plog_<uuid>`, keyPath IDB).
 
 ### Stampante demo (pronta per il test)
 
@@ -509,7 +526,10 @@ oppure una stampante "catch-all" con `printTypes` assente o vuoto.
 
 ### Formato del job di stampa
 
-Tutti i job contengono: `jobId`, `printType`, `printerId`, `table`, `timestamp`.
+Tutti i job contengono: `id`, `logId`, `jobId`, `printType`, `printerId`, `table`, `timestamp`.
+
+- **`id`** — UUID v7 (nessun prefisso): chiave primaria Directus, generata insieme al `logId`
+- **`logId`** — `plog_<uuid>`: keyPath dell'ObjectStore IDB, usato per lookup locali e cronologia
 
 **`order`** (comanda):
 ```json
@@ -541,7 +561,7 @@ Tutti i job contengono: `jobId`, `printType`, `printerId`, `table`, `timestamp`.
   a una delle categorie elencate in `categories` (confronto case-insensitive).
 - **Catch-all**: se `categories` è assente o vuoto, la stampante riceve tutte le voci.
 - **Fire-and-forget**: gli errori di rete vengono loggati in console ma non bloccano l'UI.
-- **Stato job**: ogni job viene tracciato come `pending → printing → done | error`.
+- **Stato job**: ogni job viene tracciato come `pending → printing → done | error` e sincronizzato su Directus `print_jobs`.
 - **Voci stornate**: solo le quantità attive (non stornate) vengono incluse nel job.
 - **Ordini diretti** (`isDirectEntry: true`): non vengono mai stampati (coperti, voci libere).
 

@@ -199,15 +199,15 @@ export default ({ action, schedule }, { services, database, getSchema, logger, e
   // ── Core dispatch ─────────────────────────────────────────────────────────
 
   /**
-   * Prova ad acquisire il job `logId` impostando lo stato a `printing`
+   * Prova ad acquisire il job `id` impostando lo stato a `printing`
    * solo se lo stato corrente è `pending` (compare-and-swap atomico).
    *
-   * @param {string} logId
+   * @param {string} id - PK UUID del job (print_jobs.id)
    * @returns {Promise<boolean>} `true` se il lock è stato acquisito
    */
-  async function tryClaimJob(logId) {
+  async function tryClaimJob(id) {
     const count = await database('print_jobs')
-      .where({ log_id: logId, status: 'pending' })
+      .where({ id, status: 'pending' })
       .update({ status: 'printing' });
     return count > 0;
   }
@@ -240,11 +240,11 @@ export default ({ action, schedule }, { services, database, getSchema, logger, e
    *   4. Invia direttamente alla stampante fisica (TCP / file)
    *   5. Aggiorna lo stato a `done` o `error`
    *
-   * @param {string} logId  Chiave primaria del job (print_jobs.log_id)
+   * @param {string} id - PK UUID del job (print_jobs.id)
    */
-  async function processJob(logId) {
+  async function processJob(id) {
     // ── 1. Acquisizione lock ──────────────────────────────────────────────
-    const claimed = await tryClaimJob(logId);
+    const claimed = await tryClaimJob(id);
     if (!claimed) return; // già acquisito da un altro processo
 
     const schema  = await getSchema();
@@ -253,16 +253,16 @@ export default ({ action, schedule }, { services, database, getSchema, logger, e
     // ── 2. Lettura record completo ────────────────────────────────────────
     let job;
     try {
-      job = await jobsSvc.readOne(logId, {
-        fields: ['log_id', 'printer', 'payload', 'print_type', 'job_id'],
+      job = await jobsSvc.readOne(id, {
+        fields: ['id', 'printer', 'payload', 'print_type'],
       });
     } catch (err) {
       const msg = safeLog(err?.message ?? err ?? 'Job non trovato dopo il claim');
-      await jobsSvc.updateOne(logId, {
+      await jobsSvc.updateOne(id, {
         status: 'error',
         error_message: msg,
       }).catch(() => {});
-      logger.warn(`[print-dispatcher] Job ${safeLog(logId)} non trovato: ${msg}`);
+      logger.warn(`[print-dispatcher] Job ${safeLog(id)} non trovato: ${msg}`);
       return;
     }
 
@@ -283,16 +283,15 @@ export default ({ action, schedule }, { services, database, getSchema, logger, e
           ...basePayload,
           printType: job.print_type,  // sempre dal record Directus
           printerId: job.printer,
-          jobId:     job.job_id,
         };
 
         // Genera buffer ESC/POS e invia direttamente
         const buf = buildEscPosBuffer(printPayload);
         await dispatchBuffer(buf, printer);
 
-        await jobsSvc.updateOne(logId, { status: 'done', error_message: null });
+        await jobsSvc.updateOne(id, { status: 'done', error_message: null });
         logger.info(
-          `[print-dispatcher] ✓ Job ${safeLog(job.job_id)} (${safeLog(job.print_type)}) → stampante "${safeLog(job.printer)}"`,
+          `[print-dispatcher] ✓ Job ${safeLog(id)} (${safeLog(job.print_type)}) → stampante "${safeLog(job.printer)}"`,
         );
         return; // successo
 
@@ -300,8 +299,8 @@ export default ({ action, schedule }, { services, database, getSchema, logger, e
         // Errori permanenti (tipo non supportato, printType non valido): non ritentare
         if (err.permanent) {
           const msg = safeLog(err.message ?? err);
-          await jobsSvc.updateOne(logId, { status: 'error', error_message: msg }).catch(() => {});
-          logger.error(`[print-dispatcher] ✗ Job ${safeLog(job.job_id ?? logId)} errore permanente: ${msg}`);
+          await jobsSvc.updateOne(id, { status: 'error', error_message: msg }).catch(() => {});
+          logger.error(`[print-dispatcher] ✗ Job ${safeLog(id)} errore permanente: ${msg}`);
           return;
         }
         lastErr = err;
@@ -310,8 +309,8 @@ export default ({ action, schedule }, { services, database, getSchema, logger, e
 
     // Esauriti i tentativi: segna errore
     const msg = safeLog(lastErr?.message ?? lastErr ?? 'Errore sconosciuto');
-    await jobsSvc.updateOne(logId, { status: 'error', error_message: msg }).catch(() => {});
-    logger.error(`[print-dispatcher] ✗ Job ${safeLog(job.job_id ?? logId)} fallito dopo ${RETRY_MAX + 1} tentativi: ${msg}`);
+    await jobsSvc.updateOne(id, { status: 'error', error_message: msg }).catch(() => {});
+    logger.error(`[print-dispatcher] ✗ Job ${safeLog(id)} fallito dopo ${RETRY_MAX + 1} tentativi: ${msg}`);
   }
 
   // ── Hook: dispatch immediato alla creazione ───────────────────────────────
@@ -342,7 +341,7 @@ export default ({ action, schedule }, { services, database, getSchema, logger, e
       const jobsSvc = new ItemsService('print_jobs', { database, schema });
       pendingJobs   = await jobsSvc.readByQuery({
         filter: { status: { _eq: 'pending' } },
-        fields: ['log_id'],
+        fields: ['id'],
         sort:   ['job_timestamp'],
         limit:  100,
       });
@@ -355,11 +354,11 @@ export default ({ action, schedule }, { services, database, getSchema, logger, e
 
     logger.info(`[print-dispatcher] Polling: trovati ${pendingJobs.length} job(s) pending`);
 
-    for (const { log_id } of pendingJobs) {
+    for (const { id } of pendingJobs) {
       try {
-        await processJob(log_id);
+        await processJob(id);
       } catch (err) {
-        logger.error(`[print-dispatcher] Errore nel polling per job ${safeLog(log_id)}: ${safeLog(err instanceof Error ? err.message : String(err))}`);
+        logger.error(`[print-dispatcher] Errore nel polling per job ${safeLog(id)}: ${safeLog(err instanceof Error ? err.message : String(err))}`);
       }
     }
   });

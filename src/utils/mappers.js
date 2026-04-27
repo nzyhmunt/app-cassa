@@ -898,6 +898,246 @@ export function mapTransactionToDirectus(record) {
   return out;
 }
 
+/**
+ * Maps a local print log entry to Directus `print_jobs` field names.
+ *
+ * The Directus PK is the standard `id` field (UUID v7, no prefix).
+ * `logId`, `jobId` and `originalJobId` are local-only identifiers — they are
+ * dropped here and not stored as separate columns in Directus. `jobId` is still
+ * available inside the `payload` JSONB column (as `payload.jobId`). For reprints,
+ * `originalJobId` is copied into `payload.originalJobId` before the top-level field
+ * is removed, so the reprint traceability link is preserved in Directus.
+ *
+ * The `timestamp` field is stripped by `_PUSH_DROP_FIELDS` before this mapper
+ * runs, so the original (unstripped) payload is passed as `originalRecord` to
+ * allow it to be mapped to the Directus `job_timestamp` column.
+ *
+ * @param {object} record - Cleaned/stripped local print log entry
+ * @param {object} [originalRecord] - Original unstripped payload from enqueue
+ * @returns {object}
+ */
+export function mapPrintJobToDirectus(record, originalRecord) {
+  const source = record ?? {};
+  const original = originalRecord ?? {};
+  const out = { ...source };
+
+  // logId — local IDB keyPath, not a Directus column → drop
+  delete out.logId;
+  // jobId — local identifier stored in payload.jobId, not a separate Directus column → drop
+  delete out.jobId;
+  // originalJobId — local reprint reference; copy into payload.originalJobId so the
+  // traceability link is preserved in Directus, then drop the redundant top-level field
+  if (
+    Object.prototype.hasOwnProperty.call(out, 'originalJobId') &&
+    out.originalJobId != null &&
+    out.payload != null &&
+    typeof out.payload === 'object' &&
+    !Array.isArray(out.payload) &&
+    !Object.prototype.hasOwnProperty.call(out.payload, 'originalJobId')
+  ) {
+    out.payload = { ...out.payload, originalJobId: out.originalJobId };
+  }
+  delete out.originalJobId;
+  // printType → print_type
+  if (!Object.prototype.hasOwnProperty.call(out, 'print_type') && Object.prototype.hasOwnProperty.call(source, 'printType')) {
+    out.print_type = source.printType;
+  }
+  delete out.printType;
+  // printerId → printer (FK to printers)
+  if (!Object.prototype.hasOwnProperty.call(out, 'printer') && Object.prototype.hasOwnProperty.call(source, 'printerId')) {
+    out.printer = source.printerId;
+  }
+  delete out.printerId;
+  // table (label string) → table_label
+  if (!Object.prototype.hasOwnProperty.call(out, 'table_label') && Object.prototype.hasOwnProperty.call(source, 'table')) {
+    out.table_label = source.table;
+  }
+  delete out.table;
+  // timestamp → job_timestamp (timestamp was stripped; recover from originalRecord)
+  if (!Object.prototype.hasOwnProperty.call(out, 'job_timestamp')) {
+    const ts = original.timestamp ?? null;
+    if (ts != null) out.job_timestamp = ts;
+  }
+  // errorMessage → error_message
+  if (!Object.prototype.hasOwnProperty.call(out, 'error_message') && Object.prototype.hasOwnProperty.call(source, 'errorMessage')) {
+    out.error_message = source.errorMessage;
+  }
+  delete out.errorMessage;
+  // isReprint → is_reprint
+  if (!Object.prototype.hasOwnProperty.call(out, 'is_reprint') && Object.prototype.hasOwnProperty.call(source, 'isReprint')) {
+    out.is_reprint = source.isReprint;
+  }
+  delete out.isReprint;
+  // Drop local-only display fields (not in Directus schema)
+  delete out.printerName;
+  delete out.printerUrl;
+
+  return out;
+}
+
+/**
+ * Maps a local fiscal receipt entry to Directus `fiscal_receipts` field names.
+ *
+ * `payment_methods` and `orders` are serialised as JSON strings because the
+ * Directus columns are `text` fields that store JSON arrays.
+ * `timestamp` is recovered from `originalRecord` since it is stripped by
+ * `_PUSH_DROP_FIELDS` before this mapper runs.
+ *
+ * @param {object} record - Cleaned/stripped local fiscal receipt entry
+ * @param {object} [originalRecord] - Original unstripped payload from enqueue
+ * @returns {object}
+ */
+export function mapFiscalReceiptToDirectus(record, originalRecord) {
+  const source = record ?? {};
+  const original = originalRecord ?? {};
+  const out = { ...source };
+
+  // tableId → table (FK to tables; follows app convention: no _id suffix)
+  if (!Object.prototype.hasOwnProperty.call(out, 'table') && Object.prototype.hasOwnProperty.call(source, 'tableId')) {
+    out.table = source.tableId;
+  }
+  delete out.tableId;
+  // tableLabel → table_label
+  if (!Object.prototype.hasOwnProperty.call(out, 'table_label') && Object.prototype.hasOwnProperty.call(source, 'tableLabel')) {
+    out.table_label = source.tableLabel;
+  }
+  delete out.tableLabel;
+  // billSessionId → bill_session (FK to bill_sessions; follows app convention: no _id suffix)
+  if (!Object.prototype.hasOwnProperty.call(out, 'bill_session') && Object.prototype.hasOwnProperty.call(source, 'billSessionId')) {
+    out.bill_session = source.billSessionId;
+  }
+  delete out.billSessionId;
+  // closedAt → closed_at
+  if (!Object.prototype.hasOwnProperty.call(out, 'closed_at') && Object.prototype.hasOwnProperty.call(source, 'closedAt')) {
+    out.closed_at = source.closedAt;
+  }
+  delete out.closedAt;
+  // totalAmount → total_amount
+  if (!Object.prototype.hasOwnProperty.call(out, 'total_amount') && Object.prototype.hasOwnProperty.call(source, 'totalAmount')) {
+    out.total_amount = source.totalAmount;
+  }
+  delete out.totalAmount;
+  // totalPaid → total_paid
+  if (!Object.prototype.hasOwnProperty.call(out, 'total_paid') && Object.prototype.hasOwnProperty.call(source, 'totalPaid')) {
+    out.total_paid = source.totalPaid;
+  }
+  delete out.totalPaid;
+  // paymentMethods → payment_methods (JSON string; Directus column is text)
+  if (!Object.prototype.hasOwnProperty.call(out, 'payment_methods') && Object.prototype.hasOwnProperty.call(source, 'paymentMethods')) {
+    out.payment_methods = Array.isArray(source.paymentMethods)
+      ? JSON.stringify(source.paymentMethods)
+      : source.paymentMethods;
+  }
+  delete out.paymentMethods;
+  // orders snapshot → JSON string
+  if (Object.prototype.hasOwnProperty.call(source, 'orders') && Array.isArray(source.orders)) {
+    out.orders = JSON.stringify(source.orders);
+  }
+  // xmlRequest → xml_request
+  if (!Object.prototype.hasOwnProperty.call(out, 'xml_request') && Object.prototype.hasOwnProperty.call(source, 'xmlRequest')) {
+    out.xml_request = source.xmlRequest;
+  }
+  delete out.xmlRequest;
+  // xmlResponse → xml_response
+  if (!Object.prototype.hasOwnProperty.call(out, 'xml_response') && Object.prototype.hasOwnProperty.call(source, 'xmlResponse')) {
+    out.xml_response = source.xmlResponse;
+  }
+  delete out.xmlResponse;
+  // timestamp (stripped by _PUSH_DROP_FIELDS; recover from originalRecord)
+  if (!Object.prototype.hasOwnProperty.call(out, 'timestamp') && original.timestamp != null) {
+    out.timestamp = original.timestamp;
+  }
+
+  return out;
+}
+
+/**
+ * Maps a local invoice request entry to Directus `invoice_requests` field names.
+ *
+ * The `billingData` nested object is flattened into top-level Directus columns.
+ * `payment_methods` and `orders` are serialised as JSON strings.
+ * `timestamp` is recovered from `originalRecord` since it is stripped by
+ * `_PUSH_DROP_FIELDS` before this mapper runs.
+ *
+ * @param {object} record - Cleaned/stripped local invoice request entry
+ * @param {object} [originalRecord] - Original unstripped payload from enqueue
+ * @returns {object}
+ */
+export function mapInvoiceRequestToDirectus(record, originalRecord) {
+  const source = record ?? {};
+  const original = originalRecord ?? {};
+  const out = { ...source };
+
+  // tableId → table (FK to tables; follows app convention: no _id suffix)
+  if (!Object.prototype.hasOwnProperty.call(out, 'table') && Object.prototype.hasOwnProperty.call(source, 'tableId')) {
+    out.table = source.tableId;
+  }
+  delete out.tableId;
+  // tableLabel → table_label
+  if (!Object.prototype.hasOwnProperty.call(out, 'table_label') && Object.prototype.hasOwnProperty.call(source, 'tableLabel')) {
+    out.table_label = source.tableLabel;
+  }
+  delete out.tableLabel;
+  // billSessionId → bill_session (FK to bill_sessions; follows app convention: no _id suffix)
+  if (!Object.prototype.hasOwnProperty.call(out, 'bill_session') && Object.prototype.hasOwnProperty.call(source, 'billSessionId')) {
+    out.bill_session = source.billSessionId;
+  }
+  delete out.billSessionId;
+  // closedAt → closed_at
+  if (!Object.prototype.hasOwnProperty.call(out, 'closed_at') && Object.prototype.hasOwnProperty.call(source, 'closedAt')) {
+    out.closed_at = source.closedAt;
+  }
+  delete out.closedAt;
+  // totalAmount → total_amount
+  if (!Object.prototype.hasOwnProperty.call(out, 'total_amount') && Object.prototype.hasOwnProperty.call(source, 'totalAmount')) {
+    out.total_amount = source.totalAmount;
+  }
+  delete out.totalAmount;
+  // totalPaid → total_paid
+  if (!Object.prototype.hasOwnProperty.call(out, 'total_paid') && Object.prototype.hasOwnProperty.call(source, 'totalPaid')) {
+    out.total_paid = source.totalPaid;
+  }
+  delete out.totalPaid;
+  // paymentMethods → payment_methods (JSON string; Directus column is text)
+  if (!Object.prototype.hasOwnProperty.call(out, 'payment_methods') && Object.prototype.hasOwnProperty.call(source, 'paymentMethods')) {
+    out.payment_methods = Array.isArray(source.paymentMethods)
+      ? JSON.stringify(source.paymentMethods)
+      : source.paymentMethods;
+  }
+  delete out.paymentMethods;
+  // orders snapshot → JSON string
+  if (Object.prototype.hasOwnProperty.call(source, 'orders') && Array.isArray(source.orders)) {
+    out.orders = JSON.stringify(source.orders);
+  }
+  // billingData → flatten into top-level Directus columns
+  const bd = source.billingData;
+  if (bd && typeof bd === 'object') {
+    if (!Object.prototype.hasOwnProperty.call(out, 'denominazione') && bd.denominazione != null) out.denominazione = bd.denominazione;
+    if (!Object.prototype.hasOwnProperty.call(out, 'codice_fiscale')) {
+      const cf = bd.codice_fiscale ?? bd.codiceFiscale ?? null;
+      if (cf != null) out.codice_fiscale = cf;
+    }
+    if (!Object.prototype.hasOwnProperty.call(out, 'piva') && bd.piva != null) out.piva = bd.piva;
+    if (!Object.prototype.hasOwnProperty.call(out, 'indirizzo') && bd.indirizzo != null) out.indirizzo = bd.indirizzo;
+    if (!Object.prototype.hasOwnProperty.call(out, 'cap') && bd.cap != null) out.cap = bd.cap;
+    if (!Object.prototype.hasOwnProperty.call(out, 'comune') && bd.comune != null) out.comune = bd.comune;
+    if (!Object.prototype.hasOwnProperty.call(out, 'provincia') && bd.provincia != null) out.provincia = bd.provincia;
+    if (!Object.prototype.hasOwnProperty.call(out, 'paese') && bd.paese != null) out.paese = bd.paese;
+    if (!Object.prototype.hasOwnProperty.call(out, 'codice_destinatario')) {
+      const sdi = bd.codice_destinatario ?? bd.codiceDestinatario ?? null;
+      if (sdi != null) out.codice_destinatario = sdi;
+    }
+    if (!Object.prototype.hasOwnProperty.call(out, 'pec') && bd.pec != null) out.pec = bd.pec;
+  }
+  delete out.billingData;
+  // timestamp (stripped by _PUSH_DROP_FIELDS; recover from originalRecord)
+  if (!Object.prototype.hasOwnProperty.call(out, 'timestamp') && original.timestamp != null) {
+    out.timestamp = original.timestamp;
+  }
+
+  return out;
+}
+
 // Declared after the individual mappers so all references are resolved.
 const _TO_DIRECTUS_MAPPERS = {
   orders: mapOrderToDirectus,
@@ -905,6 +1145,9 @@ const _TO_DIRECTUS_MAPPERS = {
   bill_sessions: mapBillSessionToDirectus,
   order_item_modifiers: mapOrderItemModifierToDirectus,
   transactions: mapTransactionToDirectus,
+  print_jobs: mapPrintJobToDirectus,
+  fiscal_receipts: mapFiscalReceiptToDirectus,
+  invoice_requests: mapInvoiceRequestToDirectus,
 };
 
 /**
@@ -918,7 +1161,9 @@ const _TO_DIRECTUS_MAPPERS = {
  *     already-expanded `order_item_modifiers` (set by Step 3 in the recursive
  *     call) with parent-context `order_item`/`order` FKs.
  *  3. Expand nested `modifiers → order_item_modifiers` (for `order_items`).
- *  4. Apply dedicated collection mapper (or generic FIELD_RENAME_MAP).
+ *  4. Apply dedicated collection mapper (or generic FIELD_RENAME_MAP); the
+ *     original unstripped `payload` is passed as a second argument to allow
+ *     mappers to recover fields stripped in Step 1 (e.g. `timestamp`).
  *  5. Resolve `payment_method` FK via `resolvePaymentMethodMeta` (where applicable).
  *  6. Normalise relation-object FK values and JSON-array fields.
  *
@@ -988,10 +1233,14 @@ export function mapPayloadToDirectus(collection, payload, ctx = {}) {
   }
 
   // Step 4 — apply dedicated mapper or generic FIELD_RENAME_MAP
+  // The original (unstripped) `payload` is passed as a second argument so that
+  // dedicated mappers can recover fields that were stripped by _PUSH_DROP_FIELDS
+  // in Step 1 (e.g. `timestamp` used by fiscal_receipts / invoice_requests, and
+  // mapped to `job_timestamp` by print_jobs).
   let mapped;
   const dedicatedMapper = _TO_DIRECTUS_MAPPERS[collection];
   if (dedicatedMapper) {
-    mapped = dedicatedMapper(preProcessed);
+    mapped = dedicatedMapper(preProcessed, payload);
   } else {
     mapped = {};
     for (const [key, value] of Object.entries(preProcessed)) {
