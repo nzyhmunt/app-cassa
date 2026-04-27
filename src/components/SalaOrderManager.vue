@@ -1056,9 +1056,6 @@ function submitOrder() {
 async function confirmSubmitOrder() {
   if (!orderToSubmit.value) return;
   const ord = orderToSubmit.value;
-  // TODO API: replace with POST /api/orders when API is available.
-  // For now the order is already in the shared store as 'pending';
-  // a real sala terminal would submit it here and receive a server-assigned id.
   showSubmitConfirm.value = false;
   orderToSubmit.value = null;
   // Move the order out of "In Attesa" by marking it as accepted/sent to kitchen.

@@ -3,6 +3,7 @@ import { createPinia, setActivePinia } from 'pinia';
 
 const {
   runtime,
+  setIDBEmitter,
   saveStateToIDBMock,
   saveOrdersAndOccupancyInIDBMock,
   upsertBillSessionInIDBMock,
@@ -14,8 +15,35 @@ const {
     snapshots: [],
   };
 
+  // Lazily-injected reference to emitIDBChange; set after module imports via setIDBEmitter().
+  let _emitter = null;
+
+  const ser = v => JSON.parse(JSON.stringify(v));
+
+  function _normalizeAndEmit(payload) {
+    if (!_emitter) return;
+    const sanitized = {};
+    if ('orders' in payload) sanitized.orders = ser(payload.orders ?? []);
+    if ('transactions' in payload) sanitized.transactions = ser(payload.transactions ?? []);
+    if ('cashBalance' in payload) sanitized.cashBalance = payload.cashBalance ?? 0;
+    if ('cashMovements' in payload) sanitized.cashMovements = ser(payload.cashMovements ?? []);
+    if ('dailyClosures' in payload) sanitized.dailyClosures = ser(payload.dailyClosures ?? []);
+    if ('tableCurrentBillSession' in payload) sanitized.tableCurrentBillSession = ser(payload.tableCurrentBillSession ?? {});
+    if ('tableMergedInto' in payload) sanitized.tableMergedInto = ser(payload.tableMergedInto ?? {});
+    if ('tableOccupiedAt' in payload) sanitized.tableOccupiedAt = ser(payload.tableOccupiedAt ?? {});
+    if ('billRequestedTables' in payload) {
+      sanitized.billRequestedTables = ser(
+        payload.billRequestedTables instanceof Set
+          ? Array.from(payload.billRequestedTables)
+          : payload.billRequestedTables ?? [],
+      );
+    }
+    _emitter(sanitized);
+  }
+
   return {
     runtime: runtimeState,
+    setIDBEmitter: (fn) => { _emitter = fn; },
     saveStateToIDBMock: vi.fn(async (payload) => {
       runtimeState.snapshots.push({
         type: 'save-state',
@@ -24,13 +52,17 @@ const {
         transactionsLenAtCall: runtimeState.store?.transactions?.length ?? 0,
         cashMovementsLenAtCall: runtimeState.store?.cashMovements?.length ?? 0,
       });
+      _normalizeAndEmit(payload);
     }),
-    saveOrdersAndOccupancyInIDBMock: vi.fn(async (orders) => {
+    saveOrdersAndOccupancyInIDBMock: vi.fn(async (orders, tableOccupiedAt) => {
       runtimeState.snapshots.push({
         type: 'save-orders-and-occupancy',
         orders,
         ordersLenAtCall: runtimeState.store?.orders?.length ?? 0,
       });
+      if (_emitter) {
+        _emitter({ orders: ser(orders ?? []), tableOccupiedAt: ser(tableOccupiedAt ?? {}) });
+      }
     }),
     upsertBillSessionInIDBMock: vi.fn(async (session) => {
       runtimeState.snapshots.push({
@@ -72,6 +104,10 @@ vi.mock('../../composables/useSyncQueue.js', async () => {
 });
 
 import { useAppStore } from '../index.js';
+import { emitIDBChange, _resetListeners } from '../persistence/eventBus.js';
+
+// Wire up the IDB emitter so mock saveStateToIDB triggers the reactive bridge.
+setIDBEmitter(emitIDBChange);
 
 function makeOrder(id, table = 'T1', status = 'pending') {
   return {
@@ -152,6 +188,7 @@ function makeOrderWithVoidedModifier(id, table = 'T1', status = 'accepted') {
 beforeEach(() => {
   vi.useFakeTimers();
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 503 }));
+  _resetListeners();
   setActivePinia(createPinia());
   runtime.store = null;
   runtime.snapshots = [];
