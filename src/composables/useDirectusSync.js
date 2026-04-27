@@ -769,10 +769,14 @@ async function _runPull() {
         `[DirectusSync] Pull cycle details — merged: ${mergedSummary.join(', ') || 'none'}; failed: ${failedCollections.join(', ') || 'none'}.`,
       );
     }
-    if (anyMerged && allOk) {
+    if (allOk) {
       lastPullAt.value = new Date().toISOString();
-      console.info('[DirectusSync] Pull cycle completed successfully.');
-    } else if (!allOk) {
+      if (anyMerged) {
+        console.info('[DirectusSync] Pull cycle completed: merged records from server.');
+      } else {
+        console.info('[DirectusSync] Pull cycle completed: all collections up to date.');
+      }
+    } else {
       console.warn('[DirectusSync] Pull cycle incomplete: at least one collection failed.');
     }
     return { ok: allOk, failedCollections };
@@ -1404,7 +1408,18 @@ export function useDirectusSync() {
 
   async function forcePull() {
     if (!appConfig.directus?.enabled) return { ok: true, failedCollections: [] };
-    return _runPull();
+    syncStatus.value = 'syncing';
+    try {
+      const result = await _runPull();
+      const skippedOffline = result?.skippedReason === 'offline';
+      syncStatus.value = result?.ok === false
+        ? (skippedOffline ? 'offline' : 'error')
+        : 'idle';
+      return result;
+    } catch (e) {
+      syncStatus.value = 'error';
+      return { ok: false, failedCollections: [] };
+    }
   }
 
   /**

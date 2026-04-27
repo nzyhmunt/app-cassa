@@ -1386,6 +1386,40 @@ describe('reactive timestamps', () => {
     expect(sync.lastPullAt.value).toBeTruthy();
   });
 
+  it('lastPullAt is updated after a successful pull even when no records are returned', async () => {
+    vi.spyOn(global, 'fetch').mockImplementation(() => Promise.resolve(directusListResponse([])));
+
+    const sync = useDirectusSync();
+    const before = sync.lastPullAt.value;
+    await sync.forcePull();
+
+    expect(sync.lastPullAt.value).not.toBe(before);
+    expect(sync.lastPullAt.value).toBeTruthy();
+  });
+
+  it('forcePull() sets syncStatus to syncing then idle on success', async () => {
+    const statuses = [];
+    vi.spyOn(global, 'fetch').mockImplementation(() => Promise.resolve(directusListResponse([])));
+
+    const sync = useDirectusSync();
+    const pullPromise = sync.forcePull();
+    statuses.push(sync.syncStatus.value);
+    await pullPromise;
+    statuses.push(sync.syncStatus.value);
+
+    expect(statuses[0]).toBe('syncing');
+    expect(statuses[1]).toBe('idle');
+  });
+
+  it('forcePull() sets syncStatus to offline when navigator is offline', async () => {
+    vi.stubGlobal('navigator', { onLine: false });
+
+    const sync = useDirectusSync();
+    await sync.forcePull();
+
+    expect(sync.syncStatus.value).toBe('offline');
+  });
+
   it('lastPushAt is set after a successful push', async () => {
     // Seed the queue with an entry
     const { enqueue } = await import('../useSyncQueue.js');
@@ -1722,7 +1756,7 @@ describe('WebSocket subscriptions', () => {
     // The pull loop should work even without WS
     await sync.forcePull();
 
-    // No error thrown, lastPullAt stays null (no records returned)
+    // No error thrown; lastPullAt is updated even with no new records (all collections up to date)
     expect(sync.syncStatus.value).not.toBe('error');
   });
 });

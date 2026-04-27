@@ -569,16 +569,12 @@ async function handleForcePull() {
   pullFeedback.value = null;
   clearTimeout(_pullFeedbackTimer);
   try {
-    const result = await sync.reconfigureAndApply({ clearLocalConfig: false });
-    if (!result?.ok) {
-      pullFeedback.value = 'error';
-      return;
-    }
+    // Best-effort config refresh; do not abort the operational data pull on failure.
+    await sync.reconfigureAndApply({ clearLocalConfig: false });
 
     const pullResult = await sync.forcePull();
-    const pullFailed = pullResult?.ok === false || sync.syncStatus.value === 'error';
-    pullFeedback.value = pullFailed ? 'error'
-      : sync.syncStatus.value === 'offline' ? 'offline'
+    pullFeedback.value = pullResult?.ok === false
+      ? (pullResult?.skippedReason === 'offline' ? 'offline' : 'error')
       : 'success';
   } catch {
     pullFeedback.value = 'error';
