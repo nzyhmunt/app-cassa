@@ -462,8 +462,10 @@ function logTypeBadgeClass(log) {
 
 // ── Actions ───────────────────────────────────────────────────────────────────
 
+const MAX_SYNC_LOGS = 200;
+
 async function loadLogs() {
-  logs.value = await getSyncLogs();
+  logs.value = await getSyncLogs(MAX_SYNC_LOGS);
 }
 
 function selectLog(log) {
