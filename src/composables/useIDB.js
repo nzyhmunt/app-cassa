@@ -10,7 +10,7 @@
 import { openDB } from 'idb';
 import { getInstanceName } from '../store/persistence.js';
 
-export const DB_VERSION = 12;
+export const DB_VERSION = 13;
 const DB_NAME_PREFIX = 'app-cassa';
 
 /**
@@ -49,10 +49,15 @@ const DB_NAME_PREFIX = 'app-cassa';
  *               indexes (created in v4 before the snake_case FK normalisation), added
  *               `table` and `bill_session` indexes keyed on the canonical snake_case
  *               FK fields. Existing records are back-filled so both keys are present.
+ *  v13 — Added `sync_logs` ObjectStore for Activity Logging & Debugging.
+ *               Each record captures direction (IN/OUT), type (PULL/PUSH/WS), endpoint,
+ *               payload, response, status, statusCode, and durationMs.
+ *               A `timestamp` index supports chronological reads and two-bucket
+ *               auto-purge (success ≤100, errors ≤200 + all within last 48 h).
  *
- * To add a new version (e.g. v12):
- *   1. Increment DB_VERSION to 12.
- *   2. Add a new `if (oldVersion < 12) { ... }` block inside the `upgrade()` callback.
+ * To add a new version (e.g. v14):
+ *   1. Increment DB_VERSION to 14.
+ *   2. Add a new `if (oldVersion < 14) { ... }` block inside the `upgrade()` callback.
  *   3. Prefer additive changes (new ObjectStores or new indexes). Only remove or modify
  *      existing stores/indexes when there is a clear justification: provide a data-migration
  *      path for users upgrading from earlier versions where needed, and for safe removals
@@ -400,6 +405,18 @@ export function getDB() {
         const s = db.createObjectStore('sync_failed_calls', { keyPath: 'id' });
         s.createIndex('failed_at', 'failed_at', { unique: false });
         s.createIndex('collection', 'collection', { unique: false });
+      }
+
+      // v13: sync_logs — activity log for all sync exchanges (push/pull/ws).
+      // keyPath is autoincrement so entries are ordered by insertion.
+      // The `timestamp` index supports chronological reads and the two-bucket
+      // auto-purge (success ≤SYNC_LOGS_MAX_SUCCESS, errors ≤SYNC_LOGS_MAX_ERRORS
+      // + all entries within the last SYNC_LOGS_ERROR_RETENTION_MS window).
+      if (!db.objectStoreNames.contains('sync_logs')) {
+        const s = db.createObjectStore('sync_logs', { keyPath: 'id', autoIncrement: true });
+        s.createIndex('timestamp', 'timestamp', { unique: false });
+        s.createIndex('type', 'type', { unique: false });
+        s.createIndex('direction', 'direction', { unique: false });
       }
 
       // ── Local-only metadata stores ─────────────────────────────────────────

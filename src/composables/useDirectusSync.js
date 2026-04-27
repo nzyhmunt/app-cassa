@@ -50,6 +50,7 @@ import {
   clearLocalConfigCacheFromIDB,
 } from '../store/persistence/config.js';
 import { reloadUsersFromIDB } from './useAuth.js';
+import { addSyncLog } from '../store/persistence/syncLogs.js';
 
 // ── Per-app pull config (§5.7.6) ─────────────────────────────────────────────
 
@@ -317,14 +318,40 @@ async function _fetchUpdatedViaSDK(collection, sinceTs, page = 1) {
     query.filter = { _and: conditions };
   }
 
+  const _pullStart = Date.now();
   try {
     const records = await client.request(readItems(collection, query));
+    const _pullDuration = Date.now() - _pullStart;
     const data = Array.isArray(records) ? records : [];
     const timestamps = data.map(r => r.date_updated).filter(Boolean);
     const maxTs = timestamps.length > 0 ? timestamps.reduce((a, b) => (a > b ? a : b)) : null;
+    addSyncLog({
+      direction: 'IN',
+      type: 'PULL',
+      endpoint: `/items/${collection}`,
+      payload: { collection, page, filter: query.filter ?? null, since: sinceTs ?? null },
+      response: { count: data.length, maxTs },
+      status: 'success',
+      statusCode: 200,
+      durationMs: _pullDuration,
+      collection,
+      recordCount: data.length,
+    });
     return { data, maxTs, error: null };
   } catch (e) {
     console.warn(`[DirectusSync] Pull ${collection} error:`, e?.message ?? e);
+    addSyncLog({
+      direction: 'IN',
+      type: 'PULL',
+      endpoint: `/items/${collection}`,
+      payload: { collection, page, filter: query.filter ?? null, since: sinceTs ?? null },
+      response: { error: e?.message ?? String(e) },
+      status: 'error',
+      statusCode: e?.response?.status ?? null,
+      durationMs: Date.now() - _pullStart,
+      collection,
+      recordCount: 0,
+    });
     return { data: [], maxTs: null, error: e };
   }
 }
@@ -498,6 +525,19 @@ async function _handleSubscriptionMessage(collection, message) {
   lastPullAt.value = new Date().toISOString();
   const echoNote = suppressedCount > 0 ? ` (${suppressedCount} self-echo(es) suppressed)` : '';
   console.info(`[DirectusSync] WS ${event} on ${collection}: ${writtenCount} record(s) written${echoNote}`);
+
+  addSyncLog({
+    direction: 'IN',
+    type: 'WS',
+    endpoint: `/subscriptions/${collection}`,
+    payload: { event, count: data.length, suppressedCount },
+    response: { writtenCount },
+    status: 'success',
+    statusCode: null,
+    durationMs: null,
+    collection,
+    recordCount: writtenCount,
+  });
 }
 
 /**
@@ -729,10 +769,14 @@ async function _runPull() {
         `[DirectusSync] Pull cycle details — merged: ${mergedSummary.join(', ') || 'none'}; failed: ${failedCollections.join(', ') || 'none'}.`,
       );
     }
-    if (anyMerged && allOk) {
+    if (allOk) {
       lastPullAt.value = new Date().toISOString();
-      console.info('[DirectusSync] Pull cycle completed successfully.');
-    } else if (!allOk) {
+      if (anyMerged) {
+        console.info('[DirectusSync] Pull cycle completed: merged records from server.');
+      } else {
+        console.info('[DirectusSync] Pull cycle completed: all collections up to date.');
+      }
+    } else {
       console.warn('[DirectusSync] Pull cycle incomplete: at least one collection failed.');
     }
     return { ok: allOk, failedCollections };
@@ -1364,7 +1408,28 @@ export function useDirectusSync() {
 
   async function forcePull() {
     if (!appConfig.directus?.enabled) return { ok: true, failedCollections: [] };
-    return _runPull();
+    syncStatus.value = 'syncing';
+    try {
+      const result = await _runPull();
+      if (result?.ok !== false) {
+        syncStatus.value = 'idle';
+      } else if (result?.skippedReason === 'offline') {
+        syncStatus.value = 'offline';
+      } else {
+        syncStatus.value = 'error';
+      }
+      return result;
+    } catch (e) {
+      syncStatus.value = 'error';
+      console.warn('forcePull failed unexpectedly', e);
+      return {
+        ok: false,
+        failedCollections: [],
+        ...(e && typeof e === 'object' && 'skippedReason' in e ? { skippedReason: e.skippedReason } : {}),
+        ...(e instanceof Error ? { message: e.message } : {}),
+        error: e,
+      };
+    }
   }
 
   /**
