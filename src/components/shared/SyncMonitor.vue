@@ -8,9 +8,9 @@
     <div class="bg-white rounded-t-3xl md:rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[94dvh] md:max-h-[88dvh]">
 
       <!-- Header -->
-      <div class="bg-gray-50 border-b border-gray-200 p-4 flex justify-between items-center shrink-0">
-        <h3 class="font-bold text-base flex items-center gap-2 text-gray-800">
-          <Activity class="size-4 text-gray-500" />
+      <div class="bg-gray-50 border-b border-gray-200 p-4 md:p-5 flex justify-between items-center shrink-0">
+        <h3 class="font-bold text-base md:text-lg flex items-center gap-2 text-gray-800">
+          <Activity class="size-4 md:size-5 text-gray-500" />
           Activity Monitor
         </h3>
         <button
@@ -23,15 +23,15 @@
       </div>
 
       <!-- Content -->
-      <div class="overflow-y-auto flex-1 p-4 space-y-4 bg-white pb-6">
+      <div class="overflow-y-auto flex-1 p-4 md:p-6 space-y-4 bg-white pb-8 md:pb-6">
 
         <!-- Sezione 1: Stato Real-time -->
         <div class="space-y-2">
-          <span class="block text-xs font-bold text-gray-500 uppercase tracking-wider">Stato Real-time</span>
+          <span class="block text-xs font-bold text-gray-600 uppercase tracking-wider">Stato Real-time</span>
           <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
             <!-- Online/Offline -->
             <div
-              class="rounded-xl border px-3 py-2.5 flex items-center gap-2"
+              class="rounded-2xl border px-3 py-2.5 flex items-center gap-2"
               :class="isOnline ? 'bg-emerald-50 border-emerald-200' : 'bg-red-50 border-red-200'"
             >
               <span
@@ -48,7 +48,7 @@
 
             <!-- WS Connected -->
             <div
-              class="rounded-xl border px-3 py-2.5 flex items-center gap-2"
+              class="rounded-2xl border px-3 py-2.5 flex items-center gap-2"
               :class="wsConnected ? 'bg-emerald-50 border-emerald-200' : 'bg-gray-50 border-gray-200'"
             >
               <span
@@ -64,7 +64,7 @@
             </div>
 
             <!-- Last Push -->
-            <div class="rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 flex items-center gap-2">
+            <div class="rounded-2xl border border-gray-200 bg-gray-50 px-3 py-2.5 flex items-center gap-2">
               <ArrowUpCircle class="size-3.5 text-purple-400 shrink-0" />
               <div class="min-w-0">
                 <p class="text-[10px] font-bold text-gray-500 leading-none mb-0.5">Ultimo Push</p>
@@ -73,7 +73,7 @@
             </div>
 
             <!-- Last Pull -->
-            <div class="rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 flex items-center gap-2">
+            <div class="rounded-2xl border border-gray-200 bg-gray-50 px-3 py-2.5 flex items-center gap-2">
               <ArrowDownCircle class="size-3.5 text-sky-400 shrink-0" />
               <div class="min-w-0">
                 <p class="text-[10px] font-bold text-gray-500 leading-none mb-0.5">Ultimo Pull</p>
@@ -87,7 +87,7 @@
         <div class="space-y-2">
           <!-- Log header with export/clear -->
           <div class="flex items-center justify-between">
-            <span class="text-xs font-bold text-gray-500 uppercase tracking-wider">
+            <span class="text-xs font-bold text-gray-600 uppercase tracking-wider">
               Activity Log
               <span v-if="filteredLogs.length !== logs.length" class="normal-case text-[10px] font-normal ml-1 text-gray-400">
                 ({{ filteredLogs.length }}/{{ logs.length }})
@@ -119,28 +119,28 @@
           <!-- Filter bar -->
           <div class="flex flex-wrap gap-2 items-center">
             <!-- Status filter -->
-            <div class="flex rounded-xl border border-gray-200 overflow-hidden bg-gray-50 shrink-0">
+            <div class="flex gap-1 bg-gray-100 p-1 rounded-xl shrink-0">
               <button
                 v-for="opt in STATUS_FILTER_OPTS"
                 :key="opt.value"
                 @click="filterStatus = opt.value"
-                class="px-2.5 py-1.5 text-[10px] font-bold transition-colors"
+                class="px-2.5 py-1.5 text-[10px] font-bold rounded-lg transition-all active:scale-95"
                 :class="filterStatus === opt.value
-                  ? 'bg-white shadow-sm text-gray-800'
-                  : 'text-gray-400 hover:text-gray-600'"
+                  ? 'bg-[var(--brand-primary)] text-white shadow-sm'
+                  : 'text-gray-500 hover:text-gray-700'"
               >{{ opt.label }}</button>
             </div>
 
             <!-- Type filter -->
-            <div class="flex rounded-xl border border-gray-200 overflow-hidden bg-gray-50 shrink-0">
+            <div class="flex gap-1 bg-gray-100 p-1 rounded-xl shrink-0">
               <button
                 v-for="opt in TYPE_FILTER_OPTS"
                 :key="opt.value"
                 @click="filterType = opt.value"
-                class="px-2.5 py-1.5 text-[10px] font-bold transition-colors flex items-center gap-1"
+                class="px-2.5 py-1.5 text-[10px] font-bold rounded-lg transition-all flex items-center gap-1 active:scale-95"
                 :class="filterType === opt.value
-                  ? 'bg-white shadow-sm text-gray-800'
-                  : 'text-gray-400 hover:text-gray-600'"
+                  ? 'bg-[var(--brand-primary)] text-white shadow-sm'
+                  : 'text-gray-500 hover:text-gray-700'"
               >
                 <component :is="opt.icon" class="size-2.5" />
                 {{ opt.label }}
@@ -154,7 +154,7 @@
                 v-model="searchText"
                 type="text"
                 placeholder="Cerca endpoint, collezione o ID…"
-                class="w-full pl-7 pr-2.5 py-1.5 text-[10px] border border-gray-200 rounded-xl bg-white focus:outline-none focus:ring-1 focus:ring-[var(--brand-primary)] placeholder:text-gray-400"
+                class="w-full pl-7 pr-2.5 py-1.5 text-[10px] border border-gray-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)] placeholder:text-gray-400"
               />
             </div>
           </div>
@@ -177,7 +177,7 @@
               v-for="log in filteredLogs"
               :key="log.id"
               @click="selectLog(log)"
-              class="w-full text-left rounded-xl border px-3 py-2.5 transition-colors active:scale-[0.99]"
+              class="w-full text-left rounded-2xl border px-3 py-2.5 transition-colors active:scale-[0.99]"
               :class="logRowClass(log)"
             >
               <div class="flex items-start justify-between gap-2">
@@ -190,7 +190,7 @@
                   />
                   <!-- Type badge -->
                   <span
-                    class="shrink-0 inline-flex items-center justify-center rounded-md px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide"
+                    class="shrink-0 inline-flex items-center justify-center rounded-lg px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide"
                     :class="logTypeBadgeClass(log)"
                   >{{ log.type }}</span>
                   <span class="text-xs font-semibold text-gray-700 truncate">{{ log.endpoint ?? log.collection ?? '—' }}</span>
@@ -232,7 +232,7 @@
               <component :is="directionIcon(selectedLog)" class="size-3.5 shrink-0" :class="directionIconClass(selectedLog)" />
               <span class="truncate">{{ selectedLog.endpoint ?? selectedLog.collection ?? '—' }}</span>
               <span
-                class="shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-md"
+                class="shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-lg"
                 :class="logTypeBadgeClass(selectedLog)"
               >{{ selectedLog.type }}</span>
             </span>
@@ -261,7 +261,7 @@
             <!-- Request pane -->
             <div>
               <div class="flex items-center justify-between mb-1">
-                <span class="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Request / Payload</span>
+                <span class="text-[10px] font-bold text-gray-600 uppercase tracking-wider">Request / Payload</span>
                 <button
                   @click="copyRequest"
                   class="flex items-center gap-1 text-[10px] font-bold text-gray-500 hover:text-gray-700 bg-white hover:bg-gray-100 border border-gray-200 px-2 py-0.5 rounded-lg transition-colors active:scale-95"
@@ -270,13 +270,13 @@
                   {{ copyRequestLabel }}
                 </button>
               </div>
-              <pre class="bg-white border border-gray-200 rounded-xl p-3 text-[10px] text-gray-700 overflow-x-auto max-h-32 whitespace-pre-wrap break-all font-mono">{{ formatJSON(selectedLog.payload) }}</pre>
+              <pre class="bg-white border border-gray-200 rounded-2xl p-3 text-[10px] text-gray-700 overflow-x-auto max-h-32 whitespace-pre-wrap break-all font-mono">{{ formatJSON(selectedLog.payload) }}</pre>
             </div>
 
             <!-- Response pane -->
             <div>
               <div class="flex items-center justify-between mb-1">
-                <span class="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Response</span>
+                <span class="text-[10px] font-bold text-gray-600 uppercase tracking-wider">Response</span>
                 <button
                   @click="copyResponse"
                   class="flex items-center gap-1 text-[10px] font-bold text-gray-500 hover:text-gray-700 bg-white hover:bg-gray-100 border border-gray-200 px-2 py-0.5 rounded-lg transition-colors active:scale-95"
@@ -286,7 +286,7 @@
                 </button>
               </div>
               <pre
-                class="bg-white border rounded-xl p-3 text-[10px] overflow-x-auto max-h-32 whitespace-pre-wrap break-all font-mono"
+                class="bg-white border rounded-2xl p-3 text-[10px] overflow-x-auto max-h-32 whitespace-pre-wrap break-all font-mono"
                 :class="selectedLog.status === 'error' ? 'border-red-200 text-red-700' : 'border-gray-200 text-gray-700'"
               >{{ formatJSON(selectedLog.response) }}</pre>
             </div>
