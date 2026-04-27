@@ -599,19 +599,23 @@ function formatJSON(value) {
 }
 
 function formatFailedCall(call) {
-  return JSON.stringify({
-    failed_at: call.failed_at,
-    queue_entry_id: call.queue_entry_id,
-    collection: call.collection,
-    operation: call.operation,
-    record_id: call.record_id,
-    attempts: call.attempts,
-    abandoned: call.abandoned,
-    error_message: call.error_message,
-    request: call.request,
-    response: call.response,
-    payload: call.payload,
-  }, null, 2);
+  try {
+    return JSON.stringify({
+      failed_at: call.failed_at,
+      queue_entry_id: call.queue_entry_id,
+      collection: call.collection,
+      operation: call.operation,
+      record_id: call.record_id,
+      attempts: call.attempts,
+      abandoned: call.abandoned,
+      error_message: call.error_message,
+      request: call.request,
+      response: call.response,
+      payload: call.payload,
+    }, null, 2);
+  } catch {
+    return '(impossibile serializzare i dettagli)';
+  }
 }
 
 /**
