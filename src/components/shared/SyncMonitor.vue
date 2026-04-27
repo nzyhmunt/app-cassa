@@ -157,7 +157,108 @@
           </div>
         </div>
 
-        <!-- Sezione 2: Activity Log -->
+        <!-- Sezione 2: Coda push attiva -->
+        <div class="space-y-2">
+          <div class="flex items-center justify-between">
+            <span class="block text-xs font-bold text-gray-600 uppercase tracking-wider">
+              Coda push
+              <span v-if="queueEntries.length > 0" class="ml-1 normal-case text-[10px] font-normal text-amber-500">({{ queueEntries.length }})</span>
+            </span>
+            <button
+              @click="_loadPendingQueueCount"
+              class="flex items-center gap-1 text-[10px] font-bold text-gray-500 hover:text-gray-700 bg-gray-100 hover:bg-gray-200 px-2 py-1 rounded-lg transition-colors active:scale-95"
+              title="Aggiorna coda e fallimenti"
+            >
+              <RefreshCw class="size-3" />
+              Aggiorna
+            </button>
+          </div>
+
+          <div v-if="queueEntries.length === 0" class="flex items-center gap-2 rounded-2xl border border-gray-100 bg-gray-50 px-3 py-2.5">
+            <CheckCircle class="size-3.5 text-emerald-400 shrink-0" />
+            <span class="text-xs text-gray-400">Coda vuota</span>
+          </div>
+          <div v-else class="space-y-1.5">
+            <div
+              v-for="entry in queueEntries"
+              :key="entry.id"
+              class="rounded-2xl border px-3 py-2.5 space-y-1"
+              :class="entry.attempts > 0 ? 'border-red-200 bg-red-50' : 'border-gray-100 bg-white'"
+            >
+              <div class="flex items-center justify-between gap-2">
+                <div class="flex items-center gap-1.5 min-w-0">
+                  <span
+                    class="shrink-0 text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-md"
+                    :class="{
+                      'bg-sky-100 text-sky-700':    entry.operation === 'create',
+                      'bg-amber-100 text-amber-700': entry.operation === 'update',
+                      'bg-red-100 text-red-600':    entry.operation === 'delete',
+                    }"
+                  >{{ entry.operation }}</span>
+                  <span class="text-xs font-semibold text-gray-700 truncate">{{ entry.collection }}</span>
+                </div>
+                <span
+                  class="shrink-0 text-[9px] font-medium px-1.5 py-0.5 rounded-full"
+                  :class="entry.attempts > 0 ? 'bg-red-100 text-red-600' : 'bg-gray-100 text-gray-500'"
+                >{{ entry.attempts > 0 ? `${entry.attempts} tent.` : 'in coda' }}</span>
+              </div>
+              <p class="text-[10px] text-gray-400 font-mono truncate">ID: {{ entry.record_id }}</p>
+              <p v-if="entry.attempts > 0 && entry.last_error" class="text-[10px] text-red-500 break-words">{{ entry.last_error }}</p>
+              <p class="text-[10px] text-gray-400">{{ formatTs(entry.date_created) }}</p>
+              <details v-if="entry.payload" class="text-[10px]">
+                <summary class="cursor-pointer text-gray-500 font-semibold select-none">Payload</summary>
+                <pre class="mt-1 bg-gray-50 border border-gray-200 rounded-xl p-2 text-[9px] text-gray-700 overflow-x-auto max-h-24 whitespace-pre-wrap break-all font-mono">{{ formatJSON(entry.payload) }}</pre>
+              </details>
+            </div>
+          </div>
+        </div>
+
+        <!-- Sezione 3: Chiamate fallite -->
+        <div class="space-y-2">
+          <span class="block text-xs font-bold text-gray-600 uppercase tracking-wider">
+            Chiamate fallite
+            <span v-if="failedCalls.length > 0" class="ml-1 normal-case text-[10px] font-normal text-red-500">({{ failedCalls.length }})</span>
+          </span>
+
+          <div v-if="failedCalls.length === 0" class="flex items-center gap-2 rounded-2xl border border-gray-100 bg-gray-50 px-3 py-2.5">
+            <CheckCircle class="size-3.5 text-emerald-400 shrink-0" />
+            <span class="text-xs text-gray-400">Nessuna chiamata fallita</span>
+          </div>
+          <div v-else class="space-y-1.5">
+            <div
+              v-for="call in failedCalls"
+              :key="call.id"
+              class="rounded-2xl border border-red-200 bg-red-50 px-3 py-2.5 space-y-1"
+            >
+              <div class="flex items-start justify-between gap-2">
+                <div class="flex items-center gap-1.5 min-w-0">
+                  <span
+                    class="shrink-0 text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-md"
+                    :class="{
+                      'bg-sky-100 text-sky-700':    call.operation === 'create',
+                      'bg-amber-100 text-amber-700': call.operation === 'update',
+                      'bg-red-100 text-red-600':    call.operation === 'delete',
+                    }"
+                  >{{ call.operation }}</span>
+                  <span class="text-xs font-semibold text-gray-700 truncate">{{ call.collection }}</span>
+                </div>
+                <div class="flex items-center gap-1 shrink-0">
+                  <span class="text-[9px] px-1.5 py-0.5 rounded-full bg-red-100 text-red-600">{{ call.attempts }} tent.</span>
+                  <span v-if="call.abandoned" class="text-[9px] px-1.5 py-0.5 rounded-full bg-gray-200 text-gray-600">Rimossa</span>
+                </div>
+              </div>
+              <p class="text-[10px] text-gray-400 font-mono truncate">Record: {{ call.record_id }}</p>
+              <p class="text-[10px] text-red-600 break-words">{{ call.error_message }}</p>
+              <p class="text-[10px] text-gray-400">{{ formatTs(call.failed_at) }}</p>
+              <details class="text-[10px]">
+                <summary class="cursor-pointer text-gray-500 font-semibold select-none">Dettagli request/response</summary>
+                <pre class="mt-1 bg-white border border-red-200 rounded-xl p-2 text-[9px] text-gray-700 overflow-x-auto max-h-32 whitespace-pre-wrap break-all font-mono">{{ formatFailedCall(call) }}</pre>
+              </details>
+            </div>
+          </div>
+        </div>
+
+        <!-- Sezione 4: Activity Log -->
         <div class="space-y-2">
           <!-- Log header with export/clear -->
           <div class="flex items-center justify-between">
@@ -389,7 +490,7 @@ import {
 } from 'lucide-vue-next';
 import { useDirectusSync } from '../../composables/useDirectusSync.js';
 import { getSyncLogs, clearSyncLogs, exportSyncLogs, _BC_CHANNEL, _TAB_ID, SYNC_LOGS_MAX_SUCCESS, SYNC_LOGS_MAX_ERRORS } from '../../store/persistence/syncLogs.js';
-import { getPendingEntries } from '../../composables/useSyncQueue.js';
+import { getPendingEntries, getFailedSyncCalls } from '../../composables/useSyncQueue.js';
 
 const props = defineProps({
   modelValue: Boolean,
@@ -429,6 +530,8 @@ const copyBlockLabel    = ref('Blocco');
 
 // Push / Pull state
 const pendingQueueCount = ref(0);
+const queueEntries = ref([]);
+const failedCalls = ref([]);
 const pushing = ref(false);
 const pulling = ref(false);
 const pushFeedback = ref(null); // null | 'success' | 'offline' | 'error'
@@ -493,6 +596,22 @@ function formatJSON(value) {
   } catch {
     return String(value);
   }
+}
+
+function formatFailedCall(call) {
+  return JSON.stringify({
+    failed_at: call.failed_at,
+    queue_entry_id: call.queue_entry_id,
+    collection: call.collection,
+    operation: call.operation,
+    record_id: call.record_id,
+    attempts: call.attempts,
+    abandoned: call.abandoned,
+    error_message: call.error_message,
+    request: call.request,
+    response: call.response,
+    payload: call.payload,
+  }, null, 2);
 }
 
 /**
@@ -563,8 +682,15 @@ async function _loadPendingQueueCount() {
   try {
     const entries = await getPendingEntries();
     pendingQueueCount.value = entries.length;
+    queueEntries.value = entries;
   } catch {
     pendingQueueCount.value = 0;
+    queueEntries.value = [];
+  }
+  try {
+    failedCalls.value = await getFailedSyncCalls();
+  } catch {
+    failedCalls.value = [];
   }
 }
 
