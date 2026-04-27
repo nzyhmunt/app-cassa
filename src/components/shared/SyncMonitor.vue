@@ -624,7 +624,7 @@ async function handleForcePull() {
   clearTimeout(_pullFeedbackTimer);
   try {
     // Best-effort config refresh first (venues, menu, etc.) — don't abort the operational pull on failure.
-    try { await sync.reconfigureAndApply({ clearLocalConfig: false }); } catch {}
+    try { await sync.reconfigureAndApply({ clearLocalConfig: false }); } catch (e) { console.debug('[SyncMonitor] Config refresh failed:', e); }
     const pullResult = await sync.forcePull();
     if (pullResult?.ok) {
       pullFeedback.value = 'success';
