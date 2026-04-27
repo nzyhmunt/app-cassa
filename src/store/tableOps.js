@@ -748,13 +748,12 @@ export function makeTableOps(state, helpers) {
       _enqueueChangedOrders(previousOrders, projectedOrders);
       _enqueueChangedTransactions(previousTransactions, nextTransactions);
       if (createdTargetSession) enqueueBillSessionCreate(createdTargetSession);
+      if (partialMoveItems.length > 0) await addDirectOrder(targetTableId, targetSessionId, partialMoveItems);
     }
     // Bill-session patch enqueues are gated on their own IDB persistence succeeding.
     if (billSessionsSavedToIDB) {
       billSessionPatches.forEach(({ billSessionId, payload }) => enqueueBillSessionUpdate(billSessionId, payload));
     }
-
-    if (partialMoveItems.length > 0) await addDirectOrder(targetTableId, targetSessionId, partialMoveItems);
 
     return true;
   }
