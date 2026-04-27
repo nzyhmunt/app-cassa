@@ -1476,10 +1476,17 @@ export function useDirectusSync() {
 
   /**
    * Manually triggers a full push drain of the sync queue.
-   * @returns {Promise<{ pushed: number, failed: number, abandoned: number, pushedIds: Array<{ collection: string, recordId: string }>, offline: boolean }>}
+   * @returns {Promise<{
+   *   pushed: number,
+   *   failed: number,
+   *   abandoned: number,
+   *   pushedIds: Array<{ collection: string, recordId: string }>,
+   *   offline: boolean,
+   *   skippedReason?: 'no-config' | 'disabled',
+   * }>}
    */
   async function forcePush() {
-    if (!appConfig.directus?.enabled) return { pushed: 0, failed: 0, abandoned: 0, pushedIds: [], offline: false };
+    if (!appConfig.directus?.enabled) return { pushed: 0, failed: 0, abandoned: 0, pushedIds: [], offline: false, skippedReason: 'disabled' };
     return _runPush();
   }
 
