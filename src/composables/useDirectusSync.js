@@ -736,7 +736,15 @@ async function _runPush() {
       }
       const cfg = _getCfg();
       if (!cfg) {
-        return { pushed: 0, failed: 0, abandoned: 0, pushedIds: [], offline: false };
+        syncStatus.value = 'idle';
+        return {
+          pushed: 0,
+          failed: 0,
+          abandoned: 0,
+          pushedIds: [],
+          offline: false,
+          skippedReason: 'no-config',
+        };
       }
       syncStatus.value = 'syncing';
       const result = await drainQueue(cfg);
