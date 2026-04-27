@@ -1446,7 +1446,8 @@ export function useDirectusSync() {
     const wsCollections = menuSource === 'json'
       ? pullCfg.collections.filter(c => c !== 'menu_items')
       : pullCfg.collections;
-    // Persist at module level so _reconnectWs can re-use the same collection list.
+    // Persist the last computed collection list at module level; reconnect logic
+    // recomputes the effective list from the current appConfig when reconnecting.
     _wsCollections = wsCollections;
 
     if (wsEnabled) {
