@@ -3,13 +3,16 @@
   <div
     v-if="modelValue"
     class="fixed inset-0 z-[95] bg-black/60 backdrop-blur-sm flex items-end md:items-center justify-center p-0 md:p-4"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="sync-monitor-title"
     @click.self="$emit('update:modelValue', false)"
   >
     <div class="bg-white rounded-t-3xl md:rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[94dvh] md:max-h-[88dvh]">
 
       <!-- Header -->
       <div class="bg-gray-50 border-b border-gray-200 p-4 md:p-5 flex justify-between items-center shrink-0">
-        <h3 class="font-bold text-base md:text-lg flex items-center gap-2 text-gray-800">
+        <h3 id="sync-monitor-title" class="font-bold text-base md:text-lg flex items-center gap-2 text-gray-800">
           <Activity class="size-4 md:size-5 text-gray-500" />
           Activity Monitor
         </h3>
