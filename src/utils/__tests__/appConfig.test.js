@@ -6,6 +6,8 @@ import {
   mapOrderToDirectus,
   mapOrderItemToDirectus,
   mapOrderItemModifierToDirectus,
+  mapPayloadToDirectus,
+  looksLikeDirectusId,
 } from '../mappers.js';
 
 describe('appConfig', () => {
@@ -305,6 +307,115 @@ describe('appConfig', () => {
       const payload = mapOrderItemModifierToDirectus(modifier);
 
       expect(payload.voided_quantity).toBe(1);
+    });
+  });
+
+  describe('looksLikeDirectusId', () => {
+    it('returns true for a valid UUID v4', () => {
+      expect(looksLikeDirectusId('550e8400-e29b-41d4-a716-446655440000')).toBe(true);
+    });
+
+    it('returns true for a valid UUID v7', () => {
+      expect(looksLikeDirectusId('019dd0fe-6919-7000-bb0d-c9bea4d1acc9')).toBe(true);
+    });
+
+    it('returns false for a local JSON-menu ID like ant_1', () => {
+      expect(looksLikeDirectusId('ant_1')).toBe(false);
+    });
+
+    it('returns false for null', () => {
+      expect(looksLikeDirectusId(null)).toBe(false);
+    });
+
+    it('returns false for an empty string', () => {
+      expect(looksLikeDirectusId('')).toBe(false);
+    });
+  });
+
+  describe('mapOrderItemToDirectus — dish field', () => {
+    it('keeps a real UUID dish FK', () => {
+      const item = { uid: 'r1', name: 'Pasta', quantity: 1, dish: '019dd0fe-6919-7000-bb0d-c9bea4d1acc9' };
+      const payload = mapOrderItemToDirectus(item);
+      expect(payload.dish).toBe('019dd0fe-6919-7000-bb0d-c9bea4d1acc9');
+    });
+
+    it('nullifies a local JSON-menu dish ID (e.g. ant_1) to prevent 400 INVALID_FOREIGN_KEY', () => {
+      const item = { uid: 'r1', name: 'Pinzimonio di verdure', quantity: 1, dish: 'ant_1' };
+      const payload = mapOrderItemToDirectus(item);
+      expect(payload.dish).toBeNull();
+    });
+
+    it('nullifies a local dishId like ant_3', () => {
+      const item = { uid: 'r2', name: 'Polpette', quantity: 1, dishId: 'ant_3' };
+      const payload = mapOrderItemToDirectus(item);
+      expect(payload.dish).toBeNull();
+    });
+
+    it('keeps null dish when neither dish nor dishId is set', () => {
+      const item = { uid: 'r3', name: 'Coperto', quantity: 1 };
+      const payload = mapOrderItemToDirectus(item);
+      expect(payload.dish).toBeNull();
+    });
+  });
+
+  describe('mapPayloadToDirectus — order_items dish and audit propagation', () => {
+    it('drops local JSON-menu dish IDs from nested order_items to prevent 400', () => {
+      const orderPayload = {
+        id: '019dd0fe-576c-7000-bccb-7bf8b07831f8',
+        venue_user_updated: '29a77c55-0055-4d20-9c11-2913ac974a75',
+        orderItems: [
+          { uid: 'r_1', name: 'Pinzimonio', quantity: 1, dish: 'ant_1', unit_price: 3 },
+          { uid: 'r_2', name: 'Polpette',   quantity: 1, dish: 'ant_3', unit_price: 8 },
+        ],
+      };
+      const result = mapPayloadToDirectus('orders', orderPayload, { recordId: '019dd0fe-576c-7000-bccb-7bf8b07831f8' });
+      expect(result.order_items[0].dish).toBeNull();
+      expect(result.order_items[1].dish).toBeNull();
+    });
+
+    it('keeps valid UUID dish FKs in nested order_items', () => {
+      const uuid = '019dd0fe-6919-7000-bb0d-c9bea4d1acc9';
+      const orderPayload = {
+        id: '019dd0fe-576c-7000-bccb-7bf8b07831f8',
+        orderItems: [{ uid: 'r_1', name: 'Pasta', quantity: 1, dish: uuid }],
+      };
+      const result = mapPayloadToDirectus('orders', orderPayload, {});
+      expect(result.order_items[0].dish).toBe(uuid);
+    });
+
+    it('propagates venue_user_updated to venue_user_created on nested items in update-only payloads', () => {
+      // PATCH order carries only venue_user_updated (no venue_user_created)
+      const userUuid = '29a77c55-0055-4d20-9c11-2913ac974a75';
+      const orderPayload = {
+        venue_user_updated: userUuid,
+        orderItems: [{ uid: 'r_1', name: 'Pasta', quantity: 1 }],
+      };
+      const result = mapPayloadToDirectus('orders', orderPayload, { recordId: '019dd0fe-576c-7000-bccb-7bf8b07831f8' });
+      expect(result.order_items[0].venue_user_created).toBe(userUuid);
+      expect(result.order_items[0].venue_user_updated).toBe(userUuid);
+    });
+
+    it('prefers venue_user_created over venue_user_updated for venue_user_created propagation', () => {
+      const createdUser = 'aaa00000-0000-0000-0000-000000000001';
+      const updatedUser = 'bbb00000-0000-0000-0000-000000000002';
+      const orderPayload = {
+        venue_user_created: createdUser,
+        venue_user_updated: updatedUser,
+        orderItems: [{ uid: 'r_1', name: 'Pasta', quantity: 1 }],
+      };
+      const result = mapPayloadToDirectus('orders', orderPayload, {});
+      expect(result.order_items[0].venue_user_created).toBe(createdUser);
+      expect(result.order_items[0].venue_user_updated).toBe(updatedUser);
+    });
+
+    it('propagates camelCase venueUserUpdated as fallback for venue_user_created', () => {
+      const userUuid = '29a77c55-0055-4d20-9c11-2913ac974a75';
+      const orderPayload = {
+        venueUserUpdated: userUuid,
+        orderItems: [{ uid: 'r_1', name: 'Pasta', quantity: 1 }],
+      };
+      const result = mapPayloadToDirectus('orders', orderPayload, { recordId: '019dd0fe-576c-7000-bccb-7bf8b07831f8' });
+      expect(result.order_items[0].venue_user_created).toBe(userUuid);
     });
   });
 

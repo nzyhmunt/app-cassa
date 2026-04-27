@@ -15,6 +15,19 @@
 
 import { resolvePaymentMethodMeta } from './paymentMethods.js';
 
+/**
+ * Returns true when `value` looks like a Directus UUID (v4 or v7 format).
+ * Local JSON-menu IDs (e.g. "ant_1", "cat_2") are not valid UUIDs and must
+ * not be sent as Directus FK values; this guard is used to drop them before
+ * the payload reaches the API.
+ * @param {unknown} value
+ * @returns {boolean}
+ */
+export function looksLikeDirectusId(value) {
+  if (typeof value !== 'string') return false;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+}
+
 export function relationId(value) {
   if (value == null) return null;
   if (typeof value === 'object') return value.id ?? null;
@@ -219,13 +232,17 @@ export function mapOrderItemFromDirectus(record) {
 
 export function mapOrderItemToDirectus(record) {
   const source = record ?? {};
+  const rawDishId = relationId(source.dish ?? source.dishId ?? null);
   const out = {
     ...source,
     unit_price: source.unit_price ?? source.unitPrice ?? 0,
     voided_quantity: source.voidedQuantity ?? source.voided_quantity ?? 0,
     kitchen_ready: source.kitchen_ready ?? source.kitchenReady ?? false,
     order: relationId(source.order ?? source.orderId ?? null),
-    dish: relationId(source.dish ?? source.dishId ?? null),
+    // Only forward the dish FK when it is a real Directus UUID.  When the
+    // app uses a JSON menu the local item IDs (e.g. "ant_1") are not valid
+    // Directus FKs and must be omitted to avoid a 400 INVALID_FOREIGN_KEY.
+    dish: looksLikeDirectusId(rawDishId) ? rawDishId : null,
   };
   const venueUserCreated = source.venue_user_created ?? source.venueUserCreated;
   if (venueUserCreated != null) {
@@ -1215,12 +1232,28 @@ export function mapPayloadToDirectus(collection, payload, ctx = {}) {
       // order_items, which are always written as nested payloads of their parent
       // order and therefore bypass the per-collection _withVenueUserAuditPayload
       // enrichment that runs on top-level sync_queue entries.
+      // For update-only flows the queued PATCH carries only venue_user_updated
+      // (no venue_user_created); in that case fall back to venue_user_updated so
+      // that new items nested inside an update also get a non-null created author.
+      // Both snake_case (Directus-normalised) and camelCase (local model) variants
+      // are checked because the payload may arrive in either form.
       if (directItem.venue_user_created == null) {
-        const auditUser = cleaned.venue_user_created ?? payload?.venue_user_created ?? null;
+        const auditUser =
+          cleaned.venue_user_created ??
+          payload?.venue_user_created ??
+          payload?.venueUserCreated ??
+          cleaned.venue_user_updated ??
+          payload?.venue_user_updated ??
+          payload?.venueUserUpdated ??
+          null;
         if (auditUser != null) directItem.venue_user_created = auditUser;
       }
       if (directItem.venue_user_updated == null) {
-        const auditUser = cleaned.venue_user_updated ?? payload?.venue_user_updated ?? null;
+        const auditUser =
+          cleaned.venue_user_updated ??
+          payload?.venue_user_updated ??
+          payload?.venueUserUpdated ??
+          null;
         if (auditUser != null) directItem.venue_user_updated = auditUser;
       }
       // Enrich already-expanded modifiers (populated by Step 3 in the recursive
