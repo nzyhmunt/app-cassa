@@ -330,6 +330,9 @@ export const useOrderStore = defineStore('orders', () => {
       // subsequent mutation on the same order observes the same item/modifier
       // IDs even if the IDB write or event-bus propagation is still pending.
       const nextOrders = _replaceOrderById(ordId, projectedOrder);
+      // Suppress the watcher-triggered debounced save so the explicit saveStateToIDB
+      // call below is the sole IDB write for this reactive update.
+      _skipNextScheduledSave('orders');
       orders.value = nextOrders;
       saveStateToIDB({ orders: nextOrders }).catch((error) => {
         console.error('Failed to persist generated order item IDs to IDB', error);
