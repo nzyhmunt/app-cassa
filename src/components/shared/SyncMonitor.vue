@@ -600,9 +600,14 @@ async function handleForcePush() {
   pushFeedback.value = null;
   clearTimeout(_pushFeedbackTimer);
   try {
-    await sync.forcePush();
-    pushFeedback.value = sync.syncStatus.value === 'error' ? 'error'
-      : sync.syncStatus.value === 'offline' ? 'offline' : 'success';
+    const result = await sync.forcePush();
+    if (result?.offline) {
+      pushFeedback.value = 'offline';
+    } else if (result?.failed > 0 || sync.syncStatus.value === 'error') {
+      pushFeedback.value = 'error';
+    } else {
+      pushFeedback.value = 'success';
+    }
   } catch {
     pushFeedback.value = 'error';
   } finally {
@@ -618,6 +623,8 @@ async function handleForcePull() {
   pullFeedback.value = null;
   clearTimeout(_pullFeedbackTimer);
   try {
+    // Best-effort config refresh first (venues, menu, etc.) — don't abort the operational pull on failure.
+    try { await sync.reconfigureAndApply({ clearLocalConfig: false }); } catch {}
     const pullResult = await sync.forcePull();
     if (pullResult?.ok) {
       pullFeedback.value = 'success';

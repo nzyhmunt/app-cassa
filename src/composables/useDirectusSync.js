@@ -723,9 +723,14 @@ async function _runPush() {
   if (_pushInFlight) return _pushInFlight;
   _pushInFlight = (async () => {
     try {
-      if (!navigator.onLine) return;
+      if (!navigator.onLine) {
+        syncStatus.value = 'offline';
+        return { pushed: 0, failed: 0, abandoned: 0, pushedIds: [], offline: true };
+      }
       const cfg = _getCfg();
-      if (!cfg) return;
+      if (!cfg) {
+        return { pushed: 0, failed: 0, abandoned: 0, pushedIds: [], offline: false };
+      }
       syncStatus.value = 'syncing';
       const result = await drainQueue(cfg);
       if (result.pushed > 0 || result.abandoned > 0) {
@@ -738,9 +743,11 @@ async function _runPush() {
       syncStatus.value = result.offline
         ? 'offline'
         : result.failed > 0 ? 'error' : 'idle';
+      return result;
     } catch (e) {
       console.warn('[DirectusSync] Push error:', e);
       syncStatus.value = 'error';
+      return { pushed: 0, failed: 0, abandoned: 0, pushedIds: [], offline: false };
     } finally {
       _pushInFlight = null;
     }
