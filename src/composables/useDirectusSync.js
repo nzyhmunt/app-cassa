@@ -336,7 +336,7 @@ async function _fetchUpdatedViaSDK(collection, sinceTs, page = 1) {
       durationMs: _pullDuration,
       collection,
       recordCount: data.length,
-    }).catch(() => {});
+    });
     return { data, maxTs, error: null };
   } catch (e) {
     console.warn(`[DirectusSync] Pull ${collection} error:`, e?.message ?? e);
@@ -351,7 +351,7 @@ async function _fetchUpdatedViaSDK(collection, sinceTs, page = 1) {
       durationMs: Date.now() - _pullStart,
       collection,
       recordCount: 0,
-    }).catch(() => {});
+    });
     return { data: [], maxTs: null, error: e };
   }
 }
@@ -537,7 +537,7 @@ async function _handleSubscriptionMessage(collection, message) {
     durationMs: null,
     collection,
     recordCount: writtenCount,
-  }).catch(() => {});
+  });
 }
 
 /**
