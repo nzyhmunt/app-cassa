@@ -65,7 +65,7 @@
 
             <!-- Last Push -->
             <div class="rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 flex items-center gap-2">
-              <Upload class="size-3.5 text-gray-400 shrink-0" />
+              <ArrowUpCircle class="size-3.5 text-purple-400 shrink-0" />
               <div class="min-w-0">
                 <p class="text-[10px] font-bold text-gray-500 leading-none mb-0.5">Ultimo Push</p>
                 <p class="text-xs font-bold text-gray-700 truncate">{{ lastPushLabel }}</p>
@@ -74,7 +74,7 @@
 
             <!-- Last Pull -->
             <div class="rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 flex items-center gap-2">
-              <Download class="size-3.5 text-gray-400 shrink-0" />
+              <ArrowDownCircle class="size-3.5 text-sky-400 shrink-0" />
               <div class="min-w-0">
                 <p class="text-[10px] font-bold text-gray-500 leading-none mb-0.5">Ultimo Pull</p>
                 <p class="text-xs font-bold text-gray-700 truncate">{{ lastPullLabel }}</p>
@@ -85,8 +85,17 @@
 
         <!-- Sezione 2: Activity Log -->
         <div class="space-y-2">
+          <!-- Log header with export/clear -->
           <div class="flex items-center justify-between">
-            <span class="text-xs font-bold text-gray-500 uppercase tracking-wider">Activity Log</span>
+            <span class="text-xs font-bold text-gray-500 uppercase tracking-wider">
+              Activity Log
+              <span v-if="filteredLogs.length !== logs.length" class="normal-case text-[10px] font-normal ml-1 text-gray-400">
+                ({{ filteredLogs.length }}/{{ logs.length }})
+              </span>
+              <span v-else-if="logs.length > 0" class="normal-case text-[10px] font-normal ml-1 text-gray-400">
+                ({{ logs.length }})
+              </span>
+            </span>
             <div class="flex items-center gap-1.5">
               <button
                 @click="exportSession"
@@ -94,7 +103,7 @@
                 title="Esporta tutti i log come file JSON"
               >
                 <FileDown class="size-3" />
-                Esporta Sessione
+                Esporta
               </button>
               <button
                 @click="clearLogs"
@@ -107,55 +116,104 @@
             </div>
           </div>
 
+          <!-- Filter bar -->
+          <div class="flex flex-wrap gap-2 items-center">
+            <!-- Status filter -->
+            <div class="flex rounded-xl border border-gray-200 overflow-hidden bg-gray-50 shrink-0">
+              <button
+                v-for="opt in STATUS_FILTER_OPTS"
+                :key="opt.value"
+                @click="filterStatus = opt.value"
+                class="px-2.5 py-1.5 text-[10px] font-bold transition-colors"
+                :class="filterStatus === opt.value
+                  ? 'bg-white shadow-sm text-gray-800'
+                  : 'text-gray-400 hover:text-gray-600'"
+              >{{ opt.label }}</button>
+            </div>
+
+            <!-- Type filter -->
+            <div class="flex rounded-xl border border-gray-200 overflow-hidden bg-gray-50 shrink-0">
+              <button
+                v-for="opt in TYPE_FILTER_OPTS"
+                :key="opt.value"
+                @click="filterType = opt.value"
+                class="px-2.5 py-1.5 text-[10px] font-bold transition-colors flex items-center gap-1"
+                :class="filterType === opt.value
+                  ? 'bg-white shadow-sm text-gray-800'
+                  : 'text-gray-400 hover:text-gray-600'"
+              >
+                <component :is="opt.icon" class="size-2.5" />
+                {{ opt.label }}
+              </button>
+            </div>
+
+            <!-- Text search -->
+            <div class="flex-1 min-w-[120px] relative">
+              <Search class="size-3 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+              <input
+                v-model="searchText"
+                type="text"
+                placeholder="Cerca endpoint, collezione o ID…"
+                class="w-full pl-7 pr-2.5 py-1.5 text-[10px] border border-gray-200 rounded-xl bg-white focus:outline-none focus:ring-1 focus:ring-[var(--brand-primary)] placeholder:text-gray-400"
+              />
+            </div>
+          </div>
+
           <!-- Empty state -->
           <div v-if="logs.length === 0" class="text-center py-10 text-gray-400">
             <Activity class="size-8 mx-auto mb-2 opacity-30" />
             <p class="text-sm">Nessuna attività registrata</p>
             <p class="text-[10px] mt-1">I log appariranno qui dopo la prima sincronizzazione</p>
           </div>
+          <div v-else-if="filteredLogs.length === 0" class="text-center py-8 text-gray-400">
+            <Search class="size-7 mx-auto mb-2 opacity-30" />
+            <p class="text-sm">Nessun risultato</p>
+            <p class="text-[10px] mt-1">Modifica i filtri o la ricerca</p>
+          </div>
 
           <!-- Log list -->
           <div v-else class="space-y-1.5">
             <button
-              v-for="log in logs"
+              v-for="log in filteredLogs"
               :key="log.id"
               @click="selectLog(log)"
               class="w-full text-left rounded-xl border px-3 py-2.5 transition-colors active:scale-[0.99]"
-              :class="[
-                selectedLog?.id === log.id
-                  ? 'border-[var(--brand-primary)] bg-[var(--brand-primary)]/5'
-                  : 'border-gray-200 hover:bg-gray-50',
-                log.status === 'error' ? 'border-red-200 bg-red-50 hover:bg-red-100' : '',
-              ]"
+              :class="logRowClass(log)"
             >
               <div class="flex items-start justify-between gap-2">
-                <div class="flex items-center gap-2 min-w-0">
-                  <!-- Direction / Type badge -->
-                  <span
-                    class="shrink-0 inline-flex items-center justify-center rounded-md px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide"
-                    :class="logBadgeClass(log)"
-                  >{{ log.direction }}</span>
+                <div class="flex items-center gap-1.5 min-w-0">
+                  <!-- Direction icon -->
+                  <component
+                    :is="directionIcon(log)"
+                    class="size-3.5 shrink-0"
+                    :class="directionIconClass(log)"
+                  />
+                  <!-- Type badge -->
                   <span
                     class="shrink-0 inline-flex items-center justify-center rounded-md px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide"
                     :class="logTypeBadgeClass(log)"
                   >{{ log.type }}</span>
-                  <span class="text-xs font-bold text-gray-700 truncate">{{ log.endpoint ?? log.collection ?? '—' }}</span>
+                  <span class="text-xs font-semibold text-gray-700 truncate">{{ log.endpoint ?? log.collection ?? '—' }}</span>
                 </div>
                 <div class="flex items-center gap-2 shrink-0">
+                  <!-- Status dot -->
                   <span
-                    class="inline-block size-1.5 rounded-full"
-                    :class="log.status === 'success' ? 'bg-emerald-500' : 'bg-red-500'"
+                    class="inline-block size-1.5 rounded-full shrink-0"
+                    :class="statusDotClass(log)"
                   ></span>
                   <span class="text-[10px] text-gray-400">{{ formatTs(log.timestamp) }}</span>
                 </div>
               </div>
-              <div class="mt-1 flex items-center gap-3 text-[10px] text-gray-500">
-                <span v-if="log.collection">{{ log.collection }}</span>
-                <span v-if="log.recordCount != null">{{ log.recordCount }} record</span>
+              <div class="mt-1 flex items-center gap-3 text-[10px]" :class="logMetaClass(log)">
+                <span v-if="log.collection && log.collection !== log.endpoint">{{ log.collection }}</span>
+                <span v-if="log.recordCount != null">{{ log.recordCount }} rec</span>
                 <span v-if="log.durationMs != null">{{ log.durationMs }}ms</span>
-                <span v-if="log.statusCode != null" :class="log.status === 'error' ? 'text-red-600 font-bold' : ''">
-                  HTTP {{ log.statusCode }}
-                </span>
+                <span
+                  v-if="log.statusCode != null"
+                  class="font-bold"
+                  :class="log.status === 'error' ? '' : 'font-normal'"
+                >HTTP {{ log.statusCode }}</span>
+                <span v-if="log.status === 'error' && !log.statusCode" class="font-bold">Network Error</span>
               </div>
             </button>
           </div>
@@ -170,19 +228,34 @@
         >
           <!-- Detail header -->
           <div class="flex items-center justify-between p-3 border-b border-gray-200 shrink-0">
-            <span class="text-xs font-bold text-gray-700 flex items-center gap-1.5">
-              <Search class="size-3.5 text-gray-400" />
-              Dettaglio: <span class="text-gray-500 font-normal truncate max-w-[200px]">{{ selectedLog.endpoint ?? selectedLog.collection }}</span>
+            <span class="text-xs font-bold text-gray-700 flex items-center gap-1.5 min-w-0">
+              <component :is="directionIcon(selectedLog)" class="size-3.5 shrink-0" :class="directionIconClass(selectedLog)" />
+              <span class="truncate">{{ selectedLog.endpoint ?? selectedLog.collection ?? '—' }}</span>
+              <span
+                class="shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-md"
+                :class="logTypeBadgeClass(selectedLog)"
+              >{{ selectedLog.type }}</span>
             </span>
-            <button
-              @click="selectedLog = null"
-              class="text-gray-400 hover:text-gray-700 bg-gray-200 hover:bg-gray-300 rounded-full p-1 transition-colors active:scale-95"
-            >
-              <X class="size-3.5" />
-            </button>
+            <div class="flex items-center gap-1.5 shrink-0">
+              <!-- Copy technical block -->
+              <button
+                @click="copyTechBlock"
+                class="flex items-center gap-1 text-[10px] font-bold text-gray-500 hover:text-gray-700 bg-white hover:bg-gray-100 border border-gray-200 px-2 py-0.5 rounded-lg transition-colors active:scale-95"
+                title="Copia blocco tecnico completo"
+              >
+                <ClipboardList class="size-3" />
+                {{ copyBlockLabel }}
+              </button>
+              <button
+                @click="selectedLog = null"
+                class="text-gray-400 hover:text-gray-700 bg-gray-200 hover:bg-gray-300 rounded-full p-1 transition-colors active:scale-95"
+              >
+                <X class="size-3.5" />
+              </button>
+            </div>
           </div>
 
-          <!-- Detail content with two panes -->
+          <!-- Detail content -->
           <div class="overflow-y-auto flex-1 p-3 space-y-3">
 
             <!-- Request pane -->
@@ -227,9 +300,12 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue';
-import { Activity, X, Upload, Download, FileDown, Trash2, Search, Copy } from 'lucide-vue-next';
+import {
+  Activity, X, ArrowUpCircle, ArrowDownCircle, RefreshCw,
+  FileDown, Trash2, Search, Copy, ClipboardList,
+} from 'lucide-vue-next';
 import { useDirectusSync } from '../../composables/useDirectusSync.js';
-import { getSyncLogs, clearSyncLogs, exportSyncLogs } from '../../store/persistence/syncLogs.js';
+import { getSyncLogs, clearSyncLogs, exportSyncLogs, _BC_CHANNEL } from '../../store/persistence/syncLogs.js';
 
 const props = defineProps({
   modelValue: Boolean,
@@ -238,14 +314,34 @@ defineEmits(['update:modelValue']);
 
 const sync = useDirectusSync();
 
+// ── Filter options (static constants) ────────────────────────────────────────
+
+const STATUS_FILTER_OPTS = [
+  { value: 'all',     label: 'Tutti' },
+  { value: 'success', label: 'OK' },
+  { value: 'errors',  label: 'Errori' },
+];
+
+const TYPE_FILTER_OPTS = [
+  { value: 'all',  label: 'Tutti',      icon: Activity },
+  { value: 'PUSH', label: 'Push',       icon: ArrowUpCircle },
+  { value: 'PULL', label: 'Pull',       icon: ArrowDownCircle },
+  { value: 'WS',   label: 'WebSocket',  icon: RefreshCw },
+];
+
 // ── Reactive state ────────────────────────────────────────────────────────────
 
-const logs = ref([]);
+const logs       = ref([]);
 const selectedLog = ref(null);
-const isOnline = ref(typeof navigator !== 'undefined' ? navigator.onLine : true);
+const isOnline   = ref(typeof navigator !== 'undefined' ? navigator.onLine : true);
 
-const copyRequestLabel = ref('Copia');
+const filterStatus = ref('all');
+const filterType   = ref('all');
+const searchText   = ref('');
+
+const copyRequestLabel  = ref('Copia');
 const copyResponseLabel = ref('Copia');
+const copyBlockLabel    = ref('Blocco');
 
 // ── Computed ─────────────────────────────────────────────────────────────────
 
@@ -259,6 +355,29 @@ const lastPushLabel = computed(() => {
 const lastPullLabel = computed(() => {
   const ts = sync.lastPullAt?.value;
   return ts ? formatTs(ts) : '—';
+});
+
+const filteredLogs = computed(() => {
+  let result = logs.value;
+
+  // Status filter
+  if (filterStatus.value === 'success') result = result.filter(l => l.status === 'success');
+  else if (filterStatus.value === 'errors') result = result.filter(l => l.status !== 'success');
+
+  // Type filter
+  if (filterType.value !== 'all') result = result.filter(l => l.type === filterType.value);
+
+  // Text search — endpoint, collection, or id
+  const q = searchText.value.trim().toLowerCase();
+  if (q) {
+    result = result.filter(l =>
+      (l.endpoint ?? '').toLowerCase().includes(q) ||
+      (l.collection ?? '').toLowerCase().includes(q) ||
+      String(l.id ?? '').includes(q),
+    );
+  }
+
+  return result;
 });
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -282,21 +401,66 @@ function formatJSON(value) {
   }
 }
 
-function logBadgeClass(log) {
-  if (log.direction === 'IN') return 'bg-blue-100 text-blue-700';
-  return 'bg-purple-100 text-purple-700';
+/**
+ * Determines the severity level for a log entry used for colour coding.
+ * Returns 'critical' (5xx / network error), 'warning' (4xx / unexpected),
+ * or 'success'.
+ */
+function _severity(log) {
+  if (log.status === 'success') return 'success';
+  const code = log.statusCode;
+  if (code == null || code >= 500) return 'critical'; // network error or server-side
+  if (code >= 400) return 'warning';                  // client/validation error
+  // Fallback: non-success status with an unexpected code (e.g. 3xx treated as error).
+  return 'warning';
+}
+
+function logRowClass(log) {
+  if (selectedLog.value?.id === log.id) {
+    return 'border-[var(--brand-primary)] bg-[var(--brand-primary)]/5';
+  }
+  const sev = _severity(log);
+  if (sev === 'critical') return 'border-red-200 bg-red-50 hover:bg-red-100';
+  if (sev === 'warning')  return 'border-orange-200 bg-orange-50 hover:bg-orange-100';
+  return 'border-gray-100 bg-white hover:bg-gray-50';
+}
+
+function statusDotClass(log) {
+  const sev = _severity(log);
+  if (sev === 'critical') return 'bg-red-500';
+  if (sev === 'warning')  return 'bg-orange-400';
+  return 'bg-emerald-500';
+}
+
+function logMetaClass(log) {
+  const sev = _severity(log);
+  if (sev === 'critical') return 'text-red-600';
+  if (sev === 'warning')  return 'text-orange-600';
+  return 'text-gray-400';
+}
+
+function directionIcon(log) {
+  if (log.type === 'WS') return RefreshCw;
+  if (log.direction === 'IN') return ArrowDownCircle;
+  return ArrowUpCircle;
+}
+
+function directionIconClass(log) {
+  if (log.type === 'WS') return 'text-emerald-500';
+  if (log.direction === 'IN') return 'text-sky-500';
+  return 'text-purple-500';
 }
 
 function logTypeBadgeClass(log) {
   if (log.type === 'PULL') return 'bg-sky-100 text-sky-700';
-  if (log.type === 'WS') return 'bg-emerald-100 text-emerald-700';
-  return 'bg-orange-100 text-orange-700';
+  if (log.type === 'WS')   return 'bg-emerald-100 text-emerald-700';
+  return 'bg-purple-100 text-purple-700';
 }
 
 // ── Actions ───────────────────────────────────────────────────────────────────
 
 async function loadLogs() {
-  logs.value = await getSyncLogs(200);
+  logs.value = await getSyncLogs();
 }
 
 function selectLog(log) {
@@ -321,47 +485,97 @@ async function exportSession() {
   URL.revokeObjectURL(url);
 }
 
-async function _copyToClipboard(text, labelRef) {
+async function _copyToClipboard(text, labelRef, resetLabel) {
   try {
     await navigator.clipboard.writeText(text);
     labelRef.value = 'Copiato!';
-    setTimeout(() => { labelRef.value = 'Copia'; }, 2000);
+    setTimeout(() => { labelRef.value = resetLabel; }, 2000);
   } catch {
     labelRef.value = 'Errore';
-    setTimeout(() => { labelRef.value = 'Copia'; }, 2000);
+    setTimeout(() => { labelRef.value = resetLabel; }, 2000);
   }
 }
 
 function copyRequest() {
-  _copyToClipboard(formatJSON(selectedLog.value?.payload), copyRequestLabel);
+  _copyToClipboard(formatJSON(selectedLog.value?.payload), copyRequestLabel, 'Copia');
 }
 
 function copyResponse() {
-  _copyToClipboard(formatJSON(selectedLog.value?.response), copyResponseLabel);
+  _copyToClipboard(formatJSON(selectedLog.value?.response), copyResponseLabel, 'Copia');
+}
+
+/**
+ * Copies a pre-formatted technical text block containing all essential debug
+ * information for the selected log entry (useful when pasting into a support
+ * ticket or chat message).
+ */
+function copyTechBlock() {
+  const log = selectedLog.value;
+  if (!log) return;
+  const lines = [
+    '=== Sync Log ===',
+    `ID:         ${log.id ?? '—'}`,
+    `Timestamp:  ${log.timestamp ?? '—'}`,
+    `Direction:  ${log.direction ?? '—'}  Type: ${log.type ?? '—'}`,
+    `Endpoint:   ${log.endpoint ?? '—'}`,
+    `Collection: ${log.collection ?? '—'}`,
+    `Status:     ${log.status ?? '—'}${log.statusCode != null ? `  HTTP ${log.statusCode}` : '  (network)'}`,
+    `Duration:   ${log.durationMs != null ? `${log.durationMs}ms` : '—'}`,
+    `Records:    ${log.recordCount != null ? log.recordCount : '—'}`,
+    '',
+    '--- REQUEST ---',
+    formatJSON(log.payload),
+    '',
+    '--- RESPONSE ---',
+    formatJSON(log.response),
+  ];
+  _copyToClipboard(lines.join('\n'), copyBlockLabel, 'Blocco');
+}
+
+// ── BroadcastChannel (cross-tab reactivity) ───────────────────────────────────
+
+/** @type {BroadcastChannel|null} */
+let _bc = null;
+
+function _initBC() {
+  if (typeof BroadcastChannel === 'undefined') return;
+  try {
+    _bc = new BroadcastChannel(_BC_CHANNEL);
+    _bc.onmessage = (e) => {
+      if (e.data?.type === 'changed') loadLogs();
+    };
+  } catch (e) {
+    console.warn('[SyncMonitor] BroadcastChannel init failed — cross-tab sync unavailable:', e);
+    _bc = null;
+  }
+}
+
+function _closeBC() {
+  _bc?.close();
+  _bc = null;
 }
 
 // ── Lifecycle & event listeners ───────────────────────────────────────────────
 
-function _onLogsChanged() {
-  loadLogs();
-}
-
-function _onOnline() { isOnline.value = true; }
+function _onLogsChanged() { loadLogs(); }
+function _onOnline()  { isOnline.value = true; }
 function _onOffline() { isOnline.value = false; }
 
 onMounted(() => {
   loadLogs();
+  _initBC();
   if (typeof window !== 'undefined') {
     window.addEventListener('sync-logs:changed', _onLogsChanged);
-    window.addEventListener('online', _onOnline);
+    window.addEventListener('online',  _onOnline);
     window.addEventListener('offline', _onOffline);
   }
 });
 
 onUnmounted(() => {
+  _closeBC();
   if (typeof window !== 'undefined') {
     window.removeEventListener('sync-logs:changed', _onLogsChanged);
-    window.removeEventListener('online', _onOnline);
+    window.removeEventListener('online',  _onOnline);
     window.removeEventListener('offline', _onOffline);
   }
 });
