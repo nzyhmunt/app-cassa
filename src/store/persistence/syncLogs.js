@@ -188,6 +188,8 @@ async function _purge(db) {
  *   durationMs?: number|null,
  *   collection?: string|null,
  *   recordCount?: number|null,
+ *   operation?: 'create'|'update'|'delete'|null,
+ *   method?: 'POST'|'PATCH'|'DELETE'|null,
  * }} entry
  */
 export async function addSyncLog(entry) {
@@ -205,6 +207,8 @@ export async function addSyncLog(entry) {
       durationMs: entry.durationMs ?? null,
       collection: entry.collection ?? null,
       recordCount: entry.recordCount ?? null,
+      operation: entry.operation ?? null,
+      method: entry.method ?? null,
     };
     await db.add('sync_logs', record);
     await _purge(db);

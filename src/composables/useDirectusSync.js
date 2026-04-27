@@ -576,8 +576,16 @@ async function _startSubscriptions(collections) {
         } catch (e) {
           console.warn(`[DirectusSync] Subscription ${collection} closed:`, e?.message ?? e);
           _wsConnected.value = false;
-          // Restart polling fallback if the subscription broke unexpectedly
-          if (_running && !_pollTimer) {
+          if (!_running) return;
+          // If wsEnabled is still on, schedule a reconnect attempt.
+          // Otherwise fall back to polling.
+          if (appConfig.directus?.wsEnabled === true) {
+            setTimeout(() => {
+              if (_running && !_wsConnected.value && appConfig.directus?.wsEnabled === true) {
+                _reconnectWs().catch(() => {});
+              }
+            }, 5_000);
+          } else if (!_pollTimer) {
             const pullCfg = PULL_CONFIG[_appType] ?? PULL_CONFIG.cassa;
             _pollTimer = setInterval(() => _runPull().catch(() => {}), pullCfg.intervalMs);
           }
@@ -617,6 +625,8 @@ let _pushInFlight = null;
 let _store = null;
 /** @type {'cassa'|'sala'|'cucina'} */
 let _appType = 'cassa';
+/** Collections currently subscribed via WebSocket (populated on startSync). */
+let _wsCollections = [];
 /**
  * Monotonically increasing counter incremented by each `_runGlobalPull` call
  * that proceeds past the online/config early-exit checks.  Each such invocation
@@ -1309,9 +1319,44 @@ async function _runGlobalPull({ onProgress = null } = {}) {
 
 // ── Online/offline listener ───────────────────────────────────────────────────
 
+/**
+ * Attempts to restore WebSocket subscriptions after a connection loss.
+ * Cleans up any stale subscriptions/poll timer first, then calls
+ * `_startSubscriptions`.  If that fails, re-enables the polling fallback.
+ */
+async function _reconnectWs() {
+  if (!_running || _wsConnected.value) return;
+  if (appConfig.directus?.wsEnabled !== true) return;
+  if (_wsCollections.length === 0) return;
+
+  console.info('[DirectusSync] Attempting WebSocket reconnect…');
+
+  // Stop polling before trying WS — avoids duplicate pulls during reconnect.
+  if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
+
+  // Clean up stale subscriptions/connection before reconnecting.
+  _stopSubscriptions();
+
+  const subscribed = await _startSubscriptions(_wsCollections);
+  if (!subscribed) {
+    // Reconnect failed — restart polling fallback.
+    const pullCfg = PULL_CONFIG[_appType] ?? PULL_CONFIG.cassa;
+    if (!_pollTimer) {
+      _pollTimer = setInterval(() => _runPull().catch(() => {}), pullCfg.intervalMs);
+    }
+  } else {
+    // WS is back — do an immediate pull to catch up on missed updates.
+    _runPull().catch(() => {});
+  }
+}
+
 function _onOnline() {
   _runPush().catch(() => {});
   _runPull().catch(() => {});
+  // If WebSocket was enabled but is currently disconnected, attempt to reconnect.
+  if (appConfig.directus?.wsEnabled === true && !_wsConnected.value && _running) {
+    _reconnectWs().catch(() => {});
+  }
 }
 
 function _onQueueEnqueue() {
@@ -1364,6 +1409,8 @@ export function useDirectusSync() {
     const wsCollections = menuSource === 'json'
       ? pullCfg.collections.filter(c => c !== 'menu_items')
       : pullCfg.collections;
+    // Persist at module level so _reconnectWs can re-use the same collection list.
+    _wsCollections = wsCollections;
 
     if (wsEnabled) {
       // Try WebSocket subscriptions; fall back to polling if connect fails
@@ -1502,6 +1549,7 @@ export function _resetDirectusSyncSingleton() {
   _running = false;
   _store = null;
   _appType = 'cassa';
+  _wsCollections = [];
   _pushInFlight = null;
   _globalPullGeneration = 0;
   _lastAppliedGlobalPullGeneration = 0;

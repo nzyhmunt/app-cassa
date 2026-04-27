@@ -84,6 +84,77 @@
               </div>
             </div>
           </div>
+
+          <!-- Coda push in attesa -->
+          <div
+            v-if="pendingQueueCount > 0"
+            class="flex items-center gap-2 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2"
+          >
+            <Clock class="size-3.5 text-amber-500 shrink-0" />
+            <span class="text-xs font-bold text-amber-700">
+              {{ pendingQueueCount }} {{ pendingQueueCount === 1 ? 'operazione in attesa' : 'operazioni in attesa' }} nella coda push
+            </span>
+          </div>
+
+          <!-- Push / Pull now buttons -->
+          <div class="flex gap-2">
+            <button
+              @click="handleForcePush"
+              :disabled="pushing || pulling"
+              class="flex-1 py-2.5 bg-gray-50 hover:bg-gray-100 text-gray-700 font-bold rounded-2xl flex items-center justify-center gap-1.5 border border-gray-200 transition-colors active:scale-95 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <LoaderCircle v-if="pushing" class="size-3.5 text-gray-500 animate-spin" />
+              <Upload v-else class="size-3.5 text-gray-500" />
+              <span>{{ pushing ? 'Invio…' : 'Push ora' }}</span>
+            </button>
+            <button
+              @click="handleForcePull"
+              :disabled="pushing || pulling"
+              class="flex-1 py-2.5 bg-gray-50 hover:bg-gray-100 text-gray-700 font-bold rounded-2xl flex items-center justify-center gap-1.5 border border-gray-200 transition-colors active:scale-95 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <LoaderCircle v-if="pulling" class="size-3.5 text-gray-500 animate-spin" />
+              <Download v-else class="size-3.5 text-gray-500" />
+              <span>{{ pulling ? 'Ricezione…' : 'Pull ora' }}</span>
+            </button>
+          </div>
+
+          <!-- Push/Pull feedback -->
+          <div
+            v-if="pushFeedback"
+            class="flex items-center gap-2 text-xs px-3 py-2 rounded-xl"
+            :class="{
+              'bg-emerald-50 text-emerald-700': pushFeedback === 'success',
+              'bg-amber-50 text-amber-700': pushFeedback === 'offline',
+              'bg-red-50 text-red-700': pushFeedback === 'error',
+            }"
+          >
+            <CheckCircle v-if="pushFeedback === 'success'" class="size-3 shrink-0" />
+            <WifiOff v-else-if="pushFeedback === 'offline'" class="size-3 shrink-0" />
+            <XCircle v-else class="size-3 shrink-0" />
+            <span>{{
+              pushFeedback === 'success' ? 'Push completato.' :
+              pushFeedback === 'offline' ? 'Directus non raggiungibile — riprovo appena torna online.' :
+              'Errore durante il push.'
+            }}</span>
+          </div>
+          <div
+            v-if="pullFeedback"
+            class="flex items-center gap-2 text-xs px-3 py-2 rounded-xl"
+            :class="{
+              'bg-emerald-50 text-emerald-700': pullFeedback === 'success',
+              'bg-amber-50 text-amber-700': pullFeedback === 'offline',
+              'bg-red-50 text-red-700': pullFeedback === 'error',
+            }"
+          >
+            <CheckCircle v-if="pullFeedback === 'success'" class="size-3 shrink-0" />
+            <WifiOff v-else-if="pullFeedback === 'offline'" class="size-3 shrink-0" />
+            <XCircle v-else class="size-3 shrink-0" />
+            <span>{{
+              pullFeedback === 'success' ? 'Pull completato.' :
+              pullFeedback === 'offline' ? 'Directus non raggiungibile — riprovo appena torna online.' :
+              'Errore durante il pull.'
+            }}</span>
+          </div>
         </div>
 
         <!-- Sezione 2: Activity Log -->

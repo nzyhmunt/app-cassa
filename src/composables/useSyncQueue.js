@@ -495,7 +495,8 @@ async function _pushEntry(entry, sdkClient, cfg) {
           method: 'PATCH',
           body: { status: 'archived' },
         };
-        await sdkClient.request(updateItem(collection, record_id, { status: 'archived' }));
+        const patchResult = await sdkClient.request(updateItem(collection, record_id, { status: 'archived' }));
+        return { ok: true, record: patchResult ?? null, method: 'PATCH', requestContext };
       } else {
         // Strategy C: junction tables — hard DELETE
         requestContext = {
@@ -507,6 +508,7 @@ async function _pushEntry(entry, sdkClient, cfg) {
           body: null,
         };
         await sdkClient.request(deleteItem(collection, record_id));
+        return { ok: true, record: null, method: 'DELETE', requestContext };
       }
     } else if (operation === 'create') {
       try {
@@ -518,7 +520,8 @@ async function _pushEntry(entry, sdkClient, cfg) {
           method: 'POST',
           body: directusPayload,
         };
-        await sdkClient.request(createItem(collection, directusPayload));
+        const created = await sdkClient.request(createItem(collection, directusPayload));
+        return { ok: true, record: created ?? null, method: 'POST', requestContext };
       } catch (createError) {
         // Duplicate record — the UUID already exists in Directus (e.g. the same
         // entry was pushed in an earlier cycle that never received the HTTP
@@ -546,7 +549,8 @@ async function _pushEntry(entry, sdkClient, cfg) {
             method: 'PATCH',
             body: directusPayload,
           };
-          await sdkClient.request(updateItem(collection, record_id, directusPayload));
+          const patched = await sdkClient.request(updateItem(collection, record_id, directusPayload));
+          return { ok: true, record: patched ?? null, method: 'PATCH', requestContext };
         } else {
           throw createError;
         }
@@ -561,7 +565,8 @@ async function _pushEntry(entry, sdkClient, cfg) {
         method: 'PATCH',
         body: directusPayload,
       };
-      await sdkClient.request(updateItem(collection, record_id, directusPayload));
+      const updated = await sdkClient.request(updateItem(collection, record_id, directusPayload));
+      return { ok: true, record: updated ?? null, method: 'PATCH', requestContext };
     }
 
     return true;
@@ -613,36 +618,41 @@ function _entryEndpoint(entry) {
 /**
  * Logs the outcome of a single push entry to the sync_logs store.
  * @param {object} entry
- * @param {true|'skip'|object} result - Return value from _pushEntry
+ * @param {true|'skip'|{ok:boolean,record:*,method:string,requestContext:*}|object} result - Return value from _pushEntry
  * @param {number} durationMs
  */
 function _logPushResult(entry, result, durationMs) {
   if (result === 'skip') return; // no-op deletes are not worth logging
   let logEntry;
-  if (result === true) {
+  if (result === true || (result && typeof result === 'object' && result.ok === true)) {
+    const successResult = typeof result === 'object' ? result : null;
     logEntry = {
       direction: 'OUT',
       type: 'PUSH',
-      endpoint: _entryEndpoint(entry),
+      endpoint: successResult?.requestContext?.endpoint ?? _entryEndpoint(entry),
       payload: entry.payload ?? null,
-      response: null,
+      response: successResult?.record ?? null,
       status: 'success',
       statusCode: null,
       durationMs,
       collection: entry.collection,
+      operation: entry.operation ?? null,
+      method: successResult?.method ?? null,
     };
   } else {
     const failure = typeof result === 'object' && result !== null ? result : { message: String(result) };
     logEntry = {
       direction: 'OUT',
       type: 'PUSH',
-      endpoint: failure.request?.endpoint ?? _entryEndpoint(entry),
+      endpoint: failure.request?.endpoint ?? failure.requestContext?.endpoint ?? _entryEndpoint(entry),
       payload: failure.request?.body ?? entry.payload ?? null,
       response: failure.response ?? null,
       status: 'error',
       statusCode: failure.response?.status ?? null,
       durationMs,
       collection: entry.collection,
+      operation: entry.operation ?? null,
+      method: failure.request?.method ?? failure.requestContext?.method ?? null,
     };
   }
   addSyncLog(logEntry);
@@ -945,14 +955,14 @@ export async function drainQueue(cfg) {
     const result = await _pushEntry(entry, sdkClient, cfg);
     _logPushResult(entry, result, Date.now() - _pushStart);
 
-    if (result === true || result === 'skip') {
+    if (result === true || result === 'skip' || (result && typeof result === 'object' && result.ok === true)) {
       await removeEntry(entry.id);
       pushed++;
       // Record as processed so sibling child entries processed later this cycle
       // are not incorrectly deferred by the pendingSet guard, even when this
       // entry was skipped and removed from the queue.
       pushedInThisCycle.add(entryKey);
-      if (result === true) {
+      if (result !== 'skip') {
         pushedIds.push({ collection: entry.collection, recordId: entry.record_id });
       }
     } else {
@@ -995,13 +1005,13 @@ export async function drainQueue(cfg) {
     const _deferredPushStart = Date.now();
     const result = await _pushEntry(deferredEntry, sdkClient, cfg);
     _logPushResult(deferredEntry, result, Date.now() - _deferredPushStart);
-    if (result === true || result === 'skip') {
+    if (result === true || result === 'skip' || (result && typeof result === 'object' && result.ok === true)) {
       await removeEntry(deferredEntry.id);
       pushed++;
       // Update pushedInThisCycle so subsequent siblings in this same second
       // pass can also proceed if they depend on this entry.
       pushedInThisCycle.add(deferredKey);
-      if (result === true) {
+      if (result !== 'skip') {
         pushedIds.push({ collection: deferredEntry.collection, recordId: deferredEntry.record_id });
       }
     } else {
