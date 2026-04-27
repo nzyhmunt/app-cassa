@@ -514,6 +514,9 @@ function copyResponse() {
 function copyTechBlock() {
   const log = selectedLog.value;
   if (!log) return;
+  let statusSuffix = '';
+  if (log.statusCode != null) statusSuffix = `  HTTP ${log.statusCode}`;
+  else if (log.status === 'error') statusSuffix = '  (network)';
   const lines = [
     '=== Sync Log ===',
     `ID:         ${log.id ?? '—'}`,
@@ -521,7 +524,7 @@ function copyTechBlock() {
     `Direction:  ${log.direction ?? '—'}  Type: ${log.type ?? '—'}`,
     `Endpoint:   ${log.endpoint ?? '—'}`,
     `Collection: ${log.collection ?? '—'}`,
-    `Status:     ${log.status ?? '—'}${log.statusCode != null ? `  HTTP ${log.statusCode}` : log.status === 'error' ? '  (network)' : ''}`,
+    `Status:     ${log.status ?? '—'}${statusSuffix}`,
     `Duration:   ${log.durationMs != null ? `${log.durationMs}ms` : '—'}`,
     `Records:    ${log.recordCount != null ? log.recordCount : '—'}`,
     '',
