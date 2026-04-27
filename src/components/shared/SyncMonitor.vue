@@ -278,7 +278,15 @@
                   <span class="text-[10px] text-gray-400">{{ formatTs(log.timestamp) }}</span>
                 </div>
               </div>
-              <div class="mt-1 flex items-center gap-3 text-[10px]" :class="logMetaClass(log)">
+              <div class="mt-1 flex items-center flex-wrap gap-1.5 text-[10px]" :class="logMetaClass(log)">
+                <span v-if="log.operation" class="inline-flex items-center px-1.5 py-0.5 rounded font-bold uppercase tracking-wide shrink-0"
+                  :class="{
+                    'bg-sky-100 text-sky-700':    log.operation === 'create',
+                    'bg-amber-100 text-amber-700': log.operation === 'update',
+                    'bg-red-100 text-red-600':    log.operation === 'delete',
+                  }"
+                >{{ log.operation }}</span>
+                <span v-if="log.method" class="inline-flex items-center px-1.5 py-0.5 rounded font-bold uppercase tracking-wide bg-gray-100 text-gray-600 shrink-0">{{ log.method }}</span>
                 <span v-if="log.collection && (!log.endpoint || !log.endpoint.includes(log.collection))">{{ log.collection }}</span>
                 <span v-if="log.recordCount != null">{{ log.recordCount }} rec</span>
                 <span v-if="log.durationMs != null">{{ log.durationMs }}ms</span>
@@ -377,9 +385,11 @@ import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import {
   Activity, X, ArrowUpCircle, ArrowDownCircle, RefreshCw,
   FileDown, Trash2, Search, Copy, ClipboardList,
+  Upload, Download, CheckCircle, WifiOff, XCircle, LoaderCircle, Clock,
 } from 'lucide-vue-next';
 import { useDirectusSync } from '../../composables/useDirectusSync.js';
 import { getSyncLogs, clearSyncLogs, exportSyncLogs, _BC_CHANNEL, _TAB_ID, SYNC_LOGS_MAX_SUCCESS, SYNC_LOGS_MAX_ERRORS } from '../../store/persistence/syncLogs.js';
+import { getPendingEntries } from '../../composables/useSyncQueue.js';
 
 const props = defineProps({
   modelValue: Boolean,
@@ -416,6 +426,16 @@ const searchText   = ref('');
 const copyRequestLabel  = ref('Copia');
 const copyResponseLabel = ref('Copia');
 const copyBlockLabel    = ref('Blocco');
+
+// Push / Pull state
+const pendingQueueCount = ref(0);
+const pushing = ref(false);
+const pulling = ref(false);
+const pushFeedback = ref(null); // null | 'success' | 'offline' | 'error'
+const pullFeedback = ref(null); // null | 'success' | 'offline' | 'error'
+let _pushFeedbackTimer = null;
+let _pullFeedbackTimer = null;
+let _queuePollTimer = null;
 
 // ── Computed ─────────────────────────────────────────────────────────────────
 
@@ -539,6 +559,15 @@ async function loadLogs() {
   logs.value = await getSyncLogs(SYNC_LOGS_UI_FETCH_LIMIT);
 }
 
+async function _loadPendingQueueCount() {
+  try {
+    const entries = await getPendingEntries();
+    pendingQueueCount.value = entries.length;
+  } catch {
+    pendingQueueCount.value = 0;
+  }
+}
+
 function selectLog(log) {
   selectedLog.value = selectedLog.value?.id === log.id ? null : log;
 }
@@ -563,6 +592,46 @@ async function exportSession() {
   setTimeout(() => {
     URL.revokeObjectURL(url);
   }, 1000);
+}
+
+async function handleForcePush() {
+  if (pushing.value || pulling.value) return;
+  pushing.value = true;
+  pushFeedback.value = null;
+  clearTimeout(_pushFeedbackTimer);
+  try {
+    await sync.forcePush();
+    pushFeedback.value = sync.syncStatus.value === 'error' ? 'error'
+      : sync.syncStatus.value === 'offline' ? 'offline' : 'success';
+  } catch {
+    pushFeedback.value = 'error';
+  } finally {
+    pushing.value = false;
+    await _loadPendingQueueCount();
+    _pushFeedbackTimer = setTimeout(() => { pushFeedback.value = null; }, 3000);
+  }
+}
+
+async function handleForcePull() {
+  if (pushing.value || pulling.value) return;
+  pulling.value = true;
+  pullFeedback.value = null;
+  clearTimeout(_pullFeedbackTimer);
+  try {
+    const pullResult = await sync.forcePull();
+    if (pullResult?.ok) {
+      pullFeedback.value = 'success';
+    } else if (pullResult?.skippedReason === 'offline') {
+      pullFeedback.value = 'offline';
+    } else {
+      pullFeedback.value = 'error';
+    }
+  } catch {
+    pullFeedback.value = 'error';
+  } finally {
+    pulling.value = false;
+    _pullFeedbackTimer = setTimeout(() => { pullFeedback.value = null; }, 3000);
+  }
 }
 
 async function _copyToClipboard(text, labelRef, resetLabel) {
@@ -600,6 +669,7 @@ function copyTechBlock() {
     `ID:         ${log.id ?? '—'}`,
     `Timestamp:  ${log.timestamp ?? '—'}`,
     `Direction:  ${log.direction ?? '—'}  Type: ${log.type ?? '—'}`,
+    `Operation:  ${log.operation ?? '—'}  Method: ${log.method ?? '—'}`,
     `Endpoint:   ${log.endpoint ?? '—'}`,
     `Collection: ${log.collection ?? '—'}`,
     `Status:     ${log.status ?? '—'}${statusSuffix}`,
@@ -646,12 +716,17 @@ function _closeBC() {
 function _onLogsChanged() { loadLogs(); }
 function _onOnline()  { isOnline.value = true; }
 function _onOffline() { isOnline.value = false; }
+function _onQueueEnqueue() { _loadPendingQueueCount(); }
 
 function _attach() {
   loadLogs();
+  _loadPendingQueueCount();
   _initBC();
+  // Poll queue count every 5 s while the modal is open so the badge stays fresh.
+  _queuePollTimer = setInterval(_loadPendingQueueCount, 5_000);
   if (typeof window !== 'undefined') {
     window.addEventListener('sync-logs:changed', _onLogsChanged);
+    window.addEventListener('sync-queue:enqueue', _onQueueEnqueue);
     window.addEventListener('online',  _onOnline);
     window.addEventListener('offline', _onOffline);
   }
@@ -659,8 +734,13 @@ function _attach() {
 
 function _detach() {
   _closeBC();
+  clearInterval(_queuePollTimer);
+  _queuePollTimer = null;
+  clearTimeout(_pushFeedbackTimer);
+  clearTimeout(_pullFeedbackTimer);
   if (typeof window !== 'undefined') {
     window.removeEventListener('sync-logs:changed', _onLogsChanged);
+    window.removeEventListener('sync-queue:enqueue', _onQueueEnqueue);
     window.removeEventListener('online',  _onOnline);
     window.removeEventListener('offline', _onOffline);
   }
