@@ -645,7 +645,7 @@ function _logPushResult(entry, result, durationMs) {
       collection: entry.collection,
     };
   }
-  addSyncLog(logEntry).catch(() => {});
+  addSyncLog(logEntry);
 }
 
 /**
