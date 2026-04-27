@@ -1455,9 +1455,13 @@ export function useDirectusSync() {
     syncStatus.value = 'idle';
   }
 
+  /**
+   * Manually triggers a full push drain of the sync queue.
+   * @returns {Promise<{ pushed: number, failed: number, abandoned: number, pushedIds: string[], offline: boolean }>}
+   */
   async function forcePush() {
-    if (!appConfig.directus?.enabled) return;
-    await _runPush();
+    if (!appConfig.directus?.enabled) return { pushed: 0, failed: 0, abandoned: 0, pushedIds: [], offline: false };
+    return _runPush();
   }
 
   async function forcePull() {

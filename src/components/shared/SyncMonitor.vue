@@ -165,7 +165,7 @@
               <span v-if="queueEntries.length > 0" class="ml-1 normal-case text-[10px] font-normal text-amber-500">({{ queueEntries.length }})</span>
             </span>
             <button
-              @click="_loadPendingQueueCount"
+              @click="_loadQueueData"
               class="flex items-center gap-1 text-[10px] font-bold text-gray-500 hover:text-gray-700 bg-gray-100 hover:bg-gray-200 px-2 py-1 rounded-lg transition-colors active:scale-95"
               title="Aggiorna coda e fallimenti"
             >
@@ -682,7 +682,7 @@ async function loadLogs() {
   logs.value = await getSyncLogs(SYNC_LOGS_UI_FETCH_LIMIT);
 }
 
-async function _loadPendingQueueCount() {
+async function _loadQueueData() {
   try {
     const entries = await getPendingEntries();
     pendingQueueCount.value = entries.length;
@@ -733,7 +733,7 @@ async function handleForcePush() {
     const result = await sync.forcePush();
     if (result?.offline) {
       pushFeedback.value = 'offline';
-    } else if (result?.failed > 0 || sync.syncStatus.value === 'error') {
+    } else if (result?.failed > 0) {
       pushFeedback.value = 'error';
     } else {
       pushFeedback.value = 'success';
@@ -742,7 +742,7 @@ async function handleForcePush() {
     pushFeedback.value = 'error';
   } finally {
     pushing.value = false;
-    await _loadPendingQueueCount();
+    await _loadQueueData();
     _pushFeedbackTimer = setTimeout(() => { pushFeedback.value = null; }, 3000);
   }
 }
@@ -853,14 +853,14 @@ function _closeBC() {
 function _onLogsChanged() { loadLogs(); }
 function _onOnline()  { isOnline.value = true; }
 function _onOffline() { isOnline.value = false; }
-function _onQueueEnqueue() { _loadPendingQueueCount(); }
+function _onQueueEnqueue() { _loadQueueData(); }
 
 function _attach() {
   loadLogs();
-  _loadPendingQueueCount();
+  _loadQueueData();
   _initBC();
   // Poll queue count every 5 seconds while the modal is open so the badge stays fresh.
-  _queuePollTimer = setInterval(_loadPendingQueueCount, 5_000);
+  _queuePollTimer = setInterval(_loadQueueData, 5_000);
   if (typeof window !== 'undefined') {
     window.addEventListener('sync-logs:changed', _onLogsChanged);
     window.addEventListener('sync-queue:enqueue', _onQueueEnqueue);
