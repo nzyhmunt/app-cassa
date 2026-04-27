@@ -41,27 +41,25 @@ export const SYNC_LOGS_ERROR_RETENTION_MS = 48 * 60 * 60 * 1000;
 
 const BC_CHANNEL = 'sync-logs';
 
-/** @type {BroadcastChannel|null} */
-let _bc = null;
-
-function _getBC() {
-  if (typeof BroadcastChannel === 'undefined') return null;
-  if (!_bc) {
-    try { _bc = new BroadcastChannel(BC_CHANNEL); } catch { _bc = null; }
-  }
-  return _bc;
-}
-
 /**
  * Notifies all listeners:
  *  - Same-tab via CustomEvent for zero-latency updates.
  *  - Other tabs via BroadcastChannel so all open monitor instances stay in sync.
+ *
+ * A new channel is created and immediately closed on each notification to avoid
+ * holding an open port when the monitor modal is not visible.
  */
 function _notifyChange() {
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent('sync-logs:changed'));
   }
-  _getBC()?.postMessage({ type: 'changed' });
+  if (typeof BroadcastChannel !== 'undefined') {
+    try {
+      const bc = new BroadcastChannel(BC_CHANNEL);
+      bc.postMessage({ type: 'changed' });
+      bc.close();
+    } catch { /* silently ignore in environments without BC support */ }
+  }
 }
 
 // ── Smart Retention ───────────────────────────────────────────────────────────
@@ -75,6 +73,19 @@ function _notifyChange() {
  * @param {import('idb').IDBPDatabase} db
  */
 async function _purge(db) {
+  // Fast path: if total entries ≤ SYNC_LOGS_MAX_SUCCESS (100), neither bucket can
+  // be over its limit.  Specifically:
+  //  • Success bucket has at most 100 entries, which equals the cap — no eviction.
+  //  • Error bucket also has at most 100 entries, which is ≤ SYNC_LOGS_MAX_ERRORS
+  //    (200) — numeric cap not exceeded.  Time-window purge also fires only when
+  //    old errors sit outside the newest-200 window, which cannot happen when the
+  //    total error count is ≤ 100.
+  // Using SYNC_LOGS_MAX_SUCCESS (not the combined 300) keeps the threshold low
+  // enough that the retention tests still trigger the scan when needed, while
+  // avoiding the O(N) cursor traversal for any store with ≤ 100 records.
+  const total = await db.count('sync_logs');
+  if (total <= SYNC_LOGS_MAX_SUCCESS) return;
+
   const tx = db.transaction('sync_logs', 'readwrite');
   const index = tx.store.index('timestamp');
   const cutoff = new Date(Date.now() - SYNC_LOGS_ERROR_RETENTION_MS).toISOString();
@@ -192,6 +203,7 @@ export async function getSyncLogs(limit) {
       if (Number.isFinite(limit) && results.length >= limit) break;
       cursor = await cursor.continue();
     }
+    await tx.done;
     return results;
   } catch (e) {
     console.warn('[SyncLogs] Failed to read sync logs:', e);

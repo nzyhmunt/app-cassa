@@ -226,7 +226,7 @@
     <button
       v-if="syncEnabled"
       type="button"
-      @click="showQueueLog = true"
+      @click="showSyncMonitor = true"
       class="w-full py-2.5 bg-gray-50 hover:bg-gray-100 text-gray-700 font-bold rounded-2xl flex items-center justify-center gap-2 border border-gray-200 transition-colors active:scale-95 text-xs"
     >
       <Activity class="size-3.5 text-gray-500" />
@@ -252,7 +252,7 @@
     </div>
 
     <!-- Sync Monitor (activity log + real-time status) -->
-    <SyncMonitor v-model="showQueueLog" />
+    <SyncMonitor v-model="showSyncMonitor" />
 
     <!-- Modale applicazione nuova configurazione Directus -->
     <div
@@ -375,7 +375,7 @@ let _pushFeedbackTimer = null;
 let _pullFeedbackTimer = null;
 const connectionStatus = ref('idle'); // 'idle' | 'testing' | 'ok' | 'error'
 const connectionMessage = ref('');
-const showQueueLog = ref(false);
+const showSyncMonitor = ref(false);
 const showReconfigureModal = ref(false);
 const reconfigureRunning = ref(false);
 const clearLocalConfigBeforeApply = ref(true);
