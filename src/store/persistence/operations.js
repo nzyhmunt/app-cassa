@@ -376,6 +376,25 @@ export async function upsertBillSessionInIDB(session) {
 }
 
 /**
+ * Reads a single bill_session record from the `bill_sessions` ObjectStore by its ID.
+ *
+ * Returns `null` when the record does not exist or on IDB error.
+ * Used by the sync queue FK-recovery path to re-enqueue a missing parent.
+ *
+ * @param {string} billSessionId
+ * @returns {Promise<object|null>}
+ */
+export async function readBillSessionFromIDB(billSessionId) {
+  try {
+    const db = await getDB();
+    return (await db.get('bill_sessions', billSessionId)) ?? null;
+  } catch (e) {
+    console.warn('[IDBPersistence] Failed to read bill_session from IDB:', e);
+    return null;
+  }
+}
+
+/**
  * Marks an existing bill_session record as `closed` in the `bill_sessions` ObjectStore.
  *
  * @param {string} billSessionId

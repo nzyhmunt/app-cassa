@@ -45,7 +45,7 @@ import { getDB } from './useIDB.js';
 import { newUUIDv7 } from '../store/storeUtils.js';
 import { appConfig } from '../utils/index.js';
 import { mapPayloadToDirectus } from '../utils/mappers.js';
-import { loadAuthSessionFromIDB } from '../store/persistence/operations.js';
+import { loadAuthSessionFromIDB, readBillSessionFromIDB } from '../store/persistence/operations.js';
 import { addSyncLog } from '../store/persistence/syncLogs.js';
 
 /**
@@ -577,6 +577,14 @@ async function _pushEntry(entry, sdkClient, cfg) {
       e?.message ??
       String(e);
     console.warn(`[SyncQueue] Error on ${operation} ${collection}/${record_id}:`, errorMsg);
+    // Detect INVALID_FOREIGN_KEY errors from Directus (HTTP 400 with extensions.code
+    // === 'INVALID_FOREIGN_KEY').  These indicate that a referenced parent record does
+    // not exist in Directus even though the local FK value is valid.  The flag is used
+    // by drainQueue's failure handler to trigger parent-recovery before retrying.
+    const hasFkViolation = arr =>
+      Array.isArray(arr) && arr.some(err => err?.extensions?.code === 'INVALID_FOREIGN_KEY');
+    const invalidForeignKey =
+      hasFkViolation(e?.errors) || hasFkViolation(e?.response?.errors);
     return {
       message: errorMsg,
       request: requestContext,
@@ -594,6 +602,9 @@ async function _pushEntry(entry, sdkClient, cfg) {
       // fallback PATCH also failed.  The record IS in Directus so child FK
       // entries remain satisfiable — callers must NOT gate them via failedCreates.
       recordAlreadyExists,
+      // True when Directus returned INVALID_FOREIGN_KEY for one or more fields.
+      // drainQueue uses this flag to trigger FK-recovery (re-enqueue missing parent).
+      invalidForeignKey,
     };
   }
 }
@@ -792,6 +803,93 @@ export async function drainQueue(cfg) {
       return true; // signal caller to break / stop processing
     }
     const failureDetails = typeof result === 'string' ? { message: result } : result;
+
+    // ── FK-recovery path ────────────────────────────────────────────────────
+    // When a CREATE fails with INVALID_FOREIGN_KEY it means a referenced parent
+    // record exists locally (in IDB) but is missing from Directus (e.g. the DB
+    // was reset after the parent was successfully pushed in an earlier cycle).
+    //
+    // Recovery strategy:
+    //  1. Look up each bill_sessions parent referenced by this entry's payload.
+    //  2. If found in IDB:
+    //     a. Find any existing UPDATE/DELETE entries for that parent in the
+    //        current sortedEntries that have NOT yet been pushed to Directus.
+    //        These must be removed and re-enqueued AFTER the new CREATE so that
+    //        the CREATE becomes the group gate in the next drain cycle.
+    //     b. Enqueue a fresh bill_sessions CREATE (with the IDB data).
+    //     c. Re-enqueue the removed UPDATE/DELETE entries (fresh timestamps so
+    //        they sort after the CREATE).
+    //     d. Add the parent key to `pendingCreates` so that any sibling child
+    //        entries processed later in this same cycle are correctly deferred.
+    //     e. Block this entry for the rest of the cycle WITHOUT incrementing its
+    //        attempt counter — the failure was caused by the missing parent, not
+    //        by a problem with the child entry itself.
+    //  3. If NOT found in IDB the parent data is permanently lost; fall through
+    //     to normal failure handling (attempt counter incremented, eventually
+    //     abandoned) — no recovery is possible.
+    //
+    // Only bill_sessions parents are handled here because they are the sole
+    // parent type stored in a dedicated, always-readable IDB ObjectStore from
+    // which a complete re-create payload can be reconstructed.
+    if (entry.operation === 'create' && failureDetails?.invalidForeignKey) {
+      const deps = PARENT_DEPENDENCY_MAP.get(entry.collection);
+      if (deps) {
+        for (const dep of deps) {
+          if (dep.parentCollection !== 'bill_sessions') continue;
+          const parentId = entry.payload?.[dep.fkField];
+          if (!parentId) continue;
+          const parentKey = `${dep.parentCollection}:${parentId}`;
+          // Skip if the parent is already queued as a pending CREATE or was
+          // pushed/confirmed this cycle — something else is wrong.
+          if (
+            pendingCreates.has(parentKey) ||
+            pushedInThisCycle.has(parentKey) ||
+            failedCreates.has(parentKey)
+          ) continue;
+
+          const session = await readBillSessionFromIDB(parentId);
+          if (!session) continue; // parent not in IDB — fall through to normal handling
+
+          // Find existing non-CREATE entries for this parent that are still in
+          // IDB (i.e. not already pushed to Directus this cycle).  These are
+          // removed and re-enqueued after the new CREATE so that the CREATE
+          // becomes the group gate in the next drain cycle.
+          const existingNonCreates = sortedEntries.filter(
+            e =>
+              e.collection === dep.parentCollection &&
+              e.record_id === parentId &&
+              (e.operation === 'update' || e.operation === 'delete') &&
+              !pushedInThisCycle.has(parentKey),
+          );
+          for (const e of existingNonCreates) {
+            await removeEntry(e.id); // idempotent — safe if already removed
+          }
+
+          // Enqueue CREATE first so it becomes the chronological gate.
+          await enqueue(dep.parentCollection, 'create', session.id, { ...session });
+
+          // Re-enqueue any removed UPDATE/DELETE entries with fresh timestamps
+          // (they now sort after the CREATE above).
+          for (const e of existingNonCreates) {
+            await enqueue(dep.parentCollection, e.operation, e.record_id, e.payload);
+          }
+
+          // Block same-record children in the remainder of this cycle.
+          pendingCreates.add(parentKey);
+
+          console.warn(
+            `[SyncQueue] FK recovery: re-enqueued missing bill_session/${parentId} from IDB` +
+            ` — child entry ${entry.collection}/${entry.record_id} deferred to next cycle.`,
+          );
+
+          // Treat as a pure deferral, not a failure: block the child for the
+          // rest of this cycle but do NOT increment its attempt counter.
+          blockedKeys.add(entryKey);
+          return false;
+        }
+      }
+    }
+
     const newAttempts = (entry.attempts ?? 0) + 1;
     await addFailedSyncCall(entry, failureDetails, newAttempts, newAttempts >= MAX_ATTEMPTS);
     if (newAttempts >= MAX_ATTEMPTS) {

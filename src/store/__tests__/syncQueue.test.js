@@ -32,6 +32,9 @@
  *  - drainQueue() does NOT cascade-abandon children when parent fails with a non-final error
  *  - drainQueue() does NOT block children via failedCreates when parent CREATE gets RECORD_NOT_UNIQUE and fallback PATCH fails
  *  - drainQueue() retries a deferred child CREATE (attempts=0) in same cycle when parent is marked satisfiable later (second pass)
+ *  - drainQueue() FK recovery: re-enqueues missing bill_session CREATE from IDB on INVALID_FOREIGN_KEY
+ *  - drainQueue() FK recovery: re-enqueues CREATE and re-orders existing UPDATE when bill_session UPDATE was in queue
+ *  - drainQueue() FK recovery: falls through to normal failure when bill_session is not in IDB
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -1240,4 +1243,174 @@ describe('drainQueue() — BFS fair-retry ordering', () => {
     expect(remaining[0].record_id).toBe('bill_2p');
     expect(remaining[0].attempts).toBe(2);
   });
+
+  // ── FK recovery (INVALID_FOREIGN_KEY) ─────────────────────────────────────
+
+  it('FK recovery: re-enqueues missing bill_session CREATE from IDB when INVALID_FOREIGN_KEY received, without burning child attempt', async () => {
+    // Scenario: invoice_requests CREATE fails with INVALID_FOREIGN_KEY because the
+    // bill_session was lost from Directus (e.g. DB reset) even though it was
+    // previously pushed successfully.  The bill_session record is still in IDB.
+    // Recovery must re-enqueue a bill_sessions CREATE and defer the child
+    // invoice_requests without incrementing its attempt counter.
+    await persistenceOps.upsertBillSessionInIDB({
+      billSessionId: 'bill_fkr1',
+      table: 'T_R1',
+      adults: 2,
+      children: 0,
+      status: 'closed',
+      opened_at: '2026-04-27T18:00:00.000Z',
+      venue: 1,
+    });
+    await enqueue('invoice_requests', 'create', 'inv_fkr1', {
+      id: 'inv_fkr1',
+      billSessionId: 'bill_fkr1',
+      status: 'pending',
+    });
+
+    // Cycle 1: invoice_requests fails with INVALID_FOREIGN_KEY
+    vi.spyOn(global, 'fetch').mockResolvedValueOnce(mockResponse(400, {
+      errors: [{
+        message: 'Invalid foreign key "bill_fkr1" for field "bill_session" in collection "invoice_requests".',
+        extensions: { collection: 'invoice_requests', field: 'bill_session', value: 'bill_fkr1', code: 'INVALID_FOREIGN_KEY' },
+      }],
+    }));
+    const result1 = await drainQueue(FAKE_CFG);
+
+    // Recovery treated as deferral: no attempt burned, no failure counted
+    expect(result1.failed).toBe(0);
+    expect(result1.pushed).toBe(0);
+    expect(result1.abandoned).toBe(0);
+
+    // invoice_requests must remain in queue with attempts=0 (not incremented)
+    const afterCycle1 = await getPendingEntries();
+    const invEntry = afterCycle1.find(e => e.record_id === 'inv_fkr1');
+    expect(invEntry).toBeDefined();
+    expect(invEntry.attempts).toBe(0);
+
+    // A new bill_sessions CREATE must have been enqueued by recovery
+    const billCreate = afterCycle1.find(
+      e => e.collection === 'bill_sessions' && e.operation === 'create' && e.record_id === 'bill_fkr1',
+    );
+    expect(billCreate).toBeDefined();
+
+    // Cycle 2: bill_sessions CREATE pushed first, then invoice_requests pushed via second pass
+    vi.restoreAllMocks();
+    vi.spyOn(global, 'fetch')
+      .mockResolvedValueOnce(mockResponse(201, {})) // bill_sessions CREATE
+      .mockResolvedValueOnce(mockResponse(201, {})); // invoice_requests CREATE (second pass)
+
+    const result2 = await drainQueue(FAKE_CFG);
+    expect(result2.pushed).toBe(2);
+    expect(result2.failed).toBe(0);
+    expect(await getPendingEntries()).toHaveLength(0);
+  });
+
+  it('FK recovery: removes existing bill_sessions UPDATE from queue and re-enqueues CREATE then UPDATE so CREATE becomes the gate', async () => {
+    // Normal app flow — bill_sessions UPDATE was enqueued when the bill was closed,
+    // then invoice_requests CREATE was enqueued.  Neither parent exists in Directus.
+    // Cycle 1 flow:
+    //  - bill_sessions UPDATE → 404 (record missing from Directus; attempts=1)
+    //  - invoice_requests CREATE → 400 INVALID_FOREIGN_KEY → FK recovery:
+    //      removes bill_sessions UPDATE from queue, enqueues CREATE then UPDATE
+    //      (fresh timestamps), defers invoice_requests without burning attempts
+    // Cycle 2 flow (all succeed):
+    //  - bill_sessions CREATE → 201; UPDATE → 200
+    //  - invoice_requests CREATE → 201 (via second pass in same cycle)
+    await persistenceOps.upsertBillSessionInIDB({
+      billSessionId: 'bill_fkr2',
+      table: 'T_R2',
+      adults: 3,
+      children: 1,
+      status: 'closed',
+      opened_at: '2026-04-27T18:10:00.000Z',
+      venue: 1,
+    });
+    await enqueue('bill_sessions', 'update', 'bill_fkr2', {
+      status: 'closed', closed_at: '2026-04-27T19:00:00.000Z',
+    });
+    await enqueue('invoice_requests', 'create', 'inv_fkr2', {
+      id: 'inv_fkr2', billSessionId: 'bill_fkr2', status: 'pending',
+    });
+
+    vi.spyOn(global, 'fetch')
+      .mockResolvedValueOnce(mockResponse(404, { errors: [{ message: 'Not Found' }] }))
+      .mockResolvedValueOnce(mockResponse(400, {
+        errors: [{
+          message: 'Invalid foreign key "bill_fkr2" for field "bill_session" in collection "invoice_requests".',
+          extensions: { collection: 'invoice_requests', field: 'bill_session', value: 'bill_fkr2', code: 'INVALID_FOREIGN_KEY' },
+        }],
+      }));
+
+    const result1 = await drainQueue(FAKE_CFG);
+    // The bill_sessions UPDATE attempted and failed (attempts=1) before recovery
+    expect(result1.failed).toBe(1);
+    expect(result1.pushed).toBe(0);
+    expect(result1.abandoned).toBe(0);
+
+    // Queue must contain exactly 3 entries after cycle 1:
+    // new bill_sessions CREATE, new bill_sessions UPDATE, invoice_requests (attempts=0)
+    const afterCycle1 = await getPendingEntries();
+    expect(afterCycle1).toHaveLength(3);
+
+    const invEntry = afterCycle1.find(e => e.record_id === 'inv_fkr2');
+    expect(invEntry).toBeDefined();
+    expect(invEntry.attempts).toBe(0); // not burned — pure deferral
+
+    const billCreate = afterCycle1.find(
+      e => e.collection === 'bill_sessions' && e.operation === 'create' && e.record_id === 'bill_fkr2',
+    );
+    expect(billCreate).toBeDefined(); // recovery re-enqueued CREATE
+
+    const billUpdate = afterCycle1.find(
+      e => e.collection === 'bill_sessions' && e.operation === 'update' && e.record_id === 'bill_fkr2',
+    );
+    expect(billUpdate).toBeDefined(); // recovery re-enqueued UPDATE (after CREATE)
+
+    // The CREATE must sort before the UPDATE (CREATE is the new gate)
+    expect(billCreate.date_created <= billUpdate.date_created).toBe(true);
+
+    // Cycle 2: bill_sessions CREATE → 201, UPDATE → 200, invoice_requests → 201
+    vi.restoreAllMocks();
+    vi.spyOn(global, 'fetch')
+      .mockResolvedValueOnce(mockResponse(201, {})) // bill_sessions CREATE
+      .mockResolvedValueOnce(mockResponse(200, {})) // bill_sessions UPDATE
+      .mockResolvedValueOnce(mockResponse(201, {})); // invoice_requests CREATE (second pass)
+
+    const result2 = await drainQueue(FAKE_CFG);
+    expect(result2.pushed).toBe(3);
+    expect(result2.failed).toBe(0);
+    expect(await getPendingEntries()).toHaveLength(0);
+  });
+
+  it('FK recovery: falls through to normal failure handling when bill_session is not in IDB', async () => {
+    // When the bill_session data is gone from IDB (device cleared / data lost),
+    // no recovery is possible.  The child attempt counter must be incremented normally.
+    await enqueue('invoice_requests', 'create', 'inv_fkr3', {
+      id: 'inv_fkr3',
+      billSessionId: 'bill_fkr3_missing',
+      status: 'pending',
+    });
+
+    vi.spyOn(global, 'fetch').mockResolvedValueOnce(mockResponse(400, {
+      errors: [{
+        message: 'Invalid foreign key "bill_fkr3_missing" for field "bill_session" in collection "invoice_requests".',
+        extensions: { collection: 'invoice_requests', field: 'bill_session', value: 'bill_fkr3_missing', code: 'INVALID_FOREIGN_KEY' },
+      }],
+    }));
+
+    const result = await drainQueue(FAKE_CFG);
+
+    // Normal failure: attempt counter must be incremented
+    expect(result.failed).toBe(1);
+    expect(result.pushed).toBe(0);
+
+    const entries = await getPendingEntries();
+    const invEntry = entries.find(e => e.record_id === 'inv_fkr3');
+    expect(invEntry).toBeDefined();
+    expect(invEntry.attempts).toBe(1); // burned normally
+
+    // No bill_sessions entries should be in the queue (no recovery happened)
+    expect(entries.filter(e => e.collection === 'bill_sessions')).toHaveLength(0);
+  });
 });
+
