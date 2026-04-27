@@ -482,7 +482,9 @@ async function exportSession() {
   a.href = url;
   a.download = `sync-session-${ts}.json`;
   a.click();
-  URL.revokeObjectURL(url);
+  setTimeout(() => {
+    URL.revokeObjectURL(url);
+  }, 0);
 }
 
 async function _copyToClipboard(text, labelRef, resetLabel) {
