@@ -904,7 +904,9 @@ export function mapTransactionToDirectus(record) {
  * The Directus PK is the standard `id` field (UUID v7, no prefix).
  * `logId`, `jobId` and `originalJobId` are local-only identifiers — they are
  * dropped here and not stored as separate columns in Directus. `jobId` is still
- * available inside the `payload` JSONB column (as `payload.jobId`).
+ * available inside the `payload` JSONB column (as `payload.jobId`). For reprints,
+ * `originalJobId` is copied into `payload.originalJobId` before the top-level field
+ * is removed, so the reprint traceability link is preserved in Directus.
  *
  * The `timestamp` field is stripped by `_PUSH_DROP_FIELDS` before this mapper
  * runs, so the original (unstripped) payload is passed as `originalRecord` to
@@ -923,7 +925,18 @@ export function mapPrintJobToDirectus(record, originalRecord) {
   delete out.logId;
   // jobId — local identifier stored in payload.jobId, not a separate Directus column → drop
   delete out.jobId;
-  // originalJobId — local reprint reference stored in payload.originalJobId → drop
+  // originalJobId — local reprint reference; copy into payload.originalJobId so the
+  // traceability link is preserved in Directus, then drop the redundant top-level field
+  if (
+    Object.prototype.hasOwnProperty.call(out, 'originalJobId') &&
+    out.originalJobId != null &&
+    out.payload != null &&
+    typeof out.payload === 'object' &&
+    !Array.isArray(out.payload) &&
+    !Object.prototype.hasOwnProperty.call(out.payload, 'originalJobId')
+  ) {
+    out.payload = { ...out.payload, originalJobId: out.originalJobId };
+  }
   delete out.originalJobId;
   // printType → print_type
   if (!Object.prototype.hasOwnProperty.call(out, 'print_type') && Object.prototype.hasOwnProperty.call(source, 'printType')) {

@@ -1045,7 +1045,6 @@ venues ──< cash_movements
 venues ──< daily_closures ──< daily_closure_by_method
 venues ──< printers
 venues ──< print_jobs >── printers
-Nota: per le ristampe, lo schema persistito corrente non conserva il `jobId` originale (locale) in `payload.originalJobId`
 bill_sessions ──< fiscal_receipts
 bill_sessions ──< invoice_requests
 ```

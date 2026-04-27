@@ -72,8 +72,10 @@ B2. print_jobs: keyPath IDB logId ≠ Directus log_id [RISOLTO]
 
 • upsertRecordsIntoIDB override print_jobs: 'logId' non funziona con record Directus che hanno log_id
 
-Fix (implementato): print_jobs è push-only (non nel PULL_CONFIG). Il mapper mapPrintJobToDirectus
-converte logId → log_id nel payload Directus. L'IDB continua ad usare logId come keyPath locale.
+Fix (implementato): print_jobs è push-only (non nel PULL_CONFIG). La collezione è stata ricreata
+con `id` (UUID v7) come unico PK standard in Directus, eliminando i campi ridondanti `log_id`,
+`job_id` e `original_job_id`. Il mapper mapPrintJobToDirectus usa il PK `id`; `logId`
+(`plog_<uuid>`) rimane come keyPath IDB locale e non diventa colonna Directus.
 addPrintLogEntry e updatePrintLogEntry ora chiamano enqueue() per sincronizzare con Directus.
 
 

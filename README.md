@@ -401,7 +401,7 @@ Le seguenti collezioni sono **push-only** (nessun pull da Directus): vengono cre
 
 | Collezione | Evento locale | Note |
 |------------|---------------|-------|
-| `print_jobs` | Ogni job di stampa inviato | `id` UUID v7 standard (PK Directus); `log_id` (`plog_<uuid>`) è l'identificatore IDB locale |
+| `print_jobs` | Ogni job di stampa inviato | `id` UUID v7 standard (PK Directus); `logId` (`plog_<uuid>`) è l'identificatore locale / keyPath IndexedDB |
 | `fiscal_receipts` | Chiusura conto con scontrino fiscale | FK `venue` diretto; dipende da `bill_sessions` |
 | `invoice_requests` | Chiusura conto con fattura elettronica | FK `venue` diretto; dipende da `bill_sessions` |
 
