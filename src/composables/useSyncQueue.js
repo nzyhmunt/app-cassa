@@ -46,6 +46,7 @@ import { newUUIDv7 } from '../store/storeUtils.js';
 import { appConfig } from '../utils/index.js';
 import { mapPayloadToDirectus } from '../utils/mappers.js';
 import { loadAuthSessionFromIDB } from '../store/persistence/operations.js';
+import { addSyncLog } from '../store/persistence/syncLogs.js';
 
 /**
  * Maximum push attempts before a queue entry is abandoned.
@@ -598,8 +599,56 @@ async function _pushEntry(entry, sdkClient, cfg) {
 }
 
 /**
- * Drains the sync_queue by sending every pending entry to Directus in
- * BFS-ordered passes (attempts ASC, date_created ASC).
+ * Derives a minimal endpoint string from a sync queue entry.
+ * Used for success-path logging where _pushEntry only returns `true`.
+ * @param {object} entry
+ * @returns {string}
+ */
+function _entryEndpoint(entry) {
+  const { collection, operation, record_id } = entry;
+  if (operation === 'create') return `/items/${collection}`;
+  return `/items/${collection}/${record_id}`;
+}
+
+/**
+ * Logs the outcome of a single push entry to the sync_logs store.
+ * @param {object} entry
+ * @param {true|'skip'|object} result - Return value from _pushEntry
+ * @param {number} durationMs
+ */
+function _logPushResult(entry, result, durationMs) {
+  if (result === 'skip') return; // no-op deletes are not worth logging
+  let logEntry;
+  if (result === true) {
+    logEntry = {
+      direction: 'OUT',
+      type: 'PUSH',
+      endpoint: _entryEndpoint(entry),
+      payload: entry.payload ?? null,
+      response: null,
+      status: 'success',
+      statusCode: null,
+      durationMs,
+      collection: entry.collection,
+    };
+  } else {
+    const failure = typeof result === 'object' && result !== null ? result : { message: String(result) };
+    logEntry = {
+      direction: 'OUT',
+      type: 'PUSH',
+      endpoint: failure.request?.endpoint ?? _entryEndpoint(entry),
+      payload: failure.request?.body ?? entry.payload ?? null,
+      response: failure.response ?? null,
+      status: 'error',
+      statusCode: failure.response?.status ?? null,
+      durationMs,
+      collection: entry.collection,
+    };
+  }
+  addSyncLog(logEntry).catch(() => {});
+}
+
+/**
  *
  * - Successfully pushed entries are removed from the queue.
  * - Failed entries have their `attempts` counter incremented.
@@ -892,7 +941,9 @@ export async function drainQueue(cfg) {
       }
     }
 
+    const _pushStart = Date.now();
     const result = await _pushEntry(entry, sdkClient, cfg);
+    _logPushResult(entry, result, Date.now() - _pushStart);
 
     if (result === true || result === 'skip') {
       await removeEntry(entry.id);
@@ -941,7 +992,9 @@ export async function drainQueue(cfg) {
     if (stillBlocked) continue; // parent still pending or failed — retry next cycle
 
     // Parent is now satisfiable — attempt this entry.
+    const _deferredPushStart = Date.now();
     const result = await _pushEntry(deferredEntry, sdkClient, cfg);
+    _logPushResult(deferredEntry, result, Date.now() - _deferredPushStart);
     if (result === true || result === 'skip') {
       await removeEntry(deferredEntry.id);
       pushed++;

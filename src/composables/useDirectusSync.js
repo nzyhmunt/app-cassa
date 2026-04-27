@@ -50,6 +50,7 @@ import {
   clearLocalConfigCacheFromIDB,
 } from '../store/persistence/config.js';
 import { reloadUsersFromIDB } from './useAuth.js';
+import { addSyncLog } from '../store/persistence/syncLogs.js';
 
 // ── Per-app pull config (§5.7.6) ─────────────────────────────────────────────
 
@@ -318,13 +319,39 @@ async function _fetchUpdatedViaSDK(collection, sinceTs, page = 1) {
   }
 
   try {
+    const _pullStart = Date.now();
     const records = await client.request(readItems(collection, query));
+    const _pullDuration = Date.now() - _pullStart;
     const data = Array.isArray(records) ? records : [];
     const timestamps = data.map(r => r.date_updated).filter(Boolean);
     const maxTs = timestamps.length > 0 ? timestamps.reduce((a, b) => (a > b ? a : b)) : null;
+    addSyncLog({
+      direction: 'IN',
+      type: 'PULL',
+      endpoint: `/items/${collection}`,
+      payload: { collection, page, filter: query.filter ?? null, since: sinceTs ?? null },
+      response: { count: data.length, maxTs },
+      status: 'success',
+      statusCode: 200,
+      durationMs: _pullDuration,
+      collection,
+      recordCount: data.length,
+    }).catch(() => {});
     return { data, maxTs, error: null };
   } catch (e) {
     console.warn(`[DirectusSync] Pull ${collection} error:`, e?.message ?? e);
+    addSyncLog({
+      direction: 'IN',
+      type: 'PULL',
+      endpoint: `/items/${collection}`,
+      payload: { collection, page, filter: query.filter ?? null, since: sinceTs ?? null },
+      response: { error: e?.message ?? String(e) },
+      status: 'error',
+      statusCode: e?.response?.status ?? null,
+      durationMs: null,
+      collection,
+      recordCount: 0,
+    }).catch(() => {});
     return { data: [], maxTs: null, error: e };
   }
 }
@@ -498,6 +525,19 @@ async function _handleSubscriptionMessage(collection, message) {
   lastPullAt.value = new Date().toISOString();
   const echoNote = suppressedCount > 0 ? ` (${suppressedCount} self-echo(es) suppressed)` : '';
   console.info(`[DirectusSync] WS ${event} on ${collection}: ${writtenCount} record(s) written${echoNote}`);
+
+  addSyncLog({
+    direction: 'IN',
+    type: 'WS',
+    endpoint: `/subscriptions/${collection}`,
+    payload: { event, count: data.length, suppressedCount },
+    response: { writtenCount },
+    status: 'success',
+    statusCode: null,
+    durationMs: null,
+    collection,
+    recordCount: writtenCount,
+  }).catch(() => {});
 }
 
 /**

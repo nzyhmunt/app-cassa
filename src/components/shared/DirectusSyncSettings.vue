@@ -222,15 +222,15 @@
       </div>
     </template>
 
-    <!-- Log coda sincronizzazione -->
+    <!-- Monitor Activity -->
     <button
       v-if="syncEnabled"
       type="button"
       @click="showQueueLog = true"
       class="w-full py-2.5 bg-gray-50 hover:bg-gray-100 text-gray-700 font-bold rounded-2xl flex items-center justify-center gap-2 border border-gray-200 transition-colors active:scale-95 text-xs"
     >
-      <ListOrdered class="size-3.5 text-gray-500" />
-      <span>Log coda sync</span>
+      <Activity class="size-3.5 text-gray-500" />
+      <span>Activity Monitor</span>
     </button>
 
     <!-- Info timestamp -->
@@ -251,8 +251,8 @@
       </p>
     </div>
 
-    <!-- Sync queue log modal (admin only) -->
-    <SyncQueueLogModal v-model="showQueueLog" />
+    <!-- Sync Monitor (activity log + real-time status) -->
+    <SyncMonitor v-model="showQueueLog" />
 
     <!-- Modale applicazione nuova configurazione Directus -->
     <div
@@ -340,7 +340,7 @@
 import { ref, reactive, computed, onMounted, onUnmounted } from 'vue';
 import {
   RefreshCw, Save, Wifi, LoaderCircle, CheckCircle, XCircle,
-  AlertCircle, WifiOff, Upload, Download, ListOrdered,
+  AlertCircle, WifiOff, Upload, Download, Activity,
 } from 'lucide-vue-next';
 import { appConfig } from '../../utils/index.js';
 import {
@@ -349,7 +349,7 @@ import {
 } from '../../composables/useDirectusClient.js';
 import { useDirectusSync } from '../../composables/useDirectusSync.js';
 import { useConfigStore } from '../../store/index.js';
-import SyncQueueLogModal from './SyncQueueLogModal.vue';
+import SyncMonitor from './SyncMonitor.vue';
 
 const sync = useDirectusSync();
 const configStore = useConfigStore();
