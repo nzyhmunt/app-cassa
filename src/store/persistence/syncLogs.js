@@ -75,41 +75,58 @@ function _notifyChange() {
  * @param {import('idb').IDBPDatabase} db
  */
 async function _purge(db) {
-  // Read all records ordered oldest-first (timestamp index, 'next' direction).
-  const all = await db.getAllFromIndex('sync_logs', 'timestamp');
-
-  const successes = all.filter(r => r.status === 'success');
-  const errors    = all.filter(r => r.status !== 'success');
+  const tx = db.transaction('sync_logs', 'readwrite');
+  const index = tx.store.index('timestamp');
+  const cutoff = new Date(Date.now() - SYNC_LOGS_ERROR_RETENTION_MS).toISOString();
 
   const keysToDelete = new Set();
 
-  // ── Success bucket ──────────────────────────────────────────────────────────
-  if (successes.length > SYNC_LOGS_MAX_SUCCESS) {
-    // `successes` is sorted oldest-first; slice off the head (oldest excess).
-    const excess = successes.slice(0, successes.length - SYNC_LOGS_MAX_SUCCESS);
-    for (const r of excess) keysToDelete.add(r.id);
+  // Keep only the newest SYNC_LOGS_MAX_SUCCESS successes by evicting
+  // older successes as soon as we see more than the allowed count.
+  const successIdsToKeep = [];
+
+  // Track all errors older than the time window, then preserve the newest
+  // SYNC_LOGS_MAX_ERRORS errors overall by excluding them from deletion.
+  const oldErrorIds = [];
+  const newestErrorIds = [];
+
+  let cursor = await index.openCursor();
+  while (cursor) {
+    const record = cursor.value;
+
+    if (record.status === 'success') {
+      successIdsToKeep.push(record.id);
+      if (successIdsToKeep.length > SYNC_LOGS_MAX_SUCCESS) {
+        keysToDelete.add(successIdsToKeep.shift());
+      }
+    } else {
+      newestErrorIds.push(record.id);
+      if (newestErrorIds.length > SYNC_LOGS_MAX_ERRORS) {
+        newestErrorIds.shift();
+      }
+
+      if (record.timestamp < cutoff) {
+        oldErrorIds.push(record.id);
+      }
+    }
+
+    cursor = await cursor.continue();
   }
 
-  // ── Error bucket ────────────────────────────────────────────────────────────
-  if (errors.length > 0) {
-    const cutoff = new Date(Date.now() - SYNC_LOGS_ERROR_RETENTION_MS).toISOString();
-    // IDs of the newest SYNC_LOGS_MAX_ERRORS errors (always kept regardless of age).
-    const newestErrorIds = new Set(
-      errors.slice(-SYNC_LOGS_MAX_ERRORS).map(r => r.id),
-    );
-    for (const r of errors) {
-      const withinWindow = r.timestamp >= cutoff;
-      const withinCount  = newestErrorIds.has(r.id);
-      // Delete only if the entry falls outside both retention criteria.
-      if (!withinWindow && !withinCount) keysToDelete.add(r.id);
+  if (oldErrorIds.length > 0) {
+    const newestErrorIdSet = new Set(newestErrorIds);
+    for (const id of oldErrorIds) {
+      // Delete only if the entry falls outside both retention criteria:
+      // it is older than the retention window and not among the newest errors.
+      if (!newestErrorIdSet.has(id)) keysToDelete.add(id);
     }
   }
 
   if (keysToDelete.size > 0) {
-    const tx = db.transaction('sync_logs', 'readwrite');
     await Promise.all([...keysToDelete].map(id => tx.store.delete(id)));
-    await tx.done;
   }
+
+  await tx.done;
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
