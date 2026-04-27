@@ -312,10 +312,9 @@ export const useOrderStore = defineStore('orders', () => {
     //   • legacy IDB items created before client-side UUID assignment was introduced,
     //   • the addItemsToOrder merge path where an existing item may still lack an id,
     //   • any other code path that pushes items/modifiers into orderItems without an id.
-    // Mutating projectedOrder here also updates orders.value[n] (shared reference),
-    // so reactive state is kept in sync. If this safety-net adds any ids, persist
-    // immediately instead of relying only on the next scheduled orders save, which
-    // may have been intentionally skipped by an earlier IDB-first mutation path.
+    // When IDs are generated, this path persists the updated order snapshot to IDB;
+    // reactive state is then refreshed via the persistence event bus, which may be
+    // asynchronous in production.
     let didGenerateMissingIds = false;
     if (Array.isArray(projectedOrder.orderItems)) {
       for (const item of projectedOrder.orderItems) {
@@ -334,8 +333,18 @@ export const useOrderStore = defineStore('orders', () => {
       }
     }
     if (didGenerateMissingIds) {
-      saveStateToIDB({ orders: orders.value }).catch((error) => {
+      // Make the generated IDs visible in reactive state immediately so any
+      // subsequent mutation on the same order observes the same item/modifier
+      // IDs even if the IDB write or event-bus propagation is still pending.
+      const nextOrders = _replaceOrderById(ordId, projectedOrder);
+      // Suppress the watcher-triggered debounced save so the explicit saveStateToIDB
+      // call below is the sole IDB write for this reactive update.
+      _skipNextScheduledSave('orders');
+      orders.value = nextOrders;
+      saveStateToIDB({ orders: nextOrders }).catch((error) => {
         console.error('Failed to persist generated order item IDs to IDB', error);
+        // orders.value is already synchronized with nextOrders; schedule a retry
+        // so persistence catches up without regenerating IDs.
         _scheduleSave('orders');
       });
     }
@@ -433,8 +442,6 @@ export const useOrderStore = defineStore('orders', () => {
     if (!order.noteVisibility) order.noteVisibility = { cassa: true, sala: true, cucina: true };
     const nextOrders = [...orders.value, order];
     await saveStateToIDB({ orders: nextOrders });
-    _skipNextScheduledSave('orders');
-    orders.value = nextOrders;
     enqueue('orders', 'create', order.id, order);
   }
 
@@ -495,8 +502,6 @@ export const useOrderStore = defineStore('orders', () => {
         console.warn('[Store] addItemsToOrder IDB save failed:', e);
         return false;
       }
-      _skipNextScheduledSave('orders');
-      orders.value = projectedOrders;
       _enqueueOrderItemsPatch(ordId, projected);
       return projected;
     });
@@ -546,41 +551,15 @@ export const useOrderStore = defineStore('orders', () => {
       await closeBillSessionInIDB(closingSession.billSessionId);
     }
 
-    _skipNextScheduledSave(
-      'orders',
-      'tableOccupiedAt',
-      'tableMergedInto',
-      'tableCurrentBillSession',
-      'billRequestedTables',
-    );
-    order.status = newStatus;
-    if (newStatus === 'rejected' && rejectionReason) order.rejectionReason = rejectionReason;
-    if (KITCHEN_ACTIVE_STATUSES.includes(newStatus) && !tableOccupiedAt.value[order.table]) {
-      tableOccupiedAt.value[order.table] = closedAt;
+    // Reactive state is updated via the IDB event bus (emitIDBChange in saveStateToIDB).
+    // Only enqueue sync operations here; no direct ref mutations needed.
+    if (projectedActiveOrds.length === 0 && closingSession?.billSessionId) {
+      enqueue('bill_sessions', 'update', closingSession.billSessionId, {
+        status: 'closed', closed_at: closedAt,
+      });
     }
-    const activeOrds = orders.value.filter(
-      o => o.table === order.table && o.status !== 'completed' && o.status !== 'rejected',
-    );
-    if (activeOrds.length === 0) {
-      delete tableOccupiedAt.value[order.table];
-      const idsToUnmap = [...slaveIdsOf(order.table), ...(tableMergedInto.value[order.table] ? [order.table] : [])];
-      if (idsToUnmap.length > 0) {
-        const nextMerge = { ...tableMergedInto.value };
-        idsToUnmap.forEach(id => delete nextMerge[id]);
-        tableMergedInto.value = nextMerge;
-      }
-      const nextSession = { ...tableCurrentBillSession.value };
-      const closedSession = nextSession[order.table];
-      delete nextSession[order.table];
-      tableCurrentBillSession.value = nextSession;
-      _updateBillRequestedState(order.table, false);
-      if (closedSession?.billSessionId) {
-        enqueue('bill_sessions', 'update', closedSession.billSessionId, {
-          status: 'closed', closed_at: closedAt,
-        });
-      }
-    }
-    enqueue('orders', 'update', order.id, { status: newStatus, rejectionReason: order.rejectionReason ?? null });
+    const projectedOrder = projectedOrders.find(o => o.id === order.id);
+    enqueue('orders', 'update', order.id, { status: newStatus, rejectionReason: projectedOrder?.rejectionReason ?? null });
   }
 
   // ── Order-item mutation helpers (IDB-first, serialized per order) ────────────
@@ -617,8 +596,6 @@ export const useOrderStore = defineStore('orders', () => {
         console.warn('[Store] updateQtyGlobal IDB save failed:', e);
         return false;
       }
-      _skipNextScheduledSave('orders');
-      orders.value = projectedOrders;
       _enqueueOrderItemsPatch(ordId, projected);
       return true;
     });
@@ -640,8 +617,6 @@ export const useOrderStore = defineStore('orders', () => {
         console.warn('[Store] removeRowGlobal IDB save failed:', e);
         return false;
       }
-      _skipNextScheduledSave('orders');
-      orders.value = projectedOrders;
       _enqueueOrderItemsPatch(ordId, projected);
       return true;
     });
@@ -672,8 +647,6 @@ export const useOrderStore = defineStore('orders', () => {
         console.warn('[Store] voidOrderItems IDB save failed:', e);
         return false;
       }
-      _skipNextScheduledSave('orders');
-      orders.value = projectedOrders;
       _enqueueOrderItemsPatch(ordId, projected);
       return true;
     });
@@ -697,8 +670,6 @@ export const useOrderStore = defineStore('orders', () => {
         console.warn('[Store] restoreOrderItems IDB save failed:', e);
         return false;
       }
-      _skipNextScheduledSave('orders');
-      orders.value = projectedOrders;
       _enqueueOrderItemsPatch(ordId, projected);
       return true;
     });
@@ -726,8 +697,6 @@ export const useOrderStore = defineStore('orders', () => {
         console.warn('[Store] voidModifier IDB save failed:', e);
         return false;
       }
-      _skipNextScheduledSave('orders');
-      orders.value = projectedOrders;
       _enqueueOrderItemsPatch(ordId, projected);
       return true;
     });
@@ -753,8 +722,6 @@ export const useOrderStore = defineStore('orders', () => {
         console.warn('[Store] restoreModifier IDB save failed:', e);
         return false;
       }
-      _skipNextScheduledSave('orders');
-      orders.value = projectedOrders;
       _enqueueOrderItemsPatch(ordId, projected);
       return true;
     });
@@ -777,8 +744,6 @@ export const useOrderStore = defineStore('orders', () => {
         console.warn('[Store] setItemKitchenReady IDB save failed:', e);
         return false;
       }
-      _skipNextScheduledSave('orders');
-      orders.value = projectedOrders;
       _enqueueOrderItemsPatch(ordId, projected);
       return true;
     });
@@ -792,9 +757,6 @@ export const useOrderStore = defineStore('orders', () => {
       transactions: nextTransactions,
       billRequestedTables: nextBillRequestedTables,
     });
-    _skipNextScheduledSave('transactions', 'billRequestedTables');
-    transactions.value = nextTransactions;
-    if (txn.table) _updateBillRequestedState(txn.table, false);
     enqueue('transactions', 'create', txn.id, txn);
 
     if (txn?.operationType === 'analitica') {
@@ -870,8 +832,6 @@ export const useOrderStore = defineStore('orders', () => {
     };
     const nextTransactions = [...transactions.value, txn];
     await saveStateToIDB({ transactions: nextTransactions });
-    _skipNextScheduledSave('transactions');
-    transactions.value = nextTransactions;
     enqueue('transactions', 'create', txn.id, txn);
   }
 
@@ -920,10 +880,6 @@ export const useOrderStore = defineStore('orders', () => {
     } catch (_) {
       return false;
     }
-    _skipNextScheduledSave('orders', 'tableOccupiedAt');
-    orders.value = nextOrders;
-    tableOccupiedAt.value = projectedTableOccupiedAt;
-
     // Single Directus enqueue — the create already carries accepted status + full orderItems.
     enqueue('orders', 'create', order.id, order);
     return order;
@@ -954,8 +910,6 @@ export const useOrderStore = defineStore('orders', () => {
     };
     const nextCashMovements = [...cashMovements.value, mov];
     await saveStateToIDB({ cashMovements: nextCashMovements });
-    _skipNextScheduledSave('cashMovements');
-    cashMovements.value = nextCashMovements;
     enqueue('cash_movements', 'create', mov.id, mov);
   }
 
@@ -1119,9 +1073,16 @@ export const useOrderStore = defineStore('orders', () => {
   watch(billRequestedTables, () => _scheduleSave('billRequestedTables'), { deep: true });
 
   // ── IDB event-bus subscriber ──────────────────────────────────────────────────
-  // This subscriber applies persisted state to the reactive refs after a confirmed
-  // IDB write. Some store actions still update refs directly in other code paths,
-  // so this is an important synchronization path, but not yet the only one.
+  // This subscriber is the primary reactive-update path for IDB-first action bodies.
+  // Every confirmed IDB write emits on this bus and updates the reactive refs below.
+  // Exceptions that still assign directly:
+  //   • openTableSession – uses upsertBillSessionInIDB (different bus path)
+  //   • performDailyClose (makeReportOps) – uses raw Vue refs outside the bus context;
+  //     the duplicate bus assignment that follows is harmless but acknowledged.
+  //   • _enqueueOrderItemsPatch safety-net – directly assigns orders.value = nextOrders
+  //     so generated IDs are visible immediately, then explicitly calls saveStateToIDB.
+  //     When that save later emits on the bus, this subscriber applies the persisted
+  //     state and uses _skipNextScheduledSave('orders') to avoid a redundant re-save.
   const unsubIDBChange = onIDBChange((state) => {
     const keys = [];
     if ('orders' in state) { orders.value = state.orders; keys.push('orders'); }
