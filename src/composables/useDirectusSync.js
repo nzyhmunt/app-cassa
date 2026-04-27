@@ -1421,7 +1421,14 @@ export function useDirectusSync() {
       return result;
     } catch (e) {
       syncStatus.value = 'error';
-      return { ok: false, failedCollections: [] };
+      console.warn('forcePull failed unexpectedly', e);
+      return {
+        ok: false,
+        failedCollections: [],
+        ...(e && typeof e === 'object' && 'skippedReason' in e ? { skippedReason: e.skippedReason } : {}),
+        ...(e instanceof Error ? { message: e.message } : {}),
+        error: e,
+      };
     }
   }
 
