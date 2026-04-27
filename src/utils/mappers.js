@@ -204,7 +204,9 @@ export function mapOrderItemFromDirectus(record) {
     notes: Array.isArray(record.notes) ? record.notes : [],
     modifiers: Array.isArray(record.modifiers)
       ? record.modifiers.map(normalizeOrderItemModifier).filter(Boolean)
-      : [],
+      : Array.isArray(record.order_item_modifiers)
+        ? record.order_item_modifiers.map(normalizeOrderItemModifier).filter(Boolean)
+        : [],
     kitchenReady: record.kitchen_ready ?? record.kitchenReady ?? false,
     venueUserCreated: relationId(record.venue_user_created ?? record.venueUserCreated ?? null),
     venueUserUpdated: relationId(record.venue_user_updated ?? record.venueUserUpdated ?? null),
@@ -1205,6 +1207,19 @@ export function mapPayloadToDirectus(collection, payload, ctx = {}) {
       // → ctx.recordId (update path where id is in queue entry.record_id, not in payload body)
       const resolvedOrderId = item?.orderId ?? payload?.id ?? ctx?.recordId ?? null;
       if (directItem.order == null && resolvedOrderId) directItem.order = resolvedOrderId;
+      // Propagate the audit user from the parent order payload to each item so
+      // that Directus records the venue_user_created / venue_user_updated FK on
+      // order_items, which are always written as nested payloads of their parent
+      // order and therefore bypass the per-collection _withVenueUserAuditPayload
+      // enrichment that runs on top-level sync_queue entries.
+      if (directItem.venue_user_created == null) {
+        const auditUser = cleaned.venue_user_created ?? payload?.venue_user_created ?? null;
+        if (auditUser != null) directItem.venue_user_created = auditUser;
+      }
+      if (directItem.venue_user_updated == null) {
+        const auditUser = cleaned.venue_user_updated ?? payload?.venue_user_updated ?? null;
+        if (auditUser != null) directItem.venue_user_updated = auditUser;
+      }
       // Enrich already-expanded modifiers (populated by Step 3 in the recursive
       // call above) with parent-context FKs that are not available there.
       if (Array.isArray(directItem.order_item_modifiers)) {

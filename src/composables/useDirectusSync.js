@@ -299,7 +299,12 @@ async function _fetchUpdatedViaSDK(collection, sinceTs, page = 1) {
     limit: 200,
     page,
     sort: [quirks.noDateUpdated ? 'id' : 'date_updated'],
-    fields: ['*'],
+    // For orders, expand nested order_items and their modifiers so that the
+    // detail view is populated even on a fresh device that has never locally
+    // created those orders.
+    fields: collection === 'orders'
+      ? ['*', 'order_items.*', 'order_items.order_item_modifiers.*']
+      : ['*'],
   };
 
   // Incremental pull filter (only records updated after last known timestamp).
