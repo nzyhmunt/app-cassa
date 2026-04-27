@@ -128,6 +128,28 @@ export function useSettings(props, emit) {
     } catch (e) {
       console.warn('[Settings] Failed to clear auth data during reset:', e);
     }
+    // Unregister all service workers and purge all browser caches so that the
+    // next load fetches the latest deployed code from the network, rather than
+    // serving stale JS/CSS assets from the SW's cache-first asset cache.
+    // This prevents the "interface changes not applied after reset" issue that
+    // occurs when a new build has been deployed but the SW still holds old
+    // assets under the same cache-version key.
+    try {
+      if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(registrations.map((r) => r.unregister()));
+      }
+    } catch (e) {
+      console.warn('[Settings] Failed to unregister service workers during reset:', e);
+    }
+    try {
+      if (typeof caches !== 'undefined') {
+        const keys = await caches.keys();
+        await Promise.all(keys.map((key) => caches.delete(key)));
+      }
+    } catch (e) {
+      console.warn('[Settings] Failed to clear browser caches during reset:', e);
+    }
     if (typeof window !== 'undefined' && window.location) {
       window.location.reload();
     }

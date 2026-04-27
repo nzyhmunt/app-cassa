@@ -708,4 +708,130 @@ describe('useSettings()', () => {
       }
     }
   });
+
+  it('confirmReset() unregisters all service workers before reload', async () => {
+    const reloadMock = vi.fn();
+    const originalLocationDescriptor = Object.getOwnPropertyDescriptor(window, 'location');
+    const originalLocationValue = window.location;
+    const unregisterMock = vi.fn().mockResolvedValue(true);
+    const originalServiceWorker = navigator.serviceWorker;
+
+    try {
+      Object.defineProperty(window, 'location', {
+        writable: true,
+        configurable: true,
+        value: { reload: reloadMock, pathname: '/' },
+      });
+      Object.defineProperty(navigator, 'serviceWorker', {
+        writable: true,
+        configurable: true,
+        value: {
+          getRegistrations: vi.fn().mockResolvedValue([{ unregister: unregisterMock }, { unregister: unregisterMock }]),
+        },
+      });
+
+      const props = reactive({ modelValue: false });
+      const emit = vi.fn();
+
+      const { result, wrapper } = withSetup(() => useSettings(props, emit));
+      await result.confirmReset();
+
+      expect(unregisterMock).toHaveBeenCalledTimes(2);
+      expect(reloadMock).toHaveBeenCalled();
+      wrapper.unmount();
+    } finally {
+      Object.defineProperty(navigator, 'serviceWorker', {
+        writable: true,
+        configurable: true,
+        value: originalServiceWorker,
+      });
+      if (originalLocationDescriptor) {
+        Object.defineProperty(window, 'location', originalLocationDescriptor);
+      } else {
+        window.location = originalLocationValue;
+      }
+    }
+  });
+
+  it('confirmReset() clears all browser caches before reload', async () => {
+    const reloadMock = vi.fn();
+    const originalLocationDescriptor = Object.getOwnPropertyDescriptor(window, 'location');
+    const originalLocationValue = window.location;
+    const deleteMock = vi.fn().mockResolvedValue(true);
+    const originalCaches = globalThis.caches;
+
+    try {
+      Object.defineProperty(window, 'location', {
+        writable: true,
+        configurable: true,
+        value: { reload: reloadMock, pathname: '/' },
+      });
+      globalThis.caches = {
+        keys: vi.fn().mockResolvedValue(['shell-v1', 'assets-v1', 'data-v1']),
+        delete: deleteMock,
+      };
+
+      const props = reactive({ modelValue: false });
+      const emit = vi.fn();
+
+      const { result, wrapper } = withSetup(() => useSettings(props, emit));
+      await result.confirmReset();
+
+      expect(deleteMock).toHaveBeenCalledTimes(3);
+      expect(deleteMock).toHaveBeenCalledWith('shell-v1');
+      expect(deleteMock).toHaveBeenCalledWith('assets-v1');
+      expect(deleteMock).toHaveBeenCalledWith('data-v1');
+      expect(reloadMock).toHaveBeenCalled();
+      wrapper.unmount();
+    } finally {
+      globalThis.caches = originalCaches;
+      if (originalLocationDescriptor) {
+        Object.defineProperty(window, 'location', originalLocationDescriptor);
+      } else {
+        window.location = originalLocationValue;
+      }
+    }
+  });
+
+  it('confirmReset() still reloads when serviceWorker unregister fails', async () => {
+    const reloadMock = vi.fn();
+    const originalLocationDescriptor = Object.getOwnPropertyDescriptor(window, 'location');
+    const originalLocationValue = window.location;
+    const originalServiceWorker = navigator.serviceWorker;
+
+    try {
+      Object.defineProperty(window, 'location', {
+        writable: true,
+        configurable: true,
+        value: { reload: reloadMock, pathname: '/' },
+      });
+      Object.defineProperty(navigator, 'serviceWorker', {
+        writable: true,
+        configurable: true,
+        value: {
+          getRegistrations: vi.fn().mockRejectedValue(new Error('SW unavailable')),
+        },
+      });
+
+      const props = reactive({ modelValue: false });
+      const emit = vi.fn();
+
+      const { result, wrapper } = withSetup(() => useSettings(props, emit));
+      await result.confirmReset();
+
+      expect(reloadMock).toHaveBeenCalled();
+      wrapper.unmount();
+    } finally {
+      Object.defineProperty(navigator, 'serviceWorker', {
+        writable: true,
+        configurable: true,
+        value: originalServiceWorker,
+      });
+      if (originalLocationDescriptor) {
+        Object.defineProperty(window, 'location', originalLocationDescriptor);
+      } else {
+        window.location = originalLocationValue;
+      }
+    }
+  });
 });
