@@ -417,16 +417,30 @@ function _buildRestClient(cfg) {
 /**
  * Pushes a single sync_queue entry to Directus using the official SDK.
  *
- * Returns `true` when the entry was successfully sent (should be removed from
- * the queue), `'skip'` when the entry should be silently discarded (no-op
- * delete on domain-status collection), or an error message string when the
- * push failed and should be retried.
+ * Pushes a single queue entry to Directus.
+ *
+ * Returns a success object when the entry was successfully sent (should be
+ * removed from the queue), `'skip'` when the entry should be silently
+ * discarded (no-op delete on a domain-status collection), or a failure object
+ * when the push failed and should be retried.
  *
  * @param {object} entry
  * @param {import('@directus/sdk').DirectusClient<object>} sdkClient
  * @param {{ venueId?: number|string|null }} cfg
  * @returns {Promise<
- *   true |
+ *   {
+ *     ok: true,
+ *     record: object|null,
+ *     method: 'POST'|'PATCH'|'DELETE',
+ *     requestContext: {
+ *       collection: string,
+ *       operation: string,
+ *       record_id: string,
+ *       endpoint: string,
+ *       method: 'POST'|'PATCH'|'DELETE',
+ *       body: object|null,
+ *     },
+ *   } |
  *   'skip' |
  *   {
  *     message: string,

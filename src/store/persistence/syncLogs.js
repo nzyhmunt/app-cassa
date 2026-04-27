@@ -9,7 +9,9 @@
  *   { id (autoincrement), timestamp, direction ('IN'|'OUT'),
  *     type ('PULL'|'PUSH'|'WS'), endpoint, payload, response,
  *     status ('success'|'error'), statusCode, durationMs,
- *     collection, recordCount }
+ *     collection, recordCount,
+ *     operation ('create'|'update'|'delete'|null),
+ *     method ('POST'|'PATCH'|'DELETE'|null) }
  *
  * Smart Retention (two-bucket purge):
  *   Success Bucket — retain newest SYNC_LOGS_MAX_SUCCESS (100) successful entries.
