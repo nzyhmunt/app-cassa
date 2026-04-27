@@ -486,10 +486,12 @@ async function exportSession() {
   const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
   a.href = url;
   a.download = `sync-session-${ts}.json`;
+  document.body.appendChild(a);
   a.click();
+  document.body.removeChild(a);
   setTimeout(() => {
     URL.revokeObjectURL(url);
-  }, 0);
+  }, 1000);
 }
 
 async function _copyToClipboard(text, labelRef, resetLabel) {
