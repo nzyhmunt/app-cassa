@@ -901,8 +901,10 @@ export function mapTransactionToDirectus(record) {
 /**
  * Maps a local print log entry to Directus `print_jobs` field names.
  *
- * The Directus PK is now the standard `id` field (UUID v7, no prefix).
- * `logId` is mapped to `log_id` (a regular display/reference field).
+ * The Directus PK is the standard `id` field (UUID v7, no prefix).
+ * `logId`, `jobId` and `originalJobId` are local-only identifiers — they are
+ * dropped here and not stored as separate columns in Directus. `jobId` is still
+ * available inside the `payload` JSONB column (as `payload.jobId`).
  *
  * The `timestamp` field is stripped by `_PUSH_DROP_FIELDS` before this mapper
  * runs, so the original (unstripped) payload is passed as `originalRecord` to
@@ -917,16 +919,12 @@ export function mapPrintJobToDirectus(record, originalRecord) {
   const original = originalRecord ?? {};
   const out = { ...source };
 
-  // logId → log_id (regular display/reference field — not the PK)
-  if (Object.prototype.hasOwnProperty.call(source, 'logId')) {
-    if (!Object.prototype.hasOwnProperty.call(out, 'log_id')) out.log_id = source.logId;
-    delete out.logId;
-  }
-  // jobId → job_id
-  if (!Object.prototype.hasOwnProperty.call(out, 'job_id') && Object.prototype.hasOwnProperty.call(source, 'jobId')) {
-    out.job_id = source.jobId;
-  }
+  // logId — local IDB keyPath, not a Directus column → drop
+  delete out.logId;
+  // jobId — local identifier stored in payload.jobId, not a separate Directus column → drop
   delete out.jobId;
+  // originalJobId — local reprint reference stored in payload.originalJobId → drop
+  delete out.originalJobId;
   // printType → print_type
   if (!Object.prototype.hasOwnProperty.call(out, 'print_type') && Object.prototype.hasOwnProperty.call(source, 'printType')) {
     out.print_type = source.printType;
@@ -957,11 +955,6 @@ export function mapPrintJobToDirectus(record, originalRecord) {
     out.is_reprint = source.isReprint;
   }
   delete out.isReprint;
-  // originalJobId → original_job_id
-  if (!Object.prototype.hasOwnProperty.call(out, 'original_job_id') && Object.prototype.hasOwnProperty.call(source, 'originalJobId')) {
-    out.original_job_id = source.originalJobId;
-  }
-  delete out.originalJobId;
   // Drop local-only display fields (not in Directus schema)
   delete out.printerName;
   delete out.printerUrl;

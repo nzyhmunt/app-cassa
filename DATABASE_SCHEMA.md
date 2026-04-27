@@ -802,8 +802,6 @@ CREATE TYPE print_job_status AS ENUM ('pending', 'printing', 'done', 'error');
 CREATE TABLE print_jobs (
     -- Identificatori
     id              UUID            PRIMARY KEY,            -- UUID v7 standard (Directus PK)
-    log_id          VARCHAR(40)     NULL,                   -- plog_<uuid> — identificatore locale del log entry (IDB keyPath)
-    job_id          VARCHAR(40)     NOT NULL,               -- job_<uuid>  — inviato nella richiesta al servizio ESC/POS
     printer         VARCHAR(40)     NULL REFERENCES printers(id) ON DELETE SET NULL,
     venue           INTEGER         NULL REFERENCES venues(id) ON DELETE SET NULL,
 
@@ -824,7 +822,6 @@ CREATE TABLE print_jobs (
 
     -- Ristampa
     is_reprint      BOOLEAN         NOT NULL DEFAULT FALSE,
-    original_job_id VARCHAR(40)     NULL,                   -- solo per ristampe: contiene il job_id originale, non il log_id
 
     -- Payload completo inviato al servizio ESC/POS (struttura libera per tipo)
     -- Campi comuni a tutti i tipi:
@@ -836,7 +833,7 @@ CREATE TABLE print_jobs (
     -- Campi per 'pre_bill':
     --   tableId, tableLabel, grossAmount, paymentsRecorded, amountDue, items[]
     -- Campi opzionali per ristampe:
-    --   reprinted: true
+    --   reprinted: true, originalJobId: <jobId>
     payload         JSONB           NOT NULL DEFAULT '{}',
 
     -- Directus standard fields
@@ -1048,7 +1045,7 @@ venues ──< cash_movements
 venues ──< daily_closures ──< daily_closure_by_method
 venues ──< printers
 venues ──< print_jobs >── printers
-Nota: `print_jobs.original_job_id` conserva il `job_id` originale per ristampe, ma non è una FK
+Nota: per le ristampe, `payload.originalJobId` conserva il `jobId` originale (locale)
 bill_sessions ──< fiscal_receipts
 bill_sessions ──< invoice_requests
 ```
