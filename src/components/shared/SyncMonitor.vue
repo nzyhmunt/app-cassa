@@ -521,7 +521,7 @@ function copyTechBlock() {
     `Direction:  ${log.direction ?? '—'}  Type: ${log.type ?? '—'}`,
     `Endpoint:   ${log.endpoint ?? '—'}`,
     `Collection: ${log.collection ?? '—'}`,
-    `Status:     ${log.status ?? '—'}${log.statusCode != null ? `  HTTP ${log.statusCode}` : '  (network)'}`,
+    `Status:     ${log.status ?? '—'}${log.statusCode != null ? `  HTTP ${log.statusCode}` : log.status === 'error' ? '  (network)' : ''}`,
     `Duration:   ${log.durationMs != null ? `${log.durationMs}ms` : '—'}`,
     `Records:    ${log.recordCount != null ? log.recordCount : '—'}`,
     '',

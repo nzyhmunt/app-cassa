@@ -174,6 +174,8 @@ export async function addSyncLog(entry) {
 
 /**
  * Returns sync log entries sorted by most recent first (both buckets combined).
+ * Uses a reverse cursor so that when a `limit` is provided only that many
+ * records are read from IDB, avoiding a full-table load.
  *
  * @param {number} [limit] - Optional cap on the number of entries returned.
  * @returns {Promise<Array>}
@@ -181,9 +183,16 @@ export async function addSyncLog(entry) {
 export async function getSyncLogs(limit) {
   try {
     const db = await getDB();
-    const all = await db.getAllFromIndex('sync_logs', 'timestamp');
-    const sorted = [...all].reverse();
-    return Number.isFinite(limit) ? sorted.slice(0, Math.max(0, limit)) : sorted;
+    const tx = db.transaction('sync_logs', 'readonly');
+    const index = tx.store.index('timestamp');
+    const results = [];
+    let cursor = await index.openCursor(null, 'prev');
+    while (cursor) {
+      results.push(cursor.value);
+      if (Number.isFinite(limit) && results.length >= limit) break;
+      cursor = await cursor.continue();
+    }
+    return results;
   } catch (e) {
     console.warn('[SyncLogs] Failed to read sync logs:', e);
     return [];
@@ -206,14 +215,23 @@ export async function clearSyncLogs() {
 /**
  * Returns all sync log entries (both buckets, most recent first) for export.
  * No limit is applied so the download is always complete.
+ * Uses a reverse cursor to avoid materialising the entire store forwards then
+ * reversing in memory.
  *
  * @returns {Promise<Array>}
  */
 export async function exportSyncLogs() {
   try {
     const db = await getDB();
-    const all = await db.getAllFromIndex('sync_logs', 'timestamp');
-    return [...all].reverse();
+    const tx = db.transaction('sync_logs', 'readonly');
+    const index = tx.store.index('timestamp');
+    const results = [];
+    let cursor = await index.openCursor(null, 'prev');
+    while (cursor) {
+      results.push(cursor.value);
+      cursor = await cursor.continue();
+    }
+    return results;
   } catch (e) {
     console.warn('[SyncLogs] Failed to export sync logs:', e);
     return [];
