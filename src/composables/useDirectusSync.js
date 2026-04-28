@@ -586,7 +586,12 @@ async function _pullCollection(collection, { forceFull = false, lastPullTimestam
   let cachedState = undefined;
   // Collect all mapped order_items across pages so they can be merged into their
   // parent orders in the `orders` IDB store after the pull completes.
+  // rawPulledOrderItems mirrors pulledOrderItems but contains the unmodified
+  // Directus API records so that _mergeOrderItemsIntoOrdersIDB can use
+  // mergeOrderItemFromWSPayload to avoid clobbering existing embedded modifier
+  // data with mapper defaults (e.g. `modifiers: []` from ID-only relation fields).
   const pulledOrderItems = collection === 'order_items' ? [] : null;
+  const rawPulledOrderItems = collection === 'order_items' ? [] : null;
 
   while (true) { // eslint-disable-line no-constant-condition
     const { data, maxTs, error } = await _fetchUpdatedViaSDK(collection, storedSinceTs, page);
@@ -595,7 +600,10 @@ async function _pullCollection(collection, { forceFull = false, lastPullTimestam
     hadRemoteRecords = true;
 
     const mapped = data.map(r => _mapRecord(collection, r));
-    if (pulledOrderItems !== null) pulledOrderItems.push(...mapped);
+    if (pulledOrderItems !== null) {
+      pulledOrderItems.push(...mapped);
+      rawPulledOrderItems.push(...data);
+    }
     const preparedResult = await _preparePullRecordsForIDB(collection, mapped, cachedState);
     cachedState = preparedResult.state;
     const prepared = preparedResult.records;
@@ -616,7 +624,7 @@ async function _pullCollection(collection, { forceFull = false, lastPullTimestam
       // Errors from the merge are propagated: if the merge fails, treat it like a
       // fetch error so the cursor does not advance and the cycle retries next poll.
       try {
-        await _mergeOrderItemsIntoOrdersIDB(pulledOrderItems);
+        await _mergeOrderItemsIntoOrdersIDB(pulledOrderItems, rawPulledOrderItems);
       } catch (e) {
         console.warn('[DirectusSync] order_items merge failed; cursor will not advance:', e);
         hadFetchError = true;
