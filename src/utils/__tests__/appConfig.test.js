@@ -360,17 +360,23 @@ describe('appConfig', () => {
 
   describe('mapPayloadToDirectus — order_items dish and audit propagation', () => {
     it('drops local JSON-menu dish IDs from nested order_items to prevent 400', () => {
+      const uuid = '019dd0fe-6919-7000-bb0d-c9bea4d1acc9';
       const orderPayload = {
         id: '019dd0fe-576c-7000-bccb-7bf8b07831f8',
         venue_user_updated: '29a77c55-0055-4d20-9c11-2913ac974a75',
         orderItems: [
           { uid: 'r_1', name: 'Pinzimonio', quantity: 1, dish: 'ant_1', unit_price: 3 },
           { uid: 'r_2', name: 'Polpette',   quantity: 1, dish: 'ant_3', unit_price: 8 },
+          { uid: 'r_3', name: 'Pasta',      quantity: 1, dish: uuid,    unit_price: 12 },
         ],
       };
-      const result = mapPayloadToDirectus('orders', orderPayload, { recordId: '019dd0fe-576c-7000-bccb-7bf8b07831f8' });
+      const result = mapPayloadToDirectus('orders', orderPayload, {
+        recordId: '019dd0fe-576c-7000-bccb-7bf8b07831f8',
+        menuSource: 'json',
+      });
       expect(result.order_items[0].dish).toBeNull();
       expect(result.order_items[1].dish).toBeNull();
+      expect(result.order_items[2].dish).toBe(uuid);
     });
 
     it('keeps valid UUID dish FKs in nested order_items', () => {
