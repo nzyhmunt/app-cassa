@@ -263,7 +263,8 @@ export const useOrderStore = defineStore('orders', () => {
     const { collection, collections } = options;
     const requestedCollections = collections ?? (collection ? [collection] : Object.keys(operationalStateRefs));
     const resolvedKeys = requestedCollections.map((k) => _COLLECTION_TO_STATE_KEY[k] ?? k);
-    const targetCollections = resolvedKeys.filter((key) => Object.prototype.hasOwnProperty.call(operationalStateRefs, key));
+    const targetCollections = [...new Set(resolvedKeys)]
+      .filter((key) => Object.prototype.hasOwnProperty.call(operationalStateRefs, key));
     if (!targetCollections.length) return;
 
     const idbState = await loadStateFromIDB();
