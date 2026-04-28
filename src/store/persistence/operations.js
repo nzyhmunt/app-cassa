@@ -448,8 +448,12 @@ export async function upsertRecordsIntoIDB(storeName, records, { forceWrite = fa
         if (existing) {
           // Last-write-wins: compare using date_updated, falling back to date_created
           // for records that were created but never patched (date_updated = null in Directus).
+          // Only insert/replace when the incoming timestamp is strictly greater.
           const existingTs = existing.date_updated ?? existing.date_created;
           const incomingTs = incoming.date_updated ?? incoming.date_created;
+          if (existingTs && !incomingTs) {
+            continue;
+          }
           if (existingTs && incomingTs && new Date(incomingTs) <= new Date(existingTs)) {
             continue;
           }
