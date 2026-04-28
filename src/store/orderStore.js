@@ -238,6 +238,15 @@ export const useOrderStore = defineStore('orders', () => {
     return billSessionId;
   }
 
+  // Directus collection names that map to a different state key in operationalStateRefs.
+  // Needed because _pullCollection('bill_sessions') calls refreshOperationalStateFromIDB
+  // with { collection: 'bill_sessions' } but the state ref is 'tableCurrentBillSession'.
+  // Defined outside the function body to avoid repeated object allocation on every call.
+  const _COLLECTION_TO_STATE_KEY = {
+    bill_sessions: 'tableCurrentBillSession',
+    table_merge_sessions: 'tableMergedInto',
+  };
+
   async function refreshOperationalStateFromIDB(options = {}) {
     const operationalStateRefs = {
       orders,
@@ -253,7 +262,9 @@ export const useOrderStore = defineStore('orders', () => {
     };
     const { collection, collections } = options;
     const requestedCollections = collections ?? (collection ? [collection] : Object.keys(operationalStateRefs));
-    const targetCollections = requestedCollections.filter((key) => Object.prototype.hasOwnProperty.call(operationalStateRefs, key));
+    const resolvedKeys = requestedCollections.map((k) => _COLLECTION_TO_STATE_KEY[k] ?? k);
+    const targetCollections = [...new Set(resolvedKeys)]
+      .filter((key) => Object.prototype.hasOwnProperty.call(operationalStateRefs, key));
     if (!targetCollections.length) return;
 
     const idbState = await loadStateFromIDB();

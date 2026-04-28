@@ -473,6 +473,7 @@ async function _pushEntry(entry, sdkClient, cfg) {
     const mappedPayload = mapPayloadToDirectus(collection, payload, {
       paymentMethods: Array.isArray(appConfig?.paymentMethods) ? appConfig.paymentMethods : [],
       recordId: record_id,
+      menuSource: appConfig?.menuSource ?? 'directus',
     });
     directusPayload = _withRequiredDefaults(collection, operation, mappedPayload, cfg);
 

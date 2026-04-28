@@ -22,9 +22,10 @@ vi.mock('../../store/persistence/operations.js', async (importOriginal) => {
     ...original,
     saveSettingsToIDB: vi.fn().mockResolvedValue(undefined),
     deleteDatabase: vi.fn().mockResolvedValue(undefined),
+    clearAllStateFromIDB: vi.fn().mockResolvedValue(undefined),
   };
 });
-import { saveSettingsToIDB, deleteDatabase } from '../../store/persistence/operations.js';
+import { saveSettingsToIDB, deleteDatabase, clearAllStateFromIDB } from '../../store/persistence/operations.js';
 
 const { settingsKey: SETTINGS_KEY } = resolveStorageKeys();
 
@@ -568,6 +569,80 @@ describe('useSettings()', () => {
     }
   });
 
+  it('confirmReset() calls clearAllStateFromIDB() before deleteDatabase() to guarantee a clean slate even when physical delete is blocked', async () => {
+    const reloadMock = vi.fn();
+    const originalLocationDescriptor = Object.getOwnPropertyDescriptor(window, 'location');
+    const originalLocationValue = window.location;
+
+    try {
+      Object.defineProperty(window, 'location', {
+        writable: true,
+        configurable: true,
+        value: { reload: reloadMock, pathname: '/' },
+      });
+
+      const callOrder = [];
+      vi.mocked(clearAllStateFromIDB).mockImplementation(async () => { callOrder.push('clearAllStateFromIDB'); });
+      vi.mocked(deleteDatabase).mockImplementation(async () => { callOrder.push('deleteDatabase'); });
+
+      const props = reactive({ modelValue: false });
+      const emit = vi.fn();
+
+      const { result, wrapper } = withSetup(() => useSettings(props, emit));
+      await result.confirmReset();
+
+      expect(clearAllStateFromIDB).toHaveBeenCalled();
+      expect(deleteDatabase).toHaveBeenCalled();
+      // clearAllStateFromIDB must run before deleteDatabase so that all IDB data
+      // is wiped even when the physical delete is silently blocked (onblocked timeout).
+      expect(callOrder.indexOf('clearAllStateFromIDB')).toBeLessThan(callOrder.indexOf('deleteDatabase'));
+      wrapper.unmount();
+    } finally {
+      vi.mocked(clearAllStateFromIDB).mockResolvedValue(undefined);
+      vi.mocked(deleteDatabase).mockResolvedValue(undefined);
+      if (originalLocationDescriptor) {
+        Object.defineProperty(window, 'location', originalLocationDescriptor);
+      } else {
+        window.location = originalLocationValue;
+      }
+    }
+  });
+
+  it('confirmReset() still calls deleteDatabase() and reloads even when clearAllStateFromIDB() fails', async () => {
+    const reloadMock = vi.fn();
+    const originalLocationDescriptor = Object.getOwnPropertyDescriptor(window, 'location');
+    const originalLocationValue = window.location;
+
+    try {
+      Object.defineProperty(window, 'location', {
+        writable: true,
+        configurable: true,
+        value: { reload: reloadMock, pathname: '/' },
+      });
+
+      vi.mocked(clearAllStateFromIDB).mockRejectedValueOnce(new Error('IDB unavailable'));
+      vi.mocked(deleteDatabase).mockClear();
+
+      const props = reactive({ modelValue: false });
+      const emit = vi.fn();
+
+      const { result, wrapper } = withSetup(() => useSettings(props, emit));
+      await result.confirmReset();
+
+      // deleteDatabase and reload must still be called even if clearAllStateFromIDB fails
+      expect(deleteDatabase).toHaveBeenCalledWith(getInstanceName());
+      expect(reloadMock).toHaveBeenCalled();
+      wrapper.unmount();
+    } finally {
+      vi.mocked(clearAllStateFromIDB).mockResolvedValue(undefined);
+      if (originalLocationDescriptor) {
+        Object.defineProperty(window, 'location', originalLocationDescriptor);
+      } else {
+        window.location = originalLocationValue;
+      }
+    }
+  });
+
   it('confirmReset() does not recreate local settings after deleting IndexedDB', async () => {
     const reloadMock = vi.fn();
     const originalLocationDescriptor = Object.getOwnPropertyDescriptor(window, 'location');
@@ -599,11 +674,12 @@ describe('useSettings()', () => {
     }
   });
 
-  it('confirmReset() does not reload when deleteDatabase() is blocked and shows actionable alert', async () => {
+  it('confirmReset() still reloads when deleteDatabase() is blocked (IDB already cleared)', async () => {
+    // Since clearAllStateFromIDB() runs before deleteDatabase(), a blocked
+    // physical delete no longer prevents cleanup — the app should still reload
+    // so the user lands on a clean slate. No alert is shown.
     const reloadMock = vi.fn();
-    const alertMock = vi.fn();
     const originalLocationDescriptor = Object.getOwnPropertyDescriptor(window, 'location');
-    const originalAlert = window.alert;
     const originalLocationValue = window.location;
 
     try {
@@ -612,7 +688,6 @@ describe('useSettings()', () => {
         configurable: true,
         value: { reload: reloadMock, pathname: '/' },
       });
-      window.alert = alertMock;
       vi.mocked(deleteDatabase).mockRejectedValueOnce(new Error('Database deletion blocked'));
 
       const props = reactive({ modelValue: false });
@@ -621,11 +696,136 @@ describe('useSettings()', () => {
       const { result, wrapper } = withSetup(() => useSettings(props, emit));
       await result.confirmReset();
 
-      expect(alertMock).toHaveBeenCalled();
-      expect(reloadMock).not.toHaveBeenCalled();
+      // Reload must still happen even when the physical delete fails.
+      expect(reloadMock).toHaveBeenCalledOnce();
       wrapper.unmount();
     } finally {
-      window.alert = originalAlert;
+      if (originalLocationDescriptor) {
+        Object.defineProperty(window, 'location', originalLocationDescriptor);
+      } else {
+        window.location = originalLocationValue;
+      }
+    }
+  });
+
+  it('confirmReset() unregisters all service workers before reload', async () => {
+    const reloadMock = vi.fn();
+    const originalLocationDescriptor = Object.getOwnPropertyDescriptor(window, 'location');
+    const originalLocationValue = window.location;
+    const unregisterMock = vi.fn().mockResolvedValue(true);
+    const originalServiceWorker = navigator.serviceWorker;
+
+    try {
+      Object.defineProperty(window, 'location', {
+        writable: true,
+        configurable: true,
+        value: { reload: reloadMock, pathname: '/' },
+      });
+      Object.defineProperty(navigator, 'serviceWorker', {
+        writable: true,
+        configurable: true,
+        value: {
+          getRegistrations: vi.fn().mockResolvedValue([{ unregister: unregisterMock }, { unregister: unregisterMock }]),
+        },
+      });
+
+      const props = reactive({ modelValue: false });
+      const emit = vi.fn();
+
+      const { result, wrapper } = withSetup(() => useSettings(props, emit));
+      await result.confirmReset();
+
+      expect(unregisterMock).toHaveBeenCalledTimes(2);
+      expect(reloadMock).toHaveBeenCalled();
+      wrapper.unmount();
+    } finally {
+      Object.defineProperty(navigator, 'serviceWorker', {
+        writable: true,
+        configurable: true,
+        value: originalServiceWorker,
+      });
+      if (originalLocationDescriptor) {
+        Object.defineProperty(window, 'location', originalLocationDescriptor);
+      } else {
+        window.location = originalLocationValue;
+      }
+    }
+  });
+
+  it('confirmReset() clears all browser caches before reload', async () => {
+    const reloadMock = vi.fn();
+    const originalLocationDescriptor = Object.getOwnPropertyDescriptor(window, 'location');
+    const originalLocationValue = window.location;
+    const deleteMock = vi.fn().mockResolvedValue(true);
+    const originalCaches = globalThis.caches;
+
+    try {
+      Object.defineProperty(window, 'location', {
+        writable: true,
+        configurable: true,
+        value: { reload: reloadMock, pathname: '/' },
+      });
+      globalThis.caches = {
+        keys: vi.fn().mockResolvedValue(['shell-v1', 'assets-v1', 'data-v1']),
+        delete: deleteMock,
+      };
+
+      const props = reactive({ modelValue: false });
+      const emit = vi.fn();
+
+      const { result, wrapper } = withSetup(() => useSettings(props, emit));
+      await result.confirmReset();
+
+      expect(deleteMock).toHaveBeenCalledTimes(3);
+      expect(deleteMock).toHaveBeenCalledWith('shell-v1');
+      expect(deleteMock).toHaveBeenCalledWith('assets-v1');
+      expect(deleteMock).toHaveBeenCalledWith('data-v1');
+      expect(reloadMock).toHaveBeenCalled();
+      wrapper.unmount();
+    } finally {
+      globalThis.caches = originalCaches;
+      if (originalLocationDescriptor) {
+        Object.defineProperty(window, 'location', originalLocationDescriptor);
+      } else {
+        window.location = originalLocationValue;
+      }
+    }
+  });
+
+  it('confirmReset() still reloads when serviceWorker unregister fails', async () => {
+    const reloadMock = vi.fn();
+    const originalLocationDescriptor = Object.getOwnPropertyDescriptor(window, 'location');
+    const originalLocationValue = window.location;
+    const originalServiceWorker = navigator.serviceWorker;
+
+    try {
+      Object.defineProperty(window, 'location', {
+        writable: true,
+        configurable: true,
+        value: { reload: reloadMock, pathname: '/' },
+      });
+      Object.defineProperty(navigator, 'serviceWorker', {
+        writable: true,
+        configurable: true,
+        value: {
+          getRegistrations: vi.fn().mockRejectedValue(new Error('SW unavailable')),
+        },
+      });
+
+      const props = reactive({ modelValue: false });
+      const emit = vi.fn();
+
+      const { result, wrapper } = withSetup(() => useSettings(props, emit));
+      await result.confirmReset();
+
+      expect(reloadMock).toHaveBeenCalled();
+      wrapper.unmount();
+    } finally {
+      Object.defineProperty(navigator, 'serviceWorker', {
+        writable: true,
+        configurable: true,
+        value: originalServiceWorker,
+      });
       if (originalLocationDescriptor) {
         Object.defineProperty(window, 'location', originalLocationDescriptor);
       } else {

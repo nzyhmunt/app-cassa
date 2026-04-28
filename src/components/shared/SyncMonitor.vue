@@ -802,6 +802,9 @@ function copyResponse() {
  * Copies a pre-formatted technical text block containing all essential debug
  * information for the selected log entry (useful when pasting into a support
  * ticket or chat message).
+ *
+ * The output uses standard Markdown formatting (bold labels + JSON code fences)
+ * so it renders correctly in GitHub issues, Slack, Linear, etc.
  */
 function copyTechBlock() {
   const log = selectedLog.value;
@@ -810,7 +813,7 @@ function copyTechBlock() {
   if (log.statusCode != null) statusSuffix = `  HTTP ${log.statusCode}`;
   else if (log.status === 'error') statusSuffix = '  (network)';
   const lines = [
-    '=== Sync Log ===',
+    '**Sync Log**',
     `ID:         ${log.id ?? '—'}`,
     `Timestamp:  ${log.timestamp ?? '—'}`,
     `Direction:  ${log.direction ?? '—'}  Type: ${log.type ?? '—'}`,
@@ -821,11 +824,15 @@ function copyTechBlock() {
     `Duration:   ${log.durationMs != null ? `${log.durationMs}ms` : '—'}`,
     `Records:    ${log.recordCount != null ? log.recordCount : '—'}`,
     '',
-    '--- REQUEST ---',
+    '**Request:**',
+    '```json',
     formatJSON(log.payload),
+    '```',
     '',
-    '--- RESPONSE ---',
+    '**Response:**',
+    '```json',
     formatJSON(log.response),
+    '```',
   ];
   _copyToClipboard(lines.join('\n'), copyBlockLabel, 'Blocco');
 }

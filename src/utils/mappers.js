@@ -15,6 +15,20 @@
 
 import { resolvePaymentMethodMeta } from './paymentMethods.js';
 
+/**
+ * Returns true when `value` looks like a Directus UUID by shape.
+ * This is a loose UUID-format check, not strict validation of specific UUID
+ * versions such as v4 or v7. Local JSON-menu IDs (e.g. "ant_1", "cat_2")
+ * are not valid UUIDs and must not be sent as Directus FK values; this guard
+ * is used to drop them before the payload reaches the API.
+ * @param {unknown} value
+ * @returns {boolean}
+ */
+export function looksLikeDirectusId(value) {
+  if (typeof value !== 'string') return false;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+}
+
 export function relationId(value) {
   if (value == null) return null;
   if (typeof value === 'object') return value.id ?? null;
@@ -202,9 +216,14 @@ export function mapOrderItemFromDirectus(record) {
     voided_quantity: voidedQuantity,
     voidedQuantity,
     notes: Array.isArray(record.notes) ? record.notes : [],
-    modifiers: Array.isArray(record.modifiers)
-      ? record.modifiers.map(normalizeOrderItemModifier).filter(Boolean)
-      : [],
+    modifiers: (() => {
+      const rawMods = Array.isArray(record.modifiers)
+        ? record.modifiers
+        : Array.isArray(record.order_item_modifiers)
+          ? record.order_item_modifiers
+          : [];
+      return rawMods.map(normalizeOrderItemModifier).filter(Boolean);
+    })(),
     kitchenReady: record.kitchen_ready ?? record.kitchenReady ?? false,
     venueUserCreated: relationId(record.venue_user_created ?? record.venueUserCreated ?? null),
     venueUserUpdated: relationId(record.venue_user_updated ?? record.venueUserUpdated ?? null),
@@ -212,15 +231,21 @@ export function mapOrderItemFromDirectus(record) {
   };
 }
 
-export function mapOrderItemToDirectus(record) {
+export function mapOrderItemToDirectus(record, _originalPayload, opts = {}) {
+  const { menuSource = 'directus' } = opts;
   const source = record ?? {};
+  const rawDishId = relationId(source.dish ?? source.dishId ?? null);
   const out = {
     ...source,
     unit_price: source.unit_price ?? source.unitPrice ?? 0,
     voided_quantity: source.voidedQuantity ?? source.voided_quantity ?? 0,
     kitchen_ready: source.kitchen_ready ?? source.kitchenReady ?? false,
     order: relationId(source.order ?? source.orderId ?? null),
-    dish: relationId(source.dish ?? source.dishId ?? null),
+    // When the app uses a JSON menu, always null out the dish FK: local item
+    // IDs (e.g. "ant_1") are not valid Directus FKs and must be omitted to
+    // avoid a 400 INVALID_FOREIGN_KEY error.  When the menu source is Directus
+    // the dish ID is forwarded only if it has a valid UUID shape.
+    dish: menuSource === 'json' ? null : (looksLikeDirectusId(rawDishId) ? rawDishId : null),
   };
   const venueUserCreated = source.venue_user_created ?? source.venueUserCreated;
   if (venueUserCreated != null) {
@@ -1175,15 +1200,18 @@ const _TO_DIRECTUS_MAPPERS = {
  *
  * @param {string} collection  - Directus collection name (e.g. 'orders')
  * @param {object|null} payload - Local record payload
- * @param {{ paymentMethods?: Array, recordId?: string|null }} [ctx] - Runtime context. `recordId` is
- *   the queue entry's `record_id` and is used as a last-resort fallback for the `order` FK on
+ * @param {{ paymentMethods?: Array, recordId?: string|null, menuSource?: 'directus'|'json' }} [ctx] - Runtime context.
+ *   `recordId` is the queue entry's `record_id` and is used as a last-resort fallback for the `order` FK on
  *   nested `order_items` when the payload does not carry an `id` field (partial updates).
+ *   `menuSource` controls how the `dish` FK is handled on nested `order_items`: `'json'` always sets
+ *   `dish = null` (JSON-menu dish IDs are local-only and have no corresponding Directus record);
+ *   `'directus'` (default) passes through valid UUID-shaped dish IDs unchanged.
  * @returns {object}  Directus-ready payload
  */
 export function mapPayloadToDirectus(collection, payload, ctx = {}) {
   if (!payload || typeof payload !== 'object') return {};
 
-  const { paymentMethods = [] } = ctx;
+  const { paymentMethods = [], menuSource = 'directus' } = ctx;
 
   // Step 1 — strip local-only and push-drop fields
   const cleaned = {};
@@ -1205,6 +1233,35 @@ export function mapPayloadToDirectus(collection, payload, ctx = {}) {
       // → ctx.recordId (update path where id is in queue entry.record_id, not in payload body)
       const resolvedOrderId = item?.orderId ?? payload?.id ?? ctx?.recordId ?? null;
       if (directItem.order == null && resolvedOrderId) directItem.order = resolvedOrderId;
+      // Propagate the audit user from the parent order payload to each item so
+      // that Directus records the venue_user_created / venue_user_updated FK on
+      // order_items, which are always written as nested payloads of their parent
+      // order and therefore bypass the per-collection _withVenueUserAuditPayload
+      // enrichment that runs on top-level sync_queue entries.
+      // For update-only flows the queued PATCH carries only venue_user_updated
+      // (no venue_user_created); in that case fall back to venue_user_updated so
+      // that new items nested inside an update also get a non-null created author.
+      // Both snake_case (Directus-normalised) and camelCase (local model) variants
+      // are checked because the payload may arrive in either form.
+      if (directItem.venue_user_created == null) {
+        const auditUser =
+          cleaned.venue_user_created ??
+          payload?.venue_user_created ??
+          payload?.venueUserCreated ??
+          cleaned.venue_user_updated ??
+          payload?.venue_user_updated ??
+          payload?.venueUserUpdated ??
+          null;
+        if (auditUser != null) directItem.venue_user_created = auditUser;
+      }
+      if (directItem.venue_user_updated == null) {
+        const auditUser =
+          cleaned.venue_user_updated ??
+          payload?.venue_user_updated ??
+          payload?.venueUserUpdated ??
+          null;
+        if (auditUser != null) directItem.venue_user_updated = auditUser;
+      }
       // Enrich already-expanded modifiers (populated by Step 3 in the recursive
       // call above) with parent-context FKs that are not available there.
       if (Array.isArray(directItem.order_item_modifiers)) {
@@ -1240,7 +1297,7 @@ export function mapPayloadToDirectus(collection, payload, ctx = {}) {
   let mapped;
   const dedicatedMapper = _TO_DIRECTUS_MAPPERS[collection];
   if (dedicatedMapper) {
-    mapped = dedicatedMapper(preProcessed, payload);
+    mapped = dedicatedMapper(preProcessed, payload, { menuSource });
   } else {
     mapped = {};
     for (const [key, value] of Object.entries(preProcessed)) {
