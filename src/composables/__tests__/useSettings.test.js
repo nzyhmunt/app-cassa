@@ -674,11 +674,12 @@ describe('useSettings()', () => {
     }
   });
 
-  it('confirmReset() does not reload when deleteDatabase() is blocked and shows actionable alert', async () => {
+  it('confirmReset() still reloads when deleteDatabase() is blocked (IDB already cleared)', async () => {
+    // Since clearAllStateFromIDB() runs before deleteDatabase(), a blocked
+    // physical delete no longer prevents cleanup — the app should still reload
+    // so the user lands on a clean slate. No alert is shown.
     const reloadMock = vi.fn();
-    const alertMock = vi.fn();
     const originalLocationDescriptor = Object.getOwnPropertyDescriptor(window, 'location');
-    const originalAlert = window.alert;
     const originalLocationValue = window.location;
 
     try {
@@ -687,7 +688,6 @@ describe('useSettings()', () => {
         configurable: true,
         value: { reload: reloadMock, pathname: '/' },
       });
-      window.alert = alertMock;
       vi.mocked(deleteDatabase).mockRejectedValueOnce(new Error('Database deletion blocked'));
 
       const props = reactive({ modelValue: false });
@@ -696,11 +696,10 @@ describe('useSettings()', () => {
       const { result, wrapper } = withSetup(() => useSettings(props, emit));
       await result.confirmReset();
 
-      expect(alertMock).toHaveBeenCalled();
-      expect(reloadMock).not.toHaveBeenCalled();
+      // Reload must still happen even when the physical delete fails.
+      expect(reloadMock).toHaveBeenCalledOnce();
       wrapper.unmount();
     } finally {
-      window.alert = originalAlert;
       if (originalLocationDescriptor) {
         Object.defineProperty(window, 'location', originalLocationDescriptor);
       } else {

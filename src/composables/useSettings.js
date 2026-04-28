@@ -115,11 +115,11 @@ export function useSettings(props, emit) {
     try {
       await deleteDatabase(getInstanceName());
     } catch (e) {
+      // The physical delete may be blocked by another open connection (e.g. a
+      // concurrent WebSocket write or polling timer). IDB data has already been
+      // wiped by clearAllStateFromIDB() above, so we can safely continue with
+      // SW cleanup and reload — the app will start with a clean slate regardless.
       console.warn('[Settings] Failed to complete nuclear database reset - data may not be fully cleared:', e);
-      if (typeof window !== 'undefined' && typeof window.alert === 'function') {
-        window.alert('Reset bloccato: chiudi le altre schede/app aperte su questo dispositivo e riprova.');
-      }
-      return;
     }
     // Clear in-memory auth state (its internal IDB call is harmless — already cleared)
     try {
