@@ -1196,9 +1196,201 @@ describe('pull — IDB last-write-wins', () => {
     const stored = await db.get('orders', 'ord_1');
     expect(stored.status).toBe('delivered'); // local wins
   });
+
+  it('upserts a record with date_updated = null using date_created for conflict resolution', async () => {
+    // Seed IDB with an older record (date_updated set)
+    await upsertRecordsIntoIDB('orders', [{
+      id: 'ord_null_du',
+      status: 'pending',
+      date_updated: '2024-01-01T00:00:00.000Z',
+      date_created: '2024-01-01T00:00:00.000Z',
+    }]);
+
+    // Incoming record has null date_updated but a newer date_created
+    const newerOrder = makeRemoteOrder({
+      id: 'ord_null_du',
+      status: 'accepted',
+      date_updated: null,
+      date_created: '2024-06-01T00:00:00.000Z',
+    });
+    vi.spyOn(global, 'fetch').mockImplementation(() => Promise.resolve(directusListResponse([newerOrder])));
+
+    const sync = useDirectusSync();
+    await sync.forcePull();
+
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+    const stored = await db.get('orders', 'ord_null_du');
+    expect(stored.status).toBe('accepted'); // newer date_created wins
+  });
+
+  it('preserves local record when incoming has null date_updated but older date_created', async () => {
+    // Seed IDB with a record that has a date_updated newer than the incoming date_created
+    await upsertRecordsIntoIDB('orders', [{
+      id: 'ord_local_newer',
+      status: 'delivered',
+      date_updated: '2024-08-01T00:00:00.000Z',
+      date_created: '2024-01-01T00:00:00.000Z',
+    }]);
+
+    // Incoming from Directus: date_updated = null, date_created older than local date_updated
+    const staleOrder = makeRemoteOrder({
+      id: 'ord_local_newer',
+      status: 'pending',
+      date_updated: null,
+      date_created: '2024-03-01T00:00:00.000Z',
+    });
+    vi.spyOn(global, 'fetch').mockImplementation(() => Promise.resolve(directusListResponse([staleOrder])));
+
+    const sync = useDirectusSync();
+    await sync.forcePull();
+
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+    const stored = await db.get('orders', 'ord_local_newer');
+    expect(stored.status).toBe('delivered'); // local wins
+  });
 });
 
-// ── Pull: in-memory store merge ───────────────────────────────────────────────
+// ── Pull: null-dated incremental filter ──────────────────────────────────────
+
+describe('pull — incremental filter includes null-dated records', () => {
+  it('includes _or clause for null date_updated when sinceTs is set', async () => {
+    await saveLastPullTsToIDB('orders', '2024-01-01T00:00:00.000Z');
+
+    const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation(() => Promise.resolve(directusListResponse([])));
+    const sync = useDirectusSync();
+    await sync.forcePull();
+
+    const orderCalls = fetchSpy.mock.calls
+      .map(([url]) => String(url))
+      .filter(url => url.includes('/items/orders'));
+    expect(orderCalls.length).toBeGreaterThan(0);
+
+    // Verify the filter contains both date_updated > sinceTs and the null-date clause
+    for (const url of orderCalls) {
+      const rawFilter = new URL(url).searchParams.get('filter');
+      if (!rawFilter) continue;
+      const parsed = JSON.parse(rawFilter);
+      const json = JSON.stringify(parsed);
+      expect(json).toContain('_or');
+      expect(json).toContain('_null');
+      expect(json).toContain('date_created');
+    }
+  });
+
+  it('does NOT add incremental filter when sinceTs is null (full pull)', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation(() => Promise.resolve(directusListResponse([])));
+    const sync = useDirectusSync();
+    await sync.forcePull(); // no stored cursor → full pull
+
+    const orderCalls = fetchSpy.mock.calls
+      .map(([url]) => String(url))
+      .filter(url => url.includes('/items/orders'));
+    expect(orderCalls.length).toBeGreaterThan(0);
+
+    for (const url of orderCalls) {
+      expect(hasDateUpdatedGtFilter(url)).toBe(false);
+    }
+  });
+});
+
+// ── Pull: order_items merge into parent orders ────────────────────────────────
+
+describe('pull — order_items merged into parent orders in IDB', () => {
+  it('merges pulled order_items into their parent order in IDB and refreshes orders store', async () => {
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+
+    // Seed an existing order without items
+    await db.put('orders', {
+      id: 'ord_ki_1',
+      status: 'accepted',
+      table: '03',
+      total_amount: 10,
+      item_count: 1,
+      orderItems: [],
+      date_updated: '2024-01-01T00:00:00.000Z',
+    });
+
+    // Remote returns one order_item for that order
+    const remoteItem = {
+      id: 'item_1',
+      order: 'ord_ki_1',
+      dish: null,
+      name: 'Pizza',
+      quantity: 1,
+      unit_price: 10,
+      voided_quantity: 0,
+      kitchen_ready: true,
+      date_updated: '2024-06-01T00:00:00.000Z',
+    };
+
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      if (url.includes('/items/order_items')) return Promise.resolve(directusListResponse([remoteItem]));
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const store = makeStore();
+    const sync = useDirectusSync();
+    sync.startSync({ appType: 'cucina', store });
+    await sync.forcePull();
+
+    const order = await db.get('orders', 'ord_ki_1');
+    expect(order).toBeDefined();
+    expect(order.orderItems).toHaveLength(1);
+    expect(order.orderItems[0].id).toBe('item_1');
+    expect(order.orderItems[0].kitchenReady).toBe(true);
+  });
+
+  it('does not overwrite a newer existing item with an older pulled item', async () => {
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+
+    await db.put('orders', {
+      id: 'ord_ki_lww',
+      status: 'accepted',
+      table: '04',
+      total_amount: 10,
+      item_count: 1,
+      orderItems: [{
+        id: 'item_lww',
+        order: 'ord_ki_lww',
+        name: 'Pizza',
+        quantity: 1,
+        unit_price: 10,
+        kitchenReady: true,
+        date_updated: '2024-09-01T00:00:00.000Z',
+      }],
+      date_updated: '2024-01-01T00:00:00.000Z',
+    });
+
+    // Pulled item is older (kitchen_ready still false)
+    const olderItem = {
+      id: 'item_lww',
+      order: 'ord_ki_lww',
+      name: 'Pizza',
+      quantity: 1,
+      unit_price: 10,
+      voided_quantity: 0,
+      kitchen_ready: false,
+      date_updated: '2024-03-01T00:00:00.000Z',
+    };
+
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      if (url.includes('/items/order_items')) return Promise.resolve(directusListResponse([olderItem]));
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const sync = useDirectusSync();
+    const store = makeStore();
+    sync.startSync({ appType: 'cucina', store });
+    await sync.forcePull();
+
+    const order = await db.get('orders', 'ord_ki_lww');
+    expect(order.orderItems[0].kitchenReady).toBe(true); // local newer item wins
+  });
+});
 
 describe('pull — in-memory orders merge', () => {
   it('adds a new order from remote into store.orders', async () => {
@@ -1497,6 +1689,25 @@ describe('pull timestamp persistence', () => {
 
     const ts = await loadLastPullTsFromIDB('orders');
     expect(ts).toBe('2024-07-15T12:00:00.000Z');
+  });
+
+  it('saves date_created as cursor when date_updated is null (newly created record)', async () => {
+    const remoteOrder = makeRemoteOrder({
+      id: 'ord_null_ts',
+      date_updated: null,
+      date_created: '2024-09-20T08:00:00.000Z',
+    });
+
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      if (url.includes('/items/orders')) return Promise.resolve(directusListResponse([remoteOrder]));
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const sync = useDirectusSync();
+    await sync.forcePull();
+
+    const ts = await loadLastPullTsFromIDB('orders');
+    expect(ts).toBe('2024-09-20T08:00:00.000Z');
   });
 
   it('does not advance last_pull_ts when a paginated pull fails mid-cycle', async () => {

@@ -307,11 +307,20 @@ async function _fetchUpdatedViaSDK(collection, sinceTs, page = 1) {
       : ['*'],
   };
 
-  // Incremental pull filter (only records updated after last known timestamp).
+  // Incremental pull filter (only records updated/created after last known timestamp).
   // Skipped for collections that have no date_updated field (noDateUpdated quirk).
+  //
+  // Directus sets date_updated only when a record is PATCHed, not on initial creation,
+  // so newly created records have date_updated = null. Without the _or clause those
+  // records would be invisible to every incremental poll after the initial full pull.
   const conditions = [];
   if (sinceTs && !quirks.noDateUpdated) {
-    conditions.push({ date_updated: { _gt: sinceTs } });
+    conditions.push({
+      _or: [
+        { date_updated: { _gt: sinceTs } },
+        { _and: [{ date_updated: { _null: true } }, { date_created: { _gt: sinceTs } }] },
+      ],
+    });
   }
   // Venue filter — skipped for collections without a `venue` FK (noVenueFilter quirk).
   if (!quirks.noVenueFilter && cfg.venueId != null) {
@@ -328,7 +337,9 @@ async function _fetchUpdatedViaSDK(collection, sinceTs, page = 1) {
     const records = await client.request(readItems(collection, query));
     const _pullDuration = Date.now() - _pullStart;
     const data = Array.isArray(records) ? records : [];
-    const timestamps = data.map(r => r.date_updated).filter(Boolean);
+    // Use date_updated as the primary cursor value, falling back to date_created
+    // for records where date_updated is null (i.e. created but never patched).
+    const timestamps = data.map(r => r.date_updated ?? r.date_created).filter(Boolean);
     const maxTs = timestamps.length > 0 ? timestamps.reduce((a, b) => (a > b ? a : b)) : null;
     addSyncLog({
       direction: 'IN',
@@ -358,6 +369,72 @@ async function _fetchUpdatedViaSDK(collection, sinceTs, page = 1) {
       recordCount: 0,
     });
     return { data: [], maxTs: null, error: e };
+  }
+}
+
+/**
+ * Merges an array of freshly-pulled order_items into their parent orders stored
+ * in the `orders` IDB ObjectStore.
+ *
+ * The `orders` store persists each order with an embedded `orderItems` array
+ * (populated when orders are fetched with `fields: ['*', 'order_items.*']`).
+ * When the cucina app pulls order_items directly via the `order_items` collection
+ * those records land in a separate `order_items` ObjectStore and never reach the
+ * embedded arrays — causing the in-memory store to show stale item data even
+ * after a successful pull.
+ *
+ * This function bridges the gap: for each affected order it loads the current
+ * record, upserts the incoming items (last-write-wins on date_updated/date_created),
+ * and writes the result back before the orders store refresh fires.
+ *
+ * @param {Array<object>} pulledItems - Mapped order_item records (from _mapRecord).
+ */
+async function _mergeOrderItemsIntoOrdersIDB(pulledItems) {
+  if (!pulledItems || pulledItems.length === 0) return;
+  try {
+    const db = await getDB();
+
+    // Group items by parent order ID
+    const itemsByOrderId = new Map();
+    for (const item of pulledItems) {
+      const orderId = item?.order ?? item?.orderId;
+      if (!orderId) continue;
+      const key = String(orderId);
+      if (!itemsByOrderId.has(key)) itemsByOrderId.set(key, []);
+      itemsByOrderId.get(key).push(item);
+    }
+    if (itemsByOrderId.size === 0) return;
+
+    const tx = db.transaction('orders', 'readwrite');
+    for (const [orderId, items] of itemsByOrderId) {
+      const order = await tx.store.get(orderId);
+      if (!order) continue;
+
+      const existingItems = Array.isArray(order.orderItems) ? order.orderItems : [];
+      const byId = new Map(existingItems.map(i => [String(i.id ?? i.uid ?? ''), i]));
+
+      for (const item of items) {
+        const itemId = String(item.id ?? item.uid ?? '');
+        if (!itemId) continue;
+        const existing = byId.get(itemId);
+        if (!existing) {
+          byId.set(itemId, item);
+        } else {
+          // Last-write-wins using date_updated, falling back to date_created
+          const existingTs = existing.date_updated ?? existing.date_created ?? null;
+          const incomingTs = item.date_updated ?? item.date_created ?? null;
+          if (!existingTs || !incomingTs || incomingTs >= existingTs) {
+            byId.set(itemId, { ...existing, ...item });
+          }
+        }
+      }
+
+      const mergedItems = Array.from(byId.values()).filter(i => i.id ?? i.uid);
+      await tx.store.put(JSON.parse(JSON.stringify({ ...order, orderItems: mergedItems })));
+    }
+    await tx.done;
+  } catch (e) {
+    console.warn('[DirectusSync] _mergeOrderItemsIntoOrdersIDB failed:', e);
   }
 }
 
@@ -395,6 +472,9 @@ async function _pullCollection(collection, { forceFull = false, lastPullTimestam
   let hadFetchError = false;
   let hadRemoteRecords = false;
   let cachedState = undefined;
+  // Collect all mapped order_items across pages so they can be merged into their
+  // parent orders in the `orders` IDB store after the pull completes.
+  const pulledOrderItems = collection === 'order_items' ? [] : null;
 
   while (true) { // eslint-disable-line no-constant-condition
     const { data, maxTs, error } = await _fetchUpdatedViaSDK(collection, storedSinceTs, page);
@@ -403,6 +483,7 @@ async function _pullCollection(collection, { forceFull = false, lastPullTimestam
     hadRemoteRecords = true;
 
     const mapped = data.map(r => _mapRecord(collection, r));
+    if (pulledOrderItems !== null) pulledOrderItems.push(...mapped);
     const preparedResult = await _preparePullRecordsForIDB(collection, mapped, cachedState);
     cachedState = preparedResult.state;
     const prepared = preparedResult.records;
@@ -415,7 +496,16 @@ async function _pullCollection(collection, { forceFull = false, lastPullTimestam
   }
 
   if (hadRemoteRecords) {
-    await _refreshStoreFromIDB(collection);
+    if (collection === 'order_items') {
+      // Merge pulled items into their parent orders in the `orders` IDB store so
+      // that refreshOperationalStateFromIDB('orders') picks up the latest items.
+      // This is necessary because the cucina app pulls order_items directly and
+      // `refreshOperationalStateFromIDB` has no handler for the 'order_items' key.
+      await _mergeOrderItemsIntoOrdersIDB(pulledOrderItems);
+      await _refreshStoreFromIDB('orders');
+    } else {
+      await _refreshStoreFromIDB(collection);
+    }
   }
 
   if (!hadFetchError && latestTs && latestTs !== storedSinceTs) {

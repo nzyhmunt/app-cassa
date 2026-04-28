@@ -442,8 +442,12 @@ export async function upsertRecordsIntoIDB(storeName, records, { forceWrite = fa
         const pk = incoming[keyPath];
         if (!pk) continue;
         const existing = await roTx.store.get(pk);
-        if (existing && existing.date_updated && incoming.date_updated) {
-          if (new Date(incoming.date_updated) <= new Date(existing.date_updated)) {
+        if (existing) {
+          // Last-write-wins: compare using date_updated, falling back to date_created
+          // for records that were created but never patched (date_updated = null in Directus).
+          const existingTs = existing.date_updated ?? existing.date_created;
+          const incomingTs = incoming.date_updated ?? incoming.date_created;
+          if (existingTs && incomingTs && new Date(incomingTs) <= new Date(existingTs)) {
             continue;
           }
         }
