@@ -298,7 +298,10 @@ async function _fetchUpdatedViaSDK(collection, sinceTs, page = 1) {
   const query = {
     limit: 200,
     page,
-    sort: [quirks.noDateUpdated ? 'id' : 'date_updated'],
+    // Primary sort by date_updated (or id for quirk collections); secondary by
+    // date_created and id to guarantee a stable, deterministic page order when
+    // many records share the same date_updated value (including null).
+    sort: quirks.noDateUpdated ? ['id'] : ['date_updated', 'date_created', 'id'],
     // For orders, expand nested order_items and their modifiers so that the
     // detail view is populated even on a fresh device that has never locally
     // created those orders.
@@ -444,6 +447,43 @@ async function _mergeOrderItemsIntoOrdersIDB(pulledItems) {
   }
 }
 
+/**
+ * Removes deleted order_items (identified by their IDs) from the embedded
+ * `orderItems` arrays of their parent orders in the `orders` IDB ObjectStore.
+ *
+ * Called by `_handleSubscriptionMessage` when a WS `delete` event arrives for
+ * the `order_items` collection so that cucina devices with wsEnabled see the
+ * deletion reflected in the orders store without waiting for the next poll.
+ *
+ * @param {string[]} deletedIds - IDs of the deleted order_item records.
+ */
+async function _removeOrderItemsFromOrdersIDB(deletedIds) {
+  if (!deletedIds || deletedIds.length === 0) return;
+  try {
+    const db = await getDB();
+    const deletedSet = new Set(deletedIds.map(String));
+
+    // We need to scan all orders to find which ones contain the deleted items.
+    // Use a readwrite cursor to update in-place.
+    const tx = db.transaction('orders', 'readwrite');
+    for await (const cursor of tx.store) {
+      const order = cursor.value;
+      const items = Array.isArray(order.orderItems) ? order.orderItems : [];
+      const filtered = items.filter(i => {
+        const itemId = String(i.id ?? i.uid ?? '');
+        return !deletedSet.has(itemId);
+      });
+      if (filtered.length !== items.length) {
+        await cursor.update({ ...order, orderItems: filtered });
+      }
+    }
+    await tx.done;
+  } catch (e) {
+    console.warn('[DirectusSync] _removeOrderItemsFromOrdersIDB failed:', e);
+    throw e;
+  }
+}
+
 async function _pullCollection(collection, { forceFull = false, lastPullTimestampOverride = null } = {}) {
   if (collection === 'table_merge_sessions' && forceFull) {
     let page = 1;
@@ -507,7 +547,14 @@ async function _pullCollection(collection, { forceFull = false, lastPullTimestam
       // that refreshOperationalStateFromIDB('orders') picks up the latest items.
       // This is necessary because the cucina app pulls order_items directly and
       // `refreshOperationalStateFromIDB` has no handler for the 'order_items' key.
-      await _mergeOrderItemsIntoOrdersIDB(pulledOrderItems);
+      // Errors from the merge are propagated: if the merge fails, treat it like a
+      // fetch error so the cursor does not advance and the cycle retries next poll.
+      try {
+        await _mergeOrderItemsIntoOrdersIDB(pulledOrderItems);
+      } catch (e) {
+        console.warn('[DirectusSync] order_items merge failed; cursor will not advance:', e);
+        hadFetchError = true;
+      }
       await _refreshStoreFromIDB('orders');
     } else {
       await _refreshStoreFromIDB(collection);
@@ -560,6 +607,15 @@ async function _handleSubscriptionMessage(collection, message) {
     if (nonEchoIds.length === 0) return;
     if (collection === 'table_merge_sessions') {
       await _pullCollection('table_merge_sessions', { forceFull: true });
+      return;
+    }
+    if (collection === 'order_items') {
+      // Deletes from the items ObjectStore must also remove the item from the
+      // embedded orderItems array of the parent order so that the orders store
+      // stays consistent on cucina devices with wsEnabled.
+      await deleteRecordsFromIDB(collection, nonEchoIds);
+      await _removeOrderItemsFromOrdersIDB(nonEchoIds);
+      await _refreshStoreFromIDB('orders');
       return;
     }
     await deleteRecordsFromIDB(collection, nonEchoIds);
@@ -620,7 +676,15 @@ async function _handleSubscriptionMessage(collection, message) {
       }
     }
     await upsertRecordsIntoIDB(collection, prepared);
-    await _refreshStoreFromIDB(collection);
+    if (collection === 'order_items') {
+      // WS payloads for order_items must also be merged into the embedded
+      // orderItems arrays of their parent orders so the orders store on cucina
+      // devices with wsEnabled stays up to date.
+      await _mergeOrderItemsIntoOrdersIDB(mapped);
+      await _refreshStoreFromIDB('orders');
+    } else {
+      await _refreshStoreFromIDB(collection);
+    }
   }
 
   lastPullAt.value = new Date().toISOString();

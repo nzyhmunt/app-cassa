@@ -1414,6 +1414,112 @@ describe('pull — order_items merged into parent orders in IDB', () => {
   });
 });
 
+// ── WebSocket: order_items create/update/delete merges into parent orders ─────
+
+describe('WS order_items — embedded merge into parent orders', () => {
+  it('WS create for order_item merges into parent order.orderItems in IDB', async () => {
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+
+    // Seed a parent order with no items
+    await db.put('orders', {
+      id: 'ord_ws_item_1',
+      status: 'accepted',
+      table: '01',
+      orderItems: [],
+      date_updated: '2024-01-01T00:00:00.000Z',
+    });
+
+    await _handleSubscriptionMessage('order_items', {
+      event: 'create',
+      data: [{
+        id: 'oi_ws_1',
+        order: 'ord_ws_item_1',
+        name: 'Bistecca',
+        quantity: 1,
+        unit_price: 18,
+        voided_quantity: 0,
+        kitchen_ready: false,
+        date_updated: '2024-06-01T00:00:00.000Z',
+      }],
+    });
+
+    const order = await db.get('orders', 'ord_ws_item_1');
+    expect(order).toBeDefined();
+    expect(order.orderItems).toHaveLength(1);
+    expect(order.orderItems[0].id).toBe('oi_ws_1');
+  });
+
+  it('WS update for order_item updates the item inside parent order.orderItems', async () => {
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+
+    await db.put('orders', {
+      id: 'ord_ws_item_upd',
+      status: 'accepted',
+      table: '02',
+      orderItems: [{
+        id: 'oi_ws_upd',
+        order: 'ord_ws_item_upd',
+        name: 'Pasta',
+        quantity: 1,
+        unit_price: 10,
+        kitchenReady: false,
+        date_updated: '2024-01-01T00:00:00.000Z',
+      }],
+      date_updated: '2024-01-01T00:00:00.000Z',
+    });
+
+    await _handleSubscriptionMessage('order_items', {
+      event: 'update',
+      data: [{
+        id: 'oi_ws_upd',
+        order: 'ord_ws_item_upd',
+        name: 'Pasta',
+        quantity: 1,
+        unit_price: 10,
+        voided_quantity: 0,
+        kitchen_ready: true,
+        date_updated: '2024-09-01T00:00:00.000Z',
+      }],
+    });
+
+    const order = await db.get('orders', 'ord_ws_item_upd');
+    expect(order.orderItems).toHaveLength(1);
+    expect(order.orderItems[0].kitchenReady).toBe(true);
+  });
+
+  it('WS delete for order_item removes it from parent order.orderItems', async () => {
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+
+    await db.put('orders', {
+      id: 'ord_ws_item_del',
+      status: 'accepted',
+      table: '03',
+      orderItems: [
+        { id: 'oi_del_1', name: 'Pizza', quantity: 1, unit_price: 9 },
+        { id: 'oi_del_2', name: 'Acqua', quantity: 2, unit_price: 2 },
+      ],
+      date_updated: '2024-01-01T00:00:00.000Z',
+    });
+
+    // Also write the item to the order_items store so deleteRecordsFromIDB has something to remove
+    await upsertRecordsIntoIDB('order_items', [
+      { id: 'oi_del_1', order: 'ord_ws_item_del', name: 'Pizza', quantity: 1, unit_price: 9 },
+    ]);
+
+    await _handleSubscriptionMessage('order_items', {
+      event: 'delete',
+      data: ['oi_del_1'],
+    });
+
+    const order = await db.get('orders', 'ord_ws_item_del');
+    expect(order.orderItems).toHaveLength(1);
+    expect(order.orderItems[0].id).toBe('oi_del_2'); // only the surviving item remains
+  });
+});
+
 describe('pull — in-memory orders merge', () => {
   it('adds a new order from remote into store.orders', async () => {
     const remoteOrder = makeRemoteOrder({ bill_session: 'bill_x', total_amount: 20 });
