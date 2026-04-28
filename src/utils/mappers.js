@@ -16,10 +16,11 @@
 import { resolvePaymentMethodMeta } from './paymentMethods.js';
 
 /**
- * Returns true when `value` looks like a Directus UUID (v4 or v7 format).
- * Local JSON-menu IDs (e.g. "ant_1", "cat_2") are not valid UUIDs and must
- * not be sent as Directus FK values; this guard is used to drop them before
- * the payload reaches the API.
+ * Returns true when `value` looks like a Directus UUID by shape.
+ * This is a loose UUID-format check, not strict validation of specific UUID
+ * versions such as v4 or v7. Local JSON-menu IDs (e.g. "ant_1", "cat_2")
+ * are not valid UUIDs and must not be sent as Directus FK values; this guard
+ * is used to drop them before the payload reaches the API.
  * @param {unknown} value
  * @returns {boolean}
  */
