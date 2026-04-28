@@ -231,7 +231,8 @@ export function mapOrderItemFromDirectus(record) {
   };
 }
 
-export function mapOrderItemToDirectus(record) {
+export function mapOrderItemToDirectus(record, _originalPayload, opts = {}) {
+  const { menuSource = 'directus' } = opts;
   const source = record ?? {};
   const rawDishId = relationId(source.dish ?? source.dishId ?? null);
   const out = {
@@ -240,10 +241,11 @@ export function mapOrderItemToDirectus(record) {
     voided_quantity: source.voidedQuantity ?? source.voided_quantity ?? 0,
     kitchen_ready: source.kitchen_ready ?? source.kitchenReady ?? false,
     order: relationId(source.order ?? source.orderId ?? null),
-    // Only forward the dish FK when it is a real Directus UUID.  When the
-    // app uses a JSON menu the local item IDs (e.g. "ant_1") are not valid
-    // Directus FKs and must be omitted to avoid a 400 INVALID_FOREIGN_KEY.
-    dish: looksLikeDirectusId(rawDishId) ? rawDishId : null,
+    // When the app uses a JSON menu, always null out the dish FK: local item
+    // IDs (e.g. "ant_1") are not valid Directus FKs and must be omitted to
+    // avoid a 400 INVALID_FOREIGN_KEY error.  When the menu source is Directus
+    // the dish ID is forwarded only if it has a valid UUID shape.
+    dish: menuSource === 'json' ? null : (looksLikeDirectusId(rawDishId) ? rawDishId : null),
   };
   const venueUserCreated = source.venue_user_created ?? source.venueUserCreated;
   if (venueUserCreated != null) {
@@ -1206,7 +1208,7 @@ const _TO_DIRECTUS_MAPPERS = {
 export function mapPayloadToDirectus(collection, payload, ctx = {}) {
   if (!payload || typeof payload !== 'object') return {};
 
-  const { paymentMethods = [] } = ctx;
+  const { paymentMethods = [], menuSource = 'directus' } = ctx;
 
   // Step 1 — strip local-only and push-drop fields
   const cleaned = {};
@@ -1292,7 +1294,7 @@ export function mapPayloadToDirectus(collection, payload, ctx = {}) {
   let mapped;
   const dedicatedMapper = _TO_DIRECTUS_MAPPERS[collection];
   if (dedicatedMapper) {
-    mapped = dedicatedMapper(preProcessed, payload);
+    mapped = dedicatedMapper(preProcessed, payload, { menuSource });
   } else {
     mapped = {};
     for (const [key, value] of Object.entries(preProcessed)) {

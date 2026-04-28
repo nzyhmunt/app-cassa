@@ -45,6 +45,7 @@ import {
   _resetEnqueueSeq,
 } from '../../composables/useSyncQueue.js';
 import * as persistenceOps from '../persistence/operations.js';
+import { appConfig } from '../../utils/index.js';
 
 // Pass _backoffMs:0 to skip exponential back-off delays in all tests.
 const FAKE_CFG = { url: 'https://directus.test', staticToken: 'tok_test', _backoffMs: 0 };
@@ -401,6 +402,31 @@ describe('drainQueue()', () => {
     expect(body.order_items).toHaveLength(2);
     for (const item of body.order_items) {
       expect(item.order).toBe('ord_partial_1');
+    }
+  });
+
+  it('nulls dish on order_items when menuSource is json', async () => {
+    const prev = appConfig.menuSource;
+    try {
+      appConfig.menuSource = 'json';
+      const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue(mockResponse(200, { data: {} }));
+      await enqueue('orders', 'update', 'ord_json_menu_1', {
+        venue_user_updated: 'usr_1',
+        orderItems: [
+          { uid: 'item_a', dishId: 'ant_1', name: 'Pinzimonio', unitPrice: 3, quantity: 1, notes: [], voidedQuantity: 0, modifiers: [], course: 'insieme' },
+          { uid: 'item_b', dishId: 'ant_3', name: 'Polpette', unitPrice: 8, quantity: 1, notes: [], voidedQuantity: 0, modifiers: [], course: 'insieme' },
+        ],
+        totalAmount: 11,
+        itemCount: 2,
+      });
+      await drainQueue(FAKE_CFG);
+      const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+      expect(Array.isArray(body.order_items)).toBe(true);
+      for (const item of body.order_items) {
+        expect(item.dish).toBeNull();
+      }
+    } finally {
+      appConfig.menuSource = prev;
     }
   });
 
