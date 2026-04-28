@@ -420,12 +420,17 @@ async function _mergeOrderItemsIntoOrdersIDB(pulledItems) {
         if (!existing) {
           byId.set(itemId, item);
         } else {
-          // Last-write-wins using date_updated, falling back to date_created
+          // Last-write-wins using date_updated, falling back to date_created.
+          // Incoming wins only when existing has no timestamp (can't compare) or
+          // both timestamps are present and incoming is newer or equal.
+          // If incoming has no timestamp but existing does, keep the existing record.
           const existingTs = existing.date_updated ?? existing.date_created ?? null;
           const incomingTs = item.date_updated ?? item.date_created ?? null;
-          if (!existingTs || !incomingTs || incomingTs >= existingTs) {
+          const incomingWins = !existingTs || (incomingTs != null && incomingTs >= existingTs);
+          if (incomingWins) {
             byId.set(itemId, { ...existing, ...item });
           }
+          // else: existing is newer — keep the map unchanged
         }
       }
 
