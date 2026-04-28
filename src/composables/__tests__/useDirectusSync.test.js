@@ -1627,6 +1627,75 @@ describe('WS order_items — embedded merge into parent orders', () => {
     expect(order.orderItems[0].id).toBe('oi_fallback_2');
   });
 
+  it('WS partial update for order_item preserves existing modifiers when WS sends ID-only relation entries', async () => {
+    // Guards against the regression in mergeOrderItemFromWSPayload: when a WS
+    // subscription uses fields: ['*'], the `order_item_modifiers` relation field
+    // arrives as bare IDs (numbers), which mapOrderItemFromDirectus normalises to
+    // `modifiers: []`.  The merge function must NOT overwrite existing modifiers
+    // with that empty array — only apply when incoming.modifiers is non-empty.
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+
+    const orderId = 'ord_ws_modifier_preserve';
+    const existingModifiers = [
+      { id: 'mod_1', name: 'Extra cheese', price: 2, quantity: 1 },
+      { id: 'mod_2', name: 'No onion', price: 0, quantity: 1 },
+    ];
+
+    await db.put('orders', {
+      id: orderId,
+      status: 'accepted',
+      table: '11',
+      orderItems: [{
+        id: 'oi_mod_test',
+        order: orderId,
+        name: 'Pizza',
+        quantity: 1,
+        unitPrice: 12,
+        unit_price: 12,
+        kitchenReady: false,
+        modifiers: existingModifiers,
+        date_updated: '2024-01-01T00:00:00.000Z',
+      }],
+      date_updated: '2024-01-01T00:00:00.000Z',
+    });
+
+    await upsertRecordsIntoIDB('order_items', [{
+      id: 'oi_mod_test',
+      order: orderId,
+      name: 'Pizza',
+      quantity: 1,
+      unit_price: 12,
+      kitchen_ready: false,
+      // order_item_modifiers stored as ID-only entries (simulating what IDB
+      // holds after a full pull that didn't expand the relation):
+      order_item_modifiers: [{ id: 'mod_1' }, { id: 'mod_2' }],
+      date_updated: '2024-01-01T00:00:00.000Z',
+    }]);
+
+    // WS sends `order_item_modifiers` as bare IDs (the typical fields:['*'] response).
+    // mapOrderItemFromDirectus() normalises this to `modifiers: []` because the
+    // entries are not fully-expanded objects with a `price` field.
+    await _handleSubscriptionMessage('order_items', {
+      event: 'update',
+      data: [{
+        id: 'oi_mod_test',
+        kitchen_ready: true,
+        order_item_modifiers: [1, 2],      // bare IDs, not expanded objects
+        date_updated: '2024-09-01T00:00:00.000Z',
+      }],
+    });
+
+    // kitchenReady must be updated
+    const order = await db.get('orders', orderId);
+    const item = order.orderItems[0];
+    expect(item.kitchenReady).toBe(true);
+    // Existing modifiers must NOT have been clobbered with []
+    expect(item.modifiers).toHaveLength(2);
+    expect(item.modifiers[0].id).toBe('mod_1');
+    expect(item.modifiers[1].id).toBe('mod_2');
+  });
+
   it('_mergeOrderItemsIntoOrdersIDB uses strictly-greater Date comparison (same as upsertRecordsIntoIDB)', async () => {
     // Guards timestamp-comparison consistency: same-timestamp incoming should NOT
     // overwrite an existing embedded item (matches upsertRecordsIntoIDB behavior).

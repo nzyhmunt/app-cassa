@@ -581,7 +581,17 @@ export function mergeOrderItemFromWSPayload(existing, raw, incoming) {
   }
   if (hasOwn(raw, 'notes')) merged.notes = incoming.notes;
   if (hasOwn(raw, 'order_item_modifiers') || hasOwn(raw, 'modifiers')) {
-    merged.modifiers = incoming.modifiers;
+    // Only overwrite modifiers when the incoming array is non-empty.
+    // WS subscriptions with `fields: ['*']` do NOT expand nested relations, so
+    // `order_item_modifiers` typically arrives as an array of bare IDs (numbers)
+    // which `mapOrderItemFromDirectus` normalizes to `[]` after filtering out
+    // non-objects.  Unconditionally replacing `existing.modifiers` with `[]`
+    // would silently wipe modifier data fetched during the last full pull.
+    // This mirrors how `mergeOrderFromWSPayload` handles `orderItems`.
+    if (Array.isArray(incoming.modifiers) && incoming.modifiers.length > 0) {
+      merged.modifiers = incoming.modifiers;
+    }
+    // else keep existing.modifiers (already in merged via spread)
   }
   if (hasOwn(raw, 'venue_user_created')) {
     merged.venueUserCreated = incoming.venueUserCreated;
