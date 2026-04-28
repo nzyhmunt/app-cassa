@@ -1560,13 +1560,12 @@ describe('WS order_items — embedded merge into parent orders', () => {
       date_updated: '2024-01-01T00:00:00.000Z',
     }]);
 
-    // WS sends a partial payload: only kitchen_ready is updated — quantity and
-    // unit_price are absent, so mapOrderItemFromDirectus fills them with 0.
+    // WS sends a partial payload: only kitchen_ready is updated — quantity,
+    // unit_price, and order are absent, so merge logic must preserve them.
     await _handleSubscriptionMessage('order_items', {
       event: 'update',
       data: [{
         id: 'oi_partial',
-        order: 'ord_ws_partial_oi',
         kitchen_ready: true,
         date_updated: '2024-09-01T00:00:00.000Z',
       }],
