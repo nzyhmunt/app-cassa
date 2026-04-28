@@ -462,19 +462,37 @@ async function _removeOrderItemsFromOrdersIDB(deletedIds) {
   try {
     const db = await getDB();
     const deletedSet = new Set(deletedIds.map(String));
+    const tx = db.transaction(['order_items', 'orders'], 'readwrite');
+    const orderItemsStore = tx.objectStore('order_items');
+    const ordersStore = tx.objectStore('orders');
+    const affectedOrderIds = new Set();
 
-    // We need to scan all orders to find which ones contain the deleted items.
-    // Use a readwrite cursor to update in-place.
-    const tx = db.transaction('orders', 'readwrite');
-    for await (const cursor of tx.store) {
-      const order = cursor.value;
+    // Resolve only the parent orders for the deleted items, so we do not scan
+    // the entire orders store on every WS delete event.
+    for (const deletedId of deletedSet) {
+      const orderItem = await orderItemsStore.get(deletedId);
+      if (!orderItem) continue;
+
+      const parentOrderId = relationId(
+        orderItem.order ?? orderItem.orders_id ?? orderItem.order_id ?? orderItem.orderId,
+      );
+      if (parentOrderId != null && parentOrderId !== '') {
+        affectedOrderIds.add(String(parentOrderId));
+      }
+    }
+
+    for (const orderId of affectedOrderIds) {
+      const order = await ordersStore.get(orderId);
+      if (!order) continue;
+
       const items = Array.isArray(order.orderItems) ? order.orderItems : [];
       const filtered = items.filter(i => {
         const itemId = String(i.id ?? i.uid ?? '');
         return !deletedSet.has(itemId);
       });
+
       if (filtered.length !== items.length) {
-        await cursor.update({ ...order, orderItems: filtered });
+        await ordersStore.put({ ...order, orderItems: filtered });
       }
     }
     await tx.done;
