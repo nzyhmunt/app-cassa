@@ -392,17 +392,18 @@ async function _fetchUpdatedViaSDK(collection, sinceTs, page = 1) {
  * and writes the result back before the orders store refresh fires.
  *
  * @param {Array<object>} pulledItems - Mapped order_item records (from _mapRecord).
- * @param {Array<object>} [rawItems]  - Optional raw WS payloads (same length/order as
- *   pulledItems). When provided, existing embedded items are merged via
- *   `mergeOrderItemFromWSPayload` so that absent mapped-default fields (quantity,
- *   unit_price, etc.) never clobber real IDB values with zeros.
+ * @param {Array<object>} [rawItems]  - Optional raw Directus records (snake_case, same
+ *   length/order as pulledItems). May come from a WS event or a REST pull response.
+ *   When provided, existing embedded items are merged via `mergeOrderItemFromWSPayload`
+ *   so that absent mapped-default fields (quantity, unit_price, etc.) never clobber
+ *   real IDB values with zeros.
  */
 async function _mergeOrderItemsIntoOrdersIDB(pulledItems, rawItems = null) {
   if (!pulledItems || pulledItems.length === 0) return;
   try {
     const db = await getDB();
 
-    // Build a raw-payload lookup if rawItems were provided (WS path).
+    // Build a raw-payload lookup if rawItems were provided (WS or REST pull path).
     const rawById = new Map();
     if (rawItems && rawItems.length === pulledItems.length) {
       for (let i = 0; i < rawItems.length; i++) {
