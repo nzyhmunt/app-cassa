@@ -399,9 +399,12 @@ export async function closeBillSessionInIDB(billSessionId) {
 /**
  * Batch-upserts Directus records into the given IDB ObjectStore.
  *
- * By default only inserts/replaces a record when the incoming `date_updated` is
- * strictly greater than (or the local record has no `date_updated`). This
- * implements the last-write-wins conflict resolution described in §5.7.4.
+ * By default only inserts/replaces a record when the incoming timestamp is
+ * strictly greater than the stored one. The effective timestamp is
+ * `date_updated ?? date_created` so that records created but never patched
+ * (where Directus leaves `date_updated = null`) are compared correctly against
+ * existing ones instead of unconditionally overwriting them.
+ * This implements the last-write-wins conflict resolution described in §5.7.4.
  *
  * Pass `{ forceWrite: true }` to bypass the timestamp check and unconditionally
  * overwrite every incoming record.

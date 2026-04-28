@@ -1518,6 +1518,72 @@ describe('WS order_items — embedded merge into parent orders', () => {
     expect(order.orderItems).toHaveLength(1);
     expect(order.orderItems[0].id).toBe('oi_del_2'); // only the surviving item remains
   });
+
+  it('WS partial update for order_item does NOT clobber quantity/unitPrice with mapper defaults', async () => {
+    // This guards against the regression described in the review: mapOrderItemFromDirectus
+    // fills absent numeric fields with 0. A partial WS payload (e.g. only kitchen_ready)
+    // must NOT overwrite real quantity/unit_price values stored in the embedded item.
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+
+    // Seed a parent order with a known embedded item
+    await db.put('orders', {
+      id: 'ord_ws_partial_oi',
+      status: 'accepted',
+      table: '05',
+      orderItems: [{
+        id: 'oi_partial',
+        order: 'ord_ws_partial_oi',
+        name: 'Risotto',
+        quantity: 3,
+        unitPrice: 14,
+        unit_price: 14,
+        voidedQuantity: 0,
+        voided_quantity: 0,
+        kitchenReady: false,
+        notes: ['senza cipolla'],
+        modifiers: [],
+        date_updated: '2024-01-01T00:00:00.000Z',
+      }],
+      date_updated: '2024-01-01T00:00:00.000Z',
+    });
+
+    // Also seed the order_items store so upsertRecordsIntoIDB has something
+    await upsertRecordsIntoIDB('order_items', [{
+      id: 'oi_partial',
+      order: 'ord_ws_partial_oi',
+      name: 'Risotto',
+      quantity: 3,
+      unit_price: 14,
+      voided_quantity: 0,
+      kitchen_ready: false,
+      date_updated: '2024-01-01T00:00:00.000Z',
+    }]);
+
+    // WS sends a partial payload: only kitchen_ready is updated — quantity and
+    // unit_price are absent, so mapOrderItemFromDirectus fills them with 0.
+    await _handleSubscriptionMessage('order_items', {
+      event: 'update',
+      data: [{
+        id: 'oi_partial',
+        order: 'ord_ws_partial_oi',
+        kitchen_ready: true,
+        date_updated: '2024-09-01T00:00:00.000Z',
+      }],
+    });
+
+    const order = await db.get('orders', 'ord_ws_partial_oi');
+    expect(order.orderItems).toHaveLength(1);
+    const item = order.orderItems[0];
+    // kitchenReady must have been updated
+    expect(item.kitchenReady).toBe(true);
+    // quantity and unitPrice must NOT have been clobbered with mapper defaults
+    expect(item.quantity).toBe(3);
+    expect(item.unitPrice).toBe(14);
+    expect(item.unit_price).toBe(14);
+    // notes must also be preserved (absent from WS payload → not in raw → kept)
+    expect(item.notes).toEqual(['senza cipolla']);
+  });
 });
 
 describe('pull — in-memory orders merge', () => {

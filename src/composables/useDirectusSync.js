@@ -31,6 +31,7 @@ import {
   mapMenuItemModifierLinkFromDirectus,
   mapTableMergeSessionFromDirectus,
   mergeOrderFromWSPayload,
+  mergeOrderItemFromWSPayload,
   relationId,
 } from '../utils/mappers.js';
 import { getDirectusClient, resetDirectusClient } from './useDirectusClient.js';
@@ -391,11 +392,24 @@ async function _fetchUpdatedViaSDK(collection, sinceTs, page = 1) {
  * and writes the result back before the orders store refresh fires.
  *
  * @param {Array<object>} pulledItems - Mapped order_item records (from _mapRecord).
+ * @param {Array<object>} [rawItems]  - Optional raw WS payloads (same length/order as
+ *   pulledItems). When provided, existing embedded items are merged via
+ *   `mergeOrderItemFromWSPayload` so that absent mapped-default fields (quantity,
+ *   unit_price, etc.) never clobber real IDB values with zeros.
  */
-async function _mergeOrderItemsIntoOrdersIDB(pulledItems) {
+async function _mergeOrderItemsIntoOrdersIDB(pulledItems, rawItems = null) {
   if (!pulledItems || pulledItems.length === 0) return;
   try {
     const db = await getDB();
+
+    // Build a raw-payload lookup if rawItems were provided (WS path).
+    const rawById = new Map();
+    if (rawItems && rawItems.length === pulledItems.length) {
+      for (let i = 0; i < rawItems.length; i++) {
+        const id = String(pulledItems[i]?.id ?? pulledItems[i]?.uid ?? '');
+        if (id) rawById.set(id, rawItems[i]);
+      }
+    }
 
     // Group items by parent order ID
     const itemsByOrderId = new Map();
@@ -431,14 +445,23 @@ async function _mergeOrderItemsIntoOrdersIDB(pulledItems) {
           const incomingTs = item.date_updated ?? item.date_created ?? null;
           const incomingWins = !existingTs || (incomingTs != null && incomingTs >= existingTs);
           if (incomingWins) {
-            byId.set(itemId, { ...existing, ...item });
+            // When a raw WS payload is available, use the selective merge so that
+            // mapper-supplied defaults for absent fields (e.g. quantity → 0) never
+            // overwrite real values already stored in the embedded item.
+            const rawPayload = rawById.get(itemId);
+            byId.set(itemId, rawPayload
+              ? mergeOrderItemFromWSPayload(existing, rawPayload, item)
+              : { ...existing, ...item });
           }
           // else: existing is newer — keep the map unchanged
         }
       }
 
       const mergedItems = Array.from(byId.values()).filter(i => i.id ?? i.uid);
-      await tx.store.put(JSON.parse(JSON.stringify({ ...order, orderItems: mergedItems })));
+      // A shallow spread is intentional here: IDB's put() performs its own
+      // structured-clone serialisation so shared nested references (notes,
+      // modifiers) are safely deep-copied before being written to the store.
+      await tx.store.put({ ...order, orderItems: mergedItems });
     }
     await tx.done;
   } catch (e) {
@@ -631,8 +654,11 @@ async function _handleSubscriptionMessage(collection, message) {
       // Deletes from the items ObjectStore must also remove the item from the
       // embedded orderItems array of the parent order so that the orders store
       // stays consistent on cucina devices with wsEnabled.
-      await deleteRecordsFromIDB(collection, nonEchoIds);
+      // IMPORTANT: _removeOrderItemsFromOrdersIDB must run BEFORE deleteRecordsFromIDB
+      // because it looks up the parent order ID via the order_items ObjectStore;
+      // if we delete first, the lookup finds nothing and the embedded array is not cleaned up.
       await _removeOrderItemsFromOrdersIDB(nonEchoIds);
+      await deleteRecordsFromIDB(collection, nonEchoIds);
       await _refreshStoreFromIDB('orders');
       return;
     }
@@ -698,7 +724,10 @@ async function _handleSubscriptionMessage(collection, message) {
       // WS payloads for order_items must also be merged into the embedded
       // orderItems arrays of their parent orders so the orders store on cucina
       // devices with wsEnabled stays up to date.
-      await _mergeOrderItemsIntoOrdersIDB(mapped);
+      // Pass the raw (nonEcho) payloads so the merge uses mergeOrderItemFromWSPayload
+      // and does not clobber existing embedded fields with mapper-supplied defaults
+      // (e.g. quantity → 0) for absent fields in partial WS payloads.
+      await _mergeOrderItemsIntoOrdersIDB(mapped, nonEcho);
       await _refreshStoreFromIDB('orders');
     } else {
       await _refreshStoreFromIDB(collection);

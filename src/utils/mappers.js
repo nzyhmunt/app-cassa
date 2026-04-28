@@ -525,6 +525,76 @@ export function mergeOrderFromWSPayload(existing, raw, incoming) {
 }
 
 /**
+ * Merges an incoming `order_item` WebSocket payload into an existing embedded
+ * order-item record (the entry stored inside `order.orderItems`).
+ *
+ * WS subscriptions use `fields: ['*']` which can produce partial payloads (e.g.
+ * only `{id, kitchen_ready, date_updated}`). `mapOrderItemFromDirectus()` fills
+ * absent numeric/array fields with defaults (0, []).  Spreading the fully-mapped
+ * record with `{...existing, ...item}` would clobber existing `quantity`,
+ * `unit_price`, `notes`, etc. with those defaults.
+ *
+ * This function follows the same pattern as `mergeOrderFromWSPayload`: start with
+ * `existing` and overwrite only the camelCase/snake_case fields that are actually
+ * present in the raw WS payload.
+ *
+ * @param {object} existing  - The current embedded item record from IDB.
+ * @param {object} raw       - The raw Directus payload (field names as received via WS).
+ * @param {object} incoming  - The result of `mapOrderItemFromDirectus(raw)`.
+ * @returns {object} Merged item record.
+ */
+export function mergeOrderItemFromWSPayload(existing, raw, incoming) {
+  const merged = { ...existing };
+  const hasOwn = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key);
+
+  if (hasOwn(raw, 'id')) merged.id = incoming.id;
+  if (hasOwn(raw, 'uid')) {
+    merged.uid = incoming.uid;
+  } else if (hasOwn(raw, 'id') && !merged.uid) {
+    merged.uid = incoming.uid;
+  }
+  if (hasOwn(raw, 'date_created')) merged.date_created = incoming.date_created;
+  if (hasOwn(raw, 'date_updated')) merged.date_updated = incoming.date_updated;
+  if (hasOwn(raw, 'order')) {
+    merged.order = incoming.order;
+    merged.orderId = incoming.orderId;
+  }
+  if (hasOwn(raw, 'dish')) {
+    merged.dish = incoming.dish;
+    merged.dishId = incoming.dishId;
+  }
+  if (hasOwn(raw, 'name')) merged.name = incoming.name;
+  if (hasOwn(raw, 'quantity')) {
+    merged.quantity = incoming.quantity;
+  }
+  if (hasOwn(raw, 'unit_price')) {
+    merged.unit_price = incoming.unit_price;
+    merged.unitPrice = incoming.unitPrice;
+  }
+  if (hasOwn(raw, 'voided_quantity')) {
+    merged.voided_quantity = incoming.voided_quantity;
+    merged.voidedQuantity = incoming.voidedQuantity;
+  }
+  if (hasOwn(raw, 'kitchen_ready')) {
+    merged.kitchenReady = incoming.kitchenReady;
+    merged.kitchen_ready = incoming.kitchen_ready;
+  }
+  if (hasOwn(raw, 'notes')) merged.notes = incoming.notes;
+  if (hasOwn(raw, 'order_item_modifiers') || hasOwn(raw, 'modifiers')) {
+    merged.modifiers = incoming.modifiers;
+  }
+  if (hasOwn(raw, 'venue_user_created')) {
+    merged.venueUserCreated = incoming.venueUserCreated;
+    merged.venue_user_created = incoming.venue_user_created;
+  }
+  if (hasOwn(raw, 'venue_user_updated')) {
+    merged.venueUserUpdated = incoming.venueUserUpdated;
+    merged.venue_user_updated = incoming.venue_user_updated;
+  }
+  return merged;
+}
+
+/**
  * Explicit rename map: local in-app field name → Directus collection field name.
  *
  * Directus FK fields use the related collection name **without** an `_id` suffix
