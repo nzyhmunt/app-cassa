@@ -1285,10 +1285,10 @@ describe('pull — incremental filter includes null-dated records', () => {
         continue;
       }
 
-      const decodedUrl = decodeURIComponent(url);
-      const hasBracketedOr = decodedUrl.includes('filter[_or]');
-      const hasBracketedNull = decodedUrl.includes('[_null]');
-      const hasBracketedDateCreated = decodedUrl.includes('[date_created]');
+      const searchParamKeys = Array.from(parsedUrl.searchParams.keys());
+      const hasBracketedOr = searchParamKeys.some(key => key.includes('[_or]'));
+      const hasBracketedNull = searchParamKeys.some(key => key.includes('[_null]'));
+      const hasBracketedDateCreated = searchParamKeys.some(key => key.includes('[date_created]'));
 
       if (hasBracketedOr || hasBracketedNull || hasBracketedDateCreated) {
         expect(hasBracketedOr).toBe(true);
