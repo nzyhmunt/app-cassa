@@ -1267,16 +1267,38 @@ describe('pull — incremental filter includes null-dated records', () => {
       .filter(url => url.includes('/items/orders'));
     expect(orderCalls.length).toBeGreaterThan(0);
 
-    // Verify the filter contains both date_updated > sinceTs and the null-date clause
+    // Verify the filter contains both date_updated > sinceTs and the null-date clause.
+    // Directus SDKs may encode this either as a JSON `filter=` param or as
+    // bracketed query params like `filter[_or][0][date_updated][_gt]=...`.
+    let matchedIncrementalFilter = false;
     for (const url of orderCalls) {
-      const rawFilter = new URL(url).searchParams.get('filter');
-      if (!rawFilter) continue;
-      const parsed = JSON.parse(rawFilter);
-      const json = JSON.stringify(parsed);
-      expect(json).toContain('_or');
-      expect(json).toContain('_null');
-      expect(json).toContain('date_created');
+      const parsedUrl = new URL(url);
+      const rawFilter = parsedUrl.searchParams.get('filter');
+
+      if (rawFilter) {
+        const parsed = JSON.parse(rawFilter);
+        const json = JSON.stringify(parsed);
+        expect(json).toContain('_or');
+        expect(json).toContain('_null');
+        expect(json).toContain('date_created');
+        matchedIncrementalFilter = true;
+        continue;
+      }
+
+      const decodedUrl = decodeURIComponent(url);
+      const hasBracketedOr = decodedUrl.includes('filter[_or]');
+      const hasBracketedNull = decodedUrl.includes('[_null]');
+      const hasBracketedDateCreated = decodedUrl.includes('[date_created]');
+
+      if (hasBracketedOr || hasBracketedNull || hasBracketedDateCreated) {
+        expect(hasBracketedOr).toBe(true);
+        expect(hasBracketedNull).toBe(true);
+        expect(hasBracketedDateCreated).toBe(true);
+        matchedIncrementalFilter = true;
+      }
     }
+
+    expect(matchedIncrementalFilter).toBe(true);
   });
 
   it('does NOT add incremental filter when sinceTs is null (full pull)', async () => {
