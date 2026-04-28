@@ -1200,9 +1200,12 @@ const _TO_DIRECTUS_MAPPERS = {
  *
  * @param {string} collection  - Directus collection name (e.g. 'orders')
  * @param {object|null} payload - Local record payload
- * @param {{ paymentMethods?: Array, recordId?: string|null }} [ctx] - Runtime context. `recordId` is
- *   the queue entry's `record_id` and is used as a last-resort fallback for the `order` FK on
+ * @param {{ paymentMethods?: Array, recordId?: string|null, menuSource?: 'directus'|'json' }} [ctx] - Runtime context.
+ *   `recordId` is the queue entry's `record_id` and is used as a last-resort fallback for the `order` FK on
  *   nested `order_items` when the payload does not carry an `id` field (partial updates).
+ *   `menuSource` controls how the `dish` FK is handled on nested `order_items`: `'json'` always sets
+ *   `dish = null` (JSON-menu dish IDs are local-only and have no corresponding Directus record);
+ *   `'directus'` (default) passes through valid UUID-shaped dish IDs unchanged.
  * @returns {object}  Directus-ready payload
  */
 export function mapPayloadToDirectus(collection, payload, ctx = {}) {

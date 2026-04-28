@@ -3,6 +3,7 @@ import { appConfig, DEFAULT_SETTINGS, createRuntimeConfig, applyDirectusConfigTo
 import {
   mapVenueConfigFromDirectus,
   mapOrderFromDirectus,
+  mapOrderItemFromDirectus,
   mapOrderToDirectus,
   mapOrderItemToDirectus,
   mapOrderItemModifierToDirectus,
@@ -281,6 +282,32 @@ describe('appConfig', () => {
     });
   });
 
+  describe('mapOrderItemFromDirectus', () => {
+    it('falls back to order_item_modifiers when modifiers field is absent', () => {
+      const record = {
+        id: 'item_mod_test',
+        name: 'Pizza',
+        unit_price: 8,
+        quantity: 1,
+        voided_quantity: 0,
+        order_item_modifiers: [
+          { name: 'Extra Cheese', price: '1.50', voided_quantity: '0' },
+          { name: 'Spicy',        price: '0.50', voided_quantity: '0' },
+        ],
+      };
+
+      const mapped = mapOrderItemFromDirectus(record);
+
+      expect(mapped.modifiers).toHaveLength(2);
+      expect(mapped.modifiers[0].name).toBe('Extra Cheese');
+      expect(mapped.modifiers[0].price).toBe(1.5);
+      expect(mapped.modifiers[0].voidedQuantity).toBe(0);
+      expect(mapped.modifiers[0].voided_quantity).toBe(0);
+      expect(mapped.modifiers[1].name).toBe('Spicy');
+      expect(mapped.modifiers[1].price).toBe(0.5);
+    });
+  });
+
   describe('mapOrderItemModifierToDirectus', () => {
     it('prefers voidedQuantity (camelCase) over voided_quantity (snake_case)', () => {
       // Simulates the scenario after voidModifier updates voidedQuantity but leaves
@@ -359,7 +386,7 @@ describe('appConfig', () => {
   });
 
   describe('mapPayloadToDirectus — order_items dish and audit propagation', () => {
-    it('drops local JSON-menu dish IDs from nested order_items to prevent 400', () => {
+    it('nullifies all dish FKs (including valid UUIDs) when menuSource is json', () => {
       const uuid = '019dd0fe-6919-7000-bb0d-c9bea4d1acc9';
       const orderPayload = {
         id: '019dd0fe-576c-7000-bccb-7bf8b07831f8',
@@ -374,9 +401,11 @@ describe('appConfig', () => {
         recordId: '019dd0fe-576c-7000-bccb-7bf8b07831f8',
         menuSource: 'json',
       });
+      // All dish values must be null when menuSource === 'json', even valid UUIDs,
+      // because the JSON menu has no corresponding Directus dish records.
       expect(result.order_items[0].dish).toBeNull();
       expect(result.order_items[1].dish).toBeNull();
-      expect(result.order_items[2].dish).toBe(uuid);
+      expect(result.order_items[2].dish).toBeNull();
     });
 
     it('keeps valid UUID dish FKs in nested order_items', () => {
