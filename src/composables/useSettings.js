@@ -97,28 +97,29 @@ export function useSettings(props, emit) {
     } catch (e) {
       console.warn('[Settings] Failed to clear Directus config during reset:', e);
     }
-    // Proactively wipe all IDB stores before the physical database delete.
+    // Proactively clear operational IDB state before the physical database delete.
     // deleteDatabase() uses an onblocked handler that resolves after a 3-second
     // timeout when another connection (e.g. an in-flight WebSocket write or
     // polling timer) is holding the DB open. In that case the physical delete
     // silently does NOT happen, so app_meta (including lastPullTs cursors) and
-    // all operational stores (orders, bill_sessions …) survive the reload.
-    // Calling clearAllStateFromIDB() first guarantees a clean slate regardless
-    // of whether the subsequent physical delete succeeds.
+    // other stores can survive the reload.
+    // Calling clearAllStateFromIDB() first reduces leftover app data in that
+    // blocked-delete case, but it is still best-effort and does not remove every store.
     try {
       await clearAllStateFromIDB();
     } catch (e) {
       console.warn('[Settings] Failed to pre-clear IDB stores during reset:', e);
     }
     // Nuclear reset: physically delete the entire IndexedDB database.
-    // This guarantees a full clean slate for every object store.
+    // Only a successful delete clears every object store.
     try {
       await deleteDatabase(getInstanceName());
     } catch (e) {
       // The physical delete may be blocked by another open connection (e.g. a
-      // concurrent WebSocket write or polling timer). IDB data has already been
-      // wiped by clearAllStateFromIDB() above, so we can safely continue with
-      // SW cleanup and reload — the app will start with a clean slate regardless.
+      // concurrent WebSocket write or polling timer). We already attempted to
+      // clear operational IDB state above, so continue with SW cleanup and reload,
+      // but some data (for example local_settings or any store not cleared above)
+      // may still remain until the database can be deleted successfully.
       console.warn('[Settings] Failed to complete nuclear database reset - data may not be fully cleared:', e);
     }
     // Clear in-memory auth state (its internal IDB call is harmless — already cleared)
