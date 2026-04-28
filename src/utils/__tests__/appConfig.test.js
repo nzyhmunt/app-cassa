@@ -341,13 +341,13 @@ describe('appConfig', () => {
 
     it('nullifies a local JSON-menu dish ID (e.g. ant_1) to prevent 400 INVALID_FOREIGN_KEY', () => {
       const item = { uid: 'r1', name: 'Pinzimonio di verdure', quantity: 1, dish: 'ant_1' };
-      const payload = mapOrderItemToDirectus(item);
+      const payload = mapOrderItemToDirectus(item, { menuSource: 'json' });
       expect(payload.dish).toBeNull();
     });
 
     it('nullifies a local dishId like ant_3', () => {
       const item = { uid: 'r2', name: 'Polpette', quantity: 1, dishId: 'ant_3' };
-      const payload = mapOrderItemToDirectus(item);
+      const payload = mapOrderItemToDirectus(item, { menuSource: 'json' });
       expect(payload.dish).toBeNull();
     });
 
