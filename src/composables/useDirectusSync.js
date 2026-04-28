@@ -440,6 +440,7 @@ async function _mergeOrderItemsIntoOrdersIDB(pulledItems) {
     await tx.done;
   } catch (e) {
     console.warn('[DirectusSync] _mergeOrderItemsIntoOrdersIDB failed:', e);
+    throw e;
   }
 }
 
