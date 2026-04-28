@@ -536,10 +536,10 @@ export function mergeOrderFromWSPayload(existing, raw, incoming) {
  *
  * This function follows the same pattern as `mergeOrderFromWSPayload`: start with
  * `existing` and overwrite only the camelCase/snake_case fields that are actually
- * present in the raw WS payload.
+ * present in the raw Directus record.
  *
  * @param {object} existing  - The current embedded item record from IDB.
- * @param {object} raw       - The raw Directus payload (field names as received via WS).
+ * @param {object} raw       - The raw Directus record in snake_case, regardless of transport.
  * @param {object} incoming  - The result of `mapOrderItemFromDirectus(raw)`.
  * @returns {object} Merged item record.
  */
