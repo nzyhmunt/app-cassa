@@ -744,15 +744,43 @@ async function _handleSubscriptionMessage(collection, message) {
         prepared = mapped;
       }
     }
+    // For order_items updates, apply the same selective-merge strategy: load the
+    // existing IDB record and merge only the fields present in the raw WS payload.
+    // This prevents absent numeric/relation fields (quantity, unit_price, order FK,
+    // notes, etc.) from being clobbered with mapper-supplied defaults (e.g. quantity → 0)
+    // when Directus sends a partial payload (e.g. {id, kitchen_ready, date_updated}).
+    // create events use the incoming record as-is (no prior IDB record to merge with).
+    if (collection === 'order_items' && event !== 'create') {
+      try {
+        const db = await getDB();
+        prepared = await Promise.all(nonEcho.map(async (raw, i) => {
+          const incoming = mapped[i];
+          const id = incoming?.id;
+          if (!id) return incoming;
+          try {
+            const existing = await db.get('order_items', String(id));
+            if (!existing) return incoming;
+            return mergeOrderItemFromWSPayload(existing, raw, incoming);
+          } catch (e) {
+            console.warn('[DirectusSync] WS order_items merge: IDB lookup failed for', id, e);
+            return incoming;
+          }
+        }));
+      } catch (e) {
+        console.warn('[DirectusSync] WS order_items merge: IDB unavailable, falling back to incoming records', e);
+        prepared = mapped;
+      }
+    }
     await upsertRecordsIntoIDB(collection, prepared);
     if (collection === 'order_items') {
       // WS payloads for order_items must also be merged into the embedded
       // orderItems arrays of their parent orders so the orders store on cucina
       // devices with wsEnabled stays up to date.
-      // Pass the raw (nonEcho) payloads so the merge uses mergeOrderItemFromWSPayload
-      // and does not clobber existing embedded fields with mapper-supplied defaults
-      // (e.g. quantity → 0) for absent fields in partial WS payloads.
-      await _mergeOrderItemsIntoOrdersIDB(mapped, nonEcho);
+      // Pass `prepared` (the selectively-merged items, which preserve the order FK
+      // for correct parent-order grouping) and the raw nonEcho payloads so the
+      // embedded merge uses mergeOrderItemFromWSPayload and does not clobber
+      // existing embedded fields with mapper-supplied defaults for partial payloads.
+      await _mergeOrderItemsIntoOrdersIDB(prepared, nonEcho);
       await _refreshStoreFromIDB('orders');
     } else {
       await _refreshStoreFromIDB(collection);

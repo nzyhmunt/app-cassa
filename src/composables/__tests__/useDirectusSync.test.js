@@ -1583,6 +1583,16 @@ describe('WS order_items — embedded merge into parent orders', () => {
     expect(item.unit_price).toBe(14);
     // notes must also be preserved (absent from WS payload → not in raw → kept)
     expect(item.notes).toEqual(['senza cipolla']);
+
+    // The order_items ObjectStore must also preserve quantity/unit_price/order FK
+    // on partial WS updates (guards against the store being clobbered with defaults).
+    const storedItem = await db.get('order_items', 'oi_partial');
+    expect(storedItem).toBeDefined();
+    expect(storedItem.quantity).toBe(3);
+    expect(storedItem.unit_price).toBe(14);
+    expect(storedItem.kitchen_ready).toBe(true);
+    // The order FK must be preserved (was absent from the partial WS payload).
+    expect(storedItem.order).toBe('ord_ws_partial_oi');
   });
 
   it('WS delete for order_item removes it via fallback scan when not yet in order_items store', async () => {
