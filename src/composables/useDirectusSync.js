@@ -438,12 +438,14 @@ async function _mergeOrderItemsIntoOrdersIDB(pulledItems, rawItems = null) {
           byId.set(itemId, item);
         } else {
           // Last-write-wins using date_updated, falling back to date_created.
-          // Incoming wins only when existing has no timestamp (can't compare) or
-          // both timestamps are present and incoming is newer or equal.
+          // Use Date-based comparison (consistent with upsertRecordsIntoIDB):
+          // incoming wins only when existing has no timestamp (can't compare) or
+          // the incoming timestamp is strictly newer than the existing one.
+          // If both have the same timestamp, keep the existing record.
           // If incoming has no timestamp but existing does, keep the existing record.
           const existingTs = existing.date_updated ?? existing.date_created ?? null;
           const incomingTs = item.date_updated ?? item.date_created ?? null;
-          const incomingWins = !existingTs || (incomingTs != null && incomingTs >= existingTs);
+          const incomingWins = !existingTs || (incomingTs != null && new Date(incomingTs) > new Date(existingTs));
           if (incomingWins) {
             // When a raw WS payload is available, use the selective merge so that
             // mapper-supplied defaults for absent fields (e.g. quantity → 0) never
@@ -492,9 +494,11 @@ async function _removeOrderItemsFromOrdersIDB(deletedIds) {
 
     // Resolve only the parent orders for the deleted items, so we do not scan
     // the entire orders store on every WS delete event.
+    const resolvedIds = new Set();
     for (const deletedId of deletedSet) {
       const orderItem = await orderItemsStore.get(deletedId);
       if (!orderItem) continue;
+      resolvedIds.add(deletedId);
 
       const parentOrderId = relationId(
         orderItem.order ?? orderItem.orders_id ?? orderItem.order_id ?? orderItem.orderId,
@@ -516,6 +520,27 @@ async function _removeOrderItemsFromOrdersIDB(deletedIds) {
 
       if (filtered.length !== items.length) {
         await ordersStore.put({ ...order, orderItems: filtered });
+      }
+    }
+
+    // Fallback: for deleted IDs that weren't in the order_items store (e.g. on a
+    // fresh device before the first order_items pull), scan all orders to remove
+    // any matching embedded items.  This O(#orders) pass only runs when some IDs
+    // could not be resolved via the fast lookup above.
+    const unresolvedIds = new Set();
+    for (const id of deletedSet) {
+      if (!resolvedIds.has(id)) unresolvedIds.add(id);
+    }
+    if (unresolvedIds.size > 0) {
+      let cursor = await ordersStore.openCursor();
+      while (cursor) {
+        const order = cursor.value;
+        const items = Array.isArray(order.orderItems) ? order.orderItems : [];
+        const filtered = items.filter(i => !unresolvedIds.has(String(i.id ?? i.uid ?? '')));
+        if (filtered.length !== items.length) {
+          await cursor.update({ ...order, orderItems: filtered });
+        }
+        cursor = await cursor.continue();
       }
     }
     await tx.done;

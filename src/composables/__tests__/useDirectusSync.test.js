@@ -1584,6 +1584,85 @@ describe('WS order_items — embedded merge into parent orders', () => {
     // notes must also be preserved (absent from WS payload → not in raw → kept)
     expect(item.notes).toEqual(['senza cipolla']);
   });
+
+  it('WS delete for order_item removes it via fallback scan when not yet in order_items store', async () => {
+    // Guards the fallback path in _removeOrderItemsFromOrdersIDB: when a WS delete
+    // arrives for an item that is not (yet) in the order_items IDB store, the helper
+    // must still scan orders.orderItems and remove the embedded entry.
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+
+    const orderId = 'ord_ws_fallback_del';
+
+    // Seed an order with an embedded item — but do NOT seed the item in order_items.
+    await db.put('orders', {
+      id: orderId,
+      status: 'accepted',
+      table: '09',
+      orderItems: [
+        { id: 'oi_fallback_1', order: orderId, name: 'Salmone', quantity: 1, unit_price: 22 },
+        { id: 'oi_fallback_2', order: orderId, name: 'Tiramisù', quantity: 2, unit_price: 7 },
+      ],
+      date_updated: '2024-01-01T00:00:00.000Z',
+    });
+
+    // item is NOT in order_items store, so the normal lookup returns null →
+    // the fallback cursor scan must remove it from the embedded array.
+    await _handleSubscriptionMessage('order_items', {
+      event: 'delete',
+      data: ['oi_fallback_1'],
+    });
+
+    const order = await db.get('orders', orderId);
+    expect(order.orderItems).toHaveLength(1);
+    expect(order.orderItems[0].id).toBe('oi_fallback_2');
+  });
+
+  it('_mergeOrderItemsIntoOrdersIDB uses strictly-greater Date comparison (same as upsertRecordsIntoIDB)', async () => {
+    // Guards timestamp-comparison consistency: same-timestamp incoming should NOT
+    // overwrite an existing embedded item (matches upsertRecordsIntoIDB behavior).
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+
+    const sameTs = '2024-06-01T12:00:00.000Z';
+    const orderId = 'ord_ts_compare';
+
+    await db.put('orders', {
+      id: orderId,
+      status: 'accepted',
+      table: '10',
+      orderItems: [{
+        id: 'oi_ts_1',
+        order: orderId,
+        name: 'Originale',
+        quantity: 5,
+        unitPrice: 10,
+        unit_price: 10,
+        date_updated: sameTs,
+      }],
+      date_updated: sameTs,
+    });
+
+    // WS update arrives with the SAME timestamp — should keep existing (not overwrite).
+    await _handleSubscriptionMessage('order_items', {
+      event: 'update',
+      data: [{
+        id: 'oi_ts_1',
+        order: orderId,
+        name: 'Sostituto',
+        quantity: 99,
+        unit_price: 1,
+        date_updated: sameTs,
+      }],
+    });
+
+    const order = await db.get('orders', orderId);
+    const item = order.orderItems[0];
+    // Same timestamp → incoming does NOT win; existing values preserved.
+    expect(item.name).toBe('Originale');
+    expect(item.quantity).toBe(5);
+    expect(item.unit_price).toBe(10);
+  });
 });
 
 describe('pull — in-memory orders merge', () => {
