@@ -115,12 +115,11 @@ export function useSettings(props, emit) {
     try {
       await deleteDatabase(getInstanceName());
     } catch (e) {
-      // The physical delete may be blocked by another open connection (e.g. a
-      // concurrent WebSocket write or polling timer). We already attempted to
-      // clear operational IDB state above, so continue with SW cleanup and reload,
-      // but some data (for example local_settings or any store not cleared above)
-      // may still remain until the database can be deleted successfully.
-      console.warn('[Settings] Failed to complete nuclear database reset - data may not be fully cleared:', e);
+      // concurrent WebSocket write or polling timer). IDB stores have already
+      // been cleared by clearAllStateFromIDB() above, so we can safely continue
+      // with SW cleanup and reload. Only data not covered by the pre-clear
+      // (such as local_settings) may remain if the physical delete is blocked.
+      console.warn('[Settings] Failed to complete physical IndexedDB deletion after pre-clear; only data not removed by clearAllStateFromIDB() may remain:', e);
     }
     // Clear in-memory auth state (its internal IDB call is harmless — already cleared)
     try {
