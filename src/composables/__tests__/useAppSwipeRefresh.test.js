@@ -127,6 +127,31 @@ describe('useAppSwipeRefresh()', () => {
     expect(sync.forcePush).not.toHaveBeenCalled();
   });
 
+  it('skips Directus sync when device is offline, still hydrates IDB', async () => {
+    mockDirectusEnabledRef.value = true;
+    // Simulate offline: navigator.onLine = false
+    vi.stubGlobal('navigator', { onLine: false });
+
+    const { configStore, orderStore, sync } = makeStoresAndSync();
+    const swipe = useAppSwipeRefresh({ configStore, orderStore, sync, thresholdPx: 40 });
+    const root = document.createElement('div');
+    document.body.appendChild(root);
+
+    swipe.onTouchStart({ touches: [touch(1, 0)], target: root });
+    swipe.onTouchEnd({ changedTouches: [touch(1, 80)] });
+    await flushPromises();
+
+    // Directus network calls must be skipped when offline
+    expect(sync.reconfigureAndApply).not.toHaveBeenCalled();
+    expect(sync.forcePull).not.toHaveBeenCalled();
+    expect(sync.forcePush).not.toHaveBeenCalled();
+    // Local IDB hydration must always run regardless of connectivity
+    expect(configStore.hydrateConfigFromIDB).toHaveBeenCalledTimes(1);
+    expect(orderStore.refreshOperationalStateFromIDB).toHaveBeenCalledTimes(1);
+
+    vi.unstubAllGlobals();
+  });
+
   it('tracks pulling state and threshold progression from touchmove', () => {
     const { configStore, orderStore, sync } = makeStoresAndSync();
     const swipe = useAppSwipeRefresh({ configStore, orderStore, sync, thresholdPx: 100 });
