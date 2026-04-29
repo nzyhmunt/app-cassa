@@ -2865,3 +2865,260 @@ describe('pull — sync log response records cap', () => {
     expect(orderPullLog.response.records[19].id).toBe('ord_bigcap_19');
   });
 });
+
+// ── offline / online event handling ──────────────────────────────────────────
+// Verifies that wsConnected reflects offline immediately, that timers are
+// correctly cancelled/debounced, and that the delayed push retry does not
+// run after stopSync() or after the device goes offline again.
+//
+// Implementation note on fake timers + fake-indexeddb:
+// fake-indexeddb schedules IDB callbacks via `setImmediate` (0 ms).  Calling
+// vi.useFakeTimers() without a `toFake` list fakes ALL timer APIs including
+// setImmediate, which can stall IDB operations that run after the call.  To
+// avoid this deadlock we use an explicit `toFake` list that fakes only the
+// timeout/interval/Date APIs the tests need to control, while leaving
+// setImmediate real so IDB callbacks always drain normally.  Queue items are
+// also written with REAL timers (before vi.useFakeTimers()) to ensure the
+// enqueue IDB writes complete before fake timers are installed.
+
+describe('offline/online event handling', () => {
+  it('sets wsConnected to false immediately on window offline event', async () => {
+    vi.spyOn(global, 'fetch').mockImplementation(() => Promise.resolve(directusListResponse([])));
+    const sync = useDirectusSync();
+    // Awaiting startSync ensures _hydrateConfigFromLocalCache (IDB) has finished
+    // and window event listeners are registered before we dispatch the event.
+    await sync.startSync({ appType: 'cassa', store: makeStore() });
+
+    sync.wsConnected.value = true;
+
+    window.dispatchEvent(new Event('offline'));
+    expect(sync.wsConnected.value).toBe(false);
+
+    sync.stopSync();
+  });
+
+  it('cancels _onlineRetryTimer when the device goes offline again before it fires', async () => {
+    const { enqueue } = await import('../useSyncQueue.js');
+    await enqueue('orders', 'create', 'ord_timer_test', { id: 'ord_timer_test' });
+
+    let pushPostCalls = 0;
+    vi.spyOn(global, 'fetch').mockImplementation((url, opts = {}) => {
+      const method = (opts?.method ?? 'GET').toUpperCase();
+      if (String(url).includes('/items/orders') && method === 'POST') {
+        pushPostCalls++;
+        return Promise.reject(new TypeError('simulated network error'));
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const sync = useDirectusSync();
+    try {
+      // Await with real timers so _hydrateConfigFromLocalCache (IDB) can
+      // resolve normally and the online/offline listeners are guaranteed to be
+      // registered before any events are dispatched.
+      await sync.startSync({ appType: 'cassa', store: makeStore() });
+      await flushPromises(LONG_FLUSH_ROUNDS);
+
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
+
+      // Reset after startSync's own push attempt.
+      pushPostCalls = 0;
+
+      // online → _runPush fires immediately (POST attempt #1);
+      // because the POST rejects with TypeError the push returns offline:true
+      // which schedules the 5 s retry timer.
+      window.dispatchEvent(new Event('online'));
+      await vi.advanceTimersByTimeAsync(1); // drain IDB from the push
+      await flushPromises(LONG_FLUSH_ROUNDS);
+      expect(pushPostCalls).toBe(1);
+
+      // offline before the 5 s timer fires → timer must be cancelled
+      window.dispatchEvent(new Event('offline'));
+
+      // Advance past the 5 s window — the retry should NOT fire
+      await vi.advanceTimersByTimeAsync(6_000);
+      await flushPromises(LONG_FLUSH_ROUNDS);
+      expect(pushPostCalls).toBe(1);
+    } finally {
+      sync.stopSync();
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not run the delayed push retry after stopSync()', async () => {
+    const { enqueue } = await import('../useSyncQueue.js');
+    await enqueue('orders', 'create', 'ord_stopsync_test', { id: 'ord_stopsync_test' });
+
+    let pushPostCalls = 0;
+    vi.spyOn(global, 'fetch').mockImplementation((url, opts = {}) => {
+      const method = (opts?.method ?? 'GET').toUpperCase();
+      if (String(url).includes('/items/orders') && method === 'POST') {
+        pushPostCalls++;
+        return Promise.reject(new TypeError('simulated network error'));
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const sync = useDirectusSync();
+    try {
+      // Await with real timers so _hydrateConfigFromLocalCache (IDB) can
+      // resolve normally and the online/offline listeners are guaranteed to be
+      // registered before any events are dispatched.
+      await sync.startSync({ appType: 'cassa', store: makeStore() });
+      await flushPromises(LONG_FLUSH_ROUNDS);
+
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
+      pushPostCalls = 0;
+
+      // online → immediate push fails (offline: true) → 5 s retry timer is scheduled
+      window.dispatchEvent(new Event('online'));
+      await vi.advanceTimersByTimeAsync(1);
+      await flushPromises(LONG_FLUSH_ROUNDS);
+      expect(pushPostCalls).toBe(1);
+
+      // stopSync() cancels the retry timer and sets _running = false
+      sync.stopSync();
+
+      // Advance past the 5 s window — timer is cancelled, retry must not fire
+      await vi.advanceTimersByTimeAsync(6_000);
+      await flushPromises(LONG_FLUSH_ROUNDS);
+      expect(pushPostCalls).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('runs a delayed push retry 5 s after online event when still running', async () => {
+    const { enqueue } = await import('../useSyncQueue.js');
+    await enqueue('orders', 'create', 'ord_retry_test', { id: 'ord_retry_test' });
+
+    let pushPostCalls = 0;
+    vi.spyOn(global, 'fetch').mockImplementation((url, opts = {}) => {
+      const method = (opts?.method ?? 'GET').toUpperCase();
+      if (String(url).includes('/items/orders') && method === 'POST') {
+        pushPostCalls++;
+        return Promise.reject(new TypeError('simulated network error'));
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const sync = useDirectusSync();
+    try {
+      // Await with real timers so _hydrateConfigFromLocalCache (IDB) can
+      // resolve normally and the online/offline listeners are guaranteed to be
+      // registered before any events are dispatched.
+      await sync.startSync({ appType: 'cassa', store: makeStore() });
+      await flushPromises(LONG_FLUSH_ROUNDS);
+
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
+      pushPostCalls = 0;
+
+      // online → immediate push fails, timer scheduled for 5 s
+      window.dispatchEvent(new Event('online'));
+      await vi.advanceTimersByTimeAsync(1); // drain IDB from the push
+      await flushPromises(LONG_FLUSH_ROUNDS);
+      expect(pushPostCalls).toBe(1);
+
+      // Advance 5 s — the retry timer fires another _runPush()
+      await vi.advanceTimersByTimeAsync(5_000);
+      await flushPromises(LONG_FLUSH_ROUNDS);
+      expect(pushPostCalls).toBe(2);
+    } finally {
+      sync.stopSync();
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not schedule the delayed push retry when the first push succeeds', async () => {
+    const { enqueue } = await import('../useSyncQueue.js');
+    await enqueue('orders', 'create', 'ord_push_ok_test', { id: 'ord_push_ok_test' });
+
+    let pushPostCalls = 0;
+    vi.spyOn(global, 'fetch').mockImplementation((url, opts = {}) => {
+      const method = (opts?.method ?? 'GET').toUpperCase();
+      if (String(url).includes('/items/orders') && method === 'POST') {
+        pushPostCalls++;
+        // Return a successful Directus create response so drainQueue resolves
+        // with offline: false — no retry timer should be scheduled.
+        return Promise.resolve(directusItemResponse({ id: 'ord_push_ok_test' }));
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const sync = useDirectusSync();
+    try {
+      await sync.startSync({ appType: 'cassa', store: makeStore() });
+      await flushPromises(LONG_FLUSH_ROUNDS);
+
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
+      pushPostCalls = 0;
+
+      // online → push succeeds (offline: false) → retry timer must NOT be scheduled
+      window.dispatchEvent(new Event('online'));
+      await vi.advanceTimersByTimeAsync(1); // drain IDB from the push
+      await flushPromises(LONG_FLUSH_ROUNDS);
+      expect(pushPostCalls).toBe(1);
+
+      // Advance well past the 5 s window — no retry must fire
+      await vi.advanceTimersByTimeAsync(10_000);
+      await flushPromises(LONG_FLUSH_ROUNDS);
+      expect(pushPostCalls).toBe(1);
+    } finally {
+      sync.stopSync();
+      vi.useRealTimers();
+    }
+  });
+
+  it('a second online event before the retry timer fires resets the timer cleanly', async () => {
+    const { enqueue } = await import('../useSyncQueue.js');
+    await enqueue('orders', 'create', 'ord_rapid_test', { id: 'ord_rapid_test' });
+
+    let pushPostCalls = 0;
+    vi.spyOn(global, 'fetch').mockImplementation((url, opts = {}) => {
+      const method = (opts?.method ?? 'GET').toUpperCase();
+      if (String(url).includes('/items/orders') && method === 'POST') {
+        pushPostCalls++;
+        return Promise.reject(new TypeError('simulated network error'));
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const sync = useDirectusSync();
+    try {
+      await sync.startSync({ appType: 'cassa', store: makeStore() });
+      await flushPromises(LONG_FLUSH_ROUNDS);
+
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
+      pushPostCalls = 0;
+
+      // First online event — push fails (offline: true) → timer A scheduled at ~t+5 s
+      window.dispatchEvent(new Event('online'));
+      await vi.advanceTimersByTimeAsync(1); // drain IDB from push #1
+      await flushPromises(LONG_FLUSH_ROUNDS);
+      expect(pushPostCalls).toBe(1);
+
+      // Second online event fires at t≈2 s — before timer A would have fired.
+      // The start of _onOnline cancels timer A and starts push #2.
+      await vi.advanceTimersByTimeAsync(2_000);
+      window.dispatchEvent(new Event('online'));
+      await vi.advanceTimersByTimeAsync(1); // drain IDB from push #2
+      await flushPromises(LONG_FLUSH_ROUNDS);
+      expect(pushPostCalls).toBe(2); // push #1 + push #2
+
+      // Push #2 also fails (offline: true) → timer B is scheduled 5 s from now
+      // (~t=7 s).  Advance 6 s to pass timer B's deadline — only the single
+      // retry from push #2 fires (timer A was cancelled; timer B fires push #3).
+      await vi.advanceTimersByTimeAsync(6_000);
+      await flushPromises(LONG_FLUSH_ROUNDS);
+      expect(pushPostCalls).toBe(3); // push #1, push #2, push #3 (timer B)
+
+      // No further timers should fire after that
+      await vi.advanceTimersByTimeAsync(10_000);
+      await flushPromises(LONG_FLUSH_ROUNDS);
+      expect(pushPostCalls).toBe(3);
+    } finally {
+      sync.stopSync();
+      vi.useRealTimers();
+    }
+  });
+});

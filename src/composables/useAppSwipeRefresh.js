@@ -97,9 +97,22 @@ export function useAppSwipeRefresh({
     isRefreshDone.value = false;
     let success = false;
     try {
-      if (directusEnabledRef.value) {
+      // Only attempt network operations when the device reports a connection.
+      // When offline, fall back to a local IDB-only refresh so the user still
+      // sees up-to-date cached data and the swipe does not report a failure.
+      const isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
+      if (directusEnabledRef.value && isOnline) {
         await sync.reconfigureAndApply({ clearLocalConfig: false });
         await sync.forcePull();
+        // Reconnect WS *after* reconfigure+pull so it uses the refreshed
+        // appConfig (including menuSource) and its internal _runPull() on
+        // successful subscribe does not overlap with the forcePull above.
+        // Fire-and-forget: reconnect is async and must not block the UX.
+        if (typeof sync.reconnectWs === 'function') sync.reconnectWs().catch(() => {});
+        // Drain the push queue after the pull so that any changes accumulated
+        // while offline are sent to Directus as part of the full sync refresh.
+        // Fire-and-forget: swipe UX completes immediately; push runs in background.
+        if (typeof sync.forcePush === 'function') sync.forcePush().catch(() => {});
       }
       await Promise.all([
         configStore.hydrateConfigFromIDB(),
