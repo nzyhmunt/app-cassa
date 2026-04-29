@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { REFRESH_DONE_HOLD_MS, useAppSwipeRefresh } from '../useAppSwipeRefresh.js';
 
 const { mockDirectusEnabledRef } = vi.hoisted(() => ({
@@ -49,6 +49,10 @@ describe('useAppSwipeRefresh()', () => {
     mockDirectusEnabledRef.value = false;
     setScrollY(0);
     document.body.innerHTML = '';
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it('does not traverse DOM on touchstart and refreshes only after threshold', async () => {
@@ -145,8 +149,6 @@ describe('useAppSwipeRefresh()', () => {
     await flushPromises();
 
     expect(sync.reconnectWs).not.toHaveBeenCalled();
-
-    vi.unstubAllGlobals();
   });
 
   it('does not call forcePush when Directus is disabled', async () => {
@@ -184,8 +186,6 @@ describe('useAppSwipeRefresh()', () => {
     // Local IDB hydration must always run regardless of connectivity
     expect(configStore.hydrateConfigFromIDB).toHaveBeenCalledTimes(1);
     expect(orderStore.refreshOperationalStateFromIDB).toHaveBeenCalledTimes(1);
-
-    vi.unstubAllGlobals();
   });
 
   it('tracks pulling state and threshold progression from touchmove', () => {

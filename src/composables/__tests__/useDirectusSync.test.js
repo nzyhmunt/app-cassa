@@ -2898,13 +2898,8 @@ describe('offline/online event handling', () => {
   });
 
   it('cancels _onlineRetryTimer when the device goes offline again before it fires', async () => {
-    // Enqueue with REAL timers first — fake-indexeddb's setImmediate callbacks
-    // do not reliably complete when vi.useFakeTimers() is already active, so we
-    // populate the queue before switching to the fake clock.
     const { enqueue } = await import('../useSyncQueue.js');
     await enqueue('orders', 'create', 'ord_timer_test', { id: 'ord_timer_test' });
-
-    vi.useFakeTimers();
 
     let pushPostCalls = 0;
     vi.spyOn(global, 'fetch').mockImplementation((url, opts = {}) => {
@@ -2918,11 +2913,13 @@ describe('offline/online event handling', () => {
 
     const sync = useDirectusSync();
     try {
-      sync.startSync({ appType: 'cassa', store: makeStore() });
-      // Drain IDB setImmediate from _hydrateConfigFromLocalCache and the
-      // fire-and-forget push/pull that startSync kicks off.
-      await vi.advanceTimersByTimeAsync(1);
+      // Await with real timers so _hydrateConfigFromLocalCache (IDB) can
+      // resolve normally and the online/offline listeners are guaranteed to be
+      // registered before any events are dispatched.
+      await sync.startSync({ appType: 'cassa', store: makeStore() });
       await flushPromises(LONG_FLUSH_ROUNDS);
+
+      vi.useFakeTimers();
 
       // Reset after startSync's own push attempt.
       pushPostCalls = 0;
@@ -2950,8 +2947,6 @@ describe('offline/online event handling', () => {
     const { enqueue } = await import('../useSyncQueue.js');
     await enqueue('orders', 'create', 'ord_stopsync_test', { id: 'ord_stopsync_test' });
 
-    vi.useFakeTimers();
-
     let pushPostCalls = 0;
     vi.spyOn(global, 'fetch').mockImplementation((url, opts = {}) => {
       const method = (opts?.method ?? 'GET').toUpperCase();
@@ -2964,9 +2959,13 @@ describe('offline/online event handling', () => {
 
     const sync = useDirectusSync();
     try {
-      sync.startSync({ appType: 'cassa', store: makeStore() });
-      await vi.advanceTimersByTimeAsync(1);
+      // Await with real timers so _hydrateConfigFromLocalCache (IDB) can
+      // resolve normally and the online/offline listeners are guaranteed to be
+      // registered before any events are dispatched.
+      await sync.startSync({ appType: 'cassa', store: makeStore() });
       await flushPromises(LONG_FLUSH_ROUNDS);
+
+      vi.useFakeTimers();
       pushPostCalls = 0;
 
       // online → immediate push attempt + sets 5 s retry timer
@@ -2991,8 +2990,6 @@ describe('offline/online event handling', () => {
     const { enqueue } = await import('../useSyncQueue.js');
     await enqueue('orders', 'create', 'ord_retry_test', { id: 'ord_retry_test' });
 
-    vi.useFakeTimers();
-
     let pushPostCalls = 0;
     vi.spyOn(global, 'fetch').mockImplementation((url, opts = {}) => {
       const method = (opts?.method ?? 'GET').toUpperCase();
@@ -3005,9 +3002,13 @@ describe('offline/online event handling', () => {
 
     const sync = useDirectusSync();
     try {
-      sync.startSync({ appType: 'cassa', store: makeStore() });
-      await vi.advanceTimersByTimeAsync(1);
+      // Await with real timers so _hydrateConfigFromLocalCache (IDB) can
+      // resolve normally and the online/offline listeners are guaranteed to be
+      // registered before any events are dispatched.
+      await sync.startSync({ appType: 'cassa', store: makeStore() });
       await flushPromises(LONG_FLUSH_ROUNDS);
+
+      vi.useFakeTimers();
       pushPostCalls = 0;
 
       // online → immediate push fails, timer scheduled for 5 s
