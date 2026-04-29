@@ -20,6 +20,7 @@ function makeStoresAndSync() {
     reconfigureAndApply: vi.fn().mockResolvedValue({ ok: true, failedCollections: [] }),
     forcePull: vi.fn().mockResolvedValue(undefined),
     forcePush: vi.fn().mockResolvedValue({ pushed: 0, failed: 0, abandoned: 0, pushedIds: [], offline: false }),
+    reconnectWs: vi.fn().mockResolvedValue(undefined),
   };
   return { configStore, orderStore, sync };
 }
@@ -109,8 +110,43 @@ describe('useAppSwipeRefresh()', () => {
     expect(sync.reconfigureAndApply).toHaveBeenCalledWith({ clearLocalConfig: false });
     expect(sync.forcePull).toHaveBeenCalledTimes(1);
     expect(sync.forcePush).toHaveBeenCalledTimes(1);
+    expect(sync.reconnectWs).toHaveBeenCalledTimes(1);
     expect(configStore.hydrateConfigFromIDB).toHaveBeenCalledTimes(1);
     expect(orderStore.refreshOperationalStateFromIDB).toHaveBeenCalledTimes(1);
+  });
+
+  it('calls reconnectWs when online and Directus is enabled', async () => {
+    mockDirectusEnabledRef.value = true;
+    const { configStore, orderStore, sync } = makeStoresAndSync();
+    const swipe = useAppSwipeRefresh({ configStore, orderStore, sync, thresholdPx: 40 });
+    const root = document.createElement('div');
+    document.body.appendChild(root);
+
+    swipe.onTouchStart({ touches: [touch(1, 0)], target: root });
+    swipe.onTouchEnd({ changedTouches: [touch(1, 80)] });
+    await flushPromises();
+
+    // reconnectWs must be called so that swipe-down actively checks the
+    // WebSocket connection state and re-establishes subscriptions if needed.
+    expect(sync.reconnectWs).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not call reconnectWs when offline', async () => {
+    mockDirectusEnabledRef.value = true;
+    vi.stubGlobal('navigator', { onLine: false });
+
+    const { configStore, orderStore, sync } = makeStoresAndSync();
+    const swipe = useAppSwipeRefresh({ configStore, orderStore, sync, thresholdPx: 40 });
+    const root = document.createElement('div');
+    document.body.appendChild(root);
+
+    swipe.onTouchStart({ touches: [touch(1, 0)], target: root });
+    swipe.onTouchEnd({ changedTouches: [touch(1, 80)] });
+    await flushPromises();
+
+    expect(sync.reconnectWs).not.toHaveBeenCalled();
+
+    vi.unstubAllGlobals();
   });
 
   it('does not call forcePush when Directus is disabled', async () => {

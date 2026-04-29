@@ -102,6 +102,11 @@ export function useAppSwipeRefresh({
       // sees up-to-date cached data and the swipe does not report a failure.
       const isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
       if (directusEnabledRef.value && isOnline) {
+        // If WS is enabled but currently disconnected, trigger a reconnect attempt
+        // as part of the connectivity check so the indicator reflects the real state
+        // after the swipe and missed updates are fetched via the subscription.
+        // Fire-and-forget: reconnect is async and must not block the UX.
+        if (typeof sync.reconnectWs === 'function') sync.reconnectWs().catch(() => {});
         await sync.reconfigureAndApply({ clearLocalConfig: false });
         await sync.forcePull();
         // Drain the push queue after the pull so that any changes accumulated

@@ -1920,6 +1920,17 @@ export function useDirectusSync() {
     }
   }
 
+  /**
+   * Exposes the internal `_reconnectWs` function so callers (e.g. swipe-down
+   * refresh) can actively trigger a WebSocket reconnect attempt.  No-ops when
+   * sync is not running, WS is already connected, or WS is disabled.
+   *
+   * @returns {Promise<void>}
+   */
+  function reconnectWs() {
+    return _reconnectWs();
+  }
+
   return {
     syncStatus,
     lastPushAt,
@@ -1930,6 +1941,7 @@ export function useDirectusSync() {
     forcePush,
     forcePull,
     reconfigureAndApply,
+    reconnectWs,
   };
 }
 
