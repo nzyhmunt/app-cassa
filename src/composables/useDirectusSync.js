@@ -1710,6 +1710,9 @@ function _onOffline() {
   // Cancel any pending reconnect timer — the reconnect will be rescheduled
   // by _onOnline() once the network is restored.
   if (_reconnectTimer) { clearTimeout(_reconnectTimer); _reconnectTimer = null; }
+  // Cancel any pending delayed push retry so it doesn't fire if the device
+  // went offline again before the 5-second window elapsed.
+  if (_onlineRetryTimer) { clearTimeout(_onlineRetryTimer); _onlineRetryTimer = null; }
 }
 
 function _onOnline() {
