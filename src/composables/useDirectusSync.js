@@ -1716,18 +1716,22 @@ function _onOffline() {
 }
 
 function _onOnline() {
-  _runPush().catch(() => {});
+  // Clear any stale retry timer from a previous online/offline cycle.
+  if (_onlineRetryTimer) { clearTimeout(_onlineRetryTimer); _onlineRetryTimer = null; }
+  // Immediate push attempt: when the network is already stable the queue drains
+  // here and no retry is needed.  Only schedule the 5 s follow-up when the push
+  // reports an offline/network failure (e.g. DHCP still settling) AND the
+  // device is still online when the result arrives — this avoids a redundant
+  // drainQueue() cycle on every reconnect when the first push already succeeded.
+  _runPush().then((result) => {
+    if (result?.offline && _running && navigator.onLine) {
+      _onlineRetryTimer = setTimeout(() => {
+        _onlineRetryTimer = null;
+        if (_running) _runPush().catch(() => {});
+      }, 5_000);
+    }
+  }).catch(() => {});
   _runPull().catch(() => {});
-  // Schedule a second push attempt after a short delay to recover from brief
-  // post-reconnect instability (e.g. DHCP renewal, DNS resolution) that can
-  // cause the first attempt to fail with a network TypeError even though
-  // navigator.onLine is already true.  _pushInFlight prevents a duplicate
-  // push if the first attempt is still running when this fires.
-  if (_onlineRetryTimer) { clearTimeout(_onlineRetryTimer); }
-  _onlineRetryTimer = setTimeout(() => {
-    _onlineRetryTimer = null;
-    if (_running) _runPush().catch(() => {});
-  }, 5_000);
   // If WebSocket was enabled but is currently disconnected, attempt to reconnect.
   if (appConfig.directus?.wsEnabled === true && !_wsConnected.value && _running) {
     _reconnectWs().catch(() => {});
