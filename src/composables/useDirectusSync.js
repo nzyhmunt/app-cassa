@@ -172,9 +172,17 @@ const GLOBAL_TIMESTAMP_SKEW_TOLERANCE_MS = 24 * 60 * 60_000;
  *
  * Some collections (for example `venues`) intentionally don't expose a `venue`
  * FK and therefore must skip the tenant filter in REST/WS queries.
+ *
+ * Collections without a direct `venue` FK but reachable via a relational path
+ * can use a `venueFilter` function to return the appropriate Directus filter
+ * object instead of the default `{ venue: { _eq: venueId } }`.
  */
 const COLLECTION_QUIRKS = {
   venues: { noVenueFilter: true },
+  // `order_items` has no direct `venue` FK — it is scoped to the venue via its
+  // parent order.  Filtering by `order.venue` avoids the Directus 403 error that
+  // would result from referencing a non-existent top-level field.
+  order_items: { venueFilter: (venueId) => ({ order: { venue: { _eq: venueId } } }) },
 };
 
 // ── Field mapping: Directus → local in-memory store format ───────────────────
@@ -339,8 +347,15 @@ async function _fetchUpdatedViaSDK(collection, sinceTs, page = 1) {
     });
   }
   // Venue filter — skipped for collections without a `venue` FK (noVenueFilter quirk).
+  // Collections with a custom `venueFilter` use a relational path instead of
+  // the default `{ venue: { _eq: venueId } }`.
+  // (This filtering logic lives inside `_fetchUpdatedViaSDK`, which owns REST pull queries.
+  //  The WebSocket subscription path in `_startSubscriptions` applies the same quirks.)
   if (!quirks.noVenueFilter && cfg.venueId != null) {
-    conditions.push({ venue: { _eq: cfg.venueId } });
+    const venueCondition = quirks.venueFilter
+      ? quirks.venueFilter(cfg.venueId)
+      : { venue: { _eq: cfg.venueId } };
+    conditions.push(venueCondition);
   }
   if (conditions.length === 1) {
     query.filter = conditions[0];
@@ -847,7 +862,9 @@ async function _startSubscriptions(collections) {
       const query = { fields: ['*'] };
       const quirks = COLLECTION_QUIRKS[collection] ?? {};
       if (!quirks.noVenueFilter && venueId != null) {
-        query.filter = { venue: { _eq: venueId } };
+        query.filter = quirks.venueFilter
+          ? quirks.venueFilter(venueId)
+          : { venue: { _eq: venueId } };
       }
 
       const { subscription, unsubscribe } = await client.subscribe(collection, { query });
@@ -1916,4 +1933,4 @@ export function _resetDirectusSyncSingleton() {
 /**
  * @internal For unit tests only. Direct handle for simulating incoming WS messages.
  */
-export { _handleSubscriptionMessage, _registerPushedEchoes };
+export { _handleSubscriptionMessage, _registerPushedEchoes, _startSubscriptions };

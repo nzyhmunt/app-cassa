@@ -47,7 +47,7 @@ export function getDirectusClient() {
   const snapshot = `${cfg.url}::${cfg.staticToken}`;
   if (_client && _configSnapshot === snapshot) return _client;
 
-  _client = createDirectus(cfg.url, { globals: { fetch: globalThis.fetch } })
+  _client = createDirectus(cfg.url, { globals: { fetch: globalThis.fetch, WebSocket: globalThis.WebSocket } })
     .with(staticToken(cfg.staticToken))
     .with(rest())
     .with(realtime({
