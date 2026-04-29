@@ -119,9 +119,13 @@ describe('useAppSwipeRefresh()', () => {
     expect(orderStore.refreshOperationalStateFromIDB).toHaveBeenCalledTimes(1);
   });
 
-  it('calls reconnectWs when online and Directus is enabled', async () => {
+  it('calls reconnectWs when online and Directus is enabled — after reconfigure+pull', async () => {
     mockDirectusEnabledRef.value = true;
+    const order = [];
     const { configStore, orderStore, sync } = makeStoresAndSync();
+    sync.reconfigureAndApply.mockImplementation(async () => { order.push('reconfigure'); });
+    sync.forcePull.mockImplementation(async () => { order.push('forcePull'); });
+    sync.reconnectWs.mockImplementation(async () => { order.push('reconnectWs'); });
     const swipe = useAppSwipeRefresh({ configStore, orderStore, sync, thresholdPx: 40 });
     const root = document.createElement('div');
     document.body.appendChild(root);
@@ -132,7 +136,10 @@ describe('useAppSwipeRefresh()', () => {
 
     // reconnectWs must be called so that swipe-down actively checks the
     // WebSocket connection state and re-establishes subscriptions if needed.
+    // Crucially it must fire *after* reconfigure+pull so it uses the refreshed
+    // config and its internal _runPull() on subscribe doesn't race forcePull().
     expect(sync.reconnectWs).toHaveBeenCalledTimes(1);
+    expect(order).toEqual(['reconfigure', 'forcePull', 'reconnectWs']);
   });
 
   it('does not call reconnectWs when offline', async () => {
