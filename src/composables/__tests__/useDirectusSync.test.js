@@ -3068,4 +3068,57 @@ describe('offline/online event handling', () => {
       vi.useRealTimers();
     }
   });
+
+  it('a second online event before the retry timer fires resets the timer cleanly', async () => {
+    const { enqueue } = await import('../useSyncQueue.js');
+    await enqueue('orders', 'create', 'ord_rapid_test', { id: 'ord_rapid_test' });
+
+    let pushPostCalls = 0;
+    vi.spyOn(global, 'fetch').mockImplementation((url, opts = {}) => {
+      const method = (opts?.method ?? 'GET').toUpperCase();
+      if (String(url).includes('/items/orders') && method === 'POST') {
+        pushPostCalls++;
+        return Promise.reject(new TypeError('simulated network error'));
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const sync = useDirectusSync();
+    try {
+      await sync.startSync({ appType: 'cassa', store: makeStore() });
+      await flushPromises(LONG_FLUSH_ROUNDS);
+
+      vi.useFakeTimers();
+      pushPostCalls = 0;
+
+      // First online event — push fails (offline: true) → timer A scheduled at ~t+5 s
+      window.dispatchEvent(new Event('online'));
+      await vi.advanceTimersByTimeAsync(1); // drain IDB from push #1
+      await flushPromises(LONG_FLUSH_ROUNDS);
+      expect(pushPostCalls).toBe(1);
+
+      // Second online event fires at t≈2 s — before timer A would have fired.
+      // The start of _onOnline cancels timer A and starts push #2.
+      await vi.advanceTimersByTimeAsync(2_000);
+      window.dispatchEvent(new Event('online'));
+      await vi.advanceTimersByTimeAsync(1); // drain IDB from push #2
+      await flushPromises(LONG_FLUSH_ROUNDS);
+      expect(pushPostCalls).toBe(2); // push #1 + push #2
+
+      // Push #2 also fails (offline: true) → timer B is scheduled 5 s from now
+      // (~t=7 s).  Advance 6 s to pass timer B's deadline — only the single
+      // retry from push #2 fires (timer A was cancelled; timer B fires push #3).
+      await vi.advanceTimersByTimeAsync(6_000);
+      await flushPromises(LONG_FLUSH_ROUNDS);
+      expect(pushPostCalls).toBe(3); // push #1, push #2, push #3 (timer B)
+
+      // No further timers should fire after that
+      await vi.advanceTimersByTimeAsync(10_000);
+      await flushPromises(LONG_FLUSH_ROUNDS);
+      expect(pushPostCalls).toBe(3);
+    } finally {
+      sync.stopSync();
+      vi.useRealTimers();
+    }
+  });
 });

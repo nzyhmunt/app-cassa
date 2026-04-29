@@ -1723,8 +1723,11 @@ function _onOnline() {
   // reports an offline/network failure (e.g. DHCP still settling) AND the
   // device is still online when the result arrives — this avoids a redundant
   // drainQueue() cycle on every reconnect when the first push already succeeded.
+  // Also clear any timer already set by a concurrent push from a rapid second
+  // 'online' event so only the most recent push's retry is scheduled.
   _runPush().then((result) => {
     if (result?.offline && _running && navigator.onLine) {
+      if (_onlineRetryTimer) { clearTimeout(_onlineRetryTimer); }
       _onlineRetryTimer = setTimeout(() => {
         _onlineRetryTimer = null;
         if (_running) _runPush().catch(() => {});
