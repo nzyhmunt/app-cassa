@@ -2699,6 +2699,9 @@ describe('pull — sync log response records cap', () => {
 
     const sync = useDirectusSync();
     await sync.forcePull();
+    // addSyncLog() is fire-and-forget inside _fetchUpdatedViaSDK; flush pending
+    // microtasks so the IDB write completes before we read back the log.
+    await flushPromises();
 
     const logs = await getSyncLogs();
     const orderPullLog = logs.find(l => l.endpoint === '/items/orders' && l.direction === 'IN');
@@ -2723,6 +2726,9 @@ describe('pull — sync log response records cap', () => {
 
     const sync = useDirectusSync();
     await sync.forcePull();
+    // addSyncLog() is fire-and-forget inside _fetchUpdatedViaSDK; flush pending
+    // microtasks so the IDB write completes before we read back the log.
+    await flushPromises();
 
     const logs = await getSyncLogs();
     const orderPullLog = logs.find(l => l.endpoint === '/items/orders' && l.direction === 'IN');
