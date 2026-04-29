@@ -100,7 +100,7 @@ export function useAppSwipeRefresh({
       // Only attempt network operations when the device reports a connection.
       // When offline, fall back to a local IDB-only refresh so the user still
       // sees up-to-date cached data and the swipe does not report a failure.
-      const isOnline = typeof navigator !== 'undefined' ? navigator.onLine !== false : true;
+      const isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
       if (directusEnabledRef.value && isOnline) {
         await sync.reconfigureAndApply({ clearLocalConfig: false });
         await sync.forcePull();
