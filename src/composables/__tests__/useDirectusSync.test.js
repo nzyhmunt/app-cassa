@@ -3106,17 +3106,26 @@ describe('offline/online event handling', () => {
       expect(pushPostCalls).toBe(2); // push #1 + push #2
 
       // Push #2 also fails (offline: true) → timer B is scheduled 5 s from now
-      // (~t=7 s).  Advance 6 s to pass timer B's deadline — only the single
-      // retry from push #2 fires (timer A was cancelled; timer B fires push #3).
+      // (~t=7 s).  Advance 6 s to pass timer B's deadline — timer A was cancelled;
+      // timer B fires push #3.
       await vi.advanceTimersByTimeAsync(6_000);
       await flushPromises(LONG_FLUSH_ROUNDS);
       expect(pushPostCalls).toBe(3); // push #1, push #2, push #3 (timer B)
 
-      // No further timers should fire after that
+      // Push #3 also fails → _scheduleOnlineRetry() reschedules (timer C at ~t=13 s).
+      // Advance 5 s to verify push #4 fires.
+      await vi.advanceTimersByTimeAsync(5_000);
+      await flushPromises(LONG_FLUSH_ROUNDS);
+      expect(pushPostCalls).toBe(4); // push #4 (timer C)
+
+      // stopSync() cancels the pending timer — no further retries.
+      sync.stopSync();
       await vi.advanceTimersByTimeAsync(10_000);
       await flushPromises(LONG_FLUSH_ROUNDS);
-      expect(pushPostCalls).toBe(3);
+      expect(pushPostCalls).toBe(4);
     } finally {
+      // stopSync() may already have been called above; calling it again via
+      // finally is safe (removeEventListener is idempotent).
       sync.stopSync();
       vi.useRealTimers();
     }

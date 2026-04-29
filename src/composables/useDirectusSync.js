@@ -1715,6 +1715,26 @@ function _onOffline() {
   if (_onlineRetryTimer) { clearTimeout(_onlineRetryTimer); _onlineRetryTimer = null; }
 }
 
+/**
+ * Schedules a 5-second retry push after an online reconnect push failed.
+ * Re-schedules itself as long as the device remains online and sync is
+ * running so that the queue drains as soon as Directus becomes reachable
+ * again (e.g. while DHCP / DNS is still settling after reconnect).
+ * Cancelled by `_onOffline`, `stopSync`, or a new `_onOnline` event.
+ */
+function _scheduleOnlineRetry() {
+  if (_onlineRetryTimer) { clearTimeout(_onlineRetryTimer); }
+  _onlineRetryTimer = setTimeout(() => {
+    _onlineRetryTimer = null;
+    if (!_running || !navigator.onLine) return;
+    _runPush().then((result) => {
+      if (result?.offline && _running && navigator.onLine) {
+        _scheduleOnlineRetry();
+      }
+    }).catch(() => {});
+  }, 5_000);
+}
+
 function _onOnline() {
   // Clear any stale retry timer from a previous online/offline cycle.
   if (_onlineRetryTimer) { clearTimeout(_onlineRetryTimer); _onlineRetryTimer = null; }
@@ -1725,13 +1745,11 @@ function _onOnline() {
   // drainQueue() cycle on every reconnect when the first push already succeeded.
   // Also clear any timer already set by a concurrent push from a rapid second
   // 'online' event so only the most recent push's retry is scheduled.
+  // If the retry also fails, _scheduleOnlineRetry() reschedules itself every
+  // 5 s until the push succeeds, the device goes offline, or stopSync() is called.
   _runPush().then((result) => {
     if (result?.offline && _running && navigator.onLine) {
-      if (_onlineRetryTimer) { clearTimeout(_onlineRetryTimer); }
-      _onlineRetryTimer = setTimeout(() => {
-        _onlineRetryTimer = null;
-        if (_running) _runPush().catch(() => {});
-      }, 5_000);
+      _scheduleOnlineRetry();
     }
   }).catch(() => {});
   _runPull().catch(() => {});
