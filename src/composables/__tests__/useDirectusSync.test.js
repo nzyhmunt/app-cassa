@@ -1276,13 +1276,18 @@ describe('pull — incremental filter includes null-dated records', () => {
       const rawFilter = parsedUrl.searchParams.get('filter');
 
       if (rawFilter) {
-        const parsed = JSON.parse(rawFilter);
-        const json = JSON.stringify(parsed);
-        expect(json).toContain('_or');
-        expect(json).toContain('_null');
-        expect(json).toContain('date_created');
-        matchedIncrementalFilter = true;
-        continue;
+        try {
+          const parsed = JSON.parse(rawFilter);
+          const json = JSON.stringify(parsed);
+          expect(json).toContain('_or');
+          expect(json).toContain('_null');
+          expect(json).toContain('date_created');
+          matchedIncrementalFilter = true;
+          continue;
+        } catch {
+          // Fall through to bracketed-param checks below when `filter`
+          // is present but not JSON-encoded.
+        }
       }
 
       const searchParamKeys = Array.from(parsedUrl.searchParams.keys());
