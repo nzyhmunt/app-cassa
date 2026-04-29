@@ -2604,3 +2604,139 @@ describe('self-echo suppression (_handleSubscriptionMessage)', () => {
     expect(stored?.totalAmount).toBe(12);
   });
 });
+
+// ── Pull: per-collection `fields` expansion ────────────────────────────────────
+// Verifies that _fetchUpdatedViaSDK sends the correct `fields` query parameter
+// for each collection so that nested expands are not silently regressed.
+
+describe('pull — per-collection fields expansion', () => {
+  /**
+   * Decodes the `fields` query-param from a Directus SDK request URL.
+   * The SDK serialises the array as a comma-separated `fields=a,b,c` value.
+   * Returns an array of field strings.
+   *
+   * @param {string} urlString
+   * @returns {string[]}
+   */
+  function extractFieldsParam(urlString) {
+    const url = new URL(urlString);
+    const raw = url.searchParams.get('fields');
+    if (!raw) return [];
+    return raw.split(',').map(f => f.trim());
+  }
+
+  it('orders pull includes order_items.* and order_items.order_item_modifiers.*', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation(() => Promise.resolve(directusListResponse([])));
+    const sync = useDirectusSync();
+    await sync.forcePull();
+
+    const orderUrls = fetchSpy.mock.calls
+      .map(([url]) => String(url))
+      .filter(url => url.includes('/items/orders'));
+    expect(orderUrls.length).toBeGreaterThan(0);
+
+    for (const url of orderUrls) {
+      const fields = extractFieldsParam(url);
+      expect(fields).toContain('order_items.*');
+      expect(fields).toContain('order_items.order_item_modifiers.*');
+    }
+  });
+
+  it('order_items pull includes order_item_modifiers.*', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      if (String(url).includes('/items/order_items')) return Promise.resolve(directusListResponse([]));
+      return Promise.resolve(directusListResponse([]));
+    });
+    const sync = useDirectusSync();
+    // Use appType 'cucina' which always pulls order_items as a standalone collection
+    sync.startSync({ appType: 'cucina', store: makeStore() });
+    await sync.forcePull();
+
+    const orderItemUrls = fetchSpy.mock.calls
+      .map(([url]) => String(url))
+      .filter(url => url.includes('/items/order_items'));
+    expect(orderItemUrls.length).toBeGreaterThan(0);
+
+    for (const url of orderItemUrls) {
+      const fields = extractFieldsParam(url);
+      expect(fields).toContain('order_item_modifiers.*');
+      // Should NOT include the orders-specific nested expand
+      expect(fields).not.toContain('order_items.*');
+    }
+  });
+
+  it('bill_sessions pull uses only wildcard fields (no nested expand)', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation(() => Promise.resolve(directusListResponse([])));
+    const sync = useDirectusSync();
+    await sync.forcePull();
+
+    const billUrls = fetchSpy.mock.calls
+      .map(([url]) => String(url))
+      .filter(url => url.includes('/items/bill_sessions'));
+    expect(billUrls.length).toBeGreaterThan(0);
+
+    for (const url of billUrls) {
+      const fields = extractFieldsParam(url);
+      expect(fields).toEqual(['*']);
+    }
+  });
+});
+
+// ── Pull: sync log response.records cap ───────────────────────────────────────
+// Verifies that SYNC_LOG_RECORDS_MAX is enforced: small pulls store all records,
+// large pulls store only the first N so IDB stays bounded.
+
+describe('pull — sync log response records cap', () => {
+  it('stores all records in sync log when count is within SYNC_LOG_RECORDS_MAX', async () => {
+    const { getSyncLogs } = await import('../../store/persistence/syncLogs.js');
+
+    // Return 3 orders — well under the cap of 20
+    const records = Array.from({ length: 3 }, (_, i) => makeRemoteOrder({
+      id: `ord_cap_${i}`,
+      date_updated: `2024-05-01T00:00:${String(i).padStart(2, '0')}.000Z`,
+    }));
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      if (String(url).includes('/items/orders')) return Promise.resolve(directusListResponse(records));
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const sync = useDirectusSync();
+    await sync.forcePull();
+
+    const logs = await getSyncLogs();
+    const orderPullLog = logs.find(l => l.endpoint === '/items/orders' && l.direction === 'IN');
+    expect(orderPullLog).toBeTruthy();
+    expect(orderPullLog.response.count).toBe(3);
+    expect(Array.isArray(orderPullLog.response.records)).toBe(true);
+    expect(orderPullLog.response.records.length).toBe(3);
+  });
+
+  it('caps stored records at SYNC_LOG_RECORDS_MAX (20) when pull returns more', async () => {
+    const { getSyncLogs } = await import('../../store/persistence/syncLogs.js');
+
+    // Return 25 orders — above the cap of 20
+    const records = Array.from({ length: 25 }, (_, i) => makeRemoteOrder({
+      id: `ord_bigcap_${i}`,
+      date_updated: `2024-05-01T00:${String(i).padStart(2, '0')}:00.000Z`,
+    }));
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      if (String(url).includes('/items/orders')) return Promise.resolve(directusListResponse(records));
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const sync = useDirectusSync();
+    await sync.forcePull();
+
+    const logs = await getSyncLogs();
+    const orderPullLog = logs.find(l => l.endpoint === '/items/orders' && l.direction === 'IN');
+    expect(orderPullLog).toBeTruthy();
+    // count always reflects the true number of pulled records
+    expect(orderPullLog.response.count).toBe(25);
+    // but records is capped at SYNC_LOG_RECORDS_MAX (20)
+    expect(Array.isArray(orderPullLog.response.records)).toBe(true);
+    expect(orderPullLog.response.records.length).toBe(20);
+    // the stored slice must be the first N records
+    expect(orderPullLog.response.records[0].id).toBe('ord_bigcap_0');
+    expect(orderPullLog.response.records[19].id).toBe('ord_bigcap_19');
+  });
+});
