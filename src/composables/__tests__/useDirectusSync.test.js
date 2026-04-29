@@ -2643,10 +2643,7 @@ describe('pull — per-collection fields expansion', () => {
   });
 
   it('order_items pull includes order_item_modifiers.*', async () => {
-    const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation((url) => {
-      if (String(url).includes('/items/order_items')) return Promise.resolve(directusListResponse([]));
-      return Promise.resolve(directusListResponse([]));
-    });
+    const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation(() => Promise.resolve(directusListResponse([])));
     const sync = useDirectusSync();
     // Use appType 'cucina' which always pulls order_items as a standalone collection
     sync.startSync({ appType: 'cucina', store: makeStore() });
