@@ -58,14 +58,14 @@ import { addSyncLog } from '../store/persistence/syncLogs.js';
 /** @type {Record<string, { collections: string[], intervalMs: number }>} */
 const PULL_CONFIG = {
   cassa: {
-    collections: ['orders', 'bill_sessions', 'tables'],
+    collections: ['orders', 'order_items', 'bill_sessions', 'tables'],
     // 30 s polling: frequent enough for near-real-time UX while keeping
     // backend load low. Use wsEnabled=true for sub-second updates if the
     // Directus instance supports WebSocket subscriptions.
     intervalMs: 30_000,
   },
   sala: {
-    collections: ['orders', 'bill_sessions', 'tables', 'menu_items'],
+    collections: ['orders', 'order_items', 'bill_sessions', 'tables', 'menu_items'],
     intervalMs: 30_000,
   },
   cucina: {
@@ -306,9 +306,14 @@ async function _fetchUpdatedViaSDK(collection, sinceTs, page = 1) {
     // For orders, expand nested order_items and their modifiers so that the
     // detail view is populated even on a fresh device that has never locally
     // created those orders.
+    // For order_items, also expand order_item_modifiers so that the modifier
+    // detail is available when order_items are pulled as a standalone collection
+    // (e.g. cucina app, or the fallback separate-pull path in cassa/sala).
     fields: collection === 'orders'
       ? ['*', 'order_items.*', 'order_items.order_item_modifiers.*']
-      : ['*'],
+      : collection === 'order_items'
+        ? ['*', 'order_item_modifiers.*']
+        : ['*'],
   };
 
   // Incremental pull filter (only records updated/created after last known timestamp).
@@ -350,7 +355,7 @@ async function _fetchUpdatedViaSDK(collection, sinceTs, page = 1) {
       type: 'PULL',
       endpoint: `/items/${collection}`,
       payload: { collection, page, filter: query.filter ?? null, since: sinceTs ?? null },
-      response: { count: data.length, maxTs },
+      response: { count: data.length, maxTs, records: data },
       status: 'success',
       statusCode: 200,
       durationMs: _pullDuration,
