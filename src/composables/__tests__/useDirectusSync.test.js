@@ -2872,14 +2872,14 @@ describe('pull — sync log response records cap', () => {
 // run after stopSync() or after the device goes offline again.
 //
 // Implementation note on fake timers + fake-indexeddb:
-// fake-indexeddb schedules IDB callbacks via `setImmediate` (0 ms).  When
-// vi.useFakeTimers() is already active those callbacks are queued as fake
-// 0-ms timers and may not drain reliably if the calling code needs to
-// `await` their result synchronously.  To avoid this deadlock, queue items
-// are always written with REAL timers (before vi.useFakeTimers()) so that
-// IDB operations complete normally.  vi.useFakeTimers() is then installed
-// and used only for the application-level timers (push/pull intervals,
-// online-retry timer) that the tests need to control.
+// fake-indexeddb schedules IDB callbacks via `setImmediate` (0 ms).  Calling
+// vi.useFakeTimers() without a `toFake` list fakes ALL timer APIs including
+// setImmediate, which can stall IDB operations that run after the call.  To
+// avoid this deadlock we use an explicit `toFake` list that fakes only the
+// timeout/interval/Date APIs the tests need to control, while leaving
+// setImmediate real so IDB callbacks always drain normally.  Queue items are
+// also written with REAL timers (before vi.useFakeTimers()) to ensure the
+// enqueue IDB writes complete before fake timers are installed.
 
 describe('offline/online event handling', () => {
   it('sets wsConnected to false immediately on window offline event', async () => {
@@ -2919,7 +2919,7 @@ describe('offline/online event handling', () => {
       await sync.startSync({ appType: 'cassa', store: makeStore() });
       await flushPromises(LONG_FLUSH_ROUNDS);
 
-      vi.useFakeTimers();
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
 
       // Reset after startSync's own push attempt.
       pushPostCalls = 0;
@@ -2967,7 +2967,7 @@ describe('offline/online event handling', () => {
       await sync.startSync({ appType: 'cassa', store: makeStore() });
       await flushPromises(LONG_FLUSH_ROUNDS);
 
-      vi.useFakeTimers();
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
       pushPostCalls = 0;
 
       // online → immediate push fails (offline: true) → 5 s retry timer is scheduled
@@ -3010,7 +3010,7 @@ describe('offline/online event handling', () => {
       await sync.startSync({ appType: 'cassa', store: makeStore() });
       await flushPromises(LONG_FLUSH_ROUNDS);
 
-      vi.useFakeTimers();
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
       pushPostCalls = 0;
 
       // online → immediate push fails, timer scheduled for 5 s
@@ -3050,7 +3050,7 @@ describe('offline/online event handling', () => {
       await sync.startSync({ appType: 'cassa', store: makeStore() });
       await flushPromises(LONG_FLUSH_ROUNDS);
 
-      vi.useFakeTimers();
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
       pushPostCalls = 0;
 
       // online → push succeeds (offline: false) → retry timer must NOT be scheduled
@@ -3088,7 +3088,7 @@ describe('offline/online event handling', () => {
       await sync.startSync({ appType: 'cassa', store: makeStore() });
       await flushPromises(LONG_FLUSH_ROUNDS);
 
-      vi.useFakeTimers();
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
       pushPostCalls = 0;
 
       // First online event — push fails (offline: true) → timer A scheduled at ~t+5 s
