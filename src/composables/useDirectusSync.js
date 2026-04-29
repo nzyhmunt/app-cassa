@@ -349,6 +349,8 @@ async function _fetchUpdatedViaSDK(collection, sinceTs, page = 1) {
   // Venue filter — skipped for collections without a `venue` FK (noVenueFilter quirk).
   // Collections with a custom `venueFilter` use a relational path instead of
   // the default `{ venue: { _eq: venueId } }`.
+  // (This filtering logic lives inside `_fetchUpdatedViaSDK`, which owns REST pull queries.
+  //  The WebSocket subscription path in `_startSubscriptions` applies the same quirks.)
   if (!quirks.noVenueFilter && cfg.venueId != null) {
     const venueCondition = quirks.venueFilter
       ? quirks.venueFilter(cfg.venueId)
@@ -1931,4 +1933,4 @@ export function _resetDirectusSyncSingleton() {
 /**
  * @internal For unit tests only. Direct handle for simulating incoming WS messages.
  */
-export { _handleSubscriptionMessage, _registerPushedEchoes };
+export { _handleSubscriptionMessage, _registerPushedEchoes, _startSubscriptions };

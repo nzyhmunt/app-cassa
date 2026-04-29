@@ -22,7 +22,9 @@ import {
   _resetDirectusSyncSingleton,
   _handleSubscriptionMessage,
   _registerPushedEchoes,
+  _startSubscriptions,
 } from '../useDirectusSync.js';
+import { _resetDirectusClientSingleton } from '../useDirectusClient.js';
 import {
   upsertRecordsIntoIDB,
   saveStateToIDB,
@@ -230,6 +232,7 @@ function makeRemoteOrder(overrides = {}) {
 beforeEach(async () => {
   await _resetIDBSingleton();
   _resetDirectusSyncSingleton();
+  _resetDirectusClientSingleton();
   _resetEnqueueSeq();
   vi.restoreAllMocks();
   vi.stubGlobal('navigator', { onLine: true });
@@ -2326,6 +2329,67 @@ describe('WebSocket subscriptions', () => {
     // No error thrown; lastPullAt is updated even with no new records (all collections up to date)
     expect(sync.syncStatus.value).not.toBe('error');
   });
+  it('order_items subscription uses relational order.venue filter instead of direct venue', async () => {
+    // Capture WS messages so we can inspect the subscribe payload.
+    const sentMessages = [];
+
+    // Minimal WebSocket mock that:
+    //  1. Fires the "open" event as a microtask (so flushPromises() can settle it).
+    //  2. Auto-responds to the auth handshake with { type:'auth', status:'ok' }.
+    //  3. Records every message sent via send() for later assertions.
+    class MockWebSocket {
+      constructor(_url) {
+        this._listeners = { open: [], message: [], error: [], close: [] };
+        this.readyState = 1; // OPEN
+        // Schedule open as a microtask so flushPromises() can pick it up.
+        Promise.resolve().then(() => this._fire('open', { type: 'open' }));
+      }
+      addEventListener(event, handler) {
+        (this._listeners[event] ??= []).push(handler);
+      }
+      removeEventListener(event, handler) {
+        if (this._listeners[event]) {
+          this._listeners[event] = this._listeners[event].filter(h => h !== handler);
+        }
+      }
+      send(data) {
+        const msg = typeof data === 'string' ? JSON.parse(data) : data;
+        sentMessages.push(msg);
+        // Respond to the auth handshake so connect() can resolve.
+        if (msg.type === 'auth') {
+          Promise.resolve().then(() =>
+            this._fire('message', { data: JSON.stringify({ type: 'auth', status: 'ok' }) }),
+          );
+        }
+      }
+      close() { this.readyState = 3; }
+      _fire(event, evt) { (this._listeners[event] ?? []).forEach(h => h(evt)); }
+    }
+
+    // Inject mock before the client singleton is created (getDirectusClient picks up
+    // globalThis.WebSocket at call time because we pass it explicitly in globals).
+    vi.stubGlobal('WebSocket', MockWebSocket);
+
+    // Call _startSubscriptions directly to avoid the full startSync/IDB bootstrap path.
+    // venueId = 1 comes from beforeEach appConfig.directus.venueId.
+    await _startSubscriptions(['orders', 'order_items']);
+    await flushPromises(20);
+
+    // Find the subscribe message for order_items (filter is JSON-serialised by queryToParams).
+    const subscribeMsg = sentMessages.find(m => m.type === 'subscribe' && m.collection === 'order_items');
+    expect(subscribeMsg).toBeDefined();
+
+    const rawFilter = subscribeMsg?.query?.filter;
+    expect(rawFilter).toBeDefined();
+    const filter = JSON.parse(rawFilter);
+
+    // Must NOT use direct { venue: { _eq: ... } } — the field does not exist on order_items.
+    expect(filter?.venue?._eq).toBeUndefined();
+
+    // Must use relational path { order: { venue: { _eq: venueId } } } (venueId = 1 from beforeEach).
+    expect(filter?.order?.venue?._eq).toBe(1);
+  });
+
 });
 
 // ── drainQueue: last_error persistence ───────────────────────────────────────
