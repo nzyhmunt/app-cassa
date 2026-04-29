@@ -3130,4 +3130,126 @@ describe('offline/online event handling', () => {
       vi.useRealTimers();
     }
   });
+
+  it('offline event releases a stuck _pushInFlight so the next online push starts fresh', async () => {
+    // Real-world failure: a push is in-flight with a hung fetch (TCP timeout could
+    // take 10-20 min).  Without the generation-counter fix, _pushInFlight stays
+    // set to the hung promise; every subsequent _runPush() call — including
+    // _onOnline's recovery push — returns the same stuck promise, leaving the
+    // queue completely blocked until the app is restarted.
+    const { enqueue } = await import('../useSyncQueue.js');
+    await enqueue('orders', 'create', 'ord_stuck_test', { id: 'ord_stuck_test' });
+
+    let pushPostCalls = 0;
+    // Flag: when true the NEXT POST call returns a never-resolving promise (TCP hang).
+    let hangNextCall = false;
+
+    vi.spyOn(global, 'fetch').mockImplementation((url, opts = {}) => {
+      const method = (opts?.method ?? 'GET').toUpperCase();
+      if (String(url).includes('/items/orders') && method === 'POST') {
+        pushPostCalls++;
+        if (hangNextCall) {
+          hangNextCall = false; // only hang once
+          return new Promise(() => {}); // simulates TCP-level hang (never resolves)
+        }
+        return Promise.reject(new TypeError('simulated network error'));
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const sync = useDirectusSync();
+    try {
+      // startSync phase: mock fails fast (hangNextCall = false) so the initial push
+      // from startSync completes and _pushInFlight is null before we switch to fake timers.
+      await sync.startSync({ appType: 'cassa', store: makeStore() });
+      await flushPromises(LONG_FLUSH_ROUNDS);
+
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
+      pushPostCalls = 0;
+
+      // Arm the hung-fetch for the upcoming online-event push.
+      hangNextCall = true;
+
+      // Push #1 starts via online event — fetch hangs, _pushInFlight is stuck.
+      window.dispatchEvent(new Event('online'));
+      await vi.advanceTimersByTimeAsync(1); // drain IDB read inside _runPush
+      await flushPromises(LONG_FLUSH_ROUNDS);
+      expect(pushPostCalls).toBe(1); // fetch was called and is now hanging
+
+      // Device goes offline — _pushInFlight MUST be cleared (generation incremented).
+      window.dispatchEvent(new Event('offline'));
+
+      // Device comes back online — _onOnline should start a FRESH push (push #2),
+      // not be blocked by the still-unresolved hung fetch from push #1.
+      window.dispatchEvent(new Event('online'));
+      await vi.advanceTimersByTimeAsync(1); // drain IDB for push #2
+      await flushPromises(LONG_FLUSH_ROUNDS);
+      // Push #2 ran (fetch #2 → rejected quickly); push #1 is still "hanging" in the
+      // background but its stale promise no longer blocks any new push.
+      expect(pushPostCalls).toBe(2);
+    } finally {
+      sync.stopSync();
+      vi.useRealTimers();
+    }
+  });
+
+  it('forcePush bypasses a stuck in-flight so the manual "Push ora" override always runs', async () => {
+    // Real-world failure: the user clicks "Push ora" but the push queue appears
+    // completely frozen.  The root cause: a previous push is stuck on a hung fetch
+    // (TCP timeout).  Without the generation-counter fix, forcePush() returns the
+    // same hung promise and the UI spinner never resolves.
+    const { enqueue } = await import('../useSyncQueue.js');
+    await enqueue('orders', 'create', 'ord_force_stuck', { id: 'ord_force_stuck' });
+
+    let pushPostCalls = 0;
+    let hangNextCall = false;
+
+    vi.spyOn(global, 'fetch').mockImplementation((url, opts = {}) => {
+      const method = (opts?.method ?? 'GET').toUpperCase();
+      if (String(url).includes('/items/orders') && method === 'POST') {
+        pushPostCalls++;
+        if (hangNextCall) {
+          hangNextCall = false;
+          return new Promise(() => {}); // TCP hang — never resolves
+        }
+        return Promise.reject(new TypeError('simulated network error'));
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const sync = useDirectusSync();
+    try {
+      // startSync with a fast-failing mock so _pushInFlight is null before fake timers.
+      await sync.startSync({ appType: 'cassa', store: makeStore() });
+      await flushPromises(LONG_FLUSH_ROUNDS);
+
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
+      pushPostCalls = 0;
+
+      // Arm hung-fetch; start push #1 via online event — it gets stuck.
+      hangNextCall = true;
+      window.dispatchEvent(new Event('online'));
+      await vi.advanceTimersByTimeAsync(1);
+      await flushPromises(LONG_FLUSH_ROUNDS);
+      expect(pushPostCalls).toBe(1); // push #1 in-flight, fetch hanging
+
+      // User presses "Push ora" → forcePush() must bypass the stuck push and resolve.
+      // Before fix: forcePush() → _runPush() → _pushInFlight (hung) → returns hung
+      //             promise → await never returns.
+      // After fix:  forcePush() increments _pushGeneration, clears _pushInFlight,
+      //             starts a fresh push (#2) whose fetch fails fast → resolves.
+      const result = await (async () => {
+        const p = sync.forcePush();
+        await vi.advanceTimersByTimeAsync(1); // IDB read for push #2
+        await flushPromises(LONG_FLUSH_ROUNDS);
+        return p;
+      })();
+
+      expect(pushPostCalls).toBe(2); // fresh push #2 ran
+      expect(result).toMatchObject({ pushed: 0 }); // resolved (not hanging)
+    } finally {
+      sync.stopSync();
+      vi.useRealTimers();
+    }
+  });
 });

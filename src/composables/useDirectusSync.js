@@ -938,6 +938,14 @@ let _pushTimer = null;
 let _pollTimer = null;
 let _globalTimer = null;
 let _pushInFlight = null;
+/**
+ * Monotonically increasing generation counter.  Incremented whenever an
+ * in-flight push must be invalidated (offline event, manual forcePush override,
+ * stopSync).  The `_runPush` finally block only clears `_pushInFlight` when the
+ * generation it captured at start still matches the current value — this prevents
+ * a stale/hung push that resolved late from nulling out a newer in-flight push.
+ */
+let _pushGeneration = 0;
 /** Single debounced timer for WS reconnect — prevents overlapping reconnect attempts. */
 let _reconnectTimer = null;
 /** Debounced short-delay push retry scheduled by _onOnline() to recover from brief post-reconnect instability. */
@@ -1042,6 +1050,11 @@ function _getCfg() {
 
 async function _runPush() {
   if (_pushInFlight) return _pushInFlight;
+  // Capture the current generation before starting.  The `finally` block below
+  // will only clear `_pushInFlight` when this generation is still current —
+  // preventing a stale/hung push that completes late (e.g. TCP timeout) from
+  // wiping out a newer in-flight promise created by _onOnline or forcePush.
+  const generation = ++_pushGeneration;
   _pushInFlight = (async () => {
     try {
       if (!navigator.onLine) {
@@ -1078,7 +1091,9 @@ async function _runPush() {
       syncStatus.value = 'error';
       return { pushed: 0, failed: 0, abandoned: 0, pushedIds: [], offline: false };
     } finally {
-      _pushInFlight = null;
+      if (_pushGeneration === generation) {
+        _pushInFlight = null;
+      }
     }
   })();
   return _pushInFlight;
@@ -1713,6 +1728,16 @@ function _onOffline() {
   // Cancel any pending delayed push retry so it doesn't fire if the device
   // went offline again before the 5-second window elapsed.
   if (_onlineRetryTimer) { clearTimeout(_onlineRetryTimer); _onlineRetryTimer = null; }
+  // Invalidate any in-flight push.  When the network drops, the underlying
+  // fetch() inside sdkClient.request() can hang indefinitely waiting for a TCP
+  // timeout (typically 10-20+ minutes).  _pushInFlight would remain set to the
+  // hung promise, blocking every subsequent _runPush() call — including the
+  // manual "Push ora" button — until the app is restarted.
+  // Incrementing _pushGeneration ensures the hung push's finally block won't
+  // interfere with the fresh push that _onOnline() will start once the network
+  // is restored.
+  _pushGeneration++;
+  _pushInFlight = null;
 }
 
 /**
@@ -1839,6 +1864,11 @@ export function useDirectusSync() {
   function stopSync() {
     _running = false;
     _store = null;
+    // Advance the generation so any in-flight push started before stopSync()
+    // does not clear a new _pushInFlight that might be created after the next
+    // startSync() call.
+    _pushGeneration++;
+    _pushInFlight = null;
     if (_pushTimer) { clearInterval(_pushTimer); _pushTimer = null; }
     if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
     if (_globalTimer) { clearInterval(_globalTimer); _globalTimer = null; }
@@ -1866,6 +1896,12 @@ export function useDirectusSync() {
    */
   async function forcePush() {
     if (!appConfig.directus?.enabled) return { pushed: 0, failed: 0, abandoned: 0, pushedIds: [], offline: false, skippedReason: 'disabled' };
+    // Discard any stuck in-flight push so the manual override always starts fresh.
+    // A push may be stuck because the network dropped mid-request — the underlying
+    // fetch() can hang indefinitely waiting for a TCP timeout, keeping _pushInFlight
+    // set and blocking all subsequent _runPush() calls.
+    _pushGeneration++;
+    _pushInFlight = null;
     return _runPush();
   }
 
@@ -1978,6 +2014,7 @@ export function _resetDirectusSyncSingleton() {
   _store = null;
   _appType = 'cassa';
   _wsCollections = [];
+  _pushGeneration = 0;
   _pushInFlight = null;
   _globalPullGeneration = 0;
   _lastAppliedGlobalPullGeneration = 0;
