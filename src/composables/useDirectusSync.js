@@ -58,14 +58,14 @@ import { addSyncLog } from '../store/persistence/syncLogs.js';
 /** @type {Record<string, { collections: string[], intervalMs: number }>} */
 const PULL_CONFIG = {
   cassa: {
-    collections: ['orders', 'bill_sessions', 'tables'],
+    collections: ['orders', 'order_items', 'bill_sessions', 'tables'],
     // 30 s polling: frequent enough for near-real-time UX while keeping
     // backend load low. Use wsEnabled=true for sub-second updates if the
     // Directus instance supports WebSocket subscriptions.
     intervalMs: 30_000,
   },
   sala: {
-    collections: ['orders', 'bill_sessions', 'tables', 'menu_items'],
+    collections: ['orders', 'order_items', 'bill_sessions', 'tables', 'menu_items'],
     intervalMs: 30_000,
   },
   cucina: {
@@ -154,6 +154,9 @@ const VENUE_USERS_RELATION_KEYS = ['venue_users', 'users'];
 const GLOBAL_INTERVAL_MS = 5 * 60_000;
 const TABLE_FETCH_BATCH_SIZE = 200;
 const DEEP_FETCH_PAYLOAD_UNWRAP_MAX_DEPTH = 3;
+// Maximum number of records stored verbatim in a sync log entry.
+// Keeps the Activity Monitor readable and IDB storage bounded on large pulls.
+const SYNC_LOG_RECORDS_MAX = 20;
 const SUPPORTS_STRUCTURED_CLONE = typeof structuredClone === 'function';
 // Allow substantial device/server clock drift before treating last_pull_ts as invalid.
 // 24h avoids perpetual full-refreshes on slightly misconfigured tablets while still
@@ -296,6 +299,20 @@ async function _fetchUpdatedViaSDK(collection, sinceTs, page = 1) {
 
   const quirks = COLLECTION_QUIRKS[collection] ?? {};
   const client = _buildRestClient(cfg);
+  // For orders, expand nested order_items and their modifiers so that the
+  // detail view is populated even on a fresh device that has never locally
+  // created those orders.
+  // For order_items, also expand order_item_modifiers so that the modifier
+  // detail is available when order_items are pulled as a standalone collection
+  // (e.g. cucina app, or the fallback separate-pull path in cassa/sala).
+  let pullFields;
+  if (collection === 'orders') {
+    pullFields = ['*', 'order_items.*', 'order_items.order_item_modifiers.*'];
+  } else if (collection === 'order_items') {
+    pullFields = ['*', 'order_item_modifiers.*'];
+  } else {
+    pullFields = ['*'];
+  }
   const query = {
     limit: 200,
     page,
@@ -303,12 +320,7 @@ async function _fetchUpdatedViaSDK(collection, sinceTs, page = 1) {
     // date_created and id to guarantee a stable, deterministic page order when
     // many records share the same date_updated value (including null).
     sort: quirks.noDateUpdated ? ['id'] : ['date_updated', 'date_created', 'id'],
-    // For orders, expand nested order_items and their modifiers so that the
-    // detail view is populated even on a fresh device that has never locally
-    // created those orders.
-    fields: collection === 'orders'
-      ? ['*', 'order_items.*', 'order_items.order_item_modifiers.*']
-      : ['*'],
+    fields: pullFields,
   };
 
   // Incremental pull filter (only records updated/created after last known timestamp).
@@ -350,7 +362,7 @@ async function _fetchUpdatedViaSDK(collection, sinceTs, page = 1) {
       type: 'PULL',
       endpoint: `/items/${collection}`,
       payload: { collection, page, filter: query.filter ?? null, since: sinceTs ?? null },
-      response: { count: data.length, maxTs },
+      response: { count: data.length, maxTs, records: data.length <= SYNC_LOG_RECORDS_MAX ? data : data.slice(0, SYNC_LOG_RECORDS_MAX) },
       status: 'success',
       statusCode: 200,
       durationMs: _pullDuration,
