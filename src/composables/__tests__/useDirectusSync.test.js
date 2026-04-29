@@ -2654,41 +2654,49 @@ describe('pull — per-collection fields expansion', () => {
       .filter(url => url.includes('/items/order_items'));
     expect(orderItemUrls.length).toBeGreaterThan(0);
 
+    const walkFilter = (node, matcher) => {
+      if (!node || typeof node !== 'object') return false;
+      if (matcher(node)) return true;
+      for (const logicKey of ['_and', '_or']) {
+        if (Array.isArray(node[logicKey])) {
+          for (const child of node[logicKey]) {
+            if (walkFilter(child, matcher)) return true;
+          }
+        }
+      }
+      return false;
+    };
+
+    const hasJsonEncodedFilter = (searchParams) => searchParams.get('filter') !== null;
+
+    const hasDirectVenueEq = (searchParams) => {
+      if (hasJsonEncodedFilter(searchParams)) {
+        const rawFilter = searchParams.get('filter');
+        expect(rawFilter).not.toBeNull();
+        const parsedFilter = JSON.parse(rawFilter);
+        return walkFilter(parsedFilter, (node) => node.venue?._eq !== undefined);
+      }
+
+      return Array.from(searchParams.keys()).some((key) =>
+        /(^|[\]])\[venue\]\[_eq\]$/.test(key) && !/\[order\]\[venue\]\[_eq\]$/.test(key),
+      );
+    };
+
+    const hasOrderVenueEq = (searchParams) => {
+      if (hasJsonEncodedFilter(searchParams)) {
+        const rawFilter = searchParams.get('filter');
+        expect(rawFilter).not.toBeNull();
+        const parsedFilter = JSON.parse(rawFilter);
+        return walkFilter(parsedFilter, (node) => node.order?.venue?._eq !== undefined);
+      }
+
+      return Array.from(searchParams.keys()).some((key) => /\[order\]\[venue\]\[_eq\]$/.test(key));
+    };
+
     for (const url of orderItemUrls) {
-      const rawFilter = new URL(url).searchParams.get('filter');
-      expect(rawFilter).not.toBeNull();
-
-      const f = JSON.parse(rawFilter);
-
-      // Must NOT use direct { venue: { _eq: ... } } on order_items — the field does not exist
-      const hasDirectVenueEq = (node) => {
-        if (!node || typeof node !== 'object') return false;
-        if (node.venue?._eq !== undefined) return true;
-        for (const logicKey of ['_and', '_or']) {
-          if (Array.isArray(node[logicKey])) {
-            for (const child of node[logicKey]) {
-              if (child?.venue?._eq !== undefined) return true;
-            }
-          }
-        }
-        return false;
-      };
-      expect(hasDirectVenueEq(f)).toBe(false);
-
-      // Must use relational { order: { venue: { _eq: ... } } } path instead
-      const hasOrderVenueEq = (node) => {
-        if (!node || typeof node !== 'object') return false;
-        if (node.order?.venue?._eq !== undefined) return true;
-        for (const logicKey of ['_and', '_or']) {
-          if (Array.isArray(node[logicKey])) {
-            for (const child of node[logicKey]) {
-              if (child?.order?.venue?._eq !== undefined) return true;
-            }
-          }
-        }
-        return false;
-      };
-      expect(hasOrderVenueEq(f)).toBe(true);
+      const searchParams = new URL(url).searchParams;
+      expect(hasDirectVenueEq(searchParams)).toBe(false);
+      expect(hasOrderVenueEq(searchParams)).toBe(true);
     }
   });
 
