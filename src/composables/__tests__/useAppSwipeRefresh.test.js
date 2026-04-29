@@ -19,6 +19,7 @@ function makeStoresAndSync() {
   const sync = {
     reconfigureAndApply: vi.fn().mockResolvedValue({ ok: true, failedCollections: [] }),
     forcePull: vi.fn().mockResolvedValue(undefined),
+    forcePush: vi.fn().mockResolvedValue({ pushed: 0, failed: 0, abandoned: 0, pushedIds: [], offline: false }),
   };
   return { configStore, orderStore, sync };
 }
@@ -107,8 +108,23 @@ describe('useAppSwipeRefresh()', () => {
 
     expect(sync.reconfigureAndApply).toHaveBeenCalledWith({ clearLocalConfig: false });
     expect(sync.forcePull).toHaveBeenCalledTimes(1);
+    expect(sync.forcePush).toHaveBeenCalledTimes(1);
     expect(configStore.hydrateConfigFromIDB).toHaveBeenCalledTimes(1);
     expect(orderStore.refreshOperationalStateFromIDB).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not call forcePush when Directus is disabled', async () => {
+    mockDirectusEnabledRef.value = false;
+    const { configStore, orderStore, sync } = makeStoresAndSync();
+    const swipe = useAppSwipeRefresh({ configStore, orderStore, sync, thresholdPx: 40 });
+    const root = document.createElement('div');
+    document.body.appendChild(root);
+
+    swipe.onTouchStart({ touches: [touch(1, 0)], target: root });
+    swipe.onTouchEnd({ changedTouches: [touch(1, 80)] });
+    await flushPromises();
+
+    expect(sync.forcePush).not.toHaveBeenCalled();
   });
 
   it('tracks pulling state and threshold progression from touchmove', () => {

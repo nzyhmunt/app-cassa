@@ -100,6 +100,10 @@ export function useAppSwipeRefresh({
       if (directusEnabledRef.value) {
         await sync.reconfigureAndApply({ clearLocalConfig: false });
         await sync.forcePull();
+        // Drain the push queue after the pull so that any changes accumulated
+        // while offline are sent to Directus as part of the full sync refresh.
+        // Fire-and-forget: swipe UX completes immediately; push runs in background.
+        if (typeof sync.forcePush === 'function') sync.forcePush().catch(() => {});
       }
       await Promise.all([
         configStore.hydrateConfigFromIDB(),

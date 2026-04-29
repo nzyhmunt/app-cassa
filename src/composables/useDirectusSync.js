@@ -940,6 +940,8 @@ let _globalTimer = null;
 let _pushInFlight = null;
 /** Single debounced timer for WS reconnect — prevents overlapping reconnect attempts. */
 let _reconnectTimer = null;
+/** Debounced short-delay push retry scheduled by _onOnline() to recover from brief post-reconnect instability. */
+let _onlineRetryTimer = null;
 /** @type {object|null} */
 let _store = null;
 /** @type {'cassa'|'sala'|'cucina'} */
@@ -1699,9 +1701,30 @@ async function _reconnectWs() {
   }
 }
 
+function _onOffline() {
+  // Immediately reflect the offline state on the WS indicator.  The Directus
+  // SDK may continue its internal reconnect retry loop for up to ~20 s before
+  // the subscription iterator throws, so without this listener the indicator
+  // would stay "connected" even though no WS traffic can flow.
+  _wsConnected.value = false;
+  // Cancel any pending reconnect timer — the reconnect will be rescheduled
+  // by _onOnline() once the network is restored.
+  if (_reconnectTimer) { clearTimeout(_reconnectTimer); _reconnectTimer = null; }
+}
+
 function _onOnline() {
   _runPush().catch(() => {});
   _runPull().catch(() => {});
+  // Schedule a second push attempt after a short delay to recover from brief
+  // post-reconnect instability (e.g. DHCP renewal, DNS resolution) that can
+  // cause the first attempt to fail with a network TypeError even though
+  // navigator.onLine is already true.  _pushInFlight prevents a duplicate
+  // push if the first attempt is still running when this fires.
+  if (_onlineRetryTimer) { clearTimeout(_onlineRetryTimer); }
+  _onlineRetryTimer = setTimeout(() => {
+    _onlineRetryTimer = null;
+    if (_running) _runPush().catch(() => {});
+  }, 5_000);
   // If WebSocket was enabled but is currently disconnected, attempt to reconnect.
   if (appConfig.directus?.wsEnabled === true && !_wsConnected.value && _running) {
     _reconnectWs().catch(() => {});
@@ -1780,6 +1803,7 @@ export function useDirectusSync() {
 
     if (typeof window !== 'undefined') {
       window.addEventListener('online', _onOnline);
+      window.addEventListener('offline', _onOffline);
       window.addEventListener('sync-queue:enqueue', _onQueueEnqueue);
     }
   }
@@ -1791,9 +1815,11 @@ export function useDirectusSync() {
     if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
     if (_globalTimer) { clearInterval(_globalTimer); _globalTimer = null; }
     if (_reconnectTimer) { clearTimeout(_reconnectTimer); _reconnectTimer = null; }
+    if (_onlineRetryTimer) { clearTimeout(_onlineRetryTimer); _onlineRetryTimer = null; }
     _stopSubscriptions();
     if (typeof window !== 'undefined') {
       window.removeEventListener('online', _onOnline);
+      window.removeEventListener('offline', _onOffline);
       window.removeEventListener('sync-queue:enqueue', _onQueueEnqueue);
     }
     syncStatus.value = 'idle';
@@ -1919,10 +1945,12 @@ export function _resetDirectusSyncSingleton() {
   if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
   if (_globalTimer) { clearInterval(_globalTimer); _globalTimer = null; }
   if (_reconnectTimer) { clearTimeout(_reconnectTimer); _reconnectTimer = null; }
+  if (_onlineRetryTimer) { clearTimeout(_onlineRetryTimer); _onlineRetryTimer = null; }
   _stopSubscriptions();
   _recentlyPushed.clear();
   if (typeof window !== 'undefined') {
     window.removeEventListener('online', _onOnline);
+    window.removeEventListener('offline', _onOffline);
     window.removeEventListener('sync-queue:enqueue', _onQueueEnqueue);
   }
   syncStatus.value = 'idle';
