@@ -31,6 +31,7 @@ import {
   mapMenuItemModifierLinkFromDirectus,
   mapTableMergeSessionFromDirectus,
   mergeOrderFromWSPayload,
+  mergeOrderItemFromWSPayload,
   relationId,
 } from '../utils/mappers.js';
 import { getDirectusClient, resetDirectusClient } from './useDirectusClient.js';
@@ -298,7 +299,10 @@ async function _fetchUpdatedViaSDK(collection, sinceTs, page = 1) {
   const query = {
     limit: 200,
     page,
-    sort: [quirks.noDateUpdated ? 'id' : 'date_updated'],
+    // Primary sort by date_updated (or id for quirk collections); secondary by
+    // date_created and id to guarantee a stable, deterministic page order when
+    // many records share the same date_updated value (including null).
+    sort: quirks.noDateUpdated ? ['id'] : ['date_updated', 'date_created', 'id'],
     // For orders, expand nested order_items and their modifiers so that the
     // detail view is populated even on a fresh device that has never locally
     // created those orders.
@@ -307,11 +311,20 @@ async function _fetchUpdatedViaSDK(collection, sinceTs, page = 1) {
       : ['*'],
   };
 
-  // Incremental pull filter (only records updated after last known timestamp).
+  // Incremental pull filter (only records updated/created after last known timestamp).
   // Skipped for collections that have no date_updated field (noDateUpdated quirk).
+  //
+  // Directus sets date_updated only when a record is PATCHed, not on initial creation,
+  // so newly created records have date_updated = null. Without the _or clause those
+  // records would be invisible to every incremental poll after the initial full pull.
   const conditions = [];
   if (sinceTs && !quirks.noDateUpdated) {
-    conditions.push({ date_updated: { _gt: sinceTs } });
+    conditions.push({
+      _or: [
+        { date_updated: { _gt: sinceTs } },
+        { _and: [{ date_updated: { _null: true } }, { date_created: { _gt: sinceTs } }] },
+      ],
+    });
   }
   // Venue filter — skipped for collections without a `venue` FK (noVenueFilter quirk).
   if (!quirks.noVenueFilter && cfg.venueId != null) {
@@ -328,7 +341,9 @@ async function _fetchUpdatedViaSDK(collection, sinceTs, page = 1) {
     const records = await client.request(readItems(collection, query));
     const _pullDuration = Date.now() - _pullStart;
     const data = Array.isArray(records) ? records : [];
-    const timestamps = data.map(r => r.date_updated).filter(Boolean);
+    // Use date_updated as the primary cursor value, falling back to date_created
+    // for records where date_updated is null (i.e. created but never patched).
+    const timestamps = data.map(r => r.date_updated ?? r.date_created).filter(Boolean);
     const maxTs = timestamps.length > 0 ? timestamps.reduce((a, b) => (a > b ? a : b)) : null;
     addSyncLog({
       direction: 'IN',
@@ -358,6 +373,181 @@ async function _fetchUpdatedViaSDK(collection, sinceTs, page = 1) {
       recordCount: 0,
     });
     return { data: [], maxTs: null, error: e };
+  }
+}
+
+/**
+ * Merges an array of freshly-pulled order_items into their parent orders stored
+ * in the `orders` IDB ObjectStore.
+ *
+ * The `orders` store persists each order with an embedded `orderItems` array
+ * (populated when orders are fetched with `fields: ['*', 'order_items.*']`).
+ * When the cucina app pulls order_items directly via the `order_items` collection
+ * those records land in a separate `order_items` ObjectStore and never reach the
+ * embedded arrays — causing the in-memory store to show stale item data even
+ * after a successful pull.
+ *
+ * This function bridges the gap: for each affected order it loads the current
+ * record, upserts the incoming items (last-write-wins on date_updated/date_created),
+ * and writes the result back before the orders store refresh fires.
+ *
+ * @param {Array<object>} pulledItems - Mapped order_item records (from _mapRecord).
+ * @param {Array<object>} [rawItems]  - Optional raw Directus records (snake_case, same
+ *   length/order as pulledItems). May come from a WS event or a REST pull response.
+ *   When provided, existing embedded items are merged via `mergeOrderItemFromWSPayload`
+ *   so that absent mapped-default fields (quantity, unit_price, etc.) never clobber
+ *   real IDB values with zeros.
+ */
+async function _mergeOrderItemsIntoOrdersIDB(pulledItems, rawItems = null) {
+  if (!pulledItems || pulledItems.length === 0) return;
+  try {
+    const db = await getDB();
+
+    // Build a raw-payload lookup if rawItems were provided (WS or REST pull path).
+    const rawById = new Map();
+    if (rawItems && rawItems.length === pulledItems.length) {
+      for (let i = 0; i < rawItems.length; i++) {
+        const id = String(pulledItems[i]?.id ?? pulledItems[i]?.uid ?? '');
+        if (id) rawById.set(id, rawItems[i]);
+      }
+    }
+
+    // Group items by parent order ID
+    const itemsByOrderId = new Map();
+    for (const item of pulledItems) {
+      const orderId = item?.order ?? item?.orderId;
+      if (!orderId) continue;
+      const key = String(orderId);
+      if (!itemsByOrderId.has(key)) itemsByOrderId.set(key, []);
+      itemsByOrderId.get(key).push(item);
+    }
+    if (itemsByOrderId.size === 0) return;
+
+    const tx = db.transaction('orders', 'readwrite');
+    for (const [orderId, items] of itemsByOrderId) {
+      const order = await tx.store.get(orderId);
+      if (!order) continue;
+
+      const existingItems = Array.isArray(order.orderItems) ? order.orderItems : [];
+      const byId = new Map(existingItems.map(i => [String(i.id ?? i.uid ?? ''), i]));
+
+      for (const item of items) {
+        const itemId = String(item.id ?? item.uid ?? '');
+        if (!itemId) continue;
+        const existing = byId.get(itemId);
+        if (!existing) {
+          byId.set(itemId, item);
+        } else {
+          // Last-write-wins using date_updated, falling back to date_created.
+          // Use Date-based comparison (consistent with upsertRecordsIntoIDB):
+          // incoming wins only when existing has no timestamp (can't compare) or
+          // the incoming timestamp is strictly newer than the existing one.
+          // If both have the same timestamp, keep the existing record.
+          // If incoming has no timestamp but existing does, keep the existing record.
+          const existingTs = existing.date_updated ?? existing.date_created ?? null;
+          const incomingTs = item.date_updated ?? item.date_created ?? null;
+          const incomingWins = !existingTs || (incomingTs != null && new Date(incomingTs) > new Date(existingTs));
+          if (incomingWins) {
+            // When a raw WS payload is available, use the selective merge so that
+            // mapper-supplied defaults for absent fields (e.g. quantity → 0) never
+            // overwrite real values already stored in the embedded item.
+            const rawPayload = rawById.get(itemId);
+            byId.set(itemId, rawPayload
+              ? mergeOrderItemFromWSPayload(existing, rawPayload, item)
+              : { ...existing, ...item });
+          }
+          // else: existing is newer — keep the map unchanged
+        }
+      }
+
+      const mergedItems = Array.from(byId.values()).filter(i => i.id ?? i.uid);
+      // A shallow spread is intentional here: IDB's put() performs its own
+      // structured-clone serialisation so shared nested references (notes,
+      // modifiers) are safely deep-copied before being written to the store.
+      await tx.store.put({ ...order, orderItems: mergedItems });
+    }
+    await tx.done;
+  } catch (e) {
+    console.warn('[DirectusSync] _mergeOrderItemsIntoOrdersIDB failed:', e);
+    throw e;
+  }
+}
+
+/**
+ * Removes deleted order_items (identified by their IDs) from the embedded
+ * `orderItems` arrays of their parent orders in the `orders` IDB ObjectStore.
+ *
+ * Called by `_handleSubscriptionMessage` when a WS `delete` event arrives for
+ * the `order_items` collection so that cucina devices with wsEnabled see the
+ * deletion reflected in the orders store without waiting for the next poll.
+ *
+ * @param {string[]} deletedIds - IDs of the deleted order_item records.
+ */
+async function _removeOrderItemsFromOrdersIDB(deletedIds) {
+  if (!deletedIds || deletedIds.length === 0) return;
+  try {
+    const db = await getDB();
+    const deletedSet = new Set(deletedIds.map(String));
+    const tx = db.transaction(['order_items', 'orders'], 'readwrite');
+    const orderItemsStore = tx.objectStore('order_items');
+    const ordersStore = tx.objectStore('orders');
+    const affectedOrderIds = new Set();
+
+    // Resolve only the parent orders for the deleted items, so we do not scan
+    // the entire orders store on every WS delete event.
+    const resolvedIds = new Set();
+    for (const deletedId of deletedSet) {
+      const orderItem = await orderItemsStore.get(deletedId);
+      if (!orderItem) continue;
+      resolvedIds.add(deletedId);
+
+      const parentOrderId = relationId(
+        orderItem.order ?? orderItem.orders_id ?? orderItem.order_id ?? orderItem.orderId,
+      );
+      if (parentOrderId != null && parentOrderId !== '') {
+        affectedOrderIds.add(String(parentOrderId));
+      }
+    }
+
+    for (const orderId of affectedOrderIds) {
+      const order = await ordersStore.get(orderId);
+      if (!order) continue;
+
+      const items = Array.isArray(order.orderItems) ? order.orderItems : [];
+      const filtered = items.filter(i => {
+        const itemId = String(i.id ?? i.uid ?? '');
+        return !deletedSet.has(itemId);
+      });
+
+      if (filtered.length !== items.length) {
+        await ordersStore.put({ ...order, orderItems: filtered });
+      }
+    }
+
+    // Fallback: for deleted IDs that weren't in the order_items store (e.g. on a
+    // fresh device before the first order_items pull), scan all orders to remove
+    // any matching embedded items.  This O(#orders) pass only runs when some IDs
+    // could not be resolved via the fast lookup above.
+    const unresolvedIds = new Set();
+    for (const id of deletedSet) {
+      if (!resolvedIds.has(id)) unresolvedIds.add(id);
+    }
+    if (unresolvedIds.size > 0) {
+      let cursor = await ordersStore.openCursor();
+      while (cursor) {
+        const order = cursor.value;
+        const items = Array.isArray(order.orderItems) ? order.orderItems : [];
+        const filtered = items.filter(i => !unresolvedIds.has(String(i.id ?? i.uid ?? '')));
+        if (filtered.length !== items.length) {
+          await cursor.update({ ...order, orderItems: filtered });
+        }
+        cursor = await cursor.continue();
+      }
+    }
+    await tx.done;
+  } catch (e) {
+    console.warn('[DirectusSync] _removeOrderItemsFromOrdersIDB failed:', e);
+    throw e;
   }
 }
 
@@ -395,6 +585,14 @@ async function _pullCollection(collection, { forceFull = false, lastPullTimestam
   let hadFetchError = false;
   let hadRemoteRecords = false;
   let cachedState = undefined;
+  // Collect all mapped order_items across pages so they can be merged into their
+  // parent orders in the `orders` IDB store after the pull completes.
+  // rawPulledOrderItems mirrors pulledOrderItems but contains the unmodified
+  // Directus API records so that _mergeOrderItemsIntoOrdersIDB can use
+  // mergeOrderItemFromWSPayload to avoid clobbering existing embedded modifier
+  // data with mapper defaults (e.g. `modifiers: []` from ID-only relation fields).
+  const pulledOrderItems = collection === 'order_items' ? [] : null;
+  const rawPulledOrderItems = collection === 'order_items' ? [] : null;
 
   while (true) { // eslint-disable-line no-constant-condition
     const { data, maxTs, error } = await _fetchUpdatedViaSDK(collection, storedSinceTs, page);
@@ -403,6 +601,10 @@ async function _pullCollection(collection, { forceFull = false, lastPullTimestam
     hadRemoteRecords = true;
 
     const mapped = data.map(r => _mapRecord(collection, r));
+    if (pulledOrderItems !== null) {
+      pulledOrderItems.push(...mapped);
+      rawPulledOrderItems.push(...data);
+    }
     const preparedResult = await _preparePullRecordsForIDB(collection, mapped, cachedState);
     cachedState = preparedResult.state;
     const prepared = preparedResult.records;
@@ -415,7 +617,23 @@ async function _pullCollection(collection, { forceFull = false, lastPullTimestam
   }
 
   if (hadRemoteRecords) {
-    await _refreshStoreFromIDB(collection);
+    if (collection === 'order_items') {
+      // Merge pulled items into their parent orders in the `orders` IDB store so
+      // that refreshOperationalStateFromIDB('orders') picks up the latest items.
+      // This is necessary because the cucina app pulls order_items directly and
+      // `refreshOperationalStateFromIDB` has no handler for the 'order_items' key.
+      // Errors from the merge are propagated: if the merge fails, treat it like a
+      // fetch error so the cursor does not advance and the cycle retries next poll.
+      try {
+        await _mergeOrderItemsIntoOrdersIDB(pulledOrderItems, rawPulledOrderItems);
+      } catch (e) {
+        console.warn('[DirectusSync] order_items merge failed; cursor will not advance:', e);
+        hadFetchError = true;
+      }
+      await _refreshStoreFromIDB('orders');
+    } else {
+      await _refreshStoreFromIDB(collection);
+    }
   }
 
   if (!hadFetchError && latestTs && latestTs !== storedSinceTs) {
@@ -464,6 +682,18 @@ async function _handleSubscriptionMessage(collection, message) {
     if (nonEchoIds.length === 0) return;
     if (collection === 'table_merge_sessions') {
       await _pullCollection('table_merge_sessions', { forceFull: true });
+      return;
+    }
+    if (collection === 'order_items') {
+      // Deletes from the items ObjectStore must also remove the item from the
+      // embedded orderItems array of the parent order so that the orders store
+      // stays consistent on cucina devices with wsEnabled.
+      // IMPORTANT: _removeOrderItemsFromOrdersIDB must run BEFORE deleteRecordsFromIDB
+      // because it looks up the parent order ID via the order_items ObjectStore;
+      // if we delete first, the lookup finds nothing and the embedded array is not cleaned up.
+      await _removeOrderItemsFromOrdersIDB(nonEchoIds);
+      await deleteRecordsFromIDB(collection, nonEchoIds);
+      await _refreshStoreFromIDB('orders');
       return;
     }
     await deleteRecordsFromIDB(collection, nonEchoIds);
@@ -523,8 +753,47 @@ async function _handleSubscriptionMessage(collection, message) {
         prepared = mapped;
       }
     }
+    // For order_items updates, apply the same selective-merge strategy: load the
+    // existing IDB record and merge only the fields present in the raw WS payload.
+    // This prevents absent numeric/relation fields (quantity, unit_price, order FK,
+    // notes, etc.) from being clobbered with mapper-supplied defaults (e.g. quantity → 0)
+    // when Directus sends a partial payload (e.g. {id, kitchen_ready, date_updated}).
+    // create events use the incoming record as-is (no prior IDB record to merge with).
+    if (collection === 'order_items' && event !== 'create') {
+      try {
+        const db = await getDB();
+        prepared = await Promise.all(nonEcho.map(async (raw, i) => {
+          const incoming = mapped[i];
+          const id = incoming?.id;
+          if (!id) return incoming;
+          try {
+            const existing = await db.get('order_items', String(id));
+            if (!existing) return incoming;
+            return mergeOrderItemFromWSPayload(existing, raw, incoming);
+          } catch (e) {
+            console.warn('[DirectusSync] WS order_items merge: IDB lookup failed for', id, e);
+            return incoming;
+          }
+        }));
+      } catch (e) {
+        console.warn('[DirectusSync] WS order_items merge: IDB unavailable, falling back to incoming records', e);
+        prepared = mapped;
+      }
+    }
     await upsertRecordsIntoIDB(collection, prepared);
-    await _refreshStoreFromIDB(collection);
+    if (collection === 'order_items') {
+      // WS payloads for order_items must also be merged into the embedded
+      // orderItems arrays of their parent orders so the orders store on cucina
+      // devices with wsEnabled stays up to date.
+      // Pass `prepared` (the selectively-merged items, which preserve the order FK
+      // for correct parent-order grouping) and the raw nonEcho payloads so the
+      // embedded merge uses mergeOrderItemFromWSPayload and does not clobber
+      // existing embedded fields with mapper-supplied defaults for partial payloads.
+      await _mergeOrderItemsIntoOrdersIDB(prepared, nonEcho);
+      await _refreshStoreFromIDB('orders');
+    } else {
+      await _refreshStoreFromIDB(collection);
+    }
   }
 
   lastPullAt.value = new Date().toISOString();

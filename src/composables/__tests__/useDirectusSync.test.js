@@ -1196,9 +1196,557 @@ describe('pull — IDB last-write-wins', () => {
     const stored = await db.get('orders', 'ord_1');
     expect(stored.status).toBe('delivered'); // local wins
   });
+
+  it('upserts a record with date_updated = null using date_created for conflict resolution', async () => {
+    // Seed IDB with an older record (date_updated set)
+    await upsertRecordsIntoIDB('orders', [{
+      id: 'ord_null_du',
+      status: 'pending',
+      date_updated: '2024-01-01T00:00:00.000Z',
+      date_created: '2024-01-01T00:00:00.000Z',
+    }]);
+
+    // Incoming record has null date_updated but a newer date_created
+    const newerOrder = makeRemoteOrder({
+      id: 'ord_null_du',
+      status: 'accepted',
+      date_updated: null,
+      date_created: '2024-06-01T00:00:00.000Z',
+    });
+    vi.spyOn(global, 'fetch').mockImplementation(() => Promise.resolve(directusListResponse([newerOrder])));
+
+    const sync = useDirectusSync();
+    await sync.forcePull();
+
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+    const stored = await db.get('orders', 'ord_null_du');
+    expect(stored.status).toBe('accepted'); // newer date_created wins
+  });
+
+  it('preserves local record when incoming has null date_updated but older date_created', async () => {
+    // Seed IDB with a record that has a date_updated newer than the incoming date_created
+    await upsertRecordsIntoIDB('orders', [{
+      id: 'ord_local_newer',
+      status: 'delivered',
+      date_updated: '2024-08-01T00:00:00.000Z',
+      date_created: '2024-01-01T00:00:00.000Z',
+    }]);
+
+    // Incoming from Directus: date_updated = null, date_created older than local date_updated
+    const staleOrder = makeRemoteOrder({
+      id: 'ord_local_newer',
+      status: 'pending',
+      date_updated: null,
+      date_created: '2024-03-01T00:00:00.000Z',
+    });
+    vi.spyOn(global, 'fetch').mockImplementation(() => Promise.resolve(directusListResponse([staleOrder])));
+
+    const sync = useDirectusSync();
+    await sync.forcePull();
+
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+    const stored = await db.get('orders', 'ord_local_newer');
+    expect(stored.status).toBe('delivered'); // local wins
+  });
 });
 
-// ── Pull: in-memory store merge ───────────────────────────────────────────────
+// ── Pull: null-dated incremental filter ──────────────────────────────────────
+
+describe('pull — incremental filter includes null-dated records', () => {
+  it('includes _or clause for null date_updated when sinceTs is set', async () => {
+    await saveLastPullTsToIDB('orders', '2024-01-01T00:00:00.000Z');
+
+    const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation(() => Promise.resolve(directusListResponse([])));
+    const sync = useDirectusSync();
+    await sync.forcePull();
+
+    const orderCalls = fetchSpy.mock.calls
+      .map(([url]) => String(url))
+      .filter(url => url.includes('/items/orders'));
+    expect(orderCalls.length).toBeGreaterThan(0);
+
+    // Verify the filter contains both date_updated > sinceTs and the null-date clause.
+    // Directus SDKs may encode this either as a JSON `filter=` param or as
+    // bracketed query params like `filter[_or][0][date_updated][_gt]=...`.
+    let matchedIncrementalFilter = false;
+    for (const url of orderCalls) {
+      const parsedUrl = new URL(url);
+      const rawFilter = parsedUrl.searchParams.get('filter');
+
+      if (rawFilter) {
+        try {
+          const parsed = JSON.parse(rawFilter);
+          const json = JSON.stringify(parsed);
+          expect(json).toContain('_or');
+          expect(json).toContain('_null');
+          expect(json).toContain('date_created');
+          matchedIncrementalFilter = true;
+          continue;
+        } catch {
+          // Fall through to bracketed-param checks below when `filter`
+          // is present but not JSON-encoded.
+        }
+      }
+
+      const searchParamKeys = Array.from(parsedUrl.searchParams.keys());
+      const hasBracketedOr = searchParamKeys.some(key => key.includes('[_or]'));
+      const hasBracketedNull = searchParamKeys.some(key => key.includes('[_null]'));
+      const hasBracketedDateCreated = searchParamKeys.some(key => key.includes('[date_created]'));
+
+      if (hasBracketedOr || hasBracketedNull || hasBracketedDateCreated) {
+        expect(hasBracketedOr).toBe(true);
+        expect(hasBracketedNull).toBe(true);
+        expect(hasBracketedDateCreated).toBe(true);
+        matchedIncrementalFilter = true;
+      }
+    }
+
+    expect(matchedIncrementalFilter).toBe(true);
+  });
+
+  it('does NOT add incremental filter when sinceTs is null (full pull)', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation(() => Promise.resolve(directusListResponse([])));
+    const sync = useDirectusSync();
+    await sync.forcePull(); // no stored cursor → full pull
+
+    const orderCalls = fetchSpy.mock.calls
+      .map(([url]) => String(url))
+      .filter(url => url.includes('/items/orders'));
+    expect(orderCalls.length).toBeGreaterThan(0);
+
+    for (const url of orderCalls) {
+      expect(hasDateUpdatedGtFilter(url)).toBe(false);
+    }
+  });
+});
+
+// ── Pull: order_items merge into parent orders ────────────────────────────────
+
+describe('pull — order_items merged into parent orders in IDB', () => {
+  it('merges pulled order_items into their parent order in IDB and refreshes orders store', async () => {
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+
+    // Seed an existing order without items
+    await db.put('orders', {
+      id: 'ord_ki_1',
+      status: 'accepted',
+      table: '03',
+      total_amount: 10,
+      item_count: 1,
+      orderItems: [],
+      date_updated: '2024-01-01T00:00:00.000Z',
+    });
+
+    // Remote returns one order_item for that order
+    const remoteItem = {
+      id: 'item_1',
+      order: 'ord_ki_1',
+      dish: null,
+      name: 'Pizza',
+      quantity: 1,
+      unit_price: 10,
+      voided_quantity: 0,
+      kitchen_ready: true,
+      date_updated: '2024-06-01T00:00:00.000Z',
+    };
+
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      if (url.includes('/items/order_items')) return Promise.resolve(directusListResponse([remoteItem]));
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const store = makeStore();
+    const sync = useDirectusSync();
+    sync.startSync({ appType: 'cucina', store });
+    await sync.forcePull();
+
+    const order = await db.get('orders', 'ord_ki_1');
+    expect(order).toBeDefined();
+    expect(order.orderItems).toHaveLength(1);
+    expect(order.orderItems[0].id).toBe('item_1');
+    expect(order.orderItems[0].kitchenReady).toBe(true);
+  });
+
+  it('does not overwrite a newer existing item with an older pulled item', async () => {
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+
+    await db.put('orders', {
+      id: 'ord_ki_lww',
+      status: 'accepted',
+      table: '04',
+      total_amount: 10,
+      item_count: 1,
+      orderItems: [{
+        id: 'item_lww',
+        order: 'ord_ki_lww',
+        name: 'Pizza',
+        quantity: 1,
+        unit_price: 10,
+        kitchenReady: true,
+        date_updated: '2024-09-01T00:00:00.000Z',
+      }],
+      date_updated: '2024-01-01T00:00:00.000Z',
+    });
+
+    // Pulled item is older (kitchen_ready still false)
+    const olderItem = {
+      id: 'item_lww',
+      order: 'ord_ki_lww',
+      name: 'Pizza',
+      quantity: 1,
+      unit_price: 10,
+      voided_quantity: 0,
+      kitchen_ready: false,
+      date_updated: '2024-03-01T00:00:00.000Z',
+    };
+
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      if (url.includes('/items/order_items')) return Promise.resolve(directusListResponse([olderItem]));
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const sync = useDirectusSync();
+    const store = makeStore();
+    sync.startSync({ appType: 'cucina', store });
+    await sync.forcePull();
+
+    const order = await db.get('orders', 'ord_ki_lww');
+    expect(order.orderItems[0].kitchenReady).toBe(true); // local newer item wins
+  });
+});
+
+// ── WebSocket: order_items create/update/delete merges into parent orders ─────
+
+describe('WS order_items — embedded merge into parent orders', () => {
+  it('WS create for order_item merges into parent order.orderItems in IDB', async () => {
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+
+    // Seed a parent order with no items
+    await db.put('orders', {
+      id: 'ord_ws_item_1',
+      status: 'accepted',
+      table: '01',
+      orderItems: [],
+      date_updated: '2024-01-01T00:00:00.000Z',
+    });
+
+    await _handleSubscriptionMessage('order_items', {
+      event: 'create',
+      data: [{
+        id: 'oi_ws_1',
+        order: 'ord_ws_item_1',
+        name: 'Bistecca',
+        quantity: 1,
+        unit_price: 18,
+        voided_quantity: 0,
+        kitchen_ready: false,
+        date_updated: '2024-06-01T00:00:00.000Z',
+      }],
+    });
+
+    const order = await db.get('orders', 'ord_ws_item_1');
+    expect(order).toBeDefined();
+    expect(order.orderItems).toHaveLength(1);
+    expect(order.orderItems[0].id).toBe('oi_ws_1');
+  });
+
+  it('WS update for order_item updates the item inside parent order.orderItems', async () => {
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+
+    await db.put('orders', {
+      id: 'ord_ws_item_upd',
+      status: 'accepted',
+      table: '02',
+      orderItems: [{
+        id: 'oi_ws_upd',
+        order: 'ord_ws_item_upd',
+        name: 'Pasta',
+        quantity: 1,
+        unit_price: 10,
+        kitchenReady: false,
+        date_updated: '2024-01-01T00:00:00.000Z',
+      }],
+      date_updated: '2024-01-01T00:00:00.000Z',
+    });
+
+    await _handleSubscriptionMessage('order_items', {
+      event: 'update',
+      data: [{
+        id: 'oi_ws_upd',
+        order: 'ord_ws_item_upd',
+        name: 'Pasta',
+        quantity: 1,
+        unit_price: 10,
+        voided_quantity: 0,
+        kitchen_ready: true,
+        date_updated: '2024-09-01T00:00:00.000Z',
+      }],
+    });
+
+    const order = await db.get('orders', 'ord_ws_item_upd');
+    expect(order.orderItems).toHaveLength(1);
+    expect(order.orderItems[0].kitchenReady).toBe(true);
+  });
+
+  it('WS delete for order_item removes it from parent order.orderItems', async () => {
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+
+    await db.put('orders', {
+      id: 'ord_ws_item_del',
+      status: 'accepted',
+      table: '03',
+      orderItems: [
+        { id: 'oi_del_1', name: 'Pizza', quantity: 1, unit_price: 9 },
+        { id: 'oi_del_2', name: 'Acqua', quantity: 2, unit_price: 2 },
+      ],
+      date_updated: '2024-01-01T00:00:00.000Z',
+    });
+
+    // Also write the item to the order_items store so deleteRecordsFromIDB has something to remove
+    await upsertRecordsIntoIDB('order_items', [
+      { id: 'oi_del_1', order: 'ord_ws_item_del', name: 'Pizza', quantity: 1, unit_price: 9 },
+    ]);
+
+    await _handleSubscriptionMessage('order_items', {
+      event: 'delete',
+      data: ['oi_del_1'],
+    });
+
+    const order = await db.get('orders', 'ord_ws_item_del');
+    expect(order.orderItems).toHaveLength(1);
+    expect(order.orderItems[0].id).toBe('oi_del_2'); // only the surviving item remains
+  });
+
+  it('WS partial update for order_item does NOT clobber quantity/unitPrice with mapper defaults', async () => {
+    // This guards against the regression described in the review: mapOrderItemFromDirectus
+    // fills absent numeric fields with 0. A partial WS payload (e.g. only kitchen_ready)
+    // must NOT overwrite real quantity/unit_price values stored in the embedded item.
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+
+    // Seed a parent order with a known embedded item
+    await db.put('orders', {
+      id: 'ord_ws_partial_oi',
+      status: 'accepted',
+      table: '05',
+      orderItems: [{
+        id: 'oi_partial',
+        order: 'ord_ws_partial_oi',
+        name: 'Risotto',
+        quantity: 3,
+        unitPrice: 14,
+        unit_price: 14,
+        voidedQuantity: 0,
+        voided_quantity: 0,
+        kitchenReady: false,
+        notes: ['senza cipolla'],
+        modifiers: [],
+        date_updated: '2024-01-01T00:00:00.000Z',
+      }],
+      date_updated: '2024-01-01T00:00:00.000Z',
+    });
+
+    // Also seed the order_items store so upsertRecordsIntoIDB has something
+    await upsertRecordsIntoIDB('order_items', [{
+      id: 'oi_partial',
+      order: 'ord_ws_partial_oi',
+      name: 'Risotto',
+      quantity: 3,
+      unit_price: 14,
+      voided_quantity: 0,
+      kitchen_ready: false,
+      date_updated: '2024-01-01T00:00:00.000Z',
+    }]);
+
+    // WS sends a partial payload: only kitchen_ready is updated — quantity,
+    // unit_price, and order are absent, so merge logic must preserve them.
+    await _handleSubscriptionMessage('order_items', {
+      event: 'update',
+      data: [{
+        id: 'oi_partial',
+        kitchen_ready: true,
+        date_updated: '2024-09-01T00:00:00.000Z',
+      }],
+    });
+
+    const order = await db.get('orders', 'ord_ws_partial_oi');
+    expect(order.orderItems).toHaveLength(1);
+    const item = order.orderItems[0];
+    // kitchenReady must have been updated
+    expect(item.kitchenReady).toBe(true);
+    // quantity and unitPrice must NOT have been clobbered with mapper defaults
+    expect(item.quantity).toBe(3);
+    expect(item.unitPrice).toBe(14);
+    expect(item.unit_price).toBe(14);
+    // notes must also be preserved (absent from WS payload → not in raw → kept)
+    expect(item.notes).toEqual(['senza cipolla']);
+
+    // The order_items ObjectStore must also preserve quantity/unit_price/order FK
+    // on partial WS updates (guards against the store being clobbered with defaults).
+    const storedItem = await db.get('order_items', 'oi_partial');
+    expect(storedItem).toBeDefined();
+    expect(storedItem.quantity).toBe(3);
+    expect(storedItem.unit_price).toBe(14);
+    expect(storedItem.kitchen_ready).toBe(true);
+    // The order FK must be preserved (was absent from the partial WS payload).
+    expect(storedItem.order).toBe('ord_ws_partial_oi');
+  });
+
+  it('WS delete for order_item removes it via fallback scan when not yet in order_items store', async () => {
+    // Guards the fallback path in _removeOrderItemsFromOrdersIDB: when a WS delete
+    // arrives for an item that is not (yet) in the order_items IDB store, the helper
+    // must still scan orders.orderItems and remove the embedded entry.
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+
+    const orderId = 'ord_ws_fallback_del';
+
+    // Seed an order with an embedded item — but do NOT seed the item in order_items.
+    await db.put('orders', {
+      id: orderId,
+      status: 'accepted',
+      table: '09',
+      orderItems: [
+        { id: 'oi_fallback_1', order: orderId, name: 'Salmone', quantity: 1, unit_price: 22 },
+        { id: 'oi_fallback_2', order: orderId, name: 'Tiramisù', quantity: 2, unit_price: 7 },
+      ],
+      date_updated: '2024-01-01T00:00:00.000Z',
+    });
+
+    // item is NOT in order_items store, so the normal lookup returns null →
+    // the fallback cursor scan must remove it from the embedded array.
+    await _handleSubscriptionMessage('order_items', {
+      event: 'delete',
+      data: ['oi_fallback_1'],
+    });
+
+    const order = await db.get('orders', orderId);
+    expect(order.orderItems).toHaveLength(1);
+    expect(order.orderItems[0].id).toBe('oi_fallback_2');
+  });
+
+  it('WS partial update for order_item preserves existing modifiers when WS sends ID-only relation entries', async () => {
+    // Guards against the regression in mergeOrderItemFromWSPayload: when a WS
+    // subscription uses fields: ['*'], the `order_item_modifiers` relation field
+    // arrives as bare IDs (numbers), which mapOrderItemFromDirectus normalises to
+    // `modifiers: []`.  The merge function must NOT overwrite existing modifiers
+    // with that empty array — only apply when incoming.modifiers is non-empty.
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+
+    const orderId = 'ord_ws_modifier_preserve';
+    const existingModifiers = [
+      { id: 'mod_1', name: 'Extra cheese', price: 2, quantity: 1 },
+      { id: 'mod_2', name: 'No onion', price: 0, quantity: 1 },
+    ];
+
+    await db.put('orders', {
+      id: orderId,
+      status: 'accepted',
+      table: '11',
+      orderItems: [{
+        id: 'oi_mod_test',
+        order: orderId,
+        name: 'Pizza',
+        quantity: 1,
+        unitPrice: 12,
+        unit_price: 12,
+        kitchenReady: false,
+        modifiers: existingModifiers,
+        date_updated: '2024-01-01T00:00:00.000Z',
+      }],
+      date_updated: '2024-01-01T00:00:00.000Z',
+    });
+
+    await upsertRecordsIntoIDB('order_items', [{
+      id: 'oi_mod_test',
+      order: orderId,
+      name: 'Pizza',
+      quantity: 1,
+      unit_price: 12,
+      kitchen_ready: false,
+      // order_item_modifiers stored as ID-only entries (simulating what IDB
+      // holds after a full pull that didn't expand the relation):
+      order_item_modifiers: [{ id: 'mod_1' }, { id: 'mod_2' }],
+      date_updated: '2024-01-01T00:00:00.000Z',
+    }]);
+
+    // WS sends `order_item_modifiers` as bare IDs (the typical fields:['*'] response).
+    // mapOrderItemFromDirectus() normalises this to `modifiers: []` because the
+    // entries are not fully-expanded objects with a `price` field.
+    await _handleSubscriptionMessage('order_items', {
+      event: 'update',
+      data: [{
+        id: 'oi_mod_test',
+        kitchen_ready: true,
+        order_item_modifiers: [1, 2],      // bare IDs, not expanded objects
+        date_updated: '2024-09-01T00:00:00.000Z',
+      }],
+    });
+
+    // kitchenReady must be updated
+    const order = await db.get('orders', orderId);
+    const item = order.orderItems[0];
+    expect(item.kitchenReady).toBe(true);
+    // Existing modifiers must NOT have been clobbered with []
+    expect(item.modifiers).toHaveLength(2);
+    expect(item.modifiers[0].id).toBe('mod_1');
+    expect(item.modifiers[1].id).toBe('mod_2');
+  });
+
+  it('_mergeOrderItemsIntoOrdersIDB uses strictly-greater Date comparison (same as upsertRecordsIntoIDB)', async () => {
+    // Guards timestamp-comparison consistency: same-timestamp incoming should NOT
+    // overwrite an existing embedded item (matches upsertRecordsIntoIDB behavior).
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+
+    const sameTs = '2024-06-01T12:00:00.000Z';
+    const orderId = 'ord_ts_compare';
+
+    await db.put('orders', {
+      id: orderId,
+      status: 'accepted',
+      table: '10',
+      orderItems: [{
+        id: 'oi_ts_1',
+        order: orderId,
+        name: 'Originale',
+        quantity: 5,
+        unitPrice: 10,
+        unit_price: 10,
+        date_updated: sameTs,
+      }],
+      date_updated: sameTs,
+    });
+
+    // WS update arrives with the SAME timestamp — should keep existing (not overwrite).
+    await _handleSubscriptionMessage('order_items', {
+      event: 'update',
+      data: [{
+        id: 'oi_ts_1',
+        order: orderId,
+        name: 'Sostituto',
+        quantity: 99,
+        unit_price: 1,
+        date_updated: sameTs,
+      }],
+    });
+
+    const order = await db.get('orders', orderId);
+    const item = order.orderItems[0];
+    // Same timestamp → incoming does NOT win; existing values preserved.
+    expect(item.name).toBe('Originale');
+    expect(item.quantity).toBe(5);
+    expect(item.unit_price).toBe(10);
+  });
+});
 
 describe('pull — in-memory orders merge', () => {
   it('adds a new order from remote into store.orders', async () => {
@@ -1497,6 +2045,25 @@ describe('pull timestamp persistence', () => {
 
     const ts = await loadLastPullTsFromIDB('orders');
     expect(ts).toBe('2024-07-15T12:00:00.000Z');
+  });
+
+  it('saves date_created as cursor when date_updated is null (newly created record)', async () => {
+    const remoteOrder = makeRemoteOrder({
+      id: 'ord_null_ts',
+      date_updated: null,
+      date_created: '2024-09-20T08:00:00.000Z',
+    });
+
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      if (url.includes('/items/orders')) return Promise.resolve(directusListResponse([remoteOrder]));
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const sync = useDirectusSync();
+    await sync.forcePull();
+
+    const ts = await loadLastPullTsFromIDB('orders');
+    expect(ts).toBe('2024-09-20T08:00:00.000Z');
   });
 
   it('does not advance last_pull_ts when a paginated pull fails mid-cycle', async () => {
