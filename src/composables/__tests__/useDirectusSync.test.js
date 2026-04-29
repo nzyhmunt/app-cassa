@@ -2642,6 +2642,56 @@ describe('pull — per-collection fields expansion', () => {
     }
   });
 
+  it('order_items pull uses relational order.venue filter instead of direct venue field', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation(() => Promise.resolve(directusListResponse([])));
+    const sync = useDirectusSync();
+    // Use appType 'cucina' which always pulls order_items as a standalone collection
+    sync.startSync({ appType: 'cucina', store: makeStore() });
+    await sync.forcePull();
+
+    const orderItemUrls = fetchSpy.mock.calls
+      .map(([url]) => String(url))
+      .filter(url => url.includes('/items/order_items'));
+    expect(orderItemUrls.length).toBeGreaterThan(0);
+
+    for (const url of orderItemUrls) {
+      const rawFilter = new URL(url).searchParams.get('filter');
+      expect(rawFilter).not.toBeNull();
+
+      const f = JSON.parse(rawFilter);
+
+      // Must NOT use direct { venue: { _eq: ... } } on order_items — the field does not exist
+      const hasDirectVenueEq = (node) => {
+        if (!node || typeof node !== 'object') return false;
+        if (node.venue?._eq !== undefined) return true;
+        for (const logicKey of ['_and', '_or']) {
+          if (Array.isArray(node[logicKey])) {
+            for (const child of node[logicKey]) {
+              if (child?.venue?._eq !== undefined) return true;
+            }
+          }
+        }
+        return false;
+      };
+      expect(hasDirectVenueEq(f)).toBe(false);
+
+      // Must use relational { order: { venue: { _eq: ... } } } path instead
+      const hasOrderVenueEq = (node) => {
+        if (!node || typeof node !== 'object') return false;
+        if (node.order?.venue?._eq !== undefined) return true;
+        for (const logicKey of ['_and', '_or']) {
+          if (Array.isArray(node[logicKey])) {
+            for (const child of node[logicKey]) {
+              if (child?.order?.venue?._eq !== undefined) return true;
+            }
+          }
+        }
+        return false;
+      };
+      expect(hasOrderVenueEq(f)).toBe(true);
+    }
+  });
+
   it('order_items pull includes order_item_modifiers.*', async () => {
     const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation(() => Promise.resolve(directusListResponse([])));
     const sync = useDirectusSync();
