@@ -1055,10 +1055,11 @@ async function _runPush() {
   // Advance and capture a new generation for this push attempt.  Every await
   // point is a potential preemption: if _onOffline(), forcePush(), or stopSync()
   // advance _pushGeneration while this push is suspended on `await drainQueue(cfg)`,
-  // the push becomes stale.  All side-effects that mutate shared module state
-  // (syncStatus, lastPushAt, _recentlyPushed) are guarded by a generation check
-  // so a stale/hung push that eventually resolves becomes a complete no-op and
-  // cannot overwrite the state set by the newer push.
+  // the push becomes stale.  The generation checks only guard shared module
+  // state updates after the await (syncStatus, lastPushAt, _recentlyPushed),
+  // so a stale/hung push that eventually resolves cannot overwrite the state
+  // set by a newer push, even though `drainQueue(cfg)` itself may still finish
+  // and perform its own side effects.
   const generation = ++_pushGeneration;
   _pushInFlight = (async () => {
     try {
