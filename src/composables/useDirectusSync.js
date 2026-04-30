@@ -1208,6 +1208,14 @@ let _onlineRetryTimer = null;
  */
 let _pullInFlight = null;
 /**
+ * Monotonically-increasing generation counter for `_runPull()`.  Incremented
+ * both when a new pull starts (`_runPull`) and when the semaphore is reset by
+ * `forcePull()` or `stopSync()`.  The `finally` block of each pull compares
+ * its captured `generation` snapshot against the current value so that a
+ * superseded (aborted) pull never clears the newer pull's `_pullInFlight`.
+ */
+let _pullGeneration = 0;
+/**
  * NS4 — In-flight promise for the `table_merge_sessions` full-replace pull.
  * When a WS delete event fires multiple times in rapid succession, only the
  * first fires a new `_pullCollection(…, { forceFull: true })` call; subsequent
@@ -1628,6 +1636,7 @@ async function _runPull() {
   // `forcePull()` resets _pullInFlight to null before calling _runPull() so that
   // user-initiated pulls can always bypass a pending background pull.
   if (_pullInFlight) return _pullInFlight;
+  const generation = ++_pullGeneration;
   _pullInFlight = (async () => {
     // NS8: Mint a fresh AbortController for this pull session so forcePull/stopSync
     // can cancel between collections without letting a superseded loop continue.
@@ -1680,7 +1689,9 @@ async function _runPull() {
       console.warn('[DirectusSync] Pull error:', e);
       return { ok: false, failedCollections: [] };
     } finally {
-      _pullInFlight = null;
+      // Only clear shared state if this is still the current pull generation.
+      // A superseded pull must not null out a newer pull's _pullInFlight.
+      if (_pullGeneration === generation) _pullInFlight = null;
       // NS8: Only clear the controller reference if it still belongs to this pull.
       if (_pullAbortController === ac) _pullAbortController = null;
     }
@@ -2477,6 +2488,7 @@ export function useDirectusSync() {
     _pullAbortController = null;
     // S3: Drop any in-flight pull reference so the next startSync() can start fresh.
     _pullInFlight = null;
+    _pullGeneration++;
     if (_pushTimer) { clearInterval(_pushTimer); _pushTimer = null; }
     if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
     if (_globalTimer) { clearInterval(_globalTimer); _globalTimer = null; }
@@ -2531,6 +2543,7 @@ export function useDirectusSync() {
     // S3: Reset the in-flight semaphore so this user-initiated pull is not
     // silently deduped against a concurrent background pull.
     _pullInFlight = null;
+    _pullGeneration++;
     syncStatus.value = 'syncing';
     try {
       const result = await _runPull();
@@ -2648,6 +2661,7 @@ export function _resetDirectusSyncSingleton() {
   _pushInFlight = null;
   // S3: Clear in-flight pull semaphore.
   _pullInFlight = null;
+  _pullGeneration = 0;
   _tableMergePullInFlight = null; // NS4
   // NS8: Abort and clear the pull AbortController.
   _pullAbortController?.abort();

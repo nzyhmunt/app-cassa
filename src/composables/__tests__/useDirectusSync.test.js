@@ -3899,12 +3899,18 @@ describe('NS8 — AbortController for _runPull', () => {
     let ordersFetchCount = 0;
     let resolveSlowFetch;
     const slowFetchPromise = new Promise(res => { resolveSlowFetch = res; });
+    // Gate: resolves as soon as the first orders fetch actually starts so we
+    // can be certain pull1 is suspended inside _fetchUpdatedViaSDK before
+    // starting pull2 — more reliable than counting flushPromises() rounds.
+    let signalPull1FetchStarted;
+    const pull1FetchGate = new Promise(res => { signalPull1FetchStarted = res; });
 
     vi.spyOn(global, 'fetch').mockImplementation((url) => {
       if (String(url).includes('/items/orders')) {
         ordersFetchCount++;
         if (ordersFetchCount === 1) {
           // First fetch is slow (simulates in-flight pull)
+          signalPull1FetchStarted(); // notify the gate before blocking
           return slowFetchPromise.then(() => directusListResponse([]));
         }
         return Promise.resolve(directusListResponse([]));
@@ -3914,14 +3920,14 @@ describe('NS8 — AbortController for _runPull', () => {
 
     const sync = useDirectusSync();
 
-    // Start first pull — gets stuck waiting for the orders fetch
+    // Start first pull — wait until it is actually stuck at the orders fetch
     const pull1 = sync.forcePull();
-    await flushPromises(20);
+    await pull1FetchGate; // guaranteed: pull1 is now suspended inside fetch
 
     // Start second pull — aborts pull1's AbortController, starts fresh
     const pull2 = sync.forcePull();
 
-    // Unblock the slow fetch so pull1 can exit
+    // Unblock the slow fetch so pull1 can exit cleanly
     resolveSlowFetch();
 
     const [result1, result2] = await Promise.all([pull1, pull2]);
@@ -3929,13 +3935,14 @@ describe('NS8 — AbortController for _runPull', () => {
     // Both pulls must resolve without throwing
     expect(result1).toBeDefined();
     expect(result2.ok).toBe(true);
-    // Two fetches must have occurred (one per pull attempt)
+    // Two fetches must have occurred: one from pull1 (slow), one from pull2 (fresh)
     expect(ordersFetchCount).toBeGreaterThanOrEqual(2);
   });
 
   it('stopSync() aborts an in-flight pull cleanly without throwing', async () => {
-    // Pre-create the deferred so resolveOrdersFetch is always defined,
-    // regardless of how many microtask rounds it takes to start the fetch.
+    // Create the blocker Promise and expose its resolver before the pull starts
+    // so resolveOrdersFetch is always defined regardless of how many microtask
+    // rounds it takes for the pull to reach the orders fetch.
     let resolveOrdersFetch;
     const ordersBlocker = new Promise(res => { resolveOrdersFetch = res; });
 
