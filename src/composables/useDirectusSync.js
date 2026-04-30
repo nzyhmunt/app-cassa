@@ -524,6 +524,143 @@ async function _mergeOrderItemsIntoOrdersIDB(pulledItems, rawItems = null) {
 }
 
 /**
+ * S7 — Atomically writes `order_items` to the `order_items` IDB ObjectStore AND
+ * merges them into the embedded `orderItems` arrays of their parent `orders`
+ * records, all within a **single** multi-store IDB transaction
+ * (`['order_items', 'orders']`).
+ *
+ * This replaces the previous two-step sequence (P5 — non-atomic upsert + merge):
+ *
+ *   upsertRecordsIntoIDB('order_items', prepared)  ← writes order_items
+ *   _mergeOrderItemsIntoOrdersIDB(...)             ← merges into orders
+ *
+ * With that sequence, a failure in the merge left `order_items` written but
+ * `orders.orderItems` stale, and the cursor (S2) still advanced — meaning the
+ * inconsistency would persist until the next forced full pull.  A single
+ * transaction guarantees atomicity: either both stores are updated or neither is.
+ *
+ * @param {Array<object>} mappedItems  - Mapped order_item records from `_mapRecord`.
+ * @param {Array<object>} [rawItems]   - Corresponding raw Directus records.  When
+ *   provided with the same length and order as `mappedItems`, each entry is used
+ *   by `mergeOrderItemFromWSPayload` for selective field merging.  If the arrays
+ *   differ in length (e.g. after filtering), the lookup is still built from the
+ *   matching indices and unmatched items fall back to a full spread merge.
+ * @returns {Promise<{orderItemsWritten: number, ordersWritten: number}>}
+ */
+async function _atomicOrderItemsUpsertAndMerge(mappedItems, rawItems = []) {
+  if (!mappedItems || mappedItems.length === 0) {
+    return { orderItemsWritten: 0, ordersWritten: 0 };
+  }
+
+  const db = await getDB();
+
+  // Build a lookup from order_item ID → raw Directus record for selective merge.
+  const rawById = new Map();
+  if (Array.isArray(rawItems) && rawItems.length === mappedItems.length) {
+    for (let i = 0; i < rawItems.length; i++) {
+      const id = String(mappedItems[i]?.id ?? mappedItems[i]?.uid ?? '');
+      if (id) rawById.set(id, rawItems[i]);
+    }
+  }
+
+  // Single transaction covering both ObjectStores — atomicity guarantee.
+  const tx = db.transaction(['order_items', 'orders'], 'readwrite');
+  const orderItemsStore = tx.objectStore('order_items');
+  const ordersStore = tx.objectStore('orders');
+
+  // ── Phase 1: LWW upsert into `order_items` ─────────────────────────────────
+  // Replicates the conflict-resolution logic of `upsertRecordsIntoIDB` but
+  // inside this shared transaction so Phase 2 (merge into orders) sees the
+  // freshly written records and both phases commit or abort together.
+  const toWrite = [];
+  for (const incomingRaw of mappedItems) {
+    // Normalise FK fields (order → orderId, dish → dishId) the same way that
+    // `_normalizeIncomingSync('order_items', ...)` in operations.js does.
+    const incoming = { ...incomingRaw };
+    const orderId = relationId(incoming.order ?? incoming.orderId);
+    if (orderId != null) { incoming.order = orderId; incoming.orderId = orderId; }
+    const dishId = relationId(incoming.dish ?? incoming.dishId);
+    if (dishId != null) { incoming.dish = dishId; incoming.dishId = dishId; }
+
+    const pk = incoming.id;
+    if (!pk) continue;
+
+    // Strip internal tracking field once; reuse the clean copy for both the
+    // LWW comparison and the eventual IDB put to avoid duplicating the spread.
+    const { _sync_status: _s, ...clean } = incoming;
+
+    const existing = await orderItemsStore.get(pk);
+    if (existing) {
+      const existingTs = existing.date_updated ?? existing.date_created;
+      const incomingTs = clean.date_updated ?? clean.date_created;
+      // If existing has a timestamp but incoming does not → keep existing.
+      if (existingTs && !incomingTs) continue;
+      if (existingTs && incomingTs) {
+        const existingMs = new Date(existingTs).getTime();
+        const incomingMs = new Date(incomingTs).getTime();
+        if (incomingMs < existingMs) continue; // strictly older → skip
+        if (incomingMs === existingMs) {
+          // Same timestamp: skip only when the payload is identical.
+          if (deepEqual(clean, existing)) continue;
+        }
+        // incomingMs > existingMs, or equal but different payload → write
+      }
+    }
+
+    toWrite.push(clean);
+    await orderItemsStore.put(clean);
+  }
+
+  // ── Phase 2: Merge into `orders.orderItems` ─────────────────────────────────
+  // Same logic as `_mergeOrderItemsIntoOrdersIDB` but using the same `tx` so
+  // both phases are part of the same atomic commit.
+  const itemsByOrderId = new Map();
+  for (const item of mappedItems) {
+    const orderId = item?.order ?? item?.orderId;
+    if (!orderId) continue;
+    const key = String(orderId);
+    if (!itemsByOrderId.has(key)) itemsByOrderId.set(key, []);
+    itemsByOrderId.get(key).push(item);
+  }
+
+  let ordersWritten = 0;
+  for (const [orderId, items] of itemsByOrderId) {
+    const order = await ordersStore.get(orderId);
+    if (!order) continue;
+
+    const existingItems = Array.isArray(order.orderItems) ? order.orderItems : [];
+    const byId = new Map(existingItems.map(i => [String(i.id ?? i.uid ?? ''), i]));
+
+    for (const item of items) {
+      const itemId = String(item.id ?? item.uid ?? '');
+      if (!itemId) continue;
+      const existing = byId.get(itemId);
+      if (!existing) {
+        byId.set(itemId, item);
+      } else {
+        const existingTs = existing.date_updated ?? existing.date_created ?? null;
+        const incomingTs = item.date_updated ?? item.date_created ?? null;
+        const incomingWins = !existingTs || (incomingTs != null && new Date(incomingTs) >= new Date(existingTs));
+        if (incomingWins) {
+          const rawPayload = rawById.get(itemId);
+          byId.set(itemId, rawPayload
+            ? mergeOrderItemFromWSPayload(existing, rawPayload, item)
+            : { ...existing, ...item });
+        }
+      }
+    }
+
+    const mergedItems = Array.from(byId.values()).filter(i => i.id ?? i.uid);
+    if (deepEqual(mergedItems, existingItems)) continue;
+    ordersWritten++;
+    await ordersStore.put({ ...order, orderItems: mergedItems });
+  }
+
+  await tx.done;
+  return { orderItemsWritten: toWrite.length, ordersWritten };
+}
+
+/**
  * Removes deleted order_items (identified by their IDs) from the embedded
  * `orderItems` arrays of their parent orders in the `orders` IDB ObjectStore.
  *
@@ -648,14 +785,10 @@ async function _pullCollection(collection, { forceFull = false, lastPullTimestam
   let hadFetchError = false;
   let hadRemoteRecords = false;
   let cachedState = undefined;
-  // Collect all mapped order_items across pages so they can be merged into their
-  // parent orders in the `orders` IDB store after the pull completes.
-  // rawPulledOrderItems mirrors pulledOrderItems but contains the unmodified
-  // Directus API records so that _mergeOrderItemsIntoOrdersIDB can use
-  // mergeOrderItemFromWSPayload to avoid clobbering existing embedded modifier
-  // data with mapper defaults (e.g. `modifiers: []` from ID-only relation fields).
-  const pulledOrderItems = collection === 'order_items' ? [] : null;
-  const rawPulledOrderItems = collection === 'order_items' ? [] : null;
+  // S7: track how many parent orders had their embedded orderItems updated so we
+  // know whether to trigger a store refresh after the loop without accumulating
+  // all pages in memory.
+  let totalOrdersWrittenFromItems = 0;
 
   while (true) { // eslint-disable-line no-constant-condition
     const { data, maxTs, error } = await _fetchUpdatedViaSDK(collection, storedSinceTs, page);
@@ -664,47 +797,59 @@ async function _pullCollection(collection, { forceFull = false, lastPullTimestam
     hadRemoteRecords = true;
 
     const mapped = data.map(r => _mapRecord(collection, r));
-    if (pulledOrderItems !== null) {
-      pulledOrderItems.push(...mapped);
-      rawPulledOrderItems.push(...data);
+    let written = 0;
+    let pageWriteError = false;
+
+    if (collection === 'order_items') {
+      // S7: Atomic upsert+merge — writes to 'order_items' AND 'orders' in a
+      // single IDB transaction so the two stores are never left inconsistent
+      // (P5: non-atomic failure mode resolved).  If the transaction aborts,
+      // neither store is modified and the cursor does not advance.
+      try {
+        const result = await _atomicOrderItemsUpsertAndMerge(mapped, data);
+        written = result.orderItemsWritten;
+        totalOrdersWrittenFromItems += result.ordersWritten;
+      } catch (e) {
+        console.warn(`[DirectusSync] order_items atomic upsert+merge failed on page ${page}; cursor will not advance:`, e);
+        hadFetchError = true;
+        pageWriteError = true;
+      }
+    } else {
+      const preparedResult = await _preparePullRecordsForIDB(collection, mapped, cachedState);
+      cachedState = preparedResult.state;
+      const prepared = preparedResult.records;
+      written = await upsertRecordsIntoIDB(collection, prepared);
     }
-    const preparedResult = await _preparePullRecordsForIDB(collection, mapped, cachedState);
-    cachedState = preparedResult.state;
-    const prepared = preparedResult.records;
-    const written = await upsertRecordsIntoIDB(collection, prepared);
     totalMerged += written;
 
-    if (maxTs && (!latestTs || maxTs > latestTs)) latestTs = maxTs;
-    // S2: Per-page cursor checkpoint — persist the cursor immediately after each
-    // successfully processed page.  A failure on page N+1 therefore cannot roll the
-    // cursor back to before page N, so the next polling cycle restarts from the end
-    // of the last successful page rather than re-fetching everything from scratch.
-    if (latestTs && latestTs !== storedSinceTs) {
-      await saveLastPullTsToIDB(collection, latestTs);
+    // Only advance the cursor when the page write succeeded.  `pageWriteError`
+    // is set exclusively for the `order_items` atomic path: if the transaction
+    // aborts, neither store is modified so the cursor must not advance.  For all
+    // other collections, `upsertRecordsIntoIDB` swallows its errors internally
+    // (returns 0 on failure) and always allows the cursor to advance — consistent
+    // with pre-S7 behaviour where a silent IDB write failure would not stall the
+    // poll cycle.
+    if (!pageWriteError) {
+      if (maxTs && (!latestTs || maxTs > latestTs)) latestTs = maxTs;
+      // S2: Per-page cursor checkpoint — persist the cursor immediately after each
+      // successfully processed page.  A failure on page N+1 therefore cannot roll
+      // the cursor back to before page N, so the next polling cycle restarts from
+      // the end of the last successful page rather than re-fetching everything.
+      if (latestTs && latestTs !== storedSinceTs) {
+        await saveLastPullTsToIDB(collection, latestTs);
+      }
     }
-    if (data.length < 200) break;
+    if (pageWriteError || data.length < 200) break;
     page++;
   }
 
   if (hadRemoteRecords) {
     if (collection === 'order_items') {
-      // Merge pulled items into their parent orders in the `orders` IDB store so
-      // that refreshOperationalStateFromIDB('orders') picks up the latest items.
-      // This is necessary because the cucina app pulls order_items directly and
-      // `refreshOperationalStateFromIDB` has no handler for the 'order_items' key.
-      // Errors from the merge are propagated: if the merge fails, treat it like a
-      // fetch error so the cursor does not advance and the cycle retries next poll.
-      let ordersWritten = 0;
-      try {
-        ordersWritten = await _mergeOrderItemsIntoOrdersIDB(pulledOrderItems, rawPulledOrderItems);
-      } catch (e) {
-        console.warn('[DirectusSync] order_items merge failed; cursor will not advance:', e);
-        hadFetchError = true;
-      }
-      // Only refresh the in-memory store when at least one order was actually
-      // rewritten in IDB; otherwise, the existing IDB state is unchanged and
-      // there is no work for the store to pick up.
-      if (ordersWritten > 0) await _refreshStoreFromIDB('orders');
+      // S7: The atomic function handled both the order_items write and the merge
+      // into orders.orderItems.  Only refresh the in-memory store when at least
+      // one order record was actually rewritten (avoids needless store churn on
+      // unchanged boundary records re-fetched by the _gte incremental strategy).
+      if (totalOrdersWrittenFromItems > 0) await _refreshStoreFromIDB('orders');
     } else {
       await _refreshStoreFromIDB(collection);
     }
@@ -2325,4 +2470,4 @@ export function _resetDirectusSyncSingleton() {
 /**
  * @internal For unit tests only. Direct handle for simulating incoming WS messages.
  */
-export { _handleSubscriptionMessage, _registerPushedEchoes, _startSubscriptions };
+export { _handleSubscriptionMessage, _registerPushedEchoes, _startSubscriptions, _atomicOrderItemsUpsertAndMerge };

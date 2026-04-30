@@ -23,6 +23,7 @@ import {
   _handleSubscriptionMessage,
   _registerPushedEchoes,
   _startSubscriptions,
+  _atomicOrderItemsUpsertAndMerge,
 } from '../useDirectusSync.js';
 import { _resetDirectusClientSingleton } from '../useDirectusClient.js';
 import {
@@ -3460,5 +3461,182 @@ describe('S6 — clock skew guard', () => {
     expect(orderUrls.length).toBeGreaterThan(0);
     // Within tolerance: still uses the incremental filter
     expect(orderUrls.some(url => hasDateUpdatedIncrementalFilter(url))).toBe(true);
+  });
+});
+
+// ── S7 — Atomic IDB transaction: order_items upsert + orderItems merge ─────────
+
+describe('S7 — _atomicOrderItemsUpsertAndMerge', () => {
+  it('writes order_items AND merges into parent orders in a single atomic step', async () => {
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+
+    // Seed a parent order with no items
+    await db.put('orders', {
+      id: 'ord_s7_1',
+      status: 'accepted',
+      table: '01',
+      orderItems: [],
+      date_updated: '2024-01-01T00:00:00.000Z',
+    });
+
+    const mappedItem = {
+      id: 'oi_s7_1',
+      order: 'ord_s7_1',
+      orderId: 'ord_s7_1',
+      name: 'Pasta',
+      quantity: 2,
+      unitPrice: 8,
+      unit_price: 8,
+      kitchenReady: false,
+      date_updated: '2024-06-01T00:00:00.000Z',
+    };
+
+    const { orderItemsWritten, ordersWritten } = await _atomicOrderItemsUpsertAndMerge([mappedItem], []);
+
+    // Both stores must have been updated
+    expect(orderItemsWritten).toBe(1);
+    expect(ordersWritten).toBe(1);
+
+    const storedItem = await db.get('order_items', 'oi_s7_1');
+    expect(storedItem).toBeDefined();
+    expect(storedItem.name).toBe('Pasta');
+
+    const order = await db.get('orders', 'ord_s7_1');
+    expect(order.orderItems).toHaveLength(1);
+    expect(order.orderItems[0].id).toBe('oi_s7_1');
+    expect(order.orderItems[0].name).toBe('Pasta');
+  });
+
+  it('returns { 0, 0 } and writes nothing for an empty items array', async () => {
+    const result = await _atomicOrderItemsUpsertAndMerge([]);
+    expect(result).toEqual({ orderItemsWritten: 0, ordersWritten: 0 });
+  });
+
+  it('respects LWW: does not overwrite a newer existing order_item in the order_items store', async () => {
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+
+    // Seed a newer order_item and its parent order
+    await db.put('order_items', {
+      id: 'oi_s7_lww',
+      order: 'ord_s7_lww',
+      orderId: 'ord_s7_lww',
+      name: 'Newer',
+      quantity: 5,
+      date_updated: '2024-09-01T00:00:00.000Z',
+    });
+    await db.put('orders', {
+      id: 'ord_s7_lww',
+      orderItems: [{
+        id: 'oi_s7_lww',
+        order: 'ord_s7_lww',
+        name: 'Newer',
+        quantity: 5,
+        date_updated: '2024-09-01T00:00:00.000Z',
+      }],
+      date_updated: '2024-01-01T00:00:00.000Z',
+    });
+
+    // Incoming item is older — must be skipped
+    const olderItem = {
+      id: 'oi_s7_lww',
+      order: 'ord_s7_lww',
+      orderId: 'ord_s7_lww',
+      name: 'Older',
+      quantity: 1,
+      date_updated: '2024-03-01T00:00:00.000Z',
+    };
+
+    const { orderItemsWritten, ordersWritten } = await _atomicOrderItemsUpsertAndMerge([olderItem]);
+
+    // Nothing should be written
+    expect(orderItemsWritten).toBe(0);
+    expect(ordersWritten).toBe(0);
+
+    // Original values must remain unchanged
+    const storedItem = await db.get('order_items', 'oi_s7_lww');
+    expect(storedItem.name).toBe('Newer');
+    expect(storedItem.quantity).toBe(5);
+  });
+
+  it('does not overwrite the embedded orderItems merge when incoming is older', async () => {
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+
+    await db.put('orders', {
+      id: 'ord_s7_embed_lww',
+      orderItems: [{
+        id: 'oi_s7_embed',
+        order: 'ord_s7_embed_lww',
+        name: 'Fresco',
+        quantity: 3,
+        date_updated: '2024-12-01T00:00:00.000Z',
+      }],
+      date_updated: '2024-01-01T00:00:00.000Z',
+    });
+
+    const olderEmbedItem = {
+      id: 'oi_s7_embed',
+      order: 'ord_s7_embed_lww',
+      orderId: 'ord_s7_embed_lww',
+      name: 'Vecchio',
+      quantity: 1,
+      date_updated: '2024-06-01T00:00:00.000Z', // older than embedded
+    };
+
+    await _atomicOrderItemsUpsertAndMerge([olderEmbedItem]);
+
+    const order = await db.get('orders', 'ord_s7_embed_lww');
+    // Embedded item must be preserved (incoming is older)
+    expect(order.orderItems[0].name).toBe('Fresco');
+    expect(order.orderItems[0].quantity).toBe(3);
+  });
+
+  it('pull — order_items uses atomic transaction (both stores updated atomically)', async () => {
+    // Regression guard: the REST pull path for order_items must update BOTH the
+    // order_items store and the embedded orders.orderItems array. This test verifies
+    // the S7 integration inside _pullCollection for the order_items collection.
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+
+    await db.put('orders', {
+      id: 'ord_s7_pull',
+      status: 'accepted',
+      table: '05',
+      orderItems: [],
+      date_updated: '2024-01-01T00:00:00.000Z',
+    });
+
+    const remoteItem = {
+      id: 'oi_s7_pull',
+      order: 'ord_s7_pull',
+      name: 'Risotto',
+      quantity: 1,
+      unit_price: 14,
+      voided_quantity: 0,
+      kitchen_ready: false,
+      date_updated: '2024-06-01T00:00:00.000Z',
+    };
+
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      if (url.includes('/items/order_items')) return Promise.resolve(directusListResponse([remoteItem]));
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const store = makeStore();
+    const sync = useDirectusSync();
+    sync.startSync({ appType: 'cucina', store });
+    await sync.forcePull();
+
+    // order_items store must contain the pulled record
+    const storedItem = await db.get('order_items', 'oi_s7_pull');
+    expect(storedItem).toBeDefined();
+    expect(storedItem.name).toBe('Risotto');
+
+    // orders.orderItems must reflect the merge (atomically with the store write)
+    const order = await db.get('orders', 'ord_s7_pull');
+    expect(order.orderItems).toHaveLength(1);
+    expect(order.orderItems[0].id).toBe('oi_s7_pull');
   });
 });
