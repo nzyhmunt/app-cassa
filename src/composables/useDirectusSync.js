@@ -1061,11 +1061,11 @@ async function _runPush() {
   // point is a potential preemption: if _onOffline(), forcePush(), or stopSync()
   // advance _pushGeneration while this push is suspended on `await drainQueue()`,
   // the push becomes stale.  The invalidation path also aborts _pushAbortController
-  // which causes the hung SDK fetch to throw AbortError — drainQueue() then
-  // halts immediately (AbortError is treated as networkError, no attempt increments).
-  // All shared module state updates (syncStatus, lastPushAt, _recentlyPushed) are
-  // still guarded by the generation check so a superseded push that runs to
-  // completion (or aborts) cannot overwrite the state set by the newer push.
+  // which causes the hung SDK fetch to throw AbortError — _pushEntry returns
+  // { aborted: true } and drainQueue() halts immediately (no sync_logs entry,
+  // no attempt increments, offline: false).  All shared module state updates
+  // (syncStatus, lastPushAt, _recentlyPushed) are still guarded by the generation
+  // check so a superseded push cannot overwrite the state set by the newer push.
   const ac = new AbortController();
   _pushAbortController = ac;
   const generation = ++_pushGeneration;
@@ -1775,8 +1775,16 @@ function _scheduleOnlineRetry() {
   _onlineRetryTimer = setTimeout(() => {
     _onlineRetryTimer = null;
     if (!_running || !navigator.onLine) return;
-    _runPush().then((result) => {
-      if (result?.offline && _running && navigator.onLine) {
+    // Capture the generation that _runPush() will assign synchronously.  Since
+    // _runPush() increments _pushGeneration before its first await, reading
+    // _pushGeneration immediately after the call gives the generation used by
+    // this specific push attempt.  If _pushGeneration is subsequently advanced
+    // (offline/forcePush/stopSync), the result belongs to a superseded attempt
+    // and must not re-schedule a retry for the new online cycle.
+    const retryPush = _runPush();
+    const genAtStart = _pushGeneration;
+    retryPush.then((result) => {
+      if (result?.offline && _running && navigator.onLine && _pushGeneration === genAtStart) {
         _scheduleOnlineRetry();
       }
     }).catch(() => {});
@@ -1795,8 +1803,14 @@ function _onOnline() {
   // 'online' event so only the most recent push's retry is scheduled.
   // If the retry also fails, _scheduleOnlineRetry() reschedules itself every
   // 5 s until the push succeeds, the device goes offline, or stopSync() is called.
-  _runPush().then((result) => {
-    if (result?.offline && _running && navigator.onLine) {
+  // Capture the generation that _runPush() assigns synchronously (it increments
+  // _pushGeneration before its first await).  If _pushGeneration is subsequently
+  // advanced (offline/forcePush/stopSync), the result belongs to a superseded
+  // attempt and must not schedule a retry for the new online cycle.
+  const onlinePush = _runPush();
+  const genAtStart = _pushGeneration;
+  onlinePush.then((result) => {
+    if (result?.offline && _running && navigator.onLine && _pushGeneration === genAtStart) {
       _scheduleOnlineRetry();
     }
   }).catch(() => {});
