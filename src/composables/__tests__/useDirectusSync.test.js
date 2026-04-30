@@ -3148,9 +3148,24 @@ describe('offline/online event handling', () => {
       const method = (opts?.method ?? 'GET').toUpperCase();
       if (String(url).includes('/items/orders') && method === 'POST') {
         pushPostCalls++;
+        expect(opts.signal).toBeDefined();
         if (hangNextCall) {
           hangNextCall = false; // only hang once
-          return new Promise(() => {}); // simulates TCP-level hang (never resolves)
+          // Simulate TCP-level hang: promise never resolves on its own, but
+          // rejects immediately when the AbortController signals abortion so
+          // the test does not leave a dangling forever-pending microtask.
+          return new Promise((_, reject) => {
+            const abortError = () => {
+              const error = new Error('The operation was aborted.');
+              error.name = 'AbortError';
+              reject(error);
+            };
+            if (opts.signal.aborted) {
+              abortError();
+              return;
+            }
+            opts.signal.addEventListener('abort', abortError, { once: true });
+          });
         }
         return Promise.reject(new TypeError('simulated network error'));
       }
@@ -3176,16 +3191,18 @@ describe('offline/online event handling', () => {
       await flushPromises(LONG_FLUSH_ROUNDS);
       expect(pushPostCalls).toBe(1); // fetch was called and is now hanging
 
-      // Device goes offline — _pushInFlight MUST be cleared (generation incremented).
+      // Device goes offline — _pushAbortController.abort() fires the AbortError
+      // on the hung mock fetch so push #1's drain halts cleanly.  The generation
+      // is also incremented and _pushInFlight set to null.
       window.dispatchEvent(new Event('offline'));
+      await flushPromises(LONG_FLUSH_ROUNDS); // let push #1 resolve via AbortError
 
       // Device comes back online — _onOnline should start a FRESH push (push #2),
-      // not be blocked by the still-unresolved hung fetch from push #1.
+      // not be blocked by the now-aborted push #1.
       window.dispatchEvent(new Event('online'));
       await vi.advanceTimersByTimeAsync(1); // drain IDB for push #2
       await flushPromises(LONG_FLUSH_ROUNDS);
-      // Push #2 ran (fetch #2 → rejected quickly); push #1 is still "hanging" in the
-      // background but its stale promise no longer blocks any new push.
+      // Push #2 ran (fetch #2 → rejected quickly via TypeError).
       expect(pushPostCalls).toBe(2);
     } finally {
       sync.stopSync();
