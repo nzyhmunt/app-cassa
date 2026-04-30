@@ -1083,6 +1083,12 @@ const ECHO_SUPPRESS_TTL_MS = 5_000;
  */
 const ECHO_SUPPRESS_MAX_TTL_MS = 30_000;
 /**
+ * S4 — Multiplier applied to the measured push RTT to compute the adaptive
+ * echo suppression window.  3× gives a comfortable margin: at 1 s RTT (LAN)
+ * the window stays at the 5 s floor; at 3 s RTT (3G) it grows to 9 s.
+ */
+const ECHO_SUPPRESS_RTT_MULTIPLIER = 3;
+/**
  * S5 — Heartbeat watchdog interval (ms).
  * If no WebSocket message is received for this duration, the connection is
  * treated as silently dead: a REST catch-up pull is triggered and a reconnect
@@ -1115,6 +1121,8 @@ const _recentlyPushed = new Map();
  * @param {number} [ttlMs] - Suppression window in ms.  Defaults to ECHO_SUPPRESS_TTL_MS.
  */
 function _registerPushedEchoes(pushedIds, ttlMs = ECHO_SUPPRESS_TTL_MS) {
+  // Guard: a non-positive TTL would immediately expire and serve no purpose.
+  if (typeof ttlMs !== 'number' || ttlMs <= 0) return;
   const now = Date.now();
   const expiry = now + ttlMs;
   for (const { collection, recordId } of pushedIds) {
@@ -1197,12 +1205,13 @@ async function _runPush() {
           lastPushAt.value = new Date().toISOString();
         }
         // S4: Use an adaptive TTL — at least ECHO_SUPPRESS_TTL_MS but scaled to
-        // 3× the measured RTT so slow connections (e.g. 3G) still suppress echoes
-        // reliably while fast LAN connections keep the window tight.  Cap at
-        // ECHO_SUPPRESS_MAX_TTL_MS to avoid blocking genuine cross-device updates.
+        // ECHO_SUPPRESS_RTT_MULTIPLIER × the measured RTT so slow connections
+        // (e.g. 3G) still suppress echoes reliably while fast LAN connections
+        // keep the window tight.  Cap at ECHO_SUPPRESS_MAX_TTL_MS to avoid
+        // blocking genuine cross-device updates.
         if (Array.isArray(result.pushedIds) && result.pushedIds.length > 0) {
           const adaptiveEchoTtl = Math.min(
-            Math.max(ECHO_SUPPRESS_TTL_MS, pushDurationMs * 3),
+            Math.max(ECHO_SUPPRESS_TTL_MS, pushDurationMs * ECHO_SUPPRESS_RTT_MULTIPLIER),
             ECHO_SUPPRESS_MAX_TTL_MS,
           );
           _registerPushedEchoes(result.pushedIds, adaptiveEchoTtl);
@@ -1275,7 +1284,10 @@ function _resetWsHeartbeat() {
  */
 async function _acquireLeaderLock() {
   // Web Locks not supported — every tab is its own leader (pre-S1 behaviour).
-  if (typeof navigator === 'undefined' || !navigator.locks) return true;
+  if (typeof navigator === 'undefined' || !navigator.locks) {
+    console.debug('[DirectusSync] Web Locks API not available — all tabs will run sync independently.');
+    return true;
+  }
   return new Promise((resolveAcquire) => {
     let resolveHold;
     const holdPromise = new Promise((res) => { resolveHold = res; });
