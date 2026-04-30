@@ -470,7 +470,7 @@ export async function upsertRecordsIntoIDB(storeName, records, { forceWrite = fa
             }
             if (incomingMs === existingMs) {
               // Same timestamp: only write when the payload has actually changed.
-              const { _sync_status: _ss, ...cleanIncoming } = incoming;
+              const { _sync_status: _, ...cleanIncoming } = incoming;
               if (deepEqual(cleanIncoming, existing)) {
                 continue; // identical payload → no-op
               }

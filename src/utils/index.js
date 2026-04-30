@@ -585,7 +585,6 @@ export function deepEqual(left, right) {
 }
 
 
-
 /**
  * Builds the RT-printer XML payload for a fiscal receipt.
  *
