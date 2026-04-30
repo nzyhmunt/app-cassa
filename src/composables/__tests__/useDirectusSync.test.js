@@ -3208,9 +3208,21 @@ describe('offline/online event handling', () => {
       const method = (opts?.method ?? 'GET').toUpperCase();
       if (String(url).includes('/items/orders') && method === 'POST') {
         pushPostCalls++;
+        expect(opts.signal).toBeDefined();
         if (hangNextCall) {
           hangNextCall = false;
-          return new Promise(() => {}); // TCP hang — never resolves
+          return new Promise((_, reject) => {
+            const abortError = () => {
+              const error = new Error('The operation was aborted.');
+              error.name = 'AbortError';
+              reject(error);
+            };
+            if (opts.signal.aborted) {
+              abortError();
+              return;
+            }
+            opts.signal.addEventListener('abort', abortError, { once: true });
+          }); // TCP hang until aborted
         }
         return Promise.reject(new TypeError('simulated network error'));
       }
