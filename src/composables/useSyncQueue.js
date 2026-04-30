@@ -996,7 +996,7 @@ export async function drainQueue(cfg, signal) {
     // without logging to sync_logs and without burning any retry budget.
     // The returned offline flag remains false — this was not a network failure.
     if (result?.aborted) {
-      return { pushed, pushedIds, offline: false };
+      return { pushed, pushedIds, failed, abandoned, offline: false };
     }
     _logPushResult(entry, result, Date.now() - _pushStart);
 
