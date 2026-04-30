@@ -995,7 +995,9 @@ export async function drainQueue(cfg, signal) {
     // AbortError path: drain was cancelled by the caller.  Halt immediately
     // without logging to sync_logs and without burning any retry budget.
     // The returned offline flag remains false — this was not a network failure.
-    if (result?.aborted) break;
+    if (result?.aborted) {
+      return { pushed, pushedIds, offline: false };
+    }
     _logPushResult(entry, result, Date.now() - _pushStart);
 
     if (result === 'skip' || (result && typeof result === 'object' && result.ok === true)) {
