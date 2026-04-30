@@ -1753,7 +1753,8 @@ function _onOffline() {
   // fetch() inside sdkClient.request() can hang indefinitely waiting for a TCP
   // timeout (typically 10-20+ minutes).  Aborting _pushAbortController causes
   // the SDK fetch to throw AbortError immediately, which drainQueue treats as a
-  // network error and uses to halt the drain cleanly (no attempt increments).
+  // caller-initiated abort and uses to stop the drain cleanly without marking
+  // the result as offline or incrementing attempts.
   // Clearing _pushInFlight and advancing _pushGeneration then ensures the next
   // _runPush() call (from _onOnline()) starts a completely fresh push rather
   // than waiting on the hung promise or running a second concurrent drain.
