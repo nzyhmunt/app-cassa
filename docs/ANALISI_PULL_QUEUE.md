@@ -1,6 +1,7 @@
 # Analisi della Coda di Pull — Directus Sync
 
-**Data:** 2026-04-30  
+**Data analisi originale:** 2026-04-30  
+**Data aggiornamento:** 2026-04-30 (post-implementazione S1–S7)  
 **Repository:** `nzyhmunt/app-cassa`  
 **File analizzati:**
 - `src/composables/useDirectusSync.js`
@@ -31,21 +32,26 @@ Il composable `useDirectusSync` è un **singleton a livello di modulo** che gest
 | Pull loop | REST polling o WebSocket subscriptions | ogni 30 s (polling) / real-time (WS) |
 | Global pull | Deep fetch venue + config | ogni 5 minuti |
 
+**Post S1:** Un solo tab browser per volta è _leader_ e gestisce tutti i loop (Web Locks API). Gli altri tab restano in ascolto passivo.
+
 ---
 
-## 2. Flusso della Pull Queue — passo per passo
+## 2. Flusso della Pull Queue — passo per passo (stato attuale)
 
 ### 2.1 Entry point: `startSync()`
 
 ```
 startSync({ appType, store })
-  ├─ _hydrateConfigFromLocalCache()        ← IDB-first: applica cache locale prima di fetch remoto
-  ├─ _runPush()                             ← push immediato coda pendente
-  ├─ _runGlobalPull()                       ← deep fetch venue/config da Directus
+  ├─ [S1] _acquireLeaderLock()               ← leader election via Web Locks API
+  │         └─ se non leader → exit (altro tab gestisce i loop)
+  ├─ _hydrateConfigFromLocalCache()           ← IDB-first: applica cache locale
+  ├─ _runPush()                               ← push immediato coda pendente
+  ├─ _runGlobalPull()                         ← deep fetch venue/config da Directus
   ├─ setInterval(_runPush, 30_000)
   ├─ setInterval(_runGlobalPull, 300_000)
   └─ se wsEnabled:
        ├─ _startSubscriptions(collections)
+       │    ├─ [S5] _resetWsHeartbeat()       ← avvia watchdog 30s
        │    └─ fallback → _runPull() + setInterval(_runPull, 30_000)
        └─ _runPull() immediato (catch-up)
      altrimenti:
@@ -54,7 +60,9 @@ startSync({ appType, store })
 
 ### 2.2 `_runPull()` — Pull periodico operativo
 
-Eseguito ogni 30 secondi (o subito dopo `online`). Itera sulle **collezioni operative** configurate per tipo di app:
+**[S3]** `_runPull()` ora usa un semaforo `_pullInFlight`: se un pull è già in corso, restituisce la stessa promise invece di avviarne uno nuovo. `forcePull()` azzera il semaforo per garantire che i pull manuali bypassino quelli in background.
+
+Itera sulle **collezioni operative** configurate per tipo di app:
 
 | App | Collezioni |
 |---|---|
@@ -62,25 +70,31 @@ Eseguito ogni 30 secondi (o subito dopo `online`). Itera sulle **collezioni oper
 | sala | `orders`, `order_items`, `bill_sessions`, `tables`, `menu_items` |
 | cucina | `orders`, `order_items` |
 
-Per ogni collezione chiama `_pullCollection(collection)`.
-
 ### 2.3 `_pullCollection()` — Logica incrementale con cursore
 
 ```
 _pullCollection(collection, { forceFull, lastPullTimestampOverride })
   ├─ Legge last_pull_ts da IDB (per questa collezione)
+  ├─ [S6] Guard clock skew: se cursore > now + 24h → forceFull immediato
   ├─ Loop paginato (page size = 200):
   │    ├─ _fetchUpdatedViaSDK(collection, sinceTs, page)
-  │    │    └─ GET /items/{collection}?filter[date_updated][_gte]=sinceTs&...
   │    ├─ _mapRecord() → formato locale
-  │    ├─ _preparePullRecordsForIDB()  ← gestione edge case orders/bill_sessions
-  │    ├─ upsertRecordsIntoIDB()       ← last-write-wins su date_updated
-  │    └─ aggiorna latestTs
-  ├─ Se collection === 'order_items':
-  │    └─ _mergeOrderItemsIntoOrdersIDB()  ← merge embedded in orders
-  ├─ _refreshStoreFromIDB(collection)      ← aggiorna memoria da IDB
-  └─ saveLastPullTsToIDB(collection, latestTs)  ← avanza cursore solo se ok
+  │    ├─ Se 'order_items':
+  │    │    └─ [S7] _atomicOrderItemsUpsertAndMerge()  ← tx atomica ['order_items','orders']
+  │    │         ├─ LWW upsert in order_items store
+  │    │         └─ merge in orders.orderItems embedded array
+  │    ├─ Altrimenti:
+  │    │    ├─ _preparePullRecordsForIDB()
+  │    │    └─ upsertRecordsIntoIDB()         ← last-write-wins su date_updated
+  │    └─ [S2] saveLastPullTsToIDB()          ← checkpoint cursore PER PAGINA (se ok)
+  └─ _refreshStoreFromIDB(collection)         ← aggiorna memoria da IDB
 ```
+
+**[S2] Checkpoint per pagina:** il cursore avanza dopo ogni pagina completata con successo. Un errore su pagina N+1 non annulla il progresso delle pagine 1…N.
+
+**[S6] Guard clock skew:** se `last_pull_ts` è nel futuro oltre `GLOBAL_TIMESTAMP_SKEW_TOLERANCE_MS` (24h), viene forzato un full pull per evitare che un cursore invalido filtri tutti i record recenti.
+
+**[S7] Transazione atomica:** per `order_items`, la scrittura nello store `order_items` e il merge nell'array embedded `orders.orderItems` avvengono in un'unica transazione IDB multi-store. Se la transazione aborts, né lo store né il cursore vengono modificati.
 
 ### 2.4 `_fetchUpdatedViaSDK()` — Costruzione query REST
 
@@ -97,12 +111,7 @@ filter: {
 
 **Motivazione `_gte` invece di `_gt`:** più PATCH rapide sullo stesso record possono condividere lo stesso timestamp server. Con `_gt` il record di confine verrebbe saltato definitivamente. Con `_gte` viene sempre ri-fetchato (idempotente grazie a LWW in `upsertRecordsIntoIDB`).
 
-**Campi espansi per orders:**
-```javascript
-fields: ['*', 'order_items.*', 'order_items.order_item_modifiers.*']
-```
-
-**Filtro venue:** automatico tranne per `venues` (noVenueFilter) e `order_items` (venueFilter via join `order.venue`).
+**Paginazione:** offset-based (`page=N`), dimensione pagina 200 record. Instabile sotto inserimenti concorrenti (vedi P17).
 
 ### 2.5 `upsertRecordsIntoIDB()` — Last-Write-Wins
 
@@ -125,392 +134,537 @@ Ogni 5 minuti, esegue un **deep fetch** della venue con tutti i nested:
 ```
 readItem('venues', venueId, { fields: ['*', 'rooms.*', 'rooms.tables.*', ...] })
   └─ _fanOutVenueTreeToIDB()
-       ├─ upsertRecordsIntoIDB('venues', ..., { forceWrite: true })
-       ├─ upsertRecordsIntoIDB('rooms', ...)
-       ├─ upsertRecordsIntoIDB('tables', ...)
-       ├─ upsertRecordsIntoIDB('menu_categories', ...)
-       ├─ upsertRecordsIntoIDB('menu_items', ...)
-       ├─ upsertRecordsIntoIDB('menu_modifiers', ...)
-       ├─ replaceVenueUsersInIDB()   ← full replace (non upsert)
-       └─ replaceTableMergesInIDB()  ← full replace (non upsert)
+       ├─ Promise.all([
+       │    upsertRecordsIntoIDB('venues', ..., { forceWrite: true }),
+       │    upsertRecordsIntoIDB('rooms', ...),
+       │    upsertRecordsIntoIDB('tables', ...),
+       │    upsertRecordsIntoIDB('menu_categories', ...),
+       │    upsertRecordsIntoIDB('menu_items', ...),
+       │    upsertRecordsIntoIDB('menu_modifiers', ...),
+       │    ...
+       │  ])                                ← N transazioni IDB parallele (non atomiche!)
+       ├─ replaceVenueUsersInIDB()          ← full replace (transazione separata)
+       └─ replaceTableMergesInIDB()         ← full replace (transazione separata)
 ```
 
-**Protezione da race condition:** usa contatori di generazione (`_globalPullGeneration`, `_lastAppliedGlobalPullGeneration`) per ignorare pull più vecchi superati da uno più recente.
+**Protezione da race condition:** usa contatori di generazione (`_globalPullGeneration`, `_lastAppliedGlobalPullGeneration`) per ignorare pull più vecchi superati da uno più recente. **Non esiste un semaforo** per prevenire chiamate concorrenti alla funzione stessa (vedi P15).
 
 ### 2.7 WebSocket Pull (modalità real-time)
 
-Quando `wsEnabled = true`, usa le **subscriptions** Directus SDK:
+**[S4]** Echo suppression con TTL adattivo: `max(5s, RTT × 3)` cappato a 30s. Connessioni lente ricevono una finestra più ampia.
+
+**[S5]** Watchdog heartbeat: se nessun messaggio WS arriva entro 30s, viene triggerato un REST pull immediato e schedulato un reconnect. Ogni messaggio WS in arrivo resetta il watchdog.
 
 ```
 client.subscribe(collection, { query: { fields: ['*'], filter: { venue: { _eq: venueId } } } })
   └─ for await (message) → _handleSubscriptionMessage(collection, message)
-       ├─ event = 'create'/'update' → upsertRecordsIntoIDB()
-       ├─ event = 'delete' → deleteRecordsFromIDB()
-       └─ self-echo suppression (ECHO_SUPPRESS_TTL_MS = 5s)
+       ├─ [S5] _resetWsHeartbeat()                ← reset watchdog 30s
+       ├─ event = 'create'/'update':
+       │    ├─ self-echo suppression [S4] (TTL adattivo)
+       │    ├─ orders: mergeOrderFromWSPayload()   ← merge selettivo (preserva campi IDB)
+       │    ├─ order_items: mergeOrderItemFromWSPayload()
+       │    ├─ upsertRecordsIntoIDB()              ← ⚠️ non atomico (vedi P11)
+       │    └─ order_items: _mergeOrderItemsIntoOrdersIDB()  ← ⚠️ tx separata (P11)
+       └─ event = 'delete':
+            ├─ order_items: _removeOrderItemsFromOrdersIDB() + deleteRecordsFromIDB()
+            └─ table_merge_sessions: _pullCollection(forceFull) ← ⚠️ bypassa semaforo S3 (P14)
 ```
 
-In caso di disconnessione WS: retry dopo 5 s → se fallisce, ricade in polling.
-
-### 2.8 Merge `order_items` nelle `orders` — `_mergeOrderItemsIntoOrdersIDB()`
-
-Problema strutturale: `orders` in IDB contiene un array embedded `orderItems`. Quando `order_items` viene pullata come collezione separata (cucina), i record non entrano automaticamente nell'array embedded.
-
-La funzione:
-1. Raggruppa i pulled items per `orderId`
-2. Per ogni ordine: carica record esistente da IDB
-3. Applica LWW sui singoli items (data_updated)
-4. Usa `mergeOrderItemFromWSPayload` per payload WS parziali (evita clobber di campi con default mapper)
-5. Scrive l'ordine aggiornato con `deepEqual` come fast-path no-op
+**In caso di disconnessione WS:** [S5] watchdog triggera REST pull + reconnect schedulato. Se il reconnect fallisce, ricade in polling.
 
 ---
 
-## 3. Problemi identificati nella Pull Queue
+## 3. Stato dei miglioramenti S1–S7
 
-### P1 — **Singleton non resettato tra istanze multi-tab**
+| ID | Problema risolto | Stato | Note |
+|----|-----------------|-------|------|
+| **S1** | P1 — Multi-tab leader election | ✅ Implementato | `_acquireLeaderLock()` con Web Locks API; fallback se non supportato |
+| **S2** | P2 — Cursore avanza per pagina | ✅ Implementato | `saveLastPullTsToIDB` chiamata dopo ogni pagina con successo |
+| **S3** | P9 — Semaforo `_pullInFlight` | ✅ Implementato | `forcePull()` azzera il semaforo per bypassare il background pull |
+| **S4** | P6 — Echo TTL adattivo | ✅ Implementato | `max(5s, RTT×3)` cappato a 30s |
+| **S5** | P7 — WS heartbeat watchdog | ✅ Implementato | 30s di silenzio → REST pull + reconnect schedulato |
+| **S6** | P8 — Guard clock skew | ✅ Implementato | Cursore nel futuro >24h → full pull forzato |
+| **S7** | P5 — Merge `orderItems` atomico | ✅ Parziale | Risolto solo per percorso REST pull; il percorso WS rimane non atomico (P11) |
 
-**Descrizione:** `useDirectusSync` è un singleton a livello di modulo (`_running`, `_pushTimer`, `_pollTimer`, ecc. sono variabili di modulo). In un browser multi-tab con la stessa app aperta su più tab, ogni tab importa il proprio modulo ES (isolati per via del bundler), quindi il singleton è per-tab. Tuttavia, tutti i tab accedono alla **stessa IndexedDB** e al **medesimo backend Directus**.
+**P1–P10 — riepilogo post-implementazione:**
 
-**Rischio concreto:**
-- 3 tab aperte → 3 pull loop concorrenti verso Directus (ogni 30 s × 3 = pull ogni 10 s effettivi)
-- 3 push loop concorrenti sulla stessa sync_queue IDB → potenziali race su `removeEntry()`
-- La queue viene letta da `getPendingEntries()` in ogni tab: due tab possono vedere lo stesso entry e tentare di pusharlo entrambe
-- Non esiste un lock o una coordinazione inter-tab (nessun `BroadcastChannel`, nessun `SharedWorker`)
+| # | Problema | Stato |
+|---|---|---|
+| P1 | Multi-tab pull/push concorrenti | ✅ Risolto da S1 (con limitazione P12) |
+| P2 | Cursore non avanza su errore parziale | ✅ Risolto da S2 |
+| P3 | Record `date_updated=null` pre-sinceTs | ⚠️ Noto, non risolto (edge case bassa frequenza) |
+| P4 | Race condition WS+REST su `orders` | ⚠️ Mitigato da `mergeOrderFromWSPayload`, non eliminato |
+| P5 | Merge `orderItems` non atomico | ✅ Parziale (REST ok; WS ancora non atomico, vedi P11) |
+| P6 | Echo TTL fisso 5s | ✅ Risolto da S4 |
+| P7 | WS silent disconnect ~25s blind window | ✅ Risolto da S5 (watchdog 30s) |
+| P8 | Clock skew cursore nel futuro | ✅ Risolto da S6 |
+| P9 | Pull concorrenti senza semaforo | ✅ Risolto da S3 |
+| P10 | `forceFull` `table_merge_sessions` non coordinato | ⚠️ Ancora presente (vedi P14) |
 
-**Evidenza nel codice:**
+---
+
+## 4. Nuovi problemi identificati (P11–P18)
+
+### P11 — **WS `order_items` ancora non atomica (S7 residuale)**
+
+**Severità:** Media
+
+**Descrizione:** S7 ha reso atomica la scrittura REST (`_pullCollection` → `_atomicOrderItemsUpsertAndMerge`). Tuttavia, il percorso **WebSocket** per eventi `create`/`update` su `order_items` usa ancora la sequenza non atomica in due passi:
+
 ```javascript
-// useSyncQueue.js - nessun lock inter-tab su drainQueue()
-const entries = await getPendingEntries();
-// ... processing ...
-await removeEntry(entry.id);  // può essere chiamato da due tab contemporaneamente
+// _handleSubscriptionMessage() — percorso WS order_items create/update
+await upsertRecordsIntoIDB(collection, prepared);        // ← TX 1: scrive order_items
+// ...
+await _mergeOrderItemsIntoOrdersIDB(prepared, nonEcho);  // ← TX 2: separa (orders only)
+await _refreshStoreFromIDB('orders');
+```
+
+Se `_mergeOrderItemsIntoOrdersIDB` fallisce dopo che `upsertRecordsIntoIDB` ha già scritto, il negozio `order_items` sarà aggiornato ma l'array embedded `orders.orderItems` rimarrà stale. La prossima pull REST (atomica via S7) risolverebbe l'inconsistenza, ma nel frattempo (fino a 30s) la cucina o la cassa potrebbero vedere dati incoerenti.
+
+**Soluzione proposta (NS1):** Usare `_atomicOrderItemsUpsertAndMerge` anche nel percorso WS, passando `prepared` come `mappedItems` e `nonEcho` come `rawItems`.
+
+---
+
+### P12 — **Tab non-leader stranded se il leader viene chiuso**
+
+**Severità:** Alta
+
+**Descrizione:** S1 usa `ifAvailable: true` nell'acquisizione del lock. I tab non-leader ricevono `lock = null` immediatamente e terminano `startSync()` senza creare nessuna richiesta in coda. Se il tab leader viene chiuso (o crasha), il browser rilascia automaticamente il lock, ma i tab non-leader non vengono notificati e non hanno alcun meccanismo di retry automatico.
+
+**Scenario concreto:**
+1. Tab A (leader) gestisce push/pull
+2. Tab A viene chiuso dall'utente
+3. Tab B e C (sala, cucina) rimangono aperte — `_running = false`, nessun loop attivo
+4. I tab B e C mostrano dati stale e non sincronizzano più fino al reload
+
+**Soluzione proposta (NS2):** Usare `navigator.locks.request('directus-sync-leader', { mode: 'exclusive' })` **senza** `ifAvailable: true` per i tab non-leader. In questo modo i tab seguono una coda: quando il leader lascia il lock, il prossimo tab in coda diventa automaticamente leader. In alternativa, usare un `BroadcastChannel` per che il tab leader annunci periodicamente la sua attività, e i follower rilevino il silenzio e tentino il lock.
+
+```javascript
+// Tab non-leader: richiesta con coda invece di ifAvailable
+navigator.locks.request('directus-sync-leader', { mode: 'exclusive' }, async (lock) => {
+  // questo tab ora è leader — avvia i loop
+  await _startSyncLoops();
+  // mantiene il lock fino a stopSync()
+  await holdPromise;
+});
 ```
 
 ---
 
-### P2 — **Cursore `last_pull_ts` non avanza in caso di errore parziale**
+### P13 — **`_fanOutVenueTreeToIDB` non atomica: config venue parzialmente aggiornata**
 
-**Descrizione:** In `_pullCollection()`, il cursore viene aggiornato (`saveLastPullTsToIDB`) solo quando **tutte le pagine** della pull completano senza errore (`!hadFetchError`). Se si verifica un errore a pagina 3 di 5, le pagine 1 e 2 sono già state scritte in IDB, ma il cursore rimane al valore precedente. Al prossimo ciclo verranno ri-fetchate le stesse pagine 1 e 2.
+**Severità:** Media
 
-**Rischio concreto:** Su dataset grandi, un'interruzione di rete a metà pull provoca un ri-fetch completo delle pagine già elaborate. L'idempotenza di `upsertRecordsIntoIDB` garantisce che non ci siano duplicati, ma:
-- Traffico di rete elevato e inutile
-- Ritardo nella ricezione dei dati più recenti (pagine 4 e 5 non vengono mai raggiunte fino al prossimo ciclo riuscito)
-- In condizioni di rete instabile, il cursore potrebbe non avanzare mai
+**Descrizione:** La scrittura della config venue usa transazioni IDB **separate** per ogni store:
 
-**Evidenza nel codice:**
 ```javascript
-// useDirectusSync.js - _pullCollection()
-if (!hadFetchError && latestTs && latestTs !== storedSinceTs) {
-  await saveLastPullTsToIDB(collection, latestTs);  // solo se tutto ok
+// _fanOutVenueTreeToIDB() — non atomico
+await Promise.all([
+  upsertRecordsIntoIDB('venues', ...),       // TX 1
+  upsertRecordsIntoIDB('rooms', ...),        // TX 2
+  upsertRecordsIntoIDB('tables', ...),       // TX 3
+  // ... altre 6 transazioni parallele
+]);
+await replaceVenueUsersInIDB(...);           // TX N+1
+await replaceTableMergesInIDB(...);          // TX N+2
+```
+
+Se una transazione intermedia fallisce (es. `replaceVenueUsersInIDB` dopo che tables è già scritto), IDB rimarrà con una versione parziale della config: menu aggiornato, utenti NON aggiornati. Una cassa con utenti stale potrebbe:
+- Accettare PIN revocati
+- Non vedere nuovi operatori
+- Mostrare tabelle inesistenti con metodi di pagamento aggiornati
+
+**Soluzione proposta (NS3):** Wrappare tutti gli store di config (esclusi `orders`, `order_items`) in un'unica transazione IDB multi-store. IDB supporta transazioni su store multipli purché specificati al momento della creazione. Alternativa: scrivere prima in un "config staging store" e poi committare atomicamente via versioning.
+
+---
+
+### P14 — **WS `table_merge_sessions` delete bypassa il semaforo S3**
+
+**Severità:** Bassa
+
+**Descrizione:** In `_handleSubscriptionMessage`, un evento `delete` su `table_merge_sessions` chiama direttamente `_pullCollection('table_merge_sessions', { forceFull: true })`, bypassando il semaforo `_pullInFlight` che protegge `_runPull()`:
+
+```javascript
+if (collection === 'table_merge_sessions') {
+  await _pullCollection('table_merge_sessions', { forceFull: true }); // bypassa S3
+  return;
 }
 ```
 
+Questo può creare pull concorrenti tra il forceFull e un `_runPull()` che include `table_merge_sessions`. Le due pull possono leggere lo stesso `last_pull_ts`, scrivere dati sovrapposti, e chiamare `replaceTableMergesInIDB()` in parallelo.
+
+**Soluzione proposta (NS4):** Schedulare il forceFull attraverso `_runPull({ collections: ['table_merge_sessions'], forceFull: true })` o usare un semaforo separato per `table_merge_sessions`.
+
 ---
 
-### P3 — **Filtro `_gte` su `date_updated` non copre record con `date_updated = null` mai aggiornati dopo il primo full pull**
+### P15 — **`_runGlobalPull()` senza semaforo: chiamate concorrenti possibili**
 
-**Descrizione:** La query REST usa:
+**Severità:** Bassa
+
+**Descrizione:** Il timer globale (`setInterval` ogni 5 minuti) può scatenare chiamate concorrenti a `_runGlobalPull()` se il deep fetch richiede più di 5 minuti (connessioni molto lente o venue con molti record). Anche `reconfigureAndApply()` può chiamare `_runGlobalPull()` mentre il timer è già in corso. Il sistema di generazione counter (`_lastAppliedGlobalPullGeneration`) previene l'applicazione di config stale, ma **non previene le richieste HTTP ridondanti** verso Directus.
+
+**Soluzione proposta (NS5):** Aggiungere un semaforo `_globalPullInFlight` analogo a `_pullInFlight` di S3.
+
+---
+
+### P16 — **Tab non-leader non ricevono aggiornamenti IDB in tempo reale**
+
+**Severità:** Media
+
+**Descrizione:** Con S1, solo il tab leader aggiorna IDB via pull/push. I tab non-leader hanno `_running = false` e mostrano i dati caricati all'avvio. Non c'è alcun meccanismo di notifica cross-tab delle modifiche IDB:
+- La sala aperta come tab follower non vedrà gli ordini aggiornati dalla cassa (tab leader)
+- La cucina follower non vedrà i nuovi `order_items` pullati dal leader
+- Un reload manuale è necessario per vedere i dati aggiornati
+
+**Soluzione proposta (NS6):** Implementare un `BroadcastChannel('directus-sync-idb-changed')` nel tab leader che notifica i follower quando IDB viene modificato. I follower chiamano `loadStateFromIDB()` in risposta, aggiornando il loro reactive store senza fare richieste di rete.
+
 ```javascript
-{ _or: [
+// Leader (dopo ogni _refreshStoreFromIDB):
+const bc = new BroadcastChannel('directus-sync-idb-changed');
+bc.postMessage({ collection, type: 'updated', ts: Date.now() });
+
+// Follower (in startSync quando non è leader):
+const bc = new BroadcastChannel('directus-sync-idb-changed');
+bc.onmessage = async ({ data }) => {
+  await _refreshStoreFromIDB(data.collection);
+};
+```
+
+---
+
+### P17 — **Paginazione offset instabile sotto inserimenti concorrenti**
+
+**Severità:** Bassa
+
+**Descrizione:** `_fetchUpdatedViaSDK` usa paginazione basata su offset (`page=N`, 200 record/pagina). Se durante il fetch di pagina 1 vengono inseriti nuovi record con timestamp in range `[sinceTs, now]`, le pagine successive vengono "spostate" di N posizioni. Risultato: alcuni record possono essere saltati tra una pagina e l'altra e non recuperati fino al successivo ciclo di pull.
+
+```
+Pagina 1 (record 1-200 ordinati per date_updated ASC)
+← inserimento record X con date_updated nel range
+Pagina 2 (record 202-401) ← record 201 saltato!
+```
+
+L'idempotenza LWW garantisce che i duplicati non causino corruzione, ma i record _saltati_ non saranno recuperati fino al prossimo ciclo completo (30s polling) o fino al prossimo WS evento.
+
+**Soluzione proposta (NS7):** Sostituire la paginazione offset con keyset pagination usando un cursore compound `(date_updated, id)`:
+
+```javascript
+// Keyset pagination invece di page=N
+filter: { _and: [
   { date_updated: { _gte: sinceTs } },
-  { _and: [{ date_updated: { _null: true } }, { date_created: { _gte: sinceTs } }] }
+  { _or: [
+    { date_updated: { _gt: lastSeenTs } },
+    { _and: [{ date_updated: { _eq: lastSeenTs } }, { id: { _gt: lastSeenId } }] }
+  ]}
 ]}
 ```
-Questo copre record creati dopo `sinceTs` con `date_updated = null`. Tuttavia, se un record è stato **creato prima** del full pull iniziale, ha `date_updated = null` e non è mai stato modificato, non apparirà in nessun pull incrementale successivo. Questo è il comportamento atteso.
-
-Il problema si manifesta quando:
-1. Un dispositivo completa il full pull iniziale (salva `sinceTs = T0`)
-2. Directus rimuove un record e lo ricrea con un nuovo ID prima di `T0` (improbabile ma possibile con migrazioni)
-3. Il nuovo record ha `date_created < T0` → non appare in nessun pull incrementale
-
-**Evidenza aggiuntiva:** `_fetchUpdatedViaSDK` non gestisce il caso `noDateUpdated` per tutte le collezioni (solo abilitato via `COLLECTION_QUIRKS`), ma questo edge case esiste per le collezioni con entrambi i timestamp.
 
 ---
 
-### P4 — **Race condition tra WS e REST pull su `orders`**
+### P18 — **`forcePull()` non interrompe il pull in volo**
 
-**Descrizione:** Quando `wsEnabled = true`, i due canali sono attivi contemporaneamente:
-- WS: riceve eventi real-time e chiama `_handleSubscriptionMessage` → `upsertRecordsIntoIDB`
-- REST: ogni 30 s chiama `_pullCollection` → `upsertRecordsIntoIDB`
+**Severità:** Bassa
 
-Entrambi usano LWW basato su `date_updated`, quindi in caso di stessa timestamp vince l'ultimo scritto in IDB, non necessariamente quello con dati più completi.
+**Descrizione:** `forcePull()` azzera `_pullInFlight = null` e avvia un nuovo pull, ma non interrompe il pull già in esecuzione. Per un breve periodo esistono due pull concorrenti: quello "vecchio" (in background, non più referenziato da `_pullInFlight`) e quello "nuovo" (forzato dall'utente).
 
-**Caso critico:** Il WS manda un payload parziale `{id, status, date_updated}` (update evento). Il mapper `mapOrderFromDirectus` riempie i campi assenti con default (`orderItems: []`, `totalAmount: 0`). Poi arriva il REST pull con il record completo con stessa `date_updated`. LWW salterà il REST pull perché `incomingMs === existingMs` e potrebbe trovare payload diverso (il WS ha scritto un record "vuoto" con timestamp uguale).
+Conseguenze:
+- Il cursore S2 potrebbe essere aggiornato dal pull vecchio dopo che quello nuovo ha già avanzato oltre
+- `_refreshStoreFromIDB` viene chiamato due volte in rapida successione → re-render UI doppio
+- Se il pull vecchio era in una pagina avanzata (es. pagina 5) e il nuovo ricomincia da pagina 1, ci sarà un breve periodo di dati "degradati"
 
-Nota: il codice gestisce parzialmente questo con `mergeOrderFromWSPayload` per gli update WS, ma rimane un rischio se la sequenza temporale del processing non è garantita.
+A differenza del push (che usa `AbortController` per annullare il drain in volo), il pull non ha un meccanismo di abort.
 
----
-
-### P5 — **`_mergeOrderItemsIntoOrdersIDB` potrebbe lasciare ordini inconsistenti**
-
-**Descrizione:** La funzione risolve il problema dell'embedded `orderItems` array, ma ha un'edge case: se `_mergeOrderItemsIntoOrdersIDB` fallisce a metà transazione IDB, `hadFetchError` viene impostato a `true` e il cursore non avanza. Tuttavia, **parte degli ordini potrebbero essere già stati scritti** dalla chiamata `upsertRecordsIntoIDB(collection, prepared)` che precede il merge.
-
-Questo significa che IDB può avere ordini aggiornati (dalla upsert) ma con `orderItems` ancora vecchi (il merge fallì), e il cursore non avanza impedendo al prossimo ciclo di risolvere.
-
-**Evidenza nel codice:**
-```javascript
-// _pullCollection() — le due scritture non sono atomiche
-const written = await upsertRecordsIntoIDB(collection, prepared);  // ← scrive ordini
-// ...
-try {
-  ordersWritten = await _mergeOrderItemsIntoOrdersIDB(...);  // ← modifica orderItems embedded
-} catch (e) {
-  hadFetchError = true;  // cursore non avanza, ma ordini già scritti sopra
-}
-```
+**Soluzione proposta (NS8):** Aggiungere un `AbortController` al pull, con flag `_pullAbortController` analogo a `_pushAbortController`. `forcePull()` chiama `_pullAbortController?.abort()` prima di resettare il semaforo, e ogni `_fetchUpdatedViaSDK` passa il signal al client SDK.
 
 ---
 
-### P6 — **Self-echo suppression con TTL fisso di 5 secondi**
-
-**Descrizione:** Quando un dispositivo pusha un record, questo viene aggiunto a `_recentlyPushed` con TTL di 5 s. Se il server è lento e rimanda l'echo WS dopo 5 s, il record viene applicato ugualmente (il TTL è scaduto), causando una sovrascrittura del record locale con una versione potenzialmente identica (no-op) o con un payload parziale WS che clobba dati locali.
-
-Più critico: su connessioni lente, il round-trip push → WS echo può superare i 5 s, e il device riceve il suo stesso record come se fosse un aggiornamento esterno.
-
-**Evidenza nel codice:**
-```javascript
-const ECHO_SUPPRESS_TTL_MS = 5_000; // fisso, non adattivo
-```
-
----
-
-### P7 — **Disconnessione silenziosa del WebSocket non rilevata immediatamente**
-
-**Descrizione:** Il codice imposta `_wsConnected.value = false` nell'event listener `offline`, ma il listener del browser `offline` non scatta sempre in modo affidabile (specialmente su reti Wi-Fi che cambiano silenziosamente). Se il WebSocket si disconnette senza che il browser riporti `offline`, la subscription iterator lancia dopo il timeout interno Directus SDK (~20 s), e il reconnect viene schedulato 5 s dopo.
-
-Durante questa finestra di ~25 s:
-- Nessun aggiornamento arriva via WS
-- Il polling REST non è attivo (è disabilitato quando WS è connected)
-- L'indicatore UI può mostrare "connected" falsamente
-
-**Evidenza nel codice:**
-```javascript
-// _onOffline() richiede l'evento browser 'offline' per scattare
-// Se il Wi-Fi cambia AP senza segnalare offline, il codice non reagisce
-window.addEventListener('offline', _onOffline);
-```
-
----
-
-### P8 — **Timestamp clock skew tra dispositivo e server**
-
-**Descrizione:** Il cursore `last_pull_ts` è basato sui timestamp di risposta Directus. La tolleranza al clock skew è di 24 ore (`GLOBAL_TIMESTAMP_SKEW_TOLERANCE_MS`), ma non è attualmente implementata come guard attiva nella logica di pull — è solo documentata come costante. Non c'è validazione che `last_pull_ts > now - 24h` prima di usarlo come filtro.
-
-Se il server ha il clock in avanti rispetto al dispositivo (scenario comune con tablet non sincronizzati via NTP), i timestamp salvati saranno "nel futuro" dal punto di vista del dispositivo. La prossima pull incrementale userà un `sinceTs` nel futuro e potrebbe non ricevere record aggiornati nel mentre.
-
----
-
-### P9 — **`_runPull` non tiene traccia delle pull già in corso (no semaforo)**
-
-**Descrizione:** A differenza del push loop (che usa `_pushInFlight` per prevenire drain concorrenti), `_runPull` non ha un guard equivalente:
-
-```javascript
-// useDirectusSync.js
-async function _runPull() {
-  // NESSUN check "if (_pullInFlight) return _pullInFlight"
-  if (!navigator.onLine) return ...
-  // ... continua immediatamente
-}
-```
-
-Se `_pollTimer` scatta mentre è già in corso una pull (lenta, con dataset grande), si avviano due `_runPull()` concorrenti. Entrambi leggono lo stesso `last_pull_ts` all'inizio, pullano le stesse pagine, e scrivono le stesse entries in IDB. L'effetto finale è duplice chiamata a `_refreshStoreFromIDB`, cioè l'in-memory store viene refreshato due volte inutilmente.
-
-Su dataset grandi con pull che durano >30 s, questo può causare:
-- Cascata di pull sempre più sovrapposti
-- Aumento del carico su Directus
-- Refreshi di store frequenti che causano re-render UI inutili
-
----
-
-### P10 — **`forceFull` su `table_merge_sessions` non sincronizzato con il pull normale**
-
-**Descrizione:** Quando arriva un evento WS `delete` su `table_merge_sessions`, viene chiamato `_pullCollection('table_merge_sessions', { forceFull: true })` che esegue un full replace. Se questo avviene mentre è in corso il pull normale periodico di `tables` (che contiene merge sessions), i due aggiornamenti possono interferire.
-
----
-
-## 4. Mappa del flusso con rischi evidenziati
+## 5. Mappa del flusso con rischi evidenziati (stato attuale)
 
 ```
 startSync()
   │
-  ├─[P9] _runPull() ──────────────────────────────────────────────►
+  ├─[S1] Leader election ─────────────────────────────────────────
+  │         └─ [P12] Tab follower: nessun fallback automatico     │
+  │                                                                │
+  ├─[S3] _runPull() ──────────────────────────────────────────────►
   │         │                                                      │
   │         ├─ _pullCollection('orders')                          │
-  │         │    ├─[P2] cursore non avanza se errore parziale    │
-  │         │    ├─[P3] record pre-sinceTs con date_updated=null  │
-  │         │    ├─[P5] merge orderItems non atomico              │
-  │         │    └─[P8] clock skew → filtro inefficace           │
+  │         │    ├─[S2] cursore per pagina ✅                     │
+  │         │    ├─[S6] clock skew guard ✅                       │
+  │         │    └─[P3] record pre-sinceTs null ⚠️ (edge case)   │
   │         │                                                      │
   │         └─ _pullCollection('order_items')                     │
-  │              └─[P5] merge in orders non atomico               │
+  │              └─[S7] tx atomica ✅ (REST only)                  │
   │                                                                │
-  ├─[P1] setInterval(_runPull, 30s) ← multi-tab: 3 loop          │
+  ├─[P15] _runGlobalPull() senza semaforo ⚠️                      │
+  │         └─[P13] _fanOutVenueTreeToIDB non atomica ⚠️         │
+  │                                                                │
+  ├─ setInterval(_runPull, 30s) [S3 protegge] ✅                   │
   │                                                                │
   └─ wsEnabled?                                                    │
-       ├─[P4] WS + REST concurrent → race su orders              │
-       ├─[P6] echo suppression TTL fisso                          │
-       └─[P7] WS silent disconnect → 25s blind window            │
+       ├─[S4] echo TTL adattivo ✅                                 │
+       ├─[S5] heartbeat watchdog 30s ✅                            │
+       ├─[P4] WS+REST race su orders ⚠️ (mitigato, non eliminato) │
+       ├─[P11] WS order_items non atomica ⚠️                      │
+       └─[P14] WS table_merge_sessions bypassa semaforo ⚠️        │
+                                                                   │
+[P16] Tab follower: UI stale senza BroadcastChannel ⚠️ ──────────┘
 ```
 
 ---
 
-## 5. Soluzioni proposte
+## 6. Soluzioni proposte per i nuovi problemi
 
-### S1 — Leader election inter-tab con Web Locks API
+### NS1 — WS `order_items` path atomica (estensione S7)
 
-Utilizzare la [Web Locks API](https://developer.mozilla.org/en-US/docs/Web/API/Web_Locks_API) per eleggere un solo tab come "leader" per pull e push:
+Usare `_atomicOrderItemsUpsertAndMerge` anche in `_handleSubscriptionMessage`:
 
 ```javascript
-// In startSync():
-if ('locks' in navigator) {
-  navigator.locks.request('directus-sync-leader', { mode: 'exclusive', ifAvailable: true }, async (lock) => {
-    if (!lock) return; // un altro tab è il leader
-    // avvia push e pull solo qui
-    await _startSyncAsLeader();
+// In _handleSubscriptionMessage() — sostituire il blocco order_items create/update
+if (collection === 'order_items') {
+  // Unifica in un'unica transazione atomica (come fa _pullCollection via S7)
+  await _atomicOrderItemsUpsertAndMerge(prepared, nonEcho);
+  await _refreshStoreFromIDB('orders');
+} else {
+  await upsertRecordsIntoIDB(collection, prepared);
+  await _refreshStoreFromIDB(collection);
+}
+```
+
+Impatto: risolve P11 completamente. Bassa complessità (riuso della funzione esistente).
+
+---
+
+### NS2 — Tab non-leader con coda automatica (miglioramento S1)
+
+Separare l'acquisizione in due modalità:
+
+```javascript
+async function _acquireLeaderLock() {
+  if (!navigator?.locks) return true; // fallback: tutti leader
+
+  return new Promise((resolve) => {
+    let resolved = false;
+
+    // Tentativo immediato (ifAvailable)
+    navigator.locks.request('directus-sync-leader',
+      { mode: 'exclusive', ifAvailable: true },
+      async (lock) => {
+        if (lock) {
+          if (!resolved) { resolved = true; resolve(true); }
+          await holdPromise; // mantieni fino a stopSync()
+        } else {
+          // Non disponibile — registra per la coda
+          navigator.locks.request('directus-sync-leader',
+            { mode: 'exclusive' },
+            async (queuedLock) => {
+              if (queuedLock && _running) {
+                // Diventa leader quando il precedente rilascia
+                _isLeader = true;
+                await _startSyncLoops();
+                await holdPromise;
+              }
+            }
+          );
+          if (!resolved) { resolved = true; resolve(false); }
+        }
+      }
+    );
   });
 }
 ```
 
-Impatto: risolve P1 completamente. Requisito: browser moderno (supporto ~97%).
+Impatto: risolve P12. Il follower diventa automaticamente leader quando il precedente chiude il tab.
 
 ---
 
-### S2 — Cursore per pagina (checkpoint incrementale)
-
-Salvare il cursore ogni pagina completata con successo invece di aspettare l'intera pull:
+### NS3 — Config venue atomica (IDB multi-store transaction)
 
 ```javascript
-// In _pullCollection() — dopo ogni pagina ok:
-if (!pageError && maxTs && maxTs !== storedSinceTs) {
-  await saveLastPullTsToIDB(collection, maxTs); // checkpoint per pagina
+async function _fanOutVenueTreeToIDB_atomic(venueRecord, { menuSource }) {
+  const db = await getDB();
+  // Tutti gli store di config in un'unica transazione
+  const CONFIG_STORES = [
+    'venues', 'rooms', 'tables', 'payment_methods',
+    'menu_categories', 'menu_items', 'menu_modifiers',
+    'menu_categories_menu_modifiers', 'menu_items_menu_modifiers',
+    'printers', 'venue_users', 'table_merge_sessions',
+  ];
+  const tx = db.transaction(CONFIG_STORES, 'readwrite');
+  // ... scrive tutti gli store dentro la stessa tx ...
+  await tx.done;
 }
 ```
 
-Impatto: risolve P2. Attenzione: il cursore per pagina deve essere il `maxTs` della pagina corrente, non il `latestTs` globale — questo richiede un refactor del loop interno.
+Impatto: risolve P13. Complessità media (richiede refactoring di `upsertRecordsIntoIDB` per accettare una tx esistente).
 
 ---
 
-### S3 — Semaforo per `_runPull` (mirror del pattern push)
+### NS4 — `table_merge_sessions` WS delete via semaforo S3
 
 ```javascript
-let _pullInFlight = null;
+// In _handleSubscriptionMessage — invece di chiamare direttamente _pullCollection:
+if (collection === 'table_merge_sessions') {
+  // Usa _runPull con override per rispettare il semaforo
+  _pullInFlight = null; // forza bypass del semaforo (come forcePull)
+  _runPull({ forceFullCollections: new Set(['table_merge_sessions']) }).catch(() => {});
+  return;
+}
+```
 
-async function _runPull() {
-  if (_pullInFlight) return _pullInFlight;
-  _pullInFlight = (async () => {
+Oppure: implementare un semaforo separato `_tableSessionPullInFlight`.
+
+---
+
+### NS5 — Semaforo per `_runGlobalPull()`
+
+```javascript
+let _globalPullInFlight = null;
+
+async function _runGlobalPull({ onProgress = null } = {}) {
+  if (_globalPullInFlight) return _globalPullInFlight;
+  _globalPullInFlight = (async () => {
     try {
       // ... logica attuale ...
     } finally {
+      _globalPullInFlight = null;
+    }
+  })();
+  return _globalPullInFlight;
+}
+```
+
+---
+
+### NS6 — `BroadcastChannel` per notifiche cross-tab IDB
+
+```javascript
+// Leader: dopo ogni _refreshStoreFromIDB(collection)
+const _idbChangeBroadcast = new BroadcastChannel('directus-idb-changed');
+_idbChangeBroadcast.postMessage({ collection, ts: Date.now() });
+
+// Follower: in startSync() quando non è leader
+const _idbChangeBroadcast = new BroadcastChannel('directus-idb-changed');
+_idbChangeBroadcast.onmessage = async ({ data }) => {
+  if (!_store) return;
+  await _refreshStoreFromIDB(data.collection);
+};
+```
+
+Impatto: risolve P16. Tutti i tab vedono i dati aggiornati entro pochi ms dalla scrittura IDB del leader.
+
+---
+
+### NS7 — Keyset pagination per `_fetchUpdatedViaSDK`
+
+Sostituire `page=N` con paginazione cursor-based usando `(date_updated ASC, id ASC)`:
+
+```javascript
+// Dopo ogni pagina: cattura il cursore per la prossima
+let afterTs = storedSinceTs;
+let afterId = null;
+while (true) {
+  const filter = buildKeysetFilter(afterTs, afterId, venueFilter);
+  const data = await client.request(readItems(collection, {
+    sort: ['date_updated', 'id'],
+    limit: 200,
+    filter,
+  }));
+  if (data.length === 0) break;
+  // Aggiorna il cursore per la prossima pagina
+  const last = data[data.length - 1];
+  afterTs = last.date_updated;
+  afterId = last.id;
+  // ... process ...
+  if (data.length < 200) break;
+}
+```
+
+---
+
+### NS8 — `AbortController` per il pull in volo
+
+```javascript
+let _pullAbortController = null;
+
+async function _runPull() {
+  if (_pullInFlight) return _pullInFlight;
+  const ac = new AbortController();
+  _pullAbortController = ac;
+  _pullInFlight = (async () => {
+    try {
+      // Passa ac.signal a _fetchUpdatedViaSDK
+      for (const collection of pullCfg.collections) {
+        const { merged, ok } = await _pullCollection(collection, { signal: ac.signal });
+        // ...
+      }
+    } finally {
       _pullInFlight = null;
+      _pullAbortController = null;
     }
   })();
   return _pullInFlight;
 }
-```
 
-Impatto: risolve P9 (pull concorrenti). Semplice da implementare, basso rischio.
+// In forcePull():
+_pullAbortController?.abort(); // annulla il pull in volo
+_pullAbortController = null;
+_pullInFlight = null;
+```
 
 ---
 
-### S4 — Timeout adattivo per echo suppression
+## 7. Priorità degli interventi aggiornata
 
-Sostituire il TTL fisso con un TTL basato sul round-trip time misurato:
+### Problemi originali P1–P10 (post S1–S7)
 
-```javascript
-// Dopo ogni push riuscito, misura il tempo:
-const pushDuration = Date.now() - _pushStart;
-const echoTTL = Math.max(5_000, pushDuration * 3); // almeno 3x il push RTT
-_registerPushedEchoes(result.pushedIds, echoTTL);
-```
+| # | Problema | Stato | Azione richiesta |
+|---|---|---|---|
+| P1 | Multi-tab | ✅ Risolto (S1 + limitazione P12) | Vedi NS2 |
+| P2 | Cursore su errore parziale | ✅ Risolto (S2) | — |
+| P3 | Record `date_updated=null` | ⚠️ Edge case | Nessuna (bassa frequenza) |
+| P4 | Race WS+REST su orders | ⚠️ Mitigato | Monitorare |
+| P5 | Merge non atomico REST | ✅ Risolto (S7) | — |
+| P5-WS | Merge non atomico WS | ⚠️ Residuo | NS1 🔴 |
+| P6 | Echo TTL fisso | ✅ Risolto (S4) | — |
+| P7 | WS silent disconnect | ✅ Risolto (S5) | — |
+| P8 | Clock skew | ✅ Risolto (S6) | — |
+| P9 | Pull concorrenti | ✅ Risolto (S3) | — |
+| P10 | `table_merge_sessions` forceFull | ⚠️ Residuo | NS4 🟡 |
 
-Impatto: risolve P6 per connessioni lente. Alternativa: aumentare il TTL fisso a 15-20 s come trade-off conservativo.
-
----
-
-### S5 — Heartbeat WebSocket attivo
-
-Implementare un heartbeat periodico per rilevare disconnessioni silenziose prima del timeout SDK (~20 s):
-
-```javascript
-// In _startSubscriptions():
-const wsHeartbeatTimer = setInterval(async () => {
-  if (!_running || !_wsConnected.value) return;
-  try {
-    // ping leggero — readItem o subscription ping
-    await client.ping?.();
-  } catch {
-    _wsConnected.value = false;
-    _reconnectWs();
-  }
-}, 10_000); // ogni 10 s
-```
-
-Impatto: riduce la finestra cieca di P7 da ~25 s a ~15 s. Nota: verificare se Directus SDK espone un metodo `ping()`.
-
----
-
-### S6 — Guard su clock skew prima dell'uso del cursore
-
-Aggiungere validazione attiva prima di usare `last_pull_ts` come filtro:
-
-```javascript
-// In _pullCollection():
-const storedSinceTs = forceFull ? null : await loadLastPullTsFromIDB(collection);
-if (storedSinceTs) {
-  const skewMs = new Date(storedSinceTs).getTime() - Date.now();
-  if (skewMs > GLOBAL_TIMESTAMP_SKEW_TOLERANCE_MS) {
-    console.warn(`[DirectusSync] Clock skew detected for ${collection}: cursor ${storedSinceTs} is ${skewMs}ms in the future. Forcing full pull.`);
-    // Reset del cursore e full pull
-    await saveLastPullTsToIDB(collection, null);
-    return _pullCollection(collection, { forceFull: true });
-  }
-}
-```
-
-Impatto: risolve P8. Richiede aggiornamento di `saveLastPullTsToIDB` per supportare `null` come reset.
-
----
-
-### S7 — Transazione atomica per upsert + merge orderItems
-
-Wrappare `upsertRecordsIntoIDB(order_items)` e `_mergeOrderItemsIntoOrdersIDB()` in una singola transazione IDB multi-store:
-
-```javascript
-// Unica transazione su ['order_items', 'orders']
-const tx = db.transaction(['order_items', 'orders'], 'readwrite');
-// ... scrive order_items ...
-// ... merge in orders ...
-await tx.done;
-// Solo dopo: salva cursore e refresh store
-```
-
-Impatto: risolve P5. Richiede refactor significativo di `upsertRecordsIntoIDB` per accettare una transazione esistente.
-
----
-
-## 6. Priorità degli interventi
+### Nuovi problemi P11–P18
 
 | # | Problema | Severità | Complessità fix | Priorità |
 |---|---|---|---|---|
-| S3 | Pull concorrenti (semaforo) | Media | Bassa | 🔴 Alta |
-| S1 | Multi-tab leader election | Alta | Media | 🔴 Alta |
-| S2 | Cursore per pagina | Media | Media | 🟡 Media |
-| S6 | Clock skew guard | Media | Bassa | 🟡 Media |
-| S4 | Echo TTL adattivo | Bassa | Bassa | 🟢 Bassa |
-| S5 | WS heartbeat | Media | Media | 🟡 Media |
-| S7 | Atomicità merge orderItems | Bassa | Alta | 🟢 Bassa |
+| P11 | WS `order_items` non atomica | Media | Bassa | 🔴 Alta |
+| P12 | Tab follower stranded | Alta | Media | 🔴 Alta |
+| P16 | Tab follower UI stale | Media | Bassa | 🔴 Alta |
+| P13 | Config venue non atomica | Media | Alta | 🟡 Media |
+| P14 | WS `table_merge_sessions` bypassa semaforo | Bassa | Bassa | 🟡 Media |
+| P15 | `_runGlobalPull` senza semaforo | Bassa | Bassa | 🟡 Media |
+| P18 | `forcePull` non interrompe pull in volo | Bassa | Media | 🟡 Media |
+| P17 | Paginazione offset instabile | Bassa | Alta | 🟢 Bassa |
 
 ---
 
-## 7. Riferimenti al codice
+## 8. Riferimenti al codice (stato attuale)
 
 | File | Riga indicativa | Descrizione |
 |---|---|---|
-| `useDirectusSync.js` | ~604 | `_pullCollection()` — logica cursore |
-| `useDirectusSync.js` | ~304 | `_fetchUpdatedViaSDK()` — query REST |
-| `useDirectusSync.js` | ~440 | `_mergeOrderItemsIntoOrdersIDB()` |
-| `useDirectusSync.js` | ~718 | `_handleSubscriptionMessage()` — WS handler |
-| `useDirectusSync.js` | ~878 | `_startSubscriptions()` |
-| `useDirectusSync.js` | ~1085 | `_runPush()` con semaforo (modello da replicare per pull) |
-| `useDirectusSync.js` | ~1152 | `_runPull()` — senza semaforo |
-| `useDirectusSync.js` | ~1588 | `_runGlobalPull()` |
-| `useSyncQueue.js` | ~731 | `drainQueue()` — drain con BFS |
+| `useDirectusSync.js` | ~741 | `_pullCollection()` — logica cursore con S2, S6, S7 |
+| `useDirectusSync.js` | ~280 | `_fetchUpdatedViaSDK()` — query REST con paginazione offset |
+| `useDirectusSync.js` | ~390 | `_mergeOrderItemsIntoOrdersIDB()` — usata ancora dal percorso WS (P11) |
+| `useDirectusSync.js` | ~550 | `_atomicOrderItemsUpsertAndMerge()` — usata solo da `_pullCollection` |
+| `useDirectusSync.js` | ~879 | `_handleSubscriptionMessage()` — WS handler con P11 residuo |
+| `useDirectusSync.js` | ~1042 | `_startSubscriptions()` con S5 heartbeat |
+| `useDirectusSync.js` | ~1394 | `_resetWsHeartbeat()` — S5 |
+| `useDirectusSync.js` | ~1430 | `_acquireLeaderLock()` — S1 (P12 residuo) |
+| `useDirectusSync.js` | ~1463 | `_runPull()` con semaforo S3 (P18 residuo) |
+| `useDirectusSync.js` | ~1309 | `_runPush()` con AbortController (modello per NS8) |
+| `useDirectusSync.js` | ~1693 | `_fanOutVenueTreeToIDB()` — P13 (non atomica) |
+| `useDirectusSync.js` | ~1910 | `_runGlobalPull()` — P15 (no semaforo) |
+| `useDirectusSync.js` | ~2192 | `startSync()` — entry point con S1 |
+| `useDirectusSync.js` | ~2271 | `stopSync()` — rilascia lock S1 |
+| `useDirectusSync.js` | ~2328 | `forcePull()` — P18 residuo |
+| `useSyncQueue.js` | ~731 | `drainQueue()` — drain BFS con AbortSignal |
 | `persistence/operations.js` | ~420 | `upsertRecordsIntoIDB()` — LWW |
