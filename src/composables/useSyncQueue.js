@@ -414,7 +414,7 @@ function _hasAuditFieldValue(payload, snakeCaseKey, camelCaseKey) {
  */
 function _buildRestClient(cfg, signal) {
   const fetchFn = signal
-    ? (url, init) => globalThis.fetch(url, { ...init, signal })
+    ? (url, init) => globalThis.fetch(url, { ...(init ?? {}), signal })
     : globalThis.fetch;
   return createDirectus(cfg.url, { globals: { fetch: fetchFn } })
     .with(staticToken(cfg.staticToken))
