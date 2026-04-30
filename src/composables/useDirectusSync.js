@@ -1762,6 +1762,11 @@ function _onOffline() {
   _pushAbortController = null;
   _pushGeneration++;
   _pushInFlight = null;
+  // If an in-flight push had already set syncStatus to "syncing", the
+  // generation bump above causes that superseded _runPush() to skip its
+  // post-await status update.  Reflect the offline state here so the UI
+  // cannot remain stuck showing "syncing" while the app is offline.
+  if (_running) { syncStatus.value = 'offline'; }
 }
 
 /**
