@@ -1943,12 +1943,12 @@ export function useDirectusSync() {
    */
   async function forcePush() {
     if (!appConfig.directus?.enabled) return { pushed: 0, failed: 0, abandoned: 0, pushedIds: [], offline: false, skippedReason: 'disabled' };
-    // Abort any in-flight push and start fresh.  This handles both the
+    // Abort any in-flight push and start fresh. This handles both the
     // "push is stuck on a hung fetch (TCP timeout)" case and the more benign
-    // "push is already running" case: aborting the AbortController causes the
-    // SDK fetch to throw AbortError, which drainQueue treats as a network error
-    // and uses to halt the drain immediately without incrementing attempt
-    // counters or leaving a second concurrent drain running in parallel.
+    // "push is already running" case: aborting the AbortController cancels the
+    // current drain immediately, returning the caller-initiated cancellation
+    // path (aborted: true) without marking the client offline, incrementing
+    // attempt counters, or leaving a second concurrent drain running in parallel.
     _pushAbortController?.abort();
     _pushAbortController = null;
     _pushGeneration++;
