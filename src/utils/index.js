@@ -551,8 +551,13 @@ export const KEYBOARD_POSITIONS = /** @type {const} */ (['disabled', 'center', '
 // ── Deep equality ───────────────────────────────────────────────────────────
 
 /**
- * Structural deep equality for plain values, arrays, and objects.
- * Does not handle special objects (Date, Map, Set, etc.).
+ * Structural deep equality for plain values, plain arrays, and plain objects.
+ * Non-plain objects (Date, Map, Set, RegExp, …) are compared by reference only:
+ * two distinct `Date` instances always return `false` even if they represent
+ * the same time, which is intentionally safe for the IDB no-op fast-path used
+ * in `upsertRecordsIntoIDB`.  IDB payloads contain only JSON-serialisable
+ * primitives, arrays, and plain objects, so this is never a practical
+ * limitation for this codebase.
  * Property order is irrelevant for objects: `{a:1, b:2}` equals `{b:2, a:1}`.
  *
  * @param {unknown} left
@@ -565,6 +570,12 @@ export function deepEqual(left, right) {
   if (typeof left !== typeof right) return false;
   if (typeof left !== 'object') return false;
   if (Array.isArray(left) !== Array.isArray(right)) return false;
+
+  // Guard against non-plain objects (Date, Map, Set, RegExp, …):
+  // they are compared by identity (===) above; reaching here with different
+  // instances means they are not equal.
+  if (Object.getPrototypeOf(left) !== Object.prototype && !Array.isArray(left)) return false;
+  if (Object.getPrototypeOf(right) !== Object.prototype && !Array.isArray(right)) return false;
 
   if (Array.isArray(left)) {
     if (left.length !== right.length) return false;

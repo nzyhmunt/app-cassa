@@ -6,7 +6,7 @@
  * All parameters are the reactive refs / helper functions already defined in the store.
  */
 import { saveStateToIDB, upsertBillSessionInIDB, closeBillSessionInIDB } from './persistence/operations.js';
-import { updateOrderTotals } from '../utils/index.js';
+import { updateOrderTotals, deepEqual } from '../utils/index.js';
 import { newShortId, newUUIDv7 } from './storeUtils.js';
 
 /**
@@ -32,31 +32,6 @@ export function makeTableOps(state, helpers) {
     enqueueBillSessionCreate = () => {},
   } = helpers;
 
-  const _deepEqual = (left, right) => {
-    if (left === right) return true;
-    if (left == null || right == null) return left === right;
-    if (typeof left !== typeof right) return false;
-    if (typeof left !== 'object') return false;
-    if (Array.isArray(left) !== Array.isArray(right)) return false;
-
-    if (Array.isArray(left)) {
-      if (left.length !== right.length) return false;
-      for (let i = 0; i < left.length; i += 1) {
-        if (!_deepEqual(left[i], right[i])) return false;
-      }
-      return true;
-    }
-
-    const leftKeys = Object.keys(left);
-    const rightKeys = Object.keys(right);
-    if (leftKeys.length !== rightKeys.length) return false;
-    for (const key of leftKeys) {
-      if (!Object.prototype.hasOwnProperty.call(right, key)) return false;
-      if (!_deepEqual(left[key], right[key])) return false;
-    }
-    return true;
-  };
-
   const _buildOrderSyncPatch = (prev, next) => {
     if (!prev || !next) return null;
     const payload = {};
@@ -64,7 +39,7 @@ export function makeTableOps(state, helpers) {
     if ((prev.billSessionId ?? null) !== (next.billSessionId ?? null)) {
       payload.billSessionId = next.billSessionId ?? null;
     }
-    if (!_deepEqual(prev.orderItems ?? [], next.orderItems ?? [])) {
+    if (!deepEqual(prev.orderItems ?? [], next.orderItems ?? [])) {
       payload.orderItems = next.orderItems;
     }
     if ((prev.totalAmount ?? null) !== (next.totalAmount ?? null)) {
