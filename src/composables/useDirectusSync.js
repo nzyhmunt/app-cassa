@@ -629,6 +629,19 @@ async function _pullCollection(collection, { forceFull = false, lastPullTimestam
   const storedSinceTs = forceFull
     ? null
     : lastPullTimestampOverride ?? await loadLastPullTsFromIDB(collection);
+
+  // S6: Clock-skew guard — if the stored cursor is in the future by more than
+  // GLOBAL_TIMESTAMP_SKEW_TOLERANCE_MS the device clock (or the cursor) is
+  // probably invalid.  Force a full pull so no records are permanently skipped.
+  if (!forceFull && storedSinceTs) {
+    const skewMs = new Date(storedSinceTs).getTime() - Date.now();
+    if (skewMs > GLOBAL_TIMESTAMP_SKEW_TOLERANCE_MS) {
+      console.warn(
+        `[DirectusSync] Clock skew on ${collection}: cursor ${storedSinceTs} is ${Math.round(skewMs / 3_600_000)}h in the future. Forcing full pull.`,
+      );
+      return _pullCollection(collection, { forceFull: true });
+    }
+  }
   let page = 1;
   let latestTs = storedSinceTs;
   let totalMerged = 0;
@@ -662,6 +675,13 @@ async function _pullCollection(collection, { forceFull = false, lastPullTimestam
     totalMerged += written;
 
     if (maxTs && (!latestTs || maxTs > latestTs)) latestTs = maxTs;
+    // S2: Per-page cursor checkpoint — persist the cursor immediately after each
+    // successfully processed page.  A failure on page N+1 therefore cannot roll the
+    // cursor back to before page N, so the next polling cycle restarts from the end
+    // of the last successful page rather than re-fetching everything from scratch.
+    if (latestTs && latestTs !== storedSinceTs) {
+      await saveLastPullTsToIDB(collection, latestTs);
+    }
     if (data.length < 200) break;
     page++;
   }
@@ -690,10 +710,6 @@ async function _pullCollection(collection, { forceFull = false, lastPullTimestam
     }
   }
 
-  if (!hadFetchError && latestTs && latestTs !== storedSinceTs) {
-    await saveLastPullTsToIDB(collection, latestTs);
-  }
-
   return { merged: totalMerged, ok: !hadFetchError };
 }
 
@@ -716,6 +732,9 @@ const _wsConnected = ref(false);
  * @param {{ event: string, data: Array<object|string> }} message
  */
 async function _handleSubscriptionMessage(collection, message) {
+  // S5: Reset the heartbeat watchdog on every incoming WS message so the timer
+  // only fires when the connection has been truly silent for WS_HEARTBEAT_INTERVAL_MS.
+  _resetWsHeartbeat();
   const { event, data } = message;
   if (!data || !Array.isArray(data) || data.length === 0) return;
 
@@ -884,6 +903,8 @@ async function _startSubscriptions(collections) {
   try {
     await client.connect();
     _wsConnected.value = true;
+    // S5: Start the heartbeat watchdog now that the WS connection is live.
+    _resetWsHeartbeat();
 
     for (const collection of collections) {
       const query = { fields: ['*'] };
@@ -948,6 +969,8 @@ function _stopSubscriptions() {
     try { unsub(); } catch (_) { /* best-effort */ }
   }
   _unsubscribers.length = 0;
+  // S5: Cancel the heartbeat watchdog when subscriptions are torn down.
+  if (_wsHeartbeatTimer) { clearTimeout(_wsHeartbeatTimer); _wsHeartbeatTimer = null; }
   // Use resetDirectusClient() rather than getDirectusClient() + disconnect() to avoid
   // creating a brand-new SDK client just to immediately disconnect it.  When stopSync()
   // is called after a config change (loadDirectusConfigFromStorage already called
@@ -984,6 +1007,31 @@ let _pushGeneration = 0;
 let _reconnectTimer = null;
 /** Debounced short-delay push retry scheduled by _onOnline() to recover from brief post-reconnect instability. */
 let _onlineRetryTimer = null;
+/**
+ * S3 — In-flight pull promise.  If non-null, `_runPull()` returns this promise
+ * instead of starting a second concurrent pull, preventing duplicate incremental
+ * fetches during polling intervals or rapid `_onOnline` / WS-reconnect events.
+ * Reset to `null` by `forcePull()` before starting an override pull.
+ */
+let _pullInFlight = null;
+/**
+ * S5 — Heartbeat watchdog timer handle.  Set by `_resetWsHeartbeat()` after
+ * every incoming WS message and every WS connect.  Cleared and nulled by
+ * `_stopSubscriptions()` and `_resetDirectusSyncSingleton()`.
+ */
+let _wsHeartbeatTimer = null;
+/**
+ * S1 — Whether this browser tab currently holds the "directus-sync-leader"
+ * Web Lock and therefore runs push/pull loops.  Defaults to `true` so that
+ * existing behaviour is preserved when Web Locks are not supported.
+ */
+let _isLeader = true;
+/**
+ * S1 — Resolver that releases the held Web Lock.
+ * Set by `_acquireLeaderLock()` when the lock is acquired; called by `stopSync()`
+ * and `_resetDirectusSyncSingleton()` to relinquish the lock.
+ */
+let _leaderLockResolve = null;
 /** @type {object|null} */
 let _store = null;
 /** @type {'cassa'|'sala'|'cucina'} */
@@ -1028,6 +1076,21 @@ const lastPullAt = ref(/** @type {string|null} */ (null));
  * Reduce only if sub-second cross-device echo conflicts are observed.
  */
 const ECHO_SUPPRESS_TTL_MS = 5_000;
+/**
+ * S4 — Maximum TTL cap for adaptive echo suppression.
+ * Even on very slow connections (high RTT) the suppression window is capped at
+ * 30 s to prevent genuine cross-device updates from being indefinitely blocked.
+ */
+const ECHO_SUPPRESS_MAX_TTL_MS = 30_000;
+/**
+ * S5 — Heartbeat watchdog interval (ms).
+ * If no WebSocket message is received for this duration, the connection is
+ * treated as silently dead: a REST catch-up pull is triggered and a reconnect
+ * attempt is scheduled.  30 s balances responsiveness against idle-session
+ * chattiness (Directus typically sends a heartbeat every ~25 s in inactive
+ * subscriptions, so 30 s gives a small safety margin).
+ */
+const WS_HEARTBEAT_INTERVAL_MS = 30_000;
 
 /**
  * Map of "collection:recordId" → expiry timestamp (ms since epoch).
@@ -1041,11 +1104,19 @@ const _recentlyPushed = new Map();
  * prunes any entries whose TTL has already expired to bound memory usage.
  * Expired entries are additionally removed lazily in `_isEchoSuppressed`
  * on every check so the Map stays compact even without frequent pushes.
+ *
+ * S4 — `ttlMs` is now caller-supplied: `_runPush` passes an adaptive value
+ * based on the measured push round-trip time so that slow connections
+ * (high RTT) receive a proportionally larger suppression window while still
+ * capping at `ECHO_SUPPRESS_MAX_TTL_MS` to avoid blocking genuine cross-device
+ * updates indefinitely.
+ *
  * @param {{collection: string, recordId: string}[]} pushedIds
+ * @param {number} [ttlMs] - Suppression window in ms.  Defaults to ECHO_SUPPRESS_TTL_MS.
  */
-function _registerPushedEchoes(pushedIds) {
+function _registerPushedEchoes(pushedIds, ttlMs = ECHO_SUPPRESS_TTL_MS) {
   const now = Date.now();
-  const expiry = now + ECHO_SUPPRESS_TTL_MS;
+  const expiry = now + ttlMs;
   for (const { collection, recordId } of pushedIds) {
     if (recordId) _recentlyPushed.set(`${collection}:${recordId}`, expiry);
   }
@@ -1115,16 +1186,26 @@ async function _runPush() {
         };
       }
       if (_pushGeneration === generation) syncStatus.value = 'syncing';
+      // S4: Measure push RTT to derive the adaptive echo suppression window.
+      const pushStartMs = Date.now();
       const result = await drainQueue(cfg, ac.signal);
+      const pushDurationMs = Date.now() - pushStartMs;
       // Guard all post-await side effects: by the time drainQueue() resolves
       // this push may have been superseded (offline/forcePush/stopSync).
       if (_pushGeneration === generation) {
         if (result.pushed > 0 || result.abandoned > 0) {
           lastPushAt.value = new Date().toISOString();
         }
-        // Register pushed IDs so self-echo events from the WebSocket are suppressed.
+        // S4: Use an adaptive TTL — at least ECHO_SUPPRESS_TTL_MS but scaled to
+        // 3× the measured RTT so slow connections (e.g. 3G) still suppress echoes
+        // reliably while fast LAN connections keep the window tight.  Cap at
+        // ECHO_SUPPRESS_MAX_TTL_MS to avoid blocking genuine cross-device updates.
         if (Array.isArray(result.pushedIds) && result.pushedIds.length > 0) {
-          _registerPushedEchoes(result.pushedIds);
+          const adaptiveEchoTtl = Math.min(
+            Math.max(ECHO_SUPPRESS_TTL_MS, pushDurationMs * 3),
+            ECHO_SUPPRESS_MAX_TTL_MS,
+          );
+          _registerPushedEchoes(result.pushedIds, adaptiveEchoTtl);
         }
         syncStatus.value = result.offline
           ? 'offline'
@@ -1149,50 +1230,134 @@ async function _runPush() {
 
 // ── Pull helpers ──────────────────────────────────────────────────────────────
 
+/**
+ * S5 — Resets (or starts) the WebSocket heartbeat watchdog timer.
+ * Called after every incoming WS message and whenever a WS connection is
+ * established.  If no message arrives within WS_HEARTBEAT_INTERVAL_MS the
+ * connection is treated as silently dead: a REST catch-up pull is triggered
+ * and a reconnect is scheduled so the app does not miss updates indefinitely.
+ */
+function _resetWsHeartbeat() {
+  if (_wsHeartbeatTimer) { clearTimeout(_wsHeartbeatTimer); _wsHeartbeatTimer = null; }
+  if (!_running || appConfig.directus?.wsEnabled !== true) return;
+  _wsHeartbeatTimer = setTimeout(() => {
+    _wsHeartbeatTimer = null;
+    if (!_running || !_wsConnected.value) return;
+    console.warn(
+      `[DirectusSync] WS heartbeat: no activity for ${WS_HEARTBEAT_INTERVAL_MS}ms — triggering REST catch-up pull and reconnect.`,
+    );
+    // Immediately do a REST pull to catch up on any missed messages.
+    _runPull().catch(() => {});
+    // Mark WS as disconnected and schedule a reconnect attempt.
+    _wsConnected.value = false;
+    if (!_reconnectTimer) {
+      _reconnectTimer = setTimeout(() => {
+        _reconnectTimer = null;
+        if (!_running) return;
+        _reconnectWs().catch(() => {});
+      }, 2_000);
+    }
+  }, WS_HEARTBEAT_INTERVAL_MS);
+}
+
+/**
+ * S1 — Attempts to acquire the exclusive "directus-sync-leader" Web Lock.
+ *
+ * Returns `true` when this tab becomes the sync leader (or when Web Locks are
+ * not supported — both tabs then behave as independent leaders, matching the
+ * pre-S1 behaviour).  Returns `false` when another tab already holds the lock.
+ *
+ * When the lock is acquired it is held in the background (by awaiting an
+ * internal Promise) until `stopSync()` calls the resolver, effectively keeping
+ * this tab as leader for the entire lifetime of its sync session.  When the
+ * leader tab is closed or calls `stopSync()` the lock is released automatically
+ * and the next tab that calls `startSync()` will win the election.
+ */
+async function _acquireLeaderLock() {
+  // Web Locks not supported — every tab is its own leader (pre-S1 behaviour).
+  if (typeof navigator === 'undefined' || !navigator.locks) return true;
+  return new Promise((resolveAcquire) => {
+    let resolveHold;
+    const holdPromise = new Promise((res) => { resolveHold = res; });
+    _leaderLockResolve = resolveHold;
+    navigator.locks.request(
+      'directus-sync-leader',
+      { mode: 'exclusive', ifAvailable: true },
+      async (lock) => {
+        if (!lock) {
+          // Another tab already holds the lock — this tab is a follower.
+          _leaderLockResolve = null;
+          resolveAcquire(false);
+          return;
+        }
+        // This tab won the election.
+        resolveAcquire(true);
+        // Hold the lock open until stopSync() resolves holdPromise.
+        await holdPromise;
+      },
+    ).catch(() => {
+      // Web Locks request rejected (e.g. opaque origin) — assume leader.
+      if (_leaderLockResolve) { _leaderLockResolve = null; }
+      resolveAcquire(true);
+    });
+  });
+}
+
 async function _runPull() {
-  if (!navigator.onLine) {
-    return { ok: false, failedCollections: [], skippedReason: 'offline' };
-  }
-  if (!_getCfg()) {
-    return { ok: false, failedCollections: [], skippedReason: 'no-config' };
-  }
-
-  const pullCfg = PULL_CONFIG[_appType] ?? PULL_CONFIG.cassa;
-  const menuSource = appConfig.menuSource ?? 'directus';
-
-  try {
-    let anyMerged = false;
-    let allOk = true;
-    const mergedSummary = [];
-    const failedCollections = [];
-    for (const collection of pullCfg.collections) {
-      if (menuSource === 'json' && collection === 'menu_items') continue;
-      const { merged, ok } = await _pullCollection(collection);
-      if (merged > 0) anyMerged = true;
-      if (!ok) allOk = false;
-      if (merged > 0) mergedSummary.push(`${collection}:${merged}`);
-      if (!ok) failedCollections.push(collection);
-    }
-    if (mergedSummary.length > 0 || failedCollections.length > 0) {
-      console.info(
-        `[DirectusSync] Pull cycle details — merged: ${mergedSummary.join(', ') || 'none'}; failed: ${failedCollections.join(', ') || 'none'}.`,
-      );
-    }
-    if (allOk) {
-      lastPullAt.value = new Date().toISOString();
-      if (anyMerged) {
-        console.info('[DirectusSync] Pull cycle completed: merged records from server.');
-      } else {
-        console.info('[DirectusSync] Pull cycle completed: all collections up to date.');
+  // S3: Semaphore — return the in-flight pull promise when a pull is already
+  // running.  This prevents duplicate incremental fetches from accumulating
+  // during rapid back-to-back triggers (polling interval, _onOnline, WS reconnect).
+  // `forcePull()` resets _pullInFlight to null before calling _runPull() so that
+  // user-initiated pulls can always bypass a pending background pull.
+  if (_pullInFlight) return _pullInFlight;
+  _pullInFlight = (async () => {
+    try {
+      if (!navigator.onLine) {
+        return { ok: false, failedCollections: [], skippedReason: 'offline' };
       }
-    } else {
-      console.warn('[DirectusSync] Pull cycle incomplete: at least one collection failed.');
+      if (!_getCfg()) {
+        return { ok: false, failedCollections: [], skippedReason: 'no-config' };
+      }
+
+      const pullCfg = PULL_CONFIG[_appType] ?? PULL_CONFIG.cassa;
+      const menuSource = appConfig.menuSource ?? 'directus';
+
+      let anyMerged = false;
+      let allOk = true;
+      const mergedSummary = [];
+      const failedCollections = [];
+      for (const collection of pullCfg.collections) {
+        if (menuSource === 'json' && collection === 'menu_items') continue;
+        const { merged, ok } = await _pullCollection(collection);
+        if (merged > 0) anyMerged = true;
+        if (!ok) allOk = false;
+        if (merged > 0) mergedSummary.push(`${collection}:${merged}`);
+        if (!ok) failedCollections.push(collection);
+      }
+      if (mergedSummary.length > 0 || failedCollections.length > 0) {
+        console.info(
+          `[DirectusSync] Pull cycle details — merged: ${mergedSummary.join(', ') || 'none'}; failed: ${failedCollections.join(', ') || 'none'}.`,
+        );
+      }
+      if (allOk) {
+        lastPullAt.value = new Date().toISOString();
+        if (anyMerged) {
+          console.info('[DirectusSync] Pull cycle completed: merged records from server.');
+        } else {
+          console.info('[DirectusSync] Pull cycle completed: all collections up to date.');
+        }
+      } else {
+        console.warn('[DirectusSync] Pull cycle incomplete: at least one collection failed.');
+      }
+      return { ok: allOk, failedCollections };
+    } catch (e) {
+      console.warn('[DirectusSync] Pull error:', e);
+      return { ok: false, failedCollections: [] };
+    } finally {
+      _pullInFlight = null;
     }
-    return { ok: allOk, failedCollections };
-  } catch (e) {
-    console.warn('[DirectusSync] Pull error:', e);
-    return { ok: false, failedCollections: [] };
-  }
+  })();
+  return _pullInFlight;
 }
 
 function _normalizeToArray(value) {
@@ -1875,6 +2040,21 @@ export function useDirectusSync() {
     _store = store;
     _running = true;
 
+    // S1: Leader election via Web Locks API.
+    // Only one browser tab should run push/pull loops at a time — concurrent
+    // loops from multiple tabs hammer Directus with duplicate requests and can
+    // cause race conditions in IDB writes.  `_acquireLeaderLock()` tries to
+    // claim the exclusive "directus-sync-leader" lock; if another tab already
+    // holds it this call returns false and startSync() exits early.
+    // Falls back to `true` (every tab is a leader) when Web Locks are unsupported.
+    const isLeader = await _acquireLeaderLock();
+    if (!isLeader) {
+      console.info('[DirectusSync] Non-leader tab: push/pull loops managed by another tab.');
+      _running = false;
+      return;
+    }
+    _isLeader = true;
+
     const pullCfg = PULL_CONFIG[_appType] ?? PULL_CONFIG.cassa;
     const venueId = appConfig.directus?.venueId ?? null;
 
@@ -1943,12 +2123,17 @@ export function useDirectusSync() {
     _pushAbortController = null;
     _pushGeneration++;
     _pushInFlight = null;
+    // S3: Drop any in-flight pull reference so the next startSync() can start fresh.
+    _pullInFlight = null;
     if (_pushTimer) { clearInterval(_pushTimer); _pushTimer = null; }
     if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
     if (_globalTimer) { clearInterval(_globalTimer); _globalTimer = null; }
     if (_reconnectTimer) { clearTimeout(_reconnectTimer); _reconnectTimer = null; }
     if (_onlineRetryTimer) { clearTimeout(_onlineRetryTimer); _onlineRetryTimer = null; }
     _stopSubscriptions();
+    // S1: Release the Web Lock so another tab can become the leader.
+    if (_leaderLockResolve) { _leaderLockResolve(); _leaderLockResolve = null; }
+    _isLeader = true;
     if (typeof window !== 'undefined') {
       window.removeEventListener('online', _onOnline);
       window.removeEventListener('offline', _onOffline);
@@ -1985,6 +2170,9 @@ export function useDirectusSync() {
 
   async function forcePull() {
     if (!appConfig.directus?.enabled) return { ok: true, failedCollections: [] };
+    // S3: Reset the in-flight semaphore so this user-initiated pull is not
+    // silently deduped against a concurrent background pull.
+    _pullInFlight = null;
     syncStatus.value = 'syncing';
     try {
       const result = await _runPull();
@@ -2096,6 +2284,8 @@ export function _resetDirectusSyncSingleton() {
   _pushAbortController?.abort();
   _pushAbortController = null;
   _pushInFlight = null;
+  // S3: Clear in-flight pull semaphore.
+  _pullInFlight = null;
   _globalPullGeneration = 0;
   _lastAppliedGlobalPullGeneration = 0;
   if (_pushTimer) { clearInterval(_pushTimer); _pushTimer = null; }
@@ -2103,8 +2293,13 @@ export function _resetDirectusSyncSingleton() {
   if (_globalTimer) { clearInterval(_globalTimer); _globalTimer = null; }
   if (_reconnectTimer) { clearTimeout(_reconnectTimer); _reconnectTimer = null; }
   if (_onlineRetryTimer) { clearTimeout(_onlineRetryTimer); _onlineRetryTimer = null; }
+  // S5: Clear heartbeat watchdog.
+  if (_wsHeartbeatTimer) { clearTimeout(_wsHeartbeatTimer); _wsHeartbeatTimer = null; }
   _stopSubscriptions();
   _recentlyPushed.clear();
+  // S1: Release the Web Lock and reset leader state.
+  if (_leaderLockResolve) { _leaderLockResolve(); _leaderLockResolve = null; }
+  _isLeader = true;
   if (typeof window !== 'undefined') {
     window.removeEventListener('online', _onOnline);
     window.removeEventListener('offline', _onOffline);

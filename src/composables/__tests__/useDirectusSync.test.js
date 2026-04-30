@@ -2124,7 +2124,11 @@ describe('pull timestamp persistence', () => {
     expect(ts).toBe('2024-09-20T08:00:00.000Z');
   });
 
-  it('does not advance last_pull_ts when a paginated pull fails mid-cycle', async () => {
+  it('advances last_pull_ts to the end of the last successful page when a paginated pull fails mid-cycle (S2 per-page checkpoint)', async () => {
+    // S2 improvement: the cursor is checkpointed after each successful page so
+    // a failure on page N+1 does NOT roll back the cursor to before page N.
+    // This means the next polling cycle restarts from the end of page 1 rather
+    // than re-fetching all records from the original cursor.
     await saveLastPullTsToIDB('orders', '2024-01-01T00:00:00.000Z');
     const page1Orders = Array.from({ length: 200 }, (_, i) => makeRemoteOrder({
       id: `ord_partial_${i}`,
@@ -2142,7 +2146,9 @@ describe('pull timestamp persistence', () => {
     await sync.forcePull();
 
     const ts = await loadLastPullTsFromIDB('orders');
-    expect(ts).toBe('2024-01-01T00:00:00.000Z');
+    // Cursor advances to the max date_updated seen in page 1 (the last
+    // successfully processed page), not back to the original cursor.
+    expect(ts).toBe('2024-08-01T00:00:59.000Z');
   });
 });
 
@@ -3335,5 +3341,124 @@ describe('offline/online event handling', () => {
       sync.stopSync();
       vi.useRealTimers();
     }
+  });
+});
+
+// ── S3: Pull semaphore (_pullInFlight) ────────────────────────────────────────
+
+describe('S3 — _runPull semaphore', () => {
+  it('forcePull() resets the semaphore so two successive forced pulls each issue fetches', async () => {
+    let fetchCallCount = 0;
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      if (String(url).includes('/items/')) {
+        fetchCallCount++;
+        return Promise.resolve(directusListResponse([]));
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const sync = useDirectusSync();
+    // First forced pull
+    await sync.forcePull();
+    const callsAfterFirst = fetchCallCount;
+    // Second forced pull must issue new fetches (not return same cached promise)
+    await sync.forcePull();
+    expect(fetchCallCount).toBeGreaterThan(callsAfterFirst);
+  });
+});
+
+// ── S4: Adaptive echo TTL ─────────────────────────────────────────────────────
+
+describe('S4 — adaptive echo TTL', () => {
+  it('suppresses echo for longer than 5 s on high-RTT connections', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      // Seed IDB
+      await upsertRecordsIntoIDB('orders', [{ id: 'ord_rtt_1', status: 'pending' }]);
+
+      // Register echo with a 15 s adaptive TTL (simulating ~5 s RTT × 3)
+      _registerPushedEchoes([{ collection: 'orders', recordId: 'ord_rtt_1' }], 15_000);
+
+      // Advance 6 s — past the default 5 s TTL, but within the 15 s adaptive TTL
+      vi.setSystemTime(Date.now() + 6_000);
+
+      await _handleSubscriptionMessage('orders', {
+        event: 'create',
+        data: [{ id: 'ord_rtt_1', status: 'accepted', date_updated: '2026-01-01T00:00:01.000Z' }],
+      });
+
+      const { getDB } = await import('../useIDB.js');
+      const db = await getDB();
+      const stored = await db.get('orders', 'ord_rtt_1');
+      // Still within adaptive TTL — echo should be suppressed
+      expect(stored?.status).toBe('pending');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not suppress echo after the adaptive TTL expires', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      await upsertRecordsIntoIDB('orders', [{ id: 'ord_rtt_2', status: 'pending' }]);
+
+      _registerPushedEchoes([{ collection: 'orders', recordId: 'ord_rtt_2' }], 10_000);
+
+      // Advance 11 s — past the 10 s adaptive TTL
+      vi.setSystemTime(Date.now() + 11_000);
+
+      await _handleSubscriptionMessage('orders', {
+        event: 'create',
+        data: [{ id: 'ord_rtt_2', status: 'accepted', date_updated: '2026-01-01T00:00:01.000Z' }],
+      });
+
+      const { getDB } = await import('../useIDB.js');
+      const db = await getDB();
+      const stored = await db.get('orders', 'ord_rtt_2');
+      // After adaptive TTL — echo suppression lifted
+      expect(stored?.status).toBe('accepted');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+// ── S6: Clock-skew guard ──────────────────────────────────────────────────────
+
+describe('S6 — clock skew guard', () => {
+  it('forces full pull when the stored cursor is in the future beyond the tolerance', async () => {
+    // Store a cursor dated 2 days in the future to simulate severe clock skew
+    const futureTs = new Date(Date.now() + 2 * 24 * 60 * 60_000).toISOString();
+    await saveLastPullTsToIDB('orders', futureTs);
+
+    const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation(() => Promise.resolve(directusListResponse([])));
+
+    const sync = useDirectusSync();
+    await sync.forcePull();
+
+    // A full pull omits the date_updated incremental filter
+    const orderUrls = fetchSpy.mock.calls
+      .map(([url]) => String(url))
+      .filter(url => url.includes('/items/orders'));
+    expect(orderUrls.length).toBeGreaterThan(0);
+    expect(orderUrls.every(url => !hasDateUpdatedIncrementalFilter(url))).toBe(true);
+  });
+
+  it('uses incremental pull when the cursor is within the tolerance window', async () => {
+    // Store a cursor 1 hour in the future (within 24 h tolerance)
+    const recentTs = new Date(Date.now() + 60 * 60_000).toISOString();
+    await saveLastPullTsToIDB('orders', recentTs);
+
+    const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation(() => Promise.resolve(directusListResponse([])));
+
+    const sync = useDirectusSync();
+    await sync.forcePull();
+
+    const orderUrls = fetchSpy.mock.calls
+      .map(([url]) => String(url))
+      .filter(url => url.includes('/items/orders'));
+    expect(orderUrls.length).toBeGreaterThan(0);
+    // Within tolerance: still uses the incremental filter
+    expect(orderUrls.some(url => hasDateUpdatedIncrementalFilter(url))).toBe(true);
   });
 });
