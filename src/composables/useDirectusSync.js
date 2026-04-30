@@ -1052,20 +1052,23 @@ function _getCfg() {
 
 async function _runPush() {
   if (_pushInFlight) return _pushInFlight;
-  // Capture the current generation before starting.  The `finally` block below
-  // will only clear `_pushInFlight` when this generation is still current —
-  // preventing a stale/hung push that completes late (e.g. TCP timeout) from
-  // wiping out a newer in-flight promise created by _onOnline or forcePush.
+  // Capture the current generation before starting.  Every await point is a
+  // potential preemption: if _onOffline(), forcePush(), or stopSync() advance
+  // _pushGeneration while this push is suspended on `await drainQueue(cfg)`,
+  // the push becomes stale.  All side-effects that mutate shared module state
+  // (syncStatus, lastPushAt, _recentlyPushed) are guarded by a generation check
+  // so a stale/hung push that eventually resolves becomes a complete no-op and
+  // cannot overwrite the state set by the newer push.
   const generation = ++_pushGeneration;
   _pushInFlight = (async () => {
     try {
       if (!navigator.onLine) {
-        syncStatus.value = 'offline';
+        if (_pushGeneration === generation) syncStatus.value = 'offline';
         return { pushed: 0, failed: 0, abandoned: 0, pushedIds: [], offline: true };
       }
       const cfg = _getCfg();
       if (!cfg) {
-        syncStatus.value = 'idle';
+        if (_pushGeneration === generation) syncStatus.value = 'idle';
         return {
           pushed: 0,
           failed: 0,
@@ -1075,22 +1078,28 @@ async function _runPush() {
           skippedReason: 'no-config',
         };
       }
-      syncStatus.value = 'syncing';
+      if (_pushGeneration === generation) syncStatus.value = 'syncing';
       const result = await drainQueue(cfg);
-      if (result.pushed > 0 || result.abandoned > 0) {
-        lastPushAt.value = new Date().toISOString();
+      // Guard all post-await side effects: by the time drainQueue() resolves
+      // this push may have been superseded (offline/forcePush/stopSync).
+      if (_pushGeneration === generation) {
+        if (result.pushed > 0 || result.abandoned > 0) {
+          lastPushAt.value = new Date().toISOString();
+        }
+        // Register pushed IDs so self-echo events from the WebSocket are suppressed.
+        if (Array.isArray(result.pushedIds) && result.pushedIds.length > 0) {
+          _registerPushedEchoes(result.pushedIds);
+        }
+        syncStatus.value = result.offline
+          ? 'offline'
+          : result.failed > 0 ? 'error' : 'idle';
       }
-      // Register pushed IDs so self-echo events from the WebSocket are suppressed.
-      if (Array.isArray(result.pushedIds) && result.pushedIds.length > 0) {
-        _registerPushedEchoes(result.pushedIds);
-      }
-      syncStatus.value = result.offline
-        ? 'offline'
-        : result.failed > 0 ? 'error' : 'idle';
       return result;
     } catch (e) {
-      console.warn('[DirectusSync] Push error:', e);
-      syncStatus.value = 'error';
+      if (_pushGeneration === generation) {
+        console.warn('[DirectusSync] Push error:', e);
+        syncStatus.value = 'error';
+      }
       return { pushed: 0, failed: 0, abandoned: 0, pushedIds: [], offline: false };
     } finally {
       if (_pushGeneration === generation) {
