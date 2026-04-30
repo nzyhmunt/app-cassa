@@ -472,18 +472,18 @@ export async function upsertRecordsIntoIDB(storeName, records, { forceWrite = fa
               continue; // strictly older → skip
             }
             if (incomingMs === existingMs) {
-              // Same timestamp: only write when the payload has actually changed.
-              // For venue_users the IDB record stores a hashed PIN while Directus
-              // returns the raw PIN, so a naïve deepEqual would always differ.
-              // Because date_updated advances on every Directus PATCH, equal
-              // timestamps guarantee the record (including the PIN) has not been
-              // modified since the existing version was stored; we can safely
-              // exclude the pin field from the comparison and treat differing
-              // raw-vs-hashed representations as a no-op.
-              const { _sync_status: _, pin: _pinIncoming, ...cleanIncoming } = incoming;
-              const { pin: _pinExisting, ...cleanExisting } = existing;
-              if (deepEqual(cleanIncoming, cleanExisting)) {
-                continue; // identical non-pin payload → no-op
+              // Same timestamp: only skip the write when the payload is actually
+              // unchanged. venue_users is excluded from this no-op fast-path
+              // because the IDB record stores a hashed PIN while Directus may
+              // return a raw PIN, and multiple PATCHes can share the same server
+              // timestamp. In that store, equal-timestamp records must still be
+              // written so PIN-only updates are not dropped.
+              if (storeName !== 'venue_users') {
+                const { _sync_status: _, pin: _pinIncoming, ...cleanIncoming } = incoming;
+                const { pin: _pinExisting, ...cleanExisting } = existing;
+                if (deepEqual(cleanIncoming, cleanExisting)) {
+                  continue; // identical non-pin payload → no-op
+                }
               }
             }
             // incomingMs > existingMs, or equal but different payload → write
