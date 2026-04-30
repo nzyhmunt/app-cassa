@@ -1049,7 +1049,7 @@ export async function drainQueue(cfg, signal) {
     // Parent is now satisfiable — attempt this entry.
     const _deferredPushStart = Date.now();
     const result = await _pushEntry(deferredEntry, sdkClient, cfg);
-    if (result?.aborted) return { pushed, failed, abandoned, pushedIds, offline };
+    if (result?.aborted) return { pushed, failed, abandoned, pushedIds, offline: false };
     _logPushResult(deferredEntry, result, Date.now() - _deferredPushStart);
     if (result === 'skip' || (result && typeof result === 'object' && result.ok === true)) {
       await removeEntry(deferredEntry.id);
