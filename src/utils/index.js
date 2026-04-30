@@ -548,7 +548,43 @@ export function itemsAreMergeable(a, b) {
 /** Valid values for the `customKeyboard` setting. */
 export const KEYBOARD_POSITIONS = /** @type {const} */ (['disabled', 'center', 'left', 'right']);
 
-// ── Fiscal receipt XML builder ──────────────────────────────────────────────
+// ── Deep equality ───────────────────────────────────────────────────────────
+
+/**
+ * Structural deep equality for plain values, arrays, and objects.
+ * Does not handle special objects (Date, Map, Set, etc.).
+ * Property order is irrelevant for objects: `{a:1, b:2}` equals `{b:2, a:1}`.
+ *
+ * @param {unknown} left
+ * @param {unknown} right
+ * @returns {boolean}
+ */
+export function deepEqual(left, right) {
+  if (left === right) return true;
+  if (left == null || right == null) return left === right;
+  if (typeof left !== typeof right) return false;
+  if (typeof left !== 'object') return false;
+  if (Array.isArray(left) !== Array.isArray(right)) return false;
+
+  if (Array.isArray(left)) {
+    if (left.length !== right.length) return false;
+    for (let i = 0; i < left.length; i++) {
+      if (!deepEqual(left[i], right[i])) return false;
+    }
+    return true;
+  }
+
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+  if (leftKeys.length !== rightKeys.length) return false;
+  for (const key of leftKeys) {
+    if (!Object.prototype.hasOwnProperty.call(right, key)) return false;
+    if (!deepEqual(left[key], right[key])) return false;
+  }
+  return true;
+}
+
+
 
 /**
  * Builds the RT-printer XML payload for a fiscal receipt.

@@ -18,7 +18,7 @@
 
 import { ref } from 'vue';
 import { createDirectus, staticToken, rest, readItems, readItem } from '@directus/sdk';
-import { appConfig, createRuntimeConfig, DEFAULT_SETTINGS } from '../utils/index.js';
+import { appConfig, createRuntimeConfig, DEFAULT_SETTINGS, deepEqual } from '../utils/index.js';
 import {
   mapOrderFromDirectus,
   mapOrderItemFromDirectus,
@@ -507,7 +507,7 @@ async function _mergeOrderItemsIntoOrdersIDB(pulledItems, rawItems = null) {
       // identical to what is already stored.  This prevents unnecessary IDB write
       // amplification and downstream store-refresh churn when _gte polling
       // re-fetches unchanged boundary records on an otherwise idle dataset.
-      if (JSON.stringify(mergedItems) === JSON.stringify(existingItems)) continue;
+      if (deepEqual(mergedItems, existingItems)) continue;
 
       ordersWritten++;
       // A shallow spread is intentional here: IDB's put() performs its own

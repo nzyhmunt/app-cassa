@@ -6,7 +6,7 @@
 
 import { getDB } from '../../composables/useIDB.js';
 import { emitIDBChange } from './eventBus.js';
-import { appConfig } from '../../utils/index.js';
+import { appConfig, deepEqual } from '../../utils/index.js';
 import { PIN_LENGTH } from '../../utils/pinAuth.js';
 import { normalizeAppsArray } from '../../utils/userRoles.js';
 import { newUUIDv7 } from '../storeUtils.js';
@@ -471,7 +471,7 @@ export async function upsertRecordsIntoIDB(storeName, records, { forceWrite = fa
             if (incomingMs === existingMs) {
               // Same timestamp: only write when the payload has actually changed.
               const { _sync_status: _ss, ...cleanIncoming } = incoming;
-              if (JSON.stringify(cleanIncoming) === JSON.stringify(existing)) {
+              if (deepEqual(cleanIncoming, existing)) {
                 continue; // identical payload → no-op
               }
             }
