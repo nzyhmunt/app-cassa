@@ -1052,9 +1052,9 @@ function _getCfg() {
 
 async function _runPush() {
   if (_pushInFlight) return _pushInFlight;
-  // Capture the current generation before starting.  Every await point is a
-  // potential preemption: if _onOffline(), forcePush(), or stopSync() advance
-  // _pushGeneration while this push is suspended on `await drainQueue(cfg)`,
+  // Advance and capture a new generation for this push attempt.  Every await
+  // point is a potential preemption: if _onOffline(), forcePush(), or stopSync()
+  // advance _pushGeneration while this push is suspended on `await drainQueue(cfg)`,
   // the push becomes stale.  All side-effects that mutate shared module state
   // (syncStatus, lastPushAt, _recentlyPushed) are guarded by a generation check
   // so a stale/hung push that eventually resolves becomes a complete no-op and
