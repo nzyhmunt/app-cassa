@@ -2046,10 +2046,13 @@ describe('reactive timestamps', () => {
       date_updated: `2024-03-01T00:00:${String(i % 60).padStart(2, '0')}.000Z`,
     }));
 
+    // NS7 fix: page 2 now uses page=1 + keyset filter, so route by call count
+    let ordersCallCount = 0;
     vi.spyOn(global, 'fetch').mockImplementation((url) => {
       const u = String(url);
       if (!u.includes('/items/orders')) return Promise.resolve(directusListResponse([]));
-      if (u.includes('page=1')) return Promise.resolve(directusListResponse(page1Orders));
+      ordersCallCount++;
+      if (ordersCallCount === 1) return Promise.resolve(directusListResponse(page1Orders));
       return Promise.reject(new Error('orders page 2 failed'));
     });
 
@@ -2075,11 +2078,14 @@ describe('pull timestamp persistence', () => {
     })];
 
     const loadStateSpy = vi.spyOn(persistenceOps, 'loadStateFromIDB');
+    // NS7 fix: page 2 now uses page=1 + keyset filter, so route by call count
+    let ordersCallCount = 0;
     vi.spyOn(global, 'fetch').mockImplementation((url) => {
       const u = String(url);
-      if (u.includes('/items/orders') && u.includes('page=1')) return Promise.resolve(directusListResponse(page1Orders));
-      if (u.includes('/items/orders') && u.includes('page=2')) return Promise.resolve(directusListResponse(page2Orders));
-      if (u.includes('/items/orders')) return Promise.resolve(directusListResponse([]));
+      if (!u.includes('/items/orders')) return Promise.resolve(directusListResponse([]));
+      ordersCallCount++;
+      if (ordersCallCount === 1) return Promise.resolve(directusListResponse(page1Orders));
+      if (ordersCallCount === 2) return Promise.resolve(directusListResponse(page2Orders));
       return Promise.resolve(directusListResponse([]));
     });
 
@@ -2136,10 +2142,13 @@ describe('pull timestamp persistence', () => {
       date_updated: `2024-08-01T00:00:${String(i % 60).padStart(2, '0')}.000Z`,
     }));
 
+    // NS7 fix: page 2 now uses page=1 + keyset filter, so route by call count
+    let ordersCallCount = 0;
     vi.spyOn(global, 'fetch').mockImplementation((url) => {
       const u = String(url);
       if (!u.includes('/items/orders')) return Promise.resolve(directusListResponse([]));
-      if (u.includes('page=1')) return Promise.resolve(directusListResponse(page1Orders));
+      ordersCallCount++;
+      if (ordersCallCount === 1) return Promise.resolve(directusListResponse(page1Orders));
       return Promise.reject(new Error('orders page 2 failed'));
     });
 
@@ -3427,8 +3436,10 @@ describe('S4 — adaptive echo TTL', () => {
 // ── S6: Clock-skew guard ──────────────────────────────────────────────────────
 
 describe('S6 — clock skew guard', () => {
-  it('forces full pull when the stored cursor is in the future beyond the tolerance', async () => {
-    // Store a cursor dated 2 days in the future to simulate severe clock skew
+  it('clamps the cursor to now (no full pull) when the stored cursor is beyond the tolerance', async () => {
+    // Store a cursor dated 2 days in the future to simulate severe clock skew.
+    // Old behaviour: forced a full pull every cycle → perpetual performance hit.
+    // New behaviour: clamps the cursor to Date.now() and proceeds with an incremental pull.
     const futureTs = new Date(Date.now() + 2 * 24 * 60 * 60_000).toISOString();
     await saveLastPullTsToIDB('orders', futureTs);
 
@@ -3437,12 +3448,22 @@ describe('S6 — clock skew guard', () => {
     const sync = useDirectusSync();
     await sync.forcePull();
 
-    // A full pull omits the date_updated incremental filter
     const orderUrls = fetchSpy.mock.calls
       .map(([url]) => String(url))
       .filter(url => url.includes('/items/orders'));
     expect(orderUrls.length).toBeGreaterThan(0);
-    expect(orderUrls.every(url => !hasDateUpdatedIncrementalFilter(url))).toBe(true);
+
+    // The future cursor must NOT appear in any fetch URL (it was clamped away).
+    const futureTsPrefix = futureTs.slice(0, 10); // date portion, e.g. '2026-05-02'
+    orderUrls.forEach(url => {
+      expect(decodeURIComponent(url)).not.toContain(futureTsPrefix);
+    });
+
+    // The persisted cursor must now be a recent timestamp (within 5 s of this test run).
+    const savedTs = await loadLastPullTsFromIDB('orders');
+    expect(savedTs).toBeDefined();
+    expect(new Date(savedTs).getTime()).toBeLessThanOrEqual(Date.now() + 5_000);
+    expect(new Date(savedTs).getTime()).toBeGreaterThan(Date.now() - 60_000);
   });
 
   it('uses incremental pull when the cursor is within the tolerance window', async () => {
@@ -3889,6 +3910,79 @@ describe('NS7 — keyset cursor pagination', () => {
     // The keyset cursor id must reference the last record of page 1
     // (check that the URL references ord_ns7_199 somewhere)
     expect(decodeURIComponent(page2Url)).toContain('ord_ns7_199');
+  });
+
+  it('activates keyset on page 2 even when page-1 records have date_updated > sinceTs', async () => {
+    // Regression test for the bug where cursor.ts === sinceTs was required to
+    // activate keyset mode.  When page-1 records are newer than sinceTs the old
+    // condition silently fell back to offset pagination, causing double-skipping.
+    const sinceTs = '2024-06-01T00:00:00.000Z';
+    const newerTs = '2024-06-02T12:00:00.000Z'; // all records are newer than sinceTs
+    await saveLastPullTsToIDB('orders', sinceTs);
+
+    // 200 records all with date_updated > sinceTs — keyset must still fire on page 2
+    const page1 = Array.from({ length: 200 }, (_, i) =>
+      makeRemoteOrder({
+        id: `ord_ns7b_${String(i).padStart(3, '0')}`,
+        date_updated: newerTs,
+      }),
+    );
+
+    const fetchedOrderUrls = [];
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      const s = String(url);
+      if (s.includes('/items/orders')) {
+        fetchedOrderUrls.push(s);
+        if (fetchedOrderUrls.length === 1) {
+          return Promise.resolve(directusListResponse(page1));
+        }
+        return Promise.resolve(directusListResponse([]));
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const sync = useDirectusSync();
+    await sync.forcePull();
+
+    expect(fetchedOrderUrls.length).toBeGreaterThanOrEqual(2);
+
+    // Page 2 must use the keyset filter (id._gt based on the last record of page 1)
+    const page2Url = fetchedOrderUrls[1];
+    expect(hasIdGtFilter(page2Url)).toBe(true);
+    expect(decodeURIComponent(page2Url)).toContain('ord_ns7b_199');
+  });
+
+  it('page 2 request does not include page=2 offset when keyset cursor is active', async () => {
+    // Regression test for double-skipping: with keyset active, Directus must receive
+    // page=1 (no offset) so the keyset filter alone determines the result window.
+    const sinceTs = '2024-06-01T00:00:00.000Z';
+    await saveLastPullTsToIDB('orders', sinceTs);
+
+    const page1 = Array.from({ length: 200 }, (_, i) =>
+      makeRemoteOrder({ id: `ord_ns7c_${String(i).padStart(3, '0')}`, date_updated: sinceTs }),
+    );
+
+    const fetchedOrderUrls = [];
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      const s = String(url);
+      if (s.includes('/items/orders')) {
+        fetchedOrderUrls.push(s);
+        if (fetchedOrderUrls.length === 1) return Promise.resolve(directusListResponse(page1));
+        return Promise.resolve(directusListResponse([]));
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const sync = useDirectusSync();
+    await sync.forcePull();
+
+    expect(fetchedOrderUrls.length).toBeGreaterThanOrEqual(2);
+
+    // The page 2 URL must use page=1 (no offset), not page=2
+    const page2Url = decodeURIComponent(fetchedOrderUrls[1]);
+    // Keyset mode: page param must be 1 to avoid double-skipping
+    expect(page2Url).toContain('page=1');
+    expect(page2Url).not.toMatch(/page=2(?:[^0-9]|$)/);
   });
 });
 

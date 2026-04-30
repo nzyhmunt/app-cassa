@@ -329,9 +329,15 @@ async function _fetchUpdatedViaSDK(collection, sinceTs, page = 1, cursor = null)
   } else {
     pullFields = ['*'];
   }
+  // NS7 fix: When a keyset cursor is active, the cursor filter itself handles
+  // exclusion of already-seen records.  Passing page > 1 on top of a keyset
+  // filter causes Directus to apply an additional offset on the already-narrowed
+  // result set, double-skipping records.  Force page = 1 whenever a cursor is
+  // present so only the keyset filter determines the starting position.
+  const effectivePage = (cursor?.id && cursor?.ts) ? 1 : page;
   const query = {
     limit: 200,
-    page,
+    page: effectivePage,
     // Primary sort by date_updated (or id for quirk collections); secondary by
     // date_created and id to guarantee a stable, deterministic page order when
     // many records share the same date_updated value (including null).
@@ -355,18 +361,24 @@ async function _fetchUpdatedViaSDK(collection, sinceTs, page = 1, cursor = null)
   // upsertRecordsIntoIDB handles the re-fetch idempotently: it only writes when the
   // incoming timestamp is ≥ the stored one (preferring the freshest server payload).
   //
-  // NS7: When a keyset cursor is provided, add an extra exclusion clause so that
-  // records already seen on the previous page (same ts + id ≤ cursorId) are skipped.
-  // This avoids re-fetching boundary records at timestamp edges when many records
-  // share the same date_updated value.
+  // NS7: When a keyset cursor is provided (page 2+), activate keyset mode regardless
+  // of whether cursor.ts equals sinceTs.  The old condition `cursor.ts === sinceTs`
+  // only fired when the last record's timestamp matched the global pull cursor exactly,
+  // missing the common case where page-1 records have timestamps newer than sinceTs.
+  // The keyset filter uses cursor.ts as the exclusion boundary so that any records
+  // already seen (ts < cursor.ts, or ts === cursor.ts with id ≤ cursor.id) are skipped.
   const conditions = [];
   if (sinceTs && !quirks.noDateUpdated) {
-    if (cursor?.id && cursor?.ts && cursor.ts === sinceTs) {
-      // Keyset: skip records at the cursor boundary that were already processed.
+    if (cursor?.id && cursor?.ts) {
+      // Keyset mode (page 2+): skip all records up to and including the cursor position.
+      // The sort order is [date_updated, date_created, id], so we include:
+      //   • records with date_updated strictly after cursor.ts, OR
+      //   • records with date_updated === cursor.ts but id > cursor.id, OR
+      //   • records with date_updated=null but date_created >= sinceTs (new, never-patched records).
       conditions.push({
         _or: [
-          { date_updated: { _gt: sinceTs } },
-          { _and: [{ date_updated: { _eq: sinceTs } }, { id: { _gt: cursor.id } }] },
+          { date_updated: { _gt: cursor.ts } },
+          { _and: [{ date_updated: { _eq: cursor.ts } }, { id: { _gt: cursor.id } }] },
           { _and: [{ date_updated: { _null: true } }, { date_created: { _gte: sinceTs } }] },
         ],
       });
@@ -793,20 +805,33 @@ async function _pullCollection(collection, { forceFull = false, lastPullTimestam
   }
 
   // forceFull always wins: ignore both lastPullTimestampOverride and persisted cursor.
-  const storedSinceTs = forceFull
+  // `let` (not `const`) so the clock-skew guard below can clamp it to now when needed.
+  let storedSinceTs = forceFull
     ? null
     : lastPullTimestampOverride ?? await loadLastPullTsFromIDB(collection);
 
   // S6: Clock-skew guard — if the stored cursor is in the future by more than
   // GLOBAL_TIMESTAMP_SKEW_TOLERANCE_MS the device clock (or the cursor) is
-  // probably invalid.  Force a full pull so no records are permanently skipped.
+  // probably invalid.
+  //
+  // Previous behaviour: force a full pull — but this caused a perpetual full pull
+  // every sync cycle when the device clock was permanently mis-set, effectively
+  // making the app unusable on offline/kiosk hardware with a drifted RTC.
+  //
+  // New behaviour: clamp the cursor to the device's current time and persist it so
+  // subsequent polls proceed normally.  Any records created between "now" and the
+  // bad future cursor are temporarily invisible until the next scheduled full pull
+  // (or a manual forcePull), but the app remains functional and data-safe.
   if (!forceFull && storedSinceTs) {
     const skewMs = new Date(storedSinceTs).getTime() - Date.now();
     if (skewMs > GLOBAL_TIMESTAMP_SKEW_TOLERANCE_MS) {
+      const clampedTs = new Date().toISOString();
       console.warn(
-        `[DirectusSync] Clock skew on ${collection}: cursor ${storedSinceTs} is ${Math.round(skewMs / 3_600_000)}h in the future. Forcing full pull.`,
+        `[DirectusSync] Clock skew on ${collection}: cursor ${storedSinceTs} is ${Math.round(skewMs / 3_600_000)}h in the future. ` +
+        `Clamping cursor to ${clampedTs} to avoid perpetual full pulls.`,
       );
-      return _pullCollection(collection, { forceFull: true, signal });
+      await saveLastPullTsToIDB(collection, clampedTs);
+      storedSinceTs = clampedTs;
     }
   }
   let page = 1;
