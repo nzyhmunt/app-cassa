@@ -448,6 +448,13 @@ function _buildRestClient(cfg, signal) {
  *   } |
  *   'skip' |
  *   {
+ *     // Returned when the drain was intentionally cancelled via
+ *     // AbortController.abort().  The caller must halt the drain loop
+ *     // immediately and must NOT log a push result, increment attempt
+ *     // counters, or treat the entry as a network failure.
+ *     aborted: true,
+ *   } |
+ *   {
  *     message: string,
  *     request: {
  *       collection: string,
@@ -643,7 +650,7 @@ function _entryEndpoint(entry) {
 /**
  * Logs the outcome of a single push entry to the sync_logs store.
  * @param {object} entry
- * @param {'skip'|{ok:boolean,record:*,method:string,requestContext:*}|object} result - Return value from _pushEntry
+ * @param {'skip'|{ok:boolean,record:*,method:string,requestContext:*}|{aborted:true}|object} result - Return value from _pushEntry
  * @param {number} durationMs
  */
 function _logPushResult(entry, result, durationMs) {
