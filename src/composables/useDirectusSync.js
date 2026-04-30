@@ -938,6 +938,21 @@ let _pushTimer = null;
 let _pollTimer = null;
 let _globalTimer = null;
 let _pushInFlight = null;
+/** AbortController for the currently in-flight drainQueue() call.  Aborted
+ *  (and replaced with null) whenever a push is invalidated via _onOffline(),
+ *  forcePush(), or stopSync(), causing the hung SDK fetch to throw AbortError
+ *  and halt the drain without incrementing any attempt counters. */
+let _pushAbortController = null;
+/**
+ * Monotonically increasing generation counter. Incremented for every push
+ * attempt started by `_runPush()`, and also incremented whenever a previous
+ * in-flight push must be invalidated (for example on offline, manual
+ * forcePush override, or stopSync). The `_runPush` finally block only clears
+ * `_pushInFlight` when the generation it captured at start still matches the
+ * current value — this prevents a stale/hung push that resolved late from
+ * nulling out a newer in-flight push.
+ */
+let _pushGeneration = 0;
 /** Single debounced timer for WS reconnect — prevents overlapping reconnect attempts. */
 let _reconnectTimer = null;
 /** Debounced short-delay push retry scheduled by _onOnline() to recover from brief post-reconnect instability. */
@@ -1042,15 +1057,27 @@ function _getCfg() {
 
 async function _runPush() {
   if (_pushInFlight) return _pushInFlight;
+  // Advance and capture a new generation for this push attempt.  Every await
+  // point is a potential preemption: if _onOffline(), forcePush(), or stopSync()
+  // advance _pushGeneration while this push is suspended on `await drainQueue()`,
+  // the push becomes stale.  The invalidation path also aborts _pushAbortController
+  // which causes the hung SDK fetch to throw AbortError — _pushEntry returns
+  // { aborted: true } and drainQueue() halts immediately (no sync_logs entry,
+  // no attempt increments, offline: false).  All shared module state updates
+  // (syncStatus, lastPushAt, _recentlyPushed) are still guarded by the generation
+  // check so a superseded push cannot overwrite the state set by the newer push.
+  const ac = new AbortController();
+  _pushAbortController = ac;
+  const generation = ++_pushGeneration;
   _pushInFlight = (async () => {
     try {
       if (!navigator.onLine) {
-        syncStatus.value = 'offline';
+        if (_pushGeneration === generation) syncStatus.value = 'offline';
         return { pushed: 0, failed: 0, abandoned: 0, pushedIds: [], offline: true };
       }
       const cfg = _getCfg();
       if (!cfg) {
-        syncStatus.value = 'idle';
+        if (_pushGeneration === generation) syncStatus.value = 'idle';
         return {
           pushed: 0,
           failed: 0,
@@ -1060,25 +1087,34 @@ async function _runPush() {
           skippedReason: 'no-config',
         };
       }
-      syncStatus.value = 'syncing';
-      const result = await drainQueue(cfg);
-      if (result.pushed > 0 || result.abandoned > 0) {
-        lastPushAt.value = new Date().toISOString();
+      if (_pushGeneration === generation) syncStatus.value = 'syncing';
+      const result = await drainQueue(cfg, ac.signal);
+      // Guard all post-await side effects: by the time drainQueue() resolves
+      // this push may have been superseded (offline/forcePush/stopSync).
+      if (_pushGeneration === generation) {
+        if (result.pushed > 0 || result.abandoned > 0) {
+          lastPushAt.value = new Date().toISOString();
+        }
+        // Register pushed IDs so self-echo events from the WebSocket are suppressed.
+        if (Array.isArray(result.pushedIds) && result.pushedIds.length > 0) {
+          _registerPushedEchoes(result.pushedIds);
+        }
+        syncStatus.value = result.offline
+          ? 'offline'
+          : result.failed > 0 ? 'error' : 'idle';
       }
-      // Register pushed IDs so self-echo events from the WebSocket are suppressed.
-      if (Array.isArray(result.pushedIds) && result.pushedIds.length > 0) {
-        _registerPushedEchoes(result.pushedIds);
-      }
-      syncStatus.value = result.offline
-        ? 'offline'
-        : result.failed > 0 ? 'error' : 'idle';
       return result;
     } catch (e) {
-      console.warn('[DirectusSync] Push error:', e);
-      syncStatus.value = 'error';
+      if (_pushGeneration === generation) {
+        console.warn('[DirectusSync] Push error:', e);
+        syncStatus.value = 'error';
+      }
       return { pushed: 0, failed: 0, abandoned: 0, pushedIds: [], offline: false };
     } finally {
-      _pushInFlight = null;
+      if (_pushGeneration === generation) {
+        _pushAbortController = null;
+        _pushInFlight = null;
+      }
     }
   })();
   return _pushInFlight;
@@ -1713,6 +1749,52 @@ function _onOffline() {
   // Cancel any pending delayed push retry so it doesn't fire if the device
   // went offline again before the 5-second window elapsed.
   if (_onlineRetryTimer) { clearTimeout(_onlineRetryTimer); _onlineRetryTimer = null; }
+  // Invalidate any in-flight push.  When the network drops, the underlying
+  // fetch() inside sdkClient.request() can hang indefinitely waiting for a TCP
+  // timeout (typically 10-20+ minutes).  Aborting _pushAbortController causes
+  // the SDK fetch to throw AbortError immediately, which drainQueue treats as a
+  // caller-initiated abort and uses to stop the drain cleanly without marking
+  // the result as offline or incrementing attempts.
+  // Clearing _pushInFlight and advancing _pushGeneration then ensures the next
+  // _runPush() call (from _onOnline()) starts a completely fresh push rather
+  // than waiting on the hung promise or running a second concurrent drain.
+  _pushAbortController?.abort();
+  _pushAbortController = null;
+  _pushGeneration++;
+  _pushInFlight = null;
+  // If an in-flight push had already set syncStatus to "syncing", the
+  // generation bump above causes that superseded _runPush() to skip its
+  // post-await status update.  Reflect the offline state here so the UI
+  // cannot remain stuck showing "syncing" while the app is offline.
+  if (_running) { syncStatus.value = 'offline'; }
+}
+
+/**
+ * Schedules a 5-second retry push after an online reconnect push failed.
+ * Re-schedules itself as long as the device remains online and sync is
+ * running so that the queue drains as soon as Directus becomes reachable
+ * again (e.g. while DHCP / DNS is still settling after reconnect).
+ * Cancelled by `_onOffline`, `stopSync`, or a new `_onOnline` event.
+ */
+function _scheduleOnlineRetry() {
+  if (_onlineRetryTimer) { clearTimeout(_onlineRetryTimer); }
+  _onlineRetryTimer = setTimeout(() => {
+    _onlineRetryTimer = null;
+    if (!_running || !navigator.onLine) return;
+    // Capture the generation that _runPush() will assign synchronously.  Since
+    // _runPush() increments _pushGeneration before its first await, reading
+    // _pushGeneration immediately after the call gives the generation used by
+    // this specific push attempt.  If _pushGeneration is subsequently advanced
+    // (offline/forcePush/stopSync), the result belongs to a superseded attempt
+    // and must not re-schedule a retry for the new online cycle.
+    const retryPush = _runPush();
+    const genAtStart = _pushGeneration;
+    retryPush.then((result) => {
+      if (result?.offline && _running && navigator.onLine && _pushGeneration === genAtStart) {
+        _scheduleOnlineRetry();
+      }
+    }).catch(() => {});
+  }, 5_000);
 }
 
 function _onOnline() {
@@ -1725,13 +1807,17 @@ function _onOnline() {
   // drainQueue() cycle on every reconnect when the first push already succeeded.
   // Also clear any timer already set by a concurrent push from a rapid second
   // 'online' event so only the most recent push's retry is scheduled.
-  _runPush().then((result) => {
-    if (result?.offline && _running && navigator.onLine) {
-      if (_onlineRetryTimer) { clearTimeout(_onlineRetryTimer); }
-      _onlineRetryTimer = setTimeout(() => {
-        _onlineRetryTimer = null;
-        if (_running) _runPush().catch(() => {});
-      }, 5_000);
+  // If the retry also fails, _scheduleOnlineRetry() reschedules itself every
+  // 5 s until the push succeeds, the device goes offline, or stopSync() is called.
+  // Capture the generation that _runPush() assigns synchronously (it increments
+  // _pushGeneration before its first await).  If _pushGeneration is subsequently
+  // advanced (offline/forcePush/stopSync), the result belongs to a superseded
+  // attempt and must not schedule a retry for the new online cycle.
+  const onlinePush = _runPush();
+  const genAtStart = _pushGeneration;
+  onlinePush.then((result) => {
+    if (result?.offline && _running && navigator.onLine && _pushGeneration === genAtStart) {
+      _scheduleOnlineRetry();
     }
   }).catch(() => {});
   _runPull().catch(() => {});
@@ -1821,6 +1907,15 @@ export function useDirectusSync() {
   function stopSync() {
     _running = false;
     _store = null;
+    // Abort any in-flight push and advance the generation so any push started
+    // before stopSync() does not clear a new _pushInFlight that might be
+    // created after the next startSync() call.  The AbortController abort causes
+    // the SDK fetch to throw AbortError so the drain halts immediately without
+    // corrupting the queue.
+    _pushAbortController?.abort();
+    _pushAbortController = null;
+    _pushGeneration++;
+    _pushInFlight = null;
     if (_pushTimer) { clearInterval(_pushTimer); _pushTimer = null; }
     if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
     if (_globalTimer) { clearInterval(_globalTimer); _globalTimer = null; }
@@ -1848,6 +1943,16 @@ export function useDirectusSync() {
    */
   async function forcePush() {
     if (!appConfig.directus?.enabled) return { pushed: 0, failed: 0, abandoned: 0, pushedIds: [], offline: false, skippedReason: 'disabled' };
+    // Abort any in-flight push and start fresh. This handles both the
+    // "push is stuck on a hung fetch (TCP timeout)" case and the more benign
+    // "push is already running" case: aborting the AbortController cancels the
+    // current drain immediately, returning the caller-initiated cancellation
+    // path (aborted: true) without marking the client offline, incrementing
+    // attempt counters, or leaving a second concurrent drain running in parallel.
+    _pushAbortController?.abort();
+    _pushAbortController = null;
+    _pushGeneration++;
+    _pushInFlight = null;
     return _runPush();
   }
 
@@ -1960,6 +2065,9 @@ export function _resetDirectusSyncSingleton() {
   _store = null;
   _appType = 'cassa';
   _wsCollections = [];
+  _pushGeneration = 0;
+  _pushAbortController?.abort();
+  _pushAbortController = null;
   _pushInFlight = null;
   _globalPullGeneration = 0;
   _lastAppliedGlobalPullGeneration = 0;

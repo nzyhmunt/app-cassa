@@ -405,11 +405,18 @@ function _hasAuditFieldValue(payload, snakeCaseKey, camelCaseKey) {
  * moment the `@directus/sdk` module was first loaded (the SDK caches the
  * fetch reference in its `globals` object when `createDirectus` runs).
  *
+ * When `signal` is provided it is attached to every underlying `fetch` call,
+ * allowing the caller to abort a hung or superseded drain via `AbortController`.
+ *
  * @param {{ url: string, staticToken: string }} cfg
+ * @param {AbortSignal} [signal]
  * @returns {import('@directus/sdk').DirectusClient<object>}
  */
-function _buildRestClient(cfg) {
-  return createDirectus(cfg.url, { globals: { fetch: globalThis.fetch } })
+function _buildRestClient(cfg, signal) {
+  const fetchFn = signal
+    ? (url, init) => globalThis.fetch(url, { ...(init ?? {}), signal })
+    : globalThis.fetch;
+  return createDirectus(cfg.url, { globals: { fetch: fetchFn } })
     .with(staticToken(cfg.staticToken))
     .with(rest());
 }
@@ -440,6 +447,13 @@ function _buildRestClient(cfg) {
  *     },
  *   } |
  *   'skip' |
+ *   {
+ *     // Returned when the drain was intentionally cancelled via
+ *     // AbortController.abort().  The caller must halt the drain loop
+ *     // immediately and must NOT log a push result, increment attempt
+ *     // counters, or treat the entry as a network failure.
+ *     aborted: true,
+ *   } |
  *   {
  *     message: string,
  *     request: {
@@ -582,6 +596,12 @@ async function _pushEntry(entry, sdkClient, cfg) {
       return { ok: true, record: updated ?? null, method: 'PATCH', requestContext };
     }
   } catch (e) {
+    // AbortError: the drain was intentionally cancelled by the caller via
+    // AbortController.abort().  Return a distinct marker so the drain loop
+    // halts silently — no console noise, no sync_logs entry, no attempt burn.
+    if (e?.name === 'AbortError') {
+      return { aborted: true };
+    }
     // Extract a human-readable message from the error:
     //  - e.errors[0].message   — Directus SDK top-level GraphQL/REST error array
     //  - e.response.errors[0]  — SDK error wrapped under .response
@@ -604,6 +624,7 @@ async function _pushEntry(entry, sdkClient, cfg) {
       // In browsers and Node.js, fetch network failures surface as TypeError.
       // Distinguishing these from HTTP errors (4xx/5xx, where e.response.status
       // is set) allows the caller to decide whether to increment attempt counters.
+      // Note: AbortError is handled above and never reaches this point.
       networkError: e instanceof TypeError,
       // True when a create POST detected a duplicate record (HTTP 400
       // RECORD_NOT_UNIQUE from Directus, or HTTP 409 from a proxy) and the
@@ -629,7 +650,7 @@ function _entryEndpoint(entry) {
 /**
  * Logs the outcome of a single push entry to the sync_logs store.
  * @param {object} entry
- * @param {'skip'|{ok:boolean,record:*,method:string,requestContext:*}|object} result - Return value from _pushEntry
+ * @param {'skip'|{ok:boolean,record:*,method:string,requestContext:*}|{aborted:true}|object} result - Return value from _pushEntry
  * @param {number} durationMs
  */
 function _logPushResult(entry, result, durationMs) {
@@ -697,10 +718,18 @@ function _logPushResult(entry, result, durationMs) {
  *
  * @param {{ url: string, staticToken: string, venueId?: number|string|null }} cfg
  *   Directus connection config.
+ * @param {AbortSignal} [signal]
+ *   Optional AbortSignal from an `AbortController`. When aborted, the current
+ *   SDK request throws an `AbortError` which is caught by `_pushEntry` and
+ *   returned as `{ aborted: true }`.  The drain loop halts immediately without
+ *   writing to `sync_logs`, without incrementing any attempt counter, and with
+ *   `offline: false` in the return value (the abort was caller-initiated, not a
+ *   network failure).  This allows the caller to cancel an in-flight (or hung)
+ *   drain without risking queue corruption or false error entries.
  * @returns {Promise<{ pushed: number, failed: number, abandoned: number, pushedIds: Array<{collection: string, recordId: string}>, offline: boolean }>}
  */
-export async function drainQueue(cfg) {
-  const sdkClient = _buildRestClient(cfg);
+export async function drainQueue(cfg, signal) {
+  const sdkClient = _buildRestClient(cfg, signal);
   const entries = await getPendingEntries();
   let pushed = 0, failed = 0, abandoned = 0;
   /** @type {{collection: string, recordId: string}[]} */
@@ -963,6 +992,12 @@ export async function drainQueue(cfg) {
 
     const _pushStart = Date.now();
     const result = await _pushEntry(entry, sdkClient, cfg);
+    // AbortError path: drain was cancelled by the caller.  Halt immediately
+    // without logging to sync_logs and without burning any retry budget.
+    // The returned offline flag remains false — this was not a network failure.
+    if (result?.aborted) {
+      return { pushed, pushedIds, failed, abandoned, offline: false };
+    }
     _logPushResult(entry, result, Date.now() - _pushStart);
 
     if (result === 'skip' || (result && typeof result === 'object' && result.ok === true)) {
@@ -1014,6 +1049,7 @@ export async function drainQueue(cfg) {
     // Parent is now satisfiable — attempt this entry.
     const _deferredPushStart = Date.now();
     const result = await _pushEntry(deferredEntry, sdkClient, cfg);
+    if (result?.aborted) return { pushed, failed, abandoned, pushedIds, offline: false };
     _logPushResult(deferredEntry, result, Date.now() - _deferredPushStart);
     if (result === 'skip' || (result && typeof result === 'object' && result.ok === true)) {
       await removeEntry(deferredEntry.id);
