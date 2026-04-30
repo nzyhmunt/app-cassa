@@ -574,8 +574,13 @@ export function deepEqual(left, right) {
   // Guard against non-plain objects (Date, Map, Set, RegExp, …):
   // they are compared by identity (===) above; reaching here with different
   // instances means they are not equal.
-  if (Object.getPrototypeOf(left) !== Object.prototype && !Array.isArray(left)) return false;
-  if (Object.getPrototypeOf(right) !== Object.prototype && !Array.isArray(right)) return false;
+  // Both Object.prototype and null (for Object.create(null) dictionaries) are
+  // considered plain-object prototypes.
+  const leftProto = Object.getPrototypeOf(left);
+  const rightProto = Object.getPrototypeOf(right);
+  const isPlain = p => p === Object.prototype || p === null;
+  if (!Array.isArray(left) && !isPlain(leftProto)) return false;
+  if (!Array.isArray(right) && !isPlain(rightProto)) return false;
 
   if (Array.isArray(left)) {
     if (left.length !== right.length) return false;
