@@ -3462,8 +3462,9 @@ describe('S6 — clock skew guard', () => {
     // The persisted cursor must now be a recent timestamp (within 5 s of this test run).
     const savedTs = await loadLastPullTsFromIDB('orders');
     expect(savedTs).toBeDefined();
-    expect(new Date(savedTs).getTime()).toBeLessThanOrEqual(Date.now() + 5_000);
-    expect(new Date(savedTs).getTime()).toBeGreaterThan(Date.now() - 60_000);
+    const savedTsMs = new Date(savedTs).getTime();
+    expect(savedTsMs).toBeLessThanOrEqual(Date.now() + 5_000);
+    expect(savedTsMs).toBeGreaterThan(Date.now() - 60_000);
   });
 
   it('uses incremental pull when the cursor is within the tolerance window', async () => {

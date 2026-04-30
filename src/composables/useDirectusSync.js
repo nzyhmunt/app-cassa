@@ -334,10 +334,10 @@ async function _fetchUpdatedViaSDK(collection, sinceTs, page = 1, cursor = null)
   // filter causes Directus to apply an additional offset on the already-narrowed
   // result set, double-skipping records.  Force page = 1 whenever a cursor is
   // present so only the keyset filter determines the starting position.
-  const effectivePage = (cursor?.id && cursor?.ts) ? 1 : page;
+  const isKeysetMode = !!(cursor?.id && cursor?.ts);
   const query = {
     limit: 200,
-    page: effectivePage,
+    page: isKeysetMode ? 1 : page,
     // Primary sort by date_updated (or id for quirk collections); secondary by
     // date_created and id to guarantee a stable, deterministic page order when
     // many records share the same date_updated value (including null).
@@ -369,7 +369,7 @@ async function _fetchUpdatedViaSDK(collection, sinceTs, page = 1, cursor = null)
   // already seen (ts < cursor.ts, or ts === cursor.ts with id ≤ cursor.id) are skipped.
   const conditions = [];
   if (sinceTs && !quirks.noDateUpdated) {
-    if (cursor?.id && cursor?.ts) {
+    if (isKeysetMode) {
       // Keyset mode (page 2+): skip all records up to and including the cursor position.
       // The sort order is [date_updated, date_created, id], so we include:
       //   • records with date_updated strictly after cursor.ts, OR
@@ -823,9 +823,10 @@ async function _pullCollection(collection, { forceFull = false, lastPullTimestam
   // bad future cursor are temporarily invisible until the next scheduled full pull
   // (or a manual forcePull), but the app remains functional and data-safe.
   if (!forceFull && storedSinceTs) {
-    const skewMs = new Date(storedSinceTs).getTime() - Date.now();
+    const nowMs = Date.now();
+    const skewMs = new Date(storedSinceTs).getTime() - nowMs;
     if (skewMs > GLOBAL_TIMESTAMP_SKEW_TOLERANCE_MS) {
-      const clampedTs = new Date().toISOString();
+      const clampedTs = new Date(nowMs).toISOString();
       console.warn(
         `[DirectusSync] Clock skew on ${collection}: cursor ${storedSinceTs} is ${Math.round(skewMs / 3_600_000)}h in the future. ` +
         `Clamping cursor to ${clampedTs} to avoid perpetual full pulls.`,
