@@ -938,6 +938,11 @@ let _pushTimer = null;
 let _pollTimer = null;
 let _globalTimer = null;
 let _pushInFlight = null;
+/** AbortController for the currently in-flight drainQueue() call.  Aborted
+ *  (and replaced with null) whenever a push is invalidated via _onOffline(),
+ *  forcePush(), or stopSync(), causing the hung SDK fetch to throw AbortError
+ *  and halt the drain without incrementing any attempt counters. */
+let _pushAbortController = null;
 /**
  * Monotonically increasing generation counter. Incremented for every push
  * attempt started by `_runPush()`, and also incremented whenever a previous
@@ -1054,12 +1059,15 @@ async function _runPush() {
   if (_pushInFlight) return _pushInFlight;
   // Advance and capture a new generation for this push attempt.  Every await
   // point is a potential preemption: if _onOffline(), forcePush(), or stopSync()
-  // advance _pushGeneration while this push is suspended on `await drainQueue(cfg)`,
-  // the push becomes stale.  The generation checks only guard shared module
-  // state updates after the await (syncStatus, lastPushAt, _recentlyPushed),
-  // so a stale/hung push that eventually resolves cannot overwrite the state
-  // set by a newer push, even though `drainQueue(cfg)` itself may still finish
-  // and perform its own side effects.
+  // advance _pushGeneration while this push is suspended on `await drainQueue()`,
+  // the push becomes stale.  The invalidation path also aborts _pushAbortController
+  // which causes the hung SDK fetch to throw AbortError — drainQueue() then
+  // halts immediately (AbortError is treated as networkError, no attempt increments).
+  // All shared module state updates (syncStatus, lastPushAt, _recentlyPushed) are
+  // still guarded by the generation check so a superseded push that runs to
+  // completion (or aborts) cannot overwrite the state set by the newer push.
+  const ac = new AbortController();
+  _pushAbortController = ac;
   const generation = ++_pushGeneration;
   _pushInFlight = (async () => {
     try {
@@ -1080,7 +1088,7 @@ async function _runPush() {
         };
       }
       if (_pushGeneration === generation) syncStatus.value = 'syncing';
-      const result = await drainQueue(cfg);
+      const result = await drainQueue(cfg, ac.signal);
       // Guard all post-await side effects: by the time drainQueue() resolves
       // this push may have been superseded (offline/forcePush/stopSync).
       if (_pushGeneration === generation) {
@@ -1104,6 +1112,7 @@ async function _runPush() {
       return { pushed: 0, failed: 0, abandoned: 0, pushedIds: [], offline: false };
     } finally {
       if (_pushGeneration === generation) {
+        _pushAbortController = null;
         _pushInFlight = null;
       }
     }
@@ -1742,12 +1751,14 @@ function _onOffline() {
   if (_onlineRetryTimer) { clearTimeout(_onlineRetryTimer); _onlineRetryTimer = null; }
   // Invalidate any in-flight push.  When the network drops, the underlying
   // fetch() inside sdkClient.request() can hang indefinitely waiting for a TCP
-  // timeout (typically 10-20+ minutes).  _pushInFlight would remain set to the
-  // hung promise, blocking every subsequent _runPush() call — including the
-  // manual "Push ora" button — until the app is restarted.
-  // Incrementing _pushGeneration ensures the hung push's finally block won't
-  // interfere with the fresh push that _onOnline() will start once the network
-  // is restored.
+  // timeout (typically 10-20+ minutes).  Aborting _pushAbortController causes
+  // the SDK fetch to throw AbortError immediately, which drainQueue treats as a
+  // network error and uses to halt the drain cleanly (no attempt increments).
+  // Clearing _pushInFlight and advancing _pushGeneration then ensures the next
+  // _runPush() call (from _onOnline()) starts a completely fresh push rather
+  // than waiting on the hung promise or running a second concurrent drain.
+  _pushAbortController?.abort();
+  _pushAbortController = null;
   _pushGeneration++;
   _pushInFlight = null;
 }
@@ -1876,9 +1887,13 @@ export function useDirectusSync() {
   function stopSync() {
     _running = false;
     _store = null;
-    // Advance the generation so any in-flight push started before stopSync()
-    // does not clear a new _pushInFlight that might be created after the next
-    // startSync() call.
+    // Abort any in-flight push and advance the generation so any push started
+    // before stopSync() does not clear a new _pushInFlight that might be
+    // created after the next startSync() call.  The AbortController abort causes
+    // the SDK fetch to throw AbortError so the drain halts immediately without
+    // corrupting the queue.
+    _pushAbortController?.abort();
+    _pushAbortController = null;
     _pushGeneration++;
     _pushInFlight = null;
     if (_pushTimer) { clearInterval(_pushTimer); _pushTimer = null; }
@@ -1908,10 +1923,14 @@ export function useDirectusSync() {
    */
   async function forcePush() {
     if (!appConfig.directus?.enabled) return { pushed: 0, failed: 0, abandoned: 0, pushedIds: [], offline: false, skippedReason: 'disabled' };
-    // Discard any stuck in-flight push so the manual override always starts fresh.
-    // A push may be stuck because the network dropped mid-request — the underlying
-    // fetch() can hang indefinitely waiting for a TCP timeout, keeping _pushInFlight
-    // set and blocking all subsequent _runPush() calls.
+    // Abort any in-flight push and start fresh.  This handles both the
+    // "push is stuck on a hung fetch (TCP timeout)" case and the more benign
+    // "push is already running" case: aborting the AbortController causes the
+    // SDK fetch to throw AbortError, which drainQueue treats as a network error
+    // and uses to halt the drain immediately without incrementing attempt
+    // counters or leaving a second concurrent drain running in parallel.
+    _pushAbortController?.abort();
+    _pushAbortController = null;
     _pushGeneration++;
     _pushInFlight = null;
     return _runPush();
@@ -2027,6 +2046,8 @@ export function _resetDirectusSyncSingleton() {
   _appType = 'cassa';
   _wsCollections = [];
   _pushGeneration = 0;
+  _pushAbortController?.abort();
+  _pushAbortController = null;
   _pushInFlight = null;
   _globalPullGeneration = 0;
   _lastAppliedGlobalPullGeneration = 0;

@@ -405,11 +405,18 @@ function _hasAuditFieldValue(payload, snakeCaseKey, camelCaseKey) {
  * moment the `@directus/sdk` module was first loaded (the SDK caches the
  * fetch reference in its `globals` object when `createDirectus` runs).
  *
+ * When `signal` is provided it is attached to every underlying `fetch` call,
+ * allowing the caller to abort a hung or superseded drain via `AbortController`.
+ *
  * @param {{ url: string, staticToken: string }} cfg
+ * @param {AbortSignal} [signal]
  * @returns {import('@directus/sdk').DirectusClient<object>}
  */
-function _buildRestClient(cfg) {
-  return createDirectus(cfg.url, { globals: { fetch: globalThis.fetch } })
+function _buildRestClient(cfg, signal) {
+  const fetchFn = signal
+    ? (url, init) => globalThis.fetch(url, { ...init, signal })
+    : globalThis.fetch;
+  return createDirectus(cfg.url, { globals: { fetch: fetchFn } })
     .with(staticToken(cfg.staticToken))
     .with(rest());
 }
@@ -602,9 +609,12 @@ async function _pushEntry(entry, sdkClient, cfg) {
       },
       // True only when the fetch itself threw (no HTTP response received).
       // In browsers and Node.js, fetch network failures surface as TypeError.
+      // An aborted fetch (AbortController.abort()) throws a DOMException with
+      // name 'AbortError' — treat it identically so the drain halts without
+      // burning any retry budget for the aborted entry.
       // Distinguishing these from HTTP errors (4xx/5xx, where e.response.status
       // is set) allows the caller to decide whether to increment attempt counters.
-      networkError: e instanceof TypeError,
+      networkError: e instanceof TypeError || e?.name === 'AbortError',
       // True when a create POST detected a duplicate record (HTTP 400
       // RECORD_NOT_UNIQUE from Directus, or HTTP 409 from a proxy) and the
       // fallback PATCH also failed.  The record IS in Directus so child FK
@@ -697,10 +707,16 @@ function _logPushResult(entry, result, durationMs) {
  *
  * @param {{ url: string, staticToken: string, venueId?: number|string|null }} cfg
  *   Directus connection config.
+ * @param {AbortSignal} [signal]
+ *   Optional AbortSignal from an `AbortController`. When aborted, the current
+ *   SDK request throws an `AbortError` which is treated the same as a network
+ *   error — the drain halts immediately without incrementing any attempt
+ *   counter.  This allows the caller to cancel an in-flight (or hung) drain
+ *   without risking queue corruption.
  * @returns {Promise<{ pushed: number, failed: number, abandoned: number, pushedIds: Array<{collection: string, recordId: string}>, offline: boolean }>}
  */
-export async function drainQueue(cfg) {
-  const sdkClient = _buildRestClient(cfg);
+export async function drainQueue(cfg, signal) {
+  const sdkClient = _buildRestClient(cfg, signal);
   const entries = await getPendingEntries();
   let pushed = 0, failed = 0, abandoned = 0;
   /** @type {{collection: string, recordId: string}[]} */
