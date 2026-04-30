@@ -62,7 +62,7 @@ const LONG_FLUSH_ROUNDS = 80;
  * @param {string} urlString
  * @returns {boolean}
  */
-function hasDateUpdatedGtFilter(urlString) {
+function hasDateUpdatedIncrementalFilter(urlString) {
   const url = new URL(String(urlString));
   const keys = Array.from(url.searchParams.keys());
 
@@ -596,7 +596,7 @@ describe('reconfigureAndApply()', () => {
       .filter(url => url.includes('/items/venues'));
     expect(venueCalls.length).toBeGreaterThan(0);
     for (const url of venueCalls) {
-      expect(hasDateUpdatedGtFilter(url)).toBe(false);
+      expect(hasDateUpdatedIncrementalFilter(url)).toBe(false);
     }
     expectNoVenueEqFilterForCollection(fetchSpy, 'venues');
   });
@@ -1374,7 +1374,7 @@ describe('pull — incremental filter includes null-dated records', () => {
     expect(orderCalls.length).toBeGreaterThan(0);
 
     for (const url of orderCalls) {
-      expect(hasDateUpdatedGtFilter(url)).toBe(false);
+      expect(hasDateUpdatedIncrementalFilter(url)).toBe(false);
     }
   });
 });
@@ -2162,7 +2162,7 @@ describe('global pull config hydration', () => {
     const venueCalls = fetchSpy.mock.calls
       .map(([url]) => String(url))
       .filter(url => url.includes('/items/venues'));
-    expect(venueCalls.every(url => hasDateUpdatedGtFilter(url) === false)).toBe(true);
+    expect(venueCalls.every(url => hasDateUpdatedIncrementalFilter(url) === false)).toBe(true);
   });
 
   it('retries deep venue bootstrap on the next cycle if the first global fetch fails', async () => {
@@ -2195,7 +2195,7 @@ describe('global pull config hydration', () => {
       .filter(url => url.includes('/items/venues'));
     expect(venueCalls.length).toBeGreaterThanOrEqual(2);
     for (const url of venueCalls) {
-      expect(hasDateUpdatedGtFilter(url)).toBe(false);
+      expect(hasDateUpdatedIncrementalFilter(url)).toBe(false);
     }
   });
 

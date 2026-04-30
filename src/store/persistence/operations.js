@@ -453,13 +453,29 @@ export async function upsertRecordsIntoIDB(storeName, records, { forceWrite = fa
           // rapid successive PATCHes on the same record can all land within the same
           // server-clock millisecond; the last PATCH carries the authoritative field
           // values and must win even when the timestamp has not advanced.
+          // Exception: same-timestamp records that are payload-identical are silently
+          // skipped so that the _gte incremental pull strategy does not produce
+          // unnecessary IDB write amplification and downstream refresh/rehydration
+          // churn when re-fetching unchanged boundary records on idle datasets.
           const existingTs = existing.date_updated ?? existing.date_created;
           const incomingTs = incoming.date_updated ?? incoming.date_created;
           if (existingTs && !incomingTs) {
             continue;
           }
-          if (existingTs && incomingTs && new Date(incomingTs) < new Date(existingTs)) {
-            continue;
+          if (existingTs && incomingTs) {
+            const existingMs = new Date(existingTs).getTime();
+            const incomingMs = new Date(incomingTs).getTime();
+            if (incomingMs < existingMs) {
+              continue; // strictly older → skip
+            }
+            if (incomingMs === existingMs) {
+              // Same timestamp: only write when the payload has actually changed.
+              const { _sync_status: _ss, ...cleanIncoming } = incoming;
+              if (JSON.stringify(cleanIncoming) === JSON.stringify(existing)) {
+                continue; // identical payload → no-op
+              }
+            }
+            // incomingMs > existingMs, or equal but different payload → write
           }
         }
         const { _sync_status: _s, ...clean } = incoming;
