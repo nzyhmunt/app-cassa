@@ -767,13 +767,14 @@ async function _removeOrderItemsFromOrdersIDB(deletedIds) {
   }
 }
 
-async function _pullCollection(collection, { forceFull = false, lastPullTimestampOverride = null } = {}) {
+async function _pullCollection(collection, { forceFull = false, lastPullTimestampOverride = null, signal = null } = {}) {
   if (collection === 'table_merge_sessions' && forceFull) {
     let page = 1;
     let latestTs = null;
     const allMapped = [];
     let hadFetchError = false;
     while (true) { // eslint-disable-line no-constant-condition
+      if (signal?.aborted) break;
       const { data, maxTs, error } = await _fetchUpdatedViaSDK(collection, null, page);
       if (error) hadFetchError = true;
       if (data.length === 0) break;
@@ -805,7 +806,7 @@ async function _pullCollection(collection, { forceFull = false, lastPullTimestam
       console.warn(
         `[DirectusSync] Clock skew on ${collection}: cursor ${storedSinceTs} is ${Math.round(skewMs / 3_600_000)}h in the future. Forcing full pull.`,
       );
-      return _pullCollection(collection, { forceFull: true });
+      return _pullCollection(collection, { forceFull: true, signal });
     }
   }
   let page = 1;
@@ -824,6 +825,8 @@ async function _pullCollection(collection, { forceFull = false, lastPullTimestam
   let pageKeyCursor = null;
 
   while (true) { // eslint-disable-line no-constant-condition
+    // Exit between pages when forcePull/stopSync aborts the pull session.
+    if (signal?.aborted) break;
     const { data, maxTs, lastCursor, error } = await _fetchUpdatedViaSDK(collection, storedSinceTs, page, pageKeyCursor);
     if (error) hadFetchError = true;
     if (data.length === 0) break;
@@ -1650,7 +1653,7 @@ async function _runPull() {
         // forcePull() or stopSync() starting a fresh pull session.
         if (ac.signal.aborted) break;
         if (menuSource === 'json' && collection === 'menu_items') continue;
-        const { merged, ok } = await _pullCollection(collection);
+        const { merged, ok } = await _pullCollection(collection, { signal: ac.signal });
         if (ac.signal.aborted) break;
         if (merged > 0) anyMerged = true;
         if (!ok) allOk = false;
@@ -2588,6 +2591,10 @@ export function useDirectusSync() {
         _emitProgress(onProgress, { level: 'info', message: 'Cache configurazione locale svuotata.' });
       }
 
+      // Reset the NS5 in-flight semaphore so this user-initiated pull
+      // always starts a fresh fetch with the correct onProgress callback
+      // rather than reusing a background pull that lacks it.
+      _globalPullInFlight = null;
       const result = await _runGlobalPull({ onProgress });
       syncStatus.value = result?.ok ? 'idle' : 'error';
       return result ?? { ok: false, failedCollections: [] };
