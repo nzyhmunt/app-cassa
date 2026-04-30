@@ -473,9 +473,17 @@ export async function upsertRecordsIntoIDB(storeName, records, { forceWrite = fa
             }
             if (incomingMs === existingMs) {
               // Same timestamp: only write when the payload has actually changed.
-              const { _sync_status: _, ...cleanIncoming } = incoming;
-              if (deepEqual(cleanIncoming, existing)) {
-                continue; // identical payload → no-op
+              // For venue_users the IDB record stores a hashed PIN while Directus
+              // returns the raw PIN, so a naïve deepEqual would always differ.
+              // Because date_updated advances on every Directus PATCH, equal
+              // timestamps guarantee the record (including the PIN) has not been
+              // modified since the existing version was stored; we can safely
+              // exclude the pin field from the comparison and treat differing
+              // raw-vs-hashed representations as a no-op.
+              const { _sync_status: _, pin: _pinIncoming, ...cleanIncoming } = incoming;
+              const { pin: _pinExisting, ...cleanExisting } = existing;
+              if (deepEqual(cleanIncoming, cleanExisting)) {
+                continue; // identical non-pin payload → no-op
               }
             }
             // incomingMs > existingMs, or equal but different payload → write
