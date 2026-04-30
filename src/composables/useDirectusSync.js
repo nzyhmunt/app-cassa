@@ -939,11 +939,13 @@ let _pollTimer = null;
 let _globalTimer = null;
 let _pushInFlight = null;
 /**
- * Monotonically increasing generation counter.  Incremented whenever an
- * in-flight push must be invalidated (offline event, manual forcePush override,
- * stopSync).  The `_runPush` finally block only clears `_pushInFlight` when the
- * generation it captured at start still matches the current value — this prevents
- * a stale/hung push that resolved late from nulling out a newer in-flight push.
+ * Monotonically increasing generation counter. Incremented for every push
+ * attempt started by `_runPush()`, and also incremented whenever a previous
+ * in-flight push must be invalidated (for example on offline, manual
+ * forcePush override, or stopSync). The `_runPush` finally block only clears
+ * `_pushInFlight` when the generation it captured at start still matches the
+ * current value — this prevents a stale/hung push that resolved late from
+ * nulling out a newer in-flight push.
  */
 let _pushGeneration = 0;
 /** Single debounced timer for WS reconnect — prevents overlapping reconnect attempts. */
