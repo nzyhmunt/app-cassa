@@ -54,19 +54,20 @@ async function flushPromises(rounds = 30) {
 const LONG_FLUSH_ROUNDS = 80;
 
 /**
- * Returns true when a Directus request URL contains a `date_updated > X` filter.
+ * Returns true when a Directus request URL contains a `date_updated >= X` (or `> X`) filter.
  * Supports both query styles:
- *  - bracketed params: `filter[date_updated][_gt]=...`
- *  - JSON filter param: `filter={"date_updated":{"_gt":"..."}}`
+ *  - bracketed params: `filter[date_updated][_gte]=...` or `filter[date_updated][_gt]=...`
+ *  - JSON filter param: `filter={"date_updated":{"_gte":"..."}}`
  *
  * @param {string} urlString
  * @returns {boolean}
  */
-function hasDateUpdatedGtFilter(urlString) {
+function hasDateUpdatedIncrementalFilter(urlString) {
   const url = new URL(String(urlString));
   const keys = Array.from(url.searchParams.keys());
 
-  // Pattern like filter[date_updated][_gt]=...
+  // Pattern like filter[date_updated][_gte]=... or filter[date_updated][_gt]=...
+  // (_gte contains '_gt' as a substring so this catches both)
   if (keys.some(k => k.includes('date_updated') && k.includes('_gt'))) return true;
 
   // Pattern like filter={...} JSON-encoded
@@ -79,7 +80,7 @@ function hasDateUpdatedGtFilter(urlString) {
     while (stack.length > 0) {
       const node = stack.pop();
       if (!node || typeof node !== 'object') continue;
-      if (node.date_updated?._gt !== undefined) {
+      if (node.date_updated?._gte !== undefined || node.date_updated?._gt !== undefined) {
         return true;
       }
       for (const v of Object.values(node)) stack.push(v);
@@ -595,7 +596,7 @@ describe('reconfigureAndApply()', () => {
       .filter(url => url.includes('/items/venues'));
     expect(venueCalls.length).toBeGreaterThan(0);
     for (const url of venueCalls) {
-      expect(hasDateUpdatedGtFilter(url)).toBe(false);
+      expect(hasDateUpdatedIncrementalFilter(url)).toBe(false);
     }
     expectNoVenueEqFilterForCollection(fetchSpy, 'venues');
   });
@@ -1253,6 +1254,29 @@ describe('pull — IDB last-write-wins', () => {
     const stored = await db.get('orders', 'ord_local_newer');
     expect(stored.status).toBe('delivered'); // local wins
   });
+
+  it('overwrites an existing record when incoming has the same timestamp (boundary case fix)', async () => {
+    // Regression test: two successive PATCHes on the same record may land at the exact
+    // same server-clock millisecond.  The second PATCH (status='accepted') must overwrite
+    // the first PATCH (status='pending') even though both carry an identical date_updated.
+    const sameTs = '2024-06-01T10:00:01.000Z';
+    await upsertRecordsIntoIDB('orders', [{
+      id: 'ord_same_ts', status: 'pending', date_updated: sameTs,
+    }]);
+
+    const updatedOrder = makeRemoteOrder({
+      id: 'ord_same_ts', status: 'accepted', date_updated: sameTs,
+    });
+    vi.spyOn(global, 'fetch').mockImplementation(() => Promise.resolve(directusListResponse([updatedOrder])));
+
+    const sync = useDirectusSync();
+    await sync.forcePull();
+
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+    const stored = await db.get('orders', 'ord_same_ts');
+    expect(stored.status).toBe('accepted'); // same-timestamp incoming wins
+  });
 });
 
 // ── Pull: null-dated incremental filter ──────────────────────────────────────
@@ -1270,9 +1294,9 @@ describe('pull — incremental filter includes null-dated records', () => {
       .filter(url => url.includes('/items/orders'));
     expect(orderCalls.length).toBeGreaterThan(0);
 
-    // Verify the filter contains both date_updated > sinceTs and the null-date clause.
+    // Verify the filter contains both date_updated >= sinceTs and the null-date clause.
     // Directus SDKs may encode this either as a JSON `filter=` param or as
-    // bracketed query params like `filter[_or][0][date_updated][_gt]=...`.
+    // bracketed query params like `filter[_or][0][date_updated][_gte]=...`.
     let matchedIncrementalFilter = false;
     for (const url of orderCalls) {
       const parsedUrl = new URL(url);
@@ -1309,6 +1333,36 @@ describe('pull — incremental filter includes null-dated records', () => {
     expect(matchedIncrementalFilter).toBe(true);
   });
 
+  it('uses _gte so that records updated at exactly sinceTs are not skipped', async () => {
+    // Regression: two back-to-back PATCHes within the same server-clock millisecond
+    // both get date_updated = sinceTs.  With the old _gt filter the second PATCH would
+    // never be returned; with _gte both are re-fetched on the next poll cycle.
+    const sinceTs = '2024-06-01T10:00:01.000Z';
+    await saveLastPullTsToIDB('orders', sinceTs);
+
+    // Seed IDB: order already in 'pending' state at sinceTs
+    await upsertRecordsIntoIDB('orders', [{
+      id: 'ord_gte_1', status: 'pending', date_updated: sinceTs,
+    }]);
+
+    // Remote returns the same order but with status='accepted' (same date_updated!)
+    const updatedOrder = makeRemoteOrder({
+      id: 'ord_gte_1', status: 'accepted', date_updated: sinceTs,
+    });
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      if (url.includes('/items/orders')) return Promise.resolve(directusListResponse([updatedOrder]));
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const sync = useDirectusSync();
+    await sync.forcePull();
+
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+    const stored = await db.get('orders', 'ord_gte_1');
+    expect(stored.status).toBe('accepted'); // _gte ensures boundary record is re-fetched and written
+  });
+
   it('does NOT add incremental filter when sinceTs is null (full pull)', async () => {
     const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation(() => Promise.resolve(directusListResponse([])));
     const sync = useDirectusSync();
@@ -1320,7 +1374,7 @@ describe('pull — incremental filter includes null-dated records', () => {
     expect(orderCalls.length).toBeGreaterThan(0);
 
     for (const url of orderCalls) {
-      expect(hasDateUpdatedGtFilter(url)).toBe(false);
+      expect(hasDateUpdatedIncrementalFilter(url)).toBe(false);
     }
   });
 });
@@ -1704,9 +1758,10 @@ describe('WS order_items — embedded merge into parent orders', () => {
     expect(item.modifiers[1].id).toBe('mod_2');
   });
 
-  it('_mergeOrderItemsIntoOrdersIDB uses strictly-greater Date comparison (same as upsertRecordsIntoIDB)', async () => {
-    // Guards timestamp-comparison consistency: same-timestamp incoming should NOT
-    // overwrite an existing embedded item (matches upsertRecordsIntoIDB behavior).
+  it('_mergeOrderItemsIntoOrdersIDB overwrites when incoming timestamp equals existing (same as upsertRecordsIntoIDB)', async () => {
+    // Guards timestamp-comparison consistency: same-timestamp incoming SHOULD overwrite
+    // the existing embedded item so that back-to-back PATCHes within the same server-clock
+    // millisecond are never silently dropped (matches upsertRecordsIntoIDB ≥ semantics).
     const { getDB } = await import('../useIDB.js');
     const db = await getDB();
 
@@ -1729,7 +1784,7 @@ describe('WS order_items — embedded merge into parent orders', () => {
       date_updated: sameTs,
     });
 
-    // WS update arrives with the SAME timestamp — should keep existing (not overwrite).
+    // WS update arrives with the SAME timestamp — incoming wins (overwrites existing).
     await _handleSubscriptionMessage('order_items', {
       event: 'update',
       data: [{
@@ -1744,10 +1799,10 @@ describe('WS order_items — embedded merge into parent orders', () => {
 
     const order = await db.get('orders', orderId);
     const item = order.orderItems[0];
-    // Same timestamp → incoming does NOT win; existing values preserved.
-    expect(item.name).toBe('Originale');
-    expect(item.quantity).toBe(5);
-    expect(item.unit_price).toBe(10);
+    // Same timestamp → incoming wins; latest payload values are stored.
+    expect(item.name).toBe('Sostituto');
+    expect(item.quantity).toBe(99);
+    expect(item.unit_price).toBe(1);
   });
 });
 
@@ -2107,7 +2162,7 @@ describe('global pull config hydration', () => {
     const venueCalls = fetchSpy.mock.calls
       .map(([url]) => String(url))
       .filter(url => url.includes('/items/venues'));
-    expect(venueCalls.every(url => hasDateUpdatedGtFilter(url) === false)).toBe(true);
+    expect(venueCalls.every(url => hasDateUpdatedIncrementalFilter(url) === false)).toBe(true);
   });
 
   it('retries deep venue bootstrap on the next cycle if the first global fetch fails', async () => {
@@ -2140,7 +2195,7 @@ describe('global pull config hydration', () => {
       .filter(url => url.includes('/items/venues'));
     expect(venueCalls.length).toBeGreaterThanOrEqual(2);
     for (const url of venueCalls) {
-      expect(hasDateUpdatedGtFilter(url)).toBe(false);
+      expect(hasDateUpdatedIncrementalFilter(url)).toBe(false);
     }
   });
 

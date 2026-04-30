@@ -6,7 +6,7 @@
 
 import { getDB } from '../../composables/useIDB.js';
 import { emitIDBChange } from './eventBus.js';
-import { appConfig } from '../../utils/index.js';
+import { appConfig, deepEqual } from '../../utils/index.js';
 import { PIN_LENGTH } from '../../utils/pinAuth.js';
 import { normalizeAppsArray } from '../../utils/userRoles.js';
 import { newUUIDv7 } from '../storeUtils.js';
@@ -399,11 +399,14 @@ export async function closeBillSessionInIDB(billSessionId) {
 /**
  * Batch-upserts Directus records into the given IDB ObjectStore.
  *
- * By default only inserts/replaces a record when the incoming timestamp is
- * strictly greater than the stored one. The effective timestamp is
+ * Inserts/replaces a record when the incoming timestamp is greater than **or
+ * equal to** the stored one (last-write-wins).  The effective timestamp is
  * `date_updated ?? date_created` so that records created but never patched
  * (where Directus leaves `date_updated = null`) are compared correctly against
  * existing ones instead of unconditionally overwriting them.
+ * When the timestamps are exactly equal the incoming payload is compared with
+ * `deepEqual`; if the payloads are identical the write is skipped as a no-op,
+ * preventing unnecessary IDB write amplification from `_gte` incremental polls.
  * This implements the last-write-wins conflict resolution described in §5.7.4.
  *
  * Pass `{ forceWrite: true }` to bypass the timestamp check and unconditionally
@@ -448,14 +451,42 @@ export async function upsertRecordsIntoIDB(storeName, records, { forceWrite = fa
         if (existing) {
           // Last-write-wins: compare using date_updated, falling back to date_created
           // for records that were created but never patched (date_updated = null in Directus).
-          // Only insert/replace when the incoming timestamp is strictly greater.
+          // Write the incoming record when its timestamp is newer than or equal to the
+          // existing one.  Equal-timestamp records are overwritten (not skipped) because
+          // rapid successive PATCHes on the same record can all land within the same
+          // server-clock millisecond; the last PATCH carries the authoritative field
+          // values and must win even when the timestamp has not advanced.
+          // Exception: same-timestamp records that are payload-identical are silently
+          // skipped so that the _gte incremental pull strategy does not produce
+          // unnecessary IDB write amplification and downstream refresh/rehydration
+          // churn when re-fetching unchanged boundary records on idle datasets.
           const existingTs = existing.date_updated ?? existing.date_created;
           const incomingTs = incoming.date_updated ?? incoming.date_created;
           if (existingTs && !incomingTs) {
             continue;
           }
-          if (existingTs && incomingTs && new Date(incomingTs) <= new Date(existingTs)) {
-            continue;
+          if (existingTs && incomingTs) {
+            const existingMs = new Date(existingTs).getTime();
+            const incomingMs = new Date(incomingTs).getTime();
+            if (incomingMs < existingMs) {
+              continue; // strictly older → skip
+            }
+            if (incomingMs === existingMs) {
+              // Same timestamp: only skip the write when the payload is actually
+              // unchanged. venue_users is excluded from this no-op fast-path
+              // because the IDB record stores a hashed PIN while Directus may
+              // return a raw PIN, and multiple PATCHes can share the same server
+              // timestamp. In that store, equal-timestamp records must still be
+              // written so PIN-only updates are not dropped.
+              if (storeName !== 'venue_users') {
+                const { _sync_status: _, pin: _pinIncoming, ...cleanIncoming } = incoming;
+                const { pin: _pinExisting, ...cleanExisting } = existing;
+                if (deepEqual(cleanIncoming, cleanExisting)) {
+                  continue; // identical non-pin payload → no-op
+                }
+              }
+            }
+            // incomingMs > existingMs, or equal but different payload → write
           }
         }
         const { _sync_status: _s, ...clean } = incoming;

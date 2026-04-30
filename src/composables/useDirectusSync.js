@@ -18,7 +18,7 @@
 
 import { ref } from 'vue';
 import { createDirectus, staticToken, rest, readItems, readItem } from '@directus/sdk';
-import { appConfig, createRuntimeConfig, DEFAULT_SETTINGS } from '../utils/index.js';
+import { appConfig, createRuntimeConfig, DEFAULT_SETTINGS, deepEqual } from '../utils/index.js';
 import {
   mapOrderFromDirectus,
   mapOrderItemFromDirectus,
@@ -331,18 +331,27 @@ async function _fetchUpdatedViaSDK(collection, sinceTs, page = 1) {
     fields: pullFields,
   };
 
-  // Incremental pull filter (only records updated/created after last known timestamp).
+  // Incremental pull filter (only records updated/created at or after last known timestamp).
   // Skipped for collections that have no date_updated field (noDateUpdated quirk).
   //
   // Directus sets date_updated only when a record is PATCHed, not on initial creation,
   // so newly created records have date_updated = null. Without the _or clause those
   // records would be invisible to every incremental poll after the initial full pull.
+  //
+  // We use _gte (≥) instead of _gt (>) so that records whose date_updated/date_created
+  // equals sinceTs are always re-fetched.  This is necessary because multiple PATCH
+  // operations performed on the same record in rapid succession can land at the same
+  // server-clock second (or even millisecond), meaning the final update shares the exact
+  // same timestamp as the version already seen by the pulling device.  A strict _gt
+  // filter would permanently skip those boundary records on every subsequent poll.
+  // upsertRecordsIntoIDB handles the re-fetch idempotently: it only writes when the
+  // incoming timestamp is ≥ the stored one (preferring the freshest server payload).
   const conditions = [];
   if (sinceTs && !quirks.noDateUpdated) {
     conditions.push({
       _or: [
-        { date_updated: { _gt: sinceTs } },
-        { _and: [{ date_updated: { _null: true } }, { date_created: { _gt: sinceTs } }] },
+        { date_updated: { _gte: sinceTs } },
+        { _and: [{ date_updated: { _null: true } }, { date_created: { _gte: sinceTs } }] },
       ],
     });
   }
@@ -424,9 +433,12 @@ async function _fetchUpdatedViaSDK(collection, sinceTs, page = 1) {
  *   When provided, existing embedded items are merged via `mergeOrderItemFromWSPayload`
  *   so that absent mapped-default fields (quantity, unit_price, etc.) never clobber
  *   real IDB values with zeros.
+ * @returns {Promise<number>} Number of orders whose `orderItems` array was actually
+ *   rewritten in IDB.  Returns 0 when every candidate order was already up to date
+ *   (no-change fast-path), so callers can skip the subsequent store refresh.
  */
 async function _mergeOrderItemsIntoOrdersIDB(pulledItems, rawItems = null) {
-  if (!pulledItems || pulledItems.length === 0) return;
+  if (!pulledItems || pulledItems.length === 0) return 0;
   try {
     const db = await getDB();
 
@@ -448,8 +460,9 @@ async function _mergeOrderItemsIntoOrdersIDB(pulledItems, rawItems = null) {
       if (!itemsByOrderId.has(key)) itemsByOrderId.set(key, []);
       itemsByOrderId.get(key).push(item);
     }
-    if (itemsByOrderId.size === 0) return;
+    if (itemsByOrderId.size === 0) return 0;
 
+    let ordersWritten = 0;
     const tx = db.transaction('orders', 'readwrite');
     for (const [orderId, items] of itemsByOrderId) {
       const order = await tx.store.get(orderId);
@@ -467,13 +480,15 @@ async function _mergeOrderItemsIntoOrdersIDB(pulledItems, rawItems = null) {
         } else {
           // Last-write-wins using date_updated, falling back to date_created.
           // Use Date-based comparison (consistent with upsertRecordsIntoIDB):
-          // incoming wins only when existing has no timestamp (can't compare) or
-          // the incoming timestamp is strictly newer than the existing one.
-          // If both have the same timestamp, keep the existing record.
+          // incoming wins when existing has no timestamp (can't compare), or
+          // the incoming timestamp is newer than or equal to the existing one.
+          // Ties (same timestamp) favour the incoming payload so that rapid back-
+          // to-back PATCHes processed within the same server-clock millisecond are
+          // never silently dropped.
           // If incoming has no timestamp but existing does, keep the existing record.
           const existingTs = existing.date_updated ?? existing.date_created ?? null;
           const incomingTs = item.date_updated ?? item.date_created ?? null;
-          const incomingWins = !existingTs || (incomingTs != null && new Date(incomingTs) > new Date(existingTs));
+          const incomingWins = !existingTs || (incomingTs != null && new Date(incomingTs) >= new Date(existingTs));
           if (incomingWins) {
             // When a raw WS payload is available, use the selective merge so that
             // mapper-supplied defaults for absent fields (e.g. quantity → 0) never
@@ -488,12 +503,20 @@ async function _mergeOrderItemsIntoOrdersIDB(pulledItems, rawItems = null) {
       }
 
       const mergedItems = Array.from(byId.values()).filter(i => i.id ?? i.uid);
+      // No-change fast-path: skip the IDB put when the merged items array is
+      // identical to what is already stored.  This prevents unnecessary IDB write
+      // amplification and downstream store-refresh churn when _gte polling
+      // re-fetches unchanged boundary records on an otherwise idle dataset.
+      if (deepEqual(mergedItems, existingItems)) continue;
+
+      ordersWritten++;
       // A shallow spread is intentional here: IDB's put() performs its own
       // structured-clone serialisation so shared nested references (notes,
       // modifiers) are safely deep-copied before being written to the store.
       await tx.store.put({ ...order, orderItems: mergedItems });
     }
     await tx.done;
+    return ordersWritten;
   } catch (e) {
     console.warn('[DirectusSync] _mergeOrderItemsIntoOrdersIDB failed:', e);
     throw e;
@@ -651,13 +674,17 @@ async function _pullCollection(collection, { forceFull = false, lastPullTimestam
       // `refreshOperationalStateFromIDB` has no handler for the 'order_items' key.
       // Errors from the merge are propagated: if the merge fails, treat it like a
       // fetch error so the cursor does not advance and the cycle retries next poll.
+      let ordersWritten = 0;
       try {
-        await _mergeOrderItemsIntoOrdersIDB(pulledOrderItems, rawPulledOrderItems);
+        ordersWritten = await _mergeOrderItemsIntoOrdersIDB(pulledOrderItems, rawPulledOrderItems);
       } catch (e) {
         console.warn('[DirectusSync] order_items merge failed; cursor will not advance:', e);
         hadFetchError = true;
       }
-      await _refreshStoreFromIDB('orders');
+      // Only refresh the in-memory store when at least one order was actually
+      // rewritten in IDB; otherwise, the existing IDB state is unchanged and
+      // there is no work for the store to pick up.
+      if (ordersWritten > 0) await _refreshStoreFromIDB('orders');
     } else {
       await _refreshStoreFromIDB(collection);
     }
