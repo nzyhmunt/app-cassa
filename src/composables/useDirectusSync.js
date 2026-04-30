@@ -48,10 +48,12 @@ import {
   saveLastPullTsToIDB,
   replaceTableMergesInIDB,
   replaceVenueUsersInIDB,
+  normalizeVenueUsersForIDB,
   clearLocalConfigCacheFromIDB,
 } from '../store/persistence/config.js';
 import { reloadUsersFromIDB } from './useAuth.js';
 import { addSyncLog } from '../store/persistence/syncLogs.js';
+import { touchStorageKey } from '../store/persistence.js';
 
 // ── Per-app pull config (§5.7.6) ─────────────────────────────────────────────
 
@@ -204,10 +206,14 @@ async function _refreshStoreFromIDB(collection = null) {
   if (!_store) return;
   if (typeof _store.refreshOperationalStateFromIDB === 'function') {
     await _store.refreshOperationalStateFromIDB(collection ? { collection } : {});
+    // NS6: Notify follower tabs that IDB data has changed for this collection.
+    if (_isLeader) _idbChangeBroadcast?.postMessage({ type: 'idb-change', collection });
     return;
   }
   if (typeof _store.refreshFromIDB === 'function') {
     await _store.refreshFromIDB(collection);
+    // NS6: Notify follower tabs that IDB data has changed for this collection.
+    if (_isLeader) _idbChangeBroadcast?.postMessage({ type: 'idb-change', collection });
     return;
   }
   // No further fallback: stores must expose refreshOperationalStateFromIDB or refreshFromIDB
@@ -219,6 +225,8 @@ async function _refreshStoreConfigFromIDB(options = {}) {
   if (!_store) return;
   if (typeof _store.hydrateConfigFromIDB === 'function') {
     await _store.hydrateConfigFromIDB(options);
+    // NS6: Notify follower tabs that configuration IDB data has changed.
+    if (_isLeader) _idbChangeBroadcast?.postMessage({ type: 'idb-change', collection: 'config' });
     return;
   }
   console.warn('[Directus] hydrateConfigFromIDB not available on store; skipping config refresh.');
@@ -301,9 +309,9 @@ function _buildRestClient(cfg) {
     .with(rest());
 }
 
-async function _fetchUpdatedViaSDK(collection, sinceTs, page = 1) {
+async function _fetchUpdatedViaSDK(collection, sinceTs, page = 1, cursor = null) {
   const cfg = _getCfg();
-  if (!cfg) return { data: [], maxTs: null, error: null };
+  if (!cfg) return { data: [], maxTs: null, lastCursor: null, error: null };
 
   const quirks = COLLECTION_QUIRKS[collection] ?? {};
   const client = _buildRestClient(cfg);
@@ -346,14 +354,30 @@ async function _fetchUpdatedViaSDK(collection, sinceTs, page = 1) {
   // filter would permanently skip those boundary records on every subsequent poll.
   // upsertRecordsIntoIDB handles the re-fetch idempotently: it only writes when the
   // incoming timestamp is ≥ the stored one (preferring the freshest server payload).
+  //
+  // NS7: When a keyset cursor is provided, add an extra exclusion clause so that
+  // records already seen on the previous page (same ts + id ≤ cursorId) are skipped.
+  // This avoids re-fetching boundary records at timestamp edges when many records
+  // share the same date_updated value.
   const conditions = [];
   if (sinceTs && !quirks.noDateUpdated) {
-    conditions.push({
-      _or: [
-        { date_updated: { _gte: sinceTs } },
-        { _and: [{ date_updated: { _null: true } }, { date_created: { _gte: sinceTs } }] },
-      ],
-    });
+    if (cursor?.id && cursor?.ts && cursor.ts === sinceTs) {
+      // Keyset: skip records at the cursor boundary that were already processed.
+      conditions.push({
+        _or: [
+          { date_updated: { _gt: sinceTs } },
+          { _and: [{ date_updated: { _eq: sinceTs } }, { id: { _gt: cursor.id } }] },
+          { _and: [{ date_updated: { _null: true } }, { date_created: { _gte: sinceTs } }] },
+        ],
+      });
+    } else {
+      conditions.push({
+        _or: [
+          { date_updated: { _gte: sinceTs } },
+          { _and: [{ date_updated: { _null: true } }, { date_created: { _gte: sinceTs } }] },
+        ],
+      });
+    }
   }
   // Venue filter — skipped for collections without a `venue` FK (noVenueFilter quirk).
   // Collections with a custom `venueFilter` use a relational path instead of
@@ -381,6 +405,11 @@ async function _fetchUpdatedViaSDK(collection, sinceTs, page = 1) {
     // for records where date_updated is null (i.e. created but never patched).
     const timestamps = data.map(r => r.date_updated ?? r.date_created).filter(Boolean);
     const maxTs = timestamps.length > 0 ? timestamps.reduce((a, b) => (a > b ? a : b)) : null;
+    // NS7: Build keyset cursor from the last record in this page.
+    const lastRecord = data.length > 0 ? data[data.length - 1] : null;
+    const lastCursor = lastRecord
+      ? { id: lastRecord.id, ts: lastRecord.date_updated ?? lastRecord.date_created ?? null }
+      : null;
     addSyncLog({
       direction: 'IN',
       type: 'PULL',
@@ -393,7 +422,7 @@ async function _fetchUpdatedViaSDK(collection, sinceTs, page = 1) {
       collection,
       recordCount: data.length,
     });
-    return { data, maxTs, error: null };
+    return { data, maxTs, lastCursor, error: null };
   } catch (e) {
     console.warn(`[DirectusSync] Pull ${collection} error:`, e?.message ?? e);
     addSyncLog({
@@ -408,7 +437,7 @@ async function _fetchUpdatedViaSDK(collection, sinceTs, page = 1) {
       collection,
       recordCount: 0,
     });
-    return { data: [], maxTs: null, error: e };
+    return { data: [], maxTs: null, lastCursor: null, error: e };
   }
 }
 
@@ -789,9 +818,13 @@ async function _pullCollection(collection, { forceFull = false, lastPullTimestam
   // know whether to trigger a store refresh after the loop without accumulating
   // all pages in memory.
   let totalOrdersWrittenFromItems = 0;
+  // NS7: keyset cursor — tracks {id, ts} of the last record on the previous page
+  // to avoid re-fetching duplicate boundary records when many records share the
+  // same date_updated value.
+  let pageKeyCursor = null;
 
   while (true) { // eslint-disable-line no-constant-condition
-    const { data, maxTs, error } = await _fetchUpdatedViaSDK(collection, storedSinceTs, page);
+    const { data, maxTs, lastCursor, error } = await _fetchUpdatedViaSDK(collection, storedSinceTs, page, pageKeyCursor);
     if (error) hadFetchError = true;
     if (data.length === 0) break;
     hadRemoteRecords = true;
@@ -831,6 +864,8 @@ async function _pullCollection(collection, { forceFull = false, lastPullTimestam
     // poll cycle.
     if (!pageWriteError) {
       if (maxTs && (!latestTs || maxTs > latestTs)) latestTs = maxTs;
+      // NS7: Advance the keyset cursor to the last record on this page.
+      pageKeyCursor = lastCursor ?? null;
       // S2: Per-page cursor checkpoint — persist the cursor immediately after each
       // successfully processed page.  A failure on page N+1 therefore cannot roll
       // the cursor back to before page N, so the next polling cycle restarts from
@@ -899,7 +934,13 @@ async function _handleSubscriptionMessage(collection, message) {
     }
     if (nonEchoIds.length === 0) return;
     if (collection === 'table_merge_sessions') {
-      await _pullCollection('table_merge_sessions', { forceFull: true });
+      // NS4: Deduplicate concurrent pulls triggered by rapid delete events using
+      // a semaphore so only one full-replace is in flight at a time.
+      if (!_tableMergePullInFlight) {
+        _tableMergePullInFlight = _pullCollection('table_merge_sessions', { forceFull: true })
+          .finally(() => { _tableMergePullInFlight = null; });
+      }
+      await _tableMergePullInFlight;
       return;
     }
     if (collection === 'order_items') {
@@ -1000,14 +1041,18 @@ async function _handleSubscriptionMessage(collection, message) {
     }
     await upsertRecordsIntoIDB(collection, prepared);
     if (collection === 'order_items') {
-      // WS payloads for order_items must also be merged into the embedded
-      // orderItems arrays of their parent orders so the orders store on cucina
-      // devices with wsEnabled stays up to date.
-      // Pass `prepared` (the selectively-merged items, which preserve the order FK
-      // for correct parent-order grouping) and the raw nonEcho payloads so the
-      // embedded merge uses mergeOrderItemFromWSPayload and does not clobber
-      // existing embedded fields with mapper-supplied defaults for partial payloads.
-      await _mergeOrderItemsIntoOrdersIDB(prepared, nonEcho);
+      // NS1: Use the same atomic upsert+merge that the REST pull path uses so
+      // that the order_items ObjectStore and the embedded orderItems arrays in
+      // orders are always updated together in a single IDB transaction.
+      // Pass the raw nonEcho payloads as the second argument so that
+      // _atomicOrderItemsUpsertAndMerge can use mergeOrderItemFromWSPayload for
+      // selective-merge semantics (i.e. only overwrite fields present in the WS
+      // payload, not all mapper-supplied defaults).
+      try {
+        await _atomicOrderItemsUpsertAndMerge(prepared, nonEcho);
+      } catch (e) {
+        console.warn('[DirectusSync] WS order_items atomic upsert+merge failed:', e);
+      }
       await _refreshStoreFromIDB('orders');
     } else {
       await _refreshStoreFromIDB(collection);
@@ -1160,6 +1205,21 @@ let _onlineRetryTimer = null;
  */
 let _pullInFlight = null;
 /**
+ * NS4 — In-flight promise for the `table_merge_sessions` full-replace pull.
+ * When a WS delete event fires multiple times in rapid succession, only the
+ * first fires a new `_pullCollection(…, { forceFull: true })` call; subsequent
+ * events await the same promise.  Reset to `null` in a `.finally()` callback.
+ */
+let _tableMergePullInFlight = null;
+/**
+ * NS8 — AbortController for the currently running `_runPull()` loop.
+ * Replaced with a fresh controller at the start of each pull invocation.
+ * Aborted (and set to `null`) by `forcePull()` and `stopSync()` so that the
+ * pull loop exits cleanly between page fetches rather than continuing to hammer
+ * Directus when a newer pull has already been requested.
+ */
+let _pullAbortController = null;
+/**
  * S5 — Heartbeat watchdog timer handle.  Set by `_resetWsHeartbeat()` after
  * every incoming WS message and every WS connect.  Cleared and nulled by
  * `_stopSubscriptions()` and `_resetDirectusSyncSingleton()`.
@@ -1179,6 +1239,13 @@ let _isLeader = true;
 let _leaderLockResolve = null;
 /** @type {object|null} */
 let _store = null;
+/**
+ * NS6 — BroadcastChannel used to notify follower tabs that IDB data has changed.
+ * Opened in `startSync()` when this tab becomes the leader; closed in `stopSync()`.
+ * Follower tabs open the same channel and refresh their in-memory store on receipt.
+ * @type {BroadcastChannel|null}
+ */
+let _idbChangeBroadcast = null;
 /** @type {'cassa'|'sala'|'cucina'} */
 let _appType = 'cassa';
 /** Collections currently subscribed via WebSocket (populated on startSync). */
@@ -1205,6 +1272,13 @@ let _wsCollections = [];
  */
 let _globalPullGeneration = 0;
 let _lastAppliedGlobalPullGeneration = 0;
+/**
+ * NS5 — In-flight promise for `_runGlobalPullInner()`.
+ * Prevents concurrent global pulls from hammering the Directus `/items/venues`
+ * endpoint when the periodic timer fires while a pull is already in progress.
+ * Reset to `null` in a `.finally()` callback inside `_runGlobalPull()`.
+ */
+let _globalPullInFlight = null;
 
 const syncStatus = ref(/** @type {'idle'|'syncing'|'error'|'offline'} */ ('idle'));
 const lastPushAt = ref(/** @type {string|null} */ (null));
@@ -1415,6 +1489,68 @@ function _resetWsHeartbeat() {
 }
 
 /**
+ * NS2 — Extracted leader body.  Called both by `startSync()` (when this tab
+ * immediately wins the leader lock) and by the standby lock callback (when a
+ * previous leader tab closes and this tab is promoted automatically).
+ */
+async function _startSyncLoopsAsLeader() {
+  const pullCfg = PULL_CONFIG[_appType] ?? PULL_CONFIG.cassa;
+  const venueId = appConfig.directus?.venueId ?? null;
+
+  // Local-first: apply cached config snapshot from IDB before any remote call.
+  try {
+    await _hydrateConfigFromLocalCache(venueId);
+  } catch (e) {
+    console.warn(`[DirectusSync] WARN: Fallback to remote sync after local cache hydration failed for venue ${String(venueId)}:`, e);
+  }
+
+  // Initial push + deep global config pull
+  _runPush().catch(() => {});
+  _runGlobalPull().catch(() => {});
+
+  // Push loop: retry every 30 s when online
+  _pushTimer = setInterval(() => _runPush().catch(() => {}), 30_000);
+
+  // Global config pull: every 5 minutes
+  _globalTimer = setInterval(() => _runGlobalPull().catch(() => {}), GLOBAL_INTERVAL_MS);
+
+  // WebSocket subscriptions are opt-in (wsEnabled must be explicitly true).
+  // When disabled, fall back to periodic polling from the start.
+  const wsEnabled = appConfig.directus?.wsEnabled === true;
+  // When menu data comes from a local JSON file, exclude menu_items from WebSocket
+  // subscriptions to avoid unnecessary subscription traffic and IDB fan-out.
+  const menuSource = appConfig.menuSource ?? 'directus';
+  const wsCollections = menuSource === 'json'
+    ? pullCfg.collections.filter(c => c !== 'menu_items')
+    : pullCfg.collections;
+  // Persist the last computed collection list at module level; reconnect logic
+  // recomputes the effective list from the current appConfig when reconnecting.
+  _wsCollections = wsCollections;
+
+  if (wsEnabled) {
+    // Try WebSocket subscriptions; fall back to polling if connect fails
+    const subscribed = await _startSubscriptions(wsCollections);
+    if (!subscribed) {
+      _runPull().catch(() => {});
+      _pollTimer = setInterval(() => _runPull().catch(() => {}), pullCfg.intervalMs);
+    } else {
+      // Even with WebSocket, do one initial REST pull to catch up on missed updates
+      _runPull().catch(() => {});
+    }
+  } else {
+    // WebSocket disabled — use REST polling only
+    _runPull().catch(() => {});
+    _pollTimer = setInterval(() => _runPull().catch(() => {}), pullCfg.intervalMs);
+  }
+
+  if (typeof window !== 'undefined') {
+    window.addEventListener('online', _onOnline);
+    window.addEventListener('offline', _onOffline);
+    window.addEventListener('sync-queue:enqueue', _onQueueEnqueue);
+  }
+}
+
+/**
  * S1 — Attempts to acquire the exclusive "directus-sync-leader" Web Lock.
  *
  * Returns `true` when this tab becomes the sync leader (or when Web Locks are
@@ -1426,6 +1562,11 @@ function _resetWsHeartbeat() {
  * this tab as leader for the entire lifetime of its sync session.  When the
  * leader tab is closed or calls `stopSync()` the lock is released automatically
  * and the next tab that calls `startSync()` will win the election.
+ *
+ * NS2: A queued (blocking) standby request is registered when this tab is a
+ * follower.  When the leader tab closes, the standby fires automatically and
+ * promotes this tab to leader by calling `_startSyncLoopsAsLeader()` — no user
+ * action or page reload required.
  */
 async function _acquireLeaderLock() {
   // Web Locks not supported — every tab is its own leader (pre-S1 behaviour).
@@ -1434,22 +1575,39 @@ async function _acquireLeaderLock() {
     return true;
   }
   return new Promise((resolveAcquire) => {
-    let resolveHold;
-    const holdPromise = new Promise((res) => { resolveHold = res; });
-    _leaderLockResolve = resolveHold;
+    // First attempt: acquire immediately without queuing.
     navigator.locks.request(
       'directus-sync-leader',
       { mode: 'exclusive', ifAvailable: true },
       async (lock) => {
         if (!lock) {
-          // Another tab already holds the lock — this tab is a follower.
-          _leaderLockResolve = null;
+          // Lock not immediately available — this tab is a follower for now.
+          // NS2: Register a queued (blocking) standby request so that when the
+          // current leader tab is closed (or calls stopSync), this tab is
+          // automatically promoted to leader without requiring a reload.
           resolveAcquire(false);
+          let resolveStandbyHold;
+          const standbyHold = new Promise((res) => { resolveStandbyHold = res; });
+          _leaderLockResolve = resolveStandbyHold;
+          navigator.locks.request(
+            'directus-sync-leader',
+            { mode: 'exclusive' },
+            async () => {
+              // Promoted to leader — start sync loops if still running.
+              if (_running) {
+                _isLeader = true;
+                await _startSyncLoopsAsLeader();
+              }
+              await standbyHold;
+            },
+          ).catch(() => {});
           return;
         }
-        // This tab won the election.
+        // This tab won the election immediately.
+        let resolveHold;
+        const holdPromise = new Promise((res) => { resolveHold = res; });
+        _leaderLockResolve = resolveHold;
         resolveAcquire(true);
-        // Hold the lock open until stopSync() resolves holdPromise.
         await holdPromise;
       },
     ).catch(() => {
@@ -1468,6 +1626,10 @@ async function _runPull() {
   // user-initiated pulls can always bypass a pending background pull.
   if (_pullInFlight) return _pullInFlight;
   _pullInFlight = (async () => {
+    // NS8: Mint a fresh AbortController for this pull session so forcePull/stopSync
+    // can cancel between collections without letting a superseded loop continue.
+    const ac = new AbortController();
+    _pullAbortController = ac;
     try {
       if (!navigator.onLine) {
         return { ok: false, failedCollections: [], skippedReason: 'offline' };
@@ -1484,8 +1646,12 @@ async function _runPull() {
       const mergedSummary = [];
       const failedCollections = [];
       for (const collection of pullCfg.collections) {
+        // NS8: Exit cleanly between collections if this pull was aborted by
+        // forcePull() or stopSync() starting a fresh pull session.
+        if (ac.signal.aborted) break;
         if (menuSource === 'json' && collection === 'menu_items') continue;
         const { merged, ok } = await _pullCollection(collection);
+        if (ac.signal.aborted) break;
         if (merged > 0) anyMerged = true;
         if (!ok) allOk = false;
         if (merged > 0) mergedSummary.push(`${collection}:${merged}`);
@@ -1512,6 +1678,8 @@ async function _runPull() {
       return { ok: false, failedCollections: [] };
     } finally {
       _pullInFlight = null;
+      // NS8: Only clear the controller reference if it still belongs to this pull.
+      if (_pullAbortController === ac) _pullAbortController = null;
     }
   })();
   return _pullInFlight;
@@ -1764,15 +1932,49 @@ async function _fanOutVenueTreeToIDB(venueRecord, { menuSource }) {
   }
 
   const stores = Object.entries(payloadByStore);
-  await Promise.all(stores
-    .filter(([storeName]) => storeName !== 'table_merge_sessions' && storeName !== 'venue_users')
-    .map(([storeName, records]) => upsertRecordsIntoIDB(storeName, records, { forceWrite: true })));
-  // venue_users must be full-replaced so users removed from Directus are also
-  // removed from IDB instead of lingering indefinitely via upsert-only semantics.
-  await replaceVenueUsersInIDB(payloadByStore.venue_users);
-  // table_merge_sessions must be full-replaced so stale dissolved merges are removed
-  // from IDB instead of lingering indefinitely via upsert-only semantics.
-  await replaceTableMergesInIDB(payloadByStore.table_merge_sessions);
+
+  // NS3: Pre-compute venue_users normalization outside the transaction —
+  // async PIN hashing must not run inside an IDB transaction (would stall it).
+  const normalizedVenueUsers = await normalizeVenueUsersForIDB(payloadByStore.venue_users);
+
+  // NS3: Single atomic IDB transaction covering all stores so that a partial
+  // failure (e.g. browser storage quota) never leaves some stores written and
+  // others not, avoiding an inconsistent in-memory/IDB state.
+  const db = await getDB();
+  const storeNames = Object.keys(payloadByStore);
+  const tx = db.transaction(storeNames, 'readwrite');
+
+  // venue_users: full replace, preserving manual users (same logic as replaceVenueUsersInIDB).
+  const vuStore = tx.objectStore('venue_users');
+  const existingVU = await vuStore.getAll();
+  const manualUsers = existingVU.filter((r) =>
+    r && typeof r === 'object' && r.id && (
+      r._type === 'manual_user' ||
+      (!r._type && !Object.prototype.hasOwnProperty.call(r, 'status'))
+    )
+  );
+  await vuStore.clear();
+  for (const mu of manualUsers) vuStore.put(mu);
+  for (const r of normalizedVenueUsers) vuStore.put(r);
+
+  // table_merge_sessions: full replace (stale dissolved merges must not linger).
+  const tmStore = tx.objectStore('table_merge_sessions');
+  await tmStore.clear();
+  for (const r of payloadByStore.table_merge_sessions) {
+    if (r?.id != null) tmStore.put(r);
+  }
+
+  // All other stores: forceWrite upsert — put each record using its `id` as key.
+  for (const [storeName, records] of stores) {
+    if (storeName === 'venue_users' || storeName === 'table_merge_sessions') continue;
+    const objStore = tx.objectStore(storeName);
+    for (const r of records) {
+      if (r && r.id != null) objStore.put(r);
+    }
+  }
+
+  await tx.done;
+  touchStorageKey();
   return Object.fromEntries(stores.map(([storeName, records]) => [storeName, records.length]));
 }
 
@@ -1907,7 +2109,7 @@ function _emitProgress(onProgress, payload) {
   }
 }
 
-async function _runGlobalPull({ onProgress = null } = {}) {
+async function _runGlobalPullInner({ onProgress = null } = {}) {
   if (!navigator.onLine) return;
   const cfg = _getCfg();
   if (!cfg) return;
@@ -2036,6 +2238,21 @@ async function _runGlobalPull({ onProgress = null } = {}) {
     });
     return { ok: false, failedCollections: ['venues'] };
   }
+}
+
+/**
+ * NS5 — Deduplicated wrapper around `_runGlobalPullInner`.
+ * If a global pull is already in flight the caller awaits the same promise
+ * instead of firing a second concurrent fetch.  A `{ onProgress }` argument
+ * is forwarded only to the first call that actually starts the pull; callers
+ * that join an already-running pull receive its result but no progress callbacks.
+ */
+function _runGlobalPull({ onProgress = null } = {}) {
+  if (!_globalPullInFlight) {
+    _globalPullInFlight = _runGlobalPullInner({ onProgress })
+      .finally(() => { _globalPullInFlight = null; });
+  }
+  return _globalPullInFlight;
 }
 
 // ── Online/offline listener ───────────────────────────────────────────────────
@@ -2197,6 +2414,13 @@ export function useDirectusSync() {
     _store = store;
     _running = true;
 
+    // NS6: Open BroadcastChannel for cross-tab IDB-change notifications.
+    // Both leaders and followers open the channel so followers can react to
+    // IDB writes made by the leader and keep their in-memory store in sync.
+    if (typeof BroadcastChannel !== 'undefined') {
+      _idbChangeBroadcast = new BroadcastChannel('directus-sync-idb-changes');
+    }
+
     // S1: Leader election via Web Locks API.
     // Only one browser tab should run push/pull loops at a time — concurrent
     // loops from multiple tabs hammer Directus with duplicate requests and can
@@ -2204,68 +2428,33 @@ export function useDirectusSync() {
     // claim the exclusive "directus-sync-leader" lock; if another tab already
     // holds it this call returns false and startSync() exits early.
     // Falls back to `true` (every tab is a leader) when Web Locks are unsupported.
+    // NS2: `_acquireLeaderLock()` now also registers a standby lock request
+    // in the background, so when the leader tab closes this tab is promoted
+    // automatically without requiring a reload.
     const isLeader = await _acquireLeaderLock();
     if (!isLeader) {
+      // NS2: Keep _running = true so that the standby lock callback in
+      // `_acquireLeaderLock` can call `_startSyncLoopsAsLeader` when promoted.
       console.info('[DirectusSync] Non-leader tab: push/pull loops managed by another tab.');
-      _running = false;
+      // NS6: Listen for leader's IDB-change broadcasts and refresh in-memory store.
+      if (_idbChangeBroadcast) {
+        _idbChangeBroadcast.onmessage = ({ data }) => {
+          if (data?.type !== 'idb-change') return;
+          const col = data.collection ?? null;
+          if (col === 'config') {
+            _refreshStoreConfigFromIDB({
+              menuSource: appConfig.menuSource,
+              menuUrl: appConfig.menuUrl,
+            }).catch(() => {});
+          } else {
+            _refreshStoreFromIDB(col).catch(() => {});
+          }
+        };
+      }
       return;
     }
     _isLeader = true;
-
-    const pullCfg = PULL_CONFIG[_appType] ?? PULL_CONFIG.cassa;
-    const venueId = appConfig.directus?.venueId ?? null;
-
-    // Local-first: apply cached config snapshot from IDB before any remote call.
-    try {
-      await _hydrateConfigFromLocalCache(venueId);
-    } catch (e) {
-      console.warn(`[DirectusSync] WARN: Fallback to remote sync after local cache hydration failed for venue ${String(venueId)}:`, e);
-    }
-
-    // Initial push + deep global config pull
-    _runPush().catch(() => {});
-    _runGlobalPull().catch(() => {});
-
-    // Push loop: retry every 30 s when online
-    _pushTimer = setInterval(() => _runPush().catch(() => {}), 30_000);
-
-    // Global config pull: every 5 minutes
-    _globalTimer = setInterval(() => _runGlobalPull().catch(() => {}), GLOBAL_INTERVAL_MS);
-
-    // WebSocket subscriptions are opt-in (wsEnabled must be explicitly true).
-    // When disabled, fall back to periodic polling from the start.
-    const wsEnabled = appConfig.directus?.wsEnabled === true;
-    // When menu data comes from a local JSON file, exclude menu_items from WebSocket
-    // subscriptions to avoid unnecessary subscription traffic and IDB fan-out.
-    const menuSource = appConfig.menuSource ?? 'directus';
-    const wsCollections = menuSource === 'json'
-      ? pullCfg.collections.filter(c => c !== 'menu_items')
-      : pullCfg.collections;
-    // Persist the last computed collection list at module level; reconnect logic
-    // recomputes the effective list from the current appConfig when reconnecting.
-    _wsCollections = wsCollections;
-
-    if (wsEnabled) {
-      // Try WebSocket subscriptions; fall back to polling if connect fails
-      const subscribed = await _startSubscriptions(wsCollections);
-      if (!subscribed) {
-        _runPull().catch(() => {});
-        _pollTimer = setInterval(() => _runPull().catch(() => {}), pullCfg.intervalMs);
-      } else {
-        // Even with WebSocket, do one initial REST pull to catch up on missed updates
-        _runPull().catch(() => {});
-      }
-    } else {
-      // WebSocket disabled — use REST polling only
-      _runPull().catch(() => {});
-      _pollTimer = setInterval(() => _runPull().catch(() => {}), pullCfg.intervalMs);
-    }
-
-    if (typeof window !== 'undefined') {
-      window.addEventListener('online', _onOnline);
-      window.addEventListener('offline', _onOffline);
-      window.addEventListener('sync-queue:enqueue', _onQueueEnqueue);
-    }
+    await _startSyncLoopsAsLeader();
   }
 
   function stopSync() {
@@ -2280,6 +2469,9 @@ export function useDirectusSync() {
     _pushAbortController = null;
     _pushGeneration++;
     _pushInFlight = null;
+    // NS8: Abort any in-flight pull so the loop exits cleanly between collections.
+    _pullAbortController?.abort();
+    _pullAbortController = null;
     // S3: Drop any in-flight pull reference so the next startSync() can start fresh.
     _pullInFlight = null;
     if (_pushTimer) { clearInterval(_pushTimer); _pushTimer = null; }
@@ -2291,6 +2483,8 @@ export function useDirectusSync() {
     // S1: Release the Web Lock so another tab can become the leader.
     if (_leaderLockResolve) { _leaderLockResolve(); _leaderLockResolve = null; }
     _isLeader = true;
+    // NS6: Close the BroadcastChannel.
+    if (_idbChangeBroadcast) { _idbChangeBroadcast.close(); _idbChangeBroadcast = null; }
     if (typeof window !== 'undefined') {
       window.removeEventListener('online', _onOnline);
       window.removeEventListener('offline', _onOffline);
@@ -2327,6 +2521,10 @@ export function useDirectusSync() {
 
   async function forcePull() {
     if (!appConfig.directus?.enabled) return { ok: true, failedCollections: [] };
+    // NS8: Abort any in-flight pull so the loop exits cleanly between collections
+    // before starting the new user-initiated pull.
+    _pullAbortController?.abort();
+    _pullAbortController = null;
     // S3: Reset the in-flight semaphore so this user-initiated pull is not
     // silently deduped against a concurrent background pull.
     _pullInFlight = null;
@@ -2443,8 +2641,13 @@ export function _resetDirectusSyncSingleton() {
   _pushInFlight = null;
   // S3: Clear in-flight pull semaphore.
   _pullInFlight = null;
+  _tableMergePullInFlight = null; // NS4
+  // NS8: Abort and clear the pull AbortController.
+  _pullAbortController?.abort();
+  _pullAbortController = null;
   _globalPullGeneration = 0;
   _lastAppliedGlobalPullGeneration = 0;
+  _globalPullInFlight = null; // NS5
   if (_pushTimer) { clearInterval(_pushTimer); _pushTimer = null; }
   if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
   if (_globalTimer) { clearInterval(_globalTimer); _globalTimer = null; }
@@ -2457,6 +2660,8 @@ export function _resetDirectusSyncSingleton() {
   // S1: Release the Web Lock and reset leader state.
   if (_leaderLockResolve) { _leaderLockResolve(); _leaderLockResolve = null; }
   _isLeader = true;
+  // NS6: Close the BroadcastChannel.
+  if (_idbChangeBroadcast) { _idbChangeBroadcast.close(); _idbChangeBroadcast = null; }
   if (typeof window !== 'undefined') {
     window.removeEventListener('online', _onOnline);
     window.removeEventListener('offline', _onOffline);

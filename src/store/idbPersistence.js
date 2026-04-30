@@ -33,6 +33,7 @@ export {
   saveLastPullTsToIDB,
   replaceTableMergesInIDB,
   replaceVenueUsersInIDB,
+  normalizeVenueUsersForIDB,
 } from './persistence/config.js';
 
 export {

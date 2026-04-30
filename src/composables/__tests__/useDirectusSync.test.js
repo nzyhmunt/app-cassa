@@ -3640,3 +3640,323 @@ describe('S7 — _atomicOrderItemsUpsertAndMerge', () => {
     expect(order.orderItems[0].id).toBe('oi_s7_pull');
   });
 });
+
+// ── NS1 — WS order_items uses _atomicOrderItemsUpsertAndMerge ─────────────────
+
+describe('NS1 — WS order_items: _atomicOrderItemsUpsertAndMerge merge semantics', () => {
+  it('partial WS update preserves existing fields not present in the incoming payload', async () => {
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+
+    // Seed parent order with an embedded order item that has quantity=3
+    await db.put('orders', {
+      id: 'ord_ns1',
+      status: 'accepted',
+      table: '01',
+      orderItems: [{
+        id: 'oi_ns1',
+        orderId: 'ord_ns1',
+        name: 'Bistecca',
+        quantity: 3,
+        unitPrice: 10,
+        voidedQuantity: 0,
+        kitchenReady: false,
+        date_updated: '2024-01-01T00:00:00.000Z',
+      }],
+      date_updated: '2024-01-01T00:00:00.000Z',
+    });
+
+    // WS update: only kitchen_ready changes — quantity is NOT in the payload
+    await _handleSubscriptionMessage('order_items', {
+      event: 'update',
+      data: [{
+        id: 'oi_ns1',
+        order: 'ord_ns1',
+        kitchen_ready: true,
+        date_updated: '2024-06-01T00:00:00.000Z',
+      }],
+    });
+
+    // The embedded orderItem in the parent order must still have quantity=3
+    const order = await db.get('orders', 'ord_ns1');
+    expect(order).toBeDefined();
+    expect(order.orderItems).toHaveLength(1);
+    expect(order.orderItems[0].quantity).toBe(3);
+    expect(order.orderItems[0].kitchenReady).toBe(true);
+  });
+
+  it('WS create for order_item writes to both order_items store and parent orders.orderItems atomically', async () => {
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+
+    await db.put('orders', {
+      id: 'ord_ns1_create',
+      status: 'pending',
+      table: '02',
+      orderItems: [],
+      date_updated: '2024-01-01T00:00:00.000Z',
+    });
+
+    await _handleSubscriptionMessage('order_items', {
+      event: 'create',
+      data: [{
+        id: 'oi_ns1_create',
+        order: 'ord_ns1_create',
+        name: 'Risotto',
+        quantity: 2,
+        unit_price: 14,
+        voided_quantity: 0,
+        kitchen_ready: false,
+        date_updated: '2024-06-01T00:00:00.000Z',
+      }],
+    });
+
+    // Both stores must reflect the new item
+    const storedItem = await db.get('order_items', 'oi_ns1_create');
+    expect(storedItem).toBeDefined();
+
+    const order = await db.get('orders', 'ord_ns1_create');
+    expect(order.orderItems).toHaveLength(1);
+    expect(order.orderItems[0].id).toBe('oi_ns1_create');
+    expect(order.orderItems[0].name).toBe('Risotto');
+  });
+});
+
+// ── NS4 — _tableMergePullInFlight deduplication ───────────────────────────────
+
+describe('NS4 — _tableMergePullInFlight deduplication', () => {
+  it('two concurrent WS delete events for table_merge_sessions trigger only one fetch', async () => {
+    let tmsFetchCount = 0;
+    let resolveFirstFetch;
+    const firstFetchPromise = new Promise(res => { resolveFirstFetch = res; });
+
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      if (String(url).includes('/items/table_merge_sessions')) {
+        tmsFetchCount++;
+        if (tmsFetchCount === 1) {
+          return firstFetchPromise.then(() => directusListResponse([]));
+        }
+        return Promise.resolve(directusListResponse([]));
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    // Two concurrent delete events — both should share the same inflight pull
+    const p1 = _handleSubscriptionMessage('table_merge_sessions', {
+      event: 'delete',
+      data: ['tms_a'],
+    });
+    const p2 = _handleSubscriptionMessage('table_merge_sessions', {
+      event: 'delete',
+      data: ['tms_b'],
+    });
+
+    // At this point the fetch is in flight but not yet resolved
+    await flushPromises(10);
+    expect(tmsFetchCount).toBe(1);
+
+    // Resolve the fetch and let both handlers complete
+    resolveFirstFetch();
+    await Promise.all([p1, p2]);
+
+    // Despite two events, only one fetch should have been made
+    expect(tmsFetchCount).toBe(1);
+  });
+});
+
+// ── NS5 — _globalPullInFlight deduplication ───────────────────────────────────
+
+describe('NS5 — _globalPullInFlight deduplication', () => {
+  it('two concurrent reconfigureAndApply() calls trigger only one venue fetch', async () => {
+    let venueFetchCount = 0;
+
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      if (String(url).includes('/items/venues/')) {
+        venueFetchCount++;
+        return Promise.resolve(directusItemResponse({
+          id: 1,
+          name: 'Test Venue NS5',
+          status: 'published',
+          menu_source: 'directus',
+          tables: [],
+          rooms: [],
+          menu_items: [],
+          menu_categories: [],
+          printers: [],
+          venue_users: [],
+          table_merge_sessions: [],
+          payment_methods: [],
+          cover_charge_enabled: false,
+          cover_charge_auto_add: false,
+          cover_charge_price_adult: '0',
+          cover_charge_price_child: '0',
+          billing_enable_cash_change_calculator: false,
+          billing_enable_tips: false,
+          billing_enable_discounts: false,
+          billing_allow_custom_entry: false,
+        }));
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const sync = useDirectusSync();
+
+    // Fire two reconfigureAndApply() calls back-to-back without any await between them
+    const p1 = sync.reconfigureAndApply();
+    const p2 = sync.reconfigureAndApply();
+    const [r1, r2] = await Promise.all([p1, p2]);
+
+    expect(r1.ok).toBe(true);
+    expect(r2.ok).toBe(true);
+    // Both calls shared the same inflight promise → only one HTTP fetch
+    expect(venueFetchCount).toBe(1);
+  });
+});
+
+// ── NS7 — keyset cursor pagination ────────────────────────────────────────────
+
+/**
+ * Returns true when the URL encodes an `id._gt` keyset filter.
+ * Supports both bracketed and JSON-encoded Directus filter formats.
+ */
+function hasIdGtFilter(urlString) {
+  const url = new URL(String(urlString));
+  const keys = Array.from(url.searchParams.keys());
+
+  // Bracketed form: filter[id][_gt]=... or filter[_and][...][id][_gt]=...
+  if (keys.some(k => k.includes('[id]') && k.includes('[_gt]'))) return true;
+
+  const rawFilter = url.searchParams.get('filter');
+  if (!rawFilter) return false;
+
+  try {
+    const parsed = JSON.parse(rawFilter);
+    const stack = [parsed];
+    while (stack.length > 0) {
+      const node = stack.pop();
+      if (!node || typeof node !== 'object') continue;
+      if (node.id?._gt !== undefined) return true;
+      for (const v of Object.values(node)) {
+        if (typeof v === 'object' && v !== null) stack.push(v);
+      }
+    }
+  } catch {
+    // Ignore non-JSON filter encodings
+  }
+
+  return false;
+}
+
+describe('NS7 — keyset cursor pagination', () => {
+  it('second page request uses id._gt keyset filter when all page-1 records share sinceTs', async () => {
+    const sinceTs = '2024-06-01T00:00:00.000Z';
+    await saveLastPullTsToIDB('orders', sinceTs);
+
+    // 200 records all with date_updated === sinceTs — triggers keyset on page 2
+    const page1 = Array.from({ length: 200 }, (_, i) =>
+      makeRemoteOrder({
+        id: `ord_ns7_${String(i).padStart(3, '0')}`,
+        date_updated: sinceTs,
+      }),
+    );
+
+    const fetchedOrderUrls = [];
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      const s = String(url);
+      if (s.includes('/items/orders')) {
+        fetchedOrderUrls.push(s);
+        // Page 1: return 200 records; any subsequent page returns empty
+        if (fetchedOrderUrls.length === 1) {
+          return Promise.resolve(directusListResponse(page1));
+        }
+        return Promise.resolve(directusListResponse([]));
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const sync = useDirectusSync();
+    await sync.forcePull();
+
+    // Must have made at least 2 requests to /items/orders (page 1 + page 2)
+    expect(fetchedOrderUrls.length).toBeGreaterThanOrEqual(2);
+
+    // The second request must carry the id._gt keyset filter
+    const page2Url = fetchedOrderUrls[1];
+    expect(hasIdGtFilter(page2Url)).toBe(true);
+
+    // The keyset cursor id must reference the last record of page 1
+    // (check that the URL references ord_ns7_199 somewhere)
+    expect(decodeURIComponent(page2Url)).toContain('ord_ns7_199');
+  });
+});
+
+// ── NS8 — AbortController for _runPull ────────────────────────────────────────
+
+describe('NS8 — AbortController for _runPull', () => {
+  it('second forcePull() aborts the in-flight pull and itself completes successfully', async () => {
+    let ordersFetchCount = 0;
+    let resolveSlowFetch;
+    const slowFetchPromise = new Promise(res => { resolveSlowFetch = res; });
+
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      if (String(url).includes('/items/orders')) {
+        ordersFetchCount++;
+        if (ordersFetchCount === 1) {
+          // First fetch is slow (simulates in-flight pull)
+          return slowFetchPromise.then(() => directusListResponse([]));
+        }
+        return Promise.resolve(directusListResponse([]));
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const sync = useDirectusSync();
+
+    // Start first pull — gets stuck waiting for the orders fetch
+    const pull1 = sync.forcePull();
+    await flushPromises(20);
+
+    // Start second pull — aborts pull1's AbortController, starts fresh
+    const pull2 = sync.forcePull();
+
+    // Unblock the slow fetch so pull1 can exit
+    resolveSlowFetch();
+
+    const [result1, result2] = await Promise.all([pull1, pull2]);
+
+    // Both pulls must resolve without throwing
+    expect(result1).toBeDefined();
+    expect(result2.ok).toBe(true);
+    // Two fetches must have occurred (one per pull attempt)
+    expect(ordersFetchCount).toBeGreaterThanOrEqual(2);
+  });
+
+  it('stopSync() aborts an in-flight pull cleanly without throwing', async () => {
+    let resolveOrdersFetch;
+
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      if (String(url).includes('/items/orders')) {
+        return new Promise(res => { resolveOrdersFetch = res; })
+          .then(() => directusListResponse([]));
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const sync = useDirectusSync();
+
+    // Start a pull that blocks at the orders fetch
+    const pull = sync.forcePull();
+    await flushPromises(20);
+
+    // Abort via stopSync
+    sync.stopSync();
+
+    // Unblock the slow fetch so the pull loop can exit
+    resolveOrdersFetch?.();
+
+    // Pull must resolve (not throw)
+    const result = await pull;
+    expect(result).toBeDefined();
+    expect(sync.syncStatus.value).toBe('idle');
+  });
+});
