@@ -15,7 +15,7 @@
 
 import { appConfig, createRuntimeConfig, DEFAULT_SETTINGS } from '../../utils/index.js';
 import { clearLocalConfigCacheFromIDB } from '../../store/persistence/config.js';
-import { syncState } from './state.js';
+import { syncState, resetSyncState } from './state.js';
 import { PULL_CONFIG, GLOBAL_INTERVAL_MS } from './config.js';
 import { _runPush } from './pushQueue.js';
 import { _runPull } from './pullQueue.js';
@@ -505,44 +505,36 @@ export function useDirectusSync() {
  * @internal For test isolation only.
  */
 export function _resetDirectusSyncSingleton() {
-  syncState._running = false;
-  syncState._store = null;
-  syncState._appType = 'cassa';
-  syncState._wsCollections = [];
-  syncState._pushGeneration = 0;
+  // Abort in-flight async operations before resetting their handles.
   syncState._pushAbortController?.abort();
-  syncState._pushAbortController = null;
-  syncState._pushInFlight = null;
-  // S3: Clear in-flight pull semaphore.
-  syncState._pullInFlight = null;
-  syncState._pullGeneration = 0;
-  syncState._tableMergePullInFlight = null; // NS4
-  // NS8: Abort and clear the pull AbortController.
   syncState._pullAbortController?.abort();
-  syncState._pullAbortController = null;
-  syncState._globalPullGeneration = 0;
-  syncState._lastAppliedGlobalPullGeneration = 0;
-  syncState._globalPullInFlight = null; // NS5
-  if (syncState._pushTimer) { clearInterval(syncState._pushTimer); syncState._pushTimer = null; }
-  if (syncState._pollTimer) { clearInterval(syncState._pollTimer); syncState._pollTimer = null; }
-  if (syncState._globalTimer) { clearInterval(syncState._globalTimer); syncState._globalTimer = null; }
-  if (syncState._reconnectTimer) { clearTimeout(syncState._reconnectTimer); syncState._reconnectTimer = null; }
-  if (syncState._onlineRetryTimer) { clearTimeout(syncState._onlineRetryTimer); syncState._onlineRetryTimer = null; }
+
+  // Clear all timer handles before resetSyncState() nulls them out.
+  if (syncState._pushTimer) { clearInterval(syncState._pushTimer); }
+  if (syncState._pollTimer) { clearInterval(syncState._pollTimer); }
+  if (syncState._globalTimer) { clearInterval(syncState._globalTimer); }
+  if (syncState._reconnectTimer) { clearTimeout(syncState._reconnectTimer); }
+  if (syncState._onlineRetryTimer) { clearTimeout(syncState._onlineRetryTimer); }
   // S5: Clear heartbeat watchdog.
-  if (syncState._wsHeartbeatTimer) { clearTimeout(syncState._wsHeartbeatTimer); syncState._wsHeartbeatTimer = null; }
+  if (syncState._wsHeartbeatTimer) { clearTimeout(syncState._wsHeartbeatTimer); }
+
+  // Stop WS subscriptions and clear the echo-suppression registry.
   _stopSubscriptions();
   _recentlyPushed.clear();
-  // S1: Release the Web Lock and reset leader state.
-  if (syncState._leaderLockResolve) { syncState._leaderLockResolve(); syncState._leaderLockResolve = null; }
-  syncState._isLeader = true;
+
+  // S1: Release the Web Lock.
+  if (syncState._leaderLockResolve) { syncState._leaderLockResolve(); }
+
   // NS6: Close the BroadcastChannel.
-  if (syncState._idbChangeBroadcast) { syncState._idbChangeBroadcast.close(); syncState._idbChangeBroadcast = null; }
+  if (syncState._idbChangeBroadcast) { syncState._idbChangeBroadcast.close(); }
+
+  // Remove window event listeners.
   if (typeof window !== 'undefined') {
     window.removeEventListener('online', _onOnline);
     window.removeEventListener('offline', _onOffline);
     window.removeEventListener('sync-queue:enqueue', _onQueueEnqueue);
   }
-  syncState.syncStatus.value = 'idle';
-  syncState.lastPushAt.value = null;
-  syncState.lastPullAt.value = null;
+
+  // Reset all syncState fields to their initial values (single source of truth).
+  resetSyncState();
 }
