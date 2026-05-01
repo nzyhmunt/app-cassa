@@ -10,7 +10,7 @@
  */
 
 import { appConfig } from '../../utils/index.js';
-import { syncState } from './state.js';
+import { syncState, _SYNC_TAB_ID } from './state.js';
 
 /**
  * Refreshes the in-memory store from IDB for the given collection.
@@ -28,7 +28,7 @@ export async function _refreshStoreFromIDB(collection = null, ids = null) {
     // NS6: Notify follower tabs that IDB data has changed for this collection.
     // Include `ids` (as array) so followers can perform a targeted refresh too.
     if (syncState._isLeader) {
-      const msg = { type: 'idb-change', collection };
+      const msg = { type: 'idb-change', collection, sourceId: _SYNC_TAB_ID };
       if (ids instanceof Set && ids.size > 0) msg.ids = [...ids];
       syncState._idbChangeBroadcast?.postMessage(msg);
     }
@@ -37,7 +37,7 @@ export async function _refreshStoreFromIDB(collection = null, ids = null) {
   if (typeof syncState._store.refreshFromIDB === 'function') {
     await syncState._store.refreshFromIDB(collection);
     // NS6: Notify follower tabs that IDB data has changed for this collection.
-    if (syncState._isLeader) syncState._idbChangeBroadcast?.postMessage({ type: 'idb-change', collection });
+    if (syncState._isLeader) syncState._idbChangeBroadcast?.postMessage({ type: 'idb-change', collection, sourceId: _SYNC_TAB_ID });
     return;
   }
   // No further fallback: stores must expose refreshOperationalStateFromIDB or refreshFromIDB
@@ -56,7 +56,7 @@ export async function _refreshStoreConfigFromIDB(options = {}) {
   if (typeof syncState._store.hydrateConfigFromIDB === 'function') {
     await syncState._store.hydrateConfigFromIDB(options);
     // NS6: Notify follower tabs that configuration IDB data has changed.
-    if (syncState._isLeader) syncState._idbChangeBroadcast?.postMessage({ type: 'idb-change', collection: 'config' });
+    if (syncState._isLeader) syncState._idbChangeBroadcast?.postMessage({ type: 'idb-change', collection: 'config', sourceId: _SYNC_TAB_ID });
     return;
   }
   console.warn('[Directus] hydrateConfigFromIDB not available on store; skipping config refresh.');

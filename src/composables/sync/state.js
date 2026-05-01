@@ -20,6 +20,16 @@
 import { ref } from 'vue';
 
 /**
+ * Stable per-tab identifier included in BroadcastChannel messages so that the
+ * follower `onmessage` handler can ignore messages that originated in the same
+ * tab.  BroadcastChannel does not deliver a message back to the same
+ * BroadcastChannel object that sent it (per the HTML spec), but this constant
+ * provides defence-in-depth for role-transition edge cases and mirrors the
+ * pattern already used in `store/persistence/syncLogs.js`.
+ */
+export const _SYNC_TAB_ID = Math.random().toString(36).slice(2);
+
+/**
  * Singleton state container.  Never destructure this into local variables —
  * always access via `syncState.X` to preserve live binding semantics.
  */

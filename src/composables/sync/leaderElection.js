@@ -15,7 +15,7 @@
 
 import { appConfig, createRuntimeConfig, DEFAULT_SETTINGS } from '../../utils/index.js';
 import { clearLocalConfigCacheFromIDB } from '../../store/persistence/config.js';
-import { syncState, resetSyncState } from './state.js';
+import { syncState, resetSyncState, _SYNC_TAB_ID } from './state.js';
 import { PULL_CONFIG, GLOBAL_INTERVAL_MS } from './config.js';
 import { _runPush } from './pushQueue.js';
 import { _runPull } from './pullQueue.js';
@@ -145,6 +145,10 @@ async function _acquireLeaderLock() {
               // Promoted to leader — start sync loops if still running.
               if (syncState._running) {
                 syncState._isLeader = true;
+                // Clear the follower onmessage handler now that this tab is the
+                // leader.  The leader posts on this channel but must not receive
+                // its own broadcasts (which would trigger a refresh→broadcast loop).
+                if (syncState._idbChangeBroadcast) syncState._idbChangeBroadcast.onmessage = null;
                 await _startSyncLoopsAsLeader();
               }
               await standbyHold;
@@ -328,6 +332,10 @@ export function useDirectusSync() {
       if (syncState._idbChangeBroadcast) {
         syncState._idbChangeBroadcast.onmessage = ({ data }) => {
           if (data?.type !== 'idb-change') return;
+          // Defence-in-depth: ignore broadcasts that this tab sent itself.
+          // (BroadcastChannel spec already prevents same-object delivery, but
+          // this guard protects against role-transition race windows.)
+          if (data?.sourceId === _SYNC_TAB_ID) return;
           const col = data.collection ?? null;
           if (col === 'config') {
             _refreshStoreConfigFromIDB({
