@@ -301,6 +301,9 @@ export function useDirectusSync() {
     if (!isLeader) {
       // NS2: Keep syncState._running = true so that the standby lock callback in
       // `_acquireLeaderLock` can call `_startSyncLoopsAsLeader` when promoted.
+      // Mark this tab as a follower so _emitProgress / storebridge never broadcast
+      // idb-change messages from the follower side (which would cause broadcast loops).
+      syncState._isLeader = false;
       console.info('[DirectusSync] Non-leader tab: push/pull loops managed by another tab.');
       // NS6: Listen for leader's IDB-change broadcasts and refresh in-memory store.
       if (syncState._idbChangeBroadcast) {
