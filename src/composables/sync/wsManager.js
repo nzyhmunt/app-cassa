@@ -32,9 +32,11 @@ const _unsubscribers = [];
 /**
  * S5 — Resets (or starts) the WebSocket heartbeat watchdog timer.
  * Called after every incoming WS message and whenever a WS connection is
- * established.  If no message arrives within WS_HEARTBEAT_INTERVAL_MS the
- * connection is treated as silently dead: a REST catch-up pull is triggered
- * and a reconnect is scheduled so the app does not miss updates indefinitely.
+ * established.  If no WS subscription event arrives within
+ * WS_HEARTBEAT_INTERVAL_MS, a REST catch-up pull is triggered as a safety
+ * net and the watchdog reschedules itself.  The WS connection is NOT dropped
+ * (see inline comment inside the callback for rationale); genuine failures
+ * are detected by the subscription iterator in processSubscription().
  */
 export function _resetWsHeartbeat() {
   if (syncState._wsHeartbeatTimer) { clearTimeout(syncState._wsHeartbeatTimer); syncState._wsHeartbeatTimer = null; }

@@ -277,26 +277,16 @@ export async function _pullCollection(collection, { forceFull = false, lastPullT
     }
   }
 
-  // Cross-poll keyset cursor: load the {ts, id} position where the last poll cycle
-  // ended.  When valid, the first page of this poll uses the same keyset filter as
-  // page 2+ already does — meaning already-seen boundary records (those with
-  // date_updated === storedSinceTs) are excluded without a separate network round-trip.
-  //
-  // Only load the cursor when we have a valid storedSinceTs (genuine incremental pull).
-  // forceFull and first-run polls (storedSinceTs = null) always bypass it.
-  //
-  // Guard: discard the cursor when cursor.ts !== storedSinceTs.  Both values are
-  // updated together at the end of every successful page, so they should always
-  // be in sync.  A mismatch signals an inconsistency — most commonly caused by a
-  // clock-skew clamp above that rewrote storedSinceTs to "now" without touching
-  // the cursor.  Using a cursor whose ts differs from storedSinceTs would produce
-  // an incorrect keyset filter (e.g. skipping records between "now" and the old
-  // future timestamp), so we discard it and fall back to a plain _gte pull for
-  // this one cycle, after which the cursor is re-aligned automatically.
-  const rawCursor = (!forceFull && storedSinceTs)
-    ? await loadLastPullCursorFromIDB(collection)
-    : null;
-  const storedCursor = (rawCursor?.ts === storedSinceTs) ? rawCursor : null;
+  // NS7: Keyset cursor for within-poll pagination only.  Starts as null so the
+  // first page always uses the safe _gte sinceTs filter (inclusive boundary);
+  // advanced to lastCursor after each page so pages 2+ skip already-seen
+  // records.  A stored cross-poll cursor is intentionally NOT loaded here:
+  // applying it on page 1 would make the sinceTs boundary exclusive
+  // (id > cursor.id), which can silently skip records with
+  // date_updated == storedSinceTs that carry non-monotonic IDs and were
+  // created between the previous poll and this one.  Correctness takes
+  // priority over the bandwidth saving, so each poll starts fresh.
+  let pageKeyCursor = null;
 
   let page = 1;
   let latestTs = storedSinceTs;
@@ -315,11 +305,6 @@ export async function _pullCollection(collection, { forceFull = false, lastPullT
   // pages so the store refresh can be targeted rather than replacing the whole
   // orders reactive array.
   const allAffectedOrderIds = new Set();
-  // NS7 / cross-poll keyset cursor: initialise from the persisted cursor so the
-  // first page of each poll already uses the keyset filter (avoiding redundant
-  // re-downloads of boundary records already seen in the previous cycle).
-  // Falls back to null for full pulls and first-run polls (storedCursor = null).
-  let pageKeyCursor = storedCursor ?? null;
 
   while (true) { // eslint-disable-line no-constant-condition
     // Exit between pages when forcePull/stopSync aborts the pull session.
@@ -367,9 +352,11 @@ export async function _pullCollection(collection, { forceFull = false, lastPullT
       if (maxTs && (!latestTs || maxTs > latestTs)) latestTs = maxTs;
       // NS7: Advance the keyset cursor to the last record on this page.
       pageKeyCursor = lastCursor ?? null;
-      // Persist the cross-poll keyset cursor so the next poll cycle can start
-      // from where this page ended (avoiding re-downloads of boundary records).
-      if (pageKeyCursor) {
+      // Checkpoint the cursor position for diagnostics and future use.
+      // Only persist when both ts and id are truthy — a null ts cannot activate
+      // keyset mode and must not be stored (callers would receive a semantically
+      // invalid cursor that can never be used as a keyset filter boundary).
+      if (pageKeyCursor?.id && pageKeyCursor?.ts) {
         await saveLastPullCursorToIDB(collection, pageKeyCursor);
       }
       // S2: Per-page cursor checkpoint — persist the cursor immediately after each

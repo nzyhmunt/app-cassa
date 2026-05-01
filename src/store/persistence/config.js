@@ -184,17 +184,17 @@ export async function saveLastPullTsToIDB(collection, ts) {
 /**
  * Returns the keyset cursor `{ts, id}` for `collection` stored in app_meta.
  *
- * Used by the pull loop to initialise the keyset filter on the first page of
- * each incremental poll cycle.  By starting from the exact `{ts, id}` position
- * where the previous cycle ended, the server-side filter already excludes all
- * records that were seen last time — eliminating the otherwise-redundant
- * re-download of boundary records caused by the `_gte sinceTs` strategy.
+ * The cursor checkpoints the `{date_updated, id}` position at the end of
+ * each successfully processed page so the next incremental poll can resume
+ * from where the previous one left off.  Note that `ts` may be `null` for
+ * records that have neither `date_updated` nor `date_created` set; callers
+ * must check for `null` before using the value in a keyset filter.
  *
  * Returns `null` when no cursor has been persisted yet (e.g. after a fresh
  * install or a full reset).
  *
  * @param {string} collection
- * @returns {Promise<{ts: string, id: string|number}|null>}
+ * @returns {Promise<{ts: string|null, id: string|number}|null>}
  */
 export async function loadLastPullCursorFromIDB(collection) {
   try {
@@ -211,12 +211,13 @@ export async function loadLastPullCursorFromIDB(collection) {
  * Persists the keyset cursor `{ts, id}` for `collection`.
  *
  * Called after each successfully processed page in the pull loop so the cursor
- * is always checkpointed at the last known-good position.  The next incremental
- * poll initialises its `pageKeyCursor` from this value to avoid re-fetching
- * already-seen boundary records.
+ * is checkpointed at the last known-good position.  Only cursors with both a
+ * truthy `id` and a non-null `ts` are persisted (callers must enforce this
+ * guard); cursors with `ts: null` cannot activate keyset mode and must not be
+ * stored.
  *
  * @param {string} collection
- * @param {{ ts: string, id: string|number }} cursor
+ * @param {{ ts: string|null, id: string|number }} cursor
  */
 export async function saveLastPullCursorToIDB(collection, cursor) {
   try {
