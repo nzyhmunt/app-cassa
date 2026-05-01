@@ -1,0 +1,548 @@
+/**
+ * @file composables/sync/leaderElection.js
+ * @description Web Lock leader election, sync lifecycle, and the public
+ * `useDirectusSync()` composable factory.
+ *
+ * Responsibilities:
+ *  - Leader election via Web Locks API (_acquireLeaderLock)
+ *  - Start/stop of push/pull/WS loops (_startSyncLoopsAsLeader)
+ *  - Online/offline event handlers (_onOnline, _onOffline)
+ *  - Public composable factory (useDirectusSync)
+ *  - Test reset helper (_resetDirectusSyncSingleton)
+ *
+ * Extracted from useDirectusSync.js (§11 refactor).
+ */
+
+import { appConfig, createRuntimeConfig, DEFAULT_SETTINGS } from '../../utils/index.js';
+import { clearLocalConfigCacheFromIDB } from '../../store/persistence/config.js';
+import { syncState } from './state.js';
+import { PULL_CONFIG, GLOBAL_INTERVAL_MS } from './config.js';
+import { _runPush } from './pushQueue.js';
+import { _runPull, _getCfg } from './pullQueue.js';
+import { _runGlobalPull, _hydrateConfigFromLocalCache } from './globalPull.js';
+import { _startSubscriptions, _stopSubscriptions, _reconnectWs } from './wsManager.js';
+import {
+  _refreshStoreFromIDB,
+  _refreshStoreConfigFromIDB,
+  _applyDirectusRuntimeConfigToAppConfig,
+  _emitProgress,
+} from './storebridge.js';
+import { _recentlyPushed } from './echoSuppression.js';
+
+// ── Extracted leader body ─────────────────────────────────────────────────────
+
+/**
+ * NS2 — Extracted leader body.  Called both by `startSync()` (when this tab
+ * immediately wins the leader lock) and by the standby lock callback (when a
+ * previous leader tab closes and this tab is promoted automatically).
+ */
+async function _startSyncLoopsAsLeader() {
+  const pullCfg = PULL_CONFIG[syncState._appType] ?? PULL_CONFIG.cassa;
+  const venueId = appConfig.directus?.venueId ?? null;
+
+  // Local-first: apply cached config snapshot from IDB before any remote call.
+  try {
+    await _hydrateConfigFromLocalCache(venueId);
+  } catch (e) {
+    console.warn(`[DirectusSync] WARN: Fallback to remote sync after local cache hydration failed for venue ${String(venueId)}:`, e);
+  }
+
+  // Initial push + deep global config pull
+  _runPush().catch(() => {});
+  _runGlobalPull().catch(() => {});
+
+  // Push loop: retry every 30 s when online
+  syncState._pushTimer = setInterval(() => _runPush().catch(() => {}), 30_000);
+
+  // Global config pull: every 5 minutes
+  syncState._globalTimer = setInterval(() => _runGlobalPull().catch(() => {}), GLOBAL_INTERVAL_MS);
+
+  // WebSocket subscriptions are opt-in (wsEnabled must be explicitly true).
+  // When disabled, fall back to periodic polling from the start.
+  const wsEnabled = appConfig.directus?.wsEnabled === true;
+  // When menu data comes from a local JSON file, exclude menu_items from WebSocket
+  // subscriptions to avoid unnecessary subscription traffic and IDB fan-out.
+  const menuSource = appConfig.menuSource ?? 'directus';
+  const wsCollections = menuSource === 'json'
+    ? pullCfg.collections.filter(c => c !== 'menu_items')
+    : pullCfg.collections;
+  // Persist the last computed collection list at module level; reconnect logic
+  // recomputes the effective list from the current appConfig when reconnecting.
+  syncState._wsCollections = wsCollections;
+
+  if (wsEnabled) {
+    // Try WebSocket subscriptions; fall back to polling if connect fails
+    const subscribed = await _startSubscriptions(wsCollections);
+    if (!subscribed) {
+      _runPull().catch(() => {});
+      syncState._pollTimer = setInterval(() => _runPull().catch(() => {}), pullCfg.intervalMs);
+    } else {
+      // Even with WebSocket, do one initial REST pull to catch up on missed updates
+      _runPull().catch(() => {});
+    }
+  } else {
+    // WebSocket disabled — use REST polling only
+    _runPull().catch(() => {});
+    syncState._pollTimer = setInterval(() => _runPull().catch(() => {}), pullCfg.intervalMs);
+  }
+
+  if (typeof window !== 'undefined') {
+    window.addEventListener('online', _onOnline);
+    window.addEventListener('offline', _onOffline);
+    window.addEventListener('sync-queue:enqueue', _onQueueEnqueue);
+  }
+}
+
+/**
+ * S1 — Attempts to acquire the exclusive "directus-sync-leader" Web Lock.
+ *
+ * Returns `true` when this tab becomes the sync leader (or when Web Locks are
+ * not supported — both tabs then behave as independent leaders, matching the
+ * pre-S1 behaviour).  Returns `false` when another tab already holds the lock.
+ *
+ * When the lock is acquired it is held in the background (by awaiting an
+ * internal Promise) until `stopSync()` calls the resolver, effectively keeping
+ * this tab as leader for the entire lifetime of its sync session.  When the
+ * leader tab is closed or calls `stopSync()` the lock is released automatically
+ * and the next tab that calls `startSync()` will win the election.
+ *
+ * NS2: A queued (blocking) standby request is registered when this tab is a
+ * follower.  When the leader tab closes, the standby fires automatically and
+ * promotes this tab to leader by calling `_startSyncLoopsAsLeader()` — no user
+ * action or page reload required.
+ */
+async function _acquireLeaderLock() {
+  // Web Locks not supported — every tab is its own leader (pre-S1 behaviour).
+  if (typeof navigator === 'undefined' || !navigator.locks) {
+    console.debug('[DirectusSync] Web Locks API not available — all tabs will run sync independently.');
+    return true;
+  }
+  return new Promise((resolveAcquire) => {
+    // First attempt: acquire immediately without queuing.
+    navigator.locks.request(
+      'directus-sync-leader',
+      { mode: 'exclusive', ifAvailable: true },
+      async (lock) => {
+        if (!lock) {
+          // Lock not immediately available — this tab is a follower for now.
+          // NS2: Register a queued (blocking) standby request so that when the
+          // current leader tab is closed (or calls stopSync), this tab is
+          // automatically promoted to leader without requiring a reload.
+          resolveAcquire(false);
+          let resolveStandbyHold;
+          const standbyHold = new Promise((res) => { resolveStandbyHold = res; });
+          syncState._leaderLockResolve = resolveStandbyHold;
+          navigator.locks.request(
+            'directus-sync-leader',
+            { mode: 'exclusive' },
+            async () => {
+              // Promoted to leader — start sync loops if still running.
+              if (syncState._running) {
+                syncState._isLeader = true;
+                await _startSyncLoopsAsLeader();
+              }
+              await standbyHold;
+            },
+          ).catch(() => {});
+          return;
+        }
+        // This tab won the election immediately.
+        let resolveHold;
+        const holdPromise = new Promise((res) => { resolveHold = res; });
+        syncState._leaderLockResolve = resolveHold;
+        resolveAcquire(true);
+        await holdPromise;
+      },
+    ).catch(() => {
+      // Web Locks request rejected (e.g. opaque origin) — assume leader.
+      if (syncState._leaderLockResolve) { syncState._leaderLockResolve = null; }
+      resolveAcquire(true);
+    });
+  });
+}
+
+// ── Online/offline listeners ──────────────────────────────────────────────────
+
+function _onOffline() {
+  // Immediately reflect the offline state on the WS indicator.  The Directus
+  // SDK may continue its internal reconnect retry loop for up to ~20 s before
+  // the subscription iterator throws, so without this listener the indicator
+  // would stay "connected" even though no WS traffic can flow.
+  syncState._wsConnected.value = false;
+  // Cancel any pending reconnect timer — the reconnect will be rescheduled
+  // by _onOnline() once the network is restored.
+  if (syncState._reconnectTimer) { clearTimeout(syncState._reconnectTimer); syncState._reconnectTimer = null; }
+  // Cancel any pending delayed push retry so it doesn't fire if the device
+  // went offline again before the 5-second window elapsed.
+  if (syncState._onlineRetryTimer) { clearTimeout(syncState._onlineRetryTimer); syncState._onlineRetryTimer = null; }
+  // Invalidate any in-flight push.  When the network drops, the underlying
+  // fetch() inside sdkClient.request() can hang indefinitely waiting for a TCP
+  // timeout (typically 10-20+ minutes).  Aborting syncState._pushAbortController causes
+  // the SDK fetch to throw AbortError immediately, which drainQueue treats as a
+  // caller-initiated abort and uses to stop the drain cleanly without marking
+  // the result as offline or incrementing attempts.
+  // Clearing syncState._pushInFlight and advancing syncState._pushGeneration then ensures the next
+  // _runPush() call (from _onOnline()) starts a completely fresh push rather
+  // than waiting on the hung promise or running a second concurrent drain.
+  syncState._pushAbortController?.abort();
+  syncState._pushAbortController = null;
+  syncState._pushGeneration++;
+  syncState._pushInFlight = null;
+  // If an in-flight push had already set syncState.syncStatus to "syncing", the
+  // generation bump above causes that superseded _runPush() to skip its
+  // post-await status update.  Reflect the offline state here so the UI
+  // cannot remain stuck showing "syncing" while the app is offline.
+  if (syncState._running) { syncState.syncStatus.value = 'offline'; }
+}
+
+/**
+ * Schedules a 5-second retry push after an online reconnect push failed.
+ * Re-schedules itself as long as the device remains online and sync is
+ * running so that the queue drains as soon as Directus becomes reachable
+ * again (e.g. while DHCP / DNS is still settling after reconnect).
+ * Cancelled by `_onOffline`, `stopSync`, or a new `_onOnline` event.
+ */
+function _scheduleOnlineRetry() {
+  if (syncState._onlineRetryTimer) { clearTimeout(syncState._onlineRetryTimer); }
+  syncState._onlineRetryTimer = setTimeout(() => {
+    syncState._onlineRetryTimer = null;
+    if (!syncState._running || !navigator.onLine) return;
+    // Capture the generation that _runPush() will assign synchronously.  Since
+    // _runPush() increments syncState._pushGeneration before its first await, reading
+    // syncState._pushGeneration immediately after the call gives the generation used by
+    // this specific push attempt.  If syncState._pushGeneration is subsequently advanced
+    // (offline/forcePush/stopSync), the result belongs to a superseded attempt
+    // and must not re-schedule a retry for the new online cycle.
+    const retryPush = _runPush();
+    const genAtStart = syncState._pushGeneration;
+    retryPush.then((result) => {
+      if (result?.offline && syncState._running && navigator.onLine && syncState._pushGeneration === genAtStart) {
+        _scheduleOnlineRetry();
+      }
+    }).catch(() => {});
+  }, 5_000);
+}
+
+function _onOnline() {
+  // Clear any stale retry timer from a previous online/offline cycle.
+  if (syncState._onlineRetryTimer) { clearTimeout(syncState._onlineRetryTimer); syncState._onlineRetryTimer = null; }
+  // Immediate push attempt: when the network is already stable the queue drains
+  // here and no retry is needed.  Only schedule the 5 s follow-up when the push
+  // reports an offline/network failure (e.g. DHCP still settling) AND the
+  // device is still online when the result arrives — this avoids a redundant
+  // drainQueue() cycle on every reconnect when the first push already succeeded.
+  // Also clear any timer already set by a concurrent push from a rapid second
+  // 'online' event so only the most recent push's retry is scheduled.
+  // If the retry also fails, _scheduleOnlineRetry() reschedules itself every
+  // 5 s until the push succeeds, the device goes offline, or stopSync() is called.
+  // Capture the generation that _runPush() assigns synchronously (it increments
+  // syncState._pushGeneration before its first await).  If syncState._pushGeneration is subsequently
+  // advanced (offline/forcePush/stopSync), the result belongs to a superseded
+  // attempt and must not schedule a retry for the new online cycle.
+  const onlinePush = _runPush();
+  const genAtStart = syncState._pushGeneration;
+  onlinePush.then((result) => {
+    if (result?.offline && syncState._running && navigator.onLine && syncState._pushGeneration === genAtStart) {
+      _scheduleOnlineRetry();
+    }
+  }).catch(() => {});
+  _runPull().catch(() => {});
+  // If WebSocket was enabled but is currently disconnected, attempt to reconnect.
+  if (appConfig.directus?.wsEnabled === true && !syncState._wsConnected.value && syncState._running) {
+    _reconnectWs().catch(() => {});
+  }
+}
+
+function _onQueueEnqueue() {
+  _runPush().catch(() => {});
+}
+
+// ── Public composable ─────────────────────────────────────────────────────────
+
+/**
+ * Bidirectional Directus sync composable.
+ *
+ * Returns reactive refs and control methods.  The same singleton instance is
+ * shared across all composable calls in the same module scope.
+ */
+export function useDirectusSync() {
+  /**
+   * Starts the push loop, WebSocket subscriptions (with polling fallback), and
+   * global config pull.
+   *
+   * @param {{ appType: 'cassa'|'sala'|'cucina', store: object }} opts
+   */
+  async function startSync({ appType, store }) {
+    if (syncState._running) return;
+    if (!appConfig.directus?.enabled) return;
+
+    syncState._appType = appType ?? 'cassa';
+    syncState._store = store;
+    syncState._running = true;
+
+    // NS6: Open BroadcastChannel for cross-tab IDB-change notifications.
+    // Both leaders and followers open the channel so followers can react to
+    // IDB writes made by the leader and keep their in-memory store in sync.
+    if (typeof BroadcastChannel !== 'undefined') {
+      syncState._idbChangeBroadcast = new BroadcastChannel('directus-sync-idb-changes');
+    }
+
+    // S1: Leader election via Web Locks API.
+    // Only one browser tab should run push/pull loops at a time — concurrent
+    // loops from multiple tabs hammer Directus with duplicate requests and can
+    // cause race conditions in IDB writes.  `_acquireLeaderLock()` tries to
+    // claim the exclusive "directus-sync-leader" lock; if another tab already
+    // holds it this call returns false and startSync() exits early.
+    // Falls back to `true` (every tab is a leader) when Web Locks are unsupported.
+    // NS2: `_acquireLeaderLock()` now also registers a standby lock request
+    // in the background, so when the leader tab closes this tab is promoted
+    // automatically without requiring a reload.
+    const isLeader = await _acquireLeaderLock();
+    if (!isLeader) {
+      // NS2: Keep syncState._running = true so that the standby lock callback in
+      // `_acquireLeaderLock` can call `_startSyncLoopsAsLeader` when promoted.
+      console.info('[DirectusSync] Non-leader tab: push/pull loops managed by another tab.');
+      // NS6: Listen for leader's IDB-change broadcasts and refresh in-memory store.
+      if (syncState._idbChangeBroadcast) {
+        syncState._idbChangeBroadcast.onmessage = ({ data }) => {
+          if (data?.type !== 'idb-change') return;
+          const col = data.collection ?? null;
+          if (col === 'config') {
+            _refreshStoreConfigFromIDB({
+              menuSource: appConfig.menuSource,
+              menuUrl: appConfig.menuUrl,
+            }).catch(() => {});
+          } else {
+            _refreshStoreFromIDB(col).catch(() => {});
+          }
+        };
+      }
+      return;
+    }
+    syncState._isLeader = true;
+    await _startSyncLoopsAsLeader();
+  }
+
+  function stopSync() {
+    syncState._running = false;
+    syncState._store = null;
+    // Abort any in-flight push and advance the generation so any push started
+    // before stopSync() does not clear a new syncState._pushInFlight that might be
+    // created after the next startSync() call.  The AbortController abort causes
+    // the SDK fetch to throw AbortError so the drain halts immediately without
+    // corrupting the queue.
+    syncState._pushAbortController?.abort();
+    syncState._pushAbortController = null;
+    syncState._pushGeneration++;
+    syncState._pushInFlight = null;
+    // NS8: Abort any in-flight pull so the loop exits cleanly between collections.
+    syncState._pullAbortController?.abort();
+    syncState._pullAbortController = null;
+    // S3: Drop any in-flight pull reference so the next startSync() can start fresh.
+    syncState._pullInFlight = null;
+    syncState._pullGeneration++;
+    if (syncState._pushTimer) { clearInterval(syncState._pushTimer); syncState._pushTimer = null; }
+    if (syncState._pollTimer) { clearInterval(syncState._pollTimer); syncState._pollTimer = null; }
+    if (syncState._globalTimer) { clearInterval(syncState._globalTimer); syncState._globalTimer = null; }
+    if (syncState._reconnectTimer) { clearTimeout(syncState._reconnectTimer); syncState._reconnectTimer = null; }
+    if (syncState._onlineRetryTimer) { clearTimeout(syncState._onlineRetryTimer); syncState._onlineRetryTimer = null; }
+    _stopSubscriptions();
+    // S1: Release the Web Lock so another tab can become the leader.
+    if (syncState._leaderLockResolve) { syncState._leaderLockResolve(); syncState._leaderLockResolve = null; }
+    syncState._isLeader = true;
+    // NS6: Close the BroadcastChannel.
+    if (syncState._idbChangeBroadcast) { syncState._idbChangeBroadcast.close(); syncState._idbChangeBroadcast = null; }
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('online', _onOnline);
+      window.removeEventListener('offline', _onOffline);
+      window.removeEventListener('sync-queue:enqueue', _onQueueEnqueue);
+    }
+    syncState.syncStatus.value = 'idle';
+  }
+
+  /**
+   * Manually triggers a full push drain of the sync queue.
+   * @returns {Promise<{
+   *   pushed: number,
+   *   failed: number,
+   *   abandoned: number,
+   *   pushedIds: Array<{ collection: string, recordId: string }>,
+   *   offline: boolean,
+   *   skippedReason?: 'no-config' | 'disabled',
+   * }>}
+   */
+  async function forcePush() {
+    if (!appConfig.directus?.enabled) return { pushed: 0, failed: 0, abandoned: 0, pushedIds: [], offline: false, skippedReason: 'disabled' };
+    // Abort any in-flight push and start fresh. This handles both the
+    // "push is stuck on a hung fetch (TCP timeout)" case and the more benign
+    // "push is already running" case: aborting the AbortController cancels the
+    // current drain immediately, returning the caller-initiated cancellation
+    // path (aborted: true) without marking the client offline, incrementing
+    // attempt counters, or leaving a second concurrent drain running in parallel.
+    syncState._pushAbortController?.abort();
+    syncState._pushAbortController = null;
+    syncState._pushGeneration++;
+    syncState._pushInFlight = null;
+    return _runPush();
+  }
+
+  async function forcePull() {
+    if (!appConfig.directus?.enabled) return { ok: true, failedCollections: [] };
+    // NS8: Abort any in-flight pull so the loop exits cleanly between collections
+    // before starting the new user-initiated pull.
+    syncState._pullAbortController?.abort();
+    syncState._pullAbortController = null;
+    // S3: Reset the in-flight semaphore so this user-initiated pull is not
+    // silently deduped against a concurrent background pull.
+    syncState._pullInFlight = null;
+    syncState._pullGeneration++;
+    syncState.syncStatus.value = 'syncing';
+    try {
+      const result = await _runPull();
+      if (result?.ok !== false) {
+        syncState.syncStatus.value = 'idle';
+      } else if (result?.skippedReason === 'offline') {
+        syncState.syncStatus.value = 'offline';
+      } else {
+        syncState.syncStatus.value = 'error';
+      }
+      return result;
+    } catch (e) {
+      syncState.syncStatus.value = 'error';
+      console.warn('forcePull failed unexpectedly', e);
+      return {
+        ok: false,
+        failedCollections: [],
+        ...(e && typeof e === 'object' && 'skippedReason' in e ? { skippedReason: e.skippedReason } : {}),
+        ...(e instanceof Error ? { message: e.message } : {}),
+        error: e,
+      };
+    }
+  }
+
+  /**
+   * Applies a fresh Directus configuration snapshot with an optional local cache wipe.
+   * Intended for explicit post-save reconfiguration from the settings UI.
+   *
+   * @param {{ clearLocalConfig?: boolean, onProgress?: Function }} [opts]
+   * @returns {Promise<{ ok: boolean, failedCollections: string[] }>}
+   */
+  async function reconfigureAndApply({
+    clearLocalConfig = false,
+    onProgress = null,
+  } = {}) {
+    if (!appConfig.directus?.enabled) {
+      const result = { ok: false, failedCollections: [] };
+      _emitProgress(onProgress, {
+        level: 'error',
+        message: 'Sincronizzazione Directus disabilitata: impossibile applicare la configurazione.',
+      });
+      return result;
+    }
+
+    syncState.syncStatus.value = 'syncing';
+    try {
+      if (clearLocalConfig) {
+        _emitProgress(onProgress, { level: 'info', message: 'Svuotamento completo cache configurazione locale…' });
+        await clearLocalConfigCacheFromIDB();
+        const preservedDirectus = JSON.parse(JSON.stringify(appConfig.directus ?? {}));
+        _applyDirectusRuntimeConfigToAppConfig(createRuntimeConfig(DEFAULT_SETTINGS), {
+          preservedDirectus,
+        });
+        await _refreshStoreConfigFromIDB({
+          menuSource: appConfig.menuSource,
+          menuUrl: appConfig.menuUrl,
+        });
+        _emitProgress(onProgress, { level: 'info', message: 'Cache configurazione locale svuotata.' });
+      }
+
+      // Reset the NS5 in-flight semaphore so this user-initiated pull
+      // always starts a fresh fetch with the correct onProgress callback
+      // rather than reusing a background pull that lacks it.
+      syncState._globalPullInFlight = null;
+      const result = await _runGlobalPull({ onProgress });
+      syncState.syncStatus.value = result?.ok ? 'idle' : 'error';
+      return result ?? { ok: false, failedCollections: [] };
+    } catch (e) {
+      syncState.syncStatus.value = 'error';
+      _emitProgress(onProgress, {
+        level: 'error',
+        message: 'Errore durante la procedura di applicazione configurazione.',
+        details: String(e?.message ?? e),
+      });
+      return { ok: false, failedCollections: [] };
+    }
+  }
+
+  /**
+   * Exposes the internal `_reconnectWs` function so callers (e.g. swipe-down
+   * refresh) can actively trigger a WebSocket reconnect attempt.  No-ops when
+   * sync is not running, WS is already connected, or WS is disabled.
+   *
+   * @returns {Promise<void>}
+   */
+  function reconnectWs() {
+    return _reconnectWs();
+  }
+
+  return {
+    syncStatus: syncState.syncStatus,
+    lastPushAt: syncState.lastPushAt,
+    lastPullAt: syncState.lastPullAt,
+    wsConnected: syncState._wsConnected,
+    startSync,
+    stopSync,
+    forcePush,
+    forcePull,
+    reconfigureAndApply,
+    reconnectWs,
+  };
+}
+
+// ── Test helpers ──────────────────────────────────────────────────────────────
+
+/**
+ * @internal For test isolation only.
+ */
+export function _resetDirectusSyncSingleton() {
+  syncState._running = false;
+  syncState._store = null;
+  syncState._appType = 'cassa';
+  syncState._wsCollections = [];
+  syncState._pushGeneration = 0;
+  syncState._pushAbortController?.abort();
+  syncState._pushAbortController = null;
+  syncState._pushInFlight = null;
+  // S3: Clear in-flight pull semaphore.
+  syncState._pullInFlight = null;
+  syncState._pullGeneration = 0;
+  syncState._tableMergePullInFlight = null; // NS4
+  // NS8: Abort and clear the pull AbortController.
+  syncState._pullAbortController?.abort();
+  syncState._pullAbortController = null;
+  syncState._globalPullGeneration = 0;
+  syncState._lastAppliedGlobalPullGeneration = 0;
+  syncState._globalPullInFlight = null; // NS5
+  if (syncState._pushTimer) { clearInterval(syncState._pushTimer); syncState._pushTimer = null; }
+  if (syncState._pollTimer) { clearInterval(syncState._pollTimer); syncState._pollTimer = null; }
+  if (syncState._globalTimer) { clearInterval(syncState._globalTimer); syncState._globalTimer = null; }
+  if (syncState._reconnectTimer) { clearTimeout(syncState._reconnectTimer); syncState._reconnectTimer = null; }
+  if (syncState._onlineRetryTimer) { clearTimeout(syncState._onlineRetryTimer); syncState._onlineRetryTimer = null; }
+  // S5: Clear heartbeat watchdog.
+  if (syncState._wsHeartbeatTimer) { clearTimeout(syncState._wsHeartbeatTimer); syncState._wsHeartbeatTimer = null; }
+  _stopSubscriptions();
+  _recentlyPushed.clear();
+  // S1: Release the Web Lock and reset leader state.
+  if (syncState._leaderLockResolve) { syncState._leaderLockResolve(); syncState._leaderLockResolve = null; }
+  syncState._isLeader = true;
+  // NS6: Close the BroadcastChannel.
+  if (syncState._idbChangeBroadcast) { syncState._idbChangeBroadcast.close(); syncState._idbChangeBroadcast = null; }
+  if (typeof window !== 'undefined') {
+    window.removeEventListener('online', _onOnline);
+    window.removeEventListener('offline', _onOffline);
+    window.removeEventListener('sync-queue:enqueue', _onQueueEnqueue);
+  }
+  syncState.syncStatus.value = 'idle';
+  syncState.lastPushAt.value = null;
+  syncState.lastPullAt.value = null;
+}
