@@ -24,7 +24,7 @@ import { syncState } from './state.js';
  * `_onOffline()`, or `stopSync()`.  A preempted push silently discards its
  * post-await side-effects so it cannot overwrite state set by the newer push.
  *
- * @returns {Promise<{pushed:number,failed:number,abandoned:number,pushedIds:string[],offline:boolean}>}
+ * @returns {Promise<{pushed:number,failed:number,abandoned:number,pushedIds:Array<{collection:string,recordId:string}>,offline:boolean}>}
  */
 export async function _runPush() {
   if (syncState._pushInFlight) return syncState._pushInFlight;
