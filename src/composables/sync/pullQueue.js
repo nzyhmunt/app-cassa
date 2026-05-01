@@ -89,9 +89,14 @@ export async function _fetchUpdatedViaSDK(collection, sinceTs, page = 1, cursor 
     limit: 200,
     page: isKeysetMode ? 1 : page,
     // Primary sort by date_updated (or id for quirk collections); secondary by
-    // date_created and id to guarantee a stable, deterministic page order when
-    // many records share the same date_updated value (including null).
-    sort: quirks.noDateUpdated ? ['id'] : ['date_updated', 'date_created', 'id'],
+    // id to guarantee a stable, deterministic page order when many records share
+    // the same date_updated value (including null).
+    // Note: date_created is intentionally omitted from the sort so that the keyset
+    // filter (which advances by id only) is always consistent with the sort order.
+    // Adding date_created to the sort would cause records to be skipped when rows
+    // share the same date_updated but have different date_created values, because
+    // the keyset boundary uses only id > cursor.id.
+    sort: quirks.noDateUpdated ? ['id'] : ['date_updated', 'id'],
     fields: pullFields,
   };
 
@@ -121,7 +126,7 @@ export async function _fetchUpdatedViaSDK(collection, sinceTs, page = 1, cursor 
   if (sinceTs && !quirks.noDateUpdated) {
     if (isKeysetMode) {
       // Keyset mode (page 2+): skip all records up to and including the cursor position.
-      // The sort order is [date_updated, date_created, id], so we include:
+      // The sort order is [date_updated, id], so we include:
       //   • records with date_updated strictly after cursor.ts, OR
       //   • records with date_updated === cursor.ts but id > cursor.id, OR
       //   • records with date_updated=null but date_created >= sinceTs (new, never-patched records).

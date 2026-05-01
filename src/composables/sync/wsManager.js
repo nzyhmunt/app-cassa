@@ -60,6 +60,21 @@ export function _resetWsHeartbeat() {
 }
 
 /**
+ * Returns the effective timestamp for a record, using `date_updated` when
+ * available and falling back to `date_created` for records that have never
+ * been PATCHed.  Returns `null` if neither field is set.
+ *
+ * Used by the LWW echo-suppression guard to compare incoming vs local
+ * timestamps without requiring `date_updated` to be non-null.
+ *
+ * @param {{ date_updated?: string|null, date_created?: string|null }|null|undefined} record
+ * @returns {string|null}
+ */
+function _getEffectiveTs(record) {
+  return (record?.date_updated ?? record?.date_created) ?? null;
+}
+
+/**
  * Processes an incoming realtime message from Directus Subscriptions.
  * Maps records to local format, upserts into IDB, and merges into the store.
  *
@@ -120,6 +135,25 @@ export async function _handleSubscriptionMessage(collection, message) {
         console.warn('[DirectusSync] WS order_items delete cleanup failed:', e);
         await _refreshStoreFromIDB('orders');
       }
+      // Shared telemetry/activity-log: also update lastPullAt and emit an activity
+      // log entry for this delete path so WS order_items deletes appear in the
+      // Activity Monitor and are reflected in telemetry (mirrors the non-early-return
+      // path used by all other collections).
+      syncState.lastPullAt.value = new Date().toISOString();
+      const deleteEchoNote = suppressedCount > 0 ? ` (${suppressedCount} self-echo(es) suppressed)` : '';
+      console.info(`[DirectusSync] WS ${event} on ${collection}: ${writtenCount} record(s) written${deleteEchoNote}`);
+      addSyncLog({
+        direction: 'IN',
+        type: 'WS',
+        endpoint: `/subscriptions/${collection}`,
+        payload: { event, count: data.length, suppressedCount },
+        response: { writtenCount },
+        status: 'success',
+        statusCode: null,
+        durationMs: null,
+        collection,
+        recordCount: writtenCount,
+      });
       return;
     }
     await deleteRecordsFromIDB(collection, nonEchoIds);
@@ -158,12 +192,18 @@ export async function _handleSubscriptionMessage(collection, message) {
       // LWW guard: allow through when incoming is strictly newer than stored.
       // Directus timestamps are ISO 8601 UTC strings (e.g. "2024-06-01T12:00:00.000Z")
       // which are lexicographically comparable — no Date parsing overhead needed.
-      const incomingTs = r.date_updated ?? null;
+      // Use _getEffectiveTs (date_updated ?? date_created) for both sides so that
+      // records with date_updated=null (never patched locally) are not incorrectly
+      // suppressed when a cross-device PATCH sets date_updated for the first time.
+      // Example: local has date_updated=null, date_created="2024-01-01", incoming PATCH
+      // has date_updated="2024-06-01" — we want to allow through because the incoming
+      // timestamp is strictly after the effective local timestamp.
+      const incomingTs = _getEffectiveTs(r);
       let isCrossDeviceUpdate = false;
       if (incomingTs && id && db) {
         try {
           const local = await db.get(collection, id);
-          const localTs = local?.date_updated ?? null;
+          const localTs = _getEffectiveTs(local);
           if (localTs && incomingTs > localTs) {
             isCrossDeviceUpdate = true;
           }
