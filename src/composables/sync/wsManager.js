@@ -92,7 +92,7 @@ export async function _handleSubscriptionMessage(collection, message) {
   const { event, data } = message;
   if (!data || !Array.isArray(data) || data.length === 0) return;
 
-  let writtenCount = data.length;
+  let processedCount = data.length;
   let suppressedCount = 0;
 
   if (event === 'delete') {
@@ -100,7 +100,7 @@ export async function _handleSubscriptionMessage(collection, message) {
     const ids = _extractRecordIds(data);
     const nonEchoIds = ids.filter(id => !_isEchoSuppressed(collection, id != null ? String(id) : null));
     suppressedCount = ids.length - nonEchoIds.length;
-    writtenCount = nonEchoIds.length;
+    processedCount = nonEchoIds.length;
     if (suppressedCount > 0) {
       console.debug(
         `[DirectusSync] WS ${event} on ${collection}: suppressed ${suppressedCount} self-echo(es)`,
@@ -141,18 +141,18 @@ export async function _handleSubscriptionMessage(collection, message) {
       // path used by all other collections).
       syncState.lastPullAt.value = new Date().toISOString();
       const deleteEchoNote = suppressedCount > 0 ? ` (${suppressedCount} self-echo(es) suppressed)` : '';
-      console.info(`[DirectusSync] WS ${event} on ${collection}: ${writtenCount} record(s) written${deleteEchoNote}`);
+      console.info(`[DirectusSync] WS ${event} on ${collection}: ${processedCount} record(s) deleted${deleteEchoNote}`);
       addSyncLog({
         direction: 'IN',
         type: 'WS',
         endpoint: `/subscriptions/${collection}`,
         payload: { event, count: data.length, suppressedCount },
-        response: { writtenCount },
+        response: { deletedCount: processedCount },
         status: 'success',
         statusCode: null,
         durationMs: null,
         collection,
-        recordCount: writtenCount,
+        recordCount: processedCount,
       });
       return;
     }
@@ -217,7 +217,7 @@ export async function _handleSubscriptionMessage(collection, message) {
         suppressedCount++;
       }
     }
-    writtenCount = nonEcho.length;
+    processedCount = nonEcho.length;
     if (suppressedCount > 0) {
       console.debug(
         `[DirectusSync] WS ${event} on ${collection}: suppressed ${suppressedCount} self-echo(es)`,
@@ -316,19 +316,20 @@ export async function _handleSubscriptionMessage(collection, message) {
 
   syncState.lastPullAt.value = new Date().toISOString();
   const echoNote = suppressedCount > 0 ? ` (${suppressedCount} self-echo(es) suppressed)` : '';
-  console.info(`[DirectusSync] WS ${event} on ${collection}: ${writtenCount} record(s) written${echoNote}`);
+  const actionWord = event === 'delete' ? 'deleted' : 'written';
+  console.info(`[DirectusSync] WS ${event} on ${collection}: ${processedCount} record(s) ${actionWord}${echoNote}`);
 
   addSyncLog({
     direction: 'IN',
     type: 'WS',
     endpoint: `/subscriptions/${collection}`,
     payload: { event, count: data.length, suppressedCount },
-    response: { writtenCount },
+    response: event === 'delete' ? { deletedCount: processedCount } : { writtenCount: processedCount },
     status: 'success',
     statusCode: null,
     durationMs: null,
     collection,
-    recordCount: writtenCount,
+    recordCount: processedCount,
   });
 }
 
