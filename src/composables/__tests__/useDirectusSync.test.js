@@ -33,6 +33,8 @@ import {
   loadStateFromIDB,
   loadLastPullTsFromIDB,
   saveLastPullTsToIDB,
+  loadLastPullCursorFromIDB,
+  saveLastPullCursorToIDB,
   replaceTableMergesInIDB,
   loadConfigFromIDB,
 } from '../../store/idbPersistence.js';
@@ -3985,6 +3987,152 @@ describe('NS7 — keyset cursor pagination', () => {
     // Keyset mode: page param must be 1 to avoid double-skipping
     expect(page2Url).toContain('page=1');
     expect(page2Url).not.toMatch(/page=2(?:[^0-9]|$)/);
+  });
+});
+
+// ── NS7-CP — cross-poll keyset cursor (eliminates boundary re-downloads) ──────
+
+describe('NS7-CP — cross-poll keyset cursor', () => {
+  it('persists a {ts, id} cursor to IDB after the first successful pull', async () => {
+    const sinceTs = '2024-06-01T00:00:00.000Z';
+    await saveLastPullTsToIDB('orders', sinceTs);
+
+    const record = makeRemoteOrder({ id: 'ord_cp_001', date_updated: '2024-06-02T10:00:00.000Z' });
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      if (String(url).includes('/items/orders')) return Promise.resolve(directusListResponse([record]));
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const sync = useDirectusSync();
+    await sync.forcePull();
+
+    const cursor = await loadLastPullCursorFromIDB('orders');
+    expect(cursor).not.toBeNull();
+    expect(cursor.id).toBe('ord_cp_001');
+    expect(cursor.ts).toBe('2024-06-02T10:00:00.000Z');
+  });
+
+  it('uses the stored cursor on the next poll so boundary records are not re-fetched', async () => {
+    const sinceTs = '2024-06-01T00:00:00.000Z';
+    // Simulate a previous poll that ended with cursor {ts: sinceTs, id: 'ord_cp_last'}
+    await saveLastPullTsToIDB('orders', sinceTs);
+    await saveLastPullCursorToIDB('orders', { ts: sinceTs, id: 'ord_cp_last' });
+
+    const fetchedUrls = [];
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      const s = String(url);
+      if (s.includes('/items/orders')) {
+        fetchedUrls.push(s);
+        return Promise.resolve(directusListResponse([]));
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const sync = useDirectusSync();
+    await sync.forcePull();
+
+    const orderCalls = fetchedUrls.filter(u => u.includes('/items/orders'));
+    expect(orderCalls.length).toBeGreaterThan(0);
+
+    // The very first request must use the keyset filter (id._gt) — not a plain _gte
+    const firstCall = orderCalls[0];
+    expect(hasIdGtFilter(firstCall)).toBe(true);
+    // And must reference the stored cursor id
+    expect(decodeURIComponent(firstCall)).toContain('ord_cp_last');
+  });
+
+  it('does not use a stored cursor when forceFull is used (table_merge_sessions full pull)', async () => {
+    // Plant a cursor for orders — should be ignored on a full pull
+    const sinceTs = '2024-06-01T00:00:00.000Z';
+    await saveLastPullTsToIDB('orders', sinceTs);
+    await saveLastPullCursorToIDB('orders', { ts: sinceTs, id: 'ord_should_be_ignored' });
+
+    const fetchedUrls = [];
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      const s = String(url);
+      if (s.includes('/items/orders')) {
+        fetchedUrls.push(s);
+        return Promise.resolve(directusListResponse([]));
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    // Trigger forcePull which uses _runPull (incremental, not forceFull)
+    // The stored cursor SHOULD be used here since sinceTs is present
+    const sync = useDirectusSync();
+    await sync.forcePull();
+
+    // Verify the cursor was loaded and used (id._gt filter present)
+    const orderCalls = fetchedUrls.filter(u => u.includes('/items/orders'));
+    expect(orderCalls.length).toBeGreaterThan(0);
+    expect(hasIdGtFilter(orderCalls[0])).toBe(true);
+  });
+
+  it('does NOT use a stored cursor when storedSinceTs is null (first-run full pull)', async () => {
+    // No sinceTs in IDB → full pull → cursor must NOT be used
+    await saveLastPullCursorToIDB('orders', { ts: '2020-01-01T00:00:00.000Z', id: 'stale_id' });
+    // Deliberately omit saveLastPullTsToIDB so storedSinceTs stays null
+
+    const fetchedUrls = [];
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      const s = String(url);
+      if (s.includes('/items/orders')) {
+        fetchedUrls.push(s);
+        return Promise.resolve(directusListResponse([]));
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const sync = useDirectusSync();
+    await sync.forcePull();
+
+    const orderCalls = fetchedUrls.filter(u => u.includes('/items/orders'));
+    expect(orderCalls.length).toBeGreaterThan(0);
+    // First request must NOT include an id._gt filter (no cursor should be active)
+    expect(hasIdGtFilter(orderCalls[0])).toBe(false);
+    // And must not reference the stale cursor id
+    expect(decodeURIComponent(orderCalls[0])).not.toContain('stale_id');
+  });
+
+  it('updates the stored cursor when new records arrive in the next poll', async () => {
+    const sinceTs = '2024-06-01T00:00:00.000Z';
+    const prevCursor = { ts: sinceTs, id: 'ord_cp_old' };
+    await saveLastPullTsToIDB('orders', sinceTs);
+    await saveLastPullCursorToIDB('orders', prevCursor);
+
+    const newRecord = makeRemoteOrder({ id: 'ord_cp_new', date_updated: '2024-06-03T08:00:00.000Z' });
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      if (String(url).includes('/items/orders')) return Promise.resolve(directusListResponse([newRecord]));
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const sync = useDirectusSync();
+    await sync.forcePull();
+
+    const cursor = await loadLastPullCursorFromIDB('orders');
+    expect(cursor).not.toBeNull();
+    expect(cursor.id).toBe('ord_cp_new');
+    expect(cursor.ts).toBe('2024-06-03T08:00:00.000Z');
+    // Timestamp cursor must also have advanced
+    const ts = await loadLastPullTsFromIDB('orders');
+    expect(ts).toBe('2024-06-03T08:00:00.000Z');
+  });
+
+  it('clears last_pull_cursor keys when clearLocalConfigCacheFromIDB is called', async () => {
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+
+    // Plant a cursor key alongside a pull-ts key
+    await saveLastPullTsToIDB('orders', '2024-06-01T00:00:00.000Z');
+    await saveLastPullCursorToIDB('orders', { ts: '2024-06-01T00:00:00.000Z', id: 'ord_to_clear' });
+
+    const { clearLocalConfigCacheFromIDB } = await import('../../store/idbPersistence.js');
+    await clearLocalConfigCacheFromIDB();
+
+    const tsRecord = await db.get('app_meta', 'last_pull_ts:orders');
+    const cursorRecord = await db.get('app_meta', 'last_pull_cursor:orders');
+    expect(tsRecord).toBeUndefined();
+    expect(cursorRecord).toBeUndefined();
   });
 });
 

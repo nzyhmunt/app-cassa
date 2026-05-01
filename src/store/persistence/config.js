@@ -137,7 +137,7 @@ export async function clearLocalConfigCacheFromIDB() {
     const keys = await tx.store.getAllKeys();
     await Promise.all(
       keys
-        .filter(key => typeof key === 'string' && key.startsWith('last_pull_ts:'))
+        .filter(key => typeof key === 'string' && (key.startsWith('last_pull_ts:') || key.startsWith('last_pull_cursor:')))
         .map(key => tx.store.delete(key)),
     );
     await tx.done;
@@ -177,6 +177,52 @@ export async function saveLastPullTsToIDB(collection, ts) {
     await db.put('app_meta', { id: `last_pull_ts:${collection}`, value: ts });
   } catch (e) {
     console.warn('[IDBPersistence] Failed to save last_pull_ts for', collection, e);
+  }
+}
+
+/**
+ * Returns the keyset cursor `{ts, id}` for `collection` stored in app_meta.
+ *
+ * Used by the pull loop to initialise the keyset filter on the first page of
+ * each incremental poll cycle.  By starting from the exact `{ts, id}` position
+ * where the previous cycle ended, the server-side filter already excludes all
+ * records that were seen last time — eliminating the otherwise-redundant
+ * re-download of boundary records caused by the `_gte sinceTs` strategy.
+ *
+ * Returns `null` when no cursor has been persisted yet (e.g. after a fresh
+ * install or a full reset).
+ *
+ * @param {string} collection
+ * @returns {Promise<{ts: string, id: string|number}|null>}
+ */
+export async function loadLastPullCursorFromIDB(collection) {
+  try {
+    const db = await getDB();
+    const record = await db.get('app_meta', `last_pull_cursor:${collection}`);
+    return record?.value ?? null;
+  } catch (e) {
+    console.warn('[IDBPersistence] Failed to load last_pull_cursor for', collection, e);
+    return null;
+  }
+}
+
+/**
+ * Persists the keyset cursor `{ts, id}` for `collection`.
+ *
+ * Called after each successfully processed page in the pull loop so the cursor
+ * is always checkpointed at the last known-good position.  The next incremental
+ * poll initialises its `pageKeyCursor` from this value to avoid re-fetching
+ * already-seen boundary records.
+ *
+ * @param {string} collection
+ * @param {{ ts: string, id: string|number }} cursor
+ */
+export async function saveLastPullCursorToIDB(collection, cursor) {
+  try {
+    const db = await getDB();
+    await db.put('app_meta', { id: `last_pull_cursor:${collection}`, value: cursor });
+  } catch (e) {
+    console.warn('[IDBPersistence] Failed to save last_pull_cursor for', collection, e);
   }
 }
 

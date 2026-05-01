@@ -14,6 +14,8 @@ import { upsertRecordsIntoIDB } from '../../store/persistence/operations.js';
 import {
   loadLastPullTsFromIDB,
   saveLastPullTsToIDB,
+  loadLastPullCursorFromIDB,
+  saveLastPullCursorToIDB,
   replaceTableMergesInIDB,
 } from '../../store/persistence/config.js';
 import { addSyncLog } from '../../store/persistence/syncLogs.js';
@@ -274,6 +276,17 @@ export async function _pullCollection(collection, { forceFull = false, lastPullT
       storedSinceTs = clampedTs;
     }
   }
+
+  // Cross-poll keyset cursor: load the {ts, id} position where the last poll cycle
+  // ended.  When valid, the first page of this poll uses the same keyset filter as
+  // page 2+ already does — meaning already-seen boundary records (those with
+  // date_updated === storedSinceTs) are excluded without a separate network round-trip.
+  // Only load the cursor when we have a valid storedSinceTs (genuine incremental pull).
+  // forceFull, a first-run pull (storedSinceTs = null), or a clock-skew clamp all bypass it.
+  const storedCursor = (!forceFull && storedSinceTs)
+    ? await loadLastPullCursorFromIDB(collection)
+    : null;
+
   let page = 1;
   let latestTs = storedSinceTs;
   // S2: track the last timestamp actually persisted so we only call
@@ -291,10 +304,11 @@ export async function _pullCollection(collection, { forceFull = false, lastPullT
   // pages so the store refresh can be targeted rather than replacing the whole
   // orders reactive array.
   const allAffectedOrderIds = new Set();
-  // NS7: keyset cursor — tracks {id, ts} of the last record on the previous page
-  // to avoid re-fetching duplicate boundary records when many records share the
-  // same date_updated value.
-  let pageKeyCursor = null;
+  // NS7 / cross-poll keyset cursor: initialise from the persisted cursor so the
+  // first page of each poll already uses the keyset filter (avoiding redundant
+  // re-downloads of boundary records already seen in the previous cycle).
+  // Falls back to null for full pulls and first-run polls (storedCursor = null).
+  let pageKeyCursor = storedCursor ?? null;
 
   while (true) { // eslint-disable-line no-constant-condition
     // Exit between pages when forcePull/stopSync aborts the pull session.
@@ -342,6 +356,11 @@ export async function _pullCollection(collection, { forceFull = false, lastPullT
       if (maxTs && (!latestTs || maxTs > latestTs)) latestTs = maxTs;
       // NS7: Advance the keyset cursor to the last record on this page.
       pageKeyCursor = lastCursor ?? null;
+      // Persist the cross-poll keyset cursor so the next poll cycle can start
+      // from where this page ended (avoiding re-downloads of boundary records).
+      if (pageKeyCursor) {
+        await saveLastPullCursorToIDB(collection, pageKeyCursor);
+      }
       // S2: Per-page cursor checkpoint — persist the cursor immediately after each
       // successfully processed page.  A failure on page N+1 therefore cannot roll
       // the cursor back to before page N, so the next polling cycle restarts from
