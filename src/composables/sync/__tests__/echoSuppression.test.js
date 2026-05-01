@@ -6,7 +6,7 @@
  *  - _registerPushedEchoes registers IDs with correct TTL
  *  - _isEchoSuppressed returns true within TTL window
  *  - _isEchoSuppressed returns false after TTL expires
- *  - _isEchoSuppressed auto-deletes consumed echoes (single-use)
+ *  - _isEchoSuppressed remains true for repeated checks within TTL (not single-use)
  *  - _registerPushedEchoes prunes expired entries on each call
  *  - Mixed record IDs: only matching ID is suppressed
  */
