@@ -202,10 +202,12 @@ function _mapRecord(collection, r) {
   return { ...r, _sync_status: 'synced' };
 }
 
-async function _refreshStoreFromIDB(collection = null) {
+async function _refreshStoreFromIDB(collection = null, ids = null) {
   if (!_store) return;
   if (typeof _store.refreshOperationalStateFromIDB === 'function') {
-    await _store.refreshOperationalStateFromIDB(collection ? { collection } : {});
+    const opts = collection ? { collection } : {};
+    if (ids instanceof Set && ids.size > 0) opts.ids = ids;
+    await _store.refreshOperationalStateFromIDB(opts);
     // NS6: Notify follower tabs that IDB data has changed for this collection.
     if (_isLeader) _idbChangeBroadcast?.postMessage({ type: 'idb-change', collection });
     return;
@@ -379,7 +381,10 @@ async function _fetchUpdatedViaSDK(collection, sinceTs, page = 1, cursor = null)
         _or: [
           { date_updated: { _gt: cursor.ts } },
           { _and: [{ date_updated: { _eq: cursor.ts } }, { id: { _gt: cursor.id } }] },
-          { _and: [{ date_updated: { _null: true } }, { date_created: { _gte: sinceTs } }] },
+          // NS7/P17 fix: add id._gt to the null-date condition so that when there
+          // are more null-date records than TABLE_FETCH_BATCH_SIZE the cursor
+          // advances by ID and the pager does not infinite-loop on page 1.
+          { _and: [{ date_updated: { _null: true } }, { date_created: { _gte: sinceTs } }, { id: { _gt: cursor.id } }] },
         ],
       });
     } else {
@@ -590,7 +595,7 @@ async function _mergeOrderItemsIntoOrdersIDB(pulledItems, rawItems = null) {
  */
 async function _atomicOrderItemsUpsertAndMerge(mappedItems, rawItems = []) {
   if (!mappedItems || mappedItems.length === 0) {
-    return { orderItemsWritten: 0, ordersWritten: 0 };
+    return { orderItemsWritten: 0, ordersWritten: 0, affectedOrderIds: new Set() };
   }
 
   const db = await getDB();
@@ -665,6 +670,7 @@ async function _atomicOrderItemsUpsertAndMerge(mappedItems, rawItems = []) {
   }
 
   let ordersWritten = 0;
+  const affectedOrderIds = new Set();
   for (const [orderId, items] of itemsByOrderId) {
     const order = await ordersStore.get(orderId);
     if (!order) continue;
@@ -694,11 +700,12 @@ async function _atomicOrderItemsUpsertAndMerge(mappedItems, rawItems = []) {
     const mergedItems = Array.from(byId.values()).filter(i => i.id ?? i.uid);
     if (deepEqual(mergedItems, existingItems)) continue;
     ordersWritten++;
+    affectedOrderIds.add(orderId);
     await ordersStore.put({ ...order, orderItems: mergedItems });
   }
 
   await tx.done;
-  return { orderItemsWritten: toWrite.length, ordersWritten };
+  return { orderItemsWritten: toWrite.length, ordersWritten, affectedOrderIds };
 }
 
 /**
@@ -771,6 +778,15 @@ async function _removeOrderItemsFromOrdersIDB(deletedIds) {
         }
         cursor = await cursor.continue();
       }
+    }
+
+    // Issue 1 fix: delete from order_items store within the same transaction so
+    // the orders.orderItems update and the items deletion are fully atomic.
+    // The delete is placed after the order lookups (which used orderItemsStore.get)
+    // so that parent-order resolution always reads live data before the items
+    // are removed.  delete() on a non-existent key is a safe no-op in IDB.
+    for (const id of deletedSet) {
+      await orderItemsStore.delete(id);
     }
     await tx.done;
   } catch (e) {
@@ -845,6 +861,10 @@ async function _pullCollection(collection, { forceFull = false, lastPullTimestam
   // know whether to trigger a store refresh after the loop without accumulating
   // all pages in memory.
   let totalOrdersWrittenFromItems = 0;
+  // Issue 4 fix: accumulate the IDs of orders actually modified by order_items
+  // pages so the store refresh can be targeted rather than replacing the whole
+  // orders reactive array.
+  const allAffectedOrderIds = new Set();
   // NS7: keyset cursor — tracks {id, ts} of the last record on the previous page
   // to avoid re-fetching duplicate boundary records when many records share the
   // same date_updated value.
@@ -871,6 +891,7 @@ async function _pullCollection(collection, { forceFull = false, lastPullTimestam
         const result = await _atomicOrderItemsUpsertAndMerge(mapped, data);
         written = result.orderItemsWritten;
         totalOrdersWrittenFromItems += result.ordersWritten;
+        for (const id of result.affectedOrderIds) allAffectedOrderIds.add(id);
       } catch (e) {
         console.warn(`[DirectusSync] order_items atomic upsert+merge failed on page ${page}; cursor will not advance:`, e);
         hadFetchError = true;
@@ -913,7 +934,9 @@ async function _pullCollection(collection, { forceFull = false, lastPullTimestam
       // into orders.orderItems.  Only refresh the in-memory store when at least
       // one order record was actually rewritten (avoids needless store churn on
       // unchanged boundary records re-fetched by the _gte incremental strategy).
-      if (totalOrdersWrittenFromItems > 0) await _refreshStoreFromIDB('orders');
+      // Issue 4 fix: pass affectedOrderIds so the store can do a targeted refresh
+      // of only those orders instead of replacing the whole reactive array.
+      if (totalOrdersWrittenFromItems > 0) await _refreshStoreFromIDB('orders', allAffectedOrderIds);
     } else {
       await _refreshStoreFromIDB(collection);
     }
@@ -973,14 +996,11 @@ async function _handleSubscriptionMessage(collection, message) {
       return;
     }
     if (collection === 'order_items') {
-      // Deletes from the items ObjectStore must also remove the item from the
-      // embedded orderItems array of the parent order so that the orders store
-      // stays consistent on cucina devices with wsEnabled.
-      // IMPORTANT: _removeOrderItemsFromOrdersIDB must run BEFORE deleteRecordsFromIDB
-      // because it looks up the parent order ID via the order_items ObjectStore;
-      // if we delete first, the lookup finds nothing and the embedded array is not cleaned up.
+      // Issue 1 fix: _removeOrderItemsFromOrdersIDB now performs both the
+      // orders.orderItems array clean-up AND the deletion from the order_items
+      // ObjectStore in a single IDB transaction, eliminating the previous
+      // two-step non-atomic sequence.
       await _removeOrderItemsFromOrdersIDB(nonEchoIds);
-      await deleteRecordsFromIDB(collection, nonEchoIds);
       await _refreshStoreFromIDB('orders');
       return;
     }
@@ -997,11 +1017,39 @@ async function _handleSubscriptionMessage(collection, message) {
       return false;
     });
     // Filter out records that this device just pushed (self-echo suppression).
-    const nonEcho = objectData.filter(r => {
+    // Issue 3 fix: for TTL-suppressed records, apply a Last-Write-Wins guard —
+    // if the incoming payload has a strictly newer date_updated than the local
+    // IDB record, another device modified the same record inside our echo window
+    // and the update must not be silently dropped (data loss prevention).
+    const nonEcho = [];
+    suppressedCount = 0;
+    for (const r of objectData) {
       const id = r.id != null ? String(r.id) : null;
-      return !_isEchoSuppressed(collection, id);
-    });
-    suppressedCount = objectData.length - nonEcho.length;
+      if (!_isEchoSuppressed(collection, id)) {
+        nonEcho.push(r);
+        continue;
+      }
+      // LWW guard: allow through when incoming is strictly newer than stored.
+      const incomingTs = r.date_updated ?? null;
+      let isCrossDeviceUpdate = false;
+      if (incomingTs && id) {
+        try {
+          const db = await getDB();
+          const local = await db.get(collection, id);
+          const localTs = local?.date_updated ?? null;
+          if (localTs && new Date(incomingTs) > new Date(localTs)) {
+            isCrossDeviceUpdate = true;
+          }
+        } catch (e) {
+          console.warn('[DirectusSync] LWW echo check failed for', collection, id, e);
+        }
+      }
+      if (isCrossDeviceUpdate) {
+        nonEcho.push(r);
+      } else {
+        suppressedCount++;
+      }
+    }
     writtenCount = nonEcho.length;
     if (suppressedCount > 0) {
       console.debug(
@@ -1077,12 +1125,16 @@ async function _handleSubscriptionMessage(collection, message) {
       // _atomicOrderItemsUpsertAndMerge can use mergeOrderItemFromWSPayload for
       // selective-merge semantics (i.e. only overwrite fields present in the WS
       // payload, not all mapper-supplied defaults).
+      // Issue 4 fix: capture affectedOrderIds from the atomic result and pass them
+      // to _refreshStoreFromIDB for a targeted reactive update instead of
+      // replacing the entire orders array.
       try {
-        await _atomicOrderItemsUpsertAndMerge(prepared, nonEcho);
+        const result = await _atomicOrderItemsUpsertAndMerge(prepared, nonEcho);
+        await _refreshStoreFromIDB('orders', result.affectedOrderIds);
       } catch (e) {
         console.warn('[DirectusSync] WS order_items atomic upsert+merge failed:', e);
+        await _refreshStoreFromIDB('orders');
       }
-      await _refreshStoreFromIDB('orders');
     } else {
       await _refreshStoreFromIDB(collection);
     }

@@ -3532,7 +3532,7 @@ describe('S7 — _atomicOrderItemsUpsertAndMerge', () => {
 
   it('returns { 0, 0 } and writes nothing for an empty items array', async () => {
     const result = await _atomicOrderItemsUpsertAndMerge([]);
-    expect(result).toEqual({ orderItemsWritten: 0, ordersWritten: 0 });
+    expect(result).toEqual({ orderItemsWritten: 0, ordersWritten: 0, affectedOrderIds: new Set() });
   });
 
   it('respects LWW: does not overwrite a newer existing order_item in the order_items store', async () => {
@@ -4066,3 +4066,220 @@ describe('NS8 — AbortController for _runPull', () => {
     expect(sync.syncStatus.value).toBe('idle');
   });
 });
+
+// ── Issue 1 — Atomic WS delete for order_items ───────────────────────────────
+
+describe('Issue 1 — WS delete for order_items is atomic (single IDB transaction)', () => {
+  it('removes item from BOTH order_items store AND orders.orderItems in one operation', async () => {
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+
+    // Seed parent order with 2 embedded items
+    await db.put('orders', {
+      id: 'ord_atomic_del',
+      status: 'accepted',
+      table: '10',
+      orderItems: [
+        { id: 'oi_atomic_1', name: 'Risotto', quantity: 1, unit_price: 12 },
+        { id: 'oi_atomic_2', name: 'Vino',    quantity: 1, unit_price: 7  },
+      ],
+      date_updated: '2024-01-01T00:00:00.000Z',
+    });
+    // Seed the order_items ObjectStore (needed for the fast-path lookup)
+    await upsertRecordsIntoIDB('order_items', [
+      { id: 'oi_atomic_1', order: 'ord_atomic_del', orderId: 'ord_atomic_del', name: 'Risotto', quantity: 1, unit_price: 12 },
+    ]);
+
+    await _handleSubscriptionMessage('order_items', {
+      event: 'delete',
+      data: ['oi_atomic_1'],
+    });
+
+    // The order_items ObjectStore must no longer contain the deleted item
+    const deleted = await db.get('order_items', 'oi_atomic_1');
+    expect(deleted).toBeUndefined();
+
+    // The parent order's embedded array must also have the item removed
+    const order = await db.get('orders', 'ord_atomic_del');
+    expect(order.orderItems).toHaveLength(1);
+    expect(order.orderItems[0].id).toBe('oi_atomic_2');
+  });
+});
+
+// ── Issue 2 — Keyset null-date condition includes id._gt ──────────────────────
+
+describe('Issue 2 — Keyset null-date branch includes id._gt to prevent infinite loop', () => {
+  it('page-2 null-date keyset filter carries id._gt based on cursor', async () => {
+    // All order_items have no date_updated (date_updated=null) but a date_created.
+    // Without the id._gt fix, the null-date branch would keep fetching the same
+    // page-1 records forever.  With the fix the second request must include id._gt.
+    const sinceTs = '2024-06-01T00:00:00.000Z';
+    await saveLastPullTsToIDB('order_items', sinceTs);
+
+    const page1Items = Array.from({ length: 200 }, (_, i) => ({
+      id: `oi_nullts_${String(i).padStart(3, '0')}`,
+      order: 'ord_null_parent',
+      date_updated: null,
+      date_created: '2024-06-02T00:00:00.000Z',
+    }));
+
+    // Make sure parent order exists so atomic merge doesn't fail
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+    await db.put('orders', {
+      id: 'ord_null_parent',
+      status: 'accepted',
+      table: '20',
+      orderItems: [],
+      date_updated: '2024-01-01T00:00:00.000Z',
+    });
+
+    const fetchedItemUrls = [];
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      const s = String(url);
+      if (s.includes('/items/order_items')) {
+        fetchedItemUrls.push(s);
+        // Page 1: return 200 null-date items; any subsequent page returns empty
+        if (fetchedItemUrls.length === 1) return Promise.resolve(directusListResponse(page1Items));
+        return Promise.resolve(directusListResponse([]));
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const sync = useDirectusSync();
+    await sync.forcePull();
+
+    // Must have fetched at least a second page
+    expect(fetchedItemUrls.length).toBeGreaterThanOrEqual(2);
+
+    // The second request must include an id._gt filter to avoid re-fetching page 1
+    const page2Url = decodeURIComponent(fetchedItemUrls[1]);
+    expect(page2Url).toMatch(/id.*_gt/);
+    // The cursor must reference the last item from page 1
+    expect(page2Url).toContain('oi_nullts_199');
+  });
+});
+
+// ── Issue 3 — LWW echo suppression: cross-device update bypasses TTL ──────────
+
+describe('Issue 3 — LWW echo suppression allows cross-device updates through', () => {
+  it('allows a WS update through when incoming date_updated is newer than local record', async () => {
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+
+    // Seed a record in IDB as if this device had just pushed it at T=100
+    await upsertRecordsIntoIDB('orders', [{
+      id: 'ord_lww_1',
+      status: 'accepted',
+      date_updated: '2024-06-01T00:00:00.100Z',
+    }]);
+
+    // Register it as a self-echo (TTL still active)
+    _registerPushedEchoes([{ collection: 'orders', recordId: 'ord_lww_1' }]);
+
+    // Another device (PDA) modifies the same record at T=200 — strictly newer
+    await _handleSubscriptionMessage('orders', {
+      event: 'update',
+      data: [{
+        id: 'ord_lww_1',
+        status: 'closed',
+        date_updated: '2024-06-01T00:00:00.200Z',
+      }],
+    });
+
+    // The update must have been written (not suppressed) because T=200 > T=100
+    const stored = await db.get('orders', 'ord_lww_1');
+    expect(stored?.status).toBe('closed');
+  });
+
+  it('still suppresses a WS echo when incoming date_updated equals the local record', async () => {
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+
+    const ts = '2024-06-01T00:00:00.000Z';
+    await upsertRecordsIntoIDB('orders', [{
+      id: 'ord_lww_same',
+      status: 'accepted',
+      date_updated: ts,
+    }]);
+
+    // Register as self-echo
+    _registerPushedEchoes([{ collection: 'orders', recordId: 'ord_lww_same' }]);
+
+    // Same timestamp → still our echo, must be suppressed
+    await _handleSubscriptionMessage('orders', {
+      event: 'update',
+      data: [{ id: 'ord_lww_same', status: 'closed', date_updated: ts }],
+    });
+
+    const stored = await db.get('orders', 'ord_lww_same');
+    expect(stored?.status).toBe('accepted'); // unchanged
+  });
+});
+
+// ── Issue 4 — _atomicOrderItemsUpsertAndMerge returns affectedOrderIds ─────────
+
+describe('Issue 4 — _atomicOrderItemsUpsertAndMerge returns affectedOrderIds', () => {
+  it('returns the set of order IDs whose embedded orderItems were modified', async () => {
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+
+    await db.put('orders', {
+      id: 'ord_affected_1',
+      status: 'accepted',
+      table: '30',
+      orderItems: [],
+      date_updated: '2024-01-01T00:00:00.000Z',
+    });
+    await db.put('orders', {
+      id: 'ord_affected_2',
+      status: 'accepted',
+      table: '31',
+      orderItems: [],
+      date_updated: '2024-01-01T00:00:00.000Z',
+    });
+
+    const items = [
+      { id: 'oi_aff_1', order: 'ord_affected_1', orderId: 'ord_affected_1', name: 'Pasta', quantity: 1, unit_price: 8, date_updated: '2024-06-01T00:00:00.000Z' },
+      { id: 'oi_aff_2', order: 'ord_affected_2', orderId: 'ord_affected_2', name: 'Pizza', quantity: 1, unit_price: 9, date_updated: '2024-06-01T00:00:00.000Z' },
+    ];
+
+    const result = await _atomicOrderItemsUpsertAndMerge(items, []);
+
+    expect(result.affectedOrderIds).toBeInstanceOf(Set);
+    expect(result.affectedOrderIds.size).toBe(2);
+    expect(result.affectedOrderIds.has('ord_affected_1')).toBe(true);
+    expect(result.affectedOrderIds.has('ord_affected_2')).toBe(true);
+  });
+
+  it('does not include an order in affectedOrderIds when its embedded items are unchanged', async () => {
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+
+    const existingItem = {
+      id: 'oi_unchanged',
+      order: 'ord_unchanged',
+      orderId: 'ord_unchanged',
+      name: 'Acqua',
+      quantity: 1,
+      unit_price: 2,
+      date_updated: '2024-06-01T00:00:00.000Z',
+    };
+
+    await db.put('orders', {
+      id: 'ord_unchanged',
+      status: 'accepted',
+      table: '32',
+      orderItems: [existingItem],
+      date_updated: '2024-01-01T00:00:00.000Z',
+    });
+    await upsertRecordsIntoIDB('order_items', [existingItem]);
+
+    // Incoming item is identical → LWW should skip; ordersWritten stays 0
+    const result = await _atomicOrderItemsUpsertAndMerge([existingItem], []);
+
+    expect(result.affectedOrderIds.has('ord_unchanged')).toBe(false);
+    expect(result.ordersWritten).toBe(0);
+  });
+});
+

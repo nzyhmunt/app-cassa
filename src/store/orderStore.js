@@ -32,6 +32,7 @@ import {
   pruneFiscalReceiptsInIDB,
   pruneInvoiceRequestsInIDB,
 } from './persistence/audit.js';
+import { getDB } from '../composables/useIDB.js';
 import { enqueue } from '../composables/useSyncQueue.js';
 import { onIDBChange } from './persistence/eventBus.js';
 import { useConfigStore } from './configStore.js';
@@ -260,7 +261,63 @@ export const useOrderStore = defineStore('orders', () => {
       tableOccupiedAt,
       billRequestedTables,
     };
-    const { collection, collections } = options;
+    const { collection, collections, ids } = options;
+
+    // Issue 4 fix: targeted order refresh — when a Set of specific order IDs is
+    // provided for the 'orders' collection, fetch and map only those records from
+    // IDB and splice them into the reactive array.  This avoids replacing the
+    // entire orders.value array (and triggering a full re-render) when only a
+    // handful of orders had their orderItems updated via a WS or REST pull.
+    if (collection === 'orders' && ids instanceof Set && ids.size > 0) {
+      try {
+        const db = await getDB();
+        const freshOrders = await Promise.all(
+          [...ids].map(id => db.get('orders', String(id))),
+        );
+        const validOrders = freshOrders.filter(Boolean);
+        if (validOrders.length > 0) {
+          const mappedById = new Map();
+          for (const raw of validOrders) {
+            const mappedOrder = mapOrderFromDirectus(raw);
+            if (!Array.isArray(mappedOrder.orderItems)) mappedOrder.orderItems = [];
+            if (mappedOrder.orderItems.length > 0 || mappedOrder.item_count === 0) {
+              updateOrderTotals(mappedOrder);
+              mappedOrder.total_amount = mappedOrder.totalAmount;
+              mappedOrder.item_count = mappedOrder.itemCount;
+            } else {
+              mappedOrder.totalAmount = mappedOrder.total_amount ?? mappedOrder.totalAmount;
+              mappedOrder.total_amount = mappedOrder.totalAmount;
+              mappedOrder.itemCount = mappedOrder.item_count ?? mappedOrder.itemCount;
+              mappedOrder.item_count = mappedOrder.itemCount;
+            }
+            mappedById.set(String(raw.id), mappedOrder);
+          }
+          orders.value = orders.value.map(o => mappedById.get(String(o.id)) ?? o);
+        }
+      } catch (e) {
+        console.warn('[orderStore] Targeted order refresh failed, falling back to full refresh:', e);
+        // Fall through to full refresh below on error.
+        const idbState = await loadStateFromIDB();
+        if (!idbState) return;
+        orders.value = (idbState.orders ?? []).map((order) => {
+          const mappedOrder = mapOrderFromDirectus(order);
+          if (!Array.isArray(mappedOrder.orderItems)) mappedOrder.orderItems = [];
+          if (mappedOrder.orderItems.length > 0 || mappedOrder.item_count === 0) {
+            updateOrderTotals(mappedOrder);
+            mappedOrder.total_amount = mappedOrder.totalAmount;
+            mappedOrder.item_count = mappedOrder.itemCount;
+          } else {
+            mappedOrder.totalAmount = mappedOrder.total_amount ?? mappedOrder.totalAmount;
+            mappedOrder.total_amount = mappedOrder.totalAmount;
+            mappedOrder.itemCount = mappedOrder.item_count ?? mappedOrder.itemCount;
+            mappedOrder.item_count = mappedOrder.itemCount;
+          }
+          return mappedOrder;
+        });
+      }
+      return;
+    }
+
     const requestedCollections = collections ?? (collection ? [collection] : Object.keys(operationalStateRefs));
     const resolvedKeys = requestedCollections.map((k) => _COLLECTION_TO_STATE_KEY[k] ?? k);
     const targetCollections = [...new Set(resolvedKeys)]
