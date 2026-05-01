@@ -52,7 +52,7 @@ describe('_resetWsHeartbeat — timer state', () => {
     _resetDirectusSyncSingleton();
     _resetDirectusClientSingleton();
     vi.restoreAllMocks();
-    vi.useFakeTimers();
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
     await configureDirectus();
     syncState._running = true;
     syncState._wsConnected.value = true;
