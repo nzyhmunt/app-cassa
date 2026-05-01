@@ -304,7 +304,13 @@ export const useOrderStore = defineStore('orders', () => {
           for (const raw of validOrders) {
             mappedById.set(String(raw.id), _mapIDBOrder(raw));
           }
-          orders.value = orders.value.map(o => mappedById.get(String(o.id)) ?? o);
+          // Mutate in-place: only replace the array entries for affected order IDs
+          // so that Vue only schedules re-renders for changed items rather than
+          // replacing the entire array reference (which forces a full list re-render).
+          for (let i = 0; i < orders.value.length; i++) {
+            const updated = mappedById.get(String(orders.value[i].id));
+            if (updated) orders.value.splice(i, 1, updated);
+          }
         }
       } catch (e) {
         console.warn('[orderStore] Targeted order refresh failed, falling back to full refresh:', e);

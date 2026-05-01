@@ -587,11 +587,14 @@ async function _mergeOrderItemsIntoOrdersIDB(pulledItems, rawItems = null) {
  *
  * @param {Array<object>} mappedItems  - Mapped order_item records from `_mapRecord`.
  * @param {Array<object>} [rawItems]   - Corresponding raw Directus records.  When
- *   provided with the same length and order as `mappedItems`, each entry is used
- *   by `mergeOrderItemFromWSPayload` for selective field merging.  If the arrays
- *   differ in length (e.g. after filtering), the lookup is still built from the
- *   matching indices and unmatched items fall back to a full spread merge.
- * @returns {Promise<{orderItemsWritten: number, ordersWritten: number}>}
+ *   provided with the same length and order as `mappedItems`, a lookup from
+ *   order_item ID → raw record is built for selective field merging via
+ *   `mergeOrderItemFromWSPayload`.  If the arrays differ in length the lookup is
+ *   built only for matching indices; unmatched items fall back to a full spread merge.
+ * @returns {Promise<{orderItemsWritten: number, ordersWritten: number, affectedOrderIds: Set<string>}>}
+ *   `orderItemsWritten` — number of order_item records written to IDB (LWW winners only).
+ *   `ordersWritten`     — number of parent order records whose `orderItems` array changed.
+ *   `affectedOrderIds`  — set of parent order IDs whose embedded `orderItems` were modified.
  */
 async function _atomicOrderItemsUpsertAndMerge(mappedItems, rawItems = []) {
   if (!mappedItems || mappedItems.length === 0) {
@@ -619,6 +622,11 @@ async function _atomicOrderItemsUpsertAndMerge(mappedItems, rawItems = []) {
   // inside this shared transaction so Phase 2 (merge into orders) sees the
   // freshly written records and both phases commit or abort together.
   const toWrite = [];
+  // Track IDs of items that were skipped because the IDB already holds a
+  // strictly-newer version.  Phase 2 must not embed these stale incoming items
+  // into `orders.orderItems` or it would make the embedded array older than the
+  // canonical `order_items` store.
+  const skipInPhase2 = new Set();
   for (const incomingRaw of mappedItems) {
     // Normalise FK fields (order → orderId, dish → dishId) the same way that
     // `_normalizeIncomingSync('order_items', ...)` in operations.js does.
@@ -640,13 +648,15 @@ async function _atomicOrderItemsUpsertAndMerge(mappedItems, rawItems = []) {
       const existingTs = existing.date_updated ?? existing.date_created;
       const incomingTs = clean.date_updated ?? clean.date_created;
       // If existing has a timestamp but incoming does not → keep existing.
-      if (existingTs && !incomingTs) continue;
+      // Mark as skip-for-phase-2: incoming is effectively stale.
+      if (existingTs && !incomingTs) { skipInPhase2.add(pk); continue; }
       if (existingTs && incomingTs) {
         const existingMs = new Date(existingTs).getTime();
         const incomingMs = new Date(incomingTs).getTime();
-        if (incomingMs < existingMs) continue; // strictly older → skip
+        if (incomingMs < existingMs) { skipInPhase2.add(pk); continue; } // strictly older → skip Phase 2 too
         if (incomingMs === existingMs) {
-          // Same timestamp: skip only when the payload is identical.
+          // Same timestamp: skip Phase 1 write only when the payload is identical.
+          // Phase 2 can still merge (same data, harmless for idempotency).
           if (deepEqual(clean, existing)) continue;
         }
         // incomingMs > existingMs, or equal but different payload → write
@@ -660,8 +670,13 @@ async function _atomicOrderItemsUpsertAndMerge(mappedItems, rawItems = []) {
   // ── Phase 2: Merge into `orders.orderItems` ─────────────────────────────────
   // Same logic as `_mergeOrderItemsIntoOrdersIDB` but using the same `tx` so
   // both phases are part of the same atomic commit.
+  // Items in `skipInPhase2` were skipped in Phase 1 because IDB already holds a
+  // strictly-newer version; embedding their stale payload into `orders.orderItems`
+  // would make the embedded array inconsistent with the canonical `order_items` store.
   const itemsByOrderId = new Map();
   for (const item of mappedItems) {
+    const pk = item?.id ?? item?.uid;
+    if (pk && skipInPhase2.has(String(pk))) continue; // stale incoming — don't corrupt embedded array
     const orderId = item?.order ?? item?.orderId;
     if (!orderId) continue;
     const key = String(orderId);
@@ -2529,6 +2544,9 @@ export function useDirectusSync() {
     if (!isLeader) {
       // NS2: Keep _running = true so that the standby lock callback in
       // `_acquireLeaderLock` can call `_startSyncLoopsAsLeader` when promoted.
+      // Mark this tab as follower so `_refreshStoreFromIDB` does not re-broadcast
+      // IDB-change events received from the leader (which would cause a ping-pong storm).
+      _isLeader = false;
       console.info('[DirectusSync] Non-leader tab: push/pull loops managed by another tab.');
       // NS6: Listen for leader's IDB-change broadcasts and refresh in-memory store.
       if (_idbChangeBroadcast) {

@@ -75,7 +75,7 @@ Itera sulle **collezioni operative** configurate per tipo di app:
 ```
 _pullCollection(collection, { forceFull, lastPullTimestampOverride })
   ├─ Legge last_pull_ts da IDB (per questa collezione)
-  ├─ [S6] Guard clock skew: se cursore > now + 24h → forceFull immediato
+  ├─ [S6] Guard clock skew: se cursore > now + 24h → clamp cursore a now + pull incrementale
   ├─ Loop paginato (page size = 200):
   │    ├─ _fetchUpdatedViaSDK(collection, sinceTs, page)
   │    ├─ _mapRecord() → formato locale
@@ -92,7 +92,7 @@ _pullCollection(collection, { forceFull, lastPullTimestampOverride })
 
 **[S2] Checkpoint per pagina:** il cursore avanza dopo ogni pagina completata con successo. Un errore su pagina N+1 non annulla il progresso delle pagine 1…N.
 
-**[S6] Guard clock skew:** se `last_pull_ts` è nel futuro oltre `GLOBAL_TIMESTAMP_SKEW_TOLERANCE_MS` (24h), viene forzato un full pull per evitare che un cursore invalido filtri tutti i record recenti.
+**[S6] Guard clock skew:** se `last_pull_ts` è nel futuro oltre `GLOBAL_TIMESTAMP_SKEW_TOLERANCE_MS` (24h), il cursore viene troncato a `Date.now()` e persistito in IDB, dopodiché il pull incrementale prosegue normalmente. Un orologio di sistema permanentemente disallineato provoca al massimo un reset del cursore per ciclo invece di un full pull continuo.
 
 **[S7] Transazione atomica:** per `order_items`, la scrittura nello store `order_items` e il merge nell'array embedded `orders.orderItems` avvengono in un'unica transazione IDB multi-store. Se la transazione aborts, né lo store né il cursore vengono modificati.
 
@@ -183,7 +183,7 @@ client.subscribe(collection, { query: { fields: ['*'], filter: { venue: { _eq: v
 | **S3** | P9 — Semaforo `_pullInFlight` | ✅ Implementato | `forcePull()` azzera il semaforo per bypassare il background pull |
 | **S4** | P6 — Echo TTL adattivo | ✅ Implementato | `max(5s, RTT×3)` cappato a 30s |
 | **S5** | P7 — WS heartbeat watchdog | ✅ Implementato | 30s di silenzio → REST pull + reconnect schedulato |
-| **S6** | P8 — Guard clock skew | ✅ Implementato | Cursore nel futuro >24h → full pull forzato |
+| **S6** | P8 — Guard clock skew | ✅ Implementato | Cursore nel futuro >24h → clamp a `Date.now()` + pull incrementale (nessun full pull) |
 | **S7** | P5 — Merge `orderItems` atomico | ✅ Parziale | Risolto solo per percorso REST pull; il percorso WS rimane non atomico (P11) |
 
 **P1–P10 — riepilogo post-implementazione:**
