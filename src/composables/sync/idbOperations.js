@@ -256,6 +256,9 @@ export async function _atomicOrderItemsUpsertAndMerge(mappedItems, rawItems = []
   // canonical `order_items` store.
   const skipInPhase2 = new Set();
   for (const incomingRaw of mappedItems) {
+    // Skip null / non-object entries that can appear when callers pass sparse
+    // arrays or mixed payloads - spreading null/undefined would throw.
+    if (!incomingRaw || typeof incomingRaw !== 'object') continue;
     // Normalise FK fields (order → orderId, dish → dishId) the same way that
     // `_normalizeIncomingSync('order_items', ...)` in operations.js does.
     const incoming = { ...incomingRaw };

@@ -215,6 +215,7 @@ export async function replaceTableMergesInIDB(records) {
  * @returns {Promise<Array<object>>} Normalised records (invalid entries dropped).
  */
 export async function normalizeVenueUsersForIDB(records) {
+  if (!Array.isArray(records)) return [];
   const normalized = [];
   for (const rawRecord of records) {
     if (!rawRecord || typeof rawRecord !== 'object') continue;
