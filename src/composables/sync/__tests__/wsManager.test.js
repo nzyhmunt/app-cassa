@@ -144,7 +144,11 @@ describe('_handleSubscriptionMessage — heartbeat ordering invariant (Risk 3)',
 
   it('resets the heartbeat timer synchronously before any async IDB work', () => {
     // Use fake timers only for this assertion — switch back immediately after.
-    vi.useFakeTimers();
+    // Avoid faking setImmediate after _resetIDBSingleton() to prevent the
+    // fake-indexeddb deadlock scenario; only fake the timer APIs this test needs.
+    vi.useFakeTimers({
+      toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'],
+    });
     try {
       _resetWsHeartbeat();
       const timerBefore = syncState._wsHeartbeatTimer;
