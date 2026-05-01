@@ -142,6 +142,10 @@ self.addEventListener('sync', (event) => {
         // No open client: log and let the push loop handle it on next startup.
         console.info('[SW] bg-sync: no client available — queue will drain on next app open.');
       }
+    }).catch((err) => {
+      // Swallow errors so the sync event resolves successfully and isn't retried
+      // just because matchAll() or postMessage() threw (e.g., client closed mid-delivery).
+      console.error('[SW] bg-sync: error notifying clients:', err);
     })
   );
 });

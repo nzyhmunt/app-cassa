@@ -276,6 +276,9 @@ export async function _pullCollection(collection, { forceFull = false, lastPullT
   }
   let page = 1;
   let latestTs = storedSinceTs;
+  // S2: track the last timestamp actually persisted so we only call
+  // saveLastPullTsToIDB() when latestTs advances, not on every page.
+  let lastSavedTs = storedSinceTs;
   let totalMerged = 0;
   let hadFetchError = false;
   let hadRemoteRecords = false;
@@ -343,8 +346,11 @@ export async function _pullCollection(collection, { forceFull = false, lastPullT
       // successfully processed page.  A failure on page N+1 therefore cannot roll
       // the cursor back to before page N, so the next polling cycle restarts from
       // the end of the last successful page rather than re-fetching everything.
-      if (latestTs && latestTs !== storedSinceTs) {
+      // Only write when latestTs has actually advanced beyond the last persisted
+      // value to avoid redundant IDB writes on every page of a multi-page pull.
+      if (latestTs && latestTs !== lastSavedTs) {
         await saveLastPullTsToIDB(collection, latestTs);
+        lastSavedTs = latestTs;
       }
     }
     if (pageWriteError || data.length < 200) break;
