@@ -25,6 +25,7 @@ import {
   _startSubscriptions,
   _atomicOrderItemsUpsertAndMerge,
 } from '../useDirectusSync.js';
+import { _removeOrderItemsFromOrdersIDB } from '../sync/idbOperations.js';
 import { _resetDirectusClientSingleton } from '../useDirectusClient.js';
 import {
   upsertRecordsIntoIDB,
@@ -4283,3 +4284,42 @@ describe('Issue 4 — _atomicOrderItemsUpsertAndMerge returns affectedOrderIds',
   });
 });
 
+// ── NP1 — _removeOrderItemsFromOrdersIDB fallback scan populates affectedOrderIds ──
+
+describe('NP1 — _removeOrderItemsFromOrdersIDB fallback scan affectedOrderIds', () => {
+  it('includes orders updated via fallback cursor scan in the returned affectedOrderIds', async () => {
+    // The item is NOT in the order_items store (fresh device scenario), so the
+    // normal fast-path lookup returns null and the function falls into the O(n)
+    // cursor scan over all orders.  After the fix, the order whose orderItems
+    // array was shortened must appear in the returned affectedOrderIds Set so
+    // that targeted _refreshStoreFromIDB and BroadcastChannel notifications
+    // reach followers correctly.
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+
+    const orderId = 'ord_fallback_affected';
+
+    await db.put('orders', {
+      id: orderId,
+      status: 'accepted',
+      table: '99',
+      orderItems: [
+        { id: 'oi_fb_aff_1', order: orderId, name: 'Pasta', quantity: 1, unit_price: 8 },
+        { id: 'oi_fb_aff_2', order: orderId, name: 'Vino', quantity: 2, unit_price: 5 },
+      ],
+      date_updated: '2024-01-01T00:00:00.000Z',
+    });
+    // Intentionally do NOT put 'oi_fb_aff_1' into the order_items store so that
+    // the function takes the fallback cursor scan path.
+
+    const affectedIds = await _removeOrderItemsFromOrdersIDB(['oi_fb_aff_1']);
+
+    expect(affectedIds).toBeInstanceOf(Set);
+    expect(affectedIds.has(orderId)).toBe(true);
+
+    // Sanity-check: the item was actually removed from the embedded array.
+    const order = await db.get('orders', orderId);
+    expect(order.orderItems).toHaveLength(1);
+    expect(order.orderItems[0].id).toBe('oi_fb_aff_2');
+  });
+});

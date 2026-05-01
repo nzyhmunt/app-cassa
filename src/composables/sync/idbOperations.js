@@ -427,6 +427,7 @@ export async function _removeOrderItemsFromOrdersIDB(deletedIds) {
         const filtered = items.filter(i => !unresolvedIds.has(String(i.id ?? i.uid ?? '')));
         if (filtered.length !== items.length) {
           await cursor.update({ ...order, orderItems: filtered });
+          affectedOrderIds.add(String(order.id ?? cursor.key));
         }
         cursor = await cursor.continue();
       }
