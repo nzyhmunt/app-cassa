@@ -26,7 +26,12 @@ export async function _refreshStoreFromIDB(collection = null, ids = null) {
     if (ids instanceof Set && ids.size > 0) opts.ids = ids;
     await syncState._store.refreshOperationalStateFromIDB(opts);
     // NS6: Notify follower tabs that IDB data has changed for this collection.
-    if (syncState._isLeader) syncState._idbChangeBroadcast?.postMessage({ type: 'idb-change', collection });
+    // Include `ids` (as array) so followers can perform a targeted refresh too.
+    if (syncState._isLeader) {
+      const msg = { type: 'idb-change', collection };
+      if (ids instanceof Set && ids.size > 0) msg.ids = [...ids];
+      syncState._idbChangeBroadcast?.postMessage(msg);
+    }
     return;
   }
   if (typeof syncState._store.refreshFromIDB === 'function') {

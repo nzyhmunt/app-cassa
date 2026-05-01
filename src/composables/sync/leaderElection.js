@@ -335,7 +335,11 @@ export function useDirectusSync() {
               menuUrl: appConfig.menuUrl,
             }).catch(() => {});
           } else {
-            _refreshStoreFromIDB(col).catch(() => {});
+            // Reconstruct ids Set from the broadcast array (Sets are not serializable).
+            const ids = Array.isArray(data.ids) && data.ids.length > 0
+              ? new Set(data.ids)
+              : null;
+            _refreshStoreFromIDB(col, ids).catch(() => {});
           }
         };
       }

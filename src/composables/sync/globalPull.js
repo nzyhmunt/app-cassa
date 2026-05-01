@@ -316,28 +316,43 @@ export async function _fanOutVenueTreeToIDB(venueRecord, { menuSource }) {
     )
   );
   await vuStore.clear();
-  for (const mu of manualUsers) vuStore.put(mu);
-  for (const r of normalizedVenueUsers) vuStore.put(r);
+  const vuPuts = [];
+  for (const mu of manualUsers) vuPuts.push(vuStore.put(mu));
+  for (const r of normalizedVenueUsers) vuPuts.push(vuStore.put(r));
+  await Promise.all(vuPuts);
 
   // table_merge_sessions: full replace (stale dissolved merges must not linger).
   const tmStore = tx.objectStore('table_merge_sessions');
   await tmStore.clear();
+  const tmPuts = [];
   for (const r of payloadByStore.table_merge_sessions) {
-    if (r?.id != null) tmStore.put(r);
+    if (r?.id != null) tmPuts.push(tmStore.put(r));
   }
+  await Promise.all(tmPuts);
 
   // All other stores: forceWrite upsert — put each record using its `id` as key.
+  const otherPuts = [];
   for (const [storeName, records] of stores) {
     if (storeName === 'venue_users' || storeName === 'table_merge_sessions') continue;
     const objStore = tx.objectStore(storeName);
     for (const r of records) {
-      if (r && r.id != null) objStore.put(r);
+      if (r && r.id != null) otherPuts.push(objStore.put(r));
     }
   }
+  await Promise.all(otherPuts);
 
   await tx.done;
   touchStorageKey();
-  return Object.fromEntries(stores.map(([storeName, records]) => [storeName, records.length]));
+
+  // Return actual written counts (not pre-write array lengths).
+  const writeCounts = {};
+  writeCounts.venue_users = manualUsers.length + normalizedVenueUsers.length;
+  writeCounts.table_merge_sessions = tmPuts.length;
+  for (const [storeName, records] of stores) {
+    if (storeName === 'venue_users' || storeName === 'table_merge_sessions') continue;
+    writeCounts[storeName] = records.filter((r) => r && r.id != null).length;
+  }
+  return writeCounts;
 }
 
 /**
