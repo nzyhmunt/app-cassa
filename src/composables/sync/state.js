@@ -3,12 +3,13 @@
  * @description Shared singleton state for the Directus sync subsystem.
  *
  * All module-level mutable variables from useDirectusSync.js are centralised
- * here as properties of a single `syncState` object.  Exporting an object (not
- * individual primitive values) is critical: ES-module primitives are copied by
- * value at import time, so mutating `_pushGeneration` in one module would not
- * be visible to another module that imported the primitive directly.  An object
- * reference is shared, so `syncState._pushGeneration++` in any module is
- * immediately visible to all other importers.
+ * here as properties of a single `syncState` object. Exporting a shared object
+ * (rather than separate mutable primitives) is critical: ES-module imports are
+ * live bindings, but imported bindings are read-only in the importing module.
+ * That means exporting `_pushGeneration` as a standalone primitive would not
+ * let other modules coordinate updates to it without additional setter APIs.
+ * By keeping mutable state on a shared object, `syncState._pushGeneration++`
+ * in any module updates the same singleton state observed by all importers.
  *
  * Risk 5 from the refactor plan: "primitives imported as
  * `import { _pushGeneration }` would not reflect post-import mutations."
