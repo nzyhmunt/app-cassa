@@ -214,11 +214,11 @@ export async function _mergeOrderItemsIntoOrdersIDB(pulledItems, rawItems = null
  * themselves only use the existing `tx` (e.g. `tx.objectStore(...).get(...)`).
  *
  * @param {Array<object>} mappedItems  - Mapped order_item records from `_mapRecord`.
- * @param {Array<object>} [rawItems]   - Corresponding raw Directus records.  When
+ * @param {Array<object>} [rawItems]   - Corresponding raw Directus records. When
  *   provided with the same length and order as `mappedItems`, each entry is used
- *   by `mergeOrderItemFromWSPayload` for selective field merging.  If the arrays
- *   differ in length (e.g. after filtering), the lookup is still built from the
- *   matching indices and unmatched items fall back to a full spread merge.
+ *   by `mergeOrderItemFromWSPayload` for selective field merging. If the arrays
+ *   differ in length (e.g. after filtering), no raw-payload lookup is built and
+ *   merging falls back to the non-raw selective/full-spread path.
  * @returns {Promise<{orderItemsWritten: number, ordersWritten: number, affectedOrderIds: Set<string>}>}
  */
 export async function _atomicOrderItemsUpsertAndMerge(mappedItems, rawItems = []) {
