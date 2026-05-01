@@ -16,10 +16,19 @@
 
 // Default URL for loading the external menu JSON
 export const DEFAULT_MENU_URL = 'https://nanawork.it/menu.json';
+const DEFAULT_UI_PRIMARY_COLOR = '#00846c';
+const DEFAULT_UI_PRIMARY_COLOR_DARK = '#0c7262';
+const DEFAULT_UI_CURRENCY = '€';
 
-// Configurazione applicazione centralizzata
-export const appConfig = {
-  ui: { name: "Osteria del Grillo", primaryColor: "#00846c", primaryColorDark: "#0c7262", currency: "€", allowCustomVariants: true },
+// Configurazione applicazione centralizzata (static defaults, immutable fallback)
+export const DEFAULT_SETTINGS = {
+  ui: {
+    name: "Ristorante",
+    primaryColor: DEFAULT_UI_PRIMARY_COLOR,
+    primaryColorDark: DEFAULT_UI_PRIMARY_COLOR_DARK,
+    currency: DEFAULT_UI_CURRENCY,
+    allowCustomVariants: true,
+  },
 
   // Timezone used for all locale time formatting across Cassa, Sala and Cucina.
   // Must be a valid IANA timezone identifier (e.g. 'Europe/Rome', 'Europe/Berlin').
@@ -35,8 +44,11 @@ export const appConfig = {
 
   // URL used to fetch the remote menu. Override per-build in appConfig or via the Settings modal.
   menuUrl: DEFAULT_MENU_URL,
+  // Menu source strategy. `directus` => menu from Directus collections.
+  // `json` => menu from remote JSON URL.
+  menuSource: 'directus',
 
-  // Instance name used to isolate localStorage keys when multiple app instances run
+  // Instance name used to isolate IndexedDB namespace when multiple app instances run
   // on the same device (same origin). Set a unique value per device/shortcut
   // (e.g. 'cassa1', 'sala2'). This value is configured at build/deploy time.
   // Empty string (default) keeps the original key names for backwards compatibility.
@@ -168,6 +180,8 @@ export const appConfig = {
   // enableCashChangeCalculator: mostra il calcolatore del resto per i pagamenti in contanti
   // enableTips: abilita l'inserimento della mancia per ogni pagamento
   // enableDiscounts: abilita l'applicazione di sconti in cassa
+  // autoCloseOnFullPayment: quando true chiude automaticamente il conto al saldo completo
+  // (default false, to keep manual Close/Fiscal/Invoice choice available)
   // allowCustomEntry: quando true (default), abilita la tab "Personalizzata" nel modal Voce Diretta
   //   per inserire voci libere (nome + prezzo) non collegate al menu. Impostare a false per
   //   limitare le voci dirette solo alle voci presenti nel menu configurato.
@@ -175,6 +189,7 @@ export const appConfig = {
     enableCashChangeCalculator: true,
     enableTips: true,
     enableDiscounts: true,
+    autoCloseOnFullPayment: false,
     allowCustomEntry: true,
   },
 
@@ -193,6 +208,32 @@ export const appConfig = {
     users: [],
   },
 
+  // CONFIGURAZIONE SINCRONIZZAZIONE DIRECTUS
+  // Abilita la sincronizzazione bidirezionale con l'istanza Directus (§5.7.2 e §5.7.3).
+  //
+  // enabled:       imposta a `true` per attivare push + pull.
+  //                Se `false` (default) il loop di sync non parte, la sync_queue
+  //                continua ad accumularsi offline e viene svuotata non appena
+  //                `enabled` torna `true` e il dispositivo è online.
+  // url:           URL base dell'istanza Directus senza slash finale
+  //                (es. 'https://dev.nanawork.it').
+  // staticToken:   token statico Directus con permessi READ/WRITE sulle collection
+  //                operative. Generare in Directus → Impostazioni → Token di accesso.
+  //                ⚠ Non committare token reali nel sorgente: iniettare a build/deploy.
+  // venueId:       ID intero del punto vendita (venues.id) su Directus.
+  //                I pull applicano `filter[venue][_eq]={venueId}` sulle collection
+  //                che espongono il campo `venue` (con eccezioni schema-specifiche).
+  directus: {
+    enabled: false,
+    url: '',
+    staticToken: '',
+    venueId: null,
+    // wsEnabled: attiva le Directus Subscriptions (WebSocket) come meccanismo di
+    // pull real-time. Richiede che l'istanza Directus abbia il modulo WebSocket
+    // abilitato. Se false (default), viene usato il polling REST periodico.
+    wsEnabled: false,
+  },
+
   // Minimal fallback menu; the full menu is loaded from the external URL at startup
   menu: {
     "Placeholder": [
@@ -207,7 +248,7 @@ export const appConfig = {
   demoOrders: [
     // ── Tavolo 04 ────────────────────────────────────────────────────────────
     {
-      id: "ord_rX91", table: "04", status: "pending", time: "19:30", totalAmount: 26.00, itemCount: 4,
+      id: "01960000-0000-7000-8000-000000000001", table: "04", status: "pending", time: "19:30", totalAmount: 26.00, itemCount: 4,
       dietaryPreferences: { diete: ["Vegetariano"] },
       globalNote: '', noteVisibility: { cassa: true, sala: true, cucina: true },
       orderItems: [
@@ -216,16 +257,16 @@ export const appConfig = {
       ],
     },
     {
-      id: "ord_cop04", table: "04", status: "accepted", time: "19:30", totalAmount: 5.00, itemCount: 2,
+      id: "01960000-0000-7000-8000-000000000002", table: "04", status: "accepted", time: "19:30", totalAmount: 5.00, itemCount: 2,
       dietaryPreferences: {}, globalNote: '', noteVisibility: { cassa: true, sala: true, cucina: true },
       isDirectEntry: true, isCoverCharge: true,
       orderItems: [
-        { uid: "cop_a_04", dishId: "coperto_adulto", name: "Coperto", unitPrice: 2.50, quantity: 2, voidedQuantity: 0, notes: [], modifiers: [] },
+        { uid: "cop_04", dishId: null, name: "Coperto", unitPrice: 2.50, quantity: 2, voidedQuantity: 0, notes: [], modifiers: [] },
       ],
     },
     // ── Tavolo 08 ────────────────────────────────────────────────────────────
     {
-      id: "ord_mP02", table: "08", status: "accepted", time: "19:15", totalAmount: 33.00, itemCount: 2,
+      id: "01960000-0000-7000-8000-000000000003", table: "08", status: "accepted", time: "19:15", totalAmount: 33.00, itemCount: 2,
       dietaryPreferences: {},
       globalNote: '', noteVisibility: { cassa: true, sala: true, cucina: true },
       orderItems: [
@@ -234,21 +275,57 @@ export const appConfig = {
       ],
     },
     {
-      id: "ord_cop08", table: "08", status: "accepted", time: "19:15", totalAmount: 5.00, itemCount: 2,
+      id: "01960000-0000-7000-8000-000000000004", table: "08", status: "accepted", time: "19:15", totalAmount: 5.00, itemCount: 2,
       dietaryPreferences: {}, globalNote: '', noteVisibility: { cassa: true, sala: true, cucina: true },
       isDirectEntry: true, isCoverCharge: true,
       orderItems: [
-        { uid: "cop_a_08", dishId: "coperto_adulto", name: "Coperto", unitPrice: 2.50, quantity: 2, voidedQuantity: 0, notes: [], modifiers: [] },
+        { uid: "cop_08", dishId: null, name: "Coperto", unitPrice: 2.50, quantity: 2, voidedQuantity: 0, notes: [], modifiers: [] },
       ],
     },
   ],
 };
 
-// Derive flat tables list from rooms — kept in sync at module load time.
-// All store/component code that needs the full table list reads appConfig.tables.
-appConfig.tables = Array.isArray(appConfig.rooms)
-  ? appConfig.rooms.flatMap(r => r.tables || [])
-  : (Array.isArray(appConfig.tables) ? appConfig.tables : []);
+function _deepClone(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function _withDerivedTables(settings) {
+  const next = _deepClone(settings);
+  next.tables = Array.isArray(next.rooms)
+    ? next.rooms.flatMap(r => r.tables || [])
+    : (Array.isArray(next.tables) ? next.tables : []);
+  return next;
+}
+
+export const appConfig = _withDerivedTables(DEFAULT_SETTINGS);
+
+export function createRuntimeConfig(overrides = null) {
+  const base = _withDerivedTables(DEFAULT_SETTINGS);
+  if (!overrides || typeof overrides !== 'object') return base;
+  return _withDerivedTables({ ...base, ..._deepClone(overrides) });
+}
+
+/**
+ * Applies Directus runtime settings to `appConfig` through a single normalized
+ * entry-point.
+ * This is the only allowed write path for `appConfig.directus` outside
+ * `useDirectusSync`: callers should never assign `appConfig.directus = ...`
+ * directly to keep normalization/shape guarantees centralized.
+ *
+ * @param {object} next
+ * @returns {{enabled:boolean,url:string,staticToken:string,venueId:number|string|null,wsEnabled:boolean}}
+ */
+export function applyDirectusConfigToAppConfig(next = {}) {
+  const normalized = {
+    enabled: typeof next?.enabled === 'boolean' ? next.enabled : false,
+    url: typeof next?.url === 'string' ? next.url : '',
+    staticToken: typeof next?.staticToken === 'string' ? next.staticToken : '',
+    venueId: next?.venueId != null ? next.venueId : null,
+    wsEnabled: typeof next?.wsEnabled === 'boolean' ? next.wsEnabled : false,
+  };
+  appConfig.directus = normalized;
+  return normalized;
+}
 
 /**
  * Returns a stable, unique string key for a closed bill.
@@ -258,6 +335,51 @@ appConfig.tables = Array.isArray(appConfig.rooms)
  */
 export function billKey(bill) {
   return bill.tableId + '_' + (bill.billSessionId ?? bill.closedAt ?? '');
+}
+
+/**
+ * Formats a long order id for compact UI labels while preserving uniqueness.
+ * UUIDv7 values often share the same prefix, so we keep both head and tail.
+ *
+ * @param {string|number|null|undefined} id
+ * @param {number} [head=8]
+ * @param {number} [tail=4]
+ * @returns {string}
+ */
+export function formatOrderIdShort(id, head = 8, tail = 4) {
+  const raw = id == null ? '' : String(id);
+  const safeHead = Math.max(1, Number(head) || 8);
+  const safeTail = Math.max(1, Number(tail) || 4);
+  if (raw.length <= safeHead + safeTail + 1) return raw;
+  return `${raw.slice(0, safeHead)}…${raw.slice(-safeTail)}`;
+}
+
+/**
+ * Returns the current time as a zero-padded 24-hour "HH:MM" string.
+ * Always produces ASCII digits (0–9) and hours in the range 00–23, suitable
+ * for the Directus `order_time` TIME field (e.g. "08:05", "14:30", "23:59").
+ *
+ * Implementation notes:
+ *  - Locale is hard-coded to `'en-u-nu-latn'` (English + Latin numbering system)
+ *    so non-Latin digits (e.g. Arabic-Indic from an `ar` locale) can never appear
+ *    in the output, regardless of `appConfig.locale`.
+ *  - `hourCycle: 'h23'` forces the range 00–23; midnight is always "00", never "24"
+ *    (which some locales emit with `h24`).
+ *  - `appConfig.timezone` is still respected so the time reflects the venue's zone,
+ *    not the device clock.
+ * @returns {string}
+ */
+export function formatOrderTime() {
+  const now = new Date();
+  const parts = new Intl.DateTimeFormat('en-u-nu-latn', {
+    timeZone: appConfig.timezone,
+    hourCycle: 'h23',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).formatToParts(now);
+  const hour = parts.find(part => part.type === 'hour')?.value ?? '00';
+  const minute = parts.find(part => part.type === 'minute')?.value ?? '00';
+  return hour + ':' + minute;
 }
 
 /**
@@ -389,7 +511,128 @@ export function groupOrderItemsByCourse(items, includeIndex = true) {
   return result;
 }
 
+/**
+ * Returns `true` when two order-item rows can be merged (incremented) into
+ * a single row.  Two rows are mergeable when they share the same dish, course,
+ * notes (order-insensitive), and modifiers (order-insensitive by name + price).
+ *
+ * For direct-entry rows (dishId is falsy, e.g. cover charge), `name` and
+ * `unitPrice` are also compared so that distinct direct items are never
+ * incorrectly merged into one.
+ *
+ * Used by `orderStore.addItemsToOrder()`, `CassaOrderManager`, and
+ * `SalaOrderManager` — keeping the logic in one place prevents drift.
+ *
+ * @param {object} a
+ * @param {object} b
+ * @returns {boolean}
+ */
+export function itemsAreMergeable(a, b) {
+  if (a.dishId !== b.dishId) return false;
+  // For direct-entry rows (no dishId), also require identical name and price.
+  if (!a.dishId && (a.name !== b.name || Number(a.unitPrice) !== Number(b.unitPrice))) return false;
+  if ((a.course || DEFAULT_COURSE) !== (b.course || DEFAULT_COURSE)) return false;
+  const notesA = [...(a.notes || [])].sort();
+  const notesB = [...(b.notes || [])].sort();
+  if (notesA.length !== notesB.length || notesA.some((n, i) => n !== notesB[i])) return false;
+  const normMod = m => ({ name: String(m.name), price: Number(m.price) || 0 });
+  const modComparator = (x, y) => x.name < y.name ? -1 : x.name > y.name ? 1 : x.price - y.price;
+  const modsA = [...(a.modifiers || [])].map(normMod).sort(modComparator);
+  const modsB = [...(b.modifiers || [])].map(normMod).sort(modComparator);
+  if (modsA.length !== modsB.length) return false;
+  return modsA.every((m, i) => m.name === modsB[i].name && m.price === modsB[i].price);
+}
+
 
 // ── Numeric keyboard positions ──────────────────────────────────────────────
 /** Valid values for the `customKeyboard` setting. */
 export const KEYBOARD_POSITIONS = /** @type {const} */ (['disabled', 'center', 'left', 'right']);
+
+// ── Deep equality ───────────────────────────────────────────────────────────
+
+/**
+ * Structural deep equality for plain values, plain arrays, and plain objects.
+ * Non-plain objects (Date, Map, Set, RegExp, …) are compared by reference only:
+ * two distinct `Date` instances always return `false` even if they represent
+ * the same time, which is intentionally safe for the IDB no-op fast-path used
+ * in `upsertRecordsIntoIDB`.  IDB payloads contain only JSON-serialisable
+ * primitives, arrays, and plain objects, so this is never a practical
+ * limitation for this codebase.
+ * Property order is irrelevant for objects: `{a:1, b:2}` equals `{b:2, a:1}`.
+ *
+ * @param {unknown} left
+ * @param {unknown} right
+ * @returns {boolean}
+ */
+export function deepEqual(left, right) {
+  if (left === right) return true;
+  if (left == null || right == null) return left === right;
+  if (typeof left !== typeof right) return false;
+  if (typeof left !== 'object') return false;
+  if (Array.isArray(left) !== Array.isArray(right)) return false;
+
+  // Guard against non-plain objects (Date, Map, Set, RegExp, …):
+  // they are compared by identity (===) above; reaching here with different
+  // instances means they are not equal.
+  // Both Object.prototype and null (for Object.create(null) dictionaries) are
+  // considered plain-object prototypes.
+  const leftProto = Object.getPrototypeOf(left);
+  const rightProto = Object.getPrototypeOf(right);
+  const isPlain = p => p === Object.prototype || p === null;
+  if (!Array.isArray(left) && !isPlain(leftProto)) return false;
+  if (!Array.isArray(right) && !isPlain(rightProto)) return false;
+
+  if (Array.isArray(left)) {
+    if (left.length !== right.length) return false;
+    for (let i = 0; i < left.length; i++) {
+      if (!deepEqual(left[i], right[i])) return false;
+    }
+    return true;
+  }
+
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+  if (leftKeys.length !== rightKeys.length) return false;
+  for (const key of leftKeys) {
+    if (!Object.prototype.hasOwnProperty.call(right, key)) return false;
+    if (!deepEqual(left[key], right[key])) return false;
+  }
+  return true;
+}
+
+
+/**
+ * Builds the RT-printer XML payload for a fiscal receipt.
+ *
+ * This is the single, shared implementation used by both the live-cassa close
+ * flow (CassaTableManager) and the post-close fiscal emission from the bill
+ * history (CassaBillCard). Keeping it here ensures any future protocol tweaks
+ * (e.g. per official RT-printer documentation) are applied in one place only.
+ *
+ * @param {object} base - Bill summary produced by `_buildBillSummaryBase()`.
+ * @param {Array}  base.orders          - Orders with items (name, quantity, unitPrice).
+ * @param {Array}  base.paymentMethods  - List of payment method labels.
+ * @param {number} base.totalAmount     - Gross order total used as fiscal total.
+ * @returns {string} XML string for the RT printer.
+ */
+export function buildFiscalXmlRequest(base) {
+  const escXml = s => String(s).replace(/[<>&"']/g, c => (
+    { '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;' }[c]
+  ));
+  const lines = base.orders.flatMap(o => o.items).map(item => {
+    const qty = item.quantity.toFixed(3);
+    const price = item.unitPrice.toFixed(2);
+    return `  <printRecItem description="${escXml(item.name)}" quantity="${qty}" unitPrice="${price}" department="1" />`;
+  });
+  const paymentType = base.paymentMethods.some(m => /cart|bancomat|pos|visa|master|carta/i.test(m)) ? '2' : '0';
+  const paymentLabel = escXml(base.paymentMethods.join(' + ') || 'CONTANTI');
+  const total = base.totalAmount.toFixed(2);
+  return [
+    '<printerFiscalReceipt>',
+    '  <beginFiscalReceipt operator="1" />',
+    ...lines,
+    `  <printRecTotal payment="${total}" paymentType="${paymentType}" description="${paymentLabel}" />`,
+    '  <endFiscalReceipt />',
+    '</printerFiscalReceipt>',
+  ].join('\n');
+}

@@ -5,30 +5,57 @@
  * Usage: call `makeReportOps(state, helpers)` inside the Pinia store definition.
  */
 import { computed } from 'vue';
+import { newUUIDv7 } from './storeUtils.js';
+import { saveStateToIDB } from './persistence/operations.js';
+import { resolvePaymentMethodMeta } from '../utils/paymentMethods.js';
 
 /**
  * @param {object} state   – Reactive refs: orders, transactions, cashBalance, cashMovements,
- *                           dailyClosures, config
- * @param {object} helpers – Store functions: getTableStatus
+ *                           dailyClosures, config, fiscalReceipts, invoiceRequests
+ * @param {object} helpers – Store functions: getTableStatus, upsertRecordsIntoIDB, enqueue
  */
 export function makeReportOps(state, helpers) {
-  const { orders, transactions, cashBalance, cashMovements, dailyClosures, config } = state;
-  const { getTableStatus } = helpers;
+  const { orders, transactions, cashBalance, cashMovements, dailyClosures, config, fiscalReceipts, invoiceRequests } = state;
+  const {
+    getTableStatus,
+    upsertRecordsIntoIDB = null,
+    enqueue = null,
+  } = helpers;
+
+  function _resolvePaymentMethodMeta(transaction) {
+    return resolvePaymentMethodMeta(config?.value?.paymentMethods, transaction);
+  }
 
   function _buildDailySummary() {
-    const byMethod = {};
+    const byMethod = {};    // scontrino per metodo (solo amountPaid, escluse mance)
+    const tipsByMethod = {}; // mance per metodo di pagamento
+
     const totalDiscount = transactions.value
       .filter(t => t.operationType === 'discount')
       .reduce((acc, t) => acc + (t.amountPaid || 0), 0);
-    const totalTips = transactions.value
-      .filter(t => t.operationType !== 'discount')
-      .reduce((acc, t) => acc + (t.tipAmount || 0), 0);
+
+    // Transazioni di pagamento: escludi sconti e transazioni-mancia autonome
     transactions.value
-      .filter(t => t.operationType !== 'discount')
+      .filter(t => t.operationType !== 'discount' && t.operationType !== 'tip')
       .forEach(t => {
-        const label = t.paymentMethod || 'Altro';
-        byMethod[label] = (byMethod[label] || 0) + (t.amountPaid || 0) + (t.tipAmount || 0);
+        const { label } = _resolvePaymentMethodMeta(t);
+        // Scontrino: solo l'importo del conto (senza mancia)
+        byMethod[label] = (byMethod[label] || 0) + (t.amountPaid || 0);
+        // Mancia eventualmente inclusa nella stessa transazione → scorporata per metodo
+        if ((t.tipAmount || 0) > 0) {
+          tipsByMethod[label] = (tipsByMethod[label] || 0) + t.tipAmount;
+        }
       });
+
+    // Transazioni-mancia autonome (operationType === 'tip', da CassaBillCard post-pagamento)
+    transactions.value
+      .filter(t => t.operationType === 'tip')
+      .forEach(t => {
+        const { label } = _resolvePaymentMethodMeta(t);
+        tipsByMethod[label] = (tipsByMethod[label] || 0) + (t.tipAmount || 0);
+      });
+
+    const totalTips = Object.values(tipsByMethod).reduce((a, b) => a + b, 0);
     const totalReceived = Object.values(byMethod).reduce((a, b) => a + b, 0);
 
     // Count unique bill sessions (keyed by tableId::billSessionId or tableId for legacy rows)
@@ -50,6 +77,21 @@ export function makeReportOps(state, helpers) {
       (acc, m) => acc + (m.type === 'deposit' ? m.amount : -m.amount), 0,
     );
 
+    // Fiscal receipts and invoices issued in the current session (from last Z-close onward).
+    const lastCloseTimestamp = dailyClosures.value.length > 0
+      ? dailyClosures.value[dailyClosures.value.length - 1].timestamp
+      : null;
+    const sessionStart = lastCloseTimestamp ? new Date(lastCloseTimestamp) : null;
+    const _afterSessionStart = entry => !sessionStart || new Date(entry.timestamp).getTime() >= sessionStart.getTime();
+
+    const sessionFiscalReceipts = (fiscalReceipts?.value ?? []).filter(_afterSessionStart);
+    const sessionInvoiceRequests = (invoiceRequests?.value ?? []).filter(_afterSessionStart);
+
+    const fiscalCount = sessionFiscalReceipts.length;
+    const fiscalTotal = sessionFiscalReceipts.reduce((acc, e) => acc + (e.totalAmount || 0), 0);
+    const invoiceCount = sessionInvoiceRequests.length;
+    const invoiceTotal = sessionInvoiceRequests.reduce((acc, e) => acc + (e.totalAmount || 0), 0);
+
     return {
       timestamp: new Date().toISOString(),
       cashBalance: cashBalance.value,
@@ -57,12 +99,17 @@ export function makeReportOps(state, helpers) {
       totalDiscount,
       totalTips,
       byMethod,
+      tipsByMethod,
       totalCovers,
       averageReceipt: receiptCount > 0 ? totalReceived / receiptCount : 0,
       receiptCount,
       cashMovementsData: [...cashMovements.value],
       totalMovements,
-      finalBalance: cashBalance.value + totalReceived + totalMovements,
+      finalBalance: cashBalance.value + totalReceived + totalTips + totalMovements,
+      fiscalCount,
+      fiscalTotal,
+      invoiceCount,
+      invoiceTotal,
     };
   }
 
@@ -70,8 +117,68 @@ export function makeReportOps(state, helpers) {
     return _buildDailySummary();
   }
 
-  function performDailyClose() {
-    const summary = { ..._buildDailySummary(), type: 'Z' };
+  async function performDailyClose() {
+    const venueId = config?.value?.directus?.venueId ?? null;
+    const venueFragment = venueId != null ? { venue: venueId } : {};
+    const summary = {
+      ..._buildDailySummary(),
+      id: newUUIDv7(),
+      closure_type: 'Z',
+      status: 'active',
+      ...venueFragment,
+    };
+    const byMethodTotals = new Map();
+    transactions.value
+      .filter((transaction) => transaction.operationType !== 'discount' && transaction.operationType !== 'tip')
+      .forEach((transaction) => {
+        const { id } = _resolvePaymentMethodMeta(transaction);
+        if (!id) {
+          console.warn('[ReportOps] Skipping by-method closure row for transaction without resolvable payment method id:', {
+            transactionId: transaction?.id ?? null,
+            paymentMethodId: transaction?.paymentMethodId ?? null,
+            paymentMethod: transaction?.paymentMethod ?? null,
+          });
+          return;
+        }
+        const amount = Number(transaction.amountPaid ?? 0);
+        if (!Number.isFinite(amount)) return;
+        byMethodTotals.set(id, (byMethodTotals.get(id) ?? 0) + amount);
+      });
+
+    const byMethodRows = Array.from(byMethodTotals.entries())
+      .map(([paymentMethodId, amount]) => ({
+        id: newUUIDv7(),
+        daily_closure: summary.id,
+        payment_method: paymentMethodId,
+        amount,
+        status: 'active',
+        ...venueFragment,
+      }));
+
+    // IDB-first: persist before mutating reactive state so a reload immediately
+    // after the close still sees the closure record even if the app crashes.
+    if (typeof upsertRecordsIntoIDB === 'function') {
+      await upsertRecordsIntoIDB('daily_closures', [summary])
+        .catch((err) => console.warn('[Store] Failed to persist daily closure in IDB:', err));
+      if (byMethodRows.length > 0) {
+        await upsertRecordsIntoIDB('daily_closure_by_method', byMethodRows)
+          .catch((err) => console.warn('[Store] Failed to persist daily closure by method in IDB:', err));
+      }
+    }
+    if (typeof enqueue === 'function') {
+      enqueue('daily_closures', 'create', summary.id, summary);
+      byMethodRows.forEach((row) => enqueue('daily_closure_by_method', 'create', row.id, row));
+    }
+
+    // IDB-first: persist the cleared operational state before reactive assignment so
+    // that a reload immediately after the close sees empty transactions/movements.
+    try {
+      await saveStateToIDB({ transactions: [], cashMovements: [], cashBalance: summary.finalBalance });
+    } catch (err) {
+      console.warn('[Store] Failed to persist cleared state in IDB after daily close:', err);
+      throw err;
+    }
+
     dailyClosures.value.push(summary);
     transactions.value = [];
     cashMovements.value = [];
@@ -79,39 +186,50 @@ export function makeReportOps(state, helpers) {
     return summary;
   }
 
-  // A bill session is "closed" when the table is free and has payment transactions.
+  // A bill session is surfaced in history when the table is free and the session
+  // has either transactions and/or closed orders (completed/rejected).
   // Grouped by billSessionId (or tableId for legacy rows without a session id).
   const closedBills = computed(() => {
     const sessionsMap = new Map();
+    const _sessionKey = (tableId, billSessionId) =>
+      billSessionId != null ? `${tableId}::${billSessionId}` : tableId;
+
+    const _ensureSession = (tableId, billSessionId) => {
+      const key = _sessionKey(tableId, billSessionId);
+      if (!sessionsMap.has(key)) {
+        sessionsMap.set(key, {
+          tableId,
+          billSessionId,
+          table: config.value.tables.find(tab => tab.id === tableId),
+          transactions: [],
+          orders: [],
+        });
+      }
+      return sessionsMap.get(key);
+    };
+
     for (const t of transactions.value) {
       if (!t.tableId) continue;
       const sessionId = t.billSessionId ?? null;
-      const key = sessionId != null ? `${t.tableId}::${sessionId}` : t.tableId;
-      if (!sessionsMap.has(key)) {
-        sessionsMap.set(key, {
-          tableId: t.tableId,
-          billSessionId: sessionId,
-          table: config.value.tables.find(tab => tab.id === t.tableId),
-          transactions: [],
-        });
-      }
-      sessionsMap.get(key).transactions.push(t);
+      _ensureSession(t.tableId, sessionId).transactions.push(t);
+    }
+
+    for (const order of orders.value) {
+      if (!order?.table) continue;
+      if (order.status !== 'completed' && order.status !== 'rejected') continue;
+      const sessionId = order.billSessionId ?? null;
+      _ensureSession(order.table, sessionId).orders.push(order);
     }
 
     const bills = [];
-    for (const { tableId, billSessionId, table, transactions: txns } of sessionsMap.values()) {
+    for (const { tableId, billSessionId, table, transactions: txns, orders: sessionOrders } of sessionsMap.values()) {
       if (getTableStatus(tableId).status !== 'free') continue;
       txns.sort((a, b) => new Date(a.timestamp || 0) - new Date(b.timestamp || 0));
-
-      const tableOrds = orders.value.filter(o => {
-        if (o.table !== tableId || (o.status !== 'completed' && o.status !== 'rejected')) return false;
-        return billSessionId == null ? o.billSessionId == null : o.billSessionId === billSessionId;
-      });
 
       const paymentTxns = txns.filter(t => t.operationType !== 'discount');
       const discountTxns = txns.filter(t => t.operationType === 'discount');
       bills.push({
-        tableId, billSessionId, table, transactions: txns, orders: tableOrds,
+        tableId, billSessionId, table, transactions: txns, orders: sessionOrders,
         totalPaid: paymentTxns.reduce((acc, t) => acc + (t.amountPaid || 0), 0),
         totalDiscount: discountTxns.reduce((acc, t) => acc + (t.amountPaid || 0), 0),
         totalTips: txns.reduce((acc, t) => acc + (t.tipAmount || 0), 0),

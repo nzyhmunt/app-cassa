@@ -5,7 +5,7 @@
   "main": "server.js",
   "type": "commonjs",
   "engines": {
-    "node": ">=20.19.0"
+    "node": ">=22"
   },
   "scripts": {
     "start": "node -r dotenv/config server.js",
@@ -13,6 +13,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@directus/sdk": "^21.2.2",
     "@point-of-sale/receipt-printer-encoder": "^3.0.3",
     "cors": "^2.8.6",
     "dotenv": "^16.4.5",

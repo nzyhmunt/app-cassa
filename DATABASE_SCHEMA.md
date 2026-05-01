@@ -5,9 +5,16 @@ Le collection rispecchiano le convenzioni standard di Directus (ultima versione 
 riferimento per la configurazione del backend Directus sia come guida per la persistenza locale su **IndexedDB**
 (offline-first, sync push verso Directus non appena torna la connessione).
 
-**Sorgenti dati correnti** (localStorage):
-- `demo_app_state_v1` (eventualmente con suffisso di istanza, da `resolveStorageKeys()` in `src/store/persistence.js`)
-- `app-settings`
+**Sorgente dati corrente** (IndexedDB — database locale `app-cassa[_<instanceName>]`):
+- ObjectStore `app_meta` — metadati applicativi, impostazioni e sessione auth
+- ObjectStore `local_settings` — local device preferences (`sounds`, `menuUrl`, `menuSource`, `preventScreenLock`, `customKeyboard`, `preBillPrinterId`)
+- ObjectStore `orders`, `transactions`, `cash_movements`, `daily_closures`, `print_jobs` — dati operativi persistiti in store dedicati
+- ObjectStore `venue_users` — operatori locali con PIN hashato lato applicazione durante la sync
+- ObjectStore `direct_custom_items` — voci personalizzate
+- ObjectStore `sync_queue` — coda di operazioni in attesa di push verso Directus
+- ObjectStore `sync_failed_calls` — storico persistente delle chiamate di sync fallite (request/response completi)
+
+> I dati erano precedentemente persisti in `localStorage` (`demo_app_state_v1`, `app-settings`) tramite `pinia-plugin-persistedstate`. La migrazione a IndexedDB è completata.
 
 ---
 
@@ -61,32 +68,41 @@ trigger DB o logica equivalente.
    - 5.7 [Architettura sync multi-dispositivo](#57-architettura-di-sincronizzazione-multi-dispositivo)
    - 5.8 [Strategia di purge IndexedDB](#58-strategia-di-purge-indexeddb)
    - 5.9 [Gestione credenziali e autenticazione](#59-gestione-credenziali-e-autenticazione)
+   - 5.10 [Organizzazione admin Directus](#510-organizzazione-admin-directus)
 
 ---
 
 ## 1. Entità principali
 
-| Collection               | Descrizione                                              | Fonte localStorage           |
-|--------------------------|----------------------------------------------------------|------------------------------|
-| `venues`                 | Ristorante / punto vendita                               | `appConfig.ui`               |
-| `rooms`                  | Sale / aree della mappa tavoli                           | `appConfig.rooms`            |
-| `tables`                 | Tavoli della sala                                        | `appConfig.tables` (derivato da `appConfig.rooms`) |
-| `payment_methods`        | Metodi di pagamento configurati                          | `appConfig.paymentMethods`   |
-| `menu_categories`        | Categorie del menu (Antipasti, Primi, …)                 | `appConfig.menu` (chiavi)    |
-| `menu_items`             | Voci del menu (piatti, bevande, ecc.)                    | `appConfig.menu[categoria]`  |
-| `menu_item_modifiers`    | Modificatori/varianti disponibili per voce menu          | (configurazione menu)        |
-| `bill_sessions`          | Sessione di occupazione tavolo (un'apertura tavolo)      | `tableCurrentBillSession`    |
-| `orders`                 | Comande inviate dal tavolo                               | `orders`                     |
-| `order_items`            | Righe singole di una comanda                             | `order.orderItems`           |
-| `order_item_modifiers`   | Modificatori applicati a una riga comanda                | `orderItem.modifiers`        |
-| `transactions`           | Pagamenti e sconti applicati a un conto                  | `transactions`               |
-| `transaction_order_refs` | Collegamento N:M tra pagamenti e comande                 | `transaction.orderRefs`      |
-| `cash_movements`         | Versamenti e prelievi di cassa                           | `cashMovements`              |
-| `daily_closures`         | Chiusure giornaliere (rapporto Z)                        | `dailyClosures`              |
-| `printers`               | Stampanti ESC/POS configurate                            | `appConfig.printers`         |
-| `print_jobs`             | Log dei lavori di stampa inviati (cronologia stampe)     | `printLog` (localStorage)    |
-| `app_settings`           | Impostazioni utente (audio, URL menu, ecc.)              | `app-settings` (localStorage)|
-| `venue_users`            | Operatori locali per venue (PIN personale)               | —                            |
+| Collection                  | Descrizione                                                       | Fonte IndexedDB / appConfig  |
+|-----------------------------|-------------------------------------------------------------------|------------------------------|
+| `venues`                    | Ristorante / punto vendita                                        | `appConfig.ui`               |
+| `venue_users`               | Operatori locali per venue (PIN personale)                        | ObjectStore `venue_users`    |
+| `rooms`                     | Sale / aree della mappa tavoli                                    | `appConfig.rooms`            |
+| `tables`                    | Tavoli della sala                                                 | `appConfig.tables` (derivato da `appConfig.rooms`) |
+| `table_merge_sessions`      | Unioni tavolo attive (slave→master); un solo record per slave     | `store.tableMergedInto`      |
+| `payment_methods`           | Metodi di pagamento configurati                                   | `appConfig.paymentMethods`   |
+| `menu_categories`           | Categorie del menu (Antipasti, Primi, …)                          | `appConfig.menu` (chiavi)    |
+| `menu_items`                | Voci del menu (piatti, bevande, ecc.)                             | `appConfig.menu[categoria]`  |
+| `menu_modifiers`            | Pool globale modificatori menu (riusabile)                        | (configurazione menu)        |
+| `menu_categories_menu_modifiers` | Junction M2M categorie ↔ modificatori                       | (configurazione menu)        |
+| `menu_items_menu_modifiers` | Junction M2M voci ↔ modificatori                                  | (configurazione menu)        |
+| `menu_item_modifiers`       | **DEPRECATA** (vecchio modello 1:N per-voce)                      | (legacy, non usata nel sync) |
+| `bill_sessions`             | Sessione di occupazione tavolo (un'apertura tavolo)               | `app_meta.tableCurrentBillSession` |
+| `orders`                    | Comande inviate dal tavolo                                        | ObjectStore `orders`         |
+| `order_items`               | Righe singole di una comanda                                      | `order.orderItems`           |
+| `order_item_modifiers`      | Modificatori applicati a una riga comanda                         | `orderItem.modifiers`        |
+| `transactions`              | Pagamenti e sconti applicati a un conto                           | ObjectStore `transactions`   |
+| `transaction_order_refs`    | Collegamento N:M tra pagamenti e comande                          | `transaction.orderRefs`      |
+| `transaction_voce_refs`     | Righe analitiche voce + quantità (tipo `analitica`)               | `transaction.voceRefs`       |
+| `cash_movements`            | Versamenti e prelievi di cassa                                    | ObjectStore `cash_movements` |
+| `daily_closures`            | Chiusure giornaliere (rapporto Z)                                 | ObjectStore `daily_closures` |
+| `daily_closure_by_method`   | Dettaglio incassi per metodo di pagamento (riga di daily_closure) | (embedded in daily_closures) |
+| `printers`                  | Stampanti ESC/POS configurate                                     | `appConfig.printers`         |
+| `print_jobs`                | Log dei lavori di stampa inviati (cronologia stampe)              | ObjectStore `print_jobs`     |
+| `fiscal_receipts`           | Payload XML per comandi alla stampante fiscale                    | ObjectStore `fiscal_receipts` |
+| `invoice_requests`          | Dati di fatturazione elettronica richiesti a chiusura conto       | ObjectStore `invoice_requests` |
+| `ai_prompts`                | Prompt AI (Directus-interno, non usato dal frontend)              | *(nessuna — solo backend)*   |
 
 ---
 
@@ -118,6 +134,8 @@ CREATE TABLE venues (
     billing_allow_custom_entry            BOOLEAN NOT NULL DEFAULT TRUE,  -- abilita voci libere nel modal Voce Diretta
     -- orders configuration
     orders_rejection_reasons  JSONB    NULL,           -- appConfig.orders.rejectionReasons — array [{value,label}]; NULL = usa i predefiniti dell'applicazione
+    -- menu source: 'directus' (usa collection menu_categories/menu_items) o 'json' (usa menu_url)
+    menu_source     VARCHAR(20)     NOT NULL DEFAULT 'directus', -- appConfig.menuSource
     -- Directus standard fields
     user_created    UUID            NULL REFERENCES directus_users(id),
     date_created    TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
@@ -138,7 +156,7 @@ CREATE TABLE rooms (
     status          VARCHAR(20)     NOT NULL DEFAULT 'published', -- 'published' | 'archived'
     venue           INTEGER         NOT NULL REFERENCES venues(id) ON DELETE CASCADE,
     label           VARCHAR(80)     NOT NULL,       -- es. 'Sala Interna', 'Terrazza'
-    sort_order      SMALLINT        NOT NULL DEFAULT 0,
+    sort            INTEGER         NULL,
     -- Directus standard fields
     user_created    UUID            NULL REFERENCES directus_users(id),
     date_created    TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
@@ -165,7 +183,7 @@ CREATE TABLE tables (
     room            VARCHAR(30)     NULL REFERENCES rooms(id) ON DELETE SET NULL,
     label           VARCHAR(80)     NOT NULL,       -- es. 'Tavolo 01'
     covers          SMALLINT        NOT NULL CHECK (covers > 0),  -- posti a sedere
-    sort_order      SMALLINT        NOT NULL DEFAULT 0,
+    sort            INTEGER         NULL,
     -- Directus standard fields
     user_created    UUID            NULL REFERENCES directus_users(id),
     date_created    TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
@@ -188,7 +206,7 @@ CREATE TABLE payment_methods (
     label           VARCHAR(60)     NOT NULL,       -- es. 'Contanti', 'Pos/Carta'
     icon            VARCHAR(50)     NULL,           -- nome icona Lucide
     color_class     VARCHAR(80)     NULL,           -- classe Tailwind CSS
-    sort_order      SMALLINT        NOT NULL DEFAULT 0,
+    sort            INTEGER         NULL,
     -- Directus standard fields
     user_created    UUID            NULL REFERENCES directus_users(id),
     date_created    TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
@@ -209,7 +227,7 @@ CREATE TABLE menu_categories (
     status          VARCHAR(20)     NOT NULL DEFAULT 'published', -- 'published' | 'archived'
     venue           INTEGER         NOT NULL REFERENCES venues(id) ON DELETE CASCADE,
     name            VARCHAR(80)     NOT NULL,       -- es. 'Antipasti', 'Primi Piatti'
-    sort_order      SMALLINT        NOT NULL DEFAULT 0,
+    sort            INTEGER         NULL,
     -- Directus standard fields
     user_created    UUID            NULL REFERENCES directus_users(id),
     date_created    TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
@@ -238,7 +256,7 @@ CREATE TABLE menu_items (
     image_url       TEXT            NULL,
     ingredients     TEXT[]          NULL,           -- array di stringhe
     allergens       TEXT[]          NULL,
-    sort_order      SMALLINT        NOT NULL DEFAULT 0,
+    sort            INTEGER         NULL,
     -- Directus standard fields
     user_created    UUID            NULL REFERENCES directus_users(id),
     date_created    TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
@@ -249,7 +267,89 @@ CREATE TABLE menu_items (
 
 ---
 
-### 2.6 `menu_item_modifiers` — Modificatori disponibili per voce menu
+### 2.5a `menu_modifiers` — Pool globale modificatori menu
+
+Contiene i modificatori riutilizzabili (es. "Extra aglio", "Senza glutine") condivisi tra più voci menu e/o categorie.
+Sostituisce il vecchio modello 1:N `menu_item_modifiers` con un pool M2M centralizzato.
+
+Campi Directus standard abilitati: `status`, `user_created`, `date_created`, `user_updated`, `date_updated`.
+
+```sql
+CREATE TABLE menu_modifiers (
+    id              SERIAL          PRIMARY KEY,
+    status          VARCHAR(20)     NOT NULL DEFAULT 'published', -- 'published' | 'archived'
+    venue           INTEGER         NOT NULL REFERENCES venues(id) ON DELETE CASCADE,
+    name            VARCHAR(80)     NOT NULL,       -- es. 'Extra aglio', 'Senza glutine'
+    price           NUMERIC(8,2)    NOT NULL DEFAULT 0.00,
+    sort            INTEGER         NULL,
+    -- Directus standard fields
+    user_created    UUID            NULL REFERENCES directus_users(id),
+    date_created    TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    user_updated    UUID            NULL REFERENCES directus_users(id),
+    date_updated    TIMESTAMPTZ     NULL
+);
+```
+
+---
+
+### 2.5b `menu_categories_menu_modifiers` — Junction M2M categorie ↔ modificatori
+
+Assegna modificatori a intere categorie: tutti gli item di quella categoria ereditano i modificatori
+della loro categoria più eventuali modificatori assegnati direttamente all'item (vedi 2.5c).
+
+```sql
+CREATE TABLE menu_categories_menu_modifiers (
+    id                  SERIAL      PRIMARY KEY,                              -- PK integer (Directus convention per M2M)
+    menu_categories_id  INTEGER     NOT NULL REFERENCES menu_categories(id) ON DELETE CASCADE,
+    menu_modifiers_id   INTEGER     NOT NULL REFERENCES menu_modifiers(id)   ON DELETE CASCADE,
+    venue               INTEGER     NOT NULL REFERENCES venues(id)            ON DELETE CASCADE, -- denormalizzato per indice IDB
+    sort                INTEGER     NULL,
+    date_updated        TIMESTAMPTZ NULL,
+    UNIQUE (menu_categories_id, menu_modifiers_id)
+);
+
+CREATE INDEX idx_cat_mod_category ON menu_categories_menu_modifiers (menu_categories_id);
+CREATE INDEX idx_cat_mod_modifier ON menu_categories_menu_modifiers (menu_modifiers_id);
+```
+
+> **Campo `venue`**: denormalizzato per consentire query veloci per `venue` nell'ObjectStore IDB
+> (`menu_categories_menu_modifiers` — keyPath: `id`, index: `venue`). Coerente con il pattern
+> `withVenueFallback` di `_fanOutVenueTreeToIDB`.
+
+---
+
+### 2.5c `menu_items_menu_modifiers` — Junction M2M voci menu ↔ modificatori
+
+Assegna modificatori direttamente a singole voci menu (override/estensione rispetto alla categoria).
+
+```sql
+CREATE TABLE menu_items_menu_modifiers (
+    id                  SERIAL          PRIMARY KEY,                              -- PK integer (Directus convention per M2M)
+    menu_items_id       VARCHAR(50)     NOT NULL REFERENCES menu_items(id)       ON DELETE CASCADE,
+    menu_modifiers_id   INTEGER         NOT NULL REFERENCES menu_modifiers(id)   ON DELETE CASCADE,
+    venue               INTEGER         NOT NULL REFERENCES venues(id)            ON DELETE CASCADE, -- denormalizzato per indice IDB
+    sort                INTEGER         NULL,
+    date_updated        TIMESTAMPTZ     NULL,
+    UNIQUE (menu_items_id, menu_modifiers_id)
+);
+
+CREATE INDEX idx_item_mod_item     ON menu_items_menu_modifiers (menu_items_id);
+CREATE INDEX idx_item_mod_modifier ON menu_items_menu_modifiers (menu_modifiers_id);
+```
+
+> **Relazione nei deep-fetch**: `menu_categories.menu_modifiers.menu_modifiers_id.*` e
+> `menu_items.menu_modifiers.menu_modifiers_id.*` — usate in `DEEP_FETCH_FIELDS` di
+> `useDirectusSync.js`. Richiedono che `menu_categories` e `menu_items` abbiano un campo
+> **O2M alias** `menu_modifiers` configurato in Directus (vedi §5.x `DIRECTUS_SETUP_REPORT.md`).
+
+---
+
+### 2.6 `menu_item_modifiers` — **Legacy deprecata** (modello 1:N per voce)
+
+> ⚠️ Collection mantenuta solo per retrocompatibilità storica.
+> Il modello attivo usa `menu_modifiers` + junction M2M
+> (`menu_categories_menu_modifiers`, `menu_items_menu_modifiers`).
+> La cache IndexedDB non include più questo store.
 
 Campi Directus standard abilitati: `status`, `user_created`, `date_created`, `user_updated`, `date_updated`.
 
@@ -260,7 +360,7 @@ CREATE TABLE menu_item_modifiers (
     menu_item       VARCHAR(50)     NOT NULL REFERENCES menu_items(id) ON DELETE CASCADE,
     name            VARCHAR(80)     NOT NULL,       -- es. 'Extra aglio'
     price           NUMERIC(8,2)    NOT NULL DEFAULT 0.00,
-    sort_order      SMALLINT        NOT NULL DEFAULT 0,
+    sort            INTEGER         NULL,
     -- Directus standard fields
     user_created    UUID            NULL REFERENCES directus_users(id),
     date_created    TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
@@ -275,6 +375,10 @@ CREATE TABLE menu_item_modifiers (
 
 Una riga per ogni volta che un tavolo viene aperto.
 Creata al primo ordine accettato; chiusa quando tutti gli ordini sono `completed` o `rejected`.
+
+> **Allineamento campi persone (P1-6)**: i campi canonicali sono `adults` e
+> `children`. I legacy `adults_count` / `children_count` non sono più usati nel
+> mapper di push/hydration runtime.
 
 **Primary key**: UUID v7 (time-ordered, generato client-side prima dell'invio a Directus).
 
@@ -383,7 +487,7 @@ CREATE TABLE order_items (
     voided_quantity SMALLINT        NOT NULL DEFAULT 0 CHECK (voided_quantity >= 0),
     notes           TEXT[]          NULL,
     course          VARCHAR(10)     NULL CHECK (course IN ('prima', 'insieme', 'dopo')),  -- serving order: first/together/after
-    sort_order      SMALLINT        NOT NULL DEFAULT 0,
+    sort            INTEGER         NULL,
     kitchen_ready   BOOLEAN         NOT NULL DEFAULT FALSE,  -- flag per toggle per-voce in App Cucina (Dettaglio)
     status          VARCHAR(20)     NOT NULL DEFAULT 'active', -- 'active' | 'archived' (soft-delete)
     -- Directus standard fields
@@ -602,33 +706,19 @@ CREATE TABLE daily_closure_by_method (
 
 ---
 
-### 2.17 `app_settings` — Impostazioni applicazione per utente/dispositivo
+### 2.17 `app_settings` — **rimossa (deprecated legacy)**
 
-Campi Directus standard abilitati: `user_created`, `date_created`, `user_updated`, `date_updated`.
-
-```sql
-CREATE TABLE app_settings (
-    id              SERIAL          PRIMARY KEY,
-    venue           INTEGER         NOT NULL REFERENCES venues(id) ON DELETE CASCADE,
-    device_key      VARCHAR(120)    NOT NULL DEFAULT 'default',  -- es. UUID dispositivo
-    sounds          BOOLEAN         NOT NULL DEFAULT TRUE,       -- avvisi audio "ding"
-    menu_url        TEXT,                                        -- URL menu digitale (corrisponde a `menuUrl` in app-settings)
-    pre_bill_printer VARCHAR(40)    NULL REFERENCES printers(id) ON DELETE SET NULL, -- default printer for pre-bill dispatch
-    -- Directus standard fields
-    user_created    UUID            NULL REFERENCES directus_users(id),
-    date_created    TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
-    user_updated    UUID            NULL REFERENCES directus_users(id),
-    date_updated    TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
-    UNIQUE (venue, device_key)
-);
-```
+> La collection Directus `app_settings` è stata deprecata e rimossa.
+> Le impostazioni dispositivo attive (`sounds`, `menuUrl`, `menuSource`, `preventScreenLock`,
+> `customKeyboard`, `preBillPrinterId`) restano gestite esclusivamente nello store IDB `local_settings`.
 
 ---
 
 ### 2.18 `printers` — Stampanti ESC/POS configurate
 
-I dati delle stampanti sono configurati staticamente in `appConfig.printers` e non sono persistiti
-in localStorage. Con Directus si tradurrebbero nella seguente collection.
+I dati delle stampanti sono configurati in `appConfig.printers` (frontend) e nella collezione
+Directus `printers` (backend). Quando la modalità Directus Pull è attiva, la collezione
+Directus è la **fonte unica di verità** e sovrascrive `printers.config.js` / `PRINTER_<N>_*`.
 
 Campi Directus standard abilitati: `status`, `user_created`, `date_created`, `user_updated`, `date_updated`.
 
@@ -638,7 +728,28 @@ CREATE TABLE printers (
     status          VARCHAR(20)     NOT NULL DEFAULT 'published', -- 'published' | 'archived'
     venue           INTEGER         NOT NULL REFERENCES venues(id) ON DELETE CASCADE,
     name            VARCHAR(80)     NOT NULL,               -- nome visualizzato nella UI
-    url             TEXT            NOT NULL,               -- URL servizio Node ESC/POS
+
+    -- ── Endpoint HTTP (per i flussi che usano il print-server via HTTP) ─────
+    -- URL del servizio print-server a cui inviare i job via POST /print.
+    -- Usato solo quando la stampante è configurata per connessione HTTP
+    -- (ad es. frontend / Modalità 1). NULL se si usa solo connessione diretta TCP/File.
+    url             TEXT            NULL,                   -- es. 'http://localhost:3001/print'
+
+    -- ── Connessione diretta (per Directus Pull — Modalità 2) ─────────────────
+    -- Quando connection_type = 'tcp' o 'file', il print-server in modalità pull
+    -- si connette direttamente alla stampante fisica senza passare per l'endpoint HTTP.
+    -- Se connection_type = 'http' o NULL, viene usata la connessione via URL (sopra).
+    connection_type VARCHAR(10)     NOT NULL DEFAULT 'http', -- 'http' | 'tcp' | 'file'
+
+    -- Connessione TCP (per connection_type = 'tcp')
+    tcp_host        VARCHAR(255)    NULL,                   -- IP/hostname stampante (es. 192.168.1.100)
+    tcp_port        SMALLINT        NULL DEFAULT 9100,      -- porta TCP ESC/POS (tipicamente 9100)
+    tcp_timeout     INTEGER         NULL DEFAULT 5000,      -- timeout connessione in ms
+
+    -- Connessione file/USB (per connection_type = 'file')
+    file_device     TEXT            NULL DEFAULT '/dev/usb/lp0', -- percorso device USB/parallela
+
+    -- ── Routing (per frontend — Modalità 1) ──────────────────────────────────
     -- print_types: quali tipi di lavoro riceve questa stampante.
     -- Valori ammessi: 'order', 'table_move', 'pre_bill', oppure un tipo custom.
     -- Array vuoto / NULL = catch-all (riceve tutti i tipi).
@@ -646,7 +757,8 @@ CREATE TABLE printers (
     -- categories: filtro menu per i lavori di tipo 'order'.
     -- Se vuoto, riceve tutte le voci del menu (catch-all).
     categories      TEXT[]          NOT NULL DEFAULT '{}',
-    sort_order      SMALLINT        NOT NULL DEFAULT 0,
+
+    sort            INTEGER         NULL,
     -- Directus standard fields
     user_created    UUID            NULL REFERENCES directus_users(id),
     date_created    TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
@@ -654,6 +766,25 @@ CREATE TABLE printers (
     date_updated    TIMESTAMPTZ     NOT NULL DEFAULT NOW()
 );
 ```
+
+> ⚠️ **NON RIMUOVERE i seguenti campi dalla collection `printers`:**
+> `connection_type`, `tcp_host`, `tcp_port`, `tcp_timeout`, `file_device`
+>
+> Questi campi **non sono usati dal frontend** (App Cassa / App Cucina) ma sono consumati
+> esclusivamente dal componente **Print Server** (servizio Node.js separato) per aprire
+> connessioni dirette alle stampanti ESC/POS senza passare per l'endpoint HTTP:
+>
+> | Campo             | Consumer         | Descrizione                                                        |
+> |-------------------|------------------|--------------------------------------------------------------------|
+> | `connection_type` | **Print Server** | `'http'` → endpoint URL; `'tcp'` → socket TCP; `'file'` → device file USB/parallela |
+> | `tcp_host`        | **Print Server** | IP/hostname della stampante sulla LAN (modalità `tcp`)             |
+> | `tcp_port`        | **Print Server** | Porta TCP ESC/POS, default 9100 (modalità `tcp`)                   |
+> | `tcp_timeout`     | **Print Server** | Timeout connessione TCP in ms, default 5000 (modalità `tcp`)       |
+> | `file_device`     | **Print Server** | Path device file USB/parallelo, es. `/dev/usb/lp0` (modalità `file`) |
+> | `url`             | Frontend + Print Server | Endpoint HTTP del print-server (modalità `http`). Nullable: obbligatorio solo quando `connection_type = 'http'` |
+>
+> Rimuovere questi campi da Directus renderebbe inutilizzabili le modalità TCP e File/USB del
+> Print Server, impedendo la stampa diretta senza service intermediary.
 
 ---
 
@@ -670,10 +801,9 @@ CREATE TYPE print_job_status AS ENUM ('pending', 'printing', 'done', 'error');
 
 CREATE TABLE print_jobs (
     -- Identificatori
-    log_id          VARCHAR(40)     PRIMARY KEY,            -- plog_<uuid> — chiave del log entry
-    job_id          VARCHAR(40)     NOT NULL,               -- job_<uuid>  — inviato nella richiesta al servizio ESC/POS
-    printer         VARCHAR(40)     NOT NULL REFERENCES printers(id) ON DELETE RESTRICT,
-    venue           INTEGER         NOT NULL REFERENCES venues(id) ON DELETE CASCADE,
+    id              UUID            PRIMARY KEY,            -- UUID v7 standard (Directus PK)
+    printer         VARCHAR(40)     NULL REFERENCES printers(id) ON DELETE SET NULL,
+    venue           INTEGER         NULL REFERENCES venues(id) ON DELETE SET NULL,
 
     -- Tipo di stampa (estensibile: aggiungere nuovi valori senza modificare lo schema)
     -- Valori correnti: 'order', 'table_move', 'pre_bill'
@@ -692,7 +822,6 @@ CREATE TABLE print_jobs (
 
     -- Ristampa
     is_reprint      BOOLEAN         NOT NULL DEFAULT FALSE,
-    original_job_id VARCHAR(40)     NULL,                   -- solo per ristampe: contiene il job_id originale, non il log_id
 
     -- Payload completo inviato al servizio ESC/POS (struttura libera per tipo)
     -- Campi comuni a tutti i tipi:
@@ -704,7 +833,7 @@ CREATE TABLE print_jobs (
     -- Campi per 'pre_bill':
     --   tableId, tableLabel, grossAmount, paymentsRecorded, amountDue, items[]
     -- Campi opzionali per ristampe:
-    --   reprinted: true
+    --   reprinted: true, originalJobId: <jobId>
     payload         JSONB           NOT NULL DEFAULT '{}',
 
     -- Directus standard fields
@@ -724,12 +853,184 @@ CREATE INDEX idx_print_jobs_type_status ON print_jobs (print_type, status);
 
 ---
 
+### 2.20 `fiscal_receipts` — Comandi stampante fiscale (scontrini RT)
+
+Ogni record rappresenta un tentativo di emissione di uno scontrino fiscale a chiusura conto.
+Non riutilizza `print_jobs` perché il formato (XML RT) e il ciclo di vita (request/response XML) sono completamente diversi dai lavori ESC/POS.
+
+```sql
+CREATE TABLE fiscal_receipts (
+    id                  TEXT        PRIMARY KEY,   -- 'fis_' + UUID v7 (time-ordered, e.g. fis_0192fa3c-b41a-7e8d-a312-…)
+    -- Relazioni (senza suffisso _id — convenzione app)
+    venue               INTEGER     REFERENCES venues(id) ON DELETE SET NULL,
+    "table"             TEXT        NOT NULL REFERENCES tables(id),
+    bill_session        TEXT        REFERENCES bill_sessions(id) ON DELETE SET NULL,
+    table_label         TEXT,
+    closed_at           TIMESTAMPTZ,               -- Data di chiusura originale del conto (bill.closedAt per storico; NOW() per cassa live)
+    total_amount        NUMERIC(10,2) NOT NULL DEFAULT 0,
+    total_paid          NUMERIC(10,2) NOT NULL DEFAULT 0,
+                                                   -- Per conti dallo storico: include bill.totalDiscount per allineamento con la cassa live
+    payment_methods     TEXT,                      -- JSON array di stringhe
+    orders              TEXT,                      -- JSON snapshot voci (name/qty/unitPrice)
+    xml_request         TEXT,                      -- Payload XML inviato alla stampante
+    xml_response        TEXT,                      -- Risposta XML ricevuta dalla stampante (null se non ancora ricevuta)
+    status              TEXT        NOT NULL DEFAULT 'pending'
+                                    CHECK (status IN ('pending','sent','ok','error')),
+    timestamp           TIMESTAMPTZ NOT NULL DEFAULT NOW(),  -- Istante della richiesta (non della chiusura conto)
+    -- Directus standard fields
+    date_created        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    date_updated        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    -- Operatori locali (venue_user) — tracciamento audit operatori PIN
+    venue_user_created  TEXT        REFERENCES venue_users(id) ON DELETE SET NULL,
+    venue_user_updated  TEXT        REFERENCES venue_users(id) ON DELETE SET NULL
+);
+
+CREATE INDEX idx_fiscal_receipts_venue        ON fiscal_receipts (venue);
+CREATE INDEX idx_fiscal_receipts_table        ON fiscal_receipts ("table");
+CREATE INDEX idx_fiscal_receipts_bill_session ON fiscal_receipts (bill_session);
+CREATE INDEX idx_fiscal_receipts_status       ON fiscal_receipts (status);
+CREATE INDEX idx_fiscal_receipts_timestamp    ON fiscal_receipts (timestamp DESC);
+```
+
+---
+
+### 2.21 `invoice_requests` — Richieste fattura elettronica
+
+Ogni record rappresenta una richiesta di fatturazione elettronica raccolta a chiusura conto.
+I dati di fatturazione (denominazione, CF/PIVA, indirizzo, SDI) vengono inseriti dall'operatore al momento della chiusura.
+
+```sql
+CREATE TABLE invoice_requests (
+    id                   TEXT        PRIMARY KEY,   -- 'inv_' + UUID v7 (time-ordered, e.g. inv_0192fa3c-b41a-7e8d-a312-…)
+    -- Relazioni (senza suffisso _id — convenzione app)
+    venue                INTEGER     REFERENCES venues(id) ON DELETE SET NULL,
+    "table"              TEXT        NOT NULL REFERENCES tables(id),
+    bill_session         TEXT        REFERENCES bill_sessions(id) ON DELETE SET NULL,
+    table_label          TEXT,
+    closed_at            TIMESTAMPTZ,               -- Data di chiusura originale del conto (bill.closedAt per storico; NOW() per cassa live)
+    total_amount         NUMERIC(10,2) NOT NULL DEFAULT 0,
+    total_paid           NUMERIC(10,2) NOT NULL DEFAULT 0,
+                                                    -- Per conti dallo storico: include bill.totalDiscount per allineamento con la cassa live
+    payment_methods      TEXT,                      -- JSON array di stringhe
+    orders               TEXT,                      -- JSON snapshot voci
+    -- Dati anagrafici cliente
+    denominazione        TEXT        NOT NULL,      -- Ragione sociale o nome/cognome
+    codice_fiscale       TEXT,
+    piva                 TEXT,
+    indirizzo            TEXT        NOT NULL,
+    cap                  TEXT        NOT NULL,
+    comune               TEXT        NOT NULL,
+    provincia            TEXT,
+    paese                TEXT        NOT NULL DEFAULT 'IT',
+    codice_destinatario  TEXT,                      -- Codice SDI (7 caratteri)
+    pec                  TEXT,
+    status               TEXT        NOT NULL DEFAULT 'pending'
+                                     CHECK (status IN ('pending','sent','ok','error')),
+    timestamp            TIMESTAMPTZ NOT NULL DEFAULT NOW(),  -- Istante della richiesta (non della chiusura conto)
+    -- Directus standard fields
+    date_created         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    date_updated         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    -- Operatori locali (venue_user) — tracciamento audit operatori PIN
+    venue_user_created   TEXT        REFERENCES venue_users(id) ON DELETE SET NULL,
+    venue_user_updated   TEXT        REFERENCES venue_users(id) ON DELETE SET NULL
+);
+
+CREATE INDEX idx_invoice_requests_venue        ON invoice_requests (venue);
+CREATE INDEX idx_invoice_requests_table        ON invoice_requests ("table");
+CREATE INDEX idx_invoice_requests_bill_session ON invoice_requests (bill_session);
+CREATE INDEX idx_invoice_requests_status       ON invoice_requests (status);
+CREATE INDEX idx_invoice_requests_timestamp    ON invoice_requests (timestamp DESC);
+```
+
+---
+
+### 2.22 `venue_users` — Operatori locali (camerieri, cassieri, cuochi)
+
+Campi Directus standard abilitati: `user_created`, `date_created`, `user_updated`, `date_updated`.
+
+> La collection `venue_users` è documentata in dettaglio nella sezione [5.9 — Gestione credenziali e autenticazione](#59-gestione-credenziali-e-autenticazione).
+
+```sql
+CREATE TABLE venue_users (
+    id           UUID         PRIMARY KEY,                -- UUID v7 generato client-side
+    venue        INTEGER      NOT NULL REFERENCES venues(id) ON DELETE CASCADE,
+    display_name VARCHAR(100) NOT NULL,
+    apps         JSONB        NOT NULL,                  -- array: ["admin"] oppure sottoinsieme di ["cassa","sala","cucina"]
+    pin          VARCHAR(255) NOT NULL,                  -- plaintext PIN su Directus (hash lato app in fase di sync)
+    status       VARCHAR(20)  NOT NULL DEFAULT 'active', -- 'active' | 'archived'
+    -- Directus standard fields
+    user_created UUID         NULL REFERENCES directus_users(id),
+    date_created TIMESTAMPTZ  DEFAULT NOW(),
+    user_updated UUID         NULL REFERENCES directus_users(id),
+    date_updated TIMESTAMPTZ  DEFAULT NOW()
+);
+
+CREATE INDEX idx_venue_users_venue  ON venue_users (venue);
+CREATE INDEX idx_venue_users_status ON venue_users (status);
+CREATE INDEX idx_venue_users_apps   ON venue_users USING GIN (apps);
+```
+
+---
+
+### 2.23 `table_merge_sessions` — Unioni tavolo attive
+
+> **Struttura modificata rispetto all'originale**: la PK è ora un UUID `id` separato (non `slave_table`) per
+> compatibilità con Directus, che non permette relazioni M2O su campi PK. Il campo `slave_table` ha vincolo
+> UNIQUE che garantisce al massimo un record per tavolo slave.
+
+```sql
+-- Unioni tavolo attive: ogni riga rappresenta un'unione slave → master.
+-- Il record viene eliminato quando l'unione viene annullata (split).
+CREATE TABLE table_merge_sessions (
+    id           UUID         PRIMARY KEY,                          -- UUID v7 generato client-side; riutilizzato tra cicli di write per preservare l'identità Directus
+    venue        INTEGER      NOT NULL REFERENCES venues(id) ON DELETE CASCADE,
+    slave_table  VARCHAR(10)  NOT NULL UNIQUE REFERENCES tables(id) ON DELETE CASCADE, -- tavolo che delega il proprio stato al master
+    master_table VARCHAR(10)  NOT NULL REFERENCES tables(id) ON DELETE CASCADE,        -- tavolo che riceve le comande
+    merged_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    sort         INTEGER      NULL,
+    -- Directus standard fields
+    user_created UUID         NULL REFERENCES directus_users(id),
+    date_created TIMESTAMPTZ  DEFAULT NOW(),
+    user_updated UUID         NULL REFERENCES directus_users(id),
+    date_updated TIMESTAMPTZ  DEFAULT NOW()
+);
+
+CREATE INDEX idx_table_merge_master ON table_merge_sessions (master_table);
+CREATE INDEX idx_table_merge_venue  ON table_merge_sessions (venue);
+```
+
+**Semantica:**
+- Un tavolo slave ha **esattamente una** riga in questa collection quando è unito.
+- `getTableStatus(slaveId)` delega a `getTableStatus(masterId)` grazie a `tableMergedInto[slaveId]` in store.
+- Le comande dello slave vengono fisicamente spostate sulla `bill_session` del master al momento del merge.
+- L'eliminazione del record (split) ripristina l'autonomia del tavolo slave.
+- Il campo `id` è un UUID v7 generato client-side e riutilizzato tra cicli di write per preservare l'identità del record Directus.
+
+---
+
+### 2.24 `ai_prompts` — Prompt AI (Directus-interno)
+
+> **Nota**: questa collection è gestita interamente dal server Directus (via Directus MCP Extension o
+> script admin). **Non è usata dal frontend app-cassa** e non richiede integrazione con IndexedDB o
+> la coda di sync. Documentata qui solo ai fini dell'inventario schema live.
+
+Campi principali: `id` (UUID), `name`, `description`, `system_prompt` (markdown), `messages` (JSON array
+con oggetti `{role, text}`), `status`, campi standard Directus (`user_created`, `date_created`, ecc.).
+
+---
+
 ## 3. Relazioni
 
 ```
 venues ──< rooms ──< tables
+venues ──< venue_users
+tables ──< table_merge_sessions (slave_table → master_table)
+venues ──< table_merge_sessions
 venues ──< payment_methods
-venues ──< menu_categories ──< menu_items ──< menu_item_modifiers
+venues ──< menu_categories ──< menu_items
+venues ──< menu_modifiers
+menu_categories >──< menu_modifiers (via menu_categories_menu_modifiers)
+menu_items >──< menu_modifiers (via menu_items_menu_modifiers)
 venues ──< bill_sessions >── tables
 venues ──< orders >── tables
                     >── bill_sessions
@@ -744,8 +1045,8 @@ venues ──< cash_movements
 venues ──< daily_closures ──< daily_closure_by_method
 venues ──< printers
 venues ──< print_jobs >── printers
-Nota: `print_jobs.original_job_id` conserva il `job_id` originale per ristampe, ma non è una FK
-venues ──< app_settings
+bill_sessions ──< fiscal_receipts
+bill_sessions ──< invoice_requests
 ```
 
 Cardinalità:
@@ -753,11 +1054,15 @@ Cardinalità:
 | Da             | Relazione | A                        |
 |----------------|-----------|--------------------------|
 | venue          | 1 : N     | rooms                    |
+| venue          | 1 : N     | venue_users              |
 | room           | 1 : N     | tables                   |
+| table          | 0 : 1     | table_merge_sessions (slave_table, UNIQUE) |
 | venue          | 1 : N     | payment_methods          |
 | venue          | 1 : N     | menu_categories          |
 | menu_category  | 1 : N     | menu_items               |
-| menu_item      | 1 : N     | menu_item_modifiers      |
+| venue          | 1 : N     | menu_modifiers           |
+| menu_category  | N : M     | menu_modifiers           |
+| menu_item      | N : M     | menu_modifiers           |
 | table          | 1 : N     | bill_sessions            |
 | bill_session   | 1 : N     | orders                   |
 | order          | 1 : N     | order_items              |
@@ -778,36 +1083,29 @@ Cardinalità:
 │   venues    │──1──│ menu_categories  │──1──│   menu_items      │
 │─────────────│  N  │──────────────────│  N  │───────────────────│
 │ id (PK)     │     │ id (PK)          │     │ id (PK)           │
-│ status      │     │ venue (FK)       │     │ category (FK)     │
-│ name        │     │ name             │     │ name              │
-│ primary_    │     │ sort_order       │     │ price             │
-│  color      │     │ status           │     │ allergens[]       │
-│ currency    │     │ date_created     │     │ status            │
-│ menu_url    │     └──────────────────┘     │ date_created      │
-│ cover_      │                              │ date_updated      │
-│  charge_*   │                              └────────┬──────────┘
-│ billing_*   │                                       │ 1
-│ date_created│                                       │ N
-│ date_updated│                              ┌────────▼──────────┐
-└──────┬──────┘                              │menu_item_modifiers│
-       │ 1                                   │───────────────────│
-       │                                     │ menu_item (FK)    │
-       │ N                                   │ name              │
-┌──────▼──────┐     ┌──────────────────┐     │ price             │
-│   rooms     │──1──│     tables       │     │ status            │
-│─────────────│  N  │──────────────────│     └───────────────────┘
-│ id (PK)     │     │ id (PK)          │
-│ venue (FK)  │     │ venue (FK)       │
-│ label       │     │ room (FK, null)  │
-│ status      │     │ label            │
-│ sort_order  │     │ covers           │
-└─────────────┘     │ status           │
-                    │ sort_order       │
-                    └────────┬─────────┘
-                             │ 1
-                             │ N
-                    ┌────────▼──────────┐
-                    │  bill_sessions    │
+│ name        │     │ venue (FK)       │     │ category (FK)     │
+│ ...         │     │ name             │     │ name / price / ...│
+└──────┬──────┘     └────────┬─────────┘     └────────┬──────────┘
+       │ 1                   │ N                      │ N
+       │ N                   │                        │
+┌──────▼──────┐     ┌────────▼──────────┐     ┌───────▼────────────────────┐
+│   rooms     │──1──│      tables       │     │ menu_items_menu_modifiers  │
+│─────────────│  N  │───────────────────│     │      (junction M2M)        │
+│ id (PK)     │     │ id (PK)           │     └───────────┬─────────────────┘
+│ venue (FK)  │     │ room (FK, null)   │                 │ N
+│ ...         │     │ ...               │                 │
+└─────────────┘     └────────┬──────────┘        ┌────────▼──────────┐
+                             │ 1                 │   menu_modifiers  │
+                             │ N                 │───────────────────│
+                             │           ┌───────│ id (PK), venue FK │
+                             │           │ N     │ name / price / ...│
+                             │   ┌───────▼───────────────────────────┐
+                             │   │ menu_categories_menu_modifiers    │
+                             │   │        (junction M2M)             │
+                             │   └────────────────────────────────────┘
+                             │
+                             ┌────────▼──────────┐
+                             │  bill_sessions    │
                     │──────────────────│
                     │ id (PK, UUIDv7)  │
                     │ table (FK)       │
@@ -907,9 +1205,9 @@ Cardinalità:
 
 ## 5. Note di migrazione
 
-### 5.1 Corrispondenza localStorage → Collection Directus
+### 5.1 Corrispondenza stato locale → Collection Directus
 
-| localStorage (`demo_app_state_v1`)    | Collection Directus                             |
+| Stato locale (IndexedDB / `app_meta`)  | Collection Directus                             |
 |---------------------------------------|----------------------------------------|
 | `orders[]`                            | `orders` + `order_items` + `order_item_modifiers` |
 | `order.globalNote`                    | `orders.global_note`                   |
@@ -917,6 +1215,8 @@ Cardinalità:
 | `order.isDirectEntry`                 | `orders.is_direct_entry`               |
 | `order.rejectionReason`               | `orders.rejection_reason`              |
 | `transactions[]`                      | `transactions` + `transaction_order_refs` + `transaction_voce_refs` |
+| `transaction.paymentMethodId`         | `transactions.payment_method`          |
+| `transaction.paymentMethod`           | snapshot locale/UI (label), non persistito su Directus; campo solo UI, scartato in push / `_toDirectusPayload()` |
 | `tableOccupiedAt`                     | `bill_sessions.opened_at`              |
 | `billRequestedTables` (Set)           | query: `orders.status = 'pending'` con `bill_session` attiva |
 | `tableCurrentBillSession`             | `bill_sessions` (righe con `status = 'open'`) |
@@ -924,9 +1224,9 @@ Cardinalità:
 | `cashBalance`                         | somma di `cash_movements` + valore iniziale |
 | `cashMovements[]`                     | `cash_movements`                       |
 | `dailyClosures[]`                     | `daily_closures` + `daily_closure_by_method` |
-| `printLog[]` (localStorage)           | `print_jobs`                           |
+| `printLog[]` (IDB ObjectStore: `print_jobs`)   | `print_jobs`                      |
 | `appConfig.printers`                  | `printers`                             |
-| `app-settings` (localStorage)         | `app_settings`                         |
+| IDB ObjectStore: `local_settings`     | preferenze locali dispositivo (incl. `menuSource`: `directus` \| `json`) |
 | `appConfig.menu`                      | `menu_categories` + `menu_items`       |
 | `appConfig.rooms`                     | `rooms`                                |
 | `appConfig.tables` (derivato)         | `tables`                               |
@@ -934,6 +1234,7 @@ Cardinalità:
 | `appConfig.ui.*`                      | `venues`                               |
 | `appConfig.coverCharge.*`             | `venues.cover_charge_*`                |
 | `appConfig.billing.*`                 | `venues.billing_*`                     |
+| `appConfig.menuSource`                | `venues.menu_source`                   |
 | `appConfig.billing.allowCustomEntry`  | `venues.billing_allow_custom_entry`    |
 | `appConfig.orders.rejectionReasons`   | `venues.orders_rejection_reasons` (JSONB) |
 
@@ -972,7 +1273,11 @@ WHERE o."table" = :table_id
 ### 5.2c Tavoli uniti (`tableMergedInto`)
 
 La funzione **Unisci** in App Cassa permette di accorpare il conto di due tavoli occupati.
-L'unione è rappresentata nel localStorage da `tableMergedInto`, un oggetto `{ slaveTableId: masterTableId }`.
+L'unione è rappresentata in memoria in store dallo stato reattivo `tableMergedInto` (oggetto `{ slaveTableId: masterTableId }`), persistito nell'ObjectStore IndexedDB dedicato **`table_merge_sessions`** (DB_VERSION = 7). La chiave `app_meta.tableMergedInto` è **legacy** e viene letta solo come fallback di compatibilità durante il primo avvio dopo una migrazione v2 → v3 che non avesse popolato `table_merge_sessions`.
+
+La collection `table_merge_sessions` viene sincronizzata da Directus ad ogni pull globale (startup + ogni 5 min), propagando lo stato di unione tra tutti i dispositivi in rete; è inclusa nel ciclo standard `GLOBAL_COLLECTIONS`.
+
+> **Nota schema**: `table_merge_sessions` espone `venue` e `date_updated`, quindi supporta filtro tenant e pull incrementale come le altre collection operative/configurazione.
 
 Semantica:
 - Al momento dell'unione (`mergeTableOrders`), vengono fisicamente spostate sul tavolo master **solo le comande appartenenti alla sessione di conto attiva dello slave** (`orders[]."table" = masterTableId` per gli ordini della current bill session). Il conto del master assorbe immediatamente queste voci attive.
@@ -980,12 +1285,14 @@ Semantica:
 - In un database relazionale questa relazione è modellata con una collection dedicata per rappresentare il merge attivo:
 
 ```sql
--- Active table merges; row is deleted when the merge is undone (split)
+-- Active table merges; row is deleted when the merge is undone (split).
+-- NOTA: PK UUID separato per compatibilità Directus (non permette relazioni M2O su campi PK).
+--       slave_table ha vincolo UNIQUE: al massimo una riga per tavolo slave.
 CREATE TABLE table_merge_sessions (
-    slave_table   VARCHAR(10) NOT NULL REFERENCES tables(id),
-    master_table  VARCHAR(10) NOT NULL REFERENCES tables(id),
-    merged_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
-    PRIMARY KEY (slave_table)
+    id           UUID        PRIMARY KEY DEFAULT gen_random_uuid(), -- UUID Directus; non usato lato client
+    slave_table  VARCHAR(10) NOT NULL UNIQUE REFERENCES tables(id) ON DELETE CASCADE, -- tavolo che delega il proprio stato al master
+    master_table VARCHAR(10) NOT NULL REFERENCES tables(id) ON DELETE CASCADE,        -- tavolo che riceve le comande
+    merged_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 ```
 
@@ -1049,12 +1356,29 @@ Flusso di integrazione previsto:
 2. **Operazioni** (orders, transactions, cash_movements): creati localmente con UUID v7 e
    sincronizzati verso Directus in modalità **push** non appena `navigator.onLine` torna `true`.
 3. **Sessioni tavolo** (bill_sessions): create localmente e sincronizzate come gli ordini.
-4. **Reportistica** (daily_closures, print_jobs): push-only, mai modificati dopo la creazione.
+4. **Reportistica** (daily_closures, print_jobs, fiscal_receipts, invoice_requests): push-only, mai
+   modificati dopo la creazione (eccetto aggiornamenti di stato per fiscal_receipts e invoice_requests).
+
+#### Hydration configurazione runtime da Directus (D1–D4)
+
+Dopo ogni pull globale delle collection di configurazione, `useDirectusSync.js` esegue:
+
+1. `loadConfigFromIDB(venueId)` (`store/persistence/config.js`) — legge venues, rooms, tables,
+   payment_methods, printers, menu_categories, menu_items dall'IDB e li restituisce come
+   oggetto plain (filtrando per `venue` e `status !== 'archived'`, ordinando per `sort`).
+2. `mapVenueConfigFromDirectus(cfg, DEFAULT_SETTINGS)` (`utils/mappers.js`) — converte il payload
+   Directus (snake_case + relazioni) in configurazione runtime locale (camelCase).
+3. `createRuntimeConfig(...)` (`utils/index.js`) — produce il runtime config reattivo partendo dai default statici.
+
+Regole di priorità:
+- Campi scalari venue: Directus vince se il valore è non-null.
+- Rooms/tables, payment_methods, printers: sostituiti wholesale quando Directus restituisce ≥1 record.
+- Menu (D4): Directus vince sul menu statico / URL quando ≥1 categoria con ≥1 voce è presente.
 
 ### 5.6 Integrazione IndexedDB (PWA offline-first)
 
-Per uso offline, la struttura `demo_app_state_v1` (localStorage) verrà sostituita da **object
-store IndexedDB** che rispecchiano le collection Directus. Le tabelle di configurazione vengono
+Lo stato applicativo è persisto interamente su **IndexedDB** (database `app-cassa[_<instanceName>]`).
+Gli object store rispecchiano le collection Directus. Le tabelle di configurazione vengono
 mantenute in cache mentre le tabelle operative gestiscono una coda di sync.
 
 ```
@@ -1065,15 +1389,16 @@ ObjectStore: bill_sessions
 
 ObjectStore: orders
   keyPath:  id (UUIDv7)
-  indexes:  [table, status, bill_session, date_updated]
+  indexes:  [table, status, bill_session, bill_session_legacy, date_updated]
 
 ObjectStore: order_items
   keyPath:  id (UUIDv7)
-  indexes:  [order, uid, date_updated]   -- uid+order usati per lookup logico (vincolo UNIQUE)
+  indexes:  [order, order_legacy, uid, date_updated]   -- uid+order usati per lookup logico (vincolo UNIQUE)
 
 ObjectStore: order_item_modifiers
   keyPath:  id (UUIDv7)
-  indexes:  [order_item, order, item_uid, date_updated]  -- order_item usato come FK singola verso order_items(id)
+  indexes:  [order_item, order_item_legacy, order, order_legacy, item_uid, item_uid_legacy, date_updated]
+            -- indici legacy mantenuti per compatibilità con payload camelCase storici
 
 ObjectStore: transactions
   keyPath:  id (UUIDv7)
@@ -1106,9 +1431,11 @@ ObjectStore: tables           keyPath: id    indexes: [room, venue]
 ObjectStore: payment_methods  keyPath: id
 ObjectStore: menu_categories  keyPath: id    indexes: [venue]
 ObjectStore: menu_items       keyPath: id    indexes: [category]
-ObjectStore: menu_item_modifiers  keyPath: id  indexes: [menu_item]
+ObjectStore: menu_modifiers   keyPath: id    indexes: [venue, date_updated]
+ObjectStore: menu_categories_menu_modifiers keyPath: id indexes: [menu_categories_id, menu_modifiers_id, venue, date_updated]
+ObjectStore: menu_items_menu_modifiers      keyPath: id indexes: [menu_items_id, menu_modifiers_id, venue, date_updated]
 ObjectStore: printers         keyPath: id
-ObjectStore: venue_users      keyPath: id    indexes: [venue, role, status]
+ObjectStore: venue_users      keyPath: id    indexes: [venue, apps, status]
 
 -- Coda di sincronizzazione (operazioni in attesa di push verso Directus)
 -- Questo store è locale-only: non viene mai inviato a Directus.
@@ -1117,6 +1444,12 @@ ObjectStore: sync_queue
   indexes:  [collection, date_created]
   -- record: { id, collection, operation: 'create'|'update'|'delete',
   --           record_id, payload, date_created, attempts }
+
+ObjectStore: sync_failed_calls
+  keyPath:  id (UUIDv7)
+  indexes:  [failed_at, collection]
+  -- record: { id, queue_entry_id, collection, operation, record_id, payload,
+  --           attempts, abandoned, error_message, request, response, failed_at }
 ```
 
 La sincronizzazione avviene tramite un **Service Worker** (o un loop `online` nel composable
@@ -1202,6 +1535,34 @@ Operazione locale
       └── errore    → incrementa attempts (max 5, back-off esponenziale: 2^n secondi)
                        dopo 5 tentativi → rimuovi dal retry automatico e invia a revisione manuale
 ```
+
+**Nota sul mapping del payload**: prima dell'invio a Directus, la funzione interna
+`_toDirectusPayload()` in `useSyncQueue.js` traduce automaticamente i nomi dei campi locali (camelCase, convenzione store/IndexedDB) nel
+formato Directus (snake\_case, campi FK senza suffisso `_id`):
+
+| Campo locale (store/IDB)      | Campo Directus API        |
+|-------------------------------|---------------------------|
+| `billSessionId`               | `bill_session`            |
+| `orderId`                     | `order`                   |
+| `dishId`                      | `dish`                    |
+| `tableId`                     | `table`                   |
+| `totalAmount`                 | `total_amount`            |
+| `itemCount`                   | `item_count`              |
+| `operationType`               | `operation_type`          |
+| `paymentMethod`               | `payment_method`          |
+| `amountPaid`                  | `amount_paid`             |
+| `noteVisibility.{app}`        | `note_visibility_{app}`   |
+| `dietaryPreferences.diete`    | `dietary_diets`           |
+| `dietaryPreferences.allergeni`| `dietary_allergens`       |
+
+I campi puramente locali (`timestamp`, `orderRefs`, `vociRefs`, `grossAmount`, `changeAmount`)
+vengono rimossi prima dell'invio; `orderRefs` e `vociRefs` vengono gestiti come voci separate
+nelle collection junction `transaction_order_refs` / `transaction_voce_refs`.
+
+**Nota centrata su IDB (robustezza legacy/payload incompleti)**: IndexedDB rimane la source of truth.
+Durante il push della coda, se un'operazione `create` tenant-scoped arriva senza `venue`, `useSyncQueue`
+completa `venue` usando il valore runtime `directus.venueId` solo come fallback di compatibilità
+(senza mutare la persistenza locale), prevenendo errori Directus `FAILED_VALIDATION`.
 
 **Nota**: poiché gli ID sono UUIDv7 generati client-side, non si verificano collisioni tra
 dispositivi diversi anche in assenza di coordinamento server.
@@ -1658,8 +2019,8 @@ CREATE TABLE venue_users (
   id           UUID PRIMARY KEY,              -- UUID v7 generato client-side
   venue        INTEGER      NOT NULL REFERENCES venues(id),
   display_name VARCHAR(100) NOT NULL,
-  role         VARCHAR(50)  NOT NULL,         -- 'admin' | 'cassiere' | 'cameriere' | 'cuoco'
-  pin_hash     VARCHAR(255) NOT NULL,         -- hash bcrypt/argon2 del PIN a 4-6 cifre
+  apps         JSONB        NOT NULL,         -- array: ["admin"] oppure sottoinsieme di ["cassa","sala","cucina"]
+  pin          VARCHAR(255) NOT NULL,         -- plaintext PIN su Directus (hash SHA-256 lato app in fase di sync)
   status       VARCHAR(20)  NOT NULL DEFAULT 'active', -- 'active' | 'archived'
   -- Directus standard fields
   user_created UUID         NULL REFERENCES directus_users(id),
@@ -1669,13 +2030,16 @@ CREATE TABLE venue_users (
 );
 ```
 
-> **Sicurezza PIN**: il PIN **non** viene mai trasmesso in chiaro. Il client calcola
-> `hash = bcrypt(pin, salt)` e lo confronta con `pin_hash` presente in IndexedDB.
-> Opzioni di implementazione:
-> - **`bcryptjs`**: libreria JS pura (non WebCrypto), più semplice da integrare ma senza accelerazione nativa.
-> - **PBKDF2 via SubtleCrypto** (`crypto.subtle.deriveBits`): nativo nel browser, nessuna dipendenza esterna.
-> - **Argon2** (es. `argon2-browser`): più resistente agli attacchi brute-force, richiede una libreria dedicata.
-> Il salt è incluso nel campo `pin_hash` (bcrypt/argon2 standard).
+> **Sicurezza PIN**: su Directus il campo `pin` è in chiaro; durante ogni pull
+> (iniziale e successivi) il client estrae **le prime 4 cifre numeriche** dal valore
+> trimmato, calcola `hash = SHA-256(pin4)` e salva in IndexedDB solo il valore
+> hashato nel campo `pin`. L’autenticazione confronta quindi
+> `SHA-256(PIN inserito)` con `user.pin` locale.
+>
+> **Nota sicurezza**: SHA-256 non è una password hash function dedicata; con PIN brevi
+> (4 cifre) la resistenza a brute-force/rainbow table è limitata. Questa scelta è
+> mantenuta per compatibilità con l’implementazione corrente; in hardening futuro è
+> raccomandata migrazione a KDF con salt (PBKDF2/bcrypt/Argon2).
 
 ##### ObjectStore IndexedDB — `venue_users`
 
@@ -1685,7 +2049,7 @@ venue_users
   Indexes:
     - venue          (non-unique) — lista utenti per venue
     - status         (non-unique) — filtra solo 'active'
-    - role           (non-unique) — filtra per ruolo
+    - apps           (non-unique, multiEntry) — filtra per app abilitata
 ```
 
 ##### Flusso di accesso con PIN
@@ -1695,7 +2059,7 @@ Avvio app
   └─ carica venue_users da IndexedDB (filtro: venue = venueId, status = 'active')
 
 Operatore inserisce PIN
-  └─ bcrypt.compare(pin, user.pin_hash) → local boolean
+  └─ sha256(pin) === user.pin (hash locale) → local boolean
        ├─ OK → imposta currentPinUser in memoria (non in localStorage)
        └─ KO → mostra errore, incrementa contatore tentativi
 
@@ -1742,12 +2106,20 @@ record.venue_user_updated = currentPinUser?.id ?? null
   tramite l'interfaccia Directus (o un pannello admin dedicato), mai dal dispositivo POS.
 - **Permessi Directus**: i service account di cassa/sala/cucina hanno permesso **read-only**
   sulla collection `venue_users`. Non possono creare, modificare o cancellare utenti.
-- **PIN hash**: il campo `pin_hash` viene incluso nella risposta API (il dispositivo ne ha
-  bisogno per il confronto locale). Assicurarsi che il ruolo Directus del dispositivo
-  esponga solo i campi necessari (`id`, `display_name`, `role`, `pin_hash`, `status`).
+- **plaintext PIN + hash locale**: il campo `pin` viene letto da Directus; prima della
+  persistenza locale il client lo trasforma in hash SHA-256 e mantiene in IndexedDB solo
+  l’hash. Assicurarsi che i permessi Directus del dispositivo espongano solo i campi necessari
+  (`id`, `display_name`, `apps`, `pin`, `status`).
+- **Protezione trasporto e accesso**: usare sempre HTTPS end-to-end e policy RBAC
+  minimali (read-only per i device) sulla collection `venue_users`; in ambiente server
+  assicurare cifratura at-rest del database Directus secondo policy infrastrutturali.
 - **Revoca accesso**: per disattivare un operatore è sufficiente impostare
   `status = 'archived'` su Directus; il PULL successivo aggiornerà IndexedDB e il PIN
   non funzionerà più.
+- **Hydration (H6)**: `loadUsersFromIDB()` restituisce sia gli utenti locali (campo
+  `_type === 'manual_user'`) sia gli utenti sincronizzati da Directus (campo `_type` assente,
+  `status !== 'archived'`). I record Directus vengono persisti dall'upsert globale in IDB
+  e sono disponibili per l'autenticazione PIN sin dal primo avvio dopo un pull.
 - **Rate limiting PIN**: il client implementa un contatore locale di tentativi falliti
   (es. blocco dopo 5 tentativi per 30 secondi) per mitigare attacchi brute-force offline.
 
@@ -1760,7 +2132,7 @@ record.venue_user_updated = currentPinUser?.id ?? null
 │  Setup iniziale (una-tantum, admin)                                 │
 │                                                                     │
 │  Admin → Directus → crea service account → genera token statico    │
-│  Admin → Directus → crea venue_users con PIN hash                  │
+│  Admin → Directus → crea/aggiorna venue_users con plaintext PIN     │
 │  Admin → configura token + URL Directus nello store config         │
 │           cifrato in IndexedDB                                     │
 └─────────────────────────────────────────────────────────────────────┘
@@ -1784,3 +2156,248 @@ record.venue_user_updated = currentPinUser?.id ?? null
 │    8. PULL aggiorna venue_users + dati operativi da Directus        │
 └─────────────────────────────────────────────────────────────────────┘
 ```
+
+
+---
+
+### 5.10 Organizzazione admin Directus
+
+Il pannello admin di Directus è organizzato in **5 cartelle tematiche** che rispecchiano i moduli
+applicativi reali (cassa, sala, menu, configurazione, sistema). Le collection vengono assegnate a
+una cartella tramite la proprietà `group` dei metadati di collezione (`meta.group = <nome_cartella>`).
+
+#### Struttura cartelle
+
+| Cartella          | Icona                    | Colore    | Collection                                                                                                                                                             |
+|-------------------|--------------------------|-----------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `configurazione`  | `settings`               | `#546E7A` | `venues`, `venue_users`, `payment_methods`, `printers`                                                                                                                |
+| `menu`            | `menu_book`              | `#EF6C00` | `menu_items`, `menu_categories`, `menu_modifiers`, `menu_categories_menu_modifiers`, `menu_items_menu_modifiers`                                                     |
+| `sala`            | `table_restaurant`       | `#1565C0` | `tables`, `rooms`, `table_merge_sessions`                                                                                                                              |
+| `cassa`           | `point_of_sale`          | `#2E7D32` | `orders`, `bill_sessions`, `order_items`, `order_item_modifiers`, `transactions`, `cash_movements`, `daily_closures`, `daily_closure_by_method`, `transaction_order_refs`, `transaction_voce_refs` |
+| `sistema`         | `integration_instructions` | `#0277BD` | `print_jobs`, `fiscal_receipts`, `invoice_requests`                                                                                                                   |
+
+#### Icone Material Design per collection
+
+| Collection                  | Icona                   | Traduzione it-IT             | Traduzione en-US            |
+|-----------------------------|-------------------------|------------------------------|-----------------------------|
+| `venues`                    | `store`                 | Punto Vendita / Punti Vendita | Venue / Venues             |
+| `venue_users`               | `badge`                 | Operatore / Operatori        | Operator / Operators        |
+| `payment_methods`           | `payments`              | Metodo di Pagamento / Metodi | Payment Method / Methods   |
+| `printers`                  | `print`                 | Stampante / Stampanti        | Printer / Printers          |
+| `menu_items`                | `restaurant_menu`       | Voce Menu / Voci Menu        | Menu Item / Menu Items      |
+| `menu_categories`           | `category`              | Categoria Menu / Categorie   | Menu Category / Categories  |
+| `menu_modifiers`            | `add_circle`            | Modificatore / Modificatori  | Modifier / Modifiers        |
+| `menu_categories_menu_modifiers` | `join_inner`      | Link Categoria-Modificatore  | Category-Modifier Link      |
+| `menu_items_menu_modifiers` | `join_inner`            | Link Voce-Modificatore       | Item-Modifier Link          |
+| `tables`                    | `table_restaurant`      | Tavolo / Tavoli              | Table / Tables              |
+| `rooms`                     | `meeting_room`          | Sala / Sale                  | Room / Rooms                |
+| `table_merge_sessions`      | `merge`                 | Unione Tavoli                | Table Merges                |
+| `orders`                    | `restaurant`            | Comanda / Comande            | Order / Orders              |
+| `bill_sessions`             | `receipt`               | Sessione Tavolo / Sessioni   | Table Session / Sessions    |
+| `order_items`               | `lunch_dining`          | Riga Comanda / Righe         | Order Item / Order Items    |
+| `order_item_modifiers`      | `playlist_add`          | Modificatore Comanda         | Order Item Modifier         |
+| `transactions`              | `receipt_long`          | Transazione / Transazioni    | Transaction / Transactions  |
+| `cash_movements`            | `account_balance_wallet`| Movimento Cassa              | Cash Movement               |
+| `daily_closures`            | `summarize`             | Chiusura Giornaliera         | Daily Closure               |
+| `daily_closure_by_method`   | `bar_chart`             | Dettaglio per Metodo         | Closure by Method           |
+| `transaction_order_refs`    | `link`                  | Ref Pagamento-Comanda        | Payment-Order Ref           |
+| `transaction_voce_refs`     | `analytics`             | Riga Analitica               | Analytic Line               |
+| `print_jobs`                | `print`                 | Job di Stampa / Job          | Print Job / Print Jobs      |
+| `fiscal_receipts`           | `receipt`               | Scontrino Fiscale            | Fiscal Receipt              |
+| `invoice_requests`          | `description`           | Richiesta Fattura            | Invoice Request             |
+
+#### Ordinamento campi nelle form
+
+Per tutte le collection, la convenzione di ordinamento dei campi nella form di dettaglio è:
+
+| Posizione (sort) | Tipo di campo                                          |
+|------------------|--------------------------------------------------------|
+| 1                | `id` (nascosto, readonly)                              |
+| 2–10             | Campi di dominio principali (nome, stato, prezzo, ecc.)|
+| 11–50            | Campi relazionali M2O (venue, table, order, ecc.)      |
+| 51–90            | Campi secondari / flag booleani / JSON payload          |
+| 91–92            | `venue_user_created`, `venue_user_updated` (se presenti)|
+| 100              | `date_created` (nascosto)                              |
+| 101              | `date_updated` (nascosto)                              |
+
+#### Configurazione `display_template`
+
+I `display_template` consentono di mostrare descrizioni leggibili nei selettori relazionali
+invece degli UUID:
+
+| Collection         | `display_template`                    |
+|--------------------|---------------------------------------|
+| `venues`           | `{{name}}`                            |
+| `venue_users`      | `{{display_name}} ({{apps}})`         |
+| `rooms`            | `{{label}}`                           |
+| `tables`           | `{{label}}`                           |
+| `menu_categories`  | `{{name}}`                            |
+| `menu_items`       | `{{name}} — {{price}}€`               |
+| `bill_sessions`    | `{{id}} — {{status}}`                 |
+| `orders`           | `{{id}} — {{status}}`                 |
+| `payment_methods`  | `{{label}}`                           |
+| `printers`         | `{{name}}`                            |
+| `transactions`     | `{{id}} — {{operation_type}}`         |
+
+#### Configurazione `sort_field`
+
+Le collection che supportano l'ordinamento manuale via drag-and-drop nell'admin Directus hanno
+`meta.sort_field = "sort"`. Il campo `sort` è di tipo `INTEGER NULL` e viene nascosto nella form
+(`meta.hidden = true`).
+
+| Collection             | `sort_field` |
+|------------------------|--------------|
+| `rooms`                | `sort`       |
+| `tables`               | `sort`       |
+| `payment_methods`      | `sort`       |
+| `menu_categories`      | `sort`       |
+| `menu_items`           | `sort`       |
+| `menu_modifiers`       | `sort`       |
+| `printers`             | `sort`       |
+| `order_items`          | `sort`       |
+
+---
+
+## 6. Note di Architettura del Codice (Post-Audit)
+
+Questa sezione documenta le scelte architetturali rilevanti emerse dall'audit del codice
+(refactoring Step 1–10) che non rientrano nella struttura schema Directus / IDB.
+
+---
+
+### 6.1 Modulo di Persistenza — Struttura a Layer (`src/store/persistence/`)
+
+Dopo il refactoring (Step 5), la persistenza IndexedDB è suddivisa in moduli dedicati:
+
+| Modulo                      | Funzioni principali                                                                     |
+|-----------------------------|-----------------------------------------------------------------------------------------|
+| `persistence/operations.js` | `loadStateFromIDB`, `saveStateToIDB`, `upsertRecordsIntoIDB`, `deleteRecordsFromIDB`, `upsertBillSessionInIDB`, `closeBillSessionInIDB` — più re-export backward-compat da tutti i sottomoduli |
+| `persistence/config.js`     | `loadConfigFromIDB`, `loadLastPullTsFromIDB`, `saveLastPullTsToIDB`, `replaceTableMergesInIDB`, `replaceVenueUsersInIDB`, `clearLocalConfigCacheFromIDB` |
+| `persistence/settings.js`   | `loadSettingsFromIDB`, `saveSettingsToIDB`, `saveJsonMenuToIDB`, `loadJsonMenuFromIDB`, `loadCustomItemsFromIDB`, `saveCustomItemsToIDB` |
+| `persistence/auth.js`       | `loadUsersFromIDB`, `saveUsersToIDB`, `loadAuthSessionFromIDB`, `saveAuthSessionToIDB`, `loadAuthSettingsFromIDB`, `saveAuthSettingsToIDB` |
+| `persistence/audit.js`      | `saveFiscalReceiptToIDB`, `loadFiscalReceiptsFromIDB`, `pruneFiscalReceiptsInIDB`, `saveInvoiceRequestToIDB`, `loadInvoiceRequestsFromIDB`, `pruneInvoiceRequestsInIDB` |
+| `persistence/reset.js`      | `clearAllStateFromIDB`, `clearSyncQueueFromIDB`, `deleteDatabase` |
+
+**Compatibilità**: `store/idbPersistence.js` e `store/persistence/operations.js` sono barrel
+file che re-esportano tutto dai sottomoduli. Tutti i percorsi di import esistenti continuano
+a funzionare invariati.
+
+---
+
+### 6.2 Store Pinia — Divisione in Moduli (`src/store/`)
+
+Dopo il refactoring (Step 6), il file monolitico `store/index.js` è stato suddiviso:
+
+| File                  | Contenuto                                                                                       |
+|-----------------------|-------------------------------------------------------------------------------------------------|
+| `store/configStore.js`| `useConfigStore` — venue config, menu loading, local settings, Directus connection settings     |
+| `store/orderStore.js` | `useOrderStore` — orders, transactions, cash, bill sessions, table merge, print/fiscal audit    |
+| `store/index.js`      | Barrel re-export; `useAppStore()` (proxy unificato per backward-compat); `initStoreFromIDB()`   |
+
+---
+
+### 6.3 Mapper Centralizzati (`src/utils/mappers.js`)
+
+Tutte le funzioni di trasformazione Directus → formato locale sono in `mappers.js`:
+
+| Funzione                            | Collezione                               |
+|-------------------------------------|------------------------------------------|
+| `mapOrderFromDirectus`              | `orders`                                 |
+| `mapOrderToDirectus`                | `orders` (reverse)                       |
+| `mapOrderItemFromDirectus`          | `order_items`                            |
+| `mapOrderItemModifierToDirectus`    | `order_item_modifiers`                   |
+| `mapBillSessionFromDirectus`        | `bill_sessions`                          |
+| `mapBillSessionToDirectus`          | `bill_sessions` (reverse)                |
+| `mapTransactionToDirectus`          | `transactions`                           |
+| `mapMenuItemFromDirectus`           | `menu_items`                             |
+| `mapMenuCategoryFromDirectus`       | `menu_categories`                        |
+| `mapMenuModifierFromDirectus`       | `menu_modifiers`                         |
+| `mapTableMergeSessionFromDirectus`  | `table_merge_sessions`                   |
+| `mapVenueConfigFromDirectus`        | `venues` (config derivato)               |
+| `mergeOrderFromWSPayload`           | merge WebSocket payload su ordine locale |
+| `normalizeMenu`                     | payload menu JSON/Directus               |
+| `relationId`                        | helper: estrae ID da relazione M2O       |
+| `parseJsonArray`                    | helper: parsa campo JSON/array           |
+
+---
+
+### 6.4 Stato `transaction_order_refs` e `transaction_voce_refs` in IDB
+
+Gli ObjectStore `transaction_order_refs` e `transaction_voce_refs` vengono **scritti** in IDB
+durante il pull globale tramite `upsertRecordsIntoIDB`, ma **non vengono riletti** in
+`loadStateFromIDB()` né idratati nello store Pinia.
+
+In memoria, i campi `orderRefs` e `voceRefs` sugli oggetti `transaction` contengono i dati
+relazionali inlineati al momento della creazione lato client (non provengono da questi store).
+Questi ObjectStore esistono per coerenza di schema con Directus ma non partecipano al ciclo
+di hydration locale.
+
+> **Stato**: write-only in IDB; non impattano la funzionalità attuale.
+
+---
+
+### 6.5 Stato `daily_closure_by_method` in IDB
+
+L'ObjectStore `daily_closure_by_method` esiste in IDB (creato dalla migration v7) e viene
+popolato durante il pull globale via `upsertRecordsIntoIDB`. Tuttavia **non viene caricato**
+da `loadStateFromIDB()`: solo `daily_closures` viene idratato nello store.
+
+Il campo `byMethod` sugli oggetti `daily_closure` è in `_PUSH_DROP_FIELDS` (non viene pushato
+a Directus) e viene calcolato client-side. La collection Directus `daily_closure_by_method` è
+separata e gestita server-side come relazione O2M.
+
+> **Stato**: store IDB presente ma non idratato in memoria; coerente con l'uso corrente.
+
+---
+
+### 6.6 Schema IDB — Versione v12 (indici `transactions`)
+
+La migration **v12** (in `useIDB.js`) aggiorna gli indici dell'ObjectStore `transactions`:
+
+- **Rimossi** i vecchi indici `table` (keyPath `tableId`) e `bill_session` (keyPath `billSessionId`)
+  che puntavano a campi camelCase mai presenti nei record synced da Directus.
+- **Aggiunti** nuovi indici `table` (keyPath `table`) e `bill_session` (keyPath `bill_session`)
+  allineati al formato snake_case effettivamente usato dai record.
+- I record esistenti vengono backfillati durante l'upgrade: le migration apre il cursore
+  dell'ObjectStore e aggiorna ogni record che abbia solo i campi camelCase.
+
+| Versione | Modifica                                                                         |
+|----------|----------------------------------------------------------------------------------|
+| v1       | Schema iniziale                                                                  |
+| v2       | Migration `app_meta.orders` → `orders`                                           |
+| v3       | Migration `app_meta.tableMergedInto` → `table_merge_sessions`                   |
+| v4–v11   | Aggiunta progressive di ObjectStore e indici                                     |
+| v12      | Fix indici `transactions`: `tableId`/`billSessionId` → `table`/`bill_session`   |
+
+---
+
+### 6.7 Gestione `deleteDatabase` — Correttezza Race Condition
+
+`deleteDatabase()` in `persistence/reset.js` utilizza `closeAndResetDB()` da `useIDB.js`
+per chiudere la connessione e resettare il singleton `_dbPromise` **prima** di lanciare il
+`indexedDB.deleteDatabase()`. Questo previene `InvalidStateError` se altri handler asincroni
+tentano di usare `getDB()` durante la stessa micro-task queue.
+
+Il gestore `onblocked` attende 3 secondi (timeout) prima di procedere con il reload, invece
+di fare `reject()` immediato, per gestire gracefully il caso in cui altri tab o frame
+mantengano aperta la connessione.
+
+---
+
+### 6.8 Migrazione Directus Pendente — M2M Menu Modificatori
+
+Le tre collection `menu_modifiers`, `menu_categories_menu_modifiers`,
+`menu_items_menu_modifiers` (sezioni 2.5a–2.5c) sono **già presenti nel codice applicativo**
+(mapper, IDB ObjectStore, sync loop) ma **non ancora create nell'istanza Directus**.
+
+> ⚠️ Finché queste collection non esistono in Directus, il pull di `VENUE_RELATED_COLLECTIONS`
+> restituirà errori `403 / collection not found` per queste tre collection.
+> I modificatori menu non verranno quindi sincronizzati e `normalizeMenu()` riceverà array vuoti.
+
+**Azioni richieste nell'istanza Directus** (vedere `DIRECTUS_SETUP_REPORT.md` §Migrazione M2M):
+1. Creare la collection `menu_modifiers` con i campi elencati in §2.5a.
+2. Creare la collection `menu_categories_menu_modifiers` con i campi di §2.5b e le relazioni M2M.
+3. Creare la collection `menu_items_menu_modifiers` con i campi di §2.5c e le relazioni M2M.
+4. Aggiungere il campo O2M alias `menu_modifiers` a `menu_categories` e a `menu_items`.
+5. Migrare i dati da `menu_item_modifiers` (deprecated) alle nuove collection se esistono record.
+

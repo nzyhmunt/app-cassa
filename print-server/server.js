@@ -8,8 +8,8 @@
  *   POST /print  – riceve un job JSON, lo converte in ESC/POS e lo invia alla stampante.
  *   GET  /health – ritorna { status: 'ok' } per il controllo di salute del servizio.
  *
- * Le stampanti fisiche sono configurate in `printers.config.js`.
- * Il campo `printerId` del job viene usato per instradare il job alla stampante corretta.
+ * Le stampanti fisiche sono configurate in `printers.config.js` (Opzione A) oppure
+ * tramite variabili d'ambiente `PRINTER_<N>_*` (Opzione B — le env vars hanno la precedenza).
  *
  * Configurazione tramite variabili d'ambiente:
  *   PORT                  – porta HTTP del server (default: 3001)
@@ -17,6 +17,18 @@
  *   PRINT_SERVER_API_KEY  – se impostato, richiede header x-api-key su POST /print
  *   CORS_ALLOWED_ORIGINS  – lista di origini CORS consentite (virgola separata).
  *                           Se vuota, tutte le origini sono accettate.
+ *   PRINTER_<N>_ID        – id stampante. La numerazione parte da N=0 e deve essere
+ *                           consecutiva (0,1,2,…). Se PRINTER_0_ID è impostato,
+ *                           le stampanti vengono lette da queste variabili al posto
+ *                           di printers.config.js.
+ *   PRINTER_<N>_NAME      – nome descrittivo (default: uguale a ID)
+ *   PRINTER_<N>_TYPE      – 'tcp' | 'file' (default: 'tcp')
+ *   Per type='tcp':
+ *     PRINTER_<N>_HOST    – IP/hostname (default: '127.0.0.1')
+ *     PRINTER_<N>_PORT    – porta TCP (default: 9100)
+ *     PRINTER_<N>_TIMEOUT – timeout connessione in ms (default: 5000)
+ *   Per type='file':
+ *     PRINTER_<N>_DEVICE  – percorso dispositivo (default: '/dev/usb/lp0')
  *
  * Avvio:
  *   node server.js
@@ -27,9 +39,8 @@ const cors    = require('cors');
 const express = require('express');
 
 const { printBuffer, getPrintersList, getPrinterConfig } = require('./printer.js');
-const { formatOrder }     = require('./formatters/order.js');
-const { formatTableMove } = require('./formatters/table_move.js');
-const { formatPreBill }   = require('./formatters/pre_bill.js');
+const { buildEscPosBuffer } = require('./build-buffer.js');
+const directusClient = require('./directus-client.js');
 
 // ── Configurazione ────────────────────────────────────────────────────────────
 
@@ -199,25 +210,7 @@ app.post('/print', apiKeyGuard, async (req, res) => {
 });
 
 // ── Formattazione ESC/POS ─────────────────────────────────────────────────────
-
-/**
- * Seleziona il formatter appropriato in base a job.printType e restituisce il Buffer.
- * @param {object} job
- * @returns {Buffer}
- * @throws {Error} Se job.printType non è supportato.
- */
-function buildEscPosBuffer(job) {
-  switch (job.printType) {
-    case 'order':
-      return formatOrder(job);
-    case 'table_move':
-      return formatTableMove(job);
-    case 'pre_bill':
-      return formatPreBill(job);
-    default:
-      throw new Error(`Tipo di stampa non supportato: ${job.printType}`);
-  }
-}
+// Delegato a build-buffer.js (condiviso con directus-client.js)
 
 // ── JSON / body-size error handler ────────────────────────────────────────────
 
@@ -266,6 +259,12 @@ server.listen(PORT, () => {
       console.log(`[print-server]   [${p.id}] ${p.name}  (${conn})`);
     }
   }
+
+  // Avvia modalità Directus Pull se DIRECTUS_URL e DIRECTUS_TOKEN sono impostati.
+  // La funzione è non bloccante: polling e WebSocket girano in background.
+  directusClient.start(console).catch((err) => {
+    console.error('[print-server] Errore avvio Directus pull mode:', err instanceof Error ? err.message : String(err), err);
+  });
 });
 
 server.on('error', (err) => {

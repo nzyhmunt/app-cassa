@@ -11,7 +11,7 @@
           <ChefHat class="size-5 md:size-6 theme-text" />
         </div>
         <div class="flex flex-col truncate">
-          <h1 class="text-sm md:text-xl font-bold leading-none truncate">{{ store.config.ui.name }}</h1>
+          <h1 class="text-sm md:text-xl font-bold leading-none truncate">{{ configStore.config.ui.name }}</h1>
           <p class="text-white/80 text-[9px] md:text-xs mt-0.5 font-bold uppercase tracking-wider truncate">APP CUCINA</p>
         </div>
       </div>
@@ -490,7 +490,22 @@
 
     <!-- ── Footer ─────────────────────────────────────────────────────────── -->
     <footer class="shrink-0 flex items-center justify-between px-4 py-2 bg-white border-t border-gray-200 text-xs text-gray-400">
-      <span>Aggiornato: {{ lastSyncLabel }}</span>
+      <div class="flex items-center gap-2">
+        <!-- Online/offline dot (visible when Directus is enabled) -->
+        <span
+          v-if="directusEnabled"
+          class="flex items-center gap-1 font-medium"
+          :class="isOnline ? 'text-emerald-600' : 'text-red-500'"
+        >
+          <span
+            class="inline-block size-1.5 rounded-full shrink-0"
+            :class="isOnline ? 'bg-emerald-500' : 'bg-red-400'"
+          ></span>
+          {{ isOnline ? 'Online' : 'Offline' }}
+        </span>
+        <span v-if="directusEnabled" class="text-gray-300">·</span>
+        <span>Aggiornato: {{ lastSyncDisplayLabel }}</span>
+      </div>
       <span class="font-mono">{{ currentTime }}</span>
     </footer>
 
@@ -532,12 +547,13 @@
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { Bell, BellRing, ChefHat, Check, CheckCircle2, Clock, Flame, Hash, Layers, Lock, Pencil, RefreshCw, RotateCcw, Settings, ClipboardList, X } from 'lucide-vue-next';
-import { useAppStore } from '../../store/index.js';
+import { useConfigStore, useOrderStore } from '../../store/index.js';
 import { useBeep } from '../../composables/useBeep.js';
 import { useAuth } from '../../composables/useAuth.js';
 import KitchenOrderCard from './KitchenOrderCard.vue';
+import { useDirectusSync } from '../../composables/useDirectusSync.js';
+import { directusEnabledRef } from '../../composables/useDirectusClient.js';
 import {
-  appConfig,
   COURSE_ORDER,
   DEFAULT_COURSE,
   getCourseBorderClass,
@@ -548,14 +564,16 @@ import {
 const emit = defineEmits(['open-settings']);
 const { requiresAuth, ...auth } = useAuth();
 
-const store = useAppStore();
+const configStore = useConfigStore();
+const orderStore = useOrderStore();
+const config = computed(() => configStore.config ?? {});
 
 // ── Kitchen tab navigation: Kanban / Detail / History / Totals ───────────────
 const cucinaTab = ref('kanban'); // 'kanban' | 'detail' | 'history' | 'totals'
 
 // All active kitchen orders for the detail tab (accepted → preparing → ready)
 const allKitchenOrders = computed(() =>
-  store.orders
+  orderStore.orders
     .filter(o => ['accepted', 'preparing', 'ready'].includes(o.status) && !o.isDirectEntry)
     .slice()
     .sort((a, b) => a.time.localeCompare(b.time)),
@@ -563,7 +581,7 @@ const allKitchenOrders = computed(() =>
 
 // Delivered orders for the Cronologia tab
 const deliveredOrders = computed(() =>
-  store.orders
+  orderStore.orders
     .filter(o => o.status === 'delivered' && !o.isDirectEntry)
     .slice()
     .sort((a, b) => b.time.localeCompare(a.time)), // newest first
@@ -578,7 +596,7 @@ const aggregatedTotals = computed(() => {
   const statuses = totalsStatusFilter.value === 'all'
     ? ['accepted', 'preparing', 'ready']
     : [totalsStatusFilter.value];
-  const orders = store.orders.filter(o => statuses.includes(o.status) && !o.isDirectEntry);
+  const orders = orderStore.orders.filter(o => statuses.includes(o.status) && !o.isDirectEntry);
 
   // Accumulate net quantities keyed by course + name + notes + modifiers
   // so items with different notes/variations appear as separate rows
@@ -604,14 +622,14 @@ const aggregatedTotals = computed(() => {
   // Sort by canonical course order, then alphabetically within each course
   return [...map.values()].sort((a, b) => {
     const ci = COURSE_ORDER.indexOf(a.course) - COURSE_ORDER.indexOf(b.course);
-    return ci !== 0 ? ci : a.name.localeCompare(b.name, appConfig.locale);
+    return ci !== 0 ? ci : a.name.localeCompare(b.name, config.value.locale ?? 'it-IT');
   });
 });
 
 // Badge count for the Totali tab button — always reflects 'all' active statuses
 // so the number shown is consistent regardless of the active filter inside the tab
 const aggregatedTotalsBadgeCount = computed(() => {
-  const orders = store.orders.filter(o => ['accepted', 'preparing', 'ready'].includes(o.status) && !o.isDirectEntry);
+  const orders = orderStore.orders.filter(o => ['accepted', 'preparing', 'ready'].includes(o.status) && !o.isDirectEntry);
   const names = new Set();
   for (const order of orders) {
     for (const item of order.orderItems) {
@@ -624,8 +642,8 @@ const aggregatedTotalsBadgeCount = computed(() => {
 function toggleItemReady(order, itemIdx) {
   const item = order.orderItems[itemIdx];
   if (!item) return;
-  store.setItemKitchenReady(order, itemIdx, !item.kitchenReady);
-  store.$persist?.();
+  orderStore.setItemKitchenReady(order, itemIdx, !item.kitchenReady);
+
 }
 
 // ── Pending-delivery timer: button-level 5s countdown ────────────────────────
@@ -666,10 +684,11 @@ function handleConsegnataClick(order) {
     if (e.remaining <= 0) {
       clearInterval(intervalId);
       delete pendingDeliveries.value[orderId];
-      const currentOrder = store.orders.find(o => o.id === orderId);
+      const currentOrder = orderStore.orders.find(o => o.id === orderId);
       if (currentOrder) {
-        store.changeOrderStatus(currentOrder, 'delivered');
-        store.$persist?.();
+        orderStore.changeOrderStatus(currentOrder, 'delivered').catch(err =>
+          console.warn('[CucinaView] Errore nel marcare ordine come consegnato:', err),
+        );
       }
     }
   }, 1000);
@@ -694,14 +713,18 @@ function detailStatusLabel(status) {
 // ── Audio alerts: beep when a new order enters the kitchen (accepted) ────────
 const { playBeep } = useBeep();
 const acceptedOrderCount = computed(() =>
-  store.orders.filter(o => o.status === 'accepted' && !o.isDirectEntry).length,
+  orderStore.orders.filter(o => o.status === 'accepted' && !o.isDirectEntry).length,
 );
 watch(acceptedOrderCount, (newVal, oldVal) => {
   if (newVal > oldVal) playBeep();
 });
 
 // ── Live clock ─────────────────────────────────────────────────────────────
-const currentTime = ref(new Date().toLocaleTimeString(appConfig.locale, { hour: '2-digit', minute: '2-digit', timeZone: appConfig.timezone }));
+const currentTime = ref(new Date().toLocaleTimeString(config.value.locale ?? 'it-IT', {
+  hour: '2-digit',
+  minute: '2-digit',
+  timeZone: config.value.timezone ?? 'Europe/Rome',
+}));
 let clockTimer = null;
 
 // ── Manual sync ─────────────────────────────────────────────────────────────
@@ -712,25 +735,72 @@ let clockTimer = null;
 const lastSyncLabel = ref('—');
 
 function syncFromStorage() {
-  store.$hydrate?.();
-  lastSyncLabel.value = new Date().toLocaleTimeString(appConfig.locale, { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: appConfig.timezone });
+  Promise.all([
+    configStore.hydrateConfigFromIDB(),
+    orderStore.refreshOperationalStateFromIDB(),
+  ]).catch((error) => {
+    console.warn('[CucinaView] Manual storage sync failed:', error);
+  });
+  lastSyncLabel.value = new Date().toLocaleTimeString(config.value.locale ?? 'it-IT', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    timeZone: config.value.timezone ?? 'Europe/Rome',
+  });
 }
 
 let refreshTimer = null;
 
+// ── Directus sync state (footer indicators) ──────────────────────────────────
+const _dirSync = useDirectusSync();
+const directusEnabled = directusEnabledRef;
+const isOnline = ref(typeof navigator !== 'undefined' ? navigator.onLine : true);
+
+/**
+ * Shows Directus lastPullAt when sync is active, otherwise falls back to
+ * the local cross-tab hydration timestamp (lastSyncLabel).
+ */
+const lastSyncDisplayLabel = computed(() => {
+  if (directusEnabled.value && _dirSync.lastPullAt.value) {
+    try {
+      return new Date(_dirSync.lastPullAt.value).toLocaleTimeString(config.value.locale ?? 'it-IT', {
+        hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: config.value.timezone ?? 'Europe/Rome',
+      });
+    } catch { /* fallthrough */ }
+  }
+  return lastSyncLabel.value;
+});
+
+function _onOnline() { isOnline.value = true; }
+function _onOffline() { isOnline.value = false; }
+
 onMounted(() => {
   clockTimer = setInterval(() => {
-    currentTime.value = new Date().toLocaleTimeString(appConfig.locale, { hour: '2-digit', minute: '2-digit', timeZone: appConfig.timezone });
+    currentTime.value = new Date().toLocaleTimeString(config.value.locale ?? 'it-IT', {
+      hour: '2-digit',
+      minute: '2-digit',
+      timeZone: config.value.timezone ?? 'Europe/Rome',
+    });
   }, 60_000);
 
   refreshTimer = setInterval(syncFromStorage, 30_000);
 
-  lastSyncLabel.value = new Date().toLocaleTimeString(appConfig.locale, { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: appConfig.timezone });
+  lastSyncLabel.value = new Date().toLocaleTimeString(config.value.locale ?? 'it-IT', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    timeZone: config.value.timezone ?? 'Europe/Rome',
+  });
+
+  window.addEventListener('online', _onOnline);
+  window.addEventListener('offline', _onOffline);
 });
 
 onUnmounted(() => {
   clearInterval(clockTimer);
   clearInterval(refreshTimer);
+  window.removeEventListener('online', _onOnline);
+  window.removeEventListener('offline', _onOffline);
   // Clear all pending delivery timers
   Object.values(pendingDeliveries.value).forEach(e => clearInterval(e.intervalId));
 });
@@ -738,19 +808,19 @@ onUnmounted(() => {
 // ── Computed order lists ────────────────────────────────────────────────────
 // Column 1: orders accepted by Cassa but not yet started by kitchen
 const pendingOrders = computed(() =>
-  store.orders.filter(o => o.status === 'accepted' && !o.isDirectEntry).slice().sort((a, b) => a.time.localeCompare(b.time)),
+  orderStore.orders.filter(o => o.status === 'accepted' && !o.isDirectEntry).slice().sort((a, b) => a.time.localeCompare(b.time)),
 );
 
 // Column 2: orders currently being prepared / cooked
 const preparingOrders = computed(() =>
-  store.orders
+  orderStore.orders
     .filter(o => o.status === 'preparing' && !o.isDirectEntry)
     .slice()
     .sort((a, b) => a.time.localeCompare(b.time)),
 );
 
 const readyOrders = computed(() =>
-  store.orders.filter(o => o.status === 'ready' && !o.isDirectEntry).slice().sort((a, b) => a.time.localeCompare(b.time)),
+  orderStore.orders.filter(o => o.status === 'ready' && !o.isDirectEntry).slice().sort((a, b) => a.time.localeCompare(b.time)),
 );
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -789,16 +859,16 @@ function elapsedColor(orderTime) {
 }
 
 // ── Actions ─────────────────────────────────────────────────────────────────
-function acceptOrder(order) {
+async function acceptOrder(order) {
   // accepted → preparing (kitchen starts working on it)
-  store.changeOrderStatus(order, 'preparing');
-  store.$persist?.();
+  await orderStore.changeOrderStatus(order, 'preparing');
+
 }
 
-function advancePreparingOrder(order) {
+async function advancePreparingOrder(order) {
   // preparing → ready
-  store.changeOrderStatus(order, 'ready');
-  store.$persist?.();
+  await orderStore.changeOrderStatus(order, 'ready');
+
 }
 
 // ── Back-state actions (undo buttons) ────────────────────────────────────────
@@ -810,9 +880,9 @@ function requestReturnToPending(order) {
   confirmReturnModal.value = { show: true, order };
 }
 
-function confirmReturnToPending() {
+async function confirmReturnToPending() {
   if (confirmReturnModal.value.order) {
-    returnToPending(confirmReturnModal.value.order);
+    await returnToPending(confirmReturnModal.value.order);
   }
   confirmReturnModal.value = { show: false, order: null };
 }
@@ -821,28 +891,28 @@ function cancelReturnToPending() {
   confirmReturnModal.value = { show: false, order: null };
 }
 
-function returnToPending(order) {
+async function returnToPending(order) {
   // accepted → pending (return to Cassa queue)
-  store.changeOrderStatus(order, 'pending');
-  store.$persist?.();
+  await orderStore.changeOrderStatus(order, 'pending');
+
 }
 
-function backToAccepted(order) {
+async function backToAccepted(order) {
   // preparing → accepted
-  store.changeOrderStatus(order, 'accepted');
-  store.$persist?.();
+  await orderStore.changeOrderStatus(order, 'accepted');
+
 }
 
-function backToPreparing(order) {
+async function backToPreparing(order) {
   // ready → preparing
-  store.changeOrderStatus(order, 'preparing');
-  store.$persist?.();
+  await orderStore.changeOrderStatus(order, 'preparing');
+
 }
 
-function restoreFromHistory(order) {
+async function restoreFromHistory(order) {
   // delivered → ready (undo accidental delivery from Cronologia)
-  store.changeOrderStatus(order, 'ready');
-  store.$persist?.();
+  await orderStore.changeOrderStatus(order, 'ready');
+
 }
 
 // ── Detail view helpers ───────────────────────────────────────────────────────

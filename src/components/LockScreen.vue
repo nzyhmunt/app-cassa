@@ -3,7 +3,7 @@
     <div
       v-if="visible"
       class="fixed inset-0 z-[200] flex flex-col landscape:flex-row items-center justify-center select-none"
-      :style="store.cssVars"
+      :style="configStore.cssVars"
       style="background: linear-gradient(135deg, var(--brand-primary, #16a34a) 0%, var(--brand-primary-dark, #15803d) 100%)"
     >
       <!-- Clock & branding -->
@@ -13,15 +13,23 @@
         </div>
         <p class="text-5xl md:text-6xl font-black text-white tracking-tight tabular-nums">{{ currentTime }}</p>
         <p class="text-white/70 text-xs md:text-sm font-bold uppercase tracking-widest mt-1">{{ currentDate }}</p>
-        <p class="text-white/60 text-[11px] mt-2 font-semibold">{{ store.config.ui.name }}</p>
+        <p class="text-white/60 text-[11px] mt-2 font-semibold">{{ configStore.config.ui.name }}</p>
       </div>
 
       <!-- Card -->
       <!-- 2rem in calc() matches landscape:my-4 (1rem top + 1rem bottom) -->
       <div class="bg-white rounded-3xl shadow-2xl w-full max-w-xs md:max-w-sm mx-4 overflow-hidden landscape:overflow-y-auto landscape:my-4 landscape:max-h-[calc(var(--app-height,100dvh)-2rem)]">
 
+        <!-- ── Loading state (shown until IDB hydration completes) ─────────── -->
+        <template v-if="!isHydrated">
+          <div class="p-8 flex flex-col items-center justify-center gap-3">
+            <div class="size-8 rounded-full border-4 border-gray-200 border-t-[var(--brand-primary)] animate-spin" />
+            <p class="text-gray-400 text-sm font-medium">Caricamento…</p>
+          </div>
+        </template>
+
         <!-- ── User picker (shown when no user is selected) ──────────────── -->
-        <template v-if="!selectedUserId">
+        <template v-else-if="!selectedUserId">
           <div class="p-4 md:p-5 border-b border-gray-100">
             <h3 class="font-bold text-gray-800 text-center text-sm md:text-base">Seleziona utente</h3>
           </div>
@@ -47,7 +55,7 @@
           <!-- User header -->
           <div class="p-4 md:p-5 flex items-center gap-3 border-b border-gray-100">
             <button
-              v-if="users.length > 1"
+              v-if="users.length > 1 || (selectedUserId && !selectedUser)"
               @click="selectedUserId = null; pinDigits = []; pinError = ''"
               class="p-1.5 rounded-full hover:bg-gray-100 active:scale-95 transition-colors shrink-0"
               title="Cambia utente"
@@ -109,16 +117,22 @@
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { Lock, ChevronRight, ChevronLeft } from 'lucide-vue-next';
 import { useAuth } from '../composables/useAuth.js';
-import { useAppStore } from '../store/index.js';
-import { appConfig } from '../utils/index.js';
+import { PIN_LENGTH } from '../utils/pinAuth.js';
+import { useConfigStore, useOrderStore } from '../store/index.js';
 
-const store = useAppStore();
-const { visibleUsers: users, currentUser, requiresAuth, isLocked, login } = useAuth();
+const configStore = useConfigStore();
+const orderStore = useOrderStore();
+const { visibleUsers: users, currentUser, requiresAuth, isLocked, login, isHydrated } = useAuth();
+const locale = computed(() => configStore.config?.locale ?? 'it-IT');
+const timezone = computed(() => configStore.config?.timezone ?? 'Europe/Rome');
 
-/** Whether the overlay should be rendered. */
-const visible = computed(() => requiresAuth.value && isLocked.value);
+/**
+ * Whether the overlay should be rendered.
+ * Also shown while IDB hydration is in-flight (!isHydrated) to prevent a
+ * brief blink of app data before we know whether authentication is required.
+ */
+const visible = computed(() => !isHydrated.value || (requiresAuth.value && isLocked.value));
 
-const PIN_LENGTH = 4;
 const KEYPAD = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', '⌫'];
 
 // ── Local state ─────────────────────────────────────────────────────────────
@@ -131,21 +145,32 @@ const selectedUser = computed(
   () => users.value.find((u) => u.id === selectedUserId.value) ?? null,
 );
 
-// Pre-select the user when the lock screen becomes visible
+// Pre-select the user when the lock screen becomes visible OR when hydration
+// completes while the overlay is already showing (e.g. cold start: visible is
+// forced true by !isHydrated before users are loaded from IDB).
 watch(
-  visible,
-  (v) => {
-    if (v) {
-      pinDigits.value = [];
-      pinError.value = '';
-      // If there's a remembered user or only one user, pre-select them
-      if (currentUser.value) {
-        selectedUserId.value = currentUser.value.id;
-      } else if (users.value.length === 1) {
-        selectedUserId.value = users.value[0].id;
-      } else {
-        selectedUserId.value = null;
-      }
+  [visible, isHydrated],
+  ([v, hydrated], prev) => {
+    if (!v) return;
+    const [prevV, prevHydrated] = prev ?? [false, false];
+    const justBecameVisible = !prevV;
+    const justHydrated = hydrated && !prevHydrated;
+    if (!justBecameVisible && !justHydrated) return;
+
+    pinDigits.value = [];
+    pinError.value = '';
+    // Only pre-select the remembered user if they are visible (have access) in
+    // the current app. A cassa-only user must not be pre-selected when sala or
+    // cucina is opened — they cannot log in there and there would be no back
+    // button to escape the PIN screen.
+    const currentUserId = currentUser.value?.id;
+    const rememberedInApp = currentUserId && users.value.some(u => u.id === currentUserId);
+    if (rememberedInApp) {
+      selectedUserId.value = currentUser.value.id;
+    } else if (users.value.length === 1) {
+      selectedUserId.value = users.value[0].id;
+    } else {
+      selectedUserId.value = null;
     }
   },
   { immediate: true },
@@ -158,15 +183,15 @@ const currentDate = ref(formatDate());
 let clockTimer = null;
 
 function formatTime() {
-  return new Date().toLocaleTimeString(appConfig.locale, { hour: '2-digit', minute: '2-digit', timeZone: appConfig.timezone });
+  return new Date().toLocaleTimeString(locale.value, { hour: '2-digit', minute: '2-digit', timeZone: timezone.value });
 }
 
 function formatDate() {
-  return new Date().toLocaleDateString(appConfig.locale, {
+  return new Date().toLocaleDateString(locale.value, {
     weekday: 'long',
     day: 'numeric',
     month: 'long',
-    timeZone: appConfig.timezone,
+    timeZone: timezone.value,
   });
 }
 

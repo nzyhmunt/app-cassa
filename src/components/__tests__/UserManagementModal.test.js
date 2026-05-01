@@ -20,7 +20,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mount, flushPromises, enableAutoUnmount } from '@vue/test-utils';
 import UserManagementModal from '../UserManagementModal.vue';
-import { useAuth, _resetAuthSingleton } from '../../composables/useAuth.js';
+import { useAuth, _resetAuthSingleton, _waitForAuth } from '../../composables/useAuth.js';
+import { _resetIDBSingleton } from '../../composables/useIDB.js';
+import { upsertRecordsIntoIDB } from '../../store/persistence/operations.js';
+import { appConfig } from '../../utils/index.js';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -78,7 +81,8 @@ async function clickAndWaitForUser(wrapper, submitBtn, expectedUserCount = 1) {
 // Automatically unmount every wrapper created with mount() after each test.
 enableAutoUnmount(afterEach);
 
-beforeEach(() => {
+beforeEach(async () => {
+  await _resetIDBSingleton();
   localStorage.clear();
   _resetAuthSingleton();
 });
@@ -173,16 +177,16 @@ describe('adding the first user', () => {
     expect(wrapper.text()).toContain('Admin');
   });
 
-  it('saves the new admin user to localStorage', async () => {
+  it('saves the new admin user to in-memory auth state', async () => {
     const wrapper = mountModal();
     await wrapper.find('input[placeholder="Nome utente"]').setValue('Admin');
     await wrapper.find('input[placeholder="PIN (4 cifre numeriche)"]').setValue('1234');
     const submitBtn = wrapper.findAll('button').find(b => b.text().trim().includes('Crea account'));
     await clickAndWaitForUser(wrapper, submitBtn);
 
-    const stored = JSON.parse(localStorage.getItem('auth_users') ?? '[]');
-    expect(stored).toHaveLength(1);
-    expect(stored[0].name).toBe('Admin');
+    const { users } = useAuth();
+    expect(users.value).toHaveLength(1);
+    expect(users.value[0].name).toBe('Admin');
   });
 
   it('makes the first added user an admin', async () => {
@@ -192,8 +196,8 @@ describe('adding the first user', () => {
     const submitBtn = wrapper.findAll('button').find(b => b.text().trim().includes('Crea account'));
     await clickAndWaitForUser(wrapper, submitBtn);
 
-    const stored = JSON.parse(localStorage.getItem('auth_users') ?? '[]');
-    expect(stored[0].isAdmin).toBe(true);
+    const { users } = useAuth();
+    expect(users.value[0].isAdmin).toBe(true);
   });
 
   it('shows the user in the list after a successful submission', async () => {
@@ -338,5 +342,63 @@ describe('non-empty state with non-admin user logged in', () => {
     const wrapper = mountModal();
     const deleteBtns = wrapper.findAll('button[title="Elimina"]');
     expect(deleteBtns.length).toBe(0);
+  });
+
+  it('does not show auto-lock controls for non-admin manual users', () => {
+    const wrapper = mountModal();
+    expect(wrapper.text()).not.toContain('Blocco automatico');
+  });
+});
+
+describe('directus-managed venue users', () => {
+  beforeEach(async () => {
+    // Plaintext PIN here intentionally exercises the sync-normalization path:
+    // upsertRecordsIntoIDB hashes venue_users PINs before auth checks run.
+    await upsertRecordsIntoIDB('venue_users', [{
+      id: 'vu_directus_admin',
+      name: 'Direttore',
+      display_name: 'Direttore',
+      pin: '1234',
+      apps: ['admin'],
+      status: 'active',
+    }]);
+    const { login } = useAuth();
+    await _waitForAuth();
+    await login('vu_directus_admin', '1234');
+  });
+
+  it('shows directus read-only notice and hides add/edit controls', async () => {
+    const wrapper = mountModal();
+    await flushPromises();
+
+    expect(wrapper.text()).toContain('Utenti sincronizzati da Directus');
+    expect(wrapper.text()).toContain('Blocco automatico');
+    expect(wrapper.text()).not.toContain('Aggiungi utente');
+    expect(wrapper.find('button[title="Modifica"]').exists()).toBe(false);
+  });
+});
+
+describe('config users without venue users', () => {
+  beforeEach(() => {
+    appConfig.auth.users = [{
+      id: 'cfg_cashier',
+      name: 'Config Utente',
+      pin: '1234',
+      apps: ['cassa'],
+    }];
+  });
+
+  afterEach(() => {
+    appConfig.auth.users = [];
+  });
+
+  it('keeps first-admin form reachable when only appConfig users exist', async () => {
+    const wrapper = mountModal();
+    await _waitForAuth();
+    await flushPromises();
+
+    expect(wrapper.text()).toContain('Nessun utente configurato');
+    expect(wrapper.text()).toContain('Crea account amministratore');
+    expect(wrapper.text()).not.toContain('Aggiungi utente');
   });
 });

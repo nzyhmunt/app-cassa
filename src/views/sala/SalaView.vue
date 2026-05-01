@@ -10,29 +10,30 @@
 import { ref, onMounted, nextTick } from 'vue';
 import { useRouter } from 'vue-router';
 import SalaTableManager from '../../components/SalaTableManager.vue';
-import { useAppStore } from '../../store/index.js';
+import { useConfigStore, useOrderStore } from '../../store/index.js';
 
-const store = useAppStore();
+const configStore = useConfigStore();
+const orderStore = useOrderStore();
 const router = useRouter();
 const tableManagerRef = ref(null);
 
 onMounted(async () => {
   // Handle cross-view: open a specific table when navigating back from order view
-  if (store.pendingOpenTable) {
-    const table = store.pendingOpenTable;
-    store.pendingOpenTable = null;
+  if (orderStore.pendingOpenTable) {
+    const table = orderStore.pendingOpenTable;
+    orderStore.pendingOpenTable = null;
     await nextTick();
     tableManagerRef.value?.openTableDetails(table);
   }
 });
 
 async function handleNewOrder(ord) {
-  store.pendingNewOrder = ord;
+  orderStore.pendingNewOrder = ord;
   await router.push('/comande');
 }
 
 async function handleViewOrder(ord) {
-  store.pendingSelectOrder = ord;
+  orderStore.pendingSelectOrder = ord;
   await router.push('/comande');
 }
 </script>

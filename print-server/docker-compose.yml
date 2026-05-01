@@ -1,0 +1,76 @@
+services:
+  print-server:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3001}:${PORT:-3001}"
+    # Environment variables — values are read from the shell or from the .env
+    # file loaded by env_file below. Declaring them here ensures they are always
+    # forwarded to the container even when set as shell variables at runtime
+    # (e.g. PORT=4000 docker compose up).
+    environment:
+      - PORT=${PORT:-3001}
+      - PRINT_SERVER_NAME=${PRINT_SERVER_NAME:-ESC/POS Print Server}
+      - PRINT_SERVER_API_KEY=${PRINT_SERVER_API_KEY:-}
+      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-}
+      # ── Stampanti via env vars (opzionale) ──────────────────────────────
+      # Se impostata almeno una variabile PRINTER_<N>_ID, le stampanti vengono
+      # lette da queste variabili al posto di printers.config.js.
+      # N inizia da 0 e deve essere consecutivo (0, 1, 2 — senza salti).
+      #
+      # Stampante TCP (rete):
+      # - PRINTER_0_ID=${PRINTER_0_ID:-}
+      # - PRINTER_0_NAME=${PRINTER_0_NAME:-}
+      # - PRINTER_0_TYPE=${PRINTER_0_TYPE:-tcp}
+      # - PRINTER_0_HOST=${PRINTER_0_HOST:-}
+      # - PRINTER_0_PORT=${PRINTER_0_PORT:-9100}
+      # - PRINTER_0_TIMEOUT=${PRINTER_0_TIMEOUT:-5000}
+      #
+      # Seconda stampante TCP:
+      # - PRINTER_1_ID=${PRINTER_1_ID:-}
+      # - PRINTER_1_TYPE=${PRINTER_1_TYPE:-tcp}
+      # - PRINTER_1_HOST=${PRINTER_1_HOST:-}
+      # - PRINTER_1_PORT=${PRINTER_1_PORT:-9100}
+      #
+      # Stampante USB (file di dispositivo):
+      # - PRINTER_2_ID=${PRINTER_2_ID:-}
+      # - PRINTER_2_TYPE=${PRINTER_2_TYPE:-file}
+      # - PRINTER_2_DEVICE=${PRINTER_2_DEVICE:-/dev/usb/lp0}
+      #
+      # ── Modalità Directus Pull (opzionale) ──────────────────────────────
+      # Imposta DIRECTUS_URL e DIRECTUS_TOKEN per abilitare la lettura diretta
+      # dei job di stampa da Directus (WebSocket real-time + REST polling fallback).
+      # Lascia vuoti per disabilitare la modalità pull (solo HTTP push attivo).
+      - DIRECTUS_URL=${DIRECTUS_URL:-}
+      - DIRECTUS_TOKEN=${DIRECTUS_TOKEN:-}
+      - DIRECTUS_VENUE_ID=${DIRECTUS_VENUE_ID:-}
+      - DIRECTUS_POLL_SEC=${DIRECTUS_POLL_SEC:-60}
+      - DIRECTUS_WS_RETRIES=${DIRECTUS_WS_RETRIES:-100}
+      - DIRECTUS_WS_RETRY_DELAY=${DIRECTUS_WS_RETRY_DELAY:-3000}
+      - DIRECTUS_RETRY_MAX=${DIRECTUS_RETRY_MAX:-3}
+      - DIRECTUS_RETRY_DELAY_MS=${DIRECTUS_RETRY_DELAY_MS:-2000}
+      - DIRECTUS_PRINTERS_REFRESH_SEC=${DIRECTUS_PRINTERS_REFRESH_SEC:-300}
+    env_file:
+      - path: .env
+        required: false
+    # Mount printers.config.js so it can be edited without rebuilding the image.
+    volumes:
+      - ./printers.config.js:/app/printers.config.js:ro
+    # ── USB / parallel-port printers ────────────────────────────────────────
+    # If you use a `type: 'file'` printer (e.g. /dev/usb/lp0), grant the
+    # container access to the host device by uncommenting the lines below and
+    # adjusting the device path.
+    #
+    # devices:
+    #   - /dev/usb/lp0:/dev/usb/lp0
+    #
+    # The container runs as the non-root user `node`. USB device files are
+    # typically owned by root:lp (mode 660). To grant write access choose one
+    # of the following options (uncomment the relevant block):
+    #
+    # Option A — add the container to the device group (recommended):
+    # group_add:
+    #   - lp
+    #
+    # Option B — run the container as root (less secure):
+    # user: root

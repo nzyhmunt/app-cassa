@@ -1,33 +1,28 @@
 /**
  * @file store/persistence.js
- * @description Persistence utilities for the app state.
+ * @description Persistence key-derivation utilities.
  *
- * Persistence is handled by `pinia-plugin-persistedstate`, configured in
- * `src/store/index.js` via the `persist` option. This module exposes the
- * helpers needed to derive the correct localStorage keys and manage the
- * active instance name.
+ * Provides helpers to derive storage keys (for instance isolation) and to
+ * clear state. App state is stored in IndexedDB via `store/idbPersistence.js`;
+ * this module retains helpers that are shared across multiple files (key
+ * derivation, instance name resolution) and retains `clearState` only as a
+ * deprecated compatibility wrapper for full-reset flows.
  *
  * ── Multi-instance support ────────────────────────────────────────────────
  * Multiple instances of the app can run on the same device by assigning each
  * build a unique `instanceName` in `src/utils/index.js` (`appConfig`).
- * All localStorage keys are derived from that name, so each build operates
+ * All storage keys are derived from that name, so each build operates
  * in complete isolation — no runtime user configuration required.
- *
- * ── Note per la futura migrazione a PWA ──────────────────────────────────
- * TODO (PWA - IndexedDB): Replace localStorage with IndexedDB for larger
- *   datasets and non-blocking async I/O. Recommended library: idb.
- * TODO (PWA - Directus sync): Trigger sync after local writes.
- * ─────────────────────────────────────────────────────────────────────────
  */
 
 import { appConfig } from '../utils/index.js';
 
 /**
  * Schema version. Increment for breaking state structure changes.
- * The localStorage key changes automatically (e.g. demo_app_state_v2),
- * leaving the previous version's data as orphans until cleared.
+ * @deprecated Used only for backwards-compat key references; IndexedDB schema
+ * versioning is handled independently in `composables/useIDB.js` (DB_VERSION).
  */
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 /**
  * Returns the active instance name from `appConfig.instanceName`.
@@ -40,9 +35,8 @@ export function getInstanceName() {
 }
 
 /**
- * Derives localStorage keys from the active instance name.
- * The default instance (empty name) uses the original key names for backwards
- * compatibility with existing installations.
+ * Derives namespaced logical keys from the active instance name.
+ * Used for instance-isolated IndexedDB records.
  *
  * @param {string} [instanceName] - Instance name; defaults to getInstanceName().
  * @returns {{ storageKey: string, settingsKey: string }}
@@ -51,19 +45,32 @@ export function resolveStorageKeys(instanceName) {
   const n = instanceName ?? getInstanceName();
   const suffix = n ? `_${n}` : '';
   return {
-    storageKey: `demo_app_state${suffix}_v${SCHEMA_VERSION}`,
+    storageKey: `app_state${suffix}_v${SCHEMA_VERSION}`,
     settingsKey: n ? `app-settings_${n}` : 'app-settings',
   };
 }
 
 /**
- * Derives the localStorage key used to persist saved custom items in the
- * "Personalizzata" tab of the "Diretto" modal (CassaTableManager). Kept here
- * so both the component and the settings reset logic share the exact same key
- * derivation.
+ * Emits a cross-tab storage signal for the current instance.
+ * Listeners subscribed to the `storageKey` can use this as a lightweight
+ * trigger to hydrate fresh state from IndexedDB.
+ */
+export function touchStorageKey() {
+  if (typeof window === 'undefined' || !window.localStorage) return;
+  try {
+    const { storageKey } = resolveStorageKeys(getInstanceName());
+    window.localStorage.setItem(storageKey, String(Date.now()));
+  } catch (e) {
+    console.warn('[Persistence] Failed to emit storage signal:', e);
+  }
+}
+
+/**
+ * Derives the storage key used to persist saved custom items in the
+ * "Personalizzata" tab of the "Diretto" modal (CassaTableManager).
  *
  * @param {string} [instanceName] - Instance name; defaults to getInstanceName().
- * @returns {string} The localStorage key for saved custom items.
+ * @returns {string}
  */
 export function resolveCustomItemsKey(instanceName) {
   const n = instanceName ?? getInstanceName();
@@ -71,16 +78,20 @@ export function resolveCustomItemsKey(instanceName) {
 }
 
 /**
- * Removes the persisted app state from localStorage.
- * Obtain the key from resolveStorageKeys().storageKey.
+ * Clears the entire persisted app state from IndexedDB.
  *
- * @param {string} storageKey - The key to remove.
+ * @deprecated Use `clearAllStateFromIDB()` directly from
+ * `store/idbPersistence.js`. This function is kept for backward-compatible
+ * signatures and now returns a Promise so callers can await completion.
+ *
+ * @param {string} [_storageKey] - Reserved for backward-compatible signatures.
+ * @returns {Promise<void>}
  */
-export function clearState(storageKey) {
-  if (typeof localStorage === 'undefined') return;
+export async function clearState(_storageKey) {
   try {
-    localStorage.removeItem(storageKey);
+    const { clearAllStateFromIDB } = await import('./idbPersistence.js');
+    await clearAllStateFromIDB();
   } catch (e) {
-    console.warn('[Persistence] Failed to clear saved state:', e);
+    console.warn('[Persistence] Failed to clear IDB state:', e);
   }
 }

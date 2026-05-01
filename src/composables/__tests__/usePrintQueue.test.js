@@ -441,6 +441,17 @@ describe('enqueuePreBillJob()', () => {
     expect(body.table).toBe('05');
   });
 
+  it('uses explicit printerId when provided', async () => {
+    appConfig.printers = [
+      { id: 'p1', name: 'Shared A', url: 'http://localhost:3003/print', printTypes: ['pre_bill'] },
+      { id: 'p2', name: 'Shared B', url: 'http://localhost:3003/print', printTypes: ['pre_bill'] },
+    ];
+    enqueuePreBillJob({ table: '05' }, 'http://localhost:3003/print', 'Shared B', 'p2');
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.printerId).toBe('p2');
+  });
+
   it('logs the pre_bill job to the store', async () => {
     const store = useAppStore();
     enqueuePreBillJob({ table: '05' }, 'http://localhost:3003/print', 'Cassa');

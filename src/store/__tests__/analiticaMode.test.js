@@ -18,6 +18,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
 import { useAppStore } from '../index.js';
+import { getDB } from '../../composables/useIDB.js';
+import { getPendingEntries } from '../../composables/useSyncQueue.js';
 import { getOrderItemRowTotal } from '../../utils/index.js';
 import {
   buildFlatAnaliticaItems,
@@ -477,13 +479,13 @@ describe('store.addTransaction() with analitica operationType', () => {
     setActivePinia(createPinia());
   });
 
-  it('records the transaction with operationType=analitica and vociRefs', () => {
+  it('records the transaction with operationType=analitica and vociRefs', async () => {
     const store = useAppStore();
     // Keys are uid-based: `${orderId}__${itemUid}` and `${orderId}__${itemUid}__mod__${modIdx}`
-    store.addTransaction({
-      transactionId: 'txn_test',
-      tableId: 'T1',
-      billSessionId: 'sess_1',
+    await store.addTransaction({
+      id: 'txn_test',
+      table: 'T1',
+      bill_session: 'sess_1',
       paymentMethod: 'Contanti',
       operationType: 'analitica',
       amountPaid: 15.00,
@@ -499,9 +501,9 @@ describe('store.addTransaction() with analitica operationType', () => {
     expect(txn.vociRefs[0]).toMatchObject({ key: 'ord_1__itm_abc', qty: 1 });
   });
 
-  it('records modifier keys with partial quantities in vociRefs', () => {
+  it('records modifier keys with partial quantities in vociRefs', async () => {
     const store = useAppStore();
-    const billSessionId = store.openTableSession('T1', 2, 0);
+    const billSessionId = await store.openTableSession('T1', 2, 0);
 
     const items = [
       {
@@ -510,16 +512,16 @@ describe('store.addTransaction() with analitica operationType', () => {
         modifiers: [{ name: 'Mozzarella', price: 1.50, voidedQuantity: 0 }],
       },
     ];
-    const ord = store.addDirectOrder('T1', billSessionId, items);
+    const ord = await store.addDirectOrder('T1', billSessionId, items);
 
     const baseKey = `${ord.id}__u1`;
     const modKey = `${ord.id}__u1__mod__0`;
 
     // Pay only 1 of 2 pizzas and 1 of 2 modifier rows
-    store.addTransaction({
-      transactionId: 'txn_partial',
-      tableId: 'T1',
-      billSessionId,
+    await store.addTransaction({
+      id: 'txn_partial',
+      table: 'T1',
+      bill_session: billSessionId,
       paymentMethod: 'Contanti',
       operationType: 'analitica',
       amountPaid: 11.50,
@@ -528,7 +530,7 @@ describe('store.addTransaction() with analitica operationType', () => {
       timestamp: new Date().toISOString(),
     });
 
-    const txn = store.transactions.find(t => t.transactionId === 'txn_partial');
+    const txn = store.transactions.find(t => t.id === 'txn_partial');
     expect(txn).toBeDefined();
     expect(txn.vociRefs).toEqual(
       expect.arrayContaining([
@@ -537,6 +539,83 @@ describe('store.addTransaction() with analitica operationType', () => {
       ])
     );
     expect(txn.amountPaid).toBeCloseTo(11.50, 2);
+  });
+
+  it('persists and enqueues transaction_order_refs and transaction_voce_refs rows', async () => {
+    const store = useAppStore();
+
+    await store.addTransaction({
+      id: 'txn_refs_test',
+      table: 'T1',
+      bill_session: 'sess_refs_1',
+      paymentMethod: 'Contanti',
+      operationType: 'analitica',
+      amountPaid: 15.00,
+      vociRefs: [{ key: 'ord_1__itm_a', qty: 1 }, { key: 'ord_1__itm_a__mod__0', qty: 1 }],
+      orderRefs: ['ord_1'],
+      timestamp: new Date().toISOString(),
+    });
+
+    let refsEnqueued = false;
+    for (let i = 0; i < 30; i++) {
+      const pending = await getPendingEntries();
+      if (
+        pending.some(
+          (entry) => entry.collection === 'transaction_order_refs' && entry.payload?.transaction === 'txn_refs_test',
+        )
+        && pending.filter(
+          (entry) => entry.collection === 'transaction_voce_refs' && entry.payload?.transaction === 'txn_refs_test',
+        ).length === 2
+      ) {
+        refsEnqueued = true;
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    expect(refsEnqueued).toBe(true);
+
+    const db = await getDB();
+    const orderRefsRows = (await db.getAll('transaction_order_refs'))
+      .filter((row) => row.transaction === 'txn_refs_test');
+    const vociRefsRows = (await db.getAll('transaction_voce_refs'))
+      .filter((row) => row.transaction === 'txn_refs_test');
+    const pending = await getPendingEntries();
+
+    expect(orderRefsRows).toHaveLength(1);
+    expect(orderRefsRows[0]).toMatchObject({
+      transaction: 'txn_refs_test',
+      order: 'ord_1',
+    });
+
+    expect(vociRefsRows).toHaveLength(2);
+    expect(vociRefsRows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ transaction: 'txn_refs_test', voce_key: 'ord_1__itm_a', qty: 1 }),
+        expect.objectContaining({ transaction: 'txn_refs_test', voce_key: 'ord_1__itm_a__mod__0', qty: 1 }),
+      ]),
+    );
+
+    const orderQueueEntries = pending.filter(
+      (entry) => entry.collection === 'transaction_order_refs' && entry.payload?.transaction === 'txn_refs_test',
+    );
+    const vociQueueEntries = pending.filter(
+      (entry) => entry.collection === 'transaction_voce_refs' && entry.payload?.transaction === 'txn_refs_test',
+    );
+
+    expect(orderQueueEntries).toHaveLength(1);
+    expect(vociQueueEntries).toHaveLength(2);
+    expect(orderQueueEntries[0]).toMatchObject({
+      operation: 'create',
+      record_id: orderRefsRows[0].id,
+      payload: orderRefsRows[0],
+    });
+    expect(vociQueueEntries).toEqual(
+      expect.arrayContaining(vociRefsRows.map((row) => expect.objectContaining({
+        operation: 'create',
+        record_id: row.id,
+        payload: row,
+      }))),
+    );
   });
 });
 

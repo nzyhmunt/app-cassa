@@ -1,10 +1,10 @@
 import { createApp } from 'vue';
 import { createPinia } from 'pinia';
-import piniaPluginPersistedstate from 'pinia-plugin-persistedstate';
 import router from './router/index.js';
 import './assets/styles/main.css';
 import App from './CassaApp.vue';
 import { setupIOSViewportFix } from './utils/iosViewportFix.js';
+import { initStoreFromIDB, useConfigStore } from './store/index.js';
 
 // On iOS PWA, reset the viewport scroll position when the on-screen keyboard is dismissed.
 // Natural scrolling while the keyboard is open is preserved so focused inputs remain visible.
@@ -25,9 +25,29 @@ if (typeof window !== 'undefined' && typeof navigator !== 'undefined' && 'servic
     window.addEventListener('DOMContentLoaded', registerServiceWorker, { once: true });
   }
 }
+
 const app = createApp(App);
 const pinia = createPinia();
-pinia.use(piniaPluginPersistedstate);
 app.use(pinia);
 app.use(router);
-app.mount('#app');
+
+async function bootstrap() {
+  try {
+    // Hydrate from IDB only (no network) before first render.
+    await initStoreFromIDB(pinia);
+  } catch (e) {
+    console.warn('[App] IDB init failed, starting with defaults:', e);
+  }
+
+  // Menu loading is a separate bootstrap step and may perform network fetches.
+  try {
+    const configStore = useConfigStore(pinia);
+    await configStore.loadMenu({ skipHydrate: true });
+  } catch (e) {
+    console.warn('[App] Menu bootstrap failed, continuing with cached/default menu:', e);
+  }
+
+  app.mount('#app');
+}
+
+bootstrap();

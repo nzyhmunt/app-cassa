@@ -8,7 +8,7 @@
  *   enqueuePreBillJob(payload, printerUrl, printerName)   – Pre-conto sent to printer
  *   reprintJob(logEntry, overrideUrl?)               – Re-send a logged job
  *
- * Printer configuration lives in appConfig.printers (src/utils/index.js).
+ * Printer configuration lives in the reactive runtime config (store.config.printers).
  *
  * Each printer can be scoped to specific job types via `printTypes[]`:
  *   'order'      – new accepted kitchen/bar order
@@ -23,7 +23,8 @@
  * Every dispatched job is appended to store.printLog for the print-history view.
  *
  * Print-job log entry common fields (stored in store.printLog):
- *   logId      string  – unique log entry identifier (plog_<uuid>)
+ *   id         string  – UUID v7 (Directus PK; standard UUID, no prefix)
+ *   logId      string  – unique log entry identifier (plog_<uuid>; IDB keyPath)
  *   jobId      string  – unique job identifier sent to the printer (job_<uuid>)
  *   printType  string  – 'order' | 'table_move' | 'pre_bill' | (any future type)
  *   printerId  string  – printer id from config
@@ -52,21 +53,22 @@
  *   fromTableId, fromTableLabel, toTableId, toTableLabel strings
  */
 
-import { appConfig } from '../utils/index.js';
-import { newUUID } from '../store/storeUtils.js';
+import { newUUIDv7 } from '../store/storeUtils.js';
 import { useAppStore } from '../store/index.js';
+import { appConfig } from '../utils/index.js';
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 /**
  * Builds a reverse look-up map: dishId → category name.
- * Uses the current appConfig.menu. Called lazily because the menu may be
+ * Uses the current runtime menu config. Called lazily because the menu may be
  * loaded asynchronously after the app boots.
+ * @param {object|null} [store] - Optional store instance; when omitted/null, resolves from active Pinia.
  * @returns {Map<string, string>}
  */
-function buildDishCategoryMap() {
+function buildDishCategoryMap(store = null) {
   const map = new Map();
-  const menu = appConfig.menu ?? {};
+  const menu = getRuntimeConfig(store).menu ?? {};
   for (const [category, items] of Object.entries(menu)) {
     if (Array.isArray(items)) {
       for (const item of items) {
@@ -131,13 +133,31 @@ function getStore() {
 }
 
 /**
+ * Returns the reactive runtime config from the active store.
+ * Falls back to an empty object when Pinia/store is not available.
+ * @param {object|null} [store]
+ * @returns {Record<string, any>}
+ */
+function getRuntimeConfig(store = null) {
+  const resolvedStore = store ?? getStore();
+  const storeConfig = resolvedStore?.config ?? {};
+  const storeHydrated = resolvedStore?.configHydrated === true;
+  // Once config is hydrated from IDB/Directus, store config becomes authoritative.
+  // Before hydration, keep appConfig as last-wins fallback for legacy startup/tests.
+  return storeHydrated
+    ? { ...appConfig, ...storeConfig }
+    : { ...storeConfig, ...appConfig };
+}
+
+/**
  * Returns all configured printers that accept the given printType.
  * A printer with no printTypes (or an empty array) acts as catch-all.
  * @param {string} printType
+ * @param {object|null} [store] - Optional store instance; when omitted/null, resolves from active Pinia.
  * @returns {object[]}
  */
-function getPrintersForType(printType) {
-  const printers = appConfig.printers;
+function getPrintersForType(printType, store = null) {
+  const printers = getRuntimeConfig(store).printers;
   if (!Array.isArray(printers)) return [];
   return printers.filter(p => {
     if (!p?.url) return false;
@@ -170,12 +190,12 @@ function logJob(store, entry) {
  * @param {object} order - The order object (status should be 'accepted').
  */
 export function enqueuePrintJobs(order) {
-  const printers = getPrintersForType('order');
+  const store = getStore();
+  const printers = getPrintersForType('order', store);
   if (printers.length === 0) return;
   if (order?.isDirectEntry) return;
 
-  const store = getStore();
-  const dishCategoryMap = buildDishCategoryMap();
+  const dishCategoryMap = buildDishCategoryMap(store);
 
   for (const printer of printers) {
     const isCatchAll = !Array.isArray(printer.categories) || printer.categories.length === 0;
@@ -206,7 +226,7 @@ export function enqueuePrintJobs(order) {
 
     const printerId = printer.id ?? printer.name ?? 'unknown';
     const job = {
-      jobId: newUUID('job'),
+      jobId: newUUIDv7('job'),
       printType: 'order',
       printerId,
       orderId: order.id,
@@ -217,9 +237,10 @@ export function enqueuePrintJobs(order) {
       items,
     };
 
-    const logId = newUUID('plog');
+    const logId = newUUIDv7('plog');
     logJob(store, {
       logId,
+      id: newUUIDv7(),
       jobId: job.jobId,
       printerId,
       printerName: printer.name ?? printer.id ?? 'Stampante',
@@ -244,16 +265,16 @@ export function enqueuePrintJobs(order) {
  * @param {string} toTableLabel   – destination table label
  */
 export function enqueueTableMoveJob(fromTableId, fromTableLabel, toTableId, toTableLabel) {
-  const printers = getPrintersForType('table_move');
+  const store = getStore();
+  const printers = getPrintersForType('table_move', store);
   if (printers.length === 0) return;
 
-  const store = getStore();
   const timestamp = new Date().toISOString();
 
   for (const printer of printers) {
     const printerId = printer.id ?? printer.name ?? 'unknown';
     const job = {
-      jobId: newUUID('job'),
+      jobId: newUUIDv7('job'),
       printType: 'table_move',
       printerId,
       fromTableId,
@@ -264,9 +285,10 @@ export function enqueueTableMoveJob(fromTableId, fromTableLabel, toTableId, toTa
       timestamp,
     };
 
-    const logId = newUUID('plog');
+    const logId = newUUIDv7('plog');
     logJob(store, {
       logId,
+      id: newUUIDv7(),
       jobId: job.jobId,
       printerId,
       printerName: printer.name ?? printer.id ?? 'Stampante',
@@ -288,26 +310,28 @@ export function enqueueTableMoveJob(fromTableId, fromTableLabel, toTableId, toTa
  * @param {object} payload      – Pre-bill data (tableId, tableLabel, items, amounts …)
  * @param {string} printerUrl   – URL of the target printer service
  * @param {string} printerName  – Human-readable name for the log entry
+ * @param {string|null} [printerIdOverride] – Explicit printer id (preferred when available)
  */
-export function enqueuePreBillJob(payload, printerUrl, printerName) {
+export function enqueuePreBillJob(payload, printerUrl, printerName, printerIdOverride = null) {
   if (!printerUrl) return;
 
   const store = getStore();
   const timestamp = new Date().toISOString();
-  const printer = appConfig.printers?.find(p => p.url === printerUrl);
-  const printerId = printer?.id ?? 'pre_bill';
+  const printer = getRuntimeConfig(store).printers?.find(p => p.url === printerUrl);
+  const printerId = printerIdOverride ?? printer?.id ?? 'pre_bill';
 
   const job = {
-    jobId: newUUID('job'),
+    jobId: newUUIDv7('job'),
     printType: 'pre_bill',
     printerId,
     timestamp,
     ...payload,
   };
 
-  const logId = newUUID('plog');
+  const logId = newUUIDv7('plog');
   logJob(store, {
     logId,
+    id: newUUIDv7(),
     jobId: job.jobId,
     printerId,
     printerName: printerName ?? printer?.name ?? 'Stampante',
@@ -346,7 +370,7 @@ export function reprintJob(logEntry, overrideUrl = null) {
   const timestamp = new Date().toISOString();
 
   const printer = overrideUrl
-    ? appConfig.printers?.find(p => p.url === overrideUrl)
+    ? getRuntimeConfig(store).printers?.find(p => p.url === overrideUrl)
     : null;
 
   const printerId = printer?.id ?? logEntry.printerId;
@@ -355,7 +379,7 @@ export function reprintJob(logEntry, overrideUrl = null) {
 
   const job = {
     ...payload,
-    jobId: newUUID('job'),
+    jobId: newUUIDv7('job'),
     reprinted: true,
     timestamp,
     printerId,
@@ -363,9 +387,10 @@ export function reprintJob(logEntry, overrideUrl = null) {
     printerUrl,
   };
 
-  const logId = newUUID('plog');
+  const logId = newUUIDv7('plog');
   logJob(store, {
     logId,
+    id: newUUIDv7(),
     jobId: job.jobId,
     printerId,
     printerName,

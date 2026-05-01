@@ -1,26 +1,22 @@
 import { ref, watch, onUnmounted } from 'vue';
-import { useAppStore } from '../store/index.js';
-import { getInstanceName, resolveStorageKeys, clearState, resolveCustomItemsKey } from '../store/persistence.js';
-import { appConfig, KEYBOARD_POSITIONS } from '../utils/index.js';
+import { useConfigStore } from '../store/index.js';
+import { KEYBOARD_POSITIONS, DEFAULT_SETTINGS } from '../utils/index.js';
 import { isWakeLockSupported } from './useWakeLock.js';
-import { getPwaDismissKey } from './usePwaInstall.js';
 import { useAuth } from './useAuth.js';
-
+import { deleteDatabase, clearAllStateFromIDB } from '../store/persistence/operations.js';
+import { clearDirectusConfigFromStorage } from './useDirectusClient.js';
+import { getInstanceName } from '../store/persistence.js';
 /**
  * Shared composable for the Cassa and Sala settings modals.
- * Handles localStorage persistence (debounced), reset, and menu sync.
+ * Handles IndexedDB persistence (debounced), reset, and menu sync.
  *
  * @param {object} props  - Component props (must expose `modelValue: Boolean`)
  * @param {function} emit - Component emit function
- * @returns {{ store, settings, resetConfirmPending, syncMenu, confirmReset, wakeLockApiSupported }}
+ * @returns {{ configStore, settings, resetConfirmPending, syncMenu, confirmReset, wakeLockApiSupported }}
  */
 export function useSettings(props, emit) {
-  const store = useAppStore();
+  const configStore = useConfigStore();
   const wakeLockApiSupported = isWakeLockSupported();
-
-  const _instanceName = getInstanceName();
-  const { storageKey: _storageKey, settingsKey: SETTINGS_STORAGE_KEY } =
-    resolveStorageKeys(_instanceName);
 
   /** Validate a stored keyboard value; return 'disabled' if unknown. */
   function _parseKeyboardPosition(v) {
@@ -28,32 +24,22 @@ export function useSettings(props, emit) {
     return 'disabled';
   }
 
+  // Build initial settings from the store (already populated by initStoreFromIDB before mount).
   function loadInitialSettings() {
-    if (typeof window === 'undefined') {
-      return { sounds: true, menuUrl: appConfig.menuUrl, preventScreenLock: true, customKeyboard: 'disabled', preBillPrinterId: '' };
-    }
-    try {
-      const raw = window.localStorage.getItem(SETTINGS_STORAGE_KEY);
-      if (!raw) {
-        return { sounds: true, menuUrl: appConfig.menuUrl, preventScreenLock: true, customKeyboard: 'disabled', preBillPrinterId: '' };
-      }
-      const parsed = JSON.parse(raw);
-      return {
-        sounds: typeof parsed.sounds === 'boolean' ? parsed.sounds : true,
-        menuUrl:
-          typeof parsed.menuUrl === 'string' && parsed.menuUrl.trim() !== ''
-            ? parsed.menuUrl
-            : appConfig.menuUrl,
-        preventScreenLock:
-          typeof parsed.preventScreenLock === 'boolean' && wakeLockApiSupported
-            ? parsed.preventScreenLock
-            : true,
-        customKeyboard: _parseKeyboardPosition(parsed.customKeyboard),
-        preBillPrinterId: typeof parsed.preBillPrinterId === 'string' ? parsed.preBillPrinterId : '',
-      };
-    } catch {
-      return { sounds: true, menuUrl: appConfig.menuUrl, preventScreenLock: true, customKeyboard: 'disabled', preBillPrinterId: '' };
-    }
+    return {
+      sounds: typeof configStore.sounds === 'boolean' ? configStore.sounds : true,
+      menuUrl:
+        typeof configStore.menuUrl === 'string' && configStore.menuUrl.trim() !== ''
+          ? configStore.menuUrl
+          : (configStore.config?.menuUrl ?? DEFAULT_SETTINGS.menuUrl),
+      menuSource: configStore.menuSource === 'json' ? 'json' : 'directus',
+      preventScreenLock:
+        typeof configStore.preventScreenLock === 'boolean' && wakeLockApiSupported
+          ? configStore.preventScreenLock
+          : true,
+      customKeyboard: _parseKeyboardPosition(configStore.customKeyboard),
+      preBillPrinterId: typeof configStore.preBillPrinterId === 'string' ? configStore.preBillPrinterId : '',
+    };
   }
 
   const settings = ref(loadInitialSettings());
@@ -62,12 +48,7 @@ export function useSettings(props, emit) {
   let saveTimer = null;
 
   function persistSettings(val) {
-    if (typeof window === 'undefined') return;
-    try {
-      window.localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(val));
-    } catch {
-      // Ignore storage errors (e.g., quota exceeded or disabled storage)
-    }
+    configStore.saveLocalSettings(val).catch(e => console.warn('[Settings] Failed to save settings:', e));
   }
 
   // Flush pending save and reset confirm state when the modal closes
@@ -86,12 +67,13 @@ export function useSettings(props, emit) {
     settings,
     (newVal) => {
       // Keep store and parent in sync immediately for responsive UI
-      store.menuUrl = newVal.menuUrl;
-      store.preventScreenLock = newVal.preventScreenLock;
-      store.customKeyboard = newVal.customKeyboard;
-      store.preBillPrinterId = newVal.preBillPrinterId ?? '';
+      configStore.applyLocalSettings(newVal);
+      if (configStore.menuSource !== 'json') {
+        configStore.menuError = null;
+        configStore.menuLoading = false;
+      }
       emit('settings-changed', newVal);
-      // Debounce localStorage writes to avoid per-keystroke I/O (e.g. menuUrl typing)
+      // Debounce IDB writes to avoid per-keystroke I/O (e.g. menuUrl typing)
       clearTimeout(saveTimer);
       saveTimer = setTimeout(() => persistSettings(newVal), 400);
     },
@@ -104,32 +86,69 @@ export function useSettings(props, emit) {
   });
 
   async function syncMenu() {
-    await store.loadMenu();
+    if (settings.value.menuSource !== 'json') return;
+    await configStore.loadMenu();
   }
 
-  function confirmReset() {
-    clearState(_storageKey);
+  async function confirmReset() {
+    // Clear Directus connection config so it is not reloaded after reload.
     try {
-      window.localStorage.removeItem(SETTINGS_STORAGE_KEY);
+      await clearDirectusConfigFromStorage();
     } catch (e) {
-      console.warn('[Settings] Failed to remove settings during reset:', e);
+      console.warn('[Settings] Failed to clear Directus config during reset:', e);
     }
+    // Proactively clear operational IDB state before the physical database delete.
+    // deleteDatabase() uses an onblocked handler that resolves after a 3-second
+    // timeout when another connection (e.g. an in-flight WebSocket write or
+    // polling timer) is holding the DB open. In that case the physical delete
+    // silently does NOT happen, so app_meta (including lastPullTs cursors) and
+    // other stores can survive the reload.
+    // Calling clearAllStateFromIDB() first reduces leftover app data in that
+    // blocked-delete case, but it is still best-effort and does not remove every store.
     try {
-      window.localStorage.removeItem(getPwaDismissKey());
+      await clearAllStateFromIDB();
     } catch (e) {
-      console.warn('[Settings] Failed to remove PWA dismiss key during reset:', e);
+      console.warn('[Settings] Failed to pre-clear IDB stores during reset:', e);
     }
-    // Also wipe all auth data (users, sessions, auth settings)
+    // Nuclear reset: physically delete the entire IndexedDB database.
+    // Only a successful delete clears every object store.
+    try {
+      await deleteDatabase(getInstanceName());
+    } catch (e) {
+      // concurrent WebSocket write or polling timer). IDB stores have already
+      // been cleared by clearAllStateFromIDB() above, so we can safely continue
+      // with SW cleanup and reload. Only data not covered by the pre-clear
+      // (such as local_settings) may remain if the physical delete is blocked.
+      console.warn('[Settings] Failed to complete physical IndexedDB deletion after pre-clear; only data not removed by clearAllStateFromIDB() may remain:', e);
+    }
+    // Clear in-memory auth state (its internal IDB call is harmless — already cleared)
     try {
       const { clearAllAuthData } = useAuth();
       clearAllAuthData();
     } catch (e) {
       console.warn('[Settings] Failed to clear auth data during reset:', e);
     }
+    // Unregister all service workers and purge all browser caches so that the
+    // next load fetches the latest deployed code from the network, rather than
+    // serving stale JS/CSS assets from the SW's cache-first asset cache.
+    // This prevents the "interface changes not applied after reset" issue that
+    // occurs when a new build has been deployed but the SW still holds old
+    // assets under the same cache-version key.
     try {
-      window.localStorage.removeItem(resolveCustomItemsKey(_instanceName));
+      if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(registrations.map((r) => r.unregister()));
+      }
     } catch (e) {
-      console.warn('[Settings] Failed to remove custom items during reset:', e);
+      console.warn('[Settings] Failed to unregister service workers during reset:', e);
+    }
+    try {
+      if (typeof caches !== 'undefined') {
+        const keys = await caches.keys();
+        await Promise.all(keys.map((key) => caches.delete(key)));
+      }
+    } catch (e) {
+      console.warn('[Settings] Failed to clear browser caches during reset:', e);
     }
     if (typeof window !== 'undefined' && window.location) {
       window.location.reload();
@@ -137,7 +156,7 @@ export function useSettings(props, emit) {
   }
 
   return {
-    store,
+    configStore,
     settings,
     resetConfirmPending,
     syncMenu,

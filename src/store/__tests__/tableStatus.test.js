@@ -10,14 +10,36 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
 import { useAppStore } from '../index.js';
+import { _resetListeners } from '../persistence/eventBus.js';
+
+// Drain pending setImmediate callbacks (fake-indexeddb uses setImmediate for
+// IDB transaction processing).  Called in afterEach before clearing bus
+// listeners so that any fire-and-forget IDB writes from the current test
+// (e.g. setBillRequested's unawaited saveStateToIDB) complete and deliver
+// their bus event to the OLD store, not to the next test's fresh store.
+function flushIDB(rounds = 3) {
+  return Array.from({ length: rounds }).reduce(
+    (p) => p.then(() => new Promise((r) => setImmediate(r))),
+    Promise.resolve(),
+  );
+}
 
 // Prevent real network requests while loading the menu
 beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 503 }));
   setActivePinia(createPinia());
 });
 
-afterEach(() => {
+afterEach(async () => {
+  // Kill any pending _scheduleSave timers from old store instances.
+  vi.clearAllTimers();
+  vi.useRealTimers();
+  // Drain pending IDB setImmediate callbacks so fire-and-forget IDB writes
+  // complete (emitting to the OLD store's subscribers) before we clear the bus.
+  await flushIDB();
+  // Clear IDB-bus subscribers so future emissions cannot reach the next test's store.
+  _resetListeners();
   vi.unstubAllGlobals();
 });
 
@@ -43,7 +65,7 @@ function makeOrder(id, tableId, status, totalAmount) {
 function makeTransaction(tableId, amountPaid) {
   return {
     id: `txn_${Math.random().toString(36).slice(2)}`,
-    tableId,
+    table: tableId,
     amountPaid,
     tipAmount: 0,
     method: 'cash',
@@ -65,16 +87,16 @@ describe('getTableStatus() — free', () => {
     expect(result.remaining).toBe(0);
   });
 
-  it('returns free when all orders are completed', () => {
+  it('returns free when all orders are completed', async () => {
     const store = useAppStore();
-    store.addOrder(makeOrder('ord1', 'T1', 'completed', 20));
+    await store.addOrder(makeOrder('ord1', 'T1', 'completed', 20));
     const result = store.getTableStatus('T1');
     expect(result.status).toBe('free');
   });
 
-  it('returns free when all orders are rejected', () => {
+  it('returns free when all orders are rejected', async () => {
     const store = useAppStore();
-    store.addOrder(makeOrder('ord1', 'T1', 'rejected', 20));
+    await store.addOrder(makeOrder('ord1', 'T1', 'rejected', 20));
     const result = store.getTableStatus('T1');
     expect(result.status).toBe('free');
   });
@@ -85,19 +107,19 @@ describe('getTableStatus() — free', () => {
 // ---------------------------------------------------------------------------
 
 describe('getTableStatus() — pending', () => {
-  it('returns pending when at least one order has status pending', () => {
+  it('returns pending when at least one order has status pending', async () => {
     const store = useAppStore();
-    store.addOrder(makeOrder('ord1', 'T1', 'pending', 15));
+    await store.addOrder(makeOrder('ord1', 'T1', 'pending', 15));
     const result = store.getTableStatus('T1');
     expect(result.status).toBe('pending');
   });
 
-  it('pending takes precedence over paid (remaining=0 but pending order exists)', () => {
+  it('pending takes precedence over paid (remaining=0 but pending order exists)', async () => {
     const store = useAppStore();
-    store.addOrder(makeOrder('ord1', 'T1', 'pending', 10));
-    store.addOrder(makeOrder('ord2', 'T1', 'accepted', 10));
+    await store.addOrder(makeOrder('ord1', 'T1', 'pending', 10));
+    await store.addOrder(makeOrder('ord2', 'T1', 'accepted', 10));
     // Pay the accepted order fully — remaining = 0, but pending order still active
-    store.addTransaction(makeTransaction('T1', 10));
+    await store.addTransaction(makeTransaction('T1', 10));
     const result = store.getTableStatus('T1');
     // pending takes priority: a pending order is still in flight
     expect(result.status).toBe('pending');
@@ -109,47 +131,47 @@ describe('getTableStatus() — pending', () => {
 // ---------------------------------------------------------------------------
 
 describe('getTableStatus() — paid', () => {
-  it('returns paid when remaining === 0 and no pending orders', () => {
+  it('returns paid when remaining === 0 and no pending orders', async () => {
     const store = useAppStore();
-    store.addOrder(makeOrder('ord1', 'T1', 'accepted', 25));
-    store.addTransaction(makeTransaction('T1', 25));
+    await store.addOrder(makeOrder('ord1', 'T1', 'accepted', 25));
+    await store.addTransaction(makeTransaction('T1', 25));
     const result = store.getTableStatus('T1');
     expect(result.status).toBe('paid');
     expect(result.remaining).toBe(0);
   });
 
-  it('returns paid even when bill_requested is set if remaining === 0', () => {
+  it('returns paid even when bill_requested is set if remaining === 0', async () => {
     const store = useAppStore();
-    store.addOrder(makeOrder('ord1', 'T1', 'accepted', 30));
-    store.addTransaction(makeTransaction('T1', 30));
+    await store.addOrder(makeOrder('ord1', 'T1', 'accepted', 30));
+    await store.addTransaction(makeTransaction('T1', 30));
     store.setBillRequested('T1', true);
     // paid takes precedence over bill_requested
     const result = store.getTableStatus('T1');
     expect(result.status).toBe('paid');
   });
 
-  it('does NOT return paid when remaining > 0', () => {
+  it('does NOT return paid when remaining > 0', async () => {
     const store = useAppStore();
-    store.addOrder(makeOrder('ord1', 'T1', 'accepted', 40));
-    store.addTransaction(makeTransaction('T1', 20));
+    await store.addOrder(makeOrder('ord1', 'T1', 'accepted', 40));
+    await store.addTransaction(makeTransaction('T1', 20));
     const result = store.getTableStatus('T1');
     expect(result.status).not.toBe('paid');
     expect(result.remaining).toBe(20);
   });
 
-  it('returns paid total and remaining correctly', () => {
+  it('returns paid total and remaining correctly', async () => {
     const store = useAppStore();
-    store.addOrder(makeOrder('ord1', 'T1', 'accepted', 50));
-    store.addTransaction(makeTransaction('T1', 50));
+    await store.addOrder(makeOrder('ord1', 'T1', 'accepted', 50));
+    await store.addTransaction(makeTransaction('T1', 50));
     const result = store.getTableStatus('T1');
     expect(result.total).toBe(50);
     expect(result.remaining).toBe(0);
   });
 
-  it('remaining is clamped to 0 even when overpaid', () => {
+  it('remaining is clamped to 0 even when overpaid', async () => {
     const store = useAppStore();
-    store.addOrder(makeOrder('ord1', 'T1', 'accepted', 30));
-    store.addTransaction(makeTransaction('T1', 40)); // overpaid
+    await store.addOrder(makeOrder('ord1', 'T1', 'accepted', 30));
+    await store.addTransaction(makeTransaction('T1', 40)); // overpaid
     const result = store.getTableStatus('T1');
     expect(result.remaining).toBe(0);
     expect(result.status).toBe('paid');
@@ -161,18 +183,18 @@ describe('getTableStatus() — paid', () => {
 // ---------------------------------------------------------------------------
 
 describe('getTableStatus() — bill_requested', () => {
-  it('returns bill_requested when bill is requested and remaining > 0', () => {
+  it('returns bill_requested when bill is requested and remaining > 0', async () => {
     const store = useAppStore();
-    store.addOrder(makeOrder('ord1', 'T1', 'accepted', 45));
+    await store.addOrder(makeOrder('ord1', 'T1', 'accepted', 45));
     store.setBillRequested('T1', true);
     const result = store.getTableStatus('T1');
     expect(result.status).toBe('bill_requested');
   });
 
-  it('does NOT return bill_requested when remaining === 0 (becomes paid)', () => {
+  it('does NOT return bill_requested when remaining === 0 (becomes paid)', async () => {
     const store = useAppStore();
-    store.addOrder(makeOrder('ord1', 'T1', 'accepted', 45));
-    store.addTransaction(makeTransaction('T1', 45));
+    await store.addOrder(makeOrder('ord1', 'T1', 'accepted', 45));
+    await store.addTransaction(makeTransaction('T1', 45));
     store.setBillRequested('T1', true);
     const result = store.getTableStatus('T1');
     expect(result.status).toBe('paid');
@@ -185,18 +207,18 @@ describe('getTableStatus() — bill_requested', () => {
 // ---------------------------------------------------------------------------
 
 describe('getTableStatus() — occupied', () => {
-  it('returns occupied when orders are active and not fully paid', () => {
+  it('returns occupied when orders are active and not fully paid', async () => {
     const store = useAppStore();
-    store.addOrder(makeOrder('ord1', 'T1', 'accepted', 60));
+    await store.addOrder(makeOrder('ord1', 'T1', 'accepted', 60));
     const result = store.getTableStatus('T1');
     expect(result.status).toBe('occupied');
     expect(result.remaining).toBe(60);
   });
 
-  it('returns occupied with partial payment (remaining > 0)', () => {
+  it('returns occupied with partial payment (remaining > 0)', async () => {
     const store = useAppStore();
-    store.addOrder(makeOrder('ord1', 'T1', 'preparing', 80));
-    store.addTransaction(makeTransaction('T1', 30));
+    await store.addOrder(makeOrder('ord1', 'T1', 'preparing', 80));
+    await store.addTransaction(makeTransaction('T1', 30));
     const result = store.getTableStatus('T1');
     expect(result.status).toBe('occupied');
     expect(result.remaining).toBe(50);
@@ -208,22 +230,22 @@ describe('getTableStatus() — occupied', () => {
 // ---------------------------------------------------------------------------
 
 describe('getTableStatus() — multi-session isolation', () => {
-  it('does not count old-session transactions against the current session balance', () => {
+  it('does not count old-session transactions against the current session balance', async () => {
     const store = useAppStore();
 
     // Session 1: customer orders, pays, table is cleared when order completes
-    const sess1 = store.openTableSession('T1', 2, 0);
+    const sess1 = await store.openTableSession('T1', 2, 0);
     const ord1 = { ...makeOrder('ord1', 'T1', 'accepted', 30), billSessionId: sess1 };
-    store.addOrder(ord1);
-    store.addTransaction({ ...makeTransaction('T1', 30), billSessionId: sess1 });
+    await store.addOrder(ord1);
+    await store.addTransaction({ ...makeTransaction('T1', 30), bill_session: sess1 });
     // Completing the order triggers changeOrderStatus which clears the session
-    store.changeOrderStatus(store.orders.find(o => o.id === 'ord1'), 'completed');
+    await store.changeOrderStatus(store.orders.find(o => o.id === 'ord1'), 'completed');
     expect(store.tableCurrentBillSession['T1']).toBeUndefined();
 
     // Session 2: new customer sits, new order (not yet paid)
-    const sess2 = store.openTableSession('T1', 2, 0);
+    const sess2 = await store.openTableSession('T1', 2, 0);
     const ord2 = { ...makeOrder('ord2', 'T1', 'accepted', 50), billSessionId: sess2 };
-    store.addOrder(ord2);
+    await store.addOrder(ord2);
 
     // Old-session payment ($30) must NOT reduce session 2's balance
     const result = store.getTableStatus('T1');
@@ -232,26 +254,47 @@ describe('getTableStatus() — multi-session isolation', () => {
     expect(result.remaining).toBe(50);
   });
 
-  it('correctly shows paid when only the current session transactions cover the current total', () => {
+  it('correctly shows paid when only the current session transactions cover the current total', async () => {
     const store = useAppStore();
 
     // Session 1: paid and cleared
-    const sess1 = store.openTableSession('T1', 2, 0);
+    const sess1 = await store.openTableSession('T1', 2, 0);
     const ord1 = { ...makeOrder('ord1', 'T1', 'accepted', 30), billSessionId: sess1 };
-    store.addOrder(ord1);
-    store.addTransaction({ ...makeTransaction('T1', 30), billSessionId: sess1 });
-    store.changeOrderStatus(store.orders.find(o => o.id === 'ord1'), 'completed');
+    await store.addOrder(ord1);
+    await store.addTransaction({ ...makeTransaction('T1', 30), bill_session: sess1 });
+    await store.changeOrderStatus(store.orders.find(o => o.id === 'ord1'), 'completed');
 
     // Session 2: new customer with $40 order, also fully paid
-    const sess2 = store.openTableSession('T1', 2, 0);
+    const sess2 = await store.openTableSession('T1', 2, 0);
     const ord2 = { ...makeOrder('ord2', 'T1', 'accepted', 40), billSessionId: sess2 };
-    store.addOrder(ord2);
-    store.addTransaction({ ...makeTransaction('T1', 40), billSessionId: sess2 });
+    await store.addOrder(ord2);
+    await store.addTransaction({ ...makeTransaction('T1', 40), bill_session: sess2 });
 
     const result = store.getTableStatus('T1');
     expect(result.status).toBe('paid');
     expect(result.total).toBe(40);
     expect(result.remaining).toBe(0);
+  });
+
+  it('ignores old-session pending orders when evaluating current table status', async () => {
+    const store = useAppStore();
+
+    const sess1 = await store.openTableSession('T1', 2, 0);
+    await store.addOrder({ ...makeOrder('ord_old_pending', 'T1', 'pending', 12), billSessionId: sess1 });
+    // Keep historical pending row as simulated legacy data, then switch to a fresh active session.
+    const nextSessions = { ...store.tableCurrentBillSession };
+    delete nextSessions.T1;
+    store.tableCurrentBillSession = nextSessions;
+
+    const sess2 = await store.openTableSession('T1', 2, 0);
+    await store.addDirectOrder('T1', sess2, [
+      { uid: 'cover_1', dishId: null, name: 'Coperto', unitPrice: 2.5, quantity: 2, voidedQuantity: 0, notes: [], modifiers: [] },
+    ]);
+
+    const result = store.getTableStatus('T1');
+    expect(result.status).toBe('occupied');
+    expect(result.total).toBeCloseTo(5, 2);
+    expect(result.remaining).toBeCloseTo(5, 2);
   });
 });
 
@@ -260,26 +303,26 @@ describe('getTableStatus() — multi-session isolation', () => {
 // ---------------------------------------------------------------------------
 
 describe('getTableStatus() — status precedence', () => {
-  it('precedence: pending > paid', () => {
+  it('precedence: pending > paid', async () => {
     const store = useAppStore();
     // One accepted order fully paid (→ paid candidate) + one pending order
-    store.addOrder(makeOrder('ord1', 'T1', 'accepted', 20));
-    store.addOrder(makeOrder('ord2', 'T1', 'pending', 0));
-    store.addTransaction(makeTransaction('T1', 20));
+    await store.addOrder(makeOrder('ord1', 'T1', 'accepted', 20));
+    await store.addOrder(makeOrder('ord2', 'T1', 'pending', 0));
+    await store.addTransaction(makeTransaction('T1', 20));
     expect(store.getTableStatus('T1').status).toBe('pending');
   });
 
-  it('precedence: paid > bill_requested', () => {
+  it('precedence: paid > bill_requested', async () => {
     const store = useAppStore();
-    store.addOrder(makeOrder('ord1', 'T1', 'accepted', 20));
-    store.addTransaction(makeTransaction('T1', 20));
+    await store.addOrder(makeOrder('ord1', 'T1', 'accepted', 20));
+    await store.addTransaction(makeTransaction('T1', 20));
     store.setBillRequested('T1', true);
     expect(store.getTableStatus('T1').status).toBe('paid');
   });
 
-  it('precedence: bill_requested > occupied', () => {
+  it('precedence: bill_requested > occupied', async () => {
     const store = useAppStore();
-    store.addOrder(makeOrder('ord1', 'T1', 'accepted', 20));
+    await store.addOrder(makeOrder('ord1', 'T1', 'accepted', 20));
     store.setBillRequested('T1', true);
     expect(store.getTableStatus('T1').status).toBe('bill_requested');
   });
