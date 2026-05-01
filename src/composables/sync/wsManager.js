@@ -130,6 +130,14 @@ export async function _handleSubscriptionMessage(collection, message) {
     // and the update must not be silently dropped (data loss prevention).
     const nonEcho = [];
     suppressedCount = 0;
+    // Fetch the IDB handle once per message so the LWW guard inside the loop
+    // doesn't pay the getDB() lookup cost for every suppressed record.
+    let db;
+    try {
+      db = await getDB();
+    } catch (e) {
+      console.warn('[DirectusSync] LWW echo check: IDB unavailable', e);
+    }
     for (const r of objectData) {
       const id = r.id != null ? String(r.id) : null;
       if (!_isEchoSuppressed(collection, id)) {
@@ -141,9 +149,8 @@ export async function _handleSubscriptionMessage(collection, message) {
       // which are lexicographically comparable — no Date parsing overhead needed.
       const incomingTs = r.date_updated ?? null;
       let isCrossDeviceUpdate = false;
-      if (incomingTs && id) {
+      if (incomingTs && id && db) {
         try {
-          const db = await getDB();
           const local = await db.get(collection, id);
           const localTs = local?.date_updated ?? null;
           if (localTs && incomingTs > localTs) {
@@ -225,7 +232,14 @@ export async function _handleSubscriptionMessage(collection, message) {
         prepared = mapped;
       }
     }
-    await upsertRecordsIntoIDB(collection, prepared);
+    // For order_items, skip the unconditional upsert here — the atomic helper
+    // below writes order_items AND the embedded orderItems arrays in orders
+    // together in a single IDB transaction.  Writing to order_items twice would
+    // create a partial-write window where order_items is updated but orders is
+    // still stale if the atomic path throws/aborts.
+    if (collection !== 'order_items') {
+      await upsertRecordsIntoIDB(collection, prepared);
+    }
     if (collection === 'order_items') {
       // NS1: Use the same atomic upsert+merge that the REST pull path uses so
       // that the order_items ObjectStore and the embedded orderItems arrays in
