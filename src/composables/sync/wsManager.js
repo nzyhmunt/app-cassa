@@ -318,6 +318,19 @@ export async function _handleSubscriptionMessage(collection, message) {
     } else {
       await _refreshStoreFromIDB(collection);
     }
+    // NS9: WS subscriptions use fields:['*'] which does NOT expand nested relations
+    // such as order_items or order_item_modifiers.  When a new order arrives via a
+    // WS create event, its orderItems array is empty in the WS payload — items (and
+    // their modifiers) would only become visible after the next scheduled 30-second
+    // REST poll.  Trigger an immediate order_items pull so items are merged into the
+    // order within seconds of the WS event, eliminating the otherwise unavoidable
+    // one-cycle delay.  The pull is fire-and-forget: the IDB upsert path is
+    // idempotent and safe to run concurrently with the scheduled poll.
+    if (collection === 'orders' && event === 'create') {
+      _pullCollection('order_items').catch(e =>
+        console.warn('[DirectusSync] WS orders:create — immediate order_items pull failed:', e),
+      );
+    }
   }
 
   syncState.lastPullAt.value = new Date().toISOString();

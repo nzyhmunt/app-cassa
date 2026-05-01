@@ -4503,3 +4503,96 @@ describe('S5-FIX — WS heartbeat does not force-disconnect on idle apps', () =>
     }
   });
 });
+
+// ── NS9 — WS orders:create triggers immediate order_items pull ─────────────────
+//
+// WS subscriptions use fields:['*'] which does NOT expand nested relations.
+// A WS create event for an order therefore carries an empty orderItems array.
+// Without the NS9 fix, item details would only appear after the next 30-second
+// REST poll cycle, causing a confusing 30 s delay for operators on a second device.
+//
+// The fix triggers a fire-and-forget _pullCollection('order_items') immediately
+// after a WS orders:create event is processed, so items (and their modifiers) are
+// merged into the order within seconds.
+
+describe('NS9 — WS orders:create triggers immediate order_items pull', () => {
+  it('fires an order_items REST fetch after a WS orders:create event', async () => {
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+
+    // Seed a parent order as it would look after the WS create write (no items).
+    await db.put('orders', {
+      id: 'ord_ns9_1',
+      status: 'accepted',
+      table: '01',
+      orderItems: [],
+      date_created: '2024-06-01T10:00:00.000Z',
+      date_updated: null,
+    });
+
+    // Return an empty list for the fire-and-forget order_items pull so it completes
+    // cleanly without further IDB side-effects needed for this assertion.
+    const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue(directusListResponse([]));
+
+    // Simulate a WS create event arriving for the orders collection.  The payload
+    // intentionally has no order_items field (mirrors the real Directus WS response
+    // when fields:['*'] is used — nested relations are absent).
+    await _handleSubscriptionMessage('orders', {
+      event: 'create',
+      data: [{
+        id: 'ord_ns9_1',
+        status: 'accepted',
+        table: '01',
+        total_amount: 4.0,
+        item_count: 2,
+        date_created: '2024-06-01T10:00:00.000Z',
+        date_updated: null,
+      }],
+    });
+
+    // The NS9 fix triggers a fire-and-forget _pullCollection('order_items').  Use
+    // vi.waitFor to poll until the async chain has had a chance to call fetch —
+    // plain flushPromises() is not reliable for multi-layer fire-and-forget chains.
+    await vi.waitFor(() => {
+      const orderItemFetches = fetchSpy.mock.calls
+        .map(([url]) => String(url))
+        .filter(url => url.includes('/items/order_items'));
+      expect(orderItemFetches.length).toBeGreaterThan(0);
+    }, { timeout: 5000 });
+  });
+
+  it('does NOT fire an order_items pull for WS orders:update events', async () => {
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+
+    // Seed an existing order with items already present.
+    await db.put('orders', {
+      id: 'ord_ns9_upd',
+      status: 'pending',
+      table: '02',
+      orderItems: [{ id: 'oi_ns9_1', name: 'Pasta', quantity: 1, unit_price: 8 }],
+      date_created: '2024-06-01T09:00:00.000Z',
+      date_updated: '2024-06-01T09:05:00.000Z',
+    });
+
+    const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue(directusListResponse([]));
+
+    // WS update event — should NOT trigger an order_items pull.
+    await _handleSubscriptionMessage('orders', {
+      event: 'update',
+      data: [{
+        id: 'ord_ns9_upd',
+        status: 'accepted',
+        date_updated: '2024-06-01T09:06:00.000Z',
+      }],
+    });
+
+    await flushPromises(LONG_FLUSH_ROUNDS);
+
+    // No order_items fetch should have been triggered for an update event.
+    const orderItemFetches = fetchSpy.mock.calls
+      .map(([url]) => String(url))
+      .filter(url => url.includes('/items/order_items'));
+    expect(orderItemFetches.length).toBe(0);
+  });
+});
