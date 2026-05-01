@@ -157,7 +157,7 @@ export const syncState = {
 
 /**
  * Resets all singleton state back to initial values.
- * Called by `_resetDirectusSyncSingleton()` for test isolation.
+ * Intended for test isolation and other internal reset flows.
  * Preserves existing ref identity (does not replace the ref objects themselves,
  * only resets their `.value`) so that any Vue components that have already
  * destructured refs from `useDirectusSync()` continue to receive updates.
