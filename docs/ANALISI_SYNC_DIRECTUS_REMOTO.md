@@ -1,8 +1,8 @@
 # Analisi sincronizzazione con Directus remoto
 
-Data: 2026-05-01  
+Data: 2026-05-01 (aggiornata alle ultime modifiche disponibili su branch collegato e merge su `dev`)  
 Repository: `nzyhmunt/app-cassa`
-Baseline analizzata: `origin/dev` + `origin/copilot/document-pull-queue-functionality` (stacked branch collegato)
+Baseline analizzata: `origin/dev` (`9fd4fb6`) + `origin/copilot/document-pull-queue-functionality` (`2fa3e0f`) (stacked branch collegato)
 
 ## 1) Come funziona oggi (sintesi)
 
@@ -15,7 +15,7 @@ La sincronizzazione è implementata con modello offline-first nel layer `src/com
 
 ---
 
-## 2) Aggiornamenti introdotti nel branch collegato (`copilot/document-pull-queue-functionality`)
+## 2) Aggiornamenti introdotti nel branch collegato (`copilot/document-pull-queue-functionality`) e merge successivi
 
 Rispetto alla fotografia iniziale, nel branch collegato sono entrati hardening rilevanti:
 
@@ -40,6 +40,26 @@ Rispetto alla fotografia iniziale, nel branch collegato sono entrati hardening r
   - `SyncMonitor` con telemetria base (`wsDropCount`, `queueDepth`, `lastSuccessfulPull`) e badge nuovi dati.
 
 Queste modifiche chiudono parte delle criticità iniziali (in particolare la robustezza del cursor pull) ma restano alcuni gap strutturali.
+
+Ulteriori hardening entrati dopo il precedente aggiornamento dell'analisi:
+
+- **Cursor pull e keyset ulteriormente consolidati** (`pullQueue.js`):
+  - allineamento sort keyset e fix su guard LWW in presenza di `date_updated` nullo;
+  - riduzione write amplification: evitato `saveLastPullTsToIDB` ridondante quando il timestamp non avanza.
+- **Global pull più coerente a runtime** (`globalPull.js`):
+  - `put()` attesi esplicitamente nel fan-out per conteggi scritture affidabili;
+  - migliorata la consistenza del refresh follower con payload `ids` mirati su BroadcastChannel.
+- **Multi-tab più stabile** (`leaderElection.js`, `storebridge.js`, `state.js`):
+  - guardia anti self-loop su BroadcastChannel via `sourceId`;
+  - cleanup `onmessage` in promozione leader per evitare loop/handler stale.
+- **Merge order items e refresh store più robusti** (`idbOperations.js`, `orderStore.js`, `wsManager.js`):
+  - tracking `affectedOrderIds` anche nel percorso fallback di delete;
+  - normalizzazione PK a `String` e inserimento ordini mancanti nel refresh mirato.
+- **Difese su input edge-case**:
+  - guardie difensive per input null/invalid in normalizzazione IDB (`idbOperations.js`, `persistence/config.js`).
+- **Osservabilità estesa**:
+  - telemetria runtime ampliata (inclusi eventi delete `order_items`) e monitor attività con badge nuovi dati;
+  - gestione più sicura del background sync in Service Worker (`.catch` esplicito su `sync-orders`).
 
 ---
 
@@ -122,11 +142,12 @@ Queste modifiche chiudono parte delle criticità iniziali (in particolare la rob
 
 ---
 
-## P5 — Osservabilità parziale: log presenti, KPI strutturati ancora assenti
+## P5 — Osservabilità ancora parziale: migliorata lato runtime, KPI storici ancora assenti
 
 **Evidenza**
 
 - Nel branch collegato sono stati aggiunti KPI runtime (`wsDropCount`, `queueDepth`, `lastSuccessfulPull`) e monitor UI.
+- Gli ultimi merge hanno ampliato la telemetria/eventistica e il tracciamento attività/badge nuovi dati.
 - Mancano ancora KPI storici/persistenti e aggregazioni diagnostiche complete (tempo medio flush, error rate per collection, queue age, convergenza push→pull su orizzonte esteso).
 
 **Impatto**
