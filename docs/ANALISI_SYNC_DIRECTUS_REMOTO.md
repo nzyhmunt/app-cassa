@@ -1,42 +1,49 @@
 # Analisi sincronizzazione con Directus remoto
 
-Data: 2026-04-26  
+Data: 2026-05-01  
 Repository: `nzyhmunt/app-cassa`
-Baseline analizzata: `origin/dev` (aggiornata agli ultimi merge in dev)
+Baseline analizzata: `origin/dev` + `origin/copilot/document-pull-queue-functionality` (stacked branch collegato)
 
 ## 1) Come funziona oggi (sintesi)
 
-La sincronizzazione è implementata in `src/composables/useDirectusSync.js` con modello offline-first:
+La sincronizzazione è implementata con modello offline-first nel layer `src/composables/sync/*` (entrypoint pubblico `useDirectusSync`):
 
-- **Push**: coda locale `sync_queue` svuotata con `drainQueue()` (`useSyncQueue.js`) ogni 30s e all'evento enqueue.
-- **Pull operativo**: polling REST per app (`orders`, `bill_sessions`, `tables`, ecc.) ogni 30s, oppure WebSocket se `wsEnabled=true`.
-- **Pull configurazione globale**: deep fetch venue ogni 5 minuti (`_runGlobalPull`) con fan-out su store IDB.
+- **Push**: coda locale `sync_queue` svuotata con `drainQueue()` (`sync/pushQueue.js` + `useSyncQueue.js`) ogni 30s e all'evento enqueue.
+- **Pull operativo**: polling REST/keyset per app (`orders`, `bill_sessions`, `tables`, ecc.) ogni 30s, oppure WebSocket se `wsEnabled=true`.
+- **Pull configurazione globale**: deep fetch venue ogni 5 minuti (`sync/globalPull.js`) con fan-out su store IDB.
 - **Persistenza locale**: IndexedDB (`src/store/idbPersistence.js`) come source of truth runtime.
 
 ---
 
-## 2) Aggiornamenti introdotti dagli ultimi merge su dev
+## 2) Aggiornamenti introdotti nel branch collegato (`copilot/document-pull-queue-functionality`)
 
-Rispetto alla fotografia iniziale, nel ramo `dev` sono entrati miglioramenti importanti:
+Rispetto alla fotografia iniziale, nel branch collegato sono entrati hardening rilevanti:
 
-- **Push queue più robusta** (`useSyncQueue.js`):
+- **Refactoring architetturale sync**:
+  - estrazione di `useDirectusSync.js` in moduli dedicati (`sync/pullQueue.js`, `sync/globalPull.js`, `sync/wsManager.js`, `sync/leaderElection.js`, ecc.);
+  - maggiore separazione tra loop push/pull/global pull, stato condiviso e bridge store.
+- **Push queue più robusta** (`sync/pushQueue.js` + `useSyncQueue.js`):
   - ordinamento BFS per gruppo `collection:record_id` (migliore fairness tra record);
   - blocco intra-record e gestione dipendenze FK parent→child;
   - stop immediato su network error senza consumare tentativi (`offline: true`);
   - cascade-abandon dei figli quando un parent CREATE è definitivamente abbandonato;
-  - log persistente dettagliato su `sync_failed_calls`.
-- **Global pull più sicura** (`useDirectusSync.js`):
+  - supporto PWA background sync (`sync-orders`) quando la rete torna disponibile.
+- **Pull incrementale più solida** (`sync/pullQueue.js`):
+  - passaggio da `_gt` a `_gte` sul cursore temporale;
+  - keyset pagination con cursore composto (`timestamp + id`) per ridurre missing/duplicazioni ai boundary.
+- **Global pull più sicura** (`sync/globalPull.js`):
   - guardia di generazione (`_globalPullGeneration` / `_lastAppliedGlobalPullGeneration`) per evitare apply stale in caso di pull concorrenti;
-  - fallback deep-fetch più compatibile;
+  - fan-out IDB in transazione multi-store atomica;
   - refresh utenti auth (`reloadUsersFromIDB`) dopo fan-out `venue_users`.
-- **Osservabilità UI migliorata**:
-  - modale log coda sync e fallimenti storici già disponibile in impostazioni.
+- **Multi-tab e osservabilità migliorate**:
+  - leader election con Web Locks + BroadcastChannel per aggiornare i follower;
+  - `SyncMonitor` con telemetria base (`wsDropCount`, `queueDepth`, `lastSuccessfulPull`) e badge nuovi dati.
 
-Questi merge riducono diversi rischi operativi, ma restano alcuni gap strutturali.
+Queste modifiche chiudono parte delle criticità iniziali (in particolare la robustezza del cursor pull) ma restano alcuni gap strutturali.
 
 ---
 
-## 3) Problematiche ancora aperte e proposte
+## 3) Problematiche ancora aperte e proposte (post branch collegato)
 
 ## P1 — Polling REST non rimuove i record cancellati sul remoto
 
@@ -60,21 +67,20 @@ Questi merge riducono diversi rischi operativi, ma restano alcuni gap struttural
 
 ---
 
-## P2 — Cursor incrementale solo su `date_updated > sinceTs` (rischio missing update)
+## P2 — Cursor incrementale (stato: mitigato nel branch collegato)
 
 **Evidenza**
 
-- `_fetchUpdatedViaSDK()` usa filtro `_gt` su `date_updated` e salva solo `latestTs`.
+- Nel branch collegato il filtro è passato a `_gte` con keyset pagination e tie-breaker su `id`.
+- Rimane comunque una strategia timestamp-based (non event-log/tombstone), quindi la correttezza dipende da qualità timestamp e ordinamento lato API.
 
 **Impatto**
 
-- Record con stesso timestamp del cursor possono essere persi in finestre di concorrenza (precisione timestamp non sempre sufficiente).
+- Il rischio di missing update al boundary è fortemente ridotto rispetto alla versione precedente.
 
 **Proposta**
 
-- Passare a cursor composto:
-  - `(date_updated, id)` con ordinamento stabile e tie-breaker su `id`, oppure
-  - overlap window (ri-lettura ultimi N secondi + dedup locale per id/versione).
+- Mantenere test di regressione sul boundary `(timestamp,id)` e introdurre monitoraggio dedicato su duplicati/missing nei cicli lunghi.
 
 ---
 
@@ -83,7 +89,7 @@ Questi merge riducono diversi rischi operativi, ma restano alcuni gap struttural
 **Evidenza**
 
 - `_fanOutVenueTreeToIDB()` fa upsert per quasi tutti gli store.
-- Solo `table_merge_sessions` viene full-replace con `replaceTableMergesInIDB()`.
+- `table_merge_sessions` e `venue_users` sono in full-replace, mentre gli altri store restano in modalità upsert.
 - I nuovi merge hanno risolto race di apply, ma non il tema “remove-orphan records” su tutte le collection configurative.
 
 **Impatto**
@@ -120,7 +126,8 @@ Questi merge riducono diversi rischi operativi, ma restano alcuni gap struttural
 
 **Evidenza**
 
-- Sono presenti log console e modal diagnostico, ma non KPI persistenti/aggregati (tempo medio flush, error rate per collection, queue age, convergenza push→pull).
+- Nel branch collegato sono stati aggiunti KPI runtime (`wsDropCount`, `queueDepth`, `lastSuccessfulPull`) e monitor UI.
+- Mancano ancora KPI storici/persistenti e aggregazioni diagnostiche complete (tempo medio flush, error rate per collection, queue age, convergenza push→pull su orizzonte esteso).
 
 **Impatto**
 
@@ -136,18 +143,18 @@ Questi merge riducono diversi rischi operativi, ma restano alcuni gap struttural
 
 ---
 
-## 4) Priorità consigliata
+## 4) Priorità consigliata (post aggiornamento)
 
-1. **Alta**: P1 + P2 (consistenza dati incrementale e delete handling).
+1. **Alta**: P1 (delete reconciliation in polling).
 2. **Alta**: P4 (riduzione perdita operativa su errori persistenti).
-3. **Media**: P3 (coerenza cache configurazione).
-4. **Media**: P5 (osservabilità e manutenzione).
+3. **Media**: P3 (coerenza cache configurazione e prune residui).
+4. **Media**: P5 (telemetria persistente e KPI operativi avanzati).
 
 ---
 
-## 5) Piano di hardening incrementale
+## 5) Piano di hardening incrementale (revisionato)
 
-- **Fase A (sicurezza dati)**: cursor robusto + delete reconciliation in polling.
+- **Fase A (sicurezza dati)**: delete reconciliation in polling (cursor robusto già migliorato nel branch collegato).
 - **Fase B (affidabilità)**: dead-letter queue con retry guidato e policy per collection.
 - **Fase C (coerenza config)**: replace atomico dataset configurativi per venue.
 - **Fase D (operatività)**: metriche sync e alerting UI.
