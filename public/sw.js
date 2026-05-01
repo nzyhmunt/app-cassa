@@ -110,6 +110,42 @@ self.addEventListener('fetch', (event) => {
   event.respondWith(cacheFirst(event, ASSET_CACHE));
 });
 
+// ─── Background Sync ───────────────────────────────────────────────────────
+/**
+ * Background Sync tag used when the app enqueues an order while offline.
+ *
+ * When the device regains connectivity the browser fires this event, giving
+ * the Service Worker an opportunity to wake the app (or notify it) so the
+ * push queue can drain and pending orders are forwarded to Directus.
+ *
+ * Strategy:
+ *   1. Prefer posting a message to any open app client — the Vue app's push
+ *      loop then drains the queue normally through `forcePush()`.
+ *   2. If no app client is reachable the SW cannot run Pinia/IDB logic
+ *      directly (no DOM access), so it simply logs the event.  The queue
+ *      will drain on the next page open or online reconnect.
+ *
+ * Note: Background Sync is currently a Chrome / Chromium-only feature.
+ *       The registration in `enqueue()` is guarded by `'sync' in registration`,
+ *       so the app degrades gracefully on browsers that don't support it.
+ */
+self.addEventListener('sync', (event) => {
+  if (event.tag !== 'sync-orders') return;
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+      if (clients.length > 0) {
+        // Notify all open app windows to drain the push queue.
+        clients.forEach((client) => {
+          client.postMessage({ type: 'bg-sync:drain-queue', tag: event.tag });
+        });
+      } else {
+        // No open client: log and let the push loop handle it on next startup.
+        console.info('[SW] bg-sync: no client available — queue will drain on next app open.');
+      }
+    })
+  );
+});
+
 // ─── Strategies ────────────────────────────────────────────────────────────
 
 /** Cache-first: serve from cache; populate cache on first miss.

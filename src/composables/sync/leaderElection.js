@@ -91,6 +91,12 @@ async function _startSyncLoopsAsLeader() {
     window.addEventListener('offline', _onOffline);
     window.addEventListener('sync-queue:enqueue', _onQueueEnqueue);
   }
+  // PWA Background Sync: listen for messages from the service worker so that
+  // background sync events (fired while the app was backgrounded/closed) can
+  // trigger a push drain on the leader tab when the device reconnects.
+  if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+    navigator.serviceWorker.addEventListener('message', _onSwMessage);
+  }
 }
 
 /**
@@ -257,6 +263,19 @@ function _onQueueEnqueue() {
   _runPush().catch(() => {});
 }
 
+/**
+ * PWA Background Sync: handles the 'bg-sync:drain-queue' message posted by
+ * the service worker when a background sync fires (device came back online
+ * while the user had closed or backgrounded the app).  Only the leader tab
+ * should drain the queue; followers ignore this message because _runPush() is
+ * managed exclusively by the leader.
+ */
+function _onSwMessage(event) {
+  if (event?.data?.type !== 'bg-sync:drain-queue') return;
+  if (!syncState._isLeader) return;
+  _runPush().catch(() => {});
+}
+
 // ── Public composable ─────────────────────────────────────────────────────────
 
 /**
@@ -359,6 +378,9 @@ export function useDirectusSync() {
       window.removeEventListener('online', _onOnline);
       window.removeEventListener('offline', _onOffline);
       window.removeEventListener('sync-queue:enqueue', _onQueueEnqueue);
+    }
+    if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+      navigator.serviceWorker.removeEventListener('message', _onSwMessage);
     }
     syncState.syncStatus.value = 'idle';
   }
@@ -493,6 +515,9 @@ export function useDirectusSync() {
     lastPushAt: syncState.lastPushAt,
     lastPullAt: syncState.lastPullAt,
     wsConnected: syncState._wsConnected,
+    wsDropCount: syncState.wsDropCount,
+    queueDepth: syncState.queueDepth,
+    lastSuccessfulPull: syncState.lastSuccessfulPull,
     startSync,
     stopSync,
     forcePush,
@@ -536,6 +561,9 @@ export function _resetDirectusSyncSingleton() {
     window.removeEventListener('online', _onOnline);
     window.removeEventListener('offline', _onOffline);
     window.removeEventListener('sync-queue:enqueue', _onQueueEnqueue);
+  }
+  if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+    navigator.serviceWorker.removeEventListener('message', _onSwMessage);
   }
 
   // Reset all syncState fields to their initial values (single source of truth).

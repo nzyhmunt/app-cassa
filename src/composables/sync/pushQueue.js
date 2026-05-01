@@ -8,7 +8,7 @@
  * Extracted from useDirectusSync.js (§10 refactor).
  */
 
-import { drainQueue } from '../useSyncQueue.js';
+import { drainQueue, getPendingEntries } from '../useSyncQueue.js';
 import { _getCfg } from './pullQueue.js';
 import {
   ECHO_SUPPRESS_TTL_MS,
@@ -84,6 +84,13 @@ export async function _runPush() {
         syncState.syncStatus.value = result.offline
           ? 'offline'
           : result.failed > 0 ? 'error' : 'idle';
+        // Update queue depth telemetry after drain completes.
+        // Best-effort: a failure here must not mask the drain result.
+        getPendingEntries().then((entries) => {
+          syncState.queueDepth.value = entries.length;
+        }).catch((e) => {
+          console.debug('[DirectusSync] queueDepth update failed (non-fatal):', e);
+        });
       }
       return result;
     } catch (e) {

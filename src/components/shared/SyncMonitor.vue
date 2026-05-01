@@ -159,6 +159,49 @@
           </div>
         </div>
 
+        <!-- Sezione 1b: Telemetria -->
+        <div class="space-y-1.5">
+          <span class="block text-xs font-bold text-gray-600 uppercase tracking-wider">Telemetria</span>
+          <div class="grid grid-cols-3 gap-2">
+            <!-- WS Drop Count -->
+            <div
+              class="rounded-2xl border px-3 py-2.5 flex items-center gap-2"
+              :class="wsDropCount > 0 ? 'bg-orange-50 border-orange-200' : 'bg-gray-50 border-gray-100'"
+            >
+              <WifiOff class="size-3.5 shrink-0" :class="wsDropCount > 0 ? 'text-orange-500' : 'text-gray-300'" />
+              <div class="min-w-0">
+                <p class="text-[10px] font-bold text-gray-500 leading-none mb-0.5">Drop WS</p>
+                <p class="text-xs font-bold truncate" :class="wsDropCount > 0 ? 'text-orange-700' : 'text-gray-400'">
+                  {{ wsDropCount }}
+                </p>
+              </div>
+            </div>
+
+            <!-- Queue Depth -->
+            <div
+              class="rounded-2xl border px-3 py-2.5 flex items-center gap-2"
+              :class="queueDepth > 0 ? 'bg-amber-50 border-amber-200' : 'bg-gray-50 border-gray-100'"
+            >
+              <Clock class="size-3.5 shrink-0" :class="queueDepth > 0 ? 'text-amber-500' : 'text-gray-300'" />
+              <div class="min-w-0">
+                <p class="text-[10px] font-bold text-gray-500 leading-none mb-0.5">In coda</p>
+                <p class="text-xs font-bold truncate" :class="queueDepth > 0 ? 'text-amber-700' : 'text-gray-400'">
+                  {{ queueDepth }}
+                </p>
+              </div>
+            </div>
+
+            <!-- Last Successful Pull -->
+            <div class="rounded-2xl border border-gray-100 bg-gray-50 px-3 py-2.5 flex items-center gap-2">
+              <CheckCircle class="size-3.5 text-emerald-400 shrink-0" />
+              <div class="min-w-0">
+                <p class="text-[10px] font-bold text-gray-500 leading-none mb-0.5">Pull OK</p>
+                <p class="text-xs font-bold text-gray-600 truncate">{{ lastSuccessfulPull }}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- Sezione 2: Coda push attiva -->
         <div class="space-y-2">
           <div class="flex items-center justify-between">
@@ -370,6 +413,15 @@
                     class="shrink-0 inline-flex items-center justify-center rounded-lg px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide"
                     :class="logTypeBadgeClass(log)"
                   >{{ log.type }}</span>
+                  <!-- "nuovi dati" badge: only for PULL entries that wrote at least one record -->
+                  <span
+                    v-if="isPullWithNewData(log)"
+                    class="shrink-0 inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[9px] font-bold bg-emerald-100 text-emerald-700"
+                    title="Nuovi dati ricevuti da Directus e scritti in IDB"
+                  >
+                    <ArrowDownCircle class="size-2.5" />
+                    {{ log.recordCount }}
+                  </span>
                   <span class="text-xs font-semibold text-gray-700 truncate">{{ log.endpoint ?? log.collection ?? '—' }}</span>
                 </div>
                 <div class="flex items-center gap-2 shrink-0">
@@ -546,6 +598,12 @@ let _loadQueueDataInFlight = false;
 // ── Computed ─────────────────────────────────────────────────────────────────
 
 const wsConnected = computed(() => sync.wsConnected?.value ?? false);
+const wsDropCount = computed(() => sync.wsDropCount?.value ?? 0);
+const queueDepth  = computed(() => sync.queueDepth?.value ?? 0);
+const lastSuccessfulPull = computed(() => {
+  const ts = sync.lastSuccessfulPull?.value;
+  return ts ? formatTs(ts) : '—';
+});
 
 const lastPushLabel = computed(() => {
   const ts = sync.lastPushAt?.value;
@@ -663,6 +721,16 @@ function directionIcon(log) {
   if (log.type === 'WS') return RefreshCw;
   if (log.direction === 'IN') return ArrowDownCircle;
   return ArrowUpCircle;
+}
+
+/**
+ * Returns true when the log entry should show the "nuovi dati" badge —
+ * i.e. a successful PULL that received at least one record from Directus.
+ * @param {object} log
+ * @returns {boolean}
+ */
+function isPullWithNewData(log) {
+  return log.type === 'PULL' && log.status === 'success' && log.recordCount > 0;
 }
 
 function directionIconClass(log) {

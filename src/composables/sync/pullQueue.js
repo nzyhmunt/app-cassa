@@ -416,6 +416,7 @@ export async function _runPull() {
       }
       if (allOk) {
         syncState.lastPullAt.value = new Date().toISOString();
+        syncState.lastSuccessfulPull.value = syncState.lastPullAt.value;
         if (anyMerged) {
           console.info('[DirectusSync] Pull cycle completed: merged records from server.');
         } else {

@@ -332,6 +332,14 @@ export async function _startSubscriptions(collections) {
         } catch (e) {
           console.warn(`[DirectusSync] Subscription ${collection} closed:`, e?.message ?? e);
           syncState._wsConnected.value = false;
+          // Increment the WS drop telemetry counter on unexpected disconnections.
+          // Only counts true transport errors (caught exceptions from the subscription
+          // iterator), not intentional teardowns via _stopSubscriptions() which never
+          // reach this catch block.
+          // JavaScript's event-loop single-threaded model ensures this increment is
+          // effectively atomic; concurrent subscription failures are serialised through
+          // the microtask queue so no mutex is needed.
+          syncState.wsDropCount.value++;
           if (!syncState._running) return;
           // If wsEnabled is still on, schedule a reconnect attempt.
           // Otherwise fall back to polling.

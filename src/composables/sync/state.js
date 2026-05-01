@@ -153,6 +153,25 @@ export const syncState = {
   syncStatus: ref(/** @type {'idle'|'syncing'|'error'|'offline'} */ ('idle')),
   lastPushAt: ref(/** @type {string|null} */ (null)),
   lastPullAt: ref(/** @type {string|null} */ (null)),
+
+  // ── Telemetry ─────────────────────────────────────────────────────────────────
+  /**
+   * Count of unexpected WebSocket disconnections since the sync session started.
+   * Incremented in `wsManager.js` whenever a subscription iterator throws (i.e.
+   * the connection was lost unexpectedly rather than via `stopSync()`).
+   */
+  wsDropCount: ref(/** @type {number} */ (0)),
+  /**
+   * Current depth of the IDB `sync_queue` (pending push entries).
+   * Updated in `pushQueue.js` after each `drainQueue()` call completes.
+   */
+  queueDepth: ref(/** @type {number} */ (0)),
+  /**
+   * ISO timestamp of the last fully-successful incremental pull cycle (all
+   * collections OK, at least one page fetched without errors).
+   * Updated in `pullQueue.js` at the end of `_runPull()` when `allOk` is true.
+   */
+  lastSuccessfulPull: ref(/** @type {string|null} */ (null)),
 };
 
 /**
@@ -205,4 +224,9 @@ export function resetSyncState() {
   syncState.syncStatus.value = 'idle';
   syncState.lastPushAt.value = null;
   syncState.lastPullAt.value = null;
+
+  // Telemetry
+  syncState.wsDropCount.value = 0;
+  syncState.queueDepth.value = 0;
+  syncState.lastSuccessfulPull.value = null;
 }
