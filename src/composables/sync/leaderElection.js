@@ -18,7 +18,7 @@ import { clearLocalConfigCacheFromIDB } from '../../store/persistence/config.js'
 import { syncState } from './state.js';
 import { PULL_CONFIG, GLOBAL_INTERVAL_MS } from './config.js';
 import { _runPush } from './pushQueue.js';
-import { _runPull, _getCfg } from './pullQueue.js';
+import { _runPull } from './pullQueue.js';
 import { _runGlobalPull, _hydrateConfigFromLocalCache } from './globalPull.js';
 import { _startSubscriptions, _stopSubscriptions, _reconnectWs } from './wsManager.js';
 import {
