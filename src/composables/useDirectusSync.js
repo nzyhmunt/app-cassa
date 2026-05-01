@@ -1030,6 +1030,8 @@ async function _handleSubscriptionMessage(collection, message) {
         continue;
       }
       // LWW guard: allow through when incoming is strictly newer than stored.
+      // Directus timestamps are ISO 8601 UTC strings (e.g. "2024-06-01T12:00:00.000Z")
+      // which are lexicographically comparable — no Date parsing overhead needed.
       const incomingTs = r.date_updated ?? null;
       let isCrossDeviceUpdate = false;
       if (incomingTs && id) {
@@ -1037,7 +1039,7 @@ async function _handleSubscriptionMessage(collection, message) {
           const db = await getDB();
           const local = await db.get(collection, id);
           const localTs = local?.date_updated ?? null;
-          if (localTs && new Date(incomingTs) > new Date(localTs)) {
+          if (localTs && incomingTs > localTs) {
             isCrossDeviceUpdate = true;
           }
         } catch (e) {

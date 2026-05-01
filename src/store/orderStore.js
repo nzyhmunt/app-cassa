@@ -263,6 +263,30 @@ export const useOrderStore = defineStore('orders', () => {
     };
     const { collection, collections, ids } = options;
 
+    // Shared helper: map a raw IDB order to its reactive form with recomputed totals.
+    // Recompute totals from orderItems when they are populated locally,
+    // or when the order is genuinely empty (item_count = 0) so that a
+    // locally cleared order is correctly reflected as €0.
+    // When orderItems is empty but item_count > 0 the items exist in
+    // Directus but were not expanded in this pull — in that case the
+    // authoritative total_amount already mapped from IDB is preserved
+    // to avoid a spurious reset to 0.
+    function _mapIDBOrder(raw) {
+      const mappedOrder = mapOrderFromDirectus(raw);
+      if (!Array.isArray(mappedOrder.orderItems)) mappedOrder.orderItems = [];
+      if (mappedOrder.orderItems.length > 0 || mappedOrder.item_count === 0) {
+        updateOrderTotals(mappedOrder);
+        mappedOrder.total_amount = mappedOrder.totalAmount;
+        mappedOrder.item_count = mappedOrder.itemCount;
+      } else {
+        mappedOrder.totalAmount = mappedOrder.total_amount ?? mappedOrder.totalAmount;
+        mappedOrder.total_amount = mappedOrder.totalAmount;
+        mappedOrder.itemCount = mappedOrder.item_count ?? mappedOrder.itemCount;
+        mappedOrder.item_count = mappedOrder.itemCount;
+      }
+      return mappedOrder;
+    }
+
     // Issue 4 fix: targeted order refresh — when a Set of specific order IDs is
     // provided for the 'orders' collection, fetch and map only those records from
     // IDB and splice them into the reactive array.  This avoids replacing the
@@ -278,19 +302,7 @@ export const useOrderStore = defineStore('orders', () => {
         if (validOrders.length > 0) {
           const mappedById = new Map();
           for (const raw of validOrders) {
-            const mappedOrder = mapOrderFromDirectus(raw);
-            if (!Array.isArray(mappedOrder.orderItems)) mappedOrder.orderItems = [];
-            if (mappedOrder.orderItems.length > 0 || mappedOrder.item_count === 0) {
-              updateOrderTotals(mappedOrder);
-              mappedOrder.total_amount = mappedOrder.totalAmount;
-              mappedOrder.item_count = mappedOrder.itemCount;
-            } else {
-              mappedOrder.totalAmount = mappedOrder.total_amount ?? mappedOrder.totalAmount;
-              mappedOrder.total_amount = mappedOrder.totalAmount;
-              mappedOrder.itemCount = mappedOrder.item_count ?? mappedOrder.itemCount;
-              mappedOrder.item_count = mappedOrder.itemCount;
-            }
-            mappedById.set(String(raw.id), mappedOrder);
+            mappedById.set(String(raw.id), _mapIDBOrder(raw));
           }
           orders.value = orders.value.map(o => mappedById.get(String(o.id)) ?? o);
         }
@@ -299,21 +311,7 @@ export const useOrderStore = defineStore('orders', () => {
         // Fall through to full refresh below on error.
         const idbState = await loadStateFromIDB();
         if (!idbState) return;
-        orders.value = (idbState.orders ?? []).map((order) => {
-          const mappedOrder = mapOrderFromDirectus(order);
-          if (!Array.isArray(mappedOrder.orderItems)) mappedOrder.orderItems = [];
-          if (mappedOrder.orderItems.length > 0 || mappedOrder.item_count === 0) {
-            updateOrderTotals(mappedOrder);
-            mappedOrder.total_amount = mappedOrder.totalAmount;
-            mappedOrder.item_count = mappedOrder.itemCount;
-          } else {
-            mappedOrder.totalAmount = mappedOrder.total_amount ?? mappedOrder.totalAmount;
-            mappedOrder.total_amount = mappedOrder.totalAmount;
-            mappedOrder.itemCount = mappedOrder.item_count ?? mappedOrder.itemCount;
-            mappedOrder.item_count = mappedOrder.itemCount;
-          }
-          return mappedOrder;
-        });
+        orders.value = (idbState.orders ?? []).map(_mapIDBOrder);
       }
       return;
     }
@@ -330,30 +328,7 @@ export const useOrderStore = defineStore('orders', () => {
     targetCollections.forEach((key) => {
       if (Object.prototype.hasOwnProperty.call(idbState, key)) {
         if (key === 'orders') {
-          operationalStateRefs[key].value = (idbState[key] ?? []).map((order) => {
-            const mappedOrder = mapOrderFromDirectus(order);
-            if (!Array.isArray(mappedOrder.orderItems)) {
-              mappedOrder.orderItems = [];
-            }
-            // Recompute totals from orderItems when they are populated locally,
-            // or when the order is genuinely empty (item_count = 0) so that a
-            // locally cleared order is correctly reflected as €0.
-            // When orderItems is empty but item_count > 0 the items exist in
-            // Directus but were not expanded in this pull — in that case the
-            // authoritative total_amount already mapped from IDB is preserved
-            // to avoid a spurious reset to 0.
-            if (mappedOrder.orderItems.length > 0 || mappedOrder.item_count === 0) {
-              updateOrderTotals(mappedOrder);
-              mappedOrder.total_amount = mappedOrder.totalAmount;
-              mappedOrder.item_count = mappedOrder.itemCount;
-            } else {
-              mappedOrder.totalAmount = mappedOrder.total_amount ?? mappedOrder.totalAmount;
-              mappedOrder.total_amount = mappedOrder.totalAmount;
-              mappedOrder.itemCount = mappedOrder.item_count ?? mappedOrder.itemCount;
-              mappedOrder.item_count = mappedOrder.itemCount;
-            }
-            return mappedOrder;
-          });
+          operationalStateRefs[key].value = (idbState[key] ?? []).map(_mapIDBOrder);
         } else {
           operationalStateRefs[key].value = idbState[key];
         }
