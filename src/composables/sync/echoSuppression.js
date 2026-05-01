@@ -36,11 +36,15 @@ export const ECHO_SUPPRESS_RTT_MULTIPLIER = 3;
 
 /**
  * S5 — Heartbeat watchdog interval (ms).
- * If no WebSocket message is received for this duration, the connection is
- * treated as silently dead: a REST catch-up pull is triggered and a reconnect
- * attempt is scheduled.  30 s balances responsiveness against idle-session
- * chattiness (Directus typically sends a heartbeat every ~25 s in inactive
- * subscriptions, so 30 s gives a small safety margin).
+ * If no WebSocket subscription event is received for this duration, a REST
+ * catch-up pull is triggered as a safety net for messages that may have been
+ * missed while the connection was idle.  The WS connection is NOT dropped by
+ * the watchdog (see wsManager._resetWsHeartbeat for rationale); genuine
+ * failures are detected when the subscription iterator throws.
+ *
+ * Note: Directus WebSocket protocol-level pings are handled transparently by
+ * the browser and never surface as application-level subscription iterator
+ * yields, so an idle subscription is always silent at the JS level.
  */
 export const WS_HEARTBEAT_INTERVAL_MS = 30_000;
 

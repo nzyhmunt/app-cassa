@@ -4505,3 +4505,98 @@ describe('NP1 — _removeOrderItemsFromOrdersIDB fallback scan affectedOrderIds'
     expect(order.orderItems[0].id).toBe('oi_fb_aff_2');
   });
 });
+
+// ── S5-FIX — WS heartbeat must not force-disconnect on idle apps ──────────────
+//
+// Before the fix, the heartbeat watchdog set _wsConnected = false and scheduled
+// a 2 s reconnect on every firing.  In idle mode (no data changes) Directus
+// subscription protocol pings never surface as application-level iterator
+// yields, so the watchdog fired every 30 s and the user saw a 2-3 s "WS down"
+// window at each polling interval.
+//
+// After the fix the watchdog only triggers a REST catch-up pull and resets the
+// timer; genuine disconnections are detected by the subscription iterator
+// throw path instead.
+
+describe('S5-FIX — WS heartbeat does not force-disconnect on idle apps', () => {
+  it('does not set _wsConnected to false when the watchdog fires', async () => {
+    const { syncState } = await import('../sync/state.js');
+    const { _resetWsHeartbeat } = await import('../sync/wsManager.js');
+    const { WS_HEARTBEAT_INTERVAL_MS } = await import('../sync/echoSuppression.js');
+    const { appConfig } = await import('../../utils/index.js');
+
+    vi.spyOn(global, 'fetch').mockImplementation(() => Promise.resolve(directusListResponse([])));
+
+    // Preconditions required by _resetWsHeartbeat to arm the timer.
+    appConfig.directus = { ...appConfig.directus, wsEnabled: true };
+    syncState._running = true;
+    syncState._wsConnected.value = true;
+
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
+    try {
+      _resetWsHeartbeat();
+
+      // WS heartbeat interval elapses with no subscription messages arriving.
+      await vi.advanceTimersByTimeAsync(WS_HEARTBEAT_INTERVAL_MS + 50);
+      await flushPromises(LONG_FLUSH_ROUNDS);
+
+      // Core regression: the watchdog must NOT disconnect the WebSocket.
+      // Before the fix this was set to false here, causing a visible 2-3 s
+      // "WS down" window every 30 s on idle apps.
+      expect(syncState._wsConnected.value).toBe(true);
+
+      // The watchdog timer must have been rescheduled (continues to monitor).
+      expect(syncState._wsHeartbeatTimer).not.toBeNull();
+
+      // No reconnect timer should have been scheduled.
+      expect(syncState._reconnectTimer).toBeNull();
+    } finally {
+      // Cleanup: clear the timer and reset state.
+      if (syncState._wsHeartbeatTimer) {
+        clearTimeout(syncState._wsHeartbeatTimer);
+        syncState._wsHeartbeatTimer = null;
+      }
+      syncState._running = false;
+      syncState._wsConnected.value = false;
+      vi.useRealTimers();
+    }
+  });
+
+  it('watchdog rescheduled timer is cleared by _resetWsHeartbeat when a WS message arrives', async () => {
+    const { syncState } = await import('../sync/state.js');
+    const { _resetWsHeartbeat } = await import('../sync/wsManager.js');
+    const { WS_HEARTBEAT_INTERVAL_MS } = await import('../sync/echoSuppression.js');
+    const { appConfig } = await import('../../utils/index.js');
+
+    vi.spyOn(global, 'fetch').mockImplementation(() => Promise.resolve(directusListResponse([])));
+
+    appConfig.directus = { ...appConfig.directus, wsEnabled: true };
+    syncState._running = true;
+    syncState._wsConnected.value = true;
+
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
+    try {
+      // Arm the watchdog.
+      _resetWsHeartbeat();
+      const firstTimer = syncState._wsHeartbeatTimer;
+      expect(firstTimer).not.toBeNull();
+
+      // Simulate a WS message arriving at 15 s — should reset the timer.
+      await vi.advanceTimersByTimeAsync(15_000);
+      _resetWsHeartbeat(); // called by _handleSubscriptionMessage on every WS event
+      const secondTimer = syncState._wsHeartbeatTimer;
+
+      // Timer must have been replaced (first one cleared, a fresh one started).
+      expect(secondTimer).not.toBeNull();
+      expect(secondTimer).not.toBe(firstTimer);
+    } finally {
+      if (syncState._wsHeartbeatTimer) {
+        clearTimeout(syncState._wsHeartbeatTimer);
+        syncState._wsHeartbeatTimer = null;
+      }
+      syncState._running = false;
+      syncState._wsConnected.value = false;
+      vi.useRealTimers();
+    }
+  });
+});
