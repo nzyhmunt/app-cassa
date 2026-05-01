@@ -247,6 +247,11 @@ export async function _atomicOrderItemsUpsertAndMerge(mappedItems, rawItems = []
   // inside this shared transaction so Phase 2 (merge into orders) sees the
   // freshly written records and both phases commit or abort together.
   const toWrite = [];
+  // Track IDs of items that were skipped because the IDB already holds a
+  // strictly-newer version.  Phase 2 must not embed these stale incoming items
+  // into `orders.orderItems` or it would make the embedded array older than the
+  // canonical `order_items` store.
+  const skipInPhase2 = new Set();
   for (const incomingRaw of mappedItems) {
     // Normalise FK fields (order → orderId, dish → dishId) the same way that
     // `_normalizeIncomingSync('order_items', ...)` in operations.js does.
@@ -268,13 +273,15 @@ export async function _atomicOrderItemsUpsertAndMerge(mappedItems, rawItems = []
       const existingTs = existing.date_updated ?? existing.date_created;
       const incomingTs = clean.date_updated ?? clean.date_created;
       // If existing has a timestamp but incoming does not → keep existing.
-      if (existingTs && !incomingTs) continue;
+      // Mark as skip-for-phase-2: incoming is effectively stale.
+      if (existingTs && !incomingTs) { skipInPhase2.add(pk); continue; }
       if (existingTs && incomingTs) {
         const existingMs = new Date(existingTs).getTime();
         const incomingMs = new Date(incomingTs).getTime();
-        if (incomingMs < existingMs) continue; // strictly older → skip
+        if (incomingMs < existingMs) { skipInPhase2.add(pk); continue; } // strictly older → skip Phase 2 too
         if (incomingMs === existingMs) {
-          // Same timestamp: skip only when the payload is identical.
+          // Same timestamp: skip Phase 1 write only when the payload is identical.
+          // Phase 2 can still merge (same data, harmless for idempotency).
           if (deepEqual(clean, existing)) continue;
         }
         // incomingMs > existingMs, or equal but different payload → write
@@ -288,8 +295,13 @@ export async function _atomicOrderItemsUpsertAndMerge(mappedItems, rawItems = []
   // ── Phase 2: Merge into `orders.orderItems` ─────────────────────────────────
   // Same logic as `_mergeOrderItemsIntoOrdersIDB` but using the same `tx` so
   // both phases are part of the same atomic commit.
+  // Items in `skipInPhase2` were skipped in Phase 1 because IDB already holds a
+  // strictly-newer version; embedding their stale payload into `orders.orderItems`
+  // would make the embedded array inconsistent with the canonical `order_items` store.
   const itemsByOrderId = new Map();
   for (const item of mappedItems) {
+    const pk = item?.id ?? item?.uid;
+    if (pk && skipInPhase2.has(String(pk))) continue; // stale incoming — don't corrupt embedded array
     const orderId = item?.order ?? item?.orderId;
     if (!orderId) continue;
     const key = String(orderId);
