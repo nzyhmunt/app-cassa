@@ -307,9 +307,21 @@ export const useOrderStore = defineStore('orders', () => {
           // Mutate in-place: only replace the array entries for affected order IDs
           // so that Vue only schedules re-renders for changed items rather than
           // replacing the entire array reference (which forces a full list re-render).
+          const updatedIds = new Set();
           for (let i = 0; i < orders.value.length; i++) {
-            const updated = mappedById.get(String(orders.value[i].id));
-            if (updated) orders.value.splice(i, 1, updated);
+            const sid = String(orders.value[i].id);
+            const updated = mappedById.get(sid);
+            if (updated) {
+              orders.value.splice(i, 1, updated);
+              updatedIds.add(sid);
+            }
+          }
+          // Insert orders that were not already present in the reactive array
+          // (e.g. a new order arriving via WS or pull that a follower tab missed).
+          // orders.value has no single canonical sort; components apply their own
+          // computed sorts, so appending at the tail is safe and correct.
+          for (const [id, mapped] of mappedById) {
+            if (!updatedIds.has(id)) orders.value.push(mapped);
           }
         }
       } catch (e) {

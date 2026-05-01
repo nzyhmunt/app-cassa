@@ -264,8 +264,9 @@ export async function _atomicOrderItemsUpsertAndMerge(mappedItems, rawItems = []
     const dishId = relationId(incoming.dish ?? incoming.dishId);
     if (dishId != null) { incoming.dish = dishId; incoming.dishId = dishId; }
 
-    const pk = incoming.id;
+    const pk = incoming.id != null ? String(incoming.id) : null;
     if (!pk) continue;
+    incoming.id = pk; // normalise id to string before the spread so clean.id is consistent
 
     // Strip internal tracking field once; reuse the clean copy for both the
     // LWW comparison and the eventual IDB put to avoid duplicating the spread.
