@@ -23,7 +23,9 @@ import {
   _handleSubscriptionMessage,
   _registerPushedEchoes,
   _startSubscriptions,
+  _atomicOrderItemsUpsertAndMerge,
 } from '../useDirectusSync.js';
+import { _removeOrderItemsFromOrdersIDB } from '../sync/idbOperations.js';
 import { _resetDirectusClientSingleton } from '../useDirectusClient.js';
 import {
   upsertRecordsIntoIDB,
@@ -2045,10 +2047,13 @@ describe('reactive timestamps', () => {
       date_updated: `2024-03-01T00:00:${String(i % 60).padStart(2, '0')}.000Z`,
     }));
 
+    // NS7 fix: page 2 now uses page=1 + keyset filter, so route by call count
+    let ordersCallCount = 0;
     vi.spyOn(global, 'fetch').mockImplementation((url) => {
       const u = String(url);
       if (!u.includes('/items/orders')) return Promise.resolve(directusListResponse([]));
-      if (u.includes('page=1')) return Promise.resolve(directusListResponse(page1Orders));
+      ordersCallCount++;
+      if (ordersCallCount === 1) return Promise.resolve(directusListResponse(page1Orders));
       return Promise.reject(new Error('orders page 2 failed'));
     });
 
@@ -2074,11 +2079,14 @@ describe('pull timestamp persistence', () => {
     })];
 
     const loadStateSpy = vi.spyOn(persistenceOps, 'loadStateFromIDB');
+    // NS7 fix: page 2 now uses page=1 + keyset filter, so route by call count
+    let ordersCallCount = 0;
     vi.spyOn(global, 'fetch').mockImplementation((url) => {
       const u = String(url);
-      if (u.includes('/items/orders') && u.includes('page=1')) return Promise.resolve(directusListResponse(page1Orders));
-      if (u.includes('/items/orders') && u.includes('page=2')) return Promise.resolve(directusListResponse(page2Orders));
-      if (u.includes('/items/orders')) return Promise.resolve(directusListResponse([]));
+      if (!u.includes('/items/orders')) return Promise.resolve(directusListResponse([]));
+      ordersCallCount++;
+      if (ordersCallCount === 1) return Promise.resolve(directusListResponse(page1Orders));
+      if (ordersCallCount === 2) return Promise.resolve(directusListResponse(page2Orders));
       return Promise.resolve(directusListResponse([]));
     });
 
@@ -2124,17 +2132,24 @@ describe('pull timestamp persistence', () => {
     expect(ts).toBe('2024-09-20T08:00:00.000Z');
   });
 
-  it('does not advance last_pull_ts when a paginated pull fails mid-cycle', async () => {
+  it('advances last_pull_ts to the end of the last successful page when a paginated pull fails mid-cycle (S2 per-page checkpoint)', async () => {
+    // S2 improvement: the cursor is checkpointed after each successful page so
+    // a failure on page N+1 does NOT roll back the cursor to before page N.
+    // This means the next polling cycle restarts from the end of page 1 rather
+    // than re-fetching all records from the original cursor.
     await saveLastPullTsToIDB('orders', '2024-01-01T00:00:00.000Z');
     const page1Orders = Array.from({ length: 200 }, (_, i) => makeRemoteOrder({
       id: `ord_partial_${i}`,
       date_updated: `2024-08-01T00:00:${String(i % 60).padStart(2, '0')}.000Z`,
     }));
 
+    // NS7 fix: page 2 now uses page=1 + keyset filter, so route by call count
+    let ordersCallCount = 0;
     vi.spyOn(global, 'fetch').mockImplementation((url) => {
       const u = String(url);
       if (!u.includes('/items/orders')) return Promise.resolve(directusListResponse([]));
-      if (u.includes('page=1')) return Promise.resolve(directusListResponse(page1Orders));
+      ordersCallCount++;
+      if (ordersCallCount === 1) return Promise.resolve(directusListResponse(page1Orders));
       return Promise.reject(new Error('orders page 2 failed'));
     });
 
@@ -2142,7 +2157,9 @@ describe('pull timestamp persistence', () => {
     await sync.forcePull();
 
     const ts = await loadLastPullTsFromIDB('orders');
-    expect(ts).toBe('2024-01-01T00:00:00.000Z');
+    // Cursor advances to the max date_updated seen in page 1 (the last
+    // successfully processed page), not back to the original cursor.
+    expect(ts).toBe('2024-08-01T00:00:59.000Z');
   });
 });
 
@@ -3335,5 +3352,974 @@ describe('offline/online event handling', () => {
       sync.stopSync();
       vi.useRealTimers();
     }
+  });
+});
+
+// ── S3: Pull semaphore (_pullInFlight) ────────────────────────────────────────
+
+describe('S3 — _runPull semaphore', () => {
+  it('forcePull() resets the semaphore so two successive forced pulls each issue fetches', async () => {
+    let fetchCallCount = 0;
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      if (String(url).includes('/items/')) {
+        fetchCallCount++;
+        return Promise.resolve(directusListResponse([]));
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const sync = useDirectusSync();
+    // First forced pull
+    await sync.forcePull();
+    const callsAfterFirst = fetchCallCount;
+    // Second forced pull must issue new fetches (not return same cached promise)
+    await sync.forcePull();
+    expect(fetchCallCount).toBeGreaterThan(callsAfterFirst);
+  });
+});
+
+// ── S4: Adaptive echo TTL ─────────────────────────────────────────────────────
+
+describe('S4 — adaptive echo TTL', () => {
+  it('suppresses echo for longer than 5 s on high-RTT connections', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      // Seed IDB
+      await upsertRecordsIntoIDB('orders', [{ id: 'ord_rtt_1', status: 'pending' }]);
+
+      // Register echo with a 15 s adaptive TTL (simulating ~5 s RTT × 3)
+      _registerPushedEchoes([{ collection: 'orders', recordId: 'ord_rtt_1' }], 15_000);
+
+      // Advance 6 s — past the default 5 s TTL, but within the 15 s adaptive TTL
+      vi.setSystemTime(Date.now() + 6_000);
+
+      await _handleSubscriptionMessage('orders', {
+        event: 'create',
+        data: [{ id: 'ord_rtt_1', status: 'accepted', date_updated: '2026-01-01T00:00:01.000Z' }],
+      });
+
+      const { getDB } = await import('../useIDB.js');
+      const db = await getDB();
+      const stored = await db.get('orders', 'ord_rtt_1');
+      // Still within adaptive TTL — echo should be suppressed
+      expect(stored?.status).toBe('pending');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not suppress echo after the adaptive TTL expires', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      await upsertRecordsIntoIDB('orders', [{ id: 'ord_rtt_2', status: 'pending' }]);
+
+      _registerPushedEchoes([{ collection: 'orders', recordId: 'ord_rtt_2' }], 10_000);
+
+      // Advance 11 s — past the 10 s adaptive TTL
+      vi.setSystemTime(Date.now() + 11_000);
+
+      await _handleSubscriptionMessage('orders', {
+        event: 'create',
+        data: [{ id: 'ord_rtt_2', status: 'accepted', date_updated: '2026-01-01T00:00:01.000Z' }],
+      });
+
+      const { getDB } = await import('../useIDB.js');
+      const db = await getDB();
+      const stored = await db.get('orders', 'ord_rtt_2');
+      // After adaptive TTL — echo suppression lifted
+      expect(stored?.status).toBe('accepted');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+// ── S6: Clock-skew guard ──────────────────────────────────────────────────────
+
+describe('S6 — clock skew guard', () => {
+  it('clamps the cursor to now (no full pull) when the stored cursor is beyond the tolerance', async () => {
+    // Store a cursor dated 2 days in the future to simulate severe clock skew.
+    // Old behaviour: forced a full pull every cycle → perpetual performance hit.
+    // New behaviour: clamps the cursor to Date.now() and proceeds with an incremental pull.
+    const futureTs = new Date(Date.now() + 2 * 24 * 60 * 60_000).toISOString();
+    await saveLastPullTsToIDB('orders', futureTs);
+
+    const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation(() => Promise.resolve(directusListResponse([])));
+
+    const sync = useDirectusSync();
+    await sync.forcePull();
+
+    const orderUrls = fetchSpy.mock.calls
+      .map(([url]) => String(url))
+      .filter(url => url.includes('/items/orders'));
+    expect(orderUrls.length).toBeGreaterThan(0);
+
+    // The future cursor must NOT appear in any fetch URL (it was clamped away).
+    const futureTsPrefix = futureTs.slice(0, 10); // date portion, e.g. '2026-05-02'
+    orderUrls.forEach(url => {
+      expect(decodeURIComponent(url)).not.toContain(futureTsPrefix);
+    });
+
+    // The persisted cursor must now be a recent timestamp (within 5 s of this test run).
+    const savedTs = await loadLastPullTsFromIDB('orders');
+    expect(savedTs).toBeDefined();
+    const savedTsMs = new Date(savedTs).getTime();
+    expect(savedTsMs).toBeLessThanOrEqual(Date.now() + 5_000);
+    expect(savedTsMs).toBeGreaterThan(Date.now() - 60_000);
+  });
+
+  it('uses incremental pull when the cursor is within the tolerance window', async () => {
+    // Store a cursor 1 hour in the future (within 24 h tolerance)
+    const recentTs = new Date(Date.now() + 60 * 60_000).toISOString();
+    await saveLastPullTsToIDB('orders', recentTs);
+
+    const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation(() => Promise.resolve(directusListResponse([])));
+
+    const sync = useDirectusSync();
+    await sync.forcePull();
+
+    const orderUrls = fetchSpy.mock.calls
+      .map(([url]) => String(url))
+      .filter(url => url.includes('/items/orders'));
+    expect(orderUrls.length).toBeGreaterThan(0);
+    // Within tolerance: still uses the incremental filter
+    expect(orderUrls.some(url => hasDateUpdatedIncrementalFilter(url))).toBe(true);
+  });
+});
+
+// ── S7 — Atomic IDB transaction: order_items upsert + orderItems merge ─────────
+
+describe('S7 — _atomicOrderItemsUpsertAndMerge', () => {
+  it('writes order_items AND merges into parent orders in a single atomic step', async () => {
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+
+    // Seed a parent order with no items
+    await db.put('orders', {
+      id: 'ord_s7_1',
+      status: 'accepted',
+      table: '01',
+      orderItems: [],
+      date_updated: '2024-01-01T00:00:00.000Z',
+    });
+
+    const mappedItem = {
+      id: 'oi_s7_1',
+      order: 'ord_s7_1',
+      orderId: 'ord_s7_1',
+      name: 'Pasta',
+      quantity: 2,
+      unitPrice: 8,
+      unit_price: 8,
+      kitchenReady: false,
+      date_updated: '2024-06-01T00:00:00.000Z',
+    };
+
+    const { orderItemsWritten, ordersWritten } = await _atomicOrderItemsUpsertAndMerge([mappedItem], []);
+
+    // Both stores must have been updated
+    expect(orderItemsWritten).toBe(1);
+    expect(ordersWritten).toBe(1);
+
+    const storedItem = await db.get('order_items', 'oi_s7_1');
+    expect(storedItem).toBeDefined();
+    expect(storedItem.name).toBe('Pasta');
+
+    const order = await db.get('orders', 'ord_s7_1');
+    expect(order.orderItems).toHaveLength(1);
+    expect(order.orderItems[0].id).toBe('oi_s7_1');
+    expect(order.orderItems[0].name).toBe('Pasta');
+  });
+
+  it('returns { 0, 0 } and writes nothing for an empty items array', async () => {
+    const result = await _atomicOrderItemsUpsertAndMerge([]);
+    expect(result).toEqual({ orderItemsWritten: 0, ordersWritten: 0, affectedOrderIds: new Set() });
+  });
+
+  it('respects LWW: does not overwrite a newer existing order_item in the order_items store', async () => {
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+
+    // Seed a newer order_item and its parent order
+    await db.put('order_items', {
+      id: 'oi_s7_lww',
+      order: 'ord_s7_lww',
+      orderId: 'ord_s7_lww',
+      name: 'Newer',
+      quantity: 5,
+      date_updated: '2024-09-01T00:00:00.000Z',
+    });
+    await db.put('orders', {
+      id: 'ord_s7_lww',
+      orderItems: [{
+        id: 'oi_s7_lww',
+        order: 'ord_s7_lww',
+        name: 'Newer',
+        quantity: 5,
+        date_updated: '2024-09-01T00:00:00.000Z',
+      }],
+      date_updated: '2024-01-01T00:00:00.000Z',
+    });
+
+    // Incoming item is older — must be skipped
+    const olderItem = {
+      id: 'oi_s7_lww',
+      order: 'ord_s7_lww',
+      orderId: 'ord_s7_lww',
+      name: 'Older',
+      quantity: 1,
+      date_updated: '2024-03-01T00:00:00.000Z',
+    };
+
+    const { orderItemsWritten, ordersWritten } = await _atomicOrderItemsUpsertAndMerge([olderItem]);
+
+    // Nothing should be written
+    expect(orderItemsWritten).toBe(0);
+    expect(ordersWritten).toBe(0);
+
+    // Original values must remain unchanged
+    const storedItem = await db.get('order_items', 'oi_s7_lww');
+    expect(storedItem.name).toBe('Newer');
+    expect(storedItem.quantity).toBe(5);
+  });
+
+  it('does not overwrite the embedded orderItems merge when incoming is older', async () => {
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+
+    await db.put('orders', {
+      id: 'ord_s7_embed_lww',
+      orderItems: [{
+        id: 'oi_s7_embed',
+        order: 'ord_s7_embed_lww',
+        name: 'Fresco',
+        quantity: 3,
+        date_updated: '2024-12-01T00:00:00.000Z',
+      }],
+      date_updated: '2024-01-01T00:00:00.000Z',
+    });
+
+    const olderEmbedItem = {
+      id: 'oi_s7_embed',
+      order: 'ord_s7_embed_lww',
+      orderId: 'ord_s7_embed_lww',
+      name: 'Vecchio',
+      quantity: 1,
+      date_updated: '2024-06-01T00:00:00.000Z', // older than embedded
+    };
+
+    await _atomicOrderItemsUpsertAndMerge([olderEmbedItem]);
+
+    const order = await db.get('orders', 'ord_s7_embed_lww');
+    // Embedded item must be preserved (incoming is older)
+    expect(order.orderItems[0].name).toBe('Fresco');
+    expect(order.orderItems[0].quantity).toBe(3);
+  });
+
+  it('pull — order_items uses atomic transaction (both stores updated atomically)', async () => {
+    // Regression guard: the REST pull path for order_items must update BOTH the
+    // order_items store and the embedded orders.orderItems array. This test verifies
+    // the S7 integration inside _pullCollection for the order_items collection.
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+
+    await db.put('orders', {
+      id: 'ord_s7_pull',
+      status: 'accepted',
+      table: '05',
+      orderItems: [],
+      date_updated: '2024-01-01T00:00:00.000Z',
+    });
+
+    const remoteItem = {
+      id: 'oi_s7_pull',
+      order: 'ord_s7_pull',
+      name: 'Risotto',
+      quantity: 1,
+      unit_price: 14,
+      voided_quantity: 0,
+      kitchen_ready: false,
+      date_updated: '2024-06-01T00:00:00.000Z',
+    };
+
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      if (url.includes('/items/order_items')) return Promise.resolve(directusListResponse([remoteItem]));
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const store = makeStore();
+    const sync = useDirectusSync();
+    sync.startSync({ appType: 'cucina', store });
+    await sync.forcePull();
+
+    // order_items store must contain the pulled record
+    const storedItem = await db.get('order_items', 'oi_s7_pull');
+    expect(storedItem).toBeDefined();
+    expect(storedItem.name).toBe('Risotto');
+
+    // orders.orderItems must reflect the merge (atomically with the store write)
+    const order = await db.get('orders', 'ord_s7_pull');
+    expect(order.orderItems).toHaveLength(1);
+    expect(order.orderItems[0].id).toBe('oi_s7_pull');
+  });
+});
+
+// ── NS1 — WS order_items uses _atomicOrderItemsUpsertAndMerge ─────────────────
+
+describe('NS1 — WS order_items: _atomicOrderItemsUpsertAndMerge merge semantics', () => {
+  it('partial WS update preserves existing fields not present in the incoming payload', async () => {
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+
+    // Seed parent order with an embedded order item that has quantity=3
+    await db.put('orders', {
+      id: 'ord_ns1',
+      status: 'accepted',
+      table: '01',
+      orderItems: [{
+        id: 'oi_ns1',
+        orderId: 'ord_ns1',
+        name: 'Bistecca',
+        quantity: 3,
+        unitPrice: 10,
+        voidedQuantity: 0,
+        kitchenReady: false,
+        date_updated: '2024-01-01T00:00:00.000Z',
+      }],
+      date_updated: '2024-01-01T00:00:00.000Z',
+    });
+
+    // WS update: only kitchen_ready changes — quantity is NOT in the payload
+    await _handleSubscriptionMessage('order_items', {
+      event: 'update',
+      data: [{
+        id: 'oi_ns1',
+        order: 'ord_ns1',
+        kitchen_ready: true,
+        date_updated: '2024-06-01T00:00:00.000Z',
+      }],
+    });
+
+    // The embedded orderItem in the parent order must still have quantity=3
+    const order = await db.get('orders', 'ord_ns1');
+    expect(order).toBeDefined();
+    expect(order.orderItems).toHaveLength(1);
+    expect(order.orderItems[0].quantity).toBe(3);
+    expect(order.orderItems[0].kitchenReady).toBe(true);
+  });
+
+  it('WS create for order_item writes to both order_items store and parent orders.orderItems atomically', async () => {
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+
+    await db.put('orders', {
+      id: 'ord_ns1_create',
+      status: 'pending',
+      table: '02',
+      orderItems: [],
+      date_updated: '2024-01-01T00:00:00.000Z',
+    });
+
+    await _handleSubscriptionMessage('order_items', {
+      event: 'create',
+      data: [{
+        id: 'oi_ns1_create',
+        order: 'ord_ns1_create',
+        name: 'Risotto',
+        quantity: 2,
+        unit_price: 14,
+        voided_quantity: 0,
+        kitchen_ready: false,
+        date_updated: '2024-06-01T00:00:00.000Z',
+      }],
+    });
+
+    // Both stores must reflect the new item
+    const storedItem = await db.get('order_items', 'oi_ns1_create');
+    expect(storedItem).toBeDefined();
+
+    const order = await db.get('orders', 'ord_ns1_create');
+    expect(order.orderItems).toHaveLength(1);
+    expect(order.orderItems[0].id).toBe('oi_ns1_create');
+    expect(order.orderItems[0].name).toBe('Risotto');
+  });
+});
+
+// ── NS4 — _tableMergePullInFlight deduplication ───────────────────────────────
+
+describe('NS4 — _tableMergePullInFlight deduplication', () => {
+  it('two concurrent WS delete events for table_merge_sessions trigger only one fetch', async () => {
+    let tmsFetchCount = 0;
+    let resolveFirstFetch;
+    const firstFetchPromise = new Promise(res => { resolveFirstFetch = res; });
+
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      if (String(url).includes('/items/table_merge_sessions')) {
+        tmsFetchCount++;
+        if (tmsFetchCount === 1) {
+          return firstFetchPromise.then(() => directusListResponse([]));
+        }
+        return Promise.resolve(directusListResponse([]));
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    // Two concurrent delete events — both should share the same inflight pull
+    const p1 = _handleSubscriptionMessage('table_merge_sessions', {
+      event: 'delete',
+      data: ['tms_a'],
+    });
+    const p2 = _handleSubscriptionMessage('table_merge_sessions', {
+      event: 'delete',
+      data: ['tms_b'],
+    });
+
+    // At this point the fetch is in flight but not yet resolved
+    await flushPromises(10);
+    expect(tmsFetchCount).toBe(1);
+
+    // Resolve the fetch and let both handlers complete
+    resolveFirstFetch();
+    await Promise.all([p1, p2]);
+
+    // Despite two events, only one fetch should have been made
+    expect(tmsFetchCount).toBe(1);
+  });
+});
+
+// ── NS5 — _globalPullInFlight deduplication ───────────────────────────────────
+
+describe('NS5 — _globalPullInFlight deduplication', () => {
+  it('two concurrent reconfigureAndApply() calls both succeed', async () => {
+    let venueFetchCount = 0;
+
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      if (String(url).includes('/items/venues/')) {
+        venueFetchCount++;
+        return Promise.resolve(directusItemResponse({
+          id: 1,
+          name: 'Test Venue NS5',
+          status: 'published',
+          menu_source: 'directus',
+          tables: [],
+          rooms: [],
+          menu_items: [],
+          menu_categories: [],
+          printers: [],
+          venue_users: [],
+          table_merge_sessions: [],
+          payment_methods: [],
+          cover_charge_enabled: false,
+          cover_charge_auto_add: false,
+          cover_charge_price_adult: '0',
+          cover_charge_price_child: '0',
+          billing_enable_cash_change_calculator: false,
+          billing_enable_tips: false,
+          billing_enable_discounts: false,
+          billing_allow_custom_entry: false,
+        }));
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const sync = useDirectusSync();
+
+    // Fire two reconfigureAndApply() calls back-to-back without any await between them.
+    // reconfigureAndApply is user-initiated, so each call resets the in-flight semaphore
+    // and starts its own fresh pull — both must succeed even though they run concurrently.
+    const p1 = sync.reconfigureAndApply();
+    const p2 = sync.reconfigureAndApply();
+    const [r1, r2] = await Promise.all([p1, p2]);
+
+    expect(r1.ok).toBe(true);
+    expect(r2.ok).toBe(true);
+    // Each user-initiated call starts its own fresh pull.
+    expect(venueFetchCount).toBeGreaterThanOrEqual(1);
+  });
+});
+
+// ── NS7 — keyset cursor pagination ────────────────────────────────────────────
+
+/**
+ * Returns true when the URL encodes an `id._gt` keyset filter.
+ * Supports both bracketed and JSON-encoded Directus filter formats.
+ */
+function hasIdGtFilter(urlString) {
+  const url = new URL(String(urlString));
+  const keys = Array.from(url.searchParams.keys());
+
+  // Bracketed form: filter[id][_gt]=... or filter[_and][...][id][_gt]=...
+  if (keys.some(k => k.includes('[id]') && k.includes('[_gt]'))) return true;
+
+  const rawFilter = url.searchParams.get('filter');
+  if (!rawFilter) return false;
+
+  try {
+    const parsed = JSON.parse(rawFilter);
+    const stack = [parsed];
+    while (stack.length > 0) {
+      const node = stack.pop();
+      if (!node || typeof node !== 'object') continue;
+      if (node.id?._gt !== undefined) return true;
+      for (const v of Object.values(node)) {
+        if (typeof v === 'object' && v !== null) stack.push(v);
+      }
+    }
+  } catch {
+    // Ignore non-JSON filter encodings
+  }
+
+  return false;
+}
+
+describe('NS7 — keyset cursor pagination', () => {
+  it('second page request uses id._gt keyset filter when all page-1 records share sinceTs', async () => {
+    const sinceTs = '2024-06-01T00:00:00.000Z';
+    await saveLastPullTsToIDB('orders', sinceTs);
+
+    // 200 records all with date_updated === sinceTs — triggers keyset on page 2
+    const page1 = Array.from({ length: 200 }, (_, i) =>
+      makeRemoteOrder({
+        id: `ord_ns7_${String(i).padStart(3, '0')}`,
+        date_updated: sinceTs,
+      }),
+    );
+
+    const fetchedOrderUrls = [];
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      const s = String(url);
+      if (s.includes('/items/orders')) {
+        fetchedOrderUrls.push(s);
+        // Page 1: return 200 records; any subsequent page returns empty
+        if (fetchedOrderUrls.length === 1) {
+          return Promise.resolve(directusListResponse(page1));
+        }
+        return Promise.resolve(directusListResponse([]));
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const sync = useDirectusSync();
+    await sync.forcePull();
+
+    // Must have made at least 2 requests to /items/orders (page 1 + page 2)
+    expect(fetchedOrderUrls.length).toBeGreaterThanOrEqual(2);
+
+    // The second request must carry the id._gt keyset filter
+    const page2Url = fetchedOrderUrls[1];
+    expect(hasIdGtFilter(page2Url)).toBe(true);
+
+    // The keyset cursor id must reference the last record of page 1
+    // (check that the URL references ord_ns7_199 somewhere)
+    expect(decodeURIComponent(page2Url)).toContain('ord_ns7_199');
+  });
+
+  it('activates keyset on page 2 even when page-1 records have date_updated > sinceTs', async () => {
+    // Regression test for the bug where cursor.ts === sinceTs was required to
+    // activate keyset mode.  When page-1 records are newer than sinceTs the old
+    // condition silently fell back to offset pagination, causing double-skipping.
+    const sinceTs = '2024-06-01T00:00:00.000Z';
+    const newerTs = '2024-06-02T12:00:00.000Z'; // all records are newer than sinceTs
+    await saveLastPullTsToIDB('orders', sinceTs);
+
+    // 200 records all with date_updated > sinceTs — keyset must still fire on page 2
+    const page1 = Array.from({ length: 200 }, (_, i) =>
+      makeRemoteOrder({
+        id: `ord_ns7b_${String(i).padStart(3, '0')}`,
+        date_updated: newerTs,
+      }),
+    );
+
+    const fetchedOrderUrls = [];
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      const s = String(url);
+      if (s.includes('/items/orders')) {
+        fetchedOrderUrls.push(s);
+        if (fetchedOrderUrls.length === 1) {
+          return Promise.resolve(directusListResponse(page1));
+        }
+        return Promise.resolve(directusListResponse([]));
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const sync = useDirectusSync();
+    await sync.forcePull();
+
+    expect(fetchedOrderUrls.length).toBeGreaterThanOrEqual(2);
+
+    // Page 2 must use the keyset filter (id._gt based on the last record of page 1)
+    const page2Url = fetchedOrderUrls[1];
+    expect(hasIdGtFilter(page2Url)).toBe(true);
+    expect(decodeURIComponent(page2Url)).toContain('ord_ns7b_199');
+  });
+
+  it('page 2 request does not include page=2 offset when keyset cursor is active', async () => {
+    // Regression test for double-skipping: with keyset active, Directus must receive
+    // page=1 (no offset) so the keyset filter alone determines the result window.
+    const sinceTs = '2024-06-01T00:00:00.000Z';
+    await saveLastPullTsToIDB('orders', sinceTs);
+
+    const page1 = Array.from({ length: 200 }, (_, i) =>
+      makeRemoteOrder({ id: `ord_ns7c_${String(i).padStart(3, '0')}`, date_updated: sinceTs }),
+    );
+
+    const fetchedOrderUrls = [];
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      const s = String(url);
+      if (s.includes('/items/orders')) {
+        fetchedOrderUrls.push(s);
+        if (fetchedOrderUrls.length === 1) return Promise.resolve(directusListResponse(page1));
+        return Promise.resolve(directusListResponse([]));
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const sync = useDirectusSync();
+    await sync.forcePull();
+
+    expect(fetchedOrderUrls.length).toBeGreaterThanOrEqual(2);
+
+    // The page 2 URL must use page=1 (no offset), not page=2
+    const page2Url = decodeURIComponent(fetchedOrderUrls[1]);
+    // Keyset mode: page param must be 1 to avoid double-skipping
+    expect(page2Url).toContain('page=1');
+    expect(page2Url).not.toMatch(/page=2(?:[^0-9]|$)/);
+  });
+});
+
+// ── NS8 — AbortController for _runPull ────────────────────────────────────────
+
+describe('NS8 — AbortController for _runPull', () => {
+  it('second forcePull() aborts the in-flight pull and itself completes successfully', async () => {
+    let ordersFetchCount = 0;
+    let resolveSlowFetch;
+    const slowFetchPromise = new Promise(res => { resolveSlowFetch = res; });
+    // Gate: resolves as soon as the first orders fetch actually starts so we
+    // can be certain pull1 is suspended inside _fetchUpdatedViaSDK before
+    // starting pull2 — more reliable than counting flushPromises() rounds.
+    let signalPull1FetchStarted;
+    const pull1FetchGate = new Promise(res => { signalPull1FetchStarted = res; });
+
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      if (String(url).includes('/items/orders')) {
+        ordersFetchCount++;
+        if (ordersFetchCount === 1) {
+          // First fetch is slow (simulates in-flight pull)
+          signalPull1FetchStarted(); // notify the gate before blocking
+          return slowFetchPromise.then(() => directusListResponse([]));
+        }
+        return Promise.resolve(directusListResponse([]));
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const sync = useDirectusSync();
+
+    // Start first pull — wait until it is actually stuck at the orders fetch
+    const pull1 = sync.forcePull();
+    await pull1FetchGate; // guaranteed: pull1 is now suspended inside fetch
+
+    // Start second pull — aborts pull1's AbortController, starts fresh
+    const pull2 = sync.forcePull();
+
+    // Unblock the slow fetch so pull1 can exit cleanly
+    resolveSlowFetch();
+
+    const [result1, result2] = await Promise.all([pull1, pull2]);
+
+    // Both pulls must resolve without throwing
+    expect(result1).toBeDefined();
+    expect(result2.ok).toBe(true);
+    // Two fetches must have occurred: one from pull1 (slow), one from pull2 (fresh)
+    expect(ordersFetchCount).toBeGreaterThanOrEqual(2);
+  });
+
+  it('stopSync() aborts an in-flight pull cleanly without throwing', async () => {
+    // Create the blocker Promise and expose its resolver before the pull starts
+    // so resolveOrdersFetch is always defined regardless of how many microtask
+    // rounds it takes for the pull to reach the orders fetch.
+    let resolveOrdersFetch;
+    const ordersBlocker = new Promise(res => { resolveOrdersFetch = res; });
+
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      if (String(url).includes('/items/orders')) {
+        return ordersBlocker.then(() => directusListResponse([]));
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const sync = useDirectusSync();
+
+    // Start a pull that blocks at the orders fetch
+    const pull = sync.forcePull();
+    await flushPromises(20);
+
+    // Abort via stopSync
+    sync.stopSync();
+
+    // Unblock the slow fetch so the pull loop can exit
+    resolveOrdersFetch?.();
+
+    // Pull must resolve (not throw)
+    const result = await pull;
+    expect(result).toBeDefined();
+    expect(sync.syncStatus.value).toBe('idle');
+  });
+});
+
+// ── Issue 1 — Atomic WS delete for order_items ───────────────────────────────
+
+describe('Issue 1 — WS delete for order_items is atomic (single IDB transaction)', () => {
+  it('removes item from BOTH order_items store AND orders.orderItems in one operation', async () => {
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+
+    // Seed parent order with 2 embedded items
+    await db.put('orders', {
+      id: 'ord_atomic_del',
+      status: 'accepted',
+      table: '10',
+      orderItems: [
+        { id: 'oi_atomic_1', name: 'Risotto', quantity: 1, unit_price: 12 },
+        { id: 'oi_atomic_2', name: 'Vino',    quantity: 1, unit_price: 7  },
+      ],
+      date_updated: '2024-01-01T00:00:00.000Z',
+    });
+    // Seed the order_items ObjectStore (needed for the fast-path lookup)
+    await upsertRecordsIntoIDB('order_items', [
+      { id: 'oi_atomic_1', order: 'ord_atomic_del', orderId: 'ord_atomic_del', name: 'Risotto', quantity: 1, unit_price: 12 },
+    ]);
+
+    await _handleSubscriptionMessage('order_items', {
+      event: 'delete',
+      data: ['oi_atomic_1'],
+    });
+
+    // The order_items ObjectStore must no longer contain the deleted item
+    const deleted = await db.get('order_items', 'oi_atomic_1');
+    expect(deleted).toBeUndefined();
+
+    // The parent order's embedded array must also have the item removed
+    const order = await db.get('orders', 'ord_atomic_del');
+    expect(order.orderItems).toHaveLength(1);
+    expect(order.orderItems[0].id).toBe('oi_atomic_2');
+  });
+});
+
+// ── Issue 2 — Keyset null-date condition includes id._gt ──────────────────────
+
+describe('Issue 2 — Keyset null-date branch includes id._gt to prevent infinite loop', () => {
+  it('page-2 null-date keyset filter carries id._gt based on cursor', async () => {
+    // All order_items have no date_updated (date_updated=null) but a date_created.
+    // Without the id._gt fix, the null-date branch would keep fetching the same
+    // page-1 records forever.  With the fix the second request must include id._gt.
+    const sinceTs = '2024-06-01T00:00:00.000Z';
+    await saveLastPullTsToIDB('order_items', sinceTs);
+
+    const page1Items = Array.from({ length: 200 }, (_, i) => ({
+      id: `oi_nullts_${String(i).padStart(3, '0')}`,
+      order: 'ord_null_parent',
+      date_updated: null,
+      date_created: '2024-06-02T00:00:00.000Z',
+    }));
+
+    // Make sure parent order exists so atomic merge doesn't fail
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+    await db.put('orders', {
+      id: 'ord_null_parent',
+      status: 'accepted',
+      table: '20',
+      orderItems: [],
+      date_updated: '2024-01-01T00:00:00.000Z',
+    });
+
+    const fetchedItemUrls = [];
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      const s = String(url);
+      if (s.includes('/items/order_items')) {
+        fetchedItemUrls.push(s);
+        // Page 1: return 200 null-date items; any subsequent page returns empty
+        if (fetchedItemUrls.length === 1) return Promise.resolve(directusListResponse(page1Items));
+        return Promise.resolve(directusListResponse([]));
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const sync = useDirectusSync();
+    await sync.forcePull();
+
+    // Must have fetched at least a second page
+    expect(fetchedItemUrls.length).toBeGreaterThanOrEqual(2);
+
+    // The second request must include an id._gt filter to avoid re-fetching page 1
+    const page2Url = decodeURIComponent(fetchedItemUrls[1]);
+    expect(page2Url).toMatch(/id.*_gt/);
+    // The cursor must reference the last item from page 1
+    expect(page2Url).toContain('oi_nullts_199');
+  });
+});
+
+// ── Issue 3 — LWW echo suppression: cross-device update bypasses TTL ──────────
+
+describe('Issue 3 — LWW echo suppression allows cross-device updates through', () => {
+  it('allows a WS update through when incoming date_updated is newer than local record', async () => {
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+
+    // Seed a record in IDB as if this device had just pushed it at T=100
+    await upsertRecordsIntoIDB('orders', [{
+      id: 'ord_lww_1',
+      status: 'accepted',
+      date_updated: '2024-06-01T00:00:00.100Z',
+    }]);
+
+    // Register it as a self-echo (TTL still active)
+    _registerPushedEchoes([{ collection: 'orders', recordId: 'ord_lww_1' }]);
+
+    // Another device (PDA) modifies the same record at T=200 — strictly newer
+    await _handleSubscriptionMessage('orders', {
+      event: 'update',
+      data: [{
+        id: 'ord_lww_1',
+        status: 'closed',
+        date_updated: '2024-06-01T00:00:00.200Z',
+      }],
+    });
+
+    // The update must have been written (not suppressed) because T=200 > T=100
+    const stored = await db.get('orders', 'ord_lww_1');
+    expect(stored?.status).toBe('closed');
+  });
+
+  it('still suppresses a WS echo when incoming date_updated equals the local record', async () => {
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+
+    const ts = '2024-06-01T00:00:00.000Z';
+    await upsertRecordsIntoIDB('orders', [{
+      id: 'ord_lww_same',
+      status: 'accepted',
+      date_updated: ts,
+    }]);
+
+    // Register as self-echo
+    _registerPushedEchoes([{ collection: 'orders', recordId: 'ord_lww_same' }]);
+
+    // Same timestamp → still our echo, must be suppressed
+    await _handleSubscriptionMessage('orders', {
+      event: 'update',
+      data: [{ id: 'ord_lww_same', status: 'closed', date_updated: ts }],
+    });
+
+    const stored = await db.get('orders', 'ord_lww_same');
+    expect(stored?.status).toBe('accepted'); // unchanged
+  });
+});
+
+// ── Issue 4 — _atomicOrderItemsUpsertAndMerge returns affectedOrderIds ─────────
+
+describe('Issue 4 — _atomicOrderItemsUpsertAndMerge returns affectedOrderIds', () => {
+  it('returns the set of order IDs whose embedded orderItems were modified', async () => {
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+
+    await db.put('orders', {
+      id: 'ord_affected_1',
+      status: 'accepted',
+      table: '30',
+      orderItems: [],
+      date_updated: '2024-01-01T00:00:00.000Z',
+    });
+    await db.put('orders', {
+      id: 'ord_affected_2',
+      status: 'accepted',
+      table: '31',
+      orderItems: [],
+      date_updated: '2024-01-01T00:00:00.000Z',
+    });
+
+    const items = [
+      { id: 'oi_aff_1', order: 'ord_affected_1', orderId: 'ord_affected_1', name: 'Pasta', quantity: 1, unit_price: 8, date_updated: '2024-06-01T00:00:00.000Z' },
+      { id: 'oi_aff_2', order: 'ord_affected_2', orderId: 'ord_affected_2', name: 'Pizza', quantity: 1, unit_price: 9, date_updated: '2024-06-01T00:00:00.000Z' },
+    ];
+
+    const result = await _atomicOrderItemsUpsertAndMerge(items, []);
+
+    expect(result.affectedOrderIds).toBeInstanceOf(Set);
+    expect(result.affectedOrderIds.size).toBe(2);
+    expect(result.affectedOrderIds.has('ord_affected_1')).toBe(true);
+    expect(result.affectedOrderIds.has('ord_affected_2')).toBe(true);
+  });
+
+  it('does not include an order in affectedOrderIds when its embedded items are unchanged', async () => {
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+
+    const existingItem = {
+      id: 'oi_unchanged',
+      order: 'ord_unchanged',
+      orderId: 'ord_unchanged',
+      name: 'Acqua',
+      quantity: 1,
+      unit_price: 2,
+      date_updated: '2024-06-01T00:00:00.000Z',
+    };
+
+    await db.put('orders', {
+      id: 'ord_unchanged',
+      status: 'accepted',
+      table: '32',
+      orderItems: [existingItem],
+      date_updated: '2024-01-01T00:00:00.000Z',
+    });
+    await upsertRecordsIntoIDB('order_items', [existingItem]);
+
+    // Incoming item is identical → LWW should skip; ordersWritten stays 0
+    const result = await _atomicOrderItemsUpsertAndMerge([existingItem], []);
+
+    expect(result.affectedOrderIds.has('ord_unchanged')).toBe(false);
+    expect(result.ordersWritten).toBe(0);
+  });
+});
+
+// ── NP1 — _removeOrderItemsFromOrdersIDB fallback scan populates affectedOrderIds ──
+
+describe('NP1 — _removeOrderItemsFromOrdersIDB fallback scan affectedOrderIds', () => {
+  it('includes orders updated via fallback cursor scan in the returned affectedOrderIds', async () => {
+    // The item is NOT in the order_items store (fresh device scenario), so the
+    // normal fast-path lookup returns null and the function falls into the O(n)
+    // cursor scan over all orders.  After the fix, the order whose orderItems
+    // array was shortened must appear in the returned affectedOrderIds Set so
+    // that targeted _refreshStoreFromIDB and BroadcastChannel notifications
+    // reach followers correctly.
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+
+    const orderId = 'ord_fallback_affected';
+
+    await db.put('orders', {
+      id: orderId,
+      status: 'accepted',
+      table: '99',
+      orderItems: [
+        { id: 'oi_fb_aff_1', order: orderId, name: 'Pasta', quantity: 1, unit_price: 8 },
+        { id: 'oi_fb_aff_2', order: orderId, name: 'Vino', quantity: 2, unit_price: 5 },
+      ],
+      date_updated: '2024-01-01T00:00:00.000Z',
+    });
+    // Intentionally do NOT put 'oi_fb_aff_1' into the order_items store so that
+    // the function takes the fallback cursor scan path.
+
+    const affectedIds = await _removeOrderItemsFromOrdersIDB(['oi_fb_aff_1']);
+
+    expect(affectedIds).toBeInstanceOf(Set);
+    expect(affectedIds.has(orderId)).toBe(true);
+
+    // Sanity-check: the item was actually removed from the embedded array.
+    const order = await db.get('orders', orderId);
+    expect(order.orderItems).toHaveLength(1);
+    expect(order.orderItems[0].id).toBe('oi_fb_aff_2');
   });
 });

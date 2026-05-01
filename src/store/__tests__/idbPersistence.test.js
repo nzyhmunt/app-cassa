@@ -1234,7 +1234,7 @@ describe('replaceVenueUsersInIDB()', () => {
       const stored = await db.get('venue_users', 'vu_bad_pin');
       expect(stored.pin).toBe('');
       expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Invalid venue_users PIN during replaceVenueUsersInIDB'),
+        expect.stringContaining('Invalid venue_users PIN during normalizeVenueUsersForIDB'),
         'vu_bad_pin',
       );
     } finally {

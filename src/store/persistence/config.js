@@ -206,6 +206,61 @@ export async function replaceTableMergesInIDB(records) {
 }
 
 /**
+ * Normalises a raw array of Directus venue_users records ready for IDB storage.
+ * Handles name/display_name aliasing, apps array normalisation, role-field
+ * removal, and PIN hashing.  Does NOT touch IDB — use `replaceVenueUsersInIDB`
+ * for the full atomic replace.
+ *
+ * @param {Array<object>} records - Raw venue_users from Directus.
+ * @returns {Promise<Array<object>>} Normalised records (invalid entries dropped).
+ */
+export async function normalizeVenueUsersForIDB(records) {
+  if (!Array.isArray(records)) return [];
+  const normalized = [];
+  for (const rawRecord of records) {
+    if (!rawRecord || typeof rawRecord !== 'object') continue;
+    const record = { ...rawRecord };
+
+    if ((record.name == null || record.name === '') && record.display_name != null) {
+      record.name = record.display_name;
+    }
+    if ((record.display_name == null || record.display_name === '') && record.name != null) {
+      record.display_name = record.name;
+    }
+
+    record.apps = normalizeAppsArray(record.apps);
+    delete record.role;
+    delete record.role2;
+    delete record._sync_status;
+
+    const pinType = typeof record.pin;
+    const isPinScalar = pinType === 'string' || pinType === 'number';
+    if (record.pin != null && isPinScalar) {
+      const trimmedPin = String(record.pin).trim();
+      const pinDigits = _extractPinDigits(trimmedPin);
+      if (pinDigits.length === PIN_LENGTH) {
+        try {
+          const hashed = await _hashPin(pinDigits);
+          record.pin = hashed ?? '';
+        } catch (err) {
+          console.warn('[IDBPersistence] Failed to hash venue_users PIN during normalizeVenueUsersForIDB. Clearing PIN. User ID:', record.id ?? 'unknown', err);
+          record.pin = '';
+        }
+      } else {
+        console.warn(`[IDBPersistence] Invalid venue_users PIN during normalizeVenueUsersForIDB — could not extract ${PIN_LENGTH} numeric digits. User ID:`, record.id ?? 'unknown');
+        record.pin = '';
+      }
+    } else if (record.pin != null) {
+      record.pin = '';
+    }
+
+    if (!record.id) continue;
+    normalized.push(JSON.parse(JSON.stringify(record)));
+  }
+  return normalized;
+}
+
+/**
  * Atomically replaces all records in the `venue_users` ObjectStore.
  *
  * Used after a full Directus deep-fetch so that users removed from Directus
@@ -218,48 +273,7 @@ export async function replaceTableMergesInIDB(records) {
 export async function replaceVenueUsersInIDB(records) {
   try {
     const db = await getDB();
-
-    const normalized = [];
-    for (const rawRecord of records) {
-      if (!rawRecord || typeof rawRecord !== 'object') continue;
-      const record = { ...rawRecord };
-
-      if ((record.name == null || record.name === '') && record.display_name != null) {
-        record.name = record.display_name;
-      }
-      if ((record.display_name == null || record.display_name === '') && record.name != null) {
-        record.display_name = record.name;
-      }
-
-      record.apps = normalizeAppsArray(record.apps);
-      delete record.role;
-      delete record.role2;
-      delete record._sync_status;
-
-      const pinType = typeof record.pin;
-      const isPinScalar = pinType === 'string' || pinType === 'number';
-      if (record.pin != null && isPinScalar) {
-        const trimmedPin = String(record.pin).trim();
-        const pinDigits = _extractPinDigits(trimmedPin);
-        if (pinDigits.length === PIN_LENGTH) {
-          try {
-            const hashed = await _hashPin(pinDigits);
-            record.pin = hashed ?? '';
-          } catch (err) {
-            console.warn('[IDBPersistence] Failed to hash venue_users PIN during replaceVenueUsersInIDB. Clearing PIN. User ID:', record.id ?? 'unknown', err);
-            record.pin = '';
-          }
-        } else {
-          console.warn(`[IDBPersistence] Invalid venue_users PIN during replaceVenueUsersInIDB — could not extract ${PIN_LENGTH} numeric digits. User ID:`, record.id ?? 'unknown');
-          record.pin = '';
-        }
-      } else if (record.pin != null) {
-        record.pin = '';
-      }
-
-      if (!record.id) continue;
-      normalized.push(JSON.parse(JSON.stringify(record)));
-    }
+    const normalized = await normalizeVenueUsersForIDB(records);
 
     const tx = db.transaction('venue_users', 'readwrite');
     const existingRecords = await tx.store.getAll();
