@@ -16,7 +16,7 @@
  * Il composable è un singleton a livello di modulo.
  */
 
-import { ref } from 'vue';
+
 import { createDirectus, staticToken, rest, readItems, readItem } from '@directus/sdk';
 import { appConfig, createRuntimeConfig, DEFAULT_SETTINGS, deepEqual } from '../utils/index.js';
 import {
@@ -55,167 +55,40 @@ import { reloadUsersFromIDB } from './useAuth.js';
 import { addSyncLog } from '../store/persistence/syncLogs.js';
 import { touchStorageKey } from '../store/persistence.js';
 
-// ── Per-app pull config (§5.7.6) ─────────────────────────────────────────────
+// ── Constants (extracted to sync/config.js) ───────────────────────────────────
+import {
+  PULL_CONFIG,
+  VENUE_RELATED_COLLECTIONS,
+  DEEP_FETCH_FIELDS,
+  DEEP_FETCH_FIELD_SETS,
+  DEEP_FETCH_JSON_FIELD_SETS,
+  VENUE_NESTED_RELATION_KEYS,
+  GLOBAL_INTERVAL_MS,
+  TABLE_FETCH_BATCH_SIZE,
+  DEEP_FETCH_PAYLOAD_UNWRAP_MAX_DEPTH,
+  SYNC_LOG_RECORDS_MAX,
+  SUPPORTS_STRUCTURED_CLONE,
+  GLOBAL_TIMESTAMP_SKEW_TOLERANCE_MS,
+  COLLECTION_QUIRKS,
+} from './sync/config.js';
 
-/** @type {Record<string, { collections: string[], intervalMs: number }>} */
-const PULL_CONFIG = {
-  cassa: {
-    collections: ['orders', 'order_items', 'bill_sessions', 'tables'],
-    // 30 s polling: frequent enough for near-real-time UX while keeping
-    // backend load low. Use wsEnabled=true for sub-second updates if the
-    // Directus instance supports WebSocket subscriptions.
-    intervalMs: 30_000,
-  },
-  sala: {
-    collections: ['orders', 'order_items', 'bill_sessions', 'tables', 'menu_items'],
-    intervalMs: 30_000,
-  },
-  cucina: {
-    collections: ['orders', 'order_items'],
-    intervalMs: 30_000,
-  },
-};
-
-/** Collections for all apps: fetched once at startup and every 5 minutes. */
-const VENUE_RELATED_COLLECTIONS = [
-  'venues', 'rooms', 'tables', 'payment_methods',
-  'menu_categories', 'menu_items', 'menu_modifiers',
-  'menu_categories_menu_modifiers', 'menu_items_menu_modifiers',
-  'printers', 'venue_users', 'table_merge_sessions',
-];
-const DEEP_FETCH_FIELDS = [
-  '*',
-  'rooms.*',
-  'rooms.tables.*',
-  'tables.*',
-  'payment_methods.*',
-  'menu_categories.*',
-  'menu_categories.menu_items.*',
-  'menu_categories.menu_modifiers.menu_modifiers_id.*',
-  'menu_items.*',
-  'menu_items.menu_modifiers.menu_modifiers_id.*',
-  'printers.*',
-  'users.*',
-  'table_merge_sessions.*',
-];
-const DEEP_FETCH_BASE_RELATION_FIELDS = [
-  '*',
-  'rooms.*',
-  'tables.*',
-  'payment_methods.*',
-  'printers.*',
-  'users.*',
-  'table_merge_sessions.*',
-];
-const DEEP_FETCH_FALLBACK_FIELDS = [
-  ...DEEP_FETCH_BASE_RELATION_FIELDS,
-  'rooms.tables.*',
-  'menu_categories.*',
-  'menu_categories.menu_items.*',
-  'menu_items.*',
-];
-const DEEP_FETCH_FIELD_SETS = [
-  { key: 'full', fields: DEEP_FETCH_FIELDS },
-  { key: 'fallback', fields: DEEP_FETCH_FALLBACK_FIELDS },
-];
-const DEEP_FETCH_JSON_FIELDS = [
-  'id',
-  'name',
-  'status',
-  'date_updated',
-  'primary_color',
-  'primary_color_dark',
-  'currency_symbol',
-  'allow_custom_variants',
-  'orders_rejection_reasons',
-  'users.*',
-  'cover_charge_enabled',
-  'cover_charge_auto_add',
-  'cover_charge_price_adult',
-  'cover_charge_price_child',
-  'billing_auto_close_on_full_payment',
-  'billing_enable_cash_change_calculator',
-  'billing_enable_tips',
-  'billing_enable_discounts',
-  'billing_allow_custom_entry',
-];
-const DEEP_FETCH_JSON_FIELD_SETS = [
-  { key: 'json_minimal', fields: DEEP_FETCH_JSON_FIELDS },
-];
-const VENUE_NESTED_RELATION_KEYS = [
-  'rooms',
-  'tables',
-  'payment_methods',
-  'menu_categories',
-  'menu_items',
-  'printers',
-  'venue_users',
-  'table_merge_sessions',
-];
-const VENUE_USERS_RELATION_KEYS = ['venue_users', 'users'];
-const GLOBAL_INTERVAL_MS = 5 * 60_000;
-const TABLE_FETCH_BATCH_SIZE = 200;
-const DEEP_FETCH_PAYLOAD_UNWRAP_MAX_DEPTH = 3;
-// Maximum number of records stored verbatim in a sync log entry.
-// Keeps the Activity Monitor readable and IDB storage bounded on large pulls.
-const SYNC_LOG_RECORDS_MAX = 20;
-const SUPPORTS_STRUCTURED_CLONE = typeof structuredClone === 'function';
-// Allow substantial device/server clock drift before treating last_pull_ts as invalid.
-// 24h avoids perpetual full-refreshes on slightly misconfigured tablets while still
-// catching clearly bogus cursors (for example, year 2099).
-const GLOBAL_TIMESTAMP_SKEW_TOLERANCE_MS = 24 * 60 * 60_000;
-
-/**
- * Per-collection quirks for collections that deviate from the default schema
- * assumed by _fetchUpdatedViaSDK (venue FK + date_updated timestamp field).
- *
- * H3: Some collections don't expose the standard `venue` FK and/or `date_updated`.
- * In these cases we must skip unsupported filters to avoid Directus API errors.
- *
- * Some collections (for example `venues`) intentionally don't expose a `venue`
- * FK and therefore must skip the tenant filter in REST/WS queries.
- *
- * Collections without a direct `venue` FK but reachable via a relational path
- * can use a `venueFilter` function to return the appropriate Directus filter
- * object instead of the default `{ venue: { _eq: venueId } }`.
- */
-const COLLECTION_QUIRKS = {
-  venues: { noVenueFilter: true },
-  // `order_items` has no direct `venue` FK — it is scoped to the venue via its
-  // parent order.  Filtering by `order.venue` avoids the Directus 403 error that
-  // would result from referencing a non-existent top-level field.
-  order_items: { venueFilter: (venueId) => ({ order: { venue: { _eq: venueId } } }) },
-};
-
-// ── Field mapping: Directus → local in-memory store format ───────────────────
-
-function _mapRecord(collection, r) {
-  if (collection === 'orders') return mapOrderFromDirectus(r);
-  if (collection === 'bill_sessions') return mapBillSessionFromDirectus(r);
-  if (collection === 'order_items') return mapOrderItemFromDirectus(r);
-  if (collection === 'menu_items') return mapMenuItemFromDirectus(r);
-  if (collection === 'menu_categories') return mapMenuCategoryFromDirectus(r);
-  if (collection === 'menu_modifiers') return mapMenuModifierFromDirectus(r);
-  if (collection === 'menu_categories_menu_modifiers') return mapMenuCategoryModifierLinkFromDirectus(r);
-  if (collection === 'menu_items_menu_modifiers') return mapMenuItemModifierLinkFromDirectus(r);
-  if (collection === 'table_merge_sessions') return mapTableMergeSessionFromDirectus(r);
-  return { ...r, _sync_status: 'synced' };
-}
+// ── Field mapping (extracted to sync/mapper.js) ───────────────────────────────
+import { _mapRecord, _extractRecordIds } from './sync/mapper.js';
 
 async function _refreshStoreFromIDB(collection = null, ids = null) {
-  if (!_store) return;
-  if (typeof _store.refreshOperationalStateFromIDB === 'function') {
+  if (!syncState._store) return;
+  if (typeof syncState._store.refreshOperationalStateFromIDB === 'function') {
     const opts = collection ? { collection } : {};
     if (ids instanceof Set && ids.size > 0) opts.ids = ids;
-    await _store.refreshOperationalStateFromIDB(opts);
+    await syncState._store.refreshOperationalStateFromIDB(opts);
     // NS6: Notify follower tabs that IDB data has changed for this collection.
-    if (_isLeader) _idbChangeBroadcast?.postMessage({ type: 'idb-change', collection });
+    if (syncState._isLeader) syncState._idbChangeBroadcast?.postMessage({ type: 'idb-change', collection });
     return;
   }
-  if (typeof _store.refreshFromIDB === 'function') {
-    await _store.refreshFromIDB(collection);
+  if (typeof syncState._store.refreshFromIDB === 'function') {
+    await syncState._store.refreshFromIDB(collection);
     // NS6: Notify follower tabs that IDB data has changed for this collection.
-    if (_isLeader) _idbChangeBroadcast?.postMessage({ type: 'idb-change', collection });
+    if (syncState._isLeader) syncState._idbChangeBroadcast?.postMessage({ type: 'idb-change', collection });
     return;
   }
   // No further fallback: stores must expose refreshOperationalStateFromIDB or refreshFromIDB
@@ -224,79 +97,25 @@ async function _refreshStoreFromIDB(collection = null, ids = null) {
 }
 
 async function _refreshStoreConfigFromIDB(options = {}) {
-  if (!_store) return;
-  if (typeof _store.hydrateConfigFromIDB === 'function') {
-    await _store.hydrateConfigFromIDB(options);
+  if (!syncState._store) return;
+  if (typeof syncState._store.hydrateConfigFromIDB === 'function') {
+    await syncState._store.hydrateConfigFromIDB(options);
     // NS6: Notify follower tabs that configuration IDB data has changed.
-    if (_isLeader) _idbChangeBroadcast?.postMessage({ type: 'idb-change', collection: 'config' });
+    if (syncState._isLeader) syncState._idbChangeBroadcast?.postMessage({ type: 'idb-change', collection: 'config' });
     return;
   }
   console.warn('[Directus] hydrateConfigFromIDB not available on store; skipping config refresh.');
 }
 
-function _extractRecordIds(records) {
-  return records
-    .map((r) => String(r?.id ?? r))
-    .filter(Boolean);
-}
+// ── IDB operations (extracted to sync/idbOperations.js) ──────────────────────
+import {
+  _preparePullRecordsForIDB,
+  _mergeOrderItemsIntoOrdersIDB,
+  _atomicOrderItemsUpsertAndMerge,
+  _removeOrderItemsFromOrdersIDB,
+} from './sync/idbOperations.js';
 
-/**
- * Prepares mapped pull records before IDB upsert.
- * `cachedState` reuses a previously loaded state snapshot across paginated
- * pulls, avoiding repeated `loadStateFromIDB()` calls per page. `undefined`
- * means "not loaded yet", while `null` means "loaded, but no state available".
- */
-async function _preparePullRecordsForIDB(collection, mapped, cachedState = undefined) {
-  if (!Array.isArray(mapped) || mapped.length === 0) {
-    return { records: mapped, state: cachedState };
-  }
-  if (collection !== 'orders' && collection !== 'bill_sessions') {
-    return { records: mapped, state: cachedState };
-  }
 
-  const state = cachedState === undefined ? await loadStateFromIDB() : cachedState;
-  if (!state) {
-    return { records: mapped, state };
-  }
-
-  if (collection === 'orders') {
-    const existingById = new Map(
-      (Array.isArray(state.orders) ? state.orders : [])
-        .filter((record) => record?.id)
-        .map((record) => [String(record.id), record]),
-    );
-    const records = mapped.map((incoming) => {
-      const existing = existingById.get(String(incoming?.id ?? ''));
-      if (!existing) return incoming;
-      if (Array.isArray(existing.orderItems) && existing.orderItems.length > 0) {
-        const hasIncomingItems = Array.isArray(incoming.orderItems) && incoming.orderItems.length > 0;
-        if (!hasIncomingItems) {
-          return { ...incoming, orderItems: existing.orderItems };
-        }
-      }
-      return incoming;
-    });
-    return { records, state };
-  }
-
-  const existingByBillSessionId = new Map(
-    Object.values(state.tableCurrentBillSession ?? {})
-      .filter((session) => session?.billSessionId)
-      .map((session) => [String(session.billSessionId), session]),
-  );
-  const records = mapped.map((incoming) => {
-    const billSessionId = incoming?.billSessionId ?? incoming?.id;
-    const existing = billSessionId != null
-      ? existingByBillSessionId.get(String(billSessionId))
-      : null;
-    if (!existing) return incoming;
-    if ((incoming.opened_at == null || incoming.opened_at === '') && existing.opened_at) {
-      return { ...incoming, opened_at: existing.opened_at };
-    }
-    return incoming;
-  });
-  return { records, state };
-}
 
 // ── REST pull helpers ─────────────────────────────────────────────────────────
 
@@ -458,343 +277,6 @@ async function _fetchUpdatedViaSDK(collection, sinceTs, page = 1, cursor = null)
   }
 }
 
-/**
- * Merges an array of freshly-pulled order_items into their parent orders stored
- * in the `orders` IDB ObjectStore.
- *
- * The `orders` store persists each order with an embedded `orderItems` array
- * (populated when orders are fetched with `fields: ['*', 'order_items.*']`).
- * When the cucina app pulls order_items directly via the `order_items` collection
- * those records land in a separate `order_items` ObjectStore and never reach the
- * embedded arrays — causing the in-memory store to show stale item data even
- * after a successful pull.
- *
- * This function bridges the gap: for each affected order it loads the current
- * record, upserts the incoming items (last-write-wins on date_updated/date_created),
- * and writes the result back before the orders store refresh fires.
- *
- * @param {Array<object>} pulledItems - Mapped order_item records (from _mapRecord).
- * @param {Array<object>} [rawItems]  - Optional raw Directus records (snake_case, same
- *   length/order as pulledItems). May come from a WS event or a REST pull response.
- *   When provided, existing embedded items are merged via `mergeOrderItemFromWSPayload`
- *   so that absent mapped-default fields (quantity, unit_price, etc.) never clobber
- *   real IDB values with zeros.
- * @returns {Promise<number>} Number of orders whose `orderItems` array was actually
- *   rewritten in IDB.  Returns 0 when every candidate order was already up to date
- *   (no-change fast-path), so callers can skip the subsequent store refresh.
- */
-async function _mergeOrderItemsIntoOrdersIDB(pulledItems, rawItems = null) {
-  if (!pulledItems || pulledItems.length === 0) return 0;
-  try {
-    const db = await getDB();
-
-    // Build a raw-payload lookup if rawItems were provided (WS or REST pull path).
-    const rawById = new Map();
-    if (rawItems && rawItems.length === pulledItems.length) {
-      for (let i = 0; i < rawItems.length; i++) {
-        const id = String(pulledItems[i]?.id ?? pulledItems[i]?.uid ?? '');
-        if (id) rawById.set(id, rawItems[i]);
-      }
-    }
-
-    // Group items by parent order ID
-    const itemsByOrderId = new Map();
-    for (const item of pulledItems) {
-      const orderId = item?.order ?? item?.orderId;
-      if (!orderId) continue;
-      const key = String(orderId);
-      if (!itemsByOrderId.has(key)) itemsByOrderId.set(key, []);
-      itemsByOrderId.get(key).push(item);
-    }
-    if (itemsByOrderId.size === 0) return 0;
-
-    let ordersWritten = 0;
-    const tx = db.transaction('orders', 'readwrite');
-    for (const [orderId, items] of itemsByOrderId) {
-      const order = await tx.store.get(orderId);
-      if (!order) continue;
-
-      const existingItems = Array.isArray(order.orderItems) ? order.orderItems : [];
-      const byId = new Map(existingItems.map(i => [String(i.id ?? i.uid ?? ''), i]));
-
-      for (const item of items) {
-        const itemId = String(item.id ?? item.uid ?? '');
-        if (!itemId) continue;
-        const existing = byId.get(itemId);
-        if (!existing) {
-          byId.set(itemId, item);
-        } else {
-          // Last-write-wins using date_updated, falling back to date_created.
-          // Use Date-based comparison (consistent with upsertRecordsIntoIDB):
-          // incoming wins when existing has no timestamp (can't compare), or
-          // the incoming timestamp is newer than or equal to the existing one.
-          // Ties (same timestamp) favour the incoming payload so that rapid back-
-          // to-back PATCHes processed within the same server-clock millisecond are
-          // never silently dropped.
-          // If incoming has no timestamp but existing does, keep the existing record.
-          const existingTs = existing.date_updated ?? existing.date_created ?? null;
-          const incomingTs = item.date_updated ?? item.date_created ?? null;
-          const incomingWins = !existingTs || (incomingTs != null && new Date(incomingTs) >= new Date(existingTs));
-          if (incomingWins) {
-            // When a raw WS payload is available, use the selective merge so that
-            // mapper-supplied defaults for absent fields (e.g. quantity → 0) never
-            // overwrite real values already stored in the embedded item.
-            const rawPayload = rawById.get(itemId);
-            byId.set(itemId, rawPayload
-              ? mergeOrderItemFromWSPayload(existing, rawPayload, item)
-              : { ...existing, ...item });
-          }
-          // else: existing is newer — keep the map unchanged
-        }
-      }
-
-      const mergedItems = Array.from(byId.values()).filter(i => i.id ?? i.uid);
-      // No-change fast-path: skip the IDB put when the merged items array is
-      // identical to what is already stored.  This prevents unnecessary IDB write
-      // amplification and downstream store-refresh churn when _gte polling
-      // re-fetches unchanged boundary records on an otherwise idle dataset.
-      if (deepEqual(mergedItems, existingItems)) continue;
-
-      ordersWritten++;
-      // A shallow spread is intentional here: IDB's put() performs its own
-      // structured-clone serialisation so shared nested references (notes,
-      // modifiers) are safely deep-copied before being written to the store.
-      await tx.store.put({ ...order, orderItems: mergedItems });
-    }
-    await tx.done;
-    return ordersWritten;
-  } catch (e) {
-    console.warn('[DirectusSync] _mergeOrderItemsIntoOrdersIDB failed:', e);
-    throw e;
-  }
-}
-
-/**
- * S7 — Atomically writes `order_items` to the `order_items` IDB ObjectStore AND
- * merges them into the embedded `orderItems` arrays of their parent `orders`
- * records, all within a **single** multi-store IDB transaction
- * (`['order_items', 'orders']`).
- *
- * This replaces the previous two-step sequence (P5 — non-atomic upsert + merge):
- *
- *   upsertRecordsIntoIDB('order_items', prepared)  ← writes order_items
- *   _mergeOrderItemsIntoOrdersIDB(...)             ← merges into orders
- *
- * With that sequence, a failure in the merge left `order_items` written but
- * `orders.orderItems` stale, and the cursor (S2) still advanced — meaning the
- * inconsistency would persist until the next forced full pull.  A single
- * transaction guarantees atomicity: either both stores are updated or neither is.
- *
- * @param {Array<object>} mappedItems  - Mapped order_item records from `_mapRecord`.
- * @param {Array<object>} [rawItems]   - Corresponding raw Directus records.  When
- *   provided with the same length and order as `mappedItems`, each entry is used
- *   by `mergeOrderItemFromWSPayload` for selective field merging.  If the arrays
- *   differ in length (e.g. after filtering), the lookup is still built from the
- *   matching indices and unmatched items fall back to a full spread merge.
- * @returns {Promise<{orderItemsWritten: number, ordersWritten: number}>}
- */
-async function _atomicOrderItemsUpsertAndMerge(mappedItems, rawItems = []) {
-  if (!mappedItems || mappedItems.length === 0) {
-    return { orderItemsWritten: 0, ordersWritten: 0, affectedOrderIds: new Set() };
-  }
-
-  const db = await getDB();
-
-  // Build a lookup from order_item ID → raw Directus record for selective merge.
-  const rawById = new Map();
-  if (Array.isArray(rawItems) && rawItems.length === mappedItems.length) {
-    for (let i = 0; i < rawItems.length; i++) {
-      const id = String(mappedItems[i]?.id ?? mappedItems[i]?.uid ?? '');
-      if (id) rawById.set(id, rawItems[i]);
-    }
-  }
-
-  // Single transaction covering both ObjectStores — atomicity guarantee.
-  const tx = db.transaction(['order_items', 'orders'], 'readwrite');
-  const orderItemsStore = tx.objectStore('order_items');
-  const ordersStore = tx.objectStore('orders');
-
-  // ── Phase 1: LWW upsert into `order_items` ─────────────────────────────────
-  // Replicates the conflict-resolution logic of `upsertRecordsIntoIDB` but
-  // inside this shared transaction so Phase 2 (merge into orders) sees the
-  // freshly written records and both phases commit or abort together.
-  const toWrite = [];
-  for (const incomingRaw of mappedItems) {
-    // Normalise FK fields (order → orderId, dish → dishId) the same way that
-    // `_normalizeIncomingSync('order_items', ...)` in operations.js does.
-    const incoming = { ...incomingRaw };
-    const orderId = relationId(incoming.order ?? incoming.orderId);
-    if (orderId != null) { incoming.order = orderId; incoming.orderId = orderId; }
-    const dishId = relationId(incoming.dish ?? incoming.dishId);
-    if (dishId != null) { incoming.dish = dishId; incoming.dishId = dishId; }
-
-    const pk = incoming.id;
-    if (!pk) continue;
-
-    // Strip internal tracking field once; reuse the clean copy for both the
-    // LWW comparison and the eventual IDB put to avoid duplicating the spread.
-    const { _sync_status: _s, ...clean } = incoming;
-
-    const existing = await orderItemsStore.get(pk);
-    if (existing) {
-      const existingTs = existing.date_updated ?? existing.date_created;
-      const incomingTs = clean.date_updated ?? clean.date_created;
-      // If existing has a timestamp but incoming does not → keep existing.
-      if (existingTs && !incomingTs) continue;
-      if (existingTs && incomingTs) {
-        const existingMs = new Date(existingTs).getTime();
-        const incomingMs = new Date(incomingTs).getTime();
-        if (incomingMs < existingMs) continue; // strictly older → skip
-        if (incomingMs === existingMs) {
-          // Same timestamp: skip only when the payload is identical.
-          if (deepEqual(clean, existing)) continue;
-        }
-        // incomingMs > existingMs, or equal but different payload → write
-      }
-    }
-
-    toWrite.push(clean);
-    await orderItemsStore.put(clean);
-  }
-
-  // ── Phase 2: Merge into `orders.orderItems` ─────────────────────────────────
-  // Same logic as `_mergeOrderItemsIntoOrdersIDB` but using the same `tx` so
-  // both phases are part of the same atomic commit.
-  const itemsByOrderId = new Map();
-  for (const item of mappedItems) {
-    const orderId = item?.order ?? item?.orderId;
-    if (!orderId) continue;
-    const key = String(orderId);
-    if (!itemsByOrderId.has(key)) itemsByOrderId.set(key, []);
-    itemsByOrderId.get(key).push(item);
-  }
-
-  let ordersWritten = 0;
-  const affectedOrderIds = new Set();
-  for (const [orderId, items] of itemsByOrderId) {
-    const order = await ordersStore.get(orderId);
-    if (!order) continue;
-
-    const existingItems = Array.isArray(order.orderItems) ? order.orderItems : [];
-    const byId = new Map(existingItems.map(i => [String(i.id ?? i.uid ?? ''), i]));
-
-    for (const item of items) {
-      const itemId = String(item.id ?? item.uid ?? '');
-      if (!itemId) continue;
-      const existing = byId.get(itemId);
-      if (!existing) {
-        byId.set(itemId, item);
-      } else {
-        const existingTs = existing.date_updated ?? existing.date_created ?? null;
-        const incomingTs = item.date_updated ?? item.date_created ?? null;
-        const incomingWins = !existingTs || (incomingTs != null && new Date(incomingTs) >= new Date(existingTs));
-        if (incomingWins) {
-          const rawPayload = rawById.get(itemId);
-          byId.set(itemId, rawPayload
-            ? mergeOrderItemFromWSPayload(existing, rawPayload, item)
-            : { ...existing, ...item });
-        }
-      }
-    }
-
-    const mergedItems = Array.from(byId.values()).filter(i => i.id ?? i.uid);
-    if (deepEqual(mergedItems, existingItems)) continue;
-    ordersWritten++;
-    affectedOrderIds.add(orderId);
-    await ordersStore.put({ ...order, orderItems: mergedItems });
-  }
-
-  await tx.done;
-  return { orderItemsWritten: toWrite.length, ordersWritten, affectedOrderIds };
-}
-
-/**
- * Removes deleted order_items (identified by their IDs) from the embedded
- * `orderItems` arrays of their parent orders in the `orders` IDB ObjectStore.
- *
- * Called by `_handleSubscriptionMessage` when a WS `delete` event arrives for
- * the `order_items` collection so that cucina devices with wsEnabled see the
- * deletion reflected in the orders store without waiting for the next poll.
- *
- * @param {string[]} deletedIds - IDs of the deleted order_item records.
- */
-async function _removeOrderItemsFromOrdersIDB(deletedIds) {
-  if (!deletedIds || deletedIds.length === 0) return;
-  try {
-    const db = await getDB();
-    const deletedSet = new Set(deletedIds.map(String));
-    const tx = db.transaction(['order_items', 'orders'], 'readwrite');
-    const orderItemsStore = tx.objectStore('order_items');
-    const ordersStore = tx.objectStore('orders');
-    const affectedOrderIds = new Set();
-
-    // Resolve only the parent orders for the deleted items, so we do not scan
-    // the entire orders store on every WS delete event.
-    const resolvedIds = new Set();
-    for (const deletedId of deletedSet) {
-      const orderItem = await orderItemsStore.get(deletedId);
-      if (!orderItem) continue;
-      resolvedIds.add(deletedId);
-
-      const parentOrderId = relationId(
-        orderItem.order ?? orderItem.orders_id ?? orderItem.order_id ?? orderItem.orderId,
-      );
-      if (parentOrderId != null && parentOrderId !== '') {
-        affectedOrderIds.add(String(parentOrderId));
-      }
-    }
-
-    for (const orderId of affectedOrderIds) {
-      const order = await ordersStore.get(orderId);
-      if (!order) continue;
-
-      const items = Array.isArray(order.orderItems) ? order.orderItems : [];
-      const filtered = items.filter(i => {
-        const itemId = String(i.id ?? i.uid ?? '');
-        return !deletedSet.has(itemId);
-      });
-
-      if (filtered.length !== items.length) {
-        await ordersStore.put({ ...order, orderItems: filtered });
-      }
-    }
-
-    // Fallback: for deleted IDs that weren't in the order_items store (e.g. on a
-    // fresh device before the first order_items pull), scan all orders to remove
-    // any matching embedded items.  This O(#orders) pass only runs when some IDs
-    // could not be resolved via the fast lookup above.
-    const unresolvedIds = new Set();
-    for (const id of deletedSet) {
-      if (!resolvedIds.has(id)) unresolvedIds.add(id);
-    }
-    if (unresolvedIds.size > 0) {
-      let cursor = await ordersStore.openCursor();
-      while (cursor) {
-        const order = cursor.value;
-        const items = Array.isArray(order.orderItems) ? order.orderItems : [];
-        const filtered = items.filter(i => !unresolvedIds.has(String(i.id ?? i.uid ?? '')));
-        if (filtered.length !== items.length) {
-          await cursor.update({ ...order, orderItems: filtered });
-        }
-        cursor = await cursor.continue();
-      }
-    }
-
-    // Issue 1 fix: delete from order_items store within the same transaction so
-    // the orders.orderItems update and the items deletion are fully atomic.
-    // The delete is placed after the order lookups (which used orderItemsStore.get)
-    // so that parent-order resolution always reads live data before the items
-    // are removed.  delete() on a non-existent key is a safe no-op in IDB.
-    for (const id of deletedSet) {
-      await orderItemsStore.delete(id);
-    }
-    await tx.done;
-  } catch (e) {
-    console.warn('[DirectusSync] _removeOrderItemsFromOrdersIDB failed:', e);
-    throw e;
-  }
-}
-
 async function _pullCollection(collection, { forceFull = false, lastPullTimestampOverride = null, signal = null } = {}) {
   if (collection === 'table_merge_sessions' && forceFull) {
     let page = 1;
@@ -947,10 +429,8 @@ async function _pullCollection(collection, { forceFull = false, lastPullTimestam
 
 // ── WebSocket subscription helpers ───────────────────────────────────────────
 
-/** Active unsubscribe callbacks. */
+/** Active unsubscribe callbacks (local to WS helpers, not shared state). */
 const _unsubscribers = [];
-/** Whether we are currently connected via WebSocket. */
-const _wsConnected = ref(false);
 
 /**
  * Processes an incoming realtime message from Directus Subscriptions.
@@ -988,11 +468,11 @@ async function _handleSubscriptionMessage(collection, message) {
     if (collection === 'table_merge_sessions') {
       // NS4: Deduplicate concurrent pulls triggered by rapid delete events using
       // a semaphore so only one full-replace is in flight at a time.
-      if (!_tableMergePullInFlight) {
-        _tableMergePullInFlight = _pullCollection('table_merge_sessions', { forceFull: true })
-          .finally(() => { _tableMergePullInFlight = null; });
+      if (!syncState._tableMergePullInFlight) {
+        syncState._tableMergePullInFlight = _pullCollection('table_merge_sessions', { forceFull: true })
+          .finally(() => { syncState._tableMergePullInFlight = null; });
       }
-      await _tableMergePullInFlight;
+      await syncState._tableMergePullInFlight;
       return;
     }
     if (collection === 'order_items') {
@@ -1142,7 +622,7 @@ async function _handleSubscriptionMessage(collection, message) {
     }
   }
 
-  lastPullAt.value = new Date().toISOString();
+  syncState.lastPullAt.value = new Date().toISOString();
   const echoNote = suppressedCount > 0 ? ` (${suppressedCount} self-echo(es) suppressed)` : '';
   console.info(`[DirectusSync] WS ${event} on ${collection}: ${writtenCount} record(s) written${echoNote}`);
 
@@ -1175,7 +655,7 @@ async function _startSubscriptions(collections) {
 
   try {
     await client.connect();
-    _wsConnected.value = true;
+    syncState._wsConnected.value = true;
     // S5: Start the heartbeat watchdog now that the WS connection is live.
     _resetWsHeartbeat();
 
@@ -1199,29 +679,29 @@ async function _startSubscriptions(collections) {
           }
         } catch (e) {
           console.warn(`[DirectusSync] Subscription ${collection} closed:`, e?.message ?? e);
-          _wsConnected.value = false;
-          if (!_running) return;
+          syncState._wsConnected.value = false;
+          if (!syncState._running) return;
           // If wsEnabled is still on, schedule a reconnect attempt.
           // Otherwise fall back to polling.
           if (appConfig.directus?.wsEnabled === true) {
             // Use a single shared timer so that concurrent subscription errors for
             // multiple collections don't queue overlapping _reconnectWs() calls.
-            if (!_reconnectTimer) {
-              _reconnectTimer = setTimeout(() => {
-                _reconnectTimer = null;
-                if (!_running) return;
-                if (!_wsConnected.value && appConfig.directus?.wsEnabled === true) {
+            if (!syncState._reconnectTimer) {
+              syncState._reconnectTimer = setTimeout(() => {
+                syncState._reconnectTimer = null;
+                if (!syncState._running) return;
+                if (!syncState._wsConnected.value && appConfig.directus?.wsEnabled === true) {
                   _reconnectWs().catch(() => {});
-                } else if (!_pollTimer && appConfig.directus?.wsEnabled !== true) {
+                } else if (!syncState._pollTimer && appConfig.directus?.wsEnabled !== true) {
                   // wsEnabled was turned off while reconnect was pending — fall back to polling.
-                  const pullCfg = PULL_CONFIG[_appType] ?? PULL_CONFIG.cassa;
-                  _pollTimer = setInterval(() => _runPull().catch(() => {}), pullCfg.intervalMs);
+                  const pullCfg = PULL_CONFIG[syncState._appType] ?? PULL_CONFIG.cassa;
+                  syncState._pollTimer = setInterval(() => _runPull().catch(() => {}), pullCfg.intervalMs);
                 }
               }, 5_000);
             }
-          } else if (!_pollTimer) {
-            const pullCfg = PULL_CONFIG[_appType] ?? PULL_CONFIG.cassa;
-            _pollTimer = setInterval(() => _runPull().catch(() => {}), pullCfg.intervalMs);
+          } else if (!syncState._pollTimer) {
+            const pullCfg = PULL_CONFIG[syncState._appType] ?? PULL_CONFIG.cassa;
+            syncState._pollTimer = setInterval(() => _runPull().catch(() => {}), pullCfg.intervalMs);
           }
         }
       }
@@ -1243,7 +723,7 @@ function _stopSubscriptions() {
   }
   _unsubscribers.length = 0;
   // S5: Cancel the heartbeat watchdog when subscriptions are torn down.
-  if (_wsHeartbeatTimer) { clearTimeout(_wsHeartbeatTimer); _wsHeartbeatTimer = null; }
+  if (syncState._wsHeartbeatTimer) { clearTimeout(syncState._wsHeartbeatTimer); syncState._wsHeartbeatTimer = null; }
   // Use resetDirectusClient() rather than getDirectusClient() + disconnect() to avoid
   // creating a brand-new SDK client just to immediately disconnect it.  When stopSync()
   // is called after a config change (loadDirectusConfigFromStorage already called
@@ -1251,217 +731,22 @@ function _stopSubscriptions() {
   // so the subsequent _startSubscriptions() → connect() would attempt to reconnect a
   // client that was just disconnected — causing the WebSocket to never come back up.
   resetDirectusClient();
-  _wsConnected.value = false;
+  syncState._wsConnected.value = false;
 }
 
-// ── Singleton state ───────────────────────────────────────────────────────────
+// ── Singleton state (extracted to sync/state.js) ─────────────────────────────
+import { syncState, resetSyncState } from './sync/state.js';
 
-let _running = false;
-let _pushTimer = null;
-let _pollTimer = null;
-let _globalTimer = null;
-let _pushInFlight = null;
-/** AbortController for the currently in-flight drainQueue() call.  Aborted
- *  (and replaced with null) whenever a push is invalidated via _onOffline(),
- *  forcePush(), or stopSync(), causing the hung SDK fetch to throw AbortError
- *  and halt the drain without incrementing any attempt counters. */
-let _pushAbortController = null;
-/**
- * Monotonically increasing generation counter. Incremented for every push
- * attempt started by `_runPush()`, and also incremented whenever a previous
- * in-flight push must be invalidated (for example on offline, manual
- * forcePush override, or stopSync). The `_runPush` finally block only clears
- * `_pushInFlight` when the generation it captured at start still matches the
- * current value — this prevents a stale/hung push that resolved late from
- * nulling out a newer in-flight push.
- */
-let _pushGeneration = 0;
-/** Single debounced timer for WS reconnect — prevents overlapping reconnect attempts. */
-let _reconnectTimer = null;
-/** Debounced short-delay push retry scheduled by _onOnline() to recover from brief post-reconnect instability. */
-let _onlineRetryTimer = null;
-/**
- * S3 — In-flight pull promise.  If non-null, `_runPull()` returns this promise
- * instead of starting a second concurrent pull, preventing duplicate incremental
- * fetches during polling intervals or rapid `_onOnline` / WS-reconnect events.
- * Reset to `null` by `forcePull()` before starting an override pull.
- */
-let _pullInFlight = null;
-/**
- * Monotonically-increasing generation counter for `_runPull()`.  Incremented
- * both when a new pull starts (`_runPull`) and when the semaphore is reset by
- * `forcePull()` or `stopSync()`.  The `finally` block of each pull compares
- * its captured `generation` snapshot against the current value so that a
- * superseded (aborted) pull never clears the newer pull's `_pullInFlight`.
- */
-let _pullGeneration = 0;
-/**
- * NS4 — In-flight promise for the `table_merge_sessions` full-replace pull.
- * When a WS delete event fires multiple times in rapid succession, only the
- * first fires a new `_pullCollection(…, { forceFull: true })` call; subsequent
- * events await the same promise.  Reset to `null` in a `.finally()` callback.
- */
-let _tableMergePullInFlight = null;
-/**
- * NS8 — AbortController for the currently running `_runPull()` loop.
- * Replaced with a fresh controller at the start of each pull invocation.
- * Aborted (and set to `null`) by `forcePull()` and `stopSync()` so that the
- * pull loop exits cleanly between page fetches rather than continuing to hammer
- * Directus when a newer pull has already been requested.
- */
-let _pullAbortController = null;
-/**
- * S5 — Heartbeat watchdog timer handle.  Set by `_resetWsHeartbeat()` after
- * every incoming WS message and every WS connect.  Cleared and nulled by
- * `_stopSubscriptions()` and `_resetDirectusSyncSingleton()`.
- */
-let _wsHeartbeatTimer = null;
-/**
- * S1 — Whether this browser tab currently holds the "directus-sync-leader"
- * Web Lock and therefore runs push/pull loops.  Defaults to `true` so that
- * existing behaviour is preserved when Web Locks are not supported.
- */
-let _isLeader = true;
-/**
- * S1 — Resolver that releases the held Web Lock.
- * Set by `_acquireLeaderLock()` when the lock is acquired; called by `stopSync()`
- * and `_resetDirectusSyncSingleton()` to relinquish the lock.
- */
-let _leaderLockResolve = null;
-/** @type {object|null} */
-let _store = null;
-/**
- * NS6 — BroadcastChannel used to notify follower tabs that IDB data has changed.
- * Opened in `startSync()` when this tab becomes the leader; closed in `stopSync()`.
- * Follower tabs open the same channel and refresh their in-memory store on receipt.
- * @type {BroadcastChannel|null}
- */
-let _idbChangeBroadcast = null;
-/** @type {'cassa'|'sala'|'cucina'} */
-let _appType = 'cassa';
-/** Collections currently subscribed via WebSocket (populated on startSync). */
-let _wsCollections = [];
-/**
- * Monotonically increasing counter incremented by each `_runGlobalPull` call
- * that proceeds past the online/config early-exit checks.  Each such invocation
- * captures its own value; before writing runtime config back to the store it
- * checks whether a **newer pull has already successfully applied** config in the
- * meantime and, if so, skips the (now stale) write.
- *
- * Two counters are used:
- *  - `_globalPullGeneration`: incremented for each pull attempt that passes the
- *    online/config checks (assigns ordering among concurrent pulls).
- *  - `_lastAppliedGlobalPullGeneration`: set to `myGeneration` only after a pull
- *    *successfully* calls `_hydrateConfigFromLocalCache`.
- *
- * The skip condition is `_lastAppliedGlobalPullGeneration > myGeneration`:
- *  - A later pull that succeeded → current pull is stale, skip apply.
- *  - A later pull that failed → `_lastApplied` was not advanced, current pull
- *    is free to apply its successfully fetched data (fixes the case where a
- *    newer but failing pull would have permanently prevented the older
- *    successful pull from hydrating runtime config).
- */
-let _globalPullGeneration = 0;
-let _lastAppliedGlobalPullGeneration = 0;
-/**
- * NS5 — In-flight promise for `_runGlobalPullInner()`.
- * Prevents concurrent global pulls from hammering the Directus `/items/venues`
- * endpoint when the periodic timer fires while a pull is already in progress.
- * Reset to `null` in a `.finally()` callback inside `_runGlobalPull()`.
- */
-let _globalPullInFlight = null;
-
-const syncStatus = ref(/** @type {'idle'|'syncing'|'error'|'offline'} */ ('idle'));
-const lastPushAt = ref(/** @type {string|null} */ (null));
-const lastPullAt = ref(/** @type {string|null} */ (null));
-
-// ── Echo suppression ──────────────────────────────────────────────────────────
-
-/**
- * TTL for self-echo suppression entries (ms).
- * 5 s covers typical push → WS echo round-trip time (< 1 s on LAN) with a
- * comfortable margin for slow connections (3G / congested Wi-Fi) while keeping
- * the suppression window short enough to allow genuine cross-device updates
- * that arrive shortly after a push to pass through correctly.
- * Reduce only if sub-second cross-device echo conflicts are observed.
- */
-const ECHO_SUPPRESS_TTL_MS = 5_000;
-/**
- * S4 — Maximum TTL cap for adaptive echo suppression.
- * Even on very slow connections (high RTT) the suppression window is capped at
- * 30 s to prevent genuine cross-device updates from being indefinitely blocked.
- */
-const ECHO_SUPPRESS_MAX_TTL_MS = 30_000;
-/**
- * S4 — Multiplier applied to the measured push RTT to compute the adaptive
- * echo suppression window.  3× gives a comfortable margin: at 1 s RTT (LAN)
- * the window stays at the 5 s floor; at 3 s RTT (3G) it grows to 9 s.
- */
-const ECHO_SUPPRESS_RTT_MULTIPLIER = 3;
-/**
- * S5 — Heartbeat watchdog interval (ms).
- * If no WebSocket message is received for this duration, the connection is
- * treated as silently dead: a REST catch-up pull is triggered and a reconnect
- * attempt is scheduled.  30 s balances responsiveness against idle-session
- * chattiness (Directus typically sends a heartbeat every ~25 s in inactive
- * subscriptions, so 30 s gives a small safety margin).
- */
-const WS_HEARTBEAT_INTERVAL_MS = 30_000;
-
-/**
- * Map of "collection:recordId" → expiry timestamp (ms since epoch).
- * Populated by `_runPush()` after each successful `drainQueue()` cycle.
- * Expired entries are lazily deleted in `_isEchoSuppressed`.
- */
-const _recentlyPushed = new Map();
-
-/**
- * Registers a list of just-pushed records in the echo-suppression map and
- * prunes any entries whose TTL has already expired to bound memory usage.
- * Expired entries are additionally removed lazily in `_isEchoSuppressed`
- * on every check so the Map stays compact even without frequent pushes.
- *
- * S4 — `ttlMs` is now caller-supplied: `_runPush` passes an adaptive value
- * based on the measured push round-trip time so that slow connections
- * (high RTT) receive a proportionally larger suppression window while still
- * capping at `ECHO_SUPPRESS_MAX_TTL_MS` to avoid blocking genuine cross-device
- * updates indefinitely.
- *
- * @param {{collection: string, recordId: string}[]} pushedIds
- * @param {number} [ttlMs] - Suppression window in ms.  Defaults to ECHO_SUPPRESS_TTL_MS.
- */
-function _registerPushedEchoes(pushedIds, ttlMs = ECHO_SUPPRESS_TTL_MS) {
-  // Guard: a non-positive TTL would immediately expire and serve no purpose.
-  if (typeof ttlMs !== 'number' || ttlMs <= 0) return;
-  const now = Date.now();
-  const expiry = now + ttlMs;
-  for (const { collection, recordId } of pushedIds) {
-    if (recordId) _recentlyPushed.set(`${collection}:${recordId}`, expiry);
-  }
-  // Prune expired entries to keep the Map size bounded even when the
-  // WebSocket is unavailable and _isEchoSuppressed is never called.
-  for (const [key, exp] of _recentlyPushed) {
-    if (now >= exp) _recentlyPushed.delete(key);
-  }
-}
-
-/**
- * Returns `true` when the given record should be suppressed as a self-echo.
- * Lazily removes expired entries encountered during the check.
- * @param {string} collection
- * @param {string|null|undefined} recordId
- */
-function _isEchoSuppressed(collection, recordId) {
-  if (!recordId) return false;
-  const key = `${collection}:${recordId}`;
-  const expiry = _recentlyPushed.get(key);
-  if (expiry == null) return false;
-  if (Date.now() >= expiry) {
-    _recentlyPushed.delete(key);
-    return false;
-  }
-  return true;
-}
+// ── Echo suppression (extracted to sync/echoSuppression.js) ──────────────────
+import {
+  ECHO_SUPPRESS_TTL_MS,
+  ECHO_SUPPRESS_MAX_TTL_MS,
+  ECHO_SUPPRESS_RTT_MULTIPLIER,
+  WS_HEARTBEAT_INTERVAL_MS,
+  _recentlyPushed,
+  _registerPushedEchoes,
+  _isEchoSuppressed,
+} from './sync/echoSuppression.js';
 
 // ── Push helpers ──────────────────────────────────────────────────────────────
 
@@ -1472,28 +757,28 @@ function _getCfg() {
 }
 
 async function _runPush() {
-  if (_pushInFlight) return _pushInFlight;
+  if (syncState._pushInFlight) return syncState._pushInFlight;
   // Advance and capture a new generation for this push attempt.  Every await
   // point is a potential preemption: if _onOffline(), forcePush(), or stopSync()
-  // advance _pushGeneration while this push is suspended on `await drainQueue()`,
-  // the push becomes stale.  The invalidation path also aborts _pushAbortController
+  // advance syncState._pushGeneration while this push is suspended on `await drainQueue()`,
+  // the push becomes stale.  The invalidation path also aborts syncState._pushAbortController
   // which causes the hung SDK fetch to throw AbortError — _pushEntry returns
   // { aborted: true } and drainQueue() halts immediately (no sync_logs entry,
   // no attempt increments, offline: false).  All shared module state updates
-  // (syncStatus, lastPushAt, _recentlyPushed) are still guarded by the generation
+  // (syncState.syncStatus, syncState.lastPushAt, _recentlyPushed) are still guarded by the generation
   // check so a superseded push cannot overwrite the state set by the newer push.
   const ac = new AbortController();
-  _pushAbortController = ac;
-  const generation = ++_pushGeneration;
-  _pushInFlight = (async () => {
+  syncState._pushAbortController = ac;
+  const generation = ++syncState._pushGeneration;
+  syncState._pushInFlight = (async () => {
     try {
       if (!navigator.onLine) {
-        if (_pushGeneration === generation) syncStatus.value = 'offline';
+        if (syncState._pushGeneration === generation) syncState.syncStatus.value = 'offline';
         return { pushed: 0, failed: 0, abandoned: 0, pushedIds: [], offline: true };
       }
       const cfg = _getCfg();
       if (!cfg) {
-        if (_pushGeneration === generation) syncStatus.value = 'idle';
+        if (syncState._pushGeneration === generation) syncState.syncStatus.value = 'idle';
         return {
           pushed: 0,
           failed: 0,
@@ -1503,16 +788,16 @@ async function _runPush() {
           skippedReason: 'no-config',
         };
       }
-      if (_pushGeneration === generation) syncStatus.value = 'syncing';
+      if (syncState._pushGeneration === generation) syncState.syncStatus.value = 'syncing';
       // S4: Measure push RTT to derive the adaptive echo suppression window.
       const pushStartMs = Date.now();
       const result = await drainQueue(cfg, ac.signal);
       const pushDurationMs = Date.now() - pushStartMs;
       // Guard all post-await side effects: by the time drainQueue() resolves
       // this push may have been superseded (offline/forcePush/stopSync).
-      if (_pushGeneration === generation) {
+      if (syncState._pushGeneration === generation) {
         if (result.pushed > 0 || result.abandoned > 0) {
-          lastPushAt.value = new Date().toISOString();
+          syncState.lastPushAt.value = new Date().toISOString();
         }
         // S4: Use an adaptive TTL — at least ECHO_SUPPRESS_TTL_MS but scaled to
         // ECHO_SUPPRESS_RTT_MULTIPLIER × the measured RTT so slow connections
@@ -1526,25 +811,25 @@ async function _runPush() {
           );
           _registerPushedEchoes(result.pushedIds, adaptiveEchoTtl);
         }
-        syncStatus.value = result.offline
+        syncState.syncStatus.value = result.offline
           ? 'offline'
           : result.failed > 0 ? 'error' : 'idle';
       }
       return result;
     } catch (e) {
-      if (_pushGeneration === generation) {
+      if (syncState._pushGeneration === generation) {
         console.warn('[DirectusSync] Push error:', e);
-        syncStatus.value = 'error';
+        syncState.syncStatus.value = 'error';
       }
       return { pushed: 0, failed: 0, abandoned: 0, pushedIds: [], offline: false };
     } finally {
-      if (_pushGeneration === generation) {
-        _pushAbortController = null;
-        _pushInFlight = null;
+      if (syncState._pushGeneration === generation) {
+        syncState._pushAbortController = null;
+        syncState._pushInFlight = null;
       }
     }
   })();
-  return _pushInFlight;
+  return syncState._pushInFlight;
 }
 
 // ── Pull helpers ──────────────────────────────────────────────────────────────
@@ -1557,22 +842,22 @@ async function _runPush() {
  * and a reconnect is scheduled so the app does not miss updates indefinitely.
  */
 function _resetWsHeartbeat() {
-  if (_wsHeartbeatTimer) { clearTimeout(_wsHeartbeatTimer); _wsHeartbeatTimer = null; }
-  if (!_running || appConfig.directus?.wsEnabled !== true) return;
-  _wsHeartbeatTimer = setTimeout(() => {
-    _wsHeartbeatTimer = null;
-    if (!_running || !_wsConnected.value) return;
+  if (syncState._wsHeartbeatTimer) { clearTimeout(syncState._wsHeartbeatTimer); syncState._wsHeartbeatTimer = null; }
+  if (!syncState._running || appConfig.directus?.wsEnabled !== true) return;
+  syncState._wsHeartbeatTimer = setTimeout(() => {
+    syncState._wsHeartbeatTimer = null;
+    if (!syncState._running || !syncState._wsConnected.value) return;
     console.warn(
       `[DirectusSync] WS heartbeat: no activity for ${WS_HEARTBEAT_INTERVAL_MS}ms — triggering REST catch-up pull and reconnect.`,
     );
     // Immediately do a REST pull to catch up on any missed messages.
     _runPull().catch(() => {});
     // Mark WS as disconnected and schedule a reconnect attempt.
-    _wsConnected.value = false;
-    if (!_reconnectTimer) {
-      _reconnectTimer = setTimeout(() => {
-        _reconnectTimer = null;
-        if (!_running) return;
+    syncState._wsConnected.value = false;
+    if (!syncState._reconnectTimer) {
+      syncState._reconnectTimer = setTimeout(() => {
+        syncState._reconnectTimer = null;
+        if (!syncState._running) return;
         _reconnectWs().catch(() => {});
       }, 2_000);
     }
@@ -1585,7 +870,7 @@ function _resetWsHeartbeat() {
  * previous leader tab closes and this tab is promoted automatically).
  */
 async function _startSyncLoopsAsLeader() {
-  const pullCfg = PULL_CONFIG[_appType] ?? PULL_CONFIG.cassa;
+  const pullCfg = PULL_CONFIG[syncState._appType] ?? PULL_CONFIG.cassa;
   const venueId = appConfig.directus?.venueId ?? null;
 
   // Local-first: apply cached config snapshot from IDB before any remote call.
@@ -1600,10 +885,10 @@ async function _startSyncLoopsAsLeader() {
   _runGlobalPull().catch(() => {});
 
   // Push loop: retry every 30 s when online
-  _pushTimer = setInterval(() => _runPush().catch(() => {}), 30_000);
+  syncState._pushTimer = setInterval(() => _runPush().catch(() => {}), 30_000);
 
   // Global config pull: every 5 minutes
-  _globalTimer = setInterval(() => _runGlobalPull().catch(() => {}), GLOBAL_INTERVAL_MS);
+  syncState._globalTimer = setInterval(() => _runGlobalPull().catch(() => {}), GLOBAL_INTERVAL_MS);
 
   // WebSocket subscriptions are opt-in (wsEnabled must be explicitly true).
   // When disabled, fall back to periodic polling from the start.
@@ -1616,14 +901,14 @@ async function _startSyncLoopsAsLeader() {
     : pullCfg.collections;
   // Persist the last computed collection list at module level; reconnect logic
   // recomputes the effective list from the current appConfig when reconnecting.
-  _wsCollections = wsCollections;
+  syncState._wsCollections = wsCollections;
 
   if (wsEnabled) {
     // Try WebSocket subscriptions; fall back to polling if connect fails
     const subscribed = await _startSubscriptions(wsCollections);
     if (!subscribed) {
       _runPull().catch(() => {});
-      _pollTimer = setInterval(() => _runPull().catch(() => {}), pullCfg.intervalMs);
+      syncState._pollTimer = setInterval(() => _runPull().catch(() => {}), pullCfg.intervalMs);
     } else {
       // Even with WebSocket, do one initial REST pull to catch up on missed updates
       _runPull().catch(() => {});
@@ -1631,7 +916,7 @@ async function _startSyncLoopsAsLeader() {
   } else {
     // WebSocket disabled — use REST polling only
     _runPull().catch(() => {});
-    _pollTimer = setInterval(() => _runPull().catch(() => {}), pullCfg.intervalMs);
+    syncState._pollTimer = setInterval(() => _runPull().catch(() => {}), pullCfg.intervalMs);
   }
 
   if (typeof window !== 'undefined') {
@@ -1679,14 +964,14 @@ async function _acquireLeaderLock() {
           resolveAcquire(false);
           let resolveStandbyHold;
           const standbyHold = new Promise((res) => { resolveStandbyHold = res; });
-          _leaderLockResolve = resolveStandbyHold;
+          syncState._leaderLockResolve = resolveStandbyHold;
           navigator.locks.request(
             'directus-sync-leader',
             { mode: 'exclusive' },
             async () => {
               // Promoted to leader — start sync loops if still running.
-              if (_running) {
-                _isLeader = true;
+              if (syncState._running) {
+                syncState._isLeader = true;
                 await _startSyncLoopsAsLeader();
               }
               await standbyHold;
@@ -1697,13 +982,13 @@ async function _acquireLeaderLock() {
         // This tab won the election immediately.
         let resolveHold;
         const holdPromise = new Promise((res) => { resolveHold = res; });
-        _leaderLockResolve = resolveHold;
+        syncState._leaderLockResolve = resolveHold;
         resolveAcquire(true);
         await holdPromise;
       },
     ).catch(() => {
       // Web Locks request rejected (e.g. opaque origin) — assume leader.
-      if (_leaderLockResolve) { _leaderLockResolve = null; }
+      if (syncState._leaderLockResolve) { syncState._leaderLockResolve = null; }
       resolveAcquire(true);
     });
   });
@@ -1713,15 +998,15 @@ async function _runPull() {
   // S3: Semaphore — return the in-flight pull promise when a pull is already
   // running.  This prevents duplicate incremental fetches from accumulating
   // during rapid back-to-back triggers (polling interval, _onOnline, WS reconnect).
-  // `forcePull()` resets _pullInFlight to null before calling _runPull() so that
+  // `forcePull()` resets syncState._pullInFlight to null before calling _runPull() so that
   // user-initiated pulls can always bypass a pending background pull.
-  if (_pullInFlight) return _pullInFlight;
-  const generation = ++_pullGeneration;
-  _pullInFlight = (async () => {
+  if (syncState._pullInFlight) return syncState._pullInFlight;
+  const generation = ++syncState._pullGeneration;
+  syncState._pullInFlight = (async () => {
     // NS8: Mint a fresh AbortController for this pull session so forcePull/stopSync
     // can cancel between collections without letting a superseded loop continue.
     const ac = new AbortController();
-    _pullAbortController = ac;
+    syncState._pullAbortController = ac;
     try {
       if (!navigator.onLine) {
         return { ok: false, failedCollections: [], skippedReason: 'offline' };
@@ -1730,7 +1015,7 @@ async function _runPull() {
         return { ok: false, failedCollections: [], skippedReason: 'no-config' };
       }
 
-      const pullCfg = PULL_CONFIG[_appType] ?? PULL_CONFIG.cassa;
+      const pullCfg = PULL_CONFIG[syncState._appType] ?? PULL_CONFIG.cassa;
       const menuSource = appConfig.menuSource ?? 'directus';
 
       let anyMerged = false;
@@ -1755,7 +1040,7 @@ async function _runPull() {
         );
       }
       if (allOk) {
-        lastPullAt.value = new Date().toISOString();
+        syncState.lastPullAt.value = new Date().toISOString();
         if (anyMerged) {
           console.info('[DirectusSync] Pull cycle completed: merged records from server.');
         } else {
@@ -1770,13 +1055,13 @@ async function _runPull() {
       return { ok: false, failedCollections: [] };
     } finally {
       // Only clear shared state if this is still the current pull generation.
-      // A superseded pull must not null out a newer pull's _pullInFlight.
-      if (_pullGeneration === generation) _pullInFlight = null;
+      // A superseded pull must not null out a newer pull's syncState._pullInFlight.
+      if (syncState._pullGeneration === generation) syncState._pullInFlight = null;
       // NS8: Only clear the controller reference if it still belongs to this pull.
-      if (_pullAbortController === ac) _pullAbortController = null;
+      if (syncState._pullAbortController === ac) syncState._pullAbortController = null;
     }
   })();
-  return _pullInFlight;
+  return syncState._pullInFlight;
 }
 
 function _normalizeToArray(value) {
@@ -2169,30 +1454,30 @@ function _preBillPrinters() {
  * @param {object|null} _venueRecord
  */
 async function _syncPreBillPrinterSelection(_venueRecord = null) {
-  if (!_store) return;
+  if (!syncState._store) return;
   const candidates = _preBillPrinters();
   if (candidates.length === 0) {
-    if (typeof _store.saveLocalSettings === 'function') {
+    if (typeof syncState._store.saveLocalSettings === 'function') {
       try {
-        await _store.saveLocalSettings({ preBillPrinterId: '' });
+        await syncState._store.saveLocalSettings({ preBillPrinterId: '' });
       } catch (err) {
         console.warn('[DirectusSync] Failed to persist cleared preBillPrinterId:', err);
       }
     }
-    _store.preBillPrinterId = '';
+    syncState._store.preBillPrinterId = '';
     return;
   }
-  const current = typeof _store.preBillPrinterId === 'string' ? _store.preBillPrinterId : '';
+  const current = typeof syncState._store.preBillPrinterId === 'string' ? syncState._store.preBillPrinterId : '';
   if (current && candidates.some((printer) => printer.id === current)) return;
   const newPrinterId = candidates[0]?.id ?? '';
-  if (typeof _store.saveLocalSettings === 'function') {
+  if (typeof syncState._store.saveLocalSettings === 'function') {
     try {
-      await _store.saveLocalSettings({ preBillPrinterId: newPrinterId });
+      await syncState._store.saveLocalSettings({ preBillPrinterId: newPrinterId });
     } catch (err) {
       console.warn('[DirectusSync] Failed to persist preBillPrinterId:', err);
     }
   }
-  _store.preBillPrinterId = newPrinterId;
+  syncState._store.preBillPrinterId = newPrinterId;
 }
 
 function _emitProgress(onProgress, payload) {
@@ -2212,7 +1497,7 @@ async function _runGlobalPullInner({ onProgress = null } = {}) {
   // global pull has been started (e.g. by reconfigureAndApply) while this one
   // is awaiting network/IDB work.  If superseded, skip the config-apply step
   // to avoid overwriting the freshly applied runtime config with stale data.
-  const myGeneration = ++_globalPullGeneration;
+  const myGeneration = ++syncState._globalPullGeneration;
 
   try {
     _emitProgress(onProgress, { level: 'info', message: 'Avvio pull globale configurazione Directus…' });
@@ -2268,7 +1553,7 @@ async function _runGlobalPullInner({ onProgress = null } = {}) {
     // before writing to IDB) prevents an older, slower pull from
     // overwriting IDB with stale venue data after a newer pull has already
     // written and applied fresher data.
-    if (_lastAppliedGlobalPullGeneration > myGeneration) {
+    if (syncState._lastAppliedGlobalPullGeneration > myGeneration) {
       console.debug('[DirectusSync] Global pull superseded by a newer pull — skipping IDB write and config apply.');
       return { ok: true, failedCollections: [] };
     }
@@ -2302,7 +1587,7 @@ async function _runGlobalPullInner({ onProgress = null } = {}) {
       details: JSON.stringify(fanOutSummary),
     });
 
-    if ((_lastAppliedGlobalPullGeneration ?? 0) > myGeneration) {
+    if ((syncState._lastAppliedGlobalPullGeneration ?? 0) > myGeneration) {
       _emitProgress(onProgress, {
         level: 'info',
         message: 'Applicazione configurazione saltata: una pull globale più recente è già stata applicata.',
@@ -2312,7 +1597,7 @@ async function _runGlobalPullInner({ onProgress = null } = {}) {
 
     await _hydrateConfigFromLocalCache(venueId, onProgress);
 
-    if ((_lastAppliedGlobalPullGeneration ?? 0) > myGeneration) {
+    if ((syncState._lastAppliedGlobalPullGeneration ?? 0) > myGeneration) {
       _emitProgress(onProgress, {
         level: 'info',
         message: 'Configurazione idratata ma non applicata: una pull globale più recente è stata applicata durante l’aggiornamento.',
@@ -2320,7 +1605,7 @@ async function _runGlobalPullInner({ onProgress = null } = {}) {
       return { ok: true, failedCollections: [] };
     }
 
-    _lastAppliedGlobalPullGeneration = Math.max(_lastAppliedGlobalPullGeneration ?? 0, myGeneration);
+    syncState._lastAppliedGlobalPullGeneration = Math.max(syncState._lastAppliedGlobalPullGeneration ?? 0, myGeneration);
     _emitProgress(onProgress, { level: 'success', message: 'Configurazione applicata con successo.' });
     return { ok: true, failedCollections: [] };
   } catch (e) {
@@ -2342,11 +1627,11 @@ async function _runGlobalPullInner({ onProgress = null } = {}) {
  * that join an already-running pull receive its result but no progress callbacks.
  */
 function _runGlobalPull({ onProgress = null } = {}) {
-  if (!_globalPullInFlight) {
-    _globalPullInFlight = _runGlobalPullInner({ onProgress })
-      .finally(() => { _globalPullInFlight = null; });
+  if (!syncState._globalPullInFlight) {
+    syncState._globalPullInFlight = _runGlobalPullInner({ onProgress })
+      .finally(() => { syncState._globalPullInFlight = null; });
   }
-  return _globalPullInFlight;
+  return syncState._globalPullInFlight;
 }
 
 // ── Online/offline listener ───────────────────────────────────────────────────
@@ -2357,39 +1642,39 @@ function _runGlobalPull({ onProgress = null } = {}) {
  * `_startSubscriptions`.  If that fails, re-enables the polling fallback.
  */
 async function _reconnectWs() {
-  if (!_running || _wsConnected.value) return;
+  if (!syncState._running || syncState._wsConnected.value) return;
   if (appConfig.directus?.wsEnabled !== true) return;
 
   // Recompute the collection list from the current config so that changes to
-  // appConfig.menuSource (json ↔ directus) or _appType are picked up at
+  // appConfig.menuSource (json ↔ directus) or syncState._appType are picked up at
   // reconnect time rather than using the potentially-stale list captured at
   // startSync() time.
-  const pullCfg = PULL_CONFIG[_appType] ?? PULL_CONFIG.cassa;
+  const pullCfg = PULL_CONFIG[syncState._appType] ?? PULL_CONFIG.cassa;
   const menuSource = appConfig.menuSource ?? 'directus';
   const wsCollections = menuSource === 'json'
     ? pullCfg.collections.filter(c => c !== 'menu_items')
     : pullCfg.collections;
-  _wsCollections = wsCollections;
+  syncState._wsCollections = wsCollections;
 
-  if (_wsCollections.length === 0) return;
+  if (syncState._wsCollections.length === 0) return;
 
   // Cancel any pending debounced reconnect timer — this call IS the reconnect.
-  if (_reconnectTimer) { clearTimeout(_reconnectTimer); _reconnectTimer = null; }
+  if (syncState._reconnectTimer) { clearTimeout(syncState._reconnectTimer); syncState._reconnectTimer = null; }
 
   console.info('[DirectusSync] Attempting WebSocket reconnect…');
 
   // Stop polling before trying WS — avoids duplicate pulls during reconnect.
-  if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
+  if (syncState._pollTimer) { clearInterval(syncState._pollTimer); syncState._pollTimer = null; }
 
   // Clean up stale subscriptions/connection before reconnecting.
   _stopSubscriptions();
 
-  const subscribed = await _startSubscriptions(_wsCollections);
+  const subscribed = await _startSubscriptions(syncState._wsCollections);
   if (!subscribed) {
     // Reconnect failed — restart polling fallback.
-    const pullCfg = PULL_CONFIG[_appType] ?? PULL_CONFIG.cassa;
-    if (!_pollTimer) {
-      _pollTimer = setInterval(() => _runPull().catch(() => {}), pullCfg.intervalMs);
+    const pullCfg = PULL_CONFIG[syncState._appType] ?? PULL_CONFIG.cassa;
+    if (!syncState._pollTimer) {
+      syncState._pollTimer = setInterval(() => _runPull().catch(() => {}), pullCfg.intervalMs);
     }
   } else {
     // WS is back — do an immediate pull to catch up on missed updates.
@@ -2402,31 +1687,31 @@ function _onOffline() {
   // SDK may continue its internal reconnect retry loop for up to ~20 s before
   // the subscription iterator throws, so without this listener the indicator
   // would stay "connected" even though no WS traffic can flow.
-  _wsConnected.value = false;
+  syncState._wsConnected.value = false;
   // Cancel any pending reconnect timer — the reconnect will be rescheduled
   // by _onOnline() once the network is restored.
-  if (_reconnectTimer) { clearTimeout(_reconnectTimer); _reconnectTimer = null; }
+  if (syncState._reconnectTimer) { clearTimeout(syncState._reconnectTimer); syncState._reconnectTimer = null; }
   // Cancel any pending delayed push retry so it doesn't fire if the device
   // went offline again before the 5-second window elapsed.
-  if (_onlineRetryTimer) { clearTimeout(_onlineRetryTimer); _onlineRetryTimer = null; }
+  if (syncState._onlineRetryTimer) { clearTimeout(syncState._onlineRetryTimer); syncState._onlineRetryTimer = null; }
   // Invalidate any in-flight push.  When the network drops, the underlying
   // fetch() inside sdkClient.request() can hang indefinitely waiting for a TCP
-  // timeout (typically 10-20+ minutes).  Aborting _pushAbortController causes
+  // timeout (typically 10-20+ minutes).  Aborting syncState._pushAbortController causes
   // the SDK fetch to throw AbortError immediately, which drainQueue treats as a
   // caller-initiated abort and uses to stop the drain cleanly without marking
   // the result as offline or incrementing attempts.
-  // Clearing _pushInFlight and advancing _pushGeneration then ensures the next
+  // Clearing syncState._pushInFlight and advancing syncState._pushGeneration then ensures the next
   // _runPush() call (from _onOnline()) starts a completely fresh push rather
   // than waiting on the hung promise or running a second concurrent drain.
-  _pushAbortController?.abort();
-  _pushAbortController = null;
-  _pushGeneration++;
-  _pushInFlight = null;
-  // If an in-flight push had already set syncStatus to "syncing", the
+  syncState._pushAbortController?.abort();
+  syncState._pushAbortController = null;
+  syncState._pushGeneration++;
+  syncState._pushInFlight = null;
+  // If an in-flight push had already set syncState.syncStatus to "syncing", the
   // generation bump above causes that superseded _runPush() to skip its
   // post-await status update.  Reflect the offline state here so the UI
   // cannot remain stuck showing "syncing" while the app is offline.
-  if (_running) { syncStatus.value = 'offline'; }
+  if (syncState._running) { syncState.syncStatus.value = 'offline'; }
 }
 
 /**
@@ -2437,20 +1722,20 @@ function _onOffline() {
  * Cancelled by `_onOffline`, `stopSync`, or a new `_onOnline` event.
  */
 function _scheduleOnlineRetry() {
-  if (_onlineRetryTimer) { clearTimeout(_onlineRetryTimer); }
-  _onlineRetryTimer = setTimeout(() => {
-    _onlineRetryTimer = null;
-    if (!_running || !navigator.onLine) return;
+  if (syncState._onlineRetryTimer) { clearTimeout(syncState._onlineRetryTimer); }
+  syncState._onlineRetryTimer = setTimeout(() => {
+    syncState._onlineRetryTimer = null;
+    if (!syncState._running || !navigator.onLine) return;
     // Capture the generation that _runPush() will assign synchronously.  Since
-    // _runPush() increments _pushGeneration before its first await, reading
-    // _pushGeneration immediately after the call gives the generation used by
-    // this specific push attempt.  If _pushGeneration is subsequently advanced
+    // _runPush() increments syncState._pushGeneration before its first await, reading
+    // syncState._pushGeneration immediately after the call gives the generation used by
+    // this specific push attempt.  If syncState._pushGeneration is subsequently advanced
     // (offline/forcePush/stopSync), the result belongs to a superseded attempt
     // and must not re-schedule a retry for the new online cycle.
     const retryPush = _runPush();
-    const genAtStart = _pushGeneration;
+    const genAtStart = syncState._pushGeneration;
     retryPush.then((result) => {
-      if (result?.offline && _running && navigator.onLine && _pushGeneration === genAtStart) {
+      if (result?.offline && syncState._running && navigator.onLine && syncState._pushGeneration === genAtStart) {
         _scheduleOnlineRetry();
       }
     }).catch(() => {});
@@ -2459,7 +1744,7 @@ function _scheduleOnlineRetry() {
 
 function _onOnline() {
   // Clear any stale retry timer from a previous online/offline cycle.
-  if (_onlineRetryTimer) { clearTimeout(_onlineRetryTimer); _onlineRetryTimer = null; }
+  if (syncState._onlineRetryTimer) { clearTimeout(syncState._onlineRetryTimer); syncState._onlineRetryTimer = null; }
   // Immediate push attempt: when the network is already stable the queue drains
   // here and no retry is needed.  Only schedule the 5 s follow-up when the push
   // reports an offline/network failure (e.g. DHCP still settling) AND the
@@ -2470,19 +1755,19 @@ function _onOnline() {
   // If the retry also fails, _scheduleOnlineRetry() reschedules itself every
   // 5 s until the push succeeds, the device goes offline, or stopSync() is called.
   // Capture the generation that _runPush() assigns synchronously (it increments
-  // _pushGeneration before its first await).  If _pushGeneration is subsequently
+  // syncState._pushGeneration before its first await).  If syncState._pushGeneration is subsequently
   // advanced (offline/forcePush/stopSync), the result belongs to a superseded
   // attempt and must not schedule a retry for the new online cycle.
   const onlinePush = _runPush();
-  const genAtStart = _pushGeneration;
+  const genAtStart = syncState._pushGeneration;
   onlinePush.then((result) => {
-    if (result?.offline && _running && navigator.onLine && _pushGeneration === genAtStart) {
+    if (result?.offline && syncState._running && navigator.onLine && syncState._pushGeneration === genAtStart) {
       _scheduleOnlineRetry();
     }
   }).catch(() => {});
   _runPull().catch(() => {});
   // If WebSocket was enabled but is currently disconnected, attempt to reconnect.
-  if (appConfig.directus?.wsEnabled === true && !_wsConnected.value && _running) {
+  if (appConfig.directus?.wsEnabled === true && !syncState._wsConnected.value && syncState._running) {
     _reconnectWs().catch(() => {});
   }
 }
@@ -2501,18 +1786,18 @@ export function useDirectusSync() {
    * @param {{ appType: 'cassa'|'sala'|'cucina', store: object }} opts
    */
   async function startSync({ appType, store }) {
-    if (_running) return;
+    if (syncState._running) return;
     if (!appConfig.directus?.enabled) return;
 
-    _appType = appType ?? 'cassa';
-    _store = store;
-    _running = true;
+    syncState._appType = appType ?? 'cassa';
+    syncState._store = store;
+    syncState._running = true;
 
     // NS6: Open BroadcastChannel for cross-tab IDB-change notifications.
     // Both leaders and followers open the channel so followers can react to
     // IDB writes made by the leader and keep their in-memory store in sync.
     if (typeof BroadcastChannel !== 'undefined') {
-      _idbChangeBroadcast = new BroadcastChannel('directus-sync-idb-changes');
+      syncState._idbChangeBroadcast = new BroadcastChannel('directus-sync-idb-changes');
     }
 
     // S1: Leader election via Web Locks API.
@@ -2527,12 +1812,12 @@ export function useDirectusSync() {
     // automatically without requiring a reload.
     const isLeader = await _acquireLeaderLock();
     if (!isLeader) {
-      // NS2: Keep _running = true so that the standby lock callback in
+      // NS2: Keep syncState._running = true so that the standby lock callback in
       // `_acquireLeaderLock` can call `_startSyncLoopsAsLeader` when promoted.
       console.info('[DirectusSync] Non-leader tab: push/pull loops managed by another tab.');
       // NS6: Listen for leader's IDB-change broadcasts and refresh in-memory store.
-      if (_idbChangeBroadcast) {
-        _idbChangeBroadcast.onmessage = ({ data }) => {
+      if (syncState._idbChangeBroadcast) {
+        syncState._idbChangeBroadcast.onmessage = ({ data }) => {
           if (data?.type !== 'idb-change') return;
           const col = data.collection ?? null;
           if (col === 'config') {
@@ -2547,45 +1832,45 @@ export function useDirectusSync() {
       }
       return;
     }
-    _isLeader = true;
+    syncState._isLeader = true;
     await _startSyncLoopsAsLeader();
   }
 
   function stopSync() {
-    _running = false;
-    _store = null;
+    syncState._running = false;
+    syncState._store = null;
     // Abort any in-flight push and advance the generation so any push started
-    // before stopSync() does not clear a new _pushInFlight that might be
+    // before stopSync() does not clear a new syncState._pushInFlight that might be
     // created after the next startSync() call.  The AbortController abort causes
     // the SDK fetch to throw AbortError so the drain halts immediately without
     // corrupting the queue.
-    _pushAbortController?.abort();
-    _pushAbortController = null;
-    _pushGeneration++;
-    _pushInFlight = null;
+    syncState._pushAbortController?.abort();
+    syncState._pushAbortController = null;
+    syncState._pushGeneration++;
+    syncState._pushInFlight = null;
     // NS8: Abort any in-flight pull so the loop exits cleanly between collections.
-    _pullAbortController?.abort();
-    _pullAbortController = null;
+    syncState._pullAbortController?.abort();
+    syncState._pullAbortController = null;
     // S3: Drop any in-flight pull reference so the next startSync() can start fresh.
-    _pullInFlight = null;
-    _pullGeneration++;
-    if (_pushTimer) { clearInterval(_pushTimer); _pushTimer = null; }
-    if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
-    if (_globalTimer) { clearInterval(_globalTimer); _globalTimer = null; }
-    if (_reconnectTimer) { clearTimeout(_reconnectTimer); _reconnectTimer = null; }
-    if (_onlineRetryTimer) { clearTimeout(_onlineRetryTimer); _onlineRetryTimer = null; }
+    syncState._pullInFlight = null;
+    syncState._pullGeneration++;
+    if (syncState._pushTimer) { clearInterval(syncState._pushTimer); syncState._pushTimer = null; }
+    if (syncState._pollTimer) { clearInterval(syncState._pollTimer); syncState._pollTimer = null; }
+    if (syncState._globalTimer) { clearInterval(syncState._globalTimer); syncState._globalTimer = null; }
+    if (syncState._reconnectTimer) { clearTimeout(syncState._reconnectTimer); syncState._reconnectTimer = null; }
+    if (syncState._onlineRetryTimer) { clearTimeout(syncState._onlineRetryTimer); syncState._onlineRetryTimer = null; }
     _stopSubscriptions();
     // S1: Release the Web Lock so another tab can become the leader.
-    if (_leaderLockResolve) { _leaderLockResolve(); _leaderLockResolve = null; }
-    _isLeader = true;
+    if (syncState._leaderLockResolve) { syncState._leaderLockResolve(); syncState._leaderLockResolve = null; }
+    syncState._isLeader = true;
     // NS6: Close the BroadcastChannel.
-    if (_idbChangeBroadcast) { _idbChangeBroadcast.close(); _idbChangeBroadcast = null; }
+    if (syncState._idbChangeBroadcast) { syncState._idbChangeBroadcast.close(); syncState._idbChangeBroadcast = null; }
     if (typeof window !== 'undefined') {
       window.removeEventListener('online', _onOnline);
       window.removeEventListener('offline', _onOffline);
       window.removeEventListener('sync-queue:enqueue', _onQueueEnqueue);
     }
-    syncStatus.value = 'idle';
+    syncState.syncStatus.value = 'idle';
   }
 
   /**
@@ -2607,10 +1892,10 @@ export function useDirectusSync() {
     // current drain immediately, returning the caller-initiated cancellation
     // path (aborted: true) without marking the client offline, incrementing
     // attempt counters, or leaving a second concurrent drain running in parallel.
-    _pushAbortController?.abort();
-    _pushAbortController = null;
-    _pushGeneration++;
-    _pushInFlight = null;
+    syncState._pushAbortController?.abort();
+    syncState._pushAbortController = null;
+    syncState._pushGeneration++;
+    syncState._pushInFlight = null;
     return _runPush();
   }
 
@@ -2618,25 +1903,25 @@ export function useDirectusSync() {
     if (!appConfig.directus?.enabled) return { ok: true, failedCollections: [] };
     // NS8: Abort any in-flight pull so the loop exits cleanly between collections
     // before starting the new user-initiated pull.
-    _pullAbortController?.abort();
-    _pullAbortController = null;
+    syncState._pullAbortController?.abort();
+    syncState._pullAbortController = null;
     // S3: Reset the in-flight semaphore so this user-initiated pull is not
     // silently deduped against a concurrent background pull.
-    _pullInFlight = null;
-    _pullGeneration++;
-    syncStatus.value = 'syncing';
+    syncState._pullInFlight = null;
+    syncState._pullGeneration++;
+    syncState.syncStatus.value = 'syncing';
     try {
       const result = await _runPull();
       if (result?.ok !== false) {
-        syncStatus.value = 'idle';
+        syncState.syncStatus.value = 'idle';
       } else if (result?.skippedReason === 'offline') {
-        syncStatus.value = 'offline';
+        syncState.syncStatus.value = 'offline';
       } else {
-        syncStatus.value = 'error';
+        syncState.syncStatus.value = 'error';
       }
       return result;
     } catch (e) {
-      syncStatus.value = 'error';
+      syncState.syncStatus.value = 'error';
       console.warn('forcePull failed unexpectedly', e);
       return {
         ok: false,
@@ -2668,7 +1953,7 @@ export function useDirectusSync() {
       return result;
     }
 
-    syncStatus.value = 'syncing';
+    syncState.syncStatus.value = 'syncing';
     try {
       if (clearLocalConfig) {
         _emitProgress(onProgress, { level: 'info', message: 'Svuotamento completo cache configurazione locale…' });
@@ -2687,12 +1972,12 @@ export function useDirectusSync() {
       // Reset the NS5 in-flight semaphore so this user-initiated pull
       // always starts a fresh fetch with the correct onProgress callback
       // rather than reusing a background pull that lacks it.
-      _globalPullInFlight = null;
+      syncState._globalPullInFlight = null;
       const result = await _runGlobalPull({ onProgress });
-      syncStatus.value = result?.ok ? 'idle' : 'error';
+      syncState.syncStatus.value = result?.ok ? 'idle' : 'error';
       return result ?? { ok: false, failedCollections: [] };
     } catch (e) {
-      syncStatus.value = 'error';
+      syncState.syncStatus.value = 'error';
       _emitProgress(onProgress, {
         level: 'error',
         message: 'Errore durante la procedura di applicazione configurazione.',
@@ -2714,10 +1999,10 @@ export function useDirectusSync() {
   }
 
   return {
-    syncStatus,
-    lastPushAt,
-    lastPullAt,
-    wsConnected: _wsConnected,
+    syncStatus: syncState.syncStatus,
+    lastPushAt: syncState.lastPushAt,
+    lastPullAt: syncState.lastPullAt,
+    wsConnected: syncState._wsConnected,
     startSync,
     stopSync,
     forcePush,
@@ -2731,46 +2016,46 @@ export function useDirectusSync() {
  * @internal For test isolation only.
  */
 export function _resetDirectusSyncSingleton() {
-  _running = false;
-  _store = null;
-  _appType = 'cassa';
-  _wsCollections = [];
-  _pushGeneration = 0;
-  _pushAbortController?.abort();
-  _pushAbortController = null;
-  _pushInFlight = null;
+  syncState._running = false;
+  syncState._store = null;
+  syncState._appType = 'cassa';
+  syncState._wsCollections = [];
+  syncState._pushGeneration = 0;
+  syncState._pushAbortController?.abort();
+  syncState._pushAbortController = null;
+  syncState._pushInFlight = null;
   // S3: Clear in-flight pull semaphore.
-  _pullInFlight = null;
-  _pullGeneration = 0;
-  _tableMergePullInFlight = null; // NS4
+  syncState._pullInFlight = null;
+  syncState._pullGeneration = 0;
+  syncState._tableMergePullInFlight = null; // NS4
   // NS8: Abort and clear the pull AbortController.
-  _pullAbortController?.abort();
-  _pullAbortController = null;
-  _globalPullGeneration = 0;
-  _lastAppliedGlobalPullGeneration = 0;
-  _globalPullInFlight = null; // NS5
-  if (_pushTimer) { clearInterval(_pushTimer); _pushTimer = null; }
-  if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
-  if (_globalTimer) { clearInterval(_globalTimer); _globalTimer = null; }
-  if (_reconnectTimer) { clearTimeout(_reconnectTimer); _reconnectTimer = null; }
-  if (_onlineRetryTimer) { clearTimeout(_onlineRetryTimer); _onlineRetryTimer = null; }
+  syncState._pullAbortController?.abort();
+  syncState._pullAbortController = null;
+  syncState._globalPullGeneration = 0;
+  syncState._lastAppliedGlobalPullGeneration = 0;
+  syncState._globalPullInFlight = null; // NS5
+  if (syncState._pushTimer) { clearInterval(syncState._pushTimer); syncState._pushTimer = null; }
+  if (syncState._pollTimer) { clearInterval(syncState._pollTimer); syncState._pollTimer = null; }
+  if (syncState._globalTimer) { clearInterval(syncState._globalTimer); syncState._globalTimer = null; }
+  if (syncState._reconnectTimer) { clearTimeout(syncState._reconnectTimer); syncState._reconnectTimer = null; }
+  if (syncState._onlineRetryTimer) { clearTimeout(syncState._onlineRetryTimer); syncState._onlineRetryTimer = null; }
   // S5: Clear heartbeat watchdog.
-  if (_wsHeartbeatTimer) { clearTimeout(_wsHeartbeatTimer); _wsHeartbeatTimer = null; }
+  if (syncState._wsHeartbeatTimer) { clearTimeout(syncState._wsHeartbeatTimer); syncState._wsHeartbeatTimer = null; }
   _stopSubscriptions();
   _recentlyPushed.clear();
   // S1: Release the Web Lock and reset leader state.
-  if (_leaderLockResolve) { _leaderLockResolve(); _leaderLockResolve = null; }
-  _isLeader = true;
+  if (syncState._leaderLockResolve) { syncState._leaderLockResolve(); syncState._leaderLockResolve = null; }
+  syncState._isLeader = true;
   // NS6: Close the BroadcastChannel.
-  if (_idbChangeBroadcast) { _idbChangeBroadcast.close(); _idbChangeBroadcast = null; }
+  if (syncState._idbChangeBroadcast) { syncState._idbChangeBroadcast.close(); syncState._idbChangeBroadcast = null; }
   if (typeof window !== 'undefined') {
     window.removeEventListener('online', _onOnline);
     window.removeEventListener('offline', _onOffline);
     window.removeEventListener('sync-queue:enqueue', _onQueueEnqueue);
   }
-  syncStatus.value = 'idle';
-  lastPushAt.value = null;
-  lastPullAt.value = null;
+  syncState.syncStatus.value = 'idle';
+  syncState.lastPushAt.value = null;
+  syncState.lastPullAt.value = null;
 }
 
 /**
