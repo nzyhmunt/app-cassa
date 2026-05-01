@@ -281,11 +281,22 @@ export async function _pullCollection(collection, { forceFull = false, lastPullT
   // ended.  When valid, the first page of this poll uses the same keyset filter as
   // page 2+ already does — meaning already-seen boundary records (those with
   // date_updated === storedSinceTs) are excluded without a separate network round-trip.
+  //
   // Only load the cursor when we have a valid storedSinceTs (genuine incremental pull).
-  // forceFull, a first-run pull (storedSinceTs = null), or a clock-skew clamp all bypass it.
-  const storedCursor = (!forceFull && storedSinceTs)
+  // forceFull and first-run polls (storedSinceTs = null) always bypass it.
+  //
+  // Guard: discard the cursor when cursor.ts !== storedSinceTs.  Both values are
+  // updated together at the end of every successful page, so they should always
+  // be in sync.  A mismatch signals an inconsistency — most commonly caused by a
+  // clock-skew clamp above that rewrote storedSinceTs to "now" without touching
+  // the cursor.  Using a cursor whose ts differs from storedSinceTs would produce
+  // an incorrect keyset filter (e.g. skipping records between "now" and the old
+  // future timestamp), so we discard it and fall back to a plain _gte pull for
+  // this one cycle, after which the cursor is re-aligned automatically.
+  const rawCursor = (!forceFull && storedSinceTs)
     ? await loadLastPullCursorFromIDB(collection)
     : null;
+  const storedCursor = (rawCursor?.ts === storedSinceTs) ? rawCursor : null;
 
   let page = 1;
   let latestTs = storedSinceTs;

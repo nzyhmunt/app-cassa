@@ -4041,11 +4041,14 @@ describe('NS7-CP — cross-poll keyset cursor', () => {
     expect(decodeURIComponent(firstCall)).toContain('ord_cp_last');
   });
 
-  it('does not use a stored cursor when forceFull is used (table_merge_sessions full pull)', async () => {
-    // Plant a cursor for orders — should be ignored on a full pull
+  it('uses stored cursor for incremental pull when sinceTs is present (forcePull path)', async () => {
+    // Plant a cursor and sinceTs — an incremental forcePull SHOULD use the stored cursor.
+    // This test confirms that the cross-poll keyset cursor is activated for regular
+    // incremental pulls (i.e. when storedSinceTs is present), regardless of whether
+    // the pull was triggered by the polling interval or by forcePull().
     const sinceTs = '2024-06-01T00:00:00.000Z';
     await saveLastPullTsToIDB('orders', sinceTs);
-    await saveLastPullCursorToIDB('orders', { ts: sinceTs, id: 'ord_should_be_ignored' });
+    await saveLastPullCursorToIDB('orders', { ts: sinceTs, id: 'ord_cursor_expected' });
 
     const fetchedUrls = [];
     vi.spyOn(global, 'fetch').mockImplementation((url) => {
@@ -4066,6 +4069,37 @@ describe('NS7-CP — cross-poll keyset cursor', () => {
     const orderCalls = fetchedUrls.filter(u => u.includes('/items/orders'));
     expect(orderCalls.length).toBeGreaterThan(0);
     expect(hasIdGtFilter(orderCalls[0])).toBe(true);
+    expect(decodeURIComponent(orderCalls[0])).toContain('ord_cursor_expected');
+  });
+
+  it('discards cursor when cursor.ts does not match storedSinceTs (e.g. after clock-skew clamp)', async () => {
+    // Simulate: storedSinceTs was clamped from a future value to "now", but the
+    // cursor still has the old future ts.  The guard must discard the stale cursor
+    // and fall back to a plain _gte pull so no records are skipped.
+    const clampedTs = '2024-06-01T00:00:00.000Z'; // the now-clamped sinceTs
+    const futureCursorTs = '2099-01-01T00:00:00.000Z'; // old, un-clamped cursor ts
+    await saveLastPullTsToIDB('orders', clampedTs);
+    await saveLastPullCursorToIDB('orders', { ts: futureCursorTs, id: 'stale_cursor_id' });
+
+    const fetchedUrls = [];
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      const s = String(url);
+      if (s.includes('/items/orders')) {
+        fetchedUrls.push(s);
+        return Promise.resolve(directusListResponse([]));
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const sync = useDirectusSync();
+    await sync.forcePull();
+
+    const orderCalls = fetchedUrls.filter(u => u.includes('/items/orders'));
+    expect(orderCalls.length).toBeGreaterThan(0);
+    // The stale cursor must NOT be used — no id._gt keyset filter on the first request
+    expect(hasIdGtFilter(orderCalls[0])).toBe(false);
+    // And the stale id must not appear in the URL
+    expect(decodeURIComponent(orderCalls[0])).not.toContain('stale_cursor_id');
   });
 
   it('does NOT use a stored cursor when storedSinceTs is null (first-run full pull)', async () => {
