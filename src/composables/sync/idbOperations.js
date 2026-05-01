@@ -16,6 +16,9 @@ import { loadStateFromIDB } from '../../store/persistence/operations.js';
 import { deepEqual } from '../../utils/index.js';
 import { relationId, mergeOrderItemFromWSPayload } from '../../utils/mappers.js';
 
+/** Shared empty-set sentinel used by guard-return paths to avoid per-call allocation. */
+const _EMPTY_SET = new Set();
+
 /**
  * Prepares mapped pull records before IDB upsert.
  * `cachedState` reuses a previously loaded state snapshot across paginated
@@ -350,16 +353,21 @@ export async function _atomicOrderItemsUpsertAndMerge(mappedItems, rawItems = []
 
 /**
  * Removes deleted order_items (identified by their IDs) from the embedded
- * `orderItems` arrays of their parent orders in the `orders` IDB ObjectStore.
+ * `orderItems` arrays of their parent orders in the `orders` IDB ObjectStore,
+ * and from the `order_items` ObjectStore itself — all within a single atomic
+ * IDB transaction.
  *
  * Called by `_handleSubscriptionMessage` when a WS `delete` event arrives for
  * the `order_items` collection so that cucina devices with wsEnabled see the
  * deletion reflected in the orders store without waiting for the next poll.
  *
  * @param {string[]} deletedIds - IDs of the deleted order_item records.
+ * @returns {Promise<Set<string>>} Set of parent order IDs whose `orderItems`
+ *   arrays were actually modified.  Callers can use this for targeted store
+ *   refresh rather than replacing the entire orders reactive array.
  */
 export async function _removeOrderItemsFromOrdersIDB(deletedIds) {
-  if (!deletedIds || deletedIds.length === 0) return;
+  if (!deletedIds || deletedIds.length === 0) return _EMPTY_SET;
   try {
     const db = await getDB();
     const deletedSet = new Set(deletedIds.map(String));
@@ -429,6 +437,7 @@ export async function _removeOrderItemsFromOrdersIDB(deletedIds) {
       await orderItemsStore.delete(id);
     }
     await tx.done;
+    return affectedOrderIds;
   } catch (e) {
     console.warn('[DirectusSync] _removeOrderItemsFromOrdersIDB failed:', e);
     throw e;

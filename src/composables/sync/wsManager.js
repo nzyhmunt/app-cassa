@@ -107,8 +107,19 @@ export async function _handleSubscriptionMessage(collection, message) {
       // orders.orderItems array clean-up AND the deletion from the order_items
       // ObjectStore in a single IDB transaction, eliminating the previous
       // two-step non-atomic sequence.
-      await _removeOrderItemsFromOrdersIDB(nonEchoIds);
-      await _refreshStoreFromIDB('orders');
+      // NP1 fix: the function now returns the set of affected parent order IDs
+      // so the store refresh can be targeted rather than replacing the whole
+      // orders reactive array (mirrors the create/update path that uses
+      // result.affectedOrderIds from _atomicOrderItemsUpsertAndMerge).
+      try {
+        const affectedOrderIds = await _removeOrderItemsFromOrdersIDB(nonEchoIds);
+        // _refreshStoreFromIDB ignores an empty Set (falls back to full refresh),
+        // so passing undefined for the empty case is more explicit about intent.
+        await _refreshStoreFromIDB('orders', affectedOrderIds.size > 0 ? affectedOrderIds : undefined);
+      } catch (e) {
+        console.warn('[DirectusSync] WS order_items delete cleanup failed:', e);
+        await _refreshStoreFromIDB('orders');
+      }
       return;
     }
     await deleteRecordsFromIDB(collection, nonEchoIds);
