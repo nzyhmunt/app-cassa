@@ -108,7 +108,8 @@ export async function loadConfigFromIDB(venueId) {
 
 /**
  * Removes all locally cached Directus configuration collections and related
- * global pull cursors (`last_pull_ts:*`) from app_meta.
+ * per-collection pull state (`last_pull_ts:*` and `last_pull_cursor:*`) from
+ * app_meta.
  *
  * Used when the user explicitly requests a full local config reset before
  * forcing a new Directus configuration pull.
