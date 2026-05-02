@@ -212,11 +212,11 @@ export async function loadLastPullCursorFromIDB(collection) {
 /**
  * Persists the keyset cursor `{ts, id}` for `collection`.
  *
- * Called after each successfully processed page in the pull loop so the cursor
- * is checkpointed at the last known-good position.  Only cursors with both a
- * truthy `id` and a non-null `ts` are persisted (callers must enforce this
- * guard); cursors with `ts: null` cannot activate keyset mode and must not be
- * stored.
+ * NOTE: This function is **not called by production code**.  The pull loop
+ * uses the keyset cursor internally for within-call pagination only;
+ * `loadLastPullCursorFromIDB` is never called at runtime, so persisting the
+ * cursor would double checkpoint IDB traffic with no runtime benefit.
+ * This helper is retained for testing purposes only.
  *
  * @param {string} collection
  * @param {{ ts: string|null, id: string|number }} cursor

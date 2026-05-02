@@ -4403,29 +4403,24 @@ describe('NP1 — _removeOrderItemsFromOrdersIDB fallback scan affectedOrderIds'
   });
 });
 
-// ── S5-FIX — WS heartbeat triggers reconnect on prolonged silence ─────────────
+// ── S5-FIX — WS heartbeat does not force-disconnect on idle apps ──────────────
 //
-// Before the original fix, the heartbeat watchdog set _wsConnected = false and
-// scheduled a 2 s reconnect on every firing. In idle mode Directus subscription
-// protocol pings never surface as application-level iterator yields, so the
-// watchdog fired every 30 s and the user saw a 2-3 s "WS down" window at each
-// polling interval.
+// Before the fix, the heartbeat watchdog set _wsConnected = false and scheduled
+// a 2 s reconnect on every firing.  In idle mode (no data changes) Directus
+// subscription protocol pings never surface as application-level iterator
+// yields, so the watchdog fired every 30 s and the user saw a 2-3 s "WS down"
+// window at each polling interval.
 //
-// The previous fix changed the watchdog to do a REST catch-up pull and re-arm
-// itself, avoiding the UI flash. However, re-arming without reconnecting caused
-// permanent 30s REST polling on idle healthy connections (defeating WS mode), and
-// a genuinely dead/half-open socket was never actually reconnected — it just
-// kept polling indefinitely without restoring sub-second WS delivery.
-//
-// The current fix has the watchdog set _wsConnected = false and call _reconnectWs()
-// when silence is detected. On a dead/half-open socket the reconnect restores WS
-// delivery. On a healthy but idle connection, the reconnect succeeds quickly,
-// _startSubscriptions re-arms the heartbeat, and no permanent polling loop results.
-// The watchdog does NOT call _resetWsHeartbeat() itself — re-arming is delegated
-// to _startSubscriptions() after a successful reconnect.
+// After the fix the watchdog triggers a REST catch-up pull and re-arms itself.
+// A half-open socket can stay silent indefinitely without throwing; without
+// re-arming the client would receive exactly one catch-up pull and then go
+// permanently stale.  On idle but healthy connections REST polls occur every
+// WS_HEARTBEAT_INTERVAL_MS, which is acceptable compared to indefinite staleness.
+// The watchdog does NOT set _wsConnected = false or schedule a reconnect;
+// genuine disconnections are detected by the subscription iterator throw path.
 
-describe('S5-FIX — WS heartbeat triggers reconnect on prolonged silence', () => {
-  it('sets _wsConnected to false and triggers reconnect when watchdog fires', async () => {
+describe('S5-FIX — WS heartbeat does not force-disconnect on idle apps', () => {
+  it('does not set _wsConnected to false when the watchdog fires', async () => {
     const { syncState } = await import('../sync/state.js');
     const { _resetWsHeartbeat } = await import('../sync/wsManager.js');
     const { WS_HEARTBEAT_INTERVAL_MS } = await import('../sync/echoSuppression.js');
@@ -4446,18 +4441,23 @@ describe('S5-FIX — WS heartbeat triggers reconnect on prolonged silence', () =
       await vi.advanceTimersByTimeAsync(WS_HEARTBEAT_INTERVAL_MS + 50);
       await flushPromises(LONG_FLUSH_ROUNDS);
 
-      // The watchdog must set _wsConnected = false to trigger a reconnect attempt.
-      // Prolonged silence is treated as a potential half-open socket.
-      expect(syncState._wsConnected.value).toBe(false);
+      // Core regression: the watchdog must NOT disconnect the WebSocket.
+      // Before the fix this was set to false here, causing a visible 2-3 s
+      // "WS down" window every 30 s on idle apps.
+      expect(syncState._wsConnected.value).toBe(true);
 
-      // The watchdog must NOT re-arm itself — re-arming is handled by
-      // _startSubscriptions() after a successful reconnect.
-      expect(syncState._wsHeartbeatTimer).toBeNull();
+      // The watchdog re-arms itself after firing to handle half-open sockets —
+      // the timer must be non-null.
+      expect(syncState._wsHeartbeatTimer).not.toBeNull();
+
+      // No reconnect timer should have been scheduled.
+      expect(syncState._reconnectTimer).toBeNull();
     } finally {
-      // Cleanup: clear any timers set by the reconnect attempt and reset state.
-      if (syncState._pollTimer) { clearInterval(syncState._pollTimer); syncState._pollTimer = null; }
-      if (syncState._wsHeartbeatTimer) { clearTimeout(syncState._wsHeartbeatTimer); syncState._wsHeartbeatTimer = null; }
-      if (syncState._reconnectTimer) { clearTimeout(syncState._reconnectTimer); syncState._reconnectTimer = null; }
+      // Cleanup: clear the re-armed timer and reset state.
+      if (syncState._wsHeartbeatTimer) {
+        clearTimeout(syncState._wsHeartbeatTimer);
+        syncState._wsHeartbeatTimer = null;
+      }
       syncState._running = false;
       syncState._wsConnected.value = false;
       vi.useRealTimers();

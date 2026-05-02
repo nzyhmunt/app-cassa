@@ -33,26 +33,27 @@ const _unsubscribers = [];
  * S5 — Resets (or starts) the WebSocket heartbeat watchdog timer.
  * Called after every incoming WS message and whenever a WS connection is
  * established.  If no WS subscription event arrives within
- * WS_HEARTBEAT_INTERVAL_MS, prolonged silence is treated as a potential
- * half-open socket: `_wsConnected` is set to false and `_reconnectWs()` is
- * called to attempt a fresh WS connection.
+ * WS_HEARTBEAT_INTERVAL_MS, a REST catch-up pull is triggered and the watchdog
+ * is rescheduled so that prolonged silence (half-open socket) keeps triggering
+ * recovery pulls until a real WS event arrives and resets the timer.
  *
- * Why reconnect instead of re-arm-and-poll:
- *   A half-open socket is silent indefinitely without throwing (the subscription
- *   iterator only throws on a hard close), so a purely REST-polling watchdog can
- *   never restore sub-second WS delivery once the transport has degraded.
- *   Triggering `_reconnectWs()` does the right thing in both cases:
- *     • Dead/half-open socket  → reconnect fails, polling fallback starts, WS
- *                                 delivery is eventually restored on the next
- *                                 successful reconnect attempt.
- *     • Healthy but idle socket → reconnect succeeds quickly, `_startSubscriptions`
- *                                 re-arms the heartbeat via `_resetWsHeartbeat()`,
- *                                 and no permanent REST polling loop results.
+ * The watchdog deliberately re-arms itself after firing: a half-open socket can
+ * stay silent indefinitely without throwing (the subscription iterator only
+ * throws on a hard close/error), so without re-arming the client would receive
+ * exactly one catch-up pull and then go permanently stale.  On idle but healthy
+ * connections this causes REST catch-up polls every WS_HEARTBEAT_INTERVAL_MS —
+ * that is acceptable compared to the alternative of indefinite staleness.
  *
- * The brief `_wsConnected = false` window during a healthy-connection reconnect
- * is acceptable given the alternative of permanent staleness on dead sockets.
- * The watchdog does NOT call `_resetWsHeartbeat()` itself; re-arming is handled
- * by `_startSubscriptions()` on a successful reconnect.
+ * Do NOT force-disconnect the WS here.  Directus WebSocket protocol pings are
+ * handled at the TCP/browser level and never surface as application-level
+ * subscription iterator yields, so an idle subscription is always silent at the
+ * JS level.  Forcing a reconnect on every silence window would tear down and
+ * recreate healthy subscriptions continuously, introducing spurious "WS down"
+ * UI flashes and churn.  Genuine connection failures (dropped link, server
+ * restart, etc.) are detected when the subscription iterator throws in
+ * processSubscription(), which sets _wsConnected = false and schedules
+ * _reconnectWs() — restoring sub-second WS delivery without any watchdog
+ * involvement.
  */
 export function _resetWsHeartbeat() {
   if (syncState._wsHeartbeatTimer) { clearTimeout(syncState._wsHeartbeatTimer); syncState._wsHeartbeatTimer = null; }
@@ -61,13 +62,16 @@ export function _resetWsHeartbeat() {
     syncState._wsHeartbeatTimer = null;
     if (!syncState._running || !syncState._wsConnected.value) return;
     console.warn(
-      `[DirectusSync] WS heartbeat: no activity for ${WS_HEARTBEAT_INTERVAL_MS}ms — treating as half-open socket, triggering reconnect.`,
+      `[DirectusSync] WS heartbeat: no activity for ${WS_HEARTBEAT_INTERVAL_MS}ms — triggering REST catch-up pull.`,
     );
-    // Mark the connection as down so _reconnectWs() proceeds, then attempt to
-    // restore the WS subscription.  On success _startSubscriptions re-arms the
-    // heartbeat; on failure the polling fallback starts.
-    syncState._wsConnected.value = false;
-    _reconnectWs().catch(() => {});
+    // Immediately do a REST pull to catch up on any messages potentially
+    // missed while the connection was silent.
+    _runPull().catch(() => {});
+    // Re-arm the watchdog so that a half-open socket (silent but never
+    // throwing) keeps triggering recovery pulls.  On a healthy connection,
+    // incoming WS subscription events reset the timer before it fires again,
+    // so the periodic REST poll only occurs during genuine silence.
+    _resetWsHeartbeat();
   }, WS_HEARTBEAT_INTERVAL_MS);
 }
 
