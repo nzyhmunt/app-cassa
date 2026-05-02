@@ -205,6 +205,16 @@ function _onOffline() {
   syncState._orderItemsPullAbortController?.abort();
   syncState._orderItemsPullAbortController = null;
   syncState._orderItemsPullInFlight = null;
+  // Clear the pending flag so the aborted pull's .finally() does not immediately
+  // restart a new order_items pull while the app is offline.
+  syncState._orderItemsPullPending = false;
+  // Abort any in-flight _runPull() for the same reason: a fetch hanging on TCP
+  // timeout holds the pull semaphore indefinitely so _onOnline() would find a
+  // stuck promise instead of starting a fresh recovery pull.
+  syncState._pullAbortController?.abort();
+  syncState._pullAbortController = null;
+  syncState._pullInFlight = null;
+  syncState._pullGeneration++;
   // If an in-flight push had already set syncState.syncStatus to "syncing", the
   // generation bump above causes that superseded _runPush() to skip its
   // post-await status update.  Reflect the offline state here so the UI
