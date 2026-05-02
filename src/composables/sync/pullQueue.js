@@ -478,7 +478,9 @@ export function _triggerImmediateOrderItemsPull() {
     return;
   }
   // Guard: do not start any new pull after stopSync() has been called, or while
-  // the app is offline (a hanging fetch would re-block _orderItemsPullInFlight).
+  // the app is offline (a hanging fetch would occupy _orderItemsPullInFlight
+  // indefinitely, preventing any subsequent orders:create trigger from starting
+  // a new pull until the TCP timeout expires).
   if (!syncState._running || !navigator.onLine) return;
   const ac = new AbortController();
   syncState._orderItemsPullAbortController = ac;

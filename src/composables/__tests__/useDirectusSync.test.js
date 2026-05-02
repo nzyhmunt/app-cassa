@@ -5003,12 +5003,12 @@ describe('ABORT-PRE-WRITE: abort fires after HTTP response but before IDB write 
       // the abort being issued by _runPull() after the response arrived.
       ac.abort();
       return Promise.resolve(directusListResponse([{
-        id: 'oi_pre1',
-        order_id: 'ord_pre1',
+        id: 'oi_abort_race1',
+        order_id: 'ord_abort_race1',
         date_updated: '2024-01-01T10:00:00.000Z',
         date_created: '2024-01-01T10:00:00.000Z',
         quantity: 1,
-        menu_item_id: 'mi_pre1',
+        menu_item_id: 'mi_abort_race1',
         order_item_modifiers: [],
       }]));
     });
@@ -5244,14 +5244,14 @@ describe('NS9-RUNPULL-PENDING — _runPull triggers follow-up NS9 pull when pend
     syncState._running = true;
 
     let orderItemsFetchCount = 0;
-    let pendingFlagAtFetchStart; // captures the flag state at the exact moment the fetch starts
+    let wasPendingAtFetchStart; // captures the flag state at the exact moment the fetch starts
 
     vi.spyOn(global, 'fetch').mockImplementation((url) => {
       if (String(url).includes('/items/order_items')) {
         orderItemsFetchCount++;
         // Capture the pending flag at the moment the order_items HTTP request starts.
         // This verifies the flag was cleared *before* the fetch, not just eventually.
-        pendingFlagAtFetchStart = syncState._orderItemsPullPending;
+        wasPendingAtFetchStart = syncState._orderItemsPullPending;
       }
       return Promise.resolve(directusListResponse([]));
     });
@@ -5275,7 +5275,7 @@ describe('NS9-RUNPULL-PENDING — _runPull triggers follow-up NS9 pull when pend
     // The pending flag must have been cleared by _runPull() before the fetch.
     expect(syncState._orderItemsPullPending).toBe(false);
     // The flag must have been false AT THE MOMENT the order_items HTTP request started.
-    expect(pendingFlagAtFetchStart).toBe(false);
+    expect(wasPendingAtFetchStart).toBe(false);
 
     // Only the single order_items fetch from the main pull cycle should have
     // occurred — no wasteful follow-up NS9 pull.
