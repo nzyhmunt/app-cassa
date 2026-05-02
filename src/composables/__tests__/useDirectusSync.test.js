@@ -4418,10 +4418,12 @@ describe('NP1 — _removeOrderItemsFromOrdersIDB fallback scan affectedOrderIds'
 // yields, so the watchdog fired every 30 s and the user saw a 2-3 s "WS down"
 // window at each polling interval.
 //
-// After the fix the watchdog only triggers a REST catch-up pull and re-arms
-// itself — genuine disconnections are detected by the subscription iterator
-// throw path instead.  Re-arming ensures a truly stalled/dead subscription
-// keeps triggering periodic REST catch-up pulls until the socket recovers.
+// After the fix the watchdog is one-shot: it triggers a REST catch-up pull and
+// does NOT reschedule itself.  Genuine disconnections are detected by the
+// subscription iterator throw path instead.  The watchdog is not re-armed after
+// firing because doing so would cause permanent 30 s REST polling on healthy but
+// idle connections (Directus pings never surface at the JS level, so quiet venues
+// would hit this path forever even with a working socket).
 
 describe('S5-FIX — WS heartbeat does not force-disconnect on idle apps', () => {
   it('does not set _wsConnected to false when the watchdog fires', async () => {
@@ -4450,14 +4452,16 @@ describe('S5-FIX — WS heartbeat does not force-disconnect on idle apps', () =>
       // "WS down" window every 30 s on idle apps.
       expect(syncState._wsConnected.value).toBe(true);
 
-      // The watchdog re-arms itself after firing so that a truly stalled/dead
-      // subscription keeps triggering periodic REST catch-up pulls.
-      expect(syncState._wsHeartbeatTimer).not.toBeNull();
+      // The watchdog is one-shot — the timer must be null after it fires.
+      // Re-arming after firing would cause permanent 30 s REST polling on idle
+      // healthy connections where no subscription events arrive.
+      expect(syncState._wsHeartbeatTimer).toBeNull();
 
       // No reconnect timer should have been scheduled.
       expect(syncState._reconnectTimer).toBeNull();
     } finally {
-      // Cleanup: clear the timer and reset state.
+      // Cleanup: clear the timer and reset state (timer is null after one-shot fires,
+      // but guard defensively in case the test fails before the watchdog fires).
       if (syncState._wsHeartbeatTimer) {
         clearTimeout(syncState._wsHeartbeatTimer);
         syncState._wsHeartbeatTimer = null;
@@ -4468,7 +4472,7 @@ describe('S5-FIX — WS heartbeat does not force-disconnect on idle apps', () =>
     }
   });
 
-  it('watchdog rescheduled timer is cleared by _resetWsHeartbeat when a WS message arrives', async () => {
+  it('existing timer is cleared and replaced by _resetWsHeartbeat when a WS message arrives', async () => {
     const { syncState } = await import('../sync/state.js');
     const { _resetWsHeartbeat } = await import('../sync/wsManager.js');
     const { WS_HEARTBEAT_INTERVAL_MS } = await import('../sync/echoSuppression.js');
@@ -4904,6 +4908,67 @@ describe('AbortError does not partially replace table_merge_sessions IDB', () =>
     expect(ok).toBe(false);
     // replaceTableMergesInIDB must NOT have been called with partial data.
     expect(replaceSpy).not.toHaveBeenCalled();
+  });
+});
+
+// ── ABORT-CK: checkpoint not written when signal aborted during IDB write ────
+//
+// Even when an HTTP page fetch completes successfully (aborted:false from
+// _fetchUpdatedViaSDK), the signal can be fired by forcePull() / stopSync() /
+// _runPull() while the IDB write is in progress.  In that window the data write
+// itself is fine (idempotent upserts on the next poll), but writing the cursor /
+// last_pull_ts would roll those checkpoints backwards relative to a fresher value
+// already committed by the superseding pull cycle.
+//
+// The fix adds `if (signal?.aborted) break;` after the IDB write but before the
+// checkpoint writes, so stale cursors are never persisted.
+
+describe('ABORT-CK: signal abort after IDB write skips cursor/timestamp checkpoint', () => {
+  it('ABORT-CK: signal aborted mid-IDB write does not persist last_pull_ts or last_pull_cursor', async () => {
+    const { _pullCollection } = await import('../sync/pullQueue.js');
+    const idbOps = await import('../sync/idbOperations.js');
+    const persistCfg = await import('../../store/persistence/config.js');
+    const { appConfig } = await import('../../utils/index.js');
+
+    appConfig.directus = { enabled: true, url: 'http://directus.test', staticToken: 'tok', wsEnabled: false };
+
+    const ac = new AbortController();
+
+    // Return one order_items record with a valid timestamp so maxTs is non-null
+    // and saveLastPullTsToIDB would normally be called.
+    vi.spyOn(global, 'fetch').mockResolvedValue(directusListResponse([{
+      id: 'oi_ck1',
+      order_id: 'ord_ck1',
+      date_updated: '2024-01-01T10:00:00.000Z',
+      date_created: '2024-01-01T10:00:00.000Z',
+      quantity: 1,
+      menu_item_id: 'mi_ck1',
+      order_item_modifiers: [],
+    }]));
+
+    // Spy on the atomic IDB write and abort the signal during it, simulating
+    // forcePull() / stopSync() / _runPull() firing between the page fetch and
+    // the cursor checkpoint write.
+    const atomicSpy = vi.spyOn(idbOps, '_atomicOrderItemsUpsertAndMerge')
+      .mockImplementation(async () => {
+        ac.abort(); // abort fires while the "IDB write" is in progress
+        return { orderItemsWritten: 1, ordersWritten: 0, affectedOrderIds: new Set() };
+      });
+
+    // Spy on the checkpoint functions that must NOT be called after the abort.
+    const saveTsSpy = vi.spyOn(persistCfg, 'saveLastPullTsToIDB').mockResolvedValue(undefined);
+    const saveCursorSpy = vi.spyOn(persistCfg, 'saveLastPullCursorToIDB').mockResolvedValue(undefined);
+
+    await _pullCollection('order_items', { signal: ac.signal });
+
+    // The checkpoint writes must be skipped to prevent rolling back a fresher
+    // cursor already written by the superseding pull cycle.
+    expect(saveTsSpy).not.toHaveBeenCalled();
+    expect(saveCursorSpy).not.toHaveBeenCalled();
+
+    atomicSpy.mockRestore();
+    saveTsSpy.mockRestore();
+    saveCursorSpy.mockRestore();
   });
 });
 

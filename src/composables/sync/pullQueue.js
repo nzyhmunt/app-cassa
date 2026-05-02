@@ -382,6 +382,13 @@ export async function _pullCollection(collection, { forceFull = false, lastPullT
       if (maxTs && (!latestTs || maxTs > latestTs)) latestTs = maxTs;
       // NS7: Advance the keyset cursor to the last record on this page.
       pageKeyCursor = lastCursor ?? null;
+      // Do not write the checkpoint if the signal was aborted while the page IDB
+      // write was in progress.  The data write itself is idempotent (the next poll
+      // will re-fetch and upsert the same records), but persisting a stale
+      // checkpoint could roll last_pull_ts / last_pull_cursor backwards relative
+      // to a fresher checkpoint already committed by the superseding forcePull()
+      // or _runPull() cycle that issued the abort.
+      if (signal?.aborted) break;
       // Checkpoint the cursor position for diagnostics and future use.
       // Only persist when both ts and id are truthy — a null ts cannot activate
       // keyset mode and must not be stored (callers would receive a semantically

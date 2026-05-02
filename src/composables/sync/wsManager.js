@@ -34,9 +34,13 @@ const _unsubscribers = [];
  * Called after every incoming WS message and whenever a WS connection is
  * established.  If no WS subscription event arrives within
  * WS_HEARTBEAT_INTERVAL_MS, a one-shot REST catch-up pull is triggered as a
- * safety net and the timer is NOT rescheduled (see inline comment for
- * rationale).  Genuine connection failures are detected by the subscription
- * iterator in processSubscription().
+ * safety net and the timer is NOT rescheduled.  Genuine connection failures are
+ * detected by the subscription iterator in processSubscription().
+ *
+ * The watchdog is deliberately one-shot: re-arming it after it fires would cause
+ * permanent 30-second REST polling on idle healthy connections (Directus
+ * protocol-level pings never surface as application-level subscription events,
+ * so quiet venues would hit this path forever even with a working socket).
  */
 export function _resetWsHeartbeat() {
   if (syncState._wsHeartbeatTimer) { clearTimeout(syncState._wsHeartbeatTimer); syncState._wsHeartbeatTimer = null; }
@@ -58,13 +62,6 @@ export function _resetWsHeartbeat() {
     // Genuine connection failures (dropped link, server restart, etc.) are
     // detected when the subscription iterator throws in processSubscription(),
     // which sets _wsConnected = false and schedules _reconnectWs().
-    //
-    // Re-arm the watchdog so that a truly stalled/dead subscription keeps
-    // triggering periodic REST catch-up pulls until the socket recovers.
-    // On a healthy connection, incoming WS events call _resetWsHeartbeat()
-    // which replaces this timer before it fires, so the extra REST poll
-    // only occurs while the subscription is genuinely silent.
-    _resetWsHeartbeat();
   }, WS_HEARTBEAT_INTERVAL_MS);
 }
 
