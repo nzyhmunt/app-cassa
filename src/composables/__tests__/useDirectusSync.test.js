@@ -4603,12 +4603,14 @@ describe('NS9 — WS orders:create triggers immediate order_items pull', () => {
     expect(orderItemFetches.length).toBe(0);
   });
 
-  it('NS9-SEM: rapid orders:create burst shares one pull (semaphore dedup)', async () => {
+  it('NS9-SEM: rapid orders:create burst deduplicates concurrent pulls (second is deferred)', async () => {
     const { syncState } = await import('../sync/state.js');
     syncState._running = true; // allow _triggerImmediateOrderItemsPull to fire
     // Use a deferred fetch so the first order_items pull hangs in-flight, allowing
     // us to fire a second orders:create event while the first pull is still pending
-    // and verify the semaphore prevents a second overlapping pull from being started.
+    // and verify the semaphore prevents a second *overlapping* (concurrent) pull.
+    // The second event sets _orderItemsPullPending=true so that once the first pull
+    // settles its .finally() re-triggers a second sequential pull.
     let resolveOrderItemsFetch;
     const orderItemsFetchPromise = new Promise(res => { resolveOrderItemsFetch = res; });
     let orderItemsFetchCount = 0;
@@ -4627,7 +4629,8 @@ describe('NS9 — WS orders:create triggers immediate order_items pull', () => {
     };
 
     // Fire two rapid orders:create events.  The first should start the pull and set
-    // the semaphore; the second should see the semaphore is set and skip.
+    // _orderItemsPullInFlight; the second should see the semaphore is set and only
+    // set _orderItemsPullPending = true without starting a concurrent second fetch.
     await _handleSubscriptionMessage('orders', wsPayload);
     await _handleSubscriptionMessage('orders', wsPayload);
 
@@ -4635,11 +4638,19 @@ describe('NS9 — WS orders:create triggers immediate order_items pull', () => {
 
     // Release the hanging fetch so cleanup finishes.
     resolveOrderItemsFetch();
-    await flushPromises(LONG_FLUSH_ROUNDS);
 
-    // Only one order_items fetch should have been started — the semaphore deduped
-    // the second burst event.
-    expect(orderItemsFetchCount).toBe(1);
+    // Two order_items fetches should have been made:
+    //  1. The first orders:create starts a pull immediately.
+    //  2. The second orders:create sets _orderItemsPullPending = true (no parallel pull).
+    //  3. When the first pull's .finally() runs it sees pending=true, clears it, and
+    //     re-triggers _triggerImmediateOrderItemsPull() — starting fetch #2.
+    // The semaphore prevents *concurrent* pulls; the pending flag ensures the second
+    // event's data is still fetched, just sequentially.
+    // Use vi.waitFor because the second fetch starts from a .finally() callback after
+    // multi-layer async IDB operations that may resolve outside the flushPromises window.
+    await vi.waitFor(() => {
+      expect(orderItemsFetchCount).toBe(2);
+    }, { timeout: 5000 });
   });
 
   it('NS9-ABORT-FP: forcePull() clears _orderItemsPullInFlight and nulls _orderItemsPullAbortController', async () => {
@@ -5185,5 +5196,105 @@ describe('NS9-STOPPED — _triggerImmediateOrderItemsPull returns early after st
     expect(orderItemsFetches.length).toBe(0);
     // Semaphore must remain null.
     expect(syncState._orderItemsPullInFlight).toBeNull();
+  });
+});
+
+// ── NS9-OFFLINE-OI: window.offline clears _orderItemsPullPending ──────────────
+//
+// When a second orders:create event sets _orderItemsPullPending while a pull is
+// already in-flight, a subsequent window.offline must clear _orderItemsPullPending
+// so that the aborted pull's .finally() does not immediately restart a new
+// order_items fetch while the app has no network.
+
+describe('NS9-OFFLINE-OI — window.offline clears _orderItemsPullPending, preventing re-trigger', () => {
+  it('NS9-OFFLINE-OI: offline clears pending flag so aborted pull does not restart', async () => {
+    const { syncState } = await import('../sync/state.js');
+
+    // Register the online/offline listeners by going through startSync.
+    const sync = useDirectusSync();
+    vi.spyOn(global, 'fetch').mockResolvedValue(directusListResponse([]));
+    await sync.startSync({ appType: 'cassa', store: makeStore() });
+    await flushPromises(LONG_FLUSH_ROUNDS);
+
+    try {
+      // Directly plant a fake in-flight NS9 pull — mirrors the pattern used by
+      // NS9-OFFLINE-PULL and avoids the IDB-async timing race that occurs when
+      // starting a real pull with _triggerImmediateOrderItemsPull().
+      const fakeAc = new AbortController();
+      let resolveHangingOIPull;
+      const hangingOIPull = new Promise(res => { resolveHangingOIPull = res; });
+      hangingOIPull.catch(() => {}); // suppress unhandled rejection on cleanup
+
+      syncState._orderItemsPullAbortController = fakeAc;
+      syncState._orderItemsPullInFlight = hangingOIPull;
+      // Simulate a second orders:create that arrived while the first pull was
+      // in-flight and set the pending flag.
+      syncState._orderItemsPullPending = true;
+
+      // Network drops.
+      window.dispatchEvent(new Event('offline'));
+      await flushPromises(10);
+
+      // AbortController must have been signalled.
+      expect(fakeAc.signal.aborted).toBe(true);
+      // Pending flag must be cleared so aborted pull's .finally() does not restart.
+      expect(syncState._orderItemsPullPending).toBe(false);
+      // Semaphores must be released immediately (not waiting on .finally()).
+      expect(syncState._orderItemsPullInFlight).toBeNull();
+      expect(syncState._orderItemsPullAbortController).toBeNull();
+
+      // Clean up the dangling promise.
+      resolveHangingOIPull();
+    } finally {
+      sync.stopSync();
+    }
+  });
+});
+
+// ── NS9-OFFLINE-PULL: window.offline aborts in-flight _runPull() ──────────────
+//
+// An in-flight _runPull() whose fetch is hanging on TCP timeout must be
+// cancelled immediately when the device goes offline so that _onOnline()'s
+// recovery pull is not blocked by the stale semaphore.
+
+describe('NS9-OFFLINE-PULL — window.offline aborts in-flight _runPull() and releases semaphore', () => {
+  it('NS9-OFFLINE-PULL: offline aborts _pullAbortController, clears _pullInFlight, bumps generation', async () => {
+    const { syncState } = await import('../sync/state.js');
+
+    // Register listeners via startSync (fetch resolves quickly so startup completes).
+    const sync = useDirectusSync();
+    vi.spyOn(global, 'fetch').mockResolvedValue(directusListResponse([]));
+    await sync.startSync({ appType: 'cassa', store: makeStore() });
+    await flushPromises(LONG_FLUSH_ROUNDS);
+
+    try {
+      // Directly plant a fake in-flight _runPull() — this simulates a pull whose
+      // underlying fetch is hanging on a TCP timeout.
+      const fakeAc = new AbortController();
+      let resolveHangingPull;
+      const hangingPull = new Promise(res => { resolveHangingPull = res; });
+      hangingPull.catch(() => {}); // suppress unhandled rejection on cleanup
+
+      syncState._pullAbortController = fakeAc;
+      syncState._pullInFlight = hangingPull;
+      const genBefore = syncState._pullGeneration;
+
+      // Network drops.
+      window.dispatchEvent(new Event('offline'));
+      await flushPromises(10);
+
+      // AbortController must have been signalled.
+      expect(fakeAc.signal.aborted).toBe(true);
+      // Semaphore must be cleared so _onOnline()'s recovery pull is not blocked.
+      expect(syncState._pullInFlight).toBeNull();
+      expect(syncState._pullAbortController).toBeNull();
+      // Generation must advance so any late resolution of the hung pull is ignored.
+      expect(syncState._pullGeneration).toBe(genBefore + 1);
+
+      // Clean up the dangling hanging promise.
+      resolveHangingPull();
+    } finally {
+      sync.stopSync();
+    }
   });
 });

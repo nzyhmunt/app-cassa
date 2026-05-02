@@ -215,6 +215,17 @@ function _onOffline() {
   syncState._pullAbortController = null;
   syncState._pullInFlight = null;
   syncState._pullGeneration++;
+  // Clear the WS-triggered table_merge_sessions dedup semaphore.  The
+  // _pullCollection() call that backs it has no AbortSignal so it cannot be
+  // actively cancelled, but releasing the semaphore pointer means that once the
+  // network recovers the next delete event will start a fresh replace instead of
+  // awaiting the stale, possibly-never-settling promise.
+  syncState._tableMergePullInFlight = null;
+  // Same for the global config (venue settings) dedup semaphore.  _runGlobalPull
+  // also uses an un-signalled REST client; releasing the pointer lets the next
+  // timer tick or _onOnline() call start a fresh config pull rather than coalescing
+  // onto the old hung promise.
+  syncState._globalPullInFlight = null;
   // If an in-flight push had already set syncState.syncStatus to "syncing", the
   // generation bump above causes that superseded _runPush() to skip its
   // post-await status update.  Reflect the offline state here so the UI
