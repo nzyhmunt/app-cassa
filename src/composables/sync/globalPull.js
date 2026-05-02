@@ -538,8 +538,12 @@ export async function _runGlobalPullInner({ onProgress = null } = {}) {
  */
 export function _runGlobalPull({ onProgress = null } = {}) {
   if (!syncState._globalPullInFlight) {
-    syncState._globalPullInFlight = _runGlobalPullInner({ onProgress })
-      .finally(() => { syncState._globalPullInFlight = null; });
+    // Identity-guard the .finally() so that if _onOffline() / forcePull() nulls
+    // the semaphore and a new pull starts, the stale promise's .finally() does
+    // not overwrite the newer semaphore reference when it eventually settles.
+    const p = _runGlobalPullInner({ onProgress })
+      .finally(() => { if (syncState._globalPullInFlight === p) syncState._globalPullInFlight = null; });
+    syncState._globalPullInFlight = p;
   }
   return syncState._globalPullInFlight;
 }

@@ -5116,13 +5116,14 @@ describe('_triggerImmediateOrderItemsPull — _pullInFlight gate with _pullOrder
 
 // ── NS9-RUNPULL-PENDING: _runPull() triggers NS9 pull at end when pending ─────
 //
-// When _triggerImmediateOrderItemsPull() sets _orderItemsPullPending=true because
-// order_items was still in-flight in a running _runPull() cycle, _runPull() must
-// fire a follow-up NS9 pull once it completes so items committed during the
-// order_items request window are not missed.
+// When a WS orders:create event arrives *while* the order_items HTTP request
+// inside _runPull() is already in-flight, _runPull() must fire a follow-up NS9
+// pull so items committed during that fetch window are not missed until the
+// next poll.  Events arriving *before* the fetch starts are already captured by
+// the current request's incremental window, so no follow-up is needed for those.
 
 describe('NS9-RUNPULL-PENDING — _runPull triggers follow-up NS9 pull when pending flag is set', () => {
-  it('NS9-RUNPULL-PENDING: NS9 pull fires after _runPull() when _orderItemsPullPending was set mid-cycle', async () => {
+  it('NS9-RUNPULL-PENDING: NS9 pull fires after _runPull() when _orderItemsPullPending was set during fetch', async () => {
     const { syncState } = await import('../sync/state.js');
     const { _runPull } = await import('../sync/pullQueue.js');
 
@@ -5131,23 +5132,37 @@ describe('NS9-RUNPULL-PENDING — _runPull triggers follow-up NS9 pull when pend
     syncState._running = true;
 
     let orderItemsFetchCount = 0;
+    let resolveOrderItemsFetch;
+    const orderItemsFetchStarted = new Promise(res => {
+      // Resolved when the first order_items fetch actually starts.
+      resolveOrderItemsFetch = res;
+    });
+    let orderItemsFetchResolve;
+    const orderItemsFetchPromise = new Promise(res => { orderItemsFetchResolve = res; });
 
     vi.spyOn(global, 'fetch').mockImplementation((url) => {
       if (String(url).includes('/items/order_items')) {
         orderItemsFetchCount++;
+        resolveOrderItemsFetch(); // signal that fetch has started
+        return orderItemsFetchPromise.then(() => directusListResponse([]));
       }
       return Promise.resolve(directusListResponse([]));
     });
 
-    // Start _runPull(). The inner IIFE is synchronous up to its first await
-    // (first _pullCollection call), so _orderItemsPullPending is cleared
-    // synchronously before suspension.
+    // Start _runPull().
     const pullPromise = _runPull();
 
-    // Set the pending flag immediately after _runPull() has cleared it.
-    // _runPull() is now suspended at its first internal await; the flag will
-    // still be true when _runPull() reaches the end-of-cycle check.
+    // Wait until _runPull() has actually started the order_items HTTP request.
+    // This ensures the pending flag is set *during* the fetch window, not before.
+    await orderItemsFetchStarted;
+
+    // Simulate a WS orders:create arriving while order_items is being fetched.
+    // _runPull() already cleared _orderItemsPullPending before the fetch, so any
+    // new assignment here represents a truly concurrent event.
     syncState._orderItemsPullPending = true;
+
+    // Unblock the order_items fetch so _runPull() can complete.
+    orderItemsFetchResolve();
 
     // Wait for _runPull() to complete.
     await pullPromise;
@@ -5169,12 +5184,50 @@ describe('NS9-RUNPULL-PENDING — _runPull triggers follow-up NS9 pull when pend
       syncState._orderItemsPullInFlight = null;
     }
   });
+
+  it('NS9-RUNPULL-EARLY: orders:create arriving before order_items fetch does NOT trigger extra pull', async () => {
+    const { syncState } = await import('../sync/state.js');
+    const { _runPull } = await import('../sync/pullQueue.js');
+
+    syncState._running = true;
+
+    let orderItemsFetchCount = 0;
+
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      if (String(url).includes('/items/order_items')) orderItemsFetchCount++;
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    // Start _runPull(). The inner IIFE is synchronous up to its first await
+    // (first _pullCollection call for 'orders'), so _orderItemsPullPending is
+    // cleared synchronously before suspension.
+    const pullPromise = _runPull();
+
+    // Set the pending flag immediately — _runPull() is now suspended at the
+    // 'orders' fetch (before reaching 'order_items').  This simulates an
+    // orders:create event arriving before the order_items fetch starts.
+    // _runPull() will clear this flag again right before it starts the
+    // order_items fetch, so no wasteful follow-up pull should be triggered.
+    syncState._orderItemsPullPending = true;
+
+    // Wait for _runPull() to complete.
+    await pullPromise;
+    await flushPromises(LONG_FLUSH_ROUNDS);
+
+    // The pending flag must have been cleared by _runPull() before the fetch.
+    expect(syncState._orderItemsPullPending).toBe(false);
+
+    // Only the single order_items fetch from the main pull cycle should have
+    // occurred — no wasteful follow-up NS9 pull.
+    expect(orderItemsFetchCount).toBe(1);
+  });
 });
 
 // ── NS9-STOPPED: stopSync guard prevents NS9 pull after sync is stopped ────────
 //
 // _triggerImmediateOrderItemsPull() must return immediately when _running=false
-// so that a late WS orders:create event cannot restart a pull after stopSync().
+// or navigator.onLine=false so that a late WS orders:create event cannot restart
+// a pull after stopSync() or start a hanging fetch while offline.
 
 describe('NS9-STOPPED — _triggerImmediateOrderItemsPull returns early after stopSync', () => {
   it('NS9-STOPPED: no NS9 pull starts when _running=false', async () => {
@@ -5185,6 +5238,29 @@ describe('NS9-STOPPED — _triggerImmediateOrderItemsPull returns early after st
 
     // Simulate stopSync() having been called.
     syncState._running = false;
+
+    _triggerImmediateOrderItemsPull();
+    await flushPromises(LONG_FLUSH_ROUNDS);
+
+    // No order_items fetch must have started.
+    const orderItemsFetches = fetchSpy.mock.calls
+      .map(([url]) => String(url))
+      .filter(url => url.includes('/items/order_items'));
+    expect(orderItemsFetches.length).toBe(0);
+    // Semaphore must remain null.
+    expect(syncState._orderItemsPullInFlight).toBeNull();
+  });
+
+  it('NS9-OFFLINE: no NS9 pull starts when navigator.onLine=false', async () => {
+    const { syncState } = await import('../sync/state.js');
+    const { _triggerImmediateOrderItemsPull } = await import('../sync/pullQueue.js');
+
+    const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue(directusListResponse([]));
+
+    syncState._running = true;
+
+    // Simulate offline state.
+    vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
 
     _triggerImmediateOrderItemsPull();
     await flushPromises(LONG_FLUSH_ROUNDS);

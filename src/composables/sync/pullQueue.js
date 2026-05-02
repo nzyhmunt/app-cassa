@@ -345,6 +345,13 @@ export async function _pullCollection(collection, { forceFull = false, lastPullT
     // the result as a genuine empty page.
     if (aborted) break;
     if (data.length === 0) break;
+    // If the abort signal fired while the HTTP response was in transit, discard
+    // this page rather than committing potentially stale data to IDB.  An aborted
+    // NS9 pull whose HTTP response arrived just as _runPull() started its own
+    // order_items fetch would otherwise still write into the same IDB stores,
+    // potentially overwriting newer records that _runPull()'s own fetch is about
+    // to commit (equal-timestamp records are treated as "incoming wins").
+    if (signal?.aborted) break;
     hadRemoteRecords = true;
 
     const mapped = data.map(r => _mapRecord(collection, r));
@@ -447,8 +454,14 @@ export async function _pullCollection(collection, { forceFull = false, lastPullT
 export function _triggerImmediateOrderItemsPull() {
   // If a full _runPull() cycle is already in progress AND has not yet processed
   // order_items — set the pending flag so _runPull() fires a follow-up NS9 pull
-  // after it finishes (covers items committed during the in-flight fetch window),
-  // then return; _runPull() covers order_items itself.
+  // after it finishes *if* the event arrived during the in-flight fetch window.
+  //
+  // _runPull() clears _orderItemsPullPending right before it starts the
+  // order_items fetch.  Events arriving before that point are already captured
+  // by the current fetch (incremental query covers all records since last_pull_ts),
+  // so the flag will be cleared before the post-cycle check, preventing a wasteful
+  // extra pull.  Only events that arrive *while* the order_items HTTP request is
+  // in-flight leave _orderItemsPullPending set and therefore trigger a follow-up.
   //
   // If _runPull() has already processed order_items (_pullOrderItemsDone = true),
   // the current cycle will NOT include items from this event. Fall through to
@@ -464,8 +477,9 @@ export function _triggerImmediateOrderItemsPull() {
     syncState._orderItemsPullPending = true;
     return;
   }
-  // Guard: do not start any new pull after stopSync() has been called.
-  if (!syncState._running) return;
+  // Guard: do not start any new pull after stopSync() has been called, or while
+  // the app is offline (a hanging fetch would re-block _orderItemsPullInFlight).
+  if (!syncState._running || !navigator.onLine) return;
   const ac = new AbortController();
   syncState._orderItemsPullAbortController = ac;
   const p = _pullCollection('order_items', { signal: ac.signal })
@@ -534,6 +548,13 @@ export async function _runPull() {
         // forcePull() or stopSync() starting a fresh pull session.
         if (ac.signal.aborted) break;
         if (menuSource === 'json' && collection === 'menu_items') continue;
+        // NS9: Clear the pending flag just before the order_items fetch starts.
+        // Any orders:create events that arrived earlier in this cycle (while
+        // _pullOrderItemsDone was still false) are already captured by this
+        // fetch's incremental window.  Only events arriving *during* the fetch
+        // would not be included; those will set _orderItemsPullPending=true again
+        // and are caught by the post-cycle follow-up check below.
+        if (collection === 'order_items') syncState._orderItemsPullPending = false;
         const { merged, ok } = await _pullCollection(collection, { signal: ac.signal });
         if (ac.signal.aborted) break;
         // Track that order_items has been processed in this cycle so that

@@ -118,9 +118,13 @@ export async function _handleSubscriptionMessage(collection, message) {
     if (collection === 'table_merge_sessions') {
       // NS4: Deduplicate concurrent pulls triggered by rapid delete events using
       // a semaphore so only one full-replace is in flight at a time.
+      // Identity-guard the .finally() so that if _onOffline() nulls the semaphore
+      // and a new delete event starts a fresh pull, the stale promise's .finally()
+      // does not overwrite the newer semaphore when it eventually settles.
       if (!syncState._tableMergePullInFlight) {
-        syncState._tableMergePullInFlight = _pullCollection('table_merge_sessions', { forceFull: true })
-          .finally(() => { syncState._tableMergePullInFlight = null; });
+        const p = _pullCollection('table_merge_sessions', { forceFull: true })
+          .finally(() => { if (syncState._tableMergePullInFlight === p) syncState._tableMergePullInFlight = null; });
+        syncState._tableMergePullInFlight = p;
       }
       await syncState._tableMergePullInFlight;
       return;
