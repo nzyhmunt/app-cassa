@@ -380,6 +380,8 @@ export function useDirectusSync() {
     syncState._pullInFlight = null;
     syncState._pullGeneration++;
     syncState._orderItemsPullInFlight = null;
+    // NS9: Clear pending flag so no stale re-trigger fires after stopSync().
+    syncState._orderItemsPullPending = false;
     if (syncState._pushTimer) { clearInterval(syncState._pushTimer); syncState._pushTimer = null; }
     if (syncState._pollTimer) { clearInterval(syncState._pollTimer); syncState._pollTimer = null; }
     if (syncState._globalTimer) { clearInterval(syncState._globalTimer); syncState._globalTimer = null; }
@@ -444,6 +446,9 @@ export function useDirectusSync() {
     syncState._pullInFlight = null;
     syncState._pullGeneration++;
     syncState._orderItemsPullInFlight = null;
+    // NS9: Clear pending flag — forcePull() will cover order_items as part of
+    // its full collection cycle, so no follow-up NS9 pull is needed.
+    syncState._orderItemsPullPending = false;
     syncState.syncStatus.value = 'syncing';
     try {
       const result = await _runPull();

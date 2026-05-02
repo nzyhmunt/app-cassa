@@ -81,6 +81,57 @@ function _getEffectiveTs(record) {
 }
 
 /**
+ * NS9 — Triggers an immediate `_pullCollection('order_items')` after a WS
+ * `orders:create` event, so that item details are merged within seconds rather
+ * than waiting for the next 30-second scheduled poll.
+ *
+ * Concurrency guarantees:
+ *  - If a pull is already in-flight, sets `_orderItemsPullPending` and returns.
+ *    The in-flight pull's `.finally()` will re-trigger once it settles, ensuring
+ *    items committed to the server after the current pull started are not missed.
+ *  - The promise is stored as `_orderItemsPullInFlight` (semaphore) so that rapid
+ *    bursts of `orders:create` events share one pull instead of launching
+ *    overlapping concurrent fetches that could roll checkpoints backwards.
+ *  - An `AbortController` is stored in `_orderItemsPullAbortController` so that
+ *    `forcePull()`, `stopSync()`, and `_runPull()` can cancel a stale WS-triggered
+ *    pull before it can overwrite fresher checkpoints.
+ *  - The `.finally()` uses an identity check on `_orderItemsPullInFlight` so a
+ *    stale settled promise cannot wipe a newer semaphore installed after an abort.
+ */
+function _triggerImmediateOrderItemsPull() {
+  if (syncState._orderItemsPullInFlight) {
+    // A pull is already in-flight.  Mark pending so the current pull's .finally()
+    // re-triggers once it settles, covering items committed after the current pull
+    // started.
+    syncState._orderItemsPullPending = true;
+    return;
+  }
+  const ac = new AbortController();
+  syncState._orderItemsPullAbortController = ac;
+  const p = _pullCollection('order_items', { signal: ac.signal })
+    .catch(e => {
+      // AbortError = intentional cancellation; no need to log.
+      if (e?.name !== 'AbortError') {
+        console.warn('[DirectusSync] WS orders:create — immediate order_items pull failed:', e);
+      }
+    })
+    .finally(() => {
+      // Identity-guard: only clear the semaphore / controller if they still refer
+      // to THIS pull.  If forcePull() / stopSync() already nulled them and a newer
+      // pull was started, we must not overwrite those newer references.
+      if (syncState._orderItemsPullInFlight === p) syncState._orderItemsPullInFlight = null;
+      if (syncState._orderItemsPullAbortController === ac) syncState._orderItemsPullAbortController = null;
+      // Re-trigger if another orders:create arrived while this pull was in-flight
+      // (i.e. items from a later order may not have been included in this pull).
+      if (syncState._orderItemsPullPending) {
+        syncState._orderItemsPullPending = false;
+        _triggerImmediateOrderItemsPull();
+      }
+    });
+  syncState._orderItemsPullInFlight = p;
+}
+
+/**
  * Processes an incoming realtime message from Directus Subscriptions.
  * Maps records to local format, upserts into IDB, and merges into the store.
  *
@@ -325,30 +376,8 @@ export async function _handleSubscriptionMessage(collection, message) {
     // REST poll.  Trigger an immediate order_items pull so items are merged into the
     // order within seconds of the WS event, eliminating the otherwise unavoidable
     // one-cycle delay.
-    // Guard with an in-flight promise semaphore (analogous to _tableMergePullInFlight)
-    // so that bursts of orders:create events share a single pull rather than launching
-    // overlapping concurrent fetches that could roll last_pull_ts / last_pull_cursor
-    // backwards.
-    // The pull is also wired to its own AbortController stored in
-    // syncState._orderItemsPullAbortController so that forcePull() and stopSync() can
-    // cancel it and prevent a stale WS-initiated pull from finishing after a newer
-    // scheduled pull has already committed fresher checkpoints.
     if (collection === 'orders' && event === 'create') {
-      if (!syncState._orderItemsPullInFlight) {
-        const ac = new AbortController();
-        syncState._orderItemsPullAbortController = ac;
-        const p = _pullCollection('order_items', { signal: ac.signal })
-          .catch(e => console.warn('[DirectusSync] WS orders:create — immediate order_items pull failed:', e))
-          .finally(() => {
-            // Identity-guard: only clear the semaphore if it still refers to THIS pull.
-            // If forcePull()/stopSync() already nulled _orderItemsPullInFlight and a
-            // new rapid orders:create started a fresh pull, we must not wipe that
-            // newer semaphore here.
-            if (syncState._orderItemsPullInFlight === p) syncState._orderItemsPullInFlight = null;
-            if (syncState._orderItemsPullAbortController === ac) syncState._orderItemsPullAbortController = null;
-          });
-        syncState._orderItemsPullInFlight = p;
-      }
+      _triggerImmediateOrderItemsPull();
     }
   }
 

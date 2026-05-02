@@ -42,6 +42,7 @@ import * as persistenceOps from '../../store/persistence/operations.js';
 import { _resetEnqueueSeq } from '../useSyncQueue.js';
 import { mapVenueConfigFromDirectus } from '../../utils/mappers.js';
 import { createRuntimeConfig, DEFAULT_SETTINGS } from '../../utils/index.js';
+import { _fetchUpdatedViaSDK } from '../sync/pullQueue.js';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -4641,8 +4642,10 @@ describe('NS9 — WS orders:create triggers immediate order_items pull', () => {
     // This avoids making the forcePull() call itself hang on a never-resolving fetch.
     const fakeAc = new AbortController();
     let rejectHangingFP;
+    const hangingFP = new Promise((_, reject) => { rejectHangingFP = reject; });
+    hangingFP.catch(() => {}); // suppress unhandled-rejection on cleanup
     syncState._orderItemsPullAbortController = fakeAc;
-    syncState._orderItemsPullInFlight = new Promise((_, reject) => { rejectHangingFP = reject; });
+    syncState._orderItemsPullInFlight = hangingFP;
 
     // Mock fetch so forcePull's regular pull cycle completes cleanly.
     vi.spyOn(global, 'fetch').mockResolvedValue(directusListResponse([]));
@@ -4666,8 +4669,10 @@ describe('NS9 — WS orders:create triggers immediate order_items pull', () => {
     // Directly simulate an in-flight NS9 pull by setting the semaphore state.
     const fakeAc = new AbortController();
     let rejectHanging;
+    const hangingSS = new Promise((_, reject) => { rejectHanging = reject; });
+    hangingSS.catch(() => {}); // suppress unhandled-rejection on cleanup
     syncState._orderItemsPullAbortController = fakeAc;
-    syncState._orderItemsPullInFlight = new Promise((_, reject) => { rejectHanging = reject; });
+    syncState._orderItemsPullInFlight = hangingSS;
 
     vi.spyOn(global, 'fetch').mockResolvedValue(directusListResponse([]));
 
@@ -4679,6 +4684,154 @@ describe('NS9 — WS orders:create triggers immediate order_items pull', () => {
     expect(syncState._orderItemsPullAbortController).toBeNull();
     expect(fakeAc.signal.aborted).toBe(true);
     // Clean up the hanging promise to avoid memory leaks.
+    rejectHanging(new Error('test cleanup'));
+  });
+});
+
+// ── _buildRestClient signal forwarding ────────────────────────────────────────
+//
+// Verifies that _buildRestClient(cfg, signal) forwards the AbortSignal into
+// every globalThis.fetch call it generates.  Tests exercise the signal through
+// the full _fetchUpdatedViaSDK() production code-path (which uses _buildRestClient
+// internally) so that any regression — e.g. forgetting to spread `signal` into
+// the fetch options — causes a clear test failure rather than leaving the suite
+// green while forcePull() / stopSync() silently stop cancelling in-flight requests.
+
+describe('_buildRestClient — AbortSignal forwarding', () => {
+  it('passes the AbortSignal to globalThis.fetch via _fetchUpdatedViaSDK', async () => {
+    const ac = new AbortController();
+    let capturedSignal;
+
+    vi.spyOn(global, 'fetch').mockImplementation((url, opts) => {
+      capturedSignal = opts?.signal;
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    // _fetchUpdatedViaSDK uses _buildRestClient internally — this is the real
+    // production code path that must forward the signal all the way to fetch.
+    await _fetchUpdatedViaSDK('orders', null, 1, null, ac.signal);
+
+    expect(capturedSignal).toBe(ac.signal);
+  });
+
+  it('returns clean empty result and does not log when signal is already aborted', async () => {
+    const ac = new AbortController();
+    const warnSpy = vi.spyOn(console, 'warn');
+
+    vi.spyOn(global, 'fetch').mockImplementation((url, opts) => {
+      // Simulate real browser fetch: reject with AbortError when signal fires.
+      const sig = opts?.signal;
+      return new Promise((_, reject) => {
+        if (sig?.aborted) { reject(new DOMException('Aborted', 'AbortError')); return; }
+        sig?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
+      });
+    });
+
+    // Abort the signal before the fetch starts to trigger an immediate rejection.
+    ac.abort();
+    const result = await _fetchUpdatedViaSDK('orders', null, 1, null, ac.signal);
+
+    // Must return a clean empty result — not an error.
+    expect(result.data).toEqual([]);
+    expect(result.error).toBeNull();
+    // Must NOT log a warning so operational telemetry stays clean.
+    expect(warnSpy).not.toHaveBeenCalledWith(
+      expect.stringContaining('Pull orders error'),
+    );
+  });
+});
+
+// ── NS9-RERUN: re-trigger after in-flight pull ────────────────────────────────
+//
+// When a second orders:create WS event arrives while _orderItemsPullInFlight is
+// already set, _orderItemsPullPending should be set to true.  Once the current
+// pull settles, the .finally() must detect the flag and re-trigger a new pull so
+// that items committed to the server after the first pull started are not missed.
+
+describe('NS9-RERUN — second orders:create during in-flight pull schedules re-run', () => {
+  it('NS9-RERUN: second event sets _orderItemsPullPending; re-run fires after first pull settles', async () => {
+    const { syncState } = await import('../sync/state.js');
+
+    let resolveFirstPull;
+    let orderItemsFetchCount = 0;
+
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      if (String(url).includes('/items/order_items')) {
+        orderItemsFetchCount++;
+        if (orderItemsFetchCount === 1) {
+          // First fetch hangs until we release it.
+          return new Promise(res => { resolveFirstPull = () => res(directusListResponse([])); });
+        }
+        return Promise.resolve(directusListResponse([]));
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const wsPayload = {
+      event: 'create',
+      data: [{ id: 'ord_rerun', status: 'accepted', table: '01', date_created: '2024-06-01T10:00:00.000Z', date_updated: null }],
+    };
+
+    // Fire first event — starts the in-flight pull.
+    await _handleSubscriptionMessage('orders', wsPayload);
+    // Give the pull enough time to start the first fetch.
+    await flushPromises(LONG_FLUSH_ROUNDS);
+
+    // Verify first pull is in-flight.
+    expect(syncState._orderItemsPullInFlight).not.toBeNull();
+    expect(syncState._orderItemsPullPending).toBe(false);
+
+    // Fire second event while first pull is still in-flight.
+    await _handleSubscriptionMessage('orders', wsPayload);
+    // _orderItemsPullPending must now be set.
+    expect(syncState._orderItemsPullPending).toBe(true);
+
+    // Release the first pull.
+    resolveFirstPull();
+    await flushPromises(LONG_FLUSH_ROUNDS);
+
+    // After first pull settles, .finally() re-triggers; wait for the second pull.
+    await vi.waitFor(() => {
+      expect(orderItemsFetchCount).toBeGreaterThanOrEqual(2);
+    }, { timeout: 5000 });
+
+    // Pending flag must be cleared after re-trigger.
+    expect(syncState._orderItemsPullPending).toBe(false);
+  });
+});
+
+// ── _runPull() cancels in-flight NS9 pull ─────────────────────────────────────
+//
+// When _runPull() starts it must abort any in-flight WS-triggered order_items
+// pull and clear _orderItemsPullPending to prevent the stale pull from finishing
+// after _runPull() has already committed fresher checkpoints.
+
+describe('_runPull() cancels in-flight NS9 pull at start', () => {
+  it('NS9-RUNPULL-ABORT: _runPull() aborts _orderItemsPullAbortController and clears semaphore', async () => {
+    const { syncState } = await import('../sync/state.js');
+
+    // Simulate an in-flight NS9 pull.
+    const fakeAc = new AbortController();
+    let rejectHanging;
+    const hangingP = new Promise((_, rej) => { rejectHanging = rej; });
+    hangingP.catch(() => {}); // suppress unhandled-rejection on cleanup
+    syncState._orderItemsPullAbortController = fakeAc;
+    syncState._orderItemsPullInFlight = hangingP;
+    syncState._orderItemsPullPending = true;
+
+    vi.spyOn(global, 'fetch').mockResolvedValue(directusListResponse([]));
+
+    const sync = useDirectusSync();
+    // forcePull() calls _runPull() after clearing the regular pull semaphore.
+    await sync.forcePull();
+
+    // _runPull() must have aborted the NS9 controller and cleared both fields.
+    expect(fakeAc.signal.aborted).toBe(true);
+    expect(syncState._orderItemsPullInFlight).toBeNull();
+    expect(syncState._orderItemsPullAbortController).toBeNull();
+    expect(syncState._orderItemsPullPending).toBe(false);
+
+    // Clean up the hanging promise.
     rejectHanging(new Error('test cleanup'));
   });
 });

@@ -103,6 +103,16 @@ export const syncState = {
    */
   _orderItemsPullAbortController: null,
   /**
+   * NS9 — Set to `true` when a WS `orders:create` event arrives while
+   * `_orderItemsPullInFlight` is already set (i.e. a pull is in progress).
+   * The in-flight pull's `.finally()` checks this flag and re-triggers
+   * `_triggerImmediateOrderItemsPull()` so that items committed on the server
+   * after the first pull started are not missed until the next 30-second poll.
+   * Cleared by `forcePull()`, `stopSync()`, and `_runPull()` (which covers
+   * `order_items` as part of its full collection cycle).
+   */
+  _orderItemsPullPending: false,
+  /**
    * NS8 — AbortController for the currently running `_runPull()` loop.
    * Replaced with a fresh controller at the start of each pull invocation.
    * Aborted (and set to `null`) by `forcePull()` and `stopSync()` so that the
@@ -224,6 +234,7 @@ export function resetSyncState() {
   syncState._tableMergePullInFlight = null;
   syncState._orderItemsPullInFlight = null;
   syncState._orderItemsPullAbortController = null;
+  syncState._orderItemsPullPending = false;
   syncState._pullAbortController = null;
 
   // Global pull

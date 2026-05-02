@@ -65,6 +65,11 @@ export function _getCfg() {
  * @param {string|null} sinceTs - ISO timestamp of last successful pull.
  * @param {number} [page]
  * @param {{ id: string, ts: string|null }|null} [cursor]
+ * @param {AbortSignal|null} [signal] - Optional AbortSignal forwarded into every
+ *   fetch call via `_buildRestClient`.  When the signal fires, the request
+ *   rejects immediately and the catch block returns a clean empty result without
+ *   logging so that intentional `forcePull()` / `stopSync()` cancellations do
+ *   not pollute operational telemetry with spurious pull-failure entries.
  */
 export async function _fetchUpdatedViaSDK(collection, sinceTs, page = 1, cursor = null, signal = null) {
   const cfg = _getCfg();
@@ -204,6 +209,12 @@ export async function _fetchUpdatedViaSDK(collection, sinceTs, page = 1, cursor 
     });
     return { data, maxTs, lastCursor, error: null };
   } catch (e) {
+    // AbortError: intentional cancellation by forcePull() / stopSync() / _runPull().
+    // Return a clean empty result without logging so operational telemetry is not
+    // polluted with spurious pull-failure entries (mirrors the push path's behaviour).
+    if (e?.name === 'AbortError') {
+      return { data: [], maxTs: null, lastCursor: null, error: null };
+    }
     console.warn(`[DirectusSync] Pull ${collection} error:`, e?.message ?? e);
     addSyncLog({
       direction: 'IN',
@@ -418,6 +429,14 @@ export async function _runPull() {
     // can cancel between collections without letting a superseded loop continue.
     const ac = new AbortController();
     syncState._pullAbortController = ac;
+    // NS9: Cancel any in-flight WS-triggered order_items pull — this full cycle
+    // covers order_items, so a concurrent NS9 pull is redundant and could roll
+    // last_pull_ts / last_pull_cursor backwards after this cycle commits fresher
+    // checkpoints.  Also clear the pending flag: this pull will handle order_items.
+    syncState._orderItemsPullAbortController?.abort();
+    syncState._orderItemsPullAbortController = null;
+    syncState._orderItemsPullInFlight = null;
+    syncState._orderItemsPullPending = false;
     try {
       if (!navigator.onLine) {
         return { ok: false, failedCollections: [], skippedReason: 'offline' };
