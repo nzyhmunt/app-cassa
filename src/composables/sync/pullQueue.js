@@ -14,7 +14,6 @@ import { upsertRecordsIntoIDB } from '../../store/persistence/operations.js';
 import {
   loadLastPullTsFromIDB,
   saveLastPullTsToIDB,
-  saveLastPullCursorToIDB,
   replaceTableMergesInIDB,
 } from '../../store/persistence/config.js';
 import { addSyncLog } from '../../store/persistence/syncLogs.js';
@@ -389,23 +388,14 @@ export async function _pullCollection(collection, { forceFull = false, lastPullT
       // Do not write the checkpoint if the signal was aborted while the page IDB
       // write was in progress.  The data write itself is idempotent (the next poll
       // will re-fetch and upsert the same records), but persisting a stale
-      // checkpoint could roll last_pull_ts / last_pull_cursor backwards relative
-      // to a fresher checkpoint already committed by the superseding forcePull()
-      // or _runPull() cycle that issued the abort.
+      // checkpoint could roll last_pull_ts backwards relative to a fresher
+      // checkpoint already committed by the superseding forcePull() or
+      // _runPull() cycle that issued the abort.
       if (signal?.aborted) break;
-      // Checkpoint the cursor position for diagnostics and future use.
-      // Only persist when both ts and id are truthy — a null ts cannot activate
-      // keyset mode and must not be stored (callers would receive a semantically
-      // invalid cursor that can never be used as a keyset filter boundary).
-      if (pageKeyCursor?.id && pageKeyCursor?.ts) {
-        await saveLastPullCursorToIDB(collection, pageKeyCursor);
-      }
-      // S2: Per-page cursor checkpoint — persist the cursor immediately after each
-      // successfully processed page.  A failure on page N+1 therefore cannot roll
-      // the cursor back to before page N, so the next polling cycle restarts from
-      // the end of the last successful page rather than re-fetching everything.
-      // Only write when latestTs has actually advanced beyond the last persisted
-      // value to avoid redundant IDB writes on every page of a multi-page pull.
+      // S2: Per-page timestamp checkpoint — persist immediately after each
+      // successfully processed page so that a failure on page N+1 cannot roll
+      // the timestamp back to before page N.  Only write when latestTs has
+      // actually advanced to avoid redundant IDB writes on every page.
       if (latestTs && latestTs !== lastSavedTs) {
         await saveLastPullTsToIDB(collection, latestTs);
         lastSavedTs = latestTs;

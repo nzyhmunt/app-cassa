@@ -3991,10 +3991,10 @@ describe('NS7 — keyset cursor pagination', () => {
   });
 });
 
-// ── NS7-CP — cross-poll keyset cursor checkpoint ──────────────────────────────
+// ── NS7-CP — per-page timestamp checkpoint ────────────────────────────────────
 
-describe('NS7-CP — keyset cursor checkpoint', () => {
-  it('persists a {ts, id} cursor to IDB after the first successful pull', async () => {
+describe('NS7-CP — per-page timestamp checkpoint', () => {
+  it('persists last_pull_ts to IDB after the first successful pull', async () => {
     const sinceTs = '2024-06-01T00:00:00.000Z';
     await saveLastPullTsToIDB('orders', sinceTs);
 
@@ -4007,18 +4007,15 @@ describe('NS7-CP — keyset cursor checkpoint', () => {
     const sync = useDirectusSync();
     await sync.forcePull();
 
-    const cursor = await loadLastPullCursorFromIDB('orders');
-    expect(cursor).not.toBeNull();
-    expect(cursor.id).toBe('ord_cp_001');
-    expect(cursor.ts).toBe('2024-06-02T10:00:00.000Z');
+    const ts = await loadLastPullTsFromIDB('orders');
+    expect(ts).toBe('2024-06-02T10:00:00.000Z');
   });
 
-  it('does NOT persist cursor when lastCursor has a null ts (no date fields on record)', async () => {
+  it('does NOT persist cursor to IDB (cursor is only used within a single pull call for pagination)', async () => {
     const sinceTs = '2024-06-01T00:00:00.000Z';
     await saveLastPullTsToIDB('orders', sinceTs);
 
-    // Record with neither date_updated nor date_created → lastCursor.ts = null
-    const record = makeRemoteOrder({ id: 'ord_no_date', date_updated: null, date_created: null });
+    const record = makeRemoteOrder({ id: 'ord_cp_002', date_updated: '2024-06-02T10:00:00.000Z' });
     vi.spyOn(global, 'fetch').mockImplementation((url) => {
       if (String(url).includes('/items/orders')) return Promise.resolve(directusListResponse([record]));
       return Promise.resolve(directusListResponse([]));
@@ -4027,16 +4024,16 @@ describe('NS7-CP — keyset cursor checkpoint', () => {
     const sync = useDirectusSync();
     await sync.forcePull();
 
-    // Cursor must NOT have been persisted (null-ts guard)
+    // Cursor must NOT be written to IDB — the per-page cursor write was removed
+    // because loadLastPullCursorFromIDB is never called in production code, and
+    // the write doubled IDB checkpoint traffic on every pull page with no benefit.
     const cursor = await loadLastPullCursorFromIDB('orders');
     expect(cursor).toBeNull();
   });
 
-  it('updates the stored cursor position when new records arrive', async () => {
+  it('advances last_pull_ts when newer records arrive on subsequent pulls', async () => {
     const sinceTs = '2024-06-01T00:00:00.000Z';
     await saveLastPullTsToIDB('orders', sinceTs);
-    // Plant an old cursor — it must be overwritten with the new record's position.
-    await saveLastPullCursorToIDB('orders', { ts: sinceTs, id: 'ord_cp_old' });
 
     const newRecord = makeRemoteOrder({ id: 'ord_cp_new', date_updated: '2024-06-03T08:00:00.000Z' });
     vi.spyOn(global, 'fetch').mockImplementation((url) => {
@@ -4047,11 +4044,6 @@ describe('NS7-CP — keyset cursor checkpoint', () => {
     const sync = useDirectusSync();
     await sync.forcePull();
 
-    const cursor = await loadLastPullCursorFromIDB('orders');
-    expect(cursor).not.toBeNull();
-    expect(cursor.id).toBe('ord_cp_new');
-    expect(cursor.ts).toBe('2024-06-03T08:00:00.000Z');
-    // Timestamp cursor must also have advanced
     const ts = await loadLastPullTsFromIDB('orders');
     expect(ts).toBe('2024-06-03T08:00:00.000Z');
   });
@@ -4060,7 +4052,8 @@ describe('NS7-CP — keyset cursor checkpoint', () => {
     const { getDB } = await import('../useIDB.js');
     const db = await getDB();
 
-    // Plant a cursor key alongside a pull-ts key
+    // Plant a cursor key alongside a pull-ts key (simulating a key that may
+    // have been written by an older version of the app or by tests directly).
     await saveLastPullTsToIDB('orders', '2024-06-01T00:00:00.000Z');
     await saveLastPullCursorToIDB('orders', { ts: '2024-06-01T00:00:00.000Z', id: 'ord_to_clear' });
 
@@ -4410,24 +4403,29 @@ describe('NP1 — _removeOrderItemsFromOrdersIDB fallback scan affectedOrderIds'
   });
 });
 
-// ── S5-FIX — WS heartbeat must not force-disconnect on idle apps ──────────────
+// ── S5-FIX — WS heartbeat triggers reconnect on prolonged silence ─────────────
 //
-// Before the fix, the heartbeat watchdog set _wsConnected = false and scheduled
-// a 2 s reconnect on every firing.  In idle mode (no data changes) Directus
-// subscription protocol pings never surface as application-level iterator
-// yields, so the watchdog fired every 30 s and the user saw a 2-3 s "WS down"
-// window at each polling interval.
+// Before the original fix, the heartbeat watchdog set _wsConnected = false and
+// scheduled a 2 s reconnect on every firing. In idle mode Directus subscription
+// protocol pings never surface as application-level iterator yields, so the
+// watchdog fired every 30 s and the user saw a 2-3 s "WS down" window at each
+// polling interval.
 //
-// After the fix the watchdog triggers a REST catch-up pull and re-arms itself.
-// A half-open socket can stay silent indefinitely without throwing; without
-// re-arming the client would receive exactly one catch-up pull and then go
-// permanently stale.  On idle but healthy connections REST polls occur every
-// WS_HEARTBEAT_INTERVAL_MS, which is acceptable compared to indefinite staleness.
-// The watchdog does NOT set _wsConnected = false or schedule a reconnect;
-// genuine disconnections are detected by the subscription iterator throw path.
+// The previous fix changed the watchdog to do a REST catch-up pull and re-arm
+// itself, avoiding the UI flash. However, re-arming without reconnecting caused
+// permanent 30s REST polling on idle healthy connections (defeating WS mode), and
+// a genuinely dead/half-open socket was never actually reconnected — it just
+// kept polling indefinitely without restoring sub-second WS delivery.
+//
+// The current fix has the watchdog set _wsConnected = false and call _reconnectWs()
+// when silence is detected. On a dead/half-open socket the reconnect restores WS
+// delivery. On a healthy but idle connection, the reconnect succeeds quickly,
+// _startSubscriptions re-arms the heartbeat, and no permanent polling loop results.
+// The watchdog does NOT call _resetWsHeartbeat() itself — re-arming is delegated
+// to _startSubscriptions() after a successful reconnect.
 
-describe('S5-FIX — WS heartbeat does not force-disconnect on idle apps', () => {
-  it('does not set _wsConnected to false when the watchdog fires', async () => {
+describe('S5-FIX — WS heartbeat triggers reconnect on prolonged silence', () => {
+  it('sets _wsConnected to false and triggers reconnect when watchdog fires', async () => {
     const { syncState } = await import('../sync/state.js');
     const { _resetWsHeartbeat } = await import('../sync/wsManager.js');
     const { WS_HEARTBEAT_INTERVAL_MS } = await import('../sync/echoSuppression.js');
@@ -4448,23 +4446,18 @@ describe('S5-FIX — WS heartbeat does not force-disconnect on idle apps', () =>
       await vi.advanceTimersByTimeAsync(WS_HEARTBEAT_INTERVAL_MS + 50);
       await flushPromises(LONG_FLUSH_ROUNDS);
 
-      // Core regression: the watchdog must NOT disconnect the WebSocket.
-      // Before the fix this was set to false here, causing a visible 2-3 s
-      // "WS down" window every 30 s on idle apps.
-      expect(syncState._wsConnected.value).toBe(true);
+      // The watchdog must set _wsConnected = false to trigger a reconnect attempt.
+      // Prolonged silence is treated as a potential half-open socket.
+      expect(syncState._wsConnected.value).toBe(false);
 
-      // The watchdog re-arms itself after firing to handle half-open sockets —
-      // the timer must be non-null.
-      expect(syncState._wsHeartbeatTimer).not.toBeNull();
-
-      // No reconnect timer should have been scheduled.
-      expect(syncState._reconnectTimer).toBeNull();
+      // The watchdog must NOT re-arm itself — re-arming is handled by
+      // _startSubscriptions() after a successful reconnect.
+      expect(syncState._wsHeartbeatTimer).toBeNull();
     } finally {
-      // Cleanup: clear the re-armed timer and reset state.
-      if (syncState._wsHeartbeatTimer) {
-        clearTimeout(syncState._wsHeartbeatTimer);
-        syncState._wsHeartbeatTimer = null;
-      }
+      // Cleanup: clear any timers set by the reconnect attempt and reset state.
+      if (syncState._pollTimer) { clearInterval(syncState._pollTimer); syncState._pollTimer = null; }
+      if (syncState._wsHeartbeatTimer) { clearTimeout(syncState._wsHeartbeatTimer); syncState._wsHeartbeatTimer = null; }
+      if (syncState._reconnectTimer) { clearTimeout(syncState._reconnectTimer); syncState._reconnectTimer = null; }
       syncState._running = false;
       syncState._wsConnected.value = false;
       vi.useRealTimers();
@@ -4915,15 +4908,15 @@ describe('AbortError does not partially replace table_merge_sessions IDB', () =>
 // Even when an HTTP page fetch completes successfully (aborted:false from
 // _fetchUpdatedViaSDK), the signal can be fired by forcePull() / stopSync() /
 // _runPull() while the IDB write is in progress.  In that window the data write
-// itself is fine (idempotent upserts on the next poll), but writing the cursor /
-// last_pull_ts would roll those checkpoints backwards relative to a fresher value
-// already committed by the superseding pull cycle.
+// itself is fine (idempotent upserts on the next poll), but writing last_pull_ts
+// would roll that checkpoint backwards relative to a fresher value already
+// committed by the superseding pull cycle.
 //
 // The fix adds `if (signal?.aborted) break;` after the IDB write but before the
-// checkpoint writes, so stale cursors are never persisted.
+// timestamp checkpoint write, so stale timestamps are never persisted.
 
-describe('ABORT-CK: signal abort after IDB write skips cursor/timestamp checkpoint', () => {
-  it('ABORT-CK: signal aborted mid-IDB write does not persist last_pull_ts or last_pull_cursor', async () => {
+describe('ABORT-CK: signal abort after IDB write skips timestamp checkpoint', () => {
+  it('ABORT-CK: signal aborted mid-IDB write does not persist last_pull_ts', async () => {
     const { _pullCollection } = await import('../sync/pullQueue.js');
     const idbOps = await import('../sync/idbOperations.js');
     const persistCfg = await import('../../store/persistence/config.js');
@@ -4947,27 +4940,24 @@ describe('ABORT-CK: signal abort after IDB write skips cursor/timestamp checkpoi
 
     // Spy on the atomic IDB write and abort the signal during it, simulating
     // forcePull() / stopSync() / _runPull() firing between the page fetch and
-    // the cursor checkpoint write.
+    // the timestamp checkpoint write.
     const atomicSpy = vi.spyOn(idbOps, '_atomicOrderItemsUpsertAndMerge')
       .mockImplementation(async () => {
         ac.abort(); // abort fires while the "IDB write" is in progress
         return { orderItemsWritten: 1, ordersWritten: 0, affectedOrderIds: new Set() };
       });
 
-    // Spy on the checkpoint functions that must NOT be called after the abort.
+    // Spy on the timestamp checkpoint function that must NOT be called after abort.
     const saveTsSpy = vi.spyOn(persistCfg, 'saveLastPullTsToIDB').mockResolvedValue(undefined);
-    const saveCursorSpy = vi.spyOn(persistCfg, 'saveLastPullCursorToIDB').mockResolvedValue(undefined);
 
     await _pullCollection('order_items', { signal: ac.signal });
 
-    // The checkpoint writes must be skipped to prevent rolling back a fresher
-    // cursor already written by the superseding pull cycle.
+    // The timestamp checkpoint write must be skipped to prevent rolling back a
+    // fresher value already written by the superseding pull cycle.
     expect(saveTsSpy).not.toHaveBeenCalled();
-    expect(saveCursorSpy).not.toHaveBeenCalled();
 
     atomicSpy.mockRestore();
     saveTsSpy.mockRestore();
-    saveCursorSpy.mockRestore();
   });
 });
 
