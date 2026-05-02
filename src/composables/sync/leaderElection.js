@@ -198,6 +198,13 @@ function _onOffline() {
   syncState._pushAbortController = null;
   syncState._pushGeneration++;
   syncState._pushInFlight = null;
+  // Abort any in-flight WS-triggered order_items pull for the same reason: a
+  // hanging fetch across an offline event would hold _orderItemsPullInFlight
+  // indefinitely, causing every subsequent orders:create trigger to only set
+  // _orderItemsPullPending without ever draining the fast-path again.
+  syncState._orderItemsPullAbortController?.abort();
+  syncState._orderItemsPullAbortController = null;
+  syncState._orderItemsPullInFlight = null;
   // If an in-flight push had already set syncState.syncStatus to "syncing", the
   // generation bump above causes that superseded _runPush() to skip its
   // post-await status update.  Reflect the offline state here so the UI
@@ -373,7 +380,7 @@ export function useDirectusSync() {
     syncState._pullAbortController?.abort();
     syncState._pullAbortController = null;
     // NS9: Abort any in-flight WS-triggered order_items pull so it cannot finish
-    // after the next pull cycle and roll last_pull_ts / last_pull_cursor backwards.
+    // after the next pull cycle and roll last_pull_ts backwards.
     syncState._orderItemsPullAbortController?.abort();
     syncState._orderItemsPullAbortController = null;
     // S3: Drop any in-flight pull reference so the next startSync() can start fresh.
@@ -437,8 +444,7 @@ export function useDirectusSync() {
     syncState._pullAbortController?.abort();
     syncState._pullAbortController = null;
     // NS9: Abort any in-flight WS-triggered order_items pull so it cannot write a
-    // stale last_pull_ts / last_pull_cursor after the new forcePull() cycle commits
-    // fresher checkpoints.
+    // stale last_pull_ts after the new forcePull() cycle commits a fresher checkpoint.
     syncState._orderItemsPullAbortController?.abort();
     syncState._orderItemsPullAbortController = null;
     // S3: Reset the in-flight semaphore so this user-initiated pull is not

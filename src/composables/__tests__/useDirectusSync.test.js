@@ -4411,16 +4411,15 @@ describe('NP1 — _removeOrderItemsFromOrdersIDB fallback scan affectedOrderIds'
 // yields, so the watchdog fired every 30 s and the user saw a 2-3 s "WS down"
 // window at each polling interval.
 //
-// After the fix the watchdog triggers a REST catch-up pull and re-arms itself.
-// A half-open socket can stay silent indefinitely without throwing; without
-// re-arming the client would receive exactly one catch-up pull and then go
-// permanently stale.  On idle but healthy connections REST polls occur every
-// WS_HEARTBEAT_INTERVAL_MS, which is acceptable compared to indefinite staleness.
-// The watchdog does NOT set _wsConnected = false or schedule a reconnect;
-// genuine disconnections are detected by the subscription iterator throw path.
+// Current behaviour: the watchdog triggers a REST catch-up pull and re-arms
+// itself for the first (WS_HEARTBEAT_STALE_COUNT − 1) consecutive fires.  On
+// the Nth consecutive fire it concludes the socket is half-open and reconnects
+// (_wsConnected = false + _reconnectWs()).  A real WS event at any point resets
+// the miss counter so healthy idle connections only reconnect after
+// WS_HEARTBEAT_STALE_COUNT × WS_HEARTBEAT_INTERVAL_MS of silence.
 
 describe('S5-FIX — WS heartbeat does not force-disconnect on idle apps', () => {
-  it('does not set _wsConnected to false when the watchdog fires', async () => {
+  it('does not set _wsConnected to false when the watchdog fires (miss < stale count)', async () => {
     const { syncState } = await import('../sync/state.js');
     const { _resetWsHeartbeat } = await import('../sync/wsManager.js');
     const { WS_HEARTBEAT_INTERVAL_MS } = await import('../sync/echoSuppression.js');
@@ -4437,11 +4436,12 @@ describe('S5-FIX — WS heartbeat does not force-disconnect on idle apps', () =>
     try {
       _resetWsHeartbeat();
 
-      // WS heartbeat interval elapses with no subscription messages arriving.
+      // WS heartbeat interval elapses with no subscription messages arriving
+      // (one fire, miss count becomes 1 which is < WS_HEARTBEAT_STALE_COUNT = 3).
       await vi.advanceTimersByTimeAsync(WS_HEARTBEAT_INTERVAL_MS + 50);
       await flushPromises(LONG_FLUSH_ROUNDS);
 
-      // Core regression: the watchdog must NOT disconnect the WebSocket.
+      // Core regression: a single miss must NOT disconnect the WebSocket.
       // Before the fix this was set to false here, causing a visible 2-3 s
       // "WS down" window every 30 s on idle apps.
       expect(syncState._wsConnected.value).toBe(true);
@@ -4464,6 +4464,44 @@ describe('S5-FIX — WS heartbeat does not force-disconnect on idle apps', () =>
     }
   });
 
+  it('sets _wsConnected to false and reconnects after WS_HEARTBEAT_STALE_COUNT consecutive fires', async () => {
+    const { syncState } = await import('../sync/state.js');
+    const { _resetWsHeartbeat } = await import('../sync/wsManager.js');
+    const { WS_HEARTBEAT_INTERVAL_MS, WS_HEARTBEAT_STALE_COUNT } = await import('../sync/echoSuppression.js');
+    const { appConfig } = await import('../../utils/index.js');
+
+    vi.spyOn(global, 'fetch').mockImplementation(() => Promise.resolve(directusListResponse([])));
+
+    appConfig.directus = { ...appConfig.directus, wsEnabled: true };
+    syncState._running = true;
+    syncState._wsConnected.value = true;
+
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
+    try {
+      _resetWsHeartbeat();
+
+      // Advance through all WS_HEARTBEAT_STALE_COUNT intervals with no WS events.
+      // Fires 1 … N-1 trigger REST pulls and re-arm; fire N triggers reconnect.
+      await vi.advanceTimersByTimeAsync(WS_HEARTBEAT_STALE_COUNT * WS_HEARTBEAT_INTERVAL_MS + 50);
+      await flushPromises(LONG_FLUSH_ROUNDS);
+
+      // After N consecutive silence windows the socket is assumed half-open:
+      // _wsConnected must be false and the timer must not be re-armed.
+      expect(syncState._wsConnected.value).toBe(false);
+      expect(syncState._wsHeartbeatTimer).toBeNull();
+      // Miss counter reset before reconnect call.
+      expect(syncState._wsHeartbeatMissCount).toBe(0);
+    } finally {
+      vi.clearAllTimers();
+      syncState._running = false;
+      syncState._wsConnected.value = false;
+      syncState._wsHeartbeatMissCount = 0;
+      if (syncState._pollTimer) { clearInterval(syncState._pollTimer); syncState._pollTimer = null; }
+      if (syncState._reconnectTimer) { clearTimeout(syncState._reconnectTimer); syncState._reconnectTimer = null; }
+      vi.useRealTimers();
+    }
+  });
+
   it('existing timer is cleared and replaced by _resetWsHeartbeat when a WS message arrives', async () => {
     const { syncState } = await import('../sync/state.js');
     const { _resetWsHeartbeat } = await import('../sync/wsManager.js');
@@ -4482,15 +4520,22 @@ describe('S5-FIX — WS heartbeat does not force-disconnect on idle apps', () =>
       _resetWsHeartbeat();
       const firstTimer = syncState._wsHeartbeatTimer;
       expect(firstTimer).not.toBeNull();
+      expect(syncState._wsHeartbeatMissCount).toBe(0);
 
-      // Simulate a WS message arriving at 15 s — should reset the timer.
-      await vi.advanceTimersByTimeAsync(15_000);
+      // Simulate a heartbeat fire (miss count → 1) followed by a WS message.
+      await vi.advanceTimersByTimeAsync(WS_HEARTBEAT_INTERVAL_MS + 50);
+      await flushPromises(LONG_FLUSH_ROUNDS);
+      expect(syncState._wsHeartbeatMissCount).toBe(1);
+
+      // WS message resets the miss counter and replaces the timer.
       _resetWsHeartbeat(); // called by _handleSubscriptionMessage on every WS event
       const secondTimer = syncState._wsHeartbeatTimer;
 
       // Timer must have been replaced (first one cleared, a fresh one started).
       expect(secondTimer).not.toBeNull();
       expect(secondTimer).not.toBe(firstTimer);
+      // Miss counter must have been reset.
+      expect(syncState._wsHeartbeatMissCount).toBe(0);
     } finally {
       if (syncState._wsHeartbeatTimer) {
         clearTimeout(syncState._wsHeartbeatTimer);

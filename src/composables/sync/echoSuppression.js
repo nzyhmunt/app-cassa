@@ -38,15 +38,28 @@ export const ECHO_SUPPRESS_RTT_MULTIPLIER = 3;
  * S5 — Heartbeat watchdog interval (ms).
  * If no WebSocket subscription event is received for this duration, a REST
  * catch-up pull is triggered as a safety net for messages that may have been
- * missed while the connection was idle.  The WS connection is NOT dropped by
- * the watchdog (see wsManager._resetWsHeartbeat for rationale); genuine
- * failures are detected when the subscription iterator throws.
+ * missed while the connection was idle.  After WS_HEARTBEAT_STALE_COUNT
+ * consecutive fires without a real WS event, the watchdog concludes the socket
+ * is likely half-open and triggers a reconnect (see wsManager._resetWsHeartbeat
+ * for full rationale).  Genuine failures are also detected when the subscription
+ * iterator throws.
  *
  * Note: Directus WebSocket protocol-level pings are handled transparently by
  * the browser and never surface as application-level subscription iterator
  * yields, so an idle subscription is always silent at the JS level.
  */
 export const WS_HEARTBEAT_INTERVAL_MS = 30_000;
+
+/**
+ * S5 — Number of consecutive heartbeat fires (without a real WS subscription
+ * event resetting the timer) before the watchdog concludes the socket is
+ * likely half-open and triggers a reconnect.
+ *
+ * With WS_HEARTBEAT_INTERVAL_MS = 30 s and this value = 3, a dead socket is
+ * detected within 90 s.  Healthy idle connections also reconnect every 90 s,
+ * which is a much lower reconnect rate than firing on every 30 s silence.
+ */
+export const WS_HEARTBEAT_STALE_COUNT = 3;
 
 /**
  * Map of "collection:recordId" → expiry timestamp (ms since epoch).

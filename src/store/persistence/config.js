@@ -184,13 +184,17 @@ export async function saveLastPullTsToIDB(collection, ts) {
 /**
  * Returns the keyset cursor `{ts, id}` for `collection` stored in app_meta.
  *
- * The cursor checkpoints the `{date_updated, id}` position at the end of
- * each successfully processed page.  It is stored for diagnostics and future
- * use; each new poll cycle starts with `pageKeyCursor = null` and always uses
- * the safe `_gte sinceTs` filter on the first page, so this stored cursor does
- * NOT resume the next incremental poll.  Note that `ts` may be `null` for
- * records that have neither `date_updated` nor `date_created` set; callers
- * must check for `null` before using the value in a keyset filter.
+ * The cursor is used for within-call pagination inside `_pullCollection`
+ * to continue fetching pages after the first.  Each new poll cycle starts
+ * with `pageKeyCursor = null` and always uses the safe `_gte sinceTs` filter
+ * on the first page, so this stored cursor does NOT resume the next incremental
+ * poll.  Note that `ts` may be `null` for records that have neither
+ * `date_updated` nor `date_created` set; callers must check for `null` before
+ * using the value in a keyset filter.
+ *
+ * NOTE: `saveLastPullCursorToIDB` is not called by production code (see its
+ * docstring), so this function typically returns `null` at runtime.  It is
+ * retained for diagnostic / testing purposes.
  *
  * Returns `null` when no cursor has been persisted yet (e.g. after a fresh
  * install or a full reset).

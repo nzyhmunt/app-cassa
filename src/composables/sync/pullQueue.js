@@ -507,8 +507,8 @@ export async function _runPull() {
     syncState._pullAbortController = ac;
     // NS9: Cancel any in-flight WS-triggered order_items pull — this full cycle
     // covers order_items, so a concurrent NS9 pull is redundant and could roll
-    // last_pull_ts / last_pull_cursor backwards after this cycle commits fresher
-    // checkpoints.  Also clear the pending flag: this pull will handle order_items.
+    // last_pull_ts backwards after this cycle commits a fresher checkpoint.
+    // Also clear the pending flag: this pull will handle order_items.
     syncState._orderItemsPullAbortController?.abort();
     syncState._orderItemsPullAbortController = null;
     syncState._orderItemsPullInFlight = null;

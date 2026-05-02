@@ -96,10 +96,10 @@ export const syncState = {
   _orderItemsPullInFlight: null,
   /**
    * NS9 — AbortController for the currently in-flight WS-triggered
-   * `order_items` pull.  Aborted (and set to `null`) by `forcePull()` and
-   * `stopSync()` so that a stale WS-initiated pull cannot finish after a newer
-   * scheduled pull has already written a fresher `last_pull_ts`, which would
-   * otherwise roll that checkpoint backwards.
+   * `order_items` pull.  Aborted (and set to `null`) by `_runPull()`,
+   * `forcePull()`, and `stopSync()` so that a stale WS-initiated pull cannot
+   * finish after a newer scheduled pull has already written a fresher
+   * `last_pull_ts`, which would otherwise roll that checkpoint backwards.
    */
   _orderItemsPullAbortController: null,
   /**
@@ -167,6 +167,14 @@ export const syncState = {
    * `_stopSubscriptions()` and `_resetDirectusSyncSingleton()`.
    */
   _wsHeartbeatTimer: null,
+  /**
+   * S5 — Count of consecutive heartbeat fires without an intervening real WS
+   * subscription event.  Reset to 0 by `_resetWsHeartbeat()` on every genuine
+   * WS message or connection event.  Incremented by the watchdog callback on
+   * each fire.  When it reaches `WS_HEARTBEAT_STALE_COUNT`, the watchdog
+   * concludes the socket is half-open and triggers a reconnect.
+   */
+  _wsHeartbeatMissCount: 0,
   /** Whether we are currently connected via WebSocket. */
   _wsConnected: ref(false),
 
@@ -262,6 +270,7 @@ export function resetSyncState() {
   syncState._reconnectTimer = null;
   syncState._onlineRetryTimer = null;
   syncState._wsHeartbeatTimer = null;
+  syncState._wsHeartbeatMissCount = 0;
   syncState._wsConnected.value = false;
 
   // Leadership

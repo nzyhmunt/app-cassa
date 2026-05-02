@@ -19,7 +19,7 @@ import { upsertRecordsIntoIDB, deleteRecordsFromIDB } from '../../store/persiste
 import { getDB } from '../useIDB.js';
 import { addSyncLog } from '../../store/persistence/syncLogs.js';
 import { _mapRecord, _extractRecordIds } from './mapper.js';
-import { _isEchoSuppressed, WS_HEARTBEAT_INTERVAL_MS } from './echoSuppression.js';
+import { _isEchoSuppressed, WS_HEARTBEAT_INTERVAL_MS, WS_HEARTBEAT_STALE_COUNT } from './echoSuppression.js';
 import { _atomicOrderItemsUpsertAndMerge, _removeOrderItemsFromOrdersIDB } from './idbOperations.js';
 import { _refreshStoreFromIDB } from './storebridge.js';
 import { COLLECTION_QUIRKS, PULL_CONFIG } from './config.js';
@@ -32,46 +32,70 @@ const _unsubscribers = [];
 /**
  * S5 — Resets (or starts) the WebSocket heartbeat watchdog timer.
  * Called after every incoming WS message and whenever a WS connection is
- * established.  If no WS subscription event arrives within
- * WS_HEARTBEAT_INTERVAL_MS, a REST catch-up pull is triggered and the watchdog
- * is rescheduled so that prolonged silence (half-open socket) keeps triggering
- * recovery pulls until a real WS event arrives and resets the timer.
+ * established.  Resets the consecutive-miss counter so each real subscription
+ * event resets the stale-socket clock.
  *
- * The watchdog deliberately re-arms itself after firing: a half-open socket can
- * stay silent indefinitely without throwing (the subscription iterator only
- * throws on a hard close/error), so without re-arming the client would receive
- * exactly one catch-up pull and then go permanently stale.  On idle but healthy
- * connections this causes REST catch-up polls every WS_HEARTBEAT_INTERVAL_MS —
- * that is acceptable compared to the alternative of indefinite staleness.
+ * Behaviour:
+ *  - For the first (WS_HEARTBEAT_STALE_COUNT − 1) consecutive fires without a
+ *    real WS event, the watchdog triggers a REST catch-up pull and re-arms
+ *    itself.  This handles brief silence on healthy connections.
+ *  - On the Nth consecutive fire (where N = WS_HEARTBEAT_STALE_COUNT), the
+ *    watchdog sets _wsConnected = false and calls _reconnectWs(), because
+ *    prolonged silence with no iterator throw most likely indicates a
+ *    half-open socket that will never surface a close event.
  *
- * Do NOT force-disconnect the WS here.  Directus WebSocket protocol pings are
+ * By not reconnecting on every single fire, healthy idle connections avoid
+ * continuous subscription churn.  Directus WebSocket protocol-level pings are
  * handled at the TCP/browser level and never surface as application-level
  * subscription iterator yields, so an idle subscription is always silent at the
- * JS level.  Forcing a reconnect on every silence window would tear down and
- * recreate healthy subscriptions continuously, introducing spurious "WS down"
- * UI flashes and churn.  Genuine connection failures (dropped link, server
- * restart, etc.) are detected when the subscription iterator throws in
- * processSubscription(), which sets _wsConnected = false and schedules
- * _reconnectWs() — restoring sub-second WS delivery without any watchdog
- * involvement.
+ * JS level.  Genuine failures (dropped link, server restart) are detected when
+ * the subscription iterator throws in processSubscription(), which also sets
+ * _wsConnected = false and schedules _reconnectWs().
  */
 export function _resetWsHeartbeat() {
   if (syncState._wsHeartbeatTimer) { clearTimeout(syncState._wsHeartbeatTimer); syncState._wsHeartbeatTimer = null; }
+  // Reset the miss counter: this is a real WS message or connection event.
+  syncState._wsHeartbeatMissCount = 0;
+  if (!syncState._running || appConfig.directus?.wsEnabled !== true) return;
+  _armWsHeartbeatTimer();
+}
+
+/**
+ * Internal helper — arms the watchdog timer without resetting the miss counter.
+ * Called from `_resetWsHeartbeat()` (initial arm / re-arm after a real event)
+ * and from the callback itself (re-arm after a REST catch-up pull when the
+ * miss count has not yet reached the stale threshold).
+ */
+function _armWsHeartbeatTimer() {
   if (!syncState._running || appConfig.directus?.wsEnabled !== true) return;
   syncState._wsHeartbeatTimer = setTimeout(() => {
     syncState._wsHeartbeatTimer = null;
     if (!syncState._running || !syncState._wsConnected.value) return;
-    console.warn(
-      `[DirectusSync] WS heartbeat: no activity for ${WS_HEARTBEAT_INTERVAL_MS}ms — triggering REST catch-up pull.`,
-    );
-    // Immediately do a REST pull to catch up on any messages potentially
-    // missed while the connection was silent.
-    _runPull().catch(() => {});
-    // Re-arm the watchdog so that a half-open socket (silent but never
-    // throwing) keeps triggering recovery pulls.  On a healthy connection,
-    // incoming WS subscription events reset the timer before it fires again,
-    // so the periodic REST poll only occurs during genuine silence.
-    _resetWsHeartbeat();
+    syncState._wsHeartbeatMissCount++;
+    if (syncState._wsHeartbeatMissCount >= WS_HEARTBEAT_STALE_COUNT) {
+      // Prolonged silence — likely a half-open socket.  Reconnect to restore
+      // sub-second WS delivery.  Reset the miss counter so a successful
+      // reconnect (which calls _resetWsHeartbeat() via _startSubscriptions)
+      // starts with a clean slate.
+      syncState._wsHeartbeatMissCount = 0;
+      console.warn(
+        `[DirectusSync] WS heartbeat: ${WS_HEARTBEAT_STALE_COUNT} consecutive ` +
+        `${WS_HEARTBEAT_INTERVAL_MS}ms silence windows — reconnecting.`,
+      );
+      syncState._wsConnected.value = false;
+      _reconnectWs().catch(() => {});
+    } else {
+      console.warn(
+        `[DirectusSync] WS heartbeat: no activity for ${WS_HEARTBEAT_INTERVAL_MS}ms ` +
+        `(miss #${syncState._wsHeartbeatMissCount}) — triggering REST catch-up pull.`,
+      );
+      // Immediately do a REST pull to catch up on any messages potentially
+      // missed while the connection was silent.
+      _runPull().catch(() => {});
+      // Re-arm the watchdog.  On a healthy connection, the next real WS event
+      // will reset the timer (and counter) before this fires again.
+      _armWsHeartbeatTimer();
+    }
   }, WS_HEARTBEAT_INTERVAL_MS);
 }
 
