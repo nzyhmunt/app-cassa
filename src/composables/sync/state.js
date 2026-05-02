@@ -87,6 +87,14 @@ export const syncState = {
    */
   _tableMergePullInFlight: null,
   /**
+   * NS9 — In-flight promise for the immediate `order_items` pull triggered by a
+   * WS `orders:create` event.  Deduplicates concurrent pulls when multiple
+   * `orders:create` events arrive in rapid succession so that only one
+   * `_pullCollection('order_items')` is in flight at a time.  Reset to `null`
+   * in a `.finally()` callback.
+   */
+  _orderItemsPullInFlight: null,
+  /**
    * NS8 — AbortController for the currently running `_runPull()` loop.
    * Replaced with a fresh controller at the start of each pull invocation.
    * Aborted (and set to `null`) by `forcePull()` and `stopSync()` so that the
@@ -206,6 +214,7 @@ export function resetSyncState() {
   syncState._pullInFlight = null;
   syncState._pullGeneration = 0;
   syncState._tableMergePullInFlight = null;
+  syncState._orderItemsPullInFlight = null;
   syncState._pullAbortController = null;
 
   // Global pull

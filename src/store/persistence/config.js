@@ -185,8 +185,10 @@ export async function saveLastPullTsToIDB(collection, ts) {
  * Returns the keyset cursor `{ts, id}` for `collection` stored in app_meta.
  *
  * The cursor checkpoints the `{date_updated, id}` position at the end of
- * each successfully processed page so the next incremental poll can resume
- * from where the previous one left off.  Note that `ts` may be `null` for
+ * each successfully processed page.  It is stored for diagnostics and future
+ * use; each new poll cycle starts with `pageKeyCursor = null` and always uses
+ * the safe `_gte sinceTs` filter on the first page, so this stored cursor does
+ * NOT resume the next incremental poll.  Note that `ts` may be `null` for
  * records that have neither `date_updated` nor `date_created` set; callers
  * must check for `null` before using the value in a keyset filter.
  *

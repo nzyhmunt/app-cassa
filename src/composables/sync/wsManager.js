@@ -324,12 +324,17 @@ export async function _handleSubscriptionMessage(collection, message) {
     // their modifiers) would only become visible after the next scheduled 30-second
     // REST poll.  Trigger an immediate order_items pull so items are merged into the
     // order within seconds of the WS event, eliminating the otherwise unavoidable
-    // one-cycle delay.  The pull is fire-and-forget: the IDB upsert path is
-    // idempotent and safe to run concurrently with the scheduled poll.
+    // one-cycle delay.
+    // Guard with an in-flight promise semaphore (analogous to _tableMergePullInFlight)
+    // so that bursts of orders:create events share a single pull rather than launching
+    // overlapping concurrent fetches that could roll last_pull_ts / last_pull_cursor
+    // backwards.
     if (collection === 'orders' && event === 'create') {
-      _pullCollection('order_items').catch(e =>
-        console.warn('[DirectusSync] WS orders:create — immediate order_items pull failed:', e),
-      );
+      if (!syncState._orderItemsPullInFlight) {
+        syncState._orderItemsPullInFlight = _pullCollection('order_items')
+          .catch(e => console.warn('[DirectusSync] WS orders:create — immediate order_items pull failed:', e))
+          .finally(() => { syncState._orderItemsPullInFlight = null; });
+      }
     }
   }
 

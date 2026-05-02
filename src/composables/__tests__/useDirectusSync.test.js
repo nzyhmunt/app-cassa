@@ -4511,9 +4511,10 @@ describe('S5-FIX — WS heartbeat does not force-disconnect on idle apps', () =>
 // Without the NS9 fix, item details would only appear after the next 30-second
 // REST poll cycle, causing a confusing 30 s delay for operators on a second device.
 //
-// The fix triggers a fire-and-forget _pullCollection('order_items') immediately
-// after a WS orders:create event is processed, so items (and their modifiers) are
-// merged into the order within seconds.
+// The fix triggers an immediate _pullCollection('order_items') after a WS
+// orders:create event is processed, guarded by a _orderItemsPullInFlight
+// semaphore so that bursts of orders:create events share one pull instead of
+// launching overlapping concurrent fetches.
 
 describe('NS9 — WS orders:create triggers immediate order_items pull', () => {
   it('fires an order_items REST fetch after a WS orders:create event', async () => {

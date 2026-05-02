@@ -14,7 +14,6 @@ import { upsertRecordsIntoIDB } from '../../store/persistence/operations.js';
 import {
   loadLastPullTsFromIDB,
   saveLastPullTsToIDB,
-  loadLastPullCursorFromIDB,
   saveLastPullCursorToIDB,
   replaceTableMergesInIDB,
 } from '../../store/persistence/config.js';
