@@ -33,10 +33,10 @@ const _unsubscribers = [];
  * S5 — Resets (or starts) the WebSocket heartbeat watchdog timer.
  * Called after every incoming WS message and whenever a WS connection is
  * established.  If no WS subscription event arrives within
- * WS_HEARTBEAT_INTERVAL_MS, a REST catch-up pull is triggered as a safety
- * net and the watchdog reschedules itself.  The WS connection is NOT dropped
- * (see inline comment inside the callback for rationale); genuine failures
- * are detected by the subscription iterator in processSubscription().
+ * WS_HEARTBEAT_INTERVAL_MS, a one-shot REST catch-up pull is triggered as a
+ * safety net and the timer is NOT rescheduled (see inline comment for
+ * rationale).  Genuine connection failures are detected by the subscription
+ * iterator in processSubscription().
  */
 export function _resetWsHeartbeat() {
   if (syncState._wsHeartbeatTimer) { clearTimeout(syncState._wsHeartbeatTimer); syncState._wsHeartbeatTimer = null; }
@@ -59,9 +59,12 @@ export function _resetWsHeartbeat() {
     // detected when the subscription iterator throws in processSubscription(),
     // which sets _wsConnected = false and schedules _reconnectWs().
     //
-    // Reset the watchdog so it continues to fire every WS_HEARTBEAT_INTERVAL_MS
-    // until a real WS event or a subscription error resets / clears it.
-    _resetWsHeartbeat();
+    // Do NOT call _resetWsHeartbeat() here.  On an idle but healthy connection
+    // Directus subscriptions never emit application-level events, so
+    // self-rescheduling the watchdog would degrade WS mode into permanent
+    // 30 s REST polling for every connected client.  The watchdog fires once
+    // per silence period and stops; the next real WS message (or a fresh
+    // _resetWsHeartbeat() call from processSubscription on reconnect) re-arms it.
   }, WS_HEARTBEAT_INTERVAL_MS);
 }
 
@@ -104,11 +107,16 @@ function _getEffectiveTs(record) {
  *    stale settled promise cannot wipe a newer semaphore installed after an abort.
  */
 function _triggerImmediateOrderItemsPull() {
-  // If a full _runPull() cycle is already in progress it will pull order_items
-  // as part of its normal collection loop — launching a parallel NS9 fetch would
-  // race against it and could overwrite fresher checkpoints.  Skip the trigger;
-  // _runPull() covers the items from this event.
-  if (syncState._pullInFlight) return;
+  // If a full _runPull() cycle is already in progress AND has not yet processed
+  // order_items — launching a parallel NS9 fetch would race against it and could
+  // overwrite fresher checkpoints.  Skip the trigger; _runPull() will cover the
+  // items from this event.
+  //
+  // If _runPull() is in progress but has already processed order_items
+  // (_pullOrderItemsDone = true), the current cycle will NOT fetch items from
+  // this new event.  Proceed with the NS9 pull so item details appear promptly
+  // rather than waiting up to 30 s for the next scheduled cycle.
+  if (syncState._pullInFlight && !syncState._pullOrderItemsDone) return;
   if (syncState._orderItemsPullInFlight) {
     // A pull is already in-flight.  Mark pending so the current pull's .finally()
     // re-triggers once it settles, covering items committed after the current pull

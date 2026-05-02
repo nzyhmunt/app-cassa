@@ -103,6 +103,20 @@ export const syncState = {
    */
   _orderItemsPullAbortController: null,
   /**
+   * NS9 — Set to `true` once `order_items` has been fetched in the currently
+   * running `_runPull()` cycle.  Reset to `false` at the start of each new
+   * `_runPull()` invocation.
+   *
+   * Used by `_triggerImmediateOrderItemsPull()` to distinguish two cases when
+   * `_pullInFlight` is set:
+   *  - `false` → `order_items` is still ahead in the cycle; skip the NS9 pull
+   *    (it will be covered by the running `_runPull()`).
+   *  - `true`  → `order_items` was already processed; the current cycle will
+   *    NOT include items from a new `orders:create` event, so the NS9 pull
+   *    should proceed to ensure prompt delivery on the second device.
+   */
+  _pullOrderItemsDone: false,
+  /**
    * NS9 — Set to `true` when a WS `orders:create` event arrives while
    * `_orderItemsPullInFlight` is already set (i.e. a pull is in progress).
    * The in-flight pull's `.finally()` checks this flag and re-triggers
@@ -235,6 +249,7 @@ export function resetSyncState() {
   syncState._orderItemsPullInFlight = null;
   syncState._orderItemsPullAbortController = null;
   syncState._orderItemsPullPending = false;
+  syncState._pullOrderItemsDone = false;
   syncState._pullAbortController = null;
 
   // Global pull

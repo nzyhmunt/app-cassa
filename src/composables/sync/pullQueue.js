@@ -446,6 +446,7 @@ export async function _runPull() {
     syncState._orderItemsPullAbortController = null;
     syncState._orderItemsPullInFlight = null;
     syncState._orderItemsPullPending = false;
+    syncState._pullOrderItemsDone = false;
     try {
       if (!navigator.onLine) {
         return { ok: false, failedCollections: [], skippedReason: 'offline' };
@@ -468,6 +469,11 @@ export async function _runPull() {
         if (menuSource === 'json' && collection === 'menu_items') continue;
         const { merged, ok } = await _pullCollection(collection, { signal: ac.signal });
         if (ac.signal.aborted) break;
+        // Track that order_items has been processed in this cycle so that
+        // _triggerImmediateOrderItemsPull() can distinguish "order_items still
+        // ahead" from "order_items already done" when a WS orders:create arrives
+        // late in the pull cycle (after _runPull() has already pulled order_items).
+        if (collection === 'order_items') syncState._pullOrderItemsDone = true;
         if (merged > 0) anyMerged = true;
         if (!ok) allOk = false;
         if (merged > 0) mergedSummary.push(`${collection}:${merged}`);

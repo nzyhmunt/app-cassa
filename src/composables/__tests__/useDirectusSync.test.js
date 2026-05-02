@@ -4418,9 +4418,10 @@ describe('NP1 — _removeOrderItemsFromOrdersIDB fallback scan affectedOrderIds'
 // yields, so the watchdog fired every 30 s and the user saw a 2-3 s "WS down"
 // window at each polling interval.
 //
-// After the fix the watchdog only triggers a REST catch-up pull and resets the
-// timer; genuine disconnections are detected by the subscription iterator
-// throw path instead.
+// After the fix the watchdog only triggers a one-shot REST catch-up pull and
+// does NOT reschedule itself — genuine disconnections are detected by the
+// subscription iterator throw path instead.  Self-rescheduling would degrade
+// WS mode into permanent 30 s REST polling for every idle connected client.
 
 describe('S5-FIX — WS heartbeat does not force-disconnect on idle apps', () => {
   it('does not set _wsConnected to false when the watchdog fires', async () => {
@@ -4449,8 +4450,10 @@ describe('S5-FIX — WS heartbeat does not force-disconnect on idle apps', () =>
       // "WS down" window every 30 s on idle apps.
       expect(syncState._wsConnected.value).toBe(true);
 
-      // The watchdog timer must have been rescheduled (continues to monitor).
-      expect(syncState._wsHeartbeatTimer).not.toBeNull();
+      // The watchdog timer must be null after firing — it does NOT reschedule
+      // itself to prevent permanent 30 s REST polling on idle clients.
+      // The next real WS message (or reconnect) will re-arm it via _resetWsHeartbeat().
+      expect(syncState._wsHeartbeatTimer).toBeNull();
 
       // No reconnect timer should have been scheduled.
       expect(syncState._reconnectTimer).toBeNull();
@@ -4938,15 +4941,20 @@ describe('_runPull() aborted cycle does not update lastSuccessfulPull', () => {
   });
 });
 
-// ── _triggerImmediateOrderItemsPull skips when _runPull is active ─────────────
+// ── _triggerImmediateOrderItemsPull — _pullInFlight gate with _pullOrderItemsDone ─
 //
-// When a WS orders:create event arrives while _runPull() is already in progress,
-// _triggerImmediateOrderItemsPull() must not launch a parallel order_items fetch.
-// _runPull() will cover order_items in its own collection loop, so a concurrent
-// NS9 fetch would race against it and risk rolling checkpoints backwards.
+// When a WS orders:create event arrives while _runPull() is in progress, the NS9
+// fetch must be skipped IFF order_items is still ahead in the running cycle
+// (_pullOrderItemsDone = false): _runPull() will cover it, so a concurrent NS9
+// fetch would race and risk rolling checkpoints backwards.
+//
+// However, if _runPull() has ALREADY processed order_items in the current cycle
+// (_pullOrderItemsDone = true), a new orders:create event's items will NOT be
+// included in the ongoing cycle.  In that case the NS9 pull must proceed so that
+// item details reach the second device promptly rather than waiting up to 30 s.
 
-describe('_triggerImmediateOrderItemsPull skips when _runPull in progress', () => {
-  it('NS9-PULLINFLIGHT: orders:create during _runPull does not launch parallel order_items pull', async () => {
+describe('_triggerImmediateOrderItemsPull — _pullInFlight gate with _pullOrderItemsDone', () => {
+  it('NS9-PULLINFLIGHT: orders:create during _runPull (before order_items) does not launch parallel pull', async () => {
     const { syncState } = await import('../sync/state.js');
 
     let orderItemsFetchCount = 0;
@@ -4958,8 +4966,9 @@ describe('_triggerImmediateOrderItemsPull skips when _runPull in progress', () =
 
     const sync = useDirectusSync();
 
-    // Simulate _runPull being in-progress by setting the semaphore directly.
+    // Simulate _runPull being in-progress and order_items not yet processed.
     syncState._pullInFlight = new Promise(() => {}); // hanging, never resolves
+    syncState._pullOrderItemsDone = false; // order_items still ahead in the cycle
 
     // Fire a WS orders:create event.
     const wsPayload = {
@@ -4976,5 +4985,43 @@ describe('_triggerImmediateOrderItemsPull skips when _runPull in progress', () =
 
     // Clean up: release the fake _pullInFlight.
     syncState._pullInFlight = null;
+  });
+
+  it('NS9-PULLINFLIGHT-LATE: orders:create after order_items already processed triggers NS9 pull', async () => {
+    const { syncState } = await import('../sync/state.js');
+
+    const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue(directusListResponse([]));
+
+    const sync = useDirectusSync();
+
+    // Simulate _runPull in-progress but order_items was already pulled in this cycle.
+    syncState._pullInFlight = new Promise(() => {}); // hanging, never resolves
+    syncState._pullOrderItemsDone = true; // order_items already processed — NS9 must fire
+
+    // Fire a WS orders:create event.
+    const wsPayload = {
+      event: 'create',
+      data: [{ id: 'ord_late', status: 'accepted', table: '02', date_created: '2024-06-01T10:00:00.000Z', date_updated: null }],
+    };
+    await _handleSubscriptionMessage('orders', wsPayload);
+
+    // An NS9 pull must have been triggered because the current cycle won't cover
+    // these items (order_items was already fetched earlier in the cycle).
+    // Use vi.waitFor to handle multi-layer fire-and-forget async chains.
+    await vi.waitFor(() => {
+      const orderItemFetches = fetchSpy.mock.calls
+        .map(([url]) => String(url))
+        .filter(url => url.includes('/items/order_items'));
+      expect(orderItemFetches.length).toBeGreaterThan(0);
+    }, { timeout: 5000 });
+
+    // Clean up.
+    syncState._pullInFlight = null;
+    syncState._pullOrderItemsDone = false;
+    if (syncState._orderItemsPullAbortController) {
+      syncState._orderItemsPullAbortController.abort();
+      syncState._orderItemsPullAbortController = null;
+    }
+    syncState._orderItemsPullInFlight = null;
   });
 });
