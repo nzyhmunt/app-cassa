@@ -109,12 +109,7 @@ function _triggerImmediateOrderItemsPull() {
   const ac = new AbortController();
   syncState._orderItemsPullAbortController = ac;
   const p = _pullCollection('order_items', { signal: ac.signal })
-    .catch(e => {
-      // AbortError = intentional cancellation; no need to log.
-      if (e?.name !== 'AbortError') {
-        console.warn('[DirectusSync] WS orders:create — immediate order_items pull failed:', e);
-      }
-    })
+    .catch(e => console.warn('[DirectusSync] WS orders:create — immediate order_items pull failed:', e))
     .finally(() => {
       // Identity-guard: only clear the semaphore / controller if they still refer
       // to THIS pull.  If forcePull() / stopSync() already nulled them and a newer
