@@ -4714,7 +4714,7 @@ describe('_buildRestClient — AbortSignal forwarding', () => {
     expect(capturedSignal).toBe(ac.signal);
   });
 
-  it('returns clean empty result and does not log when signal is already aborted', async () => {
+  it('returns clean empty result with aborted:true and does not log when signal is already aborted', async () => {
     const ac = new AbortController();
     const warnSpy = vi.spyOn(console, 'warn');
 
@@ -4734,6 +4734,8 @@ describe('_buildRestClient — AbortSignal forwarding', () => {
     // Must return a clean empty result — not an error.
     expect(result.data).toEqual([]);
     expect(result.error).toBeNull();
+    // aborted:true distinguishes intentional cancellation from a genuine empty page.
+    expect(result.aborted).toBe(true);
     // Must NOT log a warning so operational telemetry stays clean.
     expect(warnSpy).not.toHaveBeenCalledWith(
       expect.stringContaining('Pull orders error'),
@@ -4833,5 +4835,147 @@ describe('_runPull() cancels in-flight NS9 pull at start', () => {
 
     // Clean up the hanging promise.
     rejectHanging(new Error('test cleanup'));
+  });
+});
+
+// ── AbortError in table_merge_sessions force-full path ────────────────────────
+//
+// When the AbortSignal fires mid-fetch during a table_merge_sessions force-full
+// pull, _pullCollection must NOT call replaceTableMergesInIDB with the partial
+// dataset — that would silently delete the pages that were never fetched.
+// The aborted:true flag returned by _fetchUpdatedViaSDK sets hadFetchError so
+// the replace is skipped.
+
+describe('AbortError does not partially replace table_merge_sessions IDB', () => {
+  it('TMS-ABORT: abort mid-fetch prevents replaceTableMergesInIDB with partial data', async () => {
+    const { _pullCollection } = await import('../sync/pullQueue.js');
+
+    const ac = new AbortController();
+    let fetchCount = 0;
+
+    vi.spyOn(global, 'fetch').mockImplementation((url, opts) => {
+      const sig = opts?.signal;
+      fetchCount++;
+      if (fetchCount === 1) {
+        // First page returns 200 records (full page), signalling there is more.
+        // Build a fake directus response with 200 records.
+        const rows = Array.from({ length: 200 }, (_, i) => ({
+          id: `tms_${i}`,
+          slave_table: `T${i}`,
+          master_table: 'T0',
+          date_updated: '2024-01-01T00:00:00.000Z',
+          date_created: '2024-01-01T00:00:00.000Z',
+        }));
+        return Promise.resolve(directusListResponse(rows));
+      }
+      // Second fetch: abort fires during the request.
+      return new Promise((_, reject) => {
+        if (sig?.aborted) { reject(new DOMException('Aborted', 'AbortError')); return; }
+        sig?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
+      });
+    });
+
+    // Spy on replaceTableMergesInIDB to detect if it is called.
+    const replaceSpy = vi.spyOn(
+      await import('../../store/idbPersistence.js'),
+      'replaceTableMergesInIDB',
+    );
+
+    // Abort partway through (after first page starts, before second page completes).
+    setTimeout(() => ac.abort(), 0);
+
+    // forceFull=true triggers the table_merge_sessions dedicated path.
+    const { ok } = await _pullCollection('table_merge_sessions', {
+      forceFull: true,
+      signal: ac.signal,
+    });
+
+    // The pull must not be reported as successful.
+    expect(ok).toBe(false);
+    // replaceTableMergesInIDB must NOT have been called with partial data.
+    expect(replaceSpy).not.toHaveBeenCalled();
+  });
+});
+
+// ── _runPull() does not mark aborted cycle as successful ──────────────────────
+//
+// When forcePull() / stopSync() aborts an in-flight _runPull() cycle,
+// lastSuccessfulPull / lastPullAt must NOT be updated.  Previously, because
+// _pullCollection() returned ok:true on clean abort and _runPull() only checked
+// allOk (which stays true when no collection reported an error), an aborted cycle
+// was falsely recorded as a completed sync.
+
+describe('_runPull() aborted cycle does not update lastSuccessfulPull', () => {
+  it('ABORT-TS: forcePull() mid-collection does not stamp lastSuccessfulPull', async () => {
+    const { syncState } = await import('../sync/state.js');
+    const sync = useDirectusSync();
+
+    const priorTs = syncState.lastSuccessfulPull.value;
+
+    // Hang all fetch calls indefinitely so the cycle is always in-flight.
+    vi.spyOn(global, 'fetch').mockImplementation(
+      () => new Promise(() => {}),
+    );
+
+    // Start a background pull (it will hang).
+    const bgPull = sync.forcePull();
+
+    // Let the pull get started.
+    await flushPromises(LONG_FLUSH_ROUNDS);
+
+    // A second forcePull() aborts the first cycle and starts a fresh one that
+    // also hangs.  We then cancel it via stopSync() to clean everything up.
+    // We don't await bgPull here because it's intentionally hanging.
+    sync.forcePull().catch(() => {});
+
+    // Neither hung cycle should have updated lastSuccessfulPull.
+    expect(syncState.lastSuccessfulPull.value).toBe(priorTs);
+
+    // Clean up: resolve all pending fetches.
+    vi.spyOn(global, 'fetch').mockResolvedValue(directusListResponse([]));
+    sync.stopSync();
+    await flushPromises(LONG_FLUSH_ROUNDS);
+    bgPull.catch(() => {});
+  });
+});
+
+// ── _triggerImmediateOrderItemsPull skips when _runPull is active ─────────────
+//
+// When a WS orders:create event arrives while _runPull() is already in progress,
+// _triggerImmediateOrderItemsPull() must not launch a parallel order_items fetch.
+// _runPull() will cover order_items in its own collection loop, so a concurrent
+// NS9 fetch would race against it and risk rolling checkpoints backwards.
+
+describe('_triggerImmediateOrderItemsPull skips when _runPull in progress', () => {
+  it('NS9-PULLINFLIGHT: orders:create during _runPull does not launch parallel order_items pull', async () => {
+    const { syncState } = await import('../sync/state.js');
+
+    let orderItemsFetchCount = 0;
+
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      if (String(url).includes('/items/order_items')) orderItemsFetchCount++;
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const sync = useDirectusSync();
+
+    // Simulate _runPull being in-progress by setting the semaphore directly.
+    syncState._pullInFlight = new Promise(() => {}); // hanging, never resolves
+
+    // Fire a WS orders:create event.
+    const wsPayload = {
+      event: 'create',
+      data: [{ id: 'ord_pif', status: 'accepted', table: '01', date_created: '2024-06-01T10:00:00.000Z', date_updated: null }],
+    };
+    await _handleSubscriptionMessage('orders', wsPayload);
+    await flushPromises(LONG_FLUSH_ROUNDS);
+
+    // No standalone order_items fetch should have been triggered.
+    expect(orderItemsFetchCount).toBe(0);
+    // The semaphore for NS9 must remain null (no pull was started).
+    expect(syncState._orderItemsPullInFlight).toBeNull();
+
+    // Clean up: release the fake _pullInFlight.
+    syncState._pullInFlight = null;
   });
 });

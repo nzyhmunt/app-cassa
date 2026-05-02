@@ -86,19 +86,29 @@ function _getEffectiveTs(record) {
  * than waiting for the next 30-second scheduled poll.
  *
  * Concurrency guarantees:
- *  - If a pull is already in-flight, sets `_orderItemsPullPending` and returns.
- *    The in-flight pull's `.finally()` will re-trigger once it settles, ensuring
- *    items committed to the server after the current pull started are not missed.
- *  - The promise is stored as `_orderItemsPullInFlight` (semaphore) so that rapid
- *    bursts of `orders:create` events share one pull instead of launching
+ *  - If `_runPull()` is already in progress, returns immediately; the running
+ *    cycle covers `order_items` as part of its normal collection loop, so a
+ *    parallel NS9 fetch would race against it and could overwrite fresher
+ *    checkpoints.
+ *  - If only a previous NS9 pull is in-flight, sets `_orderItemsPullPending`
+ *    and returns.  The in-flight pull's `.finally()` will re-trigger once it
+ *    settles, ensuring items committed to the server after the current pull
+ *    started are not missed.
+ *  - The promise is stored as `_orderItemsPullInFlight` (semaphore) so that
+ *    rapid bursts of `orders:create` events share one pull instead of launching
  *    overlapping concurrent fetches that could roll checkpoints backwards.
  *  - An `AbortController` is stored in `_orderItemsPullAbortController` so that
- *    `forcePull()`, `stopSync()`, and `_runPull()` can cancel a stale WS-triggered
- *    pull before it can overwrite fresher checkpoints.
+ *    `forcePull()`, `stopSync()`, and `_runPull()` can cancel a stale
+ *    WS-triggered pull before it can overwrite fresher checkpoints.
  *  - The `.finally()` uses an identity check on `_orderItemsPullInFlight` so a
  *    stale settled promise cannot wipe a newer semaphore installed after an abort.
  */
 function _triggerImmediateOrderItemsPull() {
+  // If a full _runPull() cycle is already in progress it will pull order_items
+  // as part of its normal collection loop — launching a parallel NS9 fetch would
+  // race against it and could overwrite fresher checkpoints.  Skip the trigger;
+  // _runPull() covers the items from this event.
+  if (syncState._pullInFlight) return;
   if (syncState._orderItemsPullInFlight) {
     // A pull is already in-flight.  Mark pending so the current pull's .finally()
     // re-triggers once it settles, covering items committed after the current pull

@@ -210,10 +210,12 @@ export async function _fetchUpdatedViaSDK(collection, sinceTs, page = 1, cursor 
     return { data, maxTs, lastCursor, error: null };
   } catch (e) {
     // AbortError: intentional cancellation by forcePull() / stopSync() / _runPull().
-    // Return a clean empty result without logging so operational telemetry is not
-    // polluted with spurious pull-failure entries (mirrors the push path's behaviour).
+    // Return a clean result with aborted:true so callers can distinguish an
+    // intentional cancellation from a genuine empty page.  No logging so
+    // operational telemetry is not polluted with spurious pull-failure entries
+    // (mirrors the push path's behaviour).
     if (e?.name === 'AbortError') {
-      return { data: [], maxTs: null, lastCursor: null, error: null };
+      return { data: [], maxTs: null, lastCursor: null, error: null, aborted: true };
     }
     console.warn(`[DirectusSync] Pull ${collection} error:`, e?.message ?? e);
     addSyncLog({
@@ -247,8 +249,12 @@ export async function _pullCollection(collection, { forceFull = false, lastPullT
     let hadFetchError = false;
     while (true) { // eslint-disable-line no-constant-condition
       if (signal?.aborted) break;
-      const { data, maxTs, error } = await _fetchUpdatedViaSDK(collection, null, page, null, signal);
+      const { data, maxTs, error, aborted } = await _fetchUpdatedViaSDK(collection, null, page, null, signal);
       if (error) hadFetchError = true;
+      // Abort fired mid-fetch: treat as a fetch error so replaceTableMergesInIDB
+      // is not called with an incomplete dataset, which would silently delete the
+      // pages that were never fetched.
+      if (aborted) { hadFetchError = true; break; }
       if (data.length === 0) break;
       const mapped = data.map(r => _mapRecord(collection, r));
       allMapped.push(...mapped);
@@ -328,8 +334,11 @@ export async function _pullCollection(collection, { forceFull = false, lastPullT
   while (true) { // eslint-disable-line no-constant-condition
     // Exit between pages when forcePull/stopSync aborts the pull session.
     if (signal?.aborted) break;
-    const { data, maxTs, lastCursor, error } = await _fetchUpdatedViaSDK(collection, storedSinceTs, page, pageKeyCursor, signal);
+    const { data, maxTs, lastCursor, error, aborted } = await _fetchUpdatedViaSDK(collection, storedSinceTs, page, pageKeyCursor, signal);
     if (error) hadFetchError = true;
+    // Abort fired mid-fetch: exit cleanly without advancing cursor or treating
+    // the result as a genuine empty page.
+    if (aborted) break;
     if (data.length === 0) break;
     hadRemoteRecords = true;
 
@@ -469,7 +478,7 @@ export async function _runPull() {
           `[DirectusSync] Pull cycle details — merged: ${mergedSummary.join(', ') || 'none'}; failed: ${failedCollections.join(', ') || 'none'}.`,
         );
       }
-      if (allOk) {
+      if (allOk && !ac.signal.aborted) {
         syncState.lastPullAt.value = new Date().toISOString();
         syncState.lastSuccessfulPull.value = syncState.lastPullAt.value;
         if (anyMerged) {
@@ -477,10 +486,12 @@ export async function _runPull() {
         } else {
           console.info('[DirectusSync] Pull cycle completed: all collections up to date.');
         }
+      } else if (ac.signal.aborted) {
+        console.info('[DirectusSync] Pull cycle aborted (superseded by forcePull/stopSync).');
       } else {
         console.warn('[DirectusSync] Pull cycle incomplete: at least one collection failed.');
       }
-      return { ok: allOk, failedCollections };
+      return { ok: allOk && !ac.signal.aborted, aborted: ac.signal.aborted, failedCollections };
     } catch (e) {
       console.warn('[DirectusSync] Pull error:', e);
       return { ok: false, failedCollections: [] };

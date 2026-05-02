@@ -452,7 +452,10 @@ export function useDirectusSync() {
     syncState.syncStatus.value = 'syncing';
     try {
       const result = await _runPull();
-      if (result?.ok !== false) {
+      if (result?.aborted) {
+        // Pull was cancelled by stopSync() / a superseding forcePull() — whoever
+        // called abort() already updated syncStatus; don't overwrite it here.
+      } else if (result?.ok !== false) {
         syncState.syncStatus.value = 'idle';
       } else if (result?.skippedReason === 'offline') {
         syncState.syncStatus.value = 'offline';
