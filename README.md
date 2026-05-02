@@ -7,7 +7,6 @@ Questo progetto è un'applicazione web POS (Point of Sale) progettata per ristor
 - [DATABASE_SCHEMA.md](./DATABASE_SCHEMA.md) — schema dati e relazioni Directus
 - [docs/GUIDA_UTENTE.md](./docs/GUIDA_UTENTE.md) — guida operativa per Cassa/Sala/Cucina
 - [docs/SCENARI_CONFLITTI_OFFLINE.md](./docs/SCENARI_CONFLITTI_OFFLINE.md) — simulazioni rete instabile e strategie di risoluzione conflitti
-- [docs/ANALISI_SYNC_DIRECTUS_REMOTO.md](./docs/ANALISI_SYNC_DIRECTUS_REMOTO.md) — analisi tecnica della sincronizzazione Directus remoto con problematiche e proposte
 
 ## Architettura — Tre Entry Point, un Codebase
 
