@@ -33,14 +33,25 @@ const _unsubscribers = [];
  * S5 — Resets (or starts) the WebSocket heartbeat watchdog timer.
  * Called after every incoming WS message and whenever a WS connection is
  * established.  If no WS subscription event arrives within
- * WS_HEARTBEAT_INTERVAL_MS, a one-shot REST catch-up pull is triggered as a
- * safety net and the timer is NOT rescheduled.  Genuine connection failures are
- * detected by the subscription iterator in processSubscription().
+ * WS_HEARTBEAT_INTERVAL_MS, a REST catch-up pull is triggered and the watchdog
+ * is rescheduled so that prolonged silence (half-open socket) keeps triggering
+ * recovery pulls until a real WS event arrives and resets the timer.
  *
- * The watchdog is deliberately one-shot: re-arming it after it fires would cause
- * permanent 30-second REST polling on idle healthy connections (Directus
- * protocol-level pings never surface as application-level subscription events,
- * so quiet venues would hit this path forever even with a working socket).
+ * The watchdog deliberately re-arms itself after firing: a half-open socket can
+ * stay silent indefinitely without throwing (the subscription iterator only
+ * throws on a hard close/error), so without re-arming the client would receive
+ * exactly one catch-up pull and then go permanently stale.  On idle but healthy
+ * connections this causes REST catch-up polls every WS_HEARTBEAT_INTERVAL_MS —
+ * that is acceptable compared to the alternative of indefinite staleness.
+ *
+ * Do NOT force-disconnect the WS here.  Directus WebSocket protocol pings are
+ * handled at the TCP/browser level and never surface as application-level
+ * subscription iterator yields, so an idle subscription is always silent at the
+ * JS level.  Forcing a disconnect every 30 s on idle apps causes a visible 2-3 s
+ * "WS down" window on every heartbeat cycle.  Genuine connection failures
+ * (dropped link, server restart, etc.) are detected when the subscription
+ * iterator throws in processSubscription(), which sets _wsConnected = false and
+ * schedules _reconnectWs().
  */
 export function _resetWsHeartbeat() {
   if (syncState._wsHeartbeatTimer) { clearTimeout(syncState._wsHeartbeatTimer); syncState._wsHeartbeatTimer = null; }
@@ -54,14 +65,11 @@ export function _resetWsHeartbeat() {
     // Immediately do a REST pull to catch up on any messages potentially
     // missed while the connection was silent.
     _runPull().catch(() => {});
-    // Do NOT force-disconnect the WS here. Directus WebSocket protocol pings
-    // are handled at the TCP/browser level and never surface as application-
-    // level subscription iterator yields, so an idle subscription is always
-    // silent at the JS level. Forcing a disconnect every 30 s on idle apps
-    // causes a visible 2-3 s "WS down" window on every heartbeat cycle.
-    // Genuine connection failures (dropped link, server restart, etc.) are
-    // detected when the subscription iterator throws in processSubscription(),
-    // which sets _wsConnected = false and schedules _reconnectWs().
+    // Re-arm the watchdog so that a half-open socket (silent but never
+    // throwing) keeps triggering recovery pulls.  On a healthy connection,
+    // incoming WS subscription events reset the timer before it fires again,
+    // so the periodic REST poll only occurs during genuine silence.
+    _resetWsHeartbeat();
   }, WS_HEARTBEAT_INTERVAL_MS);
 }
 

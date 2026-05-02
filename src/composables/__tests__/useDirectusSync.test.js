@@ -4418,12 +4418,13 @@ describe('NP1 — _removeOrderItemsFromOrdersIDB fallback scan affectedOrderIds'
 // yields, so the watchdog fired every 30 s and the user saw a 2-3 s "WS down"
 // window at each polling interval.
 //
-// After the fix the watchdog is one-shot: it triggers a REST catch-up pull and
-// does NOT reschedule itself.  Genuine disconnections are detected by the
-// subscription iterator throw path instead.  The watchdog is not re-armed after
-// firing because doing so would cause permanent 30 s REST polling on healthy but
-// idle connections (Directus pings never surface at the JS level, so quiet venues
-// would hit this path forever even with a working socket).
+// After the fix the watchdog triggers a REST catch-up pull and re-arms itself.
+// A half-open socket can stay silent indefinitely without throwing; without
+// re-arming the client would receive exactly one catch-up pull and then go
+// permanently stale.  On idle but healthy connections REST polls occur every
+// WS_HEARTBEAT_INTERVAL_MS, which is acceptable compared to indefinite staleness.
+// The watchdog does NOT set _wsConnected = false or schedule a reconnect;
+// genuine disconnections are detected by the subscription iterator throw path.
 
 describe('S5-FIX — WS heartbeat does not force-disconnect on idle apps', () => {
   it('does not set _wsConnected to false when the watchdog fires', async () => {
@@ -4452,16 +4453,14 @@ describe('S5-FIX — WS heartbeat does not force-disconnect on idle apps', () =>
       // "WS down" window every 30 s on idle apps.
       expect(syncState._wsConnected.value).toBe(true);
 
-      // The watchdog is one-shot — the timer must be null after it fires.
-      // Re-arming after firing would cause permanent 30 s REST polling on idle
-      // healthy connections where no subscription events arrive.
-      expect(syncState._wsHeartbeatTimer).toBeNull();
+      // The watchdog re-arms itself after firing to handle half-open sockets —
+      // the timer must be non-null.
+      expect(syncState._wsHeartbeatTimer).not.toBeNull();
 
       // No reconnect timer should have been scheduled.
       expect(syncState._reconnectTimer).toBeNull();
     } finally {
-      // Cleanup: clear the timer and reset state (timer is null after one-shot fires,
-      // but guard defensively in case the test fails before the watchdog fires).
+      // Cleanup: clear the re-armed timer and reset state.
       if (syncState._wsHeartbeatTimer) {
         clearTimeout(syncState._wsHeartbeatTimer);
         syncState._wsHeartbeatTimer = null;
@@ -4987,9 +4986,14 @@ describe('_runPull() aborted cycle does not update lastSuccessfulPull', () => {
 
     const priorTs = syncState.lastSuccessfulPull.value;
 
-    // Hang all fetch calls indefinitely so the cycle is always in-flight.
+    // Hang all fetch calls indefinitely, but release when the AbortSignal fires
+    // so that stopSync() cleanly settles all in-flight promises.
     vi.spyOn(global, 'fetch').mockImplementation(
-      () => new Promise(() => {}),
+      (_, opts) => new Promise((_, reject) => {
+        const sig = opts?.signal;
+        if (sig?.aborted) { reject(new DOMException('Aborted', 'AbortError')); return; }
+        sig?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
+      }),
     );
 
     // Start a background pull (it will hang).
@@ -4999,17 +5003,19 @@ describe('_runPull() aborted cycle does not update lastSuccessfulPull', () => {
     await flushPromises(LONG_FLUSH_ROUNDS);
 
     // A second forcePull() aborts the first cycle and starts a fresh one that
-    // also hangs.  We don't await it — the hanging fetch is cleaned up by stopSync() below.
-    sync.forcePull().catch(() => { /* intentionally ignored: promise hangs until stopSync() */ });
+    // also hangs.  stopSync() below will abort it.
+    sync.forcePull().catch(() => { /* intentionally ignored */ });
 
     // Neither hung cycle should have updated lastSuccessfulPull.
     expect(syncState.lastSuccessfulPull.value).toBe(priorTs);
 
-    // Clean up: resolve all pending fetches.
-    vi.spyOn(global, 'fetch').mockResolvedValue(directusListResponse([]));
+    // Clean up: stopSync() aborts all in-flight signals; the signal-aware mock
+    // rejects immediately, so all pending promises settle cleanly.
     sync.stopSync();
     await flushPromises(LONG_FLUSH_ROUNDS);
-    bgPull.catch(() => { /* intentionally ignored: aborted by stopSync(), expected to reject */ });
+    // bgPull was aborted by the second forcePull() call above and already
+    // resolved with { aborted: true } — this catch is a defensive no-op.
+    bgPull.catch(() => {});
   });
 });
 

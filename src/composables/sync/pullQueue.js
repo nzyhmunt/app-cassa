@@ -267,7 +267,11 @@ export async function _pullCollection(collection, { forceFull = false, lastPullT
     if (!hadFetchError) {
       await replaceTableMergesInIDB(allMapped);
       await _refreshStoreFromIDB('table_merge_sessions');
-      if (latestTs) await saveLastPullTsToIDB(collection, latestTs);
+      // Guard the checkpoint write: if the signal fired while replaceTableMergesInIDB
+      // or the store refresh was running, do not persist last_pull_ts — a superseding
+      // forcePull() / stopSync() cycle may have already written a fresher value and
+      // we must not overwrite it with a stale one.
+      if (latestTs && !signal?.aborted) await saveLastPullTsToIDB(collection, latestTs);
     }
     return { merged: allMapped.length, ok: !hadFetchError };
   }
