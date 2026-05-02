@@ -4924,9 +4924,8 @@ describe('_runPull() aborted cycle does not update lastSuccessfulPull', () => {
     await flushPromises(LONG_FLUSH_ROUNDS);
 
     // A second forcePull() aborts the first cycle and starts a fresh one that
-    // also hangs.  We then cancel it via stopSync() to clean everything up.
-    // We don't await bgPull here because it's intentionally hanging.
-    sync.forcePull().catch(() => {});
+    // also hangs.  We don't await it — the hanging fetch is cleaned up by stopSync() below.
+    sync.forcePull().catch(() => { /* intentionally ignored: promise hangs until stopSync() */ });
 
     // Neither hung cycle should have updated lastSuccessfulPull.
     expect(syncState.lastSuccessfulPull.value).toBe(priorTs);
@@ -4935,7 +4934,7 @@ describe('_runPull() aborted cycle does not update lastSuccessfulPull', () => {
     vi.spyOn(global, 'fetch').mockResolvedValue(directusListResponse([]));
     sync.stopSync();
     await flushPromises(LONG_FLUSH_ROUNDS);
-    bgPull.catch(() => {});
+    bgPull.catch(() => { /* intentionally ignored: aborted by stopSync(), expected to reject */ });
   });
 });
 
