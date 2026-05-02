@@ -4974,6 +4974,58 @@ describe('ABORT-CK: signal abort after IDB write skips timestamp checkpoint', ()
   });
 });
 
+// ── ABORT-PRE-WRITE: abort after HTTP response skips IDB write ─────────────
+//
+// When a fetch completes (HTTP response received and parsed, aborted:false from
+// _fetchUpdatedViaSDK) but the abort signal fires before the IDB write starts,
+// _pullCollection must NOT call _atomicOrderItemsUpsertAndMerge.  This is the
+// "in-transit abort" window: the HTTP response arrived just as _runPull() started
+// its own order_items fetch and fired the old NS9 abort signal.
+
+describe('ABORT-PRE-WRITE: abort fires after HTTP response but before IDB write skips the write', () => {
+  it('ABORT-PRE-WRITE: _atomicOrderItemsUpsertAndMerge not called when signal aborted between fetch and write', async () => {
+    const { _pullCollection, _fetchUpdatedViaSDK } = await import('../sync/pullQueue.js');
+    const idbOps = await import('../sync/idbOperations.js');
+    const { appConfig } = await import('../../utils/index.js');
+
+    appConfig.directus = { enabled: true, url: 'http://directus.test', staticToken: 'tok', wsEnabled: false };
+
+    const ac = new AbortController();
+
+    // Mock _fetchUpdatedViaSDK to return valid data AND simultaneously abort
+    // the signal, simulating the race where HTTP response arrives just as the
+    // calling code fires ac.abort().  The mock sets aborted:false because the
+    // HTTP response was already parsed; the signal fires synchronously inside
+    // the mock so signal.aborted is true when _pullCollection resumes.
+    vi.spyOn({ _fetchUpdatedViaSDK }, '_fetchUpdatedViaSDK');
+    vi.spyOn(global, 'fetch').mockImplementation(() => {
+      // Abort the signal synchronously while "inside" the fetch, simulating
+      // the abort being issued by _runPull() after the response arrived.
+      ac.abort();
+      return Promise.resolve(directusListResponse([{
+        id: 'oi_pre1',
+        order_id: 'ord_pre1',
+        date_updated: '2024-01-01T10:00:00.000Z',
+        date_created: '2024-01-01T10:00:00.000Z',
+        quantity: 1,
+        menu_item_id: 'mi_pre1',
+        order_item_modifiers: [],
+      }]));
+    });
+
+    // Spy on the IDB write — it must NOT be called.
+    const atomicSpy = vi.spyOn(idbOps, '_atomicOrderItemsUpsertAndMerge')
+      .mockResolvedValue({ orderItemsWritten: 0, ordersWritten: 0, affectedOrderIds: new Set() });
+
+    await _pullCollection('order_items', { signal: ac.signal });
+
+    // The IDB write must be skipped because the signal was aborted before it ran.
+    expect(atomicSpy).not.toHaveBeenCalled();
+
+    atomicSpy.mockRestore();
+  });
+});
+
 // ── _runPull() does not mark aborted cycle as successful ──────────────────────
 //
 // When forcePull() / stopSync() aborts an in-flight _runPull() cycle,
@@ -5192,9 +5244,15 @@ describe('NS9-RUNPULL-PENDING — _runPull triggers follow-up NS9 pull when pend
     syncState._running = true;
 
     let orderItemsFetchCount = 0;
+    let pendingFlagAtFetchStart; // captures the flag state at the exact moment the fetch starts
 
     vi.spyOn(global, 'fetch').mockImplementation((url) => {
-      if (String(url).includes('/items/order_items')) orderItemsFetchCount++;
+      if (String(url).includes('/items/order_items')) {
+        orderItemsFetchCount++;
+        // Capture the pending flag at the moment the order_items HTTP request starts.
+        // This verifies the flag was cleared *before* the fetch, not just eventually.
+        pendingFlagAtFetchStart = syncState._orderItemsPullPending;
+      }
       return Promise.resolve(directusListResponse([]));
     });
 
@@ -5216,6 +5274,8 @@ describe('NS9-RUNPULL-PENDING — _runPull triggers follow-up NS9 pull when pend
 
     // The pending flag must have been cleared by _runPull() before the fetch.
     expect(syncState._orderItemsPullPending).toBe(false);
+    // The flag must have been false AT THE MOMENT the order_items HTTP request started.
+    expect(pendingFlagAtFetchStart).toBe(false);
 
     // Only the single order_items fetch from the main pull cycle should have
     // occurred — no wasteful follow-up NS9 pull.
