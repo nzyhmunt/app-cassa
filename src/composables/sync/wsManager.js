@@ -24,7 +24,7 @@ import { _atomicOrderItemsUpsertAndMerge, _removeOrderItemsFromOrdersIDB } from 
 import { _refreshStoreFromIDB } from './storebridge.js';
 import { COLLECTION_QUIRKS, PULL_CONFIG } from './config.js';
 import { syncState } from './state.js';
-import { _pullCollection, _runPull } from './pullQueue.js';
+import { _pullCollection, _runPull, _triggerImmediateOrderItemsPull } from './pullQueue.js';
 
 /** Active unsubscribe callbacks (local to WS helpers, not shared state). */
 const _unsubscribers = [];
@@ -59,12 +59,12 @@ export function _resetWsHeartbeat() {
     // detected when the subscription iterator throws in processSubscription(),
     // which sets _wsConnected = false and schedules _reconnectWs().
     //
-    // Do NOT call _resetWsHeartbeat() here.  On an idle but healthy connection
-    // Directus subscriptions never emit application-level events, so
-    // self-rescheduling the watchdog would degrade WS mode into permanent
-    // 30 s REST polling for every connected client.  The watchdog fires once
-    // per silence period and stops; the next real WS message (or a fresh
-    // _resetWsHeartbeat() call from processSubscription on reconnect) re-arms it.
+    // Re-arm the watchdog so that a truly stalled/dead subscription keeps
+    // triggering periodic REST catch-up pulls until the socket recovers.
+    // On a healthy connection, incoming WS events call _resetWsHeartbeat()
+    // which replaces this timer before it fires, so the extra REST poll
+    // only occurs while the subscription is genuinely silent.
+    _resetWsHeartbeat();
   }, WS_HEARTBEAT_INTERVAL_MS);
 }
 
@@ -81,67 +81,6 @@ export function _resetWsHeartbeat() {
  */
 function _getEffectiveTs(record) {
   return (record?.date_updated ?? record?.date_created) ?? null;
-}
-
-/**
- * NS9 — Triggers an immediate `_pullCollection('order_items')` after a WS
- * `orders:create` event, so that item details are merged within seconds rather
- * than waiting for the next 30-second scheduled poll.
- *
- * Concurrency guarantees:
- *  - If `_runPull()` is already in progress, returns immediately; the running
- *    cycle covers `order_items` as part of its normal collection loop, so a
- *    parallel NS9 fetch would race against it and could overwrite fresher
- *    checkpoints.
- *  - If only a previous NS9 pull is in-flight, sets `_orderItemsPullPending`
- *    and returns.  The in-flight pull's `.finally()` will re-trigger once it
- *    settles, ensuring items committed to the server after the current pull
- *    started are not missed.
- *  - The promise is stored as `_orderItemsPullInFlight` (semaphore) so that
- *    rapid bursts of `orders:create` events share one pull instead of launching
- *    overlapping concurrent fetches that could roll checkpoints backwards.
- *  - An `AbortController` is stored in `_orderItemsPullAbortController` so that
- *    `forcePull()`, `stopSync()`, and `_runPull()` can cancel a stale
- *    WS-triggered pull before it can overwrite fresher checkpoints.
- *  - The `.finally()` uses an identity check on `_orderItemsPullInFlight` so a
- *    stale settled promise cannot wipe a newer semaphore installed after an abort.
- */
-function _triggerImmediateOrderItemsPull() {
-  // If a full _runPull() cycle is already in progress AND has not yet processed
-  // order_items — launching a parallel NS9 fetch would race against it and could
-  // overwrite fresher checkpoints.  Skip the trigger; _runPull() will cover the
-  // items from this event.
-  //
-  // If _runPull() is in progress but has already processed order_items
-  // (_pullOrderItemsDone = true), the current cycle will NOT fetch items from
-  // this new event.  Proceed with the NS9 pull so item details appear promptly
-  // rather than waiting up to 30 s for the next scheduled cycle.
-  if (syncState._pullInFlight && !syncState._pullOrderItemsDone) return;
-  if (syncState._orderItemsPullInFlight) {
-    // A pull is already in-flight.  Mark pending so the current pull's .finally()
-    // re-triggers once it settles, covering items committed after the current pull
-    // started.
-    syncState._orderItemsPullPending = true;
-    return;
-  }
-  const ac = new AbortController();
-  syncState._orderItemsPullAbortController = ac;
-  const p = _pullCollection('order_items', { signal: ac.signal })
-    .catch(e => console.warn('[DirectusSync] WS orders:create — immediate order_items pull failed:', e))
-    .finally(() => {
-      // Identity-guard: only clear the semaphore / controller if they still refer
-      // to THIS pull.  If forcePull() / stopSync() already nulled them and a newer
-      // pull was started, we must not overwrite those newer references.
-      if (syncState._orderItemsPullInFlight === p) syncState._orderItemsPullInFlight = null;
-      if (syncState._orderItemsPullAbortController === ac) syncState._orderItemsPullAbortController = null;
-      // Re-trigger if another orders:create arrived while this pull was in-flight
-      // (i.e. items from a later order may not have been included in this pull).
-      if (syncState._orderItemsPullPending) {
-        syncState._orderItemsPullPending = false;
-        _triggerImmediateOrderItemsPull();
-      }
-    });
-  syncState._orderItemsPullInFlight = p;
 }
 
 /**

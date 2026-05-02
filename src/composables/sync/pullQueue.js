@@ -248,7 +248,9 @@ export async function _pullCollection(collection, { forceFull = false, lastPullT
     const allMapped = [];
     let hadFetchError = false;
     while (true) { // eslint-disable-line no-constant-condition
-      if (signal?.aborted) break;
+      // Abort before making the next HTTP request — treat as fetch error so
+      // replaceTableMergesInIDB is not called with an incomplete dataset.
+      if (signal?.aborted) { hadFetchError = true; break; }
       const { data, maxTs, error, aborted } = await _fetchUpdatedViaSDK(collection, null, page, null, signal);
       if (error) hadFetchError = true;
       // Abort fired mid-fetch: treat as a fetch error so replaceTableMergesInIDB
@@ -420,6 +422,70 @@ export async function _pullCollection(collection, { forceFull = false, lastPullT
 }
 
 /**
+ * NS9 — Triggers an immediate `_pullCollection('order_items')` after a WS
+ * `orders:create` event, so that item details are merged within seconds rather
+ * than waiting for the next 30-second scheduled poll.
+ *
+ * Concurrency guarantees:
+ *  - Returns immediately when `stopSync()` has been called (`_running` guard).
+ *  - If `_runPull()` is in progress but `order_items` is still ahead in the
+ *    cycle (`_pullOrderItemsDone = false`), sets `_orderItemsPullPending` so
+ *    `_runPull()` fires a follow-up NS9 pull after it finishes (covers items
+ *    committed during the in-flight order_items request window), then returns.
+ *  - If only a previous NS9 pull is in-flight, sets `_orderItemsPullPending`
+ *    and returns.  The in-flight pull's `.finally()` re-triggers once it
+ *    settles, ensuring items committed after the current pull started are not
+ *    missed.
+ *  - The promise is stored as `_orderItemsPullInFlight` (semaphore) so that
+ *    rapid bursts of `orders:create` events share one pull.
+ *  - An `AbortController` is stored in `_orderItemsPullAbortController` so
+ *    `forcePull()`, `stopSync()`, and `_runPull()` can cancel a stale pull.
+ *  - The `.finally()` uses an identity check on `_orderItemsPullInFlight` so a
+ *    stale settled promise cannot wipe a newer semaphore installed after an abort.
+ */
+export function _triggerImmediateOrderItemsPull() {
+  // If a full _runPull() cycle is already in progress AND has not yet processed
+  // order_items — set the pending flag so _runPull() fires a follow-up NS9 pull
+  // after it finishes (covers items committed during the in-flight fetch window),
+  // then return; _runPull() covers order_items itself.
+  //
+  // If _runPull() has already processed order_items (_pullOrderItemsDone = true),
+  // the current cycle will NOT include items from this event. Fall through to
+  // start the NS9 pull so item details appear promptly.
+  if (syncState._pullInFlight && !syncState._pullOrderItemsDone) {
+    syncState._orderItemsPullPending = true;
+    return;
+  }
+  if (syncState._orderItemsPullInFlight) {
+    // A pull is already in-flight.  Mark pending so the current pull's .finally()
+    // re-triggers once it settles, covering items committed after the current pull
+    // started.
+    syncState._orderItemsPullPending = true;
+    return;
+  }
+  // Guard: do not start any new pull after stopSync() has been called.
+  if (!syncState._running) return;
+  const ac = new AbortController();
+  syncState._orderItemsPullAbortController = ac;
+  const p = _pullCollection('order_items', { signal: ac.signal })
+    .catch(e => console.warn('[DirectusSync] WS orders:create — immediate order_items pull failed:', e))
+    .finally(() => {
+      // Identity-guard: only clear the semaphore / controller if they still refer
+      // to THIS pull.  If forcePull() / stopSync() already nulled them and a newer
+      // pull was started, we must not overwrite those newer references.
+      if (syncState._orderItemsPullInFlight === p) syncState._orderItemsPullInFlight = null;
+      if (syncState._orderItemsPullAbortController === ac) syncState._orderItemsPullAbortController = null;
+      // Re-trigger if another orders:create arrived while this pull was in-flight
+      // (i.e. items from a later order may not have been included in this pull).
+      if (syncState._orderItemsPullPending) {
+        syncState._orderItemsPullPending = false;
+        _triggerImmediateOrderItemsPull();
+      }
+    });
+  syncState._orderItemsPullInFlight = p;
+}
+
+/**
  * Orchestrates an incremental pull cycle across all configured collections.
  * Uses a semaphore (`syncState._pullInFlight`) to prevent concurrent pulls.
  *
@@ -496,6 +562,14 @@ export async function _runPull() {
         console.info('[DirectusSync] Pull cycle aborted (superseded by forcePull/stopSync).');
       } else {
         console.warn('[DirectusSync] Pull cycle incomplete: at least one collection failed.');
+      }
+      // NS9: If a WS orders:create arrived while order_items was being fetched in
+      // this cycle, _orderItemsPullPending was set by _triggerImmediateOrderItemsPull.
+      // Trigger a follow-up NS9 pull now (not aborted) so items committed during
+      // the in-flight order_items request window are not missed until the next poll.
+      if (!ac.signal.aborted && syncState._orderItemsPullPending) {
+        syncState._orderItemsPullPending = false;
+        _triggerImmediateOrderItemsPull();
       }
       return { ok: allOk && !ac.signal.aborted, aborted: ac.signal.aborted, failedCollections };
     } catch (e) {

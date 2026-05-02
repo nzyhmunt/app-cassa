@@ -4418,10 +4418,10 @@ describe('NP1 — _removeOrderItemsFromOrdersIDB fallback scan affectedOrderIds'
 // yields, so the watchdog fired every 30 s and the user saw a 2-3 s "WS down"
 // window at each polling interval.
 //
-// After the fix the watchdog only triggers a one-shot REST catch-up pull and
-// does NOT reschedule itself — genuine disconnections are detected by the
-// subscription iterator throw path instead.  Self-rescheduling would degrade
-// WS mode into permanent 30 s REST polling for every idle connected client.
+// After the fix the watchdog only triggers a REST catch-up pull and re-arms
+// itself — genuine disconnections are detected by the subscription iterator
+// throw path instead.  Re-arming ensures a truly stalled/dead subscription
+// keeps triggering periodic REST catch-up pulls until the socket recovers.
 
 describe('S5-FIX — WS heartbeat does not force-disconnect on idle apps', () => {
   it('does not set _wsConnected to false when the watchdog fires', async () => {
@@ -4450,10 +4450,9 @@ describe('S5-FIX — WS heartbeat does not force-disconnect on idle apps', () =>
       // "WS down" window every 30 s on idle apps.
       expect(syncState._wsConnected.value).toBe(true);
 
-      // The watchdog timer must be null after firing — it does NOT reschedule
-      // itself to prevent permanent 30 s REST polling on idle clients.
-      // The next real WS message (or reconnect) will re-arm it via _resetWsHeartbeat().
-      expect(syncState._wsHeartbeatTimer).toBeNull();
+      // The watchdog re-arms itself after firing so that a truly stalled/dead
+      // subscription keeps triggering periodic REST catch-up pulls.
+      expect(syncState._wsHeartbeatTimer).not.toBeNull();
 
       // No reconnect timer should have been scheduled.
       expect(syncState._reconnectTimer).toBeNull();
@@ -4522,8 +4521,13 @@ describe('S5-FIX — WS heartbeat does not force-disconnect on idle apps', () =>
 
 describe('NS9 — WS orders:create triggers immediate order_items pull', () => {
   it('fires an order_items REST fetch after a WS orders:create event', async () => {
+    const { syncState } = await import('../sync/state.js');
     const { getDB } = await import('../useIDB.js');
     const db = await getDB();
+
+    // _triggerImmediateOrderItemsPull() guards on _running; set it so the NS9
+    // path actually fires during this test.
+    syncState._running = true;
 
     // Seed a parent order as it would look after the WS create write (no items).
     await db.put('orders', {
@@ -4602,6 +4606,8 @@ describe('NS9 — WS orders:create triggers immediate order_items pull', () => {
   });
 
   it('NS9-SEM: rapid orders:create burst shares one pull (semaphore dedup)', async () => {
+    const { syncState } = await import('../sync/state.js');
+    syncState._running = true; // allow _triggerImmediateOrderItemsPull to fire
     // Use a deferred fetch so the first order_items pull hangs in-flight, allowing
     // us to fire a second orders:create event while the first pull is still pending
     // and verify the semaphore prevents a second overlapping pull from being started.
@@ -4756,6 +4762,7 @@ describe('_buildRestClient — AbortSignal forwarding', () => {
 describe('NS9-RERUN — second orders:create during in-flight pull schedules re-run', () => {
   it('NS9-RERUN: second event sets _orderItemsPullPending; re-run fires after first pull settles', async () => {
     const { syncState } = await import('../sync/state.js');
+    syncState._running = true; // allow _triggerImmediateOrderItemsPull to fire
 
     let resolveFirstPull;
     let orderItemsFetchCount = 0;
@@ -4880,7 +4887,7 @@ describe('AbortError does not partially replace table_merge_sessions IDB', () =>
 
     // Spy on replaceTableMergesInIDB to detect if it is called.
     const replaceSpy = vi.spyOn(
-      await import('../../store/idbPersistence.js'),
+      await import('../../store/persistence/config.js'),
       'replaceTableMergesInIDB',
     );
 
@@ -4982,9 +4989,13 @@ describe('_triggerImmediateOrderItemsPull — _pullInFlight gate with _pullOrder
     expect(orderItemsFetchCount).toBe(0);
     // The semaphore for NS9 must remain null (no pull was started).
     expect(syncState._orderItemsPullInFlight).toBeNull();
+    // The pending flag must be set so _runPull() can trigger a follow-up NS9
+    // pull after it finishes (covers items committed during the fetch window).
+    expect(syncState._orderItemsPullPending).toBe(true);
 
     // Clean up: release the fake _pullInFlight.
     syncState._pullInFlight = null;
+    syncState._orderItemsPullPending = false;
   });
 
   it('NS9-PULLINFLIGHT-LATE: orders:create after order_items already processed triggers NS9 pull', async () => {
@@ -4994,6 +5005,9 @@ describe('_triggerImmediateOrderItemsPull — _pullInFlight gate with _pullOrder
 
     const sync = useDirectusSync();
 
+    // _triggerImmediateOrderItemsPull() guards on _running; must be true so the
+    // NS9 pull fires when _pullOrderItemsDone=true.
+    syncState._running = true;
     // Simulate _runPull in-progress but order_items was already pulled in this cycle.
     syncState._pullInFlight = new Promise(() => {}); // hanging, never resolves
     syncState._pullOrderItemsDone = true; // order_items already processed — NS9 must fire
@@ -5023,5 +5037,90 @@ describe('_triggerImmediateOrderItemsPull — _pullInFlight gate with _pullOrder
       syncState._orderItemsPullAbortController = null;
     }
     syncState._orderItemsPullInFlight = null;
+  });
+});
+
+// ── NS9-RUNPULL-PENDING: _runPull() triggers NS9 pull at end when pending ─────
+//
+// When _triggerImmediateOrderItemsPull() sets _orderItemsPullPending=true because
+// order_items was still in-flight in a running _runPull() cycle, _runPull() must
+// fire a follow-up NS9 pull once it completes so items committed during the
+// order_items request window are not missed.
+
+describe('NS9-RUNPULL-PENDING — _runPull triggers follow-up NS9 pull when pending flag is set', () => {
+  it('NS9-RUNPULL-PENDING: NS9 pull fires after _runPull() when _orderItemsPullPending was set mid-cycle', async () => {
+    const { syncState } = await import('../sync/state.js');
+    const { _runPull } = await import('../sync/pullQueue.js');
+
+    // _triggerImmediateOrderItemsPull() guards on _running; must be true so the
+    // follow-up NS9 pull is triggered at end of _runPull().
+    syncState._running = true;
+
+    let orderItemsFetchCount = 0;
+
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      if (String(url).includes('/items/order_items')) {
+        orderItemsFetchCount++;
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    // Start _runPull(). The inner IIFE is synchronous up to its first await
+    // (first _pullCollection call), so _orderItemsPullPending is cleared
+    // synchronously before suspension.
+    const pullPromise = _runPull();
+
+    // Set the pending flag immediately after _runPull() has cleared it.
+    // _runPull() is now suspended at its first internal await; the flag will
+    // still be true when _runPull() reaches the end-of-cycle check.
+    syncState._orderItemsPullPending = true;
+
+    // Wait for _runPull() to complete.
+    await pullPromise;
+
+    // _runPull() must have cleared _orderItemsPullPending and triggered NS9 pull.
+    expect(syncState._orderItemsPullPending).toBe(false);
+
+    // Wait for the follow-up NS9 fetch (fire-and-forget — may still be in-flight).
+    await vi.waitFor(() => {
+      expect(orderItemsFetchCount).toBeGreaterThanOrEqual(2);
+    }, { timeout: 5000 });
+
+    // Cleanup.
+    if (syncState._orderItemsPullAbortController) {
+      syncState._orderItemsPullAbortController.abort();
+      syncState._orderItemsPullAbortController = null;
+    }
+    if (syncState._orderItemsPullInFlight) {
+      syncState._orderItemsPullInFlight = null;
+    }
+  });
+});
+
+// ── NS9-STOPPED: stopSync guard prevents NS9 pull after sync is stopped ────────
+//
+// _triggerImmediateOrderItemsPull() must return immediately when _running=false
+// so that a late WS orders:create event cannot restart a pull after stopSync().
+
+describe('NS9-STOPPED — _triggerImmediateOrderItemsPull returns early after stopSync', () => {
+  it('NS9-STOPPED: no NS9 pull starts when _running=false', async () => {
+    const { syncState } = await import('../sync/state.js');
+    const { _triggerImmediateOrderItemsPull } = await import('../sync/pullQueue.js');
+
+    const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue(directusListResponse([]));
+
+    // Simulate stopSync() having been called.
+    syncState._running = false;
+
+    _triggerImmediateOrderItemsPull();
+    await flushPromises(LONG_FLUSH_ROUNDS);
+
+    // No order_items fetch must have started.
+    const orderItemsFetches = fetchSpy.mock.calls
+      .map(([url]) => String(url))
+      .filter(url => url.includes('/items/order_items'));
+    expect(orderItemsFetches.length).toBe(0);
+    // Semaphore must remain null.
+    expect(syncState._orderItemsPullInFlight).toBeNull();
   });
 });
