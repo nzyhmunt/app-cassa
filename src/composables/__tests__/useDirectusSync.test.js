@@ -4596,4 +4596,83 @@ describe('NS9 — WS orders:create triggers immediate order_items pull', () => {
       .filter(url => url.includes('/items/order_items'));
     expect(orderItemFetches.length).toBe(0);
   });
+
+  it('NS9-SEM: rapid orders:create burst shares one pull (semaphore dedup)', async () => {
+    // Use a deferred fetch so the first order_items pull hangs in-flight, allowing
+    // us to fire a second orders:create event while the first pull is still pending
+    // and verify the semaphore prevents a second overlapping pull from being started.
+    let resolveOrderItemsFetch;
+    const orderItemsFetchPromise = new Promise(res => { resolveOrderItemsFetch = res; });
+    let orderItemsFetchCount = 0;
+
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      if (String(url).includes('/items/order_items')) {
+        orderItemsFetchCount++;
+        return orderItemsFetchPromise.then(() => directusListResponse([]));
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const wsPayload = {
+      event: 'create',
+      data: [{ id: 'ord_ns9_burst', status: 'accepted', table: '01', date_created: '2024-06-01T10:00:00.000Z', date_updated: null }],
+    };
+
+    // Fire two rapid orders:create events.  The first should start the pull and set
+    // the semaphore; the second should see the semaphore is set and skip.
+    await _handleSubscriptionMessage('orders', wsPayload);
+    await _handleSubscriptionMessage('orders', wsPayload);
+
+    await flushPromises(LONG_FLUSH_ROUNDS);
+
+    // Release the hanging fetch so cleanup finishes.
+    resolveOrderItemsFetch();
+    await flushPromises(LONG_FLUSH_ROUNDS);
+
+    // Only one order_items fetch should have been started — the semaphore deduped
+    // the second burst event.
+    expect(orderItemsFetchCount).toBe(1);
+  });
+
+  it('NS9-ABORT-FP: forcePull() clears _orderItemsPullInFlight and nulls _orderItemsPullAbortController', async () => {
+    const { syncState } = await import('../sync/state.js');
+
+    // Directly simulate an in-flight NS9 pull by setting the semaphore state.
+    // This avoids making the forcePull() call itself hang on a never-resolving fetch.
+    const fakeAc = new AbortController();
+    syncState._orderItemsPullAbortController = fakeAc;
+    syncState._orderItemsPullInFlight = new Promise(() => {}); // never resolves on its own
+
+    // Mock fetch so forcePull's regular pull cycle completes cleanly.
+    vi.spyOn(global, 'fetch').mockResolvedValue(directusListResponse([]));
+
+    const sync = useDirectusSync();
+    // forcePull() clears both semaphore fields and aborts the old controller
+    // synchronously before delegating to _runPull() (which finishes quickly here).
+    await sync.forcePull();
+
+    expect(syncState._orderItemsPullInFlight).toBeNull();
+    expect(syncState._orderItemsPullAbortController).toBeNull();
+    // The old controller must have been aborted so any pending fetch rejects.
+    expect(fakeAc.signal.aborted).toBe(true);
+  });
+
+  it('NS9-ABORT-SS: stopSync() clears _orderItemsPullInFlight and nulls _orderItemsPullAbortController', async () => {
+    const { syncState } = await import('../sync/state.js');
+
+    // Directly simulate an in-flight NS9 pull by setting the semaphore state.
+    const fakeAc = new AbortController();
+    syncState._orderItemsPullAbortController = fakeAc;
+    syncState._orderItemsPullInFlight = new Promise(() => {}); // never resolves on its own
+
+    vi.spyOn(global, 'fetch').mockResolvedValue(directusListResponse([]));
+
+    const sync = useDirectusSync();
+    // stopSync() must abort the in-flight NS9 pull and clear both references synchronously.
+    sync.stopSync();
+
+    expect(syncState._orderItemsPullInFlight).toBeNull();
+    expect(syncState._orderItemsPullAbortController).toBeNull();
+    expect(fakeAc.signal.aborted).toBe(true);
+  });
 });

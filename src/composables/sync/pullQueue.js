@@ -60,12 +60,21 @@ export function _getCfg() {
  * @param {number} [page]
  * @param {{ id: string, ts: string|null }|null} [cursor]
  */
-export async function _fetchUpdatedViaSDK(collection, sinceTs, page = 1, cursor = null) {
+export async function _fetchUpdatedViaSDK(collection, sinceTs, page = 1, cursor = null, signal = null) {
   const cfg = _getCfg();
   if (!cfg) return { data: [], maxTs: null, lastCursor: null, error: null };
 
   const quirks = COLLECTION_QUIRKS[collection] ?? {};
-  const client = _buildRestClient(cfg);
+  // Forward the abort signal into the underlying fetch call so cancellations from
+  // forcePull()/stopSync() interrupt in-flight HTTP requests immediately rather than
+  // only taking effect between pages.  The bound wrapper merges the signal into every
+  // fetch options object created by the Directus SDK rest() composable.
+  const boundFetch = signal
+    ? (url, opts) => globalThis.fetch(url, { ...opts, signal })
+    : globalThis.fetch;
+  const client = createDirectus(cfg.url, { globals: { fetch: boundFetch } })
+    .with(staticToken(cfg.staticToken))
+    .with(rest());
   // For orders, expand nested order_items and their modifiers so that the
   // detail view is populated even on a fresh device that has never locally
   // created those orders.
@@ -227,7 +236,7 @@ export async function _pullCollection(collection, { forceFull = false, lastPullT
     let hadFetchError = false;
     while (true) { // eslint-disable-line no-constant-condition
       if (signal?.aborted) break;
-      const { data, maxTs, error } = await _fetchUpdatedViaSDK(collection, null, page);
+      const { data, maxTs, error } = await _fetchUpdatedViaSDK(collection, null, page, null, signal);
       if (error) hadFetchError = true;
       if (data.length === 0) break;
       const mapped = data.map(r => _mapRecord(collection, r));
@@ -308,7 +317,7 @@ export async function _pullCollection(collection, { forceFull = false, lastPullT
   while (true) { // eslint-disable-line no-constant-condition
     // Exit between pages when forcePull/stopSync aborts the pull session.
     if (signal?.aborted) break;
-    const { data, maxTs, lastCursor, error } = await _fetchUpdatedViaSDK(collection, storedSinceTs, page, pageKeyCursor);
+    const { data, maxTs, lastCursor, error } = await _fetchUpdatedViaSDK(collection, storedSinceTs, page, pageKeyCursor, signal);
     if (error) hadFetchError = true;
     if (data.length === 0) break;
     hadRemoteRecords = true;

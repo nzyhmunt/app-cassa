@@ -337,12 +337,17 @@ export async function _handleSubscriptionMessage(collection, message) {
       if (!syncState._orderItemsPullInFlight) {
         const ac = new AbortController();
         syncState._orderItemsPullAbortController = ac;
-        syncState._orderItemsPullInFlight = _pullCollection('order_items', { signal: ac.signal })
+        const p = _pullCollection('order_items', { signal: ac.signal })
           .catch(e => console.warn('[DirectusSync] WS orders:create — immediate order_items pull failed:', e))
           .finally(() => {
-            syncState._orderItemsPullInFlight = null;
+            // Identity-guard: only clear the semaphore if it still refers to THIS pull.
+            // If forcePull()/stopSync() already nulled _orderItemsPullInFlight and a
+            // new rapid orders:create started a fresh pull, we must not wipe that
+            // newer semaphore here.
+            if (syncState._orderItemsPullInFlight === p) syncState._orderItemsPullInFlight = null;
             if (syncState._orderItemsPullAbortController === ac) syncState._orderItemsPullAbortController = null;
           });
+        syncState._orderItemsPullInFlight = p;
       }
     }
   }
