@@ -329,11 +329,20 @@ export async function _handleSubscriptionMessage(collection, message) {
     // so that bursts of orders:create events share a single pull rather than launching
     // overlapping concurrent fetches that could roll last_pull_ts / last_pull_cursor
     // backwards.
+    // The pull is also wired to its own AbortController stored in
+    // syncState._orderItemsPullAbortController so that forcePull() and stopSync() can
+    // cancel it and prevent a stale WS-initiated pull from finishing after a newer
+    // scheduled pull has already committed fresher checkpoints.
     if (collection === 'orders' && event === 'create') {
       if (!syncState._orderItemsPullInFlight) {
-        syncState._orderItemsPullInFlight = _pullCollection('order_items')
+        const ac = new AbortController();
+        syncState._orderItemsPullAbortController = ac;
+        syncState._orderItemsPullInFlight = _pullCollection('order_items', { signal: ac.signal })
           .catch(e => console.warn('[DirectusSync] WS orders:create — immediate order_items pull failed:', e))
-          .finally(() => { syncState._orderItemsPullInFlight = null; });
+          .finally(() => {
+            syncState._orderItemsPullInFlight = null;
+            if (syncState._orderItemsPullAbortController === ac) syncState._orderItemsPullAbortController = null;
+          });
       }
     }
   }

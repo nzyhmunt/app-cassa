@@ -372,9 +372,14 @@ export function useDirectusSync() {
     // NS8: Abort any in-flight pull so the loop exits cleanly between collections.
     syncState._pullAbortController?.abort();
     syncState._pullAbortController = null;
+    // NS9: Abort any in-flight WS-triggered order_items pull so it cannot finish
+    // after the next pull cycle and roll last_pull_ts / last_pull_cursor backwards.
+    syncState._orderItemsPullAbortController?.abort();
+    syncState._orderItemsPullAbortController = null;
     // S3: Drop any in-flight pull reference so the next startSync() can start fresh.
     syncState._pullInFlight = null;
     syncState._pullGeneration++;
+    syncState._orderItemsPullInFlight = null;
     if (syncState._pushTimer) { clearInterval(syncState._pushTimer); syncState._pushTimer = null; }
     if (syncState._pollTimer) { clearInterval(syncState._pollTimer); syncState._pollTimer = null; }
     if (syncState._globalTimer) { clearInterval(syncState._globalTimer); syncState._globalTimer = null; }
@@ -429,10 +434,16 @@ export function useDirectusSync() {
     // before starting the new user-initiated pull.
     syncState._pullAbortController?.abort();
     syncState._pullAbortController = null;
+    // NS9: Abort any in-flight WS-triggered order_items pull so it cannot write a
+    // stale last_pull_ts / last_pull_cursor after the new forcePull() cycle commits
+    // fresher checkpoints.
+    syncState._orderItemsPullAbortController?.abort();
+    syncState._orderItemsPullAbortController = null;
     // S3: Reset the in-flight semaphore so this user-initiated pull is not
     // silently deduped against a concurrent background pull.
     syncState._pullInFlight = null;
     syncState._pullGeneration++;
+    syncState._orderItemsPullInFlight = null;
     syncState.syncStatus.value = 'syncing';
     try {
       const result = await _runPull();
@@ -548,6 +559,7 @@ export function _resetDirectusSyncSingleton() {
   // Abort in-flight async operations before resetting their handles.
   syncState._pushAbortController?.abort();
   syncState._pullAbortController?.abort();
+  syncState._orderItemsPullAbortController?.abort();
 
   // Clear all timer handles before resetSyncState() nulls them out.
   if (syncState._pushTimer) { clearInterval(syncState._pushTimer); }

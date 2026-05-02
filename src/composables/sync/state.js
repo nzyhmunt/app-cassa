@@ -95,6 +95,14 @@ export const syncState = {
    */
   _orderItemsPullInFlight: null,
   /**
+   * NS9 — AbortController for the currently in-flight WS-triggered
+   * `order_items` pull.  Aborted (and set to `null`) by `forcePull()` and
+   * `stopSync()` so that a stale WS-initiated pull cannot finish after a newer
+   * scheduled pull has already written a fresher `last_pull_ts` /
+   * `last_pull_cursor`, which would otherwise roll those checkpoints backwards.
+   */
+  _orderItemsPullAbortController: null,
+  /**
    * NS8 — AbortController for the currently running `_runPull()` loop.
    * Replaced with a fresh controller at the start of each pull invocation.
    * Aborted (and set to `null`) by `forcePull()` and `stopSync()` so that the
@@ -215,6 +223,7 @@ export function resetSyncState() {
   syncState._pullGeneration = 0;
   syncState._tableMergePullInFlight = null;
   syncState._orderItemsPullInFlight = null;
+  syncState._orderItemsPullAbortController = null;
   syncState._pullAbortController = null;
 
   // Global pull
