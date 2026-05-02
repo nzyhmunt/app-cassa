@@ -33,9 +33,15 @@ import {
  * Builds a Directus SDK REST-only client for the given config.
  *
  * @param {{ url: string, staticToken: string }} cfg
+ * @param {AbortSignal|null} [signal] - When provided, the signal is forwarded into every
+ *   underlying fetch call so that network requests are cancelled immediately when the
+ *   signal fires, rather than only taking effect between pages.
  */
-export function _buildRestClient(cfg) {
-  return createDirectus(cfg.url, { globals: { fetch: globalThis.fetch } })
+export function _buildRestClient(cfg, signal = null) {
+  const boundFetch = signal
+    ? (url, opts) => globalThis.fetch(url, { ...opts, signal })
+    : globalThis.fetch;
+  return createDirectus(cfg.url, { globals: { fetch: boundFetch } })
     .with(staticToken(cfg.staticToken))
     .with(rest());
 }
@@ -65,16 +71,10 @@ export async function _fetchUpdatedViaSDK(collection, sinceTs, page = 1, cursor 
   if (!cfg) return { data: [], maxTs: null, lastCursor: null, error: null };
 
   const quirks = COLLECTION_QUIRKS[collection] ?? {};
-  // Forward the abort signal into the underlying fetch call so cancellations from
-  // forcePull()/stopSync() interrupt in-flight HTTP requests immediately rather than
-  // only taking effect between pages.  The bound wrapper merges the signal into every
-  // fetch options object created by the Directus SDK rest() composable.
-  const boundFetch = signal
-    ? (url, opts) => globalThis.fetch(url, { ...opts, signal })
-    : globalThis.fetch;
-  const client = createDirectus(cfg.url, { globals: { fetch: boundFetch } })
-    .with(staticToken(cfg.staticToken))
-    .with(rest());
+  // Build the client with the abort signal forwarded into every fetch call so that
+  // forcePull()/stopSync() cancellations interrupt in-flight HTTP requests immediately
+  // rather than only taking effect between pages.
+  const client = _buildRestClient(cfg, signal);
   // For orders, expand nested order_items and their modifiers so that the
   // detail view is populated even on a fresh device that has never locally
   // created those orders.

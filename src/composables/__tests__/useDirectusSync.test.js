@@ -4640,8 +4640,9 @@ describe('NS9 — WS orders:create triggers immediate order_items pull', () => {
     // Directly simulate an in-flight NS9 pull by setting the semaphore state.
     // This avoids making the forcePull() call itself hang on a never-resolving fetch.
     const fakeAc = new AbortController();
+    let rejectHangingFP;
     syncState._orderItemsPullAbortController = fakeAc;
-    syncState._orderItemsPullInFlight = new Promise(() => {}); // never resolves on its own
+    syncState._orderItemsPullInFlight = new Promise((_, reject) => { rejectHangingFP = reject; });
 
     // Mock fetch so forcePull's regular pull cycle completes cleanly.
     vi.spyOn(global, 'fetch').mockResolvedValue(directusListResponse([]));
@@ -4655,6 +4656,8 @@ describe('NS9 — WS orders:create triggers immediate order_items pull', () => {
     expect(syncState._orderItemsPullAbortController).toBeNull();
     // The old controller must have been aborted so any pending fetch rejects.
     expect(fakeAc.signal.aborted).toBe(true);
+    // Clean up the hanging promise to avoid memory leaks.
+    rejectHangingFP(new Error('test cleanup'));
   });
 
   it('NS9-ABORT-SS: stopSync() clears _orderItemsPullInFlight and nulls _orderItemsPullAbortController', async () => {
@@ -4662,8 +4665,9 @@ describe('NS9 — WS orders:create triggers immediate order_items pull', () => {
 
     // Directly simulate an in-flight NS9 pull by setting the semaphore state.
     const fakeAc = new AbortController();
+    let rejectHanging;
     syncState._orderItemsPullAbortController = fakeAc;
-    syncState._orderItemsPullInFlight = new Promise(() => {}); // never resolves on its own
+    syncState._orderItemsPullInFlight = new Promise((_, reject) => { rejectHanging = reject; });
 
     vi.spyOn(global, 'fetch').mockResolvedValue(directusListResponse([]));
 
@@ -4674,5 +4678,7 @@ describe('NS9 — WS orders:create triggers immediate order_items pull', () => {
     expect(syncState._orderItemsPullInFlight).toBeNull();
     expect(syncState._orderItemsPullAbortController).toBeNull();
     expect(fakeAc.signal.aborted).toBe(true);
+    // Clean up the hanging promise to avoid memory leaks.
+    rejectHanging(new Error('test cleanup'));
   });
 });
