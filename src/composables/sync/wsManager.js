@@ -48,12 +48,25 @@ const _unsubscribers = [];
  * `_resetWsHeartbeat()`, which cancels whichever phase is pending and restarts
  * phase 1 — so active connections are never affected.
  *
+ * Stale-cycle guard: `_wsHeartbeatCycle` is incremented on every call.  The
+ * phase-1 setTimeout captures `myCycle`; the resulting `.then()` callback
+ * compares `_wsHeartbeatCycle !== myCycle` and aborts before arming phase-2
+ * when the counter has moved on.  This prevents a stale `.then()` that
+ * resolves after a newer `_resetWsHeartbeat()` call from overwriting the
+ * fresh phase-1 timer with a spurious phase-2 reconnect.
+ *
  * Genuine transport failures (iterator throws in processSubscription()) are
  * caught independently; this watchdog only handles the silent half-open case.
  */
 export function _resetWsHeartbeat() {
   if (syncState._wsHeartbeatTimer) { clearTimeout(syncState._wsHeartbeatTimer); syncState._wsHeartbeatTimer = null; }
+  // Bump the cycle counter so that a stale phase-1 .then() callback (still
+  // in flight when a fresh WS event fires) sees a different cycle and skips
+  // arming phase 2.  Must be bumped unconditionally (even when _running is
+  // false) so that any already-queued .then() is always invalidated.
+  syncState._wsHeartbeatCycle = (syncState._wsHeartbeatCycle ?? 0) + 1;
   if (!syncState._running || appConfig.directus?.wsEnabled !== true) return;
+  const myCycle = syncState._wsHeartbeatCycle;
   syncState._wsHeartbeatTimer = setTimeout(() => {
     syncState._wsHeartbeatTimer = null;
     if (!syncState._running || !syncState._wsConnected.value) return;
@@ -66,6 +79,12 @@ export function _resetWsHeartbeat() {
     // arming a reconnect would only cause spurious disconnects.
     _runPull().then(r => {
       if (!r?.anyMerged) return;
+      // Stale-cycle guard: if _resetWsHeartbeat() was called again while
+      // _runPull() was in flight (e.g. a real WS event arrived), myCycle no
+      // longer matches the current cycle and we must not arm phase 2.
+      // Doing so would overwrite the fresh phase-1 timer that the new call
+      // already set, causing a spurious force-reconnect on a healthy socket.
+      if (syncState._wsHeartbeatCycle !== myCycle) return;
       // Phase 2: socket was missing events.  If still silent after another
       // full interval, force a reconnect so future updates are not dropped.
       syncState._wsHeartbeatTimer = setTimeout(() => {

@@ -4720,7 +4720,69 @@ describe('S5-FIX-phase2 — Heartbeat two-phase: explicit behavioral assertions'
   });
 });
 
-// ── NS9 — WS orders:create triggers immediate order_items pull ─────────────────
+// ── S5-FIX-phase2-D: stale .then() cycle mismatch guard ──────────────────────
+//
+// When a real WS event arrives while a phase-1 _runPull() is still in flight,
+// _resetWsHeartbeat() bumps _wsHeartbeatCycle and arms a fresh phase-1 timer.
+// The stale .then() that resolves later must detect the cycle mismatch and
+// abort before arming phase-2, so the fresh phase-1 timer is never overwritten
+// with a spurious phase-2 reconnect timer.
+
+describe('S5-FIX-phase2-D — Stale phase-1 .then() cycle guard prevents spurious phase-2 reconnect', () => {
+  it('S5-FIX-phase2-D: WS event while phase-1 pull is in flight → stale .then() aborts, fresh timer preserved', async () => {
+    const { syncState } = await import('../sync/state.js');
+    const { _resetWsHeartbeat } = await import('../sync/wsManager.js');
+    const { WS_HEARTBEAT_INTERVAL_MS } = await import('../sync/echoSuppression.js');
+    const { appConfig } = await import('../../utils/index.js');
+
+    // Deferred pull: lets us control exactly when phase-1's _runPull() resolves
+    // so we can call _resetWsHeartbeat() (fresh WS event) while it is in-flight.
+    let resolvePull;
+    const deferredPull = new Promise((resolve) => { resolvePull = resolve; });
+    const pullMod = await import('../sync/pullQueue.js');
+    vi.spyOn(pullMod, '_runPull').mockReturnValueOnce(deferredPull);
+
+    appConfig.directus = { ...appConfig.directus, wsEnabled: true };
+    syncState._running = true;
+    syncState._wsConnected.value = true;
+
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
+    try {
+      // Arm phase 1.
+      _resetWsHeartbeat();
+      const cycle1 = syncState._wsHeartbeatCycle;
+
+      // Phase-1 fires: callback clears the timer, starts the deferred _runPull().
+      await vi.advanceTimersByTimeAsync(WS_HEARTBEAT_INTERVAL_MS + 50);
+      await flushPromises(3);
+      // Timer is null while the phase-1 pull is in-flight.
+      expect(syncState._wsHeartbeatTimer).toBeNull();
+
+      // Real WS event arrives while the deferred pull is still outstanding.
+      // _resetWsHeartbeat() bumps the cycle counter and arms a fresh phase-1 timer.
+      _resetWsHeartbeat();
+      expect(syncState._wsHeartbeatCycle).toBeGreaterThan(cycle1);
+      const freshTimer = syncState._wsHeartbeatTimer;
+      expect(freshTimer).not.toBeNull();
+
+      // Now let the stale phase-1 pull resolve with anyMerged:true.
+      // Without the cycle guard this would overwrite freshTimer with a phase-2 timer.
+      resolvePull({ ok: true, anyMerged: true });
+      await flushPromises(LONG_FLUSH_ROUNDS);
+
+      // The fresh phase-1 timer must still be the same handle: the stale .then()
+      // detected the cycle mismatch and aborted before arming phase-2.
+      expect(syncState._wsHeartbeatTimer).toBe(freshTimer);
+      // The socket must still be connected — no spurious reconnect was triggered.
+      expect(syncState._wsConnected.value).toBe(true);
+    } finally {
+      if (syncState._wsHeartbeatTimer) { clearTimeout(syncState._wsHeartbeatTimer); syncState._wsHeartbeatTimer = null; }
+      syncState._running = false;
+      syncState._wsConnected.value = false;
+      vi.useRealTimers();
+    }
+  });
+});
 //
 // WS subscriptions use fields:['*'] which does NOT expand nested relations.
 // A WS create event for an order therefore carries an empty orderItems array.
@@ -5965,6 +6027,141 @@ describe('GP-RECONFIG — reconfigureAndApply() invalidates in-flight background
     expect(mapperSpy).toHaveBeenCalledTimes(1);
 
     sync.stopSync();
+    mapperSpy.mockRestore();
+  });
+});
+
+// ── GP-FANOUT-MID: shouldAbort guard inside _fanOutVenueTreeToIDB ─────────────
+//
+// Exercises the guard added after normalizeVenueUsersForIDB but before the IDB
+// transaction: if shouldAbort() returns true (offline/reconfig fired while PIN
+// hashing was running), _fanOutVenueTreeToIDB returns null, and the caller
+// returns without saving the pull timestamp or applying config.  This prevents
+// a stale venue snapshot from being written to IDB and later hydrated by
+// startSync() on the next session start.
+
+describe('GP-FANOUT-MID — shouldAbort guard inside _fanOutVenueTreeToIDB skips IDB write', () => {
+  it('GP-FANOUT-MID: offline gen bumped inside normalizeVenueUsersForIDB → IDB write and config apply skipped', async () => {
+    const mappers = await import('../../utils/mappers.js');
+    const mapperSpy = vi.spyOn(mappers, 'mapVenueConfigFromDirectus');
+
+    const { syncState } = await import('../sync/state.js');
+    const persistCfg = await import('../../store/persistence/config.js');
+
+    const venuePayload = {
+      id: 1,
+      name: 'GP-FANOUT-MID Venue',
+      menu_source: 'directus',
+      rooms: [],
+      tables: [],
+      payment_methods: [],
+      printers: [],
+      venue_users: [],
+      table_merge_sessions: [],
+      menu_categories: [],
+      menu_items: [],
+      primary_color: '#001122',
+    };
+
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      if (String(url).includes('/items/venues/')) {
+        return Promise.resolve(directusItemResponse(venuePayload));
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    // Wrap normalizeVenueUsersForIDB: bump offline gen before returning so that
+    // the shouldAbort() check immediately after the await sees a stale generation.
+    // This simulates _onOffline() / stopSync() firing while PIN hashing was running.
+    const origNorm = persistCfg.normalizeVenueUsersForIDB;
+    const normSpy = vi.spyOn(persistCfg, 'normalizeVenueUsersForIDB').mockImplementation((...args) => {
+      syncState._globalPullOfflineGeneration++;
+      return origNorm(...args);
+    });
+
+    // Assert saveLastPullTsToIDB is never reached (the pull aborts before it).
+    const saveSpy = vi.spyOn(persistCfg, 'saveLastPullTsToIDB');
+
+    const sync = useDirectusSync();
+    const result = await sync.reconfigureAndApply();
+
+    // ok:true — graceful discard, not an error.
+    expect(result.ok).toBe(true);
+    // saveLastPullTsToIDB must NOT have been called — the IDB write was aborted
+    // before _fanOutVenueTreeToIDB opened the transaction.
+    expect(saveSpy).not.toHaveBeenCalled();
+    // Config-apply (mapVenueConfigFromDirectus inside _hydrateConfigFromLocalCache)
+    // must NOT have been called.
+    expect(mapperSpy).not.toHaveBeenCalled();
+
+    sync.stopSync();
+    normSpy.mockRestore();
+    saveSpy.mockRestore();
+    mapperSpy.mockRestore();
+  });
+});
+
+// ── GP-HYDRATE-MID: shouldAbort guard inside _hydrateConfigFromLocalCache ─────
+//
+// Exercises the guard added after loadConfigFromIDB() but before
+// _applyDirectusRuntimeConfigToAppConfig(): if shouldAbort() returns true,
+// the function returns false immediately without mutating appConfig.
+// This prevents stale runtime config from corrupting appConfig when
+// offline/reconfig invalidation fires while the IDB config snapshot was
+// being read — even though fan-out already completed and the post-fan-out
+// guard has not yet detected the invalidation.
+
+describe('GP-HYDRATE-MID — shouldAbort guard inside _hydrateConfigFromLocalCache skips appConfig mutation', () => {
+  it('GP-HYDRATE-MID: offline gen bumped inside loadConfigFromIDB → appConfig not mutated', async () => {
+    const mappers = await import('../../utils/mappers.js');
+    const mapperSpy = vi.spyOn(mappers, 'mapVenueConfigFromDirectus');
+
+    const { syncState } = await import('../sync/state.js');
+    const persistCfg = await import('../../store/persistence/config.js');
+
+    const venuePayload = {
+      id: 1,
+      name: 'GP-HYDRATE-MID Venue',
+      menu_source: 'directus',
+      rooms: [],
+      tables: [],
+      payment_methods: [],
+      printers: [],
+      venue_users: [],
+      table_merge_sessions: [],
+      menu_categories: [],
+      menu_items: [],
+      primary_color: '#aabbcc',
+    };
+
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      if (String(url).includes('/items/venues/')) {
+        return Promise.resolve(directusItemResponse(venuePayload));
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    // Wrap loadConfigFromIDB: bump offline gen inside it to simulate _onOffline()
+    // firing after fan-out completed and the post-fan-out guard passed (gen was
+    // still equal), but before _applyDirectusRuntimeConfigToAppConfig runs.
+    const origLoad = persistCfg.loadConfigFromIDB;
+    const loadSpy = vi.spyOn(persistCfg, 'loadConfigFromIDB').mockImplementation((...args) => {
+      syncState._globalPullOfflineGeneration++;
+      return origLoad(...args);
+    });
+
+    const sync = useDirectusSync();
+    const result = await sync.reconfigureAndApply();
+
+    // ok:true — graceful discard, not an error.
+    expect(result.ok).toBe(true);
+    // mapVenueConfigFromDirectus is called right after the shouldAbort() check in
+    // _hydrateConfigFromLocalCache — it must NOT have been called, confirming that
+    // appConfig was not mutated by the stale pull.
+    expect(mapperSpy).not.toHaveBeenCalled();
+
+    sync.stopSync();
+    loadSpy.mockRestore();
     mapperSpy.mockRestore();
   });
 });

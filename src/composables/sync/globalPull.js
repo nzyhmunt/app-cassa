@@ -217,10 +217,12 @@ function _extractModifierTree(venueRecord, menuSource) {
  * in a single atomic transaction.
  *
  * @param {object} venueRecord - The deep-fetched venue object.
- * @param {{ menuSource: string }} options
- * @returns {Promise<Record<string, number>>} Store-name → count written.
+ * @param {{ menuSource: string, shouldAbort?: (() => boolean)|null }} options
+ * @returns {Promise<Record<string, number>|null>} Store-name → count written,
+ *   or `null` if `shouldAbort()` returned `true` before the IDB transaction
+ *   was opened (i.e. no data was written to IDB).
  */
-export async function _fanOutVenueTreeToIDB(venueRecord, { menuSource }) {
+export async function _fanOutVenueTreeToIDB(venueRecord, { menuSource, shouldAbort = null } = {}) {
   if (!venueRecord || Array.isArray(venueRecord) || typeof venueRecord !== 'object') return {};
   const venueId = relationId(venueRecord.id);
   const withVenueFallback = (records) => _normalizeToArray(records).map((record) => {
@@ -299,6 +301,16 @@ export async function _fanOutVenueTreeToIDB(venueRecord, { menuSource }) {
   // async PIN hashing must not run inside an IDB transaction (would stall it).
   const normalizedVenueUsers = await normalizeVenueUsersForIDB(payloadByStore.venue_users);
 
+  // Check invalidation after the potentially long PIN-hashing await but before
+  // opening the IDB transaction.  If _onOffline()/stopSync()/reconfigureAndApply()
+  // fired while normalizeVenueUsersForIDB was running, we discard the write so
+  // stale config is not left in the cache for startSync() to hydrate on the
+  // next session start.  Returns null to distinguish from a normal empty write.
+  if (shouldAbort?.()) {
+    console.debug('[DirectusSync] _fanOutVenueTreeToIDB: write skipped — invalidated before IDB transaction.');
+    return null;
+  }
+
   // NS3: Single atomic IDB transaction covering all stores so that a partial
   // failure (e.g. browser storage quota) never leaves some stores written and
   // others not, avoiding an inconsistent in-memory/IDB state.
@@ -361,11 +373,21 @@ export async function _fanOutVenueTreeToIDB(venueRecord, { menuSource }) {
  *
  * @param {string|null} venueId
  * @param {Function|null} [onProgress]
+ * @param {(() => boolean)|null} [shouldAbort]
+ *   Optional predicate evaluated after the async `loadConfigFromIDB()` call
+ *   but before `appConfig` is mutated.  If it returns `true`, the function
+ *   returns `false` immediately without touching `appConfig` or the store.
+ *   Used by `_runGlobalPullInner` to abort hydration when offline/reconfig
+ *   invalidation fires while IDB is being read.
  * @returns {Promise<boolean>} `true` if a cached config was found and applied.
  */
-export async function _hydrateConfigFromLocalCache(venueId, onProgress = null) {
+export async function _hydrateConfigFromLocalCache(venueId, onProgress = null, shouldAbort = null) {
   if (venueId == null) return false;
   const cached = await loadConfigFromIDB(venueId);
+  // Check invalidation before mutating appConfig.  _onOffline()/stopSync()/
+  // reconfigureAndApply() can fire while loadConfigFromIDB was awaited; applying
+  // a stale snapshot at this point would corrupt appConfig until the next pull.
+  if (shouldAbort?.()) return false;
   const mappedConfig = mapVenueConfigFromDirectus(cached, DEFAULT_SETTINGS);
   const runtimeConfig = createRuntimeConfig(mappedConfig);
   const preservedDirectus = JSON.parse(JSON.stringify(appConfig.directus ?? {}));
@@ -467,6 +489,14 @@ export async function _runGlobalPullInner({ onProgress = null, userInitiated = f
     }
     deepVenue = await _hydrateVenueTablesFromRoomRefs(client, deepVenue, venueId);
 
+    // Shared predicate for all three invalidation dimensions.  Extracted as a
+    // local function to avoid duplicating the three-condition expression across
+    // every guard checkpoint below.
+    const isInvalidated = () =>
+      syncState._globalPullOfflineGeneration > myOfflineGen ||
+      (syncState._lastAppliedGlobalPullGeneration ?? 0) > myGeneration ||
+      (myReconfigGen !== null && syncState._globalPullReconfigGeneration > myReconfigGen);
+
     // Skip IDB write and config apply if any of:
     //  (a) the network dropped since this pull started (_globalPullOfflineGeneration
     //      was bumped by _onOffline() after we captured myOfflineGen) — the data
@@ -482,11 +512,7 @@ export async function _runGlobalPullInner({ onProgress = null, userInitiated = f
     // race where a pre-offline or pre-reconfigureAndApply response arrives while
     // the newer pull is still in flight — _lastAppliedGlobalPullGeneration alone
     // cannot catch either case because the newer pull has not completed yet.
-    if (
-      syncState._globalPullOfflineGeneration > myOfflineGen ||
-      syncState._lastAppliedGlobalPullGeneration > myGeneration ||
-      (myReconfigGen !== null && syncState._globalPullReconfigGeneration > myReconfigGen)
-    ) {
+    if (isInvalidated()) {
       console.debug(
         '[DirectusSync] Global pull skipping IDB write and config apply —',
         syncState._globalPullOfflineGeneration > myOfflineGen
@@ -503,7 +529,17 @@ export async function _runGlobalPullInner({ onProgress = null, userInitiated = f
     const menuSource = localMenuSource === 'json'
       ? 'json'
       : (remoteMenuSource ?? localMenuSource ?? 'directus');
-    const fanOutSummary = await _fanOutVenueTreeToIDB(deepVenue, { menuSource });
+    // Pass isInvalidated as shouldAbort so the fan-out can abort before opening
+    // the IDB transaction when invalidation fires during normalizeVenueUsersForIDB.
+    // A null return means no write was made; the pull must be discarded cleanly.
+    const fanOutSummary = await _fanOutVenueTreeToIDB(deepVenue, { menuSource, shouldAbort: isInvalidated });
+    // Fan-out was aborted before the IDB transaction (shouldAbort fired after the
+    // async PIN-hashing await).  No data was written to IDB, so there is nothing
+    // to save or apply — return a clean discard without touching the timestamp.
+    if (fanOutSummary === null) {
+      console.debug('[DirectusSync] Global pull: fan-out aborted by invalidation — IDB write skipped.');
+      return { ok: true, failedCollections: [] };
+    }
     await saveLastPullTsToIDB('deep_venue_config', new Date().toISOString());
 
     // Refresh the in-memory auth state whenever Directus venue users were written.
@@ -529,13 +565,10 @@ export async function _runGlobalPullInner({ onProgress = null, userInitiated = f
 
     // Re-check all three invalidation conditions after fan-out completes.
     // _onOffline() / stopSync() / reconfigureAndApply() can fire while the async
-    // _fanOutVenueTreeToIDB() was running; the single pre-fan-out guard above
-    // cannot catch those mid-fan-out races.
-    if (
-      syncState._globalPullOfflineGeneration > myOfflineGen ||
-      (syncState._lastAppliedGlobalPullGeneration ?? 0) > myGeneration ||
-      (myReconfigGen !== null && syncState._globalPullReconfigGeneration > myReconfigGen)
-    ) {
+    // _fanOutVenueTreeToIDB() was running; the shouldAbort inside fan-out only
+    // catches the pre-transaction window — invalidation that fires after the IDB
+    // transaction opens is caught here.
+    if (isInvalidated()) {
       console.debug(
         '[DirectusSync] Global pull skipping config apply after fan-out —',
         syncState._globalPullOfflineGeneration > myOfflineGen
@@ -547,15 +580,20 @@ export async function _runGlobalPullInner({ onProgress = null, userInitiated = f
       return { ok: true, failedCollections: [] };
     }
 
-    await _hydrateConfigFromLocalCache(venueId, onProgress);
+    // Pass isInvalidated as shouldAbort so _hydrateConfigFromLocalCache can bail
+    // before mutating appConfig if invalidation fires while loadConfigFromIDB is
+    // awaited.  Without this guard the function would call
+    // _applyDirectusRuntimeConfigToAppConfig with stale data and corrupt appConfig
+    // even though the caller's post-hydrate check would ultimately discard the pull.
+    await _hydrateConfigFromLocalCache(venueId, onProgress, isInvalidated);
 
     // Re-check after _hydrateConfigFromLocalCache() as well: invalidation can
-    // fire during that async call for the same reasons described above.
-    if (
-      syncState._globalPullOfflineGeneration > myOfflineGen ||
-      (syncState._lastAppliedGlobalPullGeneration ?? 0) > myGeneration ||
-      (myReconfigGen !== null && syncState._globalPullReconfigGeneration > myReconfigGen)
-    ) {
+    // fire during the _refreshStoreConfigFromIDB / _syncPreBillPrinterSelection
+    // awaits inside the helper.  If shouldAbort fired before _applyDirectus…,
+    // appConfig was not mutated and this guard correctly discards the pull.
+    // If invalidation fires after the sync config-apply step, this guard still
+    // prevents _lastAppliedGlobalPullGeneration from being advanced.
+    if (isInvalidated()) {
       _emitProgress(onProgress, {
         level: 'info',
         message: 'Configurazione idratata ma non applicata: una pull globale più recente è stata applicata durante l\u2019aggiornamento.',

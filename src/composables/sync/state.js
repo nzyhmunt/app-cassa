@@ -203,6 +203,18 @@ export const syncState = {
    * `_stopSubscriptions()` and `_resetDirectusSyncSingleton()`.
    */
   _wsHeartbeatTimer: null,
+  /**
+   * S5 — Monotonically increasing cycle counter for the WS heartbeat watchdog.
+   * Bumped by `_resetWsHeartbeat()` on every call (both real WS events and new
+   * connections).  The phase-1 setTimeout callback captures `myCycle` before
+   * starting `_runPull()`; the resulting `.then()` callback compares
+   * `syncState._wsHeartbeatCycle !== myCycle` and aborts arming phase-2 when
+   * the counter has moved on — i.e. when a real WS event arrived while the
+   * phase-1 pull was still in flight and already started a fresh phase-1 timer.
+   * This prevents a stale `.then()` from overwriting the fresh timer with a
+   * spurious phase-2 reconnect.
+   */
+  _wsHeartbeatCycle: 0,
   /** Whether we are currently connected via WebSocket. */
   _wsConnected: ref(false),
 
