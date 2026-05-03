@@ -3285,6 +3285,94 @@ describe('offline/online event handling', () => {
     }
   });
 
+  it('mid-drain enqueue triggers a follow-up push immediately after the in-flight drain completes', async () => {
+    // Real-world scenario: opening a table creates a bill_session (enqueue #1) which
+    // triggers an immediate push.  While that push is in flight (getPendingEntries
+    // already returned its snapshot), the cover-charge order is enqueued (enqueue #2).
+    // Without the fix, _onQueueEnqueue() just returns the existing _pushInFlight promise,
+    // so the order sits in the queue for ~30 s until the next interval tick.
+    // With the fix, a follow-up push is chained onto _pushInFlight and runs as
+    // soon as the first drain finishes — no 30 s wait.
+    const { enqueue } = await import('../useSyncQueue.js');
+
+    // We need fine-grained control: the bill_session POST must be slow enough that
+    // the order can be enqueued while it is still in flight.  We use a resolvable
+    // promise to gate the first POST and release it from the test.
+    let resolveBillSessionPost;
+    const billSessionPostBarrier = new Promise(res => { resolveBillSessionPost = res; });
+
+    let billSessionPostCalls = 0;
+    let orderPostCalls = 0;
+
+    vi.spyOn(global, 'fetch').mockImplementation((url, opts = {}) => {
+      const method = (opts?.method ?? 'GET').toUpperCase();
+      const u = String(url);
+      if (u.includes('/items/bill_sessions') && method === 'POST') {
+        billSessionPostCalls++;
+        // Block until the test releases the barrier.
+        return billSessionPostBarrier.then(() =>
+          new Response(JSON.stringify({ data: { id: 'bs_1' } }), { status: 201 }),
+        );
+      }
+      if (u.includes('/items/orders') && method === 'POST') {
+        orderPostCalls++;
+        return Promise.resolve(new Response(JSON.stringify({ data: { id: 'ord_1' } }), { status: 201 }));
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const sync = useDirectusSync();
+    try {
+      await sync.startSync({ appType: 'cassa', store: makeStore() });
+      await flushPromises(LONG_FLUSH_ROUNDS);
+
+      // Use fake timers so vi.advanceTimersByTimeAsync(1) can yield to real setImmediate
+      // callbacks (IDB uses setImmediate internally in fake-indexeddb).
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
+
+      // Seed bill_session into the queue — IDB write completes (setImmediate is real).
+      // The sync-queue:enqueue event is dispatched synchronously inside enqueue(), so
+      // _onQueueEnqueue() has already called _runPush() and set _pushInFlight by the
+      // time the await resolves.
+      await enqueue('bill_sessions', 'create', 'bs_1', { id: 'bs_1' });
+      // Advance 1 ms to drain IDB read callbacks (setImmediate) inside getPendingEntries.
+      await vi.advanceTimersByTimeAsync(1);
+      await flushPromises(LONG_FLUSH_ROUNDS);
+      expect(billSessionPostCalls).toBe(1); // POST started but blocked behind barrier
+
+      // While push #1 is in flight, enqueue the dependent order.
+      // This fires _onQueueEnqueue() which — with the fix — chains a follow-up
+      // push onto _pushInFlight instead of silently returning the same promise.
+      await enqueue('orders', 'create', 'ord_1', {
+        id: 'ord_1',
+        billSessionId: 'bs_1',
+        bill_session: 'bs_1',
+      });
+      await vi.advanceTimersByTimeAsync(1);
+      await flushPromises(LONG_FLUSH_ROUNDS);
+      // Order NOT yet pushed (first drain is still blocked on the barrier).
+      expect(orderPostCalls).toBe(0);
+
+      // Release the bill_session fetch — push #1 completes, then the chained
+      // follow-up push runs immediately and picks up the order.
+      resolveBillSessionPost();
+      // Multiple advance+flush rounds are needed:
+      // round 1: IDB delete completes (removeEntry for bill_session queue entry)
+      // rounds 2-3: follow-up _runPush() starts via .then(), IDB read (getPendingEntries),
+      //   then orders fetch is called.
+      for (let i = 0; i < 4; i++) {
+        await vi.advanceTimersByTimeAsync(1);
+        await flushPromises(LONG_FLUSH_ROUNDS);
+      }
+
+      // The order must be pushed in the follow-up drain, without any 30 s timer advance.
+      expect(orderPostCalls).toBe(1);
+    } finally {
+      sync.stopSync();
+      vi.useRealTimers();
+    }
+  });
+
   it('forcePush bypasses a stuck in-flight so the manual "Push ora" override always runs', async () => {
     // Real-world failure: the user clicks "Push ora" but the push queue appears
     // completely frozen.  The root cause: a previous push is stuck on a hung fetch
