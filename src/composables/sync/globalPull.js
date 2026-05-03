@@ -527,17 +527,35 @@ export async function _runGlobalPullInner({ onProgress = null, userInitiated = f
       details: JSON.stringify(fanOutSummary),
     });
 
-    if ((syncState._lastAppliedGlobalPullGeneration ?? 0) > myGeneration) {
-      _emitProgress(onProgress, {
-        level: 'info',
-        message: 'Applicazione configurazione saltata: una pull globale più recente è già stata applicata.',
-      });
+    // Re-check all three invalidation conditions after fan-out completes.
+    // _onOffline() / stopSync() / reconfigureAndApply() can fire while the async
+    // _fanOutVenueTreeToIDB() was running; the single pre-fan-out guard above
+    // cannot catch those mid-fan-out races.
+    if (
+      syncState._globalPullOfflineGeneration > myOfflineGen ||
+      (syncState._lastAppliedGlobalPullGeneration ?? 0) > myGeneration ||
+      (myReconfigGen !== null && syncState._globalPullReconfigGeneration > myReconfigGen)
+    ) {
+      console.debug(
+        '[DirectusSync] Global pull skipping config apply after fan-out —',
+        syncState._globalPullOfflineGeneration > myOfflineGen
+          ? 'network dropped during fan-out (stale data discarded)'
+          : (myReconfigGen !== null && syncState._globalPullReconfigGeneration > myReconfigGen)
+            ? 'superseded by a newer user-initiated reconfigureAndApply pull'
+            : 'superseded by a newer pull that already applied config',
+      );
       return { ok: true, failedCollections: [] };
     }
 
     await _hydrateConfigFromLocalCache(venueId, onProgress);
 
-    if ((syncState._lastAppliedGlobalPullGeneration ?? 0) > myGeneration) {
+    // Re-check after _hydrateConfigFromLocalCache() as well: invalidation can
+    // fire during that async call for the same reasons described above.
+    if (
+      syncState._globalPullOfflineGeneration > myOfflineGen ||
+      (syncState._lastAppliedGlobalPullGeneration ?? 0) > myGeneration ||
+      (myReconfigGen !== null && syncState._globalPullReconfigGeneration > myReconfigGen)
+    ) {
       _emitProgress(onProgress, {
         level: 'info',
         message: 'Configurazione idratata ma non applicata: una pull globale più recente è stata applicata durante l\u2019aggiornamento.',

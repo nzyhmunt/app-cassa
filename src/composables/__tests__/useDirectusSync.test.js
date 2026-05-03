@@ -5554,6 +5554,68 @@ describe('GP-OFFLINE — _globalPullOfflineGeneration guard prevents stale globa
   });
 });
 
+// ── GP-OFFLINE-FANOUT: offline-generation guard fires after fan-out, before hydration ─
+//
+// Exercises the second invalidation check (after _fanOutVenueTreeToIDB, before
+// _hydrateConfigFromLocalCache).  The HTTP fetch and fan-out both complete
+// successfully, but _globalPullOfflineGeneration is bumped inside the
+// saveLastPullTsToIDB mock — which is called right after fan-out returns and
+// before the post-fan-out guard runs.  The guard must detect the stale state and
+// skip _hydrateConfigFromLocalCache(), so mapVenueConfigFromDirectus is never called.
+
+describe('GP-OFFLINE-FANOUT — offline-generation guard fires between fan-out and config hydration', () => {
+  it('GP-OFFLINE-FANOUT: bumping offline gen inside saveLastPullTsToIDB spy skips config apply', async () => {
+    const mappers = await import('../../utils/mappers.js');
+    const mapperSpy = vi.spyOn(mappers, 'mapVenueConfigFromDirectus');
+
+    const { syncState } = await import('../sync/state.js');
+    const persistCfg = await import('../../store/persistence/config.js');
+
+    const venuePayload = {
+      id: 1,
+      name: 'GP-OFFLINE-FANOUT Venue',
+      menu_source: 'directus',
+      rooms: [],
+      tables: [],
+      payment_methods: [],
+      printers: [],
+      venue_users: [],
+      table_merge_sessions: [],
+      menu_categories: [],
+      menu_items: [],
+      primary_color: '#aabbcc',
+    };
+
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      if (String(url).includes('/items/venues/')) {
+        return Promise.resolve(directusItemResponse(venuePayload));
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    // Bump the offline gen inside saveLastPullTsToIDB — this runs right after
+    // _fanOutVenueTreeToIDB() returns, before the post-fan-out guard.
+    const origSave = persistCfg.saveLastPullTsToIDB;
+    const saveSpy = vi.spyOn(persistCfg, 'saveLastPullTsToIDB').mockImplementation((...args) => {
+      syncState._globalPullOfflineGeneration++;
+      return origSave(...args);
+    });
+
+    const sync = useDirectusSync();
+    const result = await sync.reconfigureAndApply();
+
+    // ok:true — graceful discard, not an error.
+    expect(result.ok).toBe(true);
+    // Config-apply (mapVenueConfigFromDirectus inside _hydrateConfigFromLocalCache)
+    // must NOT have been called — the stale snapshot must be discarded.
+    expect(mapperSpy).not.toHaveBeenCalled();
+
+    sync.stopSync();
+    saveSpy.mockRestore();
+    mapperSpy.mockRestore();
+  });
+});
+
 // ── GP-RECONFIG: reconfigureAndApply() invalidates in-flight background pull ──
 //
 // When reconfigureAndApply() fires, it bumps _globalPullReconfigGeneration so
