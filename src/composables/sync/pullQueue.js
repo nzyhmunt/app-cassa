@@ -435,7 +435,8 @@ export async function _pullCollection(collection, { forceFull = false, lastPullT
   // pull, but that is an acceptable trade-off given the sub-millisecond probability
   // and the clearly broken alternative of an unbreakable infinite poll loop.
   if (!signal?.aborted && !hadFetchError && hadRemoteRecords && storedSinceTs && latestTs === storedSinceTs) {
-    const bumpedTs = new Date(new Date(storedSinceTs).getTime() + 1).toISOString();
+    const storedDate = new Date(storedSinceTs);
+    const bumpedTs = new Date(storedDate.getTime() + 1).toISOString();
     await saveLastPullTsToIDB(collection, bumpedTs);
   }
 
