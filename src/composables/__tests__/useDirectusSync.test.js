@@ -4992,7 +4992,6 @@ describe('ABORT-PRE-WRITE: abort fires after HTTP response but before IDB write 
     // calling code fires ac.abort().  The mock sets aborted:false because the
     // HTTP response was already parsed; the signal fires synchronously inside
     // the mock so signal.aborted is true when _pullCollection resumes.
-    vi.spyOn({ _fetchUpdatedViaSDK }, '_fetchUpdatedViaSDK');
     vi.spyOn(global, 'fetch').mockImplementation(() => {
       // Abort the signal synchronously while "inside" the fetch, simulating
       // the abort being issued by _runPull() after the response arrived.
@@ -5619,7 +5618,7 @@ describe('GP-RECONFIG — reconfigureAndApply() invalidates in-flight background
     const bgPullPromise = _runGlobalPull();
     await flushPromises(5);
 
-    // reconfigureAndApply() must bump _globalPullOfflineGeneration before
+    // reconfigureAndApply() must bump _globalPullReconfigGeneration before
     // starting its own pull so the background pull's HTTP response is discarded.
     const rcaPromise = sync.reconfigureAndApply();
 

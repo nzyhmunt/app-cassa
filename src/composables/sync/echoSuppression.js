@@ -36,12 +36,14 @@ export const ECHO_SUPPRESS_RTT_MULTIPLIER = 3;
 
 /**
  * S5 — Heartbeat watchdog interval (ms).
- * If no WebSocket subscription event is received for this duration, a REST
- * catch-up pull is triggered as a safety net for messages that may have been
- * missed while the connection was idle, and the timer is re-armed for the next
- * interval.  The WS connection is NOT dropped; genuine transport failures are
- * detected when the subscription iterator throws in processSubscription(), which
- * sets _wsConnected = false and calls _reconnectWs().
+ * If no WebSocket subscription event is received for this duration, a one-shot
+ * REST catch-up pull is triggered as a safety net for messages that may have
+ * been missed while the connection was idle.  The timer is NOT re-armed after
+ * firing; it re-arms only when a real WS event calls _resetWsHeartbeat() again,
+ * preventing idle WS clients from acting as 30 s polling clients.
+ * The WS connection is NOT dropped; genuine transport failures are detected when
+ * the subscription iterator throws in processSubscription(), which sets
+ * _wsConnected = false and calls _reconnectWs().
  *
  * Note: Directus WebSocket protocol-level pings are handled transparently by
  * the browser and never surface as application-level subscription iterator

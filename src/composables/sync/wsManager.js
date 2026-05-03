@@ -35,10 +35,11 @@ const _unsubscribers = [];
  * established.
  *
  * Behaviour: if no subscription event arrives within WS_HEARTBEAT_INTERVAL_MS,
- * the watchdog triggers a REST catch-up pull (to cover any messages potentially
- * missed during the silent window) and re-arms itself for the next interval.
- * The WS connection is NOT dropped; the watchdog fires every 30 s for idle
- * connections and keeps data eventually fresh via REST.
+ * the watchdog triggers a one-shot REST catch-up pull (to cover any messages
+ * potentially missed during the silent window) and then stops — it does NOT
+ * re-arm itself.  The timer is only re-armed by the next real WS event (via
+ * _handleSubscriptionMessage) or a new connection, so idle WS clients do NOT
+ * become effective 30 s polling clients.
  *
  * Genuine transport failures (half-open socket, server restart, network loss)
  * are detected when the subscription iterator throws in processSubscription(),

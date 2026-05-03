@@ -545,6 +545,11 @@ export function useDirectusSync() {
 
     syncState.syncStatus.value = 'syncing';
     try {
+      // Immediately invalidate any in-flight background global pull so its HTTP
+      // response cannot overwrite this user-initiated pull with a stale
+      // venue/config snapshot — even during the async clearLocalConfig work below.
+      syncState._globalPullReconfigGeneration++;
+
       if (clearLocalConfig) {
         _emitProgress(onProgress, { level: 'info', message: 'Svuotamento completo cache configurazione locale…' });
         await clearLocalConfigCacheFromIDB();
@@ -559,12 +564,10 @@ export function useDirectusSync() {
         _emitProgress(onProgress, { level: 'info', message: 'Cache configurazione locale svuotata.' });
       }
 
-      // Invalidate any in-flight background global pull so its HTTP response
-      // cannot overwrite this user-initiated pull with a stale venue/config snapshot.
-      syncState._globalPullReconfigGeneration++;
-      // Reset the NS5 in-flight semaphore so this user-initiated pull
-      // always starts a fresh fetch with the correct onProgress callback
-      // rather than reusing a background pull that lacks it.
+      // Reset the NS5 in-flight semaphore so this user-initiated pull always
+      // starts a fresh fetch with the correct onProgress callback rather than
+      // reusing a background pull that lacks it (including any pull that may
+      // have started during the clearLocalConfig async work above).
       syncState._globalPullInFlight = null;
       const result = await _runGlobalPull({ onProgress, userInitiated: true });
       syncState.syncStatus.value = result?.ok ? 'idle' : 'error';
