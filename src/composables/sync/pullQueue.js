@@ -421,6 +421,24 @@ export async function _pullCollection(collection, { forceFull = false, lastPullT
     page++;
   }
 
+  // Boundary-advance guard: when every record returned by the poll shares the
+  // exact same timestamp as storedSinceTs, the strict `maxTs > latestTs` check
+  // above never fires and the cursor stays frozen at storedSinceTs.  On the next
+  // poll the _gte filter returns the same boundary records again, creating an
+  // infinite re-fetch loop (e.g. one archived table always returned on every pull).
+  //
+  // Once data.length < 200 on the last page we know ALL records at this timestamp
+  // have been delivered in the current poll, so it is safe to advance the cursor
+  // by 1ms.  The next poll will use `_gte storedSinceTs + 1ms` and skip the
+  // already-processed boundary records.  A concurrent PATCH landing at exactly
+  // storedSinceTs between two polls would be missed until the next scheduled full
+  // pull, but that is an acceptable trade-off given the sub-millisecond probability
+  // and the clearly broken alternative of an unbreakable infinite poll loop.
+  if (!signal?.aborted && !hadFetchError && hadRemoteRecords && storedSinceTs && latestTs === storedSinceTs) {
+    const bumpedTs = new Date(new Date(storedSinceTs).getTime() + 1).toISOString();
+    await saveLastPullTsToIDB(collection, bumpedTs);
+  }
+
   // Skip the in-memory store broadcast if the pull signal was aborted.
   // When signal.aborted is true we broke out of the page loop after the IDB
   // write but before writing the checkpoint, meaning a superseding pull cycle
