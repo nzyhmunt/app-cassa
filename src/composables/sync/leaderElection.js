@@ -215,16 +215,25 @@ function _onOffline() {
   syncState._pullAbortController = null;
   syncState._pullInFlight = null;
   syncState._pullGeneration++;
-  // Clear the WS-triggered table_merge_sessions dedup semaphore.  The
-  // _pullCollection() call that backs it has no AbortSignal so it cannot be
-  // actively cancelled, but releasing the semaphore pointer means that once the
-  // network recovers the next delete event will start a fresh replace instead of
-  // awaiting the stale, possibly-never-settling promise.
+  // Abort the WS-triggered table_merge_sessions pull (if any) and release the
+  // semaphore.  Aborting via the AbortController causes _pullCollection to
+  // discard any HTTP response that arrives after going offline, preventing a
+  // stale snapshot from overwriting a fresh post-reconnect replace.
+  // Identity-guarded .finally() in wsManager.js prevents a settled old promise
+  // from nulling a newer semaphore started after reconnect.
+  syncState._tableMergeAbortController?.abort();
+  syncState._tableMergeAbortController = null;
   syncState._tableMergePullInFlight = null;
-  // Same for the global config (venue settings) dedup semaphore.  _runGlobalPull
-  // also uses an un-signalled REST client; releasing the pointer lets the next
-  // timer tick or _onOnline() call start a fresh config pull rather than coalescing
-  // onto the old hung promise.
+  // Release the global config (venue settings) dedup semaphore and bump the
+  // offline-generation counter.  _runGlobalPullInner captures this counter on
+  // entry (myOfflineGen); after the HTTP response arrives it checks
+  // _globalPullOfflineGeneration > myOfflineGen — if that is true it means the
+  // network dropped since this pull started, so the pull skips both the IDB
+  // fan-out write and the config-apply step, even if no post-reconnect pull has
+  // completed yet.  This is narrower than bumping _globalPullGeneration (which
+  // would also suppress older concurrent pulls that are still valid when the
+  // newer pull fails).
+  syncState._globalPullOfflineGeneration++;
   syncState._globalPullInFlight = null;
   // If an in-flight push had already set syncState.syncStatus to "syncing", the
   // generation bump above causes that superseded _runPush() to skip its

@@ -264,6 +264,15 @@ export async function _pullCollection(collection, { forceFull = false, lastPullT
       page++;
     }
     if (!hadFetchError) {
+      // Post-loop abort check: discard collected pages if the signal fired
+      // while the last HTTP response was in transit (the per-iteration checks
+      // above only cover aborts that happen *before* or *during* a request,
+      // not an abort that fires after the response body is received but before
+      // the replace write).  Treating it as a fetch error prevents
+      // replaceTableMergesInIDB from being called with a stale snapshot.
+      if (signal?.aborted) { hadFetchError = true; }
+    }
+    if (!hadFetchError) {
       await replaceTableMergesInIDB(allMapped);
       await _refreshStoreFromIDB('table_merge_sessions');
       // Guard the checkpoint write: if the signal fired while replaceTableMergesInIDB

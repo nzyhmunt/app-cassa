@@ -118,12 +118,19 @@ export async function _handleSubscriptionMessage(collection, message) {
     if (collection === 'table_merge_sessions') {
       // NS4: Deduplicate concurrent pulls triggered by rapid delete events using
       // a semaphore so only one full-replace is in flight at a time.
-      // Identity-guard the .finally() so that if _onOffline() nulls the semaphore
-      // and a new delete event starts a fresh pull, the stale promise's .finally()
-      // does not overwrite the newer semaphore when it eventually settles.
+      // An AbortController is passed so that _onOffline() can cancel the in-flight
+      // HTTP request and prevent a stale response from overwriting a fresh
+      // post-reconnect replace via replaceTableMergesInIDB().
+      // Identity-guards in the .finally() prevent a stale settled promise from
+      // overwriting the newer semaphore/controller started after reconnect.
       if (!syncState._tableMergePullInFlight) {
-        const p = _pullCollection('table_merge_sessions', { forceFull: true })
-          .finally(() => { if (syncState._tableMergePullInFlight === p) syncState._tableMergePullInFlight = null; });
+        const ac = new AbortController();
+        syncState._tableMergeAbortController = ac;
+        const p = _pullCollection('table_merge_sessions', { forceFull: true, signal: ac.signal })
+          .finally(() => {
+            if (syncState._tableMergePullInFlight === p) syncState._tableMergePullInFlight = null;
+            if (syncState._tableMergeAbortController === ac) syncState._tableMergeAbortController = null;
+          });
         syncState._tableMergePullInFlight = p;
       }
       await syncState._tableMergePullInFlight;

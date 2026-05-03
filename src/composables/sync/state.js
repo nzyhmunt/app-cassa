@@ -87,6 +87,16 @@ export const syncState = {
    */
   _tableMergePullInFlight: null,
   /**
+   * NS4 — AbortController for the currently in-flight `table_merge_sessions`
+   * full-replace pull.  Passed as `signal` to `_pullCollection` so that an
+   * abort fired by `_onOffline()` causes the in-transit HTTP response to be
+   * discarded before `replaceTableMergesInIDB()` is called, preventing stale
+   * data from overwriting a fresh post-reconnect replace.  Identity-guarded in
+   * the `.finally()` callback so a newer semaphore started after reconnect is
+   * never nulled by the old promise.
+   */
+  _tableMergeAbortController: null,
+  /**
    * NS9 — In-flight promise for the immediate `order_items` pull triggered by a
    * WS `orders:create` event.  Deduplicates concurrent pulls when multiple
    * `orders:create` events arrive in rapid succession so that only one
@@ -148,6 +158,18 @@ export const syncState = {
   _globalPullGeneration: 0,
   /** Tracks the most recently applied global pull generation to detect stale writes. */
   _lastAppliedGlobalPullGeneration: 0,
+  /**
+   * Incremented exclusively by `_onOffline()` to mark the moment the network
+   * dropped.  Each `_runGlobalPullInner()` invocation captures this value on
+   * entry (`myOfflineGen`).  After the HTTP response arrives but before writing
+   * to IDB, the pull checks whether `_globalPullOfflineGeneration > myOfflineGen`;
+   * if so, the network dropped since this pull started and any data in transit is
+   * stale — skip the IDB write even if no post-reconnect pull has completed yet.
+   * This closes the race where a pre-offline response arrives before the
+   * post-reconnect pull finishes, which `_lastAppliedGlobalPullGeneration` alone
+   * cannot catch.
+   */
+  _globalPullOfflineGeneration: 0,
   /**
    * NS5 — In-flight promise for `_runGlobalPullInner()`.
    * Prevents concurrent global pulls from hammering the Directus `/items/venues`

@@ -406,6 +406,11 @@ export async function _runGlobalPullInner({ onProgress = null } = {}) {
   // is awaiting network/IDB work.  If superseded, skip the config-apply step
   // to avoid overwriting the freshly applied runtime config with stale data.
   const myGeneration = ++syncState._globalPullGeneration;
+  // Capture the offline-event generation so we can detect whether the network
+  // dropped after this pull started.  _onOffline() bumps _globalPullOfflineGeneration;
+  // if it is higher than what we captured here when we reach the IDB-write guard,
+  // this pull was issued before a network drop and any data in transit is stale.
+  const myOfflineGen = syncState._globalPullOfflineGeneration;
 
   try {
     _emitProgress(onProgress, { level: 'info', message: 'Avvio pull globale configurazione Directus…' });
@@ -456,12 +461,20 @@ export async function _runGlobalPullInner({ onProgress = null } = {}) {
     }
     deepVenue = await _hydrateVenueTablesFromRoomRefs(client, deepVenue, venueId);
 
-    // Skip IDB write and config apply only if a *newer* pull has already
-    // successfully applied config.  Checking here (after network fetch but
-    // before writing to IDB) prevents an older, slower pull from
-    // overwriting IDB with stale venue data after a newer pull has already
-    // written and applied fresher data.
-    if (syncState._lastAppliedGlobalPullGeneration > myGeneration) {
+    // Skip IDB write and config apply if either:
+    //  (a) the network dropped since this pull started (_globalPullOfflineGeneration
+    //      was bumped by _onOffline() after we captured myOfflineGen) — the data
+    //      we fetched is stale relative to whatever a post-reconnect pull will bring;
+    //  (b) a newer pull has already successfully applied config
+    //      (_lastAppliedGlobalPullGeneration > myGeneration).
+    // Checking (a) here (after network fetch, before IDB write) closes the race
+    // where a pre-offline response arrives while the post-reconnect pull is still
+    // in flight — _lastAppliedGlobalPullGeneration alone cannot catch that case
+    // because the new pull has not completed yet.
+    if (
+      syncState._globalPullOfflineGeneration > myOfflineGen ||
+      syncState._lastAppliedGlobalPullGeneration > myGeneration
+    ) {
       console.debug('[DirectusSync] Global pull superseded by a newer pull — skipping IDB write and config apply.');
       return { ok: true, failedCollections: [] };
     }
