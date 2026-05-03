@@ -33,6 +33,8 @@ import {
   loadStateFromIDB,
   loadLastPullTsFromIDB,
   saveLastPullTsToIDB,
+  loadLastPullCursorFromIDB,
+  saveLastPullCursorToIDB,
   replaceTableMergesInIDB,
   loadConfigFromIDB,
 } from '../../store/idbPersistence.js';
@@ -40,6 +42,7 @@ import * as persistenceOps from '../../store/persistence/operations.js';
 import { _resetEnqueueSeq } from '../useSyncQueue.js';
 import { mapVenueConfigFromDirectus } from '../../utils/mappers.js';
 import { createRuntimeConfig, DEFAULT_SETTINGS } from '../../utils/index.js';
+import { _fetchUpdatedViaSDK } from '../sync/pullQueue.js';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -3988,6 +3991,82 @@ describe('NS7 — keyset cursor pagination', () => {
   });
 });
 
+// ── NS7-CP — per-page timestamp checkpoint ────────────────────────────────────
+
+describe('NS7-CP — per-page timestamp checkpoint', () => {
+  it('persists last_pull_ts to IDB after the first successful pull', async () => {
+    const sinceTs = '2024-06-01T00:00:00.000Z';
+    await saveLastPullTsToIDB('orders', sinceTs);
+
+    const record = makeRemoteOrder({ id: 'ord_cp_001', date_updated: '2024-06-02T10:00:00.000Z' });
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      if (String(url).includes('/items/orders')) return Promise.resolve(directusListResponse([record]));
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const sync = useDirectusSync();
+    await sync.forcePull();
+
+    const ts = await loadLastPullTsFromIDB('orders');
+    expect(ts).toBe('2024-06-02T10:00:00.000Z');
+  });
+
+  it('does NOT persist cursor to IDB (cursor is only used within a single pull call for pagination)', async () => {
+    const sinceTs = '2024-06-01T00:00:00.000Z';
+    await saveLastPullTsToIDB('orders', sinceTs);
+
+    const record = makeRemoteOrder({ id: 'ord_cp_002', date_updated: '2024-06-02T10:00:00.000Z' });
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      if (String(url).includes('/items/orders')) return Promise.resolve(directusListResponse([record]));
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const sync = useDirectusSync();
+    await sync.forcePull();
+
+    // Cursor must NOT be written to IDB — the per-page cursor write was removed
+    // because loadLastPullCursorFromIDB is never called in production code, and
+    // the write doubled IDB checkpoint traffic on every pull page with no benefit.
+    const cursor = await loadLastPullCursorFromIDB('orders');
+    expect(cursor).toBeNull();
+  });
+
+  it('advances last_pull_ts when newer records arrive on subsequent pulls', async () => {
+    const sinceTs = '2024-06-01T00:00:00.000Z';
+    await saveLastPullTsToIDB('orders', sinceTs);
+
+    const newRecord = makeRemoteOrder({ id: 'ord_cp_new', date_updated: '2024-06-03T08:00:00.000Z' });
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      if (String(url).includes('/items/orders')) return Promise.resolve(directusListResponse([newRecord]));
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const sync = useDirectusSync();
+    await sync.forcePull();
+
+    const ts = await loadLastPullTsFromIDB('orders');
+    expect(ts).toBe('2024-06-03T08:00:00.000Z');
+  });
+
+  it('clears last_pull_cursor keys when clearLocalConfigCacheFromIDB is called', async () => {
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+
+    // Plant a cursor key alongside a pull-ts key (simulating a key that may
+    // have been written by an older version of the app or by tests directly).
+    await saveLastPullTsToIDB('orders', '2024-06-01T00:00:00.000Z');
+    await saveLastPullCursorToIDB('orders', { ts: '2024-06-01T00:00:00.000Z', id: 'ord_to_clear' });
+
+    const { clearLocalConfigCacheFromIDB } = await import('../../store/idbPersistence.js');
+    await clearLocalConfigCacheFromIDB();
+
+    const tsRecord = await db.get('app_meta', 'last_pull_ts:orders');
+    const cursorRecord = await db.get('app_meta', 'last_pull_cursor:orders');
+    expect(tsRecord).toBeUndefined();
+    expect(cursorRecord).toBeUndefined();
+  });
+});
+
 // ── NS8 — AbortController for _runPull ────────────────────────────────────────
 
 describe('NS8 — AbortController for _runPull', () => {
@@ -4321,5 +4400,2050 @@ describe('NP1 — _removeOrderItemsFromOrdersIDB fallback scan affectedOrderIds'
     const order = await db.get('orders', orderId);
     expect(order.orderItems).toHaveLength(1);
     expect(order.orderItems[0].id).toBe('oi_fb_aff_2');
+  });
+});
+
+// ── S5-FIX — WS heartbeat does not force-disconnect on idle apps ──────────────
+//
+// Before the fix, the heartbeat watchdog set _wsConnected = false and scheduled
+// a 2 s reconnect on every firing.  In idle mode (no data changes) Directus
+// subscription protocol pings never surface as application-level iterator
+// yields, so the watchdog fired every 30 s and the user saw a 2-3 s "WS down"
+// window at each polling interval.
+//
+// Two-phase behaviour after the fix:
+//   Phase 1 (30 s silence): one-shot REST catch-up pull.
+//     Phase 2 is armed only if the pull returned new records (anyMerged:true),
+//     indicating the socket was missing events.  An empty pull means the socket
+//     is idle and healthy — no reconnect is scheduled so idle apps are never
+//     spuriously disconnected.
+//   Phase 2 (another 30 s silence, armed only after a non-empty phase-1 pull):
+//     forces _stopSubscriptions() + reconnect to handle half-open sockets.
+// Active connections always cancel whichever phase is pending via
+// _resetWsHeartbeat(), so they are never affected.
+
+
+describe('S5-FIX — WS heartbeat does not force-disconnect on idle apps', () => {
+  it('does not set _wsConnected to false when the phase-1 watchdog fires', async () => {
+    const { syncState } = await import('../sync/state.js');
+    const { _resetWsHeartbeat } = await import('../sync/wsManager.js');
+    const { WS_HEARTBEAT_INTERVAL_MS } = await import('../sync/echoSuppression.js');
+    const { appConfig } = await import('../../utils/index.js');
+
+    // Spy on _runPull directly: returns anyMerged:false immediately so the
+    // .then() cancel runs within a single flushPromises call.  Using a fetch
+    // spy instead would require many more microtask rounds to drain _runPull()
+    // before the .then() fires (risking false failures under fake timers).
+    const pullMod = await import('../sync/pullQueue.js');
+    vi.spyOn(pullMod, '_runPull').mockResolvedValue({ ok: true, anyMerged: false });
+
+    // Preconditions required by _resetWsHeartbeat to arm the timer.
+    appConfig.directus = { ...appConfig.directus, wsEnabled: true };
+    syncState._running = true;
+    syncState._wsConnected.value = true;
+
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
+    try {
+      _resetWsHeartbeat();
+
+      // Phase-1 interval elapses with no subscription messages arriving.
+      await vi.advanceTimersByTimeAsync(WS_HEARTBEAT_INTERVAL_MS + 50);
+      await flushPromises(LONG_FLUSH_ROUNDS);
+
+      // Core regression: the watchdog must NOT disconnect the WebSocket.
+      // Before the fix this was set to false here, causing a visible 2-3 s
+      // "WS down" window every 30 s on idle apps.
+      expect(syncState._wsConnected.value).toBe(true);
+
+      // Phase-1 pull returns no new data (anyMerged:false) → the socket is idle
+      // and healthy → phase-2 was pre-armed but immediately cancelled by .then().
+      // This is the primary guard against spurious reconnects on quiet sockets.
+      expect(syncState._wsHeartbeatTimer).toBeNull();
+
+      // No reconnect timer should have been scheduled.
+      expect(syncState._reconnectTimer).toBeNull();
+    } finally {
+      if (syncState._wsHeartbeatTimer) { clearTimeout(syncState._wsHeartbeatTimer); syncState._wsHeartbeatTimer = null; }
+      syncState._running = false;
+      syncState._wsConnected.value = false;
+      vi.useRealTimers();
+    }
+  });
+
+  it('forces a reconnect when the phase-2 watchdog fires (half-open socket)', async () => {
+    const { syncState } = await import('../sync/state.js');
+    const { _resetWsHeartbeat } = await import('../sync/wsManager.js');
+    const { WS_HEARTBEAT_INTERVAL_MS } = await import('../sync/echoSuppression.js');
+    const { appConfig } = await import('../../utils/index.js');
+
+    // Simulate a half-open socket: phase-1 REST pull finds new data (anyMerged:true)
+    // meaning the socket was silently dropping server events.  Phase 2 must then
+    // fire and reconnect.  We spy on _runPull so it resolves immediately with
+    // anyMerged:true instead of going through IDB (which uses setImmediate and
+    // would not settle within flushPromises under fake timers).
+    const pullMod = await import('../sync/pullQueue.js');
+    vi.spyOn(pullMod, '_runPull').mockResolvedValue({ ok: true, anyMerged: true });
+
+    appConfig.directus = { ...appConfig.directus, wsEnabled: true };
+    syncState._running = true;
+    syncState._wsConnected.value = true;
+
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
+    try {
+      _resetWsHeartbeat();
+
+      // Phase-1 fires, pull returns anyMerged:true → phase-2 timer is armed.
+      await vi.advanceTimersByTimeAsync(WS_HEARTBEAT_INTERVAL_MS + 50);
+      await flushPromises(LONG_FLUSH_ROUNDS);
+      // Phase-2 timer must now be armed (pull found new data).
+      expect(syncState._wsHeartbeatTimer).not.toBeNull();
+
+      // Phase-2 fires with continued silence.
+      await vi.advanceTimersByTimeAsync(WS_HEARTBEAT_INTERVAL_MS + 50);
+      await flushPromises(LONG_FLUSH_ROUNDS);
+
+      // Phase-2 must have called _stopSubscriptions(), which sets _wsConnected=false.
+      // This is the observable proof that the half-open socket was torn down.
+      expect(syncState._wsConnected.value).toBe(false);
+
+      // Phase-2 timer should have cleared itself.
+      expect(syncState._wsHeartbeatTimer).toBeNull();
+    } finally {
+      if (syncState._wsHeartbeatTimer) { clearTimeout(syncState._wsHeartbeatTimer); syncState._wsHeartbeatTimer = null; }
+      syncState._running = false;
+      syncState._wsConnected.value = false;
+      vi.useRealTimers();
+    }
+  });
+
+  it('existing timer is cleared and replaced by _resetWsHeartbeat when a WS message arrives', async () => {
+    const { syncState } = await import('../sync/state.js');
+    const { _resetWsHeartbeat } = await import('../sync/wsManager.js');
+    const { WS_HEARTBEAT_INTERVAL_MS } = await import('../sync/echoSuppression.js');
+    const { appConfig } = await import('../../utils/index.js');
+
+    vi.spyOn(global, 'fetch').mockImplementation(() => Promise.resolve(directusListResponse([])));
+
+    appConfig.directus = { ...appConfig.directus, wsEnabled: true };
+    syncState._running = true;
+    syncState._wsConnected.value = true;
+
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
+    try {
+      // Arm the watchdog.
+      _resetWsHeartbeat();
+      const firstTimer = syncState._wsHeartbeatTimer;
+      expect(firstTimer).not.toBeNull();
+
+      // Phase-1 fires: REST pull triggered; with an empty fetch mock (anyMerged=false)
+      // phase-2 is NOT armed, so _wsHeartbeatTimer is null after phase-1.
+      await vi.advanceTimersByTimeAsync(WS_HEARTBEAT_INTERVAL_MS + 50);
+      await flushPromises(LONG_FLUSH_ROUNDS);
+
+      // A real WS event arrives — re-arms a fresh phase-1 timer.
+      _resetWsHeartbeat(); // called by _handleSubscriptionMessage on every WS event
+      const secondTimer = syncState._wsHeartbeatTimer;
+
+      // The fresh phase-1 timer must be non-null and different from the first.
+      expect(secondTimer).not.toBeNull();
+      expect(secondTimer).not.toBe(firstTimer);
+    } finally {
+      if (syncState._wsHeartbeatTimer) {
+        clearTimeout(syncState._wsHeartbeatTimer);
+        syncState._wsHeartbeatTimer = null;
+      }
+      syncState._running = false;
+      syncState._wsConnected.value = false;
+      vi.useRealTimers();
+    }
+  });
+});
+
+// ── S5-FIX-phase2 — Explicit behavioral assertions for the heartbeat ──────────
+//
+// Complements the S5-FIX suite with explicit verification of what each phase
+// actually does, using a _runPull spy (anyMerged:true) to confirm phase-2 is
+// armed when the socket was missing events, and observable state to confirm
+// the reconnect fires in phase 2.
+//
+// Three scenarios:
+//  A) phase-1 pull returns anyMerged:true → phase-2 fires → reconnect
+//  B) phase-1 pull returns anyMerged:false (idle socket) → no phase-2 armed
+//  C) WS event cancels the phase-2 timer and starts a fresh phase-1
+
+describe('S5-FIX-phase2 — Heartbeat two-phase: explicit behavioral assertions', () => {
+  it('S5-FIX-phase2-A: phase-1 finds new data → phase-2 fires → reconnect', async () => {
+    const { syncState } = await import('../sync/state.js');
+    const { _resetWsHeartbeat } = await import('../sync/wsManager.js');
+    const { WS_HEARTBEAT_INTERVAL_MS } = await import('../sync/echoSuppression.js');
+    const { appConfig } = await import('../../utils/index.js');
+    const clientModule = await import('../useDirectusClient.js');
+
+    // Spy on resetDirectusClient to verify _stopSubscriptions() ran.
+    // _wsConnected.value is not used as the primary assertion because a fast
+    // _reconnectWs() (or a reconnect that resolves before flushPromises completes)
+    // can set it back to true, making the check unreliable.
+    // resetDirectusClient() is called by _stopSubscriptions() and cannot be
+    // "undone" by a subsequent reconnect, making it the canonical proof.
+    const resetClientSpy = vi.spyOn(clientModule, 'resetDirectusClient');
+
+    // Make _startSubscriptions() fail immediately as a microtask (Promise.reject),
+    // not as a macrotask via JSDOM's WebSocket error/close events.  Without this,
+    // the pending connect() rejection can race with the next test's setup and
+    // spuriously set _wsConnected.value = false after the next test sets it to true.
+    // The spy is automatically restored by vi.restoreAllMocks() in beforeEach so
+    // no explicit teardown is needed in the finally block.
+    vi.spyOn(clientModule, 'getDirectusClient').mockReturnValue({
+      connect: () => Promise.reject(new Error('test isolation: no WS')),
+      disconnect: () => {},
+    });
+
+    // Simulate a half-open socket: phase-1 pull finds new data (anyMerged:true).
+    // Without this, _runPull() would return anyMerged:false and phase-2 would
+    // not be armed, meaning no reconnect would ever fire.
+    const pullMod = await import('../sync/pullQueue.js');
+    vi.spyOn(pullMod, '_runPull').mockResolvedValue({ ok: true, anyMerged: true });
+
+    appConfig.directus = { ...appConfig.directus, wsEnabled: true };
+    syncState._running = true;
+    syncState._wsConnected.value = true;
+
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
+    try {
+      _resetWsHeartbeat();
+
+      // Phase 1 fires: REST pull triggered and phase-2 timer armed (anyMerged:true).
+      await vi.advanceTimersByTimeAsync(WS_HEARTBEAT_INTERVAL_MS + 50);
+      await flushPromises(LONG_FLUSH_ROUNDS);
+
+      // Phase 1 must NOT have disconnected the WebSocket.
+      expect(syncState._wsConnected.value).toBe(true);
+      // Phase-2 timer must now be armed (pull found new data).
+      expect(syncState._wsHeartbeatTimer).not.toBeNull();
+
+      // Phase 2 fires: reconnect should be triggered.
+      await vi.advanceTimersByTimeAsync(WS_HEARTBEAT_INTERVAL_MS + 50);
+      await flushPromises(LONG_FLUSH_ROUNDS);
+
+      // resetDirectusClient() is called inside _stopSubscriptions(), which is invoked
+      // from the phase-2 timer callback — the definitive, non-reversible proof that
+      // the phase-2 reconnect path ran.
+      expect(resetClientSpy).toHaveBeenCalled();
+      // The phase-2 callback clears _wsHeartbeatTimer as its first action.
+      expect(syncState._wsHeartbeatTimer).toBeNull();
+    } finally {
+      if (syncState._wsHeartbeatTimer) { clearTimeout(syncState._wsHeartbeatTimer); syncState._wsHeartbeatTimer = null; }
+      syncState._running = false;
+      syncState._wsConnected.value = false;
+      // _resetDirectusSyncSingleton() + flushPromises() drains the _reconnectWs()
+      // microtask chain (possible because getDirectusClient is mocked to fail
+      // immediately — no JSDOM macrotask bleed into the next test).
+      _resetDirectusSyncSingleton();
+      await flushPromises(LONG_FLUSH_ROUNDS);
+      vi.useRealTimers();
+    }
+  });
+
+  it('S5-FIX-phase2-B: idle healthy socket — phase-1 pull returns no new data, phase-2 cancelled', async () => {
+    const { syncState } = await import('../sync/state.js');
+    const { _resetWsHeartbeat } = await import('../sync/wsManager.js');
+    const { WS_HEARTBEAT_INTERVAL_MS } = await import('../sync/echoSuppression.js');
+    const { appConfig } = await import('../../utils/index.js');
+
+    // Spy on _runPull directly: resolves with anyMerged:false immediately so
+    // the .then() cancel runs within a single flushPromises call.
+    const pullMod = await import('../sync/pullQueue.js');
+    vi.spyOn(pullMod, '_runPull').mockResolvedValue({ ok: true, anyMerged: false });
+
+    appConfig.directus = { ...appConfig.directus, wsEnabled: true };
+    syncState._running = true;
+    syncState._wsConnected.value = true;
+
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
+    try {
+      _resetWsHeartbeat();
+
+      // Only phase 1 elapses.
+      await vi.advanceTimersByTimeAsync(WS_HEARTBEAT_INTERVAL_MS + 50);
+      await flushPromises(LONG_FLUSH_ROUNDS);
+
+      // WebSocket must NOT have been disconnected.
+      expect(syncState._wsConnected.value).toBe(true);
+      // Phase-2 was pre-armed but the .then() cancelled it (anyMerged:false) —
+      // the socket is idle and healthy so no reconnect should be scheduled.
+      // This is the primary guard against spurious disconnects on quiet sockets.
+      expect(syncState._wsHeartbeatTimer).toBeNull();
+    } finally {
+      if (syncState._wsHeartbeatTimer) { clearTimeout(syncState._wsHeartbeatTimer); syncState._wsHeartbeatTimer = null; }
+      syncState._running = false;
+      syncState._wsConnected.value = false;
+      vi.useRealTimers();
+    }
+  });
+
+  it('S5-FIX-phase2-C: WS event mid-phase cancels the pending timer and starts fresh phase 1', async () => {
+    const { syncState } = await import('../sync/state.js');
+    const { _resetWsHeartbeat } = await import('../sync/wsManager.js');
+    const { WS_HEARTBEAT_INTERVAL_MS } = await import('../sync/echoSuppression.js');
+    const { appConfig } = await import('../../utils/index.js');
+
+    // Simulate a half-open socket so phase-2 is armed after phase-1.
+    // Without anyMerged:true from _runPull(), phase-2 would never be set and
+    // there would be no phase-2 timer for the WS event to cancel.
+    const pullMod = await import('../sync/pullQueue.js');
+    vi.spyOn(pullMod, '_runPull').mockResolvedValue({ ok: true, anyMerged: true });
+
+    appConfig.directus = { ...appConfig.directus, wsEnabled: true };
+    syncState._running = true;
+    syncState._wsConnected.value = true;
+
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
+    try {
+      _resetWsHeartbeat();
+
+      // Phase-1 fires: pull returns anyMerged:true → phase-2 timer armed.
+      await vi.advanceTimersByTimeAsync(WS_HEARTBEAT_INTERVAL_MS + 50);
+      await flushPromises(LONG_FLUSH_ROUNDS);
+      const phase2Timer = syncState._wsHeartbeatTimer;
+      expect(phase2Timer).not.toBeNull();
+
+      // A real WS event arrives mid-phase-2: cancels the phase-2 timer and
+      // restarts phase 1.
+      _resetWsHeartbeat();
+      const freshPhase1Timer = syncState._wsHeartbeatTimer;
+
+      // The old phase-2 timer must be replaced by a fresh phase-1 timer.
+      expect(freshPhase1Timer).not.toBeNull();
+      expect(freshPhase1Timer).not.toBe(phase2Timer);
+      // Still connected — the WS event prevented any reconnect.
+      expect(syncState._wsConnected.value).toBe(true);
+    } finally {
+      if (syncState._wsHeartbeatTimer) { clearTimeout(syncState._wsHeartbeatTimer); syncState._wsHeartbeatTimer = null; }
+      syncState._running = false;
+      syncState._wsConnected.value = false;
+      vi.useRealTimers();
+    }
+  });
+});
+
+// ── S5-FIX-phase2-D: stale .then() timer-identity guard ──────────────────────
+//
+// When a real WS event arrives while a phase-1 _runPull() is still in flight,
+// _resetWsHeartbeat() clears the pre-armed phase-2 timer and arms a fresh
+// phase-1 timer.  The stale .then() that resolves later with anyMerged:true
+// must NOT cancel the fresh timer (it was not armed by this stale cycle).
+// The timer-identity check (`_wsHeartbeatTimer === phase2Timer`) ensures the
+// stale callback only acts on the handle it pre-armed — if that handle was
+// already cleared and replaced, the callback is a no-op.
+
+describe('S5-FIX-phase2-D — Stale phase-1 .then() timer-identity guard prevents fresh timer from being cleared', () => {
+  it('S5-FIX-phase2-D: WS event while phase-1 pull is in flight → stale .then() aborts, fresh timer preserved', async () => {
+    const { syncState } = await import('../sync/state.js');
+    const { _resetWsHeartbeat } = await import('../sync/wsManager.js');
+    const { WS_HEARTBEAT_INTERVAL_MS } = await import('../sync/echoSuppression.js');
+    const { appConfig } = await import('../../utils/index.js');
+
+    // Deferred pull: lets us control exactly when phase-1's _runPull() resolves
+    // so we can call _resetWsHeartbeat() (fresh WS event) while it is in-flight.
+    let resolvePull;
+    const deferredPull = new Promise((resolve) => { resolvePull = resolve; });
+    const pullMod = await import('../sync/pullQueue.js');
+    vi.spyOn(pullMod, '_runPull').mockReturnValueOnce(deferredPull);
+
+    appConfig.directus = { ...appConfig.directus, wsEnabled: true };
+    syncState._running = true;
+    syncState._wsConnected.value = true;
+
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
+    try {
+      // Arm phase 1.
+      _resetWsHeartbeat();
+      const cycle1 = syncState._wsHeartbeatCycle;
+
+      // Phase-1 fires: phase-2 is pre-armed immediately; _runPull() is in-flight.
+      await vi.advanceTimersByTimeAsync(WS_HEARTBEAT_INTERVAL_MS + 50);
+      await flushPromises(3);
+      // Phase-2 is pre-armed while the pull is in-flight.
+      const preArmedPhase2 = syncState._wsHeartbeatTimer;
+      expect(preArmedPhase2).not.toBeNull();
+
+      // Real WS event arrives while the deferred pull is still outstanding.
+      // _resetWsHeartbeat() clears the pre-armed phase-2 timer, bumps the cycle
+      // counter, and arms a fresh phase-1 timer.
+      _resetWsHeartbeat();
+      expect(syncState._wsHeartbeatCycle).toBeGreaterThan(cycle1);
+      const freshTimer = syncState._wsHeartbeatTimer;
+      expect(freshTimer).not.toBeNull();
+      expect(freshTimer).not.toBe(preArmedPhase2);
+
+      // Now let the stale phase-1 pull resolve with anyMerged:true.
+      // With anyMerged:true the .then() does not attempt to cancel any timer,
+      // so the fresh phase-1 timer is unaffected.
+      resolvePull({ ok: true, anyMerged: true });
+      await flushPromises(LONG_FLUSH_ROUNDS);
+
+      // The fresh phase-1 timer must still be the same handle: the stale .then()
+      // saw anyMerged:true and did not attempt a cancel; the timer-identity check
+      // (preArmedPhase2 !== freshTimer) would have blocked any cancellation anyway.
+      expect(syncState._wsHeartbeatTimer).toBe(freshTimer);
+      // The socket must still be connected — no spurious reconnect was triggered.
+      expect(syncState._wsConnected.value).toBe(true);
+    } finally {
+      if (syncState._wsHeartbeatTimer) { clearTimeout(syncState._wsHeartbeatTimer); syncState._wsHeartbeatTimer = null; }
+      syncState._running = false;
+      syncState._wsConnected.value = false;
+      vi.useRealTimers();
+    }
+  });
+});
+
+// ── S5-FIX-phase2-E: hung phase-1 pull does not block phase-2 ────────────────
+//
+// Phase-2 is pre-armed immediately when phase-1 fires.  If the phase-1
+// _runPull() hangs (stalled TCP, unresponsive server) and its .then() never
+// runs, phase-2 must still fire after a second full interval and force a
+// reconnect — the old "arm phase-2 inside .then()" design would block recovery
+// indefinitely in this scenario.
+
+describe('S5-FIX-phase2-E — Hung phase-1 pull does not prevent phase-2 reconnect', () => {
+  it('S5-FIX-phase2-E: _runPull() never resolves → phase-2 fires after 2nd interval → reconnect', async () => {
+    const { syncState } = await import('../sync/state.js');
+    const { _resetWsHeartbeat } = await import('../sync/wsManager.js');
+    const { WS_HEARTBEAT_INTERVAL_MS } = await import('../sync/echoSuppression.js');
+    const { appConfig } = await import('../../utils/index.js');
+    const clientModule = await import('../useDirectusClient.js');
+
+    const resetClientSpy = vi.spyOn(clientModule, 'resetDirectusClient');
+    vi.spyOn(clientModule, 'getDirectusClient').mockReturnValue({
+      connect: () => Promise.reject(new Error('test isolation: no WS')),
+      disconnect: () => {},
+    });
+
+    // Hung pull: returns a promise that never resolves, simulating a stalled TCP
+    // connection or an unresponsive Directus server.
+    const pullMod = await import('../sync/pullQueue.js');
+    vi.spyOn(pullMod, '_runPull').mockReturnValueOnce(new Promise(() => {}));
+
+    appConfig.directus = { ...appConfig.directus, wsEnabled: true };
+    syncState._running = true;
+    syncState._wsConnected.value = true;
+
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
+    try {
+      _resetWsHeartbeat();
+
+      // Phase-1 fires: phase-2 is pre-armed immediately even though _runPull() hangs.
+      await vi.advanceTimersByTimeAsync(WS_HEARTBEAT_INTERVAL_MS + 50);
+      await flushPromises(3);
+      expect(syncState._wsHeartbeatTimer).not.toBeNull();
+
+      // Phase-2 fires (pull never resolved, so phase-2 was never cancelled): reconnect.
+      await vi.advanceTimersByTimeAsync(WS_HEARTBEAT_INTERVAL_MS + 50);
+      await flushPromises(LONG_FLUSH_ROUNDS);
+
+      expect(resetClientSpy).toHaveBeenCalled();
+      expect(syncState._wsHeartbeatTimer).toBeNull();
+    } finally {
+      if (syncState._wsHeartbeatTimer) { clearTimeout(syncState._wsHeartbeatTimer); syncState._wsHeartbeatTimer = null; }
+      syncState._running = false;
+      syncState._wsConnected.value = false;
+      _resetDirectusSyncSingleton();
+      await flushPromises(LONG_FLUSH_ROUNDS);
+      vi.useRealTimers();
+    }
+  });
+});
+//
+// WS subscriptions use fields:['*'] which does NOT expand nested relations.
+// A WS create event for an order therefore carries an empty orderItems array.
+// Without the NS9 fix, item details would only appear after the next 30-second
+// REST poll cycle, causing a confusing 30 s delay for operators on a second device.
+//
+// The fix triggers an immediate _pullCollection('order_items') after a WS
+// orders:create event is processed, guarded by a _orderItemsPullInFlight
+// semaphore so that bursts of orders:create events share one pull instead of
+// launching overlapping concurrent fetches.
+
+describe('NS9 — WS orders:create triggers immediate order_items pull', () => {
+  it('fires an order_items REST fetch after a WS orders:create event', async () => {
+    const { syncState } = await import('../sync/state.js');
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+
+    // _triggerImmediateOrderItemsPull() guards on _running; set it so the NS9
+    // path actually fires during this test.
+    syncState._running = true;
+
+    // Seed a parent order as it would look after the WS create write (no items).
+    await db.put('orders', {
+      id: 'ord_ns9_1',
+      status: 'accepted',
+      table: '01',
+      orderItems: [],
+      date_created: '2024-06-01T10:00:00.000Z',
+      date_updated: null,
+    });
+
+    // Return an empty list for the fire-and-forget order_items pull so it completes
+    // cleanly without further IDB side-effects needed for this assertion.
+    const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue(directusListResponse([]));
+
+    // Simulate a WS create event arriving for the orders collection.  The payload
+    // intentionally has no order_items field (mirrors the real Directus WS response
+    // when fields:['*'] is used — nested relations are absent).
+    await _handleSubscriptionMessage('orders', {
+      event: 'create',
+      data: [{
+        id: 'ord_ns9_1',
+        status: 'accepted',
+        table: '01',
+        total_amount: 4.0,
+        item_count: 2,
+        date_created: '2024-06-01T10:00:00.000Z',
+        date_updated: null,
+      }],
+    });
+
+    // The NS9 fix triggers a fire-and-forget _pullCollection('order_items').  Use
+    // vi.waitFor to poll until the async chain has had a chance to call fetch —
+    // plain flushPromises() is not reliable for multi-layer fire-and-forget chains.
+    await vi.waitFor(() => {
+      const orderItemFetches = fetchSpy.mock.calls
+        .map(([url]) => String(url))
+        .filter(url => url.includes('/items/order_items'));
+      expect(orderItemFetches.length).toBeGreaterThan(0);
+    }, { timeout: 5000 });
+  });
+
+  it('does NOT fire an order_items pull for WS orders:update events', async () => {
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+
+    // Seed an existing order with items already present.
+    await db.put('orders', {
+      id: 'ord_ns9_upd',
+      status: 'pending',
+      table: '02',
+      orderItems: [{ id: 'oi_ns9_1', name: 'Pasta', quantity: 1, unit_price: 8 }],
+      date_created: '2024-06-01T09:00:00.000Z',
+      date_updated: '2024-06-01T09:05:00.000Z',
+    });
+
+    const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue(directusListResponse([]));
+
+    // WS update event — should NOT trigger an order_items pull.
+    await _handleSubscriptionMessage('orders', {
+      event: 'update',
+      data: [{
+        id: 'ord_ns9_upd',
+        status: 'accepted',
+        date_updated: '2024-06-01T09:06:00.000Z',
+      }],
+    });
+
+    await flushPromises(LONG_FLUSH_ROUNDS);
+
+    // No order_items fetch should have been triggered for an update event.
+    const orderItemFetches = fetchSpy.mock.calls
+      .map(([url]) => String(url))
+      .filter(url => url.includes('/items/order_items'));
+    expect(orderItemFetches.length).toBe(0);
+  });
+
+  it('NS9-SEM: rapid orders:create burst deduplicates concurrent pulls (second is deferred)', async () => {
+    const { syncState } = await import('../sync/state.js');
+    syncState._running = true; // allow _triggerImmediateOrderItemsPull to fire
+    // Use a deferred fetch so the first order_items pull hangs in-flight, allowing
+    // us to fire a second orders:create event while the first pull is still pending
+    // and verify the semaphore prevents a second *overlapping* (concurrent) pull.
+    // The second event sets _orderItemsPullPending=true so that once the first pull
+    // settles its .finally() re-triggers a second sequential pull.
+    let resolveOrderItemsFetch;
+    const orderItemsFetchPromise = new Promise(res => { resolveOrderItemsFetch = res; });
+    let orderItemsFetchCount = 0;
+
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      if (String(url).includes('/items/order_items')) {
+        orderItemsFetchCount++;
+        return orderItemsFetchPromise.then(() => directusListResponse([]));
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const wsPayload = {
+      event: 'create',
+      data: [{ id: 'ord_ns9_burst', status: 'accepted', table: '01', date_created: '2024-06-01T10:00:00.000Z', date_updated: null }],
+    };
+
+    // Fire two rapid orders:create events.  The first should start the pull and set
+    // _orderItemsPullInFlight; the second should see the semaphore is set and only
+    // set _orderItemsPullPending = true without starting a concurrent second fetch.
+    await _handleSubscriptionMessage('orders', wsPayload);
+    await _handleSubscriptionMessage('orders', wsPayload);
+
+    await flushPromises(LONG_FLUSH_ROUNDS);
+
+    // Release the hanging fetch so cleanup finishes.
+    resolveOrderItemsFetch();
+
+    // Two order_items fetches should have been made:
+    //  1. The first orders:create starts a pull immediately.
+    //  2. The second orders:create sets _orderItemsPullPending = true (no parallel pull).
+    //  3. When the first pull's .finally() runs it sees pending=true, clears it, and
+    //     re-triggers _triggerImmediateOrderItemsPull() — starting fetch #2.
+    // The semaphore prevents *concurrent* pulls; the pending flag ensures the second
+    // event's data is still fetched, just sequentially.
+    // Use vi.waitFor because the second fetch starts from a .finally() callback after
+    // multi-layer async IDB operations that may resolve outside the flushPromises window.
+    await vi.waitFor(() => {
+      expect(orderItemsFetchCount).toBe(2);
+    }, { timeout: 5000 });
+  });
+
+  it('NS9-ABORT-FP: forcePull() clears _orderItemsPullInFlight and nulls _orderItemsPullAbortController', async () => {
+    const { syncState } = await import('../sync/state.js');
+
+    // Directly simulate an in-flight NS9 pull by setting the semaphore state.
+    // This avoids making the forcePull() call itself hang on a never-resolving fetch.
+    const fakeAc = new AbortController();
+    let rejectHangingFP;
+    const hangingFP = new Promise((_, reject) => { rejectHangingFP = reject; });
+    hangingFP.catch(() => {}); // suppress unhandled-rejection on cleanup
+    syncState._orderItemsPullAbortController = fakeAc;
+    syncState._orderItemsPullInFlight = hangingFP;
+
+    // Mock fetch so forcePull's regular pull cycle completes cleanly.
+    vi.spyOn(global, 'fetch').mockResolvedValue(directusListResponse([]));
+
+    const sync = useDirectusSync();
+    // forcePull() clears both semaphore fields and aborts the old controller
+    // synchronously before delegating to _runPull() (which finishes quickly here).
+    await sync.forcePull();
+
+    expect(syncState._orderItemsPullInFlight).toBeNull();
+    expect(syncState._orderItemsPullAbortController).toBeNull();
+    // The old controller must have been aborted so any pending fetch rejects.
+    expect(fakeAc.signal.aborted).toBe(true);
+    // Clean up the hanging promise to avoid memory leaks.
+    rejectHangingFP(new Error('test cleanup'));
+  });
+
+  it('NS9-ABORT-SS: stopSync() clears _orderItemsPullInFlight and nulls _orderItemsPullAbortController', async () => {
+    const { syncState } = await import('../sync/state.js');
+
+    // Directly simulate an in-flight NS9 pull by setting the semaphore state.
+    const fakeAc = new AbortController();
+    let rejectHanging;
+    const hangingSS = new Promise((_, reject) => { rejectHanging = reject; });
+    hangingSS.catch(() => {}); // suppress unhandled-rejection on cleanup
+    syncState._orderItemsPullAbortController = fakeAc;
+    syncState._orderItemsPullInFlight = hangingSS;
+
+    vi.spyOn(global, 'fetch').mockResolvedValue(directusListResponse([]));
+
+    const sync = useDirectusSync();
+    // stopSync() must abort the in-flight NS9 pull and clear both references synchronously.
+    sync.stopSync();
+
+    expect(syncState._orderItemsPullInFlight).toBeNull();
+    expect(syncState._orderItemsPullAbortController).toBeNull();
+    expect(fakeAc.signal.aborted).toBe(true);
+    // Clean up the hanging promise to avoid memory leaks.
+    rejectHanging(new Error('test cleanup'));
+  });
+});
+
+// ── _buildRestClient signal forwarding ────────────────────────────────────────
+//
+// Verifies that _buildRestClient(cfg, signal) forwards the AbortSignal into
+// every globalThis.fetch call it generates.  Tests exercise the signal through
+// the full _fetchUpdatedViaSDK() production code-path (which uses _buildRestClient
+// internally) so that any regression — e.g. forgetting to spread `signal` into
+// the fetch options — causes a clear test failure rather than leaving the suite
+// green while forcePull() / stopSync() silently stop cancelling in-flight requests.
+
+describe('_buildRestClient — AbortSignal forwarding', () => {
+  it('passes the AbortSignal to globalThis.fetch via _fetchUpdatedViaSDK', async () => {
+    const ac = new AbortController();
+    let capturedSignal;
+
+    vi.spyOn(global, 'fetch').mockImplementation((url, opts) => {
+      capturedSignal = opts?.signal;
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    // _fetchUpdatedViaSDK uses _buildRestClient internally — this is the real
+    // production code path that must forward the signal all the way to fetch.
+    await _fetchUpdatedViaSDK('orders', null, 1, null, ac.signal);
+
+    expect(capturedSignal).toBe(ac.signal);
+  });
+
+  it('returns clean empty result with aborted:true and does not log when signal is already aborted', async () => {
+    const ac = new AbortController();
+    const warnSpy = vi.spyOn(console, 'warn');
+
+    vi.spyOn(global, 'fetch').mockImplementation((url, opts) => {
+      // Simulate real browser fetch: reject with AbortError when signal fires.
+      const sig = opts?.signal;
+      return new Promise((_, reject) => {
+        if (sig?.aborted) { reject(new DOMException('Aborted', 'AbortError')); return; }
+        sig?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
+      });
+    });
+
+    // Abort the signal before the fetch starts to trigger an immediate rejection.
+    ac.abort();
+    const result = await _fetchUpdatedViaSDK('orders', null, 1, null, ac.signal);
+
+    // Must return a clean empty result — not an error.
+    expect(result.data).toEqual([]);
+    expect(result.error).toBeNull();
+    // aborted:true distinguishes intentional cancellation from a genuine empty page.
+    expect(result.aborted).toBe(true);
+    // Must NOT log a warning so operational telemetry stays clean.
+    expect(warnSpy).not.toHaveBeenCalledWith(
+      expect.stringContaining('Pull orders error'),
+    );
+  });
+});
+
+// ── NS9-RERUN: re-trigger after in-flight pull ────────────────────────────────
+//
+// When a second orders:create WS event arrives while _orderItemsPullInFlight is
+// already set, _orderItemsPullPending should be set to true.  Once the current
+// pull settles, the .finally() must detect the flag and re-trigger a new pull so
+// that items committed to the server after the first pull started are not missed.
+
+describe('NS9-RERUN — second orders:create during in-flight pull schedules re-run', () => {
+  it('NS9-RERUN: second event sets _orderItemsPullPending; re-run fires after first pull settles', async () => {
+    const { syncState } = await import('../sync/state.js');
+    syncState._running = true; // allow _triggerImmediateOrderItemsPull to fire
+
+    let resolveFirstPull;
+    let orderItemsFetchCount = 0;
+
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      if (String(url).includes('/items/order_items')) {
+        orderItemsFetchCount++;
+        if (orderItemsFetchCount === 1) {
+          // First fetch hangs until we release it.
+          return new Promise(res => { resolveFirstPull = () => res(directusListResponse([])); });
+        }
+        return Promise.resolve(directusListResponse([]));
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const wsPayload = {
+      event: 'create',
+      data: [{ id: 'ord_rerun', status: 'accepted', table: '01', date_created: '2024-06-01T10:00:00.000Z', date_updated: null }],
+    };
+
+    // Fire first event — starts the in-flight pull.
+    await _handleSubscriptionMessage('orders', wsPayload);
+    // Give the pull enough time to start the first fetch.
+    await flushPromises(LONG_FLUSH_ROUNDS);
+
+    // Verify first pull is in-flight.
+    expect(syncState._orderItemsPullInFlight).not.toBeNull();
+    expect(syncState._orderItemsPullPending).toBe(false);
+
+    // Fire second event while first pull is still in-flight.
+    await _handleSubscriptionMessage('orders', wsPayload);
+    // _orderItemsPullPending must now be set.
+    expect(syncState._orderItemsPullPending).toBe(true);
+
+    // Release the first pull.
+    resolveFirstPull();
+    await flushPromises(LONG_FLUSH_ROUNDS);
+
+    // After first pull settles, .finally() re-triggers; wait for the second pull.
+    await vi.waitFor(() => {
+      expect(orderItemsFetchCount).toBeGreaterThanOrEqual(2);
+    }, { timeout: 5000 });
+
+    // Pending flag must be cleared after re-trigger.
+    expect(syncState._orderItemsPullPending).toBe(false);
+  });
+});
+
+// ── _runPull() cancels in-flight NS9 pull ─────────────────────────────────────
+//
+// When _runPull() starts it must abort any in-flight WS-triggered order_items
+// pull and clear _orderItemsPullPending to prevent the stale pull from finishing
+// after _runPull() has already committed fresher checkpoints.
+
+describe('_runPull() cancels in-flight NS9 pull at start', () => {
+  it('NS9-RUNPULL-ABORT: _runPull() aborts _orderItemsPullAbortController and clears semaphore', async () => {
+    const { syncState } = await import('../sync/state.js');
+
+    // Simulate an in-flight NS9 pull.
+    const fakeAc = new AbortController();
+    let rejectHanging;
+    const hangingP = new Promise((_, rej) => { rejectHanging = rej; });
+    hangingP.catch(() => {}); // suppress unhandled-rejection on cleanup
+    syncState._orderItemsPullAbortController = fakeAc;
+    syncState._orderItemsPullInFlight = hangingP;
+    syncState._orderItemsPullPending = true;
+
+    vi.spyOn(global, 'fetch').mockResolvedValue(directusListResponse([]));
+
+    const sync = useDirectusSync();
+    // forcePull() calls _runPull() after clearing the regular pull semaphore.
+    await sync.forcePull();
+
+    // _runPull() must have aborted the NS9 controller and cleared both fields.
+    expect(fakeAc.signal.aborted).toBe(true);
+    expect(syncState._orderItemsPullInFlight).toBeNull();
+    expect(syncState._orderItemsPullAbortController).toBeNull();
+    expect(syncState._orderItemsPullPending).toBe(false);
+
+    // Clean up the hanging promise.
+    rejectHanging(new Error('test cleanup'));
+  });
+});
+
+// ── AbortError in table_merge_sessions force-full path ────────────────────────
+//
+// When the AbortSignal fires mid-fetch during a table_merge_sessions force-full
+// pull, _pullCollection must NOT call replaceTableMergesInIDB with the partial
+// dataset — that would silently delete the pages that were never fetched.
+// The aborted:true flag returned by _fetchUpdatedViaSDK sets hadFetchError so
+// the replace is skipped.
+
+describe('AbortError does not partially replace table_merge_sessions IDB', () => {
+  it('TMS-ABORT: abort mid-fetch prevents replaceTableMergesInIDB with partial data', async () => {
+    const { _pullCollection } = await import('../sync/pullQueue.js');
+
+    const ac = new AbortController();
+    let fetchCount = 0;
+
+    vi.spyOn(global, 'fetch').mockImplementation((url, opts) => {
+      const sig = opts?.signal;
+      fetchCount++;
+      if (fetchCount === 1) {
+        // First page returns 200 records (full page), signalling there is more.
+        // Build a fake directus response with 200 records.
+        const rows = Array.from({ length: 200 }, (_, i) => ({
+          id: `tms_${i}`,
+          slave_table: `T${i}`,
+          master_table: 'T0',
+          date_updated: '2024-01-01T00:00:00.000Z',
+          date_created: '2024-01-01T00:00:00.000Z',
+        }));
+        return Promise.resolve(directusListResponse(rows));
+      }
+      // Second fetch: abort fires during the request.
+      return new Promise((_, reject) => {
+        if (sig?.aborted) { reject(new DOMException('Aborted', 'AbortError')); return; }
+        sig?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
+      });
+    });
+
+    // Spy on replaceTableMergesInIDB to detect if it is called.
+    const replaceSpy = vi.spyOn(
+      await import('../../store/persistence/config.js'),
+      'replaceTableMergesInIDB',
+    );
+
+    // Abort partway through (after first page starts, before second page completes).
+    setTimeout(() => ac.abort(), 0);
+
+    // forceFull=true triggers the table_merge_sessions dedicated path.
+    const { ok } = await _pullCollection('table_merge_sessions', {
+      forceFull: true,
+      signal: ac.signal,
+    });
+
+    // The pull must not be reported as successful.
+    expect(ok).toBe(false);
+    // replaceTableMergesInIDB must NOT have been called with partial data.
+    expect(replaceSpy).not.toHaveBeenCalled();
+  });
+});
+
+// ── ABORT-CK: checkpoint not written when signal aborted during IDB write ────
+//
+// Even when an HTTP page fetch completes successfully (aborted:false from
+// _fetchUpdatedViaSDK), the signal can be fired by forcePull() / stopSync() /
+// _runPull() while the IDB write is in progress.  In that window the data write
+// itself is fine (idempotent upserts on the next poll), but writing last_pull_ts
+// would roll that checkpoint backwards relative to a fresher value already
+// committed by the superseding pull cycle.
+//
+// The fix adds `if (signal?.aborted) break;` after the IDB write but before the
+// timestamp checkpoint write, so stale timestamps are never persisted.
+
+describe('ABORT-CK: signal abort after IDB write skips timestamp checkpoint', () => {
+  it('ABORT-CK: signal aborted mid-IDB write does not persist last_pull_ts', async () => {
+    const { _pullCollection } = await import('../sync/pullQueue.js');
+    const idbOps = await import('../sync/idbOperations.js');
+    const persistCfg = await import('../../store/persistence/config.js');
+    const { appConfig } = await import('../../utils/index.js');
+
+    appConfig.directus = { enabled: true, url: 'http://directus.test', staticToken: 'tok', wsEnabled: false };
+
+    const ac = new AbortController();
+
+    // Return one order_items record with a valid timestamp so maxTs is non-null
+    // and saveLastPullTsToIDB would normally be called.
+    vi.spyOn(global, 'fetch').mockResolvedValue(directusListResponse([{
+      id: 'oi_ck1',
+      order_id: 'ord_ck1',
+      date_updated: '2024-01-01T10:00:00.000Z',
+      date_created: '2024-01-01T10:00:00.000Z',
+      quantity: 1,
+      menu_item_id: 'mi_ck1',
+      order_item_modifiers: [],
+    }]));
+
+    // Spy on the atomic IDB write and abort the signal during it, simulating
+    // forcePull() / stopSync() / _runPull() firing between the page fetch and
+    // the timestamp checkpoint write.
+    const atomicSpy = vi.spyOn(idbOps, '_atomicOrderItemsUpsertAndMerge')
+      .mockImplementation(async () => {
+        ac.abort(); // abort fires while the "IDB write" is in progress
+        return { orderItemsWritten: 1, ordersWritten: 0, affectedOrderIds: new Set() };
+      });
+
+    // Spy on the timestamp checkpoint function that must NOT be called after abort.
+    const saveTsSpy = vi.spyOn(persistCfg, 'saveLastPullTsToIDB').mockResolvedValue(undefined);
+
+    await _pullCollection('order_items', { signal: ac.signal });
+
+    // The timestamp checkpoint write must be skipped to prevent rolling back a
+    // fresher value already written by the superseding pull cycle.
+    expect(saveTsSpy).not.toHaveBeenCalled();
+
+    atomicSpy.mockRestore();
+    saveTsSpy.mockRestore();
+  });
+});
+
+// ── ABORT-PRE-WRITE: abort after HTTP response skips IDB write ─────────────
+//
+// When a fetch completes (HTTP response received and parsed, aborted:false from
+// _fetchUpdatedViaSDK) but the abort signal fires before the IDB write starts,
+// _pullCollection must NOT call _atomicOrderItemsUpsertAndMerge.  This is the
+// "in-transit abort" window: the HTTP response arrived just as _runPull() started
+// its own order_items fetch and fired the old NS9 abort signal.
+
+describe('ABORT-PRE-WRITE: abort fires after HTTP response but before IDB write skips the write', () => {
+  it('ABORT-PRE-WRITE: _atomicOrderItemsUpsertAndMerge not called when signal aborted between fetch and write', async () => {
+    const { _pullCollection, _fetchUpdatedViaSDK } = await import('../sync/pullQueue.js');
+    const idbOps = await import('../sync/idbOperations.js');
+    const { appConfig } = await import('../../utils/index.js');
+
+    appConfig.directus = { enabled: true, url: 'http://directus.test', staticToken: 'tok', wsEnabled: false };
+
+    const ac = new AbortController();
+
+    // Mock _fetchUpdatedViaSDK to return valid data AND simultaneously abort
+    // the signal, simulating the race where HTTP response arrives just as the
+    // calling code fires ac.abort().  The mock sets aborted:false because the
+    // HTTP response was already parsed; the signal fires synchronously inside
+    // the mock so signal.aborted is true when _pullCollection resumes.
+    vi.spyOn(global, 'fetch').mockImplementation(() => {
+      // Abort the signal synchronously while "inside" the fetch, simulating
+      // the abort being issued by _runPull() after the response arrived.
+      ac.abort();
+      return Promise.resolve(directusListResponse([{
+        id: 'oi_abort_race1',
+        order_id: 'ord_abort_race1',
+        date_updated: '2024-01-01T10:00:00.000Z',
+        date_created: '2024-01-01T10:00:00.000Z',
+        quantity: 1,
+        menu_item_id: 'mi_abort_race1',
+        order_item_modifiers: [],
+      }]));
+    });
+
+    // Spy on the IDB write — it must NOT be called.
+    const atomicSpy = vi.spyOn(idbOps, '_atomicOrderItemsUpsertAndMerge')
+      .mockResolvedValue({ orderItemsWritten: 0, ordersWritten: 0, affectedOrderIds: new Set() });
+
+    await _pullCollection('order_items', { signal: ac.signal });
+
+    // The IDB write must be skipped because the signal was aborted before it ran.
+    expect(atomicSpy).not.toHaveBeenCalled();
+
+    atomicSpy.mockRestore();
+  });
+});
+
+// ── _runPull() does not mark aborted cycle as successful ──────────────────────
+//
+// When forcePull() / stopSync() aborts an in-flight _runPull() cycle,
+// lastSuccessfulPull / lastPullAt must NOT be updated.  Previously, because
+// _pullCollection() returned ok:true on clean abort and _runPull() only checked
+// allOk (which stays true when no collection reported an error), an aborted cycle
+// was falsely recorded as a completed sync.
+
+describe('_runPull() aborted cycle does not update lastSuccessfulPull', () => {
+  it('ABORT-TS: forcePull() mid-collection does not stamp lastSuccessfulPull', async () => {
+    const { syncState } = await import('../sync/state.js');
+    const sync = useDirectusSync();
+
+    const priorTs = syncState.lastSuccessfulPull.value;
+
+    // Hang all fetch calls indefinitely, but release when the AbortSignal fires
+    // so that stopSync() cleanly settles all in-flight promises.
+    vi.spyOn(global, 'fetch').mockImplementation(
+      (_, opts) => new Promise((_, reject) => {
+        const sig = opts?.signal;
+        if (sig?.aborted) { reject(new DOMException('Aborted', 'AbortError')); return; }
+        sig?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
+      }),
+    );
+
+    // Start a background pull (it will hang).
+    const bgPull = sync.forcePull();
+
+    // Let the pull get started.
+    await flushPromises(LONG_FLUSH_ROUNDS);
+
+    // A second forcePull() aborts the first cycle and starts a fresh one that
+    // also hangs.  stopSync() below will abort it.
+    sync.forcePull().catch(() => { /* intentionally ignored */ });
+
+    // Neither hung cycle should have updated lastSuccessfulPull.
+    expect(syncState.lastSuccessfulPull.value).toBe(priorTs);
+
+    // Clean up: stopSync() aborts all in-flight signals; the signal-aware mock
+    // rejects immediately, so all pending promises settle cleanly.
+    sync.stopSync();
+    await flushPromises(LONG_FLUSH_ROUNDS);
+    // bgPull was aborted by the second forcePull() call above and already
+    // resolved with { aborted: true } — this catch is a defensive no-op.
+    bgPull.catch(() => {});
+  });
+});
+
+// ── _triggerImmediateOrderItemsPull — _pullInFlight gate with _pullOrderItemsDone ─
+//
+// When a WS orders:create event arrives while _runPull() is in progress, the NS9
+// fetch must be skipped IFF order_items is still ahead in the running cycle
+// (_pullOrderItemsDone = false): _runPull() will cover it, so a concurrent NS9
+// fetch would race and risk rolling checkpoints backwards.
+//
+// However, if _runPull() has ALREADY processed order_items in the current cycle
+// (_pullOrderItemsDone = true), a new orders:create event's items will NOT be
+// included in the ongoing cycle.  In that case the NS9 pull must proceed so that
+// item details reach the second device promptly rather than waiting up to 30 s.
+
+describe('_triggerImmediateOrderItemsPull — _pullInFlight gate with _pullOrderItemsDone', () => {
+  it('NS9-PULLINFLIGHT: orders:create during _runPull (before order_items) does not launch parallel pull', async () => {
+    const { syncState } = await import('../sync/state.js');
+
+    let orderItemsFetchCount = 0;
+
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      if (String(url).includes('/items/order_items')) orderItemsFetchCount++;
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const sync = useDirectusSync();
+
+    // Simulate _runPull being in-progress and order_items not yet processed.
+    syncState._pullInFlight = new Promise(() => {}); // hanging, never resolves
+    syncState._pullOrderItemsDone = false; // order_items still ahead in the cycle
+
+    // Fire a WS orders:create event.
+    const wsPayload = {
+      event: 'create',
+      data: [{ id: 'ord_pif', status: 'accepted', table: '01', date_created: '2024-06-01T10:00:00.000Z', date_updated: null }],
+    };
+    await _handleSubscriptionMessage('orders', wsPayload);
+    await flushPromises(LONG_FLUSH_ROUNDS);
+
+    // No standalone order_items fetch should have been triggered.
+    expect(orderItemsFetchCount).toBe(0);
+    // The semaphore for NS9 must remain null (no pull was started).
+    expect(syncState._orderItemsPullInFlight).toBeNull();
+    // The pending flag must be set so _runPull() can trigger a follow-up NS9
+    // pull after it finishes (covers items committed during the fetch window).
+    expect(syncState._orderItemsPullPending).toBe(true);
+
+    // Clean up: release the fake _pullInFlight.
+    syncState._pullInFlight = null;
+    syncState._orderItemsPullPending = false;
+  });
+
+  it('NS9-PULLINFLIGHT-LATE: orders:create after order_items already processed triggers NS9 pull', async () => {
+    const { syncState } = await import('../sync/state.js');
+
+    const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue(directusListResponse([]));
+
+    const sync = useDirectusSync();
+
+    // _triggerImmediateOrderItemsPull() guards on _running; must be true so the
+    // NS9 pull fires when _pullOrderItemsDone=true.
+    syncState._running = true;
+    // Simulate _runPull in-progress but order_items was already pulled in this cycle.
+    syncState._pullInFlight = new Promise(() => {}); // hanging, never resolves
+    syncState._pullOrderItemsDone = true; // order_items already processed — NS9 must fire
+
+    // Fire a WS orders:create event.
+    const wsPayload = {
+      event: 'create',
+      data: [{ id: 'ord_late', status: 'accepted', table: '02', date_created: '2024-06-01T10:00:00.000Z', date_updated: null }],
+    };
+    await _handleSubscriptionMessage('orders', wsPayload);
+
+    // An NS9 pull must have been triggered because the current cycle won't cover
+    // these items (order_items was already fetched earlier in the cycle).
+    // Use vi.waitFor to handle multi-layer fire-and-forget async chains.
+    await vi.waitFor(() => {
+      const orderItemFetches = fetchSpy.mock.calls
+        .map(([url]) => String(url))
+        .filter(url => url.includes('/items/order_items'));
+      expect(orderItemFetches.length).toBeGreaterThan(0);
+    }, { timeout: 5000 });
+
+    // Clean up.
+    syncState._pullInFlight = null;
+    syncState._pullOrderItemsDone = false;
+    if (syncState._orderItemsPullAbortController) {
+      syncState._orderItemsPullAbortController.abort();
+      syncState._orderItemsPullAbortController = null;
+    }
+    syncState._orderItemsPullInFlight = null;
+  });
+});
+
+// ── NS9-RUNPULL-PENDING: _runPull() triggers NS9 pull at end when pending ─────
+//
+// When a WS orders:create event arrives *while* the order_items HTTP request
+// inside _runPull() is already in-flight, _runPull() must fire a follow-up NS9
+// pull so items committed during that fetch window are not missed until the
+// next poll.  Events arriving *before* the fetch starts are already captured by
+// the current request's incremental window, so no follow-up is needed for those.
+
+describe('NS9-RUNPULL-PENDING — _runPull triggers follow-up NS9 pull when pending flag is set', () => {
+  it('NS9-RUNPULL-PENDING: NS9 pull fires after _runPull() when _orderItemsPullPending was set during fetch', async () => {
+    const { syncState } = await import('../sync/state.js');
+    const { _runPull } = await import('../sync/pullQueue.js');
+
+    // _triggerImmediateOrderItemsPull() guards on _running; must be true so the
+    // follow-up NS9 pull is triggered at end of _runPull().
+    syncState._running = true;
+
+    let orderItemsFetchCount = 0;
+    let resolveOrderItemsFetch;
+    const orderItemsFetchStarted = new Promise(res => {
+      // Resolved when the first order_items fetch actually starts.
+      resolveOrderItemsFetch = res;
+    });
+    let orderItemsFetchResolve;
+    const orderItemsFetchPromise = new Promise(res => { orderItemsFetchResolve = res; });
+
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      if (String(url).includes('/items/order_items')) {
+        orderItemsFetchCount++;
+        resolveOrderItemsFetch(); // signal that fetch has started
+        return orderItemsFetchPromise.then(() => directusListResponse([]));
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    // Start _runPull().
+    const pullPromise = _runPull();
+
+    // Wait until _runPull() has actually started the order_items HTTP request.
+    // This ensures the pending flag is set *during* the fetch window, not before.
+    await orderItemsFetchStarted;
+
+    // Simulate a WS orders:create arriving while order_items is being fetched.
+    // _runPull() already cleared _orderItemsPullPending before the fetch, so any
+    // new assignment here represents a truly concurrent event.
+    syncState._orderItemsPullPending = true;
+
+    // Unblock the order_items fetch so _runPull() can complete.
+    orderItemsFetchResolve();
+
+    // Wait for _runPull() to complete.
+    await pullPromise;
+
+    // _runPull() must have cleared _orderItemsPullPending and triggered NS9 pull.
+    expect(syncState._orderItemsPullPending).toBe(false);
+
+    // Wait for the follow-up NS9 fetch (fire-and-forget — may still be in-flight).
+    await vi.waitFor(() => {
+      expect(orderItemsFetchCount).toBeGreaterThanOrEqual(2);
+    }, { timeout: 5000 });
+
+    // Cleanup.
+    if (syncState._orderItemsPullAbortController) {
+      syncState._orderItemsPullAbortController.abort();
+      syncState._orderItemsPullAbortController = null;
+    }
+    if (syncState._orderItemsPullInFlight) {
+      syncState._orderItemsPullInFlight = null;
+    }
+  });
+
+  it('NS9-RUNPULL-EARLY: orders:create arriving before order_items fetch does NOT trigger extra pull', async () => {
+    const { syncState } = await import('../sync/state.js');
+    const { _runPull } = await import('../sync/pullQueue.js');
+
+    syncState._running = true;
+
+    let orderItemsFetchCount = 0;
+    let wasPendingAtFetchStart; // captures the flag state at the exact moment the fetch starts
+
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      if (String(url).includes('/items/order_items')) {
+        orderItemsFetchCount++;
+        // Capture the pending flag at the moment the order_items HTTP request starts.
+        // This verifies the flag was cleared *before* the fetch, not just eventually.
+        wasPendingAtFetchStart = syncState._orderItemsPullPending;
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    // Start _runPull(). The inner IIFE is synchronous up to its first await
+    // (first _pullCollection call for 'orders'), so _orderItemsPullPending is
+    // cleared synchronously before suspension.
+    const pullPromise = _runPull();
+
+    // Set the pending flag immediately — _runPull() is now suspended at the
+    // 'orders' fetch (before reaching 'order_items').  This simulates an
+    // orders:create event arriving before the order_items fetch starts.
+    // _runPull() will clear this flag again right before it starts the
+    // order_items fetch, so no wasteful follow-up pull should be triggered.
+    syncState._orderItemsPullPending = true;
+
+    // Wait for _runPull() to complete.
+    await pullPromise;
+    await flushPromises(LONG_FLUSH_ROUNDS);
+
+    // The pending flag must have been cleared by _runPull() before the fetch.
+    expect(syncState._orderItemsPullPending).toBe(false);
+    // The flag must have been false AT THE MOMENT the order_items HTTP request started.
+    expect(wasPendingAtFetchStart).toBe(false);
+
+    // Only the single order_items fetch from the main pull cycle should have
+    // occurred — no wasteful follow-up NS9 pull.
+    expect(orderItemsFetchCount).toBe(1);
+  });
+});
+
+// ── NS9-STOPPED: stopSync guard prevents NS9 pull after sync is stopped ────────
+//
+// _triggerImmediateOrderItemsPull() must return immediately when _running=false
+// or navigator.onLine=false so that a late WS orders:create event cannot restart
+// a pull after stopSync() or start a hanging fetch while offline.
+
+describe('NS9-STOPPED — _triggerImmediateOrderItemsPull returns early after stopSync', () => {
+  it('NS9-STOPPED: no NS9 pull starts when _running=false', async () => {
+    const { syncState } = await import('../sync/state.js');
+    const { _triggerImmediateOrderItemsPull } = await import('../sync/pullQueue.js');
+
+    const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue(directusListResponse([]));
+
+    // Simulate stopSync() having been called.
+    syncState._running = false;
+
+    _triggerImmediateOrderItemsPull();
+    await flushPromises(LONG_FLUSH_ROUNDS);
+
+    // No order_items fetch must have started.
+    const orderItemsFetches = fetchSpy.mock.calls
+      .map(([url]) => String(url))
+      .filter(url => url.includes('/items/order_items'));
+    expect(orderItemsFetches.length).toBe(0);
+    // Semaphore must remain null.
+    expect(syncState._orderItemsPullInFlight).toBeNull();
+  });
+
+  it('NS9-OFFLINE: no NS9 pull starts when navigator.onLine=false', async () => {
+    const { syncState } = await import('../sync/state.js');
+    const { _triggerImmediateOrderItemsPull } = await import('../sync/pullQueue.js');
+
+    const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue(directusListResponse([]));
+
+    syncState._running = true;
+
+    // Simulate offline state.
+    vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+
+    _triggerImmediateOrderItemsPull();
+    await flushPromises(LONG_FLUSH_ROUNDS);
+
+    // No order_items fetch must have started.
+    const orderItemsFetches = fetchSpy.mock.calls
+      .map(([url]) => String(url))
+      .filter(url => url.includes('/items/order_items'));
+    expect(orderItemsFetches.length).toBe(0);
+    // Semaphore must remain null.
+    expect(syncState._orderItemsPullInFlight).toBeNull();
+  });
+});
+
+// ── NS9-OFFLINE-OI: window.offline clears _orderItemsPullPending ──────────────
+//
+// When a second orders:create event sets _orderItemsPullPending while a pull is
+// already in-flight, a subsequent window.offline must clear _orderItemsPullPending
+// so that the aborted pull's .finally() does not immediately restart a new
+// order_items fetch while the app has no network.
+
+describe('NS9-OFFLINE-OI — window.offline clears _orderItemsPullPending, preventing re-trigger', () => {
+  it('NS9-OFFLINE-OI: offline clears pending flag so aborted pull does not restart', async () => {
+    const { syncState } = await import('../sync/state.js');
+
+    // Register the online/offline listeners by going through startSync.
+    const sync = useDirectusSync();
+    vi.spyOn(global, 'fetch').mockResolvedValue(directusListResponse([]));
+    await sync.startSync({ appType: 'cassa', store: makeStore() });
+    await flushPromises(LONG_FLUSH_ROUNDS);
+
+    try {
+      // Directly plant a fake in-flight NS9 pull — mirrors the pattern used by
+      // NS9-OFFLINE-PULL and avoids the IDB-async timing race that occurs when
+      // starting a real pull with _triggerImmediateOrderItemsPull().
+      const fakeAc = new AbortController();
+      let resolveHangingOIPull;
+      const hangingOIPull = new Promise(res => { resolveHangingOIPull = res; });
+      hangingOIPull.catch(() => {}); // suppress unhandled rejection on cleanup
+
+      syncState._orderItemsPullAbortController = fakeAc;
+      syncState._orderItemsPullInFlight = hangingOIPull;
+      // Simulate a second orders:create that arrived while the first pull was
+      // in-flight and set the pending flag.
+      syncState._orderItemsPullPending = true;
+
+      // Network drops.
+      window.dispatchEvent(new Event('offline'));
+      await flushPromises(10);
+
+      // AbortController must have been signalled.
+      expect(fakeAc.signal.aborted).toBe(true);
+      // Pending flag must be cleared so aborted pull's .finally() does not restart.
+      expect(syncState._orderItemsPullPending).toBe(false);
+      // Semaphores must be released immediately (not waiting on .finally()).
+      expect(syncState._orderItemsPullInFlight).toBeNull();
+      expect(syncState._orderItemsPullAbortController).toBeNull();
+
+      // Clean up the dangling promise.
+      resolveHangingOIPull();
+    } finally {
+      sync.stopSync();
+    }
+  });
+});
+
+// ── NS9-OFFLINE-PULL: window.offline aborts in-flight _runPull() ──────────────
+//
+// An in-flight _runPull() whose fetch is hanging on TCP timeout must be
+// cancelled immediately when the device goes offline so that _onOnline()'s
+// recovery pull is not blocked by the stale semaphore.
+
+describe('NS9-OFFLINE-PULL — window.offline aborts in-flight _runPull() and releases semaphore', () => {
+  it('NS9-OFFLINE-PULL: offline aborts _pullAbortController, clears _pullInFlight, bumps generation', async () => {
+    const { syncState } = await import('../sync/state.js');
+
+    // Register listeners via startSync (fetch resolves quickly so startup completes).
+    const sync = useDirectusSync();
+    vi.spyOn(global, 'fetch').mockResolvedValue(directusListResponse([]));
+    await sync.startSync({ appType: 'cassa', store: makeStore() });
+    await flushPromises(LONG_FLUSH_ROUNDS);
+
+    try {
+      // Directly plant a fake in-flight _runPull() — this simulates a pull whose
+      // underlying fetch is hanging on a TCP timeout.
+      const fakeAc = new AbortController();
+      let resolveHangingPull;
+      const hangingPull = new Promise(res => { resolveHangingPull = res; });
+      hangingPull.catch(() => {}); // suppress unhandled rejection on cleanup
+
+      syncState._pullAbortController = fakeAc;
+      syncState._pullInFlight = hangingPull;
+      const genBefore = syncState._pullGeneration;
+
+      // Network drops.
+      window.dispatchEvent(new Event('offline'));
+      await flushPromises(10);
+
+      // AbortController must have been signalled.
+      expect(fakeAc.signal.aborted).toBe(true);
+      // Semaphore must be cleared so _onOnline()'s recovery pull is not blocked.
+      expect(syncState._pullInFlight).toBeNull();
+      expect(syncState._pullAbortController).toBeNull();
+      // Generation must advance so any late resolution of the hung pull is ignored.
+      expect(syncState._pullGeneration).toBe(genBefore + 1);
+
+      // Clean up the dangling hanging promise.
+      resolveHangingPull();
+    } finally {
+      sync.stopSync();
+    }
+  });
+});
+
+// ── NS4-OFFLINE-TMS: window.offline aborts in-flight TMS pull ─────────────────
+//
+// An in-flight table_merge_sessions full-replace pull whose fetch is hanging
+// on a TCP timeout must be cancelled immediately when the device goes offline.
+// Without the abort, _tableMergePullInFlight would remain set indefinitely,
+// preventing any subsequent WS delete event from starting a fresh TMS pull,
+// and a delayed HTTP response that eventually arrives could overwrite a
+// fresher post-reconnect replace with stale data.
+
+describe('NS4-OFFLINE-TMS — window.offline aborts in-flight TMS pull and releases semaphore', () => {
+  it('NS4-OFFLINE-TMS: offline aborts _tableMergeAbortController and nulls _tableMergePullInFlight', async () => {
+    const { syncState } = await import('../sync/state.js');
+
+    // Register listeners via startSync (fetch resolves quickly so startup completes).
+    const sync = useDirectusSync();
+    vi.spyOn(global, 'fetch').mockResolvedValue(directusListResponse([]));
+    await sync.startSync({ appType: 'cassa', store: makeStore() });
+    await flushPromises(LONG_FLUSH_ROUNDS);
+
+    try {
+      // Plant a fake in-flight TMS full-replace pull — simulates a pull whose
+      // underlying fetch is hanging on a TCP timeout.
+      const fakeAc = new AbortController();
+      let resolveHangingTmsPull;
+      const hangingTmsPull = new Promise(res => { resolveHangingTmsPull = res; });
+      hangingTmsPull.catch(() => {}); // suppress unhandled rejection on cleanup
+
+      syncState._tableMergeAbortController = fakeAc;
+      syncState._tableMergePullInFlight = hangingTmsPull;
+
+      // Network drops.
+      window.dispatchEvent(new Event('offline'));
+      await flushPromises(10);
+
+      // AbortController must have been signalled so the in-transit HTTP response
+      // is discarded before replaceTableMergesInIDB() can be called.
+      expect(fakeAc.signal.aborted).toBe(true);
+      // Semaphore must be cleared so the next WS delete event can start a fresh
+      // TMS pull once the network is restored.
+      expect(syncState._tableMergePullInFlight).toBeNull();
+      expect(syncState._tableMergeAbortController).toBeNull();
+
+      // Clean up the dangling promise.
+      resolveHangingTmsPull();
+    } finally {
+      sync.stopSync();
+    }
+  });
+});
+
+// ── ABORT-PRE-WRITE-TMS: post-loop abort guard prevents stale TMS snapshot ────
+//
+// _pullCollection('table_merge_sessions', { forceFull: true }) has a dedicated
+// per-iteration abort check (hadFetchError = true when _fetchUpdatedViaSDK returns
+// aborted:true), but that check only catches aborts that fire *before* or *during*
+// the HTTP request.  A distinct race exists when all pages complete successfully
+// and the abort signal fires *after* the loop exits but *before*
+// replaceTableMergesInIDB() is called.
+//
+// The post-loop guard `if (signal?.aborted) { hadFetchError = true; }` catches
+// this window.  This test exercises it directly: a single-page response with fewer
+// than 200 records (so the loop exits via data.length < 200), with the abort signal
+// fired synchronously inside the fetch mock so that signal.aborted is true when the
+// guard runs.
+
+describe('ABORT-PRE-WRITE-TMS: post-loop abort guard prevents stale TMS snapshot after last page', () => {
+  it('ABORT-PRE-WRITE-TMS: replaceTableMergesInIDB skipped when signal aborts after last page arrives', async () => {
+    const { _pullCollection } = await import('../sync/pullQueue.js');
+    const ac = new AbortController();
+
+    // Return a single page with fewer than 200 records so the loop exits normally
+    // (not via an abort mid-fetch).  Abort fires synchronously inside the mock,
+    // simulating the signal being raised in the window between the last HTTP
+    // response arriving and the post-loop replaceTableMergesInIDB() call.
+    vi.spyOn(global, 'fetch').mockImplementation(() => {
+      ac.abort(); // signal fires after data arrives — the per-iteration check misses this
+      const rows = Array.from({ length: 5 }, (_, i) => ({
+        id: `tms_postloop_${i}`,
+        slave_table: `T${i}`,
+        master_table: 'T0',
+        date_updated: '2024-01-01T00:00:00.000Z',
+        date_created: '2024-01-01T00:00:00.000Z',
+      }));
+      return Promise.resolve(directusListResponse(rows));
+    });
+
+    const replaceSpy = vi.spyOn(
+      await import('../../store/persistence/config.js'),
+      'replaceTableMergesInIDB',
+    );
+
+    const { ok } = await _pullCollection('table_merge_sessions', {
+      forceFull: true,
+      signal: ac.signal,
+    });
+
+    // The post-loop guard must fire and prevent the IDB replace.
+    expect(ok).toBe(false);
+    expect(replaceSpy).not.toHaveBeenCalled();
+
+    replaceSpy.mockRestore();
+  });
+});
+
+// ── GP-OFFLINE: _globalPullOfflineGeneration guard skips stale IDB write ──────
+//
+// When the network drops (or stopSync() fires) after _runGlobalPullInner() starts
+// its deep venue fetch, _globalPullOfflineGeneration is bumped above the value
+// captured by myOfflineGen at pull start.  Even if the HTTP response arrives while
+// the post-reconnect pull is still in flight (so _lastAppliedGlobalPullGeneration
+// is still 0), the offline-generation guard must detect the stale fetch and skip
+// the IDB write and config-apply step, preventing an older snapshot from
+// overwriting the newer pull's data.
+
+describe('GP-OFFLINE — _globalPullOfflineGeneration guard prevents stale global-pull write', () => {
+  it('GP-OFFLINE: bumping _globalPullOfflineGeneration while deep fetch is in flight skips config apply', async () => {
+    const mappers = await import('../../utils/mappers.js');
+    const mapperSpy = vi.spyOn(mappers, 'mapVenueConfigFromDirectus');
+
+    const { syncState } = await import('../sync/state.js');
+
+    const venuePayload = {
+      id: 1,
+      name: 'GP-OFFLINE Venue',
+      menu_source: 'directus',
+      rooms: [],
+      tables: [],
+      payment_methods: [],
+      printers: [],
+      venue_users: [],
+      table_merge_sessions: [],
+      menu_categories: [],
+      menu_items: [],
+      primary_color: '#aabbcc',
+    };
+
+    // Deferred: lets us control exactly when the venue response arrives so we
+    // can bump _globalPullOfflineGeneration before it resolves.
+    let resolveVenueFetch;
+    const venueFetch = new Promise((resolve) => { resolveVenueFetch = resolve; });
+
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      if (String(url).includes('/items/venues/')) {
+        return venueFetch.then(() => directusItemResponse(venuePayload));
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const sync = useDirectusSync();
+
+    // Start the pull — the deep venue fetch is now suspended.
+    const pullPromise = sync.reconfigureAndApply();
+
+    // Let the pull reach the suspended venue await.
+    await flushPromises(5);
+
+    // Simulate the network drop (or stopSync()) after the pull started but before
+    // the venue response has been processed: bump the offline generation counter.
+    syncState._globalPullOfflineGeneration++;
+
+    // Unblock the venue fetch with valid data.
+    resolveVenueFetch();
+    const result = await pullPromise;
+
+    // The offline-generation guard must fire: ok:true (graceful discard, not an error).
+    expect(result.ok).toBe(true);
+    // Config-apply (mapVenueConfigFromDirectus inside _hydrateConfigFromLocalCache)
+    // must NOT have been called — the stale snapshot must be discarded.
+    expect(mapperSpy).not.toHaveBeenCalled();
+
+    sync.stopSync();
+    mapperSpy.mockRestore();
+  });
+});
+
+// ── GP-OFFLINE-FANOUT: offline-generation guard fires after fan-out, before hydration ─
+//
+// Exercises the second invalidation check (after _fanOutVenueTreeToIDB, before
+// _hydrateConfigFromLocalCache).  The HTTP fetch and fan-out both complete
+// successfully, but _globalPullOfflineGeneration is bumped inside the
+// saveLastPullTsToIDB mock — which is called right after fan-out returns and
+// before the post-fan-out guard runs.  The guard must detect the stale state and
+// skip _hydrateConfigFromLocalCache(), so mapVenueConfigFromDirectus is never called.
+
+describe('GP-OFFLINE-FANOUT — offline-generation guard fires between fan-out and config hydration', () => {
+  it('GP-OFFLINE-FANOUT: bumping offline gen inside saveLastPullTsToIDB spy skips config apply', async () => {
+    const mappers = await import('../../utils/mappers.js');
+    const mapperSpy = vi.spyOn(mappers, 'mapVenueConfigFromDirectus');
+
+    const { syncState } = await import('../sync/state.js');
+    const persistCfg = await import('../../store/persistence/config.js');
+
+    const venuePayload = {
+      id: 1,
+      name: 'GP-OFFLINE-FANOUT Venue',
+      menu_source: 'directus',
+      rooms: [],
+      tables: [],
+      payment_methods: [],
+      printers: [],
+      venue_users: [],
+      table_merge_sessions: [],
+      menu_categories: [],
+      menu_items: [],
+      primary_color: '#aabbcc',
+    };
+
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      if (String(url).includes('/items/venues/')) {
+        return Promise.resolve(directusItemResponse(venuePayload));
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    // Bump the offline gen inside saveLastPullTsToIDB — this runs right after
+    // _fanOutVenueTreeToIDB() returns, before the post-fan-out guard.
+    const origSave = persistCfg.saveLastPullTsToIDB;
+    const saveSpy = vi.spyOn(persistCfg, 'saveLastPullTsToIDB').mockImplementation((...args) => {
+      syncState._globalPullOfflineGeneration++;
+      return origSave(...args);
+    });
+
+    const sync = useDirectusSync();
+    const result = await sync.reconfigureAndApply();
+
+    // ok:true — graceful discard, not an error.
+    expect(result.ok).toBe(true);
+    // Config-apply (mapVenueConfigFromDirectus inside _hydrateConfigFromLocalCache)
+    // must NOT have been called — the stale snapshot must be discarded.
+    expect(mapperSpy).not.toHaveBeenCalled();
+
+    sync.stopSync();
+    saveSpy.mockRestore();
+    mapperSpy.mockRestore();
+  });
+});
+
+// ── GP-RECONFIG: reconfigureAndApply() invalidates in-flight background pull ──
+//
+// When reconfigureAndApply() fires, it bumps _globalPullReconfigGeneration so
+// that any background _runGlobalPullInner() already awaiting the network does
+// not overwrite the user-initiated pull with a stale venue snapshot.
+// Scenario: background pull started (myReconfigGen=0), reconfigureAndApply()
+// starts (bumps to 1, new pull is userInitiated=true so skips this check),
+// background HTTP arrives — guard _globalPullReconfigGeneration(1) > myReconfigGen(0)
+// fires, write skipped.
+
+describe('GP-RECONFIG — reconfigureAndApply() invalidates in-flight background global pull', () => {
+  it('GP-RECONFIG: background pull arriving after reconfigureAndApply() is discarded', async () => {
+    const mappers = await import('../../utils/mappers.js');
+    const mapperSpy = vi.spyOn(mappers, 'mapVenueConfigFromDirectus');
+
+    const { syncState } = await import('../sync/state.js');
+    const { _runGlobalPull } = await import('../sync/globalPull.js');
+    const { appConfig } = await import('../../utils/index.js');
+    appConfig.directus = {
+      ...appConfig.directus,
+      enabled: true,
+      venueId: 1,
+      url: 'https://directus.example.com',
+    };
+
+    const venuePayload = {
+      id: 1,
+      name: 'GP-RECONFIG Venue',
+      menu_source: 'directus',
+      rooms: [],
+      tables: [],
+      payment_methods: [],
+      printers: [],
+      venue_users: [],
+      table_merge_sessions: [],
+      menu_categories: [],
+      menu_items: [],
+      primary_color: '#112233',
+    };
+
+    // Deferred fetch for the background pull — lets us interleave reconfigureAndApply().
+    let resolveBackgroundFetch;
+    const backgroundFetch = new Promise((resolve) => { resolveBackgroundFetch = resolve; });
+    let backgroundFetchCalled = false;
+
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      if (String(url).includes('/items/venues/')) {
+        if (!backgroundFetchCalled) {
+          // First venues request comes from the background pull — suspend it.
+          backgroundFetchCalled = true;
+          return backgroundFetch.then(() => directusItemResponse(venuePayload));
+        }
+        // Second venues request (from reconfigureAndApply new pull) resolves immediately.
+        return Promise.resolve(directusItemResponse(venuePayload));
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const sync = useDirectusSync();
+
+    // Start the background pull — suspended at the venue deep fetch.
+    const bgPullPromise = _runGlobalPull();
+    await flushPromises(5);
+
+    // reconfigureAndApply() must bump _globalPullReconfigGeneration before
+    // starting its own pull so the background pull's HTTP response is discarded.
+    const rcaPromise = sync.reconfigureAndApply();
+
+    // Let reconfigureAndApply's new pull complete first.
+    resolveBackgroundFetch(); // also unblocks background, but guard should reject it
+    await flushPromises(LONG_FLUSH_ROUNDS);
+
+    await Promise.allSettled([bgPullPromise, rcaPromise]);
+
+    // mapVenueConfigFromDirectus must have been called exactly once:
+    // from the reconfigureAndApply pull, NOT from the background pull.
+    expect(mapperSpy).toHaveBeenCalledTimes(1);
+
+    sync.stopSync();
+    mapperSpy.mockRestore();
+  });
+});
+
+// ── GP-FANOUT-MID: shouldAbort guard inside _fanOutVenueTreeToIDB ─────────────
+//
+// Exercises the guard added after normalizeVenueUsersForIDB but before the IDB
+// transaction: if shouldAbort() returns true (offline/reconfig fired while PIN
+// hashing was running), _fanOutVenueTreeToIDB returns null, and the caller
+// returns without saving the pull timestamp or applying config.  This prevents
+// a stale venue snapshot from being written to IDB and later hydrated by
+// startSync() on the next session start.
+
+describe('GP-FANOUT-MID — shouldAbort guard inside _fanOutVenueTreeToIDB skips IDB write', () => {
+  it('GP-FANOUT-MID: offline gen bumped inside normalizeVenueUsersForIDB → IDB write and config apply skipped', async () => {
+    const mappers = await import('../../utils/mappers.js');
+    const mapperSpy = vi.spyOn(mappers, 'mapVenueConfigFromDirectus');
+
+    const { syncState } = await import('../sync/state.js');
+    const persistCfg = await import('../../store/persistence/config.js');
+
+    const venuePayload = {
+      id: 1,
+      name: 'GP-FANOUT-MID Venue',
+      menu_source: 'directus',
+      rooms: [],
+      tables: [],
+      payment_methods: [],
+      printers: [],
+      venue_users: [],
+      table_merge_sessions: [],
+      menu_categories: [],
+      menu_items: [],
+      primary_color: '#001122',
+    };
+
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      if (String(url).includes('/items/venues/')) {
+        return Promise.resolve(directusItemResponse(venuePayload));
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    // Wrap normalizeVenueUsersForIDB: bump offline gen before returning so that
+    // the shouldAbort() check immediately after the await sees a stale generation.
+    // This simulates _onOffline() / stopSync() firing while PIN hashing was running.
+    const origNorm = persistCfg.normalizeVenueUsersForIDB;
+    const normSpy = vi.spyOn(persistCfg, 'normalizeVenueUsersForIDB').mockImplementation((...args) => {
+      syncState._globalPullOfflineGeneration++;
+      return origNorm(...args);
+    });
+
+    // Assert saveLastPullTsToIDB is never reached (the pull aborts before it).
+    const saveSpy = vi.spyOn(persistCfg, 'saveLastPullTsToIDB');
+
+    const sync = useDirectusSync();
+    const result = await sync.reconfigureAndApply();
+
+    // ok:true — graceful discard, not an error.
+    expect(result.ok).toBe(true);
+    // saveLastPullTsToIDB must NOT have been called — the IDB write was aborted
+    // before _fanOutVenueTreeToIDB opened the transaction.
+    expect(saveSpy).not.toHaveBeenCalled();
+    // Config-apply (mapVenueConfigFromDirectus inside _hydrateConfigFromLocalCache)
+    // must NOT have been called.
+    expect(mapperSpy).not.toHaveBeenCalled();
+
+    sync.stopSync();
+    normSpy.mockRestore();
+    saveSpy.mockRestore();
+    mapperSpy.mockRestore();
+  });
+});
+
+// ── GP-HYDRATE-MID: shouldAbort guard inside _hydrateConfigFromLocalCache ─────
+//
+// Exercises the guard added after loadConfigFromIDB() but before
+// _applyDirectusRuntimeConfigToAppConfig(): if shouldAbort() returns true,
+// the function returns false immediately without mutating appConfig.
+// This prevents stale runtime config from corrupting appConfig when
+// offline/reconfig invalidation fires while the IDB config snapshot was
+// being read — even though fan-out already completed and the post-fan-out
+// guard has not yet detected the invalidation.
+
+describe('GP-HYDRATE-MID — shouldAbort guard inside _hydrateConfigFromLocalCache skips appConfig mutation', () => {
+  it('GP-HYDRATE-MID: offline gen bumped inside loadConfigFromIDB → appConfig not mutated', async () => {
+    const mappers = await import('../../utils/mappers.js');
+    const mapperSpy = vi.spyOn(mappers, 'mapVenueConfigFromDirectus');
+
+    const { syncState } = await import('../sync/state.js');
+    const persistCfg = await import('../../store/persistence/config.js');
+
+    const venuePayload = {
+      id: 1,
+      name: 'GP-HYDRATE-MID Venue',
+      menu_source: 'directus',
+      rooms: [],
+      tables: [],
+      payment_methods: [],
+      printers: [],
+      venue_users: [],
+      table_merge_sessions: [],
+      menu_categories: [],
+      menu_items: [],
+      primary_color: '#aabbcc',
+    };
+
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      if (String(url).includes('/items/venues/')) {
+        return Promise.resolve(directusItemResponse(venuePayload));
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    // Wrap loadConfigFromIDB: bump offline gen inside it to simulate _onOffline()
+    // firing after fan-out completed and the post-fan-out guard passed (gen was
+    // still equal), but before _applyDirectusRuntimeConfigToAppConfig runs.
+    const origLoad = persistCfg.loadConfigFromIDB;
+    const loadSpy = vi.spyOn(persistCfg, 'loadConfigFromIDB').mockImplementation((...args) => {
+      syncState._globalPullOfflineGeneration++;
+      return origLoad(...args);
+    });
+
+    const sync = useDirectusSync();
+    const result = await sync.reconfigureAndApply();
+
+    // ok:true — graceful discard, not an error.
+    expect(result.ok).toBe(true);
+    // mapVenueConfigFromDirectus is called right after the shouldAbort() check in
+    // _hydrateConfigFromLocalCache — it must NOT have been called, confirming that
+    // appConfig was not mutated by the stale pull.
+    expect(mapperSpy).not.toHaveBeenCalled();
+
+    sync.stopSync();
+    loadSpy.mockRestore();
+    mapperSpy.mockRestore();
+  });
+});
+
+// ── GP-HYDRATE-MID-2: shouldAbort guard after _refreshStoreConfigFromIDB ──────
+//
+// The shouldAbort check added AFTER `await _refreshStoreConfigFromIDB()` inside
+// _hydrateConfigFromLocalCache prevents _syncPreBillPrinterSelection() from
+// running with stale printer data when invalidation fires during the store-refresh
+// await.  appConfig was already mutated by _applyDirectusRuntimeConfigToAppConfig
+// (sync), but we can still prevent downstream side-effects from propagating.
+
+describe('GP-HYDRATE-MID-2 — shouldAbort guard after _refreshStoreConfigFromIDB skips printer selection', () => {
+  it('GP-HYDRATE-MID-2: offline gen bumped inside _refreshStoreConfigFromIDB → _syncPreBillPrinterSelection not called', async () => {
+    const { syncState } = await import('../sync/state.js');
+    const storebridge = await import('../sync/storebridge.js');
+    const persistCfg = await import('../../store/persistence/config.js');
+
+    const venuePayload = {
+      id: 1,
+      name: 'GP-HYDRATE-MID-2 Venue',
+      menu_source: 'directus',
+      rooms: [],
+      tables: [],
+      payment_methods: [],
+      printers: [],
+      venue_users: [],
+      table_merge_sessions: [],
+      menu_categories: [],
+      menu_items: [],
+      primary_color: '#001122',
+    };
+
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      if (String(url).includes('/items/venues/')) {
+        return Promise.resolve(directusItemResponse(venuePayload));
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    // Wrap _refreshStoreConfigFromIDB: bump offline gen before returning so the
+    // shouldAbort() check immediately after the await returns true.  This
+    // simulates _onOffline() / stopSync() firing while the Pinia store was being
+    // updated with the new config snapshot.
+    const origRefresh = storebridge._refreshStoreConfigFromIDB;
+    const refreshSpy = vi.spyOn(storebridge, '_refreshStoreConfigFromIDB').mockImplementation(async (...args) => {
+      const result = await origRefresh(...args);
+      syncState._globalPullOfflineGeneration++;
+      return result;
+    });
+
+    // Assert _syncPreBillPrinterSelection is never reached (the pull aborts).
+    const printerSpy = vi.spyOn(storebridge, '_syncPreBillPrinterSelection');
+
+    const sync = useDirectusSync();
+    const result = await sync.reconfigureAndApply();
+
+    // ok:true — graceful discard, not an error.
+    expect(result.ok).toBe(true);
+    // _syncPreBillPrinterSelection must NOT have been called — the shouldAbort
+    // check after _refreshStoreConfigFromIDB returned before it could execute.
+    expect(printerSpy).not.toHaveBeenCalled();
+
+    sync.stopSync();
+    refreshSpy.mockRestore();
+    printerSpy.mockRestore();
+  });
+});
+
+// ── ABORT-REFRESH: aborted signal skips _refreshStoreFromIDB after IDB write ──
+//
+// When a page-loop IDB write completes but the abort signal fires before the
+// loop can write the last_pull_ts checkpoint, the existing ABORT-CK test
+// already covers the checkpoint skip.  This test covers the NEW guard on
+// _refreshStoreFromIDB: even when hadRemoteRecords is true (data was written),
+// the in-memory store must NOT be refreshed when signal.aborted is set — the
+// superseding pull cycle that fired the abort will refresh the store with fresh
+// data after its own write completes.
+
+describe('ABORT-REFRESH — aborted signal skips _refreshStoreFromIDB', () => {
+  it('ABORT-REFRESH: signal aborted mid-IDB write does not call _refreshStoreFromIDB', async () => {
+    const { _pullCollection } = await import('../sync/pullQueue.js');
+    const idbOps = await import('../sync/idbOperations.js');
+    const storebridge = await import('../sync/storebridge.js');
+    const { appConfig } = await import('../../utils/index.js');
+
+    appConfig.directus = { enabled: true, url: 'http://directus.test', staticToken: 'tok', wsEnabled: false };
+
+    const ac = new AbortController();
+
+    // Return one order_items record so that hadRemoteRecords is true and
+    // _refreshStoreFromIDB would normally be invoked after the loop.
+    vi.spyOn(global, 'fetch').mockResolvedValue(directusListResponse([{
+      id: 'oi_refresh1',
+      order_id: 'ord_refresh1',
+      date_updated: '2024-01-01T10:00:00.000Z',
+      date_created: '2024-01-01T10:00:00.000Z',
+      quantity: 1,
+      menu_item_id: 'mi_refresh1',
+      order_item_modifiers: [],
+    }]));
+
+    // Spy on the IDB write and abort the signal during it — same timing as ABORT-CK
+    // (simulates forcePull() / stopSync() / _runPull() firing mid-write).
+    const atomicSpy = vi.spyOn(idbOps, '_atomicOrderItemsUpsertAndMerge')
+      .mockImplementation(async () => {
+        ac.abort();
+        return { orderItemsWritten: 1, ordersWritten: 0, affectedOrderIds: new Set() };
+      });
+
+    // Spy on _refreshStoreFromIDB — it must NOT be called when signal is aborted.
+    const refreshSpy = vi.spyOn(storebridge, '_refreshStoreFromIDB');
+
+    await _pullCollection('order_items', { signal: ac.signal });
+
+    // The in-memory store broadcast must be skipped so the superseding pull
+    // cycle's own refresh is not overwritten by this stale partial page.
+    expect(refreshSpy).not.toHaveBeenCalled();
+
+    atomicSpy.mockRestore();
+    refreshSpy.mockRestore();
+  });
+});
+
+// ── GP-FANOUT-TX: shouldAbort guard inside _fanOutVenueTreeToIDB mid-transaction
+//
+// Exercises the check added AFTER `await vuStore.getAll()` inside the IDB
+// transaction.  If _onOffline() / stopSync() / reconfigureAndApply() fires while
+// the initial venue_users read is running, `tx.abort()` is called and the
+// function returns null — preventing any stale venue data from being committed
+// to IDB (and subsequently hydrated by startSync() on the next session start).
+
+describe('GP-FANOUT-TX — shouldAbort guard inside _fanOutVenueTreeToIDB IDB transaction', () => {
+  it('GP-FANOUT-TX: invalidation during vuStore.getAll() aborts the transaction and returns null', async () => {
+    const { _fanOutVenueTreeToIDB } = await import('../sync/globalPull.js');
+    const idbModule = await import('../useIDB.js');
+
+    const venueRecord = {
+      id: 1,
+      name: 'GP-FANOUT-TX Venue',
+      menu_source: 'directus',
+      rooms: [],
+      tables: [],
+      payment_methods: [],
+      printers: [],
+      users: [],
+      venue_users: [],
+      table_merge_sessions: [],
+      menu_categories: [],
+      menu_items: [],
+      menu_modifiers: [],
+      primary_color: '#abcdef',
+    };
+
+    // shouldAbort returns false initially (so the pre-transaction check passes),
+    // and true after genBumped is set (by the getAll() wrapper below).
+    let genBumped = false;
+    const shouldAbort = () => genBumped;
+
+    // Wrap getDB() so that venue_users objectStore.getAll() sets genBumped=true
+    // AFTER the read resolves — simulating _onOffline() firing mid-transaction.
+    const origGetDB = idbModule.getDB;
+    const getDbSpy = vi.spyOn(idbModule, 'getDB').mockImplementationOnce(async () => {
+      const db = await origGetDB();
+      return new Proxy(db, {
+        get(target, prop, receiver) {
+          if (prop === 'transaction') {
+            return (...txArgs) => {
+              const tx = target.transaction(...txArgs);
+              return new Proxy(tx, {
+                get(txTarget, txProp, txReceiver) {
+                  if (txProp === 'objectStore') {
+                    return (name) => {
+                      const store = txTarget.objectStore(name);
+                      if (name === 'venue_users') {
+                        return new Proxy(store, {
+                          get(storeTarget, storeProp, storeReceiver) {
+                            if (storeProp === 'getAll') {
+                              return async () => {
+                                const result = await storeTarget.getAll();
+                                // Simulate invalidation firing while getAll was running.
+                                genBumped = true;
+                                return result;
+                              };
+                            }
+                            const val = Reflect.get(storeTarget, storeProp, storeReceiver);
+                            return typeof val === 'function' ? val.bind(storeTarget) : val;
+                          },
+                        });
+                      }
+                      return store;
+                    };
+                  }
+                  const val = Reflect.get(txTarget, txProp, txReceiver);
+                  return typeof val === 'function' ? val.bind(txTarget) : val;
+                },
+              });
+            };
+          }
+          const val = Reflect.get(target, prop, receiver);
+          return typeof val === 'function' ? val.bind(target) : val;
+        },
+      });
+    });
+
+    const result = await _fanOutVenueTreeToIDB(venueRecord, { menuSource: 'directus', shouldAbort });
+
+    // The function must return null when the transaction is aborted mid-flight.
+    expect(result).toBeNull();
+    // Confirm the mock was actually invoked (not just bypassed by another path).
+    expect(genBumped).toBe(true);
+
+    getDbSpy.mockRestore();
   });
 });

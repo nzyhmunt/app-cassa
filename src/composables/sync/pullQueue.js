@@ -32,9 +32,15 @@ import {
  * Builds a Directus SDK REST-only client for the given config.
  *
  * @param {{ url: string, staticToken: string }} cfg
+ * @param {AbortSignal|null} [signal] - When provided, the signal is forwarded into every
+ *   underlying fetch call so that network requests are cancelled immediately when the
+ *   signal fires, rather than only taking effect between pages.
  */
-export function _buildRestClient(cfg) {
-  return createDirectus(cfg.url, { globals: { fetch: globalThis.fetch } })
+export function _buildRestClient(cfg, signal = null) {
+  const boundFetch = signal
+    ? (url, opts) => globalThis.fetch(url, { ...opts, signal })
+    : globalThis.fetch;
+  return createDirectus(cfg.url, { globals: { fetch: boundFetch } })
     .with(staticToken(cfg.staticToken))
     .with(rest());
 }
@@ -58,13 +64,21 @@ export function _getCfg() {
  * @param {string|null} sinceTs - ISO timestamp of last successful pull.
  * @param {number} [page]
  * @param {{ id: string, ts: string|null }|null} [cursor]
+ * @param {AbortSignal|null} [signal] - Optional AbortSignal forwarded into every
+ *   fetch call via `_buildRestClient`.  When the signal fires, the request
+ *   rejects immediately and the catch block returns a clean empty result without
+ *   logging so that intentional `forcePull()` / `stopSync()` cancellations do
+ *   not pollute operational telemetry with spurious pull-failure entries.
  */
-export async function _fetchUpdatedViaSDK(collection, sinceTs, page = 1, cursor = null) {
+export async function _fetchUpdatedViaSDK(collection, sinceTs, page = 1, cursor = null, signal = null) {
   const cfg = _getCfg();
   if (!cfg) return { data: [], maxTs: null, lastCursor: null, error: null };
 
   const quirks = COLLECTION_QUIRKS[collection] ?? {};
-  const client = _buildRestClient(cfg);
+  // Build the client with the abort signal forwarded into every fetch call so that
+  // forcePull()/stopSync() cancellations interrupt in-flight HTTP requests immediately
+  // rather than only taking effect between pages.
+  const client = _buildRestClient(cfg, signal);
   // For orders, expand nested order_items and their modifiers so that the
   // detail view is populated even on a fresh device that has never locally
   // created those orders.
@@ -194,6 +208,14 @@ export async function _fetchUpdatedViaSDK(collection, sinceTs, page = 1, cursor 
     });
     return { data, maxTs, lastCursor, error: null };
   } catch (e) {
+    // AbortError: intentional cancellation by forcePull() / stopSync() / _runPull().
+    // Return a clean result with aborted:true so callers can distinguish an
+    // intentional cancellation from a genuine empty page.  No logging so
+    // operational telemetry is not polluted with spurious pull-failure entries
+    // (mirrors the push path's behaviour).
+    if (e?.name === 'AbortError') {
+      return { data: [], maxTs: null, lastCursor: null, error: null, aborted: true };
+    }
     console.warn(`[DirectusSync] Pull ${collection} error:`, e?.message ?? e);
     addSyncLog({
       direction: 'IN',
@@ -225,9 +247,15 @@ export async function _pullCollection(collection, { forceFull = false, lastPullT
     const allMapped = [];
     let hadFetchError = false;
     while (true) { // eslint-disable-line no-constant-condition
-      if (signal?.aborted) break;
-      const { data, maxTs, error } = await _fetchUpdatedViaSDK(collection, null, page);
+      // Abort before making the next HTTP request — treat as fetch error so
+      // replaceTableMergesInIDB is not called with an incomplete dataset.
+      if (signal?.aborted) { hadFetchError = true; break; }
+      const { data, maxTs, error, aborted } = await _fetchUpdatedViaSDK(collection, null, page, null, signal);
       if (error) hadFetchError = true;
+      // Abort fired mid-fetch: treat as a fetch error so replaceTableMergesInIDB
+      // is not called with an incomplete dataset, which would silently delete the
+      // pages that were never fetched.
+      if (aborted) { hadFetchError = true; break; }
       if (data.length === 0) break;
       const mapped = data.map(r => _mapRecord(collection, r));
       allMapped.push(...mapped);
@@ -236,9 +264,22 @@ export async function _pullCollection(collection, { forceFull = false, lastPullT
       page++;
     }
     if (!hadFetchError) {
+      // Post-loop abort check: discard collected pages if the signal fired
+      // while the last HTTP response was in transit (the per-iteration checks
+      // above only cover aborts that happen *before* or *during* a request,
+      // not an abort that fires after the response body is received but before
+      // the replace write).  Treating it as a fetch error prevents
+      // replaceTableMergesInIDB from being called with a stale snapshot.
+      if (signal?.aborted) { hadFetchError = true; }
+    }
+    if (!hadFetchError) {
       await replaceTableMergesInIDB(allMapped);
       await _refreshStoreFromIDB('table_merge_sessions');
-      if (latestTs) await saveLastPullTsToIDB(collection, latestTs);
+      // Guard the checkpoint write: if the signal fired while replaceTableMergesInIDB
+      // or the store refresh was running, do not persist last_pull_ts — a superseding
+      // forcePull() / stopSync() cycle may have already written a fresher value and
+      // we must not overwrite it with a stale one.
+      if (latestTs && !signal?.aborted) await saveLastPullTsToIDB(collection, latestTs);
     }
     return { merged: allMapped.length, ok: !hadFetchError };
   }
@@ -274,6 +315,18 @@ export async function _pullCollection(collection, { forceFull = false, lastPullT
       storedSinceTs = clampedTs;
     }
   }
+
+  // NS7: Keyset cursor for within-poll pagination only.  Starts as null so the
+  // first page always uses the safe _gte sinceTs filter (inclusive boundary);
+  // advanced to lastCursor after each page so pages 2+ skip already-seen
+  // records.  A stored cross-poll cursor is intentionally NOT loaded here:
+  // applying it on page 1 would make the sinceTs boundary exclusive
+  // (id > cursor.id), which can silently skip records with
+  // date_updated == storedSinceTs that carry non-monotonic IDs and were
+  // created between the previous poll and this one.  Correctness takes
+  // priority over the bandwidth saving, so each poll starts fresh.
+  let pageKeyCursor = null;
+
   let page = 1;
   let latestTs = storedSinceTs;
   // S2: track the last timestamp actually persisted so we only call
@@ -291,17 +344,23 @@ export async function _pullCollection(collection, { forceFull = false, lastPullT
   // pages so the store refresh can be targeted rather than replacing the whole
   // orders reactive array.
   const allAffectedOrderIds = new Set();
-  // NS7: keyset cursor — tracks {id, ts} of the last record on the previous page
-  // to avoid re-fetching duplicate boundary records when many records share the
-  // same date_updated value.
-  let pageKeyCursor = null;
 
   while (true) { // eslint-disable-line no-constant-condition
     // Exit between pages when forcePull/stopSync aborts the pull session.
     if (signal?.aborted) break;
-    const { data, maxTs, lastCursor, error } = await _fetchUpdatedViaSDK(collection, storedSinceTs, page, pageKeyCursor);
+    const { data, maxTs, lastCursor, error, aborted } = await _fetchUpdatedViaSDK(collection, storedSinceTs, page, pageKeyCursor, signal);
     if (error) hadFetchError = true;
+    // Abort fired mid-fetch: exit cleanly without advancing cursor or treating
+    // the result as a genuine empty page.
+    if (aborted) break;
     if (data.length === 0) break;
+    // If the abort signal fired while the HTTP response was in transit, discard
+    // this page rather than committing potentially stale data to IDB.  An aborted
+    // NS9 pull whose HTTP response arrived just as _runPull() started its own
+    // order_items fetch would otherwise still write into the same IDB stores,
+    // potentially overwriting newer records that _runPull()'s own fetch is about
+    // to commit (equal-timestamp records are treated as "incoming wins").
+    if (signal?.aborted) break;
     hadRemoteRecords = true;
 
     const mapped = data.map(r => _mapRecord(collection, r));
@@ -342,12 +401,17 @@ export async function _pullCollection(collection, { forceFull = false, lastPullT
       if (maxTs && (!latestTs || maxTs > latestTs)) latestTs = maxTs;
       // NS7: Advance the keyset cursor to the last record on this page.
       pageKeyCursor = lastCursor ?? null;
-      // S2: Per-page cursor checkpoint — persist the cursor immediately after each
-      // successfully processed page.  A failure on page N+1 therefore cannot roll
-      // the cursor back to before page N, so the next polling cycle restarts from
-      // the end of the last successful page rather than re-fetching everything.
-      // Only write when latestTs has actually advanced beyond the last persisted
-      // value to avoid redundant IDB writes on every page of a multi-page pull.
+      // Do not write the checkpoint if the signal was aborted while the page IDB
+      // write was in progress.  The data write itself is idempotent (the next poll
+      // will re-fetch and upsert the same records), but persisting a stale
+      // checkpoint could roll last_pull_ts backwards relative to a fresher
+      // checkpoint already committed by the superseding forcePull() or
+      // _runPull() cycle that issued the abort.
+      if (signal?.aborted) break;
+      // S2: Per-page timestamp checkpoint — persist immediately after each
+      // successfully processed page so that a failure on page N+1 cannot roll
+      // the timestamp back to before page N.  Only write when latestTs has
+      // actually advanced to avoid redundant IDB writes on every page.
       if (latestTs && latestTs !== lastSavedTs) {
         await saveLastPullTsToIDB(collection, latestTs);
         lastSavedTs = latestTs;
@@ -357,7 +421,14 @@ export async function _pullCollection(collection, { forceFull = false, lastPullT
     page++;
   }
 
-  if (hadRemoteRecords) {
+  // Skip the in-memory store broadcast if the pull signal was aborted.
+  // When signal.aborted is true we broke out of the page loop after the IDB
+  // write but before writing the checkpoint, meaning a superseding pull cycle
+  // (forcePull / stopSync / _runPull re-arm) is already in flight.  That cycle
+  // will do its own store refresh with fresh data.  Refreshing here with the
+  // partial page we just wrote would broadcast stale records to the UI and
+  // potentially overwrite the fresher data the new cycle is about to apply.
+  if (hadRemoteRecords && !signal?.aborted) {
     if (collection === 'order_items') {
       // S7: The atomic function handled both the order_items write and the merge
       // into orders.orderItems.  Only refresh the in-memory store when at least
@@ -372,6 +443,79 @@ export async function _pullCollection(collection, { forceFull = false, lastPullT
   }
 
   return { merged: totalMerged, ok: !hadFetchError };
+}
+
+/**
+ * NS9 — Triggers an immediate `_pullCollection('order_items')` after a WS
+ * `orders:create` event, so that item details are merged within seconds rather
+ * than waiting for the next 30-second scheduled poll.
+ *
+ * Concurrency guarantees:
+ *  - Returns immediately when `stopSync()` has been called (`_running` guard).
+ *  - If `_runPull()` is in progress but `order_items` is still ahead in the
+ *    cycle (`_pullOrderItemsDone = false`), sets `_orderItemsPullPending` so
+ *    `_runPull()` fires a follow-up NS9 pull after it finishes (covers items
+ *    committed during the in-flight order_items request window), then returns.
+ *  - If only a previous NS9 pull is in-flight, sets `_orderItemsPullPending`
+ *    and returns.  The in-flight pull's `.finally()` re-triggers once it
+ *    settles, ensuring items committed after the current pull started are not
+ *    missed.
+ *  - The promise is stored as `_orderItemsPullInFlight` (semaphore) so that
+ *    rapid bursts of `orders:create` events share one pull.
+ *  - An `AbortController` is stored in `_orderItemsPullAbortController` so
+ *    `forcePull()`, `stopSync()`, and `_runPull()` can cancel a stale pull.
+ *  - The `.finally()` uses an identity check on `_orderItemsPullInFlight` so a
+ *    stale settled promise cannot wipe a newer semaphore installed after an abort.
+ */
+export function _triggerImmediateOrderItemsPull() {
+  // If a full _runPull() cycle is already in progress AND has not yet processed
+  // order_items — set the pending flag so _runPull() fires a follow-up NS9 pull
+  // after it finishes *if* the event arrived during the in-flight fetch window.
+  //
+  // _runPull() clears _orderItemsPullPending right before it starts the
+  // order_items fetch.  Events arriving before that point are already captured
+  // by the current fetch (incremental query covers all records since last_pull_ts),
+  // so the flag will be cleared before the post-cycle check, preventing a wasteful
+  // extra pull.  Only events that arrive *while* the order_items HTTP request is
+  // in-flight leave _orderItemsPullPending set and therefore trigger a follow-up.
+  //
+  // If _runPull() has already processed order_items (_pullOrderItemsDone = true),
+  // the current cycle will NOT include items from this event. Fall through to
+  // start the NS9 pull so item details appear promptly.
+  if (syncState._pullInFlight && !syncState._pullOrderItemsDone) {
+    syncState._orderItemsPullPending = true;
+    return;
+  }
+  if (syncState._orderItemsPullInFlight) {
+    // A pull is already in-flight.  Mark pending so the current pull's .finally()
+    // re-triggers once it settles, covering items committed after the current pull
+    // started.
+    syncState._orderItemsPullPending = true;
+    return;
+  }
+  // Guard: do not start any new pull after stopSync() has been called, or while
+  // the app is offline (a hanging fetch would occupy _orderItemsPullInFlight
+  // indefinitely, preventing any subsequent orders:create trigger from starting
+  // a new pull until the TCP timeout expires).
+  if (!syncState._running || !navigator.onLine) return;
+  const ac = new AbortController();
+  syncState._orderItemsPullAbortController = ac;
+  const p = _pullCollection('order_items', { signal: ac.signal })
+    .catch(e => console.warn('[DirectusSync] WS orders:create — immediate order_items pull failed:', e))
+    .finally(() => {
+      // Identity-guard: only clear the semaphore / controller if they still refer
+      // to THIS pull.  If forcePull() / stopSync() already nulled them and a newer
+      // pull was started, we must not overwrite those newer references.
+      if (syncState._orderItemsPullInFlight === p) syncState._orderItemsPullInFlight = null;
+      if (syncState._orderItemsPullAbortController === ac) syncState._orderItemsPullAbortController = null;
+      // Re-trigger if another orders:create arrived while this pull was in-flight
+      // (i.e. items from a later order may not have been included in this pull).
+      if (syncState._orderItemsPullPending) {
+        syncState._orderItemsPullPending = false;
+        _triggerImmediateOrderItemsPull();
+      }
+    });
+  syncState._orderItemsPullInFlight = p;
 }
 
 /**
@@ -393,6 +537,15 @@ export async function _runPull() {
     // can cancel between collections without letting a superseded loop continue.
     const ac = new AbortController();
     syncState._pullAbortController = ac;
+    // NS9: Cancel any in-flight WS-triggered order_items pull — this full cycle
+    // covers order_items, so a concurrent NS9 pull is redundant and could roll
+    // last_pull_ts backwards after this cycle commits a fresher checkpoint.
+    // Also clear the pending flag: this pull will handle order_items.
+    syncState._orderItemsPullAbortController?.abort();
+    syncState._orderItemsPullAbortController = null;
+    syncState._orderItemsPullInFlight = null;
+    syncState._orderItemsPullPending = false;
+    syncState._pullOrderItemsDone = false;
     try {
       if (!navigator.onLine) {
         return { ok: false, failedCollections: [], skippedReason: 'offline' };
@@ -413,8 +566,20 @@ export async function _runPull() {
         // forcePull() or stopSync() starting a fresh pull session.
         if (ac.signal.aborted) break;
         if (menuSource === 'json' && collection === 'menu_items') continue;
+        // NS9: Clear the pending flag just before the order_items fetch starts.
+        // Any orders:create events that arrived earlier in this cycle (while
+        // _pullOrderItemsDone was still false) are already captured by this
+        // fetch's incremental window.  Only events arriving *during* the fetch
+        // would not be included; those will set _orderItemsPullPending=true again
+        // and are caught by the post-cycle follow-up check below.
+        if (collection === 'order_items') syncState._orderItemsPullPending = false;
         const { merged, ok } = await _pullCollection(collection, { signal: ac.signal });
         if (ac.signal.aborted) break;
+        // Track that order_items has been processed in this cycle so that
+        // _triggerImmediateOrderItemsPull() can distinguish "order_items still
+        // ahead" from "order_items already done" when a WS orders:create arrives
+        // late in the pull cycle (after _runPull() has already pulled order_items).
+        if (collection === 'order_items') syncState._pullOrderItemsDone = true;
         if (merged > 0) anyMerged = true;
         if (!ok) allOk = false;
         if (merged > 0) mergedSummary.push(`${collection}:${merged}`);
@@ -425,7 +590,7 @@ export async function _runPull() {
           `[DirectusSync] Pull cycle details — merged: ${mergedSummary.join(', ') || 'none'}; failed: ${failedCollections.join(', ') || 'none'}.`,
         );
       }
-      if (allOk) {
+      if (allOk && !ac.signal.aborted) {
         syncState.lastPullAt.value = new Date().toISOString();
         syncState.lastSuccessfulPull.value = syncState.lastPullAt.value;
         if (anyMerged) {
@@ -433,10 +598,20 @@ export async function _runPull() {
         } else {
           console.info('[DirectusSync] Pull cycle completed: all collections up to date.');
         }
+      } else if (ac.signal.aborted) {
+        console.info('[DirectusSync] Pull cycle aborted (superseded by forcePull/stopSync).');
       } else {
         console.warn('[DirectusSync] Pull cycle incomplete: at least one collection failed.');
       }
-      return { ok: allOk, failedCollections };
+      // NS9: If a WS orders:create arrived while order_items was being fetched in
+      // this cycle, _orderItemsPullPending was set by _triggerImmediateOrderItemsPull.
+      // Trigger a follow-up NS9 pull now (not aborted) so items committed during
+      // the in-flight order_items request window are not missed until the next poll.
+      if (!ac.signal.aborted && syncState._orderItemsPullPending) {
+        syncState._orderItemsPullPending = false;
+        _triggerImmediateOrderItemsPull();
+      }
+      return { ok: allOk && !ac.signal.aborted, aborted: ac.signal.aborted, failedCollections, anyMerged };
     } catch (e) {
       console.warn('[DirectusSync] Pull error:', e);
       return { ok: false, failedCollections: [] };

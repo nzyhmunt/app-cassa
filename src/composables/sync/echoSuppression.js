@@ -36,11 +36,19 @@ export const ECHO_SUPPRESS_RTT_MULTIPLIER = 3;
 
 /**
  * S5 — Heartbeat watchdog interval (ms).
- * If no WebSocket message is received for this duration, the connection is
- * treated as silently dead: a REST catch-up pull is triggered and a reconnect
- * attempt is scheduled.  30 s balances responsiveness against idle-session
- * chattiness (Directus typically sends a heartbeat every ~25 s in inactive
- * subscriptions, so 30 s gives a small safety margin).
+ * Used as both the phase-1 and phase-2 silence window in _resetWsHeartbeat():
+ *   Phase 1 — if no WS event arrives within this duration, trigger a one-shot
+ *   REST catch-up pull and immediately pre-arm phase 2 as a safety net.
+ *   If the pull found no new records (anyMerged: false), the socket is idle and
+ *   healthy — phase 2 is cancelled, preventing spurious disconnects on quiet
+ *   but healthy subscriptions.  If the pull hangs indefinitely (stalled TCP /
+ *   unresponsive server), phase 2 fires unconditionally — it is never blocked
+ *   by a pull that never resolves.
+ *   Phase 2 — fires when phase-1 found new data or when the phase-1 pull
+ *   never resolved; calls _stopSubscriptions() + _reconnectWs() to recover
+ *   half-open sockets that are silent without throwing.
+ * Any real WS event cancels whichever phase is pending via _resetWsHeartbeat(),
+ * so active connections are never affected by the reconnect path.
  */
 export const WS_HEARTBEAT_INTERVAL_MS = 30_000;
 

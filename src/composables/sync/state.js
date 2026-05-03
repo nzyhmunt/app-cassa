@@ -87,6 +87,57 @@ export const syncState = {
    */
   _tableMergePullInFlight: null,
   /**
+   * NS4 — AbortController for the currently in-flight `table_merge_sessions`
+   * full-replace pull.  Passed as `signal` to `_pullCollection` so that an
+   * abort fired by `_onOffline()` causes the in-transit HTTP response to be
+   * discarded before `replaceTableMergesInIDB()` is called, preventing stale
+   * data from overwriting a fresh post-reconnect replace.  Identity-guarded in
+   * the `.finally()` callback so a newer semaphore started after reconnect is
+   * never nulled by the old promise.
+   */
+  _tableMergeAbortController: null,
+  /**
+   * NS9 — In-flight promise for the immediate `order_items` pull triggered by a
+   * WS `orders:create` event.  Deduplicates concurrent pulls when multiple
+   * `orders:create` events arrive in rapid succession so that only one
+   * `_pullCollection('order_items')` is in flight at a time.  Reset to `null`
+   * in a `.finally()` callback.
+   */
+  _orderItemsPullInFlight: null,
+  /**
+   * NS9 — AbortController for the currently in-flight WS-triggered
+   * `order_items` pull.  Aborted (and set to `null`) by `_runPull()`,
+   * `forcePull()`, `stopSync()`, and `_onOffline()` so that a stale
+   * WS-initiated pull cannot finish after a newer scheduled pull has already
+   * written a fresher `last_pull_ts`, which would otherwise roll that
+   * checkpoint backwards.
+   */
+  _orderItemsPullAbortController: null,
+  /**
+   * NS9 — Set to `true` once `order_items` has been fetched in the currently
+   * running `_runPull()` cycle.  Reset to `false` at the start of each new
+   * `_runPull()` invocation.
+   *
+   * Used by `_triggerImmediateOrderItemsPull()` to distinguish two cases when
+   * `_pullInFlight` is set:
+   *  - `false` → `order_items` is still ahead in the cycle; skip the NS9 pull
+   *    (it will be covered by the running `_runPull()`).
+   *  - `true`  → `order_items` was already processed; the current cycle will
+   *    NOT include items from a new `orders:create` event, so the NS9 pull
+   *    should proceed to ensure prompt delivery on the second device.
+   */
+  _pullOrderItemsDone: false,
+  /**
+   * NS9 — Set to `true` when a WS `orders:create` event arrives while
+   * `_orderItemsPullInFlight` is already set (i.e. a pull is in progress).
+   * The in-flight pull's `.finally()` checks this flag and re-triggers
+   * `_triggerImmediateOrderItemsPull()` so that items committed on the server
+   * after the first pull started are not missed until the next 30-second poll.
+   * Cleared by `forcePull()`, `stopSync()`, and `_runPull()` (which covers
+   * `order_items` as part of its full collection cycle).
+   */
+  _orderItemsPullPending: false,
+  /**
    * NS8 — AbortController for the currently running `_runPull()` loop.
    * Replaced with a fresh controller at the start of each pull invocation.
    * Aborted (and set to `null`) by `forcePull()` and `stopSync()` so that the
@@ -109,6 +160,31 @@ export const syncState = {
   /** Tracks the most recently applied global pull generation to detect stale writes. */
   _lastAppliedGlobalPullGeneration: 0,
   /**
+   * Bumped by `_onOffline()`, `stopSync()`, and `_resetDirectusSyncSingleton()`
+   * to mark moments when any in-transit global pull data should be treated as
+   * stale.  Each `_runGlobalPullInner()` invocation captures this value on entry
+   * (`myOfflineGen`).  After the HTTP response arrives but before writing to IDB,
+   * the pull checks whether `_globalPullOfflineGeneration > myOfflineGen`; if so,
+   * the network dropped (or sync was torn down) since this pull started — skip
+   * the IDB write and config-apply even if no post-reconnect pull has completed
+   * yet.  This closes the race where a pre-offline/pre-stopSync response arrives
+   * before the post-reconnect pull finishes, which `_lastAppliedGlobalPullGeneration`
+   * alone cannot catch.
+   */
+  _globalPullOfflineGeneration: 0,
+  /**
+   * Bumped by `reconfigureAndApply()` each time a user-initiated global pull
+   * resets the in-flight semaphore.  Background pulls (`userInitiated = false`)
+   * capture this value on entry as `myReconfigGen`; if it has advanced before
+   * they reach the IDB-write guard, a newer user-initiated pull started after
+   * them and their data should be treated as stale and discarded.
+   * User-initiated pulls (`userInitiated = true`) skip this check entirely —
+   * concurrent `reconfigureAndApply()` calls are governed by the existing
+   * `_lastAppliedGlobalPullGeneration` guard so that a failing newer call does
+   * not block an older call that has valid data.
+   */
+  _globalPullReconfigGeneration: 0,
+  /**
    * NS5 — In-flight promise for `_runGlobalPullInner()`.
    * Prevents concurrent global pulls from hammering the Directus `/items/venues`
    * endpoint when the periodic timer fires while a pull is already in progress.
@@ -127,6 +203,14 @@ export const syncState = {
    * `_stopSubscriptions()` and `_resetDirectusSyncSingleton()`.
    */
   _wsHeartbeatTimer: null,
+  /**
+   * S5 — Monotonically increasing cycle counter for the WS heartbeat watchdog.
+   * Bumped by `_resetWsHeartbeat()` on every call (both real WS events and new
+   * connections).  Callers can compare this value before and after an async
+   * operation to detect whether a new heartbeat cycle started while they were
+   * awaiting — e.g. to avoid acting on results from a superseded cycle.
+   */
+  _wsHeartbeatCycle: 0,
   /** Whether we are currently connected via WebSocket. */
   _wsConnected: ref(false),
 
@@ -190,6 +274,13 @@ export const syncState = {
  * Preserves existing ref identity (does not replace the ref objects themselves,
  * only resets their `.value`) so that any Vue components that have already
  * destructured refs from `useDirectusSync()` continue to receive updates.
+ *
+ * Note: `_globalPullOfflineGeneration` is intentionally NOT reset here.
+ * Its monotonically increasing value must outlive the reset so that any
+ * in-transit global pull from the previous session still sees the bumped
+ * generation and discards its write during the next session.  It is instead
+ * bumped by `_onOffline()`, `stopSync()`, and `_resetDirectusSyncSingleton()`
+ * immediately before this function is called.
  */
 export function resetSyncState() {
   // Lifecycle
@@ -206,12 +297,18 @@ export function resetSyncState() {
   syncState._pullInFlight = null;
   syncState._pullGeneration = 0;
   syncState._tableMergePullInFlight = null;
+  syncState._tableMergeAbortController = null;
+  syncState._orderItemsPullInFlight = null;
+  syncState._orderItemsPullAbortController = null;
+  syncState._orderItemsPullPending = false;
+  syncState._pullOrderItemsDone = false;
   syncState._pullAbortController = null;
 
   // Global pull
   syncState._globalTimer = null;
   syncState._globalPullGeneration = 0;
   syncState._lastAppliedGlobalPullGeneration = 0;
+  syncState._globalPullReconfigGeneration = 0;
   syncState._globalPullInFlight = null;
 
   // WebSocket

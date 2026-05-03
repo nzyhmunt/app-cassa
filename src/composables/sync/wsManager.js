@@ -24,7 +24,7 @@ import { _atomicOrderItemsUpsertAndMerge, _removeOrderItemsFromOrdersIDB } from 
 import { _refreshStoreFromIDB } from './storebridge.js';
 import { COLLECTION_QUIRKS, PULL_CONFIG } from './config.js';
 import { syncState } from './state.js';
-import { _pullCollection, _runPull } from './pullQueue.js';
+import { _pullCollection, _runPull, _triggerImmediateOrderItemsPull } from './pullQueue.js';
 
 /** Active unsubscribe callbacks (local to WS helpers, not shared state). */
 const _unsubscribers = [];
@@ -32,30 +32,75 @@ const _unsubscribers = [];
 /**
  * S5 — Resets (or starts) the WebSocket heartbeat watchdog timer.
  * Called after every incoming WS message and whenever a WS connection is
- * established.  If no message arrives within WS_HEARTBEAT_INTERVAL_MS the
- * connection is treated as silently dead: a REST catch-up pull is triggered
- * and a reconnect is scheduled so the app does not miss updates indefinitely.
+ * established.
+ *
+ * Two-phase behaviour:
+ *   Phase 1 — if no subscription event arrives within WS_HEARTBEAT_INTERVAL_MS,
+ *   the watchdog triggers a one-shot REST catch-up pull and immediately pre-arms
+ *   phase 2 as a safety net.  If the pull returns no new records (`anyMerged:
+ *   false`) the socket is idle and healthy, so phase-2 is cancelled.  If the
+ *   pull hangs indefinitely (stalled TCP / unresponsive server), phase-2 fires
+ *   unconditionally after another full interval and forces a reconnect — the
+ *   `.then()` safety net never blocks recovery.
+ *   Phase 2 — fires when phase-1 found new data (`anyMerged: true`) or when the
+ *   phase-1 pull never resolved; calls `_stopSubscriptions()` + `_reconnectWs()`
+ *   to recover a silent half-open socket.
+ *
+ * Both phases are stored in `_wsHeartbeatTimer`.  Any real WS event calls
+ * `_resetWsHeartbeat()`, which cancels whichever phase is pending and restarts
+ * phase 1 — so active connections are never affected.
+ *
+ * Stale-phase-2 guard: the `.then()` holds the pre-armed `phase2Timer` handle.
+ * Before cancelling it (healthy-idle path), it checks `_wsHeartbeatTimer ===
+ * phase2Timer`.  If `_resetWsHeartbeat()` already cleared and replaced the
+ * timer (a fresh WS event arrived mid-pull), the handle no longer matches and
+ * the stale callback leaves the new phase-1 timer untouched.
+ * `_wsHeartbeatCycle` is still incremented on every `_resetWsHeartbeat()` call
+ * and can be used by callers to detect a new heartbeat cycle.
+ *
+ * Genuine transport failures (iterator throws in processSubscription()) are
+ * caught independently; this watchdog only handles the silent half-open case.
  */
 export function _resetWsHeartbeat() {
   if (syncState._wsHeartbeatTimer) { clearTimeout(syncState._wsHeartbeatTimer); syncState._wsHeartbeatTimer = null; }
+  // Bump the cycle counter unconditionally (even when _running is false) so
+  // that any caller that captured the old cycle can detect the reset.
+  syncState._wsHeartbeatCycle = (syncState._wsHeartbeatCycle ?? 0) + 1;
   if (!syncState._running || appConfig.directus?.wsEnabled !== true) return;
   syncState._wsHeartbeatTimer = setTimeout(() => {
     syncState._wsHeartbeatTimer = null;
     if (!syncState._running || !syncState._wsConnected.value) return;
     console.warn(
-      `[DirectusSync] WS heartbeat: no activity for ${WS_HEARTBEAT_INTERVAL_MS}ms — triggering REST catch-up pull and reconnect.`,
+      `[DirectusSync] WS heartbeat: no activity for ${WS_HEARTBEAT_INTERVAL_MS}ms — triggering REST catch-up pull.`,
     );
-    // Immediately do a REST pull to catch up on any missed messages.
-    _runPull().catch(() => {});
-    // Mark WS as disconnected and schedule a reconnect attempt.
-    syncState._wsConnected.value = false;
-    if (!syncState._reconnectTimer) {
-      syncState._reconnectTimer = setTimeout(() => {
-        syncState._reconnectTimer = null;
-        if (!syncState._running) return;
-        _reconnectWs().catch(() => {});
-      }, 2_000);
-    }
+    // Phase 2: pre-armed immediately so that a hung _runPull() (stalled TCP /
+    // unresponsive server) does not block recovery.  Cancelled below if the
+    // pull resolves cleanly (anyMerged:false — idle healthy socket).
+    const phase2Timer = setTimeout(() => {
+      syncState._wsHeartbeatTimer = null;
+      if (!syncState._running || !syncState._wsConnected.value) return;
+      console.warn(
+        '[DirectusSync] WS heartbeat: socket still silent after REST catch-up — forcing reconnect.',
+      );
+      _stopSubscriptions();
+      _reconnectWs().catch(() => {});
+    }, WS_HEARTBEAT_INTERVAL_MS);
+    syncState._wsHeartbeatTimer = phase2Timer;
+    // Phase 1: REST catch-up pull.  If it resolves with no new data (idle
+    // healthy socket) cancel phase-2.  If it resolves with new data (half-open
+    // socket was dropping events) let phase-2 fire.  If it never resolves,
+    // phase-2 fires unconditionally.
+    // Timer-identity guard: check `_wsHeartbeatTimer === phase2Timer` before
+    // cancelling.  If _resetWsHeartbeat() already fired (e.g. a real WS event
+    // arrived mid-pull), it has already cleared phase2Timer and replaced it
+    // with a fresh phase-1 timer — the handle no longer matches so the stale
+    // callback must not touch the new timer.
+    _runPull().then(r => {
+      if (!r?.anyMerged && syncState._wsHeartbeatTimer === phase2Timer) {
+        clearTimeout(phase2Timer);
+        syncState._wsHeartbeatTimer = null;
+      }
+    }).catch(() => {});
   }, WS_HEARTBEAT_INTERVAL_MS);
 }
 
@@ -110,9 +155,20 @@ export async function _handleSubscriptionMessage(collection, message) {
     if (collection === 'table_merge_sessions') {
       // NS4: Deduplicate concurrent pulls triggered by rapid delete events using
       // a semaphore so only one full-replace is in flight at a time.
+      // An AbortController is passed so that _onOffline() can cancel the in-flight
+      // HTTP request and prevent a stale response from overwriting a fresh
+      // post-reconnect replace via replaceTableMergesInIDB().
+      // Identity-guards in the .finally() prevent a stale settled promise from
+      // overwriting the newer semaphore/controller started after reconnect.
       if (!syncState._tableMergePullInFlight) {
-        syncState._tableMergePullInFlight = _pullCollection('table_merge_sessions', { forceFull: true })
-          .finally(() => { syncState._tableMergePullInFlight = null; });
+        const ac = new AbortController();
+        syncState._tableMergeAbortController = ac;
+        const p = _pullCollection('table_merge_sessions', { forceFull: true, signal: ac.signal })
+          .finally(() => {
+            if (syncState._tableMergePullInFlight === p) syncState._tableMergePullInFlight = null;
+            if (syncState._tableMergeAbortController === ac) syncState._tableMergeAbortController = null;
+          });
+        syncState._tableMergePullInFlight = p;
       }
       await syncState._tableMergePullInFlight;
       return;
@@ -311,6 +367,24 @@ export async function _handleSubscriptionMessage(collection, message) {
       }
     } else {
       await _refreshStoreFromIDB(collection);
+    }
+    // NS9: WS subscriptions use fields:['*'] which does NOT expand nested relations
+    // such as order_items or order_item_modifiers.  When a new order arrives via a
+    // WS create event, its orderItems array is empty in the WS payload — items (and
+    // their modifiers) would only become visible after the next scheduled 30-second
+    // REST poll.  Trigger an immediate order_items pull so items are merged into the
+    // order within seconds of the WS event, eliminating the otherwise unavoidable
+    // one-cycle delay.
+    //
+    // The triggered pull fetches the full incremental order_items delta since the
+    // last checkpoint (all venue items since last_pull_ts), not just the new order's
+    // items, because there is no way to know a priori which item IDs belong to the
+    // newly created order without an additional round-trip.  The
+    // _orderItemsPullPending semaphore inside _triggerImmediateOrderItemsPull()
+    // coalesces concurrent orders:create events into at most two sequential pulls
+    // (one in-flight + one re-run), bounding the extra backend reads for bursts.
+    if (collection === 'orders' && event === 'create') {
+      _triggerImmediateOrderItemsPull();
     }
   }
 

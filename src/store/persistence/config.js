@@ -108,7 +108,8 @@ export async function loadConfigFromIDB(venueId) {
 
 /**
  * Removes all locally cached Directus configuration collections and related
- * global pull cursors (`last_pull_ts:*`) from app_meta.
+ * per-collection pull state (`last_pull_ts:*` and `last_pull_cursor:*`) from
+ * app_meta.
  *
  * Used when the user explicitly requests a full local config reset before
  * forcing a new Directus configuration pull.
@@ -137,7 +138,7 @@ export async function clearLocalConfigCacheFromIDB() {
     const keys = await tx.store.getAllKeys();
     await Promise.all(
       keys
-        .filter(key => typeof key === 'string' && key.startsWith('last_pull_ts:'))
+        .filter(key => typeof key === 'string' && (key.startsWith('last_pull_ts:') || key.startsWith('last_pull_cursor:')))
         .map(key => tx.store.delete(key)),
     );
     await tx.done;
@@ -177,6 +178,59 @@ export async function saveLastPullTsToIDB(collection, ts) {
     await db.put('app_meta', { id: `last_pull_ts:${collection}`, value: ts });
   } catch (e) {
     console.warn('[IDBPersistence] Failed to save last_pull_ts for', collection, e);
+  }
+}
+
+/**
+ * Returns the keyset cursor `{ts, id}` for `collection` stored in app_meta.
+ *
+ * The cursor is used for within-call pagination inside `_pullCollection`
+ * to continue fetching pages after the first.  Each new poll cycle starts
+ * with `pageKeyCursor = null` and always uses the safe `_gte sinceTs` filter
+ * on the first page, so this stored cursor does NOT resume the next incremental
+ * poll.  Note that `ts` may be `null` for records that have neither
+ * `date_updated` nor `date_created` set; callers must check for `null` before
+ * using the value in a keyset filter.
+ *
+ * NOTE: `saveLastPullCursorToIDB` is not called by production code (see its
+ * docstring), so this function typically returns `null` at runtime.  It is
+ * retained for diagnostic / testing purposes.
+ *
+ * Returns `null` when no cursor has been persisted yet (e.g. after a fresh
+ * install or a full reset).
+ *
+ * @param {string} collection
+ * @returns {Promise<{ts: string|null, id: string|number}|null>}
+ */
+export async function loadLastPullCursorFromIDB(collection) {
+  try {
+    const db = await getDB();
+    const record = await db.get('app_meta', `last_pull_cursor:${collection}`);
+    return record?.value ?? null;
+  } catch (e) {
+    console.warn('[IDBPersistence] Failed to load last_pull_cursor for', collection, e);
+    return null;
+  }
+}
+
+/**
+ * Persists the keyset cursor `{ts, id}` for `collection`.
+ *
+ * NOTE: This function is **not called by production code**.  The pull loop
+ * uses the keyset cursor internally for within-call pagination only;
+ * `loadLastPullCursorFromIDB` is never called at runtime, so persisting the
+ * cursor would double checkpoint IDB traffic with no runtime benefit.
+ * This helper is retained for testing purposes only.
+ *
+ * @param {string} collection
+ * @param {{ ts: string|null, id: string|number }} cursor
+ */
+export async function saveLastPullCursorToIDB(collection, cursor) {
+  try {
+    const db = await getDB();
+    await db.put('app_meta', { id: `last_pull_cursor:${collection}`, value: cursor });
+  } catch (e) {
+    console.warn('[IDBPersistence] Failed to save last_pull_cursor for', collection, e);
   }
 }
 

@@ -171,6 +171,50 @@ async function _acquireLeaderLock() {
   });
 }
 
+// ── Pull cancellation helpers ─────────────────────────────────────────────────
+
+/**
+ * Cancels all active pull operations in a single consistent sweep.
+ *
+ * Aborts and nulls every AbortController / semaphore used by the four
+ * concurrent pull types (incremental pull, NS9 order-items, NS4 TMS
+ * full-replace, NS5 global config), then bumps the generation counters that
+ * guard `_runPull` / `_runGlobalPullInner` against stale late-arriving
+ * responses.
+ *
+ * Called by `_onOffline()`, `stopSync()`, and `_resetDirectusSyncSingleton()`
+ * so there is exactly one place to update when a new pull slot is added.
+ */
+function cancelAllPulls() {
+  // NS8: Abort any in-flight _runPull() so the collection loop exits cleanly.
+  syncState._pullAbortController?.abort();
+  syncState._pullAbortController = null;
+  syncState._pullInFlight = null;
+  syncState._pullGeneration++;
+  // NS9: Abort any in-flight WS-triggered order_items pull.  A hanging fetch
+  // would hold _orderItemsPullInFlight indefinitely and block every subsequent
+  // orders:create trigger.  Clearing the pending flag prevents the .finally()
+  // from immediately restarting a pull while the app is offline / stopped.
+  syncState._orderItemsPullAbortController?.abort();
+  syncState._orderItemsPullAbortController = null;
+  syncState._orderItemsPullInFlight = null;
+  syncState._orderItemsPullPending = false;
+  // NS4: Abort any in-flight table_merge_sessions full-replace pull.  The
+  // AbortController causes _pullCollection to discard any HTTP response that
+  // arrives after going offline, preventing a stale snapshot from overwriting
+  // a fresh post-reconnect replace.
+  syncState._tableMergeAbortController?.abort();
+  syncState._tableMergeAbortController = null;
+  syncState._tableMergePullInFlight = null;
+  // NS5: Release the global config dedup semaphore and bump the
+  // offline-generation counter.  _runGlobalPullInner captures this counter on
+  // entry (myOfflineGen); a higher value after HTTP response arrival means the
+  // network dropped or sync was torn down, so the pull skips both the IDB
+  // fan-out write and the config-apply step.
+  syncState._globalPullOfflineGeneration++;
+  syncState._globalPullInFlight = null;
+}
+
 // ── Online/offline listeners ──────────────────────────────────────────────────
 
 function _onOffline() {
@@ -198,6 +242,9 @@ function _onOffline() {
   syncState._pushAbortController = null;
   syncState._pushGeneration++;
   syncState._pushInFlight = null;
+  // Abort all four concurrent pull types in one call; see cancelAllPulls() for
+  // the full rationale behind each abort.
+  cancelAllPulls();
   // If an in-flight push had already set syncState.syncStatus to "syncing", the
   // generation bump above causes that superseded _runPush() to skip its
   // post-await status update.  Reflect the offline state here so the UI
@@ -369,12 +416,9 @@ export function useDirectusSync() {
     syncState._pushAbortController = null;
     syncState._pushGeneration++;
     syncState._pushInFlight = null;
-    // NS8: Abort any in-flight pull so the loop exits cleanly between collections.
-    syncState._pullAbortController?.abort();
-    syncState._pullAbortController = null;
-    // S3: Drop any in-flight pull reference so the next startSync() can start fresh.
-    syncState._pullInFlight = null;
-    syncState._pullGeneration++;
+    // Abort all four concurrent pull types in one call; see cancelAllPulls() for
+    // the full rationale behind each abort and generation-counter increment.
+    cancelAllPulls();
     if (syncState._pushTimer) { clearInterval(syncState._pushTimer); syncState._pushTimer = null; }
     if (syncState._pollTimer) { clearInterval(syncState._pollTimer); syncState._pollTimer = null; }
     if (syncState._globalTimer) { clearInterval(syncState._globalTimer); syncState._globalTimer = null; }
@@ -429,14 +473,25 @@ export function useDirectusSync() {
     // before starting the new user-initiated pull.
     syncState._pullAbortController?.abort();
     syncState._pullAbortController = null;
+    // NS9: Abort any in-flight WS-triggered order_items pull so it cannot write a
+    // stale last_pull_ts after the new forcePull() cycle commits a fresher checkpoint.
+    syncState._orderItemsPullAbortController?.abort();
+    syncState._orderItemsPullAbortController = null;
     // S3: Reset the in-flight semaphore so this user-initiated pull is not
     // silently deduped against a concurrent background pull.
     syncState._pullInFlight = null;
     syncState._pullGeneration++;
+    syncState._orderItemsPullInFlight = null;
+    // NS9: Clear pending flag — forcePull() will cover order_items as part of
+    // its full collection cycle, so no follow-up NS9 pull is needed.
+    syncState._orderItemsPullPending = false;
     syncState.syncStatus.value = 'syncing';
     try {
       const result = await _runPull();
-      if (result?.ok !== false) {
+      if (result?.aborted) {
+        // Pull was cancelled by stopSync() / a superseding forcePull() — whoever
+        // called abort() already updated syncStatus; don't overwrite it here.
+      } else if (result?.ok !== false) {
         syncState.syncStatus.value = 'idle';
       } else if (result?.skippedReason === 'offline') {
         syncState.syncStatus.value = 'offline';
@@ -479,6 +534,11 @@ export function useDirectusSync() {
 
     syncState.syncStatus.value = 'syncing';
     try {
+      // Immediately invalidate any in-flight background global pull so its HTTP
+      // response cannot overwrite this user-initiated pull with a stale
+      // venue/config snapshot — even during the async clearLocalConfig work below.
+      syncState._globalPullReconfigGeneration++;
+
       if (clearLocalConfig) {
         _emitProgress(onProgress, { level: 'info', message: 'Svuotamento completo cache configurazione locale…' });
         await clearLocalConfigCacheFromIDB();
@@ -493,12 +553,18 @@ export function useDirectusSync() {
         _emitProgress(onProgress, { level: 'info', message: 'Cache configurazione locale svuotata.' });
       }
 
-      // Reset the NS5 in-flight semaphore so this user-initiated pull
-      // always starts a fresh fetch with the correct onProgress callback
-      // rather than reusing a background pull that lacks it.
+      // Reset the NS5 in-flight semaphore so this user-initiated pull always
+      // starts a fresh fetch with the correct onProgress callback rather than
+      // reusing a background pull that lacks it (including any pull that may
+      // have started during the clearLocalConfig async work above).
       syncState._globalPullInFlight = null;
-      const result = await _runGlobalPull({ onProgress });
-      syncState.syncStatus.value = result?.ok ? 'idle' : 'error';
+      const result = await _runGlobalPull({ onProgress, userInitiated: true });
+      // Only update syncStatus when we are still in a non-offline state;
+      // if _onOffline() fired while the pull was running it already set
+      // syncStatus to 'offline' and we must not overwrite that with 'idle'.
+      if (syncState.syncStatus.value !== 'offline') {
+        syncState.syncStatus.value = result?.ok ? 'idle' : 'error';
+      }
       return result ?? { ok: false, failedCollections: [] };
     } catch (e) {
       syncState.syncStatus.value = 'error';
@@ -546,8 +612,12 @@ export function useDirectusSync() {
  */
 export function _resetDirectusSyncSingleton() {
   // Abort in-flight async operations before resetting their handles.
+  // Push must be aborted explicitly (cancelAllPulls covers only pull slots).
   syncState._pushAbortController?.abort();
-  syncState._pullAbortController?.abort();
+  // Abort all four concurrent pull types and bump generation counters so any
+  // in-transit response from the previous test discards its IDB write;
+  // resetSyncState() will zero out the handles afterwards.
+  cancelAllPulls();
 
   // Clear all timer handles before resetSyncState() nulls them out.
   if (syncState._pushTimer) { clearInterval(syncState._pushTimer); }

@@ -31,6 +31,8 @@ export {
   clearLocalConfigCacheFromIDB,
   loadLastPullTsFromIDB,
   saveLastPullTsToIDB,
+  loadLastPullCursorFromIDB,
+  saveLastPullCursorToIDB,
   replaceTableMergesInIDB,
   replaceVenueUsersInIDB,
   normalizeVenueUsersForIDB,
