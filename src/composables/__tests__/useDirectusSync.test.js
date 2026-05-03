@@ -4411,12 +4411,10 @@ describe('NP1 — _removeOrderItemsFromOrdersIDB fallback scan affectedOrderIds'
 // yields, so the watchdog fired every 30 s and the user saw a 2-3 s "WS down"
 // window at each polling interval.
 //
-// Current behaviour: the watchdog triggers a REST catch-up pull and re-arms
-// itself on every fire, without ever setting _wsConnected = false.  A real WS
-// event at any point resets the timer.  A miss-count / reconnect-on-Nth-silence
-// approach is deliberately avoided: idle connections always stay silent at the
-// JS level (Directus pings never surface), so any threshold would trigger
-// periodic reconnect churn on healthy idle sessions.
+// Current behaviour: the watchdog triggers a ONE-SHOT REST catch-up pull and
+// does NOT re-arm itself, without ever setting _wsConnected = false.  The timer
+// is only re-armed when a real WS event calls _resetWsHeartbeat().  This
+// prevents healthy idle WS clients from becoming de-facto 30 s polling clients.
 
 describe('S5-FIX — WS heartbeat does not force-disconnect on idle apps', () => {
   it('does not set _wsConnected to false when the watchdog fires', async () => {
@@ -4445,18 +4443,15 @@ describe('S5-FIX — WS heartbeat does not force-disconnect on idle apps', () =>
       // "WS down" window every 30 s on idle apps.
       expect(syncState._wsConnected.value).toBe(true);
 
-      // The watchdog re-arms itself after firing to handle half-open sockets —
-      // the timer must be non-null.
-      expect(syncState._wsHeartbeatTimer).not.toBeNull();
+      // The watchdog is NOT re-armed after firing — a single safety-net pull per
+      // silence period prevents idle WS clients from becoming 30 s polling clients.
+      // The next real WS event calls _resetWsHeartbeat() and restarts the timer.
+      expect(syncState._wsHeartbeatTimer).toBeNull();
 
       // No reconnect timer should have been scheduled.
       expect(syncState._reconnectTimer).toBeNull();
     } finally {
-      // Cleanup: clear the re-armed timer and reset state.
-      if (syncState._wsHeartbeatTimer) {
-        clearTimeout(syncState._wsHeartbeatTimer);
-        syncState._wsHeartbeatTimer = null;
-      }
+      // Cleanup: timer is null after firing (no re-arm); reset state.
       syncState._running = false;
       syncState._wsConnected.value = false;
       vi.useRealTimers();
@@ -5554,6 +5549,89 @@ describe('GP-OFFLINE — _globalPullOfflineGeneration guard prevents stale globa
     // Config-apply (mapVenueConfigFromDirectus inside _hydrateConfigFromLocalCache)
     // must NOT have been called — the stale snapshot must be discarded.
     expect(mapperSpy).not.toHaveBeenCalled();
+
+    sync.stopSync();
+    mapperSpy.mockRestore();
+  });
+});
+
+// ── GP-RECONFIG: reconfigureAndApply() invalidates in-flight background pull ──
+//
+// When reconfigureAndApply() fires, it bumps _globalPullReconfigGeneration so
+// that any background _runGlobalPullInner() already awaiting the network does
+// not overwrite the user-initiated pull with a stale venue snapshot.
+// Scenario: background pull started (myReconfigGen=0), reconfigureAndApply()
+// starts (bumps to 1, new pull is userInitiated=true so skips this check),
+// background HTTP arrives — guard _globalPullReconfigGeneration(1) > myReconfigGen(0)
+// fires, write skipped.
+
+describe('GP-RECONFIG — reconfigureAndApply() invalidates in-flight background global pull', () => {
+  it('GP-RECONFIG: background pull arriving after reconfigureAndApply() is discarded', async () => {
+    const mappers = await import('../../utils/mappers.js');
+    const mapperSpy = vi.spyOn(mappers, 'mapVenueConfigFromDirectus');
+
+    const { syncState } = await import('../sync/state.js');
+    const { _runGlobalPull } = await import('../sync/globalPull.js');
+    const { appConfig } = await import('../../utils/index.js');
+    appConfig.directus = {
+      ...appConfig.directus,
+      enabled: true,
+      venueId: 1,
+      url: 'https://directus.example.com',
+    };
+
+    const venuePayload = {
+      id: 1,
+      name: 'GP-RECONFIG Venue',
+      menu_source: 'directus',
+      rooms: [],
+      tables: [],
+      payment_methods: [],
+      printers: [],
+      venue_users: [],
+      table_merge_sessions: [],
+      menu_categories: [],
+      menu_items: [],
+      primary_color: '#112233',
+    };
+
+    // Deferred fetch for the background pull — lets us interleave reconfigureAndApply().
+    let resolveBackgroundFetch;
+    const backgroundFetch = new Promise((resolve) => { resolveBackgroundFetch = resolve; });
+    let backgroundFetchCalled = false;
+
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      if (String(url).includes('/items/venues/')) {
+        if (!backgroundFetchCalled) {
+          // First venues request comes from the background pull — suspend it.
+          backgroundFetchCalled = true;
+          return backgroundFetch.then(() => directusItemResponse(venuePayload));
+        }
+        // Second venues request (from reconfigureAndApply new pull) resolves immediately.
+        return Promise.resolve(directusItemResponse(venuePayload));
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const sync = useDirectusSync();
+
+    // Start the background pull — suspended at the venue deep fetch.
+    const bgPullPromise = _runGlobalPull();
+    await flushPromises(5);
+
+    // reconfigureAndApply() must bump _globalPullOfflineGeneration before
+    // starting its own pull so the background pull's HTTP response is discarded.
+    const rcaPromise = sync.reconfigureAndApply();
+
+    // Let reconfigureAndApply's new pull complete first.
+    resolveBackgroundFetch(); // also unblocks background, but guard should reject it
+    await flushPromises(LONG_FLUSH_ROUNDS);
+
+    await Promise.allSettled([bgPullPromise, rcaPromise]);
+
+    // mapVenueConfigFromDirectus must have been called exactly once:
+    // from the reconfigureAndApply pull, NOT from the background pull.
+    expect(mapperSpy).toHaveBeenCalledTimes(1);
 
     sync.stopSync();
     mapperSpy.mockRestore();

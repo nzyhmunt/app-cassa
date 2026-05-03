@@ -59,11 +59,12 @@ export function _resetWsHeartbeat() {
     );
     // Immediately do a REST pull to catch up on any messages potentially
     // missed while the connection was silent.
+    // The watchdog is NOT re-armed here: a single safety-net pull per silence
+    // period is sufficient.  Unconditionally re-arming would turn every idle WS
+    // client into a 30 s polling client, defeating the push-based WS model.
+    // The next real WS event calls _resetWsHeartbeat() and re-starts the timer
+    // for the subsequent idle window.
     _runPull().catch(() => {});
-    // Re-arm the watchdog so further silence continues to trigger REST pulls.
-    // On a healthy connection, the next real WS event will reset the timer
-    // before this fires again.
-    _resetWsHeartbeat();
   }, WS_HEARTBEAT_INTERVAL_MS);
 }
 

@@ -396,7 +396,7 @@ export async function _hydrateConfigFromLocalCache(venueId, onProgress = null) {
  *
  * @param {{ onProgress?: Function|null }} [options]
  */
-export async function _runGlobalPullInner({ onProgress = null } = {}) {
+export async function _runGlobalPullInner({ onProgress = null, userInitiated = false } = {}) {
   if (!navigator.onLine) return;
   const cfg = _getCfg();
   if (!cfg) return;
@@ -411,6 +411,12 @@ export async function _runGlobalPullInner({ onProgress = null } = {}) {
   // if it is higher than what we captured here when we reach the IDB-write guard,
   // this pull was issued before a network drop and any data in transit is stale.
   const myOfflineGen = syncState._globalPullOfflineGeneration;
+  // For background pulls only: capture the reconfig generation so we can detect
+  // whether reconfigureAndApply() started a user-initiated pull after this
+  // background pull began.  User-initiated pulls skip this check — concurrent
+  // reconfigureAndApply() calls are governed by _lastAppliedGlobalPullGeneration
+  // so that a failing newer call does not block an older call with valid data.
+  const myReconfigGen = userInitiated ? null : syncState._globalPullReconfigGeneration;
 
   try {
     _emitProgress(onProgress, { level: 'info', message: 'Avvio pull globale configurazione Directus…' });
@@ -461,25 +467,33 @@ export async function _runGlobalPullInner({ onProgress = null } = {}) {
     }
     deepVenue = await _hydrateVenueTablesFromRoomRefs(client, deepVenue, venueId);
 
-    // Skip IDB write and config apply if either:
+    // Skip IDB write and config apply if any of:
     //  (a) the network dropped since this pull started (_globalPullOfflineGeneration
     //      was bumped by _onOffline() after we captured myOfflineGen) — the data
     //      we fetched is stale relative to whatever a post-reconnect pull will bring;
     //  (b) a newer pull has already successfully applied config
-    //      (_lastAppliedGlobalPullGeneration > myGeneration).
-    // Checking (a) here (after network fetch, before IDB write) closes the race
-    // where a pre-offline response arrives while the post-reconnect pull is still
-    // in flight — _lastAppliedGlobalPullGeneration alone cannot catch that case
-    // because the new pull has not completed yet.
+    //      (_lastAppliedGlobalPullGeneration > myGeneration);
+    //  (c) for background pulls only: reconfigureAndApply() started a fresh
+    //      user-initiated pull after this pull began (_globalPullReconfigGeneration
+    //      was bumped after myReconfigGen was captured) — the user explicitly
+    //      requested fresh data and we must not let a background response race
+    //      ahead and apply stale config before the user-initiated pull completes.
+    // Checking (a) and (c) here (after network fetch, before IDB write) closes the
+    // race where a pre-offline or pre-reconfigureAndApply response arrives while
+    // the newer pull is still in flight — _lastAppliedGlobalPullGeneration alone
+    // cannot catch either case because the newer pull has not completed yet.
     if (
       syncState._globalPullOfflineGeneration > myOfflineGen ||
-      syncState._lastAppliedGlobalPullGeneration > myGeneration
+      syncState._lastAppliedGlobalPullGeneration > myGeneration ||
+      (myReconfigGen !== null && syncState._globalPullReconfigGeneration > myReconfigGen)
     ) {
       console.debug(
         '[DirectusSync] Global pull skipping IDB write and config apply —',
         syncState._globalPullOfflineGeneration > myOfflineGen
           ? 'network dropped during fetch (stale data discarded)'
-          : 'superseded by a newer pull that already applied config',
+          : (myReconfigGen !== null && syncState._globalPullReconfigGeneration > myReconfigGen)
+            ? 'superseded by a newer user-initiated reconfigureAndApply pull'
+            : 'superseded by a newer pull that already applied config',
       );
       return { ok: true, failedCollections: [] };
     }
@@ -554,12 +568,12 @@ export async function _runGlobalPullInner({ onProgress = null } = {}) {
  *
  * @param {{ onProgress?: Function|null }} [options]
  */
-export function _runGlobalPull({ onProgress = null } = {}) {
+export function _runGlobalPull({ onProgress = null, userInitiated = false } = {}) {
   if (!syncState._globalPullInFlight) {
     // Identity-guard the .finally() so that if _onOffline() / forcePull() nulls
     // the semaphore and a new pull starts, the stale promise's .finally() does
     // not overwrite the newer semaphore reference when it eventually settles.
-    const p = _runGlobalPullInner({ onProgress })
+    const p = _runGlobalPullInner({ onProgress, userInitiated })
       .finally(() => { if (syncState._globalPullInFlight === p) syncState._globalPullInFlight = null; });
     syncState._globalPullInFlight = p;
   }

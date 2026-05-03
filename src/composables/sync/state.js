@@ -165,13 +165,25 @@ export const syncState = {
    * stale.  Each `_runGlobalPullInner()` invocation captures this value on entry
    * (`myOfflineGen`).  After the HTTP response arrives but before writing to IDB,
    * the pull checks whether `_globalPullOfflineGeneration > myOfflineGen`; if so,
-   * the network dropped (or sync was torn down) since this pull started — skip the
-   * IDB write and config-apply even if no post-reconnect pull has completed yet.
-   * This closes the race where a pre-offline/pre-stopSync response arrives before
-   * the post-reconnect pull finishes, which `_lastAppliedGlobalPullGeneration`
+   * the network dropped (or sync was torn down) since this pull started — skip
+   * the IDB write and config-apply even if no post-reconnect pull has completed
+   * yet.  This closes the race where a pre-offline/pre-stopSync response arrives
+   * before the post-reconnect pull finishes, which `_lastAppliedGlobalPullGeneration`
    * alone cannot catch.
    */
   _globalPullOfflineGeneration: 0,
+  /**
+   * Bumped by `reconfigureAndApply()` each time a user-initiated global pull
+   * resets the in-flight semaphore.  Background pulls (`userInitiated = false`)
+   * capture this value on entry as `myReconfigGen`; if it has advanced before
+   * they reach the IDB-write guard, a newer user-initiated pull started after
+   * them and their data should be treated as stale and discarded.
+   * User-initiated pulls (`userInitiated = true`) skip this check entirely —
+   * concurrent `reconfigureAndApply()` calls are governed by the existing
+   * `_lastAppliedGlobalPullGeneration` guard so that a failing newer call does
+   * not block an older call that has valid data.
+   */
+  _globalPullReconfigGeneration: 0,
   /**
    * NS5 — In-flight promise for `_runGlobalPullInner()`.
    * Prevents concurrent global pulls from hammering the Directus `/items/venues`
@@ -281,6 +293,7 @@ export function resetSyncState() {
   syncState._globalTimer = null;
   syncState._globalPullGeneration = 0;
   syncState._lastAppliedGlobalPullGeneration = 0;
+  syncState._globalPullReconfigGeneration = 0;
   syncState._globalPullInFlight = null;
 
   // WebSocket
