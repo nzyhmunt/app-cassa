@@ -475,7 +475,12 @@ export async function _runGlobalPullInner({ onProgress = null } = {}) {
       syncState._globalPullOfflineGeneration > myOfflineGen ||
       syncState._lastAppliedGlobalPullGeneration > myGeneration
     ) {
-      console.debug('[DirectusSync] Global pull superseded by a newer pull — skipping IDB write and config apply.');
+      console.debug(
+        '[DirectusSync] Global pull skipping IDB write and config apply —',
+        syncState._globalPullOfflineGeneration > myOfflineGen
+          ? 'network dropped during fetch (stale data discarded)'
+          : 'superseded by a newer pull that already applied config',
+      );
       return { ok: true, failedCollections: [] };
     }
 
