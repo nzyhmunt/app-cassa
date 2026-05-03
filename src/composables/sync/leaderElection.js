@@ -171,6 +171,50 @@ async function _acquireLeaderLock() {
   });
 }
 
+// ── Pull cancellation helpers ─────────────────────────────────────────────────
+
+/**
+ * Cancels all active pull operations in a single consistent sweep.
+ *
+ * Aborts and nulls every AbortController / semaphore used by the four
+ * concurrent pull types (incremental pull, NS9 order-items, NS4 TMS
+ * full-replace, NS5 global config), then bumps the generation counters that
+ * guard `_runPull` / `_runGlobalPullInner` against stale late-arriving
+ * responses.
+ *
+ * Called by `_onOffline()`, `stopSync()`, and `_resetDirectusSyncSingleton()`
+ * so there is exactly one place to update when a new pull slot is added.
+ */
+function cancelAllPulls() {
+  // NS8: Abort any in-flight _runPull() so the collection loop exits cleanly.
+  syncState._pullAbortController?.abort();
+  syncState._pullAbortController = null;
+  syncState._pullInFlight = null;
+  syncState._pullGeneration++;
+  // NS9: Abort any in-flight WS-triggered order_items pull.  A hanging fetch
+  // would hold _orderItemsPullInFlight indefinitely and block every subsequent
+  // orders:create trigger.  Clearing the pending flag prevents the .finally()
+  // from immediately restarting a pull while the app is offline / stopped.
+  syncState._orderItemsPullAbortController?.abort();
+  syncState._orderItemsPullAbortController = null;
+  syncState._orderItemsPullInFlight = null;
+  syncState._orderItemsPullPending = false;
+  // NS4: Abort any in-flight table_merge_sessions full-replace pull.  The
+  // AbortController causes _pullCollection to discard any HTTP response that
+  // arrives after going offline, preventing a stale snapshot from overwriting
+  // a fresh post-reconnect replace.
+  syncState._tableMergeAbortController?.abort();
+  syncState._tableMergeAbortController = null;
+  syncState._tableMergePullInFlight = null;
+  // NS5: Release the global config dedup semaphore and bump the
+  // offline-generation counter.  _runGlobalPullInner captures this counter on
+  // entry (myOfflineGen); a higher value after HTTP response arrival means the
+  // network dropped or sync was torn down, so the pull skips both the IDB
+  // fan-out write and the config-apply step.
+  syncState._globalPullOfflineGeneration++;
+  syncState._globalPullInFlight = null;
+}
+
 // ── Online/offline listeners ──────────────────────────────────────────────────
 
 function _onOffline() {
@@ -198,43 +242,9 @@ function _onOffline() {
   syncState._pushAbortController = null;
   syncState._pushGeneration++;
   syncState._pushInFlight = null;
-  // Abort any in-flight WS-triggered order_items pull for the same reason: a
-  // hanging fetch across an offline event would hold _orderItemsPullInFlight
-  // indefinitely, causing every subsequent orders:create trigger to only set
-  // _orderItemsPullPending without ever draining the fast-path again.
-  syncState._orderItemsPullAbortController?.abort();
-  syncState._orderItemsPullAbortController = null;
-  syncState._orderItemsPullInFlight = null;
-  // Clear the pending flag so the aborted pull's .finally() does not immediately
-  // restart a new order_items pull while the app is offline.
-  syncState._orderItemsPullPending = false;
-  // Abort any in-flight _runPull() for the same reason: a fetch hanging on TCP
-  // timeout holds the pull semaphore indefinitely so _onOnline() would find a
-  // stuck promise instead of starting a fresh recovery pull.
-  syncState._pullAbortController?.abort();
-  syncState._pullAbortController = null;
-  syncState._pullInFlight = null;
-  syncState._pullGeneration++;
-  // Abort the WS-triggered table_merge_sessions pull (if any) and release the
-  // semaphore.  Aborting via the AbortController causes _pullCollection to
-  // discard any HTTP response that arrives after going offline, preventing a
-  // stale snapshot from overwriting a fresh post-reconnect replace.
-  // Identity-guarded .finally() in wsManager.js prevents a settled old promise
-  // from nulling a newer semaphore started after reconnect.
-  syncState._tableMergeAbortController?.abort();
-  syncState._tableMergeAbortController = null;
-  syncState._tableMergePullInFlight = null;
-  // Release the global config (venue settings) dedup semaphore and bump the
-  // offline-generation counter.  _runGlobalPullInner captures this counter on
-  // entry (myOfflineGen); after the HTTP response arrives it checks
-  // _globalPullOfflineGeneration > myOfflineGen — if that is true it means the
-  // network dropped since this pull started, so the pull skips both the IDB
-  // fan-out write and the config-apply step, even if no post-reconnect pull has
-  // completed yet.  This is narrower than bumping _globalPullGeneration (which
-  // would also suppress older concurrent pulls that are still valid when the
-  // newer pull fails).
-  syncState._globalPullOfflineGeneration++;
-  syncState._globalPullInFlight = null;
+  // Abort all four concurrent pull types in one call; see cancelAllPulls() for
+  // the full rationale behind each abort.
+  cancelAllPulls();
   // If an in-flight push had already set syncState.syncStatus to "syncing", the
   // generation bump above causes that superseded _runPush() to skip its
   // post-await status update.  Reflect the offline state here so the UI
@@ -406,30 +416,9 @@ export function useDirectusSync() {
     syncState._pushAbortController = null;
     syncState._pushGeneration++;
     syncState._pushInFlight = null;
-    // NS8: Abort any in-flight pull so the loop exits cleanly between collections.
-    syncState._pullAbortController?.abort();
-    syncState._pullAbortController = null;
-    // NS9: Abort any in-flight WS-triggered order_items pull so it cannot finish
-    // after the next pull cycle and roll last_pull_ts backwards.
-    syncState._orderItemsPullAbortController?.abort();
-    syncState._orderItemsPullAbortController = null;
-    // S3: Drop any in-flight pull reference so the next startSync() can start fresh.
-    syncState._pullInFlight = null;
-    syncState._pullGeneration++;
-    syncState._orderItemsPullInFlight = null;
-    // NS9: Clear pending flag so no stale re-trigger fires after stopSync().
-    syncState._orderItemsPullPending = false;
-    // NS4: Abort the WS-triggered table_merge_sessions pull (if any) so it cannot
-    // overwrite a fresh post-reconnect replace after the next startSync().
-    syncState._tableMergeAbortController?.abort();
-    syncState._tableMergeAbortController = null;
-    syncState._tableMergePullInFlight = null;
-    // NS5: Release the global config dedup semaphore and bump the offline-generation
-    // counter so any in-transit response from the pre-stopSync pull discards its
-    // IDB write and config-apply step rather than applying stale venue/config data
-    // after the next startSync().
-    syncState._globalPullOfflineGeneration++;
-    syncState._globalPullInFlight = null;
+    // Abort all four concurrent pull types in one call; see cancelAllPulls() for
+    // the full rationale behind each abort and generation-counter increment.
+    cancelAllPulls();
     if (syncState._pushTimer) { clearInterval(syncState._pushTimer); syncState._pushTimer = null; }
     if (syncState._pollTimer) { clearInterval(syncState._pollTimer); syncState._pollTimer = null; }
     if (syncState._globalTimer) { clearInterval(syncState._globalTimer); syncState._globalTimer = null; }
@@ -623,19 +612,12 @@ export function useDirectusSync() {
  */
 export function _resetDirectusSyncSingleton() {
   // Abort in-flight async operations before resetting their handles.
+  // Push must be aborted explicitly (cancelAllPulls covers only pull slots).
   syncState._pushAbortController?.abort();
-  syncState._pullAbortController?.abort();
-  syncState._orderItemsPullAbortController?.abort();
-  // NS4: Abort any in-flight table_merge_sessions full-replace pull so that a
-  // hanging request from the previous test cannot write to IDB after resetSyncState()
-  // and corrupt the next test's state.
-  syncState._tableMergeAbortController?.abort();
-  // NS5: Bump the offline-generation counter so any in-transit global pull from
-  // the previous test sees _globalPullOfflineGeneration > myOfflineGen and skips
-  // its IDB write / config-apply step.  resetSyncState() does NOT reset this
-  // counter (it is monotonically increasing), so the increment persists and new
-  // test-run global pulls capture the updated baseline.
-  syncState._globalPullOfflineGeneration++;
+  // Abort all four concurrent pull types and bump generation counters so any
+  // in-transit response from the previous test discards its IDB write;
+  // resetSyncState() will zero out the handles afterwards.
+  cancelAllPulls();
 
   // Clear all timer handles before resetSyncState() nulls them out.
   if (syncState._pushTimer) { clearInterval(syncState._pushTimer); }
