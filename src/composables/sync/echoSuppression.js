@@ -38,12 +38,14 @@ export const ECHO_SUPPRESS_RTT_MULTIPLIER = 3;
  * S5 — Heartbeat watchdog interval (ms).
  * Used as both the phase-1 and phase-2 silence window in _resetWsHeartbeat():
  *   Phase 1 — if no WS event arrives within this duration, trigger a one-shot
- *   REST catch-up pull.  Phase 2 is armed only if the pull found new records
- *   (anyMerged: true), indicating the socket was missing events.  An empty pull
- *   means the socket is idle and healthy — no reconnect is scheduled, preventing
- *   spurious disconnects on quiet but healthy subscriptions.
- *   Phase 2 — if phase-1 found new data and silence continues for another full
- *   interval, force _stopSubscriptions() + _reconnectWs() to recover from
+ *   REST catch-up pull and immediately pre-arm phase 2 as a safety net.
+ *   If the pull found no new records (anyMerged: false), the socket is idle and
+ *   healthy — phase 2 is cancelled, preventing spurious disconnects on quiet
+ *   but healthy subscriptions.  If the pull hangs indefinitely (stalled TCP /
+ *   unresponsive server), phase 2 fires unconditionally — it is never blocked
+ *   by a pull that never resolves.
+ *   Phase 2 — fires when phase-1 found new data or when the phase-1 pull
+ *   never resolved; calls _stopSubscriptions() + _reconnectWs() to recover
  *   half-open sockets that are silent without throwing.
  * Any real WS event cancels whichever phase is pending via _resetWsHeartbeat(),
  * so active connections are never affected by the reconnect path.

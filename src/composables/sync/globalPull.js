@@ -407,6 +407,13 @@ export async function _hydrateConfigFromLocalCache(venueId, onProgress = null, s
   const preservedPwaLogo = appConfig.pwaLogo;
   const preservedMenuSource = appConfig.menuSource === 'json' ? 'json' : 'directus';
   const preservedMenuUrl = appConfig.menuUrl;
+  // Final guard immediately before the appConfig mutation.  The preparatory
+  // steps above (mapVenueConfigFromDirectus, createRuntimeConfig) are all
+  // synchronous, so shouldAbort() returns the same value here as it did after
+  // loadConfigFromIDB().  However, this check ensures the guard is placed
+  // at the correct semantic boundary: we must not mutate appConfig once we
+  // know the pull has been invalidated.
+  if (shouldAbort?.()) return false;
   _applyDirectusRuntimeConfigToAppConfig(runtimeConfig, {
     preservedDirectus,
     preservedInstanceName,
@@ -414,12 +421,6 @@ export async function _hydrateConfigFromLocalCache(venueId, onProgress = null, s
     preserveMenuSource: preservedMenuSource === 'json',
     preservedMenuUrl,
   });
-  // Re-check invalidation before each subsequent async step.  Even though
-  // _applyDirectusRuntimeConfigToAppConfig() is synchronous (so this check
-  // cannot fire between the check above and the mutation), it covers the case
-  // where invalidation is detected synchronously in shouldAbort() after a
-  // concurrent signal fires during the sync apply block.
-  if (shouldAbort?.()) return false;
   await _refreshStoreConfigFromIDB({
     menuSource: appConfig.menuSource,
     menuUrl: appConfig.menuUrl,

@@ -36,66 +36,70 @@ const _unsubscribers = [];
  *
  * Two-phase behaviour:
  *   Phase 1 — if no subscription event arrives within WS_HEARTBEAT_INTERVAL_MS,
- *   the watchdog triggers a one-shot REST catch-up pull.  Phase 2 is only armed
- *   if that pull returns new records (`anyMerged: true`): if the pull is empty
- *   the socket is idle and healthy, so no reconnect is scheduled.
- *   Phase 2 — if phase-1 found new data and silence continues for another full
- *   interval with no WS events, the socket is likely half-open (not throwing,
- *   but not delivering events); `_stopSubscriptions()` + `_reconnectWs()` force
- *   a clean reconnect.
+ *   the watchdog triggers a one-shot REST catch-up pull and immediately pre-arms
+ *   phase 2 as a safety net.  If the pull returns no new records (`anyMerged:
+ *   false`) the socket is idle and healthy, so phase-2 is cancelled.  If the
+ *   pull hangs indefinitely (stalled TCP / unresponsive server), phase-2 fires
+ *   unconditionally after another full interval and forces a reconnect — the
+ *   `.then()` safety net never blocks recovery.
+ *   Phase 2 — fires when phase-1 found new data (`anyMerged: true`) or when the
+ *   phase-1 pull never resolved; calls `_stopSubscriptions()` + `_reconnectWs()`
+ *   to recover a silent half-open socket.
  *
  * Both phases are stored in `_wsHeartbeatTimer`.  Any real WS event calls
  * `_resetWsHeartbeat()`, which cancels whichever phase is pending and restarts
  * phase 1 — so active connections are never affected.
  *
- * Stale-cycle guard: `_wsHeartbeatCycle` is incremented on every call.  The
- * phase-1 setTimeout captures `myCycle`; the resulting `.then()` callback
- * compares `_wsHeartbeatCycle !== myCycle` and aborts before arming phase-2
- * when the counter has moved on.  This prevents a stale `.then()` that
- * resolves after a newer `_resetWsHeartbeat()` call from overwriting the
- * fresh phase-1 timer with a spurious phase-2 reconnect.
+ * Stale-phase-2 guard: the `.then()` holds the pre-armed `phase2Timer` handle.
+ * Before cancelling it (healthy-idle path), it checks `_wsHeartbeatTimer ===
+ * phase2Timer`.  If `_resetWsHeartbeat()` already cleared and replaced the
+ * timer (a fresh WS event arrived mid-pull), the handle no longer matches and
+ * the stale callback leaves the new phase-1 timer untouched.
+ * `_wsHeartbeatCycle` is still incremented on every `_resetWsHeartbeat()` call
+ * and can be used by callers to detect a new heartbeat cycle.
  *
  * Genuine transport failures (iterator throws in processSubscription()) are
  * caught independently; this watchdog only handles the silent half-open case.
  */
 export function _resetWsHeartbeat() {
   if (syncState._wsHeartbeatTimer) { clearTimeout(syncState._wsHeartbeatTimer); syncState._wsHeartbeatTimer = null; }
-  // Bump the cycle counter so that a stale phase-1 .then() callback (still
-  // in flight when a fresh WS event fires) sees a different cycle and skips
-  // arming phase 2.  Must be bumped unconditionally (even when _running is
-  // false) so that any already-queued .then() is always invalidated.
+  // Bump the cycle counter unconditionally (even when _running is false) so
+  // that any caller that captured the old cycle can detect the reset.
   syncState._wsHeartbeatCycle = (syncState._wsHeartbeatCycle ?? 0) + 1;
   if (!syncState._running || appConfig.directus?.wsEnabled !== true) return;
-  const myCycle = syncState._wsHeartbeatCycle;
   syncState._wsHeartbeatTimer = setTimeout(() => {
     syncState._wsHeartbeatTimer = null;
     if (!syncState._running || !syncState._wsConnected.value) return;
     console.warn(
       `[DirectusSync] WS heartbeat: no activity for ${WS_HEARTBEAT_INTERVAL_MS}ms — triggering REST catch-up pull.`,
     );
-    // Phase 1: one REST catch-up pull.  Phase 2 is armed only when the pull
-    // returns anyMerged:true — that is evidence the socket was missing events
-    // (half-open).  An empty pull means the socket is idle and healthy, so
-    // arming a reconnect would only cause spurious disconnects.
+    // Phase 2: pre-armed immediately so that a hung _runPull() (stalled TCP /
+    // unresponsive server) does not block recovery.  Cancelled below if the
+    // pull resolves cleanly (anyMerged:false — idle healthy socket).
+    const phase2Timer = setTimeout(() => {
+      syncState._wsHeartbeatTimer = null;
+      if (!syncState._running || !syncState._wsConnected.value) return;
+      console.warn(
+        '[DirectusSync] WS heartbeat: socket still silent after REST catch-up — forcing reconnect.',
+      );
+      _stopSubscriptions();
+      _reconnectWs().catch(() => {});
+    }, WS_HEARTBEAT_INTERVAL_MS);
+    syncState._wsHeartbeatTimer = phase2Timer;
+    // Phase 1: REST catch-up pull.  If it resolves with no new data (idle
+    // healthy socket) cancel phase-2.  If it resolves with new data (half-open
+    // socket was dropping events) let phase-2 fire.  If it never resolves,
+    // phase-2 fires unconditionally.
+    // Timer-identity guard: check `_wsHeartbeatTimer === phase2Timer` before
+    // cancelling.  If _resetWsHeartbeat() already fired (e.g. a real WS event
+    // arrived mid-pull), it has already cleared phase2Timer and replaced it
+    // with a fresh phase-1 timer — the handle no longer matches so the stale
+    // callback must not touch the new timer.
     _runPull().then(r => {
-      if (!r?.anyMerged) return;
-      // Stale-cycle guard: if _resetWsHeartbeat() was called again while
-      // _runPull() was in flight (e.g. a real WS event arrived), myCycle no
-      // longer matches the current cycle and we must not arm phase 2.
-      // Doing so would overwrite the fresh phase-1 timer that the new call
-      // already set, causing a spurious force-reconnect on a healthy socket.
-      if (syncState._wsHeartbeatCycle !== myCycle) return;
-      // Phase 2: socket was missing events.  If still silent after another
-      // full interval, force a reconnect so future updates are not dropped.
-      syncState._wsHeartbeatTimer = setTimeout(() => {
+      if (!r?.anyMerged && syncState._wsHeartbeatTimer === phase2Timer) {
+        clearTimeout(phase2Timer);
         syncState._wsHeartbeatTimer = null;
-        if (!syncState._running || !syncState._wsConnected.value) return;
-        console.warn(
-          '[DirectusSync] WS heartbeat: socket still silent after REST catch-up — forcing reconnect.',
-        );
-        _stopSubscriptions();
-        _reconnectWs().catch(() => {});
-      }, WS_HEARTBEAT_INTERVAL_MS);
+      }
     }).catch(() => {});
   }, WS_HEARTBEAT_INTERVAL_MS);
 }
