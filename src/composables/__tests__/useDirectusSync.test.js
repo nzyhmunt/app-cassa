@@ -4412,11 +4412,16 @@ describe('NP1 — _removeOrderItemsFromOrdersIDB fallback scan affectedOrderIds'
 // window at each polling interval.
 //
 // Two-phase behaviour after the fix:
-//   Phase 1 (30 s silence): one-shot REST catch-up pull; arms a second timer.
-//   Phase 2 (another 30 s silence): forces _stopSubscriptions() + reconnect
-//     to handle half-open sockets that are silent without throwing.
+//   Phase 1 (30 s silence): one-shot REST catch-up pull.
+//     Phase 2 is armed only if the pull returned new records (anyMerged:true),
+//     indicating the socket was missing events.  An empty pull means the socket
+//     is idle and healthy — no reconnect is scheduled so idle apps are never
+//     spuriously disconnected.
+//   Phase 2 (another 30 s silence, armed only after a non-empty phase-1 pull):
+//     forces _stopSubscriptions() + reconnect to handle half-open sockets.
 // Active connections always cancel whichever phase is pending via
 // _resetWsHeartbeat(), so they are never affected.
+
 
 describe('S5-FIX — WS heartbeat does not force-disconnect on idle apps', () => {
   it('does not set _wsConnected to false when the phase-1 watchdog fires', async () => {
@@ -4445,14 +4450,14 @@ describe('S5-FIX — WS heartbeat does not force-disconnect on idle apps', () =>
       // "WS down" window every 30 s on idle apps.
       expect(syncState._wsConnected.value).toBe(true);
 
-      // After phase-1 fires, the phase-2 reconnect timer is now armed.
-      // The next real WS event cancels it via _resetWsHeartbeat().
-      expect(syncState._wsHeartbeatTimer).not.toBeNull();
+      // Phase-1 pull returns no new data (fetch mock returns empty list) → the
+      // socket is idle and healthy → phase-2 timer is NOT armed.
+      // This is the primary guard against spurious reconnects on quiet sockets.
+      expect(syncState._wsHeartbeatTimer).toBeNull();
 
-      // No reconnect timer should have been scheduled yet.
+      // No reconnect timer should have been scheduled.
       expect(syncState._reconnectTimer).toBeNull();
     } finally {
-      // Cleanup: cancel the pending phase-2 timer.
       if (syncState._wsHeartbeatTimer) { clearTimeout(syncState._wsHeartbeatTimer); syncState._wsHeartbeatTimer = null; }
       syncState._running = false;
       syncState._wsConnected.value = false;
@@ -4466,7 +4471,13 @@ describe('S5-FIX — WS heartbeat does not force-disconnect on idle apps', () =>
     const { WS_HEARTBEAT_INTERVAL_MS } = await import('../sync/echoSuppression.js');
     const { appConfig } = await import('../../utils/index.js');
 
-    vi.spyOn(global, 'fetch').mockImplementation(() => Promise.resolve(directusListResponse([])));
+    // Simulate a half-open socket: phase-1 REST pull finds new data (anyMerged:true)
+    // meaning the socket was silently dropping server events.  Phase 2 must then
+    // fire and reconnect.  We spy on _runPull so it resolves immediately with
+    // anyMerged:true instead of going through IDB (which uses setImmediate and
+    // would not settle within flushPromises under fake timers).
+    const pullMod = await import('../sync/pullQueue.js');
+    vi.spyOn(pullMod, '_runPull').mockResolvedValue({ ok: true, anyMerged: true });
 
     appConfig.directus = { ...appConfig.directus, wsEnabled: true };
     syncState._running = true;
@@ -4476,8 +4487,14 @@ describe('S5-FIX — WS heartbeat does not force-disconnect on idle apps', () =>
     try {
       _resetWsHeartbeat();
 
-      // Both silence intervals elapse without any WS events.
-      await vi.advanceTimersByTimeAsync(WS_HEARTBEAT_INTERVAL_MS * 2 + 100);
+      // Phase-1 fires, pull returns anyMerged:true → phase-2 timer is armed.
+      await vi.advanceTimersByTimeAsync(WS_HEARTBEAT_INTERVAL_MS + 50);
+      await flushPromises(LONG_FLUSH_ROUNDS);
+      // Phase-2 timer must now be armed (pull found new data).
+      expect(syncState._wsHeartbeatTimer).not.toBeNull();
+
+      // Phase-2 fires with continued silence.
+      await vi.advanceTimersByTimeAsync(WS_HEARTBEAT_INTERVAL_MS + 50);
       await flushPromises(LONG_FLUSH_ROUNDS);
 
       // Phase-2 must have called _stopSubscriptions(), which sets _wsConnected=false.
@@ -4513,15 +4530,16 @@ describe('S5-FIX — WS heartbeat does not force-disconnect on idle apps', () =>
       const firstTimer = syncState._wsHeartbeatTimer;
       expect(firstTimer).not.toBeNull();
 
-      // Phase-1 fires: REST pull + phase-2 timer is armed.
+      // Phase-1 fires: REST pull triggered; with an empty fetch mock (anyMerged=false)
+      // phase-2 is NOT armed, so _wsHeartbeatTimer is null after phase-1.
       await vi.advanceTimersByTimeAsync(WS_HEARTBEAT_INTERVAL_MS + 50);
       await flushPromises(LONG_FLUSH_ROUNDS);
 
-      // A real WS event arrives — cancels the phase-2 timer and starts fresh.
+      // A real WS event arrives — re-arms a fresh phase-1 timer.
       _resetWsHeartbeat(); // called by _handleSubscriptionMessage on every WS event
       const secondTimer = syncState._wsHeartbeatTimer;
 
-      // Timer must have been replaced (phase-2 cleared, a fresh phase-1 started).
+      // The fresh phase-1 timer must be non-null and different from the first.
       expect(secondTimer).not.toBeNull();
       expect(secondTimer).not.toBe(firstTimer);
     } finally {
@@ -4539,16 +4557,17 @@ describe('S5-FIX — WS heartbeat does not force-disconnect on idle apps', () =>
 // ── S5-FIX-phase2 — Explicit behavioral assertions for the heartbeat ──────────
 //
 // Complements the S5-FIX suite with explicit verification of what each phase
-// actually does, using a fetch spy to confirm the REST pull fires in phase 1
-// and observable state to confirm the reconnect fires in phase 2.
+// actually does, using a _runPull spy (anyMerged:true) to confirm phase-2 is
+// armed when the socket was missing events, and observable state to confirm
+// the reconnect fires in phase 2.
 //
 // Three scenarios:
-//  A) 2× silence → reconnect must have fired (wsConnected = false, fetch called)
-//  B) 1× silence → only REST pull (wsConnected = true, phase-2 timer still armed)
-//  C) WS event between phases → neither pull accumulates a net reconnect
+//  A) phase-1 pull returns anyMerged:true → phase-2 fires → reconnect
+//  B) phase-1 pull returns anyMerged:false (idle socket) → no phase-2 armed
+//  C) WS event cancels the phase-2 timer and starts a fresh phase-1
 
 describe('S5-FIX-phase2 — Heartbeat two-phase: explicit behavioral assertions', () => {
-  it('S5-FIX-phase2-A: silence × 2 intervals triggers reconnect (resetDirectusClient called)', async () => {
+  it('S5-FIX-phase2-A: phase-1 finds new data → phase-2 fires → reconnect', async () => {
     const { syncState } = await import('../sync/state.js');
     const { _resetWsHeartbeat } = await import('../sync/wsManager.js');
     const { WS_HEARTBEAT_INTERVAL_MS } = await import('../sync/echoSuppression.js');
@@ -4574,7 +4593,11 @@ describe('S5-FIX-phase2 — Heartbeat two-phase: explicit behavioral assertions'
       disconnect: () => {},
     });
 
-    vi.spyOn(global, 'fetch').mockResolvedValue(directusListResponse([]));
+    // Simulate a half-open socket: phase-1 pull finds new data (anyMerged:true).
+    // Without this, _runPull() would return anyMerged:false and phase-2 would
+    // not be armed, meaning no reconnect would ever fire.
+    const pullMod = await import('../sync/pullQueue.js');
+    vi.spyOn(pullMod, '_runPull').mockResolvedValue({ ok: true, anyMerged: true });
 
     appConfig.directus = { ...appConfig.directus, wsEnabled: true };
     syncState._running = true;
@@ -4584,13 +4607,13 @@ describe('S5-FIX-phase2 — Heartbeat two-phase: explicit behavioral assertions'
     try {
       _resetWsHeartbeat();
 
-      // Phase 1 fires: REST pull triggered and phase-2 timer armed.
+      // Phase 1 fires: REST pull triggered and phase-2 timer armed (anyMerged:true).
       await vi.advanceTimersByTimeAsync(WS_HEARTBEAT_INTERVAL_MS + 50);
       await flushPromises(LONG_FLUSH_ROUNDS);
 
       // Phase 1 must NOT have disconnected the WebSocket.
       expect(syncState._wsConnected.value).toBe(true);
-      // Phase-2 timer must now be armed.
+      // Phase-2 timer must now be armed (pull found new data).
       expect(syncState._wsHeartbeatTimer).not.toBeNull();
 
       // Phase 2 fires: reconnect should be triggered.
@@ -4616,18 +4639,14 @@ describe('S5-FIX-phase2 — Heartbeat two-phase: explicit behavioral assertions'
     }
   });
 
-  it('S5-FIX-phase2-B: silence × 1 interval triggers only REST pull, no reconnect', async () => {
+  it('S5-FIX-phase2-B: idle healthy socket — phase-1 pull returns no new data, phase-2 not armed', async () => {
     const { syncState } = await import('../sync/state.js');
     const { _resetWsHeartbeat } = await import('../sync/wsManager.js');
     const { WS_HEARTBEAT_INTERVAL_MS } = await import('../sync/echoSuppression.js');
     const { appConfig } = await import('../../utils/index.js');
 
-    // Mock fetch so that if _runPull() completes (e.g. in environments where
-    // vi.advanceTimersByTimeAsync drains setImmediate macrotasks), responses don't
-    // cause network errors.  No assertion is made on the call count because
-    // fake-indexeddb schedules IDB callbacks via setImmediate (macrotask), so
-    // _runPull() stalls at loadLastPullTsFromIDB() and fetch may not be reached
-    // within the flushPromises() window.
+    // Fetch mock returns empty so _runPull() resolves with anyMerged:false,
+    // simulating a healthy socket with no pending server changes.
     vi.spyOn(global, 'fetch').mockResolvedValue(directusListResponse([]));
 
     appConfig.directus = { ...appConfig.directus, wsEnabled: true };
@@ -4642,17 +4661,12 @@ describe('S5-FIX-phase2 — Heartbeat two-phase: explicit behavioral assertions'
       await vi.advanceTimersByTimeAsync(WS_HEARTBEAT_INTERVAL_MS + 50);
       await flushPromises(LONG_FLUSH_ROUNDS);
 
-      // Phase 1 triggers _runPull() (the REST catch-up pull).  Under fake timers
-      // fake-indexeddb drains its callbacks via setImmediate — a macrotask not
-      // flushed by flushPromises() — so the _runPull() async chain may still be
-      // in-flight when we reach this assertion.  The meaningful observables after
-      // exactly one silence interval are that the WS was NOT disconnected and that
-      // the phase-2 timer was armed.
-
-      // WebSocket must NOT have been disconnected — no reconnect after a single silence.
+      // WebSocket must NOT have been disconnected.
       expect(syncState._wsConnected.value).toBe(true);
-      // Phase-2 timer must now be armed (phase 1 consumes the timer and sets up phase 2).
-      expect(syncState._wsHeartbeatTimer).not.toBeNull();
+      // Phase-2 timer must NOT be armed: fetch returned empty (anyMerged:false),
+      // so the socket is idle and healthy — no reconnect should be scheduled.
+      // This is the primary guard against spurious disconnects on quiet sockets.
+      expect(syncState._wsHeartbeatTimer).toBeNull();
     } finally {
       if (syncState._wsHeartbeatTimer) { clearTimeout(syncState._wsHeartbeatTimer); syncState._wsHeartbeatTimer = null; }
       syncState._running = false;
@@ -4667,7 +4681,11 @@ describe('S5-FIX-phase2 — Heartbeat two-phase: explicit behavioral assertions'
     const { WS_HEARTBEAT_INTERVAL_MS } = await import('../sync/echoSuppression.js');
     const { appConfig } = await import('../../utils/index.js');
 
-    vi.spyOn(global, 'fetch').mockResolvedValue(directusListResponse([]));
+    // Simulate a half-open socket so phase-2 is armed after phase-1.
+    // Without anyMerged:true from _runPull(), phase-2 would never be set and
+    // there would be no phase-2 timer for the WS event to cancel.
+    const pullMod = await import('../sync/pullQueue.js');
+    vi.spyOn(pullMod, '_runPull').mockResolvedValue({ ok: true, anyMerged: true });
 
     appConfig.directus = { ...appConfig.directus, wsEnabled: true };
     syncState._running = true;
@@ -4677,7 +4695,7 @@ describe('S5-FIX-phase2 — Heartbeat two-phase: explicit behavioral assertions'
     try {
       _resetWsHeartbeat();
 
-      // Phase 1 fires: pull triggered and phase-2 armed.
+      // Phase-1 fires: pull returns anyMerged:true → phase-2 timer armed.
       await vi.advanceTimersByTimeAsync(WS_HEARTBEAT_INTERVAL_MS + 50);
       await flushPromises(LONG_FLUSH_ROUNDS);
       const phase2Timer = syncState._wsHeartbeatTimer;

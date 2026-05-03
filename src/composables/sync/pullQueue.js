@@ -604,7 +604,7 @@ export async function _runPull() {
         syncState._orderItemsPullPending = false;
         _triggerImmediateOrderItemsPull();
       }
-      return { ok: allOk && !ac.signal.aborted, aborted: ac.signal.aborted, failedCollections };
+      return { ok: allOk && !ac.signal.aborted, aborted: ac.signal.aborted, failedCollections, anyMerged };
     } catch (e) {
       console.warn('[DirectusSync] Pull error:', e);
       return { ok: false, failedCollections: [] };
