@@ -4548,11 +4548,31 @@ describe('S5-FIX — WS heartbeat does not force-disconnect on idle apps', () =>
 //  C) WS event between phases → neither pull accumulates a net reconnect
 
 describe('S5-FIX-phase2 — Heartbeat two-phase: explicit behavioral assertions', () => {
-  it('S5-FIX-phase2-A: silence × 2 intervals triggers reconnect (_wsConnected becomes false)', async () => {
+  it('S5-FIX-phase2-A: silence × 2 intervals triggers reconnect (resetDirectusClient called)', async () => {
     const { syncState } = await import('../sync/state.js');
     const { _resetWsHeartbeat } = await import('../sync/wsManager.js');
     const { WS_HEARTBEAT_INTERVAL_MS } = await import('../sync/echoSuppression.js');
     const { appConfig } = await import('../../utils/index.js');
+    const clientModule = await import('../useDirectusClient.js');
+
+    // Spy on resetDirectusClient to verify _stopSubscriptions() ran.
+    // _wsConnected.value is not used as the primary assertion because a fast
+    // _reconnectWs() (or a reconnect that resolves before flushPromises completes)
+    // can set it back to true, making the check unreliable.
+    // resetDirectusClient() is called by _stopSubscriptions() and cannot be
+    // "undone" by a subsequent reconnect, making it the canonical proof.
+    const resetClientSpy = vi.spyOn(clientModule, 'resetDirectusClient');
+
+    // Make _startSubscriptions() fail immediately as a microtask (Promise.reject),
+    // not as a macrotask via JSDOM's WebSocket error/close events.  Without this,
+    // the pending connect() rejection can race with the next test's setup and
+    // spuriously set _wsConnected.value = false after the next test sets it to true.
+    // The spy is automatically restored by vi.restoreAllMocks() in beforeEach so
+    // no explicit teardown is needed in the finally block.
+    vi.spyOn(clientModule, 'getDirectusClient').mockReturnValue({
+      connect: () => Promise.reject(new Error('test isolation: no WS')),
+      disconnect: () => {},
+    });
 
     vi.spyOn(global, 'fetch').mockResolvedValue(directusListResponse([]));
 
@@ -4577,17 +4597,19 @@ describe('S5-FIX-phase2 — Heartbeat two-phase: explicit behavioral assertions'
       await vi.advanceTimersByTimeAsync(WS_HEARTBEAT_INTERVAL_MS + 50);
       await flushPromises(LONG_FLUSH_ROUNDS);
 
-      // _stopSubscriptions() sets _wsConnected = false — observable proof of reconnect.
-      expect(syncState._wsConnected.value).toBe(false);
-      // Phase-2 timer must be self-cleared.
+      // resetDirectusClient() is called inside _stopSubscriptions(), which is invoked
+      // from the phase-2 timer callback — the definitive, non-reversible proof that
+      // the phase-2 reconnect path ran.
+      expect(resetClientSpy).toHaveBeenCalled();
+      // The phase-2 callback clears _wsHeartbeatTimer as its first action.
       expect(syncState._wsHeartbeatTimer).toBeNull();
     } finally {
       if (syncState._wsHeartbeatTimer) { clearTimeout(syncState._wsHeartbeatTimer); syncState._wsHeartbeatTimer = null; }
       syncState._running = false;
       syncState._wsConnected.value = false;
-      // Stop subscriptions started by _reconnectWs() and drain their catch-block
-      // microtasks now, before restoring real timers, so they do not bleed into
-      // the subsequent test's flushPromises() and corrupt _wsConnected.value.
+      // _resetDirectusSyncSingleton() + flushPromises() drains the _reconnectWs()
+      // microtask chain (possible because getDirectusClient is mocked to fail
+      // immediately — no JSDOM macrotask bleed into the next test).
       _resetDirectusSyncSingleton();
       await flushPromises(LONG_FLUSH_ROUNDS);
       vi.useRealTimers();
@@ -4600,6 +4622,12 @@ describe('S5-FIX-phase2 — Heartbeat two-phase: explicit behavioral assertions'
     const { WS_HEARTBEAT_INTERVAL_MS } = await import('../sync/echoSuppression.js');
     const { appConfig } = await import('../../utils/index.js');
 
+    // Mock fetch so that if _runPull() completes (e.g. in environments where
+    // vi.advanceTimersByTimeAsync drains setImmediate macrotasks), responses don't
+    // cause network errors.  No assertion is made on the call count because
+    // fake-indexeddb schedules IDB callbacks via setImmediate (macrotask), so
+    // _runPull() stalls at loadLastPullTsFromIDB() and fetch may not be reached
+    // within the flushPromises() window.
     vi.spyOn(global, 'fetch').mockResolvedValue(directusListResponse([]));
 
     appConfig.directus = { ...appConfig.directus, wsEnabled: true };
@@ -4614,10 +4642,17 @@ describe('S5-FIX-phase2 — Heartbeat two-phase: explicit behavioral assertions'
       await vi.advanceTimersByTimeAsync(WS_HEARTBEAT_INTERVAL_MS + 50);
       await flushPromises(LONG_FLUSH_ROUNDS);
 
-      // WebSocket must NOT have been disconnected — no reconnect.
-      // Note: this is also asserted by the existing "does not set _wsConnected to false"
-      // S5-FIX test; here we verify it holds in the context of the combined scenario.
-      expect(syncState._reconnectTimer).toBeNull();
+      // Phase 1 triggers _runPull() (the REST catch-up pull).  Under fake timers
+      // fake-indexeddb drains its callbacks via setImmediate — a macrotask not
+      // flushed by flushPromises() — so the _runPull() async chain may still be
+      // in-flight when we reach this assertion.  The meaningful observables after
+      // exactly one silence interval are that the WS was NOT disconnected and that
+      // the phase-2 timer was armed.
+
+      // WebSocket must NOT have been disconnected — no reconnect after a single silence.
+      expect(syncState._wsConnected.value).toBe(true);
+      // Phase-2 timer must now be armed (phase 1 consumes the timer and sets up phase 2).
+      expect(syncState._wsHeartbeatTimer).not.toBeNull();
     } finally {
       if (syncState._wsHeartbeatTimer) { clearTimeout(syncState._wsHeartbeatTimer); syncState._wsHeartbeatTimer = null; }
       syncState._running = false;
