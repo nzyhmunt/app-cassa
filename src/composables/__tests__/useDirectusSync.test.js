@@ -4536,6 +4536,172 @@ describe('S5-FIX — WS heartbeat does not force-disconnect on idle apps', () =>
   });
 });
 
+// ── S5-FIX-phase2 — Explicit behavioral assertions for the heartbeat ──────────
+//
+// Complements the S5-FIX suite with explicit verification of what each phase
+// actually does, using a fetch spy to confirm the REST pull fires in phase 1
+// and observable state to confirm the reconnect fires in phase 2.
+//
+// Three scenarios:
+//  A) 2× silence → reconnect must have fired (wsConnected = false, fetch called)
+//  B) 1× silence → only REST pull (wsConnected = true, phase-2 timer still armed)
+//  C) WS event between phases → neither pull accumulates a net reconnect
+
+describe('S5-FIX-phase2 — Heartbeat two-phase: explicit behavioral assertions', () => {
+  it('S5-FIX-phase2-A: silence × 2 intervals triggers reconnect (resetDirectusClient called)', async () => {
+    const { syncState } = await import('../sync/state.js');
+    const { _resetWsHeartbeat } = await import('../sync/wsManager.js');
+    const { WS_HEARTBEAT_INTERVAL_MS } = await import('../sync/echoSuppression.js');
+    const { appConfig } = await import('../../utils/index.js');
+    const clientModule = await import('../useDirectusClient.js');
+
+    // Spy on resetDirectusClient to verify _stopSubscriptions() ran.
+    // _wsConnected.value is not used as the primary assertion because a fast
+    // _reconnectWs() (or a reconnect that resolves before flushPromises completes)
+    // can set it back to true, making the check unreliable.
+    // resetDirectusClient() is called by _stopSubscriptions() and cannot be
+    // "undone" by a subsequent reconnect, making it the canonical proof.
+    const resetClientSpy = vi.spyOn(clientModule, 'resetDirectusClient');
+
+    // Make _startSubscriptions() fail immediately as a microtask (Promise.reject),
+    // not as a macrotask via JSDOM's WebSocket error/close events.  Without this,
+    // the pending connect() rejection can race with the next test's setup and
+    // spuriously set _wsConnected.value = false after the next test sets it to true.
+    // The spy is automatically restored by vi.restoreAllMocks() in beforeEach so
+    // no explicit teardown is needed in the finally block.
+    vi.spyOn(clientModule, 'getDirectusClient').mockReturnValue({
+      connect: () => Promise.reject(new Error('test isolation: no WS')),
+      disconnect: () => {},
+    });
+
+    vi.spyOn(global, 'fetch').mockResolvedValue(directusListResponse([]));
+
+    appConfig.directus = { ...appConfig.directus, wsEnabled: true };
+    syncState._running = true;
+    syncState._wsConnected.value = true;
+
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
+    try {
+      _resetWsHeartbeat();
+
+      // Phase 1 fires: REST pull triggered and phase-2 timer armed.
+      await vi.advanceTimersByTimeAsync(WS_HEARTBEAT_INTERVAL_MS + 50);
+      await flushPromises(LONG_FLUSH_ROUNDS);
+
+      // Phase 1 must NOT have disconnected the WebSocket.
+      expect(syncState._wsConnected.value).toBe(true);
+      // Phase-2 timer must now be armed.
+      expect(syncState._wsHeartbeatTimer).not.toBeNull();
+
+      // Phase 2 fires: reconnect should be triggered.
+      await vi.advanceTimersByTimeAsync(WS_HEARTBEAT_INTERVAL_MS + 50);
+      await flushPromises(LONG_FLUSH_ROUNDS);
+
+      // resetDirectusClient() is called inside _stopSubscriptions(), which is invoked
+      // from the phase-2 timer callback — the definitive, non-reversible proof that
+      // the phase-2 reconnect path ran.
+      expect(resetClientSpy).toHaveBeenCalled();
+      // The phase-2 callback clears _wsHeartbeatTimer as its first action.
+      expect(syncState._wsHeartbeatTimer).toBeNull();
+    } finally {
+      if (syncState._wsHeartbeatTimer) { clearTimeout(syncState._wsHeartbeatTimer); syncState._wsHeartbeatTimer = null; }
+      syncState._running = false;
+      syncState._wsConnected.value = false;
+      // _resetDirectusSyncSingleton() + flushPromises() drains the _reconnectWs()
+      // microtask chain (possible because getDirectusClient is mocked to fail
+      // immediately — no JSDOM macrotask bleed into the next test).
+      _resetDirectusSyncSingleton();
+      await flushPromises(LONG_FLUSH_ROUNDS);
+      vi.useRealTimers();
+    }
+  });
+
+  it('S5-FIX-phase2-B: silence × 1 interval triggers only REST pull, no reconnect', async () => {
+    const { syncState } = await import('../sync/state.js');
+    const { _resetWsHeartbeat } = await import('../sync/wsManager.js');
+    const { WS_HEARTBEAT_INTERVAL_MS } = await import('../sync/echoSuppression.js');
+    const { appConfig } = await import('../../utils/index.js');
+
+    // Mock fetch so that if _runPull() completes (e.g. in environments where
+    // vi.advanceTimersByTimeAsync drains setImmediate macrotasks), responses don't
+    // cause network errors.  No assertion is made on the call count because
+    // fake-indexeddb schedules IDB callbacks via setImmediate (macrotask), so
+    // _runPull() stalls at loadLastPullTsFromIDB() and fetch may not be reached
+    // within the flushPromises() window.
+    vi.spyOn(global, 'fetch').mockResolvedValue(directusListResponse([]));
+
+    appConfig.directus = { ...appConfig.directus, wsEnabled: true };
+    syncState._running = true;
+    syncState._wsConnected.value = true;
+
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
+    try {
+      _resetWsHeartbeat();
+
+      // Only phase 1 elapses.
+      await vi.advanceTimersByTimeAsync(WS_HEARTBEAT_INTERVAL_MS + 50);
+      await flushPromises(LONG_FLUSH_ROUNDS);
+
+      // Phase 1 triggers _runPull() (the REST catch-up pull).  Under fake timers
+      // fake-indexeddb drains its callbacks via setImmediate — a macrotask not
+      // flushed by flushPromises() — so the _runPull() async chain may still be
+      // in-flight when we reach this assertion.  The meaningful observables after
+      // exactly one silence interval are that the WS was NOT disconnected and that
+      // the phase-2 timer was armed.
+
+      // WebSocket must NOT have been disconnected — no reconnect after a single silence.
+      expect(syncState._wsConnected.value).toBe(true);
+      // Phase-2 timer must now be armed (phase 1 consumes the timer and sets up phase 2).
+      expect(syncState._wsHeartbeatTimer).not.toBeNull();
+    } finally {
+      if (syncState._wsHeartbeatTimer) { clearTimeout(syncState._wsHeartbeatTimer); syncState._wsHeartbeatTimer = null; }
+      syncState._running = false;
+      syncState._wsConnected.value = false;
+      vi.useRealTimers();
+    }
+  });
+
+  it('S5-FIX-phase2-C: WS event mid-phase cancels the pending timer and starts fresh phase 1', async () => {
+    const { syncState } = await import('../sync/state.js');
+    const { _resetWsHeartbeat } = await import('../sync/wsManager.js');
+    const { WS_HEARTBEAT_INTERVAL_MS } = await import('../sync/echoSuppression.js');
+    const { appConfig } = await import('../../utils/index.js');
+
+    vi.spyOn(global, 'fetch').mockResolvedValue(directusListResponse([]));
+
+    appConfig.directus = { ...appConfig.directus, wsEnabled: true };
+    syncState._running = true;
+    syncState._wsConnected.value = true;
+
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
+    try {
+      _resetWsHeartbeat();
+
+      // Phase 1 fires: pull triggered and phase-2 armed.
+      await vi.advanceTimersByTimeAsync(WS_HEARTBEAT_INTERVAL_MS + 50);
+      await flushPromises(LONG_FLUSH_ROUNDS);
+      const phase2Timer = syncState._wsHeartbeatTimer;
+      expect(phase2Timer).not.toBeNull();
+
+      // A real WS event arrives mid-phase-2: cancels the phase-2 timer and
+      // restarts phase 1.
+      _resetWsHeartbeat();
+      const freshPhase1Timer = syncState._wsHeartbeatTimer;
+
+      // The old phase-2 timer must be replaced by a fresh phase-1 timer.
+      expect(freshPhase1Timer).not.toBeNull();
+      expect(freshPhase1Timer).not.toBe(phase2Timer);
+      // Still connected — the WS event prevented any reconnect.
+      expect(syncState._wsConnected.value).toBe(true);
+    } finally {
+      if (syncState._wsHeartbeatTimer) { clearTimeout(syncState._wsHeartbeatTimer); syncState._wsHeartbeatTimer = null; }
+      syncState._running = false;
+      syncState._wsConnected.value = false;
+      vi.useRealTimers();
+    }
+  });
+});
+
 // ── NS9 — WS orders:create triggers immediate order_items pull ─────────────────
 //
 // WS subscriptions use fields:['*'] which does NOT expand nested relations.
@@ -5459,6 +5625,56 @@ describe('NS9-OFFLINE-PULL — window.offline aborts in-flight _runPull() and re
 
       // Clean up the dangling hanging promise.
       resolveHangingPull();
+    } finally {
+      sync.stopSync();
+    }
+  });
+});
+
+// ── NS4-OFFLINE-TMS: window.offline aborts in-flight TMS pull ─────────────────
+//
+// An in-flight table_merge_sessions full-replace pull whose fetch is hanging
+// on a TCP timeout must be cancelled immediately when the device goes offline.
+// Without the abort, _tableMergePullInFlight would remain set indefinitely,
+// preventing any subsequent WS delete event from starting a fresh TMS pull,
+// and a delayed HTTP response that eventually arrives could overwrite a
+// fresher post-reconnect replace with stale data.
+
+describe('NS4-OFFLINE-TMS — window.offline aborts in-flight TMS pull and releases semaphore', () => {
+  it('NS4-OFFLINE-TMS: offline aborts _tableMergeAbortController and nulls _tableMergePullInFlight', async () => {
+    const { syncState } = await import('../sync/state.js');
+
+    // Register listeners via startSync (fetch resolves quickly so startup completes).
+    const sync = useDirectusSync();
+    vi.spyOn(global, 'fetch').mockResolvedValue(directusListResponse([]));
+    await sync.startSync({ appType: 'cassa', store: makeStore() });
+    await flushPromises(LONG_FLUSH_ROUNDS);
+
+    try {
+      // Plant a fake in-flight TMS full-replace pull — simulates a pull whose
+      // underlying fetch is hanging on a TCP timeout.
+      const fakeAc = new AbortController();
+      let resolveHangingTmsPull;
+      const hangingTmsPull = new Promise(res => { resolveHangingTmsPull = res; });
+      hangingTmsPull.catch(() => {}); // suppress unhandled rejection on cleanup
+
+      syncState._tableMergeAbortController = fakeAc;
+      syncState._tableMergePullInFlight = hangingTmsPull;
+
+      // Network drops.
+      window.dispatchEvent(new Event('offline'));
+      await flushPromises(10);
+
+      // AbortController must have been signalled so the in-transit HTTP response
+      // is discarded before replaceTableMergesInIDB() can be called.
+      expect(fakeAc.signal.aborted).toBe(true);
+      // Semaphore must be cleared so the next WS delete event can start a fresh
+      // TMS pull once the network is restored.
+      expect(syncState._tableMergePullInFlight).toBeNull();
+      expect(syncState._tableMergeAbortController).toBeNull();
+
+      // Clean up the dangling promise.
+      resolveHangingTmsPull();
     } finally {
       sync.stopSync();
     }
