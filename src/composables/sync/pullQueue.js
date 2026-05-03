@@ -114,21 +114,21 @@ export async function _fetchUpdatedViaSDK(collection, sinceTs, page = 1, cursor 
     fields: pullFields,
   };
 
-  // Incremental pull filter (only records updated/created at or after last known timestamp).
+  // Incremental pull filter (only records updated/created after the last known timestamp).
   // Skipped for collections that have no date_updated field (noDateUpdated quirk).
   //
   // Directus sets date_updated only when a record is PATCHed, not on initial creation,
   // so newly created records have date_updated = null. Without the _or clause those
   // records would be invisible to every incremental poll after the initial full pull.
   //
-  // We use _gte (≥) instead of _gt (>) so that records whose date_updated/date_created
-  // equals sinceTs are always re-fetched.  This is necessary because multiple PATCH
-  // operations performed on the same record in rapid succession can land at the same
-  // server-clock second (or even millisecond), meaning the final update shares the exact
-  // same timestamp as the version already seen by the pulling device.  A strict _gt
-  // filter would permanently skip those boundary records on every subsequent poll.
-  // upsertRecordsIntoIDB handles the re-fetch idempotently: it only writes when the
-  // incoming timestamp is ≥ the stored one (preferring the freshest server payload).
+  // We use _gt (>) — strict greater-than — so that boundary records with
+  // date_updated/date_created equal to sinceTs are excluded from subsequent polls.
+  // Using _gte (≥) would cause boundary records to be re-fetched on every incremental
+  // poll whenever the cursor fails to advance (e.g. all returned records share the same
+  // timestamp as sinceTs), resulting in an infinite re-fetch loop.  The minor trade-off
+  // is that a concurrent PATCH landing at exactly sinceTs between two polls would be
+  // deferred to the next full pull, but the sub-millisecond probability makes this
+  // far preferable to an unbreakable poll loop.
   //
   // NS7: When a keyset cursor is provided (page 2+), activate keyset mode regardless
   // of whether cursor.ts equals sinceTs.  The old condition `cursor.ts === sinceTs`
@@ -143,7 +143,7 @@ export async function _fetchUpdatedViaSDK(collection, sinceTs, page = 1, cursor 
       // The sort order is [date_updated, id], so we include:
       //   • records with date_updated strictly after cursor.ts, OR
       //   • records with date_updated === cursor.ts but id > cursor.id, OR
-      //   • records with date_updated=null but date_created >= sinceTs (new, never-patched records).
+      //   • records with date_updated=null but date_created > sinceTs (new, never-patched records).
       conditions.push({
         _or: [
           { date_updated: { _gt: cursor.ts } },
@@ -151,14 +151,14 @@ export async function _fetchUpdatedViaSDK(collection, sinceTs, page = 1, cursor 
           // NS7/P17 fix: add id._gt to the null-date condition so that when there
           // are more null-date records than TABLE_FETCH_BATCH_SIZE the cursor
           // advances by ID and the pager does not infinite-loop on page 1.
-          { _and: [{ date_updated: { _null: true } }, { date_created: { _gte: sinceTs } }, { id: { _gt: cursor.id } }] },
+          { _and: [{ date_updated: { _null: true } }, { date_created: { _gt: sinceTs } }, { id: { _gt: cursor.id } }] },
         ],
       });
     } else {
       conditions.push({
         _or: [
-          { date_updated: { _gte: sinceTs } },
-          { _and: [{ date_updated: { _null: true } }, { date_created: { _gte: sinceTs } }] },
+          { date_updated: { _gt: sinceTs } },
+          { _and: [{ date_updated: { _null: true } }, { date_created: { _gt: sinceTs } }] },
         ],
       });
     }
@@ -433,7 +433,7 @@ export async function _pullCollection(collection, { forceFull = false, lastPullT
       // S7: The atomic function handled both the order_items write and the merge
       // into orders.orderItems.  Only refresh the in-memory store when at least
       // one order record was actually rewritten (avoids needless store churn on
-      // unchanged boundary records re-fetched by the _gte incremental strategy).
+      // unchanged boundary records re-fetched by the _gt incremental strategy).
       // Issue 4 fix: pass affectedOrderIds so the store can do a targeted refresh
       // of only those orders instead of replacing the whole reactive array.
       if (totalOrdersWrittenFromItems > 0) await _refreshStoreFromIDB('orders', allAffectedOrderIds);
