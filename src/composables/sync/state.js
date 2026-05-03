@@ -266,6 +266,13 @@ export const syncState = {
  * Preserves existing ref identity (does not replace the ref objects themselves,
  * only resets their `.value`) so that any Vue components that have already
  * destructured refs from `useDirectusSync()` continue to receive updates.
+ *
+ * Note: `_globalPullOfflineGeneration` is intentionally NOT reset here.
+ * Its monotonically increasing value must outlive the reset so that any
+ * in-transit global pull from the previous session still sees the bumped
+ * generation and discards its write during the next session.  It is instead
+ * bumped by `_onOffline()`, `stopSync()`, and `_resetDirectusSyncSingleton()`
+ * immediately before this function is called.
  */
 export function resetSyncState() {
   // Lifecycle

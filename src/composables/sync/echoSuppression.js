@@ -36,22 +36,14 @@ export const ECHO_SUPPRESS_RTT_MULTIPLIER = 3;
 
 /**
  * S5 — Heartbeat watchdog interval (ms).
- * If no WebSocket subscription event is received for this duration, a one-shot
- * REST catch-up pull is triggered as a safety net for messages that may have
- * been missed while the connection was idle.  The timer is NOT re-armed after
- * firing; it re-arms only when a real WS event calls _resetWsHeartbeat() again,
- * preventing idle WS clients from acting as 30 s polling clients.
- * The WS connection is NOT dropped; genuine transport failures are detected when
- * the subscription iterator throws in processSubscription(), which sets
- * _wsConnected = false and calls _reconnectWs().
- *
- * Note: Directus WebSocket protocol-level pings are handled transparently by
- * the browser and never surface as application-level subscription iterator
- * yields, so an idle subscription is always silent at the JS level.  Any
- * miss-count / reconnect-on-Nth-silence approach would therefore reconnect
- * healthy idle connections every N × WS_HEARTBEAT_INTERVAL_MS regardless of
- * socket health, reintroducing the spurious disconnect churn this constant was
- * introduced to avoid.
+ * Used as both the phase-1 and phase-2 silence window in _resetWsHeartbeat():
+ *   Phase 1 — if no WS event arrives within this duration, trigger a one-shot
+ *   REST catch-up pull and arm a second (phase-2) timer.
+ *   Phase 2 — if silence continues for another full interval, force
+ *   _stopSubscriptions() + _reconnectWs() to recover from half-open sockets
+ *   that are silent without throwing.
+ * Any real WS event cancels whichever phase is pending via _resetWsHeartbeat(),
+ * so active connections are never affected by the reconnect path.
  */
 export const WS_HEARTBEAT_INTERVAL_MS = 30_000;
 

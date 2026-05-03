@@ -570,7 +570,12 @@ export function useDirectusSync() {
       // have started during the clearLocalConfig async work above).
       syncState._globalPullInFlight = null;
       const result = await _runGlobalPull({ onProgress, userInitiated: true });
-      syncState.syncStatus.value = result?.ok ? 'idle' : 'error';
+      // Only update syncStatus when we are still in a non-offline state;
+      // if _onOffline() fired while the pull was running it already set
+      // syncStatus to 'offline' and we must not overwrite that with 'idle'.
+      if (syncState.syncStatus.value !== 'offline') {
+        syncState.syncStatus.value = result?.ok ? 'idle' : 'error';
+      }
       return result ?? { ok: false, failedCollections: [] };
     } catch (e) {
       syncState.syncStatus.value = 'error';

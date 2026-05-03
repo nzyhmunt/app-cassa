@@ -34,20 +34,20 @@ const _unsubscribers = [];
  * Called after every incoming WS message and whenever a WS connection is
  * established.
  *
- * Behaviour: if no subscription event arrives within WS_HEARTBEAT_INTERVAL_MS,
- * the watchdog triggers a one-shot REST catch-up pull (to cover any messages
- * potentially missed during the silent window) and then stops — it does NOT
- * re-arm itself.  The timer is only re-armed by the next real WS event (via
- * _handleSubscriptionMessage) or a new connection, so idle WS clients do NOT
- * become effective 30 s polling clients.
+ * Two-phase behaviour:
+ *   Phase 1 — if no subscription event arrives within WS_HEARTBEAT_INTERVAL_MS,
+ *   the watchdog triggers a one-shot REST catch-up pull (to cover any messages
+ *   potentially missed during the silent window) and arms a second timer.
+ *   Phase 2 — if silence continues for a second full interval with no WS events,
+ *   the socket is likely half-open (not throwing, but not delivering events);
+ *   `_stopSubscriptions()` + `_reconnectWs()` force a clean reconnect.
  *
- * Genuine transport failures (half-open socket, server restart, network loss)
- * are detected when the subscription iterator throws in processSubscription(),
- * which independently sets _wsConnected = false and calls _reconnectWs().
- * A miss-count / reconnect-on-Nth-silence approach is intentionally avoided:
- * Directus protocol-level pings never surface at the JS level, so idle healthy
- * connections would always hit the threshold and reconnect every N×30 s,
- * reintroducing the spurious disconnect churn this watchdog was designed to fix.
+ * Both timers are stored in `_wsHeartbeatTimer`.  Any real WS event calls
+ * `_resetWsHeartbeat()`, which cancels whichever phase timer is pending and
+ * restarts phase 1 — so active connections are never affected.
+ *
+ * Genuine transport failures (iterator throws in processSubscription()) are
+ * caught independently; this watchdog only handles the silent half-open case.
  */
 export function _resetWsHeartbeat() {
   if (syncState._wsHeartbeatTimer) { clearTimeout(syncState._wsHeartbeatTimer); syncState._wsHeartbeatTimer = null; }
@@ -58,14 +58,20 @@ export function _resetWsHeartbeat() {
     console.warn(
       `[DirectusSync] WS heartbeat: no activity for ${WS_HEARTBEAT_INTERVAL_MS}ms — triggering REST catch-up pull.`,
     );
-    // Immediately do a REST pull to catch up on any messages potentially
-    // missed while the connection was silent.
-    // The watchdog is NOT re-armed here: a single safety-net pull per silence
-    // period is sufficient.  Unconditionally re-arming would turn every idle WS
-    // client into a 30 s polling client, defeating the push-based WS model.
-    // The next real WS event calls _resetWsHeartbeat() and re-starts the timer
-    // for the subsequent idle window.
+    // Phase 1: one REST pull to catch up on potentially missed messages.
     _runPull().catch(() => {});
+    // Phase 2: if silence continues for another full interval (no WS events to
+    // cancel this timer via _resetWsHeartbeat), the socket is likely half-open.
+    // Force a reconnect so updates are not silently dropped indefinitely.
+    syncState._wsHeartbeatTimer = setTimeout(() => {
+      syncState._wsHeartbeatTimer = null;
+      if (!syncState._running || !syncState._wsConnected.value) return;
+      console.warn(
+        '[DirectusSync] WS heartbeat: socket still silent after REST catch-up — forcing reconnect.',
+      );
+      _stopSubscriptions();
+      _reconnectWs().catch(() => {});
+    }, WS_HEARTBEAT_INTERVAL_MS);
   }, WS_HEARTBEAT_INTERVAL_MS);
 }
 

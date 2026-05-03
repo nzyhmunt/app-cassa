@@ -4411,13 +4411,15 @@ describe('NP1 — _removeOrderItemsFromOrdersIDB fallback scan affectedOrderIds'
 // yields, so the watchdog fired every 30 s and the user saw a 2-3 s "WS down"
 // window at each polling interval.
 //
-// Current behaviour: the watchdog triggers a ONE-SHOT REST catch-up pull and
-// does NOT re-arm itself, without ever setting _wsConnected = false.  The timer
-// is only re-armed when a real WS event calls _resetWsHeartbeat().  This
-// prevents healthy idle WS clients from becoming de-facto 30 s polling clients.
+// Two-phase behaviour after the fix:
+//   Phase 1 (30 s silence): one-shot REST catch-up pull; arms a second timer.
+//   Phase 2 (another 30 s silence): forces _stopSubscriptions() + reconnect
+//     to handle half-open sockets that are silent without throwing.
+// Active connections always cancel whichever phase is pending via
+// _resetWsHeartbeat(), so they are never affected.
 
 describe('S5-FIX — WS heartbeat does not force-disconnect on idle apps', () => {
-  it('does not set _wsConnected to false when the watchdog fires', async () => {
+  it('does not set _wsConnected to false when the phase-1 watchdog fires', async () => {
     const { syncState } = await import('../sync/state.js');
     const { _resetWsHeartbeat } = await import('../sync/wsManager.js');
     const { WS_HEARTBEAT_INTERVAL_MS } = await import('../sync/echoSuppression.js');
@@ -4434,7 +4436,7 @@ describe('S5-FIX — WS heartbeat does not force-disconnect on idle apps', () =>
     try {
       _resetWsHeartbeat();
 
-      // WS heartbeat interval elapses with no subscription messages arriving.
+      // Phase-1 interval elapses with no subscription messages arriving.
       await vi.advanceTimersByTimeAsync(WS_HEARTBEAT_INTERVAL_MS + 50);
       await flushPromises(LONG_FLUSH_ROUNDS);
 
@@ -4443,15 +4445,49 @@ describe('S5-FIX — WS heartbeat does not force-disconnect on idle apps', () =>
       // "WS down" window every 30 s on idle apps.
       expect(syncState._wsConnected.value).toBe(true);
 
-      // The watchdog is NOT re-armed after firing — a single safety-net pull per
-      // silence period prevents idle WS clients from becoming 30 s polling clients.
-      // The next real WS event calls _resetWsHeartbeat() and restarts the timer.
-      expect(syncState._wsHeartbeatTimer).toBeNull();
+      // After phase-1 fires, the phase-2 reconnect timer is now armed.
+      // The next real WS event cancels it via _resetWsHeartbeat().
+      expect(syncState._wsHeartbeatTimer).not.toBeNull();
 
-      // No reconnect timer should have been scheduled.
+      // No reconnect timer should have been scheduled yet.
       expect(syncState._reconnectTimer).toBeNull();
     } finally {
-      // Cleanup: timer is null after firing (no re-arm); reset state.
+      // Cleanup: cancel the pending phase-2 timer.
+      if (syncState._wsHeartbeatTimer) { clearTimeout(syncState._wsHeartbeatTimer); syncState._wsHeartbeatTimer = null; }
+      syncState._running = false;
+      syncState._wsConnected.value = false;
+      vi.useRealTimers();
+    }
+  });
+
+  it('forces a reconnect when the phase-2 watchdog fires (half-open socket)', async () => {
+    const { syncState } = await import('../sync/state.js');
+    const { _resetWsHeartbeat } = await import('../sync/wsManager.js');
+    const { WS_HEARTBEAT_INTERVAL_MS } = await import('../sync/echoSuppression.js');
+    const { appConfig } = await import('../../utils/index.js');
+
+    vi.spyOn(global, 'fetch').mockImplementation(() => Promise.resolve(directusListResponse([])));
+
+    appConfig.directus = { ...appConfig.directus, wsEnabled: true };
+    syncState._running = true;
+    syncState._wsConnected.value = true;
+
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
+    try {
+      _resetWsHeartbeat();
+
+      // Both silence intervals elapse without any WS events.
+      await vi.advanceTimersByTimeAsync(WS_HEARTBEAT_INTERVAL_MS * 2 + 100);
+      await flushPromises(LONG_FLUSH_ROUNDS);
+
+      // Phase-2 must have called _stopSubscriptions(), which sets _wsConnected=false.
+      // This is the observable proof that the half-open socket was torn down.
+      expect(syncState._wsConnected.value).toBe(false);
+
+      // Phase-2 timer should have cleared itself.
+      expect(syncState._wsHeartbeatTimer).toBeNull();
+    } finally {
+      if (syncState._wsHeartbeatTimer) { clearTimeout(syncState._wsHeartbeatTimer); syncState._wsHeartbeatTimer = null; }
       syncState._running = false;
       syncState._wsConnected.value = false;
       vi.useRealTimers();
@@ -4477,15 +4513,15 @@ describe('S5-FIX — WS heartbeat does not force-disconnect on idle apps', () =>
       const firstTimer = syncState._wsHeartbeatTimer;
       expect(firstTimer).not.toBeNull();
 
-      // Simulate a heartbeat fire followed by a WS message.
+      // Phase-1 fires: REST pull + phase-2 timer is armed.
       await vi.advanceTimersByTimeAsync(WS_HEARTBEAT_INTERVAL_MS + 50);
       await flushPromises(LONG_FLUSH_ROUNDS);
 
-      // WS message replaces the timer.
+      // A real WS event arrives — cancels the phase-2 timer and starts fresh.
       _resetWsHeartbeat(); // called by _handleSubscriptionMessage on every WS event
       const secondTimer = syncState._wsHeartbeatTimer;
 
-      // Timer must have been replaced (first one cleared, a fresh one started).
+      // Timer must have been replaced (phase-2 cleared, a fresh phase-1 started).
       expect(secondTimer).not.toBeNull();
       expect(secondTimer).not.toBe(firstTimer);
     } finally {

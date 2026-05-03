@@ -584,7 +584,7 @@ export async function _runGlobalPullInner({ onProgress = null, userInitiated = f
  * is forwarded only to the first call that actually starts the pull; callers
  * that join an already-running pull receive its result but no progress callbacks.
  *
- * @param {{ onProgress?: Function|null }} [options]
+ * @param {{ onProgress?: Function|null, userInitiated?: boolean }} [options]
  */
 export function _runGlobalPull({ onProgress = null, userInitiated = false } = {}) {
   if (!syncState._globalPullInFlight) {
