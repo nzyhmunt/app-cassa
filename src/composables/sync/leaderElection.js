@@ -419,6 +419,17 @@ export function useDirectusSync() {
     syncState._orderItemsPullInFlight = null;
     // NS9: Clear pending flag so no stale re-trigger fires after stopSync().
     syncState._orderItemsPullPending = false;
+    // NS4: Abort the WS-triggered table_merge_sessions pull (if any) so it cannot
+    // overwrite a fresh post-reconnect replace after the next startSync().
+    syncState._tableMergeAbortController?.abort();
+    syncState._tableMergeAbortController = null;
+    syncState._tableMergePullInFlight = null;
+    // NS5: Release the global config dedup semaphore and bump the offline-generation
+    // counter so any in-transit response from the pre-stopSync pull discards its
+    // IDB write and config-apply step rather than applying stale venue/config data
+    // after the next startSync().
+    syncState._globalPullOfflineGeneration++;
+    syncState._globalPullInFlight = null;
     if (syncState._pushTimer) { clearInterval(syncState._pushTimer); syncState._pushTimer = null; }
     if (syncState._pollTimer) { clearInterval(syncState._pollTimer); syncState._pollTimer = null; }
     if (syncState._globalTimer) { clearInterval(syncState._globalTimer); syncState._globalTimer = null; }
@@ -604,6 +615,16 @@ export function _resetDirectusSyncSingleton() {
   syncState._pushAbortController?.abort();
   syncState._pullAbortController?.abort();
   syncState._orderItemsPullAbortController?.abort();
+  // NS4: Abort any in-flight table_merge_sessions full-replace pull so that a
+  // hanging request from the previous test cannot write to IDB after resetSyncState()
+  // and corrupt the next test's state.
+  syncState._tableMergeAbortController?.abort();
+  // NS5: Bump the offline-generation counter so any in-transit global pull from
+  // the previous test sees _globalPullOfflineGeneration > myOfflineGen and skips
+  // its IDB write / config-apply step.  resetSyncState() does NOT reset this
+  // counter (it is monotonically increasing), so the increment persists and new
+  // test-run global pulls capture the updated baseline.
+  syncState._globalPullOfflineGeneration++;
 
   // Clear all timer handles before resetSyncState() nulls them out.
   if (syncState._pushTimer) { clearInterval(syncState._pushTimer); }
