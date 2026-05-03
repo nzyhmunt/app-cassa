@@ -5434,3 +5434,128 @@ describe('NS9-OFFLINE-PULL — window.offline aborts in-flight _runPull() and re
     }
   });
 });
+
+// ── ABORT-PRE-WRITE-TMS: post-loop abort guard prevents stale TMS snapshot ────
+//
+// _pullCollection('table_merge_sessions', { forceFull: true }) has a dedicated
+// per-iteration abort check (hadFetchError = true when _fetchUpdatedViaSDK returns
+// aborted:true), but that check only catches aborts that fire *before* or *during*
+// the HTTP request.  A distinct race exists when all pages complete successfully
+// and the abort signal fires *after* the loop exits but *before*
+// replaceTableMergesInIDB() is called.
+//
+// The post-loop guard `if (signal?.aborted) { hadFetchError = true; }` catches
+// this window.  This test exercises it directly: a single-page response with fewer
+// than 200 records (so the loop exits via data.length < 200), with the abort signal
+// fired synchronously inside the fetch mock so that signal.aborted is true when the
+// guard runs.
+
+describe('ABORT-PRE-WRITE-TMS: post-loop abort guard prevents stale TMS snapshot after last page', () => {
+  it('ABORT-PRE-WRITE-TMS: replaceTableMergesInIDB skipped when signal aborts after last page arrives', async () => {
+    const { _pullCollection } = await import('../sync/pullQueue.js');
+    const ac = new AbortController();
+
+    // Return a single page with fewer than 200 records so the loop exits normally
+    // (not via an abort mid-fetch).  Abort fires synchronously inside the mock,
+    // simulating the signal being raised in the window between the last HTTP
+    // response arriving and the post-loop replaceTableMergesInIDB() call.
+    vi.spyOn(global, 'fetch').mockImplementation(() => {
+      ac.abort(); // signal fires after data arrives — the per-iteration check misses this
+      const rows = Array.from({ length: 5 }, (_, i) => ({
+        id: `tms_postloop_${i}`,
+        slave_table: `T${i}`,
+        master_table: 'T0',
+        date_updated: '2024-01-01T00:00:00.000Z',
+        date_created: '2024-01-01T00:00:00.000Z',
+      }));
+      return Promise.resolve(directusListResponse(rows));
+    });
+
+    const replaceSpy = vi.spyOn(
+      await import('../../store/persistence/config.js'),
+      'replaceTableMergesInIDB',
+    );
+
+    const { ok } = await _pullCollection('table_merge_sessions', {
+      forceFull: true,
+      signal: ac.signal,
+    });
+
+    // The post-loop guard must fire and prevent the IDB replace.
+    expect(ok).toBe(false);
+    expect(replaceSpy).not.toHaveBeenCalled();
+
+    replaceSpy.mockRestore();
+  });
+});
+
+// ── GP-OFFLINE: _globalPullOfflineGeneration guard skips stale IDB write ──────
+//
+// When the network drops (or stopSync() fires) after _runGlobalPullInner() starts
+// its deep venue fetch, _globalPullOfflineGeneration is bumped above the value
+// captured by myOfflineGen at pull start.  Even if the HTTP response arrives while
+// the post-reconnect pull is still in flight (so _lastAppliedGlobalPullGeneration
+// is still 0), the offline-generation guard must detect the stale fetch and skip
+// the IDB write and config-apply step, preventing an older snapshot from
+// overwriting the newer pull's data.
+
+describe('GP-OFFLINE — _globalPullOfflineGeneration guard prevents stale global-pull write', () => {
+  it('GP-OFFLINE: bumping _globalPullOfflineGeneration while deep fetch is in flight skips config apply', async () => {
+    const mappers = await import('../../utils/mappers.js');
+    const mapperSpy = vi.spyOn(mappers, 'mapVenueConfigFromDirectus');
+
+    const { syncState } = await import('../sync/state.js');
+
+    const venuePayload = {
+      id: 1,
+      name: 'GP-OFFLINE Venue',
+      menu_source: 'directus',
+      rooms: [],
+      tables: [],
+      payment_methods: [],
+      printers: [],
+      venue_users: [],
+      table_merge_sessions: [],
+      menu_categories: [],
+      menu_items: [],
+      primary_color: '#aabbcc',
+    };
+
+    // Deferred: lets us control exactly when the venue response arrives so we
+    // can bump _globalPullOfflineGeneration before it resolves.
+    let resolveVenueFetch;
+    const venueFetch = new Promise((resolve) => { resolveVenueFetch = resolve; });
+
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      if (String(url).includes('/items/venues/')) {
+        return venueFetch.then(() => directusItemResponse(venuePayload));
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const sync = useDirectusSync();
+
+    // Start the pull — the deep venue fetch is now suspended.
+    const pullPromise = sync.reconfigureAndApply();
+
+    // Let the pull reach the suspended venue await.
+    await flushPromises(5);
+
+    // Simulate the network drop (or stopSync()) after the pull started but before
+    // the venue response has been processed: bump the offline generation counter.
+    syncState._globalPullOfflineGeneration++;
+
+    // Unblock the venue fetch with valid data.
+    resolveVenueFetch();
+    const result = await pullPromise;
+
+    // The offline-generation guard must fire: ok:true (graceful discard, not an error).
+    expect(result.ok).toBe(true);
+    // Config-apply (mapVenueConfigFromDirectus inside _hydrateConfigFromLocalCache)
+    // must NOT have been called — the stale snapshot must be discarded.
+    expect(mapperSpy).not.toHaveBeenCalled();
+
+    sync.stopSync();
+    mapperSpy.mockRestore();
+  });
+});

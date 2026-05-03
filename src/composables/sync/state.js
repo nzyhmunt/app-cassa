@@ -160,15 +160,16 @@ export const syncState = {
   /** Tracks the most recently applied global pull generation to detect stale writes. */
   _lastAppliedGlobalPullGeneration: 0,
   /**
-   * Incremented exclusively by `_onOffline()` to mark the moment the network
-   * dropped.  Each `_runGlobalPullInner()` invocation captures this value on
-   * entry (`myOfflineGen`).  After the HTTP response arrives but before writing
-   * to IDB, the pull checks whether `_globalPullOfflineGeneration > myOfflineGen`;
-   * if so, the network dropped since this pull started and any data in transit is
-   * stale — skip the IDB write even if no post-reconnect pull has completed yet.
-   * This closes the race where a pre-offline response arrives before the
-   * post-reconnect pull finishes, which `_lastAppliedGlobalPullGeneration` alone
-   * cannot catch.
+   * Bumped by `_onOffline()`, `stopSync()`, and `_resetDirectusSyncSingleton()`
+   * to mark moments when any in-transit global pull data should be treated as
+   * stale.  Each `_runGlobalPullInner()` invocation captures this value on entry
+   * (`myOfflineGen`).  After the HTTP response arrives but before writing to IDB,
+   * the pull checks whether `_globalPullOfflineGeneration > myOfflineGen`; if so,
+   * the network dropped (or sync was torn down) since this pull started — skip the
+   * IDB write and config-apply even if no post-reconnect pull has completed yet.
+   * This closes the race where a pre-offline/pre-stopSync response arrives before
+   * the post-reconnect pull finishes, which `_lastAppliedGlobalPullGeneration`
+   * alone cannot catch.
    */
   _globalPullOfflineGeneration: 0,
   /**
