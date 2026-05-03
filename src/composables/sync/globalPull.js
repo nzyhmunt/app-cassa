@@ -321,6 +321,18 @@ export async function _fanOutVenueTreeToIDB(venueRecord, { menuSource, shouldAbo
   // venue_users: full replace, preserving manual users (same logic as replaceVenueUsersInIDB).
   const vuStore = tx.objectStore('venue_users');
   const existingVU = await vuStore.getAll();
+  // Check invalidation after the async read (the first yield point inside the
+  // transaction).  If _onOffline() / stopSync() / reconfigureAndApply() fired
+  // while vuStore.getAll() was running, we abort the transaction so that no
+  // stale data is committed to IDB and cached for startSync() to hydrate on
+  // the next session start.  tx.done.catch() suppresses the unhandled-rejection
+  // that IDB emits when a transaction is explicitly aborted.
+  if (shouldAbort?.()) {
+    tx.abort();
+    tx.done.catch(() => {});
+    console.debug('[DirectusSync] _fanOutVenueTreeToIDB: IDB transaction aborted — invalidated mid-transaction.');
+    return null;
+  }
   const manualUsers = existingVU.filter((r) =>
     r && typeof r === 'object' && r.id && (
       r._type === 'manual_user' ||
@@ -402,10 +414,22 @@ export async function _hydrateConfigFromLocalCache(venueId, onProgress = null, s
     preserveMenuSource: preservedMenuSource === 'json',
     preservedMenuUrl,
   });
+  // Re-check invalidation before each subsequent async step.  Even though
+  // _applyDirectusRuntimeConfigToAppConfig() is synchronous (so this check
+  // cannot fire between the check above and the mutation), it covers the case
+  // where invalidation is detected synchronously in shouldAbort() after a
+  // concurrent signal fires during the sync apply block.
+  if (shouldAbort?.()) return false;
   await _refreshStoreConfigFromIDB({
     menuSource: appConfig.menuSource,
     menuUrl: appConfig.menuUrl,
   });
+  // Re-check after the store-refresh await: _onOffline() / stopSync() /
+  // reconfigureAndApply() can fire while _refreshStoreConfigFromIDB() is
+  // running (it awaits IDB reads and Pinia store updates).  If invalidation
+  // fires here, appConfig was already mutated above but we can still prevent
+  // _syncPreBillPrinterSelection() from applying stale printer state.
+  if (shouldAbort?.()) return false;
   await _syncPreBillPrinterSelection(cached?.venueRecord ?? null);
   _emitProgress(onProgress, { level: 'info', message: 'Configurazione locale applicata.' });
   return true;

@@ -6165,3 +6165,215 @@ describe('GP-HYDRATE-MID — shouldAbort guard inside _hydrateConfigFromLocalCac
     mapperSpy.mockRestore();
   });
 });
+
+// ── GP-HYDRATE-MID-2: shouldAbort guard after _refreshStoreConfigFromIDB ──────
+//
+// The shouldAbort check added AFTER `await _refreshStoreConfigFromIDB()` inside
+// _hydrateConfigFromLocalCache prevents _syncPreBillPrinterSelection() from
+// running with stale printer data when invalidation fires during the store-refresh
+// await.  appConfig was already mutated by _applyDirectusRuntimeConfigToAppConfig
+// (sync), but we can still prevent downstream side-effects from propagating.
+
+describe('GP-HYDRATE-MID-2 — shouldAbort guard after _refreshStoreConfigFromIDB skips printer selection', () => {
+  it('GP-HYDRATE-MID-2: offline gen bumped inside _refreshStoreConfigFromIDB → _syncPreBillPrinterSelection not called', async () => {
+    const { syncState } = await import('../sync/state.js');
+    const storebridge = await import('../sync/storebridge.js');
+    const persistCfg = await import('../../store/persistence/config.js');
+
+    const venuePayload = {
+      id: 1,
+      name: 'GP-HYDRATE-MID-2 Venue',
+      menu_source: 'directus',
+      rooms: [],
+      tables: [],
+      payment_methods: [],
+      printers: [],
+      venue_users: [],
+      table_merge_sessions: [],
+      menu_categories: [],
+      menu_items: [],
+      primary_color: '#001122',
+    };
+
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      if (String(url).includes('/items/venues/')) {
+        return Promise.resolve(directusItemResponse(venuePayload));
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    // Wrap _refreshStoreConfigFromIDB: bump offline gen before returning so the
+    // shouldAbort() check immediately after the await returns true.  This
+    // simulates _onOffline() / stopSync() firing while the Pinia store was being
+    // updated with the new config snapshot.
+    const origRefresh = storebridge._refreshStoreConfigFromIDB;
+    const refreshSpy = vi.spyOn(storebridge, '_refreshStoreConfigFromIDB').mockImplementation(async (...args) => {
+      const result = await origRefresh(...args);
+      syncState._globalPullOfflineGeneration++;
+      return result;
+    });
+
+    // Assert _syncPreBillPrinterSelection is never reached (the pull aborts).
+    const printerSpy = vi.spyOn(storebridge, '_syncPreBillPrinterSelection');
+
+    const sync = useDirectusSync();
+    const result = await sync.reconfigureAndApply();
+
+    // ok:true — graceful discard, not an error.
+    expect(result.ok).toBe(true);
+    // _syncPreBillPrinterSelection must NOT have been called — the shouldAbort
+    // check after _refreshStoreConfigFromIDB returned before it could execute.
+    expect(printerSpy).not.toHaveBeenCalled();
+
+    sync.stopSync();
+    refreshSpy.mockRestore();
+    printerSpy.mockRestore();
+  });
+});
+
+// ── ABORT-REFRESH: aborted signal skips _refreshStoreFromIDB after IDB write ──
+//
+// When a page-loop IDB write completes but the abort signal fires before the
+// loop can write the last_pull_ts checkpoint, the existing ABORT-CK test
+// already covers the checkpoint skip.  This test covers the NEW guard on
+// _refreshStoreFromIDB: even when hadRemoteRecords is true (data was written),
+// the in-memory store must NOT be refreshed when signal.aborted is set — the
+// superseding pull cycle that fired the abort will refresh the store with fresh
+// data after its own write completes.
+
+describe('ABORT-REFRESH — aborted signal skips _refreshStoreFromIDB', () => {
+  it('ABORT-REFRESH: signal aborted mid-IDB write does not call _refreshStoreFromIDB', async () => {
+    const { _pullCollection } = await import('../sync/pullQueue.js');
+    const idbOps = await import('../sync/idbOperations.js');
+    const storebridge = await import('../sync/storebridge.js');
+    const { appConfig } = await import('../../utils/index.js');
+
+    appConfig.directus = { enabled: true, url: 'http://directus.test', staticToken: 'tok', wsEnabled: false };
+
+    const ac = new AbortController();
+
+    // Return one order_items record so that hadRemoteRecords is true and
+    // _refreshStoreFromIDB would normally be invoked after the loop.
+    vi.spyOn(global, 'fetch').mockResolvedValue(directusListResponse([{
+      id: 'oi_refresh1',
+      order_id: 'ord_refresh1',
+      date_updated: '2024-01-01T10:00:00.000Z',
+      date_created: '2024-01-01T10:00:00.000Z',
+      quantity: 1,
+      menu_item_id: 'mi_refresh1',
+      order_item_modifiers: [],
+    }]));
+
+    // Spy on the IDB write and abort the signal during it — same timing as ABORT-CK
+    // (simulates forcePull() / stopSync() / _runPull() firing mid-write).
+    const atomicSpy = vi.spyOn(idbOps, '_atomicOrderItemsUpsertAndMerge')
+      .mockImplementation(async () => {
+        ac.abort();
+        return { orderItemsWritten: 1, ordersWritten: 0, affectedOrderIds: new Set() };
+      });
+
+    // Spy on _refreshStoreFromIDB — it must NOT be called when signal is aborted.
+    const refreshSpy = vi.spyOn(storebridge, '_refreshStoreFromIDB');
+
+    await _pullCollection('order_items', { signal: ac.signal });
+
+    // The in-memory store broadcast must be skipped so the superseding pull
+    // cycle's own refresh is not overwritten by this stale partial page.
+    expect(refreshSpy).not.toHaveBeenCalled();
+
+    atomicSpy.mockRestore();
+    refreshSpy.mockRestore();
+  });
+});
+
+// ── GP-FANOUT-TX: shouldAbort guard inside _fanOutVenueTreeToIDB mid-transaction
+//
+// Exercises the check added AFTER `await vuStore.getAll()` inside the IDB
+// transaction.  If _onOffline() / stopSync() / reconfigureAndApply() fires while
+// the initial venue_users read is running, `tx.abort()` is called and the
+// function returns null — preventing any stale venue data from being committed
+// to IDB (and subsequently hydrated by startSync() on the next session start).
+
+describe('GP-FANOUT-TX — shouldAbort guard inside _fanOutVenueTreeToIDB IDB transaction', () => {
+  it('GP-FANOUT-TX: invalidation during vuStore.getAll() aborts the transaction and returns null', async () => {
+    const { _fanOutVenueTreeToIDB } = await import('../sync/globalPull.js');
+    const idbModule = await import('../useIDB.js');
+
+    const venueRecord = {
+      id: 1,
+      name: 'GP-FANOUT-TX Venue',
+      menu_source: 'directus',
+      rooms: [],
+      tables: [],
+      payment_methods: [],
+      printers: [],
+      users: [],
+      venue_users: [],
+      table_merge_sessions: [],
+      menu_categories: [],
+      menu_items: [],
+      menu_modifiers: [],
+      primary_color: '#abcdef',
+    };
+
+    // shouldAbort returns false initially (so the pre-transaction check passes),
+    // and true after genBumped is set (by the getAll() wrapper below).
+    let genBumped = false;
+    const shouldAbort = () => genBumped;
+
+    // Wrap getDB() so that venue_users objectStore.getAll() sets genBumped=true
+    // AFTER the read resolves — simulating _onOffline() firing mid-transaction.
+    const origGetDB = idbModule.getDB;
+    const getDbSpy = vi.spyOn(idbModule, 'getDB').mockImplementationOnce(async () => {
+      const db = await origGetDB();
+      return new Proxy(db, {
+        get(target, prop, receiver) {
+          if (prop === 'transaction') {
+            return (...txArgs) => {
+              const tx = target.transaction(...txArgs);
+              return new Proxy(tx, {
+                get(txTarget, txProp, txReceiver) {
+                  if (txProp === 'objectStore') {
+                    return (name) => {
+                      const store = txTarget.objectStore(name);
+                      if (name === 'venue_users') {
+                        return new Proxy(store, {
+                          get(storeTarget, storeProp, storeReceiver) {
+                            if (storeProp === 'getAll') {
+                              return async () => {
+                                const result = await storeTarget.getAll();
+                                // Simulate invalidation firing while getAll was running.
+                                genBumped = true;
+                                return result;
+                              };
+                            }
+                            const val = Reflect.get(storeTarget, storeProp, storeReceiver);
+                            return typeof val === 'function' ? val.bind(storeTarget) : val;
+                          },
+                        });
+                      }
+                      return store;
+                    };
+                  }
+                  const val = Reflect.get(txTarget, txProp, txReceiver);
+                  return typeof val === 'function' ? val.bind(txTarget) : val;
+                },
+              });
+            };
+          }
+          const val = Reflect.get(target, prop, receiver);
+          return typeof val === 'function' ? val.bind(target) : val;
+        },
+      });
+    });
+
+    const result = await _fanOutVenueTreeToIDB(venueRecord, { menuSource: 'directus', shouldAbort });
+
+    // The function must return null when the transaction is aborted mid-flight.
+    expect(result).toBeNull();
+    // Confirm the mock was actually invoked (not just bypassed by another path).
+    expect(genBumped).toBe(true);
+
+    getDbSpy.mockRestore();
+  });
+});

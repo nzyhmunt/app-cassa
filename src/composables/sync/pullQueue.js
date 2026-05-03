@@ -421,7 +421,14 @@ export async function _pullCollection(collection, { forceFull = false, lastPullT
     page++;
   }
 
-  if (hadRemoteRecords) {
+  // Skip the in-memory store broadcast if the pull signal was aborted.
+  // When signal.aborted is true we broke out of the page loop after the IDB
+  // write but before writing the checkpoint, meaning a superseding pull cycle
+  // (forcePull / stopSync / _runPull re-arm) is already in flight.  That cycle
+  // will do its own store refresh with fresh data.  Refreshing here with the
+  // partial page we just wrote would broadcast stale records to the UI and
+  // potentially overwrite the fresher data the new cycle is about to apply.
+  if (hadRemoteRecords && !signal?.aborted) {
     if (collection === 'order_items') {
       // S7: The atomic function handled both the order_items write and the merge
       // into orders.orderItems.  Only refresh the in-memory store when at least
