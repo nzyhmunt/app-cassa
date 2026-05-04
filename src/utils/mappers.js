@@ -1013,6 +1013,62 @@ export function mapTransactionToDirectus(record) {
 }
 
 /**
+ * Maps a raw Directus `transactions` record to the local in-memory format.
+ *
+ * Directus stores transactions with snake_case field names (e.g. `amount_paid`,
+ * `operation_type`), while all client code reads camelCase aliases (e.g.
+ * `amountPaid`, `operationType`).  This mapper bridges the gap so that
+ * transactions pulled on a second device are identical in shape to transactions
+ * created locally on the originating device.
+ *
+ * The snake_case originals are kept alongside the camelCase aliases because
+ * `getTableStatus` reads `t.table` and `t.bill_session` directly from the raw
+ * `transactions` ref (without going through `reportTransactions`).
+ *
+ * `paymentMethod` (the UI display label) is intentionally not set here because
+ * it was stripped from the push payload via `_PUSH_DROP_FIELDS` and is not
+ * stored in Directus.  Components should resolve the label at render time via
+ * `resolveTransactionPaymentLabel` (see `utils/paymentMethods.js`).
+ *
+ * @param {object} record - Raw Directus `transactions` record
+ * @returns {object}
+ */
+export function mapTransactionFromDirectus(record) {
+  const r = record ?? {};
+  const tableVal = relationId(r.table);
+  const billSessionVal = relationId(r.bill_session ?? r.billSessionId ?? null);
+  const paymentMethodVal = relationId(r.payment_method ?? r.paymentMethodId ?? null);
+  // Coerce a field to a number when present; leave it undefined when absent.
+  // `amountPaid` always defaults to 0 (it is always displayed); all other numeric
+  // fields default to undefined so callers can distinguish "not set" from 0.
+  const _num = (camel, snake) => {
+    const v = r[camel] ?? r[snake];
+    return v != null ? numberOr(v) : undefined;
+  };
+  return {
+    ...r,
+    // Normalise FK fields so they are always scalar IDs, never relation objects.
+    table: tableVal,
+    bill_session: billSessionVal,
+    payment_method: paymentMethodVal,
+    // camelCase aliases (mirrors the shape of locally-created transactions)
+    amountPaid: numberOr(r.amountPaid ?? r.amount_paid),
+    tipAmount: _num('tipAmount', 'tip_amount'),
+    operationType: r.operationType ?? r.operation_type,
+    paymentMethodId: paymentMethodVal,
+    romanaSplitCount: _num('romanaSplitCount', 'romana_split_count'),
+    splitQuota: _num('splitQuota', 'split_quota'),
+    splitWays: _num('splitWays', 'split_ways'),
+    discountType: r.discountType ?? r.discount_type,
+    discountValue: _num('discountValue', 'discount_value'),
+    // `timestamp` is a local-only field stripped on push; fall back to Directus
+    // `date_created` so that display / sort in BillHistoryView still works.
+    timestamp: r.timestamp ?? r.date_created,
+    _sync_status: 'synced',
+  };
+}
+
+/**
  * Maps a local print log entry to Directus `print_jobs` field names.
  *
  * The Directus PK is the standard `id` field (UUID v7, no prefix).

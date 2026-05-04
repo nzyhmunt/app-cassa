@@ -23,3 +23,39 @@ export function resolvePaymentMethodMeta(methods, values = {}) {
   const match = lookup.get(label) ?? null;
   return { id: match?.id ?? '', label: match?.label ?? label };
 }
+
+/**
+ * Resolves the display label for a transaction.
+ *
+ * Originating-device transactions always carry `txn.paymentMethod` (set at creation time).
+ * Pulled transactions only have `txn.paymentMethodId` — the UI label was stripped from
+ * Directus on push.  This helper bridges both shapes:
+ *
+ *  1. Use `txn.paymentMethod` if already present.
+ *  2. Resolve from `methods` via `txn.paymentMethodId` — delegates to
+ *     `resolvePaymentMethodMeta` for consistent trimming and lookup-map resolution;
+ *     falls back to the raw (trimmed) id when the id is not present in the config list.
+ *  3. Fall back to known operation-type names ('Mancia' / 'Sconto') for tip/discount
+ *     transactions which carry no payment method at all.
+ *  4. Return '' as last resort so callers can filter with `.filter(Boolean)`.
+ *
+ * @param {Array}   methods  - `configStore.config.paymentMethods`
+ * @param {object}  txn      - transaction record
+ * @returns {string}
+ */
+export function resolveTransactionPaymentLabel(methods, txn) {
+  if (txn?.paymentMethod) return txn.paymentMethod;
+  const id = txn?.paymentMethodId;
+  if (id) {
+    // Delegate to resolvePaymentMethodMeta so that trimming, lookup-map building,
+    // and id/label normalisation are handled consistently in one place.
+    const meta = resolvePaymentMethodMeta(methods, { paymentMethodId: id });
+    // meta.label is '' when the id is not found in the methods list;
+    // meta.id is the normalized (trimmed) id returned by resolvePaymentMethodMeta,
+    // which is more informative than an empty string.
+    return meta.label || meta.id;
+  }
+  if (txn?.operationType === 'tip') return 'Mancia';
+  if (txn?.operationType === 'discount') return 'Sconto';
+  return '';
+}

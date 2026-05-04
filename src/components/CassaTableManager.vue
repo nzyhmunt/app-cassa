@@ -502,12 +502,12 @@
                     <div class="size-7 rounded-lg flex items-center justify-center shrink-0"
                       :class="txn.operationType === 'discount' ? 'bg-amber-200 text-amber-700' : 'bg-emerald-200 text-emerald-700'">
                       <Tag v-if="txn.operationType === 'discount'" class="size-3.5" />
-                      <component v-else :is="getPaymentIcon(txn.paymentMethod)" class="size-3.5" />
+                      <component v-else :is="getPaymentIcon(resolvePaymentLabel(txn))" class="size-3.5" />
                     </div>
                     <div class="flex flex-col min-w-0">
                       <span class="text-xs font-black uppercase tracking-wide"
                         :class="txn.operationType === 'discount' ? 'text-amber-800' : 'text-emerald-800'">
-                        {{ txn.operationType === 'discount' ? 'Sconto' : txn.paymentMethod }}
+                        {{ txn.operationType === 'discount' ? 'Sconto' : resolvePaymentLabel(txn) }}
                       </span>
                       <span class="text-[9px] font-medium"
                         :class="txn.operationType === 'discount' ? 'text-amber-600' : 'text-emerald-600'">
@@ -1341,6 +1341,7 @@ import { newUUIDv7, newShortId } from '../store/storeUtils.js';
 import { getOrderItemRowTotal, KITCHEN_ACTIVE_STATUSES, getLockedDirectItems, buildFiscalXmlRequest, formatOrderTime, formatOrderIdShort } from '../utils/index.js';
 import { buildFlatAnaliticaItems, computeAnaliticaTotal, exceedsAmount, getOrdersToComplete } from '../utils/analitica.js';
 import { loadCustomItemsFromIDB, saveCustomItemsToIDB } from '../store/persistence/operations.js';
+import { resolveTransactionPaymentLabel } from '../utils/paymentMethods.js';
 import { useNumericKeyboard } from '../composables/useNumericKeyboard.js';
 import { useAuth } from '../composables/useAuth.js';
 import { enqueueTableMoveJob, enqueuePreBillJob } from '../composables/usePrintQueue.js';
@@ -2033,6 +2034,10 @@ function getPaymentIcon(methodIdOrLabel) {
   return m.icon === 'credit-card' ? CreditCard : Banknote;
 }
 
+function resolvePaymentLabel(txn) {
+  return resolveTransactionPaymentLabel(configStore.config.paymentMethods, txn);
+}
+
 // ── Analitica mode: increment / decrement per-item quantity ───────────────
 function incrementAnalitica(key, max) {
   const current = analiticaQty.value[key] || 0;
@@ -2469,7 +2474,7 @@ function _buildBillSummaryBase() {
     closedAt: new Date().toISOString(),
     totalAmount: tableTotalAmount.value,
     totalPaid: tableAmountPaid.value,
-    paymentMethods: [...new Set(billTxns.filter(t => t.operationType !== 'discount' && t.operationType !== 'tip').map(t => t.paymentMethod))],
+    paymentMethods: [...new Set(billTxns.filter(t => t.operationType !== 'discount' && t.operationType !== 'tip').map(t => resolvePaymentLabel(t)).filter(Boolean))],
     orders: tableAcceptedPayableOrders.value.map(o => ({
       id: o.id,
       items: o.orderItems.map(r => ({

@@ -12,6 +12,7 @@ import {
   mapOrderFromDirectus,
   mapOrderItemFromDirectus,
   mapBillSessionFromDirectus,
+  mapTransactionFromDirectus,
   mapMenuItemFromDirectus,
   mapMenuCategoryFromDirectus,
   mapMenuModifierFromDirectus,
@@ -33,6 +34,7 @@ export function _mapRecord(collection, r) {
   if (collection === 'orders') return mapOrderFromDirectus(r);
   if (collection === 'bill_sessions') return mapBillSessionFromDirectus(r);
   if (collection === 'order_items') return mapOrderItemFromDirectus(r);
+  if (collection === 'transactions') return mapTransactionFromDirectus(r);
   if (collection === 'menu_items') return mapMenuItemFromDirectus(r);
   if (collection === 'menu_categories') return mapMenuCategoryFromDirectus(r);
   if (collection === 'menu_modifiers') return mapMenuModifierFromDirectus(r);
