@@ -73,6 +73,13 @@ export function _resetWsHeartbeat() {
     console.warn(
       `[DirectusSync] WS heartbeat: no activity for ${WS_HEARTBEAT_INTERVAL_MS}ms — triggering REST catch-up pull.`,
     );
+    addSyncLog({
+      direction: 'IN',
+      type: 'WS',
+      endpoint: '/websocket/heartbeat',
+      payload: { phase: 1, silenceMs: WS_HEARTBEAT_INTERVAL_MS, action: 'rest_catchup' },
+      status: 'success',
+    });
     // Phase 2: pre-armed immediately so that a hung _runPull() (stalled TCP /
     // unresponsive server) does not block recovery.  Cancelled below if the
     // pull resolves cleanly (anyMerged:false — idle healthy socket).
@@ -82,6 +89,13 @@ export function _resetWsHeartbeat() {
       console.warn(
         '[DirectusSync] WS heartbeat: socket still silent after REST catch-up — forcing reconnect.',
       );
+      addSyncLog({
+        direction: 'IN',
+        type: 'WS',
+        endpoint: '/websocket/heartbeat',
+        payload: { phase: 2, silenceMs: WS_HEARTBEAT_INTERVAL_MS * 2, action: 'force_reconnect' },
+        status: 'error',
+      });
       _stopSubscriptions();
       _reconnectWs().catch(() => {});
     }, WS_HEARTBEAT_INTERVAL_MS);
@@ -139,6 +153,11 @@ export async function _handleSubscriptionMessage(collection, message) {
 
   let processedCount = data.length;
   let suppressedCount = 0;
+  let loggedIds = [];
+  // loggedItems holds the raw WS payload items (after echo suppression) for
+  // create/update events so the full record body appears in the Activity Monitor.
+  // Stays empty for delete events (only IDs are available on that path).
+  let loggedItems = [];
 
   if (event === 'delete') {
     // Filter out records that this device just pushed (self-echo suppression).
@@ -202,7 +221,7 @@ export async function _handleSubscriptionMessage(collection, message) {
         direction: 'IN',
         type: 'WS',
         endpoint: `/subscriptions/${collection}`,
-        payload: { event, count: data.length, suppressedCount },
+        payload: { event, count: data.length, suppressedCount, ids: nonEchoIds },
         response: { deletedCount: processedCount },
         status: 'success',
         statusCode: null,
@@ -214,6 +233,7 @@ export async function _handleSubscriptionMessage(collection, message) {
     }
     await deleteRecordsFromIDB(collection, nonEchoIds);
     await _refreshStoreFromIDB(collection);
+    loggedIds = nonEchoIds;
   } else {
     // Defensively drop any non-object entries that should never appear for
     // non-delete events but could arrive from a malformed or unexpected
@@ -386,6 +406,13 @@ export async function _handleSubscriptionMessage(collection, message) {
     if (collection === 'orders' && event === 'create') {
       _triggerImmediateOrderItemsPull();
     }
+    // Optional chaining + null filter: _mapRecord() can return null for malformed
+    // entries, and merge helpers may produce records without an id field in rare
+    // edge cases. Only log IDs that are actually present.
+    loggedIds = prepared.map(r => r?.id).filter(id => id != null);
+    // Capture the raw WS payload items (post-echo-suppression, pre-mapping) so
+    // the Activity Monitor can show the full record body as received from Directus.
+    loggedItems = nonEcho;
   }
 
   syncState.lastPullAt.value = new Date().toISOString();
@@ -397,7 +424,7 @@ export async function _handleSubscriptionMessage(collection, message) {
     direction: 'IN',
     type: 'WS',
     endpoint: `/subscriptions/${collection}`,
-    payload: { event, count: data.length, suppressedCount },
+    payload: { event, count: data.length, suppressedCount, ids: loggedIds, items: loggedItems },
     response: event === 'delete' ? { deletedCount: processedCount } : { writtenCount: processedCount },
     status: 'success',
     statusCode: null,
@@ -419,12 +446,22 @@ export async function _startSubscriptions(collections) {
   if (!client) return false;
 
   const venueId = appConfig.directus?.venueId ?? null;
+  // Track which collection subscribe is in-flight so the catch block can tell
+  // apart a connect() failure from a subscribe() failure.
+  let _failedCollection = null;
 
   try {
     await client.connect();
     syncState._wsConnected.value = true;
     // S5: Start the heartbeat watchdog now that the WS connection is live.
     _resetWsHeartbeat();
+    addSyncLog({
+      direction: 'OUT',
+      type: 'WS',
+      endpoint: '/websocket',
+      payload: { action: 'connect', collections },
+      status: 'success',
+    });
 
     for (const collection of collections) {
       const query = { fields: ['*'] };
@@ -435,7 +472,17 @@ export async function _startSubscriptions(collections) {
           : { venue: { _eq: venueId } };
       }
 
+      _failedCollection = collection;
       const { subscription, unsubscribe } = await client.subscribe(collection, { query });
+      _failedCollection = null; // subscribe succeeded for this collection
+      addSyncLog({
+        direction: 'OUT',
+        type: 'WS',
+        endpoint: `/subscriptions/${collection}`,
+        payload: { action: 'subscribe', fields: query.fields, filter: query.filter ?? null },
+        status: 'success',
+        collection,
+      });
       _unsubscribers.push(unsubscribe);
 
       // Process subscription messages as they arrive
@@ -446,6 +493,15 @@ export async function _startSubscriptions(collections) {
           }
         } catch (e) {
           console.warn(`[DirectusSync] Subscription ${collection} closed:`, e?.message ?? e);
+          addSyncLog({
+            direction: 'IN',
+            type: 'WS',
+            endpoint: `/subscriptions/${collection}`,
+            payload: { action: 'disconnect' },
+            response: { error: e?.message ?? String(e) },
+            status: 'error',
+            collection,
+          });
           syncState._wsConnected.value = false;
           // Increment the WS drop telemetry counter on unexpected disconnections.
           // Only counts true transport errors (caught exceptions from the subscription
@@ -487,6 +543,28 @@ export async function _startSubscriptions(collections) {
     return true;
   } catch (e) {
     console.warn('[DirectusSync] WebSocket unavailable, falling back to polling:', e?.message ?? e);
+    if (_failedCollection !== null) {
+      // subscribe() failed for _failedCollection (connect() already succeeded)
+      addSyncLog({
+        direction: 'OUT',
+        type: 'WS',
+        endpoint: `/subscriptions/${_failedCollection}`,
+        payload: { action: 'subscribe', collection: _failedCollection },
+        response: { error: e?.message ?? String(e) },
+        status: 'error',
+        collection: _failedCollection,
+      });
+    } else {
+      // connect() itself failed
+      addSyncLog({
+        direction: 'OUT',
+        type: 'WS',
+        endpoint: '/websocket',
+        payload: { action: 'connect', collections },
+        response: { error: e?.message ?? String(e) },
+        status: 'error',
+      });
+    }
     _stopSubscriptions();
     return false;
   }
@@ -538,6 +616,13 @@ export async function _reconnectWs() {
   if (syncState._reconnectTimer) { clearTimeout(syncState._reconnectTimer); syncState._reconnectTimer = null; }
 
   console.info('[DirectusSync] Attempting WebSocket reconnect…');
+  addSyncLog({
+    direction: 'OUT',
+    type: 'WS',
+    endpoint: '/websocket',
+    payload: { action: 'reconnect', collections: syncState._wsCollections },
+    status: 'success',
+  });
 
   // Stop polling before trying WS — avoids duplicate pulls during reconnect.
   if (syncState._pollTimer) { clearInterval(syncState._pollTimer); syncState._pollTimer = null; }
