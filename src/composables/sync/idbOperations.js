@@ -55,11 +55,14 @@ export async function _preparePullRecordsForIDB(collection, mapped, cachedState 
     // pull cycle — this eliminates the transient "order without items" flash that
     // would otherwise persist until the follow-up order_items pull completes.
     const itemIdsForNewOrders = new Set();
+    // Helper: a valid order_items string ID is a non-empty string.
+    const isStringId = id => typeof id === 'string' && id;
+
     for (const incoming of mapped) {
       if (existingById.has(String(incoming?.id ?? ''))) continue;
       if (!Array.isArray(incoming.order_items) || incoming.order_items.length === 0) continue;
       for (const id of incoming.order_items) {
-        if (typeof id === 'string' && id) itemIdsForNewOrders.add(id);
+        if (isStringId(id)) itemIdsForNewOrders.add(id);
       }
     }
 
@@ -80,7 +83,7 @@ export async function _preparePullRecordsForIDB(collection, mapped, cachedState 
         // the UI never shows an order without its items after a REST pull.
         if (idbItemsById.size > 0 && Array.isArray(incoming.order_items) && incoming.order_items.length > 0) {
           const idbItems = incoming.order_items
-            .filter(id => typeof id === 'string' && idbItemsById.has(id))
+            .filter(id => isStringId(id) && idbItemsById.has(id))
             .map(id => idbItemsById.get(id));
           if (idbItems.length > 0) {
             return { ...incoming, orderItems: idbItems };
