@@ -154,6 +154,10 @@ export async function _handleSubscriptionMessage(collection, message) {
   let processedCount = data.length;
   let suppressedCount = 0;
   let loggedIds = [];
+  // loggedItems holds the raw WS payload items (after echo suppression) for
+  // create/update events so the full record body appears in the Activity Monitor.
+  // Stays empty for delete events (only IDs are available on that path).
+  let loggedItems = [];
 
   if (event === 'delete') {
     // Filter out records that this device just pushed (self-echo suppression).
@@ -406,6 +410,9 @@ export async function _handleSubscriptionMessage(collection, message) {
     // entries, and merge helpers may produce records without an id field in rare
     // edge cases. Only log IDs that are actually present.
     loggedIds = prepared.map(r => r?.id).filter(id => id != null);
+    // Capture the raw WS payload items (post-echo-suppression, pre-mapping) so
+    // the Activity Monitor can show the full record body as received from Directus.
+    loggedItems = nonEcho;
   }
 
   syncState.lastPullAt.value = new Date().toISOString();
@@ -417,7 +424,7 @@ export async function _handleSubscriptionMessage(collection, message) {
     direction: 'IN',
     type: 'WS',
     endpoint: `/subscriptions/${collection}`,
-    payload: { event, count: data.length, suppressedCount, ids: loggedIds },
+    payload: { event, count: data.length, suppressedCount, ids: loggedIds, items: loggedItems },
     response: event === 'delete' ? { deletedCount: processedCount } : { writtenCount: processedCount },
     status: 'success',
     statusCode: null,
