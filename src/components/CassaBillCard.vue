@@ -242,6 +242,7 @@ import { ChevronDown, CreditCard, ClipboardList, Banknote, Tag, Wallet, CheckCir
 import { useConfigStore, useOrderStore } from '../store/index.js';
 import { billKey, getOrderItemRowTotal, buildFiscalXmlRequest, formatOrderIdShort } from '../utils/index.js';
 import { newUUIDv7 } from '../store/storeUtils.js';
+import { resolveTransactionPaymentLabel } from '../utils/paymentMethods.js';
 import NumericInput from './NumericInput.vue';
 import InvoiceModal from './shared/InvoiceModal.vue';
 
@@ -319,7 +320,7 @@ function _buildBillSummaryBase() {
     // CassaTableManager._buildBillSummaryBase() shape (where tableAmountPaid sums
     // all transactions including discounts). For bills without discounts, no effect.
     totalPaid: bill.totalPaid + (bill.totalDiscount ?? 0),
-    paymentMethods: [...new Set(paymentTxns.map(t => resolvePaymentLabel(t)))],
+    paymentMethods: [...new Set(paymentTxns.map(t => resolvePaymentLabel(t)).filter(Boolean))],
     orders: payableOrders.map(o => ({
       id: o.id,
       items: o.orderItems.map(r => ({
@@ -384,13 +385,6 @@ function getPaymentIcon(methodIdOrLabel) {
 }
 
 function resolvePaymentLabel(txn) {
-  if (txn.paymentMethod) return txn.paymentMethod;
-  const id = txn.paymentMethodId;
-  if (id) return configStore.config.paymentMethods.find(m => m.id === id)?.label ?? id;
-  // Fallback for pulled transactions where paymentMethod was stripped on push
-  // and no paymentMethodId exists (e.g. tip / discount operations).
-  if (txn.operationType === 'tip') return 'Mancia';
-  if (txn.operationType === 'discount') return 'Sconto';
-  return '';
+  return resolveTransactionPaymentLabel(configStore.config.paymentMethods, txn);
 }
 </script>

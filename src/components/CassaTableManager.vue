@@ -1341,6 +1341,7 @@ import { newUUIDv7, newShortId } from '../store/storeUtils.js';
 import { getOrderItemRowTotal, KITCHEN_ACTIVE_STATUSES, getLockedDirectItems, buildFiscalXmlRequest, formatOrderTime, formatOrderIdShort } from '../utils/index.js';
 import { buildFlatAnaliticaItems, computeAnaliticaTotal, exceedsAmount, getOrdersToComplete } from '../utils/analitica.js';
 import { loadCustomItemsFromIDB, saveCustomItemsToIDB } from '../store/persistence/operations.js';
+import { resolveTransactionPaymentLabel } from '../utils/paymentMethods.js';
 import { useNumericKeyboard } from '../composables/useNumericKeyboard.js';
 import { useAuth } from '../composables/useAuth.js';
 import { enqueueTableMoveJob, enqueuePreBillJob } from '../composables/usePrintQueue.js';
@@ -2033,17 +2034,8 @@ function getPaymentIcon(methodIdOrLabel) {
   return m.icon === 'credit-card' ? CreditCard : Banknote;
 }
 
-// Resolves the display label for a transaction's payment method.
-// Pulled transactions have paymentMethodId but no paymentMethod label (it was
-// stripped on push). This helper bridges the gap for all consumers in this
-// component so label resolution is consistent across originating and secondary
-// devices.
 function resolvePaymentLabel(txn) {
-  if (txn.paymentMethod) return txn.paymentMethod;
-  const id = txn.paymentMethodId;
-  if (id) return configStore.config.paymentMethods.find(m => m.id === id)?.label ?? id;
-  if (txn.operationType === 'tip') return 'Mancia';
-  return '';
+  return resolveTransactionPaymentLabel(configStore.config.paymentMethods, txn);
 }
 
 // ── Analitica mode: increment / decrement per-item quantity ───────────────

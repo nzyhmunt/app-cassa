@@ -4,6 +4,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { mapTransactionFromDirectus } from '../mappers.js';
+import { resolveTransactionPaymentLabel } from '../paymentMethods.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // mapTransactionFromDirectus
@@ -169,5 +170,49 @@ describe('mapTransactionFromDirectus()', () => {
     // paymentMethod itself must NOT be set by the mapper (it was stripped on push).
     expect(result.paymentMethodId).toBe('pm-uuid');
     expect(result.paymentMethod).toBeUndefined();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// resolveTransactionPaymentLabel
+// ─────────────────────────────────────────────────────────────────────────────
+describe('resolveTransactionPaymentLabel()', () => {
+  const methods = [
+    { id: 'cash-id', label: 'Contanti', icon: 'banknote' },
+    { id: 'card-id', label: 'Carta', icon: 'credit-card' },
+  ];
+
+  it('returns txn.paymentMethod when already set (originating device)', () => {
+    expect(resolveTransactionPaymentLabel(methods, { paymentMethod: 'Contanti' })).toBe('Contanti');
+  });
+
+  it('resolves label from methods array via paymentMethodId', () => {
+    expect(resolveTransactionPaymentLabel(methods, { paymentMethodId: 'card-id' })).toBe('Carta');
+  });
+
+  it('falls back to paymentMethodId string when id not in methods', () => {
+    expect(resolveTransactionPaymentLabel(methods, { paymentMethodId: 'unknown-id' })).toBe('unknown-id');
+  });
+
+  it('returns "Mancia" for tip transactions with no paymentMethodId', () => {
+    expect(resolveTransactionPaymentLabel(methods, { operationType: 'tip' })).toBe('Mancia');
+  });
+
+  it('returns "Sconto" for discount transactions with no paymentMethodId', () => {
+    expect(resolveTransactionPaymentLabel(methods, { operationType: 'discount' })).toBe('Sconto');
+  });
+
+  it('returns empty string for unknown operationType with no paymentMethodId', () => {
+    expect(resolveTransactionPaymentLabel(methods, { operationType: 'unknown' })).toBe('');
+  });
+
+  it('handles null/undefined txn gracefully', () => {
+    expect(resolveTransactionPaymentLabel(methods, null)).toBe('');
+    expect(resolveTransactionPaymentLabel(methods, undefined)).toBe('');
+  });
+
+  it('handles null/undefined methods array gracefully', () => {
+    expect(resolveTransactionPaymentLabel(null, { paymentMethodId: 'x' })).toBe('x');
+    expect(resolveTransactionPaymentLabel(undefined, { paymentMethodId: 'x' })).toBe('x');
   });
 });
