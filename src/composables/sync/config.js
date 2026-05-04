@@ -11,14 +11,14 @@
 /** @type {Record<string, { collections: string[], intervalMs: number }>} */
 export const PULL_CONFIG = {
   cassa: {
-    collections: ['orders', 'order_items', 'bill_sessions', 'tables'],
+    collections: ['orders', 'order_items', 'bill_sessions', 'tables', 'transactions'],
     // 30 s polling: frequent enough for near-real-time UX while keeping
     // backend load low. Use wsEnabled=true for sub-second updates if the
     // Directus instance supports WebSocket subscriptions.
     intervalMs: 30_000,
   },
   sala: {
-    collections: ['orders', 'order_items', 'bill_sessions', 'tables', 'menu_items'],
+    collections: ['orders', 'order_items', 'bill_sessions', 'tables', 'menu_items', 'transactions'],
     intervalMs: 30_000,
   },
   cucina: {

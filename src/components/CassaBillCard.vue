@@ -61,8 +61,8 @@
             <div class="flex items-center gap-2 text-xs font-bold"
               :class="txn.operationType === 'discount' ? 'text-amber-700' : 'text-emerald-700'">
               <Tag v-if="txn.operationType === 'discount'" class="size-3.5 shrink-0" />
-              <component v-else :is="getPaymentIcon(txn.paymentMethod)" class="size-3.5 shrink-0" />
-              <span class="uppercase tracking-wide">{{ txn.paymentMethod }}</span>
+              <component v-else :is="getPaymentIcon(txn.paymentMethod ?? txn.paymentMethodId)" class="size-3.5 shrink-0" />
+              <span class="uppercase tracking-wide">{{ resolvePaymentLabel(txn) }}</span>
               <span v-if="txn.operationType === 'romana'" class="text-[9px] font-medium opacity-70">
                 ({{ txn.splitQuota }}/{{ txn.splitWays }}<template v-if="(txn.romanaSplitCount || 1) > 1"> · {{ txn.romanaSplitCount }} quote</template>)
               </span>
@@ -75,7 +75,7 @@
             </div>
             <div class="text-right">
               <span class="font-black text-sm" :class="txn.operationType === 'discount' ? 'text-amber-800' : 'text-emerald-800'">
-                <span v-if="txn.operationType === 'discount'">-</span>{{ configStore.config.ui.currency }}{{ txn.amountPaid.toFixed(2) }}
+                <span v-if="txn.operationType === 'discount'">-</span>{{ configStore.config.ui.currency }}{{ (txn.amountPaid ?? 0).toFixed(2) }}
               </span>
               <div v-if="txn.grossAmount" class="text-[9px] font-medium text-gray-500">Consegnato: {{ configStore.config.ui.currency }}{{ txn.grossAmount.toFixed(2) }}</div>
               <div v-if="txn.changeAmount" class="text-[9px] font-bold text-blue-600">Resto: -{{ configStore.config.ui.currency }}{{ txn.changeAmount.toFixed(2) }}</div>
@@ -319,7 +319,7 @@ function _buildBillSummaryBase() {
     // CassaTableManager._buildBillSummaryBase() shape (where tableAmountPaid sums
     // all transactions including discounts). For bills without discounts, no effect.
     totalPaid: bill.totalPaid + (bill.totalDiscount ?? 0),
-    paymentMethods: [...new Set(paymentTxns.map(t => t.paymentMethod))],
+    paymentMethods: [...new Set(paymentTxns.map(t => resolvePaymentLabel(t)))],
     orders: payableOrders.map(o => ({
       id: o.id,
       items: o.orderItems.map(r => ({
@@ -381,5 +381,12 @@ function getPaymentIcon(methodIdOrLabel) {
   const m = configStore.config.paymentMethods.find(x => x.label === methodIdOrLabel || x.id === methodIdOrLabel);
   if (!m) return Banknote;
   return m.icon === 'credit-card' ? CreditCard : Banknote;
+}
+
+function resolvePaymentLabel(txn) {
+  if (txn.paymentMethod) return txn.paymentMethod;
+  const id = txn.paymentMethodId;
+  if (!id) return '';
+  return configStore.config.paymentMethods.find(m => m.id === id)?.label ?? id;
 }
 </script>
