@@ -718,7 +718,8 @@ function logMetaClass(log) {
 }
 
 function directionIcon(log) {
-  if (log.type === 'WS') return RefreshCw;
+  if (log.type === 'WS' && log.direction === 'OUT') return ArrowUpCircle;
+  if (log.type === 'WS') return ArrowDownCircle;
   if (log.direction === 'IN') return ArrowDownCircle;
   return ArrowUpCircle;
 }
@@ -734,6 +735,7 @@ function isPullWithNewData(log) {
 }
 
 function directionIconClass(log) {
+  if (log.type === 'WS' && log.direction === 'OUT') return 'text-purple-500';
   if (log.type === 'WS') return 'text-emerald-500';
   if (log.direction === 'IN') return 'text-sky-500';
   return 'text-purple-500';
