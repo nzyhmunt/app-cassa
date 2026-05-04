@@ -1035,17 +1035,25 @@ export function mapTransactionToDirectus(record) {
  */
 export function mapTransactionFromDirectus(record) {
   const r = record ?? {};
+  const tableVal = relationId(r.table);
+  const billSessionVal = relationId(r.bill_session ?? r.billSessionId ?? null);
+  const paymentMethodVal = relationId(r.payment_method ?? r.paymentMethodId ?? null);
   return {
     ...r,
-    amountPaid: r.amountPaid ?? r.amount_paid,
-    tipAmount: r.tipAmount ?? r.tip_amount,
+    // Normalise FK fields so they are always scalar IDs, never relation objects.
+    table: tableVal,
+    bill_session: billSessionVal,
+    payment_method: paymentMethodVal,
+    // camelCase aliases (mirrors the shape of locally-created transactions)
+    amountPaid: numberOr(r.amountPaid ?? r.amount_paid),
+    tipAmount: r.tipAmount != null ? numberOr(r.tipAmount) : (r.tip_amount != null ? numberOr(r.tip_amount) : undefined),
     operationType: r.operationType ?? r.operation_type,
-    paymentMethodId: r.paymentMethodId ?? r.payment_method,
-    romanaSplitCount: r.romanaSplitCount ?? r.romana_split_count,
-    splitQuota: r.splitQuota ?? r.split_quota,
-    splitWays: r.splitWays ?? r.split_ways,
+    paymentMethodId: paymentMethodVal,
+    romanaSplitCount: r.romanaSplitCount != null ? numberOr(r.romanaSplitCount) : (r.romana_split_count != null ? numberOr(r.romana_split_count) : undefined),
+    splitQuota: r.splitQuota != null ? numberOr(r.splitQuota) : (r.split_quota != null ? numberOr(r.split_quota) : undefined),
+    splitWays: r.splitWays != null ? numberOr(r.splitWays) : (r.split_ways != null ? numberOr(r.split_ways) : undefined),
     discountType: r.discountType ?? r.discount_type,
-    discountValue: r.discountValue ?? r.discount_value,
+    discountValue: r.discountValue != null ? numberOr(r.discountValue) : (r.discount_value != null ? numberOr(r.discount_value) : undefined),
     // `timestamp` is a local-only field stripped on push; fall back to Directus
     // `date_created` so that display / sort in BillHistoryView still works.
     timestamp: r.timestamp ?? r.date_created,

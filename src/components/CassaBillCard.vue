@@ -386,7 +386,11 @@ function getPaymentIcon(methodIdOrLabel) {
 function resolvePaymentLabel(txn) {
   if (txn.paymentMethod) return txn.paymentMethod;
   const id = txn.paymentMethodId;
-  if (!id) return '';
-  return configStore.config.paymentMethods.find(m => m.id === id)?.label ?? id;
+  if (id) return configStore.config.paymentMethods.find(m => m.id === id)?.label ?? id;
+  // Fallback for pulled transactions where paymentMethod was stripped on push
+  // and no paymentMethodId exists (e.g. tip / discount operations).
+  if (txn.operationType === 'tip') return 'Mancia';
+  if (txn.operationType === 'discount') return 'Sconto';
+  return '';
 }
 </script>
