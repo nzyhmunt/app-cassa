@@ -6195,8 +6195,7 @@ describe('VIS-CHANGE — visibilitychange triggers immediate pull on foreground'
         Object.defineProperty(document, 'visibilityState', originalDescriptor);
       } else {
         // jsdom does not define visibilityState on the instance; remove the override.
-        // eslint-disable-next-line no-prototype-builtins
-        if (document.hasOwnProperty('visibilityState')) delete document.visibilityState;
+        Reflect.deleteProperty(document, 'visibilityState');
       }
     }
   });
