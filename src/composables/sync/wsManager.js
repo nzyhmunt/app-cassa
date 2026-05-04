@@ -153,6 +153,7 @@ export async function _handleSubscriptionMessage(collection, message) {
 
   let processedCount = data.length;
   let suppressedCount = 0;
+  let loggedIds = [];
 
   if (event === 'delete') {
     // Filter out records that this device just pushed (self-echo suppression).
@@ -216,7 +217,7 @@ export async function _handleSubscriptionMessage(collection, message) {
         direction: 'IN',
         type: 'WS',
         endpoint: `/subscriptions/${collection}`,
-        payload: { event, count: data.length, suppressedCount },
+        payload: { event, count: data.length, suppressedCount, ids: nonEchoIds },
         response: { deletedCount: processedCount },
         status: 'success',
         statusCode: null,
@@ -228,6 +229,7 @@ export async function _handleSubscriptionMessage(collection, message) {
     }
     await deleteRecordsFromIDB(collection, nonEchoIds);
     await _refreshStoreFromIDB(collection);
+    loggedIds = nonEchoIds;
   } else {
     // Defensively drop any non-object entries that should never appear for
     // non-delete events but could arrive from a malformed or unexpected
@@ -400,6 +402,7 @@ export async function _handleSubscriptionMessage(collection, message) {
     if (collection === 'orders' && event === 'create') {
       _triggerImmediateOrderItemsPull();
     }
+    loggedIds = prepared.map(r => r?.id).filter(id => id != null);
   }
 
   syncState.lastPullAt.value = new Date().toISOString();
@@ -411,7 +414,7 @@ export async function _handleSubscriptionMessage(collection, message) {
     direction: 'IN',
     type: 'WS',
     endpoint: `/subscriptions/${collection}`,
-    payload: { event, count: data.length, suppressedCount },
+    payload: { event, count: data.length, suppressedCount, ids: loggedIds },
     response: event === 'delete' ? { deletedCount: processedCount } : { writtenCount: processedCount },
     status: 'success',
     statusCode: null,
