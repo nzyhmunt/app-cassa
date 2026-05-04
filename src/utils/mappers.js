@@ -1028,7 +1028,7 @@ export function mapTransactionToDirectus(record) {
  * `paymentMethod` (the UI display label) is intentionally not set here because
  * it was stripped from the push payload via `_PUSH_DROP_FIELDS` and is not
  * stored in Directus.  Components should resolve the label at render time via
- * `paymentMethodId` + the `paymentMethods` config (see `resolvePaymentMethodMeta`).
+ * `resolveTransactionPaymentLabel` (see `utils/paymentMethods.js`).
  *
  * @param {object} record - Raw Directus `transactions` record
  * @returns {object}

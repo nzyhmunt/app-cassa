@@ -32,7 +32,9 @@ export function resolvePaymentMethodMeta(methods, values = {}) {
  * Directus on push.  This helper bridges both shapes:
  *
  *  1. Use `txn.paymentMethod` if already present.
- *  2. Resolve from `methods` via `txn.paymentMethodId`.
+ *  2. Resolve from `methods` via `txn.paymentMethodId` — delegates to
+ *     `resolvePaymentMethodMeta` for consistent trimming and lookup-map resolution;
+ *     falls back to the raw (trimmed) id when the id is not present in the config list.
  *  3. Fall back to known operation-type names ('Mancia' / 'Sconto') for tip/discount
  *     transactions which carry no payment method at all.
  *  4. Return '' as last resort so callers can filter with `.filter(Boolean)`.
@@ -45,8 +47,13 @@ export function resolveTransactionPaymentLabel(methods, txn) {
   if (txn?.paymentMethod) return txn.paymentMethod;
   const id = txn?.paymentMethodId;
   if (id) {
-    const list = Array.isArray(methods) ? methods : [];
-    return list.find(m => m.id === id)?.label ?? id;
+    // Delegate to resolvePaymentMethodMeta so that trimming, lookup-map building,
+    // and id/label normalisation are handled consistently in one place.
+    const meta = resolvePaymentMethodMeta(methods, { paymentMethodId: id });
+    // meta.label is '' when the id is not found in the methods list;
+    // in that case return the raw id (trimmed by resolvePaymentMethodMeta internals)
+    // which is more informative than an empty string.
+    return meta.label || (typeof id === 'string' ? id.trim() : String(id));
   }
   if (txn?.operationType === 'tip') return 'Mancia';
   if (txn?.operationType === 'discount') return 'Sconto';

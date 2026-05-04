@@ -215,4 +215,12 @@ describe('resolveTransactionPaymentLabel()', () => {
     expect(resolveTransactionPaymentLabel(null, { paymentMethodId: 'x' })).toBe('x');
     expect(resolveTransactionPaymentLabel(undefined, { paymentMethodId: 'x' })).toBe('x');
   });
+
+  it('trims whitespace from paymentMethodId before lookup (consistent with resolvePaymentMethodMeta)', () => {
+    expect(resolveTransactionPaymentLabel(methods, { paymentMethodId: '  card-id  ' })).toBe('Carta');
+  });
+
+  it('falls back to trimmed id string when id with whitespace is not in methods', () => {
+    expect(resolveTransactionPaymentLabel(methods, { paymentMethodId: '  unknown-id  ' })).toBe('unknown-id');
+  });
 });
