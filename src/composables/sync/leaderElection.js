@@ -77,8 +77,15 @@ async function _startSyncLoopsAsLeader() {
       _runPull().catch(() => {});
       syncState._pollTimer = setInterval(() => _runPull().catch(() => {}), pullCfg.intervalMs);
     } else {
-      // Even with WebSocket, do one initial REST pull to catch up on missed updates
+      // Even with WebSocket active, run an initial REST pull to catch updates
+      // missed between the last session and now, and arm the periodic poll timer
+      // as a belt-and-suspenders safety net.  WS events can be silently dropped
+      // when the device screen locks, the OS suspends the tab, or the TCP
+      // connection becomes half-open without emitting an error.  The poll cycle
+      // ensures cross-device consistency converges within at most one interval
+      // even when a WS push is never delivered.
       _runPull().catch(() => {});
+      syncState._pollTimer = setInterval(() => _runPull().catch(() => {}), pullCfg.intervalMs);
     }
   } else {
     // WebSocket disabled — use REST polling only
@@ -90,6 +97,13 @@ async function _startSyncLoopsAsLeader() {
     window.addEventListener('online', _onOnline);
     window.addEventListener('offline', _onOffline);
     window.addEventListener('sync-queue:enqueue', _onQueueEnqueue);
+  }
+  // Trigger an immediate catch-up pull whenever the page transitions from hidden
+  // to visible (device unlocked, app brought to foreground).  The periodic poll
+  // timer is frozen by the browser while the tab is backgrounded, so this
+  // listener fills the gap by running a pull as soon as the user returns.
+  if (typeof document !== 'undefined') {
+    document.addEventListener('visibilitychange', _onVisibilityChange);
   }
   // PWA Background Sync: listen for messages from the service worker so that
   // background sync events (fired while the app was backgrounded/closed) can
@@ -315,6 +329,28 @@ function _onQueueEnqueue() {
 }
 
 /**
+ * Handles document `visibilitychange` events.
+ *
+ * When the page transitions from hidden → visible (device unlocked, PWA brought
+ * to foreground) the browser may have suspended or silently dropped the
+ * WebSocket connection, and the periodic `_pollTimer` interval was frozen for
+ * the duration of the hidden period.  Triggering an immediate REST pull as soon
+ * as the user returns ensures cross-device updates appear within a few seconds
+ * of the device becoming active again, regardless of the WS state.
+ *
+ * Additionally, if WebSocket is enabled but reports as disconnected, a
+ * reconnect attempt is started so the subscription resumes promptly.
+ */
+function _onVisibilityChange() {
+  if (typeof document === 'undefined' || document.visibilityState !== 'visible') return;
+  if (!syncState._running) return;
+  _runPull().catch(() => {});
+  if (appConfig.directus?.wsEnabled === true && !syncState._wsConnected.value) {
+    _reconnectWs().catch(() => {});
+  }
+}
+
+/**
  * PWA Background Sync: handles the 'bg-sync:drain-queue' message posted by
  * the service worker when a background sync fires (device came back online
  * while the user had closed or backgrounded the app).  Only the leader tab
@@ -434,6 +470,9 @@ export function useDirectusSync() {
       window.removeEventListener('online', _onOnline);
       window.removeEventListener('offline', _onOffline);
       window.removeEventListener('sync-queue:enqueue', _onQueueEnqueue);
+    }
+    if (typeof document !== 'undefined') {
+      document.removeEventListener('visibilitychange', _onVisibilityChange);
     }
     if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
       navigator.serviceWorker.removeEventListener('message', _onSwMessage);
@@ -643,6 +682,9 @@ export function _resetDirectusSyncSingleton() {
     window.removeEventListener('online', _onOnline);
     window.removeEventListener('offline', _onOffline);
     window.removeEventListener('sync-queue:enqueue', _onQueueEnqueue);
+  }
+  if (typeof document !== 'undefined') {
+    document.removeEventListener('visibilitychange', _onVisibilityChange);
   }
   if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
     navigator.serviceWorker.removeEventListener('message', _onSwMessage);
