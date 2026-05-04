@@ -11,6 +11,9 @@
  *  - _handleSubscriptionMessage calls _resetWsHeartbeat as its first synchronous
  *    operation, verifying the Risk-3 ordering invariant
  *  - _handleSubscriptionMessage is a no-op for empty / null data arrays
+ *  - addSyncLog is called for heartbeat phase-1 and phase-2 events
+ *  - addSyncLog is called for connect, subscribe, and disconnect lifecycle events
+ *  - addSyncLog is called for reconnect attempts
  *
  * Note: the full watchdog-fires / reconnect cascade is tested in the main
  * useDirectusSync.test.js suite (WS reconnect + catch-up pull scenarios).
@@ -21,7 +24,7 @@ import { _resetIDBSingleton } from '../../useIDB.js';
 import { _resetDirectusSyncSingleton } from '../../useDirectusSync.js';
 import { _resetDirectusClientSingleton } from '../../useDirectusClient.js';
 import { syncState } from '../state.js';
-import { _resetWsHeartbeat, _handleSubscriptionMessage } from '../wsManager.js';
+import { _resetWsHeartbeat, _handleSubscriptionMessage, _startSubscriptions, _reconnectWs } from '../wsManager.js';
 import { WS_HEARTBEAT_INTERVAL_MS } from '../echoSuppression.js';
 
 // ── Shared setup helper ───────────────────────────────────────────────────────
@@ -167,5 +170,299 @@ describe('_handleSubscriptionMessage — heartbeat ordering invariant (Risk 3)',
       clearSyncTimers();
       vi.useRealTimers();
     }
+  });
+});
+
+// ── _resetWsHeartbeat — addSyncLog calls ─────────────────────────────────────
+//
+// Verifies that the heartbeat phase-1 and phase-2 log entries are emitted so
+// they appear in the Activity Monitor.
+
+describe('_resetWsHeartbeat — addSyncLog for heartbeat events', () => {
+  let addSyncLogSpy;
+
+  beforeEach(async () => {
+    _resetDirectusSyncSingleton();
+    _resetDirectusClientSingleton();
+    vi.restoreAllMocks();
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
+    await configureDirectus();
+    syncState._running = true;
+    syncState._wsConnected.value = true;
+
+    const syncLogsModule = await import('../../../store/persistence/syncLogs.js');
+    addSyncLogSpy = vi.spyOn(syncLogsModule, 'addSyncLog').mockResolvedValue(undefined);
+
+    // Mock _runPull so that the heartbeat phase-1 promise resolves with anyMerged:false
+    // (healthy idle socket) without hitting IDB or the network.
+    const pullQueueModule = await import('../pullQueue.js');
+    vi.spyOn(pullQueueModule, '_runPull').mockResolvedValue({ ok: true, aborted: false, failedCollections: [], anyMerged: false });
+  });
+
+  afterEach(() => {
+    clearSyncTimers();
+    _resetDirectusSyncSingleton();
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('logs WS heartbeat phase-1 when the silence timer fires', async () => {
+    _resetWsHeartbeat();
+    vi.advanceTimersByTime(WS_HEARTBEAT_INTERVAL_MS);
+    // Let the microtask queue drain so the log call is dispatched.
+    await Promise.resolve();
+
+    expect(addSyncLogSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        direction: 'IN',
+        type: 'WS',
+        endpoint: '/websocket/heartbeat',
+        payload: expect.objectContaining({ phase: 1, action: 'rest_catchup' }),
+        status: 'success',
+      }),
+    );
+  });
+
+  it('logs WS heartbeat phase-2 when the socket is still silent after the REST catch-up', async () => {
+    // Make _runPull return anyMerged:true so phase-2 is NOT cancelled.
+    const pullQueueModule = await import('../pullQueue.js');
+    vi.spyOn(pullQueueModule, '_runPull').mockResolvedValue({ ok: true, aborted: false, failedCollections: [], anyMerged: true });
+
+    _resetWsHeartbeat();
+    // Phase-1 fires
+    vi.advanceTimersByTime(WS_HEARTBEAT_INTERVAL_MS);
+    await Promise.resolve();
+    // Phase-2 fires
+    vi.advanceTimersByTime(WS_HEARTBEAT_INTERVAL_MS);
+    await Promise.resolve();
+
+    const phase2Call = addSyncLogSpy.mock.calls.find(
+      ([arg]) => arg?.payload?.phase === 2,
+    );
+    expect(phase2Call).toBeDefined();
+    expect(phase2Call[0]).toMatchObject({
+      direction: 'IN',
+      type: 'WS',
+      endpoint: '/websocket/heartbeat',
+      payload: expect.objectContaining({ phase: 2, action: 'force_reconnect' }),
+      status: 'error',
+    });
+  });
+});
+
+// ── _startSubscriptions — addSyncLog for connect / subscribe / failure ────────
+//
+// Uses a lightweight MockWebSocket (no IDB) to exercise the connect and
+// subscribe paths and verify the correct log entries are emitted.
+
+describe('_startSubscriptions — addSyncLog for lifecycle events', () => {
+  let addSyncLogSpy;
+
+  /**
+   * Builds a mock Directus SDK client whose connect() resolves immediately and
+   * whose subscribe() returns a never-resolving async-iterable (simulating a
+   * live subscription).
+   */
+  function makeMockClient({ connectThrows = false, subscribeThrows = false, subscribeThrowsOnCollection = null } = {}) {
+    return {
+      connect: connectThrows
+        ? vi.fn().mockRejectedValue(new Error('WS unavailable'))
+        : vi.fn().mockResolvedValue(undefined),
+      subscribe: vi.fn().mockImplementation((collection) => {
+        if (subscribeThrows || collection === subscribeThrowsOnCollection) {
+          return Promise.reject(new Error(`subscribe failed for ${collection}`));
+        }
+        // Return a live subscription that never yields — tests won't advance timers.
+        const neverYield = (async function* () { /* never */ })();
+        return Promise.resolve({ subscription: neverYield, unsubscribe: vi.fn() });
+      }),
+    };
+  }
+
+  beforeEach(async () => {
+    await _resetIDBSingleton();
+    _resetDirectusSyncSingleton();
+    _resetDirectusClientSingleton();
+    vi.restoreAllMocks();
+    await configureDirectus();
+    syncState._running = true;
+    syncState._wsConnected.value = false;
+
+    const syncLogsModule = await import('../../../store/persistence/syncLogs.js');
+    addSyncLogSpy = vi.spyOn(syncLogsModule, 'addSyncLog').mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    clearSyncTimers();
+    _resetDirectusSyncSingleton();
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('logs a WS connect success and per-collection subscribe success', async () => {
+    const mockClient = makeMockClient();
+    const { useDirectusClient } = await import('../../useDirectusClient.js');
+    vi.spyOn(await import('../../useDirectusClient.js'), 'getDirectusClient').mockReturnValue(mockClient);
+
+    const ok = await _startSubscriptions(['orders']);
+    expect(ok).toBe(true);
+
+    // Connect success log
+    expect(addSyncLogSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        direction: 'OUT',
+        type: 'WS',
+        endpoint: '/websocket',
+        payload: expect.objectContaining({ action: 'connect' }),
+        status: 'success',
+      }),
+    );
+
+    // Subscribe success log
+    expect(addSyncLogSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        direction: 'OUT',
+        type: 'WS',
+        endpoint: '/subscriptions/orders',
+        payload: expect.objectContaining({ action: 'subscribe' }),
+        status: 'success',
+        collection: 'orders',
+      }),
+    );
+  });
+
+  it('logs a WS connect failure (action: connect) when connect() throws', async () => {
+    const mockClient = makeMockClient({ connectThrows: true });
+    vi.spyOn(await import('../../useDirectusClient.js'), 'getDirectusClient').mockReturnValue(mockClient);
+
+    const ok = await _startSubscriptions(['orders']);
+    expect(ok).toBe(false);
+
+    const errorCall = addSyncLogSpy.mock.calls.find(
+      ([arg]) => arg?.status === 'error',
+    );
+    expect(errorCall).toBeDefined();
+    expect(errorCall[0]).toMatchObject({
+      direction: 'OUT',
+      type: 'WS',
+      endpoint: '/websocket',
+      payload: expect.objectContaining({ action: 'connect' }),
+      status: 'error',
+    });
+    expect(errorCall[0].response?.error).toMatch(/WS unavailable/);
+  });
+
+  it('logs a subscribe failure (action: subscribe, collection name) when subscribe() throws', async () => {
+    const mockClient = makeMockClient({ subscribeThrowsOnCollection: 'orders' });
+    vi.spyOn(await import('../../useDirectusClient.js'), 'getDirectusClient').mockReturnValue(mockClient);
+
+    const ok = await _startSubscriptions(['orders']);
+    expect(ok).toBe(false);
+
+    const errorCall = addSyncLogSpy.mock.calls.find(
+      ([arg]) => arg?.status === 'error',
+    );
+    expect(errorCall).toBeDefined();
+    expect(errorCall[0]).toMatchObject({
+      direction: 'OUT',
+      type: 'WS',
+      endpoint: '/subscriptions/orders',
+      payload: expect.objectContaining({ action: 'subscribe', collection: 'orders' }),
+      status: 'error',
+      collection: 'orders',
+    });
+    expect(errorCall[0].response?.error).toMatch(/subscribe failed for orders/);
+  });
+
+  it('logs a subscribe failure for the correct collection when the second subscribe() throws', async () => {
+    // First collection subscribes fine; second one throws.
+    const mockClient = makeMockClient({ subscribeThrowsOnCollection: 'order_items' });
+    vi.spyOn(await import('../../useDirectusClient.js'), 'getDirectusClient').mockReturnValue(mockClient);
+
+    const ok = await _startSubscriptions(['orders', 'order_items']);
+    expect(ok).toBe(false);
+
+    const errorCall = addSyncLogSpy.mock.calls.find(
+      ([arg]) => arg?.status === 'error',
+    );
+    expect(errorCall).toBeDefined();
+    // Must identify order_items, not orders, and not report action: 'connect'.
+    expect(errorCall[0]).toMatchObject({
+      endpoint: '/subscriptions/order_items',
+      payload: expect.objectContaining({ action: 'subscribe', collection: 'order_items' }),
+      status: 'error',
+    });
+    // Must NOT say action: 'connect'
+    expect(errorCall[0].payload?.action).not.toBe('connect');
+  });
+
+  it('includes a String(e) fallback when the thrown error has no .message', async () => {
+    const mockClient = {
+      connect: vi.fn().mockRejectedValue('plain string error'),
+    };
+    vi.spyOn(await import('../../useDirectusClient.js'), 'getDirectusClient').mockReturnValue(mockClient);
+
+    await _startSubscriptions(['orders']);
+
+    const errorCall = addSyncLogSpy.mock.calls.find(([arg]) => arg?.status === 'error');
+    expect(errorCall).toBeDefined();
+    expect(errorCall[0].response?.error).toBe('plain string error');
+  });
+});
+
+// ── _reconnectWs — addSyncLog for reconnect attempt ──────────────────────────
+
+describe('_reconnectWs — addSyncLog for reconnect attempt', () => {
+  let addSyncLogSpy;
+
+  beforeEach(async () => {
+    await _resetIDBSingleton();
+    _resetDirectusSyncSingleton();
+    _resetDirectusClientSingleton();
+    vi.restoreAllMocks();
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
+    await configureDirectus();
+    syncState._running = true;
+    syncState._wsConnected.value = false;
+    syncState._appType = 'cassa';
+    syncState._wsCollections = ['orders'];
+
+    const syncLogsModule = await import('../../../store/persistence/syncLogs.js');
+    addSyncLogSpy = vi.spyOn(syncLogsModule, 'addSyncLog').mockResolvedValue(undefined);
+
+    // _startSubscriptions will be called inside _reconnectWs.
+    // Mock getDirectusClient so connect() resolves and subscribe() returns a live stream.
+    const neverYield = (async function* () { /* never */ })();
+    const mockClient = {
+      connect: vi.fn().mockResolvedValue(undefined),
+      subscribe: vi.fn().mockResolvedValue({ subscription: neverYield, unsubscribe: vi.fn() }),
+    };
+    vi.spyOn(await import('../../useDirectusClient.js'), 'getDirectusClient').mockReturnValue(mockClient);
+  });
+
+  afterEach(() => {
+    clearSyncTimers();
+    _resetDirectusSyncSingleton();
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('logs a WS reconnect attempt before calling _startSubscriptions', async () => {
+    await _reconnectWs();
+
+    const reconnectCall = addSyncLogSpy.mock.calls.find(
+      ([arg]) => arg?.payload?.action === 'reconnect',
+    );
+    expect(reconnectCall).toBeDefined();
+    expect(reconnectCall[0]).toMatchObject({
+      direction: 'OUT',
+      type: 'WS',
+      endpoint: '/websocket',
+      payload: expect.objectContaining({ action: 'reconnect' }),
+      status: 'success',
+    });
   });
 });

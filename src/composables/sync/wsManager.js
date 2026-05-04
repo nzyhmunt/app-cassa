@@ -433,6 +433,9 @@ export async function _startSubscriptions(collections) {
   if (!client) return false;
 
   const venueId = appConfig.directus?.venueId ?? null;
+  // Track which collection subscribe is in-flight so the catch block can tell
+  // apart a connect() failure from a subscribe() failure.
+  let _failedCollection = null;
 
   try {
     await client.connect();
@@ -456,7 +459,9 @@ export async function _startSubscriptions(collections) {
           : { venue: { _eq: venueId } };
       }
 
+      _failedCollection = collection;
       const { subscription, unsubscribe } = await client.subscribe(collection, { query });
+      _failedCollection = null; // subscribe succeeded for this collection
       addSyncLog({
         direction: 'OUT',
         type: 'WS',
@@ -480,7 +485,7 @@ export async function _startSubscriptions(collections) {
             type: 'WS',
             endpoint: `/subscriptions/${collection}`,
             payload: { action: 'disconnect' },
-            response: { error: e?.message ?? null },
+            response: { error: e?.message ?? String(e) },
             status: 'error',
             collection,
           });
@@ -525,14 +530,28 @@ export async function _startSubscriptions(collections) {
     return true;
   } catch (e) {
     console.warn('[DirectusSync] WebSocket unavailable, falling back to polling:', e?.message ?? e);
-    addSyncLog({
-      direction: 'OUT',
-      type: 'WS',
-      endpoint: '/websocket',
-      payload: { action: 'connect', collections },
-      response: { error: e?.message ?? String(e) },
-      status: 'error',
-    });
+    if (_failedCollection !== null) {
+      // subscribe() failed for _failedCollection (connect() already succeeded)
+      addSyncLog({
+        direction: 'OUT',
+        type: 'WS',
+        endpoint: `/subscriptions/${_failedCollection}`,
+        payload: { action: 'subscribe', collection: _failedCollection },
+        response: { error: e?.message ?? String(e) },
+        status: 'error',
+        collection: _failedCollection,
+      });
+    } else {
+      // connect() itself failed
+      addSyncLog({
+        direction: 'OUT',
+        type: 'WS',
+        endpoint: '/websocket',
+        payload: { action: 'connect', collections },
+        response: { error: e?.message ?? String(e) },
+        status: 'error',
+      });
+    }
     _stopSubscriptions();
     return false;
   }
