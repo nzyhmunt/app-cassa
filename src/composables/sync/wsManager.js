@@ -402,6 +402,9 @@ export async function _handleSubscriptionMessage(collection, message) {
     if (collection === 'orders' && event === 'create') {
       _triggerImmediateOrderItemsPull();
     }
+    // Optional chaining + null filter: _mapRecord() can return null for malformed
+    // entries, and merge helpers may produce records without an id field in rare
+    // edge cases. Only log IDs that are actually present.
     loggedIds = prepared.map(r => r?.id).filter(id => id != null);
   }
 
