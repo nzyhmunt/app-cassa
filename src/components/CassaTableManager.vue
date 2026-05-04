@@ -2043,7 +2043,6 @@ function resolvePaymentLabel(txn) {
   const id = txn.paymentMethodId;
   if (id) return configStore.config.paymentMethods.find(m => m.id === id)?.label ?? id;
   if (txn.operationType === 'tip') return 'Mancia';
-  if (txn.operationType === 'discount') return 'Sconto';
   return '';
 }
 
