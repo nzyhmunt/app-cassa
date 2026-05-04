@@ -61,7 +61,7 @@
             <div class="flex items-center gap-2 text-xs font-bold"
               :class="txn.operationType === 'discount' ? 'text-amber-700' : 'text-emerald-700'">
               <Tag v-if="txn.operationType === 'discount'" class="size-3.5 shrink-0" />
-              <component v-else :is="getPaymentIcon(txn.paymentMethod ?? txn.paymentMethodId)" class="size-3.5 shrink-0" />
+              <component v-else :is="getPaymentIcon(resolvePaymentLabel(txn))" class="size-3.5 shrink-0" />
               <span class="uppercase tracking-wide">{{ resolvePaymentLabel(txn) }}</span>
               <span v-if="txn.operationType === 'romana'" class="text-[9px] font-medium opacity-70">
                 ({{ txn.splitQuota }}/{{ txn.splitWays }}<template v-if="(txn.romanaSplitCount || 1) > 1"> · {{ txn.romanaSplitCount }} quote</template>)
