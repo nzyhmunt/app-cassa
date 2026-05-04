@@ -161,4 +161,13 @@ describe('mapTransactionFromDirectus()', () => {
     const result = mapTransactionFromDirectus(raw);
     expect(result.amountPaid).toBe(0);
   });
+
+  it('does not set paymentMethod label (UI-only field stripped on push and absent in Directus)', () => {
+    const raw = { id: 'txn-5', amount_paid: 10, payment_method: 'pm-uuid', operation_type: 'unico' };
+    const result = mapTransactionFromDirectus(raw);
+    // paymentMethodId is set so consumers can resolve the label at render time;
+    // paymentMethod itself must NOT be set by the mapper (it was stripped on push).
+    expect(result.paymentMethodId).toBe('pm-uuid');
+    expect(result.paymentMethod).toBeUndefined();
+  });
 });
