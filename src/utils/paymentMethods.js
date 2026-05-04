@@ -51,9 +51,9 @@ export function resolveTransactionPaymentLabel(methods, txn) {
     // and id/label normalisation are handled consistently in one place.
     const meta = resolvePaymentMethodMeta(methods, { paymentMethodId: id });
     // meta.label is '' when the id is not found in the methods list;
-    // in that case return the raw id (trimmed by resolvePaymentMethodMeta internals)
+    // meta.id is the normalized (trimmed) id returned by resolvePaymentMethodMeta,
     // which is more informative than an empty string.
-    return meta.label || (typeof id === 'string' ? id.trim() : String(id));
+    return meta.label || meta.id;
   }
   if (txn?.operationType === 'tip') return 'Mancia';
   if (txn?.operationType === 'discount') return 'Sconto';
