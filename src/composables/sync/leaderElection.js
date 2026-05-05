@@ -311,7 +311,20 @@ function _onOnline() {
 }
 
 function _onQueueEnqueue() {
-  _runPush().catch(() => {});
+  if (syncState._pushInFlight) {
+    // A push is already running; its getPendingEntries() snapshot may have
+    // already executed, meaning items enqueued now won't be included in the
+    // current drain.  Chain a follow-up push immediately after the in-flight
+    // one completes so mid-drain enqueues (e.g. cover-charge order created
+    // right after bill_session) are sent without waiting for the 30 s interval.
+    // The rejection handler is a defensive no-op: the push IIFE always resolves
+    // (its catch block returns a default empty result) so this path never fires
+    // in practice, but it prevents an unhandled-rejection warning if the
+    // behaviour ever changes.
+    syncState._pushInFlight.then(() => _runPush().catch(() => {}), () => {});
+  } else {
+    _runPush().catch(() => {});
+  }
 }
 
 /**
