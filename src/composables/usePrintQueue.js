@@ -279,12 +279,13 @@ export function enqueuePrintJobs(order) {
     // HTTP printers: send directly from the browser.
     // TCP/file printers: the job is in the Directus sync queue; the print-server
     // will claim it from there — no HTTP call needed from the browser.
-    // Set status to 'queued' so operators can distinguish "handed off to server"
-    // from "pending" (about to send) or a stuck job.
+    // Use updatePrintLogEntryLocal so 'queued' is a UI-only status that is NOT
+    // pushed to Directus — the Directus record must stay 'pending' so the
+    // print-server can claim it.
     if (printer.url) {
       sendPrintJob(job, printer.url, logId, store);
     } else {
-      store?.updatePrintLogEntry(logId, { status: 'queued' });
+      store?.updatePrintLogEntryLocal(logId, { status: 'queued' });
     }
   }
 }
@@ -335,10 +336,12 @@ export function enqueueTableMoveJob(fromTableId, fromTableLabel, toTableId, toTa
 
     // HTTP printers: send directly from the browser.
     // TCP/file printers: the job reaches the print-server via Directus.
+    // Use updatePrintLogEntryLocal so the 'queued' status stays UI-only and
+    // does not patch the Directus record (which must remain 'pending').
     if (printer.url) {
       sendPrintJob(job, printer.url, logId, store);
     } else {
-      store?.updatePrintLogEntry(logId, { status: 'queued' });
+      store?.updatePrintLogEntryLocal(logId, { status: 'queued' });
     }
   }
 }

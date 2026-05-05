@@ -573,12 +573,22 @@ describe('TCP/file printer routing (Directus print-server path)', () => {
     expect(createEntry.payload.printerId).toBe('cucina_tcp');
     expect(createEntry.payload.payload?.orderId).toBe('ord_tcp_1');
 
-    // Log entry status must transition from 'pending' to 'queued'
+    // Log entry status must transition from 'pending' to 'queued' (UI-only)
     const store = useAppStore();
     await vi.waitFor(() => {
       const entry = store.printLog.find(e => e.table === 'T1');
       expect(entry?.status).toBe('queued');
     });
+
+    // The 'queued' transition must NOT produce a print_jobs UPDATE in the sync queue
+    // (so the Directus record stays 'pending' and the print-server can claim it).
+    // We check specifically for status:'queued' updates, not zero total, to avoid
+    // false positives from async callbacks of earlier tests settling after IDB reset.
+    const allEntries = await getPendingEntries();
+    const queuedUpdates = allEntries.filter(
+      e => e.collection === 'print_jobs' && e.operation === 'update' && e.payload?.status === 'queued',
+    );
+    expect(queuedUpdates).toHaveLength(0);
   });
 
   it('enqueuePrintJobs enqueues a print_jobs CREATE for a file printer without sending HTTP', async () => {
@@ -600,6 +610,13 @@ describe('TCP/file printer routing (Directus print-server path)', () => {
       const entry = store.printLog.find(e => e.table === 'F1');
       expect(entry?.status).toBe('queued');
     });
+
+    // No 'queued' UPDATE must be enqueued — 'queued' is UI-only
+    const allEntries = await getPendingEntries();
+    const queuedUpdates = allEntries.filter(
+      e => e.collection === 'print_jobs' && e.operation === 'update' && e.payload?.status === 'queued',
+    );
+    expect(queuedUpdates).toHaveLength(0);
   });
 
   it('enqueuePrintJobs does nothing when a printer has neither url nor connectionType', () => {

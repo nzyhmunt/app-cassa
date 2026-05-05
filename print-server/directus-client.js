@@ -56,7 +56,7 @@
  *  DIRECTUS_TOKEN                  — Static token con permessi su print_jobs e printers
  *  DIRECTUS_VENUE_ID               — (opzionale) filtra i job per venue (integer ID)
  *  DIRECTUS_POLL_SEC               — intervallo polling REST in secondi (default: 60)
- *  DIRECTUS_JOB_MAX_AGE_HOURS      — finestra temporale per il polling: ignora job più vecchi di N ore (default: 24)
+ *  DIRECTUS_JOB_MAX_AGE_HOURS      — finestra temporale per il polling: ignora job più vecchi di N ore (default: 24); 0 = nessun limite
  *  DIRECTUS_WS_RETRIES             — tentativi di riconnessione WS (default: 100)
  *  DIRECTUS_WS_RETRY_DELAY         — attesa tra riconnessioni WS in ms (default: 3000)
  *  DIRECTUS_RETRY_MAX              — tentativi per job in caso di errore transitorio (default: 3)
@@ -108,8 +108,10 @@ const PRINTERS_REFRESH_SEC  = Math.max(30,  envInt('DIRECTUS_PRINTERS_REFRESH_SE
  * Il polling considera solo i job creati nelle ultime N ore per evitare di
  * riprocessare job rimasti in stato 'pending' da molto tempo (es. job bloccati
  * prima di un aggiornamento del server). Default: 24 ore.
+ * Impostare a 0 per disabilitare il filtro temporale (utile per forzare il
+ * recupero di job bloccati dopo un'interruzione prolungata).
  */
-const JOB_MAX_AGE_HOURS     = Math.max(1,   envInt('DIRECTUS_JOB_MAX_AGE_HOURS',   24));
+const JOB_MAX_AGE_HOURS     = Math.max(0,   envInt('DIRECTUS_JOB_MAX_AGE_HOURS',   24));
 
 /** Milliseconds per hour — used to compute the polling recency cutoff. */
 const MS_PER_HOUR = 3_600_000;
@@ -162,14 +164,15 @@ function buildJobFilter() {
  * Costruisce il filtro Directus per il polling REST.
  * Include una finestra temporale (`date_created >= cutoff`) per evitare di
  * riprocessare job bloccati in stato 'pending' da più di JOB_MAX_AGE_HOURS ore.
+ * Quando JOB_MAX_AGE_HOURS è 0 il filtro temporale viene omesso (nessun limite).
  * @returns {object}
  */
 function buildPollFilter() {
-  const cutoff = new Date(Date.now() - JOB_MAX_AGE_HOURS * MS_PER_HOUR).toISOString();
-  const conditions = [
-    { status: { _eq: 'pending' } },
-    { date_created: { _gte: cutoff } },
-  ];
+  const conditions = [{ status: { _eq: 'pending' } }];
+  if (JOB_MAX_AGE_HOURS > 0) {
+    const cutoff = new Date(Date.now() - JOB_MAX_AGE_HOURS * MS_PER_HOUR).toISOString();
+    conditions.push({ date_created: { _gte: cutoff } });
+  }
   if (DIRECTUS_VENUE) {
     const parsedVenue = parseInt(DIRECTUS_VENUE, 10);
     conditions.push({ venue: { _eq: isNaN(parsedVenue) ? DIRECTUS_VENUE : parsedVenue } });
