@@ -904,6 +904,10 @@ export function mapVenueConfigFromDirectus(cachedConfig, defaults) {
       const entry = { id: printer.id, name: printer.name, url: printer.url };
       if (printer.print_types?.length) entry.printTypes = printer.print_types;
       if (printer.categories?.length) entry.categories = printer.categories;
+      // connectionType is needed so usePrintQueue can route TCP/file printers
+      // through the Directus sync queue instead of a direct HTTP call.
+      // isDirectusManagedPrinter() normalises the value, so the raw string is fine here.
+      if (printer.connection_type) entry.connectionType = printer.connection_type;
       return entry;
     });
   }

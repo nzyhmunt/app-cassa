@@ -63,6 +63,22 @@ export const useOrderStore = defineStore('orders', () => {
     }
   }
 
+  /**
+   * Updates a print log entry **locally only** — does NOT enqueue a Directus sync update.
+   * Use this for UI-only status transitions that must not be pushed to Directus
+   * (e.g. transitioning a TCP/file printer job to 'queued' so operators can see
+   * "handed off to print-server", while keeping the Directus record at 'pending'
+   * so the print-server can still claim it).
+   * @param {string} logId
+   * @param {object} updates
+   */
+  function updatePrintLogEntryLocal(logId, updates) {
+    const idx = printLog.value.findIndex(e => e.logId === logId);
+    if (idx !== -1) {
+      printLog.value[idx] = { ...printLog.value[idx], ...updates };
+    }
+  }
+
   function clearPrintLog() {
     printLog.value = [];
   }
@@ -1177,6 +1193,7 @@ export const useOrderStore = defineStore('orders', () => {
     printLog,
     addPrintLogEntry,
     updatePrintLogEntry,
+    updatePrintLogEntryLocal,
     clearPrintLog,
     fiscalReceipts,
     addFiscalReceipt,

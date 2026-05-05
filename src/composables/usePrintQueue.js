@@ -32,7 +32,9 @@
  *   printerUrl string  – URL the job was sent to
  *   table      string  – table label (or 'from → to' for table_move)
  *   timestamp  string  – ISO 8601 dispatch time
- *   status     string  – 'pending' | 'printing' | 'done' | 'error'
+ *   status     string  – 'pending' | 'printing' | 'done' | 'error' | 'queued'
+ *                         'queued' is set for TCP/file (Directus-managed) printers once the
+ *                         job has been placed in the sync queue for the print-server to claim.
  *   errorMessage? string – populated when status === 'error'
  *   isReprint? boolean – true for reprinted jobs
  *   originalJobId? string – jobId of the original job (only for reprints)
@@ -150,8 +152,28 @@ function getRuntimeConfig(store = null) {
 }
 
 /**
+ * Returns true for printers managed by the Directus print-server (TCP/file
+ * connection type). These printers have no browser-accessible HTTP URL; their
+ * jobs are delivered to the print-server via the Directus sync queue.
+ * @param {object|null} printer
+ * @returns {boolean}
+ */
+function isDirectusManagedPrinter(printer) {
+  const ct = typeof printer?.connectionType === 'string'
+    ? printer.connectionType.toLowerCase().trim()
+    : '';
+  return ct === 'tcp' || ct === 'file';
+}
+
+/**
  * Returns all configured printers that accept the given printType.
  * A printer with no printTypes (or an empty array) acts as catch-all.
+ *
+ * Printers with a direct HTTP `url` are dispatched immediately by the browser.
+ * Printers with `connectionType` = 'tcp' or 'file' have no browser-accessible
+ * URL; their print_jobs are delivered to Directus via the sync queue and picked
+ * up by the print-server.
+ *
  * @param {string} printType
  * @param {object|null} [store] - Optional store instance; when omitted/null, resolves from active Pinia.
  * @returns {object[]}
@@ -160,7 +182,10 @@ function getPrintersForType(printType, store = null) {
   const printers = getRuntimeConfig(store).printers;
   if (!Array.isArray(printers)) return [];
   return printers.filter(p => {
-    if (!p?.url) return false;
+    // Accept HTTP printers (have a direct URL) or Directus-managed printers
+    // (TCP/file — print-server reads jobs from Directus sync queue).
+    const hasUrl = Boolean(p?.url);
+    if (!hasUrl && !isDirectusManagedPrinter(p)) return false;
     if (!Array.isArray(p.printTypes) || p.printTypes.length === 0) return true;
     return p.printTypes.includes(printType);
   });
@@ -251,7 +276,20 @@ export function enqueuePrintJobs(order) {
       payload: job,
     });
 
-    sendPrintJob(job, printer.url, logId, store);
+    // connectionType takes precedence over url:
+    //   - HTTP printers (not TCP/file): send directly from the browser via URL.
+    //   - TCP/file printers: the job is in the Directus sync queue; the
+    //     print-server claims it from there — no HTTP call needed from the browser.
+    //     A TCP/file printer that also has a (stale/mis-set) url must NOT send HTTP,
+    //     otherwise both the print-server and the browser would process the same job.
+    // Use updatePrintLogEntryLocal so 'queued' is a UI-only status that is NOT
+    // pushed to Directus — the Directus record must stay 'pending' so the
+    // print-server can claim it.
+    if (!isDirectusManagedPrinter(printer) && printer.url) {
+      sendPrintJob(job, printer.url, logId, store);
+    } else {
+      store?.updatePrintLogEntryLocal(logId, { status: 'queued' });
+    }
   }
 }
 
@@ -299,7 +337,16 @@ export function enqueueTableMoveJob(fromTableId, fromTableLabel, toTableId, toTa
       payload: job,
     });
 
-    sendPrintJob(job, printer.url, logId, store);
+    // connectionType takes precedence over url (same as enqueuePrintJobs):
+    //   - HTTP printers (not TCP/file): send directly from the browser.
+    //   - TCP/file printers: the job reaches the print-server via Directus.
+    // Use updatePrintLogEntryLocal so the 'queued' status stays UI-only and
+    // does not patch the Directus record (which must remain 'pending').
+    if (!isDirectusManagedPrinter(printer) && printer.url) {
+      sendPrintJob(job, printer.url, logId, store);
+    } else {
+      store?.updatePrintLogEntryLocal(logId, { status: 'queued' });
+    }
   }
 }
 
