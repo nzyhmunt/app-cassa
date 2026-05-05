@@ -111,6 +111,9 @@ const PRINTERS_REFRESH_SEC  = Math.max(30,  envInt('DIRECTUS_PRINTERS_REFRESH_SE
  */
 const JOB_MAX_AGE_HOURS     = Math.max(1,   envInt('DIRECTUS_JOB_MAX_AGE_HOURS',   24));
 
+/** Milliseconds per hour — used to compute the polling recency cutoff. */
+const MS_PER_HOUR = 3_600_000;
+
 /**
  * Ritardo iniziale (ms) prima del primo refresh stampanti.
  * Lascia tempo al server per completare il bootstrap (connessione WS, primo polling)
@@ -162,7 +165,7 @@ function buildJobFilter() {
  * @returns {object}
  */
 function buildPollFilter() {
-  const cutoff = new Date(Date.now() - JOB_MAX_AGE_HOURS * 3_600_000).toISOString();
+  const cutoff = new Date(Date.now() - JOB_MAX_AGE_HOURS * MS_PER_HOUR).toISOString();
   const conditions = [
     { status: { _eq: 'pending' } },
     { date_created: { _gte: cutoff } },
