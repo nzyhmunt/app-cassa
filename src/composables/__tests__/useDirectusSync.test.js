@@ -6135,6 +6135,42 @@ describe('WS-BELT-SUSPENDERS — _pollTimer armed even when WS subscriptions suc
       sync.stopSync();
     }
   });
+
+  it('WS-BELT-SUSPENDERS-RECONNECT: _pollTimer is re-armed after a successful WS reconnect', async () => {
+    const { syncState } = await import('../sync/state.js');
+    const { appConfig } = await import('../../utils/index.js');
+    const wsMod = await import('../sync/wsManager.js');
+    const pullMod = await import('../sync/pullQueue.js');
+
+    appConfig.directus = { ...appConfig.directus, wsEnabled: true };
+
+    vi.spyOn(wsMod, '_startSubscriptions').mockResolvedValue(true);
+    vi.spyOn(wsMod, '_stopSubscriptions').mockImplementation(() => {});
+    vi.spyOn(pullMod, '_runPull').mockResolvedValue({ ok: true, anyMerged: false });
+    vi.spyOn(global, 'fetch').mockImplementation(() => Promise.resolve(directusListResponse([])));
+
+    const sync = useDirectusSync();
+    try {
+      await sync.startSync({ appType: 'cassa', store: makeStore() });
+      await flushPromises(LONG_FLUSH_ROUNDS);
+
+      // Simulate the state that exists just before _reconnectWs() runs:
+      // _pollTimer was cleared (as _reconnectWs() does) and WS is disconnected.
+      if (syncState._pollTimer) { clearInterval(syncState._pollTimer); syncState._pollTimer = null; }
+      syncState._wsConnected.value = false;
+
+      await wsMod._reconnectWs();
+      await flushPromises(LONG_FLUSH_ROUNDS);
+
+      // After a successful reconnect _pollTimer must be re-armed (not null).
+      // This is the regression guard: previously _pollTimer stayed null after
+      // the first successful _reconnectWs(), losing the belt-and-suspenders
+      // guarantee for the rest of the session.
+      expect(syncState._pollTimer).not.toBeNull();
+    } finally {
+      sync.stopSync();
+    }
+  });
 });
 
 // ── VIS-CHANGE — visibilitychange triggers immediate pull on foreground ────────
