@@ -2238,18 +2238,41 @@ function closeTableModal() {
   selectedTable.value = null;
 }
 
+/**
+ * Resolves the active bill-session ID for the given table.
+ *
+ * Lookup order:
+ *  1. The table's own session (tableCurrentBillSession[tableId]).
+ *  2. The master table's session — used when the table is a merged slave
+ *     without its own independent session.
+ *  3. Auto-create a new session — when a non-merged table has no session at
+ *     all (e.g. orders arrived via sync before a local session was opened).
+ *     This prevents orders from reaching Directus with a null bill_session FK.
+ *
+ * @param {string} tableId
+ * @returns {Promise<string|null>} The active billSessionId, or null only when
+ *   the table is a merged slave whose master also has no session.
+ */
+async function _resolveActiveSessionId(tableId) {
+  const ownSession = orderStore.tableCurrentBillSession[tableId];
+  const masterId = orderStore.masterTableOf(tableId);
+  // Prefer own session; fall back to master's for merged slaves.
+  const session = ownSession ?? (masterId != null ? orderStore.tableCurrentBillSession[masterId] : null);
+  if (session?.billSessionId) return session.billSessionId;
+  // Non-merged table with no active session: auto-open one so the order's
+  // bill_session FK is valid when the record is pushed to Directus.
+  if (!masterId) return await orderStore.openTableSession(tableId, 0, 0);
+  return null;
+}
+
 async function createNewOrderForTable() {
   if (!selectedTable.value) return;
   const tableId = selectedTable.value.id;
-  const ownSession = orderStore.tableCurrentBillSession[tableId];
-  const masterId = orderStore.masterTableOf(tableId);
-  // Prefer the table's own active session. Fall back to the master's session
-  // only when the table does not currently have an independent session.
-  const session = ownSession ?? (masterId != null ? orderStore.tableCurrentBillSession[masterId] : null);
+  const billSessionId = await _resolveActiveSessionId(tableId);
   const newOrd = {
     id: newUUIDv7(),
-    table: selectedTable.value.id,
-    billSessionId: session?.billSessionId ?? null,
+    table: tableId,
+    billSessionId,
     status: 'pending',
     time: formatOrderTime(),
     totalAmount: 0, itemCount: 0, dietaryPreferences: {}, orderItems: [],
@@ -2395,12 +2418,8 @@ const directCartTotal = computed(() =>
 async function confirmDirectItems() {
   if (!selectedTable.value || directCart.value.length === 0) return;
   const tableId = selectedTable.value.id;
-  const ownSession = orderStore.tableCurrentBillSession[tableId];
-  const masterId = orderStore.masterTableOf(tableId);
-  // Prefer the table's own active session. Fall back to the master's session
-  // only when the table does not have an independent session (merged slave).
-  const session = ownSession ?? (masterId != null ? orderStore.tableCurrentBillSession[masterId] : null);
-  await orderStore.addDirectOrder(tableId, session?.billSessionId ?? null, directCart.value);
+  const billSessionId = await _resolveActiveSessionId(tableId);
+  await orderStore.addDirectOrder(tableId, billSessionId, directCart.value);
   closeDirectItemModal();
 }
 

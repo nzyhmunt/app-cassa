@@ -653,3 +653,64 @@ describe('simulateNewOrder()', () => {
     expect(item.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
   });
 });
+
+// ---------------------------------------------------------------------------
+// _resolveActiveSessionId() behaviour — store-level contract
+//
+// CassaTableManager._resolveActiveSessionId() relies on:
+//   1. tableCurrentBillSession[tableId] — own session lookup
+//   2. masterTableOf(tableId) — merge-slave fallback
+//   3. openTableSession() auto-create — non-merged table with no session
+//
+// These tests verify the store invariants the helper depends on.
+// ---------------------------------------------------------------------------
+describe('session resolution contract for direct-order helpers', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+  });
+
+  it('non-merged table: openTableSession creates a valid session used by addDirectOrder', async () => {
+    const store = useAppStore();
+    // Confirm no session initially (simulates table occupied via sync with no local session).
+    expect(store.tableCurrentBillSession['T_auto']).toBeUndefined();
+
+    // The component helper calls openTableSession as fallback when no session exists.
+    const billSessionId = await store.openTableSession('T_auto', 0, 0);
+
+    expect(typeof billSessionId).toBe('string');
+    expect(store.tableCurrentBillSession['T_auto']?.billSessionId).toBe(billSessionId);
+
+    const result = await store.addDirectOrder('T_auto', billSessionId, [
+      { uid: 'auto_1', dishId: null, name: 'Acqua', unitPrice: 2.00, quantity: 1, voidedQuantity: 0, notes: [], modifiers: [] },
+    ]);
+
+    expect(result).not.toBeNull();
+    expect(result.billSessionId).toBe(billSessionId);
+    // FK must never be null — this is the root cause of the Directus 400 regression.
+    expect(result.billSessionId).not.toBeNull();
+  });
+
+  it('merged slave: masterTableOf returns the master id; master session is used as fallback', async () => {
+    const store = useAppStore();
+    // Open a session on the master table.
+    const masterSessionId = await store.openTableSession('T_master', 2, 0);
+    // Merge slave into master.
+    await store.mergeTableOrders('T_slave', 'T_master');
+
+    expect(store.masterTableOf('T_slave')).toBe('T_master');
+    // Slave has no own session after merge (its session moves to master).
+    expect(store.tableCurrentBillSession['T_slave']).toBeUndefined();
+
+    // The component helper would use the master's session for the slave.
+    const masterSession = store.tableCurrentBillSession['T_master'];
+    expect(masterSession?.billSessionId).toBe(masterSessionId);
+
+    const result = await store.addDirectOrder('T_slave', masterSessionId, [
+      { uid: 'slave_1', dishId: null, name: 'Caffè', unitPrice: 1.50, quantity: 1, voidedQuantity: 0, notes: [], modifiers: [] },
+    ]);
+
+    expect(result).not.toBeNull();
+    expect(result.billSessionId).toBe(masterSessionId);
+    expect(result.table).toBe('T_slave');
+  });
+});
