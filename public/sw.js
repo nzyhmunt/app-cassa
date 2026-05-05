@@ -89,15 +89,28 @@ self.addEventListener('fetch', (event) => {
   // Only handle GET requests
   if (request.method !== 'GET') return;
 
-  // Never intercept cross-origin requests (e.g. Directus REST API calls).
-  // A service worker intercepts ALL fetches made from its controlled pages,
-  // including those to other origins.  Applying cache-first to a live API
-  // endpoint freezes incremental pull queries: the first empty-data response
-  // for a given filter URL gets stored in ASSET_CACHE, and every subsequent
-  // poll with the same URL (same sinceTs cursor) returns the stale cached
-  // result without touching the network — new orders become permanently
-  // invisible until the cursor advances.
-  if (url.origin !== self.location.origin) return;
+  // Heuristic: treat JSON/menu endpoints as data requests.
+  // This covers both same-origin local files (e.g. /menu.json) and
+  // cross-origin remote menu URLs (e.g. https://cdn.example.com/menu.json).
+  const isDataRequest = url.pathname.endsWith('.json');
+
+  // Cross-origin handling:
+  //   • .json data files (remote menu, etc.) → stale-while-revalidate so they
+  //     remain available offline, matching the documented SW caching strategy.
+  //   • Everything else cross-origin (Directus REST API, images, etc.) → let
+  //     the browser handle them natively without SW interception.  Applying
+  //     cache-first to a live Directus endpoint would freeze incremental pull
+  //     queries: the first empty-data response for a given sinceTs URL gets
+  //     stored in ASSET_CACHE, and every subsequent 30 s poll with the same URL
+  //     returns the stale cached result — new orders become permanently invisible
+  //     until the cursor advances.
+  if (url.origin !== self.location.origin) {
+    if (isDataRequest) {
+      event.respondWith(staleWhileRevalidate(event, DATA_CACHE));
+    }
+    // Non-data cross-origin requests (API calls, etc.) bypass the SW entirely.
+    return;
+  }
 
   // Never cache same-origin Directus/REST API paths (dynamic live data).
   // Covers deployments where the app and Directus share the same origin
@@ -109,11 +122,6 @@ self.addEventListener('fetch', (event) => {
     url.pathname.startsWith('/files/') ||
     url.pathname.startsWith('/websocket')
   ) return;
-
-  // Heuristic: treat JSON/menu endpoints as data requests
-  const isDataRequest =
-    url.pathname.endsWith('.json') ||
-    url.pathname === '/menu.json';
 
   // Data / API requests (JSON/menu paths) → stale-while-revalidate
   if (isDataRequest) {
