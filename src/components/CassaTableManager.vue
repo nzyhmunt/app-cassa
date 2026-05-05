@@ -2394,12 +2394,13 @@ const directCartTotal = computed(() =>
 
 async function confirmDirectItems() {
   if (!selectedTable.value || directCart.value.length === 0) return;
-  const session = orderStore.tableCurrentBillSession[selectedTable.value.id];
-  await orderStore.addDirectOrder(
-    selectedTable.value.id,
-    session?.billSessionId ?? null,
-    directCart.value,
-  );
+  const tableId = selectedTable.value.id;
+  const ownSession = orderStore.tableCurrentBillSession[tableId];
+  const masterId = orderStore.masterTableOf(tableId);
+  // Prefer the table's own active session. Fall back to the master's session
+  // only when the table does not have an independent session (merged slave).
+  const session = ownSession ?? (masterId != null ? orderStore.tableCurrentBillSession[masterId] : null);
+  await orderStore.addDirectOrder(tableId, session?.billSessionId ?? null, directCart.value);
   closeDirectItemModal();
 }
 
