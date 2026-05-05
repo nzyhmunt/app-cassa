@@ -655,62 +655,92 @@ describe('simulateNewOrder()', () => {
 });
 
 // ---------------------------------------------------------------------------
-// _resolveActiveSessionId() behaviour — store-level contract
+// Session inference from orders — sync-lag contract
 //
-// CassaTableManager._resolveActiveSessionId() relies on:
-//   1. tableCurrentBillSession[tableId] — own session lookup
-//   2. masterTableOf(tableId) — merge-slave fallback
-//   3. openTableSession() auto-create — non-merged table with no session
+// The pull config fetches orders before bill_sessions (config.js PULL_CONFIG).
+// A table can therefore be occupied (orders exist) before tableCurrentBillSession
+// is hydrated. _resolveActiveSessionId (CassaTableManager) and the inline
+// equivalent in SalaTableManager.createNewOrder() fall back to reading the
+// billSessionId directly from non-closed orders in the store to avoid
+// sending bill_session = null to Directus.
 //
-// These tests verify the store invariants the helper depends on.
+// These tests verify the store invariants that fallback logic depends on.
 // ---------------------------------------------------------------------------
-describe('session resolution contract for direct-order helpers', () => {
+describe('session inference from orders (sync-lag fallback)', () => {
   beforeEach(() => {
     setActivePinia(createPinia());
   });
 
-  it('non-merged table: openTableSession creates a valid session used by addDirectOrder', async () => {
+  it('active orders retain billSessionId when tableCurrentBillSession is not yet hydrated (sync-lag window)', async () => {
     const store = useAppStore();
-    // Confirm no session initially (simulates table occupied via sync with no local session).
-    expect(store.tableCurrentBillSession['T_auto']).toBeUndefined();
+    const REMOTE_SESSION_ID = 'remote-sess-abc-123';
 
-    // The component helper calls openTableSession as fallback when no session exists.
-    const billSessionId = await store.openTableSession('T_auto', 0, 0);
+    // Simulate orders arriving from the remote Directus pull (orders come before
+    // bill_sessions in the pull order). The order carries the correct session ID
+    // but tableCurrentBillSession has not been populated yet.
+    await store.addOrder({
+      id: 'ord_sync_lag_1',
+      table: 'T_synclag',
+      billSessionId: REMOTE_SESSION_ID,
+      status: 'accepted',
+      time: '20:00',
+      totalAmount: 10,
+      itemCount: 1,
+      dietaryPreferences: {},
+      orderItems: [],
+      globalNote: '',
+      noteVisibility: { cassa: true, sala: true, cucina: true },
+    });
 
-    expect(typeof billSessionId).toBe('string');
-    expect(store.tableCurrentBillSession['T_auto']?.billSessionId).toBe(billSessionId);
+    // Confirm the sync-lag condition: orders are present but the session index
+    // is not yet hydrated (simulates the window between orders and bill_sessions pull).
+    expect(store.tableCurrentBillSession['T_synclag']).toBeUndefined();
 
-    const result = await store.addDirectOrder('T_auto', billSessionId, [
-      { uid: 'auto_1', dishId: null, name: 'Acqua', unitPrice: 2.00, quantity: 1, voidedQuantity: 0, notes: [], modifiers: [] },
+    // The inference step recovers the correct session ID from the existing order —
+    // this is what _resolveActiveSessionId and SalaTableManager.createNewOrder()
+    // use as a fallback to avoid sending bill_session = null.
+    const inferred = store.orders
+      .filter(o => o.table === 'T_synclag' && o.billSessionId && !['completed', 'rejected'].includes(o.status))
+      .map(o => o.billSessionId)[0] ?? null;
+
+    expect(inferred).toBe(REMOTE_SESSION_ID);
+
+    // A direct order added with the inferred ID must have a valid (non-null) FK.
+    const result = await store.addDirectOrder('T_synclag', inferred, [
+      { uid: 'direct_lag_1', dishId: null, name: 'Acqua', unitPrice: 2.00, quantity: 1, voidedQuantity: 0, notes: [], modifiers: [] },
     ]);
 
     expect(result).not.toBeNull();
-    expect(result.billSessionId).toBe(billSessionId);
-    // FK must never be null — this is the root cause of the Directus 400 regression.
+    expect(result.billSessionId).toBe(REMOTE_SESSION_ID);
     expect(result.billSessionId).not.toBeNull();
   });
 
-  it('merged slave: masterTableOf returns the master id; master session is used as fallback', async () => {
+  it('completed orders are excluded from inference so a closed bill does not bleed into the next session', async () => {
     const store = useAppStore();
-    // Open a session on the master table.
-    const masterSessionId = await store.openTableSession('T_master', 2, 0);
-    // Merge slave into master.
-    await store.mergeTableOrders('T_slave', 'T_master');
+    const OLD_SESSION = 'old-session-xyz';
 
-    expect(store.masterTableOf('T_slave')).toBe('T_master');
-    // Slave has no own session after merge (its session moves to master).
-    expect(store.tableCurrentBillSession['T_slave']).toBeUndefined();
+    // Add a completed order from a previous bill — should NOT be used for inference.
+    await store.addOrder({
+      id: 'ord_old_completed',
+      table: 'T_closed',
+      billSessionId: OLD_SESSION,
+      status: 'completed',
+      time: '19:00',
+      totalAmount: 30,
+      itemCount: 2,
+      dietaryPreferences: {},
+      orderItems: [],
+      globalNote: '',
+      noteVisibility: { cassa: true, sala: true, cucina: true },
+    });
 
-    // The component helper would use the master's session for the slave.
-    const masterSession = store.tableCurrentBillSession['T_master'];
-    expect(masterSession?.billSessionId).toBe(masterSessionId);
+    expect(store.tableCurrentBillSession['T_closed']).toBeUndefined();
 
-    const result = await store.addDirectOrder('T_slave', masterSessionId, [
-      { uid: 'slave_1', dishId: null, name: 'Caffè', unitPrice: 1.50, quantity: 1, voidedQuantity: 0, notes: [], modifiers: [] },
-    ]);
+    // Inference must return null — the completed order should be ignored.
+    const inferred = store.orders
+      .filter(o => o.table === 'T_closed' && o.billSessionId && !['completed', 'rejected'].includes(o.status))
+      .map(o => o.billSessionId)[0] ?? null;
 
-    expect(result).not.toBeNull();
-    expect(result.billSessionId).toBe(masterSessionId);
-    expect(result.table).toBe('T_slave');
+    expect(inferred).toBeNull();
   });
 });

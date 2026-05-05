@@ -2243,32 +2243,39 @@ function closeTableModal() {
  *
  * Lookup order:
  *  1. The table's own session (tableCurrentBillSession[tableId]).
- *  2. The master table's session — used when the table is a merged slave
- *     without its own independent session.
- *  3. Auto-create a new session — when a non-merged table has no session at
- *     all (e.g. orders arrived via sync before a local session was opened).
- *     This prevents orders from reaching Directus with a null bill_session FK.
+ *  2. The master table's session — defense-in-depth for any edge case where a
+ *     slave table's modal is reached without the master redirect firing.
+ *  3. Infer from active orders on the table — handles the sync-lag window where
+ *     orders have been hydrated but bill_sessions have not yet arrived.
+ *     The pull config fetches orders before bill_sessions, so this window is
+ *     expected under normal operation.
+ *
+ * NOTE: This helper does NOT auto-create a new session. Creating one would
+ * produce a duplicate bill in Directus if an existing remote session is simply
+ * in-flight and not yet hydrated locally.
  *
  * @param {string} tableId
- * @returns {Promise<string|null>} The active billSessionId, or null only when
- *   the table is a merged slave whose master also has no session.
+ * @returns {string|null} The active billSessionId, or null if none can be resolved.
  */
-async function _resolveActiveSessionId(tableId) {
+function _resolveActiveSessionId(tableId) {
   const ownSession = orderStore.tableCurrentBillSession[tableId];
   const masterId = orderStore.masterTableOf(tableId);
-  // Prefer own session; fall back to master's for merged slaves.
+  // 1 & 2: prefer own session, fall back to master's for merged slaves.
   const session = ownSession ?? (masterId != null ? orderStore.tableCurrentBillSession[masterId] : null);
   if (session?.billSessionId) return session.billSessionId;
-  // Non-merged table with no active session: auto-open one so the order's
-  // bill_session FK is valid when the record is pushed to Directus.
-  if (!masterId) return await orderStore.openTableSession(tableId, 0, 0);
-  return null;
+  // 3: sync-lag — infer the active session ID from non-closed orders on this table.
+  //    Reading billSessionId from an already-synced order avoids creating a duplicate
+  //    session and is safe regardless of hydration order.
+  const effectiveTableId = masterId ?? tableId;
+  return orderStore.orders
+    .filter(o => o.table === effectiveTableId && o.billSessionId && !['completed', 'rejected'].includes(o.status))
+    .map(o => o.billSessionId)[0] ?? null;
 }
 
 async function createNewOrderForTable() {
   if (!selectedTable.value) return;
   const tableId = selectedTable.value.id;
-  const billSessionId = await _resolveActiveSessionId(tableId);
+  const billSessionId = _resolveActiveSessionId(tableId);
   const newOrd = {
     id: newUUIDv7(),
     table: tableId,
@@ -2418,7 +2425,7 @@ const directCartTotal = computed(() =>
 async function confirmDirectItems() {
   if (!selectedTable.value || directCart.value.length === 0) return;
   const tableId = selectedTable.value.id;
-  const billSessionId = await _resolveActiveSessionId(tableId);
+  const billSessionId = _resolveActiveSessionId(tableId);
   await orderStore.addDirectOrder(tableId, billSessionId, directCart.value);
   closeDirectItemModal();
 }

@@ -542,11 +542,18 @@ async function createNewOrder() {
   const isActiveMergedSlave = masterId != null && selectedTableStatus !== 'free';
   const sessionTableId = isActiveMergedSlave ? masterId : selectedTable.value.id;
   const session = orderStore.tableCurrentBillSession[sessionTableId];
+  // Sync-lag fallback: orders are pulled before bill_sessions, so the session index may
+  // not be hydrated yet. Infer the active session from non-closed orders already on the table.
+  const billSessionId = session?.billSessionId
+    ?? orderStore.orders
+      .filter(o => o.table === sessionTableId && o.billSessionId && !['completed', 'rejected'].includes(o.status))
+      .map(o => o.billSessionId)[0]
+    ?? null;
 
   const newOrd = {
     id: newUUIDv7(),
     table: sessionTableId,
-    billSessionId: session?.billSessionId ?? null,
+    billSessionId,
     status: 'pending',
     time: formatOrderTime(),
     totalAmount: 0,
