@@ -32,7 +32,9 @@
  *   printerUrl string  – URL the job was sent to
  *   table      string  – table label (or 'from → to' for table_move)
  *   timestamp  string  – ISO 8601 dispatch time
- *   status     string  – 'pending' | 'printing' | 'done' | 'error'
+ *   status     string  – 'pending' | 'printing' | 'done' | 'error' | 'queued'
+ *                         'queued' is set for TCP/file (Directus-managed) printers once the
+ *                         job has been placed in the sync queue for the print-server to claim.
  *   errorMessage? string – populated when status === 'error'
  *   isReprint? boolean – true for reprinted jobs
  *   originalJobId? string – jobId of the original job (only for reprints)
@@ -157,7 +159,10 @@ function getRuntimeConfig(store = null) {
  * @returns {boolean}
  */
 function isDirectusManagedPrinter(printer) {
-  return printer?.connectionType === 'tcp' || printer?.connectionType === 'file';
+  const ct = typeof printer?.connectionType === 'string'
+    ? printer.connectionType.toLowerCase().trim()
+    : '';
+  return ct === 'tcp' || ct === 'file';
 }
 
 /**
@@ -274,8 +279,12 @@ export function enqueuePrintJobs(order) {
     // HTTP printers: send directly from the browser.
     // TCP/file printers: the job is in the Directus sync queue; the print-server
     // will claim it from there — no HTTP call needed from the browser.
+    // Set status to 'queued' so operators can distinguish "handed off to server"
+    // from "pending" (about to send) or a stuck job.
     if (printer.url) {
       sendPrintJob(job, printer.url, logId, store);
+    } else {
+      store?.updatePrintLogEntry(logId, { status: 'queued' });
     }
   }
 }
@@ -328,6 +337,8 @@ export function enqueueTableMoveJob(fromTableId, fromTableLabel, toTableId, toTa
     // TCP/file printers: the job reaches the print-server via Directus.
     if (printer.url) {
       sendPrintJob(job, printer.url, logId, store);
+    } else {
+      store?.updatePrintLogEntry(logId, { status: 'queued' });
     }
   }
 }

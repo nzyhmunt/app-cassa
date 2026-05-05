@@ -572,6 +572,13 @@ describe('TCP/file printer routing (Directus print-server path)', () => {
     expect(createEntry.payload.printType).toBe('order');
     expect(createEntry.payload.printerId).toBe('cucina_tcp');
     expect(createEntry.payload.payload?.orderId).toBe('ord_tcp_1');
+
+    // Log entry status must transition from 'pending' to 'queued'
+    const store = useAppStore();
+    await vi.waitFor(() => {
+      const entry = store.printLog.find(e => e.table === 'T1');
+      expect(entry?.status).toBe('queued');
+    });
   });
 
   it('enqueuePrintJobs enqueues a print_jobs CREATE for a file printer without sending HTTP', async () => {
@@ -587,6 +594,12 @@ describe('TCP/file printer routing (Directus print-server path)', () => {
       );
       expect(entry).toBeDefined();
     });
+
+    const store = useAppStore();
+    await vi.waitFor(() => {
+      const entry = store.printLog.find(e => e.table === 'F1');
+      expect(entry?.status).toBe('queued');
+    });
   });
 
   it('enqueuePrintJobs does nothing when a printer has neither url nor connectionType', () => {
@@ -596,6 +609,22 @@ describe('TCP/file printer routing (Directus print-server path)', () => {
     // No sync-queue entry should be created synchronously
     const store = useAppStore();
     expect(store.printLog).toHaveLength(0);
+  });
+
+  it('connectionType is normalized: uppercase TCP is accepted and sets queued status', async () => {
+    // Simulate Directus returning 'TCP' (uppercase) — mapper normalizes to 'tcp'
+    appConfig.printers = [
+      { id: 'cucina_tcp_upper', name: 'Cucina TCP', connectionType: 'TCP', printTypes: ['order'] },
+    ];
+    enqueuePrintJobs(makeOrder({ id: 'ord_norm_1', table: 'N1' }));
+
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    const store = useAppStore();
+    await vi.waitFor(() => {
+      const entry = store.printLog.find(e => e.table === 'N1');
+      expect(entry?.status).toBe('queued');
+    });
   });
 
   it('enqueueTableMoveJob enqueues a print_jobs CREATE for a TCP printer without HTTP', async () => {
@@ -612,6 +641,12 @@ describe('TCP/file printer routing (Directus print-server path)', () => {
         e => e.collection === 'print_jobs' && e.operation === 'create' && e.payload.printType === 'table_move',
       );
       expect(entry).toBeDefined();
+    });
+
+    const store = useAppStore();
+    await vi.waitFor(() => {
+      const entry = store.printLog.find(e => e.printType === 'table_move');
+      expect(entry?.status).toBe('queued');
     });
   });
 
@@ -631,6 +666,13 @@ describe('TCP/file printer routing (Directus print-server path)', () => {
       const entries = await getPendingEntries();
       const creates = entries.filter(e => e.collection === 'print_jobs' && e.operation === 'create');
       expect(creates).toHaveLength(2);
+    });
+
+    // TCP entry must be 'queued'; HTTP entry must eventually be 'done'
+    const store = useAppStore();
+    await vi.waitFor(() => {
+      const tcpEntry = store.printLog.find(e => e.printerId === 'cucina_tcp');
+      expect(tcpEntry?.status).toBe('queued');
     });
   });
 });
