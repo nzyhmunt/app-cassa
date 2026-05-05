@@ -759,4 +759,36 @@ describe('resolveTableContext (session and table resolution)', () => {
     expect(ctx.effectiveTableId).toBe('T_master');
     expect(ctx.billSessionId).toBe(MASTER_SESSION_ID);
   });
+
+  it('merged slave sync-lag: master has active orders but no local session — infers masterId and session from master orders', async () => {
+    const store = useAppStore();
+    const MASTER_REMOTE_SESSION = 'master-remote-sess-sync-lag';
+
+    // Simulate the merge mapping (orders arrive before bill_sessions in the pull order).
+    store.tableMergedInto['T_slave2'] = 'T_master2';
+
+    // The master has a non-closed order carrying the remote session ID, but
+    // tableCurrentBillSession has not been hydrated yet.
+    await store.addOrder({
+      id: 'ord_master_synclag',
+      table: 'T_master2',
+      billSessionId: MASTER_REMOTE_SESSION,
+      status: 'accepted',
+      time: '21:00',
+      totalAmount: 20,
+      itemCount: 1,
+      dietaryPreferences: {},
+      orderItems: [],
+      globalNote: '',
+      noteVisibility: { cassa: true, sala: true, cucina: true },
+    });
+
+    // Confirm no local session for the master.
+    expect(store.tableCurrentBillSession['T_master2']).toBeUndefined();
+
+    // resolveTableContext for the slave must infer the session from the master's order.
+    const ctx = store.resolveTableContext('T_slave2');
+    expect(ctx.effectiveTableId).toBe('T_master2');
+    expect(ctx.billSessionId).toBe(MASTER_REMOTE_SESSION);
+  });
 });
