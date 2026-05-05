@@ -3,6 +3,8 @@ import { createPinia, setActivePinia } from 'pinia';
 import { enqueuePrintJobs, enqueueTableMoveJob, enqueuePreBillJob, reprintJob } from '../usePrintQueue.js';
 import { appConfig } from '../../utils/index.js';
 import { useAppStore } from '../../store/index.js';
+import { _resetIDBSingleton } from '../useIDB.js';
+import { getPendingEntries } from '../useSyncQueue.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -45,6 +47,9 @@ let originalMenu;
 const _originalFetch = global.fetch;
 
 beforeEach(async () => {
+  // Reset IDB so sync-queue entries from a previous test do not bleed through.
+  await _resetIDBSingleton();
+
   // Mock fetch BEFORE activating Pinia so that loadMenu() uses the mock.
   // Use { ok: false } so loadMenu() fails fast without needing a json() method.
   fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 503 });
@@ -526,5 +531,123 @@ describe('reprintJob()', () => {
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     expect(store.printLog[0].isReprint).toBe(true);
     expect(store.printLog[0].originalJobId).toBe('job_orig');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Sync queue integration
+// Verify that print-queue operations enqueue the correct print_jobs entries
+// in the IDB sync queue (addPrintLogEntry → CREATE, updatePrintLogEntry → UPDATE).
+// ---------------------------------------------------------------------------
+
+describe('sync queue integration', () => {
+  it('enqueuePrintJobs adds a print_jobs CREATE entry with the correct payload', async () => {
+    appConfig.printers = CATCHALL_PRINTER;
+    enqueuePrintJobs(makeOrder({ id: 'ord_sq_1', table: '09' }));
+
+    let createEntry;
+    await vi.waitFor(async () => {
+      const entries = await getPendingEntries();
+      // payload.table is the top-level table field on the log entry; payload.payload.orderId
+      // is nested inside the print-job payload — filter on both to uniquely identify the entry
+      createEntry = entries.find(
+        e => e.collection === 'print_jobs' && e.operation === 'create' && e.payload.table === '09',
+      );
+      expect(createEntry).toBeDefined();
+    });
+
+    expect(createEntry.payload.printType).toBe('order');
+    expect(createEntry.payload.table).toBe('09');
+    expect(createEntry.payload.payload?.orderId).toBe('ord_sq_1');
+  });
+
+  it('enqueuePrintJobs adds one CREATE entry per matched printer', async () => {
+    appConfig.printers = TWO_PRINTERS;
+    enqueuePrintJobs(makeOrder({ id: 'ord_sq_2' }));
+
+    await vi.waitFor(async () => {
+      const entries = await getPendingEntries();
+      const creates = entries.filter(e => e.collection === 'print_jobs' && e.operation === 'create');
+      expect(creates).toHaveLength(2);
+    });
+  });
+
+  it('status updates (printing → done) add print_jobs UPDATE entries', async () => {
+    appConfig.printers = CATCHALL_PRINTER;
+    const store = useAppStore();
+    enqueuePrintJobs(makeOrder({ id: 'ord_sq_3' }));
+
+    // Wait for the job to reach 'done' so all updatePrintLogEntry calls have fired
+    await vi.waitFor(() => expect(store.printLog[0]?.status).toBe('done'));
+
+    await vi.waitFor(async () => {
+      const entries = await getPendingEntries();
+      const updates = entries.filter(e => e.collection === 'print_jobs' && e.operation === 'update');
+      // At minimum: printing + done = 2 UPDATE entries for the single job
+      expect(updates.length).toBeGreaterThanOrEqual(2);
+    });
+
+    const entries = await getPendingEntries();
+    const updates = entries.filter(e => e.collection === 'print_jobs' && e.operation === 'update');
+    const statuses = updates.map(e => e.payload.status);
+    expect(statuses).toContain('printing');
+    expect(statuses).toContain('done');
+  });
+
+  it('enqueueTableMoveJob adds a print_jobs CREATE entry with printType=table_move', async () => {
+    appConfig.printers = [
+      { id: 'cassa', name: 'Cassa', url: 'http://localhost:3003/print', printTypes: ['table_move'] },
+    ];
+    enqueueTableMoveJob('T1', 'Uno', 'T2', 'Due');
+
+    let createEntry;
+    await vi.waitFor(async () => {
+      const entries = await getPendingEntries();
+      createEntry = entries.find(e => e.collection === 'print_jobs' && e.operation === 'create');
+      expect(createEntry).toBeDefined();
+    });
+
+    expect(createEntry.payload.printType).toBe('table_move');
+  });
+
+  it('enqueuePreBillJob adds a print_jobs CREATE entry with printType=pre_bill', async () => {
+    enqueuePreBillJob({ table: '05' }, 'http://localhost:3003/print', 'Cassa');
+
+    let createEntry;
+    await vi.waitFor(async () => {
+      const entries = await getPendingEntries();
+      createEntry = entries.find(e => e.collection === 'print_jobs' && e.operation === 'create');
+      expect(createEntry).toBeDefined();
+    });
+
+    expect(createEntry.payload.printType).toBe('pre_bill');
+  });
+
+  it('reprintJob adds a print_jobs CREATE entry with isReprint=true and originalJobId', async () => {
+    const entry = {
+      logId: 'plog_sq_1',
+      jobId: 'job_sq_orig',
+      id: 'uuid-sq-orig',
+      printerId: 'cucina',
+      printerName: 'Cucina',
+      printerUrl: 'http://localhost:3001/print',
+      printType: 'order',
+      table: '05',
+      timestamp: new Date().toISOString(),
+      payload: { jobId: 'job_sq_orig', printType: 'order', table: '05', items: [] },
+    };
+    reprintJob(entry);
+
+    let createEntry;
+    await vi.waitFor(async () => {
+      const entries = await getPendingEntries();
+      createEntry = entries.find(
+        e => e.collection === 'print_jobs' && e.operation === 'create' && e.payload.isReprint === true,
+      );
+      expect(createEntry).toBeDefined();
+    });
+
+    expect(createEntry.payload.isReprint).toBe(true);
+    expect(createEntry.payload.originalJobId).toBe('job_sq_orig');
   });
 });

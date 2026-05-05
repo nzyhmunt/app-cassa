@@ -56,6 +56,7 @@
  *  DIRECTUS_TOKEN                  — Static token con permessi su print_jobs e printers
  *  DIRECTUS_VENUE_ID               — (opzionale) filtra i job per venue (integer ID)
  *  DIRECTUS_POLL_SEC               — intervallo polling REST in secondi (default: 60)
+ *  DIRECTUS_JOB_MAX_AGE_HOURS      — finestra temporale per il polling: ignora job più vecchi di N ore (default: 24)
  *  DIRECTUS_WS_RETRIES             — tentativi di riconnessione WS (default: 100)
  *  DIRECTUS_WS_RETRY_DELAY         — attesa tra riconnessioni WS in ms (default: 3000)
  *  DIRECTUS_RETRY_MAX              — tentativi per job in caso di errore transitorio (default: 3)
@@ -102,6 +103,13 @@ const WS_RETRY_DELAY        = Math.max(500, envInt('DIRECTUS_WS_RETRY_DELAY',   
 const RETRY_MAX             = Math.max(0,   envInt('DIRECTUS_RETRY_MAX',              3));
 const RETRY_DELAY_MS        = Math.max(0,   envInt('DIRECTUS_RETRY_DELAY_MS',       2000));
 const PRINTERS_REFRESH_SEC  = Math.max(30,  envInt('DIRECTUS_PRINTERS_REFRESH_SEC', 300));
+/**
+ * Finestra temporale per il polling REST.
+ * Il polling considera solo i job creati nelle ultime N ore per evitare di
+ * riprocessare job rimasti in stato 'pending' da molto tempo (es. job bloccati
+ * prima di un aggiornamento del server). Default: 24 ore.
+ */
+const JOB_MAX_AGE_HOURS     = Math.max(1,   envInt('DIRECTUS_JOB_MAX_AGE_HOURS',   24));
 
 /**
  * Ritardo iniziale (ms) prima del primo refresh stampanti.
@@ -135,6 +143,8 @@ function sleep(ms) {
 /**
  * Costruisce il filtro Directus per i job pending.
  * Se DIRECTUS_VENUE_ID è impostato, aggiunge il filtro venue.
+ * Usato dalla sottoscrizione WebSocket (nessuna finestra temporale —
+ * gli eventi WS sono sempre real-time).
  * @returns {object}
  */
 function buildJobFilter() {
@@ -143,6 +153,25 @@ function buildJobFilter() {
   const parsedVenue = parseInt(DIRECTUS_VENUE, 10);
   const venueValue  = isNaN(parsedVenue) ? DIRECTUS_VENUE : parsedVenue;
   return { _and: [statusFilter, { venue: { _eq: venueValue } }] };
+}
+
+/**
+ * Costruisce il filtro Directus per il polling REST.
+ * Include una finestra temporale (`date_created >= cutoff`) per evitare di
+ * riprocessare job bloccati in stato 'pending' da più di JOB_MAX_AGE_HOURS ore.
+ * @returns {object}
+ */
+function buildPollFilter() {
+  const cutoff = new Date(Date.now() - JOB_MAX_AGE_HOURS * 3_600_000).toISOString();
+  const conditions = [
+    { status: { _eq: 'pending' } },
+    { date_created: { _gte: cutoff } },
+  ];
+  if (DIRECTUS_VENUE) {
+    const parsedVenue = parseInt(DIRECTUS_VENUE, 10);
+    conditions.push({ venue: { _eq: isNaN(parsedVenue) ? DIRECTUS_VENUE : parsedVenue } });
+  }
+  return { _and: conditions };
 }
 
 /** Campi da richiedere per ogni job. */
@@ -470,7 +499,7 @@ async function pollPendingJobs(restClient, log) {
   try {
     jobs = await restClient.request(
       readItems('print_jobs', {
-        filter: buildJobFilter(),
+        filter: buildPollFilter(),
         fields: JOB_FIELDS,
         sort:   ['job_timestamp'],
         limit:  100,
