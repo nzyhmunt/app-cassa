@@ -150,8 +150,25 @@ function getRuntimeConfig(store = null) {
 }
 
 /**
+ * Returns true for printers managed by the Directus print-server (TCP/file
+ * connection type). These printers have no browser-accessible HTTP URL; their
+ * jobs are delivered to the print-server via the Directus sync queue.
+ * @param {object|null} printer
+ * @returns {boolean}
+ */
+function isDirectusManagedPrinter(printer) {
+  return printer?.connectionType === 'tcp' || printer?.connectionType === 'file';
+}
+
+/**
  * Returns all configured printers that accept the given printType.
  * A printer with no printTypes (or an empty array) acts as catch-all.
+ *
+ * Printers with a direct HTTP `url` are dispatched immediately by the browser.
+ * Printers with `connectionType` = 'tcp' or 'file' have no browser-accessible
+ * URL; their print_jobs are delivered to Directus via the sync queue and picked
+ * up by the print-server.
+ *
  * @param {string} printType
  * @param {object|null} [store] - Optional store instance; when omitted/null, resolves from active Pinia.
  * @returns {object[]}
@@ -160,7 +177,10 @@ function getPrintersForType(printType, store = null) {
   const printers = getRuntimeConfig(store).printers;
   if (!Array.isArray(printers)) return [];
   return printers.filter(p => {
-    if (!p?.url) return false;
+    // Accept HTTP printers (have a direct URL) or Directus-managed printers
+    // (TCP/file — print-server reads jobs from Directus sync queue).
+    const hasUrl = Boolean(p?.url);
+    if (!hasUrl && !isDirectusManagedPrinter(p)) return false;
     if (!Array.isArray(p.printTypes) || p.printTypes.length === 0) return true;
     return p.printTypes.includes(printType);
   });
@@ -251,7 +271,12 @@ export function enqueuePrintJobs(order) {
       payload: job,
     });
 
-    sendPrintJob(job, printer.url, logId, store);
+    // HTTP printers: send directly from the browser.
+    // TCP/file printers: the job is in the Directus sync queue; the print-server
+    // will claim it from there — no HTTP call needed from the browser.
+    if (printer.url) {
+      sendPrintJob(job, printer.url, logId, store);
+    }
   }
 }
 
@@ -299,7 +324,11 @@ export function enqueueTableMoveJob(fromTableId, fromTableLabel, toTableId, toTa
       payload: job,
     });
 
-    sendPrintJob(job, printer.url, logId, store);
+    // HTTP printers: send directly from the browser.
+    // TCP/file printers: the job reaches the print-server via Directus.
+    if (printer.url) {
+      sendPrintJob(job, printer.url, logId, store);
+    }
   }
 }
 
