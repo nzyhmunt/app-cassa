@@ -2389,9 +2389,18 @@ const directCartTotal = computed(() =>
 
 async function confirmDirectItems() {
   if (!selectedTable.value || directCart.value.length === 0) return;
-  const { effectiveTableId, billSessionId } = orderStore.resolveTableContext(selectedTable.value.id);
+  const originalTableId = selectedTable.value.id;
+  const { effectiveTableId, billSessionId } = orderStore.resolveTableContext(originalTableId);
   await orderStore.addDirectOrder(effectiveTableId, billSessionId, directCart.value);
   closeDirectItemModal();
+  // When the effective table is the master (slave was redirected mid-merge), switch
+  // the bill modal to the master so the cashier can see the newly added direct items.
+  // Without this the order disappears from the slave's bill view, making it look like
+  // the action failed and causing the cashier to add it a second time.
+  if (effectiveTableId !== originalTableId) {
+    const masterTable = configStore.config.tables.find(t => t.id === effectiveTableId);
+    if (masterTable) _openTableModal(masterTable);
+  }
 }
 
 // ── Manual bill close (shown when fully paid) ─────────────────────────────

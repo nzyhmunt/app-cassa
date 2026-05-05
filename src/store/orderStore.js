@@ -151,7 +151,18 @@ export const useOrderStore = defineStore('orders', () => {
    *  2. Merge mapping exists + infer from master's non-closed orders → (masterId, inferred)
    *     Handles the sync-lag window where orders arrived before bill_sessions.
    *  3. Merge mapping exists but master has no active context (session = null, orders = [])
-   *     → stale tableMergedInto entry (table was un-merged); fall through to own context.
+   *     → falls through to own context.
+   *     KNOWN LIMITATION: This step is ambiguous between two indistinguishable states:
+   *       (a) Stale tableMergedInto after un-merge — slave has a new post-unmerge session;
+   *           falling through to slave context is CORRECT.
+   *       (b) Very early merge-window into an empty master — table_merge_sessions arrived
+   *           before both bill_sessions and order retags; slave still has its pre-merge
+   *           session.  Falling through to slave context returns the wrong bill.
+   *     There is no available metadata to distinguish (a) from (b), so the fallthrough
+   *     is retained to handle the more common stale-mapping case correctly.  The window
+   *     for (b) is bounded by the next bill_sessions poll (~30 s).  The UI in
+   *     CassaTableManager.confirmDirectItems() further mitigates the impact by switching
+   *     the bill modal to the master whenever effectiveTableId ≠ selectedTable.id.
    *  4. Table's own session → (tableId, ownSession.billSessionId)
    *     Covers the normal non-merged case AND the stale-mapping case (step 3 fall-through).
    *  5. Infer from own non-closed orders → (tableId, inferred)
@@ -178,8 +189,10 @@ export const useOrderStore = defineStore('orders', () => {
         .filter(o => o.table === masterId && o.billSessionId && !['completed', 'rejected'].includes(o.status))
         .map(o => o.billSessionId)[0] ?? null;
       if (masterInferred != null) return { effectiveTableId: masterId, billSessionId: masterInferred };
-      // Step 3: master has no active billing context → stale merge mapping.
-      // Fall through to the table's own context below.
+      // Step 3: master has no active billing context → ambiguous (stale mapping OR very
+      // early merge-window into empty master — see JSDoc above).  Fall through to slave's
+      // own context, which is correct for the stale-mapping case and is the best available
+      // approximation for the early-merge-window case.
     }
 
     // Step 4: table's own session (non-merged, or stale-mapping after un-merge).

@@ -843,4 +843,40 @@ describe('resolveTableContext (session and table resolution)', () => {
     expect(ctx.effectiveTableId).toBe('T_slave4');
     expect(ctx.billSessionId).toBe(NEW_SLAVE_SESSION);
   });
+
+  it('early-merge-window with empty master: falls back to slave context (known limitation)', async () => {
+    // Documents the inherent ambiguity between two indistinguishable sync states:
+    //
+    //  A) Early-merge-window: table_merge_sessions arrived before bill_sessions was next
+    //     pulled. The slave still has its pre-merge session locally; the master has
+    //     neither a session nor any retagged orders yet.
+    //
+    //  B) Stale-mapping (above test): the un-merge is reflected in bill_sessions but
+    //     table_merge_sessions has not yet been cleared.  The slave has a new session.
+    //
+    // From the store's perspective (A) and (B) are identical — both show
+    // tableMergedInto[slave]=master, master with no session/orders, slave with a session.
+    // resolveTableContext therefore falls through to the slave's own context for both.
+    //
+    // For (A) this means the order is created against the slave's stale pre-merge bill
+    // rather than the master's new bill.  This is accepted as a narrow, inherent
+    // limitation of the sync architecture: there is no metadata available to distinguish
+    // a stale slave session from a fresh post-unmerge slave session.  The window is
+    // bounded by the next bill_sessions poll (~30 s) and is further mitigated by the UI
+    // switching the modal to the master whenever effectiveTableId differs from
+    // selectedTable.id (see confirmDirectItems in CassaTableManager.vue).
+    const store = useAppStore();
+    const STALE_SLAVE_SESSION = 'pre-merge-slave-sess';
+
+    // Merge mapping has arrived (venue sync), but master's session/orders are not yet local.
+    store.tableMergedInto['T_slave5'] = 'T_master5';
+    store.tableCurrentBillSession['T_slave5'] = { billSessionId: STALE_SLAVE_SESSION };
+    // tableCurrentBillSession['T_master5'] intentionally absent (not yet hydrated).
+    // No orders for T_master5 either.
+
+    // Current behavior: falls through to slave's own context (same as stale-mapping case).
+    const ctx = store.resolveTableContext('T_slave5');
+    expect(ctx.effectiveTableId).toBe('T_slave5');
+    expect(ctx.billSessionId).toBe(STALE_SLAVE_SESSION);
+  });
 });
