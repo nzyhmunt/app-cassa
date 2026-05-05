@@ -77,8 +77,15 @@ async function _startSyncLoopsAsLeader() {
       _runPull().catch(() => {});
       syncState._pollTimer = setInterval(() => _runPull().catch(() => {}), pullCfg.intervalMs);
     } else {
-      // Even with WebSocket, do one initial REST pull to catch up on missed updates
+      // Even with WebSocket active, run an initial REST pull to catch updates
+      // missed between the last session and now, and arm the periodic poll timer
+      // as a belt-and-suspenders safety net.  WS events can be silently dropped
+      // when the device screen locks, the OS suspends the tab, or the TCP
+      // connection becomes half-open without emitting an error.  The poll cycle
+      // ensures cross-device consistency converges within at most one interval
+      // even when a WS push is never delivered.
       _runPull().catch(() => {});
+      syncState._pollTimer = setInterval(() => _runPull().catch(() => {}), pullCfg.intervalMs);
     }
   } else {
     // WebSocket disabled — use REST polling only
@@ -90,6 +97,21 @@ async function _startSyncLoopsAsLeader() {
     window.addEventListener('online', _onOnline);
     window.addEventListener('offline', _onOffline);
     window.addEventListener('sync-queue:enqueue', _onQueueEnqueue);
+  }
+  // Trigger an immediate catch-up pull whenever the page transitions from hidden
+  // to visible (device unlocked, app brought to foreground).  The periodic poll
+  // timer is frozen by the browser while the tab is backgrounded, so this
+  // listener fills the gap by running a pull as soon as the user returns.
+  if (typeof document !== 'undefined') {
+    document.addEventListener('visibilitychange', _onVisibilityChange);
+  }
+  // Listen for pull-requested messages from follower tabs that became visible
+  // while this (leader) tab was hidden.  When a follower comes to the foreground
+  // it cannot run its own pull, so it posts this message to ask the leader to
+  // do it.  Uses addEventListener (not onmessage) so this handler stacks on top
+  // of any future BroadcastChannel listeners without clobbering them.
+  if (syncState._idbChangeBroadcast) {
+    syncState._idbChangeBroadcast.addEventListener('message', _onLeaderChannelMessage);
   }
   // PWA Background Sync: listen for messages from the service worker so that
   // background sync events (fired while the app was backgrounded/closed) can
@@ -149,6 +171,12 @@ async function _acquireLeaderLock() {
                 // leader.  The leader posts on this channel but must not receive
                 // its own broadcasts (which would trigger a refresh→broadcast loop).
                 if (syncState._idbChangeBroadcast) syncState._idbChangeBroadcast.onmessage = null;
+                // Remove the follower's visibilitychange delegate listener — the
+                // leader registers its own _onVisibilityChange in
+                // _startSyncLoopsAsLeader() below.
+                if (typeof document !== 'undefined') {
+                  document.removeEventListener('visibilitychange', _onFollowerVisibilityChange);
+                }
                 await _startSyncLoopsAsLeader();
               }
               await standbyHold;
@@ -315,6 +343,68 @@ function _onQueueEnqueue() {
 }
 
 /**
+ * Handles document `visibilitychange` events for the **leader** tab.
+ *
+ * When the page transitions from hidden → visible (device unlocked, PWA brought
+ * to foreground) the browser may have suspended or silently dropped the
+ * WebSocket connection, and the periodic `_pollTimer` interval was frozen for
+ * the duration of the hidden period.  Triggering an immediate REST pull as soon
+ * as the user returns ensures cross-device updates appear within a few seconds
+ * of the device becoming active again, regardless of the WS state.
+ *
+ * Additionally, if WebSocket is enabled but reports as disconnected, a
+ * reconnect attempt is started so the subscription resumes promptly.
+ */
+function _onVisibilityChange() {
+  if (typeof document === 'undefined' || document.visibilityState !== 'visible') return;
+  if (!syncState._running) return;
+  _runPull().catch(() => {});
+  if (appConfig.directus?.wsEnabled === true && !syncState._wsConnected.value) {
+    _reconnectWs().catch(() => {});
+  }
+}
+
+/**
+ * Handles document `visibilitychange` events for **follower** tabs.
+ *
+ * The leader tab's `setInterval` timers are frozen by the browser while it is
+ * backgrounded.  If the leader is hidden and a follower tab is brought to the
+ * foreground, neither the leader's `_pollTimer` nor the leader's own
+ * `_onVisibilityChange` will fire — leaving the visible follower stale until
+ * the leader tab itself becomes visible.
+ *
+ * This handler lets the follower delegate the catch-up to the leader: when the
+ * follower becomes visible it broadcasts a `pull-requested` message over the
+ * existing `_idbChangeBroadcast` BroadcastChannel.  The leader listens for
+ * this message via `_onLeaderChannelMessage` and responds by running a pull.
+ */
+function _onFollowerVisibilityChange() {
+  if (typeof document === 'undefined' || document.visibilityState !== 'visible') return;
+  if (!syncState._running || syncState._isLeader) return;
+  // Include sourceId so the leader (and any future diagnostic tooling) can
+  // correlate which follower tab triggered the pull request.
+  // _SYNC_TAB_ID is a per-module-instance random string defined in state.js
+  // that uniquely identifies this browser tab for the lifetime of the session.
+  syncState._idbChangeBroadcast?.postMessage({ type: 'pull-requested', sourceId: _SYNC_TAB_ID });
+}
+export { _onFollowerVisibilityChange };
+
+/**
+ * Handles BroadcastChannel messages received by the **leader** tab.
+ *
+ * Currently only handles `type: 'pull-requested'` — posted by follower tabs
+ * when they transition from hidden to visible and want the leader to run a
+ * catch-up REST pull on their behalf (because the leader's own poll timer may
+ * be frozen while it is in the background).
+ */
+function _onLeaderChannelMessage(event) {
+  if (event?.data?.type !== 'pull-requested') return;
+  if (!syncState._running || !syncState._isLeader) return;
+  _runPull().catch(() => {});
+}
+export { _onLeaderChannelMessage };
+
+/**
  * PWA Background Sync: handles the 'bg-sync:drain-queue' message posted by
  * the service worker when a background sync fires (device came back online
  * while the user had closed or backgrounded the app).  Only the leader tab
@@ -398,6 +488,13 @@ export function useDirectusSync() {
           }
         };
       }
+      // When this follower tab becomes visible while the leader is backgrounded,
+      // the leader's poll timers are frozen by the browser.  Broadcast a
+      // pull-requested message so the leader runs a catch-up REST pull on behalf
+      // of this visible tab.
+      if (typeof document !== 'undefined') {
+        document.addEventListener('visibilitychange', _onFollowerVisibilityChange);
+      }
       return;
     }
     syncState._isLeader = true;
@@ -429,11 +526,22 @@ export function useDirectusSync() {
     if (syncState._leaderLockResolve) { syncState._leaderLockResolve(); syncState._leaderLockResolve = null; }
     syncState._isLeader = true;
     // NS6: Close the BroadcastChannel.
-    if (syncState._idbChangeBroadcast) { syncState._idbChangeBroadcast.close(); syncState._idbChangeBroadcast = null; }
+    // Explicitly remove the leader message listener before close() so the
+    // handler cannot fire in the narrow window between the close() call and
+    // the channel becoming inert.
+    if (syncState._idbChangeBroadcast) {
+      syncState._idbChangeBroadcast.removeEventListener('message', _onLeaderChannelMessage);
+      syncState._idbChangeBroadcast.close();
+      syncState._idbChangeBroadcast = null;
+    }
     if (typeof window !== 'undefined') {
       window.removeEventListener('online', _onOnline);
       window.removeEventListener('offline', _onOffline);
       window.removeEventListener('sync-queue:enqueue', _onQueueEnqueue);
+    }
+    if (typeof document !== 'undefined') {
+      document.removeEventListener('visibilitychange', _onVisibilityChange);
+      document.removeEventListener('visibilitychange', _onFollowerVisibilityChange);
     }
     if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
       navigator.serviceWorker.removeEventListener('message', _onSwMessage);
@@ -636,13 +744,23 @@ export function _resetDirectusSyncSingleton() {
   if (syncState._leaderLockResolve) { syncState._leaderLockResolve(); }
 
   // NS6: Close the BroadcastChannel.
-  if (syncState._idbChangeBroadcast) { syncState._idbChangeBroadcast.close(); }
+  // Explicitly remove the leader message listener before close() so the
+  // handler cannot fire in the narrow window between the close() call and
+  // the channel becoming inert.
+  if (syncState._idbChangeBroadcast) {
+    syncState._idbChangeBroadcast.removeEventListener('message', _onLeaderChannelMessage);
+    syncState._idbChangeBroadcast.close();
+  }
 
   // Remove window event listeners.
   if (typeof window !== 'undefined') {
     window.removeEventListener('online', _onOnline);
     window.removeEventListener('offline', _onOffline);
     window.removeEventListener('sync-queue:enqueue', _onQueueEnqueue);
+  }
+  if (typeof document !== 'undefined') {
+    document.removeEventListener('visibilitychange', _onVisibilityChange);
+    document.removeEventListener('visibilitychange', _onFollowerVisibilityChange);
   }
   if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
     navigator.serviceWorker.removeEventListener('message', _onSwMessage);

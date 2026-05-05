@@ -6101,7 +6101,392 @@ describe('GP-RECONFIG — reconfigureAndApply() invalidates in-flight background
   });
 });
 
-// ── GP-FANOUT-MID: shouldAbort guard inside _fanOutVenueTreeToIDB ─────────────
+// ── WS-BELT-SUSPENDERS — _pollTimer armed even when WS subscriptions succeed ──
+//
+// When WebSocket is active and subscriptions connect successfully, the previous
+// code only ran a single initial REST pull without arming _pollTimer.  If a WS
+// event was silently dropped (device locked, OS suspended the tab, TCP half-open),
+// there was no fallback mechanism to catch up until the WS reconnected.
+// The fix arms _pollTimer unconditionally so a periodic REST pull runs even with
+// an active WebSocket connection, guaranteeing convergence within one interval.
+
+describe('WS-BELT-SUSPENDERS — _pollTimer armed even when WS subscriptions succeed', () => {
+  it('arms _pollTimer alongside WS when wsEnabled=true and subscriptions succeed', async () => {
+    const { syncState } = await import('../sync/state.js');
+    const { appConfig } = await import('../../utils/index.js');
+    const wsMod = await import('../sync/wsManager.js');
+    const pullMod = await import('../sync/pullQueue.js');
+
+    appConfig.directus = { ...appConfig.directus, wsEnabled: true };
+
+    vi.spyOn(wsMod, '_startSubscriptions').mockResolvedValue(true);
+    vi.spyOn(pullMod, '_runPull').mockResolvedValue({ ok: true, anyMerged: false });
+    vi.spyOn(global, 'fetch').mockImplementation(() => Promise.resolve(directusListResponse([])));
+
+    const sync = useDirectusSync();
+    try {
+      await sync.startSync({ appType: 'cassa', store: makeStore() });
+      await flushPromises(LONG_FLUSH_ROUNDS);
+
+      // Belt-and-suspenders: _pollTimer must be set even when WS succeeded.
+      // Before this fix the timer was null for the duration of the WS session.
+      expect(syncState._pollTimer).not.toBeNull();
+    } finally {
+      sync.stopSync();
+    }
+  });
+
+  it('WS-BELT-SUSPENDERS-RECONNECT: _pollTimer is re-armed after a successful WS reconnect', async () => {
+    const { syncState } = await import('../sync/state.js');
+    const { appConfig } = await import('../../utils/index.js');
+    const wsMod = await import('../sync/wsManager.js');
+    const pullMod = await import('../sync/pullQueue.js');
+
+    appConfig.directus = { ...appConfig.directus, wsEnabled: true };
+
+    vi.spyOn(wsMod, '_startSubscriptions').mockResolvedValue(true);
+    vi.spyOn(wsMod, '_stopSubscriptions').mockImplementation(() => {});
+    vi.spyOn(pullMod, '_runPull').mockResolvedValue({ ok: true, anyMerged: false });
+    vi.spyOn(global, 'fetch').mockImplementation(() => Promise.resolve(directusListResponse([])));
+
+    const sync = useDirectusSync();
+    try {
+      await sync.startSync({ appType: 'cassa', store: makeStore() });
+      await flushPromises(LONG_FLUSH_ROUNDS);
+
+      // Simulate the state that exists just before _reconnectWs() runs:
+      // _pollTimer was cleared (as _reconnectWs() does) and WS is disconnected.
+      if (syncState._pollTimer) { clearInterval(syncState._pollTimer); syncState._pollTimer = null; }
+      syncState._wsConnected.value = false;
+
+      await wsMod._reconnectWs();
+      await flushPromises(LONG_FLUSH_ROUNDS);
+
+      // After a successful reconnect _pollTimer must be re-armed (not null).
+      // This is the regression guard: previously _pollTimer stayed null after
+      // the first successful _reconnectWs(), losing the belt-and-suspenders
+      // guarantee for the rest of the session.
+      expect(syncState._pollTimer).not.toBeNull();
+    } finally {
+      sync.stopSync();
+    }
+  });
+});
+
+// ── VIS-CHANGE — visibilitychange triggers immediate pull on foreground ────────
+//
+// Browsers freeze `setInterval` timers while a tab is hidden (device locked,
+// app in background).  When the user returns, the periodic poll may be many
+// seconds overdue.  Listening for `visibilitychange` → 'visible' ensures a
+// catch-up pull fires immediately on foreground, regardless of the WS state.
+// Additionally, if WS is enabled but dropped while backgrounded, the handler
+// starts a reconnect attempt so subscriptions resume promptly.
+
+describe('VIS-CHANGE — visibilitychange triggers immediate pull on foreground', () => {
+  it('VIS-CHANGE-PULL: dispatching visibilitychange while visible triggers _runPull()', async () => {
+    const pullMod = await import('../sync/pullQueue.js');
+    vi.spyOn(global, 'fetch').mockImplementation(() => Promise.resolve(directusListResponse([])));
+
+    const sync = useDirectusSync();
+    try {
+      await sync.startSync({ appType: 'cassa', store: makeStore() });
+      await flushPromises(LONG_FLUSH_ROUNDS);
+
+      // Spy AFTER startSync so the initial pull call is not counted.
+      const runPullSpy = vi.spyOn(pullMod, '_runPull').mockResolvedValue({ ok: true, anyMerged: false });
+
+      document.dispatchEvent(new Event('visibilitychange'));
+      await flushPromises();
+
+      expect(runPullSpy).toHaveBeenCalled();
+    } finally {
+      sync.stopSync();
+    }
+  });
+
+  it('VIS-CHANGE-HIDDEN: visibilitychange while document is hidden does NOT trigger _runPull()', async () => {
+    const pullMod = await import('../sync/pullQueue.js');
+    vi.spyOn(global, 'fetch').mockImplementation(() => Promise.resolve(directusListResponse([])));
+
+    // Override visibilityState to 'hidden' so the handler's early-return guard fires.
+    const originalDescriptor = Object.getOwnPropertyDescriptor(document, 'visibilityState');
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
+    try {
+      const sync = useDirectusSync();
+      try {
+        await sync.startSync({ appType: 'cassa', store: makeStore() });
+        await flushPromises(LONG_FLUSH_ROUNDS);
+
+        const runPullSpy = vi.spyOn(pullMod, '_runPull').mockResolvedValue({ ok: true, anyMerged: false });
+
+        document.dispatchEvent(new Event('visibilitychange'));
+        await flushPromises();
+
+        expect(runPullSpy).not.toHaveBeenCalled();
+      } finally {
+        sync.stopSync();
+      }
+    } finally {
+      if (originalDescriptor) {
+        Object.defineProperty(document, 'visibilityState', originalDescriptor);
+      } else {
+        // jsdom does not define visibilityState on the instance; remove the override.
+        Reflect.deleteProperty(document, 'visibilityState');
+      }
+    }
+  });
+
+  it('VIS-CHANGE-WS-RECONNECT: triggers _reconnectWs() when WS is enabled but disconnected', async () => {
+    const { syncState } = await import('../sync/state.js');
+    const { appConfig } = await import('../../utils/index.js');
+    const wsMod = await import('../sync/wsManager.js');
+    const pullMod = await import('../sync/pullQueue.js');
+
+    appConfig.directus = { ...appConfig.directus, wsEnabled: true };
+
+    vi.spyOn(global, 'fetch').mockImplementation(() => Promise.resolve(directusListResponse([])));
+    vi.spyOn(wsMod, '_startSubscriptions').mockResolvedValue(true);
+    vi.spyOn(pullMod, '_runPull').mockResolvedValue({ ok: true, anyMerged: false });
+
+    const sync = useDirectusSync();
+    try {
+      await sync.startSync({ appType: 'cassa', store: makeStore() });
+      await flushPromises(LONG_FLUSH_ROUNDS);
+
+      // Simulate WS having silently dropped while the device was backgrounded.
+      syncState._wsConnected.value = false;
+
+      const reconnectSpy = vi.spyOn(wsMod, '_reconnectWs').mockResolvedValue(undefined);
+
+      document.dispatchEvent(new Event('visibilitychange'));
+      await flushPromises();
+
+      expect(reconnectSpy).toHaveBeenCalled();
+    } finally {
+      sync.stopSync();
+    }
+  });
+
+  it('VIS-CHANGE-WS-CONNECTED: does NOT call _reconnectWs() when WS is still connected', async () => {
+    const { syncState } = await import('../sync/state.js');
+    const { appConfig } = await import('../../utils/index.js');
+    const wsMod = await import('../sync/wsManager.js');
+    const pullMod = await import('../sync/pullQueue.js');
+
+    appConfig.directus = { ...appConfig.directus, wsEnabled: true };
+
+    vi.spyOn(global, 'fetch').mockImplementation(() => Promise.resolve(directusListResponse([])));
+    vi.spyOn(wsMod, '_startSubscriptions').mockResolvedValue(true);
+    vi.spyOn(pullMod, '_runPull').mockResolvedValue({ ok: true, anyMerged: false });
+
+    const sync = useDirectusSync();
+    try {
+      await sync.startSync({ appType: 'cassa', store: makeStore() });
+      await flushPromises(LONG_FLUSH_ROUNDS);
+
+      // WS is still healthy.
+      syncState._wsConnected.value = true;
+
+      const reconnectSpy = vi.spyOn(wsMod, '_reconnectWs').mockResolvedValue(undefined);
+
+      document.dispatchEvent(new Event('visibilitychange'));
+      await flushPromises();
+
+      expect(reconnectSpy).not.toHaveBeenCalled();
+    } finally {
+      sync.stopSync();
+    }
+  });
+
+  it('VIS-CHANGE-STOPSYNC: stopSync() prevents visibilitychange from triggering _runPull()', async () => {
+    const pullMod = await import('../sync/pullQueue.js');
+    vi.spyOn(global, 'fetch').mockImplementation(() => Promise.resolve(directusListResponse([])));
+
+    const sync = useDirectusSync();
+    await sync.startSync({ appType: 'cassa', store: makeStore() });
+    await flushPromises(LONG_FLUSH_ROUNDS);
+
+    sync.stopSync();
+
+    // Spy AFTER stopSync; the listener was removed so the spy must not fire.
+    const runPullSpy = vi.spyOn(pullMod, '_runPull').mockResolvedValue({ ok: true, anyMerged: false });
+
+    document.dispatchEvent(new Event('visibilitychange'));
+    await flushPromises();
+
+    expect(runPullSpy).not.toHaveBeenCalled();
+  });
+
+  it('VIS-CHANGE-CLEANUP: stopSync() removes the visibilitychange listener from document', async () => {
+    vi.spyOn(global, 'fetch').mockImplementation(() => Promise.resolve(directusListResponse([])));
+
+    const removeListenerSpy = vi.spyOn(document, 'removeEventListener');
+
+    const sync = useDirectusSync();
+    await sync.startSync({ appType: 'cassa', store: makeStore() });
+    await flushPromises(LONG_FLUSH_ROUNDS);
+
+    sync.stopSync();
+
+    expect(removeListenerSpy).toHaveBeenCalledWith('visibilitychange', expect.any(Function));
+  });
+});
+
+// ── VIS-CHANGE-FOLLOWER — follower tab delegates catch-up to leader ───────────
+//
+// When the leader tab is backgrounded its setInterval timers are frozen by the
+// browser.  A follower tab that becomes visible cannot run a pull itself —
+// but it can ask the leader by posting a 'pull-requested' message on the
+// shared BroadcastChannel.  The leader receives the message and triggers a
+// REST pull on behalf of the follower.  This ensures that the **visible** tab
+// always shows fresh data even when the **leader** is hidden.
+
+describe('VIS-CHANGE-FOLLOWER — follower tab delegates catch-up pull to leader', () => {
+  it('VIS-CHANGE-FOLLOWER-POST: follower visibilitychange posts pull-requested on BroadcastChannel', async () => {
+    const { syncState } = await import('../sync/state.js');
+
+    // Simulate follower state: _running=true, _isLeader=false, channel open.
+    syncState._running = true;
+    syncState._isLeader = false;
+    const postMessageSpy = vi.fn();
+    syncState._idbChangeBroadcast = { postMessage: postMessageSpy, close: () => {}, onmessage: null };
+
+    // Import and register the follower handler directly.
+    const { _onFollowerVisibilityChange } = await import('../sync/leaderElection.js');
+    document.addEventListener('visibilitychange', _onFollowerVisibilityChange);
+    try {
+      document.dispatchEvent(new Event('visibilitychange'));
+      await flushPromises();
+
+      expect(postMessageSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'pull-requested' }),
+      );
+    } finally {
+      document.removeEventListener('visibilitychange', _onFollowerVisibilityChange);
+      syncState._running = false;
+      syncState._isLeader = true;
+      syncState._idbChangeBroadcast = null;
+      _resetDirectusSyncSingleton();
+    }
+  });
+
+  it('VIS-CHANGE-FOLLOWER-HIDDEN: follower does NOT post when document is hidden', async () => {
+    const { syncState } = await import('../sync/state.js');
+
+    syncState._running = true;
+    syncState._isLeader = false;
+    const postMessageSpy = vi.fn();
+    syncState._idbChangeBroadcast = { postMessage: postMessageSpy, close: () => {}, onmessage: null };
+
+    const { _onFollowerVisibilityChange } = await import('../sync/leaderElection.js');
+    document.addEventListener('visibilitychange', _onFollowerVisibilityChange);
+
+    // Override visibilityState to 'hidden' so the early-return guard fires.
+    const originalDescriptor = Object.getOwnPropertyDescriptor(document, 'visibilityState');
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
+    try {
+      document.dispatchEvent(new Event('visibilitychange'));
+      await flushPromises();
+
+      expect(postMessageSpy).not.toHaveBeenCalled();
+    } finally {
+      if (originalDescriptor) {
+        Object.defineProperty(document, 'visibilityState', originalDescriptor);
+      } else {
+        Reflect.deleteProperty(document, 'visibilityState');
+      }
+      document.removeEventListener('visibilitychange', _onFollowerVisibilityChange);
+      syncState._running = false;
+      syncState._isLeader = true;
+      syncState._idbChangeBroadcast = null;
+      _resetDirectusSyncSingleton();
+    }
+  });
+
+  it('VIS-CHANGE-FOLLOWER-LEADER-RECEIVES: leader _onLeaderChannelMessage triggers _runPull()', async () => {
+    const { syncState } = await import('../sync/state.js');
+    const pullMod = await import('../sync/pullQueue.js');
+
+    syncState._running = true;
+    syncState._isLeader = true;
+
+    const runPullSpy = vi.spyOn(pullMod, '_runPull').mockResolvedValue({ ok: true, anyMerged: false });
+
+    const { _onLeaderChannelMessage } = await import('../sync/leaderElection.js');
+
+    // Simulate a BroadcastChannel message event from a follower.
+    _onLeaderChannelMessage({ data: { type: 'pull-requested', sourceId: 'follower-tab-id' } });
+    await flushPromises();
+
+    expect(runPullSpy).toHaveBeenCalled();
+
+    syncState._running = false;
+    syncState._isLeader = true;
+    _resetDirectusSyncSingleton();
+  });
+
+  it('VIS-CHANGE-FOLLOWER-LEADER-IGNORES-OTHER: leader ignores non-pull-requested messages', async () => {
+    const { syncState } = await import('../sync/state.js');
+    const pullMod = await import('../sync/pullQueue.js');
+
+    syncState._running = true;
+    syncState._isLeader = true;
+
+    const runPullSpy = vi.spyOn(pullMod, '_runPull').mockResolvedValue({ ok: true, anyMerged: false });
+
+    const { _onLeaderChannelMessage } = await import('../sync/leaderElection.js');
+
+    _onLeaderChannelMessage({ data: { type: 'idb-change', collection: 'orders' } });
+    await flushPromises();
+
+    expect(runPullSpy).not.toHaveBeenCalled();
+
+    syncState._running = false;
+    syncState._isLeader = true;
+    _resetDirectusSyncSingleton();
+  });
+
+  it('VIS-CHANGE-FOLLOWER-STOPSYNC: stopSync() removes follower visibilitychange listener', async () => {
+    vi.spyOn(global, 'fetch').mockImplementation(() => Promise.resolve(directusListResponse([])));
+
+    const { syncState } = await import('../sync/state.js');
+
+    // Force follower state so startSync() skips leader loops but registers the
+    // follower visibilitychange listener.  We mock navigator.locks so the tab
+    // is treated as a follower (isLeader=false).
+    const origLocks = navigator.locks;
+    Object.defineProperty(navigator, 'locks', {
+      configurable: true,
+      value: {
+        request: (name, opts, cb) => {
+          if (opts?.ifAvailable) {
+            // Simulate "lock not available" → tab becomes a follower.
+            return Promise.resolve(cb(null));
+          }
+          // Standby request: hold forever.
+          return new Promise(() => {});
+        },
+      },
+    });
+
+    const removeListenerSpy = vi.spyOn(document, 'removeEventListener');
+
+    const sync = useDirectusSync();
+    try {
+      await sync.startSync({ appType: 'cassa', store: makeStore() });
+      await flushPromises(LONG_FLUSH_ROUNDS);
+
+      expect(syncState._isLeader).toBe(false);
+
+      sync.stopSync();
+
+      expect(removeListenerSpy).toHaveBeenCalledWith('visibilitychange', expect.any(Function));
+    } finally {
+      Object.defineProperty(navigator, 'locks', { configurable: true, value: origLocks });
+      _resetDirectusSyncSingleton();
+    }
+  });
+});
 //
 // Exercises the guard added after normalizeVenueUsersForIDB but before the IDB
 // transaction: if shouldAbort() returns true (offline/reconfig fired while PIN

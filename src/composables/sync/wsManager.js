@@ -631,12 +631,16 @@ export async function _reconnectWs() {
   _stopSubscriptions();
 
   const subscribed = await _startSubscriptions(syncState._wsCollections);
+  // In both branches re-arm _pollTimer if it is not already running.
+  // This preserves the belt-and-suspenders guarantee: even after a successful
+  // WS reconnect the periodic REST poll must continue so that silently-dropped
+  // events never leave cross-device state permanently diverged.
+  const pullCfg2 = PULL_CONFIG[syncState._appType] ?? PULL_CONFIG.cassa;
+  if (!syncState._pollTimer) {
+    syncState._pollTimer = setInterval(() => _runPull().catch(() => {}), pullCfg2.intervalMs);
+  }
   if (!subscribed) {
-    // Reconnect failed — restart polling fallback.
-    const pullCfg2 = PULL_CONFIG[syncState._appType] ?? PULL_CONFIG.cassa;
-    if (!syncState._pollTimer) {
-      syncState._pollTimer = setInterval(() => _runPull().catch(() => {}), pullCfg2.intervalMs);
-    }
+    // Reconnect failed — polling fallback is already running (armed above).
   } else {
     // WS is back — do an immediate pull to catch up on missed updates.
     _runPull().catch(() => {});
