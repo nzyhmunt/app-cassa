@@ -698,7 +698,8 @@ describe('resolveActiveBillSessionId (sync-lag fallback)', () => {
     expect(store.resolveActiveBillSessionId('T_synclag')).toBe(REMOTE_SESSION_ID);
 
     // A direct order added with the resolved ID must have a valid (non-null) FK.
-    const result = await store.addDirectOrder('T_synclag', store.resolveActiveBillSessionId('T_synclag'), [
+    const sessionId = store.resolveActiveBillSessionId('T_synclag');
+    const result = await store.addDirectOrder('T_synclag', sessionId, [
       { uid: 'direct_lag_1', dishId: null, name: 'Acqua', unitPrice: 2.00, quantity: 1, voidedQuantity: 0, notes: [], modifiers: [] },
     ]);
 

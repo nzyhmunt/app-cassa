@@ -156,7 +156,7 @@ export const useOrderStore = defineStore('orders', () => {
     const masterId = masterTableOf(tableId);
     // Only fall back to master when the merge is still active; a stale merge
     // mapping on a free table must not inherit the master's session.
-    const isActiveSlave = masterId != null && getTableStatus(tableId).status !== 'free';
+    const isActiveSlave = masterId != null && getTableStatus(tableId)?.status !== 'free';
     const session = ownSession ?? (isActiveSlave ? tableCurrentBillSession.value[masterId] : null);
     if (session?.billSessionId) return session.billSessionId;
     // Sync-lag fallback: infer the active session ID from non-closed orders.
