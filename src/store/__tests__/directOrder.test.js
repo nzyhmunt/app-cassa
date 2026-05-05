@@ -792,7 +792,7 @@ describe('resolveTableContext (session and table resolution)', () => {
     expect(ctx.billSessionId).toBe(MASTER_REMOTE_SESSION);
   });
 
-  it('merge-arrival race: tableMergedInto updated before bill_sessions pull — slave still has stale open session locally, must return master context', async () => {
+  it('resolves to master context when merge mapping exists with stale slave session (merge-arrival race)', async () => {
     // Reproduces the window where table_merge_sessions (venue sync, ~5 min) arrives
     // BEFORE the next bill_sessions pull (~30 s) removes the slave's locally-open session.
     // In this state, the old algorithm returned (slave, oldSession); the fixed algorithm
@@ -817,7 +817,7 @@ describe('resolveTableContext (session and table resolution)', () => {
     expect(ctx.billSessionId).toBe(MASTER_SESSION);
   });
 
-  it('stale-mapping + free master: tableMergedInto entry lingers after un-merge, master has no active context — must return slave own context', async () => {
+  it('falls back to slave context when merge mapping is stale and master has no active context', async () => {
     // Reproduces the window where the table was un-merged on another device,
     // table_merge_sessions (venue sync, ~5 min) has NOT yet cleared the local entry,
     // but bill_sessions (30 s pull) HAS already given the slave its new session.
