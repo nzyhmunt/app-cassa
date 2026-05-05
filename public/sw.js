@@ -16,7 +16,7 @@
  * the activate step can purge stale caches from previous installs.
  */
 
-const CACHE_VERSION = 'v1';
+const CACHE_VERSION = 'v2';
 const SHELL_CACHE  = `shell-${CACHE_VERSION}`;
 const ASSET_CACHE  = `assets-${CACHE_VERSION}`;
 const DATA_CACHE   = `data-${CACHE_VERSION}`;
@@ -88,6 +88,27 @@ self.addEventListener('fetch', (event) => {
 
   // Only handle GET requests
   if (request.method !== 'GET') return;
+
+  // Never intercept cross-origin requests (e.g. Directus REST API calls).
+  // A service worker intercepts ALL fetches made from its controlled pages,
+  // including those to other origins.  Applying cache-first to a live API
+  // endpoint freezes incremental pull queries: the first empty-data response
+  // for a given filter URL gets stored in ASSET_CACHE, and every subsequent
+  // poll with the same URL (same sinceTs cursor) returns the stale cached
+  // result without touching the network — new orders become permanently
+  // invisible until the cursor advances.
+  if (url.origin !== self.location.origin) return;
+
+  // Never cache same-origin Directus/REST API paths (dynamic live data).
+  // Covers deployments where the app and Directus share the same origin
+  // (e.g. a reverse-proxy that serves both under the same hostname).
+  if (
+    url.pathname.startsWith('/items/') ||
+    url.pathname.startsWith('/auth/') ||
+    url.pathname.startsWith('/users/') ||
+    url.pathname.startsWith('/files/') ||
+    url.pathname.startsWith('/websocket')
+  ) return;
 
   // Heuristic: treat JSON/menu endpoints as data requests
   const isDataRequest =
