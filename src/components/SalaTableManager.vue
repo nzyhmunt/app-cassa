@@ -534,21 +534,14 @@ async function confirmPeopleAndOpenTable() {
 
 async function createNewOrder() {
   if (!selectedTable.value) return;
-  // Resolve the effective table for the order's `table` field.
-  // Active merged slaves store their orders under the master; free tables (including
-  // those with a stale merge mapping) use their own ID.
-  const masterId = orderStore.masterTableOf(selectedTable.value.id);
-  const selectedTableStatus = orderStore.getTableStatus(selectedTable.value.id)?.status;
-  const isActiveMergedSlave = masterId != null && selectedTableStatus !== 'free';
-  const sessionTableId = isActiveMergedSlave ? masterId : selectedTable.value.id;
-
-  // Use the store helper which handles own session, master fallback, and
-  // the sync-lag window (orders arrive before bill_sessions in the pull order).
-  const billSessionId = orderStore.resolveActiveBillSessionId(selectedTable.value.id);
+  // resolveTableContext returns a consistent (effectiveTableId, billSessionId) pair.
+  // When the selected table is an active merged slave, effectiveTableId is the master,
+  // ensuring the new order is filed under the same table as the rest of the merged bill.
+  const { effectiveTableId, billSessionId } = orderStore.resolveTableContext(selectedTable.value.id);
 
   const newOrd = {
     id: newUUIDv7(),
-    table: sessionTableId,
+    table: effectiveTableId,
     billSessionId,
     status: 'pending',
     time: formatOrderTime(),

@@ -2238,24 +2238,12 @@ function closeTableModal() {
   selectedTable.value = null;
 }
 
-/**
- * Thin wrapper that delegates active-session resolution to the store.
- * See orderStore.resolveActiveBillSessionId for the full lookup logic.
- *
- * @param {string} tableId
- * @returns {string|null}
- */
-function _resolveActiveSessionId(tableId) {
-  return orderStore.resolveActiveBillSessionId(tableId);
-}
-
 async function createNewOrderForTable() {
   if (!selectedTable.value) return;
-  const tableId = selectedTable.value.id;
-  const billSessionId = _resolveActiveSessionId(tableId);
+  const { effectiveTableId, billSessionId } = orderStore.resolveTableContext(selectedTable.value.id);
   const newOrd = {
     id: newUUIDv7(),
-    table: tableId,
+    table: effectiveTableId,
     billSessionId,
     status: 'pending',
     time: formatOrderTime(),
@@ -2401,9 +2389,8 @@ const directCartTotal = computed(() =>
 
 async function confirmDirectItems() {
   if (!selectedTable.value || directCart.value.length === 0) return;
-  const tableId = selectedTable.value.id;
-  const billSessionId = _resolveActiveSessionId(tableId);
-  await orderStore.addDirectOrder(tableId, billSessionId, directCart.value);
+  const { effectiveTableId, billSessionId } = orderStore.resolveTableContext(selectedTable.value.id);
+  await orderStore.addDirectOrder(effectiveTableId, billSessionId, directCart.value);
   closeDirectItemModal();
 }
 

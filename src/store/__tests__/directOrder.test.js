@@ -655,17 +655,21 @@ describe('simulateNewOrder()', () => {
 });
 
 // ---------------------------------------------------------------------------
-// resolveActiveBillSessionId() — store-level contract
+// resolveTableContext() — store-level contract
 //
 // The pull config fetches orders before bill_sessions (config.js PULL_CONFIG).
 // A table can therefore be occupied (orders exist) before tableCurrentBillSession
-// is hydrated. resolveActiveBillSessionId() handles this sync-lag window by
-// falling back to reading the billSessionId from non-closed orders in the store.
+// is hydrated. resolveTableContext() handles this sync-lag window by falling back
+// to reading the billSessionId from non-closed orders already in the store.
 //
-// Both CassaTableManager and SalaTableManager delegate session resolution to
-// this store method to keep the logic in one place.
+// It always returns a consistent { effectiveTableId, billSessionId } pair so that
+// the `table` field and `billSessionId` on new orders always refer to the same
+// billing context.  resolveActiveBillSessionId() is a convenience wrapper.
+//
+// Both CassaTableManager and SalaTableManager delegate order creation to this
+// store method to keep the logic in one place.
 // ---------------------------------------------------------------------------
-describe('resolveActiveBillSessionId (sync-lag fallback)', () => {
+describe('resolveTableContext (session and table resolution)', () => {
   beforeEach(() => {
     setActivePinia(createPinia());
   });
@@ -694,12 +698,16 @@ describe('resolveActiveBillSessionId (sync-lag fallback)', () => {
     // Confirm the sync-lag condition: orders are present but session index not yet hydrated.
     expect(store.tableCurrentBillSession['T_synclag']).toBeUndefined();
 
-    // The store method must recover the correct session ID from the existing order.
+    // resolveTableContext must recover the correct (table, session) pair from the order.
+    const ctx = store.resolveTableContext('T_synclag');
+    expect(ctx.effectiveTableId).toBe('T_synclag');
+    expect(ctx.billSessionId).toBe(REMOTE_SESSION_ID);
+
+    // resolveActiveBillSessionId must agree (it is a convenience wrapper).
     expect(store.resolveActiveBillSessionId('T_synclag')).toBe(REMOTE_SESSION_ID);
 
-    // A direct order added with the resolved ID must have a valid (non-null) FK.
-    const sessionId = store.resolveActiveBillSessionId('T_synclag');
-    const result = await store.addDirectOrder('T_synclag', sessionId, [
+    // A direct order added with the resolved context must have a valid (non-null) FK.
+    const result = await store.addDirectOrder(ctx.effectiveTableId, ctx.billSessionId, [
       { uid: 'direct_lag_1', dishId: null, name: 'Acqua', unitPrice: 2.00, quantity: 1, voidedQuantity: 0, notes: [], modifiers: [] },
     ]);
 
@@ -728,7 +736,27 @@ describe('resolveActiveBillSessionId (sync-lag fallback)', () => {
 
     expect(store.tableCurrentBillSession['T_closed']).toBeUndefined();
 
-    // Completed orders must be ignored — result must be null.
-    expect(store.resolveActiveBillSessionId('T_closed')).toBeNull();
+    // Completed orders must be ignored — billSessionId must be null.
+    const ctx = store.resolveTableContext('T_closed');
+    expect(ctx.effectiveTableId).toBe('T_closed');
+    expect(ctx.billSessionId).toBeNull();
+  });
+
+  it('merged slave with master session: returns masterId and master billSessionId', async () => {
+    const store = useAppStore();
+    const MASTER_SESSION_ID = 'master-sess-merged-999';
+
+    // Simulate the master table having an active, locally hydrated session.
+    store.tableCurrentBillSession['T_master'] = { billSessionId: MASTER_SESSION_ID };
+
+    // Simulate tableMergedInto indicating T_slave is merged into T_master.
+    // (In production this is written by mergeTableOrders / refreshOperationalStateFromIDB.)
+    store.tableMergedInto['T_slave'] = 'T_master';
+
+    // resolveTableContext(slaveId) must return the master's context so the new
+    // order's `table` field and `billSessionId` both point to the master.
+    const ctx = store.resolveTableContext('T_slave');
+    expect(ctx.effectiveTableId).toBe('T_master');
+    expect(ctx.billSessionId).toBe(MASTER_SESSION_ID);
   });
 });
