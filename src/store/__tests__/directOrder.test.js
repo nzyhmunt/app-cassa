@@ -866,17 +866,17 @@ describe('resolveTableContext (session and table resolution)', () => {
     // switching the modal to the master whenever effectiveTableId differs from
     // selectedTable.id (see confirmDirectItems in CassaTableManager.vue).
     const store = useAppStore();
-    const STALE_SLAVE_SESSION = 'pre-merge-slave-sess';
+    const PRE_MERGE_SLAVE_SESSION = 'pre-merge-slave-sess';
 
     // Merge mapping has arrived (venue sync), but master's session/orders are not yet local.
     store.tableMergedInto['T_slave5'] = 'T_master5';
-    store.tableCurrentBillSession['T_slave5'] = { billSessionId: STALE_SLAVE_SESSION };
+    store.tableCurrentBillSession['T_slave5'] = { billSessionId: PRE_MERGE_SLAVE_SESSION };
     // tableCurrentBillSession['T_master5'] intentionally absent (not yet hydrated).
     // No orders for T_master5 either.
 
     // Current behavior: falls through to slave's own context (same as stale-mapping case).
     const ctx = store.resolveTableContext('T_slave5');
     expect(ctx.effectiveTableId).toBe('T_slave5');
-    expect(ctx.billSessionId).toBe(STALE_SLAVE_SESSION);
+    expect(ctx.billSessionId).toBe(PRE_MERGE_SLAVE_SESSION);
   });
 });
