@@ -134,6 +134,38 @@ export const useOrderStore = defineStore('orders', () => {
   function isMergedSlave(tableId) { return !!tableMergedInto.value[tableId]; }
   function masterTableOf(tableId) { return tableMergedInto.value[tableId] ?? null; }
 
+  /**
+   * Resolves the active bill-session ID for a table.
+   *
+   * Lookup order:
+   *  1. The table's own session (tableCurrentBillSession[tableId]).
+   *  2. The master table's session — only when the table is an actively
+   *     merged slave (status !== 'free') to avoid inheriting a stale mapping.
+   *  3. Infer from active orders on the table — handles the sync-lag window
+   *     where orders have been hydrated but bill_sessions have not yet arrived
+   *     (the pull config fetches orders before bill_sessions).
+   *
+   * Does NOT auto-create a session to avoid producing a duplicate bill when an
+   * existing remote session is simply in-flight and not yet hydrated locally.
+   *
+   * @param {string} tableId
+   * @returns {string|null}
+   */
+  function resolveActiveBillSessionId(tableId) {
+    const ownSession = tableCurrentBillSession.value[tableId];
+    const masterId = masterTableOf(tableId);
+    // Only fall back to master when the merge is still active; a stale merge
+    // mapping on a free table must not inherit the master's session.
+    const isActiveSlave = masterId != null && getTableStatus(tableId).status !== 'free';
+    const session = ownSession ?? (isActiveSlave ? tableCurrentBillSession.value[masterId] : null);
+    if (session?.billSessionId) return session.billSessionId;
+    // Sync-lag fallback: infer the active session ID from non-closed orders.
+    const effectiveTableId = isActiveSlave ? masterId : tableId;
+    return orders.value
+      .filter(o => o.table === effectiveTableId && o.billSessionId && !['completed', 'rejected'].includes(o.status))
+      .map(o => o.billSessionId)[0] ?? null;
+  }
+
   const pendingCount = computed(() => orders.value.filter(o => o.status === 'pending' && !o.isDirectEntry).length);
   const inKitchenCount = computed(() =>
     orders.value.filter(o => KITCHEN_ACTIVE_STATUSES.includes(o.status)).length,
@@ -1193,6 +1225,7 @@ export const useOrderStore = defineStore('orders', () => {
     getPaymentMethodIcon,
     isMergedSlave,
     masterTableOf,
+    resolveActiveBillSessionId,
     slaveIdsOf,
     addOrder,
     addItemsToOrder,

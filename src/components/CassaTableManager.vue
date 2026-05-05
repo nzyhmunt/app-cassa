@@ -2239,37 +2239,14 @@ function closeTableModal() {
 }
 
 /**
- * Resolves the active bill-session ID for the given table.
- *
- * Lookup order:
- *  1. The table's own session (tableCurrentBillSession[tableId]).
- *  2. The master table's session — defense-in-depth for any edge case where a
- *     slave table's modal is reached without the master redirect firing.
- *  3. Infer from active orders on the table — handles the sync-lag window where
- *     orders have been hydrated but bill_sessions have not yet arrived.
- *     The pull config fetches orders before bill_sessions, so this window is
- *     expected under normal operation.
- *
- * NOTE: This helper does NOT auto-create a new session. Creating one would
- * produce a duplicate bill in Directus if an existing remote session is simply
- * in-flight and not yet hydrated locally.
+ * Thin wrapper that delegates active-session resolution to the store.
+ * See orderStore.resolveActiveBillSessionId for the full lookup logic.
  *
  * @param {string} tableId
- * @returns {string|null} The active billSessionId, or null if none can be resolved.
+ * @returns {string|null}
  */
 function _resolveActiveSessionId(tableId) {
-  const ownSession = orderStore.tableCurrentBillSession[tableId];
-  const masterId = orderStore.masterTableOf(tableId);
-  // 1 & 2: prefer own session, fall back to master's for merged slaves.
-  const session = ownSession ?? (masterId != null ? orderStore.tableCurrentBillSession[masterId] : null);
-  if (session?.billSessionId) return session.billSessionId;
-  // 3: sync-lag — infer the active session ID from non-closed orders on this table.
-  //    Reading billSessionId from an already-synced order avoids creating a duplicate
-  //    session and is safe regardless of hydration order.
-  const effectiveTableId = masterId ?? tableId;
-  return orderStore.orders
-    .filter(o => o.table === effectiveTableId && o.billSessionId && !['completed', 'rejected'].includes(o.status))
-    .map(o => o.billSessionId)[0] ?? null;
+  return orderStore.resolveActiveBillSessionId(tableId);
 }
 
 async function createNewOrderForTable() {

@@ -655,23 +655,22 @@ describe('simulateNewOrder()', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Session inference from orders — sync-lag contract
+// resolveActiveBillSessionId() — store-level contract
 //
 // The pull config fetches orders before bill_sessions (config.js PULL_CONFIG).
 // A table can therefore be occupied (orders exist) before tableCurrentBillSession
-// is hydrated. _resolveActiveSessionId (CassaTableManager) and the inline
-// equivalent in SalaTableManager.createNewOrder() fall back to reading the
-// billSessionId directly from non-closed orders in the store to avoid
-// sending bill_session = null to Directus.
+// is hydrated. resolveActiveBillSessionId() handles this sync-lag window by
+// falling back to reading the billSessionId from non-closed orders in the store.
 //
-// These tests verify the store invariants that fallback logic depends on.
+// Both CassaTableManager and SalaTableManager delegate session resolution to
+// this store method to keep the logic in one place.
 // ---------------------------------------------------------------------------
-describe('session inference from orders (sync-lag fallback)', () => {
+describe('resolveActiveBillSessionId (sync-lag fallback)', () => {
   beforeEach(() => {
     setActivePinia(createPinia());
   });
 
-  it('active orders retain billSessionId when tableCurrentBillSession is not yet hydrated (sync-lag window)', async () => {
+  it('infers billSessionId from active orders when tableCurrentBillSession is not yet hydrated (sync-lag window)', async () => {
     const store = useAppStore();
     const REMOTE_SESSION_ID = 'remote-sess-abc-123';
 
@@ -692,30 +691,22 @@ describe('session inference from orders (sync-lag fallback)', () => {
       noteVisibility: { cassa: true, sala: true, cucina: true },
     });
 
-    // Confirm the sync-lag condition: orders are present but the session index
-    // is not yet hydrated (simulates the window between orders and bill_sessions pull).
+    // Confirm the sync-lag condition: orders are present but session index not yet hydrated.
     expect(store.tableCurrentBillSession['T_synclag']).toBeUndefined();
 
-    // The inference step recovers the correct session ID from the existing order —
-    // this is what _resolveActiveSessionId and SalaTableManager.createNewOrder()
-    // use as a fallback to avoid sending bill_session = null.
-    const inferred = store.orders
-      .filter(o => o.table === 'T_synclag' && o.billSessionId && !['completed', 'rejected'].includes(o.status))
-      .map(o => o.billSessionId)[0] ?? null;
+    // The store method must recover the correct session ID from the existing order.
+    expect(store.resolveActiveBillSessionId('T_synclag')).toBe(REMOTE_SESSION_ID);
 
-    expect(inferred).toBe(REMOTE_SESSION_ID);
-
-    // A direct order added with the inferred ID must have a valid (non-null) FK.
-    const result = await store.addDirectOrder('T_synclag', inferred, [
+    // A direct order added with the resolved ID must have a valid (non-null) FK.
+    const result = await store.addDirectOrder('T_synclag', store.resolveActiveBillSessionId('T_synclag'), [
       { uid: 'direct_lag_1', dishId: null, name: 'Acqua', unitPrice: 2.00, quantity: 1, voidedQuantity: 0, notes: [], modifiers: [] },
     ]);
 
     expect(result).not.toBeNull();
     expect(result.billSessionId).toBe(REMOTE_SESSION_ID);
-    expect(result.billSessionId).not.toBeNull();
   });
 
-  it('completed orders are excluded from inference so a closed bill does not bleed into the next session', async () => {
+  it('completed orders are excluded so a closed bill does not bleed into the next session', async () => {
     const store = useAppStore();
     const OLD_SESSION = 'old-session-xyz';
 
@@ -736,11 +727,7 @@ describe('session inference from orders (sync-lag fallback)', () => {
 
     expect(store.tableCurrentBillSession['T_closed']).toBeUndefined();
 
-    // Inference must return null — the completed order should be ignored.
-    const inferred = store.orders
-      .filter(o => o.table === 'T_closed' && o.billSessionId && !['completed', 'rejected'].includes(o.status))
-      .map(o => o.billSessionId)[0] ?? null;
-
-    expect(inferred).toBeNull();
+    // Completed orders must be ignored — result must be null.
+    expect(store.resolveActiveBillSessionId('T_closed')).toBeNull();
   });
 });
