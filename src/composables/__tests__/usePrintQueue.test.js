@@ -668,6 +668,31 @@ describe('TCP/file printer routing (Directus print-server path)', () => {
     });
   });
 
+  it('TCP printer with a stale url is still routed through Directus (no HTTP call)', async () => {
+    // connectionType takes precedence: even if a TCP printer has a stale url,
+    // the browser must NOT send HTTP — only the Directus sync queue is used.
+    appConfig.printers = [
+      { id: 'cucina_tcp_stale', name: 'Cucina TCP Stale', connectionType: 'tcp', url: 'http://localhost:9999/stale', printTypes: ['order'] },
+    ];
+    enqueuePrintJobs(makeOrder({ id: 'ord_stale_1', table: 'S1' }));
+
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    await vi.waitFor(async () => {
+      const entries = await getPendingEntries();
+      const entry = entries.find(
+        e => e.collection === 'print_jobs' && e.operation === 'create' && e.payload.table === 'S1',
+      );
+      expect(entry).toBeDefined();
+    });
+
+    const store = useAppStore();
+    await vi.waitFor(() => {
+      const entry = store.printLog.find(e => e.table === 'S1');
+      expect(entry?.status).toBe('queued');
+    });
+  });
+
   it('mixed config: TCP printer enqueues to Directus; HTTP printer also sends HTTP', async () => {
     appConfig.printers = [
       { id: 'cucina_tcp', name: 'Cucina TCP', connectionType: 'tcp', printTypes: ['order'] },

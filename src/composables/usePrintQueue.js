@@ -276,13 +276,16 @@ export function enqueuePrintJobs(order) {
       payload: job,
     });
 
-    // HTTP printers: send directly from the browser.
-    // TCP/file printers: the job is in the Directus sync queue; the print-server
-    // will claim it from there — no HTTP call needed from the browser.
+    // connectionType takes precedence over url:
+    //   - HTTP printers (not TCP/file): send directly from the browser via URL.
+    //   - TCP/file printers: the job is in the Directus sync queue; the
+    //     print-server claims it from there — no HTTP call needed from the browser.
+    //     A TCP/file printer that also has a (stale/mis-set) url must NOT send HTTP,
+    //     otherwise both the print-server and the browser would process the same job.
     // Use updatePrintLogEntryLocal so 'queued' is a UI-only status that is NOT
     // pushed to Directus — the Directus record must stay 'pending' so the
     // print-server can claim it.
-    if (printer.url) {
+    if (!isDirectusManagedPrinter(printer) && printer.url) {
       sendPrintJob(job, printer.url, logId, store);
     } else {
       store?.updatePrintLogEntryLocal(logId, { status: 'queued' });
@@ -334,11 +337,12 @@ export function enqueueTableMoveJob(fromTableId, fromTableLabel, toTableId, toTa
       payload: job,
     });
 
-    // HTTP printers: send directly from the browser.
-    // TCP/file printers: the job reaches the print-server via Directus.
+    // connectionType takes precedence over url (same as enqueuePrintJobs):
+    //   - HTTP printers (not TCP/file): send directly from the browser.
+    //   - TCP/file printers: the job reaches the print-server via Directus.
     // Use updatePrintLogEntryLocal so the 'queued' status stays UI-only and
     // does not patch the Directus record (which must remain 'pending').
-    if (printer.url) {
+    if (!isDirectusManagedPrinter(printer) && printer.url) {
       sendPrintJob(job, printer.url, logId, store);
     } else {
       store?.updatePrintLogEntryLocal(logId, { status: 'queued' });
