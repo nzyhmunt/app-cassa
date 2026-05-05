@@ -143,17 +143,23 @@ export const useOrderStore = defineStore('orders', () => {
    * becomes a merged slave while its modal is already open.
    *
    * Lookup order:
-   *  1. Table's own session → (tableId, ownSession.billSessionId)
-   *  2. Merge mapping exists + master has a session → (masterId, masterSession.billSessionId)
-   *  3. Merge mapping exists + infer from master's non-closed orders → (masterId, inferred)
+   *  1. Merge mapping exists + master has a session → (masterId, masterSession.billSessionId)
+   *     Master is checked FIRST so that new orders always land on the master's bill,
+   *     even in the merge-arrival race where table_merge_sessions (venue sync, ~5 min)
+   *     updates tableMergedInto before the next bill_sessions pull (~30 s) removes the
+   *     slave's old locally-open session from tableCurrentBillSession.
+   *  2. Merge mapping exists + infer from master's non-closed orders → (masterId, inferred)
    *     Handles the sync-lag window where orders arrived before bill_sessions.
-   *  4. Infer from own non-closed orders → (tableId, inferred)
+   *  3. Merge mapping exists but master has no active context (session = null, orders = [])
+   *     → stale tableMergedInto entry (table was un-merged); fall through to own context.
+   *  4. Table's own session → (tableId, ownSession.billSessionId)
+   *     Covers the normal non-merged case AND the stale-mapping case (step 3 fall-through).
+   *  5. Infer from own non-closed orders → (tableId, inferred)
    *     Handles the sync-lag window for non-merged tables.
-   *  5. Nothing found → (tableId, null)
+   *  6. Nothing found → (tableId, null)
    *
    * NOTE: Uses masterTableOf() directly (not getTableStatus) to avoid the
-   * circular mirror where getTableStatus(slave) propagates the master's status,
-   * which cannot distinguish an active merge from a stale tableMergedInto entry.
+   * circular mirror where getTableStatus(slave) propagates the master's status.
    *
    * Does NOT auto-create a session to avoid producing a duplicate bill when an
    * existing remote session is simply in-flight and not yet hydrated locally.
@@ -162,22 +168,25 @@ export const useOrderStore = defineStore('orders', () => {
    * @returns {{ effectiveTableId: string, billSessionId: string|null }}
    */
   function resolveTableContext(tableId) {
-    const ownSession = tableCurrentBillSession.value[tableId];
-    if (ownSession?.billSessionId) return { effectiveTableId: tableId, billSessionId: ownSession.billSessionId };
-
     const masterId = masterTableOf(tableId);
     if (masterId != null) {
-      // Step 2: master has a locally hydrated session.
+      // Step 1: master has a locally hydrated session.
       const masterSession = tableCurrentBillSession.value[masterId];
       if (masterSession?.billSessionId) return { effectiveTableId: masterId, billSessionId: masterSession.billSessionId };
-      // Step 3: infer from master's non-closed orders (sync-lag window for merged slaves).
+      // Step 2: infer from master's non-closed orders (sync-lag window for merged slaves).
       const masterInferred = orders.value
         .filter(o => o.table === masterId && o.billSessionId && !['completed', 'rejected'].includes(o.status))
         .map(o => o.billSessionId)[0] ?? null;
       if (masterInferred != null) return { effectiveTableId: masterId, billSessionId: masterInferred };
+      // Step 3: master has no active billing context → stale merge mapping.
+      // Fall through to the table's own context below.
     }
 
-    // Step 4: infer from own non-closed orders (sync-lag window for non-merged tables).
+    // Step 4: table's own session (non-merged, or stale-mapping after un-merge).
+    const ownSession = tableCurrentBillSession.value[tableId];
+    if (ownSession?.billSessionId) return { effectiveTableId: tableId, billSessionId: ownSession.billSessionId };
+
+    // Step 5: infer from own non-closed orders (sync-lag window for non-merged tables).
     const ownInferred = orders.value
       .filter(o => o.table === tableId && o.billSessionId && !['completed', 'rejected'].includes(o.status))
       .map(o => o.billSessionId)[0] ?? null;
