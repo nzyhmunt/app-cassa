@@ -6295,6 +6295,162 @@ describe('VIS-CHANGE — visibilitychange triggers immediate pull on foreground'
     expect(removeListenerSpy).toHaveBeenCalledWith('visibilitychange', expect.any(Function));
   });
 });
+
+// ── VIS-CHANGE-FOLLOWER — follower tab delegates catch-up to leader ───────────
+//
+// When the leader tab is backgrounded its setInterval timers are frozen by the
+// browser.  A follower tab that becomes visible cannot run a pull itself —
+// but it can ask the leader by posting a 'pull-requested' message on the
+// shared BroadcastChannel.  The leader receives the message and triggers a
+// REST pull on behalf of the follower.  This ensures that the **visible** tab
+// always shows fresh data even when the **leader** is hidden.
+
+describe('VIS-CHANGE-FOLLOWER — follower tab delegates catch-up pull to leader', () => {
+  it('VIS-CHANGE-FOLLOWER-POST: follower visibilitychange posts pull-requested on BroadcastChannel', async () => {
+    const { syncState } = await import('../sync/state.js');
+
+    // Simulate follower state: _running=true, _isLeader=false, channel open.
+    syncState._running = true;
+    syncState._isLeader = false;
+    const postMessageSpy = vi.fn();
+    syncState._idbChangeBroadcast = { postMessage: postMessageSpy, close: () => {}, onmessage: null };
+
+    // Import and register the follower handler directly.
+    const { _onFollowerVisibilityChange } = await import('../sync/leaderElection.js');
+    document.addEventListener('visibilitychange', _onFollowerVisibilityChange);
+    try {
+      document.dispatchEvent(new Event('visibilitychange'));
+      await flushPromises();
+
+      expect(postMessageSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'pull-requested' }),
+      );
+    } finally {
+      document.removeEventListener('visibilitychange', _onFollowerVisibilityChange);
+      syncState._running = false;
+      syncState._isLeader = true;
+      syncState._idbChangeBroadcast = null;
+      _resetDirectusSyncSingleton();
+    }
+  });
+
+  it('VIS-CHANGE-FOLLOWER-HIDDEN: follower does NOT post when document is hidden', async () => {
+    const { syncState } = await import('../sync/state.js');
+
+    syncState._running = true;
+    syncState._isLeader = false;
+    const postMessageSpy = vi.fn();
+    syncState._idbChangeBroadcast = { postMessage: postMessageSpy, close: () => {}, onmessage: null };
+
+    const { _onFollowerVisibilityChange } = await import('../sync/leaderElection.js');
+    document.addEventListener('visibilitychange', _onFollowerVisibilityChange);
+
+    // Override visibilityState to 'hidden' so the early-return guard fires.
+    const originalDescriptor = Object.getOwnPropertyDescriptor(document, 'visibilityState');
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
+    try {
+      document.dispatchEvent(new Event('visibilitychange'));
+      await flushPromises();
+
+      expect(postMessageSpy).not.toHaveBeenCalled();
+    } finally {
+      if (originalDescriptor) {
+        Object.defineProperty(document, 'visibilityState', originalDescriptor);
+      } else {
+        Reflect.deleteProperty(document, 'visibilityState');
+      }
+      document.removeEventListener('visibilitychange', _onFollowerVisibilityChange);
+      syncState._running = false;
+      syncState._isLeader = true;
+      syncState._idbChangeBroadcast = null;
+      _resetDirectusSyncSingleton();
+    }
+  });
+
+  it('VIS-CHANGE-FOLLOWER-LEADER-RECEIVES: leader _onLeaderChannelMessage triggers _runPull()', async () => {
+    const { syncState } = await import('../sync/state.js');
+    const pullMod = await import('../sync/pullQueue.js');
+
+    syncState._running = true;
+    syncState._isLeader = true;
+
+    const runPullSpy = vi.spyOn(pullMod, '_runPull').mockResolvedValue({ ok: true, anyMerged: false });
+
+    const { _onLeaderChannelMessage } = await import('../sync/leaderElection.js');
+
+    // Simulate a BroadcastChannel message event from a follower.
+    _onLeaderChannelMessage({ data: { type: 'pull-requested', sourceId: 'follower-tab-id' } });
+    await flushPromises();
+
+    expect(runPullSpy).toHaveBeenCalled();
+
+    syncState._running = false;
+    syncState._isLeader = true;
+    _resetDirectusSyncSingleton();
+  });
+
+  it('VIS-CHANGE-FOLLOWER-LEADER-IGNORES-OTHER: leader ignores non-pull-requested messages', async () => {
+    const { syncState } = await import('../sync/state.js');
+    const pullMod = await import('../sync/pullQueue.js');
+
+    syncState._running = true;
+    syncState._isLeader = true;
+
+    const runPullSpy = vi.spyOn(pullMod, '_runPull').mockResolvedValue({ ok: true, anyMerged: false });
+
+    const { _onLeaderChannelMessage } = await import('../sync/leaderElection.js');
+
+    _onLeaderChannelMessage({ data: { type: 'idb-change', collection: 'orders' } });
+    await flushPromises();
+
+    expect(runPullSpy).not.toHaveBeenCalled();
+
+    syncState._running = false;
+    syncState._isLeader = true;
+    _resetDirectusSyncSingleton();
+  });
+
+  it('VIS-CHANGE-FOLLOWER-STOPSYNC: stopSync() removes follower visibilitychange listener', async () => {
+    vi.spyOn(global, 'fetch').mockImplementation(() => Promise.resolve(directusListResponse([])));
+
+    const { syncState } = await import('../sync/state.js');
+
+    // Force follower state so startSync() skips leader loops but registers the
+    // follower visibilitychange listener.  We mock navigator.locks so the tab
+    // is treated as a follower (isLeader=false).
+    const origLocks = navigator.locks;
+    Object.defineProperty(navigator, 'locks', {
+      configurable: true,
+      value: {
+        request: (name, opts, cb) => {
+          if (opts?.ifAvailable) {
+            // Simulate "lock not available" → tab becomes a follower.
+            return Promise.resolve(cb(null));
+          }
+          // Standby request: hold forever.
+          return new Promise(() => {});
+        },
+      },
+    });
+
+    const removeListenerSpy = vi.spyOn(document, 'removeEventListener');
+
+    const sync = useDirectusSync();
+    try {
+      await sync.startSync({ appType: 'cassa', store: makeStore() });
+      await flushPromises(LONG_FLUSH_ROUNDS);
+
+      expect(syncState._isLeader).toBe(false);
+
+      sync.stopSync();
+
+      expect(removeListenerSpy).toHaveBeenCalledWith('visibilitychange', expect.any(Function));
+    } finally {
+      Object.defineProperty(navigator, 'locks', { configurable: true, value: origLocks });
+      _resetDirectusSyncSingleton();
+    }
+  });
+});
 //
 // Exercises the guard added after normalizeVenueUsersForIDB but before the IDB
 // transaction: if shouldAbort() returns true (offline/reconfig fired while PIN
