@@ -792,29 +792,62 @@ describe('resolveTableContext (session and table resolution)', () => {
     expect(ctx.billSessionId).toBe(MASTER_REMOTE_SESSION);
   });
 
-  it('resolves to master context when merge mapping exists with stale slave session (merge-arrival race)', async () => {
-    // Reproduces the window where table_merge_sessions (venue sync, ~5 min) arrives
-    // BEFORE the next bill_sessions pull (~30 s) removes the slave's locally-open session.
-    // In this state, the old algorithm returned (slave, oldSession); the fixed algorithm
-    // must return (master, masterSession) because the merge mapping is authoritative.
+  it('slave own session preferred over master when both exist (handles post-detach stale mapping)', async () => {
+    // Two indistinguishable sync states share this store snapshot:
+    //
+    //  (A) Post-detach stale mapping (~5 min window):
+    //      detachSlaveTable() on another device created a fresh slave session and cleared
+    //      tableMergedInto[slave], but the clearing only propagates via table_merge_sessions
+    //      (venue sync, ~5 min).  Meanwhile bill_sessions (30 s) has already delivered the
+    //      slave's new session.  → new orders must use the slave's fresh bill.
+    //
+    //  (B) Merge-arrival race (~30 s window):
+    //      table_merge_sessions arrived before bill_sessions removed the slave's old
+    //      pre-merge session.  → ideally, new orders would use the master's bill.
+    //
+    // The algorithm prefers the slave's own session (case A wins) because:
+    //   • Window (A) lasts up to ~5 min (venue sync interval).
+    //   • Window (B) lasts only ~30 s (bill_sessions pull interval).
+    //   • Routing to master during (A) would charge the wrong bill for minutes; routing
+    //     to slave during (B) is a ~30 s transient that self-corrects once bill_sessions
+    //     clears the stale slave session.
     const store = useAppStore();
-    const STALE_SLAVE_SESSION = 'old-slave-sess-before-merge';
+    const SLAVE_SESSION = 'slave-sess-may-be-stale-or-fresh';
     const MASTER_SESSION = 'master-sess-active-001';
 
-    // Simulate the venue sync having updated tableMergedInto already.
     store.tableMergedInto['T_slave3'] = 'T_master3';
-
-    // Simulate bill_sessions NOT yet pulled: slave's old session is still present locally.
-    store.tableCurrentBillSession['T_slave3'] = { billSessionId: STALE_SLAVE_SESSION };
-
-    // Master has its active session (also from local state).
+    store.tableCurrentBillSession['T_slave3'] = { billSessionId: SLAVE_SESSION };
     store.tableCurrentBillSession['T_master3'] = { billSessionId: MASTER_SESSION };
 
-    // resolveTableContext must prefer the master's context because the merge mapping exists,
-    // regardless of the slave's own (stale) session.
+    // Slave has a session → resolveTableContext must prefer the slave's own context
+    // (covers the longer post-detach window, see rationale above).
     const ctx = store.resolveTableContext('T_slave3');
-    expect(ctx.effectiveTableId).toBe('T_master3');
-    expect(ctx.billSessionId).toBe(MASTER_SESSION);
+    expect(ctx.effectiveTableId).toBe('T_slave3');
+    expect(ctx.billSessionId).toBe(SLAVE_SESSION);
+  });
+
+  it('post-detach stale mapping: slave new session + master active session → slave context', async () => {
+    // Regression for the window after detachSlaveTable() on another device:
+    //   • Device A: detachSlaveTable(master, slave) → new slave session, tableMergedInto cleared.
+    //   • Device B: bill_sessions (30 s) delivers new slave session; table_merge_sessions
+    //     (~5 min) has NOT yet cleared tableMergedInto[slave].
+    //   • Both master and slave have active sessions in tableCurrentBillSession.
+    //   • Without this fix the old algorithm returned master context, routing new orders
+    //     from the detached slave to the master's bill for up to ~5 min.
+    const store = useAppStore();
+    const POST_DETACH_SLAVE_SESSION = 'slave-new-session-after-detach';
+    const MASTER_SESSION = 'master-still-active-after-detach';
+
+    // tableMergedInto is stale (detach not yet propagated via table_merge_sessions).
+    store.tableMergedInto['T_slave6'] = 'T_master6';
+
+    // Both sessions exist locally (bill_sessions pull arrived before table_merge_sessions).
+    store.tableCurrentBillSession['T_slave6'] = { billSessionId: POST_DETACH_SLAVE_SESSION };
+    store.tableCurrentBillSession['T_master6'] = { billSessionId: MASTER_SESSION };
+
+    const ctx = store.resolveTableContext('T_slave6');
+    expect(ctx.effectiveTableId).toBe('T_slave6');
+    expect(ctx.billSessionId).toBe(POST_DETACH_SLAVE_SESSION);
   });
 
   it('falls back to slave context when merge mapping is stale and master has no active context', async () => {
@@ -844,27 +877,18 @@ describe('resolveTableContext (session and table resolution)', () => {
     expect(ctx.billSessionId).toBe(NEW_SLAVE_SESSION);
   });
 
-  it('early-merge-window with empty master: falls back to slave context (known limitation)', async () => {
-    // Documents the inherent ambiguity between two indistinguishable sync states:
+  it('early-merge-window with empty master: falls back to slave context', async () => {
+    // Documents the ~30 s merge-arrival trade-off: table_merge_sessions arrived before
+    // bill_sessions pulled, so tableMergedInto[slave]=master is fresh but the master has
+    // neither a session nor any retagged orders yet, while the slave still has its
+    // pre-merge session.
     //
-    //  A) Early-merge-window: table_merge_sessions arrived before bill_sessions was next
-    //     pulled. The slave still has its pre-merge session locally; the master has
-    //     neither a session nor any retagged orders yet.
-    //
-    //  B) Stale-mapping (above test): the un-merge is reflected in bill_sessions but
-    //     table_merge_sessions has not yet been cleared.  The slave has a new session.
-    //
-    // From the store's perspective (A) and (B) are identical — both show
-    // tableMergedInto[slave]=master, master with no session/orders, slave with a session.
-    // resolveTableContext therefore falls through to the slave's own context for both.
-    //
-    // For (A) this means the order is created against the slave's stale pre-merge bill
-    // rather than the master's new bill.  This is accepted as a narrow, inherent
-    // limitation of the sync architecture: there is no metadata available to distinguish
-    // a stale slave session from a fresh post-unmerge slave session.  The window is
-    // bounded by the next bill_sessions poll (~30 s) and is further mitigated by the UI
-    // switching the modal to the master whenever effectiveTableId differs from
-    // selectedTable.id (see confirmDirectItems in CassaTableManager.vue).
+    // resolveTableContext returns the slave's own session (step 1 of the algorithm).
+    // This is the accepted trade-off: preferring slave's own session handles the much
+    // longer post-detach window (~5 min) correctly, at the cost of this ~30 s transient
+    // where the slave's stale pre-merge session is used instead of the master's.
+    // The window self-corrects once the next bill_sessions poll (~30 s) clears the
+    // slave's stale session.
     const store = useAppStore();
     const PRE_MERGE_SLAVE_SESSION = 'pre-merge-slave-sess';
 
@@ -874,7 +898,7 @@ describe('resolveTableContext (session and table resolution)', () => {
     // tableCurrentBillSession['T_master5'] intentionally absent (not yet hydrated).
     // No orders for T_master5 either.
 
-    // Current behavior: falls through to slave's own context (same as stale-mapping case).
+    // Current behavior: slave's own session is returned (step 1 of resolveTableContext).
     const ctx = store.resolveTableContext('T_slave5');
     expect(ctx.effectiveTableId).toBe('T_slave5');
     expect(ctx.billSessionId).toBe(PRE_MERGE_SLAVE_SESSION);
