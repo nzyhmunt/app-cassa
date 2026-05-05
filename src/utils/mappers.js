@@ -906,10 +906,8 @@ export function mapVenueConfigFromDirectus(cachedConfig, defaults) {
       if (printer.categories?.length) entry.categories = printer.categories;
       // connectionType is needed so usePrintQueue can route TCP/file printers
       // through the Directus sync queue instead of a direct HTTP call.
-      // Normalize to lowercase+trimmed to match print-server convention.
-      if (printer.connection_type) {
-        entry.connectionType = String(printer.connection_type).toLowerCase().trim();
-      }
+      // isDirectusManagedPrinter() normalises the value, so the raw string is fine here.
+      if (printer.connection_type) entry.connectionType = printer.connection_type;
       return entry;
     });
   }

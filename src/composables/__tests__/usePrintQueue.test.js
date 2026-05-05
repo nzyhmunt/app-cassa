@@ -612,7 +612,8 @@ describe('TCP/file printer routing (Directus print-server path)', () => {
   });
 
   it('connectionType is normalized: uppercase TCP is accepted and sets queued status', async () => {
-    // Simulate Directus returning 'TCP' (uppercase) — mapper normalizes to 'tcp'
+    // isDirectusManagedPrinter() normalizes connectionType before comparing,
+    // so 'TCP' (or any mixed-case variant) must be treated the same as 'tcp'.
     appConfig.printers = [
       { id: 'cucina_tcp_upper', name: 'Cucina TCP', connectionType: 'TCP', printTypes: ['order'] },
     ];
