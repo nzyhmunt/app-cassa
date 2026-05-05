@@ -540,7 +540,7 @@ import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import {
   Activity, X, ArrowUpCircle, ArrowDownCircle, RefreshCw,
   FileDown, Trash2, Search, Copy, ClipboardList,
-  Upload, Download, CheckCircle, WifiOff, XCircle, LoaderCircle, Clock,
+  Upload, Download, CheckCircle, WifiOff, XCircle, LoaderCircle, Clock, Printer,
 } from 'lucide-vue-next';
 import { useDirectusSync } from '../../composables/useDirectusSync.js';
 import { getSyncLogs, clearSyncLogs, exportSyncLogs, _BC_CHANNEL, _TAB_ID, SYNC_LOGS_MAX_SUCCESS, SYNC_LOGS_MAX_ERRORS } from '../../store/persistence/syncLogs.js';
@@ -562,10 +562,11 @@ const STATUS_FILTER_OPTS = [
 ];
 
 const TYPE_FILTER_OPTS = [
-  { value: 'all',  label: 'Tutti',      icon: Activity },
-  { value: 'PUSH', label: 'Push',       icon: ArrowUpCircle },
-  { value: 'PULL', label: 'Pull',       icon: ArrowDownCircle },
-  { value: 'WS',   label: 'WebSocket',  icon: RefreshCw },
+  { value: 'all',   label: 'Tutti',      icon: Activity },
+  { value: 'PUSH',  label: 'Push',       icon: ArrowUpCircle },
+  { value: 'PULL',  label: 'Pull',       icon: ArrowDownCircle },
+  { value: 'WS',    label: 'WebSocket',  icon: RefreshCw },
+  { value: 'PRINT', label: 'Stampa',     icon: Printer },
 ];
 
 // ── Reactive state ────────────────────────────────────────────────────────────
@@ -742,8 +743,9 @@ function directionIconClass(log) {
 }
 
 function logTypeBadgeClass(log) {
-  if (log.type === 'PULL') return 'bg-sky-100 text-sky-700';
-  if (log.type === 'WS')   return 'bg-emerald-100 text-emerald-700';
+  if (log.type === 'PULL')  return 'bg-sky-100 text-sky-700';
+  if (log.type === 'WS')    return 'bg-emerald-100 text-emerald-700';
+  if (log.type === 'PRINT') return 'bg-orange-100 text-orange-700';
   return 'bg-purple-100 text-purple-700';
 }
 

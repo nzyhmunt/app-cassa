@@ -58,6 +58,7 @@
 import { newUUIDv7 } from '../store/storeUtils.js';
 import { useAppStore } from '../store/index.js';
 import { appConfig } from '../utils/index.js';
+import { addSyncLog } from '../store/persistence/syncLogs.js';
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -100,26 +101,68 @@ function buildDishCategoryMap(store = null) {
  */
 async function sendPrintJob(job, url, logId, store) {
   store?.updatePrintLogEntry(logId, { status: 'printing' });
+  const t0 = Date.now();
   try {
     const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(job),
     });
+    const durationMs = Date.now() - t0;
     if (response.ok) {
       store?.updatePrintLogEntry(logId, { status: 'done' });
+      addSyncLog({
+        direction: 'OUT',
+        type: 'PRINT',
+        endpoint: url,
+        payload: job,
+        response: null,
+        status: 'success',
+        statusCode: response.status,
+        durationMs,
+        collection: 'print_jobs',
+        operation: 'print',
+        method: 'POST',
+      });
     } else {
       const msg = `HTTP ${response.status}`;
       console.warn(`[PrintQueue] Printer "${job.printerId}" returned ${msg}`);
       store?.updatePrintLogEntry(logId, { status: 'error', errorMessage: msg });
+      addSyncLog({
+        direction: 'OUT',
+        type: 'PRINT',
+        endpoint: url,
+        payload: job,
+        response: null,
+        status: 'error',
+        statusCode: response.status,
+        durationMs,
+        collection: 'print_jobs',
+        operation: 'print',
+        method: 'POST',
+      });
     }
   } catch (err) {
+    const durationMs = Date.now() - t0;
     const msg = err?.message ?? String(err);
     console.warn(
       `[PrintQueue] Could not reach printer "${job.printerId}" at ${url}:`,
       msg,
     );
     store?.updatePrintLogEntry(logId, { status: 'error', errorMessage: msg });
+    addSyncLog({
+      direction: 'OUT',
+      type: 'PRINT',
+      endpoint: url,
+      payload: job,
+      response: null,
+      status: 'error',
+      statusCode: null,
+      durationMs,
+      collection: 'print_jobs',
+      operation: 'print',
+      method: 'POST',
+    });
   }
 }
 
@@ -249,7 +292,7 @@ export function enqueuePrintJobs(order) {
 
     if (items.length === 0) continue;
 
-    const printerId = printer.id ?? printer.name ?? 'unknown';
+    const printerId = printer.id ?? printer.name ?? null;
     const job = {
       jobId: newUUIDv7('job'),
       printType: 'order',
@@ -310,7 +353,7 @@ export function enqueueTableMoveJob(fromTableId, fromTableLabel, toTableId, toTa
   const timestamp = new Date().toISOString();
 
   for (const printer of printers) {
-    const printerId = printer.id ?? printer.name ?? 'unknown';
+    const printerId = printer.id ?? printer.name ?? null;
     const job = {
       jobId: newUUIDv7('job'),
       printType: 'table_move',
@@ -401,14 +444,11 @@ export function enqueuePreBillJob(payload, printerUrl, printerName, printerIdOve
  * @param {string} [overrideUrl] – Alternative printer URL (uses original if omitted)
  */
 export function reprintJob(logEntry, overrideUrl = null) {
-  const url = overrideUrl ?? logEntry.printerUrl;
-  if (!url) return;
-
   const payload = logEntry?.payload;
   if (!payload || typeof payload !== 'object') {
     console.warn(
       '[printQueue] Cannot reprint job because the original payload is unavailable.',
-      { logId: logEntry?.logId, jobId: logEntry?.jobId, printerUrl: url },
+      { logId: logEntry?.logId, jobId: logEntry?.jobId },
     );
     return;
   }
@@ -416,13 +456,29 @@ export function reprintJob(logEntry, overrideUrl = null) {
   const store = getStore();
   const timestamp = new Date().toISOString();
 
+  // When overriding, look up the target printer by URL.
+  // When using the same printer, look it up by its original ID so we can
+  // determine whether it is a Directus-managed (TCP/file) printer.
   const printer = overrideUrl
-    ? getRuntimeConfig(store).printers?.find(p => p.url === overrideUrl)
-    : null;
+    ? (getRuntimeConfig(store).printers?.find(p => p.url === overrideUrl) ?? null)
+    : (getRuntimeConfig(store).printers?.find(p => p.id === logEntry.printerId) ?? null);
 
-  const printerId = printer?.id ?? logEntry.printerId;
+  const printerId = printer?.id ?? logEntry.printerId ?? null;
   const printerName = printer?.name ?? logEntry.printerName;
-  const printerUrl = url;
+  const url = overrideUrl ?? logEntry.printerUrl ?? null;
+
+  // A job targets Directus (TCP/file) when:
+  //  - The resolved printer has a TCP/file connection type, OR
+  //  - No URL is available (the original job had no HTTP URL)
+  const usesDirectus = printer ? isDirectusManagedPrinter(printer) : !url;
+
+  if (!usesDirectus && !url) {
+    console.warn(
+      '[printQueue] Cannot reprint HTTP job: no printer URL available.',
+      { logId: logEntry?.logId, printerId },
+    );
+    return;
+  }
 
   const job = {
     ...payload,
@@ -431,7 +487,7 @@ export function reprintJob(logEntry, overrideUrl = null) {
     timestamp,
     printerId,
     printerName,
-    printerUrl,
+    ...(url ? { printerUrl: url } : {}),
   };
 
   const logId = newUUIDv7('plog');
@@ -441,7 +497,7 @@ export function reprintJob(logEntry, overrideUrl = null) {
     jobId: job.jobId,
     printerId,
     printerName,
-    printerUrl,
+    printerUrl: url ?? null,
     printType: logEntry.printType,
     table: logEntry.table,
     timestamp,
@@ -450,5 +506,11 @@ export function reprintJob(logEntry, overrideUrl = null) {
     originalJobId: logEntry.jobId,
   });
 
-  sendPrintJob(job, url, logId, store);
+  if (usesDirectus) {
+    // Job delivered to Directus sync queue; update UI status to 'queued' without
+    // patching Directus (the record must stay 'pending' for the print-dispatcher).
+    store?.updatePrintLogEntryLocal(logId, { status: 'queued' });
+  } else {
+    sendPrintJob(job, url, logId, store);
+  }
 }
