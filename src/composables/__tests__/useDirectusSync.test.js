@@ -3360,10 +3360,10 @@ describe('offline/online event handling', () => {
     // Scenario: two items are enqueued back-to-back.  The first enqueue triggers
     // _runPush() immediately; while that drain is processing the first item the
     // second enqueue fires another sync-queue:enqueue event.  Because _pushInFlight
-    // is set, the second call to _runPush() sets _pushPending = true and returns
-    // the in-flight promise.  When the first drain completes its finally block
-    // detects _pushPending and immediately starts a second drain — no 30-second
-    // timer wait.
+    // is set, _onQueueEnqueue() sets _pushPending = true and calls _runPush()
+    // (which returns the in-flight promise).  When the first drain completes its
+    // finally block detects _pushPending and immediately starts a second drain —
+    // no 30-second timer wait.
     const { enqueue } = await import('../useSyncQueue.js');
 
     let resolveFirstPost; // used to manually advance the first in-flight push
@@ -3411,8 +3411,9 @@ describe('offline/online event handling', () => {
       expect(pushPostCalls).toBe(1); // first drain in-flight, waiting for resolveFirstPost
 
       // Enqueue second item while the first drain is still in-flight.
-      // enqueue() dispatches sync-queue:enqueue again; _runPush() detects
-      // _pushInFlight is set and sets _pushPending = true.
+      // enqueue() dispatches sync-queue:enqueue; _onQueueEnqueue() detects
+      // _pushInFlight is set and sets _pushPending = true before calling
+      // _runPush() (which returns the existing in-flight promise).
       await enqueue('orders', 'create', 'ord_pending_2', { id: 'ord_pending_2' });
       await flushPromises(LONG_FLUSH_ROUNDS);
       expect(pushPostCalls).toBe(1); // second call returned in-flight promise, no new fetch yet

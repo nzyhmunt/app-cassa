@@ -44,12 +44,15 @@ export const syncState = {
   /** In-flight push promise (de-duplication guard). */
   _pushInFlight: null,
   /**
-   * Set to `true` when `enqueue()` fires a `sync-queue:enqueue` event while a
-   * push is already in-flight.  The in-flight push's `finally` block checks this
-   * flag and immediately starts a follow-up `_runPush()` so that items added
-   * during an active drain are pushed without waiting for the next 30-second
-   * timer tick.  Cleared both at the start of every new push and in the finally
-   * block (whether or not a follow-up is scheduled).
+   * Set to `true` by `_onQueueEnqueue()` when a new item is added to the sync
+   * queue while a push drain is already in-flight.  The in-flight push's
+   * `finally` block checks this flag and immediately starts a follow-up
+   * `_runPush()` so that items added during an active drain are pushed without
+   * waiting for the next 30-second timer tick.  Cleared both at the start of
+   * every new push and in the finally block (whether or not a follow-up is
+   * scheduled).  Only the enqueue-triggered path (`_onQueueEnqueue`) sets this
+   * flag; other `_runPush()` callers (30s interval, online handler, SW message,
+   * forcePush) do not, so they never cause a spurious follow-up drain.
    */
   _pushPending: false,
   /**

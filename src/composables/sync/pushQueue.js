@@ -28,11 +28,6 @@ import { syncState } from './state.js';
  */
 export async function _runPush() {
   if (syncState._pushInFlight) {
-    // Flag that a new item arrived while a push is in-flight.  The in-flight
-    // push's finally block will start a follow-up drain immediately after
-    // completing so the newly enqueued item is not delayed by the 30-second
-    // polling timer.
-    syncState._pushPending = true;
     return syncState._pushInFlight;
   }
   // Clear the pending flag here so that items added during *this* drain
