@@ -221,3 +221,112 @@ describe('_atomicOrderItemsUpsertAndMerge — edge cases', () => {
     expect(result.orderItemsWritten).toBe(0);
   });
 });
+
+// ── _preparePullRecordsForIDB — IDB order_items lookup for new orders ─────────
+
+import { vi } from 'vitest';
+import { _preparePullRecordsForIDB } from '../idbOperations.js';
+
+describe('_preparePullRecordsForIDB — new-order IDB item lookup', () => {
+  it('populates orderItems from IDB for a new order whose items were already pulled', async () => {
+    const { getDB } = await import('../../useIDB.js');
+    const db = await getDB();
+
+    // Seed the order_items store as if a prior pull cycle already fetched the item.
+    const storedItem = {
+      id: 'oi_seed',
+      order: 'ord_new',
+      orderId: 'ord_new',
+      name: 'Pizza',
+      quantity: 1,
+      unitPrice: 8,
+      modifiers: [],
+      date_updated: '2024-06-01T00:00:00.000Z',
+    };
+    await db.put('order_items', storedItem);
+
+    // Simulate an orders REST response where order_items are returned as string IDs.
+    const incomingOrder = {
+      id: 'ord_new',
+      status: 'accepted',
+      table: '03',
+      // Raw string IDs from the API (field expansion not honoured by the server).
+      order_items: ['oi_seed'],
+      // After mapOrderFromDirectus, string IDs are filtered out → empty array.
+      orderItems: [],
+      date_updated: '2024-06-01T00:00:00.000Z',
+    };
+
+    // null state = no existing orders in IDB (fresh/incremental scenario).
+    const { records } = await _preparePullRecordsForIDB('orders', [incomingOrder], null);
+
+    expect(records).toHaveLength(1);
+    expect(records[0].orderItems).toHaveLength(1);
+    expect(records[0].orderItems[0].id).toBe('oi_seed');
+    expect(records[0].orderItems[0].name).toBe('Pizza');
+  });
+
+  it('leaves orderItems empty when the order_items IDB store has no matching records', async () => {
+    const incomingOrder = {
+      id: 'ord_fresh',
+      status: 'pending',
+      table: '01',
+      order_items: ['oi_missing'],
+      orderItems: [],
+      date_updated: null,
+    };
+
+    const { records } = await _preparePullRecordsForIDB('orders', [incomingOrder], null);
+
+    expect(records).toHaveLength(1);
+    expect(records[0].orderItems).toEqual([]);
+  });
+
+  it('preserves existing orderItems for a known order even when order_items are string IDs', async () => {
+    const existingOrderItems = [{ id: 'oi_x', name: 'Gelato', quantity: 2 }];
+    const state = {
+      orders: [{
+        id: 'ord_known',
+        status: 'pending',
+        orderItems: existingOrderItems,
+        date_updated: '2024-01-01T00:00:00.000Z',
+      }],
+      tableCurrentBillSession: {},
+    };
+
+    const incomingOrder = {
+      id: 'ord_known',
+      status: 'accepted',
+      order_items: ['oi_x'],
+      orderItems: [],
+      date_updated: '2024-06-01T00:00:00.000Z',
+    };
+
+    const { records } = await _preparePullRecordsForIDB('orders', [incomingOrder], state);
+
+    expect(records).toHaveLength(1);
+    // Known order — items must be restored from state, not from IDB lookup.
+    expect(records[0].orderItems).toEqual(existingOrderItems);
+    expect(records[0].status).toBe('accepted');
+  });
+
+  it('does not open a DB connection when the incoming order has no string IDs in order_items', async () => {
+    const getDBModule = await import('../../useIDB.js');
+    const getDBSpy = vi.spyOn(getDBModule, 'getDB');
+
+    const incomingOrder = {
+      id: 'ord_no_items',
+      status: 'pending',
+      table: '07',
+      order_items: [],
+      orderItems: [],
+      date_updated: null,
+    };
+
+    const { records } = await _preparePullRecordsForIDB('orders', [incomingOrder], null);
+
+    expect(records[0].orderItems).toEqual([]);
+    // getDB should NOT be called when there are no string IDs to look up.
+    expect(getDBSpy).not.toHaveBeenCalled();
+  });
+});

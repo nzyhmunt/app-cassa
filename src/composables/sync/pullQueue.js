@@ -79,9 +79,11 @@ export async function _fetchUpdatedViaSDK(collection, sinceTs, page = 1, cursor 
   // forcePull()/stopSync() cancellations interrupt in-flight HTTP requests immediately
   // rather than only taking effect between pages.
   const client = _buildRestClient(cfg, signal);
-  // For orders, expand nested order_items and their modifiers so that the
-  // detail view is populated even on a fresh device that has never locally
-  // created those orders.
+  // For orders, request `order_items.*` field expansion so that deployments
+  // which honour it can populate orderItems inline.  Many servers return only
+  // string IDs regardless; in that case _preparePullRecordsForIDB falls back to
+  // looking up the order_items IDB store for already-known items, and the
+  // follow-up `order_items` pull fills in any remaining gaps.
   // For order_items, also expand order_item_modifiers so that the modifier
   // detail is available when order_items are pulled as a standalone collection
   // (e.g. cucina app, or the fallback separate-pull path in cassa/sala).

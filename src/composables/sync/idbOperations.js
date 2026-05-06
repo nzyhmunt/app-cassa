@@ -39,19 +39,58 @@ export async function _preparePullRecordsForIDB(collection, mapped, cachedState 
   }
 
   const state = cachedState === undefined ? await loadStateFromIDB() : cachedState;
-  if (!state) {
-    return { records: mapped, state };
-  }
 
   if (collection === 'orders') {
     const existingById = new Map(
-      (Array.isArray(state.orders) ? state.orders : [])
+      (Array.isArray(state?.orders) ? state.orders : [])
         .filter((record) => record?.id)
         .map((record) => [String(record.id), record]),
     );
+
+    // When the server returns order_items as raw string IDs (field expansion not
+    // supported or not honoured), new orders land with orderItems: [].  For orders
+    // already in IDB, the block below restores their items from the Pinia state.
+    // For orders that are genuinely new (no IDB counterpart yet), we look up any
+    // matching records already present in the order_items IDB store from a prior
+    // pull cycle — this eliminates the transient "order without items" flash that
+    // would otherwise persist until the follow-up order_items pull completes.
+    const itemIdsForNewOrders = new Set();
+    // Helper: a valid order_items string ID is a non-empty string.
+    const isStringId = id => typeof id === 'string' && id;
+
+    for (const incoming of mapped) {
+      if (existingById.has(String(incoming?.id ?? ''))) continue;
+      if (!Array.isArray(incoming.order_items) || incoming.order_items.length === 0) continue;
+      for (const id of incoming.order_items) {
+        if (isStringId(id)) itemIdsForNewOrders.add(id);
+      }
+    }
+
+    let idbItemsById = new Map();
+    if (itemIdsForNewOrders.size > 0) {
+      const db = await getDB();
+      const fetched = await Promise.all([...itemIdsForNewOrders].map(id => db.get('order_items', id)));
+      for (const item of fetched) {
+        if (item?.id) idbItemsById.set(String(item.id), item);
+      }
+    }
+
     const records = mapped.map((incoming) => {
       const existing = existingById.get(String(incoming?.id ?? ''));
-      if (!existing) return incoming;
+      if (!existing) {
+        // New order: if the order_items IDB store already holds the referenced
+        // items (from a prior pull cycle), populate orderItems immediately so
+        // the UI never shows an order without its items after a REST pull.
+        if (idbItemsById.size > 0 && Array.isArray(incoming.order_items) && incoming.order_items.length > 0) {
+          const idbItems = incoming.order_items
+            .filter(id => isStringId(id) && idbItemsById.has(id))
+            .map(id => idbItemsById.get(id));
+          if (idbItems.length > 0) {
+            return { ...incoming, orderItems: idbItems };
+          }
+        }
+        return incoming;
+      }
       if (Array.isArray(existing.orderItems) && existing.orderItems.length > 0) {
         const hasIncomingItems = Array.isArray(incoming.orderItems) && incoming.orderItems.length > 0;
         if (!hasIncomingItems) {
@@ -61,6 +100,10 @@ export async function _preparePullRecordsForIDB(collection, mapped, cachedState 
       return incoming;
     });
     return { records, state };
+  }
+
+  if (!state) {
+    return { records: mapped, state };
   }
 
   const existingByBillSessionId = new Map(
@@ -86,8 +129,11 @@ export async function _preparePullRecordsForIDB(collection, mapped, cachedState 
  * Merges an array of freshly-pulled order_items into their parent orders stored
  * in the `orders` IDB ObjectStore.
  *
- * The `orders` store persists each order with an embedded `orderItems` array
- * (populated when orders are fetched with `fields: ['*', 'order_items.*']`).
+ * The `orders` store persists each order with an embedded `orderItems` array.
+ * In practice many Directus deployments return order_items as raw string IDs even
+ * when `fields: ['*', 'order_items.*']` is requested, so the embedded array is
+ * populated exclusively by this merge function (called from the `order_items` pull
+ * and from WS events) rather than from the orders REST response.
  * When the cucina app pulls order_items directly via the `order_items` collection
  * those records land in a separate `order_items` ObjectStore and never reach the
  * embedded arrays — causing the in-memory store to show stale item data even
