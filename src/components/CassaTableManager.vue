@@ -406,67 +406,8 @@
               </div>
 
               <!-- Voci dell'Ordine con Storni (Cassa) -->
-              <div class="pl-1 space-y-0.5">
-                <div v-for="(item, idx) in ord.orderItems" :key="item.uid" class="flex flex-col py-1.5 border-b border-gray-50 last:border-0" :class="{'opacity-50': item.voidedQuantity === item.quantity}">
-                  <div class="flex items-center justify-between text-sm gap-2">
-                    <div class="flex items-center gap-2 flex-1 min-w-0">
-                      <span class="font-bold w-6 shrink-0 text-center text-[11px] md:text-sm" :class="item.voidedQuantity === item.quantity ? 'text-gray-400 line-through' : 'text-gray-700'">{{item.quantity - (item.voidedQuantity || 0)}}x</span>
-                      <div class="flex flex-col min-w-0">
-                        <div class="flex items-center gap-1">
-                          <span class="font-bold text-gray-800 leading-tight truncate text-xs md:text-sm" :class="{'line-through text-gray-500': item.voidedQuantity === item.quantity}">{{item.name}}</span>
-                          <span v-if="(item.voidedQuantity || 0) > 0" class="text-[8px] md:text-[9px] text-red-500 font-bold uppercase tracking-widest border border-red-200 bg-red-50 px-1 rounded shrink-0">-{{item.voidedQuantity}} Storn.</span>
-                        </div>
-                      </div>
-                    </div>
-                    <div class="flex items-center gap-2 shrink-0">
-                      <span class="font-black text-[13px] md:text-sm" :class="item.voidedQuantity === item.quantity ? 'text-gray-400 line-through' : 'text-gray-800'">
-                        {{ configStore.config.ui.currency }}{{getOrderItemRowTotal(item).toFixed(2)}}
-                      </span>
-                      <div v-if="ord.status === 'accepted'" class="flex items-center gap-1 ml-1">
-                        <button @click="orderStore.voidOrderItems(ord, idx, 1)" :disabled="item.quantity - (item.voidedQuantity || 0) <= 0" class="p-1.5 bg-white border border-orange-200 text-orange-500 hover:bg-orange-50 rounded shadow-sm transition-colors active:scale-95 disabled:opacity-30" title="Storna dal conto">
-                          <Ban class="size-4 md:size-4" />
-                        </button>
-                        <button @click="orderStore.restoreOrderItems(ord, idx, 1)" :disabled="(item.voidedQuantity || 0) <= 0" class="p-1.5 bg-white border border-blue-200 text-blue-500 hover:bg-blue-50 rounded shadow-sm transition-colors active:scale-95 disabled:opacity-30" title="Ripristina nel conto">
-                          <Undo2 class="size-4 md:size-4" />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                  <!-- Variazioni a pagamento (per ordine) con storni -->
-                  <div v-if="item.modifiers && item.modifiers.some(m => m.price > 0)" class="mt-1 ml-8 space-y-0.5">
-                    <template v-for="(mod, modIdx) in item.modifiers" :key="'mod_'+item.uid+'_'+modIdx+'_'+mod.name+'_'+mod.price">
-                      <div v-if="mod.price > 0"
-                        class="flex items-center justify-between py-1 pl-2 pr-1 rounded bg-purple-50/60 border border-purple-100"
-                        :class="item.quantity - (item.voidedQuantity || 0) - (mod.voidedQuantity || 0) <= 0 ? 'opacity-40' : ''">
-                        <div class="flex items-center gap-1.5 flex-1 min-w-0">
-                          <span class="font-bold text-[9px] text-purple-500"
-                            :class="item.quantity - (item.voidedQuantity || 0) - (mod.voidedQuantity || 0) <= 0 ? 'line-through text-gray-400' : ''">
-                            {{ Math.max(0, item.quantity - (item.voidedQuantity || 0) - (mod.voidedQuantity || 0)) }}x
-                          </span>
-                          <span class="text-[9px] md:text-[10px] font-bold text-purple-700 truncate"
-                            :class="{'line-through text-gray-400': item.quantity - (item.voidedQuantity || 0) - (mod.voidedQuantity || 0) <= 0}">
-                            + {{ mod.name }} (+{{ configStore.config.ui.currency }}{{ mod.price.toFixed(2) }})
-                          </span>
-                          <span v-if="(mod.voidedQuantity || 0) > 0" class="text-[8px] text-red-500 font-bold uppercase shrink-0">-{{ mod.voidedQuantity }}</span>
-                        </div>
-                        <div v-if="ord.status === 'accepted'" class="flex items-center gap-0.5 shrink-0">
-                          <button @click="orderStore.voidModifier(ord, idx, modIdx, 1)"
-                            :disabled="item.quantity - (item.voidedQuantity || 0) - (mod.voidedQuantity || 0) <= 0"
-                            class="p-1 bg-white border border-orange-200 text-orange-500 hover:bg-orange-50 rounded shadow-sm transition-colors active:scale-95 disabled:opacity-30"
-                            title="Storna questa variazione">
-                            <Ban class="size-3" />
-                          </button>
-                          <button @click="orderStore.restoreModifier(ord, idx, modIdx, 1)"
-                            :disabled="(mod.voidedQuantity || 0) <= 0"
-                            class="p-1 bg-white border border-blue-200 text-blue-500 hover:bg-blue-50 rounded shadow-sm transition-colors active:scale-95 disabled:opacity-30"
-                            title="Ripristina questa variazione">
-                            <Undo2 class="size-3" />
-                          </button>
-                        </div>
-                      </div>
-                    </template>
-                  </div>
-                </div>
+              <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                <OrderItemsRows :order="ord" show-void-controls />
               </div>
             </div>
           </div>
@@ -1330,7 +1271,7 @@
 import { ref, computed, watch, nextTick } from 'vue';
 import {
   Grid3x3, Users, X, Plus, Coffee, Edit, AlertTriangle, CheckCircle,
-  Ban, Undo2, Code, Minus, Receipt, ArrowRightLeft, Merge, Trash2,
+  Code, Minus, Receipt, ArrowRightLeft, Merge, Trash2,
   Layers, ListChecks, History, LayoutGrid, ListOrdered,
   Tag, Wallet, ChevronDown,
   Percent, Zap, BookOpen, PlusCircle, Banknote, CreditCard, Lock, SquareCheck, Split, Link, Printer,
@@ -1352,6 +1293,7 @@ import PeopleModal from './shared/PeopleModal.vue';
 import NumericInput from './NumericInput.vue';
 import PrintHistoryModal from './shared/PrintHistoryModal.vue';
 import InvoiceModal from './shared/InvoiceModal.vue';
+import OrderItemsRows from './shared/OrderItemsRows.vue';
 
 const emit = defineEmits(['open-order-from-table', 'new-order-for-ordini']);
 
