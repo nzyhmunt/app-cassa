@@ -1267,3 +1267,91 @@ describe('drainQueue() — BFS fair-retry ordering', () => {
     expect(remaining[0].attempts).toBe(2);
   });
 });
+
+// ── drainQueue — print_jobs ───────────────────────────────────────────────────
+
+describe('drainQueue() — print_jobs mapping', () => {
+  it('maps print_jobs CREATE payload to Directus field names (camelCase → snake_case)', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue(mockResponse(201, { data: { id: 'job-1' } }));
+    await enqueue('print_jobs', 'create', 'job-1', {
+      id: 'job-1',
+      printType: 'order',
+      printerId: 'cucina',
+      table: '05',
+      status: 'pending',
+      timestamp: '2024-01-15T12:00:00.000Z',
+      payload: { jobId: 'job_abc', printType: 'order' },
+    });
+
+    const result = await drainQueue(FAKE_CFG);
+
+    expect(result.pushed).toBe(1);
+    expect(result.failed).toBe(0);
+    const [url, opts] = fetchSpy.mock.calls[0];
+    expect(url).toContain('/items/print_jobs');
+    expect(opts.method).toBe('POST');
+
+    const body = JSON.parse(opts.body);
+    // camelCase fields must be mapped to snake_case Directus columns
+    expect(body.print_type).toBe('order');
+    expect(body.printer).toBe('cucina');
+    expect(body.table_label).toBe('05');
+    // timestamp stripped by _PUSH_DROP_FIELDS but recovered as job_timestamp
+    expect(body.job_timestamp).toBe('2024-01-15T12:00:00.000Z');
+    expect(body.timestamp).toBeUndefined();
+    // local camelCase originals must not appear in the Directus payload
+    expect(body.printType).toBeUndefined();
+    expect(body.printerId).toBeUndefined();
+    expect(body.table).toBeUndefined();
+  });
+
+  it('maps print_jobs UPDATE (status change) to a PATCH request with logId stripped', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue(mockResponse(200, { data: { id: 'job-2' } }));
+    await enqueue('print_jobs', 'update', 'job-2', {
+      logId: 'plog_abc',
+      status: 'done',
+      error_message: null,
+    });
+
+    await drainQueue(FAKE_CFG);
+
+    const [url, opts] = fetchSpy.mock.calls[0];
+    expect(url).toContain('/items/print_jobs/job-2');
+    expect(opts.method).toBe('PATCH');
+
+    const body = JSON.parse(opts.body);
+    expect(body.status).toBe('done');
+    expect(body.error_message).toBeNull();
+    // logId is local-only and must be stripped by mapPrintJobToDirectus
+    expect(body.logId).toBeUndefined();
+  });
+
+  it('maps print_jobs UPDATE (status → error) with error_message field', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue(mockResponse(200, { data: {} }));
+    await enqueue('print_jobs', 'update', 'job-3', {
+      logId: 'plog_xyz',
+      status: 'error',
+      errorMessage: 'Printer offline',
+    });
+
+    await drainQueue(FAKE_CFG);
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.status).toBe('error');
+    expect(body.error_message).toBe('Printer offline');
+    expect(body.errorMessage).toBeUndefined();
+    expect(body.logId).toBeUndefined();
+  });
+
+  it('skips DELETE on print_jobs (domain-status collection — no-op skip)', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch');
+    await enqueue('print_jobs', 'delete', 'job-4', null);
+
+    const result = await drainQueue(FAKE_CFG);
+
+    // DELETE is treated as a skip (status-managed collection): no HTTP call, entry removed
+    expect(result.pushed).toBe(1);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(await getPendingEntries()).toHaveLength(0);
+  });
+});

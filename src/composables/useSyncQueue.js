@@ -118,6 +118,25 @@ export async function enqueue(collection, operation, recordId, payload) {
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('sync-queue:enqueue'));
     }
+    // PWA Background Sync: when the device is offline, register a sync tag so
+    // the browser re-tries the drain as soon as connectivity is restored — even
+    // if the app tab is closed.  Guarded by feature detection; silently no-ops
+    // on browsers that don't support the Background Sync API (e.g. Firefox, Safari).
+    if (
+      typeof navigator !== 'undefined' &&
+      'serviceWorker' in navigator &&
+      !navigator.onLine
+    ) {
+      navigator.serviceWorker.ready
+        .then((registration) => {
+          if ('sync' in registration) {
+            return registration.sync.register('sync-orders');
+          }
+        })
+        .catch((e) => {
+          console.debug('[SyncQueue] Background sync registration failed (non-fatal):', e);
+        });
+    }
   } catch (e) {
     console.warn('[SyncQueue] Failed to enqueue:', e);
   }

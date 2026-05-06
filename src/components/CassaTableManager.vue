@@ -406,67 +406,8 @@
               </div>
 
               <!-- Voci dell'Ordine con Storni (Cassa) -->
-              <div class="pl-1 space-y-0.5">
-                <div v-for="(item, idx) in ord.orderItems" :key="item.uid" class="flex flex-col py-1.5 border-b border-gray-50 last:border-0" :class="{'opacity-50': item.voidedQuantity === item.quantity}">
-                  <div class="flex items-center justify-between text-sm gap-2">
-                    <div class="flex items-center gap-2 flex-1 min-w-0">
-                      <span class="font-bold w-6 shrink-0 text-center text-[11px] md:text-sm" :class="item.voidedQuantity === item.quantity ? 'text-gray-400 line-through' : 'text-gray-700'">{{item.quantity - (item.voidedQuantity || 0)}}x</span>
-                      <div class="flex flex-col min-w-0">
-                        <div class="flex items-center gap-1">
-                          <span class="font-bold text-gray-800 leading-tight truncate text-xs md:text-sm" :class="{'line-through text-gray-500': item.voidedQuantity === item.quantity}">{{item.name}}</span>
-                          <span v-if="(item.voidedQuantity || 0) > 0" class="text-[8px] md:text-[9px] text-red-500 font-bold uppercase tracking-widest border border-red-200 bg-red-50 px-1 rounded shrink-0">-{{item.voidedQuantity}} Storn.</span>
-                        </div>
-                      </div>
-                    </div>
-                    <div class="flex items-center gap-2 shrink-0">
-                      <span class="font-black text-[13px] md:text-sm" :class="item.voidedQuantity === item.quantity ? 'text-gray-400 line-through' : 'text-gray-800'">
-                        {{ configStore.config.ui.currency }}{{getOrderItemRowTotal(item).toFixed(2)}}
-                      </span>
-                      <div v-if="ord.status === 'accepted'" class="flex items-center gap-1 ml-1">
-                        <button @click="orderStore.voidOrderItems(ord, idx, 1)" :disabled="item.quantity - (item.voidedQuantity || 0) <= 0" class="p-1.5 bg-white border border-orange-200 text-orange-500 hover:bg-orange-50 rounded shadow-sm transition-colors active:scale-95 disabled:opacity-30" title="Storna dal conto">
-                          <Ban class="size-4 md:size-4" />
-                        </button>
-                        <button @click="orderStore.restoreOrderItems(ord, idx, 1)" :disabled="(item.voidedQuantity || 0) <= 0" class="p-1.5 bg-white border border-blue-200 text-blue-500 hover:bg-blue-50 rounded shadow-sm transition-colors active:scale-95 disabled:opacity-30" title="Ripristina nel conto">
-                          <Undo2 class="size-4 md:size-4" />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                  <!-- Variazioni a pagamento (per ordine) con storni -->
-                  <div v-if="item.modifiers && item.modifiers.some(m => m.price > 0)" class="mt-1 ml-8 space-y-0.5">
-                    <template v-for="(mod, modIdx) in item.modifiers" :key="'mod_'+item.uid+'_'+modIdx+'_'+mod.name+'_'+mod.price">
-                      <div v-if="mod.price > 0"
-                        class="flex items-center justify-between py-1 pl-2 pr-1 rounded bg-purple-50/60 border border-purple-100"
-                        :class="item.quantity - (item.voidedQuantity || 0) - (mod.voidedQuantity || 0) <= 0 ? 'opacity-40' : ''">
-                        <div class="flex items-center gap-1.5 flex-1 min-w-0">
-                          <span class="font-bold text-[9px] text-purple-500"
-                            :class="item.quantity - (item.voidedQuantity || 0) - (mod.voidedQuantity || 0) <= 0 ? 'line-through text-gray-400' : ''">
-                            {{ Math.max(0, item.quantity - (item.voidedQuantity || 0) - (mod.voidedQuantity || 0)) }}x
-                          </span>
-                          <span class="text-[9px] md:text-[10px] font-bold text-purple-700 truncate"
-                            :class="{'line-through text-gray-400': item.quantity - (item.voidedQuantity || 0) - (mod.voidedQuantity || 0) <= 0}">
-                            + {{ mod.name }} (+{{ configStore.config.ui.currency }}{{ mod.price.toFixed(2) }})
-                          </span>
-                          <span v-if="(mod.voidedQuantity || 0) > 0" class="text-[8px] text-red-500 font-bold uppercase shrink-0">-{{ mod.voidedQuantity }}</span>
-                        </div>
-                        <div v-if="ord.status === 'accepted'" class="flex items-center gap-0.5 shrink-0">
-                          <button @click="orderStore.voidModifier(ord, idx, modIdx, 1)"
-                            :disabled="item.quantity - (item.voidedQuantity || 0) - (mod.voidedQuantity || 0) <= 0"
-                            class="p-1 bg-white border border-orange-200 text-orange-500 hover:bg-orange-50 rounded shadow-sm transition-colors active:scale-95 disabled:opacity-30"
-                            title="Storna questa variazione">
-                            <Ban class="size-3" />
-                          </button>
-                          <button @click="orderStore.restoreModifier(ord, idx, modIdx, 1)"
-                            :disabled="(mod.voidedQuantity || 0) <= 0"
-                            class="p-1 bg-white border border-blue-200 text-blue-500 hover:bg-blue-50 rounded shadow-sm transition-colors active:scale-95 disabled:opacity-30"
-                            title="Ripristina questa variazione">
-                            <Undo2 class="size-3" />
-                          </button>
-                        </div>
-                      </div>
-                    </template>
-                  </div>
-                </div>
+              <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                <OrderItemsRows :order="ord" show-void-controls />
               </div>
             </div>
           </div>
@@ -502,12 +443,12 @@
                     <div class="size-7 rounded-lg flex items-center justify-center shrink-0"
                       :class="txn.operationType === 'discount' ? 'bg-amber-200 text-amber-700' : 'bg-emerald-200 text-emerald-700'">
                       <Tag v-if="txn.operationType === 'discount'" class="size-3.5" />
-                      <component v-else :is="getPaymentIcon(txn.paymentMethod)" class="size-3.5" />
+                      <component v-else :is="getPaymentIcon(resolvePaymentLabel(txn))" class="size-3.5" />
                     </div>
                     <div class="flex flex-col min-w-0">
                       <span class="text-xs font-black uppercase tracking-wide"
                         :class="txn.operationType === 'discount' ? 'text-amber-800' : 'text-emerald-800'">
-                        {{ txn.operationType === 'discount' ? 'Sconto' : txn.paymentMethod }}
+                        {{ txn.operationType === 'discount' ? 'Sconto' : resolvePaymentLabel(txn) }}
                       </span>
                       <span class="text-[9px] font-medium"
                         :class="txn.operationType === 'discount' ? 'text-amber-600' : 'text-emerald-600'">
@@ -1330,7 +1271,7 @@
 import { ref, computed, watch, nextTick } from 'vue';
 import {
   Grid3x3, Users, X, Plus, Coffee, Edit, AlertTriangle, CheckCircle,
-  Ban, Undo2, Code, Minus, Receipt, ArrowRightLeft, Merge, Trash2,
+  Code, Minus, Receipt, ArrowRightLeft, Merge, Trash2,
   Layers, ListChecks, History, LayoutGrid, ListOrdered,
   Tag, Wallet, ChevronDown,
   Percent, Zap, BookOpen, PlusCircle, Banknote, CreditCard, Lock, SquareCheck, Split, Link, Printer,
@@ -1341,6 +1282,7 @@ import { newUUIDv7, newShortId } from '../store/storeUtils.js';
 import { getOrderItemRowTotal, KITCHEN_ACTIVE_STATUSES, getLockedDirectItems, buildFiscalXmlRequest, formatOrderTime, formatOrderIdShort } from '../utils/index.js';
 import { buildFlatAnaliticaItems, computeAnaliticaTotal, exceedsAmount, getOrdersToComplete } from '../utils/analitica.js';
 import { loadCustomItemsFromIDB, saveCustomItemsToIDB } from '../store/persistence/operations.js';
+import { resolveTransactionPaymentLabel } from '../utils/paymentMethods.js';
 import { useNumericKeyboard } from '../composables/useNumericKeyboard.js';
 import { useAuth } from '../composables/useAuth.js';
 import { enqueueTableMoveJob, enqueuePreBillJob } from '../composables/usePrintQueue.js';
@@ -1351,6 +1293,7 @@ import PeopleModal from './shared/PeopleModal.vue';
 import NumericInput from './NumericInput.vue';
 import PrintHistoryModal from './shared/PrintHistoryModal.vue';
 import InvoiceModal from './shared/InvoiceModal.vue';
+import OrderItemsRows from './shared/OrderItemsRows.vue';
 
 const emit = defineEmits(['open-order-from-table', 'new-order-for-ordini']);
 
@@ -2033,6 +1976,10 @@ function getPaymentIcon(methodIdOrLabel) {
   return m.icon === 'credit-card' ? CreditCard : Banknote;
 }
 
+function resolvePaymentLabel(txn) {
+  return resolveTransactionPaymentLabel(configStore.config.paymentMethods, txn);
+}
+
 // ── Analitica mode: increment / decrement per-item quantity ───────────────
 function incrementAnalitica(key, max) {
   const current = analiticaQty.value[key] || 0;
@@ -2235,16 +2182,11 @@ function closeTableModal() {
 
 async function createNewOrderForTable() {
   if (!selectedTable.value) return;
-  const tableId = selectedTable.value.id;
-  const ownSession = orderStore.tableCurrentBillSession[tableId];
-  const masterId = orderStore.masterTableOf(tableId);
-  // Prefer the table's own active session. Fall back to the master's session
-  // only when the table does not currently have an independent session.
-  const session = ownSession ?? (masterId != null ? orderStore.tableCurrentBillSession[masterId] : null);
+  const { effectiveTableId, billSessionId } = orderStore.resolveTableContext(selectedTable.value.id);
   const newOrd = {
     id: newUUIDv7(),
-    table: selectedTable.value.id,
-    billSessionId: session?.billSessionId ?? null,
+    table: effectiveTableId,
+    billSessionId,
     status: 'pending',
     time: formatOrderTime(),
     totalAmount: 0, itemCount: 0, dietaryPreferences: {}, orderItems: [],
@@ -2389,13 +2331,18 @@ const directCartTotal = computed(() =>
 
 async function confirmDirectItems() {
   if (!selectedTable.value || directCart.value.length === 0) return;
-  const session = orderStore.tableCurrentBillSession[selectedTable.value.id];
-  await orderStore.addDirectOrder(
-    selectedTable.value.id,
-    session?.billSessionId ?? null,
-    directCart.value,
-  );
+  const originalTableId = selectedTable.value.id;
+  const { effectiveTableId, billSessionId } = orderStore.resolveTableContext(originalTableId);
+  await orderStore.addDirectOrder(effectiveTableId, billSessionId, directCart.value);
   closeDirectItemModal();
+  // When the effective table is the master (slave was redirected mid-merge), switch
+  // the bill modal to the master so the cashier can see the newly added direct items.
+  // Without this the order disappears from the slave's bill view, making it look like
+  // the action failed and causing the cashier to add it a second time.
+  if (effectiveTableId !== originalTableId) {
+    const masterTable = configStore.config.tables.find(t => t.id === effectiveTableId);
+    if (masterTable) _openTableModal(masterTable);
+  }
 }
 
 // ── Manual bill close (shown when fully paid) ─────────────────────────────
@@ -2469,7 +2416,7 @@ function _buildBillSummaryBase() {
     closedAt: new Date().toISOString(),
     totalAmount: tableTotalAmount.value,
     totalPaid: tableAmountPaid.value,
-    paymentMethods: [...new Set(billTxns.filter(t => t.operationType !== 'discount' && t.operationType !== 'tip').map(t => t.paymentMethod))],
+    paymentMethods: [...new Set(billTxns.filter(t => t.operationType !== 'discount' && t.operationType !== 'tip').map(t => resolvePaymentLabel(t)).filter(Boolean))],
     orders: tableAcceptedPayableOrders.value.map(o => ({
       id: o.id,
       items: o.orderItems.map(r => ({
@@ -2488,7 +2435,7 @@ async function closeTableBillFiscale() {
   if (!base) return;
   const xmlRequest = buildFiscalXmlRequest(base);
   const entry = {
-    id: newUUIDv7('fis'),
+    id: newUUIDv7(),
     ...base,
     xmlRequest,
     xmlResponse: null,
@@ -2508,7 +2455,7 @@ async function confirmInvoice(billingData) {
   const base = _buildBillSummaryBase();
   if (!base) return;
   const entry = {
-    id: newUUIDv7('inv'),
+    id: newUUIDv7(),
     ...base,
     billingData,
     status: 'pending',

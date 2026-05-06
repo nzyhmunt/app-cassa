@@ -904,6 +904,10 @@ export function mapVenueConfigFromDirectus(cachedConfig, defaults) {
       const entry = { id: printer.id, name: printer.name, url: printer.url };
       if (printer.print_types?.length) entry.printTypes = printer.print_types;
       if (printer.categories?.length) entry.categories = printer.categories;
+      // connectionType is needed so usePrintQueue can route TCP/file printers
+      // through the Directus sync queue instead of a direct HTTP call.
+      // isDirectusManagedPrinter() normalises the value, so the raw string is fine here.
+      if (printer.connection_type) entry.connectionType = printer.connection_type;
       return entry;
     });
   }
@@ -1010,6 +1014,62 @@ export function mapTransactionToDirectus(record) {
   delete out.discountValue;
 
   return out;
+}
+
+/**
+ * Maps a raw Directus `transactions` record to the local in-memory format.
+ *
+ * Directus stores transactions with snake_case field names (e.g. `amount_paid`,
+ * `operation_type`), while all client code reads camelCase aliases (e.g.
+ * `amountPaid`, `operationType`).  This mapper bridges the gap so that
+ * transactions pulled on a second device are identical in shape to transactions
+ * created locally on the originating device.
+ *
+ * The snake_case originals are kept alongside the camelCase aliases because
+ * `getTableStatus` reads `t.table` and `t.bill_session` directly from the raw
+ * `transactions` ref (without going through `reportTransactions`).
+ *
+ * `paymentMethod` (the UI display label) is intentionally not set here because
+ * it was stripped from the push payload via `_PUSH_DROP_FIELDS` and is not
+ * stored in Directus.  Components should resolve the label at render time via
+ * `resolveTransactionPaymentLabel` (see `utils/paymentMethods.js`).
+ *
+ * @param {object} record - Raw Directus `transactions` record
+ * @returns {object}
+ */
+export function mapTransactionFromDirectus(record) {
+  const r = record ?? {};
+  const tableVal = relationId(r.table);
+  const billSessionVal = relationId(r.bill_session ?? r.billSessionId ?? null);
+  const paymentMethodVal = relationId(r.payment_method ?? r.paymentMethodId ?? null);
+  // Coerce a field to a number when present; leave it undefined when absent.
+  // `amountPaid` always defaults to 0 (it is always displayed); all other numeric
+  // fields default to undefined so callers can distinguish "not set" from 0.
+  const _num = (camel, snake) => {
+    const v = r[camel] ?? r[snake];
+    return v != null ? numberOr(v) : undefined;
+  };
+  return {
+    ...r,
+    // Normalise FK fields so they are always scalar IDs, never relation objects.
+    table: tableVal,
+    bill_session: billSessionVal,
+    payment_method: paymentMethodVal,
+    // camelCase aliases (mirrors the shape of locally-created transactions)
+    amountPaid: numberOr(r.amountPaid ?? r.amount_paid),
+    tipAmount: _num('tipAmount', 'tip_amount'),
+    operationType: r.operationType ?? r.operation_type,
+    paymentMethodId: paymentMethodVal,
+    romanaSplitCount: _num('romanaSplitCount', 'romana_split_count'),
+    splitQuota: _num('splitQuota', 'split_quota'),
+    splitWays: _num('splitWays', 'split_ways'),
+    discountType: r.discountType ?? r.discount_type,
+    discountValue: _num('discountValue', 'discount_value'),
+    // `timestamp` is a local-only field stripped on push; fall back to Directus
+    // `date_created` so that display / sort in BillHistoryView still works.
+    timestamp: r.timestamp ?? r.date_created,
+    _sync_status: 'synced',
+  };
 }
 
 /**
@@ -1249,6 +1309,144 @@ export function mapInvoiceRequestToDirectus(record, originalRecord) {
     out.timestamp = original.timestamp;
   }
 
+  return out;
+}
+
+/**
+ * Safely parses a JSON string that should be an array.
+ * Returns the parsed value when it is an array, otherwise returns [].
+ * If `value` is already an array it is returned as-is.
+ *
+ * @param {*} value
+ * @returns {Array}
+ */
+function _parseJsonArray(value) {
+  return parseJsonArray(value);
+}
+
+/**
+ * Maps a Directus `fiscal_receipts` record back to the local camelCase format.
+ *
+ * Reverses the snake_case → camelCase transformations applied by
+ * `mapFiscalReceiptToDirectus` so that pulled records land in IDB in the same
+ * format as locally-created entries.  Directus standard fields (`date_created`,
+ * `date_updated`) are preserved for IDB last-write-wins comparison.
+ *
+ * @param {object} r - Raw Directus fiscal_receipts record
+ * @returns {object}
+ */
+export function mapFiscalReceiptFromDirectus(r) {
+  if (!r || typeof r !== 'object') return r;
+  const out = {};
+  // id — same key
+  if (r.id != null) out.id = r.id;
+  // table → tableId
+  const tableId = relationId(r.table ?? r.tableId);
+  if (tableId != null) out.tableId = tableId;
+  // table_label → tableLabel
+  if (r.table_label != null) out.tableLabel = r.table_label;
+  else if (r.tableLabel != null) out.tableLabel = r.tableLabel;
+  // bill_session → billSessionId
+  const billSessionId = relationId(r.bill_session ?? r.billSessionId);
+  if (billSessionId != null) out.billSessionId = billSessionId;
+  // closed_at → closedAt
+  if (r.closed_at != null) out.closedAt = r.closed_at;
+  else if (r.closedAt != null) out.closedAt = r.closedAt;
+  // total_amount → totalAmount
+  if (r.total_amount != null) out.totalAmount = numberOr(r.total_amount);
+  else if (r.totalAmount != null) out.totalAmount = numberOr(r.totalAmount);
+  // total_paid → totalPaid
+  if (r.total_paid != null) out.totalPaid = numberOr(r.total_paid);
+  else if (r.totalPaid != null) out.totalPaid = numberOr(r.totalPaid);
+  // payment_methods — JSON string or array → array
+  const pm = r.payment_methods ?? r.paymentMethods;
+  if (pm != null) {
+    out.paymentMethods = _parseJsonArray(pm);
+  }
+  // orders — JSON string or array → array
+  const orders = r.orders;
+  if (orders != null) {
+    out.orders = _parseJsonArray(orders);
+  }
+  // xml_request → xmlRequest
+  if (r.xml_request != null) out.xmlRequest = r.xml_request;
+  else if (r.xmlRequest != null) out.xmlRequest = r.xmlRequest;
+  // xml_response → xmlResponse
+  if (r.xml_response != null) out.xmlResponse = r.xml_response;
+  else if (r.xmlResponse != null) out.xmlResponse = r.xmlResponse;
+  // status, timestamp — same keys
+  if (r.status != null) out.status = r.status;
+  if (r.timestamp != null) out.timestamp = r.timestamp;
+  // Preserve Directus standard fields for IDB last-write-wins comparison
+  if (r.date_created != null) out.date_created = r.date_created;
+  if (r.date_updated != null) out.date_updated = r.date_updated;
+  return out;
+}
+
+/**
+ * Maps a Directus `invoice_requests` record back to the local camelCase format.
+ *
+ * Reverses the snake_case → camelCase transformations applied by
+ * `mapInvoiceRequestToDirectus`.  Billing data columns are reassembled into the
+ * nested `billingData` object expected by the local store and UI components.
+ * Directus standard fields (`date_created`, `date_updated`) are preserved for
+ * IDB last-write-wins comparison.
+ *
+ * @param {object} r - Raw Directus invoice_requests record
+ * @returns {object}
+ */
+export function mapInvoiceRequestFromDirectus(r) {
+  if (!r || typeof r !== 'object') return r;
+  const out = {};
+  // id — same key
+  if (r.id != null) out.id = r.id;
+  // table → tableId
+  const tableId = relationId(r.table ?? r.tableId);
+  if (tableId != null) out.tableId = tableId;
+  // table_label → tableLabel
+  if (r.table_label != null) out.tableLabel = r.table_label;
+  else if (r.tableLabel != null) out.tableLabel = r.tableLabel;
+  // bill_session → billSessionId
+  const billSessionId = relationId(r.bill_session ?? r.billSessionId);
+  if (billSessionId != null) out.billSessionId = billSessionId;
+  // closed_at → closedAt
+  if (r.closed_at != null) out.closedAt = r.closed_at;
+  else if (r.closedAt != null) out.closedAt = r.closedAt;
+  // total_amount → totalAmount
+  if (r.total_amount != null) out.totalAmount = numberOr(r.total_amount);
+  else if (r.totalAmount != null) out.totalAmount = numberOr(r.totalAmount);
+  // total_paid → totalPaid
+  if (r.total_paid != null) out.totalPaid = numberOr(r.total_paid);
+  else if (r.totalPaid != null) out.totalPaid = numberOr(r.totalPaid);
+  // payment_methods — JSON string or array → array
+  const pm = r.payment_methods ?? r.paymentMethods;
+  if (pm != null) {
+    out.paymentMethods = _parseJsonArray(pm);
+  }
+  // orders — JSON string or array → array
+  const orders = r.orders;
+  if (orders != null) {
+    out.orders = _parseJsonArray(orders);
+  }
+  // Billing data columns → nested billingData object
+  const bd = {};
+  if (r.denominazione != null) bd.denominazione = r.denominazione;
+  if (r.codice_fiscale != null) bd.codiceFiscale = r.codice_fiscale;
+  if (r.piva != null) bd.piva = r.piva;
+  if (r.indirizzo != null) bd.indirizzo = r.indirizzo;
+  if (r.cap != null) bd.cap = r.cap;
+  if (r.comune != null) bd.comune = r.comune;
+  if (r.provincia != null) bd.provincia = r.provincia;
+  if (r.paese != null) bd.paese = r.paese;
+  if (r.codice_destinatario != null) bd.codiceDestinatario = r.codice_destinatario;
+  if (r.pec != null) bd.pec = r.pec;
+  if (Object.keys(bd).length > 0) out.billingData = bd;
+  // status, timestamp — same keys
+  if (r.status != null) out.status = r.status;
+  if (r.timestamp != null) out.timestamp = r.timestamp;
+  // Preserve Directus standard fields for IDB last-write-wins comparison
+  if (r.date_created != null) out.date_created = r.date_created;
+  if (r.date_updated != null) out.date_updated = r.date_updated;
   return out;
 }
 

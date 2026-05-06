@@ -32,6 +32,7 @@ import {
   pruneFiscalReceiptsInIDB,
   pruneInvoiceRequestsInIDB,
 } from './persistence/audit.js';
+import { getDB } from '../composables/useIDB.js';
 import { enqueue } from '../composables/useSyncQueue.js';
 import { onIDBChange } from './persistence/eventBus.js';
 import { useConfigStore } from './configStore.js';
@@ -50,8 +51,8 @@ export const useOrderStore = defineStore('orders', () => {
   const printLog = ref([]);
 
   function addPrintLogEntry(entry) {
-    printLog.value = [{ status: 'pending', ...entry }, ...printLog.value].slice(0, 200);
-    enqueue('print_jobs', 'create', entry.id, entry);
+    printLog.value = [{ ...entry, status: 'pending' }, ...printLog.value].slice(0, 200);
+    enqueue('print_jobs', 'create', entry.id, { ...entry, status: 'pending' });
   }
 
   function updatePrintLogEntry(logId, updates) {
@@ -59,6 +60,22 @@ export const useOrderStore = defineStore('orders', () => {
     if (idx !== -1) {
       printLog.value[idx] = { ...printLog.value[idx], ...updates };
       enqueue('print_jobs', 'update', printLog.value[idx].id, { logId, ...updates });
+    }
+  }
+
+  /**
+   * Updates a print log entry **locally only** — does NOT enqueue a Directus sync update.
+   * Use this for UI-only status transitions that must not be pushed to Directus
+   * (e.g. transitioning a TCP/file printer job to 'queued' so operators can see
+   * "handed off to print-server", while keeping the Directus record at 'pending'
+   * so the print-server can still claim it).
+   * @param {string} logId
+   * @param {object} updates
+   */
+  function updatePrintLogEntryLocal(logId, updates) {
+    const idx = printLog.value.findIndex(e => e.logId === logId);
+    if (idx !== -1) {
+      printLog.value[idx] = { ...printLog.value[idx], ...updates };
     }
   }
 
@@ -132,6 +149,88 @@ export const useOrderStore = defineStore('orders', () => {
 
   function isMergedSlave(tableId) { return !!tableMergedInto.value[tableId]; }
   function masterTableOf(tableId) { return tableMergedInto.value[tableId] ?? null; }
+
+  /**
+   * Resolves the effective (table, billSession) pair for a given table.
+   *
+   * Returns both the effective table ID and the bill-session ID as a consistent
+   * pair. This ensures the `table` field and `billSessionId` on new orders always
+   * refer to the same billing context, even during race conditions where a table
+   * becomes a merged slave while its modal is already open.
+   *
+   * Lookup order:
+   *  1. Table has its own locally hydrated session → (tableId, ownSession.billSessionId)
+   *     Checked FIRST regardless of whether a merge mapping exists, for two reasons:
+   *       (a) Post-detach stale mapping: detachSlaveTable() on another device created a
+   *           fresh slave session and cleared tableMergedInto[slave], but the clearing
+   *           only propagates via table_merge_sessions (venue sync, ~5 min).  During that
+   *           window the slave's new session is visible (bill_sessions, ~30 s) while
+   *           tableMergedInto still points to the old master.  Preferring the slave's own
+   *           session here routes new orders to the correct (post-detach) slave bill.
+   *       (b) Stale tableMergedInto after un-merge: same window for the same reason.
+   *     TRADE-OFF: In the very early merge-arrival window (~30 s) — where
+   *     table_merge_sessions has just updated tableMergedInto but bill_sessions has not
+   *     yet removed the slave's stale pre-merge session — this step will briefly return
+   *     the slave's old session instead of the master's.  The window is bounded by the
+   *     next bill_sessions poll (~30 s) and is much shorter than the post-detach window
+   *     (~5 min), so the slave-first preference is the lesser evil.
+   *  2. Merge mapping exists + master has a locally hydrated session → (masterId, ...)
+   *     Reached only when the slave has no own session (stable active merge).
+   *  3. Merge mapping exists + infer from master's non-closed orders → (masterId, inferred)
+   *     Handles the sync-lag window where orders arrived before bill_sessions.
+   *  4. Infer from own non-closed orders → (tableId, inferred)
+   *     Handles the sync-lag window for non-merged tables (and fall-through from step 3).
+   *  5. Nothing found → (tableId, null)
+   *
+   * NOTE: Uses resolveMaster() (not masterTableOf() or getTableStatus) to follow
+   * the full tableMergedInto chain (e.g. C→B→A resolves to A) and to avoid the
+   * circular mirror where getTableStatus(slave) propagates the master's status.
+   *
+   * Does NOT auto-create a session to avoid producing a duplicate bill when an
+   * existing remote session is simply in-flight and not yet hydrated locally.
+   *
+   * @param {string} tableId
+   * @returns {{ effectiveTableId: string, billSessionId: string|null }}
+   */
+  function resolveTableContext(tableId) {
+    // Step 1: own session always wins — covers non-merged tables, post-detach stale
+    // mapping, and the stale-mapping case (see JSDoc above for trade-off rationale).
+    const ownSession = tableCurrentBillSession.value[tableId];
+    if (ownSession?.billSessionId) return { effectiveTableId: tableId, billSessionId: ownSession.billSessionId };
+
+    // resolveMaster() follows the full tableMergedInto chain (handles C→B→A correctly).
+    // Returns tableId itself when no merge mapping exists.
+    const masterId = resolveMaster(tableId);
+    if (masterId !== tableId) {
+      // Step 2: slave has no own session → standard active merge; check master.
+      const masterSession = tableCurrentBillSession.value[masterId];
+      if (masterSession?.billSessionId) return { effectiveTableId: masterId, billSessionId: masterSession.billSessionId };
+      // Step 3: infer from master's non-closed orders (sync-lag window for merged slaves).
+      const masterInferred = orders.value
+        .find(o => o.table === masterId && o.billSessionId && !['completed', 'rejected'].includes(o.status))
+        ?.billSessionId ?? null;
+      if (masterInferred != null) return { effectiveTableId: masterId, billSessionId: masterInferred };
+    }
+
+    // Step 4: infer from own non-closed orders (sync-lag window for non-merged tables,
+    // or fall-through when master has no active billing context either).
+    const ownInferred = orders.value
+      .find(o => o.table === tableId && o.billSessionId && !['completed', 'rejected'].includes(o.status))
+      ?.billSessionId ?? null;
+    return { effectiveTableId: tableId, billSessionId: ownInferred };
+  }
+
+  /**
+   * Convenience wrapper — returns only the bill-session ID.
+   * Prefer resolveTableContext() when you also need the effective table ID
+   * (e.g. when constructing a new order).
+   *
+   * @param {string} tableId
+   * @returns {string|null}
+   */
+  function resolveActiveBillSessionId(tableId) {
+    return resolveTableContext(tableId).billSessionId;
+  }
 
   const pendingCount = computed(() => orders.value.filter(o => o.status === 'pending' && !o.isDirectEntry).length);
   const inKitchenCount = computed(() =>
@@ -260,7 +359,99 @@ export const useOrderStore = defineStore('orders', () => {
       tableOccupiedAt,
       billRequestedTables,
     };
-    const { collection, collections } = options;
+    const { collection, collections, ids } = options;
+
+    // fiscal_receipts and invoice_requests are not in operationalStateRefs —
+    // they are managed by _hydrateFiscalAndInvoice().  Reload them from IDB:
+    //  • when a pull for either collection triggers a targeted store refresh, OR
+    //  • on a full refresh (no collection filter) so that storage-event hydration
+    //    paths (CassaApp.vue, SalaApp.vue, useAppSwipeRefresh) also pick up the
+    //    latest fiscal/invoice state.
+    const _isFiscalOrInvoice = (c) => c === 'fiscal_receipts' || c === 'invoice_requests';
+    if (collection && _isFiscalOrInvoice(collection)) {
+      await _hydrateFiscalAndInvoice();
+      return;
+    }
+    const _needsFiscalHydration =
+      !collection ||
+      (Array.isArray(collections) && collections.some(_isFiscalOrInvoice));
+    if (_needsFiscalHydration) {
+      await _hydrateFiscalAndInvoice();
+      // On a full refresh fall through to also refresh operationalStateRefs below.
+      if (Array.isArray(collections) && collections.every(_isFiscalOrInvoice)) return;
+    }
+
+    // Shared helper: map a raw IDB order to its reactive form with recomputed totals.
+    // Recompute totals from orderItems when they are populated locally,
+    // or when the order is genuinely empty (item_count = 0) so that a
+    // locally cleared order is correctly reflected as €0.
+    // When orderItems is empty but item_count > 0 the items exist in
+    // Directus but were not expanded in this pull — in that case the
+    // authoritative total_amount already mapped from IDB is preserved
+    // to avoid a spurious reset to 0.
+    function _mapIDBOrder(raw) {
+      const mappedOrder = mapOrderFromDirectus(raw);
+      if (!Array.isArray(mappedOrder.orderItems)) mappedOrder.orderItems = [];
+      if (mappedOrder.orderItems.length > 0 || mappedOrder.item_count === 0) {
+        updateOrderTotals(mappedOrder);
+        mappedOrder.total_amount = mappedOrder.totalAmount;
+        mappedOrder.item_count = mappedOrder.itemCount;
+      } else {
+        mappedOrder.totalAmount = mappedOrder.total_amount ?? mappedOrder.totalAmount;
+        mappedOrder.total_amount = mappedOrder.totalAmount;
+        mappedOrder.itemCount = mappedOrder.item_count ?? mappedOrder.itemCount;
+        mappedOrder.item_count = mappedOrder.itemCount;
+      }
+      return mappedOrder;
+    }
+
+    // Issue 4 fix: targeted order refresh — when a Set of specific order IDs is
+    // provided for the 'orders' collection, fetch and map only those records from
+    // IDB and splice them into the reactive array.  This avoids replacing the
+    // entire orders.value array (and triggering a full re-render) when only a
+    // handful of orders had their orderItems updated via a WS or REST pull.
+    if (collection === 'orders' && ids instanceof Set && ids.size > 0) {
+      try {
+        const db = await getDB();
+        const freshOrders = await Promise.all(
+          [...ids].map(id => db.get('orders', String(id))),
+        );
+        const validOrders = freshOrders.filter(Boolean);
+        if (validOrders.length > 0) {
+          const mappedById = new Map();
+          for (const raw of validOrders) {
+            mappedById.set(String(raw.id), _mapIDBOrder(raw));
+          }
+          // Mutate in-place: only replace the array entries for affected order IDs
+          // so that Vue only schedules re-renders for changed items rather than
+          // replacing the entire array reference (which forces a full list re-render).
+          const updatedIds = new Set();
+          for (let i = 0; i < orders.value.length; i++) {
+            const sid = String(orders.value[i].id);
+            const updated = mappedById.get(sid);
+            if (updated) {
+              orders.value.splice(i, 1, updated);
+              updatedIds.add(sid);
+            }
+          }
+          // Insert orders that were not already present in the reactive array
+          // (e.g. a new order arriving via WS or pull that a follower tab missed).
+          // orders.value has no single canonical sort; components apply their own
+          // computed sorts, so appending at the tail is safe and correct.
+          for (const [id, mapped] of mappedById) {
+            if (!updatedIds.has(id)) orders.value.push(mapped);
+          }
+        }
+      } catch (e) {
+        console.warn('[orderStore] Targeted order refresh failed, falling back to full refresh:', e);
+        // Fall through to full refresh below on error.
+        const idbState = await loadStateFromIDB();
+        if (!idbState) return;
+        orders.value = (idbState.orders ?? []).map(_mapIDBOrder);
+      }
+      return;
+    }
+
     const requestedCollections = collections ?? (collection ? [collection] : Object.keys(operationalStateRefs));
     const resolvedKeys = requestedCollections.map((k) => _COLLECTION_TO_STATE_KEY[k] ?? k);
     const targetCollections = [...new Set(resolvedKeys)]
@@ -273,47 +464,12 @@ export const useOrderStore = defineStore('orders', () => {
     targetCollections.forEach((key) => {
       if (Object.prototype.hasOwnProperty.call(idbState, key)) {
         if (key === 'orders') {
-          operationalStateRefs[key].value = (idbState[key] ?? []).map((order) => {
-            const mappedOrder = mapOrderFromDirectus(order);
-            if (!Array.isArray(mappedOrder.orderItems)) {
-              mappedOrder.orderItems = [];
-            }
-            // Recompute totals from orderItems when they are populated locally,
-            // or when the order is genuinely empty (item_count = 0) so that a
-            // locally cleared order is correctly reflected as €0.
-            // When orderItems is empty but item_count > 0 the items exist in
-            // Directus but were not expanded in this pull — in that case the
-            // authoritative total_amount already mapped from IDB is preserved
-            // to avoid a spurious reset to 0.
-            if (mappedOrder.orderItems.length > 0 || mappedOrder.item_count === 0) {
-              updateOrderTotals(mappedOrder);
-              mappedOrder.total_amount = mappedOrder.totalAmount;
-              mappedOrder.item_count = mappedOrder.itemCount;
-            } else {
-              mappedOrder.totalAmount = mappedOrder.total_amount ?? mappedOrder.totalAmount;
-              mappedOrder.total_amount = mappedOrder.totalAmount;
-              mappedOrder.itemCount = mappedOrder.item_count ?? mappedOrder.itemCount;
-              mappedOrder.item_count = mappedOrder.itemCount;
-            }
-            return mappedOrder;
-          });
+          operationalStateRefs[key].value = (idbState[key] ?? []).map(_mapIDBOrder);
         } else {
           operationalStateRefs[key].value = idbState[key];
         }
       }
     });
-  }
-
-  function _enqueueOrderSnapshot(ord) {
-    if (!ord?.id) return;
-    const rawOrder = toRaw(ord);
-    let payload = rawOrder;
-    try {
-      payload = structuredClone(rawOrder);
-    } catch (_) {
-      payload = JSON.parse(JSON.stringify(rawOrder));
-    }
-    enqueue('orders', 'update', ord.id, payload);
   }
 
   function _enqueueOrderItemsPatch(ordId, projectedOrder) {
@@ -1127,6 +1283,7 @@ export const useOrderStore = defineStore('orders', () => {
     printLog,
     addPrintLogEntry,
     updatePrintLogEntry,
+    updatePrintLogEntryLocal,
     clearPrintLog,
     fiscalReceipts,
     addFiscalReceipt,
@@ -1143,6 +1300,8 @@ export const useOrderStore = defineStore('orders', () => {
     getPaymentMethodIcon,
     isMergedSlave,
     masterTableOf,
+    resolveTableContext,
+    resolveActiveBillSessionId,
     slaveIdsOf,
     addOrder,
     addItemsToOrder,

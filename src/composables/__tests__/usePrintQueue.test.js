@@ -3,6 +3,8 @@ import { createPinia, setActivePinia } from 'pinia';
 import { enqueuePrintJobs, enqueueTableMoveJob, enqueuePreBillJob, reprintJob } from '../usePrintQueue.js';
 import { appConfig } from '../../utils/index.js';
 import { useAppStore } from '../../store/index.js';
+import { _resetIDBSingleton } from '../useIDB.js';
+import { getPendingEntries } from '../useSyncQueue.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -45,6 +47,9 @@ let originalMenu;
 const _originalFetch = global.fetch;
 
 beforeEach(async () => {
+  // Reset IDB so sync-queue entries from a previous test do not bleed through.
+  await _resetIDBSingleton();
+
   // Mock fetch BEFORE activating Pinia so that loadMenu() uses the mock.
   // Use { ok: false } so loadMenu() fails fast without needing a json() method.
   fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 503 });
@@ -526,5 +531,393 @@ describe('reprintJob()', () => {
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     expect(store.printLog[0].isReprint).toBe(true);
     expect(store.printLog[0].originalJobId).toBe('job_orig');
+  });
+
+  it('reprinting a TCP/file job (printerUrl: null) enqueues Directus CREATE without HTTP and sets status to queued', async () => {
+    // The printer is resolved by printerId from the store config.
+    appConfig.printers = [
+      { id: 'cucina_tcp', name: 'Cucina TCP', connectionType: 'tcp', printTypes: ['order'] },
+    ];
+    const store = useAppStore();
+    const entry = {
+      logId: 'plog_tcp_r1',
+      jobId: 'job_tcp_orig',
+      id: 'uuid-tcp-orig',
+      printerId: 'cucina_tcp',
+      printerName: 'Cucina TCP',
+      printerUrl: null, // TCP printers have no browser-accessible URL
+      printType: 'order',
+      table: 'R1',
+      timestamp: new Date().toISOString(),
+      payload: { jobId: 'job_tcp_orig', printType: 'order', table: 'R1', items: [] },
+    };
+
+    reprintJob(entry);
+
+    // No HTTP call should be made for a Directus-managed printer
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    // A print_jobs CREATE must be enqueued in the sync queue
+    let createEntry;
+    await vi.waitFor(async () => {
+      const entries = await getPendingEntries();
+      createEntry = entries.find(
+        e => e.collection === 'print_jobs' && e.operation === 'create'
+          && e.payload.isReprint === true && e.payload.printerId === 'cucina_tcp',
+      );
+      expect(createEntry).toBeDefined();
+    });
+    expect(createEntry.payload.originalJobId).toBe('job_tcp_orig');
+
+    // The local log status must be 'queued' (UI-only — Directus record stays 'pending')
+    await vi.waitFor(() => {
+      expect(store.printLog[0]?.status).toBe('queued');
+    });
+
+    // The 'queued' UI transition must NOT produce a print_jobs UPDATE in the sync queue
+    // (the Directus record must remain 'pending' so the print-server can claim it)
+    const allEntries = await getPendingEntries();
+    const queuedUpdates = allEntries.filter(
+      e => e.collection === 'print_jobs' && e.operation === 'update' && e.payload?.status === 'queued',
+    );
+    expect(queuedUpdates).toHaveLength(0);
+  });
+
+  it('does nothing when printerUrl is absent and printerId cannot be resolved (guard: usesDirectus && !printerId)', async () => {
+    // No matching printer in config → printer=null, url=null → usesDirectus=true, printerId=null → guard fires
+    appConfig.printers = [
+      { id: 'cucina_tcp', name: 'Cucina TCP', connectionType: 'tcp', printTypes: ['order'] },
+    ];
+    const store = useAppStore();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    reprintJob({
+      logId: 'plog_guard_1',
+      jobId: 'job_guard',
+      printerId: null, // cannot be resolved → guard fires
+      printerName: null,
+      printerUrl: null,
+      printType: 'order',
+      table: 'G1',
+      timestamp: new Date().toISOString(),
+      payload: { jobId: 'job_guard', printType: 'order', table: 'G1', items: [] },
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    // No log entry should have been created (guard returns before logJob)
+    expect(store.printLog).toHaveLength(0);
+
+    // No sync-queue entry for print_jobs should exist
+    await new Promise(r => setTimeout(r, 0));
+    const entries = await getPendingEntries();
+    const printJobEntries = entries.filter(e => e.collection === 'print_jobs');
+    expect(printJobEntries).toHaveLength(0);
+
+    warnSpy.mockRestore();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TCP/file printer routing
+// Printers with connectionType='tcp' or 'file' have no browser-accessible URL.
+// enqueuePrintJobs and enqueueTableMoveJob must still enqueue a print_jobs
+// CREATE entry (Directus route) without making any HTTP fetch call.
+// ---------------------------------------------------------------------------
+
+/** Printer config for a TCP-only printer (no URL — print-server handles printing). */
+const TCP_PRINTER = [
+  { id: 'cucina_tcp', name: 'Cucina TCP', connectionType: 'tcp', printTypes: ['order'] },
+];
+
+/** Printer config for a file-device printer. */
+const FILE_PRINTER = [
+  { id: 'cucina_file', name: 'Cucina File', connectionType: 'file' },
+];
+
+describe('TCP/file printer routing (Directus print-server path)', () => {
+  it('enqueuePrintJobs enqueues a print_jobs CREATE for a TCP printer without sending HTTP', async () => {
+    appConfig.printers = TCP_PRINTER;
+    enqueuePrintJobs(makeOrder({ id: 'ord_tcp_1', table: 'T1' }));
+
+    // No HTTP call should have been made
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    // But a sync-queue CREATE entry must exist
+    let createEntry;
+    await vi.waitFor(async () => {
+      const entries = await getPendingEntries();
+      createEntry = entries.find(
+        e => e.collection === 'print_jobs' && e.operation === 'create' && e.payload.table === 'T1',
+      );
+      expect(createEntry).toBeDefined();
+    });
+
+    expect(createEntry.payload.printType).toBe('order');
+    expect(createEntry.payload.printerId).toBe('cucina_tcp');
+    expect(createEntry.payload.payload?.orderId).toBe('ord_tcp_1');
+
+    // Log entry status must transition from 'pending' to 'queued' (UI-only)
+    const store = useAppStore();
+    await vi.waitFor(() => {
+      const entry = store.printLog.find(e => e.table === 'T1');
+      expect(entry?.status).toBe('queued');
+    });
+
+    // The 'queued' transition must NOT produce a print_jobs UPDATE in the sync queue
+    // (so the Directus record stays 'pending' and the print-server can claim it).
+    // We check specifically for status:'queued' updates, not zero total, to avoid
+    // false positives from async callbacks of earlier tests settling after IDB reset.
+    const allEntries = await getPendingEntries();
+    const queuedUpdates = allEntries.filter(
+      e => e.collection === 'print_jobs' && e.operation === 'update' && e.payload?.status === 'queued',
+    );
+    expect(queuedUpdates).toHaveLength(0);
+  });
+
+  it('enqueuePrintJobs enqueues a print_jobs CREATE for a file printer without sending HTTP', async () => {
+    appConfig.printers = FILE_PRINTER;
+    enqueuePrintJobs(makeOrder({ id: 'ord_file_1', table: 'F1' }));
+
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    await vi.waitFor(async () => {
+      const entries = await getPendingEntries();
+      const entry = entries.find(
+        e => e.collection === 'print_jobs' && e.operation === 'create' && e.payload.table === 'F1',
+      );
+      expect(entry).toBeDefined();
+    });
+
+    const store = useAppStore();
+    await vi.waitFor(() => {
+      const entry = store.printLog.find(e => e.table === 'F1');
+      expect(entry?.status).toBe('queued');
+    });
+
+    // No 'queued' UPDATE must be enqueued — 'queued' is UI-only
+    const allEntries = await getPendingEntries();
+    const queuedUpdates = allEntries.filter(
+      e => e.collection === 'print_jobs' && e.operation === 'update' && e.payload?.status === 'queued',
+    );
+    expect(queuedUpdates).toHaveLength(0);
+  });
+
+  it('enqueuePrintJobs does nothing when a printer has neither url nor connectionType', () => {
+    appConfig.printers = [{ id: 'ghost', name: 'Ghost' }]; // no url, no connectionType
+    enqueuePrintJobs(makeOrder());
+    expect(fetchMock).not.toHaveBeenCalled();
+    // No sync-queue entry should be created synchronously
+    const store = useAppStore();
+    expect(store.printLog).toHaveLength(0);
+  });
+
+  it('connectionType is normalized: uppercase TCP is accepted and sets queued status', async () => {
+    // isDirectusManagedPrinter() normalizes connectionType before comparing,
+    // so 'TCP' (or any mixed-case variant) must be treated the same as 'tcp'.
+    appConfig.printers = [
+      { id: 'cucina_tcp_upper', name: 'Cucina TCP', connectionType: 'TCP', printTypes: ['order'] },
+    ];
+    enqueuePrintJobs(makeOrder({ id: 'ord_norm_1', table: 'N1' }));
+
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    const store = useAppStore();
+    await vi.waitFor(() => {
+      const entry = store.printLog.find(e => e.table === 'N1');
+      expect(entry?.status).toBe('queued');
+    });
+  });
+
+  it('enqueueTableMoveJob enqueues a print_jobs CREATE for a TCP printer without HTTP', async () => {
+    appConfig.printers = [
+      { id: 'cassa_tcp', name: 'Cassa TCP', connectionType: 'tcp', printTypes: ['table_move'] },
+    ];
+    enqueueTableMoveJob('T1', 'Uno', 'T2', 'Due');
+
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    await vi.waitFor(async () => {
+      const entries = await getPendingEntries();
+      const entry = entries.find(
+        e => e.collection === 'print_jobs' && e.operation === 'create' && e.payload.printType === 'table_move',
+      );
+      expect(entry).toBeDefined();
+    });
+
+    const store = useAppStore();
+    await vi.waitFor(() => {
+      const entry = store.printLog.find(e => e.printType === 'table_move');
+      expect(entry?.status).toBe('queued');
+    });
+  });
+
+  it('TCP printer with a stale url is still routed through Directus (no HTTP call)', async () => {
+    // connectionType takes precedence: even if a TCP printer has a stale url,
+    // the browser must NOT send HTTP — only the Directus sync queue is used.
+    appConfig.printers = [
+      { id: 'cucina_tcp_stale', name: 'Cucina TCP Stale', connectionType: 'tcp', url: 'http://localhost:9999/stale', printTypes: ['order'] },
+    ];
+    enqueuePrintJobs(makeOrder({ id: 'ord_stale_1', table: 'S1' }));
+
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    await vi.waitFor(async () => {
+      const entries = await getPendingEntries();
+      const entry = entries.find(
+        e => e.collection === 'print_jobs' && e.operation === 'create' && e.payload.table === 'S1',
+      );
+      expect(entry).toBeDefined();
+    });
+
+    const store = useAppStore();
+    await vi.waitFor(() => {
+      const entry = store.printLog.find(e => e.table === 'S1');
+      expect(entry?.status).toBe('queued');
+    });
+  });
+
+  it('mixed config: TCP printer enqueues to Directus; HTTP printer also sends HTTP', async () => {
+    appConfig.printers = [
+      { id: 'cucina_tcp', name: 'Cucina TCP', connectionType: 'tcp', printTypes: ['order'] },
+      { id: 'bar_http', name: 'Bar HTTP', url: 'http://localhost:3002/print', printTypes: ['order'] },
+    ];
+    enqueuePrintJobs(makeOrder({ id: 'ord_mixed_1', table: 'M1' }));
+
+    // Only the HTTP printer triggers a fetch
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(fetchMock.mock.calls[0][0]).toBe('http://localhost:3002/print');
+
+    // Both printers must have created sync-queue entries
+    await vi.waitFor(async () => {
+      const entries = await getPendingEntries();
+      const creates = entries.filter(e => e.collection === 'print_jobs' && e.operation === 'create');
+      expect(creates).toHaveLength(2);
+    });
+
+    // TCP entry must be 'queued'; HTTP entry must eventually be 'done'
+    const store = useAppStore();
+    await vi.waitFor(() => {
+      const tcpEntry = store.printLog.find(e => e.printerId === 'cucina_tcp');
+      expect(tcpEntry?.status).toBe('queued');
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Sync queue integration
+// Verify that print-queue operations enqueue the correct print_jobs entries
+// in the IDB sync queue (addPrintLogEntry → CREATE, updatePrintLogEntry → UPDATE).
+// ---------------------------------------------------------------------------
+
+describe('sync queue integration', () => {
+  it('enqueuePrintJobs adds a print_jobs CREATE entry with the correct payload', async () => {
+    appConfig.printers = CATCHALL_PRINTER;
+    enqueuePrintJobs(makeOrder({ id: 'ord_sq_1', table: '09' }));
+
+    let createEntry;
+    await vi.waitFor(async () => {
+      const entries = await getPendingEntries();
+      // payload.table is the top-level table field on the log entry; payload.payload.orderId
+      // is nested inside the print-job payload — filter on both to uniquely identify the entry
+      createEntry = entries.find(
+        e => e.collection === 'print_jobs' && e.operation === 'create' && e.payload.table === '09',
+      );
+      expect(createEntry).toBeDefined();
+    });
+
+    expect(createEntry.payload.printType).toBe('order');
+    expect(createEntry.payload.table).toBe('09');
+    expect(createEntry.payload.payload?.orderId).toBe('ord_sq_1');
+  });
+
+  it('enqueuePrintJobs adds one CREATE entry per matched printer', async () => {
+    appConfig.printers = TWO_PRINTERS;
+    enqueuePrintJobs(makeOrder({ id: 'ord_sq_2' }));
+
+    await vi.waitFor(async () => {
+      const entries = await getPendingEntries();
+      const creates = entries.filter(e => e.collection === 'print_jobs' && e.operation === 'create');
+      expect(creates).toHaveLength(2);
+    });
+  });
+
+  it('status updates (printing → done) add print_jobs UPDATE entries', async () => {
+    appConfig.printers = CATCHALL_PRINTER;
+    const store = useAppStore();
+    enqueuePrintJobs(makeOrder({ id: 'ord_sq_3' }));
+
+    // Wait for the job to reach 'done' so all updatePrintLogEntry calls have fired
+    await vi.waitFor(() => expect(store.printLog[0]?.status).toBe('done'));
+
+    await vi.waitFor(async () => {
+      const entries = await getPendingEntries();
+      const updates = entries.filter(e => e.collection === 'print_jobs' && e.operation === 'update');
+      // At minimum: printing + done = 2 UPDATE entries for the single job
+      expect(updates.length).toBeGreaterThanOrEqual(2);
+    });
+
+    const entries = await getPendingEntries();
+    const updates = entries.filter(e => e.collection === 'print_jobs' && e.operation === 'update');
+    const statuses = updates.map(e => e.payload.status);
+    expect(statuses).toContain('printing');
+    expect(statuses).toContain('done');
+  });
+
+  it('enqueueTableMoveJob adds a print_jobs CREATE entry with printType=table_move', async () => {
+    appConfig.printers = [
+      { id: 'cassa', name: 'Cassa', url: 'http://localhost:3003/print', printTypes: ['table_move'] },
+    ];
+    enqueueTableMoveJob('T1', 'Uno', 'T2', 'Due');
+
+    let createEntry;
+    await vi.waitFor(async () => {
+      const entries = await getPendingEntries();
+      createEntry = entries.find(e => e.collection === 'print_jobs' && e.operation === 'create');
+      expect(createEntry).toBeDefined();
+    });
+
+    expect(createEntry.payload.printType).toBe('table_move');
+  });
+
+  it('enqueuePreBillJob adds a print_jobs CREATE entry with printType=pre_bill', async () => {
+    enqueuePreBillJob({ table: '05' }, 'http://localhost:3003/print', 'Cassa');
+
+    let createEntry;
+    await vi.waitFor(async () => {
+      const entries = await getPendingEntries();
+      createEntry = entries.find(e => e.collection === 'print_jobs' && e.operation === 'create');
+      expect(createEntry).toBeDefined();
+    });
+
+    expect(createEntry.payload.printType).toBe('pre_bill');
+  });
+
+  it('reprintJob adds a print_jobs CREATE entry with isReprint=true and originalJobId', async () => {
+    const entry = {
+      logId: 'plog_sq_1',
+      jobId: 'job_sq_orig',
+      id: 'uuid-sq-orig',
+      printerId: 'cucina',
+      printerName: 'Cucina',
+      printerUrl: 'http://localhost:3001/print',
+      printType: 'order',
+      table: '05',
+      timestamp: new Date().toISOString(),
+      payload: { jobId: 'job_sq_orig', printType: 'order', table: '05', items: [] },
+    };
+    reprintJob(entry);
+
+    let createEntry;
+    await vi.waitFor(async () => {
+      const entries = await getPendingEntries();
+      createEntry = entries.find(
+        e => e.collection === 'print_jobs' && e.operation === 'create' && e.payload.isReprint === true,
+      );
+      expect(createEntry).toBeDefined();
+    });
+
+    expect(createEntry.payload.isReprint).toBe(true);
+    expect(createEntry.payload.originalJobId).toBe('job_sq_orig');
   });
 });

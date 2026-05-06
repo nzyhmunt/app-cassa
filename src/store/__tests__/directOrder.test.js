@@ -653,3 +653,275 @@ describe('simulateNewOrder()', () => {
     expect(item.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
   });
 });
+
+// ---------------------------------------------------------------------------
+// resolveTableContext() — store-level contract
+//
+// The pull config fetches orders before bill_sessions (config.js PULL_CONFIG).
+// A table can therefore be occupied (orders exist) before tableCurrentBillSession
+// is hydrated. resolveTableContext() handles this sync-lag window by falling back
+// to reading the billSessionId from non-closed orders already in the store.
+//
+// It always returns a consistent { effectiveTableId, billSessionId } pair so that
+// the `table` field and `billSessionId` on new orders always refer to the same
+// billing context.  resolveActiveBillSessionId() is a convenience wrapper.
+//
+// Both CassaTableManager and SalaTableManager delegate order creation to this
+// store method to keep the logic in one place.
+// ---------------------------------------------------------------------------
+describe('resolveTableContext (session and table resolution)', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+  });
+
+  it('infers billSessionId from active orders when tableCurrentBillSession is not yet hydrated (sync-lag window)', async () => {
+    const store = useAppStore();
+    const REMOTE_SESSION_ID = 'remote-sess-abc-123';
+
+    // Simulate orders arriving from the remote Directus pull (orders come before
+    // bill_sessions in the pull order). The order carries the correct session ID
+    // but tableCurrentBillSession has not been populated yet.
+    await store.addOrder({
+      id: 'ord_sync_lag_1',
+      table: 'T_synclag',
+      billSessionId: REMOTE_SESSION_ID,
+      status: 'accepted',
+      time: '20:00',
+      totalAmount: 10,
+      itemCount: 1,
+      dietaryPreferences: {},
+      orderItems: [],
+      globalNote: '',
+      noteVisibility: { cassa: true, sala: true, cucina: true },
+    });
+
+    // Confirm the sync-lag condition: orders are present but session index not yet hydrated.
+    expect(store.tableCurrentBillSession['T_synclag']).toBeUndefined();
+
+    // resolveTableContext must recover the correct (table, session) pair from the order.
+    const ctx = store.resolveTableContext('T_synclag');
+    expect(ctx.effectiveTableId).toBe('T_synclag');
+    expect(ctx.billSessionId).toBe(REMOTE_SESSION_ID);
+
+    // resolveActiveBillSessionId must agree (it is a convenience wrapper).
+    expect(store.resolveActiveBillSessionId('T_synclag')).toBe(REMOTE_SESSION_ID);
+
+    // A direct order added with the resolved context must have a valid (non-null) FK.
+    const result = await store.addDirectOrder(ctx.effectiveTableId, ctx.billSessionId, [
+      { uid: 'direct_lag_1', dishId: null, name: 'Acqua', unitPrice: 2.00, quantity: 1, voidedQuantity: 0, notes: [], modifiers: [] },
+    ]);
+
+    expect(result).not.toBeNull();
+    expect(result.billSessionId).toBe(REMOTE_SESSION_ID);
+  });
+
+  it('completed orders are excluded so a closed bill does not bleed into the next session', async () => {
+    const store = useAppStore();
+    const OLD_SESSION = 'old-session-xyz';
+
+    // Add a completed order from a previous bill — should NOT be used for inference.
+    await store.addOrder({
+      id: 'ord_old_completed',
+      table: 'T_closed',
+      billSessionId: OLD_SESSION,
+      status: 'completed',
+      time: '19:00',
+      totalAmount: 30,
+      itemCount: 2,
+      dietaryPreferences: {},
+      orderItems: [],
+      globalNote: '',
+      noteVisibility: { cassa: true, sala: true, cucina: true },
+    });
+
+    expect(store.tableCurrentBillSession['T_closed']).toBeUndefined();
+
+    // Completed orders must be ignored — billSessionId must be null.
+    const ctx = store.resolveTableContext('T_closed');
+    expect(ctx.effectiveTableId).toBe('T_closed');
+    expect(ctx.billSessionId).toBeNull();
+  });
+
+  it('merged slave with master session: returns masterId and master billSessionId', async () => {
+    const store = useAppStore();
+    const MASTER_SESSION_ID = 'master-sess-merged-999';
+
+    // Simulate the master table having an active, locally hydrated session.
+    store.tableCurrentBillSession['T_master'] = { billSessionId: MASTER_SESSION_ID };
+
+    // Simulate tableMergedInto indicating T_slave is merged into T_master.
+    // (In production this is written by mergeTableOrders / refreshOperationalStateFromIDB.)
+    store.tableMergedInto['T_slave'] = 'T_master';
+
+    // resolveTableContext(slaveId) must return the master's context so the new
+    // order's `table` field and `billSessionId` both point to the master.
+    const ctx = store.resolveTableContext('T_slave');
+    expect(ctx.effectiveTableId).toBe('T_master');
+    expect(ctx.billSessionId).toBe(MASTER_SESSION_ID);
+  });
+
+  it('merged slave sync-lag: master has active orders but no local session — infers masterId and session from master orders', async () => {
+    const store = useAppStore();
+    const MASTER_REMOTE_SESSION = 'master-remote-sess-sync-lag';
+
+    // Simulate the merge mapping (orders arrive before bill_sessions in the pull order).
+    store.tableMergedInto['T_slave2'] = 'T_master2';
+
+    // The master has a non-closed order carrying the remote session ID, but
+    // tableCurrentBillSession has not been hydrated yet.
+    await store.addOrder({
+      id: 'ord_master_synclag',
+      table: 'T_master2',
+      billSessionId: MASTER_REMOTE_SESSION,
+      status: 'accepted',
+      time: '21:00',
+      totalAmount: 20,
+      itemCount: 1,
+      dietaryPreferences: {},
+      orderItems: [],
+      globalNote: '',
+      noteVisibility: { cassa: true, sala: true, cucina: true },
+    });
+
+    // Confirm no local session for the master.
+    expect(store.tableCurrentBillSession['T_master2']).toBeUndefined();
+
+    // resolveTableContext for the slave must infer the session from the master's order.
+    const ctx = store.resolveTableContext('T_slave2');
+    expect(ctx.effectiveTableId).toBe('T_master2');
+    expect(ctx.billSessionId).toBe(MASTER_REMOTE_SESSION);
+  });
+
+  it('slave own session preferred over master when both exist (handles post-detach stale mapping)', async () => {
+    // Two indistinguishable sync states share this store snapshot:
+    //
+    //  (A) Post-detach stale mapping (~5 min window):
+    //      detachSlaveTable() on another device created a fresh slave session and cleared
+    //      tableMergedInto[slave], but the clearing only propagates via table_merge_sessions
+    //      (venue sync, ~5 min).  Meanwhile bill_sessions (30 s) has already delivered the
+    //      slave's new session.  → new orders must use the slave's fresh bill.
+    //
+    //  (B) Merge-arrival race (~30 s window):
+    //      table_merge_sessions arrived before bill_sessions removed the slave's old
+    //      pre-merge session.  → ideally, new orders would use the master's bill.
+    //
+    // The algorithm prefers the slave's own session (case A wins) because:
+    //   • Window (A) lasts up to ~5 min (venue sync interval).
+    //   • Window (B) lasts only ~30 s (bill_sessions pull interval).
+    //   • Routing to master during (A) would charge the wrong bill for minutes; routing
+    //     to slave during (B) is a ~30 s transient that self-corrects once bill_sessions
+    //     clears the stale slave session.
+    const store = useAppStore();
+    const SLAVE_SESSION = 'slave-sess-may-be-stale-or-fresh';
+    const MASTER_SESSION = 'master-sess-active-001';
+
+    store.tableMergedInto['T_slave3'] = 'T_master3';
+    store.tableCurrentBillSession['T_slave3'] = { billSessionId: SLAVE_SESSION };
+    store.tableCurrentBillSession['T_master3'] = { billSessionId: MASTER_SESSION };
+
+    // Slave has a session → resolveTableContext must prefer the slave's own context
+    // (covers the longer post-detach window, see rationale above).
+    const ctx = store.resolveTableContext('T_slave3');
+    expect(ctx.effectiveTableId).toBe('T_slave3');
+    expect(ctx.billSessionId).toBe(SLAVE_SESSION);
+  });
+
+  it('post-detach stale mapping: slave new session + master active session → slave context', async () => {
+    // Regression for the window after detachSlaveTable() on another device:
+    //   • Device A: detachSlaveTable(master, slave) → new slave session, tableMergedInto cleared.
+    //   • Device B: bill_sessions (30 s) delivers new slave session; table_merge_sessions
+    //     (~5 min) has NOT yet cleared tableMergedInto[slave].
+    //   • Both master and slave have active sessions in tableCurrentBillSession.
+    //   • Without this fix the old algorithm returned master context, routing new orders
+    //     from the detached slave to the master's bill for up to ~5 min.
+    const store = useAppStore();
+    const POST_DETACH_SLAVE_SESSION = 'slave-new-session-after-detach';
+    const MASTER_SESSION = 'master-still-active-after-detach';
+
+    // tableMergedInto is stale (detach not yet propagated via table_merge_sessions).
+    store.tableMergedInto['T_slave6'] = 'T_master6';
+
+    // Both sessions exist locally (bill_sessions pull arrived before table_merge_sessions).
+    store.tableCurrentBillSession['T_slave6'] = { billSessionId: POST_DETACH_SLAVE_SESSION };
+    store.tableCurrentBillSession['T_master6'] = { billSessionId: MASTER_SESSION };
+
+    const ctx = store.resolveTableContext('T_slave6');
+    expect(ctx.effectiveTableId).toBe('T_slave6');
+    expect(ctx.billSessionId).toBe(POST_DETACH_SLAVE_SESSION);
+  });
+
+  it('falls back to slave context when merge mapping is stale and master has no active context', async () => {
+    // Reproduces the window where the table was un-merged on another device,
+    // table_merge_sessions (venue sync, ~5 min) has NOT yet cleared the local entry,
+    // but bill_sessions (30 s pull) HAS already given the slave its new session.
+    // In this state, masterTableOf(slave) still returns the old master even though
+    // the merge is over.  The fixed algorithm detects that the master has no active
+    // billing context (no session, no open orders) and falls through to the slave's
+    // own context.
+    const store = useAppStore();
+    const NEW_SLAVE_SESSION = 'new-slave-sess-post-unmerge';
+
+    // Stale merge entry (un-merge not yet synced to this device).
+    store.tableMergedInto['T_slave4'] = 'T_master4';
+
+    // Master is free: no session, no active orders (old master group has paid and left).
+    // tableCurrentBillSession['T_master4'] is intentionally absent.
+
+    // Slave has a fresh session (created locally after the un-merge was reflected via bill_sessions).
+    store.tableCurrentBillSession['T_slave4'] = { billSessionId: NEW_SLAVE_SESSION };
+
+    // resolveTableContext must fall through to the slave's own context because the
+    // master has no active billing context (stale mapping / free-master case).
+    const ctx = store.resolveTableContext('T_slave4');
+    expect(ctx.effectiveTableId).toBe('T_slave4');
+    expect(ctx.billSessionId).toBe(NEW_SLAVE_SESSION);
+  });
+
+  it('early-merge-window with empty master: falls back to slave context', async () => {
+    // Documents the ~30 s merge-arrival trade-off: table_merge_sessions arrived before
+    // bill_sessions pulled, so tableMergedInto[slave]=master is fresh but the master has
+    // neither a session nor any retagged orders yet, while the slave still has its
+    // pre-merge session.
+    //
+    // resolveTableContext returns the slave's own session (step 1 of the algorithm).
+    // This is the accepted trade-off: preferring slave's own session handles the much
+    // longer post-detach window (~5 min) correctly, at the cost of this ~30 s transient
+    // where the slave's stale pre-merge session is used instead of the master's.
+    // The window self-corrects once the next bill_sessions poll (~30 s) clears the
+    // slave's stale session.
+    const store = useAppStore();
+    const PRE_MERGE_SLAVE_SESSION = 'pre-merge-slave-sess';
+
+    // Merge mapping has arrived (venue sync), but master's session/orders are not yet local.
+    store.tableMergedInto['T_slave5'] = 'T_master5';
+    store.tableCurrentBillSession['T_slave5'] = { billSessionId: PRE_MERGE_SLAVE_SESSION };
+    // tableCurrentBillSession['T_master5'] intentionally absent (not yet hydrated).
+    // No orders for T_master5 either.
+
+    // Current behavior: slave's own session is returned (step 1 of resolveTableContext).
+    const ctx = store.resolveTableContext('T_slave5');
+    expect(ctx.effectiveTableId).toBe('T_slave5');
+    expect(ctx.billSessionId).toBe(PRE_MERGE_SLAVE_SESSION);
+  });
+
+  it('chained merge mapping (C→B→A): resolves to root master context via full chain traversal', async () => {
+    // Regression for chained tableMergedInto entries.
+    // masterTableOf(C) returns B (one hop), but resolveMaster(C) returns A (full chain).
+    // Without using resolveMaster, a chain B→A would cause resolveTableContext(C) to
+    // look at B's session/orders, missing A's context entirely if B has no context.
+    const store = useAppStore();
+    const ROOT_MASTER_SESSION = 'root-master-sess-chain-abc';
+
+    // tableMergedInto chain: T_chain_C → T_chain_B → T_chain_A
+    store.tableMergedInto['T_chain_C'] = 'T_chain_B';
+    store.tableMergedInto['T_chain_B'] = 'T_chain_A';
+
+    // Only the root master (A) has a session; B and C have none.
+    store.tableCurrentBillSession['T_chain_A'] = { billSessionId: ROOT_MASTER_SESSION };
+
+    // resolveTableContext(C) must follow the full chain and return A's context.
+    const ctx = store.resolveTableContext('T_chain_C');
+    expect(ctx.effectiveTableId).toBe('T_chain_A');
+    expect(ctx.billSessionId).toBe(ROOT_MASTER_SESSION);
+  });
+});

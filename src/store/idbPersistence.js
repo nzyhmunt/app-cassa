@@ -31,8 +31,11 @@ export {
   clearLocalConfigCacheFromIDB,
   loadLastPullTsFromIDB,
   saveLastPullTsToIDB,
+  loadLastPullCursorFromIDB,
+  saveLastPullCursorToIDB,
   replaceTableMergesInIDB,
   replaceVenueUsersInIDB,
+  normalizeVenueUsersForIDB,
 } from './persistence/config.js';
 
 export {
