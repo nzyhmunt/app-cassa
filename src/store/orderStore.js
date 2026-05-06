@@ -166,7 +166,8 @@ export const useOrderStore = defineStore('orders', () => {
    *     Handles the sync-lag window for non-merged tables (and fall-through from step 3).
    *  5. Nothing found → (tableId, null)
    *
-   * NOTE: Uses masterTableOf() directly (not getTableStatus) to avoid the
+   * NOTE: Uses resolveMaster() (not masterTableOf() or getTableStatus) to follow
+   * the full tableMergedInto chain (e.g. C→B→A resolves to A) and to avoid the
    * circular mirror where getTableStatus(slave) propagates the master's status.
    *
    * Does NOT auto-create a session to avoid producing a duplicate bill when an
@@ -181,8 +182,10 @@ export const useOrderStore = defineStore('orders', () => {
     const ownSession = tableCurrentBillSession.value[tableId];
     if (ownSession?.billSessionId) return { effectiveTableId: tableId, billSessionId: ownSession.billSessionId };
 
-    const masterId = masterTableOf(tableId);
-    if (masterId != null) {
+    // resolveMaster() follows the full tableMergedInto chain (handles C→B→A correctly).
+    // Returns tableId itself when no merge mapping exists.
+    const masterId = resolveMaster(tableId);
+    if (masterId !== tableId) {
       // Step 2: slave has no own session → standard active merge; check master.
       const masterSession = tableCurrentBillSession.value[masterId];
       if (masterSession?.billSessionId) return { effectiveTableId: masterId, billSessionId: masterSession.billSessionId };

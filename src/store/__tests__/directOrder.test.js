@@ -903,4 +903,25 @@ describe('resolveTableContext (session and table resolution)', () => {
     expect(ctx.effectiveTableId).toBe('T_slave5');
     expect(ctx.billSessionId).toBe(PRE_MERGE_SLAVE_SESSION);
   });
+
+  it('chained merge mapping (C→B→A): resolves to root master context via full chain traversal', async () => {
+    // Regression for chained tableMergedInto entries.
+    // masterTableOf(C) returns B (one hop), but resolveMaster(C) returns A (full chain).
+    // Without using resolveMaster, a chain B→A would cause resolveTableContext(C) to
+    // look at B's session/orders, missing A's context entirely if B has no context.
+    const store = useAppStore();
+    const ROOT_MASTER_SESSION = 'root-master-sess-chain-abc';
+
+    // tableMergedInto chain: T_chain_C → T_chain_B → T_chain_A
+    store.tableMergedInto['T_chain_C'] = 'T_chain_B';
+    store.tableMergedInto['T_chain_B'] = 'T_chain_A';
+
+    // Only the root master (A) has a session; B and C have none.
+    store.tableCurrentBillSession['T_chain_A'] = { billSessionId: ROOT_MASTER_SESSION };
+
+    // resolveTableContext(C) must follow the full chain and return A's context.
+    const ctx = store.resolveTableContext('T_chain_C');
+    expect(ctx.effectiveTableId).toBe('T_chain_A');
+    expect(ctx.billSessionId).toBe(ROOT_MASTER_SESSION);
+  });
 });
