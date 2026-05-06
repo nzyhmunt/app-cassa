@@ -19,6 +19,8 @@ import {
   mapMenuCategoryModifierLinkFromDirectus,
   mapMenuItemModifierLinkFromDirectus,
   mapTableMergeSessionFromDirectus,
+  mapFiscalReceiptFromDirectus,
+  mapInvoiceRequestFromDirectus,
 } from '../../utils/mappers.js';
 
 /**
@@ -41,6 +43,8 @@ export function _mapRecord(collection, r) {
   if (collection === 'menu_categories_menu_modifiers') return mapMenuCategoryModifierLinkFromDirectus(r);
   if (collection === 'menu_items_menu_modifiers') return mapMenuItemModifierLinkFromDirectus(r);
   if (collection === 'table_merge_sessions') return mapTableMergeSessionFromDirectus(r);
+  if (collection === 'fiscal_receipts') return mapFiscalReceiptFromDirectus(r);
+  if (collection === 'invoice_requests') return mapInvoiceRequestFromDirectus(r);
   return { ...r, _sync_status: 'synced' };
 }
 

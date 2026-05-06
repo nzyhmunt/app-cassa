@@ -11,7 +11,7 @@
 /** @type {Record<string, { collections: string[], intervalMs: number }>} */
 export const PULL_CONFIG = {
   cassa: {
-    collections: ['orders', 'order_items', 'bill_sessions', 'tables', 'transactions'],
+    collections: ['orders', 'order_items', 'bill_sessions', 'tables', 'transactions', 'fiscal_receipts', 'invoice_requests'],
     // 30 s polling: frequent enough for near-real-time UX while keeping
     // backend load low. Use wsEnabled=true for sub-second updates if the
     // Directus instance supports WebSocket subscriptions.

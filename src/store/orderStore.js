@@ -361,6 +361,14 @@ export const useOrderStore = defineStore('orders', () => {
     };
     const { collection, collections, ids } = options;
 
+    // fiscal_receipts and invoice_requests are not in operationalStateRefs —
+    // they are managed by _hydrateFiscalAndInvoice().  Reload them from IDB
+    // when a pull for either collection triggers a store refresh.
+    if (collection === 'fiscal_receipts' || collection === 'invoice_requests') {
+      await _hydrateFiscalAndInvoice();
+      return;
+    }
+
     // Shared helper: map a raw IDB order to its reactive form with recomputed totals.
     // Recompute totals from orderItems when they are populated locally,
     // or when the order is genuinely empty (item_count = 0) so that a
