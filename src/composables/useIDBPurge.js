@@ -38,7 +38,7 @@
 
 import { getDB } from './useIDB.js';
 import { MAX_ATTEMPTS } from './useSyncQueue.js';
-import { appConfig } from '../utils/index.js';
+import { appConfig, DEFAULT_SETTINGS } from '../utils/index.js';
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -221,17 +221,19 @@ export async function purgeSyncFailedCalls(retentionDays) {
  * @returns {Promise<void>}
  */
 export async function runIDBPurge() {
-  // Read retention windows from appConfig (set at startup from local_settings,
-  // with conservative defaults from DEFAULT_SETTINGS.idbPurge as fallback).
+  // Read retention windows from appConfig.idbPurge (always pre-validated by
+  // applyIDBPurgeConfigToAppConfig at startup).  Fall back to DEFAULT_SETTINGS
+  // only when appConfig.idbPurge is absent (e.g. tests that bypass initStoreFromIDB).
+  const d = DEFAULT_SETTINGS.idbPurge;
   const r = appConfig.idbPurge ?? {};
   const retention = {
-    orders:          typeof r.orders          === 'number' && r.orders          > 0 ? r.orders          : 7,
-    billSessions:    typeof r.billSessions    === 'number' && r.billSessions    > 0 ? r.billSessions    : 7,
-    transactions:    typeof r.transactions    === 'number' && r.transactions    > 0 ? r.transactions    : 30,
-    cashMovements:   typeof r.cashMovements   === 'number' && r.cashMovements   > 0 ? r.cashMovements   : 30,
-    dailyClosures:   typeof r.dailyClosures   === 'number' && r.dailyClosures   > 0 ? r.dailyClosures   : 90,
-    printJobs:       typeof r.printJobs       === 'number' && r.printJobs       > 0 ? r.printJobs       : 7,
-    syncFailedCalls: typeof r.syncFailedCalls === 'number' && r.syncFailedCalls > 0 ? r.syncFailedCalls : 30,
+    orders:          r.orders          ?? d.orders,
+    billSessions:    r.billSessions    ?? d.billSessions,
+    transactions:    r.transactions    ?? d.transactions,
+    cashMovements:   r.cashMovements   ?? d.cashMovements,
+    dailyClosures:   r.dailyClosures   ?? d.dailyClosures,
+    printJobs:       r.printJobs       ?? d.printJobs,
+    syncFailedCalls: r.syncFailedCalls ?? d.syncFailedCalls,
   };
 
   // ── 1. Pre-sweep: orphaned children from previous purge cycles ──────────────

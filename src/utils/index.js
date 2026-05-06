@@ -320,6 +320,18 @@ export function createRuntimeConfig(overrides = null) {
 }
 
 /**
+ * Returns `Math.floor(value)` when `value` is a positive number, otherwise `fallback`.
+ * Used to validate retention-day fields in settings payloads.
+ *
+ * @param {unknown} value
+ * @param {number} fallback
+ * @returns {number}
+ */
+export function _normPositiveInt(value, fallback) {
+  return typeof value === 'number' && value > 0 ? Math.floor(value) : fallback;
+}
+
+/**
  * Applies Directus runtime settings to `appConfig` through a single normalized
  * entry-point.
  * This is the only allowed write path for `appConfig.directus` outside
@@ -352,17 +364,14 @@ export function applyDirectusConfigToAppConfig(next = {}) {
  */
 export function applyIDBPurgeConfigToAppConfig(next = {}) {
   const d = DEFAULT_SETTINGS.idbPurge;
-  function _days(value, fallback) {
-    return typeof value === 'number' && value > 0 ? Math.floor(value) : fallback;
-  }
   const normalized = {
-    orders:          _days(next?.orders,          d.orders),
-    billSessions:    _days(next?.billSessions,    d.billSessions),
-    transactions:    _days(next?.transactions,    d.transactions),
-    cashMovements:   _days(next?.cashMovements,   d.cashMovements),
-    dailyClosures:   _days(next?.dailyClosures,   d.dailyClosures),
-    printJobs:       _days(next?.printJobs,       d.printJobs),
-    syncFailedCalls: _days(next?.syncFailedCalls, d.syncFailedCalls),
+    orders:          _normPositiveInt(next?.orders,          d.orders),
+    billSessions:    _normPositiveInt(next?.billSessions,    d.billSessions),
+    transactions:    _normPositiveInt(next?.transactions,    d.transactions),
+    cashMovements:   _normPositiveInt(next?.cashMovements,   d.cashMovements),
+    dailyClosures:   _normPositiveInt(next?.dailyClosures,   d.dailyClosures),
+    printJobs:       _normPositiveInt(next?.printJobs,       d.printJobs),
+    syncFailedCalls: _normPositiveInt(next?.syncFailedCalls, d.syncFailedCalls),
   };
   appConfig.idbPurge = normalized;
   return normalized;
