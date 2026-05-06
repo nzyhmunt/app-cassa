@@ -52,7 +52,7 @@ export const useOrderStore = defineStore('orders', () => {
 
   function addPrintLogEntry(entry) {
     printLog.value = [{ status: 'pending', ...entry }, ...printLog.value].slice(0, 200);
-    enqueue('print_jobs', 'create', entry.id, { status: 'pending', ...entry });
+    enqueue('print_jobs', 'create', entry.id, { ...entry, status: 'pending' });
   }
 
   function updatePrintLogEntry(logId, updates) {

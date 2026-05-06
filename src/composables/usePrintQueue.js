@@ -121,7 +121,7 @@ async function sendPrintJob(job, url, logId, store) {
         statusCode: response.status,
         durationMs,
         collection: 'print_jobs',
-        operation: 'print',
+        operation: null,
         method: 'POST',
       });
     } else {
@@ -138,7 +138,7 @@ async function sendPrintJob(job, url, logId, store) {
         statusCode: response.status,
         durationMs,
         collection: 'print_jobs',
-        operation: 'print',
+        operation: null,
         method: 'POST',
       });
     }
@@ -160,7 +160,7 @@ async function sendPrintJob(job, url, logId, store) {
       statusCode: null,
       durationMs,
       collection: 'print_jobs',
-      operation: 'print',
+      operation: null,
       method: 'POST',
     });
   }
@@ -292,7 +292,7 @@ export function enqueuePrintJobs(order) {
 
     if (items.length === 0) continue;
 
-    const printerId = printer.id ?? printer.name ?? null;
+    const printerId = printer.id ?? null;
     const job = {
       jobId: newUUIDv7('job'),
       printType: 'order',
@@ -353,7 +353,7 @@ export function enqueueTableMoveJob(fromTableId, fromTableLabel, toTableId, toTa
   const timestamp = new Date().toISOString();
 
   for (const printer of printers) {
-    const printerId = printer.id ?? printer.name ?? null;
+    const printerId = printer.id ?? null;
     const job = {
       jobId: newUUIDv7('job'),
       printType: 'table_move',
@@ -470,7 +470,17 @@ export function reprintJob(logEntry, overrideUrl = null) {
   // A job targets Directus (TCP/file) when:
   //  - The resolved printer has a TCP/file connection type, OR
   //  - No URL is available (the original job had no HTTP URL)
+  // In both cases a valid printerId is required so the print-dispatcher can
+  // resolve the printer. Without it the job would be orphaned in Directus.
   const usesDirectus = printer ? isDirectusManagedPrinter(printer) : !url;
+
+  if (usesDirectus && !printerId) {
+    console.warn(
+      '[printQueue] Cannot reprint Directus-managed job: printerId is missing.',
+      { logId: logEntry?.logId },
+    );
+    return;
+  }
 
   if (!usesDirectus && !url) {
     console.warn(
