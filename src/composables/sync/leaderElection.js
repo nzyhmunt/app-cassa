@@ -311,6 +311,12 @@ function _onOnline() {
 }
 
 function _onQueueEnqueue() {
+  // If a push is already in-flight, mark that new work arrived so the
+  // in-flight drain's finally block schedules an immediate follow-up
+  // instead of waiting for the 30-second polling timer.
+  if (syncState._pushInFlight) {
+    syncState._pushPending = true;
+  }
   _runPush().catch(() => {});
 }
 

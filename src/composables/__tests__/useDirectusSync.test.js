@@ -3292,7 +3292,6 @@ describe('offline/online event handling', () => {
     // same hung promise and the UI spinner never resolves.
     const { enqueue } = await import('../useSyncQueue.js');
     await enqueue('orders', 'create', 'ord_force_stuck', { id: 'ord_force_stuck' });
-
     let pushPostCalls = 0;
     let hangNextCall = false;
 
@@ -3351,6 +3350,80 @@ describe('offline/online event handling', () => {
 
       expect(pushPostCalls).toBe(2); // fresh push #2 ran
       expect(result).toMatchObject({ pushed: 0 }); // resolved (not hanging)
+    } finally {
+      sync.stopSync();
+      vi.useRealTimers();
+    }
+  });
+
+  it('_pushPending flag triggers a follow-up push when items are enqueued while a drain is in-flight', async () => {
+    // Scenario: two items are enqueued back-to-back.  The first enqueue triggers
+    // _runPush() immediately; while that drain is processing the first item the
+    // second enqueue fires another sync-queue:enqueue event.  Because _pushInFlight
+    // is set, _onQueueEnqueue() sets _pushPending = true and calls _runPush()
+    // (which returns the in-flight promise).  When the first drain completes its
+    // finally block detects _pushPending and immediately starts a second drain —
+    // no 30-second timer wait.
+    const { enqueue } = await import('../useSyncQueue.js');
+
+    let resolveFirstPost; // used to manually advance the first in-flight push
+    let pushPostCalls = 0;
+
+    vi.spyOn(global, 'fetch').mockImplementation((url, opts = {}) => {
+      const method = (opts?.method ?? 'GET').toUpperCase();
+      if (String(url).includes('/items/orders') && method === 'POST') {
+        pushPostCalls++;
+        if (pushPostCalls === 1) {
+          // First push hangs until we manually resolve it.
+          return new Promise((resolve, reject) => {
+            resolveFirstPost = () => {
+              if (opts?.signal?.aborted) {
+                const err = new Error('aborted'); err.name = 'AbortError'; reject(err); return;
+              }
+              resolve(directusItemResponse({ id: 'ord_pending_1' }));
+            };
+            if (opts?.signal) {
+              opts.signal.addEventListener('abort', () => {
+                const err = new Error('aborted'); err.name = 'AbortError'; reject(err);
+              }, { once: true });
+            }
+          });
+        }
+        // Second and subsequent pushes succeed immediately.
+        return Promise.resolve(directusItemResponse({ id: 'ord_pending_2' }));
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const sync = useDirectusSync();
+    try {
+      await sync.startSync({ appType: 'cassa', store: makeStore() });
+      await flushPromises(LONG_FLUSH_ROUNDS);
+
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
+      pushPostCalls = 0;
+
+      // Enqueue first item — enqueue() internally dispatches sync-queue:enqueue,
+      // which triggers an immediate _runPush() via _onQueueEnqueue().
+      await enqueue('orders', 'create', 'ord_pending_1', { id: 'ord_pending_1' });
+      await vi.advanceTimersByTimeAsync(1);
+      await flushPromises(LONG_FLUSH_ROUNDS);
+      expect(pushPostCalls).toBe(1); // first drain in-flight, waiting for resolveFirstPost
+
+      // Enqueue second item while the first drain is still in-flight.
+      // enqueue() dispatches sync-queue:enqueue; _onQueueEnqueue() detects
+      // _pushInFlight is set and sets _pushPending = true before calling
+      // _runPush() (which returns the existing in-flight promise).
+      await enqueue('orders', 'create', 'ord_pending_2', { id: 'ord_pending_2' });
+      await flushPromises(LONG_FLUSH_ROUNDS);
+      expect(pushPostCalls).toBe(1); // second call returned in-flight promise, no new fetch yet
+
+      // Resolve the first drain — the finally block detects _pushPending and
+      // immediately starts a second push without waiting for the 30-second timer.
+      resolveFirstPost();
+      await flushPromises(LONG_FLUSH_ROUNDS);
+
+      expect(pushPostCalls).toBe(2); // follow-up push ran immediately, not after 30 s
     } finally {
       sync.stopSync();
       vi.useRealTimers();

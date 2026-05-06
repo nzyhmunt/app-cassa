@@ -27,7 +27,13 @@ import { syncState } from './state.js';
  * @returns {Promise<{pushed:number,failed:number,abandoned:number,pushedIds:Array<{collection:string,recordId:string}>,offline:boolean}>}
  */
 export async function _runPush() {
-  if (syncState._pushInFlight) return syncState._pushInFlight;
+  if (syncState._pushInFlight) {
+    return syncState._pushInFlight;
+  }
+  // Clear the pending flag here so that items added during *this* drain
+  // (between the guard above and drainQueue completion) are detected correctly
+  // and trigger a follow-up rather than being swallowed by a stale flag.
+  syncState._pushPending = false;
   // Advance and capture a new generation for this push attempt.  Every await
   // point is a potential preemption: if _onOffline(), forcePush(), or stopSync()
   // advance syncState._pushGeneration while this push is suspended on `await drainQueue()`,
@@ -81,9 +87,13 @@ export async function _runPush() {
           );
           _registerPushedEchoes(result.pushedIds, adaptiveEchoTtl);
         }
+        // Stay 'syncing' if a follow-up drain is already queued (_pushPending)
+        // so the UI never flashes to 'idle' between back-to-back drains.
         syncState.syncStatus.value = result.offline
           ? 'offline'
-          : result.failed > 0 ? 'error' : 'idle';
+          : result.failed > 0 ? 'error'
+          : (syncState._pushPending && navigator.onLine) ? 'syncing'
+          : 'idle';
         // Update queue depth telemetry after drain completes.
         // Best-effort: a failure here must not mask the drain result.
         getPendingEntries().then((entries) => {
@@ -103,6 +113,16 @@ export async function _runPush() {
       if (syncState._pushGeneration === generation) {
         syncState._pushAbortController = null;
         syncState._pushInFlight = null;
+        // If new items were enqueued while this drain was in-flight, start
+        // another push immediately instead of waiting for the 30-second timer.
+        // The navigator.onLine guard avoids a pointless offline-path retry loop;
+        // _onOnline() will trigger the real drain when connectivity returns.
+        if (syncState._pushPending && navigator.onLine) {
+          syncState._pushPending = false;
+          _runPush().catch(() => {});
+        } else {
+          syncState._pushPending = false;
+        }
       }
     }
   })();
