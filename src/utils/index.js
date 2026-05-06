@@ -327,7 +327,7 @@ export function createRuntimeConfig(overrides = null) {
  * @param {number} fallback
  * @returns {number}
  */
-export function _normPositiveInt(value, fallback) {
+export function normPositiveInt(value, fallback) {
   return typeof value === 'number' && value > 0 ? Math.floor(value) : fallback;
 }
 
@@ -363,15 +363,15 @@ export function applyDirectusConfigToAppConfig(next = {}) {
  * @returns {{orders:number,billSessions:number,transactions:number,cashMovements:number,dailyClosures:number,printJobs:number,syncFailedCalls:number}}
  */
 export function applyIDBPurgeConfigToAppConfig(next = {}) {
-  const d = DEFAULT_SETTINGS.idbPurge;
+  const defaults = DEFAULT_SETTINGS.idbPurge;
   const normalized = {
-    orders:          _normPositiveInt(next?.orders,          d.orders),
-    billSessions:    _normPositiveInt(next?.billSessions,    d.billSessions),
-    transactions:    _normPositiveInt(next?.transactions,    d.transactions),
-    cashMovements:   _normPositiveInt(next?.cashMovements,   d.cashMovements),
-    dailyClosures:   _normPositiveInt(next?.dailyClosures,   d.dailyClosures),
-    printJobs:       _normPositiveInt(next?.printJobs,       d.printJobs),
-    syncFailedCalls: _normPositiveInt(next?.syncFailedCalls, d.syncFailedCalls),
+    orders:          normPositiveInt(next?.orders,          defaults.orders),
+    billSessions:    normPositiveInt(next?.billSessions,    defaults.billSessions),
+    transactions:    normPositiveInt(next?.transactions,    defaults.transactions),
+    cashMovements:   normPositiveInt(next?.cashMovements,   defaults.cashMovements),
+    dailyClosures:   normPositiveInt(next?.dailyClosures,   defaults.dailyClosures),
+    printJobs:       normPositiveInt(next?.printJobs,       defaults.printJobs),
+    syncFailedCalls: normPositiveInt(next?.syncFailedCalls, defaults.syncFailedCalls),
   };
   appConfig.idbPurge = normalized;
   return normalized;

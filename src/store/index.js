@@ -4,7 +4,7 @@ import {
   appConfig,
   createRuntimeConfig,
   DEFAULT_SETTINGS,
-  _normPositiveInt,
+  normPositiveInt,
   applyDirectusConfigToAppConfig,
   applyIDBPurgeConfigToAppConfig,
   updateOrderTotals,
@@ -83,7 +83,7 @@ function _normalizeMenuSource(value, fallback = null) {
  */
 function _normalizeLocalSettingsPayload(payload, current) {
   const normalizedCurrentMenuSource = _normalizeMenuSource(current?.menuSource, 'directus');
-  const d = DEFAULT_SETTINGS.idbPurge;
+  const defaults = DEFAULT_SETTINGS.idbPurge;
   const inIdbPurge = payload?.idbPurge;
   const curIdbPurge = current?.idbPurge;
   return {
@@ -105,13 +105,13 @@ function _normalizeLocalSettingsPayload(payload, current) {
         ? payload.preBillPrinterId
         : (typeof current?.preBillPrinterId === 'string' ? current.preBillPrinterId : ''),
     idbPurge: {
-      orders:          _normPositiveInt(inIdbPurge?.orders,          _normPositiveInt(curIdbPurge?.orders,          d.orders)),
-      billSessions:    _normPositiveInt(inIdbPurge?.billSessions,    _normPositiveInt(curIdbPurge?.billSessions,    d.billSessions)),
-      transactions:    _normPositiveInt(inIdbPurge?.transactions,    _normPositiveInt(curIdbPurge?.transactions,    d.transactions)),
-      cashMovements:   _normPositiveInt(inIdbPurge?.cashMovements,   _normPositiveInt(curIdbPurge?.cashMovements,   d.cashMovements)),
-      dailyClosures:   _normPositiveInt(inIdbPurge?.dailyClosures,   _normPositiveInt(curIdbPurge?.dailyClosures,   d.dailyClosures)),
-      printJobs:       _normPositiveInt(inIdbPurge?.printJobs,       _normPositiveInt(curIdbPurge?.printJobs,       d.printJobs)),
-      syncFailedCalls: _normPositiveInt(inIdbPurge?.syncFailedCalls, _normPositiveInt(curIdbPurge?.syncFailedCalls, d.syncFailedCalls)),
+      orders:          normPositiveInt(inIdbPurge?.orders,          normPositiveInt(curIdbPurge?.orders,          defaults.orders)),
+      billSessions:    normPositiveInt(inIdbPurge?.billSessions,    normPositiveInt(curIdbPurge?.billSessions,    defaults.billSessions)),
+      transactions:    normPositiveInt(inIdbPurge?.transactions,    normPositiveInt(curIdbPurge?.transactions,    defaults.transactions)),
+      cashMovements:   normPositiveInt(inIdbPurge?.cashMovements,   normPositiveInt(curIdbPurge?.cashMovements,   defaults.cashMovements)),
+      dailyClosures:   normPositiveInt(inIdbPurge?.dailyClosures,   normPositiveInt(curIdbPurge?.dailyClosures,   defaults.dailyClosures)),
+      printJobs:       normPositiveInt(inIdbPurge?.printJobs,       normPositiveInt(curIdbPurge?.printJobs,       defaults.printJobs)),
+      syncFailedCalls: normPositiveInt(inIdbPurge?.syncFailedCalls, normPositiveInt(curIdbPurge?.syncFailedCalls, defaults.syncFailedCalls)),
     },
   };
 }

@@ -224,16 +224,16 @@ export async function runIDBPurge() {
   // Read retention windows from appConfig.idbPurge (always pre-validated by
   // applyIDBPurgeConfigToAppConfig at startup).  Fall back to DEFAULT_SETTINGS
   // only when appConfig.idbPurge is absent (e.g. tests that bypass initStoreFromIDB).
-  const d = DEFAULT_SETTINGS.idbPurge;
-  const r = appConfig.idbPurge ?? {};
+  const defaults = DEFAULT_SETTINGS.idbPurge;
+  const configured = appConfig.idbPurge ?? {};
   const retention = {
-    orders:          r.orders          ?? d.orders,
-    billSessions:    r.billSessions    ?? d.billSessions,
-    transactions:    r.transactions    ?? d.transactions,
-    cashMovements:   r.cashMovements   ?? d.cashMovements,
-    dailyClosures:   r.dailyClosures   ?? d.dailyClosures,
-    printJobs:       r.printJobs       ?? d.printJobs,
-    syncFailedCalls: r.syncFailedCalls ?? d.syncFailedCalls,
+    orders:          configured.orders          ?? defaults.orders,
+    billSessions:    configured.billSessions    ?? defaults.billSessions,
+    transactions:    configured.transactions    ?? defaults.transactions,
+    cashMovements:   configured.cashMovements   ?? defaults.cashMovements,
+    dailyClosures:   configured.dailyClosures   ?? defaults.dailyClosures,
+    printJobs:       configured.printJobs       ?? defaults.printJobs,
+    syncFailedCalls: configured.syncFailedCalls ?? defaults.syncFailedCalls,
   };
 
   // ── 1. Pre-sweep: orphaned children from previous purge cycles ──────────────
