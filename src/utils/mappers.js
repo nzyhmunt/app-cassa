@@ -1313,6 +1313,20 @@ export function mapInvoiceRequestToDirectus(record, originalRecord) {
 }
 
 /**
+ * Safely parses a JSON string that should be an array.
+ * Returns the parsed value when it is an array, otherwise returns [].
+ * If `value` is already an array it is returned as-is.
+ *
+ * @param {*} value
+ * @returns {Array}
+ */
+function _parseJsonArray(value) {
+  if (Array.isArray(value)) return value;
+  if (typeof value !== 'string') return [];
+  try { return JSON.parse(value); } catch (_) { return []; }
+}
+
+/**
  * Maps a Directus `fiscal_receipts` record back to the local camelCase format.
  *
  * Reverses the snake_case → camelCase transformations applied by
@@ -1349,12 +1363,12 @@ export function mapFiscalReceiptFromDirectus(r) {
   // payment_methods — JSON string or array → array
   const pm = r.payment_methods ?? r.paymentMethods;
   if (pm != null) {
-    out.paymentMethods = typeof pm === 'string' ? (() => { try { return JSON.parse(pm); } catch (_) { return []; } })() : pm;
+    out.paymentMethods = _parseJsonArray(pm);
   }
   // orders — JSON string or array → array
   const orders = r.orders;
   if (orders != null) {
-    out.orders = typeof orders === 'string' ? (() => { try { return JSON.parse(orders); } catch (_) { return []; } })() : orders;
+    out.orders = _parseJsonArray(orders);
   }
   // xml_request → xmlRequest
   if (r.xml_request != null) out.xmlRequest = r.xml_request;
@@ -1409,12 +1423,12 @@ export function mapInvoiceRequestFromDirectus(r) {
   // payment_methods — JSON string or array → array
   const pm = r.payment_methods ?? r.paymentMethods;
   if (pm != null) {
-    out.paymentMethods = typeof pm === 'string' ? (() => { try { return JSON.parse(pm); } catch (_) { return []; } })() : pm;
+    out.paymentMethods = _parseJsonArray(pm);
   }
   // orders — JSON string or array → array
   const orders = r.orders;
   if (orders != null) {
-    out.orders = typeof orders === 'string' ? (() => { try { return JSON.parse(orders); } catch (_) { return []; } })() : orders;
+    out.orders = _parseJsonArray(orders);
   }
   // Billing data columns → nested billingData object
   const bd = {};
