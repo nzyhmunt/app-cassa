@@ -44,6 +44,15 @@ export const syncState = {
   /** In-flight push promise (de-duplication guard). */
   _pushInFlight: null,
   /**
+   * Set to `true` when `enqueue()` fires a `sync-queue:enqueue` event while a
+   * push is already in-flight.  The in-flight push's `finally` block checks this
+   * flag and immediately starts a follow-up `_runPush()` so that items added
+   * during an active drain are pushed without waiting for the next 30-second
+   * timer tick.  Cleared both at the start of every new push and in the finally
+   * block (whether or not a follow-up is scheduled).
+   */
+  _pushPending: false,
+  /**
    * AbortController for the currently in-flight drainQueue() call.  Aborted
    * (and replaced with null) whenever a push is invalidated via _onOffline(),
    * forcePush(), or stopSync(), causing the hung SDK fetch to throw AbortError
@@ -289,6 +298,7 @@ export function resetSyncState() {
   // Push
   syncState._pushTimer = null;
   syncState._pushInFlight = null;
+  syncState._pushPending = false;
   syncState._pushAbortController = null;
   syncState._pushGeneration = 0;
 

@@ -452,18 +452,6 @@ export const useOrderStore = defineStore('orders', () => {
     });
   }
 
-  function _enqueueOrderSnapshot(ord) {
-    if (!ord?.id) return;
-    const rawOrder = toRaw(ord);
-    let payload = rawOrder;
-    try {
-      payload = structuredClone(rawOrder);
-    } catch (_) {
-      payload = JSON.parse(JSON.stringify(rawOrder));
-    }
-    enqueue('orders', 'update', ord.id, payload);
-  }
-
   function _enqueueOrderItemsPatch(ordId, projectedOrder) {
     if (!ordId || !projectedOrder || typeof projectedOrder !== 'object') return;
     // Safety-net: ensure every order item and its modifiers have a stable Directus
