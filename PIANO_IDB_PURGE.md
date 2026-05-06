@@ -218,7 +218,7 @@ async function purgeSyncQueueDeadLetter(retentionDays) {
   const db = await getDB();
   const all = await db.getAll('sync_queue');
   const toDelete = all
-    .filter(e => e && (e.attempts ?? 0) >= MAX_ATTEMPTS &&
+    .filter(e => e && (e.attempts ?? 0) >= MAX_ATTEMPTS /* = 5 */ &&
                  e.date_created && new Date(e.date_created).getTime() < cutoff)
     .map(e => e.id)
     .filter(Boolean);
@@ -276,7 +276,7 @@ export async function runIDBPurge() {
   // ATTENZIONE: print_jobs usa keyPath 'logId', non 'id'
   await purgeCollection('print_jobs',      7,  {
     statusFilter: ['done', 'error'],
-    dateField: 'timestamp',    // campo 'timestamp' in IDB (alias job_timestamp nel DB SQL)
+    dateField: 'timestamp',    // campo 'timestamp' in IDB (corrisponde al DB SQL: job_timestamp)
     pkField: 'logId',          // keyPath dello store è 'logId', non 'id'
   });
 
@@ -344,7 +344,7 @@ onMounted(async () => {
 
   // Purge IDB in background: non blocca il rendering.
   // Esegue solo se sync Directus è configurato (i dati sono già su Directus).
-  if (appConfig.directus?.enabled && appConfig.directus?.url && appConfig.directus?.staticToken) {
+  if (_isDirectusSyncActive()) {
     runIDBPurge().catch(e => console.warn('[CassaApp] IDB purge failed:', e));
   }
 });
