@@ -191,16 +191,16 @@ export const useOrderStore = defineStore('orders', () => {
       if (masterSession?.billSessionId) return { effectiveTableId: masterId, billSessionId: masterSession.billSessionId };
       // Step 3: infer from master's non-closed orders (sync-lag window for merged slaves).
       const masterInferred = orders.value
-        .filter(o => o.table === masterId && o.billSessionId && !['completed', 'rejected'].includes(o.status))
-        .map(o => o.billSessionId)[0] ?? null;
+        .find(o => o.table === masterId && o.billSessionId && !['completed', 'rejected'].includes(o.status))
+        ?.billSessionId ?? null;
       if (masterInferred != null) return { effectiveTableId: masterId, billSessionId: masterInferred };
     }
 
     // Step 4: infer from own non-closed orders (sync-lag window for non-merged tables,
     // or fall-through when master has no active billing context either).
     const ownInferred = orders.value
-      .filter(o => o.table === tableId && o.billSessionId && !['completed', 'rejected'].includes(o.status))
-      .map(o => o.billSessionId)[0] ?? null;
+      .find(o => o.table === tableId && o.billSessionId && !['completed', 'rejected'].includes(o.status))
+      ?.billSessionId ?? null;
     return { effectiveTableId: tableId, billSessionId: ownInferred };
   }
 
