@@ -1321,9 +1321,7 @@ export function mapInvoiceRequestToDirectus(record, originalRecord) {
  * @returns {Array}
  */
 function _parseJsonArray(value) {
-  if (Array.isArray(value)) return value;
-  if (typeof value !== 'string') return [];
-  try { return JSON.parse(value); } catch (_) { return []; }
+  return parseJsonArray(value);
 }
 
 /**

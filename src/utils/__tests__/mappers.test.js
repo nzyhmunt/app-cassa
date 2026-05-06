@@ -3,7 +3,7 @@
  * @description Unit tests for pull-side mapper functions in utils/mappers.js.
  */
 import { describe, it, expect } from 'vitest';
-import { mapTransactionFromDirectus, mapPrintJobToDirectus, mapPayloadToDirectus } from '../mappers.js';
+import { mapTransactionFromDirectus, mapPrintJobToDirectus, mapPayloadToDirectus, mapFiscalReceiptFromDirectus, mapInvoiceRequestFromDirectus } from '../mappers.js';
 import { resolveTransactionPaymentLabel } from '../paymentMethods.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -456,5 +456,218 @@ describe('mapPayloadToDirectus() — print_jobs round-trip', () => {
     expect(result.is_reprint).toBe(true);
     expect(result.originalJobId).toBeUndefined();
     expect(result.payload.originalJobId).toBe('job_orig_xyz');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// mapFiscalReceiptFromDirectus
+// ─────────────────────────────────────────────────────────────────────────────
+describe('mapFiscalReceiptFromDirectus()', () => {
+  it('maps all snake_case Directus fields to camelCase local format', () => {
+    const raw = {
+      id: 'fr-uuid-1',
+      table: 'tbl-1',
+      table_label: 'Tavolo 1',
+      bill_session: 'bs-uuid-1',
+      closed_at: '2024-03-10T12:00:00Z',
+      total_amount: '55.00',
+      total_paid: '60.00',
+      payment_methods: JSON.stringify(['Contanti', 'Carta']),
+      orders: JSON.stringify([{ name: 'Pizza', qty: 1, unitPrice: 10 }]),
+      xml_request: '<request/>',
+      xml_response: '<response/>',
+      status: 'ok',
+      timestamp: '2024-03-10T12:01:00Z',
+      date_created: '2024-03-10T12:00:00Z',
+      date_updated: '2024-03-10T12:01:00Z',
+    };
+
+    const result = mapFiscalReceiptFromDirectus(raw);
+
+    expect(result.id).toBe('fr-uuid-1');
+    expect(result.tableId).toBe('tbl-1');
+    expect(result.tableLabel).toBe('Tavolo 1');
+    expect(result.billSessionId).toBe('bs-uuid-1');
+    expect(result.closedAt).toBe('2024-03-10T12:00:00Z');
+    expect(result.totalAmount).toBe(55);
+    expect(result.totalPaid).toBe(60);
+    expect(result.paymentMethods).toEqual(['Contanti', 'Carta']);
+    expect(result.orders).toEqual([{ name: 'Pizza', qty: 1, unitPrice: 10 }]);
+    expect(result.xmlRequest).toBe('<request/>');
+    expect(result.xmlResponse).toBe('<response/>');
+    expect(result.status).toBe('ok');
+    expect(result.timestamp).toBe('2024-03-10T12:01:00Z');
+    expect(result.date_created).toBe('2024-03-10T12:00:00Z');
+    expect(result.date_updated).toBe('2024-03-10T12:01:00Z');
+  });
+
+  it('resolves FK table/bill_session from nested relation objects', () => {
+    const raw = {
+      id: 'fr-uuid-2',
+      table: { id: 'tbl-nested' },
+      bill_session: { id: 'bs-nested' },
+    };
+
+    const result = mapFiscalReceiptFromDirectus(raw);
+
+    expect(result.tableId).toBe('tbl-nested');
+    expect(result.billSessionId).toBe('bs-nested');
+  });
+
+  it('parses payment_methods JSON string into an array', () => {
+    const raw = { id: 'fr-uuid-3', payment_methods: '["Contanti"]' };
+    const result = mapFiscalReceiptFromDirectus(raw);
+    expect(Array.isArray(result.paymentMethods)).toBe(true);
+    expect(result.paymentMethods).toEqual(['Contanti']);
+  });
+
+  it('returns [] for payment_methods when JSON is not an array', () => {
+    const raw = { id: 'fr-uuid-4', payment_methods: '"solo-stringa"' };
+    const result = mapFiscalReceiptFromDirectus(raw);
+    expect(result.paymentMethods).toEqual([]);
+  });
+
+  it('passes through payment_methods when already an array', () => {
+    const raw = { id: 'fr-uuid-5', payment_methods: ['Contanti', 'Carta'] };
+    const result = mapFiscalReceiptFromDirectus(raw);
+    expect(result.paymentMethods).toEqual(['Contanti', 'Carta']);
+  });
+
+  it('returns [] for orders when JSON is not an array', () => {
+    const raw = { id: 'fr-uuid-6', orders: 'null' };
+    const result = mapFiscalReceiptFromDirectus(raw);
+    expect(result.orders).toEqual([]);
+  });
+
+  it('handles null/missing optional fields gracefully', () => {
+    const raw = { id: 'fr-uuid-7', status: 'pending' };
+    const result = mapFiscalReceiptFromDirectus(raw);
+    expect(result.tableId).toBeUndefined();
+    expect(result.billSessionId).toBeUndefined();
+    expect(result.closedAt).toBeUndefined();
+    expect(result.totalAmount).toBeUndefined();
+    expect(result.paymentMethods).toBeUndefined();
+    expect(result.orders).toBeUndefined();
+  });
+
+  it('returns the input unchanged for non-object values', () => {
+    expect(mapFiscalReceiptFromDirectus(null)).toBe(null);
+    expect(mapFiscalReceiptFromDirectus(undefined)).toBe(undefined);
+    expect(mapFiscalReceiptFromDirectus('string')).toBe('string');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// mapInvoiceRequestFromDirectus
+// ─────────────────────────────────────────────────────────────────────────────
+describe('mapInvoiceRequestFromDirectus()', () => {
+  it('maps all snake_case Directus fields to camelCase local format', () => {
+    const raw = {
+      id: 'ir-uuid-1',
+      table: 'tbl-1',
+      table_label: 'Tavolo 1',
+      bill_session: 'bs-uuid-1',
+      closed_at: '2024-03-10T12:00:00Z',
+      total_amount: '80.00',
+      total_paid: '80.00',
+      payment_methods: JSON.stringify(['Carta']),
+      orders: JSON.stringify([{ name: 'Bistecca', qty: 2, unitPrice: 30 }]),
+      denominazione: 'ACME Srl',
+      codice_fiscale: 'ACMESRL12345',
+      piva: 'IT12345678901',
+      indirizzo: 'Via Roma 1',
+      cap: '00100',
+      comune: 'Roma',
+      provincia: 'RM',
+      paese: 'IT',
+      codice_destinatario: 'ABC1234',
+      pec: 'acme@pec.it',
+      status: 'pending',
+      timestamp: '2024-03-10T12:01:00Z',
+      date_created: '2024-03-10T12:00:00Z',
+      date_updated: '2024-03-10T12:01:00Z',
+    };
+
+    const result = mapInvoiceRequestFromDirectus(raw);
+
+    expect(result.id).toBe('ir-uuid-1');
+    expect(result.tableId).toBe('tbl-1');
+    expect(result.tableLabel).toBe('Tavolo 1');
+    expect(result.billSessionId).toBe('bs-uuid-1');
+    expect(result.closedAt).toBe('2024-03-10T12:00:00Z');
+    expect(result.totalAmount).toBe(80);
+    expect(result.totalPaid).toBe(80);
+    expect(result.paymentMethods).toEqual(['Carta']);
+    expect(result.orders).toEqual([{ name: 'Bistecca', qty: 2, unitPrice: 30 }]);
+    expect(result.status).toBe('pending');
+    expect(result.timestamp).toBe('2024-03-10T12:01:00Z');
+    expect(result.date_created).toBe('2024-03-10T12:00:00Z');
+    expect(result.date_updated).toBe('2024-03-10T12:01:00Z');
+  });
+
+  it('reassembles billing data columns into a nested billingData object', () => {
+    const raw = {
+      id: 'ir-uuid-2',
+      denominazione: 'ACME Srl',
+      codice_fiscale: 'ACMESRL12345',
+      piva: 'IT12345678901',
+      indirizzo: 'Via Roma 1',
+      cap: '00100',
+      comune: 'Roma',
+      provincia: 'RM',
+      paese: 'IT',
+      codice_destinatario: 'ABC1234',
+      pec: 'acme@pec.it',
+    };
+
+    const result = mapInvoiceRequestFromDirectus(raw);
+
+    expect(result.billingData).toBeDefined();
+    expect(result.billingData.denominazione).toBe('ACME Srl');
+    expect(result.billingData.codiceFiscale).toBe('ACMESRL12345');
+    expect(result.billingData.piva).toBe('IT12345678901');
+    expect(result.billingData.indirizzo).toBe('Via Roma 1');
+    expect(result.billingData.cap).toBe('00100');
+    expect(result.billingData.comune).toBe('Roma');
+    expect(result.billingData.provincia).toBe('RM');
+    expect(result.billingData.paese).toBe('IT');
+    expect(result.billingData.codiceDestinatario).toBe('ABC1234');
+    expect(result.billingData.pec).toBe('acme@pec.it');
+  });
+
+  it('omits billingData when no billing columns are present', () => {
+    const raw = { id: 'ir-uuid-3', status: 'pending' };
+    const result = mapInvoiceRequestFromDirectus(raw);
+    expect(result.billingData).toBeUndefined();
+  });
+
+  it('resolves FK table/bill_session from nested relation objects', () => {
+    const raw = {
+      id: 'ir-uuid-4',
+      table: { id: 'tbl-nested' },
+      bill_session: { id: 'bs-nested' },
+    };
+
+    const result = mapInvoiceRequestFromDirectus(raw);
+
+    expect(result.tableId).toBe('tbl-nested');
+    expect(result.billSessionId).toBe('bs-nested');
+  });
+
+  it('parses payment_methods JSON string into an array', () => {
+    const raw = { id: 'ir-uuid-5', payment_methods: '["Contanti","Carta"]' };
+    const result = mapInvoiceRequestFromDirectus(raw);
+    expect(result.paymentMethods).toEqual(['Contanti', 'Carta']);
+  });
+
+  it('returns [] for payment_methods when JSON is not an array', () => {
+    const raw = { id: 'ir-uuid-6', payment_methods: '{"key":"value"}' };
+    const result = mapInvoiceRequestFromDirectus(raw);
+    expect(result.paymentMethods).toEqual([]);
+  });
+
+  it('returns the input unchanged for non-object values', () => {
+    expect(mapInvoiceRequestFromDirectus(null)).toBe(null);
+    expect(mapInvoiceRequestFromDirectus(undefined)).toBe(undefined);
   });
 });
