@@ -165,13 +165,13 @@ Le collection sono state create rispettando le dipendenze tra chiavi esterne (FK
 - **URL**: https://dev.nanawork.it/admin/content/transactions
 
 ### 18. `fiscal_receipts` — Comandi stampante fiscale
-- **PK**: `id` (string, es. 'fis_' + UUID v7)
+- **PK**: `id` (UUID v7, generato client-side)
 - **Campi**: `table_id` (FK→tables), `bill_session_id` (FK→bill_sessions), `table_label`, `closed_at`, `total_amount`, `total_paid`, `payment_methods` (JSON text), `orders` (JSON text), `xml_request`, `xml_response`, `status` (pending/sent/ok/error), `timestamp`
 - **Campi standard**: `date_updated`
 - **URL**: https://dev.nanawork.it/admin/content/fiscal_receipts
 
 ### 19. `invoice_requests` — Richieste fattura elettronica
-- **PK**: `id` (string, es. 'inv_' + UUID v7)
+- **PK**: `id` (UUID v7, generato client-side)
 - **Campi**: `table_id` (FK→tables), `bill_session_id` (FK→bill_sessions), `table_label`, `closed_at`, `total_amount`, `total_paid`, `payment_methods` (JSON text), `orders` (JSON text), `denominazione`, `codice_fiscale`, `piva`, `indirizzo`, `cap`, `comune`, `provincia`, `paese`, `codice_destinatario`, `pec`, `status`, `timestamp`
 - **Campi standard**: `date_updated`
 - **URL**: https://dev.nanawork.it/admin/content/invoice_requests
