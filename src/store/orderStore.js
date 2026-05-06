@@ -361,6 +361,26 @@ export const useOrderStore = defineStore('orders', () => {
     };
     const { collection, collections, ids } = options;
 
+    // fiscal_receipts and invoice_requests are not in operationalStateRefs —
+    // they are managed by _hydrateFiscalAndInvoice().  Reload them from IDB:
+    //  • when a pull for either collection triggers a targeted store refresh, OR
+    //  • on a full refresh (no collection filter) so that storage-event hydration
+    //    paths (CassaApp.vue, SalaApp.vue, useAppSwipeRefresh) also pick up the
+    //    latest fiscal/invoice state.
+    const _isFiscalOrInvoice = (c) => c === 'fiscal_receipts' || c === 'invoice_requests';
+    if (collection && _isFiscalOrInvoice(collection)) {
+      await _hydrateFiscalAndInvoice();
+      return;
+    }
+    const _needsFiscalHydration =
+      !collection ||
+      (Array.isArray(collections) && collections.some(_isFiscalOrInvoice));
+    if (_needsFiscalHydration) {
+      await _hydrateFiscalAndInvoice();
+      // On a full refresh fall through to also refresh operationalStateRefs below.
+      if (Array.isArray(collections) && collections.every(_isFiscalOrInvoice)) return;
+    }
+
     // Shared helper: map a raw IDB order to its reactive form with recomputed totals.
     // Recompute totals from orderItems when they are populated locally,
     // or when the order is genuinely empty (item_count = 0) so that a

@@ -1312,6 +1312,144 @@ export function mapInvoiceRequestToDirectus(record, originalRecord) {
   return out;
 }
 
+/**
+ * Safely parses a JSON string that should be an array.
+ * Returns the parsed value when it is an array, otherwise returns [].
+ * If `value` is already an array it is returned as-is.
+ *
+ * @param {*} value
+ * @returns {Array}
+ */
+function _parseJsonArray(value) {
+  return parseJsonArray(value);
+}
+
+/**
+ * Maps a Directus `fiscal_receipts` record back to the local camelCase format.
+ *
+ * Reverses the snake_case → camelCase transformations applied by
+ * `mapFiscalReceiptToDirectus` so that pulled records land in IDB in the same
+ * format as locally-created entries.  Directus standard fields (`date_created`,
+ * `date_updated`) are preserved for IDB last-write-wins comparison.
+ *
+ * @param {object} r - Raw Directus fiscal_receipts record
+ * @returns {object}
+ */
+export function mapFiscalReceiptFromDirectus(r) {
+  if (!r || typeof r !== 'object') return r;
+  const out = {};
+  // id — same key
+  if (r.id != null) out.id = r.id;
+  // table → tableId
+  const tableId = relationId(r.table ?? r.tableId);
+  if (tableId != null) out.tableId = tableId;
+  // table_label → tableLabel
+  if (r.table_label != null) out.tableLabel = r.table_label;
+  else if (r.tableLabel != null) out.tableLabel = r.tableLabel;
+  // bill_session → billSessionId
+  const billSessionId = relationId(r.bill_session ?? r.billSessionId);
+  if (billSessionId != null) out.billSessionId = billSessionId;
+  // closed_at → closedAt
+  if (r.closed_at != null) out.closedAt = r.closed_at;
+  else if (r.closedAt != null) out.closedAt = r.closedAt;
+  // total_amount → totalAmount
+  if (r.total_amount != null) out.totalAmount = numberOr(r.total_amount);
+  else if (r.totalAmount != null) out.totalAmount = numberOr(r.totalAmount);
+  // total_paid → totalPaid
+  if (r.total_paid != null) out.totalPaid = numberOr(r.total_paid);
+  else if (r.totalPaid != null) out.totalPaid = numberOr(r.totalPaid);
+  // payment_methods — JSON string or array → array
+  const pm = r.payment_methods ?? r.paymentMethods;
+  if (pm != null) {
+    out.paymentMethods = _parseJsonArray(pm);
+  }
+  // orders — JSON string or array → array
+  const orders = r.orders;
+  if (orders != null) {
+    out.orders = _parseJsonArray(orders);
+  }
+  // xml_request → xmlRequest
+  if (r.xml_request != null) out.xmlRequest = r.xml_request;
+  else if (r.xmlRequest != null) out.xmlRequest = r.xmlRequest;
+  // xml_response → xmlResponse
+  if (r.xml_response != null) out.xmlResponse = r.xml_response;
+  else if (r.xmlResponse != null) out.xmlResponse = r.xmlResponse;
+  // status, timestamp — same keys
+  if (r.status != null) out.status = r.status;
+  if (r.timestamp != null) out.timestamp = r.timestamp;
+  // Preserve Directus standard fields for IDB last-write-wins comparison
+  if (r.date_created != null) out.date_created = r.date_created;
+  if (r.date_updated != null) out.date_updated = r.date_updated;
+  return out;
+}
+
+/**
+ * Maps a Directus `invoice_requests` record back to the local camelCase format.
+ *
+ * Reverses the snake_case → camelCase transformations applied by
+ * `mapInvoiceRequestToDirectus`.  Billing data columns are reassembled into the
+ * nested `billingData` object expected by the local store and UI components.
+ * Directus standard fields (`date_created`, `date_updated`) are preserved for
+ * IDB last-write-wins comparison.
+ *
+ * @param {object} r - Raw Directus invoice_requests record
+ * @returns {object}
+ */
+export function mapInvoiceRequestFromDirectus(r) {
+  if (!r || typeof r !== 'object') return r;
+  const out = {};
+  // id — same key
+  if (r.id != null) out.id = r.id;
+  // table → tableId
+  const tableId = relationId(r.table ?? r.tableId);
+  if (tableId != null) out.tableId = tableId;
+  // table_label → tableLabel
+  if (r.table_label != null) out.tableLabel = r.table_label;
+  else if (r.tableLabel != null) out.tableLabel = r.tableLabel;
+  // bill_session → billSessionId
+  const billSessionId = relationId(r.bill_session ?? r.billSessionId);
+  if (billSessionId != null) out.billSessionId = billSessionId;
+  // closed_at → closedAt
+  if (r.closed_at != null) out.closedAt = r.closed_at;
+  else if (r.closedAt != null) out.closedAt = r.closedAt;
+  // total_amount → totalAmount
+  if (r.total_amount != null) out.totalAmount = numberOr(r.total_amount);
+  else if (r.totalAmount != null) out.totalAmount = numberOr(r.totalAmount);
+  // total_paid → totalPaid
+  if (r.total_paid != null) out.totalPaid = numberOr(r.total_paid);
+  else if (r.totalPaid != null) out.totalPaid = numberOr(r.totalPaid);
+  // payment_methods — JSON string or array → array
+  const pm = r.payment_methods ?? r.paymentMethods;
+  if (pm != null) {
+    out.paymentMethods = _parseJsonArray(pm);
+  }
+  // orders — JSON string or array → array
+  const orders = r.orders;
+  if (orders != null) {
+    out.orders = _parseJsonArray(orders);
+  }
+  // Billing data columns → nested billingData object
+  const bd = {};
+  if (r.denominazione != null) bd.denominazione = r.denominazione;
+  if (r.codice_fiscale != null) bd.codiceFiscale = r.codice_fiscale;
+  if (r.piva != null) bd.piva = r.piva;
+  if (r.indirizzo != null) bd.indirizzo = r.indirizzo;
+  if (r.cap != null) bd.cap = r.cap;
+  if (r.comune != null) bd.comune = r.comune;
+  if (r.provincia != null) bd.provincia = r.provincia;
+  if (r.paese != null) bd.paese = r.paese;
+  if (r.codice_destinatario != null) bd.codiceDestinatario = r.codice_destinatario;
+  if (r.pec != null) bd.pec = r.pec;
+  if (Object.keys(bd).length > 0) out.billingData = bd;
+  // status, timestamp — same keys
+  if (r.status != null) out.status = r.status;
+  if (r.timestamp != null) out.timestamp = r.timestamp;
+  // Preserve Directus standard fields for IDB last-write-wins comparison
+  if (r.date_created != null) out.date_created = r.date_created;
+  if (r.date_updated != null) out.date_updated = r.date_updated;
+  return out;
+}
+
 // Declared after the individual mappers so all references are resolved.
 const _TO_DIRECTUS_MAPPERS = {
   orders: mapOrderToDirectus,
