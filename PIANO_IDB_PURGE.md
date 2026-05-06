@@ -5,31 +5,40 @@
 > contenute quando la sincronizzazione Directus è attiva.
 >
 > Analisi di contesto: vedi `DATABASE_SCHEMA.md §5.8` e la conversazione di riferimento.
+>
+> **Ultimo aggiornamento**: Aggiornato dopo analisi completa di tutti i commit/merge recenti
+> (IDB v11, store split, nuovi ObjectStore, rimozione leaderElection).
 
 ---
 
 ## Obiettivo
 
-Dopo la **chiusura Z** e, in modo continuativo, tramite un purge periodico, rimuovere
-dall'IndexedDB i dati operativi già sincronizzati su Directus (stato `_sync_status='synced'`)
-e non più necessari per il funzionamento operativo locale.
+In modo continuativo, tramite un purge periodico, rimuovere dall'IndexedDB i dati
+operativi già sincronizzati su Directus e non più necessari per il funzionamento
+operativo locale.
 
-**Vincolo fondamentale**: non eliminare mai dati con `_sync_status='pending'` o `'error'`
-(non ancora su Directus) e non eliminare mai prima che la sync_queue sia svuotata per
-i record interessati.
+**Vincolo fondamentale**: non eliminare mai dati che potrebbero non essere ancora su
+Directus (entry ancora presenti nella `sync_queue`).
 
 ---
 
-## Stato attuale
+## Stato attuale del codebase
 
 | Cosa esiste | Dove |
 |---|---|
 | Spec `useIDBPurge` documentata | `DATABASE_SCHEMA.md §5.8` |
-| `_sync_status` **NON** è scritto su IDB dai path di creazione/aggiornamento locali | `store/index.js`, `store/reportOps.js` |
+| `_sync_status` **NON** è scritto su IDB dai path locali | `store/index.js`, `store/reportOps.js` |
 | `upsertRecordsIntoIDB` **strippa** `_sync_status` al momento dell'upsert da pull Directus | `store/idbPersistence.js:1001` |
-| Dopo chiusura Z: `transactions` e `cash_movements` vengono svuotati | `store/reportOps.js:176` |
-| `bill_sessions` (closed), `orders` (completed/rejected), `order_items`, `order_item_modifiers`, `transaction_order_refs`, `transaction_voce_refs` **non** vengono puliti | — |
+| Dopo chiusura Z: `transactions` e `cash_movements` vengono già svuotati da IDB | `store/reportOps.js:176` (`saveStateToIDB`) |
+| `bill_sessions` (closed), `orders` (completed/rejected), `order_items`, `order_item_modifiers` **non** vengono puliti | — |
+| `sync_failed_calls` cresce indefinitamente (nessun purge) | `composables/useSyncQueue.js` |
 | `useIDBPurge.js` composable: **non esiste** | — |
+| IDB versione corrente: **v11** (v10→v11: `venue_users` migrata a indice `apps`) | `composables/useIDB.js` |
+| Store Pinia: split in `useOrderStore` + `useConfigStore` + facade `useAppStore` | `store/index.js` |
+| Persistence: `store/idbPersistence.js` + re-export facade in `store/persistence/` | `store/persistence/operations.js` |
+| `fiscal_receipts` e `invoice_requests`: già hanno pruning count-based (max 200 record) | `store/index.js:355-358` |
+| `transaction_order_refs`, `transaction_voce_refs`: ObjectStore presenti in schema IDB ma **nessun codice li scrive in produzione** ancora | `composables/useIDB.js:178-188` |
+| **Nessun `leaderElection.js`**: il sync gira direttamente in `useDirectusSync.js` senza elezione leader tra tab | `composables/useDirectusSync.js` |
 
 ---
 
@@ -41,124 +50,256 @@ Tuttavia, analizzando il codice:
 1. I record creati localmente **non** ricevono `_sync_status='pending'` all'inserimento in IDB
    (vengono accodati in `sync_queue` separatamente).
 2. `upsertRecordsIntoIDB` (usato dal pull Directus) **strippa** `_sync_status` prima di
-   salvare — quindi i record pulled da Directus **non** hanno `_sync_status` in IDB.
+   salvare — i record pulled da Directus **non** hanno `_sync_status` in IDB.
 3. Il mark `'synced'` al momento del successo push non è implementato.
 
-**Soluzione**: usare la presenza del record nella `sync_queue` come proxy invece di
-`_sync_status`. Un record è "safe to purge" se:
-- **NON** ha una entry in `sync_queue` con lo stesso `(collection, id)` ancora pendente, **e**
-- `date_updated` è antecedente alla soglia di retention.
+**Soluzione adottata (approccio collection-level)**: invece di tracciare `_sync_status`
+per ogni singolo record, il purge verifica che la `sync_queue` per quella collection sia
+completamente vuota prima di purgare qualsiasi record di quella collection.
 
-Alternativa più semplice (primo step): il purge opera solo per records con `date_updated`
-antecedente alla soglia, **dopo** aver verificato che la `sync_queue` per quella collection
-è vuota (approccio collection-level anziché record-level).
+> **Questo è l'approccio consigliato per l'implementazione**: sicuro, senza modificare
+> il contratto di persistenza esistente, e sufficiente per la retention window in uso.
+
+Un approccio alternativo a granularità record (mark `_sync_status='pending'/'synced'`)
+è descritto nella Fase 1-optional più avanti per riferimento.
+
+---
+
+## Dettagli tecnici critici per l'implementazione
+
+### `print_jobs` — keyPath `logId` (non `id`)
+
+L'ObjectStore `print_jobs` usa `keyPath: 'logId'` (non `id` come tutti gli altri store).
+`upsertRecordsIntoIDB` hardcoda `keyPath = 'id'` e ha una nota esplicita che esclude
+`print_jobs` dalla upsert sincrona Directus (store LOCAL-ONLY).
+
+**Impatto su purge**: la funzione `purgeCollection` quando elimina un record di
+`print_jobs` deve usare `record.logId` come chiave per `db.delete('print_jobs', key)`,
+non `record.id`. Il parametro `pkField` dell'implementazione deve essere `'logId'`
+per questo store.
+
+### `sync_failed_calls` — store non purgato
+
+Lo store `sync_failed_calls` (aggiunto in IDB v7) cresce indefinitamente:
+ogni errore di push scrive una riga tramite `addFailedSyncCall()` in
+`composables/useSyncQueue.js`. Lo store ha l'indice `failed_at`.
+
+Questo store NON è in `sync_queue` (è un audit log locale), quindi non ha una guard
+collection-level — il purge può essere date-based puro (es. 30 giorni).
+
+### Multi-tab senza leaderElection
+
+Non esiste un meccanismo di elezione leader: tutte le tab aperte avviano
+`useDirectusSync.js` in autonomia. Di conseguenza, se si usa un `setInterval` per il
+purge periodico, più tab lo eseguirebbero contemporaneamente.
+
+**Mitigazione consigliata**:
+- Eseguire il purge **solo in `onMounted`** (non in `setInterval`), oppure
+- Coordinare tramite `app_meta` in IDB: salvare `last_purge_ts` e saltare il ciclo
+  se il purge è stato eseguito in un'altra tab nell'ultima ora.
+
+### `fiscal_receipts` e `invoice_requests` — già gestiti
+
+Questi due store hanno già un meccanismo di pruning count-based: ogni volta che si
+aggiunge un record, viene chiamato `pruneFiscalReceiptsInIDB(200)` /
+`pruneInvoiceRequestsInIDB(200)` che mantiene al massimo 200 record. Non è necessario
+un purge date-based aggiuntivo per questi store.
+
+### Guard Directus enabled
+
+Prima di eseguire il purge, verificare che Directus sia configurato e attivo:
+
+```js
+import { appConfig } from '../utils/index.js';
+
+function _isDirectusSyncActive() {
+  const d = appConfig.directus;
+  return Boolean(d?.enabled && d?.url && d?.staticToken);
+}
+```
+
+Questo è il pattern già usato da `_getCfg()` in `useDirectusSync.js` (riga 622).
 
 ---
 
 ## Piano di Lavoro
 
-### Fase 1 — Prerequisiti: mark `_sync_status` in IDB
-
-**Obiettivo**: Dare a ogni record in IDB un'informazione affidabile su se è già su Directus.
-
-#### Task 1.1 — Marcare `_sync_status='pending'` alla creazione locale
-
-Al momento della creazione/aggiornamento di un record locale in IDB (fuori dal path di pull
-Directus), scrivere `_sync_status: 'pending'`.
-
-File coinvolti:
-- `src/store/idbPersistence.js` — `upsertBillSessionInIDB`, `saveStateToIDB`
-- `src/store/index.js` — path che chiama `saveStateToIDB` e `upsertRecordsIntoIDB`
-  per records locali (transactions, orders, cash_movements, ecc.)
-
-> **Nota**: `upsertRecordsIntoIDB` è usato sia per il pull Directus (dove va strippato)
-> sia per alcuni path locali. Occorre distinguere i due casi — es. aggiungere un flag
-> `{ origin: 'local' | 'directus' }` in opzione, oppure creare una funzione separata
-> `upsertLocalRecordIntoIDB` che setta `_sync_status: 'pending'`.
-
-#### Task 1.2 — Marcare `_sync_status='synced'` dopo push confermato
-
-In `useSyncQueue.js`, al termine del drain di un item con successo (HTTP 200/201),
-aggiornare il record in IDB con `_sync_status: 'synced'`.
-
-File coinvolti:
-- `src/composables/useSyncQueue.js` — callback di successo del drain
-
-#### Task 1.3 — Non alterare il pull path
-
-`upsertRecordsIntoIDB` già strippa `_sync_status` per i record Directus (riga 1001).
-I record pulled da Directus sono implicitamente `'synced'` — basta non scrivere il campo
-e il purge può considerarli sicuri se non hanno entry in `sync_queue`.
-
----
-
-### Fase 2 — Implementare `useIDBPurge.js`
+### Fase 2 — Implementare `useIDBPurge.js` ← **INIZIARE DA QUI**
 
 **File da creare**: `src/composables/useIDBPurge.js`
 
-Seguire la spec in `DATABASE_SCHEMA.md §5.8.3` con le seguenti precisazioni:
+Seguire la spec in `DATABASE_SCHEMA.md §5.8.3` con le precisazioni di cui sopra.
 
 #### 2.1 — Logica di base `purgeCollection`
 
 ```js
+/**
+ * @param {string} storeName
+ * @param {number} retentionDays
+ * @param {{
+ *   statusFilter?: string[],
+ *   dateField?: string,
+ *   pkField?: string,
+ *   requireMissingParent?: { storeName: string, foreignKey: string } | null,
+ * }} options
+ */
 async function purgeCollection(storeName, retentionDays, options = {}) {
-  // options: { statusFilter, dateField='date_updated', requireMissingParent=null }
+  const {
+    statusFilter = null,
+    dateField = 'date_updated',
+    pkField = 'id',           // IMPORTANTE: 'logId' per print_jobs
+    requireMissingParent = null,
+  } = options;
+
   const cutoff = Date.now() - retentionDays * 86_400_000;
+
+  // Guard collection-level: se sync_queue ha entry pendenti per questa collection,
+  // salta il purge in questo ciclo (i dati potrebbero non essere ancora su Directus).
+  if (await _hasPendingSyncEntries(storeName)) return;
+
   const db = await getDB();
-  // Full scan: IDB range query su dateField se l'indice esiste, altrimenti getAll()
-  // Condizioni di purge:
-  //   1. record[dateField] < cutoff
-  //   2. statusFilter == null || statusFilter.includes(record.status)
-  //   3. requireMissingParent == null || parent non esiste in IDB
-  //   4. _sync_status !== 'pending' && _sync_status !== 'error'
-  //      (oppure: nessuna entry pendente in sync_queue per questo record)
+  const records = await db.getAll(storeName);
+  const toDelete = [];
+
+  for (const record of records) {
+    if (!record) continue;
+
+    // Condizione 1: data antecedente alla soglia
+    const dateValue = record[dateField];
+    if (!dateValue) continue;
+    if (new Date(dateValue).getTime() >= cutoff) continue;
+
+    // Condizione 2: filtro status (se specificato)
+    if (statusFilter != null && !statusFilter.includes(record.status)) continue;
+
+    // Condizione 3: parent già purgato (se richiesto)
+    if (requireMissingParent != null) {
+      const parentId = record[requireMissingParent.foreignKey];
+      if (!parentId) continue;
+      const parentExists = await db.get(requireMissingParent.storeName, parentId);
+      if (parentExists) continue; // parent ancora presente → non purgare il figlio
+    }
+
+    toDelete.push(record[pkField]);
+  }
+
+  if (toDelete.length === 0) return;
+
+  const tx = db.transaction(storeName, 'readwrite');
+  for (const key of toDelete) {
+    if (key != null) await tx.store.delete(key);
+  }
+  await tx.done;
 }
 ```
 
-#### 2.2 — Guard sync_queue
-
-Prima di purgare una collection, verificare che non ci siano entry pendenti in
-`sync_queue` per quella collection (approccio collection-level come primo step):
+#### 2.2 — Guard sync_queue (collection-level)
 
 ```js
 async function _hasPendingSyncEntries(collectionName) {
-  const db = await getDB();
-  const idx = db.transaction('sync_queue').store.index('collection');
-  const count = await idx.count(IDBKeyRange.only(collectionName));
-  return count > 0;
+  try {
+    const db = await getDB();
+    const tx = db.transaction('sync_queue', 'readonly');
+    const idx = tx.store.index('collection');
+    const count = await idx.count(IDBKeyRange.only(collectionName));
+    await tx.done;
+    return count > 0;
+  } catch {
+    return true; // se non si riesce a leggere, essere conservativi
+  }
 }
 ```
-
-Se ci sono entry pendenti, saltare il purge per quella collection in questo ciclo.
 
 #### 2.3 — Purge dead-letter sync_queue
 
 ```js
 async function purgeSyncQueueDeadLetter(retentionDays) {
-  // Rimuove entries con attempts >= 5 e date_created < cutoff
+  const cutoff = Date.now() - retentionDays * 86_400_000;
+  const db = await getDB();
+  const all = await db.getAll('sync_queue');
+  const toDelete = all
+    .filter(e => e && (e.attempts ?? 0) >= MAX_ATTEMPTS &&
+                 e.date_created && new Date(e.date_created).getTime() < cutoff)
+    .map(e => e.id)
+    .filter(Boolean);
+  if (toDelete.length === 0) return;
+  const tx = db.transaction('sync_queue', 'readwrite');
+  for (const id of toDelete) await tx.store.delete(id);
+  await tx.done;
 }
 ```
 
-#### 2.4 — Funzione principale `runIDBPurge`
+#### 2.4 — Purge `sync_failed_calls` (audit log)
 
-Implementare rispettando l'ordine di dipendenza in `DATABASE_SCHEMA.md §5.8.4`:
+```js
+async function purgeSyncFailedCalls(retentionDays) {
+  // Nessuna guard sync_queue: è un audit log locale, non va su Directus.
+  const cutoff = Date.now() - retentionDays * 86_400_000;
+  const db = await getDB();
+  const all = await db.getAllFromIndex('sync_failed_calls', 'failed_at');
+  const toDelete = all
+    .filter(e => e?.failed_at && new Date(e.failed_at).getTime() < cutoff)
+    .map(e => e.id)
+    .filter(Boolean);
+  if (toDelete.length === 0) return;
+  const tx = db.transaction('sync_failed_calls', 'readwrite');
+  for (const id of toDelete) await tx.store.delete(id);
+  await tx.done;
+}
+```
 
-1. `order_item_modifiers` orfani (parent `order_item` mancante)
-2. `order_items` orfani (parent `order` mancante)
-3. `orders` (status completed/rejected, 7 giorni)
-4. `bill_sessions` (status closed, 7 giorni)
-5. `transactions` (30 giorni)
-6. `cash_movements` (30 giorni)
-7. `daily_closures` (90 giorni)
-8. `print_jobs` (status done/error, 7 giorni, dateField=job_timestamp)
-9. `order_items` orfani post-purge
-10. `order_item_modifiers` orfani post-purge
-11. `transaction_order_refs` (30 giorni, dateField=date_created)
-12. `transaction_voce_refs` (30 giorni, dateField=date_created)
-13. `daily_closure_by_method` (90 giorni)
-14. `sync_queue` dead-letter (7 giorni, attempts>=5)
+#### 2.5 — Funzione principale `runIDBPurge`
 
-#### 2.5 — Export
+Implementare rispettando l'ordine di dipendenza in `DATABASE_SCHEMA.md §5.8.4`.
+**Nota**: `transaction_order_refs` e `transaction_voce_refs` sono presenti nello schema
+IDB ma nessun path di produzione scrive su di loro ancora — includere il purge per
+forward-compatibility ma nessun dato verrà effettivamente eliminato.
+
+```js
+import { MAX_ATTEMPTS } from './useSyncQueue.js';
+
+export async function runIDBPurge() {
+  // 1) Pre-cleanup child-first: orfani da purge precedenti
+  await purgeCollection('order_item_modifiers', 7, {
+    requireMissingParent: { storeName: 'order_items', foreignKey: 'order_item' },
+  });
+  await purgeCollection('order_items', 7, {
+    requireMissingParent: { storeName: 'orders', foreignKey: 'order' },
+  });
+
+  // 2) Purge padri/root
+  await purgeCollection('orders',          7,  { statusFilter: ['completed', 'rejected'] });
+  await purgeCollection('bill_sessions',   7,  { statusFilter: ['closed'] });
+  await purgeCollection('transactions',    30);
+  await purgeCollection('cash_movements',  30);
+  await purgeCollection('daily_closures',  90);
+  // ATTENZIONE: print_jobs usa keyPath 'logId', non 'id'
+  await purgeCollection('print_jobs',      7,  {
+    statusFilter: ['done', 'error'],
+    dateField: 'timestamp',    // campo 'timestamp' in IDB (alias job_timestamp nel DB SQL)
+    pkField: 'logId',          // keyPath dello store è 'logId', non 'id'
+  });
+
+  // 3) Post-cleanup orfani diventati tali in questo run
+  await purgeCollection('order_items', 7, {
+    requireMissingParent: { storeName: 'orders', foreignKey: 'order' },
+  });
+  await purgeCollection('order_item_modifiers', 7, {
+    requireMissingParent: { storeName: 'order_items', foreignKey: 'order_item' },
+  });
+
+  // 4) Junction e child tables
+  await purgeCollection('transaction_order_refs', 30, { dateField: 'date_created' });
+  await purgeCollection('transaction_voce_refs',  30, { dateField: 'date_created' });
+  await purgeCollection('daily_closure_by_method', 90);
+
+  // 5) Audit / meta stores (nessuna guard sync_queue)
+  await purgeSyncQueueDeadLetter(7);           // dead-letter sync_queue
+  await purgeSyncFailedCalls(30);              // audit log errori push
+}
+```
+
+#### 2.6 — Export del composable
 
 ```js
 export function useIDBPurge() {
@@ -170,53 +311,68 @@ export function useIDBPurge() {
 
 ### Fase 3 — Integrare il purge nell'avvio app
 
-**Trigger**: all'avvio app (`onMounted` di `CassaApp.vue`, `SalaApp.vue`, `CucinaApp.vue`)
-e ogni 24 ore via `setInterval`.
+**Trigger**: all'avvio app (`onMounted`) in `CassaApp.vue`, `SalaApp.vue`, `CucinaApp.vue`.
 
-**Condizione**: eseguire solo se Directus sync è attivo (la pulizia ha senso solo se i
-dati sono anche su Directus).
+**Condizione**: eseguire solo se Directus sync è attivo (`appConfig.directus?.enabled`).
+Non ha senso purgare dati se non c'è sincronizzazione remota attiva.
+
+**Multi-tab**: non usare `setInterval` standalone (tutte le tab lo eseguirebbero in
+parallelo senza leader election). Opzioni:
+- (A) **Semplice**: eseguire solo in `onMounted` (una volta per sessione per tab).
+- (B) **Coordinato**: salvare `last_purge_ts` in `app_meta` e controllare prima di avviare.
+
+Per la prima implementazione, l'opzione A è sufficiente.
 
 File coinvolti:
 - `src/CassaApp.vue` — importare e chiamare `runIDBPurge()` in `onMounted`
 - `src/SalaApp.vue` — idem
-- `src/CucinaApp.vue` — idem (purge ridotto: solo le collection che Cucina usa)
+- `src/CucinaApp.vue` — idem (Cucina non usa `bill_sessions`, `transactions`, ecc.
+  ma il purge è idempotente su store vuoti, quindi è sicuro lanciarlo ugualmente)
 
-Schema di integrazione in `CassaApp.vue`:
+Schema di integrazione in `CassaApp.vue` (aggiungere **dopo** `restartSyncFromCurrentConfig`):
 
 ```js
 import { useIDBPurge } from './composables/useIDBPurge.js';
+import { appConfig } from './utils/index.js';
+
 const { runIDBPurge } = useIDBPurge();
 
 onMounted(async () => {
-  // ... esistente ...
-  // Avvia purge in background: non blocca il rendering.
-  // Esegue solo se sync è configurato (i dati sono su Directus).
-  runIDBPurge().catch(e => console.warn('[CassaApp] IDB purge failed:', e));
+  window.addEventListener('storage', onStorageChange);
+  window.addEventListener('directus-config-updated', restartSyncFromCurrentConfig);
+  await restartSyncFromCurrentConfig();
+
+  // Purge IDB in background: non blocca il rendering.
+  // Esegue solo se sync Directus è configurato (i dati sono già su Directus).
+  if (appConfig.directus?.enabled && appConfig.directus?.url && appConfig.directus?.staticToken) {
+    runIDBPurge().catch(e => console.warn('[CassaApp] IDB purge failed:', e));
+  }
 });
 ```
 
 ---
 
-### Fase 4 — Esposizione delle soglie di retention come configurazione
+### Fase 4 — Esposizione delle soglie di retention come configurazione (opzionale)
 
-Le soglie sono attualmente hardcoded nella spec. Renderle configurabili tramite
-`local_settings` in IDB o tramite le impostazioni Directus sync già in
-`useSettings.js` / `DirectusSyncSettings.vue`.
+Le soglie possono essere rese configurabili tramite `useSettings.js` / `local_settings` in IDB.
 
 ```js
 const IDB_PURGE_RETENTION_DAYS = {
-  orders:                  config?.idbPurge?.orders         ?? 7,
-  bill_sessions:           config?.idbPurge?.billSessions   ?? 7,
-  transactions:            config?.idbPurge?.transactions   ?? 30,
-  cash_movements:          config?.idbPurge?.cashMovements  ?? 30,
-  daily_closures:          config?.idbPurge?.dailyClosures  ?? 90,
-  print_jobs:              config?.idbPurge?.printJobs      ?? 7,
+  orders:                  settings?.idbPurge?.orders         ?? 7,
+  bill_sessions:           settings?.idbPurge?.billSessions   ?? 7,
+  transactions:            settings?.idbPurge?.transactions   ?? 30,
+  cash_movements:          settings?.idbPurge?.cashMovements  ?? 30,
+  daily_closures:          settings?.idbPurge?.dailyClosures  ?? 90,
+  print_jobs:              settings?.idbPurge?.printJobs      ?? 7,
+  sync_failed_calls:       settings?.idbPurge?.syncFailedCalls ?? 30,
   // junction tables seguono il padre
-  transaction_order_refs:  config?.idbPurge?.transactions   ?? 30,
-  transaction_voce_refs:   config?.idbPurge?.transactions   ?? 30,
-  daily_closure_by_method: config?.idbPurge?.dailyClosures  ?? 90,
+  transaction_order_refs:  settings?.idbPurge?.transactions   ?? 30,
+  transaction_voce_refs:   settings?.idbPurge?.transactions   ?? 30,
+  daily_closure_by_method: settings?.idbPurge?.dailyClosures  ?? 90,
 };
 ```
+
+Questa fase può essere implementata in parallelo o dopo le Fasi 2+3.
 
 ---
 
@@ -224,55 +380,66 @@ const IDB_PURGE_RETENTION_DAYS = {
 
 Creare `src/composables/__tests__/useIDBPurge.test.js` con:
 
-- Purge collection vuota → nessun errore
-- Record con `date_updated` recente → NON purgato
-- Record con `date_updated` oltre soglia, `_sync_status='synced'` → purgato
-- Record con `_sync_status='pending'` → NON purgato (anche se scaduto)
-- Record con `_sync_status='pending'` in `sync_queue` → NON purgato
+- `purgeCollection` su store vuota → nessun errore, nessuna eliminazione
+- Record con `date_updated` recente → NON purgato (anche con sync_queue vuota)
+- Record con `date_updated` oltre soglia, sync_queue vuota → purgato
+- Record con `date_updated` oltre soglia, sync_queue con entry pendenti per quella
+  collection → NON purgato
+- Record `print_jobs` con `logId` corretto: usa `logId` come chiave di delete
 - Purge orfani: `order_items` purgati se `order` padre mancante e scaduti
-- Purge dead-letter `sync_queue`: entry con `attempts>=5` e data vecchia → rimossa
-- Ordine di dipendenza: `transaction_order_refs` purgate dopo `transactions`
+- Purge orfani: `order_items` NON purgati se `order` padre ancora presente
+- `purgeSyncQueueDeadLetter`: entry con `attempts >= MAX_ATTEMPTS` e data vecchia → rimossa
+- `purgeSyncQueueDeadLetter`: entry recente (anche con attempts >= 5) → NON rimossa
+- `purgeSyncFailedCalls`: entry con `failed_at` vecchio → rimossa
+- `purgeSyncFailedCalls`: entry recente → NON rimossa
+- Ordine di dipendenza: `order_item_modifiers` purgati prima di `order_items`
+
+---
+
+### Fase 1-optional — Mark `_sync_status` in IDB (granularità record)
+
+> **Questa fase è opzionale**: la guard collection-level (Fase 2) è sufficiente per la
+> retention window in uso. Implementare solo se si ha necessità di purge granulare
+> record-by-record mentre la sync_queue non è completamente svuotata.
+
+**Obiettivo**: dare a ogni record in IDB un campo `_sync_status` affidabile.
+
+#### Task 1.1 — Marcare `_sync_status='pending'` alla creazione locale
+
+Al momento della creazione/aggiornamento di un record locale in IDB (fuori dal path di
+pull Directus), scrivere `_sync_status: 'pending'`.
+
+File coinvolti:
+- `src/store/idbPersistence.js` — `upsertBillSessionInIDB`, `saveStateToIDB`
+- `src/store/index.js` — path che chiama `saveStateToIDB`
+
+> **Nota**: `upsertRecordsIntoIDB` è usato sia per il pull Directus (dove `_sync_status`
+> va strippato) sia per alcuni path locali. Occorre distinguere i due casi — es. aggiungere
+> un flag `{ origin: 'local' | 'directus' }` in opzione, oppure creare una funzione
+> separata `upsertLocalRecordIntoIDB` che setta `_sync_status: 'pending'`.
+
+#### Task 1.2 — Marcare `_sync_status='synced'` dopo push confermato
+
+In `useSyncQueue.js` (funzione `drainQueue`), al termine del push con successo di un
+entry, aggiornare il record in IDB con `_sync_status: 'synced'`.
+
+#### Task 1.3 — Non alterare il pull path
+
+`upsertRecordsIntoIDB` già strippa `_sync_status` per i record Directus (riga 1001).
+Questo comportamento è corretto e non va modificato.
 
 ---
 
 ## Dipendenze tra le Fasi
 
 ```
-Fase 1 (mark _sync_status) ──> Fase 2 (useIDBPurge) ──> Fase 3 (integrazione app)
-                                                     └──> Fase 5 (test)
-Fase 4 (configurazione) — indipendente, può essere fatta in parallelo alla Fase 3
+Fase 2 (useIDBPurge) ──> Fase 3 (integrazione app) ──> Fase 5 (test)
+Fase 4 (configurazione) — indipendente, parallela
+
+Fase 1-optional (mark _sync_status) — opzionale, può seguire dopo Fase 3
 ```
 
-La **Fase 1** è la più delicata perché cambia il contratto di `saveStateToIDB` e
-`upsertRecordsIntoIDB`. Richiede un'analisi dettagliata di tutti i chiamanti per
-non marcare erroneamente come `pending` record che arrivano da Directus.
-
-Se si vuole partire con un approccio più conservativo (no Fase 1), si può fare
-**Fase 2 + Fase 3** usando solo la guard della `sync_queue` a livello collection
-come condizione sufficiente per il purge (più semplice ma meno granulare).
-
----
-
-## Approccio Alternativo Semplificato (Short-path)
-
-Invece di marcare `_sync_status` per ogni record, il purge può operare con questa
-logica semplificata:
-
-> **Purga un record se e solo se**:
-> 1. `date_updated` (o `date_created` per junction) < cutoff, **e**
-> 2. Nessuna entry nella `sync_queue` ha `collection === storeName` (zero entry pendenti
->    per quella collection), **e**
-> 3. Le condizioni di status/parent sono soddisfatte.
-
-Questo è sicuro perché:
-- Se la sync_queue per quella collection è vuota, tutti i record di quella collection
-  sono già stati pushati con successo a Directus.
-- La retention window (7/30/90 giorni) garantisce che Directus abbia avuto il tempo
-  di ricevere il dato anche con sync offline intermittente.
-
-**Pro**: non richiede la Fase 1 (no modifica del contratto di persistenza).
-**Contro**: conservativo — se la sync_queue ha anche solo un record pendente per
-`transactions`, NESSUNA transaction viene purgata in quel ciclo.
+**Ordine di avvio raccomandato**: Fase 2 → Fase 5 → Fase 3 → Fase 4.
 
 ---
 
@@ -280,7 +447,9 @@ Questo è sicuro perché:
 
 - `DATABASE_SCHEMA.md §5.8` — Spec completa strategia purge
 - `src/store/idbPersistence.js` — `upsertRecordsIntoIDB`, `saveStateToIDB`, `clearAllStateFromIDB`
-- `src/composables/useIDB.js` — schema IDB, versione corrente: v11
-- `src/store/reportOps.js` — `performDailyClose` (punto di pulizia post-chiusura Z)
-- `src/composables/useSyncQueue.js` — drain della sync_queue, callback di successo
+- `src/store/persistence/operations.js` — re-export facade (usa internamente `idbPersistence.js`)
+- `src/composables/useIDB.js` — schema IDB, versione corrente: **v11**
+- `src/store/reportOps.js:176` — `performDailyClose` chiama già `saveStateToIDB({ transactions: [], cashMovements: [] })`
+- `src/composables/useSyncQueue.js` — `drainQueue`, `addFailedSyncCall`, costante `MAX_ATTEMPTS`
 - `src/CassaApp.vue`, `src/SalaApp.vue`, `src/CucinaApp.vue` — entry point per trigger purge
+- `src/store/index.js` — `useOrderStore`, `useConfigStore`, `useAppStore` (facade)
