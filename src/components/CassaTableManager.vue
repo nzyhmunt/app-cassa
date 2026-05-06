@@ -2456,9 +2456,17 @@ const directCartTotal = computed(() =>
   directCart.value.reduce((a, b) => a + b.unitPrice * b.quantity, 0),
 );
 
-/** Returns the total quantity of a dish in the direct cart (for qty badges on menu items). */
+/** O(1) qty lookup per dishId — used for qty badges on menu items. */
+const directCartQtyMap = computed(() => {
+  const map = {};
+  for (const c of directCart.value) {
+    if (c.dishId !== null) map[c.dishId] = (map[c.dishId] ?? 0) + c.quantity;
+  }
+  return map;
+});
+
 function directCartQtyOf(dishId) {
-  return directCart.value.reduce((sum, c) => (c.dishId === dishId ? sum + c.quantity : sum), 0);
+  return directCartQtyMap.value[dishId] ?? 0;
 }
 
 async function confirmDirectItems() {
