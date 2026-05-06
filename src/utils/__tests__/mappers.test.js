@@ -555,6 +555,13 @@ describe('mapFiscalReceiptFromDirectus()', () => {
     expect(mapFiscalReceiptFromDirectus(undefined)).toBe(undefined);
     expect(mapFiscalReceiptFromDirectus('string')).toBe('string');
   });
+
+  it('coerces non-numeric total_amount/total_paid to 0 (numberOr fallback)', () => {
+    const raw = { id: 'fr-uuid-8', total_amount: 'abc', total_paid: 'xyz' };
+    const result = mapFiscalReceiptFromDirectus(raw);
+    expect(result.totalAmount).toBe(0);
+    expect(result.totalPaid).toBe(0);
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -664,6 +671,13 @@ describe('mapInvoiceRequestFromDirectus()', () => {
     const raw = { id: 'ir-uuid-6', payment_methods: '{"key":"value"}' };
     const result = mapInvoiceRequestFromDirectus(raw);
     expect(result.paymentMethods).toEqual([]);
+  });
+
+  it('coerces non-numeric total_amount/total_paid to 0 (numberOr fallback)', () => {
+    const raw = { id: 'ir-uuid-7', total_amount: 'bad', total_paid: undefined };
+    const result = mapInvoiceRequestFromDirectus(raw);
+    expect(result.totalAmount).toBe(0);
+    expect(result.totalPaid).toBeUndefined();
   });
 
   it('returns the input unchanged for non-object values', () => {

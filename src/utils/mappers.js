@@ -1353,11 +1353,11 @@ export function mapFiscalReceiptFromDirectus(r) {
   if (r.closed_at != null) out.closedAt = r.closed_at;
   else if (r.closedAt != null) out.closedAt = r.closedAt;
   // total_amount → totalAmount
-  if (r.total_amount != null) out.totalAmount = Number(r.total_amount);
-  else if (r.totalAmount != null) out.totalAmount = Number(r.totalAmount);
+  if (r.total_amount != null) out.totalAmount = numberOr(r.total_amount);
+  else if (r.totalAmount != null) out.totalAmount = numberOr(r.totalAmount);
   // total_paid → totalPaid
-  if (r.total_paid != null) out.totalPaid = Number(r.total_paid);
-  else if (r.totalPaid != null) out.totalPaid = Number(r.totalPaid);
+  if (r.total_paid != null) out.totalPaid = numberOr(r.total_paid);
+  else if (r.totalPaid != null) out.totalPaid = numberOr(r.totalPaid);
   // payment_methods — JSON string or array → array
   const pm = r.payment_methods ?? r.paymentMethods;
   if (pm != null) {
@@ -1413,11 +1413,11 @@ export function mapInvoiceRequestFromDirectus(r) {
   if (r.closed_at != null) out.closedAt = r.closed_at;
   else if (r.closedAt != null) out.closedAt = r.closedAt;
   // total_amount → totalAmount
-  if (r.total_amount != null) out.totalAmount = Number(r.total_amount);
-  else if (r.totalAmount != null) out.totalAmount = Number(r.totalAmount);
+  if (r.total_amount != null) out.totalAmount = numberOr(r.total_amount);
+  else if (r.totalAmount != null) out.totalAmount = numberOr(r.totalAmount);
   // total_paid → totalPaid
-  if (r.total_paid != null) out.totalPaid = Number(r.total_paid);
-  else if (r.totalPaid != null) out.totalPaid = Number(r.totalPaid);
+  if (r.total_paid != null) out.totalPaid = numberOr(r.total_paid);
+  else if (r.totalPaid != null) out.totalPaid = numberOr(r.totalPaid);
   // payment_methods — JSON string or array → array
   const pm = r.payment_methods ?? r.paymentMethods;
   if (pm != null) {
