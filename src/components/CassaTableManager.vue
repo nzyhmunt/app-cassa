@@ -929,8 +929,11 @@
         cart-title="Carrello Voci Dirette"
         empty-cart-message="Tocca i piatti nel menu per aggiungerli qui."
         confirm-label="Aggiungi al Conto"
+        :show-cart-item-edit="true"
         @add-quick="addMenuItemToDirectCart"
         @update-qty="updateDirectCartQty"
+        @edit-cart-item="openDirectVariantModal"
+        @remove-mod="removeModFromDirectCart"
         @confirm="confirmDirectItems"
       />
 
@@ -1042,7 +1045,7 @@
                     <span class="w-5 text-center font-black text-sm text-gray-800 tabular-nums">{{ item.quantity }}</span>
                     <button @click="updateDirectCartQty(idx, 1)" class="size-6 flex items-center justify-center bg-white theme-text rounded shadow-sm active:scale-95"><Plus class="size-3" /></button>
                   </div>
-                  <span class="font-black text-sm theme-text shrink-0 tabular-nums min-w-[3.5rem] text-right">{{ configStore.config.ui.currency }}{{ (item.unitPrice * item.quantity).toFixed(2) }}</span>
+                  <span class="font-black text-sm theme-text shrink-0 tabular-nums min-w-[3.5rem] text-right">{{ configStore.config.ui.currency }}{{ ((item.unitPrice + (item.modifiers || []).reduce((s, m) => s + (Number(m.price) || 0), 0)) * item.quantity).toFixed(2) }}</span>
                 </div>
               </div>
             </div>
@@ -1061,6 +1064,60 @@
             </button>
           </div>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================================================================ -->
+  <!-- MODAL: VARIANTI A PAGAMENTO (VOCI DIRETTE)                      -->
+  <!-- ================================================================ -->
+  <div v-if="directVariantModal.show" class="fixed inset-0 z-[80] bg-black/60 backdrop-blur-sm flex items-end md:items-center justify-center p-0 md:p-4">
+    <div class="bg-white rounded-t-3xl md:rounded-3xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col max-h-[80dvh]">
+      <div class="bg-gray-50 border-b border-gray-100 p-4 flex justify-between items-center shrink-0">
+        <h3 class="font-bold text-base flex items-center gap-2"><Sparkles class="text-purple-500 size-4" /> Varianti a Pagamento</h3>
+        <button @click="directVariantModal.show = false" aria-label="Chiudi" class="text-gray-400 hover:text-gray-800 p-1.5 bg-gray-200 hover:bg-gray-300 rounded-full active:scale-95 transition-colors"><X class="size-5" /></button>
+      </div>
+
+      <div class="overflow-y-auto flex-1 p-4 space-y-4">
+        <p class="text-xs text-gray-500 truncate">Per: <strong>{{ directVariantModal.itemName }}</strong></p>
+
+        <!-- Varianti aggiunte -->
+        <div v-if="directVariantModal.modifiersArray.length > 0" class="space-y-1.5 max-h-[140px] overflow-y-auto border border-purple-100 p-2 rounded-xl bg-purple-50">
+          <div v-for="(mod, idx) in directVariantModal.modifiersArray" :key="idx"
+            class="flex justify-between items-center bg-white border border-purple-200 text-purple-800 px-3 py-2 rounded-lg text-xs font-bold shadow-sm">
+            <span>{{ mod.name }}{{ mod.price > 0 ? ' +' + configStore.config.ui.currency + mod.price.toFixed(2) : '' }}</span>
+            <button @click="removeModFromDirectVariantModal(idx)" class="text-red-500 p-1 hover:bg-red-50 rounded-md transition-colors"><Trash2 class="size-4" /></button>
+          </div>
+        </div>
+
+        <!-- Input variante personalizzata -->
+        <div v-if="configStore.config.ui.allowCustomVariants" class="flex gap-2">
+          <input v-model="directVariantModal.modName" type="text" placeholder="Es. Mozzarella, Senza glutine..."
+            class="flex-1 bg-gray-100 border border-gray-200 rounded-xl px-3 py-3 focus:bg-white theme-ring transition-all text-gray-800 font-medium text-sm"
+            @keyup.enter="addModToDirectVariantModal">
+          <div class="relative w-24 shrink-0">
+            <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm font-bold">{{ configStore.config.ui.currency }}</span>
+            <NumericInput v-model="directVariantModal.modPrice" :min="0" :step="0.50" placeholder="0.00"
+              :prefix="configStore.config.ui.currency"
+              class="w-full pl-7 pr-2 py-3 bg-gray-100 border border-gray-200 rounded-xl focus:bg-white theme-ring transition-all text-gray-800 font-medium text-sm" />
+          </div>
+          <button @click="addModToDirectVariantModal" class="bg-purple-600 hover:bg-purple-700 text-white px-4 rounded-xl font-bold shadow-sm active:scale-95 flex items-center justify-center"><Plus class="size-5" /></button>
+        </div>
+
+        <!-- Presets -->
+        <div class="flex flex-wrap gap-1.5">
+          <button
+            v-for="preset in directModPresets"
+            :key="preset.name"
+            @click="applyDirectModPreset(preset.name, preset.price)"
+            class="px-2.5 py-1.5 bg-purple-50 border border-purple-200 text-purple-700 rounded-lg text-[10px] md:text-xs font-bold hover:bg-purple-100 active:scale-95 transition-all">
+            {{ preset.label }}
+          </button>
+        </div>
+      </div>
+
+      <div class="p-3 md:p-4 bg-gray-50 pb-8 md:pb-4 border-t border-gray-200 shrink-0">
+        <button @click="saveDirectVariants" class="w-full theme-bg text-white py-3 rounded-xl font-bold shadow-md hover:opacity-90 transition-opacity active:scale-95 text-sm">Salva Varianti</button>
       </div>
     </div>
   </div>
@@ -1315,7 +1372,7 @@ import {
   Layers, ListChecks, History, LayoutGrid, ListOrdered,
   Tag, Wallet, ChevronDown,
   Percent, Zap, BookOpen, PlusCircle, Banknote, CreditCard, Lock, SquareCheck, Split, Link, Printer,
-  FileText,
+  FileText, Sparkles, PenLine,
 } from 'lucide-vue-next';
 import { useConfigStore, useOrderStore } from '../store/index.js';
 import { newUUIDv7, newShortId } from '../store/storeUtils.js';
@@ -2364,7 +2421,10 @@ function removeSavedCustomItem(idx) {
 }
 
 const directCartTotal = computed(() =>
-  directCart.value.reduce((a, b) => a + b.unitPrice * b.quantity, 0),
+  directCart.value.reduce((a, b) => {
+    const modTotal = (b.modifiers || []).reduce((s, m) => s + (Number(m.price) || 0), 0);
+    return a + (b.unitPrice + modTotal) * b.quantity;
+  }, 0),
 );
 
 /** O(1) qty lookup per dishId — passed as :qty-map to MenuCartPanel. */
@@ -2375,6 +2435,71 @@ const directCartQtyMap = computed(() => {
   }
   return map;
 });
+
+// ── Variant-only modal for direct items (no notes, no course) ─────────────
+const directVariantModal = ref({
+  show: false,
+  cartIdx: null,
+  itemName: '',
+  modifiersArray: [],
+  modName: '',
+  modPrice: 0,
+});
+
+const directModPresets = computed(() => {
+  const c = configStore.config.ui.currency;
+  return [
+    { name: 'Mozzarella',     price: 1.50, label: `+ Mozzarella ${c}1.50` },
+    { name: 'Parmigiano',     price: 1.00, label: `+ Parmigiano ${c}1.00` },
+    { name: 'Senza glutine',  price: 0,    label: `Senza glutine ${c}0` },
+    { name: 'Porzione extra', price: 2.00, label: `+ Porzione extra ${c}2.00` },
+  ];
+});
+
+function openDirectVariantModal(idx) {
+  const item = directCart.value[idx];
+  if (!item) return;
+  directVariantModal.value = {
+    show: true,
+    cartIdx: idx,
+    itemName: item.name,
+    modifiersArray: (item.modifiers || []).map(m => ({ ...m })),
+    modName: '',
+    modPrice: 0,
+  };
+}
+
+function removeModFromDirectVariantModal(modIdx) {
+  directVariantModal.value.modifiersArray.splice(modIdx, 1);
+}
+
+function addModToDirectVariantModal() {
+  const name = directVariantModal.value.modName.trim();
+  if (!name) return;
+  directVariantModal.value.modifiersArray.push({ name, price: directVariantModal.value.modPrice || 0 });
+  directVariantModal.value.modName = '';
+  directVariantModal.value.modPrice = 0;
+}
+
+function applyDirectModPreset(name, price) {
+  directVariantModal.value.modName = name;
+  directVariantModal.value.modPrice = price;
+  addModToDirectVariantModal();
+}
+
+function saveDirectVariants() {
+  const idx = directVariantModal.value.cartIdx;
+  const item = directCart.value[idx];
+  if (item) {
+    item.modifiers = directVariantModal.value.modifiersArray;
+  }
+  directVariantModal.value.show = false;
+}
+
+function removeModFromDirectCart(cartIdx, modIdx) {
+  const item = directCart.value[cartIdx];
+  if (item && item.modifiers) item.modifiers.splice(modIdx, 1);
+}
 
 async function confirmDirectItems() {
   if (!selectedTable.value || directCart.value.length === 0) return;
