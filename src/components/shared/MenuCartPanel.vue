@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed } from 'vue';
+import { ref, computed, watch } from 'vue';
 import {
   ChevronRight, ShoppingCart, MousePointerClick,
   Trash2, Minus, Plus, CheckCircle,
@@ -60,6 +60,12 @@ const emit = defineEmits([
 
 const activeCategory = ref(Object.keys(props.menu)[0] ?? '');
 
+// Keep activeCategory valid if the menu prop is replaced (e.g. live config reload).
+watch(() => props.menu, (newMenu) => {
+  const cats = Object.keys(newMenu);
+  if (!cats.includes(activeCategory.value)) activeCategory.value = cats[0] ?? '';
+});
+
 const cartTotal = computed(() =>
   props.cart.reduce((sum, item) => {
     const modTotal = (item.modifiers || []).reduce((a, m) => a + (Number(m.price) || 0), 0);
@@ -75,7 +81,7 @@ const cartTotal = computed(() =>
     <div class="w-full md:w-[220px] border-b md:border-b-0 md:border-r border-gray-200 bg-gray-50 flex md:flex-col overflow-x-auto md:overflow-y-auto no-scrollbar shrink-0">
       <button
         v-for="(items, category) in menu"
-        :key="'mcp_cat_' + category"
+        :key="category"
         @click="activeCategory = category"
         class="whitespace-nowrap md:whitespace-normal md:w-full text-center md:text-left px-4 md:px-5 py-3 md:py-4 border-b-4 md:border-b-0 md:border-l-4 border-transparent font-bold transition-colors md:flex md:justify-between md:items-center text-sm md:text-base"
         :class="activeCategory === category
@@ -92,7 +98,7 @@ const cartTotal = computed(() =>
     <div class="flex-1 overflow-y-auto p-2 md:p-4 bg-gray-100 md:bg-white grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 gap-2 md:gap-3 content-start min-h-0">
       <div
         v-for="item in (menu[activeCategory] || [])"
-        :key="'mcp_item_' + item.id"
+        :key="item.id"
         class="bg-white border border-gray-200 rounded-xl md:rounded-2xl shadow-sm hover:border-emerald-400 transition-all group flex flex-col h-full min-h-[100px] md:min-h-[120px] relative overflow-visible">
 
         <!-- Qty badge -->
