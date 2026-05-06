@@ -484,8 +484,8 @@ describe('store.addTransaction() with analitica operationType', () => {
     // Keys are uid-based: `${orderId}__${itemUid}` and `${orderId}__${itemUid}__mod__${modIdx}`
     await store.addTransaction({
       id: 'txn_test',
-      tableId: 'T1',
-      billSessionId: 'sess_1',
+      table: 'T1',
+      bill_session: 'sess_1',
       paymentMethod: 'Contanti',
       operationType: 'analitica',
       amountPaid: 15.00,
@@ -520,8 +520,8 @@ describe('store.addTransaction() with analitica operationType', () => {
     // Pay only 1 of 2 pizzas and 1 of 2 modifier rows
     await store.addTransaction({
       id: 'txn_partial',
-      tableId: 'T1',
-      billSessionId,
+      table: 'T1',
+      bill_session: billSessionId,
       paymentMethod: 'Contanti',
       operationType: 'analitica',
       amountPaid: 11.50,
@@ -546,8 +546,8 @@ describe('store.addTransaction() with analitica operationType', () => {
 
     await store.addTransaction({
       id: 'txn_refs_test',
-      tableId: 'T1',
-      billSessionId: 'sess_refs_1',
+      table: 'T1',
+      bill_session: 'sess_refs_1',
       paymentMethod: 'Contanti',
       operationType: 'analitica',
       amountPaid: 15.00,

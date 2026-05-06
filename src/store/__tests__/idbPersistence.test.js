@@ -1182,3 +1182,134 @@ describe('clearAllStateFromIDB() — fiscal receipts and invoice requests', () =
     expect(loaded).toEqual([]);
   });
 });
+
+// ── replaceVenueUsersInIDB ────────────────────────────────────────────────────
+
+describe('replaceVenueUsersInIDB()', () => {
+  it('replaces all Directus users and removes users not in the new snapshot', async () => {
+    const { getDB } = await import('../../composables/useIDB.js');
+    const { replaceVenueUsersInIDB } = await import('../idbPersistence.js');
+    const db = await getDB();
+
+    // Pre-populate IDB with two Directus users
+    await db.put('venue_users', { id: 'vu_old', name: 'Old', apps: [], pin: '', status: 'active' });
+    await db.put('venue_users', { id: 'vu_keep', name: 'Keep', apps: [], pin: '', status: 'active' });
+
+    // Replace with only one Directus user (vu_old should be removed)
+    await replaceVenueUsersInIDB([
+      { id: 'vu_keep', name: 'Keep', apps: ['cassa'], pin: '1234', status: 'active' },
+    ]);
+
+    const all = await db.getAll('venue_users');
+    const ids = all.map((r) => r.id);
+    expect(ids).not.toContain('vu_old');
+    expect(ids).toContain('vu_keep');
+    expect(all).toHaveLength(1);
+  });
+
+  it('hashes plaintext PIN for incoming Directus users', async () => {
+    const { getDB } = await import('../../composables/useIDB.js');
+    const { replaceVenueUsersInIDB } = await import('../idbPersistence.js');
+    const db = await getDB();
+
+    await replaceVenueUsersInIDB([
+      { id: 'vu_pin', name: 'Pin User', apps: ['cassa'], pin: '5678', status: 'active' },
+    ]);
+
+    const stored = await db.get('venue_users', 'vu_pin');
+    expect(stored).toBeDefined();
+    expect(stored.pin).toBe(await sha256('5678'));
+    expect(stored.pin).not.toBe('5678');
+  });
+
+  it('clears an invalid PIN and warns', async () => {
+    const { replaceVenueUsersInIDB } = await import('../idbPersistence.js');
+    const { getDB } = await import('../../composables/useIDB.js');
+    const db = await getDB();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      await replaceVenueUsersInIDB([
+        { id: 'vu_bad_pin', name: 'Bad Pin', apps: [], pin: 'nodigits', status: 'active' },
+      ]);
+      const stored = await db.get('venue_users', 'vu_bad_pin');
+      expect(stored.pin).toBe('');
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Invalid venue_users PIN during replaceVenueUsersInIDB'),
+        'vu_bad_pin',
+      );
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('preserves manual_user records that are not in the Directus snapshot', async () => {
+    const { getDB } = await import('../../composables/useIDB.js');
+    const { replaceVenueUsersInIDB } = await import('../idbPersistence.js');
+    const db = await getDB();
+
+    // Pre-populate a manual user and a Directus user
+    await db.put('venue_users', {
+      id: 'manual_1',
+      name: 'Manuel',
+      apps: ['cassa'],
+      pin: '',
+      status: 'active',
+      _type: 'manual_user',
+    });
+    await db.put('venue_users', { id: 'vu_dir_1', name: 'Directus User', apps: [], pin: '', status: 'active' });
+
+    // Full replace with a different Directus user (vu_dir_1 removed, but manual_1 must survive)
+    await replaceVenueUsersInIDB([
+      { id: 'vu_dir_2', name: 'New Directus User', apps: ['cassa'], pin: '1234', status: 'active' },
+    ]);
+
+    const all = await db.getAll('venue_users');
+    const ids = all.map((r) => r.id);
+    expect(ids).toContain('manual_1');
+    expect(ids).toContain('vu_dir_2');
+    expect(ids).not.toContain('vu_dir_1');
+  });
+
+  it('normalizes name/display_name aliases for Directus users', async () => {
+    const { getDB } = await import('../../composables/useIDB.js');
+    const { replaceVenueUsersInIDB } = await import('../idbPersistence.js');
+    const db = await getDB();
+
+    await replaceVenueUsersInIDB([
+      { id: 'vu_alias', display_name: 'Alias User', apps: ['sala'], pin: '1111', status: 'active' },
+    ]);
+
+    const stored = await db.get('venue_users', 'vu_alias');
+    expect(stored.name).toBe('Alias User');
+    expect(stored.display_name).toBe('Alias User');
+  });
+
+  it('normalizes apps to lowercase unique entries', async () => {
+    const { getDB } = await import('../../composables/useIDB.js');
+    const { replaceVenueUsersInIDB } = await import('../idbPersistence.js');
+    const db = await getDB();
+
+    await replaceVenueUsersInIDB([
+      { id: 'vu_apps', name: 'Apps User', apps: ['ADMIN', 'cassa', 'cassa'], pin: '2222', status: 'active' },
+    ]);
+
+    const stored = await db.get('venue_users', 'vu_apps');
+    expect(stored.apps).toEqual(['admin', 'cassa']);
+  });
+
+  it('skips records without an id', async () => {
+    const { getDB } = await import('../../composables/useIDB.js');
+    const { replaceVenueUsersInIDB } = await import('../idbPersistence.js');
+    const db = await getDB();
+
+    await replaceVenueUsersInIDB([
+      null,
+      { name: 'No ID user', apps: [], pin: '' },
+      { id: 'vu_valid_noid_test', name: 'Valid', apps: ['cassa'], pin: '3333', status: 'active' },
+    ]);
+
+    const all = await db.getAll('venue_users');
+    expect(all).toHaveLength(1);
+    expect(all[0].id).toBe('vu_valid_noid_test');
+  });
+});

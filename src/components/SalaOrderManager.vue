@@ -671,6 +671,7 @@ import {
   DEFAULT_COURSE,
   getCourseBorderClass,
   formatOrderIdShort,
+  itemsAreMergeable,
 } from '../utils/index.js';
 import { enqueuePrintJobs } from '../composables/usePrintQueue.js';
 import OrderSidebarCard from './shared/OrderSidebarCard.vue';
@@ -928,19 +929,6 @@ function getQtyCombined(itemId) {
   return (orderQtyMap.value.get(itemId) || 0) + (cartQtyMap.value.get(itemId) || 0);
 }
 
-function itemsAreMergeable(a, b) {
-  if (a.dishId !== b.dishId) return false;
-  if ((a.course || DEFAULT_COURSE) !== (b.course || DEFAULT_COURSE)) return false;
-  const notesA = [...(a.notes || [])].sort();
-  const notesB = [...(b.notes || [])].sort();
-  if (notesA.length !== notesB.length || notesA.some((n, i) => n !== notesB[i])) return false;
-  const normMod = m => ({ name: String(m.name), price: Number(m.price) || 0 });
-  const modsA = [...(a.modifiers || [])].map(normMod).sort((x, y) => x.name < y.name ? -1 : x.name > y.name ? 1 : x.price - y.price);
-  const modsB = [...(b.modifiers || [])].map(normMod).sort((x, y) => x.name < y.name ? -1 : x.name > y.name ? 1 : x.price - y.price);
-  if (modsA.length !== modsB.length) return false;
-  return modsA.every((m, i) => m.name === modsB[i].name && m.price === modsB[i].price);
-}
-
 function makeTempCartRow(item) {
   return {
     uid: 'tmp_' + Math.random().toString(36).slice(2, 11),
@@ -1002,19 +990,16 @@ function closeMenuModal() {
   tempCart.value = [];
 }
 
-function confirmAndPushCart() {
+async function confirmAndPushCart() {
   if (!targetOrderForMenu.value || tempCart.value.length === 0) return;
-  const ordRef = targetOrderForMenu.value;
-  tempCart.value.forEach(cartItem => {
-    const existing = ordRef.orderItems.find(r => itemsAreMergeable(r, cartItem));
-    if (existing) { existing.quantity += cartItem.quantity; return; }
-    cartItem.uid = 'r_new_' + Math.random().toString(36).slice(2, 11);
-    ordRef.orderItems.push(cartItem);
-  });
-  updateOrderTotals(ordRef);
-  closeMenuModal();
-  activeTab.value = 'pending';
-  selectedOrder.value = ordRef;
+  const ordId = targetOrderForMenu.value.id;
+  const cartSnapshot = tempCart.value.map(item => ({ ...item }));
+  const result = await orderStore.addItemsToOrder(ordId, cartSnapshot);
+  if (result) {
+    closeMenuModal();
+    activeTab.value = 'pending';
+    selectedOrder.value = orderStore.orders.find(o => String(o.id) === String(ordId)) || selectedOrder.value;
+  }
 }
 
 // ── Delete order ────────────────────────────────────────────────────────────
@@ -1071,9 +1056,6 @@ function submitOrder() {
 async function confirmSubmitOrder() {
   if (!orderToSubmit.value) return;
   const ord = orderToSubmit.value;
-  // TODO API: replace with POST /api/orders when API is available.
-  // For now the order is already in the shared store as 'pending';
-  // a real sala terminal would submit it here and receive a server-assigned id.
   showSubmitConfirm.value = false;
   orderToSubmit.value = null;
   // Move the order out of "In Attesa" by marking it as accepted/sent to kitchen.

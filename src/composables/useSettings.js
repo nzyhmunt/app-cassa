@@ -3,7 +3,7 @@ import { useConfigStore } from '../store/index.js';
 import { KEYBOARD_POSITIONS, DEFAULT_SETTINGS } from '../utils/index.js';
 import { isWakeLockSupported } from './useWakeLock.js';
 import { useAuth } from './useAuth.js';
-import { deleteDatabase } from '../store/persistence/operations.js';
+import { deleteDatabase, clearAllStateFromIDB } from '../store/persistence/operations.js';
 import { clearDirectusConfigFromStorage } from './useDirectusClient.js';
 import { getInstanceName } from '../store/persistence.js';
 /**
@@ -97,16 +97,29 @@ export function useSettings(props, emit) {
     } catch (e) {
       console.warn('[Settings] Failed to clear Directus config during reset:', e);
     }
+    // Proactively clear operational IDB state before the physical database delete.
+    // deleteDatabase() uses an onblocked handler that resolves after a 3-second
+    // timeout when another connection (e.g. an in-flight WebSocket write or
+    // polling timer) is holding the DB open. In that case the physical delete
+    // silently does NOT happen, so app_meta (including lastPullTs cursors) and
+    // other stores can survive the reload.
+    // Calling clearAllStateFromIDB() first reduces leftover app data in that
+    // blocked-delete case, but it is still best-effort and does not remove every store.
+    try {
+      await clearAllStateFromIDB();
+    } catch (e) {
+      console.warn('[Settings] Failed to pre-clear IDB stores during reset:', e);
+    }
     // Nuclear reset: physically delete the entire IndexedDB database.
-    // This guarantees a full clean slate for every object store.
+    // Only a successful delete clears every object store.
     try {
       await deleteDatabase(getInstanceName());
     } catch (e) {
-      console.warn('[Settings] Failed to complete nuclear database reset - data may not be fully cleared:', e);
-      if (typeof window !== 'undefined' && typeof window.alert === 'function') {
-        window.alert('Reset bloccato: chiudi le altre schede/app aperte su questo dispositivo e riprova.');
-      }
-      return;
+      // concurrent WebSocket write or polling timer). IDB stores have already
+      // been cleared by clearAllStateFromIDB() above, so we can safely continue
+      // with SW cleanup and reload. Only data not covered by the pre-clear
+      // (such as local_settings) may remain if the physical delete is blocked.
+      console.warn('[Settings] Failed to complete physical IndexedDB deletion after pre-clear; only data not removed by clearAllStateFromIDB() may remain:', e);
     }
     // Clear in-memory auth state (its internal IDB call is harmless — already cleared)
     try {
@@ -114,6 +127,28 @@ export function useSettings(props, emit) {
       clearAllAuthData();
     } catch (e) {
       console.warn('[Settings] Failed to clear auth data during reset:', e);
+    }
+    // Unregister all service workers and purge all browser caches so that the
+    // next load fetches the latest deployed code from the network, rather than
+    // serving stale JS/CSS assets from the SW's cache-first asset cache.
+    // This prevents the "interface changes not applied after reset" issue that
+    // occurs when a new build has been deployed but the SW still holds old
+    // assets under the same cache-version key.
+    try {
+      if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(registrations.map((r) => r.unregister()));
+      }
+    } catch (e) {
+      console.warn('[Settings] Failed to unregister service workers during reset:', e);
+    }
+    try {
+      if (typeof caches !== 'undefined') {
+        const keys = await caches.keys();
+        await Promise.all(keys.map((key) => caches.delete(key)));
+      }
+    } catch (e) {
+      console.warn('[Settings] Failed to clear browser caches during reset:', e);
     }
     if (typeof window !== 'undefined' && window.location) {
       window.location.reload();

@@ -6,7 +6,7 @@
  * All parameters are the reactive refs / helper functions already defined in the store.
  */
 import { saveStateToIDB, upsertBillSessionInIDB, closeBillSessionInIDB } from './persistence/operations.js';
-import { updateOrderTotals } from '../utils/index.js';
+import { updateOrderTotals, deepEqual } from '../utils/index.js';
 import { newShortId, newUUIDv7 } from './storeUtils.js';
 
 /**
@@ -32,31 +32,6 @@ export function makeTableOps(state, helpers) {
     enqueueBillSessionCreate = () => {},
   } = helpers;
 
-  const _deepEqual = (left, right) => {
-    if (left === right) return true;
-    if (left == null || right == null) return left === right;
-    if (typeof left !== typeof right) return false;
-    if (typeof left !== 'object') return false;
-    if (Array.isArray(left) !== Array.isArray(right)) return false;
-
-    if (Array.isArray(left)) {
-      if (left.length !== right.length) return false;
-      for (let i = 0; i < left.length; i += 1) {
-        if (!_deepEqual(left[i], right[i])) return false;
-      }
-      return true;
-    }
-
-    const leftKeys = Object.keys(left);
-    const rightKeys = Object.keys(right);
-    if (leftKeys.length !== rightKeys.length) return false;
-    for (const key of leftKeys) {
-      if (!Object.prototype.hasOwnProperty.call(right, key)) return false;
-      if (!_deepEqual(left[key], right[key])) return false;
-    }
-    return true;
-  };
-
   const _buildOrderSyncPatch = (prev, next) => {
     if (!prev || !next) return null;
     const payload = {};
@@ -64,7 +39,7 @@ export function makeTableOps(state, helpers) {
     if ((prev.billSessionId ?? null) !== (next.billSessionId ?? null)) {
       payload.billSessionId = next.billSessionId ?? null;
     }
-    if (!_deepEqual(prev.orderItems ?? [], next.orderItems ?? [])) {
+    if (!deepEqual(prev.orderItems ?? [], next.orderItems ?? [])) {
       payload.orderItems = next.orderItems;
     }
     if ((prev.totalAmount ?? null) !== (next.totalAmount ?? null)) {
@@ -105,15 +80,15 @@ export function makeTableOps(state, helpers) {
       const prev = prevById.get(String(txn.id));
       if (!prev) return;
       if (
-        prev.tableId === txn.tableId &&
-        (prev.billSessionId ?? null) === (txn.billSessionId ?? null)
+        prev.table === txn.table &&
+        (prev.bill_session ?? null) === (txn.bill_session ?? null)
       ) return;
       enqueueTransactionUpdate(txn);
     });
   };
 
   const _persistBillSessionPatchesToIDB = async (billSessionPatches, nextTCS) => {
-    if (!Array.isArray(billSessionPatches) || billSessionPatches.length === 0) return;
+    if (!Array.isArray(billSessionPatches) || billSessionPatches.length === 0) return [];
 
     const sessionsById = new Map(
       Object.values(nextTCS || {})
@@ -121,17 +96,30 @@ export function makeTableOps(state, helpers) {
         .map((session) => [session.billSessionId, session]),
     );
 
-    for (const { billSessionId, payload } of billSessionPatches) {
+    const persisted = [];
+    for (const patch of billSessionPatches) {
+      const { billSessionId, payload } = patch;
       if (!billSessionId || !payload || typeof payload !== 'object') continue;
-      if (payload.status === 'closed') {
-        await closeBillSessionInIDB(billSessionId);
-        continue;
-      }
-      const session = sessionsById.get(billSessionId);
-      if (session) {
-        await upsertBillSessionInIDB(session);
+      try {
+        let didPersist = false;
+        if (payload.status === 'closed') {
+          await closeBillSessionInIDB(billSessionId);
+          didPersist = true;
+        } else {
+          const session = sessionsById.get(billSessionId);
+          if (!session) {
+            console.warn('[Store] bill-session IDB patch skipped; no session found for', billSessionId);
+            continue;
+          }
+          await upsertBillSessionInIDB(session);
+          didPersist = true;
+        }
+        if (didPersist) persisted.push(patch);
+      } catch (err) {
+        console.warn('[Store] bill-session IDB patch failed for', billSessionId, err);
       }
     }
+    return persisted;
   };
 
   const _addBillSessionPatch = (billSessionPatches, billSessionId, payload) => {
@@ -179,7 +167,7 @@ export function makeTableOps(state, helpers) {
    *
    * If srcSessionId is provided, only orders and transactions for that session are moved.
    * If srcSessionId is null, all non-completed/rejected orders move (transactions retagged
-   * by tableId only, with billSessionId set to dstSessionId when provided).
+   * by table only, with bill_session set to dstSessionId when provided).
    *
    * @param {string} srcTableId
    * @param {string} dstTableId
@@ -200,20 +188,20 @@ export function makeTableOps(state, helpers) {
     });
     if (srcSessionId) {
       txnsArr.forEach(t => {
-        if (t.tableId === srcTableId && t.billSessionId === srcSessionId) {
-          t.tableId = dstTableId;
-          t.billSessionId = dstSessionId;
+        if (t.table === srcTableId && t.bill_session === srcSessionId) {
+          t.table = dstTableId;
+          t.bill_session = dstSessionId;
         }
       });
     } else {
-      // When there is no source session context, only retag tableId.
+      // When there is no source session context, only retag table.
       // Only assign dstSessionId to transactions that have no existing session
-      // (t.billSessionId == null) to avoid corrupting historical/closed-bill
-      // transactions that already carry their own billSessionId.
+      // (t.bill_session == null) to avoid corrupting historical/closed-bill
+      // transactions that already carry their own bill_session.
       txnsArr.forEach(t => {
-        if (t.tableId === srcTableId) {
-          t.tableId = dstTableId;
-          if (dstSessionId && t.billSessionId == null) t.billSessionId = dstSessionId;
+        if (t.table === srcTableId) {
+          t.table = dstTableId;
+          if (dstSessionId && t.bill_session == null) t.bill_session = dstSessionId;
         }
       });
     }
@@ -225,9 +213,8 @@ export function makeTableOps(state, helpers) {
     const previousOrders = orders.value;
     const previousTransactions = transactions.value;
     const billSessionPatches = [];
-    let persistedToIDB = false;
-    // Build projected copies of every piece of state that will change, so we
-    // can persist to IDB *before* touching any reactive ref (IDB-first invariant).
+    let stateSavedToIDB = false;
+    let persistedBillSessionPatches = [];
     const nextOrders = orders.value.map(o => ({ ...o }));
     const nextTransactions = transactions.value.map(t => ({ ...t }));
     const nextOccupiedAt = { ...tableOccupiedAt.value };
@@ -302,33 +289,43 @@ export function makeTableOps(state, helpers) {
         tableMergedInto: nextMergedInto,
         billRequestedTables: nextBillRequested,
       });
-      await _persistBillSessionPatchesToIDB(billSessionPatches, nextTCS);
-      persistedToIDB = true;
+      stateSavedToIDB = true;
     } catch (err) {
-      console.warn('[Store] moveTableOrders IDB save failed:', err);
+      console.warn('[Store] moveTableOrders state IDB save failed:', err);
     }
 
-    // Assign reactive refs after IDB write completes.
-    orders.value = nextOrders;
-    transactions.value = nextTransactions;
-    tableCurrentBillSession.value = nextTCS;
-    tableOccupiedAt.value = nextOccupiedAt;
-    tableMergedInto.value = nextMergedInto;
-    // Apply the projected bill-requested state directly to the reactive ref when a
-    // reactive-only helper is available; otherwise fall back to setBillRequested
-    // (which issues its own IDB write — redundant but safe).
-    if (updateBillRequestedState) {
-      billRequestedTables.value = nextBillRequested;
-    } else {
-      if (billRequestedTables.value.has(fromTableId)) setBillRequested(fromTableId, false);
-      if (nextBillRequested.has(toTableId)) setBillRequested(toTableId, true);
+    // Bill-session patches are persisted independently; each patch that succeeds
+    // is tracked so that only successfully-persisted patches are enqueued.
+    if (stateSavedToIDB) {
+      persistedBillSessionPatches = await _persistBillSessionPatchesToIDB(billSessionPatches, nextTCS);
     }
 
-    if (persistedToIDB) {
+    // Assign reactive refs only when state IDB write failed (offline resilience).
+    // On success the IDB event bus will apply the projected state (emitIDBChange fires after the IDB write resolves).
+    if (!stateSavedToIDB) {
+      orders.value = nextOrders;
+      transactions.value = nextTransactions;
+      tableCurrentBillSession.value = nextTCS;
+      tableOccupiedAt.value = nextOccupiedAt;
+      tableMergedInto.value = nextMergedInto;
+      // Apply the projected bill-requested state directly to the reactive ref when a
+      // reactive-only helper is available; otherwise fall back to setBillRequested
+      // (which issues its own IDB write — redundant but safe).
+      if (updateBillRequestedState) {
+        billRequestedTables.value = nextBillRequested;
+      } else {
+        if (billRequestedTables.value.has(fromTableId)) setBillRequested(fromTableId, false);
+        if (nextBillRequested.has(toTableId)) setBillRequested(toTableId, true);
+      }
+    }
+
+    // Enqueue order/transaction changes when state was successfully persisted.
+    // Only enqueue bill-session updates for patches that were actually persisted.
+    if (stateSavedToIDB) {
       _enqueueChangedOrders(previousOrders, nextOrders);
       _enqueueChangedTransactions(previousTransactions, nextTransactions);
-      billSessionPatches.forEach(({ billSessionId, payload }) => enqueueBillSessionUpdate(billSessionId, payload));
     }
+    persistedBillSessionPatches.forEach(({ billSessionId, payload }) => enqueueBillSessionUpdate(billSessionId, payload));
   }
 
   // ── mergeTableOrders ─────────────────────────────────────────────────────
@@ -338,7 +335,8 @@ export function makeTableOps(state, helpers) {
     const previousTransactions = transactions.value;
     const billSessionPatches = [];
     let createdTargetSession = null;
-    let persistedToIDB = false;
+    let stateSavedToIDB = false;
+    let persistedBillSessionPatches = [];
     const resolvedTargetId = resolveMaster(targetTableId);
     if (sourceTableId === resolvedTargetId) return;
 
@@ -414,30 +412,42 @@ export function makeTableOps(state, helpers) {
         tableMergedInto: nextMergedInto,
         billRequestedTables: nextBillRequested,
       });
-      await _persistBillSessionPatchesToIDB(billSessionPatches, nextTCS);
-      persistedToIDB = true;
+      stateSavedToIDB = true;
     } catch (err) {
-      console.warn('[Store] mergeTableOrders IDB save failed:', err);
+      console.warn('[Store] mergeTableOrders state IDB save failed:', err);
     }
 
-    // Assign reactive refs after IDB write completes.
-    orders.value = nextOrders;
-    transactions.value = nextTransactions;
-    tableCurrentBillSession.value = nextTCS;
-    tableOccupiedAt.value = nextOccupiedAt;
-    tableMergedInto.value = nextMergedInto;
-    if (updateBillRequestedState) {
-      billRequestedTables.value = nextBillRequested;
-    } else {
-      setBillRequested(sourceTableId, false);
+    // Bill-session patches are persisted independently; each patch that succeeds
+    // is tracked so that only successfully-persisted patches are enqueued.
+    if (stateSavedToIDB) {
+      persistedBillSessionPatches = await _persistBillSessionPatchesToIDB(billSessionPatches, nextTCS);
     }
 
-    if (persistedToIDB) {
-      if (createdTargetSession) enqueueBillSessionCreate(createdTargetSession);
+    // Assign reactive refs only when state IDB write failed (offline resilience).
+    // On success the IDB event bus will apply the projected state (emitIDBChange fires after the IDB write resolves).
+    if (!stateSavedToIDB) {
+      orders.value = nextOrders;
+      transactions.value = nextTransactions;
+      tableCurrentBillSession.value = nextTCS;
+      tableOccupiedAt.value = nextOccupiedAt;
+      tableMergedInto.value = nextMergedInto;
+      if (updateBillRequestedState) {
+        billRequestedTables.value = nextBillRequested;
+      } else {
+        setBillRequested(sourceTableId, false);
+      }
+    }
+
+    // Enqueue order/transaction changes when state was successfully persisted.
+    // The auto-created target session is persisted earlier by openTableSession(..., { enqueueSync:false }),
+    // so its create enqueue must not be suppressed by unrelated bill-session patch persistence failures.
+    if (stateSavedToIDB) {
       _enqueueChangedOrders(previousOrders, nextOrders);
       _enqueueChangedTransactions(previousTransactions, nextTransactions);
-      billSessionPatches.forEach(({ billSessionId, payload }) => enqueueBillSessionUpdate(billSessionId, payload));
+      if (createdTargetSession) enqueueBillSessionCreate(createdTargetSession);
     }
+    // Only enqueue bill-session updates for patches that were actually persisted.
+    persistedBillSessionPatches.forEach(({ billSessionId, payload }) => enqueueBillSessionUpdate(billSessionId, payload));
   }
 
   // ── detachSlaveTable ──────────────────────────────────────────────────────
@@ -486,9 +496,12 @@ export function makeTableOps(state, helpers) {
       console.warn('[Store] detachSlaveTable IDB save failed:', err);
     }
 
-    // Assign reactive refs after IDB write completes.
-    tableMergedInto.value = nextMergedInto;
-    if (slaveHasOrders) orders.value = nextOrders;
+    // Assign reactive refs only when IDB write failed (offline resilience).
+    // On success the IDB event bus will apply the projected state (emitIDBChange fires after the IDB write resolves).
+    if (!persistedToIDB) {
+      tableMergedInto.value = nextMergedInto;
+      if (slaveHasOrders) orders.value = nextOrders;
+    }
     if (persistedToIDB && slaveHasOrders) {
       enqueueBillSessionCreate(slaveSessionSnapshot);
       _enqueueChangedOrders(previousOrders, nextOrders);
@@ -513,7 +526,9 @@ export function makeTableOps(state, helpers) {
     const previousTransactions = transactions.value;
     const billSessionPatches = [];
     let createdTargetSession = null;
-    let persistedToIDB = false;
+    let stateSavedToIDB = false;
+    let createdSessionSavedToIDB = false;
+    let persistedBillSessionPatches = [];
     if (!sourceTableId || !targetTableId || sourceTableId === targetTableId) return false;
 
     // Block if any source order is still awaiting kitchen confirmation
@@ -645,8 +660,8 @@ export function makeTableOps(state, helpers) {
       // Retag transactions from the closing source session to the target (immutable update).
       nextTransactions = srcSessionId
         ? transactions.value.map(t =>
-            t.tableId === sourceTableId && t.billSessionId === srcSessionId
-              ? { ...t, tableId: targetTableId, billSessionId: targetSessionId }
+            t.table === sourceTableId && t.bill_session === srcSessionId
+              ? { ...t, table: targetTableId, bill_session: targetSessionId }
               : t,
           )
         : transactions.value;
@@ -669,7 +684,8 @@ export function makeTableOps(state, helpers) {
     }
 
     // IDB-first: persist all projected state before any reactive assignment.
-    // On IDB failure we log and proceed (offline resilience — watcher retries).
+    // Each persistence step has its own flag so a failure in one step does not
+    // suppress enqueues for independently-succeeded steps.
     try {
       await saveStateToIDB({
         orders: projectedOrders,
@@ -679,35 +695,40 @@ export function makeTableOps(state, helpers) {
         tableMergedInto: nextMergedInto,
         billRequestedTables: nextBillRequested,
       });
-      if (createdTargetSession) {
-        await upsertBillSessionInIDB(createdTargetSession);
-      }
-      await _persistBillSessionPatchesToIDB(billSessionPatches, projectedTableCurrentBillSession);
-      persistedToIDB = true;
+      stateSavedToIDB = true;
     } catch (err) {
-      console.warn('[Store] splitItemsToTable IDB save failed:', err);
+      console.warn('[Store] splitItemsToTable state IDB save failed:', err);
     }
 
-    if (!persistedToIDB) return false;
-
-    // Assign reactive refs only after IDB write completes successfully.
-    orders.value = projectedOrders;
-    transactions.value = nextTransactions;
-    tableCurrentBillSession.value = projectedTableCurrentBillSession;
-    tableOccupiedAt.value = nextOccupiedAt;
-    tableMergedInto.value = nextMergedInto;
-    if (updateBillRequestedState) {
-      billRequestedTables.value = nextBillRequested;
-    } else if (!sourceStillHasOrders) {
-      setBillRequested(sourceTableId, false);
+    // The new target session must be persisted before order/transaction enqueues proceed,
+    // because those orders reference the generated billSessionId.
+    if (stateSavedToIDB && createdTargetSession) {
+      try {
+        await upsertBillSessionInIDB(createdTargetSession);
+        createdSessionSavedToIDB = true;
+      } catch (err) {
+        console.warn('[Store] splitItemsToTable target bill-session IDB upsert failed:', err);
+      }
     }
 
-    if (createdTargetSession) enqueueBillSessionCreate(createdTargetSession);
-    _enqueueChangedOrders(previousOrders, projectedOrders);
-    _enqueueChangedTransactions(previousTransactions, nextTransactions);
-    billSessionPatches.forEach(({ billSessionId, payload }) => enqueueBillSessionUpdate(billSessionId, payload));
+    if (stateSavedToIDB) {
+      persistedBillSessionPatches = await _persistBillSessionPatchesToIDB(billSessionPatches, projectedTableCurrentBillSession);
+    }
 
-    if (partialMoveItems.length > 0) await addDirectOrder(targetTableId, targetSessionId, partialMoveItems);
+    if (!stateSavedToIDB) return false;
+
+    // Reactive state is applied asynchronously via the IDB event bus (emitIDBChange in saveStateToIDB).
+    // Order/transaction enqueues are also gated on the new target session being persisted (when
+    // created), since those orders carry the generated billSessionId — enqueueing them without the
+    // corresponding bill_sessions:create would leave a dangling FK in Directus.
+    if (!createdTargetSession || createdSessionSavedToIDB) {
+      _enqueueChangedOrders(previousOrders, projectedOrders);
+      _enqueueChangedTransactions(previousTransactions, nextTransactions);
+      if (createdTargetSession) enqueueBillSessionCreate(createdTargetSession);
+      if (partialMoveItems.length > 0) await addDirectOrder(targetTableId, targetSessionId, partialMoveItems);
+    }
+    // Only enqueue bill-session updates for patches that were actually persisted.
+    persistedBillSessionPatches.forEach(({ billSessionId, payload }) => enqueueBillSessionUpdate(billSessionId, payload));
 
     return true;
   }

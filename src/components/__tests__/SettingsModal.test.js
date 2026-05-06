@@ -220,11 +220,11 @@ describe('non-admin user logged in', () => {
     expect(wrapper.text()).toContain('Avvisi Audio');
   });
 
-  it('shows "Modifica PIN" button to non-admin instead of full user management', async () => {
+  it('shows "Gestione Utenti" button to non-admin', async () => {
     const wrapper = mountSettingsModal();
     await flushPromises();
-    expect(wrapper.text()).toContain('Modifica PIN');
-    expect(wrapper.text()).not.toContain('Gestione Utenti');
+    const buttonTexts = wrapper.findAll('button').map((btn) => btn.text().replace(/\s+/g, ' ').trim());
+    expect(buttonTexts).toContain('Gestione Utenti');
   });
 
   it('still shows the screen-lock toggle to non-admin', async () => {

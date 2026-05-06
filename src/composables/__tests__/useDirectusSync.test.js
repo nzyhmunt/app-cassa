@@ -22,7 +22,9 @@ import {
   _resetDirectusSyncSingleton,
   _handleSubscriptionMessage,
   _registerPushedEchoes,
+  _startSubscriptions,
 } from '../useDirectusSync.js';
+import { _resetDirectusClientSingleton } from '../useDirectusClient.js';
 import {
   upsertRecordsIntoIDB,
   saveStateToIDB,
@@ -52,19 +54,20 @@ async function flushPromises(rounds = 30) {
 const LONG_FLUSH_ROUNDS = 80;
 
 /**
- * Returns true when a Directus request URL contains a `date_updated > X` filter.
+ * Returns true when a Directus request URL contains a `date_updated >= X` (or `> X`) filter.
  * Supports both query styles:
- *  - bracketed params: `filter[date_updated][_gt]=...`
- *  - JSON filter param: `filter={"date_updated":{"_gt":"..."}}`
+ *  - bracketed params: `filter[date_updated][_gte]=...` or `filter[date_updated][_gt]=...`
+ *  - JSON filter param: `filter={"date_updated":{"_gte":"..."}}`
  *
  * @param {string} urlString
  * @returns {boolean}
  */
-function hasDateUpdatedGtFilter(urlString) {
+function hasDateUpdatedIncrementalFilter(urlString) {
   const url = new URL(String(urlString));
   const keys = Array.from(url.searchParams.keys());
 
-  // Pattern like filter[date_updated][_gt]=...
+  // Pattern like filter[date_updated][_gte]=... or filter[date_updated][_gt]=...
+  // (_gte contains '_gt' as a substring so this catches both)
   if (keys.some(k => k.includes('date_updated') && k.includes('_gt'))) return true;
 
   // Pattern like filter={...} JSON-encoded
@@ -77,7 +80,7 @@ function hasDateUpdatedGtFilter(urlString) {
     while (stack.length > 0) {
       const node = stack.pop();
       if (!node || typeof node !== 'object') continue;
-      if (node.date_updated?._gt !== undefined) {
+      if (node.date_updated?._gte !== undefined || node.date_updated?._gt !== undefined) {
         return true;
       }
       for (const v of Object.values(node)) stack.push(v);
@@ -230,6 +233,7 @@ function makeRemoteOrder(overrides = {}) {
 beforeEach(async () => {
   await _resetIDBSingleton();
   _resetDirectusSyncSingleton();
+  _resetDirectusClientSingleton();
   _resetEnqueueSeq();
   vi.restoreAllMocks();
   vi.stubGlobal('navigator', { onLine: true });
@@ -490,7 +494,7 @@ describe('reconfigureAndApply()', () => {
     const { appConfig } = await import('../../utils/index.js');
     const store = makeStore({ config: appConfig, preBillPrinterId: 'obsolete_printer' });
     const sync = useDirectusSync();
-    sync.startSync({ appType: 'cassa', store });
+    await sync.startSync({ appType: 'cassa', store });
     const result = await sync.reconfigureAndApply();
     sync.stopSync();
 
@@ -531,7 +535,7 @@ describe('reconfigureAndApply()', () => {
       }),
     });
     const sync = useDirectusSync();
-    sync.startSync({ appType: 'cassa', store });
+    await sync.startSync({ appType: 'cassa', store });
     const result = await sync.reconfigureAndApply();
     sync.stopSync();
 
@@ -592,7 +596,7 @@ describe('reconfigureAndApply()', () => {
       .filter(url => url.includes('/items/venues'));
     expect(venueCalls.length).toBeGreaterThan(0);
     for (const url of venueCalls) {
-      expect(hasDateUpdatedGtFilter(url)).toBe(false);
+      expect(hasDateUpdatedIncrementalFilter(url)).toBe(false);
     }
     expectNoVenueEqFilterForCollection(fetchSpy, 'venues');
   });
@@ -1196,9 +1200,611 @@ describe('pull — IDB last-write-wins', () => {
     const stored = await db.get('orders', 'ord_1');
     expect(stored.status).toBe('delivered'); // local wins
   });
+
+  it('upserts a record with date_updated = null using date_created for conflict resolution', async () => {
+    // Seed IDB with an older record (date_updated set)
+    await upsertRecordsIntoIDB('orders', [{
+      id: 'ord_null_du',
+      status: 'pending',
+      date_updated: '2024-01-01T00:00:00.000Z',
+      date_created: '2024-01-01T00:00:00.000Z',
+    }]);
+
+    // Incoming record has null date_updated but a newer date_created
+    const newerOrder = makeRemoteOrder({
+      id: 'ord_null_du',
+      status: 'accepted',
+      date_updated: null,
+      date_created: '2024-06-01T00:00:00.000Z',
+    });
+    vi.spyOn(global, 'fetch').mockImplementation(() => Promise.resolve(directusListResponse([newerOrder])));
+
+    const sync = useDirectusSync();
+    await sync.forcePull();
+
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+    const stored = await db.get('orders', 'ord_null_du');
+    expect(stored.status).toBe('accepted'); // newer date_created wins
+  });
+
+  it('preserves local record when incoming has null date_updated but older date_created', async () => {
+    // Seed IDB with a record that has a date_updated newer than the incoming date_created
+    await upsertRecordsIntoIDB('orders', [{
+      id: 'ord_local_newer',
+      status: 'delivered',
+      date_updated: '2024-08-01T00:00:00.000Z',
+      date_created: '2024-01-01T00:00:00.000Z',
+    }]);
+
+    // Incoming from Directus: date_updated = null, date_created older than local date_updated
+    const staleOrder = makeRemoteOrder({
+      id: 'ord_local_newer',
+      status: 'pending',
+      date_updated: null,
+      date_created: '2024-03-01T00:00:00.000Z',
+    });
+    vi.spyOn(global, 'fetch').mockImplementation(() => Promise.resolve(directusListResponse([staleOrder])));
+
+    const sync = useDirectusSync();
+    await sync.forcePull();
+
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+    const stored = await db.get('orders', 'ord_local_newer');
+    expect(stored.status).toBe('delivered'); // local wins
+  });
+
+  it('overwrites an existing record when incoming has the same timestamp (boundary case fix)', async () => {
+    // Regression test: two successive PATCHes on the same record may land at the exact
+    // same server-clock millisecond.  The second PATCH (status='accepted') must overwrite
+    // the first PATCH (status='pending') even though both carry an identical date_updated.
+    const sameTs = '2024-06-01T10:00:01.000Z';
+    await upsertRecordsIntoIDB('orders', [{
+      id: 'ord_same_ts', status: 'pending', date_updated: sameTs,
+    }]);
+
+    const updatedOrder = makeRemoteOrder({
+      id: 'ord_same_ts', status: 'accepted', date_updated: sameTs,
+    });
+    vi.spyOn(global, 'fetch').mockImplementation(() => Promise.resolve(directusListResponse([updatedOrder])));
+
+    const sync = useDirectusSync();
+    await sync.forcePull();
+
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+    const stored = await db.get('orders', 'ord_same_ts');
+    expect(stored.status).toBe('accepted'); // same-timestamp incoming wins
+  });
 });
 
-// ── Pull: in-memory store merge ───────────────────────────────────────────────
+// ── Pull: null-dated incremental filter ──────────────────────────────────────
+
+describe('pull — incremental filter includes null-dated records', () => {
+  it('includes _or clause for null date_updated when sinceTs is set', async () => {
+    await saveLastPullTsToIDB('orders', '2024-01-01T00:00:00.000Z');
+
+    const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation(() => Promise.resolve(directusListResponse([])));
+    const sync = useDirectusSync();
+    await sync.forcePull();
+
+    const orderCalls = fetchSpy.mock.calls
+      .map(([url]) => String(url))
+      .filter(url => url.includes('/items/orders'));
+    expect(orderCalls.length).toBeGreaterThan(0);
+
+    // Verify the filter contains both date_updated >= sinceTs and the null-date clause.
+    // Directus SDKs may encode this either as a JSON `filter=` param or as
+    // bracketed query params like `filter[_or][0][date_updated][_gte]=...`.
+    let matchedIncrementalFilter = false;
+    for (const url of orderCalls) {
+      const parsedUrl = new URL(url);
+      const rawFilter = parsedUrl.searchParams.get('filter');
+
+      if (rawFilter) {
+        try {
+          const parsed = JSON.parse(rawFilter);
+          const json = JSON.stringify(parsed);
+          expect(json).toContain('_or');
+          expect(json).toContain('_null');
+          expect(json).toContain('date_created');
+          matchedIncrementalFilter = true;
+          continue;
+        } catch {
+          // Fall through to bracketed-param checks below when `filter`
+          // is present but not JSON-encoded.
+        }
+      }
+
+      const searchParamKeys = Array.from(parsedUrl.searchParams.keys());
+      const hasBracketedOr = searchParamKeys.some(key => key.includes('[_or]'));
+      const hasBracketedNull = searchParamKeys.some(key => key.includes('[_null]'));
+      const hasBracketedDateCreated = searchParamKeys.some(key => key.includes('[date_created]'));
+
+      if (hasBracketedOr || hasBracketedNull || hasBracketedDateCreated) {
+        expect(hasBracketedOr).toBe(true);
+        expect(hasBracketedNull).toBe(true);
+        expect(hasBracketedDateCreated).toBe(true);
+        matchedIncrementalFilter = true;
+      }
+    }
+
+    expect(matchedIncrementalFilter).toBe(true);
+  });
+
+  it('uses _gte so that records updated at exactly sinceTs are not skipped', async () => {
+    // Regression: two back-to-back PATCHes within the same server-clock millisecond
+    // both get date_updated = sinceTs.  With the old _gt filter the second PATCH would
+    // never be returned; with _gte both are re-fetched on the next poll cycle.
+    const sinceTs = '2024-06-01T10:00:01.000Z';
+    await saveLastPullTsToIDB('orders', sinceTs);
+
+    // Seed IDB: order already in 'pending' state at sinceTs
+    await upsertRecordsIntoIDB('orders', [{
+      id: 'ord_gte_1', status: 'pending', date_updated: sinceTs,
+    }]);
+
+    // Remote returns the same order but with status='accepted' (same date_updated!)
+    const updatedOrder = makeRemoteOrder({
+      id: 'ord_gte_1', status: 'accepted', date_updated: sinceTs,
+    });
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      if (url.includes('/items/orders')) return Promise.resolve(directusListResponse([updatedOrder]));
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const sync = useDirectusSync();
+    await sync.forcePull();
+
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+    const stored = await db.get('orders', 'ord_gte_1');
+    expect(stored.status).toBe('accepted'); // _gte ensures boundary record is re-fetched and written
+  });
+
+  it('does NOT add incremental filter when sinceTs is null (full pull)', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation(() => Promise.resolve(directusListResponse([])));
+    const sync = useDirectusSync();
+    await sync.forcePull(); // no stored cursor → full pull
+
+    const orderCalls = fetchSpy.mock.calls
+      .map(([url]) => String(url))
+      .filter(url => url.includes('/items/orders'));
+    expect(orderCalls.length).toBeGreaterThan(0);
+
+    for (const url of orderCalls) {
+      expect(hasDateUpdatedIncrementalFilter(url)).toBe(false);
+    }
+  });
+});
+
+// ── Pull: order_items merge into parent orders ────────────────────────────────
+
+describe('pull — order_items merged into parent orders in IDB', () => {
+  it('merges pulled order_items into their parent order in IDB and refreshes orders store', async () => {
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+
+    // Seed an existing order without items
+    await db.put('orders', {
+      id: 'ord_ki_1',
+      status: 'accepted',
+      table: '03',
+      total_amount: 10,
+      item_count: 1,
+      orderItems: [],
+      date_updated: '2024-01-01T00:00:00.000Z',
+    });
+
+    // Remote returns one order_item for that order
+    const remoteItem = {
+      id: 'item_1',
+      order: 'ord_ki_1',
+      dish: null,
+      name: 'Pizza',
+      quantity: 1,
+      unit_price: 10,
+      voided_quantity: 0,
+      kitchen_ready: true,
+      date_updated: '2024-06-01T00:00:00.000Z',
+    };
+
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      if (url.includes('/items/order_items')) return Promise.resolve(directusListResponse([remoteItem]));
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const store = makeStore();
+    const sync = useDirectusSync();
+    sync.startSync({ appType: 'cucina', store });
+    await sync.forcePull();
+
+    const order = await db.get('orders', 'ord_ki_1');
+    expect(order).toBeDefined();
+    expect(order.orderItems).toHaveLength(1);
+    expect(order.orderItems[0].id).toBe('item_1');
+    expect(order.orderItems[0].kitchenReady).toBe(true);
+  });
+
+  it('does not overwrite a newer existing item with an older pulled item', async () => {
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+
+    await db.put('orders', {
+      id: 'ord_ki_lww',
+      status: 'accepted',
+      table: '04',
+      total_amount: 10,
+      item_count: 1,
+      orderItems: [{
+        id: 'item_lww',
+        order: 'ord_ki_lww',
+        name: 'Pizza',
+        quantity: 1,
+        unit_price: 10,
+        kitchenReady: true,
+        date_updated: '2024-09-01T00:00:00.000Z',
+      }],
+      date_updated: '2024-01-01T00:00:00.000Z',
+    });
+
+    // Pulled item is older (kitchen_ready still false)
+    const olderItem = {
+      id: 'item_lww',
+      order: 'ord_ki_lww',
+      name: 'Pizza',
+      quantity: 1,
+      unit_price: 10,
+      voided_quantity: 0,
+      kitchen_ready: false,
+      date_updated: '2024-03-01T00:00:00.000Z',
+    };
+
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      if (url.includes('/items/order_items')) return Promise.resolve(directusListResponse([olderItem]));
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const sync = useDirectusSync();
+    const store = makeStore();
+    sync.startSync({ appType: 'cucina', store });
+    await sync.forcePull();
+
+    const order = await db.get('orders', 'ord_ki_lww');
+    expect(order.orderItems[0].kitchenReady).toBe(true); // local newer item wins
+  });
+});
+
+// ── WebSocket: order_items create/update/delete merges into parent orders ─────
+
+describe('WS order_items — embedded merge into parent orders', () => {
+  it('WS create for order_item merges into parent order.orderItems in IDB', async () => {
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+
+    // Seed a parent order with no items
+    await db.put('orders', {
+      id: 'ord_ws_item_1',
+      status: 'accepted',
+      table: '01',
+      orderItems: [],
+      date_updated: '2024-01-01T00:00:00.000Z',
+    });
+
+    await _handleSubscriptionMessage('order_items', {
+      event: 'create',
+      data: [{
+        id: 'oi_ws_1',
+        order: 'ord_ws_item_1',
+        name: 'Bistecca',
+        quantity: 1,
+        unit_price: 18,
+        voided_quantity: 0,
+        kitchen_ready: false,
+        date_updated: '2024-06-01T00:00:00.000Z',
+      }],
+    });
+
+    const order = await db.get('orders', 'ord_ws_item_1');
+    expect(order).toBeDefined();
+    expect(order.orderItems).toHaveLength(1);
+    expect(order.orderItems[0].id).toBe('oi_ws_1');
+  });
+
+  it('WS update for order_item updates the item inside parent order.orderItems', async () => {
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+
+    await db.put('orders', {
+      id: 'ord_ws_item_upd',
+      status: 'accepted',
+      table: '02',
+      orderItems: [{
+        id: 'oi_ws_upd',
+        order: 'ord_ws_item_upd',
+        name: 'Pasta',
+        quantity: 1,
+        unit_price: 10,
+        kitchenReady: false,
+        date_updated: '2024-01-01T00:00:00.000Z',
+      }],
+      date_updated: '2024-01-01T00:00:00.000Z',
+    });
+
+    await _handleSubscriptionMessage('order_items', {
+      event: 'update',
+      data: [{
+        id: 'oi_ws_upd',
+        order: 'ord_ws_item_upd',
+        name: 'Pasta',
+        quantity: 1,
+        unit_price: 10,
+        voided_quantity: 0,
+        kitchen_ready: true,
+        date_updated: '2024-09-01T00:00:00.000Z',
+      }],
+    });
+
+    const order = await db.get('orders', 'ord_ws_item_upd');
+    expect(order.orderItems).toHaveLength(1);
+    expect(order.orderItems[0].kitchenReady).toBe(true);
+  });
+
+  it('WS delete for order_item removes it from parent order.orderItems', async () => {
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+
+    await db.put('orders', {
+      id: 'ord_ws_item_del',
+      status: 'accepted',
+      table: '03',
+      orderItems: [
+        { id: 'oi_del_1', name: 'Pizza', quantity: 1, unit_price: 9 },
+        { id: 'oi_del_2', name: 'Acqua', quantity: 2, unit_price: 2 },
+      ],
+      date_updated: '2024-01-01T00:00:00.000Z',
+    });
+
+    // Also write the item to the order_items store so deleteRecordsFromIDB has something to remove
+    await upsertRecordsIntoIDB('order_items', [
+      { id: 'oi_del_1', order: 'ord_ws_item_del', name: 'Pizza', quantity: 1, unit_price: 9 },
+    ]);
+
+    await _handleSubscriptionMessage('order_items', {
+      event: 'delete',
+      data: ['oi_del_1'],
+    });
+
+    const order = await db.get('orders', 'ord_ws_item_del');
+    expect(order.orderItems).toHaveLength(1);
+    expect(order.orderItems[0].id).toBe('oi_del_2'); // only the surviving item remains
+  });
+
+  it('WS partial update for order_item does NOT clobber quantity/unitPrice with mapper defaults', async () => {
+    // This guards against the regression described in the review: mapOrderItemFromDirectus
+    // fills absent numeric fields with 0. A partial WS payload (e.g. only kitchen_ready)
+    // must NOT overwrite real quantity/unit_price values stored in the embedded item.
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+
+    // Seed a parent order with a known embedded item
+    await db.put('orders', {
+      id: 'ord_ws_partial_oi',
+      status: 'accepted',
+      table: '05',
+      orderItems: [{
+        id: 'oi_partial',
+        order: 'ord_ws_partial_oi',
+        name: 'Risotto',
+        quantity: 3,
+        unitPrice: 14,
+        unit_price: 14,
+        voidedQuantity: 0,
+        voided_quantity: 0,
+        kitchenReady: false,
+        notes: ['senza cipolla'],
+        modifiers: [],
+        date_updated: '2024-01-01T00:00:00.000Z',
+      }],
+      date_updated: '2024-01-01T00:00:00.000Z',
+    });
+
+    // Also seed the order_items store so upsertRecordsIntoIDB has something
+    await upsertRecordsIntoIDB('order_items', [{
+      id: 'oi_partial',
+      order: 'ord_ws_partial_oi',
+      name: 'Risotto',
+      quantity: 3,
+      unit_price: 14,
+      voided_quantity: 0,
+      kitchen_ready: false,
+      date_updated: '2024-01-01T00:00:00.000Z',
+    }]);
+
+    // WS sends a partial payload: only kitchen_ready is updated — quantity,
+    // unit_price, and order are absent, so merge logic must preserve them.
+    await _handleSubscriptionMessage('order_items', {
+      event: 'update',
+      data: [{
+        id: 'oi_partial',
+        kitchen_ready: true,
+        date_updated: '2024-09-01T00:00:00.000Z',
+      }],
+    });
+
+    const order = await db.get('orders', 'ord_ws_partial_oi');
+    expect(order.orderItems).toHaveLength(1);
+    const item = order.orderItems[0];
+    // kitchenReady must have been updated
+    expect(item.kitchenReady).toBe(true);
+    // quantity and unitPrice must NOT have been clobbered with mapper defaults
+    expect(item.quantity).toBe(3);
+    expect(item.unitPrice).toBe(14);
+    expect(item.unit_price).toBe(14);
+    // notes must also be preserved (absent from WS payload → not in raw → kept)
+    expect(item.notes).toEqual(['senza cipolla']);
+
+    // The order_items ObjectStore must also preserve quantity/unit_price/order FK
+    // on partial WS updates (guards against the store being clobbered with defaults).
+    const storedItem = await db.get('order_items', 'oi_partial');
+    expect(storedItem).toBeDefined();
+    expect(storedItem.quantity).toBe(3);
+    expect(storedItem.unit_price).toBe(14);
+    expect(storedItem.kitchen_ready).toBe(true);
+    // The order FK must be preserved (was absent from the partial WS payload).
+    expect(storedItem.order).toBe('ord_ws_partial_oi');
+  });
+
+  it('WS delete for order_item removes it via fallback scan when not yet in order_items store', async () => {
+    // Guards the fallback path in _removeOrderItemsFromOrdersIDB: when a WS delete
+    // arrives for an item that is not (yet) in the order_items IDB store, the helper
+    // must still scan orders.orderItems and remove the embedded entry.
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+
+    const orderId = 'ord_ws_fallback_del';
+
+    // Seed an order with an embedded item — but do NOT seed the item in order_items.
+    await db.put('orders', {
+      id: orderId,
+      status: 'accepted',
+      table: '09',
+      orderItems: [
+        { id: 'oi_fallback_1', order: orderId, name: 'Salmone', quantity: 1, unit_price: 22 },
+        { id: 'oi_fallback_2', order: orderId, name: 'Tiramisù', quantity: 2, unit_price: 7 },
+      ],
+      date_updated: '2024-01-01T00:00:00.000Z',
+    });
+
+    // item is NOT in order_items store, so the normal lookup returns null →
+    // the fallback cursor scan must remove it from the embedded array.
+    await _handleSubscriptionMessage('order_items', {
+      event: 'delete',
+      data: ['oi_fallback_1'],
+    });
+
+    const order = await db.get('orders', orderId);
+    expect(order.orderItems).toHaveLength(1);
+    expect(order.orderItems[0].id).toBe('oi_fallback_2');
+  });
+
+  it('WS partial update for order_item preserves existing modifiers when WS sends ID-only relation entries', async () => {
+    // Guards against the regression in mergeOrderItemFromWSPayload: when a WS
+    // subscription uses fields: ['*'], the `order_item_modifiers` relation field
+    // arrives as bare IDs (numbers), which mapOrderItemFromDirectus normalises to
+    // `modifiers: []`.  The merge function must NOT overwrite existing modifiers
+    // with that empty array — only apply when incoming.modifiers is non-empty.
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+
+    const orderId = 'ord_ws_modifier_preserve';
+    const existingModifiers = [
+      { id: 'mod_1', name: 'Extra cheese', price: 2, quantity: 1 },
+      { id: 'mod_2', name: 'No onion', price: 0, quantity: 1 },
+    ];
+
+    await db.put('orders', {
+      id: orderId,
+      status: 'accepted',
+      table: '11',
+      orderItems: [{
+        id: 'oi_mod_test',
+        order: orderId,
+        name: 'Pizza',
+        quantity: 1,
+        unitPrice: 12,
+        unit_price: 12,
+        kitchenReady: false,
+        modifiers: existingModifiers,
+        date_updated: '2024-01-01T00:00:00.000Z',
+      }],
+      date_updated: '2024-01-01T00:00:00.000Z',
+    });
+
+    await upsertRecordsIntoIDB('order_items', [{
+      id: 'oi_mod_test',
+      order: orderId,
+      name: 'Pizza',
+      quantity: 1,
+      unit_price: 12,
+      kitchen_ready: false,
+      // order_item_modifiers stored as ID-only entries (simulating what IDB
+      // holds after a full pull that didn't expand the relation):
+      order_item_modifiers: [{ id: 'mod_1' }, { id: 'mod_2' }],
+      date_updated: '2024-01-01T00:00:00.000Z',
+    }]);
+
+    // WS sends `order_item_modifiers` as bare IDs (the typical fields:['*'] response).
+    // mapOrderItemFromDirectus() normalises this to `modifiers: []` because the
+    // entries are not fully-expanded objects with a `price` field.
+    await _handleSubscriptionMessage('order_items', {
+      event: 'update',
+      data: [{
+        id: 'oi_mod_test',
+        kitchen_ready: true,
+        order_item_modifiers: [1, 2],      // bare IDs, not expanded objects
+        date_updated: '2024-09-01T00:00:00.000Z',
+      }],
+    });
+
+    // kitchenReady must be updated
+    const order = await db.get('orders', orderId);
+    const item = order.orderItems[0];
+    expect(item.kitchenReady).toBe(true);
+    // Existing modifiers must NOT have been clobbered with []
+    expect(item.modifiers).toHaveLength(2);
+    expect(item.modifiers[0].id).toBe('mod_1');
+    expect(item.modifiers[1].id).toBe('mod_2');
+  });
+
+  it('_mergeOrderItemsIntoOrdersIDB overwrites when incoming timestamp equals existing (same as upsertRecordsIntoIDB)', async () => {
+    // Guards timestamp-comparison consistency: same-timestamp incoming SHOULD overwrite
+    // the existing embedded item so that back-to-back PATCHes within the same server-clock
+    // millisecond are never silently dropped (matches upsertRecordsIntoIDB ≥ semantics).
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+
+    const sameTs = '2024-06-01T12:00:00.000Z';
+    const orderId = 'ord_ts_compare';
+
+    await db.put('orders', {
+      id: orderId,
+      status: 'accepted',
+      table: '10',
+      orderItems: [{
+        id: 'oi_ts_1',
+        order: orderId,
+        name: 'Originale',
+        quantity: 5,
+        unitPrice: 10,
+        unit_price: 10,
+        date_updated: sameTs,
+      }],
+      date_updated: sameTs,
+    });
+
+    // WS update arrives with the SAME timestamp — incoming wins (overwrites existing).
+    await _handleSubscriptionMessage('order_items', {
+      event: 'update',
+      data: [{
+        id: 'oi_ts_1',
+        order: orderId,
+        name: 'Sostituto',
+        quantity: 99,
+        unit_price: 1,
+        date_updated: sameTs,
+      }],
+    });
+
+    const order = await db.get('orders', orderId);
+    const item = order.orderItems[0];
+    // Same timestamp → incoming wins; latest payload values are stored.
+    expect(item.name).toBe('Sostituto');
+    expect(item.quantity).toBe(99);
+    expect(item.unit_price).toBe(1);
+  });
+});
 
 describe('pull — in-memory orders merge', () => {
   it('adds a new order from remote into store.orders', async () => {
@@ -1386,6 +1992,40 @@ describe('reactive timestamps', () => {
     expect(sync.lastPullAt.value).toBeTruthy();
   });
 
+  it('lastPullAt is updated after a successful pull even when no records are returned', async () => {
+    vi.spyOn(global, 'fetch').mockImplementation(() => Promise.resolve(directusListResponse([])));
+
+    const sync = useDirectusSync();
+    const before = sync.lastPullAt.value;
+    await sync.forcePull();
+
+    expect(sync.lastPullAt.value).not.toBe(before);
+    expect(sync.lastPullAt.value).toBeTruthy();
+  });
+
+  it('forcePull() sets syncStatus to syncing then idle on success', async () => {
+    const statuses = [];
+    vi.spyOn(global, 'fetch').mockImplementation(() => Promise.resolve(directusListResponse([])));
+
+    const sync = useDirectusSync();
+    const pullPromise = sync.forcePull();
+    statuses.push(sync.syncStatus.value);
+    await pullPromise;
+    statuses.push(sync.syncStatus.value);
+
+    expect(statuses[0]).toBe('syncing');
+    expect(statuses[1]).toBe('idle');
+  });
+
+  it('forcePull() sets syncStatus to offline when navigator is offline', async () => {
+    vi.stubGlobal('navigator', { onLine: false });
+
+    const sync = useDirectusSync();
+    await sync.forcePull();
+
+    expect(sync.syncStatus.value).toBe('offline');
+  });
+
   it('lastPushAt is set after a successful push', async () => {
     // Seed the queue with an entry
     const { enqueue } = await import('../useSyncQueue.js');
@@ -1465,6 +2105,25 @@ describe('pull timestamp persistence', () => {
     expect(ts).toBe('2024-07-15T12:00:00.000Z');
   });
 
+  it('saves date_created as cursor when date_updated is null (newly created record)', async () => {
+    const remoteOrder = makeRemoteOrder({
+      id: 'ord_null_ts',
+      date_updated: null,
+      date_created: '2024-09-20T08:00:00.000Z',
+    });
+
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      if (url.includes('/items/orders')) return Promise.resolve(directusListResponse([remoteOrder]));
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const sync = useDirectusSync();
+    await sync.forcePull();
+
+    const ts = await loadLastPullTsFromIDB('orders');
+    expect(ts).toBe('2024-09-20T08:00:00.000Z');
+  });
+
   it('does not advance last_pull_ts when a paginated pull fails mid-cycle', async () => {
     await saveLastPullTsToIDB('orders', '2024-01-01T00:00:00.000Z');
     const page1Orders = Array.from({ length: 200 }, (_, i) => makeRemoteOrder({
@@ -1503,7 +2162,7 @@ describe('global pull config hydration', () => {
     const venueCalls = fetchSpy.mock.calls
       .map(([url]) => String(url))
       .filter(url => url.includes('/items/venues'));
-    expect(venueCalls.every(url => hasDateUpdatedGtFilter(url) === false)).toBe(true);
+    expect(venueCalls.every(url => hasDateUpdatedIncrementalFilter(url) === false)).toBe(true);
   });
 
   it('retries deep venue bootstrap on the next cycle if the first global fetch fails', async () => {
@@ -1536,7 +2195,7 @@ describe('global pull config hydration', () => {
       .filter(url => url.includes('/items/venues'));
     expect(venueCalls.length).toBeGreaterThanOrEqual(2);
     for (const url of venueCalls) {
-      expect(hasDateUpdatedGtFilter(url)).toBe(false);
+      expect(hasDateUpdatedIncrementalFilter(url)).toBe(false);
     }
   });
 
@@ -1583,7 +2242,110 @@ describe('global pull config hydration', () => {
     expect(store.tableMergedInto).toEqual({ T2: 'T1' });
   });
 
+  it('forcePull returns {ok:true} when all collections succeed', async () => {
+    vi.spyOn(global, 'fetch').mockImplementation(() => Promise.resolve(directusListResponse([])));
+
+    const sync = useDirectusSync();
+    const result = await sync.forcePull();
+
+    expect(result).toEqual(expect.objectContaining({ ok: true }));
+    expect(Array.isArray(result.failedCollections)).toBe(true);
+    expect(result.failedCollections).toHaveLength(0);
+  });
+
+  it('forcePull returns {ok:false, failedCollections} when a collection fetch fails', async () => {
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      if (String(url).includes('/items/orders')) return Promise.reject(new Error('orders fetch failed'));
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const sync = useDirectusSync();
+    const result = await sync.forcePull();
+
+    expect(result.ok).toBe(false);
+    expect(result.failedCollections).toContain('orders');
+  });
+
+  it('older concurrent pull still applies config when newer pull fails before hydration', async () => {
+    // True concurrency test: pull A is launched but blocked mid-flight (before its
+    // venue fetch resolves) while pull B starts, increments the generation counter
+    // to 2, and fails immediately on the venue fetch.  Only then is pull A unblocked.
+    //
+    // Expected: _lastAppliedGlobalPullGeneration stays 0 after B fails, so when A
+    // resumes it sees 0 <= 1 (myGeneration_A) and is free to write IDB and apply config.
+
+    const mappers = await import('../../utils/mappers.js');
+    const mapperSpy = vi.spyOn(mappers, 'mapVenueConfigFromDirectus');
+
+    const venuePayload = {
+      id: 1,
+      name: 'Concurrent Race Venue',
+      menu_source: 'directus',
+      rooms: [],
+      tables: [],
+      payment_methods: [],
+      printers: [],
+      venue_users: [],
+      table_merge_sessions: [],
+      menu_categories: [],
+      menu_items: [],
+      primary_color: '#aabbcc',
+    };
+
+    // Deferred: lets us control exactly when pull A's venue response arrives.
+    let resolveVenueA;
+    const venueAFetch = new Promise((resolve) => { resolveVenueA = resolve; });
+
+    // First venue request (pull A) — deferred.
+    // Subsequent venue requests (pull B full + fallback field sets) — fail immediately.
+    let venueFetchCount = 0;
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      if (String(url).includes('/items/venues/')) {
+        venueFetchCount += 1;
+        if (venueFetchCount === 1) {
+          return venueAFetch.then(() => directusItemResponse(venuePayload));
+        }
+        return Promise.reject(new Error('concurrent pull B failure'));
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const sync = useDirectusSync();
+
+    // Launch pull A without awaiting.  The ++_globalPullGeneration increment in
+    // _runGlobalPull runs synchronously (before the first await), so by the time
+    // this assignment returns, _globalPullGeneration is already 1 and pull A is
+    // suspended waiting for its venue fetch.
+    const promiseA = sync.reconfigureAndApply();
+
+    // Flush a few microtask rounds to let pull A reach its suspended await.
+    await flushPromises(5);
+
+    // Launch pull B and wait for it to finish — it fails immediately on the venue
+    // fetch (venueFetchCount >= 2).  _globalPullGeneration is now 2.
+    // _lastAppliedGlobalPullGeneration stays 0 because B never hydrates config.
+    const resultB = await sync.reconfigureAndApply();
+    expect(resultB.ok).toBe(false);
+
+    // Unblock pull A's venue fetch.
+    resolveVenueA();
+
+    // Await pull A — it must complete successfully.
+    // Supersession check: _lastAppliedGlobalPullGeneration (0) is NOT > myGeneration_A (1),
+    // so pull A proceeds to write IDB and hydrate config.
+    const resultA = await promiseA;
+    expect(resultA.ok).toBe(true);
+    expect(resultA.failedCollections).toHaveLength(0);
+
+    // mapVenueConfigFromDirectus being called proves _hydrateConfigFromLocalCache ran
+    // (i.e. pull A was not blocked from applying config by pull B's failure).
+    expect(mapperSpy).toHaveBeenCalled();
+
+    sync.stopSync();
+  });
+
 });
+
 
 // ── WebSocket subscriptions ───────────────────────────────────────────────────
 
@@ -1619,9 +2381,70 @@ describe('WebSocket subscriptions', () => {
     // The pull loop should work even without WS
     await sync.forcePull();
 
-    // No error thrown, lastPullAt stays null (no records returned)
+    // No error thrown; lastPullAt is updated even with no new records (all collections up to date)
     expect(sync.syncStatus.value).not.toBe('error');
   });
+  it('order_items subscription uses relational order.venue filter instead of direct venue', async () => {
+    // Capture WS messages so we can inspect the subscribe payload.
+    const sentMessages = [];
+
+    // Minimal WebSocket mock that:
+    //  1. Fires the "open" event as a microtask (so flushPromises() can settle it).
+    //  2. Auto-responds to the auth handshake with { type:'auth', status:'ok' }.
+    //  3. Records every message sent via send() for later assertions.
+    class MockWebSocket {
+      constructor(_url) {
+        this._listeners = { open: [], message: [], error: [], close: [] };
+        this.readyState = 1; // OPEN
+        // Schedule open as a microtask so flushPromises() can pick it up.
+        Promise.resolve().then(() => this._fire('open', { type: 'open' }));
+      }
+      addEventListener(event, handler) {
+        (this._listeners[event] ??= []).push(handler);
+      }
+      removeEventListener(event, handler) {
+        if (this._listeners[event]) {
+          this._listeners[event] = this._listeners[event].filter(h => h !== handler);
+        }
+      }
+      send(data) {
+        const msg = typeof data === 'string' ? JSON.parse(data) : data;
+        sentMessages.push(msg);
+        // Respond to the auth handshake so connect() can resolve.
+        if (msg.type === 'auth') {
+          Promise.resolve().then(() =>
+            this._fire('message', { data: JSON.stringify({ type: 'auth', status: 'ok' }) }),
+          );
+        }
+      }
+      close() { this.readyState = 3; }
+      _fire(event, evt) { (this._listeners[event] ?? []).forEach(h => h(evt)); }
+    }
+
+    // Inject mock before the client singleton is created (getDirectusClient picks up
+    // globalThis.WebSocket at call time because we pass it explicitly in globals).
+    vi.stubGlobal('WebSocket', MockWebSocket);
+
+    // Call _startSubscriptions directly to avoid the full startSync/IDB bootstrap path.
+    // venueId = 1 comes from beforeEach appConfig.directus.venueId.
+    await _startSubscriptions(['orders', 'order_items']);
+    await flushPromises(20);
+
+    // Find the subscribe message for order_items (filter is JSON-serialised by queryToParams).
+    const subscribeMsg = sentMessages.find(m => m.type === 'subscribe' && m.collection === 'order_items');
+    expect(subscribeMsg).toBeDefined();
+
+    const rawFilter = subscribeMsg?.query?.filter;
+    expect(rawFilter).toBeDefined();
+    const filter = JSON.parse(rawFilter);
+
+    // Must NOT use direct { venue: { _eq: ... } } — the field does not exist on order_items.
+    expect(filter?.venue?._eq).toBeUndefined();
+
+    // Must use relational path { order: { venue: { _eq: venueId } } } (venueId = 1 from beforeEach).
+    expect(filter?.order?.venue?._eq).toBe(1);
+  });
+
 });
 
 // ── drainQueue: last_error persistence ───────────────────────────────────────
@@ -1820,5 +2643,697 @@ describe('self-echo suppression (_handleSubscriptionMessage)', () => {
     // The bare string must NOT have produced a corrupted record
     const corrupted = await db.get('orders', 'bare-string-id');
     expect(corrupted).toBeUndefined();
+  });
+
+  it('preserves local orderItems when a WS event arrives without nested items', async () => {
+    // Pre-seed IDB with an order that has orderItems (e.g. a cover charge order)
+    const existingItems = [
+      { uid: 'cop_1', name: 'Coperto', unitPrice: 2.5, quantity: 4, voidedQuantity: 0, notes: [], modifiers: [] },
+    ];
+    await upsertRecordsIntoIDB('orders', [{
+      id: 'ord_ws_items',
+      status: 'pending',
+      orderItems: existingItems,
+      totalAmount: 10,
+    }]);
+
+    // Simulate a WS status-update event — Directus never returns order_items in fields:['*']
+    await _handleSubscriptionMessage('orders', {
+      event: 'update',
+      data: [{ id: 'ord_ws_items', status: 'accepted', date_updated: '2026-01-01T00:00:05.000Z' }],
+    });
+
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+    const stored = await db.get('orders', 'ord_ws_items');
+
+    // Status must be updated
+    expect(stored?.status).toBe('accepted');
+    // orderItems must NOT have been wiped by the incoming empty array
+    expect(Array.isArray(stored?.orderItems)).toBe(true);
+    expect(stored.orderItems.length).toBe(1);
+    expect(stored.orderItems[0].name).toBe('Coperto');
+  });
+
+  it('preserves non-orderItems IDB fields when WS update omits them (partial payload)', async () => {
+    // Pre-seed IDB with an order that has a non-zero totalAmount and globalNote
+    await upsertRecordsIntoIDB('orders', [{
+      id: 'ord_ws_partial',
+      status: 'pending',
+      totalAmount: 25.5,
+      total_amount: 25.5,
+      itemCount: 3,
+      item_count: 3,
+      globalNote: 'allergia noci',
+      orderItems: [{ uid: 'r1', name: 'Pasta', unitPrice: 8.5, quantity: 3, voidedQuantity: 0, notes: [], modifiers: [] }],
+    }]);
+
+    // Simulate a WS status-update with only {id, status, date_updated} — no total_amount etc.
+    await _handleSubscriptionMessage('orders', {
+      event: 'update',
+      data: [{ id: 'ord_ws_partial', status: 'accepted', date_updated: '2026-01-01T00:00:10.000Z' }],
+    });
+
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+    const stored = await db.get('orders', 'ord_ws_partial');
+
+    // Status must be updated
+    expect(stored?.status).toBe('accepted');
+    // totalAmount and globalNote must NOT have been wiped by mapOrderFromDirectus defaults
+    expect(stored?.totalAmount).toBe(25.5);
+    expect(stored?.globalNote).toBe('allergia noci');
+    // orderItems must also be preserved
+    expect(stored?.orderItems?.length).toBe(1);
+    expect(stored?.orderItems[0].name).toBe('Pasta');
+  });
+
+  it('does NOT merge existing for WS create events (new records use incoming data)', async () => {
+    // Simulate a WS create event for a brand-new order
+    await _handleSubscriptionMessage('orders', {
+      event: 'create',
+      data: [{ id: 'ord_ws_new', status: 'pending', total_amount: 12, date_updated: '2026-01-01T00:00:01.000Z' }],
+    });
+
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+    const stored = await db.get('orders', 'ord_ws_new');
+
+    expect(stored?.status).toBe('pending');
+    expect(stored?.totalAmount).toBe(12);
+  });
+});
+
+// ── Pull: per-collection `fields` expansion ────────────────────────────────────
+// Verifies that _fetchUpdatedViaSDK sends the correct `fields` query parameter
+// for each collection so that nested expands are not silently regressed.
+
+describe('pull — per-collection fields expansion', () => {
+  /**
+   * Decodes the `fields` query-param from a Directus SDK request URL.
+   * The SDK serialises the array as a comma-separated `fields=a,b,c` value.
+   * Returns an array of field strings.
+   *
+   * @param {string} urlString
+   * @returns {string[]}
+   */
+  function extractFieldsParam(urlString) {
+    const url = new URL(urlString);
+    const raw = url.searchParams.get('fields');
+    if (!raw) return [];
+    return raw.split(',').map(f => f.trim());
+  }
+
+  it('orders pull includes order_items.* and order_items.order_item_modifiers.*', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation(() => Promise.resolve(directusListResponse([])));
+    const sync = useDirectusSync();
+    await sync.forcePull();
+
+    const orderUrls = fetchSpy.mock.calls
+      .map(([url]) => String(url))
+      .filter(url => url.includes('/items/orders'));
+    expect(orderUrls.length).toBeGreaterThan(0);
+
+    for (const url of orderUrls) {
+      const fields = extractFieldsParam(url);
+      expect(fields).toContain('order_items.*');
+      expect(fields).toContain('order_items.order_item_modifiers.*');
+    }
+  });
+
+  it('order_items pull uses relational order.venue filter instead of direct venue field', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation(() => Promise.resolve(directusListResponse([])));
+    const sync = useDirectusSync();
+    // Use appType 'cucina' which always pulls order_items as a standalone collection
+    sync.startSync({ appType: 'cucina', store: makeStore() });
+    await sync.forcePull();
+
+    const orderItemUrls = fetchSpy.mock.calls
+      .map(([url]) => String(url))
+      .filter(url => url.includes('/items/order_items'));
+    expect(orderItemUrls.length).toBeGreaterThan(0);
+
+    const walkFilter = (node, matcher) => {
+      if (!node || typeof node !== 'object') return false;
+      if (matcher(node)) return true;
+      for (const logicKey of ['_and', '_or']) {
+        if (Array.isArray(node[logicKey])) {
+          for (const child of node[logicKey]) {
+            if (walkFilter(child, matcher)) return true;
+          }
+        }
+      }
+      return false;
+    };
+
+    const hasJsonEncodedFilter = (searchParams) => searchParams.get('filter') !== null;
+
+    const hasDirectVenueEq = (searchParams) => {
+      if (hasJsonEncodedFilter(searchParams)) {
+        const rawFilter = searchParams.get('filter');
+        expect(rawFilter).not.toBeNull();
+        const parsedFilter = JSON.parse(rawFilter);
+        return walkFilter(parsedFilter, (node) => node.venue?._eq !== undefined);
+      }
+
+      return Array.from(searchParams.keys()).some((key) =>
+        /(^|[\]])\[venue\]\[_eq\]$/.test(key) && !/\[order\]\[venue\]\[_eq\]$/.test(key),
+      );
+    };
+
+    const hasOrderVenueEq = (searchParams) => {
+      if (hasJsonEncodedFilter(searchParams)) {
+        const rawFilter = searchParams.get('filter');
+        expect(rawFilter).not.toBeNull();
+        const parsedFilter = JSON.parse(rawFilter);
+        return walkFilter(parsedFilter, (node) => node.order?.venue?._eq !== undefined);
+      }
+
+      return Array.from(searchParams.keys()).some((key) => /\[order\]\[venue\]\[_eq\]$/.test(key));
+    };
+
+    for (const url of orderItemUrls) {
+      const searchParams = new URL(url).searchParams;
+      expect(hasDirectVenueEq(searchParams)).toBe(false);
+      expect(hasOrderVenueEq(searchParams)).toBe(true);
+    }
+  });
+
+  it('order_items pull includes order_item_modifiers.*', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation(() => Promise.resolve(directusListResponse([])));
+    const sync = useDirectusSync();
+    // Use appType 'cucina' which always pulls order_items as a standalone collection
+    sync.startSync({ appType: 'cucina', store: makeStore() });
+    await sync.forcePull();
+
+    const orderItemUrls = fetchSpy.mock.calls
+      .map(([url]) => String(url))
+      .filter(url => url.includes('/items/order_items'));
+    expect(orderItemUrls.length).toBeGreaterThan(0);
+
+    for (const url of orderItemUrls) {
+      const fields = extractFieldsParam(url);
+      expect(fields).toContain('order_item_modifiers.*');
+      // Should NOT include the orders-specific nested expand
+      expect(fields).not.toContain('order_items.*');
+    }
+  });
+
+  it('bill_sessions pull uses only wildcard fields (no nested expand)', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch').mockImplementation(() => Promise.resolve(directusListResponse([])));
+    const sync = useDirectusSync();
+    await sync.forcePull();
+
+    const billUrls = fetchSpy.mock.calls
+      .map(([url]) => String(url))
+      .filter(url => url.includes('/items/bill_sessions'));
+    expect(billUrls.length).toBeGreaterThan(0);
+
+    for (const url of billUrls) {
+      const fields = extractFieldsParam(url);
+      expect(fields).toEqual(['*']);
+    }
+  });
+});
+
+// ── Pull: sync log response.records cap ───────────────────────────────────────
+// Verifies that SYNC_LOG_RECORDS_MAX is enforced: small pulls store all records,
+// large pulls store only the first N so IDB stays bounded.
+
+describe('pull — sync log response records cap', () => {
+  it('stores all records in sync log when count is within SYNC_LOG_RECORDS_MAX', async () => {
+    const { getSyncLogs } = await import('../../store/persistence/syncLogs.js');
+
+    // Return 3 orders — well under the cap of 20
+    const records = Array.from({ length: 3 }, (_, i) => makeRemoteOrder({
+      id: `ord_cap_${i}`,
+      date_updated: `2024-05-01T00:00:${String(i).padStart(2, '0')}.000Z`,
+    }));
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      if (String(url).includes('/items/orders')) return Promise.resolve(directusListResponse(records));
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const sync = useDirectusSync();
+    await sync.forcePull();
+    // addSyncLog() is fire-and-forget inside _fetchUpdatedViaSDK; flush pending
+    // microtasks so the IDB write completes before we read back the log.
+    await flushPromises();
+
+    const logs = await getSyncLogs();
+    const orderPullLog = logs.find(l => l.endpoint === '/items/orders' && l.direction === 'IN');
+    expect(orderPullLog).toBeTruthy();
+    expect(orderPullLog.response.count).toBe(3);
+    expect(Array.isArray(orderPullLog.response.records)).toBe(true);
+    expect(orderPullLog.response.records.length).toBe(3);
+  });
+
+  it('caps stored records at SYNC_LOG_RECORDS_MAX (20) when pull returns more', async () => {
+    const { getSyncLogs } = await import('../../store/persistence/syncLogs.js');
+
+    // Return 25 orders — above the cap of 20
+    const records = Array.from({ length: 25 }, (_, i) => makeRemoteOrder({
+      id: `ord_bigcap_${i}`,
+      date_updated: `2024-05-01T00:${String(i).padStart(2, '0')}:00.000Z`,
+    }));
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      if (String(url).includes('/items/orders')) return Promise.resolve(directusListResponse(records));
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const sync = useDirectusSync();
+    await sync.forcePull();
+    // addSyncLog() is fire-and-forget inside _fetchUpdatedViaSDK; flush pending
+    // microtasks so the IDB write completes before we read back the log.
+    await flushPromises();
+
+    const logs = await getSyncLogs();
+    const orderPullLog = logs.find(l => l.endpoint === '/items/orders' && l.direction === 'IN');
+    expect(orderPullLog).toBeTruthy();
+    // count always reflects the true number of pulled records
+    expect(orderPullLog.response.count).toBe(25);
+    // but records is capped at SYNC_LOG_RECORDS_MAX (20)
+    expect(Array.isArray(orderPullLog.response.records)).toBe(true);
+    expect(orderPullLog.response.records.length).toBe(20);
+    // the stored slice must be the first N records
+    expect(orderPullLog.response.records[0].id).toBe('ord_bigcap_0');
+    expect(orderPullLog.response.records[19].id).toBe('ord_bigcap_19');
+  });
+});
+
+// ── offline / online event handling ──────────────────────────────────────────
+// Verifies that wsConnected reflects offline immediately, that timers are
+// correctly cancelled/debounced, and that the delayed push retry does not
+// run after stopSync() or after the device goes offline again.
+//
+// Implementation note on fake timers + fake-indexeddb:
+// fake-indexeddb schedules IDB callbacks via `setImmediate` (0 ms).  Calling
+// vi.useFakeTimers() without a `toFake` list fakes ALL timer APIs including
+// setImmediate, which can stall IDB operations that run after the call.  To
+// avoid this deadlock we use an explicit `toFake` list that fakes only the
+// timeout/interval/Date APIs the tests need to control, while leaving
+// setImmediate real so IDB callbacks always drain normally.  Queue items are
+// also written with REAL timers (before vi.useFakeTimers()) to ensure the
+// enqueue IDB writes complete before fake timers are installed.
+
+describe('offline/online event handling', () => {
+  it('sets wsConnected to false immediately on window offline event', async () => {
+    vi.spyOn(global, 'fetch').mockImplementation(() => Promise.resolve(directusListResponse([])));
+    const sync = useDirectusSync();
+    // Awaiting startSync ensures _hydrateConfigFromLocalCache (IDB) has finished
+    // and window event listeners are registered before we dispatch the event.
+    await sync.startSync({ appType: 'cassa', store: makeStore() });
+
+    sync.wsConnected.value = true;
+
+    window.dispatchEvent(new Event('offline'));
+    expect(sync.wsConnected.value).toBe(false);
+
+    sync.stopSync();
+  });
+
+  it('cancels _onlineRetryTimer when the device goes offline again before it fires', async () => {
+    const { enqueue } = await import('../useSyncQueue.js');
+    await enqueue('orders', 'create', 'ord_timer_test', { id: 'ord_timer_test' });
+
+    let pushPostCalls = 0;
+    vi.spyOn(global, 'fetch').mockImplementation((url, opts = {}) => {
+      const method = (opts?.method ?? 'GET').toUpperCase();
+      if (String(url).includes('/items/orders') && method === 'POST') {
+        pushPostCalls++;
+        return Promise.reject(new TypeError('simulated network error'));
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const sync = useDirectusSync();
+    try {
+      // Await with real timers so _hydrateConfigFromLocalCache (IDB) can
+      // resolve normally and the online/offline listeners are guaranteed to be
+      // registered before any events are dispatched.
+      await sync.startSync({ appType: 'cassa', store: makeStore() });
+      await flushPromises(LONG_FLUSH_ROUNDS);
+
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
+
+      // Reset after startSync's own push attempt.
+      pushPostCalls = 0;
+
+      // online → _runPush fires immediately (POST attempt #1);
+      // because the POST rejects with TypeError the push returns offline:true
+      // which schedules the 5 s retry timer.
+      window.dispatchEvent(new Event('online'));
+      await vi.advanceTimersByTimeAsync(1); // drain IDB from the push
+      await flushPromises(LONG_FLUSH_ROUNDS);
+      expect(pushPostCalls).toBe(1);
+
+      // offline before the 5 s timer fires → timer must be cancelled
+      window.dispatchEvent(new Event('offline'));
+
+      // Advance past the 5 s window — the retry should NOT fire
+      await vi.advanceTimersByTimeAsync(6_000);
+      await flushPromises(LONG_FLUSH_ROUNDS);
+      expect(pushPostCalls).toBe(1);
+    } finally {
+      sync.stopSync();
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not run the delayed push retry after stopSync()', async () => {
+    const { enqueue } = await import('../useSyncQueue.js');
+    await enqueue('orders', 'create', 'ord_stopsync_test', { id: 'ord_stopsync_test' });
+
+    let pushPostCalls = 0;
+    vi.spyOn(global, 'fetch').mockImplementation((url, opts = {}) => {
+      const method = (opts?.method ?? 'GET').toUpperCase();
+      if (String(url).includes('/items/orders') && method === 'POST') {
+        pushPostCalls++;
+        return Promise.reject(new TypeError('simulated network error'));
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const sync = useDirectusSync();
+    try {
+      // Await with real timers so _hydrateConfigFromLocalCache (IDB) can
+      // resolve normally and the online/offline listeners are guaranteed to be
+      // registered before any events are dispatched.
+      await sync.startSync({ appType: 'cassa', store: makeStore() });
+      await flushPromises(LONG_FLUSH_ROUNDS);
+
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
+      pushPostCalls = 0;
+
+      // online → immediate push fails (offline: true) → 5 s retry timer is scheduled
+      window.dispatchEvent(new Event('online'));
+      await vi.advanceTimersByTimeAsync(1);
+      await flushPromises(LONG_FLUSH_ROUNDS);
+      expect(pushPostCalls).toBe(1);
+
+      // stopSync() cancels the retry timer and sets _running = false
+      sync.stopSync();
+
+      // Advance past the 5 s window — timer is cancelled, retry must not fire
+      await vi.advanceTimersByTimeAsync(6_000);
+      await flushPromises(LONG_FLUSH_ROUNDS);
+      expect(pushPostCalls).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('runs a delayed push retry 5 s after online event when still running', async () => {
+    const { enqueue } = await import('../useSyncQueue.js');
+    await enqueue('orders', 'create', 'ord_retry_test', { id: 'ord_retry_test' });
+
+    let pushPostCalls = 0;
+    vi.spyOn(global, 'fetch').mockImplementation((url, opts = {}) => {
+      const method = (opts?.method ?? 'GET').toUpperCase();
+      if (String(url).includes('/items/orders') && method === 'POST') {
+        pushPostCalls++;
+        return Promise.reject(new TypeError('simulated network error'));
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const sync = useDirectusSync();
+    try {
+      // Await with real timers so _hydrateConfigFromLocalCache (IDB) can
+      // resolve normally and the online/offline listeners are guaranteed to be
+      // registered before any events are dispatched.
+      await sync.startSync({ appType: 'cassa', store: makeStore() });
+      await flushPromises(LONG_FLUSH_ROUNDS);
+
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
+      pushPostCalls = 0;
+
+      // online → immediate push fails, timer scheduled for 5 s
+      window.dispatchEvent(new Event('online'));
+      await vi.advanceTimersByTimeAsync(1); // drain IDB from the push
+      await flushPromises(LONG_FLUSH_ROUNDS);
+      expect(pushPostCalls).toBe(1);
+
+      // Advance 5 s — the retry timer fires another _runPush()
+      await vi.advanceTimersByTimeAsync(5_000);
+      await flushPromises(LONG_FLUSH_ROUNDS);
+      expect(pushPostCalls).toBe(2);
+    } finally {
+      sync.stopSync();
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not schedule the delayed push retry when the first push succeeds', async () => {
+    const { enqueue } = await import('../useSyncQueue.js');
+    await enqueue('orders', 'create', 'ord_push_ok_test', { id: 'ord_push_ok_test' });
+
+    let pushPostCalls = 0;
+    vi.spyOn(global, 'fetch').mockImplementation((url, opts = {}) => {
+      const method = (opts?.method ?? 'GET').toUpperCase();
+      if (String(url).includes('/items/orders') && method === 'POST') {
+        pushPostCalls++;
+        // Return a successful Directus create response so drainQueue resolves
+        // with offline: false — no retry timer should be scheduled.
+        return Promise.resolve(directusItemResponse({ id: 'ord_push_ok_test' }));
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const sync = useDirectusSync();
+    try {
+      await sync.startSync({ appType: 'cassa', store: makeStore() });
+      await flushPromises(LONG_FLUSH_ROUNDS);
+
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
+      pushPostCalls = 0;
+
+      // online → push succeeds (offline: false) → retry timer must NOT be scheduled
+      window.dispatchEvent(new Event('online'));
+      await vi.advanceTimersByTimeAsync(1); // drain IDB from the push
+      await flushPromises(LONG_FLUSH_ROUNDS);
+      expect(pushPostCalls).toBe(1);
+
+      // Advance well past the 5 s window — no retry must fire
+      await vi.advanceTimersByTimeAsync(10_000);
+      await flushPromises(LONG_FLUSH_ROUNDS);
+      expect(pushPostCalls).toBe(1);
+    } finally {
+      sync.stopSync();
+      vi.useRealTimers();
+    }
+  });
+
+  it('a second online event before the retry timer fires resets the timer cleanly', async () => {
+    const { enqueue } = await import('../useSyncQueue.js');
+    await enqueue('orders', 'create', 'ord_rapid_test', { id: 'ord_rapid_test' });
+
+    let pushPostCalls = 0;
+    vi.spyOn(global, 'fetch').mockImplementation((url, opts = {}) => {
+      const method = (opts?.method ?? 'GET').toUpperCase();
+      if (String(url).includes('/items/orders') && method === 'POST') {
+        pushPostCalls++;
+        return Promise.reject(new TypeError('simulated network error'));
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const sync = useDirectusSync();
+    try {
+      await sync.startSync({ appType: 'cassa', store: makeStore() });
+      await flushPromises(LONG_FLUSH_ROUNDS);
+
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
+      pushPostCalls = 0;
+
+      // First online event — push fails (offline: true) → timer A scheduled at ~t+5 s
+      window.dispatchEvent(new Event('online'));
+      await vi.advanceTimersByTimeAsync(1); // drain IDB from push #1
+      await flushPromises(LONG_FLUSH_ROUNDS);
+      expect(pushPostCalls).toBe(1);
+
+      // Second online event fires at t≈2 s — before timer A would have fired.
+      // The start of _onOnline cancels timer A and starts push #2.
+      await vi.advanceTimersByTimeAsync(2_000);
+      window.dispatchEvent(new Event('online'));
+      await vi.advanceTimersByTimeAsync(1); // drain IDB from push #2
+      await flushPromises(LONG_FLUSH_ROUNDS);
+      expect(pushPostCalls).toBe(2); // push #1 + push #2
+
+      // Push #2 also fails (offline: true) → timer B is scheduled 5 s from now
+      // (~t=7 s).  Advance 6 s to pass timer B's deadline — timer A was cancelled;
+      // timer B fires push #3.
+      await vi.advanceTimersByTimeAsync(6_000);
+      await flushPromises(LONG_FLUSH_ROUNDS);
+      expect(pushPostCalls).toBe(3); // push #1, push #2, push #3 (timer B)
+
+      // Push #3 also fails → _scheduleOnlineRetry() reschedules (timer C at ~t=13 s).
+      // Advance 5 s to verify push #4 fires.
+      await vi.advanceTimersByTimeAsync(5_000);
+      await flushPromises(LONG_FLUSH_ROUNDS);
+      expect(pushPostCalls).toBe(4); // push #4 (timer C)
+
+      // stopSync() cancels the pending timer — no further retries.
+      sync.stopSync();
+      await vi.advanceTimersByTimeAsync(10_000);
+      await flushPromises(LONG_FLUSH_ROUNDS);
+      expect(pushPostCalls).toBe(4);
+    } finally {
+      // stopSync() may already have been called above; calling it again via
+      // finally is safe (removeEventListener is idempotent).
+      sync.stopSync();
+      vi.useRealTimers();
+    }
+  });
+
+  it('offline event releases a stuck _pushInFlight so the next online push starts fresh', async () => {
+    // Real-world failure: a push is in-flight with a hung fetch (TCP timeout could
+    // take 10-20 min).  Without the generation-counter fix, _pushInFlight stays
+    // set to the hung promise; every subsequent _runPush() call — including
+    // _onOnline's recovery push — returns the same stuck promise, leaving the
+    // queue completely blocked until the app is restarted.
+    const { enqueue } = await import('../useSyncQueue.js');
+    await enqueue('orders', 'create', 'ord_stuck_test', { id: 'ord_stuck_test' });
+
+    let pushPostCalls = 0;
+    // Flag: when true the NEXT POST call returns a never-resolving promise (TCP hang).
+    let hangNextCall = false;
+
+    vi.spyOn(global, 'fetch').mockImplementation((url, opts = {}) => {
+      const method = (opts?.method ?? 'GET').toUpperCase();
+      if (String(url).includes('/items/orders') && method === 'POST') {
+        pushPostCalls++;
+        expect(opts.signal).toBeDefined();
+        if (hangNextCall) {
+          hangNextCall = false; // only hang once
+          // Simulate TCP-level hang: promise never resolves on its own, but
+          // rejects immediately when the AbortController signals abortion so
+          // the test does not leave a dangling forever-pending microtask.
+          return new Promise((_, reject) => {
+            const abortError = () => {
+              const error = new Error('The operation was aborted.');
+              error.name = 'AbortError';
+              reject(error);
+            };
+            if (opts.signal.aborted) {
+              abortError();
+              return;
+            }
+            opts.signal.addEventListener('abort', abortError, { once: true });
+          });
+        }
+        return Promise.reject(new TypeError('simulated network error'));
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const sync = useDirectusSync();
+    try {
+      // startSync phase: mock fails fast (hangNextCall = false) so the initial push
+      // from startSync completes and _pushInFlight is null before we switch to fake timers.
+      await sync.startSync({ appType: 'cassa', store: makeStore() });
+      await flushPromises(LONG_FLUSH_ROUNDS);
+
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
+      pushPostCalls = 0;
+
+      // Arm the hung-fetch for the upcoming online-event push.
+      hangNextCall = true;
+
+      // Push #1 starts via online event — fetch hangs, _pushInFlight is stuck.
+      window.dispatchEvent(new Event('online'));
+      await vi.advanceTimersByTimeAsync(1); // drain IDB read inside _runPush
+      await flushPromises(LONG_FLUSH_ROUNDS);
+      expect(pushPostCalls).toBe(1); // fetch was called and is now hanging
+
+      // Device goes offline — _pushAbortController.abort() fires the AbortError
+      // on the hung mock fetch so push #1's drain halts cleanly.  The generation
+      // is also incremented and _pushInFlight set to null.
+      window.dispatchEvent(new Event('offline'));
+      await flushPromises(LONG_FLUSH_ROUNDS); // let push #1 resolve via AbortError
+
+      // Device comes back online — _onOnline should start a FRESH push (push #2),
+      // not be blocked by the now-aborted push #1.
+      window.dispatchEvent(new Event('online'));
+      await vi.advanceTimersByTimeAsync(1); // drain IDB for push #2
+      await flushPromises(LONG_FLUSH_ROUNDS);
+      // Push #2 ran (fetch #2 → rejected quickly via TypeError).
+      expect(pushPostCalls).toBe(2);
+    } finally {
+      sync.stopSync();
+      vi.useRealTimers();
+    }
+  });
+
+  it('forcePush bypasses a stuck in-flight so the manual "Push ora" override always runs', async () => {
+    // Real-world failure: the user clicks "Push ora" but the push queue appears
+    // completely frozen.  The root cause: a previous push is stuck on a hung fetch
+    // (TCP timeout).  Without the generation-counter fix, forcePush() returns the
+    // same hung promise and the UI spinner never resolves.
+    const { enqueue } = await import('../useSyncQueue.js');
+    await enqueue('orders', 'create', 'ord_force_stuck', { id: 'ord_force_stuck' });
+
+    let pushPostCalls = 0;
+    let hangNextCall = false;
+
+    vi.spyOn(global, 'fetch').mockImplementation((url, opts = {}) => {
+      const method = (opts?.method ?? 'GET').toUpperCase();
+      if (String(url).includes('/items/orders') && method === 'POST') {
+        pushPostCalls++;
+        expect(opts.signal).toBeDefined();
+        if (hangNextCall) {
+          hangNextCall = false;
+          return new Promise((_, reject) => {
+            const abortError = () => {
+              const error = new Error('The operation was aborted.');
+              error.name = 'AbortError';
+              reject(error);
+            };
+            if (opts.signal.aborted) {
+              abortError();
+              return;
+            }
+            opts.signal.addEventListener('abort', abortError, { once: true });
+          }); // TCP hang until aborted
+        }
+        return Promise.reject(new TypeError('simulated network error'));
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const sync = useDirectusSync();
+    try {
+      // startSync with a fast-failing mock so _pushInFlight is null before fake timers.
+      await sync.startSync({ appType: 'cassa', store: makeStore() });
+      await flushPromises(LONG_FLUSH_ROUNDS);
+
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
+      pushPostCalls = 0;
+
+      // Arm hung-fetch; start push #1 via online event — it gets stuck.
+      hangNextCall = true;
+      window.dispatchEvent(new Event('online'));
+      await vi.advanceTimersByTimeAsync(1);
+      await flushPromises(LONG_FLUSH_ROUNDS);
+      expect(pushPostCalls).toBe(1); // push #1 in-flight, fetch hanging
+
+      // User presses "Push ora" → forcePush() must bypass the stuck push and resolve.
+      // Before fix: forcePush() → _runPush() → _pushInFlight (hung) → returns hung
+      //             promise → await never returns.
+      // After fix:  forcePush() increments _pushGeneration, clears _pushInFlight,
+      //             starts a fresh push (#2) whose fetch fails fast → resolves.
+      const result = await (async () => {
+        const p = sync.forcePush();
+        await vi.advanceTimersByTimeAsync(1); // IDB read for push #2
+        await flushPromises(LONG_FLUSH_ROUNDS);
+        return p;
+      })();
+
+      expect(pushPostCalls).toBe(2); // fresh push #2 ran
+      expect(result).toMatchObject({ pushed: 0 }); // resolved (not hanging)
+    } finally {
+      sync.stopSync();
+      vi.useRealTimers();
+    }
   });
 });

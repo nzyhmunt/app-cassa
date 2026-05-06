@@ -143,48 +143,30 @@
         class="flex items-center gap-2 text-xs px-3 py-2 rounded-xl"
         :class="{
           'bg-blue-50 text-blue-700': sync.syncStatus.value === 'syncing',
+          'bg-amber-50 text-amber-700': sync.syncStatus.value === 'offline',
           'bg-red-50 text-red-700': sync.syncStatus.value === 'error',
         }"
       >
         <LoaderCircle v-if="sync.syncStatus.value === 'syncing'" class="size-3 animate-spin shrink-0" />
+        <WifiOff v-else-if="sync.syncStatus.value === 'offline'" class="size-3 shrink-0" />
         <AlertCircle v-else class="size-3 shrink-0" />
-        <span>{{ sync.syncStatus.value === 'syncing' ? 'Sincronizzazione in corso...' : 'Errore durante la sincronizzazione' }}</span>
+        <span>{{
+          sync.syncStatus.value === 'syncing' ? 'Sincronizzazione in corso...' :
+          sync.syncStatus.value === 'offline' ? 'Directus non raggiungibile — operazione non completata, riprovo appena torna online' :
+          'Errore durante la sincronizzazione'
+        }}</span>
       </div>
     </template>
 
-    <!-- Pulsanti force push/pull (solo se abilitato e configurato) -->
-    <div v-if="syncEnabled" class="flex gap-2">
-      <button
-        type="button"
-        @click="handleForcePush"
-        :disabled="pushing || pulling"
-        class="flex-1 py-2.5 bg-gray-50 hover:bg-gray-100 text-gray-700 font-bold rounded-2xl flex items-center justify-center gap-2 border border-gray-200 transition-colors active:scale-95 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
-      >
-        <LoaderCircle v-if="pushing" class="size-3.5 text-gray-500 animate-spin" />
-        <Upload v-else class="size-3.5 text-gray-500" />
-        <span>{{ pushing ? 'Invio in corso...' : 'Push ora' }}</span>
-      </button>
-      <button
-        type="button"
-        @click="handleForcePull"
-        :disabled="pushing || pulling"
-        class="flex-1 py-2.5 bg-gray-50 hover:bg-gray-100 text-gray-700 font-bold rounded-2xl flex items-center justify-center gap-2 border border-gray-200 transition-colors active:scale-95 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
-      >
-        <LoaderCircle v-if="pulling" class="size-3.5 text-gray-500 animate-spin" />
-        <Download v-else class="size-3.5 text-gray-500" />
-        <span>{{ pulling ? 'Ricezione in corso...' : 'Pull ora' }}</span>
-      </button>
-    </div>
-
-    <!-- Log coda sincronizzazione -->
+    <!-- Monitor Activity -->
     <button
       v-if="syncEnabled"
       type="button"
-      @click="showQueueLog = true"
+      @click="showSyncMonitor = true"
       class="w-full py-2.5 bg-gray-50 hover:bg-gray-100 text-gray-700 font-bold rounded-2xl flex items-center justify-center gap-2 border border-gray-200 transition-colors active:scale-95 text-xs"
     >
-      <ListOrdered class="size-3.5 text-gray-500" />
-      <span>Log coda sync</span>
+      <Activity class="size-3.5 text-gray-500" />
+      <span>Activity Monitor</span>
     </button>
 
     <!-- Info timestamp -->
@@ -205,8 +187,8 @@
       </p>
     </div>
 
-    <!-- Sync queue log modal (admin only) -->
-    <SyncQueueLogModal v-model="showQueueLog" />
+    <!-- Sync Monitor (activity log + real-time status) -->
+    <SyncMonitor v-model="showSyncMonitor" />
 
     <!-- Modale applicazione nuova configurazione Directus -->
     <div
@@ -294,7 +276,7 @@
 import { ref, reactive, computed, onMounted } from 'vue';
 import {
   RefreshCw, Save, Wifi, LoaderCircle, CheckCircle, XCircle,
-  AlertCircle, Upload, Download, ListOrdered,
+  AlertCircle, WifiOff, Activity,
 } from 'lucide-vue-next';
 import { appConfig } from '../../utils/index.js';
 import {
@@ -303,7 +285,7 @@ import {
 } from '../../composables/useDirectusClient.js';
 import { useDirectusSync } from '../../composables/useDirectusSync.js';
 import { useConfigStore } from '../../store/index.js';
-import SyncQueueLogModal from './SyncQueueLogModal.vue';
+import SyncMonitor from './SyncMonitor.vue';
 
 const sync = useDirectusSync();
 const configStore = useConfigStore();
@@ -321,11 +303,9 @@ const form = reactive({
 
 const showToken = ref(false);
 const testing = ref(false);
-const pushing = ref(false);
-const pulling = ref(false);
 const connectionStatus = ref('idle'); // 'idle' | 'testing' | 'ok' | 'error'
 const connectionMessage = ref('');
-const showQueueLog = ref(false);
+const showSyncMonitor = ref(false);
 const showReconfigureModal = ref(false);
 const reconfigureRunning = ref(false);
 const clearLocalConfigBeforeApply = ref(true);
@@ -488,29 +468,6 @@ async function saveConfig() {
   }
 }
 
-/** Triggers a manual push and shows a loading spinner on the button. */
-async function handleForcePush() {
-  if (pushing.value || pulling.value) return;
-  pushing.value = true;
-  try {
-    await sync.forcePush();
-  } finally {
-    pushing.value = false;
-  }
-}
-
-/** Triggers a manual pull and shows a loading spinner on the button. */
-async function handleForcePull() {
-  if (pushing.value || pulling.value) return;
-  pulling.value = true;
-  try {
-    await sync.reconfigureAndApply({ clearLocalConfig: false });
-    await sync.forcePull();
-  } finally {
-    pulling.value = false;
-  }
-}
-
 /** Formats an ISO timestamp to a locale-friendly short string. */
 function formatTs(iso) {
   if (!iso) return '';
@@ -546,7 +503,40 @@ async function runFullConfigApply() {
       }),
     });
     if (result?.ok) {
-      _appendReconfigureLog({ level: 'success', message: 'Procedura completata con successo.' });
+      _appendReconfigureLog({ level: 'info', message: 'Configurazione aggiornata. Avvio pull dati operativi…' });
+      try {
+        const pullResult = await sync.forcePull();
+        if (pullResult?.ok === true) {
+          _appendReconfigureLog({ level: 'success', message: 'Procedura completata con successo.' });
+        } else if (pullResult?.ok === false) {
+          if (pullResult?.skippedReason === 'offline') {
+            _appendReconfigureLog({
+              level: 'warning',
+              message: 'Configurazione aggiornata, ma il pull dati operativi è stato saltato: dispositivo offline.',
+            });
+          } else if (pullResult?.skippedReason === 'no-config') {
+            _appendReconfigureLog({
+              level: 'warning',
+              message: 'Configurazione aggiornata, ma il pull dati operativi è stato saltato: configurazione mancante.',
+            });
+          } else {
+            _appendReconfigureLog({
+              level: 'warning',
+              message: 'Configurazione aggiornata ma il pull dati operativi è stato completato con errori.',
+              details: (pullResult?.failedCollections?.length ?? 0) > 0
+                ? `Collezioni fallite: ${pullResult.failedCollections.join(', ')}`
+                : '',
+            });
+          }
+        } else {
+          _appendReconfigureLog({
+            level: 'warning',
+            message: 'Configurazione aggiornata, ma l’esito del pull dati operativi non è verificabile.',
+          });
+        }
+      } catch {
+        _appendReconfigureLog({ level: 'warning', message: 'Configurazione aggiornata ma il pull dati operativi non è riuscito.' });
+      }
     } else {
       _appendReconfigureLog({
         level: 'error',

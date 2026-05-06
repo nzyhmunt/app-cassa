@@ -7,11 +7,34 @@
  *                    (bill_sessions.id, orders.id, transactions.id, cash_movements.id, …).
  *  - newShortId()  → short prefixed string ≤ 20 chars; use for LOCAL-ONLY identifiers
  *                    that are NOT Directus PKs (order_items.uid, print log entries, etc.).
+ *
+ * Deep clone:
+ *  - cloneValue()  → deep-clones a value using structuredClone (or JSON fallback).
+ *                    Safe for Vue reactive proxies and plain objects alike.
  */
 
 /**
+ * Deep-clones a value using `structuredClone` when available, falling back to a
+ * JSON round-trip for Vue reactive proxies and non-cloneable values.
+ *
+ * @template T
+ * @param {T} value
+ * @returns {T}
+ */
+export function cloneValue(value) {
+  if (typeof structuredClone === 'function') {
+    try {
+      return structuredClone(value);
+    } catch (_) {
+      // Fallback for Vue proxies / non-cloneable values in test/runtime mocks.
+    }
+  }
+  return JSON.parse(JSON.stringify(value));
+}
+
+/**
  * Generates a short, prefixed identifier suitable for local-only fields that are
- * NOT primary keys in Directus (e.g. order_items.uid, logId, jobId).
+ * NOT primary keys in Directus (e.g. order_items.uid, logId).
  *
  * Result is at most 20 characters when `prefix` is ≤ 4 characters:
  *   prefix (≤ 4 chars) + '_' + timestamp in base-36 (~9 chars) + '_' + 4 random base-36 chars ≤ 19
@@ -37,6 +60,19 @@ export function newShortId(prefix = 'id') {
     rnd = Math.floor(Math.random() * 0x10000).toString(36).padStart(4, '0');
   }
   return `${safePrefix}_${ts}_${rnd}`;
+}
+
+/**
+ * Normalises an entity id field: returns the id as-is when it is a non-empty
+ * string, otherwise generates a new UUID v7.  Covers the cases where an item
+ * arrived from Directus with `id: ''` (empty string) or `id: null/undefined`
+ * (e.g. legacy records written before client-side UUID assignment was introduced).
+ *
+ * @param {string|null|undefined} id
+ * @returns {string} A non-empty UUID string
+ */
+export function normalizeEntityId(id) {
+  return (typeof id === 'string' && id !== '') ? id : newUUIDv7();
 }
 
 /**

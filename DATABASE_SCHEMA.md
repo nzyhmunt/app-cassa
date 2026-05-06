@@ -102,6 +102,7 @@ trigger DB o logica equivalente.
 | `print_jobs`                | Log dei lavori di stampa inviati (cronologia stampe)              | ObjectStore `print_jobs`     |
 | `fiscal_receipts`           | Payload XML per comandi alla stampante fiscale                    | ObjectStore `fiscal_receipts` |
 | `invoice_requests`          | Dati di fatturazione elettronica richiesti a chiusura conto       | ObjectStore `invoice_requests` |
+| `ai_prompts`                | Prompt AI (Directus-interno, non usato dal frontend)              | *(nessuna — solo backend)*   |
 
 ---
 
@@ -263,6 +264,83 @@ CREATE TABLE menu_items (
     date_updated    TIMESTAMPTZ     NOT NULL DEFAULT NOW()
 );
 ```
+
+---
+
+### 2.5a `menu_modifiers` — Pool globale modificatori menu
+
+Contiene i modificatori riutilizzabili (es. "Extra aglio", "Senza glutine") condivisi tra più voci menu e/o categorie.
+Sostituisce il vecchio modello 1:N `menu_item_modifiers` con un pool M2M centralizzato.
+
+Campi Directus standard abilitati: `status`, `user_created`, `date_created`, `user_updated`, `date_updated`.
+
+```sql
+CREATE TABLE menu_modifiers (
+    id              SERIAL          PRIMARY KEY,
+    status          VARCHAR(20)     NOT NULL DEFAULT 'published', -- 'published' | 'archived'
+    venue           INTEGER         NOT NULL REFERENCES venues(id) ON DELETE CASCADE,
+    name            VARCHAR(80)     NOT NULL,       -- es. 'Extra aglio', 'Senza glutine'
+    price           NUMERIC(8,2)    NOT NULL DEFAULT 0.00,
+    sort            INTEGER         NULL,
+    -- Directus standard fields
+    user_created    UUID            NULL REFERENCES directus_users(id),
+    date_created    TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    user_updated    UUID            NULL REFERENCES directus_users(id),
+    date_updated    TIMESTAMPTZ     NULL
+);
+```
+
+---
+
+### 2.5b `menu_categories_menu_modifiers` — Junction M2M categorie ↔ modificatori
+
+Assegna modificatori a intere categorie: tutti gli item di quella categoria ereditano i modificatori
+della loro categoria più eventuali modificatori assegnati direttamente all'item (vedi 2.5c).
+
+```sql
+CREATE TABLE menu_categories_menu_modifiers (
+    id                  SERIAL      PRIMARY KEY,                              -- PK integer (Directus convention per M2M)
+    menu_categories_id  INTEGER     NOT NULL REFERENCES menu_categories(id) ON DELETE CASCADE,
+    menu_modifiers_id   INTEGER     NOT NULL REFERENCES menu_modifiers(id)   ON DELETE CASCADE,
+    venue               INTEGER     NOT NULL REFERENCES venues(id)            ON DELETE CASCADE, -- denormalizzato per indice IDB
+    sort                INTEGER     NULL,
+    date_updated        TIMESTAMPTZ NULL,
+    UNIQUE (menu_categories_id, menu_modifiers_id)
+);
+
+CREATE INDEX idx_cat_mod_category ON menu_categories_menu_modifiers (menu_categories_id);
+CREATE INDEX idx_cat_mod_modifier ON menu_categories_menu_modifiers (menu_modifiers_id);
+```
+
+> **Campo `venue`**: denormalizzato per consentire query veloci per `venue` nell'ObjectStore IDB
+> (`menu_categories_menu_modifiers` — keyPath: `id`, index: `venue`). Coerente con il pattern
+> `withVenueFallback` di `_fanOutVenueTreeToIDB`.
+
+---
+
+### 2.5c `menu_items_menu_modifiers` — Junction M2M voci menu ↔ modificatori
+
+Assegna modificatori direttamente a singole voci menu (override/estensione rispetto alla categoria).
+
+```sql
+CREATE TABLE menu_items_menu_modifiers (
+    id                  SERIAL          PRIMARY KEY,                              -- PK integer (Directus convention per M2M)
+    menu_items_id       VARCHAR(50)     NOT NULL REFERENCES menu_items(id)       ON DELETE CASCADE,
+    menu_modifiers_id   INTEGER         NOT NULL REFERENCES menu_modifiers(id)   ON DELETE CASCADE,
+    venue               INTEGER         NOT NULL REFERENCES venues(id)            ON DELETE CASCADE, -- denormalizzato per indice IDB
+    sort                INTEGER         NULL,
+    date_updated        TIMESTAMPTZ     NULL,
+    UNIQUE (menu_items_id, menu_modifiers_id)
+);
+
+CREATE INDEX idx_item_mod_item     ON menu_items_menu_modifiers (menu_items_id);
+CREATE INDEX idx_item_mod_modifier ON menu_items_menu_modifiers (menu_modifiers_id);
+```
+
+> **Relazione nei deep-fetch**: `menu_categories.menu_modifiers.menu_modifiers_id.*` e
+> `menu_items.menu_modifiers.menu_modifiers_id.*` — usate in `DEEP_FETCH_FIELDS` di
+> `useDirectusSync.js`. Richiedono che `menu_categories` e `menu_items` abbiano un campo
+> **O2M alias** `menu_modifiers` configurato in Directus (vedi §5.x `DIRECTUS_SETUP_REPORT.md`).
 
 ---
 
@@ -723,10 +801,9 @@ CREATE TYPE print_job_status AS ENUM ('pending', 'printing', 'done', 'error');
 
 CREATE TABLE print_jobs (
     -- Identificatori
-    log_id          VARCHAR(40)     PRIMARY KEY,            -- plog_<uuid> — chiave del log entry
-    job_id          VARCHAR(40)     NOT NULL,               -- job_<uuid>  — inviato nella richiesta al servizio ESC/POS
-    printer         VARCHAR(40)     NOT NULL REFERENCES printers(id) ON DELETE RESTRICT,
-    venue           INTEGER         NOT NULL REFERENCES venues(id) ON DELETE CASCADE,
+    id              UUID            PRIMARY KEY,            -- UUID v7 standard (Directus PK)
+    printer         VARCHAR(40)     NULL REFERENCES printers(id) ON DELETE SET NULL,
+    venue           INTEGER         NULL REFERENCES venues(id) ON DELETE SET NULL,
 
     -- Tipo di stampa (estensibile: aggiungere nuovi valori senza modificare lo schema)
     -- Valori correnti: 'order', 'table_move', 'pre_bill'
@@ -745,7 +822,6 @@ CREATE TABLE print_jobs (
 
     -- Ristampa
     is_reprint      BOOLEAN         NOT NULL DEFAULT FALSE,
-    original_job_id VARCHAR(40)     NULL,                   -- solo per ristampe: contiene il job_id originale, non il log_id
 
     -- Payload completo inviato al servizio ESC/POS (struttura libera per tipo)
     -- Campi comuni a tutti i tipi:
@@ -757,7 +833,7 @@ CREATE TABLE print_jobs (
     -- Campi per 'pre_bill':
     --   tableId, tableLabel, grossAmount, paymentsRecorded, amountDue, items[]
     -- Campi opzionali per ristampe:
-    --   reprinted: true
+    --   reprinted: true, originalJobId: <jobId>
     payload         JSONB           NOT NULL DEFAULT '{}',
 
     -- Directus standard fields
@@ -784,26 +860,34 @@ Non riutilizza `print_jobs` perché il formato (XML RT) e il ciclo di vita (requ
 
 ```sql
 CREATE TABLE fiscal_receipts (
-    id              TEXT        PRIMARY KEY,   -- 'fis_' + UUID v7 (time-ordered, e.g. fis_0192fa3c-b41a-7e8d-a312-…)
-    table_id        TEXT        NOT NULL REFERENCES tables(id),
-    bill_session_id TEXT        REFERENCES bill_sessions(id),
-    table_label     TEXT,
-    closed_at       TIMESTAMPTZ,               -- Data di chiusura originale del conto (bill.closedAt per storico; NOW() per cassa live)
-    total_amount    NUMERIC(10,2) NOT NULL DEFAULT 0,
-    total_paid      NUMERIC(10,2) NOT NULL DEFAULT 0,
-                                               -- Per conti dallo storico: include bill.totalDiscount per allineamento con la cassa live
-    payment_methods TEXT,                      -- JSON array di stringhe
-    orders          TEXT,                      -- JSON snapshot voci (name/qty/unitPrice)
-    xml_request     TEXT,                      -- Payload XML inviato alla stampante
-    xml_response    TEXT,                      -- Risposta XML ricevuta dalla stampante (null se non ancora ricevuta)
-    status          TEXT        NOT NULL DEFAULT 'pending'
-                                CHECK (status IN ('pending','sent','ok','error')),
-    timestamp       TIMESTAMPTZ NOT NULL DEFAULT NOW(),  -- Istante della richiesta (non della chiusura conto)
-    date_updated    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    id                  TEXT        PRIMARY KEY,   -- 'fis_' + UUID v7 (time-ordered, e.g. fis_0192fa3c-b41a-7e8d-a312-…)
+    -- Relazioni (senza suffisso _id — convenzione app)
+    venue               INTEGER     REFERENCES venues(id) ON DELETE SET NULL,
+    "table"             TEXT        NOT NULL REFERENCES tables(id),
+    bill_session        TEXT        REFERENCES bill_sessions(id) ON DELETE SET NULL,
+    table_label         TEXT,
+    closed_at           TIMESTAMPTZ,               -- Data di chiusura originale del conto (bill.closedAt per storico; NOW() per cassa live)
+    total_amount        NUMERIC(10,2) NOT NULL DEFAULT 0,
+    total_paid          NUMERIC(10,2) NOT NULL DEFAULT 0,
+                                                   -- Per conti dallo storico: include bill.totalDiscount per allineamento con la cassa live
+    payment_methods     TEXT,                      -- JSON array di stringhe
+    orders              TEXT,                      -- JSON snapshot voci (name/qty/unitPrice)
+    xml_request         TEXT,                      -- Payload XML inviato alla stampante
+    xml_response        TEXT,                      -- Risposta XML ricevuta dalla stampante (null se non ancora ricevuta)
+    status              TEXT        NOT NULL DEFAULT 'pending'
+                                    CHECK (status IN ('pending','sent','ok','error')),
+    timestamp           TIMESTAMPTZ NOT NULL DEFAULT NOW(),  -- Istante della richiesta (non della chiusura conto)
+    -- Directus standard fields
+    date_created        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    date_updated        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    -- Operatori locali (venue_user) — tracciamento audit operatori PIN
+    venue_user_created  TEXT        REFERENCES venue_users(id) ON DELETE SET NULL,
+    venue_user_updated  TEXT        REFERENCES venue_users(id) ON DELETE SET NULL
 );
 
-CREATE INDEX idx_fiscal_receipts_table        ON fiscal_receipts (table_id);
-CREATE INDEX idx_fiscal_receipts_bill_session ON fiscal_receipts (bill_session_id);
+CREATE INDEX idx_fiscal_receipts_venue        ON fiscal_receipts (venue);
+CREATE INDEX idx_fiscal_receipts_table        ON fiscal_receipts ("table");
+CREATE INDEX idx_fiscal_receipts_bill_session ON fiscal_receipts (bill_session);
 CREATE INDEX idx_fiscal_receipts_status       ON fiscal_receipts (status);
 CREATE INDEX idx_fiscal_receipts_timestamp    ON fiscal_receipts (timestamp DESC);
 ```
@@ -818,8 +902,10 @@ I dati di fatturazione (denominazione, CF/PIVA, indirizzo, SDI) vengono inseriti
 ```sql
 CREATE TABLE invoice_requests (
     id                   TEXT        PRIMARY KEY,   -- 'inv_' + UUID v7 (time-ordered, e.g. inv_0192fa3c-b41a-7e8d-a312-…)
-    table_id             TEXT        NOT NULL REFERENCES tables(id),
-    bill_session_id      TEXT        REFERENCES bill_sessions(id),
+    -- Relazioni (senza suffisso _id — convenzione app)
+    venue                INTEGER     REFERENCES venues(id) ON DELETE SET NULL,
+    "table"              TEXT        NOT NULL REFERENCES tables(id),
+    bill_session         TEXT        REFERENCES bill_sessions(id) ON DELETE SET NULL,
     table_label          TEXT,
     closed_at            TIMESTAMPTZ,               -- Data di chiusura originale del conto (bill.closedAt per storico; NOW() per cassa live)
     total_amount         NUMERIC(10,2) NOT NULL DEFAULT 0,
@@ -841,11 +927,17 @@ CREATE TABLE invoice_requests (
     status               TEXT        NOT NULL DEFAULT 'pending'
                                      CHECK (status IN ('pending','sent','ok','error')),
     timestamp            TIMESTAMPTZ NOT NULL DEFAULT NOW(),  -- Istante della richiesta (non della chiusura conto)
-    date_updated         TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    -- Directus standard fields
+    date_created         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    date_updated         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    -- Operatori locali (venue_user) — tracciamento audit operatori PIN
+    venue_user_created   TEXT        REFERENCES venue_users(id) ON DELETE SET NULL,
+    venue_user_updated   TEXT        REFERENCES venue_users(id) ON DELETE SET NULL
 );
 
-CREATE INDEX idx_invoice_requests_table        ON invoice_requests (table_id);
-CREATE INDEX idx_invoice_requests_bill_session ON invoice_requests (bill_session_id);
+CREATE INDEX idx_invoice_requests_venue        ON invoice_requests (venue);
+CREATE INDEX idx_invoice_requests_table        ON invoice_requests ("table");
+CREATE INDEX idx_invoice_requests_bill_session ON invoice_requests (bill_session);
 CREATE INDEX idx_invoice_requests_status       ON invoice_requests (status);
 CREATE INDEX idx_invoice_requests_timestamp    ON invoice_requests (timestamp DESC);
 ```
@@ -890,13 +982,21 @@ CREATE INDEX idx_venue_users_apps   ON venue_users USING GIN (apps);
 -- Unioni tavolo attive: ogni riga rappresenta un'unione slave → master.
 -- Il record viene eliminato quando l'unione viene annullata (split).
 CREATE TABLE table_merge_sessions (
-    id           UUID         PRIMARY KEY DEFAULT gen_random_uuid(), -- UUID Directus; non usato lato client
+    id           UUID         PRIMARY KEY,                          -- UUID v7 generato client-side; riutilizzato tra cicli di write per preservare l'identità Directus
+    venue        INTEGER      NOT NULL REFERENCES venues(id) ON DELETE CASCADE,
     slave_table  VARCHAR(10)  NOT NULL UNIQUE REFERENCES tables(id) ON DELETE CASCADE, -- tavolo che delega il proprio stato al master
     master_table VARCHAR(10)  NOT NULL REFERENCES tables(id) ON DELETE CASCADE,        -- tavolo che riceve le comande
-    merged_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+    merged_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    sort         INTEGER      NULL,
+    -- Directus standard fields
+    user_created UUID         NULL REFERENCES directus_users(id),
+    date_created TIMESTAMPTZ  DEFAULT NOW(),
+    user_updated UUID         NULL REFERENCES directus_users(id),
+    date_updated TIMESTAMPTZ  DEFAULT NOW()
 );
 
 CREATE INDEX idx_table_merge_master ON table_merge_sessions (master_table);
+CREATE INDEX idx_table_merge_venue  ON table_merge_sessions (venue);
 ```
 
 **Semantica:**
@@ -904,6 +1004,18 @@ CREATE INDEX idx_table_merge_master ON table_merge_sessions (master_table);
 - `getTableStatus(slaveId)` delega a `getTableStatus(masterId)` grazie a `tableMergedInto[slaveId]` in store.
 - Le comande dello slave vengono fisicamente spostate sulla `bill_session` del master al momento del merge.
 - L'eliminazione del record (split) ripristina l'autonomia del tavolo slave.
+- Il campo `id` è un UUID v7 generato client-side e riutilizzato tra cicli di write per preservare l'identità del record Directus.
+
+---
+
+### 2.24 `ai_prompts` — Prompt AI (Directus-interno)
+
+> **Nota**: questa collection è gestita interamente dal server Directus (via Directus MCP Extension o
+> script admin). **Non è usata dal frontend app-cassa** e non richiede integrazione con IndexedDB o
+> la coda di sync. Documentata qui solo ai fini dell'inventario schema live.
+
+Campi principali: `id` (UUID), `name`, `description`, `system_prompt` (markdown), `messages` (JSON array
+con oggetti `{role, text}`), `status`, campi standard Directus (`user_created`, `date_created`, ecc.).
 
 ---
 
@@ -913,6 +1025,7 @@ CREATE INDEX idx_table_merge_master ON table_merge_sessions (master_table);
 venues ──< rooms ──< tables
 venues ──< venue_users
 tables ──< table_merge_sessions (slave_table → master_table)
+venues ──< table_merge_sessions
 venues ──< payment_methods
 venues ──< menu_categories ──< menu_items
 venues ──< menu_modifiers
@@ -932,7 +1045,6 @@ venues ──< cash_movements
 venues ──< daily_closures ──< daily_closure_by_method
 venues ──< printers
 venues ──< print_jobs >── printers
-Nota: `print_jobs.original_job_id` conserva il `job_id` originale per ristampe, ma non è una FK
 bill_sessions ──< fiscal_receipts
 bill_sessions ──< invoice_requests
 ```
@@ -1244,7 +1356,8 @@ Flusso di integrazione previsto:
 2. **Operazioni** (orders, transactions, cash_movements): creati localmente con UUID v7 e
    sincronizzati verso Directus in modalità **push** non appena `navigator.onLine` torna `true`.
 3. **Sessioni tavolo** (bill_sessions): create localmente e sincronizzate come gli ordini.
-4. **Reportistica** (daily_closures, print_jobs): push-only, mai modificati dopo la creazione.
+4. **Reportistica** (daily_closures, print_jobs, fiscal_receipts, invoice_requests): push-only, mai
+   modificati dopo la creazione (eccetto aggiornamenti di stato per fiscal_receipts e invoice_requests).
 
 #### Hydration configurazione runtime da Directus (D1–D4)
 
@@ -2142,3 +2255,149 @@ Le collection che supportano l'ordinamento manuale via drag-and-drop nell'admin 
 | `menu_modifiers`       | `sort`       |
 | `printers`             | `sort`       |
 | `order_items`          | `sort`       |
+
+---
+
+## 6. Note di Architettura del Codice (Post-Audit)
+
+Questa sezione documenta le scelte architetturali rilevanti emerse dall'audit del codice
+(refactoring Step 1–10) che non rientrano nella struttura schema Directus / IDB.
+
+---
+
+### 6.1 Modulo di Persistenza — Struttura a Layer (`src/store/persistence/`)
+
+Dopo il refactoring (Step 5), la persistenza IndexedDB è suddivisa in moduli dedicati:
+
+| Modulo                      | Funzioni principali                                                                     |
+|-----------------------------|-----------------------------------------------------------------------------------------|
+| `persistence/operations.js` | `loadStateFromIDB`, `saveStateToIDB`, `upsertRecordsIntoIDB`, `deleteRecordsFromIDB`, `upsertBillSessionInIDB`, `closeBillSessionInIDB` — più re-export backward-compat da tutti i sottomoduli |
+| `persistence/config.js`     | `loadConfigFromIDB`, `loadLastPullTsFromIDB`, `saveLastPullTsToIDB`, `replaceTableMergesInIDB`, `replaceVenueUsersInIDB`, `clearLocalConfigCacheFromIDB` |
+| `persistence/settings.js`   | `loadSettingsFromIDB`, `saveSettingsToIDB`, `saveJsonMenuToIDB`, `loadJsonMenuFromIDB`, `loadCustomItemsFromIDB`, `saveCustomItemsToIDB` |
+| `persistence/auth.js`       | `loadUsersFromIDB`, `saveUsersToIDB`, `loadAuthSessionFromIDB`, `saveAuthSessionToIDB`, `loadAuthSettingsFromIDB`, `saveAuthSettingsToIDB` |
+| `persistence/audit.js`      | `saveFiscalReceiptToIDB`, `loadFiscalReceiptsFromIDB`, `pruneFiscalReceiptsInIDB`, `saveInvoiceRequestToIDB`, `loadInvoiceRequestsFromIDB`, `pruneInvoiceRequestsInIDB` |
+| `persistence/reset.js`      | `clearAllStateFromIDB`, `clearSyncQueueFromIDB`, `deleteDatabase` |
+
+**Compatibilità**: `store/idbPersistence.js` e `store/persistence/operations.js` sono barrel
+file che re-esportano tutto dai sottomoduli. Tutti i percorsi di import esistenti continuano
+a funzionare invariati.
+
+---
+
+### 6.2 Store Pinia — Divisione in Moduli (`src/store/`)
+
+Dopo il refactoring (Step 6), il file monolitico `store/index.js` è stato suddiviso:
+
+| File                  | Contenuto                                                                                       |
+|-----------------------|-------------------------------------------------------------------------------------------------|
+| `store/configStore.js`| `useConfigStore` — venue config, menu loading, local settings, Directus connection settings     |
+| `store/orderStore.js` | `useOrderStore` — orders, transactions, cash, bill sessions, table merge, print/fiscal audit    |
+| `store/index.js`      | Barrel re-export; `useAppStore()` (proxy unificato per backward-compat); `initStoreFromIDB()`   |
+
+---
+
+### 6.3 Mapper Centralizzati (`src/utils/mappers.js`)
+
+Tutte le funzioni di trasformazione Directus → formato locale sono in `mappers.js`:
+
+| Funzione                            | Collezione                               |
+|-------------------------------------|------------------------------------------|
+| `mapOrderFromDirectus`              | `orders`                                 |
+| `mapOrderToDirectus`                | `orders` (reverse)                       |
+| `mapOrderItemFromDirectus`          | `order_items`                            |
+| `mapOrderItemModifierToDirectus`    | `order_item_modifiers`                   |
+| `mapBillSessionFromDirectus`        | `bill_sessions`                          |
+| `mapBillSessionToDirectus`          | `bill_sessions` (reverse)                |
+| `mapTransactionToDirectus`          | `transactions`                           |
+| `mapMenuItemFromDirectus`           | `menu_items`                             |
+| `mapMenuCategoryFromDirectus`       | `menu_categories`                        |
+| `mapMenuModifierFromDirectus`       | `menu_modifiers`                         |
+| `mapTableMergeSessionFromDirectus`  | `table_merge_sessions`                   |
+| `mapVenueConfigFromDirectus`        | `venues` (config derivato)               |
+| `mergeOrderFromWSPayload`           | merge WebSocket payload su ordine locale |
+| `normalizeMenu`                     | payload menu JSON/Directus               |
+| `relationId`                        | helper: estrae ID da relazione M2O       |
+| `parseJsonArray`                    | helper: parsa campo JSON/array           |
+
+---
+
+### 6.4 Stato `transaction_order_refs` e `transaction_voce_refs` in IDB
+
+Gli ObjectStore `transaction_order_refs` e `transaction_voce_refs` vengono **scritti** in IDB
+durante il pull globale tramite `upsertRecordsIntoIDB`, ma **non vengono riletti** in
+`loadStateFromIDB()` né idratati nello store Pinia.
+
+In memoria, i campi `orderRefs` e `voceRefs` sugli oggetti `transaction` contengono i dati
+relazionali inlineati al momento della creazione lato client (non provengono da questi store).
+Questi ObjectStore esistono per coerenza di schema con Directus ma non partecipano al ciclo
+di hydration locale.
+
+> **Stato**: write-only in IDB; non impattano la funzionalità attuale.
+
+---
+
+### 6.5 Stato `daily_closure_by_method` in IDB
+
+L'ObjectStore `daily_closure_by_method` esiste in IDB (creato dalla migration v7) e viene
+popolato durante il pull globale via `upsertRecordsIntoIDB`. Tuttavia **non viene caricato**
+da `loadStateFromIDB()`: solo `daily_closures` viene idratato nello store.
+
+Il campo `byMethod` sugli oggetti `daily_closure` è in `_PUSH_DROP_FIELDS` (non viene pushato
+a Directus) e viene calcolato client-side. La collection Directus `daily_closure_by_method` è
+separata e gestita server-side come relazione O2M.
+
+> **Stato**: store IDB presente ma non idratato in memoria; coerente con l'uso corrente.
+
+---
+
+### 6.6 Schema IDB — Versione v12 (indici `transactions`)
+
+La migration **v12** (in `useIDB.js`) aggiorna gli indici dell'ObjectStore `transactions`:
+
+- **Rimossi** i vecchi indici `table` (keyPath `tableId`) e `bill_session` (keyPath `billSessionId`)
+  che puntavano a campi camelCase mai presenti nei record synced da Directus.
+- **Aggiunti** nuovi indici `table` (keyPath `table`) e `bill_session` (keyPath `bill_session`)
+  allineati al formato snake_case effettivamente usato dai record.
+- I record esistenti vengono backfillati durante l'upgrade: le migration apre il cursore
+  dell'ObjectStore e aggiorna ogni record che abbia solo i campi camelCase.
+
+| Versione | Modifica                                                                         |
+|----------|----------------------------------------------------------------------------------|
+| v1       | Schema iniziale                                                                  |
+| v2       | Migration `app_meta.orders` → `orders`                                           |
+| v3       | Migration `app_meta.tableMergedInto` → `table_merge_sessions`                   |
+| v4–v11   | Aggiunta progressive di ObjectStore e indici                                     |
+| v12      | Fix indici `transactions`: `tableId`/`billSessionId` → `table`/`bill_session`   |
+
+---
+
+### 6.7 Gestione `deleteDatabase` — Correttezza Race Condition
+
+`deleteDatabase()` in `persistence/reset.js` utilizza `closeAndResetDB()` da `useIDB.js`
+per chiudere la connessione e resettare il singleton `_dbPromise` **prima** di lanciare il
+`indexedDB.deleteDatabase()`. Questo previene `InvalidStateError` se altri handler asincroni
+tentano di usare `getDB()` durante la stessa micro-task queue.
+
+Il gestore `onblocked` attende 3 secondi (timeout) prima di procedere con il reload, invece
+di fare `reject()` immediato, per gestire gracefully il caso in cui altri tab o frame
+mantengano aperta la connessione.
+
+---
+
+### 6.8 Migrazione Directus Pendente — M2M Menu Modificatori
+
+Le tre collection `menu_modifiers`, `menu_categories_menu_modifiers`,
+`menu_items_menu_modifiers` (sezioni 2.5a–2.5c) sono **già presenti nel codice applicativo**
+(mapper, IDB ObjectStore, sync loop) ma **non ancora create nell'istanza Directus**.
+
+> ⚠️ Finché queste collection non esistono in Directus, il pull di `VENUE_RELATED_COLLECTIONS`
+> restituirà errori `403 / collection not found` per queste tre collection.
+> I modificatori menu non verranno quindi sincronizzati e `normalizeMenu()` riceverà array vuoti.
+
+**Azioni richieste nell'istanza Directus** (vedere `DIRECTUS_SETUP_REPORT.md` §Migrazione M2M):
+1. Creare la collection `menu_modifiers` con i campi elencati in §2.5a.
+2. Creare la collection `menu_categories_menu_modifiers` con i campi di §2.5b e le relazioni M2M.
+3. Creare la collection `menu_items_menu_modifiers` con i campi di §2.5c e le relazioni M2M.
+4. Aggiungere il campo O2M alias `menu_modifiers` a `menu_categories` e a `menu_items`.
+5. Migrare i dati da `menu_item_modifiers` (deprecated) alle nuove collection se esistono record.
+

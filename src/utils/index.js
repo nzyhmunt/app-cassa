@@ -561,12 +561,95 @@ export function groupOrderItemsByCourse(items, includeIndex = true) {
   return result;
 }
 
+/**
+ * Returns `true` when two order-item rows can be merged (incremented) into
+ * a single row.  Two rows are mergeable when they share the same dish, course,
+ * notes (order-insensitive), and modifiers (order-insensitive by name + price).
+ *
+ * For direct-entry rows (dishId is falsy, e.g. cover charge), `name` and
+ * `unitPrice` are also compared so that distinct direct items are never
+ * incorrectly merged into one.
+ *
+ * Used by `orderStore.addItemsToOrder()`, `CassaOrderManager`, and
+ * `SalaOrderManager` — keeping the logic in one place prevents drift.
+ *
+ * @param {object} a
+ * @param {object} b
+ * @returns {boolean}
+ */
+export function itemsAreMergeable(a, b) {
+  if (a.dishId !== b.dishId) return false;
+  // For direct-entry rows (no dishId), also require identical name and price.
+  if (!a.dishId && (a.name !== b.name || Number(a.unitPrice) !== Number(b.unitPrice))) return false;
+  if ((a.course || DEFAULT_COURSE) !== (b.course || DEFAULT_COURSE)) return false;
+  const notesA = [...(a.notes || [])].sort();
+  const notesB = [...(b.notes || [])].sort();
+  if (notesA.length !== notesB.length || notesA.some((n, i) => n !== notesB[i])) return false;
+  const normMod = m => ({ name: String(m.name), price: Number(m.price) || 0 });
+  const modComparator = (x, y) => x.name < y.name ? -1 : x.name > y.name ? 1 : x.price - y.price;
+  const modsA = [...(a.modifiers || [])].map(normMod).sort(modComparator);
+  const modsB = [...(b.modifiers || [])].map(normMod).sort(modComparator);
+  if (modsA.length !== modsB.length) return false;
+  return modsA.every((m, i) => m.name === modsB[i].name && m.price === modsB[i].price);
+}
+
 
 // ── Numeric keyboard positions ──────────────────────────────────────────────
 /** Valid values for the `customKeyboard` setting. */
 export const KEYBOARD_POSITIONS = /** @type {const} */ (['disabled', 'center', 'left', 'right']);
 
-// ── Fiscal receipt XML builder ──────────────────────────────────────────────
+// ── Deep equality ───────────────────────────────────────────────────────────
+
+/**
+ * Structural deep equality for plain values, plain arrays, and plain objects.
+ * Non-plain objects (Date, Map, Set, RegExp, …) are compared by reference only:
+ * two distinct `Date` instances always return `false` even if they represent
+ * the same time, which is intentionally safe for the IDB no-op fast-path used
+ * in `upsertRecordsIntoIDB`.  IDB payloads contain only JSON-serialisable
+ * primitives, arrays, and plain objects, so this is never a practical
+ * limitation for this codebase.
+ * Property order is irrelevant for objects: `{a:1, b:2}` equals `{b:2, a:1}`.
+ *
+ * @param {unknown} left
+ * @param {unknown} right
+ * @returns {boolean}
+ */
+export function deepEqual(left, right) {
+  if (left === right) return true;
+  if (left == null || right == null) return left === right;
+  if (typeof left !== typeof right) return false;
+  if (typeof left !== 'object') return false;
+  if (Array.isArray(left) !== Array.isArray(right)) return false;
+
+  // Guard against non-plain objects (Date, Map, Set, RegExp, …):
+  // they are compared by identity (===) above; reaching here with different
+  // instances means they are not equal.
+  // Both Object.prototype and null (for Object.create(null) dictionaries) are
+  // considered plain-object prototypes.
+  const leftProto = Object.getPrototypeOf(left);
+  const rightProto = Object.getPrototypeOf(right);
+  const isPlain = p => p === Object.prototype || p === null;
+  if (!Array.isArray(left) && !isPlain(leftProto)) return false;
+  if (!Array.isArray(right) && !isPlain(rightProto)) return false;
+
+  if (Array.isArray(left)) {
+    if (left.length !== right.length) return false;
+    for (let i = 0; i < left.length; i++) {
+      if (!deepEqual(left[i], right[i])) return false;
+    }
+    return true;
+  }
+
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+  if (leftKeys.length !== rightKeys.length) return false;
+  for (const key of leftKeys) {
+    if (!Object.prototype.hasOwnProperty.call(right, key)) return false;
+    if (!deepEqual(left[key], right[key])) return false;
+  }
+  return true;
+}
+
 
 /**
  * Builds the RT-printer XML payload for a fiscal receipt.

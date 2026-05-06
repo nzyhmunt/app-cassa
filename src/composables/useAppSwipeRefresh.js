@@ -1,5 +1,8 @@
-import { computed, ref } from 'vue';
+import { computed, onUnmounted, ref } from 'vue';
 import { directusEnabledRef } from './useDirectusClient.js';
+
+/** How long (ms) to keep the success indicator visible after a completed refresh. */
+export const REFRESH_DONE_HOLD_MS = 800;
 
 /**
  * Shared swipe-down refresh for app roots.
@@ -15,7 +18,10 @@ export function useAppSwipeRefresh({
 }) {
   const effectiveThresholdPx = Number.isFinite(thresholdPx) && thresholdPx > 0 ? thresholdPx : 80;
   const isSwipeRefreshing = ref(false);
+  const isRefreshDone = ref(false);
   const isPulling = ref(false);
+  /** @type {ReturnType<typeof setTimeout>|null} */
+  let refreshDoneTimer = null;
   const pullDistance = ref(0);
   const isThresholdReached = computed(() => pullDistance.value >= effectiveThresholdPx);
   const pullProgress = computed(() => {
@@ -82,20 +88,48 @@ export function useAppSwipeRefresh({
 
   async function runRefresh() {
     if (isSwipeRefreshing.value) return;
+    if (refreshDoneTimer != null) {
+      clearTimeout(refreshDoneTimer);
+      refreshDoneTimer = null;
+      isRefreshDone.value = false;
+    }
     isSwipeRefreshing.value = true;
+    isRefreshDone.value = false;
+    let success = false;
     try {
-      if (directusEnabledRef.value) {
+      // Only attempt network operations when the device reports a connection.
+      // When offline, fall back to a local IDB-only refresh so the user still
+      // sees up-to-date cached data and the swipe does not report a failure.
+      const isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
+      if (directusEnabledRef.value && isOnline) {
         await sync.reconfigureAndApply({ clearLocalConfig: false });
         await sync.forcePull();
+        // Reconnect WS *after* reconfigure+pull so it uses the refreshed
+        // appConfig (including menuSource) and its internal _runPull() on
+        // successful subscribe does not overlap with the forcePull above.
+        // Fire-and-forget: reconnect is async and must not block the UX.
+        if (typeof sync.reconnectWs === 'function') sync.reconnectWs().catch(() => {});
+        // Drain the push queue after the pull so that any changes accumulated
+        // while offline are sent to Directus as part of the full sync refresh.
+        // Fire-and-forget: swipe UX completes immediately; push runs in background.
+        if (typeof sync.forcePush === 'function') sync.forcePush().catch(() => {});
       }
       await Promise.all([
         configStore.hydrateConfigFromIDB(),
         orderStore.refreshOperationalStateFromIDB(),
       ]);
+      success = true;
     } catch (error) {
       console.warn(`[${logPrefix}] Swipe refresh failed:`, error);
     } finally {
       isSwipeRefreshing.value = false;
+    }
+    if (success) {
+      isRefreshDone.value = true;
+      refreshDoneTimer = setTimeout(() => {
+        refreshDoneTimer = null;
+        isRefreshDone.value = false;
+      }, REFRESH_DONE_HOLD_MS);
     }
   }
 
@@ -159,8 +193,17 @@ export function useAppSwipeRefresh({
     resetPullState();
   }
 
+  onUnmounted(() => {
+    if (refreshDoneTimer != null) {
+      clearTimeout(refreshDoneTimer);
+      refreshDoneTimer = null;
+    }
+    isRefreshDone.value = false;
+  });
+
   return {
     isSwipeRefreshing,
+    isRefreshDone,
     isPulling,
     isThresholdReached,
     pullDistance,

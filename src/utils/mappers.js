@@ -15,13 +15,32 @@
 
 import { resolvePaymentMethodMeta } from './paymentMethods.js';
 
-function relationId(value) {
+/**
+ * Returns true when `value` looks like a Directus UUID by shape.
+ * This is a loose UUID-format check, not strict validation of specific UUID
+ * versions such as v4 or v7. Local JSON-menu IDs (e.g. "ant_1", "cat_2")
+ * are not valid UUIDs and must not be sent as Directus FK values; this guard
+ * is used to drop them before the payload reaches the API.
+ * @param {unknown} value
+ * @returns {boolean}
+ */
+export function looksLikeDirectusId(value) {
+  if (typeof value !== 'string') return false;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+}
+
+export function relationId(value) {
   if (value == null) return null;
   if (typeof value === 'object') return value.id ?? null;
   return value;
 }
 
-function parseJsonArray(value) {
+function numberOr(value, fallback = 0) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+export function parseJsonArray(value) {
   if (Array.isArray(value)) return value;
   if (typeof value === 'string' && value.trim() !== '') {
     try {
@@ -34,16 +53,46 @@ function parseJsonArray(value) {
   return [];
 }
 
+function normalizeOrderItemModifier(modifier) {
+  if (!modifier || typeof modifier !== 'object') return null;
+  const voidedQuantity = numberOr(modifier.voided_quantity ?? modifier.voidedQuantity);
+  return {
+    ...modifier,
+    price: numberOr(modifier.price),
+    voidedQuantity,
+    voided_quantity: voidedQuantity,
+  };
+}
+
+function normalizeNestedOrderItem(record) {
+  if (!record || typeof record !== 'object') return null;
+  const mapped = mapOrderItemFromDirectus(record);
+  return {
+    ...mapped,
+    notes: Array.isArray(mapped.notes) ? mapped.notes : [],
+    modifiers: Array.isArray(mapped.modifiers) ? mapped.modifiers : [],
+  };
+}
+
 export function mapOrderFromDirectus(record) {
   const tableId = relationId(record.table);
   const billSessionId = relationId(record.bill_session ?? record.billSessionId ?? null);
+  const totalAmount = numberOr(record.total_amount ?? record.totalAmount);
+  const itemCount = numberOr(record.item_count ?? record.itemCount);
+  const rawOrderItems = Array.isArray(record.orderItems)
+    ? record.orderItems
+    : Array.isArray(record.order_items)
+      ? record.order_items
+      : [];
   return {
     ...record,
     table: tableId ?? record.table ?? null,
     bill_session: billSessionId,
     billSessionId,
-    totalAmount: Number(record.total_amount ?? record.totalAmount ?? 0),
-    itemCount: Number(record.item_count ?? record.itemCount ?? 0),
+    total_amount: totalAmount,
+    item_count: itemCount,
+    totalAmount,
+    itemCount,
     time: record.order_time ?? record.time ?? '',
     globalNote: record.global_note ?? record.globalNote ?? '',
     noteVisibility: {
@@ -60,7 +109,7 @@ export function mapOrderFromDirectus(record) {
       diete: parseJsonArray(record.dietary_diets),
       allergeni: parseJsonArray(record.dietary_allergens),
     },
-    orderItems: record.orderItems ?? record.order_items ?? [],
+    orderItems: rawOrderItems.map(normalizeNestedOrderItem).filter(Boolean),
     _sync_status: 'synced',
   };
 }
@@ -151,6 +200,9 @@ export function mapOrderToDirectus(record) {
 export function mapOrderItemFromDirectus(record) {
   const orderId = relationId(record.order ?? record.orderId ?? null);
   const dishId = relationId(record.dish ?? record.dishId ?? null);
+  const quantity = numberOr(record.quantity);
+  const unitPrice = numberOr(record.unit_price ?? record.unitPrice);
+  const voidedQuantity = numberOr(record.voided_quantity ?? record.voidedQuantity);
   return {
     ...record,
     order: orderId,
@@ -158,8 +210,20 @@ export function mapOrderItemFromDirectus(record) {
     dish: dishId,
     dishId,
     uid: record.uid ?? record.id,
-    unitPrice: Number(record.unit_price ?? record.unitPrice ?? 0),
-    voidedQuantity: Number(record.voided_quantity ?? record.voidedQuantity ?? 0),
+    quantity,
+    unit_price: unitPrice,
+    unitPrice,
+    voided_quantity: voidedQuantity,
+    voidedQuantity,
+    notes: Array.isArray(record.notes) ? record.notes : [],
+    modifiers: (() => {
+      const rawMods = Array.isArray(record.modifiers)
+        ? record.modifiers
+        : Array.isArray(record.order_item_modifiers)
+          ? record.order_item_modifiers
+          : [];
+      return rawMods.map(normalizeOrderItemModifier).filter(Boolean);
+    })(),
     kitchenReady: record.kitchen_ready ?? record.kitchenReady ?? false,
     venueUserCreated: relationId(record.venue_user_created ?? record.venueUserCreated ?? null),
     venueUserUpdated: relationId(record.venue_user_updated ?? record.venueUserUpdated ?? null),
@@ -167,15 +231,21 @@ export function mapOrderItemFromDirectus(record) {
   };
 }
 
-export function mapOrderItemToDirectus(record) {
+export function mapOrderItemToDirectus(record, _originalPayload, opts = {}) {
+  const { menuSource = 'directus' } = opts;
   const source = record ?? {};
+  const rawDishId = relationId(source.dish ?? source.dishId ?? null);
   const out = {
     ...source,
     unit_price: source.unit_price ?? source.unitPrice ?? 0,
-    voided_quantity: source.voided_quantity ?? source.voidedQuantity ?? 0,
+    voided_quantity: source.voidedQuantity ?? source.voided_quantity ?? 0,
     kitchen_ready: source.kitchen_ready ?? source.kitchenReady ?? false,
     order: relationId(source.order ?? source.orderId ?? null),
-    dish: relationId(source.dish ?? source.dishId ?? null),
+    // When the app uses a JSON menu, always null out the dish FK: local item
+    // IDs (e.g. "ant_1") are not valid Directus FKs and must be omitted to
+    // avoid a 400 INVALID_FOREIGN_KEY error.  When the menu source is Directus
+    // the dish ID is forwarded only if it has a valid UUID shape.
+    dish: menuSource === 'json' ? null : (looksLikeDirectusId(rawDishId) ? rawDishId : null),
   };
   const venueUserCreated = source.venue_user_created ?? source.venueUserCreated;
   if (venueUserCreated != null) {
@@ -227,6 +297,320 @@ export function mapBillSessionToDirectus(record) {
   delete out.venueUserCreated;
   delete out.venueUserUpdated;
   return out;
+}
+
+// ── Pull mappers: venue config sub-collections ────────────────────────────────
+
+/**
+ * Maps a raw Directus `menu_items` record to the local in-memory format.
+ * Normalises JSON-encoded arrays (`ingredients`, `allergens`) so consumers
+ * always receive plain JS arrays regardless of how the value was stored.
+ *
+ * @param {object} record
+ * @returns {object}
+ */
+export function mapMenuItemFromDirectus(record) {
+  return {
+    ...record,
+    ingredients: parseJsonArray(record.ingredients),
+    allergens: parseJsonArray(record.allergens),
+    _sync_status: 'synced',
+  };
+}
+
+/**
+ * Maps a raw Directus `menu_categories` record to the local format.
+ *
+ * @param {object} record
+ * @returns {object}
+ */
+export function mapMenuCategoryFromDirectus(record) {
+  return {
+    ...record,
+    _sync_status: 'synced',
+  };
+}
+
+/**
+ * Maps a raw Directus `menu_modifiers` record to the local format.
+ * Extracts the `venue` FK scalar.
+ *
+ * @param {object} record
+ * @returns {object}
+ */
+export function mapMenuModifierFromDirectus(record) {
+  return {
+    ...record,
+    venue: relationId(record.venue),
+    _sync_status: 'synced',
+  };
+}
+
+/**
+ * Maps a raw Directus `menu_categories_menu_modifiers` junction record.
+ * Extracts relation FKs for `venue`, `menu_categories_id`, `menu_modifiers_id`.
+ *
+ * @param {object} record
+ * @returns {object}
+ */
+export function mapMenuCategoryModifierLinkFromDirectus(record) {
+  return {
+    ...record,
+    venue: relationId(record.venue),
+    menu_categories_id: relationId(record.menu_categories_id),
+    menu_modifiers_id: relationId(record.menu_modifiers_id),
+    _sync_status: 'synced',
+  };
+}
+
+/**
+ * Maps a raw Directus `menu_items_menu_modifiers` junction record.
+ * Extracts relation FKs for `venue`, `menu_items_id`, `menu_modifiers_id`.
+ *
+ * @param {object} record
+ * @returns {object}
+ */
+export function mapMenuItemModifierLinkFromDirectus(record) {
+  return {
+    ...record,
+    venue: relationId(record.venue),
+    menu_items_id: relationId(record.menu_items_id),
+    menu_modifiers_id: relationId(record.menu_modifiers_id),
+    _sync_status: 'synced',
+  };
+}
+
+/**
+ * Maps a raw Directus `table_merge_sessions` record to the local format.
+ * Extracts relation FKs for `venue`, `master_table`, `slave_table`.
+ *
+ * @param {object} record
+ * @returns {object}
+ */
+export function mapTableMergeSessionFromDirectus(record) {
+  return {
+    ...record,
+    venue: relationId(record.venue),
+    master_table: relationId(record.master_table),
+    slave_table: relationId(record.slave_table),
+    _sync_status: 'synced',
+  };
+}
+
+// ── WebSocket order merge ─────────────────────────────────────────────────────
+
+/**
+ * Merges a partial WebSocket update payload into an existing order record from IDB.
+ *
+ * WS subscriptions use `fields:['*']` which does NOT expand nested relations,
+ * and can send partial payloads (e.g. only `{id, status, date_updated}`).
+ * `mapOrderFromDirectus()` fills absent fields with zero/empty defaults, so a
+ * straight overwrite would wipe IDB fields such as `totalAmount`, `globalNote`
+ * and `orderItems`.
+ *
+ * Only fields **present in the raw WS payload** are propagated to `merged`;
+ * all other fields are preserved from `existing`. This is the single source of
+ * truth for the order-field merge rule — previously duplicated inline inside
+ * `_handleSubscriptionMessage`.
+ *
+ * @param {object} existing - Current order record from IDB.
+ * @param {object} raw      - Raw WS payload (used to detect which fields were sent).
+ * @param {object} incoming - Already-mapped record via `mapOrderFromDirectus(raw)`.
+ * @returns {object} Merged order record ready to be written back to IDB.
+ */
+export function mergeOrderFromWSPayload(existing, raw, incoming) {
+  const merged = { ...existing };
+  const hasOwn = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key);
+
+  if (hasOwn(raw, 'id')) merged.id = incoming.id;
+  if (hasOwn(raw, 'status')) merged.status = incoming.status;
+  if (hasOwn(raw, 'date_created')) merged.date_created = incoming.date_created;
+  if (hasOwn(raw, 'date_updated')) merged.date_updated = incoming.date_updated;
+  if (hasOwn(raw, 'number')) merged.number = incoming.number;
+  if (hasOwn(raw, 'date')) merged.date = incoming.date;
+  if (hasOwn(raw, 'store_id')) merged.store_id = incoming.store_id;
+  if (hasOwn(raw, 'terminal_id')) merged.terminal_id = incoming.terminal_id;
+  if (hasOwn(raw, 'table')) merged.table = incoming.table;
+  if (hasOwn(raw, 'bill_session')) {
+    merged.billSessionId = incoming.billSessionId;
+    merged.bill_session = incoming.bill_session;
+  }
+  if (hasOwn(raw, 'total_amount')) {
+    merged.totalAmount = incoming.totalAmount;
+    merged.total_amount = incoming.total_amount;
+  }
+  if (hasOwn(raw, 'item_count')) {
+    merged.itemCount = incoming.itemCount;
+    merged.item_count = incoming.item_count;
+  }
+  if (hasOwn(raw, 'order_time')) {
+    merged.time = incoming.time;
+    merged.order_time = incoming.order_time;
+  }
+  if (hasOwn(raw, 'global_note')) {
+    merged.globalNote = incoming.globalNote;
+    merged.global_note = incoming.global_note;
+  }
+  if (
+    hasOwn(raw, 'note_visibility_cassa') ||
+    hasOwn(raw, 'note_visibility_sala') ||
+    hasOwn(raw, 'note_visibility_cucina')
+  ) {
+    // Merge per-subkey so that a partial WS update (e.g. only note_visibility_cassa)
+    // does not clobber the other visibility flags with mapper-supplied defaults.
+    const nv = { ...(existing.noteVisibility ?? {}) };
+    if (hasOwn(raw, 'note_visibility_cassa')) {
+      nv.cassa = incoming.noteVisibility.cassa;
+      merged.note_visibility_cassa = incoming.note_visibility_cassa;
+    }
+    if (hasOwn(raw, 'note_visibility_sala')) {
+      nv.sala = incoming.noteVisibility.sala;
+      merged.note_visibility_sala = incoming.note_visibility_sala;
+    }
+    if (hasOwn(raw, 'note_visibility_cucina')) {
+      nv.cucina = incoming.noteVisibility.cucina;
+      merged.note_visibility_cucina = incoming.note_visibility_cucina;
+    }
+    merged.noteVisibility = nv;
+  }
+  if (hasOwn(raw, 'is_cover_charge')) {
+    merged.isCoverCharge = incoming.isCoverCharge;
+    merged.is_cover_charge = incoming.is_cover_charge;
+  }
+  if (hasOwn(raw, 'is_direct_entry')) {
+    merged.isDirectEntry = incoming.isDirectEntry;
+    merged.is_direct_entry = incoming.is_direct_entry;
+  }
+  if (hasOwn(raw, 'rejection_reason')) {
+    merged.rejectionReason = incoming.rejectionReason;
+    merged.rejection_reason = incoming.rejection_reason;
+  }
+  if (hasOwn(raw, 'venue_user_created')) {
+    merged.venueUserCreated = incoming.venueUserCreated;
+    merged.venue_user_created = incoming.venue_user_created;
+  }
+  if (hasOwn(raw, 'venue_user_updated')) {
+    merged.venueUserUpdated = incoming.venueUserUpdated;
+    merged.venue_user_updated = incoming.venue_user_updated;
+  }
+  if (
+    hasOwn(raw, 'dietary_diets') ||
+    hasOwn(raw, 'dietary_allergens') ||
+    hasOwn(raw, 'dietaryPreferences')
+  ) {
+    // Merge per-subkey so that a partial WS update (e.g. only dietary_diets)
+    // does not clobber dietaryPreferences.allergeni with a mapper-supplied default.
+    const dp = { ...(existing.dietaryPreferences ?? {}) };
+    if (hasOwn(raw, 'dietary_diets')) {
+      dp.diete = incoming.dietaryPreferences.diete;
+      merged.dietary_diets = incoming.dietary_diets;
+    }
+    if (hasOwn(raw, 'dietary_allergens')) {
+      dp.allergeni = incoming.dietaryPreferences.allergeni;
+      merged.dietary_allergens = incoming.dietary_allergens;
+    }
+    if (hasOwn(raw, 'dietaryPreferences') && !hasOwn(raw, 'dietary_diets') && !hasOwn(raw, 'dietary_allergens')) {
+      // WS sent the composed camelCase object directly — replace both subkeys.
+      Object.assign(dp, incoming.dietaryPreferences);
+    }
+    merged.dietaryPreferences = dp;
+  }
+  if (hasOwn(raw, 'order_items') || hasOwn(raw, 'orderItems')) {
+    if (Array.isArray(incoming.orderItems) && incoming.orderItems.length > 0) {
+      merged.orderItems = incoming.orderItems;
+    }
+    // else keep existing.orderItems (already in merged via spread)
+  }
+  return merged;
+}
+
+/**
+ * Merges an incoming `order_item` WebSocket payload into an existing embedded
+ * order-item record (the entry stored inside `order.orderItems`).
+ *
+ * WS subscriptions use `fields: ['*']` which can produce partial payloads (e.g.
+ * only `{id, kitchen_ready, date_updated}`). `mapOrderItemFromDirectus()` fills
+ * absent numeric/array fields with defaults (0, []).  Spreading the fully-mapped
+ * record with `{...existing, ...item}` would clobber existing `quantity`,
+ * `unit_price`, `notes`, etc. with those defaults.
+ *
+ * This function follows the same pattern as `mergeOrderFromWSPayload`: start with
+ * `existing` and overwrite only the camelCase/snake_case fields that are actually
+ * present in the raw Directus record.
+ *
+ * @param {object} existing  - The current embedded item record from IDB.
+ * @param {object} raw       - The raw Directus record in snake_case, regardless of transport.
+ * @param {object} incoming  - The result of `mapOrderItemFromDirectus(raw)`.
+ * @returns {object} Merged item record.
+ */
+export function mergeOrderItemFromWSPayload(existing, raw, incoming) {
+  const merged = { ...existing };
+  const hasOwn = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key);
+
+  if (hasOwn(raw, 'id')) merged.id = incoming.id;
+  if (hasOwn(raw, 'uid')) {
+    merged.uid = incoming.uid;
+  } else if (hasOwn(raw, 'id') && !merged.uid) {
+    merged.uid = incoming.uid;
+  }
+  if (hasOwn(raw, 'date_created')) merged.date_created = incoming.date_created;
+  if (hasOwn(raw, 'date_updated')) merged.date_updated = incoming.date_updated;
+  if (hasOwn(raw, 'order')) {
+    merged.order = incoming.order;
+    merged.orderId = incoming.orderId;
+  }
+  if (hasOwn(raw, 'dish')) {
+    merged.dish = incoming.dish;
+    merged.dishId = incoming.dishId;
+  }
+  if (hasOwn(raw, 'name')) merged.name = incoming.name;
+  if (hasOwn(raw, 'quantity')) {
+    merged.quantity = incoming.quantity;
+  }
+  if (hasOwn(raw, 'unit_price')) {
+    merged.unit_price = incoming.unit_price;
+    merged.unitPrice = incoming.unitPrice;
+  }
+  if (hasOwn(raw, 'voided_quantity')) {
+    merged.voided_quantity = incoming.voided_quantity;
+    merged.voidedQuantity = incoming.voidedQuantity;
+  }
+  if (hasOwn(raw, 'kitchen_ready')) {
+    merged.kitchenReady = incoming.kitchenReady;
+    merged.kitchen_ready = incoming.kitchen_ready;
+  }
+  if (hasOwn(raw, 'notes')) merged.notes = incoming.notes;
+  if (hasOwn(raw, 'order_item_modifiers') || hasOwn(raw, 'modifiers')) {
+    const rawModifiers = hasOwn(raw, 'order_item_modifiers')
+      ? raw.order_item_modifiers
+      : raw.modifiers;
+
+    // Only overwrite modifiers when the incoming array is non-empty.
+    // WS subscriptions with `fields: ['*']` do NOT expand nested relations, so
+    // `order_item_modifiers` typically arrives as an array of bare IDs (numbers)
+    // which `mapOrderItemFromDirectus` normalizes to `[]` after filtering out
+    // non-objects. Unconditionally replacing `existing.modifiers` with `[]`
+    // would silently wipe modifier data fetched during the last full pull.
+    //
+    // However, an explicit empty relation array in the raw WS payload is
+    // authoritative and means all modifiers were removed, so allow that case
+    // to clear `merged.modifiers`.
+    if (Array.isArray(incoming.modifiers) && incoming.modifiers.length > 0) {
+      merged.modifiers = incoming.modifiers;
+    } else if (Array.isArray(rawModifiers) && rawModifiers.length === 0) {
+      merged.modifiers = [];
+    }
+    // else keep existing.modifiers (already in merged via spread)
+  }
+  if (hasOwn(raw, 'venue_user_created')) {
+    merged.venueUserCreated = incoming.venueUserCreated;
+    merged.venue_user_created = incoming.venue_user_created;
+  }
+  if (hasOwn(raw, 'venue_user_updated')) {
+    merged.venueUserUpdated = incoming.venueUserUpdated;
+    merged.venue_user_updated = incoming.venue_user_updated;
+  }
+  return merged;
 }
 
 /**
@@ -457,7 +841,10 @@ export function mapVenueConfigFromDirectus(cachedConfig, defaults) {
     if (Array.isArray(venueRecord.orders_rejection_reasons) && venueRecord.orders_rejection_reasons.length > 0) {
       next.orders.rejectionReasons = venueRecord.orders_rejection_reasons;
     }
-    if (venueRecord.menu_source !== null && venueRecord.menu_source !== undefined) next.menuSource = venueRecord.menu_source;
+    if (venueRecord.menu_source !== null && venueRecord.menu_source !== undefined) {
+      next.menuSource = venueRecord.menu_source;
+      next.venueMenuSource = venueRecord.menu_source;
+    }
     if (venueRecord.menu_url != null && String(venueRecord.menu_url).trim() !== '') next.menuUrl = String(venueRecord.menu_url);
   }
 
@@ -549,10 +936,10 @@ export function mapOrderItemModifierToDirectus(record) {
   if (!Object.prototype.hasOwnProperty.call(out, 'order') && Object.prototype.hasOwnProperty.call(source, 'orderId')) {
     out.order = source.orderId;
   }
-  if (Object.prototype.hasOwnProperty.call(source, 'voided_quantity')) {
-    out.voided_quantity = source.voided_quantity;
-  } else if (Object.prototype.hasOwnProperty.call(source, 'voidedQuantity')) {
+  if (Object.prototype.hasOwnProperty.call(source, 'voidedQuantity')) {
     out.voided_quantity = source.voidedQuantity;
+  } else if (Object.prototype.hasOwnProperty.call(source, 'voided_quantity')) {
+    out.voided_quantity = source.voided_quantity;
   }
   delete out.voidedQuantity;
   delete out.itemUid;
@@ -625,6 +1012,246 @@ export function mapTransactionToDirectus(record) {
   return out;
 }
 
+/**
+ * Maps a local print log entry to Directus `print_jobs` field names.
+ *
+ * The Directus PK is the standard `id` field (UUID v7, no prefix).
+ * `logId`, `jobId` and `originalJobId` are local-only identifiers — they are
+ * dropped here and not stored as separate columns in Directus. `jobId` is still
+ * available inside the `payload` JSONB column (as `payload.jobId`). For reprints,
+ * `originalJobId` is copied into `payload.originalJobId` before the top-level field
+ * is removed, so the reprint traceability link is preserved in Directus.
+ *
+ * The `timestamp` field is stripped by `_PUSH_DROP_FIELDS` before this mapper
+ * runs, so the original (unstripped) payload is passed as `originalRecord` to
+ * allow it to be mapped to the Directus `job_timestamp` column.
+ *
+ * @param {object} record - Cleaned/stripped local print log entry
+ * @param {object} [originalRecord] - Original unstripped payload from enqueue
+ * @returns {object}
+ */
+export function mapPrintJobToDirectus(record, originalRecord) {
+  const source = record ?? {};
+  const original = originalRecord ?? {};
+  const out = { ...source };
+
+  // logId — local IDB keyPath, not a Directus column → drop
+  delete out.logId;
+  // jobId — local identifier stored in payload.jobId, not a separate Directus column → drop
+  delete out.jobId;
+  // originalJobId — local reprint reference; copy into payload.originalJobId so the
+  // traceability link is preserved in Directus, then drop the redundant top-level field
+  if (
+    Object.prototype.hasOwnProperty.call(out, 'originalJobId') &&
+    out.originalJobId != null &&
+    out.payload != null &&
+    typeof out.payload === 'object' &&
+    !Array.isArray(out.payload) &&
+    !Object.prototype.hasOwnProperty.call(out.payload, 'originalJobId')
+  ) {
+    out.payload = { ...out.payload, originalJobId: out.originalJobId };
+  }
+  delete out.originalJobId;
+  // printType → print_type
+  if (!Object.prototype.hasOwnProperty.call(out, 'print_type') && Object.prototype.hasOwnProperty.call(source, 'printType')) {
+    out.print_type = source.printType;
+  }
+  delete out.printType;
+  // printerId → printer (FK to printers)
+  if (!Object.prototype.hasOwnProperty.call(out, 'printer') && Object.prototype.hasOwnProperty.call(source, 'printerId')) {
+    out.printer = source.printerId;
+  }
+  delete out.printerId;
+  // table (label string) → table_label
+  if (!Object.prototype.hasOwnProperty.call(out, 'table_label') && Object.prototype.hasOwnProperty.call(source, 'table')) {
+    out.table_label = source.table;
+  }
+  delete out.table;
+  // timestamp → job_timestamp (timestamp was stripped; recover from originalRecord)
+  if (!Object.prototype.hasOwnProperty.call(out, 'job_timestamp')) {
+    const ts = original.timestamp ?? null;
+    if (ts != null) out.job_timestamp = ts;
+  }
+  // errorMessage → error_message
+  if (!Object.prototype.hasOwnProperty.call(out, 'error_message') && Object.prototype.hasOwnProperty.call(source, 'errorMessage')) {
+    out.error_message = source.errorMessage;
+  }
+  delete out.errorMessage;
+  // isReprint → is_reprint
+  if (!Object.prototype.hasOwnProperty.call(out, 'is_reprint') && Object.prototype.hasOwnProperty.call(source, 'isReprint')) {
+    out.is_reprint = source.isReprint;
+  }
+  delete out.isReprint;
+  // Drop local-only display fields (not in Directus schema)
+  delete out.printerName;
+  delete out.printerUrl;
+
+  return out;
+}
+
+/**
+ * Maps a local fiscal receipt entry to Directus `fiscal_receipts` field names.
+ *
+ * `payment_methods` and `orders` are serialised as JSON strings because the
+ * Directus columns are `text` fields that store JSON arrays.
+ * `timestamp` is recovered from `originalRecord` since it is stripped by
+ * `_PUSH_DROP_FIELDS` before this mapper runs.
+ *
+ * @param {object} record - Cleaned/stripped local fiscal receipt entry
+ * @param {object} [originalRecord] - Original unstripped payload from enqueue
+ * @returns {object}
+ */
+export function mapFiscalReceiptToDirectus(record, originalRecord) {
+  const source = record ?? {};
+  const original = originalRecord ?? {};
+  const out = { ...source };
+
+  // tableId → table (FK to tables; follows app convention: no _id suffix)
+  if (!Object.prototype.hasOwnProperty.call(out, 'table') && Object.prototype.hasOwnProperty.call(source, 'tableId')) {
+    out.table = source.tableId;
+  }
+  delete out.tableId;
+  // tableLabel → table_label
+  if (!Object.prototype.hasOwnProperty.call(out, 'table_label') && Object.prototype.hasOwnProperty.call(source, 'tableLabel')) {
+    out.table_label = source.tableLabel;
+  }
+  delete out.tableLabel;
+  // billSessionId → bill_session (FK to bill_sessions; follows app convention: no _id suffix)
+  if (!Object.prototype.hasOwnProperty.call(out, 'bill_session') && Object.prototype.hasOwnProperty.call(source, 'billSessionId')) {
+    out.bill_session = source.billSessionId;
+  }
+  delete out.billSessionId;
+  // closedAt → closed_at
+  if (!Object.prototype.hasOwnProperty.call(out, 'closed_at') && Object.prototype.hasOwnProperty.call(source, 'closedAt')) {
+    out.closed_at = source.closedAt;
+  }
+  delete out.closedAt;
+  // totalAmount → total_amount
+  if (!Object.prototype.hasOwnProperty.call(out, 'total_amount') && Object.prototype.hasOwnProperty.call(source, 'totalAmount')) {
+    out.total_amount = source.totalAmount;
+  }
+  delete out.totalAmount;
+  // totalPaid → total_paid
+  if (!Object.prototype.hasOwnProperty.call(out, 'total_paid') && Object.prototype.hasOwnProperty.call(source, 'totalPaid')) {
+    out.total_paid = source.totalPaid;
+  }
+  delete out.totalPaid;
+  // paymentMethods → payment_methods (JSON string; Directus column is text)
+  if (!Object.prototype.hasOwnProperty.call(out, 'payment_methods') && Object.prototype.hasOwnProperty.call(source, 'paymentMethods')) {
+    out.payment_methods = Array.isArray(source.paymentMethods)
+      ? JSON.stringify(source.paymentMethods)
+      : source.paymentMethods;
+  }
+  delete out.paymentMethods;
+  // orders snapshot → JSON string
+  if (Object.prototype.hasOwnProperty.call(source, 'orders') && Array.isArray(source.orders)) {
+    out.orders = JSON.stringify(source.orders);
+  }
+  // xmlRequest → xml_request
+  if (!Object.prototype.hasOwnProperty.call(out, 'xml_request') && Object.prototype.hasOwnProperty.call(source, 'xmlRequest')) {
+    out.xml_request = source.xmlRequest;
+  }
+  delete out.xmlRequest;
+  // xmlResponse → xml_response
+  if (!Object.prototype.hasOwnProperty.call(out, 'xml_response') && Object.prototype.hasOwnProperty.call(source, 'xmlResponse')) {
+    out.xml_response = source.xmlResponse;
+  }
+  delete out.xmlResponse;
+  // timestamp (stripped by _PUSH_DROP_FIELDS; recover from originalRecord)
+  if (!Object.prototype.hasOwnProperty.call(out, 'timestamp') && original.timestamp != null) {
+    out.timestamp = original.timestamp;
+  }
+
+  return out;
+}
+
+/**
+ * Maps a local invoice request entry to Directus `invoice_requests` field names.
+ *
+ * The `billingData` nested object is flattened into top-level Directus columns.
+ * `payment_methods` and `orders` are serialised as JSON strings.
+ * `timestamp` is recovered from `originalRecord` since it is stripped by
+ * `_PUSH_DROP_FIELDS` before this mapper runs.
+ *
+ * @param {object} record - Cleaned/stripped local invoice request entry
+ * @param {object} [originalRecord] - Original unstripped payload from enqueue
+ * @returns {object}
+ */
+export function mapInvoiceRequestToDirectus(record, originalRecord) {
+  const source = record ?? {};
+  const original = originalRecord ?? {};
+  const out = { ...source };
+
+  // tableId → table (FK to tables; follows app convention: no _id suffix)
+  if (!Object.prototype.hasOwnProperty.call(out, 'table') && Object.prototype.hasOwnProperty.call(source, 'tableId')) {
+    out.table = source.tableId;
+  }
+  delete out.tableId;
+  // tableLabel → table_label
+  if (!Object.prototype.hasOwnProperty.call(out, 'table_label') && Object.prototype.hasOwnProperty.call(source, 'tableLabel')) {
+    out.table_label = source.tableLabel;
+  }
+  delete out.tableLabel;
+  // billSessionId → bill_session (FK to bill_sessions; follows app convention: no _id suffix)
+  if (!Object.prototype.hasOwnProperty.call(out, 'bill_session') && Object.prototype.hasOwnProperty.call(source, 'billSessionId')) {
+    out.bill_session = source.billSessionId;
+  }
+  delete out.billSessionId;
+  // closedAt → closed_at
+  if (!Object.prototype.hasOwnProperty.call(out, 'closed_at') && Object.prototype.hasOwnProperty.call(source, 'closedAt')) {
+    out.closed_at = source.closedAt;
+  }
+  delete out.closedAt;
+  // totalAmount → total_amount
+  if (!Object.prototype.hasOwnProperty.call(out, 'total_amount') && Object.prototype.hasOwnProperty.call(source, 'totalAmount')) {
+    out.total_amount = source.totalAmount;
+  }
+  delete out.totalAmount;
+  // totalPaid → total_paid
+  if (!Object.prototype.hasOwnProperty.call(out, 'total_paid') && Object.prototype.hasOwnProperty.call(source, 'totalPaid')) {
+    out.total_paid = source.totalPaid;
+  }
+  delete out.totalPaid;
+  // paymentMethods → payment_methods (JSON string; Directus column is text)
+  if (!Object.prototype.hasOwnProperty.call(out, 'payment_methods') && Object.prototype.hasOwnProperty.call(source, 'paymentMethods')) {
+    out.payment_methods = Array.isArray(source.paymentMethods)
+      ? JSON.stringify(source.paymentMethods)
+      : source.paymentMethods;
+  }
+  delete out.paymentMethods;
+  // orders snapshot → JSON string
+  if (Object.prototype.hasOwnProperty.call(source, 'orders') && Array.isArray(source.orders)) {
+    out.orders = JSON.stringify(source.orders);
+  }
+  // billingData → flatten into top-level Directus columns
+  const bd = source.billingData;
+  if (bd && typeof bd === 'object') {
+    if (!Object.prototype.hasOwnProperty.call(out, 'denominazione') && bd.denominazione != null) out.denominazione = bd.denominazione;
+    if (!Object.prototype.hasOwnProperty.call(out, 'codice_fiscale')) {
+      const cf = bd.codice_fiscale ?? bd.codiceFiscale ?? null;
+      if (cf != null) out.codice_fiscale = cf;
+    }
+    if (!Object.prototype.hasOwnProperty.call(out, 'piva') && bd.piva != null) out.piva = bd.piva;
+    if (!Object.prototype.hasOwnProperty.call(out, 'indirizzo') && bd.indirizzo != null) out.indirizzo = bd.indirizzo;
+    if (!Object.prototype.hasOwnProperty.call(out, 'cap') && bd.cap != null) out.cap = bd.cap;
+    if (!Object.prototype.hasOwnProperty.call(out, 'comune') && bd.comune != null) out.comune = bd.comune;
+    if (!Object.prototype.hasOwnProperty.call(out, 'provincia') && bd.provincia != null) out.provincia = bd.provincia;
+    if (!Object.prototype.hasOwnProperty.call(out, 'paese') && bd.paese != null) out.paese = bd.paese;
+    if (!Object.prototype.hasOwnProperty.call(out, 'codice_destinatario')) {
+      const sdi = bd.codice_destinatario ?? bd.codiceDestinatario ?? null;
+      if (sdi != null) out.codice_destinatario = sdi;
+    }
+    if (!Object.prototype.hasOwnProperty.call(out, 'pec') && bd.pec != null) out.pec = bd.pec;
+  }
+  delete out.billingData;
+  // timestamp (stripped by _PUSH_DROP_FIELDS; recover from originalRecord)
+  if (!Object.prototype.hasOwnProperty.call(out, 'timestamp') && original.timestamp != null) {
+    out.timestamp = original.timestamp;
+  }
+
+  return out;
+}
+
 // Declared after the individual mappers so all references are resolved.
 const _TO_DIRECTUS_MAPPERS = {
   orders: mapOrderToDirectus,
@@ -632,6 +1259,9 @@ const _TO_DIRECTUS_MAPPERS = {
   bill_sessions: mapBillSessionToDirectus,
   order_item_modifiers: mapOrderItemModifierToDirectus,
   transactions: mapTransactionToDirectus,
+  print_jobs: mapPrintJobToDirectus,
+  fiscal_receipts: mapFiscalReceiptToDirectus,
+  invoice_requests: mapInvoiceRequestToDirectus,
 };
 
 /**
@@ -645,7 +1275,9 @@ const _TO_DIRECTUS_MAPPERS = {
  *     already-expanded `order_item_modifiers` (set by Step 3 in the recursive
  *     call) with parent-context `order_item`/`order` FKs.
  *  3. Expand nested `modifiers → order_item_modifiers` (for `order_items`).
- *  4. Apply dedicated collection mapper (or generic FIELD_RENAME_MAP).
+ *  4. Apply dedicated collection mapper (or generic FIELD_RENAME_MAP); the
+ *     original unstripped `payload` is passed as a second argument to allow
+ *     mappers to recover fields stripped in Step 1 (e.g. `timestamp`).
  *  5. Resolve `payment_method` FK via `resolvePaymentMethodMeta` (where applicable).
  *  6. Normalise relation-object FK values and JSON-array fields.
  *
@@ -657,13 +1289,18 @@ const _TO_DIRECTUS_MAPPERS = {
  *
  * @param {string} collection  - Directus collection name (e.g. 'orders')
  * @param {object|null} payload - Local record payload
- * @param {{ paymentMethods?: Array }} [ctx] - Runtime context (e.g. configured payment methods)
+ * @param {{ paymentMethods?: Array, recordId?: string|null, menuSource?: 'directus'|'json' }} [ctx] - Runtime context.
+ *   `recordId` is the queue entry's `record_id` and is used as a last-resort fallback for the `order` FK on
+ *   nested `order_items` when the payload does not carry an `id` field (partial updates).
+ *   `menuSource` controls how the `dish` FK is handled on nested `order_items`: `'json'` always sets
+ *   `dish = null` (JSON-menu dish IDs are local-only and have no corresponding Directus record);
+ *   `'directus'` (default) passes through valid UUID-shaped dish IDs unchanged.
  * @returns {object}  Directus-ready payload
  */
 export function mapPayloadToDirectus(collection, payload, ctx = {}) {
   if (!payload || typeof payload !== 'object') return {};
 
-  const { paymentMethods = [] } = ctx;
+  const { paymentMethods = [], menuSource = 'directus' } = ctx;
 
   // Step 1 — strip local-only and push-drop fields
   const cleaned = {};
@@ -681,8 +1318,39 @@ export function mapPayloadToDirectus(collection, payload, ctx = {}) {
       // Step 3 which expands item.modifiers → order_item_modifiers.
       const directItem = mapPayloadToDirectus('order_items', item, ctx);
       if (directItem.id == null && item?.id) directItem.id = item.id;
-      const resolvedOrderId = item?.orderId ?? payload?.id ?? null;
+      // Fallback order: item.orderId (explicit) → payload.id (create path where id is in payload)
+      // → ctx.recordId (update path where id is in queue entry.record_id, not in payload body)
+      const resolvedOrderId = item?.orderId ?? payload?.id ?? ctx?.recordId ?? null;
       if (directItem.order == null && resolvedOrderId) directItem.order = resolvedOrderId;
+      // Propagate the audit user from the parent order payload to each item so
+      // that Directus records the venue_user_created / venue_user_updated FK on
+      // order_items, which are always written as nested payloads of their parent
+      // order and therefore bypass the per-collection _withVenueUserAuditPayload
+      // enrichment that runs on top-level sync_queue entries.
+      // For update-only flows the queued PATCH carries only venue_user_updated
+      // (no venue_user_created); in that case fall back to venue_user_updated so
+      // that new items nested inside an update also get a non-null created author.
+      // Both snake_case (Directus-normalised) and camelCase (local model) variants
+      // are checked because the payload may arrive in either form.
+      if (directItem.venue_user_created == null) {
+        const auditUser =
+          cleaned.venue_user_created ??
+          payload?.venue_user_created ??
+          payload?.venueUserCreated ??
+          cleaned.venue_user_updated ??
+          payload?.venue_user_updated ??
+          payload?.venueUserUpdated ??
+          null;
+        if (auditUser != null) directItem.venue_user_created = auditUser;
+      }
+      if (directItem.venue_user_updated == null) {
+        const auditUser =
+          cleaned.venue_user_updated ??
+          payload?.venue_user_updated ??
+          payload?.venueUserUpdated ??
+          null;
+        if (auditUser != null) directItem.venue_user_updated = auditUser;
+      }
       // Enrich already-expanded modifiers (populated by Step 3 in the recursive
       // call above) with parent-context FKs that are not available there.
       if (Array.isArray(directItem.order_item_modifiers)) {
@@ -691,6 +1359,7 @@ export function mapPayloadToDirectus(collection, payload, ctx = {}) {
           const enriched = { ...directMod };
           const srcMod = srcMods[i] ?? {};
           if (enriched.id == null && srcMod.id) enriched.id = srcMod.id;
+          if (enriched.item_uid == null && item?.uid) enriched.item_uid = item.uid;
           if (enriched.order_item == null && item?.id) enriched.order_item = item.id;
           if (enriched.order == null && resolvedOrderId) enriched.order = resolvedOrderId;
           return enriched;
@@ -710,10 +1379,14 @@ export function mapPayloadToDirectus(collection, payload, ctx = {}) {
   }
 
   // Step 4 — apply dedicated mapper or generic FIELD_RENAME_MAP
+  // The original (unstripped) `payload` is passed as a second argument so that
+  // dedicated mappers can recover fields that were stripped by _PUSH_DROP_FIELDS
+  // in Step 1 (e.g. `timestamp` used by fiscal_receipts / invoice_requests, and
+  // mapped to `job_timestamp` by print_jobs).
   let mapped;
   const dedicatedMapper = _TO_DIRECTUS_MAPPERS[collection];
   if (dedicatedMapper) {
-    mapped = dedicatedMapper(preProcessed);
+    mapped = dedicatedMapper(preProcessed, payload, { menuSource });
   } else {
     mapped = {};
     for (const [key, value] of Object.entries(preProcessed)) {

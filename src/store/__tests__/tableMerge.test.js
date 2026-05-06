@@ -50,8 +50,8 @@ function makeOrder(tableId, status, totalAmount, billSessionId = null) {
 function makeTransaction(tableId, amountPaid, billSessionId = null) {
   return {
     id: `txn_${Math.random().toString(36).slice(2)}`,
-    tableId,
-    billSessionId,
+    table: tableId,
+    bill_session: billSessionId,
     amountPaid,
     tipAmount: 0,
     method: 'cash',
@@ -123,8 +123,8 @@ describe('moveTableOrders() — to an occupied table (bill merge)', () => {
 
     // Transaction moved to B and retagged
     const movedTxn = store.transactions.find(t => t.id === txnA.id);
-    expect(movedTxn.tableId).toBe('B');
-    expect(movedTxn.billSessionId).toBe(sessionB);
+    expect(movedTxn.table).toBe('B');
+    expect(movedTxn.bill_session).toBe(sessionB);
   });
 });
 
@@ -215,8 +215,8 @@ describe('mergeTableOrders() — orders physically move to master, both tables r
     await store.mergeTableOrders('A', 'B');
 
     const movedTxn = store.transactions.find(t => t.id === txnA.id);
-    expect(movedTxn.tableId).toBe('B');
-    expect(movedTxn.billSessionId).toBe(sessB);
+    expect(movedTxn.table).toBe('B');
+    expect(movedTxn.bill_session).toBe(sessB);
   });
 
   it('slave source has no current bill session after merge', async () => {
@@ -1031,7 +1031,7 @@ describe('splitItemsToTable()', () => {
     // Record a partial payment on A before the move
     const txn = makeTransaction('A', 1, sessA);
     await store.addTransaction(txn);
-    expect(store.transactions.find(t => t.id === txn.id).tableId).toBe('A');
+    expect(store.transactions.find(t => t.id === txn.id).table).toBe('A');
 
     // Move the only item to B (full order → physical relocation)
     await store.splitItemsToTable('A', 'B', { [`${ord.id}__${ord.orderItems[0].uid}`]: 1 });
@@ -1040,8 +1040,8 @@ describe('splitItemsToTable()', () => {
     const sessB = store.tableCurrentBillSession['B'];
     expect(sessB).toBeDefined();
     const migratedTxn = store.transactions.find(t => t.id === txn.id);
-    expect(migratedTxn.tableId).toBe('B');
-    expect(migratedTxn.billSessionId).toBe(sessB.billSessionId);
+    expect(migratedTxn.table).toBe('B');
+    expect(migratedTxn.bill_session).toBe(sessB.billSessionId);
   });
 
   it('partial and full moves from the same source: partial-move orders have quantity reduced, full-move orders relocate', async () => {

@@ -10,7 +10,7 @@
 import { openDB } from 'idb';
 import { getInstanceName } from '../store/persistence.js';
 
-export const DB_VERSION = 11;
+export const DB_VERSION = 13;
 const DB_NAME_PREFIX = 'app-cassa';
 
 /**
@@ -45,10 +45,19 @@ const DB_NAME_PREFIX = 'app-cassa';
  *               snake_case FK values since v5; these indexes are no longer queried.
  *  v11 — `venue_users` index migrated from `role` to multiEntry `apps` to align with
  *               Directus `venue_users.apps` permissions model.
+ *  v12 — `transactions` indexes corrected: dropped camelCase `tableId`/`billSessionId`
+ *               indexes (created in v4 before the snake_case FK normalisation), added
+ *               `table` and `bill_session` indexes keyed on the canonical snake_case
+ *               FK fields. Existing records are back-filled so both keys are present.
+ *  v13 — Added `sync_logs` ObjectStore for Activity Logging & Debugging.
+ *               Each record captures direction (IN/OUT), type (PULL/PUSH/WS), endpoint,
+ *               payload, response, status, statusCode, and durationMs.
+ *               A `timestamp` index supports chronological reads and two-bucket
+ *               auto-purge (success ≤100, errors ≤200 + all within last 48 h).
  *
- * To add a new version (e.g. v12):
- *   1. Increment DB_VERSION to 12.
- *   2. Add a new `if (oldVersion < 12) { ... }` block inside the `upgrade()` callback.
+ * To add a new version (e.g. v14):
+ *   1. Increment DB_VERSION to 14.
+ *   2. Add a new `if (oldVersion < 14) { ... }` block inside the `upgrade()` callback.
  *   3. Prefer additive changes (new ObjectStores or new indexes). Only remove or modify
  *      existing stores/indexes when there is a clear justification: provide a data-migration
  *      path for users upgrading from earlier versions where needed, and for safe removals
@@ -260,9 +269,11 @@ export function getDB() {
         }
       }
 
-      // print_jobs: LOCAL-ONLY store — never synced with Directus (not in PULL_CONFIG or
-      // GLOBAL_COLLECTIONS). logId is a short client-generated ID, not a Directus UUID.
-      // Decision B2 from PIANO_LAVORO.md: keep as local audit trail only.
+      // print_jobs: IDB audit store pushed to Directus via sync_queue (push-only, not in PULL_CONFIG).
+      // keyPath is `logId` (plog_<uuid>, client-generated local identifier).
+      // Directus PK is the standard `id` field (UUID v7, no prefix), generated alongside logId
+      // in usePrintQueue.js and used as record_id for enqueue.
+      // Note: logId, jobId and originalJobId are local-only — not stored as Directus columns.
       if (!db.objectStoreNames.contains('print_jobs')) {
         const s = db.createObjectStore('print_jobs', { keyPath: 'logId' });
         s.createIndex('status', 'status', { unique: false });
@@ -396,6 +407,18 @@ export function getDB() {
         s.createIndex('collection', 'collection', { unique: false });
       }
 
+      // v13: sync_logs — activity log for all sync exchanges (push/pull/ws).
+      // keyPath is autoincrement so entries are ordered by insertion.
+      // The `timestamp` index supports chronological reads and the two-bucket
+      // auto-purge (success ≤SYNC_LOGS_MAX_SUCCESS, errors ≤SYNC_LOGS_MAX_ERRORS
+      // + all entries within the last SYNC_LOGS_ERROR_RETENTION_MS window).
+      if (!db.objectStoreNames.contains('sync_logs')) {
+        const s = db.createObjectStore('sync_logs', { keyPath: 'id', autoIncrement: true });
+        s.createIndex('timestamp', 'timestamp', { unique: false });
+        s.createIndex('type', 'type', { unique: false });
+        s.createIndex('direction', 'direction', { unique: false });
+      }
+
       // ── Local-only metadata stores ─────────────────────────────────────────
 
       // local_settings: device-local settings (sounds, menuUrl, preventScreenLock, ...)
@@ -450,6 +473,28 @@ export function getDB() {
         }
       }
 
+      // v12: fix transactions indexes — the v4 migration created indexes keyed on
+      // camelCase fields (`tableId`, `billSessionId`) but since v5 all synced records
+      // carry the canonical snake_case fields (`table`, `bill_session`). Replace the
+      // stale camelCase indexes with correctly-keyed snake_case ones and back-fill
+      // any records that only carry one of the two field variants.
+      if (oldVersion < 12 && db.objectStoreNames.contains('transactions')) {
+        const s = tx.objectStore('transactions');
+        if (s.indexNames.contains('table')) s.deleteIndex('table');
+        if (s.indexNames.contains('bill_session')) s.deleteIndex('bill_session');
+        s.createIndex('table', 'table', { unique: false });
+        s.createIndex('bill_session', 'bill_session', { unique: false });
+
+        // Back-fill snake_case fields from camelCase equivalents on legacy records.
+        const allTx = await s.getAll();
+        for (const rec of allTx) {
+          let dirty = false;
+          if (rec.table == null && rec.tableId != null) { rec.table = rec.tableId; dirty = true; }
+          if (rec.bill_session == null && rec.billSessionId != null) { rec.bill_session = rec.billSessionId; dirty = true; }
+          if (dirty) await s.put(rec);
+        }
+      }
+
       // app_meta: ephemeral UI state that doesn't map directly to Directus
       //   (tableOccupiedAt, billRequestedTables, cashBalance,
       //    tableCurrentBillSession, auth session/settings)
@@ -469,6 +514,28 @@ export function getDB() {
   _dbPromise.catch(() => { _dbPromise = null; });
 
   return _dbPromise;
+}
+
+/**
+ * Closes the current DB connection and resets the singleton promise so that
+ * subsequent `getDB()` calls open a fresh connection. Safe to call even when
+ * the DB is not open (no-op in that case).
+ *
+ * Use this before `indexedDB.deleteDatabase()` to prevent `InvalidStateError`
+ * race conditions where a watcher or timer obtains the closing connection.
+ *
+ * @returns {Promise<void>}
+ */
+export async function closeAndResetDB() {
+  if (!_dbPromise) return;
+  const promise = _dbPromise;
+  _dbPromise = null; // reset first so concurrent callers open a new connection
+  try {
+    const db = await promise;
+    db.close();
+  } catch (_) {
+    // Already closed or never opened — ignore.
+  }
 }
 
 /**

@@ -114,6 +114,13 @@ const _users = ref(/** @type {Array} */ ([]));
 const _currentUserId = ref(/** @type {string|null} */ (null));
 const _isLocked = ref(true);
 const _lockTimeoutMinutes = ref(5);
+/**
+ * Becomes `true` once the initial IDB hydration in `_init()` has settled
+ * (resolved or rejected). Used by the LockScreen to block app content from
+ * rendering before we know whether authentication is required, preventing a
+ * brief blink of app data on startup.
+ */
+const _isHydrated = ref(false);
 let _lockTimer = null;
 /** The app running on this page, determined once at init. */
 let _currentApp = 'cassa';
@@ -147,15 +154,21 @@ let _initPromise = null;
  * but with `fromConfig: true` and no persisted PIN hash).
  */
 function _buildConfigUsers() {
-  return (appConfig.auth?.users ?? []).map((u) => ({
-    id: u.id,
-    name: u.name,
-    apps: normalizeSelectableApps(u.apps),
-    fromConfig: true,
-    fromDirectus: false,
-    isAdmin: false,
-    pin: null, // never stored — hashes are kept in _configUserHashes
-  }));
+  return (appConfig.auth?.users ?? []).map((u) => {
+    // Config users with no explicit apps (null/undefined/[]) default to ALL_APPS,
+    // matching the documented "omit or leave empty = all apps" contract and the
+    // same defaulting already applied in login() for app-access checks.
+    const hasNoApps = u.apps == null || (Array.isArray(u.apps) && u.apps.length === 0);
+    return {
+      id: u.id,
+      name: u.name,
+      apps: hasNoApps ? [...ALL_APPS] : normalizeSelectableApps(u.apps),
+      fromConfig: true,
+      fromDirectus: false,
+      isAdmin: false,
+      pin: null, // never stored — hashes are kept in _configUserHashes
+    };
+  });
 }
 
 /** Module-level computed: all users (config + manual). */
@@ -165,6 +178,69 @@ const _allUsers = computed(() => [..._buildConfigUsers(), ..._users.value]);
 const _visibleUsers = computed(() =>
   _allUsers.value.filter((u) => u.apps.includes(_currentApp)),
 );
+
+/**
+ * Process a raw array of users loaded from IDB:
+ * - If any Directus users are present, they become the sole source:
+ *   manual users are stripped from both the array and from IDB storage.
+ * - Returns the processed, reactive-ready user objects.
+ *
+ * @param {Array} users - Raw records returned by `loadUsersFromIDB()`
+ * @returns {Array} processed user objects ready to assign to `_users.value`
+ */
+function _processUsersFromIDB(users) {
+  // Only treat Directus as the sole authoritative source when at least one
+  // Directus user is authenticatable (has a non-empty pin).  A Directus record
+  // with an empty/missing pin (e.g. sync wrote the record before the PIN was
+  // set on the server) must NOT trigger the manual-user purge, because that
+  // would leave _users empty and drop the app into open/admin mode even though
+  // legitimate local accounts still exist.
+  const hasDirectusUsers = users.some(u => isDirectusVenueUserRecord(u) && u.pin);
+  if (hasDirectusUsers) {
+    // Directus is the sole authoritative source — purge all manually-created users
+    // so stale local accounts cannot accumulate alongside the Directus-managed roster.
+    // Guard the write: only call saveUsersToIDB when manual users are actually
+    // present in the payload, to avoid unnecessary IDB writes on every subsequent
+    // reload (e.g. periodic Directus global pulls after the initial purge).
+    const hasManualUsers = users.some(u => !isDirectusVenueUserRecord(u));
+    if (hasManualUsers) {
+      saveUsersToIDB([]).catch(e => console.warn('[Auth] Failed to purge manual users after Directus sync:', e));
+    }
+  }
+  const usersToLoad = hasDirectusUsers
+    ? users.filter(u => isDirectusVenueUserRecord(u))
+    : users;
+  return usersToLoad.filter(u => u && u.id && u.name && u.pin).map((u) => {
+    const fromDirectus = isDirectusVenueUserRecord(u);
+    return {
+      ...u,
+      _type: u._type || (fromDirectus ? 'directus_user' : 'manual_user'),
+      ...deriveUserAccess(u),
+      fromConfig: false,
+      fromDirectus,
+    };
+  });
+}
+
+/**
+ * Clear the active session, stop any running lock timer, and bump
+ * `_mutationVersion` so that any in-flight IDB hydration (e.g. _init()'s
+ * Promise) recognises that the in-memory state has been deliberately modified
+ * and skips overwriting it.
+ *
+ * Used by both the public `logout()` action and `reloadUsersFromIDB()` to
+ * keep session teardown logic in one place.
+ */
+function _performLogout() {
+  _mutationVersion++;
+  _currentUserId.value = null;
+  _isLocked.value = true;
+  saveAuthSessionToIDB(null).catch(e => console.warn('[Auth] Failed to clear session:', e));
+  if (_lockTimer) {
+    clearTimeout(_lockTimer);
+    _lockTimer = null;
+  }
+}
 
 function _init() {
   if (_initialized) return;
@@ -188,29 +264,34 @@ function _init() {
     // Skip if any mutation (addUser, login, setLockTimeout, etc.) occurred
     // while the IDB load was in-flight. In that case the in-memory state is
     // already authoritative — applying stale IDB data would overwrite it.
-    if (_mutationVersion !== capturedVersion) return;
+    // Still mark hydrated so the UI unblocks.
+    if (_mutationVersion !== capturedVersion) {
+      _isHydrated.value = true;
+      return;
+    }
 
-    _users.value = users.filter(u =>
-      u && u.id && u.name && u.pin,
-    ).map((u) => {
-      const fromDirectus = isDirectusVenueUserRecord(u);
-      return {
-        ...u,
-        _type: u._type || (fromDirectus ? 'directus_user' : 'manual_user'),
-        ...deriveUserAccess(u),
-        fromConfig: false,
-        fromDirectus,
-      };
-    });
+    // If Directus venue users are present, they are the sole authoritative source.
+    // Purge any previously manually-created users so stale local accounts cannot
+    // accumulate alongside the Directus-managed roster.
+    _users.value = _processUsersFromIDB(users);
 
     _lockTimeoutMinutes.value = typeof savedSettings?.lockTimeoutMinutes === 'number'
       ? savedSettings.lockTimeoutMinutes
       : 5;
 
-    const userExists = _allUsers.value.some((u) => u.id === savedUserId);
-    _currentUserId.value = savedUserId && userExists ? savedUserId : null;
+    const userRecord = _allUsers.value.find((u) => u.id === savedUserId);
+    // Only restore the session if the user has access to the current app.
+    // This prevents a cassa-only user's saved session from granting access to
+    // sala or cucina when those apps are opened on the same device.
+    const hasAppAccess = userRecord?.isAdmin || userRecord?.apps.includes(_currentApp);
+    _currentUserId.value = savedUserId && hasAppAccess ? savedUserId : null;
     _isLocked.value = true; // always re-lock on page load for security
-  }).catch(e => console.warn('[Auth] Failed to load from IDB:', e));
+    _isHydrated.value = true;
+  }).catch(e => {
+    console.warn('[Auth] Failed to load from IDB:', e);
+    // Mark hydrated even on error so the lock screen / app is not blocked forever.
+    _isHydrated.value = true;
+  });
 
   // Pre-hash appConfig PINs in memory (async, never persisted)
   const configs = appConfig.auth?.users ?? [];
@@ -291,6 +372,15 @@ export function useAuth() {
     if (configUser) {
       const storedHash = _configUserHashes.get(userId);
       if (!storedHash || hash !== storedHash) return false;
+      // Verify the user has access to the current app.
+      // Config users with no explicit `apps` (null/undefined/[]) default to ALL_APPS
+      // access — they are not admins, but can use every app on the device.
+      const cfgRawApps = configUser.apps;
+      const cfgHasNoApps = cfgRawApps == null || (Array.isArray(cfgRawApps) && cfgRawApps.length === 0);
+      const { isAdmin: cfgIsAdmin, apps: cfgApps } = cfgHasNoApps
+        ? { isAdmin: false, apps: [...ALL_APPS] }
+        : normalizeAccessApps(cfgRawApps);
+      if (!cfgIsAdmin && !cfgApps.includes(_currentApp)) return false;
       _mutationVersion++;
       _currentUserId.value = userId;
       _isLocked.value = false;
@@ -303,6 +393,8 @@ export function useAuth() {
     const user = _users.value.find((u) => u.id === userId);
     if (!user) return false;
     if (user.pin !== hash) return false;
+    // Verify the user has access to the current app
+    if (!user.isAdmin && !user.apps.includes(_currentApp)) return false;
     _mutationVersion++;
     _currentUserId.value = userId;
     _isLocked.value = false;
@@ -322,14 +414,7 @@ export function useAuth() {
 
   /** Log out completely (clears current user). */
   function logout() {
-    _mutationVersion++;
-    _currentUserId.value = null;
-    _isLocked.value = true;
-    saveAuthSessionToIDB(null).catch(e => console.warn('[Auth] Failed to clear session:', e));
-    if (_lockTimer) {
-      clearTimeout(_lockTimer);
-      _lockTimer = null;
-    }
+    _performLogout();
   }
 
   /**
@@ -476,6 +561,8 @@ export function useAuth() {
     visibleUsers: _visibleUsers,
     /** The currently logged-in user (or null). */
     currentUser,
+    /** True when the initial IDB hydration has completed. */
+    isHydrated: computed(() => _isHydrated.value),
     /** True when logged in and not locked. */
     isAuthenticated,
     /** True when the lock screen is shown. */
@@ -505,6 +592,49 @@ export function useAuth() {
 }
 
 /**
+ * Reloads the user list from IndexedDB and updates the in-memory auth state.
+ *
+ * This is the live-sync counterpart of the `_init()` IDB load. Call it after a
+ * Directus sync that writes new `venue_users` so that the in-memory roster stays
+ * consistent without requiring a page reload.
+ *
+ * Behaviour mirrors `_init()`:
+ * - If Directus users are present, all manually-created users are purged from IDB
+ *   and from memory (Directus is the sole source).
+ * - If the currently-logged-in user is removed as a result, they are logged out.
+ *
+ * No-ops when `_init()` has not been called yet (e.g. before the composable
+ * was first used on this page).
+ *
+ * @returns {Promise<void>}
+ */
+export async function reloadUsersFromIDB() {
+  if (!_initialized) return;
+  // Wait for the initial hydration to settle before applying changes so we
+  // don't race with _init()'s IDB load overwriting the refreshed roster or
+  // session we are about to set. Once _initPromise resolves, _init() can no
+  // longer overwrite any in-memory state (it checks _mutationVersion first).
+  if (_initPromise) await _initPromise;
+  try {
+    const users = await loadUsersFromIDB();
+    _users.value = _processUsersFromIDB(users);
+
+    // If the active session is no longer in the updated user list, or if the
+    // user still exists but has lost access to the current app (e.g. Directus
+    // updated their apps field), log them out to prevent a cross-app bypass.
+    if (_currentUserId.value != null) {
+      const activeUser = _allUsers.value.find(u => u.id === _currentUserId.value);
+      const hasAppAccess = activeUser?.isAdmin || activeUser?.apps.includes(_currentApp);
+      if (!activeUser || !hasAppAccess) {
+        _performLogout();
+      }
+    }
+  } catch (e) {
+    console.warn('[Auth] Failed to reload users from IDB:', e);
+  }
+}
+
+/**
  * Returns a Promise that resolves when the initial IDB hydration in `_init()`
  * has completed (or immediately if `_init()` has not been called yet).
  * For use in tests only — ensures IDB data is loaded before making assertions.
@@ -524,6 +654,7 @@ export function _resetAuthSingleton() {
   _users.value = [];
   _currentUserId.value = null;
   _isLocked.value = true;
+  _isHydrated.value = false;
   _lockTimeoutMinutes.value = 5;
   if (_lockTimer) { clearTimeout(_lockTimer); _lockTimer = null; }
   _currentApp = 'cassa';
