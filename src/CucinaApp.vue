@@ -45,7 +45,7 @@ import { useDirectusSync } from './composables/useDirectusSync.js';
 import { loadDirectusConfigFromStorage } from './composables/useDirectusClient.js';
 import { useSyncStoreProxy } from './composables/useSyncStoreProxy.js';
 import { useAppSwipeRefresh } from './composables/useAppSwipeRefresh.js';
-import { useIDBPurge, _isDirectusSyncActive } from './composables/useIDBPurge.js';
+import { useIDBPurge, isDirectusSyncActive } from './composables/useIDBPurge.js';
 
 const configStore = useConfigStore();
 const orderStore = useOrderStore();
@@ -132,7 +132,7 @@ onMounted(async () => {
   await restartSync();
   // Best-effort post-startup IDB purge.  Guard: only when Directus sync is
   // active so all data has a chance to reach the server first.
-  if (_isDirectusSyncActive()) {
+  if (isDirectusSyncActive()) {
     runIDBPurge().catch((e) => {
       console.warn('[CucinaApp] IDB purge error (non-fatal):', e);
     });

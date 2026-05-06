@@ -20,8 +20,9 @@
  *    `order_items`) are swept in two passes — once before and once after the
  *    parent purge — so no records are left dangling.
  *
- * 4. **print_jobs**: LOCAL-ONLY store (never queued in sync_queue).  Uses
- *    `logId` as primary key and `timestamp` as the date field.
+ * 4. **print_jobs**: push-only to Directus via `sync_queue`.  Uses `logId` as
+ *    primary key and `timestamp` as the date field.  The sync_queue guard
+ *    therefore applies (skipping purge if a push is still pending).
  *
  * 5. **sync_failed_calls**: LOCAL-ONLY audit log.  No sync_queue guard; purged
  *    purely by age (`failed_at`).
@@ -48,10 +49,13 @@ import { appConfig, DEFAULT_SETTINGS } from '../utils/index.js';
  *
  * @returns {boolean}
  */
-export function _isDirectusSyncActive() {
+export function isDirectusSyncActive() {
   const d = appConfig.directus;
   return Boolean(d?.enabled && d?.url && d?.staticToken);
 }
+
+/** @deprecated Use {@link isDirectusSyncActive} instead. Kept for test compatibility. */
+export const _isDirectusSyncActive = isDirectusSyncActive;
 
 /**
  * Returns true when `sync_queue` has at least one pending entry for
@@ -124,7 +128,9 @@ export async function purgeCollection(storeName, retentionDays, options = {}) {
     if (cutoff != null) {
       const dateValue = record[dateField];
       if (!dateValue) continue;
-      if (new Date(dateValue).getTime() >= cutoff) continue;
+      const ts = new Date(dateValue).getTime();
+      if (!Number.isFinite(ts)) continue; // skip records with invalid/unparseable dates
+      if (ts >= cutoff) continue;
     }
 
     // Status filter.
@@ -187,12 +193,11 @@ export async function purgeSyncQueueDeadLetter(retentionDays) {
 export async function purgeSyncFailedCalls(retentionDays) {
   const cutoff = Date.now() - retentionDays * 86_400_000;
   const db = await getDB();
-  // Use the failed_at index so we only allocate records we know are old enough.
-  const all = await db.getAllFromIndex('sync_failed_calls', 'failed_at');
-  const toDelete = all
-    .filter(e => e?.failed_at && new Date(e.failed_at).getTime() < cutoff)
-    .map(e => e.id)
-    .filter(Boolean);
+  // Use IDBKeyRange.upperBound on the failed_at index so only old records are
+  // fetched, avoiding a full store scan.
+  const cutoffIso = new Date(cutoff).toISOString();
+  const old = await db.getAllFromIndex('sync_failed_calls', 'failed_at', IDBKeyRange.upperBound(cutoffIso));
+  const toDelete = old.filter(e => e?.id != null).map(e => e.id);
   if (toDelete.length === 0) return;
   const tx = db.transaction('sync_failed_calls', 'readwrite');
   for (const id of toDelete) await tx.store.delete(id);
@@ -236,6 +241,10 @@ export async function runIDBPurge() {
     syncFailedCalls: configured.syncFailedCalls ?? defaults.syncFailedCalls,
   };
 
+  // ── 0. Dead-letter cleanup — run FIRST so abandoned sync_queue entries no
+  //    longer block the collection-level guard in steps 1–5 below.
+  await purgeSyncQueueDeadLetter(retention.orders);
+
   // ── 1. Pre-sweep: orphaned children from previous purge cycles ──────────────
   await purgeCollection('order_item_modifiers', retention.orders, {
     requireMissingParent: { storeName: 'order_items', foreignKey: 'order_item' },
@@ -251,21 +260,23 @@ export async function runIDBPurge() {
   await purgeCollection('cash_movements', retention.cashMovements);
   await purgeCollection('daily_closures', retention.dailyClosures);
 
-  // print_jobs: LOCAL-ONLY store (never in sync_queue).
+  // print_jobs: pushed to Directus via sync_queue (push-only, no pull).
   //   keyPath = 'logId'  (not 'id' like all other stores)
   //   date field = 'timestamp'  (field name in IDB records)
   await purgeCollection('print_jobs', retention.printJobs, {
     statusFilter: ['done', 'error'],
     dateField: 'timestamp',
     pkField: 'logId',
-    skipSyncGuard: true,
   });
 
   // ── 3. Post-sweep: orphans created by this cycle ────────────────────────────
-  await purgeCollection('order_items', retention.orders, {
+  // Use retentionDays:null so orphaned children are removed regardless of their
+  // own date — a child whose parent was just purged may have a date_updated
+  // newer than the retention cutoff (LWW upsert), and must still be cleaned up.
+  await purgeCollection('order_items', null, {
     requireMissingParent: { storeName: 'orders', foreignKey: 'order' },
   });
-  await purgeCollection('order_item_modifiers', retention.orders, {
+  await purgeCollection('order_item_modifiers', null, {
     requireMissingParent: { storeName: 'order_items', foreignKey: 'order_item' },
   });
 
@@ -284,7 +295,6 @@ export async function runIDBPurge() {
   await purgeCollection('daily_closure_by_method', retention.dailyClosures);
 
   // ── 6. Local-only audit / meta stores ──────────────────────────────────────
-  await purgeSyncQueueDeadLetter(retention.orders);
   await purgeSyncFailedCalls(retention.syncFailedCalls);
 }
 

@@ -7,7 +7,7 @@
 > Analisi di contesto: vedi `DATABASE_SCHEMA.md §5.8` e la conversazione di riferimento.
 >
 > **Ultimo aggiornamento**: Aggiornato dopo analisi completa di tutti i commit/merge recenti
-> (IDB v11, store split, nuovi ObjectStore, rimozione leaderElection).
+> (IDB v13, store split, nuovi ObjectStore, rimozione leaderElection).
 
 ---
 
@@ -33,7 +33,7 @@ Directus (entry ancora presenti nella `sync_queue`).
 | `bill_sessions` (closed), `orders` (completed/rejected), `order_items`, `order_item_modifiers` **non** vengono puliti | — |
 | `sync_failed_calls` cresce indefinitamente (nessun purge) | `composables/useSyncQueue.js` |
 | `useIDBPurge.js` composable: **non esiste** | — |
-| IDB versione corrente: **v11** (v10→v11: `venue_users` migrata a indice `apps`) | `composables/useIDB.js` |
+| IDB versione corrente: **v13** (v12→v13: ultimo aggiornamento schema) | `composables/useIDB.js` |
 | Store Pinia: split in `useOrderStore` + `useConfigStore` + facade `useAppStore` | `store/index.js` |
 | Persistence: `store/idbPersistence.js` + re-export facade in `store/persistence/` | `store/persistence/operations.js` |
 | `fiscal_receipts` e `invoice_requests`: già hanno pruning count-based (max 200 record) | `store/index.js:355-358` |
@@ -71,9 +71,12 @@ Un approccio alternativo a granularità record (mark `_sync_status='pending'/'sy
 
 L'ObjectStore `print_jobs` usa `keyPath: 'logId'` (non `id` come tutti gli altri store).
 `upsertRecordsIntoIDB` hardcoda `keyPath = 'id'` e ha una nota esplicita che esclude
-`print_jobs` dalla upsert sincrona Directus (store LOCAL-ONLY).
+`print_jobs` dalla upsert sincrona Directus (store push-only: i record vengono accodati
+in `sync_queue` e pushati su Directus, ma non vengono mai pullati da Directus).
 
-**Impatto su purge**: la funzione `purgeCollection` quando elimina un record di
+**Impatto su purge**: la guard collection-level su `sync_queue` **si applica** a
+`print_jobs` — il purge deve essere bloccato se ci sono entry pendenti per la
+collection `'print_jobs'`. La funzione `purgeCollection` quando elimina un record di
 `print_jobs` deve usare `record.logId` come chiave per `db.delete('print_jobs', key)`,
 non `record.id`. Il parametro `pkField` dell'implementazione deve essere `'logId'`
 per questo store.
@@ -470,7 +473,7 @@ Fase 1-optional (mark _sync_status) — opzionale, può seguire se necessario
 - `DATABASE_SCHEMA.md §5.8` — Spec completa strategia purge
 - `src/store/idbPersistence.js` — `upsertRecordsIntoIDB`, `saveStateToIDB`, `clearAllStateFromIDB`
 - `src/store/persistence/operations.js` — re-export facade (usa internamente `idbPersistence.js`)
-- `src/composables/useIDB.js` — schema IDB, versione corrente: **v11**
+- `src/composables/useIDB.js` — schema IDB, versione corrente: **v13**
 - `src/store/reportOps.js:176` — `performDailyClose` chiama già `saveStateToIDB({ transactions: [], cashMovements: [] })`
 - `src/composables/useSyncQueue.js` — `drainQueue`, `addFailedSyncCall`, costante `MAX_ATTEMPTS`
 - `src/CassaApp.vue`, `src/SalaApp.vue`, `src/CucinaApp.vue` — entry point per trigger purge

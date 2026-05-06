@@ -8,6 +8,7 @@
  *  - Records older than retention window, sync_queue empty → purged
  *  - Records older than retention window, sync_queue has pending entries → NOT purged
  *  - statusFilter: records with non-matching status are kept
+ *  - print_jobs: sync_queue guard respected (push-only, but IS in sync_queue)
  *  - print_jobs: correct use of pkField='logId' and dateField='timestamp'
  *  - requireMissingParent: orphan records (parent gone) are purged
  *  - requireMissingParent: records with present parent are kept
@@ -18,7 +19,8 @@
  *  - purgeSyncFailedCalls: entries older than retention window are removed
  *  - purgeSyncFailedCalls: recent entries are kept
  *  - runIDBPurge: full integration — respects child-before-parent ordering
- *  - skipSyncGuard: purge proceeds even when sync_queue has pending entries
+ *  - runIDBPurge: dead-letter cleanup runs before guarded collection purges
+ *  - skipSyncGuard: purge proceeds even when sync_queue has pending entries (generic option)
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -28,7 +30,7 @@ import {
   purgeSyncQueueDeadLetter,
   purgeSyncFailedCalls,
   runIDBPurge,
-  _isDirectusSyncActive,
+  isDirectusSyncActive,
 } from '../useIDBPurge.js';
 import { MAX_ATTEMPTS } from '../useSyncQueue.js';
 import { appConfig } from '../../utils/index.js';
@@ -87,27 +89,27 @@ beforeEach(async () => {
   await _resetIDBSingleton();
 });
 
-// ── _isDirectusSyncActive ─────────────────────────────────────────────────────
+// ── isDirectusSyncActive ──────────────────────────────────────────────────────
 
-describe('_isDirectusSyncActive()', () => {
+describe('isDirectusSyncActive()', () => {
   it('returns false when directus config is absent', () => {
     const original = appConfig.directus;
     appConfig.directus = null;
-    expect(_isDirectusSyncActive()).toBe(false);
+    expect(isDirectusSyncActive()).toBe(false);
     appConfig.directus = original;
   });
 
   it('returns false when enabled=false', () => {
     const original = appConfig.directus;
     appConfig.directus = { enabled: false, url: 'https://x.example.com', staticToken: 'tok' };
-    expect(_isDirectusSyncActive()).toBe(false);
+    expect(isDirectusSyncActive()).toBe(false);
     appConfig.directus = original;
   });
 
   it('returns true when all required fields are present and enabled', () => {
     const original = appConfig.directus;
     appConfig.directus = { enabled: true, url: 'https://x.example.com', staticToken: 'tok' };
-    expect(_isDirectusSyncActive()).toBe(true);
+    expect(isDirectusSyncActive()).toBe(true);
     appConfig.directus = original;
   });
 });
@@ -157,16 +159,27 @@ describe('purgeCollection() — sync_queue guard', () => {
     expect(await getAll('orders')).toHaveLength(0);
   });
 
-  it('skipSyncGuard: purges even when sync_queue has entries', async () => {
+  it('print_jobs: NOT purged when sync_queue has pending entries', async () => {
     await put('print_jobs', { logId: 'pj1', status: 'done', timestamp: daysBack(10) });
     await enqueueDirect('q2', 'print_jobs');
     await purgeCollection('print_jobs', 7, {
       statusFilter: ['done', 'error'],
       dateField: 'timestamp',
       pkField: 'logId',
+    });
+    // Record must still be present because sync is pending.
+    expect(await getAll('print_jobs')).toHaveLength(1);
+  });
+
+  it('skipSyncGuard: purges even when sync_queue has entries (generic test for the option)', async () => {
+    // Use a fictional 'orders' record with skipSyncGuard to verify the option itself works.
+    await put('orders', { id: 'ord_skip', table: 'T1', status: 'completed', date_updated: daysBack(10) });
+    await enqueueDirect('q_skip', 'orders');
+    await purgeCollection('orders', 7, {
+      statusFilter: ['completed'],
       skipSyncGuard: true,
     });
-    expect(await getAll('print_jobs')).toHaveLength(0);
+    expect(await getAll('orders')).toHaveLength(0);
   });
 });
 
@@ -197,7 +210,6 @@ describe('purgeCollection() — print_jobs (pkField=logId, dateField=timestamp)'
       statusFilter: ['done', 'error'],
       dateField: 'timestamp',
       pkField: 'logId',
-      skipSyncGuard: true,
     });
     expect(await getAll('print_jobs')).toHaveLength(0);
   });
@@ -208,7 +220,6 @@ describe('purgeCollection() — print_jobs (pkField=logId, dateField=timestamp)'
       statusFilter: ['done', 'error'],
       dateField: 'timestamp',
       pkField: 'logId',
-      skipSyncGuard: true,
     });
     expect(await getAll('print_jobs')).toHaveLength(1);
   });
@@ -219,9 +230,31 @@ describe('purgeCollection() — print_jobs (pkField=logId, dateField=timestamp)'
       statusFilter: ['done', 'error'],
       dateField: 'timestamp',
       pkField: 'logId',
-      skipSyncGuard: true,
     });
     expect(await getAll('print_jobs')).toHaveLength(1);
+  });
+
+  it('skips purge when sync_queue has pending entries for print_jobs', async () => {
+    await put('print_jobs', { logId: 'pj_blocked', status: 'done', timestamp: daysBack(10) });
+    await enqueueDirect('q_pj', 'print_jobs');
+    await purgeCollection('print_jobs', 7, {
+      statusFilter: ['done', 'error'],
+      dateField: 'timestamp',
+      pkField: 'logId',
+    });
+    // Pending sync entry blocks the purge.
+    expect(await getAll('print_jobs')).toHaveLength(1);
+  });
+
+  it('purges when sync_queue is empty for print_jobs', async () => {
+    await put('print_jobs', { logId: 'pj_ok', status: 'done', timestamp: daysBack(10) });
+    // No pending entries for 'print_jobs' — purge should proceed.
+    await purgeCollection('print_jobs', 7, {
+      statusFilter: ['done', 'error'],
+      dateField: 'timestamp',
+      pkField: 'logId',
+    });
+    expect(await getAll('print_jobs')).toHaveLength(0);
   });
 });
 
@@ -412,6 +445,29 @@ describe('runIDBPurge() — full cycle', () => {
     await runIDBPurge();
 
     expect(await getAll('orders')).toHaveLength(1);
+  });
+
+  it('dead-letter cleanup runs first — purges collection once dead-letter is removed', async () => {
+    // Scenario: orders has a dead-letter entry (attempts=MAX_ATTEMPTS, old).
+    // Before this fix, the dead-letter entry would block the collection purge in the same run.
+    // After the fix, purgeSyncQueueDeadLetter runs first, clearing the dead-letter entry,
+    // so the guarded collection purge can proceed in the same runIDBPurge() call.
+    await put('orders', { id: 'ord_dl', table: 'T1', status: 'completed', date_updated: daysBack(10) });
+    await put('sync_queue', {
+      id: 'sq_dead_orders',
+      collection: 'orders',
+      operation: 'create',
+      record_id: 'ord_dl',
+      payload: {},
+      date_created: daysBack(10),
+      attempts: MAX_ATTEMPTS, // dead-letter: will be removed by purgeSyncQueueDeadLetter
+    });
+
+    await runIDBPurge();
+
+    // The dead-letter entry is removed first, so the orders collection purge proceeds.
+    expect(await getAll('sync_queue')).toHaveLength(0);
+    expect(await getAll('orders')).toHaveLength(0);
   });
 });
 

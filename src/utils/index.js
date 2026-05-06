@@ -237,7 +237,7 @@ export const DEFAULT_SETTINGS = {
   // CONFIGURAZIONE PULIZIA IDB (retention windows in giorni)
   // Ogni campo indica per quanti giorni mantenere i record già sincronizzati
   // su Directus prima di rimuoverli dall'IndexedDB locale.
-  // Valori conservative di default: pensati per dispositivi offline alcuni giorni.
+  // Valori conservativi di default: pensati per dispositivi offline alcuni giorni.
   idbPurge: {
     orders: 7,
     billSessions: 7,
@@ -328,7 +328,9 @@ export function createRuntimeConfig(overrides = null) {
  * @returns {number}
  */
 export function normPositiveInt(value, fallback) {
-  return typeof value === 'number' && value > 0 ? Math.floor(value) : fallback;
+  if (typeof value !== 'number' || !Number.isFinite(value)) return fallback;
+  const floored = Math.floor(value);
+  return floored >= 1 ? floored : fallback;
 }
 
 /**
