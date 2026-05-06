@@ -21,7 +21,7 @@
  *  - skipSyncGuard: purge proceeds even when sync_queue has pending entries
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { getDB, _resetIDBSingleton } from '../useIDB.js';
 import {
   purgeCollection,
@@ -412,5 +412,77 @@ describe('runIDBPurge() — full cycle', () => {
     await runIDBPurge();
 
     expect(await getAll('orders')).toHaveLength(1);
+  });
+});
+
+// ── runIDBPurge — configurable retention (Phase 4) ───────────────────────────
+
+describe('runIDBPurge() — configurable retention via appConfig.idbPurge', () => {
+  let savedIdbPurge;
+
+  beforeEach(() => {
+    savedIdbPurge = appConfig.idbPurge;
+  });
+
+  afterEach(() => {
+    appConfig.idbPurge = savedIdbPurge;
+  });
+
+  it('respects a longer orders retention — keeps records inside the extended window', async () => {
+    // Record is 10 days old; default window is 7 → would be purged.
+    // Custom window is 14 → must NOT be purged.
+    appConfig.idbPurge = { ...savedIdbPurge, orders: 14 };
+    await put('orders', { id: 'ord_retain', table: 'T1', status: 'completed', date_updated: daysBack(10) });
+
+    await runIDBPurge();
+
+    expect(await getAll('orders')).toHaveLength(1);
+  });
+
+  it('respects a shorter orders retention — purges records inside the default window', async () => {
+    // Record is 5 days old; default window is 7 → would be kept.
+    // Custom window is 3 → must be purged.
+    appConfig.idbPurge = { ...savedIdbPurge, orders: 3 };
+    await put('orders', { id: 'ord_short', table: 'T1', status: 'completed', date_updated: daysBack(5) });
+
+    await runIDBPurge();
+
+    expect(await getAll('orders')).toHaveLength(0);
+  });
+
+  it('respects a longer transactions retention', async () => {
+    // Record is 35 days old; default window is 30 → would be purged.
+    // Custom window is 60 → must NOT be purged.
+    appConfig.idbPurge = { ...savedIdbPurge, transactions: 60 };
+    await put('transactions', { id: 'tx_retain', date_updated: daysBack(35) });
+
+    await runIDBPurge();
+
+    expect(await getAll('transactions')).toHaveLength(1);
+  });
+
+  it('respects a longer syncFailedCalls retention', async () => {
+    // Record is 35 days old; default window is 30 → would be purged.
+    // Custom window is 60 → must NOT be purged.
+    appConfig.idbPurge = { ...savedIdbPurge, syncFailedCalls: 60 };
+    await put('sync_failed_calls', {
+      id: 'sfc_retain',
+      collection: 'orders',
+      failed_at: daysBack(35),
+    });
+
+    await runIDBPurge();
+
+    expect(await getAll('sync_failed_calls')).toHaveLength(1);
+  });
+
+  it('falls back to defaults when appConfig.idbPurge is absent', async () => {
+    appConfig.idbPurge = null;
+    // Record is 10 days old; default window is 7 → should be purged.
+    await put('orders', { id: 'ord_fallback', table: 'T1', status: 'completed', date_updated: daysBack(10) });
+
+    await runIDBPurge();
+
+    expect(await getAll('orders')).toHaveLength(0);
   });
 });

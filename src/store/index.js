@@ -5,6 +5,7 @@ import {
   createRuntimeConfig,
   DEFAULT_SETTINGS,
   applyDirectusConfigToAppConfig,
+  applyIDBPurgeConfigToAppConfig,
   updateOrderTotals,
   KITCHEN_ACTIVE_STATUSES,
   KEYBOARD_POSITIONS,
@@ -77,10 +78,16 @@ function _normalizeMenuSource(value, fallback = null) {
  *
  * @param {object} payload
  * @param {object} current
- * @returns {{sounds:boolean,menuUrl:string,menuSource:'json'|'directus',preventScreenLock:boolean,customKeyboard:string,preBillPrinterId:string}}
+ * @returns {{sounds:boolean,menuUrl:string,menuSource:'json'|'directus',preventScreenLock:boolean,customKeyboard:string,preBillPrinterId:string,idbPurge:object}}
  */
 function _normalizeLocalSettingsPayload(payload, current) {
   const normalizedCurrentMenuSource = _normalizeMenuSource(current?.menuSource, 'directus');
+  const d = DEFAULT_SETTINGS.idbPurge;
+  function _days(v, fallback) {
+    return typeof v === 'number' && v > 0 ? Math.floor(v) : fallback;
+  }
+  const inIdbPurge = payload?.idbPurge;
+  const curIdbPurge = current?.idbPurge;
   return {
     sounds: typeof payload?.sounds === 'boolean' ? payload.sounds : !!current?.sounds,
     menuUrl:
@@ -99,6 +106,15 @@ function _normalizeLocalSettingsPayload(payload, current) {
       typeof payload?.preBillPrinterId === 'string'
         ? payload.preBillPrinterId
         : (typeof current?.preBillPrinterId === 'string' ? current.preBillPrinterId : ''),
+    idbPurge: {
+      orders:          _days(inIdbPurge?.orders,          _days(curIdbPurge?.orders,          d.orders)),
+      billSessions:    _days(inIdbPurge?.billSessions,    _days(curIdbPurge?.billSessions,    d.billSessions)),
+      transactions:    _days(inIdbPurge?.transactions,    _days(curIdbPurge?.transactions,    d.transactions)),
+      cashMovements:   _days(inIdbPurge?.cashMovements,   _days(curIdbPurge?.cashMovements,   d.cashMovements)),
+      dailyClosures:   _days(inIdbPurge?.dailyClosures,   _days(curIdbPurge?.dailyClosures,   d.dailyClosures)),
+      printJobs:       _days(inIdbPurge?.printJobs,       _days(curIdbPurge?.printJobs,       d.printJobs)),
+      syncFailedCalls: _days(inIdbPurge?.syncFailedCalls, _days(curIdbPurge?.syncFailedCalls, d.syncFailedCalls)),
+    },
   };
 }
 
@@ -205,6 +221,7 @@ export const useConfigStore = defineStore('config', () => {
       preventScreenLock: preventScreenLock.value,
       customKeyboard: customKeyboard.value,
       preBillPrinterId: preBillPrinterId.value,
+      idbPurge: appConfig.idbPurge,
     });
     sounds.value = normalized.sounds;
     menuUrl.value = normalized.menuUrl;
@@ -212,6 +229,7 @@ export const useConfigStore = defineStore('config', () => {
     preventScreenLock.value = normalized.preventScreenLock;
     customKeyboard.value = normalized.customKeyboard;
     preBillPrinterId.value = normalized.preBillPrinterId;
+    applyIDBPurgeConfigToAppConfig(normalized.idbPurge);
     config.value = {
       ...config.value,
       menuSource: normalized.menuSource,
@@ -224,7 +242,7 @@ export const useConfigStore = defineStore('config', () => {
    * Applies and persists local settings to `local_settings` in IndexedDB.
    *
    * @param {object} payload
-   * @returns {Promise<{sounds:boolean,menuUrl:string,menuSource:'json'|'directus',preventScreenLock:boolean,customKeyboard:string,preBillPrinterId:string}>}
+   * @returns {Promise<{sounds:boolean,menuUrl:string,menuSource:'json'|'directus',preventScreenLock:boolean,customKeyboard:string,preBillPrinterId:string,idbPurge:object}>}
    */
   async function saveLocalSettings(payload = {}) {
     const normalized = _normalizeLocalSettingsPayload(payload, {
@@ -234,6 +252,7 @@ export const useConfigStore = defineStore('config', () => {
       preventScreenLock: preventScreenLock.value,
       customKeyboard: customKeyboard.value,
       preBillPrinterId: preBillPrinterId.value,
+      idbPurge: appConfig.idbPurge,
     });
     await saveSettingsToIDB(normalized);
     applyLocalSettings(normalized);
@@ -1317,6 +1336,9 @@ export async function initStoreFromIDB(pinia) {
     if (typeof settings.preventScreenLock === 'boolean') configStore.preventScreenLock = settings.preventScreenLock;
     if (KEYBOARD_POSITIONS.includes(settings.customKeyboard)) configStore.customKeyboard = settings.customKeyboard;
     if (typeof settings.preBillPrinterId === 'string') configStore.preBillPrinterId = settings.preBillPrinterId;
+    if (settings.idbPurge && typeof settings.idbPurge === 'object') {
+      applyIDBPurgeConfigToAppConfig(settings.idbPurge);
+    }
   }
 
   await configStore.hydrateConfigFromIDB({

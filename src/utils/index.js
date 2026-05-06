@@ -234,6 +234,20 @@ export const DEFAULT_SETTINGS = {
     wsEnabled: false,
   },
 
+  // CONFIGURAZIONE PULIZIA IDB (retention windows in giorni)
+  // Ogni campo indica per quanti giorni mantenere i record già sincronizzati
+  // su Directus prima di rimuoverli dall'IndexedDB locale.
+  // Valori conservative di default: pensati per dispositivi offline alcuni giorni.
+  idbPurge: {
+    orders: 7,
+    billSessions: 7,
+    transactions: 30,
+    cashMovements: 30,
+    dailyClosures: 90,
+    printJobs: 7,
+    syncFailedCalls: 30,
+  },
+
   // Minimal fallback menu; the full menu is loaded from the external URL at startup
   menu: {
     "Placeholder": [
@@ -324,6 +338,33 @@ export function applyDirectusConfigToAppConfig(next = {}) {
     wsEnabled: typeof next?.wsEnabled === 'boolean' ? next.wsEnabled : false,
   };
   appConfig.directus = normalized;
+  return normalized;
+}
+
+/**
+ * Applies IDB purge retention settings to `appConfig.idbPurge`.
+ * This is the only allowed write path for `appConfig.idbPurge`.
+ * Invalid (non-positive) values are replaced with the defaults from
+ * `DEFAULT_SETTINGS.idbPurge`.
+ *
+ * @param {object} [next]
+ * @returns {{orders:number,billSessions:number,transactions:number,cashMovements:number,dailyClosures:number,printJobs:number,syncFailedCalls:number}}
+ */
+export function applyIDBPurgeConfigToAppConfig(next = {}) {
+  const d = DEFAULT_SETTINGS.idbPurge;
+  function _days(value, fallback) {
+    return typeof value === 'number' && value > 0 ? Math.floor(value) : fallback;
+  }
+  const normalized = {
+    orders:          _days(next?.orders,          d.orders),
+    billSessions:    _days(next?.billSessions,    d.billSessions),
+    transactions:    _days(next?.transactions,    d.transactions),
+    cashMovements:   _days(next?.cashMovements,   d.cashMovements),
+    dailyClosures:   _days(next?.dailyClosures,   d.dailyClosures),
+    printJobs:       _days(next?.printJobs,       d.printJobs),
+    syncFailedCalls: _days(next?.syncFailedCalls, d.syncFailedCalls),
+  };
+  appConfig.idbPurge = normalized;
   return normalized;
 }
 

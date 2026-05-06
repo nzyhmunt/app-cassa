@@ -124,7 +124,7 @@ Questo è il pattern già usato da `_getCfg()` in `useDirectusSync.js` (riga 622
 
 ## Piano di Lavoro
 
-### Fase 2 — Implementare `useIDBPurge.js` ← **INIZIARE DA QUI**
+### Fase 2 — Implementare `useIDBPurge.js` ✅ IMPLEMENTATA
 
 **File da creare**: `src/composables/useIDBPurge.js`
 
@@ -309,7 +309,7 @@ export function useIDBPurge() {
 
 ---
 
-### Fase 3 — Integrare il purge nell'avvio app
+### Fase 3 — Integrare il purge nell'avvio app ✅ IMPLEMENTATA
 
 **Trigger**: all'avvio app (`onMounted`) in `CassaApp.vue`, `SalaApp.vue`, `CucinaApp.vue`.
 
@@ -352,33 +352,52 @@ onMounted(async () => {
 
 ---
 
-### Fase 4 — Esposizione delle soglie di retention come configurazione (opzionale)
+### Fase 4 — Esposizione delle soglie di retention come configurazione ✅ IMPLEMENTATA
 
-Le soglie possono essere rese configurabili tramite `useSettings.js` / `local_settings` in IDB.
+Le soglie di retention sono configurabili tramite `local_settings` in IDB, seguendo il
+pattern già usato per `sounds`, `menuUrl`, ecc.
+
+#### File modificati
+
+- **`src/utils/index.js`**:
+  - Aggiunto campo `idbPurge` a `DEFAULT_SETTINGS` con i valori di default conservativi.
+  - Aggiunta funzione `applyIDBPurgeConfigToAppConfig(next)` — unico punto di scrittura
+    su `appConfig.idbPurge`, analoga a `applyDirectusConfigToAppConfig`.
+
+- **`src/store/index.js`**:
+  - Importata `applyIDBPurgeConfigToAppConfig`.
+  - `_normalizeLocalSettingsPayload` ora include e valida `idbPurge` dal payload.
+  - `applyLocalSettings` chiama `applyIDBPurgeConfigToAppConfig(normalized.idbPurge)` per
+    aggiornare `appConfig.idbPurge` a runtime.
+  - `saveLocalSettings` passa `appConfig.idbPurge` come `current` durante la normalizzazione.
+  - `initStoreFromIDB`: se `settings.idbPurge` è un oggetto valido, chiama
+    `applyIDBPurgeConfigToAppConfig` all'avvio per ripristinare le preferenze salvate.
+
+- **`src/composables/useIDBPurge.js`** — `runIDBPurge()` legge i giorni di retention da
+  `appConfig.idbPurge` con fallback ai default hard-coded.
+
+- **`src/composables/__tests__/useIDBPurge.test.js`** — 5 test aggiuntivi per la
+  configurabilità: retention estesa conserva i record, retention ridotta li rimuove,
+  fallback ai default quando `appConfig.idbPurge` è null.
 
 ```js
-const IDB_PURGE_RETENTION_DAYS = {
-  orders:                  settings?.idbPurge?.orders         ?? 7,
-  bill_sessions:           settings?.idbPurge?.billSessions   ?? 7,
-  transactions:            settings?.idbPurge?.transactions   ?? 30,
-  cash_movements:          settings?.idbPurge?.cashMovements  ?? 30,
-  daily_closures:          settings?.idbPurge?.dailyClosures  ?? 90,
-  print_jobs:              settings?.idbPurge?.printJobs      ?? 7,
-  sync_failed_calls:       settings?.idbPurge?.syncFailedCalls ?? 30,
-  // junction tables seguono il padre
-  transaction_order_refs:  settings?.idbPurge?.transactions   ?? 30,
-  transaction_voce_refs:   settings?.idbPurge?.transactions   ?? 30,
-  daily_closure_by_method: settings?.idbPurge?.dailyClosures  ?? 90,
-};
+// DEFAULT_SETTINGS.idbPurge (src/utils/index.js)
+idbPurge: {
+  orders:          7,
+  billSessions:    7,
+  transactions:    30,
+  cashMovements:   30,
+  dailyClosures:   90,
+  printJobs:       7,
+  syncFailedCalls: 30,
+},
 ```
-
-Questa fase può essere implementata in parallelo o dopo le Fasi 2+3.
 
 ---
 
-### Fase 5 — Test unitari
+### Fase 5 — Test unitari ✅ IMPLEMENTATA
 
-Creare `src/composables/__tests__/useIDBPurge.test.js` con:
+`src/composables/__tests__/useIDBPurge.test.js` — 38 test totali:
 
 - `purgeCollection` su store vuota → nessun errore, nessuna eliminazione
 - Record con `date_updated` recente → NON purgato (anche con sync_queue vuota)
@@ -393,6 +412,9 @@ Creare `src/composables/__tests__/useIDBPurge.test.js` con:
 - `purgeSyncFailedCalls`: entry con `failed_at` vecchio → rimossa
 - `purgeSyncFailedCalls`: entry recente → NON rimossa
 - Ordine di dipendenza: `order_item_modifiers` purgati prima di `order_items`
+- **Fase 4**: retention estesa → record dentro finestra → conservato
+- **Fase 4**: retention ridotta → record fuori finestra → rimosso
+- **Fase 4**: `appConfig.idbPurge = null` → fallback ai default, purge corretto
 
 ---
 
@@ -433,13 +455,13 @@ Questo comportamento è corretto e non va modificato.
 ## Dipendenze tra le Fasi
 
 ```
-Fase 2 (useIDBPurge) ──> Fase 3 (integrazione app) ──> Fase 5 (test)
-Fase 4 (configurazione) — indipendente, parallela
+Fase 2 (useIDBPurge) ✅ ──> Fase 3 (integrazione app) ✅ ──> Fase 4 (config) ✅
+                                                          ──> Fase 5 (test) ✅
 
-Fase 1-optional (mark _sync_status) — opzionale, può seguire dopo Fase 3
+Fase 1-optional (mark _sync_status) — opzionale, può seguire se necessario
 ```
 
-**Ordine di avvio raccomandato**: Fase 2 → Fase 5 → Fase 3 → Fase 4.
+**Stato finale**: Fase 2, 3, 4, 5 completate. Fase 1 saltata come da indicazioni.
 
 ---
 

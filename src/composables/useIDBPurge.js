@@ -204,6 +204,10 @@ export async function purgeSyncFailedCalls(retentionDays) {
 /**
  * Runs a full IDB purge cycle.
  *
+ * Retention windows are read from `appConfig.idbPurge` (set at startup from
+ * `local_settings` via `applyIDBPurgeConfigToAppConfig`).  If no settings are
+ * stored, the conservative defaults from `DEFAULT_SETTINGS.idbPurge` apply.
+ *
  * Execution order respects FK dependencies:
  *  1. Pre-sweep orphaned children from previous cycles.
  *  2. Purge parent records.
@@ -217,25 +221,38 @@ export async function purgeSyncFailedCalls(retentionDays) {
  * @returns {Promise<void>}
  */
 export async function runIDBPurge() {
+  // Read retention windows from appConfig (set at startup from local_settings,
+  // with conservative defaults from DEFAULT_SETTINGS.idbPurge as fallback).
+  const r = appConfig.idbPurge ?? {};
+  const retention = {
+    orders:          typeof r.orders          === 'number' && r.orders          > 0 ? r.orders          : 7,
+    billSessions:    typeof r.billSessions    === 'number' && r.billSessions    > 0 ? r.billSessions    : 7,
+    transactions:    typeof r.transactions    === 'number' && r.transactions    > 0 ? r.transactions    : 30,
+    cashMovements:   typeof r.cashMovements   === 'number' && r.cashMovements   > 0 ? r.cashMovements   : 30,
+    dailyClosures:   typeof r.dailyClosures   === 'number' && r.dailyClosures   > 0 ? r.dailyClosures   : 90,
+    printJobs:       typeof r.printJobs       === 'number' && r.printJobs       > 0 ? r.printJobs       : 7,
+    syncFailedCalls: typeof r.syncFailedCalls === 'number' && r.syncFailedCalls > 0 ? r.syncFailedCalls : 30,
+  };
+
   // ── 1. Pre-sweep: orphaned children from previous purge cycles ──────────────
-  await purgeCollection('order_item_modifiers', 7, {
+  await purgeCollection('order_item_modifiers', retention.orders, {
     requireMissingParent: { storeName: 'order_items', foreignKey: 'order_item' },
   });
-  await purgeCollection('order_items', 7, {
+  await purgeCollection('order_items', retention.orders, {
     requireMissingParent: { storeName: 'orders', foreignKey: 'order' },
   });
 
   // ── 2. Parent / root records ────────────────────────────────────────────────
-  await purgeCollection('orders', 7, { statusFilter: ['completed', 'rejected'] });
-  await purgeCollection('bill_sessions', 7, { statusFilter: ['closed'] });
-  await purgeCollection('transactions', 30);
-  await purgeCollection('cash_movements', 30);
-  await purgeCollection('daily_closures', 90);
+  await purgeCollection('orders', retention.orders, { statusFilter: ['completed', 'rejected'] });
+  await purgeCollection('bill_sessions', retention.billSessions, { statusFilter: ['closed'] });
+  await purgeCollection('transactions', retention.transactions);
+  await purgeCollection('cash_movements', retention.cashMovements);
+  await purgeCollection('daily_closures', retention.dailyClosures);
 
   // print_jobs: LOCAL-ONLY store (never in sync_queue).
   //   keyPath = 'logId'  (not 'id' like all other stores)
   //   date field = 'timestamp'  (field name in IDB records)
-  await purgeCollection('print_jobs', 7, {
+  await purgeCollection('print_jobs', retention.printJobs, {
     statusFilter: ['done', 'error'],
     dateField: 'timestamp',
     pkField: 'logId',
@@ -243,10 +260,10 @@ export async function runIDBPurge() {
   });
 
   // ── 3. Post-sweep: orphans created by this cycle ────────────────────────────
-  await purgeCollection('order_items', 7, {
+  await purgeCollection('order_items', retention.orders, {
     requireMissingParent: { storeName: 'orders', foreignKey: 'order' },
   });
-  await purgeCollection('order_item_modifiers', 7, {
+  await purgeCollection('order_item_modifiers', retention.orders, {
     requireMissingParent: { storeName: 'order_items', foreignKey: 'order_item' },
   });
 
@@ -262,11 +279,11 @@ export async function runIDBPurge() {
   });
 
   // ── 5. Child of daily_closures ──────────────────────────────────────────────
-  await purgeCollection('daily_closure_by_method', 90);
+  await purgeCollection('daily_closure_by_method', retention.dailyClosures);
 
   // ── 6. Local-only audit / meta stores ──────────────────────────────────────
-  await purgeSyncQueueDeadLetter(7);
-  await purgeSyncFailedCalls(30);
+  await purgeSyncQueueDeadLetter(retention.orders);
+  await purgeSyncFailedCalls(retention.syncFailedCalls);
 }
 
 // ── Composable ────────────────────────────────────────────────────────────────
