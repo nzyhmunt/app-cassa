@@ -920,107 +920,19 @@
       </div>
 
       <!-- Content -->
-      <div class="flex flex-1 min-h-0 flex-col md:flex-row" v-if="directItemMode === 'menu'">
-
-        <!-- Categorie Menu -->
-        <div class="w-full md:w-[220px] border-b md:border-b-0 md:border-r border-gray-200 bg-gray-50 flex md:flex-col overflow-x-auto md:overflow-y-auto no-scrollbar shrink-0">
-          <button
-            v-for="(menuItems, category) in configStore.config.menu"
-            :key="'dcat_'+category"
-            @click="directActiveMenuCategory = category"
-            class="whitespace-nowrap md:whitespace-normal md:w-full text-center md:text-left px-4 md:px-5 py-3 md:py-4 border-b-4 md:border-b-0 md:border-l-4 border-transparent font-bold transition-colors md:flex md:justify-between md:items-center text-sm md:text-base"
-            :class="directActiveMenuCategory === category ? 'bg-white theme-text theme-border-b md:!border-b-transparent theme-border-l shadow-sm' : 'text-gray-600 hover:bg-gray-100'">
-            {{ category }}
-            <span v-if="directActiveMenuCategory === category" class="opacity-50 hidden md:flex items-center">
-              <ChevronRight class="size-4" />
-            </span>
-          </button>
-        </div>
-
-        <!-- Piatti Griglia -->
-        <div class="flex-1 overflow-y-auto p-2 md:p-4 bg-gray-100 md:bg-white grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 gap-2 md:gap-3 content-start min-h-0">
-          <div
-            v-for="item in (configStore.config.menu[directActiveMenuCategory] || [])"
-            :key="'dmi_'+item.id"
-            class="bg-white border border-gray-200 rounded-xl md:rounded-2xl shadow-sm hover:border-emerald-400 transition-all group flex flex-col h-full min-h-[100px] md:min-h-[120px] relative overflow-visible">
-
-            <span
-              v-if="directCartQtyOf(item.id) > 0"
-              class="absolute -top-2 -right-2 bg-emerald-500 text-white size-6 md:size-7 rounded-full flex items-center justify-center text-[10px] md:text-xs font-black border-2 border-white shadow-sm z-10">
-              {{ directCartQtyOf(item.id) }}
-            </span>
-
-            <!-- Title area — tap/click = quick-add -->
-            <button
-              @click="addMenuItemToDirectCart(item)"
-              :aria-label="'Aggiungi ' + item.name + ' al carrello'"
-              class="flex-1 flex items-start text-left p-3 md:p-4 pb-1 md:pb-2 w-full">
-              <h4 class="font-bold text-gray-800 text-xs md:text-sm leading-tight group-hover:theme-text transition-colors line-clamp-3">{{ item.name }}</h4>
-            </button>
-
-            <!-- Bottom row: price + add button -->
-            <div class="px-3 md:px-4 pb-3 md:pb-4 flex items-center justify-between gap-1">
-              <span class="font-black theme-text text-xs md:text-sm bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100 shrink-0">{{ configStore.config.ui.currency }}{{ item.price.toFixed(2) }}</span>
-              <button
-                @click="addMenuItemToDirectCart(item)"
-                :aria-label="'Aggiungi ' + item.name + ' al carrello'"
-                class="size-7 md:size-8 flex items-center justify-center rounded-lg theme-bg text-white shadow-sm hover:opacity-90 active:scale-95 transition-all"
-                title="Aggiungi al carrello">
-                <Plus class="size-3.5 md:size-4" />
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <!-- CARRELLO VOCI DIRETTE -->
-        <div class="w-full md:w-[320px] bg-gray-50 border-t md:border-t-0 md:border-l border-gray-200 flex flex-col shrink-0 h-[40vh] max-h-[40vh] md:max-h-none md:h-auto min-h-0">
-          <div class="p-3 bg-gray-100 border-b border-gray-200 font-bold text-gray-700 text-xs uppercase tracking-wider flex items-center gap-2 shrink-0 shadow-sm z-10">
-            <ShoppingCart class="size-4" /> Carrello Voci Dirette
-          </div>
-
-          <div class="flex-1 overflow-y-auto min-h-0 p-3 space-y-2">
-            <div v-if="directCart.length === 0" class="text-center text-gray-400 py-8 flex flex-col items-center">
-              <MousePointerClick class="size-8 opacity-30 mb-2" />
-              <p class="text-xs font-medium">Tocca i piatti nel menu per aggiungerli qui.</p>
-            </div>
-            <div v-for="(item, idx) in directCart" :key="item.uid" class="bg-white rounded-lg shadow-sm overflow-hidden border-l-4 border-[var(--brand-primary)]">
-              <div class="p-2.5 flex items-start justify-between">
-                <div class="flex flex-col flex-1 min-w-0 pr-2">
-                  <span class="font-bold text-sm text-gray-800 truncate">{{ item.name }}</span>
-                  <span class="text-[10px] text-gray-500">{{ configStore.config.ui.currency }}{{ item.unitPrice.toFixed(2) }} cad.</span>
-                  <div v-if="item.notes && item.notes.length > 0" class="text-[9px] text-amber-600 font-bold italic mt-0.5 truncate flex items-center gap-1">
-                    <MessageSquareWarning class="size-3 shrink-0" /> {{ item.notes.join(', ') }}
-                  </div>
-                </div>
-                <div class="flex items-center gap-1.5 shrink-0">
-                  <div class="flex items-center gap-1 bg-gray-100 rounded p-0.5 border border-gray-200">
-                    <button @click="updateDirectCartQty(idx, -1)"
-                      class="size-6 flex items-center justify-center bg-white rounded shadow-sm active:scale-95 transition-colors"
-                      :class="item.quantity === 1 ? 'text-red-500' : 'text-gray-600'"
-                      :title="item.quantity === 1 ? 'Rimuovi voce' : 'Diminuisci quantità'">
-                      <Trash2 v-if="item.quantity === 1" class="size-3" />
-                      <Minus v-else class="size-3" />
-                    </button>
-                    <span class="w-5 text-center font-black text-sm text-gray-800 tabular-nums">{{ item.quantity }}</span>
-                    <button @click="updateDirectCartQty(idx, 1)" class="size-6 flex items-center justify-center bg-white theme-text rounded shadow-sm active:scale-95"><Plus class="size-3" /></button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Footer Aggiungi al Conto -->
-          <div class="p-3 md:p-4 bg-white border-t border-gray-200 shrink-0 pb-8 md:pb-4 shadow-[0_-5px_15px_rgba(0,0,0,0.05)] z-10">
-            <div class="flex justify-between items-center mb-3">
-              <span class="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Totale:</span>
-              <span class="font-black text-lg text-gray-900">{{ configStore.config.ui.currency }}{{ directCartTotal.toFixed(2) }}</span>
-            </div>
-            <button @click="confirmDirectItems" :disabled="directCart.length === 0" class="w-full theme-bg text-white py-3 md:py-4 rounded-xl font-bold shadow-md hover:opacity-90 transition-opacity active:scale-95 text-sm flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
-              <CheckCircle class="size-5" /> <span>Aggiungi al Conto</span>
-            </button>
-          </div>
-        </div>
-      </div>
+      <MenuCartPanel
+        v-if="directItemMode === 'menu'"
+        :menu="configStore.config.menu"
+        :cart="directCart"
+        :qty-map="directCartQtyMap"
+        :currency="configStore.config.ui.currency"
+        cart-title="Carrello Voci Dirette"
+        empty-cart-message="Tocca i piatti nel menu per aggiungerli qui."
+        confirm-label="Aggiungi al Conto"
+        @add-quick="addMenuItemToDirectCart"
+        @update-qty="updateDirectCartQty"
+        @confirm="confirmDirectItems"
+      />
 
       <!-- "Custom" mode -->
       <div v-else-if="directItemMode === 'custom' && canShowCustomEntryTab" class="flex-1 overflow-hidden flex flex-col min-h-0">
@@ -1401,9 +1313,9 @@ import {
   Grid3x3, Users, X, Plus, Coffee, Edit, AlertTriangle, CheckCircle,
   Ban, Undo2, Code, Minus, Receipt, ArrowRightLeft, Merge, Trash2,
   Layers, ListChecks, History, LayoutGrid, ListOrdered,
-  Tag, Wallet, ChevronDown, ChevronRight,
+  Tag, Wallet, ChevronDown,
   Percent, Zap, BookOpen, PlusCircle, Banknote, CreditCard, Lock, SquareCheck, Split, Link, Printer,
-  FileText, ShoppingCart, MousePointerClick, MessageSquareWarning,
+  FileText,
 } from 'lucide-vue-next';
 import { useConfigStore, useOrderStore } from '../store/index.js';
 import { newUUIDv7, newShortId } from '../store/storeUtils.js';
@@ -1421,6 +1333,7 @@ import PeopleModal from './shared/PeopleModal.vue';
 import NumericInput from './NumericInput.vue';
 import PrintHistoryModal from './shared/PrintHistoryModal.vue';
 import InvoiceModal from './shared/InvoiceModal.vue';
+import MenuCartPanel from './shared/MenuCartPanel.vue';
 
 const emit = defineEmits(['open-order-from-table', 'new-order-for-ordini']);
 
@@ -2329,7 +2242,6 @@ async function createNewOrderForTable() {
 // ── Direct item entry modal ────────────────────────────────────────────────
 const showDirectItemModal = ref(false);
 const directItemMode = ref('menu'); // 'menu' | 'custom'
-const directActiveMenuCategory = ref('');
 const directCart = ref([]);
 const directCustomName = ref('');
 const directCustomPrice = ref('');
@@ -2374,7 +2286,6 @@ watch(savedCustomItems, (val) => {
 function openDirectItemModal() {
   directCart.value = [];
   directItemMode.value = 'menu';
-  directActiveMenuCategory.value = Object.keys(configStore.config.menu)[0] || '';
   directCustomName.value = '';
   directCustomPrice.value = '';
   showDirectItemModal.value = true;
@@ -2456,7 +2367,7 @@ const directCartTotal = computed(() =>
   directCart.value.reduce((a, b) => a + b.unitPrice * b.quantity, 0),
 );
 
-/** O(1) qty lookup per dishId — used for qty badges on menu items. */
+/** O(1) qty lookup per dishId — passed as :qty-map to MenuCartPanel. */
 const directCartQtyMap = computed(() => {
   const map = {};
   for (const c of directCart.value) {
@@ -2464,10 +2375,6 @@ const directCartQtyMap = computed(() => {
   }
   return map;
 });
-
-function directCartQtyOf(dishId) {
-  return directCartQtyMap.value[dishId] ?? 0;
-}
 
 async function confirmDirectItems() {
   if (!selectedTable.value || directCart.value.length === 0) return;
