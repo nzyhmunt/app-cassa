@@ -48,11 +48,15 @@ export const syncState = {
    * queue while a push drain is already in-flight.  The in-flight push's
    * `finally` block checks this flag and immediately starts a follow-up
    * `_runPush()` so that items added during an active drain are pushed without
-   * waiting for the next 30-second timer tick.  Cleared both at the start of
-   * every new push and in the finally block (whether or not a follow-up is
-   * scheduled).  Only the enqueue-triggered path (`_onQueueEnqueue`) sets this
-   * flag; other `_runPush()` callers (30s interval, online handler, SW message,
-   * forcePush) do not, so they never cause a spurious follow-up drain.
+   * waiting for the next 30-second timer tick.  The flag is also read while
+   * setting the terminal `syncStatus` at the end of the drain: if the flag is
+   * set the status is kept as `'syncing'` rather than reverted to `'idle'`,
+   * preventing a brief `syncing → idle → syncing` flash in the UI.  Cleared
+   * both at the start of every new push and in the finally block (whether or
+   * not a follow-up is scheduled).  Only the enqueue-triggered path
+   * (`_onQueueEnqueue`) sets this flag; other `_runPush()` callers (30s
+   * interval, online handler, SW message, forcePush) do not, so they never
+   * cause a spurious follow-up drain or status flash.
    */
   _pushPending: false,
   /**

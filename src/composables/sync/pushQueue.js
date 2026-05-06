@@ -87,9 +87,13 @@ export async function _runPush() {
           );
           _registerPushedEchoes(result.pushedIds, adaptiveEchoTtl);
         }
+        // Stay 'syncing' if a follow-up drain is already queued (_pushPending)
+        // so the UI never flashes to 'idle' between back-to-back drains.
         syncState.syncStatus.value = result.offline
           ? 'offline'
-          : result.failed > 0 ? 'error' : 'idle';
+          : result.failed > 0 ? 'error'
+          : (syncState._pushPending && navigator.onLine) ? 'syncing'
+          : 'idle';
         // Update queue depth telemetry after drain completes.
         // Best-effort: a failure here must not mask the drain result.
         getPendingEntries().then((entries) => {
