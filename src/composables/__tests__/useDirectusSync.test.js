@@ -3403,17 +3403,17 @@ describe('offline/online event handling', () => {
       vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
       pushPostCalls = 0;
 
-      // Enqueue first item — triggers an immediate _runPush() via sync-queue:enqueue.
+      // Enqueue first item — enqueue() internally dispatches sync-queue:enqueue,
+      // which triggers an immediate _runPush() via _onQueueEnqueue().
       await enqueue('orders', 'create', 'ord_pending_1', { id: 'ord_pending_1' });
-      window.dispatchEvent(new CustomEvent('sync-queue:enqueue'));
       await vi.advanceTimersByTimeAsync(1);
       await flushPromises(LONG_FLUSH_ROUNDS);
       expect(pushPostCalls).toBe(1); // first drain in-flight, waiting for resolveFirstPost
 
       // Enqueue second item while the first drain is still in-flight.
-      // This sets _pushPending = true inside _runPush().
+      // enqueue() dispatches sync-queue:enqueue again; _runPush() detects
+      // _pushInFlight is set and sets _pushPending = true.
       await enqueue('orders', 'create', 'ord_pending_2', { id: 'ord_pending_2' });
-      window.dispatchEvent(new CustomEvent('sync-queue:enqueue'));
       await flushPromises(LONG_FLUSH_ROUNDS);
       expect(pushPostCalls).toBe(1); // second call returned in-flight promise, no new fetch yet
 
