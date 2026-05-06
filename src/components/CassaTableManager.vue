@@ -2240,16 +2240,11 @@ function closeTableModal() {
 
 async function createNewOrderForTable() {
   if (!selectedTable.value) return;
-  const tableId = selectedTable.value.id;
-  const ownSession = orderStore.tableCurrentBillSession[tableId];
-  const masterId = orderStore.masterTableOf(tableId);
-  // Prefer the table's own active session. Fall back to the master's session
-  // only when the table does not currently have an independent session.
-  const session = ownSession ?? (masterId != null ? orderStore.tableCurrentBillSession[masterId] : null);
+  const { effectiveTableId, billSessionId } = orderStore.resolveTableContext(selectedTable.value.id);
   const newOrd = {
     id: newUUIDv7(),
-    table: selectedTable.value.id,
-    billSessionId: session?.billSessionId ?? null,
+    table: effectiveTableId,
+    billSessionId,
     status: 'pending',
     time: formatOrderTime(),
     totalAmount: 0, itemCount: 0, dietaryPreferences: {}, orderItems: [],
@@ -2394,13 +2389,18 @@ const directCartTotal = computed(() =>
 
 async function confirmDirectItems() {
   if (!selectedTable.value || directCart.value.length === 0) return;
-  const session = orderStore.tableCurrentBillSession[selectedTable.value.id];
-  await orderStore.addDirectOrder(
-    selectedTable.value.id,
-    session?.billSessionId ?? null,
-    directCart.value,
-  );
+  const originalTableId = selectedTable.value.id;
+  const { effectiveTableId, billSessionId } = orderStore.resolveTableContext(originalTableId);
+  await orderStore.addDirectOrder(effectiveTableId, billSessionId, directCart.value);
   closeDirectItemModal();
+  // When the effective table is the master (slave was redirected mid-merge), switch
+  // the bill modal to the master so the cashier can see the newly added direct items.
+  // Without this the order disappears from the slave's bill view, making it look like
+  // the action failed and causing the cashier to add it a second time.
+  if (effectiveTableId !== originalTableId) {
+    const masterTable = configStore.config.tables.find(t => t.id === effectiveTableId);
+    if (masterTable) _openTableModal(masterTable);
+  }
 }
 
 // ── Manual bill close (shown when fully paid) ─────────────────────────────

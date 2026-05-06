@@ -150,6 +150,88 @@ export const useOrderStore = defineStore('orders', () => {
   function isMergedSlave(tableId) { return !!tableMergedInto.value[tableId]; }
   function masterTableOf(tableId) { return tableMergedInto.value[tableId] ?? null; }
 
+  /**
+   * Resolves the effective (table, billSession) pair for a given table.
+   *
+   * Returns both the effective table ID and the bill-session ID as a consistent
+   * pair. This ensures the `table` field and `billSessionId` on new orders always
+   * refer to the same billing context, even during race conditions where a table
+   * becomes a merged slave while its modal is already open.
+   *
+   * Lookup order:
+   *  1. Table has its own locally hydrated session → (tableId, ownSession.billSessionId)
+   *     Checked FIRST regardless of whether a merge mapping exists, for two reasons:
+   *       (a) Post-detach stale mapping: detachSlaveTable() on another device created a
+   *           fresh slave session and cleared tableMergedInto[slave], but the clearing
+   *           only propagates via table_merge_sessions (venue sync, ~5 min).  During that
+   *           window the slave's new session is visible (bill_sessions, ~30 s) while
+   *           tableMergedInto still points to the old master.  Preferring the slave's own
+   *           session here routes new orders to the correct (post-detach) slave bill.
+   *       (b) Stale tableMergedInto after un-merge: same window for the same reason.
+   *     TRADE-OFF: In the very early merge-arrival window (~30 s) — where
+   *     table_merge_sessions has just updated tableMergedInto but bill_sessions has not
+   *     yet removed the slave's stale pre-merge session — this step will briefly return
+   *     the slave's old session instead of the master's.  The window is bounded by the
+   *     next bill_sessions poll (~30 s) and is much shorter than the post-detach window
+   *     (~5 min), so the slave-first preference is the lesser evil.
+   *  2. Merge mapping exists + master has a locally hydrated session → (masterId, ...)
+   *     Reached only when the slave has no own session (stable active merge).
+   *  3. Merge mapping exists + infer from master's non-closed orders → (masterId, inferred)
+   *     Handles the sync-lag window where orders arrived before bill_sessions.
+   *  4. Infer from own non-closed orders → (tableId, inferred)
+   *     Handles the sync-lag window for non-merged tables (and fall-through from step 3).
+   *  5. Nothing found → (tableId, null)
+   *
+   * NOTE: Uses resolveMaster() (not masterTableOf() or getTableStatus) to follow
+   * the full tableMergedInto chain (e.g. C→B→A resolves to A) and to avoid the
+   * circular mirror where getTableStatus(slave) propagates the master's status.
+   *
+   * Does NOT auto-create a session to avoid producing a duplicate bill when an
+   * existing remote session is simply in-flight and not yet hydrated locally.
+   *
+   * @param {string} tableId
+   * @returns {{ effectiveTableId: string, billSessionId: string|null }}
+   */
+  function resolveTableContext(tableId) {
+    // Step 1: own session always wins — covers non-merged tables, post-detach stale
+    // mapping, and the stale-mapping case (see JSDoc above for trade-off rationale).
+    const ownSession = tableCurrentBillSession.value[tableId];
+    if (ownSession?.billSessionId) return { effectiveTableId: tableId, billSessionId: ownSession.billSessionId };
+
+    // resolveMaster() follows the full tableMergedInto chain (handles C→B→A correctly).
+    // Returns tableId itself when no merge mapping exists.
+    const masterId = resolveMaster(tableId);
+    if (masterId !== tableId) {
+      // Step 2: slave has no own session → standard active merge; check master.
+      const masterSession = tableCurrentBillSession.value[masterId];
+      if (masterSession?.billSessionId) return { effectiveTableId: masterId, billSessionId: masterSession.billSessionId };
+      // Step 3: infer from master's non-closed orders (sync-lag window for merged slaves).
+      const masterInferred = orders.value
+        .find(o => o.table === masterId && o.billSessionId && !['completed', 'rejected'].includes(o.status))
+        ?.billSessionId ?? null;
+      if (masterInferred != null) return { effectiveTableId: masterId, billSessionId: masterInferred };
+    }
+
+    // Step 4: infer from own non-closed orders (sync-lag window for non-merged tables,
+    // or fall-through when master has no active billing context either).
+    const ownInferred = orders.value
+      .find(o => o.table === tableId && o.billSessionId && !['completed', 'rejected'].includes(o.status))
+      ?.billSessionId ?? null;
+    return { effectiveTableId: tableId, billSessionId: ownInferred };
+  }
+
+  /**
+   * Convenience wrapper — returns only the bill-session ID.
+   * Prefer resolveTableContext() when you also need the effective table ID
+   * (e.g. when constructing a new order).
+   *
+   * @param {string} tableId
+   * @returns {string|null}
+   */
+  function resolveActiveBillSessionId(tableId) {
+    return resolveTableContext(tableId).billSessionId;
+  }
+
   const pendingCount = computed(() => orders.value.filter(o => o.status === 'pending' && !o.isDirectEntry).length);
   const inKitchenCount = computed(() =>
     orders.value.filter(o => KITCHEN_ACTIVE_STATUSES.includes(o.status)).length,
@@ -1210,6 +1292,8 @@ export const useOrderStore = defineStore('orders', () => {
     getPaymentMethodIcon,
     isMergedSlave,
     masterTableOf,
+    resolveTableContext,
+    resolveActiveBillSessionId,
     slaveIdsOf,
     addOrder,
     addItemsToOrder,
