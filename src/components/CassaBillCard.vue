@@ -337,7 +337,7 @@ function emitFiscale() {
   const base = _buildBillSummaryBase();
   const xmlRequest = buildFiscalXmlRequest(base);
   const entry = {
-    id: newUUIDv7('fis'),
+    id: newUUIDv7(),
     ...base,
     xmlRequest,
     xmlResponse: null,
@@ -359,7 +359,7 @@ function confirmInvoice(billingData) {
   _invoiceSubmitting.value = true;
   const base = _buildBillSummaryBase();
   const entry = {
-    id: newUUIDv7('inv'),
+    id: newUUIDv7(),
     ...base,
     billingData,
     status: 'pending',

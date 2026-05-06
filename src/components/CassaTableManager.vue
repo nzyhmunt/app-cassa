@@ -2493,7 +2493,7 @@ async function closeTableBillFiscale() {
   if (!base) return;
   const xmlRequest = buildFiscalXmlRequest(base);
   const entry = {
-    id: newUUIDv7('fis'),
+    id: newUUIDv7(),
     ...base,
     xmlRequest,
     xmlResponse: null,
@@ -2513,7 +2513,7 @@ async function confirmInvoice(billingData) {
   const base = _buildBillSummaryBase();
   if (!base) return;
   const entry = {
-    id: newUUIDv7('inv'),
+    id: newUUIDv7(),
     ...base,
     billingData,
     status: 'pending',
