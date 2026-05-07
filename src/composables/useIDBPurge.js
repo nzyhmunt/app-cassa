@@ -39,7 +39,7 @@
 
 import { getDB } from './useIDB.js';
 import { MAX_ATTEMPTS } from './useSyncQueue.js';
-import { appConfig, DEFAULT_SETTINGS } from '../utils/index.js';
+import { appConfig, DEFAULT_SETTINGS, normPositiveInt } from '../utils/index.js';
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -209,15 +209,15 @@ export async function purgeCollection(storeName, retentionDays, options = {}) {
 export async function purgeSyncQueueDeadLetter(retentionDays) {
   const cutoff = Date.now() - retentionDays * 86_400_000;
   const db = await getDB();
-  const all = await db.getAll('sync_queue');
-  const toDelete = all
-    .filter(
-      e =>
-        e &&
-        (e.attempts ?? 0) >= MAX_ATTEMPTS /* = 5 */ &&
-        e.date_created &&
-        new Date(e.date_created).getTime() < cutoff,
-    )
+  // Use the date_created index with upperBound to avoid a full store scan —
+  // only records older than the cutoff are fetched, then we apply the
+  // attempts-exhausted filter in memory on that smaller subset.
+  const cutoffIso = new Date(cutoff).toISOString();
+  const old = await db.getAllFromIndex(
+    'sync_queue', 'date_created', IDBKeyRange.upperBound(cutoffIso),
+  );
+  const toDelete = old
+    .filter(e => e && (e.attempts ?? 0) >= MAX_ATTEMPTS /* = 5 */)
     .map(e => e.id)
     .filter(Boolean);
   if (toDelete.length === 0) return;
@@ -268,19 +268,19 @@ export async function purgeSyncFailedCalls(retentionDays) {
  * @returns {Promise<void>}
  */
 export async function runIDBPurge() {
-  // Read retention windows from appConfig.idbPurge (always pre-validated by
-  // applyIDBPurgeConfigToAppConfig at startup).  Fall back to DEFAULT_SETTINGS
-  // only when appConfig.idbPurge is absent (e.g. tests that bypass initStoreFromIDB).
+  // Re-validate each value with normPositiveInt() so the purge logic is
+  // resilient to misconfiguration (e.g. 0 / NaN / Infinity written directly to
+  // appConfig.idbPurge without going through applyIDBPurgeConfigToAppConfig).
   const defaults = DEFAULT_SETTINGS.idbPurge;
   const configured = appConfig.idbPurge ?? {};
   const retention = {
-    orders:          configured.orders          ?? defaults.orders,
-    billSessions:    configured.billSessions    ?? defaults.billSessions,
-    transactions:    configured.transactions    ?? defaults.transactions,
-    cashMovements:   configured.cashMovements   ?? defaults.cashMovements,
-    dailyClosures:   configured.dailyClosures   ?? defaults.dailyClosures,
-    printJobs:       configured.printJobs       ?? defaults.printJobs,
-    syncFailedCalls: configured.syncFailedCalls ?? defaults.syncFailedCalls,
+    orders:          normPositiveInt(configured.orders,          defaults.orders),
+    billSessions:    normPositiveInt(configured.billSessions,    defaults.billSessions),
+    transactions:    normPositiveInt(configured.transactions,    defaults.transactions),
+    cashMovements:   normPositiveInt(configured.cashMovements,   defaults.cashMovements),
+    dailyClosures:   normPositiveInt(configured.dailyClosures,   defaults.dailyClosures),
+    printJobs:       normPositiveInt(configured.printJobs,       defaults.printJobs),
+    syncFailedCalls: normPositiveInt(configured.syncFailedCalls, defaults.syncFailedCalls),
   };
 
   // ── 0. Dead-letter cleanup — run FIRST so abandoned sync_queue entries no

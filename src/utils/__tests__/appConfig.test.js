@@ -1,5 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { appConfig, DEFAULT_SETTINGS, createRuntimeConfig, applyDirectusConfigToAppConfig } from '../index.js';
+import {
+  appConfig,
+  DEFAULT_SETTINGS,
+  createRuntimeConfig,
+  applyDirectusConfigToAppConfig,
+  normPositiveInt,
+  applyIDBPurgeConfigToAppConfig,
+} from '../index.js';
 import {
   mapVenueConfigFromDirectus,
   mapOrderFromDirectus,
@@ -517,8 +524,6 @@ describe('appConfig', () => {
 });
 
 // ── normPositiveInt ────────────────────────────────────────────────────────────
-
-import { normPositiveInt, applyIDBPurgeConfigToAppConfig } from '../index.js';
 
 describe('normPositiveInt()', () => {
   it('returns Math.floor(value) for a positive integer', () => {
