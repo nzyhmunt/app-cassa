@@ -465,6 +465,40 @@ describe('appConfig', () => {
       const result = mapPayloadToDirectus('orders', orderPayload, { recordId: '019dd0fe-576c-7000-bccb-7bf8b07831f8' });
       expect(result.order_items[0].venue_user_created).toBe(userUuid);
     });
+
+    it('keeps nested existing order_items sparse on update payloads', () => {
+      const result = mapPayloadToDirectus('orders', {
+        venue_user_updated: '29a77c55-0055-4d20-9c11-2913ac974a75',
+        orderItems: [
+          {
+            id: 'oi_existing_1',
+            uid: 'oi_existing_1',
+            voidedQuantity: 1,
+            modifiers: [{ id: 'mod_existing_1', voidedQuantity: 1 }],
+          },
+        ],
+      }, {
+        recordId: '019dd0fe-576c-7000-bccb-7bf8b07831f8',
+        operation: 'update',
+      });
+
+      expect(result.order_items[0]).toMatchObject({
+        id: 'oi_existing_1',
+        uid: 'oi_existing_1',
+        voided_quantity: 1,
+      });
+      expect(result.order_items[0].unit_price).toBeUndefined();
+      expect(result.order_items[0].quantity).toBeUndefined();
+      expect(result.order_items[0].kitchen_ready).toBeUndefined();
+      expect(result.order_items[0].dish).toBeUndefined();
+      expect(result.order_items[0].order).toBeUndefined();
+      expect(result.order_items[0].order_item_modifiers[0]).toMatchObject({
+        id: 'mod_existing_1',
+        voided_quantity: 1,
+      });
+      expect(result.order_items[0].order_item_modifiers[0].order_item).toBeUndefined();
+      expect(result.order_items[0].order_item_modifiers[0].order).toBeUndefined();
+    });
   });
 
   describe('createRuntimeConfig', () => {

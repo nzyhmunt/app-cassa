@@ -549,6 +549,7 @@ async function _pushEntry(entry, sdkClient, cfg) {
       paymentMethods: Array.isArray(appConfig?.paymentMethods) ? appConfig.paymentMethods : [],
       recordId: record_id,
       menuSource: appConfig?.menuSource ?? 'directus',
+      operation,
     });
     directusPayload = _withRequiredDefaults(collection, operation, mappedPayload, cfg);
 

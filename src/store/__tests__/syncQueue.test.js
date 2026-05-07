@@ -501,6 +501,49 @@ describe('drainQueue()', () => {
     }
   });
 
+  it('does not inject unchanged nested order_items defaults into update PATCH payloads', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue(mockResponse(200, { data: {} }));
+    await enqueue('orders', 'update', 'ord_sparse_existing_item', {
+      venue_user_updated: 'usr_1',
+      orderItems: [
+        {
+          id: 'oi_existing_1',
+          uid: 'oi_existing_1',
+          voidedQuantity: 1,
+          modifiers: [
+            { id: 'mod_existing_1', voidedQuantity: 1 },
+          ],
+        },
+      ],
+      totalAmount: 8,
+      itemCount: 1,
+    });
+
+    await drainQueue(FAKE_CFG);
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.total_amount).toBe(8);
+    expect(body.item_count).toBe(1);
+    expect(body.order_items).toHaveLength(1);
+    expect(body.order_items[0]).toMatchObject({
+      id: 'oi_existing_1',
+      uid: 'oi_existing_1',
+      voided_quantity: 1,
+    });
+    expect(body.order_items[0].unit_price).toBeUndefined();
+    expect(body.order_items[0].quantity).toBeUndefined();
+    expect(body.order_items[0].kitchen_ready).toBeUndefined();
+    expect(body.order_items[0].dish).toBeUndefined();
+    expect(body.order_items[0].order).toBeUndefined();
+    expect(body.order_items[0].order_item_modifiers).toHaveLength(1);
+    expect(body.order_items[0].order_item_modifiers[0]).toMatchObject({
+      id: 'mod_existing_1',
+      voided_quantity: 1,
+    });
+    expect(body.order_items[0].order_item_modifiers[0].order_item).toBeUndefined();
+    expect(body.order_items[0].order_item_modifiers[0].order).toBeUndefined();
+  });
+
   it('nulls dish on order_items when menuSource is json', async () => {
     const prev = appConfig.menuSource;
     try {
