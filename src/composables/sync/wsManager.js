@@ -224,7 +224,8 @@ async function _loadLocalEchoRecord(db, collection, raw, id) {
   }
   const directItem = await db.get('order_items', String(id));
   if (directItem) return directItem;
-  const orderId = relationId(raw?.order ?? raw?.orderId ?? null) ?? raw?.order ?? raw?.orderId ?? null;
+  const rawOrderRef = raw?.order ?? raw?.orderId ?? null;
+  const orderId = relationId(rawOrderRef) ?? rawOrderRef;
   if (!orderId) return null;
   const parentOrder = await db.get('orders', String(orderId));
   if (!Array.isArray(parentOrder?.orderItems)) return null;
@@ -377,17 +378,19 @@ export async function _handleSubscriptionMessage(collection, message) {
         suppressedCount++;
         continue;
       }
+      const rawOrderRef = collection === 'order_items' ? (r?.order ?? null) : null;
+      const parentOrderId = collection === 'order_items'
+        ? relationId(rawOrderRef) ?? rawOrderRef
+        : null;
+      const needsLocalEchoRecord = collection === 'order_items' || isDirectEcho;
       let local = null;
-      if (collection === 'order_items' && id && db) {
+      if (needsLocalEchoRecord && id && db) {
         try {
           local = await _loadLocalEchoRecord(db, collection, r, id);
         } catch (e) {
           console.warn('[DirectusSync] LWW echo check failed for', collection, id, e);
         }
       }
-      const parentOrderId = collection === 'order_items'
-        ? relationId(r?.order ?? null) ?? (r?.order != null ? String(r.order) : null)
-        : null;
       const isOrderItemsParentEcho = collection === 'order_items'
         && local
         && _isEchoSuppressed('orders', parentOrderId);
@@ -406,9 +409,8 @@ export async function _handleSubscriptionMessage(collection, message) {
       // timestamp is strictly after the effective local timestamp.
       const incomingTs = _getEffectiveTs(r);
       let isCrossDeviceUpdate = false;
-      if (id && db) {
+      if (id && db && local) {
         try {
-          if (!local) local = await _loadLocalEchoRecord(db, collection, r, id);
           const localTs = _getEffectiveTs(local);
           const incoming = _mapRecord(collection, r);
           const hasMeaningfulChange = _hasMeaningfulEchoChange(collection, r, local, incoming);
