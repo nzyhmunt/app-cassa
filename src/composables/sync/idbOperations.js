@@ -54,9 +54,20 @@ export async function _preparePullRecordsForIDB(collection, mapped, cachedState 
       const existing = existingById.get(String(incoming?.id ?? ''));
       if (!existing) return incoming;
       if (Array.isArray(existing.orderItems) && existing.orderItems.length > 0) {
+        // Build a merged base that preserves local orderItems and the locally-computed
+        // totals (totalAmount / itemCount and their snake_case twins).  These fields
+        // must move together: keeping existing.orderItems while accepting server totals
+        // would produce an inconsistent order (voided items with stale totals) that
+        // causes UI "flip-backs" on the order total after a void/restore operation.
+        const withLocalItems = { ...incoming, orderItems: existing.orderItems };
+        if (existing.totalAmount != null) withLocalItems.totalAmount = existing.totalAmount;
+        if (existing.total_amount != null) withLocalItems.total_amount = existing.total_amount;
+        if (existing.itemCount != null) withLocalItems.itemCount = existing.itemCount;
+        if (existing.item_count != null) withLocalItems.item_count = existing.item_count;
+
         const hasIncomingItems = Array.isArray(incoming.orderItems) && incoming.orderItems.length > 0;
         if (!hasIncomingItems) {
-          return { ...incoming, orderItems: existing.orderItems };
+          return withLocalItems;
         }
         // Echo-suppression guard: if this order has a pending or recently-completed
         // local push, keep local orderItems rather than letting a concurrent REST pull
@@ -70,7 +81,7 @@ export async function _preparePullRecordsForIDB(collection, mapped, cachedState 
           // that arrived within the echo suppression window and must not be blocked.
           const isCrossDeviceUpdate = incomingTs != null && existingTs != null && incomingTs > existingTs;
           if (!isCrossDeviceUpdate) {
-            return { ...incoming, orderItems: existing.orderItems };
+            return withLocalItems;
           }
         }
       }

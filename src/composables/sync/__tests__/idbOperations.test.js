@@ -234,29 +234,41 @@ describe('_preparePullRecordsForIDB — echo-suppression guard for orders', () =
   const TS0 = '2024-01-01T10:00:00.000Z';
   const TS1 = '2024-01-01T10:01:00.000Z'; // strictly newer
 
+  // Local order after void: voidedQuantity=1, totals reflect the local mutation.
   const localOrder = {
     id: 'ord_echo',
     date_updated: TS0,
     orderItems: [{ id: 'oi_1', voidedQuantity: 1, voided_quantity: 1, quantity: 2 }],
+    totalAmount: 10,
+    total_amount: 10,
+    itemCount: 1,
+    item_count: 1,
   };
 
+  // Server order (stale): voidedQuantity=0, server totals pre-date the void.
   const directusOrder = (dateUpdated = TS0) => ({
     id: 'ord_echo',
     date_updated: dateUpdated,
     orderItems: [{ id: 'oi_1', voidedQuantity: 0, voided_quantity: 0, quantity: 2 }],
+    totalAmount: 24,
+    total_amount: 24,
+    itemCount: 2,
+    item_count: 2,
   });
 
-  it('preserves local orderItems when order is echo-suppressed and incoming has same timestamp', async () => {
-    // Simulate a local void: local IDB has voidedQuantity=1, server still has 0.
+  it('preserves local orderItems and totals when order is echo-suppressed and incoming has same timestamp', async () => {
+    // Simulate a local void: local IDB has voidedQuantity=1 and local totals, server still has stale values.
     _registerPushedEchoes([{ collection: 'orders', recordId: 'ord_echo' }], 5000);
     const state = { orders: [localOrder] };
 
     const { records } = await _preparePullRecordsForIDB('orders', [directusOrder(TS0)], state);
 
     expect(records[0].orderItems[0].voidedQuantity).toBe(1);
+    expect(records[0].totalAmount).toBe(10);
+    expect(records[0].itemCount).toBe(1);
   });
 
-  it('preserves local orderItems when order is echo-suppressed and incoming is older', async () => {
+  it('preserves local orderItems and totals when order is echo-suppressed and incoming is older', async () => {
     _registerPushedEchoes([{ collection: 'orders', recordId: 'ord_echo' }], 5000);
     const olderOrder = directusOrder('2023-12-31T00:00:00.000Z');
     const state = { orders: [localOrder] };
@@ -264,9 +276,11 @@ describe('_preparePullRecordsForIDB — echo-suppression guard for orders', () =
     const { records } = await _preparePullRecordsForIDB('orders', [olderOrder], state);
 
     expect(records[0].orderItems[0].voidedQuantity).toBe(1);
+    expect(records[0].totalAmount).toBe(10);
+    expect(records[0].itemCount).toBe(1);
   });
 
-  it('allows incoming orderItems through when incoming is strictly newer (cross-device update)', async () => {
+  it('allows incoming orderItems and totals through when incoming is strictly newer (cross-device update)', async () => {
     // Incoming has TS1 > TS0 (local) → cross-device update must win even if echo-suppressed.
     _registerPushedEchoes([{ collection: 'orders', recordId: 'ord_echo' }], 5000);
     const state = { orders: [localOrder] };
@@ -274,24 +288,38 @@ describe('_preparePullRecordsForIDB — echo-suppression guard for orders', () =
     const { records } = await _preparePullRecordsForIDB('orders', [directusOrder(TS1)], state);
 
     expect(records[0].orderItems[0].voidedQuantity).toBe(0);
+    expect(records[0].totalAmount).toBe(24);
+    expect(records[0].itemCount).toBe(2);
   });
 
-  it('incoming orderItems win when order is NOT echo-suppressed (no pending push)', async () => {
+  it('incoming orderItems and totals win when order is NOT echo-suppressed (no pending push)', async () => {
     // No echo suppression registered → existing behaviour: incoming wins.
     const state = { orders: [localOrder] };
 
     const { records } = await _preparePullRecordsForIDB('orders', [directusOrder(TS0)], state);
 
     expect(records[0].orderItems[0].voidedQuantity).toBe(0);
+    expect(records[0].totalAmount).toBe(24);
+    expect(records[0].itemCount).toBe(2);
   });
 
-  it('still preserves local orderItems when incoming has no orderItems (pre-existing guard)', async () => {
-    const noItemsOrder = { id: 'ord_echo', date_updated: TS1, orderItems: [] };
+  it('still preserves local orderItems and totals when incoming has no orderItems (pre-existing guard)', async () => {
+    const noItemsOrder = {
+      id: 'ord_echo',
+      date_updated: TS1,
+      orderItems: [],
+      totalAmount: 24,
+      total_amount: 24,
+      itemCount: 2,
+      item_count: 2,
+    };
     const state = { orders: [localOrder] };
 
     const { records } = await _preparePullRecordsForIDB('orders', [noItemsOrder], state);
 
     expect(records[0].orderItems[0].voidedQuantity).toBe(1);
+    expect(records[0].totalAmount).toBe(10);
+    expect(records[0].itemCount).toBe(1);
   });
 
   it('returns the non-orders collection unchanged', async () => {
