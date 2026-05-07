@@ -71,9 +71,11 @@ export async function _runPush() {
       // drainQueue() resolves; pre-registration closes the in-flight overwrite window for
       // orders (the collection where void/restore mutations are pushed as embedded patches).
       //
-      // TTL: use the max cap so the window covers the full drain regardless of connection
-      // speed (e.g. slow 3G with a large queue).  The post-drain adaptive registration
-      // overwrites this with the correct RTT-derived window once drainQueue() resolves.
+      // TTL: use the max cap (ECHO_SUPPRESS_MAX_TTL_MS = 30 s) as the pre-drain window.
+      // This is long enough to cover typical drains; note that an unusually long drain
+      // (> 30 s) can still outlive the window, but this is an extreme edge case.  The
+      // post-drain adaptive registration overwrites this with the correct RTT-derived
+      // window once drainQueue() resolves.
       //
       // Generation guard: check generation AFTER the await so a preempted push
       // (_onOffline / forcePush / stopSync advanced _pushGeneration while we were

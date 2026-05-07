@@ -322,7 +322,9 @@ describe('_preparePullRecordsForIDB — echo-suppression guard for orders', () =
     expect(records[0].itemCount).toBe(1);
   });
 
-  it('returns the non-orders collection unchanged', async () => {
+  it('returns input unchanged when state snapshot is null (bill_sessions path)', async () => {
+    // bill_sessions is handled by its own branch; passing state=null forces the early
+    // return and asserts the reference is preserved (no extra allocation).
     const records = [{ id: 'bs_1', opened_at: '2024-01-01T00:00:00.000Z' }];
     const { records: out } = await _preparePullRecordsForIDB('bill_sessions', records, null);
     expect(out).toBe(records);
