@@ -64,6 +64,10 @@ function normalizeOrderItemModifier(modifier) {
   };
 }
 
+function hasAnyOwnKey(obj, ...keys) {
+  return keys.some((key) => Object.prototype.hasOwnProperty.call(obj, key));
+}
+
 function normalizeNestedOrderItem(record) {
   if (!record || typeof record !== 'object') return null;
   const mapped = mapOrderItemFromDirectus(record);
@@ -238,11 +242,11 @@ export function mapOrderItemToDirectus(record, _originalPayload, opts = {}) {
   const out = {
     ...source,
   };
-  const hasUnitPrice = Object.prototype.hasOwnProperty.call(source, 'unit_price') || Object.prototype.hasOwnProperty.call(source, 'unitPrice');
-  const hasVoidedQuantity = Object.prototype.hasOwnProperty.call(source, 'voidedQuantity') || Object.prototype.hasOwnProperty.call(source, 'voided_quantity');
-  const hasKitchenReady = Object.prototype.hasOwnProperty.call(source, 'kitchen_ready') || Object.prototype.hasOwnProperty.call(source, 'kitchenReady');
-  const hasOrder = Object.prototype.hasOwnProperty.call(source, 'order') || Object.prototype.hasOwnProperty.call(source, 'orderId');
-  const hasDish = Object.prototype.hasOwnProperty.call(source, 'dish') || Object.prototype.hasOwnProperty.call(source, 'dishId');
+  const hasUnitPrice = hasAnyOwnKey(source, 'unit_price', 'unitPrice');
+  const hasVoidedQuantity = hasAnyOwnKey(source, 'voidedQuantity', 'voided_quantity');
+  const hasKitchenReady = hasAnyOwnKey(source, 'kitchen_ready', 'kitchenReady');
+  const hasOrder = hasAnyOwnKey(source, 'order', 'orderId');
+  const hasDish = hasAnyOwnKey(source, 'dish', 'dishId');
 
   if (includeDefaults || hasUnitPrice) {
     out.unit_price = source.unit_price ?? source.unitPrice ?? 0;
@@ -1545,7 +1549,9 @@ export function mapPayloadToDirectus(collection, payload, ctx = {}) {
       // Fallback order: item.orderId (explicit) → payload.id (create path where id is in payload)
       // → ctx.recordId (update path where id is in queue entry.record_id, not in payload body)
       const resolvedOrderId = item?.orderId ?? payload?.id ?? ctx?.recordId ?? null;
-      if (directItem.order == null && resolvedOrderId && item?.id == null) directItem.order = resolvedOrderId;
+      if (directItem.order == null && resolvedOrderId && (item?.id === null || item?.id === undefined)) {
+        directItem.order = resolvedOrderId;
+      }
       // Propagate the audit user from the parent order payload to each item so
       // that Directus records the venue_user_created / venue_user_updated FK on
       // order_items, which are always written as nested payloads of their parent
@@ -1584,8 +1590,12 @@ export function mapPayloadToDirectus(collection, payload, ctx = {}) {
           const srcMod = srcMods[i] ?? {};
           if (enriched.id == null && srcMod.id) enriched.id = srcMod.id;
           if (enriched.item_uid == null && item?.uid) enriched.item_uid = item.uid;
-          if (enriched.order_item == null && item?.id && enriched.id == null) enriched.order_item = item.id;
-          if (enriched.order == null && resolvedOrderId && enriched.id == null) enriched.order = resolvedOrderId;
+          if (enriched.order_item == null && item?.id && (enriched.id === null || enriched.id === undefined)) {
+            enriched.order_item = item.id;
+          }
+          if (enriched.order == null && resolvedOrderId && (enriched.id === null || enriched.id === undefined)) {
+            enriched.order = resolvedOrderId;
+          }
           return enriched;
         });
       }
