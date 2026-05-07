@@ -554,9 +554,9 @@
 import { ref, computed, nextTick, watch } from 'vue';
 import {
   Bell, ClipboardList, ChefHat, Clock, Hash, MousePointerClick, ArrowLeft,
-  AlertTriangle, Trash2, PlusCircle, Send, ShieldCheck, Minus, Plus,
-  MessageSquareWarning, PenLine, X, BookOpen, ShoppingCart, Sparkles,
-  Layers, CheckCircle, CheckCircle2, History, LayoutGrid, ChevronRight, Info, Flame, BellRing,
+  AlertTriangle, Trash2, PlusCircle, Send, ShieldCheck, Plus,
+  MessageSquareWarning, PenLine, X, BookOpen, Sparkles,
+  Layers, CheckCircle, CheckCircle2, History, LayoutGrid, Flame, BellRing,
 } from 'lucide-vue-next';
 import { useConfigStore, useOrderStore } from '../store/index.js';
 import {
@@ -795,13 +795,7 @@ function removeModFromCart(cartIdx, modIdx) {
   if (cartItem && cartItem.modifiers) cartItem.modifiers.splice(modIdx, 1);
 }
 
-const tempCartTotal = computed(() =>
-  tempCart.value.reduce((a, b) => {
-    const modTotal = (b.modifiers || []).reduce((ma, m) => ma + (m.price || 0), 0);
-    return a + (b.unitPrice + modTotal) * b.quantity;
-  }, 0),
-);
-
+/** Plain object version of the combined qty map — passed as prop to MenuCartPanel. */
 const orderQtyMap = computed(() => {
   const map = new Map();
   if (targetOrderForMenu.value) {
@@ -820,11 +814,6 @@ const cartQtyMap = computed(() => {
   return map;
 });
 
-function getQtyCombined(itemId) {
-  return (orderQtyMap.value.get(itemId) || 0) + (cartQtyMap.value.get(itemId) || 0);
-}
-
-/** Plain object version of the combined qty map — passed as prop to MenuCartPanel. */
 const menuPanelQtyMap = computed(() => {
   const map = {};
   for (const [k, v] of orderQtyMap.value) map[k] = (map[k] || 0) + v;

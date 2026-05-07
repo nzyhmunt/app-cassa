@@ -1372,7 +1372,7 @@ import {
   Layers, ListChecks, History, LayoutGrid, ListOrdered,
   Tag, Wallet, ChevronDown,
   Percent, Zap, BookOpen, PlusCircle, Banknote, CreditCard, Lock, SquareCheck, Split, Link, Printer,
-  FileText, Sparkles, PenLine,
+  FileText, Sparkles,
 } from 'lucide-vue-next';
 import { useConfigStore, useOrderStore } from '../store/index.js';
 import { newUUIDv7, newShortId } from '../store/storeUtils.js';
@@ -2476,7 +2476,7 @@ function removeModFromDirectVariantModal(modIdx) {
 function addModToDirectVariantModal() {
   const name = directVariantModal.value.modName.trim();
   if (!name) return;
-  directVariantModal.value.modifiersArray.push({ name, price: directVariantModal.value.modPrice || 0 });
+  directVariantModal.value.modifiersArray.push({ name, price: parseFloat(String(directVariantModal.value.modPrice)) || 0 });
   directVariantModal.value.modName = '';
   directVariantModal.value.modPrice = 0;
 }

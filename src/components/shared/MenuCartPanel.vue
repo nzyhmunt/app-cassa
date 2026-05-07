@@ -219,7 +219,7 @@ const cartTotal = computed(() =>
                 :key="mi"
                 class="text-[9px] font-bold bg-purple-50 border border-purple-200 text-purple-700 px-1.5 py-0.5 rounded flex items-center gap-1">
                 <Sparkles class="size-2.5" />
-                {{ mod.name }}{{ mod.price > 0 ? ' +' + currency + mod.price.toFixed(2) : '' }}
+                {{ mod.name }}{{ Number(mod.price) > 0 ? ' +' + currency + Number(mod.price).toFixed(2) : '' }}
                 <button
                   @click="emit('remove-mod', idx, mi)"
                   class="text-purple-400 hover:text-red-500 transition-colors">
