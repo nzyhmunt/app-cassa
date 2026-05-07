@@ -74,6 +74,10 @@ const cartTotal = computed(() =>
     return sum + (item.unitPrice + modTotal) * item.quantity;
   }, 0),
 );
+
+function qtyDecrLabel(item) {
+  return item.quantity === 1 ? 'Rimuovi ' + item.name : 'Diminuisci quantità ' + item.name;
+}
 </script>
 
 <template>
@@ -191,8 +195,8 @@ const cartTotal = computed(() =>
                   @click="emit('update-qty', idx, -1)"
                   class="size-6 flex items-center justify-center bg-white rounded shadow-sm active:scale-95 transition-colors"
                   :class="cartItem.quantity === 1 ? 'text-red-500' : 'text-gray-600'"
-                  :title="cartItem.quantity === 1 ? 'Rimuovi ' + cartItem.name : 'Diminuisci quantità ' + cartItem.name"
-                  :aria-label="cartItem.quantity === 1 ? 'Rimuovi ' + cartItem.name : 'Diminuisci quantità ' + cartItem.name">
+                  :title="qtyDecrLabel(cartItem)"
+                  :aria-label="qtyDecrLabel(cartItem)">
                   <Trash2 v-if="cartItem.quantity === 1" class="size-3" />
                   <Minus v-else class="size-3" />
                 </button>

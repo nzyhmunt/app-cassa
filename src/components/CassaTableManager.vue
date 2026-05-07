@@ -1041,8 +1041,8 @@
                     <button @click="updateDirectCartQty(idx, -1)"
                       class="size-6 flex items-center justify-center bg-white rounded shadow-sm active:scale-95 transition-colors"
                       :class="item.quantity === 1 ? 'text-red-500' : 'text-gray-600'"
-                      :title="item.quantity === 1 ? 'Rimuovi ' + item.name : 'Diminuisci quantità ' + item.name"
-                      :aria-label="item.quantity === 1 ? 'Rimuovi ' + item.name : 'Diminuisci quantità ' + item.name">
+                      :title="directQtyDecrLabel(item)"
+                      :aria-label="directQtyDecrLabel(item)">
                       <Trash2 v-if="item.quantity === 1" class="size-3" />
                       <Minus v-else class="size-3" />
                     </button>
@@ -2396,6 +2396,10 @@ function updateDirectCartQty(idx, delta) {
   } else {
     directCart.value[idx].quantity = newQty;
   }
+}
+
+function directQtyDecrLabel(item) {
+  return item.quantity === 1 ? 'Rimuovi ' + item.name : 'Diminuisci quantità ' + item.name;
 }
 
 function addCustomItemToDirectCart() {
