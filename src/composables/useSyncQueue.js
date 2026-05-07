@@ -1078,7 +1078,7 @@ export async function drainQueue(cfg, signal) {
         pushedIds.push({ collection: entry.collection, recordId: entry.record_id });
       }
     } else {
-      if (await _handleEntryFailure(gateEntry, entryKey, result)) break;
+      if (await _handleEntryFailure(entry, entryKey, result)) break;
     }
   }
 

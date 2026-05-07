@@ -254,6 +254,46 @@ describe('drainQueue()', () => {
     expect(await getPendingEntries()).toHaveLength(0);
   });
 
+  it('persists the merged payload in failed-call history when a coalesced order update fails', async () => {
+    vi.spyOn(global, 'fetch').mockRejectedValueOnce(new Error('server error'));
+    await enqueue('orders', 'update', 'ord_1', { status: 'accepted' });
+    await enqueue('orders', 'update', 'ord_1', {
+      orderItems: [
+        { id: 'oi_1', uid: 'oi_1', name: 'Coperto', quantity: 4, voidedQuantity: 2, unitPrice: 2.5, notes: [], modifiers: [] },
+      ],
+      totalAmount: 5,
+      itemCount: 2,
+    });
+    await enqueue('orders', 'update', 'ord_1', {
+      orderItems: [
+        { id: 'oi_1', uid: 'oi_1', name: 'Coperto', quantity: 4, voidedQuantity: 0, unitPrice: 2.5, notes: [], modifiers: [] },
+      ],
+      totalAmount: 10,
+      itemCount: 4,
+    });
+
+    const queued = await getPendingEntries();
+    const gateEntryId = queued[0].id;
+
+    const result = await drainQueue(FAKE_CFG);
+    expect(result.failed).toBe(1);
+
+    const failedCalls = await getFailedSyncCalls();
+    expect(failedCalls[0]).toMatchObject({
+      queue_entry_id: gateEntryId,
+      collection: 'orders',
+      operation: 'update',
+      record_id: 'ord_1',
+      payload: {
+        status: 'accepted',
+        totalAmount: 10,
+        itemCount: 4,
+      },
+    });
+    expect(failedCalls[0].payload.orderItems).toHaveLength(1);
+    expect(failedCalls[0].payload.orderItems[0].voidedQuantity).toBe(0);
+  });
+
   it('strips _sync_status and orderItems from payload', async () => {
     const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue(mockResponse(201, {}));
     await enqueue('orders', 'create', 'ord_1', {
