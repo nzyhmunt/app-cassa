@@ -219,6 +219,102 @@ describe('drainQueue()', () => {
     expect(JSON.parse(opts.body).order_time).toBeUndefined();
   });
 
+  it('coalesces queued order update snapshots for the same record into one PATCH', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue(mockResponse(200, { data: { id: 'ord_1' } }));
+    await enqueue('orders', 'update', 'ord_1', { status: 'accepted' });
+    await enqueue('orders', 'update', 'ord_1', {
+      orderItems: [
+        { id: 'oi_1', uid: 'oi_1', name: 'Coperto', quantity: 4, voidedQuantity: 2, unitPrice: 2.5, notes: [], modifiers: [] },
+      ],
+      totalAmount: 5,
+      itemCount: 2,
+    });
+    await enqueue('orders', 'update', 'ord_1', {
+      orderItems: [
+        { id: 'oi_1', uid: 'oi_1', name: 'Coperto', quantity: 4, voidedQuantity: 0, unitPrice: 2.5, notes: [], modifiers: [] },
+      ],
+      totalAmount: 10,
+      itemCount: 4,
+    });
+
+    const result = await drainQueue(FAKE_CFG);
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const [url, opts] = fetchSpy.mock.calls[0];
+    expect(url).toContain('/items/orders/ord_1');
+    expect(opts.method).toBe('PATCH');
+    const body = JSON.parse(opts.body);
+    expect(body.status).toBe('accepted');
+    expect(body.total_amount).toBe(10);
+    expect(body.item_count).toBe(4);
+    expect(body.order_items).toHaveLength(1);
+    expect(body.order_items[0].voided_quantity).toBe(0);
+    expect(result.pushed).toBe(3);
+    expect(result.pushedIds).toEqual([{ collection: 'orders', recordId: 'ord_1' }]);
+    expect(await getPendingEntries()).toHaveLength(0);
+  });
+
+  it('persists the merged payload in failed-call history when a coalesced order update fails', async () => {
+    vi.spyOn(global, 'fetch').mockRejectedValueOnce(new Error('server error'));
+    await enqueue('orders', 'update', 'ord_1', { status: 'accepted' });
+    await enqueue('orders', 'update', 'ord_1', {
+      orderItems: [
+        { id: 'oi_1', uid: 'oi_1', name: 'Coperto', quantity: 4, voidedQuantity: 2, unitPrice: 2.5, notes: [], modifiers: [] },
+      ],
+      totalAmount: 5,
+      itemCount: 2,
+    });
+    await enqueue('orders', 'update', 'ord_1', {
+      orderItems: [
+        { id: 'oi_1', uid: 'oi_1', name: 'Coperto', quantity: 4, voidedQuantity: 0, unitPrice: 2.5, notes: [], modifiers: [] },
+      ],
+      totalAmount: 10,
+      itemCount: 4,
+    });
+
+    const queued = await getPendingEntries();
+    const gateEntryId = queued[0].id;
+
+    const result = await drainQueue(FAKE_CFG);
+    expect(result.failed).toBe(1);
+
+    const failedCalls = await getFailedSyncCalls();
+    expect(failedCalls[0]).toMatchObject({
+      queue_entry_id: gateEntryId,
+      collection: 'orders',
+      operation: 'update',
+      record_id: 'ord_1',
+      payload: {
+        status: 'accepted',
+        totalAmount: 10,
+        itemCount: 4,
+      },
+    });
+    expect(failedCalls[0].payload.orderItems).toHaveLength(1);
+    expect(failedCalls[0].payload.orderItems[0].voidedQuantity).toBe(0);
+  });
+
+  it('abandons the full coalesced order-update chain after MAX_ATTEMPTS', async () => {
+    vi.spyOn(global, 'fetch').mockRejectedValue(new Error('server error'));
+    await enqueue('orders', 'update', 'ord_chain', { status: 'accepted' });
+    await enqueue('orders', 'update', 'ord_chain', { totalAmount: 5, itemCount: 2 });
+    await enqueue('orders', 'update', 'ord_chain', {
+      orderItems: [
+        { id: 'oi_chain', uid: 'oi_chain', name: 'Coperto', quantity: 4, voidedQuantity: 0, unitPrice: 2.5, notes: [], modifiers: [] },
+      ],
+      totalAmount: 10,
+      itemCount: 4,
+    });
+
+    let result;
+    for (let i = 0; i < MAX_ATTEMPTS; i++) {
+      result = await drainQueue(FAKE_CFG);
+    }
+
+    expect(result.abandoned).toBe(3);
+    expect(await getPendingEntries()).toHaveLength(0);
+  });
+
   it('strips _sync_status and orderItems from payload', async () => {
     const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue(mockResponse(201, {}));
     await enqueue('orders', 'create', 'ord_1', {
@@ -403,6 +499,49 @@ describe('drainQueue()', () => {
     for (const item of body.order_items) {
       expect(item.order).toBe('ord_partial_1');
     }
+  });
+
+  it('does not inject unchanged nested order_items defaults into update PATCH payloads', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue(mockResponse(200, { data: {} }));
+    await enqueue('orders', 'update', 'ord_sparse_existing_item', {
+      venue_user_updated: 'usr_1',
+      orderItems: [
+        {
+          id: 'oi_existing_1',
+          uid: 'oi_existing_1',
+          voidedQuantity: 1,
+          modifiers: [
+            { id: 'mod_existing_1', voidedQuantity: 1 },
+          ],
+        },
+      ],
+      totalAmount: 8,
+      itemCount: 1,
+    });
+
+    await drainQueue(FAKE_CFG);
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.total_amount).toBe(8);
+    expect(body.item_count).toBe(1);
+    expect(body.order_items).toHaveLength(1);
+    expect(body.order_items[0]).toMatchObject({
+      id: 'oi_existing_1',
+      uid: 'oi_existing_1',
+      voided_quantity: 1,
+    });
+    expect(body.order_items[0].unit_price).toBeUndefined();
+    expect(body.order_items[0].quantity).toBeUndefined();
+    expect(body.order_items[0].kitchen_ready).toBeUndefined();
+    expect(body.order_items[0].dish).toBeUndefined();
+    expect(body.order_items[0].order).toBeUndefined();
+    expect(body.order_items[0].order_item_modifiers).toHaveLength(1);
+    expect(body.order_items[0].order_item_modifiers[0]).toMatchObject({
+      id: 'mod_existing_1',
+      voided_quantity: 1,
+    });
+    expect(body.order_items[0].order_item_modifiers[0].order_item).toBeUndefined();
+    expect(body.order_items[0].order_item_modifiers[0].order).toBeUndefined();
   });
 
   it('nulls dish on order_items when menuSource is json', async () => {

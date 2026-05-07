@@ -183,6 +183,48 @@ export async function getPendingEntries() {
   }
 }
 
+function _mergeDrainPayload(prevPayload, nextPayload) {
+  const prev = prevPayload && typeof prevPayload === 'object' ? prevPayload : {};
+  const next = nextPayload && typeof nextPayload === 'object' ? nextPayload : {};
+  return { ...prev, ...next };
+}
+
+function _compactDrainGroupEntries(entries) {
+  if (!Array.isArray(entries) || entries.length === 0) return [];
+
+  const compacted = [];
+  let pendingOrderUpdate = null;
+
+  const flushPendingOrderUpdate = () => {
+    if (pendingOrderUpdate) {
+      compacted.push(pendingOrderUpdate);
+      pendingOrderUpdate = null;
+    }
+  };
+
+  for (const entry of entries) {
+    const wrapped = { ...entry, _sourceEntries: [entry] };
+    const isCoalescibleOrderUpdate = entry?.collection === 'orders' && entry?.operation === 'update';
+    if (!isCoalescibleOrderUpdate) {
+      flushPendingOrderUpdate();
+      compacted.push(wrapped);
+      continue;
+    }
+    if (!pendingOrderUpdate) {
+      pendingOrderUpdate = wrapped;
+      continue;
+    }
+    pendingOrderUpdate = {
+      ...pendingOrderUpdate,
+      payload: _mergeDrainPayload(pendingOrderUpdate.payload, entry.payload),
+      _sourceEntries: [...pendingOrderUpdate._sourceEntries, entry],
+    };
+  }
+
+  flushPendingOrderUpdate();
+  return compacted;
+}
+
 /**
  * Persists a failed sync call audit entry so operators can inspect failures
  * even after the original queue entry has been removed.
@@ -507,6 +549,7 @@ async function _pushEntry(entry, sdkClient, cfg) {
       paymentMethods: Array.isArray(appConfig?.paymentMethods) ? appConfig.paymentMethods : [],
       recordId: record_id,
       menuSource: appConfig?.menuSource ?? 'directus',
+      operation,
     });
     directusPayload = _withRequiredDefaults(collection, operation, mappedPayload, cfg);
 
@@ -794,7 +837,7 @@ export async function drainQueue(cfg, signal) {
     const firstAttempts = grp[0]?.attempts ?? 0;
 
     return {
-      entries: grp,
+      entries: _compactDrainGroupEntries(grp),
       firstAttempts,
       firstDateCreated: grp[0]?.date_created ?? '',
       firstId: grp[0]?.id ?? '',
@@ -854,23 +897,29 @@ export async function drainQueue(cfg, signal) {
   // @param {string} entryKey - "collection:record_id" key for the entry.
   // @param {*}      result - Return value from _pushEntry().
   // @returns {boolean} true if a network error was detected (caller must break).
-  async function _handleEntryFailure(entry, entryKey, result) {
+  async function _handleEntryFailure(entry, entryKey, result, sourceEntries = [entry]) {
     if (typeof result === 'object' && result !== null && result.networkError) {
       offline = true;
       return true; // signal caller to break / stop processing
     }
+    const chainEntries = Array.isArray(sourceEntries) && sourceEntries.length > 0
+      ? sourceEntries
+      : [entry];
+    const gateEntry = chainEntries[0];
     const failureDetails = typeof result === 'string' ? { message: result } : result;
-    const newAttempts = (entry.attempts ?? 0) + 1;
+    const newAttempts = (gateEntry?.attempts ?? entry.attempts ?? 0) + 1;
     await addFailedSyncCall(entry, failureDetails, newAttempts, newAttempts >= MAX_ATTEMPTS);
     if (newAttempts >= MAX_ATTEMPTS) {
       console.warn(`[SyncQueue] Abandoning entry after ${MAX_ATTEMPTS} attempts:`, entry);
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('drainQueue:error', { detail: entry }));
       }
-      await removeEntry(entry.id);
-      abandoned++;
+      for (const sourceEntry of chainEntries) {
+        await removeEntry(sourceEntry.id);
+      }
+      abandoned += chainEntries.length;
     } else {
-      await incrementAttempts(entry.id, failureDetails?.message ?? null);
+      await incrementAttempts(gateEntry.id, failureDetails?.message ?? null);
       failed++;
     }
     // Block this (collection, record_id) pair for the rest of this cycle in
@@ -967,6 +1016,10 @@ export async function drainQueue(cfg, signal) {
 
   for (const entry of sortedEntries) {
     const entryKey = `${entry.collection}:${entry.record_id}`;
+    const sourceEntries = Array.isArray(entry?._sourceEntries) && entry._sourceEntries.length > 0
+      ? entry._sourceEntries
+      : [entry];
+    const gateEntry = sourceEntries[0];
 
     // Skip entries whose record chain is blocked by a prior failure this cycle.
     if (blockedKeys.has(entryKey)) continue;
@@ -1020,8 +1073,10 @@ export async function drainQueue(cfg, signal) {
     _logPushResult(entry, result, Date.now() - _pushStart);
 
     if (result === 'skip' || (result && typeof result === 'object' && result.ok === true)) {
-      await removeEntry(entry.id);
-      pushed++;
+      for (const sourceEntry of sourceEntries) {
+        await removeEntry(sourceEntry.id);
+      }
+      pushed += sourceEntries.length;
       // Record as processed so sibling child entries processed later this cycle
       // are not incorrectly deferred by the pendingSet guard, even when this
       // entry was skipped and removed from the queue.
@@ -1030,7 +1085,7 @@ export async function drainQueue(cfg, signal) {
         pushedIds.push({ collection: entry.collection, recordId: entry.record_id });
       }
     } else {
-      if (await _handleEntryFailure(entry, entryKey, result)) break;
+      if (await _handleEntryFailure(entry, entryKey, result, sourceEntries)) break;
     }
   }
 
@@ -1082,7 +1137,7 @@ export async function drainQueue(cfg, signal) {
     } else {
       // blockedKeys already contains deferredKey from the first pass, so
       // _handleEntryFailure's blockedKeys.add(entryKey) is a harmless no-op.
-      if (await _handleEntryFailure(deferredEntry, deferredKey, result)) break;
+      if (await _handleEntryFailure(deferredEntry, deferredKey, result, [deferredEntry])) break;
     }
   }
 

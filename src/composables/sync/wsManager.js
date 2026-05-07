@@ -12,8 +12,8 @@
  * Extracted from useDirectusSync.js (§7 refactor).
  */
 
-import { appConfig } from '../../utils/index.js';
-import { mergeOrderFromWSPayload, mergeOrderItemFromWSPayload } from '../../utils/mappers.js';
+import { appConfig, deepEqual } from '../../utils/index.js';
+import { mergeOrderFromWSPayload, mergeOrderItemFromWSPayload, relationId } from '../../utils/mappers.js';
 import { getDirectusClient, resetDirectusClient } from '../useDirectusClient.js';
 import { upsertRecordsIntoIDB, deleteRecordsFromIDB } from '../../store/persistence/operations.js';
 import { getDB } from '../useIDB.js';
@@ -131,6 +131,152 @@ export function _resetWsHeartbeat() {
  */
 function _getEffectiveTs(record) {
   return (record?.date_updated ?? record?.date_created) ?? null;
+}
+
+function _normalizeEchoNumber(value) {
+  if (value == null) return null;
+  const normalized = Number(value);
+  return Number.isFinite(normalized) ? normalized : value;
+}
+
+/**
+ * Normalizes modifier records to a stable shape for echo-comparison checks.
+ *
+ * Handles both camelCase and snake_case fields so local IDB records and
+ * incoming Directus payloads can be compared without naming skew.
+ */
+function _normalizeEchoModifier(modifier) {
+  if (!modifier || typeof modifier !== 'object') return null;
+  return {
+    id: modifier.id ?? null,
+    itemUid: modifier.itemUid ?? modifier.item_uid ?? null,
+    orderItemId: modifier.orderItemId ?? modifier.order_item ?? null,
+    orderId: modifier.orderId ?? modifier.order ?? null,
+    name: modifier.name ?? null,
+    price: _normalizeEchoNumber(modifier.price),
+    quantity: _normalizeEchoNumber(modifier.quantity),
+    voidedQuantity: _normalizeEchoNumber(modifier.voidedQuantity ?? modifier.voided_quantity),
+  };
+}
+
+/**
+ * Normalizes order-item records to a stable shape for echo-comparison checks.
+ *
+ * Handles both local camelCase fields and Directus snake_case aliases, and
+ * normalizes nested modifier arrays to the same canonical structure.
+ */
+function _normalizeEchoOrderItem(item) {
+  if (!item || typeof item !== 'object') return null;
+  return {
+    id: item.id ?? null,
+    uid: item.uid ?? null,
+    orderId: item.orderId ?? item.order ?? null,
+    dishId: item.dishId ?? item.dish ?? null,
+    name: item.name ?? null,
+    unitPrice: _normalizeEchoNumber(item.unitPrice ?? item.unit_price),
+    quantity: _normalizeEchoNumber(item.quantity),
+    voidedQuantity: _normalizeEchoNumber(item.voidedQuantity ?? item.voided_quantity),
+    notes: Array.isArray(item.notes) ? item.notes : [],
+    course: item.course ?? null,
+    status: item.status ?? null,
+    kitchenReady: item.kitchenReady ?? item.kitchen_ready ?? null,
+    modifiers: Array.isArray(item.modifiers)
+      ? item.modifiers.map(_normalizeEchoModifier).filter(Boolean)
+      : Array.isArray(item.order_item_modifiers)
+        ? item.order_item_modifiers.map(_normalizeEchoModifier).filter(Boolean)
+        : [],
+  };
+}
+
+/**
+ * Projects a record down to only the meaningful fields referenced by `raw`.
+ *
+ * This intentionally excludes server-managed metadata (for example timestamps)
+ * so self-echo detection keys off business-state changes only.
+ */
+function _projectEchoComparable(collection, raw, record) {
+  if (!record || typeof record !== 'object' || !raw || typeof raw !== 'object') return null;
+  if (collection === 'orders') {
+    const out = {};
+    if (Object.prototype.hasOwnProperty.call(raw, 'status')) out.status = record.status ?? null;
+    if (Object.prototype.hasOwnProperty.call(raw, 'table')) out.table = relationId(record.table) ?? record.table ?? null;
+    if (Object.prototype.hasOwnProperty.call(raw, 'bill_session')) out.billSessionId = record.billSessionId ?? record.bill_session ?? null;
+    if (Object.prototype.hasOwnProperty.call(raw, 'total_amount')) out.totalAmount = record.totalAmount ?? record.total_amount ?? null;
+    if (Object.prototype.hasOwnProperty.call(raw, 'item_count')) out.itemCount = record.itemCount ?? record.item_count ?? null;
+    if (Object.prototype.hasOwnProperty.call(raw, 'order_time')) out.time = record.time ?? record.order_time ?? null;
+    if (Object.prototype.hasOwnProperty.call(raw, 'global_note')) out.globalNote = record.globalNote ?? record.global_note ?? null;
+    if (Object.prototype.hasOwnProperty.call(raw, 'rejection_reason')) out.rejectionReason = record.rejectionReason ?? record.rejection_reason ?? null;
+    if (Object.prototype.hasOwnProperty.call(raw, 'note_visibility_cassa')) out.noteVisibilityCassa = record.noteVisibility?.cassa ?? record.note_visibility_cassa ?? null;
+    if (Object.prototype.hasOwnProperty.call(raw, 'note_visibility_sala')) out.noteVisibilitySala = record.noteVisibility?.sala ?? record.note_visibility_sala ?? null;
+    if (Object.prototype.hasOwnProperty.call(raw, 'note_visibility_cucina')) out.noteVisibilityCucina = record.noteVisibility?.cucina ?? record.note_visibility_cucina ?? null;
+    if (Object.prototype.hasOwnProperty.call(raw, 'dietary_diets')) out.dietaryDiets = record.dietaryPreferences?.diete ?? record.dietary_diets ?? [];
+    if (Object.prototype.hasOwnProperty.call(raw, 'dietary_allergens')) out.dietaryAllergens = record.dietaryPreferences?.allergeni ?? record.dietary_allergens ?? [];
+    if (Object.prototype.hasOwnProperty.call(raw, 'is_cover_charge')) out.isCoverCharge = record.isCoverCharge ?? record.is_cover_charge ?? null;
+    if (Object.prototype.hasOwnProperty.call(raw, 'is_direct_entry')) out.isDirectEntry = record.isDirectEntry ?? record.is_direct_entry ?? null;
+    if (Object.prototype.hasOwnProperty.call(raw, 'order_items') || Object.prototype.hasOwnProperty.call(raw, 'orderItems')) {
+      const items = Array.isArray(record.orderItems) ? record.orderItems : [];
+      out.orderItems = items.map(_normalizeEchoOrderItem);
+    }
+    return out;
+  }
+  if (collection === 'order_items') {
+    const out = {};
+    if (Object.prototype.hasOwnProperty.call(raw, 'uid')) out.uid = record.uid ?? null;
+    if (Object.prototype.hasOwnProperty.call(raw, 'order')) out.orderId = record.orderId ?? record.order ?? null;
+    if (Object.prototype.hasOwnProperty.call(raw, 'dish')) out.dishId = record.dishId ?? record.dish ?? null;
+    if (Object.prototype.hasOwnProperty.call(raw, 'name')) out.name = record.name ?? null;
+    if (Object.prototype.hasOwnProperty.call(raw, 'unit_price')) out.unitPrice = _normalizeEchoNumber(record.unitPrice ?? record.unit_price);
+    if (Object.prototype.hasOwnProperty.call(raw, 'quantity')) out.quantity = _normalizeEchoNumber(record.quantity);
+    if (Object.prototype.hasOwnProperty.call(raw, 'voided_quantity')) out.voidedQuantity = _normalizeEchoNumber(record.voidedQuantity ?? record.voided_quantity);
+    if (Object.prototype.hasOwnProperty.call(raw, 'notes')) out.notes = Array.isArray(record.notes) ? record.notes : [];
+    if (Object.prototype.hasOwnProperty.call(raw, 'course')) out.course = record.course ?? null;
+    if (Object.prototype.hasOwnProperty.call(raw, 'status')) out.status = record.status ?? null;
+    if (Object.prototype.hasOwnProperty.call(raw, 'kitchen_ready')) out.kitchenReady = record.kitchenReady ?? record.kitchen_ready ?? null;
+    if (Object.prototype.hasOwnProperty.call(raw, 'order_item_modifiers')) {
+      const modifiers = Array.isArray(record.modifiers) ? record.modifiers : record.order_item_modifiers;
+      out.modifiers = Array.isArray(modifiers) ? modifiers.map(_normalizeEchoModifier).filter(Boolean) : [];
+    }
+    return out;
+  }
+  return null;
+}
+
+/**
+ * Loads the local record used by echo suppression comparisons.
+ *
+ * `order_items` can exist either in the standalone ObjectStore or embedded
+ * inside the parent order snapshot, so both locations are checked.
+ */
+async function _loadLocalEchoRecord(db, collection, raw, id) {
+  if (!db || !id) return null;
+  if (collection !== 'order_items') {
+    return await db.get(collection, String(id));
+  }
+  const directItem = await db.get('order_items', String(id));
+  if (directItem) return directItem;
+  const rawOrderRef = raw?.order ?? raw?.orderId ?? null;
+  const orderId = relationId(rawOrderRef) ?? rawOrderRef;
+  if (!orderId) return null;
+  const parentOrder = await db.get('orders', String(orderId));
+  if (!Array.isArray(parentOrder?.orderItems)) return null;
+  return parentOrder.orderItems.find((item) => String(item?.id ?? item?.uid ?? '') === String(id)) ?? null;
+}
+
+/**
+ * Returns true when applying the incoming payload would change meaningful
+ * business fields relative to the current local record.
+ */
+function _hasMeaningfulEchoChange(collection, raw, local, incoming) {
+  if (!local || !incoming) return false;
+  const prospective = collection === 'orders'
+    ? mergeOrderFromWSPayload(local, raw, incoming)
+    : collection === 'order_items'
+      ? mergeOrderItemFromWSPayload(local, raw, incoming)
+      : { ...local, ...incoming };
+  const before = _projectEchoComparable(collection, raw, local);
+  const after = _projectEchoComparable(collection, raw, prospective);
+  if (before == null || after == null) return !deepEqual(local, prospective);
+  return !deepEqual(before, after);
 }
 
 /**
@@ -251,17 +397,56 @@ export async function _handleSubscriptionMessage(collection, message) {
     // and the update must not be silently dropped (data loss prevention).
     const nonEcho = [];
     suppressedCount = 0;
-    // Fetch the IDB handle once per message so the LWW guard inside the loop
-    // doesn't pay the getDB() lookup cost for every suppressed record.
+    // Fetch the IDB handle lazily only for records that actually need the LWW
+    // echo check, so the common non-echo case stays on the fast path.
     let db;
-    try {
-      db = await getDB();
-    } catch (e) {
-      console.warn('[DirectusSync] LWW echo check: IDB unavailable', e);
-    }
+    let dbLoaded = false;
+    const ensureDB = async () => {
+      if (dbLoaded) return db;
+      dbLoaded = true;
+      try {
+        db = await getDB();
+      } catch (e) {
+        console.warn('[DirectusSync] LWW echo check: IDB unavailable', e);
+        db = null;
+      }
+      return db;
+    };
     for (const r of objectData) {
       const id = r.id != null ? String(r.id) : null;
-      if (!_isEchoSuppressed(collection, id)) {
+      const isDirectEcho = _isEchoSuppressed(collection, id);
+      if (event === 'create' && isDirectEcho) {
+        suppressedCount++;
+        continue;
+      }
+      const rawOrderRef = collection === 'order_items' ? (r?.order ?? null) : null;
+      const parentOrderId = collection === 'order_items'
+        ? relationId(rawOrderRef) ?? rawOrderRef
+        : null;
+      const shouldCheckParentOrderEcho = !isDirectEcho && collection === 'order_items';
+      const isParentOrderEchoSuppressed = shouldCheckParentOrderEcho
+        && _isEchoSuppressed('orders', parentOrderId);
+      if (!isDirectEcho && !isParentOrderEchoSuppressed) {
+        nonEcho.push(r);
+        continue;
+      }
+      let local = null;
+      if (id) {
+        try {
+          const localDb = await ensureDB();
+          if (localDb) local = await _loadLocalEchoRecord(localDb, collection, r, id);
+        } catch (e) {
+          console.warn('[DirectusSync] LWW echo check failed for', collection, id, e);
+        }
+      }
+      // Parent-order suppression still needs a local item snapshot so the
+      // meaningful-change/LWW guard can decide whether this is a self-echo or a
+      // genuinely new remote update. If the item is absent locally, let it
+      // through instead of dropping a potential remote create.
+      const isOrderItemsParentEcho = collection === 'order_items'
+        && local
+        && isParentOrderEchoSuppressed;
+      if (!isDirectEcho && !isOrderItemsParentEcho) {
         nonEcho.push(r);
         continue;
       }
@@ -276,11 +461,12 @@ export async function _handleSubscriptionMessage(collection, message) {
       // timestamp is strictly after the effective local timestamp.
       const incomingTs = _getEffectiveTs(r);
       let isCrossDeviceUpdate = false;
-      if (incomingTs && id && db) {
+      if (id && local) {
         try {
-          const local = await db.get(collection, id);
           const localTs = _getEffectiveTs(local);
-          if (localTs && incomingTs > localTs) {
+          const incoming = _mapRecord(collection, r);
+          const hasMeaningfulChange = _hasMeaningfulEchoChange(collection, r, local, incoming);
+          if (hasMeaningfulChange && incomingTs && (!localTs || incomingTs > localTs)) {
             isCrossDeviceUpdate = true;
           }
         } catch (e) {

@@ -64,6 +64,10 @@ function normalizeOrderItemModifier(modifier) {
   };
 }
 
+function hasAnyOwnKey(obj, ...keys) {
+  return keys.some((key) => Object.prototype.hasOwnProperty.call(obj, key));
+}
+
 function normalizeNestedOrderItem(record) {
   if (!record || typeof record !== 'object') return null;
   const mapped = mapOrderItemFromDirectus(record);
@@ -232,21 +236,47 @@ export function mapOrderItemFromDirectus(record) {
 }
 
 export function mapOrderItemToDirectus(record, _originalPayload, opts = {}) {
-  const { menuSource = 'directus' } = opts;
+  const { menuSource = 'directus', includeDefaults = true } = opts;
   const source = record ?? {};
   const rawDishId = relationId(source.dish ?? source.dishId ?? null);
   const out = {
     ...source,
-    unit_price: source.unit_price ?? source.unitPrice ?? 0,
-    voided_quantity: source.voidedQuantity ?? source.voided_quantity ?? 0,
-    kitchen_ready: source.kitchen_ready ?? source.kitchenReady ?? false,
-    order: relationId(source.order ?? source.orderId ?? null),
+  };
+  const hasUnitPrice = hasAnyOwnKey(source, 'unit_price', 'unitPrice');
+  const hasVoidedQuantity = hasAnyOwnKey(source, 'voidedQuantity', 'voided_quantity');
+  const hasKitchenReady = hasAnyOwnKey(source, 'kitchen_ready', 'kitchenReady');
+  const hasOrder = hasAnyOwnKey(source, 'order', 'orderId');
+  const hasDish = hasAnyOwnKey(source, 'dish', 'dishId');
+
+  if (includeDefaults || hasUnitPrice) {
+    out.unit_price = source.unit_price ?? source.unitPrice ?? 0;
+  } else {
+    delete out.unit_price;
+  }
+  if (includeDefaults || hasVoidedQuantity) {
+    out.voided_quantity = source.voidedQuantity ?? source.voided_quantity ?? 0;
+  } else {
+    delete out.voided_quantity;
+  }
+  if (includeDefaults || hasKitchenReady) {
+    out.kitchen_ready = source.kitchen_ready ?? source.kitchenReady ?? false;
+  } else {
+    delete out.kitchen_ready;
+  }
+  if (includeDefaults || hasOrder) {
+    out.order = relationId(source.order ?? source.orderId ?? null);
+  } else {
+    delete out.order;
+  }
+  if (includeDefaults || hasDish) {
     // When the app uses a JSON menu, always null out the dish FK: local item
     // IDs (e.g. "ant_1") are not valid Directus FKs and must be omitted to
     // avoid a 400 INVALID_FOREIGN_KEY error.  When the menu source is Directus
     // the dish ID is forwarded only if it has a valid UUID shape.
-    dish: menuSource === 'json' ? null : (looksLikeDirectusId(rawDishId) ? rawDishId : null),
-  };
+    out.dish = menuSource === 'json' ? null : (looksLikeDirectusId(rawDishId) ? rawDishId : null);
+  } else {
+    delete out.dish;
+  }
   const venueUserCreated = source.venue_user_created ?? source.venueUserCreated;
   if (venueUserCreated != null) {
     out.venue_user_created = relationId(venueUserCreated);
@@ -1498,7 +1528,7 @@ const _TO_DIRECTUS_MAPPERS = {
 export function mapPayloadToDirectus(collection, payload, ctx = {}) {
   if (!payload || typeof payload !== 'object') return {};
 
-  const { paymentMethods = [], menuSource = 'directus' } = ctx;
+  const { paymentMethods = [], menuSource = 'directus', operation = 'create' } = ctx;
 
   // Step 1 — strip local-only and push-drop fields
   const cleaned = {};
@@ -1519,7 +1549,9 @@ export function mapPayloadToDirectus(collection, payload, ctx = {}) {
       // Fallback order: item.orderId (explicit) → payload.id (create path where id is in payload)
       // → ctx.recordId (update path where id is in queue entry.record_id, not in payload body)
       const resolvedOrderId = item?.orderId ?? payload?.id ?? ctx?.recordId ?? null;
-      if (directItem.order == null && resolvedOrderId) directItem.order = resolvedOrderId;
+      if (directItem.order == null && resolvedOrderId && (item?.id === null || item?.id === undefined)) {
+        directItem.order = resolvedOrderId;
+      }
       // Propagate the audit user from the parent order payload to each item so
       // that Directus records the venue_user_created / venue_user_updated FK on
       // order_items, which are always written as nested payloads of their parent
@@ -1558,8 +1590,12 @@ export function mapPayloadToDirectus(collection, payload, ctx = {}) {
           const srcMod = srcMods[i] ?? {};
           if (enriched.id == null && srcMod.id) enriched.id = srcMod.id;
           if (enriched.item_uid == null && item?.uid) enriched.item_uid = item.uid;
-          if (enriched.order_item == null && item?.id) enriched.order_item = item.id;
-          if (enriched.order == null && resolvedOrderId) enriched.order = resolvedOrderId;
+          if (enriched.order_item == null && item?.id && (enriched.id === null || enriched.id === undefined)) {
+            enriched.order_item = item.id;
+          }
+          if (enriched.order == null && resolvedOrderId && (enriched.id === null || enriched.id === undefined)) {
+            enriched.order = resolvedOrderId;
+          }
           return enriched;
         });
       }
@@ -1584,7 +1620,10 @@ export function mapPayloadToDirectus(collection, payload, ctx = {}) {
   let mapped;
   const dedicatedMapper = _TO_DIRECTUS_MAPPERS[collection];
   if (dedicatedMapper) {
-    mapped = dedicatedMapper(preProcessed, payload, { menuSource });
+    mapped = dedicatedMapper(preProcessed, payload, {
+      menuSource,
+      includeDefaults: operation !== 'update',
+    });
   } else {
     mapped = {};
     for (const [key, value] of Object.entries(preProcessed)) {
