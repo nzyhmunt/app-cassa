@@ -15,6 +15,7 @@ import { getDB } from '../useIDB.js';
 import { loadStateFromIDB } from '../../store/persistence/operations.js';
 import { deepEqual } from '../../utils/index.js';
 import { relationId, mergeOrderItemFromWSPayload } from '../../utils/mappers.js';
+import { _isEchoSuppressed } from './echoSuppression.js';
 
 /** Shared empty-set sentinel used by guard-return paths to avoid per-call allocation. */
 const _EMPTY_SET = new Set();
@@ -53,9 +54,35 @@ export async function _preparePullRecordsForIDB(collection, mapped, cachedState 
       const existing = existingById.get(String(incoming?.id ?? ''));
       if (!existing) return incoming;
       if (Array.isArray(existing.orderItems) && existing.orderItems.length > 0) {
+        // Build a merged base that preserves local orderItems and the locally-computed
+        // totals (totalAmount / itemCount and their snake_case twins).  These fields
+        // must move together: keeping existing.orderItems while accepting server totals
+        // would produce an inconsistent order (voided items with stale totals) that
+        // causes UI "flip-backs" on the order total after a void/restore operation.
+        const withLocalItems = { ...incoming, orderItems: existing.orderItems };
+        if (existing.totalAmount != null) withLocalItems.totalAmount = existing.totalAmount;
+        if (existing.total_amount != null) withLocalItems.total_amount = existing.total_amount;
+        if (existing.itemCount != null) withLocalItems.itemCount = existing.itemCount;
+        if (existing.item_count != null) withLocalItems.item_count = existing.item_count;
+
         const hasIncomingItems = Array.isArray(incoming.orderItems) && incoming.orderItems.length > 0;
         if (!hasIncomingItems) {
-          return { ...incoming, orderItems: existing.orderItems };
+          return withLocalItems;
+        }
+        // Echo-suppression guard: if this order has a pending or recently-completed
+        // local push, keep local orderItems rather than letting a concurrent REST pull
+        // overwrite void/restore mutations that have not yet propagated back via WS.
+        // Mirrors the Issue-3 LWW guard applied to the WebSocket path in wsManager.js.
+        const orderId = incoming?.id != null ? String(incoming.id) : null;
+        if (orderId && _isEchoSuppressed('orders', orderId)) {
+          const existingTs = existing.date_updated ?? existing.date_created ?? null;
+          const incomingTs = incoming.date_updated ?? incoming.date_created ?? null;
+          // Allow strictly-newer incoming through: this is a cross-device update
+          // that arrived within the echo suppression window and must not be blocked.
+          const isCrossDeviceUpdate = incomingTs != null && existingTs != null && incomingTs > existingTs;
+          if (!isCrossDeviceUpdate) {
+            return withLocalItems;
+          }
         }
       }
       return incoming;

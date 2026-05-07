@@ -65,6 +65,31 @@ export async function _runPush() {
         };
       }
       if (syncState._pushGeneration === generation) syncState.syncStatus.value = 'syncing';
+      // Pre-register pending order IDs as echo-suppressed BEFORE draining so that any
+      // concurrent REST poll cannot overwrite locally-modified orderItems while the push
+      // is in flight.  The normal registration in _registerPushedEchoes only fires after
+      // drainQueue() resolves; pre-registration closes the in-flight overwrite window for
+      // orders (the collection where void/restore mutations are pushed as embedded patches).
+      //
+      // TTL: use the max cap (ECHO_SUPPRESS_MAX_TTL_MS = 30 s) as the pre-drain window.
+      // This is long enough to cover typical drains; note that an unusually long drain
+      // (> 30 s) can still outlive the window, but this is an extreme edge case.  The
+      // post-drain adaptive registration overwrites this with the correct RTT-derived
+      // window once drainQueue() resolves.
+      //
+      // Generation guard: check generation AFTER the await so a preempted push
+      // (_onOffline / forcePush / stopSync advanced _pushGeneration while we were
+      // suspended) does not register stale suppression entries that would block
+      // legitimate incoming updates for the full ECHO_SUPPRESS_MAX_TTL_MS window.
+      const preDrainPending = await getPendingEntries();
+      if (syncState._pushGeneration === generation) {
+        const preDrainOrderEchoes = preDrainPending
+          .filter(e => e.collection === 'orders' && e.record_id)
+          .map(e => ({ collection: 'orders', recordId: String(e.record_id) }));
+        if (preDrainOrderEchoes.length > 0) {
+          _registerPushedEchoes(preDrainOrderEchoes, ECHO_SUPPRESS_MAX_TTL_MS);
+        }
+      }
       // S4: Measure push RTT to derive the adaptive echo suppression window.
       const pushStartMs = Date.now();
       const result = await drainQueue(cfg, ac.signal);
