@@ -294,6 +294,27 @@ describe('drainQueue()', () => {
     expect(failedCalls[0].payload.orderItems[0].voidedQuantity).toBe(0);
   });
 
+  it('abandons the full coalesced order-update chain after MAX_ATTEMPTS', async () => {
+    vi.spyOn(global, 'fetch').mockRejectedValue(new Error('server error'));
+    await enqueue('orders', 'update', 'ord_chain', { status: 'accepted' });
+    await enqueue('orders', 'update', 'ord_chain', { totalAmount: 5, itemCount: 2 });
+    await enqueue('orders', 'update', 'ord_chain', {
+      orderItems: [
+        { id: 'oi_chain', uid: 'oi_chain', name: 'Coperto', quantity: 4, voidedQuantity: 0, unitPrice: 2.5, notes: [], modifiers: [] },
+      ],
+      totalAmount: 10,
+      itemCount: 4,
+    });
+
+    let result;
+    for (let i = 0; i < MAX_ATTEMPTS; i++) {
+      result = await drainQueue(FAKE_CFG);
+    }
+
+    expect(result.abandoned).toBe(3);
+    expect(await getPendingEntries()).toHaveLength(0);
+  });
+
   it('strips _sync_status and orderItems from payload', async () => {
     const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue(mockResponse(201, {}));
     await enqueue('orders', 'create', 'ord_1', {

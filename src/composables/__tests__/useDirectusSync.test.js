@@ -2749,6 +2749,77 @@ describe('self-echo suppression (_handleSubscriptionMessage)', () => {
     expect(storedStandalone).toBeUndefined();
   });
 
+  it('suppresses a timestamp-only parent-order echo when local order_items numerics are stored as strings', async () => {
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+    const localModifier = {
+      id: 'mod_ws_echo_numeric_strings',
+      itemUid: 'oi_ws_echo_numeric_strings',
+      orderItemId: 'oi_ws_echo_numeric_strings',
+      orderId: 'ord_ws_echo_numeric_strings',
+      name: 'Extra',
+      price: '1.50',
+      quantity: '2',
+      voidedQuantity: '0',
+    };
+    const localItem = {
+      id: 'oi_ws_echo_numeric_strings',
+      uid: 'oi_ws_echo_numeric_strings',
+      order: 'ord_ws_echo_numeric_strings',
+      orderId: 'ord_ws_echo_numeric_strings',
+      name: 'Test item',
+      unitPrice: '2.50',
+      quantity: '4',
+      voidedQuantity: '1',
+      notes: [],
+      modifiers: [localModifier],
+    };
+    await db.put('orders', {
+      id: 'ord_ws_echo_numeric_strings',
+      status: 'accepted',
+      date_updated: '2026-01-01T00:00:00.000Z',
+      orderItems: [localItem],
+    });
+    await db.put('order_items', localItem);
+    _registerPushedEchoes([{ collection: 'orders', recordId: 'ord_ws_echo_numeric_strings' }]);
+
+    await _handleSubscriptionMessage('order_items', {
+      event: 'update',
+      data: [{
+        id: 'oi_ws_echo_numeric_strings',
+        uid: 'oi_ws_echo_numeric_strings',
+        order: 'ord_ws_echo_numeric_strings',
+        name: 'Test item',
+        unit_price: 2.5,
+        quantity: 4,
+        voided_quantity: 1,
+        notes: [],
+        status: 'active',
+        date_updated: '2026-01-01T00:00:05.000Z',
+        order_item_modifiers: [{
+          id: 'mod_ws_echo_numeric_strings',
+          item_uid: 'oi_ws_echo_numeric_strings',
+          order_item: 'oi_ws_echo_numeric_strings',
+          order: 'ord_ws_echo_numeric_strings',
+          name: 'Extra',
+          price: 1.5,
+          quantity: 2,
+          voided_quantity: 0,
+        }],
+      }],
+    });
+
+    const storedEmbedded = (await db.get('orders', 'ord_ws_echo_numeric_strings'))?.orderItems?.[0];
+    const storedStandalone = await db.get('order_items', 'oi_ws_echo_numeric_strings');
+
+    expect(storedEmbedded?.unitPrice).toBe('2.50');
+    expect(storedEmbedded?.quantity).toBe('4');
+    expect(storedEmbedded?.voidedQuantity).toBe('1');
+    expect(storedEmbedded?.modifiers?.[0]?.price).toBe('1.50');
+    expect(storedEmbedded?.date_updated).toBeUndefined();
+    expect(storedStandalone?.unitPrice).toBe('2.50');
+  });
+
   it('allows a parent-order-suppressed order_items update through when it changes meaningful fields and is newer', async () => {
     await upsertRecordsIntoIDB('orders', [{
       id: 'ord_ws_cross_parent',

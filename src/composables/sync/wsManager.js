@@ -133,6 +133,12 @@ function _getEffectiveTs(record) {
   return (record?.date_updated ?? record?.date_created) ?? null;
 }
 
+function _normalizeEchoNumber(value) {
+  if (value == null) return null;
+  const normalized = Number(value);
+  return Number.isFinite(normalized) ? normalized : value;
+}
+
 /**
  * Normalizes modifier records to a stable shape for echo-comparison checks.
  *
@@ -147,9 +153,9 @@ function _normalizeEchoModifier(modifier) {
     orderItemId: modifier.orderItemId ?? modifier.order_item ?? null,
     orderId: modifier.orderId ?? modifier.order ?? null,
     name: modifier.name ?? null,
-    price: modifier.price ?? null,
-    quantity: modifier.quantity ?? null,
-    voidedQuantity: modifier.voidedQuantity ?? modifier.voided_quantity ?? null,
+    price: _normalizeEchoNumber(modifier.price),
+    quantity: _normalizeEchoNumber(modifier.quantity),
+    voidedQuantity: _normalizeEchoNumber(modifier.voidedQuantity ?? modifier.voided_quantity),
   };
 }
 
@@ -167,9 +173,9 @@ function _normalizeEchoOrderItem(item) {
     orderId: item.orderId ?? item.order ?? null,
     dishId: item.dishId ?? item.dish ?? null,
     name: item.name ?? null,
-    unitPrice: item.unitPrice ?? item.unit_price ?? null,
-    quantity: item.quantity ?? null,
-    voidedQuantity: item.voidedQuantity ?? item.voided_quantity ?? null,
+    unitPrice: _normalizeEchoNumber(item.unitPrice ?? item.unit_price),
+    quantity: _normalizeEchoNumber(item.quantity),
+    voidedQuantity: _normalizeEchoNumber(item.voidedQuantity ?? item.voided_quantity),
     notes: Array.isArray(item.notes) ? item.notes : [],
     course: item.course ?? null,
     status: item.status ?? null,
@@ -219,9 +225,9 @@ function _projectEchoComparable(collection, raw, record) {
     if (Object.prototype.hasOwnProperty.call(raw, 'order')) out.orderId = record.orderId ?? record.order ?? null;
     if (Object.prototype.hasOwnProperty.call(raw, 'dish')) out.dishId = record.dishId ?? record.dish ?? null;
     if (Object.prototype.hasOwnProperty.call(raw, 'name')) out.name = record.name ?? null;
-    if (Object.prototype.hasOwnProperty.call(raw, 'unit_price')) out.unitPrice = record.unitPrice ?? record.unit_price ?? null;
-    if (Object.prototype.hasOwnProperty.call(raw, 'quantity')) out.quantity = record.quantity ?? null;
-    if (Object.prototype.hasOwnProperty.call(raw, 'voided_quantity')) out.voidedQuantity = record.voidedQuantity ?? record.voided_quantity ?? null;
+    if (Object.prototype.hasOwnProperty.call(raw, 'unit_price')) out.unitPrice = _normalizeEchoNumber(record.unitPrice ?? record.unit_price);
+    if (Object.prototype.hasOwnProperty.call(raw, 'quantity')) out.quantity = _normalizeEchoNumber(record.quantity);
+    if (Object.prototype.hasOwnProperty.call(raw, 'voided_quantity')) out.voidedQuantity = _normalizeEchoNumber(record.voidedQuantity ?? record.voided_quantity);
     if (Object.prototype.hasOwnProperty.call(raw, 'notes')) out.notes = Array.isArray(record.notes) ? record.notes : [];
     if (Object.prototype.hasOwnProperty.call(raw, 'course')) out.course = record.course ?? null;
     if (Object.prototype.hasOwnProperty.call(raw, 'status')) out.status = record.status ?? null;

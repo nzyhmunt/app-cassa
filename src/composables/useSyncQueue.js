@@ -896,23 +896,29 @@ export async function drainQueue(cfg, signal) {
   // @param {string} entryKey - "collection:record_id" key for the entry.
   // @param {*}      result - Return value from _pushEntry().
   // @returns {boolean} true if a network error was detected (caller must break).
-  async function _handleEntryFailure(entry, entryKey, result) {
+  async function _handleEntryFailure(entry, entryKey, result, sourceEntries = [entry]) {
     if (typeof result === 'object' && result !== null && result.networkError) {
       offline = true;
       return true; // signal caller to break / stop processing
     }
+    const chainEntries = Array.isArray(sourceEntries) && sourceEntries.length > 0
+      ? sourceEntries
+      : [entry];
+    const gateEntry = chainEntries[0];
     const failureDetails = typeof result === 'string' ? { message: result } : result;
-    const newAttempts = (entry.attempts ?? 0) + 1;
+    const newAttempts = (gateEntry?.attempts ?? entry.attempts ?? 0) + 1;
     await addFailedSyncCall(entry, failureDetails, newAttempts, newAttempts >= MAX_ATTEMPTS);
     if (newAttempts >= MAX_ATTEMPTS) {
       console.warn(`[SyncQueue] Abandoning entry after ${MAX_ATTEMPTS} attempts:`, entry);
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('drainQueue:error', { detail: entry }));
       }
-      await removeEntry(entry.id);
-      abandoned++;
+      for (const sourceEntry of chainEntries) {
+        await removeEntry(sourceEntry.id);
+      }
+      abandoned += chainEntries.length;
     } else {
-      await incrementAttempts(entry.id, failureDetails?.message ?? null);
+      await incrementAttempts(gateEntry.id, failureDetails?.message ?? null);
       failed++;
     }
     // Block this (collection, record_id) pair for the rest of this cycle in
@@ -1078,7 +1084,7 @@ export async function drainQueue(cfg, signal) {
         pushedIds.push({ collection: entry.collection, recordId: entry.record_id });
       }
     } else {
-      if (await _handleEntryFailure(entry, entryKey, result)) break;
+      if (await _handleEntryFailure(entry, entryKey, result, sourceEntries)) break;
     }
   }
 
@@ -1130,7 +1136,7 @@ export async function drainQueue(cfg, signal) {
     } else {
       // blockedKeys already contains deferredKey from the first pass, so
       // _handleEntryFailure's blockedKeys.add(entryKey) is a harmless no-op.
-      if (await _handleEntryFailure(deferredEntry, deferredKey, result)) break;
+      if (await _handleEntryFailure(deferredEntry, deferredKey, result, [deferredEntry])) break;
     }
   }
 
