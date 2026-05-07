@@ -361,6 +361,15 @@ export async function _atomicOrderItemsUpsertAndMerge(mappedItems, rawItems = []
       } else {
         const existingTs = existing.date_updated ?? existing.date_created ?? null;
         const incomingTs = item.date_updated ?? item.date_created ?? null;
+        // Parent-order echo suppression guard: when this device has a pending /
+        // recently pushed local order mutation, block same/older order_item pulls
+        // so stale snapshots cannot flip void/restore totals back in the cassa UI.
+        // Allow strictly newer incoming through to preserve cross-device updates.
+        if (_isEchoSuppressed('orders', orderId)) {
+          const localTs = existingTs ?? order.date_updated ?? order.date_created ?? null;
+          const isCrossDeviceUpdate = incomingTs != null && (!localTs || incomingTs > localTs);
+          if (!isCrossDeviceUpdate) continue;
+        }
         const incomingWins = !existingTs || (incomingTs != null && new Date(incomingTs) >= new Date(existingTs));
         if (incomingWins) {
           const rawPayload = rawById.get(itemId);

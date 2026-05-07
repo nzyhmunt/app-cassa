@@ -228,6 +228,99 @@ describe('_atomicOrderItemsUpsertAndMerge — edge cases', () => {
   });
 });
 
+describe('_atomicOrderItemsUpsertAndMerge — echo-suppression guard for order_items→orders merge', () => {
+  const TS0 = '2024-01-01T10:00:00.000Z';
+  const TS1 = '2024-01-01T10:01:00.000Z';
+
+  it('preserves local embedded orderItems when parent order is echo-suppressed and incoming has same timestamp', async () => {
+    const { getDB } = await import('../../useIDB.js');
+    const db = await getDB();
+
+    await db.put('orders', {
+      id: 'ord_item_echo',
+      orderItems: [{
+        id: 'oi_item_echo',
+        quantity: 2,
+        voidedQuantity: 1,
+        voided_quantity: 1,
+        date_updated: TS0,
+      }],
+      date_updated: TS0,
+    });
+    await db.put('order_items', {
+      id: 'oi_item_echo',
+      order: 'ord_item_echo',
+      orderId: 'ord_item_echo',
+      quantity: 2,
+      voidedQuantity: 0,
+      voided_quantity: 0,
+      date_updated: TS0,
+    });
+
+    _registerPushedEchoes([{ collection: 'orders', recordId: 'ord_item_echo' }], 5000);
+
+    const result = await _atomicOrderItemsUpsertAndMerge([{
+      id: 'oi_item_echo',
+      order: 'ord_item_echo',
+      orderId: 'ord_item_echo',
+      quantity: 2,
+      voidedQuantity: 0,
+      voided_quantity: 0,
+      date_updated: TS0,
+    }], []);
+
+    expect(result.ordersWritten).toBe(0);
+    expect(result.affectedOrderIds.size).toBe(0);
+    const order = await db.get('orders', 'ord_item_echo');
+    expect(order.orderItems[0].voidedQuantity).toBe(1);
+    expect(order.orderItems[0].voided_quantity).toBe(1);
+  });
+
+  it('allows strictly newer incoming items through even when parent order is echo-suppressed', async () => {
+    const { getDB } = await import('../../useIDB.js');
+    const db = await getDB();
+
+    await db.put('orders', {
+      id: 'ord_item_echo_newer',
+      orderItems: [{
+        id: 'oi_item_echo_newer',
+        quantity: 2,
+        voidedQuantity: 1,
+        voided_quantity: 1,
+        date_updated: TS0,
+      }],
+      date_updated: TS0,
+    });
+    await db.put('order_items', {
+      id: 'oi_item_echo_newer',
+      order: 'ord_item_echo_newer',
+      orderId: 'ord_item_echo_newer',
+      quantity: 2,
+      voidedQuantity: 0,
+      voided_quantity: 0,
+      date_updated: TS0,
+    });
+
+    _registerPushedEchoes([{ collection: 'orders', recordId: 'ord_item_echo_newer' }], 5000);
+
+    const result = await _atomicOrderItemsUpsertAndMerge([{
+      id: 'oi_item_echo_newer',
+      order: 'ord_item_echo_newer',
+      orderId: 'ord_item_echo_newer',
+      quantity: 2,
+      voidedQuantity: 0,
+      voided_quantity: 0,
+      date_updated: TS1,
+    }], []);
+
+    expect(result.ordersWritten).toBe(1);
+    expect(result.affectedOrderIds.has('ord_item_echo_newer')).toBe(true);
+    const order = await db.get('orders', 'ord_item_echo_newer');
+    expect(order.orderItems[0].voidedQuantity).toBe(0);
+    expect(order.orderItems[0].voided_quantity).toBe(0);
+  });
+});
+
 // ─── _preparePullRecordsForIDB — echo-suppression guard ───────────────────
 
 describe('_preparePullRecordsForIDB — echo-suppression guard for orders', () => {
