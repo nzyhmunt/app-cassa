@@ -450,7 +450,8 @@
                   class="font-bold"
                   :class="log.status === 'error' ? '' : 'font-normal'"
                 >HTTP {{ log.statusCode }}</span>
-                <span v-if="log.status === 'error' && log.statusCode == null" class="font-bold">Network Error</span>
+                <span v-if="isNetworkErrorLog(log)" class="font-bold">Network Error</span>
+                <span v-else-if="isHeartbeatReconnectLog(log)" class="font-bold">WS Watchdog</span>
               </div>
             </button>
           </div>
@@ -682,16 +683,30 @@ function formatFailedCall(call) {
 
 /**
  * Determines the severity level for a log entry used for colour coding.
- * Returns 'critical' (5xx / network error), 'warning' (4xx / unexpected),
+ * Returns 'critical' (5xx / network error), 'warning' (4xx / watchdog / unexpected),
  * or 'success'.
  */
 function _severity(log) {
   if (log.status === 'success') return 'success';
+  if (isHeartbeatReconnectLog(log)) return 'warning';
   const code = log.statusCode;
   if (code == null || code >= 500) return 'critical'; // network error or server-side
   if (code >= 400) return 'warning';                  // client/validation error
   // Fallback: non-success status with an unexpected code (e.g. 3xx treated as error).
   return 'warning';
+}
+
+function isHeartbeatReconnectLog(log) {
+  return log?.type === 'WS'
+    && log?.endpoint === '/websocket/heartbeat'
+    && log?.payload?.phase === 2
+    && log?.payload?.action === 'force_reconnect';
+}
+
+function isNetworkErrorLog(log) {
+  return log?.status === 'error'
+    && log?.statusCode == null
+    && !isHeartbeatReconnectLog(log);
 }
 
 function logRowClass(log) {
@@ -883,7 +898,8 @@ function copyTechBlock() {
   if (!log) return;
   let statusSuffix = '';
   if (log.statusCode != null) statusSuffix = `  HTTP ${log.statusCode}`;
-  else if (log.status === 'error') statusSuffix = '  (network)';
+  else if (isNetworkErrorLog(log)) statusSuffix = '  (network)';
+  else if (isHeartbeatReconnectLog(log)) statusSuffix = '  (watchdog)';
   const lines = [
     '**Sync Log**',
     `ID:         ${log.id ?? '—'}`,
