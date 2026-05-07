@@ -133,6 +133,12 @@ function _getEffectiveTs(record) {
   return (record?.date_updated ?? record?.date_created) ?? null;
 }
 
+/**
+ * Normalizes modifier records to a stable shape for echo-comparison checks.
+ *
+ * Handles both camelCase and snake_case fields so local IDB records and
+ * incoming Directus payloads can be compared without naming skew.
+ */
 function _normalizeEchoModifier(modifier) {
   if (!modifier || typeof modifier !== 'object') return null;
   return {
@@ -147,6 +153,12 @@ function _normalizeEchoModifier(modifier) {
   };
 }
 
+/**
+ * Normalizes order-item records to a stable shape for echo-comparison checks.
+ *
+ * Handles both local camelCase fields and Directus snake_case aliases, and
+ * normalizes nested modifier arrays to the same canonical structure.
+ */
 function _normalizeEchoOrderItem(item) {
   if (!item || typeof item !== 'object') return null;
   return {
@@ -170,6 +182,12 @@ function _normalizeEchoOrderItem(item) {
   };
 }
 
+/**
+ * Projects a record down to only the meaningful fields referenced by `raw`.
+ *
+ * This intentionally excludes server-managed metadata (for example timestamps)
+ * so self-echo detection keys off business-state changes only.
+ */
 function _projectEchoComparable(collection, raw, record) {
   if (!record || typeof record !== 'object' || !raw || typeof raw !== 'object') return null;
   if (collection === 'orders') {
@@ -217,6 +235,12 @@ function _projectEchoComparable(collection, raw, record) {
   return null;
 }
 
+/**
+ * Loads the local record used by echo suppression comparisons.
+ *
+ * `order_items` can exist either in the standalone ObjectStore or embedded
+ * inside the parent order snapshot, so both locations are checked.
+ */
 async function _loadLocalEchoRecord(db, collection, raw, id) {
   if (!db || !id) return null;
   if (collection !== 'order_items') {
@@ -232,6 +256,10 @@ async function _loadLocalEchoRecord(db, collection, raw, id) {
   return parentOrder.orderItems.find((item) => String(item?.id ?? item?.uid ?? '') === String(id)) ?? null;
 }
 
+/**
+ * Returns true when applying the incoming payload would change meaningful
+ * business fields relative to the current local record.
+ */
 function _hasMeaningfulEchoChange(collection, raw, local, incoming) {
   if (!local || !incoming) return false;
   const prospective = collection === 'orders'
