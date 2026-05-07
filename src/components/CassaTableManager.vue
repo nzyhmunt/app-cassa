@@ -423,19 +423,19 @@
                         {{ configStore.config.ui.currency }}{{getOrderItemRowTotal(item).toFixed(2)}}
                       </span>
                       <div v-if="ord.status === 'accepted'" class="flex items-center gap-1 ml-1">
-                        <button @click="orderStore.voidOrderItems(ord, idx, 1)" :disabled="item.quantity - (item.voidedQuantity || 0) <= 0" class="p-1.5 bg-white border border-orange-200 text-orange-500 hover:bg-orange-50 rounded shadow-sm transition-colors active:scale-95 disabled:opacity-30" title="Storna dal conto">
+                        <button @click="orderStore.voidOrderItems(ord, idx, 1)" :disabled="item.quantity - (item.voidedQuantity || 0) <= 0" class="p-1.5 bg-white border border-orange-200 text-orange-500 hover:bg-orange-50 rounded shadow-sm transition-colors active:scale-95 disabled:opacity-30" :title="`Storna ${item.name}`" :aria-label="`Storna ${item.name}`">
                           <Ban class="size-4 md:size-4" />
                         </button>
-                        <button @click="orderStore.restoreOrderItems(ord, idx, 1)" :disabled="(item.voidedQuantity || 0) <= 0" class="p-1.5 bg-white border border-blue-200 text-blue-500 hover:bg-blue-50 rounded shadow-sm transition-colors active:scale-95 disabled:opacity-30" title="Ripristina nel conto">
+                        <button @click="orderStore.restoreOrderItems(ord, idx, 1)" :disabled="(item.voidedQuantity || 0) <= 0" class="p-1.5 bg-white border border-blue-200 text-blue-500 hover:bg-blue-50 rounded shadow-sm transition-colors active:scale-95 disabled:opacity-30" :title="`Ripristina ${item.name}`" :aria-label="`Ripristina ${item.name}`">
                           <Undo2 class="size-4 md:size-4" />
                         </button>
                       </div>
                     </div>
                   </div>
                   <!-- Variazioni a pagamento (per ordine) con storni -->
-                  <div v-if="item.modifiers && item.modifiers.some(m => m.price > 0)" class="mt-1 ml-8 space-y-0.5">
+                  <div v-if="item.modifiers && item.modifiers.some(m => Number(m.price) > 0)" class="mt-1 ml-8 space-y-0.5">
                     <template v-for="(mod, modIdx) in item.modifiers" :key="'mod_'+item.uid+'_'+modIdx+'_'+mod.name+'_'+mod.price">
-                      <div v-if="mod.price > 0"
+                      <div v-if="Number(mod.price) > 0"
                         class="flex items-center justify-between py-1 pl-2 pr-1 rounded bg-purple-50/60 border border-purple-100"
                         :class="item.quantity - (item.voidedQuantity || 0) - (mod.voidedQuantity || 0) <= 0 ? 'opacity-40' : ''">
                         <div class="flex items-center gap-1.5 flex-1 min-w-0">
@@ -445,7 +445,7 @@
                           </span>
                           <span class="text-[9px] md:text-[10px] font-bold text-purple-700 truncate"
                             :class="{'line-through text-gray-400': item.quantity - (item.voidedQuantity || 0) - (mod.voidedQuantity || 0) <= 0}">
-                            + {{ mod.name }} (+{{ configStore.config.ui.currency }}{{ mod.price.toFixed(2) }})
+                            + {{ mod.name }} (+{{ configStore.config.ui.currency }}{{ (Number(mod.price) || 0).toFixed(2) }})
                           </span>
                           <span v-if="(mod.voidedQuantity || 0) > 0" class="text-[8px] text-red-500 font-bold uppercase shrink-0">-{{ mod.voidedQuantity }}</span>
                         </div>
@@ -453,13 +453,15 @@
                           <button @click="orderStore.voidModifier(ord, idx, modIdx, 1)"
                             :disabled="item.quantity - (item.voidedQuantity || 0) - (mod.voidedQuantity || 0) <= 0"
                             class="p-1 bg-white border border-orange-200 text-orange-500 hover:bg-orange-50 rounded shadow-sm transition-colors active:scale-95 disabled:opacity-30"
-                            title="Storna questa variazione">
+                            :title="`Storna variante ${mod.name}`"
+                            :aria-label="`Storna variante ${mod.name}`">
                             <Ban class="size-3" />
                           </button>
                           <button @click="orderStore.restoreModifier(ord, idx, modIdx, 1)"
                             :disabled="(mod.voidedQuantity || 0) <= 0"
                             class="p-1 bg-white border border-blue-200 text-blue-500 hover:bg-blue-50 rounded shadow-sm transition-colors active:scale-95 disabled:opacity-30"
-                            title="Ripristina questa variazione">
+                            :title="`Ripristina variante ${mod.name}`"
+                            :aria-label="`Ripristina variante ${mod.name}`">
                             <Undo2 class="size-3" />
                           </button>
                         </div>
