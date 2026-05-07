@@ -930,6 +930,7 @@
         empty-cart-message="Tocca i piatti nel menu per aggiungerli qui."
         confirm-label="Aggiungi al Conto"
         :show-cart-item-edit="true"
+        cart-item-edit-label="Varianti a Pagamento"
         @add-quick="addMenuItemToDirectCart"
         @update-qty="updateDirectCartQty"
         @edit-cart-item="openDirectVariantModal"

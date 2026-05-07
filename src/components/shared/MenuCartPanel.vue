@@ -39,6 +39,8 @@ const props = defineProps({
   showDetailsButton: { type: Boolean, default: false },
   /** Show the PenLine edit button on each cart item row. */
   showCartItemEdit: { type: Boolean, default: false },
+  /** Tooltip / aria-label for the cart item edit button. */
+  cartItemEditLabel: { type: String, default: 'Modifica' },
 });
 
 const emit = defineEmits([
@@ -205,7 +207,8 @@ const cartTotal = computed(() =>
                 v-if="showCartItemEdit"
                 @click="emit('edit-cart-item', idx)"
                 class="p-1.5 text-gray-500 hover:text-[var(--brand-primary)] bg-gray-50 border border-gray-200 hover:bg-gray-100 rounded-md transition-colors active:scale-95 shadow-sm"
-                title="Note e Varianti">
+                :title="cartItemEditLabel"
+                :aria-label="cartItemEditLabel">
                 <PenLine class="size-3.5" />
               </button>
             </div>
@@ -222,7 +225,9 @@ const cartTotal = computed(() =>
                 {{ mod.name }}{{ Number(mod.price) > 0 ? ' +' + currency + Number(mod.price).toFixed(2) : '' }}
                 <button
                   @click="emit('remove-mod', idx, mi)"
-                  class="text-purple-400 hover:text-red-500 transition-colors">
+                  class="text-purple-400 hover:text-red-500 transition-colors"
+                  :aria-label="'Rimuovi variante ' + mod.name"
+                  :title="'Rimuovi ' + mod.name">
                   <X class="size-2.5" />
                 </button>
               </span>

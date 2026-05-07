@@ -321,6 +321,7 @@
         :show-info-button="true"
         :show-details-button="true"
         :show-cart-item-edit="true"
+        cart-item-edit-label="Note e Varianti"
         @add-quick="addToTempCart"
         @add-with-details="addToTempCartWithModal"
         @show-info="showItemInfo"
