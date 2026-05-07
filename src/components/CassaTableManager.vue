@@ -1012,8 +1012,8 @@
                 <button
                   v-if="isAdmin"
                   @click="removeSavedCustomItem(si)"
-                  :aria-label="'Elimina voce salvata ' + saved.name"
-                  :title="'Elimina ' + saved.name"
+                  :aria-label="`Elimina voce salvata ${saved.name}`"
+                  :title="`Elimina ${saved.name}`"
                   class="shrink-0 w-8 border-l border-gray-100 text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors flex items-center justify-center active:scale-90">
                   <Trash2 class="size-3.5" />
                 </button>
@@ -1089,7 +1089,7 @@
           <div v-for="(mod, idx) in directVariantModal.modifiersArray" :key="idx"
             class="flex justify-between items-center bg-white border border-purple-200 text-purple-800 px-3 py-2 rounded-lg text-xs font-bold shadow-sm">
             <span>{{ mod.name }}{{ mod.price > 0 ? ' +' + configStore.config.ui.currency + mod.price.toFixed(2) : '' }}</span>
-            <button @click="removeModFromDirectVariantModal(idx)" :aria-label="'Rimuovi variante ' + mod.name" :title="'Rimuovi ' + mod.name" class="text-red-500 p-1 hover:bg-red-50 rounded-md transition-colors"><Trash2 class="size-4" /></button>
+            <button @click="removeModFromDirectVariantModal(idx)" :aria-label="`Rimuovi variante ${mod.name}`" :title="`Rimuovi ${mod.name}`" class="text-red-500 p-1 hover:bg-red-50 rounded-md transition-colors"><Trash2 class="size-4" /></button>
           </div>
         </div>
 
@@ -2398,12 +2398,12 @@ function updateDirectCartQty(idx, delta) {
 }
 
 function directQtyDecrLabel(item) {
-  const label = item.quantity === 1 ? 'Rimuovi ' + item.name : 'Diminuisci quantità ' + item.name;
+  const label = item.quantity === 1 ? `Rimuovi ${item.name}` : `Diminuisci quantità ${item.name}`;
   return { title: label, 'aria-label': label };
 }
 
 function directQtyIncrLabel(item) {
-  const label = 'Aumenta quantità ' + item.name;
+  const label = `Aumenta quantità ${item.name}`;
   return { title: label, 'aria-label': label };
 }
 

@@ -76,12 +76,12 @@ const cartTotal = computed(() =>
 );
 
 function qtyDecrLabel(item) {
-  const label = item.quantity === 1 ? 'Rimuovi ' + item.name : 'Diminuisci quantità ' + item.name;
+  const label = item.quantity === 1 ? `Rimuovi ${item.name}` : `Diminuisci quantità ${item.name}`;
   return { title: label, 'aria-label': label };
 }
 
 function qtyIncrLabel(item) {
-  const label = 'Aumenta quantità ' + item.name;
+  const label = `Aumenta quantità ${item.name}`;
   return { title: label, 'aria-label': label };
 }
 </script>
