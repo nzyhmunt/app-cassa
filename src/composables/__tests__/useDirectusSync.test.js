@@ -2695,6 +2695,102 @@ describe('self-echo suppression (_handleSubscriptionMessage)', () => {
     expect(stored.orderItems[0].name).toBe('Coperto');
   });
 
+  it('suppresses a self-echo order_items update routed via parent order suppression even with newer server timestamp', async () => {
+    await upsertRecordsIntoIDB('orders', [{
+      id: 'ord_ws_echo_parent',
+      status: 'accepted',
+      date_updated: '2026-01-01T00:00:00.000Z',
+      orderItems: [
+        {
+          id: 'oi_ws_echo_parent',
+          uid: 'oi_ws_echo_parent',
+          order: 'ord_ws_echo_parent',
+          name: 'Test item',
+          unitPrice: 2.5,
+          quantity: 4,
+          voidedQuantity: 1,
+          notes: [],
+          modifiers: [],
+        },
+      ],
+    }]);
+    _registerPushedEchoes([{ collection: 'orders', recordId: 'ord_ws_echo_parent' }]);
+
+    await _handleSubscriptionMessage('order_items', {
+      event: 'update',
+      data: [{
+        id: 'oi_ws_echo_parent',
+        uid: 'oi_ws_echo_parent',
+        order: 'ord_ws_echo_parent',
+        name: 'Test item',
+        unit_price: '2.50',
+        quantity: 4,
+        voided_quantity: 1,
+        notes: [],
+        status: 'active',
+        date_updated: '2026-01-01T00:00:05.000Z',
+        order_item_modifiers: [],
+      }],
+    });
+
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+    const storedEmbedded = (await db.get('orders', 'ord_ws_echo_parent'))?.orderItems?.[0];
+    const storedStandalone = await db.get('order_items', 'oi_ws_echo_parent');
+
+    expect(storedEmbedded?.voidedQuantity).toBe(1);
+    expect(storedEmbedded?.date_updated).toBeUndefined();
+    expect(storedStandalone).toBeUndefined();
+  });
+
+  it('allows a parent-order-suppressed order_items update through when it changes meaningful fields and is newer', async () => {
+    await upsertRecordsIntoIDB('orders', [{
+      id: 'ord_ws_cross_parent',
+      status: 'accepted',
+      date_updated: '2026-01-01T00:00:00.000Z',
+      orderItems: [
+        {
+          id: 'oi_ws_cross_parent',
+          uid: 'oi_ws_cross_parent',
+          order: 'ord_ws_cross_parent',
+          name: 'Test item',
+          unitPrice: 2.5,
+          quantity: 4,
+          voidedQuantity: 1,
+          notes: [],
+          modifiers: [],
+        },
+      ],
+    }]);
+    _registerPushedEchoes([{ collection: 'orders', recordId: 'ord_ws_cross_parent' }]);
+
+    await _handleSubscriptionMessage('order_items', {
+      event: 'update',
+      data: [{
+        id: 'oi_ws_cross_parent',
+        uid: 'oi_ws_cross_parent',
+        order: 'ord_ws_cross_parent',
+        name: 'Test item',
+        unit_price: '2.50',
+        quantity: 4,
+        voided_quantity: 0,
+        notes: [],
+        status: 'active',
+        date_updated: '2026-01-01T00:00:05.000Z',
+        order_item_modifiers: [],
+      }],
+    });
+
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+    const storedEmbedded = (await db.get('orders', 'ord_ws_cross_parent'))?.orderItems?.[0];
+    const storedStandalone = await db.get('order_items', 'oi_ws_cross_parent');
+
+    expect(storedEmbedded?.voidedQuantity).toBe(0);
+    expect(storedEmbedded?.date_updated).toBe('2026-01-01T00:00:05.000Z');
+    expect(storedStandalone?.voidedQuantity).toBe(0);
+  });
+
   it('preserves non-orderItems IDB fields when WS update omits them (partial payload)', async () => {
     // Pre-seed IDB with an order that has a non-zero totalAmount and globalNote
     await upsertRecordsIntoIDB('orders', [{
@@ -4316,6 +4412,37 @@ describe('Issue 2 — Keyset null-date branch includes id._gt to prevent infinit
 // ── Issue 3 — LWW echo suppression: cross-device update bypasses TTL ──────────
 
 describe('Issue 3 — LWW echo suppression allows cross-device updates through', () => {
+  it('still suppresses an orders self-echo when only server-managed timestamps changed', async () => {
+    const { getDB } = await import('../useIDB.js');
+    const db = await getDB();
+
+    await upsertRecordsIntoIDB('orders', [{
+      id: 'ord_lww_same_fields',
+      status: 'accepted',
+      totalAmount: 10,
+      total_amount: 10,
+      itemCount: 4,
+      item_count: 4,
+      date_updated: '2024-06-01T00:00:00.100Z',
+    }]);
+    _registerPushedEchoes([{ collection: 'orders', recordId: 'ord_lww_same_fields' }]);
+
+    await _handleSubscriptionMessage('orders', {
+      event: 'update',
+      data: [{
+        id: 'ord_lww_same_fields',
+        status: 'accepted',
+        total_amount: '10.00',
+        item_count: 4,
+        date_updated: '2024-06-01T00:00:00.200Z',
+      }],
+    });
+
+    const stored = await db.get('orders', 'ord_lww_same_fields');
+    expect(stored?.date_updated).toBe('2024-06-01T00:00:00.100Z');
+    expect(stored?.totalAmount).toBe(10);
+  });
+
   it('allows a WS update through when incoming date_updated is newer than local record', async () => {
     const { getDB } = await import('../useIDB.js');
     const db = await getDB();
