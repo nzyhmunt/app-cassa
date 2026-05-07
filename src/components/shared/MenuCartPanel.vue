@@ -191,13 +191,16 @@ const cartTotal = computed(() =>
                   @click="emit('update-qty', idx, -1)"
                   class="size-6 flex items-center justify-center bg-white rounded shadow-sm active:scale-95 transition-colors"
                   :class="cartItem.quantity === 1 ? 'text-red-500' : 'text-gray-600'"
-                  :title="cartItem.quantity === 1 ? 'Rimuovi voce' : 'Diminuisci quantità'">
+                  :title="cartItem.quantity === 1 ? 'Rimuovi ' + cartItem.name : 'Diminuisci quantità ' + cartItem.name"
+                  :aria-label="cartItem.quantity === 1 ? 'Rimuovi ' + cartItem.name : 'Diminuisci quantità ' + cartItem.name">
                   <Trash2 v-if="cartItem.quantity === 1" class="size-3" />
                   <Minus v-else class="size-3" />
                 </button>
                 <span class="w-5 text-center font-black text-sm">{{ cartItem.quantity }}</span>
                 <button
                   @click="emit('update-qty', idx, 1)"
+                  :title="'Aumenta quantità ' + cartItem.name"
+                  :aria-label="'Aumenta quantità ' + cartItem.name"
                   class="size-6 flex items-center justify-center bg-white theme-text rounded shadow-sm active:scale-95">
                   <Plus class="size-3" />
                 </button>

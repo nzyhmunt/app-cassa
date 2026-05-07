@@ -1012,6 +1012,8 @@
                 <button
                   v-if="isAdmin"
                   @click="removeSavedCustomItem(si)"
+                  :aria-label="'Elimina voce salvata ' + saved.name"
+                  :title="'Elimina ' + saved.name"
                   class="shrink-0 w-8 border-l border-gray-100 text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors flex items-center justify-center active:scale-90">
                   <Trash2 class="size-3.5" />
                 </button>
@@ -1039,12 +1041,13 @@
                     <button @click="updateDirectCartQty(idx, -1)"
                       class="size-6 flex items-center justify-center bg-white rounded shadow-sm active:scale-95 transition-colors"
                       :class="item.quantity === 1 ? 'text-red-500' : 'text-gray-600'"
-                      :title="item.quantity === 1 ? 'Rimuovi voce' : 'Diminuisci quantità'">
+                      :title="item.quantity === 1 ? 'Rimuovi ' + item.name : 'Diminuisci quantità ' + item.name"
+                      :aria-label="item.quantity === 1 ? 'Rimuovi ' + item.name : 'Diminuisci quantità ' + item.name">
                       <Trash2 v-if="item.quantity === 1" class="size-3" />
                       <Minus v-else class="size-3" />
                     </button>
                     <span class="w-5 text-center font-black text-sm text-gray-800 tabular-nums">{{ item.quantity }}</span>
-                    <button @click="updateDirectCartQty(idx, 1)" class="size-6 flex items-center justify-center bg-white theme-text rounded shadow-sm active:scale-95"><Plus class="size-3" /></button>
+                    <button @click="updateDirectCartQty(idx, 1)" :title="'Aumenta quantità ' + item.name" :aria-label="'Aumenta quantità ' + item.name" class="size-6 flex items-center justify-center bg-white theme-text rounded shadow-sm active:scale-95"><Plus class="size-3" /></button>
                   </div>
                   <span class="font-black text-sm theme-text shrink-0 tabular-nums min-w-[3.5rem] text-right">{{ configStore.config.ui.currency }}{{ ((item.unitPrice + (item.modifiers || []).reduce((s, m) => s + (Number(m.price) || 0), 0)) * item.quantity).toFixed(2) }}</span>
                 </div>
@@ -1087,7 +1090,7 @@
           <div v-for="(mod, idx) in directVariantModal.modifiersArray" :key="idx"
             class="flex justify-between items-center bg-white border border-purple-200 text-purple-800 px-3 py-2 rounded-lg text-xs font-bold shadow-sm">
             <span>{{ mod.name }}{{ mod.price > 0 ? ' +' + configStore.config.ui.currency + mod.price.toFixed(2) : '' }}</span>
-            <button @click="removeModFromDirectVariantModal(idx)" class="text-red-500 p-1 hover:bg-red-50 rounded-md transition-colors"><Trash2 class="size-4" /></button>
+            <button @click="removeModFromDirectVariantModal(idx)" :aria-label="'Rimuovi variante ' + mod.name" :title="'Rimuovi ' + mod.name" class="text-red-500 p-1 hover:bg-red-50 rounded-md transition-colors"><Trash2 class="size-4" /></button>
           </div>
         </div>
 
@@ -1102,7 +1105,7 @@
               :prefix="configStore.config.ui.currency"
               class="w-full pl-7 pr-2 py-3 bg-gray-100 border border-gray-200 rounded-xl focus:bg-white theme-ring transition-all text-gray-800 font-medium text-sm" />
           </div>
-          <button @click="addModToDirectVariantModal" class="bg-purple-600 hover:bg-purple-700 text-white px-4 rounded-xl font-bold shadow-sm active:scale-95 flex items-center justify-center"><Plus class="size-5" /></button>
+          <button @click="addModToDirectVariantModal" aria-label="Aggiungi variante" title="Aggiungi variante" class="bg-purple-600 hover:bg-purple-700 text-white px-4 rounded-xl font-bold shadow-sm active:scale-95 flex items-center justify-center"><Plus class="size-5" /></button>
         </div>
 
         <!-- Presets -->
