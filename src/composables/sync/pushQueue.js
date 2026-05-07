@@ -65,6 +65,18 @@ export async function _runPush() {
         };
       }
       if (syncState._pushGeneration === generation) syncState.syncStatus.value = 'syncing';
+      // Pre-register pending order IDs as echo-suppressed BEFORE draining so that any
+      // concurrent REST poll cannot overwrite locally-modified orderItems while the push
+      // is in flight.  The normal registration in _registerPushedEchoes only fires after
+      // drainQueue() resolves; pre-registration closes the in-flight overwrite window for
+      // orders (the collection where void/restore mutations are pushed as embedded patches).
+      const preDrainPending = await getPendingEntries();
+      const preDrainOrderEchoes = preDrainPending
+        .filter(e => e.collection === 'orders' && e.record_id)
+        .map(e => ({ collection: 'orders', recordId: String(e.record_id) }));
+      if (preDrainOrderEchoes.length > 0) {
+        _registerPushedEchoes(preDrainOrderEchoes, ECHO_SUPPRESS_TTL_MS);
+      }
       // S4: Measure push RTT to derive the adaptive echo suppression window.
       const pushStartMs = Date.now();
       const result = await drainQueue(cfg, ac.signal);

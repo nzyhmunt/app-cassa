@@ -15,6 +15,7 @@ import { getDB } from '../useIDB.js';
 import { loadStateFromIDB } from '../../store/persistence/operations.js';
 import { deepEqual } from '../../utils/index.js';
 import { relationId, mergeOrderItemFromWSPayload } from '../../utils/mappers.js';
+import { _isEchoSuppressed } from './echoSuppression.js';
 
 /** Shared empty-set sentinel used by guard-return paths to avoid per-call allocation. */
 const _EMPTY_SET = new Set();
@@ -56,6 +57,21 @@ export async function _preparePullRecordsForIDB(collection, mapped, cachedState 
         const hasIncomingItems = Array.isArray(incoming.orderItems) && incoming.orderItems.length > 0;
         if (!hasIncomingItems) {
           return { ...incoming, orderItems: existing.orderItems };
+        }
+        // Echo-suppression guard: if this order has a pending or recently-completed
+        // local push, keep local orderItems rather than letting a concurrent REST pull
+        // overwrite void/restore mutations that have not yet propagated back via WS.
+        // Mirrors the Issue-3 LWW guard applied to the WebSocket path in wsManager.js.
+        const orderId = incoming?.id != null ? String(incoming.id) : null;
+        if (orderId && _isEchoSuppressed('orders', orderId)) {
+          const existingTs = existing.date_updated ?? existing.date_created ?? null;
+          const incomingTs = incoming.date_updated ?? incoming.date_created ?? null;
+          // Allow strictly-newer incoming through: this is a cross-device update
+          // that arrived within the echo suppression window and must not be blocked.
+          const isCrossDeviceUpdate = incomingTs != null && existingTs != null && incomingTs > existingTs;
+          if (!isCrossDeviceUpdate) {
+            return { ...incoming, orderItems: existing.orderItems };
+          }
         }
       }
       return incoming;
