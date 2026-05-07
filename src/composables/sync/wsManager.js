@@ -417,7 +417,8 @@ export async function _handleSubscriptionMessage(collection, message) {
       const parentOrderId = collection === 'order_items'
         ? relationId(rawOrderRef) ?? rawOrderRef
         : null;
-      const isOrderItemsParentSuppressed = collection === 'order_items'
+      const isOrderItemsParentSuppressed = !isDirectEcho
+        && collection === 'order_items'
         && _isEchoSuppressed('orders', parentOrderId);
       if (!isDirectEcho && !isOrderItemsParentSuppressed) {
         nonEcho.push(r);
@@ -432,6 +433,10 @@ export async function _handleSubscriptionMessage(collection, message) {
           console.warn('[DirectusSync] LWW echo check failed for', collection, id, e);
         }
       }
+      // Parent-order suppression still needs a local item snapshot so the
+      // meaningful-change/LWW guard can decide whether this is a self-echo or a
+      // genuinely new remote update. If the item is absent locally, let it
+      // through instead of dropping a potential remote create.
       const isOrderItemsParentEcho = collection === 'order_items'
         && local
         && isOrderItemsParentSuppressed;
