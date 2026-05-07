@@ -391,14 +391,21 @@ export async function _handleSubscriptionMessage(collection, message) {
     // and the update must not be silently dropped (data loss prevention).
     const nonEcho = [];
     suppressedCount = 0;
-    // Fetch the IDB handle once per message so the LWW guard inside the loop
-    // doesn't pay the getDB() lookup cost for every suppressed record.
+    // Fetch the IDB handle lazily only for records that actually need the LWW
+    // echo check, so the common non-echo case stays on the fast path.
     let db;
-    try {
-      db = await getDB();
-    } catch (e) {
-      console.warn('[DirectusSync] LWW echo check: IDB unavailable', e);
-    }
+    let dbLoaded = false;
+    const ensureDb = async () => {
+      if (dbLoaded) return db;
+      dbLoaded = true;
+      try {
+        db = await getDB();
+      } catch (e) {
+        console.warn('[DirectusSync] LWW echo check: IDB unavailable', e);
+        db = null;
+      }
+      return db;
+    };
     for (const r of objectData) {
       const id = r.id != null ? String(r.id) : null;
       const isDirectEcho = _isEchoSuppressed(collection, id);
@@ -410,18 +417,24 @@ export async function _handleSubscriptionMessage(collection, message) {
       const parentOrderId = collection === 'order_items'
         ? relationId(rawOrderRef) ?? rawOrderRef
         : null;
-      const needsLocalEchoRecord = collection === 'order_items' || isDirectEcho;
+      const isOrderItemsParentSuppressed = collection === 'order_items'
+        && _isEchoSuppressed('orders', parentOrderId);
+      if (!isDirectEcho && !isOrderItemsParentSuppressed) {
+        nonEcho.push(r);
+        continue;
+      }
       let local = null;
-      if (needsLocalEchoRecord && id && db) {
+      if (id) {
         try {
-          local = await _loadLocalEchoRecord(db, collection, r, id);
+          const localDb = await ensureDb();
+          if (localDb) local = await _loadLocalEchoRecord(localDb, collection, r, id);
         } catch (e) {
           console.warn('[DirectusSync] LWW echo check failed for', collection, id, e);
         }
       }
       const isOrderItemsParentEcho = collection === 'order_items'
         && local
-        && _isEchoSuppressed('orders', parentOrderId);
+        && isOrderItemsParentSuppressed;
       if (!isDirectEcho && !isOrderItemsParentEcho) {
         nonEcho.push(r);
         continue;
@@ -437,7 +450,7 @@ export async function _handleSubscriptionMessage(collection, message) {
       // timestamp is strictly after the effective local timestamp.
       const incomingTs = _getEffectiveTs(r);
       let isCrossDeviceUpdate = false;
-      if (id && db && local) {
+      if (id && local) {
         try {
           const localTs = _getEffectiveTs(local);
           const incoming = _mapRecord(collection, r);
