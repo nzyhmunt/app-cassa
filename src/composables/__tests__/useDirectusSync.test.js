@@ -2820,7 +2820,7 @@ describe('self-echo suppression (_handleSubscriptionMessage)', () => {
     expect(storedStandalone?.unitPrice).toBe('2.50');
   });
 
-  it('allows a parent-order-suppressed order_items update through when it changes meaningful fields and is newer', async () => {
+  it('suppresses a parent-order-suppressed order_items update even when it is newer', async () => {
     await upsertRecordsIntoIDB('orders', [{
       id: 'ord_ws_cross_parent',
       status: 'accepted',
@@ -2863,9 +2863,9 @@ describe('self-echo suppression (_handleSubscriptionMessage)', () => {
     const storedEmbedded = (await db.get('orders', 'ord_ws_cross_parent'))?.orderItems?.[0];
     const storedStandalone = await db.get('order_items', 'oi_ws_cross_parent');
 
-    expect(storedEmbedded?.voidedQuantity).toBe(0);
-    expect(storedEmbedded?.date_updated).toBe('2026-01-01T00:00:05.000Z');
-    expect(storedStandalone?.voidedQuantity).toBe(0);
+    expect(storedEmbedded?.voidedQuantity).toBe(1);
+    expect(storedEmbedded?.date_updated).toBeUndefined();
+    expect(storedStandalone).toBeUndefined();
   });
 
   it('preserves non-orderItems IDB fields when WS update omits them (partial payload)', async () => {

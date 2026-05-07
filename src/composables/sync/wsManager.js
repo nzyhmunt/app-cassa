@@ -450,6 +450,15 @@ export async function _handleSubscriptionMessage(collection, message) {
         nonEcho.push(r);
         continue;
       }
+      // For order_items updates suppressed via the parent order echo window,
+      // treat them as self-echo and drop them. These updates are typically the
+      // server echo of local embedded order_items patches pushed on `orders`,
+      // and replaying them can cause visible rollback/flicker during rapid
+      // storno interactions (intermediate states briefly re-applied).
+      if (isOrderItemsParentEcho) {
+        suppressedCount++;
+        continue;
+      }
       // LWW guard: allow through when incoming is strictly newer than stored.
       // Directus timestamps are ISO 8601 UTC strings (e.g. "2024-06-01T12:00:00.000Z")
       // which are lexicographically comparable — no Date parsing overhead needed.
