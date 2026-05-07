@@ -417,10 +417,10 @@ export async function _handleSubscriptionMessage(collection, message) {
       const parentOrderId = collection === 'order_items'
         ? relationId(rawOrderRef) ?? rawOrderRef
         : null;
-      const isOrderItemsParentSuppressed = !isDirectEcho
-        && collection === 'order_items'
+      const shouldCheckParentOrderEcho = !isDirectEcho && collection === 'order_items';
+      const isParentOrderEchoSuppressed = shouldCheckParentOrderEcho
         && _isEchoSuppressed('orders', parentOrderId);
-      if (!isDirectEcho && !isOrderItemsParentSuppressed) {
+      if (!isDirectEcho && !isParentOrderEchoSuppressed) {
         nonEcho.push(r);
         continue;
       }
@@ -439,7 +439,7 @@ export async function _handleSubscriptionMessage(collection, message) {
       // through instead of dropping a potential remote create.
       const isOrderItemsParentEcho = collection === 'order_items'
         && local
-        && isOrderItemsParentSuppressed;
+        && isParentOrderEchoSuppressed;
       if (!isDirectEcho && !isOrderItemsParentEcho) {
         nonEcho.push(r);
         continue;
