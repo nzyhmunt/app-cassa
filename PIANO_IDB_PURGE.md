@@ -347,7 +347,7 @@ onMounted(async () => {
 
   // Purge IDB in background: non blocca il rendering.
   // Esegue solo se sync Directus è configurato (i dati sono già su Directus).
-  if (_isDirectusSyncActive()) {
+  if (isDirectusSyncActive()) {
     runIDBPurge().catch(e => console.warn('[CassaApp] IDB purge failed:', e));
   }
 });
@@ -367,12 +367,14 @@ pattern già usato per `sounds`, `menuUrl`, ecc.
   - Aggiunta funzione `applyIDBPurgeConfigToAppConfig(next)` — unico punto di scrittura
     su `appConfig.idbPurge`, analoga a `applyDirectusConfigToAppConfig`.
 
-- **`src/store/index.js`**:
+- **`src/store/configStore.js`**:
   - Importata `applyIDBPurgeConfigToAppConfig`.
   - `_normalizeLocalSettingsPayload` ora include e valida `idbPurge` dal payload.
   - `applyLocalSettings` chiama `applyIDBPurgeConfigToAppConfig(normalized.idbPurge)` per
     aggiornare `appConfig.idbPurge` a runtime.
   - `saveLocalSettings` passa `appConfig.idbPurge` come `current` durante la normalizzazione.
+
+- **`src/store/index.js`**:
   - `initStoreFromIDB`: se `settings.idbPurge` è un oggetto valido, chiama
     `applyIDBPurgeConfigToAppConfig` all'avvio per ripristinare le preferenze salvate.
 
@@ -400,7 +402,7 @@ idbPurge: {
 
 ### Fase 5 — Test unitari ✅ IMPLEMENTATA
 
-`src/composables/__tests__/useIDBPurge.test.js` — 38 test totali:
+`src/composables/__tests__/useIDBPurge.test.js` — 42 test totali:
 
 - `purgeCollection` su store vuota → nessun errore, nessuna eliminazione
 - Record con `date_updated` recente → NON purgato (anche con sync_queue vuota)

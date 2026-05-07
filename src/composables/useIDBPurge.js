@@ -30,7 +30,7 @@
  * ## When to call
  *
  * Call `runIDBPurge()` in `onMounted` of the root app component, guarded by
- * `_isDirectusSyncActive()`.  Do NOT call in a `setInterval` without
+ * `isDirectusSyncActive()`.  Do NOT call in a `setInterval` without
  * coordinating across tabs (no leader-election mechanism is in place).
  *
  * @see PIANO_IDB_PURGE.md
@@ -96,6 +96,7 @@ async function _hasPendingSyncEntries(collectionName) {
  * @param {{
  *   statusFilter?: string[]|null,
  *   dateField?: string,
+ *   dateIndex?: string|null,
  *   pkField?: string,
  *   requireMissingParent?: { storeName: string, foreignKey: string }|null,
  *   skipSyncGuard?: boolean,
@@ -105,12 +106,13 @@ export async function purgeCollection(storeName, retentionDays, options = {}) {
   const {
     statusFilter = null,
     dateField = 'date_updated',
+    dateIndex = null,  // IDB index name for `dateField` — avoids a full store scan
     pkField = 'id',
     requireMissingParent = null,
     skipSyncGuard = false,
   } = options;
 
-  // Collection-level sync guard.
+  // Early exit: if sync_queue has pending entries, skip (non-atomic fast-path).
   if (!skipSyncGuard && await _hasPendingSyncEntries(storeName)) return;
 
   const cutoff = retentionDays != null
@@ -118,10 +120,29 @@ export async function purgeCollection(storeName, retentionDays, options = {}) {
     : null;
 
   const db = await getDB();
-  const records = await db.getAll(storeName);
+
+  // Load only age-eligible candidates when the date field has an IDB index —
+  // avoids pulling the entire ObjectStore into memory for large stores.
+  let candidates;
+  if (cutoff != null && dateIndex != null) {
+    const cutoffIso = new Date(cutoff).toISOString();
+    candidates = await db.getAllFromIndex(
+      storeName, dateIndex, IDBKeyRange.upperBound(cutoffIso),
+    );
+  } else {
+    candidates = await db.getAll(storeName);
+  }
+
+  // Pre-load parent keys into a Set to avoid N+1 IDB lookups.
+  let parentKeySet = null;
+  if (requireMissingParent != null) {
+    const parentKeys = await db.getAllKeys(requireMissingParent.storeName);
+    parentKeySet = new Set(parentKeys);
+  }
+
   const toDelete = [];
 
-  for (const record of records) {
+  for (const record of candidates) {
     if (!record) continue;
 
     // Date filter (skip when retentionDays is null).
@@ -136,12 +157,11 @@ export async function purgeCollection(storeName, retentionDays, options = {}) {
     // Status filter.
     if (statusFilter != null && !statusFilter.includes(record.status)) continue;
 
-    // Parent-missing check (orphan purge).
+    // Parent-missing check (orphan purge) — O(1) Set lookup.
     if (requireMissingParent != null) {
       const parentId = record[requireMissingParent.foreignKey];
       if (!parentId) continue; // malformed record — skip
-      const parent = await db.get(requireMissingParent.storeName, parentId);
-      if (parent) continue; // parent still present — keep child
+      if (parentKeySet.has(parentId)) continue; // parent still present — keep child
     }
 
     const pk = record[pkField];
@@ -150,9 +170,31 @@ export async function purgeCollection(storeName, retentionDays, options = {}) {
 
   if (toDelete.length === 0) return;
 
-  const tx = db.transaction(storeName, 'readwrite');
-  for (const key of toDelete) await tx.store.delete(key);
-  await tx.done;
+  if (!skipSyncGuard) {
+    // Re-check atomically inside a multi-store transaction: prevents a race where
+    // a new sync_queue entry is enqueued between the upfront check above and the
+    // actual deletes below.
+    const tx = db.transaction([storeName, 'sync_queue'], 'readwrite');
+    try {
+      const pendingCount = await tx
+        .objectStore('sync_queue')
+        .index('collection')
+        .count(IDBKeyRange.only(storeName));
+      if (pendingCount > 0) {
+        await tx.done;
+        return;
+      }
+      const store = tx.objectStore(storeName);
+      for (const key of toDelete) await store.delete(key);
+      await tx.done;
+    } catch (e) {
+      console.warn('[useIDBPurge] Transaction aborted for', storeName, e);
+    }
+  } else {
+    const tx = db.transaction(storeName, 'readwrite');
+    for (const key of toDelete) await tx.store.delete(key);
+    await tx.done;
+  }
 }
 
 // ── Specialised purge helpers (local-only stores) ─────────────────────────────
@@ -248,24 +290,34 @@ export async function runIDBPurge() {
   // ── 1. Pre-sweep: orphaned children from previous purge cycles ──────────────
   await purgeCollection('order_item_modifiers', retention.orders, {
     requireMissingParent: { storeName: 'order_items', foreignKey: 'order_item' },
+    dateIndex: 'date_updated',
   });
   await purgeCollection('order_items', retention.orders, {
     requireMissingParent: { storeName: 'orders', foreignKey: 'order' },
+    dateIndex: 'date_updated',
   });
 
   // ── 2. Parent / root records ────────────────────────────────────────────────
-  await purgeCollection('orders', retention.orders, { statusFilter: ['completed', 'rejected'] });
-  await purgeCollection('bill_sessions', retention.billSessions, { statusFilter: ['closed'] });
-  await purgeCollection('transactions', retention.transactions);
-  await purgeCollection('cash_movements', retention.cashMovements);
-  await purgeCollection('daily_closures', retention.dailyClosures);
+  await purgeCollection('orders', retention.orders, {
+    statusFilter: ['completed', 'rejected'],
+    dateIndex: 'date_updated',
+  });
+  await purgeCollection('bill_sessions', retention.billSessions, {
+    statusFilter: ['closed'],
+    dateIndex: 'date_updated',
+  });
+  await purgeCollection('transactions', retention.transactions, { dateIndex: 'date_updated' });
+  await purgeCollection('cash_movements', retention.cashMovements, { dateIndex: 'date_updated' });
+  await purgeCollection('daily_closures', retention.dailyClosures, { dateIndex: 'date_updated' });
 
   // print_jobs: pushed to Directus via sync_queue (push-only, no pull).
   //   keyPath = 'logId'  (not 'id' like all other stores)
   //   date field = 'timestamp'  (field name in IDB records)
+  //   date index = 'job_timestamp'  (IDB index name for the timestamp field)
   await purgeCollection('print_jobs', retention.printJobs, {
     statusFilter: ['done', 'error'],
     dateField: 'timestamp',
+    dateIndex: 'job_timestamp',
     pkField: 'logId',
   });
 
@@ -292,7 +344,7 @@ export async function runIDBPurge() {
   });
 
   // ── 5. Child of daily_closures ──────────────────────────────────────────────
-  await purgeCollection('daily_closure_by_method', retention.dailyClosures);
+  await purgeCollection('daily_closure_by_method', retention.dailyClosures, { dateIndex: 'date_updated' });
 
   // ── 6. Local-only audit / meta stores ──────────────────────────────────────
   await purgeSyncFailedCalls(retention.syncFailedCalls);
