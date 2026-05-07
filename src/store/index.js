@@ -11,7 +11,7 @@
  * `import ... from './store/index.js'` paths continue to work without modification.
  */
 
-import { KEYBOARD_POSITIONS, updateOrderTotals } from '../utils/index.js';
+import { KEYBOARD_POSITIONS, updateOrderTotals, applyIDBPurgeConfigToAppConfig } from '../utils/index.js';
 import { mapOrderFromDirectus } from '../utils/mappers.js';
 import { loadStateFromIDB } from './persistence/operations.js';
 import { loadSettingsFromIDB } from './persistence/settings.js';
@@ -92,6 +92,9 @@ export async function initStoreFromIDB(pinia) {
     if (typeof settings.preventScreenLock === 'boolean') configStore.preventScreenLock = settings.preventScreenLock;
     if (KEYBOARD_POSITIONS.includes(settings.customKeyboard)) configStore.customKeyboard = settings.customKeyboard;
     if (typeof settings.preBillPrinterId === 'string') configStore.preBillPrinterId = settings.preBillPrinterId;
+    if (settings.idbPurge && typeof settings.idbPurge === 'object') {
+      applyIDBPurgeConfigToAppConfig(settings.idbPurge);
+    }
   }
 
   await configStore.hydrateConfigFromIDB({

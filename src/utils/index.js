@@ -234,6 +234,20 @@ export const DEFAULT_SETTINGS = {
     wsEnabled: false,
   },
 
+  // CONFIGURAZIONE PULIZIA IDB (retention windows in giorni)
+  // Ogni campo indica per quanti giorni mantenere i record già sincronizzati
+  // su Directus prima di rimuoverli dall'IndexedDB locale.
+  // Valori conservativi di default: pensati per dispositivi offline alcuni giorni.
+  idbPurge: {
+    orders: 7,
+    billSessions: 7,
+    transactions: 30,
+    cashMovements: 30,
+    dailyClosures: 90,
+    printJobs: 7,
+    syncFailedCalls: 30,
+  },
+
   // Minimal fallback menu; the full menu is loaded from the external URL at startup
   menu: {
     "Placeholder": [
@@ -306,6 +320,20 @@ export function createRuntimeConfig(overrides = null) {
 }
 
 /**
+ * Returns `Math.floor(value)` when `value` is a positive number, otherwise `fallback`.
+ * Used to validate retention-day fields in settings payloads.
+ *
+ * @param {unknown} value
+ * @param {number} fallback
+ * @returns {number}
+ */
+export function normPositiveInt(value, fallback) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return fallback;
+  const floored = Math.floor(value);
+  return floored >= 1 ? floored : fallback;
+}
+
+/**
  * Applies Directus runtime settings to `appConfig` through a single normalized
  * entry-point.
  * This is the only allowed write path for `appConfig.directus` outside
@@ -324,6 +352,30 @@ export function applyDirectusConfigToAppConfig(next = {}) {
     wsEnabled: typeof next?.wsEnabled === 'boolean' ? next.wsEnabled : false,
   };
   appConfig.directus = normalized;
+  return normalized;
+}
+
+/**
+ * Applies IDB purge retention settings to `appConfig.idbPurge`.
+ * This is the only allowed write path for `appConfig.idbPurge`.
+ * Invalid (non-positive) values are replaced with the defaults from
+ * `DEFAULT_SETTINGS.idbPurge`.
+ *
+ * @param {object} [next]
+ * @returns {{orders:number,billSessions:number,transactions:number,cashMovements:number,dailyClosures:number,printJobs:number,syncFailedCalls:number}}
+ */
+export function applyIDBPurgeConfigToAppConfig(next = {}) {
+  const defaults = DEFAULT_SETTINGS.idbPurge;
+  const normalized = {
+    orders:          normPositiveInt(next?.orders,          defaults.orders),
+    billSessions:    normPositiveInt(next?.billSessions,    defaults.billSessions),
+    transactions:    normPositiveInt(next?.transactions,    defaults.transactions),
+    cashMovements:   normPositiveInt(next?.cashMovements,   defaults.cashMovements),
+    dailyClosures:   normPositiveInt(next?.dailyClosures,   defaults.dailyClosures),
+    printJobs:       normPositiveInt(next?.printJobs,       defaults.printJobs),
+    syncFailedCalls: normPositiveInt(next?.syncFailedCalls, defaults.syncFailedCalls),
+  };
+  appConfig.idbPurge = normalized;
   return normalized;
 }
 
