@@ -76,7 +76,13 @@ const cartTotal = computed(() =>
 );
 
 function qtyDecrLabel(item) {
-  return item.quantity === 1 ? 'Rimuovi ' + item.name : 'Diminuisci quantità ' + item.name;
+  const label = item.quantity === 1 ? 'Rimuovi ' + item.name : 'Diminuisci quantità ' + item.name;
+  return { title: label, 'aria-label': label };
+}
+
+function qtyIncrLabel(item) {
+  const label = 'Aumenta quantità ' + item.name;
+  return { title: label, 'aria-label': label };
 }
 </script>
 
@@ -193,18 +199,16 @@ function qtyDecrLabel(item) {
               <div class="flex items-center gap-1 bg-gray-100 rounded p-0.5 border border-gray-200">
                 <button
                   @click="emit('update-qty', idx, -1)"
+                  v-bind="qtyDecrLabel(cartItem)"
                   class="size-6 flex items-center justify-center bg-white rounded shadow-sm active:scale-95 transition-colors"
-                  :class="cartItem.quantity === 1 ? 'text-red-500' : 'text-gray-600'"
-                  :title="qtyDecrLabel(cartItem)"
-                  :aria-label="qtyDecrLabel(cartItem)">
+                  :class="cartItem.quantity === 1 ? 'text-red-500' : 'text-gray-600'">
                   <Trash2 v-if="cartItem.quantity === 1" class="size-3" />
                   <Minus v-else class="size-3" />
                 </button>
                 <span class="w-5 text-center font-black text-sm">{{ cartItem.quantity }}</span>
                 <button
                   @click="emit('update-qty', idx, 1)"
-                  :title="'Aumenta quantità ' + cartItem.name"
-                  :aria-label="'Aumenta quantità ' + cartItem.name"
+                  v-bind="qtyIncrLabel(cartItem)"
                   class="size-6 flex items-center justify-center bg-white theme-text rounded shadow-sm active:scale-95">
                   <Plus class="size-3" />
                 </button>

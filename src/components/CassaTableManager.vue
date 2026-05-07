@@ -1039,15 +1039,14 @@
                 <div class="flex items-center gap-1.5 shrink-0">
                   <div class="flex items-center gap-1 bg-gray-100 rounded p-0.5 border border-gray-200">
                     <button @click="updateDirectCartQty(idx, -1)"
+                      v-bind="directQtyDecrLabel(item)"
                       class="size-6 flex items-center justify-center bg-white rounded shadow-sm active:scale-95 transition-colors"
-                      :class="item.quantity === 1 ? 'text-red-500' : 'text-gray-600'"
-                      :title="directQtyDecrLabel(item)"
-                      :aria-label="directQtyDecrLabel(item)">
+                      :class="item.quantity === 1 ? 'text-red-500' : 'text-gray-600'">
                       <Trash2 v-if="item.quantity === 1" class="size-3" />
                       <Minus v-else class="size-3" />
                     </button>
                     <span class="w-5 text-center font-black text-sm text-gray-800 tabular-nums">{{ item.quantity }}</span>
-                    <button @click="updateDirectCartQty(idx, 1)" :title="'Aumenta quantità ' + item.name" :aria-label="'Aumenta quantità ' + item.name" class="size-6 flex items-center justify-center bg-white theme-text rounded shadow-sm active:scale-95"><Plus class="size-3" /></button>
+                    <button @click="updateDirectCartQty(idx, 1)" v-bind="directQtyIncrLabel(item)" class="size-6 flex items-center justify-center bg-white theme-text rounded shadow-sm active:scale-95"><Plus class="size-3" /></button>
                   </div>
                   <span class="font-black text-sm theme-text shrink-0 tabular-nums min-w-[3.5rem] text-right">{{ configStore.config.ui.currency }}{{ ((item.unitPrice + (item.modifiers || []).reduce((s, m) => s + (Number(m.price) || 0), 0)) * item.quantity).toFixed(2) }}</span>
                 </div>
@@ -2399,7 +2398,13 @@ function updateDirectCartQty(idx, delta) {
 }
 
 function directQtyDecrLabel(item) {
-  return item.quantity === 1 ? 'Rimuovi ' + item.name : 'Diminuisci quantità ' + item.name;
+  const label = item.quantity === 1 ? 'Rimuovi ' + item.name : 'Diminuisci quantità ' + item.name;
+  return { title: label, 'aria-label': label };
+}
+
+function directQtyIncrLabel(item) {
+  const label = 'Aumenta quantità ' + item.name;
+  return { title: label, 'aria-label': label };
 }
 
 function addCustomItemToDirectCart() {
