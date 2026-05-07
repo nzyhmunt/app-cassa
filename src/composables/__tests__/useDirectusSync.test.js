@@ -53,6 +53,12 @@ import { _fetchUpdatedViaSDK } from '../sync/pullQueue.js';
 async function flushPromises(rounds = 30) {
   for (let i = 0; i < rounds; i++) await Promise.resolve();
 }
+
+async function flushIDB(rounds = 3) {
+  for (let i = 0; i < rounds; i++) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+}
 // Extra rounds for startSync + timer-driven global pull tests where multiple async
 // chains (initial run + interval callback + nested awaits) must settle.
 // 80 rounds is a conservative upper bound to keep these timer+promise tests stable.
@@ -3517,6 +3523,9 @@ describe('offline/online event handling', () => {
       // Resolve the first drain — the finally block detects _pushPending and
       // immediately starts a second push without waiting for the 30-second timer.
       resolveFirstPost();
+      // The follow-up _runPush() snapshots the queue from IDB, which settles on
+      // a real setImmediate turn under fake-indexeddb.
+      await flushIDB();
       await flushPromises(LONG_FLUSH_ROUNDS);
 
       expect(pushPostCalls).toBe(2); // follow-up push ran immediately, not after 30 s
