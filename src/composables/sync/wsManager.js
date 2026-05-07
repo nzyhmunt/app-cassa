@@ -395,7 +395,7 @@ export async function _handleSubscriptionMessage(collection, message) {
     // echo check, so the common non-echo case stays on the fast path.
     let db;
     let dbLoaded = false;
-    const ensureDb = async () => {
+    const ensureDB = async () => {
       if (dbLoaded) return db;
       dbLoaded = true;
       try {
@@ -427,7 +427,7 @@ export async function _handleSubscriptionMessage(collection, message) {
       let local = null;
       if (id) {
         try {
-          const localDb = await ensureDb();
+          const localDb = await ensureDB();
           if (localDb) local = await _loadLocalEchoRecord(localDb, collection, r, id);
         } catch (e) {
           console.warn('[DirectusSync] LWW echo check failed for', collection, id, e);
