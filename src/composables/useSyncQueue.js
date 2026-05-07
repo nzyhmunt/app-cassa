@@ -183,6 +183,48 @@ export async function getPendingEntries() {
   }
 }
 
+function _mergeDrainPayload(prevPayload, nextPayload) {
+  const prev = prevPayload && typeof prevPayload === 'object' ? prevPayload : {};
+  const next = nextPayload && typeof nextPayload === 'object' ? nextPayload : {};
+  return { ...prev, ...next };
+}
+
+function _compactDrainGroupEntries(entries) {
+  if (!Array.isArray(entries) || entries.length === 0) return [];
+
+  const compacted = [];
+  let pendingOrderUpdate = null;
+
+  const flushPendingOrderUpdate = () => {
+    if (pendingOrderUpdate) {
+      compacted.push(pendingOrderUpdate);
+      pendingOrderUpdate = null;
+    }
+  };
+
+  for (const entry of entries) {
+    const wrapped = { ...entry, _sourceEntries: [entry] };
+    const isCoalescibleOrderUpdate = entry?.collection === 'orders' && entry?.operation === 'update';
+    if (!isCoalescibleOrderUpdate) {
+      flushPendingOrderUpdate();
+      compacted.push(wrapped);
+      continue;
+    }
+    if (!pendingOrderUpdate) {
+      pendingOrderUpdate = wrapped;
+      continue;
+    }
+    pendingOrderUpdate = {
+      ...pendingOrderUpdate,
+      payload: _mergeDrainPayload(pendingOrderUpdate.payload, entry.payload),
+      _sourceEntries: [...pendingOrderUpdate._sourceEntries, entry],
+    };
+  }
+
+  flushPendingOrderUpdate();
+  return compacted;
+}
+
 /**
  * Persists a failed sync call audit entry so operators can inspect failures
  * even after the original queue entry has been removed.
@@ -794,7 +836,7 @@ export async function drainQueue(cfg, signal) {
     const firstAttempts = grp[0]?.attempts ?? 0;
 
     return {
-      entries: grp,
+      entries: _compactDrainGroupEntries(grp),
       firstAttempts,
       firstDateCreated: grp[0]?.date_created ?? '',
       firstId: grp[0]?.id ?? '',
@@ -967,6 +1009,10 @@ export async function drainQueue(cfg, signal) {
 
   for (const entry of sortedEntries) {
     const entryKey = `${entry.collection}:${entry.record_id}`;
+    const sourceEntries = Array.isArray(entry?._sourceEntries) && entry._sourceEntries.length > 0
+      ? entry._sourceEntries
+      : [entry];
+    const gateEntry = sourceEntries[0];
 
     // Skip entries whose record chain is blocked by a prior failure this cycle.
     if (blockedKeys.has(entryKey)) continue;
@@ -1020,8 +1066,10 @@ export async function drainQueue(cfg, signal) {
     _logPushResult(entry, result, Date.now() - _pushStart);
 
     if (result === 'skip' || (result && typeof result === 'object' && result.ok === true)) {
-      await removeEntry(entry.id);
-      pushed++;
+      for (const sourceEntry of sourceEntries) {
+        await removeEntry(sourceEntry.id);
+      }
+      pushed += sourceEntries.length;
       // Record as processed so sibling child entries processed later this cycle
       // are not incorrectly deferred by the pendingSet guard, even when this
       // entry was skipped and removed from the queue.
@@ -1030,7 +1078,7 @@ export async function drainQueue(cfg, signal) {
         pushedIds.push({ collection: entry.collection, recordId: entry.record_id });
       }
     } else {
-      if (await _handleEntryFailure(entry, entryKey, result)) break;
+      if (await _handleEntryFailure(gateEntry, entryKey, result)) break;
     }
   }
 

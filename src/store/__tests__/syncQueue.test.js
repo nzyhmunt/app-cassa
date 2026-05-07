@@ -219,6 +219,41 @@ describe('drainQueue()', () => {
     expect(JSON.parse(opts.body).order_time).toBeUndefined();
   });
 
+  it('coalesces queued order update snapshots for the same record into one PATCH', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue(mockResponse(200, { data: { id: 'ord_1' } }));
+    await enqueue('orders', 'update', 'ord_1', { status: 'accepted' });
+    await enqueue('orders', 'update', 'ord_1', {
+      orderItems: [
+        { id: 'oi_1', uid: 'oi_1', name: 'Coperto', quantity: 4, voidedQuantity: 2, unitPrice: 2.5, notes: [], modifiers: [] },
+      ],
+      totalAmount: 5,
+      itemCount: 2,
+    });
+    await enqueue('orders', 'update', 'ord_1', {
+      orderItems: [
+        { id: 'oi_1', uid: 'oi_1', name: 'Coperto', quantity: 4, voidedQuantity: 0, unitPrice: 2.5, notes: [], modifiers: [] },
+      ],
+      totalAmount: 10,
+      itemCount: 4,
+    });
+
+    const result = await drainQueue(FAKE_CFG);
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const [url, opts] = fetchSpy.mock.calls[0];
+    expect(url).toContain('/items/orders/ord_1');
+    expect(opts.method).toBe('PATCH');
+    const body = JSON.parse(opts.body);
+    expect(body.status).toBe('accepted');
+    expect(body.total_amount).toBe(10);
+    expect(body.item_count).toBe(4);
+    expect(body.order_items).toHaveLength(1);
+    expect(body.order_items[0].voided_quantity).toBe(0);
+    expect(result.pushed).toBe(3);
+    expect(result.pushedIds).toEqual([{ collection: 'orders', recordId: 'ord_1' }]);
+    expect(await getPendingEntries()).toHaveLength(0);
+  });
+
   it('strips _sync_status and orderItems from payload', async () => {
     const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue(mockResponse(201, {}));
     await enqueue('orders', 'create', 'ord_1', {
