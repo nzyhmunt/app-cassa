@@ -2476,7 +2476,7 @@ function removeModFromDirectVariantModal(modIdx) {
 function addModToDirectVariantModal() {
   const name = directVariantModal.value.modName.trim();
   if (!name) return;
-  directVariantModal.value.modifiersArray.push({ name, price: parseFloat(String(directVariantModal.value.modPrice)) || 0 });
+  directVariantModal.value.modifiersArray.push({ name, price: parseFloat(directVariantModal.value.modPrice) || 0 });
   directVariantModal.value.modName = '';
   directVariantModal.value.modPrice = 0;
 }
