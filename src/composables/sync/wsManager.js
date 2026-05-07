@@ -372,6 +372,11 @@ export async function _handleSubscriptionMessage(collection, message) {
     }
     for (const r of objectData) {
       const id = r.id != null ? String(r.id) : null;
+      const isDirectEcho = _isEchoSuppressed(collection, id);
+      if (event === 'create' && isDirectEcho) {
+        suppressedCount++;
+        continue;
+      }
       let local = null;
       if (collection === 'order_items' && id && db) {
         try {
@@ -386,7 +391,7 @@ export async function _handleSubscriptionMessage(collection, message) {
       const isOrderItemsParentEcho = collection === 'order_items'
         && local
         && _isEchoSuppressed('orders', parentOrderId);
-      if (!_isEchoSuppressed(collection, id) && !isOrderItemsParentEcho) {
+      if (!isDirectEcho && !isOrderItemsParentEcho) {
         nonEcho.push(r);
         continue;
       }
