@@ -106,7 +106,7 @@ export async function purgeCollection(storeName, retentionDays, options = {}) {
   const {
     statusFilter = null,
     dateField = 'date_updated',
-    dateIndex = null,  // IDB index name for `dateField` — avoids a full store scan
+    dateIndex = null,  // IDB index name matching dateField (e.g. 'date_updated'); when set, only age-eligible records are fetched via a range query instead of a full store scan
     pkField = 'id',
     requireMissingParent = null,
     skipSyncGuard = false,
