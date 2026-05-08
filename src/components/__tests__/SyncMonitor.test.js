@@ -54,13 +54,20 @@ describe('SyncMonitor watchdog vs network classification', () => {
     vi.useFakeTimers();
     getPendingEntriesMock.mockResolvedValue([]);
     getFailedSyncCallsMock.mockResolvedValue([]);
-    if (!navigator.clipboard) {
+    if (!navigator.clipboard || typeof navigator.clipboard.writeText !== 'function') {
       Object.defineProperty(navigator, 'clipboard', {
         configurable: true,
         value: { writeText: vi.fn() },
       });
     }
-    vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue(undefined);
+    try {
+      vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue(undefined);
+    } catch {
+      Object.defineProperty(navigator, 'clipboard', {
+        configurable: true,
+        value: { ...navigator.clipboard, writeText: vi.fn().mockResolvedValue(undefined) },
+      });
+    }
   });
 
   afterEach(() => {
