@@ -53,40 +53,68 @@ export async function _preparePullRecordsForIDB(collection, mapped, cachedState 
     const records = mapped.map((incoming) => {
       const existing = existingById.get(String(incoming?.id ?? ''));
       if (!existing) return incoming;
-      if (Array.isArray(existing.orderItems) && existing.orderItems.length > 0) {
-        // Build a merged base that preserves local orderItems and the locally-computed
-        // totals (totalAmount / itemCount and their snake_case twins).  These fields
-        // must move together: keeping existing.orderItems while accepting server totals
-        // would produce an inconsistent order (voided items with stale totals) that
-        // causes UI "flip-backs" on the order total after a void/restore operation.
-        const withLocalItems = { ...incoming, orderItems: existing.orderItems };
+
+      const orderId = incoming?.id != null ? String(incoming.id) : null;
+      const hasExistingItems = Array.isArray(existing.orderItems) && existing.orderItems.length > 0;
+
+      // Build withLocalItems once so it can be reused in both the echo-suppressed
+      // and the no-incoming-items guard paths.  When cachedState has no items for
+      // this order, withLocalItems remains null and the echo-suppressed path returns
+      // null (filtered out below) to protect the REAL IDB state from being
+      // overwritten by a stale Directus snapshot.
+      //
+      // These totals fields must move with orderItems: keeping existing.orderItems
+      // while accepting server totals would produce an inconsistent order (voided
+      // items with stale totals) that causes UI "flip-backs" on the order total
+      // after a void/restore operation.
+      let withLocalItems = null;
+      if (hasExistingItems) {
+        withLocalItems = { ...incoming, orderItems: existing.orderItems };
         if (existing.totalAmount != null) withLocalItems.totalAmount = existing.totalAmount;
         if (existing.total_amount != null) withLocalItems.total_amount = existing.total_amount;
         if (existing.itemCount != null) withLocalItems.itemCount = existing.itemCount;
         if (existing.item_count != null) withLocalItems.item_count = existing.item_count;
+      }
 
+      // Echo-suppression guard: applied UNCONDITIONALLY (before the orderItems
+      // length check) so that locally-mutated orders whose orderItems snapshot in
+      // cachedState is empty or stale are also protected.
+      //
+      // Scenario: user adds items to an order → saveStateToIDB writes the new
+      // orderItems → enqueue fires the push → REST pull's cachedState was loaded
+      // BEFORE saveStateToIDB completed → existing.orderItems = [] in cachedState.
+      // Without this guard the stale Directus record (still empty) would reach
+      // upsertRecordsIntoIDB and overwrite the real IDB state (with the new items).
+      //
+      // Mirrors the Issue-3 LWW guard applied to the WebSocket path in wsManager.js.
+      if (orderId && _isEchoSuppressed('orders', orderId)) {
+        const existingTs = existing.date_updated ?? existing.date_created ?? null;
+        const incomingTs = incoming.date_updated ?? incoming.date_created ?? null;
+        // Allow strictly-newer incoming through: this is a cross-device update
+        // that arrived within the echo suppression window and must not be blocked.
+        const isCrossDeviceUpdate = incomingTs != null && existingTs != null && incomingTs > existingTs;
+        if (!isCrossDeviceUpdate) {
+          // Return withLocalItems when cachedState has items (keeps known-good local
+          // orderItems and totals); null when cachedState is empty/stale (filters
+          // the record out of the write batch so upsertRecordsIntoIDB does not write
+          // anything, leaving the real IDB state — which may have items added after
+          // cachedState was captured — intact).
+          return withLocalItems;
+        }
+      }
+
+      // Not echo-suppressed (or cross-device update allowed through): preserve local
+      // orderItems only when the incoming REST payload carries no items of its own
+      // (e.g. the server snapshot predates the PATCH being applied).
+      if (withLocalItems) {
         const hasIncomingItems = Array.isArray(incoming.orderItems) && incoming.orderItems.length > 0;
         if (!hasIncomingItems) {
           return withLocalItems;
         }
-        // Echo-suppression guard: if this order has a pending or recently-completed
-        // local push, keep local orderItems rather than letting a concurrent REST pull
-        // overwrite void/restore mutations that have not yet propagated back via WS.
-        // Mirrors the Issue-3 LWW guard applied to the WebSocket path in wsManager.js.
-        const orderId = incoming?.id != null ? String(incoming.id) : null;
-        if (orderId && _isEchoSuppressed('orders', orderId)) {
-          const existingTs = existing.date_updated ?? existing.date_created ?? null;
-          const incomingTs = incoming.date_updated ?? incoming.date_created ?? null;
-          // Allow strictly-newer incoming through: this is a cross-device update
-          // that arrived within the echo suppression window and must not be blocked.
-          const isCrossDeviceUpdate = incomingTs != null && existingTs != null && incomingTs > existingTs;
-          if (!isCrossDeviceUpdate) {
-            return withLocalItems;
-          }
-        }
       }
+
       return incoming;
-    });
+    }).filter(Boolean); // filter out null entries (echo-suppressed orders with no cached items)
     return { records, state };
   }
 
