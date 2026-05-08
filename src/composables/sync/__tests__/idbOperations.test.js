@@ -326,7 +326,7 @@ describe('_preparePullRecordsForIDB — echo-suppression guard for orders', () =
     // Regression for "inserimento comanda" rollback: addItemsToOrder writes items to
     // real IDB and enqueues a push, but the REST pull's cachedState was captured BEFORE
     // saveStateToIDB completed, leaving existing.orderItems = [] in the snapshot.
-    // The server also returns orderItems = [] (PATCH not yet processed).
+    // Directus also returns orderItems = [] because the PATCH has not been processed yet.
     // Without the fix, _preparePullRecordsForIDB would return incoming (stale empty),
     // and upsertRecordsIntoIDB would overwrite the real IDB state (with the new items).
     _registerPushedEchoes([{ collection: 'orders', recordId: 'ord_echo' }], 5000);
@@ -342,18 +342,19 @@ describe('_preparePullRecordsForIDB — echo-suppression guard for orders', () =
     const incomingFromServer = {
       id: 'ord_echo',
       date_updated: TS0,
-      orderItems: [{ id: 'oi_1', quantity: 2 }], // non-empty — a *different* scenario
-      totalAmount: 10,
-      total_amount: 10,
-      itemCount: 1,
-      item_count: 1,
+      orderItems: [], // Directus still returns empty — PATCH not yet processed
+      totalAmount: 0,
+      total_amount: 0,
+      itemCount: 0,
+      item_count: 0,
     };
     const state = { orders: [emptyOrder] };
 
     const { records } = await _preparePullRecordsForIDB('orders', [incomingFromServer], state);
 
     // The record should be excluded from the write batch (null filtered out) so that
-    // the real IDB state (which may have items not visible in cachedState) is preserved.
+    // the real IDB state (which already has the items added after cachedState was
+    // captured) is preserved.
     expect(records).toHaveLength(0);
   });
 
