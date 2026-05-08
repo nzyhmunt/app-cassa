@@ -397,6 +397,7 @@ export async function _handleSubscriptionMessage(collection, message) {
     // and the update must not be silently dropped (data loss prevention).
     const nonEcho = [];
     suppressedCount = 0;
+    let shouldTriggerOrderItemsCatchUpPull = false;
     // Fetch the IDB handle lazily only for records that actually need the LWW
     // echo check, so the common non-echo case stays on the fast path.
     let db;
@@ -456,6 +457,7 @@ export async function _handleSubscriptionMessage(collection, message) {
       // and replaying them can cause visible rollback/flicker during rapid
       // storno interactions (intermediate states briefly re-applied).
       if (isOrderItemsParentEcho) {
+        shouldTriggerOrderItemsCatchUpPull = true;
         suppressedCount++;
         continue;
       }
@@ -493,6 +495,13 @@ export async function _handleSubscriptionMessage(collection, message) {
       console.debug(
         `[DirectusSync] WS ${event} on ${collection}: suppressed ${suppressedCount} self-echo(es)`,
       );
+    }
+    // Parent-order-suppressed order_items updates may include meaningful remote
+    // changes that we intentionally defer to avoid replaying stale intermediate
+    // local states. Schedule a coalesced REST catch-up pull so the latest server
+    // state is eventually merged after the echo window.
+    if (shouldTriggerOrderItemsCatchUpPull) {
+      _triggerImmediateOrderItemsPull();
     }
     if (nonEcho.length === 0) return;
     const mapped = nonEcho.map(r => _mapRecord(collection, r));

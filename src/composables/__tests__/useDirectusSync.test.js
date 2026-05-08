@@ -2868,6 +2868,57 @@ describe('self-echo suppression (_handleSubscriptionMessage)', () => {
     expect(storedStandalone).toBeUndefined();
   });
 
+  it('triggers an immediate order_items catch-up pull when parent-order-suppressed WS update is dropped', async () => {
+    const { syncState } = await import('../sync/state.js');
+    syncState._running = true;
+
+    await upsertRecordsIntoIDB('orders', [{
+      id: 'ord_ws_parent_pull',
+      status: 'accepted',
+      date_updated: '2026-01-01T00:00:00.000Z',
+      orderItems: [
+        {
+          id: 'oi_ws_parent_pull',
+          uid: 'oi_ws_parent_pull',
+          order: 'ord_ws_parent_pull',
+          name: 'Test item',
+          unitPrice: 2.5,
+          quantity: 4,
+          voidedQuantity: 1,
+          notes: [],
+          modifiers: [],
+        },
+      ],
+    }]);
+    _registerPushedEchoes([{ collection: 'orders', recordId: 'ord_ws_parent_pull' }]);
+
+    const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue(directusListResponse([]));
+
+    await _handleSubscriptionMessage('order_items', {
+      event: 'update',
+      data: [{
+        id: 'oi_ws_parent_pull',
+        uid: 'oi_ws_parent_pull',
+        order: 'ord_ws_parent_pull',
+        name: 'Test item',
+        unit_price: '2.50',
+        quantity: 4,
+        voided_quantity: 0,
+        notes: [],
+        status: 'active',
+        date_updated: '2026-01-01T00:00:05.000Z',
+        order_item_modifiers: [],
+      }],
+    });
+
+    await vi.waitFor(() => {
+      const orderItemFetches = fetchSpy.mock.calls
+        .map(([url]) => String(url))
+        .filter(url => url.includes('/items/order_items'));
+      expect(orderItemFetches.length).toBeGreaterThan(0);
+    }, { timeout: 5000 });
+  });
+
   it('preserves non-orderItems IDB fields when WS update omits them (partial payload)', async () => {
     // Pre-seed IDB with an order that has a non-zero totalAmount and globalNote
     await upsertRecordsIntoIDB('orders', [{
