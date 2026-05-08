@@ -1636,6 +1636,14 @@ export function mapPayloadToDirectus(collection, payload, ctx = {}) {
     }
   }
 
+  // Sparse orders PATCH payloads can carry `order_items: []` from local/default
+  // state snapshots. Sending an empty nested relation array to Directus can
+  // trigger nested validation on required FKs (`order`) even though no item
+  // mutation is intended, so omit it for update operations.
+  if (collection === 'orders' && operation === 'update' && Array.isArray(mapped.order_items) && mapped.order_items.length === 0) {
+    delete mapped.order_items;
+  }
+
   // Step 5 — payment method FK resolution
   if (_PAYMENT_METHOD_COLLECTIONS.has(collection)) {
     const resolved = resolvePaymentMethodMeta(
