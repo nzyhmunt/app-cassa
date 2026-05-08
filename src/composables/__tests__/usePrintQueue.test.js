@@ -470,7 +470,7 @@ describe('enqueuePreBillJob()', () => {
     ];
     const store = useAppStore();
 
-    enqueuePreBillJob({ table: '08' }, null, 'Broken TCP', '');
+    enqueuePreBillJob({ table: '08' }, 'http://localhost:3999/print', 'Broken TCP', '');
 
     expect(fetchMock).not.toHaveBeenCalled();
     expect(store.printLog).toHaveLength(0);
