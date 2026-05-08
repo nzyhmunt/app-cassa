@@ -114,7 +114,7 @@ export async function _preparePullRecordsForIDB(collection, mapped, cachedState 
       }
 
       return incoming;
-    }).filter(Boolean); // filter out null entries (echo-suppressed orders with no cached items)
+    }).filter(Boolean); // filter out null/undefined entries (echo-suppressed orders with no cached items)
     return { records, state };
   }
 
