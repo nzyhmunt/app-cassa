@@ -760,7 +760,7 @@ describe('TCP/file printer routing (Directus print-server path)', () => {
 
   it('enqueuePrintJobs does not enqueue Directus jobs when TCP/file printer has no id', async () => {
     appConfig.printers = [
-      { id: '', name: 'Broken TCP', connectionType: 'tcp', url: 'http://localhost:3999/print', printTypes: ['order'] },
+      { id: '', name: 'MissingIdTCPPrinter', connectionType: 'tcp', url: 'http://localhost:3999/print', printTypes: ['order'] },
     ];
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
