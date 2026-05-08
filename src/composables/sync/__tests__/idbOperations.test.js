@@ -322,6 +322,70 @@ describe('_preparePullRecordsForIDB — echo-suppression guard for orders', () =
     expect(records[0].itemCount).toBe(1);
   });
 
+  it('excludes record from write batch when echo-suppressed and cachedState has empty orderItems', async () => {
+    // Regression for "inserimento comanda" rollback: addItemsToOrder writes items to
+    // real IDB and enqueues a push, but the REST pull's cachedState was captured BEFORE
+    // saveStateToIDB completed, leaving existing.orderItems = [] in the snapshot.
+    // Directus also returns orderItems = [] because the PATCH has not been processed yet.
+    // Without the fix, _preparePullRecordsForIDB would return incoming (stale empty),
+    // and upsertRecordsIntoIDB would overwrite the real IDB state (with the new items).
+    _registerPushedEchoes([{ collection: 'orders', recordId: 'ord_echo' }], 5000);
+    const emptyOrder = {
+      id: 'ord_echo',
+      date_updated: TS0,
+      orderItems: [], // stale cachedState — items were added AFTER this snapshot
+      totalAmount: 0,
+      total_amount: 0,
+      itemCount: 0,
+      item_count: 0,
+    };
+    const incomingFromServer = {
+      id: 'ord_echo',
+      date_updated: TS0,
+      orderItems: [], // Directus still returns empty — PATCH not yet processed
+      totalAmount: 0,
+      total_amount: 0,
+      itemCount: 0,
+      item_count: 0,
+    };
+    const state = { orders: [emptyOrder] };
+
+    const { records } = await _preparePullRecordsForIDB('orders', [incomingFromServer], state);
+
+    // The record should be excluded from the write batch (null filtered out) so that
+    // the real IDB state (which already has the items added after cachedState was
+    // captured) is preserved.
+    expect(records).toHaveLength(0);
+  });
+
+  it('allows cross-device update through even when cachedState has empty orderItems', async () => {
+    // If another device made a strictly-newer update during our echo window, it must
+    // not be blocked even when cachedState is stale with empty items.
+    _registerPushedEchoes([{ collection: 'orders', recordId: 'ord_echo' }], 5000);
+    const emptyOrder = {
+      id: 'ord_echo',
+      date_updated: TS0,
+      orderItems: [],
+    };
+    const crossDeviceIncoming = {
+      id: 'ord_echo',
+      date_updated: TS1, // strictly newer → cross-device update
+      orderItems: [{ id: 'oi_2', quantity: 1 }],
+      totalAmount: 5,
+      total_amount: 5,
+      itemCount: 1,
+      item_count: 1,
+    };
+    const state = { orders: [emptyOrder] };
+
+    const { records } = await _preparePullRecordsForIDB('orders', [crossDeviceIncoming], state);
+
+    // Cross-device update is strictly newer → must win even during echo window.
+    expect(records).toHaveLength(1);
+    expect(records[0].orderItems[0].id).toBe('oi_2');
+    expect(records[0].totalAmount).toBe(5);
+  });
+
   it('returns input unchanged when state snapshot is null (bill_sessions path)', async () => {
     // bill_sessions is handled by its own branch; passing state=null forces the early
     // return and asserts the reference is preserved (no extra allocation).
