@@ -405,7 +405,8 @@ export function enqueueTableMoveJob(fromTableId, fromTableLabel, toTableId, toTa
 export function enqueuePreBillJob(payload, printerUrl, printerName, printerIdOverride = null) {
   const store = getStore();
   const timestamp = new Date().toISOString();
-  const runtimePrinters = getRuntimeConfig(store).printers ?? [];
+  const cfgPrinters = getRuntimeConfig(store).printers;
+  const runtimePrinters = Array.isArray(cfgPrinters) ? cfgPrinters : [];
   const printerFromId = printerIdOverride
     ? runtimePrinters.find(p => p.id === printerIdOverride)
     : null;
@@ -414,12 +415,14 @@ export function enqueuePreBillJob(payload, printerUrl, printerName, printerIdOve
     : null;
   const printer = printerFromId ?? printerFromUrl ?? null;
   const resolvedUrl = printerUrl ?? printer?.url ?? null;
+  const usesDirectus = Boolean(printer && isDirectusManagedPrinter(printer));
   // Keep a stable fallback id for HTTP-only pre-bill printers configured only by URL:
   // this preserves historical payload compatibility (payload.printerId) when no
   // explicit printer id is available. Directus-managed routing never uses this
   // fallback because it requires a resolved runtime printer.
-  const printerId = printerIdOverride ?? printer?.id ?? (resolvedUrl ? 'pre_bill' : null);
-  const usesDirectus = Boolean(printer && isDirectusManagedPrinter(printer));
+  const printerId = usesDirectus
+    ? (printerIdOverride ?? printer?.id ?? null)
+    : (printerIdOverride ?? printer?.id ?? (resolvedUrl ? 'pre_bill' : null));
 
   if (usesDirectus && !printerId) {
     console.warn(
