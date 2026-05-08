@@ -477,6 +477,24 @@ describe('drainQueue()', () => {
     expect(body.children).toBeUndefined();
   });
 
+  it('omits empty snake_case order_items arrays on sparse orders update payloads', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue(mockResponse(200, { data: {} }));
+    await enqueue('orders', 'update', '019e078a-e583-7000-bf4b-05d1f8588eff', {
+      venue_user_updated: '29a77c55-0055-4d20-9c11-2913ac974a75',
+      order_items: [],
+      total_amount: 0,
+      item_count: 0,
+    });
+
+    await drainQueue(FAKE_CFG);
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.venue_user_updated).toBe('29a77c55-0055-4d20-9c11-2913ac974a75');
+    expect(body.total_amount).toBe(0);
+    expect(body.item_count).toBe(0);
+    expect(body.order_items).toBeUndefined();
+  });
+
   it('sets order FK on nested order_items when payload has no id (partial update)', async () => {
     // Reproduces: "Validation failed for field 'order' at 'order_items'. Value can't be null."
     // The order ID lives in record_id; the partial-update payload does NOT carry `id`.
