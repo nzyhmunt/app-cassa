@@ -398,17 +398,34 @@ export function enqueueTableMoveJob(fromTableId, fromTableLabel, toTableId, toTa
  * The printer is chosen by the cashier in the settings (default pre-bill printer).
  *
  * @param {object} payload      – Pre-bill data (tableId, tableLabel, items, amounts …)
- * @param {string} printerUrl   – URL of the target printer service
+ * @param {string|null} printerUrl   – URL of the target printer service (nullable for Directus-managed printers)
  * @param {string} printerName  – Human-readable name for the log entry
  * @param {string|null} [printerIdOverride] – Explicit printer id (preferred when available)
  */
 export function enqueuePreBillJob(payload, printerUrl, printerName, printerIdOverride = null) {
-  if (!printerUrl) return;
-
   const store = getStore();
   const timestamp = new Date().toISOString();
-  const printer = getRuntimeConfig(store).printers?.find(p => p.url === printerUrl);
-  const printerId = printerIdOverride ?? printer?.id ?? 'pre_bill';
+  const runtimePrinters = getRuntimeConfig(store).printers ?? [];
+  const printerFromId = printerIdOverride
+    ? runtimePrinters.find(p => p.id === printerIdOverride)
+    : null;
+  const printerFromUrl = printerUrl
+    ? runtimePrinters.find(p => p.url === printerUrl)
+    : null;
+  const printer = printerFromId ?? printerFromUrl ?? null;
+  const resolvedUrl = printerUrl ?? printer?.url ?? null;
+  const printerId = printerIdOverride ?? printer?.id ?? (resolvedUrl ? 'pre_bill' : null);
+  const usesDirectus = printer ? isDirectusManagedPrinter(printer) : !resolvedUrl;
+
+  if (usesDirectus && !printerId) {
+    console.warn(
+      '[printQueue] Cannot enqueue Directus-managed pre-bill job: printerId is missing.',
+      { printerUrl: resolvedUrl },
+    );
+    return;
+  }
+
+  if (!usesDirectus && !resolvedUrl) return;
 
   const job = {
     jobId: newUUIDv7('job'),
@@ -425,14 +442,20 @@ export function enqueuePreBillJob(payload, printerUrl, printerName, printerIdOve
     jobId: job.jobId,
     printerId,
     printerName: printerName ?? printer?.name ?? 'Stampante',
-    printerUrl,
+    printerUrl: resolvedUrl,
     printType: 'pre_bill',
     table: payload.table ?? payload.tableId ?? '',
     timestamp,
     payload: job,
   });
 
-  sendPrintJob(job, printerUrl, logId, store);
+  if (usesDirectus) {
+    // Job delivered to Directus sync queue; update UI status to 'queued' without
+    // patching Directus (the record must stay 'pending' for the print-dispatcher).
+    store?.updatePrintLogEntryLocal(logId, { status: 'queued' });
+  } else {
+    sendPrintJob(job, resolvedUrl, logId, store);
+  }
 }
 
 /**

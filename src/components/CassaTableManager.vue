@@ -2863,10 +2863,10 @@ function generateTableCheckoutJson(ctx = 'table') {
   // Send to configured pre-bill printer (if any selected in settings)
   if (ctx === 'table') {
     const preBillPrinter = preBillPrinterConfig.value;
-    if (preBillPrinter?.url) {
+    if (preBillPrinter) {
       enqueuePreBillJob(
         payload,
-        preBillPrinter.url,
+        preBillPrinter.url ?? null,
         preBillPrinter.name ?? preBillPrinter.id,
         preBillPrinter.id ?? null,
       );
