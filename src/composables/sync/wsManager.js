@@ -397,6 +397,7 @@ export async function _handleSubscriptionMessage(collection, message) {
     // and the update must not be silently dropped (data loss prevention).
     const nonEcho = [];
     suppressedCount = 0;
+    let shouldTriggerOrderItemsCatchUpPull = false;
     // Fetch the IDB handle lazily only for records that actually need the LWW
     // echo check, so the common non-echo case stays on the fast path.
     let db;
@@ -450,6 +451,16 @@ export async function _handleSubscriptionMessage(collection, message) {
         nonEcho.push(r);
         continue;
       }
+      // For order_items updates suppressed via the parent order echo window,
+      // treat them as self-echo and drop them. These updates are typically the
+      // server echo of local embedded order_items patches pushed on `orders`,
+      // and replaying them can cause visible rollback/flicker during rapid
+      // storno interactions (intermediate states briefly re-applied).
+      if (isOrderItemsParentEcho) {
+        shouldTriggerOrderItemsCatchUpPull = true;
+        suppressedCount++;
+        continue;
+      }
       // LWW guard: allow through when incoming is strictly newer than stored.
       // Directus timestamps are ISO 8601 UTC strings (e.g. "2024-06-01T12:00:00.000Z")
       // which are lexicographically comparable — no Date parsing overhead needed.
@@ -484,6 +495,13 @@ export async function _handleSubscriptionMessage(collection, message) {
       console.debug(
         `[DirectusSync] WS ${event} on ${collection}: suppressed ${suppressedCount} self-echo(es)`,
       );
+    }
+    // Parent-order-suppressed order_items updates may include meaningful remote
+    // changes that we intentionally defer to avoid replaying stale intermediate
+    // local states. Schedule a coalesced REST catch-up pull so the latest server
+    // state is eventually merged after the echo window.
+    if (shouldTriggerOrderItemsCatchUpPull) {
+      _triggerImmediateOrderItemsPull();
     }
     if (nonEcho.length === 0) return;
     const mapped = nonEcho.map(r => _mapRecord(collection, r));
