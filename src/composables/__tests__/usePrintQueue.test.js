@@ -758,6 +758,25 @@ describe('TCP/file printer routing (Directus print-server path)', () => {
     expect(store.printLog).toHaveLength(0);
   });
 
+  it('enqueuePrintJobs does not enqueue Directus jobs when TCP/file printer has no id', async () => {
+    appConfig.printers = [
+      { id: '', name: 'Broken TCP', connectionType: 'tcp', url: 'http://localhost:3999/print', printTypes: ['order'] },
+    ];
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    enqueuePrintJobs(makeOrder({ id: 'ord_broken_1', table: 'B1' }));
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    const store = useAppStore();
+    expect(store.printLog).toHaveLength(0);
+
+    await new Promise(r => setTimeout(r, 0));
+    const entries = await getPendingEntries();
+    expect(entries.some(e => e.collection === 'print_jobs')).toBe(false);
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
   it('connectionType is normalized: uppercase TCP is accepted and sets queued status', async () => {
     // isDirectusManagedPrinter() normalizes connectionType before comparing,
     // so 'TCP' (or any mixed-case variant) must be treated the same as 'tcp'.

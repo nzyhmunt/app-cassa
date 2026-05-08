@@ -293,6 +293,13 @@ export function enqueuePrintJobs(order) {
     if (items.length === 0) continue;
 
     const printerId = printer.id ?? null;
+    if (isDirectusManagedPrinter(printer) && !printerId) {
+      console.warn(
+        '[printQueue] Cannot enqueue Directus-managed order job: printerId is missing. Ensure the printer has a valid id.',
+        { printerName: printer?.name ?? null, connectionType: printer?.connectionType ?? null },
+      );
+      continue;
+    }
     const job = {
       jobId: newUUIDv7('job'),
       printType: 'order',
@@ -354,6 +361,13 @@ export function enqueueTableMoveJob(fromTableId, fromTableLabel, toTableId, toTa
 
   for (const printer of printers) {
     const printerId = printer.id ?? null;
+    if (isDirectusManagedPrinter(printer) && !printerId) {
+      console.warn(
+        '[printQueue] Cannot enqueue Directus-managed table_move job: printerId is missing. Ensure the printer has a valid id.',
+        { printerName: printer?.name ?? null, connectionType: printer?.connectionType ?? null },
+      );
+      continue;
+    }
     const job = {
       jobId: newUUIDv7('job'),
       printType: 'table_move',
