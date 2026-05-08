@@ -51,6 +51,7 @@ function findLogRow(wrapper, text) {
 
 describe('SyncMonitor watchdog vs network classification', () => {
   beforeEach(() => {
+    vi.useFakeTimers();
     getPendingEntriesMock.mockResolvedValue([]);
     getFailedSyncCallsMock.mockResolvedValue([]);
     if (!navigator.clipboard) {
@@ -63,6 +64,8 @@ describe('SyncMonitor watchdog vs network classification', () => {
   });
 
   afterEach(() => {
+    vi.clearAllTimers();
+    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
@@ -113,6 +116,10 @@ describe('SyncMonitor watchdog vs network classification', () => {
     expect(heartbeatRow.text()).not.toContain('Network Error');
     expect(networkRow.text()).toContain('Network Error');
     expect(networkRow.text()).not.toContain('WS Watchdog');
+    expect(heartbeatRow.classes()).toContain('bg-orange-50');
+    expect(heartbeatRow.classes()).toContain('border-orange-200');
+    expect(networkRow.classes()).toContain('bg-red-50');
+    expect(networkRow.classes()).toContain('border-red-200');
 
     await heartbeatRow.trigger('click');
     await flushPromises();
