@@ -65,7 +65,7 @@ describe('SyncMonitor watchdog vs network classification', () => {
     } catch {
       Object.defineProperty(navigator, 'clipboard', {
         configurable: true,
-        value: { ...navigator.clipboard, writeText: vi.fn().mockResolvedValue(undefined) },
+        value: { writeText: vi.fn().mockResolvedValue(undefined) },
       });
     }
   });
