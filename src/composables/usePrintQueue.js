@@ -414,13 +414,17 @@ export function enqueuePreBillJob(payload, printerUrl, printerName, printerIdOve
     : null;
   const printer = printerFromId ?? printerFromUrl ?? null;
   const resolvedUrl = printerUrl ?? printer?.url ?? null;
+  // Keep a stable fallback id for HTTP-only pre-bill printers configured only by URL:
+  // this preserves historical payload compatibility (payload.printerId) when no
+  // explicit printer id is available. Directus-managed routing never uses this
+  // fallback because it requires a resolved runtime printer.
   const printerId = printerIdOverride ?? printer?.id ?? (resolvedUrl ? 'pre_bill' : null);
-  const usesDirectus = printer ? isDirectusManagedPrinter(printer) : !resolvedUrl;
+  const usesDirectus = Boolean(printer && isDirectusManagedPrinter(printer));
 
   if (usesDirectus && !printerId) {
     console.warn(
-      '[printQueue] Cannot enqueue Directus-managed pre-bill job: printerId is missing.',
-      { printerUrl: resolvedUrl },
+      '[printQueue] Cannot enqueue Directus-managed pre-bill job: printerId is missing. Ensure the selected printer has a valid id (or pass printerIdOverride).',
+      { printerIdOverride, printerUrl, resolvedUrl },
     );
     return;
   }

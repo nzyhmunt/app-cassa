@@ -450,8 +450,13 @@ describe('enqueuePreBillJob()', () => {
     await vi.waitFor(() => expect(store.printLog[0]?.status).toBe('queued'));
     expect(store.printLog[0]?.printType).toBe('pre_bill');
 
-    const entries = await getPendingEntries();
-    const createEntry = entries.find(
+    await vi.waitFor(async () => {
+      const entries = await getPendingEntries();
+      expect(
+        entries.some((e) => e.collection === 'print_jobs' && e.operation === 'create'),
+      ).toBe(true);
+    });
+    const createEntry = (await getPendingEntries()).find(
       (e) => e.collection === 'print_jobs' && e.operation === 'create',
     );
     expect(createEntry).toBeTruthy();
