@@ -450,15 +450,18 @@ describe('enqueuePreBillJob()', () => {
     await vi.waitFor(() => expect(store.printLog[0]?.status).toBe('queued'));
     expect(store.printLog[0]?.printType).toBe('pre_bill');
 
+    let createEntry;
     await vi.waitFor(async () => {
       const entries = await getPendingEntries();
-      expect(
-        entries.some((e) => e.collection === 'print_jobs' && e.operation === 'create'),
-      ).toBe(true);
+      createEntry = entries.find(
+        (e) => e.collection === 'print_jobs'
+          && e.operation === 'create'
+          && e.payload?.printType === 'pre_bill'
+          && e.payload?.table === '07'
+          && e.payload?.printerId === 'cassa_tcp',
+      );
+      expect(createEntry).toBeTruthy();
     });
-    const createEntry = (await getPendingEntries()).find(
-      (e) => e.collection === 'print_jobs' && e.operation === 'create',
-    );
     expect(createEntry).toBeTruthy();
     expect(createEntry.payload?.printerId).toBe('cassa_tcp');
     expect(createEntry.payload?.printType).toBe('pre_bill');
