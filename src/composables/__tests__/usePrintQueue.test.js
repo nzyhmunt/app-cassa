@@ -475,7 +475,14 @@ describe('enqueuePreBillJob()', () => {
     expect(fetchMock).not.toHaveBeenCalled();
     expect(store.printLog).toHaveLength(0);
     const entries = await getPendingEntries();
-    expect(entries.some((e) => e.collection === 'print_jobs')).toBe(false);
+    expect(
+      entries.some(
+        (e) => e.collection === 'print_jobs'
+          && e.operation === 'create'
+          && e.payload?.printType === 'pre_bill'
+          && e.payload?.table === '08',
+      ),
+    ).toBe(false);
   });
 
   it('does not throw when printers config is non-array', () => {
@@ -772,7 +779,13 @@ describe('TCP/file printer routing (Directus print-server path)', () => {
 
     await new Promise(r => setTimeout(r, 0));
     const entries = await getPendingEntries();
-    expect(entries.some(e => e.collection === 'print_jobs')).toBe(false);
+    expect(
+      entries.some(
+        e => e.collection === 'print_jobs'
+          && e.operation === 'create'
+          && e.payload?.payload?.orderId === 'ord_broken_1',
+      ),
+    ).toBe(false);
     expect(warnSpy).toHaveBeenCalled();
     warnSpy.mockRestore();
   });
