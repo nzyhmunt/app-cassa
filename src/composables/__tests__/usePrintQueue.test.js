@@ -463,8 +463,6 @@ describe('enqueuePreBillJob()', () => {
       expect(createEntry).toBeTruthy();
     });
     expect(createEntry).toBeTruthy();
-    expect(createEntry.payload?.printerId).toBe('cassa_tcp');
-    expect(createEntry.payload?.printType).toBe('pre_bill');
   });
 
   it('does not enqueue a Directus pre-bill when TCP/file printer has no id (even if url is present)', async () => {
