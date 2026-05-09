@@ -438,6 +438,59 @@ describe('enqueuePreBillJob()', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it('enqueues pre-bill to Directus for TCP/file printers without HTTP url', async () => {
+    appConfig.printers = [
+      { id: 'cassa_tcp', name: 'Cassa TCP', connectionType: 'tcp', printTypes: ['pre_bill'] },
+    ];
+    const store = useAppStore();
+
+    enqueuePreBillJob({ table: '07' }, null, 'Cassa TCP', 'cassa_tcp');
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(store.printLog[0]?.status).toBe('queued'));
+    expect(store.printLog[0]?.printType).toBe('pre_bill');
+
+    let createEntry;
+    await vi.waitFor(async () => {
+      const entries = await getPendingEntries();
+      createEntry = entries.find(
+        (e) => e.collection === 'print_jobs'
+          && e.operation === 'create'
+          && e.payload?.printType === 'pre_bill'
+          && e.payload?.table === '07'
+          && e.payload?.printerId === 'cassa_tcp',
+      );
+      expect(createEntry).toBeTruthy();
+    });
+  });
+
+  it('does not enqueue a Directus pre-bill when TCP/file printer has no id (even if url is present)', async () => {
+    appConfig.printers = [
+      { id: '', name: 'Broken TCP', connectionType: 'tcp', url: 'http://localhost:3999/print', printTypes: ['pre_bill'] },
+    ];
+    const store = useAppStore();
+
+    enqueuePreBillJob({ table: '08' }, 'http://localhost:3999/print', 'Broken TCP', '');
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(store.printLog).toHaveLength(0);
+    const entries = await getPendingEntries();
+    expect(
+      entries.some(
+        (e) => e.collection === 'print_jobs'
+          && e.operation === 'create'
+          && e.payload?.printType === 'pre_bill'
+          && e.payload?.table === '08',
+      ),
+    ).toBe(false);
+  });
+
+  it('does not throw when printers config is non-array', () => {
+    appConfig.printers = /** @type {any} */ ({ id: 'not-an-array' });
+    expect(() => enqueuePreBillJob({ table: '01' }, null, 'Cassa', 'cassa_tcp')).not.toThrow();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('sends pre-bill job to the specified url', async () => {
     enqueuePreBillJob({ table: '05', tableLabel: 'Cinque' }, 'http://localhost:3003/print', 'Cassa');
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
@@ -710,6 +763,31 @@ describe('TCP/file printer routing (Directus print-server path)', () => {
     // No sync-queue entry should be created synchronously
     const store = useAppStore();
     expect(store.printLog).toHaveLength(0);
+  });
+
+  it('enqueuePrintJobs does not enqueue Directus jobs when TCP/file printer has no id', async () => {
+    appConfig.printers = [
+      { id: '', name: 'MissingIdTCPPrinter', connectionType: 'tcp', url: 'http://localhost:3999/print', printTypes: ['order'] },
+    ];
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    enqueuePrintJobs(makeOrder({ id: 'ord_broken_1', table: 'B1' }));
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    const store = useAppStore();
+    expect(store.printLog).toHaveLength(0);
+
+    await new Promise(r => setTimeout(r, 0));
+    const entries = await getPendingEntries();
+    expect(
+      entries.some(
+        e => e.collection === 'print_jobs'
+          && e.operation === 'create'
+          && e.payload?.payload?.orderId === 'ord_broken_1',
+      ),
+    ).toBe(false);
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
   });
 
   it('connectionType is normalized: uppercase TCP is accepted and sets queued status', async () => {
