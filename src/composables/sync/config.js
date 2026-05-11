@@ -84,7 +84,16 @@ export const DEEP_FETCH_JSON_FIELDS = [
   'currency_symbol',
   'allow_custom_variants',
   'orders_rejection_reasons',
+  // Operational relation fields: always fetched regardless of menu source so that
+  // TCP/file printers, payment methods, rooms, tables and merge sessions are
+  // available even when menu data comes from a JSON file instead of Directus.
+  'rooms.*',
+  'rooms.tables.*',
+  'tables.*',
+  'payment_methods.*',
+  'printers.*',
   'users.*',
+  'table_merge_sessions.*',
   'cover_charge_enabled',
   'cover_charge_auto_add',
   'cover_charge_price_adult',

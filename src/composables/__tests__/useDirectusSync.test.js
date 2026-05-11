@@ -445,6 +445,12 @@ describe('reconfigureAndApply()', () => {
           billing_enable_tips: false,
           billing_enable_discounts: true,
           billing_allow_custom_entry: true,
+          rooms: [],
+          tables: [],
+          payment_methods: [],
+          printers: [],
+          venue_users: [],
+          table_merge_sessions: [],
         }));
       }
       return Promise.resolve(directusListResponse([]));
@@ -467,8 +473,15 @@ describe('reconfigureAndApply()', () => {
       expect(decodedVenueCall).toContain('cover_charge_enabled');
       expect(decodedVenueCall).toContain('billing_auto_close_on_full_payment');
       expect(decodedVenueCall).toContain('billing_enable_cash_change_calculator');
-      expect(decodedVenueCall).not.toContain('rooms.*');
-      expect(decodedVenueCall).not.toContain('tables.*');
+      // Operational relation fields must be fetched even in json-menu mode so that
+      // TCP printers, rooms, tables and payment methods defined in Directus are
+      // available at runtime regardless of where the menu data comes from.
+      expect(decodedVenueCall).toContain('printers.*');
+      expect(decodedVenueCall).toContain('rooms.*');
+      expect(decodedVenueCall).toContain('tables.*');
+      expect(decodedVenueCall).toContain('payment_methods.*');
+      // Menu data is intentionally excluded when local menuSource is 'json'
+      // (it comes from the JSON file, not from Directus).
       expect(decodedVenueCall).not.toContain('menu_categories.*');
       expect(decodedVenueCall).not.toContain('menu_items.*');
       expect(decodedVenueCall).not.toContain('menu_modifiers.*');
