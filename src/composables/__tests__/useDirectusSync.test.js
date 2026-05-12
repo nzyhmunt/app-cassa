@@ -478,8 +478,10 @@ describe('reconfigureAndApply()', () => {
       // available at runtime regardless of where the menu data comes from.
       expect(decodedVenueCall).toContain('printers.*');
       expect(decodedVenueCall).toContain('rooms.*');
+      expect(decodedVenueCall).toContain('rooms.tables.*');
       expect(decodedVenueCall).toContain('tables.*');
       expect(decodedVenueCall).toContain('payment_methods.*');
+      expect(decodedVenueCall).toContain('table_merge_sessions.*');
       // Menu data is intentionally excluded when local menuSource is 'json'
       // (it comes from the JSON file, not from Directus).
       expect(decodedVenueCall).not.toContain('menu_categories.*');
