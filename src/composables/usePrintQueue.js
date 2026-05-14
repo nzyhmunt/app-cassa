@@ -25,7 +25,7 @@
  * Print-job log entry common fields (stored in store.printLog):
  *   id         string  – UUID v7 (Directus PK; standard UUID, no prefix)
  *   logId      string  – unique log entry identifier (plog_<uuid>; IDB keyPath)
- *   jobId      string  – unique job identifier sent to the printer (job_<uuid>)
+ *   jobId      string  – unique job identifier sent to the printer (plain UUID v7, no prefix)
  *   printType  string  – 'order' | 'table_move' | 'pre_bill' | (any future type)
  *   printerId  string  – printer id from config
  *   printerName string – human-readable printer name
@@ -276,7 +276,16 @@ export function enqueuePrintJobs(order) {
       return acc;
     }, []);
 
-    if (items.length === 0) continue;
+    if (items.length === 0) {
+      if (isCatchAll) {
+        console.warn('[printQueue] enqueuePrintJobs: no active items in order; skipping printer', {
+          printerName: printer?.name ?? null,
+          orderId: order?.id ?? null,
+          orderItemsCount: order.orderItems?.length ?? 0,
+        });
+      }
+      continue;
+    }
 
     const printerId = printer.id ?? null;
     if (isDirectusManagedPrinter(printer) && !printerId) {
@@ -287,7 +296,7 @@ export function enqueuePrintJobs(order) {
       continue;
     }
     const job = {
-      jobId: newUUIDv7('job'),
+      jobId: newUUIDv7(),
       printType: 'order',
       printerId,
       orderId: order.id,
@@ -325,6 +334,22 @@ export function enqueuePrintJobs(order) {
       sendPrintJob(job, printer.url, logId, store);
     } else {
       store?.updatePrintLogEntryLocal(logId, { status: 'queued' });
+      // Add an immediate entry to the activity monitor so the operator can see
+      // the job was accepted and queued for the print-server, without waiting
+      // for drainQueue to push it to Directus.
+      addSyncLog({
+        direction: 'OUT',
+        type: 'PRINT',
+        endpoint: '/directus/print_jobs',
+        payload: job,
+        response: null,
+        status: 'queued',
+        statusCode: null,
+        durationMs: 0,
+        collection: 'print_jobs',
+        operation: 'create',
+        method: null,
+      });
     }
   }
 }
@@ -355,7 +380,7 @@ export function enqueueTableMoveJob(fromTableId, fromTableLabel, toTableId, toTa
       continue;
     }
     const job = {
-      jobId: newUUIDv7('job'),
+      jobId: newUUIDv7(),
       printType: 'table_move',
       printerId,
       fromTableId,
@@ -389,6 +414,19 @@ export function enqueueTableMoveJob(fromTableId, fromTableLabel, toTableId, toTa
       sendPrintJob(job, printer.url, logId, store);
     } else {
       store?.updatePrintLogEntryLocal(logId, { status: 'queued' });
+      addSyncLog({
+        direction: 'OUT',
+        type: 'PRINT',
+        endpoint: '/directus/print_jobs',
+        payload: job,
+        response: null,
+        status: 'queued',
+        statusCode: null,
+        durationMs: 0,
+        collection: 'print_jobs',
+        operation: 'create',
+        method: null,
+      });
     }
   }
 }
@@ -435,7 +473,7 @@ export function enqueuePreBillJob(payload, printerUrl, printerName, printerIdOve
   if (!usesDirectus && !resolvedUrl) return;
 
   const job = {
-    jobId: newUUIDv7('job'),
+    jobId: newUUIDv7(),
     printType: 'pre_bill',
     printerId,
     timestamp,
@@ -460,6 +498,19 @@ export function enqueuePreBillJob(payload, printerUrl, printerName, printerIdOve
     // Job delivered to Directus sync queue; update UI status to 'queued' without
     // patching Directus (the record must stay 'pending' for the print-dispatcher).
     store?.updatePrintLogEntryLocal(logId, { status: 'queued' });
+    addSyncLog({
+      direction: 'OUT',
+      type: 'PRINT',
+      endpoint: '/directus/print_jobs',
+      payload: job,
+      response: null,
+      status: 'queued',
+      statusCode: null,
+      durationMs: 0,
+      collection: 'print_jobs',
+      operation: 'create',
+      method: null,
+    });
   } else {
     sendPrintJob(job, resolvedUrl, logId, store);
   }
@@ -522,7 +573,7 @@ export function reprintJob(logEntry, overrideUrl = null) {
 
   const job = {
     ...payload,
-    jobId: newUUIDv7('job'),
+    jobId: newUUIDv7(),
     reprinted: true,
     timestamp,
     printerId,
@@ -550,6 +601,19 @@ export function reprintJob(logEntry, overrideUrl = null) {
     // Job delivered to Directus sync queue; update UI status to 'queued' without
     // patching Directus (the record must stay 'pending' for the print-dispatcher).
     store?.updatePrintLogEntryLocal(logId, { status: 'queued' });
+    addSyncLog({
+      direction: 'OUT',
+      type: 'PRINT',
+      endpoint: '/directus/print_jobs',
+      payload: job,
+      response: null,
+      status: 'queued',
+      statusCode: null,
+      durationMs: 0,
+      collection: 'print_jobs',
+      operation: 'create',
+      method: null,
+    });
   } else {
     sendPrintJob(job, url, logId, store);
   }

@@ -717,11 +717,14 @@ function _entryEndpoint(entry) {
  */
 function _logPushResult(entry, result, durationMs) {
   if (result === 'skip') return; // no-op deletes are not worth logging
+  // print_jobs push results appear in the Stampa (PRINT) tab, not Push tab,
+  // so operators can track all print-job activity in one place.
+  const logType = entry.collection === 'print_jobs' ? 'PRINT' : 'PUSH';
   let logEntry;
   if (result && typeof result === 'object' && result.ok === true) {
     logEntry = {
       direction: 'OUT',
-      type: 'PUSH',
+      type: logType,
       endpoint: result.requestContext?.endpoint ?? _entryEndpoint(entry),
       payload: result.requestContext?.body ?? entry.payload ?? null,
       response: result.record ?? null,
@@ -736,7 +739,7 @@ function _logPushResult(entry, result, durationMs) {
     const failure = typeof result === 'object' && result !== null ? result : { message: String(result) };
     logEntry = {
       direction: 'OUT',
-      type: 'PUSH',
+      type: logType,
       endpoint: failure.request?.endpoint ?? failure.requestContext?.endpoint ?? _entryEndpoint(entry),
       payload: failure.request?.body ?? entry.payload ?? null,
       response: failure.response ?? null,
