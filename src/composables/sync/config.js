@@ -84,7 +84,12 @@ export const DEEP_FETCH_JSON_FIELDS = [
   'currency_symbol',
   'allow_custom_variants',
   'orders_rejection_reasons',
-  'users.*',
+  // Operational relation fields: derived from DEEP_FETCH_BASE_RELATION_FIELDS
+  // (minus the catch-all '*') so these two stay in sync automatically.
+  // 'rooms.tables.*' is added here since it is not part of the base set but is
+  // required even in JSON-menu mode.
+  ...DEEP_FETCH_BASE_RELATION_FIELDS.filter((f) => f !== '*'),
+  'rooms.tables.*',
   'cover_charge_enabled',
   'cover_charge_auto_add',
   'cover_charge_price_adult',
