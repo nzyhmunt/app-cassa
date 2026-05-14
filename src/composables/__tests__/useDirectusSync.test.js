@@ -485,7 +485,10 @@ describe('reconfigureAndApply()', () => {
       // Menu data is intentionally excluded when local menuSource is 'json'
       // (it comes from the JSON file, not from Directus).
       expect(decodedVenueCall).not.toContain('menu_categories.*');
+      expect(decodedVenueCall).not.toContain('menu_categories.menu_items.*');
+      expect(decodedVenueCall).not.toContain('menu_categories.menu_modifiers.menu_modifiers_id.*');
       expect(decodedVenueCall).not.toContain('menu_items.*');
+      expect(decodedVenueCall).not.toContain('menu_items.menu_modifiers.menu_modifiers_id.*');
       expect(decodedVenueCall).not.toContain('menu_modifiers.*');
     } finally {
       appConfig.menuSource = previousSource;
