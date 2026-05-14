@@ -9,7 +9,7 @@
  * Extracted from useDirectusSync.js (§5.7 refactor).
  */
 
-import { appConfig } from '../../utils/index.js';
+import { appConfig, isDirectusManagedPrinter } from '../../utils/index.js';
 import { syncState, _SYNC_TAB_ID } from './state.js';
 
 /**
@@ -71,7 +71,8 @@ export async function _refreshStoreConfigFromIDB(options = {}) {
 export function _preBillPrinters() {
   return (appConfig.printers ?? []).filter((printer) => {
     if (typeof printer?.id !== 'string' || !printer.id.trim()) return false;
-    if (!printer?.url) return false;
+    const isDirectusManaged = isDirectusManagedPrinter(printer);
+    if (!printer?.url && !isDirectusManaged) return false;
     // Empty/missing printTypes means catch-all printer (includes pre_bill),
     // consistent with usePrintQueue routing semantics.
     if (!Array.isArray(printer.printTypes) || printer.printTypes.length === 0) return true;

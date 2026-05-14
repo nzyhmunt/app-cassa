@@ -313,6 +313,7 @@ describe('pre-bill printer settings (runtime config alignment)', () => {
       printers: [
         { id: 'all', name: 'Stampante Tutto', url: 'http://all.local' },
         { id: 'pre', name: 'Stampante Preconto', url: 'http://pre.local', printTypes: ['pre_bill'] },
+        { id: 'tcp_pre', name: 'Stampante TCP', connectionType: 'tcp', printTypes: ['pre_bill'] },
         { id: 'kitchen', name: 'Stampante Cucina', url: 'http://kitchen.local', printTypes: ['order'] },
       ],
     };
@@ -322,6 +323,8 @@ describe('pre-bill printer settings (runtime config alignment)', () => {
 
     expect(wrapper.text()).toContain('Stampante Preconto');
     expect(wrapper.text()).toContain('Stampante Tutto');
+    expect(wrapper.text()).toContain('Stampante TCP');
+    expect(wrapper.text()).toContain('Gestita da Directus · Rete TCP');
     expect(wrapper.text()).not.toContain('Stampante Cucina');
   });
 

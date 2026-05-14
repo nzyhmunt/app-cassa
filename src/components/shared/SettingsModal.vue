@@ -145,7 +145,7 @@
               <input type="radio" name="preBillPrinter" :value="p.id" v-model="settings.preBillPrinterId" class="accent-[var(--brand-primary)] shrink-0" />
               <div class="min-w-0">
                 <span class="text-sm font-bold text-gray-800 block truncate">{{ p.name ?? p.id }}</span>
-                <span class="text-[10px] text-gray-400 truncate block">{{ p.url }}</span>
+                <span class="text-[10px] text-gray-400 truncate block">{{ getPrinterSubtitle(p) }}</span>
               </div>
             </label>
           </div>
@@ -215,6 +215,7 @@ import { useAuth } from '../../composables/useAuth.js';
 import DirectusSyncSettings from './DirectusSyncSettings.vue';
 import { directusEnabledRef } from '../../composables/useDirectusClient.js';
 import { useDirectusSync } from '../../composables/useDirectusSync.js';
+import { getNormalizedPrinterConnectionType, isDirectusManagedPrinter } from '../../utils/index.js';
 
 const props = defineProps({
   modelValue: Boolean,
@@ -241,6 +242,7 @@ const keyboardPositionOptions = [
   { value: 'left',     label: 'Sinistra' },
   { value: 'right',    label: 'Destra' },
 ];
+const DIRECTUS_MANAGED_PRINTER_LABEL = 'Gestita da Directus';
 
 /** Printers configured in runtime config that can receive pre_bill jobs.
  * Includes both printers that explicitly list 'pre_bill' in printTypes
@@ -250,7 +252,7 @@ const preBillPrinters = computed(() => {
   const printers = configStore.config?.printers ?? [];
   return printers.filter(p => {
     if (typeof p?.id !== 'string' || !p.id.trim()) return false;
-    if (!p?.url) return false;
+    if (!p?.url && !isDirectusManagedPrinter(p)) return false;
     if (!Array.isArray(p.printTypes) || p.printTypes.length === 0) return true;
     return p.printTypes.includes('pre_bill');
   });
@@ -264,6 +266,33 @@ const preBillPrintersSorted = computed(() =>
     return aLabel.localeCompare(bLabel, configStore.config?.locale, { sensitivity: 'base' });
   })
 );
+
+/**
+ * Returns the Italian label for a Directus-managed printer connection type.
+ *
+ * @param {object} printer
+ * @returns {string}
+ */
+function getDirectusPrinterConnectionLabel(printer) {
+  const connectionType = getNormalizedPrinterConnectionType(printer);
+  if (connectionType === 'tcp') return 'Rete TCP';
+  if (connectionType === 'file') return 'File locale';
+  return '';
+}
+
+/**
+ * Returns the subtitle shown in the printer settings list.
+ * Prefers the configured URL when present, otherwise uses Directus-managed metadata.
+ *
+ * @param {object} printer
+ * @returns {string}
+ */
+function getPrinterSubtitle(printer) {
+  if (printer?.url) return printer.url;
+  if (!isDirectusManagedPrinter(printer)) return '';
+  const connectionLabel = getDirectusPrinterConnectionLabel(printer);
+  return connectionLabel ? `${DIRECTUS_MANAGED_PRINTER_LABEL} · ${connectionLabel}` : DIRECTUS_MANAGED_PRINTER_LABEL;
+}
 
 const directusSyncStatus = computed(() => {
   if (!directusEnabled.value) return 'disabled';

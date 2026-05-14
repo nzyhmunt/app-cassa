@@ -573,6 +573,41 @@ describe('reconfigureAndApply()', () => {
     expect(store.preBillPrinterId).toBe('prt_pre_1');
   });
 
+  it('accepts Directus TCP/file pre-bill printers without URL when aligning fallback selection', async () => {
+    const venueId = 1;
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      const requestUrl = String(url);
+      if (requestUrl.includes(`/items/venues/${venueId}`)) {
+        return Promise.resolve(directusItemResponse({
+          id: venueId,
+          name: 'Venue tcp printer fallback',
+          menu_source: 'directus',
+          rooms: [],
+          tables: [],
+          payment_methods: [],
+          printers: [
+            { id: 'prt_tcp_1', name: 'Pre TCP', connection_type: 'tcp', print_types: ['pre_bill'] },
+          ],
+          venue_users: [],
+          table_merge_sessions: [],
+          menu_categories: [],
+          menu_items: [],
+        }));
+      }
+      return Promise.resolve(directusListResponse([]));
+    });
+
+    const { appConfig } = await import('../../utils/index.js');
+    const store = makeStore({ config: appConfig, preBillPrinterId: 'obsolete_printer' });
+    const sync = useDirectusSync();
+    await sync.startSync({ appType: 'cassa', store });
+    const result = await sync.reconfigureAndApply();
+    sync.stopSync();
+
+    expect(result.ok).toBe(true);
+    expect(store.preBillPrinterId).toBe('prt_tcp_1');
+  });
+
   it('can clear local config cache and repopulate venues via global pull with progress logs', async () => {
     const { appConfig } = await import('../../utils/index.js');
     appConfig.ui.primaryColor = '#123456';

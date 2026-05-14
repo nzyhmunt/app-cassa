@@ -334,6 +334,30 @@ export function normPositiveInt(value, fallback) {
 }
 
 /**
+ * Normalizes printer connection type to a lowercase trimmed token.
+ *
+ * @param {object|null|undefined} printer
+ * @returns {string}
+ */
+export function getNormalizedPrinterConnectionType(printer) {
+  return typeof printer?.connectionType === 'string'
+    ? printer.connectionType.toLowerCase().trim()
+    : '';
+}
+
+/**
+ * Returns true when a printer is managed by the Directus print-dispatcher
+ * (connection type `tcp` or `file`), which means browser HTTP dispatch is not used.
+ *
+ * @param {object|null|undefined} printer
+ * @returns {boolean}
+ */
+export function isDirectusManagedPrinter(printer) {
+  const connectionType = getNormalizedPrinterConnectionType(printer);
+  return connectionType === 'tcp' || connectionType === 'file';
+}
+
+/**
  * Applies Directus runtime settings to `appConfig` through a single normalized
  * entry-point.
  * This is the only allowed write path for `appConfig.directus` outside
