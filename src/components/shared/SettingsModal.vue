@@ -267,6 +267,12 @@ const preBillPrintersSorted = computed(() =>
   })
 );
 
+/**
+ * Returns the Italian label for a Directus-managed printer connection type.
+ *
+ * @param {object} printer
+ * @returns {string}
+ */
 function getDirectusPrinterConnectionLabel(printer) {
   const connectionType = getNormalizedPrinterConnectionType(printer);
   if (connectionType === 'tcp') return 'Rete TCP';
@@ -274,6 +280,13 @@ function getDirectusPrinterConnectionLabel(printer) {
   return '';
 }
 
+/**
+ * Returns the subtitle shown in the printer settings list.
+ * Prefers the configured URL when present, otherwise uses Directus-managed metadata.
+ *
+ * @param {object} printer
+ * @returns {string}
+ */
 function getPrinterSubtitle(printer) {
   if (printer?.url) return printer.url;
   if (!isDirectusManagedPrinter(printer)) return '';
