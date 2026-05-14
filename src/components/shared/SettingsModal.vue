@@ -215,6 +215,7 @@ import { useAuth } from '../../composables/useAuth.js';
 import DirectusSyncSettings from './DirectusSyncSettings.vue';
 import { directusEnabledRef } from '../../composables/useDirectusClient.js';
 import { useDirectusSync } from '../../composables/useDirectusSync.js';
+import { isDirectusManagedPrinter } from '../../utils/index.js';
 
 const props = defineProps({
   modelValue: Boolean,
@@ -241,13 +242,6 @@ const keyboardPositionOptions = [
   { value: 'left',     label: 'Sinistra' },
   { value: 'right',    label: 'Destra' },
 ];
-
-function isDirectusManagedPrinter(printer) {
-  const connectionType = typeof printer?.connectionType === 'string'
-    ? printer.connectionType.toLowerCase().trim()
-    : '';
-  return connectionType === 'tcp' || connectionType === 'file';
-}
 
 /** Printers configured in runtime config that can receive pre_bill jobs.
  * Includes both printers that explicitly list 'pre_bill' in printTypes

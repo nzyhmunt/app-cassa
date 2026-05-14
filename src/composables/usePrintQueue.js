@@ -57,7 +57,7 @@
 
 import { newUUIDv7 } from '../store/storeUtils.js';
 import { useAppStore } from '../store/index.js';
-import { appConfig } from '../utils/index.js';
+import { appConfig, isDirectusManagedPrinter } from '../utils/index.js';
 import { addSyncLog } from '../store/persistence/syncLogs.js';
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -192,20 +192,6 @@ function getRuntimeConfig(store = null) {
   return storeHydrated
     ? { ...appConfig, ...storeConfig }
     : { ...storeConfig, ...appConfig };
-}
-
-/**
- * Returns true for printers managed by the Directus print-server (TCP/file
- * connection type). These printers have no browser-accessible HTTP URL; their
- * jobs are delivered to the print-server via the Directus sync queue.
- * @param {object|null} printer
- * @returns {boolean}
- */
-function isDirectusManagedPrinter(printer) {
-  const ct = typeof printer?.connectionType === 'string'
-    ? printer.connectionType.toLowerCase().trim()
-    : '';
-  return ct === 'tcp' || ct === 'file';
 }
 
 /**
