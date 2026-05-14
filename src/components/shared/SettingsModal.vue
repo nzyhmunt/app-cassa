@@ -145,7 +145,7 @@
               <input type="radio" name="preBillPrinter" :value="p.id" v-model="settings.preBillPrinterId" class="accent-[var(--brand-primary)] shrink-0" />
               <div class="min-w-0">
                 <span class="text-sm font-bold text-gray-800 block truncate">{{ p.name ?? p.id }}</span>
-                <span class="text-[10px] text-gray-400 truncate block">{{ p.url ?? `Gestita da Directus · ${getDirectusPrinterConnectionLabel(p)}` }}</span>
+                <span class="text-[10px] text-gray-400 truncate block">{{ p.url ?? `${DIRECTUS_MANAGED_PRINTER_LABEL} · ${getDirectusPrinterConnectionLabel(p)}` }}</span>
               </div>
             </label>
           </div>
@@ -215,7 +215,7 @@ import { useAuth } from '../../composables/useAuth.js';
 import DirectusSyncSettings from './DirectusSyncSettings.vue';
 import { directusEnabledRef } from '../../composables/useDirectusClient.js';
 import { useDirectusSync } from '../../composables/useDirectusSync.js';
-import { isDirectusManagedPrinter } from '../../utils/index.js';
+import { getNormalizedPrinterConnectionType, isDirectusManagedPrinter } from '../../utils/index.js';
 
 const props = defineProps({
   modelValue: Boolean,
@@ -242,6 +242,7 @@ const keyboardPositionOptions = [
   { value: 'left',     label: 'Sinistra' },
   { value: 'right',    label: 'Destra' },
 ];
+const DIRECTUS_MANAGED_PRINTER_LABEL = 'Gestita da Directus';
 
 /** Printers configured in runtime config that can receive pre_bill jobs.
  * Includes both printers that explicitly list 'pre_bill' in printTypes
@@ -267,9 +268,7 @@ const preBillPrintersSorted = computed(() =>
 );
 
 function getDirectusPrinterConnectionLabel(printer) {
-  const connectionType = typeof printer?.connectionType === 'string'
-    ? printer.connectionType.toLowerCase().trim()
-    : '';
+  const connectionType = getNormalizedPrinterConnectionType(printer);
   if (connectionType === 'tcp') return 'Rete TCP';
   if (connectionType === 'file') return 'File locale';
   return 'Connessione sconosciuta';
