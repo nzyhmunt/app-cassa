@@ -271,12 +271,12 @@ function getDirectusPrinterConnectionLabel(printer) {
   const connectionType = getNormalizedPrinterConnectionType(printer);
   if (connectionType === 'tcp') return 'Rete TCP';
   if (connectionType === 'file') return 'File locale';
-  return 'Tipo di connessione sconosciuto';
+  return 'Tipo di connessione non supportato';
 }
 
 function getPrinterSubtitle(printer) {
   if (printer?.url) return printer.url;
-  if (!isDirectusManagedPrinter(printer)) return 'Configurazione stampante non valida';
+  if (!isDirectusManagedPrinter(printer)) return 'URL stampante mancante';
   return `${DIRECTUS_MANAGED_PRINTER_LABEL} · ${getDirectusPrinterConnectionLabel(printer)}`;
 }
 
