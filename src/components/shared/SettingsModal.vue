@@ -145,7 +145,7 @@
               <input type="radio" name="preBillPrinter" :value="p.id" v-model="settings.preBillPrinterId" class="accent-[var(--brand-primary)] shrink-0" />
               <div class="min-w-0">
                 <span class="text-sm font-bold text-gray-800 block truncate">{{ p.name ?? p.id }}</span>
-                <span class="text-[10px] text-gray-400 truncate block">{{ p.url }}</span>
+                <span class="text-[10px] text-gray-400 truncate block">{{ p.url ?? `Directus (${p.connectionType ?? 'tcp/file'})` }}</span>
               </div>
             </label>
           </div>
@@ -242,6 +242,13 @@ const keyboardPositionOptions = [
   { value: 'right',    label: 'Destra' },
 ];
 
+function isDirectusManagedPrinter(printer) {
+  const connectionType = typeof printer?.connectionType === 'string'
+    ? printer.connectionType.toLowerCase().trim()
+    : '';
+  return connectionType === 'tcp' || connectionType === 'file';
+}
+
 /** Printers configured in runtime config that can receive pre_bill jobs.
  * Includes both printers that explicitly list 'pre_bill' in printTypes
  * AND catch-all printers (printTypes absent or empty), consistent with
@@ -250,7 +257,7 @@ const preBillPrinters = computed(() => {
   const printers = configStore.config?.printers ?? [];
   return printers.filter(p => {
     if (typeof p?.id !== 'string' || !p.id.trim()) return false;
-    if (!p?.url) return false;
+    if (!p?.url && !isDirectusManagedPrinter(p)) return false;
     if (!Array.isArray(p.printTypes) || p.printTypes.length === 0) return true;
     return p.printTypes.includes('pre_bill');
   });
