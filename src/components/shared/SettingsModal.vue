@@ -145,7 +145,7 @@
               <input type="radio" name="preBillPrinter" :value="p.id" v-model="settings.preBillPrinterId" class="accent-[var(--brand-primary)] shrink-0" />
               <div class="min-w-0">
                 <span class="text-sm font-bold text-gray-800 block truncate">{{ p.name ?? p.id }}</span>
-                <span class="text-[10px] text-gray-400 truncate block">{{ p.url ?? `Directus (${p.connectionType ?? 'tcp/file'})` }}</span>
+                <span class="text-[10px] text-gray-400 truncate block">{{ p.url ?? `Directus (${p.connectionType ?? 'sconosciuta'})` }}</span>
               </div>
             </label>
           </div>
