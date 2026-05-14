@@ -270,12 +270,13 @@ const preBillPrintersSorted = computed(() =>
 function getDirectusPrinterConnectionLabel(printer) {
   const connectionType = getNormalizedPrinterConnectionType(printer);
   if (connectionType === 'tcp') return 'Rete TCP';
-  return 'File locale';
+  if (connectionType === 'file') return 'File locale';
+  return 'Connessione Directus';
 }
 
 function getPrinterSubtitle(printer) {
   if (printer?.url) return printer.url;
-  if (!isDirectusManagedPrinter(printer)) return 'Configurazione stampante non valida';
+  if (!isDirectusManagedPrinter(printer)) return 'URL stampante mancante';
   return `${DIRECTUS_MANAGED_PRINTER_LABEL} · ${getDirectusPrinterConnectionLabel(printer)}`;
 }
 
