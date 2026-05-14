@@ -324,6 +324,7 @@ describe('pre-bill printer settings (runtime config alignment)', () => {
     expect(wrapper.text()).toContain('Stampante Preconto');
     expect(wrapper.text()).toContain('Stampante Tutto');
     expect(wrapper.text()).toContain('Stampante TCP');
+    expect(wrapper.text()).toContain('Gestita da Directus · Rete TCP');
     expect(wrapper.text()).not.toContain('Stampante Cucina');
   });
 

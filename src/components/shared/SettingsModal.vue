@@ -145,7 +145,7 @@
               <input type="radio" name="preBillPrinter" :value="p.id" v-model="settings.preBillPrinterId" class="accent-[var(--brand-primary)] shrink-0" />
               <div class="min-w-0">
                 <span class="text-sm font-bold text-gray-800 block truncate">{{ p.name ?? p.id }}</span>
-                <span class="text-[10px] text-gray-400 truncate block">{{ p.url ?? `Gestita da Directus (${p.connectionType ?? 'sconosciuta'})` }}</span>
+                <span class="text-[10px] text-gray-400 truncate block">{{ p.url ?? `Gestita da Directus · ${getDirectusPrinterConnectionLabel(p)}` }}</span>
               </div>
             </label>
           </div>
@@ -265,6 +265,15 @@ const preBillPrintersSorted = computed(() =>
     return aLabel.localeCompare(bLabel, configStore.config?.locale, { sensitivity: 'base' });
   })
 );
+
+function getDirectusPrinterConnectionLabel(printer) {
+  const connectionType = typeof printer?.connectionType === 'string'
+    ? printer.connectionType.toLowerCase().trim()
+    : '';
+  if (connectionType === 'tcp') return 'Rete TCP';
+  if (connectionType === 'file') return 'File locale';
+  return 'Connessione sconosciuta';
+}
 
 const directusSyncStatus = computed(() => {
   if (!directusEnabled.value) return 'disabled';
