@@ -239,7 +239,7 @@ describe('enqueuePrintJobs()', () => {
       await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
 
       const body = JSON.parse(fetchMock.mock.calls[0][1].body);
-      expect(body.jobId).toMatch(/^job_/);
+      expect(body.jobId).toMatch(/^[0-9a-f-]{36}$/);
       expect(body.printType).toBe('order');
       expect(body.orderId).toBe('ord_abc');
       expect(body.table).toBe('07');
@@ -541,7 +541,7 @@ describe('reprintJob()', () => {
     expect(url).toBe('http://localhost:3001/print');
     const body = JSON.parse(opts.body);
     expect(body.reprinted).toBe(true);
-    expect(body.jobId).toMatch(/^job_/);
+    expect(body.jobId).toMatch(/^[0-9a-f-]{36}$/);
     expect(body.jobId).not.toBe('job_orig'); // new jobId
   });
 
