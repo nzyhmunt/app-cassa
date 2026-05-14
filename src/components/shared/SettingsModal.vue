@@ -271,13 +271,14 @@ function getDirectusPrinterConnectionLabel(printer) {
   const connectionType = getNormalizedPrinterConnectionType(printer);
   if (connectionType === 'tcp') return 'Rete TCP';
   if (connectionType === 'file') return 'File locale';
-  return 'Tipo di connessione non supportato';
+  return '';
 }
 
 function getPrinterSubtitle(printer) {
   if (printer?.url) return printer.url;
-  if (!isDirectusManagedPrinter(printer)) return 'URL stampante mancante';
-  return `${DIRECTUS_MANAGED_PRINTER_LABEL} · ${getDirectusPrinterConnectionLabel(printer)}`;
+  if (!isDirectusManagedPrinter(printer)) return '';
+  const connectionLabel = getDirectusPrinterConnectionLabel(printer);
+  return connectionLabel ? `${DIRECTUS_MANAGED_PRINTER_LABEL} · ${connectionLabel}` : DIRECTUS_MANAGED_PRINTER_LABEL;
 }
 
 const directusSyncStatus = computed(() => {
