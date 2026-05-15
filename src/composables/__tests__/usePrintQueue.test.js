@@ -5,6 +5,7 @@ import { appConfig } from '../../utils/index.js';
 import { useAppStore } from '../../store/index.js';
 import { _resetIDBSingleton } from '../useIDB.js';
 import { getPendingEntries } from '../useSyncQueue.js';
+import { getSyncLogs } from '../../store/persistence/syncLogs.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -805,6 +806,50 @@ describe('TCP/file printer routing (Directus print-server path)', () => {
       const entry = store.printLog.find(e => e.table === 'N1');
       expect(entry?.status).toBe('queued');
     });
+  });
+
+  it('normalizes directus printer printTypes/categories and logs queued jobs to /items/print_jobs', async () => {
+    appConfig.printers = [
+      {
+        id: 'cucina_tcp_norm',
+        name: 'Cucina TCP Normalized',
+        connectionType: ' TCP ',
+        url: 'http://localhost:9999/stale',
+        printTypes: [' ORDER ', ''],
+        categories: [' antipasti ', '   '],
+      },
+    ];
+
+    enqueuePrintJobs(makeOrder({ id: 'ord_norm_2', table: 'N2' }));
+
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    let createEntry;
+    await vi.waitFor(async () => {
+      const entries = await getPendingEntries();
+      createEntry = entries.find(
+        e => e.collection === 'print_jobs' && e.operation === 'create' && e.payload.table === 'N2',
+      );
+      expect(createEntry).toBeDefined();
+    });
+
+    expect(createEntry.payload.printerId).toBe('cucina_tcp_norm');
+    expect(createEntry.payload.payload?.items).toEqual([
+      expect.objectContaining({ name: 'Bruschetta', quantity: 2 }),
+    ]);
+
+    let queuedLog;
+    await vi.waitFor(async () => {
+      const logs = await getSyncLogs();
+      queuedLog = logs.find(
+        log => log.collection === 'print_jobs'
+          && log.status === 'queued'
+          && log.payload?.orderId === 'ord_norm_2',
+      );
+      expect(queuedLog).toBeDefined();
+    });
+
+    expect(queuedLog.endpoint).toBe('/items/print_jobs');
   });
 
   it('enqueueTableMoveJob enqueues a print_jobs CREATE for a TCP printer without HTTP', async () => {
