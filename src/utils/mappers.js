@@ -31,7 +31,7 @@ export function looksLikeDirectusId(value) {
 
 export function relationId(value) {
   if (value == null) return null;
-  // .slug: fallback per record venue_user legacy dove il campo id può essere uno slug stringa
+  // .slug: fallback for legacy venue_user records where the id field may be stored as a slug string
   if (typeof value === 'object') return value.id ?? value.slug ?? null;
   return value;
 }
@@ -42,14 +42,14 @@ function numberOr(value, fallback = 0) {
 }
 
 /**
- * Scrive simultaneamente le forme camelCase e snake_case di un campo su `target`.
- * Centralizza il doppio-assegnamento per i campi ordine che vivono in entrambe le forme,
- * così ogni nuovo campo richiede un unico punto di modifica.
+ * Writes both the camelCase and snake_case forms of a field onto `target` in one call.
+ * Centralises the dual-assignment pattern for order fields that must exist in both forms,
+ * so adding a new dual field requires only a single change site.
  *
- * @param {object} target    - Oggetto da mutare in-place.
- * @param {string} camelKey  - Chiave camelCase (es. 'totalAmount').
- * @param {string} snakeKey  - Chiave snake_case (es. 'total_amount').
- * @param {*}      value     - Valore da assegnare ad entrambe le chiavi.
+ * @param {object} target    - Object to mutate in-place.
+ * @param {string} camelKey  - camelCase key (e.g. 'totalAmount').
+ * @param {string} snakeKey  - snake_case key (e.g. 'total_amount').
+ * @param {*}      value     - Value to assign to both keys.
  */
 function syncDual(target, camelKey, snakeKey, value) {
   target[camelKey] = value;

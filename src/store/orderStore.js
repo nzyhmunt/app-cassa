@@ -756,9 +756,10 @@ export const useOrderStore = defineStore('orders', () => {
    * @param {string} ordId - The order ID to mutate.
    * @param {(current: object) => (object|null|undefined)} mutatorFn
    *   Receives the current order (from orders.value). Must return the mutated projected
-   *   clone, or null/undefined to abort without side-effects. The function is responsible
-   *   for cloning `current`, applying the mutation, and calling `updateOrderTotals` if needed.
-   * @param {string} context - Short name for the warn log on IDB failure.
+   *   clone ready to persist, or null/undefined to abort without side-effects. The caller
+   *   is responsible for cloning `current`, applying the mutation, and calling
+   *   `updateOrderTotals` when item quantities or prices change.
+   * @param {string} context - Short name used in the warn log on IDB failure.
    * @returns {Promise<true|false|undefined>}
    */
   async function _mutateOrderItems(ordId, mutatorFn, context) {
