@@ -29,7 +29,7 @@ export function buildOrderJobItems(options = {}) {
     if (activeQty <= 0) return acc;
 
     if (!isCatchAll) {
-      const itemCategory = normalizePrinterRoutingToken(dishCategoryMap.get(item.dishId));
+      const itemCategory = normalizePrinterRoutingToken(dishCategoryMap.get(item.dishId) ?? '');
       if (!printerCategories.includes(itemCategory)) return acc;
     }
 
