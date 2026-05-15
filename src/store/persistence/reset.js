@@ -33,13 +33,9 @@ export async function clearAllStateFromIDB() {
  * Use only for a strict full local reset.
  */
 export async function clearEntireIDB() {
-  try {
-    const db = await getDB();
-    const storesToClear = Array.from(db.objectStoreNames);
-    await Promise.all(storesToClear.map((name) => db.clear(name)));
-  } catch (e) {
-    throw e;
-  }
+  const db = await getDB();
+  const storesToClear = Array.from(db.objectStoreNames);
+  await Promise.all(storesToClear.map((name) => db.clear(name)));
 }
 
 /**
