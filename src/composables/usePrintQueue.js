@@ -240,7 +240,7 @@ function logJob(store, entry) {
  * @param {string} logId
  * @param {object} job
  */
-function markDirectusJobQueued(store, logId, job) {
+function markPrinterJobQueuedLocally(store, logId, job) {
   store?.updatePrintLogEntryLocal(logId, { status: PRINT_LOG_STATUSES.QUEUED });
   addSyncLog({
     direction: 'OUT',
@@ -303,7 +303,7 @@ function dispatchPrinterJob(job, printer, logId, store) {
     sendPrintJob(job, printer.url, logId, store);
     return;
   }
-  markDirectusJobQueued(store, logId, job);
+  markPrinterJobQueuedLocally(store, logId, job);
 }
 
 /**
@@ -567,7 +567,7 @@ export function enqueuePreBillJob(payload, printerUrl, printerName, printerIdOve
   if (usesDirectus) {
     // Job delivered to Directus sync queue; update UI status to 'queued' without
     // patching Directus (the record must stay 'pending' for the print-dispatcher).
-    markDirectusJobQueued(store, logId, job);
+    markPrinterJobQueuedLocally(store, logId, job);
   } else {
     sendPrintJob(job, resolvedUrl, logId, store);
   }
@@ -648,7 +648,7 @@ export function reprintJob(logEntry, overrideUrl = null) {
   if (usesDirectus) {
     // Job delivered to Directus sync queue; update UI status to 'queued' without
     // patching Directus (the record must stay 'pending' for the print-dispatcher).
-    markDirectusJobQueued(store, logId, job);
+    markPrinterJobQueuedLocally(store, logId, job);
   } else {
     sendPrintJob(job, url, logId, store);
   }
