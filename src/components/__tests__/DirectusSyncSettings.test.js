@@ -4,17 +4,18 @@ import DirectusSyncSettings from '../shared/DirectusSyncSettings.vue';
 import { appConfig } from '../../utils/index.js';
 import { clearAllStateFromIDB } from '../../store/persistence/operations.js';
 
-const syncMock = {
-  syncStatus: { value: 'idle' },
-  lastPushAt: { value: null },
-  lastPullAt: { value: null },
-  wsConnected: { value: false },
-  reconfigureAndApply: vi.fn(),
-  forcePull: vi.fn(),
-};
-
-const directusEnabledRefMock = { value: true };
-const loadDirectusConfigFromStorageMock = vi.fn().mockResolvedValue(undefined);
+const { syncMock, directusEnabledRefMock, loadDirectusConfigFromStorageMock } = vi.hoisted(() => ({
+  syncMock: {
+    syncStatus: { value: 'idle' },
+    lastPushAt: { value: null },
+    lastPullAt: { value: null },
+    wsConnected: { value: false },
+    reconfigureAndApply: vi.fn(),
+    forcePull: vi.fn(),
+  },
+  directusEnabledRefMock: { value: true },
+  loadDirectusConfigFromStorageMock: vi.fn().mockResolvedValue(undefined),
+}));
 
 vi.mock('../../composables/useDirectusSync.js', () => ({
   useDirectusSync: () => syncMock,
