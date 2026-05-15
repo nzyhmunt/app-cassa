@@ -59,6 +59,7 @@ import { newUUIDv7 } from '../store/storeUtils.js';
 import { useAppStore } from '../store/index.js';
 import {
   appConfig,
+  DEFAULT_HTTP_PRE_BILL_PRINTER_ID,
   getPrintersForPrintType,
   PRINT_JOBS_COLLECTION,
   PRINT_JOBS_ENDPOINT,
@@ -286,7 +287,7 @@ function resolvePreBillPrinter(printers, printerIdOverride = null, printerUrl = 
   const usesDirectus = Boolean(printer && isDirectusManagedPrinter(printer));
   const printerId = usesDirectus
     ? (printerIdOverride ?? printer?.id ?? null)
-    : (printerIdOverride ?? printer?.id ?? (resolvedUrl ? PRINT_JOB_TYPES.PRE_BILL : null));
+    : (printerIdOverride ?? printer?.id ?? (resolvedUrl ? DEFAULT_HTTP_PRE_BILL_PRINTER_ID : null));
   return { printer, resolvedUrl, usesDirectus, printerId };
 }
 

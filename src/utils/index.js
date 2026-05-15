@@ -357,7 +357,7 @@ export function normalizePrinterRoutingToken(value) {
     : '';
 }
 
-function _getNormalizedPrinterStringList(values) {
+function getNormalizedPrinterStringList(values) {
   if (!Array.isArray(values)) return [];
   return [...new Set(values.map(normalizePrinterRoutingToken).filter(Boolean))];
 }
@@ -369,7 +369,7 @@ function _getNormalizedPrinterStringList(values) {
  * @returns {string[]}
  */
 export function getNormalizedPrinterPrintTypes(printer) {
-  return _getNormalizedPrinterStringList(printer?.printTypes);
+  return getNormalizedPrinterStringList(printer?.printTypes);
 }
 
 /**
@@ -379,7 +379,7 @@ export function getNormalizedPrinterPrintTypes(printer) {
  * @returns {string[]}
  */
 export function getNormalizedPrinterCategories(printer) {
-  return _getNormalizedPrinterStringList(printer?.categories);
+  return getNormalizedPrinterStringList(printer?.categories);
 }
 
 export const PRINT_JOB_TYPES = Object.freeze({
@@ -387,6 +387,8 @@ export const PRINT_JOB_TYPES = Object.freeze({
   TABLE_MOVE: 'table_move',
   PRE_BILL: 'pre_bill',
 });
+
+export const DEFAULT_HTTP_PRE_BILL_PRINTER_ID = 'pre_bill';
 
 export const PRINT_LOG_STATUSES = Object.freeze({
   PENDING: 'pending',
