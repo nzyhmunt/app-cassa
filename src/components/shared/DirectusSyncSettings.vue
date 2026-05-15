@@ -603,7 +603,7 @@ async function runCleanIdbAndFullSync() {
   } catch (e) {
     _appendReconfigureLog({
       level: 'warning',
-      message: 'Ripristino IDB locale non completato completamente, continuo con la sincronizzazione.',
+      message: 'Ripristino IDB locale non completato, continuo con la sincronizzazione.',
       details: String(e?.message ?? e),
     });
   }
