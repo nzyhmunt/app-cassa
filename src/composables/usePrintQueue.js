@@ -57,7 +57,13 @@
 
 import { newUUIDv7 } from '../store/storeUtils.js';
 import { useAppStore } from '../store/index.js';
-import { appConfig, isDirectusManagedPrinter } from '../utils/index.js';
+import {
+  appConfig,
+  getNormalizedPrinterCategories,
+  getNormalizedPrinterPrintTypes,
+  isDirectusManagedPrinter,
+  normalizePrinterRoutingToken,
+} from '../utils/index.js';
 import { addSyncLog } from '../store/persistence/syncLogs.js';
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -210,13 +216,15 @@ function getRuntimeConfig(store = null) {
 function getPrintersForType(printType, store = null) {
   const printers = getRuntimeConfig(store).printers;
   if (!Array.isArray(printers)) return [];
+  const normalizedPrintType = normalizePrinterRoutingToken(printType);
   return printers.filter(p => {
     // Accept HTTP printers (have a direct URL) or Directus-managed printers
     // (TCP/file — print-server reads jobs from Directus sync queue).
     const hasUrl = Boolean(p?.url);
     if (!hasUrl && !isDirectusManagedPrinter(p)) return false;
-    if (!Array.isArray(p.printTypes) || p.printTypes.length === 0) return true;
-    return p.printTypes.includes(printType);
+    const printTypes = getNormalizedPrinterPrintTypes(p);
+    if (printTypes.length === 0) return true;
+    return printTypes.includes(normalizedPrintType);
   });
 }
 
@@ -227,6 +235,23 @@ function getPrintersForType(printType, store = null) {
  */
 function logJob(store, entry) {
   store?.addPrintLogEntry(entry);
+}
+
+function markDirectusJobQueued(store, logId, job) {
+  store?.updatePrintLogEntryLocal(logId, { status: 'queued' });
+  addSyncLog({
+    direction: 'OUT',
+    type: 'PRINT',
+    endpoint: '/items/print_jobs',
+    payload: job,
+    response: null,
+    status: 'queued',
+    statusCode: null,
+    durationMs: 0,
+    collection: 'print_jobs',
+    operation: 'create',
+    method: null,
+  });
 }
 
 // ── Exported functions ───────────────────────────────────────────────────────
@@ -252,14 +277,15 @@ export function enqueuePrintJobs(order) {
   const dishCategoryMap = buildDishCategoryMap(store);
 
   for (const printer of printers) {
-    const isCatchAll = !Array.isArray(printer.categories) || printer.categories.length === 0;
+    const printerCategories = getNormalizedPrinterCategories(printer);
+    const isCatchAll = printerCategories.length === 0;
 
     const items = (order.orderItems ?? []).reduce((acc, item) => {
       const activeQty = item.quantity - (item.voidedQuantity ?? 0);
       if (activeQty <= 0) return acc;
       if (!isCatchAll) {
-        const itemCategory = dishCategoryMap.get(item.dishId) ?? '';
-        if (!printer.categories.some(c => typeof c === 'string' && c.toLowerCase() === itemCategory.toLowerCase())) {
+        const itemCategory = normalizePrinterRoutingToken(dishCategoryMap.get(item.dishId));
+        if (!printerCategories.includes(itemCategory)) {
           return acc;
         }
       }
@@ -333,23 +359,7 @@ export function enqueuePrintJobs(order) {
     if (!isDirectusManagedPrinter(printer) && printer.url) {
       sendPrintJob(job, printer.url, logId, store);
     } else {
-      store?.updatePrintLogEntryLocal(logId, { status: 'queued' });
-      // Add an immediate entry to the activity monitor so the operator can see
-      // the job was accepted and queued for the print-server, without waiting
-      // for drainQueue to push it to Directus.
-      addSyncLog({
-        direction: 'OUT',
-        type: 'PRINT',
-        endpoint: '/directus/print_jobs',
-        payload: job,
-        response: null,
-        status: 'queued',
-        statusCode: null,
-        durationMs: 0,
-        collection: 'print_jobs',
-        operation: 'create',
-        method: null,
-      });
+      markDirectusJobQueued(store, logId, job);
     }
   }
 }
@@ -413,20 +423,7 @@ export function enqueueTableMoveJob(fromTableId, fromTableLabel, toTableId, toTa
     if (!isDirectusManagedPrinter(printer) && printer.url) {
       sendPrintJob(job, printer.url, logId, store);
     } else {
-      store?.updatePrintLogEntryLocal(logId, { status: 'queued' });
-      addSyncLog({
-        direction: 'OUT',
-        type: 'PRINT',
-        endpoint: '/directus/print_jobs',
-        payload: job,
-        response: null,
-        status: 'queued',
-        statusCode: null,
-        durationMs: 0,
-        collection: 'print_jobs',
-        operation: 'create',
-        method: null,
-      });
+      markDirectusJobQueued(store, logId, job);
     }
   }
 }
@@ -497,20 +494,7 @@ export function enqueuePreBillJob(payload, printerUrl, printerName, printerIdOve
   if (usesDirectus) {
     // Job delivered to Directus sync queue; update UI status to 'queued' without
     // patching Directus (the record must stay 'pending' for the print-dispatcher).
-    store?.updatePrintLogEntryLocal(logId, { status: 'queued' });
-    addSyncLog({
-      direction: 'OUT',
-      type: 'PRINT',
-      endpoint: '/directus/print_jobs',
-      payload: job,
-      response: null,
-      status: 'queued',
-      statusCode: null,
-      durationMs: 0,
-      collection: 'print_jobs',
-      operation: 'create',
-      method: null,
-    });
+    markDirectusJobQueued(store, logId, job);
   } else {
     sendPrintJob(job, resolvedUrl, logId, store);
   }
@@ -600,20 +584,7 @@ export function reprintJob(logEntry, overrideUrl = null) {
   if (usesDirectus) {
     // Job delivered to Directus sync queue; update UI status to 'queued' without
     // patching Directus (the record must stay 'pending' for the print-dispatcher).
-    store?.updatePrintLogEntryLocal(logId, { status: 'queued' });
-    addSyncLog({
-      direction: 'OUT',
-      type: 'PRINT',
-      endpoint: '/directus/print_jobs',
-      payload: job,
-      response: null,
-      status: 'queued',
-      statusCode: null,
-      durationMs: 0,
-      collection: 'print_jobs',
-      operation: 'create',
-      method: null,
-    });
+    markDirectusJobQueued(store, logId, job);
   } else {
     sendPrintJob(job, url, logId, store);
   }

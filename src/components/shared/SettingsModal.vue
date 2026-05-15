@@ -215,7 +215,11 @@ import { useAuth } from '../../composables/useAuth.js';
 import DirectusSyncSettings from './DirectusSyncSettings.vue';
 import { directusEnabledRef } from '../../composables/useDirectusClient.js';
 import { useDirectusSync } from '../../composables/useDirectusSync.js';
-import { getNormalizedPrinterConnectionType, isDirectusManagedPrinter } from '../../utils/index.js';
+import {
+  getNormalizedPrinterConnectionType,
+  getNormalizedPrinterPrintTypes,
+  isDirectusManagedPrinter,
+} from '../../utils/index.js';
 
 const props = defineProps({
   modelValue: Boolean,
@@ -253,8 +257,9 @@ const preBillPrinters = computed(() => {
   return printers.filter(p => {
     if (typeof p?.id !== 'string' || !p.id.trim()) return false;
     if (!p?.url && !isDirectusManagedPrinter(p)) return false;
-    if (!Array.isArray(p.printTypes) || p.printTypes.length === 0) return true;
-    return p.printTypes.includes('pre_bill');
+    const printTypes = getNormalizedPrinterPrintTypes(p);
+    if (printTypes.length === 0) return true;
+    return printTypes.includes('pre_bill');
   });
 });
 

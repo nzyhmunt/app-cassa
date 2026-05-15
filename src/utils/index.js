@@ -346,6 +346,43 @@ export function getNormalizedPrinterConnectionType(printer) {
 }
 
 /**
+ * Normalizes printer routing tokens such as print types and category labels.
+ *
+ * @param {unknown} value
+ * @returns {string}
+ */
+export function normalizePrinterRoutingToken(value) {
+  return typeof value === 'string'
+    ? value.toLowerCase().trim()
+    : '';
+}
+
+function _getNormalizedPrinterStringList(values) {
+  if (!Array.isArray(values)) return [];
+  return [...new Set(values.map(normalizePrinterRoutingToken).filter(Boolean))];
+}
+
+/**
+ * Returns normalized printer print types with empty/blank entries removed.
+ *
+ * @param {object|null|undefined} printer
+ * @returns {string[]}
+ */
+export function getNormalizedPrinterPrintTypes(printer) {
+  return _getNormalizedPrinterStringList(printer?.printTypes);
+}
+
+/**
+ * Returns normalized printer category labels with empty/blank entries removed.
+ *
+ * @param {object|null|undefined} printer
+ * @returns {string[]}
+ */
+export function getNormalizedPrinterCategories(printer) {
+  return _getNormalizedPrinterStringList(printer?.categories);
+}
+
+/**
  * Returns true when a printer is managed by the Directus print-dispatcher
  * (connection type `tcp` or `file`), which means browser HTTP dispatch is not used.
  *
