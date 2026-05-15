@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import DirectusSyncSettings from '../shared/DirectusSyncSettings.vue';
 import { appConfig } from '../../utils/index.js';
-import { clearAllStateFromIDB } from '../../store/persistence/operations.js';
+import { clearEntireIDB } from '../../store/persistence/operations.js';
 
 const { syncMock, directusEnabledRefMock, loadDirectusConfigFromStorageMock } = vi.hoisted(() => ({
   syncMock: {
@@ -36,7 +36,7 @@ vi.mock('../../store/persistence/operations.js', async (importOriginal) => {
   const original = await importOriginal();
   return {
     ...original,
-    clearAllStateFromIDB: vi.fn().mockResolvedValue(undefined),
+    clearEntireIDB: vi.fn().mockResolvedValue(undefined),
   };
 });
 
@@ -84,7 +84,7 @@ describe('DirectusSyncSettings clean IDB resync action', () => {
     await runButton.trigger('click');
     await flushPromises();
 
-    expect(clearAllStateFromIDB).toHaveBeenCalledTimes(1);
+    expect(clearEntireIDB).toHaveBeenCalledTimes(1);
     expect(syncMock.reconfigureAndApply).toHaveBeenCalledWith(expect.objectContaining({
       clearLocalConfig: true,
       onProgress: expect.any(Function),

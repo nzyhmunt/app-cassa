@@ -303,7 +303,7 @@ import {
 } from '../../composables/useDirectusClient.js';
 import { useDirectusSync } from '../../composables/useDirectusSync.js';
 import { useConfigStore } from '../../store/index.js';
-import { clearAllStateFromIDB } from '../../store/persistence/operations.js';
+import { clearEntireIDB } from '../../store/persistence/operations.js';
 import SyncMonitor from './SyncMonitor.vue';
 
 const sync = useDirectusSync();
@@ -598,14 +598,16 @@ async function runCleanIdbAndFullSync() {
   reconfigureRunning.value = true;
   _appendReconfigureLog({ level: 'info', message: 'Avvio ripristino completo IDB locale…' });
   try {
-    await clearAllStateFromIDB();
-    _appendReconfigureLog({ level: 'info', message: 'IDB locale svuotato. Avvio pull completo configurazione…' });
+    await clearEntireIDB();
+    _appendReconfigureLog({ level: 'info', message: 'IDB locale completamente svuotato (tutte le tabelle). Avvio pull completo configurazione…' });
   } catch (e) {
     _appendReconfigureLog({
-      level: 'warning',
-      message: 'Ripristino IDB locale non completato, continuo con la sincronizzazione.',
+      level: 'error',
+      message: 'Ripristino IDB locale completo non riuscito. Sincronizzazione annullata.',
       details: String(e?.message ?? e),
     });
+    reconfigureRunning.value = false;
+    return;
   }
 
   try {
