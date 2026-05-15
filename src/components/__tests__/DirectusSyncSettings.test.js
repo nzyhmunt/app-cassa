@@ -74,7 +74,7 @@ describe('DirectusSyncSettings clean IDB resync action', () => {
 
     await flushPromises();
 
-    const openButton = wrapper.findAll('button').find((btn) => btn.text().includes('Ripristina IDB + Sync completa'));
+    const openButton = wrapper.findAll('button').find((btn) => btn.text().includes('Ripristina dati locali + Sync completa'));
     expect(openButton).toBeTruthy();
     await openButton.trigger('click');
     await flushPromises();

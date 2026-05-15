@@ -176,7 +176,7 @@
       class="w-full py-2.5 bg-red-50 hover:bg-red-100 text-red-700 font-bold rounded-2xl flex items-center justify-center gap-2 border border-red-200 transition-colors active:scale-95 text-xs"
     >
       <RefreshCw class="size-3.5" />
-      <span>Ripristina IDB + Sync completa</span>
+      <span>Ripristina dati locali + Sync completa</span>
     </button>
 
     <!-- Info timestamp -->
@@ -518,7 +518,7 @@ function openCleanResyncModal() {
   reconfigureMode.value = 'clean';
   showReconfigureModal.value = true;
   _resetReconfigureLogs();
-  _appendReconfigureLog({ level: 'warning', message: 'Attenzione: il ripristino cancellerà tutti i dati locali IDB prima della sincronizzazione.' });
+  _appendReconfigureLog({ level: 'warning', message: 'Attenzione: il ripristino cancellerà tutti i dati locali prima della sincronizzazione.' });
 }
 
 async function _runOperationalForcePull() {
@@ -599,11 +599,11 @@ async function runCleanIdbAndFullSync() {
   _appendReconfigureLog({ level: 'info', message: 'Avvio ripristino completo IDB locale…' });
   try {
     await clearEntireIDB();
-    _appendReconfigureLog({ level: 'info', message: 'IDB locale completamente svuotato (tutte le tabelle). Avvio pull completo configurazione…' });
+    _appendReconfigureLog({ level: 'info', message: 'Dati locali completamente ripristinati. Avvio pull completo configurazione…' });
   } catch (e) {
     _appendReconfigureLog({
       level: 'error',
-      message: 'Ripristino IDB locale completo non riuscito. Sincronizzazione annullata.',
+      message: 'Ripristino completo dei dati locali non riuscito. Sincronizzazione annullata.',
       details: String(e?.message ?? e),
     });
     reconfigureRunning.value = false;
