@@ -4,6 +4,7 @@
  */
 
 import {
+  PRINT_ACTIVITY_LOG_STATUSES,
   isDirectusManagedPrinter,
   PRINT_JOBS_COLLECTION,
   PRINT_JOBS_ENDPOINT,
@@ -47,7 +48,7 @@ export function queueDirectusPrintJob(options) {
   addPrintActivityLog({
     endpoint: PRINT_JOBS_ENDPOINT,
     payload: job,
-    status: PRINT_LOG_STATUSES.QUEUED,
+    status: PRINT_ACTIVITY_LOG_STATUSES.QUEUED,
     operation: 'create',
   });
 }
@@ -75,7 +76,7 @@ export async function sendHttpPrintJob(options) {
       addPrintActivityLog({
         endpoint: url,
         payload: job,
-        status: 'success',
+        status: PRINT_ACTIVITY_LOG_STATUSES.SUCCESS,
         statusCode: response.status,
         durationMs,
         method: 'POST',
@@ -89,7 +90,7 @@ export async function sendHttpPrintJob(options) {
     addPrintActivityLog({
       endpoint: url,
       payload: job,
-      status: 'error',
+      status: PRINT_ACTIVITY_LOG_STATUSES.ERROR,
       statusCode: response.status,
       durationMs,
       method: 'POST',
@@ -102,7 +103,7 @@ export async function sendHttpPrintJob(options) {
     addPrintActivityLog({
       endpoint: url,
       payload: job,
-      status: 'error',
+      status: PRINT_ACTIVITY_LOG_STATUSES.ERROR,
       durationMs,
       method: 'POST',
     });

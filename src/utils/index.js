@@ -398,6 +398,12 @@ export const PRINT_LOG_STATUSES = Object.freeze({
   QUEUED: 'queued',
 });
 
+export const PRINT_ACTIVITY_LOG_STATUSES = Object.freeze({
+  SUCCESS: 'success',
+  ERROR: 'error',
+  QUEUED: 'queued',
+});
+
 export const PRINT_JOBS_COLLECTION = 'print_jobs';
 export const PRINT_JOBS_ENDPOINT = '/items/print_jobs';
 
