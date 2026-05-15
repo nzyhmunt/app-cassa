@@ -31,13 +31,29 @@ export function looksLikeDirectusId(value) {
 
 export function relationId(value) {
   if (value == null) return null;
-  if (typeof value === 'object') return value.id ?? null;
+  // .slug: fallback per record venue_user legacy dove il campo id può essere uno slug stringa
+  if (typeof value === 'object') return value.id ?? value.slug ?? null;
   return value;
 }
 
 function numberOr(value, fallback = 0) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+/**
+ * Scrive simultaneamente le forme camelCase e snake_case di un campo su `target`.
+ * Centralizza il doppio-assegnamento per i campi ordine che vivono in entrambe le forme,
+ * così ogni nuovo campo richiede un unico punto di modifica.
+ *
+ * @param {object} target    - Oggetto da mutare in-place.
+ * @param {string} camelKey  - Chiave camelCase (es. 'totalAmount').
+ * @param {string} snakeKey  - Chiave snake_case (es. 'total_amount').
+ * @param {*}      value     - Valore da assegnare ad entrambe le chiavi.
+ */
+function syncDual(target, camelKey, snakeKey, value) {
+  target[camelKey] = value;
+  target[snakeKey] = value;
 }
 
 export function parseJsonArray(value) {
@@ -461,26 +477,16 @@ export function mergeOrderFromWSPayload(existing, raw, incoming) {
   if (hasOwn(raw, 'store_id')) merged.store_id = incoming.store_id;
   if (hasOwn(raw, 'terminal_id')) merged.terminal_id = incoming.terminal_id;
   if (hasOwn(raw, 'table')) merged.table = incoming.table;
-  if (hasOwn(raw, 'bill_session')) {
-    merged.billSessionId = incoming.billSessionId;
-    merged.bill_session = incoming.bill_session;
-  }
-  if (hasOwn(raw, 'total_amount')) {
-    merged.totalAmount = incoming.totalAmount;
-    merged.total_amount = incoming.total_amount;
-  }
-  if (hasOwn(raw, 'item_count')) {
-    merged.itemCount = incoming.itemCount;
-    merged.item_count = incoming.item_count;
-  }
-  if (hasOwn(raw, 'order_time')) {
-    merged.time = incoming.time;
-    merged.order_time = incoming.order_time;
-  }
-  if (hasOwn(raw, 'global_note')) {
-    merged.globalNote = incoming.globalNote;
-    merged.global_note = incoming.global_note;
-  }
+  if (hasOwn(raw, 'bill_session'))       syncDual(merged, 'billSessionId', 'bill_session', incoming.billSessionId);
+  if (hasOwn(raw, 'total_amount'))       syncDual(merged, 'totalAmount', 'total_amount', incoming.totalAmount);
+  if (hasOwn(raw, 'item_count'))         syncDual(merged, 'itemCount', 'item_count', incoming.itemCount);
+  if (hasOwn(raw, 'order_time'))         syncDual(merged, 'time', 'order_time', incoming.time);
+  if (hasOwn(raw, 'global_note'))        syncDual(merged, 'globalNote', 'global_note', incoming.globalNote);
+  if (hasOwn(raw, 'is_cover_charge'))    syncDual(merged, 'isCoverCharge', 'is_cover_charge', incoming.isCoverCharge);
+  if (hasOwn(raw, 'is_direct_entry'))    syncDual(merged, 'isDirectEntry', 'is_direct_entry', incoming.isDirectEntry);
+  if (hasOwn(raw, 'rejection_reason'))   syncDual(merged, 'rejectionReason', 'rejection_reason', incoming.rejectionReason);
+  if (hasOwn(raw, 'venue_user_created')) syncDual(merged, 'venueUserCreated', 'venue_user_created', incoming.venueUserCreated);
+  if (hasOwn(raw, 'venue_user_updated')) syncDual(merged, 'venueUserUpdated', 'venue_user_updated', incoming.venueUserUpdated);
   if (
     hasOwn(raw, 'note_visibility_cassa') ||
     hasOwn(raw, 'note_visibility_sala') ||
@@ -502,26 +508,6 @@ export function mergeOrderFromWSPayload(existing, raw, incoming) {
       merged.note_visibility_cucina = incoming.note_visibility_cucina;
     }
     merged.noteVisibility = nv;
-  }
-  if (hasOwn(raw, 'is_cover_charge')) {
-    merged.isCoverCharge = incoming.isCoverCharge;
-    merged.is_cover_charge = incoming.is_cover_charge;
-  }
-  if (hasOwn(raw, 'is_direct_entry')) {
-    merged.isDirectEntry = incoming.isDirectEntry;
-    merged.is_direct_entry = incoming.is_direct_entry;
-  }
-  if (hasOwn(raw, 'rejection_reason')) {
-    merged.rejectionReason = incoming.rejectionReason;
-    merged.rejection_reason = incoming.rejection_reason;
-  }
-  if (hasOwn(raw, 'venue_user_created')) {
-    merged.venueUserCreated = incoming.venueUserCreated;
-    merged.venue_user_created = incoming.venue_user_created;
-  }
-  if (hasOwn(raw, 'venue_user_updated')) {
-    merged.venueUserUpdated = incoming.venueUserUpdated;
-    merged.venue_user_updated = incoming.venue_user_updated;
   }
   if (
     hasOwn(raw, 'dietary_diets') ||

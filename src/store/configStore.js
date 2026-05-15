@@ -147,7 +147,6 @@ export const useConfigStore = defineStore('config', () => {
   }
 
   async function loadMenu(options = {}) {
-    const shouldHydrateDirectus = options.skipHydrate === true ? false : true;
     const applyJsonSnapshot = async () => {
       const jsonMenu = await loadJsonMenuFromIDB();
       if (!jsonMenu || typeof jsonMenu !== 'object' || Array.isArray(jsonMenu)) return false;
@@ -159,7 +158,7 @@ export const useConfigStore = defineStore('config', () => {
     menuError.value = null;
     try {
       if (menuSource.value === 'directus') {
-        if (shouldHydrateDirectus) await hydrateConfigFromIDB();
+        if (!options.skipHydrate) await hydrateConfigFromIDB();
         return;
       }
 
