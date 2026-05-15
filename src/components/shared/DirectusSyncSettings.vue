@@ -169,6 +169,16 @@
       <span>Activity Monitor</span>
     </button>
 
+    <button
+      v-if="syncEnabled"
+      type="button"
+      @click="openCleanResyncModal"
+      class="w-full py-2.5 bg-red-50 hover:bg-red-100 text-red-700 font-bold rounded-2xl flex items-center justify-center gap-2 border border-red-200 transition-colors active:scale-95 text-xs"
+    >
+      <RefreshCw class="size-3.5" />
+      <span>Ripristina IDB + Sync completa</span>
+    </button>
+
     <!-- Info timestamp -->
     <div v-if="syncEnabled" class="text-[10px] text-gray-400 space-y-0.5 px-1">
       <p v-if="sync.lastPushAt.value">
@@ -200,7 +210,7 @@
         <div class="bg-gray-50 border-b border-gray-200 p-4 flex justify-between items-center shrink-0">
           <h3 class="font-bold text-base flex items-center gap-2 text-gray-800">
             <RefreshCw class="size-4 text-gray-500" />
-            Applica nuova configurazione
+            {{ reconfigureMode === 'clean' ? 'Ripristino IDB + Sync completa' : 'Applica nuova configurazione' }}
           </h3>
           <button
             :disabled="reconfigureRunning"
@@ -213,10 +223,14 @@
 
         <div class="p-4 space-y-3 overflow-y-auto">
           <p class="text-sm text-gray-700">
-            Confermi l'applicazione completa della nuova configurazione Directus?
+            {{
+              reconfigureMode === 'clean'
+                ? 'Confermi il ripristino completo dei dati locali IDB e la sincronizzazione Directus completa?'
+                : 'Confermi l\'applicazione completa della nuova configurazione Directus?'
+            }}
           </p>
 
-          <label class="flex items-start gap-2 p-3 border border-gray-200 rounded-xl bg-gray-50">
+          <label v-if="reconfigureMode !== 'clean'" class="flex items-start gap-2 p-3 border border-gray-200 rounded-xl bg-gray-50">
             <input
               v-model="clearLocalConfigBeforeApply"
               type="checkbox"
@@ -259,13 +273,17 @@
           </button>
           <button
             type="button"
-            @click="runFullConfigApply"
+            @click="runSelectedReconfigureAction"
             :disabled="reconfigureRunning || !form.enabled"
             class="flex-1 py-2.5 bg-[var(--brand-primary)] text-white font-bold rounded-xl border border-[var(--brand-primary)] transition-colors active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed text-xs flex items-center justify-center gap-1.5"
           >
             <LoaderCircle v-if="reconfigureRunning" class="size-3.5 animate-spin" />
             <RefreshCw v-else class="size-3.5" />
-            <span>{{ reconfigureRunning ? 'Applicazione...' : 'Conferma e applica' }}</span>
+            <span>{{
+              reconfigureRunning
+                ? (reconfigureMode === 'clean' ? 'Ripristino...' : 'Applicazione...')
+                : (reconfigureMode === 'clean' ? 'Conferma e ripristina' : 'Conferma e applica')
+            }}</span>
           </button>
         </div>
       </div>
@@ -285,6 +303,7 @@ import {
 } from '../../composables/useDirectusClient.js';
 import { useDirectusSync } from '../../composables/useDirectusSync.js';
 import { useConfigStore } from '../../store/index.js';
+import { clearAllStateFromIDB } from '../../store/persistence/operations.js';
 import SyncMonitor from './SyncMonitor.vue';
 
 const sync = useDirectusSync();
@@ -308,6 +327,7 @@ const connectionMessage = ref('');
 const showSyncMonitor = ref(false);
 const showReconfigureModal = ref(false);
 const reconfigureRunning = ref(false);
+const reconfigureMode = ref('config');
 const clearLocalConfigBeforeApply = ref(true);
 const reconfigureLogs = ref([]);
 let reconfigureLogSeq = 0;
@@ -456,9 +476,9 @@ async function saveConfig() {
   }
   _savedSnapshot.value = JSON.stringify({ ...form });
   connectionStatus.value = 'idle';
+  reconfigureMode.value = 'config';
   showReconfigureModal.value = true;
-  reconfigureLogSeq = 0;
-  reconfigureLogs.value = [];
+  _resetReconfigureLogs();
   _appendReconfigureLog({ level: 'info', message: 'Configurazione salvata in locale.' });
   if (!form.enabled) {
     _appendReconfigureLog({
@@ -489,6 +509,54 @@ function _appendReconfigureLog({ level = 'info', message, details = '' }) {
   });
 }
 
+function _resetReconfigureLogs() {
+  reconfigureLogSeq = 0;
+  reconfigureLogs.value = [];
+}
+
+function openCleanResyncModal() {
+  reconfigureMode.value = 'clean';
+  showReconfigureModal.value = true;
+  _resetReconfigureLogs();
+  _appendReconfigureLog({ level: 'warning', message: 'Attenzione: il ripristino cancellerà tutti i dati locali IDB prima della sincronizzazione.' });
+}
+
+async function _runOperationalForcePull() {
+  try {
+    const pullResult = await sync.forcePull();
+    if (pullResult?.ok === true) {
+      _appendReconfigureLog({ level: 'success', message: 'Procedura completata con successo.' });
+    } else if (pullResult?.ok === false) {
+      if (pullResult?.skippedReason === 'offline') {
+        _appendReconfigureLog({
+          level: 'warning',
+          message: 'Configurazione aggiornata, ma il pull dati operativi è stato saltato: dispositivo offline.',
+        });
+      } else if (pullResult?.skippedReason === 'no-config') {
+        _appendReconfigureLog({
+          level: 'warning',
+          message: 'Configurazione aggiornata, ma il pull dati operativi è stato saltato: configurazione mancante.',
+        });
+      } else {
+        _appendReconfigureLog({
+          level: 'warning',
+          message: 'Configurazione aggiornata ma il pull dati operativi è stato completato con errori.',
+          details: (pullResult?.failedCollections?.length ?? 0) > 0
+            ? `Collezioni fallite: ${pullResult.failedCollections.join(', ')}`
+            : '',
+        });
+      }
+    } else {
+      _appendReconfigureLog({
+        level: 'warning',
+        message: 'Configurazione aggiornata, ma l’esito del pull dati operativi non è verificabile.',
+      });
+    }
+  } catch {
+    _appendReconfigureLog({ level: 'warning', message: 'Configurazione aggiornata ma il pull dati operativi non è riuscito.' });
+  }
+}
+
 async function runFullConfigApply() {
   if (reconfigureRunning.value || !form.enabled) return;
   reconfigureRunning.value = true;
@@ -504,39 +572,7 @@ async function runFullConfigApply() {
     });
     if (result?.ok) {
       _appendReconfigureLog({ level: 'info', message: 'Configurazione aggiornata. Avvio pull dati operativi…' });
-      try {
-        const pullResult = await sync.forcePull();
-        if (pullResult?.ok === true) {
-          _appendReconfigureLog({ level: 'success', message: 'Procedura completata con successo.' });
-        } else if (pullResult?.ok === false) {
-          if (pullResult?.skippedReason === 'offline') {
-            _appendReconfigureLog({
-              level: 'warning',
-              message: 'Configurazione aggiornata, ma il pull dati operativi è stato saltato: dispositivo offline.',
-            });
-          } else if (pullResult?.skippedReason === 'no-config') {
-            _appendReconfigureLog({
-              level: 'warning',
-              message: 'Configurazione aggiornata, ma il pull dati operativi è stato saltato: configurazione mancante.',
-            });
-          } else {
-            _appendReconfigureLog({
-              level: 'warning',
-              message: 'Configurazione aggiornata ma il pull dati operativi è stato completato con errori.',
-              details: (pullResult?.failedCollections?.length ?? 0) > 0
-                ? `Collezioni fallite: ${pullResult.failedCollections.join(', ')}`
-                : '',
-            });
-          }
-        } else {
-          _appendReconfigureLog({
-            level: 'warning',
-            message: 'Configurazione aggiornata, ma l’esito del pull dati operativi non è verificabile.',
-          });
-        }
-      } catch {
-        _appendReconfigureLog({ level: 'warning', message: 'Configurazione aggiornata ma il pull dati operativi non è riuscito.' });
-      }
+      await _runOperationalForcePull();
     } else {
       _appendReconfigureLog({
         level: 'error',
@@ -555,5 +591,58 @@ async function runFullConfigApply() {
   } finally {
     reconfigureRunning.value = false;
   }
+}
+
+async function runCleanIdbAndFullSync() {
+  if (reconfigureRunning.value || !form.enabled) return;
+  reconfigureRunning.value = true;
+  _appendReconfigureLog({ level: 'info', message: 'Avvio ripristino completo IDB locale…' });
+  try {
+    await clearAllStateFromIDB();
+    _appendReconfigureLog({ level: 'info', message: 'IDB locale svuotato. Avvio pull completo configurazione…' });
+  } catch (e) {
+    _appendReconfigureLog({
+      level: 'warning',
+      message: 'Ripristino IDB locale non completato completamente, continuo con la sincronizzazione.',
+      details: String(e?.message ?? e),
+    });
+  }
+
+  try {
+    const result = await sync.reconfigureAndApply({
+      clearLocalConfig: true,
+      onProgress: (entry) => _appendReconfigureLog({
+        level: entry?.level ?? 'info',
+        message: entry?.message ?? 'Operazione completata.',
+        details: entry?.details ?? '',
+      }),
+    });
+
+    if (result?.ok) {
+      _appendReconfigureLog({ level: 'info', message: 'Configurazione aggiornata. Avvio pull dati operativi…' });
+      await _runOperationalForcePull();
+    } else {
+      _appendReconfigureLog({
+        level: 'error',
+        message: 'Ripristino completato con errori durante l’applicazione configurazione.',
+        details: (result?.failedCollections?.length ?? 0) > 0
+          ? `Collezioni fallite: ${result.failedCollections.join(', ')}`
+          : '',
+      });
+    }
+  } catch (e) {
+    _appendReconfigureLog({
+      level: 'error',
+      message: 'Errore inatteso durante il ripristino IDB + sync completa.',
+      details: String(e?.message ?? e),
+    });
+  } finally {
+    reconfigureRunning.value = false;
+  }
+}
+
+function runSelectedReconfigureAction() {
+  if (reconfigureMode.value === 'clean') return runCleanIdbAndFullSync();
+  return runFullConfigApply();
 }
 </script>
