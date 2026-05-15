@@ -216,8 +216,8 @@ import DirectusSyncSettings from './DirectusSyncSettings.vue';
 import { directusEnabledRef } from '../../composables/useDirectusClient.js';
 import { useDirectusSync } from '../../composables/useDirectusSync.js';
 import {
+  getPreBillEligiblePrinters,
   getNormalizedPrinterConnectionType,
-  getNormalizedPrinterPrintTypes,
   isDirectusManagedPrinter,
 } from '../../utils/index.js';
 
@@ -253,14 +253,7 @@ const DIRECTUS_MANAGED_PRINTER_LABEL = 'Gestita da Directus';
  * AND catch-all printers (printTypes absent or empty), consistent with
  * how getPrintersForType() routes jobs and the README documentation. */
 const preBillPrinters = computed(() => {
-  const printers = configStore.config?.printers ?? [];
-  return printers.filter(p => {
-    if (typeof p?.id !== 'string' || !p.id.trim()) return false;
-    if (!p?.url && !isDirectusManagedPrinter(p)) return false;
-    const printTypes = getNormalizedPrinterPrintTypes(p);
-    if (printTypes.length === 0) return true;
-    return printTypes.includes('pre_bill');
-  });
+  return getPreBillEligiblePrinters(configStore.config?.printers);
 });
 
 const preBillPrintersSorted = computed(() =>

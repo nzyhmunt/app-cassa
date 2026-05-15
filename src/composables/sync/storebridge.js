@@ -11,8 +11,7 @@
 
 import {
   appConfig,
-  getNormalizedPrinterPrintTypes,
-  isDirectusManagedPrinter,
+  getPreBillEligiblePrinters,
 } from '../../utils/index.js';
 import { syncState, _SYNC_TAB_ID } from './state.js';
 
@@ -73,16 +72,7 @@ export async function _refreshStoreConfigFromIDB(options = {}) {
  * @returns {Array<{id:string,name?:string,url?:string,printTypes?:string[]}>}
  */
 export function _preBillPrinters() {
-  return (appConfig.printers ?? []).filter((printer) => {
-    if (typeof printer?.id !== 'string' || !printer.id.trim()) return false;
-    const isDirectusManaged = isDirectusManagedPrinter(printer);
-    if (!printer?.url && !isDirectusManaged) return false;
-    const printTypes = getNormalizedPrinterPrintTypes(printer);
-    // Empty/missing printTypes means catch-all printer (includes pre_bill),
-    // consistent with usePrintQueue routing semantics.
-    if (printTypes.length === 0) return true;
-    return printTypes.includes('pre_bill');
-  });
+  return getPreBillEligiblePrinters(appConfig.printers);
 }
 
 /**

@@ -382,6 +382,23 @@ export function getNormalizedPrinterCategories(printer) {
   return _getNormalizedPrinterStringList(printer?.categories);
 }
 
+export const PRINT_JOB_TYPES = Object.freeze({
+  ORDER: 'order',
+  TABLE_MOVE: 'table_move',
+  PRE_BILL: 'pre_bill',
+});
+
+export const PRINT_LOG_STATUSES = Object.freeze({
+  PENDING: 'pending',
+  PRINTING: 'printing',
+  DONE: 'done',
+  ERROR: 'error',
+  QUEUED: 'queued',
+});
+
+export const PRINT_JOBS_COLLECTION = 'print_jobs';
+export const PRINT_JOBS_ENDPOINT = '/items/print_jobs';
+
 /**
  * Returns true when a printer is managed by the Directus print-dispatcher
  * (connection type `tcp` or `file`), which means browser HTTP dispatch is not used.
@@ -392,6 +409,82 @@ export function getNormalizedPrinterCategories(printer) {
 export function isDirectusManagedPrinter(printer) {
   const connectionType = getNormalizedPrinterConnectionType(printer);
   return connectionType === 'tcp' || connectionType === 'file';
+}
+
+/**
+ * Returns true when the printer can receive jobs either through direct HTTP
+ * dispatch or through the Directus-managed print dispatcher.
+ *
+ * @param {object|null|undefined} printer
+ * @returns {boolean}
+ */
+export function canPrinterReceiveJobs(printer) {
+  return Boolean(printer?.url) || isDirectusManagedPrinter(printer);
+}
+
+/**
+ * Returns true when the printer accepts the given print type.
+ * Missing or empty printTypes arrays act as catch-all.
+ *
+ * @param {object|null|undefined} printer
+ * @param {string} printType
+ * @returns {boolean}
+ */
+export function printerSupportsPrintType(printer, printType) {
+  const printTypes = getNormalizedPrinterPrintTypes(printer);
+  if (printTypes.length === 0) return true;
+  return printTypes.includes(normalizePrinterRoutingToken(printType));
+}
+
+/**
+ * Returns all configured printers that can receive the given print type.
+ *
+ * @param {unknown} printers
+ * @param {string} printType
+ * @returns {object[]}
+ */
+export function getPrintersForPrintType(printers, printType) {
+  if (!Array.isArray(printers)) return [];
+  return printers.filter(printer => canPrinterReceiveJobs(printer) && printerSupportsPrintType(printer, printType));
+}
+
+/**
+ * Returns printers that are valid candidates for the pre-bill selector.
+ * They must have a stable id and support the pre_bill print type.
+ *
+ * @param {unknown} printers
+ * @returns {object[]}
+ */
+export function getPreBillEligiblePrinters(printers) {
+  if (!Array.isArray(printers)) return [];
+  return printers.filter((printer) => {
+    if (typeof printer?.id !== 'string' || !printer.id.trim()) return false;
+    return canPrinterReceiveJobs(printer) && printerSupportsPrintType(printer, PRINT_JOB_TYPES.PRE_BILL);
+  });
+}
+
+/**
+ * Resolves a configured printer by explicit id first, then by url.
+ *
+ * @param {unknown} printers
+ * @param {{ printerId?: string|null, printerUrl?: string|null }} [options]
+ * @returns {object|null}
+ */
+export function resolveConfiguredPrinter(printers, options = {}) {
+  if (!Array.isArray(printers)) return null;
+  const printerId = typeof options.printerId === 'string' && options.printerId.trim()
+    ? options.printerId
+    : null;
+  const printerUrl = typeof options.printerUrl === 'string' && options.printerUrl.trim()
+    ? options.printerUrl
+    : null;
+  const printerFromId = printerId
+    ? printers.find(printer => printer?.id === printerId)
+    : null;
+  if (printerFromId) return printerFromId;
+  return printerUrl
+    ? (printers.find(printer => printer?.url === printerUrl) ?? null)
+    : null;
 }
 
 /**
