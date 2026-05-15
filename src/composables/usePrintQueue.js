@@ -232,6 +232,14 @@ function logJob(store, entry) {
   store?.addPrintLogEntry(entry);
 }
 
+/**
+ * Marks a Directus-managed print job as queued in the local UI and appends an
+ * activity-log entry without mutating the Directus record status.
+ *
+ * @param {object|null} store
+ * @param {string} logId
+ * @param {object} job
+ */
 function markDirectusJobQueued(store, logId, job) {
   store?.updatePrintLogEntryLocal(logId, { status: PRINT_LOG_STATUSES.QUEUED });
   addSyncLog({
@@ -249,6 +257,22 @@ function markDirectusJobQueued(store, logId, job) {
   });
 }
 
+/**
+ * Builds the print-log entry stored in the local print history.
+ *
+ * @param {object} job
+ * @param {object|null} printer
+ * @param {string} logId
+ * @param {{
+ *   printerName?: string,
+ *   printerUrl?: string|null,
+ *   printType?: string,
+ *   table?: string,
+ *   timestamp?: string,
+ *   extra?: Record<string, any>,
+ * }} [overrides]
+ * @returns {object}
+ */
 function createPrintLogEntry(job, printer, logId, overrides = {}) {
   return {
     logId,
@@ -265,6 +289,15 @@ function createPrintLogEntry(job, printer, logId, overrides = {}) {
   };
 }
 
+/**
+ * Dispatches a job either directly over HTTP or via the Directus-managed
+ * printer queue, depending on the resolved printer connection type.
+ *
+ * @param {object} job
+ * @param {object|null} printer
+ * @param {string} logId
+ * @param {object|null} store
+ */
 function dispatchPrinterJob(job, printer, logId, store) {
   if (!isDirectusManagedPrinter(printer) && printer?.url) {
     sendPrintJob(job, printer.url, logId, store);
@@ -273,11 +306,25 @@ function dispatchPrinterJob(job, printer, logId, store) {
   markDirectusJobQueued(store, logId, job);
 }
 
+/**
+ * Returns the runtime printer list from the active config, normalized to an array.
+ *
+ * @param {object|null} [store]
+ * @returns {object[]}
+ */
 function getRuntimePrinters(store = null) {
   const printers = getRuntimeConfig(store).printers;
   return Array.isArray(printers) ? printers : [];
 }
 
+/**
+ * Resolves the runtime printer and dispatch metadata for a pre-bill request.
+ *
+ * @param {object[]} printers
+ * @param {string|null} [printerIdOverride]
+ * @param {string|null} [printerUrl]
+ * @returns {{printer: object|null, resolvedUrl: string|null, usesDirectus: boolean, printerId: string|null}}
+ */
 function resolvePreBillPrinter(printers, printerIdOverride = null, printerUrl = null) {
   const printer = resolveConfiguredPrinter(printers, {
     printerId: printerIdOverride,
@@ -291,6 +338,14 @@ function resolvePreBillPrinter(printers, printerIdOverride = null, printerUrl = 
   return { printer, resolvedUrl, usesDirectus, printerId };
 }
 
+/**
+ * Resolves the runtime printer and dispatch metadata for a reprint action.
+ *
+ * @param {object[]} printers
+ * @param {{ printerId?: string|null, printerName?: string|null, printerUrl?: string|null }} logEntry
+ * @param {string|null} [overrideUrl]
+ * @returns {{printer: object|null, resolvedUrl: string|null, usesDirectus: boolean, printerId: string|null, printerName: string|null|undefined}}
+ */
 function resolveReprintPrinter(printers, logEntry, overrideUrl = null) {
   const printer = resolveConfiguredPrinter(printers, {
     printerId: overrideUrl ? null : logEntry?.printerId,
