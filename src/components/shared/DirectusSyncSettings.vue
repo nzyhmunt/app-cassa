@@ -518,7 +518,7 @@ function openCleanResyncModal() {
   reconfigureMode.value = 'clean';
   showReconfigureModal.value = true;
   _resetReconfigureLogs();
-  _appendReconfigureLog({ level: 'warning', message: 'Attenzione: il ripristino cancellerà tutti i dati locali prima della sincronizzazione.' });
+  _appendReconfigureLog({ level: 'warning', message: 'Attenzione: il ripristino eliminerà definitivamente tutti i dati locali prima della sincronizzazione.' });
 }
 
 async function _runOperationalForcePull() {
@@ -599,7 +599,7 @@ async function runCleanIdbAndFullSync() {
   _appendReconfigureLog({ level: 'info', message: 'Avvio ripristino completo IDB locale…' });
   try {
     await clearEntireIDB();
-    _appendReconfigureLog({ level: 'info', message: 'Dati locali completamente ripristinati. Avvio pull completo configurazione…' });
+    _appendReconfigureLog({ level: 'info', message: 'Dati locali completamente eliminati. Avvio pull completo configurazione…' });
   } catch (e) {
     _appendReconfigureLog({
       level: 'error',
@@ -644,7 +644,9 @@ async function runCleanIdbAndFullSync() {
 }
 
 function runSelectedReconfigureAction() {
-  if (reconfigureMode.value === 'clean') return runCleanIdbAndFullSync();
+  if (reconfigureMode.value === 'clean') {
+    return runCleanIdbAndFullSync();
+  }
   return runFullConfigApply();
 }
 </script>

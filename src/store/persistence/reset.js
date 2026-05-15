@@ -38,7 +38,6 @@ export async function clearEntireIDB() {
     const storesToClear = Array.from(db.objectStoreNames);
     await Promise.all(storesToClear.map((name) => db.clear(name)));
   } catch (e) {
-    console.warn('[IDBPersistence] Failed to clear entire IDB:', e);
     throw e;
   }
 }
