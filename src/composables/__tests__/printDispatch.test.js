@@ -176,8 +176,22 @@ describe('dispatchPrintJob()', () => {
       store,
     });
 
-    await vi.waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(1));
+    let logEntry;
+    await vi.waitFor(async () => {
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+      expect(store.updatePrintLogEntry).toHaveBeenNthCalledWith(2, 'plog_5', { status: 'done' });
+      const logs = await getSyncLogs();
+      logEntry = logs.find(log => log.endpoint === 'http://localhost:3004/print');
+      expect(logEntry).toBeDefined();
+    });
+
     expect(global.fetch).toHaveBeenCalledWith('http://localhost:3004/print', expect.any(Object));
+    expect(logEntry).toMatchObject({
+      endpoint: 'http://localhost:3004/print',
+      status: 'success',
+      method: 'POST',
+      payload: job,
+    });
   });
 
   it('queues directus-managed printers even when a stale URL is present', async () => {
