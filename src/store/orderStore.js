@@ -11,8 +11,6 @@ import {
   KITCHEN_ACTIVE_STATUSES,
   formatOrderTime,
   itemsAreMergeable,
-  PRINT_JOBS_COLLECTION,
-  PRINT_LOG_STATUSES,
 } from '../utils/index.js';
 import { mapOrderFromDirectus } from '../utils/mappers.js';
 import { newUUIDv7, normalizeEntityId, newShortId, cloneValue as _clone } from './storeUtils.js';
@@ -53,15 +51,15 @@ export const useOrderStore = defineStore('orders', () => {
   const printLog = ref([]);
 
   function addPrintLogEntry(entry) {
-    printLog.value = [{ ...entry, status: PRINT_LOG_STATUSES.PENDING }, ...printLog.value].slice(0, 200);
-    enqueue(PRINT_JOBS_COLLECTION, 'create', entry.id, { ...entry, status: PRINT_LOG_STATUSES.PENDING });
+    printLog.value = [{ ...entry, status: 'pending' }, ...printLog.value].slice(0, 200);
+    enqueue('print_jobs', 'create', entry.id, { ...entry, status: 'pending' });
   }
 
   function updatePrintLogEntry(logId, updates) {
     const idx = printLog.value.findIndex(e => e.logId === logId);
     if (idx !== -1) {
       printLog.value[idx] = { ...printLog.value[idx], ...updates };
-      enqueue(PRINT_JOBS_COLLECTION, 'update', printLog.value[idx].id, { logId, ...updates });
+      enqueue('print_jobs', 'update', printLog.value[idx].id, { logId, ...updates });
     }
   }
 

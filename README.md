@@ -418,9 +418,7 @@ una HTTP POST a ciascun servizio stampante configurato in `appConfig.printers`. 
 ricevente gestisce la comunicazione ESC/POS verso la stampante fisica.
 
 Ogni lavoro di stampa viene registrato in `store.printLog` (persistito su IDB e **sincronizzato
-su Directus** `print_jobs` via sync queue). I job HTTP seguono lo stato `pending → printing → done | error`;
-i job gestiti da Directus (`connection_type = 'tcp' | 'file'`) restano `pending` su Directus ma vengono
-marcati localmente come `queued` nell'interfaccia per indicare il passaggio di consegna al dispatcher.
+su Directus** `print_jobs` via sync queue) con stato `pending → printing → done | error`.
 Ogni entry ha un `id` (UUID v7, PK Directus) e un `logId` (`plog_<uuid>`, keyPath IDB).
 
 ### Stampante demo (pronta per il test)
@@ -524,8 +522,7 @@ e possibilità di ristampare su qualsiasi stampante configurata.
 Nelle **Impostazioni Cassa** → sezione "Stampante Preconto" è possibile scegliere la stampante
 su cui inviare automaticamente il preconto. La sezione è visibile se esiste almeno una
 stampante idonea a ricevere job `pre_bill`: una stampante che ha `pre_bill` nei `printTypes`,
-oppure una stampante "catch-all" con `printTypes` assente o vuoto. Sono incluse sia le stampanti
-HTTP sia quelle gestite da Directus (`tcp` / `file`), purché abbiano un `id` stabile.
+oppure una stampante "catch-all" con `printTypes` assente o vuoto.
 
 ### Formato del job di stampa
 
@@ -563,15 +560,8 @@ Tutti i job contengono: `id`, `logId`, `jobId`, `printType`, `printerId`, `table
 - **Routing per categoria**: ogni stampante riceve solo le voci il cui `dishId` appartiene
   a una delle categorie elencate in `categories` (confronto case-insensitive).
 - **Catch-all**: se `categories` è assente o vuoto, la stampante riceve tutte le voci.
-- **Routing condiviso**: selezione stampanti, selezione stampante preconto e risoluzione `printerId`/`url`
-  usano helper comuni, così HTTP e Directus seguono le stesse regole di matching.
 - **Fire-and-forget**: gli errori di rete vengono loggati in console ma non bloccano l'UI.
-- **Canale di dispatch**:
-  - stampanti HTTP (`url` presente e non `tcp`/`file`) → POST diretto dal browser
-  - stampanti Directus (`connectionType = 'tcp' | 'file'`) → enqueue su `print_jobs` con endpoint activity `/items/print_jobs`
-- **Stato job**:
-  - HTTP: `pending → printing → done | error`
-  - Directus: `pending` su Directus + `queued` solo in UI locale
+- **Stato job**: ogni job viene tracciato come `pending → printing → done | error` e sincronizzato su Directus `print_jobs`.
 - **Voci stornate**: solo le quantità attive (non stornate) vengono incluse nel job.
 - **Ordini diretti** (`isDirectEntry: true`): non vengono mai stampati (coperti, voci libere).
 
