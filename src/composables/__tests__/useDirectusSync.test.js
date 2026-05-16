@@ -41,7 +41,6 @@ import {
   loadConfigFromIDB,
 } from '../../store/persistence/config.js';
 import * as persistenceOps from '../../store/persistence/operations.js';
-import { _resetEnqueueSeq } from '../useSyncQueue.js';
 import { mapVenueConfigFromDirectus } from '../../utils/mappers.js';
 import { createRuntimeConfig, DEFAULT_SETTINGS } from '../../utils/index.js';
 import { _fetchUpdatedViaSDK } from '../sync/pullQueue.js';
@@ -247,7 +246,6 @@ beforeEach(async () => {
   await _resetIDBSingleton();
   _resetDirectusSyncSingleton();
   _resetDirectusClientSingleton();
-  _resetEnqueueSeq();
   vi.restoreAllMocks();
   vi.stubGlobal('navigator', { onLine: true });
 

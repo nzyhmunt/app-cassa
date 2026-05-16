@@ -77,8 +77,6 @@ const DOMAIN_STATUS_COLLECTIONS = new Set([
 
 // ── Core queue helpers ───────────────────────────────────────────────────────
 
-/** @internal No-op kept for test compatibility. */
-export function _resetEnqueueSeq() {}
 
 /**
  * Adds a new entry to the sync_queue ObjectStore.

@@ -42,7 +42,6 @@ import {
   getFailedSyncCalls,
   drainQueue,
   MAX_ATTEMPTS,
-  _resetEnqueueSeq,
 } from '../../composables/useSyncQueue.js';
 import * as persistenceOps from '../persistence/auth.js';
 import { appConfig } from '../../utils/index.js';
@@ -60,7 +59,6 @@ function mockResponse(status, body = {}) {
 
 beforeEach(async () => {
   await _resetIDBSingleton();
-  _resetEnqueueSeq();
   vi.restoreAllMocks();
   vi.stubGlobal('navigator', { ...navigator, onLine: true });
 });
