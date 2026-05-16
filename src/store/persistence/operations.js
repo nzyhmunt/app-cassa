@@ -547,3 +547,24 @@ export async function deleteRecordsFromIDB(storeName, keys) {
     return 0;
   }
 }
+
+
+// ── Backward-compat re-exports ────────────────────────────────────────────────
+// These functions were moved to dedicated modules during the Step 5 refactoring.
+// Re-exported here so that existing tests that spy on `persistence/operations.*`
+// continue to work without modification.
+export {
+  loadUsersFromIDB, saveUsersToIDB,
+  loadAuthSessionFromIDB, saveAuthSessionToIDB,
+  loadAuthSettingsFromIDB, saveAuthSettingsToIDB,
+} from './auth.js';
+
+export {
+  loadSettingsFromIDB,
+  saveSettingsToIDB,
+  loadCustomItemsFromIDB,
+  saveCustomItemsToIDB,
+  loadJsonMenuFromIDB,
+  saveJsonMenuToIDB,
+} from './settings.js';
+export { deleteDatabase, clearAllStateFromIDB, clearEntireIDB, clearSyncQueueFromIDB } from './reset.js';
