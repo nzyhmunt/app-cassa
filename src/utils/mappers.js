@@ -40,7 +40,7 @@ export function relationId(value) {
   if (value == null) return null;
   // .slug: fallback for legacy venue_user records where the id field may be stored as a slug string
   if (typeof value === 'object') return value.id ?? value.slug ?? null;
-  return value;
+  return typeof value === 'string' || typeof value === 'number' ? value : null;
 }
 
 function numberOr(value, fallback = 0) {
