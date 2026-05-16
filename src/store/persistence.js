@@ -3,10 +3,9 @@
  * @description Persistence key-derivation utilities.
  *
  * Provides helpers to derive storage keys (for instance isolation) and to
- * clear state. App state is stored in IndexedDB via `store/idbPersistence.js`;
- * this module retains helpers that are shared across multiple files (key
- * derivation, instance name resolution) and retains `clearState` only as a
- * deprecated compatibility wrapper for full-reset flows.
+ * emit cross-tab storage signals. App state is stored in IndexedDB via
+ * `store/persistence/`; this module provides shared helpers across multiple
+ * files (key derivation, instance name resolution).
  *
  * ── Multi-instance support ────────────────────────────────────────────────
  * Multiple instances of the app can run on the same device by assigning each
@@ -18,9 +17,9 @@
 import { appConfig } from '../utils/index.js';
 
 /**
- * Schema version. Increment for breaking state structure changes.
- * @deprecated Used only for backwards-compat key references; IndexedDB schema
- * versioning is handled independently in `composables/useIDB.js` (DB_VERSION).
+ * Schema version used for localStorage key derivation.
+ * Note: IndexedDB schema versioning is handled independently via DB_VERSION
+ * in `composables/useIDB.js`.
  */
 export const SCHEMA_VERSION = 2;
 
@@ -65,33 +64,4 @@ export function touchStorageKey() {
   }
 }
 
-/**
- * Derives the storage key used to persist saved custom items in the
- * "Personalizzata" tab of the "Diretto" modal (CassaTableManager).
- *
- * @param {string} [instanceName] - Instance name; defaults to getInstanceName().
- * @returns {string}
- */
-export function resolveCustomItemsKey(instanceName) {
-  const n = instanceName ?? getInstanceName();
-  return n ? `direct_custom_items_${n}` : 'direct_custom_items';
-}
 
-/**
- * Clears the entire persisted app state from IndexedDB.
- *
- * @deprecated Use `clearAllStateFromIDB()` directly from
- * `store/idbPersistence.js`. This function is kept for backward-compatible
- * signatures and now returns a Promise so callers can await completion.
- *
- * @param {string} [_storageKey] - Reserved for backward-compatible signatures.
- * @returns {Promise<void>}
- */
-export async function clearState(_storageKey) {
-  try {
-    const { clearAllStateFromIDB } = await import('./idbPersistence.js');
-    await clearAllStateFromIDB();
-  } catch (e) {
-    console.warn('[Persistence] Failed to clear IDB state:', e);
-  }
-}

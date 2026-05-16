@@ -33,7 +33,7 @@
  * `isDirectusSyncActive()`.  Do NOT call in a `setInterval` without
  * coordinating across tabs (no leader-election mechanism is in place).
  *
- * @see PIANO_IDB_PURGE.md
+ * @see docs/archive/PIANO_IDB_PURGE.md
  * @see DATABASE_SCHEMA.md §5.8
  */
 
@@ -53,9 +53,6 @@ export function isDirectusSyncActive() {
   const d = appConfig.directus;
   return Boolean(d?.enabled && d?.url && d?.staticToken);
 }
-
-/** @deprecated Use {@link isDirectusSyncActive} instead. Kept for test compatibility. */
-export const _isDirectusSyncActive = isDirectusSyncActive;
 
 /**
  * Returns true when `sync_queue` has at least one pending entry for
@@ -91,8 +88,9 @@ async function _hasPendingSyncEntries(collectionName) {
  *
  * The sync_queue guard is applied unless `skipSyncGuard` is true.
  *
- * @param {string} storeName
- * @param {number|null} retentionDays  Null = orphan-only purge (no date filter).
+ * @internal Exposed for unit-testing only; call {@link runIDBPurge} for runtime use.
+ * @param {string} storeName - IndexedDB ObjectStore name to purge.
+ * @param {number|null} retentionDays - Records older than this are candidates. `null` = orphan-only (no date filter).
  * @param {{
  *   statusFilter?: string[]|null,
  *   dateField?: string,
@@ -204,6 +202,7 @@ export async function purgeCollection(storeName, retentionDays, options = {}) {
  * MAX_ATTEMPTS retry attempts and whose `date_created` is older than
  * `retentionDays`.
  *
+ * @internal Exposed for unit-testing only; call {@link runIDBPurge} for runtime use.
  * @param {number} retentionDays
  */
 export async function purgeSyncQueueDeadLetter(retentionDays) {
@@ -230,6 +229,7 @@ export async function purgeSyncQueueDeadLetter(retentionDays) {
  * Removes old entries from `sync_failed_calls` (local-only audit log).
  * No sync_queue guard is applied because this store is never synchronised.
  *
+ * @internal Exposed for unit-testing only; call {@link runIDBPurge} for runtime use.
  * @param {number} retentionDays
  */
 export async function purgeSyncFailedCalls(retentionDays) {

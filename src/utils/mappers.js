@@ -4,13 +4,17 @@
  *
  * Official runtime entry points:
  *  - Pull (Directus -> runtime/IDB): mapOrderFromDirectus, mapOrderItemFromDirectus,
- *    mapBillSessionFromDirectus, mapVenueConfigFromDirectus
- *  - Push (runtime/IDB -> Directus): mapOrderToDirectus, mapOrderItemToDirectus,
- *    mapBillSessionToDirectus, mapTransactionToDirectus, mapOrderItemModifierToDirectus
+ *    mapBillSessionFromDirectus, mapTransactionFromDirectus, mapVenueConfigFromDirectus,
+ *    mapMenuItemFromDirectus, mapMenuCategoryFromDirectus, mapMenuModifierFromDirectus,
+ *    mapMenuCategoryModifierLinkFromDirectus, mapMenuItemModifierLinkFromDirectus,
+ *    mapTableMergeSessionFromDirectus, mapFiscalReceiptFromDirectus, mapInvoiceRequestFromDirectus
+ *  - Push (runtime/IDB -> Directus, exported): mapOrderToDirectus, mapOrderItemToDirectus,
+ *    mapOrderItemModifierToDirectus, mapPrintJobToDirectus
  *  - Central dispatch (runtime/IDB -> Directus): mapPayloadToDirectus
  *
- * Verification (P2-2): every exported `map*FromDirectus` / `map*ToDirectus`
- * mapper is currently referenced by runtime code (not tests-only).
+ * Note: mapBillSessionToDirectus, mapTransactionToDirectus, mapFiscalReceiptToDirectus
+ * and mapInvoiceRequestToDirectus are internal helpers called exclusively via
+ * mapPayloadToDirectus and are NOT part of the public API.
  */
 
 import { resolvePaymentMethodMeta } from './paymentMethods.js';
@@ -29,10 +33,21 @@ export function looksLikeDirectusId(value) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 }
 
+/**
+ * Extracts the scalar id from a Directus relational value.
+ * Handles plain scalars, full relation objects `{ id }`, and legacy slug-only records.
+ *
+ * @param {unknown} value
+ * @returns {string|number|null}
+ */
 export function relationId(value) {
   if (value == null) return null;
-  if (typeof value === 'object') return value.id ?? null;
-  return value;
+  // .slug: fallback for legacy venue_user records where the id field may be stored as a slug string
+  if (typeof value === 'object') {
+    const candidate = value.id ?? value.slug ?? null;
+    return typeof candidate === 'string' || typeof candidate === 'number' ? candidate : null;
+  }
+  return typeof value === 'string' || typeof value === 'number' ? value : null;
 }
 
 function numberOr(value, fallback = 0) {
@@ -40,6 +55,29 @@ function numberOr(value, fallback = 0) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+/**
+ * Writes both the camelCase and snake_case forms of a field onto `target` in one call.
+ * Centralises the dual-assignment pattern for order fields that must exist in both forms,
+ * so adding a new dual field requires only a single change site.
+ *
+ * @internal Not exported — used only within this module.
+ * @param {object} target    - Object to mutate in-place.
+ * @param {string} camelKey  - camelCase key (e.g. 'totalAmount').
+ * @param {string} snakeKey  - snake_case key (e.g. 'total_amount').
+ * @param {*}      value     - Value to assign to both keys.
+ */
+function syncDual(target, camelKey, snakeKey, value) {
+  target[camelKey] = value;
+  target[snakeKey] = value;
+}
+
+/**
+ * Parses a value that may be a JSON-encoded array string or a plain array.
+ * Returns an empty array on parse failure or when the value is falsy.
+ *
+ * @param {unknown} value
+ * @returns {unknown[]}
+ */
 export function parseJsonArray(value) {
   if (Array.isArray(value)) return value;
   if (typeof value === 'string' && value.trim() !== '') {
@@ -78,6 +116,12 @@ function normalizeNestedOrderItem(record) {
   };
 }
 
+/**
+ * Maps a raw Directus order record to the local camelCase shape used by the app.
+ *
+ * @param {object} record - Raw Directus order record (snake_case fields).
+ * @returns {object} Normalised order object with camelCase + snake_case aliases.
+ */
 export function mapOrderFromDirectus(record) {
   const tableId = relationId(record.table);
   const billSessionId = relationId(record.bill_session ?? record.billSessionId ?? null);
@@ -118,6 +162,13 @@ export function mapOrderFromDirectus(record) {
   };
 }
 
+/**
+ * Converts a local order object to a Directus-compatible payload (snake_case).
+ * Adds snake_case aliases for all dual-written fields and strips local-only keys.
+ *
+ * @param {object} record - Local order object.
+ * @returns {object} Directus-shaped payload.
+ */
 export function mapOrderToDirectus(record) {
   const source = record ?? {};
   const out = { ...source };
@@ -307,7 +358,7 @@ export function mapBillSessionFromDirectus(record) {
   };
 }
 
-export function mapBillSessionToDirectus(record) {
+function mapBillSessionToDirectus(record) {
   const source = record ?? {};
   const out = { ...source };
   if (
@@ -461,26 +512,16 @@ export function mergeOrderFromWSPayload(existing, raw, incoming) {
   if (hasOwn(raw, 'store_id')) merged.store_id = incoming.store_id;
   if (hasOwn(raw, 'terminal_id')) merged.terminal_id = incoming.terminal_id;
   if (hasOwn(raw, 'table')) merged.table = incoming.table;
-  if (hasOwn(raw, 'bill_session')) {
-    merged.billSessionId = incoming.billSessionId;
-    merged.bill_session = incoming.bill_session;
-  }
-  if (hasOwn(raw, 'total_amount')) {
-    merged.totalAmount = incoming.totalAmount;
-    merged.total_amount = incoming.total_amount;
-  }
-  if (hasOwn(raw, 'item_count')) {
-    merged.itemCount = incoming.itemCount;
-    merged.item_count = incoming.item_count;
-  }
-  if (hasOwn(raw, 'order_time')) {
-    merged.time = incoming.time;
-    merged.order_time = incoming.order_time;
-  }
-  if (hasOwn(raw, 'global_note')) {
-    merged.globalNote = incoming.globalNote;
-    merged.global_note = incoming.global_note;
-  }
+  if (hasOwn(raw, 'bill_session'))       syncDual(merged, 'billSessionId', 'bill_session', incoming.billSessionId);
+  if (hasOwn(raw, 'total_amount'))       syncDual(merged, 'totalAmount', 'total_amount', incoming.totalAmount);
+  if (hasOwn(raw, 'item_count'))         syncDual(merged, 'itemCount', 'item_count', incoming.itemCount);
+  if (hasOwn(raw, 'order_time'))         syncDual(merged, 'time', 'order_time', incoming.time);
+  if (hasOwn(raw, 'global_note'))        syncDual(merged, 'globalNote', 'global_note', incoming.globalNote);
+  if (hasOwn(raw, 'is_cover_charge'))    syncDual(merged, 'isCoverCharge', 'is_cover_charge', incoming.isCoverCharge);
+  if (hasOwn(raw, 'is_direct_entry'))    syncDual(merged, 'isDirectEntry', 'is_direct_entry', incoming.isDirectEntry);
+  if (hasOwn(raw, 'rejection_reason'))   syncDual(merged, 'rejectionReason', 'rejection_reason', incoming.rejectionReason);
+  if (hasOwn(raw, 'venue_user_created')) syncDual(merged, 'venueUserCreated', 'venue_user_created', incoming.venueUserCreated);
+  if (hasOwn(raw, 'venue_user_updated')) syncDual(merged, 'venueUserUpdated', 'venue_user_updated', incoming.venueUserUpdated);
   if (
     hasOwn(raw, 'note_visibility_cassa') ||
     hasOwn(raw, 'note_visibility_sala') ||
@@ -502,26 +543,6 @@ export function mergeOrderFromWSPayload(existing, raw, incoming) {
       merged.note_visibility_cucina = incoming.note_visibility_cucina;
     }
     merged.noteVisibility = nv;
-  }
-  if (hasOwn(raw, 'is_cover_charge')) {
-    merged.isCoverCharge = incoming.isCoverCharge;
-    merged.is_cover_charge = incoming.is_cover_charge;
-  }
-  if (hasOwn(raw, 'is_direct_entry')) {
-    merged.isDirectEntry = incoming.isDirectEntry;
-    merged.is_direct_entry = incoming.is_direct_entry;
-  }
-  if (hasOwn(raw, 'rejection_reason')) {
-    merged.rejectionReason = incoming.rejectionReason;
-    merged.rejection_reason = incoming.rejection_reason;
-  }
-  if (hasOwn(raw, 'venue_user_created')) {
-    merged.venueUserCreated = incoming.venueUserCreated;
-    merged.venue_user_created = incoming.venue_user_created;
-  }
-  if (hasOwn(raw, 'venue_user_updated')) {
-    merged.venueUserUpdated = incoming.venueUserUpdated;
-    merged.venue_user_updated = incoming.venue_user_updated;
   }
   if (
     hasOwn(raw, 'dietary_diets') ||
@@ -656,7 +677,7 @@ export function mergeOrderItemFromWSPayload(existing, raw, incoming) {
  *
  * @type {Record<string, string>}
  */
-export const FIELD_RENAME_MAP = {
+const FIELD_RENAME_MAP = {
   // FK fields — Directus convention: no _id suffix
   billSessionId:  'bill_session',
   orderId:        'order',
@@ -834,6 +855,14 @@ function normalizeMenu(modifiers, categoryModifierLinks, itemModifierLinks, cate
   return menu;
 }
 
+/**
+ * Builds the full local venue-config object from a Directus deep-fetch response.
+ * Merges into `defaults` so any field absent in Directus falls back gracefully.
+ *
+ * @param {object|null} cachedConfig - Directus venue record with nested relations.
+ * @param {object}      defaults     - `DEFAULT_SETTINGS` or equivalent fallback.
+ * @returns {object} Normalised venue config ready for `useConfigStore`.
+ */
 export function mapVenueConfigFromDirectus(cachedConfig, defaults) {
   if (!cachedConfig) return JSON.parse(JSON.stringify(defaults));
   const next = JSON.parse(JSON.stringify(defaults));
@@ -993,7 +1022,7 @@ export function mapOrderItemModifierToDirectus(record) {
  * @param {object} record
  * @returns {object}
  */
-export function mapTransactionToDirectus(record) {
+function mapTransactionToDirectus(record) {
   const source = record ?? {};
   const out = { ...source };
 
@@ -1191,7 +1220,7 @@ export function mapPrintJobToDirectus(record, originalRecord) {
  * @param {object} [originalRecord] - Original unstripped payload from enqueue
  * @returns {object}
  */
-export function mapFiscalReceiptToDirectus(record, originalRecord) {
+function mapFiscalReceiptToDirectus(record, originalRecord) {
   const source = record ?? {};
   const original = originalRecord ?? {};
   const out = { ...source };
@@ -1267,7 +1296,7 @@ export function mapFiscalReceiptToDirectus(record, originalRecord) {
  * @param {object} [originalRecord] - Original unstripped payload from enqueue
  * @returns {object}
  */
-export function mapInvoiceRequestToDirectus(record, originalRecord) {
+function mapInvoiceRequestToDirectus(record, originalRecord) {
   const source = record ?? {};
   const original = originalRecord ?? {};
   const out = { ...source };
@@ -1343,18 +1372,6 @@ export function mapInvoiceRequestToDirectus(record, originalRecord) {
 }
 
 /**
- * Safely parses a JSON string that should be an array.
- * Returns the parsed value when it is an array, otherwise returns [].
- * If `value` is already an array it is returned as-is.
- *
- * @param {*} value
- * @returns {Array}
- */
-function _parseJsonArray(value) {
-  return parseJsonArray(value);
-}
-
-/**
  * Maps a Directus `fiscal_receipts` record back to the local camelCase format.
  *
  * Reverses the snake_case → camelCase transformations applied by
@@ -1391,12 +1408,12 @@ export function mapFiscalReceiptFromDirectus(r) {
   // payment_methods — JSON string or array → array
   const pm = r.payment_methods ?? r.paymentMethods;
   if (pm != null) {
-    out.paymentMethods = _parseJsonArray(pm);
+    out.paymentMethods = parseJsonArray(pm);
   }
   // orders — JSON string or array → array
   const orders = r.orders;
   if (orders != null) {
-    out.orders = _parseJsonArray(orders);
+    out.orders = parseJsonArray(orders);
   }
   // xml_request → xmlRequest
   if (r.xml_request != null) out.xmlRequest = r.xml_request;
@@ -1451,12 +1468,12 @@ export function mapInvoiceRequestFromDirectus(r) {
   // payment_methods — JSON string or array → array
   const pm = r.payment_methods ?? r.paymentMethods;
   if (pm != null) {
-    out.paymentMethods = _parseJsonArray(pm);
+    out.paymentMethods = parseJsonArray(pm);
   }
   // orders — JSON string or array → array
   const orders = r.orders;
   if (orders != null) {
-    out.orders = _parseJsonArray(orders);
+    out.orders = parseJsonArray(orders);
   }
   // Billing data columns → nested billingData object
   const bd = {};

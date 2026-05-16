@@ -7,7 +7,6 @@
  * in a TTL map so that `_handleSubscriptionMessage` can filter them out and
  * avoid redundant IDB writes and transient UI rewrites.
  *
- * Extracted from useDirectusSync.js (§5.7 refactor).
  */
 
 /**

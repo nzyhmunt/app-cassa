@@ -713,7 +713,7 @@ describe('isHydrated', () => {
 describe('Directus sole-source enforcement', () => {
   it('purges manual users from memory at startup when Directus users are present', async () => {
     // Pre-populate IDB with one manual user and one Directus user.
-    const { saveUsersToIDB } = await import('../../store/persistence/operations.js');
+    const { saveUsersToIDB } = await import('../../store/persistence/auth.js');
     const { upsertRecordsIntoIDB } = await import('../../store/persistence/operations.js');
     await saveUsersToIDB([{
       id: 'mu_mario', name: 'Mario', pin: await sha256('1111'), apps: ['cassa'], isAdmin: false, _type: 'manual_user',

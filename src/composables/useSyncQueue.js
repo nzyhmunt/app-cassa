@@ -45,7 +45,7 @@ import { getDB } from './useIDB.js';
 import { newUUIDv7 } from '../store/storeUtils.js';
 import { appConfig } from '../utils/index.js';
 import { mapPayloadToDirectus } from '../utils/mappers.js';
-import { loadAuthSessionFromIDB } from '../store/persistence/operations.js';
+import { loadAuthSessionFromIDB } from '../store/persistence/auth.js';
 import { addSyncLog } from '../store/persistence/syncLogs.js';
 
 /**
@@ -77,8 +77,6 @@ const DOMAIN_STATUS_COLLECTIONS = new Set([
 
 // ── Core queue helpers ───────────────────────────────────────────────────────
 
-/** @internal No-op kept for test compatibility. */
-export function _resetEnqueueSeq() {}
 
 /**
  * Adds a new entry to the sync_queue ObjectStore.

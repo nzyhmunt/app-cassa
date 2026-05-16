@@ -6,24 +6,11 @@
  */
 
 import { hashPin, PIN_LENGTH } from '../../utils/pinAuth.js';
+import { relationId } from '../../utils/mappers.js';
 
-export { parseJsonArray } from '../../utils/mappers.js';
+export { parseJsonArray, relationId } from '../../utils/mappers.js';
 
 // ── FK helpers ────────────────────────────────────────────────────────────────
-
-/**
- * Extracts the scalar FK value from a Directus relation object or scalar.
- * Also falls back to `.slug` for legacy venue-user records where the id field
- * may be stored as a slug string.
- *
- * @param {*} value
- * @returns {*}
- */
-export function relationId(value) {
-  if (value == null) return value;
-  if (typeof value === 'object') return value.id ?? value.slug ?? null;
-  return value;
-}
 
 /**
  * Extracts and normalises a FK to a guaranteed `String` value for type-safe

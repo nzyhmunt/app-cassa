@@ -18,11 +18,10 @@ import {
 import { mapVenueConfigFromDirectus } from '../utils/mappers.js';
 import { cloneValue as _clone } from './storeUtils.js';
 import {
-  loadSettingsFromIDB,
   saveSettingsToIDB,
   saveJsonMenuToIDB,
   loadJsonMenuFromIDB,
-} from './persistence/operations.js';
+} from './persistence/settings.js';
 import { loadConfigFromIDB } from './persistence/config.js';
 import { saveDirectusConfigToStorage } from '../composables/useDirectusClient.js';
 
@@ -106,6 +105,15 @@ export const useConfigStore = defineStore('config', () => {
   const menuLoading = ref(false);
   const menuError = ref(null);
 
+  /**
+   * Reactive array of configured printers from the current runtime config.
+   * Single authoritative source for all printer consumers (components, storebridge).
+   * Returns an empty array when no printers are configured.
+   */
+  const printers = computed(() =>
+    Array.isArray(config.value?.printers) ? config.value.printers : [],
+  );
+
   const cssVars = computed(() => ({
     '--brand-primary': config.value.ui.primaryColor,
     '--brand-dark': config.value.ui.primaryColorDark,
@@ -147,7 +155,6 @@ export const useConfigStore = defineStore('config', () => {
   }
 
   async function loadMenu(options = {}) {
-    const shouldHydrateDirectus = options.skipHydrate === true ? false : true;
     const applyJsonSnapshot = async () => {
       const jsonMenu = await loadJsonMenuFromIDB();
       if (!jsonMenu || typeof jsonMenu !== 'object' || Array.isArray(jsonMenu)) return false;
@@ -159,7 +166,7 @@ export const useConfigStore = defineStore('config', () => {
     menuError.value = null;
     try {
       if (menuSource.value === 'directus') {
-        if (shouldHydrateDirectus) await hydrateConfigFromIDB();
+        if (!options.skipHydrate) await hydrateConfigFromIDB();
         return;
       }
 
@@ -269,6 +276,7 @@ export const useConfigStore = defineStore('config', () => {
     config,
     cssVars,
     rooms,
+    printers,
     sounds,
     menuUrl,
     menuSource,
@@ -286,7 +294,3 @@ export const useConfigStore = defineStore('config', () => {
     saveDirectusSettings,
   };
 });
-
-// Re-export loadSettingsFromIDB so index.js and initStoreFromIDB callers can use it
-// without a separate import chain.
-export { loadSettingsFromIDB };

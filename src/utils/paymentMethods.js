@@ -1,4 +1,4 @@
-export const FALLBACK_PAYMENT_METHOD_LABEL = 'Altro';
+const FALLBACK_PAYMENT_METHOD_LABEL = 'Altro';
 
 export function resolvePaymentMethodMeta(methods, values = {}) {
   const list = Array.isArray(methods) ? methods : [];

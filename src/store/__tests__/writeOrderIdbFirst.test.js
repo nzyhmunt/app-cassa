@@ -1389,3 +1389,87 @@ describe('sync queue propagation — table mutations', () => {
     expect(upsertBillSessionInIDBMock).not.toHaveBeenCalled();
   });
 });
+
+describe('cancelPendingSaves() generation guard', () => {
+  // Regression test: _saveChain writes queued *after* the debounce timer fires
+  // but *before* the .then() callback executes must be skipped when
+  // cancelPendingSaves() is called between those two moments.
+  //
+  // Scenario:
+  //   T=0   setFondoCassa(100) → direct saveStateToIDB rejects → _scheduleSave retry → timer1 set
+  //   T=150 debounce timer1 fires → chain-save-1 appended to _saveChain → starts (blocks)
+  //   T=~   setFondoCassa(200) → direct saveStateToIDB rejects → _scheduleSave retry → timer2 set
+  //   T=~+150 debounce timer2 fires → chain-save-2 queued after blocking save1
+  //   T=~+150 cancelPendingSaves() → _saveGeneration++
+  //   T=~+150 resolveChainSave1() → save1 unblocked
+  //   → save2's .then() detects generation mismatch → skips saveStateToIDB
+  it('prevents already-queued _saveChain writes from executing after cancellation', async () => {
+    const store = useAppStore();
+    runtime.store = store;
+
+    let resolveChainSave1;
+    const chainSaveLog = [];
+
+    // Calls in order:
+    //  1st (direct from setFondoCassa #1) → reject → triggers _scheduleSave retry
+    //  2nd (chain-save-1 from debounce timer #1) → blocks until resolveChainSave1()
+    //  3rd (direct from setFondoCassa #2) → reject → triggers _scheduleSave retry
+    //  4th (chain-save-2 from debounce timer #2) → should NOT be called (generation guard)
+    saveStateToIDBMock
+      .mockRejectedValueOnce(new Error('IDB fail 1'))
+      .mockImplementationOnce((payload) => {
+        chainSaveLog.push({ id: 'chain-save-1', payload });
+        return new Promise((resolve) => { resolveChainSave1 = resolve; });
+      })
+      .mockRejectedValueOnce(new Error('IDB fail 2'))
+      .mockImplementation((payload) => {
+        chainSaveLog.push({ id: 'chain-save-2-SHOULD-NOT-EXECUTE', payload });
+        return Promise.resolve();
+      });
+
+    // ── Step 1: trigger first retry via cashBalance failure ─────────────────
+    store.setFondoCassa(100);
+    // Flush microtasks: Vue watcher callback + promise rejection catch
+    // (either order is fine; either way exactly one _scheduleSave succeeds).
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    // _scheduleSave('cashBalance') was called from the .catch → debounce timer set
+
+    // ── Step 2: advance time to fire debounce timer #1 ───────────────────────
+    vi.advanceTimersByTime(200);
+    // Timer callback ran synchronously; now flush the .then() microtask so
+    // saveStateToIDB (chain-save-1) actually starts executing.
+    await Promise.resolve();
+    await Promise.resolve();
+    // chain-save-1 has started (blocking — resolveChainSave1 not yet called).
+    expect(chainSaveLog[0]?.id).toBe('chain-save-1');
+
+    // ── Step 3: trigger second retry to queue chain-save-2 ───────────────────
+    store.setFondoCassa(200);
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    // _scheduleSave('cashBalance') was called from the second .catch → timer2 set
+
+    // ── Step 4: advance time to fire debounce timer #2 ───────────────────────
+    // chain-save-2 is now appended to _saveChain (waiting for blocked save1).
+    vi.advanceTimersByTime(200);
+    await Promise.resolve();
+
+    // ── Step 5: cancel → increment _saveGeneration ───────────────────────────
+    store.cancelPendingSaves();
+
+    // ── Step 6: unblock chain-save-1 ─────────────────────────────────────────
+    resolveChainSave1(undefined);
+
+    // ── Step 7: flush chain microtasks ───────────────────────────────────────
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // chain-save-2's .then() ran, detected _saveGeneration !== gen, and skipped.
+    expect(chainSaveLog).toHaveLength(1);
+    expect(chainSaveLog[0].id).toBe('chain-save-1');
+  });
+});

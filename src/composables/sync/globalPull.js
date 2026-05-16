@@ -5,7 +5,6 @@
  * Contains the venue-tree fan-out pipeline, deep-fetch helpers, local config
  * cache hydration, and the orchestrated global pull flow.
  *
- * Extracted from useDirectusSync.js (§9 refactor).
  */
 
 import { readItem, readItems } from '@directus/sdk';

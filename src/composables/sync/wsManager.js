@@ -9,7 +9,6 @@
  *   `_resetWsHeartbeat()` MUST be the first call in `_handleSubscriptionMessage`
  *   so the timer resets before any `await` that could time out.
  *
- * Extracted from useDirectusSync.js (§7 refactor).
  */
 
 import { appConfig, deepEqual } from '../../utils/index.js';

@@ -91,9 +91,14 @@ export const useOrderStore = defineStore('orders', () => {
 
   function addFiscalReceipt(entry) {
     fiscalReceipts.value = [entry, ...fiscalReceipts.value].slice(0, 200);
-    Promise.resolve(saveFiscalReceiptToIDB(entry))
-      .then(() => pruneFiscalReceiptsInIDB())
-      .catch((error) => console.error('Failed to persist/prune fiscal receipts in IDB:', error));
+    (async () => {
+      try {
+        await saveFiscalReceiptToIDB(entry);
+        await pruneFiscalReceiptsInIDB();
+      } catch (error) {
+        console.warn('[Store] Failed to persist/prune fiscal receipts in IDB:', error);
+      }
+    })();
     enqueue('fiscal_receipts', 'create', entry.id, entry);
   }
 
@@ -732,7 +737,7 @@ export const useOrderStore = defineStore('orders', () => {
   }
 
   // ── Order-item mutation helpers (IDB-first, serialized per order) ────────────
-  // All seven functions below follow the same contract:
+  // Contract for all public mutation functions:
   //   - Mutations for the same orderId are serialized via _withOrderLock to prevent
   //     concurrent rapid clicks from projecting from a stale pre-mutation snapshot.
   //   - Inside the lock, the latest order is re-read from orders.value.
@@ -745,61 +750,71 @@ export const useOrderStore = defineStore('orders', () => {
   // The false-return-on-failure pattern prevents uncaught async errors in Vue
   // click handlers that invoke these functions without await.
 
+  /**
+   * Shared scaffolding for order-item mutations: lock → read → mutate → IDB → enqueue.
+   *
+   * @param {string} ordId - The order ID to mutate.
+   * @param {(current: object) => (object|null|undefined)} mutatorFn
+   *   Receives the current order (from orders.value). Must return the mutated projected
+   *   clone ready to persist, or null/undefined to abort without side-effects. The caller
+   *   is responsible for cloning `current`, applying the mutation, and calling
+   *   `updateOrderTotals` when item quantities or prices change.
+   * @param {string} context - Short name used in the warn log on IDB failure.
+   * @returns {Promise<true|false|undefined>}
+   */
+  async function _mutateOrderItems(ordId, mutatorFn, context) {
+    return _withOrderLock(ordId, async () => {
+      const current = orders.value.find(o => String(o.id) === String(ordId));
+      const projected = mutatorFn(current);
+      if (!projected) return;
+      const projectedOrders = _replaceOrderById(ordId, projected);
+      try {
+        await saveStateToIDB({ orders: projectedOrders });
+      } catch (e) {
+        console.warn(`[Store] ${context} IDB save failed:`, e);
+        return false;
+      }
+      _enqueueOrderItemsPatch(ordId, projected);
+      return true;
+    });
+  }
+
   async function updateQtyGlobal(ord, idx, delta) {
     const ordId = ord?.id;
     if (!ordId) return;
-    return _withOrderLock(ordId, async () => {
-      const current = orders.value.find(o => String(o.id) === String(ordId));
-      if (!current || current.status !== 'pending') return;
+    return _mutateOrderItems(ordId, (current) => {
+      if (!current || current.status !== 'pending') return null;
       const item = current.orderItems[idx];
-      if (!item) return;
+      if (!item) return null;
       const projected = _clone(toRaw(current));
       const projItem = projected.orderItems[idx];
       projItem.quantity += delta;
       if (projItem.quantity <= 0) projected.orderItems.splice(idx, 1);
       updateOrderTotals(projected);
-      const projectedOrders = _replaceOrderById(ordId, projected);
-      try {
-        await saveStateToIDB({ orders: projectedOrders });
-      } catch (e) {
-        console.warn('[Store] updateQtyGlobal IDB save failed:', e);
-        return false;
-      }
-      _enqueueOrderItemsPatch(ordId, projected);
-      return true;
-    });
+      return projected;
+    }, 'updateQtyGlobal');
   }
 
   async function removeRowGlobal(ord, idx) {
     const ordId = ord?.id;
     if (!ordId) return;
-    return _withOrderLock(ordId, async () => {
-      const current = orders.value.find(o => String(o.id) === String(ordId));
-      if (!current || current.status !== 'pending') return;
+    return _mutateOrderItems(ordId, (current) => {
+      if (!current || current.status !== 'pending') return null;
       const projected = _clone(toRaw(current));
       projected.orderItems.splice(idx, 1);
       updateOrderTotals(projected);
-      const projectedOrders = _replaceOrderById(ordId, projected);
-      try {
-        await saveStateToIDB({ orders: projectedOrders });
-      } catch (e) {
-        console.warn('[Store] removeRowGlobal IDB save failed:', e);
-        return false;
-      }
-      _enqueueOrderItemsPatch(ordId, projected);
-      return true;
-    });
+      return projected;
+    }, 'removeRowGlobal');
   }
 
   async function voidOrderItems(ord, idx, qtyToVoid) {
     const ordId = ord?.id;
     if (!ordId || !Number.isInteger(qtyToVoid) || qtyToVoid <= 0) return;
-    return _withOrderLock(ordId, async () => {
-      const current = orders.value.find(o => String(o.id) === String(ordId));
-      if (!current || !KITCHEN_ACTIVE_STATUSES.includes(current.status)) return;
+    return _mutateOrderItems(ordId, (current) => {
+      if (!current || !KITCHEN_ACTIVE_STATUSES.includes(current.status)) return null;
       const item = current.orderItems[idx];
-      if (!item) return;
-      if ((item.voidedQuantity || 0) + qtyToVoid > item.quantity) return;
+      if (!item) return null;
+      if ((item.voidedQuantity || 0) + qtyToVoid > item.quantity) return null;
       const projected = _clone(toRaw(current));
       const projItem = projected.orderItems[idx];
       if (!projItem.voidedQuantity) projItem.voidedQuantity = 0;
@@ -809,113 +824,69 @@ export const useOrderStore = defineStore('orders', () => {
         m.voidedQuantity = Math.min(m.voidedQuantity || 0, maxModActive);
       }
       updateOrderTotals(projected);
-      const projectedOrders = _replaceOrderById(ordId, projected);
-      try {
-        await saveStateToIDB({ orders: projectedOrders });
-      } catch (e) {
-        console.warn('[Store] voidOrderItems IDB save failed:', e);
-        return false;
-      }
-      _enqueueOrderItemsPatch(ordId, projected);
-      return true;
-    });
+      return projected;
+    }, 'voidOrderItems');
   }
 
   async function restoreOrderItems(ord, idx, qtyToRestore) {
     const ordId = ord?.id;
     if (!ordId || !Number.isInteger(qtyToRestore) || qtyToRestore <= 0) return;
-    return _withOrderLock(ordId, async () => {
-      const current = orders.value.find(o => String(o.id) === String(ordId));
-      if (!current || !KITCHEN_ACTIVE_STATUSES.includes(current.status)) return;
+    return _mutateOrderItems(ordId, (current) => {
+      if (!current || !KITCHEN_ACTIVE_STATUSES.includes(current.status)) return null;
       const item = current.orderItems[idx];
-      if (!item || !(item.voidedQuantity && item.voidedQuantity >= qtyToRestore)) return;
+      if (!item || !(item.voidedQuantity && item.voidedQuantity >= qtyToRestore)) return null;
       const projected = _clone(toRaw(current));
       projected.orderItems[idx].voidedQuantity -= qtyToRestore;
       updateOrderTotals(projected);
-      const projectedOrders = _replaceOrderById(ordId, projected);
-      try {
-        await saveStateToIDB({ orders: projectedOrders });
-      } catch (e) {
-        console.warn('[Store] restoreOrderItems IDB save failed:', e);
-        return false;
-      }
-      _enqueueOrderItemsPatch(ordId, projected);
-      return true;
-    });
+      return projected;
+    }, 'restoreOrderItems');
   }
 
   async function voidModifier(ord, itemIdx, modIdx, qty) {
     const ordId = ord?.id;
     if (!ordId || !Number.isInteger(qty) || qty <= 0) return;
-    return _withOrderLock(ordId, async () => {
-      const current = orders.value.find(o => String(o.id) === String(ordId));
-      if (!current || !KITCHEN_ACTIVE_STATUSES.includes(current.status)) return;
+    return _mutateOrderItems(ordId, (current) => {
+      if (!current || !KITCHEN_ACTIVE_STATUSES.includes(current.status)) return null;
       const item = current.orderItems[itemIdx];
-      if (!item || !item.modifiers || modIdx < 0 || modIdx >= item.modifiers.length) return;
+      if (!item || !item.modifiers || modIdx < 0 || modIdx >= item.modifiers.length) return null;
       const mod = item.modifiers[modIdx];
-      if ((mod.voidedQuantity || 0) + qty + (item.voidedQuantity || 0) > item.quantity) return;
+      if ((mod.voidedQuantity || 0) + qty + (item.voidedQuantity || 0) > item.quantity) return null;
       const projected = _clone(toRaw(current));
       const projMod = projected.orderItems[itemIdx].modifiers[modIdx];
       if (!projMod.voidedQuantity) projMod.voidedQuantity = 0;
       projMod.voidedQuantity += qty;
       updateOrderTotals(projected);
-      const projectedOrders = _replaceOrderById(ordId, projected);
-      try {
-        await saveStateToIDB({ orders: projectedOrders });
-      } catch (e) {
-        console.warn('[Store] voidModifier IDB save failed:', e);
-        return false;
-      }
-      _enqueueOrderItemsPatch(ordId, projected);
-      return true;
-    });
+      return projected;
+    }, 'voidModifier');
   }
 
   async function restoreModifier(ord, itemIdx, modIdx, qty) {
     const ordId = ord?.id;
     if (!ordId || !Number.isInteger(qty) || qty <= 0) return;
-    return _withOrderLock(ordId, async () => {
-      const current = orders.value.find(o => String(o.id) === String(ordId));
-      if (!current || !KITCHEN_ACTIVE_STATUSES.includes(current.status)) return;
+    return _mutateOrderItems(ordId, (current) => {
+      if (!current || !KITCHEN_ACTIVE_STATUSES.includes(current.status)) return null;
       const item = current.orderItems[itemIdx];
-      if (!item || !item.modifiers || modIdx < 0 || modIdx >= item.modifiers.length) return;
+      if (!item || !item.modifiers || modIdx < 0 || modIdx >= item.modifiers.length) return null;
       const mod = item.modifiers[modIdx];
-      if ((mod.voidedQuantity || 0) < qty) return;
+      if ((mod.voidedQuantity || 0) < qty) return null;
       const projected = _clone(toRaw(current));
       projected.orderItems[itemIdx].modifiers[modIdx].voidedQuantity -= qty;
       updateOrderTotals(projected);
-      const projectedOrders = _replaceOrderById(ordId, projected);
-      try {
-        await saveStateToIDB({ orders: projectedOrders });
-      } catch (e) {
-        console.warn('[Store] restoreModifier IDB save failed:', e);
-        return false;
-      }
-      _enqueueOrderItemsPatch(ordId, projected);
-      return true;
-    });
+      return projected;
+    }, 'restoreModifier');
   }
 
   async function setItemKitchenReady(order, itemIdx, ready) {
     const ordId = order?.id;
     if (!ordId) return;
-    return _withOrderLock(ordId, async () => {
-      const current = orders.value.find(o => String(o.id) === String(ordId));
-      if (!current || !current.orderItems || itemIdx < 0 || itemIdx >= current.orderItems.length) return;
+    return _mutateOrderItems(ordId, (current) => {
+      if (!current || !current.orderItems || itemIdx < 0 || itemIdx >= current.orderItems.length) return null;
       const currentReady = !!current.orderItems[itemIdx].kitchenReady;
       const nextReady = typeof ready === 'boolean' ? ready : !currentReady;
       const projected = _clone(toRaw(current));
       projected.orderItems[itemIdx].kitchenReady = nextReady;
-      const projectedOrders = _replaceOrderById(ordId, projected);
-      try {
-        await saveStateToIDB({ orders: projectedOrders });
-      } catch (e) {
-        console.warn('[Store] setItemKitchenReady IDB save failed:', e);
-        return false;
-      }
-      _enqueueOrderItemsPatch(ordId, projected);
-      return true;
-    });
+      return projected;
+    }, 'setItemKitchenReady');
   }
 
   async function addTransaction(txn) {
@@ -1173,6 +1144,7 @@ export const useOrderStore = defineStore('orders', () => {
 
   let _saveTimer = null;
   let _saveChain = Promise.resolve();
+  let _saveGeneration = 0;
   const _pendingSaveKeys = new Set();
   const _skipNextSaveCount = new Map();
   const _persistableStateGetters = {
@@ -1214,8 +1186,15 @@ export const useOrderStore = defineStore('orders', () => {
         if (getter) payload[key] = getter();
       });
       _pendingSaveKeys.clear();
+      // Capture the current generation at timer-fire time. If cancelPendingSaves() is
+      // called after the timer fires (but before this .then() executes), _saveGeneration
+      // will have been incremented and the write will be skipped.
+      const gen = _saveGeneration;
       _saveChain = _saveChain
-        .then(() => saveStateToIDB(payload))
+        .then(() => {
+          if (_saveGeneration !== gen) return;
+          return saveStateToIDB(payload);
+        })
         .catch((e) => console.warn('[Store] IDB save failed for keys', Object.keys(payload), e));
     }, 150);
   }
@@ -1228,6 +1207,26 @@ export const useOrderStore = defineStore('orders', () => {
       const pendingSkip = pendingSkipValue === undefined ? 0 : pendingSkipValue;
       _skipNextSaveCount.set(key, pendingSkip + 1);
     });
+  }
+
+  /**
+   * Cancels any pending debounced IDB writes and invalidates any already-queued
+   * `_saveChain` writes that have not yet started executing.
+   *
+   * Call this before a hard reset (factory reset) to prevent stale in-memory
+   * state from being written back to a freshly cleared or deleted database
+   * during the brief window between `clearAllStateFromIDB()` / `deleteDatabase()`
+   * and `window.location.reload()`.
+   *
+   * Incrementing `_saveGeneration` ensures that any `.then()` callbacks already
+   * appended to `_saveChain` (but not yet executing) will be a no-op when they
+   * eventually run, even if the debounce timer had already fired.
+   */
+  function cancelPendingSaves() {
+    clearTimeout(_saveTimer);
+    _saveTimer = null;
+    _pendingSaveKeys.clear();
+    _saveGeneration++;
   }
 
   watch(orders, () => _scheduleSave('orders'), { deep: true });
@@ -1330,5 +1329,6 @@ export const useOrderStore = defineStore('orders', () => {
     generateXReport,
     performDailyClose,
     refreshOperationalStateFromIDB,
+    cancelPendingSaves,
   };
 });

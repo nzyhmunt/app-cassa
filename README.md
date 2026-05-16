@@ -55,24 +55,43 @@ src/
 │   ├── SalaSettingsModal.vue          ← Impostazioni Sala (thin wrapper su shared/SettingsModal)
 │   └── CucinaSettingsModal.vue        ← Impostazioni Cucina (thin wrapper su shared/SettingsModal)
 ├── composables/
+│   ├── printDispatch.js               ← Trasporto job di stampa: HTTP diretto o passaggio a Directus (tcp/file)
+│   ├── printJobBuilders.js            ← Costruzione payload ESC/POS per ogni tipo di job (ordini, pre-conto, ecc.)
 │   ├── useAppClock.js                 ← Orologio reattivo HH:MM (it-IT), aggiornato ogni secondo
+│   ├── useAppSwipeRefresh.js          ← Gestione pull-to-refresh su mobile
 │   ├── useAuth.js                     ← Autenticazione utenti, PIN hashing, auto-lock timer
 │   ├── useBeep.js                     ← Notifiche audio (Web Audio API)
-│   ├── useNumericKeyboard.js          ← Singleton state per la tastiera numerica custom (Cassa only)
-│   ├── usePrintQueue.js               ← Coda di stampa comande → servizio Node ESC/POS
-│   ├── usePwaInstall.js               ← Rilevamento installazione PWA
+│   ├── useDirectusClient.js           ← Client Directus configurato (SDK singleton)
+│   ├── useDirectusSync.js             ← Orchestratore alto livello della sincronizzazione Directus
 │   ├── useIDB.js                      ← Connessione IndexedDB singleton (apertura DB, tutti gli ObjectStore)
+│   ├── useIDBPurge.js                 ← Pulizia periodica IndexedDB (vecchi ordini, dead-letter queue, print log)
+│   ├── useNumericKeyboard.js          ← Singleton state per la tastiera numerica custom (Cassa only)
+│   ├── usePrintQueue.js               ← Orchestrazione coda di stampa comande (usa printJobBuilders + printDispatch)
+│   ├── usePwaInstall.js               ← Rilevamento installazione PWA
 │   ├── useSettings.js                 ← Lettura/scrittura impostazioni (IndexedDB)
 │   ├── useSyncQueue.js                ← Gestione coda sync offline verso Directus (ObjectStore sync_queue)
-│   └── useWakeLock.js                 ← Prevenzione blocco schermo (Screen Wake Lock API)
+│   ├── useSyncStoreProxy.js           ← Proxy reattivo per esporre lo store Pinia ai moduli di sync
+│   ├── useWakeLock.js                 ← Prevenzione blocco schermo (Screen Wake Lock API)
+│   └── sync/                          ← Moduli interni della sincronizzazione Directus
+│       ├── config.js                  ← Costanti e configurazioni (field sets, quirks, intervalli)
+│       ├── echoSuppression.js         ← Soppressione echo per evitare ri-applicazione locale dei propri write
+│       ├── globalPull.js              ← Pull completo venue (configurazione, menu, sale, tavoli)
+│       ├── idbOperations.js           ← Operazioni IDB atomiche (upsert, merge, delete ordini e articoli)
+│       ├── index.js                   ← Entry point del modulo sync (esporta hook pubblici)
+│       ├── leaderElection.js          ← Elezione leader fra tab per il sync Directus (BroadcastChannel)
+│       ├── mapper.js                  ← Mapping payload Directus → formato locale per il pull
+│       ├── pullQueue.js               ← Worker pull incrementale (ordini, transazioni, sessioni)
+│       ├── pushQueue.js               ← Drain della sync queue verso Directus (retry, conflict handling)
+│       ├── state.js                   ← State reattivo condiviso del modulo sync
+│       ├── storebridge.js             ← Bridge sync → store Pinia (hydrate, pre-bill printers, callbacks)
+│       └── wsManager.js               ← WebSocket Directus Realtime (live updates e riconnessione)
 ├── store/
-│   ├── idbPersistence.js              ← Implementazione completa della persistenza IDB
 │   ├── persistence/
 │   │   ├── config.js                  ← Barrel di re-export per persistenza configurazione venue/menu/sale/tavoli
 │   │   ├── operations.js              ← Barrel di re-export per dati operativi (ordini/transazioni/sessioni)
 │   │   └── audit.js                   ← Barrel di re-export per audit stampa/ricevute fiscali/fatture
 │   ├── index.js                       ← Store facade + split store (`useConfigStore`, `useOrderStore`)
-│   └── persistence.js                 ← Schema versioning, clearState, resolveCustomItemsKey
+│   └── persistence.js                 ← Derivazione chiavi storage e segnali cross-tab (multi-istanza)
 ├── utils/
 │   ├── index.js                       ← Default statici + funzioni di calcolo condivise
 │   ├── mappers.js                     ← Mapping centralizzato Directus (snake_case) ↔ locale (camelCase)
@@ -264,7 +283,7 @@ Funzionalità disponibile sia in **cassa live** (al momento della chiusura del c
 - Logo personalizzato iniettabile nei manifesti tramite configurazione build (`appConfig.pwaLogo`)
 
 ### 💾 Persistenza & Multi-Istanza
-- **Persistenza automatica** su **IndexedDB** (`useIDB.js` + `idbPersistence.js`):
+- **Persistenza automatica** su **IndexedDB** (`useIDB.js` + moduli `store/persistence/`):
   - Ordini, transazioni, sessioni tavoli, movimenti di cassa, chiusure giornaliere, log stampe, ricevute fiscali, richieste fattura
   - Coda sync (`sync_queue`) e storico diagnostico delle chiamate fallite (`sync_failed_calls`) con request/response copiabili da UI
   - Serializzazione Set↔Array per `billRequestedTables`
@@ -411,10 +430,14 @@ I record di queste collezioni non vengono mai hard-delete da Directus — il cic
 
 ## Stampa Comande (ESC/POS)
 
-La coda di stampa automatica è gestita dal composable `src/composables/usePrintQueue.js`.
+La coda di stampa automatica è gestita da tre moduli cooperanti:
+
+- `src/composables/usePrintQueue.js` — orchestrazione: sceglie le stampanti e avvia i job
+- `src/composables/printJobBuilders.js` — costruisce i payload ESC/POS per ogni tipo di job
+- `src/composables/printDispatch.js` — trasporta il job (HTTP diretto o passaggio a Directus per stampanti `tcp`/`file`)
 
 Quando un ordine viene accettato (dalla Cassa o dalla Sala), `enqueuePrintJobs(order)` invia
-una HTTP POST a ciascun servizio stampante configurato in `appConfig.printers`. Il servizio Node
+una HTTP POST a ciascun servizio stampante configurato. Il servizio Node
 ricevente gestisce la comunicazione ESC/POS verso la stampante fisica.
 
 Ogni lavoro di stampa viene registrato in `store.printLog` (persistito su IDB e **sincronizzato
@@ -422,6 +445,15 @@ su Directus** `print_jobs` via sync queue). I job HTTP seguono lo stato `pending
 i job gestiti da Directus (`connection_type = 'tcp' | 'file'`) restano `pending` su Directus ma vengono
 marcati localmente come `queued` nell'interfaccia per indicare il passaggio di consegna al dispatcher.
 Ogni entry ha un `id` (UUID v7, PK Directus) e un `logId` (`plog_<uuid>`, keyPath IDB).
+
+**Sorgente unica per le stampanti:** tutti i consumer (componenti Vue, sync bridge) devono leggere
+le stampanti tramite il computed `configStore.printers` (esposto da `useConfigStore`), mai leggendo
+direttamente `appConfig.printers` o `configStore.config?.printers`. Questo garantisce reattività
+Pinia e coerenza pre/post idratazione.
+
+> **Eccezione pre-init:** `_preBillPrinters()` in `sync/storebridge.js` ricade su `appConfig.printers`
+> quando `syncState._store` non è ancora disponibile (fase di avvio o ambienti di test). Questo
+> fallback è deliberato e documentato nella JSDoc della funzione; non deve essere replicato altrove.
 
 ### Stampante demo (pronta per il test)
 

@@ -31,15 +31,16 @@ import {
   upsertRecordsIntoIDB,
   saveStateToIDB,
   loadStateFromIDB,
+} from '../../store/persistence/operations.js';
+import {
   loadLastPullTsFromIDB,
   saveLastPullTsToIDB,
   loadLastPullCursorFromIDB,
   saveLastPullCursorToIDB,
   replaceTableMergesInIDB,
   loadConfigFromIDB,
-} from '../../store/idbPersistence.js';
+} from '../../store/persistence/config.js';
 import * as persistenceOps from '../../store/persistence/operations.js';
-import { _resetEnqueueSeq } from '../useSyncQueue.js';
 import { mapVenueConfigFromDirectus } from '../../utils/mappers.js';
 import { createRuntimeConfig, DEFAULT_SETTINGS } from '../../utils/index.js';
 import { _fetchUpdatedViaSDK } from '../sync/pullQueue.js';
@@ -245,7 +246,6 @@ beforeEach(async () => {
   await _resetIDBSingleton();
   _resetDirectusSyncSingleton();
   _resetDirectusClientSingleton();
-  _resetEnqueueSeq();
   vi.restoreAllMocks();
   vi.stubGlobal('navigator', { onLine: true });
 
@@ -4359,7 +4359,7 @@ describe('NS7-CP — per-page timestamp checkpoint', () => {
     await saveLastPullTsToIDB('orders', '2024-06-01T00:00:00.000Z');
     await saveLastPullCursorToIDB('orders', { ts: '2024-06-01T00:00:00.000Z', id: 'ord_to_clear' });
 
-    const { clearLocalConfigCacheFromIDB } = await import('../../store/idbPersistence.js');
+    const { clearLocalConfigCacheFromIDB } = await import('../../store/persistence/config.js');
     await clearLocalConfigCacheFromIDB();
 
     const tsRecord = await db.get('app_meta', 'last_pull_ts:orders');
