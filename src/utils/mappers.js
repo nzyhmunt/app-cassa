@@ -4,7 +4,10 @@
  *
  * Official runtime entry points:
  *  - Pull (Directus -> runtime/IDB): mapOrderFromDirectus, mapOrderItemFromDirectus,
- *    mapBillSessionFromDirectus, mapVenueConfigFromDirectus
+ *    mapBillSessionFromDirectus, mapTransactionFromDirectus, mapVenueConfigFromDirectus,
+ *    mapMenuItemFromDirectus, mapMenuCategoryFromDirectus, mapMenuModifierFromDirectus,
+ *    mapMenuCategoryModifierLinkFromDirectus, mapMenuItemModifierLinkFromDirectus,
+ *    mapTableMergeSessionFromDirectus, mapFiscalReceiptFromDirectus, mapInvoiceRequestFromDirectus
  *  - Push (runtime/IDB -> Directus, exported): mapOrderToDirectus, mapOrderItemToDirectus,
  *    mapOrderItemModifierToDirectus, mapPrintJobToDirectus
  *  - Central dispatch (runtime/IDB -> Directus): mapPayloadToDirectus
