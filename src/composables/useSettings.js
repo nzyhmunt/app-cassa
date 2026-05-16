@@ -1,5 +1,5 @@
 import { ref, watch, onUnmounted } from 'vue';
-import { useConfigStore } from '../store/index.js';
+import { useConfigStore, useOrderStore } from '../store/index.js';
 import { KEYBOARD_POSITIONS, DEFAULT_SETTINGS } from '../utils/index.js';
 import { isWakeLockSupported } from './useWakeLock.js';
 import { useAuth } from './useAuth.js';
@@ -16,6 +16,7 @@ import { getInstanceName } from '../store/persistence.js';
  */
 export function useSettings(props, emit) {
   const configStore = useConfigStore();
+  const orderStore = useOrderStore();
   const wakeLockApiSupported = isWakeLockSupported();
 
   /** Validate a stored keyboard value; return 'disabled' if unknown. */
@@ -91,6 +92,13 @@ export function useSettings(props, emit) {
   }
 
   async function confirmReset() {
+    // Cancel any pending debounced IDB writes before wiping the database.
+    // Without this, the orderStore's 150 ms watcher-debounce timer could fire
+    // after clearAllStateFromIDB() / deleteDatabase() returns (which nulls
+    // _dbPromise), causing getDB() to recreate an empty DB and then write the
+    // still-loaded in-memory orders/transactions back into it — surviving the
+    // reload as stale data.
+    orderStore.cancelPendingSaves();
     // Clear Directus connection config so it is not reloaded after reload.
     try {
       await clearDirectusConfigFromStorage();

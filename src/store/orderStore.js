@@ -1201,6 +1201,20 @@ export const useOrderStore = defineStore('orders', () => {
     });
   }
 
+  /**
+   * Cancels any pending debounced IDB writes.
+   *
+   * Call this before a hard reset (factory reset) to prevent stale in-memory
+   * state from being written back to a freshly cleared or deleted database
+   * during the brief window between `clearAllStateFromIDB()` / `deleteDatabase()`
+   * and `window.location.reload()`.
+   */
+  function cancelPendingSaves() {
+    clearTimeout(_saveTimer);
+    _saveTimer = null;
+    _pendingSaveKeys.clear();
+  }
+
   watch(orders, () => _scheduleSave('orders'), { deep: true });
   watch(transactions, () => _scheduleSave('transactions'), { deep: true });
   watch(cashBalance, () => _scheduleSave('cashBalance'));
@@ -1301,5 +1315,6 @@ export const useOrderStore = defineStore('orders', () => {
     generateXReport,
     performDailyClose,
     refreshOperationalStateFromIDB,
+    cancelPendingSaves,
   };
 });
