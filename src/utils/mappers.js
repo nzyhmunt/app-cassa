@@ -5,12 +5,13 @@
  * Official runtime entry points:
  *  - Pull (Directus -> runtime/IDB): mapOrderFromDirectus, mapOrderItemFromDirectus,
  *    mapBillSessionFromDirectus, mapVenueConfigFromDirectus
- *  - Push (runtime/IDB -> Directus): mapOrderToDirectus, mapOrderItemToDirectus,
- *    mapBillSessionToDirectus, mapTransactionToDirectus, mapOrderItemModifierToDirectus
+ *  - Push (runtime/IDB -> Directus, exported): mapOrderToDirectus, mapOrderItemToDirectus,
+ *    mapOrderItemModifierToDirectus, mapPrintJobToDirectus
  *  - Central dispatch (runtime/IDB -> Directus): mapPayloadToDirectus
  *
- * Verification (P2-2): every exported `map*FromDirectus` / `map*ToDirectus`
- * mapper is currently referenced by runtime code (not tests-only).
+ * Note: mapBillSessionToDirectus, mapTransactionToDirectus, mapFiscalReceiptToDirectus
+ * and mapInvoiceRequestToDirectus are internal helpers called exclusively via
+ * mapPayloadToDirectus and are NOT part of the public API.
  */
 
 import { resolvePaymentMethodMeta } from './paymentMethods.js';

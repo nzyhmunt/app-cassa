@@ -451,6 +451,10 @@ le stampanti tramite il computed `configStore.printers` (esposto da `useConfigSt
 direttamente `appConfig.printers` o `configStore.config?.printers`. Questo garantisce reattività
 Pinia e coerenza pre/post idratazione.
 
+> **Eccezione pre-init:** `_preBillPrinters()` in `sync/storebridge.js` ricade su `appConfig.printers`
+> quando `syncState._store` non è ancora disponibile (fase di avvio o ambienti di test). Questo
+> fallback è deliberato e documentato nella JSDoc della funzione; non deve essere replicato altrove.
+
 ### Stampante demo (pronta per il test)
 
 La configurazione predefinita include una **stampante demo catch-all** attiva sulla porta `3001`:
