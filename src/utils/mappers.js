@@ -46,6 +46,7 @@ function numberOr(value, fallback = 0) {
  * Centralises the dual-assignment pattern for order fields that must exist in both forms,
  * so adding a new dual field requires only a single change site.
  *
+ * @internal Not exported — used only within this module.
  * @param {object} target    - Object to mutate in-place.
  * @param {string} camelKey  - camelCase key (e.g. 'totalAmount').
  * @param {string} snakeKey  - snake_case key (e.g. 'total_amount').

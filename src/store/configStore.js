@@ -106,6 +106,15 @@ export const useConfigStore = defineStore('config', () => {
   const menuLoading = ref(false);
   const menuError = ref(null);
 
+  /**
+   * Reactive array of configured printers from the current runtime config.
+   * Single authoritative source for all printer consumers (components, storebridge).
+   * Returns an empty array when no printers are configured.
+   */
+  const printers = computed(() =>
+    Array.isArray(config.value?.printers) ? config.value.printers : [],
+  );
+
   const cssVars = computed(() => ({
     '--brand-primary': config.value.ui.primaryColor,
     '--brand-dark': config.value.ui.primaryColorDark,
@@ -268,6 +277,7 @@ export const useConfigStore = defineStore('config', () => {
     config,
     cssVars,
     rooms,
+    printers,
     sounds,
     menuUrl,
     menuSource,

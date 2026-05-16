@@ -67,12 +67,15 @@ export async function _refreshStoreConfigFromIDB(options = {}) {
 
 /**
  * Returns printers that can receive pre-bill jobs.
+ * Reads from the Pinia store's reactive `printers` computed when the store is
+ * available (post-hydration authoritative source), otherwise falls back to
+ * `appConfig.printers` for the pre-init / test path.
  * Printers with missing/empty printTypes are treated as catch-all.
  *
  * @returns {Array<{id:string,name?:string,url?:string,printTypes?:string[]}>}
  */
 export function _preBillPrinters() {
-  return getPreBillEligiblePrinters(appConfig.printers);
+  return getPreBillEligiblePrinters(syncState._store?.printers ?? appConfig.printers);
 }
 
 /**

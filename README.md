@@ -423,6 +423,11 @@ i job gestiti da Directus (`connection_type = 'tcp' | 'file'`) restano `pending`
 marcati localmente come `queued` nell'interfaccia per indicare il passaggio di consegna al dispatcher.
 Ogni entry ha un `id` (UUID v7, PK Directus) e un `logId` (`plog_<uuid>`, keyPath IDB).
 
+**Sorgente unica per le stampanti:** tutti i consumer (componenti Vue, sync bridge) devono leggere
+le stampanti tramite il computed `configStore.printers` (esposto da `useConfigStore`), mai leggendo
+direttamente `appConfig.printers` o `configStore.config?.printers`. Questo garantisce reattività
+Pinia e coerenza pre/post idratazione.
+
 ### Stampante demo (pronta per il test)
 
 La configurazione predefinita include una **stampante demo catch-all** attiva sulla porta `3001`:

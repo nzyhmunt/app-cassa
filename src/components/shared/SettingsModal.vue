@@ -253,7 +253,7 @@ const DIRECTUS_MANAGED_PRINTER_LABEL = 'Gestita da Directus';
  * AND catch-all printers (printTypes absent or empty), consistent with
  * how getPrintersForType() routes jobs and the README documentation. */
 const preBillPrinters = computed(() => {
-  return getPreBillEligiblePrinters(configStore.config?.printers);
+  return getPreBillEligiblePrinters(configStore.printers);
 });
 
 const preBillPrintersSorted = computed(() =>
