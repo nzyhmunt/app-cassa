@@ -86,13 +86,12 @@ src/
 │       ├── storebridge.js             ← Bridge sync → store Pinia (hydrate, pre-bill printers, callbacks)
 │       └── wsManager.js               ← WebSocket Directus Realtime (live updates e riconnessione)
 ├── store/
-│   ├── idbPersistence.js              ← Implementazione completa della persistenza IDB
 │   ├── persistence/
 │   │   ├── config.js                  ← Barrel di re-export per persistenza configurazione venue/menu/sale/tavoli
 │   │   ├── operations.js              ← Barrel di re-export per dati operativi (ordini/transazioni/sessioni)
 │   │   └── audit.js                   ← Barrel di re-export per audit stampa/ricevute fiscali/fatture
 │   ├── index.js                       ← Store facade + split store (`useConfigStore`, `useOrderStore`)
-│   └── persistence.js                 ← Schema versioning, `clearState` (@deprecated)
+│   └── persistence.js                 ← Derivazione chiavi storage e segnali cross-tab (multi-istanza)
 ├── utils/
 │   ├── index.js                       ← Default statici + funzioni di calcolo condivise
 │   ├── mappers.js                     ← Mapping centralizzato Directus (snake_case) ↔ locale (camelCase)
@@ -284,7 +283,7 @@ Funzionalità disponibile sia in **cassa live** (al momento della chiusura del c
 - Logo personalizzato iniettabile nei manifesti tramite configurazione build (`appConfig.pwaLogo`)
 
 ### 💾 Persistenza & Multi-Istanza
-- **Persistenza automatica** su **IndexedDB** (`useIDB.js` + `idbPersistence.js`):
+- **Persistenza automatica** su **IndexedDB** (`useIDB.js` + moduli `store/persistence/`):
   - Ordini, transazioni, sessioni tavoli, movimenti di cassa, chiusure giornaliere, log stampe, ricevute fiscali, richieste fattura
   - Coda sync (`sync_queue`) e storico diagnostico delle chiamate fallite (`sync_failed_calls`) con request/response copiabili da UI
   - Serializzazione Set↔Array per `billRequestedTables`
