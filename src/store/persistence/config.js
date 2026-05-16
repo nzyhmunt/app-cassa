@@ -5,26 +5,10 @@
  */
 
 import { getDB } from '../../composables/useIDB.js';
-import { hashPin, PIN_LENGTH } from '../../utils/pinAuth.js';
+import { PIN_LENGTH } from '../../utils/pinAuth.js';
 import { normalizeAppsArray } from '../../utils/userRoles.js';
 import { touchStorageKey } from '../persistence.js';
-import { relationIdStr } from './_shared.js';
-
-async function _hashPin(pin) {
-  const raw = String(pin ?? '');
-  if (!raw) return '';
-  return hashPin(raw);
-}
-
-function _extractPinDigits(value) {
-  const source = String(value ?? '');
-  let digits = '';
-  for (let i = 0; i < source.length && digits.length < PIN_LENGTH; i += 1) {
-    const char = source[i];
-    if (char >= '0' && char <= '9') digits += char;
-  }
-  return digits;
-}
+import { relationIdStr, hashPinForLocalAuth as _hashPin, extractPinDigits as _extractPinDigits } from './_shared.js';
 
 /**
  * Loads all cached Directus configuration from IndexedDB.
