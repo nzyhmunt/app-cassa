@@ -29,6 +29,13 @@ export function looksLikeDirectusId(value) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 }
 
+/**
+ * Extracts the scalar id from a Directus relational value.
+ * Handles plain scalars, full relation objects `{ id }`, and legacy slug-only records.
+ *
+ * @param {unknown} value
+ * @returns {string|number|null}
+ */
 export function relationId(value) {
   if (value == null) return null;
   // .slug: fallback for legacy venue_user records where the id field may be stored as a slug string
@@ -57,6 +64,13 @@ function syncDual(target, camelKey, snakeKey, value) {
   target[snakeKey] = value;
 }
 
+/**
+ * Parses a value that may be a JSON-encoded array string or a plain array.
+ * Returns an empty array on parse failure or when the value is falsy.
+ *
+ * @param {unknown} value
+ * @returns {unknown[]}
+ */
 export function parseJsonArray(value) {
   if (Array.isArray(value)) return value;
   if (typeof value === 'string' && value.trim() !== '') {
@@ -95,6 +109,12 @@ function normalizeNestedOrderItem(record) {
   };
 }
 
+/**
+ * Maps a raw Directus order record to the local camelCase shape used by the app.
+ *
+ * @param {object} record - Raw Directus order record (snake_case fields).
+ * @returns {object} Normalised order object with camelCase + snake_case aliases.
+ */
 export function mapOrderFromDirectus(record) {
   const tableId = relationId(record.table);
   const billSessionId = relationId(record.bill_session ?? record.billSessionId ?? null);
@@ -135,6 +155,13 @@ export function mapOrderFromDirectus(record) {
   };
 }
 
+/**
+ * Converts a local order object to a Directus-compatible payload (snake_case).
+ * Adds snake_case aliases for all dual-written fields and strips local-only keys.
+ *
+ * @param {object} record - Local order object.
+ * @returns {object} Directus-shaped payload.
+ */
 export function mapOrderToDirectus(record) {
   const source = record ?? {};
   const out = { ...source };
@@ -324,7 +351,7 @@ export function mapBillSessionFromDirectus(record) {
   };
 }
 
-export function mapBillSessionToDirectus(record) {
+function mapBillSessionToDirectus(record) {
   const source = record ?? {};
   const out = { ...source };
   if (
@@ -465,6 +492,16 @@ export function mapTableMergeSessionFromDirectus(record) {
  * @param {object} incoming - Already-mapped record via `mapOrderFromDirectus(raw)`.
  * @returns {object} Merged order record ready to be written back to IDB.
  */
+/**
+ * Merges a Directus WebSocket event payload into an existing local order.
+ * Only fields present in the raw WS payload (`raw`) are updated;
+ * absent keys are preserved from `existing`.
+ *
+ * @param {object} existing  - Current local order state.
+ * @param {object} raw       - Raw WS payload (may be partial / snake_case).
+ * @param {object} incoming  - Already-mapped camelCase version of `raw`.
+ * @returns {object} Merged order object.
+ */
 export function mergeOrderFromWSPayload(existing, raw, incoming) {
   const merged = { ...existing };
   const hasOwn = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key);
@@ -560,6 +597,15 @@ export function mergeOrderFromWSPayload(existing, raw, incoming) {
  * @param {object} incoming  - The result of `mapOrderItemFromDirectus(raw)`.
  * @returns {object} Merged item record.
  */
+/**
+ * Merges a Directus WebSocket event payload into an existing local order item.
+ * Only fields present in the raw WS payload (`raw`) are updated.
+ *
+ * @param {object} existing  - Current local order-item state.
+ * @param {object} raw       - Raw WS payload (may be partial / snake_case).
+ * @param {object} incoming  - Already-mapped camelCase version of `raw`.
+ * @returns {object} Merged order-item object.
+ */
 export function mergeOrderItemFromWSPayload(existing, raw, incoming) {
   const merged = { ...existing };
   const hasOwn = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key);
@@ -643,7 +689,7 @@ export function mergeOrderItemFromWSPayload(existing, raw, incoming) {
  *
  * @type {Record<string, string>}
  */
-export const FIELD_RENAME_MAP = {
+const FIELD_RENAME_MAP = {
   // FK fields — Directus convention: no _id suffix
   billSessionId:  'bill_session',
   orderId:        'order',
@@ -821,6 +867,14 @@ function normalizeMenu(modifiers, categoryModifierLinks, itemModifierLinks, cate
   return menu;
 }
 
+/**
+ * Builds the full local venue-config object from a Directus deep-fetch response.
+ * Merges into `defaults` so any field absent in Directus falls back gracefully.
+ *
+ * @param {object|null} cachedConfig - Directus venue record with nested relations.
+ * @param {object}      defaults     - `DEFAULT_SETTINGS` or equivalent fallback.
+ * @returns {object} Normalised venue config ready for `useConfigStore`.
+ */
 export function mapVenueConfigFromDirectus(cachedConfig, defaults) {
   if (!cachedConfig) return JSON.parse(JSON.stringify(defaults));
   const next = JSON.parse(JSON.stringify(defaults));
@@ -980,7 +1034,7 @@ export function mapOrderItemModifierToDirectus(record) {
  * @param {object} record
  * @returns {object}
  */
-export function mapTransactionToDirectus(record) {
+function mapTransactionToDirectus(record) {
   const source = record ?? {};
   const out = { ...source };
 
@@ -1178,7 +1232,7 @@ export function mapPrintJobToDirectus(record, originalRecord) {
  * @param {object} [originalRecord] - Original unstripped payload from enqueue
  * @returns {object}
  */
-export function mapFiscalReceiptToDirectus(record, originalRecord) {
+function mapFiscalReceiptToDirectus(record, originalRecord) {
   const source = record ?? {};
   const original = originalRecord ?? {};
   const out = { ...source };
@@ -1254,7 +1308,7 @@ export function mapFiscalReceiptToDirectus(record, originalRecord) {
  * @param {object} [originalRecord] - Original unstripped payload from enqueue
  * @returns {object}
  */
-export function mapInvoiceRequestToDirectus(record, originalRecord) {
+function mapInvoiceRequestToDirectus(record, originalRecord) {
   const source = record ?? {};
   const original = originalRecord ?? {};
   const out = { ...source };
@@ -1511,6 +1565,15 @@ const _TO_DIRECTUS_MAPPERS = {
  *   `dish = null` (JSON-menu dish IDs are local-only and have no corresponding Directus record);
  *   `'directus'` (default) passes through valid UUID-shaped dish IDs unchanged.
  * @returns {object}  Directus-ready payload
+ */
+/**
+ * Central dispatcher: converts a local record to a Directus-ready payload for
+ * any supported collection.  Delegates to the appropriate `map*ToDirectus` function.
+ *
+ * @param {string} collection - Directus collection name (e.g. `'orders'`).
+ * @param {object} payload    - Local record to convert.
+ * @param {{ paymentMethods?: object[], menuSource?: string, operation?: string }} [ctx]
+ * @returns {object} Directus-shaped payload.
  */
 export function mapPayloadToDirectus(collection, payload, ctx = {}) {
   if (!payload || typeof payload !== 'object') return {};

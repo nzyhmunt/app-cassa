@@ -313,6 +313,16 @@ function _withDerivedTables(settings) {
 
 export const appConfig = _withDerivedTables(DEFAULT_SETTINGS);
 
+/**
+ * Builds a fresh runtime config by merging `overrides` (from Directus or settings)
+ * onto `DEFAULT_SETTINGS` and re-deriving the flat `tables` array.
+ *
+ * Use this instead of mutating `appConfig` directly — the returned object is a
+ * fully independent copy so callers can safely spread/assign it to reactive stores.
+ *
+ * @param {object|null} [overrides] - Partial settings to merge; nullable.
+ * @returns {typeof DEFAULT_SETTINGS}
+ */
 export function createRuntimeConfig(overrides = null) {
   const base = _withDerivedTables(DEFAULT_SETTINGS);
   if (!overrides || typeof overrides !== 'object') return base;
@@ -368,7 +378,7 @@ function getNormalizedPrinterStringList(values) {
  * @param {object|null|undefined} printer
  * @returns {string[]}
  */
-export function getNormalizedPrinterPrintTypes(printer) {
+function getNormalizedPrinterPrintTypes(printer) {
   return getNormalizedPrinterStringList(printer?.printTypes);
 }
 

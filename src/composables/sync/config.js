@@ -51,7 +51,7 @@ export const DEEP_FETCH_FIELDS = [
   'table_merge_sessions.*',
 ];
 
-export const DEEP_FETCH_BASE_RELATION_FIELDS = [
+const DEEP_FETCH_BASE_RELATION_FIELDS = [
   '*',
   'rooms.*',
   'tables.*',
@@ -61,7 +61,7 @@ export const DEEP_FETCH_BASE_RELATION_FIELDS = [
   'table_merge_sessions.*',
 ];
 
-export const DEEP_FETCH_FALLBACK_FIELDS = [
+const DEEP_FETCH_FALLBACK_FIELDS = [
   ...DEEP_FETCH_BASE_RELATION_FIELDS,
   'rooms.tables.*',
   'menu_categories.*',
@@ -74,7 +74,7 @@ export const DEEP_FETCH_FIELD_SETS = [
   { key: 'fallback', fields: DEEP_FETCH_FALLBACK_FIELDS },
 ];
 
-export const DEEP_FETCH_JSON_FIELDS = [
+const DEEP_FETCH_JSON_FIELDS = [
   'id',
   'name',
   'status',
@@ -116,7 +116,7 @@ export const VENUE_NESTED_RELATION_KEYS = [
   'table_merge_sessions',
 ];
 
-export const VENUE_USERS_RELATION_KEYS = ['venue_users', 'users'];
+const VENUE_USERS_RELATION_KEYS = ['venue_users', 'users'];
 
 export const GLOBAL_INTERVAL_MS = 5 * 60_000;
 export const TABLE_FETCH_BATCH_SIZE = 200;
@@ -126,7 +126,7 @@ export const DEEP_FETCH_PAYLOAD_UNWRAP_MAX_DEPTH = 3;
 // Keeps the Activity Monitor readable and IDB storage bounded on large pulls.
 export const SYNC_LOG_RECORDS_MAX = 20;
 
-export const SUPPORTS_STRUCTURED_CLONE = typeof structuredClone === 'function';
+const SUPPORTS_STRUCTURED_CLONE = typeof structuredClone === 'function';
 
 // Allow substantial device/server clock drift before treating last_pull_ts as invalid.
 // 24h avoids perpetual full-refreshes on slightly misconfigured tablets while still

@@ -72,7 +72,7 @@ export function touchStorageKey() {
  * @param {string} [instanceName] - Instance name; defaults to getInstanceName().
  * @returns {string}
  */
-export function resolveCustomItemsKey(instanceName) {
+function resolveCustomItemsKey(instanceName) {
   const n = instanceName ?? getInstanceName();
   return n ? `direct_custom_items_${n}` : 'direct_custom_items';
 }
