@@ -89,7 +89,8 @@ async function _hasPendingSyncEntries(collectionName) {
  * The sync_queue guard is applied unless `skipSyncGuard` is true.
  *
  * @internal Exposed for unit-testing only; call {@link runIDBPurge} for runtime use.
- * @param {string} storeName
+ * @param {string} storeName - IndexedDB ObjectStore name to purge.
+ * @param {number|null} retentionDays - Records older than this are candidates. `null` = orphan-only (no date filter).
  * @param {{
  *   statusFilter?: string[]|null,
  *   dateField?: string,

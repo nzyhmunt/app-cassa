@@ -492,16 +492,6 @@ export function mapTableMergeSessionFromDirectus(record) {
  * @param {object} incoming - Already-mapped record via `mapOrderFromDirectus(raw)`.
  * @returns {object} Merged order record ready to be written back to IDB.
  */
-/**
- * Merges a Directus WebSocket event payload into an existing local order.
- * Only fields present in the raw WS payload (`raw`) are updated;
- * absent keys are preserved from `existing`.
- *
- * @param {object} existing  - Current local order state.
- * @param {object} raw       - Raw WS payload (may be partial / snake_case).
- * @param {object} incoming  - Already-mapped camelCase version of `raw`.
- * @returns {object} Merged order object.
- */
 export function mergeOrderFromWSPayload(existing, raw, incoming) {
   const merged = { ...existing };
   const hasOwn = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key);
@@ -596,15 +586,6 @@ export function mergeOrderFromWSPayload(existing, raw, incoming) {
  * @param {object} raw       - The raw Directus record in snake_case, regardless of transport.
  * @param {object} incoming  - The result of `mapOrderItemFromDirectus(raw)`.
  * @returns {object} Merged item record.
- */
-/**
- * Merges a Directus WebSocket event payload into an existing local order item.
- * Only fields present in the raw WS payload (`raw`) are updated.
- *
- * @param {object} existing  - Current local order-item state.
- * @param {object} raw       - Raw WS payload (may be partial / snake_case).
- * @param {object} incoming  - Already-mapped camelCase version of `raw`.
- * @returns {object} Merged order-item object.
  */
 export function mergeOrderItemFromWSPayload(existing, raw, incoming) {
   const merged = { ...existing };
@@ -1565,15 +1546,6 @@ const _TO_DIRECTUS_MAPPERS = {
  *   `dish = null` (JSON-menu dish IDs are local-only and have no corresponding Directus record);
  *   `'directus'` (default) passes through valid UUID-shaped dish IDs unchanged.
  * @returns {object}  Directus-ready payload
- */
-/**
- * Central dispatcher: converts a local record to a Directus-ready payload for
- * any supported collection.  Delegates to the appropriate `map*ToDirectus` function.
- *
- * @param {string} collection - Directus collection name (e.g. `'orders'`).
- * @param {object} payload    - Local record to convert.
- * @param {{ paymentMethods?: object[], menuSource?: string, operation?: string }} [ctx]
- * @returns {object} Directus-shaped payload.
  */
 export function mapPayloadToDirectus(collection, payload, ctx = {}) {
   if (!payload || typeof payload !== 'object') return {};
