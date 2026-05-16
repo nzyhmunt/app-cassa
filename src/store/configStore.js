@@ -22,7 +22,7 @@ import {
   saveSettingsToIDB,
   saveJsonMenuToIDB,
   loadJsonMenuFromIDB,
-} from './persistence/operations.js';
+} from './persistence/settings.js';
 import { loadConfigFromIDB } from './persistence/config.js';
 import { saveDirectusConfigToStorage } from '../composables/useDirectusClient.js';
 

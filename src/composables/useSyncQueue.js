@@ -45,7 +45,7 @@ import { getDB } from './useIDB.js';
 import { newUUIDv7 } from '../store/storeUtils.js';
 import { appConfig } from '../utils/index.js';
 import { mapPayloadToDirectus } from '../utils/mappers.js';
-import { loadAuthSessionFromIDB } from '../store/persistence/operations.js';
+import { loadAuthSessionFromIDB } from '../store/persistence/auth.js';
 import { addSyncLog } from '../store/persistence/syncLogs.js';
 
 /**

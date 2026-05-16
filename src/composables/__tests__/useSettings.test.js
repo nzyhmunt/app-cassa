@@ -16,16 +16,23 @@ vi.mock('../useDirectusClient.js', () => ({
 
 // Mock the IDB persistence layer so tests stay synchronous and don't need
 // a real IndexedDB environment for settings tests.
-vi.mock('../../store/persistence/operations.js', async (importOriginal) => {
+vi.mock('../../store/persistence/settings.js', async (importOriginal) => {
   const original = await importOriginal();
   return {
     ...original,
     saveSettingsToIDB: vi.fn().mockResolvedValue(undefined),
+  };
+});
+vi.mock('../../store/persistence/operations.js', async (importOriginal) => {
+  const original = await importOriginal();
+  return {
+    ...original,
     deleteDatabase: vi.fn().mockResolvedValue(undefined),
     clearAllStateFromIDB: vi.fn().mockResolvedValue(undefined),
   };
 });
-import { saveSettingsToIDB, deleteDatabase, clearAllStateFromIDB } from '../../store/persistence/operations.js';
+import { saveSettingsToIDB } from '../../store/persistence/settings.js';
+import { deleteDatabase, clearAllStateFromIDB } from '../../store/persistence/operations.js';
 
 const { settingsKey: SETTINGS_KEY } = resolveStorageKeys();
 

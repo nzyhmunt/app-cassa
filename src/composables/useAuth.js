@@ -8,7 +8,7 @@ import {
   loadUsersFromIDB, saveUsersToIDB,
   loadAuthSessionFromIDB, saveAuthSessionToIDB,
   loadAuthSettingsFromIDB, saveAuthSettingsToIDB,
-} from '../store/persistence/operations.js';
+} from '../store/persistence/auth.js';
 
 const PIN_REGEX = new RegExp(`^\\d{${PIN_LENGTH}}$`);
 

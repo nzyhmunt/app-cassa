@@ -1383,7 +1383,7 @@ import { useConfigStore, useOrderStore } from '../store/index.js';
 import { newUUIDv7, newShortId } from '../store/storeUtils.js';
 import { getOrderItemRowTotal, KITCHEN_ACTIVE_STATUSES, getLockedDirectItems, buildFiscalXmlRequest, formatOrderTime, formatOrderIdShort } from '../utils/index.js';
 import { buildFlatAnaliticaItems, computeAnaliticaTotal, exceedsAmount, getOrdersToComplete } from '../utils/analitica.js';
-import { loadCustomItemsFromIDB, saveCustomItemsToIDB } from '../store/persistence/operations.js';
+import { loadCustomItemsFromIDB, saveCustomItemsToIDB } from '../store/persistence/settings.js';
 import { resolveTransactionPaymentLabel } from '../utils/paymentMethods.js';
 import { useNumericKeyboard } from '../composables/useNumericKeyboard.js';
 import { useAuth } from '../composables/useAuth.js';

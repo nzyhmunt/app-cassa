@@ -44,7 +44,7 @@ import {
   MAX_ATTEMPTS,
   _resetEnqueueSeq,
 } from '../../composables/useSyncQueue.js';
-import * as persistenceOps from '../persistence/operations.js';
+import * as persistenceOps from '../persistence/auth.js';
 import { appConfig } from '../../utils/index.js';
 
 // Pass _backoffMs:0 to skip exponential back-off delays in all tests.

@@ -8,7 +8,7 @@ import { getDB } from '../../composables/useIDB.js';
 import { PIN_LENGTH } from '../../utils/pinAuth.js';
 import { normalizeAppsArray } from '../../utils/userRoles.js';
 import { touchStorageKey } from '../persistence.js';
-import { relationIdStr, hashPinForLocalAuth as hashPin, extractPinDigits as extractPinDigits } from './_shared.js';
+import { relationIdStr, hashPinForLocalAuth as hashPin, extractPinDigits } from './_shared.js';
 
 /**
  * Loads all cached Directus configuration from IndexedDB.
