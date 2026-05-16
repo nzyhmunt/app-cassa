@@ -3,7 +3,6 @@ import {
   SCHEMA_VERSION,
   getInstanceName,
   resolveStorageKeys,
-  clearState,
 } from '../persistence.js';
 import { appConfig } from '../../utils/index.js';
 
@@ -73,29 +72,5 @@ describe('resolveStorageKeys()', () => {
     const { storageKey, settingsKey } = resolveStorageKeys('sala2');
     expect(storageKey).toBe('app_state_sala2_v2');
     expect(settingsKey).toBe('app-settings_sala2');
-  });
-});
-
-// ---------------------------------------------------------------------------
-// clearState()
-// ---------------------------------------------------------------------------
-describe('clearState()', () => {
-  beforeEach(() => localStorage.clear());
-
-  it('does not mutate localStorage keys (IDB-only reset)', () => {
-    localStorage.setItem('test_key', 'some_data');
-    clearState('test_key');
-    expect(localStorage.getItem('test_key')).toBe('some_data');
-  });
-
-  it('is a no-op when the key does not exist', () => {
-    expect(() => clearState('nonexistent_key')).not.toThrow();
-  });
-
-  it('does not affect unrelated localStorage keys', () => {
-    localStorage.setItem('key_a', 'a');
-    localStorage.setItem('key_b', 'b');
-    clearState('key_a');
-    expect(localStorage.getItem('key_b')).toBe('b');
   });
 });

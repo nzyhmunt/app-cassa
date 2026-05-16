@@ -1,6 +1,6 @@
 /**
  * @file idbPersistence.test.js
- * Unit tests for the IndexedDB persistence helpers in `store/idbPersistence.js`.
+ * Unit tests for the IndexedDB persistence helpers in `store/persistence/`.
  *
  * Covers:
  *  - loadStateFromIDB / saveStateToIDB: round-trip, printLog payload stripping,
