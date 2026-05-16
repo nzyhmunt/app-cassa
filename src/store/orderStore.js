@@ -1144,6 +1144,7 @@ export const useOrderStore = defineStore('orders', () => {
 
   let _saveTimer = null;
   let _saveChain = Promise.resolve();
+  let _saveGeneration = 0;
   const _pendingSaveKeys = new Set();
   const _skipNextSaveCount = new Map();
   const _persistableStateGetters = {
@@ -1185,8 +1186,15 @@ export const useOrderStore = defineStore('orders', () => {
         if (getter) payload[key] = getter();
       });
       _pendingSaveKeys.clear();
+      // Capture the current generation at timer-fire time. If cancelPendingSaves() is
+      // called after the timer fires (but before this .then() executes), _saveGeneration
+      // will have been incremented and the write will be skipped.
+      const gen = _saveGeneration;
       _saveChain = _saveChain
-        .then(() => saveStateToIDB(payload))
+        .then(() => {
+          if (_saveGeneration !== gen) return;
+          return saveStateToIDB(payload);
+        })
         .catch((e) => console.warn('[Store] IDB save failed for keys', Object.keys(payload), e));
     }, 150);
   }
@@ -1202,17 +1210,23 @@ export const useOrderStore = defineStore('orders', () => {
   }
 
   /**
-   * Cancels any pending debounced IDB writes.
+   * Cancels any pending debounced IDB writes and invalidates any already-queued
+   * `_saveChain` writes that have not yet started executing.
    *
    * Call this before a hard reset (factory reset) to prevent stale in-memory
    * state from being written back to a freshly cleared or deleted database
    * during the brief window between `clearAllStateFromIDB()` / `deleteDatabase()`
    * and `window.location.reload()`.
+   *
+   * Incrementing `_saveGeneration` ensures that any `.then()` callbacks already
+   * appended to `_saveChain` (but not yet executing) will be a no-op when they
+   * eventually run, even if the debounce timer had already fired.
    */
   function cancelPendingSaves() {
     clearTimeout(_saveTimer);
     _saveTimer = null;
     _pendingSaveKeys.clear();
+    _saveGeneration++;
   }
 
   watch(orders, () => _scheduleSave('orders'), { deep: true });
