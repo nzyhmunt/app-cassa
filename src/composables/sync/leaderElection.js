@@ -10,7 +10,6 @@
  *  - Public composable factory (useDirectusSync)
  *  - Test reset helper (_resetDirectusSyncSingleton)
  *
- * Extracted from useDirectusSync.js (§11 refactor).
  */
 
 import { appConfig, createRuntimeConfig, DEFAULT_SETTINGS } from '../../utils/index.js';

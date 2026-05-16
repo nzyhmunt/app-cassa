@@ -6,7 +6,6 @@
  * Vue/Pinia store.  They read from IDB and push updates to the store, but they
  * do NOT make network calls directly.
  *
- * Extracted from useDirectusSync.js (§5.7 refactor).
  */
 
 import {

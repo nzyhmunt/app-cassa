@@ -5,7 +5,6 @@
  * Contains the REST client factory, the per-collection keyset-paginated fetch
  * loop, and the orchestrated multi-collection pull cycle.
  *
- * Extracted from useDirectusSync.js (§7/§8 refactor).
  */
 
 import { createDirectus, staticToken, rest, readItems } from '@directus/sdk';

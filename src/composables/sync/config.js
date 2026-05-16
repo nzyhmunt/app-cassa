@@ -3,7 +3,6 @@
  * @description Compile-time constants for the Directus sync subsystem.
  *
  * All pure data — no side-effects, no imports from the project.
- * Extracted from useDirectusSync.js (§5.7 refactor).
  */
 
 // ── Per-app pull config (§5.7.6) ─────────────────────────────────────────────

@@ -5,7 +5,6 @@
  * Drains the local offline queue, registers pushed record IDs for echo
  * suppression, and updates reactive sync status.
  *
- * Extracted from useDirectusSync.js (§10 refactor).
  */
 
 import { drainQueue, getPendingEntries } from '../useSyncQueue.js';

@@ -14,7 +14,6 @@
  * Risk 5 from the refactor plan: "primitives imported as
  * `import { _pushGeneration }` would not reflect post-import mutations."
  *
- * Extracted from useDirectusSync.js (§5.7 refactor).
  */
 
 import { ref } from 'vue';

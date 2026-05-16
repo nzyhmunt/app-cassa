@@ -5,7 +5,6 @@
  * Maps raw Directus REST/WS payloads into the local in-memory store format.
  * Pure functions with no side-effects or shared mutable state.
  *
- * Extracted from useDirectusSync.js (§5.7 refactor).
  */
 
 import {

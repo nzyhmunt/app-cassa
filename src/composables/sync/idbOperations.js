@@ -8,7 +8,6 @@
  * no `await` on an external function is introduced between `db.transaction()`
  * and `await tx.done`.
  *
- * Extracted from useDirectusSync.js (§5.7 refactor).
  */
 
 import { getDB } from '../useIDB.js';
