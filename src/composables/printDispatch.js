@@ -7,7 +7,6 @@ import {
   PRINT_ACTIVITY_LOG_STATUSES,
   isDirectusManagedPrinter,
   PRINT_JOBS_COLLECTION,
-  PRINT_JOBS_ENDPOINT,
   PRINT_LOG_STATUSES,
 } from '../utils/index.js';
 import { addSyncLog } from '../store/persistence/syncLogs.js';
@@ -37,20 +36,17 @@ function addPrintActivityLog({
 }
 
 /**
- * Marks a Directus-managed print job as queued in the local UI and appends an
- * activity-log entry without mutating the Directus record status.
+ * Marks a Directus-managed print job as queued in the local UI.
+ * No activity-log entry is written here: the sync queue already produces a
+ * PRINT-type log entry (success or error) when it actually POSTs the job to
+ * Directus, so adding a second "queued" entry would only create noise in the
+ * Activity Monitor.
  *
  * @param {{ store?: object|null, logId: string, job: object }} options
  */
 export function queueDirectusPrintJob(options) {
-  const { store = null, logId, job } = options;
+  const { store = null, logId } = options;
   store?.updatePrintLogEntryLocal(logId, { status: PRINT_LOG_STATUSES.QUEUED });
-  addPrintActivityLog({
-    endpoint: PRINT_JOBS_ENDPOINT,
-    payload: job,
-    status: PRINT_ACTIVITY_LOG_STATUSES.QUEUED,
-    operation: 'create',
-  });
 }
 
 /**

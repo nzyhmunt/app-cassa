@@ -28,7 +28,7 @@ afterEach(() => {
 });
 
 describe('queueDirectusPrintJob()', () => {
-  it('marks the local entry as queued and appends a print_jobs create activity log', async () => {
+  it('marks the local entry as queued without writing an activity log', async () => {
     const store = createStoreStub();
     const job = { jobId: 'job_1', printerId: 'tcp_1', printType: 'order' };
 
@@ -36,22 +36,10 @@ describe('queueDirectusPrintJob()', () => {
 
     expect(store.updatePrintLogEntryLocal).toHaveBeenCalledWith('plog_1', { status: 'queued' });
 
-    let logEntry;
-    await vi.waitFor(async () => {
-      const logs = await getSyncLogs();
-      logEntry = logs.find(log => log.endpoint === '/items/print_jobs');
-      expect(logEntry).toBeDefined();
-    });
-
-    expect(logEntry).toMatchObject({
-      type: 'PRINT',
-      endpoint: '/items/print_jobs',
-      collection: 'print_jobs',
-      operation: 'create',
-      method: null,
-      status: 'queued',
-      payload: job,
-    });
+    // No sync log should be written here — the sync queue (_logPushResult)
+    // produces the PRINT-type log when the job is actually POSTed to Directus.
+    const logs = await getSyncLogs();
+    expect(logs.find(log => log.endpoint === '/items/print_jobs')).toBeUndefined();
   });
 });
 
@@ -208,18 +196,8 @@ describe('dispatchPrintJob()', () => {
     expect(global.fetch).not.toHaveBeenCalled();
     expect(store.updatePrintLogEntryLocal).toHaveBeenCalledWith('plog_6', { status: 'queued' });
 
-    let logEntry;
-    await vi.waitFor(async () => {
-      const logs = await getSyncLogs();
-      logEntry = logs.find(log => log.payload?.jobId === 'job_6');
-      expect(logEntry).toBeDefined();
-    });
-
-    expect(logEntry).toMatchObject({
-      endpoint: '/items/print_jobs',
-      operation: 'create',
-      status: 'queued',
-      payload: job,
-    });
+    // No sync log written here — the sync queue handles PRINT logging.
+    const logs = await getSyncLogs();
+    expect(logs.find(log => log.payload?.jobId === 'job_6')).toBeUndefined();
   });
 });
