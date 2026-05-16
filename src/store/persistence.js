@@ -3,12 +3,10 @@
  * @description Persistence key-derivation utilities.
  *
  * Provides helpers to derive storage keys (for instance isolation) and to
- * Clears the entire persisted app state from IndexedDB.
- *
- * App state is stored in IndexedDB via `store/persistence/`; this module
- * retains helpers that are shared across multiple files (key derivation,
- * instance name resolution) and retains `clearState` only as a deprecated
- * compatibility wrapper for full-reset flows.
+ * emit cross-tab storage signals. App state is stored in IndexedDB via
+ * `store/persistence/`; this module retains helpers shared across multiple
+ * files (key derivation, instance name resolution) and retains `clearState`
+ * only as a deprecated compatibility wrapper for full-reset flows.
  *
  * ── Multi-instance support ────────────────────────────────────────────────
  * Multiple instances of the app can run on the same device by assigning each
