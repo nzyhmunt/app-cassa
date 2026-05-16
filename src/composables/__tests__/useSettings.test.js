@@ -23,7 +23,7 @@ vi.mock('../../store/persistence/settings.js', async (importOriginal) => {
     saveSettingsToIDB: vi.fn().mockResolvedValue(undefined),
   };
 });
-vi.mock('../../store/persistence/operations.js', async (importOriginal) => {
+vi.mock('../../store/persistence/reset.js', async (importOriginal) => {
   const original = await importOriginal();
   return {
     ...original,
@@ -32,7 +32,7 @@ vi.mock('../../store/persistence/operations.js', async (importOriginal) => {
   };
 });
 import { saveSettingsToIDB } from '../../store/persistence/settings.js';
-import { deleteDatabase, clearAllStateFromIDB } from '../../store/persistence/operations.js';
+import { deleteDatabase, clearAllStateFromIDB } from '../../store/persistence/reset.js';
 
 const { settingsKey: SETTINGS_KEY } = resolveStorageKeys();
 

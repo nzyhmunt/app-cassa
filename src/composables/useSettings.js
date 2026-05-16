@@ -3,7 +3,7 @@ import { useConfigStore } from '../store/index.js';
 import { KEYBOARD_POSITIONS, DEFAULT_SETTINGS } from '../utils/index.js';
 import { isWakeLockSupported } from './useWakeLock.js';
 import { useAuth } from './useAuth.js';
-import { deleteDatabase, clearAllStateFromIDB } from '../store/persistence/operations.js';
+import { deleteDatabase, clearAllStateFromIDB } from '../store/persistence/reset.js';
 import { clearDirectusConfigFromStorage } from './useDirectusClient.js';
 import { getInstanceName } from '../store/persistence.js';
 /**

@@ -547,5 +547,3 @@ export async function deleteRecordsFromIDB(storeName, keys) {
     return 0;
   }
 }
-
-export { deleteDatabase, clearAllStateFromIDB, clearSyncQueueFromIDB } from './reset.js';
