@@ -43,7 +43,10 @@ export function looksLikeDirectusId(value) {
 export function relationId(value) {
   if (value == null) return null;
   // .slug: fallback for legacy venue_user records where the id field may be stored as a slug string
-  if (typeof value === 'object') return value.id ?? value.slug ?? null;
+  if (typeof value === 'object') {
+    const candidate = value.id ?? value.slug ?? null;
+    return typeof candidate === 'string' || typeof candidate === 'number' ? candidate : null;
+  }
   return typeof value === 'string' || typeof value === 'number' ? value : null;
 }
 
