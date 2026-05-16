@@ -1365,18 +1365,6 @@ function mapInvoiceRequestToDirectus(record, originalRecord) {
 }
 
 /**
- * Safely parses a JSON string that should be an array.
- * Returns the parsed value when it is an array, otherwise returns [].
- * If `value` is already an array it is returned as-is.
- *
- * @param {*} value
- * @returns {Array}
- */
-function _parseJsonArray(value) {
-  return parseJsonArray(value);
-}
-
-/**
  * Maps a Directus `fiscal_receipts` record back to the local camelCase format.
  *
  * Reverses the snake_case → camelCase transformations applied by
@@ -1413,12 +1401,12 @@ export function mapFiscalReceiptFromDirectus(r) {
   // payment_methods — JSON string or array → array
   const pm = r.payment_methods ?? r.paymentMethods;
   if (pm != null) {
-    out.paymentMethods = _parseJsonArray(pm);
+    out.paymentMethods = parseJsonArray(pm);
   }
   // orders — JSON string or array → array
   const orders = r.orders;
   if (orders != null) {
-    out.orders = _parseJsonArray(orders);
+    out.orders = parseJsonArray(orders);
   }
   // xml_request → xmlRequest
   if (r.xml_request != null) out.xmlRequest = r.xml_request;
@@ -1473,12 +1461,12 @@ export function mapInvoiceRequestFromDirectus(r) {
   // payment_methods — JSON string or array → array
   const pm = r.payment_methods ?? r.paymentMethods;
   if (pm != null) {
-    out.paymentMethods = _parseJsonArray(pm);
+    out.paymentMethods = parseJsonArray(pm);
   }
   // orders — JSON string or array → array
   const orders = r.orders;
   if (orders != null) {
-    out.orders = _parseJsonArray(orders);
+    out.orders = parseJsonArray(orders);
   }
   // Billing data columns → nested billingData object
   const bd = {};

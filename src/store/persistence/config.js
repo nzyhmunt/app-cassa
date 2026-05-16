@@ -8,7 +8,7 @@ import { getDB } from '../../composables/useIDB.js';
 import { PIN_LENGTH } from '../../utils/pinAuth.js';
 import { normalizeAppsArray } from '../../utils/userRoles.js';
 import { touchStorageKey } from '../persistence.js';
-import { relationIdStr, hashPinForLocalAuth as _hashPin, extractPinDigits as _extractPinDigits } from './_shared.js';
+import { relationIdStr, hashPinForLocalAuth as hashPin, extractPinDigits as extractPinDigits } from './_shared.js';
 
 /**
  * Loads all cached Directus configuration from IndexedDB.
@@ -275,10 +275,10 @@ export async function normalizeVenueUsersForIDB(records) {
     const isPinScalar = pinType === 'string' || pinType === 'number';
     if (record.pin != null && isPinScalar) {
       const trimmedPin = String(record.pin).trim();
-      const pinDigits = _extractPinDigits(trimmedPin);
+      const pinDigits = extractPinDigits(trimmedPin);
       if (pinDigits.length === PIN_LENGTH) {
         try {
-          const hashed = await _hashPin(pinDigits);
+          const hashed = await hashPin(pinDigits);
           record.pin = hashed ?? '';
         } catch (err) {
           console.warn('[IDBPersistence] Failed to hash venue_users PIN during normalizeVenueUsersForIDB. Clearing PIN. User ID:', record.id ?? 'unknown', err);
