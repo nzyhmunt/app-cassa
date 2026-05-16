@@ -20,7 +20,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
 import { _resetIDBSingleton } from '../../composables/useIDB.js';
-import { saveStateToIDB } from '../idbPersistence.js';
+import { saveStateToIDB } from '../persistence/operations.js';
 import { initStoreFromIDB, useOrderStore } from '../index.js';
 
 // ── helpers ──────────────────────────────────────────────────────────────────

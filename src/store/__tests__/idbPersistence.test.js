@@ -22,29 +22,39 @@ import { getInstanceName } from '../persistence.js';
 import {
   loadStateFromIDB,
   saveStateToIDB,
-  clearAllStateFromIDB,
   upsertBillSessionInIDB,
   closeBillSessionInIDB,
+  upsertRecordsIntoIDB,
+} from '../persistence/operations.js';
+import {
+  clearAllStateFromIDB,
+} from '../persistence/reset.js';
+import {
   loadSettingsFromIDB,
   saveSettingsToIDB,
+  loadCustomItemsFromIDB,
+  saveCustomItemsToIDB,
+} from '../persistence/settings.js';
+import {
   loadUsersFromIDB,
   saveUsersToIDB,
   loadAuthSessionFromIDB,
   saveAuthSessionToIDB,
   loadAuthSettingsFromIDB,
   saveAuthSettingsToIDB,
-  loadCustomItemsFromIDB,
-  saveCustomItemsToIDB,
+} from '../persistence/auth.js';
+import {
   saveFiscalReceiptToIDB,
   loadFiscalReceiptsFromIDB,
   pruneFiscalReceiptsInIDB,
   saveInvoiceRequestToIDB,
   loadInvoiceRequestsFromIDB,
   pruneInvoiceRequestsInIDB,
+} from '../persistence/audit.js';
+import {
   clearLocalConfigCacheFromIDB,
   loadConfigFromIDB,
-  upsertRecordsIntoIDB,
-} from '../idbPersistence.js';
+} from '../persistence/config.js';
 
 beforeEach(async () => {
   await _resetIDBSingleton();
@@ -1188,7 +1198,7 @@ describe('clearAllStateFromIDB() — fiscal receipts and invoice requests', () =
 describe('replaceVenueUsersInIDB()', () => {
   it('replaces all Directus users and removes users not in the new snapshot', async () => {
     const { getDB } = await import('../../composables/useIDB.js');
-    const { replaceVenueUsersInIDB } = await import('../idbPersistence.js');
+    const { replaceVenueUsersInIDB } = await import('../persistence/config.js');
     const db = await getDB();
 
     // Pre-populate IDB with two Directus users
@@ -1209,7 +1219,7 @@ describe('replaceVenueUsersInIDB()', () => {
 
   it('hashes plaintext PIN for incoming Directus users', async () => {
     const { getDB } = await import('../../composables/useIDB.js');
-    const { replaceVenueUsersInIDB } = await import('../idbPersistence.js');
+    const { replaceVenueUsersInIDB } = await import('../persistence/config.js');
     const db = await getDB();
 
     await replaceVenueUsersInIDB([
@@ -1223,7 +1233,7 @@ describe('replaceVenueUsersInIDB()', () => {
   });
 
   it('clears an invalid PIN and warns', async () => {
-    const { replaceVenueUsersInIDB } = await import('../idbPersistence.js');
+    const { replaceVenueUsersInIDB } = await import('../persistence/config.js');
     const { getDB } = await import('../../composables/useIDB.js');
     const db = await getDB();
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -1244,7 +1254,7 @@ describe('replaceVenueUsersInIDB()', () => {
 
   it('preserves manual_user records that are not in the Directus snapshot', async () => {
     const { getDB } = await import('../../composables/useIDB.js');
-    const { replaceVenueUsersInIDB } = await import('../idbPersistence.js');
+    const { replaceVenueUsersInIDB } = await import('../persistence/config.js');
     const db = await getDB();
 
     // Pre-populate a manual user and a Directus user
@@ -1272,7 +1282,7 @@ describe('replaceVenueUsersInIDB()', () => {
 
   it('normalizes name/display_name aliases for Directus users', async () => {
     const { getDB } = await import('../../composables/useIDB.js');
-    const { replaceVenueUsersInIDB } = await import('../idbPersistence.js');
+    const { replaceVenueUsersInIDB } = await import('../persistence/config.js');
     const db = await getDB();
 
     await replaceVenueUsersInIDB([
@@ -1286,7 +1296,7 @@ describe('replaceVenueUsersInIDB()', () => {
 
   it('normalizes apps to lowercase unique entries', async () => {
     const { getDB } = await import('../../composables/useIDB.js');
-    const { replaceVenueUsersInIDB } = await import('../idbPersistence.js');
+    const { replaceVenueUsersInIDB } = await import('../persistence/config.js');
     const db = await getDB();
 
     await replaceVenueUsersInIDB([
@@ -1299,7 +1309,7 @@ describe('replaceVenueUsersInIDB()', () => {
 
   it('skips records without an id', async () => {
     const { getDB } = await import('../../composables/useIDB.js');
-    const { replaceVenueUsersInIDB } = await import('../idbPersistence.js');
+    const { replaceVenueUsersInIDB } = await import('../persistence/config.js');
     const db = await getDB();
 
     await replaceVenueUsersInIDB([

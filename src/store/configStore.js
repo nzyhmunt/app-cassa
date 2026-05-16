@@ -18,7 +18,6 @@ import {
 import { mapVenueConfigFromDirectus } from '../utils/mappers.js';
 import { cloneValue as _clone } from './storeUtils.js';
 import {
-  loadSettingsFromIDB,
   saveSettingsToIDB,
   saveJsonMenuToIDB,
   loadJsonMenuFromIDB,
@@ -295,7 +294,3 @@ export const useConfigStore = defineStore('config', () => {
     saveDirectusSettings,
   };
 });
-
-// Re-export loadSettingsFromIDB so index.js and initStoreFromIDB callers can use it
-// without a separate import chain.
-export { loadSettingsFromIDB };

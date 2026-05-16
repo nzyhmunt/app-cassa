@@ -31,13 +31,15 @@ import {
   upsertRecordsIntoIDB,
   saveStateToIDB,
   loadStateFromIDB,
+} from '../../store/persistence/operations.js';
+import {
   loadLastPullTsFromIDB,
   saveLastPullTsToIDB,
   loadLastPullCursorFromIDB,
   saveLastPullCursorToIDB,
   replaceTableMergesInIDB,
   loadConfigFromIDB,
-} from '../../store/idbPersistence.js';
+} from '../../store/persistence/config.js';
 import * as persistenceOps from '../../store/persistence/operations.js';
 import { _resetEnqueueSeq } from '../useSyncQueue.js';
 import { mapVenueConfigFromDirectus } from '../../utils/mappers.js';
@@ -4359,7 +4361,7 @@ describe('NS7-CP — per-page timestamp checkpoint', () => {
     await saveLastPullTsToIDB('orders', '2024-06-01T00:00:00.000Z');
     await saveLastPullCursorToIDB('orders', { ts: '2024-06-01T00:00:00.000Z', id: 'ord_to_clear' });
 
-    const { clearLocalConfigCacheFromIDB } = await import('../../store/idbPersistence.js');
+    const { clearLocalConfigCacheFromIDB } = await import('../../store/persistence/config.js');
     await clearLocalConfigCacheFromIDB();
 
     const tsRecord = await db.get('app_meta', 'last_pull_ts:orders');
