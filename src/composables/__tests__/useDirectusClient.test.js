@@ -1,8 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
 import { getDB, _resetIDBSingleton } from '../useIDB.js';
 import {
   loadDirectusConfigFromStorage,
+  saveDirectusConfigToStorage,
   directusEnabledRef,
   _resetDirectusClientSingleton,
 } from '../useDirectusClient.js';
@@ -58,5 +59,72 @@ describe('useDirectusClient.loadDirectusConfigFromStorage()', () => {
       venueId: 42,
       wsEnabled: true,
     }));
+  });
+});
+
+describe('useDirectusClient.saveDirectusConfigToStorage()', () => {
+  let previousDirectusConfig;
+
+  beforeEach(async () => {
+    previousDirectusConfig = structuredClone(appConfig.directus);
+    appConfig.directus = {
+      enabled: true,
+      url: 'https://directus.save.example.com',
+      staticToken: 'tok_save',
+      venueId: 7,
+      wsEnabled: false,
+    };
+    await _resetIDBSingleton();
+    _resetDirectusClientSingleton();
+  });
+
+  afterEach(() => {
+    appConfig.directus = previousDirectusConfig;
+    _resetDirectusClientSingleton();
+  });
+
+  it('dispatches directus-config-updated when called without options', async () => {
+    const handler = vi.fn();
+    window.addEventListener('directus-config-updated', handler);
+    try {
+      await saveDirectusConfigToStorage();
+    } finally {
+      window.removeEventListener('directus-config-updated', handler);
+    }
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  it('suppresses directus-config-updated when called with { silent: true }', async () => {
+    const handler = vi.fn();
+    window.addEventListener('directus-config-updated', handler);
+    try {
+      await saveDirectusConfigToStorage({ silent: true });
+    } finally {
+      window.removeEventListener('directus-config-updated', handler);
+    }
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it('suppresses directus-config-updated when called with { silent: true, skipClientReset: true }', async () => {
+    const handler = vi.fn();
+    window.addEventListener('directus-config-updated', handler);
+    try {
+      await saveDirectusConfigToStorage({ silent: true, skipClientReset: true });
+    } finally {
+      window.removeEventListener('directus-config-updated', handler);
+    }
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it('persists the current appConfig.directus to IDB', async () => {
+    await saveDirectusConfigToStorage({ silent: true });
+    const db = await getDB();
+    const record = await db.get('app_meta', DIRECTUS_CONFIG_RECORD_ID);
+    expect(record?.value).toMatchObject({
+      enabled: true,
+      url: 'https://directus.save.example.com',
+      staticToken: 'tok_save',
+      venueId: 7,
+    });
   });
 });

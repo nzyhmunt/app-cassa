@@ -87,7 +87,7 @@ describe('DirectusSyncSettings clean IDB resync action', () => {
     await flushPromises();
 
     expect(clearEntireIDB).toHaveBeenCalledTimes(1);
-    expect(saveDirectusConfigToStorageMock).toHaveBeenCalledWith({ silent: true });
+    expect(saveDirectusConfigToStorageMock).toHaveBeenCalledWith({ silent: true, skipClientReset: true });
 
     // Directus config must be re-saved BEFORE reconfigureAndApply so that a
     // page reload after the operation boots with Directus enabled.

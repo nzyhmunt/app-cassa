@@ -615,8 +615,10 @@ async function runCleanIdbAndFullSync() {
   // credentials).  Re-persist them now — without dispatching the global
   // directus-config-updated event (silent: true) to avoid a competing sync
   // restart racing the explicit reconfigureAndApply() that follows.
+  // skipClientReset: true preserves the live SDK/WebSocket client so the
+  // existing connection is not torn down for a no-op credential re-write.
   try {
-    await saveDirectusConfigToStorage({ silent: true });
+    await saveDirectusConfigToStorage({ silent: true, skipClientReset: true });
   } catch (e) {
     _appendReconfigureLog({
       level: 'error',

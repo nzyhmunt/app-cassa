@@ -120,22 +120,31 @@ export async function loadDirectusConfigFromStorage() {
 }
 
 /**
- * Persists the current `appConfig.directus` to IndexedDB and rebuilds
- * the SDK client singleton.  Call this after the user saves new credentials.
+ * Persists the current `appConfig.directus` to IndexedDB and optionally
+ * rebuilds the SDK client singleton.  Call this after the user saves new
+ * credentials.
  *
- * @param {{ silent?: boolean }} [options]
+ * @param {{ silent?: boolean, skipClientReset?: boolean }} [options]
  *   `silent: true` — skips dispatching the `directus-config-updated` window
  *   event.  Use this when the caller manages the sync restart itself (e.g.
  *   immediately before a `reconfigureAndApply()` call) to avoid two competing
  *   sync-restart paths racing each other.
+ *
+ *   `skipClientReset: true` — skips calling `resetDirectusClient()` after the
+ *   IDB write.  Use this in persistence-only flows where the in-memory config
+ *   and the already-connected SDK client are still valid and should not be
+ *   disconnected (e.g. the clean-IDB-reset flow re-persists unchanged
+ *   credentials and must not drop a live WebSocket connection).
  * @returns {Promise<void>}
  */
-export async function saveDirectusConfigToStorage({ silent = false } = {}) {
+export async function saveDirectusConfigToStorage({ silent = false, skipClientReset = false } = {}) {
   const cfg = _normalizeDirectusConfig(appConfig.directus);
   const db = await getDB();
   await db.put('app_meta', { id: DIRECTUS_CONFIG_RECORD_ID, value: cfg });
   directusEnabledRef.value = cfg.enabled;
-  resetDirectusClient();
+  if (!skipClientReset) {
+    resetDirectusClient();
+  }
   if (!silent && typeof window !== 'undefined') {
     window.dispatchEvent?.(new CustomEvent('directus-config-updated'));
   }
