@@ -299,6 +299,7 @@ import {
 import { appConfig } from '../../utils/index.js';
 import {
   loadDirectusConfigFromStorage,
+  saveDirectusConfigToStorage,
   directusEnabledRef,
 } from '../../composables/useDirectusClient.js';
 import { useDirectusSync } from '../../composables/useDirectusSync.js';
@@ -608,6 +609,15 @@ async function runCleanIdbAndFullSync() {
     });
     reconfigureRunning.value = false;
     return;
+  }
+
+  // clearEntireIDB() wipes app_meta (including the stored Directus connection
+  // credentials).  Re-persist them now so a page reload after this operation
+  // still boots with Directus enabled.
+  try {
+    await saveDirectusConfigToStorage();
+  } catch (e) {
+    console.warn('[DirectusSyncSettings] Failed to re-save Directus config after IDB clear:', e);
   }
 
   try {

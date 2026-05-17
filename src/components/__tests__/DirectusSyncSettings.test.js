@@ -4,7 +4,7 @@ import DirectusSyncSettings from '../shared/DirectusSyncSettings.vue';
 import { appConfig } from '../../utils/index.js';
 import { clearEntireIDB } from '../../store/persistence/operations.js';
 
-const { syncMock, directusEnabledRefMock, loadDirectusConfigFromStorageMock } = vi.hoisted(() => ({
+const { syncMock, directusEnabledRefMock, loadDirectusConfigFromStorageMock, saveDirectusConfigToStorageMock } = vi.hoisted(() => ({
   syncMock: {
     syncStatus: { value: 'idle' },
     lastPushAt: { value: null },
@@ -15,6 +15,7 @@ const { syncMock, directusEnabledRefMock, loadDirectusConfigFromStorageMock } = 
   },
   directusEnabledRefMock: { value: true },
   loadDirectusConfigFromStorageMock: vi.fn().mockResolvedValue(undefined),
+  saveDirectusConfigToStorageMock: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('../../composables/useDirectusSync.js', () => ({
@@ -24,6 +25,7 @@ vi.mock('../../composables/useDirectusSync.js', () => ({
 vi.mock('../../composables/useDirectusClient.js', () => ({
   directusEnabledRef: directusEnabledRefMock,
   loadDirectusConfigFromStorage: loadDirectusConfigFromStorageMock,
+  saveDirectusConfigToStorage: saveDirectusConfigToStorageMock,
 }));
 
 vi.mock('../../store/index.js', () => ({
@@ -85,6 +87,16 @@ describe('DirectusSyncSettings clean IDB resync action', () => {
     await flushPromises();
 
     expect(clearEntireIDB).toHaveBeenCalledTimes(1);
+    expect(saveDirectusConfigToStorageMock).toHaveBeenCalledTimes(1);
+
+    // Directus config must be re-saved BEFORE reconfigureAndApply so that a
+    // page reload after the operation boots with Directus enabled.
+    const clearOrder = vi.mocked(clearEntireIDB).mock.invocationCallOrder[0];
+    const saveOrder = saveDirectusConfigToStorageMock.mock.invocationCallOrder[0];
+    const reconfigOrder = syncMock.reconfigureAndApply.mock.invocationCallOrder[0];
+    expect(saveOrder).toBeGreaterThan(clearOrder);
+    expect(reconfigOrder).toBeGreaterThan(saveOrder);
+
     expect(syncMock.reconfigureAndApply).toHaveBeenCalledWith(expect.objectContaining({
       clearLocalConfig: true,
       onProgress: expect.any(Function),
