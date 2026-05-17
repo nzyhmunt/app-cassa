@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
 import { getDB, _resetIDBSingleton } from '../useIDB.js';
 import {
+  getDirectusClient,
   loadDirectusConfigFromStorage,
   saveDirectusConfigToStorage,
   directusEnabledRef,
@@ -126,5 +127,20 @@ describe('useDirectusClient.saveDirectusConfigToStorage()', () => {
       staticToken: 'tok_save',
       venueId: 7,
     });
+  });
+
+  it('preserves the cached SDK client when { skipClientReset: true }; resets it by default', async () => {
+    // Establish a cached client instance (requires valid enabled config).
+    const clientA = getDirectusClient();
+    expect(clientA).not.toBeNull();
+
+    // skipClientReset: true — client must NOT be reset.
+    await saveDirectusConfigToStorage({ silent: true, skipClientReset: true });
+    expect(getDirectusClient()).toBe(clientA);
+
+    // Default (skipClientReset: false) — client IS reset; next call rebuilds it.
+    await saveDirectusConfigToStorage({ silent: true });
+    const clientB = getDirectusClient();
+    expect(clientB).not.toBe(clientA);
   });
 });

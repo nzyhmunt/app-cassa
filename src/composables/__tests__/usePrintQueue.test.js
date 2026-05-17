@@ -838,6 +838,9 @@ describe('TCP/file printer routing (Directus print-server path)', () => {
       expect.objectContaining({ name: 'Bruschetta', quantity: 2 }),
     ]);
 
+    // Drain any pending async IDB writes before asserting absence.
+    await new Promise(resolve => setTimeout(resolve, 0));
+
     // No "queued" sync log is written by queueDirectusPrintJob — the sync
     // queue (_logPushResult) produces the PRINT log when the job is POSTed.
     const logs = await getSyncLogs();

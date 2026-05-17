@@ -35,6 +35,9 @@ describe('queueDirectusPrintJob()', () => {
 
     expect(store.updatePrintLogEntryLocal).toHaveBeenCalledWith('plog_1', { status: 'queued' });
 
+    // Drain any pending async IDB writes before asserting absence.
+    await new Promise(resolve => setTimeout(resolve, 0));
+
     // No sync log should be written here — the sync queue (_logPushResult)
     // produces the PRINT-type log when the job is actually POSTed to Directus.
     const logs = await getSyncLogs();
@@ -194,6 +197,9 @@ describe('dispatchPrintJob()', () => {
 
     expect(global.fetch).not.toHaveBeenCalled();
     expect(store.updatePrintLogEntryLocal).toHaveBeenCalledWith('plog_6', { status: 'queued' });
+
+    // Drain any pending async IDB writes before asserting absence.
+    await new Promise(resolve => setTimeout(resolve, 0));
 
     // No sync log written here — the sync queue handles PRINT logging.
     const logs = await getSyncLogs();
