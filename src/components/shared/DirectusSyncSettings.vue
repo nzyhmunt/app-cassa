@@ -612,12 +612,19 @@ async function runCleanIdbAndFullSync() {
   }
 
   // clearEntireIDB() wipes app_meta (including the stored Directus connection
-  // credentials).  Re-persist them now so a page reload after this operation
-  // still boots with Directus enabled.
+  // credentials).  Re-persist them now — without dispatching the global
+  // directus-config-updated event (silent: true) to avoid a competing sync
+  // restart racing the explicit reconfigureAndApply() that follows.
   try {
-    await saveDirectusConfigToStorage();
+    await saveDirectusConfigToStorage({ silent: true });
   } catch (e) {
-    console.warn('[DirectusSyncSettings] Failed to re-save Directus config after IDB clear:', e);
+    _appendReconfigureLog({
+      level: 'error',
+      message: 'Impossibile salvare le credenziali Directus dopo il ripristino IDB. Le impostazioni non verranno mantenute al riavvio. Operazione annullata.',
+      details: String(e?.message ?? e),
+    });
+    reconfigureRunning.value = false;
+    return;
   }
 
   try {

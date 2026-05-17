@@ -30,9 +30,8 @@ afterEach(() => {
 describe('queueDirectusPrintJob()', () => {
   it('marks the local entry as queued without writing an activity log', async () => {
     const store = createStoreStub();
-    const job = { jobId: 'job_1', printerId: 'tcp_1', printType: 'order' };
 
-    queueDirectusPrintJob({ store, logId: 'plog_1', job });
+    queueDirectusPrintJob({ store, logId: 'plog_1' });
 
     expect(store.updatePrintLogEntryLocal).toHaveBeenCalledWith('plog_1', { status: 'queued' });
 

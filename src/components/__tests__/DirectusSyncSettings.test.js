@@ -87,7 +87,7 @@ describe('DirectusSyncSettings clean IDB resync action', () => {
     await flushPromises();
 
     expect(clearEntireIDB).toHaveBeenCalledTimes(1);
-    expect(saveDirectusConfigToStorageMock).toHaveBeenCalledTimes(1);
+    expect(saveDirectusConfigToStorageMock).toHaveBeenCalledWith({ silent: true });
 
     // Directus config must be re-saved BEFORE reconfigureAndApply so that a
     // page reload after the operation boots with Directus enabled.
@@ -102,6 +102,37 @@ describe('DirectusSyncSettings clean IDB resync action', () => {
       onProgress: expect.any(Function),
     }));
     expect(syncMock.forcePull).toHaveBeenCalledTimes(1);
+
+    wrapper.unmount();
+  });
+
+  it('aborts and shows an error log when saveDirectusConfigToStorage fails after IDB clear', async () => {
+    saveDirectusConfigToStorageMock.mockRejectedValueOnce(new Error('IDB write failed'));
+
+    const wrapper = mount(DirectusSyncSettings, {
+      global: {
+        stubs: {
+          SyncMonitor: { template: '<div />' },
+        },
+      },
+    });
+
+    await flushPromises();
+
+    const openButton = wrapper.findAll('button').find((btn) => btn.text().includes('Ripristina dati locali + Sync completa'));
+    await openButton.trigger('click');
+    await flushPromises();
+
+    const runButton = wrapper.findAll('button').find((btn) => btn.text().includes('Conferma e ripristina'));
+    await runButton.trigger('click');
+    await flushPromises();
+
+    expect(clearEntireIDB).toHaveBeenCalledTimes(1);
+    expect(saveDirectusConfigToStorageMock).toHaveBeenCalledTimes(1);
+    // reconfigureAndApply must NOT be called when credentials cannot be saved
+    expect(syncMock.reconfigureAndApply).not.toHaveBeenCalled();
+    // An error message should be visible in the log
+    expect(wrapper.html()).toContain('Impossibile salvare le credenziali Directus');
 
     wrapper.unmount();
   });

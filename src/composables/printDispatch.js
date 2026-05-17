@@ -42,7 +42,7 @@ function addPrintActivityLog({
  * Directus, so adding a second "queued" entry would only create noise in the
  * Activity Monitor.
  *
- * @param {{ store?: object|null, logId: string, job: object }} options
+ * @param {{ store?: object|null, logId: string }} options
  */
 export function queueDirectusPrintJob(options) {
   const { store = null, logId } = options;
@@ -132,5 +132,5 @@ export function dispatchPrintJob(options) {
     return;
   }
 
-  queueDirectusPrintJob({ store, logId, job });
+  queueDirectusPrintJob({ store, logId });
 }

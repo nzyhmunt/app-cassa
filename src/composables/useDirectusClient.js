@@ -123,15 +123,20 @@ export async function loadDirectusConfigFromStorage() {
  * Persists the current `appConfig.directus` to IndexedDB and rebuilds
  * the SDK client singleton.  Call this after the user saves new credentials.
  *
+ * @param {{ silent?: boolean }} [options]
+ *   `silent: true` — skips dispatching the `directus-config-updated` window
+ *   event.  Use this when the caller manages the sync restart itself (e.g.
+ *   immediately before a `reconfigureAndApply()` call) to avoid two competing
+ *   sync-restart paths racing each other.
  * @returns {Promise<void>}
  */
-export async function saveDirectusConfigToStorage() {
+export async function saveDirectusConfigToStorage({ silent = false } = {}) {
   const cfg = _normalizeDirectusConfig(appConfig.directus);
   const db = await getDB();
   await db.put('app_meta', { id: DIRECTUS_CONFIG_RECORD_ID, value: cfg });
   directusEnabledRef.value = cfg.enabled;
   resetDirectusClient();
-  if (typeof window !== 'undefined') {
+  if (!silent && typeof window !== 'undefined') {
     window.dispatchEvent?.(new CustomEvent('directus-config-updated'));
   }
 }
