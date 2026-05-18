@@ -808,7 +808,7 @@ describe('TCP/file printer routing (Directus print-server path)', () => {
     });
   });
 
-  it('normalizes directus printer printTypes/categories and logs queued jobs to /items/print_jobs', async () => {
+  it('normalizes directus printer printTypes/categories and enqueues to print_jobs', async () => {
     appConfig.printers = [
       {
         id: 'cucina_tcp_norm',
@@ -838,18 +838,17 @@ describe('TCP/file printer routing (Directus print-server path)', () => {
       expect.objectContaining({ name: 'Bruschetta', quantity: 2 }),
     ]);
 
-    let queuedLog;
-    await vi.waitFor(async () => {
-      const logs = await getSyncLogs();
-      queuedLog = logs.find(
-        log => log.collection === 'print_jobs'
-          && log.status === 'queued'
-          && log.payload?.orderId === 'ord_norm_2',
-      );
-      expect(queuedLog).toBeDefined();
-    });
+    // Drain any pending async IDB writes before asserting absence.
+    await new Promise(resolve => setTimeout(resolve, 0));
 
-    expect(queuedLog.endpoint).toBe('/items/print_jobs');
+    // No "queued" sync log is written by queueDirectusPrintJob — the sync
+    // queue (_logPushResult) produces the PRINT log when the job is POSTed.
+    const logs = await getSyncLogs();
+    expect(logs.find(
+      log => log.collection === 'print_jobs'
+        && log.status === 'queued'
+        && log.payload?.orderId === 'ord_norm_2',
+    )).toBeUndefined();
   });
 
   it('enqueueTableMoveJob enqueues a print_jobs CREATE for a TCP printer without HTTP', async () => {

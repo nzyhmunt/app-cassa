@@ -299,6 +299,7 @@ import {
 import { appConfig } from '../../utils/index.js';
 import {
   loadDirectusConfigFromStorage,
+  saveDirectusConfigToStorage,
   directusEnabledRef,
 } from '../../composables/useDirectusClient.js';
 import { useDirectusSync } from '../../composables/useDirectusSync.js';
@@ -604,6 +605,24 @@ async function runCleanIdbAndFullSync() {
     _appendReconfigureLog({
       level: 'error',
       message: 'Ripristino completo dei dati locali non riuscito. Sincronizzazione annullata.',
+      details: String(e?.message ?? e),
+    });
+    reconfigureRunning.value = false;
+    return;
+  }
+
+  // clearEntireIDB() wipes app_meta (including the stored Directus connection
+  // credentials).  Re-persist them now — without dispatching the global
+  // directus-config-updated event (silent: true) to avoid a competing sync
+  // restart racing the explicit reconfigureAndApply() that follows.
+  // skipClientReset: true preserves the live SDK/WebSocket client so the
+  // existing connection is not torn down for a no-op credential re-write.
+  try {
+    await saveDirectusConfigToStorage({ silent: true, skipClientReset: true });
+  } catch (e) {
+    _appendReconfigureLog({
+      level: 'error',
+      message: 'Impossibile salvare le credenziali Directus dopo il ripristino IDB. Le impostazioni non verranno mantenute al riavvio. Operazione annullata.',
       details: String(e?.message ?? e),
     });
     reconfigureRunning.value = false;

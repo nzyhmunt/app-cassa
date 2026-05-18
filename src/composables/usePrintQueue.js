@@ -378,7 +378,7 @@ export function enqueuePreBillJob(payload, printerUrl, printerName, printerId = 
   if (usesDirectus) {
     // Job delivered to Directus sync queue; update UI status to 'queued' without
     // patching Directus (the record must stay 'pending' for the print-dispatcher).
-    queueDirectusPrintJob({ store, logId, job });
+    queueDirectusPrintJob({ store, logId });
   } else {
     sendHttpPrintJob({ job, url: resolvedUrl, logId, store });
   }
@@ -462,7 +462,7 @@ export function reprintJob(logEntry, overrideUrl = null) {
   if (usesDirectus) {
     // Job delivered to Directus sync queue; update UI status to 'queued' without
     // patching Directus (the record must stay 'pending' for the print-dispatcher).
-    queueDirectusPrintJob({ store, logId, job });
+    queueDirectusPrintJob({ store, logId });
   } else {
     sendHttpPrintJob({ job, url, logId, store });
   }
