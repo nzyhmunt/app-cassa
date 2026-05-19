@@ -173,6 +173,105 @@ describe('_handleSubscriptionMessage — heartbeat ordering invariant (Risk 3)',
   });
 });
 
+// ── _handleSubscriptionMessage — orders CREATE merges local IDB items ─────────
+//
+// When a WS `orders` CREATE event arrives with order_items:[] (because items
+// are pushed to Directus via a separate `orders` UPDATE queue entry), the
+// handler must preserve existing local orderItems rather than clobbering them.
+// This covers the same-device scenario where the echo TTL has expired or the
+// local IDB already has the order with items before the WS event is processed.
+
+describe('_handleSubscriptionMessage — orders CREATE preserves local IDB orderItems', () => {
+  beforeEach(async () => {
+    await _resetIDBSingleton();
+    _resetDirectusSyncSingleton();
+    _resetDirectusClientSingleton();
+    vi.restoreAllMocks();
+    await configureDirectus();
+    syncState._running = true;
+    syncState._wsConnected.value = true;
+  });
+
+  afterEach(() => {
+    clearSyncTimers();
+    _resetDirectusSyncSingleton();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('keeps local orderItems when WS CREATE event has order_items:[] and IDB already has items', async () => {
+    const { getDB } = await import('../../useIDB.js');
+    const db = await getDB();
+
+    const orderId = 'order-abc-123';
+    const existingOrder = {
+      id: orderId,
+      status: 'pending',
+      table: '1',
+      totalAmount: 15,
+      itemCount: 1,
+      orderItems: [{ id: 'item-1', name: 'Pizza', quantity: 1, unitPrice: 15 }],
+      date_created: '2024-01-01T00:00:00.000Z',
+      date_updated: null,
+    };
+    await db.put('orders', { ...existingOrder });
+
+    // Simulate a WS CREATE event where Directus returned order_items:[]
+    // (because items hadn't been pushed to Directus yet when the CREATE fired)
+    const wsCreateMessage = {
+      event: 'create',
+      data: [{
+        id: orderId,
+        status: 'pending',
+        table: '1',
+        total_amount: 15,
+        item_count: 1,
+        order_items: [],
+        date_created: '2024-01-01T00:00:00.000Z',
+        date_updated: null,
+      }],
+    };
+
+    await _handleSubscriptionMessage('orders', wsCreateMessage);
+
+    const stored = await db.get('orders', orderId);
+    expect(stored).toBeDefined();
+    expect(Array.isArray(stored.orderItems)).toBe(true);
+    expect(stored.orderItems.length).toBe(1);
+    expect(stored.orderItems[0].id).toBe('item-1');
+  });
+
+  it('writes incoming items when WS CREATE event has items and IDB has no record yet', async () => {
+    const { getDB } = await import('../../useIDB.js');
+    const db = await getDB();
+
+    const orderId = 'order-new-999';
+    // No existing IDB record — genuine cross-device create
+
+    const wsCreateMessage = {
+      event: 'create',
+      data: [{
+        id: orderId,
+        status: 'pending',
+        table: '2',
+        total_amount: 20,
+        item_count: 1,
+        order_items: [{ id: 'item-x', name: 'Pasta', quantity: 1, unit_price: 20, order: orderId }],
+        date_created: '2024-01-02T00:00:00.000Z',
+        date_updated: null,
+      }],
+    };
+
+    await _handleSubscriptionMessage('orders', wsCreateMessage);
+
+    const stored = await db.get('orders', orderId);
+    expect(stored).toBeDefined();
+    expect(Array.isArray(stored.orderItems)).toBe(true);
+    expect(stored.orderItems.length).toBe(1);
+    expect(stored.orderItems[0].id).toBe('item-x');
+  });
+});
+
 // ── _resetWsHeartbeat — addSyncLog calls ─────────────────────────────────────
 //
 // Verifies that the heartbeat phase-1 and phase-2 log entries are emitted so

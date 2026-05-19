@@ -491,12 +491,18 @@ export async function _handleSubscriptionMessage(collection, message) {
     // fills all absent fields with zero/empty defaults, so a straight put() would
     // wipe IDB fields like totalAmount, globalNote, orderItems etc.
     //
-    // For update events we therefore fetch the existing IDB record and merge via
-    // mergeOrderFromWSPayload(), overwriting only the fields present in the raw
-    // WS payload. create events use the incoming record as-is (orderItems are
-    // now included because the orders subscription requests order_items.*).
+    // For both create and update events we fetch the existing IDB record and merge
+    // via mergeOrderFromWSPayload(), overwriting only the fields present in the raw
+    // WS payload. This is necessary even for create events because orderItems are
+    // pushed to Directus via a separate `orders` UPDATE queue entry
+    // (_enqueueOrderItemsPatch), so the WS CREATE event still carries
+    // order_items:[] even though the local IDB record already has items. When the
+    // echo TTL expires the un-suppressed CREATE would overwrite local items with [].
+    // mergeOrderFromWSPayload() preserves existing orderItems when incoming is empty,
+    // so applying the merge for CREATE events too is safe: if no local record exists
+    // (genuine cross-device create) we fall back to incoming as before.
     let prepared = mapped;
-    if (collection === 'orders' && event !== 'create') {
+    if (collection === 'orders') {
       try {
         const db = await getDB();
         prepared = await Promise.all(nonEcho.map(async (raw, i) => {
