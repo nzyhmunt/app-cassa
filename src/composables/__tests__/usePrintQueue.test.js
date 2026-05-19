@@ -248,6 +248,27 @@ describe('enqueuePrintJobs()', () => {
       expect(body.globalNote).toBe('Senza fretta');
     });
 
+    it('uses the in-store order snapshot when caller order has no orderItems', async () => {
+      appConfig.printers = CATCHALL_PRINTER;
+      const store = useAppStore();
+      store.orders = [makeOrder({ id: 'ord_store_snapshot', table: 'S5', time: '10:45' })];
+
+      enqueuePrintJobs({
+        id: 'ord_store_snapshot',
+        table: 'S5',
+        time: '10:45',
+        globalNote: '',
+        orderItems: [],
+      });
+
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+      expect(body.orderId).toBe('ord_store_snapshot');
+      expect(body.items).toHaveLength(2);
+      expect(body.items.map(item => item.name).sort()).toEqual(['Acqua', 'Bruschetta']);
+    });
+
     it('uses POST with Content-Type application/json', async () => {
       appConfig.printers = CATCHALL_PRINTER;
       enqueuePrintJobs(makeOrder());
