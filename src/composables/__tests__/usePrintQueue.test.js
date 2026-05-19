@@ -266,7 +266,7 @@ describe('enqueuePrintJobs()', () => {
       const body = JSON.parse(fetchMock.mock.calls[0][1].body);
       expect(body.orderId).toBe('ord_store_snapshot');
       expect(body.items).toHaveLength(2);
-      expect(body.items.map(item => item.name)).toEqual(expect.arrayContaining(['Bruschetta', 'Acqua']));
+      expect(body.items.map(item => item.name).sort()).toEqual(['Acqua', 'Bruschetta']);
     });
 
     it('uses POST with Content-Type application/json', async () => {

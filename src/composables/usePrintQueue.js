@@ -176,12 +176,14 @@ function getRuntimePrinters(store = null) {
  */
 function resolveOrderForPrint(order, store = null) {
   if (!order || typeof order !== 'object') return null;
+  if (order.id == null || order.id === '') return order;
 
   const sourceItems = Array.isArray(order.orderItems) ? order.orderItems : [];
   if (sourceItems.length > 0) return order;
 
   const orders = Array.isArray(store?.orders) ? store.orders : [];
-  const storeOrder = orders.find((entry) => String(entry?.id ?? '') === String(order.id ?? ''));
+  const orderId = String(order.id);
+  const storeOrder = orders.find((entry) => entry?.id != null && entry.id !== '' && String(entry.id) === orderId);
   if (!storeOrder || !Array.isArray(storeOrder.orderItems) || storeOrder.orderItems.length === 0) {
     return order;
   }
