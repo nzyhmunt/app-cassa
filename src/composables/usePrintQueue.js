@@ -164,6 +164,32 @@ function getRuntimePrinters(store = null) {
 }
 
 /**
+ * Returns the best available order snapshot for printing.
+ *
+ * In some UI flows the caller can pass a stale/minimal order object (for example
+ * without embedded `orderItems`). When possible, recover the latest in-store
+ * order by id so order jobs still include printable rows.
+ *
+ * @param {object|null|undefined} order
+ * @param {object|null} [store]
+ * @returns {object|null}
+ */
+function resolveOrderForPrint(order, store = null) {
+  if (!order || typeof order !== 'object') return null;
+
+  const sourceItems = Array.isArray(order.orderItems) ? order.orderItems : [];
+  if (sourceItems.length > 0) return order;
+
+  const orders = Array.isArray(store?.orders) ? store.orders : [];
+  const storeOrder = orders.find((entry) => String(entry?.id ?? '') === String(order.id ?? ''));
+  if (!storeOrder || !Array.isArray(storeOrder.orderItems) || storeOrder.orderItems.length === 0) {
+    return order;
+  }
+
+  return storeOrder;
+}
+
+/**
  * Resolves the runtime printer and dispatch metadata for a pre-bill request.
  *
  * @param {object[]} printers
@@ -226,7 +252,9 @@ export function enqueuePrintJobs(order) {
   const store = getStore();
   const printers = getPrintersForType(PRINT_JOB_TYPES.ORDER, store);
   if (printers.length === 0) return;
-  if (order?.isDirectEntry) return;
+  const orderForPrint = resolveOrderForPrint(order, store);
+  if (!orderForPrint) return;
+  if (orderForPrint?.isDirectEntry) return;
 
   const dishCategoryMap = buildDishCategoryMap(store);
 
@@ -234,7 +262,7 @@ export function enqueuePrintJobs(order) {
     const printerCategories = getNormalizedPrinterCategories(printer);
     const isCatchAll = printerCategories.length === 0;
     const items = buildOrderJobItems({
-      orderItems: order.orderItems ?? [],
+      orderItems: orderForPrint.orderItems ?? [],
       printerCategories,
       dishCategoryMap,
     });
@@ -243,8 +271,8 @@ export function enqueuePrintJobs(order) {
       if (isCatchAll) {
         console.warn('[printQueue] enqueuePrintJobs: no active items in order; skipping printer', {
           printerName: printer?.name ?? null,
-          orderId: order?.id ?? null,
-          orderItemsCount: order.orderItems?.length ?? 0,
+          orderId: orderForPrint?.id ?? null,
+          orderItemsCount: orderForPrint.orderItems?.length ?? 0,
         });
       }
       continue;
@@ -258,7 +286,7 @@ export function enqueuePrintJobs(order) {
       );
       continue;
     }
-    const job = buildOrderPrintJob({ order, printerId, items });
+    const job = buildOrderPrintJob({ order: orderForPrint, printerId, items });
 
     const logId = newUUIDv7('plog');
     logJob(store, createPrintLogEntry({ job, printer, logId }));
