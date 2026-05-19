@@ -410,6 +410,32 @@ describe('_startSubscriptions — addSyncLog for lifecycle events', () => {
     expect(errorCall).toBeDefined();
     expect(errorCall[0].response?.error).toBe('plain string error');
   });
+
+  it('subscribes to orders with nested order_items fields so WS CREATE events carry embedded items', async () => {
+    const subscribeCalls = [];
+    const mockClient = {
+      connect: vi.fn().mockResolvedValue(undefined),
+      subscribe: vi.fn().mockImplementation((collection, opts) => {
+        subscribeCalls.push({ collection, fields: opts?.query?.fields });
+        const neverYield = (async function* () { /* never */ })();
+        return Promise.resolve({ subscription: neverYield, unsubscribe: vi.fn() });
+      }),
+    };
+    vi.spyOn(await import('../../useDirectusClient.js'), 'getDirectusClient').mockReturnValue(mockClient);
+
+    await _startSubscriptions(['orders', 'order_items', 'tables']);
+
+    const ordersCall = subscribeCalls.find(c => c.collection === 'orders');
+    expect(ordersCall).toBeDefined();
+    expect(ordersCall.fields).toContain('order_items.*');
+    expect(ordersCall.fields).toContain('order_items.order_item_modifiers.*');
+
+    // Other collections still use ['*'] only — no unintended expansion.
+    const orderItemsCall = subscribeCalls.find(c => c.collection === 'order_items');
+    expect(orderItemsCall?.fields).toEqual(['*']);
+    const tablesCall = subscribeCalls.find(c => c.collection === 'tables');
+    expect(tablesCall?.fields).toEqual(['*']);
+  });
 });
 
 // ── _reconnectWs — addSyncLog for reconnect attempt ──────────────────────────

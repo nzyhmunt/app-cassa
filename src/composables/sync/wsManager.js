@@ -486,15 +486,15 @@ export async function _handleSubscriptionMessage(collection, message) {
     }
     if (nonEcho.length === 0) return;
     const mapped = nonEcho.map(r => _mapRecord(collection, r));
-    // WS subscriptions use fields:['*'] which does NOT expand nested relations
-    // (e.g. order_items), and can also send partial payloads (e.g. only
+    // WS subscriptions can send partial payloads (e.g. only
     // {id, status, date_updated}) for status-change events. mapOrderFromDirectus()
     // fills all absent fields with zero/empty defaults, so a straight put() would
     // wipe IDB fields like totalAmount, globalNote, orderItems etc.
     //
     // For update events we therefore fetch the existing IDB record and merge via
     // mergeOrderFromWSPayload(), overwriting only the fields present in the raw
-    // WS payload. create events use the incoming record as-is.
+    // WS payload. create events use the incoming record as-is (orderItems are
+    // now included because the orders subscription requests order_items.*).
     let prepared = mapped;
     if (collection === 'orders' && event !== 'create') {
       try {
@@ -649,7 +649,14 @@ export async function _startSubscriptions(collections) {
     });
 
     for (const collection of collections) {
-      const query = { fields: ['*'] };
+      // For orders, request nested order_items (and their modifiers) so that WS
+      // CREATE events arrive with embedded items — matching the REST pull fields
+      // in pullQueue.js. Without this, new orders land in IDB with orderItems:[]
+      // and enqueuePrintJobs skips every printer because there are no items.
+      const wsFields = collection === 'orders'
+        ? ['*', 'order_items.*', 'order_items.order_item_modifiers.*']
+        : ['*'];
+      const query = { fields: wsFields };
       const quirks = COLLECTION_QUIRKS[collection] ?? {};
       if (!quirks.noVenueFilter && venueId != null) {
         query.filter = quirks.venueFilter
