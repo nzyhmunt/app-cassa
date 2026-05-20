@@ -122,6 +122,17 @@ export default defineConfig({
         // Cucina app (kitchen display)
         cucina: fileURLToPath(new URL('cucina.html', import.meta.url)),
       },
+      output: {
+        manualChunks(id) {
+          // Keep the iOS viewport fix in its own chunk so the filename
+          // accurately reflects its contents and is not mixed with
+          // unrelated shared modules.
+          const normalizedId = id.replace(/\\/g, '/').split('?')[0]
+          if (normalizedId.endsWith('/src/utils/iosViewportFix.js')) {
+            return 'iosViewportFix'
+          }
+        },
+      },
     },
   },
   test: {
