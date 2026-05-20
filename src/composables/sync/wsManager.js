@@ -486,17 +486,23 @@ export async function _handleSubscriptionMessage(collection, message) {
     }
     if (nonEcho.length === 0) return;
     const mapped = nonEcho.map(r => _mapRecord(collection, r));
-    // WS subscriptions use fields:['*'] which does NOT expand nested relations
-    // (e.g. order_items), and can also send partial payloads (e.g. only
+    // WS subscriptions can send partial payloads (e.g. only
     // {id, status, date_updated}) for status-change events. mapOrderFromDirectus()
     // fills all absent fields with zero/empty defaults, so a straight put() would
     // wipe IDB fields like totalAmount, globalNote, orderItems etc.
     //
-    // For update events we therefore fetch the existing IDB record and merge via
-    // mergeOrderFromWSPayload(), overwriting only the fields present in the raw
-    // WS payload. create events use the incoming record as-is.
+    // For both create and update events we fetch the existing IDB record and merge
+    // via mergeOrderFromWSPayload(), overwriting only the fields present in the raw
+    // WS payload. This is necessary even for create events because orderItems are
+    // pushed to Directus via a separate `orders` UPDATE queue entry
+    // (_enqueueOrderItemsPatch), so the WS CREATE event still carries
+    // order_items:[] even though the local IDB record already has items. When the
+    // echo TTL expires the un-suppressed CREATE would overwrite local items with [].
+    // mergeOrderFromWSPayload() preserves existing orderItems when incoming is empty,
+    // so applying the merge for CREATE events too is safe: if no local record exists
+    // (genuine cross-device create) we fall back to incoming as before.
     let prepared = mapped;
-    if (collection === 'orders' && event !== 'create') {
+    if (collection === 'orders') {
       try {
         const db = await getDB();
         prepared = await Promise.all(nonEcho.map(async (raw, i) => {
@@ -649,7 +655,16 @@ export async function _startSubscriptions(collections) {
     });
 
     for (const collection of collections) {
-      const query = { fields: ['*'] };
+      // For orders, request nested order_items (and their modifiers) so that WS
+      // events can include embedded items when Directus has them at the time the
+      // subscription message is dispatched — matching the REST pull fields in
+      // pullQueue.js.  Note: a WS CREATE event may still carry order_items:[]
+      // when items haven't been pushed to Directus yet (they arrive in a separate
+      // subsequent `orders` UPDATE).  The IDB merge path handles that gracefully.
+      const wsFields = collection === 'orders'
+        ? ['*', 'order_items.*', 'order_items.order_item_modifiers.*']
+        : ['*'];
+      const query = { fields: wsFields };
       const quirks = COLLECTION_QUIRKS[collection] ?? {};
       if (!quirks.noVenueFilter && venueId != null) {
         query.filter = quirks.venueFilter
