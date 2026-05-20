@@ -127,7 +127,8 @@ export default defineConfig({
           // Keep the iOS viewport fix in its own chunk so the filename
           // accurately reflects its contents and is not mixed with
           // unrelated shared modules.
-          if (id.includes('src/utils/iosViewportFix')) {
+          const normalizedId = id.replace(/\\/g, '/').split('?')[0]
+          if (normalizedId.endsWith('/src/utils/iosViewportFix.js')) {
             return 'iosViewportFix'
           }
         },
