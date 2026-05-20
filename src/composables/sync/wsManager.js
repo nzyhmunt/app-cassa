@@ -656,9 +656,11 @@ export async function _startSubscriptions(collections) {
 
     for (const collection of collections) {
       // For orders, request nested order_items (and their modifiers) so that WS
-      // CREATE events arrive with embedded items — matching the REST pull fields
-      // in pullQueue.js. Without this, new orders land in IDB with orderItems:[]
-      // and enqueuePrintJobs skips every printer because there are no items.
+      // events can include embedded items when Directus has them at the time the
+      // subscription message is dispatched — matching the REST pull fields in
+      // pullQueue.js.  Note: a WS CREATE event may still carry order_items:[]
+      // when items haven't been pushed to Directus yet (they arrive in a separate
+      // subsequent `orders` UPDATE).  The IDB merge path handles that gracefully.
       const wsFields = collection === 'orders'
         ? ['*', 'order_items.*', 'order_items.order_item_modifiers.*']
         : ['*'];
