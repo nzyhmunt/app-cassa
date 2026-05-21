@@ -29,7 +29,7 @@ export function useOnlineOnlyInteractionRefresh({
   }
 
   function isRecentPull() {
-    const baselineTs = sync?.lastPullAt?.value ?? null;
+    const baselineTs = sync?.lastInteractionPullAt?.value ?? sync?.lastPullAt?.value ?? null;
     if (!baselineTs) return false;
     const parsed = Date.parse(baselineTs);
     if (Number.isNaN(parsed)) return false;

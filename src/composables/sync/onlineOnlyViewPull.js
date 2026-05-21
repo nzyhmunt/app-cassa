@@ -15,6 +15,13 @@ const ONLINE_ONLY_ROUTE_PULL_COLLECTIONS = {
   },
 };
 
+/**
+* Normalizes a route path by trimming and stripping query/hash suffixes.
+* Example: '/sala?tab=1#section' -> '/sala'
+*
+* @param {string|null|undefined} routePath
+* @returns {string|null}
+*/
 function normalizeRoutePath(routePath) {
   if (typeof routePath !== 'string') return null;
   const raw = routePath.trim();

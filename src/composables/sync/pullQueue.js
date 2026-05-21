@@ -555,11 +555,11 @@ export async function _runPull({ collectionsOverride = null } = {}) {
             .filter(collection => configuredCollections.includes(collection))
         : configuredCollections;
       const collectionsToPull = [...new Set(scopedCollections)];
-      const includesOrderItems = collectionsToPull.includes('order_items');
+      const willPullOrderItems = collectionsToPull.includes('order_items');
 
       // NS9: Cancel any in-flight WS-triggered order_items pull only when this pull
       // cycle includes order_items. Otherwise keep the NS9 lane independent.
-      if (includesOrderItems) {
+      if (willPullOrderItems) {
         syncState._orderItemsPullAbortController?.abort();
         syncState._orderItemsPullAbortController = null;
         syncState._orderItemsPullInFlight = null;
@@ -570,7 +570,7 @@ export async function _runPull({ collectionsOverride = null } = {}) {
       // _triggerImmediateOrderItemsPull() is not blocked behind `_pullInFlight`
       // and can run independently.
       syncState._pullOrderItemsDone = false;
-      if (!includesOrderItems) syncState._pullOrderItemsDone = true;
+      if (!willPullOrderItems) syncState._pullOrderItemsDone = true;
 
       let anyMerged = false;
       let allOk = true;
@@ -622,7 +622,7 @@ export async function _runPull({ collectionsOverride = null } = {}) {
       // this cycle, _orderItemsPullPending was set by _triggerImmediateOrderItemsPull.
       // Trigger a follow-up NS9 pull now (not aborted) so items committed during
       // the in-flight order_items request window are not missed until the next poll.
-      if (!ac.signal.aborted && includesOrderItems && syncState._orderItemsPullPending) {
+      if (!ac.signal.aborted && willPullOrderItems && syncState._orderItemsPullPending) {
         syncState._orderItemsPullPending = false;
         _triggerImmediateOrderItemsPull();
       }
