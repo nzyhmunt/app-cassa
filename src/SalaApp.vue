@@ -34,6 +34,7 @@
 
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue';
+import { useRoute } from 'vue-router';
 import SalaNavbar from './components/SalaNavbar.vue';
 import SalaSettingsModal from './components/SalaSettingsModal.vue';
 import PwaInstallBanner from './components/shared/PwaInstallBanner.vue';
@@ -49,6 +50,7 @@ import { loadDirectusConfigFromStorage } from './composables/useDirectusClient.j
 import { useSyncStoreProxy } from './composables/useSyncStoreProxy.js';
 import { useAppSwipeRefresh } from './composables/useAppSwipeRefresh.js';
 import { useIDBPurge, isDirectusSyncActive } from './composables/useIDBPurge.js';
+import { useOnlineOnlyInteractionRefresh } from './composables/useOnlineOnlyInteractionRefresh.js';
 import { OPERATING_MODES } from './utils/index.js';
 
 const configStore = useConfigStore();
@@ -56,6 +58,7 @@ const orderStore = useOrderStore();
 const auth = useAuth();
 const sync = useDirectusSync();
 const showSettings = ref(false);
+const route = useRoute();
 const syncStore = useSyncStoreProxy(configStore, orderStore);
 const {
   isSwipeRefreshing,
@@ -71,6 +74,12 @@ const {
   configStore,
   orderStore,
   sync,
+  logPrefix: 'SalaApp',
+});
+useOnlineOnlyInteractionRefresh({
+  sync,
+  configStore,
+  routePathRef: route,
   logPrefix: 'SalaApp',
 });
 

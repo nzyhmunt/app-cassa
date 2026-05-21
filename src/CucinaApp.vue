@@ -33,6 +33,7 @@
 
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue';
+import { useRoute } from 'vue-router';
 import { useConfigStore, useOrderStore } from './store/index.js';
 import { useWakeLock } from './composables/useWakeLock.js';
 import { resolveStorageKeys, getInstanceName } from './store/persistence.js';
@@ -46,6 +47,7 @@ import { loadDirectusConfigFromStorage } from './composables/useDirectusClient.j
 import { useSyncStoreProxy } from './composables/useSyncStoreProxy.js';
 import { useAppSwipeRefresh } from './composables/useAppSwipeRefresh.js';
 import { useIDBPurge, isDirectusSyncActive } from './composables/useIDBPurge.js';
+import { useOnlineOnlyInteractionRefresh } from './composables/useOnlineOnlyInteractionRefresh.js';
 import { OPERATING_MODES } from './utils/index.js';
 
 const configStore = useConfigStore();
@@ -53,6 +55,7 @@ const orderStore = useOrderStore();
 const auth = useAuth();
 const sync = useDirectusSync();
 const showSettings = ref(false);
+const route = useRoute();
 const syncStore = useSyncStoreProxy(configStore, orderStore);
 const {
   isSwipeRefreshing,
@@ -68,6 +71,12 @@ const {
   configStore,
   orderStore,
   sync,
+  logPrefix: 'CucinaApp',
+});
+useOnlineOnlyInteractionRefresh({
+  sync,
+  configStore,
+  routePathRef: route,
   logPrefix: 'CucinaApp',
 });
 

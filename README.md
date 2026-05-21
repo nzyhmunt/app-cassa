@@ -19,7 +19,7 @@ Il progetto contiene tre applicazioni operative più una pagina di selezione, co
 Modalità operative supportate:
 - `offline_only` — solo IndexedDB locale (nessuna sync Directus)
 - `offline_first` — IndexedDB locale + sync Directus push/pull
-- `online_only` — operazioni inviate direttamente a Directus (senza coda IDB `sync_queue`)
+- `online_only` — operazioni inviate direttamente a Directus (senza coda IDB `sync_queue`) + pull di riallineamento su eventi di interazione (cambio view, focus/visibility tab, ritorno online)
 
 | App | Entry | URL locale | Pubblico |
 |-----|-------|-----------|---------|
@@ -71,6 +71,7 @@ src/
 │   ├── useIDB.js                      ← Connessione IndexedDB singleton (apertura DB, tutti gli ObjectStore)
 │   ├── useIDBPurge.js                 ← Pulizia periodica IndexedDB (vecchi ordini, dead-letter queue, print log)
 │   ├── useNumericKeyboard.js          ← Singleton state per la tastiera numerica custom (Cassa only)
+│   ├── useOnlineOnlyInteractionRefresh.js ← Pull di riallineamento semantico in `online_only` (route/focus/visibility/online) con throttle
 │   ├── usePrintQueue.js               ← Orchestrazione coda di stampa comande (usa printJobBuilders + printDispatch)
 │   ├── usePwaInstall.js               ← Rilevamento installazione PWA
 │   ├── useSettings.js                 ← Lettura/scrittura impostazioni (IndexedDB)
@@ -317,7 +318,7 @@ Funzionalità disponibile sia in **cassa live** (al momento della chiusura del c
 - Selettore **Modalità operativa**:
   - `offline_only` → locale puro (IDB)
   - `offline_first` → locale + sync Directus
-  - `online_only` → push diretto su Directus (senza coda locale)
+  - `online_only` → push diretto su Directus (senza coda locale) + pull di riallineamento su cambio view, focus/visibility tab e ritorno online
 - Configurazione sorgente menu:
   - `json`: mostra URL configurato e pulsante di sincronizzazione manuale
   - `directus`: mostra stato sincronizzazione Directus (`Directus disabilitato` · `Sincronizzazione in corso` · `Errore sincronizzazione` · `Directus attivo`)

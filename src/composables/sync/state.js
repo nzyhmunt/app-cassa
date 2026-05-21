@@ -262,6 +262,7 @@ export const syncState = {
   syncStatus: ref(/** @type {'idle'|'syncing'|'error'|'offline'} */ ('idle')),
   lastPushAt: ref(/** @type {string|null} */ (null)),
   lastPullAt: ref(/** @type {string|null} */ (null)),
+  lastInteractionPullAt: ref(/** @type {string|null} */ (null)),
 
   // ── Telemetry ─────────────────────────────────────────────────────────────────
   /**
@@ -347,6 +348,7 @@ export function resetSyncState() {
   syncState.syncStatus.value = 'idle';
   syncState.lastPushAt.value = null;
   syncState.lastPullAt.value = null;
+  syncState.lastInteractionPullAt.value = null;
 
   // Telemetry
   syncState.wsDropCount.value = 0;

@@ -37,6 +37,7 @@
 
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue';
+import { useRoute } from 'vue-router';
 import CassaNavbar from './components/CassaNavbar.vue';
 import CassaSettingsModal from './components/CassaSettingsModal.vue';
 import CassaDashboard from './components/CassaDashboard.vue';
@@ -54,6 +55,7 @@ import { loadDirectusConfigFromStorage } from './composables/useDirectusClient.j
 import { useSyncStoreProxy } from './composables/useSyncStoreProxy.js';
 import { useAppSwipeRefresh } from './composables/useAppSwipeRefresh.js';
 import { useIDBPurge, isDirectusSyncActive } from './composables/useIDBPurge.js';
+import { useOnlineOnlyInteractionRefresh } from './composables/useOnlineOnlyInteractionRefresh.js';
 import { OPERATING_MODES } from './utils/index.js';
 
 const configStore = useConfigStore();
@@ -62,6 +64,7 @@ const auth = useAuth();
 const sync = useDirectusSync();
 const showSettings = ref(false);
 const showCassa = ref(false);
+const route = useRoute();
 const syncStore = useSyncStoreProxy(configStore, orderStore);
 const {
   isSwipeRefreshing,
@@ -77,6 +80,12 @@ const {
   configStore,
   orderStore,
   sync,
+  logPrefix: 'CassaApp',
+});
+useOnlineOnlyInteractionRefresh({
+  sync,
+  configStore,
+  routePathRef: route,
   logPrefix: 'CassaApp',
 });
 

@@ -39,7 +39,7 @@
     <!-- Last sync time -->
     <template v-if="formattedLastSync">
       <span class="text-gray-200">·</span>
-      <span>Agg. {{ formattedLastSync }}</span>
+      <span>{{ lastSyncPrefix }} {{ formattedLastSync }}</span>
     </template>
 
     <!-- Pending queue count -->
@@ -81,9 +81,16 @@ const operatingModeLabel = computed(() => {
 });
 
 const syncStatus = computed(() => sync.syncStatus.value);
+const lastSyncPrefix = computed(() =>
+  currentOperatingMode.value === OPERATING_MODES.ONLINE_ONLY
+    ? 'Tempo reale'
+    : 'Agg.'
+);
 
 const formattedLastSync = computed(() => {
-  const ts = sync.lastPullAt.value || sync.lastPushAt.value;
+  const ts = currentOperatingMode.value === OPERATING_MODES.ONLINE_ONLY
+    ? (sync.lastInteractionPullAt?.value || sync.lastPullAt.value || sync.lastPushAt.value)
+    : (sync.lastPullAt.value || sync.lastPushAt.value);
   if (!ts) return null;
   try {
     return new Date(ts).toLocaleTimeString(runtimeConfig.value.locale ?? 'it-IT', {

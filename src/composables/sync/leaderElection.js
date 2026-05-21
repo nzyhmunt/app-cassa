@@ -597,6 +597,7 @@ export function useDirectusSync() {
     syncStatus: syncState.syncStatus,
     lastPushAt: syncState.lastPushAt,
     lastPullAt: syncState.lastPullAt,
+    lastInteractionPullAt: syncState.lastInteractionPullAt,
     wsConnected: syncState._wsConnected,
     wsDropCount: syncState.wsDropCount,
     queueDepth: syncState.queueDepth,
