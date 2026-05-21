@@ -16,6 +16,11 @@ Il progetto contiene tre applicazioni operative più una pagina di selezione, co
 - Due store Pinia separati (`useConfigStore`, `useOrderStore`) con facade `useAppStore`
 - Sync Directus asincrona su IndexedDB
 
+Modalità operative supportate:
+- `offline_only` — solo IndexedDB locale (nessuna sync Directus)
+- `offline_first` — IndexedDB locale + sync Directus push/pull
+- `online_only` — operazioni inviate direttamente a Directus (senza coda IDB `sync_queue`)
+
 | App | Entry | URL locale | Pubblico |
 |-----|-------|-----------|---------|
 | Launcher | `index.html` | `/` | Selezione modalità (Cassa / Sala / Cucina) |
@@ -309,6 +314,10 @@ Funzionalità disponibile sia in **cassa live** (al momento della chiusura del c
 ### ⚙️ Impostazioni (Cassa, Sala & Cucina)
 - Abilitazione/disabilitazione avvisi audio ("Ding" alla ricezione di nuovi ordini)
 - Abilitazione/disabilitazione blocco schermo (Wake Lock) — **attivo di default** al primo avvio
+- Selettore **Modalità operativa**:
+  - `offline_only` → locale puro (IDB)
+  - `offline_first` → locale + sync Directus
+  - `online_only` → push diretto su Directus (senza coda locale)
 - Configurazione sorgente menu:
   - `json`: mostra URL configurato e pulsante di sincronizzazione manuale
   - `directus`: mostra stato sincronizzazione Directus (`Directus disabilitato` · `Sincronizzazione in corso` · `Errore sincronizzazione` · `Directus attivo`)
@@ -353,6 +362,7 @@ Sistema di autenticazione opzionale a PIN numerico disponibile su tutte e tre le
 export const appConfig = {
   ui: { name: "Ristorante", primaryColor: "#00846c", currency: "€" },
   menuUrl: 'https://nanawork.it/menu.json',    // URL menu remoto (configurabile)
+  operatingMode: 'offline_first',              // offline_only | offline_first | online_only
   instanceName: '',                            // Multi-istanza (es. 'cassa1')
   pwaLogo: '',                                 // URL logo custom per PWA manifest
 

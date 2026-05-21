@@ -1,5 +1,5 @@
 <template>
-  <!-- Shown only when Directus sync is enabled -->
+  <!-- Shown only when Directus sync is enabled and operating mode is not offline_only -->
   <div
     v-if="directusEnabled"
     class="shrink-0 flex items-center gap-2 px-4 py-1 bg-white border-t border-gray-100 text-[10px] text-gray-400 select-none"
@@ -33,7 +33,7 @@
     </span>
     <span v-else class="flex items-center gap-1">
       <Cloud class="size-3 shrink-0" />
-      <span>Directus attivo</span>
+      <span>{{ operatingModeLabel }}</span>
     </span>
 
     <!-- Last sync time -->
@@ -43,7 +43,7 @@
     </template>
 
     <!-- Pending queue count -->
-    <template v-if="pendingCount > 0">
+    <template v-if="showQueueCount && pendingCount > 0">
       <span class="text-gray-200">·</span>
       <span class="text-amber-500 font-medium">{{ pendingCount }} in coda</span>
     </template>
@@ -57,6 +57,7 @@ import { useConfigStore, useOrderStore } from '../../store/index.js';
 import { directusEnabledRef } from '../../composables/useDirectusClient.js';
 import { useDirectusSync } from '../../composables/useDirectusSync.js';
 import { getPendingEntries } from '../../composables/useSyncQueue.js';
+import { normalizeOperatingMode, OPERATING_MODES } from '../../utils/index.js';
 
 const sync = useDirectusSync();
 const configStore = useConfigStore();
@@ -67,7 +68,17 @@ const isOnline = ref(typeof navigator !== 'undefined' ? navigator.onLine : true)
 const pendingCount = ref(0);
 let _refreshTimer = null;
 
-const directusEnabled = directusEnabledRef;
+const currentOperatingMode = computed(() =>
+  normalizeOperatingMode(configStore.operatingMode, OPERATING_MODES.OFFLINE_FIRST)
+);
+const directusEnabled = computed(() =>
+  directusEnabledRef.value && currentOperatingMode.value !== OPERATING_MODES.OFFLINE_ONLY
+);
+const showQueueCount = computed(() => currentOperatingMode.value === OPERATING_MODES.OFFLINE_FIRST);
+const operatingModeLabel = computed(() => {
+  if (currentOperatingMode.value === OPERATING_MODES.ONLINE_ONLY) return 'Directus online';
+  return 'Directus attivo';
+});
 
 const syncStatus = computed(() => sync.syncStatus.value);
 
@@ -86,7 +97,10 @@ const formattedLastSync = computed(() => {
 });
 
 async function _updatePendingCount() {
-  if (!directusEnabled.value) return;
+  if (!directusEnabled.value || !showQueueCount.value) {
+    pendingCount.value = 0;
+    return;
+  }
   try {
     const entries = await getPendingEntries();
     pendingCount.value = entries.length;

@@ -43,7 +43,7 @@
 import { createDirectus, staticToken, rest, createItem, updateItem, deleteItem } from '@directus/sdk';
 import { getDB } from './useIDB.js';
 import { newUUIDv7 } from '../store/storeUtils.js';
-import { appConfig } from '../utils/index.js';
+import { appConfig, normalizeOperatingMode, OPERATING_MODES } from '../utils/index.js';
 import { mapPayloadToDirectus } from '../utils/mappers.js';
 import { loadAuthSessionFromIDB } from '../store/persistence/auth.js';
 import { addSyncLog } from '../store/persistence/syncLogs.js';
@@ -93,6 +93,9 @@ const DOMAIN_STATUS_COLLECTIONS = new Set([
  */
 export async function enqueue(collection, operation, recordId, payload) {
   try {
+    const operatingMode = normalizeOperatingMode(appConfig.operatingMode, OPERATING_MODES.OFFLINE_FIRST);
+    if (operatingMode === OPERATING_MODES.OFFLINE_ONLY) return;
+
     const sourcePayload = payload ?? null;
     let venueUserId = null;
     if (_shouldLoadVenueUserAuditUser(collection, operation, sourcePayload)) {
@@ -102,9 +105,7 @@ export async function enqueue(collection, operation, recordId, payload) {
       });
     }
     const payloadWithAudit = _withVenueUserAuditPayload(collection, operation, sourcePayload, venueUserId);
-
-    const db = await getDB();
-    await db.add('sync_queue', {
+    const entry = {
       id: newUUIDv7('sq'),
       collection,
       operation,
@@ -112,7 +113,26 @@ export async function enqueue(collection, operation, recordId, payload) {
       payload: payloadWithAudit,
       date_created: new Date().toISOString(),
       attempts: 0,
-    });
+    };
+
+    if (operatingMode === OPERATING_MODES.ONLINE_ONLY) {
+      const cfg = appConfig.directus;
+      if (!cfg?.enabled || !cfg?.url || !cfg?.staticToken) {
+        console.warn('[SyncQueue] online_only mode requires Directus credentials; skipping direct push.');
+        return;
+      }
+      const start = Date.now();
+      const sdkClient = _buildRestClient(cfg);
+      const result = await _pushEntry(entry, sdkClient, cfg);
+      _logPushResult(entry, result, Date.now() - start);
+      if (!result || result.ok !== true) {
+        console.warn('[SyncQueue] Direct push failed in online_only mode:', result?.message ?? result);
+      }
+      return;
+    }
+
+    const db = await getDB();
+    await db.add('sync_queue', entry);
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('sync-queue:enqueue'));
     }
@@ -149,6 +169,8 @@ export async function enqueue(collection, operation, recordId, payload) {
  */
 export async function getPendingEntries() {
   try {
+    const operatingMode = normalizeOperatingMode(appConfig.operatingMode, OPERATING_MODES.OFFLINE_FIRST);
+    if (operatingMode !== OPERATING_MODES.OFFLINE_FIRST) return [];
     const db = await getDB();
     const all = await db.getAllFromIndex('sync_queue', 'date_created');
 

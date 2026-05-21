@@ -20,6 +20,16 @@ const DEFAULT_UI_PRIMARY_COLOR = '#00846c';
 const DEFAULT_UI_PRIMARY_COLOR_DARK = '#0c7262';
 const DEFAULT_UI_CURRENCY = '€';
 
+export const OPERATING_MODES = Object.freeze({
+  OFFLINE_ONLY: 'offline_only',
+  OFFLINE_FIRST: 'offline_first',
+  ONLINE_ONLY: 'online_only',
+});
+
+export function normalizeOperatingMode(value, fallback = OPERATING_MODES.OFFLINE_FIRST) {
+  return Object.values(OPERATING_MODES).includes(value) ? value : fallback;
+}
+
 // Configurazione applicazione centralizzata (static defaults, immutable fallback)
 export const DEFAULT_SETTINGS = {
   ui: {
@@ -47,6 +57,11 @@ export const DEFAULT_SETTINGS = {
   // Menu source strategy. `directus` => menu from Directus collections.
   // `json` => menu from remote JSON URL.
   menuSource: 'directus',
+  // Runtime data access mode.
+  // offline_only  -> local IndexedDB only (single-device mode)
+  // offline_first -> local IndexedDB + Directus push/pull sync
+  // online_only   -> Directus-first operations (sync queue bypasses IDB)
+  operatingMode: OPERATING_MODES.OFFLINE_FIRST,
 
   // Instance name used to isolate IndexedDB namespace when multiple app instances run
   // on the same device (same origin). Set a unique value per device/shortcut
@@ -523,6 +538,18 @@ export function applyDirectusConfigToAppConfig(next = {}) {
     wsEnabled: typeof next?.wsEnabled === 'boolean' ? next.wsEnabled : false,
   };
   appConfig.directus = normalized;
+  return normalized;
+}
+
+/**
+ * Applies the operating mode to appConfig through a single normalized write path.
+ *
+ * @param {string} nextMode
+ * @returns {'offline_only'|'offline_first'|'online_only'}
+ */
+export function applyOperatingModeToAppConfig(nextMode) {
+  const normalized = normalizeOperatingMode(nextMode, OPERATING_MODES.OFFLINE_FIRST);
+  appConfig.operatingMode = normalized;
   return normalized;
 }
 
