@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
-import { reactive } from 'vue';
+import { reactive, isReactive } from 'vue';
 import { enqueuePrintJobs, enqueueTableMoveJob, enqueuePreBillJob, reprintJob } from '../usePrintQueue.js';
 import { appConfig } from '../../utils/index.js';
 import { useAppStore } from '../../store/index.js';
@@ -771,6 +771,7 @@ describe('TCP/file printer routing (Directus print-server path)', () => {
     expect(createEntry.payload.printType).toBe('order');
     expect(createEntry.payload.printerId).toBe('cucina_tcp');
     expect(createEntry.payload.payload?.orderId).toBe('ord_tcp_proxy_1');
+    expect(isReactive(createEntry.payload.payload)).toBe(false);
     expect(createEntry.payload.payload?.items?.[0]?.notes).toEqual(['Senza aglio']);
   });
 

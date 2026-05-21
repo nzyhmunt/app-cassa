@@ -15,7 +15,7 @@ import {
   PRINT_LOG_STATUSES,
 } from '../utils/index.js';
 import { mapOrderFromDirectus } from '../utils/mappers.js';
-import { newUUIDv7, normalizeEntityId, newShortId, cloneValue as _clone } from './storeUtils.js';
+import { newUUIDv7, normalizeEntityId, newShortId, cloneValue } from './storeUtils.js';
 import { makeTableOps } from './tableOps.js';
 import { makeReportOps } from './reportOps.js';
 import {
@@ -52,9 +52,19 @@ export const useOrderStore = defineStore('orders', () => {
 
   const printLog = ref([]);
 
-  function _toSerializableQueuePayload(value) {
+  /**
+   * Converts a potentially reactive/proxied value into a plain serializable payload
+   * safe for IndexedDB queue writes.
+   *
+   * Returns `null` when serialization fails so callers can skip enqueueing instead
+   * of letting non-cloneable payloads break fire-and-forget flows.
+   *
+   * @param {any} value
+   * @returns {Record<string, any>|Array<any>|string|number|boolean|null}
+   */
+  function serializeQueuePayload(value) {
     try {
-      return _clone(toRaw(value));
+      return cloneValue(toRaw(value));
     } catch (error) {
       console.warn('[Store] Failed to serialize print_jobs payload before enqueue:', error);
       return null;
@@ -64,16 +74,31 @@ export const useOrderStore = defineStore('orders', () => {
   function addPrintLogEntry(entry) {
     const pendingEntry = { ...entry, status: PRINT_LOG_STATUSES.PENDING };
     printLog.value = [pendingEntry, ...printLog.value].slice(0, 200);
-    const payload = _toSerializableQueuePayload(pendingEntry);
-    if (payload) enqueue(PRINT_JOBS_COLLECTION, 'create', entry.id, payload);
+    const payload = serializeQueuePayload(pendingEntry);
+    if (payload) {
+      enqueue(PRINT_JOBS_COLLECTION, 'create', entry.id, payload);
+    } else {
+      console.error('[Store] Skipped print_jobs create enqueue due to non-serializable payload.', {
+        recordId: entry?.id ?? null,
+        logId: entry?.logId ?? null,
+      });
+    }
   }
 
   function updatePrintLogEntry(logId, updates) {
     const idx = printLog.value.findIndex(e => e.logId === logId);
     if (idx !== -1) {
       printLog.value[idx] = { ...printLog.value[idx], ...updates };
-      const payload = _toSerializableQueuePayload({ logId, ...updates });
-      if (payload) enqueue(PRINT_JOBS_COLLECTION, 'update', printLog.value[idx].id, payload);
+      const payload = serializeQueuePayload({ logId, ...updates });
+      if (payload) {
+        enqueue(PRINT_JOBS_COLLECTION, 'update', printLog.value[idx].id, payload);
+      } else {
+        console.error('[Store] Skipped print_jobs update enqueue due to non-serializable payload.', {
+          recordId: printLog.value[idx]?.id ?? null,
+          logId,
+          updateKeys: Object.keys(updates ?? {}),
+        });
+      }
     }
   }
 
@@ -545,12 +570,12 @@ export const useOrderStore = defineStore('orders', () => {
       payload.itemCount = projectedOrder.itemCount;
     }
     if (Object.keys(payload).length === 0) return;
-    enqueue('orders', 'update', ordId, _clone(payload));
+    enqueue('orders', 'update', ordId, cloneValue(payload));
   }
 
   function _enqueueTransactionPatch(txn) {
     if (!txn?.id) return;
-    enqueue('transactions', 'update', txn.id, _clone({
+    enqueue('transactions', 'update', txn.id, cloneValue({
       table: txn.table ?? null,
       bill_session: txn.bill_session ?? null,
     }));
@@ -558,12 +583,12 @@ export const useOrderStore = defineStore('orders', () => {
 
   function _enqueueBillSessionPatch(billSessionId, payload) {
     if (!billSessionId || !payload || typeof payload !== 'object') return;
-    enqueue('bill_sessions', 'update', billSessionId, _clone(payload));
+    enqueue('bill_sessions', 'update', billSessionId, cloneValue(payload));
   }
 
   function _enqueueBillSessionCreate(session) {
     if (!session?.billSessionId || !session?.table) return;
-    enqueue('bill_sessions', 'create', session.billSessionId, _clone({
+    enqueue('bill_sessions', 'create', session.billSessionId, cloneValue({
       id: session.billSessionId,
       table: session.table,
       adults: session.adults ?? 0,
@@ -595,7 +620,7 @@ export const useOrderStore = defineStore('orders', () => {
         }
       }
     }
-    enqueue('orders', 'update', ordId, _clone(payload));
+    enqueue('orders', 'update', ordId, cloneValue(payload));
   }
 
   /**
@@ -651,7 +676,7 @@ export const useOrderStore = defineStore('orders', () => {
     return _withOrderLock(ordId, async () => {
       const current = orders.value.find(o => String(o.id) === String(ordId));
       if (!current || current.status !== 'pending') return null;
-      const projected = _clone(toRaw(current));
+      const projected = cloneValue(toRaw(current));
       if (!Array.isArray(projected.orderItems)) {
         projected.orderItems = [];
       }
@@ -798,7 +823,7 @@ export const useOrderStore = defineStore('orders', () => {
       if (!current || current.status !== 'pending') return null;
       const item = current.orderItems[idx];
       if (!item) return null;
-      const projected = _clone(toRaw(current));
+      const projected = cloneValue(toRaw(current));
       const projItem = projected.orderItems[idx];
       projItem.quantity += delta;
       if (projItem.quantity <= 0) projected.orderItems.splice(idx, 1);
@@ -812,7 +837,7 @@ export const useOrderStore = defineStore('orders', () => {
     if (!ordId) return;
     return _mutateOrderItems(ordId, (current) => {
       if (!current || current.status !== 'pending') return null;
-      const projected = _clone(toRaw(current));
+      const projected = cloneValue(toRaw(current));
       projected.orderItems.splice(idx, 1);
       updateOrderTotals(projected);
       return projected;
@@ -827,7 +852,7 @@ export const useOrderStore = defineStore('orders', () => {
       const item = current.orderItems[idx];
       if (!item) return null;
       if ((item.voidedQuantity || 0) + qtyToVoid > item.quantity) return null;
-      const projected = _clone(toRaw(current));
+      const projected = cloneValue(toRaw(current));
       const projItem = projected.orderItems[idx];
       if (!projItem.voidedQuantity) projItem.voidedQuantity = 0;
       projItem.voidedQuantity += qtyToVoid;
@@ -847,7 +872,7 @@ export const useOrderStore = defineStore('orders', () => {
       if (!current || !KITCHEN_ACTIVE_STATUSES.includes(current.status)) return null;
       const item = current.orderItems[idx];
       if (!item || !(item.voidedQuantity && item.voidedQuantity >= qtyToRestore)) return null;
-      const projected = _clone(toRaw(current));
+      const projected = cloneValue(toRaw(current));
       projected.orderItems[idx].voidedQuantity -= qtyToRestore;
       updateOrderTotals(projected);
       return projected;
@@ -863,7 +888,7 @@ export const useOrderStore = defineStore('orders', () => {
       if (!item || !item.modifiers || modIdx < 0 || modIdx >= item.modifiers.length) return null;
       const mod = item.modifiers[modIdx];
       if ((mod.voidedQuantity || 0) + qty + (item.voidedQuantity || 0) > item.quantity) return null;
-      const projected = _clone(toRaw(current));
+      const projected = cloneValue(toRaw(current));
       const projMod = projected.orderItems[itemIdx].modifiers[modIdx];
       if (!projMod.voidedQuantity) projMod.voidedQuantity = 0;
       projMod.voidedQuantity += qty;
@@ -881,7 +906,7 @@ export const useOrderStore = defineStore('orders', () => {
       if (!item || !item.modifiers || modIdx < 0 || modIdx >= item.modifiers.length) return null;
       const mod = item.modifiers[modIdx];
       if ((mod.voidedQuantity || 0) < qty) return null;
-      const projected = _clone(toRaw(current));
+      const projected = cloneValue(toRaw(current));
       projected.orderItems[itemIdx].modifiers[modIdx].voidedQuantity -= qty;
       updateOrderTotals(projected);
       return projected;
@@ -895,7 +920,7 @@ export const useOrderStore = defineStore('orders', () => {
       if (!current || !current.orderItems || itemIdx < 0 || itemIdx >= current.orderItems.length) return null;
       const currentReady = !!current.orderItems[itemIdx].kitchenReady;
       const nextReady = typeof ready === 'boolean' ? ready : !currentReady;
-      const projected = _clone(toRaw(current));
+      const projected = cloneValue(toRaw(current));
       projected.orderItems[itemIdx].kitchenReady = nextReady;
       return projected;
     }, 'setItemKitchenReady');
