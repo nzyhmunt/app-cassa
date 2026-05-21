@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
+import { reactive } from 'vue';
 import { enqueuePrintJobs, enqueueTableMoveJob, enqueuePreBillJob, reprintJob } from '../usePrintQueue.js';
 import { appConfig } from '../../utils/index.js';
 import { useAppStore } from '../../store/index.js';
@@ -748,6 +749,29 @@ describe('TCP/file printer routing (Directus print-server path)', () => {
       e => e.collection === 'print_jobs' && e.operation === 'update' && e.payload?.status === 'queued',
     );
     expect(queuedUpdates).toHaveLength(0);
+  });
+
+  it('enqueuePrintJobs enqueues print_jobs even when the order payload is reactive/proxied', async () => {
+    appConfig.printers = TCP_PRINTER;
+    const reactiveOrder = reactive(makeOrder({ id: 'ord_tcp_proxy_1', table: 'TP1' }));
+
+    enqueuePrintJobs(reactiveOrder);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    let createEntry;
+    await vi.waitFor(async () => {
+      const entries = await getPendingEntries();
+      createEntry = entries.find(
+        e => e.collection === 'print_jobs' && e.operation === 'create' && e.payload.table === 'TP1',
+      );
+      expect(createEntry).toBeDefined();
+    });
+
+    expect(createEntry.payload.printType).toBe('order');
+    expect(createEntry.payload.printerId).toBe('cucina_tcp');
+    expect(createEntry.payload.payload?.orderId).toBe('ord_tcp_proxy_1');
+    expect(createEntry.payload.payload?.items?.[0]?.notes).toEqual(['Senza aglio']);
   });
 
   it('enqueuePrintJobs enqueues a print_jobs CREATE for a file printer without sending HTTP', async () => {

@@ -52,16 +52,28 @@ export const useOrderStore = defineStore('orders', () => {
 
   const printLog = ref([]);
 
+  function _toSerializableQueuePayload(value) {
+    try {
+      return _clone(toRaw(value));
+    } catch (error) {
+      console.warn('[Store] Failed to serialize print_jobs payload before enqueue:', error);
+      return null;
+    }
+  }
+
   function addPrintLogEntry(entry) {
-    printLog.value = [{ ...entry, status: PRINT_LOG_STATUSES.PENDING }, ...printLog.value].slice(0, 200);
-    enqueue(PRINT_JOBS_COLLECTION, 'create', entry.id, { ...entry, status: PRINT_LOG_STATUSES.PENDING });
+    const pendingEntry = { ...entry, status: PRINT_LOG_STATUSES.PENDING };
+    printLog.value = [pendingEntry, ...printLog.value].slice(0, 200);
+    const payload = _toSerializableQueuePayload(pendingEntry);
+    if (payload) enqueue(PRINT_JOBS_COLLECTION, 'create', entry.id, payload);
   }
 
   function updatePrintLogEntry(logId, updates) {
     const idx = printLog.value.findIndex(e => e.logId === logId);
     if (idx !== -1) {
       printLog.value[idx] = { ...printLog.value[idx], ...updates };
-      enqueue(PRINT_JOBS_COLLECTION, 'update', printLog.value[idx].id, { logId, ...updates });
+      const payload = _toSerializableQueuePayload({ logId, ...updates });
+      if (payload) enqueue(PRINT_JOBS_COLLECTION, 'update', printLog.value[idx].id, payload);
     }
   }
 
