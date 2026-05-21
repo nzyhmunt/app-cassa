@@ -8,6 +8,10 @@ import {
 } from '../useOnlineOnlyInteractionRefresh.js';
 import { OPERATING_MODES } from '../../utils/index.js';
 
+// Keep this aligned with the deepest microtask nesting in this suite
+// (currently route-change + throttled timer + scoped pull resolution paths).
+const FLUSH_PROMISE_ROUNDS = 5;
+
 function makeHarness({
   operatingMode = OPERATING_MODES.ONLINE_ONLY,
   routePath = '/start',
@@ -43,7 +47,10 @@ function makeHarness({
   return { wrapper, sync, configStore, routePathRef };
 }
 
-async function flushPromises(rounds = 5) {
+async function flushPromises(rounds = FLUSH_PROMISE_ROUNDS) {
+  // One "round" awaits one microtask-queue drain (`Promise.resolve()`).
+  // Timers + watcher callbacks in this suite can enqueue nested microtasks;
+  // 5 rounds covers the deepest nesting observed here while keeping tests deterministic.
   for (let i = 0; i < rounds; i += 1) {
     await Promise.resolve();
   }

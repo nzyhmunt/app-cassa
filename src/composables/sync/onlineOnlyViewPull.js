@@ -1,15 +1,20 @@
 import { PULL_CONFIG } from './config.js';
 
+const CASSA_SALA_COLLECTIONS = ['orders', 'order_items', 'tables', 'bill_sessions'];
+const SALA_SALA_COLLECTIONS = CASSA_SALA_COLLECTIONS;
+
 const ONLINE_ONLY_ROUTE_PULL_COLLECTIONS = {
   cassa: {
-    '/': ['orders', 'order_items', 'tables', 'bill_sessions'],
-    '/sala': ['orders', 'order_items', 'tables', 'bill_sessions'],
+    // Keep both aliases: '/' is the initial redirect route, '/sala' is the canonical route.
+    '/': CASSA_SALA_COLLECTIONS,
+    '/sala': CASSA_SALA_COLLECTIONS,
     '/ordini': ['orders', 'order_items', 'tables'],
     '/storico-conti': ['orders', 'bill_sessions', 'transactions', 'fiscal_receipts', 'invoice_requests'],
   },
   sala: {
-    '/': ['orders', 'order_items', 'tables', 'bill_sessions'],
-    '/sala': ['orders', 'order_items', 'tables', 'bill_sessions'],
+    // Keep both aliases: '/' is the initial redirect route, '/sala' is the canonical route.
+    '/': SALA_SALA_COLLECTIONS,
+    '/sala': SALA_SALA_COLLECTIONS,
     '/comande': ['orders', 'order_items', 'tables', 'menu_items'],
   },
   cucina: {
@@ -30,10 +35,10 @@ function normalizeRoutePath(routePath) {
   if (!raw) return null;
   const [withoutQuery] = raw.split('?');
   const [withoutHash] = withoutQuery.split('#');
+  // A route like '#/' may leave an empty path segment; treat it as the root route.
   const normalized = withoutHash || '/';
-  if (normalized.length > 1 && normalized.endsWith('/')) {
-    return normalized.slice(0, -1);
-  }
+  if (normalized === '/') return normalized;
+  if (normalized.endsWith('/')) return normalized.slice(0, -1);
   return normalized;
 }
 

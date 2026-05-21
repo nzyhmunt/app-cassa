@@ -566,8 +566,7 @@ export async function _runPull({ collectionsOverride = null } = {}) {
       // `order_items`. For scoped cycles that exclude it, mark as done so
       // _triggerImmediateOrderItemsPull() is not blocked behind `_pullInFlight`
       // and can run independently.
-      syncState._pullOrderItemsDone = false;
-      if (!willPullOrderItems) syncState._pullOrderItemsDone = true;
+      syncState._pullOrderItemsDone = !willPullOrderItems; // false when pulling order_items, true otherwise.
 
       let anyMerged = false;
       let allOk = true;

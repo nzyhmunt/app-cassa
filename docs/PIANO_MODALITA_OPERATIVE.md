@@ -1,81 +1,81 @@
-# Bozza piano di lavoro — Modalità operative (Offline / Offline-first / Online)
+# Draft implementation plan — Operating modes (Offline / Offline-first / Online)
 
-## Obiettivo
-Introdurre una selezione esplicita della modalità operativa dell’app, con tre comportamenti distinti:
+## Objective
+Introduce an explicit app operating-mode selector with three distinct behaviors:
 
-1. **Solo offline (`offline_only`)** — usa solo IndexedDB locale (singolo dispositivo)
-2. **Offline first (`offline_first`)** — IndexedDB locale + sincronizzazione push/pull con Directus
-3. **Online (`online_only`)** — usa solo Directus in tempo reale, senza persistenza operativa su IndexedDB
+1. **Offline only (`offline_only`)** — local IndexedDB only (single device)
+2. **Offline first (`offline_first`)** — local IndexedDB + Directus push/pull synchronization
+3. **Online (`online_only`)** — real-time Directus only, with no operational persistence in IndexedDB
 
-## Valutazione complessità
-**Complessità: ALTA**.
+## Complexity assessment
+**Complexity: HIGH**.
 
-Motivo: l’architettura attuale è progettata come **IDB-first** (bootstrap, store hydration, refresh cross-tab, sync, cache config/menu, queue di push, purge, monitoraggio). La modalità online-only richiede un percorso di esecuzione alternativo coerente in tutti i layer applicativi (UI, store, composables, sync, bootstrap, fallback errori).
+Reason: the current architecture is **IDB-first** (bootstrap, store hydration, cross-tab refresh, sync, config/menu cache, push queue, purge, monitoring). Online-only requires a coherent alternate execution path across all application layers (UI, store, composables, sync, bootstrap, and error fallback).
 
-## Perimetro da toccare
-- Configurazione runtime e persistenza impostazioni modalità
-- Bootstrap app (Cassa/Sala/Cucina)
-- Store (config + ordine) e persistenza operativa
-- Flussi sync Directus (pull/push/realtime)
-- UI impostazioni e indicatori di stato
-- Strategie fallback/recovery in assenza rete
-- Test unitari/integrativi delle tre modalità
-- Documentazione tecnica e guida operativa
+## Scope
+- Runtime configuration and operating-mode settings persistence
+- App bootstrap (Cassa/Sala/Cucina)
+- Store layer (config + orders) and operational persistence
+- Directus sync flows (pull/push/realtime)
+- Settings UI and status indicators
+- Fallback/recovery strategies when offline
+- Unit/integration tests for all three modes
+- Technical documentation and operational guide
 
-## Piano di lavoro (bozza)
+## Work plan (draft)
 
-### Fase 1 — Modellazione modalità operativa
-- Definire un campo univoco di modalità operativa con valori: `offline_only`, `offline_first`, `online_only`.
-- Stabilire la matrice di comportamento per ogni funzionalità critica (lettura ordini, scrittura ordini, stampa, sessioni tavolo, utenti, menu, config).
-- Allineare i default applicativi e le regole di compatibilità con installazioni esistenti.
+### Phase 1 — Operating-mode model
+- Define a single operating-mode field with values: `offline_only`, `offline_first`, `online_only`.
+- Define the behavior matrix for each critical feature (order reads/writes, printing, table sessions, users, menu, config).
+- Align defaults and backward-compatibility rules for existing installations.
 
-### Fase 2 — Bootstrap e orchestrazione lifecycle
-- Introdurre una strategia di avvio condizionale per modalità in Cassa/Sala/Cucina.
-- Separare chiaramente i percorsi di inizializzazione: con IDB, ibrido, e solo rete.
-- Definire il comportamento in assenza rete per `online_only` (stato degradato esplicito, blocco operazioni non consentite, messaggi utente).
+### Phase 2 — Bootstrap and lifecycle orchestration
+- Introduce mode-specific startup strategy in Cassa/Sala/Cucina.
+- Clearly separate initialization paths: IDB, hybrid, and network-only.
+- Define no-network behavior for `online_only` (explicit degraded state, blocked unsupported operations, user messages).
 
-### Fase 3 — Store e accesso dati
-- Isolare l’accesso ai dati operativi dietro un livello coerente con la modalità attiva.
-- Mantenere IDB-first solo dove previsto (`offline_only`, `offline_first`).
-- Per `online_only`, usare operazioni Directus live senza dipendere da object store operativi locali.
+### Phase 3 — Store and data access
+- Isolate operational data access behind a layer consistent with the active mode.
+- Keep IDB-first only where required (`offline_only`, `offline_first`).
+- For `online_only`, use live Directus operations without depending on local operational object stores.
 
-### Fase 4 — Sync e realtime
-- Mantenere il motore attuale per `offline_first`.
-- Disattivare queue/persistenza operativa locale non necessaria in `online_only`.
-- Garantire aggiornamento realtime affidabile (WS + fallback controllato) per `online_only`.
+### Phase 4 — Sync and realtime
+- Keep the current engine for `offline_first`.
+- Disable unnecessary local queue/operational persistence in `online_only`.
+- Ensure reliable realtime updates (WS + controlled fallback) for `online_only`.
 
-### Fase 5 — UI e UX configurazione
-- Estendere le impostazioni con selettore modalità operativo.
-- Mostrare stato e limitazioni della modalità corrente in modo chiaro.
-- Gestire transizione tra modalità con controlli di sicurezza (conferme, eventuale migrazione/clear dati locali quando necessario).
+### Phase 5 — Settings UI/UX
+- Extend settings with operating-mode selector.
+- Clearly display status and limitations of the current mode.
+- Handle mode transitions with safety controls (confirmations, optional local data migration/clear when needed).
 
-### Fase 6 — Sicurezza dati e migrazione
-- Definire regole di migrazione tra modalità (es. da offline-first a online-only).
-- Prevenire incoerenze tra cache locale e stato server.
-- Formalizzare policy di conservazione/rimozione dati locali in funzione della modalità.
+### Phase 6 — Data safety and migration
+- Define migration rules between modes (for example, offline-first to online-only).
+- Prevent inconsistency between local cache and server state.
+- Formalize local data retention/removal policy by mode.
 
-### Fase 7 — Test e validazione
-- Aggiungere test dedicati per:
-  - creazione/aggiornamento ordini per ciascuna modalità
-  - comportamento offline/online e riconnessione
-  - bootstrap multi-app con modalità diverse
-  - regressioni su stampa, pagamenti, storico e monitor sync
-- Eseguire suite completa repository e validazione funzionale manuale guidata.
+### Phase 7 — Testing and validation
+- Add dedicated tests for:
+  - order create/update in each mode
+  - offline/online behavior and reconnection
+  - multi-app bootstrap with different modes
+  - regressions on printing, payments, history, and sync monitor
+- Run full repository suite and guided manual functional validation.
 
-### Fase 8 — Documentazione e rollout
-- Aggiornare README con la nuova matrice modalità.
-- Aggiornare guida utente con scenari operativi consigliati.
-- Definire rollout graduale: attivazione iniziale su ambiente pilota, osservabilità, rollback plan.
+### Phase 8 — Documentation and rollout
+- Update README with the mode matrix.
+- Update user guide with recommended operational scenarios.
+- Define gradual rollout: initial pilot activation, observability, rollback plan.
 
-## Rischi principali
-- Regressioni su flussi oggi implicitamente IDB-first
-- Incoerenze durante il cambio modalità su installazioni già in uso
-- Maggiore sensibilità alla qualità rete in `online_only`
-- Incremento complessità manutentiva senza un chiaro confine dei layer
+## Main risks
+- Regressions on currently implicit IDB-first flows
+- Inconsistencies during mode switch on active installations
+- Higher sensitivity to network quality in `online_only`
+- Increased maintenance complexity without clear layer boundaries
 
-## Criteri di accettazione (bozza)
-- Le tre modalità sono selezionabili e persistite correttamente
-- Ogni modalità rispetta il proprio contratto funzionale
-- Nessuna dipendenza operativa da IDB in `online_only`
-- Nessuna regressione funzionale nelle modalità esistenti
-- Test automatici verdi + documentazione aggiornata
+## Acceptance criteria (draft)
+- The three modes are selectable and persisted correctly
+- Each mode respects its functional contract
+- No operational dependency on IDB in `online_only`
+- No functional regressions in existing modes
+- Green automated tests + updated documentation
