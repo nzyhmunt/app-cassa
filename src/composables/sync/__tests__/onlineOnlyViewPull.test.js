@@ -8,6 +8,12 @@ describe('resolveOnlineOnlyRoutePullCollections()', () => {
     );
   });
 
+  it('returns cassa sala-scoped collections for root alias route', () => {
+    expect(resolveOnlineOnlyRoutePullCollections('cassa', '/')).toEqual(
+      ['orders', 'order_items', 'tables', 'bill_sessions'],
+    );
+  });
+
   it('returns cassa history route-scoped collections for /storico-conti', () => {
     expect(resolveOnlineOnlyRoutePullCollections('cassa', '/storico-conti')).toEqual(
       ['orders', 'bill_sessions', 'transactions', 'fiscal_receipts', 'invoice_requests'],
@@ -17,6 +23,12 @@ describe('resolveOnlineOnlyRoutePullCollections()', () => {
   it('normalizes route query/hash before resolving', () => {
     expect(resolveOnlineOnlyRoutePullCollections('sala', '/comande?tab=accepted#section')).toEqual(
       ['orders', 'order_items', 'tables', 'menu_items'],
+    );
+  });
+
+  it('normalizes trailing slash before resolving', () => {
+    expect(resolveOnlineOnlyRoutePullCollections('sala', '/sala/')).toEqual(
+      ['orders', 'order_items', 'tables', 'bill_sessions'],
     );
   });
 

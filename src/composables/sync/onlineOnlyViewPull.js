@@ -2,11 +2,13 @@ import { PULL_CONFIG } from './config.js';
 
 const ONLINE_ONLY_ROUTE_PULL_COLLECTIONS = {
   cassa: {
+    '/': ['orders', 'order_items', 'tables', 'bill_sessions'],
     '/sala': ['orders', 'order_items', 'tables', 'bill_sessions'],
     '/ordini': ['orders', 'order_items', 'tables'],
     '/storico-conti': ['orders', 'bill_sessions', 'transactions', 'fiscal_receipts', 'invoice_requests'],
   },
   sala: {
+    '/': ['orders', 'order_items', 'tables', 'bill_sessions'],
     '/sala': ['orders', 'order_items', 'tables', 'bill_sessions'],
     '/comande': ['orders', 'order_items', 'tables', 'menu_items'],
   },
@@ -28,7 +30,11 @@ function normalizeRoutePath(routePath) {
   if (!raw) return null;
   const [withoutQuery] = raw.split('?');
   const [withoutHash] = withoutQuery.split('#');
-  return withoutHash || '/';
+  const normalized = withoutHash || '/';
+  if (normalized.length > 1 && normalized.endsWith('/')) {
+    return normalized.slice(0, -1);
+  }
+  return normalized;
 }
 
 export function resolveOnlineOnlyRoutePullCollections(appType, routePath) {
