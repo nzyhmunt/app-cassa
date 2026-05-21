@@ -556,8 +556,9 @@ describe('drainQueue()', () => {
       id: 'mod_existing_1',
       voided_quantity: 1,
     });
-    expect(body.order_items[0].order_item_modifiers[0].order_item).toBeUndefined();
-    expect(body.order_items[0].order_item_modifiers[0].order).toBeUndefined();
+    // Required relational context for nested modifier updates.
+    expect(body.order_items[0].order_item_modifiers[0].order_item).toBe('oi_existing_1');
+    expect(body.order_items[0].order_item_modifiers[0].order).toBe('ord_sparse_existing_item');
   });
 
   it('nulls dish on order_items when menuSource is json', async () => {
@@ -620,6 +621,41 @@ describe('drainQueue()', () => {
     expect(item.order_item_modifiers[0].item_uid).toBe('item_uid_abc');
     // order FK must also be populated
     expect(item.order_item_modifiers[0].order).toBe('ord_mod_1');
+  });
+
+  it('sets order on nested order_item_modifiers even when modifier id is already present', async () => {
+    // Reproduces: "Validation failed for field \"order\" at \"order_items.order_item_modifiers\". Value is required."
+    const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue(mockResponse(200, { data: {} }));
+    await enqueue('orders', 'update', 'ord_mod_existing_id_1', {
+      venue_user_updated: 'usr_1',
+      orderItems: [
+        {
+          id: 'oi_existing_1',
+          uid: 'item_uid_existing_1',
+          dishId: 'dish_1',
+          name: 'Patate al Forno',
+          unitPrice: 5,
+          quantity: 1,
+          notes: [],
+          voidedQuantity: 0,
+          modifiers: [
+            { id: 'mod_existing_1', name: 'Parmigiano', price: 1, voidedQuantity: 0 },
+          ],
+          course: 'dopo',
+        },
+      ],
+      totalAmount: 6,
+      itemCount: 1,
+    });
+
+    await drainQueue(FAKE_CFG);
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    const item = body.order_items[0];
+    expect(Array.isArray(item.order_item_modifiers)).toBe(true);
+    expect(item.order_item_modifiers).toHaveLength(1);
+    expect(item.order_item_modifiers[0].id).toBe('mod_existing_1');
+    expect(item.order_item_modifiers[0].order).toBe('ord_mod_existing_id_1');
   });
 
   it('retries RECORD_NOT_UNIQUE (HTTP 400) create as PATCH', async () => {
