@@ -3,9 +3,9 @@
 ## Obiettivo
 Introdurre una selezione esplicita della modalità operativa dell’app, con tre comportamenti distinti:
 
-1. **Solo offline** — usa solo IndexedDB locale (singolo dispositivo)
-2. **Offline first** — IndexedDB locale + sincronizzazione push/pull con Directus
-3. **Online** — usa solo Directus in tempo reale, senza persistenza operativa su IndexedDB
+1. **Solo offline (`offline_only`)** — usa solo IndexedDB locale (singolo dispositivo)
+2. **Offline first (`offline_first`)** — IndexedDB locale + sincronizzazione push/pull con Directus
+3. **Online (`online_only`)** — usa solo Directus in tempo reale, senza persistenza operativa su IndexedDB
 
 ## Valutazione complessità
 **Complessità: ALTA**.
