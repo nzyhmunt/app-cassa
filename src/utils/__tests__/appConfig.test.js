@@ -496,8 +496,8 @@ describe('appConfig', () => {
         id: 'mod_existing_1',
         voided_quantity: 1,
       });
-      expect(result.order_items[0].order_item_modifiers[0].order_item).toBeUndefined();
-      expect(result.order_items[0].order_item_modifiers[0].order).toBeUndefined();
+      expect(result.order_items[0].order_item_modifiers[0].order_item).toBe('oi_existing_1');
+      expect(result.order_items[0].order_item_modifiers[0].order).toBe('019dd0fe-576c-7000-bccb-7bf8b07831f8');
     });
   });
 
