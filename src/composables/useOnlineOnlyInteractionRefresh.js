@@ -1,5 +1,6 @@
 import { onMounted, onUnmounted, ref, watch } from 'vue';
 import { normalizeOperatingMode, OPERATING_MODES } from '../utils/index.js';
+import { normalizeCollectionScope } from './sync/collectionScope.js';
 
 export const INTERACTION_PULL_THROTTLE_MS = 500;
 export const INTERACTION_PULL_STALENESS_MS = 2_500;
@@ -50,14 +51,7 @@ export function useOnlineOnlyInteractionRefresh({
     if (typeof resolveCollectionsForRoute === 'function') {
       try {
         const resolved = resolveCollectionsForRoute(getRoutePathValue(), triggerSource);
-        if (Array.isArray(resolved)) {
-          scopedCollections = [...new Set(
-            resolved
-              .filter(collection => typeof collection === 'string')
-              .map(collection => collection.trim())
-              .filter(collection => collection.length > 0),
-          )];
-        }
+        scopedCollections = normalizeCollectionScope(resolved);
       } catch (error) {
         console.warn(`[${logPrefix}] Failed to resolve route collections (${triggerSource}):`, error);
       }

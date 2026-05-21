@@ -20,6 +20,7 @@ import { _mapRecord } from './mapper.js';
 import { _atomicOrderItemsUpsertAndMerge, _preparePullRecordsForIDB } from './idbOperations.js';
 import { _refreshStoreFromIDB } from './storebridge.js';
 import { syncState } from './state.js';
+import { normalizeCollectionScope } from './collectionScope.js';
 import {
   PULL_CONFIG,
   COLLECTION_QUIRKS,
@@ -546,15 +547,11 @@ export async function _runPull({ collectionsOverride = null } = {}) {
 
       const pullCfg = PULL_CONFIG[syncState._appType] ?? PULL_CONFIG.cassa;
       const menuSource = appConfig.menuSource ?? 'directus';
-      const configuredCollections = pullCfg.collections;
-      const scopedCollections = Array.isArray(collectionsOverride)
-        ? collectionsOverride
-            .filter(collection => typeof collection === 'string')
-            .map(collection => collection.trim())
-            .filter(collection => collection.length > 0)
-            .filter(collection => configuredCollections.includes(collection))
-        : configuredCollections;
-      const collectionsToPull = [...new Set(scopedCollections)];
+      const collectionsToPull = Array.isArray(collectionsOverride)
+        ? normalizeCollectionScope(collectionsOverride, {
+          allowedCollections: pullCfg.collections,
+        })
+        : [...pullCfg.collections];
       const willPullOrderItems = collectionsToPull.includes('order_items');
 
       // NS9: Cancel any in-flight WS-triggered order_items pull only when this pull

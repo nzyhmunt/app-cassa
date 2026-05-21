@@ -16,6 +16,7 @@ import { appConfig, createRuntimeConfig, DEFAULT_SETTINGS } from '../../utils/in
 import { clearLocalConfigCacheFromIDB } from '../../store/persistence/config.js';
 import { syncState, resetSyncState, _SYNC_TAB_ID } from './state.js';
 import { PULL_CONFIG, GLOBAL_INTERVAL_MS } from './config.js';
+import { normalizeCollectionScope } from './collectionScope.js';
 import { _runPush } from './pushQueue.js';
 import { _runPull } from './pullQueue.js';
 import { _runGlobalPull, _hydrateConfigFromLocalCache } from './globalPull.js';
@@ -519,17 +520,12 @@ export function useDirectusSync() {
 
   function _resolveScopedPullCollections(collections) {
     const pullCfg = PULL_CONFIG[syncState._appType] ?? PULL_CONFIG.cassa;
-    const allowedCollections = new Set(pullCfg.collections);
     const menuSource = appConfig.menuSource ?? 'directus';
-    const input = Array.isArray(collections) ? collections : [];
-    return [...new Set(
-      input
-        .filter(collection => typeof collection === 'string')
-        .map(collection => collection.trim())
-        .filter(collection => collection.length > 0)
-        .filter(collection => allowedCollections.has(collection))
-        .filter(collection => !(menuSource === 'json' && collection === 'menu_items')),
-    )];
+    return normalizeCollectionScope(collections, {
+      allowedCollections: pullCfg.collections,
+      menuSource,
+      excludeMenuItemsInJsonMode: true,
+    });
   }
 
   async function forcePullCollections(collections = []) {
