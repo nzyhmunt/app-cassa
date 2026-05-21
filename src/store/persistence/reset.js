@@ -22,6 +22,23 @@ export async function clearAllStateFromIDB() {
 }
 
 /**
+ * Clears every object store in IndexedDB, including `local_settings`.
+ *
+ * ⚠️ Destructive operation:
+ * - removes device-local settings/preferences,
+ * - removes saved Directus config snapshots,
+ * - removes operational data, sync queues and local logs.
+ *
+ * Unlike `clearAllStateFromIDB()`, this does NOT preserve any local store.
+ * Use only for a strict full local reset.
+ */
+export async function clearEntireIDB() {
+  const db = await getDB();
+  const storesToClear = Array.from(db.objectStoreNames);
+  await Promise.all(storesToClear.map((name) => db.clear(name)));
+}
+
+/**
  * Removes all pending entries from the `sync_queue` IndexedDB store.
  * Called during a factory reset so that stale push operations cannot be
  * replayed after the user re-enables Directus.

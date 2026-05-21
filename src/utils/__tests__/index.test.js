@@ -2,8 +2,14 @@ import { describe, it, expect } from 'vitest';
 import {
   DEFAULT_MENU_URL,
   billKey,
+  canPrinterReceiveJobs,
   formatOrderIdShort,
+  getPreBillEligiblePrinters,
+  getPrintersForPrintType,
   getOrderItemRowTotal,
+  PRINT_JOB_TYPES,
+  printerSupportsPrintType,
+  resolveConfiguredPrinter,
   updateOrderTotals,
   getLockedDirectItems,
 } from '../index.js';
@@ -14,6 +20,54 @@ import {
 describe('DEFAULT_MENU_URL', () => {
   it('is the expected fallback menu URL', () => {
     expect(DEFAULT_MENU_URL).toBe('https://nanawork.it/menu.json');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Printer routing helpers
+// ---------------------------------------------------------------------------
+describe('printer routing helpers', () => {
+  it('accepts HTTP and Directus-managed printers as job-capable', () => {
+    expect(canPrinterReceiveJobs({ url: 'http://localhost:3001/print' })).toBe(true);
+    expect(canPrinterReceiveJobs({ connectionType: ' tcp ' })).toBe(true);
+    expect(canPrinterReceiveJobs({ connectionType: 'file' })).toBe(true);
+    expect(canPrinterReceiveJobs({})).toBe(false);
+  });
+
+  it('treats missing printTypes as catch-all and normalizes tokens', () => {
+    expect(printerSupportsPrintType({}, PRINT_JOB_TYPES.ORDER)).toBe(true);
+    expect(printerSupportsPrintType({ printTypes: [' PRE_BILL '] }, PRINT_JOB_TYPES.PRE_BILL)).toBe(true);
+    expect(printerSupportsPrintType({ printTypes: ['table_move'] }, PRINT_JOB_TYPES.ORDER)).toBe(false);
+  });
+
+  it('filters printers by print type using shared routing rules', () => {
+    const printers = [
+      { id: 'http_all', url: 'http://localhost:3001/print' },
+      { id: 'tcp_prebill', connectionType: 'tcp', printTypes: [' PRE_BILL '] },
+      { id: 'invalid', printTypes: ['order'] },
+    ];
+    expect(getPrintersForPrintType(printers, PRINT_JOB_TYPES.ORDER).map(p => p.id)).toEqual(['http_all']);
+    expect(getPrintersForPrintType(printers, PRINT_JOB_TYPES.PRE_BILL).map(p => p.id)).toEqual(['http_all', 'tcp_prebill']);
+  });
+
+  it('returns only pre-bill-eligible printers with stable ids', () => {
+    const printers = [
+      { id: 'http_prebill', url: 'http://localhost:3003/print', printTypes: ['pre_bill'] },
+      { id: 'tcp_catchall', connectionType: 'tcp' },
+      { id: '', connectionType: 'file', printTypes: ['pre_bill'] },
+      { id: 'other', url: 'http://localhost:3004/print', printTypes: ['order'] },
+    ];
+    expect(getPreBillEligiblePrinters(printers).map(p => p.id)).toEqual(['http_prebill', 'tcp_catchall']);
+  });
+
+  it('resolves configured printers by id first, then by url', () => {
+    const printers = [
+      { id: 'a', url: 'http://localhost:3001/print' },
+      { id: 'b', url: 'http://localhost:3002/print' },
+    ];
+    expect(resolveConfiguredPrinter(printers, { printerId: 'b', printerUrl: 'http://localhost:3001/print' })?.id).toBe('b');
+    expect(resolveConfiguredPrinter(printers, { printerUrl: 'http://localhost:3001/print' })?.id).toBe('a');
+    expect(resolveConfiguredPrinter(printers, { printerId: 'missing' })).toBeNull();
   });
 });
 

@@ -567,4 +567,4 @@ export {
   loadJsonMenuFromIDB,
   saveJsonMenuToIDB,
 } from './settings.js';
-export { deleteDatabase, clearAllStateFromIDB, clearSyncQueueFromIDB } from './reset.js';
+export { deleteDatabase, clearAllStateFromIDB, clearEntireIDB, clearSyncQueueFromIDB } from './reset.js';

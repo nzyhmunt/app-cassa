@@ -10,17 +10,18 @@ import {
   appConfig,
   createRuntimeConfig,
   DEFAULT_SETTINGS,
+  normPositiveInt,
   applyDirectusConfigToAppConfig,
+  applyIDBPurgeConfigToAppConfig,
   KEYBOARD_POSITIONS,
 } from '../utils/index.js';
 import { mapVenueConfigFromDirectus } from '../utils/mappers.js';
 import { cloneValue as _clone } from './storeUtils.js';
 import {
-  loadSettingsFromIDB,
   saveSettingsToIDB,
   saveJsonMenuToIDB,
   loadJsonMenuFromIDB,
-} from './persistence/operations.js';
+} from './persistence/settings.js';
 import { loadConfigFromIDB } from './persistence/config.js';
 import { saveDirectusConfigToStorage } from '../composables/useDirectusClient.js';
 
@@ -53,10 +54,13 @@ function _normalizeMenuSource(value, fallback = null) {
  *
  * @param {object} payload
  * @param {object} current
- * @returns {{sounds:boolean,menuUrl:string,menuSource:'json'|'directus',preventScreenLock:boolean,customKeyboard:string,preBillPrinterId:string}}
+ * @returns {{sounds:boolean,menuUrl:string,menuSource:'json'|'directus',preventScreenLock:boolean,customKeyboard:string,preBillPrinterId:string,idbPurge:object}}
  */
 function _normalizeLocalSettingsPayload(payload, current) {
   const normalizedCurrentMenuSource = _normalizeMenuSource(current?.menuSource, 'directus');
+  const defaults = DEFAULT_SETTINGS.idbPurge;
+  const inIdbPurge = payload?.idbPurge;
+  const curIdbPurge = current?.idbPurge;
   return {
     sounds: typeof payload?.sounds === 'boolean' ? payload.sounds : !!current?.sounds,
     menuUrl:
@@ -75,6 +79,15 @@ function _normalizeLocalSettingsPayload(payload, current) {
       typeof payload?.preBillPrinterId === 'string'
         ? payload.preBillPrinterId
         : (typeof current?.preBillPrinterId === 'string' ? current.preBillPrinterId : ''),
+    idbPurge: {
+      orders:          normPositiveInt(inIdbPurge?.orders,          normPositiveInt(curIdbPurge?.orders,          defaults.orders)),
+      billSessions:    normPositiveInt(inIdbPurge?.billSessions,    normPositiveInt(curIdbPurge?.billSessions,    defaults.billSessions)),
+      transactions:    normPositiveInt(inIdbPurge?.transactions,    normPositiveInt(curIdbPurge?.transactions,    defaults.transactions)),
+      cashMovements:   normPositiveInt(inIdbPurge?.cashMovements,   normPositiveInt(curIdbPurge?.cashMovements,   defaults.cashMovements)),
+      dailyClosures:   normPositiveInt(inIdbPurge?.dailyClosures,   normPositiveInt(curIdbPurge?.dailyClosures,   defaults.dailyClosures)),
+      printJobs:       normPositiveInt(inIdbPurge?.printJobs,       normPositiveInt(curIdbPurge?.printJobs,       defaults.printJobs)),
+      syncFailedCalls: normPositiveInt(inIdbPurge?.syncFailedCalls, normPositiveInt(curIdbPurge?.syncFailedCalls, defaults.syncFailedCalls)),
+    },
   };
 }
 
@@ -91,6 +104,15 @@ export const useConfigStore = defineStore('config', () => {
 
   const menuLoading = ref(false);
   const menuError = ref(null);
+
+  /**
+   * Reactive array of configured printers from the current runtime config.
+   * Single authoritative source for all printer consumers (components, storebridge).
+   * Returns an empty array when no printers are configured.
+   */
+  const printers = computed(() =>
+    Array.isArray(config.value?.printers) ? config.value.printers : [],
+  );
 
   const cssVars = computed(() => ({
     '--brand-primary': config.value.ui.primaryColor,
@@ -133,7 +155,6 @@ export const useConfigStore = defineStore('config', () => {
   }
 
   async function loadMenu(options = {}) {
-    const shouldHydrateDirectus = options.skipHydrate === true ? false : true;
     const applyJsonSnapshot = async () => {
       const jsonMenu = await loadJsonMenuFromIDB();
       if (!jsonMenu || typeof jsonMenu !== 'object' || Array.isArray(jsonMenu)) return false;
@@ -145,7 +166,7 @@ export const useConfigStore = defineStore('config', () => {
     menuError.value = null;
     try {
       if (menuSource.value === 'directus') {
-        if (shouldHydrateDirectus) await hydrateConfigFromIDB();
+        if (!options.skipHydrate) await hydrateConfigFromIDB();
         return;
       }
 
@@ -171,7 +192,7 @@ export const useConfigStore = defineStore('config', () => {
    * (menuSource/menuUrl) without persisting to IndexedDB.
    *
    * @param {object} payload
-   * @returns {{sounds:boolean,menuUrl:string,menuSource:'json'|'directus',preventScreenLock:boolean,customKeyboard:string,preBillPrinterId:string}}
+   * @returns {{sounds:boolean,menuUrl:string,menuSource:'json'|'directus',preventScreenLock:boolean,customKeyboard:string,preBillPrinterId:string,idbPurge:object}}
    */
   function applyLocalSettings(payload = {}) {
     const normalized = _normalizeLocalSettingsPayload(payload, {
@@ -181,6 +202,7 @@ export const useConfigStore = defineStore('config', () => {
       preventScreenLock: preventScreenLock.value,
       customKeyboard: customKeyboard.value,
       preBillPrinterId: preBillPrinterId.value,
+      idbPurge: appConfig.idbPurge,
     });
     sounds.value = normalized.sounds;
     menuUrl.value = normalized.menuUrl;
@@ -188,6 +210,7 @@ export const useConfigStore = defineStore('config', () => {
     preventScreenLock.value = normalized.preventScreenLock;
     customKeyboard.value = normalized.customKeyboard;
     preBillPrinterId.value = normalized.preBillPrinterId;
+    applyIDBPurgeConfigToAppConfig(normalized.idbPurge);
     config.value = {
       ...config.value,
       menuSource: normalized.menuSource,
@@ -200,7 +223,7 @@ export const useConfigStore = defineStore('config', () => {
    * Applies and persists local settings to `local_settings` in IndexedDB.
    *
    * @param {object} payload
-   * @returns {Promise<{sounds:boolean,menuUrl:string,menuSource:'json'|'directus',preventScreenLock:boolean,customKeyboard:string,preBillPrinterId:string}>}
+   * @returns {Promise<{sounds:boolean,menuUrl:string,menuSource:'json'|'directus',preventScreenLock:boolean,customKeyboard:string,preBillPrinterId:string,idbPurge:object}>}
    */
   async function saveLocalSettings(payload = {}) {
     const normalized = _normalizeLocalSettingsPayload(payload, {
@@ -210,6 +233,7 @@ export const useConfigStore = defineStore('config', () => {
       preventScreenLock: preventScreenLock.value,
       customKeyboard: customKeyboard.value,
       preBillPrinterId: preBillPrinterId.value,
+      idbPurge: appConfig.idbPurge,
     });
     await saveSettingsToIDB(normalized);
     applyLocalSettings(normalized);
@@ -252,6 +276,7 @@ export const useConfigStore = defineStore('config', () => {
     config,
     cssVars,
     rooms,
+    printers,
     sounds,
     menuUrl,
     menuSource,
@@ -269,7 +294,3 @@ export const useConfigStore = defineStore('config', () => {
     saveDirectusSettings,
   };
 });
-
-// Re-export loadSettingsFromIDB so index.js and initStoreFromIDB callers can use it
-// without a separate import chain.
-export { loadSettingsFromIDB };

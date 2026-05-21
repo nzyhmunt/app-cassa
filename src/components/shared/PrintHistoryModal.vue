@@ -219,6 +219,7 @@ function badgeIcon(type) {
 
 function statusLabel(status) {
   if (status === 'pending')  return '⏳ in coda';
+  if (status === 'queued')   return '📤 inviato a server';
   if (status === 'printing') return '🖨 stampa…';
   if (status === 'done')     return '✓ inviato';
   if (status === 'error')    return '✗ errore';
@@ -227,6 +228,7 @@ function statusLabel(status) {
 
 function statusBadgeClass(status) {
   if (status === 'pending')  return 'bg-gray-100 text-gray-500';
+  if (status === 'queued')   return 'bg-amber-100 text-amber-700';
   if (status === 'printing') return 'bg-blue-100 text-blue-600';
   if (status === 'done')     return 'bg-emerald-100 text-emerald-700';
   if (status === 'error')    return 'bg-red-100 text-red-600';

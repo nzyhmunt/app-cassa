@@ -1,5 +1,12 @@
-import { describe, it, expect } from 'vitest';
-import { appConfig, DEFAULT_SETTINGS, createRuntimeConfig, applyDirectusConfigToAppConfig } from '../index.js';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import {
+  appConfig,
+  DEFAULT_SETTINGS,
+  createRuntimeConfig,
+  applyDirectusConfigToAppConfig,
+  normPositiveInt,
+  applyIDBPurgeConfigToAppConfig,
+} from '../index.js';
 import {
   mapVenueConfigFromDirectus,
   mapOrderFromDirectus,
@@ -458,6 +465,40 @@ describe('appConfig', () => {
       const result = mapPayloadToDirectus('orders', orderPayload, { recordId: '019dd0fe-576c-7000-bccb-7bf8b07831f8' });
       expect(result.order_items[0].venue_user_created).toBe(userUuid);
     });
+
+    it('keeps nested existing order_items sparse on update payloads', () => {
+      const result = mapPayloadToDirectus('orders', {
+        venue_user_updated: '29a77c55-0055-4d20-9c11-2913ac974a75',
+        orderItems: [
+          {
+            id: 'oi_existing_1',
+            uid: 'oi_existing_1',
+            voidedQuantity: 1,
+            modifiers: [{ id: 'mod_existing_1', voidedQuantity: 1 }],
+          },
+        ],
+      }, {
+        recordId: '019dd0fe-576c-7000-bccb-7bf8b07831f8',
+        operation: 'update',
+      });
+
+      expect(result.order_items[0]).toMatchObject({
+        id: 'oi_existing_1',
+        uid: 'oi_existing_1',
+        voided_quantity: 1,
+      });
+      expect(result.order_items[0].unit_price).toBeUndefined();
+      expect(result.order_items[0].quantity).toBeUndefined();
+      expect(result.order_items[0].kitchen_ready).toBeUndefined();
+      expect(result.order_items[0].dish).toBeUndefined();
+      expect(result.order_items[0].order).toBeUndefined();
+      expect(result.order_items[0].order_item_modifiers[0]).toMatchObject({
+        id: 'mod_existing_1',
+        voided_quantity: 1,
+      });
+      expect(result.order_items[0].order_item_modifiers[0].order_item).toBe('oi_existing_1');
+      expect(result.order_items[0].order_item_modifiers[0].order).toBe('019dd0fe-576c-7000-bccb-7bf8b07831f8');
+    });
   });
 
   describe('createRuntimeConfig', () => {
@@ -513,5 +554,131 @@ describe('appConfig', () => {
         appConfig.directus = previous;
       }
     });
+  });
+});
+
+// ── normPositiveInt ────────────────────────────────────────────────────────────
+
+describe('normPositiveInt()', () => {
+  it('returns Math.floor(value) for a positive integer', () => {
+    expect(normPositiveInt(7, 1)).toBe(7);
+    expect(normPositiveInt(30, 1)).toBe(30);
+  });
+
+  it('floors non-integer positive numbers', () => {
+    expect(normPositiveInt(7.9, 1)).toBe(7);
+    expect(normPositiveInt(0.5, 99)).toBe(99); // Math.floor(0.5)=0, not ≥1 → fallback
+  });
+
+  it('returns fallback for 0', () => {
+    expect(normPositiveInt(0, 10)).toBe(10);
+  });
+
+  it('returns fallback for negative numbers', () => {
+    expect(normPositiveInt(-1, 10)).toBe(10);
+  });
+
+  it('returns fallback for Infinity', () => {
+    expect(normPositiveInt(Infinity, 10)).toBe(10);
+  });
+
+  it('returns fallback for -Infinity', () => {
+    expect(normPositiveInt(-Infinity, 10)).toBe(10);
+  });
+
+  it('returns fallback for NaN', () => {
+    expect(normPositiveInt(NaN, 10)).toBe(10);
+  });
+
+  it('returns fallback for string', () => {
+    expect(normPositiveInt('7', 10)).toBe(10);
+  });
+
+  it('returns fallback for null', () => {
+    expect(normPositiveInt(null, 10)).toBe(10);
+  });
+
+  it('returns fallback for undefined', () => {
+    expect(normPositiveInt(undefined, 10)).toBe(10);
+  });
+
+  it('returns fallback for boolean true', () => {
+    expect(normPositiveInt(true, 10)).toBe(10);
+  });
+});
+
+// ── applyIDBPurgeConfigToAppConfig ────────────────────────────────────────────
+
+describe('applyIDBPurgeConfigToAppConfig()', () => {
+  let previous;
+
+  beforeEach(() => {
+    previous = appConfig.idbPurge ? { ...appConfig.idbPurge } : null;
+  });
+
+  afterEach(() => {
+    appConfig.idbPurge = previous;
+  });
+
+  it('applies valid positive-integer values', () => {
+    const result = applyIDBPurgeConfigToAppConfig({
+      orders: 14,
+      billSessions: 14,
+      transactions: 60,
+      cashMovements: 60,
+      dailyClosures: 180,
+      printJobs: 14,
+      syncFailedCalls: 60,
+    });
+    expect(result).toEqual({
+      orders: 14,
+      billSessions: 14,
+      transactions: 60,
+      cashMovements: 60,
+      dailyClosures: 180,
+      printJobs: 14,
+      syncFailedCalls: 60,
+    });
+    expect(appConfig.idbPurge).toEqual(result);
+  });
+
+  it('replaces 0 with defaults', () => {
+    const result = applyIDBPurgeConfigToAppConfig({ orders: 0 });
+    expect(result.orders).toBe(DEFAULT_SETTINGS.idbPurge.orders);
+  });
+
+  it('replaces negative values with defaults', () => {
+    const result = applyIDBPurgeConfigToAppConfig({ orders: -5 });
+    expect(result.orders).toBe(DEFAULT_SETTINGS.idbPurge.orders);
+  });
+
+  it('replaces Infinity with defaults', () => {
+    const result = applyIDBPurgeConfigToAppConfig({ orders: Infinity });
+    expect(result.orders).toBe(DEFAULT_SETTINGS.idbPurge.orders);
+  });
+
+  it('replaces NaN with defaults', () => {
+    const result = applyIDBPurgeConfigToAppConfig({ transactions: NaN });
+    expect(result.transactions).toBe(DEFAULT_SETTINGS.idbPurge.transactions);
+  });
+
+  it('replaces string values with defaults', () => {
+    const result = applyIDBPurgeConfigToAppConfig({ orders: '7' });
+    expect(result.orders).toBe(DEFAULT_SETTINGS.idbPurge.orders);
+  });
+
+  it('uses DEFAULT_SETTINGS when called with empty object', () => {
+    const result = applyIDBPurgeConfigToAppConfig({});
+    expect(result).toEqual(DEFAULT_SETTINGS.idbPurge);
+  });
+
+  it('uses DEFAULT_SETTINGS when called with no arguments', () => {
+    const result = applyIDBPurgeConfigToAppConfig();
+    expect(result).toEqual(DEFAULT_SETTINGS.idbPurge);
+  });
+
+  it('floors decimal values', () => {
+    const result = applyIDBPurgeConfigToAppConfig({ orders: 7.9 });
+    expect(result.orders).toBe(7);
   });
 });

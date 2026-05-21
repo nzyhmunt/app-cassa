@@ -42,9 +42,8 @@ import {
   getFailedSyncCalls,
   drainQueue,
   MAX_ATTEMPTS,
-  _resetEnqueueSeq,
 } from '../../composables/useSyncQueue.js';
-import * as persistenceOps from '../persistence/operations.js';
+import * as persistenceOps from '../persistence/auth.js';
 import { appConfig } from '../../utils/index.js';
 
 // Pass _backoffMs:0 to skip exponential back-off delays in all tests.
@@ -60,7 +59,6 @@ function mockResponse(status, body = {}) {
 
 beforeEach(async () => {
   await _resetIDBSingleton();
-  _resetEnqueueSeq();
   vi.restoreAllMocks();
   vi.stubGlobal('navigator', { ...navigator, onLine: true });
 });
@@ -217,6 +215,102 @@ describe('drainQueue()', () => {
     expect(JSON.parse(opts.body).total_amount).toBeUndefined();
     expect(JSON.parse(opts.body).item_count).toBeUndefined();
     expect(JSON.parse(opts.body).order_time).toBeUndefined();
+  });
+
+  it('coalesces queued order update snapshots for the same record into one PATCH', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue(mockResponse(200, { data: { id: 'ord_1' } }));
+    await enqueue('orders', 'update', 'ord_1', { status: 'accepted' });
+    await enqueue('orders', 'update', 'ord_1', {
+      orderItems: [
+        { id: 'oi_1', uid: 'oi_1', name: 'Coperto', quantity: 4, voidedQuantity: 2, unitPrice: 2.5, notes: [], modifiers: [] },
+      ],
+      totalAmount: 5,
+      itemCount: 2,
+    });
+    await enqueue('orders', 'update', 'ord_1', {
+      orderItems: [
+        { id: 'oi_1', uid: 'oi_1', name: 'Coperto', quantity: 4, voidedQuantity: 0, unitPrice: 2.5, notes: [], modifiers: [] },
+      ],
+      totalAmount: 10,
+      itemCount: 4,
+    });
+
+    const result = await drainQueue(FAKE_CFG);
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const [url, opts] = fetchSpy.mock.calls[0];
+    expect(url).toContain('/items/orders/ord_1');
+    expect(opts.method).toBe('PATCH');
+    const body = JSON.parse(opts.body);
+    expect(body.status).toBe('accepted');
+    expect(body.total_amount).toBe(10);
+    expect(body.item_count).toBe(4);
+    expect(body.order_items).toHaveLength(1);
+    expect(body.order_items[0].voided_quantity).toBe(0);
+    expect(result.pushed).toBe(3);
+    expect(result.pushedIds).toEqual([{ collection: 'orders', recordId: 'ord_1' }]);
+    expect(await getPendingEntries()).toHaveLength(0);
+  });
+
+  it('persists the merged payload in failed-call history when a coalesced order update fails', async () => {
+    vi.spyOn(global, 'fetch').mockRejectedValueOnce(new Error('server error'));
+    await enqueue('orders', 'update', 'ord_1', { status: 'accepted' });
+    await enqueue('orders', 'update', 'ord_1', {
+      orderItems: [
+        { id: 'oi_1', uid: 'oi_1', name: 'Coperto', quantity: 4, voidedQuantity: 2, unitPrice: 2.5, notes: [], modifiers: [] },
+      ],
+      totalAmount: 5,
+      itemCount: 2,
+    });
+    await enqueue('orders', 'update', 'ord_1', {
+      orderItems: [
+        { id: 'oi_1', uid: 'oi_1', name: 'Coperto', quantity: 4, voidedQuantity: 0, unitPrice: 2.5, notes: [], modifiers: [] },
+      ],
+      totalAmount: 10,
+      itemCount: 4,
+    });
+
+    const queued = await getPendingEntries();
+    const gateEntryId = queued[0].id;
+
+    const result = await drainQueue(FAKE_CFG);
+    expect(result.failed).toBe(1);
+
+    const failedCalls = await getFailedSyncCalls();
+    expect(failedCalls[0]).toMatchObject({
+      queue_entry_id: gateEntryId,
+      collection: 'orders',
+      operation: 'update',
+      record_id: 'ord_1',
+      payload: {
+        status: 'accepted',
+        totalAmount: 10,
+        itemCount: 4,
+      },
+    });
+    expect(failedCalls[0].payload.orderItems).toHaveLength(1);
+    expect(failedCalls[0].payload.orderItems[0].voidedQuantity).toBe(0);
+  });
+
+  it('abandons the full coalesced order-update chain after MAX_ATTEMPTS', async () => {
+    vi.spyOn(global, 'fetch').mockRejectedValue(new Error('server error'));
+    await enqueue('orders', 'update', 'ord_chain', { status: 'accepted' });
+    await enqueue('orders', 'update', 'ord_chain', { totalAmount: 5, itemCount: 2 });
+    await enqueue('orders', 'update', 'ord_chain', {
+      orderItems: [
+        { id: 'oi_chain', uid: 'oi_chain', name: 'Coperto', quantity: 4, voidedQuantity: 0, unitPrice: 2.5, notes: [], modifiers: [] },
+      ],
+      totalAmount: 10,
+      itemCount: 4,
+    });
+
+    let result;
+    for (let i = 0; i < MAX_ATTEMPTS; i++) {
+      result = await drainQueue(FAKE_CFG);
+    }
+
+    expect(result.abandoned).toBe(3);
+    expect(await getPendingEntries()).toHaveLength(0);
   });
 
   it('strips _sync_status and orderItems from payload', async () => {
@@ -381,6 +475,24 @@ describe('drainQueue()', () => {
     expect(body.children).toBeUndefined();
   });
 
+  it('omits empty snake_case order_items arrays on sparse orders update payloads', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue(mockResponse(200, { data: {} }));
+    await enqueue('orders', 'update', '019e078a-e583-7000-bf4b-05d1f8588eff', {
+      venue_user_updated: '29a77c55-0055-4d20-9c11-2913ac974a75',
+      order_items: [],
+      total_amount: 0,
+      item_count: 0,
+    });
+
+    await drainQueue(FAKE_CFG);
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.venue_user_updated).toBe('29a77c55-0055-4d20-9c11-2913ac974a75');
+    expect(body.total_amount).toBe(0);
+    expect(body.item_count).toBe(0);
+    expect(body.order_items).toBeUndefined();
+  });
+
   it('sets order FK on nested order_items when payload has no id (partial update)', async () => {
     // Reproduces: "Validation failed for field 'order' at 'order_items'. Value can't be null."
     // The order ID lives in record_id; the partial-update payload does NOT carry `id`.
@@ -403,6 +515,50 @@ describe('drainQueue()', () => {
     for (const item of body.order_items) {
       expect(item.order).toBe('ord_partial_1');
     }
+  });
+
+  it('does not inject unchanged nested order_items defaults into update PATCH payloads', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue(mockResponse(200, { data: {} }));
+    await enqueue('orders', 'update', 'ord_sparse_existing_item', {
+      venue_user_updated: 'usr_1',
+      orderItems: [
+        {
+          id: 'oi_existing_1',
+          uid: 'oi_existing_1',
+          voidedQuantity: 1,
+          modifiers: [
+            { id: 'mod_existing_1', voidedQuantity: 1 },
+          ],
+        },
+      ],
+      totalAmount: 8,
+      itemCount: 1,
+    });
+
+    await drainQueue(FAKE_CFG);
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.total_amount).toBe(8);
+    expect(body.item_count).toBe(1);
+    expect(body.order_items).toHaveLength(1);
+    expect(body.order_items[0]).toMatchObject({
+      id: 'oi_existing_1',
+      uid: 'oi_existing_1',
+      voided_quantity: 1,
+    });
+    expect(body.order_items[0].unit_price).toBeUndefined();
+    expect(body.order_items[0].quantity).toBeUndefined();
+    expect(body.order_items[0].kitchen_ready).toBeUndefined();
+    expect(body.order_items[0].dish).toBeUndefined();
+    expect(body.order_items[0].order).toBeUndefined();
+    expect(body.order_items[0].order_item_modifiers).toHaveLength(1);
+    expect(body.order_items[0].order_item_modifiers[0]).toMatchObject({
+      id: 'mod_existing_1',
+      voided_quantity: 1,
+    });
+    // Required relational context for nested modifier updates.
+    expect(body.order_items[0].order_item_modifiers[0].order_item).toBe('oi_existing_1');
+    expect(body.order_items[0].order_item_modifiers[0].order).toBe('ord_sparse_existing_item');
   });
 
   it('nulls dish on order_items when menuSource is json', async () => {
@@ -465,6 +621,41 @@ describe('drainQueue()', () => {
     expect(item.order_item_modifiers[0].item_uid).toBe('item_uid_abc');
     // order FK must also be populated
     expect(item.order_item_modifiers[0].order).toBe('ord_mod_1');
+  });
+
+  it('sets order on nested order_item_modifiers even when modifier id is already present', async () => {
+    // Reproduces: "Validation failed for field \"order\" at \"order_items.order_item_modifiers\". Value is required."
+    const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue(mockResponse(200, { data: {} }));
+    await enqueue('orders', 'update', 'ord_mod_existing_id_1', {
+      venue_user_updated: 'usr_1',
+      orderItems: [
+        {
+          id: 'oi_existing_1',
+          uid: 'item_uid_existing_1',
+          dishId: 'dish_1',
+          name: 'Patate al Forno',
+          unitPrice: 5,
+          quantity: 1,
+          notes: [],
+          voidedQuantity: 0,
+          modifiers: [
+            { id: 'mod_existing_1', name: 'Parmigiano', price: 1, voidedQuantity: 0 },
+          ],
+          course: 'dopo',
+        },
+      ],
+      totalAmount: 6,
+      itemCount: 1,
+    });
+
+    await drainQueue(FAKE_CFG);
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    const item = body.order_items[0];
+    expect(Array.isArray(item.order_item_modifiers)).toBe(true);
+    expect(item.order_item_modifiers).toHaveLength(1);
+    expect(item.order_item_modifiers[0].id).toBe('mod_existing_1');
+    expect(item.order_item_modifiers[0].order).toBe('ord_mod_existing_id_1');
   });
 
   it('retries RECORD_NOT_UNIQUE (HTTP 400) create as PATCH', async () => {
@@ -1265,5 +1456,93 @@ describe('drainQueue() — BFS fair-retry ordering', () => {
     expect(remaining).toHaveLength(1);
     expect(remaining[0].record_id).toBe('bill_2p');
     expect(remaining[0].attempts).toBe(2);
+  });
+});
+
+// ── drainQueue — print_jobs ───────────────────────────────────────────────────
+
+describe('drainQueue() — print_jobs mapping', () => {
+  it('maps print_jobs CREATE payload to Directus field names (camelCase → snake_case)', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue(mockResponse(201, { data: { id: 'job-1' } }));
+    await enqueue('print_jobs', 'create', 'job-1', {
+      id: 'job-1',
+      printType: 'order',
+      printerId: 'cucina',
+      table: '05',
+      status: 'pending',
+      timestamp: '2024-01-15T12:00:00.000Z',
+      payload: { jobId: 'job_abc', printType: 'order' },
+    });
+
+    const result = await drainQueue(FAKE_CFG);
+
+    expect(result.pushed).toBe(1);
+    expect(result.failed).toBe(0);
+    const [url, opts] = fetchSpy.mock.calls[0];
+    expect(url).toContain('/items/print_jobs');
+    expect(opts.method).toBe('POST');
+
+    const body = JSON.parse(opts.body);
+    // camelCase fields must be mapped to snake_case Directus columns
+    expect(body.print_type).toBe('order');
+    expect(body.printer).toBe('cucina');
+    expect(body.table_label).toBe('05');
+    // timestamp stripped by _PUSH_DROP_FIELDS but recovered as job_timestamp
+    expect(body.job_timestamp).toBe('2024-01-15T12:00:00.000Z');
+    expect(body.timestamp).toBeUndefined();
+    // local camelCase originals must not appear in the Directus payload
+    expect(body.printType).toBeUndefined();
+    expect(body.printerId).toBeUndefined();
+    expect(body.table).toBeUndefined();
+  });
+
+  it('maps print_jobs UPDATE (status change) to a PATCH request with logId stripped', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue(mockResponse(200, { data: { id: 'job-2' } }));
+    await enqueue('print_jobs', 'update', 'job-2', {
+      logId: 'plog_abc',
+      status: 'done',
+      error_message: null,
+    });
+
+    await drainQueue(FAKE_CFG);
+
+    const [url, opts] = fetchSpy.mock.calls[0];
+    expect(url).toContain('/items/print_jobs/job-2');
+    expect(opts.method).toBe('PATCH');
+
+    const body = JSON.parse(opts.body);
+    expect(body.status).toBe('done');
+    expect(body.error_message).toBeNull();
+    // logId is local-only and must be stripped by mapPrintJobToDirectus
+    expect(body.logId).toBeUndefined();
+  });
+
+  it('maps print_jobs UPDATE (status → error) with error_message field', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue(mockResponse(200, { data: {} }));
+    await enqueue('print_jobs', 'update', 'job-3', {
+      logId: 'plog_xyz',
+      status: 'error',
+      errorMessage: 'Printer offline',
+    });
+
+    await drainQueue(FAKE_CFG);
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.status).toBe('error');
+    expect(body.error_message).toBe('Printer offline');
+    expect(body.errorMessage).toBeUndefined();
+    expect(body.logId).toBeUndefined();
+  });
+
+  it('skips DELETE on print_jobs (domain-status collection — no-op skip)', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch');
+    await enqueue('print_jobs', 'delete', 'job-4', null);
+
+    const result = await drainQueue(FAKE_CFG);
+
+    // DELETE is treated as a skip (status-managed collection): no HTTP call, entry removed
+    expect(result.pushed).toBe(1);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(await getPendingEntries()).toHaveLength(0);
   });
 });

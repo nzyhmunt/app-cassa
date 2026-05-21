@@ -234,6 +234,20 @@ export const DEFAULT_SETTINGS = {
     wsEnabled: false,
   },
 
+  // CONFIGURAZIONE PULIZIA IDB (retention windows in giorni)
+  // Ogni campo indica per quanti giorni mantenere i record già sincronizzati
+  // su Directus prima di rimuoverli dall'IndexedDB locale.
+  // Valori conservativi di default: pensati per dispositivi offline alcuni giorni.
+  idbPurge: {
+    orders: 7,
+    billSessions: 7,
+    transactions: 30,
+    cashMovements: 30,
+    dailyClosures: 90,
+    printJobs: 7,
+    syncFailedCalls: 30,
+  },
+
   // Minimal fallback menu; the full menu is loaded from the external URL at startup
   menu: {
     "Placeholder": [
@@ -299,10 +313,195 @@ function _withDerivedTables(settings) {
 
 export const appConfig = _withDerivedTables(DEFAULT_SETTINGS);
 
+/**
+ * Builds a fresh runtime config by merging `overrides` (from Directus or settings)
+ * onto `DEFAULT_SETTINGS` and re-deriving the flat `tables` array.
+ *
+ * Use this instead of mutating `appConfig` directly — the returned object is a
+ * fully independent copy so callers can safely spread/assign it to reactive stores.
+ *
+ * @param {object|null} [overrides] - Partial settings to merge; nullable.
+ * @returns {typeof DEFAULT_SETTINGS}
+ */
 export function createRuntimeConfig(overrides = null) {
   const base = _withDerivedTables(DEFAULT_SETTINGS);
   if (!overrides || typeof overrides !== 'object') return base;
   return _withDerivedTables({ ...base, ..._deepClone(overrides) });
+}
+
+/**
+ * Returns `Math.floor(value)` when `value` is a positive number, otherwise `fallback`.
+ * Used to validate retention-day fields in settings payloads.
+ *
+ * @param {unknown} value
+ * @param {number} fallback
+ * @returns {number}
+ */
+export function normPositiveInt(value, fallback) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return fallback;
+  const floored = Math.floor(value);
+  return floored >= 1 ? floored : fallback;
+}
+
+/**
+ * Normalizes printer connection type to a lowercase trimmed token.
+ *
+ * @param {object|null|undefined} printer
+ * @returns {string}
+ */
+export function getNormalizedPrinterConnectionType(printer) {
+  return typeof printer?.connectionType === 'string'
+    ? printer.connectionType.toLowerCase().trim()
+    : '';
+}
+
+/**
+ * Normalizes printer routing tokens such as print types and category labels.
+ *
+ * @param {unknown} value
+ * @returns {string}
+ */
+export function normalizePrinterRoutingToken(value) {
+  return typeof value === 'string'
+    ? value.toLowerCase().trim()
+    : '';
+}
+
+function getNormalizedPrinterStringList(values) {
+  if (!Array.isArray(values)) return [];
+  return [...new Set(values.map(normalizePrinterRoutingToken).filter(Boolean))];
+}
+
+/**
+ * Returns normalized printer print types with empty/blank entries removed.
+ *
+ * @param {object|null|undefined} printer
+ * @returns {string[]}
+ */
+function getNormalizedPrinterPrintTypes(printer) {
+  return getNormalizedPrinterStringList(printer?.printTypes);
+}
+
+/**
+ * Returns normalized printer category labels with empty/blank entries removed.
+ *
+ * @param {object|null|undefined} printer
+ * @returns {string[]}
+ */
+export function getNormalizedPrinterCategories(printer) {
+  return getNormalizedPrinterStringList(printer?.categories);
+}
+
+export const PRINT_JOB_TYPES = Object.freeze({
+  ORDER: 'order',
+  TABLE_MOVE: 'table_move',
+  PRE_BILL: 'pre_bill',
+});
+
+export const DEFAULT_HTTP_PRE_BILL_PRINTER_ID = 'pre_bill';
+
+export const PRINT_LOG_STATUSES = Object.freeze({
+  PENDING: 'pending',
+  PRINTING: 'printing',
+  DONE: 'done',
+  ERROR: 'error',
+  QUEUED: 'queued',
+});
+
+export const PRINT_ACTIVITY_LOG_STATUSES = Object.freeze({
+  SUCCESS: 'success',
+  ERROR: 'error',
+  QUEUED: 'queued',
+});
+
+export const PRINT_JOBS_COLLECTION = 'print_jobs';
+
+/**
+ * Returns true when a printer is managed by the Directus print-dispatcher
+ * (connection type `tcp` or `file`), which means browser HTTP dispatch is not used.
+ *
+ * @param {object|null|undefined} printer
+ * @returns {boolean}
+ */
+export function isDirectusManagedPrinter(printer) {
+  const connectionType = getNormalizedPrinterConnectionType(printer);
+  return connectionType === 'tcp' || connectionType === 'file';
+}
+
+/**
+ * Returns true when the printer can receive jobs either through direct HTTP
+ * dispatch or through the Directus-managed print dispatcher.
+ *
+ * @param {object|null|undefined} printer
+ * @returns {boolean}
+ */
+export function canPrinterReceiveJobs(printer) {
+  return Boolean(printer?.url) || isDirectusManagedPrinter(printer);
+}
+
+/**
+ * Returns true when the printer accepts the given print type.
+ * Missing or empty printTypes arrays act as catch-all.
+ *
+ * @param {object|null|undefined} printer
+ * @param {string} printType
+ * @returns {boolean}
+ */
+export function printerSupportsPrintType(printer, printType) {
+  const printTypes = getNormalizedPrinterPrintTypes(printer);
+  if (printTypes.length === 0) return true;
+  return printTypes.includes(normalizePrinterRoutingToken(printType));
+}
+
+/**
+ * Returns all configured printers that can receive the given print type.
+ *
+ * @param {unknown} printers
+ * @param {string} printType
+ * @returns {object[]}
+ */
+export function getPrintersForPrintType(printers, printType) {
+  if (!Array.isArray(printers)) return [];
+  return printers.filter(printer => canPrinterReceiveJobs(printer) && printerSupportsPrintType(printer, printType));
+}
+
+/**
+ * Returns printers that are valid candidates for the pre-bill selector.
+ * They must have a stable id and support the pre_bill print type.
+ *
+ * @param {unknown} printers
+ * @returns {object[]}
+ */
+export function getPreBillEligiblePrinters(printers) {
+  if (!Array.isArray(printers)) return [];
+  return printers.filter((printer) => {
+    if (typeof printer?.id !== 'string' || !printer.id.trim()) return false;
+    return canPrinterReceiveJobs(printer) && printerSupportsPrintType(printer, PRINT_JOB_TYPES.PRE_BILL);
+  });
+}
+
+/**
+ * Resolves a configured printer by explicit id first, then by url.
+ *
+ * @param {unknown} printers
+ * @param {{ printerId?: string|null, printerUrl?: string|null }} [options]
+ * @returns {object|null}
+ */
+export function resolveConfiguredPrinter(printers, options = {}) {
+  if (!Array.isArray(printers)) return null;
+  const printerId = typeof options.printerId === 'string' && options.printerId.trim()
+    ? options.printerId
+    : null;
+  const printerUrl = typeof options.printerUrl === 'string' && options.printerUrl.trim()
+    ? options.printerUrl
+    : null;
+  const printerFromId = printerId
+    ? printers.find(printer => printer?.id === printerId)
+    : null;
+  if (printerFromId) return printerFromId;
+  return printerUrl
+    ? (printers.find(printer => printer?.url === printerUrl) ?? null)
+    : null;
 }
 
 /**
@@ -324,6 +523,30 @@ export function applyDirectusConfigToAppConfig(next = {}) {
     wsEnabled: typeof next?.wsEnabled === 'boolean' ? next.wsEnabled : false,
   };
   appConfig.directus = normalized;
+  return normalized;
+}
+
+/**
+ * Applies IDB purge retention settings to `appConfig.idbPurge`.
+ * This is the only allowed write path for `appConfig.idbPurge`.
+ * Invalid (non-positive) values are replaced with the defaults from
+ * `DEFAULT_SETTINGS.idbPurge`.
+ *
+ * @param {object} [next]
+ * @returns {{orders:number,billSessions:number,transactions:number,cashMovements:number,dailyClosures:number,printJobs:number,syncFailedCalls:number}}
+ */
+export function applyIDBPurgeConfigToAppConfig(next = {}) {
+  const defaults = DEFAULT_SETTINGS.idbPurge;
+  const normalized = {
+    orders:          normPositiveInt(next?.orders,          defaults.orders),
+    billSessions:    normPositiveInt(next?.billSessions,    defaults.billSessions),
+    transactions:    normPositiveInt(next?.transactions,    defaults.transactions),
+    cashMovements:   normPositiveInt(next?.cashMovements,   defaults.cashMovements),
+    dailyClosures:   normPositiveInt(next?.dailyClosures,   defaults.dailyClosures),
+    printJobs:       normPositiveInt(next?.printJobs,       defaults.printJobs),
+    syncFailedCalls: normPositiveInt(next?.syncFailedCalls, defaults.syncFailedCalls),
+  };
+  appConfig.idbPurge = normalized;
   return normalized;
 }
 

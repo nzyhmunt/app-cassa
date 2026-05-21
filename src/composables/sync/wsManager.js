@@ -1,0 +1,844 @@
+/**
+ * @file composables/sync/wsManager.js
+ * @description WebSocket subscription management for the Directus sync subsystem.
+ *
+ * Manages WS connection lifecycle, heartbeat watchdog, echo-suppressed
+ * LWW-guarded message dispatch, and reconnect logic.
+ *
+ * Critical ordering invariant (Risk 3):
+ *   `_resetWsHeartbeat()` MUST be the first call in `_handleSubscriptionMessage`
+ *   so the timer resets before any `await` that could time out.
+ *
+ */
+
+import { appConfig, deepEqual } from '../../utils/index.js';
+import { mergeOrderFromWSPayload, mergeOrderItemFromWSPayload, relationId } from '../../utils/mappers.js';
+import { getDirectusClient, resetDirectusClient } from '../useDirectusClient.js';
+import { upsertRecordsIntoIDB, deleteRecordsFromIDB } from '../../store/persistence/operations.js';
+import { getDB } from '../useIDB.js';
+import { addSyncLog } from '../../store/persistence/syncLogs.js';
+import { _mapRecord, _extractRecordIds } from './mapper.js';
+import { _isEchoSuppressed, WS_HEARTBEAT_INTERVAL_MS } from './echoSuppression.js';
+import { _atomicOrderItemsUpsertAndMerge, _removeOrderItemsFromOrdersIDB } from './idbOperations.js';
+import { _refreshStoreFromIDB } from './storebridge.js';
+import { COLLECTION_QUIRKS, PULL_CONFIG } from './config.js';
+import { syncState } from './state.js';
+import { _pullCollection, _runPull, _triggerImmediateOrderItemsPull } from './pullQueue.js';
+
+/** Active unsubscribe callbacks (local to WS helpers, not shared state). */
+const _unsubscribers = [];
+
+/**
+ * S5 — Resets (or starts) the WebSocket heartbeat watchdog timer.
+ * Called after every incoming WS message and whenever a WS connection is
+ * established.
+ *
+ * Two-phase behaviour:
+ *   Phase 1 — if no subscription event arrives within WS_HEARTBEAT_INTERVAL_MS,
+ *   the watchdog triggers a one-shot REST catch-up pull and immediately pre-arms
+ *   phase 2 as a safety net.  If the pull returns no new records (`anyMerged:
+ *   false`) the socket is idle and healthy, so phase-2 is cancelled.  If the
+ *   pull hangs indefinitely (stalled TCP / unresponsive server), phase-2 fires
+ *   unconditionally after another full interval and forces a reconnect — the
+ *   `.then()` safety net never blocks recovery.
+ *   Phase 2 — fires when phase-1 found new data (`anyMerged: true`) or when the
+ *   phase-1 pull never resolved; calls `_stopSubscriptions()` + `_reconnectWs()`
+ *   to recover a silent half-open socket.
+ *
+ * Both phases are stored in `_wsHeartbeatTimer`.  Any real WS event calls
+ * `_resetWsHeartbeat()`, which cancels whichever phase is pending and restarts
+ * phase 1 — so active connections are never affected.
+ *
+ * Stale-phase-2 guard: the `.then()` holds the pre-armed `phase2Timer` handle.
+ * Before cancelling it (healthy-idle path), it checks `_wsHeartbeatTimer ===
+ * phase2Timer`.  If `_resetWsHeartbeat()` already cleared and replaced the
+ * timer (a fresh WS event arrived mid-pull), the handle no longer matches and
+ * the stale callback leaves the new phase-1 timer untouched.
+ * `_wsHeartbeatCycle` is still incremented on every `_resetWsHeartbeat()` call
+ * and can be used by callers to detect a new heartbeat cycle.
+ *
+ * Genuine transport failures (iterator throws in processSubscription()) are
+ * caught independently; this watchdog only handles the silent half-open case.
+ */
+export function _resetWsHeartbeat() {
+  if (syncState._wsHeartbeatTimer) { clearTimeout(syncState._wsHeartbeatTimer); syncState._wsHeartbeatTimer = null; }
+  // Bump the cycle counter unconditionally (even when _running is false) so
+  // that any caller that captured the old cycle can detect the reset.
+  syncState._wsHeartbeatCycle = (syncState._wsHeartbeatCycle ?? 0) + 1;
+  if (!syncState._running || appConfig.directus?.wsEnabled !== true) return;
+  syncState._wsHeartbeatTimer = setTimeout(() => {
+    syncState._wsHeartbeatTimer = null;
+    if (!syncState._running || !syncState._wsConnected.value) return;
+    console.warn(
+      `[DirectusSync] WS heartbeat: no activity for ${WS_HEARTBEAT_INTERVAL_MS}ms — triggering REST catch-up pull.`,
+    );
+    addSyncLog({
+      direction: 'IN',
+      type: 'WS',
+      endpoint: '/websocket/heartbeat',
+      payload: { phase: 1, silenceMs: WS_HEARTBEAT_INTERVAL_MS, action: 'rest_catchup' },
+      status: 'success',
+    });
+    // Phase 2: pre-armed immediately so that a hung _runPull() (stalled TCP /
+    // unresponsive server) does not block recovery.  Cancelled below if the
+    // pull resolves cleanly (anyMerged:false — idle healthy socket).
+    const phase2Timer = setTimeout(() => {
+      syncState._wsHeartbeatTimer = null;
+      if (!syncState._running || !syncState._wsConnected.value) return;
+      console.warn(
+        '[DirectusSync] WS heartbeat: socket still silent after REST catch-up — forcing reconnect.',
+      );
+      addSyncLog({
+        direction: 'IN',
+        type: 'WS',
+        endpoint: '/websocket/heartbeat',
+        payload: { phase: 2, silenceMs: WS_HEARTBEAT_INTERVAL_MS * 2, action: 'force_reconnect' },
+        status: 'error',
+      });
+      _stopSubscriptions();
+      _reconnectWs().catch(() => {});
+    }, WS_HEARTBEAT_INTERVAL_MS);
+    syncState._wsHeartbeatTimer = phase2Timer;
+    // Phase 1: REST catch-up pull.  If it resolves with no new data (idle
+    // healthy socket) cancel phase-2.  If it resolves with new data (half-open
+    // socket was dropping events) let phase-2 fire.  If it never resolves,
+    // phase-2 fires unconditionally.
+    // Timer-identity guard: check `_wsHeartbeatTimer === phase2Timer` before
+    // cancelling.  If _resetWsHeartbeat() already fired (e.g. a real WS event
+    // arrived mid-pull), it has already cleared phase2Timer and replaced it
+    // with a fresh phase-1 timer — the handle no longer matches so the stale
+    // callback must not touch the new timer.
+    _runPull().then(r => {
+      if (!r?.anyMerged && syncState._wsHeartbeatTimer === phase2Timer) {
+        clearTimeout(phase2Timer);
+        syncState._wsHeartbeatTimer = null;
+      }
+    }).catch(() => {});
+  }, WS_HEARTBEAT_INTERVAL_MS);
+}
+
+/**
+ * Returns the effective timestamp for a record, using `date_updated` when
+ * available and falling back to `date_created` for records that have never
+ * been PATCHed.  Returns `null` if neither field is set.
+ *
+ * Used by the LWW echo-suppression guard to compare incoming vs local
+ * timestamps without requiring `date_updated` to be non-null.
+ *
+ * @param {{ date_updated?: string|null, date_created?: string|null }|null|undefined} record
+ * @returns {string|null}
+ */
+function _getEffectiveTs(record) {
+  return (record?.date_updated ?? record?.date_created) ?? null;
+}
+
+function _normalizeEchoNumber(value) {
+  if (value == null) return null;
+  const normalized = Number(value);
+  return Number.isFinite(normalized) ? normalized : value;
+}
+
+/**
+ * Normalizes modifier records to a stable shape for echo-comparison checks.
+ *
+ * Handles both camelCase and snake_case fields so local IDB records and
+ * incoming Directus payloads can be compared without naming skew.
+ */
+function _normalizeEchoModifier(modifier) {
+  if (!modifier || typeof modifier !== 'object') return null;
+  return {
+    id: modifier.id ?? null,
+    itemUid: modifier.itemUid ?? modifier.item_uid ?? null,
+    orderItemId: modifier.orderItemId ?? modifier.order_item ?? null,
+    orderId: modifier.orderId ?? modifier.order ?? null,
+    name: modifier.name ?? null,
+    price: _normalizeEchoNumber(modifier.price),
+    quantity: _normalizeEchoNumber(modifier.quantity),
+    voidedQuantity: _normalizeEchoNumber(modifier.voidedQuantity ?? modifier.voided_quantity),
+  };
+}
+
+/**
+ * Normalizes order-item records to a stable shape for echo-comparison checks.
+ *
+ * Handles both local camelCase fields and Directus snake_case aliases, and
+ * normalizes nested modifier arrays to the same canonical structure.
+ */
+function _normalizeEchoOrderItem(item) {
+  if (!item || typeof item !== 'object') return null;
+  return {
+    id: item.id ?? null,
+    uid: item.uid ?? null,
+    orderId: item.orderId ?? item.order ?? null,
+    dishId: item.dishId ?? item.dish ?? null,
+    name: item.name ?? null,
+    unitPrice: _normalizeEchoNumber(item.unitPrice ?? item.unit_price),
+    quantity: _normalizeEchoNumber(item.quantity),
+    voidedQuantity: _normalizeEchoNumber(item.voidedQuantity ?? item.voided_quantity),
+    notes: Array.isArray(item.notes) ? item.notes : [],
+    course: item.course ?? null,
+    status: item.status ?? null,
+    kitchenReady: item.kitchenReady ?? item.kitchen_ready ?? null,
+    modifiers: Array.isArray(item.modifiers)
+      ? item.modifiers.map(_normalizeEchoModifier).filter(Boolean)
+      : Array.isArray(item.order_item_modifiers)
+        ? item.order_item_modifiers.map(_normalizeEchoModifier).filter(Boolean)
+        : [],
+  };
+}
+
+/**
+ * Projects a record down to only the meaningful fields referenced by `raw`.
+ *
+ * This intentionally excludes server-managed metadata (for example timestamps)
+ * so self-echo detection keys off business-state changes only.
+ */
+function _projectEchoComparable(collection, raw, record) {
+  if (!record || typeof record !== 'object' || !raw || typeof raw !== 'object') return null;
+  if (collection === 'orders') {
+    const out = {};
+    if (Object.prototype.hasOwnProperty.call(raw, 'status')) out.status = record.status ?? null;
+    if (Object.prototype.hasOwnProperty.call(raw, 'table')) out.table = relationId(record.table) ?? record.table ?? null;
+    if (Object.prototype.hasOwnProperty.call(raw, 'bill_session')) out.billSessionId = record.billSessionId ?? record.bill_session ?? null;
+    if (Object.prototype.hasOwnProperty.call(raw, 'total_amount')) out.totalAmount = record.totalAmount ?? record.total_amount ?? null;
+    if (Object.prototype.hasOwnProperty.call(raw, 'item_count')) out.itemCount = record.itemCount ?? record.item_count ?? null;
+    if (Object.prototype.hasOwnProperty.call(raw, 'order_time')) out.time = record.time ?? record.order_time ?? null;
+    if (Object.prototype.hasOwnProperty.call(raw, 'global_note')) out.globalNote = record.globalNote ?? record.global_note ?? null;
+    if (Object.prototype.hasOwnProperty.call(raw, 'rejection_reason')) out.rejectionReason = record.rejectionReason ?? record.rejection_reason ?? null;
+    if (Object.prototype.hasOwnProperty.call(raw, 'note_visibility_cassa')) out.noteVisibilityCassa = record.noteVisibility?.cassa ?? record.note_visibility_cassa ?? null;
+    if (Object.prototype.hasOwnProperty.call(raw, 'note_visibility_sala')) out.noteVisibilitySala = record.noteVisibility?.sala ?? record.note_visibility_sala ?? null;
+    if (Object.prototype.hasOwnProperty.call(raw, 'note_visibility_cucina')) out.noteVisibilityCucina = record.noteVisibility?.cucina ?? record.note_visibility_cucina ?? null;
+    if (Object.prototype.hasOwnProperty.call(raw, 'dietary_diets')) out.dietaryDiets = record.dietaryPreferences?.diete ?? record.dietary_diets ?? [];
+    if (Object.prototype.hasOwnProperty.call(raw, 'dietary_allergens')) out.dietaryAllergens = record.dietaryPreferences?.allergeni ?? record.dietary_allergens ?? [];
+    if (Object.prototype.hasOwnProperty.call(raw, 'is_cover_charge')) out.isCoverCharge = record.isCoverCharge ?? record.is_cover_charge ?? null;
+    if (Object.prototype.hasOwnProperty.call(raw, 'is_direct_entry')) out.isDirectEntry = record.isDirectEntry ?? record.is_direct_entry ?? null;
+    if (Object.prototype.hasOwnProperty.call(raw, 'order_items') || Object.prototype.hasOwnProperty.call(raw, 'orderItems')) {
+      const items = Array.isArray(record.orderItems) ? record.orderItems : [];
+      out.orderItems = items.map(_normalizeEchoOrderItem);
+    }
+    return out;
+  }
+  if (collection === 'order_items') {
+    const out = {};
+    if (Object.prototype.hasOwnProperty.call(raw, 'uid')) out.uid = record.uid ?? null;
+    if (Object.prototype.hasOwnProperty.call(raw, 'order')) out.orderId = record.orderId ?? record.order ?? null;
+    if (Object.prototype.hasOwnProperty.call(raw, 'dish')) out.dishId = record.dishId ?? record.dish ?? null;
+    if (Object.prototype.hasOwnProperty.call(raw, 'name')) out.name = record.name ?? null;
+    if (Object.prototype.hasOwnProperty.call(raw, 'unit_price')) out.unitPrice = _normalizeEchoNumber(record.unitPrice ?? record.unit_price);
+    if (Object.prototype.hasOwnProperty.call(raw, 'quantity')) out.quantity = _normalizeEchoNumber(record.quantity);
+    if (Object.prototype.hasOwnProperty.call(raw, 'voided_quantity')) out.voidedQuantity = _normalizeEchoNumber(record.voidedQuantity ?? record.voided_quantity);
+    if (Object.prototype.hasOwnProperty.call(raw, 'notes')) out.notes = Array.isArray(record.notes) ? record.notes : [];
+    if (Object.prototype.hasOwnProperty.call(raw, 'course')) out.course = record.course ?? null;
+    if (Object.prototype.hasOwnProperty.call(raw, 'status')) out.status = record.status ?? null;
+    if (Object.prototype.hasOwnProperty.call(raw, 'kitchen_ready')) out.kitchenReady = record.kitchenReady ?? record.kitchen_ready ?? null;
+    if (Object.prototype.hasOwnProperty.call(raw, 'order_item_modifiers')) {
+      const modifiers = Array.isArray(record.modifiers) ? record.modifiers : record.order_item_modifiers;
+      out.modifiers = Array.isArray(modifiers) ? modifiers.map(_normalizeEchoModifier).filter(Boolean) : [];
+    }
+    return out;
+  }
+  return null;
+}
+
+/**
+ * Loads the local record used by echo suppression comparisons.
+ *
+ * `order_items` can exist either in the standalone ObjectStore or embedded
+ * inside the parent order snapshot, so both locations are checked.
+ */
+async function _loadLocalEchoRecord(db, collection, raw, id) {
+  if (!db || !id) return null;
+  if (collection !== 'order_items') {
+    return await db.get(collection, String(id));
+  }
+  const directItem = await db.get('order_items', String(id));
+  if (directItem) return directItem;
+  const rawOrderRef = raw?.order ?? raw?.orderId ?? null;
+  const orderId = relationId(rawOrderRef) ?? rawOrderRef;
+  if (!orderId) return null;
+  const parentOrder = await db.get('orders', String(orderId));
+  if (!Array.isArray(parentOrder?.orderItems)) return null;
+  return parentOrder.orderItems.find((item) => String(item?.id ?? item?.uid ?? '') === String(id)) ?? null;
+}
+
+/**
+ * Returns true when applying the incoming payload would change meaningful
+ * business fields relative to the current local record.
+ */
+function _hasMeaningfulEchoChange(collection, raw, local, incoming) {
+  if (!local || !incoming) return false;
+  const prospective = collection === 'orders'
+    ? mergeOrderFromWSPayload(local, raw, incoming)
+    : collection === 'order_items'
+      ? mergeOrderItemFromWSPayload(local, raw, incoming)
+      : { ...local, ...incoming };
+  const before = _projectEchoComparable(collection, raw, local);
+  const after = _projectEchoComparable(collection, raw, prospective);
+  if (before == null || after == null) return !deepEqual(local, prospective);
+  return !deepEqual(before, after);
+}
+
+/**
+ * Processes an incoming realtime message from Directus Subscriptions.
+ * Maps records to local format, upserts into IDB, and merges into the store.
+ *
+ * Self-echo suppression: records that this device pushed within the last
+ * ECHO_SUPPRESS_TTL_MS are filtered out to prevent redundant IDB writes and
+ * transient UI rewrites caused by receiving our own changes back via WebSocket.
+ *
+ * @param {string} collection
+ * @param {{ event: string, data: Array<object|string> }} message
+ */
+export async function _handleSubscriptionMessage(collection, message) {
+  // S5: Reset the heartbeat watchdog on every incoming WS message so the timer
+  // only fires when the connection has been truly silent for WS_HEARTBEAT_INTERVAL_MS.
+  _resetWsHeartbeat();
+  const { event, data } = message;
+  if (!data || !Array.isArray(data) || data.length === 0) return;
+
+  let processedCount = data.length;
+  let suppressedCount = 0;
+  let loggedIds = [];
+  // loggedItems holds the raw WS payload items (after echo suppression) for
+  // create/update events so the full record body appears in the Activity Monitor.
+  // Stays empty for delete events (only IDs are available on that path).
+  let loggedItems = [];
+
+  if (event === 'delete') {
+    // Filter out records that this device just pushed (self-echo suppression).
+    const ids = _extractRecordIds(data);
+    const nonEchoIds = ids.filter(id => !_isEchoSuppressed(collection, id != null ? String(id) : null));
+    suppressedCount = ids.length - nonEchoIds.length;
+    processedCount = nonEchoIds.length;
+    if (suppressedCount > 0) {
+      console.debug(
+        `[DirectusSync] WS ${event} on ${collection}: suppressed ${suppressedCount} self-echo(es)`,
+      );
+    }
+    if (nonEchoIds.length === 0) return;
+    if (collection === 'table_merge_sessions') {
+      // NS4: Deduplicate concurrent pulls triggered by rapid delete events using
+      // a semaphore so only one full-replace is in flight at a time.
+      // An AbortController is passed so that _onOffline() can cancel the in-flight
+      // HTTP request and prevent a stale response from overwriting a fresh
+      // post-reconnect replace via replaceTableMergesInIDB().
+      // Identity-guards in the .finally() prevent a stale settled promise from
+      // overwriting the newer semaphore/controller started after reconnect.
+      if (!syncState._tableMergePullInFlight) {
+        const ac = new AbortController();
+        syncState._tableMergeAbortController = ac;
+        const p = _pullCollection('table_merge_sessions', { forceFull: true, signal: ac.signal })
+          .finally(() => {
+            if (syncState._tableMergePullInFlight === p) syncState._tableMergePullInFlight = null;
+            if (syncState._tableMergeAbortController === ac) syncState._tableMergeAbortController = null;
+          });
+        syncState._tableMergePullInFlight = p;
+      }
+      await syncState._tableMergePullInFlight;
+      return;
+    }
+    if (collection === 'order_items') {
+      // Issue 1 fix: _removeOrderItemsFromOrdersIDB now performs both the
+      // orders.orderItems array clean-up AND the deletion from the order_items
+      // ObjectStore in a single IDB transaction, eliminating the previous
+      // two-step non-atomic sequence.
+      // NP1 fix: the function now returns the set of affected parent order IDs
+      // so the store refresh can be targeted rather than replacing the whole
+      // orders reactive array (mirrors the create/update path that uses
+      // result.affectedOrderIds from _atomicOrderItemsUpsertAndMerge).
+      try {
+        const affectedOrderIds = await _removeOrderItemsFromOrdersIDB(nonEchoIds);
+        // _refreshStoreFromIDB ignores an empty Set (falls back to full refresh),
+        // so passing undefined for the empty case is more explicit about intent.
+        await _refreshStoreFromIDB('orders', affectedOrderIds.size > 0 ? affectedOrderIds : undefined);
+      } catch (e) {
+        console.warn('[DirectusSync] WS order_items delete cleanup failed:', e);
+        await _refreshStoreFromIDB('orders');
+      }
+      // Shared telemetry/activity-log: also update lastPullAt and emit an activity
+      // log entry for this delete path so WS order_items deletes appear in the
+      // Activity Monitor and are reflected in telemetry (mirrors the non-early-return
+      // path used by all other collections).
+      syncState.lastPullAt.value = new Date().toISOString();
+      const deleteEchoNote = suppressedCount > 0 ? ` (${suppressedCount} self-echo(es) suppressed)` : '';
+      console.info(`[DirectusSync] WS ${event} on ${collection}: ${processedCount} record(s) deleted${deleteEchoNote}`);
+      addSyncLog({
+        direction: 'IN',
+        type: 'WS',
+        endpoint: `/subscriptions/${collection}`,
+        payload: { event, count: data.length, suppressedCount, ids: nonEchoIds },
+        response: { deletedCount: processedCount },
+        status: 'success',
+        statusCode: null,
+        durationMs: null,
+        collection,
+        recordCount: processedCount,
+      });
+      return;
+    }
+    await deleteRecordsFromIDB(collection, nonEchoIds);
+    await _refreshStoreFromIDB(collection);
+    loggedIds = nonEchoIds;
+  } else {
+    // Defensively drop any non-object entries that should never appear for
+    // non-delete events but could arrive from a malformed or unexpected
+    // subscription message shape (e.g. bare ID strings).  Spreading a string
+    // in _mapRecord would produce corrupted character-indexed records in IDB.
+    const objectData = data.filter(r => {
+      if (typeof r === 'object' && r !== null) return true;
+      console.warn(`[DirectusSync] WS ${event} on ${collection}: unexpected non-object entry ignored`, r);
+      return false;
+    });
+    // Filter out records that this device just pushed (self-echo suppression).
+    // Issue 3 fix: for TTL-suppressed records, apply a Last-Write-Wins guard —
+    // if the incoming payload has a strictly newer date_updated than the local
+    // IDB record, another device modified the same record inside our echo window
+    // and the update must not be silently dropped (data loss prevention).
+    const nonEcho = [];
+    suppressedCount = 0;
+    // Fetch the IDB handle lazily only for records that actually need the LWW
+    // echo check, so the common non-echo case stays on the fast path.
+    let db;
+    let dbLoaded = false;
+    const ensureDB = async () => {
+      if (dbLoaded) return db;
+      dbLoaded = true;
+      try {
+        db = await getDB();
+      } catch (e) {
+        console.warn('[DirectusSync] LWW echo check: IDB unavailable', e);
+        db = null;
+      }
+      return db;
+    };
+    for (const r of objectData) {
+      const id = r.id != null ? String(r.id) : null;
+      const isDirectEcho = _isEchoSuppressed(collection, id);
+      if (event === 'create' && isDirectEcho) {
+        suppressedCount++;
+        continue;
+      }
+      const rawOrderRef = collection === 'order_items' ? (r?.order ?? null) : null;
+      const parentOrderId = collection === 'order_items'
+        ? relationId(rawOrderRef) ?? rawOrderRef
+        : null;
+      const shouldCheckParentOrderEcho = !isDirectEcho && collection === 'order_items';
+      const isParentOrderEchoSuppressed = shouldCheckParentOrderEcho
+        && _isEchoSuppressed('orders', parentOrderId);
+      if (!isDirectEcho && !isParentOrderEchoSuppressed) {
+        nonEcho.push(r);
+        continue;
+      }
+      let local = null;
+      if (id) {
+        try {
+          const localDb = await ensureDB();
+          if (localDb) local = await _loadLocalEchoRecord(localDb, collection, r, id);
+        } catch (e) {
+          console.warn('[DirectusSync] LWW echo check failed for', collection, id, e);
+        }
+      }
+      // Parent-order suppression still needs a local item snapshot so the
+      // meaningful-change/LWW guard can decide whether this is a self-echo or a
+      // genuinely new remote update. If the item is absent locally, let it
+      // through instead of dropping a potential remote create.
+      const isOrderItemsParentEcho = collection === 'order_items'
+        && local
+        && isParentOrderEchoSuppressed;
+      if (!isDirectEcho && !isOrderItemsParentEcho) {
+        nonEcho.push(r);
+        continue;
+      }
+      // LWW guard: allow through when incoming is strictly newer than stored.
+      // Directus timestamps are ISO 8601 UTC strings (e.g. "2024-06-01T12:00:00.000Z")
+      // which are lexicographically comparable — no Date parsing overhead needed.
+      // Use _getEffectiveTs (date_updated ?? date_created) for both sides so that
+      // records with date_updated=null (never patched locally) are not incorrectly
+      // suppressed when a cross-device PATCH sets date_updated for the first time.
+      // Example: local has date_updated=null, date_created="2024-01-01", incoming PATCH
+      // has date_updated="2024-06-01" — we want to allow through because the incoming
+      // timestamp is strictly after the effective local timestamp.
+      const incomingTs = _getEffectiveTs(r);
+      let isCrossDeviceUpdate = false;
+      if (id && local) {
+        try {
+          const localTs = _getEffectiveTs(local);
+          const incoming = _mapRecord(collection, r);
+          const hasMeaningfulChange = _hasMeaningfulEchoChange(collection, r, local, incoming);
+          if (hasMeaningfulChange && incomingTs && (!localTs || incomingTs > localTs)) {
+            isCrossDeviceUpdate = true;
+          }
+        } catch (e) {
+          console.warn('[DirectusSync] LWW echo check failed for', collection, id, e);
+        }
+      }
+      if (isCrossDeviceUpdate) {
+        nonEcho.push(r);
+      } else {
+        suppressedCount++;
+      }
+    }
+    processedCount = nonEcho.length;
+    if (suppressedCount > 0) {
+      console.debug(
+        `[DirectusSync] WS ${event} on ${collection}: suppressed ${suppressedCount} self-echo(es)`,
+      );
+    }
+    if (nonEcho.length === 0) return;
+    const mapped = nonEcho.map(r => _mapRecord(collection, r));
+    // WS subscriptions can send partial payloads (e.g. only
+    // {id, status, date_updated}) for status-change events. mapOrderFromDirectus()
+    // fills all absent fields with zero/empty defaults, so a straight put() would
+    // wipe IDB fields like totalAmount, globalNote, orderItems etc.
+    //
+    // For both create and update events we fetch the existing IDB record and merge
+    // via mergeOrderFromWSPayload(), overwriting only the fields present in the raw
+    // WS payload. This is necessary even for create events because orderItems are
+    // pushed to Directus via a separate `orders` UPDATE queue entry
+    // (_enqueueOrderItemsPatch), so the WS CREATE event still carries
+    // order_items:[] even though the local IDB record already has items. When the
+    // echo TTL expires the un-suppressed CREATE would overwrite local items with [].
+    // mergeOrderFromWSPayload() preserves existing orderItems when incoming is empty,
+    // so applying the merge for CREATE events too is safe: if no local record exists
+    // (genuine cross-device create) we fall back to incoming as before.
+    let prepared = mapped;
+    if (collection === 'orders') {
+      try {
+        const db = await getDB();
+        prepared = await Promise.all(nonEcho.map(async (raw, i) => {
+          const incoming = mapped[i];
+          const id = incoming?.id;
+          if (!id) return incoming;
+          try {
+            const existing = await db.get('orders', String(id));
+            if (!existing) return incoming;
+            return mergeOrderFromWSPayload(existing, raw, incoming);
+          } catch (e) {
+            console.warn('[DirectusSync] WS order merge: IDB lookup failed for', id, e);
+            return incoming;
+          }
+        }));
+      } catch (e) {
+        console.warn('[DirectusSync] WS order merge: IDB unavailable, falling back to incoming records', e);
+        prepared = mapped;
+      }
+    }
+    // For order_items updates, apply the same selective-merge strategy: load the
+    // existing IDB record and merge only the fields present in the raw WS payload.
+    // This prevents absent numeric/relation fields (quantity, unit_price, order FK,
+    // notes, etc.) from being clobbered with mapper-supplied defaults (e.g. quantity → 0)
+    // when Directus sends a partial payload (e.g. {id, kitchen_ready, date_updated}).
+    // create events use the incoming record as-is (no prior IDB record to merge with).
+    if (collection === 'order_items' && event !== 'create') {
+      try {
+        const db = await getDB();
+        prepared = await Promise.all(nonEcho.map(async (raw, i) => {
+          const incoming = mapped[i];
+          const id = incoming?.id;
+          if (!id) return incoming;
+          try {
+            const existing = await db.get('order_items', String(id));
+            if (!existing) return incoming;
+            return mergeOrderItemFromWSPayload(existing, raw, incoming);
+          } catch (e) {
+            console.warn('[DirectusSync] WS order_items merge: IDB lookup failed for', id, e);
+            return incoming;
+          }
+        }));
+      } catch (e) {
+        console.warn('[DirectusSync] WS order_items merge: IDB unavailable, falling back to incoming records', e);
+        prepared = mapped;
+      }
+    }
+    // For order_items, skip the unconditional upsert here — the atomic helper
+    // below writes order_items AND the embedded orderItems arrays in orders
+    // together in a single IDB transaction.  Writing to order_items twice would
+    // create a partial-write window where order_items is updated but orders is
+    // still stale if the atomic path throws/aborts.
+    if (collection !== 'order_items') {
+      await upsertRecordsIntoIDB(collection, prepared);
+    }
+    if (collection === 'order_items') {
+      // NS1: Use the same atomic upsert+merge that the REST pull path uses so
+      // that the order_items ObjectStore and the embedded orderItems arrays in
+      // orders are always updated together in a single IDB transaction.
+      // Pass the raw nonEcho payloads as the second argument so that
+      // _atomicOrderItemsUpsertAndMerge can use mergeOrderItemFromWSPayload for
+      // selective-merge semantics (i.e. only overwrite fields present in the WS
+      // payload, not all mapper-supplied defaults).
+      // Issue 4 fix: capture affectedOrderIds from the atomic result and pass them
+      // to _refreshStoreFromIDB for a targeted reactive update instead of
+      // replacing the entire orders array.
+      try {
+        const result = await _atomicOrderItemsUpsertAndMerge(prepared, nonEcho);
+        await _refreshStoreFromIDB('orders', result.affectedOrderIds);
+      } catch (e) {
+        console.warn('[DirectusSync] WS order_items atomic upsert+merge failed:', e);
+        await _refreshStoreFromIDB('orders');
+      }
+    } else {
+      await _refreshStoreFromIDB(collection);
+    }
+    // NS9: WS subscriptions use fields:['*'] which does NOT expand nested relations
+    // such as order_items or order_item_modifiers.  When a new order arrives via a
+    // WS create event, its orderItems array is empty in the WS payload — items (and
+    // their modifiers) would only become visible after the next scheduled 30-second
+    // REST poll.  Trigger an immediate order_items pull so items are merged into the
+    // order within seconds of the WS event, eliminating the otherwise unavoidable
+    // one-cycle delay.
+    //
+    // The triggered pull fetches the full incremental order_items delta since the
+    // last checkpoint (all venue items since last_pull_ts), not just the new order's
+    // items, because there is no way to know a priori which item IDs belong to the
+    // newly created order without an additional round-trip.  The
+    // _orderItemsPullPending semaphore inside _triggerImmediateOrderItemsPull()
+    // coalesces concurrent orders:create events into at most two sequential pulls
+    // (one in-flight + one re-run), bounding the extra backend reads for bursts.
+    if (collection === 'orders' && event === 'create') {
+      _triggerImmediateOrderItemsPull();
+    }
+    // Optional chaining + null filter: _mapRecord() can return null for malformed
+    // entries, and merge helpers may produce records without an id field in rare
+    // edge cases. Only log IDs that are actually present.
+    loggedIds = prepared.map(r => r?.id).filter(id => id != null);
+    // Capture the raw WS payload items (post-echo-suppression, pre-mapping) so
+    // the Activity Monitor can show the full record body as received from Directus.
+    loggedItems = nonEcho;
+  }
+
+  syncState.lastPullAt.value = new Date().toISOString();
+  const echoNote = suppressedCount > 0 ? ` (${suppressedCount} self-echo(es) suppressed)` : '';
+  const actionWord = event === 'delete' ? 'deleted' : 'written';
+  console.info(`[DirectusSync] WS ${event} on ${collection}: ${processedCount} record(s) ${actionWord}${echoNote}`);
+
+  addSyncLog({
+    direction: 'IN',
+    type: 'WS',
+    endpoint: `/subscriptions/${collection}`,
+    payload: { event, count: data.length, suppressedCount, ids: loggedIds, items: loggedItems },
+    response: event === 'delete' ? { deletedCount: processedCount } : { writtenCount: processedCount },
+    status: 'success',
+    statusCode: null,
+    durationMs: null,
+    collection,
+    recordCount: processedCount,
+  });
+}
+
+/**
+ * Starts WebSocket subscriptions for the given collections.
+ * Falls back silently if the WebSocket connection fails.
+ *
+ * @param {string[]} collections
+ * @returns {Promise<boolean>} `true` if subscriptions were established
+ */
+export async function _startSubscriptions(collections) {
+  const client = getDirectusClient();
+  if (!client) return false;
+
+  const venueId = appConfig.directus?.venueId ?? null;
+  // Track which collection subscribe is in-flight so the catch block can tell
+  // apart a connect() failure from a subscribe() failure.
+  let _failedCollection = null;
+
+  try {
+    await client.connect();
+    syncState._wsConnected.value = true;
+    // S5: Start the heartbeat watchdog now that the WS connection is live.
+    _resetWsHeartbeat();
+    addSyncLog({
+      direction: 'OUT',
+      type: 'WS',
+      endpoint: '/websocket',
+      payload: { action: 'connect', collections },
+      status: 'success',
+    });
+
+    for (const collection of collections) {
+      // For orders, request nested order_items (and their modifiers) so that WS
+      // events can include embedded items when Directus has them at the time the
+      // subscription message is dispatched — matching the REST pull fields in
+      // pullQueue.js.  Note: a WS CREATE event may still carry order_items:[]
+      // when items haven't been pushed to Directus yet (they arrive in a separate
+      // subsequent `orders` UPDATE).  The IDB merge path handles that gracefully.
+      const wsFields = collection === 'orders'
+        ? ['*', 'order_items.*', 'order_items.order_item_modifiers.*']
+        : ['*'];
+      const query = { fields: wsFields };
+      const quirks = COLLECTION_QUIRKS[collection] ?? {};
+      if (!quirks.noVenueFilter && venueId != null) {
+        query.filter = quirks.venueFilter
+          ? quirks.venueFilter(venueId)
+          : { venue: { _eq: venueId } };
+      }
+
+      _failedCollection = collection;
+      const { subscription, unsubscribe } = await client.subscribe(collection, { query });
+      _failedCollection = null; // subscribe succeeded for this collection
+      addSyncLog({
+        direction: 'OUT',
+        type: 'WS',
+        endpoint: `/subscriptions/${collection}`,
+        payload: { action: 'subscribe', fields: query.fields, filter: query.filter ?? null },
+        status: 'success',
+        collection,
+      });
+      _unsubscribers.push(unsubscribe);
+
+      // Process subscription messages as they arrive
+      async function processSubscription() {
+        try {
+          for await (const message of subscription) {
+            await _handleSubscriptionMessage(collection, message);
+          }
+        } catch (e) {
+          console.warn(`[DirectusSync] Subscription ${collection} closed:`, e?.message ?? e);
+          addSyncLog({
+            direction: 'IN',
+            type: 'WS',
+            endpoint: `/subscriptions/${collection}`,
+            payload: { action: 'disconnect' },
+            response: { error: e?.message ?? String(e) },
+            status: 'error',
+            collection,
+          });
+          syncState._wsConnected.value = false;
+          // Increment the WS drop telemetry counter on unexpected disconnections.
+          // Only counts true transport errors (caught exceptions from the subscription
+          // iterator), not intentional teardowns via _stopSubscriptions() which never
+          // reach this catch block.
+          // JavaScript's event-loop single-threaded model ensures this increment is
+          // effectively atomic; concurrent subscription failures are serialised through
+          // the microtask queue so no mutex is needed.
+          syncState.wsDropCount.value++;
+          if (!syncState._running) return;
+          // If wsEnabled is still on, schedule a reconnect attempt.
+          // Otherwise fall back to polling.
+          if (appConfig.directus?.wsEnabled === true) {
+            // Use a single shared timer so that concurrent subscription errors for
+            // multiple collections don't queue overlapping _reconnectWs() calls.
+            if (!syncState._reconnectTimer) {
+              syncState._reconnectTimer = setTimeout(() => {
+                syncState._reconnectTimer = null;
+                if (!syncState._running) return;
+                if (!syncState._wsConnected.value && appConfig.directus?.wsEnabled === true) {
+                  _reconnectWs().catch(() => {});
+                } else if (!syncState._pollTimer && appConfig.directus?.wsEnabled !== true) {
+                  // wsEnabled was turned off while reconnect was pending — fall back to polling.
+                  const pullCfg = PULL_CONFIG[syncState._appType] ?? PULL_CONFIG.cassa;
+                  syncState._pollTimer = setInterval(() => _runPull().catch(() => {}), pullCfg.intervalMs);
+                }
+              }, 5_000);
+            }
+          } else if (!syncState._pollTimer) {
+            const pullCfg = PULL_CONFIG[syncState._appType] ?? PULL_CONFIG.cassa;
+            syncState._pollTimer = setInterval(() => _runPull().catch(() => {}), pullCfg.intervalMs);
+          }
+        }
+      }
+      processSubscription();
+    }
+
+    console.info('[DirectusSync] WebSocket subscriptions active for:', collections.join(', '));
+    return true;
+  } catch (e) {
+    console.warn('[DirectusSync] WebSocket unavailable, falling back to polling:', e?.message ?? e);
+    if (_failedCollection !== null) {
+      // subscribe() failed for _failedCollection (connect() already succeeded)
+      addSyncLog({
+        direction: 'OUT',
+        type: 'WS',
+        endpoint: `/subscriptions/${_failedCollection}`,
+        payload: { action: 'subscribe', collection: _failedCollection },
+        response: { error: e?.message ?? String(e) },
+        status: 'error',
+        collection: _failedCollection,
+      });
+    } else {
+      // connect() itself failed
+      addSyncLog({
+        direction: 'OUT',
+        type: 'WS',
+        endpoint: '/websocket',
+        payload: { action: 'connect', collections },
+        response: { error: e?.message ?? String(e) },
+        status: 'error',
+      });
+    }
+    _stopSubscriptions();
+    return false;
+  }
+}
+
+/**
+ * Tears down all active WebSocket subscriptions and clears related timers.
+ */
+export function _stopSubscriptions() {
+  for (const unsub of _unsubscribers) {
+    try { unsub(); } catch (_) { /* best-effort */ }
+  }
+  _unsubscribers.length = 0;
+  // S5: Cancel the heartbeat watchdog when subscriptions are torn down.
+  if (syncState._wsHeartbeatTimer) { clearTimeout(syncState._wsHeartbeatTimer); syncState._wsHeartbeatTimer = null; }
+  // Use resetDirectusClient() rather than getDirectusClient() + disconnect() to avoid
+  // creating a brand-new SDK client just to immediately disconnect it.  When stopSync()
+  // is called after a config change (loadDirectusConfigFromStorage already called
+  // resetDirectusClient()), getDirectusClient() would create a new client and cache it,
+  // so the subsequent _startSubscriptions() → connect() would attempt to reconnect a
+  // client that was just disconnected — causing the WebSocket to never come back up.
+  resetDirectusClient();
+  syncState._wsConnected.value = false;
+}
+
+/**
+ * Attempts to restore WebSocket subscriptions after a connection loss.
+ * Cleans up any stale subscriptions/poll timer first, then calls
+ * `_startSubscriptions`.  If that fails, re-enables the polling fallback.
+ */
+export async function _reconnectWs() {
+  if (!syncState._running || syncState._wsConnected.value) return;
+  if (appConfig.directus?.wsEnabled !== true) return;
+
+  // Recompute the collection list from the current config so that changes to
+  // appConfig.menuSource (json ↔ directus) or syncState._appType are picked up at
+  // reconnect time rather than using the potentially-stale list captured at
+  // startSync() time.
+  const pullCfg = PULL_CONFIG[syncState._appType] ?? PULL_CONFIG.cassa;
+  const menuSource = appConfig.menuSource ?? 'directus';
+  const wsCollections = menuSource === 'json'
+    ? pullCfg.collections.filter(c => c !== 'menu_items')
+    : pullCfg.collections;
+  syncState._wsCollections = wsCollections;
+
+  if (syncState._wsCollections.length === 0) return;
+
+  // Cancel any pending debounced reconnect timer — this call IS the reconnect.
+  if (syncState._reconnectTimer) { clearTimeout(syncState._reconnectTimer); syncState._reconnectTimer = null; }
+
+  console.info('[DirectusSync] Attempting WebSocket reconnect…');
+  addSyncLog({
+    direction: 'OUT',
+    type: 'WS',
+    endpoint: '/websocket',
+    payload: { action: 'reconnect', collections: syncState._wsCollections },
+    status: 'success',
+  });
+
+  // Stop polling before trying WS — avoids duplicate pulls during reconnect.
+  if (syncState._pollTimer) { clearInterval(syncState._pollTimer); syncState._pollTimer = null; }
+
+  // Clean up stale subscriptions/connection before reconnecting.
+  _stopSubscriptions();
+
+  const subscribed = await _startSubscriptions(syncState._wsCollections);
+  if (!subscribed) {
+    // Reconnect failed — restart polling fallback.
+    const pullCfg2 = PULL_CONFIG[syncState._appType] ?? PULL_CONFIG.cassa;
+    if (!syncState._pollTimer) {
+      syncState._pollTimer = setInterval(() => _runPull().catch(() => {}), pullCfg2.intervalMs);
+    }
+  } else {
+    // WS is back — do an immediate pull to catch up on missed updates.
+    _runPull().catch(() => {});
+  }
+}

@@ -11,9 +11,11 @@ import {
   KITCHEN_ACTIVE_STATUSES,
   formatOrderTime,
   itemsAreMergeable,
+  PRINT_JOBS_COLLECTION,
+  PRINT_LOG_STATUSES,
 } from '../utils/index.js';
 import { mapOrderFromDirectus } from '../utils/mappers.js';
-import { newUUIDv7, normalizeEntityId, newShortId, cloneValue as _clone } from './storeUtils.js';
+import { newUUIDv7, normalizeEntityId, newShortId, cloneValue } from './storeUtils.js';
 import { makeTableOps } from './tableOps.js';
 import { makeReportOps } from './reportOps.js';
 import {
@@ -32,6 +34,7 @@ import {
   pruneFiscalReceiptsInIDB,
   pruneInvoiceRequestsInIDB,
 } from './persistence/audit.js';
+import { getDB } from '../composables/useIDB.js';
 import { enqueue } from '../composables/useSyncQueue.js';
 import { onIDBChange } from './persistence/eventBus.js';
 import { useConfigStore } from './configStore.js';
@@ -49,16 +52,86 @@ export const useOrderStore = defineStore('orders', () => {
 
   const printLog = ref([]);
 
+  /**
+   * Converts a potentially reactive/proxied value into a plain serializable payload
+   * safe for IndexedDB queue writes.
+   *
+   * Returns `null` when serialization fails so callers can skip enqueueing instead
+   * of letting non-cloneable payloads break fire-and-forget flows.
+   *
+   * @param {any} value
+   * @returns {Record<string, any>|Array<any>|string|number|boolean|null}
+   */
+  function serializeQueuePayload(value) {
+    try {
+      return cloneValue(toRaw(value));
+    } catch (error) {
+      console.warn('[Store] Failed to serialize print_jobs payload before enqueue:', error);
+      return null;
+    }
+  }
+
   function addPrintLogEntry(entry) {
-    printLog.value = [{ status: 'pending', ...entry }, ...printLog.value].slice(0, 200);
-    enqueue('print_jobs', 'create', entry.id, entry);
+    const pendingEntry = { ...entry, status: PRINT_LOG_STATUSES.PENDING };
+    const payload = serializeQueuePayload(pendingEntry);
+    if (payload !== null) {
+      printLog.value = [pendingEntry, ...printLog.value].slice(0, 200);
+      enqueue(PRINT_JOBS_COLLECTION, 'create', entry.id, payload);
+    } else {
+      const failedEntry = {
+        ...pendingEntry,
+        status: PRINT_LOG_STATUSES.ERROR,
+        errorMessage: 'Impossibile accodare la stampa: payload non serializzabile.',
+      };
+      printLog.value = [failedEntry, ...printLog.value].slice(0, 200);
+      console.error('[Store] Skipped print_jobs create enqueue due to non-serializable payload.', {
+        recordId: entry?.id ?? null,
+        logId: entry?.logId ?? null,
+      });
+    }
   }
 
   function updatePrintLogEntry(logId, updates) {
     const idx = printLog.value.findIndex(e => e.logId === logId);
     if (idx !== -1) {
+      const payload = serializeQueuePayload({ logId, ...updates });
+      if (payload !== null) {
+        enqueue(PRINT_JOBS_COLLECTION, 'update', printLog.value[idx].id, payload);
+        printLog.value[idx] = { ...printLog.value[idx], ...updates };
+      } else {
+        printLog.value[idx] = {
+          ...printLog.value[idx],
+          status: PRINT_LOG_STATUSES.ERROR,
+          errorMessage: 'Impossibile sincronizzare lo stato di stampa.',
+        };
+        console.error('[Store] Skipped print_jobs update enqueue due to non-serializable payload.', {
+          recordId: printLog.value[idx]?.id ?? null,
+          logId,
+          updateKeys: Object.keys(updates ?? {}),
+        });
+      }
+    }
+  }
+
+  /**
+   * Updates a print log entry **locally only** — does NOT enqueue a Directus sync update.
+   * Use this for UI-only status transitions that must not be pushed to Directus
+   * (e.g. transitioning a TCP/file printer job to 'queued' so operators can see
+   * "handed off to print-server", while keeping the Directus record at 'pending'
+   * so the print-server can still claim it).
+   * @param {string} logId
+   * @param {object} updates
+   */
+  function updatePrintLogEntryLocal(logId, updates) {
+    const idx = printLog.value.findIndex(e => e.logId === logId);
+    if (idx !== -1) {
+      if (
+        printLog.value[idx]?.status === PRINT_LOG_STATUSES.ERROR
+        && updates?.status === PRINT_LOG_STATUSES.QUEUED
+      ) {
+        return;
+      }
       printLog.value[idx] = { ...printLog.value[idx], ...updates };
-      enqueue('print_jobs', 'update', printLog.value[idx].id, { logId, ...updates });
     }
   }
 
@@ -72,9 +145,14 @@ export const useOrderStore = defineStore('orders', () => {
 
   function addFiscalReceipt(entry) {
     fiscalReceipts.value = [entry, ...fiscalReceipts.value].slice(0, 200);
-    Promise.resolve(saveFiscalReceiptToIDB(entry))
-      .then(() => pruneFiscalReceiptsInIDB())
-      .catch((error) => console.error('Failed to persist/prune fiscal receipts in IDB:', error));
+    (async () => {
+      try {
+        await saveFiscalReceiptToIDB(entry);
+        await pruneFiscalReceiptsInIDB();
+      } catch (error) {
+        console.warn('[Store] Failed to persist/prune fiscal receipts in IDB:', error);
+      }
+    })();
     enqueue('fiscal_receipts', 'create', entry.id, entry);
   }
 
@@ -132,6 +210,88 @@ export const useOrderStore = defineStore('orders', () => {
 
   function isMergedSlave(tableId) { return !!tableMergedInto.value[tableId]; }
   function masterTableOf(tableId) { return tableMergedInto.value[tableId] ?? null; }
+
+  /**
+   * Resolves the effective (table, billSession) pair for a given table.
+   *
+   * Returns both the effective table ID and the bill-session ID as a consistent
+   * pair. This ensures the `table` field and `billSessionId` on new orders always
+   * refer to the same billing context, even during race conditions where a table
+   * becomes a merged slave while its modal is already open.
+   *
+   * Lookup order:
+   *  1. Table has its own locally hydrated session → (tableId, ownSession.billSessionId)
+   *     Checked FIRST regardless of whether a merge mapping exists, for two reasons:
+   *       (a) Post-detach stale mapping: detachSlaveTable() on another device created a
+   *           fresh slave session and cleared tableMergedInto[slave], but the clearing
+   *           only propagates via table_merge_sessions (venue sync, ~5 min).  During that
+   *           window the slave's new session is visible (bill_sessions, ~30 s) while
+   *           tableMergedInto still points to the old master.  Preferring the slave's own
+   *           session here routes new orders to the correct (post-detach) slave bill.
+   *       (b) Stale tableMergedInto after un-merge: same window for the same reason.
+   *     TRADE-OFF: In the very early merge-arrival window (~30 s) — where
+   *     table_merge_sessions has just updated tableMergedInto but bill_sessions has not
+   *     yet removed the slave's stale pre-merge session — this step will briefly return
+   *     the slave's old session instead of the master's.  The window is bounded by the
+   *     next bill_sessions poll (~30 s) and is much shorter than the post-detach window
+   *     (~5 min), so the slave-first preference is the lesser evil.
+   *  2. Merge mapping exists + master has a locally hydrated session → (masterId, ...)
+   *     Reached only when the slave has no own session (stable active merge).
+   *  3. Merge mapping exists + infer from master's non-closed orders → (masterId, inferred)
+   *     Handles the sync-lag window where orders arrived before bill_sessions.
+   *  4. Infer from own non-closed orders → (tableId, inferred)
+   *     Handles the sync-lag window for non-merged tables (and fall-through from step 3).
+   *  5. Nothing found → (tableId, null)
+   *
+   * NOTE: Uses resolveMaster() (not masterTableOf() or getTableStatus) to follow
+   * the full tableMergedInto chain (e.g. C→B→A resolves to A) and to avoid the
+   * circular mirror where getTableStatus(slave) propagates the master's status.
+   *
+   * Does NOT auto-create a session to avoid producing a duplicate bill when an
+   * existing remote session is simply in-flight and not yet hydrated locally.
+   *
+   * @param {string} tableId
+   * @returns {{ effectiveTableId: string, billSessionId: string|null }}
+   */
+  function resolveTableContext(tableId) {
+    // Step 1: own session always wins — covers non-merged tables, post-detach stale
+    // mapping, and the stale-mapping case (see JSDoc above for trade-off rationale).
+    const ownSession = tableCurrentBillSession.value[tableId];
+    if (ownSession?.billSessionId) return { effectiveTableId: tableId, billSessionId: ownSession.billSessionId };
+
+    // resolveMaster() follows the full tableMergedInto chain (handles C→B→A correctly).
+    // Returns tableId itself when no merge mapping exists.
+    const masterId = resolveMaster(tableId);
+    if (masterId !== tableId) {
+      // Step 2: slave has no own session → standard active merge; check master.
+      const masterSession = tableCurrentBillSession.value[masterId];
+      if (masterSession?.billSessionId) return { effectiveTableId: masterId, billSessionId: masterSession.billSessionId };
+      // Step 3: infer from master's non-closed orders (sync-lag window for merged slaves).
+      const masterInferred = orders.value
+        .find(o => o.table === masterId && o.billSessionId && !['completed', 'rejected'].includes(o.status))
+        ?.billSessionId ?? null;
+      if (masterInferred != null) return { effectiveTableId: masterId, billSessionId: masterInferred };
+    }
+
+    // Step 4: infer from own non-closed orders (sync-lag window for non-merged tables,
+    // or fall-through when master has no active billing context either).
+    const ownInferred = orders.value
+      .find(o => o.table === tableId && o.billSessionId && !['completed', 'rejected'].includes(o.status))
+      ?.billSessionId ?? null;
+    return { effectiveTableId: tableId, billSessionId: ownInferred };
+  }
+
+  /**
+   * Convenience wrapper — returns only the bill-session ID.
+   * Prefer resolveTableContext() when you also need the effective table ID
+   * (e.g. when constructing a new order).
+   *
+   * @param {string} tableId
+   * @returns {string|null}
+   */
+  function resolveActiveBillSessionId(tableId) {
+    return resolveTableContext(tableId).billSessionId;
+  }
 
   const pendingCount = computed(() => orders.value.filter(o => o.status === 'pending' && !o.isDirectEntry).length);
   const inKitchenCount = computed(() =>
@@ -260,7 +420,99 @@ export const useOrderStore = defineStore('orders', () => {
       tableOccupiedAt,
       billRequestedTables,
     };
-    const { collection, collections } = options;
+    const { collection, collections, ids } = options;
+
+    // fiscal_receipts and invoice_requests are not in operationalStateRefs —
+    // they are managed by _hydrateFiscalAndInvoice().  Reload them from IDB:
+    //  • when a pull for either collection triggers a targeted store refresh, OR
+    //  • on a full refresh (no collection filter) so that storage-event hydration
+    //    paths (CassaApp.vue, SalaApp.vue, useAppSwipeRefresh) also pick up the
+    //    latest fiscal/invoice state.
+    const _isFiscalOrInvoice = (c) => c === 'fiscal_receipts' || c === 'invoice_requests';
+    if (collection && _isFiscalOrInvoice(collection)) {
+      await _hydrateFiscalAndInvoice();
+      return;
+    }
+    const _needsFiscalHydration =
+      !collection ||
+      (Array.isArray(collections) && collections.some(_isFiscalOrInvoice));
+    if (_needsFiscalHydration) {
+      await _hydrateFiscalAndInvoice();
+      // On a full refresh fall through to also refresh operationalStateRefs below.
+      if (Array.isArray(collections) && collections.every(_isFiscalOrInvoice)) return;
+    }
+
+    // Shared helper: map a raw IDB order to its reactive form with recomputed totals.
+    // Recompute totals from orderItems when they are populated locally,
+    // or when the order is genuinely empty (item_count = 0) so that a
+    // locally cleared order is correctly reflected as €0.
+    // When orderItems is empty but item_count > 0 the items exist in
+    // Directus but were not expanded in this pull — in that case the
+    // authoritative total_amount already mapped from IDB is preserved
+    // to avoid a spurious reset to 0.
+    function _mapIDBOrder(raw) {
+      const mappedOrder = mapOrderFromDirectus(raw);
+      if (!Array.isArray(mappedOrder.orderItems)) mappedOrder.orderItems = [];
+      if (mappedOrder.orderItems.length > 0 || mappedOrder.item_count === 0) {
+        updateOrderTotals(mappedOrder);
+        mappedOrder.total_amount = mappedOrder.totalAmount;
+        mappedOrder.item_count = mappedOrder.itemCount;
+      } else {
+        mappedOrder.totalAmount = mappedOrder.total_amount ?? mappedOrder.totalAmount;
+        mappedOrder.total_amount = mappedOrder.totalAmount;
+        mappedOrder.itemCount = mappedOrder.item_count ?? mappedOrder.itemCount;
+        mappedOrder.item_count = mappedOrder.itemCount;
+      }
+      return mappedOrder;
+    }
+
+    // Issue 4 fix: targeted order refresh — when a Set of specific order IDs is
+    // provided for the 'orders' collection, fetch and map only those records from
+    // IDB and splice them into the reactive array.  This avoids replacing the
+    // entire orders.value array (and triggering a full re-render) when only a
+    // handful of orders had their orderItems updated via a WS or REST pull.
+    if (collection === 'orders' && ids instanceof Set && ids.size > 0) {
+      try {
+        const db = await getDB();
+        const freshOrders = await Promise.all(
+          [...ids].map(id => db.get('orders', String(id))),
+        );
+        const validOrders = freshOrders.filter(Boolean);
+        if (validOrders.length > 0) {
+          const mappedById = new Map();
+          for (const raw of validOrders) {
+            mappedById.set(String(raw.id), _mapIDBOrder(raw));
+          }
+          // Mutate in-place: only replace the array entries for affected order IDs
+          // so that Vue only schedules re-renders for changed items rather than
+          // replacing the entire array reference (which forces a full list re-render).
+          const updatedIds = new Set();
+          for (let i = 0; i < orders.value.length; i++) {
+            const sid = String(orders.value[i].id);
+            const updated = mappedById.get(sid);
+            if (updated) {
+              orders.value.splice(i, 1, updated);
+              updatedIds.add(sid);
+            }
+          }
+          // Insert orders that were not already present in the reactive array
+          // (e.g. a new order arriving via WS or pull that a follower tab missed).
+          // orders.value has no single canonical sort; components apply their own
+          // computed sorts, so appending at the tail is safe and correct.
+          for (const [id, mapped] of mappedById) {
+            if (!updatedIds.has(id)) orders.value.push(mapped);
+          }
+        }
+      } catch (e) {
+        console.warn('[orderStore] Targeted order refresh failed, falling back to full refresh:', e);
+        // Fall through to full refresh below on error.
+        const idbState = await loadStateFromIDB();
+        if (!idbState) return;
+        orders.value = (idbState.orders ?? []).map(_mapIDBOrder);
+      }
+      return;
+    }
+
     const requestedCollections = collections ?? (collection ? [collection] : Object.keys(operationalStateRefs));
     const resolvedKeys = requestedCollections.map((k) => _COLLECTION_TO_STATE_KEY[k] ?? k);
     const targetCollections = [...new Set(resolvedKeys)]
@@ -273,47 +525,12 @@ export const useOrderStore = defineStore('orders', () => {
     targetCollections.forEach((key) => {
       if (Object.prototype.hasOwnProperty.call(idbState, key)) {
         if (key === 'orders') {
-          operationalStateRefs[key].value = (idbState[key] ?? []).map((order) => {
-            const mappedOrder = mapOrderFromDirectus(order);
-            if (!Array.isArray(mappedOrder.orderItems)) {
-              mappedOrder.orderItems = [];
-            }
-            // Recompute totals from orderItems when they are populated locally,
-            // or when the order is genuinely empty (item_count = 0) so that a
-            // locally cleared order is correctly reflected as €0.
-            // When orderItems is empty but item_count > 0 the items exist in
-            // Directus but were not expanded in this pull — in that case the
-            // authoritative total_amount already mapped from IDB is preserved
-            // to avoid a spurious reset to 0.
-            if (mappedOrder.orderItems.length > 0 || mappedOrder.item_count === 0) {
-              updateOrderTotals(mappedOrder);
-              mappedOrder.total_amount = mappedOrder.totalAmount;
-              mappedOrder.item_count = mappedOrder.itemCount;
-            } else {
-              mappedOrder.totalAmount = mappedOrder.total_amount ?? mappedOrder.totalAmount;
-              mappedOrder.total_amount = mappedOrder.totalAmount;
-              mappedOrder.itemCount = mappedOrder.item_count ?? mappedOrder.itemCount;
-              mappedOrder.item_count = mappedOrder.itemCount;
-            }
-            return mappedOrder;
-          });
+          operationalStateRefs[key].value = (idbState[key] ?? []).map(_mapIDBOrder);
         } else {
           operationalStateRefs[key].value = idbState[key];
         }
       }
     });
-  }
-
-  function _enqueueOrderSnapshot(ord) {
-    if (!ord?.id) return;
-    const rawOrder = toRaw(ord);
-    let payload = rawOrder;
-    try {
-      payload = structuredClone(rawOrder);
-    } catch (_) {
-      payload = JSON.parse(JSON.stringify(rawOrder));
-    }
-    enqueue('orders', 'update', ord.id, payload);
   }
 
   function _enqueueOrderItemsPatch(ordId, projectedOrder) {
@@ -370,12 +587,12 @@ export const useOrderStore = defineStore('orders', () => {
       payload.itemCount = projectedOrder.itemCount;
     }
     if (Object.keys(payload).length === 0) return;
-    enqueue('orders', 'update', ordId, _clone(payload));
+    enqueue('orders', 'update', ordId, cloneValue(payload));
   }
 
   function _enqueueTransactionPatch(txn) {
     if (!txn?.id) return;
-    enqueue('transactions', 'update', txn.id, _clone({
+    enqueue('transactions', 'update', txn.id, cloneValue({
       table: txn.table ?? null,
       bill_session: txn.bill_session ?? null,
     }));
@@ -383,12 +600,12 @@ export const useOrderStore = defineStore('orders', () => {
 
   function _enqueueBillSessionPatch(billSessionId, payload) {
     if (!billSessionId || !payload || typeof payload !== 'object') return;
-    enqueue('bill_sessions', 'update', billSessionId, _clone(payload));
+    enqueue('bill_sessions', 'update', billSessionId, cloneValue(payload));
   }
 
   function _enqueueBillSessionCreate(session) {
     if (!session?.billSessionId || !session?.table) return;
-    enqueue('bill_sessions', 'create', session.billSessionId, _clone({
+    enqueue('bill_sessions', 'create', session.billSessionId, cloneValue({
       id: session.billSessionId,
       table: session.table,
       adults: session.adults ?? 0,
@@ -420,7 +637,7 @@ export const useOrderStore = defineStore('orders', () => {
         }
       }
     }
-    enqueue('orders', 'update', ordId, _clone(payload));
+    enqueue('orders', 'update', ordId, cloneValue(payload));
   }
 
   /**
@@ -476,7 +693,7 @@ export const useOrderStore = defineStore('orders', () => {
     return _withOrderLock(ordId, async () => {
       const current = orders.value.find(o => String(o.id) === String(ordId));
       if (!current || current.status !== 'pending') return null;
-      const projected = _clone(toRaw(current));
+      const projected = cloneValue(toRaw(current));
       if (!Array.isArray(projected.orderItems)) {
         projected.orderItems = [];
       }
@@ -574,7 +791,7 @@ export const useOrderStore = defineStore('orders', () => {
   }
 
   // ── Order-item mutation helpers (IDB-first, serialized per order) ────────────
-  // All seven functions below follow the same contract:
+  // Contract for all public mutation functions:
   //   - Mutations for the same orderId are serialized via _withOrderLock to prevent
   //     concurrent rapid clicks from projecting from a stale pre-mutation snapshot.
   //   - Inside the lock, the latest order is re-read from orders.value.
@@ -587,62 +804,72 @@ export const useOrderStore = defineStore('orders', () => {
   // The false-return-on-failure pattern prevents uncaught async errors in Vue
   // click handlers that invoke these functions without await.
 
-  async function updateQtyGlobal(ord, idx, delta) {
-    const ordId = ord?.id;
-    if (!ordId) return;
+  /**
+   * Shared scaffolding for order-item mutations: lock → read → mutate → IDB → enqueue.
+   *
+   * @param {string} ordId - The order ID to mutate.
+   * @param {(current: object) => (object|null|undefined)} mutatorFn
+   *   Receives the current order (from orders.value). Must return the mutated projected
+   *   clone ready to persist, or null/undefined to abort without side-effects. The caller
+   *   is responsible for cloning `current`, applying the mutation, and calling
+   *   `updateOrderTotals` when item quantities or prices change.
+   * @param {string} context - Short name used in the warn log on IDB failure.
+   * @returns {Promise<true|false|undefined>}
+   */
+  async function _mutateOrderItems(ordId, mutatorFn, context) {
     return _withOrderLock(ordId, async () => {
       const current = orders.value.find(o => String(o.id) === String(ordId));
-      if (!current || current.status !== 'pending') return;
-      const item = current.orderItems[idx];
-      if (!item) return;
-      const projected = _clone(toRaw(current));
-      const projItem = projected.orderItems[idx];
-      projItem.quantity += delta;
-      if (projItem.quantity <= 0) projected.orderItems.splice(idx, 1);
-      updateOrderTotals(projected);
+      const projected = mutatorFn(current);
+      if (!projected) return;
       const projectedOrders = _replaceOrderById(ordId, projected);
       try {
         await saveStateToIDB({ orders: projectedOrders });
       } catch (e) {
-        console.warn('[Store] updateQtyGlobal IDB save failed:', e);
+        console.warn(`[Store] ${context} IDB save failed:`, e);
         return false;
       }
       _enqueueOrderItemsPatch(ordId, projected);
       return true;
     });
+  }
+
+  async function updateQtyGlobal(ord, idx, delta) {
+    const ordId = ord?.id;
+    if (!ordId) return;
+    return _mutateOrderItems(ordId, (current) => {
+      if (!current || current.status !== 'pending') return null;
+      const item = current.orderItems[idx];
+      if (!item) return null;
+      const projected = cloneValue(toRaw(current));
+      const projItem = projected.orderItems[idx];
+      projItem.quantity += delta;
+      if (projItem.quantity <= 0) projected.orderItems.splice(idx, 1);
+      updateOrderTotals(projected);
+      return projected;
+    }, 'updateQtyGlobal');
   }
 
   async function removeRowGlobal(ord, idx) {
     const ordId = ord?.id;
     if (!ordId) return;
-    return _withOrderLock(ordId, async () => {
-      const current = orders.value.find(o => String(o.id) === String(ordId));
-      if (!current || current.status !== 'pending') return;
-      const projected = _clone(toRaw(current));
+    return _mutateOrderItems(ordId, (current) => {
+      if (!current || current.status !== 'pending') return null;
+      const projected = cloneValue(toRaw(current));
       projected.orderItems.splice(idx, 1);
       updateOrderTotals(projected);
-      const projectedOrders = _replaceOrderById(ordId, projected);
-      try {
-        await saveStateToIDB({ orders: projectedOrders });
-      } catch (e) {
-        console.warn('[Store] removeRowGlobal IDB save failed:', e);
-        return false;
-      }
-      _enqueueOrderItemsPatch(ordId, projected);
-      return true;
-    });
+      return projected;
+    }, 'removeRowGlobal');
   }
 
   async function voidOrderItems(ord, idx, qtyToVoid) {
     const ordId = ord?.id;
     if (!ordId || !Number.isInteger(qtyToVoid) || qtyToVoid <= 0) return;
-    return _withOrderLock(ordId, async () => {
-      const current = orders.value.find(o => String(o.id) === String(ordId));
-      if (!current || !KITCHEN_ACTIVE_STATUSES.includes(current.status)) return;
+    return _mutateOrderItems(ordId, (current) => {
+      if (!current || !KITCHEN_ACTIVE_STATUSES.includes(current.status)) return null;
       const item = current.orderItems[idx];
-      if (!item) return;
-      if ((item.voidedQuantity || 0) + qtyToVoid > item.quantity) return;
-      const projected = _clone(toRaw(current));
+      if (!item) return null;
+      if ((item.voidedQuantity || 0) + qtyToVoid > item.quantity) return null;
+      const projected = cloneValue(toRaw(current));
       const projItem = projected.orderItems[idx];
       if (!projItem.voidedQuantity) projItem.voidedQuantity = 0;
       projItem.voidedQuantity += qtyToVoid;
@@ -651,113 +878,69 @@ export const useOrderStore = defineStore('orders', () => {
         m.voidedQuantity = Math.min(m.voidedQuantity || 0, maxModActive);
       }
       updateOrderTotals(projected);
-      const projectedOrders = _replaceOrderById(ordId, projected);
-      try {
-        await saveStateToIDB({ orders: projectedOrders });
-      } catch (e) {
-        console.warn('[Store] voidOrderItems IDB save failed:', e);
-        return false;
-      }
-      _enqueueOrderItemsPatch(ordId, projected);
-      return true;
-    });
+      return projected;
+    }, 'voidOrderItems');
   }
 
   async function restoreOrderItems(ord, idx, qtyToRestore) {
     const ordId = ord?.id;
     if (!ordId || !Number.isInteger(qtyToRestore) || qtyToRestore <= 0) return;
-    return _withOrderLock(ordId, async () => {
-      const current = orders.value.find(o => String(o.id) === String(ordId));
-      if (!current || !KITCHEN_ACTIVE_STATUSES.includes(current.status)) return;
+    return _mutateOrderItems(ordId, (current) => {
+      if (!current || !KITCHEN_ACTIVE_STATUSES.includes(current.status)) return null;
       const item = current.orderItems[idx];
-      if (!item || !(item.voidedQuantity && item.voidedQuantity >= qtyToRestore)) return;
-      const projected = _clone(toRaw(current));
+      if (!item || !(item.voidedQuantity && item.voidedQuantity >= qtyToRestore)) return null;
+      const projected = cloneValue(toRaw(current));
       projected.orderItems[idx].voidedQuantity -= qtyToRestore;
       updateOrderTotals(projected);
-      const projectedOrders = _replaceOrderById(ordId, projected);
-      try {
-        await saveStateToIDB({ orders: projectedOrders });
-      } catch (e) {
-        console.warn('[Store] restoreOrderItems IDB save failed:', e);
-        return false;
-      }
-      _enqueueOrderItemsPatch(ordId, projected);
-      return true;
-    });
+      return projected;
+    }, 'restoreOrderItems');
   }
 
   async function voidModifier(ord, itemIdx, modIdx, qty) {
     const ordId = ord?.id;
     if (!ordId || !Number.isInteger(qty) || qty <= 0) return;
-    return _withOrderLock(ordId, async () => {
-      const current = orders.value.find(o => String(o.id) === String(ordId));
-      if (!current || !KITCHEN_ACTIVE_STATUSES.includes(current.status)) return;
+    return _mutateOrderItems(ordId, (current) => {
+      if (!current || !KITCHEN_ACTIVE_STATUSES.includes(current.status)) return null;
       const item = current.orderItems[itemIdx];
-      if (!item || !item.modifiers || modIdx < 0 || modIdx >= item.modifiers.length) return;
+      if (!item || !item.modifiers || modIdx < 0 || modIdx >= item.modifiers.length) return null;
       const mod = item.modifiers[modIdx];
-      if ((mod.voidedQuantity || 0) + qty + (item.voidedQuantity || 0) > item.quantity) return;
-      const projected = _clone(toRaw(current));
+      if ((mod.voidedQuantity || 0) + qty + (item.voidedQuantity || 0) > item.quantity) return null;
+      const projected = cloneValue(toRaw(current));
       const projMod = projected.orderItems[itemIdx].modifiers[modIdx];
       if (!projMod.voidedQuantity) projMod.voidedQuantity = 0;
       projMod.voidedQuantity += qty;
       updateOrderTotals(projected);
-      const projectedOrders = _replaceOrderById(ordId, projected);
-      try {
-        await saveStateToIDB({ orders: projectedOrders });
-      } catch (e) {
-        console.warn('[Store] voidModifier IDB save failed:', e);
-        return false;
-      }
-      _enqueueOrderItemsPatch(ordId, projected);
-      return true;
-    });
+      return projected;
+    }, 'voidModifier');
   }
 
   async function restoreModifier(ord, itemIdx, modIdx, qty) {
     const ordId = ord?.id;
     if (!ordId || !Number.isInteger(qty) || qty <= 0) return;
-    return _withOrderLock(ordId, async () => {
-      const current = orders.value.find(o => String(o.id) === String(ordId));
-      if (!current || !KITCHEN_ACTIVE_STATUSES.includes(current.status)) return;
+    return _mutateOrderItems(ordId, (current) => {
+      if (!current || !KITCHEN_ACTIVE_STATUSES.includes(current.status)) return null;
       const item = current.orderItems[itemIdx];
-      if (!item || !item.modifiers || modIdx < 0 || modIdx >= item.modifiers.length) return;
+      if (!item || !item.modifiers || modIdx < 0 || modIdx >= item.modifiers.length) return null;
       const mod = item.modifiers[modIdx];
-      if ((mod.voidedQuantity || 0) < qty) return;
-      const projected = _clone(toRaw(current));
+      if ((mod.voidedQuantity || 0) < qty) return null;
+      const projected = cloneValue(toRaw(current));
       projected.orderItems[itemIdx].modifiers[modIdx].voidedQuantity -= qty;
       updateOrderTotals(projected);
-      const projectedOrders = _replaceOrderById(ordId, projected);
-      try {
-        await saveStateToIDB({ orders: projectedOrders });
-      } catch (e) {
-        console.warn('[Store] restoreModifier IDB save failed:', e);
-        return false;
-      }
-      _enqueueOrderItemsPatch(ordId, projected);
-      return true;
-    });
+      return projected;
+    }, 'restoreModifier');
   }
 
   async function setItemKitchenReady(order, itemIdx, ready) {
     const ordId = order?.id;
     if (!ordId) return;
-    return _withOrderLock(ordId, async () => {
-      const current = orders.value.find(o => String(o.id) === String(ordId));
-      if (!current || !current.orderItems || itemIdx < 0 || itemIdx >= current.orderItems.length) return;
+    return _mutateOrderItems(ordId, (current) => {
+      if (!current || !current.orderItems || itemIdx < 0 || itemIdx >= current.orderItems.length) return null;
       const currentReady = !!current.orderItems[itemIdx].kitchenReady;
       const nextReady = typeof ready === 'boolean' ? ready : !currentReady;
-      const projected = _clone(toRaw(current));
+      const projected = cloneValue(toRaw(current));
       projected.orderItems[itemIdx].kitchenReady = nextReady;
-      const projectedOrders = _replaceOrderById(ordId, projected);
-      try {
-        await saveStateToIDB({ orders: projectedOrders });
-      } catch (e) {
-        console.warn('[Store] setItemKitchenReady IDB save failed:', e);
-        return false;
-      }
-      _enqueueOrderItemsPatch(ordId, projected);
-      return true;
-    });
+      return projected;
+    }, 'setItemKitchenReady');
   }
 
   async function addTransaction(txn) {
@@ -1015,6 +1198,7 @@ export const useOrderStore = defineStore('orders', () => {
 
   let _saveTimer = null;
   let _saveChain = Promise.resolve();
+  let _saveGeneration = 0;
   const _pendingSaveKeys = new Set();
   const _skipNextSaveCount = new Map();
   const _persistableStateGetters = {
@@ -1056,8 +1240,15 @@ export const useOrderStore = defineStore('orders', () => {
         if (getter) payload[key] = getter();
       });
       _pendingSaveKeys.clear();
+      // Capture the current generation at timer-fire time. If cancelPendingSaves() is
+      // called after the timer fires (but before this .then() executes), _saveGeneration
+      // will have been incremented and the write will be skipped.
+      const gen = _saveGeneration;
       _saveChain = _saveChain
-        .then(() => saveStateToIDB(payload))
+        .then(() => {
+          if (_saveGeneration !== gen) return;
+          return saveStateToIDB(payload);
+        })
         .catch((e) => console.warn('[Store] IDB save failed for keys', Object.keys(payload), e));
     }, 150);
   }
@@ -1070,6 +1261,26 @@ export const useOrderStore = defineStore('orders', () => {
       const pendingSkip = pendingSkipValue === undefined ? 0 : pendingSkipValue;
       _skipNextSaveCount.set(key, pendingSkip + 1);
     });
+  }
+
+  /**
+   * Cancels any pending debounced IDB writes and invalidates any already-queued
+   * `_saveChain` writes that have not yet started executing.
+   *
+   * Call this before a hard reset (factory reset) to prevent stale in-memory
+   * state from being written back to a freshly cleared or deleted database
+   * during the brief window between `clearAllStateFromIDB()` / `deleteDatabase()`
+   * and `window.location.reload()`.
+   *
+   * Incrementing `_saveGeneration` ensures that any `.then()` callbacks already
+   * appended to `_saveChain` (but not yet executing) will be a no-op when they
+   * eventually run, even if the debounce timer had already fired.
+   */
+  function cancelPendingSaves() {
+    clearTimeout(_saveTimer);
+    _saveTimer = null;
+    _pendingSaveKeys.clear();
+    _saveGeneration++;
   }
 
   watch(orders, () => _scheduleSave('orders'), { deep: true });
@@ -1127,6 +1338,7 @@ export const useOrderStore = defineStore('orders', () => {
     printLog,
     addPrintLogEntry,
     updatePrintLogEntry,
+    updatePrintLogEntryLocal,
     clearPrintLog,
     fiscalReceipts,
     addFiscalReceipt,
@@ -1143,6 +1355,8 @@ export const useOrderStore = defineStore('orders', () => {
     getPaymentMethodIcon,
     isMergedSlave,
     masterTableOf,
+    resolveTableContext,
+    resolveActiveBillSessionId,
     slaveIdsOf,
     addOrder,
     addItemsToOrder,
@@ -1169,5 +1383,6 @@ export const useOrderStore = defineStore('orders', () => {
     generateXReport,
     performDailyClose,
     refreshOperationalStateFromIDB,
+    cancelPendingSaves,
   };
 });

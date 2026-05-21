@@ -46,7 +46,8 @@ trigger DB o logica equivalente.
 
 > **UUID v7**: tutte le collection operative (`bill_sessions`, `orders`, `order_items`,
 > `order_item_modifiers`, `transactions`, `transaction_order_refs`, `transaction_voce_refs`,
-> `cash_movements`, `daily_closures`, `daily_closure_by_method`) usano **UUID v7** come
+> `cash_movements`, `daily_closures`, `daily_closure_by_method`, `fiscal_receipts`,
+> `invoice_requests`) usano **UUID v7** come
 > primary key — generato client-side prima dell'invio a Directus. UUID v7 è time-ordered
 > (ms prefix), il che garantisce ordinamento cronologico naturale, minimizza la frammentazione
 > degli indici B-tree con inserimenti massivi da client offline, e garantisce unicità globale
@@ -860,7 +861,7 @@ Non riutilizza `print_jobs` perché il formato (XML RT) e il ciclo di vita (requ
 
 ```sql
 CREATE TABLE fiscal_receipts (
-    id                  TEXT        PRIMARY KEY,   -- 'fis_' + UUID v7 (time-ordered, e.g. fis_0192fa3c-b41a-7e8d-a312-…)
+    id                  UUID        PRIMARY KEY,   -- UUID v7 generato client-side (time-ordered)
     -- Relazioni (senza suffisso _id — convenzione app)
     venue               INTEGER     REFERENCES venues(id) ON DELETE SET NULL,
     "table"             TEXT        NOT NULL REFERENCES tables(id),
@@ -901,7 +902,7 @@ I dati di fatturazione (denominazione, CF/PIVA, indirizzo, SDI) vengono inseriti
 
 ```sql
 CREATE TABLE invoice_requests (
-    id                   TEXT        PRIMARY KEY,   -- 'inv_' + UUID v7 (time-ordered, e.g. inv_0192fa3c-b41a-7e8d-a312-…)
+    id                   UUID        PRIMARY KEY,   -- UUID v7 generato client-side (time-ordered)
     -- Relazioni (senza suffisso _id — convenzione app)
     venue                INTEGER     REFERENCES venues(id) ON DELETE SET NULL,
     "table"              TEXT        NOT NULL REFERENCES tables(id),

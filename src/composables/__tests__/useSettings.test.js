@@ -4,7 +4,7 @@ import { defineComponent, reactive, nextTick } from 'vue';
 import { createPinia, setActivePinia } from 'pinia';
 import { useSettings } from '../useSettings.js';
 import { saveDirectusConfigToStorage } from '../useDirectusClient.js';
-import { useAppStore } from '../../store/index.js';
+import { useAppStore, useOrderStore } from '../../store/index.js';
 import { resolveStorageKeys, getInstanceName } from '../../store/persistence.js';
 import { getPwaDismissKey } from '../usePwaInstall.js';
 import { appConfig } from '../../utils/index.js';
@@ -16,16 +16,23 @@ vi.mock('../useDirectusClient.js', () => ({
 
 // Mock the IDB persistence layer so tests stay synchronous and don't need
 // a real IndexedDB environment for settings tests.
-vi.mock('../../store/persistence/operations.js', async (importOriginal) => {
+vi.mock('../../store/persistence/settings.js', async (importOriginal) => {
   const original = await importOriginal();
   return {
     ...original,
     saveSettingsToIDB: vi.fn().mockResolvedValue(undefined),
+  };
+});
+vi.mock('../../store/persistence/reset.js', async (importOriginal) => {
+  const original = await importOriginal();
+  return {
+    ...original,
     deleteDatabase: vi.fn().mockResolvedValue(undefined),
     clearAllStateFromIDB: vi.fn().mockResolvedValue(undefined),
   };
 });
-import { saveSettingsToIDB, deleteDatabase, clearAllStateFromIDB } from '../../store/persistence/operations.js';
+import { saveSettingsToIDB } from '../../store/persistence/settings.js';
+import { deleteDatabase, clearAllStateFromIDB } from '../../store/persistence/reset.js';
 
 const { settingsKey: SETTINGS_KEY } = resolveStorageKeys();
 
@@ -826,6 +833,46 @@ describe('useSettings()', () => {
         configurable: true,
         value: originalServiceWorker,
       });
+      if (originalLocationDescriptor) {
+        Object.defineProperty(window, 'location', originalLocationDescriptor);
+      } else {
+        window.location = originalLocationValue;
+      }
+    }
+  });
+
+  it('confirmReset() calls orderStore.cancelPendingSaves() before clearing IDB to prevent stale data write-back', async () => {
+    const reloadMock = vi.fn();
+    const originalLocationDescriptor = Object.getOwnPropertyDescriptor(window, 'location');
+    const originalLocationValue = window.location;
+
+    try {
+      Object.defineProperty(window, 'location', {
+        writable: true,
+        configurable: true,
+        value: { reload: reloadMock, pathname: '/' },
+      });
+
+      const orderStore = useOrderStore();
+      const cancelSpy = vi.spyOn(orderStore, 'cancelPendingSaves');
+
+      const callOrder = [];
+      cancelSpy.mockImplementation(() => { callOrder.push('cancelPendingSaves'); });
+      vi.mocked(clearAllStateFromIDB).mockImplementation(async () => { callOrder.push('clearAllStateFromIDB'); });
+
+      const props = reactive({ modelValue: false });
+      const emit = vi.fn();
+
+      const { result, wrapper } = withSetup(() => useSettings(props, emit));
+      await result.confirmReset();
+
+      expect(cancelSpy).toHaveBeenCalledOnce();
+      // cancelPendingSaves must run before any IDB clear to guarantee no
+      // stale in-memory orders are written back after the DB is wiped.
+      expect(callOrder.indexOf('cancelPendingSaves')).toBeLessThan(callOrder.indexOf('clearAllStateFromIDB'));
+      wrapper.unmount();
+    } finally {
+      vi.mocked(clearAllStateFromIDB).mockResolvedValue(undefined);
       if (originalLocationDescriptor) {
         Object.defineProperty(window, 'location', originalLocationDescriptor);
       } else {

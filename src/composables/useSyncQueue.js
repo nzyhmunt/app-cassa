@@ -45,7 +45,7 @@ import { getDB } from './useIDB.js';
 import { newUUIDv7 } from '../store/storeUtils.js';
 import { appConfig } from '../utils/index.js';
 import { mapPayloadToDirectus } from '../utils/mappers.js';
-import { loadAuthSessionFromIDB } from '../store/persistence/operations.js';
+import { loadAuthSessionFromIDB } from '../store/persistence/auth.js';
 import { addSyncLog } from '../store/persistence/syncLogs.js';
 
 /**
@@ -77,8 +77,6 @@ const DOMAIN_STATUS_COLLECTIONS = new Set([
 
 // ── Core queue helpers ───────────────────────────────────────────────────────
 
-/** @internal No-op kept for test compatibility. */
-export function _resetEnqueueSeq() {}
 
 /**
  * Adds a new entry to the sync_queue ObjectStore.
@@ -117,6 +115,25 @@ export async function enqueue(collection, operation, recordId, payload) {
     });
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('sync-queue:enqueue'));
+    }
+    // PWA Background Sync: when the device is offline, register a sync tag so
+    // the browser re-tries the drain as soon as connectivity is restored — even
+    // if the app tab is closed.  Guarded by feature detection; silently no-ops
+    // on browsers that don't support the Background Sync API (e.g. Firefox, Safari).
+    if (
+      typeof navigator !== 'undefined' &&
+      'serviceWorker' in navigator &&
+      !navigator.onLine
+    ) {
+      navigator.serviceWorker.ready
+        .then((registration) => {
+          if ('sync' in registration) {
+            return registration.sync.register('sync-orders');
+          }
+        })
+        .catch((e) => {
+          console.debug('[SyncQueue] Background sync registration failed (non-fatal):', e);
+        });
     }
   } catch (e) {
     console.warn('[SyncQueue] Failed to enqueue:', e);
@@ -162,6 +179,48 @@ export async function getPendingEntries() {
     console.warn('[SyncQueue] Failed to read queue:', e);
     return [];
   }
+}
+
+function _mergeDrainPayload(prevPayload, nextPayload) {
+  const prev = prevPayload && typeof prevPayload === 'object' ? prevPayload : {};
+  const next = nextPayload && typeof nextPayload === 'object' ? nextPayload : {};
+  return { ...prev, ...next };
+}
+
+function _compactDrainGroupEntries(entries) {
+  if (!Array.isArray(entries) || entries.length === 0) return [];
+
+  const compacted = [];
+  let pendingOrderUpdate = null;
+
+  const flushPendingOrderUpdate = () => {
+    if (pendingOrderUpdate) {
+      compacted.push(pendingOrderUpdate);
+      pendingOrderUpdate = null;
+    }
+  };
+
+  for (const entry of entries) {
+    const wrapped = { ...entry, _sourceEntries: [entry] };
+    const isCoalescibleOrderUpdate = entry?.collection === 'orders' && entry?.operation === 'update';
+    if (!isCoalescibleOrderUpdate) {
+      flushPendingOrderUpdate();
+      compacted.push(wrapped);
+      continue;
+    }
+    if (!pendingOrderUpdate) {
+      pendingOrderUpdate = wrapped;
+      continue;
+    }
+    pendingOrderUpdate = {
+      ...pendingOrderUpdate,
+      payload: _mergeDrainPayload(pendingOrderUpdate.payload, entry.payload),
+      _sourceEntries: [...pendingOrderUpdate._sourceEntries, entry],
+    };
+  }
+
+  flushPendingOrderUpdate();
+  return compacted;
 }
 
 /**
@@ -488,6 +547,7 @@ async function _pushEntry(entry, sdkClient, cfg) {
       paymentMethods: Array.isArray(appConfig?.paymentMethods) ? appConfig.paymentMethods : [],
       recordId: record_id,
       menuSource: appConfig?.menuSource ?? 'directus',
+      operation,
     });
     directusPayload = _withRequiredDefaults(collection, operation, mappedPayload, cfg);
 
@@ -655,11 +715,14 @@ function _entryEndpoint(entry) {
  */
 function _logPushResult(entry, result, durationMs) {
   if (result === 'skip') return; // no-op deletes are not worth logging
+  // print_jobs push results appear in the Stampa (PRINT) tab, not Push tab,
+  // so operators can track all print-job activity in one place.
+  const logType = entry.collection === 'print_jobs' ? 'PRINT' : 'PUSH';
   let logEntry;
   if (result && typeof result === 'object' && result.ok === true) {
     logEntry = {
       direction: 'OUT',
-      type: 'PUSH',
+      type: logType,
       endpoint: result.requestContext?.endpoint ?? _entryEndpoint(entry),
       payload: result.requestContext?.body ?? entry.payload ?? null,
       response: result.record ?? null,
@@ -674,7 +737,7 @@ function _logPushResult(entry, result, durationMs) {
     const failure = typeof result === 'object' && result !== null ? result : { message: String(result) };
     logEntry = {
       direction: 'OUT',
-      type: 'PUSH',
+      type: logType,
       endpoint: failure.request?.endpoint ?? failure.requestContext?.endpoint ?? _entryEndpoint(entry),
       payload: failure.request?.body ?? entry.payload ?? null,
       response: failure.response ?? null,
@@ -775,7 +838,7 @@ export async function drainQueue(cfg, signal) {
     const firstAttempts = grp[0]?.attempts ?? 0;
 
     return {
-      entries: grp,
+      entries: _compactDrainGroupEntries(grp),
       firstAttempts,
       firstDateCreated: grp[0]?.date_created ?? '',
       firstId: grp[0]?.id ?? '',
@@ -835,23 +898,29 @@ export async function drainQueue(cfg, signal) {
   // @param {string} entryKey - "collection:record_id" key for the entry.
   // @param {*}      result - Return value from _pushEntry().
   // @returns {boolean} true if a network error was detected (caller must break).
-  async function _handleEntryFailure(entry, entryKey, result) {
+  async function _handleEntryFailure(entry, entryKey, result, sourceEntries = [entry]) {
     if (typeof result === 'object' && result !== null && result.networkError) {
       offline = true;
       return true; // signal caller to break / stop processing
     }
+    const chainEntries = Array.isArray(sourceEntries) && sourceEntries.length > 0
+      ? sourceEntries
+      : [entry];
+    const gateEntry = chainEntries[0];
     const failureDetails = typeof result === 'string' ? { message: result } : result;
-    const newAttempts = (entry.attempts ?? 0) + 1;
+    const newAttempts = (gateEntry?.attempts ?? entry.attempts ?? 0) + 1;
     await addFailedSyncCall(entry, failureDetails, newAttempts, newAttempts >= MAX_ATTEMPTS);
     if (newAttempts >= MAX_ATTEMPTS) {
       console.warn(`[SyncQueue] Abandoning entry after ${MAX_ATTEMPTS} attempts:`, entry);
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('drainQueue:error', { detail: entry }));
       }
-      await removeEntry(entry.id);
-      abandoned++;
+      for (const sourceEntry of chainEntries) {
+        await removeEntry(sourceEntry.id);
+      }
+      abandoned += chainEntries.length;
     } else {
-      await incrementAttempts(entry.id, failureDetails?.message ?? null);
+      await incrementAttempts(gateEntry.id, failureDetails?.message ?? null);
       failed++;
     }
     // Block this (collection, record_id) pair for the rest of this cycle in
@@ -948,6 +1017,10 @@ export async function drainQueue(cfg, signal) {
 
   for (const entry of sortedEntries) {
     const entryKey = `${entry.collection}:${entry.record_id}`;
+    const sourceEntries = Array.isArray(entry?._sourceEntries) && entry._sourceEntries.length > 0
+      ? entry._sourceEntries
+      : [entry];
+    const gateEntry = sourceEntries[0];
 
     // Skip entries whose record chain is blocked by a prior failure this cycle.
     if (blockedKeys.has(entryKey)) continue;
@@ -1001,8 +1074,10 @@ export async function drainQueue(cfg, signal) {
     _logPushResult(entry, result, Date.now() - _pushStart);
 
     if (result === 'skip' || (result && typeof result === 'object' && result.ok === true)) {
-      await removeEntry(entry.id);
-      pushed++;
+      for (const sourceEntry of sourceEntries) {
+        await removeEntry(sourceEntry.id);
+      }
+      pushed += sourceEntries.length;
       // Record as processed so sibling child entries processed later this cycle
       // are not incorrectly deferred by the pendingSet guard, even when this
       // entry was skipped and removed from the queue.
@@ -1011,7 +1086,7 @@ export async function drainQueue(cfg, signal) {
         pushedIds.push({ collection: entry.collection, recordId: entry.record_id });
       }
     } else {
-      if (await _handleEntryFailure(entry, entryKey, result)) break;
+      if (await _handleEntryFailure(entry, entryKey, result, sourceEntries)) break;
     }
   }
 
@@ -1063,7 +1138,7 @@ export async function drainQueue(cfg, signal) {
     } else {
       // blockedKeys already contains deferredKey from the first pass, so
       // _handleEntryFailure's blockedKeys.add(entryKey) is a harmless no-op.
-      if (await _handleEntryFailure(deferredEntry, deferredKey, result)) break;
+      if (await _handleEntryFailure(deferredEntry, deferredKey, result, [deferredEntry])) break;
     }
   }
 

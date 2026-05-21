@@ -16,7 +16,7 @@
  * the activate step can purge stale caches from previous installs.
  */
 
-const CACHE_VERSION = 'v1';
+const CACHE_VERSION = 'v2';
 const SHELL_CACHE  = `shell-${CACHE_VERSION}`;
 const ASSET_CACHE  = `assets-${CACHE_VERSION}`;
 const DATA_CACHE   = `data-${CACHE_VERSION}`;
@@ -89,10 +89,39 @@ self.addEventListener('fetch', (event) => {
   // Only handle GET requests
   if (request.method !== 'GET') return;
 
-  // Heuristic: treat JSON/menu endpoints as data requests
-  const isDataRequest =
-    url.pathname.endsWith('.json') ||
-    url.pathname === '/menu.json';
+  // Heuristic: treat JSON/menu endpoints as data requests.
+  // This covers both same-origin local files (e.g. /menu.json) and
+  // cross-origin remote menu URLs (e.g. https://cdn.example.com/menu.json).
+  const isDataRequest = url.pathname.endsWith('.json');
+
+  // Cross-origin handling:
+  //   • .json data files (remote menu, etc.) → stale-while-revalidate so they
+  //     remain available offline, matching the documented SW caching strategy.
+  //   • Everything else cross-origin (Directus REST API, images, etc.) → let
+  //     the browser handle them natively without SW interception.  Applying
+  //     cache-first to a live Directus endpoint would freeze incremental pull
+  //     queries: the first empty-data response for a given sinceTs URL gets
+  //     stored in ASSET_CACHE, and every subsequent 30 s poll with the same URL
+  //     returns the stale cached result — new orders become permanently invisible
+  //     until the cursor advances.
+  if (url.origin !== self.location.origin) {
+    if (isDataRequest) {
+      event.respondWith(staleWhileRevalidate(event, DATA_CACHE));
+    }
+    // Non-data cross-origin requests (API calls, etc.) bypass the SW entirely.
+    return;
+  }
+
+  // Never cache same-origin Directus/REST API paths (dynamic live data).
+  // Covers deployments where the app and Directus share the same origin
+  // (e.g. a reverse-proxy that serves both under the same hostname).
+  if (
+    url.pathname.startsWith('/items/') ||
+    url.pathname.startsWith('/auth/') ||
+    url.pathname.startsWith('/users/') ||
+    url.pathname.startsWith('/files/') ||
+    url.pathname.startsWith('/websocket')
+  ) return;
 
   // Data / API requests (JSON/menu paths) → stale-while-revalidate
   if (isDataRequest) {
@@ -108,6 +137,46 @@ self.addEventListener('fetch', (event) => {
 
   // Static assets (JS, CSS, images, fonts, manifests) → cache-first
   event.respondWith(cacheFirst(event, ASSET_CACHE));
+});
+
+// ─── Background Sync ───────────────────────────────────────────────────────
+/**
+ * Background Sync tag used when the app enqueues an order while offline.
+ *
+ * When the device regains connectivity the browser fires this event, giving
+ * the Service Worker an opportunity to wake the app (or notify it) so the
+ * push queue can drain and pending orders are forwarded to Directus.
+ *
+ * Strategy:
+ *   1. Prefer posting a message to any open app client — the Vue app's push
+ *      loop then drains the queue normally through `forcePush()`.
+ *   2. If no app client is reachable the SW cannot run Pinia/IDB logic
+ *      directly (no DOM access), so it simply logs the event.  The queue
+ *      will drain on the next page open or online reconnect.
+ *
+ * Note: Background Sync is currently a Chrome / Chromium-only feature.
+ *       The registration in `enqueue()` is guarded by `'sync' in registration`,
+ *       so the app degrades gracefully on browsers that don't support it.
+ */
+self.addEventListener('sync', (event) => {
+  if (event.tag !== 'sync-orders') return;
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+      if (clients.length > 0) {
+        // Notify all open app windows to drain the push queue.
+        clients.forEach((client) => {
+          client.postMessage({ type: 'bg-sync:drain-queue', tag: event.tag });
+        });
+      } else {
+        // No open client: log and let the push loop handle it on next startup.
+        console.info('[SW] bg-sync: no client available — queue will drain on next app open.');
+      }
+    }).catch((err) => {
+      // Swallow errors so the sync event resolves successfully and isn't retried
+      // just because matchAll() or postMessage() threw (e.g., client closed mid-delivery).
+      console.error('[SW] bg-sync: error notifying clients:', err);
+    })
+  );
 });
 
 // ─── Strategies ────────────────────────────────────────────────────────────
