@@ -75,7 +75,7 @@ export const useOrderStore = defineStore('orders', () => {
     const pendingEntry = { ...entry, status: PRINT_LOG_STATUSES.PENDING };
     printLog.value = [pendingEntry, ...printLog.value].slice(0, 200);
     const payload = serializeQueuePayload(pendingEntry);
-    if (payload) {
+    if (payload !== null) {
       enqueue(PRINT_JOBS_COLLECTION, 'create', entry.id, payload);
     } else {
       console.error('[Store] Skipped print_jobs create enqueue due to non-serializable payload.', {
@@ -90,7 +90,7 @@ export const useOrderStore = defineStore('orders', () => {
     if (idx !== -1) {
       printLog.value[idx] = { ...printLog.value[idx], ...updates };
       const payload = serializeQueuePayload({ logId, ...updates });
-      if (payload) {
+      if (payload !== null) {
         enqueue(PRINT_JOBS_COLLECTION, 'update', printLog.value[idx].id, payload);
       } else {
         console.error('[Store] Skipped print_jobs update enqueue due to non-serializable payload.', {

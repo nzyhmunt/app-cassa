@@ -772,6 +772,8 @@ describe('TCP/file printer routing (Directus print-server path)', () => {
     expect(createEntry.payload.printerId).toBe('cucina_tcp');
     expect(createEntry.payload.payload?.orderId).toBe('ord_tcp_proxy_1');
     expect(isReactive(createEntry.payload.payload)).toBe(false);
+    expect(isReactive(createEntry.payload.payload?.items)).toBe(false);
+    expect(isReactive(createEntry.payload.payload?.items?.[0]?.notes)).toBe(false);
     expect(createEntry.payload.payload?.items?.[0]?.notes).toEqual(['Senza aglio']);
   });
 
