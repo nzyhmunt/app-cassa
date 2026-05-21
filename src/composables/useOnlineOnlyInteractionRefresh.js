@@ -17,6 +17,7 @@ export function useOnlineOnlyInteractionRefresh({
   let pullTimer = null;
   let inFlight = false;
   let queuedWhileInFlight = false;
+  const hasScopedPullApi = typeof sync?.forcePullCollections === 'function';
 
   function isOnlineOnlyMode() {
     const mode = normalizeOperatingMode(configStore?.operatingMode, OPERATING_MODES.OFFLINE_FIRST);
@@ -63,9 +64,9 @@ export function useOnlineOnlyInteractionRefresh({
     }
 
     try {
-      const shouldUseScopedPull = Array.isArray(scopedCollections)
-        && scopedCollections.length > 0
-        && typeof sync?.forcePullCollections === 'function';
+      const shouldUseScopedPull = hasScopedPullApi
+        && Array.isArray(scopedCollections)
+        && scopedCollections.length > 0;
       const result = shouldUseScopedPull
         ? await sync.forcePullCollections(scopedCollections)
         : await sync.forcePull();

@@ -19,7 +19,9 @@ Il progetto contiene tre applicazioni operative più una pagina di selezione, co
 Modalità operative supportate:
 - `offline_only` — solo IndexedDB locale (nessuna sync Directus)
 - `offline_first` — IndexedDB locale + sync Directus push/pull
-- `online_only` — operazioni inviate direttamente a Directus (senza coda IDB `sync_queue`) + pull di riallineamento incrementale su eventi di interazione (cambio view, focus/visibility tab, ritorno online) con refresh route-aware mirato per collection
+- `online_only` — operazioni inviate direttamente a Directus (senza coda IDB `sync_queue`)
+- `online_only` — pull incrementale canonico di riallineamento
+- `online_only` — trigger intelligenti su interazione (cambio view, focus/visibility tab, ritorno online) con refresh route-aware mirato per collection
 
 | App | Entry | URL locale | Pubblico |
 |-----|-------|-----------|---------|
@@ -318,7 +320,9 @@ Funzionalità disponibile sia in **cassa live** (al momento della chiusura del c
 - Selettore **Modalità operativa**:
   - `offline_only` → locale puro (IDB)
   - `offline_first` → locale + sync Directus
-  - `online_only` → push diretto su Directus (senza coda locale) + pull incrementale canonico di riconciliazione con trigger intelligenti; sugli eventi di interazione viene privilegiato un refresh mirato per route/collection (fallback al pull completo)
+  - `online_only` → push diretto su Directus (senza coda locale)
+  - `online_only` → pull incrementale canonico di riconciliazione
+  - `online_only` → sugli eventi di interazione viene privilegiato un refresh mirato per route/collection (fallback al pull completo)
 - Configurazione sorgente menu:
   - `json`: mostra URL configurato e pulsante di sincronizzazione manuale
   - `directus`: mostra stato sincronizzazione Directus (`Directus disabilitato` · `Sincronizzazione in corso` · `Errore sincronizzazione` · `Directus attivo`)
