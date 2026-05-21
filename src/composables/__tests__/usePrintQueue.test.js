@@ -4,6 +4,7 @@ import { reactive, isReactive } from 'vue';
 import { enqueuePrintJobs, enqueueTableMoveJob, enqueuePreBillJob, reprintJob } from '../usePrintQueue.js';
 import { appConfig } from '../../utils/index.js';
 import { useAppStore } from '../../store/index.js';
+import * as storeUtils from '../../store/storeUtils.js';
 import { _resetIDBSingleton } from '../useIDB.js';
 import { getPendingEntries } from '../useSyncQueue.js';
 import { getSyncLogs } from '../../store/persistence/syncLogs.js';
@@ -775,6 +776,80 @@ describe('TCP/file printer routing (Directus print-server path)', () => {
     expect(isReactive(createEntry.payload.payload?.items)).toBe(false);
     expect(isReactive(createEntry.payload.payload?.items?.[0]?.notes)).toBe(false);
     expect(createEntry.payload.payload?.items?.[0]?.notes).toEqual(['Senza aglio']);
+  });
+
+  it('marks the log entry as error when print_jobs CREATE serialization fails', async () => {
+    appConfig.printers = TCP_PRINTER;
+    const originalCloneValue = storeUtils.cloneValue;
+    vi.spyOn(storeUtils, 'cloneValue').mockImplementation((value) => {
+      if (value && typeof value === 'object' && 'printType' in value && 'payload' in value) {
+        throw new Error('forced create serialization failure');
+      }
+      return originalCloneValue(value);
+    });
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    enqueuePrintJobs(makeOrder({ id: 'ord_create_fail_1', table: 'CF1' }));
+
+    const store = useAppStore();
+    let logEntry;
+    await vi.waitFor(() => {
+      logEntry = store.printLog.find(e => e.table === 'CF1');
+      expect(logEntry).toBeDefined();
+      expect(logEntry?.status).toBe('error');
+      expect(logEntry?.errorMessage).toBe('Impossibile accodare la stampa: payload non serializzabile.');
+    });
+
+    const entries = await getPendingEntries();
+    const createEntry = entries.find(
+      e => e.collection === 'print_jobs' && e.operation === 'create' && e.payload?.table === 'CF1',
+    );
+    expect(createEntry).toBeUndefined();
+    expect(errorSpy).toHaveBeenCalled();
+  });
+
+  it('marks the log entry as error when print_jobs UPDATE serialization fails', async () => {
+    appConfig.printers = CATCHALL_PRINTER;
+    const originalCloneValue = storeUtils.cloneValue;
+    vi.spyOn(storeUtils, 'cloneValue').mockImplementation((value) => {
+      if (
+        value
+        && typeof value === 'object'
+        && 'logId' in value
+        && 'status' in value
+        && !('printType' in value)
+      ) {
+        throw new Error('forced update serialization failure');
+      }
+      return originalCloneValue(value);
+    });
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    enqueuePrintJobs(makeOrder({ id: 'ord_update_fail_1', table: 'UF1' }));
+
+    const store = useAppStore();
+    let logEntry;
+    await vi.waitFor(() => {
+      logEntry = store.printLog.find(e => e.table === 'UF1');
+      expect(logEntry).toBeDefined();
+      expect(logEntry?.status).toBe('error');
+      expect(logEntry?.errorMessage).toBe('Impossibile sincronizzare lo stato di stampa.');
+    });
+
+    let entries;
+    await vi.waitFor(async () => {
+      entries = await getPendingEntries();
+      const createEntry = entries.find(
+        e => e.collection === 'print_jobs' && e.operation === 'create' && e.payload?.table === 'UF1',
+      );
+      expect(createEntry).toBeDefined();
+    });
+
+    const updatesForLogId = entries.filter(
+      e => e.collection === 'print_jobs' && e.operation === 'update' && e.payload?.logId === logEntry?.logId,
+    );
+    expect(updatesForLogId).toHaveLength(0);
+    expect(errorSpy).toHaveBeenCalled();
   });
 
   it('enqueuePrintJobs enqueues a print_jobs CREATE for a file printer without sending HTTP', async () => {

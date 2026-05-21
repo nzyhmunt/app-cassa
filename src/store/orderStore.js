@@ -73,11 +73,17 @@ export const useOrderStore = defineStore('orders', () => {
 
   function addPrintLogEntry(entry) {
     const pendingEntry = { ...entry, status: PRINT_LOG_STATUSES.PENDING };
-    printLog.value = [pendingEntry, ...printLog.value].slice(0, 200);
     const payload = serializeQueuePayload(pendingEntry);
     if (payload !== null) {
+      printLog.value = [pendingEntry, ...printLog.value].slice(0, 200);
       enqueue(PRINT_JOBS_COLLECTION, 'create', entry.id, payload);
     } else {
+      const failedEntry = {
+        ...pendingEntry,
+        status: PRINT_LOG_STATUSES.ERROR,
+        errorMessage: 'Impossibile accodare la stampa: payload non serializzabile.',
+      };
+      printLog.value = [failedEntry, ...printLog.value].slice(0, 200);
       console.error('[Store] Skipped print_jobs create enqueue due to non-serializable payload.', {
         recordId: entry?.id ?? null,
         logId: entry?.logId ?? null,
@@ -88,11 +94,16 @@ export const useOrderStore = defineStore('orders', () => {
   function updatePrintLogEntry(logId, updates) {
     const idx = printLog.value.findIndex(e => e.logId === logId);
     if (idx !== -1) {
-      printLog.value[idx] = { ...printLog.value[idx], ...updates };
       const payload = serializeQueuePayload({ logId, ...updates });
       if (payload !== null) {
         enqueue(PRINT_JOBS_COLLECTION, 'update', printLog.value[idx].id, payload);
+        printLog.value[idx] = { ...printLog.value[idx], ...updates };
       } else {
+        printLog.value[idx] = {
+          ...printLog.value[idx],
+          status: PRINT_LOG_STATUSES.ERROR,
+          errorMessage: 'Impossibile sincronizzare lo stato di stampa.',
+        };
         console.error('[Store] Skipped print_jobs update enqueue due to non-serializable payload.', {
           recordId: printLog.value[idx]?.id ?? null,
           logId,
@@ -114,6 +125,12 @@ export const useOrderStore = defineStore('orders', () => {
   function updatePrintLogEntryLocal(logId, updates) {
     const idx = printLog.value.findIndex(e => e.logId === logId);
     if (idx !== -1) {
+      if (
+        printLog.value[idx]?.status === PRINT_LOG_STATUSES.ERROR
+        && updates?.status === PRINT_LOG_STATUSES.QUEUED
+      ) {
+        return;
+      }
       printLog.value[idx] = { ...printLog.value[idx], ...updates };
     }
   }
