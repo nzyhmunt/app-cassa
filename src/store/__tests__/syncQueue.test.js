@@ -44,7 +44,7 @@ import {
   MAX_ATTEMPTS,
 } from '../../composables/useSyncQueue.js';
 import * as persistenceOps from '../persistence/auth.js';
-import { appConfig } from '../../utils/index.js';
+import { appConfig, OPERATING_MODES } from '../../utils/index.js';
 
 // Pass _backoffMs:0 to skip exponential back-off delays in all tests.
 const FAKE_CFG = { url: 'https://directus.test', staticToken: 'tok_test', _backoffMs: 0 };
@@ -61,7 +61,7 @@ beforeEach(async () => {
   await _resetIDBSingleton();
   vi.restoreAllMocks();
   vi.stubGlobal('navigator', { ...navigator, onLine: true });
-  appConfig.operatingMode = 'offline_first';
+  appConfig.operatingMode = OPERATING_MODES.OFFLINE_FIRST;
   appConfig.directus.enabled = false;
   appConfig.directus.url = '';
   appConfig.directus.staticToken = '';
@@ -75,7 +75,7 @@ afterEach(() => {
 
 describe('enqueue()', () => {
   it('does not enqueue anything in offline_only mode', async () => {
-    appConfig.operatingMode = 'offline_only';
+    appConfig.operatingMode = OPERATING_MODES.OFFLINE_ONLY;
     const fetchSpy = vi.spyOn(global, 'fetch');
 
     await enqueue('orders', 'create', 'ord_offline_only_1', { id: 'ord_offline_only_1' });
@@ -85,7 +85,7 @@ describe('enqueue()', () => {
   });
 
   it('pushes directly to Directus in online_only mode without writing sync_queue', async () => {
-    appConfig.operatingMode = 'online_only';
+    appConfig.operatingMode = OPERATING_MODES.ONLINE_ONLY;
     appConfig.directus.enabled = true;
     appConfig.directus.url = 'https://directus.test';
     appConfig.directus.staticToken = 'tok_test';
