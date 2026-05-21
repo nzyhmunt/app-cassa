@@ -8,6 +8,7 @@ export function useOnlineOnlyInteractionRefresh({
   sync,
   configStore,
   routePathRef = null,
+  resolveCollectionsForRoute = null,
   logPrefix = 'OnlineOnlyInteractionRefresh',
   throttleMs = INTERACTION_PULL_THROTTLE_MS,
   stalenessMs = INTERACTION_PULL_STALENESS_MS,
@@ -44,8 +45,30 @@ export function useOnlineOnlyInteractionRefresh({
     if (typeof sync?.forcePull !== 'function') return;
 
     inFlight = true;
+    let scopedCollections = null;
+    if (typeof resolveCollectionsForRoute === 'function') {
+      try {
+        const resolved = resolveCollectionsForRoute(getRoutePathValue(), triggerSource);
+        if (Array.isArray(resolved)) {
+          scopedCollections = [...new Set(
+            resolved
+              .filter(collection => typeof collection === 'string')
+              .map(collection => collection.trim())
+              .filter(collection => collection.length > 0),
+          )];
+        }
+      } catch (error) {
+        console.warn(`[${logPrefix}] Failed to resolve route collections (${triggerSource}):`, error);
+      }
+    }
+
     try {
-      const result = await sync.forcePull();
+      const shouldUseScopedPull = Array.isArray(scopedCollections)
+        && scopedCollections.length > 0
+        && typeof sync?.forcePullCollections === 'function';
+      const result = shouldUseScopedPull
+        ? await sync.forcePullCollections(scopedCollections)
+        : await sync.forcePull();
       if (result?.ok === false) return;
       const nowIso = new Date().toISOString();
       lastInteractionPullAt.value = nowIso;

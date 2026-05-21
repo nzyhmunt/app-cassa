@@ -11,12 +11,18 @@ import { OPERATING_MODES } from '../../utils/index.js';
 function makeHarness({
   operatingMode = OPERATING_MODES.ONLINE_ONLY,
   routePath = '/start',
+  resolveCollectionsForRoute = null,
+  hasScopedPullApi = true,
 } = {}) {
   const sync = {
     forcePull: vi.fn().mockResolvedValue({ ok: true, failedCollections: [] }),
+    forcePullCollections: vi.fn().mockResolvedValue({ ok: true, failedCollections: [] }),
     lastPullAt: ref(null),
     lastInteractionPullAt: ref(null),
   };
+  if (!hasScopedPullApi) {
+    delete sync.forcePullCollections;
+  }
   const configStore = { operatingMode };
   const routePathRef = ref(routePath);
 
@@ -26,6 +32,7 @@ function makeHarness({
         sync,
         configStore,
         routePathRef,
+        resolveCollectionsForRoute,
       });
       return { refresh, routePathRef };
     },
@@ -112,6 +119,7 @@ describe('useOnlineOnlyInteractionRefresh()', () => {
       vi.advanceTimersByTime(INTERACTION_PULL_THROTTLE_MS);
       await flushPromises();
       expect(sync.forcePull).not.toHaveBeenCalled();
+      expect(sync.forcePullCollections).not.toHaveBeenCalled();
       wrapper.unmount();
     }
   });
@@ -130,6 +138,39 @@ describe('useOnlineOnlyInteractionRefresh()', () => {
     await flushPromises();
     vi.advanceTimersByTime(INTERACTION_PULL_THROTTLE_MS);
     await flushPromises();
+    expect(sync.forcePull).toHaveBeenCalledTimes(1);
+
+    wrapper.unmount();
+  });
+
+  it('uses scoped pull API when route collections resolver is provided', async () => {
+    const resolveCollectionsForRoute = vi.fn().mockReturnValue(['orders', 'order_items']);
+    const { wrapper, sync, routePathRef } = makeHarness({ resolveCollectionsForRoute });
+
+    routePathRef.value = '/ordini';
+    await flushPromises();
+    vi.advanceTimersByTime(INTERACTION_PULL_THROTTLE_MS);
+    await flushPromises();
+
+    expect(resolveCollectionsForRoute).toHaveBeenCalled();
+    expect(sync.forcePullCollections).toHaveBeenCalledWith(['orders', 'order_items']);
+    expect(sync.forcePull).not.toHaveBeenCalled();
+
+    wrapper.unmount();
+  });
+
+  it('falls back to forcePull when scoped pull API is unavailable', async () => {
+    const resolveCollectionsForRoute = vi.fn().mockReturnValue(['orders']);
+    const { wrapper, sync, routePathRef } = makeHarness({
+      resolveCollectionsForRoute,
+      hasScopedPullApi: false,
+    });
+
+    routePathRef.value = '/ordini';
+    await flushPromises();
+    vi.advanceTimersByTime(INTERACTION_PULL_THROTTLE_MS);
+    await flushPromises();
+
     expect(sync.forcePull).toHaveBeenCalledTimes(1);
 
     wrapper.unmount();

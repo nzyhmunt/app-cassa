@@ -523,7 +523,7 @@ export function _triggerImmediateOrderItemsPull() {
  *
  * @returns {Promise<{ ok: boolean, failedCollections: string[] }>}
  */
-export async function _runPull() {
+export async function _runPull({ collectionsOverride = null } = {}) {
   // S3: Semaphore — return the in-flight pull promise when a pull is already
   // running.  This prevents duplicate incremental fetches from accumulating
   // during rapid back-to-back triggers (polling interval, _onOnline, WS reconnect).
@@ -536,15 +536,6 @@ export async function _runPull() {
     // can cancel between collections without letting a superseded loop continue.
     const ac = new AbortController();
     syncState._pullAbortController = ac;
-    // NS9: Cancel any in-flight WS-triggered order_items pull — this full cycle
-    // covers order_items, so a concurrent NS9 pull is redundant and could roll
-    // last_pull_ts backwards after this cycle commits a fresher checkpoint.
-    // Also clear the pending flag: this pull will handle order_items.
-    syncState._orderItemsPullAbortController?.abort();
-    syncState._orderItemsPullAbortController = null;
-    syncState._orderItemsPullInFlight = null;
-    syncState._orderItemsPullPending = false;
-    syncState._pullOrderItemsDone = false;
     try {
       if (!navigator.onLine) {
         return { ok: false, failedCollections: [], skippedReason: 'offline' };
@@ -555,12 +546,32 @@ export async function _runPull() {
 
       const pullCfg = PULL_CONFIG[syncState._appType] ?? PULL_CONFIG.cassa;
       const menuSource = appConfig.menuSource ?? 'directus';
+      const configuredCollections = pullCfg.collections;
+      const scopedCollections = Array.isArray(collectionsOverride)
+        ? collectionsOverride
+            .filter(collection => typeof collection === 'string')
+            .map(collection => collection.trim())
+            .filter(collection => collection.length > 0)
+            .filter(collection => configuredCollections.includes(collection))
+        : configuredCollections;
+      const collectionsToPull = [...new Set(scopedCollections)];
+      const includesOrderItems = collectionsToPull.includes('order_items');
+
+      // NS9: Cancel any in-flight WS-triggered order_items pull only when this pull
+      // cycle includes order_items. Otherwise keep the NS9 lane independent.
+      if (includesOrderItems) {
+        syncState._orderItemsPullAbortController?.abort();
+        syncState._orderItemsPullAbortController = null;
+        syncState._orderItemsPullInFlight = null;
+        syncState._orderItemsPullPending = false;
+      }
+      syncState._pullOrderItemsDone = !includesOrderItems;
 
       let anyMerged = false;
       let allOk = true;
       const mergedSummary = [];
       const failedCollections = [];
-      for (const collection of pullCfg.collections) {
+      for (const collection of collectionsToPull) {
         // NS8: Exit cleanly between collections if this pull was aborted by
         // forcePull() or stopSync() starting a fresh pull session.
         if (ac.signal.aborted) break;
@@ -606,11 +617,17 @@ export async function _runPull() {
       // this cycle, _orderItemsPullPending was set by _triggerImmediateOrderItemsPull.
       // Trigger a follow-up NS9 pull now (not aborted) so items committed during
       // the in-flight order_items request window are not missed until the next poll.
-      if (!ac.signal.aborted && syncState._orderItemsPullPending) {
+      if (!ac.signal.aborted && includesOrderItems && syncState._orderItemsPullPending) {
         syncState._orderItemsPullPending = false;
         _triggerImmediateOrderItemsPull();
       }
-      return { ok: allOk && !ac.signal.aborted, aborted: ac.signal.aborted, failedCollections, anyMerged };
+      return {
+        ok: allOk && !ac.signal.aborted,
+        aborted: ac.signal.aborted,
+        failedCollections,
+        anyMerged,
+        collections: collectionsToPull,
+      };
     } catch (e) {
       console.warn('[DirectusSync] Pull error:', e);
       return { ok: false, failedCollections: [] };

@@ -51,6 +51,7 @@ import { useSyncStoreProxy } from './composables/useSyncStoreProxy.js';
 import { useAppSwipeRefresh } from './composables/useAppSwipeRefresh.js';
 import { useIDBPurge, isDirectusSyncActive } from './composables/useIDBPurge.js';
 import { useOnlineOnlyInteractionRefresh } from './composables/useOnlineOnlyInteractionRefresh.js';
+import { resolveOnlineOnlyRoutePullCollections } from './composables/sync/onlineOnlyViewPull.js';
 import { OPERATING_MODES } from './utils/index.js';
 
 const configStore = useConfigStore();
@@ -80,6 +81,7 @@ useOnlineOnlyInteractionRefresh({
   sync,
   configStore,
   routePathRef: route,
+  resolveCollectionsForRoute: (routePath) => resolveOnlineOnlyRoutePullCollections('sala', routePath),
   logPrefix: 'SalaApp',
 });
 

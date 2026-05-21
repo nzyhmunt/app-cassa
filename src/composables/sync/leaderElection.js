@@ -517,6 +517,69 @@ export function useDirectusSync() {
     }
   }
 
+  function _resolveScopedPullCollections(collections) {
+    const pullCfg = PULL_CONFIG[syncState._appType] ?? PULL_CONFIG.cassa;
+    const allowedCollections = new Set(pullCfg.collections);
+    const menuSource = appConfig.menuSource ?? 'directus';
+    const input = Array.isArray(collections) ? collections : [];
+    return [...new Set(
+      input
+        .filter(collection => typeof collection === 'string')
+        .map(collection => collection.trim())
+        .filter(collection => collection.length > 0)
+        .filter(collection => allowedCollections.has(collection))
+        .filter(collection => !(menuSource === 'json' && collection === 'menu_items')),
+    )];
+  }
+
+  async function forcePullCollections(collections = []) {
+    if (!appConfig.directus?.enabled) return { ok: true, failedCollections: [], skippedReason: 'disabled' };
+    const scopedCollections = _resolveScopedPullCollections(collections);
+    if (scopedCollections.length === 0) {
+      return { ok: true, failedCollections: [], skippedReason: 'no-collections', collections: [] };
+    }
+    const includesOrderItems = scopedCollections.includes('order_items');
+    syncState._pullAbortController?.abort();
+    syncState._pullAbortController = null;
+    if (includesOrderItems) {
+      syncState._orderItemsPullAbortController?.abort();
+      syncState._orderItemsPullAbortController = null;
+      syncState._orderItemsPullInFlight = null;
+      syncState._orderItemsPullPending = false;
+    }
+    syncState._pullInFlight = null;
+    syncState._pullGeneration++;
+    syncState.syncStatus.value = 'syncing';
+    try {
+      const result = await _runPull({ collectionsOverride: scopedCollections });
+      if (result?.aborted) {
+        // Pull was cancelled by stopSync() / a superseding forcePull() — whoever
+        // called abort() already updated syncStatus; don't overwrite it here.
+      } else if (result?.ok !== false) {
+        syncState.syncStatus.value = 'idle';
+      } else if (result?.skippedReason === 'offline') {
+        syncState.syncStatus.value = 'offline';
+      } else {
+        syncState.syncStatus.value = 'error';
+      }
+      return {
+        ...result,
+        collections: result?.collections ?? scopedCollections,
+      };
+    } catch (e) {
+      syncState.syncStatus.value = 'error';
+      console.warn('forcePullCollections failed unexpectedly', e);
+      return {
+        ok: false,
+        failedCollections: [],
+        collections: scopedCollections,
+        ...(e && typeof e === 'object' && 'skippedReason' in e ? { skippedReason: e.skippedReason } : {}),
+        ...(e instanceof Error ? { message: e.message } : {}),
+        error: e,
+      };
+    }
+  }
+
   /**
    * Applies a fresh Directus configuration snapshot with an optional local cache wipe.
    * Intended for explicit post-save reconfiguration from the settings UI.
@@ -606,6 +669,7 @@ export function useDirectusSync() {
     stopSync,
     forcePush,
     forcePull,
+    forcePullCollections,
     reconfigureAndApply,
     reconnectWs,
   };
