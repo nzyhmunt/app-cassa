@@ -27,7 +27,7 @@ import { useOrderStore } from './orderStore.js';
 export { useConfigStore } from './configStore.js';
 export { useOrderStore } from './orderStore.js';
 
-function _applyEmptyOperationalState(orderStore) {
+function _resetOrderStoreOperationalState(orderStore) {
   orderStore.orders = [];
   orderStore.transactions = [];
   orderStore.cashMovements = [];
@@ -146,6 +146,6 @@ export async function initStoreFromIDB(pinia) {
     orderStore.tableOccupiedAt = idbState.tableOccupiedAt ?? {};
     orderStore.billRequestedTables = idbState.billRequestedTables ?? new Set();
   } else {
-    _applyEmptyOperationalState(orderStore);
+    _resetOrderStoreOperationalState(orderStore);
   }
 }

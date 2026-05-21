@@ -118,7 +118,7 @@ export async function enqueue(collection, operation, recordId, payload) {
     if (operatingMode === OPERATING_MODES.ONLINE_ONLY) {
       const cfg = appConfig.directus;
       if (!cfg?.enabled || !cfg?.url || !cfg?.staticToken) {
-        console.warn('[SyncQueue] online_only mode requires Directus credentials; skipping direct push.');
+        console.warn('[SyncQueue] online_only mode requires Directus credentials; configure Directus URL and token before using direct push.');
         return;
       }
       const start = Date.now();

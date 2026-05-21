@@ -34,7 +34,7 @@ export function useOnlineOnlyInteractionRefresh({
     return Date.now() - parsed < stalenessMs;
   }
 
-  async function runInteractionPull(reason) {
+  async function runInteractionPull(triggerSource) {
     if (inFlight) {
       queuedWhileInFlight = true;
       return;
@@ -51,7 +51,7 @@ export function useOnlineOnlyInteractionRefresh({
       lastInteractionPullAt.value = nowIso;
       if (sync?.lastInteractionPullAt) sync.lastInteractionPullAt.value = nowIso;
     } catch (error) {
-      console.warn(`[${logPrefix}] Interaction pull failed (${reason}):`, error);
+      console.warn(`[${logPrefix}] Interaction pull failed (${triggerSource}):`, error);
     } finally {
       inFlight = false;
       if (queuedWhileInFlight) {

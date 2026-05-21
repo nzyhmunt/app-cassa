@@ -76,7 +76,7 @@ const directusEnabled = computed(() =>
 );
 const showQueueCount = computed(() => currentOperatingMode.value === OPERATING_MODES.OFFLINE_FIRST);
 const operatingModeLabel = computed(() => {
-  if (currentOperatingMode.value === OPERATING_MODES.ONLINE_ONLY) return 'Directus online';
+  if (currentOperatingMode.value === OPERATING_MODES.ONLINE_ONLY) return 'Directus in tempo reale';
   return 'Directus attivo';
 });
 
