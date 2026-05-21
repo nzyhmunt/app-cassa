@@ -34,7 +34,5 @@ export function resolveOnlineOnlyRoutePullCollections(appType, routePath) {
   const targetCollections = Array.isArray(configured) && configured.length > 0
     ? configured
     : fallback;
-
   return [...new Set(targetCollections.filter(collection => allowed.has(collection)))];
 }
-
