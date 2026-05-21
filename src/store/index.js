@@ -27,6 +27,17 @@ import { useOrderStore } from './orderStore.js';
 export { useConfigStore } from './configStore.js';
 export { useOrderStore } from './orderStore.js';
 
+function _applyEmptyOperationalState(orderStore) {
+  orderStore.orders = [];
+  orderStore.transactions = [];
+  orderStore.cashMovements = [];
+  orderStore.dailyClosures = [];
+  orderStore.tableCurrentBillSession = {};
+  orderStore.tableMergedInto = {};
+  orderStore.tableOccupiedAt = {};
+  orderStore.billRequestedTables = new Set();
+}
+
 // ── Backward-compat merged proxy ─────────────────────────────────────────────
 
 function _createMergedStoreProxy(configStore, orderStore) {
@@ -109,8 +120,8 @@ export async function initStoreFromIDB(pinia) {
   });
   configStore.applyLocalSettings({ operatingMode: startupOperatingMode });
 
-  const shouldHydrateOperationalState = startupOperatingMode !== OPERATING_MODES.ONLINE_ONLY;
-  const idbState = shouldHydrateOperationalState ? await loadStateFromIDB() : null;
+  const shouldLoadIDBState = startupOperatingMode !== OPERATING_MODES.ONLINE_ONLY;
+  const idbState = shouldLoadIDBState ? await loadStateFromIDB() : null;
 
   if (idbState) {
     orderStore.orders = (idbState.orders ?? []).map((order) => {
@@ -135,13 +146,6 @@ export async function initStoreFromIDB(pinia) {
     orderStore.tableOccupiedAt = idbState.tableOccupiedAt ?? {};
     orderStore.billRequestedTables = idbState.billRequestedTables ?? new Set();
   } else {
-    orderStore.orders = [];
-    orderStore.transactions = [];
-    orderStore.cashMovements = [];
-    orderStore.dailyClosures = [];
-    orderStore.tableCurrentBillSession = {};
-    orderStore.tableMergedInto = {};
-    orderStore.tableOccupiedAt = {};
-    orderStore.billRequestedTables = new Set();
+    _applyEmptyOperationalState(orderStore);
   }
 }

@@ -61,6 +61,10 @@ beforeEach(async () => {
   await _resetIDBSingleton();
   vi.restoreAllMocks();
   vi.stubGlobal('navigator', { ...navigator, onLine: true });
+  appConfig.operatingMode = 'offline_first';
+  appConfig.directus.enabled = false;
+  appConfig.directus.url = '';
+  appConfig.directus.staticToken = '';
 });
 
 afterEach(() => {
@@ -70,6 +74,31 @@ afterEach(() => {
 // ── enqueue ───────────────────────────────────────────────────────────────────
 
 describe('enqueue()', () => {
+  it('does not enqueue anything in offline_only mode', async () => {
+    appConfig.operatingMode = 'offline_only';
+    const fetchSpy = vi.spyOn(global, 'fetch');
+
+    await enqueue('orders', 'create', 'ord_offline_only_1', { id: 'ord_offline_only_1' });
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(await getPendingEntries()).toHaveLength(0);
+  });
+
+  it('pushes directly to Directus in online_only mode without writing sync_queue', async () => {
+    appConfig.operatingMode = 'online_only';
+    appConfig.directus.enabled = true;
+    appConfig.directus.url = 'https://directus.test';
+    appConfig.directus.staticToken = 'tok_test';
+    const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue(
+      mockResponse(201, { data: { id: 'ord_online_only_1' } }),
+    );
+
+    await enqueue('orders', 'create', 'ord_online_only_1', { id: 'ord_online_only_1', status: 'pending' });
+
+    expect(fetchSpy).toHaveBeenCalledOnce();
+    expect(await getPendingEntries()).toHaveLength(0);
+  });
+
   it('dispatches a sync-queue enqueue event', async () => {
     const listener = vi.fn();
     window.addEventListener('sync-queue:enqueue', listener);
