@@ -10,7 +10,9 @@ import { initStoreFromIDB, useConfigStore } from './store/index.js';
 // On iOS PWA, reset the viewport scroll position when the on-screen keyboard is dismissed.
 // Natural scrolling while the keyboard is open is preserved so focused inputs remain visible.
 setupIOSViewportFix();
-LogRocket.init('raevtz/nanawork');
+if (import.meta.env.PROD) {
+  LogRocket.init('raevtz/nanawork');
+}
 
 if (typeof window !== 'undefined' && typeof navigator !== 'undefined' && 'serviceWorker' in navigator && import.meta.env.PROD) {
   const registerServiceWorker = () => {
