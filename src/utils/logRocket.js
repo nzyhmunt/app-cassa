@@ -29,10 +29,15 @@ export async function initLogRocket() {
       network: {
         requestSanitizer(request) {
           // Redact authentication and session headers to prevent credential leakage.
+          const headers = request?.headers;
+          if (!headers || typeof headers !== 'object') {
+            return request;
+          }
+
           const sensitiveHeaders = ['Authorization', 'authorization', 'Cookie', 'cookie'];
           for (const header of sensitiveHeaders) {
-            if (request.headers[header]) {
-              request.headers[header] = '[REDACTED]';
+            if (headers[header]) {
+              headers[header] = '[REDACTED]';
             }
           }
           return request;

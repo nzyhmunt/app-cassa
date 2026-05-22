@@ -138,4 +138,12 @@ describe('requestSanitizer()', () => {
     const req = { headers: {} };
     expect(sanitize(req)).toBe(req);
   });
+
+  it('does not throw when headers are missing or null', async () => {
+    const sanitize = await getRequestSanitizer();
+    expect(() => sanitize({})).not.toThrow();
+    expect(() => sanitize({ headers: null })).not.toThrow();
+    expect(sanitize({})).toEqual({});
+    expect(sanitize({ headers: null })).toEqual({ headers: null });
+  });
 });
