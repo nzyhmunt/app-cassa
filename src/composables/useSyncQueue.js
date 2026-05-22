@@ -79,8 +79,9 @@ const DOMAIN_STATUS_COLLECTIONS = new Set([
 
 
 /**
- * Adds a new entry to the sync_queue ObjectStore.
- * Fire-and-forget — errors are logged but never propagate to callers.
+ * Enqueues in `offline_first`, skips in `offline_only`, and performs
+ * direct push in `online_only` mode.
+ * Errors are logged and never thrown to callers.
  *
  * The entry `id` is a UUIDv7 so it is time-ordered and lexicographically
  * sortable — this guarantees cross-tab deterministic ordering even when
@@ -90,11 +91,20 @@ const DOMAIN_STATUS_COLLECTIONS = new Set([
  * @param {'create'|'update'|'delete'} operation
  * @param {string} recordId    - Primary key of the affected record
  * @param {object} [payload]   - Record snapshot or partial update fields
+ * @returns {Promise<{ok:boolean,mode:'offline_only'|'offline_first'|'online_only',queued:boolean,directPush:boolean,error?:string}>}
  */
 export async function enqueue(collection, operation, recordId, payload) {
   try {
     const operatingMode = normalizeOperatingMode(appConfig.operatingMode, OPERATING_MODES.OFFLINE_FIRST);
-    if (operatingMode === OPERATING_MODES.OFFLINE_ONLY) return;
+    if (operatingMode === OPERATING_MODES.OFFLINE_ONLY) {
+      return {
+        ok: false,
+        mode: operatingMode,
+        queued: false,
+        directPush: false,
+        error: 'Sync queue disabled in offline_only mode',
+      };
+    }
 
     const sourcePayload = payload ?? null;
     let venueUserId = null;
@@ -119,7 +129,13 @@ export async function enqueue(collection, operation, recordId, payload) {
       const cfg = appConfig.directus;
       if (!cfg?.enabled || !cfg?.url || !cfg?.staticToken) {
         console.warn('[SyncQueue] online_only mode requires Directus credentials; configure Directus URL and token before using direct push.');
-        return;
+        return {
+          ok: false,
+          mode: operatingMode,
+          queued: false,
+          directPush: true,
+          error: 'Directus credentials missing in online_only mode',
+        };
       }
       const start = Date.now();
       const sdkClient = _buildRestClient(cfg);
@@ -127,8 +143,20 @@ export async function enqueue(collection, operation, recordId, payload) {
       _logPushResult(entry, result, Date.now() - start);
       if (!result || result.ok !== true) {
         console.warn('[SyncQueue] Direct push failed in online_only mode:', result?.message ?? result);
+        return {
+          ok: false,
+          mode: operatingMode,
+          queued: false,
+          directPush: true,
+          error: String(result?.message ?? 'Direct push failed in online_only mode'),
+        };
       }
-      return;
+      return {
+        ok: true,
+        mode: operatingMode,
+        queued: false,
+        directPush: true,
+      };
     }
 
     const db = await getDB();
@@ -155,8 +183,21 @@ export async function enqueue(collection, operation, recordId, payload) {
           console.debug('[SyncQueue] Background sync registration failed (non-fatal):', e);
         });
     }
+    return {
+      ok: true,
+      mode: operatingMode,
+      queued: true,
+      directPush: false,
+    };
   } catch (e) {
     console.warn('[SyncQueue] Failed to enqueue:', e);
+    return {
+      ok: false,
+      mode: normalizeOperatingMode(appConfig.operatingMode, OPERATING_MODES.OFFLINE_FIRST),
+      queued: false,
+      directPush: false,
+      error: e instanceof Error ? e.message : String(e),
+    };
   }
 }
 

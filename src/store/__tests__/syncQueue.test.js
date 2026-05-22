@@ -78,9 +78,16 @@ describe('enqueue()', () => {
     appConfig.operatingMode = OPERATING_MODES.OFFLINE_ONLY;
     const fetchSpy = vi.spyOn(global, 'fetch');
 
-    await enqueue('orders', 'create', 'ord_offline_only_1', { id: 'ord_offline_only_1' });
+    const result = await enqueue('orders', 'create', 'ord_offline_only_1', { id: 'ord_offline_only_1' });
 
     expect(fetchSpy).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      ok: false,
+      mode: OPERATING_MODES.OFFLINE_ONLY,
+      queued: false,
+      directPush: false,
+      error: 'Sync queue disabled in offline_only mode',
+    });
     expect(await getPendingEntries()).toHaveLength(0);
   });
 
@@ -93,9 +100,39 @@ describe('enqueue()', () => {
       mockResponse(201, { data: { id: 'ord_online_only_1' } }),
     );
 
-    await enqueue('orders', 'create', 'ord_online_only_1', { id: 'ord_online_only_1', status: 'pending' });
+    const result = await enqueue('orders', 'create', 'ord_online_only_1', { id: 'ord_online_only_1', status: 'pending' });
 
     expect(fetchSpy).toHaveBeenCalledOnce();
+    expect(result).toEqual({
+      ok: true,
+      mode: OPERATING_MODES.ONLINE_ONLY,
+      queued: false,
+      directPush: true,
+    });
+    expect(await getPendingEntries()).toHaveLength(0);
+  });
+
+  it('returns a direct-push error payload in online_only mode when push fails', async () => {
+    appConfig.operatingMode = OPERATING_MODES.ONLINE_ONLY;
+    appConfig.directus.enabled = true;
+    appConfig.directus.url = 'https://directus.test';
+    appConfig.directus.staticToken = 'tok_test';
+    vi.spyOn(global, 'fetch').mockResolvedValue(
+      mockResponse(500, { errors: [{ message: 'server error' }] }),
+    );
+
+    const result = await enqueue('orders', 'create', 'ord_online_only_fail_1', {
+      id: 'ord_online_only_fail_1',
+      status: 'pending',
+    });
+
+    expect(result).toEqual(expect.objectContaining({
+      ok: false,
+      mode: OPERATING_MODES.ONLINE_ONLY,
+      queued: false,
+      directPush: true,
+    }));
+    expect(result.error).toEqual(expect.any(String));
     expect(await getPendingEntries()).toHaveLength(0);
   });
 

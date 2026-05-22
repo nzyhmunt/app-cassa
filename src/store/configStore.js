@@ -143,12 +143,13 @@ export const useConfigStore = defineStore('config', () => {
     const resolvedMenuUrl = nextMenuUrl ?? hydrated.menuUrl ?? DEFAULT_SETTINGS.menuUrl;
     menuSource.value = resolvedMenuSource;
     menuUrl.value = resolvedMenuUrl;
-    operatingMode.value = normalizeOperatingMode(hydrated.operatingMode, DEFAULT_SETTINGS.operatingMode);
+    const resolvedOperatingMode = normalizeOperatingMode(operatingMode.value, DEFAULT_SETTINGS.operatingMode);
+    operatingMode.value = resolvedOperatingMode;
     config.value = {
       ...hydrated,
       menuSource: resolvedMenuSource,
       menuUrl: resolvedMenuUrl,
-      operatingMode: operatingMode.value,
+      operatingMode: resolvedOperatingMode,
     };
     configHydrated.value = true;
 
@@ -198,8 +199,8 @@ export const useConfigStore = defineStore('config', () => {
    * (menuSource/menuUrl) without persisting to IndexedDB.
    *
    * @param {object} payload
- * @returns {{sounds:boolean,menuUrl:string,menuSource:'json'|'directus',operatingMode:'offline_only'|'offline_first'|'online_only',preventScreenLock:boolean,customKeyboard:string,preBillPrinterId:string,idbPurge:object}}
- */
+  * @returns {{sounds:boolean,menuUrl:string,menuSource:'json'|'directus',operatingMode:'offline_only'|'offline_first'|'online_only',preventScreenLock:boolean,customKeyboard:string,preBillPrinterId:string,idbPurge:object}}
+  */
   function applyLocalSettings(payload = {}) {
     const normalized = _normalizeLocalSettingsPayload(payload, {
       sounds: sounds.value,
@@ -233,8 +234,8 @@ export const useConfigStore = defineStore('config', () => {
    * Applies and persists local settings to `local_settings` in IndexedDB.
    *
    * @param {object} payload
- * @returns {Promise<{sounds:boolean,menuUrl:string,menuSource:'json'|'directus',operatingMode:'offline_only'|'offline_first'|'online_only',preventScreenLock:boolean,customKeyboard:string,preBillPrinterId:string,idbPurge:object}>}
- */
+  * @returns {Promise<{sounds:boolean,menuUrl:string,menuSource:'json'|'directus',operatingMode:'offline_only'|'offline_first'|'online_only',preventScreenLock:boolean,customKeyboard:string,preBillPrinterId:string,idbPurge:object}>}
+  */
   async function saveLocalSettings(payload = {}) {
     const normalized = _normalizeLocalSettingsPayload(payload, {
       sounds: sounds.value,
