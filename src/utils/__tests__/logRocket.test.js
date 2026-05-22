@@ -63,6 +63,23 @@ describe('initLogRocket()', () => {
     await initLogRocket();
     expect(LogRocket.init).not.toHaveBeenCalled();
   });
+
+  it('does not throw and allows retry when LogRocket.init fails', async () => {
+    vi.stubEnv('PROD', true);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    LogRocket.init
+      .mockImplementationOnce(() => {
+        throw new Error('init failed');
+      })
+      .mockImplementationOnce(() => {});
+
+    await expect(initLogRocket()).resolves.toBeUndefined();
+    await initLogRocket();
+
+    expect(LogRocket.init).toHaveBeenCalledTimes(2);
+    expect(warnSpy).toHaveBeenCalledOnce();
+    warnSpy.mockRestore();
+  });
 });
 
 // ---------------------------------------------------------------------------

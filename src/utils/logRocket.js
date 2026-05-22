@@ -23,23 +23,28 @@ export async function initLogRocket() {
   if (_initialized) return;
   _initialized = true;
 
-  const { default: LogRocket } = await import('logrocket');
-  LogRocket.init(LOG_ROCKET_APP_ID, {
-    network: {
-      requestSanitizer(request) {
-        // Redact authentication and session headers to prevent credential leakage.
-        const sensitiveHeaders = ['Authorization', 'authorization', 'Cookie', 'cookie'];
-        for (const header of sensitiveHeaders) {
-          if (request.headers[header]) {
-            request.headers[header] = '[REDACTED]';
+  try {
+    const { default: LogRocket } = await import('logrocket');
+    LogRocket.init(LOG_ROCKET_APP_ID, {
+      network: {
+        requestSanitizer(request) {
+          // Redact authentication and session headers to prevent credential leakage.
+          const sensitiveHeaders = ['Authorization', 'authorization', 'Cookie', 'cookie'];
+          for (const header of sensitiveHeaders) {
+            if (request.headers[header]) {
+              request.headers[header] = '[REDACTED]';
+            }
           }
-        }
-        return request;
+          return request;
+        },
       },
-    },
-    dom: {
-      // Mask all input field values (payment card numbers, PINs, order notes).
-      inputSanitizer: true,
-    },
-  });
+      dom: {
+        // Mask all input field values (payment card numbers, PINs, order notes).
+        inputSanitizer: true,
+      },
+    });
+  } catch (error) {
+    _initialized = false;
+    console.warn('[LogRocket] Initialization skipped:', error);
+  }
 }
