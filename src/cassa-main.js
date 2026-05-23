@@ -5,6 +5,7 @@ import './assets/styles/main.css';
 import App from './CassaApp.vue';
 import { setupIOSViewportFix } from './utils/iosViewportFix.js';
 import { initLogRocket } from './utils/logRocket.js';
+import { initSentry } from './utils/sentry.js';
 import { initStoreFromIDB, useConfigStore } from './store/index.js';
 
 // On iOS PWA, reset the viewport scroll position when the on-screen keyboard is dismissed.
@@ -32,6 +33,7 @@ const app = createApp(App);
 const pinia = createPinia();
 app.use(pinia);
 app.use(router);
+initSentry(app, router);
 
 async function bootstrap() {
   try {
