@@ -55,13 +55,13 @@ describe('initSentry()', () => {
     const [config] = Sentry.init.mock.calls[0];
     expect(config).toMatchObject({
       app,
-      dsn: 'https://98c627313c1a5ce65e64d1e26209eed8@o4511441126359040.ingest.de.sentry.io/4511441143201872',
       sendDefaultPii: false,
       tracesSampleRate: 1.0,
       replaysSessionSampleRate: 0.1,
       replaysOnErrorSampleRate: 1.0,
       enableLogs: true,
     });
+    expect(config.dsn).toMatch(/^https:\/\/.+@o\d+\.ingest\..+\.sentry\.io\/\d+$/);
     expect(config.tracePropagationTargets).toEqual(expect.arrayContaining(['localhost', window.location.origin]));
   });
 

@@ -65,6 +65,7 @@ export async function initSentry(app, router) {
         Sentry.replayIntegration(),
         Sentry.feedbackIntegration({
           // Italian labels for the feedback widget UI.
+          buttonLabel: 'Segnala un problema',
           triggerLabel: 'Segnala un problema',
           triggerAriaLabel: 'Apri il modulo per segnalare un problema',
           submitButtonLabel: 'Invia segnalazione',
