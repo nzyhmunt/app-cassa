@@ -646,6 +646,14 @@ npm run build
 npm run test
 ```
 
+### Monitoraggio Sentry (opzionale)
+
+L'integrazione Sentry client-side viene caricata solo nelle build production di `cassa`, `sala` e `cucina`, e include un pulsante flottante **"Segnala un problema"** per l'invio di bug report.
+
+- `VITE_SENTRY_DSN`: override del DSN Sentry di default.
+- `VITE_SENTRY_SEND_DEFAULT_PII=true`: abilita esplicitamente l'invio dei dati PII di default (disabilitato di default).
+- `VITE_SENTRY_TRACE_PROPAGATION_TARGETS=https://api.example.com,https://cdn.example.com`: lista separata da virgole degli origini verso cui propagare gli header di tracing. Se omessa, l'app usa solo `localhost` e l'origine corrente.
+
 L'app sarà disponibile su `http://localhost:5173`. Le quattro entry point sono accessibili a:
 - `/` — Launcher (selezione Cassa / Sala / Cucina)
 - `/cassa.html` — Terminale Cassa
