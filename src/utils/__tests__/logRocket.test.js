@@ -125,6 +125,14 @@ describe('requestSanitizer()', () => {
     expect(req.headers.Cookie).toBe('[REDACTED]');
   });
 
+  it('redacts sensitive headers regardless of casing', async () => {
+    const sanitize = await getRequestSanitizer();
+    const req = { headers: { AUTHORIZATION: 'Bearer secret-token', coOkIe: 'session=abc123' } };
+    sanitize(req);
+    expect(req.headers.AUTHORIZATION).toBe('[REDACTED]');
+    expect(req.headers.coOkIe).toBe('[REDACTED]');
+  });
+
   it('leaves unrelated headers untouched', async () => {
     const sanitize = await getRequestSanitizer();
     const req = { headers: { 'Content-Type': 'application/json', 'X-Request-Id': '42' } };

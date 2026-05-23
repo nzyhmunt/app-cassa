@@ -34,9 +34,9 @@ export async function initLogRocket() {
             return request;
           }
 
-          const sensitiveHeaders = ['Authorization', 'authorization', 'Cookie', 'cookie'];
-          for (const header of sensitiveHeaders) {
-            if (headers[header]) {
+          const sensitiveHeaders = new Set(['authorization', 'cookie']);
+          for (const header of Object.keys(headers)) {
+            if (sensitiveHeaders.has(header.toLowerCase())) {
               headers[header] = '[REDACTED]';
             }
           }
