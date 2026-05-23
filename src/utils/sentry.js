@@ -40,6 +40,23 @@ export function initSentry(app, router) {
     integrations: [
       Sentry.browserTracingIntegration({ router }),
       Sentry.replayIntegration(),
+      Sentry.feedbackIntegration({
+        // Italian labels for the feedback widget UI.
+        buttonLabel: 'Segnala un problema',
+        submitButtonLabel: 'Invia segnalazione',
+        cancelButtonLabel: 'Annulla',
+        formTitle: 'Segnala un problema',
+        nameLabel: 'Nome',
+        namePlaceholder: 'Il tuo nome',
+        emailLabel: 'Email',
+        emailPlaceholder: 'la.tua@email.it',
+        messageLabel: 'Descrizione',
+        messagePlaceholder: 'Descrivi il problema che hai riscontrato…',
+        isRequiredLabel: '(obbligatorio)',
+        successMessageText: 'Segnalazione inviata. Grazie!',
+        // Show the widget as a floating button in the bottom-right corner.
+        autoInject: true,
+      }),
     ],
     // Tracing
     tracesSampleRate: 1.0,
