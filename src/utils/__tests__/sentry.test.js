@@ -89,6 +89,14 @@ describe('initSentry()', () => {
     expect(Sentry.init).toHaveBeenCalledOnce();
   });
 
+  it('calls Sentry.init exactly once even when initSentry() is called concurrently', async () => {
+    vi.stubEnv('PROD', true);
+
+    await Promise.all([initSentry(app, router), initSentry(app, router), initSentry(app, router)]);
+
+    expect(Sentry.init).toHaveBeenCalledOnce();
+  });
+
   it('does not call Sentry.init in non-browser contexts (SSR)', async () => {
     vi.stubEnv('PROD', true);
     vi.stubGlobal('window', undefined);

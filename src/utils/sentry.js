@@ -5,6 +5,7 @@ const DEFAULT_SENTRY_DSN =
   'https://98c627313c1a5ce65e64d1e26209eed8@o4511441126359040.ingest.de.sentry.io/4511441143201872';
 
 let _initialized = false;
+let _initPromise = null;
 
 function getSentryDsn() {
   return import.meta.env.VITE_SENTRY_DSN || DEFAULT_SENTRY_DSN;
@@ -34,6 +35,7 @@ function getTracePropagationTargets() {
 /** Resets the initialization flag. Used only in tests. */
 export function _resetSentryInitialized() {
   _initialized = false;
+  _initPromise = null;
 }
 
 /**
@@ -52,52 +54,59 @@ export async function initSentry(app, router) {
   if (typeof window === 'undefined') return;
   if (!import.meta.env.PROD) return;
   if (_initialized) return;
+  if (_initPromise) return _initPromise;
 
-  try {
-    const Sentry = await import('@sentry/vue');
+  _initPromise = (async () => {
+    try {
+      const Sentry = await import('@sentry/vue');
 
-    Sentry.init({
-      app,
-      dsn: getSentryDsn(),
-      sendDefaultPii: isEnvFlagEnabled(import.meta.env.VITE_SENTRY_SEND_DEFAULT_PII),
-      integrations: [
-        Sentry.browserTracingIntegration({ router }),
-        Sentry.replayIntegration(),
-        Sentry.feedbackIntegration({
-          // Italian labels for the feedback widget UI.
-          buttonLabel: 'Segnala un problema',
-          triggerLabel: 'Segnala un problema',
-          triggerAriaLabel: 'Apri il modulo per segnalare un problema',
-          submitButtonLabel: 'Invia segnalazione',
-          cancelButtonLabel: 'Annulla',
-          formTitle: 'Segnala un problema',
-          nameLabel: 'Nome',
-          namePlaceholder: 'Il tuo nome',
-          emailLabel: 'Email',
-          emailPlaceholder: 'la.tua@email.it',
-          messageLabel: 'Descrizione',
-          messagePlaceholder: 'Descrivi il problema che hai riscontrato…',
-          isRequiredLabel: '(obbligatorio)',
-          successMessageText: 'Segnalazione inviata. Grazie!',
-          isNameRequired: false,
-          isEmailRequired: false,
-          // Show the widget as a floating button in the bottom-right corner.
-          autoInject: true,
-        }),
-      ],
-      // Tracing
-      tracesSampleRate: 1.0,
-      tracePropagationTargets: getTracePropagationTargets(),
-      // Session Replay
-      replaysSessionSampleRate: 0.1,
-      replaysOnErrorSampleRate: 1.0,
-      // Logs
-      enableLogs: true,
-    });
+      Sentry.init({
+        app,
+        dsn: getSentryDsn(),
+        sendDefaultPii: isEnvFlagEnabled(import.meta.env.VITE_SENTRY_SEND_DEFAULT_PII),
+        integrations: [
+          Sentry.browserTracingIntegration({ router }),
+          Sentry.replayIntegration(),
+          Sentry.feedbackIntegration({
+            // Italian labels for the feedback widget UI.
+            buttonLabel: 'Segnala un problema',
+            triggerLabel: 'Segnala un problema',
+            triggerAriaLabel: 'Apri il modulo per segnalare un problema',
+            submitButtonLabel: 'Invia segnalazione',
+            cancelButtonLabel: 'Annulla',
+            formTitle: 'Segnala un problema',
+            nameLabel: 'Nome',
+            namePlaceholder: 'Il tuo nome',
+            emailLabel: 'Email',
+            emailPlaceholder: 'la.tua@email.it',
+            messageLabel: 'Descrizione',
+            messagePlaceholder: 'Descrivi il problema che hai riscontrato…',
+            isRequiredLabel: '(obbligatorio)',
+            successMessageText: 'Segnalazione inviata. Grazie!',
+            isNameRequired: false,
+            isEmailRequired: false,
+            // Show the widget as a floating button in the bottom-right corner.
+            autoInject: true,
+          }),
+        ],
+        // Tracing
+        tracesSampleRate: 1.0,
+        tracePropagationTargets: getTracePropagationTargets(),
+        // Session Replay
+        replaysSessionSampleRate: 0.1,
+        replaysOnErrorSampleRate: 1.0,
+        // Logs
+        enableLogs: true,
+      });
 
-    _initialized = true;
-  } catch (error) {
-    _initialized = false;
-    console.warn('[Sentry] Initialization skipped:', error);
-  }
+      _initialized = true;
+    } catch (error) {
+      _initialized = false;
+      console.warn('[Sentry] Initialization skipped:', error);
+    } finally {
+      _initPromise = null;
+    }
+  })();
+
+  return _initPromise;
 }
