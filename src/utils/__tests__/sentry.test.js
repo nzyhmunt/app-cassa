@@ -5,7 +5,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 vi.mock('@sentry/vue', () => ({
   init: vi.fn(),
   browserTracingIntegration: vi.fn((options) => ({ type: 'browserTracing', options })),
-  replayIntegration: vi.fn(() => ({ type: 'replay' })),
+  replayIntegration: vi.fn((options) => ({ type: 'replay', options })),
   feedbackIntegration: vi.fn((options) => ({ type: 'feedback', options })),
 }));
 
@@ -42,7 +42,11 @@ describe('initSentry()', () => {
 
     expect(Sentry.init).toHaveBeenCalledOnce();
     expect(Sentry.browserTracingIntegration).toHaveBeenCalledWith({ router });
-    expect(Sentry.replayIntegration).toHaveBeenCalledOnce();
+    expect(Sentry.replayIntegration).toHaveBeenCalledWith({
+      maskAllText: true,
+      maskAllInputs: true,
+      blockAllMedia: true,
+    });
     expect(Sentry.feedbackIntegration).toHaveBeenCalledWith(
       expect.objectContaining({
         autoInject: true,
@@ -63,6 +67,16 @@ describe('initSentry()', () => {
     });
     expect(config.dsn).toMatch(/^https:\/\/.+@o\d+\.ingest\..+\.sentry\.io\/\d+$/);
     expect(config.tracePropagationTargets).toEqual(expect.arrayContaining(['localhost', window.location.origin]));
+  });
+
+  it('does not include invalid null origin in default trace propagation targets', async () => {
+    vi.stubEnv('PROD', true);
+    vi.stubGlobal('window', { location: { origin: 'null' } });
+
+    await initSentry(app, router);
+
+    const [config] = Sentry.init.mock.calls[0];
+    expect(config.tracePropagationTargets).toEqual(['localhost']);
   });
 
   it('supports environment overrides for DSN, PII, and trace propagation targets', async () => {

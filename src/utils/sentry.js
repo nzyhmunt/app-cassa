@@ -26,8 +26,9 @@ function getTracePropagationTargets() {
   }
 
   const defaultTargets = ['localhost'];
-  if (typeof window !== 'undefined' && window.location?.origin) {
-    defaultTargets.push(window.location.origin);
+  const origin = typeof window !== 'undefined' ? window.location?.origin : undefined;
+  if (origin && origin !== 'null') {
+    defaultTargets.push(origin);
   }
   return defaultTargets;
 }
@@ -66,7 +67,11 @@ export async function initSentry(app, router) {
         sendDefaultPii: isEnvFlagEnabled(import.meta.env.VITE_SENTRY_SEND_DEFAULT_PII),
         integrations: [
           Sentry.browserTracingIntegration({ router }),
-          Sentry.replayIntegration(),
+          Sentry.replayIntegration({
+            maskAllText: true,
+            maskAllInputs: true,
+            blockAllMedia: true,
+          }),
           Sentry.feedbackIntegration({
             // Italian labels for the feedback widget UI.
             buttonLabel: 'Segnala un problema',
