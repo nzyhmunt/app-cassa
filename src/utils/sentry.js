@@ -104,8 +104,8 @@ export async function initSentry(app, router) {
         dsn: getSentryDsn(),
         sendDefaultPii: isEnvFlagEnabled(import.meta.env.VITE_SENTRY_SEND_DEFAULT_PII),
         integrations,
-        // Tracing
-        // Conservative default to limit ingestion volume; override via env per deployment.
+        // Tracing / Replay sampling defaults are intentionally conservative to
+        // limit ingestion volume; override via env per deployment.
         tracesSampleRate: getSampleRate(import.meta.env.VITE_SENTRY_TRACES_SAMPLE_RATE, 0.1),
         tracePropagationTargets: getTracePropagationTargets(),
         // Session Replay
