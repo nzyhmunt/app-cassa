@@ -648,11 +648,15 @@ npm run test
 
 ### Monitoraggio Sentry
 
-L'integrazione Sentry client-side è attiva di default nelle build production di `cassa`, `sala` e `cucina`, usando il DSN incorporato (sovrascrivibile via variabile d'ambiente), e include un pulsante flottante **"Segnala un problema"** per l'invio di bug report.
+L'integrazione Sentry client-side è attiva di default nelle build production di `launcher`, `cassa`, `sala` e `cucina`, usando il DSN incorporato (sovrascrivibile via variabile d'ambiente), e include un pulsante flottante **"Segnala un problema"** per l'invio di bug report.
 
 - `VITE_SENTRY_DSN`: override del DSN Sentry di default incorporato.
 - `VITE_SENTRY_SEND_DEFAULT_PII=true`: abilita esplicitamente l'invio dei dati PII di default (disabilitato di default).
-- `VITE_SENTRY_TRACE_PROPAGATION_TARGETS=https://api.example.com,https://cdn.example.com`: lista separata da virgole degli origini verso cui propagare gli header di tracing. Se omessa, l'app usa solo `localhost` e l'origine corrente.
+- `VITE_SENTRY_TRACE_PROPAGATION_TARGETS=https://api.example.com,https://cdn.example.com`: lista separata da virgole delle origini verso cui propagare gli header di tracing. Se omessa, l'app usa solo `localhost` e l'origine corrente.
+- `VITE_SENTRY_TRACES_SAMPLE_RATE=0.1`: sampling rate tracing (0..1, default `0.1`).
+- `VITE_SENTRY_REPLAYS_SESSION_SAMPLE_RATE=0.1`: sampling rate Replay sessione (0..1, default `0.1`).
+- `VITE_SENTRY_REPLAYS_ON_ERROR_SAMPLE_RATE=0.2`: sampling rate Replay su errore (0..1, default `0.2`).
+- `VITE_SENTRY_ENABLE_LOGS=true`: abilita esplicitamente la raccolta log Sentry (disabilitata di default).
 
 L'app sarà disponibile su `http://localhost:5173`. Le quattro entry point sono accessibili a:
 - `/` — Launcher (selezione Cassa / Sala / Cucina)

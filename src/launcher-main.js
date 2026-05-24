@@ -1,4 +1,7 @@
 import './assets/styles/main.css';
+import { initSentry } from './utils/sentry.js';
+
+initSentry();
 
 (async () => {
   const { appConfig } = await import('./utils/index.js');

@@ -15,6 +15,13 @@ function isEnvFlagEnabled(value) {
   return value === 'true' || value === '1';
 }
 
+function getSampleRate(envValue, fallback) {
+  const parsed = Number.parseFloat(envValue);
+  if (!Number.isFinite(parsed)) return fallback;
+  if (parsed < 0 || parsed > 1) return fallback;
+  return parsed;
+}
+
 function getTracePropagationTargets() {
   const configuredTargets = import.meta.env.VITE_SENTRY_TRACE_PROPAGATION_TARGETS
     ?.split(',')
@@ -60,48 +67,51 @@ export async function initSentry(app, router) {
   _initPromise = (async () => {
     try {
       const Sentry = await import('@sentry/vue');
+      const integrations = [
+        Sentry.replayIntegration({
+          maskAllText: true,
+          maskAllInputs: true,
+          blockAllMedia: true,
+        }),
+        Sentry.feedbackIntegration({
+          // Italian labels for the feedback widget UI.
+          buttonLabel: 'Segnala un problema',
+          triggerLabel: 'Segnala un problema',
+          triggerAriaLabel: 'Apri il modulo per segnalare un problema',
+          submitButtonLabel: 'Invia segnalazione',
+          cancelButtonLabel: 'Annulla',
+          formTitle: 'Segnala un problema',
+          nameLabel: 'Nome',
+          namePlaceholder: 'Il tuo nome',
+          emailLabel: 'Email',
+          emailPlaceholder: 'la.tua@email.it',
+          messageLabel: 'Descrizione',
+          messagePlaceholder: 'Descrivi il problema che hai riscontrato…',
+          isRequiredLabel: '(obbligatorio)',
+          successMessageText: 'Segnalazione inviata. Grazie!',
+          isNameRequired: false,
+          isEmailRequired: false,
+          // Show the widget as a floating button in the bottom-right corner.
+          autoInject: true,
+        }),
+      ];
+      if (router) {
+        integrations.unshift(Sentry.browserTracingIntegration({ router }));
+      }
 
       Sentry.init({
         app,
         dsn: getSentryDsn(),
         sendDefaultPii: isEnvFlagEnabled(import.meta.env.VITE_SENTRY_SEND_DEFAULT_PII),
-        integrations: [
-          Sentry.browserTracingIntegration({ router }),
-          Sentry.replayIntegration({
-            maskAllText: true,
-            maskAllInputs: true,
-            blockAllMedia: true,
-          }),
-          Sentry.feedbackIntegration({
-            // Italian labels for the feedback widget UI.
-            buttonLabel: 'Segnala un problema',
-            triggerLabel: 'Segnala un problema',
-            triggerAriaLabel: 'Apri il modulo per segnalare un problema',
-            submitButtonLabel: 'Invia segnalazione',
-            cancelButtonLabel: 'Annulla',
-            formTitle: 'Segnala un problema',
-            nameLabel: 'Nome',
-            namePlaceholder: 'Il tuo nome',
-            emailLabel: 'Email',
-            emailPlaceholder: 'la.tua@email.it',
-            messageLabel: 'Descrizione',
-            messagePlaceholder: 'Descrivi il problema che hai riscontrato…',
-            isRequiredLabel: '(obbligatorio)',
-            successMessageText: 'Segnalazione inviata. Grazie!',
-            isNameRequired: false,
-            isEmailRequired: false,
-            // Show the widget as a floating button in the bottom-right corner.
-            autoInject: true,
-          }),
-        ],
+        integrations,
         // Tracing
-        tracesSampleRate: 1.0,
+        tracesSampleRate: getSampleRate(import.meta.env.VITE_SENTRY_TRACES_SAMPLE_RATE, 0.1),
         tracePropagationTargets: getTracePropagationTargets(),
         // Session Replay
-        replaysSessionSampleRate: 0.1,
-        replaysOnErrorSampleRate: 1.0,
+        replaysSessionSampleRate: getSampleRate(import.meta.env.VITE_SENTRY_REPLAYS_SESSION_SAMPLE_RATE, 0.1),
+        replaysOnErrorSampleRate: getSampleRate(import.meta.env.VITE_SENTRY_REPLAYS_ON_ERROR_SAMPLE_RATE, 0.2),
         // Logs
-        enableLogs: true,
+        enableLogs: isEnvFlagEnabled(import.meta.env.VITE_SENTRY_ENABLE_LOGS),
       });
 
       _initialized = true;

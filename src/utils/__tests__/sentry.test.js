@@ -60,10 +60,10 @@ describe('initSentry()', () => {
     expect(config).toMatchObject({
       app,
       sendDefaultPii: false,
-      tracesSampleRate: 1.0,
+      tracesSampleRate: 0.1,
       replaysSessionSampleRate: 0.1,
-      replaysOnErrorSampleRate: 1.0,
-      enableLogs: true,
+      replaysOnErrorSampleRate: 0.2,
+      enableLogs: false,
     });
     expect(config.dsn).toMatch(/^https:\/\/.+@o\d+\.ingest\..+\.sentry\.io\/\d+$/);
     expect(config.tracePropagationTargets).toEqual(expect.arrayContaining(['localhost', window.location.origin]));
@@ -84,6 +84,10 @@ describe('initSentry()', () => {
     vi.stubEnv('VITE_SENTRY_DSN', 'https://examplePublicKey@o0.ingest.sentry.io/1');
     vi.stubEnv('VITE_SENTRY_SEND_DEFAULT_PII', 'true');
     vi.stubEnv('VITE_SENTRY_TRACE_PROPAGATION_TARGETS', 'https://api.example.com, https://cdn.example.com');
+    vi.stubEnv('VITE_SENTRY_TRACES_SAMPLE_RATE', '0.35');
+    vi.stubEnv('VITE_SENTRY_REPLAYS_SESSION_SAMPLE_RATE', '0.25');
+    vi.stubEnv('VITE_SENTRY_REPLAYS_ON_ERROR_SAMPLE_RATE', '0.8');
+    vi.stubEnv('VITE_SENTRY_ENABLE_LOGS', '1');
 
     await initSentry(app, router);
 
@@ -91,6 +95,19 @@ describe('initSentry()', () => {
     expect(config.dsn).toBe('https://examplePublicKey@o0.ingest.sentry.io/1');
     expect(config.sendDefaultPii).toBe(true);
     expect(config.tracePropagationTargets).toEqual(['https://api.example.com', 'https://cdn.example.com']);
+    expect(config.tracesSampleRate).toBe(0.35);
+    expect(config.replaysSessionSampleRate).toBe(0.25);
+    expect(config.replaysOnErrorSampleRate).toBe(0.8);
+    expect(config.enableLogs).toBe(true);
+  });
+
+  it('allows launcher initialization without a router integration', async () => {
+    vi.stubEnv('PROD', true);
+
+    await initSentry();
+
+    expect(Sentry.browserTracingIntegration).not.toHaveBeenCalled();
+    expect(Sentry.init).toHaveBeenCalledOnce();
   });
 
   it('calls Sentry.init exactly once even when initSentry() is called multiple times', async () => {
