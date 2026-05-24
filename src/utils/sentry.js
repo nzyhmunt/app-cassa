@@ -104,8 +104,9 @@ export async function initSentry(app, router) {
         dsn: getSentryDsn(),
         sendDefaultPii: isEnvFlagEnabled(import.meta.env.VITE_SENTRY_SEND_DEFAULT_PII),
         integrations,
-        // Defaults keep a low baseline signal (10% traces, 10% session replay)
-        // while increasing replay capture for failures (20% on-error replays).
+        // Fallback defaults (used when env values are missing/invalid) keep a
+        // low baseline signal (10% traces, 10% session replay) while increasing
+        // replay capture for failures (20% on-error replays).
         tracesSampleRate: getSampleRate(import.meta.env.VITE_SENTRY_TRACES_SAMPLE_RATE, 0.1),
         tracePropagationTargets: getTracePropagationTargets(),
         // Session Replay
