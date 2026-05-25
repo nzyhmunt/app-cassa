@@ -2469,3 +2469,5 @@ Le tre collection `menu_modifiers`, `menu_categories_menu_modifiers`,
 3. Creare la collection `menu_items_menu_modifiers` con i campi di §2.5c e le relazioni M2M.
 4. Aggiungere il campo O2M alias `menu_modifiers` a `menu_categories` e a `menu_items`.
 5. Migrare i dati da `menu_item_modifiers` (deprecated) alle nuove collection se esistono record.
+6. Creare la collection `printers_menu_categories` con i campi di §2.18b e le relazioni M2M con `printers` e `menu_categories`.
+7. Creare la collection `printers_menu_items` con i campi di §2.18c e le relazioni M2M con `printers` e `menu_items`.
