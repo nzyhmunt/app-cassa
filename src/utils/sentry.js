@@ -1,0 +1,130 @@
+// The DSN is safe to expose in client-side code — Sentry DSNs are public by
+// design. An environment variable override is supported for multi-environment
+// setups (e.g. staging vs. production projects).
+const DEFAULT_SENTRY_DSN =
+  'https://98c627313c1a5ce65e64d1e26209eed8@o4511441126359040.ingest.de.sentry.io/4511441143201872';
+
+let _initialized = false;
+let _initPromise = null;
+
+function getSentryDsn() {
+  return import.meta.env.VITE_SENTRY_DSN || DEFAULT_SENTRY_DSN;
+}
+
+function isEnvFlagEnabled(value) {
+  return value === 'true' || value === '1';
+}
+
+function getSampleRate(envValue, fallback) {
+  const parsed = Number.parseFloat(envValue);
+  if (!Number.isFinite(parsed)) return fallback;
+  if (parsed < 0 || parsed > 1) return fallback;
+  return parsed;
+}
+
+function getTracePropagationTargets() {
+  const configuredTargets = import.meta.env.VITE_SENTRY_TRACE_PROPAGATION_TARGETS
+    ?.split(',')
+    .map((target) => target.trim())
+    .filter(Boolean);
+
+  if (configuredTargets?.length) {
+    return configuredTargets;
+  }
+
+  const defaultTargets = ['localhost'];
+  const origin = typeof window !== 'undefined' ? window.location?.origin : undefined;
+  if (origin && origin !== 'null') {
+    defaultTargets.push(origin);
+  }
+  return defaultTargets;
+}
+
+/** Resets the initialization flag. Used only in tests. */
+export function _resetSentryInitialized() {
+  _initialized = false;
+  _initPromise = null;
+}
+
+/**
+ * Initializes Sentry for production error monitoring, session replay, and
+ * distributed tracing.
+ *
+ * - Skips initialization when `window` is unavailable (e.g. SSR).
+ * - Lazily loads the Sentry bundle only in production browser builds.
+ * - Idempotent: safe to call multiple times; initializes only once.
+ *
+ * @param {import('vue').App} app - The Vue application instance.
+ * @param {import('vue-router').Router} [router] - The Vue Router instance used
+ *   for browser tracing integration.
+ */
+export async function initSentry(app, router) {
+  if (typeof window === 'undefined') return;
+  if (!import.meta.env.PROD) return;
+  if (_initialized) return;
+  if (_initPromise) return _initPromise;
+
+  _initPromise = (async () => {
+    try {
+      const Sentry = await import('@sentry/vue');
+      const integrations = [
+        Sentry.replayIntegration({
+          maskAllText: true,
+          maskAllInputs: true,
+          blockAllMedia: true,
+        }),
+        Sentry.feedbackIntegration({
+          // Italian labels for the feedback widget UI.
+          buttonLabel: 'Segnala un problema',
+          triggerLabel: 'Segnala un problema',
+          triggerAriaLabel: 'Apri il modulo per segnalare un problema',
+          submitButtonLabel: 'Invia segnalazione',
+          cancelButtonLabel: 'Annulla',
+          formTitle: 'Segnala un problema',
+          nameLabel: 'Nome',
+          namePlaceholder: 'Il tuo nome',
+          emailLabel: 'Email',
+          emailPlaceholder: 'la.tua@email.it',
+          messageLabel: 'Descrizione',
+          messagePlaceholder: 'Descrivi il problema che hai riscontrato…',
+          isRequiredLabel: '(obbligatorio)',
+          successMessageText: 'Segnalazione inviata. Grazie!',
+          isNameRequired: false,
+          isEmailRequired: false,
+          // Show the widget as a floating button in the bottom-right corner.
+          autoInject: true,
+        }),
+      ];
+      if (router) {
+        integrations.unshift(Sentry.browserTracingIntegration({ router }));
+      }
+
+      Sentry.init({
+        app,
+        dsn: getSentryDsn(),
+        sendDefaultPii: isEnvFlagEnabled(import.meta.env.VITE_SENTRY_SEND_DEFAULT_PII),
+        integrations,
+        // Fallback defaults (used when env values are missing/invalid) keep a
+        // low baseline signal (10% traces, 10% session replay) while increasing
+        // replay capture for failures (20% on-error replays).
+        tracesSampleRate: getSampleRate(import.meta.env.VITE_SENTRY_TRACES_SAMPLE_RATE, 0.1),
+        tracePropagationTargets: getTracePropagationTargets(),
+        // Session Replay
+        // Keep a small baseline sample, but a higher sample on errors for better debugging signal.
+        replaysSessionSampleRate: getSampleRate(import.meta.env.VITE_SENTRY_REPLAYS_SESSION_SAMPLE_RATE, 0.1),
+        replaysOnErrorSampleRate: getSampleRate(import.meta.env.VITE_SENTRY_REPLAYS_ON_ERROR_SAMPLE_RATE, 0.2),
+        // Logs
+        enableLogs: isEnvFlagEnabled(import.meta.env.VITE_SENTRY_ENABLE_LOGS),
+      });
+
+      _initialized = true;
+    } catch (error) {
+      _initialized = false;
+      console.warn('[Sentry] Initialization skipped:', error);
+    } finally {
+      _initPromise = null;
+    }
+  })();
+
+  return _initPromise;
+}
