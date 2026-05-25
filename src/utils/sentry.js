@@ -50,12 +50,12 @@ export function _resetSentryInitialized() {
  * Initializes Sentry for production error monitoring, session replay, and
  * distributed tracing.
  *
- * - Skips initialization in non-browser (SSR/test) contexts.
+ * - Skips initialization when `window` is unavailable (e.g. SSR).
  * - Lazily loads the Sentry bundle only in production browser builds.
  * - Idempotent: safe to call multiple times; initializes only once.
  *
  * @param {import('vue').App} app - The Vue application instance.
- * @param {import('vue-router').Router} router - The Vue Router instance used
+ * @param {import('vue-router').Router} [router] - The Vue Router instance used
  *   for browser tracing integration.
  */
 export async function initSentry(app, router) {
