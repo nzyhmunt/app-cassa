@@ -825,7 +825,7 @@ CREATE TABLE printers_menu_items (
     id               SERIAL          PRIMARY KEY,                                   -- PK integer (Directus convention per M2M)
     printers_id      VARCHAR(40)     NOT NULL REFERENCES printers(id)              ON DELETE CASCADE,
     menu_items_id    VARCHAR(50)     NOT NULL REFERENCES menu_items(id)            ON DELETE CASCADE,
-    venue           INTEGER         NOT NULL REFERENCES venues(id)                 ON DELETE CASCADE, -- denormalizzato per indice IDB
+    venue            INTEGER         NOT NULL REFERENCES venues(id)                 ON DELETE CASCADE, -- denormalizzato per indice IDB
     sort             INTEGER         NULL,
     date_updated     TIMESTAMPTZ     NULL,
     UNIQUE (printers_id, menu_items_id)
