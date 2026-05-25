@@ -101,7 +101,12 @@ function buildDishCategoryMap(store = null) {
   for (const [category, items] of Object.entries(menu)) {
     if (Array.isArray(items)) {
       for (const item of items) {
-        if (item?.id && !map.has(item.id)) map.set(item.id, category);
+        if (!item?.id) continue;
+        // Priority rule: when both sources are available, keep the explicit
+        // Directus-derived mapping from `menuItemCategoryLabels` and only use
+        // menu-object categories as fallback for missing entries.
+        const hasPrecomputedCategory = map.has(item.id);
+        if (!hasPrecomputedCategory) map.set(item.id, category);
       }
     }
   }

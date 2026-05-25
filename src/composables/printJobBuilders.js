@@ -36,6 +36,10 @@ export function buildOrderJobItems(options = {}) {
     const activeQty = item.quantity - (item.voidedQuantity ?? 0);
     if (activeQty <= 0) return acc;
 
+    // Routing priority:
+    // 1) Explicit menu-item mapping (`menuItems`) — highest precedence.
+    // 2) Category mapping (`categories`) when item-level mapping is absent.
+    // 3) Catch-all when neither item/category filters are configured.
     if (hasMenuItemRouting) {
       const itemDishId = item?.dishId == null ? '' : String(item.dishId).trim();
       if (!normalizedMenuItems.has(itemDishId)) return acc;
