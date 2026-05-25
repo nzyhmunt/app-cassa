@@ -800,16 +800,16 @@ Se per una stampante non esistono righe in questa junction, resta valida la logi
 ```sql
 CREATE TABLE printers_menu_categories (
     id SERIAL PRIMARY KEY, -- PK integer (Directus convention per M2M)
-    printers_id VARCHAR(40) NOT NULL REFERENCES printers(id) ON DELETE CASCADE,
-    menu_categories_id INTEGER NOT NULL REFERENCES menu_categories(id) ON DELETE CASCADE,
+    printer VARCHAR(40) NOT NULL REFERENCES printers(id) ON DELETE CASCADE,
+    menu_category INTEGER NOT NULL REFERENCES menu_categories(id) ON DELETE CASCADE,
     venue INTEGER NOT NULL REFERENCES venues(id) ON DELETE CASCADE, -- denormalizzato per indice IDB
     sort INTEGER NULL,
     date_updated TIMESTAMPTZ NULL,
-    UNIQUE (printers_id, menu_categories_id)
+    UNIQUE (printer, menu_category)
 );
 
-CREATE INDEX idx_printer_cat_printer  ON printers_menu_categories (printers_id);
-CREATE INDEX idx_printer_cat_category ON printers_menu_categories (menu_categories_id);
+CREATE INDEX idx_printer_cat_printer  ON printers_menu_categories (printer);
+CREATE INDEX idx_printer_cat_category ON printers_menu_categories (menu_category);
 CREATE INDEX idx_printer_cat_venue    ON printers_menu_categories (venue);
 ```
 
@@ -823,16 +823,16 @@ La relazione a livello voce ha precedenza rispetto alla relazione per categoria 
 ```sql
 CREATE TABLE printers_menu_items (
     id SERIAL PRIMARY KEY, -- PK integer (Directus convention per M2M)
-    printers_id VARCHAR(40) NOT NULL REFERENCES printers(id) ON DELETE CASCADE,
-    menu_items_id VARCHAR(50) NOT NULL REFERENCES menu_items(id) ON DELETE CASCADE,
+    printer VARCHAR(40) NOT NULL REFERENCES printers(id) ON DELETE CASCADE,
+    menu_item VARCHAR(50) NOT NULL REFERENCES menu_items(id) ON DELETE CASCADE,
     venue INTEGER NOT NULL REFERENCES venues(id) ON DELETE CASCADE, -- denormalizzato per indice IDB
     sort INTEGER NULL,
     date_updated TIMESTAMPTZ NULL,
-    UNIQUE (printers_id, menu_items_id)
+    UNIQUE (printer, menu_item)
 );
 
-CREATE INDEX idx_printer_item_printer ON printers_menu_items (printers_id);
-CREATE INDEX idx_printer_item_item    ON printers_menu_items (menu_items_id);
+CREATE INDEX idx_printer_item_printer ON printers_menu_items (printer);
+CREATE INDEX idx_printer_item_item    ON printers_menu_items (menu_item);
 CREATE INDEX idx_printer_item_venue   ON printers_menu_items (venue);
 ```
 
@@ -1499,8 +1499,8 @@ ObjectStore: menu_items       keyPath: id    indexes: [category]
 ObjectStore: menu_modifiers   keyPath: id    indexes: [venue, date_updated]
 ObjectStore: menu_categories_menu_modifiers keyPath: id indexes: [menu_categories_id, menu_modifiers_id, venue, date_updated]
 ObjectStore: menu_items_menu_modifiers      keyPath: id indexes: [menu_items_id, menu_modifiers_id, venue, date_updated]
-ObjectStore: printers_menu_categories       keyPath: id indexes: [printers_id, menu_categories_id, venue, date_updated]
-ObjectStore: printers_menu_items            keyPath: id indexes: [printers_id, menu_items_id, venue, date_updated]
+ObjectStore: printers_menu_categories       keyPath: id indexes: [printer, menu_category, venue, date_updated]
+ObjectStore: printers_menu_items            keyPath: id indexes: [printer, menu_item, venue, date_updated]
 ObjectStore: printers         keyPath: id
 ObjectStore: venue_users      keyPath: id    indexes: [venue, apps, status]
 
