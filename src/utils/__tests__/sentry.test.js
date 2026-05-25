@@ -101,15 +101,6 @@ describe('initSentry()', () => {
     expect(config.enableLogs).toBe(true);
   });
 
-  it('allows launcher initialization without a router integration', async () => {
-    vi.stubEnv('PROD', true);
-
-    await initSentry();
-
-    expect(Sentry.browserTracingIntegration).not.toHaveBeenCalled();
-    expect(Sentry.init).toHaveBeenCalledOnce();
-  });
-
   it('calls Sentry.init exactly once even when initSentry() is called multiple times', async () => {
     vi.stubEnv('PROD', true);
 

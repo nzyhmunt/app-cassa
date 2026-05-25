@@ -648,7 +648,7 @@ npm run test
 
 ### Monitoraggio Sentry
 
-L'integrazione Sentry client-side è attiva di default nelle build production di `launcher`, `cassa`, `sala` e `cucina`, usando il DSN incorporato (sovrascrivibile via variabile d'ambiente), e include un pulsante flottante **"Segnala un problema"** per l'invio di bug report.
+L'integrazione Sentry client-side è attiva di default nelle build production di `cassa`, `sala` e `cucina`, usando il DSN incorporato (sovrascrivibile via variabile d'ambiente), e include un pulsante flottante **"Segnala un problema"** per l'invio di bug report.
 
 - `VITE_SENTRY_DSN`: override del DSN Sentry di default incorporato.
 - `VITE_SENTRY_SEND_DEFAULT_PII=true`: abilita esplicitamente l'invio dei dati PII di default (disabilitato di default).
