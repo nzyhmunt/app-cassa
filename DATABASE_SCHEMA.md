@@ -799,12 +799,12 @@ Se per una stampante non esistono righe in questa junction, resta valida la logi
 
 ```sql
 CREATE TABLE printers_menu_categories (
-    id                  SERIAL          PRIMARY KEY,                                -- PK integer (Directus convention per M2M)
-    printers_id         VARCHAR(40)     NOT NULL REFERENCES printers(id)           ON DELETE CASCADE,
-    menu_categories_id  INTEGER         NOT NULL REFERENCES menu_categories(id)    ON DELETE CASCADE,
-    venue               INTEGER         NOT NULL REFERENCES venues(id)             ON DELETE CASCADE, -- denormalizzato per indice IDB
-    sort                INTEGER         NULL,
-    date_updated        TIMESTAMPTZ     NULL,
+    id SERIAL PRIMARY KEY, -- PK integer (Directus convention per M2M)
+    printers_id VARCHAR(40) NOT NULL REFERENCES printers(id) ON DELETE CASCADE,
+    menu_categories_id INTEGER NOT NULL REFERENCES menu_categories(id) ON DELETE CASCADE,
+    venue INTEGER NOT NULL REFERENCES venues(id) ON DELETE CASCADE, -- denormalizzato per indice IDB
+    sort INTEGER NULL,
+    date_updated TIMESTAMPTZ NULL,
     UNIQUE (printers_id, menu_categories_id)
 );
 
@@ -822,12 +822,12 @@ La relazione a livello voce ha precedenza rispetto alla relazione per categoria 
 
 ```sql
 CREATE TABLE printers_menu_items (
-    id               SERIAL          PRIMARY KEY,                                   -- PK integer (Directus convention per M2M)
-    printers_id      VARCHAR(40)     NOT NULL REFERENCES printers(id)              ON DELETE CASCADE,
-    menu_items_id    VARCHAR(50)     NOT NULL REFERENCES menu_items(id)            ON DELETE CASCADE,
-    venue               INTEGER         NOT NULL REFERENCES venues(id)                 ON DELETE CASCADE, -- denormalizzato per indice IDB
-    sort             INTEGER         NULL,
-    date_updated     TIMESTAMPTZ     NULL,
+    id SERIAL PRIMARY KEY, -- PK integer (Directus convention per M2M)
+    printers_id VARCHAR(40) NOT NULL REFERENCES printers(id) ON DELETE CASCADE,
+    menu_items_id VARCHAR(50) NOT NULL REFERENCES menu_items(id) ON DELETE CASCADE,
+    venue INTEGER NOT NULL REFERENCES venues(id) ON DELETE CASCADE, -- denormalizzato per indice IDB
+    sort INTEGER NULL,
+    date_updated TIMESTAMPTZ NULL,
     UNIQUE (printers_id, menu_items_id)
 );
 
