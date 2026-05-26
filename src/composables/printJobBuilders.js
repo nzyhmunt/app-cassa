@@ -30,7 +30,7 @@ export function buildOrderJobItems(options = {}) {
       .filter(Boolean),
   );
   const hasMenuItemRouting = normalizedMenuItems.size > 0;
-  const isCatchAll = printerCategories.length === 0;
+  const hasCategoryRouting = printerCategories.length > 0;
 
   return orderItems.reduce((acc, item) => {
     const activeQty = item.quantity - (item.voidedQuantity ?? 0);
@@ -43,7 +43,7 @@ export function buildOrderJobItems(options = {}) {
     if (hasMenuItemRouting) {
       const itemDishId = item?.dishId == null ? '' : String(item.dishId).trim();
       if (!normalizedMenuItems.has(itemDishId)) return acc;
-    } else if (!isCatchAll) {
+    } else if (hasCategoryRouting) {
       const itemCategory = normalizePrinterRoutingToken(dishCategoryMap.get(item.dishId) ?? '');
       if (!printerCategories.includes(itemCategory)) return acc;
     }

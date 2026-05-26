@@ -948,8 +948,9 @@ export function mapVenueConfigFromDirectus(cachedConfig, defaults) {
 
   const categoryNameById = new Map(
     categories
-      .map((category) => [String(relationId(category.id) ?? category.id), category?.name ?? ''])
-      .filter(([id]) => id != null),
+      .map((category) => [relationId(category.id) ?? category.id, category?.name ?? ''])
+      .filter(([id]) => id != null)
+      .map(([id, name]) => [String(id), name]),
   );
   const printerCategoryNamesByPrinterId = new Map();
   for (const link of (printerCategoryLinks ?? [])) {
