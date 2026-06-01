@@ -813,6 +813,18 @@ CREATE INDEX idx_printer_cat_category ON printers_menu_categories (menu_category
 CREATE INDEX idx_printer_cat_venue    ON printers_menu_categories (venue);
 ```
 
+> ⚠️ **Campo alias Directus richiesto su `printers`:** dopo aver creato questa junction,
+> aggiungere in Directus un campo **O2M alias** sulla collection `printers` con il nome
+> esatto **`menu_category_routes`** (tipo `alias`, special `o2m`, foreign key `printer`,
+> related collection `printers_menu_categories`).
+> Il frontend usa questo campo nel deep fetch:
+> ```
+> 'printers.menu_category_routes.*'
+> 'printers.menu_category_routes.menu_category.*'
+> ```
+> Se il campo alias è assente o ha nome diverso, il deep fetch non popolerà i link e il
+> routing per categoria risulterà vuoto a runtime (comportamento catch-all inatteso).
+
 ---
 
 ### 2.18c `printers_menu_items` — Junction M2M stampanti ↔ voci menu
@@ -835,6 +847,18 @@ CREATE INDEX idx_printer_item_printer ON printers_menu_items (printer);
 CREATE INDEX idx_printer_item_item    ON printers_menu_items (menu_item);
 CREATE INDEX idx_printer_item_venue   ON printers_menu_items (venue);
 ```
+
+> ⚠️ **Campo alias Directus richiesto su `printers`:** dopo aver creato questa junction,
+> aggiungere in Directus un campo **O2M alias** sulla collection `printers` con il nome
+> esatto **`menu_item_routes`** (tipo `alias`, special `o2m`, foreign key `printer`,
+> related collection `printers_menu_items`).
+> Il frontend usa questo campo nel deep fetch:
+> ```
+> 'printers.menu_item_routes.*'
+> 'printers.menu_item_routes.menu_item.*'
+> ```
+> Se il campo alias è assente o ha nome diverso, il deep fetch non popolerà i link e il
+> routing per singola voce risulterà vuoto a runtime.
 
 ---
 
@@ -2470,4 +2494,6 @@ Le tre collection `menu_modifiers`, `menu_categories_menu_modifiers`,
 4. Aggiungere il campo O2M alias `menu_modifiers` a `menu_categories` e a `menu_items`.
 5. Migrare i dati da `menu_item_modifiers` (deprecated) alle nuove collection se esistono record.
 6. Creare la collection `printers_menu_categories` con i campi di §2.18b e le relazioni M2M con `printers` e `menu_categories`.
-7. Creare la collection `printers_menu_items` con i campi di §2.18c e le relazioni M2M con `printers` e `menu_items`.
+7. Aggiungere il campo O2M alias **`menu_category_routes`** sulla collection `printers` (vedi nota ⚠️ in §2.18b). Il nome deve corrispondere esattamente a quello usato nel deep fetch del frontend.
+8. Creare la collection `printers_menu_items` con i campi di §2.18c e le relazioni M2M con `printers` e `menu_items`.
+9. Aggiungere il campo O2M alias **`menu_item_routes`** sulla collection `printers` (vedi nota ⚠️ in §2.18c). Il nome deve corrispondere esattamente a quello usato nel deep fetch del frontend.
