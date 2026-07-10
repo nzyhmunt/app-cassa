@@ -131,6 +131,8 @@ export const DEFAULT_SETTINGS = {
   //   categories: array di nomi di categorie del menu da instradare su questa
   //               stampante (confronto case-insensitive). Se vuoto o assente,
   //               la stampante è catch-all per le voci (solo per tipo 'order').
+  //   menuItems:  array di id voci menu da instradare in modo puntuale.
+  //               Quando presente, ha precedenza su `categories`.
   //   printTypes: array di tipi di stampa che questa stampante accetta:
   //               'order'      → comanda cucina/bar
   //               'table_move' → notifica spostamento tavolo

@@ -12,6 +12,7 @@ import { normalizePrinterRoutingToken, PRINT_JOB_TYPES } from '../utils/index.js
  * @param {{
  *   orderItems?: object[],
  *   printerCategories?: string[],
+ *   printerMenuItems?: string[],
  *   dishCategoryMap?: Map<string, string>,
  * }} [options]
  * @returns {object[]}
@@ -20,15 +21,29 @@ export function buildOrderJobItems(options = {}) {
   const {
     orderItems = [],
     printerCategories = [],
+    printerMenuItems = [],
     dishCategoryMap = new Map(),
   } = options;
-  const isCatchAll = printerCategories.length === 0;
+  const normalizedMenuItems = new Set(
+    (Array.isArray(printerMenuItems) ? printerMenuItems : [])
+      .map((value) => (value == null ? '' : String(value).trim()))
+      .filter(Boolean),
+  );
+  const hasMenuItemRouting = normalizedMenuItems.size > 0;
+  const hasCategoryRouting = printerCategories.length > 0;
 
   return orderItems.reduce((acc, item) => {
     const activeQty = item.quantity - (item.voidedQuantity ?? 0);
     if (activeQty <= 0) return acc;
 
-    if (!isCatchAll) {
+    // Routing priority:
+    // 1) Explicit menu-item mapping (`menuItems`) — highest precedence.
+    // 2) Category mapping (`categories`) when item-level mapping is absent.
+    // 3) Catch-all when neither item/category filters are configured.
+    if (hasMenuItemRouting) {
+      const itemDishId = item?.dishId == null ? '' : String(item.dishId).trim();
+      if (!normalizedMenuItems.has(itemDishId)) return acc;
+    } else if (hasCategoryRouting) {
       const itemCategory = normalizePrinterRoutingToken(dishCategoryMap.get(item.dishId) ?? '');
       if (!printerCategories.includes(itemCategory)) return acc;
     }

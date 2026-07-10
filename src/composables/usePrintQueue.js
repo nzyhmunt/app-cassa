@@ -18,6 +18,8 @@
  *
  * Each printer can also be scoped to specific menu categories via `categories[]`:
  *   Only relevant for the 'order' type. If absent/empty, all items are included.
+ * Each printer can be scoped to specific menu items via `menuItems[]`:
+ *   When present, item-level routing takes precedence over category routing.
  *
  * All dispatches are fire-and-forget: errors are logged but never propagate.
  * Every dispatched job is appended to store.printLog for the print-history view.
@@ -87,11 +89,24 @@ import { dispatchPrintJob, queueDirectusPrintJob, sendHttpPrintJob } from './pri
  */
 function buildDishCategoryMap(store = null) {
   const map = new Map();
-  const menu = getRuntimeConfig(store).menu ?? {};
+  const runtimeConfig = getRuntimeConfig(store);
+  const categoryLookup = runtimeConfig.menuItemCategoryLabels;
+  if (categoryLookup && typeof categoryLookup === 'object' && !Array.isArray(categoryLookup)) {
+    for (const [itemId, categoryLabel] of Object.entries(categoryLookup)) {
+      if (!itemId) continue;
+      map.set(itemId, categoryLabel);
+    }
+  }
+  const menu = runtimeConfig.menu ?? {};
   for (const [category, items] of Object.entries(menu)) {
     if (Array.isArray(items)) {
       for (const item of items) {
-        if (item?.id) map.set(item.id, category);
+        if (!item?.id) continue;
+        // Priority rule: when both sources are available, keep the explicit
+        // Directus-derived mapping from `menuItemCategoryLabels` and only use
+        // menu-object categories as fallback for missing entries.
+        const hasPrecomputedCategory = map.has(item.id);
+        if (!hasPrecomputedCategory) map.set(item.id, category);
       }
     }
   }
@@ -161,6 +176,15 @@ function logJob(store, entry) {
 function getRuntimePrinters(store = null) {
   const printers = getRuntimeConfig(store).printers;
   return Array.isArray(printers) ? printers : [];
+}
+
+function getNormalizedPrinterMenuItems(printer) {
+  if (!Array.isArray(printer?.menuItems)) return [];
+  return [...new Set(
+    printer.menuItems
+      .map((item) => (item == null ? '' : String(item).trim()))
+      .filter(Boolean),
+  )];
 }
 
 /**
@@ -262,10 +286,12 @@ export function enqueuePrintJobs(order) {
 
   for (const printer of printers) {
     const printerCategories = getNormalizedPrinterCategories(printer);
-    const isCatchAll = printerCategories.length === 0;
+    const printerMenuItems = getNormalizedPrinterMenuItems(printer);
+    const isCatchAll = printerCategories.length === 0 && printerMenuItems.length === 0;
     const items = buildOrderJobItems({
       orderItems: orderForPrint.orderItems ?? [],
       printerCategories,
+      printerMenuItems,
       dishCategoryMap,
     });
 

@@ -10,7 +10,7 @@
 import { openDB } from 'idb';
 import { getInstanceName } from '../store/persistence.js';
 
-export const DB_VERSION = 13;
+export const DB_VERSION = 14;
 const DB_NAME_PREFIX = 'app-cassa';
 
 /**
@@ -54,6 +54,9 @@ const DB_NAME_PREFIX = 'app-cassa';
  *               payload, response, status, statusCode, and durationMs.
  *               A `timestamp` index supports chronological reads and two-bucket
  *               auto-purge (success ≤100, errors ≤200 + all within last 48 h).
+ *  v14 — Added printers-menu routing junction cache stores:
+ *               `printers_menu_categories` and `printers_menu_items`,
+ *               keyed by `id` with indexes on relation fields, venue, and date_updated.
  *
  * To add a new version (e.g. v14):
  *   1. Increment DB_VERSION to 14.
@@ -344,6 +347,20 @@ export function getDB() {
         const s = db.createObjectStore('menu_items_menu_modifiers', { keyPath: 'id' });
         s.createIndex('menu_items_id', 'menu_items_id', { unique: false });
         s.createIndex('menu_modifiers_id', 'menu_modifiers_id', { unique: false });
+        s.createIndex('venue', 'venue', { unique: false });
+        s.createIndex('date_updated', 'date_updated', { unique: false });
+      }
+      if (!db.objectStoreNames.contains('printers_menu_categories')) {
+        const s = db.createObjectStore('printers_menu_categories', { keyPath: 'id' });
+        s.createIndex('printer', 'printer', { unique: false });
+        s.createIndex('menu_category', 'menu_category', { unique: false });
+        s.createIndex('venue', 'venue', { unique: false });
+        s.createIndex('date_updated', 'date_updated', { unique: false });
+      }
+      if (!db.objectStoreNames.contains('printers_menu_items')) {
+        const s = db.createObjectStore('printers_menu_items', { keyPath: 'id' });
+        s.createIndex('printer', 'printer', { unique: false });
+        s.createIndex('menu_item', 'menu_item', { unique: false });
         s.createIndex('venue', 'venue', { unique: false });
         s.createIndex('date_updated', 'date_updated', { unique: false });
       }

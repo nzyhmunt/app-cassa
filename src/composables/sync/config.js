@@ -31,6 +31,7 @@ export const VENUE_RELATED_COLLECTIONS = [
   'venues', 'rooms', 'tables', 'payment_methods',
   'menu_categories', 'menu_items', 'menu_modifiers',
   'menu_categories_menu_modifiers', 'menu_items_menu_modifiers',
+  'printers_menu_categories', 'printers_menu_items',
   'printers', 'venue_users', 'table_merge_sessions',
 ];
 
@@ -46,6 +47,10 @@ export const DEEP_FETCH_FIELDS = [
   'menu_items.*',
   'menu_items.menu_modifiers.menu_modifiers_id.*',
   'printers.*',
+  'printers.menu_item_routes.*',
+  'printers.menu_item_routes.menu_item.*',
+  'printers.menu_category_routes.*',
+  'printers.menu_category_routes.menu_category.*',
   'users.*',
   'table_merge_sessions.*',
 ];
@@ -66,6 +71,8 @@ const DEEP_FETCH_FALLBACK_FIELDS = [
   'menu_categories.*',
   'menu_categories.menu_items.*',
   'menu_items.*',
+  'printers.menu_item_routes.*',
+  'printers.menu_category_routes.*',
 ];
 
 export const DEEP_FETCH_FIELD_SETS = [
