@@ -168,7 +168,7 @@ export function dispatchPrintJob(options) {
   console.warn(`[PrintQueue] Could not dispatch Directus printer job "${job?.jobId ?? logId}": ${message}`);
   store?.updatePrintLogEntry(logId, { status: PRINT_LOG_STATUSES.ERROR, errorMessage: message });
   addPrintActivityLog({
-    endpoint: 'directus://print_jobs',
+    endpoint: 'local://fallback-dispatch',
     payload: job,
     status: PRINT_ACTIVITY_LOG_STATUSES.ERROR,
     operation: 'fallback',

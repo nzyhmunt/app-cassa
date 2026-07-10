@@ -255,4 +255,23 @@ describe('dispatchPrintJob()', () => {
       errorMessage: 'Server-side print dispatch disabled and no HTTP fallbackUrl configured',
     });
   });
+
+  it('treats a whitespace-only fallbackUrl as missing and marks an error', async () => {
+    const store = createStoreStub();
+    const job = { jobId: 'job_9', printerId: 'tcp_5', printType: 'order' };
+
+    dispatchPrintJob({
+      job,
+      printer: { id: 'tcp_5', connectionType: 'tcp', fallbackUrl: '   ' },
+      logId: 'plog_9',
+      store,
+      serverDispatchEnabled: false,
+    });
+
+    expect(global.fetch).not.toHaveBeenCalled();
+    expect(store.updatePrintLogEntry).toHaveBeenCalledWith('plog_9', {
+      status: 'error',
+      errorMessage: 'Server-side print dispatch disabled and no HTTP fallbackUrl configured',
+    });
+  });
 });

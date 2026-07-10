@@ -439,12 +439,12 @@ La coda di stampa automatica è gestita da tre moduli cooperanti:
 Quando un ordine viene accettato (dalla Cassa o dalla Sala), `enqueuePrintJobs(order)` applica
 una priorità di dispatch **server-side first**:
 
-1. **Modalità 3/2 (server-side)** — se la stampante è `connectionType: 'tcp' | 'file'` **e**
-   `printing.serverDispatchEnabled = true` (default), il job viene accodato su `print_jobs` (consumo da hook Directus o print-server pull).
-2. **Modalità 1 (fallback HTTP)** — se il canale server-side è disabilitato lato client (`printing.serverDispatchEnabled = false`), viene usato
-   `fallbackUrl` (se configurato) come endpoint HTTP di emergenza.
-3. **Errore esplicito** — se non c'è né dispatch server-side né fallback HTTP, il job viene marcato `error`
-   localmente per evitare code silenziosamente bloccate.
+- **Primaria (Modalità 3/2, server-side)** — se la stampante è `connectionType: 'tcp' | 'file'` **e**
+  `printing.serverDispatchEnabled = true` (default), il job viene accodato su `print_jobs` (consumo da hook Directus o print-server pull).
+- **Fallback (Modalità 1, HTTP)** — se il canale server-side è disabilitato lato client (`printing.serverDispatchEnabled = false`), viene usato
+  `fallbackUrl` (se configurato) come endpoint HTTP di emergenza.
+- **Errore esplicito** — se non c'è né dispatch server-side né fallback HTTP, il job viene marcato `error`
+  localmente per evitare code silenziosamente bloccate.
 
 Ogni lavoro di stampa viene registrato in `store.printLog` (persistito su IDB e **sincronizzato
 su Directus** `print_jobs` via sync queue). I job HTTP seguono lo stato `pending → printing → done | error`;
