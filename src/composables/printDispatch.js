@@ -134,13 +134,13 @@ export function dispatchPrintJob(options) {
     serverDispatchEnabled = true,
     fallbackUrl = printer?.fallbackUrl ?? null,
   } = options;
+  const isServerManagedPrinter = isDirectusManagedPrinter(printer);
 
-  if (!isDirectusManagedPrinter(printer) && url) {
-    sendHttpPrintJob({ job, url, logId, store });
-    return;
-  }
-
-  if (!isDirectusManagedPrinter(printer)) {
+  if (!isServerManagedPrinter) {
+    if (url) {
+      sendHttpPrintJob({ job, url, logId, store });
+      return;
+    }
     const message = 'Printer is not server-managed and has no HTTP URL configured';
     console.warn(`[PrintQueue] Could not dispatch job "${job?.jobId ?? logId}": ${message}`);
     store?.updatePrintLogEntry(logId, { status: PRINT_LOG_STATUSES.ERROR, errorMessage: message });
