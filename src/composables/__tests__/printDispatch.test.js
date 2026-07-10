@@ -205,4 +205,54 @@ describe('dispatchPrintJob()', () => {
     const logs = await getSyncLogs();
     expect(logs.find(log => log.payload?.jobId === 'job_6')).toBeUndefined();
   });
+
+  it('uses the HTTP fallbackUrl when server-side dispatch is disabled', async () => {
+    const store = createStoreStub();
+    const job = { jobId: 'job_7', printerId: 'tcp_3', printType: 'order' };
+    global.fetch.mockResolvedValue({ ok: true, status: 200 });
+
+    dispatchPrintJob({
+      job,
+      printer: { id: 'tcp_3', connectionType: 'tcp', fallbackUrl: 'http://localhost:3010/print' },
+      logId: 'plog_7',
+      store,
+      serverDispatchEnabled: false,
+    });
+
+    let logEntry;
+    await vi.waitFor(async () => {
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+      expect(store.updatePrintLogEntry).toHaveBeenNthCalledWith(2, 'plog_7', { status: 'done' });
+      const logs = await getSyncLogs();
+      logEntry = logs.find(log => log.endpoint === 'http://localhost:3010/print');
+      expect(logEntry).toBeDefined();
+    });
+
+    expect(global.fetch).toHaveBeenCalledWith('http://localhost:3010/print', expect.any(Object));
+    expect(logEntry).toMatchObject({
+      endpoint: 'http://localhost:3010/print',
+      status: 'success',
+      method: 'POST',
+      payload: job,
+    });
+  });
+
+  it('marks an error when server-side dispatch is disabled and no HTTP fallbackUrl exists', async () => {
+    const store = createStoreStub();
+    const job = { jobId: 'job_8', printerId: 'tcp_4', printType: 'order' };
+
+    dispatchPrintJob({
+      job,
+      printer: { id: 'tcp_4', connectionType: 'tcp' },
+      logId: 'plog_8',
+      store,
+      serverDispatchEnabled: false,
+    });
+
+    expect(global.fetch).not.toHaveBeenCalled();
+    expect(store.updatePrintLogEntry).toHaveBeenCalledWith('plog_8', {
+      status: 'error',
+      errorMessage: 'Server-side print dispatch disabled and no HTTP fallbackUrl configured',
+    });
+  });
 });

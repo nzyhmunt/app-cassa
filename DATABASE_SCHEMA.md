@@ -735,6 +735,9 @@ CREATE TABLE printers (
     -- Usato solo quando la stampante è configurata per connessione HTTP
     -- (ad es. frontend / Modalità 1). NULL se si usa solo connessione diretta TCP/File.
     url             TEXT            NULL,                   -- es. 'http://localhost:3001/print'
+    -- Endpoint HTTP di emergenza usato dal frontend quando connection_type è tcp/file
+    -- ma la dispatch server-side è disabilitata (fallback operativo Modalità 1).
+    fallback_url    TEXT            NULL,                   -- es. 'http://localhost:3001/print'
 
     -- ── Connessione diretta (per Directus Pull — Modalità 2) ─────────────────
     -- Quando connection_type = 'tcp' o 'file', il print-server in modalità pull
@@ -783,6 +786,7 @@ CREATE TABLE printers (
 > | `tcp_timeout`     | **Print Server** | Timeout connessione TCP in ms, default 5000 (modalità `tcp`)       |
 > | `file_device`     | **Print Server** | Path device file USB/parallelo, es. `/dev/usb/lp0` (modalità `file`) |
 > | `url`             | Frontend + Print Server | Endpoint HTTP del print-server (modalità `http`). Nullable: obbligatorio solo quando `connection_type = 'http'` |
+> | `fallback_url`    | **Frontend** | Endpoint HTTP di fallback usato solo quando `connection_type = 'tcp'/'file'` ma `printing.serverDispatchEnabled = false` lato client |
 >
 > Rimuovere questi campi da Directus renderebbe inutilizzabili le modalità TCP e File/USB del
 > Print Server, impedendo la stampa diretta senza service intermediary.
@@ -2401,4 +2405,3 @@ Le tre collection `menu_modifiers`, `menu_categories_menu_modifiers`,
 3. Creare la collection `menu_items_menu_modifiers` con i campi di §2.5c e le relazioni M2M.
 4. Aggiungere il campo O2M alias `menu_modifiers` a `menu_categories` e a `menu_items`.
 5. Migrare i dati da `menu_item_modifiers` (deprecated) alle nuove collection se esistono record.
-
