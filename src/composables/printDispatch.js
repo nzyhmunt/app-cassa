@@ -141,7 +141,7 @@ export function dispatchPrintJob(options) {
   }
 
   if (!isDirectusManagedPrinter(printer)) {
-    const message = 'No HTTP printer URL configured';
+    const message = 'Printer is not server-managed and has no HTTP URL configured';
     console.warn(`[PrintQueue] Could not dispatch job "${job?.jobId ?? logId}": ${message}`);
     store?.updatePrintLogEntry(logId, { status: PRINT_LOG_STATUSES.ERROR, errorMessage: message });
     addPrintActivityLog({
