@@ -168,7 +168,7 @@ describe('SyncMonitor watchdog vs network classification', () => {
 
   it('shows export/clear controls for failed calls and handles actions', async () => {
     getSyncLogsMock.mockResolvedValue([]);
-    getFailedSyncCallsMock.mockResolvedValue([
+    getFailedSyncCallsMock.mockResolvedValueOnce([
       {
         id: 'sqf_1',
         queue_entry_id: 'sq_1',
