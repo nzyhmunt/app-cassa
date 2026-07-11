@@ -54,6 +54,9 @@ function findLogRow(wrapper, text) {
 }
 
 describe('SyncMonitor watchdog vs network classification', () => {
+  let origCreateObjectURL;
+  let origRevokeObjectURL;
+
   beforeEach(() => {
     vi.useFakeTimers();
     getPendingEntriesMock.mockResolvedValue([]);
@@ -74,6 +77,8 @@ describe('SyncMonitor watchdog vs network classification', () => {
         value: { writeText: vi.fn().mockResolvedValue(undefined) },
       });
     }
+    origCreateObjectURL = URL.createObjectURL;
+    origRevokeObjectURL = URL.revokeObjectURL;
     Object.defineProperty(URL, 'createObjectURL', {
       configurable: true,
       writable: true,
@@ -90,6 +95,8 @@ describe('SyncMonitor watchdog vs network classification', () => {
     vi.clearAllTimers();
     vi.useRealTimers();
     vi.restoreAllMocks();
+    URL.createObjectURL = origCreateObjectURL;
+    URL.revokeObjectURL = origRevokeObjectURL;
   });
 
   it('renders WS Watchdog vs Network Error labels and copies the correct status suffix', async () => {

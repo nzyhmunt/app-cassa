@@ -862,7 +862,7 @@ async function exportFailedCallsSession() {
 
 async function clearFailedCalls() {
   await clearFailedSyncCallsStore();
-  failedCalls.value = [];
+  failedCalls.value = await getFailedSyncCalls();
 }
 
 async function handleForcePush() {
