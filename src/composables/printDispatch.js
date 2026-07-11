@@ -139,7 +139,7 @@ export function dispatchPrintJob(options) {
   const isServerManagedPrinter = isDirectusManagedPrinter(printer);
 
   if (!isServerManagedPrinter) {
-    const normalizedUrl = url?.trim() || null;
+    const normalizedUrl = normalizeNonEmptyString(url);
     if (normalizedUrl) {
       sendHttpPrintJob({ job, url: normalizedUrl, logId, store });
       return;
