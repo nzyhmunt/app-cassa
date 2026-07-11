@@ -527,9 +527,12 @@ export function reprintJob(logEntry, overrideUrl = null) {
   if (usesDirectus) {
     // Job delivered to Directus sync queue; update UI status to 'queued' without
     // patching Directus (the record must stay 'pending' for the print-dispatcher).
+    // When the printer has been removed from runtime config, supply a minimal shape
+    // so dispatchPrintJob still routes this as a server-managed job.
+    const effectivePrinter = printer ?? { connectionType: 'tcp' };
     dispatchPrintJob({
       job,
-      printer,
+      printer: effectivePrinter,
       logId,
       store,
       serverDispatchEnabled,

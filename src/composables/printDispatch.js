@@ -122,6 +122,8 @@ export async function sendHttpPrintJob(options) {
  *   logId: string,
  *   store?: object|null,
  *   url?: string|null,
+ *   serverDispatchEnabled?: boolean,
+ *   fallbackUrl?: string|null,
  * }} options
  */
 export function dispatchPrintJob(options) {
@@ -137,8 +139,9 @@ export function dispatchPrintJob(options) {
   const isServerManagedPrinter = isDirectusManagedPrinter(printer);
 
   if (!isServerManagedPrinter) {
-    if (url) {
-      sendHttpPrintJob({ job, url, logId, store });
+    const normalizedUrl = url?.trim() || null;
+    if (normalizedUrl) {
+      sendHttpPrintJob({ job, url: normalizedUrl, logId, store });
       return;
     }
     const message = 'Printer is not server-managed and has no HTTP URL configured';
