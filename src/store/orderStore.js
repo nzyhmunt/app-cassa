@@ -74,7 +74,7 @@ export const useOrderStore = defineStore('orders', () => {
   function addPrintLogEntry(entry) {
     const pendingEntry = { ...entry, status: PRINT_LOG_STATUSES.PENDING };
     const payload = serializeQueuePayload(pendingEntry);
-    const syncToDirectus = pendingEntry.syncToDirectus !== false;
+    const syncToDirectus = pendingEntry.syncToDirectus ?? true;
     if (payload !== null) {
       printLog.value = [pendingEntry, ...printLog.value].slice(0, 200);
       if (syncToDirectus) {
@@ -97,7 +97,7 @@ export const useOrderStore = defineStore('orders', () => {
   function updatePrintLogEntry(logId, updates) {
     const idx = printLog.value.findIndex(e => e.logId === logId);
     if (idx !== -1) {
-      const syncToDirectus = printLog.value[idx]?.syncToDirectus !== false;
+      const syncToDirectus = printLog.value[idx]?.syncToDirectus ?? true;
       const payload = serializeQueuePayload({ logId, ...updates });
       if (payload !== null) {
         if (syncToDirectus) {

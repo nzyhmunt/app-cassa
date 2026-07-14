@@ -73,7 +73,7 @@ beforeEach(async () => {
   // Store originals
   originalPrinters = appConfig.printers;
   originalMenu     = appConfig.menu;
-  originalPrinting = appConfig.printing;
+  originalPrinting = structuredClone(appConfig.printing ?? null);
 
   // Inject a minimal menu so dishId → category resolution works
   appConfig.menu = {
@@ -85,7 +85,7 @@ beforeEach(async () => {
 afterEach(() => {
   appConfig.printers = originalPrinters;
   appConfig.menu     = originalMenu;
-  appConfig.printing = originalPrinting;
+  appConfig.printing = structuredClone(originalPrinting);
   vi.restoreAllMocks();
   global.fetch = _originalFetch;
 });

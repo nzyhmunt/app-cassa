@@ -174,17 +174,19 @@ function isServerDispatchEnabled(store = null) {
 }
 
 /**
- * Returns whether print-log sync_queue writes should be sent to Directus.
+ * Returns whether print-log sync_queue writes should be sent.
  *
- * When a Directus-managed printer runs in fallback mode (server dispatch
- * disabled), jobs must stay local-only to avoid duplicate server-side prints.
+ * By default every print log entry is synced through the local sync queue.
+ * The only opt-out case is a Directus-managed printer running in fallback mode
+ * (server dispatch disabled), where jobs must stay local-only to avoid
+ * duplicate server-side prints.
  *
  * @param {{ usesDirectus: boolean, serverDispatchEnabled: boolean }} options
  * @returns {boolean}
  */
 function shouldSyncPrintLogEntry(options) {
   const { usesDirectus, serverDispatchEnabled } = options;
-  return !(usesDirectus && !serverDispatchEnabled);
+  return !usesDirectus || serverDispatchEnabled;
 }
 
 /**
@@ -314,8 +316,10 @@ export function enqueuePrintJobs(order) {
       continue;
     }
     const job = buildOrderPrintJob({ order: orderForPrint, printerId, items });
-    const usesDirectus = isDirectusManagedPrinter(printer);
-    const syncToDirectus = shouldSyncPrintLogEntry({ usesDirectus, serverDispatchEnabled });
+    const syncToDirectus = shouldSyncPrintLogEntry({
+      usesDirectus: isDirectusManagedPrinter(printer),
+      serverDispatchEnabled,
+    });
 
     const logId = newUUIDv7('plog');
     logJob(store, createPrintLogEntry({
@@ -379,8 +383,10 @@ export function enqueueTableMoveJob(fromTableId, fromTableLabel, toTableId, toTa
       toTableLabel,
       timestamp,
     });
-    const usesDirectus = isDirectusManagedPrinter(printer);
-    const syncToDirectus = shouldSyncPrintLogEntry({ usesDirectus, serverDispatchEnabled });
+    const syncToDirectus = shouldSyncPrintLogEntry({
+      usesDirectus: isDirectusManagedPrinter(printer),
+      serverDispatchEnabled,
+    });
 
     const logId = newUUIDv7('plog');
     logJob(store, createPrintLogEntry({
