@@ -47,6 +47,7 @@ const CATCHALL_PRINTER = [
 let fetchMock;
 let originalPrinters;
 let originalMenu;
+let originalPrinting;
 const _originalFetch = global.fetch;
 
 beforeEach(async () => {
@@ -72,6 +73,7 @@ beforeEach(async () => {
   // Store originals
   originalPrinters = appConfig.printers;
   originalMenu     = appConfig.menu;
+  originalPrinting = appConfig.printing;
 
   // Inject a minimal menu so dishId → category resolution works
   appConfig.menu = {
@@ -83,6 +85,7 @@ beforeEach(async () => {
 afterEach(() => {
   appConfig.printers = originalPrinters;
   appConfig.menu     = originalMenu;
+  appConfig.printing = originalPrinting;
   vi.restoreAllMocks();
   global.fetch = _originalFetch;
 });
@@ -1046,6 +1049,61 @@ describe('TCP/file printer routing (Directus print-server path)', () => {
       const tcpEntry = store.printLog.find(e => e.printerId === 'cucina_tcp');
       expect(tcpEntry?.status).toBe('queued');
     });
+  });
+
+  it('uses HTTP fallback without enqueueing print_jobs when server dispatch is disabled', async () => {
+    appConfig.printing = { ...(appConfig.printing ?? {}), serverDispatchEnabled: false };
+    appConfig.printers = [
+      {
+        id: 'cucina_tcp_fallback',
+        name: 'Cucina TCP Fallback',
+        connectionType: 'tcp',
+        fallbackUrl: 'http://localhost:3010/print',
+        printTypes: ['order'],
+      },
+    ];
+
+    enqueuePrintJobs(makeOrder({ id: 'ord_fallback_1', table: 'FB1' }));
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(fetchMock.mock.calls[0][0]).toBe('http://localhost:3010/print');
+
+    const store = useAppStore();
+    await vi.waitFor(() => {
+      const entry = store.printLog.find(e => e.table === 'FB1');
+      expect(entry?.status).toBe('done');
+    });
+
+    const entries = await getPendingEntries();
+    const printJobEntries = entries.filter(e => e.collection === 'print_jobs');
+    expect(printJobEntries).toHaveLength(0);
+  });
+
+  it('marks a local error without enqueueing print_jobs when fallback mode has no fallbackUrl', async () => {
+    appConfig.printing = { ...(appConfig.printing ?? {}), serverDispatchEnabled: false };
+    appConfig.printers = [
+      {
+        id: 'cucina_tcp_no_fallback',
+        name: 'Cucina TCP No Fallback',
+        connectionType: 'tcp',
+        printTypes: ['order'],
+      },
+    ];
+
+    enqueuePrintJobs(makeOrder({ id: 'ord_fallback_2', table: 'FB2' }));
+
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    const store = useAppStore();
+    await vi.waitFor(() => {
+      const entry = store.printLog.find(e => e.table === 'FB2');
+      expect(entry?.status).toBe('error');
+      expect(entry?.errorMessage).toBe('Server-side print dispatch disabled and no HTTP fallbackUrl configured');
+    });
+
+    const entries = await getPendingEntries();
+    const printJobEntries = entries.filter(e => e.collection === 'print_jobs');
+    expect(printJobEntries).toHaveLength(0);
   });
 });
 

@@ -174,6 +174,20 @@ function isServerDispatchEnabled(store = null) {
 }
 
 /**
+ * Returns whether print-log sync_queue writes should be sent to Directus.
+ *
+ * When a Directus-managed printer runs in fallback mode (server dispatch
+ * disabled), jobs must stay local-only to avoid duplicate server-side prints.
+ *
+ * @param {{ usesDirectus: boolean, serverDispatchEnabled: boolean }} options
+ * @returns {boolean}
+ */
+function shouldSyncPrintLogEntry(options) {
+  const { usesDirectus, serverDispatchEnabled } = options;
+  return !(usesDirectus && !serverDispatchEnabled);
+}
+
+/**
  * Returns the best available order snapshot for printing.
  *
  * In some UI flows the caller can pass a stale/minimal order object (for example
@@ -300,9 +314,16 @@ export function enqueuePrintJobs(order) {
       continue;
     }
     const job = buildOrderPrintJob({ order: orderForPrint, printerId, items });
+    const usesDirectus = isDirectusManagedPrinter(printer);
+    const syncToDirectus = shouldSyncPrintLogEntry({ usesDirectus, serverDispatchEnabled });
 
     const logId = newUUIDv7('plog');
-    logJob(store, createPrintLogEntry({ job, printer, logId }));
+    logJob(store, createPrintLogEntry({
+      job,
+      printer,
+      logId,
+      extraFields: { syncToDirectus },
+    }));
 
     // connectionType takes precedence over url:
     //   - HTTP printers (not TCP/file): send directly from the browser via URL.
@@ -358,9 +379,16 @@ export function enqueueTableMoveJob(fromTableId, fromTableLabel, toTableId, toTa
       toTableLabel,
       timestamp,
     });
+    const usesDirectus = isDirectusManagedPrinter(printer);
+    const syncToDirectus = shouldSyncPrintLogEntry({ usesDirectus, serverDispatchEnabled });
 
     const logId = newUUIDv7('plog');
-    logJob(store, createPrintLogEntry({ job, printer, logId }));
+    logJob(store, createPrintLogEntry({
+      job,
+      printer,
+      logId,
+      extraFields: { syncToDirectus },
+    }));
 
     // connectionType takes precedence over url (same as enqueuePrintJobs):
     //   - HTTP printers (not TCP/file): send directly from the browser.
@@ -418,6 +446,7 @@ export function enqueuePreBillJob(payload, printerUrl, printerName, printerId = 
     printerId: resolvedPrinterId,
     timestamp,
   });
+  const syncToDirectus = shouldSyncPrintLogEntry({ usesDirectus, serverDispatchEnabled });
 
   const logId = newUUIDv7('plog');
   logJob(store, createPrintLogEntry({
@@ -430,6 +459,7 @@ export function enqueuePreBillJob(payload, printerUrl, printerName, printerId = 
       table: payload.table ?? payload.tableId ?? '',
       timestamp,
     },
+    extraFields: { syncToDirectus },
   }));
 
   if (usesDirectus) {
@@ -505,6 +535,7 @@ export function reprintJob(logEntry, overrideUrl = null) {
     printerUrl: url,
     timestamp,
   });
+  const syncToDirectus = shouldSyncPrintLogEntry({ usesDirectus, serverDispatchEnabled });
 
   const logId = newUUIDv7('plog');
   logJob(store, createPrintLogEntry({
@@ -519,6 +550,7 @@ export function reprintJob(logEntry, overrideUrl = null) {
       timestamp,
     },
     extraFields: {
+      syncToDirectus,
       isReprint: true,
       originalJobId: logEntry.jobId,
     },
