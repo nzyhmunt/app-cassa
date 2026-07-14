@@ -290,7 +290,22 @@ export async function clearFailedSyncCalls() {
  * @returns {Promise<Array>}
  */
 export async function exportFailedSyncCalls() {
-  return getFailedSyncCalls(Number.POSITIVE_INFINITY);
+  try {
+    const db = await getDB();
+    const tx = db.transaction('sync_failed_calls', 'readonly');
+    const index = tx.store.index('failed_at');
+    const results = [];
+    let cursor = await index.openCursor(null, 'prev');
+    while (cursor) {
+      results.push(cursor.value);
+      cursor = await cursor.continue();
+    }
+    await tx.done;
+    return results;
+  } catch (e) {
+    console.warn('[SyncQueue] Failed to export failed call log:', e);
+    return [];
+  }
 }
 
 /**
