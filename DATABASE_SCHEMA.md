@@ -88,6 +88,8 @@ trigger DB o logica equivalente.
 | `menu_modifiers`            | Pool globale modificatori menu (riusabile)                        | (configurazione menu)        |
 | `menu_categories_menu_modifiers` | Junction M2M categorie ↔ modificatori                       | (configurazione menu)        |
 | `menu_items_menu_modifiers` | Junction M2M voci ↔ modificatori                                  | (configurazione menu)        |
+| `printers_menu_categories`  | Junction M2M stampanti ↔ categorie menu (routing stampa ordine)   | (configurazione stampa/menu) |
+| `printers_menu_items`       | Junction M2M stampanti ↔ voci menu (routing stampa ordine)        | (configurazione stampa/menu) |
 | `menu_item_modifiers`       | **DEPRECATA** (vecchio modello 1:N per-voce)                      | (legacy, non usata nel sync) |
 | `bill_sessions`             | Sessione di occupazione tavolo (un'apertura tavolo)               | `app_meta.tableCurrentBillSession` |
 | `orders`                    | Comande inviate dal tavolo                                        | ObjectStore `orders`         |
@@ -793,6 +795,77 @@ CREATE TABLE printers (
 
 ---
 
+### 2.18b `printers_menu_categories` — Junction M2M stampanti ↔ categorie menu
+
+Instrada i job di stampa `order` verso stampanti specifiche in base alla **categoria menu**.
+Se per una stampante non esistono righe in questa junction, resta valida la logica catch-all
+(`print_types`/`categories`) della collection `printers`.
+
+```sql
+CREATE TABLE printers_menu_categories (
+    id UUID PRIMARY KEY, -- PK UUID (allineata allo schema Directus attuale)
+    printer VARCHAR(40) NOT NULL REFERENCES printers(id) ON DELETE CASCADE,
+    menu_category INTEGER NOT NULL REFERENCES menu_categories(id) ON DELETE CASCADE,
+    venue INTEGER NOT NULL REFERENCES venues(id) ON DELETE CASCADE, -- denormalizzato per indice IDB
+    sort INTEGER NULL,
+    date_updated TIMESTAMPTZ NULL,
+    UNIQUE (printer, menu_category)
+);
+
+CREATE INDEX idx_printer_cat_printer  ON printers_menu_categories (printer);
+CREATE INDEX idx_printer_cat_category ON printers_menu_categories (menu_category);
+CREATE INDEX idx_printer_cat_venue    ON printers_menu_categories (venue);
+```
+
+> ⚠️ **Campo alias Directus richiesto su `printers`:** dopo aver creato questa junction,
+> aggiungere in Directus un campo **O2M alias** sulla collection `printers` con il nome
+> esatto **`menu_category_routes`** (tipo `alias`, special `o2m`, foreign key `printer`,
+> related collection `printers_menu_categories`).
+> Il frontend usa questo campo nel deep fetch:
+> ```
+> 'printers.menu_category_routes.*'
+> 'printers.menu_category_routes.menu_category.*'
+> ```
+> Se il campo alias è assente o ha nome diverso, il deep fetch non popolerà i link e il
+> routing per categoria risulterà vuoto a runtime (comportamento catch-all inatteso).
+
+---
+
+### 2.18c `printers_menu_items` — Junction M2M stampanti ↔ voci menu
+
+Instrada i job di stampa `order` verso stampanti specifiche in base alla **singola voce menu**.
+La relazione a livello voce ha precedenza rispetto alla relazione per categoria quando entrambe sono presenti.
+
+```sql
+CREATE TABLE printers_menu_items (
+    id UUID PRIMARY KEY, -- PK UUID (allineata allo schema Directus attuale)
+    printer VARCHAR(40) NOT NULL REFERENCES printers(id) ON DELETE CASCADE,
+    menu_item VARCHAR(50) NOT NULL REFERENCES menu_items(id) ON DELETE CASCADE,
+    venue INTEGER NOT NULL REFERENCES venues(id) ON DELETE CASCADE, -- denormalizzato per indice IDB
+    sort INTEGER NULL,
+    date_updated TIMESTAMPTZ NULL,
+    UNIQUE (printer, menu_item)
+);
+
+CREATE INDEX idx_printer_item_printer ON printers_menu_items (printer);
+CREATE INDEX idx_printer_item_item    ON printers_menu_items (menu_item);
+CREATE INDEX idx_printer_item_venue   ON printers_menu_items (venue);
+```
+
+> ⚠️ **Campo alias Directus richiesto su `printers`:** dopo aver creato questa junction,
+> aggiungere in Directus un campo **O2M alias** sulla collection `printers` con il nome
+> esatto **`menu_item_routes`** (tipo `alias`, special `o2m`, foreign key `printer`,
+> related collection `printers_menu_items`).
+> Il frontend usa questo campo nel deep fetch:
+> ```
+> 'printers.menu_item_routes.*'
+> 'printers.menu_item_routes.menu_item.*'
+> ```
+> Se il campo alias è assente o ha nome diverso, il deep fetch non popolerà i link e il
+> routing per singola voce risulterà vuoto a runtime.
+
+---
+
 ### 2.19 `print_jobs` — Log dei lavori di stampa (cronologia stampe)
 
 Struttura dati unificata e flessibile per tutti i tipi di lavoro di stampa.
@@ -1036,6 +1109,8 @@ venues ──< menu_categories ──< menu_items
 venues ──< menu_modifiers
 menu_categories >──< menu_modifiers (via menu_categories_menu_modifiers)
 menu_items >──< menu_modifiers (via menu_items_menu_modifiers)
+printers >──< menu_categories (via printers_menu_categories)
+printers >──< menu_items (via printers_menu_items)
 venues ──< bill_sessions >── tables
 venues ──< orders >── tables
                     >── bill_sessions
@@ -1068,6 +1143,8 @@ Cardinalità:
 | venue          | 1 : N     | menu_modifiers           |
 | menu_category  | N : M     | menu_modifiers           |
 | menu_item      | N : M     | menu_modifiers           |
+| printer        | N : M     | menu_categories          |
+| printer        | N : M     | menu_items               |
 | table          | 1 : N     | bill_sessions            |
 | bill_session   | 1 : N     | orders                   |
 | order          | 1 : N     | order_items              |
@@ -1093,6 +1170,17 @@ Cardinalità:
 └──────┬──────┘     └────────┬─────────┘     └────────┬──────────┘
        │ 1                   │ N                      │ N
        │ N                   │                        │
+       │                     │             ┌──────────▼──────────┐
+       │                     │             │      printers       │
+       │                     │             │─────────────────────│
+       │                     │             │ id (PK), venue (FK) │
+       │                     │             │ name / print_types  │
+       │                     │             └───────┬───────┬─────┘
+       │                     │                     │ N     │ N
+       │                     │      ┌──────────────▼──┐ ┌──▼──────────────┐
+       │                     │      │printers_menu_   │ │printers_menu_   │
+       │                     │      │categories (M2M) │ │items (M2M)      │
+       │                     │      └─────────────────┘ └──────────────────┘
 ┌──────▼──────┐     ┌────────▼──────────┐     ┌───────▼────────────────────┐
 │   rooms     │──1──│      tables       │     │ menu_items_menu_modifiers  │
 │─────────────│  N  │───────────────────│     │      (junction M2M)        │
@@ -1439,6 +1527,8 @@ ObjectStore: menu_items       keyPath: id    indexes: [category]
 ObjectStore: menu_modifiers   keyPath: id    indexes: [venue, date_updated]
 ObjectStore: menu_categories_menu_modifiers keyPath: id indexes: [menu_categories_id, menu_modifiers_id, venue, date_updated]
 ObjectStore: menu_items_menu_modifiers      keyPath: id indexes: [menu_items_id, menu_modifiers_id, venue, date_updated]
+ObjectStore: printers_menu_categories       keyPath: id indexes: [printer, menu_category, venue, date_updated]
+ObjectStore: printers_menu_items            keyPath: id indexes: [printer, menu_item, venue, date_updated]
 ObjectStore: printers         keyPath: id
 ObjectStore: venue_users      keyPath: id    indexes: [venue, apps, status]
 
@@ -2176,7 +2266,7 @@ una cartella tramite la proprietà `group` dei metadati di collezione (`meta.gro
 | Cartella          | Icona                    | Colore    | Collection                                                                                                                                                             |
 |-------------------|--------------------------|-----------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `configurazione`  | `settings`               | `#546E7A` | `venues`, `venue_users`, `payment_methods`, `printers`                                                                                                                |
-| `menu`            | `menu_book`              | `#EF6C00` | `menu_items`, `menu_categories`, `menu_modifiers`, `menu_categories_menu_modifiers`, `menu_items_menu_modifiers`                                                     |
+| `menu`            | `menu_book`              | `#EF6C00` | `menu_items`, `menu_categories`, `menu_modifiers`, `menu_categories_menu_modifiers`, `menu_items_menu_modifiers`, `printers_menu_categories`, `printers_menu_items` |
 | `sala`            | `table_restaurant`       | `#1565C0` | `tables`, `rooms`, `table_merge_sessions`                                                                                                                              |
 | `cassa`           | `point_of_sale`          | `#2E7D32` | `orders`, `bill_sessions`, `order_items`, `order_item_modifiers`, `transactions`, `cash_movements`, `daily_closures`, `daily_closure_by_method`, `transaction_order_refs`, `transaction_voce_refs` |
 | `sistema`         | `integration_instructions` | `#0277BD` | `print_jobs`, `fiscal_receipts`, `invoice_requests`                                                                                                                   |
@@ -2194,6 +2284,8 @@ una cartella tramite la proprietà `group` dei metadati di collezione (`meta.gro
 | `menu_modifiers`            | `add_circle`            | Modificatore / Modificatori  | Modifier / Modifiers        |
 | `menu_categories_menu_modifiers` | `join_inner`      | Link Categoria-Modificatore  | Category-Modifier Link      |
 | `menu_items_menu_modifiers` | `join_inner`            | Link Voce-Modificatore       | Item-Modifier Link          |
+| `printers_menu_categories`  | `join_inner`            | Link Stampante-Categoria      | Printer-Category Link       |
+| `printers_menu_items`       | `join_inner`            | Link Stampante-Voce           | Printer-Item Link           |
 | `tables`                    | `table_restaurant`      | Tavolo / Tavoli              | Table / Tables              |
 | `rooms`                     | `meeting_room`          | Sala / Sale                  | Room / Rooms                |
 | `table_merge_sessions`      | `merge`                 | Unione Tavoli                | Table Merges                |
@@ -2405,3 +2497,7 @@ Le tre collection `menu_modifiers`, `menu_categories_menu_modifiers`,
 3. Creare la collection `menu_items_menu_modifiers` con i campi di §2.5c e le relazioni M2M.
 4. Aggiungere il campo O2M alias `menu_modifiers` a `menu_categories` e a `menu_items`.
 5. Migrare i dati da `menu_item_modifiers` (deprecated) alle nuove collection se esistono record.
+6. Creare la collection `printers_menu_categories` con i campi di §2.18b e le relazioni M2M con `printers` e `menu_categories`.
+7. Aggiungere il campo O2M alias **`menu_category_routes`** sulla collection `printers` (vedi nota ⚠️ in §2.18b). Il nome deve corrispondere esattamente a quello usato nel deep fetch del frontend.
+8. Creare la collection `printers_menu_items` con i campi di §2.18c e le relazioni M2M con `printers` e `menu_items`.
+9. Aggiungere il campo O2M alias **`menu_item_routes`** sulla collection `printers` (vedi nota ⚠️ in §2.18c). Il nome deve corrispondere esattamente a quello usato nel deep fetch del frontend.

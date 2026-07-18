@@ -211,6 +211,55 @@ function _extractModifierTree(venueRecord, menuSource) {
   };
 }
 
+function _extractPrinterRoutingTree(venueRecord, menuSource) {
+  if (menuSource === 'json') {
+    return {
+      printerCategoryLinks: [],
+      printerItemLinks: [],
+    };
+  }
+
+  const printers = _normalizeToArray(venueRecord.printers).filter(_isObjectRecord);
+  const printerCategoryLinks = [];
+  const printerItemLinks = [];
+
+  for (const printer of printers) {
+    const printerId = relationId(printer.id);
+    if (printerId == null) continue;
+
+    for (const link of _normalizeToArray(printer.menu_category_routes)) {
+      const categoryId = relationId(link?.menu_category);
+      if (categoryId == null) continue;
+      printerCategoryLinks.push({
+        id: link?.id ?? `printer::${String(printerId)}::category::${String(categoryId)}`,
+        printer: printerId,
+        menu_category: categoryId,
+        venue: relationId(link?.venue) ?? relationId(printer?.venue) ?? relationId(venueRecord?.id),
+        sort: link?.sort ?? null,
+        date_updated: link?.date_updated ?? null,
+      });
+    }
+
+    for (const link of _normalizeToArray(printer.menu_item_routes)) {
+      const itemId = relationId(link?.menu_item);
+      if (itemId == null) continue;
+      printerItemLinks.push({
+        id: link?.id ?? `printer::${String(printerId)}::item::${String(itemId)}`,
+        printer: printerId,
+        menu_item: itemId,
+        venue: relationId(link?.venue) ?? relationId(printer?.venue) ?? relationId(venueRecord?.id),
+        sort: link?.sort ?? null,
+        date_updated: link?.date_updated ?? null,
+      });
+    }
+  }
+
+  return {
+    printerCategoryLinks,
+    printerItemLinks,
+  };
+}
+
 /**
  * Writes a flattened venue record and all its nested sub-collections to IDB
  * in a single atomic transaction.
@@ -237,6 +286,7 @@ export async function _fanOutVenueTreeToIDB(venueRecord, { menuSource, shouldAbo
     categoryLinks,
     itemLinks,
   } = _extractModifierTree(venueRecord, menuSource);
+  const { printerCategoryLinks, printerItemLinks } = _extractPrinterRoutingTree(venueRecord, menuSource);
   const rooms = _normalizeToArray(venueRecord.rooms)
     .filter(_isObjectRecord);
   const directTables = _normalizeToArray(venueRecord.tables)
@@ -284,6 +334,8 @@ export async function _fanOutVenueTreeToIDB(venueRecord, { menuSource, shouldAbo
     menu_modifiers: withVenueFallback(modifiers),
     menu_categories_menu_modifiers: withVenueFallback(categoryLinks),
     menu_items_menu_modifiers: withVenueFallback(itemLinks),
+    printers_menu_categories: withVenueFallback(printerCategoryLinks),
+    printers_menu_items: withVenueFallback(printerItemLinks),
   };
 
   if (menuSource === 'json') {
@@ -292,6 +344,8 @@ export async function _fanOutVenueTreeToIDB(venueRecord, { menuSource, shouldAbo
     payloadByStore.menu_modifiers = [];
     payloadByStore.menu_categories_menu_modifiers = [];
     payloadByStore.menu_items_menu_modifiers = [];
+    payloadByStore.printers_menu_categories = [];
+    payloadByStore.printers_menu_items = [];
   }
 
   const stores = Object.entries(payloadByStore);

@@ -7,6 +7,7 @@
  *    mapBillSessionFromDirectus, mapTransactionFromDirectus, mapVenueConfigFromDirectus,
  *    mapMenuItemFromDirectus, mapMenuCategoryFromDirectus, mapMenuModifierFromDirectus,
  *    mapMenuCategoryModifierLinkFromDirectus, mapMenuItemModifierLinkFromDirectus,
+ *    mapPrinterMenuCategoryLinkFromDirectus, mapPrinterMenuItemLinkFromDirectus,
  *    mapTableMergeSessionFromDirectus, mapFiscalReceiptFromDirectus, mapInvoiceRequestFromDirectus
  *  - Push (runtime/IDB -> Directus, exported): mapOrderToDirectus, mapOrderItemToDirectus,
  *    mapOrderItemModifierToDirectus, mapPrintJobToDirectus
@@ -462,6 +463,40 @@ export function mapMenuItemModifierLinkFromDirectus(record) {
 }
 
 /**
+ * Maps a raw Directus `printers_menu_categories` junction record.
+ * Uses Directus relation names without `_id` suffix.
+ *
+ * @param {object} record
+ * @returns {object}
+ */
+export function mapPrinterMenuCategoryLinkFromDirectus(record) {
+  return {
+    ...record,
+    venue: relationId(record.venue),
+    printer: relationId(record.printer),
+    menu_category: relationId(record.menu_category),
+    _sync_status: 'synced',
+  };
+}
+
+/**
+ * Maps a raw Directus `printers_menu_items` junction record.
+ * Uses Directus relation names without `_id` suffix.
+ *
+ * @param {object} record
+ * @returns {object}
+ */
+export function mapPrinterMenuItemLinkFromDirectus(record) {
+  return {
+    ...record,
+    venue: relationId(record.venue),
+    printer: relationId(record.printer),
+    menu_item: relationId(record.menu_item),
+    _sync_status: 'synced',
+  };
+}
+
+/**
  * Maps a raw Directus `table_merge_sessions` record to the local format.
  * Extracts relation FKs for `venue`, `master_table`, `slave_table`.
  *
@@ -776,6 +811,8 @@ const _DIRECTUS_RELATION_FIELDS = new Set([
   'dish',
   'order_item',
   'menu_item',
+  'menu_category',
+  'printer',
   'menu_items_id',
   'menu_categories_id',
   'menu_modifiers_id',
@@ -877,6 +914,8 @@ export function mapVenueConfigFromDirectus(cachedConfig, defaults) {
     modifiers = [],
     categoryModifierLinks = [],
     itemModifierLinks = [],
+    printerCategoryLinks = [],
+    printerItemLinks = [],
   } = cachedConfig;
 
   if (venueRecord) {
@@ -905,6 +944,33 @@ export function mapVenueConfigFromDirectus(cachedConfig, defaults) {
       next.venueMenuSource = venueRecord.menu_source;
     }
     if (venueRecord.menu_url != null && String(venueRecord.menu_url).trim() !== '') next.menuUrl = String(venueRecord.menu_url);
+  }
+
+  const categoryNameById = new Map(
+    categories
+      .map((category) => [relationId(category.id) ?? category.id, category?.name ?? ''])
+      .filter(([id]) => id != null)
+      .map(([id, name]) => [String(id), name]),
+  );
+  const printerCategoryNamesByPrinterId = new Map();
+  for (const link of (printerCategoryLinks ?? [])) {
+    const printerId = relationId(link.printer);
+    const categoryId = relationId(link.menu_category);
+    if (printerId == null || categoryId == null) continue;
+    const categoryName = categoryNameById.get(String(categoryId)) ?? '';
+    if (!categoryName) continue;
+    const key = String(printerId);
+    if (!printerCategoryNamesByPrinterId.has(key)) printerCategoryNamesByPrinterId.set(key, new Set());
+    printerCategoryNamesByPrinterId.get(key).add(categoryName);
+  }
+  const printerItemIdsByPrinterId = new Map();
+  for (const link of (printerItemLinks ?? [])) {
+    const printerId = relationId(link.printer);
+    const itemId = relationId(link.menu_item);
+    if (printerId == null || itemId == null) continue;
+    const key = String(printerId);
+    if (!printerItemIdsByPrinterId.has(key)) printerItemIdsByPrinterId.set(key, new Set());
+    printerItemIdsByPrinterId.get(key).add(String(itemId));
   }
 
   if (rooms.length > 0) {
@@ -962,7 +1028,17 @@ export function mapVenueConfigFromDirectus(cachedConfig, defaults) {
     next.printers = printers.map((printer) => {
       const entry = { id: printer.id, name: printer.name, url: printer.url };
       if (printer.print_types?.length) entry.printTypes = printer.print_types;
-      if (printer.categories?.length) entry.categories = printer.categories;
+      const printerKey = String(printer.id);
+      const routedCategories = [...(printerCategoryNamesByPrinterId.get(printerKey) ?? [])];
+      const routedItems = [...(printerItemIdsByPrinterId.get(printerKey) ?? [])];
+      if (routedCategories.length > 0) {
+        entry.categories = routedCategories;
+      } else if (printer.categories?.length) {
+        entry.categories = printer.categories;
+      }
+      if (routedItems.length > 0) {
+        entry.menuItems = routedItems;
+      }
       if (typeof printer.fallback_url === 'string' && printer.fallback_url.trim()) {
         entry.fallbackUrl = printer.fallback_url.trim();
       }
@@ -972,6 +1048,19 @@ export function mapVenueConfigFromDirectus(cachedConfig, defaults) {
       if (printer.connection_type) entry.connectionType = printer.connection_type;
       return entry;
     });
+  }
+
+  const menuItemCategoryLabels = {};
+  for (const item of (items ?? [])) {
+    const itemId = relationId(item.id);
+    const categoryId = relationId(item.category);
+    if (itemId == null || categoryId == null) continue;
+    const categoryName = categoryNameById.get(String(categoryId));
+    if (!categoryName) continue;
+    menuItemCategoryLabels[String(itemId)] = categoryName;
+  }
+  if (Object.keys(menuItemCategoryLabels).length > 0) {
+    next.menuItemCategoryLabels = menuItemCategoryLabels;
   }
 
   if (next.menuSource === 'directus' && categories.length > 0 && items.length > 0) {

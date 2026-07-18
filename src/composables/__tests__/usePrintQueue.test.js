@@ -218,6 +218,19 @@ describe('enqueuePrintJobs()', () => {
       }));
       await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     });
+
+    it('routes by menu item ids when printer has menuItems mapping', async () => {
+      appConfig.printers = [
+        { id: 'bar', name: 'Bar', url: 'http://localhost:3002/print', menuItems: ['bev_1'] },
+      ];
+      enqueuePrintJobs(makeOrder());
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+      expect(body.printerId).toBe('bar');
+      expect(body.items).toHaveLength(1);
+      expect(body.items[0].name).toBe('Acqua');
+    });
   });
 
   describe('catch-all printer (empty categories)', () => {

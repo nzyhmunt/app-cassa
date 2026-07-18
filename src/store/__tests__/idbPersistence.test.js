@@ -597,6 +597,8 @@ describe('clearLocalConfigCacheFromIDB()', () => {
       db.put('payment_methods', { id: 'cash', label: 'Contanti' }),
       db.put('menu_categories', { id: 'cat_1', venue: 1, name: 'Primi' }),
       db.put('menu_items', { id: 'item_1', category: 'cat_1', name: 'Pasta' }),
+      db.put('printers_menu_categories', { id: 'pmc_1', printer: 'prn_1', menu_category: 'cat_1', venue: 1 }),
+      db.put('printers_menu_items', { id: 'pmi_1', printer: 'prn_1', menu_item: 'item_1', venue: 1 }),
       db.put('printers', { id: 'prn_1', name: 'Stampante' }),
       db.put('venue_users', { id: 'vu_1', _type: 'venue_user' }),
       db.put('table_merge_sessions', { id: 'tm_1', slave_table: 'T2', master_table: 'T1' }),
@@ -613,6 +615,8 @@ describe('clearLocalConfigCacheFromIDB()', () => {
     expect(db.objectStoreNames.contains('app_settings')).toBe(false);
     expect(await db.getAll('menu_categories')).toEqual([]);
     expect(await db.getAll('menu_items')).toEqual([]);
+    expect(await db.getAll('printers_menu_categories')).toEqual([]);
+    expect(await db.getAll('printers_menu_items')).toEqual([]);
     expect(db.objectStoreNames.contains('menu_item_modifiers')).toBe(false);
     expect(await db.getAll('printers')).toEqual([]);
     expect(await db.getAll('venue_users')).toEqual([]);

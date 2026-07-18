@@ -3,8 +3,77 @@
  * @description Unit tests for pull-side mapper functions in utils/mappers.js.
  */
 import { describe, it, expect } from 'vitest';
-import { mapTransactionFromDirectus, mapPrintJobToDirectus, mapPayloadToDirectus, mapFiscalReceiptFromDirectus, mapInvoiceRequestFromDirectus } from '../mappers.js';
+import {
+  mapTransactionFromDirectus,
+  mapPrintJobToDirectus,
+  mapPayloadToDirectus,
+  mapFiscalReceiptFromDirectus,
+  mapInvoiceRequestFromDirectus,
+  mapPrinterMenuCategoryLinkFromDirectus,
+  mapPrinterMenuItemLinkFromDirectus,
+  mapVenueConfigFromDirectus,
+} from '../mappers.js';
 import { resolveTransactionPaymentLabel } from '../paymentMethods.js';
+import { DEFAULT_SETTINGS } from '../index.js';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// printer routing junction mappers
+// ─────────────────────────────────────────────────────────────────────────────
+describe('printer routing junction mappers', () => {
+  it('maps printers_menu_categories links with relation id extraction', () => {
+    const mapped = mapPrinterMenuCategoryLinkFromDirectus({
+      id: 'pmc_1',
+      printer: { id: 'prn_1' },
+      menu_category: { id: 10 },
+      venue: { id: 1 },
+    });
+
+    expect(mapped.printer).toBe('prn_1');
+    expect(mapped.menu_category).toBe(10);
+    expect(mapped.venue).toBe(1);
+    expect(mapped._sync_status).toBe('synced');
+  });
+
+  it('maps printers_menu_items links with relation id extraction', () => {
+    const mapped = mapPrinterMenuItemLinkFromDirectus({
+      id: 'pmi_1',
+      printer: { id: 'prn_1' },
+      menu_item: { id: 'bev_1' },
+      venue: { id: 1 },
+    });
+
+    expect(mapped.printer).toBe('prn_1');
+    expect(mapped.menu_item).toBe('bev_1');
+    expect(mapped.venue).toBe(1);
+    expect(mapped._sync_status).toBe('synced');
+  });
+
+  it('derives printer category/name routing from new printer junction links', () => {
+    const mappedConfig = mapVenueConfigFromDirectus({
+      venueRecord: { id: 1, menu_source: 'directus' },
+      categories: [{ id: 10, venue: 1, name: 'Bevande', status: 'published' }],
+      items: [{ id: 'bev_1', venue: 1, category: 10, name: 'Acqua', price: 1, status: 'published' }],
+      printers: [{ id: 'bar', venue: 1, name: 'Bar', status: 'published' }],
+      printerCategoryLinks: [{ id: 'pmc_1', printer: 'bar', menu_category: 10, venue: 1 }],
+      printerItemLinks: [{ id: 'pmi_1', printer: 'bar', menu_item: 'bev_1', venue: 1 }],
+    }, DEFAULT_SETTINGS);
+
+    expect(mappedConfig.printers[0].categories).toEqual(['Bevande']);
+    expect(mappedConfig.printers[0].menuItems).toEqual(['bev_1']);
+    expect(mappedConfig.menuItemCategoryLabels).toEqual({ bev_1: 'Bevande' });
+  });
+
+  it('does not derive category labels from categories with null/undefined ids', () => {
+    const mappedConfig = mapVenueConfigFromDirectus({
+      venueRecord: { id: 1, menu_source: 'directus' },
+      categories: [{ name: 'Invalid' }],
+      items: [{ id: 'bev_1', venue: 1, category: undefined, name: 'Acqua', price: 1, status: 'published' }],
+      printers: [],
+    }, DEFAULT_SETTINGS);
+
+    expect(mappedConfig.menuItemCategoryLabels ?? {}).toEqual({});
+  });
+});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // mapTransactionFromDirectus

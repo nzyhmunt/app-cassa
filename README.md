@@ -545,6 +545,7 @@ Ogni stampante accetta:
 - **`connectionType`**: `'tcp' | 'file' | 'http'` (tcp/file = routing server-side prioritario)
 - **`fallbackUrl`** *(opzionale)*: endpoint HTTP usato solo quando `connectionType` è `tcp/file`
   ma `printing.serverDispatchEnabled` è disattivato lato client
+- **`menuItems`**: opzionale, lista ID voci menu da instradare in modo puntuale (precedenza su `categories`)
 
 ### Tipi di stampa
 
@@ -601,9 +602,10 @@ Tutti i job contengono: `id`, `logId`, `jobId`, `printType`, `printerId`, `table
 
 ### Comportamento
 
-- **Routing per categoria**: ogni stampante riceve solo le voci il cui `dishId` appartiene
+- **Routing per voce**: se `menuItems` è valorizzato, la stampante riceve solo le voci con `dishId` incluso in quella lista.
+- **Routing per categoria**: in assenza di `menuItems`, ogni stampante riceve solo le voci il cui `dishId` appartiene
   a una delle categorie elencate in `categories` (confronto case-insensitive).
-- **Catch-all**: se `categories` è assente o vuoto, la stampante riceve tutte le voci.
+- **Catch-all**: se `menuItems` e `categories` sono assenti o vuoti, la stampante riceve tutte le voci.
 - **Routing condiviso**: selezione stampanti, selezione stampante preconto e risoluzione `printerId`/`url`
   usano helper comuni, così HTTP e Directus seguono le stesse regole di matching.
 - **Fire-and-forget**: gli errori di rete vengono loggati in console ma non bloccano l'UI.
