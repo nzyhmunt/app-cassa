@@ -63,7 +63,7 @@ function formatDateTime(iso) {
  * @returns {Buffer}
  */
 function formatPreBill(job) {
-  const enc = new ReceiptPrinterEncoder({ language: 'esc-pos', width: WIDTH });
+  const enc = new ReceiptPrinterEncoder({ language: 'esc-pos', width: WIDTH, newline: '\n' });
 
   // ── Intestazione ──────────────────────────────────────────────────────────
 

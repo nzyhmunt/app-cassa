@@ -13,6 +13,10 @@ const { formatOrder }     = require('../formatters/order.js');
 const { formatTableMove } = require('../formatters/table_move.js');
 const { formatPreBill }   = require('../formatters/pre_bill.js');
 
+function expectNoCarriageReturns(buf) {
+  expect(buf.includes(0x0d)).toBe(false);
+}
+
 // ── formatOrder ───────────────────────────────────────────────────────────────
 
 describe('formatOrder', () => {
@@ -20,6 +24,7 @@ describe('formatOrder', () => {
     const buf = formatOrder({ table: '05', time: '20:15', items: [] });
     expect(buf).toBeInstanceOf(Buffer);
     expect(buf.length).toBeGreaterThan(0);
+    expectNoCarriageReturns(buf);
   });
 
   it('includes items with quantity, notes and modifiers', () => {
@@ -57,6 +62,7 @@ describe('formatTableMove', () => {
     });
     expect(buf).toBeInstanceOf(Buffer);
     expect(buf.length).toBeGreaterThan(0);
+    expectNoCarriageReturns(buf);
   });
 
   it('falls back to fromTableId/toTableId when labels are missing', () => {
@@ -81,6 +87,7 @@ describe('formatPreBill', () => {
     });
     expect(buf).toBeInstanceOf(Buffer);
     expect(buf.length).toBeGreaterThan(0);
+    expectNoCarriageReturns(buf);
   });
 
   it('handles partial payment (paymentsRecorded > 0)', () => {

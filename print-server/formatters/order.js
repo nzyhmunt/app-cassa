@@ -34,7 +34,7 @@ const ReceiptPrinterEncoder = require('@point-of-sale/receipt-printer-encoder');
  * @returns {Buffer}
  */
 function formatOrder(job) {
-  const enc = new ReceiptPrinterEncoder({ language: 'esc-pos', width: 42 });
+  const enc = new ReceiptPrinterEncoder({ language: 'esc-pos', width: 42, newline: '\n' });
 
   // ── Intestazione ──────────────────────────────────────────────────────────
 
