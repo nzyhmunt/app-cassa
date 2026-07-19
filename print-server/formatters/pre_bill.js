@@ -42,6 +42,8 @@ function fmt(n) {
 
 /**
  * Formatta una stringa ISO 8601 in "DD/MM/YYYY HH:MM".
+ * Usa metodi UTC per garantire un output deterministico
+ * indipendentemente dal fuso orario del processo.
  * @param {string} iso
  * @returns {string}
  */
