@@ -8,10 +8,9 @@ import { describe, it, expect } from 'vitest';
 import { createRequire } from 'module';
 import fs from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
 
 const require = createRequire(import.meta.url);
-const fixturesDir = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures');
+const fixturesDir = path.join(import.meta.dirname, 'fixtures');
 
 const { formatOrder }     = require('../formatters/order.js');
 const { formatTableMove } = require('../formatters/table_move.js');
