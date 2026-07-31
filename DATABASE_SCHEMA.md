@@ -401,18 +401,45 @@ CREATE TABLE bill_sessions (
     children        SMALLINT        NOT NULL DEFAULT 0 CHECK (children >= 0),
     opened_at       TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
     closed_at       TIMESTAMPTZ     NULL,           -- NULL = sessione ancora aperta
+    
+    -- === CAMPI SELF-ORDER (P7) ===
+    self_order_enabled        BOOLEAN     NOT NULL DEFAULT FALSE,  -- TRUE = QR self-order attivo
+    self_order_token         VARCHAR(64) NULL,                    -- Token per auth client self-order
+    self_order_qr_generated_at TIMESTAMPTZ NULL,                  -- Quando è stato generato il QR
+    
     -- Directus standard fields
     user_created    UUID            NULL REFERENCES directus_users(id),
     date_created    TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
     user_updated    UUID            NULL REFERENCES directus_users(id),
-    date_updated    TIMESTAMPTZ     NULL,           -- aggiornato a ogni modifica da Directus (o trigger DB)
+    date_updated   TIMESTAMPTZ     NULL,           -- aggiornato a ogni modifica da Directus (o trigger DB)
     -- Operatore locale (venue_user) — tracciamento audit operatori PIN
     venue_user_created UUID         NULL REFERENCES venue_users(id),
     venue_user_updated UUID         NULL REFERENCES venue_users(id)
 );
 
 CREATE INDEX idx_bill_sessions_table ON bill_sessions("table", status);
+CREATE INDEX idx_bill_sessions_self_order ON bill_sessions(self_order_token) WHERE self_order_token IS NOT NULL;
 ```
+
+### 2.7.1 Self-Order Token Generation
+
+Il token self-order viene generato quando la sessione viene aperta da cassa/sala:
+
+```javascript
+// Generazione token (lato cassa/sala)
+const token = crypto.randomUUID(); // o HMAC-based token
+
+// Oppure per token più breve (6 caratteri alfanumerici)
+const token = Math.random().toString(36).substring(2, 8).toUpperCase();
+
+// URL QR Code per cliente
+const qrUrl = `https://app.example.com/selforder.html#/session/${billSessionId}?token=${token}`;
+```
+
+Il token viene:
+1. Generato da cassa/sala quando `self_order_enabled = true`
+2. Incluso nel QR code
+3. Validato quando il cliente accede (deve corrispondere e sessione deve essere `status='open'`)
 
 ---
 
@@ -1074,6 +1101,114 @@ Cardinalità:
 | venue          | 1 : N     | cash_movements           |
 | venue          | 1 : N     | daily_closures           |
 | daily_closure  | 1 : N     | daily_closure_by_method  |
+
+---
+
+## 5.5 Directus - Ruoli e Permessi Self-Order
+
+### Ruolo: Self-Order Client
+
+Creare un ruolo dedicato in Directus per i clienti Self-Order:
+
+| Campo | Valore |
+|-------|--------|
+| Nome | `Self-Order Client` |
+| Descrizione | `Clienti che ordinano tramite app Self-Order` |
+| Field Read Access | Tutti i campi |
+| Field Write Access | Solo campi specifici (vedi sotto) |
+
+### Permessi Ruolo Self-Order Client
+
+| Collection | Permesso | Condizioni/Filtri |
+|-----------|----------|-------------------|
+| `bill_sessions` | READ | `self_order_token` = token inviato dal client AND `status` = 'open' |
+| `orders` | CREATE | `bill_session` deve essere nella sessione valida del token |
+| `orders` | READ | Solo ordini con `bill_session` = sessione valida (own orders) |
+| `venues` | READ | Solo per lookup del venue (non per scrittura) |
+
+### DDL Permessi
+
+```sql
+-- Creazione ruolo (via API Directus)
+-- POST /roles
+{
+  "name": "Self-Order Client",
+  "description": "Ruolo per clienti Self-Order",
+  "icon": "qr_code"
+}
+
+-- Permessi READ bill_sessions
+-- POST /roles/{role_id}/permissions
+{
+  "collection": "bill_sessions",
+  "action": "read",
+  "fields": ["*"],
+  "validation": {
+    "_and": [
+      { "self_order_token": { "_eq": "$trigger.token" } },
+      { "status": { "_eq": "open" } }
+    ]
+  }
+}
+
+-- Permessi CREATE orders
+-- POST /roles/{role_id}/permissions
+{
+  "collection": "orders",
+  "action": "create",
+  "fields": [
+    "bill_session", "venue", "table", "status", "order_time",
+    "dietary_diets", "dietary_allergens", "global_note", "is_direct_entry",
+    "items"
+  ],
+  "validation": {
+    "bill_session": {
+      "_in": "$trigger.valid_session_ids"
+    }
+  }
+}
+```
+
+### Validazione Server-Side (Hook Directus)
+
+Per maggiore sicurezza, aggiungere un hook che valida:
+1. Il token corrisponde alla sessione
+2. La sessione è ancora `status='open'`
+3. Il `bill_session` nell'ordine corrisponde al token
+
+```javascript
+// Directus hook (custom endpoint o flow)
+export default defineHook(({ filter, action }, { env }) => {
+  
+  // Hook pre-creazione ordine
+  filter('orders.items.create', async (input, { database, schema, accountability }) => {
+    
+    // Solo per clienti self-order (non per cassa/sala)
+    if (accountability?.role !== 'self-order-client') return input;
+    
+    const billSession = await database
+      .select('self_order_token', 'status')
+      .from('bill_sessions')
+      .where('id', input.bill_session)
+      .first();
+    
+    if (!billSession) {
+      throw new ForbiddenException('Sessione non valida');
+    }
+    
+    if (billSession.status !== 'open') {
+      throw new ForbiddenException('Sessione chiusa');
+    }
+    
+    // Validazione token...
+    if (billSession.self_order_token !== accountability.token) {
+      throw new ForbiddenException('Token non valido');
+    }
+    
+    return input;
+  });
+});
+```
 
 ---
 
