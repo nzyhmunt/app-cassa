@@ -153,6 +153,66 @@ export function useSelfOrderMenu() {
   }
 
   /**
+   * Get item price from menu (trusted source)
+   * Prices come from menu.json, not from client calculation
+   */
+  function getItemPrice(itemId) {
+    const item = getItemById(itemId);
+    return item?.price || 0;
+  }
+
+  /**
+   * Get modifier price from menu (trusted source)
+   */
+  function getModifierPrice(modifierId) {
+    const allItems = getAllItems();
+    for (const item of allItems) {
+      if (item.modifiers) {
+        const mod = item.modifiers.find(m => m.id === modifierId);
+        if (mod) return mod.price || 0;
+      }
+    }
+    return 0;
+  }
+
+  /**
+   * Calculate cart total from menu prices (NOT from client-side prices)
+   * This is the trusted calculation based on menu.json
+   */
+  function calculateCartTotal(cartItems) {
+    let total = 0;
+    let itemCount = 0;
+
+    for (const cartItem of cartItems) {
+      const itemPrice = getItemPrice(cartItem.menuItemId);
+      total += itemPrice * cartItem.quantity;
+      itemCount += cartItem.quantity;
+
+      // Add modifier prices
+      if (cartItem.modifiers) {
+        for (const mod of cartItem.modifiers) {
+          total += (mod.price || 0) * cartItem.quantity;
+        }
+      }
+    }
+
+    return { total, itemCount };
+  }
+
+  /**
+   * Get item with verified price from menu
+   */
+  function getItemWithVerifiedPrice(cartItem) {
+    const menuItem = getItemById(cartItem.menuItemId);
+    if (!menuItem) return null;
+
+    return {
+      ...menuItem,
+      verifiedPrice: menuItem.price, // Price from menu, not from cart
+    };
+  }
+
+  /**
    * Get items by category
    */
   function getItemsByCategory(category) {
@@ -348,6 +408,10 @@ export function useSelfOrderMenu() {
     lastFetch,
     loadMenu,
     getItemById,
+    getItemPrice,
+    getModifierPrice,
+    calculateCartTotal,
+    getItemWithVerifiedPrice,
     getItemsByCategory,
     getAllItems,
     getAvailableItems,

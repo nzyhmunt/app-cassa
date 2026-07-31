@@ -1118,6 +1118,27 @@ La sessione può essere **condivisa** con altri dispositivi (es. più persone al
 
 ### Payload Ordine Self-Order (allineato con schema Directus)
 
+**SICUREZZA: I prezzi NON vengono inviati dal client**
+
+```
+❌ NON INVIATI dal client:
+   - total_amount
+   - item_count  
+   - items[].unit_price
+
+✓ INVITI dal client (non manipolabili):
+   - bill_session (obbligatorio)
+   - items[].dish (menu item ID)
+   - items[].quantity
+   - items[].notes
+   - dietary_diets / dietary_allergens
+
+✓ CALCOLATI dalla cassa/sala (fonte fidata):
+   - total_amount (ricalcolato da menu.json)
+   - item_count (ricalcolato)
+   - items[].unit_price (da menu.json)
+```
+
 ```json
 {
   // Obbligatori per Directus
@@ -1126,10 +1147,11 @@ La sessione può essere **condivisa** con altri dispositivi (es. più persone al
   "table": "1",                        // REQUIRED - FK al tavolo
   "status": "pending",                  // Sempre pending, staff deve accettare
   
-  // Dati ordine
+  // Solo orario inviato dal client
   "order_time": "12:30",               // HH:MM
-  "total_amount": 25.50,
-  "item_count": 3,
+  
+  // SECURITY: total_amount e item_count NON inviati
+  // Verranno calcolati dalla cassa usando menu.json
   
   // Preferenze alimentari per CLIENTE (non per sessione)
   "dietary_diets": ["Vegetariano"],     // Diete del cliente che ha ordinato
@@ -1138,13 +1160,13 @@ La sessione può essere **condivisa** con altri dispositivi (es. più persone al
   "global_note": "",
   "is_direct_entry": false,
   
-  // Righe ordine (Directus items)
+  // Righe ordine - NO prezzi, verranno presi da menu.json dalla cassa
   "items": [
     {
       "uid": "r_1",                    // Unique within order
-      "dish": "ant_1",                // FK menu_items (nullable)
-      "name": "Bruschetta",            // Snapshot nome
-      "unit_price": 5.50,
+      "dish": "ant_1",                // FK menu_items - prezzo da menu.json
+      "name": "Bruschetta",            // Snapshot nome (non trusted)
+      // unit_price NON inviato - verrà preso da menu.json
       "quantity": 1,
       "notes": ["Senza aglio"],
       "modifiers": ["Extra olio"],
@@ -1153,6 +1175,20 @@ La sessione può essere **condivisa** con altri dispositivi (es. più persone al
   ]
 }
 ```
+
+### Validazione Prezzi Lato Cassa
+
+Quando la cassa/sala accetta un ordine `pending`:
+
+1. Recupera `bill_session` per ottenere il `venue_id`
+2. Carica `menu.json` per quel venue
+3. Per ogni item nell'ordine:
+   - Cerca il prezzo da `menu_items[id]` 
+   - Ricalcola `unit_price * quantity`
+4. Somma tutti gli importi → `total_amount`
+5. Conta gli item → `item_count`
+6. Aggiorna l'ordine con i valori calcolati
+7. Cambia status da `pending` a `accepted`
 
 ### Note Importanti
 

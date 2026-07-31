@@ -156,6 +156,7 @@ import { ref, computed, onMounted, watch } from 'vue';
 import { X, ShoppingCart, ShoppingBag, Minus, Plus, Trash2, History, Clock, ChevronDown } from 'lucide-vue-next';
 import { useSelfOrderCart } from '../../composables/useSelfOrderCart.js';
 import { useSelfOrderAuth } from '../../composables/useSelfOrderAuth.js';
+import { useSelfOrderMenu } from '../../composables/useSelfOrderMenu.js';
 import { useConfigStore } from '../../store/index.js';
 
 const props = defineProps({
@@ -164,9 +165,18 @@ const props = defineProps({
 
 const emit = defineEmits(['update:modelValue']);
 
-const { items, totalPrice, totalItems, removeItem, updateQuantity, clearCart } = useSelfOrderCart();
+const { items, removeItem, updateQuantity, clearCart } = useSelfOrderCart();
 const { billSessionId, fetchSessionOrders, saveLocalOrder, billSession } = useSelfOrderAuth();
+const { calculateCartTotal, getItemPrice, getModifierPrice } = useSelfOrderMenu();
 const configStore = useConfigStore();
+
+// Calculate totals from MENU prices (trusted source), not from client cart
+const cartTotals = computed(() => {
+  return calculateCartTotal(items.value);
+});
+
+const totalPrice = computed(() => cartTotals.value.total);
+const totalItems = computed(() => cartTotals.value.itemCount);
 
 const showClearConfirm = ref(false);
 const showHistory = ref(false);
@@ -243,8 +253,9 @@ async function loadOrderHistory() {
   }
 }
 
+// Calculate item price from MENU (trusted source, not from cart)
 function itemPrice(item) {
-  const basePrice = item.price * item.quantity;
+  const basePrice = getItemPrice(item.menuItemId) * item.quantity;
   const modifiersPrice = item.modifiers?.reduce((sum, m) => sum + (m.price || 0) * item.quantity, 0) || 0;
   return basePrice + modifiersPrice;
 }
@@ -268,27 +279,29 @@ async function handleCheckout() {
     // Get customer preferences (per-client, not per-session)
     const prefs = getCustomerPreferences();
     
-    // Create order payload aligned with Directus schema
+    // SECURITY: NO prices sent by client - will be calculated by cassa/sala
+    // This prevents price manipulation via token
     const orderPayload = {
       bill_session: billSessionId.value, // REQUIRED - links to open bill session
       venue: billSession.value?.venue || configStore.config?.venueId || 1,
       table: billSession.value?.table || localStorage.getItem('selforder_table') || '1',
       status: 'pending', // Always pending, must be accepted by staff
       order_time: new Date().toTimeString().slice(0, 5), // 'HH:MM'
-      total_amount: totalPrice.value,
-      item_count: totalItems.value,
+      // SECURITY: total_amount and item_count NOT sent
+      // They will be calculated by cassa/sala when order is accepted
       dietary_diets: prefs.diete, // Per-customer preferences
       dietary_allergens: prefs.allergeni, // Per-customer allergies
       global_note: '',
       is_direct_entry: false,
-      // Order items (righe_ordine)
+      // Order items - NO prices, they will be calculated by cassa/sala
       items: items.value.map((c, idx) => ({
         uid: `r_${idx + 1}`, // Unique within order
-        dish: c.menuItemId,
-        name: c.name,
-        unit_price: c.price,
+        dish: c.menuItemId, // Price will be taken from menu by cassa
+        name: c.name, // Snapshot for reference
+        // unit_price NOT sent - will be taken from menu.json by cassa
         quantity: c.quantity,
         notes: c.notes ? [c.notes] : [],
+        // modifiers names sent for reference only
         modifiers: c.modifiers?.map(m => m.name) || [],
       })),
     };
