@@ -1219,7 +1219,9 @@ Tutti gli ordini della stessa sessione sono visibili a tutti i clienti:
 |---------|-------------|-------------|
 | Self-Order App | `/selforder.html` | App PWA per ordinazione autonoma |
 | Session Link | `selforder://session/{id}` | Deep link per avvio sessione |
-| Menu JSON | `/menu.json` | Menu pubblico (no auth) |
+| Menu JSON | `https://nanawork.it/menu.json` | Menu pubblico (stessa struttura cassa/sala) |
+
+**Nota**: Il menu del Self-Order usa la **stessa struttura** del menu della cassa/sala (`nanawork.it/menu.json`). Questo garantisce coerenza dei prezzi e disponibilità.
 
 ---
 

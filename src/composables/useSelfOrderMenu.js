@@ -2,28 +2,22 @@
  * Self-Order Menu Loader
  * 
  * Loads menu from a static public URL (no authentication required)
- * This allows the menu to be hosted on a CDN or static file server.
- * 
- * Expected URL format: /menu.json or configurable via appConfig
- * 
- * Menu structure:
+ * Menu structure matches cassa/sala (nanawork.it/menu.json):
  * {
- *   "categories": ["Antipasti", "Primi", "Secondi", "Dessert", "Bevande"],
- *   "items": {
- *     "Antipasti": [
- *       {
- *         "id": "ant_1",
- *         "name": "Bruschetta",
- *         "description": "Pomodorini freschi...",
- *         "price": 5.50,
- *         "ingredients": "Pane, pomodori, aglio, basilico",
- *         "allergens": ["glutine"],
- *         "note": "Vegetariano",
- *         "available": true,
- *         "image": "https://..."
- *       }
- *     ]
- *   }
+ *   "Antipasti": [
+ *     {
+ *       "id": "ant_1",
+ *       "name": "Bruschetta al pomodoro",
+ *       "price": 3,
+ *       "descrizione": "Tomato bruschetta, basil and olive oil",
+ *       "note": "Vegano",
+ *       "ingredienti": ["Pane", "Pomodoro", "Basilico"],
+ *       "allergeni": ["glutine"],
+ *       "immagine_url": "https://..."
+ *     }
+ *   ],
+ *   "Primi Piatti": [...],
+ *   ...
  * }
  */
 
@@ -92,30 +86,41 @@ export function useSelfOrderMenu() {
 
   /**
    * Get menu URL from config or use default
+   * Default: nanawork.it/menu.json (same as cassa/sala)
    */
   function getMenuUrl() {
     const configStore = useConfigStore();
-    return configStore.config?.selfOrder?.menuUrl || '/menu.json';
+    return configStore.config?.selfOrder?.menuUrl || 'https://nanawork.it/menu.json';
   }
 
   /**
    * Set menu data and cache it
+   * Handles both flat format (nanawork) and wrapped format
    */
   function setMenu(data) {
-    // Normalize structure
     let normalizedMenu = {};
     let cats = [];
 
-    if (data.categories && data.items) {
-      // New format with categories
-      cats = data.categories;
-      normalizedMenu = data.items;
-    } else {
-      // Legacy flat format
+    // Check if data is already in flat format (nanawork format)
+    // Flat format: { "Antipasti": [...], "Primi Piatti": [...] }
+    // Wrapped format: { categories: [...], items: {...} }
+    const isFlatFormat = data.Antipasti || data['Primi Piatti'] || data['Secondi Piatti'];
+    
+    if (isFlatFormat) {
+      // Flat format - categories are the keys
       Object.entries(data).forEach(([category, items]) => {
         if (Array.isArray(items)) {
           cats.push(category);
-          normalizedMenu[category] = items;
+          // Normalize items to have consistent property names
+          normalizedMenu[category] = items.map(item => normalizeItem(item));
+        }
+      });
+    } else if (data.categories && data.items) {
+      // Wrapped format
+      cats = data.categories;
+      Object.entries(data.items).forEach(([category, items]) => {
+        if (Array.isArray(items)) {
+          normalizedMenu[category] = items.map(item => normalizeItem(item));
         }
       });
     }
@@ -129,6 +134,27 @@ export function useSelfOrderMenu() {
       categories: cats,
       timestamp: Date.now(),
     });
+  }
+
+  /**
+   * Normalize item fields to match expected interface
+   * nanawork uses: descrizione, ingredienti, allergeni, immagine_url
+   * We normalize to: description, ingredients, allergens, image
+   */
+  function normalizeItem(item) {
+    return {
+      id: item.id,
+      name: item.name,
+      price: item.price || 0,
+      description: item.descrizione || item.description || '',
+      note: item.note || '',
+      ingredients: Array.isArray(item.ingredienti) 
+        ? item.ingredienti.join(', ') 
+        : (item.ingredienti || item.ingredients || ''),
+      allergens: item.allergeni || item.allergens || [],
+      image: item.immagine_url || item.image || '',
+      available: item.available !== false,
+    };
   }
 
   /**
@@ -307,96 +333,96 @@ export function useSelfOrderMenu() {
   }
 
   /**
-   * Get demo menu for testing
+   * Get demo menu for testing (matches nanawork format)
    */
   function getDemoMenu() {
     return {
-      categories: ['Antipasti', 'Primi', 'Secondi', 'Dessert', 'Bevande'],
-      items: {
-        'Antipasti': [
-          {
-            id: 'ant_1',
-            name: 'Bruschetta al Pomodoro',
-            description: 'Pane croccante con pomodorini freschi, aglio e basilico',
-            price: 5.50,
-            ingredients: 'Pane, pomodori, aglio, basilico, olio EVO',
-            allergens: ['glutine'],
-            note: 'Vegetariano',
-            available: true,
-          },
-          {
-            id: 'ant_2',
-            name: 'Tagliere di Salumi',
-            description: 'Selezione di salumi tipici locali',
-            price: 12.00,
-            ingredients: 'Prosciutto crudo, salame, mortadella',
-            allergens: ['glutine', 'lattosio'],
-            available: true,
-          },
-        ],
-        'Primi': [
-          {
-            id: 'pri_1',
-            name: 'Carbonara',
-            description: 'Pasta fresca con guanciale, pecorino e uovo',
-            price: 12.00,
-            ingredients: 'Rigatoni, guanciale, pecorino romano, uovo, pepe nero',
-            allergens: ['glutine', 'uova', 'lattosio'],
-            available: true,
-          },
-          {
-            id: 'pri_2',
-            name: 'Cacio e Pepe',
-            description: 'Classica pasta romana con pecorino e pepe',
-            price: 10.00,
-            ingredients: 'Tonnarelli, pecorino romano, pepe nero',
-            allergens: ['glutine', 'lattosio'],
-            note: 'Vegetariano',
-            available: true,
-          },
-        ],
-        'Secondi': [
-          {
-            id: 'sec_1',
-            name: 'Saltimbocca alla Romana',
-            description: 'Vitello con prosciutto e salvia',
-            price: 16.00,
-            ingredients: 'Vitello, prosciutto crudo, salvia, burro, vino bianco',
-            allergens: ['glutine', 'lattosio'],
-            available: true,
-          },
-        ],
-        'Dessert': [
-          {
-            id: 'des_1',
-            name: 'Tiramisù',
-            description: 'Classic Italian dessert with mascarpone and espresso',
-            price: 7.00,
-            ingredients: 'Mascarpone, savoiardi, caffè, uova, zucchero, cacao',
-            allergens: ['glutine', 'uova', 'lattosio'],
-            note: 'Vegetariano',
-            available: true,
-          },
-        ],
-        'Bevande': [
-          {
-            id: 'bev_1',
-            name: 'Acqua Minerale',
-            description: 'Acqua naturale o frizzante',
-            price: 3.00,
-            available: true,
-          },
-          {
-            id: 'bev_2',
-            name: 'Vino della Casa',
-            description: 'Calice di vino rosso locale',
-            price: 5.00,
-            ingredients: 'Uve autoctone',
-            allergens: ['solfiti'],
-            available: true,
-          },
-        ],
-      },
+      'Antipasti': [
+        {
+          id: 'ant_1',
+          name: 'Bruschetta al pomodoro',
+          price: 3,
+          descrizione: 'Pane croccante con pomodorini freschi, aglio e basilico',
+          note: 'Vegano',
+          ingredienti: ['Pane', 'Pomodoro', 'Basilico', 'Olio EVO'],
+          allergeni: ['glutine'],
+          immagine_url: '',
+        },
+        {
+          id: 'ant_2',
+          name: 'Caprese',
+          price: 8,
+          descrizione: 'Pomodoro, mozzarella, basilico e olio EVO',
+          note: 'Vegetariano',
+          ingredienti: ['Pomodoro', 'Mozzarella', 'Basilico'],
+          allergeni: ['lattosio'],
+          immagine_url: '',
+        },
+      ],
+      'Primi Piatti': [
+        {
+          id: 'pri_1',
+          name: 'Rigatoni all\'Amatriciana',
+          price: 12,
+          descrizione: 'Pasta con pomodoro, guanciale e pecorino romano',
+          ingredienti: ['Pasta', 'Pomodoro', 'Guanciale', 'Pecorino Romano'],
+          allergeni: ['glutine', 'lattosio'],
+          immagine_url: '',
+        },
+        {
+          id: 'pri_2',
+          name: 'Tonnarelli cacio e pepe',
+          price: 10,
+          descrizione: 'Pasta con pecorino romano e pepe nero',
+          note: 'Vegetariano',
+          ingredienti: ['Pasta fresca', 'Pecorino Romano', 'Pepe'],
+          allergeni: ['glutine', 'lattosio'],
+          immagine_url: '',
+        },
+      ],
+      'Secondi Piatti': [
+        {
+          id: 'sec_1',
+          name: 'Polpette al pomodoro',
+          price: 11,
+          descrizione: 'Polpette di carne in salsa di pomodoro',
+          ingredienti: ['Carne di manzo', 'Pomodoro', 'Pane', 'Uova'],
+          allergeni: ['glutine', 'uova'],
+          immagine_url: '',
+        },
+      ],
+      'Dolci': [
+        {
+          id: 'dol_1',
+          name: 'Tiramisù',
+          price: 6,
+          descrizione: 'Dolce al mascarpone e caffè',
+          note: 'Vegetariano',
+          ingredienti: ['Mascarpone', 'Savoiardi', 'Caffè'],
+          allergeni: ['glutine', 'lattosio', 'uova'],
+          immagine_url: '',
+        },
+      ],
+      'Bevande': [
+        {
+          id: 'bev_1',
+          name: 'Acqua Naturale 1L',
+          price: 2.5,
+          descrizione: 'Acqua minerale naturale',
+          ingredienti: ['Acqua'],
+          allergeni: [],
+          immagine_url: '',
+        },
+        {
+          id: 'bev_2',
+          name: 'Vino della Casa - Rosso 1L',
+          price: 10,
+          descrizione: 'Vino rosso della casa',
+          ingredienti: ['Uva'],
+          allergeni: ['solfiti'],
+          immagine_url: '',
+        },
+      ],
     };
   }
 
