@@ -1,7 +1,12 @@
 <template>
   <div class="h-full flex flex-col bg-gray-50">
+    <!-- Loading state -->
+    <div v-if="loading" class="flex-1 flex items-center justify-center">
+      <Loader2 class="w-8 h-8 text-emerald-600 animate-spin" />
+    </div>
+
     <!-- Category tabs -->
-    <div class="bg-white border-b border-gray-200 px-4 py-3 overflow-x-auto shrink-0">
+    <div v-else class="bg-white border-b border-gray-200 px-4 py-3 overflow-x-auto shrink-0">
       <div class="flex gap-2 min-w-max">
         <button
           v-for="category in categories"
@@ -18,7 +23,7 @@
     </div>
 
     <!-- Menu items grid -->
-    <div class="flex-1 overflow-y-auto p-4 pb-24">
+    <div v-if="!loading" class="flex-1 overflow-y-auto p-4 pb-24">
       <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
         <button
           v-for="item in filteredItems"
@@ -83,14 +88,14 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
-import { UtensilsCrossed } from 'lucide-vue-next';
-import { useConfigStore } from '../../store/index.js';
+import { UtensilsCrossed, Loader2 } from 'lucide-vue-next';
+import { useSelfOrderMenu } from '../../composables/useSelfOrderMenu.js';
 import { useSelfOrderCart } from '../../composables/useSelfOrderCart.js';
 
 const router = useRouter();
-const configStore = useConfigStore();
+const { menu, categories: menuCategories, loading, loadMenu } = useSelfOrderMenu();
 const { totalItems, totalPrice } = useSelfOrderCart();
 
 const selectedCategory = ref(null);
@@ -118,21 +123,14 @@ const t = computed(() => i18n[currentLang.value] || i18n.it);
 const currency = computed(() => t.value.currency);
 
 const categories = computed(() => {
-  const cats = new Set();
-  const menu = configStore.menu || {};
-  Object.entries(menu).forEach(([category, items]) => {
-    items.forEach(item => {
-      if (item.name) cats.add(category);
-    });
-  });
-  return ['Tutti', ...Array.from(cats)];
+  const cats = menuCategories.value || [];
+  return ['Tutti', ...cats];
 });
 
 const filteredItems = computed(() => {
-  const menu = configStore.menu || {};
   let allItems = [];
   
-  Object.entries(menu).forEach(([category, items]) => {
+  Object.entries(menu.value || {}).forEach(([category, items]) => {
     items.forEach(item => {
       if (item.name) {
         allItems.push({ ...item, category });
@@ -155,6 +153,13 @@ function formatPrice(price) {
   if (price === null || price === undefined) return '0.00';
   return price.toFixed(2);
 }
+
+// Load menu on mount
+onMounted(async () => {
+  if (Object.keys(menu.value || {}).length === 0) {
+    await loadMenu();
+  }
+});
 </script>
 
 <style scoped>

@@ -4,8 +4,8 @@ import selforderRouter from './selforder-router/index.js';
 import './assets/styles/main.css';
 import SelfOrderApp from './SelfOrderApp.vue';
 import { setupIOSViewportFix } from './utils/iosViewportFix.js';
-import { initStoreFromIDB, useConfigStore } from './store/index.js';
 
+// Self-order specific: lightweight bootstrap, no sync
 setupIOSViewportFix();
 
 const app = createApp(SelfOrderApp);
@@ -14,17 +14,23 @@ app.use(pinia);
 app.use(selforderRouter);
 
 async function bootstrap() {
+  // Self-order uses minimal initialization:
+  // 1. Load basic config from localStorage (if any)
+  // 2. Load menu from static URL
+  // 3. Parse session from URL (if present)
+  
   try {
-    await initStoreFromIDB(pinia);
-  } catch (e) {
-    console.warn('[App] IDB init failed, starting with defaults:', e);
-  }
-
-  try {
+    const { useConfigStore } = await import('./store/index.js');
     const configStore = useConfigStore(pinia);
-    await configStore.loadMenu({ skipHydrate: true });
+    
+    // Load minimal config
+    try {
+      await configStore.hydrateConfigFromIDB();
+    } catch (e) {
+      console.warn('[SelfOrder] Config load skipped, using defaults');
+    }
   } catch (e) {
-    console.warn('[App] Menu bootstrap failed, continuing with cached/default menu:', e);
+    console.warn('[SelfOrder] Store init warning:', e);
   }
 
   app.mount('#app');

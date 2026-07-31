@@ -127,7 +127,7 @@
 import { ref, computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { ArrowLeft, Plus, UtensilsCrossed, AlertTriangle } from 'lucide-vue-next';
-import { useConfigStore } from '../../store/index.js';
+import { useSelfOrderMenu } from '../../composables/useSelfOrderMenu.js';
 import { useSelfOrderCart } from '../../composables/useSelfOrderCart.js';
 
 const props = defineProps({
@@ -135,7 +135,7 @@ const props = defineProps({
 });
 
 const router = useRouter();
-const configStore = useConfigStore();
+const { getItemById } = useSelfOrderMenu();
 const { addItem } = useSelfOrderCart();
 
 const item = ref(null);
@@ -224,15 +224,7 @@ const totalItemPrice = computed(() => {
 });
 
 function loadItem() {
-  const menu = configStore.menu || {};
-  
-  for (const [category, items] of Object.entries(menu)) {
-    const found = items.find(i => i.id === props.id);
-    if (found) {
-      item.value = { ...found, category };
-      break;
-    }
-  }
+  item.value = getItemById(props.id);
 }
 
 function addToCart() {

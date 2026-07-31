@@ -15,6 +15,18 @@
     <h1 class="text-3xl md:text-5xl font-bold mb-2 text-gray-900">{{ restaurantName }}</h1>
     <p class="text-gray-500 mb-8 max-w-md">{{ restaurantSubtitle }}</p>
 
+    <!-- Session validation error -->
+    <div v-if="error" class="bg-red-50 border border-red-200 rounded-2xl p-4 mb-6 w-full max-w-sm">
+      <AlertCircle class="w-8 h-8 text-red-500 mx-auto mb-2" />
+      <p class="text-red-700 text-sm font-medium">{{ error }}</p>
+      <button 
+        @click="error = null"
+        class="mt-3 px-4 py-2 bg-red-100 text-red-700 rounded-lg text-sm font-medium"
+      >
+        Riprova
+      </button>
+    </div>
+
     <!-- Table number input -->
     <div class="bg-gray-50 p-6 md:p-8 rounded-3xl shadow-sm border border-gray-100 w-full max-w-sm">
       <label class="block text-sm font-bold text-gray-700 mb-3 uppercase tracking-wide flex items-center justify-center gap-2">
@@ -33,10 +45,13 @@
       </div>
       <button 
         @click="handleStart" 
-        :disabled="!tableNumber || menuEmpty"
+        :disabled="!tableNumber || loading"
         class="w-full theme-bg hover:theme-bg-dark text-white py-4 rounded-2xl font-bold text-lg shadow-md transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 active:scale-[0.98]"
       >
-        {{ t.iniziaOrdine }} <ArrowRight class="size-5" />
+        <Loader2 v-if="loading" class="size-5 animate-spin" />
+        <template v-else>
+          {{ t.iniziaOrdine }} <ArrowRight class="size-5" />
+        </template>
       </button>
     </div>
 
@@ -66,31 +81,30 @@
         </button>
       </div>
     </div>
-
-    <!-- Loading state -->
-    <div v-if="loading" class="fixed inset-0 bg-white/80 flex items-center justify-center z-40">
-      <div class="text-center">
-        <Loader2 class="w-12 h-12 text-emerald-600 animate-spin mx-auto mb-4" />
-        <p class="text-gray-600">{{ t.connessione }}</p>
-      </div>
-    </div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, inject } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
-import { MapPin, ArrowRight, ChevronDown, UtensilsCrossed, Loader2 } from 'lucide-vue-next';
-import { useConfigStore } from '../../store/index.js';
+import { MapPin, ArrowRight, ChevronDown, UtensilsCrossed, Loader2, AlertCircle } from 'lucide-vue-next';
+import { useSelfOrderAuth } from '../../composables/useSelfOrderAuth.js';
+import { useSelfOrderMenu } from '../../composables/useSelfOrderMenu.js';
 
 const router = useRouter();
-const configStore = useConfigStore();
-const { initSession } = inject('selfOrderSession', { initSession: () => Promise.resolve() });
+const { validateAndLoadSession, parseSessionUrl, error: authError } = useSelfOrderAuth();
+const { loadMenu } = useSelfOrderMenu();
 
 const tableNumber = ref('');
 const loading = ref(false);
+const error = ref(null);
 const langMenuOpen = ref(false);
-const currentLang = ref('it');
+const currentLang = ref(localStorage.getItem('selforder_lang') || 'it');
+
+// Simple config (could be loaded from static config.json)
+const restaurantName = ref('Ristorante');
+const restaurantSubtitle = ref('Ordina dal tuo tavolo');
+const restaurantLogo = ref(null);
 
 const languages = [
   { code: 'it', flag: '🇮🇹', name: 'Italiano' },
@@ -102,38 +116,82 @@ const i18n = {
     inserisciTavolo: 'Indica il tuo tavolo',
     iniziaOrdine: 'Visualizza Menu',
     connessione: 'Connessione in corso...',
+    sessioneScaduta: 'Sessione scaduta o non valida',
   },
   en: {
     inserisciTavolo: 'Enter your table',
     iniziaOrdine: 'View Menu',
     connessione: 'Connecting...',
+    sessioneScaduta: 'Session expired or invalid',
   }
 };
 
 const t = computed(() => i18n[currentLang.value] || i18n.it);
 const currentLanguageObj = computed(() => languages.find(l => l.code === currentLang.value) || languages[0]);
 
-const restaurantName = computed(() => configStore.config?.ui?.name || 'Ristorante');
-const restaurantSubtitle = computed(() => configStore.config?.ui?.subtitle || 'Ordina dal tuo tavolo');
-const restaurantLogo = computed(() => configStore.config?.ui?.logoUrl || null);
-const menuEmpty = computed(() => !configStore.menu || Object.keys(configStore.menu).length === 0);
-
 function setLang(code) {
   currentLang.value = code;
   localStorage.setItem('selforder_lang', code);
 }
 
-function handleStart() {
-  if (!tableNumber.value) return;
+async function handleStart() {
+  if (!tableNumber.value || loading.value) return;
   
-  localStorage.setItem('selforder_table', tableNumber.value);
+  loading.value = true;
+  error.value = null;
   
-  // Check if first time (show onboarding)
-  const hasSeenOnboarding = localStorage.getItem('selforder_onboarding_done');
-  if (!hasSeenOnboarding) {
-    router.push('/onboarding');
-  } else {
-    router.push('/menu');
+  try {
+    // Pre-load menu (will use demo menu if no URL configured)
+    await loadMenu();
+    
+    // For demo mode, we just store table number and proceed
+    // In production, this would validate session via QR token
+    localStorage.setItem('selforder_table', tableNumber.value);
+    
+    // Check if first time (show onboarding)
+    const hasSeenOnboarding = sessionStorage.getItem('selforder_onboarding_done');
+    if (!hasSeenOnboarding) {
+      router.push('/onboarding');
+    } else {
+      router.push('/menu');
+    }
+  } catch (e) {
+    error.value = e.message || t.value.sessioneScaduta;
+  } finally {
+    loading.value = false;
   }
 }
+
+// Handle direct URL with session params (from QR code)
+onMounted(async () => {
+  const hash = window.location.hash;
+  const search = window.location.search;
+  
+  // Check for session in URL: selforder.html#/session/xxx?token=yyy
+  const sessionMatch = hash.match(/\/session\/([^?]+)/);
+  const tokenParam = new URLSearchParams(search).get('token');
+  
+  if (sessionMatch) {
+    const sessionId = sessionMatch[1];
+    loading.value = true;
+    error.value = null;
+    
+    try {
+      await validateAndLoadSession(sessionId, tokenParam);
+      await loadMenu();
+      
+      // Skip onboarding if returning user
+      const hasSeenOnboarding = sessionStorage.getItem('selforder_onboarding_done');
+      if (!hasSeenOnboarding) {
+        router.push('/onboarding');
+      } else {
+        router.push('/menu');
+      }
+    } catch (e) {
+      error.value = e.message || t.value.sessioneScaduta;
+    } finally {
+      loading.value = false;
+    }
+  }
+});
 </script>
