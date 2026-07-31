@@ -436,9 +436,15 @@ La coda di stampa automatica è gestita da tre moduli cooperanti:
 - `src/composables/printJobBuilders.js` — costruisce i payload ESC/POS per ogni tipo di job
 - `src/composables/printDispatch.js` — trasporta il job (HTTP diretto o passaggio a Directus per stampanti `tcp`/`file`)
 
-Quando un ordine viene accettato (dalla Cassa o dalla Sala), `enqueuePrintJobs(order)` invia
-una HTTP POST a ciascun servizio stampante configurato. Il servizio Node
-ricevente gestisce la comunicazione ESC/POS verso la stampante fisica.
+Quando un ordine viene accettato (dalla Cassa o dalla Sala), `enqueuePrintJobs(order)` applica
+una priorità di dispatch **server-side first**:
+
+- **Primaria (Modalità 3/2, server-side)** — se la stampante è `connectionType: 'tcp' | 'file'` **e**
+  `printing.serverDispatchEnabled = true` (default), il job viene accodato su `print_jobs` (consumo da hook Directus o print-server pull).
+- **Fallback (Modalità 1, HTTP)** — se il canale server-side è disabilitato lato client (`printing.serverDispatchEnabled = false`), viene usato
+  `fallbackUrl` (se configurato) come endpoint HTTP di emergenza.
+- **Errore esplicito** — se non c'è né dispatch server-side né fallback HTTP, il job viene marcato `error`
+  localmente per evitare code silenziosamente bloccate.
 
 Ogni lavoro di stampa viene registrato in `store.printLog` (persistito su IDB e **sincronizzato
 su Directus** `print_jobs` via sync queue). I job HTTP seguono lo stato `pending → printing → done | error`;
@@ -522,10 +528,10 @@ Per la documentazione completa vedere [`directus-extensions/hooks/print-dispatch
 
 ```js
 printers: [
-  { id: 'cucina', name: 'Cucina', url: 'http://localhost:3001/print',
+  { id: 'cucina', name: 'Cucina', connectionType: 'tcp', fallbackUrl: 'http://localhost:3001/print',
     printTypes: ['order'],
     categories: ['Antipasti', 'Primi', 'Secondi', 'Contorni'] },
-  { id: 'bar', name: 'Bar', url: 'http://localhost:3002/print',
+  { id: 'bar', name: 'Bar', connectionType: 'tcp', fallbackUrl: 'http://localhost:3002/print',
     printTypes: ['order'],
     categories: ['Bevande', 'Digestivi'] },
   { id: 'cassa', name: 'Cassa', url: 'http://localhost:3003/print',
@@ -536,6 +542,9 @@ printers: [
 Ogni stampante accetta:
 - **`printTypes`**: tipi di lavoro ricevuti — `'order'`, `'table_move'`, `'pre_bill'`; assente/vuoto = catch-all
 - **`categories`**: categorie menu (solo per tipo `'order'`); assente/vuoto = tutte le voci
+- **`connectionType`**: `'tcp' | 'file' | 'http'` (tcp/file = routing server-side prioritario)
+- **`fallbackUrl`** *(opzionale)*: endpoint HTTP usato solo quando `connectionType` è `tcp/file`
+  ma `printing.serverDispatchEnabled` è disattivato lato client
 - **`menuItems`**: opzionale, lista ID voci menu da instradare in modo puntuale (precedenza su `categories`)
 
 ### Tipi di stampa
@@ -601,8 +610,9 @@ Tutti i job contengono: `id`, `logId`, `jobId`, `printType`, `printerId`, `table
   usano helper comuni, così HTTP e Directus seguono le stesse regole di matching.
 - **Fire-and-forget**: gli errori di rete vengono loggati in console ma non bloccano l'UI.
 - **Canale di dispatch**:
+  - stampanti Directus (`connectionType = 'tcp' | 'file'`) con `printing.serverDispatchEnabled = true` → enqueue su `print_jobs`
+  - stampanti Directus (`connectionType = 'tcp' | 'file'`) con `printing.serverDispatchEnabled = false` + `fallbackUrl` → POST HTTP fallback
   - stampanti HTTP (`url` presente e non `tcp`/`file`) → POST diretto dal browser
-  - stampanti Directus (`connectionType = 'tcp' | 'file'`) → enqueue su `print_jobs` con endpoint activity `/items/print_jobs`
 - **Stato job**:
   - HTTP: `pending → printing → done | error`
   - Directus: `pending` su Directus + `queued` solo in UI locale

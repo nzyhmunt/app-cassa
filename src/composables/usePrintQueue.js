@@ -76,7 +76,7 @@ import {
   buildTableMovePrintJob,
   createPrintLogEntry,
 } from './printJobBuilders.js';
-import { dispatchPrintJob, queueDirectusPrintJob, sendHttpPrintJob } from './printDispatch.js';
+import { dispatchPrintJob, sendHttpPrintJob } from './printDispatch.js';
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -188,6 +188,32 @@ function getNormalizedPrinterMenuItems(printer) {
 }
 
 /**
+ * Returns whether server-side print dispatch (Directus queue + dispatcher) is enabled.
+ *
+ * @param {object|null} [store]
+ * @returns {boolean}
+ */
+function isServerDispatchEnabled(store = null) {
+  return getRuntimeConfig(store).printing?.serverDispatchEnabled !== false;
+}
+
+/**
+ * Returns whether print-log sync_queue writes should be sent.
+ *
+ * By default every print log entry is synced through the local sync queue.
+ * The only opt-out case is a Directus-managed printer running in fallback mode
+ * (server dispatch disabled), where jobs must stay local-only to avoid
+ * duplicate server-side prints.
+ *
+ * @param {{ usesDirectus: boolean, serverDispatchEnabled: boolean }} options
+ * @returns {boolean}
+ */
+function shouldSyncPrintLogEntry(options) {
+  const { usesDirectus, serverDispatchEnabled } = options;
+  return !usesDirectus || serverDispatchEnabled;
+}
+
+/**
  * Returns the best available order snapshot for printing.
  *
  * In some UI flows the caller can pass a stale/minimal order object (for example
@@ -278,6 +304,7 @@ export function enqueuePrintJobs(order) {
   const store = getStore();
   const printers = getPrintersForType(PRINT_JOB_TYPES.ORDER, store);
   if (printers.length === 0) return;
+  const serverDispatchEnabled = isServerDispatchEnabled(store);
   const orderForPrint = resolveOrderForPrint(order, store);
   if (!orderForPrint) return;
   if (orderForPrint?.isDirectEntry) return;
@@ -315,9 +342,18 @@ export function enqueuePrintJobs(order) {
       continue;
     }
     const job = buildOrderPrintJob({ order: orderForPrint, printerId, items });
+    const syncToDirectus = shouldSyncPrintLogEntry({
+      usesDirectus: isDirectusManagedPrinter(printer),
+      serverDispatchEnabled,
+    });
 
     const logId = newUUIDv7('plog');
-    logJob(store, createPrintLogEntry({ job, printer, logId }));
+    logJob(store, createPrintLogEntry({
+      job,
+      printer,
+      logId,
+      extraFields: { syncToDirectus },
+    }));
 
     // connectionType takes precedence over url:
     //   - HTTP printers (not TCP/file): send directly from the browser via URL.
@@ -328,7 +364,14 @@ export function enqueuePrintJobs(order) {
     // Use updatePrintLogEntryLocal so 'queued' is a UI-only status that is NOT
     // pushed to Directus — the Directus record must stay 'pending' so the
     // print-server can claim it.
-    dispatchPrintJob({ job, printer, logId, store });
+    dispatchPrintJob({
+      job,
+      printer,
+      logId,
+      store,
+      serverDispatchEnabled,
+      fallbackUrl: printer?.fallbackUrl ?? null,
+    });
   }
 }
 
@@ -345,6 +388,7 @@ export function enqueueTableMoveJob(fromTableId, fromTableLabel, toTableId, toTa
   const store = getStore();
   const printers = getPrintersForType(PRINT_JOB_TYPES.TABLE_MOVE, store);
   if (printers.length === 0) return;
+  const serverDispatchEnabled = isServerDispatchEnabled(store);
 
   const timestamp = new Date().toISOString();
 
@@ -365,16 +409,32 @@ export function enqueueTableMoveJob(fromTableId, fromTableLabel, toTableId, toTa
       toTableLabel,
       timestamp,
     });
+    const syncToDirectus = shouldSyncPrintLogEntry({
+      usesDirectus: isDirectusManagedPrinter(printer),
+      serverDispatchEnabled,
+    });
 
     const logId = newUUIDv7('plog');
-    logJob(store, createPrintLogEntry({ job, printer, logId }));
+    logJob(store, createPrintLogEntry({
+      job,
+      printer,
+      logId,
+      extraFields: { syncToDirectus },
+    }));
 
     // connectionType takes precedence over url (same as enqueuePrintJobs):
     //   - HTTP printers (not TCP/file): send directly from the browser.
     //   - TCP/file printers: the job reaches the print-server via Directus.
     // Use updatePrintLogEntryLocal so the 'queued' status stays UI-only and
     // does not patch the Directus record (which must remain 'pending').
-    dispatchPrintJob({ job, printer, logId, store });
+    dispatchPrintJob({
+      job,
+      printer,
+      logId,
+      store,
+      serverDispatchEnabled,
+      fallbackUrl: printer?.fallbackUrl ?? null,
+    });
   }
 }
 
@@ -389,6 +449,7 @@ export function enqueueTableMoveJob(fromTableId, fromTableLabel, toTableId, toTa
  */
 export function enqueuePreBillJob(payload, printerUrl, printerName, printerId = null) {
   const store = getStore();
+  const serverDispatchEnabled = isServerDispatchEnabled(store);
   const timestamp = new Date().toISOString();
   const runtimePrinters = getRuntimePrinters(store);
   const {
@@ -417,6 +478,7 @@ export function enqueuePreBillJob(payload, printerUrl, printerName, printerId = 
     printerId: resolvedPrinterId,
     timestamp,
   });
+  const syncToDirectus = shouldSyncPrintLogEntry({ usesDirectus, serverDispatchEnabled });
 
   const logId = newUUIDv7('plog');
   logJob(store, createPrintLogEntry({
@@ -429,12 +491,20 @@ export function enqueuePreBillJob(payload, printerUrl, printerName, printerId = 
       table: payload.table ?? payload.tableId ?? '',
       timestamp,
     },
+    extraFields: { syncToDirectus },
   }));
 
   if (usesDirectus) {
     // Job delivered to Directus sync queue; update UI status to 'queued' without
     // patching Directus (the record must stay 'pending' for the print-dispatcher).
-    queueDirectusPrintJob({ store, logId });
+    dispatchPrintJob({
+      job,
+      printer,
+      logId,
+      store,
+      serverDispatchEnabled,
+      fallbackUrl: printer?.fallbackUrl ?? null,
+    });
   } else {
     sendHttpPrintJob({ job, url: resolvedUrl, logId, store });
   }
@@ -459,6 +529,7 @@ export function reprintJob(logEntry, overrideUrl = null) {
   }
 
   const store = getStore();
+  const serverDispatchEnabled = isServerDispatchEnabled(store);
   const timestamp = new Date().toISOString();
   const {
     printer,
@@ -496,6 +567,7 @@ export function reprintJob(logEntry, overrideUrl = null) {
     printerUrl: url,
     timestamp,
   });
+  const syncToDirectus = shouldSyncPrintLogEntry({ usesDirectus, serverDispatchEnabled });
 
   const logId = newUUIDv7('plog');
   logJob(store, createPrintLogEntry({
@@ -510,6 +582,7 @@ export function reprintJob(logEntry, overrideUrl = null) {
       timestamp,
     },
     extraFields: {
+      syncToDirectus,
       isReprint: true,
       originalJobId: logEntry.jobId,
     },
@@ -518,7 +591,17 @@ export function reprintJob(logEntry, overrideUrl = null) {
   if (usesDirectus) {
     // Job delivered to Directus sync queue; update UI status to 'queued' without
     // patching Directus (the record must stay 'pending' for the print-dispatcher).
-    queueDirectusPrintJob({ store, logId });
+    // When the printer has been removed from runtime config, supply a minimal shape
+    // so dispatchPrintJob still routes this as a server-managed job.
+    const effectivePrinter = printer ?? { connectionType: 'tcp' };
+    dispatchPrintJob({
+      job,
+      printer: effectivePrinter,
+      logId,
+      store,
+      serverDispatchEnabled,
+      fallbackUrl: printer?.fallbackUrl ?? null,
+    });
   } else {
     sendHttpPrintJob({ job, url, logId, store });
   }
