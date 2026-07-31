@@ -4,6 +4,16 @@
     class="h-full flex flex-col relative w-full bg-gray-50"
     :style="cssVars"
   >
+    <!-- Header with session info -->
+    <SelfOrderNavbar
+      v-if="showHeader"
+      :session="currentSession"
+      @back="goBack"
+      @show-cart="showCart = true"
+      @share="showShareSession = true"
+      @end-session="confirmEndSession"
+    />
+
     <!-- Main content area -->
     <div class="flex-1 overflow-hidden flex flex-col">
       <router-view v-slot="{ Component }">
@@ -69,6 +79,7 @@
     <SelfOrderCartDrawer v-model="showCart" />
     <SelfOrderSessionEndedModal v-model="showSessionEnded" />
     <SelfOrderConfirmOrderModal v-model="showConfirmOrder" @confirm="submitOrder" />
+    <SelfOrderShareSession v-model="showShareSession" :session-id="billSessionId" />
   </div>
 </template>
 
@@ -78,23 +89,35 @@ import { useRoute } from 'vue-router';
 import SelfOrderCartDrawer from './components/selforder/SelfOrderCartDrawer.vue';
 import SelfOrderSessionEndedModal from './components/selforder/SelfOrderSessionEndedModal.vue';
 import SelfOrderConfirmOrderModal from './components/selforder/SelfOrderConfirmOrderModal.vue';
+import SelfOrderShareSession from './components/selforder/SelfOrderShareSession.vue';
 import { useConfigStore } from './store/index.js';
 import { useSelfOrderSession } from './composables/useSelfOrderSession.js';
 import { useSelfOrderCart } from './composables/useSelfOrderCart.js';
+import { useSelfOrderAuth } from './composables/useSelfOrderAuth.js';
 import { loadDirectusConfigFromStorage } from './composables/useDirectusClient.js';
 import { UtensilsCrossed, ChefHat, ShoppingCart } from 'lucide-vue-next';
 
 const configStore = useConfigStore();
 const { session, initSession, endSession } = useSelfOrderSession();
 const { items, addItem, removeItem, updateQuantity, clearCart, totalPrice } = useSelfOrderCart();
+const { billSessionId } = useSelfOrderAuth();
 const route = useRoute();
 
 const showCart = ref(false);
 const showSessionEnded = ref(false);
 const showConfirmOrder = ref(false);
+const showShareSession = ref(false);
 const navigationHistory = ref([]);
 
 const cartCount = computed(() => items.value.reduce((sum, item) => sum + item.quantity, 0));
+
+const currentSession = computed(() => session.value);
+
+// Show header only when session is active
+const showHeader = computed(() => {
+  const path = window.location.hash.replace('#', '');
+  return ['/menu', '/chat', '/status', '/item'].some(p => path.startsWith(p));
+});
 
 // Show bottom nav only on menu pages (not on scan/welcome)
 const showBottomNav = computed(() => {

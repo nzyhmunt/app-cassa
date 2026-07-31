@@ -238,24 +238,28 @@ function handleClearCart() {
   showClearConfirm.value = false;
 }
 
-function handleCheckout() {
+async function handleCheckout() {
   // Add current cart to order history
   if (items.value.length > 0) {
-    orderHistory.value.push({
-      time: new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }),
-      items: JSON.parse(JSON.stringify(items.value)),
-      total: totalPrice.value,
-    });
-    saveOrderHistory();
+    // Get session ID from auth (required for order)
+    const { billSessionId } = useSelfOrderAuth();
     
-    // Create order payload
+    if (!billSessionId.value) {
+      alert('Sessione non valida. Riprova.');
+      return;
+    }
+    
+    // Create order payload with REQUIRED bill_session UUID
     const orderPayload = {
+      bill_session: billSessionId.value, // REQUIRED - UUID of open bill session
       tavolo: localStorage.getItem('selforder_table') || '',
       timestamp: new Date().toISOString(),
       totale_valuta: currency.value,
       totale_importo: totalPrice.value,
       numero_articoli: totalItems.value,
       lingua_ordine: currentLang.value,
+      source: 'self_order',
+      status: 'pending', // Always pending, must be accepted by staff
       righe_ordine: items.value.map(c => ({
         id_piatto: c.menuItemId,
         nome: c.name,
@@ -265,7 +269,26 @@ function handleCheckout() {
       })),
     };
     
+    // Add to order history (local)
+    orderHistory.value.push({
+      time: new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }),
+      items: JSON.parse(JSON.stringify(items.value)),
+      total: totalPrice.value,
+      orderId: orderPayload.bill_session,
+    });
+    saveOrderHistory();
+    
     console.log('[SelfOrder] Order payload:', JSON.stringify(orderPayload, null, 2));
+    
+    // Send order via API
+    const { createOrder } = useSelfOrderAuth();
+    try {
+      const result = await createOrder(orderPayload);
+      console.log('[SelfOrder] Order sent:', result);
+    } catch (e) {
+      console.error('[SelfOrder] Order send failed:', e);
+      // Order is saved locally, will sync when connection restored
+    }
     
     // Clear cart after checkout
     clearCart();

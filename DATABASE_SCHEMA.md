@@ -1081,18 +1081,55 @@ Cardinalità:
 
 L'app **Self-Order** permette ai clienti di ordinare autonomamente scansionando un QR code generato dal personale.
 
-### Flusso
+### Flusso Operativo
 
-1. Il cameriere/cassiere genera un QR code dalla sessione tavolo aperta
-2. Il cliente scansiona il QR code con il proprio dispositivo
-3. L'app carica la sessione e mostra il menu
-4. Il cliente aggiunge articoli al carrello
-5. L'ordine viene inviato e appare nella cucina/sala
+1. Il **cameriere/cassiere** apre una sessione tavolo (`bill_session`) dal sistema Cassa/Sala
+2. Viene generato un **QR code** contenente URL con session ID e token
+3. Il **cliente** scansiona il QR → l'app valida la sessione → mostra il menu
+4. Il cliente **naviga il menu**, aggiunge articoli al carrello
+5. Al **checkout**: ordine inviato in stato `pending` → deve essere accettato da staff
+6. Lo **staff** (cassiere/cameriere) vede l'ordine e lo accetta/rejecta
 
 ### QR Code Format
 
 ```
-selforder://session/{bill_session_id}
+selforder://session/{bill_session_uuid}?token={auth_token}
+# Oppure via URL
+/selforder.html#/session/{bill_session_uuid}?token={auth_token}
+```
+
+### Condivisione Sessione
+
+La sessione può essere **condivisa** con altri dispositivi (es. più persone allo stesso tavolo):
+- Il primo cliente genera un QR di condivisione
+- Altri possono scannerizzarlo e **unirsi alla stessa sessione**
+- Tutti vedono lo stesso `bill_session` ID
+- Ordini da tutti i dispositivi appaiono nella stessa sessione
+
+### Sicurezza
+
+| Aspetto | Descrizione |
+|---------|-------------|
+| **Lettura sessione** | Richiede `bill_session_uuid` + token valido + sessione `status='open'` |
+| **Invio ordine** | Richiede obbligatoriamente `bill_session` UUID valido |
+| **Token** | Token statico o JWT con scadenza |
+| **Permessi Directus** | Minimi: `read` su `bill_sessions`, `create` su `orders` |
+| **Validazione** | Sessione deve essere `status='open'` (aperta da staff) |
+
+### Payload Ordine Self-Order
+
+```json
+{
+  "bill_session": "uuid-bill-session",  // REQUIRED - deve essere UUID valido e open
+  "status": "pending",
+  "source": "self_order",
+  "tavolo": "1",
+  "timestamp": "2024-01-15T12:30:00Z",
+  "numero_articoli": 3,
+  "totale_importo": 25.50,
+  "lingua_ordine": "it",
+  "righe_ordine": [...]
+}
 ```
 
 ### Campi related in `bill_sessions`
@@ -1108,6 +1145,7 @@ selforder://session/{bill_session_id}
 |---------|-------------|-------------|
 | Self-Order App | `/selforder.html` | App PWA per ordinazione autonoma |
 | Session Link | `selforder://session/{id}` | Deep link per avvio sessione |
+| Menu JSON | `/menu.json` | Menu pubblico (no auth) |
 
 ---
 
