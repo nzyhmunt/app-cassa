@@ -152,9 +152,10 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import { X, ShoppingCart, ShoppingBag, Minus, Plus, Trash2, History, Clock, ChevronDown } from 'lucide-vue-next';
 import { useSelfOrderCart } from '../../composables/useSelfOrderCart.js';
+import { useSelfOrderAuth } from '../../composables/useSelfOrderAuth.js';
 import { useConfigStore } from '../../store/index.js';
 
 const props = defineProps({
@@ -164,11 +165,20 @@ const props = defineProps({
 const emit = defineEmits(['update:modelValue']);
 
 const { items, totalPrice, totalItems, removeItem, updateQuantity, clearCart } = useSelfOrderCart();
+const { billSessionId, fetchSessionOrders, saveLocalOrder, billSession } = useSelfOrderAuth();
 const configStore = useConfigStore();
 
 const showClearConfirm = ref(false);
 const showHistory = ref(false);
 const orderHistory = ref([]);
+const loadingHistory = ref(false);
+
+// Load order history when drawer opens
+watch(() => props.modelValue, async (visible) => {
+  if (visible) {
+    await loadOrderHistory();
+  }
+});
 
 // Translations
 const currentLang = ref(localStorage.getItem('selforder_lang') || 'it');
@@ -179,12 +189,13 @@ const i18n = {
     ordineVuoto: 'Il tuo carrello è vuoto.',
     totale: 'Totale',
     confermaOrdine: 'Invia Ordine',
-    cronologiaOrdini: 'Ordini Precedenti',
+    cronologiaOrdini: 'Ordini Tavolo', // Changed to indicate shared history
     ordineInviato: 'Inviato alle',
     vuoiSvuotare: 'Svuotare il carrello?',
     annulla: 'Annulla',
     svuota: 'Svuota',
     currency: '€',
+    caricamento: 'Caricamento...',
   },
   en: {
     ilTuoOrdine: 'Your Order',
@@ -192,12 +203,13 @@ const i18n = {
     ordineVuoto: 'Your cart is empty.',
     totale: 'Total',
     confermaOrdine: 'Submit Order',
-    cronologiaOrdini: 'Previous Orders',
+    cronologiaOrdini: 'Table Orders', // Changed to indicate shared history
     ordineInviato: 'Sent at',
     vuoiSvuotare: 'Clear the cart?',
     annulla: 'Cancel',
     svuota: 'Clear',
     currency: '€',
+    caricamento: 'Loading...',
   }
 };
 
@@ -208,19 +220,27 @@ onMounted(() => {
   loadOrderHistory();
 });
 
-function loadOrderHistory() {
-  const saved = localStorage.getItem('selforder_order_history');
-  if (saved) {
-    try {
-      orderHistory.value = JSON.parse(saved);
-    } catch {
-      orderHistory.value = [];
+async function loadOrderHistory() {
+  loadingHistory.value = true;
+  try {
+    if (billSessionId.value) {
+      // Load from API (shared across all customers at this table)
+      const orders = await fetchSessionOrders();
+      orderHistory.value = orders.map(o => ({
+        id: o.id,
+        time: new Date(o.date_created).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }),
+        items: o.righe_ordine || o.items || [],
+        total: o.total_amount || o.totale_importo || 0,
+        status: o.status,
+        dietary_diets: o.dietary_diets || [],
+        dietary_allergens: o.dietary_allergens || [],
+      }));
     }
+  } catch (e) {
+    console.warn('[SelfOrder] Failed to load history:', e);
+  } finally {
+    loadingHistory.value = false;
   }
-}
-
-function saveOrderHistory() {
-  localStorage.setItem('selforder_order_history', JSON.stringify(orderHistory.value));
 }
 
 function itemPrice(item) {
@@ -239,62 +259,76 @@ function handleClearCart() {
 }
 
 async function handleCheckout() {
-  // Add current cart to order history
   if (items.value.length > 0) {
-    // Get session ID from auth (required for order)
-    const { billSessionId } = useSelfOrderAuth();
-    
     if (!billSessionId.value) {
       alert('Sessione non valida. Riprova.');
       return;
     }
     
-    // Create order payload with REQUIRED bill_session UUID
+    // Get customer preferences (per-client, not per-session)
+    const prefs = getCustomerPreferences();
+    
+    // Create order payload aligned with Directus schema
     const orderPayload = {
-      bill_session: billSessionId.value, // REQUIRED - UUID of open bill session
-      tavolo: localStorage.getItem('selforder_table') || '',
-      timestamp: new Date().toISOString(),
-      totale_valuta: currency.value,
-      totale_importo: totalPrice.value,
-      numero_articoli: totalItems.value,
-      lingua_ordine: currentLang.value,
-      source: 'self_order',
+      bill_session: billSessionId.value, // REQUIRED - links to open bill session
+      venue: billSession.value?.venue || configStore.config?.venueId || 1,
+      table: billSession.value?.table || localStorage.getItem('selforder_table') || '1',
       status: 'pending', // Always pending, must be accepted by staff
-      righe_ordine: items.value.map(c => ({
-        id_piatto: c.menuItemId,
-        nome: c.name,
-        prezzo_unitario: c.price,
-        quantita: c.quantity,
-        totale_riga: itemPrice(c),
+      order_time: new Date().toTimeString().slice(0, 5), // 'HH:MM'
+      total_amount: totalPrice.value,
+      item_count: totalItems.value,
+      dietary_diets: prefs.diete, // Per-customer preferences
+      dietary_allergens: prefs.allergeni, // Per-customer allergies
+      global_note: '',
+      is_direct_entry: false,
+      // Order items (righe_ordine)
+      items: items.value.map((c, idx) => ({
+        uid: `r_${idx + 1}`, // Unique within order
+        dish: c.menuItemId,
+        name: c.name,
+        unit_price: c.price,
+        quantity: c.quantity,
+        notes: c.notes ? [c.notes] : [],
+        modifiers: c.modifiers?.map(m => m.name) || [],
       })),
     };
     
-    // Add to order history (local)
-    orderHistory.value.push({
-      time: new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }),
-      items: JSON.parse(JSON.stringify(items.value)),
-      total: totalPrice.value,
-      orderId: orderPayload.bill_session,
-    });
-    saveOrderHistory();
-    
     console.log('[SelfOrder] Order payload:', JSON.stringify(orderPayload, null, 2));
     
-    // Send order via API
-    const { createOrder } = useSelfOrderAuth();
-    try {
-      const result = await createOrder(orderPayload);
-      console.log('[SelfOrder] Order sent:', result);
-    } catch (e) {
-      console.error('[SelfOrder] Order send failed:', e);
-      // Order is saved locally, will sync when connection restored
-    }
+    // Save to local history for demo/offline
+    saveLocalOrder({
+      ...orderPayload,
+      localTime: new Date().toISOString(),
+    });
+    
+    // Reload history to show the new order
+    await loadOrderHistory();
     
     // Clear cart after checkout
     clearCart();
   }
   
   emit('update:modelValue', false);
+}
+
+// Get customer preferences from localStorage
+function getCustomerPreferences() {
+  const savedPrefs = localStorage.getItem('selforder_preferences');
+  if (savedPrefs) {
+    try {
+      const prefs = JSON.parse(savedPrefs);
+      const diete = Object.entries(prefs.diet || {})
+        .filter(([_, v]) => v)
+        .map(([k]) => k);
+      const allergeni = Object.entries(prefs.allergens || {})
+        .filter(([_, v]) => v)
+        .map(([k]) => k.replace(/_/g, ' '));
+      return { diete, allergeni };
+    } catch {
+      return { diete: [], allergeni: [] };
+    }
+  }
+  return { diete: [], allergeni: [] };
 }
 </script>
 

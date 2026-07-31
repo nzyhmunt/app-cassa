@@ -1116,21 +1116,59 @@ La sessione può essere **condivisa** con altri dispositivi (es. più persone al
 | **Permessi Directus** | Minimi: `read` su `bill_sessions`, `create` su `orders` |
 | **Validazione** | Sessione deve essere `status='open'` (aperta da staff) |
 
-### Payload Ordine Self-Order
+### Payload Ordine Self-Order (allineato con schema Directus)
 
 ```json
 {
-  "bill_session": "uuid-bill-session",  // REQUIRED - deve essere UUID valido e open
-  "status": "pending",
-  "source": "self_order",
-  "tavolo": "1",
-  "timestamp": "2024-01-15T12:30:00Z",
-  "numero_articoli": 3,
-  "totale_importo": 25.50,
-  "lingua_ordine": "it",
-  "righe_ordine": [...]
+  // Obbligatori per Directus
+  "bill_session": "uuid-bill-session",   // REQUIRED - deve essere UUID valido e open
+  "venue": 1,                           // REQUIRED - FK al ristorante
+  "table": "1",                        // REQUIRED - FK al tavolo
+  "status": "pending",                  // Sempre pending, staff deve accettare
+  
+  // Dati ordine
+  "order_time": "12:30",               // HH:MM
+  "total_amount": 25.50,
+  "item_count": 3,
+  
+  // Preferenze alimentari per CLIENTE (non per sessione)
+  "dietary_diets": ["Vegetariano"],     // Diete del cliente che ha ordinato
+  "dietary_allergens": ["glutine", "lattosio"],  // Allergie del cliente
+  
+  "global_note": "",
+  "is_direct_entry": false,
+  
+  // Righe ordine (Directus items)
+  "items": [
+    {
+      "uid": "r_1",                    // Unique within order
+      "dish": "ant_1",                // FK menu_items (nullable)
+      "name": "Bruschetta",            // Snapshot nome
+      "unit_price": 5.50,
+      "quantity": 1,
+      "notes": ["Senza aglio"],
+      "modifiers": ["Extra olio"],
+      "course": null
+    }
+  ]
 }
 ```
+
+### Note Importanti
+
+#### Preferenze per Cliente, Non per Sessione
+
+Ogni cliente della stessa `bill_session` può avere le proprie preferenze:
+- `dietary_diets` e `dietary_allergens` sono **per ordine**, non per sessione
+- Cliente A (vegetariano) → ordine con `dietary_diets: ["Vegetariano"]`
+- Cliente B (allergico al glutine) → ordine con `dietary_allergens: ["glutine"]`
+
+#### Cronologia Condivisa
+
+Tutti gli ordini della stessa sessione sono visibili a tutti i clienti:
+- La cronologia viene caricata via API: `GET /items/orders?filter[bill_session][_eq]={session_id}`
+- Ogni cliente della sessione vede tutti gli ordini del tavolo
+- Ogni ordine mostra le preferenze del cliente che lo ha inviato
 
 ### Campi related in `bill_sessions`
 

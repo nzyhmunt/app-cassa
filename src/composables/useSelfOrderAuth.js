@@ -210,6 +210,74 @@ export function useSelfOrderAuth() {
   }
 
   /**
+   * Fetch all orders for this bill session
+   * Returns orders from all customers who ordered at this table
+   */
+  async function fetchSessionOrders() {
+    if (!billSessionId.value) return [];
+
+    const configStore = useConfigStore();
+    const directusUrl = configStore.directusUrl;
+
+    if (!directusUrl) {
+      // Demo mode - return local history
+      return getLocalOrderHistory();
+    }
+
+    try {
+      const response = await fetch(
+        `${directusUrl}/items/orders?filter[bill_session][_eq]=${billSessionId.value}&sort=-date_created`,
+        {
+          headers: {
+            'Authorization': `Bearer ${token.value}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch orders');
+      }
+
+      const data = await response.json();
+      return data.data || [];
+    } catch (e) {
+      console.error('[SelfOrderAuth] Fetch orders failed:', e);
+      return getLocalOrderHistory();
+    }
+  }
+
+  /**
+   * Get local order history from sessionStorage (fallback/demo)
+   */
+  function getLocalOrderHistory() {
+    const saved = sessionStorage.getItem(`selforder_orders_${billSessionId.value}`);
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch {
+        return [];
+      }
+    }
+    return [];
+  }
+
+  /**
+   * Save order to local history (for demo/offline)
+   */
+  function saveLocalOrder(orderData) {
+    const history = getLocalOrderHistory();
+    history.push({
+      ...orderData,
+      localTime: new Date().toISOString(),
+    });
+    sessionStorage.setItem(
+      `selforder_orders_${billSessionId.value}`,
+      JSON.stringify(history)
+    );
+  }
+
+  /**
    * Clear session from memory and sessionStorage
    */
   function clearSession() {
@@ -276,6 +344,9 @@ export function useSelfOrderAuth() {
     closeSession,
     clearSession,
     restoreSession,
+    fetchSessionOrders,
+    getLocalOrderHistory,
+    saveLocalOrder,
   };
 }
 
