@@ -165,11 +165,9 @@ async function handleStart() {
 // Handle direct URL with session params (from QR code)
 onMounted(async () => {
   const hash = window.location.hash;
-  const search = window.location.search;
   
-  // Check for session in URL: selforder.html#/session/xxx?token=yyy
+  // Check for session in URL: selforder.html#/session/{uuid}
   const sessionMatch = hash.match(/\/session\/([^?]+)/);
-  const tokenParam = new URLSearchParams(search).get('token');
   
   if (sessionMatch) {
     const sessionId = sessionMatch[1];
@@ -177,7 +175,7 @@ onMounted(async () => {
     error.value = null;
     
     try {
-      await validateAndLoadSession(sessionId, tokenParam);
+      await validateAndLoadSession(sessionId);
       await loadMenu();
       
       // Skip onboarding if returning user

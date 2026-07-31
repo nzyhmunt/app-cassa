@@ -401,12 +401,6 @@ CREATE TABLE bill_sessions (
     children        SMALLINT        NOT NULL DEFAULT 0 CHECK (children >= 0),
     opened_at       TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
     closed_at       TIMESTAMPTZ     NULL,           -- NULL = sessione ancora aperta
-    
-    -- === CAMPI SELF-ORDER (P7) ===
-    self_order_enabled        BOOLEAN     NOT NULL DEFAULT FALSE,  -- TRUE = QR self-order attivo
-    self_order_token         VARCHAR(64) NULL,                    -- Token per auth client self-order
-    self_order_qr_generated_at TIMESTAMPTZ NULL,                  -- Quando è stato generato il QR
-    
     -- Directus standard fields
     user_created    UUID            NULL REFERENCES directus_users(id),
     date_created    TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
@@ -418,28 +412,29 @@ CREATE TABLE bill_sessions (
 );
 
 CREATE INDEX idx_bill_sessions_table ON bill_sessions("table", status);
-CREATE INDEX idx_bill_sessions_self_order ON bill_sessions(self_order_token) WHERE self_order_token IS NOT NULL;
 ```
 
-### 2.7.1 Self-Order Token Generation
+### 2.7.1 Self-Order - Autenticazione via UUID
 
-Il token self-order viene generato quando la sessione viene aperta da cassa/sala:
+Per il Self-Order si usa direttamente l'UUID della `bill_session` come identificatore:
 
 ```javascript
-// Generazione token (lato cassa/sala)
-const token = crypto.randomUUID(); // o HMAC-based token
-
-// Oppure per token più breve (6 caratteri alfanumerici)
-const token = Math.random().toString(36).substring(2, 8).toUpperCase();
-
-// URL QR Code per cliente
-const qrUrl = `https://app.example.com/selforder.html#/session/${billSessionId}?token=${token}`;
+// QR Code URL per cliente
+const qrUrl = `https://app.example.com/selforder.html#/session/${billSessionId}`;
+// Esempio: selforder.html#/session/01915f0a-1a1c-7f1a-8b3c-d4e5f6a7b8c9
 ```
 
-Il token viene:
-1. Generato da cassa/sala quando `self_order_enabled = true`
-2. Incluso nel QR code
-3. Validato quando il cliente accede (deve corrispondere e sessione deve essere `status='open'`)
+**Sicurezza**: L'UUID v7 è:
+- Unico a 128 bit (2^128 combinazioni ≈ 3.4 × 10^38)
+- Non sequenziale (valori casuali)
+- Difficile da indovinare in un attacco brute-force
+- La sessione viene invalidata quando `status` cambia a `'closed'`
+
+**Validazione accesso**:
+1. Cliente accede con UUID
+2. Directus verifica che esista una `bill_session` con quell'ID
+3. Directus verifica che `status = 'open'`
+4. Se OK → accesso consentito
 
 ---
 
@@ -1121,9 +1116,9 @@ Creare un ruolo dedicato in Directus per i clienti Self-Order:
 
 | Collection | Permesso | Condizioni/Filtri |
 |-----------|----------|-------------------|
-| `bill_sessions` | READ | `self_order_token` = token inviato dal client AND `status` = 'open' |
-| `orders` | CREATE | `bill_session` deve essere nella sessione valida del token |
-| `orders` | READ | Solo ordini con `bill_session` = sessione valida (own orders) |
+| `bill_sessions` | READ | `id` = uuid inviato dal client AND `status` = 'open' |
+| `orders` | CREATE | `bill_session` = uuid valido (l'app usa lo stesso UUID) |
+| `orders` | READ | Solo ordini con `bill_session` = uuid valido |
 | `venues` | READ | Solo per lookup del venue (non per scrittura) |
 
 ### DDL Permessi
@@ -1145,7 +1140,7 @@ Creare un ruolo dedicato in Directus per i clienti Self-Order:
   "fields": ["*"],
   "validation": {
     "_and": [
-      { "self_order_token": { "_eq": "$trigger.token" } },
+      { "id": { "_eq": "$trigger.bill_session_uuid" } },
       { "status": { "_eq": "open" } }
     ]
   }
@@ -1162,9 +1157,7 @@ Creare un ruolo dedicato in Directus per i clienti Self-Order:
     "items"
   ],
   "validation": {
-    "bill_session": {
-      "_in": "$trigger.valid_session_ids"
-    }
+    "bill_session": { "_eq": "$trigger.bill_session_uuid" }
   }
 }
 ```
@@ -1172,9 +1165,8 @@ Creare un ruolo dedicato in Directus per i clienti Self-Order:
 ### Validazione Server-Side (Hook Directus)
 
 Per maggiore sicurezza, aggiungere un hook che valida:
-1. Il token corrisponde alla sessione
+1. La sessione esiste e UUID corrisponde
 2. La sessione è ancora `status='open'`
-3. Il `bill_session` nell'ordine corrisponde al token
 
 ```javascript
 // Directus hook (custom endpoint o flow)
@@ -1187,7 +1179,7 @@ export default defineHook(({ filter, action }, { env }) => {
     if (accountability?.role !== 'self-order-client') return input;
     
     const billSession = await database
-      .select('self_order_token', 'status')
+      .select('id', 'status')
       .from('bill_sessions')
       .where('id', input.bill_session)
       .first();
@@ -1198,11 +1190,6 @@ export default defineHook(({ filter, action }, { env }) => {
     
     if (billSession.status !== 'open') {
       throw new ForbiddenException('Sessione chiusa');
-    }
-    
-    // Validazione token...
-    if (billSession.self_order_token !== accountability.token) {
-      throw new ForbiddenException('Token non valido');
     }
     
     return input;
@@ -1228,9 +1215,9 @@ L'app **Self-Order** permette ai clienti di ordinare autonomamente scansionando 
 ### QR Code Format
 
 ```
-selforder://session/{bill_session_uuid}?token={auth_token}
+selforder://session/{bill_session_uuid}
 # Oppure via URL
-/selforder.html#/session/{bill_session_uuid}?token={auth_token}
+/selforder.html#/session/{bill_session_uuid}
 ```
 
 ### Condivisione Sessione
@@ -1245,11 +1232,11 @@ La sessione può essere **condivisa** con altri dispositivi (es. più persone al
 
 | Aspetto | Descrizione |
 |---------|-------------|
-| **Lettura sessione** | Richiede `bill_session_uuid` + token valido + sessione `status='open'` |
+| **Lettura sessione** | Richiede `bill_session_uuid` valido + sessione `status='open'` |
 | **Invio ordine** | Richiede obbligatoriamente `bill_session` UUID valido |
-| **Token** | Token statico o JWT con scadenza |
+| **Autenticazione** | UUID v7 (128 bit) - sufficientemente sicuro senza token aggiuntivo |
 | **Permessi Directus** | Minimi: `read` su `bill_sessions`, `create` su `orders` |
-| **Validazione** | Sessione deve essere `status='open'` (aperta da staff) |
+| **Invalidazione** | Sessione chiusa (`status='closed'`) → UUID non più valido |
 
 ### Payload Ordine Self-Order (allineato con schema Directus)
 
