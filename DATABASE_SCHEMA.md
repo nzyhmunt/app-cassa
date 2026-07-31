@@ -1077,6 +1077,40 @@ Cardinalità:
 
 ---
 
+## 4.5 Self-Order App
+
+L'app **Self-Order** permette ai clienti di ordinare autonomamente scansionando un QR code generato dal personale.
+
+### Flusso
+
+1. Il cameriere/cassiere genera un QR code dalla sessione tavolo aperta
+2. Il cliente scansiona il QR code con il proprio dispositivo
+3. L'app carica la sessione e mostra il menu
+4. Il cliente aggiunge articoli al carrello
+5. L'ordine viene inviato e appare nella cucina/sala
+
+### QR Code Format
+
+```
+selforder://session/{bill_session_id}
+```
+
+### Campi related in `bill_sessions`
+
+| Campo | Tipo | Descrizione |
+|-------|------|-------------|
+| `self_order_enabled` | `BOOLEAN` | Se true, il QR code è attivo (opzionale) |
+| `self_order_qr_generated_at` | `TIMESTAMPTZ` | Data generazione QR (opzionale) |
+
+### Endpoint Self-Order
+
+| Risorsa | URL Pattern | Descrizione |
+|---------|-------------|-------------|
+| Self-Order App | `/selforder.html` | App PWA per ordinazione autonoma |
+| Session Link | `selforder://session/{id}` | Deep link per avvio sessione |
+
+---
+
 ## 4. Diagramma ER
 
 ```

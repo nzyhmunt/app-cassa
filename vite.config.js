@@ -53,7 +53,7 @@ function pwaManifestPlugin() {
     closeBundle() {
       if (!appConfig.pwaLogo) return
       const outDir = resolvedConfig?.build?.outDir ?? 'dist'
-      for (const name of ['cassa.webmanifest', 'sala.webmanifest', 'cucina.webmanifest']) {
+      for (const name of ['cassa.webmanifest', 'sala.webmanifest', 'cucina.webmanifest', 'selforder.webmanifest']) {
         const outPath = path.join(__dirname, outDir, name)
         try {
           const manifest = JSON.parse(readFileSync(outPath, 'utf8'))
@@ -121,6 +121,8 @@ export default defineConfig({
         sala: fileURLToPath(new URL('sala.html', import.meta.url)),
         // Cucina app (kitchen display)
         cucina: fileURLToPath(new URL('cucina.html', import.meta.url)),
+        // Self Order app (customer self-ordering via QR)
+        selforder: fileURLToPath(new URL('selforder.html', import.meta.url)),
       },
       output: {
         manualChunks(id) {
