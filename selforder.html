@@ -11,6 +11,27 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="Self Order" />
     <title>Self Order - Ristorante</title>
+    <style>
+      /* Theme CSS Variables - Default to emerald, can be overridden by JS config */
+      :root {
+        --brand-primary: #059669;
+        --brand-dark: #047857;
+      }
+      .theme-bg { background-color: var(--brand-primary); }
+      .theme-bg-dark:hover { background-color: var(--brand-dark); }
+      .theme-text { color: var(--brand-primary); }
+      .theme-border { border-color: var(--brand-primary); }
+      .theme-active-card {
+        border-color: var(--brand-primary);
+        background-color: color-mix(in srgb, var(--brand-primary) 12%, transparent);
+        color: var(--brand-primary);
+      }
+      .theme-accent { accent-color: var(--brand-primary); }
+      body { -webkit-tap-highlight-color: transparent; }
+      ::-webkit-scrollbar { width: 6px; height: 6px; }
+      ::-webkit-scrollbar-track { background: transparent; }
+      ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+    </style>
   </head>
   <body class="bg-gray-50 text-gray-800 font-sans antialiased h-dvh w-screen overflow-hidden flex flex-col">
     <div id="app" class="h-full"></div>
