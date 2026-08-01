@@ -14,8 +14,8 @@ export function useSelfOrderCart() {
   const totalPrice = computed(() =>
     items.value.reduce((sum, item) => {
       const itemPrice = item.price * item.quantity;
-      const modifiersPrice = item.modifiers?.reduce((mSum, m) => mSum + (m.price || 0) * item.quantity, 0) || 0;
-      return sum + itemPrice + modifiersPrice;
+      const modifiersPrice = item.modifiers?.reduce((mSum, m) => mSum + (m.price || 0), 0) || 0;
+      return sum + itemPrice + (modifiersPrice * item.quantity);
     }, 0)
   );
 
@@ -161,5 +161,7 @@ export function useSelfOrderCart() {
     clearHistory,
     buildOrderPayload,
     addToHistory,
+    saveHistory,
+    restoreHistory,
   };
 }

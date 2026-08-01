@@ -135,7 +135,7 @@ const props = defineProps({
 });
 
 const router = useRouter();
-const { getItemById } = useSelfOrderMenu();
+const { getItemById, loadMenu } = useSelfOrderMenu();
 const { addItem } = useSelfOrderCart();
 
 const item = ref(null);
@@ -223,7 +223,8 @@ const totalItemPrice = computed(() => {
   return price;
 });
 
-function loadItem() {
+async function loadItem() {
+  await loadMenu();
   item.value = getItemById(props.id);
 }
 

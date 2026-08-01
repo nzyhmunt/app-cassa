@@ -94,6 +94,7 @@ import { useConfigStore } from './store/index.js';
 import { useSelfOrderSession } from './composables/useSelfOrderSession.js';
 import { useSelfOrderCart } from './composables/useSelfOrderCart.js';
 import { useSelfOrderAuth } from './composables/useSelfOrderAuth.js';
+import { useSelfOrderMenu } from './composables/useSelfOrderMenu.js';
 import { loadDirectusConfigFromStorage } from './composables/useDirectusClient.js';
 import { UtensilsCrossed, ChefHat, ShoppingCart } from 'lucide-vue-next';
 
@@ -101,6 +102,7 @@ const configStore = useConfigStore();
 const { session, initSession, endSession } = useSelfOrderSession();
 const { items, addItem, removeItem, updateQuantity, clearCart, totalPrice } = useSelfOrderCart();
 const { billSessionId } = useSelfOrderAuth();
+const { menu, loadMenu } = useSelfOrderMenu();
 const route = useRoute();
 
 const showCart = ref(false);
@@ -187,12 +189,14 @@ function formatPrice(price) {
   }).format(price);
 }
 
-// Load config on mount
+// Load config and menu on mount
 onMounted(async () => {
   try {
     await loadDirectusConfigFromStorage();
+    // Load menu for all views
+    await loadMenu();
   } catch (e) {
-    console.warn('[SelfOrderApp] Config load failed:', e);
+    console.warn('[SelfOrderApp] Init failed:', e);
   }
 });
 

@@ -98,12 +98,12 @@
 import { ref, onMounted, nextTick, computed, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { ChefHat, User, Send } from 'lucide-vue-next';
-import { useConfigStore } from '../../store/index.js';
+import { useSelfOrderMenu } from '../../composables/useSelfOrderMenu.js';
 import { useSelfOrderCart } from '../../composables/useSelfOrderCart.js';
 
 const router = useRouter();
 const route = useRoute();
-const configStore = useConfigStore();
+const { menu, loadMenu } = useSelfOrderMenu();
 const { items: cartItems, addItem } = useSelfOrderCart();
 
 const chatContainer = ref(null);
@@ -139,9 +139,9 @@ const i18n = {
 const t = computed(() => i18n[currentLang.value] || i18n.it);
 
 function getMenu() {
-  const menu = configStore.menu || {};
+  const menuData = menu.value || {};
   const items = [];
-  Object.entries(menu).forEach(([category, categoryItems]) => {
+  Object.entries(menuData).forEach(([category, categoryItems]) => {
     categoryItems.forEach(item => {
       items.push({
         id: item.id,
@@ -158,13 +158,13 @@ function getMenu() {
 }
 
 function getPiatto(id) {
-  const menu = getMenu();
-  return menu.find(p => p.id === id) || null;
+  const allItems = getMenu();
+  return allItems.find(p => p.id === id) || null;
 }
 
 function getItemById(id) {
-  const menu = configStore.menu || {};
-  for (const [category, items] of Object.entries(menu)) {
+  const menuData = menu.value || {};
+  for (const [category, items] of Object.entries(menuData)) {
     const item = items.find(i => i.id === id);
     if (item) {
       return { ...item, categoria: category };
@@ -397,8 +397,10 @@ watch(() => route.query, (query) => {
   }
 }, { immediate: true });
 
-onMounted(() => {
+onMounted(async () => {
   // Check for query params on mount
+  // Ensure menu is loaded
+  await loadMenu();
   const query = route.query;
   if (query.action === 'magic' && query.item) {
     const item = getItemById(query.item);

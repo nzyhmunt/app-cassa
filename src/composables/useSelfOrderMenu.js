@@ -1,3 +1,6 @@
+import { ref } from 'vue';
+import { useConfigStore } from '../store/index.js';
+
 /**
  * Self-Order Menu Loader
  * 
@@ -447,5 +450,3 @@ export function useSelfOrderMenu() {
   };
 }
 
-import { ref } from 'vue';
-import { useConfigStore } from '../store/index.js';

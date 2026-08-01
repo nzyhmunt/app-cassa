@@ -13,7 +13,7 @@
 
     <!-- Scanner area -->
     <div class="flex-1 relative">
-      <div ref="scannerContainer" class="w-full h-full"></div>
+      <div id="scanner-region" ref="scannerContainer" class="w-full h-full"></div>
       
       <!-- Scanning frame overlay -->
       <div class="absolute inset-0 flex items-center justify-center pointer-events-none">

@@ -54,14 +54,19 @@ export function useSelfOrderSession() {
     if (localSession) {
       return localSession;
     }
-    
+
     // Then try Directus API
+    const directusUrl = configStore.config?.directus?.url;
+    const directusToken = configStore.config?.directus?.staticToken;
+    if (!directusUrl) {
+      return null;
+    }
     try {
       const response = await fetch(
-        `${configStore.directusUrl}/items/bill_sessions/${sessionId}`,
+        `${directusUrl}/items/bill_sessions/${sessionId}`,
         {
           headers: {
-            'Authorization': `Bearer ${configStore.directusToken}`,
+            'Authorization': `Bearer ${directusToken}`,
           },
         }
       );
@@ -87,7 +92,7 @@ export function useSelfOrderSession() {
   }
 
   function getTableName(tableId) {
-    const tables = configStore.tables || [];
+    const tables = configStore.config?.tables || [];
     const table = tables.find(t => t.id === tableId);
     return table?.name || `Tavolo ${tableId}`;
   }
@@ -113,13 +118,18 @@ export function useSelfOrderSession() {
   }
 
   async function closeBillSession(sessionId) {
+    const directusUrl = configStore.config?.directus?.url;
+    const directusToken = configStore.config?.directus?.staticToken;
+    if (!directusUrl) {
+      return;
+    }
     try {
       await fetch(
-        `${configStore.directusUrl}/items/bill_sessions/${sessionId}`,
+        `${directusUrl}/items/bill_sessions/${sessionId}`,
         {
           method: 'PATCH',
           headers: {
-            'Authorization': `Bearer ${configStore.directusToken}`,
+            'Authorization': `Bearer ${directusToken}`,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
