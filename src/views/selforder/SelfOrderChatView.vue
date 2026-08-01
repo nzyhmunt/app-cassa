@@ -74,22 +74,23 @@
 
     <!-- Input area -->
     <div class="p-4 bg-white border-t border-gray-200 shrink-0 shadow-[0_-4px_10px_-2px_rgba(0,0,0,0.05)]">
-      <form @submit.prevent="sendMessage" class="relative flex items-center gap-2">
+      <div class="relative flex items-center gap-2">
         <input 
           v-model="aiInput" 
           type="text" 
           :placeholder="t.aiPlaceholder" 
           class="flex-1 bg-gray-100 focus:bg-white rounded-full py-4 pl-5 pr-14 text-sm transition-all ring-2 ring-emerald-200 focus:ring-emerald-400 focus:outline-none shadow-inner"
           :disabled="isAiTyping"
+          @keyup.enter="sendMessage"
         />
         <button 
-          type="submit" 
+          @click="sendMessage"
           :disabled="!aiInput.trim() || isAiTyping"
           class="absolute right-1.5 size-11 flex items-center justify-center bg-emerald-600 hover:bg-emerald-700 text-white rounded-full transition-all active:scale-95 disabled:opacity-50"
         >
           <Send class="size-5" />
         </button>
-      </form>
+      </div>
     </div>
   </div>
 </template>
