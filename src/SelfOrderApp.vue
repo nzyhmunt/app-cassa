@@ -1,10 +1,10 @@
 <template>
   <div
     id="self-order-app"
-    class="h-full flex flex-col relative w-full bg-gray-50"
+    class="h-dvh flex flex-col relative w-full bg-gray-50 overflow-hidden"
     :style="cssVars"
   >
-    <!-- Header with session info -->
+    <!-- Header - FIXED at top -->
     <SelfOrderNavbar
       v-if="showHeader"
       :session="currentSession"
@@ -13,21 +13,23 @@
       @share="showShareSession = true"
       @end-session="confirmEndSession"
       @preferences="showPreferences = true"
+      class="shrink-0"
     />
 
     <!-- Main content area -->
-    <div class="flex-1 overflow-hidden flex flex-col">
+    <main class="flex-1 overflow-y-auto">
       <router-view v-slot="{ Component }">
         <transition name="fade" mode="out-in">
           <component :is="Component" />
         </transition>
       </router-view>
-    </div>
+    </main>
 
-    <!-- Mobile bottom navigation -->
+    <!-- Mobile bottom navigation - FIXED at bottom -->
     <nav 
       v-if="showBottomNav"
-      class="bg-white border-t border-gray-200 px-2 py-2 pb-safe shrink-0 z-40 md:hidden"
+      class="bg-white border-t border-gray-200 px-2 py-2 shrink-0 z-50 md:hidden"
+      style="padding-bottom: max(env(safe-area-inset-bottom), 0.5rem);"
     >
       <div class="flex justify-around items-center">
         <button 

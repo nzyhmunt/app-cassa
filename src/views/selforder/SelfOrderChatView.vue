@@ -1,20 +1,7 @@
 <template>
   <div class="flex flex-col h-full bg-gray-50">
-    <!-- Header -->
-    <div class="bg-gradient-to-r from-purple-600 to-purple-700 text-white p-4">
-      <div class="flex items-center gap-3">
-        <div class="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center">
-          <ChefHat class="size-6" />
-        </div>
-        <div>
-          <h2 class="font-bold text-lg leading-tight">{{ t.aiTitolo }}</h2>
-          <p class="text-white/80 text-xs">{{ t.aiSottotitolo }}</p>
-        </div>
-      </div>
-    </div>
-
     <!-- Chat messages -->
-    <div ref="chatContainer" class="flex-1 overflow-y-auto p-4 space-y-4 bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI4IiBoZWlnaHQ9IjgiPjxyZWN0IHdpZHRoPSI4IiBoZWlnaHQ9IjgiIGZpbGw9IiNmOGZhZmMiLz48Y2lyY2xlIGN4PSI0IiBjeT0iNCIgcj0iMSIgZmlsbD0iI2UxZTVlOSIvPjwvc3ZnPg==')]">
+    <div ref="chatContainer" class="flex-1 overflow-y-auto p-4 space-y-4 pb-20 bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI4IiBoZWlnaHQ9IjgiPjxyZWN0IHdpZHRoPSI4IiBoZWlnaHQ9IjgiIGZpbGw9IiNmOGZhZmMiLz48Y2lyY2xlIGN4PSI0IiBjeT0iNCIgcj0iMSIgZmlsbD0iI2UxZTVlOSIvPjwvc3ZnPg==')]">
       <!-- Welcome message -->
       <div class="flex gap-3">
         <div class="w-8 h-8 rounded-full bg-purple-100 flex items-center justify-center shrink-0">
@@ -72,25 +59,24 @@
       </div>
     </div>
 
-    <!-- Input area -->
-    <div class="p-4 bg-white border-t border-gray-200 shrink-0 shadow-[0_-4px_10px_-2px_rgba(0,0,0,0.05)]">
-      <div class="relative flex items-center gap-2">
+    <!-- Input area - FIXED at bottom -->
+    <div class="p-4 bg-white border-t border-gray-200 shrink-0 shadow-[0_-4px_10px_-2px_rgba(0,0,0,0.05)] z-30">
+      <form @submit.prevent="handleSend" class="relative flex items-center gap-2">
         <input 
           v-model="aiInput" 
           type="text" 
           :placeholder="t.aiPlaceholder" 
-          class="flex-1 bg-gray-100 focus:bg-white rounded-full py-4 pl-5 pr-14 text-sm transition-all ring-2 ring-emerald-200 focus:ring-emerald-400 focus:outline-none shadow-inner"
+          class="w-full bg-gray-100 focus:bg-white rounded-full py-4 pl-5 pr-14 text-sm transition-all theme-ring shadow-inner"
           :disabled="isAiTyping"
-          @keyup.enter="sendMessage"
         />
         <button 
-          @click="sendMessage"
+          type="submit"
           :disabled="!aiInput.trim() || isAiTyping"
           class="absolute right-1.5 size-11 flex items-center justify-center bg-emerald-600 hover:bg-emerald-700 text-white rounded-full transition-all active:scale-95 disabled:opacity-50"
         >
-          <Send class="size-5" />
+          <Send class="size-4" />
         </button>
-      </div>
+      </form>
     </div>
   </div>
 </template>
@@ -201,6 +187,11 @@ function scrollToBottom() {
       chatContainer.value.scrollTop = chatContainer.value.scrollHeight;
     }
   });
+}
+
+// Handle form submit
+function handleSend() {
+  sendMessage();
 }
 
 async function sendMessage(msg = null) {
