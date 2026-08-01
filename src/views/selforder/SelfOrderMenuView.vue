@@ -96,10 +96,15 @@
                 <UtensilsCrossed class="w-10 h-10 text-gray-300" />
               </div>
               
+              <!-- Price overlay on image -->
+              <div class="absolute top-2 right-2 bg-white/95 backdrop-blur-sm px-2.5 py-1 rounded-full shadow-sm border border-gray-100">
+                <span class="theme-text font-black text-sm">{{ currency }}{{ formatPrice(item.price) }}</span>
+              </div>
+              
               <!-- Unavailable badge -->
               <span 
                 v-if="item.available === false"
-                class="absolute top-2 right-2 bg-red-500 text-white text-[10px] px-2 py-1 rounded-full font-bold"
+                class="absolute top-2 left-2 bg-red-500 text-white text-[10px] px-2 py-1 rounded-full font-bold"
               >
                 {{ t.nonDisponibile }}
               </span>
@@ -108,13 +113,13 @@
               <div class="absolute bottom-2 left-2 flex gap-1">
                 <span 
                   v-if="item.note === 'Vegano'"
-                  class="bg-green-500 text-white text-[9px] px-2 py-0.5 rounded-full font-bold"
+                  class="bg-green-100 text-green-800 text-[9px] px-2 py-0.5 rounded-full font-bold border border-green-200"
                 >
                   {{ t.vegano }}
                 </span>
                 <span 
                   v-else-if="item.note === 'Vegetariano'"
-                  class="bg-green-400 text-white text-[9px] px-2 py-0.5 rounded-full font-bold"
+                  class="bg-green-100 text-green-800 text-[9px] px-2 py-0.5 rounded-full font-bold border border-green-200"
                 >
                   {{ t.vegetariano }}
                 </span>
@@ -123,28 +128,51 @@
             
             <!-- Item info -->
             <div class="p-3 flex flex-col flex-1">
-              <h3 class="font-medium text-gray-800 text-sm line-clamp-2 leading-tight cursor-pointer" @click="selectItem(item)">{{ item.name }}</h3>
-              <p class="text-xs text-gray-400 mt-1 line-clamp-1">{{ item.description }}</p>
-              <div class="mt-auto pt-2 flex items-center justify-between">
-                <p class="theme-text font-bold text-base">{{ currency }}{{ formatPrice(item.price) }}</p>
-                
-                <!-- AI Action buttons -->
-                <div class="flex gap-1">
-                  <button 
-                    @click="askMagic(item)"
-                    class="p-1.5 rounded-lg bg-gray-50 hover:bg-purple-50 text-gray-500 hover:text-purple-600 transition-colors"
-                    :title="t.chiediMagic"
+              <h3 class="font-bold text-gray-900 text-sm line-clamp-2 leading-tight cursor-pointer" @click="selectItem(item)">{{ item.name }}</h3>
+              <p class="text-xs text-gray-500 mt-1 line-clamp-2 italic">{{ item.description }}</p>
+              
+              <!-- Allergens highlight if matching profile -->
+              <div v-if="item.allergens && item.allergens.length > 0" class="mt-2 flex flex-wrap gap-1">
+                <span 
+                  v-for="allergen in item.allergens.slice(0, 3)" 
+                  :key="allergen"
+                  :class="isAllergenInProfile(allergen) ? 'bg-red-100 text-red-700 border-red-300 font-bold' : 'bg-amber-50 text-amber-700 border-amber-200'"
+                  class="text-[10px] px-2 py-0.5 rounded-md border capitalize"
+                >
+                  {{ allergen.replace(/_/g, ' ') }}
+                </span>
+                <span v-if="item.allergens.length > 3" class="text-[10px] text-gray-500">+{{ item.allergens.length - 3 }}</span>
+              </div>
+              
+              <!-- Action buttons -->
+              <div class="mt-auto pt-3 flex items-center gap-2 border-t border-gray-50">
+                <button 
+                  @click="askMagic(item)"
+                  class="flex-none p-2 rounded-lg bg-gray-50 hover:bg-purple-50 text-gray-500 hover:text-purple-600 transition-colors"
+                  :title="t.chiediMagic"
+                >
+                  <Sparkles class="size-4" />
+                </button>
+                <button 
+                  @click="askInfo(item)"
+                  class="flex-none p-2 rounded-lg bg-gray-50 hover:bg-blue-50 text-gray-500 hover:text-blue-600 transition-colors"
+                  :title="t.maggioriInfo"
+                >
+                  <Info class="size-4" />
+                </button>
+                <button 
+                  @click="quickAddToCart(item)"
+                  class="flex-1 relative h-10 flex items-center justify-center gap-2 bg-gray-900 hover:bg-black text-white rounded-xl font-bold transition-all active:scale-95 shadow-sm"
+                >
+                  <Plus class="size-4" />
+                  <span class="uppercase tracking-wider text-xs">{{ t.aggiungi }}</span>
+                  <span 
+                    v-if="getItemQty(item.id) > 0" 
+                    class="absolute -top-2 -right-2 theme-bg text-white text-[10px] font-bold size-5 flex items-center justify-center rounded-full border-2 border-white shadow-sm"
                   >
-                    <Sparkles class="size-4" />
-                  </button>
-                  <button 
-                    @click="askInfo(item)"
-                    class="p-1.5 rounded-lg bg-gray-50 hover:bg-blue-50 text-gray-500 hover:text-blue-600 transition-colors"
-                    :title="t.maggioriInfo"
-                  >
-                    <Info class="size-4" />
-                  </button>
-                </div>
+                    {{ getItemQty(item.id) }}
+                  </span>
+                </button>
               </div>
             </div>
           </div>
@@ -190,6 +218,7 @@ const i18n = {
     nonDisponibile: 'Non disp.',
     vegano: 'Vegano',
     vegetariano: 'Veg',
+    aggiungi: 'Aggiungi',
     nessunArticolo: 'Nessun articolo in questa categoria',
     allergeniNascosti: 'Alcuni piatti sono nascosti per le tue preferenze',
     completaPasto: 'Completa il tuo pasto',
@@ -204,6 +233,7 @@ const i18n = {
     nonDisponibile: 'N/A',
     vegano: 'Vegan',
     vegetariano: 'Veg',
+    aggiungi: 'Add',
     nessunArticolo: 'No items in this category',
     allergeniNascosti: 'Some dishes hidden for your preferences',
     completaPasto: 'Complete your meal',
@@ -376,6 +406,17 @@ function selectItem(item) {
 function formatPrice(price) {
   if (price === null || price === undefined) return '0.00';
   return price.toFixed(2);
+}
+
+// Get quantity of item in cart
+function getItemQty(itemId) {
+  const found = cartItems.value.find(c => c.menuItemId === itemId);
+  return found ? found.quantity : 0;
+}
+
+// Check if allergen is in user's preferences
+function isAllergenInProfile(allergen) {
+  return preferences.value.allergens?.[allergen] === true;
 }
 
 function quickAddToCart(item) {
