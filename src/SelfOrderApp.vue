@@ -89,7 +89,7 @@
 
 <script setup>
 import { ref, computed, provide, onMounted } from 'vue';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import SelfOrderCartDrawer from './components/selforder/SelfOrderCartDrawer.vue';
 import SelfOrderSessionEndedModal from './components/selforder/SelfOrderSessionEndedModal.vue';
 import SelfOrderConfirmOrderModal from './components/selforder/SelfOrderConfirmOrderModal.vue';
@@ -109,6 +109,7 @@ const { items, addItem, removeItem, updateQuantity, clearCart, totalPrice } = us
 const { billSessionId } = useSelfOrderAuth();
 const { menu, loadMenu } = useSelfOrderMenu();
 const route = useRoute();
+const router = useRouter();
 
 const showCart = ref(false);
 const showSessionEnded = ref(false);
@@ -121,15 +122,15 @@ const cartCount = computed(() => items.value.reduce((sum, item) => sum + item.qu
 
 const currentSession = computed(() => session.value);
 
-// Show header only when session is active
+// Show header on main app pages
 const showHeader = computed(() => {
-  const path = window.location.hash.replace('#', '');
+  const path = route.path;
   return ['/menu', '/chat', '/status', '/item'].some(p => path.startsWith(p));
 });
 
-// Show bottom nav only on menu pages (not on scan/welcome)
+// Show bottom nav on main app pages
 const showBottomNav = computed(() => {
-  const path = window.location.hash.replace('#', '');
+  const path = route.path;
   return ['/menu', '/chat', '/status'].includes(path);
 });
 
@@ -157,7 +158,7 @@ provide('selfOrderSession', { session, initSession, endSession });
 provide('selfOrderCart', { items, addItem, removeItem, updateQuantity, clearCart });
 
 function isActive(path) {
-  return window.location.hash.includes(path);
+  return route.path.includes(path);
 }
 
 function goBack() {
@@ -184,8 +185,8 @@ async function submitOrder() {
 }
 
 function navigateTo(route) {
-  navigationHistory.value.push(window.location.hash);
-  window.location.hash = route;
+  navigationHistory.value.push(route.fullPath || route);
+  router.push(route);
 }
 
 function formatPrice(price) {
