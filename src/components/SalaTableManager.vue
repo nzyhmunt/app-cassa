@@ -147,8 +147,9 @@
             title="Unisci con altro Tavolo">
             <Merge class="size-4" /> <span class="hidden sm:inline">Unisci</span>
           </button>
-          <!-- Self-Order QR button -->
-          <button @click="showQRModal = true"
+          <!-- Self-Order QR button (only if session exists) -->
+          <button v-if="qrSession?.id"
+            @click="showQRModal = true"
             class="bg-emerald-500 hover:bg-emerald-600 px-3 py-2 rounded-xl font-bold text-[10px] md:text-xs flex items-center gap-1.5 transition-all active:scale-95 shrink-0 text-white"
             title="Genera QR Code per Self-Order">
             <QrCode class="size-4" /> <span class="hidden sm:inline">QR</span>
