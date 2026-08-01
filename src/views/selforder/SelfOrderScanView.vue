@@ -27,6 +27,22 @@
       </button>
     </div>
 
+    <!-- QR Scanner button -->
+    <button 
+      @click="showScanner = true" 
+      class="mb-6 theme-bg hover:theme-bg-dark text-white py-4 px-8 rounded-2xl font-bold text-lg shadow-md transition-all flex items-center justify-center gap-3 active:scale-[0.98]"
+    >
+      <QrCode class="size-6" />
+      {{ t.scansionaQR }}
+    </button>
+
+    <!-- Divider -->
+    <div class="flex items-center gap-4 w-full max-w-sm mb-6">
+      <div class="flex-1 h-px bg-gray-300"></div>
+      <span class="text-gray-400 text-sm font-medium">oppure</span>
+      <div class="flex-1 h-px bg-gray-300"></div>
+    </div>
+
     <!-- Table number input -->
     <div class="bg-gray-50 p-6 md:p-8 rounded-3xl shadow-sm border border-gray-100 w-full max-w-sm">
       <label class="block text-sm font-bold text-gray-700 mb-3 uppercase tracking-wide flex items-center justify-center gap-2">
@@ -46,7 +62,7 @@
       <button 
         @click="handleStart" 
         :disabled="!tableNumber || loading"
-        class="w-full theme-bg hover:theme-bg-dark text-white py-4 rounded-2xl font-bold text-lg shadow-md transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 active:scale-[0.98]"
+        class="w-full bg-gray-100 hover:bg-gray-200 text-gray-800 py-4 rounded-2xl font-bold text-lg shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 active:scale-[0.98]"
       >
         <Loader2 v-if="loading" class="size-5 animate-spin" />
         <template v-else>
@@ -81,15 +97,24 @@
         </button>
       </div>
     </div>
+
+    <!-- QR Scanner modal -->
+    <SelfOrderQRScanner 
+      v-if="showScanner" 
+      @scanned="handleQRScanned" 
+      @close="showScanner = false"
+      @error="handleScannerError"
+    />
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
-import { MapPin, ArrowRight, ChevronDown, UtensilsCrossed, Loader2, AlertCircle } from 'lucide-vue-next';
+import { MapPin, ArrowRight, ChevronDown, UtensilsCrossed, Loader2, AlertCircle, QrCode } from 'lucide-vue-next';
 import { useSelfOrderAuth } from '../../composables/useSelfOrderAuth.js';
 import { useSelfOrderMenu } from '../../composables/useSelfOrderMenu.js';
+import SelfOrderQRScanner from '../../components/selforder/SelfOrderQRScanner.vue';
 
 const router = useRouter();
 const { validateAndLoadSession, parseSessionUrl, error: authError } = useSelfOrderAuth();
@@ -99,6 +124,7 @@ const tableNumber = ref('');
 const loading = ref(false);
 const error = ref(null);
 const langMenuOpen = ref(false);
+const showScanner = ref(false);
 const currentLang = ref(localStorage.getItem('selforder_lang') || 'it');
 
 // Simple config (could be loaded from static config.json)
@@ -117,12 +143,14 @@ const i18n = {
     iniziaOrdine: 'Visualizza Menu',
     connessione: 'Connessione in corso...',
     sessioneScaduta: 'Sessione scaduta o non valida',
+    scansionaQR: 'Scansiona QR',
   },
   en: {
     inserisciTavolo: 'Enter your table',
     iniziaOrdine: 'View Menu',
     connessione: 'Connecting...',
     sessioneScaduta: 'Session expired or invalid',
+    scansionaQR: 'Scan QR',
   }
 };
 
@@ -141,14 +169,9 @@ async function handleStart() {
   error.value = null;
   
   try {
-    // Pre-load menu (will use demo menu if no URL configured)
     await loadMenu();
-    
-    // For demo mode, we just store table number and proceed
-    // In production, this would validate session via QR token
     localStorage.setItem('selforder_table', tableNumber.value);
     
-    // Check if first time (show onboarding)
     const hasSeenOnboarding = sessionStorage.getItem('selforder_onboarding_done');
     if (!hasSeenOnboarding) {
       router.push('/onboarding');
@@ -160,6 +183,39 @@ async function handleStart() {
   } finally {
     loading.value = false;
   }
+}
+
+async function handleQRScanned(url) {
+  showScanner.value = false;
+  loading.value = true;
+  error.value = null;
+  
+  try {
+    // Extract session ID from URL
+    const sessionMatch = url.match(/\/session\/([^?]+)/);
+    if (!sessionMatch) {
+      throw new Error('URL QR non valido');
+    }
+    
+    const sessionId = sessionMatch[1];
+    await validateAndLoadSession(sessionId);
+    await loadMenu();
+    
+    const hasSeenOnboarding = sessionStorage.getItem('selforder_onboarding_done');
+    if (!hasSeenOnboarding) {
+      router.push('/onboarding');
+    } else {
+      router.push('/menu');
+    }
+  } catch (e) {
+    error.value = e.message || t.value.sessioneScaduta;
+  } finally {
+    loading.value = false;
+  }
+}
+
+function handleScannerError(msg) {
+  error.value = msg;
 }
 
 // Handle direct URL with session params (from QR code)
@@ -178,7 +234,6 @@ onMounted(async () => {
       await validateAndLoadSession(sessionId);
       await loadMenu();
       
-      // Skip onboarding if returning user
       const hasSeenOnboarding = sessionStorage.getItem('selforder_onboarding_done');
       if (!hasSeenOnboarding) {
         router.push('/onboarding');
