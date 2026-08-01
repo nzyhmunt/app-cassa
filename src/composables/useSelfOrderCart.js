@@ -1,8 +1,11 @@
 import { ref, computed } from 'vue';
 
+const ORDER_HISTORY_KEY = 'selforder_order_history';
+
 export function useSelfOrderCart() {
   const items = ref([]);
   const submittedOrderId = ref(null);
+  const orderHistory = ref([]); // Array of submitted orders
 
   const totalItems = computed(() => 
     items.value.reduce((sum, item) => sum + item.quantity, 0)
@@ -85,6 +88,45 @@ export function useSelfOrderCart() {
   }
 
   /**
+   * Add current cart to order history (called after successful submission)
+   */
+  function addToHistory() {
+    if (items.value.length === 0) return;
+    
+    const order = {
+      id: `ord_${Date.now()}`,
+      time: new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }),
+      items: JSON.parse(JSON.stringify(items.value)),
+      total: totalPrice.value,
+      totalItems: totalItems.value,
+    };
+    
+    orderHistory.value.unshift(order); // Add to beginning
+    saveHistory();
+    clearCart();
+  }
+
+  function saveHistory() {
+    localStorage.setItem(ORDER_HISTORY_KEY, JSON.stringify(orderHistory.value));
+  }
+
+  function restoreHistory() {
+    const saved = localStorage.getItem(ORDER_HISTORY_KEY);
+    if (saved) {
+      try {
+        orderHistory.value = JSON.parse(saved);
+      } catch {
+        localStorage.removeItem(ORDER_HISTORY_KEY);
+      }
+    }
+  }
+
+  function clearHistory() {
+    orderHistory.value = [];
+    localStorage.removeItem(ORDER_HISTORY_KEY);
+  }
+
+  /**
    * Build order payload (SECURITY: no prices sent)
    * Prices will be calculated by cassa/sala from menu.json
    */
@@ -102,18 +144,22 @@ export function useSelfOrderCart() {
     };
   }
 
-  // Restore cart on init
+  // Restore cart and history on init
   restoreCart();
+  restoreHistory();
 
   return {
     items,
     totalItems,
     totalPrice,
+    orderHistory,
     submittedOrderId,
     addItem,
     removeItem,
     updateQuantity,
     clearCart,
+    clearHistory,
     buildOrderPayload,
+    addToHistory,
   };
 }
