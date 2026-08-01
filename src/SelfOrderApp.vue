@@ -90,6 +90,7 @@
 <script setup>
 import { ref, computed, provide, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import SelfOrderNavbar from './components/selforder/SelfOrderNavbar.vue';
 import SelfOrderCartDrawer from './components/selforder/SelfOrderCartDrawer.vue';
 import SelfOrderSessionEndedModal from './components/selforder/SelfOrderSessionEndedModal.vue';
 import SelfOrderConfirmOrderModal from './components/selforder/SelfOrderConfirmOrderModal.vue';
