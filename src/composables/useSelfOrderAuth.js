@@ -2,15 +2,15 @@
  * Self-Order Authentication & Session Management
  * 
  * Authentication flow:
- * 1. QR code contains: selforder://session/{bill_session_uuid}
- * 2. UUID is validated against Directus
+ * 1. QR code contains: selforder.html#/session/{bill_session_uuid}?access_token={jwt}
+ * 2. UUID (+ optional token) validated against Directus
  * 3. Session data is loaded and cached in memory only
- * 4. All subsequent requests include the same UUID
+ * 4. All subsequent requests include the same UUID + token
  * 
  * Security:
  * - UUID v7 is 128 bits of randomness (hard to guess)
  * - Session status='open' must be verified on every access
- * - No token needed - UUID itself is the identifier
+ * - Optional JWT token from URL for Directus authentication
  * - Session invalidation happens when status changes to 'closed'
  */
 
@@ -18,16 +18,24 @@ const SESSION_CACHE_KEY = 'selforder_session_cache';
 
 export function useSelfOrderAuth() {
   const billSessionId = ref(null);
+  const accessToken = ref(null); // JWT token from URL for Directus auth
   const billSession = ref(null);
   const isAuthenticated = ref(false);
   const loading = ref(false);
   const error = ref(null);
 
   /**
-   * Parse QR code / URL and extract session UUID
+   * Parse QR code / URL and extract session UUID and token
    */
   function parseSessionUrl(urlOrCode) {
     let sessionId = null;
+    let token = null;
+
+    // Extract token from URL if present
+    const tokenMatch = urlOrCode.match(/[?&]access_token=([^&]+)/);
+    if (tokenMatch) {
+      token = decodeURIComponent(tokenMatch[1]);
+    }
 
     // Format: selforder://session/{bill_session_uuid}
     if (urlOrCode.startsWith('selforder://')) {
@@ -48,7 +56,7 @@ export function useSelfOrderAuth() {
       sessionId = urlOrCode.trim();
     }
 
-    return { sessionId };
+    return { sessionId, token };
   }
 
   /**
@@ -61,6 +69,12 @@ export function useSelfOrderAuth() {
     try {
       if (!sessionId) {
         throw new Error('Sessione non valida');
+      }
+
+      // Extract token from URL if present
+      const tokenFromUrl = new URLSearchParams(window.location.search).get('access_token');
+      if (tokenFromUrl) {
+        accessToken.value = tokenFromUrl;
       }
 
       // Validate against Directus
@@ -104,7 +118,12 @@ export function useSelfOrderAuth() {
     }
 
     try {
-      const response = await fetch(`${directusUrl}/items/bill_sessions/${sessionId}`);
+      const headers = { 'Content-Type': 'application/json' };
+      if (accessToken.value) {
+        headers['Authorization'] = `Bearer ${accessToken.value}`;
+      }
+
+      const response = await fetch(`${directusUrl}/items/bill_sessions/${sessionId}`, { headers });
 
       if (!response.ok) {
         if (response.status === 401 || response.status === 403) {
@@ -142,11 +161,14 @@ export function useSelfOrderAuth() {
     }
 
     try {
+      const headers = { 'Content-Type': 'application/json' };
+      if (accessToken.value) {
+        headers['Authorization'] = `Bearer ${accessToken.value}`;
+      }
+
       const response = await fetch(`${directusUrl}/items/orders`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers,
         body: JSON.stringify({
           ...orderData,
           bill_session: billSessionId.value,
@@ -168,6 +190,7 @@ export function useSelfOrderAuth() {
 
   /**
    * Close the session (called when customer ends or order complete)
+   * Note: Only cassa/sala should close sessions, not the self-order app
    */
   async function closeSession() {
     if (!isAuthenticated.value || !billSessionId.value) return;
@@ -175,14 +198,16 @@ export function useSelfOrderAuth() {
     const configStore = useConfigStore();
     const directusUrl = configStore.directusUrl;
 
-    if (directusUrl && token.value) {
+    if (directusUrl) {
       try {
+        const headers = { 'Content-Type': 'application/json' };
+        if (accessToken.value) {
+          headers['Authorization'] = `Bearer ${accessToken.value}`;
+        }
+
         await fetch(`${directusUrl}/items/bill_sessions/${billSessionId.value}`, {
           method: 'PATCH',
-          headers: {
-            'Authorization': `Bearer ${token.value}`,
-            'Content-Type': 'application/json',
-          },
+          headers,
           body: JSON.stringify({
             status: 'closed',
             closed_at: new Date().toISOString(),
@@ -213,14 +238,14 @@ export function useSelfOrderAuth() {
     }
 
     try {
+      const headers = { 'Content-Type': 'application/json' };
+      if (accessToken.value) {
+        headers['Authorization'] = `Bearer ${accessToken.value}`;
+      }
+
       const response = await fetch(
         `${directusUrl}/items/orders?filter[bill_session][_eq]=${billSessionId.value}&sort=-date_created`,
-        {
-          headers: {
-            'Authorization': `Bearer ${token.value}`,
-            'Content-Type': 'application/json',
-          },
-        }
+        { headers }
       );
 
       if (!response.ok) {
@@ -305,6 +330,7 @@ export function useSelfOrderAuth() {
 
   return {
     billSessionId,
+    accessToken,
     billSession,
     isAuthenticated,
     loading,

@@ -84,21 +84,20 @@ export function useSelfOrderCart() {
     }
   }
 
+  /**
+   * Build order payload (SECURITY: no prices sent)
+   * Prices will be calculated by cassa/sala from menu.json
+   */
   function buildOrderPayload(sessionId) {
     return {
       bill_session: sessionId,
       status: 'pending',
-      source: 'self_order',
       items: items.value.map(item => ({
-        menu_item: item.menuItemId,
+        dish: item.menuItemId, // FK to menu_items - price from menu.json
+        name: item.name, // Snapshot for reference only
         quantity: item.quantity,
-        price: item.price,
-        modifiers: item.modifiers?.map(m => ({
-          menu_modifier: m.id,
-          name: m.name,
-          price: m.price || 0,
-        })) || [],
         notes: item.notes || null,
+        modifiers: item.modifiers?.map(m => m.name) || [], // Names only, prices from menu
       })),
     };
   }

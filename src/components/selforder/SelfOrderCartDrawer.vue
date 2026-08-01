@@ -114,10 +114,14 @@
             </div>
             
             <button 
-              class="w-full py-4 theme-bg text-white rounded-xl font-bold text-lg shadow-md transition-all active:scale-[0.98]"
+              class="w-full py-4 theme-bg text-white rounded-xl font-bold text-lg shadow-md transition-all active:scale-[0.98] flex items-center justify-center gap-2"
+              :disabled="submitting"
               @click="handleCheckout"
             >
-              {{ t.confermaOrdine }}
+              <span v-if="submitting" class="animate-spin">
+                <Loader2 class="w-5 h-5" />
+              </span>
+              {{ submitting ? t.invioInCorso : t.confermaOrdine }}
             </button>
           </div>
         </div>
@@ -153,7 +157,7 @@
 
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue';
-import { X, ShoppingCart, ShoppingBag, Minus, Plus, Trash2, History, Clock, ChevronDown } from 'lucide-vue-next';
+import { X, ShoppingCart, ShoppingBag, Minus, Plus, Trash2, History, Clock, ChevronDown, Loader2 } from 'lucide-vue-next';
 import { useSelfOrderCart } from '../../composables/useSelfOrderCart.js';
 import { useSelfOrderAuth } from '../../composables/useSelfOrderAuth.js';
 import { useSelfOrderMenu } from '../../composables/useSelfOrderMenu.js';
@@ -166,7 +170,7 @@ const props = defineProps({
 const emit = defineEmits(['update:modelValue']);
 
 const { items, removeItem, updateQuantity, clearCart } = useSelfOrderCart();
-const { billSessionId, fetchSessionOrders, saveLocalOrder, billSession } = useSelfOrderAuth();
+const { billSessionId, fetchSessionOrders, saveLocalOrder, billSession, createOrder } = useSelfOrderAuth();
 const { calculateCartTotal, getItemPrice, getModifierPrice } = useSelfOrderMenu();
 const configStore = useConfigStore();
 
@@ -180,8 +184,10 @@ const totalItems = computed(() => cartTotals.value.itemCount);
 
 const showClearConfirm = ref(false);
 const showHistory = ref(false);
+const showSuccess = ref(false);
 const orderHistory = ref([]);
 const loadingHistory = ref(false);
+const submitting = ref(false);
 
 // Load order history when drawer opens
 watch(() => props.modelValue, async (visible) => {
@@ -199,9 +205,11 @@ const i18n = {
     ordineVuoto: 'Il tuo carrello è vuoto.',
     totale: 'Totale',
     confermaOrdine: 'Invia Ordine',
-    cronologiaOrdini: 'Ordini Tavolo', // Changed to indicate shared history
+    invioInCorso: 'Invio in corso...',
+    orderConfermato: 'Ordine confermato!',
+    cronologiaOrdini: 'Ordini Tavolo',
     ordineInviato: 'Inviato alle',
-    vuoiSvuotare: 'Svuotare il carrello?',
+    vuotiSvuotare: 'Svuotare il carrello?',
     annulla: 'Annulla',
     svuota: 'Svuota',
     currency: '€',
@@ -213,7 +221,9 @@ const i18n = {
     ordineVuoto: 'Your cart is empty.',
     totale: 'Total',
     confermaOrdine: 'Submit Order',
-    cronologiaOrdini: 'Table Orders', // Changed to indicate shared history
+    invioInCorso: 'Sending...',
+    orderConfermato: 'Order confirmed!',
+    cronologiaOrdini: 'Table Orders',
     ordineInviato: 'Sent at',
     vuoiSvuotare: 'Clear the cart?',
     annulla: 'Cancel',
@@ -276,49 +286,63 @@ async function handleCheckout() {
       return;
     }
     
-    // Get customer preferences (per-client, not per-session)
-    const prefs = getCustomerPreferences();
+    submitting.value = true;
     
-    // SECURITY: NO prices sent by client - will be calculated by cassa/sala
-    // This prevents price manipulation via token
-    const orderPayload = {
-      bill_session: billSessionId.value, // REQUIRED - links to open bill session
-      venue: billSession.value?.venue || configStore.config?.venueId || 1,
-      table: billSession.value?.table || localStorage.getItem('selforder_table') || '1',
-      status: 'pending', // Always pending, must be accepted by staff
-      order_time: new Date().toTimeString().slice(0, 5), // 'HH:MM'
-      // SECURITY: total_amount and item_count NOT sent
-      // They will be calculated by cassa/sala when order is accepted
-      dietary_diets: prefs.diete, // Per-customer preferences
-      dietary_allergens: prefs.allergeni, // Per-customer allergies
-      global_note: '',
-      is_direct_entry: false,
-      // Order items - NO prices, they will be calculated by cassa/sala
-      items: items.value.map((c, idx) => ({
-        uid: `r_${idx + 1}`, // Unique within order
-        dish: c.menuItemId, // Price will be taken from menu by cassa
-        name: c.name, // Snapshot for reference
-        // unit_price NOT sent - will be taken from menu.json by cassa
-        quantity: c.quantity,
-        notes: c.notes ? [c.notes] : [],
-        // modifiers names sent for reference only
-        modifiers: c.modifiers?.map(m => m.name) || [],
-      })),
-    };
-    
-    console.log('[SelfOrder] Order payload:', JSON.stringify(orderPayload, null, 2));
-    
-    // Save to local history for demo/offline
-    saveLocalOrder({
-      ...orderPayload,
-      localTime: new Date().toISOString(),
-    });
-    
-    // Reload history to show the new order
-    await loadOrderHistory();
-    
-    // Clear cart after checkout
-    clearCart();
+    try {
+      // Get customer preferences (per-client, not per-session)
+      const prefs = getCustomerPreferences();
+      
+      // SECURITY: NO prices sent by client - will be calculated by cassa/sala
+      const orderPayload = {
+        bill_session: billSessionId.value,
+        venue: billSession.value?.venue || configStore.config?.venueId || 1,
+        table: billSession.value?.table || localStorage.getItem('selforder_table') || '1',
+        status: 'pending',
+        order_time: new Date().toTimeString().slice(0, 5),
+        dietary_diets: prefs.diete,
+        dietary_allergens: prefs.allergeni,
+        global_note: '',
+        is_direct_entry: false,
+        // Items - NO prices (calculated by cassa)
+        items: items.value.map((c, idx) => ({
+          uid: `r_${idx + 1}`,
+          dish: c.menuItemId,
+          name: c.name,
+          quantity: c.quantity,
+          notes: c.notes ? [c.notes] : [],
+          modifiers: c.modifiers?.map(m => m.name) || [],
+        })),
+      };
+      
+      console.log('[SelfOrder] Submitting order:', JSON.stringify(orderPayload, null, 2));
+      
+      // Send to Directus API
+      const result = await createOrder(orderPayload);
+      console.log('[SelfOrder] Order created:', result);
+      
+      // Save to local history for demo/offline
+      saveLocalOrder({
+        ...orderPayload,
+        id: result?.id || `local_${Date.now()}`,
+        localTime: new Date().toISOString(),
+      });
+      
+      // Reload history to show the new order
+      await loadOrderHistory();
+      
+      // Clear cart after successful checkout
+      clearCart();
+      
+      // Show success message
+      showSuccess.value = true;
+      setTimeout(() => { showSuccess.value = false; }, 3000);
+      
+    } catch (e) {
+      console.error('[SelfOrder] Checkout failed:', e);
+      alert('Errore nell\'invio dell\'ordine. Riprova.');
+    } finally {
+      submitting.value = false;
+    }
   }
   
   emit('update:modelValue', false);

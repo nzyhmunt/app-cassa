@@ -1112,6 +1112,30 @@ Creare un ruolo dedicato in Directus per i clienti Self-Order:
 | Field Read Access | Tutti i campi |
 | Field Write Access | Solo campi specifici (vedi sotto) |
 
+### Autenticazione Self-Order
+
+L'app Self-Order usa l'UUID della `bill_session` come identificatore. Due opzioni di autenticazione:
+
+**Opzione 1: Token Statico (Consigliata)**
+Generare un token JWT dal ruolo "Self-Order Client" in Directus e includerlo nell'URL:
+
+```
+selforder.html#/session/{uuid}?access_token={jwt_token}
+```
+
+Il token viene usato negli header delle richieste:
+```javascript
+headers: {
+  'Authorization': `Bearer ${accessToken}`,
+  'Content-Type': 'application/json',
+}
+```
+
+**Opzione 2: Permessi Pubblici (Semplice)**
+Configurare Directus per permettere richieste anonime sul ruolo Self-Order Client:
+- Abilitare "Public Create" sulla collection `orders`
+- Usare validation rules per validare `bill_session`
+
 ### Permessi Ruolo Self-Order Client
 
 | Collection | Permesso | Condizioni/Filtri |
