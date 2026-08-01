@@ -33,51 +33,42 @@
       <p class="text-gray-500">{{ t.connessione }}</p>
     </div>
 
-    <!-- Main content (only when not loading and no error) -->
+    <!-- Main content -->
     <template v-else>
       <!-- QR Scanner button -->
       <button 
         @click="showScanner = true" 
-        class="theme-bg hover:theme-bg-dark text-white py-6 px-12 rounded-2xl font-bold text-xl shadow-lg transition-all flex items-center justify-center gap-4 active:scale-[0.98] mb-6"
+        class="theme-bg hover:theme-bg-dark text-white py-6 px-12 rounded-2xl font-bold text-xl shadow-lg transition-all flex items-center justify-center gap-4 active:scale-[0.98] mb-4"
       >
         <QrCode class="size-8" />
         {{ t.scansionaQR }}
       </button>
 
-      <!-- Manual code entry toggle -->
-      <button 
-        @click="showManualEntry = !showManualEntry"
-        class="text-gray-400 hover:text-gray-600 text-sm font-medium underline underline-offset-4 transition-colors mb-4"
-      >
-        {{ showManualEntry ? t.nascondiCodice : t.inserisciCodice }}
-      </button>
+      <!-- Divider -->
+      <div class="flex items-center gap-4 w-full max-w-sm mb-4">
+        <div class="flex-1 h-px bg-gray-300"></div>
+        <span class="text-gray-400 text-sm">{{ t.oppure }}</span>
+        <div class="flex-1 h-px bg-gray-300"></div>
+      </div>
 
-      <!-- Manual code entry form -->
-      <div v-if="showManualEntry" class="w-full max-w-sm bg-gray-50 rounded-2xl p-6 mb-6 border border-gray-200">
-        <label class="block text-sm font-bold text-gray-700 mb-3 text-left">
-          {{ t.codiceSessione }}
-        </label>
+      <!-- Manual code entry -->
+      <div class="w-full max-w-sm bg-gray-50 rounded-2xl p-4 border border-gray-200">
         <input 
           v-model="manualSessionId" 
           type="text" 
-          class="w-full px-4 py-3 bg-white border border-gray-300 rounded-xl text-sm font-mono text-center focus:outline-none ring-2 ring-emerald-200 transition-all"
+          class="w-full px-4 py-3 bg-white border border-gray-300 rounded-xl text-sm text-center focus:outline-none ring-2 ring-emerald-200 transition-all"
           :placeholder="t.codicePlaceholder"
           @keyup.enter="handleManualSubmit"
         />
         <button 
           @click="handleManualSubmit"
           :disabled="!manualSessionId.trim() || manualLoading"
-          class="mt-4 w-full theme-bg hover:theme-bg-dark text-white py-3 rounded-xl font-bold text-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+          class="mt-3 w-full bg-gray-100 hover:bg-gray-200 text-gray-700 py-3 rounded-xl font-bold text-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
         >
           <Loader2 v-if="manualLoading" class="size-4 animate-spin" />
           {{ t.conferma }}
         </button>
       </div>
-
-      <!-- Help text -->
-      <p class="text-gray-400 text-xs max-w-xs mt-4">
-        {{ t.helpText }}
-      </p>
     </template>
 
     <!-- QR Scanner modal -->
@@ -106,39 +97,32 @@ const loading = ref(false);
 const manualLoading = ref(false);
 const error = ref(null);
 const showScanner = ref(false);
-const showManualEntry = ref(false);
 const manualSessionId = ref('');
 const currentLang = ref(localStorage.getItem('selforder_lang') || 'it');
 
-// Simple config (could be loaded from static config.json)
+// Simple config
 const restaurantName = ref('Ristorante');
-const restaurantSubtitle = ref('Scansiona il QR sul tuo tavolo per iniziare');
+const restaurantSubtitle = ref('Scansiona il QR o inserisci il codice del tuo tavolo');
 const restaurantLogo = ref(null);
 
 const i18n = {
   it: {
     connessione: 'Connessione in corso...',
-    sessioneScaduta: 'Sessione scaduta o non valida',
+    sessioneScaduta: 'Sessione non valida o scaduta',
     scansionaQR: 'Scansiona QR',
-    inserisciCodice: 'Inserisci codice manualmente',
-    nascondiCodice: 'Nascondi',
-    codiceSessione: 'Codice Sessione',
-    codicePlaceholder: 'xxxx-xxxx-xxxx',
-    conferma: 'Conferma',
+    oppure: 'oppure',
+    codicePlaceholder: 'Inserisci codice',
+    conferma: 'Continua',
     riprova: 'Riprova',
-    helpText: 'Il codice si trova sul QR del tuo tavolo',
   },
   en: {
     connessione: 'Connecting...',
-    sessioneScaduta: 'Session expired or invalid',
+    sessioneScaduta: 'Session invalid or expired',
     scansionaQR: 'Scan QR',
-    inserisciCodice: 'Enter code manually',
-    nascondiCodice: 'Hide',
-    codiceSessione: 'Session Code',
-    codicePlaceholder: 'xxxx-xxxx-xxxx',
-    conferma: 'Confirm',
+    oppure: 'or',
+    codicePlaceholder: 'Enter code',
+    conferma: 'Continue',
     riprova: 'Retry',
-    helpText: 'The code is on the QR at your table',
   }
 };
 
@@ -159,11 +143,7 @@ async function handleQRScanned(url) {
     await loadMenu();
     
     const hasSeenOnboarding = sessionStorage.getItem('selforder_onboarding_done');
-    if (!hasSeenOnboarding) {
-      router.push('/onboarding');
-    } else {
-      router.push('/menu');
-    }
+    router.push(hasSeenOnboarding ? '/menu' : '/onboarding');
   } catch (e) {
     error.value = e.message || t.value.sessioneScaduta;
   } finally {
@@ -183,11 +163,7 @@ async function handleManualSubmit() {
     await loadMenu();
     
     const hasSeenOnboarding = sessionStorage.getItem('selforder_onboarding_done');
-    if (!hasSeenOnboarding) {
-      router.push('/onboarding');
-    } else {
-      router.push('/menu');
-    }
+    router.push(hasSeenOnboarding ? '/menu' : '/onboarding');
   } catch (e) {
     error.value = e.message || t.value.sessioneScaduta;
   } finally {
@@ -199,12 +175,10 @@ function extractSessionId(url) {
   try {
     const urlObj = new URL(url);
     const hash = urlObj.hash || url;
-    const sessionMatch = hash.match(/\/session\/([^?]+)/);
-    return sessionMatch ? sessionMatch[1] : null;
+    const match = hash.match(/\/session\/([^?]+)/);
+    return match ? match[1] : null;
   } catch {
-    // Try regex on raw string
-    const match = url.match(/([a-f0-9-]{36})|([A-Z0-9]{8})/i);
-    return match ? match[0] : null;
+    return null;
   }
 }
 
@@ -212,28 +186,20 @@ function handleScannerError(msg) {
   error.value = msg;
 }
 
-// Handle direct URL with session params (from deep link / pre-scanned QR)
 onMounted(async () => {
   const hash = window.location.hash;
   const sessionMatch = hash.match(/\/session\/([^?]+)/);
   
   if (sessionMatch) {
-    const sessionId = sessionMatch[1];
-    const urlParams = new URLSearchParams(hash.split('?')[1] || '');
-    
     loading.value = true;
     error.value = null;
     
     try {
-      await validateAndLoadSession(sessionId);
+      await validateAndLoadSession(sessionMatch[1]);
       await loadMenu();
       
       const hasSeenOnboarding = sessionStorage.getItem('selforder_onboarding_done');
-      if (!hasSeenOnboarding) {
-        router.push('/onboarding');
-      } else {
-        router.push('/menu');
-      }
+      router.push(hasSeenOnboarding ? '/menu' : '/onboarding');
     } catch (e) {
       error.value = e.message || t.value.sessioneScaduta;
     } finally {
