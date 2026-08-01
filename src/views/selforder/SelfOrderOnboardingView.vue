@@ -42,7 +42,7 @@
           {{ showAllergens ? t.nascondiAllergeni : t.onbAllergeniBtn }}
         </button>
         
-        <div v-if="showAllergens" class="mt-4">
+        <div v-if="showAllergens" class="mt-4 max-h-60 overflow-y-auto">
           <div class="grid grid-cols-2 gap-2">
             <button 
               v-for="(label, key) in t.allergens" 

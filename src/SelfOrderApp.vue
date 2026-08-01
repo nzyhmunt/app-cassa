@@ -12,6 +12,7 @@
       @show-cart="showCart = true"
       @share="showShareSession = true"
       @end-session="confirmEndSession"
+      @preferences="showPreferences = true"
     />
 
     <!-- Main content area -->
@@ -80,6 +81,7 @@
     <SelfOrderSessionEndedModal v-model="showSessionEnded" />
     <SelfOrderConfirmOrderModal v-model="showConfirmOrder" @confirm="submitOrder" />
     <SelfOrderShareSession v-model="showShareSession" :session-id="billSessionId" />
+    <SelfOrderPreferencesModal v-model="showPreferences" />
   </div>
 </template>
 
@@ -90,6 +92,7 @@ import SelfOrderCartDrawer from './components/selforder/SelfOrderCartDrawer.vue'
 import SelfOrderSessionEndedModal from './components/selforder/SelfOrderSessionEndedModal.vue';
 import SelfOrderConfirmOrderModal from './components/selforder/SelfOrderConfirmOrderModal.vue';
 import SelfOrderShareSession from './components/selforder/SelfOrderShareSession.vue';
+import SelfOrderPreferencesModal from './components/selforder/SelfOrderPreferencesModal.vue';
 import { useConfigStore } from './store/index.js';
 import { useSelfOrderSession } from './composables/useSelfOrderSession.js';
 import { useSelfOrderCart } from './composables/useSelfOrderCart.js';
@@ -109,6 +112,7 @@ const showCart = ref(false);
 const showSessionEnded = ref(false);
 const showConfirmOrder = ref(false);
 const showShareSession = ref(false);
+const showPreferences = ref(false);
 const navigationHistory = ref([]);
 
 const cartCount = computed(() => items.value.reduce((sum, item) => sum + item.quantity, 0));
