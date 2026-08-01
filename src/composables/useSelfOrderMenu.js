@@ -27,13 +27,14 @@ import { useConfigStore } from '../store/index.js';
 const MENU_CACHE_KEY = 'selforder_menu_cache';
 const MENU_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
-export function useSelfOrderMenu() {
-  const menu = ref({});
-  const categories = ref([]);
-  const loading = ref(false);
-  const error = ref(null);
-  const lastFetch = ref(null);
+// Shared state across all composable instances
+const menu = ref({});
+const categories = ref([]);
+const loading = ref(false);
+const error = ref(null);
+const lastFetch = ref(null);
 
+export function useSelfOrderMenu() {
   /**
    * Load menu from static URL
    * Falls back to demo menu if no URL configured

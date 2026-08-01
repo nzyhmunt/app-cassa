@@ -2,11 +2,39 @@ import { ref, computed } from 'vue';
 
 const ORDER_HISTORY_KEY = 'selforder_order_history';
 
-export function useSelfOrderCart() {
-  const items = ref([]);
-  const submittedOrderId = ref(null);
-  const orderHistory = ref([]); // Array of submitted orders
+// Shared state across all composable instances
+const items = ref([]);
+const submittedOrderId = ref(null);
+const orderHistory = ref([]);
 
+// Restore cart and history on module load
+function restoreCart() {
+  const saved = localStorage.getItem('selforder_cart');
+  if (saved) {
+    try {
+      items.value = JSON.parse(saved);
+    } catch {
+      localStorage.removeItem('selforder_cart');
+    }
+  }
+}
+
+function restoreHistory() {
+  const saved = localStorage.getItem(ORDER_HISTORY_KEY);
+  if (saved) {
+    try {
+      orderHistory.value = JSON.parse(saved);
+    } catch {
+      localStorage.removeItem(ORDER_HISTORY_KEY);
+    }
+  }
+}
+
+// Initialize on module load
+restoreCart();
+restoreHistory();
+
+export function useSelfOrderCart() {
   const totalItems = computed(() => 
     items.value.reduce((sum, item) => sum + item.quantity, 0)
   );
@@ -76,17 +104,6 @@ export function useSelfOrderCart() {
     localStorage.setItem('selforder_cart', JSON.stringify(items.value));
   }
 
-  function restoreCart() {
-    const saved = localStorage.getItem('selforder_cart');
-    if (saved) {
-      try {
-        items.value = JSON.parse(saved);
-      } catch {
-        localStorage.removeItem('selforder_cart');
-      }
-    }
-  }
-
   /**
    * Add current cart to order history (called after successful submission)
    */
@@ -101,24 +118,13 @@ export function useSelfOrderCart() {
       totalItems: totalItems.value,
     };
     
-    orderHistory.value.unshift(order); // Add to beginning
+    orderHistory.value.unshift(order);
     saveHistory();
     clearCart();
   }
 
   function saveHistory() {
     localStorage.setItem(ORDER_HISTORY_KEY, JSON.stringify(orderHistory.value));
-  }
-
-  function restoreHistory() {
-    const saved = localStorage.getItem(ORDER_HISTORY_KEY);
-    if (saved) {
-      try {
-        orderHistory.value = JSON.parse(saved);
-      } catch {
-        localStorage.removeItem(ORDER_HISTORY_KEY);
-      }
-    }
   }
 
   function clearHistory() {
@@ -135,18 +141,14 @@ export function useSelfOrderCart() {
       bill_session: sessionId,
       status: 'pending',
       items: items.value.map(item => ({
-        dish: item.menuItemId, // FK to menu_items - price from menu.json
-        name: item.name, // Snapshot for reference only
+        dish: item.menuItemId,
+        name: item.name,
         quantity: item.quantity,
         notes: item.notes || null,
-        modifiers: item.modifiers?.map(m => m.name) || [], // Names only, prices from menu
+        modifiers: item.modifiers?.map(m => m.name) || [],
       })),
     };
   }
-
-  // Restore cart and history on init
-  restoreCart();
-  restoreHistory();
 
   return {
     items,
