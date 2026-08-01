@@ -90,7 +90,9 @@ const shortSessionId = computed(() => {
 
 const sessionUrl = computed(() => {
   if (!props.session?.id) return '';
-  return `selforder://session/${props.session.id}`;
+  // Format: selforder.html#/session/{uuid}
+  // Optional token can be added via ?access_token={jwt} for authenticated access
+  return `selforder.html#/session/${props.session.id}`;
 });
 
 async function renderQRCode() {

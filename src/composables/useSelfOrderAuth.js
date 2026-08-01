@@ -61,8 +61,10 @@ export function useSelfOrderAuth() {
 
   /**
    * Validate session UUID and load session from Directus
+   * @param {string} sessionId - The bill_session UUID
+   * @param {string} [token] - Optional JWT token for Directus auth (from QR URL)
    */
-  async function validateAndLoadSession(sessionId) {
+  async function validateAndLoadSession(sessionId, token = null) {
     loading.value = true;
     error.value = null;
 
@@ -71,10 +73,14 @@ export function useSelfOrderAuth() {
         throw new Error('Sessione non valida');
       }
 
-      // Extract token from URL if present
-      const tokenFromUrl = new URLSearchParams(window.location.search).get('access_token');
-      if (tokenFromUrl) {
-        accessToken.value = tokenFromUrl;
+      // Use token from parameter, or extract from URL if not provided
+      if (token) {
+        accessToken.value = token;
+      } else {
+        const tokenFromUrl = new URLSearchParams(window.location.search).get('access_token');
+        if (tokenFromUrl) {
+          accessToken.value = tokenFromUrl;
+        }
       }
 
       // Validate against Directus
