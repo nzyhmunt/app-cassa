@@ -132,12 +132,12 @@ function getMenu() {
     categoryItems.forEach(item => {
       items.push({
         id: item.id,
-        nome: item.name,
-        prezzo: item.price || 0,
+        name: item.name,
+        price: item.price || 0,
         categoria: category,
-        descrizione: item.description || '',
-        ingredienti: item.ingredients || '',
-        allergeni: item.allergens || [],
+        description: item.description || '',
+        ingredients: item.ingredients || '',
+        allergens: item.allergens || [],
       });
     });
   });
