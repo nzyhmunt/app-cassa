@@ -111,6 +111,7 @@ const i18n = {
     aggiungi: 'Aggiungi',
     magicIntro: 'Ecco cosa ti consiglio per questo piatto!',
     infoIntro: 'Ecco le info sul piatto!',
+    aiNotConfigured: 'L\'assistente IA non è configurato. Usa le traduzioni esistenti.',
   },
   en: {
     aiTitolo: 'AI Chef Assistant',
@@ -121,8 +122,17 @@ const i18n = {
     aggiungi: 'Add',
     magicIntro: 'Here\'s what I recommend for this dish!',
     infoIntro: 'Here\'s the info about this dish!',
+    aiNotConfigured: 'AI assistant is not configured. Using fallback responses.',
   }
 };
+
+
+// Gemini AI Configuration
+const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY || '';
+const GEMINI_MODEL = import.meta.env.VITE_GEMINI_MODEL || 'gemini-2.0-flash';
+const GEMINI_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models/';
+const GEMINI_MAX_RETRIES = 3;
+const GEMINI_DELAYS = [1000, 2000, 4000];
 
 const t = computed(() => i18n[currentLang.value] || i18n.it);
 
@@ -209,13 +219,68 @@ async function sendMessage(msg = null) {
   if (prefs.diete.length > 0) prefsStr += `L'utente segue la dieta: ${prefs.diete.join(', ')}. `;
   if (prefs.allergeni.length > 0) prefsStr += `L'utente è ALLERGICO A: ${prefs.allergeni.join(', ')}. NON PROPORRE MAI PIATTI CHE CONTENGONO QUESTI ALLERGENI. `;
 
-  try {
-    await new Promise(resolve => setTimeout(resolve, 1500));
-    const responseText = generateSimulatedResponse(messageText, prefs);
-    chatMessages.value.push({ role: 'model', text: responseText });
-  } catch (e) {
-    chatMessages.value.push({ role: 'model', text: t.value.aiError });
+  let responseText = '';
+  
+  // Try Gemini API first
+  if (GEMINI_API_KEY) {
+    const menu = getMenu();
+    const cart = cartItems.value.map(c => ({ id: c.menuItemId, name: c.name, q: c.quantity }));
+    
+    const systemPrompt = `Sei l'assistente Chef virtuale del ristorante.
+REGOLA 1: Rispondi SEMPRE in lingua: ${currentLang.value.toUpperCase()}.
+REGOLA 2: Sii cordiale ma SINTETICO. 
+REGOLA 3: ${prefsStr}
+REGOLA 4 (CRITICA): È VIETATO FARE ELENCHI TESTUALI DI PIATTI. 
+Ogni volta che consiglia un piatto, sostituisci il suo nome con il tag [ADD:id_piatto].
+ESEMPIO: "Ti consiglio [ADD:primo_1] oppure [ADD:primo_2]."
+
+Menu (id e nome):
+${menu.map(m => `${m.id}: ${m.name}`).join('\n')}
+
+Carrello attuale: ${cart.length === 0 ? 'Vuoto' : cart.map(c => `${c.name} (x${c.q})`).join(', ')}`;
+
+    const userPrompt = messageText;
+
+    try {
+      let attempts = 0;
+      while (attempts < GEMINI_MAX_RETRIES) {
+        try {
+          const response = await fetch(
+            `${GEMINI_ENDPOINT}${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                contents: [{ parts: [{ text: userPrompt }] }],
+                systemInstruction: { parts: [{ text: systemPrompt }] }
+              })
+            }
+          );
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const data = await response.json();
+          responseText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (responseText) break;
+        } catch (err) {
+          attempts++;
+          if (attempts >= GEMINI_MAX_RETRIES) {
+            console.warn('Gemini API failed, using fallback');
+            responseText = '';
+          } else {
+            await new Promise(res => setTimeout(res, GEMINI_DELAYS[attempts - 1]));
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('Gemini API error:', e);
+    }
   }
+
+  // Fallback to simulated response if no API key or API failed
+  if (!responseText) {
+    responseText = generateSimulatedResponse(messageText, prefs);
+  }
+
+  chatMessages.value.push({ role: 'model', text: responseText });
 
   isAiTyping.value = false;
   scrollToBottom();
