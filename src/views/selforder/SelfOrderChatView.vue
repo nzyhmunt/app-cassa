@@ -240,9 +240,10 @@ function getPreferences() {
 }
 
 function generateSimulatedResponse(msg, prefs) {
+  const isEn = currentLang.value === 'en';
   const menu = getMenu();
   if (menu.length === 0) {
-    return 'Il menu non è disponibile in questo momento. Prova più tardi!';
+    return isEn ? 'The menu is not available right now. Please try again later!' : 'Il menu non è disponibile in questo momento. Prova più tardi!';
   }
   
   const lowerMsg = msg.toLowerCase();
@@ -252,85 +253,100 @@ function generateSimulatedResponse(msg, prefs) {
     // Extract item name from message
     const item = menu[Math.floor(Math.random() * menu.length)];
     const pairings = getPairingSuggestions(item, menu);
-    return `${t.value.magicIntro} Per ${item.nome}, ti suggerisco di provare ${pairings}. [ADD:${item.id}]`;
+    return `${t.value.magicIntro} Per ${item.name}, ti suggerisco di provare ${pairings}. [ADD:${item.id}]`;
   }
   
   // Info about a specific item
   if (lowerMsg.includes('info') || lowerMsg.includes('dettaglio') || lowerMsg.includes('ingredienti')) {
     const item = menu[Math.floor(Math.random() * menu.length)];
-    return `${item.nome}: ${item.descrizione || 'Un piatto delizioso.'} ${item.ingredienti ? 'Ingredienti: ' + item.ingredienti : ''} ${item.allergeni?.length ? '⚠️ Allergeni: ' + item.allergeni.join(', ') : ''}`;
+    return `${item.name}: ${item.description || 'Un piatto delizioso.'} ${item.ingredients ? 'Ingredienti: ' + item.ingredients : ''} ${item.allergeni?.length ? '⚠️ Allergeni: ' + item.allergeni.join(', ') : ''}`;
   }
   
   // Quick suggestions
   if (lowerMsg.includes('colazione') || lowerMsg.includes('breakfast')) {
     const breakfast = menu.filter(m => m.categoria?.toLowerCase().includes('colazione') || m.categoria?.toLowerCase().includes('bevande'));
-    if (breakfast.length) return `Per la colazione ti consiglio ${breakfast[0].nome}! [ADD:${breakfast[0].id}]`;
+    if (breakfast.length) return isEn ? `For breakfast, I recommend ${breakfast[0].name}! [ADD:${breakfast[0].id}]` : `Per la colazione ti consiglio ${breakfast[0].name}! [ADD:${breakfast[0].id}]`;
   }
   if (lowerMsg.includes('pranzo') || lowerMsg.includes('lunch')) {
     const primo = menu.filter(m => m.categoria === 'Primi Piatti');
-    if (primo.length) return `Per pranzo, un bel ${primo[0].nome}? [ADD:${primo[0].id}]`;
+    if (primo.length) return isEn ? `For lunch, how about ${primo[0].name}? [ADD:${primo[0].id}]` : `Per pranzo, un bel ${primo[0].name}? [ADD:${primo[0].id}]`;
   }
   if (lowerMsg.includes('cena') || lowerMsg.includes('dinner')) {
     const secondo = menu.filter(m => m.categoria === 'Secondi Piatti');
-    if (secondo.length) return `Per cena, ti consiglio ${secondo[0].nome}. [ADD:${secondo[0].id}]`;
+    if (secondo.length) return isEn ? `For dinner, I recommend ${secondo[0].name}. [ADD:${secondo[0].id}]` : `Per cena, ti consiglio ${secondo[0].name}. [ADD:${secondo[0].id}]`;
   }
   if (lowerMsg.includes('vegano') || lowerMsg.includes('vegan')) {
-    const vegano = menu.filter(m => m.descrizione?.toLowerCase().includes('vegano') || m.nome?.toLowerCase().includes('vegano'));
-    if (vegano.length) return `Ecco le opzioni vegane: ${vegano[0].nome}. [ADD:${vegano[0].id}]`;
+    const vegano = menu.filter(m => m.description?.toLowerCase().includes('vegano') || m.name?.toLowerCase().includes('vegano'));
+    if (vegano.length) return isEn ? `Here are our vegan options: ${vegano[0].name}. [ADD:${vegano[0].id}]` : `Ecco le opzioni vegane: ${vegano[0].name}. [ADD:${vegano[0].id}]`;
   }
   if (lowerMsg.includes('vegetariano') || lowerMsg.includes('vegetarian')) {
-    const veggie = menu.filter(m => m.descrizione?.toLowerCase().includes('vegetariano') || m.nome?.toLowerCase().includes('vegetariano'));
-    if (veggie.length) return `Ecco le opzioni vegetariane: ${veggie[0].nome}. [ADD:${veggie[0].id}]`;
+    const veggie = menu.filter(m => m.description?.toLowerCase().includes('vegetariano') || m.name?.toLowerCase().includes('vegetariano'));
+    if (veggie.length) return isEn ? `Here are our vegetarian options: ${veggie[0].name}. [ADD:${veggie[0].id}]` : `Ecco le opzioni vegetariane: ${veggie[0].name}. [ADD:${veggie[0].id}]`;
   }
   
   // Cart completion advice
   if (lowerMsg.includes('consiglio') || lowerMsg.includes('completa') || lowerMsg.includes('cosa manca')) {
     if (cartItems.value.length === 0) {
-      return 'Il tuo carrello è vuoto! Inizia aggiungendo qualcosa dal menu.';
+      return isEn ? 'Your cart is empty! Start by adding something from the menu.' : 'Il tuo carrello è vuoto! Inizia aggiungendo qualcosa dal menu.';
     }
     const suggestions = getCartSuggestions();
     if (suggestions.length) {
-      return `Per completare il tuo ordine, ti suggerisco: ${suggestions[0].nome}. [ADD:${suggestions[0].id}]`;
+      return isEn ? `To complete your order, I suggest: ${suggestions[0].name}. [ADD:${suggestions[0].id}]` : `Per completare il tuo ordine, ti suggerisco: ${suggestions[0].name}. [ADD:${suggestions[0].id}]`;
     }
-    return 'Il tuo carrello sembra completo! 🎉';
+    return isEn ? 'Your cart looks complete! 🎉' : 'Il tuo carrello sembra completo! 🎉';
   }
   
   // Generic suggestions
   const randomItem = menu[Math.floor(Math.random() * menu.length)];
   if (lowerMsg.includes('consiglia') || lowerMsg.includes('suggerisci') || lowerMsg.includes('cosa') || lowerMsg.includes('prenderei')) {
-    return `Che buona scelta! Ti consiglio ${randomItem.nome}. [ADD:${randomItem.id}]`;
+    return isEn ? `Great idea! I recommend ${randomItem.name}. [ADD:${randomItem.id}]` : `Che buona scelta! Ti consiglio ${randomItem.name}. [ADD:${randomItem.id}]`;
   }
   
   if (lowerMsg.includes('allerg') || lowerMsg.includes('intolleran')) {
-    return `Capisco! Terrò conto delle tue allergie (${prefs.allergeni.join(', ')}). Vuoi che ti suggerisca piatti sicuri per te?`;
+    const allergenList = prefs.allergeni.map(a => a.replace(/_/g, ' ')).join(', ');
+    return isEn 
+      ? `I understand! I'll keep your allergies (${allergenList}) in mind. Would you like me to suggest safe dishes?`
+      : `Capisco! Terrò conto delle tue allergie (${allergenList}). Vuoi che ti suggerisca piatti sicuri per te?`;
   }
   
-  return `Ottima idea! Ti suggerisco ${randomItem.nome}. [ADD:${randomItem.id}] Buon appetito!`;
+  const responses = isEn ? [
+      `Excellent choice! I recommend ${randomItem.name}. [ADD:${randomItem.id}] Enjoy your meal! 🍽️`,
+      `How about ${randomItem.name}? [ADD:${randomItem.id}] It's delicious!`,
+      `I suggest ${randomItem.name}. [ADD:${randomItem.id}] Bon appétit! 😊`
+    ] : [
+      `Ottima scelta! Ti consiglio ${randomItem.name}. [ADD:${randomItem.id}] Buon appetito! 🍽️`,
+      `Che ne dici di ${randomItem.name}? [ADD:${randomItem.id}] È delizioso!`,
+      `Ti suggerisco ${randomItem.name}. [ADD:${randomItem.id}] Buon appetito! 😊`
+    ];
+  
+  return responses[Math.floor(Math.random() * responses.length)];
 }
 
-function getPairingSuggestions(item, menu) {
+function getPairingSuggestions(item, menu, isEn = false) {
   const category = item.categoria;
   
   if (category === 'Primi Piatti') {
     const secondo = menu.find(m => m.categoria === 'Secondi Piatti');
     const contorno = menu.find(m => m.categoria === 'Contorni');
     const suggestions = [];
-    if (secondo) suggestions.push(secondo.nome);
-    if (contorno) suggestions.push(contorno.nome);
-    return suggestions.slice(0, 2).join(' oppure ') || 'qualcosa di fresco';
+    if (secondo) suggestions.push(secondo.name);
+    if (contorno) suggestions.push(contorno.name);
+    const result = suggestions.slice(0, 2).join(isEn ? ' or ' : ' oppure ') || (isEn ? 'something fresh' : 'qualcosa di fresco');
+    return isEn ? `pair it with ${result}` : `abbinalo con ${result}`;
   }
   if (category === 'Secondi Piatti') {
     const contorno = menu.find(m => m.categoria === 'Contorni');
     const bevanda = menu.find(m => m.categoria === 'Bevande');
     const suggestions = [];
-    if (contorno) suggestions.push(contorno.nome);
-    if (bevanda) suggestions.push(bevanda.nome);
-    return suggestions.slice(0, 2).join(' e ') || 'un contorno';
+    if (contorno) suggestions.push(contorno.name);
+    if (bevanda) suggestions.push(bevanda.name);
+    const result = suggestions.slice(0, 2).join(isEn ? ' and ' : ' e ') || (isEn ? 'a side dish' : 'un contorno');
+    return isEn ? `perfect with ${result}` : `perfetto con ${result}`;
   }
   if (category === 'Bevande') {
-    return 'lo accompagna perfettamente con qualsiasi piatto del nostro menu';
+    return isEn ? 'goes perfectly with any dish on our menu' : 'lo accompagna perfettamente con qualsiasi piatto del nostro menu';
   }
-  return 'qualcosa di fresco dal nostro menu';
+  return isEn ? 'something fresh from our menu' : 'qualcosa di fresco dal nostro menu';
 }
 
 function getCartSuggestions() {
