@@ -164,7 +164,7 @@ function formatMarkdownWithButtons(text) {
   return text.replace(/\[ADD:([a-z0-9_]+)\]/gi, (match, id) => {
     const piatto = getPiatto(id);
     if (!piatto) return '';
-    return `<button type="button" class="ai-add-btn inline font-bold text-purple-600 hover:underline cursor-pointer bg-transparent border-none p-0 m-0 align-baseline" data-id="${id}">${piatto.nome}<span class="ml-0.5 font-black">+</span></button>`;
+    return `<button type="button" class="ai-add-btn inline font-bold text-purple-600 hover:underline cursor-pointer bg-transparent border-none p-0 m-0 align-baseline" data-id="${id}">${piatto.name}<span class="ml-0.5 font-black">+</span></button>`;
   });
 }
 
