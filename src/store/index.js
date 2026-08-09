@@ -11,7 +11,13 @@
  * `import ... from './store/index.js'` paths continue to work without modification.
  */
 
-import { KEYBOARD_POSITIONS, updateOrderTotals, applyIDBPurgeConfigToAppConfig } from '../utils/index.js';
+import {
+  KEYBOARD_POSITIONS,
+  updateOrderTotals,
+  applyIDBPurgeConfigToAppConfig,
+  normalizeOperatingMode,
+  OPERATING_MODES,
+} from '../utils/index.js';
 import { mapOrderFromDirectus } from '../utils/mappers.js';
 import { loadStateFromIDB } from './persistence/operations.js';
 import { loadSettingsFromIDB } from './persistence/settings.js';
@@ -20,6 +26,17 @@ import { useOrderStore } from './orderStore.js';
 
 export { useConfigStore } from './configStore.js';
 export { useOrderStore } from './orderStore.js';
+
+function _resetOrderStoreOperationalState(orderStore) {
+  orderStore.orders = [];
+  orderStore.transactions = [];
+  orderStore.cashMovements = [];
+  orderStore.dailyClosures = [];
+  orderStore.tableCurrentBillSession = {};
+  orderStore.tableMergedInto = {};
+  orderStore.tableOccupiedAt = {};
+  orderStore.billRequestedTables = new Set();
+}
 
 // ── Backward-compat merged proxy ─────────────────────────────────────────────
 
@@ -71,13 +88,11 @@ export async function initStoreFromIDB(pinia) {
   const configStore = useConfigStore(pinia);
   const orderStore = useOrderStore(pinia);
 
-  const [idbState, settings] = await Promise.all([
-    loadStateFromIDB(),
-    loadSettingsFromIDB(),
-  ]);
+  const settings = await loadSettingsFromIDB();
 
   let startupMenuSource = configStore.menuSource;
   let startupMenuUrl = configStore.menuUrl;
+  let startupOperatingMode = normalizeOperatingMode(configStore.operatingMode, OPERATING_MODES.OFFLINE_FIRST);
 
   if (settings) {
     if (typeof settings.sounds === 'boolean') configStore.sounds = settings.sounds;
@@ -89,6 +104,8 @@ export async function initStoreFromIDB(pinia) {
       configStore.menuSource = settings.menuSource;
       startupMenuSource = settings.menuSource;
     }
+    startupOperatingMode = normalizeOperatingMode(settings.operatingMode, startupOperatingMode);
+    configStore.operatingMode = startupOperatingMode;
     if (typeof settings.preventScreenLock === 'boolean') configStore.preventScreenLock = settings.preventScreenLock;
     if (KEYBOARD_POSITIONS.includes(settings.customKeyboard)) configStore.customKeyboard = settings.customKeyboard;
     if (typeof settings.preBillPrinterId === 'string') configStore.preBillPrinterId = settings.preBillPrinterId;
@@ -101,6 +118,10 @@ export async function initStoreFromIDB(pinia) {
     menuSource: startupMenuSource,
     menuUrl: startupMenuUrl,
   });
+  configStore.applyLocalSettings({ operatingMode: startupOperatingMode });
+
+  const shouldLoadIDBState = startupOperatingMode !== OPERATING_MODES.ONLINE_ONLY;
+  const idbState = shouldLoadIDBState ? await loadStateFromIDB() : null;
 
   if (idbState) {
     orderStore.orders = (idbState.orders ?? []).map((order) => {
@@ -125,6 +146,6 @@ export async function initStoreFromIDB(pinia) {
     orderStore.tableOccupiedAt = idbState.tableOccupiedAt ?? {};
     orderStore.billRequestedTables = idbState.billRequestedTables ?? new Set();
   } else {
-    orderStore.orders = [];
+    _resetOrderStoreOperationalState(orderStore);
   }
 }

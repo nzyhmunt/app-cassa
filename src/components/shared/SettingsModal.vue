@@ -71,6 +71,28 @@
           <DirectusSyncSettings />
         </div>
 
+        <div class="pt-4 border-t border-gray-100 mt-2 space-y-3">
+          <div>
+            <p class="block text-xs font-bold text-gray-600 mb-2">Modalità operativa</p>
+            <div class="grid grid-cols-1 gap-2">
+              <button
+                v-for="mode in operatingModeOptions"
+                :key="mode.value"
+                type="button"
+                class="rounded-xl border px-3 py-2 text-left transition-colors"
+                :class="settings.operatingMode === mode.value
+                  ? 'border-[var(--brand-primary)] bg-[var(--brand-primary)]/5 text-gray-800'
+                  : 'border-gray-200 text-gray-600 hover:bg-gray-50'"
+                :aria-pressed="settings.operatingMode === mode.value"
+                @click="settings.operatingMode = mode.value"
+              >
+                <span class="block text-xs font-bold">{{ mode.label }}</span>
+                <span class="block text-[10px] text-gray-500">{{ mode.description }}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
         <div v-if="showMenuSync" class="pt-4 border-t border-gray-100 mt-2 space-y-3">
           <div>
             <p class="block text-xs font-bold text-gray-600 mb-2">Sorgente Menu</p>
@@ -245,6 +267,23 @@ const keyboardPositionOptions = [
   { value: 'center',   label: 'Centro' },
   { value: 'left',     label: 'Sinistra' },
   { value: 'right',    label: 'Destra' },
+];
+const operatingModeOptions = [
+  {
+    value: 'offline_only',
+    label: 'Solo offline',
+    description: 'Solo IndexedDB locale, senza sincronizzazione Directus',
+  },
+  {
+    value: 'offline_first',
+    label: 'Offline first',
+    description: 'IndexedDB locale + sincronizzazione Directus push/pull',
+  },
+  {
+    value: 'online_only',
+    label: 'Online',
+    description: 'Operazioni inviate direttamente a Directus in tempo reale',
+  },
 ];
 const DIRECTUS_MANAGED_PRINTER_LABEL = 'Gestita da Directus';
 

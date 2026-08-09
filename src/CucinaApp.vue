@@ -33,6 +33,7 @@
 
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue';
+import { useRoute } from 'vue-router';
 import { useConfigStore, useOrderStore } from './store/index.js';
 import { useWakeLock } from './composables/useWakeLock.js';
 import { resolveStorageKeys, getInstanceName } from './store/persistence.js';
@@ -46,12 +47,16 @@ import { loadDirectusConfigFromStorage } from './composables/useDirectusClient.j
 import { useSyncStoreProxy } from './composables/useSyncStoreProxy.js';
 import { useAppSwipeRefresh } from './composables/useAppSwipeRefresh.js';
 import { useIDBPurge, isDirectusSyncActive } from './composables/useIDBPurge.js';
+import { useOnlineOnlyInteractionRefresh } from './composables/useOnlineOnlyInteractionRefresh.js';
+import { resolveOnlineOnlyRoutePullCollections } from './composables/sync/onlineOnlyViewPull.js';
+import { OPERATING_MODES } from './utils/index.js';
 
 const configStore = useConfigStore();
 const orderStore = useOrderStore();
 const auth = useAuth();
 const sync = useDirectusSync();
 const showSettings = ref(false);
+const route = useRoute();
 const syncStore = useSyncStoreProxy(configStore, orderStore);
 const {
   isSwipeRefreshing,
@@ -67,6 +72,13 @@ const {
   configStore,
   orderStore,
   sync,
+  logPrefix: 'CucinaApp',
+});
+useOnlineOnlyInteractionRefresh({
+  sync,
+  configStore,
+  routePathRef: route,
+  resolveCollectionsForRoute: (routePath) => resolveOnlineOnlyRoutePullCollections('cucina', routePath),
   logPrefix: 'CucinaApp',
 });
 
@@ -100,7 +112,11 @@ async function restartSync() {
     await loadDirectusConfigFromStorage();
   } catch (e) { console.warn('[CucinaApp] Failed to load Directus config from IDB:', e); }
   sync.stopSync();
+  if (configStore.operatingMode === OPERATING_MODES.OFFLINE_ONLY) return;
   await sync.startSync({ appType: 'cucina', store: syncStore });
+  if (configStore.operatingMode === OPERATING_MODES.ONLINE_ONLY) {
+    await sync.forcePull();
+  }
 }
 
 async function onDirectusConfigUpdated() {
@@ -132,7 +148,7 @@ onMounted(async () => {
   await restartSync();
   // Best-effort post-startup IDB purge.  Guard: only when Directus sync is
   // active so all data has a chance to reach the server first.
-  if (isDirectusSyncActive()) {
+  if (configStore.operatingMode !== OPERATING_MODES.OFFLINE_ONLY && isDirectusSyncActive()) {
     runIDBPurge().catch((e) => {
       console.warn('[CucinaApp] IDB purge error (non-fatal):', e);
     });

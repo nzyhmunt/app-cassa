@@ -44,7 +44,7 @@ import {
   MAX_ATTEMPTS,
 } from '../../composables/useSyncQueue.js';
 import * as persistenceOps from '../persistence/auth.js';
-import { appConfig } from '../../utils/index.js';
+import { appConfig, OPERATING_MODES } from '../../utils/index.js';
 
 // Pass _backoffMs:0 to skip exponential back-off delays in all tests.
 const FAKE_CFG = { url: 'https://directus.test', staticToken: 'tok_test', _backoffMs: 0 };
@@ -61,6 +61,10 @@ beforeEach(async () => {
   await _resetIDBSingleton();
   vi.restoreAllMocks();
   vi.stubGlobal('navigator', { ...navigator, onLine: true });
+  appConfig.operatingMode = OPERATING_MODES.OFFLINE_FIRST;
+  appConfig.directus.enabled = false;
+  appConfig.directus.url = '';
+  appConfig.directus.staticToken = '';
 });
 
 afterEach(() => {
@@ -70,6 +74,68 @@ afterEach(() => {
 // ── enqueue ───────────────────────────────────────────────────────────────────
 
 describe('enqueue()', () => {
+  it('does not enqueue anything in offline_only mode', async () => {
+    appConfig.operatingMode = OPERATING_MODES.OFFLINE_ONLY;
+    const fetchSpy = vi.spyOn(global, 'fetch');
+
+    const result = await enqueue('orders', 'create', 'ord_offline_only_1', { id: 'ord_offline_only_1' });
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      ok: false,
+      mode: OPERATING_MODES.OFFLINE_ONLY,
+      queued: false,
+      directPush: false,
+      error: 'Sync queue disabled in offline_only mode',
+    });
+    expect(await getPendingEntries()).toHaveLength(0);
+  });
+
+  it('pushes directly to Directus in online_only mode without writing sync_queue', async () => {
+    appConfig.operatingMode = OPERATING_MODES.ONLINE_ONLY;
+    appConfig.directus.enabled = true;
+    appConfig.directus.url = 'https://directus.test';
+    appConfig.directus.staticToken = 'tok_test';
+    const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue(
+      mockResponse(201, { data: { id: 'ord_online_only_1' } }),
+    );
+
+    const result = await enqueue('orders', 'create', 'ord_online_only_1', { id: 'ord_online_only_1', status: 'pending' });
+
+    expect(fetchSpy).toHaveBeenCalledOnce();
+    expect(result).toEqual({
+      ok: true,
+      mode: OPERATING_MODES.ONLINE_ONLY,
+      queued: false,
+      directPush: true,
+    });
+    expect(await getPendingEntries()).toHaveLength(0);
+  });
+
+  it('returns a direct-push error payload in online_only mode when push fails', async () => {
+    appConfig.operatingMode = OPERATING_MODES.ONLINE_ONLY;
+    appConfig.directus.enabled = true;
+    appConfig.directus.url = 'https://directus.test';
+    appConfig.directus.staticToken = 'tok_test';
+    vi.spyOn(global, 'fetch').mockResolvedValue(
+      mockResponse(500, { errors: [{ message: 'server error' }] }),
+    );
+
+    const result = await enqueue('orders', 'create', 'ord_online_only_fail_1', {
+      id: 'ord_online_only_fail_1',
+      status: 'pending',
+    });
+
+    expect(result).toEqual(expect.objectContaining({
+      ok: false,
+      mode: OPERATING_MODES.ONLINE_ONLY,
+      queued: false,
+      directPush: true,
+    }));
+    expect(result.error).toEqual(expect.any(String));
+    expect(await getPendingEntries()).toHaveLength(0);
+  });
+
   it('dispatches a sync-queue enqueue event', async () => {
     const listener = vi.fn();
     window.addEventListener('sync-queue:enqueue', listener);

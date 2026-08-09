@@ -37,6 +37,7 @@
 
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue';
+import { useRoute } from 'vue-router';
 import CassaNavbar from './components/CassaNavbar.vue';
 import CassaSettingsModal from './components/CassaSettingsModal.vue';
 import CassaDashboard from './components/CassaDashboard.vue';
@@ -54,6 +55,9 @@ import { loadDirectusConfigFromStorage } from './composables/useDirectusClient.j
 import { useSyncStoreProxy } from './composables/useSyncStoreProxy.js';
 import { useAppSwipeRefresh } from './composables/useAppSwipeRefresh.js';
 import { useIDBPurge, isDirectusSyncActive } from './composables/useIDBPurge.js';
+import { useOnlineOnlyInteractionRefresh } from './composables/useOnlineOnlyInteractionRefresh.js';
+import { resolveOnlineOnlyRoutePullCollections } from './composables/sync/onlineOnlyViewPull.js';
+import { OPERATING_MODES } from './utils/index.js';
 
 const configStore = useConfigStore();
 const orderStore = useOrderStore();
@@ -61,6 +65,7 @@ const auth = useAuth();
 const sync = useDirectusSync();
 const showSettings = ref(false);
 const showCassa = ref(false);
+const route = useRoute();
 const syncStore = useSyncStoreProxy(configStore, orderStore);
 const {
   isSwipeRefreshing,
@@ -76,6 +81,13 @@ const {
   configStore,
   orderStore,
   sync,
+  logPrefix: 'CassaApp',
+});
+useOnlineOnlyInteractionRefresh({
+  sync,
+  configStore,
+  routePathRef: route,
+  resolveCollectionsForRoute: (routePath) => resolveOnlineOnlyRoutePullCollections('cassa', routePath),
   logPrefix: 'CassaApp',
 });
 
@@ -109,7 +121,11 @@ async function restartSyncFromCurrentConfig() {
     await loadDirectusConfigFromStorage();
   } catch (e) { console.warn('[CassaApp] Failed to load Directus config from IDB:', e); }
   sync.stopSync();
+  if (configStore.operatingMode === OPERATING_MODES.OFFLINE_ONLY) return;
   await sync.startSync({ appType: 'cassa', store: syncStore });
+  if (configStore.operatingMode === OPERATING_MODES.ONLINE_ONLY) {
+    await sync.forcePull();
+  }
 }
 
 function onRootTouchStart(event) {
@@ -137,7 +153,7 @@ onMounted(async () => {
   await restartSyncFromCurrentConfig();
   // Best-effort post-startup IDB purge.  Guard: only when Directus sync is
   // active so all data has a chance to reach the server first.
-  if (isDirectusSyncActive()) {
+  if (configStore.operatingMode !== OPERATING_MODES.OFFLINE_ONLY && isDirectusSyncActive()) {
     runIDBPurge().catch((e) => {
       console.warn('[CassaApp] IDB purge error (non-fatal):', e);
     });

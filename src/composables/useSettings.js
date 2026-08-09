@@ -1,6 +1,6 @@
 import { ref, watch, onUnmounted } from 'vue';
 import { useConfigStore, useOrderStore } from '../store/index.js';
-import { KEYBOARD_POSITIONS, DEFAULT_SETTINGS } from '../utils/index.js';
+import { KEYBOARD_POSITIONS, DEFAULT_SETTINGS, normalizeOperatingMode } from '../utils/index.js';
 import { isWakeLockSupported } from './useWakeLock.js';
 import { useAuth } from './useAuth.js';
 import { deleteDatabase, clearAllStateFromIDB } from '../store/persistence/reset.js';
@@ -34,6 +34,7 @@ export function useSettings(props, emit) {
           ? configStore.menuUrl
           : (configStore.config?.menuUrl ?? DEFAULT_SETTINGS.menuUrl),
       menuSource: configStore.menuSource === 'json' ? 'json' : 'directus',
+      operatingMode: normalizeOperatingMode(configStore.operatingMode, DEFAULT_SETTINGS.operatingMode),
       preventScreenLock:
         typeof configStore.preventScreenLock === 'boolean' && wakeLockApiSupported
           ? configStore.preventScreenLock
