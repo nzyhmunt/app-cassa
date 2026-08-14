@@ -67,7 +67,13 @@ export function useSelfOrderCart() {
     const item = items.value.find(item => item.id === itemId);
     if (item) {
       if (quantity <= 0) {
-        removeItem(itemId);
+        // Fully remove the row: removeItem() only decrements when quantity > 1,
+        // which would leave a stale item behind when the caller asked for 0.
+        const index = items.value.findIndex(i => i.id === itemId);
+        if (index >= 0) {
+          items.value.splice(index, 1);
+        }
+        saveCart();
       } else {
         item.quantity = quantity;
         saveCart();
