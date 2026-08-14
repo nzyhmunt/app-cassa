@@ -17,7 +17,8 @@
 import { ref } from 'vue';
 import { useConfigStore } from '../store/index.js';
 
-const SESSION_CACHE_KEY = 'selforder_session_cache';
+const SESSION_CACHE_KEY = 'selforder_session_id';
+const TOKEN_CACHE_KEY = 'selforder_access_token';
 
 /**
  * Get Directus URL from config store
@@ -32,6 +33,13 @@ export function useSelfOrderAuth() {
   const accessToken = ref(null);
   const billSession = ref(null);
   const isAuthenticated = ref(false);
+
+  // Restore any token persisted from a previous run so that Directus requests
+  // stay authenticated across PWA reloads (the in-memory ref is otherwise lost).
+  const cachedToken = sessionStorage.getItem(TOKEN_CACHE_KEY);
+  if (cachedToken) {
+    accessToken.value = cachedToken;
+  }
 
   function parseSessionUrl(urlOrCode) {
     let sessionId = null;
@@ -68,10 +76,21 @@ export function useSelfOrderAuth() {
       if (token) {
         accessToken.value = token;
       } else {
-        const tokenFromUrl = new URLSearchParams(window.location.search).get('access_token');
+        // Hash-router URLs put the access_token inside the hash fragment
+        // (#/session/...?access_token=...), where URLSearchParams on
+        // window.location.search won't find it. Check both locations, then
+        // fall back to a previously persisted token so reloads stay authed.
+        const fromHash = window.location.hash.match(/[?&]access_token=([^&]+)/);
+        const tokenFromUrl = fromHash
+          ? decodeURIComponent(fromHash[1])
+          : new URLSearchParams(window.location.search).get('access_token');
         if (tokenFromUrl) {
           accessToken.value = tokenFromUrl;
         }
+      }
+
+      if (accessToken.value) {
+        sessionStorage.setItem(TOKEN_CACHE_KEY, accessToken.value);
       }
 
       const session = await fetchBillSession(sessionId);
@@ -88,7 +107,7 @@ export function useSelfOrderAuth() {
       billSession.value = session;
       isAuthenticated.value = true;
 
-      sessionStorage.setItem('selforder_session_id', sessionId);
+      sessionStorage.setItem(SESSION_CACHE_KEY, sessionId);
 
       return session;
     } catch (e) {
@@ -257,7 +276,9 @@ export function useSelfOrderAuth() {
     billSessionId.value = null;
     billSession.value = null;
     isAuthenticated.value = false;
-    sessionStorage.removeItem('selforder_session_id');
+    accessToken.value = null;
+    sessionStorage.removeItem(SESSION_CACHE_KEY);
+    sessionStorage.removeItem(TOKEN_CACHE_KEY);
   }
 
   function getDemoSession(sessionId) {

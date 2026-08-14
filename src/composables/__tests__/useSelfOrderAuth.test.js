@@ -133,6 +133,66 @@ describe('useSelfOrderAuth — validateAndLoadSession (Directus)', () => {
   });
 });
 
+describe('useSelfOrderAuth — access token persistence', () => {
+  it('persists the access token so it survives a PWA reload', async () => {
+    useConfigStore().config.directus.url = 'https://directus.test';
+    vi.stubGlobal('fetch', vi.fn(async () =>
+      jsonResponse({ data: { id: 's1', status: 'open', table: '5' } })
+    ));
+    const auth = useSelfOrderAuth();
+    await auth.validateAndLoadSession('s1', 'tok');
+    expect(sessionStorage.getItem('selforder_access_token')).toBe('tok');
+
+    // Simulate a reload: a fresh composable instance must restore the token.
+    const reloaded = useSelfOrderAuth();
+    expect(reloaded.accessToken.value).toBe('tok');
+  });
+
+  it('restores a previously cached token when none is passed explicitly', async () => {
+    sessionStorage.setItem('selforder_access_token', 'cached-tok');
+    useConfigStore().config.directus.url = 'https://directus.test';
+    const fetchMock = vi.fn(async () =>
+      jsonResponse({ data: { id: 's1', status: 'open', table: '5' } })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const auth = useSelfOrderAuth();
+    // No token argument — the cached one should be reused for the request.
+    await auth.validateAndLoadSession('s1');
+    expect(auth.accessToken.value).toBe('cached-tok');
+    expect(fetchMock.mock.calls[0][1].headers.Authorization).toBe('Bearer cached-tok');
+  });
+
+  it('reads the access_token from the hash fragment (hash router)', async () => {
+    useConfigStore().config.directus.url = 'https://directus.test';
+    vi.stubGlobal('fetch', vi.fn(async () =>
+      jsonResponse({ data: { id: 's1', status: 'open', table: '5' } })
+    ));
+    // Hash-router URL: #/session/s1?access_token=hash.tok
+    Object.defineProperty(window, 'location', {
+      value: { hash: '#/session/s1?access_token=hash.tok', search: '' },
+      writable: true,
+      configurable: true,
+    });
+    const auth = useSelfOrderAuth();
+    await auth.validateAndLoadSession('s1');
+    expect(auth.accessToken.value).toBe('hash.tok');
+  });
+
+  it('clears the cached token on closeSession', async () => {
+    useConfigStore().config.directus.url = 'https://directus.test';
+    vi.stubGlobal('fetch', vi.fn(async () =>
+      jsonResponse({ data: { id: 's1', status: 'open', table: '5' } })
+    ));
+    const auth = useSelfOrderAuth();
+    await auth.validateAndLoadSession('s1', 'tok');
+    expect(sessionStorage.getItem('selforder_access_token')).toBe('tok');
+
+    await auth.closeSession();
+    expect(auth.accessToken.value).toBeNull();
+    expect(sessionStorage.getItem('selforder_access_token')).toBeNull();
+  });
+});
+
 describe('useSelfOrderAuth — createOrder', () => {
   it('returns a demo order in offline mode', async () => {
     const auth = useSelfOrderAuth();

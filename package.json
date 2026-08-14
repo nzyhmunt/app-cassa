@@ -11,7 +11,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:print-server": "cd print-server && npm test"
+    "test:print-server": "cd print-server && npm test",
+    "test:gemini-proxy": "cd directus-extensions/endpoints/gemini-proxy && npm test"
   },
   "dependencies": {
     "@directus/sdk": "^21.2.2",

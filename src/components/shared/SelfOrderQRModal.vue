@@ -64,7 +64,7 @@
               </button>
               <button 
                 class="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-medium flex items-center justify-center gap-2 transition-colors"
-                @click="shareQR"
+                @click="shareQR($event)"
               >
                 <Share2 class="w-5 h-5" />
                 Condividi
@@ -160,7 +160,7 @@ function downloadQR() {
   link.click();
 }
 
-async function shareQR() {
+async function shareQR(event) {
   if (!hasValidSession.value) return;
   
   const title = `Ordina al tavolo ${props.session.tableName || ''}`;

@@ -1,0 +1,22 @@
+{
+  "name": "directus-extension-gemini-proxy",
+  "version": "1.0.0",
+  "description": "Directus endpoint extension che fa da proxy server-side per l'API Gemini, tenendo la chiave VITE_GEMINI_API_KEY fuori dal bundle client (Self-Order Chef Assistant)",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "build": "directus-extension build -t endpoint -i src/index.js -o dist/index.js",
+    "dev": "directus-extension build -t endpoint -i src/index.js -o dist/index.js --watch",
+    "test": "vitest run"
+  },
+  "directus:extension": {
+    "host": ">=10.0.0",
+    "type": "endpoint",
+    "path": "dist/index.js",
+    "source": "src/index.js",
+    "sandbox": false
+  },
+  "devDependencies": {
+    "@directus/extensions-sdk": "^17.1.2"
+  }
+}

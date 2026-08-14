@@ -82,19 +82,23 @@
 </template>
 
 <script setup>
-import { ref, onMounted, nextTick, watch } from 'vue';
+import { ref, onMounted, nextTick, watch, computed } from 'vue';
 import { useSelfOrderI18n } from '../../composables/useSelfOrderI18n.js';
 import { useRouter, useRoute } from 'vue-router';
 import { ChefHat, User, Send } from 'lucide-vue-next';
 import DOMPurify from 'dompurify';
 import { useSelfOrderMenu } from '../../composables/useSelfOrderMenu.js';
 import { useSelfOrderCart } from '../../composables/useSelfOrderCart.js';
+import { useSelfOrderAuth } from '../../composables/useSelfOrderAuth.js';
+import { useConfigStore } from '../../store/index.js';
 import { chatTranslations, getChatTranslation } from './SelfOrderChatTranslations.js';
 
 const router = useRouter();
 const route = useRoute();
 const { menu, loadMenu } = useSelfOrderMenu();
 const { items: cartItems, addItem } = useSelfOrderCart();
+const { accessToken } = useSelfOrderAuth();
+const configStore = useConfigStore();
 
 const chatContainer = ref(null);
 const chatMessages = ref([]);
@@ -129,11 +133,24 @@ const i18n = {
 
 
 // Gemini AI Configuration
-const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY || '';
+// The API key is NOT embedded in the client bundle. Requests are proxied through
+// the Directus `gemini` endpoint extension (directus-extensions/endpoints/gemini-proxy),
+// which injects GEMINI_API_KEY server-side. The model can still be overridden at
+// build time since it is not secret.
 const GEMINI_MODEL = import.meta.env.VITE_GEMINI_MODEL || 'gemini-2.0-flash';
-const GEMINI_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models/';
 const GEMINI_MAX_RETRIES = 3;
 const GEMINI_DELAYS = [1000, 2000, 4000];
+
+// Whether the server-side Gemini proxy is available. In demo/offline mode
+// (no Directus URL configured) there is nothing to proxy to, so the assistant
+// falls back to the simulated responses.
+const geminiProxyUrl = computed(() => {
+  const directusUrl = configStore.config?.directus?.url;
+  if (!directusUrl) return null;
+  // Directus exposes custom endpoints under its API base (/directus by default,
+  // which equals the configured url when it is the API root).
+  return `${directusUrl.replace(/\/$/, '')}/gemini`;
+});
 
 const { t, currentLang } = useSelfOrderI18n(i18n);
 
@@ -224,8 +241,9 @@ async function sendMessage(msg = null) {
 
   let responseText = '';
   
-  // Try Gemini API first
-  if (GEMINI_API_KEY) {
+  // Try Gemini API first, via the server-side proxy (the key never reaches the client).
+  const proxyUrl = geminiProxyUrl.value;
+  if (proxyUrl) {
     const menu = getMenu();
     const cart = cartItems.value.map(c => ({ id: c.menuItemId, name: c.name, q: c.quantity }));
     
@@ -244,20 +262,25 @@ Carrello attuale: ${cart.length === 0 ? 'Vuoto' : cart.map(c => `${c.name} (x${c
 
     const userPrompt = messageText;
 
+    const headers = { 'Content-Type': 'application/json' };
+    // Forward the session token if present so Directus auth middleware accepts
+    // the request (the proxy endpoint is subject to standard Directus auth).
+    if (accessToken.value) {
+      headers['Authorization'] = `Bearer ${accessToken.value}`;
+    }
+
     try {
       for (let attempt = 0; attempt < GEMINI_MAX_RETRIES; attempt++) {
         try {
-          const response = await fetch(
-            `${GEMINI_ENDPOINT}${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
-            {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                contents: [{ parts: [{ text: userPrompt }] }],
-                systemInstruction: { parts: [{ text: systemPrompt }] }
-              })
-            }
-          );
+          const response = await fetch(proxyUrl, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+              model: GEMINI_MODEL,
+              contents: [{ parts: [{ text: userPrompt }] }],
+              systemInstruction: { parts: [{ text: systemPrompt }] }
+            })
+          });
           if (!response.ok) throw new Error(`HTTP ${response.status}`);
           const data = await response.json();
           const candidateText = data.candidates?.[0]?.content?.parts?.[0]?.text;
@@ -281,7 +304,7 @@ Carrello attuale: ${cart.length === 0 ? 'Vuoto' : cart.map(c => `${c.name} (x${c
     }
   }
 
-  // Fallback to simulated response if no API key or API failed
+  // Fallback to simulated response if the proxy is unavailable or the API failed
   if (!responseText) {
     responseText = generateSimulatedResponse(messageText, prefs);
   }

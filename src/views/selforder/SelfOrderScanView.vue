@@ -137,16 +137,16 @@ async function handleQRScanned(url) {
     // parseSessionUrl extracts both sessionId and optional access_token.
     const { sessionId, token } = parseSessionUrl(url);
     if (!sessionId) {
-      throw new Error(t.value.sessioneScaduta);
+      throw new Error(t.value.sessionExpired);
     }
     
     await validateAndLoadSession(sessionId, token);
     await loadMenu();
     
-    const hasSeenOnboarding = sessionStorage.getItem('selforder_onboarding_done');
+    const hasSeenOnboarding = localStorage.getItem('selforder_onboarding_done');
     router.push(hasSeenOnboarding ? '/menu' : '/onboarding');
   } catch (e) {
-    error.value = e.message || t.value.sessioneScaduta;
+    error.value = e.message || t.value.sessionExpired;
   } finally {
     loading.value = false;
   }
@@ -163,10 +163,10 @@ async function handleManualSubmit() {
     await validateAndLoadSession(sessionId);
     await loadMenu();
     
-    const hasSeenOnboarding = sessionStorage.getItem('selforder_onboarding_done');
+    const hasSeenOnboarding = localStorage.getItem('selforder_onboarding_done');
     router.push(hasSeenOnboarding ? '/menu' : '/onboarding');
   } catch (e) {
-    error.value = e.message || t.value.sessioneScaduta;
+    error.value = e.message || t.value.sessionExpired;
   } finally {
     manualLoading.value = false;
   }
@@ -197,10 +197,10 @@ onMounted(async () => {
       await validateAndLoadSession(sessionMatch[1], token);
       await loadMenu();
 
-      const hasSeenOnboarding = sessionStorage.getItem('selforder_onboarding_done');
+      const hasSeenOnboarding = localStorage.getItem('selforder_onboarding_done');
       router.push(hasSeenOnboarding ? '/menu' : '/onboarding');
     } catch (e) {
-      error.value = e.message || t.value.sessioneScaduta;
+      error.value = e.message || t.value.sessionExpired;
     } finally {
       loading.value = false;
     }
@@ -215,7 +215,7 @@ onMounted(async () => {
       try {
         await validateAndLoadSession(cachedId);
         await loadMenu();
-        const hasSeenOnboarding = sessionStorage.getItem('selforder_onboarding_done');
+        const hasSeenOnboarding = localStorage.getItem('selforder_onboarding_done');
         router.push(hasSeenOnboarding ? '/menu' : '/onboarding');
       } catch (e) {
         // Cached session invalid/closed → clear it and stay on the scan view.
