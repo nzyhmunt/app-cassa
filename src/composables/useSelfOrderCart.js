@@ -1,13 +1,9 @@
 import { ref, computed } from 'vue';
 
-const ORDER_HISTORY_KEY = 'selforder_order_history';
-
 // Shared state across all composable instances
 const items = ref([]);
-const submittedOrderId = ref(null);
-const orderHistory = ref([]);
 
-// Restore cart and history on module load
+// Restore cart on module load
 function restoreCart() {
   const saved = localStorage.getItem('selforder_cart');
   if (saved) {
@@ -19,26 +15,10 @@ function restoreCart() {
   }
 }
 
-function restoreHistory() {
-  const saved = localStorage.getItem(ORDER_HISTORY_KEY);
-  if (saved) {
-    try {
-      orderHistory.value = JSON.parse(saved);
-    } catch {
-      localStorage.removeItem(ORDER_HISTORY_KEY);
-    }
-  }
-}
-
 // Initialize on module load
 restoreCart();
-restoreHistory();
 
 export function useSelfOrderCart() {
-  const totalItems = computed(() => 
-    items.value.reduce((sum, item) => sum + item.quantity, 0)
-  );
-
   const totalPrice = computed(() =>
     items.value.reduce((sum, item) => {
       const itemPrice = item.price * item.quantity;
@@ -105,34 +85,6 @@ export function useSelfOrderCart() {
   }
 
   /**
-   * Add current cart to order history (called after successful submission)
-   */
-  function addToHistory() {
-    if (items.value.length === 0) return;
-    
-    const order = {
-      id: `ord_${Date.now()}`,
-      time: new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }),
-      items: JSON.parse(JSON.stringify(items.value)),
-      total: totalPrice.value,
-      totalItems: totalItems.value,
-    };
-    
-    orderHistory.value.unshift(order);
-    saveHistory();
-    clearCart();
-  }
-
-  function saveHistory() {
-    localStorage.setItem(ORDER_HISTORY_KEY, JSON.stringify(orderHistory.value));
-  }
-
-  function clearHistory() {
-    orderHistory.value = [];
-    localStorage.removeItem(ORDER_HISTORY_KEY);
-  }
-
-  /**
    * Build the Directus-shaped order payload from the current cart.
    * Uses the O2M relational field name `order_items` (not `items`) so nested
    * rows are actually created, and snapshots `unit_price` from the public menu
@@ -162,18 +114,11 @@ export function useSelfOrderCart() {
 
   return {
     items,
-    totalItems,
     totalPrice,
-    orderHistory,
-    submittedOrderId,
     addItem,
     removeItem,
     updateQuantity,
     clearCart,
-    clearHistory,
     buildOrderPayload,
-    addToHistory,
-    saveHistory,
-    restoreHistory,
   };
 }

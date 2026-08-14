@@ -3,13 +3,13 @@
     <div class="w-full max-w-md text-center">
       <div class="mb-8">
         <Sparkles class="w-16 h-16 mx-auto mb-4" />
-        <h2 class="text-2xl font-bold uppercase tracking-tight">{{ t.onbTitolo }}</h2>
-        <p class="text-white/80 text-sm mt-1 uppercase text-xs font-black tracking-widest">{{ t.onbSottotitolo }}</p>
+        <h2 class="text-2xl font-bold uppercase tracking-tight">{{ t.onbTitle }}</h2>
+        <p class="text-white/80 text-sm mt-1 uppercase text-xs font-black tracking-widest">{{ t.onbSubtitle }}</p>
       </div>
 
       <!-- Diet preferences -->
       <div class="bg-white/10 backdrop-blur rounded-3xl p-6 mb-6">
-        <h4 class="text-xs font-bold text-white/60 uppercase tracking-widest mb-4">{{ t.onbDiete }}</h4>
+        <h4 class="text-xs font-bold text-white/60 uppercase tracking-widest mb-4">{{ t.onbDiets }}</h4>
         <div class="flex flex-col gap-3">
           <button 
             @click="diet.Vegano = !diet.Vegano" 
@@ -18,7 +18,7 @@
           >
             <CheckCircle v-if="diet.Vegano" class="size-6 text-white shrink-0" />
             <Circle v-else class="size-6 text-white/60 shrink-0" />
-            {{ t.dietVegano }}
+            {{ t.dietVegan }}
           </button>
           <button 
             @click="diet.Vegetariano = !diet.Vegetariano" 
@@ -27,7 +27,7 @@
           >
             <CheckCircle v-if="diet.Vegetariano" class="size-6 text-white shrink-0" />
             <Circle v-else class="size-6 text-white/60 shrink-0" />
-            {{ t.dietVegetariano }}
+            {{ t.dietVegetarian }}
           </button>
         </div>
       </div>
@@ -39,7 +39,7 @@
           class="flex items-center justify-center gap-2 w-full text-sm font-bold hover:bg-white/10 rounded-2xl p-3 transition-colors"
         >
           <AlertTriangle class="size-5" />
-          {{ showAllergens ? t.nascondiAllergeni : t.onbAllergeniBtn }}
+          {{ showAllergens ? t.hideAllergens : t.onbAllergensBtn }}
         </button>
         
         <div v-if="showAllergens" class="mt-4 max-h-60 overflow-y-auto">
@@ -62,7 +62,7 @@
         @click="handleDiscover"
         class="w-full bg-white text-emerald-700 py-4 rounded-2xl font-bold text-lg shadow-lg transition-all active:scale-[0.98]"
       >
-        {{ t.onbScopriMenu }}
+        {{ t.onbDiscoverMenu }}
       </button>
     </div>
   </div>
@@ -102,14 +102,14 @@ const allergens = reactive({
 
 const i18n = {
   it: {
-    onbTitolo: 'Personalizza la tua cena',
-    onbSottotitolo: 'Configura la tua esperienza',
-    onbDiete: 'Diete e Scelte',
-    dietVegano: 'Vegano',
-    dietVegetariano: 'Vegetariano',
-    onbAllergeniBtn: 'Gestione Allergeni',
-    nascondiAllergeni: 'Nascondi Allergeni',
-    onbScopriMenu: 'Scopri il Menu',
+    onbTitle: 'Personalizza la tua cena',
+    onbSubtitle: 'Configura la tua esperienza',
+    onbDiets: 'Diete e Scelte',
+    dietVegan: 'Vegano',
+    dietVegetarian: 'Vegetariano',
+    onbAllergensBtn: 'Gestione Allergeni',
+    hideAllergens: 'Nascondi Allergeni',
+    onbDiscoverMenu: 'Scopri il Menu',
     allergens: {
       glutine: 'Glutine',
       crostacei: 'Crostacei',
@@ -128,14 +128,14 @@ const i18n = {
     }
   },
   en: {
-    onbTitolo: 'Customize your dinner',
-    onbSottotitolo: 'Configure your experience',
-    onbDiete: 'Diet & Choices',
-    dietVegano: 'Vegan',
-    dietVegetariano: 'Vegetarian',
-    onbAllergeniBtn: 'Allergen Management',
-    nascondiAllergeni: 'Hide Allergens',
-    onbScopriMenu: 'Discover the Menu',
+    onbTitle: 'Customize your dinner',
+    onbSubtitle: 'Configure your experience',
+    onbDiets: 'Diet & Choices',
+    dietVegan: 'Vegan',
+    dietVegetarian: 'Vegetarian',
+    onbAllergensBtn: 'Allergen Management',
+    hideAllergens: 'Hide Allergens',
+    onbDiscoverMenu: 'Discover the Menu',
     allergens: {
       glutine: 'Gluten',
       crostacei: 'Crustaceans',

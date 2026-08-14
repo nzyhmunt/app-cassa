@@ -31,8 +31,6 @@ const MENU_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 const menu = ref({});
 const categories = ref([]);
 const loading = ref(false);
-const error = ref(null);
-const lastFetch = ref(null);
 
 export function useSelfOrderMenu() {
   /**
@@ -41,7 +39,6 @@ export function useSelfOrderMenu() {
    */
   async function loadMenu(menuUrl = null) {
     loading.value = true;
-    error.value = null;
 
     try {
       // Check cache first
@@ -54,7 +51,7 @@ export function useSelfOrderMenu() {
 
       // Determine URL
       const url = menuUrl || getMenuUrl();
-      
+
       if (!url) {
         // Use demo menu
         const demoMenu = getDemoMenu();
@@ -73,12 +70,11 @@ export function useSelfOrderMenu() {
 
       const data = await response.json();
       setMenu(data);
-      
+
       return data;
     } catch (e) {
       console.error('[SelfOrderMenu] Load failed:', e);
-      error.value = e.message;
-      
+
       // Fallback to demo menu
       const demoMenu = getDemoMenu();
       setMenu(demoMenu);
@@ -239,78 +235,11 @@ export function useSelfOrderMenu() {
   }
 
   /**
-   * Get item with verified price from menu
-   */
-  function getItemWithVerifiedPrice(cartItem) {
-    const menuItem = getItemById(cartItem.menuItemId);
-    if (!menuItem) return null;
-
-    return {
-      ...menuItem,
-      verifiedPrice: menuItem.price, // Price from menu, not from cart
-    };
-  }
-
-  /**
-   * Get items by category
-   */
-  function getItemsByCategory(category) {
-    return menu.value[category] || [];
-  }
-
-  /**
-   * Filter available items only
-   */
-  function getAvailableItems() {
-    const available = [];
-    Object.entries(menu.value).forEach(([category, items]) => {
-      items.forEach(item => {
-        if (item.available !== false) {
-          available.push({ ...item, category });
-        }
-      });
-    });
-    return available;
-  }
-
-  /**
-   * Filter items by allergens (exclude items containing allergens)
-   */
-  function filterByAllergens(items, excludeAllergens) {
-    if (!excludeAllergens || excludeAllergens.length === 0) {
-      return items;
-    }
-
-    return items.filter(item => {
-      const itemAllergens = item.allergens || [];
-      return !excludeAllergens.some(allergen => 
-        itemAllergens.includes(allergen)
-      );
-    });
-  }
-
-  /**
-   * Search items by name/description
-   */
-  function searchItems(query) {
-    if (!query || query.trim().length < 2) {
-      return getAllItems();
-    }
-
-    const q = query.toLowerCase();
-    return getAllItems().filter(item => 
-      item.name?.toLowerCase().includes(q) ||
-      item.description?.toLowerCase().includes(q)
-    );
-  }
-
-  /**
    * Cache menu to sessionStorage
    */
   function cacheMenu(data) {
     try {
       sessionStorage.setItem(MENU_CACHE_KEY, JSON.stringify(data));
-      lastFetch.value = Date.now();
     } catch (e) {
       console.warn('[SelfOrderMenu] Cache failed:', e);
     }
@@ -325,7 +254,7 @@ export function useSelfOrderMenu() {
       if (!cached) return null;
 
       const data = JSON.parse(cached);
-      
+
       // Check if cache is expired
       if (Date.now() - data.timestamp > MENU_CACHE_TTL) {
         sessionStorage.removeItem(MENU_CACHE_KEY);
@@ -336,13 +265,6 @@ export function useSelfOrderMenu() {
     } catch {
       return null;
     }
-  }
-
-  /**
-   * Clear menu cache
-   */
-  function clearCache() {
-    sessionStorage.removeItem(MENU_CACHE_KEY);
   }
 
   /**
@@ -443,20 +365,12 @@ export function useSelfOrderMenu() {
     menu,
     categories,
     loading,
-    error,
-    lastFetch,
     loadMenu,
     getItemById,
     getItemPrice,
     getModifierPrice,
     calculateCartTotal,
-    getItemWithVerifiedPrice,
-    getItemsByCategory,
     getAllItems,
-    getAvailableItems,
-    filterByAllergens,
-    searchItems,
-    clearCache,
   };
 }
 

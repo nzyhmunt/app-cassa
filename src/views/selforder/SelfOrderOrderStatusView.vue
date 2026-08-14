@@ -74,12 +74,10 @@ import { ref, onMounted, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { ClipboardList } from 'lucide-vue-next';
 import { useSelfOrderCart } from '../../composables/useSelfOrderCart.js';
-import { useSelfOrderSession } from '../../composables/useSelfOrderSession.js';
 import { useSelfOrderAuth } from '../../composables/useSelfOrderAuth.js';
 
 const router = useRouter();
 const { items } = useSelfOrderCart();
-const { session } = useSelfOrderSession();
 const { billSessionId, fetchSessionOrders } = useSelfOrderAuth();
 
 const orders = ref([]);
@@ -120,7 +118,7 @@ function goToMenu() {
 }
 
 async function loadOrders() {
-  const sessionId = billSessionId.value || session.value?.id;
+  const sessionId = billSessionId.value;
   if (!sessionId) return;
 
   // Prefer the API (shared across all customers at the table); fall back to the

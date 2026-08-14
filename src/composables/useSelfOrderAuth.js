@@ -32,8 +32,6 @@ export function useSelfOrderAuth() {
   const accessToken = ref(null);
   const billSession = ref(null);
   const isAuthenticated = ref(false);
-  const loading = ref(false);
-  const error = ref(null);
 
   function parseSessionUrl(urlOrCode) {
     let sessionId = null;
@@ -62,9 +60,6 @@ export function useSelfOrderAuth() {
   }
 
   async function validateAndLoadSession(sessionId, token = null) {
-    loading.value = true;
-    error.value = null;
-
     try {
       if (!sessionId) {
         throw new Error('Sessione non valida');
@@ -97,10 +92,7 @@ export function useSelfOrderAuth() {
 
       return session;
     } catch (e) {
-      error.value = e.message;
       throw e;
-    } finally {
-      loading.value = false;
     }
   }
 
@@ -279,32 +271,16 @@ export function useSelfOrderAuth() {
     };
   }
 
-  function restoreSession() {
-    // NOTE: this only returns a cached session id; it does NOT mark the app as
-    // authenticated. Callers must run the id through validateAndLoadSession()
-    // to re-verify status === 'open' before trusting it.
-    const cachedSessionId = sessionStorage.getItem('selforder_session_id');
-    if (cachedSessionId) {
-      return { sessionId: cachedSessionId };
-    }
-    return null;
-  }
-
   return {
     billSessionId,
     accessToken,
     billSession,
     isAuthenticated,
-    loading,
-    error,
     parseSessionUrl,
     validateAndLoadSession,
     createOrder,
     closeSession,
-    clearSession,
-    restoreSession,
     fetchSessionOrders,
-    getLocalOrderHistory,
     saveLocalOrder,
   };
 }

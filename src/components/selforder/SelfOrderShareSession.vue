@@ -10,7 +10,7 @@
           <div class="flex items-center justify-between mb-4">
             <h2 class="text-lg font-bold text-gray-800 flex items-center gap-2">
               <Users class="size-5 theme-text" />
-              {{ t.condividiTavolo }}
+              {{ t.shareTable }}
             </h2>
             <button 
               class="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center"
@@ -21,7 +21,7 @@
           </div>
 
           <p class="text-gray-600 text-sm mb-4">
-            {{ t.condividiDesc }}
+            {{ t.shareDesc }}
           </p>
 
           <!-- QR Code -->
@@ -31,7 +31,7 @@
 
           <!-- Share URL -->
           <div class="bg-gray-50 rounded-xl p-3 mb-4">
-            <p class="text-xs text-gray-500 mb-1">{{ t.linkCondivisione }}</p>
+            <p class="text-xs text-gray-500 mb-1">{{ t.shareLink }}</p>
             <p class="text-sm font-mono text-gray-700 truncate">{{ shareUrl }}</p>
           </div>
 
@@ -42,14 +42,14 @@
               @click="copyLink"
             >
               <Copy class="size-5" />
-              {{ copied ? t.copiato : t.copiaLink }}
+              {{ copied ? t.copied : t.copyLink }}
             </button>
             <button 
               class="flex-1 py-3 theme-bg text-white rounded-xl font-medium flex items-center justify-center gap-2"
               @click="shareLink"
             >
               <Share2 class="size-5" />
-              {{ t.condividi }}
+              {{ t.share }}
             </button>
           </div>
         </div>
@@ -144,20 +144,20 @@ async function shareLink() {
 // Translations
 const i18n = {
   it: {
-    condividiTavolo: 'Condividi Tavolo',
-    condividiDesc: 'Invita altre persone al tuo tavolo a ordinare insieme',
-    linkCondivisione: 'Link di condivisione',
-    copiaLink: 'Copia Link',
-    copiato: 'Copiato!',
-    condividi: 'Condividi',
+    shareTable: 'Condividi Tavolo',
+    shareDesc: 'Invita altre persone al tuo tavolo a ordinare insieme',
+    shareLink: 'Link di condivisione',
+    copyLink: 'Copia Link',
+    copied: 'Copiato!',
+    share: 'Condividi',
   },
   en: {
-    condividiTavolo: 'Share Table',
-    condividiDesc: 'Invite others at your table to order together',
-    linkCondivisione: 'Share link',
-    copiaLink: 'Copy Link',
-    copiato: 'Copied!',
-    condividi: 'Share',
+    shareTable: 'Share Table',
+    shareDesc: 'Invite others at your table to order together',
+    shareLink: 'Share link',
+    copyLink: 'Copy Link',
+    copied: 'Copied!',
+    share: 'Share',
   }
 };
 const { t, currentLang } = useSelfOrderI18n(i18n);

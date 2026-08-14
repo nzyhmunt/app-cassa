@@ -23,14 +23,14 @@
         @click="error = null"
         class="mt-3 px-4 py-2 bg-red-100 text-red-700 rounded-lg text-sm font-medium"
       >
-        {{ t.riprova }}
+        {{ t.retry }}
       </button>
     </div>
 
     <!-- Loading state -->
     <div v-else-if="loading" class="flex flex-col items-center">
       <Loader2 class="size-12 text-emerald-600 animate-spin mb-4" />
-      <p class="text-gray-500">{{ t.connessione }}</p>
+      <p class="text-gray-500">{{ t.connecting }}</p>
     </div>
 
     <!-- Main content -->
@@ -41,13 +41,13 @@
         class="theme-bg hover:theme-bg-dark text-white py-6 px-12 rounded-2xl font-bold text-xl shadow-lg transition-all flex items-center justify-center gap-4 active:scale-[0.98] mb-4"
       >
         <QrCode class="size-8" />
-        {{ t.scansionaQR }}
+        {{ t.scanQR }}
       </button>
 
       <!-- Divider -->
       <div class="flex items-center gap-4 w-full max-w-sm mb-4">
         <div class="flex-1 h-px bg-gray-300"></div>
-        <span class="text-gray-400 text-sm">{{ t.oppure }}</span>
+        <span class="text-gray-400 text-sm">{{ t.or }}</span>
         <div class="flex-1 h-px bg-gray-300"></div>
       </div>
 
@@ -57,7 +57,7 @@
           v-model="manualSessionId" 
           type="text" 
           class="w-full px-4 py-3 bg-white border border-gray-300 rounded-xl text-sm text-center focus:outline-none ring-2 ring-emerald-200 transition-all"
-          :placeholder="t.codicePlaceholder"
+          :placeholder="t.codePlaceholder"
           @keyup.enter="handleManualSubmit"
         />
         <button 
@@ -66,7 +66,7 @@
           class="mt-3 w-full bg-gray-100 hover:bg-gray-200 text-gray-700 py-3 rounded-xl font-bold text-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
         >
           <Loader2 v-if="manualLoading" class="size-4 animate-spin" />
-          {{ t.conferma }}
+          {{ t.continue }}
         </button>
       </div>
     </template>
@@ -107,22 +107,22 @@ const restaurantLogo = ref(null);
 
 const i18n = {
   it: {
-    connessione: 'Connessione in corso...',
-    sessioneScaduta: 'Sessione non valida o scaduta',
-    scansionaQR: 'Scansiona QR',
-    oppure: 'oppure',
-    codicePlaceholder: 'Inserisci codice',
-    conferma: 'Continua',
-    riprova: 'Riprova',
+    connecting: 'Connessione in corso...',
+    sessionExpired: 'Sessione non valida o scaduta',
+    scanQR: 'Scansiona QR',
+    or: 'oppure',
+    codePlaceholder: 'Inserisci codice',
+    continue: 'Continua',
+    retry: 'Riprova',
   },
   en: {
-    connessione: 'Connecting...',
-    sessioneScaduta: 'Session invalid or expired',
-    scansionaQR: 'Scan QR',
-    oppure: 'or',
-    codicePlaceholder: 'Enter code',
-    conferma: 'Continue',
-    riprova: 'Retry',
+    connecting: 'Connecting...',
+    sessionExpired: 'Session invalid or expired',
+    scanQR: 'Scan QR',
+    or: 'or',
+    codePlaceholder: 'Enter code',
+    continue: 'Continue',
+    retry: 'Retry',
   }
 };
 

@@ -35,7 +35,7 @@
               : 'bg-gray-100 text-gray-600 border border-gray-200'"
           >
             <Filter class="size-3" />
-            {{ filterAllergens ? t.nascondiAllergeni : t.mostraAllergeni }}
+            {{ filterAllergens ? t.hideAllergens : t.filterAllergens }}
           </button>
 
           <button
@@ -57,12 +57,12 @@
         <!-- Cart Suggestions -->
         <div v-if="cartSuggestions.length > 0 && cartItems.length > 0" class="mb-6 p-4 bg-purple-50 rounded-2xl border border-purple-100">
           <div class="flex items-center justify-between mb-3">
-            <p class="text-sm font-bold text-purple-700">{{ t.completaPasto }}</p>
+            <p class="text-sm font-bold text-purple-700">{{ t.completeMeal }}</p>
             <button 
               @click="askCartAdvice"
               class="text-xs text-purple-600 hover:text-purple-800 font-medium underline"
             >
-              {{ t.chiediConsiglio }}
+              {{ t.askAdvice }}
             </button>
           </div>
           <div class="flex gap-2 overflow-x-auto pb-1">
@@ -106,7 +106,7 @@
                 v-if="item.available === false"
                 class="absolute top-2 left-2 bg-red-500 text-white text-[10px] px-2 py-1 rounded-full font-bold"
               >
-                {{ t.nonDisponibile }}
+                {{ t.notAvailable }}
               </span>
               
               <!-- Dietary badges -->
@@ -115,13 +115,13 @@
                   v-if="item.note === 'Vegano'"
                   class="bg-green-100 text-green-800 text-[9px] px-2 py-0.5 rounded-full font-bold border border-green-200"
                 >
-                  {{ t.vegano }}
+                  {{ t.vegan }}
                 </span>
                 <span 
                   v-else-if="item.note === 'Vegetariano'"
                   class="bg-green-100 text-green-800 text-[9px] px-2 py-0.5 rounded-full font-bold border border-green-200"
                 >
-                  {{ t.vegetariano }}
+                  {{ t.vegetarian }}
                 </span>
               </div>
             </div>
@@ -149,14 +149,14 @@
                 <button 
                   @click="askMagic(item)"
                   class="flex-none p-2 rounded-lg bg-gray-50 hover:bg-purple-50 text-gray-500 hover:text-purple-600 transition-colors"
-                  :title="t.chiediMagic"
+                  :title="t.chefRecommended"
                 >
                   <Sparkles class="size-4" />
                 </button>
                 <button 
                   @click="askInfo(item)"
                   class="flex-none p-2 rounded-lg bg-gray-50 hover:bg-blue-50 text-gray-500 hover:text-blue-600 transition-colors"
-                  :title="t.maggioriInfo"
+                  :title="t.moreInfo"
                 >
                   <Info class="size-4" />
                 </button>
@@ -165,7 +165,7 @@
                   class="flex-1 relative h-10 flex items-center justify-center gap-2 bg-gray-900 hover:bg-black text-white rounded-xl font-bold transition-all active:scale-95 shadow-sm"
                 >
                   <Plus class="size-4" />
-                  <span class="uppercase tracking-wider text-xs">{{ t.aggiungi }}</span>
+                  <span class="uppercase tracking-wider text-xs">{{ t.add }}</span>
                   <span 
                     v-if="getItemQty(item.id) > 0" 
                     class="absolute -top-2 -right-2 theme-bg text-white text-[10px] font-bold size-5 flex items-center justify-center rounded-full border-2 border-white shadow-sm"
@@ -180,8 +180,8 @@
 
         <div v-if="filteredItems.length === 0" class="text-center py-12">
           <UtensilsCrossed class="w-12 h-12 text-gray-300 mx-auto mb-3" />
-          <p class="text-gray-500">{{ t.nessunArticolo }}</p>
-          <p v-if="filterAllergens" class="text-sm text-amber-600 mt-2">{{ t.allergeniNascosti }}</p>
+          <p class="text-gray-500">{{ t.noItems }}</p>
+          <p v-if="filterAllergens" class="text-sm text-amber-600 mt-2">{{ t.hiddenAllergens }}</p>
         </div>
       </div>
     </template>
@@ -215,33 +215,33 @@ const navigateTo = inject('navigateTo', (path) => router.push(path));
 // Translations
 const i18n = {
   it: {
-    nonDisponibile: 'Non disp.',
-    vegano: 'Vegano',
-    vegetariano: 'Veg',
-    aggiungi: 'Aggiungi',
-    nessunArticolo: 'Nessun articolo in questa categoria',
-    allergeniNascosti: 'Alcuni piatti sono nascosti per le tue preferenze',
-    completaPasto: 'Completa il tuo pasto',
-    chiediConsiglio: 'Chiedi consiglio',
-    chiediMagic: 'Consigliato dallo Chef',
-    maggioriInfo: 'Maggiori informazioni',
-    nascondiAllergeni: 'Nascondi',
-    mostraAllergeni: 'Filtra allergeni',
+    notAvailable: 'Non disp.',
+    vegan: 'Vegano',
+    vegetarian: 'Veg',
+    add: 'Aggiungi',
+    noItems: 'Nessun articolo in questa categoria',
+    hiddenAllergens: 'Alcuni piatti sono nascosti per le tue preferenze',
+    completeMeal: 'Completa il tuo pasto',
+    askAdvice: 'Chiedi consiglio',
+    chefRecommended: 'Consigliato dallo Chef',
+    moreInfo: 'Maggiori informazioni',
+    hideAllergens: 'Nascondi',
+    filterAllergens: 'Filtra allergeni',
     currency: '€',
   },
   en: {
-    nonDisponibile: 'N/A',
-    vegano: 'Vegan',
-    vegetariano: 'Veg',
-    aggiungi: 'Add',
-    nessunArticolo: 'No items in this category',
-    allergeniNascosti: 'Some dishes hidden for your preferences',
-    completaPasto: 'Complete your meal',
-    chiediConsiglio: 'Ask for advice',
-    chiediMagic: 'Chef recommended',
-    maggioriInfo: 'More info',
-    nascondiAllergeni: 'Hide',
-    mostraAllergeni: 'Filter allergens',
+    notAvailable: 'N/A',
+    vegan: 'Vegan',
+    vegetarian: 'Veg',
+    add: 'Add',
+    noItems: 'No items in this category',
+    hiddenAllergens: 'Some dishes hidden for your preferences',
+    completeMeal: 'Complete your meal',
+    askAdvice: 'Ask for advice',
+    chefRecommended: 'Chef recommended',
+    moreInfo: 'More info',
+    hideAllergens: 'Hide',
+    filterAllergens: 'Filter allergens',
     currency: '€',
   }
 };

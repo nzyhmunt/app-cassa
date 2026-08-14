@@ -2,7 +2,7 @@
   <div class="fixed inset-0 z-[80] bg-black flex flex-col">
     <!-- Header -->
     <div class="flex items-center justify-between p-4 bg-black/80 backdrop-blur">
-      <h2 class="text-white font-bold">{{ t.titolo }}</h2>
+      <h2 class="text-white font-bold">{{ t.title }}</h2>
       <button 
         @click="$emit('close')"
         class="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center"
@@ -47,13 +47,13 @@ const error = ref(null);
 
 const i18n = {
   it: {
-    titolo: 'Scansiona QR Code',
+    title: 'Scansiona QR Code',
     instructions: 'Inquadra il codice QR del tuo tavolo',
     errorCamera: 'Impossibile accedere alla fotocamera',
     errorGeneric: 'Errore durante la scansione'
   },
   en: {
-    titolo: 'Scan QR Code',
+    title: 'Scan QR Code',
     instructions: 'Point your camera at the table QR code',
     errorCamera: 'Cannot access camera',
     errorGeneric: 'Scan error'

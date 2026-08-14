@@ -97,7 +97,6 @@ import SelfOrderConfirmOrderModal from './components/selforder/SelfOrderConfirmO
 import SelfOrderShareSession from './components/selforder/SelfOrderShareSession.vue';
 import SelfOrderPreferencesModal from './components/selforder/SelfOrderPreferencesModal.vue';
 import { useConfigStore } from './store/index.js';
-import { useSelfOrderSession } from './composables/useSelfOrderSession.js';
 import { useSelfOrderCart } from './composables/useSelfOrderCart.js';
 import { useSelfOrderAuth } from './composables/useSelfOrderAuth.js';
 import { useSelfOrderMenu } from './composables/useSelfOrderMenu.js';
@@ -105,7 +104,6 @@ import { loadDirectusConfigFromStorage } from './composables/useDirectusClient.j
 import { UtensilsCrossed, ChefHat, ShoppingCart } from 'lucide-vue-next';
 
 const configStore = useConfigStore();
-const { session, initSession, endSession } = useSelfOrderSession();
 const { items, addItem, removeItem, updateQuantity, clearCart, totalPrice } = useSelfOrderCart();
 const { billSessionId, billSession, closeSession: closeAuthSession } = useSelfOrderAuth();
 const { menu, loadMenu } = useSelfOrderMenu();
@@ -122,8 +120,7 @@ const navigationHistory = ref([]);
 const cartCount = computed(() => items.value.reduce((sum, item) => sum + item.quantity, 0));
 
 const currentSession = computed(() => {
-  // Prefer the auth-loaded bill session (the real, validated session from the QR),
-  // falling back to the local useSelfOrderSession object when present.
+  // The validated bill session loaded from the QR/auth flow.
   if (billSession.value) {
     return {
       id: billSessionId.value,
@@ -132,7 +129,7 @@ const currentSession = computed(() => {
       venue: billSession.value.venue,
     };
   }
-  return session.value;
+  return null;
 });
 
 // Show header on main app pages
@@ -167,7 +164,7 @@ const i18n = {
 };
 const t = computed(() => i18n[currentLang.value] || i18n.it);
 
-provide('selfOrderSession', { session: currentSession, initSession, endSession: handleEndSession });
+provide('selfOrderSession', { session: currentSession, endSession: handleEndSession });
 provide('selfOrderCart', { items, addItem, removeItem, updateQuantity, clearCart });
 
 function isActive(path) {
@@ -186,14 +183,11 @@ function confirmEndSession() {
 }
 
 async function handleEndSession() {
-  // Close the authenticated bill session via the customer token, then clear
-  // the local cart. Falls back to the local useSelfOrderSession.endSession()
-  // when no auth session is present (legacy/demo path).
+  // Close the authenticated bill session via the customer token, then clear the
+  // local cart.
   try {
     if (billSessionId.value) {
       await closeAuthSession();
-    } else if (session.value) {
-      await endSession();
     }
   } catch (e) {
     console.warn('[SelfOrderApp] End session failed:', e);

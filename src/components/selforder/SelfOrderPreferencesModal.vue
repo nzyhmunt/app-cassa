@@ -9,7 +9,7 @@
         <div class="relative w-full sm:max-w-md bg-white rounded-t-3xl sm:rounded-3xl max-h-[85vh] overflow-hidden flex flex-col">
           <!-- Header -->
           <div class="flex items-center justify-between p-4 border-b">
-            <h3 class="text-lg font-bold">{{ t.preferenze }}</h3>
+            <h3 class="text-lg font-bold">{{ t.preferences }}</h3>
             <button @click="$emit('update:modelValue', false)" class="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center">
               <X class="size-5 text-gray-600" />
             </button>
@@ -19,7 +19,7 @@
           <div class="flex-1 overflow-y-auto p-4">
             <!-- Diet preferences -->
             <div class="mb-6">
-              <h4 class="text-xs font-bold text-gray-500 uppercase tracking-widest mb-3">{{ t.diete }}</h4>
+              <h4 class="text-xs font-bold text-gray-500 uppercase tracking-widest mb-3">{{ t.diets }}</h4>
               <div class="flex flex-col gap-2">
                 <button 
                   @click="diet.Vegano = !diet.Vegano" 
@@ -28,7 +28,7 @@
                 >
                   <CheckCircle v-if="diet.Vegano" class="size-5 text-emerald-600 shrink-0" />
                   <Circle v-else class="size-5 text-gray-400 shrink-0" />
-                  {{ t.vegano }}
+                  {{ t.vegan }}
                 </button>
                 <button 
                   @click="diet.Vegetariano = !diet.Vegetariano" 
@@ -37,7 +37,7 @@
                 >
                   <CheckCircle v-if="diet.Vegetariano" class="size-5 text-emerald-600 shrink-0" />
                   <Circle v-else class="size-5 text-gray-400 shrink-0" />
-                  {{ t.vegetariano }}
+                  {{ t.vegetarian }}
                 </button>
               </div>
             </div>
@@ -46,7 +46,7 @@
             <div>
               <h4 class="text-xs font-bold text-amber-600 uppercase tracking-widest mb-3 flex items-center gap-1">
                 <AlertTriangle class="size-4" />
-                {{ t.allergeni }}
+                {{ t.allergens }}
               </h4>
               <div class="grid grid-cols-2 gap-2">
                 <button 
@@ -68,7 +68,7 @@
               @click="saveAndClose"
               class="w-full bg-emerald-600 text-white py-4 rounded-2xl font-bold text-lg transition-all active:scale-[0.98]"
             >
-              {{ t.salva }}
+              {{ t.save }}
             </button>
           </div>
         </div>
@@ -107,20 +107,20 @@ const allergenLabels = {
 
 const i18n = {
   it: {
-    preferenze: 'Preferenze Alimentari',
-    diete: 'Diete e Scelte',
-    vegano: 'Vegano',
-    vegetariano: 'Vegetariano',
-    allergeni: 'Allergeni',
-    salva: 'Salva Preferenze'
+    preferences: 'Preferenze Alimentari',
+    diets: 'Diete e Scelte',
+    vegan: 'Vegano',
+    vegetarian: 'Vegetariano',
+    allergens: 'Allergeni',
+    save: 'Salva Preferenze'
   },
   en: {
-    preferenze: 'Food Preferences',
-    diete: 'Diet & Choices',
-    vegano: 'Vegan',
-    vegetariano: 'Vegetarian',
-    allergeni: 'Allergens',
-    salva: 'Save Preferences'
+    preferences: 'Food Preferences',
+    diets: 'Diet & Choices',
+    vegan: 'Vegan',
+    vegetarian: 'Vegetarian',
+    allergens: 'Allergens',
+    save: 'Save Preferences'
   }
 };
 

@@ -104,23 +104,23 @@ const isAiTyping = ref(false);
 
 const i18n = {
   it: {
-    aiTitolo: 'Chef IA Assistant',
-    aiSottotitolo: 'Consigli & Info',
+    aiTitle: 'Chef IA Assistant',
+    aiSubtitle: 'Consigli & Info',
     aiPlaceholder: 'Chiedi curiosità o consigli...',
     aiWelcome: 'Benvenuto! Sono il tuo Chef virtuale. Posso consigliarti ottimi piatti o darti info sulle nostre preparazioni.',
     aiError: 'Scusa, in questo momento la cucina è molto indaffarata. Riprova tra un istante! 🙏',
-    aggiungi: 'Aggiungi',
+    add: 'Aggiungi',
     magicIntro: 'Ecco cosa ti consiglio per questo piatto!',
     infoIntro: 'Ecco le info sul piatto!',
     aiNotConfigured: 'L\'assistente IA non è configurato. Usa le traduzioni esistenti.',
   },
   en: {
-    aiTitolo: 'AI Chef Assistant',
-    aiSottotitolo: 'Advice & Info',
+    aiTitle: 'AI Chef Assistant',
+    aiSubtitle: 'Advice & Info',
     aiPlaceholder: 'Ask for curiosity or tips...',
     aiWelcome: 'Welcome! I\'m your virtual Chef. Ask me to recommend dishes or provide info on our recipes.',
     aiError: 'Sorry, the kitchen is very busy right now. Please try again in a moment! 🙏',
-    aggiungi: 'Add',
+    add: 'Add',
     magicIntro: 'Here\'s what I recommend for this dish!',
     infoIntro: 'Here\'s the info about this dish!',
     aiNotConfigured: 'AI assistant is not configured. Using fallback responses.',
@@ -156,7 +156,7 @@ function getMenu() {
   return items;
 }
 
-function getPiatto(id) {
+function getDish(id) {
   const allItems = getMenu();
   return allItems.find(p => p.id === id) || null;
 }
@@ -174,9 +174,9 @@ function getItemById(id) {
 
 function formatMarkdownWithButtons(text) {
   const withButtons = text.replace(/\[ADD:([a-z0-9_]+)\]/gi, (match, id) => {
-    const piatto = getPiatto(id);
-    if (!piatto) return '';
-    return `<button type="button" class="ai-add-btn inline font-bold text-purple-600 hover:underline cursor-pointer bg-transparent border-none p-0 m-0 align-baseline" data-id="${id}">${piatto.name}<span class="ml-0.5 font-black">+</span></button>`;
+    const dish = getDish(id);
+    if (!dish) return '';
+    return `<button type="button" class="ai-add-btn inline font-bold text-purple-600 hover:underline cursor-pointer bg-transparent border-none p-0 m-0 align-baseline" data-id="${id}">${dish.name}<span class="ml-0.5 font-black">+</span></button>`;
   });
   // Sanitize to prevent XSS from AI/menu-injected HTML while keeping our button.
   return DOMPurify.sanitize(withButtons, { ADD_ATTR: ['data-id', 'type'] });
@@ -187,9 +187,9 @@ function handleContentClick(e) {
   if (btn) {
     const id = btn.getAttribute('data-id');
     if (id) {
-      const piatto = getPiatto(id);
-      if (piatto) {
-        addItem(piatto, 1, [], '');
+      const dish = getDish(id);
+      if (dish) {
+        addItem(dish, 1, [], '');
       }
     }
   }
@@ -219,8 +219,8 @@ async function sendMessage(msg = null) {
 
   const prefs = getPreferences();
   let prefsStr = '';
-  if (prefs.diete.length > 0) prefsStr += `L'utente segue la dieta: ${prefs.diete.join(', ')}. `;
-  if (prefs.allergeni.length > 0) prefsStr += `L'utente è ALLERGICO A: ${prefs.allergeni.join(', ')}. NON PROPORRE MAI PIATTI CHE CONTENGONO QUESTI ALLERGENI. `;
+  if (prefs.diets.length > 0) prefsStr += `L'utente segue la dieta: ${prefs.diets.join(', ')}. `;
+  if (prefs.allergens.length > 0) prefsStr += `L'utente è ALLERGICO A: ${prefs.allergens.join(', ')}. NON PROPORRE MAI PIATTI CHE CONTENGONO QUESTI ALLERGENI. `;
 
   let responseText = '';
   
@@ -297,18 +297,18 @@ function getPreferences() {
   if (savedPrefs) {
     try {
       const prefs = JSON.parse(savedPrefs);
-      const diete = Object.entries(prefs.diet || {})
+      const diets = Object.entries(prefs.diet || {})
         .filter(([_, v]) => v)
         .map(([k]) => k);
-      const allergeni = Object.entries(prefs.allergens || {})
+      const allergens = Object.entries(prefs.allergens || {})
         .filter(([_, v]) => v)
         .map(([k]) => k.replace(/_/g, ' '));
-      return { diete, allergeni };
+      return { diets, allergens };
     } catch {
-      return { diete: [], allergeni: [] };
+      return { diets: [], allergens: [] };
     }
   }
-  return { diete: [], allergeni: [] };
+  return { diets: [], allergens: [] };
 }
 
 function generateSimulatedResponse(msg, prefs) {
@@ -348,20 +348,20 @@ function generateSimulatedResponse(msg, prefs) {
     if (breakfast.length) return `${tr.forBreakfast} ${breakfast[0].name}! [ADD:${breakfast[0].id}]`;
   }
   if (lowerMsg.includes('pranzo') || lowerMsg.includes('lunch')) {
-    const primo = menu.filter(m => (m.category || m.categoria) === 'Primi Piatti');
-    if (primo.length) return `${tr.forLunch} ${primo[0].name}? [ADD:${primo[0].id}]`;
+    const firstCourse = menu.filter(m => (m.category || m.categoria) === 'Primi Piatti');
+    if (firstCourse.length) return `${tr.forLunch} ${firstCourse[0].name}? [ADD:${firstCourse[0].id}]`;
   }
   if (lowerMsg.includes('cena') || lowerMsg.includes('dinner')) {
-    const secondo = menu.filter(m => (m.category || m.categoria) === 'Secondi Piatti');
-    if (secondo.length) return `${tr.forDinner} ${secondo[0].name}. [ADD:${secondo[0].id}]`;
+    const secondCourse = menu.filter(m => (m.category || m.categoria) === 'Secondi Piatti');
+    if (secondCourse.length) return `${tr.forDinner} ${secondCourse[0].name}. [ADD:${secondCourse[0].id}]`;
   }
   if (lowerMsg.includes('vegano') || lowerMsg.includes('vegan')) {
-    const vegano = menu.filter(m => m.description?.toLowerCase().includes('vegano') || m.name?.toLowerCase().includes('vegano'));
-    if (vegano.length) return `${tr.veganOptions}: ${vegano[0].name}. [ADD:${vegano[0].id}]`;
+    const veganItems = menu.filter(m => m.description?.toLowerCase().includes('vegano') || m.name?.toLowerCase().includes('vegano'));
+    if (veganItems.length) return `${tr.veganOptions}: ${veganItems[0].name}. [ADD:${veganItems[0].id}]`;
   }
   if (lowerMsg.includes('vegetariano') || lowerMsg.includes('vegetarian')) {
-    const veggie = menu.filter(m => m.description?.toLowerCase().includes('vegetariano') || m.name?.toLowerCase().includes('vegetariano'));
-    if (veggie.length) return isEn ? `Here are our vegetarian options: ${veggie[0].name}. [ADD:${veggie[0].id}]` : `Ecco le opzioni vegetariane: ${veggie[0].name}. [ADD:${veggie[0].id}]`;
+    const vegetarianItems = menu.filter(m => m.description?.toLowerCase().includes('vegetariano') || m.name?.toLowerCase().includes('vegetariano'));
+    if (vegetarianItems.length) return isEn ? `Here are our vegetarian options: ${vegetarianItems[0].name}. [ADD:${vegetarianItems[0].id}]` : `Ecco le opzioni vegetariane: ${vegetarianItems[0].name}. [ADD:${vegetarianItems[0].id}]`;
   }
   
   // Cart completion advice
@@ -383,7 +383,7 @@ function generateSimulatedResponse(msg, prefs) {
   }
   
   if (lowerMsg.includes('allerg') || lowerMsg.includes('intolleran')) {
-    const allergenList = prefs.allergeni.map(a => a.replace(/_/g, ' ')).join(', ');
+    const allergenList = prefs.allergens.map(a => a.replace(/_/g, ' ')).join(', ');
     return isEn 
       ? `I understand! I'll keep your allergies (${allergenList}) in mind. Would you like me to suggest safe dishes?`
       : `Capisco! Terrò conto delle tue allergie (${allergenList}). Vuoi che ti suggerisca piatti sicuri per te?`;
@@ -406,20 +406,20 @@ function getPairingSuggestions(item, menu, lang = 'it') {
   const category = item.category || item.categoria;
 
   if (category === 'Primi Piatti') {
-    const secondo = menu.find(m => (m.category || m.categoria) === 'Secondi Piatti');
-    const contorno = menu.find(m => (m.category || m.categoria) === 'Contorni');
+    const secondCourse = menu.find(m => (m.category || m.categoria) === 'Secondi Piatti');
+    const sideDish = menu.find(m => (m.category || m.categoria) === 'Contorni');
     const suggestions = [];
-    if (secondo) suggestions.push(secondo.name);
-    if (contorno) suggestions.push(contorno.name);
+    if (secondCourse) suggestions.push(secondCourse.name);
+    if (sideDish) suggestions.push(sideDish.name);
     const result = suggestions.slice(0, 2).join(isEn ? ' or ' : ' oppure ') || tr.somethingFresh;
     return `${tr.pairWith} ${result}`;
   }
   if (category === 'Secondi Piatti' || category === 'Carne' || category === 'Pesce') {
-    const contorno = menu.find(m => (m.category || m.categoria) === 'Contorni');
-    const bevanda = menu.find(m => (m.category || m.categoria) === 'Bevande');
+    const sideDish = menu.find(m => (m.category || m.categoria) === 'Contorni');
+    const beverage = menu.find(m => (m.category || m.categoria) === 'Bevande');
     const suggestions = [];
-    if (contorno) suggestions.push(contorno.name);
-    if (bevanda) suggestions.push(bevanda.name);
+    if (sideDish) suggestions.push(sideDish.name);
+    if (beverage) suggestions.push(beverage.name);
     const result = suggestions.slice(0, 2).join(isEn ? ' and ' : ' e ') || (isEn ? 'a side dish' : 'un contorno');
     return isEn ? `perfect with ${result}` : `perfetto con ${result}`;
   }
@@ -436,17 +436,17 @@ function getCartSuggestions() {
   const cat = (item) => item?.category || item?.categoria;
 
   // Check what's missing
-  const hasPrimo = cartItems.value.some(c => cat(getItemById(c.menuItemId)) === 'Primi Piatti');
-  const hasSecondo = cartItems.value.some(c => cat(getItemById(c.menuItemId)) === 'Secondi Piatti');
-  const hasBevanda = cartItems.value.some(c => cat(getItemById(c.menuItemId)) === 'Bevande');
+  const hasFirstCourse = cartItems.value.some(c => cat(getItemById(c.menuItemId)) === 'Primi Piatti');
+  const hasSecondCourse = cartItems.value.some(c => cat(getItemById(c.menuItemId)) === 'Secondi Piatti');
+  const hasBeverage = cartItems.value.some(c => cat(getItemById(c.menuItemId)) === 'Bevande');
 
-  if (!hasBevanda) {
-    const bevanda = menu.find(m => cat(m) === 'Bevande' && !cartIds.has(m.id));
-    if (bevanda) suggestions.push(bevanda);
+  if (!hasBeverage) {
+    const beverage = menu.find(m => cat(m) === 'Bevande' && !cartIds.has(m.id));
+    if (beverage) suggestions.push(beverage);
   }
-  if ((hasPrimo || hasSecondo) && !cartIds.has('dolce')) {
-    const dolce = menu.find(m => cat(m) === 'Dolci' && !cartIds.has(m.id));
-    if (dolce) suggestions.push(dolce);
+  if ((hasFirstCourse || hasSecondCourse) && !cartIds.has('dolce')) {
+    const dessert = menu.find(m => cat(m) === 'Dolci' && !cartIds.has(m.id));
+    if (dessert) suggestions.push(dessert);
   }
 
   return suggestions;

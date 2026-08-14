@@ -20,7 +20,7 @@
           <div class="px-4 pb-3 border-b border-gray-100 flex items-center justify-between shrink-0">
             <div class="flex items-center gap-3">
               <ShoppingBag class="size-5 theme-text" />
-              <h2 class="text-lg font-bold text-gray-800">{{ t.ilTuoOrdine }}</h2>
+              <h2 class="text-lg font-bold text-gray-800">{{ t.yourOrder }}</h2>
               <span v-if="totalItems > 0" class="bg-gray-100 text-gray-600 text-xs font-bold px-2 py-1 rounded-full">
                 {{ totalItems }} {{ t.art }}
               </span>
@@ -47,7 +47,7 @@
               @click="showHistory = !showHistory"
             >
               <History class="w-4 h-4" />
-              {{ t.cronologiaOrdini }}
+              {{ t.tableOrders }}
               <ChevronDown class="w-4 h-4 transition-transform" :class="showHistory ? 'rotate-180' : ''" />
             </button>
             <div v-if="showHistory" class="mt-2 space-y-2">
@@ -57,7 +57,7 @@
                 class="bg-gray-50 rounded-xl p-3"
               >
                 <div class="flex justify-between text-xs text-gray-500">
-                  <span><Clock class="w-3 h-3 inline mr-1" />{{ t.ordineInviato }} {{ order.time }}</span>
+                  <span><Clock class="w-3 h-3 inline mr-1" />{{ t.sentAt }} {{ order.time }}</span>
                   <span class="theme-text font-bold">{{ currency }}{{ order.total.toFixed(2) }}</span>
                 </div>
               </div>
@@ -68,7 +68,7 @@
           <div class="flex-1 overflow-y-auto p-4">
             <div v-if="items.length === 0" class="text-center py-8">
               <ShoppingCart class="w-12 h-12 text-gray-300 mx-auto mb-3" />
-              <p class="text-gray-500">{{ t.ordineVuoto }}</p>
+              <p class="text-gray-500">{{ t.emptyCart }}</p>
             </div>
             
             <div v-else class="space-y-4">
@@ -109,7 +109,7 @@
           <!-- Footer with total and checkout -->
           <div v-if="items.length > 0" class="p-4 border-t border-gray-100 bg-gray-50 shrink-0">
             <div class="flex justify-between items-center mb-4">
-              <span class="text-sm font-bold text-gray-600 uppercase tracking-wider">{{ t.totale }}</span>
+              <span class="text-sm font-bold text-gray-600 uppercase tracking-wider">{{ t.total }}</span>
               <span class="text-2xl font-black theme-text">{{ currency }}{{ totalPrice.toFixed(2) }}</span>
             </div>
             
@@ -121,7 +121,7 @@
               <span v-if="submitting" class="animate-spin">
                 <Loader2 class="w-5 h-5" />
               </span>
-              {{ submitting ? t.invioInCorso : t.confermaOrdine }}
+              {{ submitting ? t.sending : t.submitOrder }}
             </button>
           </div>
         </div>
@@ -133,19 +133,19 @@
           @click.self="showClearConfirm = false"
         >
           <div class="bg-white rounded-2xl p-6 w-full max-w-sm text-center">
-            <h3 class="text-lg font-bold mb-2">{{ t.vuoiSvuotare }}</h3>
+            <h3 class="text-lg font-bold mb-2">{{ t.clearCartPrompt }}</h3>
             <div class="flex gap-3 mt-4">
               <button 
                 class="flex-1 py-3 bg-gray-100 text-gray-700 rounded-xl font-bold"
                 @click="showClearConfirm = false"
               >
-                {{ t.annulla }}
+                {{ t.cancel }}
               </button>
               <button 
                 class="flex-1 py-3 bg-red-600 text-white rounded-xl font-bold shadow-md"
                 @click="handleClearCart"
               >
-                {{ t.svuota }}
+                {{ t.clear }}
               </button>
             </div>
           </div>
@@ -200,36 +200,36 @@ watch(() => props.modelValue, async (visible) => {
 // Translations
 const i18n = {
   it: {
-    ilTuoOrdine: 'Il Tuo Ordine',
+    yourOrder: 'Il Tuo Ordine',
     art: 'art.',
-    ordineVuoto: 'Il tuo carrello è vuoto.',
-    totale: 'Totale',
-    confermaOrdine: 'Invia Ordine',
-    invioInCorso: 'Invio in corso...',
-    orderConfermato: 'Ordine confermato!',
-    cronologiaOrdini: 'Ordini Tavolo',
-    ordineInviato: 'Inviato alle',
-    vuoiSvuotare: 'Svuotare il carrello?',
-    annulla: 'Annulla',
-    svuota: 'Svuota',
+    emptyCart: 'Il tuo carrello è vuoto.',
+    total: 'Totale',
+    submitOrder: 'Invia Ordine',
+    sending: 'Invio in corso...',
+    orderConfirmed: 'Ordine confermato!',
+    tableOrders: 'Ordini Tavolo',
+    sentAt: 'Inviato alle',
+    clearCartPrompt: 'Svuotare il carrello?',
+    cancel: 'Annulla',
+    clear: 'Svuota',
     currency: '€',
-    caricamento: 'Caricamento...',
+    loading: 'Caricamento...',
   },
   en: {
-    ilTuoOrdine: 'Your Order',
+    yourOrder: 'Your Order',
     art: 'items',
-    ordineVuoto: 'Your cart is empty.',
-    totale: 'Total',
-    confermaOrdine: 'Submit Order',
-    invioInCorso: 'Sending...',
-    orderConfermato: 'Order confirmed!',
-    cronologiaOrdini: 'Table Orders',
-    ordineInviato: 'Sent at',
-    vuoiSvuotare: 'Clear the cart?',
-    annulla: 'Cancel',
-    svuota: 'Clear',
+    emptyCart: 'Your cart is empty.',
+    total: 'Total',
+    submitOrder: 'Submit Order',
+    sending: 'Sending...',
+    orderConfirmed: 'Order confirmed!',
+    tableOrders: 'Table Orders',
+    sentAt: 'Sent at',
+    clearCartPrompt: 'Clear the cart?',
+    cancel: 'Cancel',
+    clear: 'Clear',
     currency: '€',
-    caricamento: 'Loading...',
+    loading: 'Loading...',
   }
 };
 
@@ -307,8 +307,8 @@ async function handleCheckout() {
         venue: billSession.value?.venue || configStore.config?.venueId || 1,
         table: billSession.value?.table || localStorage.getItem('selforder_table') || '1',
         order_time: new Date().toTimeString().slice(0, 5),
-        dietary_diets: prefs.diete,
-        dietary_allergens: prefs.allergeni,
+        dietary_diets: prefs.diets,
+        dietary_allergens: prefs.allergens,
         global_note: '',
         is_direct_entry: false,
       };
@@ -350,18 +350,18 @@ function getCustomerPreferences() {
   if (savedPrefs) {
     try {
       const prefs = JSON.parse(savedPrefs);
-      const diete = Object.entries(prefs.diet || {})
+      const diets = Object.entries(prefs.diet || {})
         .filter(([_, v]) => v)
         .map(([k]) => k);
-      const allergeni = Object.entries(prefs.allergens || {})
+      const allergens = Object.entries(prefs.allergens || {})
         .filter(([_, v]) => v)
         .map(([k]) => k.replace(/_/g, ' '));
-      return { diete, allergeni };
+      return { diets, allergens };
     } catch {
-      return { diete: [], allergeni: [] };
+      return { diets: [], allergens: [] };
     }
   }
-  return { diete: [], allergeni: [] };
+  return { diets: [], allergens: [] };
 }
 </script>
 

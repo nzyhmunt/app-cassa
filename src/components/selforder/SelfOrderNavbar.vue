@@ -7,7 +7,7 @@
       </div>
       <div class="flex flex-col">
         <h1 class="text-lg font-bold leading-none">{{ restaurantName }}</h1>
-        <p class="text-white/80 text-xs mt-1 uppercase tracking-tight">{{ t.tavolo }} {{ tableNumber }}</p>
+        <p class="text-white/80 text-xs mt-1 uppercase tracking-tight">{{ t.table }} {{ tableNumber }}</p>
       </div>
     </div>
 
@@ -127,8 +127,8 @@ const hasActivePreferences = computed(() => {
 });
 
 const i18n = {
-  it: { tavolo: 'Tavolo' },
-  en: { tavolo: 'Table' }
+  it: { table: 'Tavolo' },
+  en: { table: 'Table' }
 };
 const t = computed(() => i18n[currentLang.value] || i18n.it);
 </script>

@@ -8,7 +8,7 @@
       >
         <ArrowLeft class="w-5 h-5 text-gray-600" />
       </button>
-      <h1 class="text-lg font-bold text-gray-800">{{ t.dettaglio }}</h1>
+      <h1 class="text-lg font-bold text-gray-800">{{ t.detail }}</h1>
     </div>
 
     <!-- Content -->
@@ -31,13 +31,13 @@
             v-if="item.note === 'Vegano'"
             class="bg-green-500 text-white text-xs px-3 py-1 rounded-full font-bold"
           >
-            {{ t.vegano }}
+            {{ t.vegan }}
           </span>
           <span 
             v-else-if="item.note === 'Vegetariano'"
             class="bg-green-400 text-white text-xs px-3 py-1 rounded-full font-bold"
           >
-            {{ t.vegetariano }}
+            {{ t.vegetarian }}
           </span>
         </div>
       </div>
@@ -51,7 +51,7 @@
 
       <!-- Ingredients -->
       <div v-if="item?.ingredients" class="px-4 pb-4">
-        <p class="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">{{ t.ingredienti }}</p>
+        <p class="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">{{ t.ingredients }}</p>
         <p class="text-sm text-gray-600">{{ item.ingredients }}</p>
       </div>
 
@@ -59,7 +59,7 @@
       <div v-if="item?.allergens?.length > 0" class="px-4 pb-4">
         <p class="text-[10px] font-bold text-amber-600 uppercase tracking-wider mb-2 flex items-center gap-1">
           <AlertTriangle class="size-3" />
-          {{ t.allergeniTitle }}
+          {{ t.allergensTitle }}
         </p>
         <div class="flex flex-wrap gap-2">
           <span 
@@ -74,7 +74,7 @@
 
       <!-- Modifiers -->
       <div v-if="item?.modifiers?.length > 0" class="px-4 pb-4">
-        <h3 class="font-semibold text-gray-800 mb-3">{{ t.aggiunte }}</h3>
+        <h3 class="font-semibold text-gray-800 mb-3">{{ t.additions }}</h3>
         <div class="space-y-2">
           <label
             v-for="modifier in item.modifiers"
@@ -117,7 +117,7 @@
         @click="addToCart"
       >
         <Plus class="w-5 h-5" />
-        {{ t.aggiungi }} - {{ currency }}{{ formatPrice(totalItemPrice) }}
+        {{ t.add }} - {{ currency }}{{ formatPrice(totalItemPrice) }}
       </button>
     </div>
   </div>
@@ -181,27 +181,27 @@ const allergensMap = {
 
 const i18n = {
   it: {
-    dettaglio: 'Dettaglio',
-    vegano: 'Vegano',
-    vegetariano: 'Vegetariano',
-    ingredienti: 'Ingredienti',
-    allergeniTitle: 'Allergeni',
-    aggiunte: 'Aggiunte',
+    detail: 'Dettaglio',
+    vegan: 'Vegano',
+    vegetarian: 'Vegetariano',
+    ingredients: 'Ingredienti',
+    allergensTitle: 'Allergeni',
+    additions: 'Aggiunte',
     note: 'Note',
     notePlaceholder: 'Allergie, preferenze...',
-    aggiungi: 'Aggiungi',
+    add: 'Aggiungi',
     currency: '€',
   },
   en: {
-    dettaglio: 'Detail',
-    vegano: 'Vegan',
-    vegetariano: 'Vegetarian',
-    ingredienti: 'Ingredients',
-    allergeniTitle: 'Allergens',
-    aggiunte: 'Additions',
+    detail: 'Detail',
+    vegan: 'Vegan',
+    vegetarian: 'Vegetarian',
+    ingredients: 'Ingredients',
+    allergensTitle: 'Allergens',
+    additions: 'Additions',
     note: 'Notes',
     notePlaceholder: 'Allergies, preferences...',
-    aggiungi: 'Add',
+    add: 'Add',
     currency: '€',
   }
 };
