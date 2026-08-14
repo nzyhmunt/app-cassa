@@ -91,7 +91,7 @@ import { useSelfOrderMenu } from '../../composables/useSelfOrderMenu.js';
 import { useSelfOrderCart } from '../../composables/useSelfOrderCart.js';
 import { useSelfOrderAuth } from '../../composables/useSelfOrderAuth.js';
 import { useConfigStore } from '../../store/index.js';
-import { chatTranslations, getChatTranslation } from './SelfOrderChatTranslations.js';
+import { chatTranslations } from './SelfOrderChatTranslations.js';
 
 const router = useRouter();
 const route = useRoute();
@@ -462,12 +462,13 @@ function getCartSuggestions() {
   const hasFirstCourse = cartItems.value.some(c => cat(getItemById(c.menuItemId)) === 'Primi Piatti');
   const hasSecondCourse = cartItems.value.some(c => cat(getItemById(c.menuItemId)) === 'Secondi Piatti');
   const hasBeverage = cartItems.value.some(c => cat(getItemById(c.menuItemId)) === 'Bevande');
+  const hasDessert = cartItems.value.some(c => cat(getItemById(c.menuItemId)) === 'Dolci');
 
   if (!hasBeverage) {
     const beverage = menu.find(m => cat(m) === 'Bevande' && !cartIds.has(m.id));
     if (beverage) suggestions.push(beverage);
   }
-  if ((hasFirstCourse || hasSecondCourse) && !cartIds.has('dolce')) {
+  if ((hasFirstCourse || hasSecondCourse) && !hasDessert) {
     const dessert = menu.find(m => cat(m) === 'Dolci' && !cartIds.has(m.id));
     if (dessert) suggestions.push(dessert);
   }

@@ -7,7 +7,9 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { createPinia, setActivePinia } from 'pinia';
 import { useSelfOrderCart } from '../useSelfOrderCart.js';
+import { useSelfOrderMenu } from '../useSelfOrderMenu.js';
 
 const ITEM = (overrides = {}) => ({
   id: 'ant_1',
@@ -17,6 +19,8 @@ const ITEM = (overrides = {}) => ({
 });
 
 beforeEach(() => {
+  setActivePinia(createPinia());
+  sessionStorage.clear();
   localStorage.clear();
   const { clearCart } = useSelfOrderCart();
   clearCart();
@@ -160,10 +164,34 @@ describe('useSelfOrderCart — persistence', () => {
 });
 
 describe('useSelfOrderCart — buildOrderPayload', () => {
-  it('builds a Directus-shaped payload with order_items and 1-based uids', () => {
+  // Menu used to verify buildOrderPayload reads trusted prices from the
+  // loaded menu (not the client cart).
+  const MENU = {
+    Antipasti: [{ id: 'ant_1', name: 'Bruschetta', price: 3 }],
+    'Primi Piatti': [
+      {
+        id: 'pri_1',
+        name: 'Pasta',
+        price: 10,
+        modifiers: [{ id: 'm1', name: 'Extra', price: 1 }],
+      },
+    ],
+  };
+
+  async function loadMenu() {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => MENU,
+    })));
+    const menu = useSelfOrderMenu();
+    await menu.loadMenu('https://menu.test/menu.json');
+  }
+
+  it('builds a Directus-shaped payload with order_items and 1-based uids', async () => {
+    await loadMenu();
     const { addItem, buildOrderPayload } = useSelfOrderCart();
     addItem(ITEM({ id: 'ant_1', price: 3 }), 2, [], 'no garlic');
-    addItem(ITEM({ id: 'pri_1', name: 'Pasta', price: 10 }), 1, [{ name: 'Extra', price: 1 }]);
+    addItem(ITEM({ id: 'pri_1', name: 'Pasta', price: 10 }), 1, [{ id: 'm1', name: 'Extra', price: 1 }]);
 
     const payload = buildOrderPayload('session-uuid');
 
@@ -195,7 +223,23 @@ describe('useSelfOrderCart — buildOrderPayload', () => {
     });
   });
 
-  it('wraps notes into an array and omits them when empty', () => {
+  it('reads unit_price and modifier prices from the menu, ignoring tampered cart prices', async () => {
+    await loadMenu();
+    const { addItem, buildOrderPayload } = useSelfOrderCart();
+    // Client tampers the cart prices to 0 / 99 — payload must use the menu.
+    addItem(ITEM({ id: 'ant_1', price: 0 }), 2);
+    addItem(ITEM({ id: 'pri_1', name: 'Pasta', price: 99 }), 1, [
+      { id: 'm1', name: 'Extra', price: 99 },
+    ]);
+
+    const payload = buildOrderPayload('s');
+    expect(payload.order_items[0].unit_price).toBe(3);
+    expect(payload.order_items[1].unit_price).toBe(10);
+    expect(payload.order_items[1].order_item_modifiers[0].price).toBe(1);
+  });
+
+  it('wraps notes into an array and omits them when empty', async () => {
+    await loadMenu();
     const { addItem, buildOrderPayload } = useSelfOrderCart();
     addItem(ITEM(), 1, [], '');
     const payload = buildOrderPayload('s');

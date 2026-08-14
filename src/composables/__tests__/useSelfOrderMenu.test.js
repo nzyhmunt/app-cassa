@@ -196,6 +196,19 @@ describe('useSelfOrderMenu — calculateCartTotal (trusted)', () => {
     expect(total).toBe(13.5);
   });
 
+  it('looks up modifier prices by id from the menu, ignoring tampered cart prices', async () => {
+    const { menu } = await loadWith(async () => ({
+      ok: true,
+      json: async () => FLAT_MENU,
+    }));
+    // ant_1 has modifier m1 (price 1 in the menu). Client tampers it to 99.
+    const { total } = menu.calculateCartTotal([
+      { menuItemId: 'ant_1', quantity: 1, modifiers: [{ id: 'm1', name: 'Extra', price: 99 }] },
+    ]);
+    // (3 * 1) + (menu price 1 * 1) = 4, not 102
+    expect(total).toBe(4);
+  });
+
   it('returns 0 for an unknown item id', async () => {
     const { menu } = await loadWith(async () => ({
       ok: true,

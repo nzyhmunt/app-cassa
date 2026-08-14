@@ -73,11 +73,9 @@
 import { ref, onMounted, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { ClipboardList } from 'lucide-vue-next';
-import { useSelfOrderCart } from '../../composables/useSelfOrderCart.js';
 import { useSelfOrderAuth } from '../../composables/useSelfOrderAuth.js';
 
 const router = useRouter();
-const { items } = useSelfOrderCart();
 const { billSessionId, fetchSessionOrders } = useSelfOrderAuth();
 
 const orders = ref([]);

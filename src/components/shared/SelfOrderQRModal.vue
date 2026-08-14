@@ -105,12 +105,15 @@ const shortSessionId = computed(() => {
 const sessionUrl = computed(() => {
   if (!props.session?.id) return '';
   // The customer opens the SELF-ORDER app, not the staff app: use the
-  // configured self-order base URL, falling back to the current origin only
-  // when the two apps are served from the same place.
+  // configured self-order base URL, falling back to the self-order entry
+  // (`/selforder.html`) on the same origin when no URL is configured. The
+  // previous fallback derived the base from the staff app's pathname, which
+  // produced links like `https://host#/session/...` (missing the entry html)
+  // and could open the wrong app or 404 depending on server routing.
   const configured = configStore.config?.selfOrder?.appUrl;
   const base = (configured && configured.trim())
     ? configured.replace(/\/+$/, '')
-    : (window.location.origin + window.location.pathname.replace(/\/[^/]*$/, ''));
+    : (window.location.origin + '/selforder.html');
   return `${base}#/session/${props.session.id}`;
 });
 

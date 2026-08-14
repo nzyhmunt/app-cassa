@@ -223,10 +223,14 @@ export function useSelfOrderMenu() {
       total += itemPrice * cartItem.quantity;
       itemCount += cartItem.quantity;
 
-      // Add modifier prices
+      // Add modifier prices — look up from the loaded menu (trusted source),
+      // not from cartItem.modifiers[].price which is client-controlled and
+      // persisted in localStorage. Fall back to the cart value only when the
+      // modifier has no id to resolve against the menu.
       if (cartItem.modifiers) {
         for (const mod of cartItem.modifiers) {
-          total += (mod.price || 0) * cartItem.quantity;
+          const modPrice = mod.id != null ? getModifierPrice(mod.id) : (mod.price || 0);
+          total += modPrice * cartItem.quantity;
         }
       }
     }

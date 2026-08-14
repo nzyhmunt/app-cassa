@@ -268,10 +268,17 @@ async function loadOrderHistory() {
   }
 }
 
-// Calculate item price from MENU (trusted source, not from cart)
+// Calculate item price from MENU (trusted source, not from cart).
+// Modifier prices are looked up from the loaded menu via getModifierPrice()
+// (by modifier id) rather than item.modifiers[].price, which is
+// client-controlled and persisted in localStorage. We fall back to the cart
+// value only when a modifier has no id to resolve against the menu.
 function itemPrice(item) {
   const basePrice = getItemPrice(item.menuItemId) * item.quantity;
-  const modifiersPrice = item.modifiers?.reduce((sum, m) => sum + (m.price || 0) * item.quantity, 0) || 0;
+  const modifiersPrice = item.modifiers?.reduce((sum, m) => {
+    const modPrice = m.id != null ? getModifierPrice(m.id) : (m.price || 0);
+    return sum + modPrice * item.quantity;
+  }, 0) || 0;
   return basePrice + modifiersPrice;
 }
 

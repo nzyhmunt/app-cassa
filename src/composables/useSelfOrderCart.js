@@ -1,4 +1,5 @@
 import { ref, computed } from 'vue';
+import { useSelfOrderMenu } from './useSelfOrderMenu.js';
 
 // Shared state across all composable instances
 const items = ref([]);
@@ -93,12 +94,16 @@ export function useSelfOrderCart() {
   /**
    * Build the Directus-shaped order payload from the current cart.
    * Uses the O2M relational field name `order_items` (not `items`) so nested
-   * rows are actually created, and snapshots `unit_price` from the public menu
-   * to satisfy the NOT NULL constraint on order_items.unit_price (cassa may
-   * recompute/override on accept). Venue/table/dietary context is added by the
-   * caller, which has the bill session.
+   * rows are actually created. `unit_price` and modifier `price` are looked
+   * up from the loaded (public) menu via getItemPrice()/getModifierPrice() —
+   * NOT from the client cart — so a tampered cart cannot influence the prices
+   * sent to Directus. The value is only present to satisfy the NOT NULL
+   * constraint on order_items.unit_price; the cassa may still recompute/
+   * override it when the order is accepted. Venue/table/dietary context is
+   * added by the caller, which has the bill session.
    */
   function buildOrderPayload(sessionId) {
+    const { getItemPrice, getModifierPrice } = useSelfOrderMenu();
     return {
       bill_session: sessionId,
       status: 'pending',
@@ -106,12 +111,12 @@ export function useSelfOrderCart() {
         uid: `r_${idx + 1}`,
         dish: item.menuItemId,
         name: item.name,
-        unit_price: item.price || 0,
+        unit_price: getItemPrice(item.menuItemId) || 0,
         quantity: item.quantity,
         notes: item.notes ? [item.notes] : [],
         order_item_modifiers: (item.modifiers || []).map(m => ({
           name: m.name,
-          price: m.price || 0,
+          price: m.id != null ? (getModifierPrice(m.id) || 0) : (m.price || 0),
           item_uid: `r_${idx + 1}`,
         })),
       })),
