@@ -425,9 +425,9 @@ const qrUrl = `https://app.example.com/selforder.html#/session/${billSessionId}`
 ```
 
 **Sicurezza**: L'UUID v7 è:
-- Unico a 128 bit (2^128 combinazioni ≈ 3.4 × 10^38)
-- Non sequenziale (valori casuali)
-- Difficile da indovinare in un attacco brute-force
+- Univoco a 128 bit, ma **time-ordered** (include un timestamp), non puramente casuale: la parte random ha ~62 bit, quindi lo spazio da indovinare è minore dei 2^128 totali
+- Non sequenziale nell'aspetto (il timestamp è ms-precision, la parte random lo rende non predicibile), ma ordinato nel tempo
+- Difficile da indovinare in un attacco brute-force (la parte random + l'obbligo di `status='open'` rendono le sessioni valide difficili da scansionare)
 - La sessione viene invalidata quando `status` cambia a `'closed'`
 
 **Validazione accesso**:

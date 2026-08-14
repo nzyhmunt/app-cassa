@@ -130,6 +130,22 @@ describe('useSelfOrderCart — totalPrice', () => {
     ]);
     expect(totalPrice.value).toBe(11);
   });
+
+  it('uses menu prices (trusted) when the menu is loaded, ignoring tampered cart prices', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        Antipasti: [{ id: 'ant_1', name: 'Bruschetta', price: 3 }],
+      }),
+    })));
+    const menu = useSelfOrderMenu();
+    await menu.loadMenu('https://menu.test/menu.json');
+
+    const { totalPrice, addItem } = useSelfOrderCart();
+    // Client tampers the cart price to 0 — total must reflect the menu price.
+    addItem(ITEM({ id: 'ant_1', price: 0 }), 2);
+    expect(totalPrice.value).toBe(6); // 3 * 2 from the menu, not 0 * 2
+  });
 });
 
 describe('useSelfOrderCart — persistence', () => {

@@ -20,13 +20,23 @@ function restoreCart() {
 restoreCart();
 
 export function useSelfOrderCart() {
-  const totalPrice = computed(() =>
-    items.value.reduce((sum, item) => {
+  const { calculateCartTotal, getAllItems, getItemPrice, getModifierPrice } = useSelfOrderMenu();
+
+  // Trusted total: resolve prices from the loaded menu via calculateCartTotal
+  // (not from the client-controlled cart-stored item.price/modifier.price,
+  // which is persisted in localStorage and can be tampered with). Fall back
+  // to the cart-stored prices only when the menu is unavailable so the UI
+  // still shows a number before the menu has loaded.
+  const totalPrice = computed(() => {
+    if (getAllItems().length > 0) {
+      return calculateCartTotal(items.value).total;
+    }
+    return items.value.reduce((sum, item) => {
       const itemPrice = item.price * item.quantity;
       const modifiersPrice = item.modifiers?.reduce((mSum, m) => mSum + (m.price || 0), 0) || 0;
       return sum + itemPrice + (modifiersPrice * item.quantity);
-    }, 0)
-  );
+    }, 0);
+  });
 
   function addItem(menuItem, quantity = 1, modifiers = [], notes = '') {
     const existingIndex = items.value.findIndex(
@@ -103,7 +113,6 @@ export function useSelfOrderCart() {
    * added by the caller, which has the bill session.
    */
   function buildOrderPayload(sessionId) {
-    const { getItemPrice, getModifierPrice } = useSelfOrderMenu();
     return {
       bill_session: sessionId,
       status: 'pending',

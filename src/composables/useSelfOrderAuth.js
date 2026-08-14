@@ -8,7 +8,8 @@
  * 4. All subsequent requests include the same UUID + token
  *
  * Security:
- * - UUID v7 is 128 bits of randomness (hard to guess)
+ * - UUID v7 embeds a timestamp plus random bits — still hard to guess in a
+ *   brute-force attack, but it is time-ordered, not 128 bits of pure randomness
  * - Session status='open' must be verified on every access
  * - Optional JWT token from URL for Directus authentication
  * - Session invalidation happens when status changes to 'closed'

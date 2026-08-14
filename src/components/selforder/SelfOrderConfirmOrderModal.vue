@@ -59,6 +59,7 @@
 import { ref } from 'vue';
 import { Loader2 } from 'lucide-vue-next';
 import { useSelfOrderCart } from '../../composables/useSelfOrderCart.js';
+import { useSelfOrderMenu } from '../../composables/useSelfOrderMenu.js';
 
 defineProps({
   modelValue: { type: Boolean, required: true }
@@ -67,9 +68,21 @@ defineProps({
 defineEmits(['confirm']);
 
 const { items, totalPrice } = useSelfOrderCart();
+const { getItemPrice, getModifierPrice, getAllItems } = useSelfOrderMenu();
 const submitting = ref(false);
 
+// Per-item price from the loaded menu (trusted), not from the client cart's
+// item.price/modifier.price. Falls back to cart-stored prices only when the
+// menu is unavailable, mirroring useSelfOrderCart.totalPrice.
 function itemPrice(item) {
+  if (getAllItems().length > 0) {
+    const basePrice = getItemPrice(item.menuItemId) * item.quantity;
+    const modifiersPrice = item.modifiers?.reduce((sum, m) => {
+      const modPrice = m.id != null ? getModifierPrice(m.id) : (m.price || 0);
+      return sum + modPrice * item.quantity;
+    }, 0) || 0;
+    return basePrice + modifiersPrice;
+  }
   const basePrice = item.price * item.quantity;
   const modifiersPrice = item.modifiers?.reduce((sum, m) => sum + (m.price || 0) * item.quantity, 0) || 0;
   return basePrice + modifiersPrice;

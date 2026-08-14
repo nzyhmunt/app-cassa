@@ -161,9 +161,35 @@ function normalizeOrder(o) {
   };
 }
 
+// Poll for order status updates so the "in tempo reale" screen actually
+// refreshes while the user stays on the page. Paused when the tab is hidden
+// to avoid wasted requests, and always cleared on unmount.
+const POLL_INTERVAL = 10000;
+let pollTimer = null;
+
+async function pollOnce() {
+  if (typeof document !== 'undefined' && document.hidden) return;
+  await loadOrders();
+}
+
+function startPolling() {
+  stopPolling();
+  pollTimer = setInterval(pollOnce, POLL_INTERVAL);
+}
+
+function stopPolling() {
+  if (pollTimer) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
+}
+
 onMounted(() => {
   loadOrders();
+  startPolling();
 });
 
-onUnmounted(() => {});
+onUnmounted(() => {
+  stopPolling();
+});
 </script>

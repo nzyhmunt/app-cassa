@@ -100,6 +100,7 @@ import { useConfigStore } from './store/index.js';
 import { useSelfOrderCart } from './composables/useSelfOrderCart.js';
 import { useSelfOrderAuth } from './composables/useSelfOrderAuth.js';
 import { useSelfOrderMenu } from './composables/useSelfOrderMenu.js';
+import { useSelfOrderI18n } from './composables/useSelfOrderI18n.js';
 import { loadDirectusConfigFromStorage } from './composables/useDirectusClient.js';
 import { UtensilsCrossed, ChefHat, ShoppingCart } from 'lucide-vue-next';
 
@@ -146,8 +147,9 @@ const showBottomNav = computed(() => {
 
 const cssVars = computed(() => configStore.cssVars);
 
-// Translations
-const currentLang = ref(localStorage.getItem('selforder_lang') || 'it');
+// Translations — the active language comes from the shared useSelfOrderI18n
+// singleton (reactive), so switching language in the navbar updates the
+// bottom-nav labels here live too.
 const i18n = {
   it: {
     navMenu: 'Menu',
@@ -162,7 +164,7 @@ const i18n = {
     art: 'items',
   }
 };
-const t = computed(() => i18n[currentLang.value] || i18n.it);
+const { t } = useSelfOrderI18n(i18n);
 
 provide('selfOrderSession', { session: currentSession, endSession: handleEndSession });
 provide('selfOrderCart', { items, addItem, removeItem, updateQuantity, clearCart });
