@@ -82,7 +82,8 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, onMounted } from 'vue';
+import { useSelfOrderI18n } from '../../composables/useSelfOrderI18n.js';
 import { useRouter } from 'vue-router';
 import { UtensilsCrossed, Loader2, AlertCircle, QrCode } from 'lucide-vue-next';
 import { useSelfOrderAuth } from '../../composables/useSelfOrderAuth.js';
@@ -90,7 +91,7 @@ import { useSelfOrderMenu } from '../../composables/useSelfOrderMenu.js';
 import SelfOrderQRScanner from '../../components/selforder/SelfOrderQRScanner.vue';
 
 const router = useRouter();
-const { validateAndLoadSession } = useSelfOrderAuth();
+const { validateAndLoadSession, parseSessionUrl } = useSelfOrderAuth();
 const { loadMenu } = useSelfOrderMenu();
 
 const loading = ref(false);
@@ -98,7 +99,6 @@ const manualLoading = ref(false);
 const error = ref(null);
 const showScanner = ref(false);
 const manualSessionId = ref('');
-const currentLang = ref(localStorage.getItem('selforder_lang') || 'it');
 
 // Simple config
 const restaurantName = ref('Ristorante');
@@ -126,7 +126,7 @@ const i18n = {
   }
 };
 
-const t = computed(() => i18n[currentLang.value] || i18n.it);
+const { t, currentLang } = useSelfOrderI18n(i18n);
 
 async function handleQRScanned(url) {
   showScanner.value = false;
@@ -134,12 +134,13 @@ async function handleQRScanned(url) {
   error.value = null;
   
   try {
-    const sessionId = extractSessionId(url);
+    // parseSessionUrl extracts both sessionId and optional access_token.
+    const { sessionId, token } = parseSessionUrl(url);
     if (!sessionId) {
       throw new Error(t.value.sessioneScaduta);
     }
     
-    await validateAndLoadSession(sessionId);
+    await validateAndLoadSession(sessionId, token);
     await loadMenu();
     
     const hasSeenOnboarding = sessionStorage.getItem('selforder_onboarding_done');
@@ -172,14 +173,9 @@ async function handleManualSubmit() {
 }
 
 function extractSessionId(url) {
-  try {
-    const urlObj = new URL(url);
-    const hash = urlObj.hash || url;
-    const match = hash.match(/\/session\/([^?]+)/);
-    return match ? match[1] : null;
-  } catch {
-    return null;
-  }
+  // Kept for backwards compatibility; parseSessionUrl is the canonical parser.
+  const { sessionId } = parseSessionUrl(url);
+  return sessionId;
 }
 
 function handleScannerError(msg) {
@@ -189,21 +185,44 @@ function handleScannerError(msg) {
 onMounted(async () => {
   const hash = window.location.hash;
   const sessionMatch = hash.match(/\/session\/([^?]+)/);
-  
+
   if (sessionMatch) {
     loading.value = true;
     error.value = null;
-    
+
     try {
-      await validateAndLoadSession(sessionMatch[1]);
+      // Extract an optional access_token embedded in the hash fragment.
+      const tokenMatch = hash.match(/[?&]access_token=([^&]+)/);
+      const token = tokenMatch ? decodeURIComponent(tokenMatch[1]) : null;
+      await validateAndLoadSession(sessionMatch[1], token);
       await loadMenu();
-      
+
       const hasSeenOnboarding = sessionStorage.getItem('selforder_onboarding_done');
       router.push(hasSeenOnboarding ? '/menu' : '/onboarding');
     } catch (e) {
       error.value = e.message || t.value.sessioneScaduta;
     } finally {
       loading.value = false;
+    }
+  } else {
+    // PWA reload with no session in the URL: re-validate a previously cached
+    // session (so the customer doesn't have to re-scan the QR on every
+    // reload). validateAndLoadSession re-checks status === 'open' server-side,
+    // so a closed session is correctly rejected and the scan UI is shown.
+    const cachedId = sessionStorage.getItem('selforder_session_id');
+    if (cachedId) {
+      loading.value = true;
+      try {
+        await validateAndLoadSession(cachedId);
+        await loadMenu();
+        const hasSeenOnboarding = sessionStorage.getItem('selforder_onboarding_done');
+        router.push(hasSeenOnboarding ? '/menu' : '/onboarding');
+      } catch (e) {
+        // Cached session invalid/closed → clear it and stay on the scan view.
+        sessionStorage.removeItem('selforder_session_id');
+      } finally {
+        loading.value = false;
+      }
     }
   }
 });

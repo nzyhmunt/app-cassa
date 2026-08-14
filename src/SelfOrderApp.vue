@@ -107,7 +107,7 @@ import { UtensilsCrossed, ChefHat, ShoppingCart } from 'lucide-vue-next';
 const configStore = useConfigStore();
 const { session, initSession, endSession } = useSelfOrderSession();
 const { items, addItem, removeItem, updateQuantity, clearCart, totalPrice } = useSelfOrderCart();
-const { billSessionId } = useSelfOrderAuth();
+const { billSessionId, billSession, closeSession: closeAuthSession } = useSelfOrderAuth();
 const { menu, loadMenu } = useSelfOrderMenu();
 const route = useRoute();
 const router = useRouter();
@@ -121,7 +121,19 @@ const navigationHistory = ref([]);
 
 const cartCount = computed(() => items.value.reduce((sum, item) => sum + item.quantity, 0));
 
-const currentSession = computed(() => session.value);
+const currentSession = computed(() => {
+  // Prefer the auth-loaded bill session (the real, validated session from the QR),
+  // falling back to the local useSelfOrderSession object when present.
+  if (billSession.value) {
+    return {
+      id: billSessionId.value,
+      table: billSession.value.table,
+      table_name: billSession.value.table_name,
+      venue: billSession.value.venue,
+    };
+  }
+  return session.value;
+});
 
 // Show header on main app pages
 const showHeader = computed(() => {
@@ -155,7 +167,7 @@ const i18n = {
 };
 const t = computed(() => i18n[currentLang.value] || i18n.it);
 
-provide('selfOrderSession', { session, initSession, endSession });
+provide('selfOrderSession', { session: currentSession, initSession, endSession: handleEndSession });
 provide('selfOrderCart', { items, addItem, removeItem, updateQuantity, clearCart });
 
 function isActive(path) {
@@ -174,7 +186,18 @@ function confirmEndSession() {
 }
 
 async function handleEndSession() {
-  await endSession();
+  // Close the authenticated bill session via the customer token, then clear
+  // the local cart. Falls back to the local useSelfOrderSession.endSession()
+  // when no auth session is present (legacy/demo path).
+  try {
+    if (billSessionId.value) {
+      await closeAuthSession();
+    } else if (session.value) {
+      await endSession();
+    }
+  } catch (e) {
+    console.warn('[SelfOrderApp] End session failed:', e);
+  }
   clearCart();
   showSessionEnded.value = false;
   window.location.hash = '/';

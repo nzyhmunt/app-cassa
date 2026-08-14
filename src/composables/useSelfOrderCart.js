@@ -133,19 +133,29 @@ export function useSelfOrderCart() {
   }
 
   /**
-   * Build order payload (SECURITY: no prices sent)
-   * Prices will be calculated by cassa/sala from menu.json
+   * Build the Directus-shaped order payload from the current cart.
+   * Uses the O2M relational field name `order_items` (not `items`) so nested
+   * rows are actually created, and snapshots `unit_price` from the public menu
+   * to satisfy the NOT NULL constraint on order_items.unit_price (cassa may
+   * recompute/override on accept). Venue/table/dietary context is added by the
+   * caller, which has the bill session.
    */
   function buildOrderPayload(sessionId) {
     return {
       bill_session: sessionId,
       status: 'pending',
-      items: items.value.map(item => ({
+      order_items: items.value.map((item, idx) => ({
+        uid: `r_${idx + 1}`,
         dish: item.menuItemId,
         name: item.name,
+        unit_price: item.price || 0,
         quantity: item.quantity,
-        notes: item.notes || null,
-        modifiers: item.modifiers?.map(m => m.name) || [],
+        notes: item.notes ? [item.notes] : [],
+        order_item_modifiers: (item.modifiers || []).map(m => ({
+          name: m.name,
+          price: m.price || 0,
+          item_uid: `r_${idx + 1}`,
+        })),
       })),
     };
   }

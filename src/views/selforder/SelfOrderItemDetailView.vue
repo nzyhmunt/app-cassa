@@ -125,6 +125,7 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue';
+import { useSelfOrderI18n } from '../../composables/useSelfOrderI18n.js';
 import { useRouter } from 'vue-router';
 import { ArrowLeft, Plus, UtensilsCrossed, AlertTriangle } from 'lucide-vue-next';
 import { useSelfOrderMenu } from '../../composables/useSelfOrderMenu.js';
@@ -143,7 +144,6 @@ const selectedModifiers = ref([]);
 const notes = ref('');
 
 // Translations
-const currentLang = ref(localStorage.getItem('selforder_lang') || 'it');
 const allergensMap = {
   it: {
     glutine: 'Glutine',
@@ -206,7 +206,7 @@ const i18n = {
   }
 };
 
-const t = computed(() => i18n[currentLang.value] || i18n.it);
+const { t, currentLang } = useSelfOrderI18n(i18n);
 const currency = computed(() => t.value.currency);
 
 const totalItemPrice = computed(() => {

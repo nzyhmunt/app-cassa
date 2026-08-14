@@ -82,9 +82,11 @@
 </template>
 
 <script setup>
-import { ref, onMounted, nextTick, computed, watch } from 'vue';
+import { ref, onMounted, nextTick, watch } from 'vue';
+import { useSelfOrderI18n } from '../../composables/useSelfOrderI18n.js';
 import { useRouter, useRoute } from 'vue-router';
 import { ChefHat, User, Send } from 'lucide-vue-next';
+import DOMPurify from 'dompurify';
 import { useSelfOrderMenu } from '../../composables/useSelfOrderMenu.js';
 import { useSelfOrderCart } from '../../composables/useSelfOrderCart.js';
 import { chatTranslations, getChatTranslation } from './SelfOrderChatTranslations.js';
@@ -99,7 +101,6 @@ const chatMessages = ref([]);
 const aiInput = ref('');
 const isAiTyping = ref(false);
 
-const currentLang = ref(localStorage.getItem('selforder_lang') || 'it');
 
 const i18n = {
   it: {
@@ -134,7 +135,7 @@ const GEMINI_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models
 const GEMINI_MAX_RETRIES = 3;
 const GEMINI_DELAYS = [1000, 2000, 4000];
 
-const t = computed(() => i18n[currentLang.value] || i18n.it);
+const { t, currentLang } = useSelfOrderI18n(i18n);
 
 function getMenu() {
   const menuData = menu.value || {};
@@ -172,11 +173,13 @@ function getItemById(id) {
 }
 
 function formatMarkdownWithButtons(text) {
-  return text.replace(/\[ADD:([a-z0-9_]+)\]/gi, (match, id) => {
+  const withButtons = text.replace(/\[ADD:([a-z0-9_]+)\]/gi, (match, id) => {
     const piatto = getPiatto(id);
     if (!piatto) return '';
     return `<button type="button" class="ai-add-btn inline font-bold text-purple-600 hover:underline cursor-pointer bg-transparent border-none p-0 m-0 align-baseline" data-id="${id}">${piatto.name}<span class="ml-0.5 font-black">+</span></button>`;
   });
+  // Sanitize to prevent XSS from AI/menu-injected HTML while keeping our button.
+  return DOMPurify.sanitize(withButtons, { ADD_ATTR: ['data-id', 'type'] });
 }
 
 function handleContentClick(e) {
@@ -242,8 +245,7 @@ Carrello attuale: ${cart.length === 0 ? 'Vuoto' : cart.map(c => `${c.name} (x${c
     const userPrompt = messageText;
 
     try {
-      let attempts = 0;
-      while (attempts < GEMINI_MAX_RETRIES) {
+      for (let attempt = 0; attempt < GEMINI_MAX_RETRIES; attempt++) {
         try {
           const response = await fetch(
             `${GEMINI_ENDPOINT}${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
@@ -258,15 +260,19 @@ Carrello attuale: ${cart.length === 0 ? 'Vuoto' : cart.map(c => `${c.name} (x${c
           );
           if (!response.ok) throw new Error(`HTTP ${response.status}`);
           const data = await response.json();
-          responseText = data.candidates?.[0]?.content?.parts?.[0]?.text;
-          if (responseText) break;
+          const candidateText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (candidateText) {
+            responseText = candidateText;
+            break;
+          }
+          // 200 OK but no text (e.g. blocked content) — retry, don't loop forever.
+          throw new Error('Empty response');
         } catch (err) {
-          attempts++;
-          if (attempts >= GEMINI_MAX_RETRIES) {
-            console.warn('Gemini API failed, using fallback');
-            responseText = '';
+          if (attempt < GEMINI_MAX_RETRIES - 1) {
+            await new Promise(res => setTimeout(res, GEMINI_DELAYS[attempt]));
           } else {
-            await new Promise(res => setTimeout(res, GEMINI_DELAYS[attempts - 1]));
+            console.warn('Gemini API failed, using fallback:', err);
+            responseText = '';
           }
         }
       }
@@ -307,6 +313,7 @@ function getPreferences() {
 
 function generateSimulatedResponse(msg, prefs) {
   const lang = currentLang.value || 'it';
+  const isEn = lang === 'en';
   const tr = chatTranslations[lang] || chatTranslations['it'];
   const menu = getMenu();
   if (menu.length === 0) {
@@ -334,15 +341,18 @@ function generateSimulatedResponse(msg, prefs) {
   
   // Quick suggestions
   if (lowerMsg.includes('colazione') || lowerMsg.includes('breakfast')) {
-    const breakfast = menu.filter(m => m.categoria?.toLowerCase().includes('colazione') || m.categoria?.toLowerCase().includes('bevande'));
+    const breakfast = menu.filter(m => {
+      const c = (m.category || m.categoria || '').toLowerCase();
+      return c.includes('colazione') || c.includes('bevande');
+    });
     if (breakfast.length) return `${tr.forBreakfast} ${breakfast[0].name}! [ADD:${breakfast[0].id}]`;
   }
   if (lowerMsg.includes('pranzo') || lowerMsg.includes('lunch')) {
-    const primo = menu.filter(m => m.categoria === 'Primi Piatti');
+    const primo = menu.filter(m => (m.category || m.categoria) === 'Primi Piatti');
     if (primo.length) return `${tr.forLunch} ${primo[0].name}? [ADD:${primo[0].id}]`;
   }
   if (lowerMsg.includes('cena') || lowerMsg.includes('dinner')) {
-    const secondo = menu.filter(m => m.categoria === 'Secondi Piatti');
+    const secondo = menu.filter(m => (m.category || m.categoria) === 'Secondi Piatti');
     if (secondo.length) return `${tr.forDinner} ${secondo[0].name}. [ADD:${secondo[0].id}]`;
   }
   if (lowerMsg.includes('vegano') || lowerMsg.includes('vegan')) {
@@ -389,20 +399,24 @@ function generateSimulatedResponse(msg, prefs) {
 }
 
 function getPairingSuggestions(item, menu, lang = 'it') {
-  const category = item.categoria;
-  
+  const isEn = lang === 'en';
+  const tr = chatTranslations[lang] || chatTranslations['it'];
+  // getAllItems() exposes the category under the `category` key (the menu's
+  // category name); fall back to `categoria` for raw menu items.
+  const category = item.category || item.categoria;
+
   if (category === 'Primi Piatti') {
-    const secondo = menu.find(m => m.categoria === 'Secondi Piatti');
-    const contorno = menu.find(m => m.categoria === 'Contorni');
+    const secondo = menu.find(m => (m.category || m.categoria) === 'Secondi Piatti');
+    const contorno = menu.find(m => (m.category || m.categoria) === 'Contorni');
     const suggestions = [];
     if (secondo) suggestions.push(secondo.name);
     if (contorno) suggestions.push(contorno.name);
-    const result = suggestions.slice(0, 2).join(lang === 'en' ? ' or ' : ' oppure ') || tr.somethingFresh;
+    const result = suggestions.slice(0, 2).join(isEn ? ' or ' : ' oppure ') || tr.somethingFresh;
     return `${tr.pairWith} ${result}`;
   }
   if (category === 'Secondi Piatti' || category === 'Carne' || category === 'Pesce') {
-    const contorno = menu.find(m => m.categoria === 'Contorni');
-    const bevanda = menu.find(m => m.categoria === 'Bevande');
+    const contorno = menu.find(m => (m.category || m.categoria) === 'Contorni');
+    const bevanda = menu.find(m => (m.category || m.categoria) === 'Bevande');
     const suggestions = [];
     if (contorno) suggestions.push(contorno.name);
     if (bevanda) suggestions.push(bevanda.name);
@@ -419,72 +433,49 @@ function getCartSuggestions() {
   const menu = getMenu();
   const cartIds = new Set(cartItems.value.map(c => c.menuItemId));
   const suggestions = [];
-  
+  const cat = (item) => item?.category || item?.categoria;
+
   // Check what's missing
-  const hasPrimo = cartItems.value.some(c => {
-    const item = getItemById(c.menuItemId);
-    return item?.categoria === 'Primi Piatti';
-  });
-  const hasSecondo = cartItems.value.some(c => {
-    const item = getItemById(c.menuItemId);
-    return item?.categoria === 'Secondi Piatti';
-  });
-  const hasBevanda = cartItems.value.some(c => {
-    const item = getItemById(c.menuItemId);
-    return item?.categoria === 'Bevande';
-  });
-  
+  const hasPrimo = cartItems.value.some(c => cat(getItemById(c.menuItemId)) === 'Primi Piatti');
+  const hasSecondo = cartItems.value.some(c => cat(getItemById(c.menuItemId)) === 'Secondi Piatti');
+  const hasBevanda = cartItems.value.some(c => cat(getItemById(c.menuItemId)) === 'Bevande');
+
   if (!hasBevanda) {
-    const bevanda = menu.find(m => m.categoria === 'Bevande' && !cartIds.has(m.id));
+    const bevanda = menu.find(m => cat(m) === 'Bevande' && !cartIds.has(m.id));
     if (bevanda) suggestions.push(bevanda);
   }
   if ((hasPrimo || hasSecondo) && !cartIds.has('dolce')) {
-    const dolce = menu.find(m => m.categoria === 'Dolci' && !cartIds.has(m.id));
+    const dolce = menu.find(m => cat(m) === 'Dolci' && !cartIds.has(m.id));
     if (dolce) suggestions.push(dolce);
   }
-  
+
   return suggestions;
 }
 
-// Handle query params for magic/info/quick actions
+// Handle query params for magic/info/quick actions (covers both initial load
+// and subsequent in-app navigations). A single source of truth avoids the
+// duplicate-send that happened when both onMounted and this watcher ran.
 watch(() => route.query, (query) => {
-  if (query.action === 'magic' && query.item) {
-    const item = getItemById(query.item);
-    if (item) {
-      sendMessage(`Chef, per ${item.name} cosa consiglia di abbinare?`);
-    }
-  } else if (query.action === 'info' && query.item) {
-    const item = getItemById(query.item);
-    if (item) {
-      sendMessage(`Chef, info su ${item.name}?`);
-    }
-  } else if (query.action === 'quick' && query.suggestion) {
-    const suggestionMap = {
-      colazione: 'cosa consiglia per colazione',
-      pranzo: 'cosa consiglia per pranzo',
-      cena: 'cosa consiglia per cena',
-      vegano: 'opzioni vegane',
-      veggie: 'opzioni vegetariane'
-    };
-    const prompt = suggestionMap[query.suggestion] || 'cosa consiglia di buono';
-    sendMessage(`Chef, ${prompt}?`);
-  }
+  handleActionQuery(query, false);
 }, { immediate: true });
 
 onMounted(async () => {
-  // Check for query params on mount
-  // Ensure menu is loaded
+  // Ensure menu is loaded for the chat to reference items.
   await loadMenu();
-  const query = route.query;
+});
+
+function handleActionQuery(query, deferred) {
   if (query.action === 'magic' && query.item) {
     const item = getItemById(query.item);
     if (item) {
-      setTimeout(() => sendMessage(`Chef, per ${item.name} cosa consiglia di abbinare?`), 500);
+      const text = `Chef, per ${item.name} cosa consiglia di abbinare?`;
+      deferred ? setTimeout(() => sendMessage(text), 500) : sendMessage(text);
     }
   } else if (query.action === 'info' && query.item) {
     const item = getItemById(query.item);
     if (item) {
-      setTimeout(() => sendMessage(`Chef, info su ${item.name}?`), 500);
+      const text = `Chef, info su ${item.name}?`;
+      deferred ? setTimeout(() => sendMessage(text), 500) : sendMessage(text);
     }
   } else if (query.action === 'quick' && query.suggestion) {
     const suggestionMap = {
@@ -495,7 +486,8 @@ onMounted(async () => {
       veggie: 'opzioni vegetariane'
     };
     const prompt = suggestionMap[query.suggestion] || 'cosa consiglia di buono';
-    setTimeout(() => sendMessage(`Chef, ${prompt}?`), 500);
+    const text = `Chef, ${prompt}?`;
+    deferred ? setTimeout(() => sendMessage(text), 500) : sendMessage(text);
   }
-});
+}
 </script>

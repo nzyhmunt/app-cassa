@@ -190,6 +190,7 @@
 
 <script setup>
 import { ref, computed, onMounted, inject } from 'vue';
+import { useSelfOrderI18n } from '../../composables/useSelfOrderI18n.js';
 import { useRouter } from 'vue-router';
 import { UtensilsCrossed, Loader2, Sparkles, Info, Plus, Filter } from 'lucide-vue-next';
 import { useSelfOrderMenu } from '../../composables/useSelfOrderMenu.js';
@@ -212,7 +213,6 @@ const hasAllergenPreferences = computed(() => {
 const navigateTo = inject('navigateTo', (path) => router.push(path));
 
 // Translations
-const currentLang = ref(localStorage.getItem('selforder_lang') || 'it');
 const i18n = {
   it: {
     nonDisponibile: 'Non disp.',
@@ -246,7 +246,7 @@ const i18n = {
   }
 };
 
-const t = computed(() => i18n[currentLang.value] || i18n.it);
+const { t, currentLang } = useSelfOrderI18n(i18n);
 const currency = computed(() => t.value.currency);
 
 // Time-based label

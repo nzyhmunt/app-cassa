@@ -73,6 +73,7 @@
 
 <script setup>
 import { computed, ref } from 'vue';
+import { useSelfOrderI18n } from '../../composables/useSelfOrderI18n.js';
 import { ShoppingCart, Share2, ChevronDown, HeartPulse } from 'lucide-vue-next';
 import { useSelfOrderCart } from '../../composables/useSelfOrderCart.js';
 import { useConfigStore } from '../../store/index.js';
@@ -93,16 +94,11 @@ const languages = [
   { code: 'en', name: 'English', flag: '🇬🇧' }
 ];
 
-const currentLang = ref(localStorage.getItem('selforder_lang') || 'it');
+const { currentLang, setLang } = useSelfOrderI18n({ it: {}, en: {} });
 const currentLangFlag = computed(() => {
   const lang = languages.find(l => l.code === currentLang.value);
   return lang?.flag || '🇮🇹';
 });
-
-const setLang = (code) => {
-  currentLang.value = code;
-  localStorage.setItem('selforder_lang', code);
-};
 
 const logoUrl = computed(() => {
   return configStore.config?.ui?.logoUrl || null;

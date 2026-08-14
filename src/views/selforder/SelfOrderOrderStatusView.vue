@@ -38,21 +38,21 @@
           <div class="space-y-2">
             <div
               v-for="orderItem in order.items"
-              :key="orderItem.id"
+              :key="orderItem.id || orderItem.uid"
               class="flex justify-between text-sm"
             >
               <span>
                 {{ orderItem.quantity }}x {{ orderItem.name }}
               </span>
               <span class="text-gray-600">
-                {{ formatPrice(orderItem.price * orderItem.quantity) }}
+                {{ formatPrice((orderItem.price || 0) * (orderItem.quantity || 0)) }}
               </span>
             </div>
           </div>
 
           <div class="mt-3 pt-3 border-t border-gray-100 flex justify-between font-bold">
             <span>Totale</span>
-            <span class="text-emerald-600">{{ formatPrice(order.total) }}</span>
+            <span class="text-emerald-600">{{ formatPrice(order.total || 0) }}</span>
           </div>
         </div>
       </div>
@@ -75,10 +75,12 @@ import { useRouter } from 'vue-router';
 import { ClipboardList } from 'lucide-vue-next';
 import { useSelfOrderCart } from '../../composables/useSelfOrderCart.js';
 import { useSelfOrderSession } from '../../composables/useSelfOrderSession.js';
+import { useSelfOrderAuth } from '../../composables/useSelfOrderAuth.js';
 
 const router = useRouter();
 const { items } = useSelfOrderCart();
 const { session } = useSelfOrderSession();
+const { billSessionId, fetchSessionOrders } = useSelfOrderAuth();
 
 const orders = ref([]);
 
@@ -118,20 +120,54 @@ function goToMenu() {
 }
 
 async function loadOrders() {
-  if (!session.value) return;
-  
-  // Load orders for this session from local storage
-  const savedOrders = localStorage.getItem(`selforder_orders_${session.value.id}`);
-  if (savedOrders) {
-    try {
-      orders.value = JSON.parse(savedOrders);
-    } catch {
-      orders.value = [];
+  const sessionId = billSessionId.value || session.value?.id;
+  if (!sessionId) return;
+
+  // Prefer the API (shared across all customers at the table); fall back to the
+  // local order history persisted by useSelfOrderAuth.saveLocalOrder.
+  let rawOrders = [];
+  try {
+    const apiOrders = await fetchSessionOrders();
+    if (apiOrders && apiOrders.length > 0) rawOrders = apiOrders;
+  } catch (e) {
+    console.warn('[SelfOrder] Failed to load orders from API:', e);
+  }
+
+  if (rawOrders.length === 0) {
+    const savedOrders = sessionStorage.getItem(`selforder_orders_${sessionId}`);
+    if (savedOrders) {
+      try { rawOrders = JSON.parse(savedOrders); } catch { rawOrders = []; }
     }
   }
+
+  // Normalize to the shape the template expects: items[], total, date_created,
+  // status — regardless of whether the source is the Directus API (snake_case
+  // order_items/total_amount) or a locally-saved payload.
+  orders.value = rawOrders.map(normalizeOrder);
+}
+
+function normalizeOrder(o) {
+  const items = (o.order_items || o.items || []).map(it => ({
+    id: it.id || it.uid,
+    uid: it.uid,
+    name: it.name,
+    quantity: it.quantity || 0,
+    price: it.unit_price != null ? it.unit_price : (it.price || 0),
+  }));
+  const total = o.total_amount != null ? o.total_amount : (o.total || 0);
+  return {
+    ...o,
+    id: o.id,
+    status: o.status,
+    date_created: o.date_created || o.localTime || o.createdAt,
+    items,
+    total,
+  };
 }
 
 onMounted(() => {
   loadOrders();
 });
+
+onUnmounted(() => {});
 </script>

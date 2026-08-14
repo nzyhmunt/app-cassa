@@ -152,12 +152,21 @@ export function useSelfOrderMenu() {
       price: item.price || 0,
       description: item.descrizione || item.description || '',
       note: item.note || '',
-      ingredients: Array.isArray(item.ingredienti) 
-        ? item.ingredienti.join(', ') 
+      ingredients: Array.isArray(item.ingredienti)
+        ? item.ingredienti.join(', ')
         : (item.ingredienti || item.ingredients || ''),
       allergens: item.allergeni || item.allergens || [],
       image: item.immagine_url || item.image || '',
+      modifiers: Array.isArray(item.modifiers) ? item.modifiers.map(normalizeModifier) : [],
       available: item.available !== false,
+    };
+  }
+
+  function normalizeModifier(modifier) {
+    return {
+      id: modifier.id,
+      name: modifier.name,
+      price: modifier.price || 0,
     };
   }
 

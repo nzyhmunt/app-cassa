@@ -60,6 +60,7 @@
 
 <script setup>
 import { ref, computed, watch, nextTick, onMounted } from 'vue';
+import { useSelfOrderI18n } from '../../composables/useSelfOrderI18n.js';
 import { X, Users, Copy, Share2 } from 'lucide-vue-next';
 import QRCode from 'qrcode';
 
@@ -141,7 +142,6 @@ async function shareLink() {
 }
 
 // Translations
-const currentLang = ref(localStorage.getItem('selforder_lang') || 'it');
 const i18n = {
   it: {
     condividiTavolo: 'Condividi Tavolo',
@@ -160,7 +160,7 @@ const i18n = {
     condividi: 'Share',
   }
 };
-const t = computed(() => i18n[currentLang.value] || i18n.it);
+const { t, currentLang } = useSelfOrderI18n(i18n);
 </script>
 
 <style scoped>

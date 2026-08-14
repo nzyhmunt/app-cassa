@@ -157,6 +157,7 @@
 
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue';
+import { useSelfOrderI18n } from '../../composables/useSelfOrderI18n.js';
 import { X, ShoppingCart, ShoppingBag, Minus, Plus, Trash2, History, Clock, ChevronDown, Loader2 } from 'lucide-vue-next';
 import { useSelfOrderCart } from '../../composables/useSelfOrderCart.js';
 import { useSelfOrderAuth } from '../../composables/useSelfOrderAuth.js';
@@ -169,7 +170,7 @@ const props = defineProps({
 
 const emit = defineEmits(['update:modelValue']);
 
-const { items, removeItem, updateQuantity, clearCart } = useSelfOrderCart();
+const { items, removeItem, updateQuantity, clearCart, buildOrderPayload } = useSelfOrderCart();
 const { billSessionId, fetchSessionOrders, saveLocalOrder, billSession, createOrder } = useSelfOrderAuth();
 const { calculateCartTotal, getItemPrice, getModifierPrice } = useSelfOrderMenu();
 const configStore = useConfigStore();
@@ -197,7 +198,6 @@ watch(() => props.modelValue, async (visible) => {
 });
 
 // Translations
-const currentLang = ref(localStorage.getItem('selforder_lang') || 'it');
 const i18n = {
   it: {
     ilTuoOrdine: 'Il Tuo Ordine',
@@ -209,7 +209,7 @@ const i18n = {
     orderConfermato: 'Ordine confermato!',
     cronologiaOrdini: 'Ordini Tavolo',
     ordineInviato: 'Inviato alle',
-    vuotiSvuotare: 'Svuotare il carrello?',
+    vuoiSvuotare: 'Svuotare il carrello?',
     annulla: 'Annulla',
     svuota: 'Svuota',
     currency: '€',
@@ -233,7 +233,7 @@ const i18n = {
   }
 };
 
-const t = computed(() => i18n[currentLang.value] || i18n.it);
+const { t, currentLang } = useSelfOrderI18n(i18n);
 const currency = computed(() => t.value.currency);
 
 onMounted(() => {
@@ -248,9 +248,14 @@ async function loadOrderHistory() {
       const orders = await fetchSessionOrders();
       orderHistory.value = orders.map(o => ({
         id: o.id,
-        time: new Date(o.date_created).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }),
-        items: o.righe_ordine || o.items || [],
-        total: o.total_amount || o.totale_importo || 0,
+        time: new Date(o.date_created || o.localTime).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }),
+        items: (o.order_items || o.righe_ordine || o.items || []).map(it => ({
+          id: it.id || it.uid,
+          name: it.name,
+          quantity: it.quantity || 0,
+          modifiers: it.order_item_modifiers || it.modifiers || [],
+        })),
+        total: Number(o.total_amount != null ? o.total_amount : (o.totale_importo || o.total || 0)),
         status: o.status,
         dietary_diets: o.dietary_diets || [],
         dietary_allergens: o.dietary_allergens || [],
@@ -291,35 +296,26 @@ async function handleCheckout() {
     try {
       // Get customer preferences (per-client, not per-session)
       const prefs = getCustomerPreferences();
-      
-      // SECURITY: NO prices sent by client - will be calculated by cassa/sala
+
+      // Build order_items using the Directus O2M relational field name
+      // (`order_items`) — not `items` — so nested rows are actually created.
+      // Each item carries unit_price from the (public) menu to satisfy the
+      // NOT NULL constraint on order_items.unit_price; the cassa may still
+      // recompute/override it when the order is accepted.
       const orderPayload = {
-        bill_session: billSessionId.value,
+        ...buildOrderPayload(billSessionId.value),
         venue: billSession.value?.venue || configStore.config?.venueId || 1,
         table: billSession.value?.table || localStorage.getItem('selforder_table') || '1',
-        status: 'pending',
         order_time: new Date().toTimeString().slice(0, 5),
         dietary_diets: prefs.diete,
         dietary_allergens: prefs.allergeni,
         global_note: '',
         is_direct_entry: false,
-        // Items - NO prices (calculated by cassa)
-        items: items.value.map((c, idx) => ({
-          uid: `r_${idx + 1}`,
-          dish: c.menuItemId,
-          name: c.name,
-          quantity: c.quantity,
-          notes: c.notes ? [c.notes] : [],
-          modifiers: c.modifiers?.map(m => m.name) || [],
-        })),
       };
-      
-      console.log('[SelfOrder] Submitting order:', JSON.stringify(orderPayload, null, 2));
-      
+
       // Send to Directus API
       const result = await createOrder(orderPayload);
-      console.log('[SelfOrder] Order created:', result);
-      
+
       // Save to local history for demo/offline
       saveLocalOrder({
         ...orderPayload,

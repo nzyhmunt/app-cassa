@@ -78,7 +78,8 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, watch, onMounted } from 'vue';
+import { reactive, onMounted } from 'vue';
+import { useSelfOrderI18n } from '../../composables/useSelfOrderI18n.js';
 import { X, CheckCircle, Circle, AlertTriangle } from 'lucide-vue-next';
 
 const props = defineProps({
@@ -86,7 +87,6 @@ const props = defineProps({
 });
 const emit = defineEmits(['update:modelValue']);
 
-const currentLang = ref(localStorage.getItem('selforder_lang') || 'it');
 
 const allergenLabels = {
   glutine: 'Glutine',
@@ -124,7 +124,7 @@ const i18n = {
   }
 };
 
-const t = computed(() => i18n[currentLang.value] || i18n.it);
+const { t, currentLang } = useSelfOrderI18n(i18n);
 
 const diet = reactive({
   Vegano: false,

@@ -38,13 +38,13 @@
 import { ref, onMounted, onUnmounted } from 'vue';
 import { Html5Qrcode } from 'html5-qrcode';
 import { X } from 'lucide-vue-next';
+import { useSelfOrderI18n } from '../../composables/useSelfOrderI18n.js';
 
 const emit = defineEmits(['scanned', 'close', 'error']);
 
 const scannerContainer = ref(null);
 const error = ref(null);
 
-const currentLang = ref(localStorage.getItem('selforder_lang') || 'it');
 const i18n = {
   it: {
     titolo: 'Scansiona QR Code',
@@ -59,14 +59,16 @@ const i18n = {
     errorGeneric: 'Scan error'
   }
 };
-const t = i18n[currentLang.value] || i18n.it;
+const { t } = useSelfOrderI18n(i18n);
 
 let html5QrCode = null;
+let hasScanned = false;
 
 onMounted(async () => {
+  hasScanned = false;
   try {
     html5QrCode = new Html5Qrcode('scanner-region');
-    
+
     const config = {
       fps: 10,
       qrbox: { width: 250, height: 250 },
@@ -86,17 +88,29 @@ onMounted(async () => {
   }
 });
 
+function stopScanner() {
+  if (!html5QrCode) return;
+  const instance = html5QrCode;
+  html5QrCode = null;
+  // Guard against stopping before start() has completed (throws otherwise).
+  Promise.resolve()
+    .then(() => (instance.isScanning ? instance.stop() : Promise.resolve()))
+    .then(() => instance.clear?.())
+    .catch(() => {});
+}
+
 onUnmounted(() => {
-  if (html5QrCode) {
-    html5QrCode.stop().catch(console.error);
-  }
+  stopScanner();
 });
 
 function onScanSuccess(decodedText) {
-  // Vibrate on success
+  // html5-qrcode keeps firing while the QR stays in frame; emit exactly once.
+  if (hasScanned) return;
+  hasScanned = true;
   if (navigator.vibrate) {
     navigator.vibrate(200);
   }
+  stopScanner();
   emit('scanned', decodedText);
 }
 

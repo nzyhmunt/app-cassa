@@ -81,6 +81,7 @@
 import { ref, computed, watch, nextTick } from 'vue';
 import { X, Download, Share2, AlertCircle } from 'lucide-vue-next';
 import QRCode from 'qrcode';
+import { useConfigStore } from '../../store/index.js';
 
 const props = defineProps({
   modelValue: { type: Boolean, required: true },
@@ -89,6 +90,7 @@ const props = defineProps({
 
 const emit = defineEmits(['update:modelValue']);
 
+const configStore = useConfigStore();
 const qrCanvas = ref(null);
 
 const hasValidSession = computed(() => {
@@ -102,9 +104,14 @@ const shortSessionId = computed(() => {
 
 const sessionUrl = computed(() => {
   if (!props.session?.id) return '';
-  // Get the origin from current location for full URL
-  const origin = window.location.origin + window.location.pathname;
-  return `${origin}#/session/${props.session.id}`;
+  // The customer opens the SELF-ORDER app, not the staff app: use the
+  // configured self-order base URL, falling back to the current origin only
+  // when the two apps are served from the same place.
+  const configured = configStore.config?.selfOrder?.appUrl;
+  const base = (configured && configured.trim())
+    ? configured.replace(/\/+$/, '')
+    : (window.location.origin + window.location.pathname.replace(/\/[^/]*$/, ''));
+  return `${base}#/session/${props.session.id}`;
 });
 
 async function renderQRCode() {

@@ -234,6 +234,18 @@ export const DEFAULT_SETTINGS = {
     wsEnabled: false,
   },
 
+  // CONFIGURAZIONE SELF-ORDER APP (app cliente autonoma)
+  // appUrl:  URL base dell'app self-order come vista dal cliente
+  //          (es. 'https://nanawork.it/selforder'). Il QR generato dalla
+  //          cassa/sala punta a questo URL, NON all'URL dell'app staff.
+  //          Se vuoto, si usa window.location.origin (app self-order e staff
+  //          servite dalla stessa origine).
+  // menuUrl: URL del menu JSON pubblico usato dall'app self-order.
+  selfOrder: {
+    appUrl: '',
+    menuUrl: 'https://nanawork.it/menu.json',
+  },
+
   // CONFIGURAZIONE PULIZIA IDB (retention windows in giorni)
   // Ogni campo indica per quanti giorni mantenere i record già sincronizzati
   // su Directus prima di rimuoverli dall'IndexedDB locale.

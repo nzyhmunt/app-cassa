@@ -145,7 +145,7 @@ export function useSelfOrderAuth() {
     const directusUrl = getDirectusUrl();
 
     if (!directusUrl) {
-      console.log('[SelfOrderAuth] Demo order:', orderData);
+      // Demo/offline mode (no Directus configured): pretend the order was accepted.
       return { id: `demo_${Date.now()}`, status: 'pending' };
     }
 
@@ -221,7 +221,7 @@ export function useSelfOrderAuth() {
       }
 
       const response = await fetch(
-        `${directusUrl}/items/orders?filter[bill_session][_eq]=${billSessionId.value}&sort=-date_created`,
+        `${directusUrl}/items/orders?${encodeURIComponent('filter[bill_session][_eq]')}=${encodeURIComponent(billSessionId.value)}&sort=-date_created&fields=id,status,order_time,total_amount,item_count,date_created,bill_session,venue,table,order_items.id,order_items.uid,order_items.dish,order_items.name,order_items.unit_price,order_items.quantity,order_items.notes`,
         { headers }
       );
 
@@ -280,11 +280,11 @@ export function useSelfOrderAuth() {
   }
 
   function restoreSession() {
+    // NOTE: this only returns a cached session id; it does NOT mark the app as
+    // authenticated. Callers must run the id through validateAndLoadSession()
+    // to re-verify status === 'open' before trusting it.
     const cachedSessionId = sessionStorage.getItem('selforder_session_id');
-
     if (cachedSessionId) {
-      billSessionId.value = cachedSessionId;
-      isAuthenticated.value = true;
       return { sessionId: cachedSessionId };
     }
     return null;

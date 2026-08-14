@@ -69,13 +69,13 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue';
+import { ref, reactive, onMounted } from 'vue';
+import { useSelfOrderI18n } from '../../composables/useSelfOrderI18n.js';
 import { useRouter } from 'vue-router';
 import { Sparkles, CheckCircle, Circle, AlertTriangle } from 'lucide-vue-next';
 
 const router = useRouter();
 
-const currentLang = ref(localStorage.getItem('selforder_lang') || 'it');
 const showAllergens = ref(false);
 
 const diet = reactive({
@@ -155,7 +155,7 @@ const i18n = {
   }
 };
 
-const t = computed(() => i18n[currentLang.value] || i18n.it);
+const { t, currentLang } = useSelfOrderI18n(i18n);
 
 onMounted(() => {
   // Restore preferences from localStorage
