@@ -80,6 +80,7 @@
 <script setup>
 import { reactive, onMounted } from 'vue';
 import { useSelfOrderI18n } from '../../composables/useSelfOrderI18n.js';
+import { notifyPreferencesUpdated } from '../../composables/useSelfOrderPreferencesSignal.js';
 import { X, CheckCircle, Circle, AlertTriangle } from 'lucide-vue-next';
 
 const props = defineProps({
@@ -163,6 +164,10 @@ function loadPreferences() {
 
 function savePreferences() {
   localStorage.setItem('selforder_preferences', JSON.stringify({ diet, allergens }));
+  // Notify same-tab listeners (navbar indicator, menu allergen filtering) so
+  // they react without a reload/remount; the `storage` event doesn't fire in
+  // the tab that wrote it.
+  notifyPreferencesUpdated();
 }
 
 function saveAndClose() {

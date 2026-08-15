@@ -189,8 +189,9 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, inject } from 'vue';
+import { ref, computed, onMounted, inject, watch } from 'vue';
 import { useSelfOrderI18n } from '../../composables/useSelfOrderI18n.js';
+import { usePreferencesTick } from '../../composables/useSelfOrderPreferencesSignal.js';
 import { useRouter } from 'vue-router';
 import { UtensilsCrossed, Loader2, Sparkles, Info, Plus, Filter } from 'lucide-vue-next';
 import { useSelfOrderMenu } from '../../composables/useSelfOrderMenu.js';
@@ -208,6 +209,11 @@ const preferences = ref({ diet: {}, allergens: {} });
 const hasAllergenPreferences = computed(() => {
   return Object.values(preferences.value.allergens || {}).some(v => v);
 });
+
+// Reload preferences live when the user updates them via the preferences modal
+// (lifecycle-managed by the composable; listener is removed on unmount).
+const preferencesTick = usePreferencesTick();
+watch(preferencesTick, () => loadPreferences());
 
 // AI functions (delegated to parent or use simulated responses)
 const navigateTo = inject('navigateTo', (path) => router.push(path));

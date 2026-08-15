@@ -19,7 +19,9 @@ import { ref } from 'vue';
 import { useConfigStore } from '../store/index.js';
 
 const SESSION_CACHE_KEY = 'selforder_session_id';
-const TOKEN_CACHE_KEY = 'selforder_access_token';
+// Exported so other components (e.g. ShareSession) can read the cached token
+// without instantiating the full auth composable or hardcoding the key.
+export const TOKEN_CACHE_KEY = 'selforder_access_token';
 
 /**
  * Get Directus URL from config store

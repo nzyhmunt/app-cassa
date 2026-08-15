@@ -61,6 +61,7 @@
 <script setup>
 import { ref, computed, watch, nextTick, onMounted } from 'vue';
 import { useSelfOrderI18n } from '../../composables/useSelfOrderI18n.js';
+import { TOKEN_CACHE_KEY } from '../../composables/useSelfOrderAuth.js';
 import { X, Users, Copy, Share2 } from 'lucide-vue-next';
 import QRCode from 'qrcode';
 
@@ -74,10 +75,17 @@ const emit = defineEmits(['update:modelValue']);
 const qrCanvas = ref(null);
 const copied = ref(false);
 
-// Get share URL (current page with session param)
+// Get share URL (current page with session param). Append the cached Directus
+// access_token when present so shared sessions can authenticate in
+// environments that require it (otherwise the recipient lands on a 401/403).
 const shareUrl = computed(() => {
   const base = window.location.origin + window.location.pathname;
-  return `${base}#/session/${props.sessionId || 'demo'}`;
+  let url = `${base}#/session/${props.sessionId || 'demo'}`;
+  const token = sessionStorage.getItem(TOKEN_CACHE_KEY);
+  if (token) {
+    url += `?access_token=${encodeURIComponent(token)}`;
+  }
+  return url;
 });
 
 // Generate QR code when modal opens

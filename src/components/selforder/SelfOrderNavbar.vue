@@ -80,6 +80,7 @@
 <script setup>
 import { computed, ref } from 'vue';
 import { useSelfOrderI18n } from '../../composables/useSelfOrderI18n.js';
+import { usePreferencesTick } from '../../composables/useSelfOrderPreferencesSignal.js';
 import { ShoppingCart, Share2, ChevronDown, HeartPulse } from 'lucide-vue-next';
 import { useSelfOrderCart } from '../../composables/useSelfOrderCart.js';
 import { useConfigStore } from '../../store/index.js';
@@ -94,6 +95,10 @@ const { items } = useSelfOrderCart();
 const configStore = useConfigStore();
 const cartCount = computed(() => items.value.reduce((sum, item) => sum + item.quantity, 0));
 const langMenuOpen = ref(false);
+
+// Reactive tick bumped on same-tab preferences updates so the localStorage-
+// backed indicator below recomputes without a remount (lifecycle-managed).
+const preferencesTick = usePreferencesTick();
 
 const languages = [
   { code: 'it', name: 'Italiano', flag: '🇮🇹' },
@@ -120,6 +125,8 @@ const tableNumber = computed(() => {
 });
 
 const hasActivePreferences = computed(() => {
+  // Reference the tick so this recomputes when preferences change in-tab.
+  preferencesTick.value;
   try {
     const prefs = localStorage.getItem('selforder_preferences');
     if (!prefs) return false;

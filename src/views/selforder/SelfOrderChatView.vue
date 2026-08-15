@@ -190,7 +190,9 @@ function getItemById(id) {
 }
 
 function formatMarkdownWithButtons(text) {
-  const withButtons = text.replace(/\[ADD:([a-z0-9_]+)\]/gi, (match, id) => {
+  // IDs may include hyphens (e.g. UUIDs), so allow `-` in addition to the
+  // existing alphanumerics/underscores; otherwise valid tags are dropped.
+  const withButtons = text.replace(/\[ADD:([a-z0-9_-]+)\]/gi, (match, id) => {
     const dish = getDish(id);
     if (!dish) return '';
     return `<button type="button" class="ai-add-btn inline font-bold text-purple-600 hover:underline cursor-pointer bg-transparent border-none p-0 m-0 align-baseline" data-id="${id}">${dish.name}<span class="ml-0.5 font-black">+</span></button>`;
