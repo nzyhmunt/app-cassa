@@ -83,8 +83,11 @@ onMounted(async () => {
     );
   } catch (err) {
     console.error('[QRScanner] Init error:', err);
-    error.value = t.errorCamera;
-    emit('error', t.errorCamera);
+    // `t` from useSelfOrderI18n() is a ComputedRef; access `.value` so the
+    // camera error message resolves instead of staying undefined.
+    const msg = t.value.errorCamera;
+    error.value = msg;
+    emit('error', msg);
   }
 });
 

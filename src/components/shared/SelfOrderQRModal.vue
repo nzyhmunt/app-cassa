@@ -114,7 +114,15 @@ const sessionUrl = computed(() => {
   const base = (configured && configured.trim())
     ? configured.replace(/\/+$/, '')
     : (window.location.origin + '/selforder.html');
-  return `${base}#/session/${props.session.id}`;
+  let url = `${base}#/session/${props.session.id}`;
+  // Environments that require Directus auth need an access_token in the QR so
+  // customers can actually use it. Embed a statically configured token when
+  // present (the self-order auth flow reads it from the hash fragment).
+  const token = configStore.config?.selfOrder?.accessToken;
+  if (token && String(token).trim()) {
+    url += `?access_token=${encodeURIComponent(String(token).trim())}`;
+  }
+  return url;
 });
 
 async function renderQRCode() {

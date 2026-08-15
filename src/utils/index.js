@@ -241,9 +241,14 @@ export const DEFAULT_SETTINGS = {
   //          Se vuoto, si usa window.location.origin (app self-order e staff
   //          servite dalla stessa origine).
   // menuUrl: URL del menu JSON pubblico usato dall'app self-order.
+  // accessToken: JWT/token Directus statico (opzionale) incorporato nel QR
+  //          generato dalla cassa/sala come `?access_token=`. Necessario in
+  //          ambienti dove il pubblico non può accedere a Directus in modo
+  //          anonimo. Lasciare vuoto se l'autenticazione è solo UUID.
   selfOrder: {
     appUrl: '',
     menuUrl: 'https://nanawork.it/menu.json',
+    accessToken: '',
   },
 
   // CONFIGURAZIONE PULIZIA IDB (retention windows in giorni)

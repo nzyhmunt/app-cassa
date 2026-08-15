@@ -41,7 +41,11 @@ export default (router, { env, logger }) => {
       return res.status(503).json({ error: 'Gemini API key not configured on the server' });
     }
 
-    const model = (req.body?.model || env.GEMINI_MODEL || DEFAULT_MODEL).trim();
+    // `model` is user-controlled; coerce to a trimmed string so a non-string
+    // body value (e.g. a number/object) can't throw on `.trim()` and turn a
+    // bad request into a 500. Fall back to the configured/default model.
+    const rawModel = req.body?.model;
+    const model = (typeof rawModel === 'string' ? rawModel : (env.GEMINI_MODEL || DEFAULT_MODEL)).trim();
     const { contents, systemInstruction } = req.body || {};
 
     if (!Array.isArray(contents)) {

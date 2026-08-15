@@ -125,4 +125,22 @@ describe('gemini-proxy endpoint', () => {
     expect(res.statusCode).toBe(429);
     expect(res.body.error.message).toMatch(/quota/);
   });
+
+  it('does not throw and falls back to the default model when model is not a string', async () => {
+    const { default: register } = await importExtension();
+    const { router, routes } = createMockRouter();
+    register(router, { env: { GEMINI_API_KEY: 'k' }, logger: {} });
+
+    globalThis.fetch = vi.fn(async (url) => {
+      // A non-string model must not crash the handler; default model is used.
+      expect(String(url)).toContain('gemini-2.0-flash:generateContent');
+      return { ok: true, status: 200, text: async () => JSON.stringify({ ok: true }) };
+    });
+
+    const res = mockRes();
+    await routes['POST /']({
+      body: { model: { nested: 'object' }, contents: [{ parts: [{ text: 'hi' }] }] },
+    }, res);
+    expect(res.statusCode).toBe(200);
+  });
 });

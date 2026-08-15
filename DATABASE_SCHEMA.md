@@ -1264,25 +1264,33 @@ La sessione può essere **condivisa** con altri dispositivi (es. più persone al
 
 ### Payload Ordine Self-Order (allineato con schema Directus)
 
-**SICUREZZA: I prezzi NON vengono inviati dal client**
+**SICUREZZA: I prezzi NON sono trusted dal client**
+
+Il client NON puo' impostare liberamente i prezzi: `unit_price` e i `price` dei
+modificatori nel payload sono risolti dal menu pubblico (`menu.json`) lato client
+tramite `getItemPrice()`/`getModifierPrice()`, NON dal carrello (che vive in
+`localStorage` ed e' manipolabile). Sono inviati solo per soddisfare il vincolo
+`NOT NULL` su `order_items.unit_price` come snapshot non trusted; la cassa/sala
+**deve comunque ricalcolarli da `menu.json`** quando accetta l'ordine.
 
 ```
-❌ NON INVIATI dal client:
-   - total_amount
-   - item_count  
-   - items[].unit_price
+NON trusted (ignorati/ricalcolati dalla cassa):
+   - total_amount              (sempre ricalcolato da menu.json)
+   - item_count                (sempre ricalcolato)
+   - items[].unit_price        (snapshot da menu.json, NON autoritativo)
+   - items[].order_item_modifiers[].price (snapshot da menu.json, NON autoritativo)
 
-✓ INVITI dal client (non manipolabili):
+INVIATI dal client (non manipolabili per il flusso):
    - bill_session (obbligatorio)
    - items[].dish (menu item ID)
    - items[].quantity
    - items[].notes
    - dietary_diets / dietary_allergens
 
-✓ CALCOLATI dalla cassa/sala (fonte fidata):
+CALCOLATI dalla cassa/sala (fonte fidata, sovrascrivono il client):
    - total_amount (ricalcolato da menu.json)
    - item_count (ricalcolato)
-   - items[].unit_price (da menu.json)
+   - items[].unit_price (da menu.json, sovrascrive lo snapshot del client)
 ```
 
 ```json
@@ -1306,13 +1314,14 @@ La sessione può essere **condivisa** con altri dispositivi (es. più persone al
   "global_note": "",
   "is_direct_entry": false,
   
-  // Righe ordine - NO prezzi, verranno presi da menu.json dalla cassa
+  // Righe ordine - prezzi risolti dal menu (snapshot NON trusted, presente
+  // solo per il vincolo NOT NULL; la cassa ricalcola da menu.json)
   "items": [
     {
       "uid": "r_1",                    // Unique within order
       "dish": "ant_1",                // FK menu_items - prezzo da menu.json
       "name": "Bruschetta",            // Snapshot nome (non trusted)
-      // unit_price NON inviato - verrà preso da menu.json
+      "unit_price": 3.00,             // snapshot da menu.json (NON autoritativo)
       "quantity": 1,
       "notes": ["Senza aglio"],
       "modifiers": ["Extra olio"],

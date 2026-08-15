@@ -40,6 +40,8 @@
       <!-- Food preferences button with indicator -->
       <button 
         @click="$emit('preferences')" 
+        :aria-label="t.preferences"
+        :title="t.preferences"
         class="flex items-center gap-2 bg-black/10 hover:bg-black/20 px-3 py-1.5 rounded-full text-sm font-bold transition-colors border border-white/30 shadow-sm relative"
       >
         <HeartPulse class="size-4 text-white" />
@@ -49,6 +51,8 @@
       <!-- Cart button -->
       <button 
         @click="$emit('show-cart')" 
+        :aria-label="t.cart"
+        :title="t.cart"
         class="relative bg-black/10 hover:bg-black/20 border border-white/30 rounded-full p-2 transition-colors shadow-sm"
       >
         <ShoppingCart class="w-5 h-5" />
@@ -63,6 +67,8 @@
       <!-- Share button -->
       <button 
         @click="$emit('share')" 
+        :aria-label="t.share"
+        :title="t.share"
         class="bg-black/10 hover:bg-black/20 border border-white/30 rounded-full p-2 transition-colors shadow-sm"
       >
         <Share2 class="w-5 h-5" />
@@ -127,8 +133,8 @@ const hasActivePreferences = computed(() => {
 });
 
 const i18n = {
-  it: { table: 'Tavolo' },
-  en: { table: 'Table' }
+  it: { table: 'Tavolo', preferences: 'Preferenze alimentari', cart: 'Carrello', share: 'Condividi sessione' },
+  en: { table: 'Table', preferences: 'Food preferences', cart: 'Cart', share: 'Share session' }
 };
 const t = computed(() => i18n[currentLang.value] || i18n.it);
 </script>
