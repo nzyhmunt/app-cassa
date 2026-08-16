@@ -69,7 +69,11 @@ function buildFpmateUrl(host, opts = {}) {
 function extractTagContent(xml, tagName) {
   // Match <tagName ...>content</tagName> (anche su più righe), tollerando
   // attributi e prefissi namespace. Non usa dipendenze esterne per parsing XML.
-  const re = new RegExp(`<${tagName}(?:\\s[^>]*)?>([\\s\\S]*?)</${tagName}>`, 'i');
+  // tagName proviene da <elementList> nella risposta del dispositivo: escape i
+  // metacaratteri regex prima di costruire il pattern e tollera un eventuale
+  // prefisso `ns:` su entrambi i tag di apertura/chiusura.
+  const escaped = String(tagName).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const re = new RegExp(`<(?:[\\w-]+:)?${escaped}(?:\\s[^>]*)?>([\\s\\S]*?)</(?:[\\w-]+:)?${escaped}>`, 'i');
   const m = xml.match(re);
   return m ? m[1].trim() : null;
 }

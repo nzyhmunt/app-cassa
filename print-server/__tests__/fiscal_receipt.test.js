@@ -355,6 +355,14 @@ describe('extractTagContent', () => {
   it('tolerates attributes on the opening tag', () => {
     expect(extractTagContent('<response success="true"><lastCommand>74</lastCommand></response>', 'lastCommand')).toBe('74');
   });
+  it('escapes regex metacharacters in the tag name', () => {
+    expect(extractTagContent('<a.b+c>dollar.content</a.b+c>', 'a.b+c')).toBe('dollar.content');
+    expect(extractTagContent('<a>(x)<value>ok</value></a>(x)', 'value')).toBe('ok');
+  });
+  it('tolerates a namespace prefix on open and close tags', () => {
+    expect(extractTagContent('<ns:foo>bar</ns:foo>', 'foo')).toBe('bar');
+    expect(extractTagContent('<x:status code="1">ok</x:status>', 'status')).toBe('ok');
+  });
 });
 
 describe('parseFiscalResponse', () => {

@@ -147,6 +147,21 @@ describe('dispatchFiscalReceipt', () => {
     const logs = await getSyncLogs();
     expect(logs.find((l) => l.type === 'FISCAL' && l.operation === 'fiscal_receipt')).toBeTruthy();
   });
+
+  it('collapses multiple payment methods into a single payment to avoid overpaying', async () => {
+    const { dispatchFiscalReceipt } = await import('../useFiscalPrint.js');
+    global.fetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({ ok: true, fiscal: { success: true, code: '', status: '2', raw: '', addInfo: {} } }),
+    });
+    const multiBill = { ...baseBill, paymentMethods: ['Contanti', 'Carta'], totalAmount: 20 };
+    await dispatchFiscalReceipt({ base: multiBill });
+    const [, init] = global.fetch.mock.calls[0];
+    const body = JSON.parse(init.body);
+    // One payment covering the whole total, not one-per-label summing to N×total.
+    expect(body.payments).toEqual([{ label: 'Contanti + Carta', amount: 20 }]);
+  });
 });
 
 describe('dispatchFiscalZReport / dispatchFiscalStatus', () => {

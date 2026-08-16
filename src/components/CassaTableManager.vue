@@ -2661,12 +2661,15 @@ async function closeTableBillFiscale() {
   closeTableModal();
 
   // Emit the fiscal receipt through the print-server when a fiscal printer is
-  // configured. The XML is built server-side (fonte unica); the browser sends
-  // only the structured job. On success the entry is updated with the receipt
-  // number returned by the fiscal printer; on failure the error is surfaced.
-  const fiscalPrinter = resolveFiscalPrinter();
+  // configured at runtime (Directus/IDB hydrated config). The XML is built
+  // server-side (fonte unica); the browser sends only the structured job and
+  // the resolved printer id. The client-built `xmlRequest` above is kept only
+  // as an audit record of what was sent, not as the source of truth for
+  // emission. On success the entry is updated with the receipt number returned
+  // by the fiscal printer; on failure the error is surfaced.
+  const fiscalPrinter = resolveFiscalPrinter(configStore.config.printers);
   if (fiscalPrinter) {
-    const result = await dispatchFiscalReceipt({ base, entry });
+    const result = await dispatchFiscalReceipt({ base, printerId: fiscalPrinter.id, entry });
     if (!result.ok) {
       console.warn('[fiscale] Emissione scontrino non riuscita:', result.error);
       // The pending entry above remains visible in the bill history for retry.

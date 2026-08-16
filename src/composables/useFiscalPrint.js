@@ -126,11 +126,17 @@ export async function dispatchFiscalReceipt({ base, printerId = null, entry = nu
   }
   const resolvedPrinterId = printerId ?? printer.id;
 
-  // Build payments from the bill summary payment methods.
+  // Build payments from the bill summary payment methods. The bill summary
+  // exposes payment-method labels as a Set across transactions, but not the
+  // amount paid per method. Mapping each label to the full total would make the
+  // fiscal printer sum N×total and reject the receipt for inconsistent totals,
+  // so collapse the labels into a single payment covering the whole amount.
+  // The paymentType is derived server-side from the (possibly composite) label.
   const paymentMethods = Array.isArray(base.paymentMethods) ? base.paymentMethods : [];
-  const payments = paymentMethods.length > 0
-    ? paymentMethods.map((label) => ({ label, amount: base.totalAmount }))
-    : [{ label: 'CONTANTI', amount: base.totalAmount }];
+  const payments = [{
+    label: paymentMethods.length > 0 ? paymentMethods.join(' + ') : 'CONTANTI',
+    amount: base.totalAmount,
+  }];
 
   const job = {
     jobId: entry?.id ?? newUUIDv7(),

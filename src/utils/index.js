@@ -894,14 +894,17 @@ export function deepEqual(left, right) {
 
 
 /**
- * Resolves the configured fiscal printer against the runtime appConfig.
- * Convenience wrapper used by the UI to decide whether to dispatch a fiscal job
- * (no printer configured → the entry stays pending for later emission).
+ * Resolves the configured fiscal printer, preferring the runtime/hydrated
+ * printer list when provided. Used by the UI as a dispatch decision point: a
+ * fiscal printer is often configured at runtime via Directus/IDB config, so the
+ * static `appConfig.printers` alone yields false negatives.
  *
+ * @param {unknown} [printers] - runtime printer list (e.g. store config).
+ *   When omitted/null/empty, falls back to the static `appConfig.printers`.
  * @returns {object|null} the first fiscal printer with id+url, or null
  */
-export function resolveFiscalPrinter() {
-  return getFiscalPrinter(appConfig.printers);
+export function resolveFiscalPrinter(printers) {
+  return getFiscalPrinter(Array.isArray(printers) && printers.length ? printers : appConfig.printers);
 }
 
 /**

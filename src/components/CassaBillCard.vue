@@ -347,10 +347,12 @@ function emitFiscale() {
   };
   orderStore.addFiscalReceipt(entry);
 
-  // Emit through the print-server when a fiscal printer is configured.
-  const fiscalPrinter = resolveFiscalPrinter();
+  // Emit through the print-server when a fiscal printer is configured at
+  // runtime (Directus/IDB hydrated config), passing the resolved printer id so
+  // the dispatch decision stays consistent with runtime configuration.
+  const fiscalPrinter = resolveFiscalPrinter(configStore.config.printers);
   if (fiscalPrinter) {
-    dispatchFiscalReceipt({ base, entry }).then((result) => {
+    dispatchFiscalReceipt({ base, printerId: fiscalPrinter.id, entry }).then((result) => {
       if (!result.ok) {
         console.warn('[fiscale] Emissione scontrino non riuscita:', result.error);
       }
