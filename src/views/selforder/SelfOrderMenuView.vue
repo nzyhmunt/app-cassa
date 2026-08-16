@@ -100,15 +100,7 @@
               <div class="absolute top-2 right-2 bg-white/95 backdrop-blur-sm px-2.5 py-1 rounded-full shadow-sm border border-gray-100">
                 <span class="theme-text font-black text-sm">{{ currency }}{{ formatPrice(item.price) }}</span>
               </div>
-              
-              <!-- Unavailable badge -->
-              <span 
-                v-if="item.available === false"
-                class="absolute top-2 left-2 bg-red-500 text-white text-[10px] px-2 py-1 rounded-full font-bold"
-              >
-                {{ t.notAvailable }}
-              </span>
-              
+
               <!-- Dietary badges -->
               <div class="absolute bottom-2 left-2 flex gap-1">
                 <span 
@@ -221,7 +213,6 @@ const navigateTo = inject('navigateTo', (path) => router.push(path));
 // Translations
 const i18n = {
   it: {
-    notAvailable: 'Non disp.',
     vegan: 'Vegano',
     vegetarian: 'Veg',
     add: 'Aggiungi',
@@ -236,7 +227,6 @@ const i18n = {
     currency: '€',
   },
   en: {
-    notAvailable: 'N/A',
     vegan: 'Vegan',
     vegetarian: 'Veg',
     add: 'Add',

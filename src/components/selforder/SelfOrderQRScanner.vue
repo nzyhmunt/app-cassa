@@ -95,9 +95,13 @@ function stopScanner() {
   if (!html5QrCode) return;
   const instance = html5QrCode;
   html5QrCode = null;
-  // Guard against stopping before start() has completed (throws otherwise).
+  // html5-qrcode's `isScanning` boolean is set asynchronously (on the video
+  // "playing" event), so it can still be false after start() has resolved —
+  // gating stop() on it leaks the camera stream. stop() throws synchronously
+  // when the scanner isn't running, so call it unconditionally and swallow any
+  // error, then clear the rendered surface.
   Promise.resolve()
-    .then(() => (instance.isScanning ? instance.stop() : Promise.resolve()))
+    .then(() => instance.stop())
     .then(() => instance.clear?.())
     .catch(() => {});
 }

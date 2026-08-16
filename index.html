@@ -8,8 +8,9 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <title>Terminale Cassa &amp; Sala - Ristorante</title>
     <style>
+      .mode-grid { grid-template-columns: repeat(2, 1fr); }
       @media (max-width: 640px) {
-        .mode-grid { grid-template-columns: 1fr !important; }
+        .mode-grid { grid-template-columns: 1fr; }
         .mode-card { flex-direction: row !important; justify-content: flex-start !important; padding: 1.25rem 1.5rem !important; gap: 1.25rem !important; }
         .mode-card-icon { flex-shrink: 0; }
         .mode-card-text { text-align: left !important; }
@@ -33,8 +34,8 @@
         <p class="text-sm font-semibold text-gray-500 uppercase tracking-widest">Scegli la modalità</p>
       </div>
 
-      <!-- Mode cards: responsive grid (2 columns on desktop, 1 on mobile) -->
-      <div class="mode-grid" style="display:grid;grid-template-columns:repeat(2,1fr);gap:1.25rem;">
+      <!-- Mode cards: responsive grid (2 columns on desktop, 1 on mobile via .mode-grid class) -->
+      <div class="mode-grid" style="display:grid;gap:1.25rem;">
 
         <!-- App Cassa -->
         <a href="./cassa.html" class="mode-card"

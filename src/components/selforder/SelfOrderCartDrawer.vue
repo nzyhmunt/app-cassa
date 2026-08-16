@@ -172,12 +172,25 @@ const emit = defineEmits(['update:modelValue']);
 
 const { items, removeItem, updateQuantity, clearCart, buildOrderPayload } = useSelfOrderCart();
 const { billSessionId, fetchSessionOrders, saveLocalOrder, billSession, createOrder } = useSelfOrderAuth();
-const { calculateCartTotal, getItemPrice, getModifierPrice } = useSelfOrderMenu();
+const { calculateCartTotal, getItemPrice, getModifierPrice, getAllItems } = useSelfOrderMenu();
 const configStore = useConfigStore();
 
-// Calculate totals from MENU prices (trusted source), not from client cart
+// Calculate totals from MENU prices (trusted source), not from the client cart.
+// Before the menu has loaded, calculateCartTotal() can't resolve prices and
+// returns 0 — which would render a 0€ total and let users reach checkout
+// prematurely. Mirror useSelfOrderCart.totalPrice: use menu-trusted totals when
+// the menu is loaded, otherwise fall back to the cart-stored prices until the
+// menu arrives.
 const cartTotals = computed(() => {
-  return calculateCartTotal(items.value);
+  if (getAllItems().length > 0) {
+    return calculateCartTotal(items.value);
+  }
+  const total = items.value.reduce((sum, item) => {
+    const itemPrice = (item.price || 0) * item.quantity;
+    const modifiersPrice = item.modifiers?.reduce((mSum, m) => mSum + (m.price || 0), 0) || 0;
+    return sum + itemPrice + (modifiersPrice * item.quantity);
+  }, 0);
+  return { total, itemCount: items.value.reduce((sum, item) => sum + item.quantity, 0) };
 });
 
 const totalPrice = computed(() => cartTotals.value.total);
@@ -273,12 +286,21 @@ async function loadOrderHistory() {
 // (by modifier id) rather than item.modifiers[].price, which is
 // client-controlled and persisted in localStorage. We fall back to the cart
 // value only when a modifier has no id to resolve against the menu.
+//
+// When the menu hasn't loaded yet, getItemPrice()/getModifierPrice() return 0,
+// so rows would render as 0€. Mirror SelfOrderConfirmOrderModal: use the
+// cart-stored prices until the menu arrives, then switch to menu-trusted prices.
 function itemPrice(item) {
-  const basePrice = getItemPrice(item.menuItemId) * item.quantity;
-  const modifiersPrice = item.modifiers?.reduce((sum, m) => {
-    const modPrice = m.id != null ? getModifierPrice(m.id) : (m.price || 0);
-    return sum + modPrice * item.quantity;
-  }, 0) || 0;
+  if (getAllItems().length > 0) {
+    const basePrice = getItemPrice(item.menuItemId) * item.quantity;
+    const modifiersPrice = item.modifiers?.reduce((sum, m) => {
+      const modPrice = m.id != null ? getModifierPrice(m.id) : (m.price || 0);
+      return sum + modPrice * item.quantity;
+    }, 0) || 0;
+    return basePrice + modifiersPrice;
+  }
+  const basePrice = (item.price || 0) * item.quantity;
+  const modifiersPrice = item.modifiers?.reduce((sum, m) => sum + (m.price || 0) * item.quantity, 0) || 0;
   return basePrice + modifiersPrice;
 }
 
@@ -351,7 +373,10 @@ async function handleCheckout() {
   emit('update:modelValue', false);
 }
 
-// Get customer preferences from localStorage
+// Get customer preferences from localStorage.
+// Allergen keys are stored in their canonical form (e.g. `frutta_a_guscio`)
+// and are sent to Directus unchanged so server-side filtering/analytics stay
+// consistent. Prettify for display only (done in the UI), not in the payload.
 function getCustomerPreferences() {
   const savedPrefs = localStorage.getItem('selforder_preferences');
   if (savedPrefs) {
@@ -362,7 +387,7 @@ function getCustomerPreferences() {
         .map(([k]) => k);
       const allergens = Object.entries(prefs.allergens || {})
         .filter(([_, v]) => v)
-        .map(([k]) => k.replace(/_/g, ' '));
+        .map(([k]) => k);
       return { diets, allergens };
     } catch {
       return { diets: [], allergens: [] };

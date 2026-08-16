@@ -1178,7 +1178,7 @@ Configurare Directus per permettere richieste anonime sul ruolo Self-Order Clien
   "fields": [
     "bill_session", "venue", "table", "status", "order_time",
     "dietary_diets", "dietary_allergens", "global_note", "is_direct_entry",
-    "items"
+    "order_items"
   ],
   "validation": {
     "bill_session": { "_eq": "$trigger.bill_session_uuid" }
@@ -1277,20 +1277,20 @@ tramite `getItemPrice()`/`getModifierPrice()`, NON dal carrello (che vive in
 NON trusted (ignorati/ricalcolati dalla cassa):
    - total_amount              (sempre ricalcolato da menu.json)
    - item_count                (sempre ricalcolato)
-   - items[].unit_price        (snapshot da menu.json, NON autoritativo)
-   - items[].order_item_modifiers[].price (snapshot da menu.json, NON autoritativo)
+   - order_items[].unit_price        (snapshot da menu.json, NON autoritativo)
+   - order_items[].order_item_modifiers[].price (snapshot da menu.json, NON autoritativo)
 
 INVIATI dal client (non manipolabili per il flusso):
    - bill_session (obbligatorio)
-   - items[].dish (menu item ID)
-   - items[].quantity
-   - items[].notes
+   - order_items[].dish (menu item ID)
+   - order_items[].quantity
+   - order_items[].notes
    - dietary_diets / dietary_allergens
 
 CALCOLATI dalla cassa/sala (fonte fidata, sovrascrivono il client):
    - total_amount (ricalcolato da menu.json)
    - item_count (ricalcolato)
-   - items[].unit_price (da menu.json, sovrascrive lo snapshot del client)
+   - order_items[].unit_price (da menu.json, sovrascrive lo snapshot del client)
 ```
 
 ```json
@@ -1316,7 +1316,7 @@ CALCOLATI dalla cassa/sala (fonte fidata, sovrascrivono il client):
   
   // Righe ordine - prezzi risolti dal menu (snapshot NON trusted, presente
   // solo per il vincolo NOT NULL; la cassa ricalcola da menu.json)
-  "items": [
+  "order_items": [
     {
       "uid": "r_1",                    // Unique within order
       "dish": "ant_1",                // FK menu_items - prezzo da menu.json
@@ -1324,7 +1324,9 @@ CALCOLATI dalla cassa/sala (fonte fidata, sovrascrivono il client):
       "unit_price": 3.00,             // snapshot da menu.json (NON autoritativo)
       "quantity": 1,
       "notes": ["Senza aglio"],
-      "modifiers": ["Extra olio"],
+      "order_item_modifiers": [
+        { "name": "Extra olio", "price": 0.50, "item_uid": "r_1" }
+      ],
       "course": null
     }
   ]
