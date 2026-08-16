@@ -939,7 +939,9 @@ CREATE TABLE fiscal_receipts (
     serial_number           TEXT,                 -- Matricola stampante (serialNumber)
     printer_status          TEXT,                 -- Stato stampante (printerStatus)
     status              TEXT        NOT NULL DEFAULT 'pending'
-                                    CHECK (status IN ('pending','sent','ok','error')),
+                                    CHECK (status IN ('pending','done','error','void')),
+                                    -- Stati ciclo scontrino fiscale: pending (richiesta in attesa),
+                                    -- done (emesso/stampato), error (fallito), void (annullato).
     timestamp           TIMESTAMPTZ NOT NULL DEFAULT NOW(),  -- Istante della richiesta (non della chiusura conto)
     -- Directus standard fields
     date_created        TIMESTAMPTZ NOT NULL DEFAULT NOW(),

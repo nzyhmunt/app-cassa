@@ -84,6 +84,15 @@ describe('loadPrintersFromEnv — fpmate type', () => {
     const [p] = loadPrintersFromEnv();
     expect(p.timeout).toBe(30000);
   });
+
+  it('does not silently default host to 127.0.0.1 when missing', () => {
+    // A missing fpmate host must stay unset so the dispatch path rejects clearly,
+    // rather than masking the misconfiguration with a loopback default.
+    withFpmateEnv({});
+    delete process.env.PRINTER_0_HOST;
+    const [p] = loadPrintersFromEnv();
+    expect(p.host).toBeUndefined();
+  });
 });
 
 // ── printFiscal dispatch (local fpmate-like HTTP server) ─────────────────────
@@ -153,6 +162,16 @@ describe('printFiscal dispatch', () => {
     process.env.PRINTER_0_PORT = '9100';
     _resetPrinterCache();
     await expect(printFiscal('<x/>', 'cucina')).rejects.toThrow(/non è di tipo fpmate/);
+  });
+
+  it('rejects with a clear error when the fpmate host is not configured', async () => {
+    // fpmate host is required — no silent 127.0.0.1 fallback. A missing host
+    // must fail fast with an explicit message instead of a confusing ECONNREFUSED.
+    process.env.PRINTER_0_ID = 'fiscale';
+    process.env.PRINTER_0_TYPE = 'fpmate';
+    // PRINTER_0_HOST intentionally omitted
+    _resetPrinterCache();
+    await expect(printFiscal('<x/>', 'fiscale')).rejects.toThrow(/manca PRINTER_<N>_HOST/);
   });
 
   it('routes an fpmate printer to the fpmate endpoint and parses the response', async () => {

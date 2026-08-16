@@ -28,6 +28,7 @@ import {
   appConfig,
   PRINT_JOB_TYPES,
   PRINT_LOG_STATUSES,
+  PRINT_ACTIVITY_LOG_STATUSES,
   getFiscalPrinter,
 } from '../utils/index.js';
 import { addSyncLog } from '../store/persistence/syncLogs.js';
@@ -93,6 +94,16 @@ async function sendFiscalJob({ job, printer }) {
   }
 }
 
+// addSyncLog() records activity-log statuses ('success'|'error'), not the
+// print-job lifecycle statuses from PRINT_LOG_STATUSES ('pending'|'done'|
+// 'error'|...). Map the fiscal dispatch outcome to the activity-log vocabulary
+// so fiscal_receipts sync logs stay consistent with the rest of the app.
+function toActivityLogStatus(fiscalStatus) {
+  return fiscalStatus === PRINT_LOG_STATUSES.ERROR
+    ? PRINT_ACTIVITY_LOG_STATUSES.ERROR
+    : PRINT_ACTIVITY_LOG_STATUSES.SUCCESS;
+}
+
 function logFiscalActivity({ endpoint, payload, status, statusCode = null }) {
   addSyncLog({
     direction: 'OUT',
@@ -100,7 +111,7 @@ function logFiscalActivity({ endpoint, payload, status, statusCode = null }) {
     endpoint,
     payload,
     response: null,
-    status,
+    status: toActivityLogStatus(status),
     statusCode,
     durationMs: 0,
     collection: 'fiscal_receipts',
@@ -180,7 +191,8 @@ export async function dispatchFiscalReceipt({ base, printerId = null, entry = nu
   };
   // When updating an existing pending entry (id already in the store), use
   // updateFiscalReceipt to avoid creating a duplicate; otherwise add a new one.
-  const existing = orderStore?.fiscalReceipts?.value?.find((e) => e?.id === job.jobId);
+  // orderStore.fiscalReceipts is auto-unwrapped by Pinia to the array value.
+  const existing = orderStore?.fiscalReceipts?.find((e) => e?.id === job.jobId);
   if (existing) {
     orderStore?.updateFiscalReceipt(job.jobId, updatedFields);
   } else {

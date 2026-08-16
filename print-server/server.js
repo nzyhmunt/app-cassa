@@ -266,6 +266,17 @@ app.post('/print', apiKeyGuard, async (req, res) => {
   }
 
   // ── ESC/POS jobs: build buffer and dispatch via TCP/file ───────────────────
+  // ESC/POS must never be routed to an fpmate fiscal printer: _dispatch() would
+  // treat the ESC/POS buffer as fiscal XML and send an invalid payload to the
+  // RT printer. Fail fast with a clear error instead (mirrors the fiscal-side
+  // guard that rejects non-fpmate printers above).
+  if ((printerConfig.type || '').toLowerCase() === 'fpmate') {
+    return res.status(400).json({
+      ok: false,
+      error: `Il printType "${printType}" richiede una stampante ESC/POS (tcp/file), ma la stampante "${printerConfig.id}" è type="fpmate" (fiscale).`,
+    });
+  }
+
   let buf;
   try {
     buf = buildEscPosBuffer(job);

@@ -92,7 +92,12 @@ function loadPrintersFromEnv() {
     if (type === 'file') {
       entry.device = process.env[`PRINTER_${n}_DEVICE`] || '/dev/usb/lp0';
     } else if (type === 'fpmate') {
-      entry.host = process.env[`PRINTER_${n}_HOST`] || '127.0.0.1';
+      // host is required for fpmate (the fiscal printer address). Don't silently
+      // default to 127.0.0.1 — that masks a misconfiguration and fails later with
+      // a confusing connection error or hits the wrong device. Leave it unset so
+      // the dispatch path can reject with a clear message.
+      const fpmateHost = process.env[`PRINTER_${n}_HOST`];
+      if (fpmateHost) entry.host = fpmateHost;
       const rawPort = process.env[`PRINTER_${n}_PORT`];
       const parsedPort = parseInt(rawPort, 10);
       entry.port = rawPort && !isNaN(parsedPort) ? parsedPort : null;
@@ -386,6 +391,11 @@ function printFiscal(xmlPayload, printerId) {
   if ((config.type || '').toLowerCase() !== 'fpmate') {
     return Promise.reject(
       new Error(`La stampante "${config.id}" non è di tipo fpmate (type="${config.type}").`)
+    );
+  }
+  if (!config.host) {
+    return Promise.reject(
+      new Error(`Configurazione fpmate incompleta per la stampante "${config.id}": manca PRINTER_<N>_HOST (host della stampante fiscale).`)
     );
   }
   return _enqueue(config.id, () => printViaFpmate(xmlPayload, config));

@@ -10,8 +10,9 @@ import { getSyncLogs } from '../../store/persistence/syncLogs.js';
 
 // Mock the explicit layered stores used by useFiscalPrint. configStub carries
 // the runtime printers/hydration flag; orderStub carries fiscalReceipts and the
-// add/update mutators. Both are backed by the same shared array.
-const fiscalReceipts = { value: [] };
+// add/update mutators. fiscalReceipts is a plain array (Pinia auto-unwraps refs
+// on the store instance, so the composable/dashboard access it as an array).
+const fiscalReceipts = [];
 const configStub = {
   configHydrated: true,
   config: {
@@ -23,10 +24,10 @@ const configStub = {
 };
 const orderStub = {
   fiscalReceipts,
-  addFiscalReceipt: vi.fn((entry) => { orderStub.fiscalReceipts.value.unshift(entry); }),
+  addFiscalReceipt: vi.fn((entry) => { orderStub.fiscalReceipts.unshift(entry); }),
   updateFiscalReceipt: vi.fn((id, updates) => {
-    const idx = orderStub.fiscalReceipts.value.findIndex((e) => e.id === id);
-    if (idx !== -1) orderStub.fiscalReceipts.value[idx] = { ...orderStub.fiscalReceipts.value[idx], ...updates };
+    const idx = orderStub.fiscalReceipts.findIndex((e) => e.id === id);
+    if (idx !== -1) orderStub.fiscalReceipts[idx] = { ...orderStub.fiscalReceipts[idx], ...updates };
   }),
 };
 
@@ -41,7 +42,7 @@ beforeEach(async () => {
   await _resetIDBSingleton();
   vi.restoreAllMocks();
   global.fetch = vi.fn();
-  orderStub.fiscalReceipts.value = [];
+  orderStub.fiscalReceipts.length = 0;
   orderStub.addFiscalReceipt.mockClear();
   orderStub.updateFiscalReceipt.mockClear();
 });
@@ -62,7 +63,7 @@ describe('dispatchFiscalReceipt', () => {
     const { dispatchFiscalReceipt } = await import('../useFiscalPrint.js');
     // Pre-populate the store with the pending entry, mirroring the real flow
     // where the component adds the pending entry before dispatching.
-    orderStub.fiscalReceipts.value = [{ id: 'rec-1', status: 'pending', ...baseBill }];
+    orderStub.fiscalReceipts = [{ id: 'rec-1', status: 'pending', ...baseBill }];
     global.fetch.mockResolvedValue({
       ok: true,
       status: 200,
@@ -151,7 +152,26 @@ describe('dispatchFiscalReceipt', () => {
     await dispatchFiscalReceipt({ base: baseBill });
     await new Promise((r) => setTimeout(r, 0));
     const logs = await getSyncLogs();
-    expect(logs.find((l) => l.type === 'FISCAL' && l.operation === 'fiscal_receipt')).toBeTruthy();
+    const entry = logs.find((l) => l.type === 'FISCAL' && l.operation === 'fiscal_receipt');
+    expect(entry).toBeTruthy();
+    // Activity logs use the sync-log vocabulary ('success'|'error'), not the
+    // fiscal lifecycle status 'done'.
+    expect(entry.status).toBe('success');
+  });
+
+  it('records an error status in the FISCAL activity log on failure', async () => {
+    const { dispatchFiscalReceipt } = await import('../useFiscalPrint.js');
+    global.fetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({ ok: false, error: 'Errore stampante fiscale: timeout' }),
+    });
+    await dispatchFiscalReceipt({ base: baseBill });
+    await new Promise((r) => setTimeout(r, 0));
+    const logs = await getSyncLogs();
+    const entry = logs.find((l) => l.type === 'FISCAL' && l.operation === 'fiscal_receipt');
+    expect(entry).toBeTruthy();
+    expect(entry.status).toBe('error');
   });
 
   it('collapses multiple payment methods into a single payment to avoid overpaying', async () => {

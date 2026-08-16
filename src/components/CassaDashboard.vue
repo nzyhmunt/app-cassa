@@ -600,8 +600,9 @@ const cashAmount = computed(() => parseFloat(cashAmountInput.value) || 0);
 const voidSelection = ref('');
 
 // Scontrini fiscali emessi con numero scontrino → candidati all'annullo (VOID).
+// orderStore.fiscalReceipts is auto-unwrapped by Pinia to the array value.
 const voidableReceipts = computed(() => {
-  const list = orderStore.fiscalReceipts ?? [];
+  const list = orderStore?.fiscalReceipts ?? [];
   return list.filter((r) => r && r.fiscalReceiptNumber && r.status !== 'void')
     .slice().reverse();
 });
