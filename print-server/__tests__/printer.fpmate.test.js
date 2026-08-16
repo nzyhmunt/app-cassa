@@ -167,11 +167,13 @@ describe('printFiscal dispatch', () => {
   it('rejects with a clear error when the fpmate host is not configured', async () => {
     // fpmate host is required — no silent 127.0.0.1 fallback. A missing host
     // must fail fast with an explicit message instead of a confusing ECONNREFUSED.
+    // The message stays source-agnostic (no env-var-specific hint) since the host
+    // can come from env vars, printers.config.js, or Directus.
     process.env.PRINTER_0_ID = 'fiscale';
     process.env.PRINTER_0_TYPE = 'fpmate';
     // PRINTER_0_HOST intentionally omitted
     _resetPrinterCache();
-    await expect(printFiscal('<x/>', 'fiscale')).rejects.toThrow(/manca PRINTER_<N>_HOST/);
+    await expect(printFiscal('<x/>', 'fiscale')).rejects.toThrow(/manca l'host della stampante fiscale/);
   });
 
   it('routes an fpmate printer to the fpmate endpoint and parses the response', async () => {

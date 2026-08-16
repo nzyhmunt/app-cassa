@@ -240,7 +240,7 @@
 import { ref, computed } from 'vue';
 import { ChevronDown, CreditCard, ClipboardList, Banknote, Tag, Wallet, CheckCircle, Printer, FileText } from 'lucide-vue-next';
 import { useConfigStore, useOrderStore } from '../store/index.js';
-import { billKey, getOrderItemRowTotal, buildFiscalXmlRequest, resolveFiscalPrinter, formatOrderIdShort } from '../utils/index.js';
+import { billKey, getOrderItemRowTotal, resolveFiscalPrinter, formatOrderIdShort } from '../utils/index.js';
 import { dispatchFiscalReceipt } from '../composables/useFiscalPrint.js';
 import { newUUIDv7 } from '../store/storeUtils.js';
 import { resolveTransactionPaymentLabel } from '../utils/paymentMethods.js';
@@ -336,11 +336,13 @@ function _buildBillSummaryBase() {
 function emitFiscale() {
   if (alreadyFiscalized.value || fiscalInvoiceDisabledForZero.value) return;
   const base = _buildBillSummaryBase();
-  const xmlRequest = buildFiscalXmlRequest(base);
+  // The fiscal XML is built server-side by the print-server (single source of
+  // truth). Don't persist a client-built xmlRequest: it would differ from the
+  // payload actually sent and produce a misleading audit record.
   const entry = {
     id: newUUIDv7(),
     ...base,
-    xmlRequest,
+    xmlRequest: null,
     xmlResponse: null,
     status: 'pending',
     timestamp: new Date().toISOString(),

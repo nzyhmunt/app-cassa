@@ -34,6 +34,11 @@ const net = require('net');
 const fs  = require('fs');
 const { sendFiscalRequest } = require('./fpmate-client.js');
 
+// Printers can be configured via PRINTER_<N>_* env vars, printers.config.js,
+// or Directus hydration — keep the "no printers" message source-agnostic so it
+// doesn't point operators at the wrong configuration source.
+const NO_PRINTERS_CONFIGURED_ERROR = 'No printers configured (set PRINTER_<N>_* env vars, printers.config.js, or Directus).';
+
 // ── Lookup stampante ─────────────────────────────────────────────────────────
 
 /**
@@ -254,7 +259,7 @@ function _enqueue(id, fn) {
 function printBuffer(buf, printerId) {
   const config = getPrinterConfig(printerId);
   if (!config) {
-    return Promise.reject(new Error('No printers configured in printers.config.js.'));
+    return Promise.reject(new Error(NO_PRINTERS_CONFIGURED_ERROR));
   }
   return _enqueue(config.id, () => _dispatch(buf, config));
 }
@@ -386,7 +391,7 @@ function printViaFpmate(buf, config) {
 function printFiscal(xmlPayload, printerId) {
   const config = getPrinterConfig(printerId);
   if (!config) {
-    return Promise.reject(new Error('No printers configured in printers.config.js.'));
+    return Promise.reject(new Error(NO_PRINTERS_CONFIGURED_ERROR));
   }
   if ((config.type || '').toLowerCase() !== 'fpmate') {
     return Promise.reject(
@@ -395,11 +400,11 @@ function printFiscal(xmlPayload, printerId) {
   }
   if (!config.host) {
     return Promise.reject(
-      new Error(`Configurazione fpmate incompleta per la stampante "${config.id}": manca PRINTER_<N>_HOST (host della stampante fiscale).`)
+      new Error(`Configurazione fpmate incompleta per la stampante "${config.id}": manca l'host della stampante fiscale (configurare PRINTER_<N>_HOST o l'equivalente in printers.config.js / Directus).`)
     );
   }
   return _enqueue(config.id, () => printViaFpmate(xmlPayload, config));
 }
 
-module.exports = { printBuffer, printFiscal, printViaFpmate, getPrintersList, getPrinterConfig, findPrinterConfig, loadPrintersFromEnv, setPrinters, _enqueue, _dispatch, _resetPrinterCache };
+module.exports = { printBuffer, printFiscal, printViaFpmate, getPrintersList, getPrinterConfig, findPrinterConfig, loadPrintersFromEnv, setPrinters, _enqueue, _dispatch, _resetPrinterCache, NO_PRINTERS_CONFIGURED_ERROR };
 

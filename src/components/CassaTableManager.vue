@@ -1390,7 +1390,7 @@ import {
 } from 'lucide-vue-next';
 import { useConfigStore, useOrderStore } from '../store/index.js';
 import { newUUIDv7, newShortId } from '../store/storeUtils.js';
-import { getOrderItemRowTotal, KITCHEN_ACTIVE_STATUSES, getLockedDirectItems, buildFiscalXmlRequest, resolveFiscalPrinter, formatOrderTime, formatOrderIdShort } from '../utils/index.js';
+import { getOrderItemRowTotal, KITCHEN_ACTIVE_STATUSES, getLockedDirectItems, resolveFiscalPrinter, formatOrderTime, formatOrderIdShort } from '../utils/index.js';
 import { dispatchFiscalReceipt } from '../composables/useFiscalPrint.js';
 import { buildFlatAnaliticaItems, computeAnaliticaTotal, exceedsAmount, getOrdersToComplete } from '../utils/analitica.js';
 import { loadCustomItemsFromIDB, saveCustomItemsToIDB } from '../store/persistence/settings.js';
@@ -2645,11 +2645,14 @@ async function closeTableBillFiscale() {
   if (isZeroAmountBill.value) return;
   const base = _buildBillSummaryBase();
   if (!base) return;
-  const xmlRequest = buildFiscalXmlRequest(base);
+  // The fiscal XML is built server-side by the print-server (single source of
+  // truth). Don't persist a client-built xmlRequest here: it would differ from
+  // the payload actually sent and produce a misleading audit record. Leave
+  // xmlRequest null until the server-generated XML is persisted back.
   const entry = {
     id: newUUIDv7(),
     ...base,
-    xmlRequest,
+    xmlRequest: null,
     xmlResponse: null,
     status: 'pending',
     timestamp: base.closedAt,
@@ -2661,12 +2664,10 @@ async function closeTableBillFiscale() {
   closeTableModal();
 
   // Emit the fiscal receipt through the print-server when a fiscal printer is
-  // configured at runtime (Directus/IDB hydrated config). The XML is built
-  // server-side (fonte unica); the browser sends only the structured job and
-  // the resolved printer id. The client-built `xmlRequest` above is kept only
-  // as an audit record of what was sent, not as the source of truth for
-  // emission. On success the entry is updated with the receipt number returned
-  // by the fiscal printer; on failure the error is surfaced.
+  // configured at runtime (Directus/IDB hydrated config). The browser sends
+  // only the structured job and the resolved printer id; the XML is generated
+  // server-side. On success the entry is updated with the receipt number
+  // returned by the fiscal printer; on failure the error is surfaced.
   const fiscalPrinter = resolveFiscalPrinter(configStore.config.printers);
   if (fiscalPrinter) {
     const result = await dispatchFiscalReceipt({ base, printerId: fiscalPrinter.id, entry });

@@ -53,7 +53,7 @@ const http    = require('http');
 const cors    = require('cors');
 const express = require('express');
 
-const { printBuffer, printFiscal, getPrintersList, getPrinterConfig } = require('./printer.js');
+const { printBuffer, printFiscal, getPrintersList, getPrinterConfig, NO_PRINTERS_CONFIGURED_ERROR } = require('./printer.js');
 const { buildEscPosBuffer } = require('./build-buffer.js');
 const { buildFiscalXml } = require('./formatters/fiscal_receipt.js');
 const directusClient = require('./directus-client.js');
@@ -164,26 +164,47 @@ app.get('/health', (_req, res) => {
 });
 
 /**
+ * Builds the public summary of a printer for GET /printers.
+ *
+ * Exposes network details (host/port/device) only when the endpoint is
+ * protected by an API key; otherwise returns a safe id/name/type summary so
+ * that, with CORS open by default, an arbitrary web page can't enumerate
+ * internal network topology.
+ *
+ * @param {object} p        printer config entry
+ * @param {boolean} authed  whether the request is authenticated (API key set)
+ * @returns {object} safe public summary
+ */
+function buildPrinterSummary(p, authed) {
+  const summary = { id: p.id, name: p.name, type: p.type };
+  if (!authed) return summary;
+  if (p.type === 'tcp') {
+    summary.host = p.host;
+    summary.port = p.port;
+  } else if (p.type === 'file') {
+    summary.device = p.device;
+  } else if (p.type === 'fpmate') {
+    summary.host = p.host;
+    summary.port = p.port ?? null;
+    summary.https = p.https === true;
+  }
+  return summary;
+}
+
+/**
  * GET /printers
  * Restituisce l'elenco delle stampanti configurate (senza credenziali).
  * Protetto da apiKeyGuard quando PRINT_SERVER_API_KEY è configurato, per non
  * esporre i dettagli di rete interna (host/port) a origini CORS arbitrarie.
+ *
+ * Se PRINT_SERVER_API_KEY non è configurata, apiKeyGuard lascia passare ogni
+ * richiesta; con CORS aperto di default, una pagina web arbitraria potrebbe
+ * leggere i dettagli di rete interna. In quel caso si restituisce solo un
+ * sommario sicuro (id/name/type) senza host/port/device.
  */
 app.get('/printers', apiKeyGuard, (_req, res) => {
-  const printers = getPrintersList().map((p) => {
-    const summary = { id: p.id, name: p.name, type: p.type };
-    if (p.type === 'tcp') {
-      summary.host = p.host;
-      summary.port = p.port;
-    } else if (p.type === 'file') {
-      summary.device = p.device;
-    } else if (p.type === 'fpmate') {
-      summary.host = p.host;
-      summary.port = p.port ?? null;
-      summary.https = p.https === true;
-    }
-    return summary;
-  });
+  const authed = Boolean(API_KEY);
+  const printers = getPrintersList().map((p) => buildPrinterSummary(p, authed));
   res.json({ ok: true, printers });
 });
 
@@ -227,7 +248,7 @@ app.post('/print', apiKeyGuard, async (req, res) => {
   // and surface a 500 early if no printers are configured.
   const printerConfig = getPrinterConfig(printerId);
   if (!printerConfig) {
-    return res.status(500).json({ ok: false, error: 'No printers configured in printers.config.js.' });
+    return res.status(500).json({ ok: false, error: NO_PRINTERS_CONFIGURED_ERROR });
   }
   const safeResolvedId = sanitizeForLog(printerConfig.id);
 
@@ -324,45 +345,51 @@ app.use((err, req, res, _next) => {
 
 // ── Avvio server ──────────────────────────────────────────────────────────────
 
+// Boot the server only when run directly (`node server.js`), not when imported
+// by tests. Expose the pure summary helper for unit testing the redaction logic.
 const server = http.createServer(app);
 
-server.listen(PORT, () => {
-  console.log(`[print-server] ${SERVER_NAME} in ascolto su http://localhost:${PORT}`);
-  console.log(`[print-server] Endpoint: POST http://localhost:${PORT}/print`);
-  if (API_KEY) {
-    console.log('[print-server] Autenticazione API key abilitata (x-api-key)');
-  }
-  if (CORS_ALLOWED_ORIGINS.length > 0) {
-    console.log('[print-server] CORS origini consentite:', CORS_ALLOWED_ORIGINS.join(', '));
-  }
-
-  const printers = getPrintersList();
-  if (printers.length === 0) {
-    console.warn('[print-server] ATTENZIONE: nessuna stampante configurata in printers.config.js');
-  } else {
-    console.log(`[print-server] Stampanti configurate (${printers.length}):`);
-    for (const p of printers) {
-      let conn;
-      if (p.type === 'file') {
-        conn = `file → ${p.device}`;
-      } else if (p.type === 'fpmate') {
-        conn = `fpmate → ${p.https ? 'https' : 'http'}://${p.host}${p.port ? ':' + p.port : ''}`;
-      } else {
-        conn = `TCP  → ${p.host}:${p.port}`;
-      }
-      console.log(`[print-server]   [${p.id}] ${p.name}  (${conn})`);
+if (require.main === module) {
+  server.listen(PORT, () => {
+    console.log(`[print-server] ${SERVER_NAME} in ascolto su http://localhost:${PORT}`);
+    console.log(`[print-server] Endpoint: POST http://localhost:${PORT}/print`);
+    if (API_KEY) {
+      console.log('[print-server] Autenticazione API key abilitata (x-api-key)');
     }
-  }
+    if (CORS_ALLOWED_ORIGINS.length > 0) {
+      console.log('[print-server] CORS origini consentite:', CORS_ALLOWED_ORIGINS.join(', '));
+    }
 
-  // Avvia modalità Directus Pull se DIRECTUS_URL e DIRECTUS_TOKEN sono impostati.
-  // La funzione è non bloccante: polling e WebSocket girano in background.
-  directusClient.start(console).catch((err) => {
-    console.error('[print-server] Errore avvio Directus pull mode:', err instanceof Error ? err.message : String(err), err);
+    const printers = getPrintersList();
+    if (printers.length === 0) {
+      console.warn('[print-server] ATTENZIONE: nessuna stampante configurata in printers.config.js');
+    } else {
+      console.log(`[print-server] Stampanti configurate (${printers.length}):`);
+      for (const p of printers) {
+        let conn;
+        if (p.type === 'file') {
+          conn = `file → ${p.device}`;
+        } else if (p.type === 'fpmate') {
+          conn = `fpmate → ${p.https ? 'https' : 'http'}://${p.host}${p.port ? ':' + p.port : ''}`;
+        } else {
+          conn = `TCP  → ${p.host}:${p.port}`;
+        }
+        console.log(`[print-server]   [${p.id}] ${p.name}  (${conn})`);
+      }
+    }
+
+    // Avvia modalità Directus Pull se DIRECTUS_URL e DIRECTUS_TOKEN sono impostati.
+    // La funzione è non bloccante: polling e WebSocket girano in background.
+    directusClient.start(console).catch((err) => {
+      console.error('[print-server] Errore avvio Directus pull mode:', err instanceof Error ? err.message : String(err), err);
+    });
   });
-});
 
-server.on('error', (err) => {
-  console.error(`[print-server] Errore avvio server sulla porta ${PORT}:`, err.message);
-  process.exit(1);
-});
+  server.on('error', (err) => {
+    console.error(`[print-server] Errore avvio server sulla porta ${PORT}:`, err.message);
+    process.exit(1);
+  });
+}
+
+module.exports = { app, server, buildPrinterSummary };
 
