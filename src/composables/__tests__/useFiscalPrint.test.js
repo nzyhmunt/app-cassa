@@ -184,3 +184,118 @@ describe('dispatchFiscalZReport / dispatchFiscalStatus', () => {
     expect(body.statusType).toBe('1');
   });
 });
+
+// ── Void / Refund / Duplicate / Drawer / Cash ────────────────────────────────
+
+describe('dispatchFiscalVoid', () => {
+  it('sends a fiscal_void job carrying the receipt references', async () => {
+    const { dispatchFiscalVoid } = await import('../useFiscalPrint.js');
+    global.fetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({ ok: true, fiscal: { success: true, code: '', status: '2', raw: '', addInfo: {} } }),
+    });
+    const receiptRef = { zRepNumber: '39', fiscalReceiptNumber: '5', date: '31/01/2024', serialNumber: '99IEB004001' };
+    const result = await dispatchFiscalVoid({ receiptRef });
+    expect(result.ok).toBe(true);
+    const body = JSON.parse(global.fetch.mock.calls[0][1].body);
+    expect(body.printType).toBe('fiscal_void');
+    expect(body.receiptRef).toEqual(receiptRef);
+    expect(body.printerId).toBe('fiscale');
+  });
+
+  it('fails locally when receipt references are missing', async () => {
+    const { dispatchFiscalVoid } = await import('../useFiscalPrint.js');
+    const result = await dispatchFiscalVoid({ receiptRef: {} });
+    expect(result.ok).toBe(false);
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe('dispatchFiscalRefund', () => {
+  it('sends a fiscal_refund job with orders and payments', async () => {
+    const { dispatchFiscalRefund } = await import('../useFiscalPrint.js');
+    global.fetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({ ok: true, fiscal: { success: true, code: '', status: '2', raw: '', addInfo: {} } }),
+    });
+    const result = await dispatchFiscalRefund({ base: baseBill });
+    expect(result.ok).toBe(true);
+    const body = JSON.parse(global.fetch.mock.calls[0][1].body);
+    expect(body.printType).toBe('fiscal_refund');
+    expect(body.orders).toEqual(baseBill.orders);
+    expect(body.payments[0].label).toBe('Contanti');
+  });
+
+  it('falls back to a single CONTANTI payment when paymentMethods is empty', async () => {
+    const { dispatchFiscalRefund } = await import('../useFiscalPrint.js');
+    global.fetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({ ok: true, fiscal: { success: true, code: '', status: '2', raw: '', addInfo: {} } }),
+    });
+    await dispatchFiscalRefund({ base: { orders: baseBill.orders, totalAmount: 13 } });
+    const body = JSON.parse(global.fetch.mock.calls[0][1].body);
+    expect(body.payments).toHaveLength(1);
+    expect(body.payments[0].label).toBe('CONTANTI');
+  });
+});
+
+describe('dispatchFiscalDuplicate / dispatchFiscalOpenDrawer', () => {
+  it('sends a fiscal_duplicate job', async () => {
+    const { dispatchFiscalDuplicate } = await import('../useFiscalPrint.js');
+    global.fetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({ ok: true, fiscal: { success: true, code: '', status: '2', raw: '', addInfo: {} } }),
+    });
+    const result = await dispatchFiscalDuplicate({});
+    expect(result.ok).toBe(true);
+    expect(JSON.parse(global.fetch.mock.calls[0][1].body).printType).toBe('fiscal_duplicate');
+  });
+
+  it('sends a fiscal_drawer job', async () => {
+    const { dispatchFiscalOpenDrawer } = await import('../useFiscalPrint.js');
+    global.fetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({ ok: true, fiscal: { success: true, code: '', status: '2', raw: '', addInfo: {} } }),
+    });
+    const result = await dispatchFiscalOpenDrawer({});
+    expect(result.ok).toBe(true);
+    expect(JSON.parse(global.fetch.mock.calls[0][1].body).printType).toBe('fiscal_drawer');
+  });
+});
+
+describe('dispatchFiscalCash', () => {
+  it('sends a fiscal_cash job with direction and amount', async () => {
+    const { dispatchFiscalCash } = await import('../useFiscalPrint.js');
+    global.fetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({ ok: true, fiscal: { success: true, code: '', status: '2', raw: '', addInfo: {} } }),
+    });
+    const result = await dispatchFiscalCash({ direction: 'out', amount: 50 });
+    expect(result.ok).toBe(true);
+    const body = JSON.parse(global.fetch.mock.calls[0][1].body);
+    expect(body.printType).toBe('fiscal_cash');
+    expect(body.direction).toBe('out');
+    expect(body.amount).toBe(50);
+    expect(body.form).toBe('cash');
+  });
+
+  it('rejects an invalid direction locally', async () => {
+    const { dispatchFiscalCash } = await import('../useFiscalPrint.js');
+    const result = await dispatchFiscalCash({ direction: 'sideways', amount: 50 });
+    expect(result.ok).toBe(false);
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  it('rejects a non-positive amount locally', async () => {
+    const { dispatchFiscalCash } = await import('../useFiscalPrint.js');
+    const result = await dispatchFiscalCash({ direction: 'in', amount: 0 });
+    expect(result.ok).toBe(false);
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+});

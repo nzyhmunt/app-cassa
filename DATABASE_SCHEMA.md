@@ -896,8 +896,14 @@ CREATE INDEX idx_print_jobs_type_status ON print_jobs (print_type, status);
 
 ### 2.20 `fiscal_receipts` — Comandi stampante fiscale (scontrini RT)
 
-Ogni record rappresenta un tentativo di emissione di uno scontrino fiscale a chiusura conto.
+Ogni record rappresenta un tentativo di emissione di un documento fiscale a chiusura conto.
 Non riutilizza `print_jobs` perché il formato (XML RT) e il ciclo di vita (request/response XML) sono completamente diversi dai lavori ESC/POS.
+
+Supporta i documenti fiscali RT generati dal tab "Fiscale RT" del Cruscotto Cassa:
+scontrino (`fiscal_receipt`), reso (`fiscal_refund`) e annullo (`fiscal_void`). La colonna
+`operation_type` distingue il tipo di documento; per gli annulli, `void_ref_id` punta allo
+scontrino originale annullato (i cui riferimenti Z/numero/data/matricola sono già memorizzati
+nei campi `z_rep_number`/`fiscal_receipt_number`/`fiscal_receipt_date`/`serial_number`).
 
 La stampante fiscale Epson RT comunica via `fpmate.cgi` (SOAP/HTTP); il print-server
 costruisce l'XML dalla richiesta strutturata e restituisce i campi della risposta
@@ -917,9 +923,13 @@ CREATE TABLE fiscal_receipts (
                                                    -- Per conti dallo storico: include bill.totalDiscount per allineamento con la cassa live
     payment_methods     TEXT,                      -- JSON array di stringhe
     orders              TEXT,                      -- JSON snapshot voci (name/qty/unitPrice)
+    operation_type      TEXT        NOT NULL DEFAULT 'receipt'
+                                    CHECK (operation_type IN ('receipt','refund','void','duplicate','cash','status','z_report','x_report','drawer')),
+    void_ref_id         UUID        REFERENCES fiscal_receipts(id) ON DELETE SET NULL,
+                                                   -- Scontrino originale annullato (solo per operation_type = 'void')
     xml_request         TEXT,                      -- Payload XML inviato alla stampante
     xml_response        TEXT,                      -- Risposta XML ricevuta dalla stampante (null se non ancora ricevuta)
-    -- Risposta fpmate (addInfo) — popolata dal print-server alla conferma dello scontrino
+    -- Risposta fpmate (addInfo) — popolata dal print-server alla conferma del documento
     fiscal_receipt_number   TEXT,                 -- Numero progressivo scontrino (fiscalReceiptNumber)
     fiscal_receipt_amount   TEXT,                  -- Importo stampato (fiscalReceiptAmount, formato italiano "13,00")
     fiscal_receipt_date     TEXT,                  -- Data scontrino (fiscalReceiptDate, "21/04/2023")
@@ -946,6 +956,8 @@ CREATE INDEX idx_fiscal_receipts_status       ON fiscal_receipts (status);
 CREATE INDEX idx_fiscal_receipts_timestamp    ON fiscal_receipts (timestamp DESC);
 CREATE INDEX idx_fiscal_receipts_serial       ON fiscal_receipts (serial_number);
 CREATE INDEX idx_fiscal_receipts_z_rep         ON fiscal_receipts (z_rep_number);
+CREATE INDEX idx_fiscal_receipts_operation    ON fiscal_receipts (operation_type);
+CREATE INDEX idx_fiscal_receipts_void_ref      ON fiscal_receipts (void_ref_id);
 ```
 
 ---

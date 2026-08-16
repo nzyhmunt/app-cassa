@@ -379,9 +379,25 @@ app-cassa ──POST /print (printType=fiscal_receipt)──► print-server
 | printType | Descrizione |
 |---|---|
 | `fiscal_receipt` | Scontrino fiscale (documento commerciale). Job: `orders[].items[]`, `payments[]`, `totalAmount` |
+| `fiscal_refund` | Documento di reso commerciale (RESO MERCE). Job come `fiscal_receipt` + `receiptRef?` (collegamento all'originale) |
+| `fiscal_void` | Documento di annullo commerciale (VOID). Job: `receiptRef { zRepNumber, fiscalReceiptNumber, date, serialNumber }` |
 | `fiscal_z_report` | Chiusura giornaliera (Z report). Trasmette i dati all'Agenzia delle Entrate |
 | `fiscal_x_report` | Report finanziario giornaliero (X report, non fiscale) |
 | `fiscal_status` | Query stato stampante (`statusType`: `'0'` base, `'1'` RT) |
+| `fiscal_duplicate` | Ristampa ultimo scontrino (documento di gestione, letto dall'MPD/EJ) |
+| `fiscal_drawer` | Apertura cassetto contanti collegato alla stampante fiscale |
+| `fiscal_cash` | Movimento cassa fiscale (versamento/prelievo). Job: `direction` (`in`/`out`), `amount`, `form?` (`cash`/`cheque`) |
+
+**Operazioni del cassiere (UI Cruscotto Cassa → tab "Fiscale RT"):**
+
+- **Stato stampante** — interrogazione stato RT (giornata aperta, file da inviare all'Agenzia delle Entrate, scadenza certificato, matricola).
+- **Lettura X / Z fiscale** — pulsanti dedicati nei tab "Lettura X" e "Lettura Z" inviano il job alla stampante RT (oltre alla rielaborazione locale).
+- **Apri cassetto** — apertura cassetto contanti (`openDrawer`).
+- **Duplicato scontrino** — ristampa dell'ultimo scontrino commerciale (`printDuplicateReceipt`, documento di gestione).
+- **Movimento cassa fiscale** — versamento/prelievo registrato nella memoria fiscale RT (`printRecCash`).
+- **Annullo scontrino (Void)** — selezione di uno scontrino emesso e invio del documento di annullo commerciale (`VOID zzzz nnnn ddmmyyyy sssssssssss`). I riferimenti (zRepNumber, fiscalReceiptNumber, date, serialNumber) sono letti dalla entry `fiscal_receipts` dell'originale.
+
+Tutte le operazioni transitano per il print-server; il browser invia solo il job strutturato.
 
 **Configurazione** (`printers.config.js`):
 
@@ -496,7 +512,7 @@ Riceve un job JSON, lo converte in ESC/POS (o XML fiscale) e lo invia alla stamp
 
 | Campo | Tipo | Descrizione |
 |---|---|---|
-| `printType` | `string` | **Obbligatorio.** `'order'` \| `'table_move'` \| `'pre_bill'` \| `'fiscal_receipt'` \| `'fiscal_z_report'` \| `'fiscal_x_report'` \| `'fiscal_status'` |
+| `printType` | `string` | **Obbligatorio.** `'order'` \| `'table_move'` \| `'pre_bill'` \| `'fiscal_receipt'` \| `'fiscal_refund'` \| `'fiscal_void'` \| `'fiscal_z_report'` \| `'fiscal_x_report'` \| `'fiscal_status'` \| `'fiscal_duplicate'` \| `'fiscal_drawer'` \| `'fiscal_cash'` |
 | `printerId` | `string` | ID stampante. Se assente/non trovato → prima stampante |
 | `jobId` | `string` | Identificatore job (restituito in risposta) |
 
@@ -608,7 +624,7 @@ printers: [
     printTypes: ['pre_bill', 'table_move'] },
   { id: 'fiscale', name: 'Stampante Fiscale',
     connectionType: 'fpmate', url: 'http://localhost:3001/print',
-    printTypes: ['fiscal_receipt', 'fiscal_z_report', 'fiscal_x_report', 'fiscal_status'] },
+    printTypes: ['fiscal_receipt', 'fiscal_refund', 'fiscal_void', 'fiscal_z_report', 'fiscal_x_report', 'fiscal_status', 'fiscal_duplicate', 'fiscal_drawer', 'fiscal_cash'] },
 ],
 ```
 

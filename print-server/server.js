@@ -14,9 +14,14 @@
  *   ESC/POS (stampanti termiche tcp/file): 'order', 'table_move', 'pre_bill'
  *   Fiscali (stampante Epson RT tipo fpmate):
  *     'fiscal_receipt'  – scontrino fiscale (documento commerciale)
+ *     'fiscal_refund'   – documento di reso commerciale (RESO MERCE)
+ *     'fiscal_void'     – documento di annullo commerciale (VOID)
  *     'fiscal_z_report' – chiusura giornaliera (Z report)
  *     'fiscal_x_report' – report finanziario (X report)
  *     'fiscal_status'   – query stato stampante
+ *     'fiscal_duplicate'– ristampa ultimo scontrino (documento di gestione)
+ *     'fiscal_drawer'   – apertura cassetto contanti
+ *     'fiscal_cash'     – versamento/prelievo cassa fiscale (cash in/out)
  *
  * Le stampanti fisiche sono configurate in `printers.config.js` (Opzione A) oppure
  * tramite variabili d'ambiente `PRINTER_<N>_*` (Opzione B — le env vars hanno la precedenza).
@@ -88,10 +93,10 @@ const CORS_ALLOWED_ORIGINS = (process.env.CORS_ALLOWED_ORIGINS || '')
   .filter(Boolean);
 
 // Supported printType values
-const VALID_PRINT_TYPES = new Set(['order', 'table_move', 'pre_bill', 'fiscal_receipt', 'fiscal_z_report', 'fiscal_x_report', 'fiscal_status']);
+const VALID_PRINT_TYPES = new Set(['order', 'table_move', 'pre_bill', 'fiscal_receipt', 'fiscal_refund', 'fiscal_void', 'fiscal_z_report', 'fiscal_x_report', 'fiscal_status', 'fiscal_duplicate', 'fiscal_drawer', 'fiscal_cash']);
 
 // Fiscal print types — dispatched via fpmate HTTP/SOAP instead of raw ESC/POS.
-const FISCAL_PRINT_TYPES = new Set(['fiscal_receipt', 'fiscal_z_report', 'fiscal_x_report', 'fiscal_status']);
+const FISCAL_PRINT_TYPES = new Set(['fiscal_receipt', 'fiscal_refund', 'fiscal_void', 'fiscal_z_report', 'fiscal_x_report', 'fiscal_status', 'fiscal_duplicate', 'fiscal_drawer', 'fiscal_cash']);
 
 // ── App Express ───────────────────────────────────────────────────────────────
 

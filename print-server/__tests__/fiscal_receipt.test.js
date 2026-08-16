@@ -12,9 +12,15 @@ const require = createRequire(import.meta.url);
 const {
   buildFiscalXml,
   formatFiscalReceipt,
+  formatFiscalRefund,
+  formatFiscalVoid,
   formatZReport,
   formatXReport,
   formatStatusQuery,
+  formatDuplicateReceipt,
+  formatOpenDrawer,
+  formatRecCash,
+  normalizeRefDate,
   formatAmount,
   formatQuantity,
   paymentTypeFromLabel,
@@ -179,10 +185,112 @@ describe('buildFiscalXml dispatch', () => {
     expect(buildFiscalXml({ printType: 'fiscal_z_report' })).toContain('printZReport');
     expect(buildFiscalXml({ printType: 'fiscal_x_report' })).toContain('printXReport');
     expect(buildFiscalXml({ printType: 'fiscal_status' })).toContain('queryPrinterStatus');
+    expect(buildFiscalXml({ printType: 'fiscal_duplicate' })).toContain('printDuplicateReceipt');
+    expect(buildFiscalXml({ printType: 'fiscal_drawer' })).toContain('openDrawer');
+    expect(buildFiscalXml({ printType: 'fiscal_cash', direction: 'in', amount: 50 })).toContain('printRecCash');
   });
 
   it('throws for unsupported printType', () => {
     expect(() => buildFiscalXml({ printType: 'bogus' })).toThrow(/Tipo fiscale non supportato/);
+  });
+});
+
+// ── formatFiscalVoid (annullo commerciale) ────────────────────────────────────
+
+describe('formatFiscalVoid', () => {
+  const ref = { zRepNumber: '0039', fiscalReceiptNumber: '0005', date: '31/01/2024', serialNumber: '99IEB004001' };
+
+  it('emits a VOID printRecMessage with formatted reference line', () => {
+    const xml = formatFiscalVoid({ receiptRef: ref });
+    expect(xml).toContain('<printerFiscalReceipt>');
+    expect(xml).toContain('message="VOID 0039 0005 31012024 99IEB004001"');
+    expect(xml).toContain('<endFiscalReceipt operator="1" />');
+    expect(xml).toContain('</printerFiscalReceipt>');
+  });
+
+  it('pads reference fields to the required widths', () => {
+    const xml = formatFiscalVoid({ receiptRef: { zRepNumber: '5', fiscalReceiptNumber: '12', date: '01022024', serialNumber: 'XYZ' } });
+    expect(xml).toContain('VOID 0005 0012 01022024 XYZ00000000');
+  });
+
+  it('uses default operator 1 when omitted', () => {
+    const xml = formatFiscalVoid({ receiptRef: ref });
+    expect(xml).toContain('operator="1"');
+  });
+});
+
+describe('normalizeRefDate', () => {
+  it('converts dd/mm/yyyy to ddmmyyyy', () => {
+    expect(normalizeRefDate('31/01/2024')).toBe('31012024');
+    expect(normalizeRefDate('1/2/24')).toBe('01020224');
+  });
+  it('passes through already-compact dates padded to 8 digits', () => {
+    expect(normalizeRefDate('01022024')).toBe('01022024');
+  });
+});
+
+// ── formatFiscalRefund (reso merce) ──────────────────────────────────────────
+
+describe('formatFiscalRefund', () => {
+  const refundJob = {
+    orders: [{ items: [{ name: 'Pasta', quantity: 1, unitPrice: 10, department: 2 }] }],
+    payments: [{ label: 'Contanti', amount: 10 }],
+    totalAmount: 10,
+  };
+
+  it('uses printRecRefund for returned goods', () => {
+    const xml = formatFiscalRefund(refundJob);
+    expect(xml).toContain('<printRecRefund');
+    expect(xml).toContain('description="Pasta"');
+    expect(xml).toContain('unitPrice="10,00"');
+    expect(xml).toContain('department="2"');
+    expect(xml).toContain('<printRecTotal');
+  });
+
+  it('prepends a REFUND reference line when receiptRef is provided', () => {
+    const xml = formatFiscalRefund({ ...refundJob, receiptRef: { zRepNumber: '39', fiscalReceiptNumber: '5', date: '31/01/2024', serialNumber: '99IEB004001' } });
+    expect(xml).toContain('message="REFUND 0039 0005 31012024 99IEB004001"');
+  });
+
+  it('throws when no refund items are provided', () => {
+    expect(() => formatFiscalRefund({ orders: [], payments: [{ label: 'Contanti', amount: 1 }] })).toThrow();
+  });
+
+  it('throws when no payments are provided', () => {
+    expect(() => formatFiscalRefund({ orders: refundJob.orders, payments: [] })).toThrow();
+  });
+});
+
+// ── formatDuplicateReceipt / formatOpenDrawer / formatRecCash ─────────────────
+
+describe('formatDuplicateReceipt', () => {
+  it('emits a printerCommand with printDuplicateReceipt', () => {
+    const xml = formatDuplicateReceipt({});
+    expect(xml).toContain('<printerCommand>');
+    expect(xml).toContain('<printDuplicateReceipt operator="1" />');
+    expect(xml).toContain('</printerCommand>');
+  });
+});
+
+describe('formatOpenDrawer', () => {
+  it('emits a printerCommand with openDrawer', () => {
+    const xml = formatOpenDrawer({ operator: '2' });
+    expect(xml).toContain('<openDrawer operator="2" />');
+  });
+});
+
+describe('formatRecCash', () => {
+  it('builds a cash-in movement with default cash form', () => {
+    const xml = formatRecCash({ direction: 'in', amount: 100 });
+    expect(xml).toContain('<printRecCash operator="1" direction="in" form="cash" amount="100,00" />');
+  });
+  it('builds a cash-out movement with cheque form', () => {
+    const xml = formatRecCash({ direction: 'out', amount: 50, form: 'cheque' });
+    expect(xml).toContain('direction="out" form="cheque" amount="50,00"');
+  });
+  it('defaults direction to in for unknown values', () => {
+    const xml = formatRecCash({ direction: 'sideways', amount: 5 });
+    expect(xml).toContain('direction="in"');
   });
 });
 

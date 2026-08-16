@@ -7,11 +7,16 @@
  * il browser invia solo i dati strutturati del job (printType, orders, payments).
  *
  * Funzioni esportate:
- *   dispatchFiscalReceipt({ base, printerId? })   – emette uno scontrino fiscale
- *   dispatchFiscalZReport({ printerId? })         – chiusura giornaliera (Z)
- *   dispatchFiscalXReport({ printerId? })         – report finanziario (X)
- *   dispatchFiscalStatus({ printerId?, statusType? }) – query stato stampante
- *   resolveFiscalPrinter()                        – restituisce la stampante fiscale configurata
+ *   dispatchFiscalReceipt({ base, printerId? })        – emette uno scontrino fiscale
+ *   dispatchFiscalRefund({ base, receiptRef?, printerId? }) – reso merce (REFUND)
+ *   dispatchFiscalVoid({ receiptRef, printerId? })     – annullo scontrino (VOID)
+ *   dispatchFiscalZReport({ printerId? })              – chiusura giornaliera (Z)
+ *   dispatchFiscalXReport({ printerId? })              – report finanziario (X)
+ *   dispatchFiscalStatus({ printerId?, statusType? })  – query stato stampante
+ *   dispatchFiscalDuplicate({ printerId? })            – ristampa ultimo scontrino
+ *   dispatchFiscalOpenDrawer({ printerId? })           – apertura cassetto
+ *   dispatchFiscalCash({ direction, amount, form?, printerId? }) – cash in/out
+ *   resolveFiscalPrinter()                             – restituisce la stampante fiscale configurata
  *
  * Ogni dispatch aggiorna la entry corrispondente in store (fiscalReceipts per gli
  * scontrini) con la risposta della stampante (fiscalReceiptNumber, amount, …).
@@ -259,4 +264,158 @@ export async function dispatchFiscalStatus({ printerId = null, statusType = '0' 
     status: result.ok ? PRINT_LOG_STATUSES.DONE : PRINT_LOG_STATUSES.ERROR,
   });
   return result;
+}
+
+// ── Void / Refund / Duplicate / Drawer / Cash ────────────────────────────────
+
+/**
+ * Helper per i job fiscali semplici (void, refund, duplicate, drawer, cash) che non
+ * richiedono aggiornamento di una entry fiscalReceipts specifica ma solo activity log.
+ * @param {{ printType: string, buildJob: (printer, operator) => object, printerId?: string|null, operator?: string|number }} args
+ * @returns {Promise<{ ok: boolean, fiscal?: object, error?: string }>}
+ */
+async function dispatchFiscalJob({ printType, buildJob, printerId = null, operator } = {}) {
+  const store = getStore();
+  const printer = resolveFiscalPrinter(store);
+  if (!printer) return { ok: false, error: 'Nessuna stampante fiscale configurata.' };
+
+  const job = buildJob(printer, operator);
+  const result = await sendFiscalJob({ job, printer });
+  logFiscalActivity({
+    endpoint: printer.url,
+    payload: job,
+    status: result.ok ? PRINT_LOG_STATUSES.DONE : PRINT_LOG_STATUSES.ERROR,
+  });
+  return result;
+}
+
+/**
+ * Emette un documento di annullo commerciale (VOID) per uno scontrino già emesso.
+ * I riferimenti (zRepNumber, fiscalReceiptNumber, date, serialNumber) sono recuperati
+ * dalla entry fiscalReceipts dell'originale (campi popolati dalla risposta fpmate).
+ *
+ * @param {{ receiptRef: object, printerId?: string|null, operator?: string|number }} options
+ *   receiptRef: { zRepNumber, fiscalReceiptNumber, date, serialNumber }
+ * @returns {Promise<{ ok: boolean, fiscal?: object, error?: string }>}
+ */
+export function dispatchFiscalVoid({ receiptRef, printerId = null, operator } = {}) {
+  if (!receiptRef || (!receiptRef.fiscalReceiptNumber && !receiptRef.zRepNumber)) {
+    return Promise.resolve({ ok: false, error: 'Riferimenti scontrino mancanti per l\'annullo.' });
+  }
+  return dispatchFiscalJob({
+    printType: PRINT_JOB_TYPES.FISCAL_VOID,
+    printerId,
+    operator,
+    buildJob: (printer, op) => ({
+      jobId: newUUIDv7(),
+      printType: PRINT_JOB_TYPES.FISCAL_VOID,
+      printerId: printerId ?? printer.id,
+      receiptRef,
+      timestamp: new Date().toISOString(),
+      ...(op != null ? { operator: op } : {}),
+    }),
+  });
+}
+
+/**
+ * Emette un documento di reso commerciale (REFUND / RESO MERCE). Le voci usano
+ * printRecRefund; se fornito receiptRef, la stampante collega il reso all'originale.
+ *
+ * @param {{ base: object, receiptRef?: object, printerId?: string|null, operator?: string|number }} options
+ *   base come in dispatchFiscalReceipt (orders, paymentMethods, totalAmount).
+ * @returns {Promise<{ ok: boolean, fiscal?: object, error?: string }>}
+ */
+export function dispatchFiscalRefund({ base, receiptRef = null, printerId = null, operator } = {}) {
+  return dispatchFiscalJob({
+    printType: PRINT_JOB_TYPES.FISCAL_REFUND,
+    printerId,
+    operator,
+    buildJob: (printer, op) => {
+      const paymentMethods = Array.isArray(base?.paymentMethods) ? base.paymentMethods : [];
+      const payments = paymentMethods.length > 0
+        ? paymentMethods.map((label) => ({ label, amount: base.totalAmount ?? 0 }))
+        : [{ label: 'CONTANTI', amount: base?.totalAmount ?? 0 }];
+      return {
+        jobId: newUUIDv7(),
+        printType: PRINT_JOB_TYPES.FISCAL_REFUND,
+        printerId: printerId ?? printer.id,
+        orders: base?.orders ?? [],
+        payments,
+        totalAmount: base?.totalAmount ?? 0,
+        ...(receiptRef ? { receiptRef } : {}),
+        timestamp: new Date().toISOString(),
+        ...(op != null ? { operator: op } : {}),
+      };
+    },
+  });
+}
+
+/**
+ * Ristampa l'ultimo scontrino commerciale emesso (duplicato, documento di gestione).
+ * @param {{ printerId?: string|null, operator?: string|number }} options
+ * @returns {Promise<{ ok: boolean, fiscal?: object, error?: string }>}
+ */
+export function dispatchFiscalDuplicate({ printerId = null, operator } = {}) {
+  return dispatchFiscalJob({
+    printType: PRINT_JOB_TYPES.FISCAL_DUPLICATE,
+    printerId,
+    operator,
+    buildJob: (printer, op) => ({
+      jobId: newUUIDv7(),
+      printType: PRINT_JOB_TYPES.FISCAL_DUPLICATE,
+      printerId: printerId ?? printer.id,
+      timestamp: new Date().toISOString(),
+      ...(op != null ? { operator: op } : {}),
+    }),
+  });
+}
+
+/**
+ * Apre il cassetto contanti collegato alla stampante fiscale.
+ * @param {{ printerId?: string|null, operator?: string|number }} options
+ * @returns {Promise<{ ok: boolean, fiscal?: object, error?: string }>}
+ */
+export function dispatchFiscalOpenDrawer({ printerId = null, operator } = {}) {
+  return dispatchFiscalJob({
+    printType: PRINT_JOB_TYPES.FISCAL_DRAWER,
+    printerId,
+    operator,
+    buildJob: (printer, op) => ({
+      jobId: newUUIDv7(),
+      printType: PRINT_JOB_TYPES.FISCAL_DRAWER,
+      printerId: printerId ?? printer.id,
+      timestamp: new Date().toISOString(),
+      ...(op != null ? { operator: op } : {}),
+    }),
+  });
+}
+
+/**
+ * Registra un movimento di cassa fiscale (versamento o prelievo) sulla stampante RT.
+ * @param {{ direction: 'in'|'out', amount: number, form?: 'cash'|'cheque', printerId?: string|null, operator?: string|number }} options
+ * @returns {Promise<{ ok: boolean, fiscal?: object, error?: string }>}
+ */
+export function dispatchFiscalCash({ direction, amount, form = 'cash', printerId = null, operator } = {}) {
+  const numAmount = Number(amount);
+  if (!['in', 'out'].includes(direction)) {
+    return Promise.resolve({ ok: false, error: 'Direction non valido (usare "in" o "out").' });
+  }
+  if (!Number.isFinite(numAmount) || numAmount <= 0) {
+    return Promise.resolve({ ok: false, error: 'Importo non valido per il movimento di cassa.' });
+  }
+  return dispatchFiscalJob({
+    printType: PRINT_JOB_TYPES.FISCAL_CASH,
+    printerId,
+    operator,
+    buildJob: (printer, op) => ({
+      jobId: newUUIDv7(),
+      printType: PRINT_JOB_TYPES.FISCAL_CASH,
+      printerId: printerId ?? printer.id,
+      direction,
+      amount: numAmount,
+      form,
+      timestamp: new Date().toISOString(),
+      ...(op != null ? { operator: op } : {}),
+    }),
+  });
 }

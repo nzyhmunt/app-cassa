@@ -422,9 +422,14 @@ export const PRINT_JOB_TYPES = Object.freeze({
   TABLE_MOVE: 'table_move',
   PRE_BILL: 'pre_bill',
   FISCAL_RECEIPT: 'fiscal_receipt',
+  FISCAL_REFUND: 'fiscal_refund',
+  FISCAL_VOID: 'fiscal_void',
   FISCAL_Z_REPORT: 'fiscal_z_report',
   FISCAL_X_REPORT: 'fiscal_x_report',
   FISCAL_STATUS: 'fiscal_status',
+  FISCAL_DUPLICATE: 'fiscal_duplicate',
+  FISCAL_DRAWER: 'fiscal_drawer',
+  FISCAL_CASH: 'fiscal_cash',
 });
 
 export const DEFAULT_HTTP_PRE_BILL_PRINTER_ID = 'pre_bill';
