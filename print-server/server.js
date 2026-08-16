@@ -4,9 +4,19 @@
  * @file server.js
  * @description Servizio Node.js ESC/POS per la stampa di comande da app-cassa.
  *
- * Espone un endpoint HTTP:
- *   POST /print  – riceve un job JSON, lo converte in ESC/POS e lo invia alla stampante.
- *   GET  /health – ritorna { status: 'ok' } per il controllo di salute del servizio.
+ * Espone endpoint HTTP:
+ *   POST /print    – riceve un job JSON, lo converte in ESC/POS (o XML fiscale)
+ *                    e lo invia alla stampante.
+ *   GET  /health   – ritorna { status: 'ok' } per il controllo di salute del servizio.
+ *   GET  /printers – ritorna l'elenco delle stampanti configurate.
+ *
+ * Tipi di stampa supportati (campo `printType` del job):
+ *   ESC/POS (stampanti termiche tcp/file): 'order', 'table_move', 'pre_bill'
+ *   Fiscali (stampante Epson RT tipo fpmate):
+ *     'fiscal_receipt'  – scontrino fiscale (documento commerciale)
+ *     'fiscal_z_report' – chiusura giornaliera (Z report)
+ *     'fiscal_x_report' – report finanziario (X report)
+ *     'fiscal_status'   – query stato stampante
  *
  * Le stampanti fisiche sono configurate in `printers.config.js` (Opzione A) oppure
  * tramite variabili d'ambiente `PRINTER_<N>_*` (Opzione B — le env vars hanno la precedenza).
@@ -38,8 +48,9 @@ const http    = require('http');
 const cors    = require('cors');
 const express = require('express');
 
-const { printBuffer, getPrintersList, getPrinterConfig } = require('./printer.js');
+const { printBuffer, printFiscal, getPrintersList, getPrinterConfig } = require('./printer.js');
 const { buildEscPosBuffer } = require('./build-buffer.js');
+const { buildFiscalXml } = require('./formatters/fiscal_receipt.js');
 const directusClient = require('./directus-client.js');
 
 // ── Configurazione ────────────────────────────────────────────────────────────
@@ -77,7 +88,10 @@ const CORS_ALLOWED_ORIGINS = (process.env.CORS_ALLOWED_ORIGINS || '')
   .filter(Boolean);
 
 // Supported printType values
-const VALID_PRINT_TYPES = new Set(['order', 'table_move', 'pre_bill']);
+const VALID_PRINT_TYPES = new Set(['order', 'table_move', 'pre_bill', 'fiscal_receipt', 'fiscal_z_report', 'fiscal_x_report', 'fiscal_status']);
+
+// Fiscal print types — dispatched via fpmate HTTP/SOAP instead of raw ESC/POS.
+const FISCAL_PRINT_TYPES = new Set(['fiscal_receipt', 'fiscal_z_report', 'fiscal_x_report', 'fiscal_status']);
 
 // ── App Express ───────────────────────────────────────────────────────────────
 
@@ -144,6 +158,28 @@ app.get('/health', (_req, res) => {
 });
 
 /**
+ * GET /printers
+ * Restituisce l'elenco delle stampanti configurate (senza credenziali).
+ */
+app.get('/printers', (_req, res) => {
+  const printers = getPrintersList().map((p) => {
+    const summary = { id: p.id, name: p.name, type: p.type };
+    if (p.type === 'tcp') {
+      summary.host = p.host;
+      summary.port = p.port;
+    } else if (p.type === 'file') {
+      summary.device = p.device;
+    } else if (p.type === 'fpmate') {
+      summary.host = p.host;
+      summary.port = p.port ?? null;
+      summary.https = p.https === true;
+    }
+    return summary;
+  });
+  res.json({ ok: true, printers });
+});
+
+/**
  * POST /print
  * Riceve un job di stampa JSON, lo converte in ESC/POS e lo invia alla stampante.
  *
@@ -187,7 +223,41 @@ app.post('/print', apiKeyGuard, async (req, res) => {
   }
   const safeResolvedId = sanitizeForLog(printerConfig.id);
 
-  // Conversione payload → Buffer ESC/POS
+  // ── Fiscal jobs: build XML and dispatch via fpmate HTTP/SOAP ───────────────
+  if (FISCAL_PRINT_TYPES.has(printType)) {
+    if ((printerConfig.type || '').toLowerCase() !== 'fpmate') {
+      return res.status(400).json({
+        ok: false,
+        error: `Il printType "${printType}" richiede una stampante di tipo fpmate (stampante "${printerConfig.id}" è type="${printerConfig.type}").`,
+      });
+    }
+
+    let xml;
+    try {
+      xml = buildFiscalXml(job);
+    } catch (err) {
+      const safeMsg = sanitizeForLog(err.message);
+      console.error('[print-server] Errore formattazione fiscale job', safeJobId, '(' + safePrintType + '):', safeMsg);
+      return res.status(400).json({ ok: false, error: `Errore formattazione fiscale: ${safeMsg}` });
+    }
+
+    try {
+      const fiscalResponse = await printFiscal(xml, printerId);
+      console.log('[print-server] Job fiscale stampato:', safeJobId, '(' + safePrintType + ') → stampante:', safeResolvedId,
+        'success:', fiscalResponse.success, 'receipt:', fiscalResponse.addInfo?.fiscalReceiptNumber ?? '–');
+      return res.json({
+        ok: fiscalResponse.success === true,
+        jobId: jobId ?? null,
+        fiscal: fiscalResponse,
+      });
+    } catch (err) {
+      const safeMsg = sanitizeForLog(err.message);
+      console.error('[print-server] Errore stampante fiscale per job', safeJobId + ':', safeMsg);
+      return res.status(500).json({ ok: false, error: `Errore stampante fiscale: ${safeMsg}` });
+    }
+  }
+
+  // ── ESC/POS jobs: build buffer and dispatch via TCP/file ───────────────────
   let buf;
   try {
     buf = buildEscPosBuffer(job);
@@ -253,9 +323,14 @@ server.listen(PORT, () => {
   } else {
     console.log(`[print-server] Stampanti configurate (${printers.length}):`);
     for (const p of printers) {
-      const conn = p.type === 'file'
-        ? `file → ${p.device}`
-        : `TCP  → ${p.host}:${p.port}`;
+      let conn;
+      if (p.type === 'file') {
+        conn = `file → ${p.device}`;
+      } else if (p.type === 'fpmate') {
+        conn = `fpmate → ${p.https ? 'https' : 'http'}://${p.host}${p.port ? ':' + p.port : ''}`;
+      } else {
+        conn = `TCP  → ${p.host}:${p.port}`;
+      }
       console.log(`[print-server]   [${p.id}] ${p.name}  (${conn})`);
     }
   }

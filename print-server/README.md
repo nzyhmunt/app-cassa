@@ -354,6 +354,86 @@ module.exports = {
 
 ---
 
+## Stampante fiscale Epson RT (fpmate)
+
+Oltre alle stampanti termiche ESC/POS (TCP/file), il print-server supporta le
+**stampanti fiscali Epson RT** tramite il web service `fpmate.cgi` integrato
+nella stampante. Il protocollo è SOAP/HTTP con XML (Fiscal ePOS-Print), diverso
+dall'ESC/POS raw: per questo la stampante fiscale va configurata con
+`type: 'fpmate'`.
+
+```
+app-cassa ──POST /print (printType=fiscal_receipt)──► print-server
+                                                            │
+                                              buildFiscalXml (formatters/fiscal_receipt.js)
+                                                            │
+                                                  HTTP POST SOAP
+                                                            ▼
+                                    http://<host>/cgi-bin/fpmate.cgi  (stampante fiscale RT)
+                                                            │
+                                  risposta XML: fiscalReceiptNumber, amount, date, zRepNumber, serialNumber
+```
+
+**Tipi di stampa fiscali** (`printType`):
+
+| printType | Descrizione |
+|---|---|
+| `fiscal_receipt` | Scontrino fiscale (documento commerciale). Job: `orders[].items[]`, `payments[]`, `totalAmount` |
+| `fiscal_z_report` | Chiusura giornaliera (Z report). Trasmette i dati all'Agenzia delle Entrate |
+| `fiscal_x_report` | Report finanziario giornaliero (X report, non fiscale) |
+| `fiscal_status` | Query stato stampante (`statusType`: `'0'` base, `'1'` RT) |
+
+**Configurazione** (`printers.config.js`):
+
+```js
+module.exports = {
+  printers: [
+    // ... stampanti cucina/bar ...
+    { id: 'fiscale', name: 'Stampante Fiscale', type: 'fpmate', host: '192.168.1.200', timeout: 30000 },
+  ],
+};
+```
+
+Oppure via variabili d'ambiente `PRINTER_<N>_TYPE=fpmate` (vedi `.env.example`).
+
+**Job `fiscal_receipt` — payload di esempio:**
+
+```json
+{
+  "printType": "fiscal_receipt",
+  "printerId": "fiscale",
+  "jobId": "0192-...",
+  "orders": [
+    { "items": [
+      { "name": "Panino", "quantity": 2, "unitPrice": 6.5, "department": 1 },
+      { "name": "Caffè", "quantity": 1, "unitPrice": 1.0 }
+    ] }
+  ],
+  "payments": [
+    { "label": "Contanti", "amount": 13 }
+  ],
+  "totalAmount": 14,
+  "timestamp": "2024-01-01T20:30:00.000Z"
+}
+```
+
+Il `paymentType` viene determinato automaticamente dall'etichetta del pagamento
+(`Contanti` → `0`, `Carta`/`Bancomat`/`Pos` → `2`). I pagamenti parziali sono
+supportati (più elementi in `payments[]`).
+
+**Note di sicurezza fiscale:**
+- I job fiscali sono **serializzati** per stampante (come gli altri job): non
+  viene mai emesso uno scontrino mentre è in corso uno Z report.
+- La risposta della stampante (numero scontrino, matricola, numero Z) viene
+  restituita al chiamante e, lato app-cassa, persistita in `fiscal_receipts`
+  per audit.
+- L'eventuale timeout (default 30s, configurabile) va tenuto alto per lo Z
+  report, che trasmette dati all'Agenzia delle Entrate.
+
+Riferimento protocollo: *ePOS Fiscal Print Solution Development Guide* (Epson Italia).
+
+---
+
 ## Variabili d'ambiente — riepilogo completo
 
 | Variabile | Default | Descrizione |
@@ -362,7 +442,11 @@ module.exports = {
 | `PRINT_SERVER_NAME` | `ESC/POS Print Server` | Nome nei log |
 | `PRINT_SERVER_API_KEY` | *(vuoto)* | Richiede `x-api-key` su `POST /print` |
 | `CORS_ALLOWED_ORIGINS` | *(vuoto — tutte)* | Origini CORS consentite (virgola separata) |
-| `PRINTER_<N>_*` | — | Configurazione stampante N (vedi sopra) |
+| `PRINTER_<N>_*` | — | Configurazione stampante N (TCP/file/fpmate — vedi sopra) |
+| `PRINTER_<N>_TYPE` | `tcp` | `tcp` \| `file` \| `fpmate` (stampante fiscale RT) |
+| `PRINTER_<N>_HTTPS` | `false` | *(fpmate)* Usa HTTPS |
+| `PRINTER_<N>_USERNAME` | *(vuoto)* | *(fpmate)* Credenziali web (opzionale) |
+| `PRINTER_<N>_PASSWORD` | *(vuoto)* | *(fpmate)* Credenziali web (opzionale) |
 | `DIRECTUS_URL` | *(vuoto — disabilitato)* | URL Directus per modalità pull |
 | `DIRECTUS_TOKEN` | *(vuoto)* | Static token Directus |
 | `DIRECTUS_VENUE_ID` | *(vuoto — tutti)* | Filtro venue ID |
@@ -408,22 +492,59 @@ Output di avvio con Modalità 2 abilitata:
 
 ### `POST /print`
 
-Riceve un job JSON, lo converte in ESC/POS e lo invia alla stampante.
+Riceve un job JSON, lo converte in ESC/POS (o XML fiscale) e lo invia alla stampante.
 
 | Campo | Tipo | Descrizione |
 |---|---|---|
-| `printType` | `string` | **Obbligatorio.** `'order'` \| `'table_move'` \| `'pre_bill'` |
+| `printType` | `string` | **Obbligatorio.** `'order'` \| `'table_move'` \| `'pre_bill'` \| `'fiscal_receipt'` \| `'fiscal_z_report'` \| `'fiscal_x_report'` \| `'fiscal_status'` |
 | `printerId` | `string` | ID stampante. Se assente/non trovato → prima stampante |
 | `jobId` | `string` | Identificatore job (restituito in risposta) |
 
-**Risposta di successo (200):**
+**Risposta di successo (200) — job ESC/POS:**
 ```json
 { "ok": true, "jobId": "job_<uuid>" }
+```
+
+**Risposta di successo (200) — job fiscale:** include la risposta parsata della
+stampante fiscale (numero scontrino, importo, data/ora, numero Z, matricola):
+```json
+{
+  "ok": true,
+  "jobId": "job_<uuid>",
+  "fiscal": {
+    "success": true,
+    "code": "",
+    "status": "2",
+    "addInfo": {
+      "fiscalReceiptNumber": "5",
+      "fiscalReceiptAmount": "13,00",
+      "fiscalReceiptDate": "21/04/2023",
+      "fiscalReceiptTime": "11:35",
+      "receiptISODateTime": "20230421T113500",
+      "zRepNumber": "39",
+      "serialNumber": "99IEB004001"
+    },
+    "raw": "<response ...>"
+  }
+}
 ```
 
 **Risposta di errore (400/500):**
 ```json
 { "ok": false, "error": "messaggio di errore" }
+```
+
+### `GET /printers`
+
+Restituisce l'elenco delle stampanti configurate (senza credenziali):
+```json
+{
+  "ok": true,
+  "printers": [
+    { "id": "cucina", "name": "Cucina", "type": "tcp", "host": "192.168.1.100", "port": 9100 },
+    { "id": "fiscale", "name": "Stampante Fiscale", "type": "fpmate", "host": "192.168.1.200", "port": null, "https": false }
+  ]
+}
 ```
 
 ---
@@ -433,14 +554,16 @@ Riceve un job JSON, lo converte in ESC/POS e lo invia alla stampante.
 ```
 print-server/
 ├── server.js              # Entry point: server HTTP Express
-├── printer.js             # Multi-printer dispatch (TCP / file, coda serializzata)
+├── printer.js             # Multi-printer dispatch (TCP / file / fpmate, coda serializzata)
 ├── build-buffer.js        # Seleziona il formatter ESC/POS corretto
+├── fpmate-client.js       # Transport HTTP/SOAP per stampante fiscale Epson RT (fpmate.cgi)
 ├── directus-client.js     # Modalità 2: Directus Pull (SDK + WebSocket + polling)
 ├── printers.config.js     # ← Configurare qui le stampanti del locale
-├── formatters/            # ← FONTE UNICA dei formatter ESC/POS (vedi sotto)
+├── formatters/            # ← FONTE UNICA dei formatter (ESC/POS + fiscale)
 │   ├── order.js           # Comanda cucina/bar
 │   ├── table_move.js      # Spostamento tavolo
-│   └── pre_bill.js        # Preconto
+│   ├── pre_bill.js        # Preconto
+│   └── fiscal_receipt.js  # XML fiscale (scontrino, Z/X report, stato)
 ├── Dockerfile
 ├── docker-compose.yml
 ├── .env.example
@@ -483,8 +606,16 @@ printers: [
     printTypes: ['order'], categories: ['Antipasti', 'Primi'] },
   { id: 'cassa',  name: 'Cassa',  url: 'http://localhost:3001/print',
     printTypes: ['pre_bill', 'table_move'] },
+  { id: 'fiscale', name: 'Stampante Fiscale',
+    connectionType: 'fpmate', url: 'http://localhost:3001/print',
+    printTypes: ['fiscal_receipt', 'fiscal_z_report', 'fiscal_x_report', 'fiscal_status'] },
 ],
 ```
+
+La stampante fiscale usa `connectionType: 'fpmate'` e punta allo stesso endpoint
+`/print` del print-server. Il composable `useFiscalPrint` individua la stampante
+fiscale configurata, invia il job strutturato (`orders`, `payments`) e aggiorna
+lo store `fiscalReceipts` con la risposta (numero scontrino, matricola, …).
 
 ### Modalità 2/3 (Directus Pull/Hook)
 

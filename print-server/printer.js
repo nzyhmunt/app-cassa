@@ -6,8 +6,9 @@
  *
  * Legge il registro delle stampanti da `printers.config.js`.
  * Ogni stampante può essere raggiunta tramite:
- *   - TCP  (type: 'tcp')  → connessione socket sulla porta 9100 (o custom)
- *   - File (type: 'file') → scrittura su file di dispositivo (/dev/usb/lp0)
+ *   - TCP    (type: 'tcp')    → connessione socket sulla porta 9100 (o custom)
+ *   - File   (type: 'file')   → scrittura su file di dispositivo (/dev/usb/lp0)
+ *   - Fpmate (type: 'fpmate') → stampante fiscale Epson RT via HTTP/SOAP fpmate.cgi
  *
  * Jobs to the same physical printer are serialized via a per-printer promise queue
  * to prevent interleaved output when concurrent requests arrive.
@@ -31,6 +32,7 @@
 
 const net = require('net');
 const fs  = require('fs');
+const { sendFiscalRequest } = require('./fpmate-client.js');
 
 // ── Lookup stampante ─────────────────────────────────────────────────────────
 
@@ -58,13 +60,20 @@ function findPrinterConfig(printersList, printerId) {
  * Convention: indexed entries starting from 0.
  *   PRINTER_0_ID      – (required) unique printer id
  *   PRINTER_0_NAME    – display name (default: same as ID)
- *   PRINTER_0_TYPE    – 'tcp' | 'file' (default: 'tcp')
+ *   PRINTER_0_TYPE    – 'tcp' | 'file' | 'fpmate' (default: 'tcp')
  *   For type='tcp':
  *     PRINTER_0_HOST    – IP or hostname (default: '127.0.0.1')
  *     PRINTER_0_PORT    – TCP port (default: 9100)
  *     PRINTER_0_TIMEOUT – connection timeout in ms (default: 5000)
  *   For type='file':
  *     PRINTER_0_DEVICE  – device path (default: '/dev/usb/lp0')
+ *   For type='fpmate' (stampante fiscale Epson RT via fpmate.cgi):
+ *     PRINTER_0_HOST    – IP/hostname della stampante fiscale (obbligatorio)
+ *     PRINTER_0_PORT    – porta HTTP (default: nessuna → 80/443)
+ *     PRINTER_0_TIMEOUT – timeout fpmate query-string in ms (default: 30000)
+ *     PRINTER_0_HTTPS   – '1'/'true' per HTTPS (default: false)
+ *     PRINTER_0_USERNAME – credenziali web opzionali
+ *     PRINTER_0_PASSWORD – credenziali web opzionali
  *
  * Iteration stops at the first missing PRINTER_<N>_ID.
  * Returns an empty array when no printer env vars are set.
@@ -82,6 +91,17 @@ function loadPrintersFromEnv() {
     const entry = { id, name, type };
     if (type === 'file') {
       entry.device = process.env[`PRINTER_${n}_DEVICE`] || '/dev/usb/lp0';
+    } else if (type === 'fpmate') {
+      entry.host = process.env[`PRINTER_${n}_HOST`] || '127.0.0.1';
+      const rawPort = process.env[`PRINTER_${n}_PORT`];
+      const parsedPort = parseInt(rawPort, 10);
+      entry.port = rawPort && !isNaN(parsedPort) ? parsedPort : null;
+      const rawTimeout = process.env[`PRINTER_${n}_TIMEOUT`];
+      const parsedTimeout = parseInt(rawTimeout, 10);
+      entry.timeout = rawTimeout && !isNaN(parsedTimeout) ? parsedTimeout : 30000;
+      entry.https = /^(1|true)$/i.test(process.env[`PRINTER_${n}_HTTPS`] || '');
+      entry.username = process.env[`PRINTER_${n}_USERNAME`] || '';
+      entry.password = process.env[`PRINTER_${n}_PASSWORD`] || '';
     } else {
       entry.host = process.env[`PRINTER_${n}_HOST`] || '127.0.0.1';
       const rawPort    = process.env[`PRINTER_${n}_PORT`];
@@ -140,13 +160,20 @@ function _resetPrinterCache() {
  *   Ogni voce deve avere:
  *     id       {string}           — identificatore univoco
  *     name     {string}           — nome descrittivo
- *     type     {'tcp'|'file'}     — tipo di connessione
+ *     type     {'tcp'|'file'|'fpmate'} — tipo di connessione
  *     For type='tcp':
  *       host    {string}          — IP/hostname (default: '127.0.0.1')
  *       port    {number}          — porta TCP (default: 9100)
  *       timeout {number}          — timeout in ms (default: 5000)
  *     For type='file':
  *       device  {string}          — percorso device (default: '/dev/usb/lp0')
+ *     For type='fpmate' (stampante fiscale Epson RT):
+ *       host    {string}          — IP/hostname stampante fiscale
+ *       port    {number|null}     — porta HTTP (default: null → 80/443)
+ *       timeout {number}          — timeout fpmate in ms (default: 30000)
+ *       https   {boolean}         — usa HTTPS (default: false)
+ *       username {string}         — credenziali web (opzionale)
+ *       password {string}         — credenziali web (opzionale)
  */
 function setPrinters(list) {
   const printers = Array.isArray(list) ? list : [];
@@ -242,13 +269,17 @@ function _dispatch(buf, config) {
   }
 
   const type = rawType.toLowerCase();
-  if (type !== 'tcp' && type !== 'file') {
+  if (type !== 'tcp' && type !== 'file' && type !== 'fpmate') {
     throw new Error(
-      `Invalid printer type for printer "${config.id}": expected "tcp" or "file", got "${rawType}".`
+      `Invalid printer type for printer "${config.id}": expected "tcp", "file" or "fpmate", got "${rawType}".`
     );
   }
   if (type === 'file') {
     return printToFile(buf, config.device || '/dev/usb/lp0');
+  }
+  if (type === 'fpmate') {
+    // buf is the raw fiscal XML string encoded as UTF-8 Buffer.
+    return printViaFpmate(buf, config);
   }
   return printViaTcp(
     buf,
@@ -314,5 +345,51 @@ function printToFile(buf, device) {
   });
 }
 
-module.exports = { printBuffer, getPrintersList, getPrinterConfig, findPrinterConfig, loadPrintersFromEnv, setPrinters, _enqueue, _dispatch, _resetPrinterCache };
+// ── Stampante fiscale fpmate.cgi ─────────────────────────────────────────────
+
+/**
+ * Invia un payload XML fiscale alla stampante Epson RT via fpmate.cgi.
+ * Il Buffer `buf` deve contenere l'XML (UTF-8) prodotto dai formatter fiscali.
+ * Restituisce la risposta parsata della stampante (con fiscalReceiptNumber, ecc.).
+ *
+ * @param {Buffer|string} buf  XML fiscale (Buffer UTF-8 o stringa)
+ * @param {object} config      configurazione stampante (host, timeout, https, …)
+ * @returns {Promise<object>} risposta fpmate { success, code, status, addInfo, raw }
+ */
+function printViaFpmate(buf, config) {
+  const xml = Buffer.isBuffer(buf) ? buf.toString('utf8') : String(buf);
+  return sendFiscalRequest({
+    xml,
+    host: config.host,
+    port: config.port,
+    timeout: config.timeout || 30000,
+    https: config.https === true,
+    username: config.username || undefined,
+    password: config.password || undefined,
+  });
+}
+
+/**
+ * Invia un job fiscale (XML) alla stampante fiscale identificata da `printerId`.
+ * Serializza i job per la stessa stampante (come printBuffer) per evitare
+ * emissioni fiscali concorrenti (es. Z report durante uno scontrino).
+ *
+ * @param {Buffer|string} xmlPayload  XML fiscale
+ * @param {string} printerId         id stampante fpmate
+ * @returns {Promise<object>} risposta fpmate
+ */
+function printFiscal(xmlPayload, printerId) {
+  const config = getPrinterConfig(printerId);
+  if (!config) {
+    return Promise.reject(new Error('No printers configured in printers.config.js.'));
+  }
+  if ((config.type || '').toLowerCase() !== 'fpmate') {
+    return Promise.reject(
+      new Error(`La stampante "${config.id}" non è di tipo fpmate (type="${config.type}").`)
+    );
+  }
+  return _enqueue(config.id, () => printViaFpmate(xmlPayload, config));
+}
+
+module.exports = { printBuffer, printFiscal, printViaFpmate, getPrintersList, getPrinterConfig, findPrinterConfig, loadPrintersFromEnv, setPrinters, _enqueue, _dispatch, _resetPrinterCache };
 

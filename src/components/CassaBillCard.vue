@@ -240,7 +240,8 @@
 import { ref, computed } from 'vue';
 import { ChevronDown, CreditCard, ClipboardList, Banknote, Tag, Wallet, CheckCircle, Printer, FileText } from 'lucide-vue-next';
 import { useConfigStore, useOrderStore } from '../store/index.js';
-import { billKey, getOrderItemRowTotal, buildFiscalXmlRequest, formatOrderIdShort } from '../utils/index.js';
+import { billKey, getOrderItemRowTotal, buildFiscalXmlRequest, resolveFiscalPrinter, formatOrderIdShort } from '../utils/index.js';
+import { dispatchFiscalReceipt } from '../composables/useFiscalPrint.js';
 import { newUUIDv7 } from '../store/storeUtils.js';
 import { resolveTransactionPaymentLabel } from '../utils/paymentMethods.js';
 import NumericInput from './NumericInput.vue';
@@ -345,6 +346,16 @@ function emitFiscale() {
     timestamp: new Date().toISOString(),
   };
   orderStore.addFiscalReceipt(entry);
+
+  // Emit through the print-server when a fiscal printer is configured.
+  const fiscalPrinter = resolveFiscalPrinter();
+  if (fiscalPrinter) {
+    dispatchFiscalReceipt({ base, entry }).then((result) => {
+      if (!result.ok) {
+        console.warn('[fiscale] Emissione scontrino non riuscita:', result.error);
+      }
+    });
+  }
 }
 
 function openInvoiceModal() {

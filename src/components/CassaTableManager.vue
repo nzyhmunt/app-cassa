@@ -1390,7 +1390,8 @@ import {
 } from 'lucide-vue-next';
 import { useConfigStore, useOrderStore } from '../store/index.js';
 import { newUUIDv7, newShortId } from '../store/storeUtils.js';
-import { getOrderItemRowTotal, KITCHEN_ACTIVE_STATUSES, getLockedDirectItems, buildFiscalXmlRequest, formatOrderTime, formatOrderIdShort } from '../utils/index.js';
+import { getOrderItemRowTotal, KITCHEN_ACTIVE_STATUSES, getLockedDirectItems, buildFiscalXmlRequest, resolveFiscalPrinter, formatOrderTime, formatOrderIdShort } from '../utils/index.js';
+import { dispatchFiscalReceipt } from '../composables/useFiscalPrint.js';
 import { buildFlatAnaliticaItems, computeAnaliticaTotal, exceedsAmount, getOrdersToComplete } from '../utils/analitica.js';
 import { loadCustomItemsFromIDB, saveCustomItemsToIDB } from '../store/persistence/settings.js';
 import { resolveTransactionPaymentLabel } from '../utils/paymentMethods.js';
@@ -2658,6 +2659,19 @@ async function closeTableBillFiscale() {
   }
   orderStore.addFiscalReceipt(entry);
   closeTableModal();
+
+  // Emit the fiscal receipt through the print-server when a fiscal printer is
+  // configured. The XML is built server-side (fonte unica); the browser sends
+  // only the structured job. On success the entry is updated with the receipt
+  // number returned by the fiscal printer; on failure the error is surfaced.
+  const fiscalPrinter = resolveFiscalPrinter();
+  if (fiscalPrinter) {
+    const result = await dispatchFiscalReceipt({ base, entry });
+    if (!result.ok) {
+      console.warn('[fiscale] Emissione scontrino non riuscita:', result.error);
+      // The pending entry above remains visible in the bill history for retry.
+    }
+  }
 }
 
 async function confirmInvoice(billingData) {

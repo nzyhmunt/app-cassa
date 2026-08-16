@@ -152,6 +152,14 @@ export const DEFAULT_SETTINGS = {
   // Stampante di prova (catch-all, riceve tutti i tipi e tutte le voci):
   // Attiva per default — punta al servizio Node ESC/POS locale sulla porta 3001.
   // Rimuovere o sostituire con la configurazione del locale prima del deployment in produzione.
+  //
+  // Stampante fiscale Epson RT (fpmate): aggiungere una voce con connectionType
+  // 'fpmate' e url del print-server. Il print-server costruisce l'XML fiscale e
+  // lo invia a fpmate.cgi; il browser non contatta direttamente la stampante.
+  //   { id: 'fiscale', name: 'Stampante Fiscale',
+  //     connectionType: 'fpmate',
+  //     url: 'http://localhost:3001/print',
+  //     printTypes: ['fiscal_receipt', 'fiscal_z_report', 'fiscal_x_report', 'fiscal_status'] }
   printers: [
     {
       id: 'demo',
@@ -413,9 +421,19 @@ export const PRINT_JOB_TYPES = Object.freeze({
   ORDER: 'order',
   TABLE_MOVE: 'table_move',
   PRE_BILL: 'pre_bill',
+  FISCAL_RECEIPT: 'fiscal_receipt',
+  FISCAL_Z_REPORT: 'fiscal_z_report',
+  FISCAL_X_REPORT: 'fiscal_x_report',
+  FISCAL_STATUS: 'fiscal_status',
 });
 
 export const DEFAULT_HTTP_PRE_BILL_PRINTER_ID = 'pre_bill';
+
+/**
+ * Connection type for Epson RT fiscal printers (fpmate.cgi HTTP/SOAP transport).
+ * Handled by the print-server, not the browser.
+ */
+export const FISCAL_PRINTER_CONNECTION_TYPE = 'fpmate';
 
 export const PRINT_LOG_STATUSES = Object.freeze({
   PENDING: 'pending',
@@ -443,6 +461,35 @@ export const PRINT_JOBS_COLLECTION = 'print_jobs';
 export function isDirectusManagedPrinter(printer) {
   const connectionType = getNormalizedPrinterConnectionType(printer);
   return connectionType === 'tcp' || connectionType === 'file';
+}
+
+/**
+ * Returns true when the printer is an Epson RT fiscal printer (fpmate.cgi).
+ * Fiscal printers are reached through the print-server, which builds the fiscal
+ * XML and dispatches it via HTTP/SOAP — the browser never talks to fpmate directly.
+ *
+ * @param {object|null|undefined} printer
+ * @returns {boolean}
+ */
+export function isFiscalPrinter(printer) {
+  return getNormalizedPrinterConnectionType(printer) === FISCAL_PRINTER_CONNECTION_TYPE;
+}
+
+/**
+ * Returns the first configured fiscal printer, or null if none is configured.
+ * A fiscal printer must have a stable id (used as printerId for the fiscal job)
+ * and a url pointing to the print-server `/print` endpoint.
+ *
+ * @param {unknown} printers
+ * @returns {object|null}
+ */
+export function getFiscalPrinter(printers) {
+  if (!Array.isArray(printers)) return null;
+  return printers.find((printer) =>
+    isFiscalPrinter(printer)
+    && typeof printer?.id === 'string' && printer.id.trim()
+    && typeof printer?.url === 'string' && printer.url.trim()
+  ) ?? null;
 }
 
 /**
@@ -840,6 +887,17 @@ export function deepEqual(left, right) {
   return true;
 }
 
+
+/**
+ * Resolves the configured fiscal printer against the runtime appConfig.
+ * Convenience wrapper used by the UI to decide whether to dispatch a fiscal job
+ * (no printer configured → the entry stays pending for later emission).
+ *
+ * @returns {object|null} the first fiscal printer with id+url, or null
+ */
+export function resolveFiscalPrinter() {
+  return getFiscalPrinter(appConfig.printers);
+}
 
 /**
  * Builds the RT-printer XML payload for a fiscal receipt.
