@@ -323,8 +323,19 @@ async function dispatchFiscalJob({ printType, buildJob, printerId = null, operat
  * @returns {Promise<{ ok: boolean, fiscal?: object, error?: string }>}
  */
 export function dispatchFiscalVoid({ receiptRef, printerId = null, operator } = {}) {
-  if (!receiptRef || (!receiptRef.fiscalReceiptNumber && !receiptRef.zRepNumber)) {
-    return Promise.resolve({ ok: false, error: 'Riferimenti scontrino mancanti per l\'annullo.' });
+  // The server-side VOID formatter pads missing reference fields (zRepNumber→
+  // '0000', serialNumber padded with zeros, …) and still emits a VOID line, so
+  // an incomplete receiptRef would silently produce an annullo referencing the
+  // wrong document. Require all four references to be present and non-empty.
+  const REQUIRED_REF_FIELDS = ['zRepNumber', 'fiscalReceiptNumber', 'date', 'serialNumber'];
+  const missing = !receiptRef
+    ? REQUIRED_REF_FIELDS
+    : REQUIRED_REF_FIELDS.filter((k) => !receiptRef[k]);
+  if (missing.length) {
+    return Promise.resolve({
+      ok: false,
+      error: `Riferimenti scontrino mancanti per l'annullo (${missing.join(', ')}).`,
+    });
   }
   return dispatchFiscalJob({
     printType: PRINT_JOB_TYPES.FISCAL_VOID,

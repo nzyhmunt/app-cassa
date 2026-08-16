@@ -690,9 +690,17 @@ async function execFiscalVoid() {
     date: target.fiscalReceiptDate ?? isoFallback,
     serialNumber: target.serialNumber ?? '',
   };
-  return runFiscal(
+  const res = await runFiscal(
     () => dispatchFiscalVoid({ receiptRef }),
     `Annullo scontrino #${target.fiscalReceiptNumber} inviato alla stampante fiscale.`,
   );
+  // Mark the original receipt as voided in the store so it drops out of
+  // voidableReceipts (status !== 'void'), preventing repeated void attempts and
+  // keeping local audit state consistent with the fiscal printer.
+  if (res?.ok) {
+    orderStore.updateFiscalReceipt(target.id, { status: 'void', voidedAt: new Date().toISOString() });
+    voidSelection.value = null;
+  }
+  return res;
 }
 </script>

@@ -249,7 +249,23 @@ describe('dispatchFiscalVoid', () => {
     const { dispatchFiscalVoid } = await import('../useFiscalPrint.js');
     const result = await dispatchFiscalVoid({ receiptRef: {} });
     expect(result.ok).toBe(false);
+    expect(result.error).toMatch(/Riferimenti scontrino mancanti/);
     expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  it('fails locally when any single reference field is missing', async () => {
+    // The server-side VOID formatter pads missing fields and would otherwise
+    // emit a VOID line referencing the wrong document, so every reference must
+    // be present and non-empty.
+    const { dispatchFiscalVoid } = await import('../useFiscalPrint.js');
+    const full = { zRepNumber: '39', fiscalReceiptNumber: '5', date: '31/01/2024', serialNumber: '99IEB004001' };
+    for (const field of ['zRepNumber', 'fiscalReceiptNumber', 'date', 'serialNumber']) {
+      const partial = { ...full, [field]: '' };
+      const result = await dispatchFiscalVoid({ receiptRef: partial });
+      expect(result.ok).toBe(false);
+      expect(result.error).toContain(field);
+      expect(global.fetch).not.toHaveBeenCalled();
+    }
   });
 });
 
