@@ -202,8 +202,9 @@ function formatXReport(job) {
 // ── Void document (annullo commerciale) ──────────────────────────────────────
 
 /**
- * Formatta la data del documento di riferimento nel formato dd/mm/yyyy → ddmmyyyy.
- * Accetta "dd/mm/yyyy", "dd-mm-yyyy" o già "ddmmyyyy".
+ * Formatta la data del documento di riferimento nel formato dd/mm/yyyy → ddmmyyyy
+ * (8 cifre, anno a 4 cifre come richiesto dalla stampante RT). Accetta "dd/mm/yyyy",
+ * "dd-mm-yyyy" o già "ddmmyyyy". Gli anni a 2 cifre vengono espansi con pivot 2000.
  * @param {string} date
  * @returns {string}
  */
@@ -213,7 +214,7 @@ function normalizeRefDate(date) {
   if (m) {
     const dd = m[1].padStart(2, '0');
     const mm = m[2].padStart(2, '0');
-    const yy = m[3].length === 2 ? m[3] : m[3].slice(-2);
+    const yy = m[3].length === 2 ? String(2000 + Number(m[3])) : m[3].padStart(4, '0');
     return `${dd}${mm}${yy}`;
   }
   // Già in formato ddmmyyyy (4-8 cifre): normalizza a 8 cifre con padding.
@@ -227,8 +228,9 @@ function normalizeRefDate(date) {
  * date, serialNumber) recuperabili dalla risposta fpmate originaria salvata in fiscal_receipts.
  *
  * La riga "VOID zzzz nnnn ddmmyyyy sssssssssss" va emessa come printRecMessage
- * messageType=4 PRIMA di endFiscalReceipt (beginFiscalReceipt non è richiesto per i
- * documenti di annullo automatici, ma viene comunque incluso per conformità).
+ * messageType=4 PRIMA di endFiscalReceipt. Per i documenti di annullo
+ * automatici la stampante RT non richiede beginFiscalReceipt, quindi non viene
+ * emesso (la riga VOID apre direttamente il documento di annullo).
  *
  * Payload atteso (job):
  * {

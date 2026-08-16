@@ -142,8 +142,9 @@ function sanitizeForLog(v) {
 // ── Optional API key middleware ───────────────────────────────────────────────
 
 /**
- * If PRINT_SERVER_API_KEY is configured, every POST /print request must include
- * the matching x-api-key header; all other requests (e.g. GET /health) pass through.
+ * If PRINT_SERVER_API_KEY is configured, guarded routes (POST /print and
+ * GET /printers) must include the matching x-api-key header; all other
+ * requests (e.g. GET /health) pass through.
  */
 function apiKeyGuard(req, res, next) {
   if (!API_KEY || req.method === 'OPTIONS') return next();
@@ -165,8 +166,10 @@ app.get('/health', (_req, res) => {
 /**
  * GET /printers
  * Restituisce l'elenco delle stampanti configurate (senza credenziali).
+ * Protetto da apiKeyGuard quando PRINT_SERVER_API_KEY è configurato, per non
+ * esporre i dettagli di rete interna (host/port) a origini CORS arbitrarie.
  */
-app.get('/printers', (_req, res) => {
+app.get('/printers', apiKeyGuard, (_req, res) => {
   const printers = getPrintersList().map((p) => {
     const summary = { id: p.id, name: p.name, type: p.type };
     if (p.type === 'tcp') {

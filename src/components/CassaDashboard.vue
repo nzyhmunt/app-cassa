@@ -674,10 +674,19 @@ async function execFiscalVoid() {
   const target = voidableReceipts.value.find((r) => r.id === voidSelection.value);
   if (!target) { setFiscalMessage(false, 'Selezionare uno scontrino da annullare.'); return; }
   if (!confirm(`Confermi l'annullo fiscale dello scontrino #${target.fiscalReceiptNumber} (€${Number(target.totalAmount).toFixed(2)})? Operazione irreversibile.`)) return;
+  // fiscalReceiptDate is "dd/mm/yyyy"; fall back to the ISO basic datetime
+  // (YYYYMMDDTHHMMSS) only by converting it to "dd/mm/yyyy" so the server-side
+  // formatter receives a date it can normalize to ddmmyyyy (not raw YYYYMMDD,
+  // which would be misread as ddmmyyyy with the year first).
+  const isoFallback = (() => {
+    const iso = target.receiptISODateTime ?? '';
+    const m = /^(\d{4})(\d{2})(\d{2})/.exec(iso);
+    return m ? `${m[3]}/${m[2]}/${m[1]}` : '';
+  })();
   const receiptRef = {
     zRepNumber: target.zRepNumber ?? target.fiscalZRepNumber ?? '',
     fiscalReceiptNumber: target.fiscalReceiptNumber,
-    date: target.fiscalReceiptDate ?? (target.receiptISODateTime?.slice(0, 8) ?? ''),
+    date: target.fiscalReceiptDate ?? isoFallback,
     serialNumber: target.serialNumber ?? '',
   };
   return runFiscal(

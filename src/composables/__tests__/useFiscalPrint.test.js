@@ -8,8 +8,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { _resetIDBSingleton } from '../useIDB.js';
 import { getSyncLogs } from '../../store/persistence/syncLogs.js';
 
-// Mock the store so useAppStore returns a stub with fiscalReceipts + mutators.
-const storeStub = {
+// Mock the explicit layered stores used by useFiscalPrint. configStub carries
+// the runtime printers/hydration flag; orderStub carries fiscalReceipts and the
+// add/update mutators. Both are backed by the same shared array.
+const fiscalReceipts = { value: [] };
+const configStub = {
   configHydrated: true,
   config: {
     printers: [
@@ -17,16 +20,19 @@ const storeStub = {
       { id: 'fiscale', connectionType: 'fpmate', url: 'http://localhost:3001/print', printTypes: ['fiscal_receipt'] },
     ],
   },
-  fiscalReceipts: { value: [] },
-  addFiscalReceipt: vi.fn((entry) => { storeStub.fiscalReceipts.value.unshift(entry); }),
+};
+const orderStub = {
+  fiscalReceipts,
+  addFiscalReceipt: vi.fn((entry) => { orderStub.fiscalReceipts.value.unshift(entry); }),
   updateFiscalReceipt: vi.fn((id, updates) => {
-    const idx = storeStub.fiscalReceipts.value.findIndex((e) => e.id === id);
-    if (idx !== -1) storeStub.fiscalReceipts.value[idx] = { ...storeStub.fiscalReceipts.value[idx], ...updates };
+    const idx = orderStub.fiscalReceipts.value.findIndex((e) => e.id === id);
+    if (idx !== -1) orderStub.fiscalReceipts.value[idx] = { ...orderStub.fiscalReceipts.value[idx], ...updates };
   }),
 };
 
 vi.mock('../../store/index.js', () => ({
-  useAppStore: () => storeStub,
+  useConfigStore: () => configStub,
+  useOrderStore: () => orderStub,
 }));
 
 const ORIGINAL_FETCH = global.fetch;
@@ -35,9 +41,9 @@ beforeEach(async () => {
   await _resetIDBSingleton();
   vi.restoreAllMocks();
   global.fetch = vi.fn();
-  storeStub.fiscalReceipts.value = [];
-  storeStub.addFiscalReceipt.mockClear();
-  storeStub.updateFiscalReceipt.mockClear();
+  orderStub.fiscalReceipts.value = [];
+  orderStub.addFiscalReceipt.mockClear();
+  orderStub.updateFiscalReceipt.mockClear();
 });
 
 afterEach(() => {
@@ -56,7 +62,7 @@ describe('dispatchFiscalReceipt', () => {
     const { dispatchFiscalReceipt } = await import('../useFiscalPrint.js');
     // Pre-populate the store with the pending entry, mirroring the real flow
     // where the component adds the pending entry before dispatching.
-    storeStub.fiscalReceipts.value = [{ id: 'rec-1', status: 'pending', ...baseBill }];
+    orderStub.fiscalReceipts.value = [{ id: 'rec-1', status: 'pending', ...baseBill }];
     global.fetch.mockResolvedValue({
       ok: true,
       status: 200,
@@ -83,12 +89,12 @@ describe('dispatchFiscalReceipt', () => {
     expect(body.orders).toEqual(baseBill.orders);
 
     // Existing pending entry (id rec-1) must be updated, not duplicated.
-    expect(storeStub.updateFiscalReceipt).toHaveBeenCalledWith('rec-1', expect.objectContaining({
+    expect(orderStub.updateFiscalReceipt).toHaveBeenCalledWith('rec-1', expect.objectContaining({
       fiscalReceiptNumber: '5',
       serialNumber: '99IEB004001',
       status: 'done',
     }));
-    expect(storeStub.addFiscalReceipt).not.toHaveBeenCalled();
+    expect(orderStub.addFiscalReceipt).not.toHaveBeenCalled();
   });
 
   it('adds a new entry when no existing entry id matches', async () => {
@@ -104,8 +110,8 @@ describe('dispatchFiscalReceipt', () => {
 
     const result = await dispatchFiscalReceipt({ base: baseBill });
     expect(result.ok).toBe(true);
-    expect(storeStub.addFiscalReceipt).toHaveBeenCalledTimes(1);
-    expect(storeStub.addFiscalReceipt.mock.calls[0][0]).toMatchObject({
+    expect(orderStub.addFiscalReceipt).toHaveBeenCalledTimes(1);
+    expect(orderStub.addFiscalReceipt.mock.calls[0][0]).toMatchObject({
       fiscalReceiptNumber: '7',
       status: 'done',
     });
@@ -122,17 +128,17 @@ describe('dispatchFiscalReceipt', () => {
     const result = await dispatchFiscalReceipt({ base: baseBill });
     expect(result.ok).toBe(false);
     expect(result.error).toContain('timeout');
-    expect(storeStub.addFiscalReceipt).not.toHaveBeenCalled();
+    expect(orderStub.addFiscalReceipt).not.toHaveBeenCalled();
   });
 
   it('returns an error when no fiscal printer is configured', async () => {
     const { dispatchFiscalReceipt } = await import('../useFiscalPrint.js');
-    const savedPrinters = storeStub.config.printers;
-    storeStub.config.printers = [{ id: 'demo', url: 'http://localhost:3001/print' }];
+    const savedPrinters = configStub.config.printers;
+    configStub.config.printers = [{ id: 'demo', url: 'http://localhost:3001/print' }];
     const result = await dispatchFiscalReceipt({ base: baseBill });
     expect(result.ok).toBe(false);
     expect(result.error).toMatch(/nessuna stampante fiscale/i);
-    storeStub.config.printers = savedPrinters;
+    configStub.config.printers = savedPrinters;
   });
 
   it('writes a FISCAL activity log entry on dispatch', async () => {

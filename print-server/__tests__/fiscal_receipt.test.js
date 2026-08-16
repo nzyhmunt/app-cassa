@@ -222,7 +222,7 @@ describe('formatFiscalVoid', () => {
 describe('normalizeRefDate', () => {
   it('converts dd/mm/yyyy to ddmmyyyy', () => {
     expect(normalizeRefDate('31/01/2024')).toBe('31012024');
-    expect(normalizeRefDate('1/2/24')).toBe('01020224');
+    expect(normalizeRefDate('1/2/24')).toBe('01022024');
   });
   it('passes through already-compact dates padded to 8 digits', () => {
     expect(normalizeRefDate('01022024')).toBe('01022024');

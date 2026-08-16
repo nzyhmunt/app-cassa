@@ -23,7 +23,7 @@
  */
 
 import { newUUIDv7 } from '../store/storeUtils.js';
-import { useAppStore } from '../store/index.js';
+import { useConfigStore, useOrderStore } from '../store/index.js';
 import {
   appConfig,
   PRINT_JOB_TYPES,
@@ -34,18 +34,22 @@ import { addSyncLog } from '../store/persistence/syncLogs.js';
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
-function getStore() {
-  try {
-    return useAppStore();
-  } catch {
-    return null;
-  }
+// Use the explicit layered stores instead of the legacy useAppStore() merged
+// proxy (see src/store/index.js): dependencies stay explicit and mocking is
+// simpler. Outside a component/setup context (e.g. unit tests without an active
+// Pinia) these throw and we degrade gracefully to null.
+function getConfigStore() {
+  try { return useConfigStore(); } catch { return null; }
 }
 
-function getRuntimeConfig(store = null) {
-  const resolvedStore = store ?? getStore();
-  const storeConfig = resolvedStore?.config ?? {};
-  const storeHydrated = resolvedStore?.configHydrated === true;
+function getOrderStore() {
+  try { return useOrderStore(); } catch { return null; }
+}
+
+function getRuntimeConfig(configStore = null) {
+  const resolved = configStore ?? getConfigStore();
+  const storeConfig = resolved?.config ?? {};
+  const storeHydrated = resolved?.configHydrated === true;
   return storeHydrated
     ? { ...appConfig, ...storeConfig }
     : { ...storeConfig, ...appConfig };
@@ -53,11 +57,12 @@ function getRuntimeConfig(store = null) {
 
 /**
  * Resolves the configured fiscal printer (first fpmate printer with id+url).
- * @param {object|null} [store]
+ * @param {object|null} [configStore] - config store (or merged proxy); when
+ *   omitted, resolves the active config store at call time.
  * @returns {object|null}
  */
-export function resolveFiscalPrinter(store = null) {
-  return getFiscalPrinter(getRuntimeConfig(store).printers);
+export function resolveFiscalPrinter(configStore = null) {
+  return getFiscalPrinter(getRuntimeConfig(configStore).printers);
 }
 
 /**
@@ -119,8 +124,9 @@ function logFiscalActivity({ endpoint, payload, status, statusCode = null }) {
  * @returns {Promise<{ ok: boolean, entry?: object, error?: string }>}
  */
 export async function dispatchFiscalReceipt({ base, printerId = null, entry = null }) {
-  const store = getStore();
-  const printer = resolveFiscalPrinter(store);
+  const configStore = getConfigStore();
+  const orderStore = getOrderStore();
+  const printer = resolveFiscalPrinter(configStore);
   if (!printer) {
     return { ok: false, error: 'Nessuna stampante fiscale configurata.' };
   }
@@ -174,11 +180,11 @@ export async function dispatchFiscalReceipt({ base, printerId = null, entry = nu
   };
   // When updating an existing pending entry (id already in the store), use
   // updateFiscalReceipt to avoid creating a duplicate; otherwise add a new one.
-  const existing = store?.fiscalReceipts?.value?.find((e) => e?.id === job.jobId);
+  const existing = orderStore?.fiscalReceipts?.value?.find((e) => e?.id === job.jobId);
   if (existing) {
-    store?.updateFiscalReceipt(job.jobId, updatedFields);
+    orderStore?.updateFiscalReceipt(job.jobId, updatedFields);
   } else {
-    store?.addFiscalReceipt({
+    orderStore?.addFiscalReceipt({
       id: job.jobId,
       ...base,
       ...updatedFields,
@@ -197,8 +203,8 @@ export async function dispatchFiscalReceipt({ base, printerId = null, entry = nu
  * @returns {Promise<{ ok: boolean, fiscal?: object, error?: string }>}
  */
 export async function dispatchFiscalZReport({ printerId = null, operator } = {}) {
-  const store = getStore();
-  const printer = resolveFiscalPrinter(store);
+  const configStore = getConfigStore();
+  const printer = resolveFiscalPrinter(configStore);
   if (!printer) return { ok: false, error: 'Nessuna stampante fiscale configurata.' };
 
   const job = {
@@ -224,8 +230,8 @@ export async function dispatchFiscalZReport({ printerId = null, operator } = {})
  * @returns {Promise<{ ok: boolean, fiscal?: object, error?: string }>}
  */
 export async function dispatchFiscalXReport({ printerId = null, operator } = {}) {
-  const store = getStore();
-  const printer = resolveFiscalPrinter(store);
+  const configStore = getConfigStore();
+  const printer = resolveFiscalPrinter(configStore);
   if (!printer) return { ok: false, error: 'Nessuna stampante fiscale configurata.' };
 
   const job = {
@@ -251,8 +257,8 @@ export async function dispatchFiscalXReport({ printerId = null, operator } = {})
  * @returns {Promise<{ ok: boolean, fiscal?: object, error?: string }>}
  */
 export async function dispatchFiscalStatus({ printerId = null, statusType = '0' } = {}) {
-  const store = getStore();
-  const printer = resolveFiscalPrinter(store);
+  const configStore = getConfigStore();
+  const printer = resolveFiscalPrinter(configStore);
   if (!printer) return { ok: false, error: 'Nessuna stampante fiscale configurata.' };
 
   const job = {
@@ -281,8 +287,8 @@ export async function dispatchFiscalStatus({ printerId = null, statusType = '0' 
  * @returns {Promise<{ ok: boolean, fiscal?: object, error?: string }>}
  */
 async function dispatchFiscalJob({ printType, buildJob, printerId = null, operator } = {}) {
-  const store = getStore();
-  const printer = resolveFiscalPrinter(store);
+  const configStore = getConfigStore();
+  const printer = resolveFiscalPrinter(configStore);
   if (!printer) return { ok: false, error: 'Nessuna stampante fiscale configurata.' };
 
   const job = buildJob(printer, operator);
@@ -337,10 +343,14 @@ export function dispatchFiscalRefund({ base, receiptRef = null, printerId = null
     printerId,
     operator,
     buildJob: (printer, op) => {
+      // Same rationale as dispatchFiscalReceipt: paymentMethods is a label set
+      // with no per-method amounts, so collapse into a single payment covering
+      // the whole refund total (otherwise the printer sums N×totalAmount).
       const paymentMethods = Array.isArray(base?.paymentMethods) ? base.paymentMethods : [];
-      const payments = paymentMethods.length > 0
-        ? paymentMethods.map((label) => ({ label, amount: base.totalAmount ?? 0 }))
-        : [{ label: 'CONTANTI', amount: base?.totalAmount ?? 0 }];
+      const payments = [{
+        label: paymentMethods.length > 0 ? paymentMethods.join(' + ') : 'CONTANTI',
+        amount: base?.totalAmount ?? 0,
+      }];
       return {
         jobId: newUUIDv7(),
         printType: PRINT_JOB_TYPES.FISCAL_REFUND,
