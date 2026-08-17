@@ -4,9 +4,11 @@ import {
   billKey,
   canPrinterReceiveJobs,
   formatOrderIdShort,
+  getFiscalPrinter,
   getPreBillEligiblePrinters,
   getPrintersForPrintType,
   getOrderItemRowTotal,
+  isFiscalPrinter,
   PRINT_JOB_TYPES,
   printerSupportsPrintType,
   resolveConfiguredPrinter,
@@ -68,6 +70,33 @@ describe('printer routing helpers', () => {
     expect(resolveConfiguredPrinter(printers, { printerId: 'b', printerUrl: 'http://localhost:3001/print' })?.id).toBe('b');
     expect(resolveConfiguredPrinter(printers, { printerUrl: 'http://localhost:3001/print' })?.id).toBe('a');
     expect(resolveConfiguredPrinter(printers, { printerId: 'missing' })).toBeNull();
+  });
+
+  it('identifies fiscal printers by connectionType', () => {
+    expect(isFiscalPrinter({ connectionType: 'fpmate' })).toBe(true);
+    expect(isFiscalPrinter({ connectionType: ' FPMATE ' })).toBe(true);
+    expect(isFiscalPrinter({ connectionType: 'tcp' })).toBe(false);
+    expect(isFiscalPrinter({ url: 'http://localhost:3001/print' })).toBe(false);
+    expect(isFiscalPrinter(null)).toBe(false);
+  });
+
+  it('returns the first valid fiscal printer with id and url', () => {
+    const printers = [
+      { id: 'demo', url: 'http://localhost:3001/print' },
+      { id: 'fiscale', connectionType: 'fpmate', url: 'http://localhost:3001/print', printTypes: ['fiscal_receipt'] },
+      { connectionType: 'fpmate', url: 'http://localhost:3001/print' }, // missing id
+      { id: 'fiscale2', connectionType: 'fpmate' }, // missing url
+    ];
+    expect(getFiscalPrinter(printers)?.id).toBe('fiscale');
+    expect(getFiscalPrinter([])).toBeNull();
+    expect(getFiscalPrinter(null)).toBeNull();
+  });
+
+  it('exposes fiscal print job type constants', () => {
+    expect(PRINT_JOB_TYPES.FISCAL_RECEIPT).toBe('fiscal_receipt');
+    expect(PRINT_JOB_TYPES.FISCAL_Z_REPORT).toBe('fiscal_z_report');
+    expect(PRINT_JOB_TYPES.FISCAL_X_REPORT).toBe('fiscal_x_report');
+    expect(PRINT_JOB_TYPES.FISCAL_STATUS).toBe('fiscal_status');
   });
 });
 

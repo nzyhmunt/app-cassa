@@ -152,6 +152,14 @@ export const DEFAULT_SETTINGS = {
   // Stampante di prova (catch-all, riceve tutti i tipi e tutte le voci):
   // Attiva per default — punta al servizio Node ESC/POS locale sulla porta 3001.
   // Rimuovere o sostituire con la configurazione del locale prima del deployment in produzione.
+  //
+  // Stampante fiscale Epson RT (fpmate): aggiungere una voce con connectionType
+  // 'fpmate' e url del print-server. Il print-server costruisce l'XML fiscale e
+  // lo invia a fpmate.cgi; il browser non contatta direttamente la stampante.
+  //   { id: 'fiscale', name: 'Stampante Fiscale',
+  //     connectionType: 'fpmate',
+  //     url: 'http://localhost:3001/print',
+  //     printTypes: ['fiscal_receipt', 'fiscal_z_report', 'fiscal_x_report', 'fiscal_status'] }
   printers: [
     {
       id: 'demo',
@@ -413,9 +421,24 @@ export const PRINT_JOB_TYPES = Object.freeze({
   ORDER: 'order',
   TABLE_MOVE: 'table_move',
   PRE_BILL: 'pre_bill',
+  FISCAL_RECEIPT: 'fiscal_receipt',
+  FISCAL_REFUND: 'fiscal_refund',
+  FISCAL_VOID: 'fiscal_void',
+  FISCAL_Z_REPORT: 'fiscal_z_report',
+  FISCAL_X_REPORT: 'fiscal_x_report',
+  FISCAL_STATUS: 'fiscal_status',
+  FISCAL_DUPLICATE: 'fiscal_duplicate',
+  FISCAL_DRAWER: 'fiscal_drawer',
+  FISCAL_CASH: 'fiscal_cash',
 });
 
 export const DEFAULT_HTTP_PRE_BILL_PRINTER_ID = 'pre_bill';
+
+/**
+ * Connection type for Epson RT fiscal printers (fpmate.cgi HTTP/SOAP transport).
+ * Handled by the print-server, not the browser.
+ */
+export const FISCAL_PRINTER_CONNECTION_TYPE = 'fpmate';
 
 export const PRINT_LOG_STATUSES = Object.freeze({
   PENDING: 'pending',
@@ -443,6 +466,35 @@ export const PRINT_JOBS_COLLECTION = 'print_jobs';
 export function isDirectusManagedPrinter(printer) {
   const connectionType = getNormalizedPrinterConnectionType(printer);
   return connectionType === 'tcp' || connectionType === 'file';
+}
+
+/**
+ * Returns true when the printer is an Epson RT fiscal printer (fpmate.cgi).
+ * Fiscal printers are reached through the print-server, which builds the fiscal
+ * XML and dispatches it via HTTP/SOAP — the browser never talks to fpmate directly.
+ *
+ * @param {object|null|undefined} printer
+ * @returns {boolean}
+ */
+export function isFiscalPrinter(printer) {
+  return getNormalizedPrinterConnectionType(printer) === FISCAL_PRINTER_CONNECTION_TYPE;
+}
+
+/**
+ * Returns the first configured fiscal printer, or null if none is configured.
+ * A fiscal printer must have a stable id (used as printerId for the fiscal job)
+ * and a url pointing to the print-server `/print` endpoint.
+ *
+ * @param {unknown} printers
+ * @returns {object|null}
+ */
+export function getFiscalPrinter(printers) {
+  if (!Array.isArray(printers)) return null;
+  return printers.find((printer) =>
+    isFiscalPrinter(printer)
+    && typeof printer?.id === 'string' && printer.id.trim()
+    && typeof printer?.url === 'string' && printer.url.trim()
+  ) ?? null;
 }
 
 /**
@@ -842,37 +894,15 @@ export function deepEqual(left, right) {
 
 
 /**
- * Builds the RT-printer XML payload for a fiscal receipt.
+ * Resolves the configured fiscal printer, preferring the runtime/hydrated
+ * printer list when provided. Used by the UI as a dispatch decision point: a
+ * fiscal printer is often configured at runtime via Directus/IDB config, so the
+ * static `appConfig.printers` alone yields false negatives.
  *
- * This is the single, shared implementation used by both the live-cassa close
- * flow (CassaTableManager) and the post-close fiscal emission from the bill
- * history (CassaBillCard). Keeping it here ensures any future protocol tweaks
- * (e.g. per official RT-printer documentation) are applied in one place only.
- *
- * @param {object} base - Bill summary produced by `_buildBillSummaryBase()`.
- * @param {Array}  base.orders          - Orders with items (name, quantity, unitPrice).
- * @param {Array}  base.paymentMethods  - List of payment method labels.
- * @param {number} base.totalAmount     - Gross order total used as fiscal total.
- * @returns {string} XML string for the RT printer.
+ * @param {unknown} [printers] - runtime printer list (e.g. store config).
+ *   When omitted/null/empty, falls back to the static `appConfig.printers`.
+ * @returns {object|null} the first fiscal printer with id+url, or null
  */
-export function buildFiscalXmlRequest(base) {
-  const escXml = s => String(s).replace(/[<>&"']/g, c => (
-    { '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;' }[c]
-  ));
-  const lines = base.orders.flatMap(o => o.items).map(item => {
-    const qty = item.quantity.toFixed(3);
-    const price = item.unitPrice.toFixed(2);
-    return `  <printRecItem description="${escXml(item.name)}" quantity="${qty}" unitPrice="${price}" department="1" />`;
-  });
-  const paymentType = base.paymentMethods.some(m => /cart|bancomat|pos|visa|master|carta/i.test(m)) ? '2' : '0';
-  const paymentLabel = escXml(base.paymentMethods.join(' + ') || 'CONTANTI');
-  const total = base.totalAmount.toFixed(2);
-  return [
-    '<printerFiscalReceipt>',
-    '  <beginFiscalReceipt operator="1" />',
-    ...lines,
-    `  <printRecTotal payment="${total}" paymentType="${paymentType}" description="${paymentLabel}" />`,
-    '  <endFiscalReceipt />',
-    '</printerFiscalReceipt>',
-  ].join('\n');
+export function resolveFiscalPrinter(printers) {
+  return getFiscalPrinter(Array.isArray(printers) && printers.length ? printers : appConfig.printers);
 }

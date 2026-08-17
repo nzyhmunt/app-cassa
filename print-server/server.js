@@ -4,9 +4,24 @@
  * @file server.js
  * @description Servizio Node.js ESC/POS per la stampa di comande da app-cassa.
  *
- * Espone un endpoint HTTP:
- *   POST /print  – riceve un job JSON, lo converte in ESC/POS e lo invia alla stampante.
- *   GET  /health – ritorna { status: 'ok' } per il controllo di salute del servizio.
+ * Espone endpoint HTTP:
+ *   POST /print    – riceve un job JSON, lo converte in ESC/POS (o XML fiscale)
+ *                    e lo invia alla stampante.
+ *   GET  /health   – ritorna { status: 'ok' } per il controllo di salute del servizio.
+ *   GET  /printers – ritorna l'elenco delle stampanti configurate.
+ *
+ * Tipi di stampa supportati (campo `printType` del job):
+ *   ESC/POS (stampanti termiche tcp/file): 'order', 'table_move', 'pre_bill'
+ *   Fiscali (stampante Epson RT tipo fpmate):
+ *     'fiscal_receipt'  – scontrino fiscale (documento commerciale)
+ *     'fiscal_refund'   – documento di reso commerciale (RESO MERCE)
+ *     'fiscal_void'     – documento di annullo commerciale (VOID)
+ *     'fiscal_z_report' – chiusura giornaliera (Z report)
+ *     'fiscal_x_report' – report finanziario (X report)
+ *     'fiscal_status'   – query stato stampante
+ *     'fiscal_duplicate'– ristampa ultimo scontrino (documento di gestione)
+ *     'fiscal_drawer'   – apertura cassetto contanti
+ *     'fiscal_cash'     – versamento/prelievo cassa fiscale (cash in/out)
  *
  * Le stampanti fisiche sono configurate in `printers.config.js` (Opzione A) oppure
  * tramite variabili d'ambiente `PRINTER_<N>_*` (Opzione B — le env vars hanno la precedenza).
@@ -38,8 +53,9 @@ const http    = require('http');
 const cors    = require('cors');
 const express = require('express');
 
-const { printBuffer, getPrintersList, getPrinterConfig } = require('./printer.js');
+const { printBuffer, printFiscal, getPrintersList, getPrinterConfig, NO_PRINTERS_CONFIGURED_ERROR } = require('./printer.js');
 const { buildEscPosBuffer } = require('./build-buffer.js');
+const { buildFiscalXml } = require('./formatters/fiscal_receipt.js');
 const directusClient = require('./directus-client.js');
 
 // ── Configurazione ────────────────────────────────────────────────────────────
@@ -77,7 +93,10 @@ const CORS_ALLOWED_ORIGINS = (process.env.CORS_ALLOWED_ORIGINS || '')
   .filter(Boolean);
 
 // Supported printType values
-const VALID_PRINT_TYPES = new Set(['order', 'table_move', 'pre_bill']);
+const VALID_PRINT_TYPES = new Set(['order', 'table_move', 'pre_bill', 'fiscal_receipt', 'fiscal_refund', 'fiscal_void', 'fiscal_z_report', 'fiscal_x_report', 'fiscal_status', 'fiscal_duplicate', 'fiscal_drawer', 'fiscal_cash']);
+
+// Fiscal print types — dispatched via fpmate HTTP/SOAP instead of raw ESC/POS.
+const FISCAL_PRINT_TYPES = new Set(['fiscal_receipt', 'fiscal_refund', 'fiscal_void', 'fiscal_z_report', 'fiscal_x_report', 'fiscal_status', 'fiscal_duplicate', 'fiscal_drawer', 'fiscal_cash']);
 
 // ── App Express ───────────────────────────────────────────────────────────────
 
@@ -120,11 +139,26 @@ function sanitizeForLog(v) {
   return String(v).replace(/[\r\n\t\x00-\x1f\x7f]/g, ' ').slice(0, 64);
 }
 
+/**
+ * Builds a human-readable error message from an fpmate application-level
+ * failure (HTTP 200 but success=false), prioritizing the printer's `code`
+ * (e.g. "PRINTER ERROR") and falling back to `status` when code is empty.
+ * @param {{ success: boolean, code?: string, status?: string, addInfo?: object }} fiscalResponse
+ * @returns {string}
+ */
+function buildFiscalErrorMessage(fiscalResponse) {
+  const code = fiscalResponse && typeof fiscalResponse.code === 'string' ? fiscalResponse.code.trim() : '';
+  const status = fiscalResponse && typeof fiscalResponse.status === 'string' ? fiscalResponse.status.trim() : '';
+  const detail = code || (status ? `status ${status}` : '');
+  return detail ? `Errore stampante fiscale: ${detail}` : 'Errore stampante fiscale.';
+}
+
 // ── Optional API key middleware ───────────────────────────────────────────────
 
 /**
- * If PRINT_SERVER_API_KEY is configured, every POST /print request must include
- * the matching x-api-key header; all other requests (e.g. GET /health) pass through.
+ * If PRINT_SERVER_API_KEY is configured, guarded routes (POST /print and
+ * GET /printers) must include the matching x-api-key header; all other
+ * requests (e.g. GET /health) pass through.
  */
 function apiKeyGuard(req, res, next) {
   if (!API_KEY || req.method === 'OPTIONS') return next();
@@ -141,6 +175,51 @@ function apiKeyGuard(req, res, next) {
  */
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', service: SERVER_NAME });
+});
+
+/**
+ * Builds the public summary of a printer for GET /printers.
+ *
+ * Exposes network details (host/port/device) only when the endpoint is
+ * protected by an API key; otherwise returns a safe id/name/type summary so
+ * that, with CORS open by default, an arbitrary web page can't enumerate
+ * internal network topology.
+ *
+ * @param {object} p        printer config entry
+ * @param {boolean} authed  whether the request is authenticated (API key set)
+ * @returns {object} safe public summary
+ */
+function buildPrinterSummary(p, authed) {
+  const summary = { id: p.id, name: p.name, type: p.type };
+  if (!authed) return summary;
+  if (p.type === 'tcp') {
+    summary.host = p.host;
+    summary.port = p.port;
+  } else if (p.type === 'file') {
+    summary.device = p.device;
+  } else if (p.type === 'fpmate') {
+    summary.host = p.host;
+    summary.port = p.port ?? null;
+    summary.https = p.https === true;
+  }
+  return summary;
+}
+
+/**
+ * GET /printers
+ * Restituisce l'elenco delle stampanti configurate (senza credenziali).
+ * Protetto da apiKeyGuard quando PRINT_SERVER_API_KEY è configurato, per non
+ * esporre i dettagli di rete interna (host/port) a origini CORS arbitrarie.
+ *
+ * Se PRINT_SERVER_API_KEY non è configurata, apiKeyGuard lascia passare ogni
+ * richiesta; con CORS aperto di default, una pagina web arbitraria potrebbe
+ * leggere i dettagli di rete interna. In quel caso si restituisce solo un
+ * sommario sicuro (id/name/type) senza host/port/device.
+ */
+app.get('/printers', apiKeyGuard, (_req, res) => {
+  const authed = Boolean(API_KEY);
+  const printers = getPrintersList().map((p) => buildPrinterSummary(p, authed));
+  res.json({ ok: true, printers });
 });
 
 /**
@@ -183,11 +262,63 @@ app.post('/print', apiKeyGuard, async (req, res) => {
   // and surface a 500 early if no printers are configured.
   const printerConfig = getPrinterConfig(printerId);
   if (!printerConfig) {
-    return res.status(500).json({ ok: false, error: 'No printers configured in printers.config.js.' });
+    return res.status(500).json({ ok: false, error: NO_PRINTERS_CONFIGURED_ERROR });
   }
   const safeResolvedId = sanitizeForLog(printerConfig.id);
 
-  // Conversione payload → Buffer ESC/POS
+  // ── Fiscal jobs: build XML and dispatch via fpmate HTTP/SOAP ───────────────
+  if (FISCAL_PRINT_TYPES.has(printType)) {
+    if ((printerConfig.type || '').toLowerCase() !== 'fpmate') {
+      return res.status(400).json({
+        ok: false,
+        error: `Il printType "${printType}" richiede una stampante di tipo fpmate (stampante "${printerConfig.id}" è type="${printerConfig.type}").`,
+      });
+    }
+
+    let xml;
+    try {
+      xml = buildFiscalXml(job);
+    } catch (err) {
+      const safeMsg = sanitizeForLog(err.message);
+      console.error('[print-server] Errore formattazione fiscale job', safeJobId, '(' + safePrintType + '):', safeMsg);
+      return res.status(400).json({ ok: false, error: `Errore formattazione fiscale: ${safeMsg}` });
+    }
+
+    try {
+      const fiscalResponse = await printFiscal(xml, printerId);
+      console.log('[print-server] Job fiscale stampato:', safeJobId, '(' + safePrintType + ') → stampante:', safeResolvedId,
+        'success:', fiscalResponse.success, 'receipt:', fiscalResponse.addInfo?.fiscalReceiptNumber ?? '–');
+      // When the printer answers HTTP 200 but signals an application-level
+      // failure (success=false), surface an explicit error built from the
+      // fpmate code/status so the client does not fall back to a generic
+      // "HTTP 200" message and lose the real reason.
+      const ok = fiscalResponse.success === true;
+      const error = ok ? null : buildFiscalErrorMessage(fiscalResponse);
+      return res.json({
+        ok,
+        jobId: jobId ?? null,
+        fiscal: fiscalResponse,
+        ...(error ? { error } : {}),
+      });
+    } catch (err) {
+      const safeMsg = sanitizeForLog(err.message);
+      console.error('[print-server] Errore stampante fiscale per job', safeJobId + ':', safeMsg);
+      return res.status(500).json({ ok: false, error: `Errore stampante fiscale: ${safeMsg}` });
+    }
+  }
+
+  // ── ESC/POS jobs: build buffer and dispatch via TCP/file ───────────────────
+  // ESC/POS must never be routed to an fpmate fiscal printer: _dispatch() would
+  // treat the ESC/POS buffer as fiscal XML and send an invalid payload to the
+  // RT printer. Fail fast with a clear error instead (mirrors the fiscal-side
+  // guard that rejects non-fpmate printers above).
+  if ((printerConfig.type || '').toLowerCase() === 'fpmate') {
+    return res.status(400).json({
+      ok: false,
+      error: `Il printType "${printType}" richiede una stampante ESC/POS (tcp/file), ma la stampante "${printerConfig.id}" è type="fpmate" (fiscale).`,
+    });
+  }
+
   let buf;
   try {
     buf = buildEscPosBuffer(job);
@@ -235,40 +366,51 @@ app.use((err, req, res, _next) => {
 
 // ── Avvio server ──────────────────────────────────────────────────────────────
 
+// Boot the server only when run directly (`node server.js`), not when imported
+// by tests. Expose the pure summary helper for unit testing the redaction logic.
 const server = http.createServer(app);
 
-server.listen(PORT, () => {
-  console.log(`[print-server] ${SERVER_NAME} in ascolto su http://localhost:${PORT}`);
-  console.log(`[print-server] Endpoint: POST http://localhost:${PORT}/print`);
-  if (API_KEY) {
-    console.log('[print-server] Autenticazione API key abilitata (x-api-key)');
-  }
-  if (CORS_ALLOWED_ORIGINS.length > 0) {
-    console.log('[print-server] CORS origini consentite:', CORS_ALLOWED_ORIGINS.join(', '));
-  }
-
-  const printers = getPrintersList();
-  if (printers.length === 0) {
-    console.warn('[print-server] ATTENZIONE: nessuna stampante configurata in printers.config.js');
-  } else {
-    console.log(`[print-server] Stampanti configurate (${printers.length}):`);
-    for (const p of printers) {
-      const conn = p.type === 'file'
-        ? `file → ${p.device}`
-        : `TCP  → ${p.host}:${p.port}`;
-      console.log(`[print-server]   [${p.id}] ${p.name}  (${conn})`);
+if (require.main === module) {
+  server.listen(PORT, () => {
+    console.log(`[print-server] ${SERVER_NAME} in ascolto su http://localhost:${PORT}`);
+    console.log(`[print-server] Endpoint: POST http://localhost:${PORT}/print`);
+    if (API_KEY) {
+      console.log('[print-server] Autenticazione API key abilitata (x-api-key)');
     }
-  }
+    if (CORS_ALLOWED_ORIGINS.length > 0) {
+      console.log('[print-server] CORS origini consentite:', CORS_ALLOWED_ORIGINS.join(', '));
+    }
 
-  // Avvia modalità Directus Pull se DIRECTUS_URL e DIRECTUS_TOKEN sono impostati.
-  // La funzione è non bloccante: polling e WebSocket girano in background.
-  directusClient.start(console).catch((err) => {
-    console.error('[print-server] Errore avvio Directus pull mode:', err instanceof Error ? err.message : String(err), err);
+    const printers = getPrintersList();
+    if (printers.length === 0) {
+      console.warn('[print-server] ATTENZIONE: nessuna stampante configurata in printers.config.js');
+    } else {
+      console.log(`[print-server] Stampanti configurate (${printers.length}):`);
+      for (const p of printers) {
+        let conn;
+        if (p.type === 'file') {
+          conn = `file → ${p.device}`;
+        } else if (p.type === 'fpmate') {
+          conn = `fpmate → ${p.https ? 'https' : 'http'}://${p.host}${p.port ? ':' + p.port : ''}`;
+        } else {
+          conn = `TCP  → ${p.host}:${p.port}`;
+        }
+        console.log(`[print-server]   [${p.id}] ${p.name}  (${conn})`);
+      }
+    }
+
+    // Avvia modalità Directus Pull se DIRECTUS_URL e DIRECTUS_TOKEN sono impostati.
+    // La funzione è non bloccante: polling e WebSocket girano in background.
+    directusClient.start(console).catch((err) => {
+      console.error('[print-server] Errore avvio Directus pull mode:', err instanceof Error ? err.message : String(err), err);
+    });
   });
-});
 
-server.on('error', (err) => {
-  console.error(`[print-server] Errore avvio server sulla porta ${PORT}:`, err.message);
-  process.exit(1);
-});
+  server.on('error', (err) => {
+    console.error(`[print-server] Errore avvio server sulla porta ${PORT}:`, err.message);
+    process.exit(1);
+  });
+}
+
+module.exports = { app, server, buildPrinterSummary, buildFiscalErrorMessage };
 

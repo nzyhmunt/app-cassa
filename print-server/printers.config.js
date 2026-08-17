@@ -11,7 +11,7 @@
  * Proprietà di ogni stampante:
  *   id       {string}  – identificatore univoco (deve corrispondere a appConfig.printers[].id)
  *   name     {string}  – nome descrittivo (solo per i log)
- *   type     {string}  – 'tcp' (rete) | 'file' (dispositivo USB/parallelo)
+ *   type     {string}  – 'tcp' (rete) | 'file' (USB/parallelo) | 'fpmate' (fiscale RT)
  *
  *   Per type='tcp':
  *     host    {string}  – indirizzo IP o hostname della stampante
@@ -21,12 +21,26 @@
  *   Per type='file':
  *     device  {string}  – percorso del file di dispositivo (es. '/dev/usb/lp0')
  *
+ *   Per type='fpmate' (stampante fiscale Epson RT via fpmate.cgi):
+ *     host     {string}         – IP/hostname della stampante fiscale
+ *     port     {number|null}    – porta HTTP (default: null → 80/443)
+ *     timeout  {number}         – timeout fpmate in ms (default: 30000)
+ *     https    {boolean}        – usa HTTPS (default: false)
+ *     username {string}         – credenziali web (opzionale)
+ *     password {string}         – credenziali web (opzionale)
+ *
  * Esempio configurazione multi-stampante (cucina + bar + cassa):
  *
  *   printers: [
  *     { id: 'cucina', name: 'Cucina',  type: 'tcp',  host: '192.168.1.100', port: 9100 },
  *     { id: 'bar',    name: 'Bar',     type: 'tcp',  host: '192.168.1.101', port: 9100 },
  *     { id: 'cassa',  name: 'Cassa',   type: 'file', device: '/dev/usb/lp0' },
+ *   ],
+ *
+ * Esempio stampante fiscale Epson RT (fpmate):
+ *
+ *   printers: [
+ *     { id: 'fiscale', name: 'Stampante Fiscale', type: 'fpmate', host: '192.168.1.200' },
  *   ],
  *
  * Se il `printerId` del job non corrisponde a nessuna voce, viene usata la prima

@@ -737,7 +737,7 @@ CREATE TABLE daily_closure_by_method (
 
 ---
 
-### 2.18 `printers` — Stampanti ESC/POS configurate
+### 2.18 `printers` — Stampanti ESC/POS / fiscali configurate
 
 I dati delle stampanti sono configurati in `appConfig.printers` (frontend) e nella collezione
 Directus `printers` (backend). Quando la modalità Directus Pull è attiva, la collezione
@@ -745,24 +745,29 @@ Directus è la **fonte unica di verità** e sovrascrive `printers.config.js` / `
 
 Campi Directus standard abilitati: `status`, `user_created`, `date_created`, `user_updated`, `date_updated`.
 
+Sono supportati tre tipi di stampante:
+- **ESC/POS termiche** (`http` / `tcp` / `file`) — comande, preconti, spostamenti tavolo;
+- **Fiscale Epson RT** (`fpmate`) — scontrini, Z/X report, query stato (protocollo SOAP/HTTP via `fpmate.cgi`).
+
 ```sql
 CREATE TABLE printers (
-    id              VARCHAR(40)     PRIMARY KEY,            -- es. 'cucina', 'bar', 'cassa'
+    id              VARCHAR(40)     PRIMARY KEY,            -- es. 'cucina', 'bar', 'cassa', 'fiscale'
     status          VARCHAR(20)     NOT NULL DEFAULT 'published', -- 'published' | 'archived'
     venue           INTEGER         NOT NULL REFERENCES venues(id) ON DELETE CASCADE,
     name            VARCHAR(80)     NOT NULL,               -- nome visualizzato nella UI
 
     -- ── Endpoint HTTP (per i flussi che usano il print-server via HTTP) ─────
     -- URL del servizio print-server a cui inviare i job via POST /print.
-    -- Usato solo quando la stampante è configurata per connessione HTTP
-    -- (ad es. frontend / Modalità 1). NULL se si usa solo connessione diretta TCP/File.
+    -- Usato da frontend (Modalità 1) e dalla stampante fiscale (connection_type='fpmate').
+    -- NULL se si usa solo connessione diretta TCP/File.
     url             TEXT            NULL,                   -- es. 'http://localhost:3001/print'
 
     -- ── Connessione diretta (per Directus Pull — Modalità 2) ─────────────────
     -- Quando connection_type = 'tcp' o 'file', il print-server in modalità pull
     -- si connette direttamente alla stampante fisica senza passare per l'endpoint HTTP.
+    -- connection_type = 'fpmate' → stampante fiscale Epson RT (fpmate.cgi, SOAP/HTTP).
     -- Se connection_type = 'http' o NULL, viene usata la connessione via URL (sopra).
-    connection_type VARCHAR(10)     NOT NULL DEFAULT 'http', -- 'http' | 'tcp' | 'file'
+    connection_type VARCHAR(10)     NOT NULL DEFAULT 'http', -- 'http' | 'tcp' | 'file' | 'fpmate'
 
     -- Connessione TCP (per connection_type = 'tcp')
     tcp_host        VARCHAR(255)    NULL,                   -- IP/hostname stampante (es. 192.168.1.100)
@@ -772,9 +777,17 @@ CREATE TABLE printers (
     -- Connessione file/USB (per connection_type = 'file')
     file_device     TEXT            NULL DEFAULT '/dev/usb/lp0', -- percorso device USB/parallela
 
+    -- ── Connessione stampante fiscale Epson RT (connection_type = 'fpmate') ─
+    fpmate_host     VARCHAR(255)    NULL,                   -- IP/hostname stampante fiscale (es. 192.168.1.200)
+    fpmate_https    BOOLEAN         NOT NULL DEFAULT FALSE, -- usa HTTPS
+    fpmate_timeout  INTEGER         NULL DEFAULT 30000,     -- timeout fpmate in ms (alto: lo Z report trasmette all'Ade)
+    fpmate_username VARCHAR(255)    NULL,                   -- credenziali web (opzionale)
+    fpmate_password VARCHAR(255)    NULL,                   -- credenziali web (opzionale)
+
     -- ── Routing (per frontend — Modalità 1) ──────────────────────────────────
     -- print_types: quali tipi di lavoro riceve questa stampante.
-    -- Valori ammessi: 'order', 'table_move', 'pre_bill', oppure un tipo custom.
+    -- Valori ammessi: 'order', 'table_move', 'pre_bill', 'fiscal_receipt',
+    -- 'fiscal_z_report', 'fiscal_x_report', 'fiscal_status', oppure un tipo custom.
     -- Array vuoto / NULL = catch-all (riceve tutti i tipi).
     print_types     TEXT[]          NOT NULL DEFAULT '{}',
     -- categories: filtro menu per i lavori di tipo 'order'.
@@ -791,7 +804,7 @@ CREATE TABLE printers (
 ```
 
 > ⚠️ **NON RIMUOVERE i seguenti campi dalla collection `printers`:**
-> `connection_type`, `tcp_host`, `tcp_port`, `tcp_timeout`, `file_device`
+> `connection_type`, `tcp_host`, `tcp_port`, `tcp_timeout`, `file_device`, `fpmate_*`
 >
 > Questi campi **non sono usati dal frontend** (App Cassa / App Cucina) ma sono consumati
 > esclusivamente dal componente **Print Server** (servizio Node.js separato) per aprire
@@ -799,15 +812,20 @@ CREATE TABLE printers (
 >
 > | Campo             | Consumer         | Descrizione                                                        |
 > |-------------------|------------------|--------------------------------------------------------------------|
-> | `connection_type` | **Print Server** | `'http'` → endpoint URL; `'tcp'` → socket TCP; `'file'` → device file USB/parallela |
+> | `connection_type` | **Print Server** | `'http'` → endpoint URL; `'tcp'` → socket TCP; `'file'` → device file USB/parallela; `'fpmate'` → stampante fiscale RT |
 > | `tcp_host`        | **Print Server** | IP/hostname della stampante sulla LAN (modalità `tcp`)             |
 > | `tcp_port`        | **Print Server** | Porta TCP ESC/POS, default 9100 (modalità `tcp`)                   |
 > | `tcp_timeout`     | **Print Server** | Timeout connessione TCP in ms, default 5000 (modalità `tcp`)       |
 > | `file_device`     | **Print Server** | Path device file USB/parallelo, es. `/dev/usb/lp0` (modalità `file`) |
-> | `url`             | Frontend + Print Server | Endpoint HTTP del print-server (modalità `http`). Nullable: obbligatorio solo quando `connection_type = 'http'` |
+> | `fpmate_host`     | **Print Server** | IP/hostname stampante fiscale Epson RT (modalità `fpmate`)         |
+> | `fpmate_https`    | **Print Server** | Usa HTTPS verso fpmate.cgi (modalità `fpmate`)                    |
+> | `fpmate_timeout`  | **Print Server** | Timeout fpmate in ms, default 30000 (modalità `fpmate`)            |
+> | `fpmate_username` | **Print Server** | Credenziali web stampante fiscale, opzionali (modalità `fpmate`)   |
+> | `fpmate_password` | **Print Server** | Credenziali web stampante fiscale, opzionali (modalità `fpmate`)    |
+> | `url`             | Frontend + Print Server | Endpoint HTTP del print-server (modalità `http`/`fpmate`). Nullable: obbligatorio solo quando `connection_type` è `http` o `fpmate` |
 >
-> Rimuovere questi campi da Directus renderebbe inutilizzabili le modalità TCP e File/USB del
-> Print Server, impedendo la stampa diretta senza service intermediary.
+> Rimuovere questi campi da Directus renderebbe inutilizzabili le modalità TCP, File/USB e
+> fiscale del Print Server, impedendo la stampa diretta senza service intermediary.
 
 ---
 
@@ -878,8 +896,18 @@ CREATE INDEX idx_print_jobs_type_status ON print_jobs (print_type, status);
 
 ### 2.20 `fiscal_receipts` — Comandi stampante fiscale (scontrini RT)
 
-Ogni record rappresenta un tentativo di emissione di uno scontrino fiscale a chiusura conto.
+Ogni record rappresenta un tentativo di emissione di un documento fiscale a chiusura conto.
 Non riutilizza `print_jobs` perché il formato (XML RT) e il ciclo di vita (request/response XML) sono completamente diversi dai lavori ESC/POS.
+
+Supporta i documenti fiscali RT generati dal tab "Fiscale RT" del Cruscotto Cassa:
+scontrino (`fiscal_receipt`), reso (`fiscal_refund`) e annullo (`fiscal_void`). La colonna
+`operation_type` distingue il tipo di documento; per gli annulli, `void_ref_id` punta allo
+scontrino originale annullato (i cui riferimenti Z/numero/data/matricola sono già memorizzati
+nei campi `z_rep_number`/`fiscal_receipt_number`/`fiscal_receipt_date`/`serial_number`).
+
+La stampante fiscale Epson RT comunica via `fpmate.cgi` (SOAP/HTTP); il print-server
+costruisce l'XML dalla richiesta strutturata e restituisce i campi della risposta
+(numero scontrino, matricola, numero Z) che vengono persistiti qui per audit.
 
 ```sql
 CREATE TABLE fiscal_receipts (
@@ -895,10 +923,25 @@ CREATE TABLE fiscal_receipts (
                                                    -- Per conti dallo storico: include bill.totalDiscount per allineamento con la cassa live
     payment_methods     TEXT,                      -- JSON array di stringhe
     orders              TEXT,                      -- JSON snapshot voci (name/qty/unitPrice)
+    operation_type      TEXT        NOT NULL DEFAULT 'receipt'
+                                    CHECK (operation_type IN ('receipt','refund','void','duplicate','cash','status','z_report','x_report','drawer')),
+    void_ref_id         UUID        REFERENCES fiscal_receipts(id) ON DELETE SET NULL,
+                                                   -- Scontrino originale annullato (solo per operation_type = 'void')
     xml_request         TEXT,                      -- Payload XML inviato alla stampante
     xml_response        TEXT,                      -- Risposta XML ricevuta dalla stampante (null se non ancora ricevuta)
+    -- Risposta fpmate (addInfo) — popolata dal print-server alla conferma del documento
+    fiscal_receipt_number   TEXT,                 -- Numero progressivo scontrino (fiscalReceiptNumber)
+    fiscal_receipt_amount   TEXT,                  -- Importo stampato (fiscalReceiptAmount, formato italiano "13,00")
+    fiscal_receipt_date     TEXT,                  -- Data scontrino (fiscalReceiptDate, "21/04/2023")
+    fiscal_receipt_time     TEXT,                  -- Ora scontrino (fiscalReceiptTime, "11:35")
+    receipt_iso_date_time  TEXT,                   -- ISO datetime scontrino (receiptISODateTime, "20230421T113500")
+    z_rep_number            TEXT,                 -- Numero Z report corrente (zRepNumber)
+    serial_number           TEXT,                 -- Matricola stampante (serialNumber)
+    printer_status          TEXT,                 -- Stato stampante (printerStatus)
     status              TEXT        NOT NULL DEFAULT 'pending'
-                                    CHECK (status IN ('pending','sent','ok','error')),
+                                    CHECK (status IN ('pending','done','error','void')),
+                                    -- Stati ciclo scontrino fiscale: pending (richiesta in attesa),
+                                    -- done (emesso/stampato), error (fallito), void (annullato).
     timestamp           TIMESTAMPTZ NOT NULL DEFAULT NOW(),  -- Istante della richiesta (non della chiusura conto)
     -- Directus standard fields
     date_created        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -913,6 +956,10 @@ CREATE INDEX idx_fiscal_receipts_table        ON fiscal_receipts ("table");
 CREATE INDEX idx_fiscal_receipts_bill_session ON fiscal_receipts (bill_session);
 CREATE INDEX idx_fiscal_receipts_status       ON fiscal_receipts (status);
 CREATE INDEX idx_fiscal_receipts_timestamp    ON fiscal_receipts (timestamp DESC);
+CREATE INDEX idx_fiscal_receipts_serial       ON fiscal_receipts (serial_number);
+CREATE INDEX idx_fiscal_receipts_z_rep         ON fiscal_receipts (z_rep_number);
+CREATE INDEX idx_fiscal_receipts_operation    ON fiscal_receipts (operation_type);
+CREATE INDEX idx_fiscal_receipts_void_ref      ON fiscal_receipts (void_ref_id);
 ```
 
 ---
