@@ -261,6 +261,15 @@ function printBuffer(buf, printerId) {
   if (!config) {
     return Promise.reject(new Error(NO_PRINTERS_CONFIGURED_ERROR));
   }
+  // printBuffer riceve buffer ESC/POS (es. da directus-client). Una stampante
+  // fpmate accetta solo XML fiscale via SOAP: inviarle byte ESC/POS produrrebbe
+  // XML/SOAP non valido rompendo la spedizione. I job fiscali devono usare
+  // printFiscal(); qui rifiutiamo esplicitamente le stampanti fpmate.
+  if ((config.type || '').toLowerCase() === 'fpmate') {
+    return Promise.reject(
+      new Error(`La stampante "${config.id}" è di tipo fpmate: usare printFiscal() per i job fiscali, non printBuffer().`)
+    );
+  }
   return _enqueue(config.id, () => _dispatch(buf, config));
 }
 

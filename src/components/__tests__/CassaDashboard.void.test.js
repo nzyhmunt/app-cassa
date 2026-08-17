@@ -14,10 +14,11 @@ import { createPinia, setActivePinia } from 'pinia';
 // touching the network, and force resolveFiscalPrinter to return a configured
 // printer so the fiscal tab + VOID UI render.
 const dispatchFiscalVoidMock = vi.fn();
+const dispatchFiscalStatusMock = vi.fn();
 vi.mock('../../composables/useFiscalPrint.js', () => ({
   dispatchFiscalZReport: vi.fn(),
   dispatchFiscalXReport: vi.fn(),
-  dispatchFiscalStatus: vi.fn(),
+  dispatchFiscalStatus: (...args) => dispatchFiscalStatusMock(...args),
   dispatchFiscalDuplicate: vi.fn(),
   dispatchFiscalOpenDrawer: vi.fn(),
   dispatchFiscalCash: vi.fn(),
@@ -165,5 +166,82 @@ describe('CassaDashboard — fiscal VOID marks original receipt as voided', () =
     // On failure the entry stays done and remains voidable.
     const entry = orderStore.fiscalReceipts.find((r) => r.id === 'fr-1');
     expect(entry.status).toBe('done');
+  });
+});
+
+// ── RT status UI: placeholder for absent fields ───────────────────────────────
+// Quando la risposta fpmate non include le chiavi RT-specific (firmware non-RT
+// o fallimento parziale), i campi assenti non devono essere letti come "No"
+// (soprattutto rtDailyOpen, dove "No" rosso indica giornata chiusa). Mostriamo
+// un placeholder neutro "–" per i campi sconosciuti.
+
+describe('CassaDashboard — RT status renders placeholder for absent fields', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+    dispatchFiscalStatusMock.mockReset();
+    dispatchFiscalVoidMock.mockReset();
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+  });
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  async function openFiscalTab(wrapper) {
+    const fiscalTab = wrapper.findAll('button').find((b) => b.text().includes('Fiscale RT'));
+    await fiscalTab.trigger('click');
+    await flushPromises();
+  }
+
+  it('renders "–" (not "No") for absent RT-specific fields', async () => {
+    // All RT-specific keys absent: addInfo carries only unrelated fields.
+    dispatchFiscalStatusMock.mockResolvedValue({
+      ok: true,
+      fiscal: { success: true, addInfo: { serialNumber: '99IEB004001' } },
+    });
+    const wrapper = await mountDashboard();
+    await openFiscalTab(wrapper);
+
+    const statusBtn = wrapper.findAll('button').find((b) => b.text().includes('Interroga stato RT'));
+    expect(statusBtn.exists()).toBe(true);
+    await statusBtn.trigger('click');
+    await flushPromises();
+
+    const text = wrapper.text();
+    // Absent boolean flags must NOT be read as "No" (red = giornata chiusa);
+    // the neutral placeholder "–" is rendered instead.
+    expect(text).toContain('Giornata aperta');
+    expect(text).toContain('Z necessario');
+    expect(text).toContain('File da inviare');
+    // The three absent-flag rows render "–", not "No" / "0".
+    const dashCount = (text.match(/–/g) || []).length;
+    expect(dashCount).toBeGreaterThanOrEqual(3);
+    // rtDailyOpen absent must not be misread as "No": ensure the red "No" is
+    // not rendered for the giornata row. The placeholder is gray ("–").
+    expect(text).not.toMatch(/Giornata aperta.*No/);
+  });
+
+  it('renders "Sì"/"No" with colors when RT fields are present', async () => {
+    dispatchFiscalStatusMock.mockResolvedValue({
+      ok: true,
+      fiscal: {
+        success: true,
+        addInfo: {
+          rtDailyOpen: '1',
+          rtNoWorkingPeriod: '0',
+          rtFileToSend: '2',
+          serialNumber: '99IEB004001',
+        },
+      },
+    });
+    const wrapper = await mountDashboard();
+    await openFiscalTab(wrapper);
+
+    const statusBtn = wrapper.findAll('button').find((b) => b.text().includes('Interroga stato RT'));
+    await statusBtn.trigger('click');
+    await flushPromises();
+
+    const text = wrapper.text();
+    // rtDailyOpen='1' → "Sì"; rtNoWorkingPeriod='0' → "No"; rtFileToSend='2' → "2".
+    expect(text).toMatch(/Giornata aperta.*Sì/);
+    expect(text).toMatch(/Z necessario.*No/);
+    expect(text).toMatch(/File da inviare.*2/);
   });
 });

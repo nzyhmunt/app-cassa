@@ -4,11 +4,11 @@
  * I test di serializzazione della coda sono in printer.queue.test.js.
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
-const { findPrinterConfig, getPrintersList, printBuffer } = require('../printer.js');
+const { findPrinterConfig, getPrintersList, printBuffer, setPrinters, _resetPrinterCache } = require('../printer.js');
 
 // ── Test printer fixtures ─────────────────────────────────────────────────────
 
@@ -74,6 +74,39 @@ describe('printBuffer — no printers configured', () => {
     // Default printers.config.js has no entries; printBuffer should reject
     const buf = Buffer.from([0x1b, 0x40]);
     await expect(printBuffer(buf, 'cucina')).rejects.toThrow('No printers configured');
+  });
+});
+
+// ── printBuffer — rejects fpmate printers ─────────────────────────────────────
+// printBuffer riceve byte ESC/POS; una stampante fpmate accetta solo XML
+// fiscale via SOAP. Inviare ESC/POS a fpmate produrrebbe XML/SOAP non valido:
+// printBuffer deve rifiutare esplicitamente le stampanti fpmate e indirizzare i
+// chiamanti a printFiscal().
+
+describe('printBuffer — rejects fpmate printers', () => {
+  afterEach(() => { setPrinters([]); _resetPrinterCache(); });
+
+  it('rejects a fpmate printer with a message pointing to printFiscal()', async () => {
+    setPrinters([{ id: 'fiscale', name: 'Epson RT', type: 'fpmate', host: 'http://printer.local' }]);
+    const buf = Buffer.from([0x1b, 0x40]);
+    await expect(printBuffer(buf, 'fiscale')).rejects.toThrow(/fpmate.*printFiscal/);
+  });
+
+  it('also rejects when printerId falls back to a fpmate printer (unknown id)', async () => {
+    // findPrinterConfig falls back to the first printer when printerId is
+    // missing/unknown: if that first printer is fpmate, printBuffer must still
+    // reject rather than send ESC/POS to the fiscal endpoint.
+    setPrinters([{ id: 'fiscale', name: 'Epson RT', type: 'fpmate', host: 'http://printer.local' }]);
+    const buf = Buffer.from([0x1b, 0x40]);
+    await expect(printBuffer(buf, 'unknown-printer')).rejects.toThrow(/fpmate.*printFiscal/);
+  });
+
+  it('still accepts ESC/POS for a file printer', async () => {
+    // Sanity check: the fpmate guard must not break legitimate ESC/POS printers.
+    // Use a file printer to avoid real network I/O.
+    setPrinters([{ id: 'cassa', name: 'Cassa', type: 'file', device: '/dev/null' }]);
+    const buf = Buffer.from([0x1b, 0x40]);
+    await expect(printBuffer(buf, 'cassa')).resolves.toBeUndefined();
   });
 });
 

@@ -410,9 +410,9 @@
                 <RefreshCw class="size-4" :class="fiscalBusy ? 'animate-spin' : ''" /> Interroga stato RT
               </button>
               <div v-if="fiscalStatus" class="mt-3 space-y-1.5 text-sm">
-                <div class="flex justify-between"><span class="text-gray-500">Giornata aperta</span><span class="font-bold" :class="fiscalStatus.rtDailyOpen === '1' ? 'text-emerald-600' : 'text-red-600'">{{ fiscalStatus.rtDailyOpen === '1' ? 'Sì' : 'No' }}</span></div>
-                <div class="flex justify-between"><span class="text-gray-500">Z necessario</span><span class="font-bold" :class="fiscalStatus.rtNoWorkingPeriod === '1' ? 'text-amber-600' : 'text-gray-700'">{{ fiscalStatus.rtNoWorkingPeriod === '1' ? 'Sì' : 'No' }}</span></div>
-                <div class="flex justify-between"><span class="text-gray-500">File da inviare</span><span class="font-bold" :class="Number(fiscalStatus.rtFileToSend) > 0 ? 'text-amber-600' : 'text-gray-700'">{{ fiscalStatus.rtFileToSend ?? '0' }}</span></div>
+                <div class="flex justify-between"><span class="text-gray-500">Giornata aperta</span><span class="font-bold" :class="rtFlag(fiscalStatus.rtDailyOpen, 'text-emerald-600', 'text-red-600').cls">{{ rtFlag(fiscalStatus.rtDailyOpen, 'text-emerald-600', 'text-red-600').text }}</span></div>
+                <div class="flex justify-between"><span class="text-gray-500">Z necessario</span><span class="font-bold" :class="rtFlag(fiscalStatus.rtNoWorkingPeriod, 'text-amber-600', 'text-gray-700').cls">{{ rtFlag(fiscalStatus.rtNoWorkingPeriod, 'text-amber-600', 'text-gray-700').text }}</span></div>
+                <div class="flex justify-between"><span class="text-gray-500">File da inviare</span><span class="font-bold" :class="rtCount(fiscalStatus.rtFileToSend, 'text-amber-600', 'text-gray-700').cls">{{ rtCount(fiscalStatus.rtFileToSend, 'text-amber-600', 'text-gray-700').text }}</span></div>
                 <div v-if="Number(fiscalStatus.rtFileRejected) > 0" class="flex justify-between"><span class="text-gray-500">File rifiutati</span><span class="font-bold text-red-600">{{ fiscalStatus.rtFileRejected }}</span></div>
                 <div class="flex justify-between"><span class="text-gray-500">Stato principale</span><span class="font-bold text-gray-700">{{ fiscalStatus.rtMainStatus ?? '–' }}</span></div>
                 <div class="flex justify-between"><span class="text-gray-500">Matricola</span><span class="font-bold text-gray-700">{{ fiscalStatus.serialNumber ?? '–' }}</span></div>
@@ -598,6 +598,20 @@ const cashDir = ref('in');
 const cashAmountInput = ref(0);
 const cashAmount = computed(() => parseFloat(cashAmountInput.value) || 0);
 const voidSelection = ref('');
+
+// I campi RT-specific (rtDailyOpen, rtNoWorkingPeriod, rtFileToSend, ...) possono
+// essere assenti se la risposta fpmate non li include (firmware non-RT, fallimento
+// parziale della richiesta). In quel caso "sconosciuto" non deve essere letto come
+// "No": mostriamo un placeholder neutro ("–") in grigio chiaro.
+function rtFlag(value, yesCls, noCls) {
+  if (value == null || value === '') return { text: '–', cls: 'text-gray-400' };
+  if (value === '1') return { text: 'Sì', cls: yesCls };
+  return { text: 'No', cls: noCls };
+}
+function rtCount(value, positiveCls, zeroCls) {
+  if (value == null || value === '') return { text: '–', cls: 'text-gray-400' };
+  return { text: String(value), cls: Number(value) > 0 ? positiveCls : zeroCls };
+}
 
 // Scontrini fiscali emessi con numero scontrino → candidati all'annullo (VOID).
 // orderStore.fiscalReceipts is auto-unwrapped by Pinia to the array value.
