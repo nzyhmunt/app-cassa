@@ -309,11 +309,29 @@ function formatFiscalRefund(job) {
 
   const lines = ['<printerFiscalReceipt>'];
 
-  if (ref && (ref.zRepNumber || ref.fiscalReceiptNumber)) {
-    const z = String(ref.zRepNumber ?? '0000').padStart(4, '0');
-    const n = String(ref.fiscalReceiptNumber ?? '0000').padStart(4, '0');
+  if (ref) {
+    // La riga REFUND zzzz nnnn ddmmyyyy sssssssssss è valida solo se TUTTI i
+    // campi del riferimento sono presenti e non vuoti: se ne manca qualcuno la
+    // stampante fiscale può rifiutare il comando o collegare il reso al documento
+    // sbagliato. Verifica quindi la completezza prima di emettere la riga.
+    const zRaw = String(ref.zRepNumber ?? '').trim();
+    const nRaw = String(ref.fiscalReceiptNumber ?? '').trim();
     const d = normalizeRefDate(ref.date);
-    const s = String(ref.serialNumber ?? '').padStart(11, '0').slice(0, 11);
+    const sRaw = String(ref.serialNumber ?? '').trim();
+    const missing = [];
+    if (!zRaw) missing.push('zRepNumber');
+    if (!nRaw) missing.push('fiscalReceiptNumber');
+    if (!/^\d{8}$/.test(d)) missing.push('date');
+    if (!sRaw) missing.push('serialNumber');
+    if (missing.length) {
+      throw new Error(
+        `fiscal_refund: receiptRef incompleto (campi mancanti o non validi: ${missing.join(', ')}); `
+        + 'omettere receiptRef per un reso senza riferimento oppure fornire tutti i campi'
+      );
+    }
+    const z = zRaw.padStart(4, '0');
+    const n = nRaw.padStart(4, '0');
+    const s = sRaw.padStart(11, '0').slice(0, 11);
     lines.push(
       `<printRecMessage operator="${escXml(operator)}" messageType="4" message="${escXml(`REFUND ${z} ${n} ${d} ${s}`)}" />`
     );

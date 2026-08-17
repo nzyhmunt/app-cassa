@@ -263,6 +263,27 @@ describe('formatFiscalRefund', () => {
     expect(xml).toContain('message="REFUND 0039 0005 31012024 99IEB004001"');
   });
 
+  it('rejects a partial receiptRef instead of emitting a malformed REFUND line', () => {
+    // Se mancano campi obbligatori del riferimento, la riga REFUND con campi
+    // vuoti/zerati verrebbe rifiutata dalla stampante o collegherebbe il reso al
+    // documento sbagliato: bisogna fallire a monte con un messaggio chiaro.
+    const partial = { zRepNumber: '39', fiscalReceiptNumber: '5', date: '31/01/2024' /* serialNumber mancante */ };
+    expect(() => formatFiscalRefund({ ...refundJob, receiptRef: partial }))
+      .toThrow(/receiptRef incompleto.*serialNumber/);
+  });
+
+  it('rejects a receiptRef with a malformed date', () => {
+    // Data presente ma non valida: normalizeRefDate non restituisce 8 cifre.
+    const bad = { zRepNumber: '39', fiscalReceiptNumber: '5', date: 'non-una-data', serialNumber: '99IEB004001' };
+    expect(() => formatFiscalRefund({ ...refundJob, receiptRef: bad }))
+      .toThrow(/receiptRef incompleto.*date/);
+  });
+
+  it('does not prepend a REFUND line when receiptRef is absent (unreferenced refund)', () => {
+    const xml = formatFiscalRefund(refundJob);
+    expect(xml).not.toContain('REFUND ');
+  });
+
   it('throws when no refund items are provided', () => {
     expect(() => formatFiscalRefund({ orders: [], payments: [{ label: 'Contanti', amount: 1 }] })).toThrow();
   });
