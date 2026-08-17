@@ -139,6 +139,20 @@ function sanitizeForLog(v) {
   return String(v).replace(/[\r\n\t\x00-\x1f\x7f]/g, ' ').slice(0, 64);
 }
 
+/**
+ * Builds a human-readable error message from an fpmate application-level
+ * failure (HTTP 200 but success=false), prioritizing the printer's `code`
+ * (e.g. "PRINTER ERROR") and falling back to `status` when code is empty.
+ * @param {{ success: boolean, code?: string, status?: string, addInfo?: object }} fiscalResponse
+ * @returns {string}
+ */
+function buildFiscalErrorMessage(fiscalResponse) {
+  const code = fiscalResponse && typeof fiscalResponse.code === 'string' ? fiscalResponse.code.trim() : '';
+  const status = fiscalResponse && typeof fiscalResponse.status === 'string' ? fiscalResponse.status.trim() : '';
+  const detail = code || (status ? `status ${status}` : '');
+  return detail ? `Errore stampante fiscale: ${detail}` : 'Errore stampante fiscale.';
+}
+
 // ── Optional API key middleware ───────────────────────────────────────────────
 
 /**
@@ -274,10 +288,17 @@ app.post('/print', apiKeyGuard, async (req, res) => {
       const fiscalResponse = await printFiscal(xml, printerId);
       console.log('[print-server] Job fiscale stampato:', safeJobId, '(' + safePrintType + ') → stampante:', safeResolvedId,
         'success:', fiscalResponse.success, 'receipt:', fiscalResponse.addInfo?.fiscalReceiptNumber ?? '–');
+      // When the printer answers HTTP 200 but signals an application-level
+      // failure (success=false), surface an explicit error built from the
+      // fpmate code/status so the client does not fall back to a generic
+      // "HTTP 200" message and lose the real reason.
+      const ok = fiscalResponse.success === true;
+      const error = ok ? null : buildFiscalErrorMessage(fiscalResponse);
       return res.json({
-        ok: fiscalResponse.success === true,
+        ok,
         jobId: jobId ?? null,
         fiscal: fiscalResponse,
+        ...(error ? { error } : {}),
       });
     } catch (err) {
       const safeMsg = sanitizeForLog(err.message);
@@ -391,5 +412,5 @@ if (require.main === module) {
   });
 }
 
-module.exports = { app, server, buildPrinterSummary };
+module.exports = { app, server, buildPrinterSummary, buildFiscalErrorMessage };
 

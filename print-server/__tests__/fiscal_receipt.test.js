@@ -24,6 +24,7 @@ const {
   formatAmount,
   formatQuantity,
   paymentTypeFromLabel,
+  toAmountNumber,
   escXml,
 } = require('../formatters/fiscal_receipt.js');
 const {
@@ -85,6 +86,16 @@ describe('formatFiscalReceipt', () => {
       payments: [{ label: 'Contanti', amount: 2 }],
     });
     expect(xml).toContain('department="1"');
+  });
+
+  it('keeps payments whose amount is an Italian comma-decimal string', () => {
+    // Mirrors formatFiscalRefund: "10,00" must not be dropped by the `> 0` filter.
+    const xml = formatFiscalReceipt({
+      orders: [{ items: [{ name: 'Caffè', quantity: 1, unitPrice: 1 }] }],
+      payments: [{ label: 'Contanti', amount: '1,00' }],
+    });
+    expect(xml).toContain('payment="1,00"');
+    expect(xml).toContain('<printRecTotal');
   });
 
   it('escapes XML special characters in item names and payment labels', () => {
@@ -259,6 +270,35 @@ describe('formatFiscalRefund', () => {
   it('throws when no payments are provided', () => {
     expect(() => formatFiscalRefund({ orders: refundJob.orders, payments: [] })).toThrow();
   });
+
+  it('keeps payments whose amount is an Italian comma-decimal string', () => {
+    // String amounts like "10,00" must NOT be filtered out by the `> 0` check:
+    // Number("10,00") is NaN, which previously dropped the payment and made the
+    // job fail with "almeno un pagamento è obbligatorio".
+    const xml = formatFiscalRefund({
+      orders: refundJob.orders,
+      payments: [{ label: 'Contanti', amount: '10,00' }],
+    });
+    expect(xml).toContain('payment="10,00"');
+    expect(xml).toContain('<printRecTotal');
+  });
+});
+
+// ── toAmountNumber (comma-decimal normalization) ──────────────────────────────
+
+describe('toAmountNumber', () => {
+  it('parses Italian comma-decimal strings', () => {
+    expect(toAmountNumber('10,00')).toBe(10);
+    expect(toAmountNumber('0,50')).toBe(0.5);
+  });
+  it('parses plain numbers and dot-decimal strings', () => {
+    expect(toAmountNumber(13)).toBe(13);
+    expect(toAmountNumber('10.00')).toBe(10);
+  });
+  it('returns NaN for non-numeric values', () => {
+    expect(Number.isNaN(toAmountNumber(undefined))).toBe(true);
+    expect(Number.isNaN(toAmountNumber('abc'))).toBe(true);
+  });
 });
 
 // ── formatDuplicateReceipt / formatOpenDrawer / formatRecCash ─────────────────
@@ -413,5 +453,23 @@ describe('parseFiscalResponse', () => {
     const parsed = parseFiscalResponse('<response success="true" code="" status="2" />');
     expect(parsed.success).toBe(true);
     expect(parsed.addInfo).toEqual({});
+  });
+
+  it('reads success/code/status only from the <response> opening tag', () => {
+    // A nested tag carrying attributes with the same names must not be matched.
+    // Previously the regex scanned the whole XML, so a sibling element like
+    // <addInfo success="true" code="X"> would have overridden the real values.
+    const xml = [
+      '<response success="false" code="PRINTER ERROR" status="0">',
+      '<addInfo success="true" code="DIFFERENT" status="9">',
+      '<elementList>x</elementList><x>1</x>',
+      '</addInfo>',
+      '</response>',
+    ].join('');
+    const parsed = parseFiscalResponse(xml);
+    expect(parsed.success).toBe(false);
+    expect(parsed.code).toBe('PRINTER ERROR');
+    expect(parsed.status).toBe('0');
+    expect(parsed.addInfo.x).toBe('1');
   });
 });

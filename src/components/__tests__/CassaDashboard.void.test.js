@@ -139,6 +139,9 @@ describe('CassaDashboard — fiscal VOID marks original receipt as voided', () =
     const updated = orderStore.fiscalReceipts.find((r) => r.id === 'fr-1');
     expect(updated.status).toBe('void');
     expect(updated.voidedAt).toBeTruthy();
+    // After voiding, the receipt drops out of voidableReceipts (status === 'void'),
+    // so the selection UI collapses back to the empty-state message.
+    expect(wrapper.text()).toContain('Nessuno scontrino');
   });
 
   it('does NOT mark the receipt voided when the void dispatch fails', async () => {

@@ -36,6 +36,20 @@ function escXml(v) {
 }
 
 /**
+ * Converte un importo (numero o stringa con virgola/punto decimale) in number.
+ * Le stringhe italiane tipo "10,00" verrebbero altrimenti da `Number()` come NaN,
+ * facendo scartare il pagamento dal filtro `> 0` (errore "almeno un pagamento").
+ * @param {number|string} value
+ * @returns {number} NaN se non numerico
+ */
+function toAmountNumber(value) {
+  if (typeof value === 'string') {
+    return Number(value.replace(',', '.'));
+  }
+  return Number(value);
+}
+
+/**
  * Formatta un importo numerico con due decimali usando la virgola come
  * separatore decimale (convenzione italiana richiesta dalla stampante).
  * Accetta anche stringhe già formattate, normalizzando il separatore.
@@ -111,7 +125,7 @@ function formatFiscalReceipt(job) {
   const operator = job.operator != null && job.operator !== '' ? String(job.operator) : '1';
   const orders = Array.isArray(job.orders) ? job.orders : [];
   const items = orders.flatMap((o) => Array.isArray(o?.items) ? o.items : []);
-  const payments = Array.isArray(job.payments) ? job.payments.filter((p) => p && Number(p.amount) > 0) : [];
+  const payments = Array.isArray(job.payments) ? job.payments.filter((p) => p && toAmountNumber(p.amount) > 0) : [];
 
   if (items.length === 0) {
     throw new Error('fiscal_receipt: almeno una voce di vendita è obbligatoria');
@@ -287,7 +301,7 @@ function formatFiscalRefund(job) {
   const operator = job.operator != null && job.operator !== '' ? String(job.operator) : '1';
   const orders = Array.isArray(job.orders) ? job.orders : [];
   const items = orders.flatMap((o) => Array.isArray(o?.items) ? o.items : []);
-  const payments = Array.isArray(job.payments) ? job.payments.filter((p) => p && Number(p.amount) > 0) : [];
+  const payments = Array.isArray(job.payments) ? job.payments.filter((p) => p && toAmountNumber(p.amount) > 0) : [];
   const ref = job.receiptRef ?? null;
 
   if (items.length === 0) throw new Error('fiscal_refund: almeno una voce di reso è obbligatoria');
@@ -450,4 +464,5 @@ module.exports = {
   formatQuantity,
   normalizeRefDate,
   paymentTypeFromLabel,
+  toAmountNumber,
 };

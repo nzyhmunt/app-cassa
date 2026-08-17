@@ -188,6 +188,24 @@ describe('dispatchFiscalReceipt', () => {
     // One payment covering the whole total, not one-per-label summing to N×total.
     expect(body.payments).toEqual([{ label: 'Contanti + Carta', amount: 20 }]);
   });
+
+  it('defaults the payment amount to 0 when totalAmount is undefined', async () => {
+    // A missing totalAmount would otherwise propagate as `amount: undefined`;
+    // the print-server filter (Number(amount) > 0) drops it and the job fails
+    // with "almeno un pagamento è obbligatorio". Fall back to 0 like the
+    // refund flow so the job is well-formed (and the server can validate).
+    const { dispatchFiscalReceipt } = await import('../useFiscalPrint.js');
+    global.fetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({ ok: true, fiscal: { success: true, code: '', status: '2', raw: '', addInfo: {} } }),
+    });
+    const baseNoTotal = { orders: baseBill.orders, paymentMethods: ['Contanti'] };
+    await dispatchFiscalReceipt({ base: baseNoTotal });
+    const [, init] = global.fetch.mock.calls[0];
+    const body = JSON.parse(init.body);
+    expect(body.payments).toEqual([{ label: 'Contanti', amount: 0 }]);
+  });
 });
 
 describe('dispatchFiscalZReport / dispatchFiscalStatus', () => {
@@ -346,6 +364,7 @@ describe('dispatchFiscalCash', () => {
     const { dispatchFiscalCash } = await import('../useFiscalPrint.js');
     const result = await dispatchFiscalCash({ direction: 'sideways', amount: 50 });
     expect(result.ok).toBe(false);
+    expect(result.error).toBe('Direzione non valida (usare "in" o "out").');
     expect(global.fetch).not.toHaveBeenCalled();
   });
 

@@ -98,9 +98,14 @@ function extractTagContent(xml, tagName) {
  */
 function parseFiscalResponse(xmlString) {
   const raw = typeof xmlString === 'string' ? xmlString : '';
-  const success = /\ssuccess="true"/i.test(raw);
-  const codeMatch = raw.match(/\scode="([^"]*)"/i);
-  const statusMatch = raw.match(/\sstatus="([^"]*)"/i);
+  // Extract only the opening <response ...> tag so that success/code/status
+  // attributes are not mistakenly matched against unrelated tags elsewhere in
+  // the XML body (e.g. nested <addInfo> elements carrying similar attributes).
+  const responseTagMatch = raw.match(/<response\b[^>]*>/i);
+  const responseTag = responseTagMatch ? responseTagMatch[0] : '';
+  const success = /\ssuccess="true"/i.test(responseTag);
+  const codeMatch = responseTag.match(/\scode="([^"]*)"/i);
+  const statusMatch = responseTag.match(/\sstatus="([^"]*)"/i);
   const code = codeMatch ? codeMatch[1] : '';
   const status = statusMatch ? statusMatch[1] : '';
 

@@ -699,7 +699,7 @@ async function execFiscalVoid() {
   // keeping local audit state consistent with the fiscal printer.
   if (res?.ok) {
     orderStore.updateFiscalReceipt(target.id, { status: 'void', voidedAt: new Date().toISOString() });
-    voidSelection.value = null;
+    voidSelection.value = '';
   }
   return res;
 }

@@ -152,7 +152,7 @@ export async function dispatchFiscalReceipt({ base, printerId = null, entry = nu
   const paymentMethods = Array.isArray(base.paymentMethods) ? base.paymentMethods : [];
   const payments = [{
     label: paymentMethods.length > 0 ? paymentMethods.join(' + ') : 'CONTANTI',
-    amount: base.totalAmount,
+    amount: base.totalAmount ?? 0,
   }];
 
   const job = {
@@ -437,7 +437,7 @@ export function dispatchFiscalOpenDrawer({ printerId = null, operator } = {}) {
 export function dispatchFiscalCash({ direction, amount, form = 'cash', printerId = null, operator } = {}) {
   const numAmount = Number(amount);
   if (!['in', 'out'].includes(direction)) {
-    return Promise.resolve({ ok: false, error: 'Direction non valido (usare "in" o "out").' });
+    return Promise.resolve({ ok: false, error: 'Direzione non valida (usare "in" o "out").' });
   }
   if (!Number.isFinite(numAmount) || numAmount <= 0) {
     return Promise.resolve({ ok: false, error: 'Importo non valido per il movimento di cassa.' });
