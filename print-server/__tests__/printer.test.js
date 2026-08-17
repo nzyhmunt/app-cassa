@@ -4,7 +4,7 @@
  * I test di serializzazione della coda sono in printer.queue.test.js.
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);

@@ -270,3 +270,48 @@ describe('printFiscal dispatch', () => {
     expect(mock.received).toHaveLength(2);
   });
 });
+
+// ── sendFiscalRequest — timeout coercion (C10) ────────────────────────────────
+// La JSDoc di sendFiscalRequest ammette timeout come stringa: un valore non
+// numerico faceva Number(timeout) = NaN e il socket timeout (requestTimeoutMs)
+// diventava NaN. Ora viene coercito a numero finito positivo (fallback 30000).
+
+describe('sendFiscalRequest — timeout coercion', () => {
+  let mock;
+
+  beforeEach(async () => {
+    mock = await startFpmateServer();
+  });
+  afterEach(async () => {
+    if (mock) await mock.close();
+  });
+
+  it('coerces a non-numeric timeout string to the default and still succeeds', async () => {
+    const { sendFiscalRequest } = require('../fpmate-client.js');
+    // timeout non numerico: in precedenza Number('not-a-number') = NaN rendeva
+    // NaN il socket timeout. Ora deve essere coercito a un valore finito.
+    const result = await sendFiscalRequest({
+      xml: '<printerFiscalReceipt/>',
+      host: '127.0.0.1',
+      port: mock.port,
+      timeout: 'not-a-number',
+    });
+    expect(result.success).toBe(true);
+    // L'URL deve contenere un timeout numerico valido (il default 30000),
+    // non la stringa "not-a-number".
+    expect(mock.received).toHaveLength(1);
+    expect(mock.received[0].url).toContain('timeout=30000');
+  });
+
+  it('keeps a valid numeric timeout string in the URL', async () => {
+    const { sendFiscalRequest } = require('../fpmate-client.js');
+    const result = await sendFiscalRequest({
+      xml: '<printerFiscalReceipt/>',
+      host: '127.0.0.1',
+      port: mock.port,
+      timeout: '5000',
+    });
+    expect(result.success).toBe(true);
+    expect(mock.received[0].url).toContain('timeout=5000');
+  });
+});

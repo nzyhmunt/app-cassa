@@ -155,10 +155,17 @@ function sendFiscalRequest(options) {
   }
 
   const body = wrapSoapEnvelope(xml);
-  const url = buildFpmateUrl(host, { port, https: useHttps, timeout });
-  const requestTimeoutMs = Number(options.requestTimeoutMs) > 0
+  // Validate `timeout` before using it in arithmetic: the JSDoc allows a string,
+  // so a non-numeric value would make Number(timeout) = NaN and the client
+  // socket timeout (requestTimeoutMs) would silently become NaN. Coerce to a
+  // finite positive number, falling back to the default (30000) when invalid.
+  const timeoutMs = Number.isFinite(Number(timeout)) && Number(timeout) > 0
+    ? Number(timeout)
+    : 30000;
+  const url = buildFpmateUrl(host, { port, https: useHttps, timeout: timeoutMs });
+  const requestTimeoutMs = Number.isFinite(Number(options.requestTimeoutMs)) && Number(options.requestTimeoutMs) > 0
     ? Number(options.requestTimeoutMs)
-    : Number(timeout) + 10000;
+    : timeoutMs + 10000;
 
   const lib = useHttps ? https : http;
   const parsedUrl = new URL(url);
