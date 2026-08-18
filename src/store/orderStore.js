@@ -696,12 +696,22 @@ export const useOrderStore = defineStore('orders', () => {
       const resp = await fetch(menuUrl, { cache: 'no-cache' });
       if (resp.ok) {
         const data = await resp.json();
-        // Flat nanawork shape: { "Category": [ { id, price, modifiers:[{id,price}] } ] }
+        // The menu can arrive in two shapes (both produced by useSelfOrderMenu):
+        //   • Flat (nanawork): { "Cat": [ { id, price, modifiers } ] }
+        //   • Wrapped:         { categories: [...], items: { "Cat": [ ... ] } }
+        //     — here `items` is an OBJECT keyed by category, NOT an array. The
+        //     previous check `Array.isArray(data.items)` rejected the wrapped
+        //     shape, silently falling back to source='none' and trusting forged
+        //     prices even though an authoritative menu was available.
         const isFlat = data && typeof data === 'object'
+          && Object.keys(data).length > 0
           && Object.values(data).every(v => Array.isArray(v));
+        const itemsRaw = (!isFlat && data && data.items) ? data.items : null;
         const items = isFlat
           ? Object.values(data).flat()
-          : (Array.isArray(data?.items) ? Object.values(data.items).flat() : []);
+          // Object.values works whether itemsRaw is an array of arrays or an
+          // object of arrays (the wrapped shape).
+          : (itemsRaw ? Object.values(itemsRaw).flat() : []);
         if (items.length > 0) {
           const dishPrice = new Map();
           const modPrice = new Map();

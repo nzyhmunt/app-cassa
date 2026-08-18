@@ -188,6 +188,45 @@ describe('repriceOrderFromMenu — menu.json fallback source', () => {
     expect(order.orderItems[0].modifiers[0].price).toBe(1);
     expect(order.totalAmount).toBe(4);
   });
+
+  it('handles the wrapped menu shape { categories, items: { Cat: [...] } }', async () => {
+    // No menu_items in IDB; fetch returns the WRAPPED shape used elsewhere in
+    // the self-order codebase, where `items` is an OBJECT keyed by category
+    // (not an array). The previous implementation rejected this shape and
+    // silently fell back to source='none'.
+    const wrappedMenu = {
+      categories: [{ name: 'Antipasti' }],
+      items: {
+        Antipasti: [{ id: 'ant_1', name: 'Bruschetta', price: 3, modifiers: [{ id: 'mod_1', name: 'Extra', price: 1 }] }],
+      },
+    };
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => wrappedMenu,
+    })));
+    const store = useOrderStore();
+    await initStoreFromIDB();
+
+    const order = makeOrder({
+      items: [
+        {
+          uid: 'r_1', dishId: 'ant_1', dish: 'ant_1', name: 'Bruschetta',
+          unitPrice: 0, unit_price: 0, quantity: 1, voidedQuantity: 0, notes: [],
+          modifiers: [{ id: 'mod_1', name: 'Extra', price: 0 }],
+        },
+      ],
+    });
+    await store.addOrder(order);
+
+    const result = await store.repriceOrderFromMenu(order);
+    // Must resolve the authoritative price from the wrapped items object,
+    // NOT silently fall back to source='none'.
+    expect(result.source).toBe('json');
+    expect(result.repriced).toBe(true);
+    expect(order.orderItems[0].unitPrice).toBe(3);
+    expect(order.orderItems[0].modifiers[0].price).toBe(1);
+    expect(order.totalAmount).toBe(4);
+  });
 });
 
 describe('acceptOrderWithReprice — full accept flow', () => {

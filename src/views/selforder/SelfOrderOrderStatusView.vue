@@ -8,7 +8,7 @@
     <div class="flex-1 overflow-y-auto p-4">
       <div v-if="sessionClosed" class="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-4">
         <p class="text-amber-800 text-sm font-medium">
-          Questa sessione è stata chiusa. Reindirinamento allo scanner…
+          Questa sessione è stata chiusa. Reindirizzamento allo scanner…
         </p>
       </div>
       <div v-if="orders.length === 0" class="text-center py-12">
