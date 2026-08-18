@@ -128,6 +128,22 @@ describe('useSelfOrderMenu — setMenu formats', () => {
     expect(menu.categories.value).toEqual(['Drinks']);
     expect(menu.getItemById('bev_1').name).toBe('Water');
   });
+
+  it('parses a flat menu whose categories are not Antipasti/Primi/Secondi', async () => {
+    // Regression: the old detection (data.Antipasti || data['Primi Piatti']
+    // || data['Secondi Piatti']) would treat this venue's menu as empty
+    // because none of the three hard-coded keys is present.
+    const { menu } = await loadWith(async () => ({
+      ok: true,
+      json: async () => ({
+        Bevande: [{ id: 'bev_1', name: 'Acqua', price: 2 }],
+        Dolci: [{ id: 'dol_1', name: 'Tiramisù', price: 5 }],
+      }),
+    }));
+    expect(menu.categories.value).toEqual(['Bevande', 'Dolci']);
+    expect(menu.getItemById('bev_1').name).toBe('Acqua');
+    expect(menu.getItemById('dol_1').name).toBe('Tiramisù');
+  });
 });
 
 describe('useSelfOrderMenu — lookups', () => {

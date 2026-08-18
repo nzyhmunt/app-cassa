@@ -6,6 +6,11 @@
     </div>
 
     <div class="flex-1 overflow-y-auto p-4">
+      <div v-if="sessionClosed" class="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-4">
+        <p class="text-amber-800 text-sm font-medium">
+          Questa sessione è stata chiusa. Reindirinamento allo scanner…
+        </p>
+      </div>
       <div v-if="orders.length === 0" class="text-center py-12">
         <ClipboardList class="w-12 h-12 text-gray-300 mx-auto mb-3" />
         <p class="text-gray-500">Nessun ordine ancora</p>
@@ -76,9 +81,10 @@ import { ClipboardList } from 'lucide-vue-next';
 import { useSelfOrderAuth } from '../../composables/useSelfOrderAuth.js';
 
 const router = useRouter();
-const { billSessionId, fetchSessionOrders } = useSelfOrderAuth();
+const { billSessionId, fetchSessionOrders, checkSessionOpen, closeSession } = useSelfOrderAuth();
 
 const orders = ref([]);
+const sessionClosed = ref(false);
 
 const statusMap = {
   pending: { label: 'In attesa', class: 'bg-yellow-100 text-yellow-700' },
@@ -169,6 +175,19 @@ let pollTimer = null;
 
 async function pollOnce() {
   if (typeof document !== 'undefined' && document.hidden) return;
+  // Liveness check: detect a session closed remotely (by cassa) while the
+  // customer sits on this screen. A transient network error is reported as
+  // 'open' so a flaky connection never falsely ends the session.
+  const { open } = await checkSessionOpen();
+  if (!open) {
+    sessionClosed.value = true;
+    stopPolling();
+    // Clear local session state and route back to the scanner so the customer
+    // can re-open a session if the table was reset/reassigned.
+    await closeSession();
+    setTimeout(() => router.replace('/scan'), 1500);
+    return;
+  }
   await loadOrders();
 }
 

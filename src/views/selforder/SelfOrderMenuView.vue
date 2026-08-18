@@ -208,7 +208,9 @@ const preferencesTick = usePreferencesTick();
 watch(preferencesTick, () => loadPreferences());
 
 // AI functions (delegated to parent or use simulated responses)
-const navigateTo = inject('navigateTo', (path) => router.push(path));
+// navigateTo (provided by SelfOrderApp) records the route being left onto the
+// back-stack before pushing — fall back to a plain push if not provided.
+const navigateTo = inject('navigateTo', (target) => router.push(target));
 
 // Translations
 const i18n = {
@@ -396,7 +398,7 @@ const cartSuggestions = computed(() => {
 });
 
 function selectItem(item) {
-  router.push(`/item/${item.id}`);
+  navigateTo(`/item/${item.id}`);
 }
 
 function formatPrice(price) {
@@ -421,19 +423,19 @@ function quickAddToCart(item) {
 
 function askMagic(item) {
   // Navigate to chat with pre-filled message
-  router.push({ path: '/chat', query: { action: 'magic', item: item.id } });
+  navigateTo({ path: '/chat', query: { action: 'magic', item: item.id } });
 }
 
 function askInfo(item) {
-  router.push({ path: '/chat', query: { action: 'info', item: item.id } });
+  navigateTo({ path: '/chat', query: { action: 'info', item: item.id } });
 }
 
 function askCartAdvice() {
-  router.push('/chat');
+  navigateTo('/chat');
 }
 
 function runQuickAi(suggestion) {
-  router.push({ path: '/chat', query: { action: 'quick', suggestion: suggestion.id } });
+  navigateTo({ path: '/chat', query: { action: 'quick', suggestion: suggestion.id } });
 }
 
 // Load menu and preferences on mount

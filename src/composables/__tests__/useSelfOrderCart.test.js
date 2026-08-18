@@ -262,3 +262,98 @@ describe('useSelfOrderCart — buildOrderPayload', () => {
     expect(payload.order_items[0].notes).toEqual([]);
   });
 });
+
+describe('useSelfOrderCart — input hardening', () => {
+  const MENU = {
+    Antipasti: [
+      { id: 'ant_1', name: 'Bruschetta', price: 3, modifiers: [{ id: 'm1', name: 'Extra', price: 1 }] },
+      { id: 'ant_2', name: 'Caprese', price: 8, available: false },
+    ],
+  };
+
+  async function loadMenu() {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => MENU })));
+    const menu = useSelfOrderMenu();
+    await menu.loadMenu('https://menu.test/menu.json');
+  }
+
+  it('clamps quantity to a sane maximum on addItem', async () => {
+    await loadMenu();
+    const { items, addItem } = useSelfOrderCart();
+    addItem(ITEM({ id: 'ant_1', price: 3 }), 1_000_000);
+    expect(items.value[0].quantity).toBe(99);
+  });
+
+  it('clamps quantity when merging an existing row', async () => {
+    await loadMenu();
+    const { items, addItem } = useSelfOrderCart();
+    addItem(ITEM({ id: 'ant_1', price: 3 }), 98);
+    addItem(ITEM({ id: 'ant_1', price: 3 }), 50);
+    // 98 + 50 = 148 → clamped to 99
+    expect(items.value[0].quantity).toBe(99);
+  });
+
+  it('clamps quantity on updateQuantity but removes the row for <= 0', async () => {
+    await loadMenu();
+    const { items, addItem, updateQuantity } = useSelfOrderCart();
+    addItem(ITEM({ id: 'ant_1', price: 3 }), 1);
+    updateQuantity(items.value[0].id, 5000);
+    expect(items.value[0].quantity).toBe(99);
+    updateQuantity(items.value[0].id, 0);
+    expect(items.value).toHaveLength(0);
+  });
+
+  it('truncates notes to the max length', async () => {
+    await loadMenu();
+    const { items, addItem } = useSelfOrderCart();
+    const long = 'x'.repeat(1000);
+    addItem(ITEM({ id: 'ant_1', price: 3 }), 1, [], long);
+    expect(items.value[0].notes.length).toBe(280);
+  });
+
+  it('rejects unavailable menu items', async () => {
+    await loadMenu();
+    const { items, addItem } = useSelfOrderCart();
+    addItem({ id: 'ant_2', name: 'Caprese', price: 8, available: false }, 1);
+    expect(items.value).toHaveLength(0);
+  });
+
+  it('drops cart rows whose dish is not in the loaded menu from the payload', async () => {
+    await loadMenu();
+    const { items, addItem, buildOrderPayload } = useSelfOrderCart();
+    // A real item (kept)...
+    addItem(ITEM({ id: 'ant_1', price: 3 }), 1);
+    // ...plus a tampered/stale row the menu no longer knows about.
+    items.value.push({ id: 'sci_x', menuItemId: 'does_not_exist', name: 'Fake', price: 0, quantity: 9, modifiers: [], notes: '' });
+
+    const payload = buildOrderPayload('s');
+    expect(payload.order_items).toHaveLength(1);
+    expect(payload.order_items[0].dish).toBe('ant_1');
+  });
+
+  it('omits modifiers without a resolvable id from the payload', async () => {
+    await loadMenu();
+    const { items, addItem, buildOrderPayload } = useSelfOrderCart();
+    // Legitimate modifier with id, plus a smuggled no-id modifier priced 0.
+    addItem(ITEM({ id: 'ant_1', price: 3 }), 1, [
+      { id: 'm1', name: 'Extra', price: 1 },
+      { name: 'Free', price: 0 },
+    ]);
+    // The no-id modifier is kept in the cart (allowed for display) but must
+    // not appear in the payload — only id-resolvable modifiers are emitted.
+    const payload = buildOrderPayload('s');
+    expect(payload.order_items[0].order_item_modifiers).toHaveLength(1);
+    expect(payload.order_items[0].order_item_modifiers[0]).toMatchObject({ name: 'Extra', price: 1 });
+  });
+
+  it('resetCartForNewSession empties the cart', async () => {
+    await loadMenu();
+    const { items, addItem, resetCartForNewSession } = useSelfOrderCart();
+    addItem(ITEM({ id: 'ant_1', price: 3 }), 2);
+    expect(items.value).toHaveLength(1);
+    resetCartForNewSession();
+    expect(items.value).toHaveLength(0);
+    // Persists to localStorage too.
+    expect(JSON.parse(localStorage.getItem('selforder_cart') || '[]')).toHaveLength(0);
+  });
+});

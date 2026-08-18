@@ -17,6 +17,7 @@
 
 import { ref } from 'vue';
 import { useConfigStore } from '../store/index.js';
+import { useSelfOrderCart } from './useSelfOrderCart.js';
 
 const SESSION_CACHE_KEY = 'selforder_session_id';
 // Exported so other components (e.g. ShareSession) can read the cached token
@@ -44,6 +45,13 @@ export function useSelfOrderAuth() {
     accessToken.value = cachedToken;
   }
 
+  // Directus PKs are UUIDs (v4: 8-4-4-4-12 hex). Validate the captured id so a
+  // scanned random string (or an injected payload) is rejected before it ever
+  // reaches the Directus item endpoint — defence in depth alongside the server
+  // ACL, since a malformed id would otherwise produce noisy 400s and could be
+  // used to probe endpoint behaviour.
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
   function parseSessionUrl(urlOrCode) {
     let sessionId = null;
     let token = null;
@@ -65,6 +73,12 @@ export function useSelfOrderAuth() {
       }
     } else {
       sessionId = urlOrCode.trim();
+    }
+
+    // Reject anything that does not look like a Directus session UUID. The token
+    // is still returned (harmless) but a null sessionId signals "not a session".
+    if (sessionId && !UUID_RE.test(sessionId)) {
+      sessionId = null;
     }
 
     return { sessionId, token };
@@ -104,6 +118,16 @@ export function useSelfOrderAuth() {
 
       if (session.status !== 'open') {
         throw new Error('Questa sessione \u00e8 stata chiusa');
+      }
+
+      // If the customer is scanning into a different table than the one they
+      // were previously on (or re-scanning after a closeSession), the persisted
+      // cart belongs to the old session — clear it so items aren't carried into
+      // the new table's order. Same-session re-validation (a PWA reload) keeps
+      // the cart intact.
+      if (billSessionId.value && billSessionId.value !== sessionId) {
+        const { resetCartForNewSession } = useSelfOrderCart();
+        resetCartForNewSession();
       }
 
       billSessionId.value = sessionId;
@@ -164,6 +188,23 @@ export function useSelfOrderAuth() {
     }
 
     try {
+      // Re-verify the session is still open server-side right before creating
+      // the order. The session was validated at scan time, but the cassa may
+      // have closed it (or the table merged/closed) while the customer browsed.
+      // Without this check an order can be POSTed to a closed session. The
+      // cached billSession is stale, so re-fetch the authoritative status.
+      if (billSessionId.value) {
+        const fresh = await fetchBillSession(billSessionId.value);
+        if (!fresh || fresh.status !== 'open') {
+          // Surface a session-ended state so the app can route back to scan.
+          clearSession();
+          const err = new Error('Questa sessione \u00e8 stata chiusa');
+          err.code = 'SESSION_CLOSED';
+          throw err;
+        }
+        billSession.value = fresh;
+      }
+
       const headers = { 'Content-Type': 'application/json' };
       if (accessToken.value) {
         headers['Authorization'] = `Bearer ${accessToken.value}`;
@@ -217,6 +258,35 @@ export function useSelfOrderAuth() {
     }
 
     clearSession();
+  }
+
+  /**
+   * Lightweight server-side session liveness check for polling. Re-fetches the
+   * authoritative bill_session status WITHOUT the side-effects of
+   * `validateAndLoadSession` (which clears the cart and re-routes). Used by the
+   * order-status polling loop to detect a session closed remotely (by cassa)
+   * while the customer is still on the status screen.
+   *
+   * @returns {Promise<{open: boolean, status: string|null}>}
+   *   `open` is true only when the session still exists and is 'open'. A missing
+   *   Directus URL (demo/offline mode) is treated as open.
+   */
+  async function checkSessionOpen() {
+    if (!billSessionId.value) return { open: false, status: null };
+    const directusUrl = getDirectusUrl();
+    if (!directusUrl) return { open: true, status: 'demo' };
+    try {
+      const fresh = await fetchBillSession(billSessionId.value);
+      const status = fresh?.status ?? null;
+      return { open: status === 'open', status };
+    } catch (e) {
+      // A 404/401 means the session is gone or access was revoked → not open.
+      if (e?.message && /non trovata|non autorizzato/i.test(e.message)) {
+        return { open: false, status: 'gone' };
+      }
+      // Network blip: don't falsely report the session as closed.
+      return { open: true, status: 'unknown' };
+    }
   }
 
   async function fetchSessionOrders() {
@@ -276,12 +346,19 @@ export function useSelfOrderAuth() {
   }
 
   function clearSession() {
+    // Capture the session id before nulling the ref so the per-session order
+    // history (a sessionStorage fallback cache keyed by it) can be cleared
+    // too — otherwise it leaks across session end/re-scan.
+    const sessionId = billSessionId.value;
     billSessionId.value = null;
     billSession.value = null;
     isAuthenticated.value = false;
     accessToken.value = null;
     sessionStorage.removeItem(SESSION_CACHE_KEY);
     sessionStorage.removeItem(TOKEN_CACHE_KEY);
+    if (sessionId) {
+      sessionStorage.removeItem(`selforder_orders_${sessionId}`);
+    }
   }
 
   function getDemoSession(sessionId) {
@@ -304,6 +381,7 @@ export function useSelfOrderAuth() {
     validateAndLoadSession,
     createOrder,
     closeSession,
+    checkSessionOpen,
     fetchSessionOrders,
     saveLocalOrder,
   };

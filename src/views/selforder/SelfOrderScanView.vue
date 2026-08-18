@@ -160,7 +160,13 @@ async function handleManualSubmit() {
   
   try {
     const sessionId = manualSessionId.value.trim();
-    await validateAndLoadSession(sessionId);
+    // Validate shape before hitting the API — rejects arbitrary typed strings.
+    const parsed = parseSessionUrl(sessionId);
+    if (!parsed.sessionId) {
+      error.value = 'Codice sessione non valido';
+      return;
+    }
+    await validateAndLoadSession(parsed.sessionId, parsed.token);
     await loadMenu();
     
     const hasSeenOnboarding = localStorage.getItem('selforder_onboarding_done');
@@ -194,7 +200,12 @@ onMounted(async () => {
       // Extract an optional access_token embedded in the hash fragment.
       const tokenMatch = hash.match(/[?&]access_token=([^&]+)/);
       const token = tokenMatch ? decodeURIComponent(tokenMatch[1]) : null;
-      await validateAndLoadSession(sessionMatch[1], token);
+      // Validate the captured session id shape before trusting it.
+      const parsed = parseSessionUrl(`selforder://session/${sessionMatch[1]}`);
+      if (!parsed.sessionId) {
+        throw new Error('Codice sessione non valido');
+      }
+      await validateAndLoadSession(parsed.sessionId, token || parsed.token);
       await loadMenu();
 
       const hasSeenOnboarding = localStorage.getItem('selforder_onboarding_done');

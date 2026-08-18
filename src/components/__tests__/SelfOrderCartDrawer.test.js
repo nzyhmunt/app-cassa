@@ -142,3 +142,46 @@ describe('SelfOrderCartDrawer — canonical allergen keys in payload', () => {
     expect(payload.dietary_allergens).not.toContain('frutta a guscio');
   });
 });
+
+describe('SelfOrderCartDrawer — offline order total is persisted for history', () => {
+  it('saves total_amount/item_count so the offline history shows a real total', async () => {
+    // buildOrderPayload() intentionally omits total_amount (the cassa recomputes
+    // server-side), but the local-history copy must carry it — otherwise the
+    // offline order history & order-status views render 0€.
+    //
+    // Load a known menu so the trusted-total calculation is deterministic and
+    // not affected by the shared menu singleton left over by earlier tests.
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        Antipasti: [
+          { id: 'ant_1', name: 'Bruschetta', price: 3 },
+          { id: 'ant_2', name: 'Caprese', price: 8 },
+        ],
+      }),
+    })));
+    const menu = useSelfOrderMenu();
+    await menu.loadMenu('https://menu.test/menu.json');
+
+    const { addItem } = useSelfOrderCart();
+    addItem({ id: 'ant_1', name: 'Bruschetta', price: 3 }, 2); // 6
+    addItem({ id: 'ant_2', name: 'Caprese', price: 8 }, 1);    // 8
+
+    createOrderMock.mockClear();
+    createOrderMock.mockResolvedValue({ id: 'ord-2' });
+    saveLocalOrderMock.mockClear();
+
+    const wrapper = mountDrawer();
+    await flushPromises();
+
+    await wrapper.find('button.w-full.py-4.theme-bg').trigger('click');
+    await flushPromises();
+
+    expect(saveLocalOrderMock).toHaveBeenCalledTimes(1);
+    const saved = saveLocalOrderMock.mock.calls[0][0];
+    expect(saved.total_amount).toBe(14);
+    expect(saved.item_count).toBe(3);
+    // The Directus payload must still NOT carry the client-computed total.
+    expect(createOrderMock.mock.calls[0][0].total_amount).toBeUndefined();
+  });
+});

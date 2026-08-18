@@ -8,6 +8,7 @@
     <SelfOrderNavbar
       v-if="showHeader"
       :session="currentSession"
+      :can-go-back="canGoBack"
       @back="goBack"
       @show-cart="showCart = true"
       @share="showShareSession = true"
@@ -33,7 +34,7 @@
     >
       <div class="flex justify-around items-center">
         <button 
-          @click="navigateTo('/menu')"
+          @click="router.push('/menu')"
           class="flex flex-col items-center p-2 rounded-xl transition-colors"
           :class="isActive('/menu') ? 'text-emerald-600' : 'text-gray-400'"
         >
@@ -42,7 +43,7 @@
         </button>
         
         <button 
-          @click="navigateTo('/chat')"
+          @click="router.push('/chat')"
           class="flex flex-col items-center p-2 rounded-xl transition-colors"
           :class="isActive('/chat') ? 'text-purple-600' : 'text-gray-400'"
         >
@@ -81,7 +82,6 @@
     <!-- Modals -->
     <SelfOrderCartDrawer v-model="showCart" />
     <SelfOrderSessionEndedModal v-model="showSessionEnded" />
-    <SelfOrderConfirmOrderModal v-model="showConfirmOrder" @confirm="submitOrder" />
     <SelfOrderShareSession v-model="showShareSession" :session-id="billSessionId" />
     <SelfOrderPreferencesModal v-model="showPreferences" />
   </div>
@@ -93,7 +93,6 @@ import { useRoute, useRouter } from 'vue-router';
 import SelfOrderNavbar from './components/selforder/SelfOrderNavbar.vue';
 import SelfOrderCartDrawer from './components/selforder/SelfOrderCartDrawer.vue';
 import SelfOrderSessionEndedModal from './components/selforder/SelfOrderSessionEndedModal.vue';
-import SelfOrderConfirmOrderModal from './components/selforder/SelfOrderConfirmOrderModal.vue';
 import SelfOrderShareSession from './components/selforder/SelfOrderShareSession.vue';
 import SelfOrderPreferencesModal from './components/selforder/SelfOrderPreferencesModal.vue';
 import { useConfigStore } from './store/index.js';
@@ -113,7 +112,6 @@ const router = useRouter();
 
 const showCart = ref(false);
 const showSessionEnded = ref(false);
-const showConfirmOrder = ref(false);
 const showShareSession = ref(false);
 const showPreferences = ref(false);
 const navigationHistory = ref([]);
@@ -167,16 +165,30 @@ const i18n = {
 const { t } = useSelfOrderI18n(i18n);
 
 provide('selfOrderSession', { session: currentSession, endSession: handleEndSession });
-provide('selfOrderCart', { items, addItem, removeItem, updateQuantity, clearCart });
 
 function isActive(path) {
   return route.path.includes(path);
 }
 
+// In-app navigation back-stack. Bottom-nav tab switches are "roots" and go
+// through router.push directly so they don't grow the stack (otherwise back
+// would cycle between tabs). Sub-page forward navigations (item detail, chat
+// from an action) go through navigateTo(), which records the route being
+// left so goBack() can return to it. Using router.push (not raw
+// window.location.hash) keeps vue-router's history in sync.
+const canGoBack = computed(() => navigationHistory.value.length > 0);
+
+function navigateTo(target) {
+  navigationHistory.value.push(route.fullPath);
+  router.push(target);
+}
+
 function goBack() {
   if (navigationHistory.value.length > 0) {
     const prev = navigationHistory.value.pop();
-    window.location.hash = prev;
+    router.push(prev);
+  } else {
+    router.push('/menu');
   }
 }
 
@@ -199,16 +211,6 @@ async function handleEndSession() {
   window.location.hash = '/';
 }
 
-async function submitOrder() {
-  showConfirmOrder.value = false;
-  // Order submission is handled in the menu view
-}
-
-function navigateTo(route) {
-  navigationHistory.value.push(route.fullPath || route);
-  router.push(route);
-}
-
 function formatPrice(price) {
   return new Intl.NumberFormat('it-IT', {
     style: 'currency',
@@ -228,8 +230,8 @@ onMounted(async () => {
 });
 
 provide('navigateTo', navigateTo);
+provide('goBack', goBack);
 provide('confirmEndSession', confirmEndSession);
-provide('submitOrder', submitOrder);
 </script>
 
 <style scoped>

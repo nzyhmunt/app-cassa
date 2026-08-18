@@ -101,12 +101,21 @@ export function useSelfOrderMenu() {
     let normalizedMenu = {};
     let cats = [];
 
-    // Check if data is already in flat format (nanawork format)
-    // Flat format: { "Antipasti": [...], "Primi Piatti": [...] }
-    // Wrapped format: { categories: [...], items: {...} }
-    const isFlatFormat = data.Antipasti || data['Primi Piatti'] || data['Secondi Piatti'];
-    
-    if (isFlatFormat) {
+    // Detect the menu shape robustly instead of hard-coding a few category
+    // names. The previous check (data.Antipasti || data['Primi Piatti'] ||
+    // data['Secondi Piatti']) only recognized the nanawork demo menu: a venue
+    // whose top-level categories don't include those exact three keys (e.g. a
+    // bar with only Bevande/Dolci/Pinse) would fall through to an empty menu.
+    //
+    // Wrapped format: { categories: [...], items: { Cat: [...] } }
+    // Flat format (nanawork): { "Cat A": [...], "Cat B": [...] } — every
+    // top-level value is an array.
+    const isWrapped = !!(data && data.categories && data.items);
+    const isFlat = !isWrapped && data && typeof data === 'object'
+      && Object.keys(data).length > 0
+      && Object.values(data).every(v => Array.isArray(v));
+
+    if (isFlat) {
       // Flat format - categories are the keys
       Object.entries(data).forEach(([category, items]) => {
         if (Array.isArray(items)) {
@@ -115,7 +124,7 @@ export function useSelfOrderMenu() {
           normalizedMenu[category] = items.map(item => normalizeItem(item));
         }
       });
-    } else if (data.categories && data.items) {
+    } else if (isWrapped) {
       // Wrapped format
       cats = data.categories;
       Object.entries(data.items).forEach(([category, items]) => {

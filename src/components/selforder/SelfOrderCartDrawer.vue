@@ -288,8 +288,8 @@ async function loadOrderHistory() {
 // value only when a modifier has no id to resolve against the menu.
 //
 // When the menu hasn't loaded yet, getItemPrice()/getModifierPrice() return 0,
-// so rows would render as 0€. Mirror SelfOrderConfirmOrderModal: use the
-// cart-stored prices until the menu arrives, then switch to menu-trusted prices.
+// so rows would render as 0€. Use the cart-stored prices until the menu
+// arrives, then switch to menu-trusted prices.
 function itemPrice(item) {
   if (getAllItems().length > 0) {
     const basePrice = getItemPrice(item.menuItemId) * item.quantity;
@@ -345,10 +345,15 @@ async function handleCheckout() {
       // Send to Directus API
       const result = await createOrder(orderPayload);
 
-      // Save to local history for demo/offline
+      // Save to local history for demo/offline. total_amount/item_count are
+      // NOT sent to Directus (the cassa recomputes prices server-side), but
+      // the local copy needs them so the offline history & order-status views
+      // show a real total instead of 0€.
       saveLocalOrder({
         ...orderPayload,
         id: result?.id || `local_${Date.now()}`,
+        total_amount: cartTotals.value.total,
+        item_count: cartTotals.value.itemCount,
         localTime: new Date().toISOString(),
       });
       
@@ -364,6 +369,15 @@ async function handleCheckout() {
       
     } catch (e) {
       console.error('[SelfOrder] Checkout failed:', e);
+      if (e?.code === 'SESSION_CLOSED') {
+        // The session was closed server-side: the auth composable already
+        // cleared local state. Route back to scan and show a specific message
+        // rather than the generic "retry" alert.
+        emit('update:modelValue', false);
+        alert('La sessione del tavolo è stata chiusa. Scansiona nuovamente il QR.');
+        window.location.hash = '/';
+        return;
+      }
       alert('Errore nell\'invio dell\'ordine. Riprova.');
     } finally {
       submitting.value = false;

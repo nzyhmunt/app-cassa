@@ -124,7 +124,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, inject } from 'vue';
 import { useSelfOrderI18n } from '../../composables/useSelfOrderI18n.js';
 import { useRouter } from 'vue-router';
 import { ArrowLeft, Plus, UtensilsCrossed, AlertTriangle } from 'lucide-vue-next';
@@ -136,6 +136,11 @@ const props = defineProps({
 });
 
 const router = useRouter();
+// goBack is provided by SelfOrderApp and keeps the in-app back stack
+// consistent (router.back() would use the browser history, which can escape
+// the app to /scan on the first visit). Fall back to the router if the app
+// isn't providing it (e.g. mounted in isolation).
+const goBack = inject('goBack', () => router.back());
 const { getItemById, loadMenu } = useSelfOrderMenu();
 const { addItem } = useSelfOrderCart();
 
@@ -238,11 +243,9 @@ function addToCart() {
   
   addItem(item.value, 1, modifiers, notes.value);
   
-  router.push('/menu');
-}
-
-function goBack() {
-  router.back();
+  // Return to the menu via the shared back-stack so the detail entry is
+  // popped (back from the menu won't bounce back into the item just added).
+  goBack();
 }
 
 function getAllergenLabel(allergen) {

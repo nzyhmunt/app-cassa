@@ -648,6 +648,191 @@ export const useOrderStore = defineStore('orders', () => {
     return orders.value.map(o => String(o.id) === String(ordId) ? updated : o);
   }
 
+  /**
+   * Builds price-lookup maps for dishes and modifiers from the authoritative
+   * source available to the cassa/sala at accept time.
+   *
+   * Order of preference:
+   *   1. `menu_items` / `menu_modifiers` in IDB — these are synced from Directus
+   *      and are the source of truth when the venue runs Directus-managed menus.
+   *   2. The public static `menu.json` the self-order app itself loads (the same
+   *      URL configured under `selfOrder.menuUrl`). This is the source of truth
+   *      when the venue serves a static menu file and menu_items is NOT in IDB.
+   *
+   * Returns `{ dishPrice: Map, modPrice: Map, source: 'idb'|'json'|'none' }`.
+   * `source: 'none'` means no menu could be resolved (e.g. offline first run
+   * with no Directus URL) — the caller must then fall back to the existing
+   * prices because there is nothing authoritative to recompute from.
+   */
+  async function _loadMenuPriceMaps() {
+    // (1) IDB — preferred.
+    try {
+      const db = await getDB();
+      const storeNames = db.objectStoreNames;
+      if (storeNames.contains('menu_items') && storeNames.contains('menu_modifiers')) {
+        const [menuItems, menuModifiers] = await Promise.all([
+          db.getAll('menu_items'),
+          db.getAll('menu_modifiers'),
+        ]);
+        if (menuItems && menuItems.length > 0) {
+          const dishPrice = new Map();
+          for (const mi of menuItems) {
+            if (mi && mi.id != null) dishPrice.set(String(mi.id), Number(mi.price) || 0);
+          }
+          const modPrice = new Map();
+          for (const mm of (menuModifiers || [])) {
+            if (mm && mm.id != null) modPrice.set(String(mm.id), Number(mm.price) || 0);
+          }
+          return { dishPrice, modPrice, source: 'idb' };
+        }
+      }
+    } catch (e) {
+      console.warn('[Store] IDB menu price lookup failed, falling back to menu.json:', e);
+    }
+
+    // (2) Public static menu.json — same source the self-order client trusts.
+    try {
+      const menuUrl = configRef.value?.selfOrder?.menuUrl || 'https://nanawork.it/menu.json';
+      const resp = await fetch(menuUrl, { cache: 'no-cache' });
+      if (resp.ok) {
+        const data = await resp.json();
+        // Flat nanawork shape: { "Category": [ { id, price, modifiers:[{id,price}] } ] }
+        const isFlat = data && typeof data === 'object'
+          && Object.values(data).every(v => Array.isArray(v));
+        const items = isFlat
+          ? Object.values(data).flat()
+          : (Array.isArray(data?.items) ? Object.values(data.items).flat() : []);
+        if (items.length > 0) {
+          const dishPrice = new Map();
+          const modPrice = new Map();
+          for (const it of items) {
+            if (it && it.id != null) dishPrice.set(String(it.id), Number(it.price) || 0);
+            for (const m of (it.modifiers || [])) {
+              if (m && m.id != null) modPrice.set(String(m.id), Number(m.price) || 0);
+            }
+          }
+          return { dishPrice, modPrice, source: 'json' };
+        }
+      }
+    } catch (e) {
+      console.warn('[Store] menu.json price lookup failed:', e);
+    }
+
+    return { dishPrice: new Map(), modPrice: new Map(), source: 'none' };
+  }
+
+  /**
+   * Reprices an order's items and modifiers against the authoritative menu
+   * before the order is accepted (sent to the kitchen). This is the
+   * server-side-equivalent price-trust boundary for the self-order flow: the
+   * self-order client resolves prices from the menu when building the payload,
+   * but a tampered client could POST directly to Directus with a forged
+   * `unit_price`. Recomputing here from the menu of record and persisting the
+   * authoritative prices overwrites any forged value.
+   *
+   * Mutates `order.orderItems` in place: sets `unitPrice`/`unit_price` from the
+   * menu for every row whose `dish`/`dishId` resolves, and each modifier's
+   * `price` when its id resolves. Then recomputes totals.
+   *
+   * @returns {Promise<{repriced: boolean, unresolvedDishes: string[], source: string}>}
+   *   - `repriced`: true if at least one price was changed.
+   *   - `unresolvedDishes`: dish ids present in the order but NOT in the menu.
+   *     When `source !== 'none'`, the caller should treat a non-empty list as a
+   *     reason to BLOCK acceptance (unknown dish → can't establish a price).
+   *   - `source`: 'idb' | 'json' | 'none'. 'none' means no menu was available,
+   *     so prices were left untouched and the caller proceeds as-is.
+   */
+  async function repriceOrderFromMenu(order) {
+    if (!order || !Array.isArray(order.orderItems) || order.orderItems.length === 0) {
+      return { repriced: false, unresolvedDishes: [], source: 'none' };
+    }
+    const { dishPrice, modPrice, source } = await _loadMenuPriceMaps();
+    if (source === 'none') {
+      return { repriced: false, unresolvedDishes: [], source: 'none' };
+    }
+
+    let repriced = false;
+    const unresolvedDishes = [];
+
+    for (const item of order.orderItems) {
+      const dishId = String(item.dish ?? item.dishId ?? '');
+      if (!dishId) continue;
+      const trusted = dishPrice.get(dishId);
+      if (trusted == null) {
+        // Dish not in the menu of record — collect and let the caller decide.
+        if (!unresolvedDishes.includes(dishId)) unresolvedDishes.push(dishId);
+        continue;
+      }
+      if (Number(item.unitPrice) !== Number(trusted)) {
+        item.unitPrice = Number(trusted);
+        item.unit_price = Number(trusted);
+        repriced = true;
+      }
+      for (const mod of (item.modifiers || [])) {
+        const modId = mod.id != null ? String(mod.id) : '';
+        if (!modId) continue;
+        const trustedMod = modPrice.get(modId);
+        if (trustedMod == null) continue; // unknown modifier → keep existing
+        if (Number(mod.price) !== Number(trustedMod)) {
+          mod.price = Number(trustedMod);
+          repriced = true;
+        }
+      }
+    }
+
+    if (repriced) {
+      updateOrderTotals(order);
+    }
+    return { repriced, unresolvedDishes, source };
+  }
+
+  /**
+   * Accepts an order AND persists the authoritative (menu-derived) prices to
+   * IDB + Directus before flipping the status to `accepted`.
+   *
+   * This closes the price-trust gap for the self-order flow: even if a tampered
+   * client POSTed a forged `unit_price`, the cassa recomputes it from the menu
+   * of record and overwrites the forged value on accept.
+   *
+   * @returns {Promise<{ok: boolean, unresolvedDishes?: string[], source?: string}>}
+   *   `ok: false` with `unresolvedDishes` when a menu was available but the order
+   *   contained dishes not in the menu — the caller must NOT send the order to
+   *   the kitchen in that case.
+   */
+  async function acceptOrderWithReprice(order) {
+    if (!order?.id) return { ok: false };
+    return _withOrderLock(order.id, async () => {
+      const current = orders.value.find(o => String(o.id) === String(order.id));
+      if (!current) return { ok: false };
+      const projected = cloneValue(toRaw(current));
+      if (!Array.isArray(projected.orderItems)) projected.orderItems = [];
+
+      const { repriced, unresolvedDishes, source } = await repriceOrderFromMenu(projected);
+      // If we had a menu to check against and the order references unknown
+      // dishes, block acceptance: we cannot establish an authoritative price.
+      if (source !== 'none' && unresolvedDishes.length > 0) {
+        return { ok: false, unresolvedDishes, source };
+      }
+
+      if (repriced) {
+        const projectedOrders = _replaceOrderById(order.id, projected);
+        try {
+          await saveStateToIDB({ orders: projectedOrders });
+        } catch (e) {
+          console.warn('[Store] acceptOrderWithReprice IDB save failed:', e);
+          return { ok: false };
+        }
+        // Persist the authoritative prices + totals to Directus so the forged
+        // client value is overwritten on the server, not just locally.
+        _enqueueOrderItemsPatch(order.id, projected);
+      }
+
+      // Now flip the status (the original acceptAndPrint behaviour).
+      await changeOrderStatus(current, 'accepted');
+      return { ok: true, source };
+    });
+  }
+
   // Per-order promise chain: serializes mutations for the same orderId so that
   // rapid concurrent clicks always compose on the latest committed state, not a
   // stale snapshot captured at click time.
@@ -1361,6 +1546,8 @@ export const useOrderStore = defineStore('orders', () => {
     addOrder,
     addItemsToOrder,
     changeOrderStatus,
+    acceptOrderWithReprice,
+    repriceOrderFromMenu,
     setItemKitchenReady,
     updateQtyGlobal,
     removeRowGlobal,

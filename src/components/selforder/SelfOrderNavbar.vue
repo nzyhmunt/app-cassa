@@ -1,7 +1,15 @@
 <template>
   <header class="theme-bg text-white p-4 shadow-md z-20 flex justify-between items-center shrink-0">
-    <!-- Left: Logo + Restaurant name -->
+    <!-- Left: Back button + Logo + Restaurant name -->
     <div class="flex items-center gap-3">
+      <button
+        v-if="canGoBack"
+        class="shrink-0 -ml-1 size-9 rounded-full bg-black/10 hover:bg-black/20 border border-white/30 flex items-center justify-center transition-colors"
+        :aria-label="t.back"
+        @click="$emit('back')"
+      >
+        <ChevronLeft class="size-5" />
+      </button>
       <div v-if="logoUrl" class="shrink-0">
         <img :src="logoUrl" alt="Logo" class="size-10 rounded-full bg-white p-0.5 object-cover">
       </div>
@@ -81,12 +89,13 @@
 import { computed, ref } from 'vue';
 import { useSelfOrderI18n } from '../../composables/useSelfOrderI18n.js';
 import { usePreferencesTick } from '../../composables/useSelfOrderPreferencesSignal.js';
-import { ShoppingCart, Share2, ChevronDown, HeartPulse } from 'lucide-vue-next';
+import { ShoppingCart, Share2, ChevronDown, ChevronLeft, HeartPulse } from 'lucide-vue-next';
 import { useSelfOrderCart } from '../../composables/useSelfOrderCart.js';
 import { useConfigStore } from '../../store/index.js';
 
 const props = defineProps({
-  session: { type: Object, default: null }
+  session: { type: Object, default: null },
+  canGoBack: { type: Boolean, default: false }
 });
 
 defineEmits(['back', 'show-cart', 'share', 'preferences']);
@@ -140,8 +149,8 @@ const hasActivePreferences = computed(() => {
 });
 
 const i18n = {
-  it: { table: 'Tavolo', preferences: 'Preferenze alimentari', cart: 'Carrello', share: 'Condividi sessione' },
-  en: { table: 'Table', preferences: 'Food preferences', cart: 'Cart', share: 'Share session' }
+  it: { table: 'Tavolo', preferences: 'Preferenze alimentari', cart: 'Carrello', share: 'Condividi sessione', back: 'Indietro' },
+  en: { table: 'Table', preferences: 'Food preferences', cart: 'Cart', share: 'Share session', back: 'Back' }
 };
 const t = computed(() => i18n[currentLang.value] || i18n.it);
 </script>
