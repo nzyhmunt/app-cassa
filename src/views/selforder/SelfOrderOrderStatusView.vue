@@ -138,7 +138,12 @@ async function loadOrders() {
   if (rawOrders.length === 0) {
     const savedOrders = sessionStorage.getItem(`selforder_orders_${sessionId}`);
     if (savedOrders) {
-      try { rawOrders = JSON.parse(savedOrders); } catch { rawOrders = []; }
+      try {
+        const parsedOrders = JSON.parse(savedOrders);
+        rawOrders = Array.isArray(parsedOrders) ? parsedOrders : [];
+      } catch {
+        rawOrders = [];
+      }
     }
   }
 

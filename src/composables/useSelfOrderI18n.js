@@ -4,9 +4,13 @@ import { ref, computed } from 'vue';
 // view/component so that changing the language in one place updates all the
 // others live (each component previously held its own non-reactive copy read
 // from localStorage at setup time, so language switches never propagated).
-const currentLang = ref(typeof localStorage !== 'undefined'
-  ? (localStorage.getItem('selforder_lang') || 'it')
-  : 'it');
+let initialLang = 'it';
+try {
+  initialLang = localStorage.getItem('selforder_lang') || 'it';
+} catch {
+  // Storage unavailable (e.g. private browsing mode).
+}
+const currentLang = ref(initialLang);
 
 export function setSelfOrderLang(code) {
   if (!code) return;

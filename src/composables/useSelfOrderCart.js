@@ -20,12 +20,16 @@ const items = ref([]);
 
 // Restore cart on module load
 function restoreCart() {
-  const saved = localStorage.getItem('selforder_cart');
-  if (saved) {
-    try {
+  try {
+    const saved = localStorage.getItem('selforder_cart');
+    if (saved) {
       items.value = JSON.parse(saved);
-    } catch {
+    }
+  } catch {
+    try {
       localStorage.removeItem('selforder_cart');
+    } catch {
+      // Storage unavailable (e.g. private browsing mode).
     }
   }
 }
@@ -151,7 +155,11 @@ export function useSelfOrderCart() {
   }
 
   function saveCart() {
-    localStorage.setItem('selforder_cart', JSON.stringify(items.value));
+    try {
+      localStorage.setItem('selforder_cart', JSON.stringify(items.value));
+    } catch {
+      // Storage unavailable (e.g. private browsing mode).
+    }
   }
 
   /**
