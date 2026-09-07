@@ -11,6 +11,12 @@ import {
 } from '../utils/index.js';
 import { addSyncLog } from '../store/persistence/syncLogs.js';
 
+function normalizeNonEmptyString(value) {
+  return typeof value === 'string' && value.trim()
+    ? value.trim()
+    : null;
+}
+
 function addPrintActivityLog({
   endpoint,
   payload,
@@ -116,6 +122,8 @@ export async function sendHttpPrintJob(options) {
  *   logId: string,
  *   store?: object|null,
  *   url?: string|null,
+ *   serverDispatchEnabled?: boolean,
+ *   fallbackUrl?: string|null,
  * }} options
  */
 export function dispatchPrintJob(options) {
@@ -125,12 +133,47 @@ export function dispatchPrintJob(options) {
     logId,
     store = null,
     url = printer?.url ?? null,
+    serverDispatchEnabled = true,
+    fallbackUrl = printer?.fallbackUrl ?? null,
   } = options;
+  const isServerManagedPrinter = isDirectusManagedPrinter(printer);
 
-  if (!isDirectusManagedPrinter(printer) && url) {
-    sendHttpPrintJob({ job, url, logId, store });
+  if (!isServerManagedPrinter) {
+    const normalizedUrl = normalizeNonEmptyString(url);
+    if (normalizedUrl) {
+      sendHttpPrintJob({ job, url: normalizedUrl, logId, store });
+      return;
+    }
+    const message = 'Printer is not server-managed and has no HTTP URL configured';
+    console.warn(`[PrintQueue] Could not dispatch job "${job?.jobId ?? logId}": ${message}`);
+    store?.updatePrintLogEntry(logId, { status: PRINT_LOG_STATUSES.ERROR, errorMessage: message });
+    addPrintActivityLog({
+      endpoint: 'local://print-dispatch',
+      payload: job,
+      status: PRINT_ACTIVITY_LOG_STATUSES.ERROR,
+      operation: 'dispatch',
+    });
     return;
   }
 
-  queueDirectusPrintJob({ store, logId });
+  if (serverDispatchEnabled) {
+    queueDirectusPrintJob({ store, logId });
+    return;
+  }
+
+  const resolvedFallbackUrl = normalizeNonEmptyString(fallbackUrl);
+  if (resolvedFallbackUrl) {
+    sendHttpPrintJob({ job, url: resolvedFallbackUrl, logId, store });
+    return;
+  }
+
+  const message = 'Server-side print dispatch disabled and no HTTP fallbackUrl configured';
+  console.warn(`[PrintQueue] Could not dispatch Directus printer job "${job?.jobId ?? logId}": ${message}`);
+  store?.updatePrintLogEntry(logId, { status: PRINT_LOG_STATUSES.ERROR, errorMessage: message });
+  addPrintActivityLog({
+    endpoint: 'local://fallback-dispatch',
+    payload: job,
+    status: PRINT_ACTIVITY_LOG_STATUSES.ERROR,
+    operation: 'fallback',
+  });
 }

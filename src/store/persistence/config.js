@@ -17,7 +17,8 @@ import { relationIdStr, hashPinForLocalAuth as hashPin, extractPinDigits } from 
  * @param {string|number|null} venueId - Filter records to this venue. Pass null to return all.
  * @returns {Promise<{venueRecord, rooms, tables, paymentMethods, printers,
  *                    categories, items, modifiers,
- *                    categoryModifierLinks, itemModifierLinks}|null>}
+ *                    categoryModifierLinks, itemModifierLinks,
+ *                    printerCategoryLinks, printerItemLinks}|null>}
  */
 export async function loadConfigFromIDB(venueId) {
   try {
@@ -40,6 +41,8 @@ export async function loadConfigFromIDB(venueId) {
       allModifiers,
       allCategoryModifierLinks,
       allItemModifierLinks,
+      allPrinterCategoryLinks,
+      allPrinterItemLinks,
     ] = await Promise.all([
       db.getAll('venues'),
       db.getAll('rooms'),
@@ -51,6 +54,8 @@ export async function loadConfigFromIDB(venueId) {
       db.getAll('menu_modifiers'),
       db.getAll('menu_categories_menu_modifiers'),
       db.getAll('menu_items_menu_modifiers'),
+      db.getAll('printers_menu_categories'),
+      db.getAll('printers_menu_items'),
     ]);
 
     const venueRecord = venueIdStr != null
@@ -83,6 +88,8 @@ export async function loadConfigFromIDB(venueId) {
       modifiers:      byVenueAndStatus(allModifiers),
       categoryModifierLinks: byVenueAndStatus(allCategoryModifierLinks),
       itemModifierLinks: byVenueAndStatus(allItemModifierLinks),
+      printerCategoryLinks: byVenueAndStatus(allPrinterCategoryLinks),
+      printerItemLinks: byVenueAndStatus(allPrinterItemLinks),
     };
   } catch (e) {
     console.warn('[IDBPersistence] loadConfigFromIDB failed:', e);
@@ -109,6 +116,8 @@ export async function clearLocalConfigCacheFromIDB() {
     'menu_modifiers',
     'menu_categories_menu_modifiers',
     'menu_items_menu_modifiers',
+    'printers_menu_categories',
+    'printers_menu_items',
     'printers',
     'venue_users',
     'table_merge_sessions',
@@ -338,4 +347,3 @@ export async function replaceVenueUsersInIDB(records) {
     console.warn('[IDBPersistence] replaceVenueUsersInIDB failed:', e);
   }
 }
-

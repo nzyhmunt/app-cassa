@@ -127,10 +127,18 @@ export const DEFAULT_SETTINGS = {
   // Struttura di ogni stampante:
   //   id:         identificatore univoco (stringa, es. 'cucina', 'bar')
   //   name:       nome descrittivo (usato nell'interfaccia e nei log)
-  //   url:        URL del servizio di stampa Node (es. 'http://localhost:3001/print')
+  //   url:        URL del servizio di stampa HTTP (Modalità 1, client push)
+  //   fallbackUrl: URL HTTP di emergenza usata solo quando connectionType è tcp/file
+  //               ma la dispatch server-side è disabilitata lato client.
+  //               Permette continuità operativa in scenari degradati.
+  //   connectionType:
+  //               'tcp'/'file' → priorità server-side (queue print_jobs → dispatcher)
+  //               'http' o assente → invio HTTP diretto dal browser
   //   categories: array di nomi di categorie del menu da instradare su questa
   //               stampante (confronto case-insensitive). Se vuoto o assente,
   //               la stampante è catch-all per le voci (solo per tipo 'order').
+  //   menuItems:  array di id voci menu da instradare in modo puntuale.
+  //               Quando presente, ha precedenza su `categories`.
   //   printTypes: array di tipi di stampa che questa stampante accetta:
   //               'order'      → comanda cucina/bar
   //               'table_move' → notifica spostamento tavolo
@@ -257,6 +265,14 @@ export const DEFAULT_SETTINGS = {
     appUrl: '',
     menuUrl: 'https://nanawork.it/menu.json',
     accessToken: '',
+  },
+
+  // CONFIGURAZIONE DISPATCH STAMPA
+  // serverDispatchEnabled:
+  //   true  → per stampanti tcp/file la priorità resta server-side (print_jobs queue)
+  //   false → forza il fallback HTTP (fallbackUrl) quando disponibile
+  printing: {
+    serverDispatchEnabled: true,
   },
 
   // CONFIGURAZIONE PULIZIA IDB (retention windows in giorni)

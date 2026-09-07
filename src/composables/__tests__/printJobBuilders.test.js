@@ -68,6 +68,24 @@ describe('buildOrderJobItems()', () => {
     expect(items).toHaveLength(1);
     expect(items[0].name).toBe('Acqua');
   });
+
+  it('filters by menu item ids when printerMenuItems is provided', () => {
+    const items = buildOrderJobItems({
+      orderItems: [
+        { dishId: 'ant_1', name: 'Bruschetta', quantity: 1, voidedQuantity: 0 },
+        { dishId: 'bev_1', name: 'Acqua', quantity: 1, voidedQuantity: 0 },
+      ],
+      printerMenuItems: [' bev_1 '],
+      printerCategories: ['antipasti'],
+      dishCategoryMap: new Map([
+        ['ant_1', 'Antipasti'],
+        ['bev_1', 'Bevande'],
+      ]),
+    });
+
+    expect(items).toHaveLength(1);
+    expect(items[0].name).toBe('Acqua');
+  });
 });
 
 describe('print job builders', () => {

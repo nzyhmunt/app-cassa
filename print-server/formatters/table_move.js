@@ -26,7 +26,7 @@ const ReceiptPrinterEncoder = require('@point-of-sale/receipt-printer-encoder');
  * @returns {Buffer}
  */
 function formatTableMove(job) {
-  const enc = new ReceiptPrinterEncoder({ language: 'esc-pos', width: 42 });
+  const enc = new ReceiptPrinterEncoder({ language: 'esc-pos', width: 42, newline: '\n' });
 
   enc.initialize()
      .align('center').bold(true).size(2).line('SPOSTAMENTO TAVOLO').size(1).bold(false)
