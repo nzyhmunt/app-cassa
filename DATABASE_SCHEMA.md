@@ -407,7 +407,7 @@ CREATE TABLE bill_sessions (
     user_created    UUID            NULL REFERENCES directus_users(id),
     date_created    TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
     user_updated    UUID            NULL REFERENCES directus_users(id),
-    date_updated    TIMESTAMPTZ     NULL,           -- aggiornato a ogni modifica da Directus (o trigger DB)
+    date_updated   TIMESTAMPTZ     NULL,           -- aggiornato a ogni modifica da Directus (o trigger DB)
     -- Operatore locale (venue_user) — tracciamento audit operatori PIN
     venue_user_created UUID         NULL REFERENCES venue_users(id),
     venue_user_updated UUID         NULL REFERENCES venue_users(id)
@@ -415,6 +415,28 @@ CREATE TABLE bill_sessions (
 
 CREATE INDEX idx_bill_sessions_table ON bill_sessions("table", status);
 ```
+
+### 2.7.1 Self-Order - Autenticazione via UUID
+
+Per il Self-Order si usa direttamente l'UUID della `bill_session` come identificatore:
+
+```javascript
+// QR Code URL per cliente
+const qrUrl = `https://app.example.com/selforder.html#/session/${billSessionId}`;
+// Esempio: selforder.html#/session/01915f0a-1a1c-7f1a-8b3c-d4e5f6a7b8c9
+```
+
+**Sicurezza**: L'UUID v7 è:
+- Univoco a 128 bit, ma **time-ordered** (include un timestamp), non puramente casuale: la parte random ha ~62 bit, quindi lo spazio da indovinare è minore dei 2^128 totali
+- Non sequenziale nell'aspetto (il timestamp è ms-precision, la parte random lo rende non predicibile), ma ordinato nel tempo
+- Difficile da indovinare in un attacco brute-force (la parte random + l'obbligo di `status='open'` rendono le sessioni valide difficili da scansionare)
+- La sessione viene invalidata quando `status` cambia a `'closed'`
+
+**Validazione accesso**:
+1. Cliente accede con UUID
+2. Directus verifica che esista una `bill_session` con quell'ID
+3. Directus verifica che `status = 'open'`
+4. Se OK → accesso consentito
 
 ---
 
@@ -717,7 +739,7 @@ CREATE TABLE daily_closure_by_method (
 
 ---
 
-### 2.18 `printers` — Stampanti ESC/POS configurate
+### 2.18 `printers` — Stampanti ESC/POS / fiscali configurate
 
 I dati delle stampanti sono configurati in `appConfig.printers` (frontend) e nella collezione
 Directus `printers` (backend). Quando la modalità Directus Pull è attiva, la collezione
@@ -725,17 +747,21 @@ Directus è la **fonte unica di verità** e sovrascrive `printers.config.js` / `
 
 Campi Directus standard abilitati: `status`, `user_created`, `date_created`, `user_updated`, `date_updated`.
 
+Sono supportati tre tipi di stampante:
+- **ESC/POS termiche** (`http` / `tcp` / `file`) — comande, preconti, spostamenti tavolo;
+- **Fiscale Epson RT** (`fpmate`) — scontrini, Z/X report, query stato (protocollo SOAP/HTTP via `fpmate.cgi`).
+
 ```sql
 CREATE TABLE printers (
-    id              VARCHAR(40)     PRIMARY KEY,            -- es. 'cucina', 'bar', 'cassa'
+    id              VARCHAR(40)     PRIMARY KEY,            -- es. 'cucina', 'bar', 'cassa', 'fiscale'
     status          VARCHAR(20)     NOT NULL DEFAULT 'published', -- 'published' | 'archived'
     venue           INTEGER         NOT NULL REFERENCES venues(id) ON DELETE CASCADE,
     name            VARCHAR(80)     NOT NULL,               -- nome visualizzato nella UI
 
     -- ── Endpoint HTTP (per i flussi che usano il print-server via HTTP) ─────
     -- URL del servizio print-server a cui inviare i job via POST /print.
-    -- Usato solo quando la stampante è configurata per connessione HTTP
-    -- (ad es. frontend / Modalità 1). NULL se si usa solo connessione diretta TCP/File.
+    -- Usato da frontend (Modalità 1) e dalla stampante fiscale (connection_type='fpmate').
+    -- NULL se si usa solo connessione diretta TCP/File.
     url             TEXT            NULL,                   -- es. 'http://localhost:3001/print'
     -- Endpoint HTTP di emergenza usato dal frontend quando connection_type è tcp/file
     -- ma la dispatch server-side è disabilitata (fallback operativo Modalità 1).
@@ -744,8 +770,9 @@ CREATE TABLE printers (
     -- ── Connessione diretta (per Directus Pull — Modalità 2) ─────────────────
     -- Quando connection_type = 'tcp' o 'file', il print-server in modalità pull
     -- si connette direttamente alla stampante fisica senza passare per l'endpoint HTTP.
+    -- connection_type = 'fpmate' → stampante fiscale Epson RT (fpmate.cgi, SOAP/HTTP).
     -- Se connection_type = 'http' o NULL, viene usata la connessione via URL (sopra).
-    connection_type VARCHAR(10)     NOT NULL DEFAULT 'http', -- 'http' | 'tcp' | 'file'
+    connection_type VARCHAR(10)     NOT NULL DEFAULT 'http', -- 'http' | 'tcp' | 'file' | 'fpmate'
 
     -- Connessione TCP (per connection_type = 'tcp')
     tcp_host        VARCHAR(255)    NULL,                   -- IP/hostname stampante (es. 192.168.1.100)
@@ -755,9 +782,17 @@ CREATE TABLE printers (
     -- Connessione file/USB (per connection_type = 'file')
     file_device     TEXT            NULL DEFAULT '/dev/usb/lp0', -- percorso device USB/parallela
 
+    -- ── Connessione stampante fiscale Epson RT (connection_type = 'fpmate') ─
+    fpmate_host     VARCHAR(255)    NULL,                   -- IP/hostname stampante fiscale (es. 192.168.1.200)
+    fpmate_https    BOOLEAN         NOT NULL DEFAULT FALSE, -- usa HTTPS
+    fpmate_timeout  INTEGER         NULL DEFAULT 30000,     -- timeout fpmate in ms (alto: lo Z report trasmette all'Ade)
+    fpmate_username VARCHAR(255)    NULL,                   -- credenziali web (opzionale)
+    fpmate_password VARCHAR(255)    NULL,                   -- credenziali web (opzionale)
+
     -- ── Routing (per frontend — Modalità 1) ──────────────────────────────────
     -- print_types: quali tipi di lavoro riceve questa stampante.
-    -- Valori ammessi: 'order', 'table_move', 'pre_bill', oppure un tipo custom.
+    -- Valori ammessi: 'order', 'table_move', 'pre_bill', 'fiscal_receipt',
+    -- 'fiscal_z_report', 'fiscal_x_report', 'fiscal_status', oppure un tipo custom.
     -- Array vuoto / NULL = catch-all (riceve tutti i tipi).
     print_types     TEXT[]          NOT NULL DEFAULT '{}',
     -- categories: filtro menu per i lavori di tipo 'order'.
@@ -774,7 +809,7 @@ CREATE TABLE printers (
 ```
 
 > ⚠️ **NON RIMUOVERE i seguenti campi dalla collection `printers`:**
-> `connection_type`, `tcp_host`, `tcp_port`, `tcp_timeout`, `file_device`
+> `connection_type`, `tcp_host`, `tcp_port`, `tcp_timeout`, `file_device`, `fpmate_*`
 >
 > Questi campi **non sono usati dal frontend** (App Cassa / App Cucina) ma sono consumati
 > esclusivamente dal componente **Print Server** (servizio Node.js separato) per aprire
@@ -782,16 +817,21 @@ CREATE TABLE printers (
 >
 > | Campo             | Consumer         | Descrizione                                                        |
 > |-------------------|------------------|--------------------------------------------------------------------|
-> | `connection_type` | **Print Server** | `'http'` → endpoint URL; `'tcp'` → socket TCP; `'file'` → device file USB/parallela |
+> | `connection_type` | **Print Server** | `'http'` → endpoint URL; `'tcp'` → socket TCP; `'file'` → device file USB/parallela; `'fpmate'` → stampante fiscale RT |
 > | `tcp_host`        | **Print Server** | IP/hostname della stampante sulla LAN (modalità `tcp`)             |
 > | `tcp_port`        | **Print Server** | Porta TCP ESC/POS, default 9100 (modalità `tcp`)                   |
 > | `tcp_timeout`     | **Print Server** | Timeout connessione TCP in ms, default 5000 (modalità `tcp`)       |
 > | `file_device`     | **Print Server** | Path device file USB/parallelo, es. `/dev/usb/lp0` (modalità `file`) |
-> | `url`             | Frontend + Print Server | Endpoint HTTP del print-server (modalità `http`). Nullable: obbligatorio solo quando `connection_type = 'http'` |
+> | `fpmate_host`     | **Print Server** | IP/hostname stampante fiscale Epson RT (modalità `fpmate`)         |
+> | `fpmate_https`    | **Print Server** | Usa HTTPS verso fpmate.cgi (modalità `fpmate`)                    |
+> | `fpmate_timeout`  | **Print Server** | Timeout fpmate in ms, default 30000 (modalità `fpmate`)            |
+> | `fpmate_username` | **Print Server** | Credenziali web stampante fiscale, opzionali (modalità `fpmate`)   |
+> | `fpmate_password` | **Print Server** | Credenziali web stampante fiscale, opzionali (modalità `fpmate`)    |
+> | `url`             | Frontend + Print Server | Endpoint HTTP del print-server (modalità `http`/`fpmate`). Nullable: obbligatorio solo quando `connection_type` è `http` o `fpmate` |
 > | `fallback_url`    | **Frontend** | Endpoint HTTP di fallback usato solo quando `connection_type = 'tcp'/'file'` ma `printing.serverDispatchEnabled = false` lato client |
 >
-> Rimuovere questi campi da Directus renderebbe inutilizzabili le modalità TCP e File/USB del
-> Print Server, impedendo la stampa diretta senza service intermediary.
+> Rimuovere questi campi da Directus renderebbe inutilizzabili le modalità TCP, File/USB e
+> fiscale del Print Server, impedendo la stampa diretta senza service intermediary.
 
 ---
 
@@ -933,8 +973,18 @@ CREATE INDEX idx_print_jobs_type_status ON print_jobs (print_type, status);
 
 ### 2.20 `fiscal_receipts` — Comandi stampante fiscale (scontrini RT)
 
-Ogni record rappresenta un tentativo di emissione di uno scontrino fiscale a chiusura conto.
+Ogni record rappresenta un tentativo di emissione di un documento fiscale a chiusura conto.
 Non riutilizza `print_jobs` perché il formato (XML RT) e il ciclo di vita (request/response XML) sono completamente diversi dai lavori ESC/POS.
+
+Supporta i documenti fiscali RT generati dal tab "Fiscale RT" del Cruscotto Cassa:
+scontrino (`fiscal_receipt`), reso (`fiscal_refund`) e annullo (`fiscal_void`). La colonna
+`operation_type` distingue il tipo di documento; per gli annulli, `void_ref_id` punta allo
+scontrino originale annullato (i cui riferimenti Z/numero/data/matricola sono già memorizzati
+nei campi `z_rep_number`/`fiscal_receipt_number`/`fiscal_receipt_date`/`serial_number`).
+
+La stampante fiscale Epson RT comunica via `fpmate.cgi` (SOAP/HTTP); il print-server
+costruisce l'XML dalla richiesta strutturata e restituisce i campi della risposta
+(numero scontrino, matricola, numero Z) che vengono persistiti qui per audit.
 
 ```sql
 CREATE TABLE fiscal_receipts (
@@ -950,10 +1000,25 @@ CREATE TABLE fiscal_receipts (
                                                    -- Per conti dallo storico: include bill.totalDiscount per allineamento con la cassa live
     payment_methods     TEXT,                      -- JSON array di stringhe
     orders              TEXT,                      -- JSON snapshot voci (name/qty/unitPrice)
+    operation_type      TEXT        NOT NULL DEFAULT 'receipt'
+                                    CHECK (operation_type IN ('receipt','refund','void','duplicate','cash','status','z_report','x_report','drawer')),
+    void_ref_id         UUID        REFERENCES fiscal_receipts(id) ON DELETE SET NULL,
+                                                   -- Scontrino originale annullato (solo per operation_type = 'void')
     xml_request         TEXT,                      -- Payload XML inviato alla stampante
     xml_response        TEXT,                      -- Risposta XML ricevuta dalla stampante (null se non ancora ricevuta)
+    -- Risposta fpmate (addInfo) — popolata dal print-server alla conferma del documento
+    fiscal_receipt_number   TEXT,                 -- Numero progressivo scontrino (fiscalReceiptNumber)
+    fiscal_receipt_amount   TEXT,                  -- Importo stampato (fiscalReceiptAmount, formato italiano "13,00")
+    fiscal_receipt_date     TEXT,                  -- Data scontrino (fiscalReceiptDate, "21/04/2023")
+    fiscal_receipt_time     TEXT,                  -- Ora scontrino (fiscalReceiptTime, "11:35")
+    receipt_iso_date_time  TEXT,                   -- ISO datetime scontrino (receiptISODateTime, "20230421T113500")
+    z_rep_number            TEXT,                 -- Numero Z report corrente (zRepNumber)
+    serial_number           TEXT,                 -- Matricola stampante (serialNumber)
+    printer_status          TEXT,                 -- Stato stampante (printerStatus)
     status              TEXT        NOT NULL DEFAULT 'pending'
-                                    CHECK (status IN ('pending','sent','ok','error')),
+                                    CHECK (status IN ('pending','done','error','void')),
+                                    -- Stati ciclo scontrino fiscale: pending (richiesta in attesa),
+                                    -- done (emesso/stampato), error (fallito), void (annullato).
     timestamp           TIMESTAMPTZ NOT NULL DEFAULT NOW(),  -- Istante della richiesta (non della chiusura conto)
     -- Directus standard fields
     date_created        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -968,6 +1033,10 @@ CREATE INDEX idx_fiscal_receipts_table        ON fiscal_receipts ("table");
 CREATE INDEX idx_fiscal_receipts_bill_session ON fiscal_receipts (bill_session);
 CREATE INDEX idx_fiscal_receipts_status       ON fiscal_receipts (status);
 CREATE INDEX idx_fiscal_receipts_timestamp    ON fiscal_receipts (timestamp DESC);
+CREATE INDEX idx_fiscal_receipts_serial       ON fiscal_receipts (serial_number);
+CREATE INDEX idx_fiscal_receipts_z_rep         ON fiscal_receipts (z_rep_number);
+CREATE INDEX idx_fiscal_receipts_operation    ON fiscal_receipts (operation_type);
+CREATE INDEX idx_fiscal_receipts_void_ref      ON fiscal_receipts (void_ref_id);
 ```
 
 ---
@@ -1155,6 +1224,289 @@ Cardinalità:
 | venue          | 1 : N     | cash_movements           |
 | venue          | 1 : N     | daily_closures           |
 | daily_closure  | 1 : N     | daily_closure_by_method  |
+
+---
+
+## 5.5 Directus - Ruoli e Permessi Self-Order
+
+### Ruolo: Self-Order Client
+
+Creare un ruolo dedicato in Directus per i clienti Self-Order:
+
+| Campo | Valore |
+|-------|--------|
+| Nome | `Self-Order Client` |
+| Descrizione | `Clienti che ordinano tramite app Self-Order` |
+| Field Read Access | Tutti i campi |
+| Field Write Access | Solo campi specifici (vedi sotto) |
+
+### Autenticazione Self-Order
+
+L'app Self-Order usa l'UUID della `bill_session` come identificatore. Due opzioni di autenticazione:
+
+**Opzione 1: Token Statico (Consigliata)**
+Generare un token JWT dal ruolo "Self-Order Client" in Directus e includerlo nell'URL:
+
+```
+selforder.html#/session/{uuid}?access_token={jwt_token}
+```
+
+Il token viene usato negli header delle richieste:
+```javascript
+headers: {
+  'Authorization': `Bearer ${accessToken}`,
+  'Content-Type': 'application/json',
+}
+```
+
+**Opzione 2: Permessi Pubblici (Semplice)**
+Configurare Directus per permettere richieste anonime sul ruolo Self-Order Client:
+- Abilitare "Public Create" sulla collection `orders`
+- Usare validation rules per validare `bill_session`
+
+### Permessi Ruolo Self-Order Client
+
+| Collection | Permesso | Condizioni/Filtri |
+|-----------|----------|-------------------|
+| `bill_sessions` | READ | `id` = uuid inviato dal client AND `status` = 'open' |
+| `orders` | CREATE | `bill_session` = uuid valido (l'app usa lo stesso UUID) |
+| `orders` | READ | Solo ordini con `bill_session` = uuid valido |
+| `venues` | READ | Solo per lookup del venue (non per scrittura) |
+
+### DDL Permessi
+
+```sql
+-- Creazione ruolo (via API Directus)
+-- POST /roles
+{
+  "name": "Self-Order Client",
+  "description": "Ruolo per clienti Self-Order",
+  "icon": "qr_code"
+}
+
+-- Permessi READ bill_sessions
+-- POST /roles/{role_id}/permissions
+{
+  "collection": "bill_sessions",
+  "action": "read",
+  "fields": ["*"],
+  "validation": {
+    "_and": [
+      { "id": { "_eq": "$trigger.bill_session_uuid" } },
+      { "status": { "_eq": "open" } }
+    ]
+  }
+}
+
+-- Permessi CREATE orders
+-- POST /roles/{role_id}/permissions
+{
+  "collection": "orders",
+  "action": "create",
+  "fields": [
+    "bill_session", "venue", "table", "status", "order_time",
+    "dietary_diets", "dietary_allergens", "global_note", "is_direct_entry",
+    "order_items"
+  ],
+  "validation": {
+    "bill_session": { "_eq": "$trigger.bill_session_uuid" }
+  }
+}
+```
+
+### Validazione Server-Side (Hook Directus)
+
+Per maggiore sicurezza, aggiungere un hook che valida:
+1. La sessione esiste e UUID corrisponde
+2. La sessione è ancora `status='open'`
+
+```javascript
+// Directus hook (custom endpoint o flow)
+export default defineHook(({ filter, action }, { env }) => {
+  
+  // Hook pre-creazione ordine
+  filter('orders.items.create', async (input, { database, schema, accountability }) => {
+    
+    // Solo per clienti self-order (non per cassa/sala)
+    if (accountability?.role !== 'self-order-client') return input;
+    
+    const billSession = await database
+      .select('id', 'status')
+      .from('bill_sessions')
+      .where('id', input.bill_session)
+      .first();
+    
+    if (!billSession) {
+      throw new ForbiddenException('Sessione non valida');
+    }
+    
+    if (billSession.status !== 'open') {
+      throw new ForbiddenException('Sessione chiusa');
+    }
+    
+    return input;
+  });
+});
+```
+
+---
+
+## 4.5 Self-Order App
+
+L'app **Self-Order** permette ai clienti di ordinare autonomamente scansionando un QR code generato dal personale.
+
+### Flusso Operativo
+
+1. Il **cameriere/cassiere** apre una sessione tavolo (`bill_session`) dal sistema Cassa/Sala
+2. Viene generato un **QR code** contenente URL con session ID e token
+3. Il **cliente** scansiona il QR → l'app valida la sessione → mostra il menu
+4. Il cliente **naviga il menu**, aggiunge articoli al carrello
+5. Al **checkout**: ordine inviato in stato `pending` → deve essere accettato da staff
+6. Lo **staff** (cassiere/cameriere) vede l'ordine e lo accetta/rejecta
+
+### QR Code Format
+
+```
+selforder://session/{bill_session_uuid}
+# Oppure via URL
+/selforder.html#/session/{bill_session_uuid}
+```
+
+### Condivisione Sessione
+
+La sessione può essere **condivisa** con altri dispositivi (es. più persone allo stesso tavolo):
+- Il primo cliente genera un QR di condivisione
+- Altri possono scannerizzarlo e **unirsi alla stessa sessione**
+- Tutti vedono lo stesso `bill_session` ID
+- Ordini da tutti i dispositivi appaiono nella stessa sessione
+
+### Sicurezza
+
+| Aspetto | Descrizione |
+|---------|-------------|
+| **Lettura sessione** | Richiede `bill_session_uuid` valido + sessione `status='open'` |
+| **Invio ordine** | Richiede obbligatoriamente `bill_session` UUID valido |
+| **Autenticazione** | UUID v7 (128 bit) - sufficientemente sicuro senza token aggiuntivo |
+| **Permessi Directus** | Minimi: `read` su `bill_sessions`, `create` su `orders` |
+| **Invalidazione** | Sessione chiusa (`status='closed'`) → UUID non più valido |
+
+### Payload Ordine Self-Order (allineato con schema Directus)
+
+**SICUREZZA: I prezzi NON sono trusted dal client**
+
+Il client NON puo' impostare liberamente i prezzi: `unit_price` e i `price` dei
+modificatori nel payload sono risolti dal menu pubblico (`menu.json`) lato client
+tramite `getItemPrice()`/`getModifierPrice()`, NON dal carrello (che vive in
+`localStorage` ed e' manipolabile). Sono inviati solo per soddisfare il vincolo
+`NOT NULL` su `order_items.unit_price` come snapshot non trusted; la cassa/sala
+**deve comunque ricalcolarli da `menu.json`** quando accetta l'ordine.
+
+```
+NON trusted (ignorati/ricalcolati dalla cassa):
+   - total_amount              (sempre ricalcolato da menu.json)
+   - item_count                (sempre ricalcolato)
+   - order_items[].unit_price        (snapshot da menu.json, NON autoritativo)
+   - order_items[].order_item_modifiers[].price (snapshot da menu.json, NON autoritativo)
+
+INVIATI dal client (non manipolabili per il flusso):
+   - bill_session (obbligatorio)
+   - order_items[].dish (menu item ID)
+   - order_items[].quantity
+   - order_items[].notes
+   - dietary_diets / dietary_allergens
+
+CALCOLATI dalla cassa/sala (fonte fidata, sovrascrivono il client):
+   - total_amount (ricalcolato da menu.json)
+   - item_count (ricalcolato)
+   - order_items[].unit_price (da menu.json, sovrascrive lo snapshot del client)
+```
+
+```json
+{
+  // Obbligatori per Directus
+  "bill_session": "uuid-bill-session",   // REQUIRED - deve essere UUID valido e open
+  "venue": 1,                           // REQUIRED - FK al ristorante
+  "table": "1",                        // REQUIRED - FK al tavolo
+  "status": "pending",                  // Sempre pending, staff deve accettare
+  
+  // Solo orario inviato dal client
+  "order_time": "12:30",               // HH:MM
+  
+  // SECURITY: total_amount e item_count NON inviati
+  // Verranno calcolati dalla cassa usando menu.json
+  
+  // Preferenze alimentari per CLIENTE (non per sessione)
+  "dietary_diets": ["Vegetariano"],     // Diete del cliente che ha ordinato
+  "dietary_allergens": ["glutine", "lattosio"],  // Allergie del cliente
+  
+  "global_note": "",
+  "is_direct_entry": false,
+  
+  // Righe ordine - prezzi risolti dal menu (snapshot NON trusted, presente
+  // solo per il vincolo NOT NULL; la cassa ricalcola da menu.json)
+  "order_items": [
+    {
+      "uid": "r_1",                    // Unique within order
+      "dish": "ant_1",                // FK menu_items - prezzo da menu.json
+      "name": "Bruschetta",            // Snapshot nome (non trusted)
+      "unit_price": 3.00,             // snapshot da menu.json (NON autoritativo)
+      "quantity": 1,
+      "notes": ["Senza aglio"],
+      "order_item_modifiers": [
+        { "name": "Extra olio", "price": 0.50, "item_uid": "r_1" }
+      ],
+      "course": null
+    }
+  ]
+}
+```
+
+### Validazione Prezzi Lato Cassa
+
+Quando la cassa/sala accetta un ordine `pending`:
+
+1. Recupera `bill_session` per ottenere il `venue_id`
+2. Carica `menu.json` per quel venue
+3. Per ogni item nell'ordine:
+   - Cerca il prezzo da `menu_items[id]` 
+   - Ricalcola `unit_price * quantity`
+4. Somma tutti gli importi → `total_amount`
+5. Conta gli item → `item_count`
+6. Aggiorna l'ordine con i valori calcolati
+7. Cambia status da `pending` a `accepted`
+
+### Note Importanti
+
+#### Preferenze per Cliente, Non per Sessione
+
+Ogni cliente della stessa `bill_session` può avere le proprie preferenze:
+- `dietary_diets` e `dietary_allergens` sono **per ordine**, non per sessione
+- Cliente A (vegetariano) → ordine con `dietary_diets: ["Vegetariano"]`
+- Cliente B (allergico al glutine) → ordine con `dietary_allergens: ["glutine"]`
+
+#### Cronologia Condivisa
+
+Tutti gli ordini della stessa sessione sono visibili a tutti i clienti:
+- La cronologia viene caricata via API: `GET /items/orders?filter[bill_session][_eq]={session_id}`
+- Ogni cliente della sessione vede tutti gli ordini del tavolo
+- Ogni ordine mostra le preferenze del cliente che lo ha inviato
+
+### Campi related in `bill_sessions`
+
+| Campo | Tipo | Descrizione |
+|-------|------|-------------|
+| `self_order_enabled` | `BOOLEAN` | Se true, il QR code è attivo (opzionale) |
+| `self_order_qr_generated_at` | `TIMESTAMPTZ` | Data generazione QR (opzionale) |
+
+### Endpoint Self-Order
+
+| Risorsa | URL Pattern | Descrizione |
+|---------|-------------|-------------|
+| Self-Order App | `/selforder.html` | App PWA per ordinazione autonoma |
+| Session Link | `selforder://session/{id}` | Deep link per avvio sessione |
+| Menu JSON | `https://nanawork.it/menu.json` | Menu pubblico (stessa struttura cassa/sala) |
+
+**Nota**: Il menu del Self-Order usa la **stessa struttura** del menu della cassa/sala (`nanawork.it/menu.json`). Questo garantisce coerenza dei prezzi e disponibilità.
 
 ---
 

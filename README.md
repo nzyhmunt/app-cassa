@@ -256,6 +256,16 @@ Funzionalità disponibile sia in **cassa live** (al momento della chiusura del c
 - **Report X** (anteprima giornaliera senza reset): totale incassato, breakdown per metodo di pagamento, mance, sconti, numero conti, scontrino medio, coperti serviti
 - **Chiusura di giornata (Report Z)**: archivia il riepilogo, azzera transazioni e movimenti, aggiorna il saldo cassa
 
+### 🖨️ Operazioni Fiscali Stampante RT (tab "Fiscale RT")
+Il Cruscotto Cassa espone un tab dedicato alle operazioni fiscali della stampante Epson RT (protocollo fpmate / ePOS Fiscal Print). Tutte transitano per il print-server che genera l'XML e dialoga con `fpmate.cgi`:
+- **Stato stampante RT** — giornata aperta, file da inviare all'Agenzia delle Entrate, file rifiutati, stato principale, matricola, scadenza certificato
+- **Lettura X fiscale** — stampa il report finanziario sulla stampante RT (in aggiunta alla rielaborazione locale)
+- **Lettura Z fiscale** — stampa la chiusura giornaliera fiscale sulla stampante RT (trasmette all'Agenzia delle Entrate)
+- **Apri cassetto** — apertura del cassetto contanti collegato alla stampante fiscale
+- **Duplicato scontrino** — ristampa dell'ultimo scontrino commerciale (documento di gestione, letto dall'MPD/EJ)
+- **Movimento cassa fiscale** — versamento/prelievo registrato nella memoria fiscale RT (contanti o assegni)
+- **Annullo scontrino (Void)** — selezione di uno scontrino già emesso e invio del documento di annullo commerciale; i riferimenti (Z, numero, data, matricola) sono letti dalla entry `fiscal_receipts` dell'originale
+
 ### 🗒️ Storico Conti
 - Vista dedicata con tutti i conti chiusi della sessione
 - Riepilogo per sessione di conto: tavolo, coperti, orario chiusura, totale, mance, sconti

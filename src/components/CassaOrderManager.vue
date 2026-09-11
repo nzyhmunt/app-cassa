@@ -464,8 +464,22 @@ watch(
 );
 
 async function acceptAndPrint(order) {
-  await orderStore.changeOrderStatus(order, 'accepted');
-
+  // Reprice from the menu of record before accepting. This overwrites any
+  // forged unit_price a tampered self-order client may have POSTed to Directus
+  // and persists the authoritative prices to IDB + Directus. If the order
+  // references dishes not in the menu, block acceptance (can't establish a price).
+  const result = await orderStore.acceptOrderWithReprice(order);
+  if (!result.ok) {
+    if (result.unresolvedDishes?.length) {
+      alert(
+        `Impossibile accettare l'ordine: piatto/i non riconosciuto/i nel menu ` +
+        `(${result.unresolvedDishes.join(', ')}). Verificare il menu e riprovare.`
+      );
+    } else {
+      alert("Errore durante l'accettazione dell'ordine. Riprovare.");
+    }
+    return;
+  }
   enqueuePrintJobs(order);
 }
 

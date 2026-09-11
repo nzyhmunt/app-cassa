@@ -8,8 +8,9 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <title>Terminale Cassa &amp; Sala - Ristorante</title>
     <style>
+      .mode-grid { grid-template-columns: repeat(2, 1fr); }
       @media (max-width: 640px) {
-        .mode-grid { grid-template-columns: 1fr !important; }
+        .mode-grid { grid-template-columns: 1fr; }
         .mode-card { flex-direction: row !important; justify-content: flex-start !important; padding: 1.25rem 1.5rem !important; gap: 1.25rem !important; }
         .mode-card-icon { flex-shrink: 0; }
         .mode-card-text { text-align: left !important; }
@@ -33,8 +34,8 @@
         <p class="text-sm font-semibold text-gray-500 uppercase tracking-widest">Scegli la modalità</p>
       </div>
 
-      <!-- Mode cards: 3-column grid matching consistent style -->
-      <div class="mode-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:1.25rem;">
+      <!-- Mode cards: responsive grid (2 columns on desktop, 1 on mobile via .mode-grid class) -->
+      <div class="mode-grid" style="display:grid;gap:1.25rem;">
 
         <!-- App Cassa -->
         <a href="./cassa.html" class="mode-card"
@@ -87,6 +88,24 @@
           <div class="mode-card-text" style="text-align:center;">
             <p style="font-size:1.1rem;font-weight:800;color:#111827;margin-bottom:.2rem;">App Cucina</p>
             <p style="font-size:.75rem;color:#6b7280;font-weight:600;">Visualizza ordini &amp; aggiorna stato</p>
+          </div>
+        </a>
+
+        <!-- App Self Order -->
+        <a href="./selforder.html" class="mode-card"
+           style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1rem;padding:2rem 1.25rem;background:white;border-radius:1.25rem;box-shadow:0 1px 3px rgba(0,0,0,.08);border:2px solid transparent;text-decoration:none;transition:box-shadow .15s,border-color .15s;cursor:pointer;"
+           onmouseover="this.style.boxShadow='0 8px 25px rgba(0,130,108,.18)';this.style.borderColor='#00846c';"
+           onmouseout="this.style.boxShadow='0 1px 3px rgba(0,0,0,.08)';this.style.borderColor='transparent';">
+          <div class="mode-card-icon" style="display:flex;align-items:center;justify-content:center;width:3.5rem;height:3.5rem;background-color:#00846c;border-radius:.875rem;box-shadow:0 4px 12px rgba(0,130,108,.35);">
+            <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none"
+                 stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="3" width="7" height="7" rx="1"/><path d="M14 6h7"/><path d="M14 12h7"/><path d="M14 18h7"/>
+              <path d="M3 14h7"/>
+            </svg>
+          </div>
+          <div class="mode-card-text" style="text-align:center;">
+            <p style="font-size:1.1rem;font-weight:800;color:#111827;margin-bottom:.2rem;">App Self Order</p>
+            <p style="font-size:.75rem;color:#6b7280;font-weight:600;">Ordinazione autonoma cliente</p>
           </div>
         </a>
 

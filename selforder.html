@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="it">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/png" href="./icons/selforder-192.png" />
+    <link rel="manifest" href="./selforder.webmanifest" crossorigin="use-credentials" />
+    <link rel="apple-touch-icon" href="./icons/generic-192.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-visual" />
+    <meta name="theme-color" content="#059669" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Self Order" />
+    <title>Self Order - Ristorante</title>
+    <style>
+      /* Theme CSS Variables - Default to emerald, can be overridden by JS config */
+      :root {
+        --brand-primary: #059669;
+        --brand-dark: #047857;
+      }
+      .theme-bg { background-color: var(--brand-primary); }
+      .theme-bg-dark:hover { background-color: var(--brand-dark); }
+      .theme-text { color: var(--brand-primary); }
+      .theme-border { border-color: var(--brand-primary); }
+      .theme-active-card {
+        border-color: var(--brand-primary);
+        background-color: color-mix(in srgb, var(--brand-primary) 12%, transparent);
+        color: var(--brand-primary);
+      }
+      .theme-accent { accent-color: var(--brand-primary); }
+      body { -webkit-tap-highlight-color: transparent; }
+      ::-webkit-scrollbar { width: 6px; height: 6px; }
+      ::-webkit-scrollbar-track { background: transparent; }
+      ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+    </style>
+  </head>
+  <body class="bg-gray-50 text-gray-800 font-sans antialiased h-dvh w-screen overflow-hidden flex flex-col">
+    <div id="app" class="h-full"></div>
+    <script type="module" src="/src/selforder-main.js"></script>
+  </body>
+</html>

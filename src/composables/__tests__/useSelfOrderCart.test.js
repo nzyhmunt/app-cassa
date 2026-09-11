@@ -1,0 +1,359 @@
+/**
+ * @file useSelfOrderCart.test.js
+ * Unit tests for the self-order cart composable.
+ *
+ * The composable holds cart state in a module-level singleton ref, so each
+ * test clears the cart and localStorage in beforeEach to start clean.
+ */
+
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { createPinia, setActivePinia } from 'pinia';
+import { useSelfOrderCart } from '../useSelfOrderCart.js';
+import { useSelfOrderMenu } from '../useSelfOrderMenu.js';
+
+const ITEM = (overrides = {}) => ({
+  id: 'ant_1',
+  name: 'Bruschetta',
+  price: 3,
+  ...overrides,
+});
+
+beforeEach(() => {
+  setActivePinia(createPinia());
+  sessionStorage.clear();
+  localStorage.clear();
+  const { clearCart } = useSelfOrderCart();
+  clearCart();
+});
+
+describe('useSelfOrderCart — addItem', () => {
+  it('adds a new item to the cart', () => {
+    const { items, addItem } = useSelfOrderCart();
+    addItem(ITEM(), 2);
+    expect(items.value).toHaveLength(1);
+    expect(items.value[0]).toMatchObject({
+      menuItemId: 'ant_1',
+      name: 'Bruschetta',
+      price: 3,
+      quantity: 2,
+      modifiers: [],
+      notes: '',
+    });
+    expect(items.value[0].id).toMatch(/^sci_/);
+  });
+
+  it('merges quantity when the same item + modifiers + notes is added again', () => {
+    const { items, addItem } = useSelfOrderCart();
+    addItem(ITEM(), 1, [{ name: 'Extra', price: 1 }], 'no garlic');
+    addItem(ITEM(), 2, [{ name: 'Extra', price: 1 }], 'no garlic');
+    expect(items.value).toHaveLength(1);
+    expect(items.value[0].quantity).toBe(3);
+  });
+
+  it('keeps separate rows when modifiers or notes differ', () => {
+    const { items, addItem } = useSelfOrderCart();
+    addItem(ITEM(), 1, [], 'note A');
+    addItem(ITEM(), 1, [], 'note B');
+    addItem(ITEM(), 1, [{ name: 'Extra', price: 1 }], 'note A');
+    expect(items.value).toHaveLength(3);
+  });
+
+  it('defaults price to 0 when the menu item has no price', () => {
+    const { items, addItem } = useSelfOrderCart();
+    addItem(ITEM({ price: undefined }), 1);
+    expect(items.value[0].price).toBe(0);
+  });
+});
+
+describe('useSelfOrderCart — removeItem / updateQuantity', () => {
+  it('decrements quantity when more than 1', () => {
+    const { items, addItem, removeItem } = useSelfOrderCart();
+    addItem(ITEM(), 3);
+    removeItem(items.value[0].id);
+    expect(items.value[0].quantity).toBe(2);
+    expect(items.value).toHaveLength(1);
+  });
+
+  it('removes the row when quantity reaches 1 and removeItem is called', () => {
+    const { items, addItem, removeItem } = useSelfOrderCart();
+    addItem(ITEM(), 1);
+    removeItem(items.value[0].id);
+    expect(items.value).toHaveLength(0);
+  });
+
+  it('updateQuantity sets an absolute quantity', () => {
+    const { items, addItem, updateQuantity } = useSelfOrderCart();
+    addItem(ITEM(), 1);
+    updateQuantity(items.value[0].id, 5);
+    expect(items.value[0].quantity).toBe(5);
+  });
+
+  it('updateQuantity with a value <= 0 removes the item', () => {
+    const { items, addItem, updateQuantity } = useSelfOrderCart();
+    addItem(ITEM(), 2);
+    updateQuantity(items.value[0].id, 0);
+    expect(items.value).toHaveLength(0);
+  });
+
+  it('removeItem is a no-op for an unknown id', () => {
+    const { items, addItem, removeItem } = useSelfOrderCart();
+    addItem(ITEM(), 1);
+    removeItem('sci_unknown');
+    expect(items.value).toHaveLength(1);
+  });
+});
+
+describe('useSelfOrderCart — clearCart', () => {
+  it('empties the cart', () => {
+    const { items, addItem, clearCart } = useSelfOrderCart();
+    addItem(ITEM(), 1);
+    addItem(ITEM({ id: 'ant_2' }), 1);
+    clearCart();
+    expect(items.value).toHaveLength(0);
+  });
+});
+
+describe('useSelfOrderCart — totalPrice', () => {
+  it('sums price * quantity', () => {
+    const { totalPrice, addItem } = useSelfOrderCart();
+    addItem(ITEM({ id: 'a', price: 3 }), 2);   // 6
+    addItem(ITEM({ id: 'b', price: 5 }), 1);   // 5
+    expect(totalPrice.value).toBe(11);
+  });
+
+  it('adds modifier prices multiplied by quantity', () => {
+    const { totalPrice, addItem } = useSelfOrderCart();
+    // base 4 * 2 = 8 ; modifier 1.5 * 2 = 3  → 11
+    addItem(ITEM({ id: 'a', price: 4 }), 2, [
+      { name: 'Extra', price: 1.5 },
+      { name: 'Sauce', price: 0 },
+    ]);
+    expect(totalPrice.value).toBe(11);
+  });
+
+  it('uses menu prices (trusted) when the menu is loaded, ignoring tampered cart prices', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        Antipasti: [{ id: 'ant_1', name: 'Bruschetta', price: 3 }],
+      }),
+    })));
+    const menu = useSelfOrderMenu();
+    await menu.loadMenu('https://menu.test/menu.json');
+
+    const { totalPrice, addItem } = useSelfOrderCart();
+    // Client tampers the cart price to 0 — total must reflect the menu price.
+    addItem(ITEM({ id: 'ant_1', price: 0 }), 2);
+    expect(totalPrice.value).toBe(6); // 3 * 2 from the menu, not 0 * 2
+  });
+});
+
+describe('useSelfOrderCart — persistence', () => {
+  it('persists the cart to localStorage on every mutation', () => {
+    const { addItem } = useSelfOrderCart();
+    addItem(ITEM(), 1);
+    const saved = JSON.parse(localStorage.getItem('selforder_cart'));
+    expect(saved).toHaveLength(1);
+    expect(saved[0].menuItemId).toBe('ant_1');
+  });
+
+  it('restores the cart from localStorage on module load', async () => {
+    localStorage.setItem('selforder_cart', JSON.stringify([
+      { id: 'sci_x', menuItemId: 'ant_1', name: 'Bruschetta', price: 3, quantity: 2, modifiers: [], notes: '' },
+    ]));
+    // Re-import the module fresh so the module-level restoreCart() runs again.
+    vi.resetModules();
+    const { useSelfOrderCart: freshUseSelfOrderCart } = await import('../useSelfOrderCart.js');
+    const { items } = freshUseSelfOrderCart();
+    expect(items.value).toHaveLength(1);
+    expect(items.value[0].quantity).toBe(2);
+  });
+
+  it('drops a corrupted cart from localStorage on load', async () => {
+    localStorage.setItem('selforder_cart', '{not valid json');
+    vi.resetModules();
+    const { useSelfOrderCart: freshUseSelfOrderCart } = await import('../useSelfOrderCart.js');
+    const { items } = freshUseSelfOrderCart();
+    expect(items.value).toHaveLength(0);
+    expect(localStorage.getItem('selforder_cart')).toBeNull();
+  });
+});
+
+describe('useSelfOrderCart — buildOrderPayload', () => {
+  // Menu used to verify buildOrderPayload reads trusted prices from the
+  // loaded menu (not the client cart).
+  const MENU = {
+    Antipasti: [{ id: 'ant_1', name: 'Bruschetta', price: 3 }],
+    'Primi Piatti': [
+      {
+        id: 'pri_1',
+        name: 'Pasta',
+        price: 10,
+        modifiers: [{ id: 'm1', name: 'Extra', price: 1 }],
+      },
+    ],
+  };
+
+  async function loadMenu() {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => MENU,
+    })));
+    const menu = useSelfOrderMenu();
+    await menu.loadMenu('https://menu.test/menu.json');
+  }
+
+  it('builds a Directus-shaped payload with order_items and 1-based uids', async () => {
+    await loadMenu();
+    const { addItem, buildOrderPayload } = useSelfOrderCart();
+    addItem(ITEM({ id: 'ant_1', price: 3 }), 2, [], 'no garlic');
+    addItem(ITEM({ id: 'pri_1', name: 'Pasta', price: 10 }), 1, [{ id: 'm1', name: 'Extra', price: 1 }]);
+
+    const payload = buildOrderPayload('session-uuid');
+
+    expect(payload).toMatchObject({
+      bill_session: 'session-uuid',
+      status: 'pending',
+    });
+    expect(payload.order_items).toHaveLength(2);
+    expect(payload.order_items[0]).toMatchObject({
+      uid: 'r_1',
+      dish: 'ant_1',
+      name: 'Bruschetta',
+      unit_price: 3,
+      quantity: 2,
+      notes: ['no garlic'],
+      order_item_modifiers: [],
+    });
+    expect(payload.order_items[1]).toMatchObject({
+      uid: 'r_2',
+      dish: 'pri_1',
+      unit_price: 10,
+      quantity: 1,
+      notes: [],
+      order_item_modifiers: [{
+        name: 'Extra',
+        price: 1,
+        item_uid: 'r_2',
+      }],
+    });
+  });
+
+  it('reads unit_price and modifier prices from the menu, ignoring tampered cart prices', async () => {
+    await loadMenu();
+    const { addItem, buildOrderPayload } = useSelfOrderCart();
+    // Client tampers the cart prices to 0 / 99 — payload must use the menu.
+    addItem(ITEM({ id: 'ant_1', price: 0 }), 2);
+    addItem(ITEM({ id: 'pri_1', name: 'Pasta', price: 99 }), 1, [
+      { id: 'm1', name: 'Extra', price: 99 },
+    ]);
+
+    const payload = buildOrderPayload('s');
+    expect(payload.order_items[0].unit_price).toBe(3);
+    expect(payload.order_items[1].unit_price).toBe(10);
+    expect(payload.order_items[1].order_item_modifiers[0].price).toBe(1);
+  });
+
+  it('wraps notes into an array and omits them when empty', async () => {
+    await loadMenu();
+    const { addItem, buildOrderPayload } = useSelfOrderCart();
+    addItem(ITEM(), 1, [], '');
+    const payload = buildOrderPayload('s');
+    expect(payload.order_items[0].notes).toEqual([]);
+  });
+});
+
+describe('useSelfOrderCart — input hardening', () => {
+  const MENU = {
+    Antipasti: [
+      { id: 'ant_1', name: 'Bruschetta', price: 3, modifiers: [{ id: 'm1', name: 'Extra', price: 1 }] },
+      { id: 'ant_2', name: 'Caprese', price: 8, available: false },
+    ],
+  };
+
+  async function loadMenu() {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => MENU })));
+    const menu = useSelfOrderMenu();
+    await menu.loadMenu('https://menu.test/menu.json');
+  }
+
+  it('clamps quantity to a sane maximum on addItem', async () => {
+    await loadMenu();
+    const { items, addItem } = useSelfOrderCart();
+    addItem(ITEM({ id: 'ant_1', price: 3 }), 1_000_000);
+    expect(items.value[0].quantity).toBe(99);
+  });
+
+  it('clamps quantity when merging an existing row', async () => {
+    await loadMenu();
+    const { items, addItem } = useSelfOrderCart();
+    addItem(ITEM({ id: 'ant_1', price: 3 }), 98);
+    addItem(ITEM({ id: 'ant_1', price: 3 }), 50);
+    // 98 + 50 = 148 → clamped to 99
+    expect(items.value[0].quantity).toBe(99);
+  });
+
+  it('clamps quantity on updateQuantity but removes the row for <= 0', async () => {
+    await loadMenu();
+    const { items, addItem, updateQuantity } = useSelfOrderCart();
+    addItem(ITEM({ id: 'ant_1', price: 3 }), 1);
+    updateQuantity(items.value[0].id, 5000);
+    expect(items.value[0].quantity).toBe(99);
+    updateQuantity(items.value[0].id, 0);
+    expect(items.value).toHaveLength(0);
+  });
+
+  it('truncates notes to the max length', async () => {
+    await loadMenu();
+    const { items, addItem } = useSelfOrderCart();
+    const long = 'x'.repeat(1000);
+    addItem(ITEM({ id: 'ant_1', price: 3 }), 1, [], long);
+    expect(items.value[0].notes.length).toBe(280);
+  });
+
+  it('rejects unavailable menu items', async () => {
+    await loadMenu();
+    const { items, addItem } = useSelfOrderCart();
+    addItem({ id: 'ant_2', name: 'Caprese', price: 8, available: false }, 1);
+    expect(items.value).toHaveLength(0);
+  });
+
+  it('drops cart rows whose dish is not in the loaded menu from the payload', async () => {
+    await loadMenu();
+    const { items, addItem, buildOrderPayload } = useSelfOrderCart();
+    // A real item (kept)...
+    addItem(ITEM({ id: 'ant_1', price: 3 }), 1);
+    // ...plus a tampered/stale row the menu no longer knows about.
+    items.value.push({ id: 'sci_x', menuItemId: 'does_not_exist', name: 'Fake', price: 0, quantity: 9, modifiers: [], notes: '' });
+
+    const payload = buildOrderPayload('s');
+    expect(payload.order_items).toHaveLength(1);
+    expect(payload.order_items[0].dish).toBe('ant_1');
+  });
+
+  it('omits modifiers without a resolvable id from the payload', async () => {
+    await loadMenu();
+    const { items, addItem, buildOrderPayload } = useSelfOrderCart();
+    // Legitimate modifier with id, plus a smuggled no-id modifier priced 0.
+    addItem(ITEM({ id: 'ant_1', price: 3 }), 1, [
+      { id: 'm1', name: 'Extra', price: 1 },
+      { name: 'Free', price: 0 },
+    ]);
+    // The no-id modifier is kept in the cart (allowed for display) but must
+    // not appear in the payload — only id-resolvable modifiers are emitted.
+    const payload = buildOrderPayload('s');
+    expect(payload.order_items[0].order_item_modifiers).toHaveLength(1);
+    expect(payload.order_items[0].order_item_modifiers[0]).toMatchObject({ name: 'Extra', price: 1 });
+  });
+
+  it('resetCartForNewSession empties the cart', async () => {
+    await loadMenu();
+    const { items, addItem, resetCartForNewSession } = useSelfOrderCart();
+    addItem(ITEM({ id: 'ant_1', price: 3 }), 2);
+    expect(items.value).toHaveLength(1);
+    resetCartForNewSession();
+    expect(items.value).toHaveLength(0);
+    // Persists to localStorage too.
+    expect(JSON.parse(localStorage.getItem('selforder_cart') || '[]')).toHaveLength(0);
+  });
+});

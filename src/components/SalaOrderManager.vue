@@ -933,8 +933,22 @@ async function confirmSubmitOrder() {
   const ord = orderToSubmit.value;
   showSubmitConfirm.value = false;
   orderToSubmit.value = null;
-  // Move the order out of "In Attesa" by marking it as accepted/sent to kitchen.
-  await orderStore.changeOrderStatus(ord, 'accepted');
+  // Reprice from the menu of record before sending to the kitchen. Overwrites
+  // any forged unit_price a tampered self-order client may have POSTed and
+  // persists the authoritative prices to IDB + Directus. Blocks acceptance
+  // when the order references dishes not in the menu.
+  const result = await orderStore.acceptOrderWithReprice(ord);
+  if (!result.ok) {
+    if (result.unresolvedDishes?.length) {
+      alert(
+        `Impossibile inviare l'ordine: piatto/i non riconosciuto/i nel menu ` +
+        `(${result.unresolvedDishes.join(', ')}). Verificare il menu e riprovare.`
+      );
+    } else {
+      alert("Errore durante l'invio dell'ordine. Riprovare.");
+    }
+    return;
+  }
   // Dispatch print jobs to the configured ESC/POS printer(s).
   enqueuePrintJobs(ord);
   // Deselect the order and remain on the pending tab.

@@ -263,6 +263,13 @@
             class="w-full py-4 theme-bg text-white rounded-2xl font-bold shadow-md hover:opacity-90 transition-opacity active:scale-95 flex items-center justify-center gap-2 text-sm md:text-base">
             <RefreshCw class="size-5" /> Aggiorna Lettura X
           </button>
+
+          <!-- Stampa X fiscale RT -->
+          <button v-if="hasFiscalPrinter" @click="printFiscalX"
+            :disabled="fiscalBusy"
+            class="w-full py-3 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-2xl font-bold shadow-md transition-colors active:scale-95 flex items-center justify-center gap-2 text-sm">
+            <Printer class="size-5" /> Stampa Lettura X Fiscale (stampante RT)
+          </button>
         </div>
 
         <!-- TAB: LETTURA Z (CHIUSURA) -->
@@ -359,10 +366,119 @@
             <Eye class="size-5" /> Anteprima Chiusura
           </button>
 
+          <!-- Stampa Z fiscale RT (prima della chiusura locale) -->
+          <button v-if="hasFiscalPrinter && isAdmin" @click="printFiscalZ"
+            :disabled="fiscalBusy"
+            class="w-full py-3 bg-orange-600 hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-2xl font-bold shadow-md transition-colors active:scale-95 flex items-center justify-center gap-2 text-sm">
+            <Printer class="size-5" /> Stampa Lettura Z Fiscale (stampante RT)
+          </button>
+
           <button v-if="isAdmin" @click="confirmDailyClose"
             class="w-full py-4 bg-red-600 hover:bg-red-700 text-white rounded-2xl font-bold shadow-md transition-colors active:scale-95 flex items-center justify-center gap-2 text-sm md:text-base">
             <Lock class="size-5" /> Esegui Lettura Z (Chiudi Giornata)
           </button>
+        </div>
+
+        <!-- TAB: STAMPANTE FISCALE RT -->
+        <div v-if="activeTab === 'fiscal'" class="space-y-4">
+
+          <div v-if="!hasFiscalPrinter" class="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-800 flex items-start gap-2">
+            <Info class="size-5 shrink-0 mt-0.5" />
+            <div>
+              <p class="font-bold">Nessuna stampante fiscale RT configurata.</p>
+              <p class="text-xs mt-1">Configurare una stampante di tipo <code>fpmate</code> nelle impostazioni per abilitare le operazioni fiscali.</p>
+            </div>
+          </div>
+
+          <template v-else>
+
+            <!-- Stato operazione -->
+            <div v-if="fiscalMessage" class="rounded-xl p-3 flex items-start gap-2 text-sm"
+              :class="fiscalMessage.ok ? 'bg-emerald-50 border border-emerald-200 text-emerald-800' : 'bg-red-50 border border-red-200 text-red-800'">
+              <component :is="fiscalMessage.ok ? CheckCircle2 : XCircle" class="size-5 shrink-0 mt-0.5" />
+              <p class="font-medium whitespace-pre-line">{{ fiscalMessage.text }}</p>
+            </div>
+
+            <!-- Stato stampante -->
+            <div class="bg-white rounded-2xl border border-gray-200 shadow-sm p-4 md:p-5">
+              <h4 class="font-bold text-gray-700 text-sm uppercase tracking-wider mb-3 flex items-center gap-2">
+                <Info class="size-4 text-blue-600" /> Stato Stampante
+              </h4>
+              <button @click="queryFiscalStatus('1')"
+                :disabled="fiscalBusy"
+                class="w-full py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2 active:scale-95 transition-all">
+                <RefreshCw class="size-4" :class="fiscalBusy ? 'animate-spin' : ''" /> Interroga stato RT
+              </button>
+              <div v-if="fiscalStatus" class="mt-3 space-y-1.5 text-sm">
+                <div class="flex justify-between"><span class="text-gray-500">Giornata aperta</span><span class="font-bold" :class="rtFlag(fiscalStatus.rtDailyOpen, 'text-emerald-600', 'text-red-600').cls">{{ rtFlag(fiscalStatus.rtDailyOpen, 'text-emerald-600', 'text-red-600').text }}</span></div>
+                <div class="flex justify-between"><span class="text-gray-500">Z necessario</span><span class="font-bold" :class="rtFlag(fiscalStatus.rtNoWorkingPeriod, 'text-amber-600', 'text-gray-700').cls">{{ rtFlag(fiscalStatus.rtNoWorkingPeriod, 'text-amber-600', 'text-gray-700').text }}</span></div>
+                <div class="flex justify-between"><span class="text-gray-500">File da inviare</span><span class="font-bold" :class="rtCount(fiscalStatus.rtFileToSend, 'text-amber-600', 'text-gray-700').cls">{{ rtCount(fiscalStatus.rtFileToSend, 'text-amber-600', 'text-gray-700').text }}</span></div>
+                <div v-if="Number(fiscalStatus.rtFileRejected) > 0" class="flex justify-between"><span class="text-gray-500">File rifiutati</span><span class="font-bold text-red-600">{{ fiscalStatus.rtFileRejected }}</span></div>
+                <div class="flex justify-between"><span class="text-gray-500">Stato principale</span><span class="font-bold text-gray-700">{{ fiscalStatus.rtMainStatus ?? '–' }}</span></div>
+                <div class="flex justify-between"><span class="text-gray-500">Matricola</span><span class="font-bold text-gray-700">{{ fiscalStatus.serialNumber ?? '–' }}</span></div>
+                <div v-if="fiscalStatus.rtExpiryCD" class="flex justify-between"><span class="text-gray-500">Scadenza certificato</span><span class="font-bold text-gray-700">{{ fiscalStatus.rtExpiryCD }}</span></div>
+              </div>
+            </div>
+
+            <!-- Operazioni rapide -->
+            <div class="bg-white rounded-2xl border border-gray-200 shadow-sm p-4 md:p-5">
+              <h4 class="font-bold text-gray-700 text-sm uppercase tracking-wider mb-3 flex items-center gap-2">
+                <Coins class="size-4 text-emerald-600" /> Operazioni Rapide
+              </h4>
+              <div class="grid grid-cols-2 gap-2">
+                <button @click="openDrawer" :disabled="fiscalBusy"
+                  class="py-2.5 bg-gray-700 hover:bg-gray-800 disabled:opacity-50 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2 active:scale-95 transition-all">
+                  <Coins class="size-4" /> Apri Cassetto
+                </button>
+                <button @click="printDuplicate" :disabled="fiscalBusy"
+                  class="py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2 active:scale-95 transition-all">
+                  <Copy class="size-4" /> Duplicato Scontrino
+                </button>
+              </div>
+            </div>
+
+            <!-- Movimento cassa fiscale -->
+            <div class="bg-white rounded-2xl border border-gray-200 shadow-sm p-4 md:p-5">
+              <h4 class="font-bold text-gray-700 text-sm uppercase tracking-wider mb-3 flex items-center gap-2">
+                <ArrowLeftRight class="size-4 text-purple-600" /> Movimento Cassa Fiscale
+              </h4>
+              <p class="text-xs text-gray-400 mb-3">Versamento o prelievo registrato nella memoria fiscale della stampante RT.</p>
+              <div class="space-y-3">
+                <div class="flex gap-2">
+                  <button @click="cashDir = 'in'" :class="cashDir === 'in' ? 'bg-emerald-600 text-white' : 'bg-gray-100 text-gray-600'" class="flex-1 py-2.5 rounded-xl font-bold text-sm transition-all">Versamento</button>
+                  <button @click="cashDir = 'out'" :class="cashDir === 'out' ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-600'" class="flex-1 py-2.5 rounded-xl font-bold text-sm transition-all">Prelievo</button>
+                </div>
+                <NumericInput v-model="cashAmountInput" min="0" step="1" :prefix="configStore.config.ui.currency"
+                  class="w-full px-4 py-3 border-2 border-gray-200 rounded-xl font-black text-xl text-gray-800 focus:border-[var(--brand-primary)] focus:outline-none" placeholder="0.00" />
+                <button @click="execFiscalCash" :disabled="fiscalBusy || !cashAmount"
+                  class="w-full py-3 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2 active:scale-95 transition-all">
+                  <ArrowLeftRight class="size-4" /> Conferma {{ cashDir === 'in' ? 'Versamento' : 'Prelievo' }}
+                </button>
+              </div>
+            </div>
+
+            <!-- Annullo scontrino (VOID) -->
+            <div class="bg-white rounded-2xl border border-gray-200 shadow-sm p-4 md:p-5">
+              <h4 class="font-bold text-gray-700 text-sm uppercase tracking-wider mb-3 flex items-center gap-2">
+                <RotateCcw class="size-4 text-red-600" /> Annullo Scontrino (Void)
+              </h4>
+              <p class="text-xs text-gray-400 mb-3">Seleziona uno scontrino emesso oggi per emettere il documento di annullo fiscale. Operazione irreversibile.</p>
+              <div v-if="voidableReceipts.length === 0" class="text-sm text-gray-400 italic py-2">Nessuno scontrino fiscale emesso disponibile.</div>
+              <template v-else>
+                <select v-model="voidSelection" class="w-full px-3 py-2.5 border-2 border-gray-200 rounded-xl text-sm font-bold text-gray-700 focus:border-[var(--brand-primary)] focus:outline-none mb-3">
+                  <option value="">Seleziona scontrino…</option>
+                  <option v-for="r in voidableReceipts" :key="r.id" :value="r.id">
+                    #{{ r.fiscalReceiptNumber }} · {{ r.tableLabel || r.table }} · €{{ Number(r.totalAmount).toFixed(2) }} · {{ r.fiscalReceiptDate }}
+                  </option>
+                </select>
+                <button @click="execFiscalVoid" :disabled="fiscalBusy || !voidSelection"
+                  class="w-full py-3 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2 active:scale-95 transition-all">
+                  <RotateCcw class="size-4" /> Emetti Annullo
+                </button>
+              </template>
+            </div>
+
+          </template>
         </div>
 
       </div>
@@ -375,12 +491,18 @@ import { ref, computed, watch } from 'vue';
 import {
   X, Landmark, Wallet, ArrowLeftRight, ArrowDownCircle, ArrowUpCircle, Plus,
   Eye, AlertTriangle, Lock, RefreshCw, Save, TrendingUp, CreditCard, Users,
-  Receipt, History, ClipboardList, Tag, Gift, FileText,
+  Receipt, History, ClipboardList, Tag, Gift, FileText, Printer, Copy, RotateCcw,
+  Coins, Info, CheckCircle2, XCircle,
 } from 'lucide-vue-next';
 import { Banknote } from 'lucide-vue-next';
 import { useConfigStore, useOrderStore } from '../store/index.js';
 import { useAuth } from '../composables/useAuth.js';
 import NumericInput from './NumericInput.vue';
+import {
+  dispatchFiscalZReport, dispatchFiscalXReport, dispatchFiscalStatus,
+  dispatchFiscalDuplicate, dispatchFiscalOpenDrawer, dispatchFiscalCash,
+  dispatchFiscalVoid, resolveFiscalPrinter,
+} from '../composables/useFiscalPrint.js';
 
 defineProps({ modelValue: Boolean });
 defineEmits(['update:modelValue']);
@@ -395,6 +517,7 @@ const tabs = [
   { id: 'cashBalance', label: 'Fondo Cassa', icon: Wallet },
   { id: 'xReport', label: 'Lettura X', icon: Eye },
   { id: 'zReport', label: 'Lettura Z', icon: Lock },
+  { id: 'fiscal', label: 'Fiscale RT', icon: Printer },
 ];
 
 const activeTab = ref('cashBalance');
@@ -465,4 +588,133 @@ const xHasClosureTypeData = computed(() =>
 const zHasClosureTypeData = computed(() =>
   zPreview.value != null && (zPreview.value.fiscalCount > 0 || zPreview.value.invoiceCount > 0),
 );
+
+// ── Stampante fiscale RT ─────────────────────────────────────────────────────
+const hasFiscalPrinter = computed(() => resolveFiscalPrinter() != null);
+const fiscalBusy = ref(false);
+const fiscalMessage = ref(null); // { ok: boolean, text: string }
+const fiscalStatus = ref(null);  // addInfo mappa dalla risposta queryPrinterStatus RT
+const cashDir = ref('in');
+const cashAmountInput = ref(0);
+const cashAmount = computed(() => parseFloat(cashAmountInput.value) || 0);
+const voidSelection = ref('');
+
+// I campi RT-specific (rtDailyOpen, rtNoWorkingPeriod, rtFileToSend, ...) possono
+// essere assenti se la risposta fpmate non li include (firmware non-RT, fallimento
+// parziale della richiesta). In quel caso "sconosciuto" non deve essere letto come
+// "No": mostriamo un placeholder neutro ("–") in grigio chiaro.
+function rtFlag(value, yesCls, noCls) {
+  if (value == null || value === '') return { text: '–', cls: 'text-gray-400' };
+  if (value === '1') return { text: 'Sì', cls: yesCls };
+  return { text: 'No', cls: noCls };
+}
+function rtCount(value, positiveCls, zeroCls) {
+  if (value == null || value === '') return { text: '–', cls: 'text-gray-400' };
+  return { text: String(value), cls: Number(value) > 0 ? positiveCls : zeroCls };
+}
+
+// Scontrini fiscali emessi con numero scontrino → candidati all'annullo (VOID).
+// orderStore.fiscalReceipts is auto-unwrapped by Pinia to the array value.
+const voidableReceipts = computed(() => {
+  const list = orderStore?.fiscalReceipts ?? [];
+  return list.filter((r) => r && r.fiscalReceiptNumber && r.status !== 'void')
+    .slice().reverse();
+});
+
+function setFiscalMessage(ok, text) {
+  fiscalMessage.value = { ok, text };
+}
+
+async function runFiscal(fn, successMsg) {
+  if (fiscalBusy.value) return;
+  fiscalBusy.value = true;
+  fiscalMessage.value = null;
+  try {
+    const res = await fn();
+    if (res.ok) {
+      setFiscalMessage(true, successMsg);
+    } else {
+      setFiscalMessage(false, res.error || 'Operazione non riuscita.');
+    }
+    return res;
+  } catch (err) {
+    setFiscalMessage(false, err?.message ?? String(err));
+    return { ok: false, error: err?.message };
+  } finally {
+    fiscalBusy.value = false;
+  }
+}
+
+async function printFiscalX() {
+  return runFiscal(() => dispatchFiscalXReport(), 'Lettura X fiscale inviata alla stampante RT.');
+}
+
+async function printFiscalZ() {
+  if (!confirm('Confermi la stampa della Lettura Z fiscale? Trasmette i dati all\'Agenzia delle Entrate e chiude la giornata fiscale.')) return;
+  return runFiscal(() => dispatchFiscalZReport(), 'Lettura Z fiscale inviata. Chiusura fiscale in corso sulla stampante RT.');
+}
+
+async function queryFiscalStatus(statusType = '1') {
+  return runFiscal(async () => {
+    const res = await dispatchFiscalStatus({ statusType });
+    if (res.ok) {
+      const addInfo = res.fiscal?.addInfo ?? {};
+      fiscalStatus.value = addInfo;
+      return { ok: true };
+    }
+    fiscalStatus.value = null;
+    return res;
+  }, 'Stato stampante interrogato.');
+}
+
+async function openDrawer() {
+  return runFiscal(() => dispatchFiscalOpenDrawer(), 'Apertura cassetto inviata alla stampante fiscale.');
+}
+
+async function printDuplicate() {
+  return runFiscal(() => dispatchFiscalDuplicate(), 'Duplicato ultimo scontrino inviato alla stampante fiscale.');
+}
+
+async function execFiscalCash() {
+  if (cashAmount.value <= 0) { setFiscalMessage(false, 'Inserire un importo valido.'); return; }
+  const verb = cashDir.value === 'in' ? 'versamento di' : 'prelievo di';
+  if (!confirm(`Confermi il ${verb} €${cashAmount.value.toFixed(2)} sulla stampante fiscale?`)) return;
+  return runFiscal(
+    () => dispatchFiscalCash({ direction: cashDir.value, amount: cashAmount.value }),
+    `${cashDir.value === 'in' ? 'Versamento' : 'Prelievo'} di €${cashAmount.value.toFixed(2)} registrato sulla stampante fiscale.`,
+  );
+}
+
+async function execFiscalVoid() {
+  const target = voidableReceipts.value.find((r) => r.id === voidSelection.value);
+  if (!target) { setFiscalMessage(false, 'Selezionare uno scontrino da annullare.'); return; }
+  if (!confirm(`Confermi l'annullo fiscale dello scontrino #${target.fiscalReceiptNumber} (€${Number(target.totalAmount).toFixed(2)})? Operazione irreversibile.`)) return;
+  // fiscalReceiptDate is "dd/mm/yyyy"; fall back to the ISO basic datetime
+  // (YYYYMMDDTHHMMSS) only by converting it to "dd/mm/yyyy" so the server-side
+  // formatter receives a date it can normalize to ddmmyyyy (not raw YYYYMMDD,
+  // which would be misread as ddmmyyyy with the year first).
+  const isoFallback = (() => {
+    const iso = target.receiptISODateTime ?? '';
+    const m = /^(\d{4})(\d{2})(\d{2})/.exec(iso);
+    return m ? `${m[3]}/${m[2]}/${m[1]}` : '';
+  })();
+  const receiptRef = {
+    zRepNumber: target.zRepNumber ?? target.fiscalZRepNumber ?? '',
+    fiscalReceiptNumber: target.fiscalReceiptNumber,
+    date: target.fiscalReceiptDate ?? isoFallback,
+    serialNumber: target.serialNumber ?? '',
+  };
+  const res = await runFiscal(
+    () => dispatchFiscalVoid({ receiptRef }),
+    `Annullo scontrino #${target.fiscalReceiptNumber} inviato alla stampante fiscale.`,
+  );
+  // Mark the original receipt as voided in the store so it drops out of
+  // voidableReceipts (status !== 'void'), preventing repeated void attempts and
+  // keeping local audit state consistent with the fiscal printer.
+  if (res?.ok) {
+    orderStore.updateFiscalReceipt(target.id, { status: 'void', voidedAt: new Date().toISOString() });
+    voidSelection.value = '';
+  }
+  return res;
+}
 </script>

@@ -169,6 +169,14 @@
           >
             <History class="size-4" /> <span class="hidden sm:inline">Storico</span>
           </router-link>
+          <!-- Self-Order QR button (only if session exists) -->
+          <button v-if="qrSession?.id"
+            @click="showQRModal = true"
+            class="bg-emerald-500 hover:bg-emerald-600 p-2 sm:px-3 sm:py-2 rounded-xl font-bold text-[10px] md:text-xs flex items-center gap-1.5 transition-all active:scale-95 shrink-0 text-white"
+            title="Genera QR Code per Self-Order"
+            aria-label="QR Self-Order">
+            <QrCode class="size-4" /> <span class="hidden sm:inline">QR</span>
+          </button>
           <button @click="closeTableModal" class="bg-white/10 hover:bg-white/20 p-2 md:p-2.5 rounded-full transition-colors active:scale-95"><X class="size-5 md:size-6" /></button>
         </div>
       </div>
@@ -1367,6 +1375,7 @@
   <!-- MODAL: CRONOLOGIA STAMPE                                           -->
   <!-- ================================================================ -->
   <PrintHistoryModal v-model="showPrintHistory" />
+  <SelfOrderQRModal v-model="showQRModal" :session="qrSession" />
 </template>
 
 <script setup>
@@ -1377,11 +1386,12 @@ import {
   Layers, ListChecks, History, LayoutGrid, ListOrdered,
   Tag, Wallet, ChevronDown,
   Percent, Zap, BookOpen, PlusCircle, Banknote, CreditCard, Lock, SquareCheck, Split, Link, Printer,
-  FileText, Sparkles,
+  FileText, Sparkles, QrCode,
 } from 'lucide-vue-next';
 import { useConfigStore, useOrderStore } from '../store/index.js';
 import { newUUIDv7, newShortId } from '../store/storeUtils.js';
-import { getOrderItemRowTotal, KITCHEN_ACTIVE_STATUSES, getLockedDirectItems, buildFiscalXmlRequest, formatOrderTime, formatOrderIdShort } from '../utils/index.js';
+import { getOrderItemRowTotal, KITCHEN_ACTIVE_STATUSES, getLockedDirectItems, resolveFiscalPrinter, formatOrderTime, formatOrderIdShort } from '../utils/index.js';
+import { dispatchFiscalReceipt } from '../composables/useFiscalPrint.js';
 import { buildFlatAnaliticaItems, computeAnaliticaTotal, exceedsAmount, getOrdersToComplete } from '../utils/analitica.js';
 import { loadCustomItemsFromIDB, saveCustomItemsToIDB } from '../store/persistence/settings.js';
 import { resolveTransactionPaymentLabel } from '../utils/paymentMethods.js';
@@ -1396,6 +1406,7 @@ import NumericInput from './NumericInput.vue';
 import PrintHistoryModal from './shared/PrintHistoryModal.vue';
 import InvoiceModal from './shared/InvoiceModal.vue';
 import MenuCartPanel from './shared/MenuCartPanel.vue';
+import SelfOrderQRModal from './shared/SelfOrderQRModal.vue';
 
 const emit = defineEmits(['open-order-from-table', 'new-order-for-ordini']);
 
@@ -1408,6 +1419,9 @@ const runtimeConfig = computed(() => configStore.config ?? {});
 // ── Print history modal ────────────────────────────────────────────────────
 const showPrintHistory = ref(false);
 
+// ── Self-Order QR modal ────────────────────────────────────────────────────
+const showQRModal = ref(false);
+
 // ── Pre-bill printer (reactive, driven by store which mirrors settings) ────
 const preBillPrinterConfig = computed(() => {
   const printerId = configStore.preBillPrinterId;
@@ -1418,6 +1432,17 @@ const preBillPrinterConfig = computed(() => {
 // ── Table modal state ──────────────────────────────────────────────────────
 const showTableModal = ref(false);
 const selectedTable = ref(null);
+
+// ── Self-Order QR session ─────────────────────────────────────────────────
+const qrSession = computed(() => {
+  if (!selectedTable.value) return null;
+  const { billSessionId } = orderStore.resolveTableContext(selectedTable.value.id);
+  return {
+    id: billSessionId,
+    tableName: selectedTable.value.label,
+    table: selectedTable.value.label,
+  };
+});
 
 // ── Room tabs ─────────────────────────────────────────────────────────────
 function getInitialActiveRoomId(rooms) {
@@ -2620,11 +2645,14 @@ async function closeTableBillFiscale() {
   if (isZeroAmountBill.value) return;
   const base = _buildBillSummaryBase();
   if (!base) return;
-  const xmlRequest = buildFiscalXmlRequest(base);
+  // The fiscal XML is built server-side by the print-server (single source of
+  // truth). Don't persist a client-built xmlRequest here: it would differ from
+  // the payload actually sent and produce a misleading audit record. Leave
+  // xmlRequest null until the server-generated XML is persisted back.
   const entry = {
     id: newUUIDv7(),
     ...base,
-    xmlRequest,
+    xmlRequest: null,
     xmlResponse: null,
     status: 'pending',
     timestamp: base.closedAt,
@@ -2634,6 +2662,20 @@ async function closeTableBillFiscale() {
   }
   orderStore.addFiscalReceipt(entry);
   closeTableModal();
+
+  // Emit the fiscal receipt through the print-server when a fiscal printer is
+  // configured at runtime (Directus/IDB hydrated config). The browser sends
+  // only the structured job and the resolved printer id; the XML is generated
+  // server-side. On success the entry is updated with the receipt number
+  // returned by the fiscal printer; on failure the error is surfaced.
+  const fiscalPrinter = resolveFiscalPrinter(configStore.config.printers);
+  if (fiscalPrinter) {
+    const result = await dispatchFiscalReceipt({ base, printerId: fiscalPrinter.id, entry });
+    if (!result.ok) {
+      console.warn('[fiscale] Emissione scontrino non riuscita:', result.error);
+      // The pending entry above remains visible in the bill history for retry.
+    }
+  }
 }
 
 async function confirmInvoice(billingData) {

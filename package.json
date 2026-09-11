@@ -11,17 +11,20 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:print-server": "cd print-server && npm test"
+    "test:print-server": "cd print-server && npm test",
+    "test:gemini-proxy": "cd directus-extensions/endpoints/gemini-proxy && npm test"
   },
   "dependencies": {
     "@directus/sdk": "^21.2.2",
     "@sentry/vue": "^10.53.1",
     "@tailwindcss/vite": "^4.2.1",
     "dompurify": "^3.3.2",
+    "html5-qrcode": "^2.3.8",
     "idb": "^8.0.3",
     "logrocket": "^12.1.1",
     "lucide-vue-next": "^0.577.0",
     "pinia": "^3.0.4",
+    "qrcode": "^1.5.4",
     "tailwindcss": "^4.2.1",
     "vue": "^3.5.25",
     "vue-router": "^4.6.4"

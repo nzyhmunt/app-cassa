@@ -147,6 +147,13 @@
             title="Unisci con altro Tavolo">
             <Merge class="size-4" /> <span class="hidden sm:inline">Unisci</span>
           </button>
+          <!-- Self-Order QR button (only if session exists) -->
+          <button v-if="qrSession?.id"
+            @click="showQRModal = true"
+            class="bg-emerald-500 hover:bg-emerald-600 px-3 py-2 rounded-xl font-bold text-[10px] md:text-xs flex items-center gap-1.5 transition-all active:scale-95 shrink-0 text-white"
+            title="Genera QR Code per Self-Order">
+            <QrCode class="size-4" /> <span class="hidden sm:inline">QR</span>
+          </button>
           <button @click="closeTableModal" class="bg-white/10 hover:bg-white/20 p-2 md:p-2.5 rounded-full transition-colors active:scale-95">
             <X class="size-5 md:size-6" />
           </button>
@@ -278,12 +285,15 @@
       </div>
     </div>
   </div>
+
+  <!-- Self-Order QR Modal -->
+  <SelfOrderQRModal v-model="showQRModal" :session="qrSession" />
 </template>
 
 <script setup>
 import { ref, computed } from 'vue';
 import {
-  Grid3x3, Users, Timer, X, Coffee, ChevronRight, Plus, ArrowRightLeft, Merge, Zap, Link,
+  Grid3x3, Users, Timer, X, Coffee, ChevronRight, Plus, ArrowRightLeft, Merge, Zap, Link, QrCode,
 } from 'lucide-vue-next';
 import { useConfigStore, useOrderStore } from '../store/index.js';
 import { newUUIDv7, newShortId } from '../store/storeUtils.js';
@@ -292,6 +302,7 @@ import { formatOrderTime } from '../utils/index.js';
 import PeopleModal from './shared/PeopleModal.vue';
 import TableStatsBar from './shared/TableStatsBar.vue';
 import TableGrid from './shared/TableGrid.vue';
+import SelfOrderQRModal from './shared/SelfOrderQRModal.vue';
 
 const emit = defineEmits(['new-order-for-comande', 'view-order']);
 
@@ -387,6 +398,19 @@ const showChildrenInput = computed(() =>
 // ── Table modal ──────────────────────────────────────────────────────────────
 const showTableModal = ref(false);
 const selectedTable = ref(null);
+
+// ── Self-Order QR modal ──────────────────────────────────────────────────────
+const showQRModal = ref(false);
+
+const qrSession = computed(() => {
+  if (!selectedTable.value) return null;
+  const session = tableSession.value;
+  return {
+    id: session?.billSessionId || null,
+    tableName: selectedTable.value.label,
+    table: selectedTable.value.label,
+  };
+});
 
 // ── Sposta / Unisci modal state ────────────────────────────────────────────
 const showMoveModal = ref(false);
