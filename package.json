@@ -15,9 +15,11 @@
   },
   "dependencies": {
     "@directus/sdk": "^21.2.2",
+    "@sentry/vue": "^10.53.1",
     "@tailwindcss/vite": "^4.2.1",
     "dompurify": "^3.3.2",
     "idb": "^8.0.3",
+    "logrocket": "^12.1.1",
     "lucide-vue-next": "^0.577.0",
     "pinia": "^3.0.4",
     "tailwindcss": "^4.2.1",

@@ -273,6 +273,42 @@ export async function getFailedSyncCalls(limit = 200) {
 }
 
 /**
+ * Clears all failed sync-call audit entries.
+ */
+export async function clearFailedSyncCalls() {
+  try {
+    const db = await getDB();
+    await db.clear('sync_failed_calls');
+  } catch (e) {
+    console.warn('[SyncQueue] Failed to clear failed call log:', e);
+  }
+}
+
+/**
+ * Returns all failed sync-call audit entries sorted by most recent first.
+ *
+ * @returns {Promise<Array>}
+ */
+export async function exportFailedSyncCalls() {
+  try {
+    const db = await getDB();
+    const tx = db.transaction('sync_failed_calls', 'readonly');
+    const index = tx.store.index('failed_at');
+    const results = [];
+    let cursor = await index.openCursor(null, 'prev');
+    while (cursor) {
+      results.push(cursor.value);
+      cursor = await cursor.continue();
+    }
+    await tx.done;
+    return results;
+  } catch (e) {
+    console.warn('[SyncQueue] Failed to export failed call log:', e);
+    return [];
+  }
+}
+
+/**
  * Removes a processed entry from the sync_queue.
  * @param {string} id - The queue entry id
  */

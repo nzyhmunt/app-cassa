@@ -6,12 +6,27 @@
 
 import { describe, it, expect } from 'vitest';
 import { createRequire } from 'module';
+import fs from 'fs';
+import path from 'path';
 
 const require = createRequire(import.meta.url);
+const fixturesDir = path.join(import.meta.dirname, 'fixtures');
 
 const { formatOrder }     = require('../formatters/order.js');
 const { formatTableMove } = require('../formatters/table_move.js');
 const { formatPreBill }   = require('../formatters/pre_bill.js');
+
+function expectNoCarriageReturns(buf) {
+  expect(buf.includes(0x0d)).toBe(false);
+}
+
+function expectHexBuffer(buf, expectedHex) {
+  expect(buf.toString('hex')).toBe(expectedHex);
+}
+
+function readFixture(name) {
+  return fs.readFileSync(path.join(fixturesDir, `${name}.hex`), 'utf8').trim();
+}
 
 // ── formatOrder ───────────────────────────────────────────────────────────────
 
@@ -20,6 +35,7 @@ describe('formatOrder', () => {
     const buf = formatOrder({ table: '05', time: '20:15', items: [] });
     expect(buf).toBeInstanceOf(Buffer);
     expect(buf.length).toBeGreaterThan(0);
+    expectNoCarriageReturns(buf);
   });
 
   it('includes items with quantity, notes and modifiers', () => {
@@ -37,6 +53,7 @@ describe('formatOrder', () => {
     });
     expect(buf).toBeInstanceOf(Buffer);
     expect(buf.length).toBeGreaterThan(0);
+    expectHexBuffer(buf, readFixture('order'));
   });
 
   it('handles missing optional fields without throwing', () => {
@@ -57,6 +74,8 @@ describe('formatTableMove', () => {
     });
     expect(buf).toBeInstanceOf(Buffer);
     expect(buf.length).toBeGreaterThan(0);
+    expectNoCarriageReturns(buf);
+    expectHexBuffer(buf, readFixture('table_move'));
   });
 
   it('falls back to fromTableId/toTableId when labels are missing', () => {
@@ -81,6 +100,8 @@ describe('formatPreBill', () => {
     });
     expect(buf).toBeInstanceOf(Buffer);
     expect(buf.length).toBeGreaterThan(0);
+    expectNoCarriageReturns(buf);
+    expectHexBuffer(buf, readFixture('pre_bill'));
   });
 
   it('handles partial payment (paymentsRecorded > 0)', () => {

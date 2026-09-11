@@ -17,6 +17,8 @@ import {
   mapMenuModifierFromDirectus,
   mapMenuCategoryModifierLinkFromDirectus,
   mapMenuItemModifierLinkFromDirectus,
+  mapPrinterMenuCategoryLinkFromDirectus,
+  mapPrinterMenuItemLinkFromDirectus,
   mapTableMergeSessionFromDirectus,
   mapFiscalReceiptFromDirectus,
   mapInvoiceRequestFromDirectus,
@@ -41,6 +43,8 @@ export function _mapRecord(collection, r) {
   if (collection === 'menu_modifiers') return mapMenuModifierFromDirectus(r);
   if (collection === 'menu_categories_menu_modifiers') return mapMenuCategoryModifierLinkFromDirectus(r);
   if (collection === 'menu_items_menu_modifiers') return mapMenuItemModifierLinkFromDirectus(r);
+  if (collection === 'printers_menu_categories') return mapPrinterMenuCategoryLinkFromDirectus(r);
+  if (collection === 'printers_menu_items') return mapPrinterMenuItemLinkFromDirectus(r);
   if (collection === 'table_merge_sessions') return mapTableMergeSessionFromDirectus(r);
   if (collection === 'fiscal_receipts') return mapFiscalReceiptFromDirectus(r);
   if (collection === 'invoice_requests') return mapInvoiceRequestFromDirectus(r);

@@ -260,10 +260,32 @@
 
         <!-- Sezione 3: Chiamate fallite -->
         <div class="space-y-2">
-          <span class="block text-xs font-bold text-gray-600 uppercase tracking-wider">
-            Chiamate fallite
-            <span v-if="failedCalls.length > 0" class="ml-1 normal-case text-[10px] font-normal text-red-500">({{ failedCalls.length }})</span>
-          </span>
+          <div class="flex items-center justify-between">
+            <span class="block text-xs font-bold text-gray-600 uppercase tracking-wider">
+              Chiamate fallite
+              <span v-if="failedCalls.length > 0" class="ml-1 normal-case text-[10px] font-normal text-red-500">({{ failedCalls.length }})</span>
+            </span>
+            <div class="flex items-center gap-1.5">
+              <button
+                @click="exportFailedCallsSession"
+                class="flex items-center gap-1 text-[10px] font-bold text-gray-500 hover:text-gray-700 bg-gray-100 hover:bg-gray-200 px-2 py-1 rounded-lg transition-colors active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                title="Esporta tutte le chiamate fallite come file JSON"
+                :disabled="failedCalls.length === 0"
+              >
+                <FileDown class="size-3" />
+                Esporta
+              </button>
+              <button
+                @click="clearFailedCalls"
+                class="flex items-center gap-1 text-[10px] font-bold text-gray-500 hover:text-red-600 bg-gray-100 hover:bg-red-50 px-2 py-1 rounded-lg transition-colors active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                title="Cancella tutte le chiamate fallite"
+                :disabled="failedCalls.length === 0"
+              >
+                <Trash2 class="size-3" />
+                Svuota
+              </button>
+            </div>
+          </div>
 
           <div v-if="failedCalls.length === 0" class="flex items-center gap-2 rounded-2xl border border-gray-100 bg-gray-50 px-3 py-2.5">
             <CheckCircle class="size-3.5 text-emerald-400 shrink-0" />
@@ -545,7 +567,12 @@ import {
 } from 'lucide-vue-next';
 import { useDirectusSync } from '../../composables/useDirectusSync.js';
 import { getSyncLogs, clearSyncLogs, exportSyncLogs, _BC_CHANNEL, _TAB_ID, SYNC_LOGS_MAX_SUCCESS, SYNC_LOGS_MAX_ERRORS } from '../../store/persistence/syncLogs.js';
-import { getPendingEntries, getFailedSyncCalls } from '../../composables/useSyncQueue.js';
+import {
+  getPendingEntries,
+  getFailedSyncCalls,
+  clearFailedSyncCalls as clearFailedSyncCallsStore,
+  exportFailedSyncCalls,
+} from '../../composables/useSyncQueue.js';
 
 const props = defineProps({
   modelValue: Boolean,
@@ -815,6 +842,27 @@ async function exportSession() {
   setTimeout(() => {
     URL.revokeObjectURL(url);
   }, 1000);
+}
+
+async function exportFailedCallsSession() {
+  const data = await exportFailedSyncCalls();
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  a.href = url;
+  a.download = `sync-failed-calls-${ts}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => {
+    URL.revokeObjectURL(url);
+  }, 1000);
+}
+
+async function clearFailedCalls() {
+  await clearFailedSyncCallsStore();
+  failedCalls.value = await getFailedSyncCalls();
 }
 
 async function handleForcePush() {

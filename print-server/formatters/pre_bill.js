@@ -42,6 +42,8 @@ function fmt(n) {
 
 /**
  * Formatta una stringa ISO 8601 in "DD/MM/YYYY HH:MM".
+ * Usa metodi UTC per garantire un output deterministico
+ * indipendentemente dal fuso orario del processo.
  * @param {string} iso
  * @returns {string}
  */
@@ -51,7 +53,7 @@ function formatDateTime(iso) {
     const d = new Date(iso);
     if (isNaN(d.getTime())) return '';
     const pad = n => String(n).padStart(2, '0');
-    return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    return `${pad(d.getUTCDate())}/${pad(d.getUTCMonth() + 1)}/${d.getUTCFullYear()} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`;
   } catch {
     return '';
   }
@@ -63,7 +65,7 @@ function formatDateTime(iso) {
  * @returns {Buffer}
  */
 function formatPreBill(job) {
-  const enc = new ReceiptPrinterEncoder({ language: 'esc-pos', width: WIDTH });
+  const enc = new ReceiptPrinterEncoder({ language: 'esc-pos', width: WIDTH, newline: '\n' });
 
   // ── Intestazione ──────────────────────────────────────────────────────────
 

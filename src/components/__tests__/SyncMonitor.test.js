@@ -5,6 +5,8 @@ import SyncMonitor from '../shared/SyncMonitor.vue';
 const getSyncLogsMock = vi.fn();
 const getPendingEntriesMock = vi.fn();
 const getFailedSyncCallsMock = vi.fn();
+const clearFailedSyncCallsMock = vi.fn();
+const exportFailedSyncCallsMock = vi.fn();
 
 vi.mock('../../composables/useDirectusSync.js', () => ({
   useDirectusSync: () => ({
@@ -33,6 +35,8 @@ vi.mock('../../store/persistence/syncLogs.js', () => ({
 vi.mock('../../composables/useSyncQueue.js', () => ({
   getPendingEntries: (...args) => getPendingEntriesMock(...args),
   getFailedSyncCalls: (...args) => getFailedSyncCallsMock(...args),
+  clearFailedSyncCalls: (...args) => clearFailedSyncCallsMock(...args),
+  exportFailedSyncCalls: (...args) => exportFailedSyncCallsMock(...args),
 }));
 
 enableAutoUnmount(afterEach);
@@ -50,10 +54,15 @@ function findLogRow(wrapper, text) {
 }
 
 describe('SyncMonitor watchdog vs network classification', () => {
+  let origCreateObjectURL;
+  let origRevokeObjectURL;
+
   beforeEach(() => {
     vi.useFakeTimers();
     getPendingEntriesMock.mockResolvedValue([]);
     getFailedSyncCallsMock.mockResolvedValue([]);
+    clearFailedSyncCallsMock.mockResolvedValue(undefined);
+    exportFailedSyncCallsMock.mockResolvedValue([]);
     if (!navigator.clipboard || typeof navigator.clipboard.writeText !== 'function') {
       Object.defineProperty(navigator, 'clipboard', {
         configurable: true,
@@ -68,12 +77,26 @@ describe('SyncMonitor watchdog vs network classification', () => {
         value: { writeText: vi.fn().mockResolvedValue(undefined) },
       });
     }
+    origCreateObjectURL = URL.createObjectURL;
+    origRevokeObjectURL = URL.revokeObjectURL;
+    Object.defineProperty(URL, 'createObjectURL', {
+      configurable: true,
+      writable: true,
+      value: vi.fn(() => 'blob:sync-monitor-test'),
+    });
+    Object.defineProperty(URL, 'revokeObjectURL', {
+      configurable: true,
+      writable: true,
+      value: vi.fn(),
+    });
   });
 
   afterEach(() => {
     vi.clearAllTimers();
     vi.useRealTimers();
     vi.restoreAllMocks();
+    URL.createObjectURL = origCreateObjectURL;
+    URL.revokeObjectURL = origRevokeObjectURL;
   });
 
   it('renders WS Watchdog vs Network Error labels and copies the correct status suffix', async () => {
@@ -141,5 +164,37 @@ describe('SyncMonitor watchdog vs network classification', () => {
     expect(navigator.clipboard.writeText).toHaveBeenLastCalledWith(
       expect.stringContaining('Status:     error  (network)'),
     );
+  });
+
+  it('shows export/clear controls for failed calls and handles actions', async () => {
+    getSyncLogsMock.mockResolvedValue([]);
+    getFailedSyncCallsMock.mockResolvedValueOnce([
+      {
+        id: 'sqf_1',
+        queue_entry_id: 'sq_1',
+        collection: 'orders',
+        operation: 'update',
+        record_id: 'ord_1',
+        attempts: 5,
+        abandoned: true,
+        error_message: 'Gateway timeout',
+        failed_at: '2026-05-07T21:16:33.510Z',
+        request: null,
+        response: null,
+        payload: { status: 'accepted' },
+      },
+    ]);
+    exportFailedSyncCallsMock.mockResolvedValue([{ id: 'sqf_1' }]);
+
+    const wrapper = mountSyncMonitor();
+    await flushPromises();
+
+    await wrapper.find('button[title="Esporta tutte le chiamate fallite come file JSON"]').trigger('click');
+    expect(exportFailedSyncCallsMock).toHaveBeenCalledTimes(1);
+
+    await wrapper.find('button[title="Cancella tutte le chiamate fallite"]').trigger('click');
+    await flushPromises();
+    expect(clearFailedSyncCallsMock).toHaveBeenCalledTimes(1);
+    expect(wrapper.text()).toContain('Nessuna chiamata fallita');
   });
 });
